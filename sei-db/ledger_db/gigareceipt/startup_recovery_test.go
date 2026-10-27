@@ -44,7 +44,7 @@ func writeBlockLedger(t *testing.T, manager *bootstrap.GigaStorageManager, throu
 		block := autobahn.GenBlock(rng)
 		qc := autobahn.GenFullCommitQCAt(rng, index, 1)
 		qc = autobahn.NewFullCommitQC(qc.QC(), []*autobahn.BlockHeader{block.Header()})
-		require.NoError(t, manager.BlockStore().WriteQC(qc, []*autobahn.Block{block}))
+		require.NoError(t, manager.BlockStore().WriteBlock(autobahn.NewRoadBlock(qc, []*autobahn.Block{block})))
 	}
 }
 

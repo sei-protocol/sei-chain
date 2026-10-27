@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
@@ -138,9 +139,9 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 
 	db, err := blockstore.New(memblock.NewBlockDB())
 	require.NoError(t, err)
-	require.NoError(t, db.WriteQC(qc, blocks))
-	require.NoError(t, db.WriteQC(qc2, blocks2))
-	require.NoError(t, db.WriteQC(qc3, blocks3))
+	require.NoError(t, db.WriteBlock(types.NewRoadBlock(qc, blocks)))
+	require.NoError(t, db.WriteBlock(types.NewRoadBlock(qc2, blocks2)))
+	require.NoError(t, db.WriteBlock(types.NewRoadBlock(qc3, blocks3)))
 	require.NoError(t, db.Flush())
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -229,7 +230,7 @@ func testRouterAtRoad(t *testing.T, registry *epoch.Registry, keys []atypes.Secr
 	store, err := blockstore.New(memblock.NewBlockDB())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
-	require.NoError(t, store.WriteQC(qc, blocks))
+	require.NoError(t, store.WriteBlock(types.NewRoadBlock(qc, blocks)))
 	require.NoError(t, store.Flush())
 	state, err := data.NewState(&data.Config{Registry: registry}, store)
 	require.NoError(t, err)

@@ -125,12 +125,13 @@ func TestBlocksLargerThanALedgerBlockAreStoredAndReopened(t *testing.T) {
 	defer view.Close()
 	require.Equal(t, highest, view.GetBlockHeight())
 
-	stored, err := manager.BlockStore().ReadSuperBlockByNumber(autobahn.RoadIndex(highest)) //nolint:gosec // test heights are small
+	stored, err := manager.BlockStore().ReadBlock(autobahn.RoadIndex(highest)) //nolint:gosec // test heights are small
 	require.NoError(t, err)
 	block, ok := stored.Get()
 	require.True(t, ok, "the newest block should be in the ledger")
-	require.Len(t, block.Txs, maxLedgerEntries, "the transactions are packed into the ledger's entries")
-	require.Equal(t, int64(config.blockPayloadBytes()), payloadBytes(block.Txs))
+	superBlock := autobahn.NewSuperBlock(block.QC(), block.LaneBlocks())
+	require.Len(t, superBlock.Txs, maxLedgerEntries, "the transactions are packed into the ledger's entries")
+	require.Equal(t, int64(config.blockPayloadBytes()), payloadBytes(superBlock.Txs))
 }
 
 // TestSuperblockWritesEveryLaneBlockAndCommitsOnce pins that a superblock stores each lane block and
@@ -174,11 +175,11 @@ func assertSuperblockAlignment(t *testing.T, config *GigasimConfig, highest int6
 	require.Equal(t, highest, manager.ReceiptDB().LatestVersion(),
 		"the receipt store should commit once per superblock")
 
-	stored, err := manager.BlockStore().ReadSuperBlockByNumber(autobahn.RoadIndex(blockStoreHead))
+	stored, err := manager.BlockStore().ReadBlock(autobahn.RoadIndex(blockStoreHead))
 	require.NoError(t, err)
 	block, ok := stored.Get()
 	require.True(t, ok, "the newest lane block should be in the ledger")
-	require.Equal(t, int64(config.blockPayloadBytes())*int64(lanes), payloadBytes(block.Txs),
+	require.Equal(t, int64(config.blockPayloadBytes())*int64(lanes), payloadBytes(autobahn.NewSuperBlock(block.QC(), block.LaneBlocks()).Txs),
 		"SuperBlock merges every lane block payload")
 }
 

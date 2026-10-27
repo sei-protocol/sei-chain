@@ -264,7 +264,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 	firstBlock := cfg.Registry.FirstRoad()
 	status := suffix.Status.Or(types.SuffixRange{
 		First:           firstBlock,
-		NextQC:          firstBlock,
+		NextBlock:       firstBlock,
 		NextAppProposal: firstBlock,
 		NextAppQC:       firstBlock,
 	})
@@ -287,15 +287,15 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		anchor:           utils.NewAtomicSend(utils.None[Anchor]()),
 		nextCommitEpoch:  utils.NewAtomicSend(genesis),
 	}
-	for _, group := range suffix.QCGroups {
-		qc := group.QC
+	for _, group := range suffix.Blocks {
+		qc := group.QC()
 		if err := inner.insertQC(cfg.Registry, qc); err != nil {
 			return nil, fmt.Errorf("load QC from BlockStore: %w", err)
 		}
 	}
-	for _, group := range suffix.QCGroups {
-		for i, block := range group.Blocks {
-			n := types.LaneBlockPos{Index: group.QC.Index(), Offset: uint64(i)} //nolint:gosec // non-negative slice index
+	for _, group := range suffix.Blocks {
+		for i, block := range group.LaneBlocks() {
+			n := types.LaneBlockPos{Index: group.QC().Index(), Offset: uint64(i)} //nolint:gosec // non-negative slice index
 			if n.Index < inner.first {
 				continue
 			}
@@ -485,7 +485,13 @@ func (s *State) SuperBlockByHash(hash common.Hash) (utils.Option[*types.SuperBlo
 			return utils.Some(inner.blocks[n].superBlock().OrPanic("hash without superblock")), nil
 		}
 	}
-	return s.blockStore.ReadSuperBlockByHash(hash)
+	block, err := s.blockStore.ReadBlockByHash(hash)
+	if err != nil {
+		return utils.None[*types.SuperBlock](), err
+	}
+	return utils.MapOpt(block, func(b *types.RoadBlock) *types.SuperBlock {
+		return types.NewSuperBlock(b.QC(), b.LaneBlocks())
+	}), nil
 }
 
 // Block returns the lane block at position n.
@@ -574,12 +580,12 @@ func (s *State) SuperBlock(ctx context.Context, n types.RoadIndex) (*types.Super
 			return inner.blocks[n].superBlock().OrPanic("bad full block"), nil
 		}
 	}
-	opt, err := s.blockStore.ReadSuperBlockByNumber(n)
+	opt, err := s.blockStore.ReadBlock(n)
 	if err != nil {
 		return nil, err
 	}
 	if b, ok := opt.Get(); ok {
-		return b, nil
+		return types.NewSuperBlock(b.QC(), b.LaneBlocks()), nil
 	}
 	return nil, types.ErrPruned
 }
@@ -797,7 +803,7 @@ func (s *State) PruneBefore(retainFrom types.RoadIndex) error {
 // runPersist is a background goroutine that persists QCs, blocks,
 // AppProposals, and AppQCs to BlockStore. It waits for in-memory data to advance
 // past the SuffixRange persistence cursor, then writes each stream in cursor
-// order and flushes once per batch. persisted.NextQC advances with the
+// order and flushes once per batch. persisted.NextBlock advances with the
 // block tip to unblock PushAppHash only when data is durable.
 // Errors propagate vertically (kill the component).
 // AppQCs are persisted only when their AppHash matches local execution.
@@ -807,8 +813,7 @@ func (s *State) PruneBefore(retainFrom types.RoadIndex) error {
 // changes. A QC is persisted only once all its blocks are available.
 func (s *State) runPersist(ctx context.Context) error {
 	for {
-		var qcs []*types.FullCommitQC
-		var blocks [][]*types.Block
+		var blocks []*types.RoadBlock
 		var appProposals []*types.AppProposal
 		var appQCs []*types.AppQC
 		var status types.SuffixRange
@@ -816,22 +821,21 @@ func (s *State) runPersist(ctx context.Context) error {
 			status = inner.persisted
 			// Wait until there is anything to persist.
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return status.NextQC < inner.nextFullBlock ||
+				return status.NextBlock < inner.nextFullBlock ||
 					status.NextAppProposal < inner.nextAppProposal ||
 					status.NextAppQC < inner.nextAppQC
 			}); err != nil {
 				return err
 			}
 			// Collect data to persist.
-			for status.NextQC < inner.nextFullBlock {
-				e := inner.blocks[status.NextQC]
-				qcs = append(qcs, e.qc)
+			for status.NextBlock < inner.nextFullBlock {
+				e := inner.blocks[status.NextBlock]
 				bs := make([]*types.Block, len(e.laneBlocks))
 				for i := range bs {
 					bs[i] = e.laneBlocks[uint64(i)]
 				}
-				blocks = append(blocks, bs)
-				status.NextQC += 1
+				blocks = append(blocks, types.NewRoadBlock(e.qc, bs))
+				status.NextBlock += 1
 			}
 			for status.NextAppProposal < inner.nextAppProposal {
 				appProposals = append(appProposals, inner.appProposals[status.NextAppProposal])
@@ -849,9 +853,9 @@ func (s *State) runPersist(ctx context.Context) error {
 			}
 		}
 		// Persist complete QC groups before their app records.
-		for i, qc := range qcs {
-			if err := s.blockStore.WriteQC(qc, blocks[i]); err != nil {
-				return fmt.Errorf("write QC %d: %w", qc.QC().Index(), err)
+		for _, block := range blocks {
+			if err := s.blockStore.WriteBlock(block); err != nil {
+				return fmt.Errorf("write block %d: %w", block.QC().Index(), err)
 			}
 		}
 		for _, appProposal := range appProposals {

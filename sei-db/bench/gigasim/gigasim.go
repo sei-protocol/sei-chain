@@ -323,8 +323,8 @@ func agreedNextBlockNumber(config *GigasimConfig, state *executionState, blocks 
 	if err != nil {
 		return 0, err
 	}
-	last := suffix.QCGroups[len(suffix.QCGroups)-1]
-	if got := len(last.Blocks); got != config.LaneBlocksPerSuperblock {
+	last := suffix.Blocks[len(suffix.Blocks)-1]
+	if got := len(last.LaneBlocks()); got != config.LaneBlocksPerSuperblock {
 		return 0, fmt.Errorf("stored SuperBlock has %d lane blocks, configured %d", got, config.LaneBlocksPerSuperblock)
 	}
 	return next, nil

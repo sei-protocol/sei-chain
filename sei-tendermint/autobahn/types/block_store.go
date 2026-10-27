@@ -14,15 +14,15 @@ import (
 // gaps: a CommitQC and all its lane blocks survive together, and application
 // records never survive without their preceding QC group and app records.
 //
-// Each write stream must advance by one RoadIndex. At each road, WriteQC must
+// Each write stream must advance by one RoadIndex. At each road, WriteBlock must
 // precede WriteAppProposal, which must precede WriteAppQC. Rejected writes store
 // nothing. Reads below First return ErrPruned; absent records at or above First
 // return None. Hash lookups return None for unknown or pruned SuperBlocks.
 type BlockStore interface {
-	// WriteQC stores a CommitQC and its complete lane blocks in header order.
+	// WriteBlock stores a road block with its QC and lane blocks in header order.
 	// Gaps and overlaps return ErrUnexpectedIndex. Missing, extra,
 	// reordered, or mismatched blocks return ErrQCBlocksMismatch.
-	WriteQC(qc *FullCommitQC, blocks []*Block) error
+	WriteBlock(block *RoadBlock) error
 	WriteAppQC(qc *AppQC) error
 	WriteAppProposal(proposal *AppProposal) error
 	// PruneBefore advances the retention floor, capped at the latest recovery anchor.
@@ -39,8 +39,8 @@ type BlockStore interface {
 	// no AppQC exists, and includes all later groups and app records.
 	ReadSuffix() (Suffix, error)
 	ReadLaneBlock(pos LaneBlockPos) (utils.Option[*Block], error)
-	ReadSuperBlockByNumber(n RoadIndex) (utils.Option[*SuperBlock], error)
-	ReadSuperBlockByHash(hash common.Hash) (utils.Option[*SuperBlock], error)
+	ReadBlock(n RoadIndex) (utils.Option[*RoadBlock], error)
+	ReadBlockByHash(hash common.Hash) (utils.Option[*RoadBlock], error)
 	ReadQC(n RoadIndex) (utils.Option[*FullCommitQC], error)
 	ReadAppProposal(n RoadIndex) (utils.Option[*AppProposal], error)
 	ReadAppQC(n RoadIndex) (utils.Option[*AppQC], error)
@@ -48,7 +48,7 @@ type BlockStore interface {
 }
 
 // SuffixRange contains the road cursors restored by startup recovery.
-// First <= NextAppQC <= NextAppProposal <= NextQC.
+// First <= NextAppQC <= NextAppProposal <= NextBlock.
 type SuffixRange struct {
 	// First is the latest AppQC's road, or the first retained QC's road if no AppQC exists.
 	First RoadIndex
@@ -56,15 +56,27 @@ type SuffixRange struct {
 	NextAppQC RoadIndex
 	// NextAppProposal is the next road awaiting a persisted AppProposal.
 	NextAppProposal RoadIndex
-	// NextQC is the next road awaiting a persisted QC group.
-	NextQC RoadIndex
+	// NextBlock is the next road awaiting a persisted block.
+	NextBlock RoadIndex
 }
 
-// QCGroup is a committed QC and all its blocks in header order.
-type QCGroup struct {
-	QC     *FullCommitQC
-	Blocks []*Block
+// RoadBlock is a committed QC and all its blocks in header order.
+type RoadBlock struct {
+	utils.ReadOnly
+	qc         *FullCommitQC
+	laneBlocks []*Block
 }
+
+// NewRoadBlock constructs a road block with lane blocks in header order.
+func NewRoadBlock(qc *FullCommitQC, laneBlocks []*Block) *RoadBlock {
+	return &RoadBlock{qc: qc, laneBlocks: laneBlocks}
+}
+
+// QC returns the full CommitQC for the road.
+func (b *RoadBlock) QC() *FullCommitQC { return b.qc }
+
+// LaneBlocks returns the lane blocks in header order.
+func (b *RoadBlock) LaneBlocks() []*Block { return b.laneBlocks }
 
 // Suffix is the materialized suffix used by data.State startup recovery.
 type Suffix struct {
@@ -72,7 +84,7 @@ type Suffix struct {
 	// None if the BlockStore is empty.
 	Status utils.Option[SuffixRange]
 	// Elements which constitute the suffix.
-	QCGroups     []QCGroup
+	Blocks       []*RoadBlock
 	AppProposals []*AppProposal
 	AppQCs       []*AppQC
 }

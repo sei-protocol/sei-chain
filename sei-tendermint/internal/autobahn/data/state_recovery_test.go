@@ -98,7 +98,7 @@ func TestRecoveryRejectsMissingFirstCommittedBlock(t *testing.T) {
 	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	dir := t.TempDir()
 	db := newTestBlockStore(t, dir)
-	require.ErrorIs(t, db.WriteQC(qc, blocks[1:]), types.ErrQCBlocksMismatch)
+	require.ErrorIs(t, db.WriteBlock(types.NewRoadBlock(qc, blocks[1:])), types.ErrQCBlocksMismatch)
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
 	db = newTestBlockStore(t, dir)
@@ -208,8 +208,8 @@ func TestRecoveryRejectsIncompleteQC(t *testing.T) {
 	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
 	dir := t.TempDir()
 	db := newTestBlockStore(t, dir)
-	require.NoError(t, db.WriteQC(qc1, blocks1))
-	require.ErrorIs(t, db.WriteQC(qc2, blocks2[:len(blocks2)-1]), types.ErrQCBlocksMismatch)
+	require.NoError(t, db.WriteBlock(types.NewRoadBlock(qc1, blocks1)))
+	require.ErrorIs(t, db.WriteBlock(types.NewRoadBlock(qc2, blocks2[:len(blocks2)-1])), types.ErrQCBlocksMismatch)
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
 	db = newTestBlockStore(t, dir)
@@ -263,7 +263,7 @@ func TestRecoveryRejectsQCWithoutBlocks(t *testing.T) {
 	qc, _ := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	dir := t.TempDir()
 	db := newTestBlockStore(t, dir)
-	require.ErrorIs(t, db.WriteQC(qc, nil), types.ErrQCBlocksMismatch)
+	require.ErrorIs(t, db.WriteBlock(types.NewRoadBlock(qc, nil)), types.ErrQCBlocksMismatch)
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
 	db = newTestBlockStore(t, dir)
@@ -284,17 +284,17 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
 	require.Greater(t, qc2.Index(), registry.FirstRoad(), "need skipTo past genesis")
 
-	// First WriteQC on an empty DB may start past genesis (crash / partial retain).
+	// First WriteBlock on an empty DB may start past genesis (crash / partial retain).
 	db1 := newTestBlockStore(t, dir)
-	require.NoError(t, db1.WriteQC(qc2, blocks2))
+	require.NoError(t, db1.WriteBlock(types.NewRoadBlock(qc2, blocks2)))
 	require.NoError(t, db1.Flush())
 	require.NoError(t, db1.Close())
 
 	db2 := newTestBlockStore(t, dir)
 	tips := db2.Status().OrPanic("non-empty BlockDB status")
 	require.Equal(t, qc2.Index(), tips.First)
-	require.Equal(t, qc2.Index()+1, tips.NextQC)
-	require.NotZero(t, tips.NextQC)
+	require.Equal(t, qc2.Index()+1, tips.NextBlock)
+	require.NotZero(t, tips.NextBlock)
 
 	state := newTestState(t, &Config{Registry: registry}, db2)
 	require.Equal(t, qc2.Index()+1, state.NextBlock())
@@ -320,8 +320,8 @@ func TestRecoveryBlockGap(t *testing.T) {
 	db := newTestBlockStore(t, t.TempDir())
 	mid := len(blocks) / 2
 	gapped := append(slices.Clone(blocks[:mid]), blocks[mid+1:]...)
-	require.ErrorIs(t, db.WriteQC(qc, gapped), types.ErrQCBlocksMismatch)
-	require.NoError(t, db.WriteQC(qc, blocks))
+	require.ErrorIs(t, db.WriteBlock(types.NewRoadBlock(qc, gapped)), types.ErrQCBlocksMismatch)
+	require.NoError(t, db.WriteBlock(types.NewRoadBlock(qc, blocks)))
 	state := newTestState(t, &Config{Registry: registry}, db)
 	require.Equal(t, qc.Index()+1, state.NextBlock())
 }

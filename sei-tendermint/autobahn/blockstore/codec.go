@@ -68,7 +68,7 @@ func decodeAppQC(value []byte) (*types.AppQC, error) {
 
 // validateBlocks checks that lane blocks match their CommitQC in header order.
 func validateBlocks(qc *types.FullCommitQC, blocks []*types.Block) error {
-	if len(blocks) != len(qc.Headers()) || uint64(len(blocks)) != qc.QC().Proposal().NumBlocks() {
+	if len(blocks) != len(qc.Headers()) {
 		return types.ErrQCBlocksMismatch
 	}
 	for i, block := range blocks {
@@ -96,27 +96,27 @@ func encodeBlockRecord(qc *types.FullCommitQC, blocks []*types.Block) blocktypes
 }
 
 // decodeBlockRecord decodes and validates a complete SuperBlock record.
-func decodeBlockRecord(record blocktypes.BlockRecord) (types.QCGroup, error) {
+func decodeBlockRecord(record blocktypes.BlockRecord) (*types.RoadBlock, error) {
 	qc, err := decodeQC(record.QC)
 	if err != nil {
-		return types.QCGroup{}, err
+		return nil, err
 	}
 	if qc.Index() != types.RoadIndex(record.Index) {
-		return types.QCGroup{}, types.ErrQCBlocksMismatch
+		return nil, types.ErrQCBlocksMismatch
 	}
 	blocks := make([]*types.Block, len(record.LaneBlocks))
 	for i, value := range record.LaneBlocks {
 		block, err := decodeBlock(value)
 		if err != nil {
-			return types.QCGroup{}, err
+			return nil, err
 		}
 		blocks[i] = block
 	}
 	if err := validateBlocks(qc, blocks); err != nil {
-		return types.QCGroup{}, err
+		return nil, err
 	}
 	if blocktypes.BlockHash(types.NewSuperBlock(qc, blocks).CalculateBlockHash()) != record.Hash {
-		return types.QCGroup{}, types.ErrQCBlocksMismatch
+		return nil, types.ErrQCBlocksMismatch
 	}
-	return types.QCGroup{QC: qc, Blocks: blocks}, nil
+	return types.NewRoadBlock(qc, blocks), nil
 }

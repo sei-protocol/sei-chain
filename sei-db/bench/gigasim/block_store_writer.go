@@ -55,7 +55,7 @@ func newBlockStoreWriter(
 		metrics: gigasimMetrics,
 	}
 	if status, ok := store.Status().Get(); ok {
-		w.laneBlockNumber = autobahn.BlockNumber(status.NextQC-1) * autobahn.BlockNumber(config.LaneBlocksPerSuperblock)
+		w.laneBlockNumber = autobahn.BlockNumber(status.NextBlock-1) * autobahn.BlockNumber(config.LaneBlocksPerSuperblock)
 	}
 	return w
 }
@@ -67,7 +67,7 @@ func (w *blockStoreWriter) nextBlockNumber() (int64, bool) {
 	if !ok {
 		return 0, false
 	}
-	return int64(status.NextQC), true //nolint:gosec // block heights are bounded well below the conversion limit
+	return int64(status.NextBlock), true //nolint:gosec // block heights are bounded well below the conversion limit
 }
 
 // writeBlock persists a block with its QC after finalizing prior blocks.
@@ -94,7 +94,7 @@ func (w *blockStoreWriter) writeBlock(number int64, payload [][]byte) error {
 		headers[i] = laneBlock.Header()
 	}
 	qc = autobahn.NewFullCommitQC(qc.QC(), headers)
-	if err := w.store.WriteQC(qc, w.pending); err != nil {
+	if err := w.store.WriteBlock(autobahn.NewRoadBlock(qc, w.pending)); err != nil {
 		return fmt.Errorf("failed to write SuperBlock %d: %w", index, err)
 	}
 	for _, laneBlock := range w.pending {

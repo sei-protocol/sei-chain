@@ -88,7 +88,7 @@ func newTestState(t testing.TB, cfg *Config, store types.BlockStore) *State {
 func writeToBlockStore(t *testing.T, store types.BlockStore, qcs []*types.FullCommitQC, blockss [][]*types.Block) {
 	t.Helper()
 	for i, qc := range qcs {
-		utils.OrPanic(store.WriteQC(qc, blockss[i]))
+		utils.OrPanic(store.WriteBlock(types.NewRoadBlock(qc, blockss[i])))
 	}
 	utils.OrPanic(store.Flush())
 }
@@ -756,7 +756,7 @@ func TestPushQCBeforeRunPersistsToBlockStore(t *testing.T) {
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		// PushAppHash waits on persisted.NextQC, so success implies Flush.
+		// PushAppHash waits on persisted.NextBlock, so success implies Flush.
 		if err := state.PushAppHash(ctx, qc1.Index(), types.GenAppHash(rng), nil); err != nil {
 			return fmt.Errorf("PushAppHash(%d): %w", qc1.Index(), err)
 		}
@@ -764,7 +764,7 @@ func TestPushQCBeforeRunPersistsToBlockStore(t *testing.T) {
 	}))
 
 	tips := db.Status().OrPanic("non-empty BlockDB status")
-	require.Equal(t, qc1.Index()+1, tips.NextQC)
+	require.Equal(t, qc1.Index()+1, tips.NextBlock)
 
 	require.NoError(t, db.Close())
 	db2 := newTestBlockStore(t, dir)
@@ -790,15 +790,15 @@ func TestRunPersistWaitsForCompleteQC(t *testing.T) {
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		for inner, ctrl := range state.inner.Lock() {
-			if err := ctrl.WaitUntil(ctx, func() bool { return inner.persisted.NextQC == qc1.Index()+1 }); err != nil {
+			if err := ctrl.WaitUntil(ctx, func() bool { return inner.persisted.NextBlock == qc1.Index()+1 }); err != nil {
 				return err
 			}
 		}
-		if got := store.Status().OrPanic("persisted QC"); got.NextQC != qc1.Index()+1 {
+		if got := store.Status().OrPanic("persisted QC"); got.NextBlock != qc1.Index()+1 {
 			return fmt.Errorf("incomplete QC was persisted: %v", got)
 		}
 		for range blocks2 {
-			got, err := store.ReadSuperBlockByHash(types.NewSuperBlock(qc2, blocks2).CalculateBlockHash())
+			got, err := store.ReadBlockByHash(types.NewSuperBlock(qc2, blocks2).CalculateBlockHash())
 			if err != nil {
 				return err
 			}
@@ -810,11 +810,11 @@ func TestRunPersistWaitsForCompleteQC(t *testing.T) {
 			return err
 		}
 		for inner, ctrl := range state.inner.Lock() {
-			return ctrl.WaitUntil(ctx, func() bool { return inner.persisted.NextQC == qc2.Index()+1 })
+			return ctrl.WaitUntil(ctx, func() bool { return inner.persisted.NextBlock == qc2.Index()+1 })
 		}
 		panic("unreachable")
 	}))
-	require.Equal(t, qc2.Index()+1, store.Status().OrPanic("complete QCs").NextQC)
+	require.Equal(t, qc2.Index()+1, store.Status().OrPanic("complete QCs").NextBlock)
 }
 
 // TestEvictionWaitsForAppQC checks that setPersisted does not drop
