@@ -9,29 +9,22 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
-
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
-	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
 
-// flatKVEveryBranch covers every encodeFlatKVChangeSet path except storage clears.
+// flatKVEveryBranch covers every encodeFlatKVChangeSet path.
 func flatKVEveryBranch() StateChangeSet {
 	addr := func(b byte) common.Address { return common.Address{b, 0x5e, 0x11} }
 	return StateChangeSet{
-		Balances: []BalanceChange{
-			{Address: addr(0x01), Balance: big.NewInt(99)},
-			{Address: addr(0x02), Balance: big.NewInt(0)},
-			{Address: addr(0x03), Balance: nil},
-			{Address: addr(0x04), Balance: new(big.Int).Lsh(big.NewInt(1), 255)},
-		},
-		Nonces: []NonceChange{
-			{Address: addr(0x05), Nonce: 0},
-			{Address: addr(0x06), Nonce: ^uint64(0)},
-		},
-		Code: []CodeChange{
-			{Address: addr(0x07), Code: []byte{0x60, 0x01, 0x60, 0x02, 0xf3}},
-			{Address: addr(0x08), Delete: true},
-			{Address: addr(0x09), Code: nil},
+		Accounts: []AccountChange{
+			{Address: addr(0x01), Account: AccountState{Balance: big.NewInt(99)}},
+			{Address: addr(0x02), Account: AccountState{Balance: big.NewInt(0)}, Prior: AccountState{Balance: big.NewInt(1)}},
+			{Address: addr(0x03), Account: AccountState{Balance: nil}, Prior: AccountState{Balance: big.NewInt(1)}},
+			{Address: addr(0x04), Account: AccountState{Balance: new(big.Int).Lsh(big.NewInt(1), 255)}},
+			{Address: addr(0x05), Account: AccountState{Nonce: 0}, Prior: AccountState{Nonce: 1}},
+			{Address: addr(0x06), Account: AccountState{Nonce: ^uint64(0)}},
+			{Address: addr(0x07), Account: AccountState{Code: []byte{0x60, 0x01, 0x60, 0x02, 0xf3}}},
+			{Address: addr(0x08), Account: AccountState{Code: nil}, Prior: AccountState{Code: []byte{0x60}}},
+			{Address: addr(0x09), Account: AccountState{Code: []byte{}}, Prior: AccountState{Code: []byte{0x60}}},
 		},
 		Storage: []StorageChange{
 			{Address: addr(0x0a), Key: common.Hash{0x21}, Value: common.Hash{0xaa}},
@@ -43,17 +36,7 @@ func flatKVEveryBranch() StateChangeSet {
 
 // flatKVPairDigest renders every pair in order.
 func flatKVPairDigest(t testing.TB, changes StateChangeSet) string {
-	cfg := flatkvconfig.DefaultConfig()
-	cfg.DataDir = t.TempDir()
-	store, err := openFlatKVTestStore(t.Context(), cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, store.Close()) })
-
-	return flatKVPairListing(t, store, changes)
-}
-
-func flatKVPairListing(t testing.TB, store *flatkv.CommitStore, changes StateChangeSet) string {
-	encoded, err := NewFlatKVChangeSetEncoder(store)(changes)
+	encoded, err := NewFlatKVChangeSetEncoder()(changes)
 	require.NoError(t, err)
 	require.Len(t, encoded, 1)
 
@@ -86,51 +69,9 @@ func TestEncodeFlatKVChangeSetGolden(t *testing.T) {
 	require.Equal(t, want, got)
 }
 
-func TestEncodeFlatKVChangeSetGoldenStorageClear(t *testing.T) {
-	cfg := flatkvconfig.DefaultConfig()
-	cfg.DataDir = t.TempDir()
-	store, err := openFlatKVTestStore(t.Context(), cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, store.Close()) })
-
-	addr := func(b byte) common.Address { return common.Address{b} }
-	storageAddress := addr(0x0d)
-	encode := NewFlatKVChangeSetEncoder(store)
-	initial, err := encode(StateChangeSet{
-		Storage: []StorageChange{
-			{Address: storageAddress, Key: common.Hash{0x21}, Value: common.Hash{0xaa}},
-			{Address: storageAddress, Key: common.Hash{0x22}, Value: common.Hash{0xbb}},
-		},
-	})
-	require.NoError(t, err)
-	require.NoError(t, store.CommitStateChanges(1, initial))
-
-	got := flatKVPairListing(t, store, StateChangeSet{
-		Balances:      []BalanceChange{{Address: addr(0x01), Balance: big.NewInt(99)}},
-		StorageClears: []common.Address{storageAddress},
-		Storage: []StorageChange{{
-			Address: storageAddress,
-			Key:     common.Hash{0x23},
-			Value:   common.Hash{0xcc},
-		}},
-	})
-	const want = `210100000000000000000000000000000000000000|false|0000000000000000000000000000000000000000000000000000000000000063
-030d000000000000000000000000000000000000002100000000000000000000000000000000000000000000000000000000000000|true|
-030d000000000000000000000000000000000000002200000000000000000000000000000000000000000000000000000000000000|true|
-030d000000000000000000000000000000000000002300000000000000000000000000000000000000000000000000000000000000|false|cc00000000000000000000000000000000000000000000000000000000000000
-`
-	require.Equal(t, want, got)
-}
-
 func TestEncodeFlatKVChangeSetRejectsNegativeBalance(t *testing.T) {
-	cfg := flatkvconfig.DefaultConfig()
-	cfg.DataDir = t.TempDir()
-	store, err := openFlatKVTestStore(t.Context(), cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, store.Close()) })
-
-	_, err = NewFlatKVChangeSetEncoder(store)(StateChangeSet{
-		Balances: []BalanceChange{{Address: common.Address{0x11}, Balance: big.NewInt(-1)}},
+	_, err := NewFlatKVChangeSetEncoder()(StateChangeSet{
+		Accounts: []AccountChange{{Address: common.Address{0x11}, Account: AccountState{Balance: big.NewInt(-1)}}},
 	})
 	require.ErrorContains(t, err, "balance must fit in an unsigned 256-bit integer")
 }

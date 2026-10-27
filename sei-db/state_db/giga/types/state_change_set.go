@@ -1,36 +1,32 @@
 package types
 
-import "math/big"
+import (
+	"bytes"
+	"math/big"
+)
 
-// StateChangeSet is the deterministic EVM-native state output for a block.
-// Values are post-block values, not deltas, each beside the value it replaced.
-// Store-specific encoders must retain StorageClears as prefix-clear operations
-// and apply them before Storage.
+// StateChangeSet is the deterministic EVM-native state output for a block: one entry per account the
+// block changed and per slot it wrote, in address order and then slot order. Values are post-block
+// values, not deltas, each beside the value it replaced.
 type StateChangeSet struct {
-	Balances      []BalanceChange
-	Nonces        []NonceChange
-	Code          []CodeChange
-	StorageClears []Address
-	Storage       []StorageChange
+	Accounts []AccountChange
+	Storage  []StorageChange
 }
 
-type BalanceChange struct {
-	Address      Address
-	Balance      *big.Int
-	PriorBalance *big.Int
+// AccountState is an account's balance, nonce and code. A nil balance is zero. Code is immutable:
+// it may be shared, and must never be modified in place.
+type AccountState struct {
+	Balance *big.Int
+	Nonce   uint64
+	Code    []byte
 }
 
-type NonceChange struct {
-	Address    Address
-	Nonce      uint64
-	PriorNonce uint64
-}
-
-type CodeChange struct {
-	Address   Address
-	Delete    bool
-	Code      []byte
-	PriorCode []byte
+// AccountChange is an account whose balance, nonce or code the block changed: its whole state after
+// the block beside its whole state before it.
+type AccountChange struct {
+	Address Address
+	Account AccountState
+	Prior   AccountState
 }
 
 type StorageChange struct {
@@ -41,47 +37,47 @@ type StorageChange struct {
 	PriorValue Hash
 }
 
-// IsEmpty reports whether the set would change nothing.
-func (c *StateChangeSet) IsEmpty() bool {
-	return len(c.Balances) == 0 && len(c.Nonces) == 0 && len(c.Code) == 0 &&
-		len(c.StorageClears) == 0 && len(c.Storage) == 0
+// BalanceChanged reports whether the block changed the account's balance.
+func (c *AccountChange) BalanceChanged() bool {
+	return orZero(c.Account.Balance).Cmp(orZero(c.Prior.Balance)) != 0
 }
 
-// Clone returns a deep copy of the set, nil for a nil set.
+// NonceChanged reports whether the block changed the account's nonce.
+func (c *AccountChange) NonceChanged() bool {
+	return c.Account.Nonce != c.Prior.Nonce
+}
+
+// CodeChanged reports whether the block changed the account's code.
+func (c *AccountChange) CodeChanged() bool {
+	return !bytes.Equal(c.Account.Code, c.Prior.Code)
+}
+
+// IsEmpty reports whether the set would change nothing.
+func (c *StateChangeSet) IsEmpty() bool {
+	return len(c.Accounts) == 0 && len(c.Storage) == 0
+}
+
+// Clone returns a copy of the set that shares nothing mutable with it, nil for a nil set.
 func (c *StateChangeSet) Clone() *StateChangeSet {
 	if c == nil {
 		return nil
 	}
 	cp := &StateChangeSet{
-		Balances:      make([]BalanceChange, len(c.Balances)),
-		Nonces:        append([]NonceChange(nil), c.Nonces...),
-		Code:          make([]CodeChange, len(c.Code)),
-		StorageClears: append([]Address(nil), c.StorageClears...),
-		Storage:       append([]StorageChange(nil), c.Storage...),
+		Accounts: make([]AccountChange, len(c.Accounts)),
+		Storage:  append([]StorageChange(nil), c.Storage...),
 	}
-	for i, change := range c.Balances {
-		change.Balance = cloneBig(change.Balance)
-		change.PriorBalance = cloneBig(change.PriorBalance)
-		cp.Balances[i] = change
-	}
-	for i, change := range c.Code {
-		change.Code = append([]byte(nil), change.Code...)
-		change.PriorCode = append([]byte(nil), change.PriorCode...)
-		cp.Code[i] = change
+	for i, change := range c.Accounts {
+		change.Account.Balance = cloneBig(change.Account.Balance)
+		change.Prior.Balance = cloneBig(change.Prior.Balance)
+		cp.Accounts[i] = change
 	}
 	return cp
 }
 
 // Reset empties the set, keeping its slices' capacity for reuse.
 func (c *StateChangeSet) Reset() {
-	clear(c.Balances)
-	c.Balances = c.Balances[:0]
-	clear(c.Nonces)
-	c.Nonces = c.Nonces[:0]
-	clear(c.Code)
-	c.Code = c.Code[:0]
-	clear(c.StorageClears)
-	c.StorageClears = c.StorageClears[:0]
+	clear(c.Accounts)
+	c.Accounts = c.Accounts[:0]
 	clear(c.Storage)
 	c.Storage = c.Storage[:0]
 }
@@ -92,4 +88,15 @@ func cloneBig(v *big.Int) *big.Int {
 		return new(big.Int)
 	}
 	return new(big.Int).Set(v)
+}
+
+// zeroBalance is the balance orZero reads in place of nil. It must never be modified.
+var zeroBalance = new(big.Int)
+
+// orZero returns v, or zeroBalance when v is nil.
+func orZero(v *big.Int) *big.Int {
+	if v == nil {
+		return zeroBalance
+	}
+	return v
 }

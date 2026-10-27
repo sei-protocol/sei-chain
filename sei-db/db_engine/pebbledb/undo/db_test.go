@@ -76,28 +76,44 @@ func (liveState) Close() {}
 
 // priorsOf returns the change set of a block that replaced, for each key of prior, the value prior
 // holds for it, nil for none. A code hash changes only with its code, so it has no entry of its own.
+// The log records only what a block replaced, so an account field's value after the block is just
+// one that differs from its prior.
 func priorsOf(t testing.TB, prior map[string][]byte) *gigatypes.StateChangeSet {
 	t.Helper()
 	changes := &gigatypes.StateChangeSet{}
+	accounts := map[common.Address]*gigatypes.AccountChange{}
+	account := func(addr common.Address) *gigatypes.AccountChange {
+		if accounts[addr] == nil {
+			accounts[addr] = &gigatypes.AccountChange{Address: addr}
+		}
+		return accounts[addr]
+	}
 	for key, old := range prior {
 		addr := common.BytesToAddress([]byte(key[1 : 1+addressLen]))
 		switch key[0] {
 		case BalanceKeyPrefix[0]:
-			changes.Balances = append(changes.Balances, gigatypes.BalanceChange{Address: addr, PriorBalance: new(big.Int).SetBytes(old)})
+			change := account(addr)
+			change.Prior.Balance = new(big.Int).SetBytes(old)
+			change.Account.Balance = new(big.Int).Add(change.Prior.Balance, big.NewInt(1))
 		case NonceKeyPrefix[0]:
 			var n uint64
 			if old != nil {
 				n = binary.BigEndian.Uint64(old)
 			}
-			changes.Nonces = append(changes.Nonces, gigatypes.NonceChange{Address: addr, PriorNonce: n})
+			change := account(addr)
+			change.Prior.Nonce, change.Account.Nonce = n, n+1
 		case CodeKeyPrefix[0]:
-			changes.Code = append(changes.Code, gigatypes.CodeChange{Address: addr, PriorCode: old})
+			change := account(addr)
+			change.Prior.Code, change.Account.Code = old, append(bytes.Clone(old), 0x00)
 		case StateKeyPrefix[0]:
 			changes.Storage = append(changes.Storage, gigatypes.StorageChange{
 				Address: addr, Key: common.BytesToHash([]byte(key[1+addressLen:])), PriorValue: common.BytesToHash(old)})
 		default:
 			t.Fatalf("no change writes key %x on its own", key)
 		}
+	}
+	for _, change := range accounts {
+		changes.Accounts = append(changes.Accounts, *change)
 	}
 	return changes
 }
@@ -673,7 +689,8 @@ func TestDiscardStateAboveClearsAHalfWrittenBlock(t *testing.T) {
 			for h := uint64(1); h <= 9; h++ {
 				c.apply(map[string][]byte{slot: word(h)}, false)
 			}
-			require.NoError(t, c.db.writeRecords(priorsOf(t, map[string][]byte{slot: word(0xbad)}), 1, 10))
+			changes := priorsOf(t, map[string][]byte{slot: word(0xbad)})
+			require.NoError(t, c.db.writeRecords(changes, recordCount(changes), 1, 10))
 			require.NoError(t, c.db.Close())
 
 			require.NoError(t, DiscardStateAbove(dir, testConfig(), target))

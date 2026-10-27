@@ -20,10 +20,7 @@ func TestEncodeMemoryStoreChangeSetUsesOwnedDirectPairs(t *testing.T) {
 	code := []byte{0x60, 0x01}
 	balance := big.NewInt(42)
 	changesets, err := EncodeMemoryStoreChangeSet(StateChangeSet{
-		Balances:      []BalanceChange{{Address: address, Balance: balance}},
-		Nonces:        []NonceChange{{Address: address, Nonce: 9}},
-		Code:          []CodeChange{{Address: address, Code: code}},
-		StorageClears: []common.Address{address},
+		Accounts: []AccountChange{{Address: address, Account: AccountState{Balance: balance, Nonce: 9, Code: code}}},
 		Storage: []StorageChange{{
 			Address: address,
 			Key:     slot,
@@ -34,7 +31,7 @@ func TestEncodeMemoryStoreChangeSetUsesOwnedDirectPairs(t *testing.T) {
 	require.Len(t, changesets, 1)
 	require.Equal(t, MemoryStoreChangeSetName, changesets[0].Name)
 	pairs := changesets[0].Changeset.Pairs
-	require.Len(t, pairs, 5)
+	require.Len(t, pairs, 4)
 
 	require.Equal(t, memoryStoreBalanceKey, pairs[0].Key[0])
 	require.Equal(t, address[:], pairs[0].Key[1:])
@@ -43,11 +40,9 @@ func TestEncodeMemoryStoreChangeSetUsesOwnedDirectPairs(t *testing.T) {
 	require.Equal(t, uint64(9), binary.BigEndian.Uint64(pairs[1].Value))
 	require.Equal(t, memoryStoreCodeKey, pairs[2].Key[0])
 	require.Equal(t, []byte{0x60, 0x01}, pairs[2].Value)
-	require.Equal(t, memoryStoreStorageClearKey, pairs[3].Key[0])
-	require.Empty(t, pairs[3].Value)
-	require.Equal(t, memoryStoreStorageKeyKind, pairs[4].Key[0])
-	require.Equal(t, slot[:], pairs[4].Key[memoryStoreAccountKeyLen:])
-	require.Equal(t, storageValue[:], pairs[4].Value)
+	require.Equal(t, memoryStoreStorageKeyKind, pairs[3].Key[0])
+	require.Equal(t, slot[:], pairs[3].Key[memoryStoreAccountKeyLen:])
+	require.Equal(t, storageValue[:], pairs[3].Value)
 
 	code[0] = 0xff
 	balance.SetInt64(99)
@@ -61,10 +56,6 @@ func TestEncodeMemoryStoreChangeSetUsesOwnedDirectPairs(t *testing.T) {
 	for _, pair := range pairs {
 		value, ok := snapshot.Get(MemoryStoreChangeSetName, pair.Key)
 		require.True(t, ok)
-		if pair.Key[0] == memoryStoreStorageClearKey {
-			require.Empty(t, value)
-			continue
-		}
 		require.Equal(t, pair.Value, value)
 	}
 }
@@ -82,12 +73,11 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 
 	initial := store.OpenView()
 	changesets, err := store.EncodeChangeSet(StateChangeSet{
-		Balances: []BalanceChange{{Address: address, Balance: big.NewInt(20)}},
-		Nonces:   []NonceChange{{Address: address, Nonce: 2}},
-		Code:     []CodeChange{{Address: address, Code: []byte{0x60, 0x01}}},
-		StorageClears: []common.Address{
-			address,
-		},
+		Accounts: []AccountChange{{
+			Address: address,
+			Account: AccountState{Balance: big.NewInt(20), Nonce: 2, Code: []byte{0x60, 0x01}},
+			Prior:   AccountState{Balance: big.NewInt(10), Nonce: 1, Code: []byte{0x60, 0x00}},
+		}},
 		Storage: []StorageChange{{
 			Address: address,
 			Key:     newSlot,
@@ -113,12 +103,16 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 		require.Equal(t, big.NewInt(20), gigaHashToBig(snapshot.GetBalance(address)))
 		require.Equal(t, uint64(2), snapshot.GetNonce(address))
 		require.Equal(t, []byte{0x60, 0x01}, snapshot.GetCode(address))
-		require.Equal(t, gigatypes.Hash{}, snapshot.GetStorage(address, baseSlot))
+		require.Equal(t, common.HexToHash("0xaa"), snapshot.GetStorage(address, baseSlot))
 		require.Equal(t, common.HexToHash("0xbb"), snapshot.GetStorage(address, newSlot))
 	}
 
 	deleteChanges, err := store.EncodeChangeSet(StateChangeSet{
-		Code: []CodeChange{{Address: address, Delete: true}},
+		Accounts: []AccountChange{{
+			Address: address,
+			Account: AccountState{Balance: big.NewInt(20), Nonce: 2},
+			Prior:   AccountState{Balance: big.NewInt(20), Nonce: 2, Code: []byte{0x60, 0x01}},
+		}},
 		Storage: []StorageChange{{
 			Address: address,
 			Key:     newSlot,
@@ -159,7 +153,7 @@ func TestMemoryStoreRejectsInvalidCommits(t *testing.T) {
 	}}), "balance key length")
 
 	overflow := new(big.Int).Lsh(big.NewInt(1), 256)
-	_, err = store.EncodeChangeSet(StateChangeSet{Balances: []BalanceChange{{Balance: overflow}}})
+	_, err = store.EncodeChangeSet(StateChangeSet{Accounts: []AccountChange{{Account: AccountState{Balance: overflow}}}})
 	require.ErrorContains(t, err, "unsigned 256-bit")
 }
 
@@ -170,7 +164,12 @@ func TestMemoryStoreTracksZeroValueAndStorageOnlyAccounts(t *testing.T) {
 	before := store.OpenView()
 
 	changesets, err := store.EncodeChangeSet(StateChangeSet{
-		Balances: []BalanceChange{{Address: zeroValueAddress, Balance: new(big.Int)}},
+		// Only a changed balance is written, so the zero balance replaces a prior one.
+		Accounts: []AccountChange{{
+			Address: zeroValueAddress,
+			Account: AccountState{Balance: new(big.Int)},
+			Prior:   AccountState{Balance: big.NewInt(1)},
+		}},
 		Storage: []StorageChange{{
 			Address: storageOnlyAddress,
 			Key:     common.HexToHash("0x01"),
