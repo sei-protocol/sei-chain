@@ -1,0 +1,17 @@
+syntax = "proto3";
+package seiprotocol.seichain.gigaevm;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/giga/deps/xevm/types";
+
+message DeferredInfo {
+  uint32 tx_index = 1;
+  bytes tx_hash = 2;
+  bytes tx_bloom = 3;
+  string surplus = 4 [
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
+    (gogoproto.nullable) = false
+  ];
+  string error = 5;
+}

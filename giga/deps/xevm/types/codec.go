@@ -5,46 +5,11 @@ import (
 	"errors"
 	fmt "fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/msgservice"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types/ethtx"
 )
-
-var (
-	amino     = codec.NewLegacyAmino()
-	ModuleCdc = codec.NewAminoCodec(amino)
-)
-
-func init() {
-	RegisterCodec(amino)
-	cryptocodec.RegisterCrypto(amino)
-	amino.Seal()
-}
-
-func GetAmino() *codec.LegacyAmino {
-	return amino
-}
-
-func RegisterCodec(cdc *codec.LegacyAmino) {}
-
-func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
-	registry.RegisterInterface(
-		"seiprotocol.seichain.gigaevm.TxData",
-		(*ethtx.TxData)(nil),
-		&ethtx.DynamicFeeTx{},
-		&ethtx.AccessListTx{},
-		&ethtx.LegacyTx{},
-		&ethtx.BlobTx{},
-		&ethtx.AssociateTx{},
-		&ethtx.SetCodeTx{},
-	)
-
-	msgservice.RegisterMsgServiceDesc(registry, &_Msg_serviceDesc)
-}
 
 func PackTxData(txData ethtx.TxData) (*codectypes.Any, error) {
 	msg, ok := txData.(proto.Message)
