@@ -55,7 +55,7 @@ func newBlockStoreWriter(
 		metrics: gigasimMetrics,
 	}
 	if status, ok := store.Status().Get(); ok {
-		w.laneBlockNumber = autobahn.BlockNumber(status.NextBlock-1) * autobahn.BlockNumber(config.LaneBlocksPerSuperblock)
+		w.laneBlockNumber = autobahn.BlockNumber(status.NextBlock-1) * autobahn.BlockNumber(config.LaneBlocksPerSuperblock) //nolint:gosec // config validation keeps the lane block count positive
 	}
 	return w
 }
