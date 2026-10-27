@@ -1,22 +1,17 @@
-package mutation_test
+package flatkv
 
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
-	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
-
-// This test lives in an external package so that flatKV can import the mutation package without a cycle.
 
 // TestMutationsAgreeWithFlatKV converts each block's changesets into mutations against a flatKV store's committed
 // state, then requires that every mutation's new value is the row flatKV stores for its key, and that a second
@@ -25,16 +20,16 @@ func TestMutationsAgreeWithFlatKV(t *testing.T) {
 	source := newFlatKVStore(t)
 	replica := newFlatKVStore(t)
 
-	for i, block := range agreementBlocks() {
+	for i, block := range changesetAgreementBlocks() {
 		height := uint64(i + 1)
 
 		prior := source.OpenView()
-		mutations, err := mutation.MutationsFromChangeSets(block, height, prior)
+		mutations, err := MutationsFromChangeSets(block, height, prior)
 		prior.Close()
 		require.NoError(t, err, "block %d", height)
 
 		commitBlock(t, source, height, block)
-		converted, err := mutation.MutationsToChangeSets(mutations)
+		converted, err := MutationsToChangeSets(mutations)
 		require.NoError(t, err, "block %d", height)
 		commitBlock(t, replica, height, converted)
 
@@ -50,9 +45,9 @@ func TestMutationsAgreeWithFlatKV(t *testing.T) {
 	}
 }
 
-// agreementBlocks returns a sequence of blocks, each a list of changesets, that writes and deletes every kind of row
-// and changes account fields one at a time.
-func agreementBlocks() [][]*proto.NamedChangeSet {
+// changesetAgreementBlocks returns a sequence of blocks, each a list of changesets, that writes and deletes every
+// kind of row and changes account fields one at a time.
+func changesetAgreementBlocks() [][]*proto.NamedChangeSet {
 	addressA := bytes.Repeat([]byte{0xa1}, keys.AddressLen)
 	addressB := bytes.Repeat([]byte{0xb2}, keys.AddressLen)
 	slot1 := append(bytes.Clone(addressA), bytes.Repeat([]byte{0x01}, 32)...)
@@ -62,7 +57,7 @@ func agreementBlocks() [][]*proto.NamedChangeSet {
 	return [][]*proto.NamedChangeSet{
 		{
 			evmChangeSet(
-				set(keys.BuildEVMKey(keys.EVMKeyNonce, addressA), nonce(1)),
+				set(keys.BuildEVMKey(keys.EVMKeyNonce, addressA), nonceBytes(1)),
 				set(keys.BuildEVMKey(keys.EVMKeyCodeHash, addressA), filled(32, 0xc0)),
 				set(keys.BuildEVMKey(keys.EVMKeyBalance, addressA), filled(32, 0x0a)),
 				set(keys.BuildEVMKey(keys.EVMKeyBalance, addressB), filled(32, 0x0b)),
@@ -75,7 +70,7 @@ func agreementBlocks() [][]*proto.NamedChangeSet {
 		},
 		{
 			evmChangeSet(
-				set(keys.BuildEVMKey(keys.EVMKeyNonce, addressA), nonce(2)),
+				set(keys.BuildEVMKey(keys.EVMKeyNonce, addressA), nonceBytes(2)),
 				del(keys.BuildEVMKey(keys.EVMKeyBalance, addressB)),
 				set(keys.BuildEVMKey(keys.EVMKeyStorage, slot1), filled(32, 0x52)),
 				set(keys.BuildEVMKey(keys.EVMKeyStorage, slot2), filled(32, 0x61)),
@@ -97,11 +92,11 @@ func agreementBlocks() [][]*proto.NamedChangeSet {
 }
 
 // newFlatKVStore opens an empty flatKV store with no state WAL.
-func newFlatKVStore(t *testing.T) *flatkv.CommitStore {
+func newFlatKVStore(t *testing.T) *CommitStore {
 	t.Helper()
 	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is cancelled
 	// cannot drain its in-flight blocks.
-	store, err := flatkv.NewCommitStore(context.Background(), flatkvconfig.DefaultTestConfig(t), nil)
+	store, err := NewCommitStore(context.Background(), config.DefaultTestConfig(t), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	require.NoError(t, store.LoadLatest())
@@ -109,7 +104,7 @@ func newFlatKVStore(t *testing.T) *flatkv.CommitStore {
 }
 
 // commitBlock applies changeSets to store as block height and commits it.
-func commitBlock(t *testing.T, store *flatkv.CommitStore, height uint64, changeSets []*proto.NamedChangeSet) {
+func commitBlock(t *testing.T, store *CommitStore, height uint64, changeSets []*proto.NamedChangeSet) {
 	t.Helper()
 	require.NoError(t, store.ApplyChangeSets(int64(height), changeSets)) //nolint:gosec // test heights are small
 	_, err := store.Commit(int64(height))                                //nolint:gosec // test heights are small
@@ -117,32 +112,12 @@ func commitBlock(t *testing.T, store *flatkv.CommitStore, height uint64, changeS
 }
 
 // latestHash returns the global lattice hash of the most recently committed block of store.
-func latestHash(t *testing.T, store *flatkv.CommitStore) [32]byte {
+func latestHash(t *testing.T, store *CommitStore) [32]byte {
 	t.Helper()
 	require.NoError(t, store.FlushHashes())
 	hash, err := store.RegisterHashListener(func(context.Context, int64, *lthash.BlockHash) error { return nil })
 	require.NoError(t, err)
 	return hash.Global.Checksum()
-}
-
-func evmChangeSet(pairs ...*proto.KVPair) *proto.NamedChangeSet {
-	return moduleChangeSet(keys.EVMStoreKey, pairs...)
-}
-
-func moduleChangeSet(moduleName string, pairs ...*proto.KVPair) *proto.NamedChangeSet {
-	return &proto.NamedChangeSet{Name: moduleName, Changeset: proto.ChangeSet{Pairs: pairs}}
-}
-
-func set(key []byte, value []byte) *proto.KVPair {
-	return &proto.KVPair{Key: key, Value: value}
-}
-
-func del(key []byte) *proto.KVPair {
-	return &proto.KVPair{Key: key, Delete: true}
-}
-
-func nonce(value uint64) []byte {
-	return binary.BigEndian.AppendUint64(nil, value)
 }
 
 func filled(length int, value byte) []byte {
