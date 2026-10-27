@@ -105,14 +105,14 @@ func TestEndBlockerSeesTheBlockAndCommitsItsWrites(t *testing.T) {
 		}
 	}
 	require.NotNil(t, calls)
-	var paid *BalanceChange
-	for i, change := range result.ChangeSet.Balances {
+	var paid *AccountChange
+	for i, change := range result.ChangeSet.Accounts {
 		if change.Address == payee {
-			paid = &result.ChangeSet.Balances[i]
+			paid = &result.ChangeSet.Accounts[i]
 		}
 	}
 	require.NotNil(t, paid)
-	require.Equal(t, big.NewInt(10), paid.PriorBalance, "the prior is the balance before the block")
+	require.Equal(t, big.NewInt(10), paid.Prior.Balance, "the prior is the balance before the block")
 
 	state.ApplyChangeSet(result.ChangeSet)
 	require.Equal(t, big.NewInt(2), state.GetState(firstEndBlocker, observedSlot).Big())
@@ -204,18 +204,20 @@ func TestCustomEndBlockersRejectsMisconfiguration(t *testing.T) {
 func TestMergeChangeSet(t *testing.T) {
 	a, b, c := testAddress(0x0a), testAddress(0x0b), testAddress(0x0c)
 	dst := StateChangeSet{
-		Balances: []BalanceChange{{Address: a, Balance: big.NewInt(1), PriorBalance: big.NewInt(0)}, {Address: c, Balance: big.NewInt(3), PriorBalance: big.NewInt(9)}},
-		Nonces:   []NonceChange{{Address: b, Nonce: 2, PriorNonce: 1}},
-		Code:     []CodeChange{{Address: c, Code: []byte{0x01}}},
+		Accounts: []AccountChange{
+			{Address: a, Account: AccountState{Balance: big.NewInt(1)}, Prior: AccountState{Balance: big.NewInt(0)}},
+			{Address: c, Account: AccountState{Balance: big.NewInt(3), Code: []byte{0x01}}, Prior: AccountState{Balance: big.NewInt(9)}},
+		},
 		Storage: []StorageChange{
 			{Address: a, Key: testHash(1), Value: testHash(0x11), PriorValue: testHash(0x01)},
 			{Address: b, Key: testHash(1), Value: testHash(0x21)},
 		},
 	}
 	later := StateChangeSet{
-		Balances: []BalanceChange{{Address: b, Balance: big.NewInt(20), PriorBalance: big.NewInt(2)}, {Address: c, Balance: big.NewInt(30), PriorBalance: big.NewInt(3)}},
-		Nonces:   []NonceChange{{Address: a, Nonce: 1}, {Address: b, Nonce: 5, PriorNonce: 2}},
-		Code:     []CodeChange{{Address: a, Code: []byte{0x02}}, {Address: c, Delete: true, PriorCode: []byte{0x01}}},
+		Accounts: []AccountChange{
+			{Address: b, Account: AccountState{Balance: big.NewInt(20), Nonce: 5}, Prior: AccountState{Balance: big.NewInt(2), Nonce: 2}},
+			{Address: c, Account: AccountState{Balance: big.NewInt(30), Nonce: 1}, Prior: AccountState{Balance: big.NewInt(3), Code: []byte{0x01}}},
+		},
 		Storage: []StorageChange{
 			{Address: a, Key: testHash(0), Value: testHash(0x10)},
 			{Address: a, Key: testHash(1), Delete: true, PriorValue: testHash(0x11)},
@@ -224,13 +226,11 @@ func TestMergeChangeSet(t *testing.T) {
 	}
 	mergeChangeSet(&dst, later)
 	require.Equal(t, StateChangeSet{
-		Balances: []BalanceChange{
-			{Address: a, Balance: big.NewInt(1), PriorBalance: big.NewInt(0)},
-			{Address: b, Balance: big.NewInt(20), PriorBalance: big.NewInt(2)},
-			{Address: c, Balance: big.NewInt(30), PriorBalance: big.NewInt(9)},
+		Accounts: []AccountChange{
+			{Address: a, Account: AccountState{Balance: big.NewInt(1)}, Prior: AccountState{Balance: big.NewInt(0)}},
+			{Address: b, Account: AccountState{Balance: big.NewInt(20), Nonce: 5}, Prior: AccountState{Balance: big.NewInt(2), Nonce: 2}},
+			{Address: c, Account: AccountState{Balance: big.NewInt(30), Nonce: 1}, Prior: AccountState{Balance: big.NewInt(9)}},
 		},
-		Nonces: []NonceChange{{Address: a, Nonce: 1}, {Address: b, Nonce: 5, PriorNonce: 1}},
-		Code:   []CodeChange{{Address: a, Code: []byte{0x02}}, {Address: c, Delete: true}},
 		Storage: []StorageChange{
 			{Address: a, Key: testHash(0), Value: testHash(0x10)},
 			{Address: a, Key: testHash(1), Delete: true, PriorValue: testHash(0x01)},

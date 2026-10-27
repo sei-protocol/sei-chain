@@ -177,9 +177,6 @@ type Config struct {
 	// max number of concurrent logs subscriptions
 	MaxSubscriptionsLogs uint64 `mapstructure:"max_subscriptions_logs"`
 
-	// test api enables certain override apis for integration test situations
-	EnableTestAPI bool `mapstructure:"enable_test_api"`
-
 	// MaxConcurrentTraceCalls defines the maximum number of concurrent debug_trace calls.
 	// Set to 0 for unlimited.
 	MaxConcurrentTraceCalls uint64 `mapstructure:"max_concurrent_trace_calls"`
@@ -374,7 +371,6 @@ var DefaultConfig = Config{
 	MaxStateOverrideSlots:        1000,
 	MaxSubscriptionsNewHead:      10000,
 	MaxSubscriptionsLogs:         1000,
-	EnableTestAPI:                false,
 	MaxConcurrentTraceCalls:      10,
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
 	MaxTraceLookbackBlocks:       10000,
@@ -444,7 +440,6 @@ const (
 	flagMaxStateOverrideSlots        = "evm.max_state_override_slots"
 	flagMaxSubscriptionsNewHead      = "evm.max_subscriptions_new_head"
 	flagMaxSubscriptionsLogs         = "evm.max_subscriptions_logs"
-	flagEnableTestAPI                = "evm.enable_test_api"
 	flagMaxConcurrentTraceCalls      = "evm.max_concurrent_trace_calls"
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
 	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
@@ -625,11 +620,6 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagMaxSubscriptionsLogs); v != nil {
 		if cfg.MaxSubscriptionsLogs, err = cast.ToUint64E(v); err != nil {
-			return cfg, err
-		}
-	}
-	if v := opts.Get(flagEnableTestAPI); v != nil {
-		if cfg.EnableTestAPI, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}

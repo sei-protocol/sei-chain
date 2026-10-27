@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/big"
 	"sort"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -122,26 +123,6 @@ func (e *Executor) executeBlockOCCSequentialFallback(ctx context.Context, req Pr
 	return result, nil
 }
 
-func (r occSpeculativeRunner) executeTx(
-	ctx context.Context,
-	source StateReader,
-	txIndex int,
-	txIndexUint uint,
-	gasLimit uint64,
-) (occTxExecution, error) {
-	return r.executor.executeTxSpeculative(
-		ctx,
-		source,
-		r.req,
-		txIndex,
-		txIndexUint,
-		r.chainConfig,
-		r.blockCtx,
-		r.baseFee,
-		gasLimit,
-	)
-}
-
 func (r occSpeculativeRunner) runRanges(
 	ctx context.Context,
 	pool *occWorkerPool,
@@ -153,8 +134,18 @@ func (r occSpeculativeRunner) runRanges(
 	if len(ranges) == 0 {
 		return ctx.Err()
 	}
-	return pool.Run(ctx, len(ranges), func(workerCtx context.Context, workerID int, workers int) error {
-		for rangeIndex := workerID; rangeIndex < len(ranges); rangeIndex += workers {
+	// Ranges are claimed as workers finish, so a slow slice does not idle the rest of the pass.
+	var claimed atomic.Int64
+	return pool.Run(ctx, len(ranges), func(workerCtx context.Context, _ int, _ int) error {
+		stateDB := r.executor.acquireStateDB(nil)
+		defer r.executor.releaseStateDB(stateDB)
+		evm := vm.NewEVM(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, r.executor.customContracts)
+		stateDB.SetEVM(evm)
+		for {
+			rangeIndex := int(claimed.Add(1) - 1)
+			if rangeIndex >= len(ranges) {
+				return nil
+			}
 			txRange := ranges[rangeIndex]
 			for idx, idxUint := txRange.start, txRange.startUint; idx < txRange.end; idx, idxUint = idx+1, idxUint+1 {
 				if err := workerCtx.Err(); err != nil {
@@ -168,12 +159,11 @@ func (r occSpeculativeRunner) runRanges(
 					source:       source,
 					gasLimit:     gasLimit,
 				}
-				if err := r.executeTaskInto(workerCtx, task, results); err != nil {
+				if err := r.executeTaskInto(workerCtx, evm, stateDB, task, results); err != nil {
 					return err
 				}
 			}
 		}
-		return nil
 	})
 }
 
@@ -187,11 +177,15 @@ func (r occSpeculativeRunner) runTasks(
 		return ctx.Err()
 	}
 	return pool.Run(ctx, len(tasks), func(workerCtx context.Context, workerID int, workers int) error {
+		stateDB := r.executor.acquireStateDB(nil)
+		defer r.executor.releaseStateDB(stateDB)
+		evm := vm.NewEVM(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, r.executor.customContracts)
+		stateDB.SetEVM(evm)
 		for taskIndex := workerID; taskIndex < len(tasks); taskIndex += workers {
 			if err := workerCtx.Err(); err != nil {
 				return err
 			}
-			if err := r.executeTaskInto(workerCtx, tasks[taskIndex], results); err != nil {
+			if err := r.executeTaskInto(workerCtx, evm, stateDB, tasks[taskIndex], results); err != nil {
 				return err
 			}
 		}
@@ -199,8 +193,18 @@ func (r occSpeculativeRunner) runTasks(
 	})
 }
 
-func (r occSpeculativeRunner) executeTaskInto(ctx context.Context, task occExecutionTask, results []occTxExecution) error {
-	result, err := r.executeTx(ctx, task.source, task.txIndex, task.txIndexUint, task.gasLimit)
+func (r occSpeculativeRunner) executeTaskInto(ctx context.Context, evm *vm.EVM, stateDB *nativeStateDB, task occExecutionTask, results []occTxExecution) error {
+	result, err := r.executor.executeTxSpeculative(
+		ctx,
+		task.source,
+		r.req,
+		task.txIndex,
+		task.txIndexUint,
+		r.baseFee,
+		task.gasLimit,
+		evm,
+		stateDB,
+	)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
@@ -243,19 +247,19 @@ func (e *Executor) executeTxSpeculative(
 	req PreparedBlock,
 	txIndex int,
 	txIndexUint uint,
-	chainConfig *params.ChainConfig,
-	blockCtx vm.BlockContext,
 	baseFee *big.Int,
 	blockGasLimit uint64,
+	evm *vm.EVM,
+	stateDB *nativeStateDB,
 ) (occTxExecution, error) {
 	if err := ctx.Err(); err != nil {
 		return occTxExecution{}, err
 	}
 	p := req.Txs[txIndex]
-	stateDB := e.acquireStateDB(source)
-	defer e.releaseStateDB(stateDB)
+	stateDB.reset(source)
 	stateDB.enableAccessTracking()
-	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, e.customContracts)
+	evm.StateDB = stateDB
+	evm.Depth = 0
 	stateDB.SetEVM(evm)
 	gasPool := new(core.GasPool).AddGas(blockGasLimit)
 	txResult, receipt, err := e.executeTx(
@@ -649,23 +653,77 @@ func (k stateAccessKind) String() string {
 	}
 }
 
+// occMergeChunk is how many results one worker copies into the block result at a time.
+const occMergeChunk = 1024
+
+// fillMergedResults copies each result's outcome and receipt into blockResult in block order.
+func fillMergedResults(ctx context.Context, pool *occWorkerPool, blockResult *BlockResult, results []occTxExecution) error {
+	if pool == nil || len(results) < 2*occMergeChunk {
+		blockResult.GasUsed, _ = fillMergedRange(blockResult, results, 0, len(results), 0, 0)
+		return ctx.Err()
+	}
+	chunks := (len(results) + occMergeChunk - 1) / occMergeChunk
+	gasBefore := make([]uint64, chunks+1)
+	logsBefore := make([]uint, chunks+1)
+	err := pool.Run(ctx, chunks, func(workerCtx context.Context, workerID int, workers int) error {
+		for c := workerID; c < chunks; c += workers {
+			for i := c * occMergeChunk; i < min((c+1)*occMergeChunk, len(results)); i++ {
+				gasBefore[c+1] += results[i].gasUsed
+				if results[i].receipt != nil {
+					logsBefore[c+1] += uint(len(results[i].receipt.Logs))
+				}
+			}
+		}
+		return workerCtx.Err()
+	})
+	if err != nil {
+		return err
+	}
+	for c := range chunks {
+		gasBefore[c+1] += gasBefore[c]
+		logsBefore[c+1] += logsBefore[c]
+	}
+	err = pool.Run(ctx, chunks, func(workerCtx context.Context, workerID int, workers int) error {
+		for c := workerID; c < chunks; c += workers {
+			fillMergedRange(blockResult, results, c*occMergeChunk, min((c+1)*occMergeChunk, len(results)), gasBefore[c], logsBefore[c])
+		}
+		return workerCtx.Err()
+	})
+	if err != nil {
+		return err
+	}
+	blockResult.GasUsed = gasBefore[chunks]
+	return nil
+}
+
+// fillMergedRange fills results [start, end) into blockResult, continuing from gasUsed and logIndex.
+func fillMergedRange(blockResult *BlockResult, results []occTxExecution, start int, end int, gasUsed uint64, logIndex uint) (uint64, uint) {
+	for i := start; i < end; i++ {
+		result := &results[i]
+		gasUsed += result.gasUsed
+		result.txResult.CumulativeGasUsed = gasUsed
+		if result.receipt != nil {
+			result.receipt.CumulativeGasUsed = gasUsed
+			for _, log := range result.receipt.Logs {
+				log.Index = logIndex
+				logIndex++
+			}
+		}
+		blockResult.Txs[i] = result.txResult
+		blockResult.Receipts[i] = result.receipt
+	}
+	return gasUsed, logIndex
+}
+
 func (e *Executor) mergeOCCResults(ctx context.Context, results []occTxExecution, finalState *blockSTMState) (*BlockResult, error) {
 	blockResult, err := e.acquireBlockResult(ctx, len(results))
 	if err != nil {
 		return nil, err
 	}
 	blockResult.prepareIndexedResults(len(results))
-	var logIndex uint
-	for i, result := range results {
-		blockResult.GasUsed += result.gasUsed
-		result.txResult.CumulativeGasUsed = blockResult.GasUsed
-		result.receipt.CumulativeGasUsed = blockResult.GasUsed
-		for _, log := range result.receipt.Logs {
-			log.Index = logIndex
-			logIndex++
-		}
-		blockResult.Txs[i] = result.txResult
-		blockResult.Receipts[i] = result.receipt
+	if err := fillMergedResults(ctx, e.occPool, blockResult, results); err != nil {
+		blockResult.Release()
+		return nil, err
 	}
 	if err := finalState.changeSetIntoParallel(ctx, e.occPool, &blockResult.ChangeSet); err != nil {
 		blockResult.Release()
@@ -683,18 +741,11 @@ type blockSTMState struct {
 
 // blockSTMShard holds the accepted writes for the addresses of one shard.
 type blockSTMShard struct {
-	balances map[common.Address]*big.Int
-	nonces   map[common.Address]uint64
-	code     map[common.Address][]byte
-	storage  map[storageChangeKey]common.Hash
-
-	// The prior maps hold, for each key the accepted prefix wrote, the value it had before the block:
-	// the prior the first accepted write to it carried. No transaction ahead of that writer wrote the
-	// key, so what it read was the pre-block value. Later writers read an earlier writer's value.
-	priorBalances map[common.Address]*big.Int
-	priorNonces   map[common.Address]uint64
-	priorCode     map[common.Address][]byte
-	priorStorage  map[storageChangeKey]common.Hash
+	// An account's Prior, and a slot's PriorValue, is its value before the block: the prior the first
+	// accepted write to it carried. No transaction ahead of that writer wrote it, so what it read was
+	// the pre-block value. Later writers read an earlier writer's value.
+	accounts map[common.Address]*AccountChange
+	storage  map[storageChangeKey]StorageChange
 }
 
 func newBlockSTMState(source StateReader) *blockSTMState {
@@ -704,14 +755,8 @@ func newBlockSTMState(source StateReader) *blockSTMState {
 	state := &blockSTMState{source: source}
 	for i := range state.shards {
 		state.shards[i] = blockSTMShard{
-			balances:      map[common.Address]*big.Int{},
-			nonces:        map[common.Address]uint64{},
-			code:          map[common.Address][]byte{},
-			storage:       map[storageChangeKey]common.Hash{},
-			priorBalances: map[common.Address]*big.Int{},
-			priorNonces:   map[common.Address]uint64{},
-			priorCode:     map[common.Address][]byte{},
-			priorStorage:  map[storageChangeKey]common.Hash{},
+			accounts: map[common.Address]*AccountChange{},
+			storage:  map[storageChangeKey]StorageChange{},
 		}
 	}
 	return state
@@ -722,30 +767,29 @@ func (s *blockSTMState) shard(addr common.Address) *blockSTMShard {
 }
 
 func (s *blockSTMState) GetBalance(addr common.Address) *big.Int {
-	if balance, ok := s.shard(addr).balances[addr]; ok {
-		return cloneBig(balance)
+	if change, ok := s.shard(addr).accounts[addr]; ok {
+		return cloneBig(change.Account.Balance)
 	}
 	return s.source.GetBalance(addr)
 }
 
 func (s *blockSTMState) GetNonce(addr common.Address) uint64 {
-	if nonce, ok := s.shard(addr).nonces[addr]; ok {
-		return nonce
+	if change, ok := s.shard(addr).accounts[addr]; ok {
+		return change.Account.Nonce
 	}
 	return s.source.GetNonce(addr)
 }
 
 func (s *blockSTMState) GetCode(addr common.Address) []byte {
-	if code, ok := s.shard(addr).code[addr]; ok {
-		return cloneBytes(code)
+	if change, ok := s.shard(addr).accounts[addr]; ok {
+		return cloneBytes(change.Account.Code)
 	}
 	return s.source.GetCode(addr)
 }
 
 func (s *blockSTMState) GetState(addr common.Address, key common.Hash) common.Hash {
-	shard := s.shard(addr)
-	if value, ok := shard.storage[storageChangeKey{address: addr, key: key}]; ok {
-		return value
+	if change, ok := s.shard(addr).storage[storageChangeKey{address: addr, key: key}]; ok {
+		return change.Value
 	}
 	return s.source.GetState(addr, key)
 }
@@ -758,55 +802,48 @@ func (s *blockSTMState) apply(result occTxExecution) {
 // applyOwned folds the parts of one accepted result whose addresses fall in the shards owns
 // reports true for. Two callers with disjoint ownership can run concurrently.
 //
-// Results must be applied in block order, each once, for the prior maps to keep the first writer's
-// prior.
+// Results must be applied in block order, each once, for every account and slot to keep the first
+// writer's prior.
 func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
-	for change := range ownedChanges(owns, result.changeSet.Balances, balanceChangeAddr) {
+	for change := range ownedChanges(owns, result.changeSet.Accounts, accountChangeAddr) {
 		shard := s.shard(change.Address)
-		if _, ok := shard.priorBalances[change.Address]; !ok {
-			shard.priorBalances[change.Address] = change.PriorBalance
+		accepted, ok := shard.accounts[change.Address]
+		if !ok {
+			accepted = &AccountChange{Address: change.Address, Account: change.Prior, Prior: change.Prior}
+			shard.accounts[change.Address] = accepted
 		}
+		// Only the fields the transaction wrote are folded in: one it left alone holds the value it
+		// read, which a transaction ahead of it may since have changed.
+		//
+		// A credit is never zero, so an account credited without a balance write has a changed
+		// balance, and so a change here; one whose credit a balance write undid has nothing to fold.
 		delta := result.commutativeBalanceDeltas[change.Address]
 		_, normalWrite := result.writeSet[stateAccessKey{kind: stateAccessBalance, address: change.Address}]
-		if delta != nil && !normalWrite {
-			balance := cloneBig(s.GetBalance(change.Address))
-			balance.Add(balance, delta)
-			shard.balances[change.Address] = balance
-			continue
+		switch {
+		case delta != nil && !normalWrite:
+			balance := cloneBig(accepted.Account.Balance)
+			accepted.Account.Balance = balance.Add(balance, delta)
+		case change.BalanceChanged():
+			accepted.Account.Balance = cloneBig(change.Account.Balance)
 		}
-		shard.balances[change.Address] = cloneBig(change.Balance)
-	}
-	for change := range ownedChanges(owns, result.changeSet.Nonces, nonceChangeAddr) {
-		shard := s.shard(change.Address)
-		if _, ok := shard.priorNonces[change.Address]; !ok {
-			shard.priorNonces[change.Address] = change.PriorNonce
+		if change.NonceChanged() {
+			accepted.Account.Nonce = change.Account.Nonce
 		}
-		shard.nonces[change.Address] = change.Nonce
-	}
-	for change := range ownedChanges(owns, result.changeSet.Code, codeChangeAddr) {
-		shard := s.shard(change.Address)
-		if _, ok := shard.priorCode[change.Address]; !ok {
-			shard.priorCode[change.Address] = cloneBytes(change.PriorCode)
-		}
-		if change.Delete {
-			shard.code[change.Address] = nil
-		} else {
-			shard.code[change.Address] = cloneBytes(change.Code)
+		if change.CodeChanged() {
+			accepted.Account.Code = change.Account.Code
 		}
 	}
 	for change := range ownedChanges(owns, result.changeSet.Storage, storageChangeAddr) {
 		shard := s.shard(change.Address)
 		key := storageChangeKey{address: change.Address, key: change.Key}
-		if _, ok := shard.priorStorage[key]; !ok {
-			shard.priorStorage[key] = change.PriorValue
+		if accepted, ok := shard.storage[key]; ok {
+			change.PriorValue = accepted.PriorValue
 		}
-		shard.storage[key] = change.Value
+		shard.storage[key] = change
 	}
 }
 
-func balanceChangeAddr(c BalanceChange) common.Address { return c.Address }
-func nonceChangeAddr(c NonceChange) common.Address     { return c.Address }
-func codeChangeAddr(c CodeChange) common.Address       { return c.Address }
+func accountChangeAddr(c AccountChange) common.Address { return c.Address }
 func storageChangeAddr(c StorageChange) common.Address { return c.Address }
 
 func (s *blockSTMState) ChangeSet() StateChangeSet {
@@ -827,29 +864,10 @@ func (s *blockSTMState) ChangeSetInto(changes *StateChangeSet) {
 // the address space in canonical order, so appending shard by shard yields a canonically ordered
 // changeset.
 func (h *blockSTMShard) changeSetInto(changes *StateChangeSet) {
-	for _, addr := range sortedAddresses(h.balances) {
-		balance, prior := h.balances[addr], h.priorBalances[addr]
-		if prior == nil {
-			prior = new(big.Int)
+	for _, addr := range sortedAddresses(h.accounts) {
+		if change := h.accounts[addr]; change.BalanceChanged() || change.NonceChanged() || change.CodeChanged() {
+			changes.Accounts = append(changes.Accounts, *change)
 		}
-		if balance.Cmp(prior) == 0 {
-			continue
-		}
-		changes.Balances = append(changes.Balances, BalanceChange{Address: addr, Balance: cloneBig(balance), PriorBalance: prior})
-	}
-	for _, addr := range sortedAddresses(h.nonces) {
-		nonce, prior := h.nonces[addr], h.priorNonces[addr]
-		if nonce == prior {
-			continue
-		}
-		changes.Nonces = append(changes.Nonces, NonceChange{Address: addr, Nonce: nonce, PriorNonce: prior})
-	}
-	for _, addr := range sortedAddresses(h.code) {
-		code, prior := h.code[addr], h.priorCode[addr]
-		if bytes.Equal(code, prior) {
-			continue
-		}
-		changes.Code = append(changes.Code, CodeChange{Address: addr, Code: cloneBytes(code), Delete: len(code) == 0, PriorCode: cloneBytes(prior)})
 	}
 	storageKeys := make([]storageChangeKey, 0, len(h.storage))
 	for key := range h.storage {
@@ -862,17 +880,9 @@ func (h *blockSTMShard) changeSetInto(changes *StateChangeSet) {
 		return bytes.Compare(storageKeys[i].key[:], storageKeys[j].key[:]) < 0
 	})
 	for _, key := range storageKeys {
-		value, prior := h.storage[key], h.priorStorage[key]
-		if value == prior {
-			continue
+		if change := h.storage[key]; change.Value != change.PriorValue {
+			changes.Storage = append(changes.Storage, change)
 		}
-		changes.Storage = append(changes.Storage, StorageChange{
-			Address:    key.address,
-			Key:        key.key,
-			Value:      value,
-			Delete:     value == (common.Hash{}),
-			PriorValue: prior,
-		})
 	}
 }
 

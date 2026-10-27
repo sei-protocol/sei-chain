@@ -179,6 +179,6 @@ Unlike Ethereum, an EVM transaction on Sei could fail before it reaches the EVM 
 CosmWasm contracts can interact with the EVM through two mechanisms:
 
 - **Queries** — static EVM calls, ERC20/721/1155 token queries, address lookups.
-- **Messages** — `MsgInternalEVMCall` for regular calls and `MsgInternalEVMDelegateCall` for delegate calls (restricted to whitelisted pointer contracts).
+- **Messages** — `MsgInternalEVMCall` for regular calls and `MsgInternalEVMDelegateCall` for delegate calls (only a CW pointer may delegate-call, and only into the ERC token it wraps).
 
 ---

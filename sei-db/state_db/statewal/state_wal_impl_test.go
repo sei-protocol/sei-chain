@@ -9,7 +9,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
@@ -139,9 +138,9 @@ func TestEmptyChangesetBlockIsStored(t *testing.T) {
 	ok, err = it.Next()
 	require.NoError(t, err)
 	require.True(t, ok)
-	blockNumber, changeset := it.Entry()
+	blockNumber, mutations := it.Entry()
 	require.Equal(t, uint64(1), blockNumber)
-	require.Empty(t, changeset)
+	require.Empty(t, mutations)
 }
 
 func TestPruneDropsOldBlocks(t *testing.T) {
@@ -283,7 +282,7 @@ func TestWriteStoresMutationsInKeyOrder(t *testing.T) {
 		return mutations
 	}
 
-	readBack := func(mutations []mutation.Mutation) ([]*proto.NamedChangeSet, [32]byte) {
+	readBack := func(mutations []mutation.Mutation) ([]mutation.Mutation, [32]byte) {
 		w := openWAL(t, testConfig(t.TempDir()))
 		defer func() { require.NoError(t, w.Close()) }()
 		require.NoError(t, w.Write(1, mutations))
@@ -295,21 +294,22 @@ func TestWriteStoresMutationsInKeyOrder(t *testing.T) {
 		ok, err := it.Next()
 		require.NoError(t, err)
 		require.True(t, ok)
-		_, changeSets := it.Entry()
+		_, stored := it.Entry()
 		hash, err := it.GetHash()
 		require.NoError(t, err)
-		return changeSets, hash
+		return stored, hash
 	}
 
-	forwardChangeSets, forwardHash := readBack(inOrder(false))
-	reverseChangeSets, reverseHash := readBack(inOrder(true))
-	require.Equal(t, forwardChangeSets, reverseChangeSets)
+	forwardMutations, forwardHash := readBack(inOrder(false))
+	reverseMutations, reverseHash := readBack(inOrder(true))
+	require.Equal(t, forwardMutations, reverseMutations)
 	require.Equal(t, forwardHash, reverseHash)
 
-	require.Len(t, forwardChangeSets, 1)
-	var storedKeys []string
-	for _, pair := range forwardChangeSets[0].Changeset.Pairs {
-		storedKeys = append(storedKeys, string(pair.Key))
+	expected := []mutation.Mutation{
+		makeMutation("bank", []byte("a"), []byte("a")),
+		makeMutation("bank", []byte("b"), []byte("b")),
+		makeMutation("bank", []byte("c"), []byte("c")),
+		makeMutation("bank", []byte("d"), []byte("d")),
 	}
-	require.Equal(t, []string{"a", "b", "c", "d"}, storedKeys)
+	require.Equal(t, expected, forwardMutations)
 }

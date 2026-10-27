@@ -52,7 +52,7 @@ func TestSnapshotReaderServesAnAbsentAccountAsEmpty(t *testing.T) {
 	account, served := reader.ReadAccount(testAddress(0xb2))
 
 	require.True(t, served)
-	require.Equal(t, baseAccount{}, account)
+	require.Equal(t, AccountState{}, account)
 }
 
 // With a missing-account reader configured, an account the view does not hold is that reader's to
@@ -94,8 +94,10 @@ func TestParallelMergeReadsNoAccount(t *testing.T) {
 
 	state := newBlockSTMState(gigaSnapshotStateReader{snapshot: reading})
 	for i, addr := range addrs {
-		state.shard(addr).balances[addr] = big.NewInt(int64(i) + 100)
-		state.shard(addr).nonces[addr] = uint64(i) + 1 //nolint:gosec // i is non-negative.
+		state.shard(addr).accounts[addr] = &AccountChange{
+			Address: addr,
+			Account: AccountState{Balance: big.NewInt(int64(i) + 100), Nonce: uint64(i) + 1}, //nolint:gosec // i is non-negative.
+		}
 	}
 	pool := newOCCWorkerPool(4)
 	defer pool.Close()
@@ -106,9 +108,8 @@ func TestParallelMergeReadsNoAccount(t *testing.T) {
 	require.Zero(t, reading.reads.Load(), "the parallel merge must read no row")
 	require.Equal(t, state.ChangeSet(), changes, "the parallel merge must match the serial one")
 	require.Zero(t, reading.reads.Load(), "the serial merge must read no row")
-	require.Len(t, changes.Balances, len(addrs))
-	require.Len(t, changes.Nonces, len(addrs))
-	for i := 1; i < len(changes.Balances); i++ {
-		require.Negative(t, bytes.Compare(changes.Balances[i-1].Address[:], changes.Balances[i].Address[:]))
+	require.Len(t, changes.Accounts, len(addrs))
+	for i := 1; i < len(changes.Accounts); i++ {
+		require.Negative(t, bytes.Compare(changes.Accounts[i-1].Address[:], changes.Accounts[i].Address[:]))
 	}
 }
