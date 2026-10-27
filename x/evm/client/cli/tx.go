@@ -59,7 +59,6 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(CmdERC20Send())
 	cmd.AddCommand(CmdCallPrecompile())
 	cmd.AddCommand(NativeSendTxCmd())
-	cmd.AddCommand(AssociateContractAddressCmd())
 	cmd.AddCommand(NativeAssociateCmd())
 	cmd.AddCommand(PrintClaimTxPayloadCmd())
 	cmd.AddCommand(PrintClaimTxBySenderPayloadCmd())
