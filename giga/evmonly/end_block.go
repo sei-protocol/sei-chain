@@ -96,17 +96,9 @@ func endBlockContext(block BlockContext, chainID *big.Int) precompiles.BlockCont
 // entry of later replaces dst's value for the same key but keeps dst's prior,
 // which is the value before the block. Every list stays sorted by key.
 func mergeChangeSet(dst *StateChangeSet, later StateChangeSet) {
-	for _, change := range later.Balances {
-		dst.Balances = upsertSorted(dst.Balances, change, compareAddress[BalanceChange](func(c BalanceChange) common.Address { return c.Address }),
-			func(c *BalanceChange, prior BalanceChange) { c.PriorBalance = prior.PriorBalance })
-	}
-	for _, change := range later.Nonces {
-		dst.Nonces = upsertSorted(dst.Nonces, change, compareAddress[NonceChange](func(c NonceChange) common.Address { return c.Address }),
-			func(c *NonceChange, prior NonceChange) { c.PriorNonce = prior.PriorNonce })
-	}
-	for _, change := range later.Code {
-		dst.Code = upsertSorted(dst.Code, change, compareAddress[CodeChange](func(c CodeChange) common.Address { return c.Address }),
-			func(c *CodeChange, prior CodeChange) { c.PriorCode = prior.PriorCode })
+	for _, change := range later.Accounts {
+		dst.Accounts = upsertSorted(dst.Accounts, change, compareAddress[AccountChange](func(c AccountChange) common.Address { return c.Address }),
+			func(c *AccountChange, prior AccountChange) { c.Prior = prior.Prior })
 	}
 	for _, change := range later.Storage {
 		dst.Storage = upsertSorted(dst.Storage, change, compareStorageChange,

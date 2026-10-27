@@ -5,17 +5,16 @@ import (
 
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
-// A WAL for state. Each block is written as mutations and read back as changesets.
+// A WAL for state. Each block is written and read back as mutations.
 //
 // A StateWAL is not safe for concurrent use. Callers must serialize their calls to a single instance;
 // in particular Write maintains write-ordering state that is not internally locked.
 //
-// The changesets returned by the iterator are owned by the WAL and must not be modified.
+// The mutations returned by the iterator are owned by the WAL and must not be modified.
 type StateWAL interface {
 	controllertypes.PrunableStore
 
@@ -108,10 +107,8 @@ type StateWAL interface {
 	Close() error
 }
 
-// A callback that receives the hash of the key-value pairs modified by executing the transactions in a block. Its
-// signature matches AppHashBuilder.ReportBUDHash(), so that method registers as one directly.
-//
-// The hash is currently a stopgap placeholder, not a BUD as the BUD spec defines it; see computePlaceholderHash().
+// A callback that receives the BUD hash of a block: a commitment to the key-value pairs modified by executing the
+// block's transactions. Its signature matches AppHashBuilder.ReportBUDHash(), so that method registers as one directly.
 type HashListener func(
 	// Cancelled when the StateWAL stops. A listener blocked when it is cancelled must return.
 	ctx context.Context,
@@ -121,9 +118,9 @@ type HashListener func(
 	hash [32]byte,
 ) error
 
-// An iterator over the blocks of a StateWAL. Entry() returns (blockNumber, changesets).
+// An iterator over the blocks of a StateWAL. Entry() returns (blockNumber, mutations).
 type StateWALIterator interface {
-	seiwal.Iterator[[]*proto.NamedChangeSet]
+	seiwal.Iterator[[]mutation.Mutation]
 
 	// GetHash returns the hash delivered to listeners for the block at the iterator's current position. It is valid
 	// only after Next() returns true.

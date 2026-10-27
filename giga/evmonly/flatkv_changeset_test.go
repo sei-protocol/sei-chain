@@ -22,9 +22,10 @@ func TestFlatKVChangeSetEncoderPersistsExecutorState(t *testing.T) {
 	address := common.Address{0x11}
 	slotA, slotB := common.Hash{0x21}, common.Hash{0x22}
 	changes, err := NewFlatKVChangeSetEncoder()(StateChangeSet{
-		Balances: []BalanceChange{{Address: address, Balance: big.NewInt(99)}},
-		Nonces:   []NonceChange{{Address: address, Nonce: 7}},
-		Code:     []CodeChange{{Address: address, Code: []byte{0x60, 0x01}}},
+		Accounts: []AccountChange{{
+			Address: address,
+			Account: AccountState{Balance: big.NewInt(99), Nonce: 7, Code: []byte{0x60, 0x01}},
+		}},
 		Storage: []StorageChange{
 			{Address: address, Key: slotA, Value: common.Hash{0xaa}},
 			{Address: address, Key: slotB, Value: common.Hash{0xbb}},

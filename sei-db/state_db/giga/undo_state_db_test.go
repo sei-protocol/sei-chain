@@ -66,8 +66,10 @@ func (m *undoModel) commitBlock(t *testing.T, db *StateDB, writes map[string][]b
 	for key, value := range writes {
 		old := prev[key]
 		if key[0] == nonceKey(common.Address{})[0] {
-			changes.Nonces = append(changes.Nonces, gigatypes.NonceChange{
-				Address: common.BytesToAddress([]byte(key[1:])), Nonce: nonceOf(value), PriorNonce: nonceOf(old)})
+			changes.Accounts = append(changes.Accounts, gigatypes.AccountChange{
+				Address: common.BytesToAddress([]byte(key[1:])),
+				Account: gigatypes.AccountState{Nonce: nonceOf(value)},
+				Prior:   gigatypes.AccountState{Nonce: nonceOf(old)}})
 		} else {
 			changes.Storage = append(changes.Storage, gigatypes.StorageChange{
 				Address: common.BytesToAddress([]byte(key[1:21])), Key: common.BytesToHash([]byte(key[21:])),
@@ -237,8 +239,11 @@ func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 			{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]), Value: newCodeHash.Bytes()},
 			{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr[:]), Value: newCode},
 		}}}}, &gigatypes.StateChangeSet{
-		Balances: []gigatypes.BalanceChange{{Address: addr, Balance: big.NewInt(9), PriorBalance: big.NewInt(4)}},
-		Code:     []gigatypes.CodeChange{{Address: addr, Code: newCode, PriorCode: oldCode}},
+		Accounts: []gigatypes.AccountChange{{
+			Address: addr,
+			Account: gigatypes.AccountState{Balance: big.NewInt(9), Code: newCode},
+			Prior:   gigatypes.AccountState{Balance: big.NewInt(4), Code: oldCode},
+		}},
 	}))
 	db.UndoSS().WaitForPendingWrites()
 
@@ -263,7 +268,7 @@ func TestUndoStateDBCommitsABlockThatWritesNoEVMState(t *testing.T) {
 	addr := common.Address{3}
 	require.NoError(t, db.CommitStateChangesWithPrior(1, []*proto.NamedChangeSet{{Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: nonceKey(addr), Value: nonceValue(1)}}}}},
-		&gigatypes.StateChangeSet{Nonces: []gigatypes.NonceChange{{Address: addr, Nonce: 1}}}))
+		&gigatypes.StateChangeSet{Accounts: []gigatypes.AccountChange{{Address: addr, Account: gigatypes.AccountState{Nonce: 1}}}}))
 
 	require.NoError(t, db.CommitStateChangesWithPrior(2, []*proto.NamedChangeSet{{Name: "cursor",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("head"), Value: []byte{2}}}}}}, &gigatypes.StateChangeSet{}))
@@ -290,7 +295,11 @@ func TestUndoStateDBResumesOnASeededHeight(t *testing.T) {
 		nonce := uint64(block - 4) //nolint:gosec // positive
 		require.NoError(t, db.CommitStateChangesWithPrior(block, []*proto.NamedChangeSet{{Name: keys.EVMStoreKey,
 			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: nonceKey(addr), Value: nonceValue(nonce)}}}}},
-			&gigatypes.StateChangeSet{Nonces: []gigatypes.NonceChange{{Address: addr, Nonce: nonce, PriorNonce: nonce - 1}}}))
+			&gigatypes.StateChangeSet{Accounts: []gigatypes.AccountChange{{
+				Address: addr,
+				Account: gigatypes.AccountState{Nonce: nonce},
+				Prior:   gigatypes.AccountState{Nonce: nonce - 1},
+			}}}))
 	}
 	db.UndoSS().WaitForPendingWrites()
 
