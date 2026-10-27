@@ -350,6 +350,24 @@ func TestEndBlockCarriesOverPastBudget(t *testing.T) {
 	require.Zero(t, h.state.GetBalance(DepositEscrow).Sign(), "all deposits burn")
 }
 
+func TestEndBlockEndsVotingPastSpentDropBudget(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	params := testParams
+	params.MinDeposit = usei(1_000_000)
+	SetParams(h.state, params)
+	voted := h.open(textProposal, params.MinDeposit)
+	h.vote(alice, voted, OptionYes)
+	h.vote(bob, voted, OptionYes)
+	for range 6 {
+		h.fillDepositors(h.submit(alice, textProposal, nil), maxDepositors-1)
+	}
+
+	h.time = startTime + params.VotingPeriod
+	h.endBlock(1)
+	require.NotZero(t, newStore(h.state).depositQueue().Len(), "drops past their budget wait")
+	require.Equal(t, StatusPassed, h.status(voted), "drops do not spend the voting budget")
+}
+
 func TestProposalQueueOrdersByEndThenID(t *testing.T) {
 	q := newStore(newMemState()).votingQueue()
 	q.add(5, 100)
