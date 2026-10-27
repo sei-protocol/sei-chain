@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
@@ -16,8 +14,7 @@ import (
 )
 
 // TestMsgExecuteContractDisabledInDeliverTx delivers a CW20 transfer as a MsgExecuteContract
-// sent directly and as one wrapped in an authz MsgExec, with the wasm
-// msgExecuteContractDisabled and contractExecutionDisabled params off and each on.
+// with the wasm msgExecuteContractDisabled and contractExecutionDisabled params off and each on.
 func TestMsgExecuteContractDisabledInDeliverTx(t *testing.T) {
 	specs := map[string]struct {
 		msgExecuteContractDisabled bool
@@ -26,7 +23,7 @@ func TestMsgExecuteContractDisabledInDeliverTx(t *testing.T) {
 		expCodespace               string
 		expReceived                string
 	}{
-		"params off": {expReceived: "200"},
+		"params off": {expReceived: "100"},
 		"msgExecuteContractDisabled on": {
 			msgExecuteContractDisabled: true,
 			expCode:                    wasmtypes.ErrMsgExecuteContractDisabled.ABCICode(),
@@ -44,34 +41,24 @@ func TestMsgExecuteContractDisabledInDeliverTx(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			a := processblock.NewTestApp(t)
 			p := processblock.CommonPreset(a)
-			granter := p.Admin
-			grantee := a.NewSignableAccount("grantee")
-			a.FundAccount(grantee, 100000000)
+			holder := p.Admin
 			recipient := a.NewAccount()
-			cw20 := instantiateCW20(t, a, granter)
-			executeContract := authz.NewGenericAuthorization(sdk.MsgTypeURL(&wasmtypes.MsgExecuteContract{}))
-			require.NoError(t, a.AuthzKeeper.SaveGrant(a.Ctx(), grantee, granter, executeContract, time.Now().Add(time.Hour)))
+			cw20 := instantiateCW20(t, a, holder)
 			params := a.WasmKeeper.GetParams(a.Ctx())
 			params.MsgExecuteContractDisabled = spec.msgExecuteContractDisabled
 			params.ContractExecutionDisabled = spec.contractExecutionDisabled
 			a.WasmKeeper.SetParams(a.Ctx(), params)
 
 			transfer := &wasmtypes.MsgExecuteContract{
-				Sender:   granter.String(),
+				Sender:   holder.String(),
 				Contract: cw20.String(),
 				Msg:      []byte(fmt.Sprintf(`{"transfer":{"recipient":"%s","amount":"100"}}`, recipient)),
 			}
-			exec := authz.NewMsgExec(grantee, []sdk.Msg{transfer})
-			results := a.RunBlockDetailed([]signing.Tx{
-				p.AdminSign(a, transfer),
-				a.Sign(grantee, 10000000, &exec),
-			})
+			results := a.RunBlockDetailed([]signing.Tx{p.AdminSign(a, transfer)})
 
-			require.Len(t, results, 2)
-			for _, result := range results {
-				require.Equal(t, spec.expCode, result.Code, result.Log)
-				require.Equal(t, spec.expCodespace, result.Codespace)
-			}
+			require.Len(t, results, 1)
+			require.Equal(t, spec.expCode, results[0].Code, results[0].Log)
+			require.Equal(t, spec.expCodespace, results[0].Codespace)
 			balance, err := a.WasmKeeper.QuerySmart(a.Ctx(), cw20, []byte(fmt.Sprintf(`{"balance":{"address":"%s"}}`, recipient)))
 			require.NoError(t, err)
 			require.JSONEq(t, fmt.Sprintf(`{"balance":"%s"}`, spec.expReceived), string(balance))

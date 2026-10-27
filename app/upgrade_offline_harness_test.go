@@ -65,9 +65,10 @@ type offlineUpgradeVestingAccount struct {
 
 // offlineUpgradeRetainedState identifies the state the source phase wrote: the
 // store keys of each retired module, the bank balances behind IBC escrow and
-// voucher denoms, and the accounts a post-upgrade transaction moves funds
-// between. TxSenderKey is a throwaway key generated for the fixture database,
-// which the target phase needs in order to sign as that account.
+// voucher denoms, the granter of an authz grant, and the accounts a post-upgrade
+// transaction signs with and sends to. TxSenderKey is a throwaway key generated
+// for the fixture database, which the target phase needs in order to sign as
+// that account.
 type offlineUpgradeRetainedState struct {
 	FeegrantGranter        string `json:"feegrant_granter"`
 	FeegrantGrantee        string `json:"feegrant_grantee"`
@@ -95,6 +96,7 @@ type offlineUpgradeRetainedState struct {
 	IBCProposalTitle       string `json:"ibc_proposal_title"`
 	IBCProposalDescription string `json:"ibc_proposal_description"`
 	UpgradedIBCStateKey    string `json:"upgraded_ibc_state_key"`
+	AuthzGranter           string `json:"authz_granter"`
 	TxSender               string `json:"tx_sender"`
 	TxSenderKey            string `json:"tx_sender_key"`
 	TxRecipient            string `json:"tx_recipient"`
