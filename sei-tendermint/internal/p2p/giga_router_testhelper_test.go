@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -152,6 +153,39 @@ func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBloc
 	panic("unreachable")
 }
 
+// CheckBlocks verifies the FinalizeBlock requests the router delivered: heights
+// are contiguous from InitialHeight and every header names a current validator
+// as proposer.
+func (s *testAppState) CheckBlocks() error {
+	init, ok := s.Init.Get()
+	if !ok {
+		return fmt.Errorf("app not initialized")
+	}
+	for i, b := range s.Blocks {
+		if want := init.InitialHeight + int64(i); b.Header.Height != want {
+			return fmt.Errorf("blocks[%v].Height = %v, want %v", i, b.Header.Height, want)
+		}
+		if err := checkProposer(b.Header.ProposerAddress, s.Validators); err != nil {
+			return fmt.Errorf("blocks[%v]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// checkProposer verifies that the proposer is one of the given validators.
+func checkProposer(proposer types.Address, vals []abci.ValidatorUpdate) error {
+	for _, val := range vals {
+		key, err := crypto.PubKeyFromProto(val.PubKey)
+		if err != nil {
+			return fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
+		}
+		if bytes.Equal(key.Address(), proposer) {
+			return nil
+		}
+	}
+	return fmt.Errorf("proposer %X is not a current validator", proposer)
+}
+
 func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 	for state, ctrl := range a.state.Lock() {
 		if state.Committed {
@@ -164,6 +198,67 @@ func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 		// Don't prune anything.
 		RetainHeight: 0,
 	}, nil
+}
+
+// preparingTestApp is a testApp that implements blockPreparer. It counts the
+// FinalizeBlock calls whose block PrepareBlock had already seen with the same
+// height and hash, and holds FinalizeBlock(h), for h below holdUntil, until
+// PrepareBlock(h+1) has been called.
+type preparingTestApp struct {
+	*testApp
+	holdUntil int64
+	log       utils.Watch[*prepareLog]
+}
+
+type prepareLog struct {
+	prepared map[int64][]byte
+	hits     int
+	misses   int
+}
+
+func newPreparingTestApp(holdUntil int64) *preparingTestApp {
+	return &preparingTestApp{
+		testApp:   newTestApp(),
+		holdUntil: holdUntil,
+		log:       utils.NewWatch(&prepareLog{prepared: map[int64][]byte{}}),
+	}
+}
+
+func (a *preparingTestApp) PrepareBlock(_ context.Context, req *abci.RequestFinalizeBlock) error {
+	for log, ctrl := range a.log.Lock() {
+		log.prepared[req.Header.Height] = slices.Clone(req.Hash)
+		ctrl.Updated()
+	}
+	return nil
+}
+
+func (a *preparingTestApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	height := req.Header.Height
+	for log, ctrl := range a.log.Lock() {
+		if height < a.holdUntil {
+			if err := ctrl.WaitUntil(ctx, func() bool {
+				_, ok := log.prepared[height+1]
+				return ok
+			}); err != nil {
+				return nil, err
+			}
+		}
+		if hash, ok := log.prepared[height]; ok && bytes.Equal(hash, req.Hash) {
+			log.hits++
+		} else {
+			log.misses++
+		}
+		delete(log.prepared, height)
+	}
+	return a.testApp.FinalizeBlock(ctx, req)
+}
+
+// PreparedCounts returns how many finalized blocks PrepareBlock had seen, and how many it had not.
+func (a *preparingTestApp) PreparedCounts() (hits, misses int) {
+	for log := range a.log.Lock() {
+		return log.hits, log.misses
+	}
+	panic("unreachable")
 }
 
 func (a *testApp) WaitForTx(ctx context.Context, tx []byte) error {
