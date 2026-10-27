@@ -77,31 +77,40 @@ func (w *blockStoreWriter) writeBlock(number int64, payload [][]byte) error {
 	if err != nil {
 		return err
 	}
+	pending := append(w.pending, block)
+	if len(pending) == w.config.LaneBlocksPerSuperblock {
+		index := autobahn.RoadIndex((number-1)/int64(w.config.LaneBlocksPerSuperblock) + 1) //nolint:gosec // generated heights are positive
+		if err := w.writeSuperBlock(index, pending); err != nil {
+			return err
+		}
+		w.pending = pending[:0]
+	} else {
+		w.pending = pending
+	}
 	w.parentHash = block.Header().Hash()
 	w.laneBlockNumber = block.Header().Next()
-	w.pending = append(w.pending, block)
-	if len(w.pending) < w.config.LaneBlocksPerSuperblock {
-		return nil
-	}
-	index := autobahn.RoadIndex((number-1)/int64(w.config.LaneBlocksPerSuperblock) + 1) //nolint:gosec // generated heights are positive
+	return nil
+}
+
+// writeSuperBlock persists a complete batch after finalizing prior roads.
+func (w *blockStoreWriter) writeSuperBlock(index autobahn.RoadIndex, blocks []*autobahn.Block) error {
 	if err := w.finalizeBlocksBelow(index); err != nil {
 		return err
 	}
 	w.phases.SetPhase("write_block")
-	qc := autobahn.GenFullCommitQCAt(w.rng, index, len(w.pending))
-	headers := make([]*autobahn.BlockHeader, len(w.pending))
-	for i, laneBlock := range w.pending {
+	qc := autobahn.GenFullCommitQCAt(w.rng, index, len(blocks))
+	headers := make([]*autobahn.BlockHeader, len(blocks))
+	for i, laneBlock := range blocks {
 		headers[i] = laneBlock.Header()
 	}
 	qc = autobahn.NewFullCommitQC(qc.QC(), headers)
-	if err := w.store.WriteBlock(autobahn.NewRoadBlock(qc, w.pending)); err != nil {
+	if err := w.store.WriteBlock(autobahn.NewRoadBlock(qc, blocks)); err != nil {
 		return fmt.Errorf("failed to write SuperBlock %d: %w", index, err)
 	}
-	for _, laneBlock := range w.pending {
+	for _, laneBlock := range blocks {
 		w.metrics.ReportStoreBytesWritten(storeBlockDB, payloadBytes(laneBlock.Payload().Txs()))
 	}
 	w.metrics.ReportQCWritten()
-	w.pending = w.pending[:0]
 	return nil
 }
 
@@ -152,14 +161,31 @@ func (w *blockStoreWriter) finalizeBlocksBelow(next autobahn.RoadIndex) error {
 		return nil
 	}
 	for index := status.NextAppQC; index < next; index++ {
-		w.phases.SetPhase("write_app_qc")
-		appProposal := autobahn.GenAppProposalAt(w.rng, index)
+		if err := w.finalizeBlock(index); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// finalizeBlock writes any missing AppProposal and the AppQC for a road.
+func (w *blockStoreWriter) finalizeBlock(index autobahn.RoadIndex) error {
+	w.phases.SetPhase("write_app_qc")
+	var appProposal *autobahn.AppProposal
+	if index < w.store.Status().OrPanic("finalizing a stored block").NextAppProposal {
+		stored, err := w.store.ReadAppProposal(index)
+		if err != nil {
+			return fmt.Errorf("failed to read AppProposal %d: %w", index, err)
+		}
+		appProposal = stored.OrPanic("stored AppProposal missing")
+	} else {
+		appProposal = autobahn.GenAppProposalAt(w.rng, index)
 		if err := w.store.WriteAppProposal(appProposal); err != nil {
 			return fmt.Errorf("failed to write AppProposal %d: %w", index, err)
 		}
-		if err := w.store.WriteAppQC(autobahn.GenAppQCFor(w.rng, appProposal)); err != nil {
-			return fmt.Errorf("failed to write AppQC %d: %w", index, err)
-		}
+	}
+	if err := w.store.WriteAppQC(autobahn.GenAppQCFor(w.rng, appProposal)); err != nil {
+		return fmt.Errorf("failed to write AppQC %d: %w", index, err)
 	}
 	return nil
 }
