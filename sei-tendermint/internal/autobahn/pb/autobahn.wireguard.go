@@ -28,11 +28,11 @@ func (*BlockHeader) MaxSize() int {
 }
 
 func (*Payload) MaxSize() int {
-	return 10650046
+	return 10320046
 }
 
 func (*Block) MaxSize() int {
-	return 10650182
+	return 10320182
 }
 
 func (*LaneQC) MaxSize() int {
@@ -88,7 +88,7 @@ func (*AppProposal) MaxSize() int {
 }
 
 func (*Msg) MaxSize() int {
-	return 10650187
+	return 10320187
 }
 
 func (*SignedProposal) MaxSize() int {
@@ -104,7 +104,7 @@ func (*SignedAppVote) MaxSize() int {
 }
 
 func (*SignedBlock) MaxSize() int {
-	return 10650291
+	return 10320291
 }
 
 func (*SignedBlockHeader) MaxSize() int {
@@ -202,7 +202,7 @@ func init() {
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Timestamp]())},
 		7: {MaxCount: 1},
 		8: {MaxCount: 1},
-		6: {MaxCount: 50000, MaxTotalSize: 10485760},
+		6: {MaxCount: 20000, MaxTotalSize: 10240000},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.Block.

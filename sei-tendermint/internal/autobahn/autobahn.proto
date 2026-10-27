@@ -98,8 +98,8 @@ message Payload {
   optional uint64 total_gas_wanted = 7; // required
   optional uint64 total_gas_estimated = 8; // required
   repeated bytes txs = 6 [
-    (wireguard.max_count) = 50000,
-    (wireguard.max_total_size) = 10485760
+    (wireguard.max_count) = 20000,
+    (wireguard.max_total_size) = 10240000
   ];
 }
 

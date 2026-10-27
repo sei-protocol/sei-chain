@@ -55,6 +55,10 @@ func (c *Config) maxTxsPerBlock() uint64 {
 	return min(types.MaxTxsPerBlock, c.MaxTxsPerBlock)
 }
 
+func (c *Config) maxTxsBytesPerBlock() uint64 {
+	return types.TxsBytesLimit(c.maxTxsPerBlock())
+}
+
 func (c *Config) maxPendingInserts() uint64 {
 	if c.MaxPendingInserts == 0 {
 		return DefaultMaxPendingInserts

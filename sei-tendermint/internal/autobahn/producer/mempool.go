@@ -392,7 +392,7 @@ func (s *State) boundedInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull b
 }
 
 func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
-	if uint64(len(tx)) > types.MaxTxsBytesPerBlock {
+	if uint64(len(tx)) > s.cfg.maxTxsBytesPerBlock() {
 		return nil, errTooLarge
 	}
 	// Reject / wait for a produce session before CheckTxSafe — IsFull and closed
@@ -536,7 +536,7 @@ func (s *State) appendTx(m *mempoolInner, ctrl *utils.WatchCtrl, tx tmtypes.Tx, 
 	// If any limit would be exceeded, then construct a payload.
 	// Note that we use subtraction in a way avoiding arithmetic overflows.
 	ok := s.cfg.maxTxsPerBlock()-uint64(len(m.nextBlock.txs)) >= 1
-	ok = ok && types.MaxTxsBytesPerBlock-m.nextBlock.sizeBytes >= uint64(len(tx))
+	ok = ok && s.cfg.maxTxsBytesPerBlock()-m.nextBlock.sizeBytes >= uint64(len(tx))
 	ok = ok && s.cfg.MaxGasWantedPerBlock-m.nextBlock.gasWanted >= gasWanted
 	ok = ok && s.cfg.MaxGasEstimatedPerBlock-m.nextBlock.gasEstimated >= gasEstimated
 	if !ok {

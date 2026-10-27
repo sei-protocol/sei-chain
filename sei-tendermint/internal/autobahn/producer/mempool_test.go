@@ -71,7 +71,7 @@ func (tx *txSpec) asResponse() *abci.ResponseCheckTxV2 {
 }
 
 func (env *testEnv) genTx(rng utils.Rng, addr common.Address, nonce uint64) *txSpec {
-	gasBase := max(1, int(env.state.cfg.MaxGasWantedPerBlock/env.state.cfg.maxTxsPerBlock()))
+	gasBase := int(env.state.cfg.MaxGasWantedPerBlock / env.state.cfg.maxTxsPerBlock())
 	gasJitter := min(gasBase, 10)
 	return &txSpec{
 		Address: addr,
@@ -288,6 +288,21 @@ func TestInsertTx_TooLargeTx(t *testing.T) {
 	// Tx with size exceeding block limit.
 	tx := utils.GenBytes(rng, int(types.MaxTxsBytesPerBlock+1))
 	// Should be rejected by mempool.
+	_, err := env.state.InsertTx(ctx, tx)
+	require.ErrorIs(t, err, errTooLarge)
+	require.Empty(t, env.state.UnconfirmedTxs())
+}
+
+// The producer refuses a tx larger than the byte limit its transaction limit allows, not just the
+// protocol ceiling.
+func TestInsertTx_TooLargeForTheConfiguredTxLimit(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	cfg := app.Cfg()
+	cfg.MaxTxsPerBlock = 2
+	env := newTestEnv(rng, cfg, app.Proxy())
+	tx := utils.GenBytes(rng, int(types.TxsBytesLimit(cfg.MaxTxsPerBlock)+1))
 	_, err := env.state.InsertTx(ctx, tx)
 	require.ErrorIs(t, err, errTooLarge)
 	require.Empty(t, env.state.UnconfirmedTxs())

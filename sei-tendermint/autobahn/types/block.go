@@ -131,12 +131,21 @@ func (h *BlockHeader) Verify(c *Committee) error {
 }
 
 // Maximum number of transactions in a block.
-const MaxTxsPerBlock uint64 = 50000
+const MaxTxsPerBlock uint64 = 20000
 
 // Maximum total size of all the transactions.
-// It can be split arbitrarily across transactions (1 large, 50000 small ones, etc.)
+// It can be split arbitrarily across transactions (1 large, 20000 small ones, etc.)
 // up to MaxTxsPerBlock limit.
-const MaxTxsBytesPerBlock uint64 = 10 * 1024 * 1024
+const MaxTxsBytesPerBlock uint64 = MaxTxsPerBlock * 512
+
+// txBytesPerTx is the byte budget a block grants for each transaction it may hold.
+const txBytesPerTx uint64 = 1024
+
+// TxsBytesLimit returns the total transaction bytes allowed in a block of at most maxTxs
+// transactions.
+func TxsBytesLimit(maxTxs uint64) uint64 {
+	return min(MaxTxsBytesPerBlock, min(maxTxs, MaxTxsPerBlock)*txBytesPerTx)
+}
 
 // Upper bound on the block proto encoding.
 var MaxBlockProtoSize = func() uint64 {

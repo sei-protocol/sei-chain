@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	maxTxsPerBlock  = 50000                            // Payload.txs max_count
-	maxTotalTxBytes = 10485760                         // Payload.txs max_total_size
-	maxBytesPerTx   = maxTotalTxBytes / maxTxsPerBlock // 209
+	maxTxsPerBlock  = 20000                            // Payload.txs max_count
+	maxTotalTxBytes = 10240000                         // Payload.txs max_total_size
+	maxBytesPerTx   = maxTotalTxBytes / maxTxsPerBlock // 512
 )
 
 // maxBlock builds a Block at the wireguard limits: maxTxsPerBlock transactions

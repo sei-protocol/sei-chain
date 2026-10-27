@@ -208,3 +208,11 @@ func TestFullProposalWireguardAcceptsMaxValidators(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, decoded.LaneQcs, MaxValidators)
 }
+
+// A block's byte limit follows its transaction limit, so a producer configured for the old 2000-tx
+// limit seals blocks no larger than the old byte limit.
+func TestTxsBytesLimitFollowsTheTransactionLimit(t *testing.T) {
+	require.Equal(t, uint64(2_048_000), TxsBytesLimit(2000))
+	require.Equal(t, MaxTxsBytesPerBlock, TxsBytesLimit(MaxTxsPerBlock))
+	require.Equal(t, MaxTxsBytesPerBlock, TxsBytesLimit(^uint64(0)))
+}
