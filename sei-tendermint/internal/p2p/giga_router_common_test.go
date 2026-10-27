@@ -197,6 +197,25 @@ func (a *epochWindowRestartApp) CommittedEpochWindow() (utils.Option[epoch.State
 	return utils.Some(a.window), nil
 }
 
+// epochWindowForwardApp is an application restarted before epoch 0 closes. It
+// reports validators and records the epoch windows it is given.
+type epochWindowForwardApp struct {
+	epochWindowRestartApp
+	validators []abci.ValidatorUpdate
+	staged     map[atypes.GlobalBlockNumber]epoch.StateWindow
+}
+
+func (a *epochWindowForwardApp) GetValidators() []abci.ValidatorUpdate { return a.validators }
+
+func (a *epochWindowForwardApp) SetEpochWindow(n atypes.GlobalBlockNumber, window epoch.StateWindow) error {
+	a.staged[n] = window
+	return nil
+}
+
+func (a *epochWindowForwardApp) CommittedEpochWindow() (utils.Option[epoch.StateWindow], error) {
+	return utils.None[epoch.StateWindow](), nil
+}
+
 // testCommitQCAtRoad returns a one-block CommitQC of ep at road, starting at
 // global block first.
 func testCommitQCAtRoad(ep *atypes.Epoch, keys []atypes.SecretKey, road atypes.RoadIndex, first atypes.GlobalBlockNumber) (*atypes.FullCommitQC, []*atypes.Block) {
@@ -265,6 +284,75 @@ func TestRunExecuteRestartAtClosingBlockStagesCommittedEpochWindow(t *testing.T)
 	require.Equal(t, atypes.EpochIndex(2), pending)
 	require.NoError(t, state.Registry().ActivateEpoch(2))
 	require.True(t, state.Registry().MustEpoch(2).Committee().Equal(window.Next().Committee))
+}
+
+func TestRunExecuteClosingBlockCommitsAndStagesEpochWindow(t *testing.T) {
+	rng := utils.TestRng()
+	valKey := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
+	key := atypes.SecretKeyFromED25519(valKey)
+	keys := []atypes.SecretKey{key}
+	genDoc := &tmtypes.GenesisDoc{
+		ChainID:         "forward-epoch-window-test",
+		InitialHeight:   1,
+		GenesisTime:     time.Now(),
+		ConsensusParams: tmtypes.DefaultConsensusParams(),
+	}
+	require.NoError(t, genDoc.ValidateAndComplete())
+
+	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
+	require.NoError(t, err)
+	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
+	require.NoError(t, err)
+	ep0 := registry.MustEpoch(0)
+	beforeQC, beforeBlocks := testCommitQCAtRoad(ep0, keys, registry.LastRoad(0)-1, ep0.FirstBlock())
+	before := beforeQC.QC().GlobalRange().Next - 1
+	closingQC, closingBlocks := testCommitQCAtRoad(ep0, keys, registry.LastRoad(0), before+1)
+	closing := closingQC.QC().GlobalRange().Next - 1
+	want, err := registry.StateWindow(0, map[atypes.PublicKey]uint64{key.Public(): 5})
+	require.NoError(t, err)
+
+	db, err := blockstore.New(memblock.NewBlockDB())
+	require.NoError(t, err)
+	require.NoError(t, db.WriteQC(beforeQC, beforeBlocks))
+	require.NoError(t, db.WriteQC(closingQC, closingBlocks))
+	require.NoError(t, db.Flush())
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	app := &epochWindowForwardApp{
+		epochWindowRestartApp: epochWindowRestartApp{height: int64(before)},
+		validators:            []abci.ValidatorUpdate{{PubKey: crypto.PubKeyToProto(valKey.Public()), Power: 5}},
+		staged:                map[atypes.GlobalBlockNumber]epoch.StateWindow{},
+	}
+	cfg := &GigaRouterCommonConfig{
+		DialInterval:       time.Second,
+		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
+		PersistentStateDir: t.TempDir(),
+		GenDoc:             genDoc,
+		App:                proxy.New(app),
+	}
+	state, err := BuildDataState(cfg, db)
+	require.NoError(t, err)
+	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), state)
+	require.NoError(t, err)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		s.SpawnBgNamed("router.runExecute()", func() error { return utils.IgnoreCancel(router.runExecute(ctx)) })
+		_, err := router.ExecutedBlocks().Wait(ctx, func(blocks atypes.ExecutedBlocks) bool {
+			return blocks.Latest().Number >= closing
+		})
+		return err
+	}))
+
+	require.Len(t, app.staged, 1)
+	got, ok := app.staged[closing]
+	require.True(t, ok)
+	require.True(t, got.Equal(want))
+	pending, ok := state.Registry().Pending().Get()
+	require.True(t, ok)
+	require.Equal(t, atypes.EpochIndex(2), pending)
+	require.NoError(t, state.Registry().ActivateEpoch(2))
+	require.True(t, state.Registry().MustEpoch(2).Committee().Equal(want.Next().Committee))
 }
 
 func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
