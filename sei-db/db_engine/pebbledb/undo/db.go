@@ -401,9 +401,10 @@ func (db *Database) applyBlock(version int64, changes *gigatypes.StateChangeSet,
 // rewrites when it is applied again.
 func (db *Database) writeBlock(version int64, changes *gigatypes.StateChangeSet) (height uint64, err error) {
 	start := time.Now()
+	records := recordCount(changes)
 	defer func() {
 		otelMetrics.applyLatency.Record(context.Background(), time.Since(start).Seconds(), successAttr(err))
-		otelMetrics.applyRecords.Record(context.Background(), int64(recordCount(changes)))
+		otelMetrics.applyRecords.Record(context.Background(), int64(records))
 	}()
 	if height, err = heightOf(version); err != nil {
 		return 0, err
@@ -413,7 +414,7 @@ func (db *Database) writeBlock(version int64, changes *gigatypes.StateChangeSet)
 	if latest := db.latestHeight.Load(); height != latest+1 {
 		return 0, fmt.Errorf("undo: block %d does not follow the latest applied block %d", height, latest)
 	}
-	if err := db.writeRecords(changes, height/db.bucketSize, height); err != nil {
+	if err := db.writeRecords(changes, records, height/db.bucketSize, height); err != nil {
 		return 0, err
 	}
 	if err := writeMarker(db.storage, latestVersionKey, height, pebble.NoSync); err != nil {
@@ -428,13 +429,26 @@ func recordCount(changes *gigatypes.StateChangeSet) int {
 	if changes == nil {
 		return 0
 	}
-	return len(changes.Balances) + len(changes.Nonces) + 2*len(changes.Code) + len(changes.Storage)
+	count := len(changes.Storage)
+	for _, change := range changes.Accounts {
+		if change.BalanceChanged() {
+			count++
+		}
+		if change.NonceChanged() {
+			count++
+		}
+		if change.CodeChanged() {
+			count += 2
+		}
+	}
+	return count
 }
 
 // writeRecords writes a record of the value before the block at height of every key changes writes,
-// absent for a key that held a zero value or none. A storage clear writes none: it only clears accounts
-// created in the same transaction, whose storage was empty.
-func (db *Database) writeRecords(changes *gigatypes.StateChangeSet, bucket, height uint64) error {
+// absent for a key that held a zero value or none; records is how many that is, as recordCount
+// reports. A storage clear writes none: it only clears accounts created in the same transaction,
+// whose storage was empty.
+func (db *Database) writeRecords(changes *gigatypes.StateChangeSet, records int, bucket, height uint64) error {
 	if changes == nil {
 		return nil
 	}
@@ -442,28 +456,31 @@ func (db *Database) writeRecords(changes *gigatypes.StateChangeSet, bucket, heig
 		db:     db,
 		bucket: bucket,
 		height: height,
-		size:   max(minBatchRecords, (recordCount(changes)+writeParallelism-1)/writeParallelism),
+		size:   max(minBatchRecords, (records+writeParallelism-1)/writeParallelism),
 	}
-	for _, change := range changes.Balances {
-		var balance [wordLen]byte
-		if change.PriorBalance != nil {
-			change.PriorBalance.FillBytes(balance[:])
+	for _, change := range changes.Accounts {
+		prior := change.Prior
+		if change.BalanceChanged() {
+			var balance [wordLen]byte
+			if prior.Balance != nil {
+				prior.Balance.FillBytes(balance[:])
+			}
+			w.add(BalanceKeyPrefix[0], change.Address[:], nil, nonZero(balance[:]))
 		}
-		w.add(BalanceKeyPrefix[0], change.Address[:], nil, nonZero(balance[:]))
-	}
-	for _, change := range changes.Nonces {
-		var nonce [8]byte
-		binary.BigEndian.PutUint64(nonce[:], change.PriorNonce)
-		w.add(NonceKeyPrefix[0], change.Address[:], nil, nonZero(nonce[:]))
-	}
-	for _, change := range changes.Code {
-		// Code is absent only when empty: zero bytes are valid code.
-		var code, codeHash []byte
-		if len(change.PriorCode) != 0 {
-			code, codeHash = change.PriorCode, crypto.Keccak256(change.PriorCode)
+		if change.NonceChanged() {
+			var nonce [8]byte
+			binary.BigEndian.PutUint64(nonce[:], prior.Nonce)
+			w.add(NonceKeyPrefix[0], change.Address[:], nil, nonZero(nonce[:]))
 		}
-		w.add(CodeHashKeyPrefix[0], change.Address[:], nil, codeHash)
-		w.add(CodeKeyPrefix[0], change.Address[:], nil, code)
+		if change.CodeChanged() {
+			// Code is absent only when empty: zero bytes are valid code.
+			var code, codeHash []byte
+			if len(prior.Code) != 0 {
+				code, codeHash = prior.Code, crypto.Keccak256(prior.Code)
+			}
+			w.add(CodeHashKeyPrefix[0], change.Address[:], nil, codeHash)
+			w.add(CodeKeyPrefix[0], change.Address[:], nil, code)
+		}
 	}
 	for _, change := range changes.Storage {
 		w.add(StateKeyPrefix[0], change.Address[:], change.Key[:], nonZero(change.PriorValue[:]))
