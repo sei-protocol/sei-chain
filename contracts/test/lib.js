@@ -762,11 +762,6 @@ async function executeWasm(contractAddress, msg, coins = "0usei") {
     return await waitForAdminTxCommit(command)
 }
 
-async function associateWasm(contractAddress) {
-    const command = `seid tx evm associate-contract-address ${contractAddress} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y -b sync -o json`;
-    return await waitForAdminTxCommit(command)
-}
-
 // Current latest block height as observed by the local node.
 async function getCurrentBlockHeight() {
     const status = await execute(`seid status`)
@@ -1011,7 +1006,6 @@ module.exports = {
     isDocker,
     testAPIEnabled,
     incrementPointerVersion,
-    associateWasm,
     generateWallet,
     printClaimMsg,
     printClaimMsgBySender,

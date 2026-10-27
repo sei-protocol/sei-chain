@@ -15,20 +15,16 @@ import (
 func flatKVEveryBranch() StateChangeSet {
 	addr := func(b byte) common.Address { return common.Address{b, 0x5e, 0x11} }
 	return StateChangeSet{
-		Balances: []BalanceChange{
-			{Address: addr(0x01), Balance: big.NewInt(99)},
-			{Address: addr(0x02), Balance: big.NewInt(0)},
-			{Address: addr(0x03), Balance: nil},
-			{Address: addr(0x04), Balance: new(big.Int).Lsh(big.NewInt(1), 255)},
-		},
-		Nonces: []NonceChange{
-			{Address: addr(0x05), Nonce: 0},
-			{Address: addr(0x06), Nonce: ^uint64(0)},
-		},
-		Code: []CodeChange{
-			{Address: addr(0x07), Code: []byte{0x60, 0x01, 0x60, 0x02, 0xf3}},
-			{Address: addr(0x08), Delete: true},
-			{Address: addr(0x09), Code: nil},
+		Accounts: []AccountChange{
+			{Address: addr(0x01), Account: AccountState{Balance: big.NewInt(99)}},
+			{Address: addr(0x02), Account: AccountState{Balance: big.NewInt(0)}, Prior: AccountState{Balance: big.NewInt(1)}},
+			{Address: addr(0x03), Account: AccountState{Balance: nil}, Prior: AccountState{Balance: big.NewInt(1)}},
+			{Address: addr(0x04), Account: AccountState{Balance: new(big.Int).Lsh(big.NewInt(1), 255)}},
+			{Address: addr(0x05), Account: AccountState{Nonce: 0}, Prior: AccountState{Nonce: 1}},
+			{Address: addr(0x06), Account: AccountState{Nonce: ^uint64(0)}},
+			{Address: addr(0x07), Account: AccountState{Code: []byte{0x60, 0x01, 0x60, 0x02, 0xf3}}},
+			{Address: addr(0x08), Account: AccountState{Code: nil}, Prior: AccountState{Code: []byte{0x60}}},
+			{Address: addr(0x09), Account: AccountState{Code: []byte{}}, Prior: AccountState{Code: []byte{0x60}}},
 		},
 		Storage: []StorageChange{
 			{Address: addr(0x0a), Key: common.Hash{0x21}, Value: common.Hash{0xaa}},
@@ -75,7 +71,7 @@ func TestEncodeFlatKVChangeSetGolden(t *testing.T) {
 
 func TestEncodeFlatKVChangeSetRejectsNegativeBalance(t *testing.T) {
 	_, err := NewFlatKVChangeSetEncoder()(StateChangeSet{
-		Balances: []BalanceChange{{Address: common.Address{0x11}, Balance: big.NewInt(-1)}},
+		Accounts: []AccountChange{{Address: common.Address{0x11}, Account: AccountState{Balance: big.NewInt(-1)}}},
 	})
 	require.ErrorContains(t, err, "balance must fit in an unsigned 256-bit integer")
 }
