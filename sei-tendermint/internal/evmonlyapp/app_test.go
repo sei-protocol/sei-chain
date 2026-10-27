@@ -1292,7 +1292,7 @@ func TestEVMOnlyApplicationForgetsTheSendersOfAPreparedBlock(t *testing.T) {
 	require.False(t, evmOnlyApp.peekSenders(hashes)[0].IsPresent())
 }
 
-// The prepared queue keeps one block per height and at most maxPreparedBlocks of the
+// The prepared queue keeps one block per height and at most MaxPreparedBlocks of the
 // lowest heights, and drops the heights that can no longer execute.
 func TestPreparedQueueKeepsTheBlocksThatCanStillExecute(t *testing.T) {
 	block := func(height int64, hash byte) preparedBlock {
@@ -1303,9 +1303,9 @@ func TestPreparedQueueKeepsTheBlocksThatCanStillExecute(t *testing.T) {
 
 	// A full queue keeps the lowest heights.
 	var lowest []preparedBlock
-	for height := int64(5 + maxPreparedBlocks); height >= 5; height-- {
+	for height := int64(5 + MaxPreparedBlocks); height >= 5; height-- {
 		q.put(block(height, 1), 5)
-		if height < 5+maxPreparedBlocks {
+		if height < 5+MaxPreparedBlocks {
 			lowest = append([]preparedBlock{block(height, 1)}, lowest...)
 		}
 	}
@@ -1480,10 +1480,10 @@ func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
 
 func TestPreparedQueueReleasesAnEvictedBlock(t *testing.T) {
 	var q preparedQueue
-	for h := int64(1); h <= maxPreparedBlocks+1; h++ {
+	for h := int64(1); h <= MaxPreparedBlocks+1; h++ {
 		q.put(preparedBlock{height: h, txs: make([]evmonly.PreparedTx, 1)}, 1)
 	}
-	require.Len(t, q, maxPreparedBlocks)
+	require.Len(t, q, MaxPreparedBlocks)
 	for _, evicted := range q[len(q):cap(q)] {
 		require.Nil(t, evicted.txs, "an evicted block must not stay reachable through the queue's backing array")
 	}

@@ -270,7 +270,8 @@ type fetchedBlock struct {
 }
 
 // prepareAheadBlocks is how many fetched blocks may wait for execution, each prepared or being
-// prepared, besides the one the fetcher is handing over.
+// prepared, besides the one the fetcher is handing over. With that block and the one executing, at
+// most prepareAheadBlocks+2 are prepared at once, which the app's prepared queue must hold.
 const prepareAheadBlocks = 3
 
 // pendingBlock is a fetched block whose preparation reports on prepared once it is done.
