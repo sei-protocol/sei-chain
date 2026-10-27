@@ -735,6 +735,9 @@ func (s *State) pushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			return err
 		}
 		if n < inner.nextAppProposal {
+			// Below first, an AppQC for a later block is persisted. It needs this
+			// node's AppProposal for that block, which is pushed only after the
+			// push for n staged its epoch, so there is nothing left to stage.
 			if n >= inner.first {
 				endEpoch = s.closingEpochOfQC(inner.qcs[n].qc.QC(), n)
 			}
