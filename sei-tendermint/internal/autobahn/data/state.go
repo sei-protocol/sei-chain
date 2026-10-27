@@ -36,9 +36,13 @@ type blockEntry struct {
 	laneBlocks map[uint64]*types.Block
 }
 
+func (e *blockEntry) IsFull() bool {
+	return len(e.laneBlocks) == len(e.qc.Headers())
+}
+
 // FullBlock returns a complete road block, or None while lane blocks are missing.
 func (e *blockEntry) FullBlock() utils.Option[*types.RoadBlock] {
-	if len(e.laneBlocks) != len(e.qc.Headers()) {
+	if !e.IsFull() {
 		return utils.None[*types.RoadBlock]()
 	}
 	blocks := make([]*types.Block, len(e.laneBlocks))
@@ -52,7 +56,7 @@ type inner struct {
 	blocks       map[types.RoadIndex]*blockEntry         // [first, nextPartialBlock)
 	appProposals map[types.RoadIndex]*types.AppProposal  // [first, nextAppProposal)
 	appQCs       map[types.RoadIndex]*types.AppQC        // [first, nextAppQC)
-	byHash       map[types.RoadBlockHash]types.RoadIndex // complete SuperBlocks retained in blocks
+	byHash       map[types.RoadBlockHash]types.RoadIndex // all blocks (including partial ones) by RoadBlockHash.
 
 	// first is the inclusive low end of retained in-memory state: maps keep [first, next*).
 	// Advanced by runPersist(). Durable copies below first live in BlockStore.
@@ -121,7 +125,7 @@ func (i *inner) insertAppProposal(appProposal *types.AppProposal) error {
 	if n < i.nextAppProposal {
 		return nil
 	}
-	if n > i.nextPartialBlock {
+	if n >= i.nextPartialBlock {
 		return fmt.Errorf("missing CommitQC for this AppProposal")
 	}
 	if n != i.nextAppProposal {
@@ -166,11 +170,9 @@ func (i *inner) updateNextFullBlock(m *metrics.Metrics) {
 	t := time.Now()
 	for i.nextFullBlock < i.nextPartialBlock {
 		e := i.blocks[i.nextFullBlock]
-		b, ok := e.FullBlock().Get()
-		if !ok {
+		if !e.IsFull() {
 			break
 		}
-		i.byHash[b.QC().QC().RoadBlockHash()] = e.qc.Index()
 		for _, b := range e.laneBlocks {
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
 			m.BlockLatency.Receive.Observe(latency)
@@ -365,6 +367,7 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 		if inner.nextPartialBlock == n {
 			updated = true
 			inner.blocks[n] = &blockEntry{qc: qc, epoch: ep, laneBlocks: make(map[uint64]*types.Block, len(qc.Headers()))}
+			inner.byHash[qc.QC().RoadBlockHash()] = n
 			inner.nextPartialBlock += 1
 			inner.publishNextCommitEpoch(s.cfg.Registry)
 			s.metrics.NextBlock.QC.Set(utils.Clamp[int64](inner.nextPartialBlock))
@@ -451,11 +454,14 @@ func (s *State) NextAppQC() types.RoadIndex {
 	panic("unreachable")
 }
 
-// SuperBlockByHash returns a retained complete SuperBlock by commit vote hash, or None.
-// Complete SuperBlocks ahead of an incomplete road are served from memory.
+// SuperBlockByHash returns a retained SuperBlock by its road block hash.
+// Unknown, pruned, or incomplete blocks and roads beyond the contiguous complete prefix return None.
 func (s *State) SuperBlockByHash(hash types.RoadBlockHash) (utils.Option[*types.SuperBlock], error) {
 	for inner := range s.inner.Lock() {
 		if n, ok := inner.byHash[hash]; ok {
+			if n >= inner.nextFullBlock {
+				return utils.None[*types.SuperBlock](), nil
+			}
 			return utils.Some(inner.blocks[n].FullBlock().OrPanic("hash without full block").SuperBlock()), nil
 		}
 	}

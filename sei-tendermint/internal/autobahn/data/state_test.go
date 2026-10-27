@@ -665,6 +665,33 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	require.Equal(t, blocks[0], got)
 }
 
+func TestInsertAppProposalRequiresCommitQC(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
+	previous := utils.None[*types.CommitQC]()
+
+	for range 2 {
+		qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, previous)
+		proposal := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
+		for inner := range state.inner.Lock() {
+			require.Equal(t, proposal.Index(), inner.nextPartialBlock)
+			require.Equal(t, proposal.Index(), inner.nextAppProposal)
+			require.Error(t, inner.insertAppProposal(proposal))
+			require.Equal(t, proposal.Index(), inner.nextAppProposal)
+			_, inserted := inner.appProposals[proposal.Index()]
+			require.False(t, inserted)
+		}
+
+		require.NoError(t, state.PushPartialBlock(t.Context(), qc, TestBlockMap(blocks)))
+		for inner := range state.inner.Lock() {
+			require.NoError(t, inner.insertAppProposal(proposal))
+			require.Equal(t, proposal.Index()+1, inner.nextAppProposal)
+		}
+		previous = utils.Some(qc.QC())
+	}
+}
+
 func TestPushEmptyQC(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -697,6 +724,40 @@ func TestPushEmptyQC(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, want.Height, got.Height)
 	require.Empty(t, got.Txs)
+}
+
+func TestSuperBlockByHashDoesNotServeGaps(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
+	ep := registry.MustEpoch(0)
+	qc1, blocks1 := TestCommitQC(rng, ep, keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, ep, keys, utils.Some(qc1.QC()))
+	require.NoError(t, state.PushPartialBlock(ctx, qc1, nil))
+	require.NoError(t, state.PushPartialBlock(ctx, qc2, TestBlockMap(blocks2)))
+
+	for _, qc := range []*types.FullCommitQC{qc1, qc2} {
+		hash := qc.QC().RoadBlockHash()
+		for inner := range state.inner.Lock() {
+			n, indexed := inner.byHash[hash]
+			require.True(t, indexed, "CommitQC must be indexed before the contiguous prefix advances")
+			require.Equal(t, qc.Index(), n)
+		}
+		got, err := state.SuperBlockByHash(hash)
+		require.NoError(t, err)
+		require.False(t, got.IsPresent(), "hash lookups must not serve incomplete blocks or skip gaps")
+	}
+
+	require.NoError(t, state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
+	for _, qc := range []*types.FullCommitQC{qc1, qc2} {
+		got, err := state.SuperBlockByHash(qc.QC().RoadBlockHash())
+		require.NoError(t, err)
+		block, ok := got.Get()
+		require.True(t, ok)
+		require.Equal(t, qc.Index(), block.Height)
+		require.Equal(t, qc.QC().RoadBlockHash(), block.Hash)
+	}
 }
 
 func TestSuperBlockByHash(t *testing.T) {
@@ -1282,7 +1343,7 @@ func TestTryBlockServesPartialBlocks(t *testing.T) {
 	want := types.NewRoadBlock(qc, blocks).SuperBlock()
 	opt, err := state.SuperBlockByHash(want.Hash)
 	require.NoError(t, err)
-	require.False(t, opt.IsPresent(), "incomplete SuperBlock must not be indexed")
+	require.False(t, opt.IsPresent(), "incomplete SuperBlock must not be served")
 	for offset, block := range blocks {
 		require.NoError(t, state.PushBlock(ctx, types.LaneBlockPos{Index: qc.Index(), Offset: uint64(offset)}, block))
 	}
