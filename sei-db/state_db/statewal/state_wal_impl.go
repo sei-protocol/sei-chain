@@ -190,7 +190,11 @@ func computeStoredHash(
 		return [32]byte{}, fmt.Errorf("block %d is not stored", blockNumber)
 	}
 	_, serialized := it.Entry()
-	return computePlaceholderHash(serialized), nil
+	hash, err := computePlaceholderHash(serialized)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("failed to hash block %d: %w", blockNumber, err)
+	}
+	return hash, nil
 }
 
 // Write appends a block's mutations to the WAL as a single record.
@@ -310,7 +314,7 @@ func (w *stateWALImpl) Prune(lowestBlockNumberToKeep uint64) error {
 }
 
 // Iterator returns an iterator over the inclusive block range [startingBlockNumber, endingBlockNumber]. It
-// yields (blockNumber, changesets) for each block, whichever format it is stored in.
+// yields (blockNumber, mutations) for each block.
 func (w *stateWALImpl) Iterator(
 	startingBlockNumber uint64,
 	endingBlockNumber uint64,
@@ -455,7 +459,10 @@ func (w *stateWALImpl) write(request writeRequest) error {
 		return fmt.Errorf("failed to append block %d: %w", request.blockNumber, err)
 	}
 
-	hash := computePlaceholderHash(serialized)
+	hash, err := computePlaceholderHash(serialized)
+	if err != nil {
+		return fmt.Errorf("failed to hash block %d: %w", request.blockNumber, err)
+	}
 	for _, listener := range w.listeners {
 		if err := listener(w.ctx, request.blockNumber, hash); err != nil {
 			return fmt.Errorf("a hash listener refused block %d: %w", request.blockNumber, err)

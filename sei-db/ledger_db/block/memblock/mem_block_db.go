@@ -1,6 +1,8 @@
 package memblock
 
 import (
+	"math"
+	"slices"
 	"sync"
 
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
@@ -8,180 +10,170 @@ import (
 
 var _ blocktypes.BlockDB = (*blockDB)(nil)
 
-// recordKey addresses a stored value by the kind and number it is filed under.
-type recordKey struct {
-	kind   blocktypes.RecordKind
-	number uint64
-}
-
-// record is one primary entry in the write-order log. next is the exclusive end
-// of the range the value is addressable over, and hash is the header-hash alias
-// of a block record, empty for every other kind; reclamation needs both to find
-// the entries a dropped record leaves behind.
-type record struct {
-	kind   blocktypes.RecordKind
-	number uint64
-	next   uint64
-	hash   string
-	value  []byte
-}
-
-// blockDB is an in-memory blocktypes.BlockDB. Records are kept in maps for
-// lookup and in an append-only log for write-order scans. Raising the watermark
-// reclaims eagerly, so memory tracks what the store still serves.
 type blockDB struct {
-	mu sync.RWMutex
-
-	// log holds one entry per primary record, in the order it was written.
-	log []record
-	// values maps every number a record is addressable at — its primary and
-	// each covered-range alias — to the single shared value.
-	values map[recordKey][]byte
-	// blocksByHash aliases block records by header hash.
-	blocksByHash map[string][]byte
-	// watermark is the reclamation floor.
-	watermark uint64
+	mu        sync.RWMutex
+	suffix    blocktypes.Suffix
+	groups    []blocktypes.QCGroupRecord
+	qcs       map[blocktypes.BlockNumber]blocktypes.QCRecord
+	blocks    map[blocktypes.BlockNumber]blocktypes.BlockRecord
+	hashes    map[string]blocktypes.BlockRecord
+	appQCs    map[blocktypes.BlockNumber]blocktypes.AppQCRecord
+	proposals map[blocktypes.BlockNumber]blocktypes.AppProposalRecord
+	watermark blocktypes.BlockNumber
 }
 
 // NewBlockDB returns an in-memory blocktypes.BlockDB.
 func NewBlockDB() blocktypes.BlockDB {
 	return &blockDB{
-		values:       make(map[recordKey][]byte),
-		blocksByHash: make(map[string][]byte),
+		qcs: make(map[blocktypes.BlockNumber]blocktypes.QCRecord), blocks: make(map[blocktypes.BlockNumber]blocktypes.BlockRecord), hashes: make(map[string]blocktypes.BlockRecord), appQCs: make(map[blocktypes.BlockNumber]blocktypes.AppQCRecord), proposals: make(map[blocktypes.BlockNumber]blocktypes.AppProposalRecord),
 	}
 }
-
-func (s *blockDB) PutRecord(kind blocktypes.RecordKind, first, next uint64, value []byte) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for n := first; n < next; n++ {
-		s.values[recordKey{kind: kind, number: n}] = value
+func (s *blockDB) PutQC(qc blocktypes.QCGroupRecord) error {
+	if len(qc.Blocks) == 0 {
+		panic("QC group requires blocks")
 	}
-	s.log = append(s.log, record{kind: kind, number: first, next: next, value: value})
-	return nil
-}
-
-func (s *blockDB) PutBlock(n uint64, hash []byte, value []byte) error {
+	for _, block := range qc.Blocks {
+		if block.Number == math.MaxUint64 {
+			panic("block number has no exclusive upper bound")
+		}
+	}
+	qc.QC.Data = slices.Clone(qc.QC.Data)
+	qc.Blocks = slices.Clone(qc.Blocks)
+	for i := range qc.Blocks {
+		qc.Blocks[i].Hash = slices.Clone(qc.Blocks[i].Hash)
+		qc.Blocks[i].Value = slices.Clone(qc.Blocks[i].Value)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.values[recordKey{kind: blocktypes.KindBlock, number: n}] = value
-	s.blocksByHash[string(hash)] = value
-	s.log = append(s.log, record{
-		kind: blocktypes.KindBlock, number: n, next: n + 1, hash: string(hash), value: value,
-	})
+	s.groups = append(s.groups, qc)
+	for _, block := range qc.Blocks {
+		s.qcs[block.Number] = qc.QC
+		s.blocks[block.Number] = block
+		s.hashes[string(block.Hash)] = block
+	}
 	return nil
 }
-
-func (s *blockDB) GetRecord(kind blocktypes.RecordKind, n uint64) ([]byte, bool, error) {
+func (s *blockDB) PutAppQC(qc blocktypes.AppQCRecord) error {
+	qc.Data = slices.Clone(qc.Data)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.suffix.AppQCs = append(s.suffix.AppQCs, qc)
+	for n := qc.First; n < qc.Next; n++ {
+		s.appQCs[n] = qc
+	}
+	return nil
+}
+func (s *blockDB) PutAppProposal(proposal blocktypes.AppProposalRecord) error {
+	proposal.Data = slices.Clone(proposal.Data)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.suffix.AppProposals = append(s.suffix.AppProposals, proposal)
+	for n := proposal.First; n < proposal.Next; n++ {
+		s.proposals[n] = proposal
+	}
+	return nil
+}
+func (s *blockDB) GetQC(n blocktypes.BlockNumber) ([]byte, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	value, ok := s.values[recordKey{kind: kind, number: n}]
-	return value, ok, nil
+	qc, ok := s.qcs[n]
+	return qc.Data, ok, nil
 }
-
-func (s *blockDB) GetBlockByHash(hash []byte) ([]byte, bool, error) {
+func (s *blockDB) GetBlock(n blocktypes.BlockNumber) ([]byte, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	value, ok := s.blocksByHash[string(hash)]
-	return value, ok, nil
+	block, ok := s.blocks[n]
+	return block.Value, ok, nil
 }
-
-func (s *blockDB) Scan(newestFirst bool) (blocktypes.RecordIterator, error) {
+func (s *blockDB) GetBlockByHash(hash blocktypes.BlockHash) (blocktypes.BlockNumber, []byte, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	// The log is append-only and its entries are immutable, so a reslice is a
-	// snapshot of the records present now.
-	return &recordIterator{records: s.log[:len(s.log):len(s.log)], newestFirst: newestFirst, pos: -1}, nil
+	block, ok := s.hashes[string(hash)]
+	return block.Number, block.Value, ok, nil
 }
-
-// GetPruneWatermark returns the reclamation floor.
-func (s *blockDB) GetPruneWatermark() uint64 {
+func (s *blockDB) GetAppQC(n blocktypes.BlockNumber) ([]byte, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	qc, ok := s.appQCs[n]
+	return qc.Data, ok, nil
+}
+func (s *blockDB) GetAppProposal(n blocktypes.BlockNumber) ([]byte, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	proposal, ok := s.proposals[n]
+	return proposal.Data, ok, nil
+}
+func (s *blockDB) ReadSuffix() (blocktypes.Suffix, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var first blocktypes.BlockNumber
+	if len(s.suffix.AppQCs) > 0 {
+		first = s.suffix.AppQCs[len(s.suffix.AppQCs)-1].First
+	}
+	var suffix blocktypes.Suffix
+	for _, qc := range s.groups {
+		if qc.Blocks[0].Number >= first {
+			suffix.QCs = append(suffix.QCs, qc.QC)
+			for _, block := range qc.Blocks {
+				suffix.Blocks = append(suffix.Blocks, blocktypes.BlockRecord{Number: block.Number, Value: block.Value})
+			}
+		}
+	}
+	for _, qc := range s.suffix.AppQCs {
+		if qc.First >= first {
+			suffix.AppQCs = append(suffix.AppQCs, qc)
+		}
+	}
+	for _, proposal := range s.suffix.AppProposals {
+		if proposal.First >= first {
+			suffix.AppProposals = append(suffix.AppProposals, proposal)
+		}
+	}
+	return suffix, nil
+}
+func (s *blockDB) GetPruneWatermark() blocktypes.BlockNumber {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.watermark
 }
-
-// SetPruneWatermark raises the reclamation floor to n and immediately drops
-// every record that falls wholly below it.
-func (s *blockDB) SetPruneWatermark(n uint64) {
+func (s *blockDB) SetPruneWatermark(n blocktypes.BlockNumber) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if n <= s.watermark {
 		return
 	}
 	s.watermark = n
-	s.reclaim()
-}
-
-// reclaim drops the records whose coverage ends at or below the watermark. A
-// record straddling it is kept whole, since its value is shared by every number
-// it covers. mu must be held.
-func (s *blockDB) reclaim() {
-	// A fresh slice rather than a filter in place: iterators handed out by Scan
-	// hold a reslice of the current backing array as their snapshot.
-	kept := make([]record, 0, len(s.log))
-	for _, rec := range s.log {
-		if rec.next > s.watermark {
-			kept = append(kept, rec)
-			continue
+	s.groups = slices.DeleteFunc(s.groups, func(qc blocktypes.QCGroupRecord) bool {
+		for _, block := range qc.Blocks {
+			if block.Number >= n {
+				return false
+			}
 		}
-		for n := rec.number; n < rec.next; n++ {
-			delete(s.values, recordKey{kind: rec.kind, number: n})
+		for _, block := range qc.Blocks {
+			delete(s.qcs, block.Number)
+			delete(s.blocks, block.Number)
+			delete(s.hashes, string(block.Hash))
 		}
-		if rec.hash != "" {
-			delete(s.blocksByHash, rec.hash)
+		return true
+	})
+	s.suffix.AppQCs = slices.DeleteFunc(s.suffix.AppQCs, func(qc blocktypes.AppQCRecord) bool {
+		if qc.Next > n {
+			return false
 		}
-	}
-	s.log = kept
+		for i := qc.First; i < qc.Next; i++ {
+			delete(s.appQCs, i)
+		}
+		return true
+	})
+	s.suffix.AppProposals = slices.DeleteFunc(s.suffix.AppProposals, func(proposal blocktypes.AppProposalRecord) bool {
+		if proposal.Next > n {
+			return false
+		}
+		for i := proposal.First; i < proposal.Next; i++ {
+			delete(s.proposals, i)
+		}
+		return true
+	})
 }
-
-// Flush is a no-op: an in-memory store has no disk to make durable.
-func (s *blockDB) Flush() error {
-	return nil
-}
-
-// Close is a no-op: an in-memory store holds no resources to release.
-func (s *blockDB) Close() error {
-	return nil
-}
-
-// recordIterator walks a snapshot of the write-order log.
-type recordIterator struct {
-	records     []record
-	newestFirst bool
-	// pos counts advances, starting at -1 before the first Next.
-	pos int
-}
-
-func (r *recordIterator) Next() (bool, error) {
-	if r.pos+1 >= len(r.records) {
-		r.pos = len(r.records)
-		return false, nil
-	}
-	r.pos++
-	return true, nil
-}
-
-func (r *recordIterator) current() record {
-	if r.newestFirst {
-		return r.records[len(r.records)-1-r.pos]
-	}
-	return r.records[r.pos]
-}
-
-func (r *recordIterator) Kind() blocktypes.RecordKind {
-	return r.current().kind
-}
-
-func (r *recordIterator) Number() uint64 {
-	return r.current().number
-}
-
-func (r *recordIterator) Value() ([]byte, error) {
-	return r.current().value, nil
-}
-
-// Close is a no-op: the iterator holds no resources.
-func (r *recordIterator) Close() error {
-	return nil
-}
+func (s *blockDB) Flush() error { return nil }
+func (s *blockDB) Close() error { return nil }
