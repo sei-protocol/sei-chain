@@ -5,20 +5,8 @@ import (
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 )
 
-// adminEnabledKey is the AppOptions key admin.ReadConfig reads to decide whether
-// the admin gRPC server starts. It is duplicated here because the admin package
-// keeps its flag names unexported; assertEVMServingOff reads the resolved
-// admin.Config rather than this key, so a rename in admin degrades to that
-// package's own default (off) instead of silently enabling the server.
 const adminEnabledKey = "admin_server.admin_enabled"
 
-// appOptions is the servertypes.AppOptions the engine injects into app.New. It
-// pins every listener off and pins the SeiDB flags; unknown keys return nil,
-// the servertypes.AppOptions "unset, use the default" contract.
-//
-// The Giga flags are deliberately absent so an unset flag selects the
-// production execution engine. app.TestAppOpts carries a giga-OFF default,
-// which is why the SeiDB flags are pinned here instead of delegated to it.
 type appOptions struct {
 	chainID string
 }

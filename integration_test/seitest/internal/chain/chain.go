@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	dbm "github.com/tendermint/tm-db"
@@ -25,8 +24,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 )
 
-// encoding is the codec/tx-config bundle threaded through app.New and genesis
-// assembly.
 type encoding = appparams.EncodingConfig
 
 // chainIDPrefix prefixes every engine-generated chain id.
@@ -36,21 +33,15 @@ const chainIDPrefix = "seitest"
 type GenesisAccount struct {
 	// Name is the key name in the chain-wide keyring.
 	Name string
-	// Coins is the account's genesis balance. Empty creates the account with
-	// nothing in it.
+	// Coins is the account's genesis balance
 	Coins sdk.Coins
 }
 
-// Config configures a Start. The zero value brings up a single validator with a
-// fresh chain id in an engine-owned temp dir.
 type Config struct {
-	// Validators is the validator count. Valid values are 1 and >= 3; 2 is
-	// rejected because it deadlocks in block-sync (see validateTopology). 0 means
-	// 1.
+	// Validators is the validator count. Valid values are 1 and >= 3
 	Validators int
 
-	// ChainID is the genesis chain id; "" generates a fresh id per Start so a run
-	// never inherits a prior run's persisted genesis.
+	// ChainID is the genesis chain id
 	ChainID string
 
 	// HomeDir is the parent dir for per-validator homes; "" creates a temp dir
@@ -60,17 +51,12 @@ type Config struct {
 	// GenesisAccounts are funded non-validator signing accounts.
 	GenesisAccounts []GenesisAccount
 
-	// Timeouts are the consensus timeouts; nil uses the sei-tendermint defaults,
-	// which are already fast (50ms commit, 50ms vote, 1s propose).
+	// Timeouts are the consensus timeouts; nil uses the sei-tendermint defaults
 	Timeouts *tmtypes.TimeoutParams
 
-	// ServeTendermintRPC binds an HTTP CometBFT RPC listener per validator. The
-	// default, false, binds none: the in-process client needs no listener, and one
-	// P2P port per validator is the whole port footprint.
+	// ServeTendermintRPC binds an HTTP CometBFT RPC listener per validator.
 	ServeTendermintRPC bool
 
-	// LogWriter receives the app's commit-store trace; nil discards it. Node and
-	// module logging is governed process-wide by seilog, not by this field.
 	LogWriter io.Writer
 }
 
@@ -88,8 +74,6 @@ func (cfg Config) withDefaults() Config {
 	return cfg
 }
 
-// freshChainID returns a chain id unique to this Start, falling back to a
-// nanosecond timestamp if crypto/rand is unavailable.
 func freshChainID() string {
 	var b [4]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -99,32 +83,24 @@ func freshChainID() string {
 }
 
 // Chain is a handle to a running in-process network. It owns keys, ports,
-// config, genesis, consensus, and lifecycle; it builds no messages and knows
-// nothing about testing.T.
-//
-// A Chain is not safe for concurrent use beyond Close, which may be called from
-// any goroutine and any number of times.
+// config, genesis, consensus, and lifecycle
 type Chain struct {
 	cfg             Config
 	homeDir         string
-	ownHome         bool // true => Close removes homeDir
+	ownHome         bool
 	keyring         keyring.Keyring
 	consensusParams *tmtypes.ConsensusParams
 	validators      []*Validator
 
-	// cancelEngine stops everything the engine started. It is distinct from the
-	// ctx passed to Start, which bounds bring-up only.
 	cancelEngine context.CancelFunc
 
-	closeOnce sync.Once
-	closeErr  error
+	closeErr error
 }
 
 // Validators is the validator count.
 func (c *Chain) Validators() int { return len(c.validators) }
 
-// Validator returns the i-th validator, 0-based. It panics on an out-of-range
-// index, which is a programming error rather than a runtime condition.
+// Validator returns the i-th validator.
 func (c *Chain) Validator(i int) *Validator { return c.validators[i] }
 
 // ChainID is the genesis chain id the network is running under.
@@ -138,14 +114,6 @@ func (c *Chain) gentxsDir() string { return filepath.Join(c.homeDir, "gentxs") }
 
 // Start brings up cfg.Validators validators and returns once every one is
 // constructed and started — not once consensus is live. Call WaitReady for that.
-//
-// ctx bounds bring-up only. The network itself runs on an engine-owned context
-// that Close cancels, so a caller whose ctx expires after Start returns keeps a
-// live chain rather than a silently dead one.
-//
-// On any error mid-bring-up, Start tears down whatever came up through the same
-// Close the caller would have called, so a failed Start leaks no store, no
-// goroutine, and no temp dir. On success the caller owns Close.
 func Start(ctx context.Context, cfg Config) (_ *Chain, retErr error) {
 	cfg = cfg.withDefaults()
 	if err := validateTopology(cfg.Validators); err != nil {
@@ -158,8 +126,7 @@ func Start(ctx context.Context, cfg Config) (_ *Chain, retErr error) {
 	}
 
 	// The engine context deliberately does not inherit ctx's cancellation: ctx is
-	// a bring-up deadline, and a node whose context dies when that deadline
-	// passes is a network that stops without anyone asking it to.
+	// a bring-up deadline.
 	engineCtx, cancelEngine := context.WithCancel(context.WithoutCancel(ctx))
 
 	c := &Chain{
@@ -173,8 +140,12 @@ func Start(ctx context.Context, cfg Config) (_ *Chain, retErr error) {
 	// Past this point every failure path tears the chain down, so the caller
 	// never holds — or has to clean up after — a half-built network.
 	defer func() {
+		err := recover()
 		if retErr != nil {
 			retErr = errors.Join(retErr, c.Close())
+		}
+		if err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("panic: %v", err))
 		}
 	}()
 
@@ -233,8 +204,6 @@ func (c *Chain) writeBaseGenesis(gb *genesisBuilder, enc encoding) error {
 	return nil
 }
 
-// consensusParamsFor builds the genesis consensus params, overriding the
-// sei-tendermint defaults only where the caller asked.
 func consensusParamsFor(timeouts *tmtypes.TimeoutParams) *tmtypes.ConsensusParams {
 	params := tmtypes.DefaultConsensusParams()
 	if timeouts != nil {
@@ -355,39 +324,19 @@ func (c *Chain) genesisDocFor(v *Validator) (*tmtypes.GenesisDoc, error) {
 	return genDoc, nil
 }
 
-// Close tears the network down and is idempotent: a second call returns the
-// first call's result without touching anything. Errors from every step are
-// joined rather than short-circuited, so one validator failing to close does not
-// hide the rest or skip removing the home dir.
-//
-// It is also the teardown Start uses on a failed bring-up, so the partial-start
-// path is the same code the success path exercises.
 func (c *Chain) Close() error {
-	c.closeOnce.Do(func() {
-		c.cancelEngine()
-		errs := make([]error, 0, len(c.validators)+1)
-		for _, v := range c.validators {
-			errs = append(errs, closeValidator(v))
-		}
-		if c.ownHome && c.homeDir != "" {
-			errs = append(errs, os.RemoveAll(c.homeDir))
-		}
-		c.closeErr = errors.Join(errs...)
-	})
+	c.cancelEngine()
+	errs := make([]error, 0, len(c.validators)+1)
+	for _, v := range c.validators {
+		errs = append(errs, closeValidator(v))
+	}
+	if c.ownHome && c.homeDir != "" {
+		errs = append(errs, os.RemoveAll(c.homeDir))
+	}
+	c.closeErr = errors.Join(errs...)
 	return c.closeErr
 }
 
-// closeValidator stops consensus before closing stores, and is a no-op for a
-// field a partial bring-up never populated.
-//
-// Stop runs unconditionally, not behind IsRunning: BaseApp.Close takes the
-// commit lock, so it must not run against a node still shutting down, and
-// BaseService.Stop blocks until fully stopped even when a shutdown this Close
-// did not start is already in flight. Stop and Wait are no-ops on a node that
-// never started.
-//
-// Each field is cleared as it is consumed because BaseApp.Close errors on an
-// already-closed store.
 func closeValidator(v *Validator) error {
 	var errs []error
 	if v.tmNode != nil {

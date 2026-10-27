@@ -30,13 +30,6 @@ const (
 	validatorBondedPower  = 100
 )
 
-// genesisBuilder accumulates accounts, balances, and gentxs across the
-// provisioning pass, then assembles the genesis doc every validator loads.
-//
-// It reimplements the unexported initGenFiles/collectGenFiles helpers in
-// sei-cosmos/testutil/network rather than lifting them, which would require
-// exporting them from a production cosmos package. They use only exported cosmos
-// APIs, so the engine needs no sei-cosmos source change.
 type genesisBuilder struct {
 	codec     codec.Codec
 	txConfig  client.TxConfig
