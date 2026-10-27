@@ -21,9 +21,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	grpctypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/grpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
-
-	// unnamed import of statik for swagger UI support
-	_ "github.com/sei-protocol/sei-chain/sei-cosmos/client/docs/statik"
 )
 
 var logger = seilog.NewLogger("tendermint", "server", "api")
