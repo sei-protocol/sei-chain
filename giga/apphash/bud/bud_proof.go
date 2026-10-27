@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
+	"github.com/sei-protocol/sei-chain/giga/apphash/merkle"
 )
 
 const (
@@ -56,23 +57,8 @@ func DeserializeBUDProof(
 // ComputeBUDHash returns the BUD hash of the BUD tree the proof places its budlet in. The proof shows that a block
 // wrote the budlet only when the result equals that block's BUD hash, taken from a trusted source.
 func (p *BUDProof) ComputeBUDHash() apphash.BUDHash {
-	node, _ := budLeafHash(&p.budlet, nil)
-	siblings := p.siblings
-	position := p.index
-	for size := p.count; size > 1; size = size/2 + size%2 {
-		switch {
-		case position%2 == 1:
-			node = budInnerHash(siblings[0], node)
-			siblings = siblings[1:]
-		case position+1 < size:
-			node = budInnerHash(node, siblings[0])
-			siblings = siblings[1:]
-		default:
-			// The node is carried up unpaired, so it has no sibling at this level.
-		}
-		position /= 2
-	}
-	return computeBUDHash(p.count, node)
+	leafHash, _ := budLeafHash(&p.budlet, nil)
+	return computeBUDHash(p.count, merkle.MerkleRootFromSiblings(p.count, p.index, leafHash, p.siblings))
 }
 
 // Budlet returns the budlet the proof is about.
@@ -142,7 +128,7 @@ func readBUDProof(
 		return nil, nil, fmt.Errorf("BUD proof index %d is not less than its count %d", index, count)
 	}
 
-	siblingCount := budTreeSiblingCount(count, index)
+	siblingCount := merkle.MerkleSiblingCount(count, index)
 	if len(rest) < 32*siblingCount {
 		return nil, nil, fmt.Errorf("serialized BUD proof has %d bytes of siblings, want %d",
 			len(rest), 32*siblingCount)
@@ -165,7 +151,7 @@ func (p *BUDProof) validate() error {
 	if p.index >= p.count {
 		return fmt.Errorf("index %d is not less than count %d", p.index, p.count)
 	}
-	if want := budTreeSiblingCount(p.count, p.index); len(p.siblings) != want {
+	if want := merkle.MerkleSiblingCount(p.count, p.index); len(p.siblings) != want {
 		return fmt.Errorf("%d siblings, want %d", len(p.siblings), want)
 	}
 	return nil

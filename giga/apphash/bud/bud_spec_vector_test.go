@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
+	"github.com/sei-protocol/sei-chain/giga/apphash/merkle"
 )
 
 // TestBUDSpecVector pins every value of the budlet, BUD tree, BUD hash, and BUD proof test vectors in bud_spec.md.
@@ -47,9 +48,9 @@ func TestBUDSpecVector(t *testing.T) {
 			"budlet %d serialization", i)
 		require.Equal(t, leafHashes[i], hex.EncodeToString(leaves[i][:]), "budlet %d leaf hash", i)
 	}
-	computedInner01 := budInnerHash(leaves[0], leaves[1])
+	computedInner01 := merkle.MerkleInnerHash(leaves[0], leaves[1])
 	require.Equal(t, inner01, hex.EncodeToString(computedInner01[:]))
-	computedRoot := budTreeRoot(leaves)
+	computedRoot := merkle.MerkleRoot(leaves)
 	require.Equal(t, root, hex.EncodeToString(computedRoot[:]))
 
 	tree, err := NewBUDTree(budlets)

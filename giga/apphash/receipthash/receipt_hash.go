@@ -8,6 +8,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
+	"github.com/sei-protocol/sei-chain/giga/apphash/merkle"
 )
 
 const (
@@ -32,7 +33,7 @@ func ComputeReceiptHash(
 	if err != nil {
 		return apphash.ReceiptHash{}, fmt.Errorf("computing receipt hash: %w", err)
 	}
-	return computeReceiptHash(uint64(len(receipts)), merkleRoot(leafHashes)), nil
+	return computeReceiptHash(uint64(len(receipts)), merkle.MerkleRoot(leafHashes)), nil
 }
 
 // computeReceiptHash returns the receipt hash committing to a receipts tree.

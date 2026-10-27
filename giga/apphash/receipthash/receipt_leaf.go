@@ -6,6 +6,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+
+	"github.com/sei-protocol/sei-chain/giga/apphash/merkle"
 )
 
 // receiptFields holds the fields of a receipt leaf other than its logs root.
@@ -70,8 +72,8 @@ func receiptLeafHashes(
 		var logHashes [][32]byte
 		logHashes, scratch = logLeafHashes(receipt.Logs, scratch)
 		fields := newReceiptFields(receipt)
-		scratch = fields.appendLeaf(scratch[:0], merkleRoot(logHashes))
-		leafHashes[i] = merkleLeafHash(scratch)
+		scratch = fields.appendLeaf(scratch[:0], merkle.MerkleRoot(logHashes))
+		leafHashes[i] = merkle.MerkleLeafHash(scratch)
 	}
 	return leafHashes, nil
 }

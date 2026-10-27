@@ -8,6 +8,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
+	"github.com/sei-protocol/sei-chain/giga/apphash/merkle"
 )
 
 // ReceiptProof proves that a receipt is a leaf of the receipts tree under a receipt hash. A ReceiptProof is
@@ -23,7 +24,10 @@ type ReceiptProof struct {
 	count uint64
 
 	// The receipt's position in the receipts tree.
-	path merklePath
+	index uint64
+
+	// The sibling hashes on the path from the receipt's leaf to the root of the receipts tree, leaf end first.
+	siblings [][32]byte
 }
 
 // LogProof proves that a log was emitted by a receipt of the receipts tree under a receipt hash. A LogProof is
@@ -39,7 +43,10 @@ type LogProof struct {
 	data []byte
 
 	// The log's position in its receipt's logs tree.
-	logPath merklePath
+	logIndex uint64
+
+	// The sibling hashes on the path from the log's leaf to the root of its receipt's logs tree, leaf end first.
+	logSiblings [][32]byte
 
 	// The fields of the receipt that emitted the log, other than its logs root.
 	receiptFields receiptFields
@@ -48,7 +55,10 @@ type LogProof struct {
 	receiptCount uint64
 
 	// The receipt's position in the receipts tree.
-	receiptPath merklePath
+	receiptIndex uint64
+
+	// The sibling hashes on the path from the receipt's leaf to the root of the receipts tree, leaf end first.
+	receiptSiblings [][32]byte
 }
 
 // BuildReceiptProof returns the proof of one of a block's receipts. It returns an error if index is out of range, or
@@ -71,9 +81,10 @@ func BuildReceiptProof(
 	logHashes, _ := logLeafHashes(receipt.Logs, nil)
 	return &ReceiptProof{
 		fields:   newReceiptFields(receipt),
-		logsRoot: merkleRoot(logHashes),
+		logsRoot: merkle.MerkleRoot(logHashes),
 		count:    uint64(len(receipts)),
-		path:     newMerklePath(leafHashes, index),
+		index:    uint64(index), //nolint:gosec // G115 - a slice index is never negative
+		siblings: merkle.MerkleSiblings(leafHashes, index),
 	}, nil
 }
 
@@ -103,13 +114,15 @@ func BuildLogProof(
 	log := receipt.Logs[logIndex]
 	logHashes, _ := logLeafHashes(receipt.Logs, nil)
 	return &LogProof{
-		address:       log.Address,
-		topics:        slices.Clone(log.Topics),
-		data:          slices.Clone(log.Data),
-		logPath:       newMerklePath(logHashes, logIndex),
-		receiptFields: newReceiptFields(receipt),
-		receiptCount:  uint64(len(receipts)),
-		receiptPath:   newMerklePath(leafHashes, receiptIndex),
+		address:         log.Address,
+		topics:          slices.Clone(log.Topics),
+		data:            slices.Clone(log.Data),
+		logIndex:        uint64(logIndex), //nolint:gosec // G115 - a slice index is never negative
+		logSiblings:     merkle.MerkleSiblings(logHashes, logIndex),
+		receiptFields:   newReceiptFields(receipt),
+		receiptCount:    uint64(len(receipts)),
+		receiptIndex:    uint64(receiptIndex), //nolint:gosec // G115 - a slice index is never negative
+		receiptSiblings: merkle.MerkleSiblings(leafHashes, receiptIndex),
 	}, nil
 }
 
@@ -117,8 +130,8 @@ func BuildLogProof(
 // that a block produced the receipt only when the result equals that block's receipt hash, taken from a trusted
 // source.
 func (p *ReceiptProof) ComputeReceiptHash() apphash.ReceiptHash {
-	leafHash := merkleLeafHash(p.fields.appendLeaf(nil, p.logsRoot))
-	return computeReceiptHash(p.count, p.path.root(p.count, leafHash))
+	leafHash := merkle.MerkleLeafHash(p.fields.appendLeaf(nil, p.logsRoot))
+	return computeReceiptHash(p.count, merkle.MerkleRootFromSiblings(p.count, p.index, leafHash, p.siblings))
 }
 
 // TxHash returns the hash of the proven receipt's transaction.
@@ -148,17 +161,19 @@ func (p *ReceiptProof) LogCount() uint64 {
 
 // Index returns the proven receipt's position among the block's receipts.
 func (p *ReceiptProof) Index() uint64 {
-	return p.path.index
+	return p.index
 }
 
 // ComputeReceiptHash returns the receipt hash of the receipts tree the proof places its log's receipt in. The proof
 // shows that a block's transaction emitted the log only when the result equals that block's receipt hash, taken from
 // a trusted source.
 func (p *LogProof) ComputeReceiptHash() apphash.ReceiptHash {
-	logLeafHash := merkleLeafHash(appendLogLeaf(nil, p.address, p.topics, p.data))
-	logsRoot := p.logPath.root(p.receiptFields.logCount, logLeafHash)
-	receiptLeafHash := merkleLeafHash(p.receiptFields.appendLeaf(nil, logsRoot))
-	return computeReceiptHash(p.receiptCount, p.receiptPath.root(p.receiptCount, receiptLeafHash))
+	logLeafHash := merkle.MerkleLeafHash(appendLogLeaf(nil, p.address, p.topics, p.data))
+	logsRoot := merkle.MerkleRootFromSiblings(p.receiptFields.logCount, p.logIndex, logLeafHash, p.logSiblings)
+	receiptLeafHash := merkle.MerkleLeafHash(p.receiptFields.appendLeaf(nil, logsRoot))
+	receiptsRoot := merkle.MerkleRootFromSiblings(
+		p.receiptCount, p.receiptIndex, receiptLeafHash, p.receiptSiblings)
+	return computeReceiptHash(p.receiptCount, receiptsRoot)
 }
 
 // Address returns the account that emitted the proven log.
@@ -178,7 +193,7 @@ func (p *LogProof) Data() []byte {
 
 // LogIndex returns the proven log's position among its receipt's logs.
 func (p *LogProof) LogIndex() uint64 {
-	return p.logPath.index
+	return p.logIndex
 }
 
 // TxHash returns the hash of the transaction that emitted the proven log.

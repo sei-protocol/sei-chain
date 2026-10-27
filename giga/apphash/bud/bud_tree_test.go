@@ -2,36 +2,12 @@ package bud
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/binary"
 	"math/rand"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
-
-// referenceBUDTreeRoot returns the root of the BUD tree over leaves using the recursive RFC 6962 definition.
-func referenceBUDTreeRoot(leaves [][32]byte) [32]byte {
-	if len(leaves) == 0 {
-		return sha256.Sum256(nil)
-	}
-	if len(leaves) == 1 {
-		return leaves[0]
-	}
-	split := 1
-	for split*2 < len(leaves) {
-		split *= 2
-	}
-	return budInnerHash(referenceBUDTreeRoot(leaves[:split]), referenceBUDTreeRoot(leaves[split:]))
-}
-
-func TestBUDTreeRootMatchesRFC6962(t *testing.T) {
-	rng := rand.New(rand.NewSource(1))
-	for count := 0; count <= 64; count++ {
-		leaves := budLeafHashes(randomBudlets(t, rng, count))
-		require.Equal(t, referenceBUDTreeRoot(leaves), budTreeRoot(leaves), "count %d", count)
-	}
-}
 
 func TestNewBUDTreeRejectsUnsortedBudlets(t *testing.T) {
 	testCases := map[string][]*Budlet{

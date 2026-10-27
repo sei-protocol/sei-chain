@@ -1,10 +1,9 @@
 # Giga App Hash
 
-**Status:** draft. **Schema version:** 1.
+**Schema version:** 1.
 
 This document defines the app hash that Giga validators compute for each executed block and agree on through
-Autobahn. It specifies what goes into the app hash and how those inputs are combined. Design work that remains
-open is collected in [Open design work](#open-design-work).
+Autobahn. It specifies what goes into the app hash and how those inputs are combined.
 
 ## Notation
 
@@ -30,16 +29,16 @@ the hash input only, not of the serialization.
 `appHashData(N)` holds eight fields. Its serialization is the fields in the order below, with no padding,
 separators, or length prefixes, for a fixed total of 177 bytes.
 
-| Offset | Size | Field             | Encoding  | Status                                                      |
-|-------:|-----:|-------------------|-----------|-------------------------------------------------------------|
-|      0 |    1 | `version`         | `u8`      | Defined                                                     |
-|      1 |    8 | `chainID`         | `u64be`   | Defined                                                     |
-|      9 |    8 | `blockHeight`     | `u64be`   | Defined                                                     |
-|     17 |   32 | `blockHash`       | raw bytes | Defined                                                     |
-|     49 |   32 | `stateHash`       | raw bytes | Defined                                                     |
-|     81 |   32 | `budHash`         | raw bytes | Defined                                                     |
-|    113 |   32 | `receiptHash`     | raw bytes | Defined                                                     |
-|    145 |   32 | `previousAppHash` | raw bytes | Defined, except for the block at the giga activation height |
+| Offset | Size | Field             | Encoding  |
+|-------:|-----:|-------------------|-----------|
+|      0 |    1 | `version`         | `u8`      |
+|      1 |    8 | `chainID`         | `u64be`   |
+|      9 |    8 | `blockHeight`     | `u64be`   |
+|     17 |   32 | `blockHash`       | raw bytes |
+|     49 |   32 | `stateHash`       | raw bytes |
+|     81 |   32 | `budHash`         | raw bytes |
+|    113 |   32 | `receiptHash`     | raw bytes |
+|    145 |   32 | `previousAppHash` | raw bytes |
 
 A decoder reads `version` from the first byte and rejects any version it does not support. It then rejects
 any input that is not exactly the length that version defines, which is 177 bytes for version 1.
@@ -48,9 +47,8 @@ any input that is not exactly the length that version defines, which is 177 byte
 
 `version` identifies this specification. Once the design is formally accepted as final, `version` is bumped on
 any change to the serialization and on any change to how any field is computed. Until then, a change does not
-require a bump: code not yet released to mainnet may not be finalized, and may change without a new version, as
-when a placeholder below is replaced by its real definition. A block's app hash is always computed under the
-version in effect at that block.
+require a bump: code not yet released to mainnet may not be finalized, and may change without a new version. A
+block's app hash is always computed under the version in effect at that block.
 
 ## Fields
 
@@ -98,8 +96,8 @@ The payload holds:
 field-number order. Wire type `0` is a `varint`. Wire type `2` is length-delimited: the tag is followed by
 `varint(length)` and then that many bytes.
 
-| Tag    | Computed as    | Fields                                                          |
-|--------|----------------|-----------------------------------------------------------------|
+| Tag    | Computed as     | Fields                                                          |
+|--------|-----------------|-----------------------------------------------------------------|
 | `0x08` | `(1 << 3) \| 0` | `seconds`                                                       |
 | `0x0a` | `(1 << 3) \| 2` | `createdAt`, `validator`, and the key inside `validator`        |
 | `0x10` | `(2 << 3) \| 0` | `block_number`, `joined`, `nanos`                               |
@@ -218,15 +216,6 @@ The app hash of block `blockHeight - 1`. This chains every app hash to the full 
 
 The giga activation height is the first block whose app hash is computed under this scheme. For that block,
 `previousAppHash` is 32 zero bytes. Every other height the scheme depends on is derived from it.
-
-**Needs design.** The giga activation height is a chain-wide value that is not yet defined. It is not expected
-to be block 0, since the chain already exists without this app hash.
-
-## Open design work
-
-| Item                   | Needed                                                   | Owner    |
-|------------------------|----------------------------------------------------------|----------|
-| Giga activation height | The height of the first block computed under this scheme | TBD      |
 
 ## Test vector
 

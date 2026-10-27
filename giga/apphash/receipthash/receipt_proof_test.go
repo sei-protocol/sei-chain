@@ -52,8 +52,8 @@ func TestReceiptProofCommitsToEveryField(t *testing.T) {
 		"gas used":    func(proof *ReceiptProof) { proof.fields.gasUsed++ },
 		"log count":   func(proof *ReceiptProof) { proof.fields.logCount++ },
 		"logs root":   func(proof *ReceiptProof) { proof.logsRoot[0] ^= 0x01 },
-		"index":       func(proof *ReceiptProof) { proof.path.index = 1 },
-		"sibling":     func(proof *ReceiptProof) { proof.path.siblings[0][0] ^= 0x01 },
+		"index":       func(proof *ReceiptProof) { proof.index = 1 },
+		"sibling":     func(proof *ReceiptProof) { proof.siblings[0][0] ^= 0x01 },
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
@@ -74,14 +74,14 @@ func TestLogProofCommitsToEveryField(t *testing.T) {
 		"topic":            func(proof *LogProof) { proof.topics[0][0] ^= 0x01 },
 		"zero topic added": func(proof *LogProof) { proof.topics = append(proof.topics, common.Hash{}) },
 		"data":             func(proof *LogProof) { proof.data[0] ^= 0x01 },
-		"log index":        func(proof *LogProof) { proof.logPath.index = 1 },
-		"log sibling":      func(proof *LogProof) { proof.logPath.siblings[0][0] ^= 0x01 },
+		"log index":        func(proof *LogProof) { proof.logIndex = 1 },
+		"log sibling":      func(proof *LogProof) { proof.logSiblings[0][0] ^= 0x01 },
 		"status":           func(proof *LogProof) { proof.receiptFields.status ^= 1 },
 		"tx hash":          func(proof *LogProof) { proof.receiptFields.txHash[0] ^= 0x01 },
 		"block index":      func(proof *LogProof) { proof.receiptFields.blockIndex++ },
 		"gas used":         func(proof *LogProof) { proof.receiptFields.gasUsed++ },
-		"receipt index":    func(proof *LogProof) { proof.receiptPath.index = 1 },
-		"receipt sibling":  func(proof *LogProof) { proof.receiptPath.siblings[0][0] ^= 0x01 },
+		"receipt index":    func(proof *LogProof) { proof.receiptIndex = 1 },
+		"receipt sibling":  func(proof *LogProof) { proof.receiptSiblings[0][0] ^= 0x01 },
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {

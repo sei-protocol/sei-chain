@@ -7,6 +7,8 @@ import (
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/giga/apphash/merkle"
 )
 
 // TestReceiptHashSpecVector pins every value of the test vectors in receipt_hash_spec.md.
@@ -49,7 +51,7 @@ func TestReceiptHashSpecVector(t *testing.T) {
 	for i, log := range []*ethtypes.Log{log0, log1} {
 		leaf := appendLogLeaf(nil, log.Address, log.Topics, log.Data)
 		require.Equal(t, logLeaves[i], hex.EncodeToString(leaf), "log %d leaf", i)
-		leafHash := merkleLeafHash(leaf)
+		leafHash := merkle.MerkleLeafHash(leaf)
 		require.Equal(t, wantLogLeafHashes[i], hex.EncodeToString(leafHash[:]), "log %d leaf hash", i)
 	}
 
@@ -57,18 +59,18 @@ func TestReceiptHashSpecVector(t *testing.T) {
 	leafHashes := make([][32]byte, 0, len(receipts))
 	for i, receipt := range receipts {
 		logHashes, _ := logLeafHashes(receipt.Logs, nil)
-		logsRoot := merkleRoot(logHashes)
+		logsRoot := merkle.MerkleRoot(logHashes)
 		require.Equal(t, logsRoots[i], hex.EncodeToString(logsRoot[:]), "receipt %d logs root", i)
 		fields := newReceiptFields(receipt)
 		leaf := fields.appendLeaf(nil, logsRoot)
 		require.Equal(t, receiptLeaves[i], hex.EncodeToString(leaf), "receipt %d leaf", i)
-		leafHash := merkleLeafHash(leaf)
+		leafHash := merkle.MerkleLeafHash(leaf)
 		require.Equal(t, wantReceiptLeafHashes[i], hex.EncodeToString(leafHash[:]), "receipt %d leaf hash", i)
 		leafHashes = append(leafHashes, leafHash)
 	}
-	computedInner01 := merkleInnerHash(leafHashes[0], leafHashes[1])
+	computedInner01 := merkle.MerkleInnerHash(leafHashes[0], leafHashes[1])
 	require.Equal(t, inner01, hex.EncodeToString(computedInner01[:]))
-	computedRoot := merkleRoot(leafHashes)
+	computedRoot := merkle.MerkleRoot(leafHashes)
 	require.Equal(t, root, hex.EncodeToString(computedRoot[:]))
 
 	for count := 0; count <= len(receipts); count++ {

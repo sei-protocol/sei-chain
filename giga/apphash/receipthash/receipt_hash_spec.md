@@ -1,6 +1,6 @@
 # Giga Receipt Hash
 
-**Status:** draft. **Depends on:** [Giga App Hash](../apphash_spec.md), schema version 1.
+**Depends on:** [Giga App Hash](../apphash_spec.md), schema version 1.
 
 This document defines `receiptHash`, the field of `appHashData` in the
 [App Hash specification](../apphash_spec.md#the-app-hash) that commits to the transaction receipts

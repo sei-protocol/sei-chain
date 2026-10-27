@@ -5,6 +5,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+
+	"github.com/sei-protocol/sei-chain/giga/apphash/merkle"
 )
 
 // maxLogTopics is the most topics an EVM log carries, and the number of topic slots in a log leaf.
@@ -45,7 +47,7 @@ func logLeafHashes(
 	leafHashes := make([][32]byte, len(logs))
 	for i, log := range logs {
 		scratch = appendLogLeaf(scratch[:0], log.Address, log.Topics, log.Data)
-		leafHashes[i] = merkleLeafHash(scratch)
+		leafHashes[i] = merkle.MerkleLeafHash(scratch)
 	}
 	return leafHashes, scratch
 }
