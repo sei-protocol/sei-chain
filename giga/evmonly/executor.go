@@ -63,8 +63,9 @@ func WithResultSink(sink ResultSink) Option {
 	}
 }
 
-// WithMissingAccountState supplies state for accounts absent from the
-// persistent state snapshot.
+// WithMissingAccountState supplies the balance, nonce and code of accounts
+// absent from the persistent state snapshot. Storage is always read from the
+// snapshot.
 func WithMissingAccountState(state StateReader) Option {
 	return func(e *Executor) {
 		e.missingState = state

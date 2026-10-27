@@ -337,15 +337,14 @@ func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (AccountState,
 	return account, true
 }
 
+// GetState reads addr's slot from the snapshot, whether or not addr has an account there.
 func (r gigaSnapshotStateReader) GetState(addr common.Address, key common.Hash) common.Hash {
-	if r.useMissingState(addr) {
-		return r.missingState.GetState(addr, key)
-	}
 	return r.snapshot.GetStorage(addr, key)
 }
 
-// useMissingState reports whether addr must be served from missingState: a
-// fallback is configured and the snapshot holds no account for addr.
+// useMissingState reports whether addr's balance, nonce and code must be served
+// from missingState: a fallback is configured and the snapshot holds no account
+// for addr.
 func (r gigaSnapshotStateReader) useMissingState(addr common.Address) bool {
 	return r.missingState != nil && !r.snapshot.AccountExists(addr)
 }
