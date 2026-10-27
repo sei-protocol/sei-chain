@@ -183,8 +183,6 @@ func (e *Executor) encodingReadsTheStore() bool {
 func (e *Executor) SettledNonce(addr common.Address) uint64 {
 	// Taken before the view, for the reason executePreparedBlockWithStore gives.
 	pending := e.pipelinePending()
-	view := e.stateStore.OpenView()
-	defer view.Close()
 	if pending != nil {
 		for i := len(pending.Nonces) - 1; i >= 0; i-- {
 			if pending.Nonces[i].Address == addr {
@@ -192,6 +190,8 @@ func (e *Executor) SettledNonce(addr common.Address) uint64 {
 			}
 		}
 	}
+	view := e.stateStore.OpenView()
+	defer view.Close()
 	return view.GetNonce(addr)
 }
 
