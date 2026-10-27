@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -152,6 +153,39 @@ func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBloc
 	panic("unreachable")
 }
 
+// CheckBlocks verifies the FinalizeBlock requests the router delivered: heights
+// are contiguous from InitialHeight and every header names a current validator
+// as proposer.
+func (s *testAppState) CheckBlocks() error {
+	init, ok := s.Init.Get()
+	if !ok {
+		return fmt.Errorf("app not initialized")
+	}
+	for i, b := range s.Blocks {
+		if want := init.InitialHeight + int64(i); b.Header.Height != want {
+			return fmt.Errorf("blocks[%v].Height = %v, want %v", i, b.Header.Height, want)
+		}
+		if err := checkProposer(b.Header.ProposerAddress, s.Validators); err != nil {
+			return fmt.Errorf("blocks[%v]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// checkProposer verifies that the proposer is one of the given validators.
+func checkProposer(proposer types.Address, vals []abci.ValidatorUpdate) error {
+	for _, val := range vals {
+		key, err := crypto.PubKeyFromProto(val.PubKey)
+		if err != nil {
+			return fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
+		}
+		if bytes.Equal(key.Address(), proposer) {
+			return nil
+		}
+	}
+	return fmt.Errorf("proposer %X is not a current validator", proposer)
+}
+
 func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 	for state, ctrl := range a.state.Lock() {
 		if state.Committed {
@@ -164,6 +198,120 @@ func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 		// Don't prune anything.
 		RetainHeight: 0,
 	}, nil
+}
+
+// preparingTestApp is a testApp that implements blockPreparer. It counts the
+// FinalizeBlock calls whose block PrepareBlock had already seen with the same
+// height and hash, and holds FinalizeBlock(h), for h below holdUntil, until
+// PrepareBlock(h+1) has been called.
+type preparingTestApp struct {
+	*testApp
+	holdUntil int64
+	// releaseFinalize, when set, blocks every FinalizeBlock until it is closed.
+	releaseFinalize <-chan struct{}
+	// blockPrepareHeight, with blockPrepareReturn set, blocks that height's
+	// PrepareBlock before it records the block, until blockPrepareReturn receives.
+	blockPrepareHeight int64
+	blockPrepareReturn <-chan struct{}
+	// prepareEntered receives one value when the blocked PrepareBlock is entered.
+	prepareEntered chan struct{}
+	log            utils.Watch[*prepareLog]
+}
+
+type prepareLog struct {
+	prepared map[int64][]byte
+	hits     int
+	misses   int
+}
+
+func newPreparingTestApp(holdUntil int64) *preparingTestApp {
+	return &preparingTestApp{
+		testApp:   newTestApp(),
+		holdUntil: holdUntil,
+		log:       utils.NewWatch(&prepareLog{prepared: map[int64][]byte{}}),
+	}
+}
+
+func (a *preparingTestApp) PrepareBlock(ctx context.Context, req *abci.RequestFinalizeBlock) error {
+	if a.blockPrepareReturn != nil && req.Header.Height == a.blockPrepareHeight {
+		if a.prepareEntered != nil {
+			if err := utils.Send(ctx, a.prepareEntered, struct{}{}); err != nil {
+				return err
+			}
+		}
+		if _, err := utils.Recv(ctx, a.blockPrepareReturn); err != nil {
+			return err
+		}
+	}
+	for log, ctrl := range a.log.Lock() {
+		log.prepared[req.Header.Height] = slices.Clone(req.Hash)
+		ctrl.Updated()
+	}
+	return nil
+}
+
+func (a *preparingTestApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	if a.releaseFinalize != nil {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-a.releaseFinalize:
+		}
+	}
+	height := req.Header.Height
+	for log, ctrl := range a.log.Lock() {
+		if height < a.holdUntil {
+			if err := ctrl.WaitUntil(ctx, func() bool {
+				_, ok := log.prepared[height+1]
+				return ok
+			}); err != nil {
+				return nil, err
+			}
+		}
+		if hash, ok := log.prepared[height]; ok && bytes.Equal(hash, req.Hash) {
+			log.hits++
+		} else {
+			log.misses++
+		}
+		delete(log.prepared, height)
+	}
+	return a.testApp.FinalizeBlock(ctx, req)
+}
+
+// WaitPreparedHeight waits until PrepareBlock has recorded height and FinalizeBlock has not yet taken it.
+func (a *preparingTestApp) WaitPreparedHeight(ctx context.Context, height int64) error {
+	for log, ctrl := range a.log.Lock() {
+		return ctrl.WaitUntil(ctx, func() bool {
+			_, ok := log.prepared[height]
+			return ok
+		})
+	}
+	panic("unreachable")
+}
+
+// WaitPrepared waits until PrepareBlock has recorded n blocks that FinalizeBlock has not yet taken.
+func (a *preparingTestApp) WaitPrepared(ctx context.Context, n int) error {
+	for log, ctrl := range a.log.Lock() {
+		return ctrl.WaitUntil(ctx, func() bool { return len(log.prepared) >= n })
+	}
+	panic("unreachable")
+}
+
+// HasPrepared reports whether height is recorded and not yet finalized.
+func (a *preparingTestApp) HasPrepared(height int64) bool {
+	for log := range a.log.Lock() {
+		_, ok := log.prepared[height]
+		return ok
+	}
+	panic("unreachable")
+}
+
+// PreparedCounts returns how many finalized blocks PrepareBlock had seen, and how many it had not.
+func (a *preparingTestApp) PreparedCounts() (hits, misses int) {
+	for log := range a.log.Lock() {
+		return log.hits, log.misses
+	}
+	panic("unreachable")
 }
 
 func (a *testApp) WaitForTx(ctx context.Context, tx []byte) error {
