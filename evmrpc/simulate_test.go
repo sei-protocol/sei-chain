@@ -1133,11 +1133,9 @@ func TestStateAtBlockRetracesLockedCoinsLookupFromRecordedUpgradeHeights(t *test
 		return genesisTime.Add(time.Duration(height) * time.Second)
 	}
 	for height := int64(1); height <= latestHeight; height++ {
-		_, err := testApp.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
-			Header: &tenderminttypes.Header{ChainID: testApp.ChainID, Height: height, Time: blockTime(height)},
-		})
-		require.NoError(t, err)
-		blockCtx := testApp.GetContextForDeliverTx(nil)
+		header := tenderminttypes.Header{ChainID: testApp.ChainID, Height: height, Time: blockTime(height)}
+		// Writes made on the commit store before FinalizeBlock land in this height's working hash.
+		blockCtx, writeBlock := testApp.NewUncachedContext(false, header).CacheContext()
 		switch height {
 		case 1:
 			testApp.AccountKeeper.SetAccount(blockCtx, testApp.AccountKeeper.NewAccountWithAddress(blockCtx, holder))
@@ -1146,6 +1144,9 @@ func TestStateAtBlockRetracesLockedCoinsLookupFromRecordedUpgradeHeights(t *test
 		case v68UpgradeHeight:
 			testApp.UpgradeKeeper.SetDone(blockCtx, "v6.8")
 		}
+		writeBlock()
+		_, err := testApp.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{Header: &header})
+		require.NoError(t, err)
 		_, err = testApp.Commit(t.Context())
 		require.NoError(t, err)
 	}
