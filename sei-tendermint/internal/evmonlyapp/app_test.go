@@ -482,15 +482,28 @@ func TestEVMOnlyApplicationChecksATxByItsRememberedSender(t *testing.T) {
 func TestSenderCacheKeepsRecentEntriesAcrossRollover(t *testing.T) {
 	hashOf := func(i int) common.Hash { return common.BigToHash(big.NewInt(int64(i))) }
 	addrOf := func(i int) common.Address { return common.BigToAddress(big.NewInt(int64(i))) }
-	cache := newSenderCache()
-	for i := range 2*checkedSendersCap + 1 {
+	const capacity = 4
+	cache := newSenderCache(capacity)
+	for i := range 3*capacity + 1 {
 		cache.put(hashOf(i), addrOf(i))
 	}
 
-	require.Equal(t, utils.None[common.Address](), cache.take(hashOf(0)))
-	require.Equal(t, utils.Some(addrOf(checkedSendersCap)), cache.take(hashOf(checkedSendersCap)))
-	require.Equal(t, utils.Some(addrOf(2*checkedSendersCap)), cache.take(hashOf(2*checkedSendersCap)))
-	require.Equal(t, utils.None[common.Address](), cache.take(hashOf(checkedSendersCap)))
+	require.Equal(t, utils.None[common.Address](), cache.take(hashOf(capacity)))
+	require.Equal(t, utils.Some(addrOf(2*capacity)), cache.take(hashOf(2*capacity)))
+	require.Equal(t, utils.Some(addrOf(3*capacity)), cache.take(hashOf(3*capacity)))
+	require.Equal(t, utils.None[common.Address](), cache.take(hashOf(2*capacity)))
+}
+
+// A transaction CheckTx rejects does not keep the sender the RPC remembered for it.
+func TestEVMOnlyApplicationForgetsTheSenderOfARejectedTx(t *testing.T) {
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID+1, 0)
+	app, ok := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	require.True(t, ok)
+	hash := decodeEVMOnlyTestTx(t, raw).Hash()
+	app.RememberEvmSender(hash, common.HexToAddress("0x2000000000000000000000000000000000000002"))
+
+	require.NotEqual(t, abci.CodeTypeOK, app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw}).Code)
+	require.Equal(t, utils.None[common.Address](), app.checkedSender(hash))
 }
 
 // The cursor does not carry the block time, so a resumed app would answer
