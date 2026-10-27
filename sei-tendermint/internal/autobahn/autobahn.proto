@@ -337,7 +337,7 @@ message EpochMember {
 
 // LaneBlockPos addresses a lane block in CommitQC header order.
 message LaneBlockPos {
- option (wireguard.sized) = true;
- optional uint64 index = 1; // required
- optional uint64 offset = 2; // required
+  option (wireguard.sized) = true;
+  optional uint64 index = 1; // required
+  optional uint64 offset = 2; // required
 }
