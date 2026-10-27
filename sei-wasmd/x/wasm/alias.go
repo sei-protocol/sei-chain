@@ -81,6 +81,3 @@ type (
 	QueryPlugins                   = keeper.QueryPlugins
 	Option                         = keeper.Option
 )
-
-// GeneratedQueryGasLimit is the smart-query gas limit a generated app.toml carries.
-const GeneratedQueryGasLimit uint64 = 300_000

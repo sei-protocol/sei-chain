@@ -111,9 +111,6 @@ type APIConfig struct {
 	// Enable defines if the API server should be enabled.
 	Enable bool `mapstructure:"enable"`
 
-	// Swagger defines if swagger documentation should automatically be registered.
-	Swagger bool `mapstructure:"swagger"`
-
 	// EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk)
 	EnableUnsafeCORS bool `mapstructure:"enabled-unsafe-cors"`
 
@@ -226,7 +223,6 @@ func DefaultConfig() *Config {
 		},
 		API: APIConfig{
 			Enable:             false,
-			Swagger:            true,
 			Address:            "tcp://0.0.0.0:1317",
 			MaxOpenConnections: 1000,
 			RPCReadTimeout:     10,
@@ -382,7 +378,6 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		},
 		API: APIConfig{
 			Enable:             v.GetBool("api.enable"),
-			Swagger:            v.GetBool("api.swagger"),
 			Address:            v.GetString("api.address"),
 			MaxOpenConnections: v.GetUint("api.max-open-connections"),
 			RPCReadTimeout:     v.GetUint("api.rpc-read-timeout"),
