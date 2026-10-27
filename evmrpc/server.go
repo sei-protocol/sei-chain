@@ -16,7 +16,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
 
@@ -114,7 +113,6 @@ func NewEVMHTTPServer(
 	cacheCreationMutex := &sync.Mutex{}
 	sendAPI := NewSendAPI(tmClient, txConfigProvider, NewSendConfig(config.Slow, config.EnableSimulation, autobahnEnabled), k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks)
 
-	ctx := ctxProvider(LatestCtxHeight)
 	traceCtxProvider := defaultTraceContextProvider(ctxProvider)
 	if len(traceCtxProviders) > 0 && traceCtxProviders[0] != nil {
 		traceCtxProvider = traceCtxProviders[0]
@@ -203,16 +201,6 @@ func NewEVMHTTPServer(
 			Namespace: "debug",
 			Service:   debugAPI,
 		},
-	}
-	// Test API can only exist on non-live chain IDs.  These APIs instrument certain overrides.
-	if config.EnableTestAPI && !evmCfg.IsLiveChainID(ctx) {
-		logger.Info("Enabling Test EVM APIs")
-		apis = append(apis, rpc.API{
-			Namespace: "test",
-			Service:   NewTestAPI(),
-		})
-	} else {
-		logger.Info("Disabling Test EVM APIs", "liveChainID", evmCfg.IsLiveChainID(ctx), "enableTestAPI", config.EnableTestAPI)
 	}
 
 	httpConfig := HTTPConfig{
