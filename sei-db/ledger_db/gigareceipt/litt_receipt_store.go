@@ -52,7 +52,7 @@ import (
 // empty part, so every block the store accepted has a key of its own.
 //
 // The pebble index holds the tag keys (litt_tag_index.go) plus version
-// metadata (m:latest / m:earliest).
+// metadata (m:latest / m:latest_durable / m:earliest).
 //
 // Durability: litt is flushed every littFlushInterval and index commits do not
 // fsync, so after a crash either one may hold blocks the other lost. Startup
@@ -77,8 +77,15 @@ type littReceiptStore struct {
 	index    dbtypes.KeyValueDB
 	storeKey sdk.StoreKey
 
-	latestVersion   atomic.Int64
-	earliestVersion atomic.Int64
+	latestVersion atomic.Int64
+	// latestDurableVersion is the highest version covered by a successful Litt flush. Retention
+	// cannot advance from latestVersion directly because receipt bodies are flushed asynchronously.
+	latestDurableVersion atomic.Int64
+	// latestFlushCandidate is the newest version written in this process that a subsequent Litt
+	// flush may publish as durable. It starts at the recovered durable marker, not latestVersion:
+	// after an unclean shutdown the Pebble index may be ahead of the receipt bodies.
+	latestFlushCandidate atomic.Int64
+	earliestVersion      atomic.Int64
 
 	keepRecent           int64
 	pruneInterval        int64
@@ -121,8 +128,9 @@ const writeQueueSampleIntervalSeconds = 1
 var _ receipt.ReceiptStore = (*littReceiptStore)(nil)
 
 var (
-	receiptLatestVersionKey   = []byte("m:latest")
-	receiptEarliestVersionKey = []byte("m:earliest")
+	receiptLatestVersionKey        = []byte("m:latest")
+	receiptLatestDurableVersionKey = []byte("m:latest_durable")
+	receiptEarliestVersionKey      = []byte("m:earliest")
 )
 
 const (
@@ -265,6 +273,9 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	}
 
 	s.latestVersion.Store(s.readMeta(receiptLatestVersionKey))
+	durableVersion := min(s.readMeta(receiptLatestDurableVersionKey), s.latestVersion.Load())
+	s.latestDurableVersion.Store(durableVersion)
+	s.latestFlushCandidate.Store(durableVersion)
 	s.earliestVersion.Store(s.readMeta(receiptEarliestVersionKey))
 	s.startPruning()
 	s.startFlusher()
@@ -293,6 +304,7 @@ func (s *littReceiptStore) SetLatestVersion(version int64) error {
 		return err
 	}
 	s.latestVersion.Store(version)
+	s.latestFlushCandidate.Store(version)
 	return nil
 }
 
@@ -301,9 +313,11 @@ func (s *littReceiptStore) SetEarliestVersion(version int64) error {
 	if version <= s.earliestVersion.Load() {
 		return nil
 	}
-	height := uint64(version) //nolint:gosec // block heights fit within uint64
-	err := s.index.Set(receiptEarliestVersionKey, encodeBlockNumber(height), dbtypes.WriteOptions{})
-	if err != nil {
+	if err := s.index.Set(
+		receiptEarliestVersionKey,
+		encodeBlockNumber(uint64(version)), //nolint:gosec // block heights fit within uint64
+		dbtypes.WriteOptions{Sync: true},
+	); err != nil {
 		return err
 	}
 	s.earliestVersion.Store(version)
@@ -453,8 +467,9 @@ func (s *littReceiptStore) writeReceipts(height int64, receipts []receipt.Receip
 	}
 
 	maxBlock := blockNumbers[len(blockNumbers)-1]
-	newLatest := s.latestVersion.Load()
-	if int64(maxBlock) > newLatest { //nolint:gosec // block heights fit within int64
+	currentLatest := s.latestVersion.Load()
+	newLatest := currentLatest
+	if int64(maxBlock) > currentLatest { //nolint:gosec // block heights fit within int64
 		newLatest = int64(maxBlock) //nolint:gosec // block heights fit within int64
 		if err := batch.Set(receiptLatestVersionKey, encodeBlockNumber(maxBlock)); err != nil {
 			return err
@@ -464,7 +479,10 @@ func (s *littReceiptStore) writeReceipts(height int64, receipts []receipt.Receip
 	if err := batch.Commit(dbtypes.WriteOptions{}); err != nil {
 		return err
 	}
-	s.latestVersion.Store(newLatest)
+	if newLatest > currentLatest {
+		s.latestVersion.Store(newLatest)
+		s.latestFlushCandidate.Store(newLatest)
+	}
 	return nil
 }
 
@@ -697,12 +715,34 @@ func (s *littReceiptStore) startFlusher() {
 			case <-s.stopBackground:
 				return
 			case <-ticker.C:
-				if err := s.receipts.Flush(); err != nil {
+				if err := s.flushReceipts(); err != nil {
 					logger.Error("failed to flush littdb receipts", "err", err)
 				}
 			}
 		}
 	}()
+}
+
+func (s *littReceiptStore) flushReceipts() error {
+	latest := s.latestFlushCandidate.Load()
+	if err := s.receipts.Flush(); err != nil {
+		return err
+	}
+	if latest <= s.latestDurableVersion.Load() {
+		return nil
+	}
+	if err := s.index.Set(
+		receiptLatestDurableVersionKey,
+		encodeBlockNumber(uint64(latest)), //nolint:gosec // guarded positive below
+		// The Litt flush above is the safety boundary. Losing this marker can only make retention
+		// more conservative; forcing an additional Pebble fsync every 5 ms would put I/O on the
+		// background fast path without improving receipt-body durability.
+		dbtypes.WriteOptions{},
+	); err != nil {
+		return err
+	}
+	s.latestDurableVersion.Store(latest)
+	return nil
 }
 
 func (s *littReceiptStore) Close() error {
@@ -720,10 +760,13 @@ func (s *littReceiptStore) Close() error {
 		close(s.stopBackground)
 		// The writer drains what it holds before returning, so this is where queued writes land.
 		s.backgroundWg.Wait()
+		// Flush explicitly so the durable receipt head advances before the table closes.
 		err = s.writeFailure()
-		// litt's Close flushes, so the last sub-interval of writes is durable.
-		if valuesErr := s.values.Close(); err == nil {
-			err = valuesErr
+		if flushErr := s.flushReceipts(); err == nil {
+			err = flushErr
+		}
+		if closeErr := s.values.Close(); err == nil {
+			err = closeErr
 		}
 		if indexErr := s.index.Close(); err == nil {
 			err = indexErr
@@ -748,9 +791,9 @@ func (s *littReceiptStore) startPruning() {
 	go func() {
 		defer s.backgroundWg.Done()
 		for {
-			// Keep exactly keepRecent blocks, [latest-keepRecent+1, latest]; the
+			// Keep exactly keepRecent durable blocks, [latest-keepRecent+1, latest]; the
 			// +1 matches the pebble backend (which retains keepRecent, not +1).
-			pruneBefore := s.latestVersion.Load() - s.keepRecent + 1
+			pruneBefore := s.latestDurableVersion.Load() - s.keepRecent + 1
 			if pruneBefore > 0 {
 				if err := s.pruneBlocksBelow(uint64(pruneBefore)); err != nil {
 					logger.Error("failed to prune littdb receipt store",
@@ -775,7 +818,7 @@ func (s *littReceiptStore) startPruning() {
 // It is shared by both retention drivers, startPruning and the collector's PruneHistory. A cutoff
 // above this store's head is capped at the head rather than honored.
 func (s *littReceiptStore) pruneBlocksBelow(cutoff uint64) error {
-	head := s.latestVersion.Load()
+	head := s.latestDurableVersion.Load()
 	if head <= 0 {
 		return nil // nothing ingested, so nothing to drop
 	}
@@ -791,37 +834,38 @@ func (s *littReceiptStore) pruneBlocksBelow(cutoff uint64) error {
 		return nil
 	}
 
-	if err := s.deleteIndexRange(littTagBlockKey(floor), littTagBlockKey(cutoff)); err != nil {
+	rawBatch := s.index.NewBatch()
+	defer func() { _ = rawBatch.Close() }()
+
+	batch, ok := rawBatch.(rangeDeleteBatch)
+	if !ok {
+		return fmt.Errorf("receipt index batch %T does not support range delete", rawBatch)
+	}
+	if err := batch.DeleteRange(littTagBlockKey(floor), littTagBlockKey(cutoff)); err != nil {
 		return err
 	}
-	if err := s.deleteIndexRange(blockStatsKey(floor), blockStatsKey(cutoff)); err != nil {
+	if err := batch.DeleteRange(blockStatsKey(floor), blockStatsKey(cutoff)); err != nil {
 		return err
 	}
-	err := s.index.Set(receiptEarliestVersionKey, encodeBlockNumber(cutoff), dbtypes.WriteOptions{})
-	if err != nil {
+	if err := batch.Set(receiptEarliestVersionKey, encodeBlockNumber(cutoff)); err != nil {
+		return err
+	}
+	// The index floor must survive before the in-memory floor can release receipt bodies to Litt GC.
+	if err := batch.Commit(dbtypes.WriteOptions{Sync: true}); err != nil {
 		return err
 	}
 	s.earliestVersion.Store(int64(cutoff)) //nolint:gosec // block heights fit within int64
 	return nil
 }
 
-// rangeDeleter is implemented by index DBs that can drop a whole key range with
-// one range tombstone instead of per-key deletes (pebble implements it).
+// rangeDeleter is an index that supports deleting a key range.
 type rangeDeleter interface {
 	DeleteRange(start, end []byte, opts dbtypes.WriteOptions) error
 }
 
-// deleteIndexRange removes every index key in [lower, upper) with one O(1) range
-// tombstone — essential for the tag index, which writes thousands of keys per
-// block, so per-key deletes would scan and delete millions of keys per prune
-// pass. The index is always pebble (which supports range delete); the assertion
-// guards against a future backend that does not.
-func (s *littReceiptStore) deleteIndexRange(lower, upper []byte) error {
-	rd, ok := s.index.(rangeDeleter)
-	if !ok {
-		return fmt.Errorf("receipt index %T does not support range delete", s.index)
-	}
-	return rd.DeleteRange(lower, upper, dbtypes.WriteOptions{})
+type rangeDeleteBatch interface {
+	dbtypes.Batch
+	DeleteRange(start, end []byte) error
 }
 
 // groupReceiptRecordsByBlock splits records by block number (dropping entries

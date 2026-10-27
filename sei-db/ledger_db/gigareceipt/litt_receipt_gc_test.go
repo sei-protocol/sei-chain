@@ -29,6 +29,7 @@ func setupLittIdxForGC(
 	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
 
 	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.AsyncWriteBuffer = 0
 	cfg.DBDirectory = t.TempDir()
 	cfg.KeepRecent = keepRecent
 	cfg.ExternalPruning = true
@@ -109,6 +110,7 @@ func TestReceiptGCAnswersDoNotDependOnKeepRecent(t *testing.T) {
 		for block := uint64(1); block <= 10; block++ {
 			writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
 		}
+		require.NoError(t, gigareceipt.FlushLittIdx(store))
 		require.Equal(t, uint64(7), prunable.GetRollbackFloor(3),
 			"keepRecent %d must not change the floor (head 10 - window 3)", keepRecent)
 	}
@@ -147,11 +149,41 @@ func TestReceiptGCLatestBlock(t *testing.T) {
 	writeLitBlock(t, store, ctx, 2, litReceipt(2, 0, addr, topic))
 	writeLitBlock(t, store, ctx, 3, litReceipt(3, 0, addr, topic))
 
+	require.NoError(t, gigareceipt.FlushLittIdx(store))
 	latest, err = prunable.GetLatestBlock()
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), latest)
 	require.Equal(t, int64(3), store.LatestVersion(),
 		"the head reported to the collector must agree with the store's own version")
+}
+
+func TestReceiptGCLatestBlockSurvivesReopen(t *testing.T) {
+	dir := t.TempDir()
+	storeKey := storetypes.NewKVStoreKey("evm")
+	tkey := storetypes.NewTransientStoreKey("evm_transient")
+	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.AsyncWriteBuffer = 0
+	cfg.DBDirectory = dir
+	cfg.ExternalPruning = true
+
+	store, err := gigareceipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	addr := common.HexToAddress("0xabcd")
+	topic := common.HexToHash("0x1111")
+	for block := uint64(1); block <= 3; block++ {
+		writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
+	}
+	require.NoError(t, gigareceipt.FlushLittIdx(store))
+	require.NoError(t, store.Close())
+
+	store, err = gigareceipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	prunable := store.(controllertypes.PrunableStore)
+	latest, err := prunable.GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), latest, "the durable head must be recovered with the receipt bodies")
 }
 
 // A contiguous store resolves the window against its own head, and the prune that follows moves the
@@ -170,6 +202,7 @@ func TestReceiptGCRollbackFloorAndPruneHistory(t *testing.T) {
 	for block := uint64(1); block <= 3; block++ {
 		writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
 	}
+	require.NoError(t, gigareceipt.FlushLittIdx(store))
 	require.Equal(t, uint64(1), prunable.GetRollbackFloor(2))
 	// A window deeper than its own head is a rollback promise reaching past genesis, so nothing here
 	// is eligible for pruning yet.
@@ -209,6 +242,7 @@ func TestReceiptGCPruneHistoryAboveHead(t *testing.T) {
 		for block := uint64(1); block <= 3; block++ {
 			writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
 		}
+		require.NoError(t, gigareceipt.FlushLittIdx(store))
 
 		require.NoError(t, prunable.PruneHistory(1_000))
 		require.Equal(t, int64(3), store.EarliestVersion(), "the floor stops at the head, not the request")
@@ -217,4 +251,24 @@ func TestReceiptGCPruneHistoryAboveHead(t *testing.T) {
 		require.NoError(t, err, "honoring the request literally would drop every block the store holds")
 		require.Equal(t, uint64(3), kept.BlockNumber)
 	})
+}
+
+func TestReceiptGCPruneHistoryCapsAtDurableHead(t *testing.T) {
+	store, prunable, ctx := setupLittIdxForGC(t, 0)
+	gigareceipt.StopLittIdxBackground(store)
+	addr := common.HexToAddress("0xabcd")
+	topic := common.HexToHash("0x1111")
+	for block := uint64(1); block <= 3; block++ {
+		writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
+	}
+	require.NoError(t, gigareceipt.FlushLittIdx(store))
+	writeLitBlock(t, store, ctx, 4, litReceipt(4, 0, addr, topic))
+
+	require.NoError(t, prunable.PruneHistory(1_000))
+	require.Equal(t, int64(3), store.EarliestVersion(),
+		"the floor must not rely on the unflushed block remaining after a crash")
+
+	kept, err := store.GetReceiptFromStore(ctx, litTxHash(3, 0))
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), kept.BlockNumber)
 }

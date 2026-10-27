@@ -48,8 +48,8 @@ func TestLittGetBlockStatsBelowRetentionFloorIsNotFound(t *testing.T) {
 	s, cleanup := setupLittCtxStore(t)
 	defer cleanup()
 
-	// pruneBlocksBelow caps its cutoff at the store's head (never prunes the block just written),
-	// so block 1 needs a later block ahead of it before a prune can retire it.
+	// pruneBlocksBelow caps its cutoff at the durable head, so block 1 needs a later
+	// flushed block ahead of it before a prune can retire it.
 	txHash1, r1 := littCtxTestReceipt(1, 0, [20]byte{}, [32]byte{}, 0)
 	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(1),
 		[]receipt.ReceiptRecord{{TxHash: txHash1, Receipt: r1}}))
@@ -57,6 +57,8 @@ func TestLittGetBlockStatsBelowRetentionFloorIsNotFound(t *testing.T) {
 	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(2),
 		[]receipt.ReceiptRecord{{TxHash: txHash2, Receipt: r2}}))
 	requireReceiptVersion(t, s, 2)
+	stopLittIdxBackground(s)
+	require.NoError(t, s.flushReceipts())
 
 	require.NoError(t, s.pruneBlocksBelow(2))
 

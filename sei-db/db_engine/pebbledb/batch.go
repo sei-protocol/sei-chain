@@ -44,6 +44,10 @@ func (pb *pebbleBatch) Delete(key []byte) error {
 	return pb.b.Delete(key, nil)
 }
 
+func (pb *pebbleBatch) DeleteRange(start, end []byte) error {
+	return pb.b.DeleteRange(start, end, nil)
+}
+
 // Written through pebble's deferred-op API, which reserves the record inside the batch's own buffer
 // and hands back slices to fill: copying a string into those needs no intermediate byte slice, and
 // so no allocation per key.

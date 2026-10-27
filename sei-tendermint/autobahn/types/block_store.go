@@ -117,7 +117,9 @@ type BlockStore interface {
 	// Pruning never empties the store. Once a block has been written, at
 	// least one block (and a QC covering it) always remains readable — a
 	// request that would remove every block is capped to retain the most
-	// recently written block (and the QC covering it).
+	// recently durable block (and the QC covering it). An unflushed suffix
+	// cannot justify reclaiming durable history. Without a durable suffix,
+	// pruning does nothing.
 	//
 	// Pruning is asynchronous and MAY BE DELAYED. PruneBefore records the
 	// watermark and returns; reclamation happens later, on the

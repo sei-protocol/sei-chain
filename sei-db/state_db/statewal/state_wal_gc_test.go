@@ -20,9 +20,10 @@ func openWALForGC(t *testing.T, cfg *Config) (StateWAL, controllertypes.Prunable
 	return w, store
 }
 
-// The head is the last block written, and it is what the floor this store reports is measured from.
-// A head that lagged the blocks the WAL actually holds would report a floor below what needs keeping.
-func TestGCLatestBlockFollowsWrittenBlocks(t *testing.T) {
+// The head is the last crash-recoverable block. Write only queues a record, so counting
+// it before Flush would let the collector prune durable history against a volatile suffix. A process
+// crash could then lose that suffix and leave less than the configured rollback window.
+func TestGCLatestBlockCountsOnlyFlushedBlocks(t *testing.T) {
 	w, store := openWALForGC(t, testConfig(t.TempDir()))
 
 	latest, err := store.GetLatestBlock()
@@ -33,9 +34,19 @@ func TestGCLatestBlockFollowsWrittenBlocks(t *testing.T) {
 	writeBlock(t, w, 2)
 	latest, err = store.GetLatestBlock()
 	require.NoError(t, err)
+	require.Equal(t, uint64(0), latest, "completed but unflushed blocks must not advance the pruning head")
+
+	require.NoError(t, w.Flush())
+	latest, err = store.GetLatestBlock()
+	require.NoError(t, err)
 	require.Equal(t, uint64(2), latest)
 
 	require.NoError(t, w.Write(3, []mutation.Mutation{makeMutation("bank", []byte{3}, []byte{3})}))
+	latest, err = store.GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), latest, "a queued write does not make a block crash recoverable")
+
+	require.NoError(t, w.Flush())
 	latest, err = store.GetLatestBlock()
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), latest)
@@ -94,6 +105,7 @@ func TestGCRollbackFloorComesFromOwnHead(t *testing.T) {
 	for block := uint64(1); block <= 5; block++ {
 		writeBlock(t, w, block)
 	}
+	require.NoError(t, w.Flush())
 	require.Equal(t, uint64(5), store.GetRollbackFloor(0))
 	require.Equal(t, uint64(2), store.GetRollbackFloor(3))
 	require.Equal(t, uint64(0), store.GetRollbackFloor(1_000),
@@ -149,6 +161,30 @@ func TestGCPruneHistoryIgnoresALowerFloor(t *testing.T) {
 	require.Equal(t, uint64(8), first, "a later, lower floor must not undo the higher one")
 }
 
+// A request above this store's own durable head can arrive from a stale or misconfigured caller.
+// It must retain the newest crash-recoverable block rather than pruning all durable history while
+// only an unflushed suffix remains.
+func TestGCPruneHistoryAboveDurableHeadIsCapped(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	cfg.TargetFileSize = 1
+	w, store := openWALForGC(t, cfg)
+
+	for block := uint64(1); block <= 5; block++ {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Flush())
+	writeBlock(t, w, 6) // completed, but not crash recoverable yet
+
+	require.NoError(t, store.PruneHistory(1_000))
+	require.NoError(t, w.Flush()) // order behind the prune and make block 6 durable
+
+	ok, first, last, err := w.GetStoredRange()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(5), first, "the newest durable block at prune time must survive")
+	require.Equal(t, uint64(6), last)
+}
+
 // The collector runs on its own goroutine while the WAL's owner writes blocks on another, which is
 // the whole reason this surface is separate from the writer-facing one. Only the race detector can
 // judge it: stateWALImpl keeps its state in plain fields on the assumption of a single caller, and
@@ -166,6 +202,9 @@ func TestGCConcurrentWithWriter(t *testing.T) {
 			// Assertions are not allowed off the main test goroutine; fail loudly instead.
 			mutations := []mutation.Mutation{makeMutation("bank", []byte{byte(block)}, []byte{byte(block)})}
 			if err := w.Write(block, mutations); err != nil {
+				panic(err)
+			}
+			if err := w.Flush(); err != nil {
 				panic(err)
 			}
 		}
@@ -199,6 +238,7 @@ func TestGCPruneHistoryBeforeClose(t *testing.T) {
 	for block := uint64(1); block <= 5; block++ {
 		writeBlock(t, w, block)
 	}
+	require.NoError(t, w.Flush())
 	require.NoError(t, w.(controllertypes.PrunableStore).PruneHistory(4))
 	require.NoError(t, w.Close())
 

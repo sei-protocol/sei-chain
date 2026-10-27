@@ -50,13 +50,12 @@ func (s *Store) GetRollbackFloor(rollbackWindow uint64) uint64 {
 	return head - rollbackWindow
 }
 
-// GetLatestBlock returns the newest block number written, or 0 when none has been. It reports the
-// written status rather than the flushed one, so a block a crash would lose still counts as ingested.
+// GetLatestBlock returns the newest crash-recoverable block number, or 0 when none has been.
 //
 // Global block numbers start at genesis block 0, so a store holding only that block is
 // indistinguishable from an empty one.
 func (s *Store) GetLatestBlock() (uint64, error) {
-	for status := range s.status.Lock() {
+	for status := range s.durableStatus.Lock() {
 		if current, ok := status.Get(); ok && types.GlobalBlockNumber(s.db.GetPruneWatermark()) < current.NextBlock {
 			return uint64(current.NextBlock - 1), nil
 		}

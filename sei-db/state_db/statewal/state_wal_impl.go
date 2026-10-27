@@ -21,7 +21,7 @@ var _ StateWAL = (*stateWALImpl)(nil)
 // goroutine and in write order. Every request that must stay ordered with writes passes through that goroutine.
 //
 // Not safe for concurrent use; see the StateWAL interface doc. The gc.PrunableStore surface in
-// state_wal_gc.go is the exception: it runs on the collector's goroutine, and touches only lastBlock and
+// state_wal_gc.go is the exception: it runs on the collector's goroutine, and touches only lastDurableBlock and
 // requestChan.
 type stateWALImpl struct {
 	// The underlying WAL, keyed by block number, whose entries are serialized blocks. Used only by the goroutine.
@@ -62,6 +62,9 @@ type stateWALImpl struct {
 	// 0 also means nothing has been written yet, so a WAL whose only block is block 0 is
 	// indistinguishable from an empty one.
 	lastBlock atomic.Uint64
+
+	// The highest block made crash recoverable by Flush, Close, or recovery.
+	lastDurableBlock atomic.Uint64
 
 	// Whether any block has been written (this session or recovered from disk), which is what tells an
 	// empty WAL apart from one holding only block 0. Only ever touched by the single caller.
@@ -162,6 +165,7 @@ func newStateWAL(
 	}
 	if ok {
 		w.lastBlock.Store(last)
+		w.lastDurableBlock.Store(last)
 		w.hasBlock = true
 	}
 	w.wg.Add(1)
@@ -359,6 +363,7 @@ func (w *stateWALImpl) Close() error {
 	if err := w.wal.Close(); err != nil {
 		return fmt.Errorf("failed to close state WAL: %w", err)
 	}
+	w.lastDurableBlock.Store(w.lastHashedBlock)
 	return nil
 }
 
@@ -421,7 +426,11 @@ func (w *stateWALImpl) run() {
 				return
 			}
 		case flushRequest:
-			r.reply <- w.wal.Flush()
+			err := w.wal.Flush()
+			if err == nil {
+				w.lastDurableBlock.Store(w.lastHashedBlock)
+			}
+			r.reply <- err
 		case boundsRequest:
 			ok, first, last, err := w.wal.Bounds()
 			r.reply <- boundsResult{ok: ok, first: first, last: last, err: err}

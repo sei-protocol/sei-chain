@@ -22,19 +22,29 @@ type Store struct {
 	// status is the explicit write-order/recovery suffix status (see the
 	// types.BlockStore contract). None means the store is empty.
 	status utils.Mutex[*utils.Option[types.SuffixRange]]
+
+	// durableStatus is the suffix covered by a successful Flush or recovered on open.
+	durableStatus utils.Mutex[*utils.Option[types.SuffixRange]]
 }
 
 // New returns a block store backed by db, recovering its write cursors from the
 // records already in db. The store takes ownership of db: Close closes it. New
 // does not close db when it returns an error.
 func New(db blocktypes.BlockDB) (*Store, error) {
-	s := &Store{db: db, status: utils.NewMutex(new(utils.Option[types.SuffixRange]))}
+	s := &Store{
+		db:            db,
+		status:        utils.NewMutex(new(utils.Option[types.SuffixRange])),
+		durableStatus: utils.NewMutex(new(utils.Option[types.SuffixRange])),
+	}
 	suffix, err := s.ReadSuffix()
 	if err != nil {
 		return nil, fmt.Errorf("ReadSuffix(): %w", err)
 	}
 	for status := range s.status.Lock() {
 		*status = suffix.Status
+	}
+	for durable := range s.durableStatus.Lock() {
+		*durable = suffix.Status
 	}
 	Global.pruneWatermarkAt().Set(utils.Clamp[int64](db.GetPruneWatermark()))
 	return s, nil
@@ -154,6 +164,13 @@ func (s *Store) PruneBefore(blockHeight types.GlobalBlockNumber) error {
 			// and is technically a legal implementation of the contract in the godocs.
 			return nil
 		}
+		for durable := range s.durableStatus.Lock() {
+			flushed, ok := durable.Get()
+			if !ok {
+				return nil
+			}
+			current.First = min(current.First, flushed.First)
+		}
 
 		// Round the watermark down to the start of a QC's range, to avoid pruning a QC before its blocks.
 		blockHeight, err := s.clampPruneBoundary(min(blockHeight, current.First))
@@ -179,10 +196,27 @@ func (s *Store) First() types.GlobalBlockNumber {
 }
 
 func (s *Store) Flush() error {
+	// Writes overlapping the flush may not be durable, so publish only its starting suffix.
+	status := s.Status()
 	if err := s.db.Flush(); err != nil {
 		return fmt.Errorf("failed to flush block db: %w", err)
 	}
+	s.recordDurableStatus(status)
 	return nil
+}
+
+// recordDurableStatus advances the crash-recoverable suffix without regressing concurrent flushes.
+func (s *Store) recordDurableStatus(status utils.Option[types.SuffixRange]) {
+	flushed, ok := status.Get()
+	if !ok {
+		return
+	}
+	for durable := range s.durableStatus.Lock() {
+		current, ok := durable.Get()
+		if !ok || (flushed.NextBlock >= current.NextBlock && flushed.First >= current.First) {
+			*durable = status
+		}
+	}
 }
 
 func (s *Store) Status() utils.Option[types.SuffixRange] {
@@ -360,8 +394,10 @@ func (s *Store) ReadAppQCByBlockNumber(
 }
 
 func (s *Store) Close() error {
+	status := s.Status()
 	if err := s.db.Close(); err != nil {
 		return fmt.Errorf("failed to close block db: %w", err)
 	}
+	s.recordDurableStatus(status)
 	return nil
 }

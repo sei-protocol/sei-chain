@@ -883,6 +883,7 @@ func testPruneWithAppQCNeverEmpties(t *testing.T, build builder) {
 	}
 
 	latestApp := batches[2]
+	require.NoError(t, db.Flush())
 	require.NoError(t, db.PruneBefore(batches[len(batches)-1].next+1000))
 
 	below := batches[1]
@@ -1433,7 +1434,7 @@ func writeAll(t *testing.T, db types.BlockStore, batches []batch) {
 	}
 }
 
-// WriteAppData writes an AppProposal and its AppQC for every batch.
+// writeAppData writes and flushes an AppProposal and its AppQC for every batch.
 func writeAppData(t *testing.T, db types.BlockStore, rng utils.Rng, keys []types.SecretKey, batches []batch) {
 	t.Helper()
 	for _, b := range batches {
@@ -1441,6 +1442,7 @@ func writeAppData(t *testing.T, db types.BlockStore, rng utils.Rng, keys []types
 		require.NoError(t, db.WriteAppProposal(appQC.Proposal()))
 		require.NoError(t, db.WriteAppQC(appQC))
 	}
+	require.NoError(t, db.Flush())
 }
 
 // BuildCommittee returns a deterministic committee (via GenCommittee with a

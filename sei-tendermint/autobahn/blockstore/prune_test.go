@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/stretchr/testify/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
@@ -55,6 +55,56 @@ func TestCollectorSurface(t *testing.T) {
 	}
 }
 
+func TestCollectorRetainsDurableCohortWithUnflushedSuffix(t *testing.T) {
+	for _, impl := range collectorImpls() {
+		t.Run(impl.name, func(t *testing.T) {
+			rng := utils.TestRng()
+			committee, keys := buildCommittee()
+			batches := generateBatches(committee, keys)
+			db := impl.build(t)
+			defer func() { _ = db.Close() }()
+
+			writeAll(t, db, batches[:2])
+			latest, err := db.GetLatestBlock()
+			require.NoError(t, err)
+			require.Equal(t, uint64(0), latest)
+			require.NoError(t, db.PruneHistory(1_000))
+			require.Equal(t, batches[0].first, db.First())
+
+			writeAppData(t, db, rng, keys, batches[:2])
+			durableHead := uint64(batches[1].next - 1)
+			writeAll(t, db, batches[2:])
+			for _, b := range batches[2:] {
+				appQC := appQCForBatch(rng, keys, b)
+				require.NoError(t, db.WriteAppProposal(appQC.Proposal()))
+				require.NoError(t, db.WriteAppQC(appQC))
+			}
+
+			latest, err = db.GetLatestBlock()
+			require.NoError(t, err)
+			require.Equal(t, durableHead, latest)
+			require.Equal(t, durableHead-1, db.GetRollbackFloor(1))
+			require.NoError(t, db.PruneHistory(1_000))
+			require.Equal(t, batches[1].first, db.First())
+			for n := batches[1].first; n < batches[1].next; n++ {
+				block, err := db.ReadBlockByNumber(n)
+				require.NoError(t, err)
+				require.True(t, block.IsPresent(), "the newest durable cohort must survive")
+				qc, err := db.ReadQCByBlockNumber(n)
+				require.NoError(t, err)
+				require.True(t, qc.IsPresent())
+			}
+
+			require.NoError(t, db.Flush())
+			latest, err = db.GetLatestBlock()
+			require.NoError(t, err)
+			require.Equal(t, uint64(batches[len(batches)-1].next-1), latest)
+			require.NoError(t, db.PruneHistory(1_000))
+			require.Equal(t, batches[len(batches)-1].first, db.First())
+		})
+	}
+}
+
 func testCollectorEmptyStore(t *testing.T, build collectorBuilder) {
 	db := build(t)
 	defer func() { _ = db.Close() }()
@@ -84,11 +134,12 @@ func testCollectorLatestBlock(t *testing.T, build collectorBuilder) {
 	defer func() { _ = db.Close() }()
 
 	writeAll(t, db, batches)
+	require.NoError(t, db.Flush())
 
 	head := batches[len(batches)-1].next - 1
 	latest, err := db.GetLatestBlock()
 	require.NoError(t, err)
-	require.Equal(t, uint64(head), latest, "the head is the newest block written")
+	require.Equal(t, uint64(head), latest, "the head is the newest crash-recoverable block")
 }
 
 func testCollectorRollbackFloor(t *testing.T, build collectorBuilder) {
@@ -98,6 +149,7 @@ func testCollectorRollbackFloor(t *testing.T, build collectorBuilder) {
 	defer func() { _ = db.Close() }()
 
 	writeAll(t, db, batches)
+	require.NoError(t, db.Flush())
 	head := uint64(batches[len(batches)-1].next - 1)
 
 	require.Equal(t, head, db.GetRollbackFloor(0), "the whole store is inside a window of 0")

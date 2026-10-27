@@ -15,7 +15,11 @@ import (
 // block below cutoff. Test-only hook so prune behavior can be asserted without
 // waiting on the background interval.
 func PruneLittIdx(store receipt.ReceiptStore, cutoff uint64) error {
-	return store.(*littReceiptStore).pruneBlocksBelow(cutoff)
+	s := store.(*littReceiptStore)
+	if err := FlushLittIdx(store); err != nil {
+		return err
+	}
+	return s.pruneBlocksBelow(cutoff)
 }
 
 // LoseIndexAbove simulates a crash that lost the index commits above keep: it deletes every index entry
@@ -37,4 +41,14 @@ func LoseLittAbove(dir string, keep uint64) error {
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.DBDirectory = dir
 	return rollBackLitt(cfg, keep)
+}
+
+// FlushLittIdx makes all applied receipt writes crash recoverable.
+func FlushLittIdx(store receipt.ReceiptStore) error {
+	return store.(*littReceiptStore).flushReceipts()
+}
+
+// StopLittIdxBackground stops the store's background workers.
+func StopLittIdxBackground(store receipt.ReceiptStore) {
+	stopLittIdxBackground(store.(*littReceiptStore))
 }
