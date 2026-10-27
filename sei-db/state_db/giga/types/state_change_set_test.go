@@ -11,25 +11,29 @@ import (
 func fullChangeSet() *StateChangeSet {
 	addr := common.HexToAddress("0x1")
 	return &StateChangeSet{
-		Balances:      []BalanceChange{{Address: addr, Balance: big.NewInt(5), PriorBalance: big.NewInt(3)}},
-		Nonces:        []NonceChange{{Address: addr, Nonce: 2, PriorNonce: 1}},
-		Code:          []CodeChange{{Address: addr, Code: []byte{0x01}, PriorCode: []byte{0x02}}},
-		StorageClears: []Address{addr},
-		Storage:       []StorageChange{{Address: addr, Key: common.Hash{0x01}, Value: common.Hash{0x02}, PriorValue: common.Hash{0x03}}},
+		Accounts: []AccountChange{{
+			Address: addr,
+			Account: AccountState{Balance: big.NewInt(5), Nonce: 2, Code: []byte{0x01}},
+			Prior:   AccountState{Balance: big.NewInt(3), Nonce: 1, Code: []byte{0x02}},
+		}},
+		Storage: []StorageChange{{
+			Address:    addr,
+			Key:        common.Hash{0x01},
+			Value:      common.Hash{0x02},
+			PriorValue: common.Hash{0x03},
+		}},
 	}
 }
 
-// A clone must not change when the original is mutated or reset for reuse.
+// A clone must not change when the original is mutated or reset for reuse. Code is immutable, so it
+// is never mutated in place.
 func TestCloneSurvivesTheOriginalBeingReused(t *testing.T) {
 	original := fullChangeSet()
 	clone := original.Clone()
 
-	original.Balances[0].Balance.SetInt64(999)
-	original.Balances[0].PriorBalance.SetInt64(999)
-	original.Nonces[0].Nonce = 999
-	original.Code[0].Code[0] = 0xff
-	original.Code[0].PriorCode[0] = 0xff
-	original.StorageClears[0] = common.HexToAddress("0xff")
+	original.Accounts[0].Account.Balance.SetInt64(999)
+	original.Accounts[0].Prior.Balance.SetInt64(999)
+	original.Accounts[0].Account.Nonce = 999
 	original.Storage[0].Value = common.Hash{0xff}
 	original.Reset()
 
@@ -46,11 +50,11 @@ func TestCloneKeepsNilAndEmptyApart(t *testing.T) {
 }
 
 func TestCloneTurnsNilBalancesIntoZero(t *testing.T) {
-	original := &StateChangeSet{Balances: []BalanceChange{{Address: common.HexToAddress("0x1")}}}
+	original := &StateChangeSet{Accounts: []AccountChange{{Address: common.HexToAddress("0x1")}}}
 	clone := original.Clone()
 
-	require.Equal(t, new(big.Int), clone.Balances[0].Balance)
-	require.Equal(t, new(big.Int), clone.Balances[0].PriorBalance)
+	require.Equal(t, new(big.Int), clone.Accounts[0].Account.Balance)
+	require.Equal(t, new(big.Int), clone.Accounts[0].Prior.Balance)
 }
 
 func TestIsEmptyReportsAnyEntry(t *testing.T) {
@@ -58,11 +62,8 @@ func TestIsEmptyReportsAnyEntry(t *testing.T) {
 
 	full := fullChangeSet()
 	for name, set := range map[string]*StateChangeSet{
-		"balances":       {Balances: full.Balances},
-		"nonces":         {Nonces: full.Nonces},
-		"code":           {Code: full.Code},
-		"storage clears": {StorageClears: full.StorageClears},
-		"storage":        {Storage: full.Storage},
+		"accounts": {Accounts: full.Accounts},
+		"storage":  {Storage: full.Storage},
 	} {
 		require.False(t, set.IsEmpty(), name)
 	}
@@ -71,16 +72,41 @@ func TestIsEmptyReportsAnyEntry(t *testing.T) {
 // Reset must zero the entries it drops, so a pooled set does not keep the last block's values alive.
 func TestResetEmptiesTheSetAndKeepsCapacity(t *testing.T) {
 	set := fullChangeSet()
-	balances, code := set.Balances, set.Code
+	accounts := set.Accounts
 
 	set.Reset()
 
 	require.True(t, set.IsEmpty())
-	require.Equal(t, 1, cap(set.Balances))
-	require.Equal(t, 1, cap(set.Nonces))
-	require.Equal(t, 1, cap(set.Code))
-	require.Equal(t, 1, cap(set.StorageClears))
+	require.Equal(t, 1, cap(set.Accounts))
 	require.Equal(t, 1, cap(set.Storage))
-	require.Equal(t, BalanceChange{}, balances[0])
-	require.Equal(t, CodeChange{}, code[0])
+	require.Equal(t, AccountChange{}, accounts[0])
+}
+
+// Each field is compared on its own, with a nil balance read as zero.
+func TestAccountChangeReportsEachChangedField(t *testing.T) {
+	unchanged := AccountChange{
+		Account: AccountState{Balance: big.NewInt(0), Nonce: 1, Code: []byte{0x01}},
+		Prior:   AccountState{Nonce: 1, Code: []byte{0x01}},
+	}
+	require.False(t, unchanged.BalanceChanged())
+	require.False(t, unchanged.NonceChanged())
+	require.False(t, unchanged.CodeChanged())
+
+	balance := unchanged
+	balance.Account.Balance = big.NewInt(1)
+	require.True(t, balance.BalanceChanged())
+	require.False(t, balance.NonceChanged())
+	require.False(t, balance.CodeChanged())
+
+	nonce := unchanged
+	nonce.Account.Nonce = 2
+	require.False(t, nonce.BalanceChanged())
+	require.True(t, nonce.NonceChanged())
+	require.False(t, nonce.CodeChanged())
+
+	code := unchanged
+	code.Account.Code = nil
+	require.False(t, code.BalanceChanged())
+	require.False(t, code.NonceChanged())
+	require.True(t, code.CodeChanged())
 }

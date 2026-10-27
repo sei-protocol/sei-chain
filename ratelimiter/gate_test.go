@@ -33,6 +33,32 @@ func TestGate_CheckJSONRPC(t *testing.T) {
 	require.Equal(t, "eth_getBalance", rejectMethod)
 }
 
+func TestGate_CheckJSONRPCBatchReportsRejectedBatchLen(t *testing.T) {
+	reg := mustGateRegistry(t, 0.001, 1)
+	gate := NewGate(reg, "test", 0)
+
+	allowed, rejectMethod, batchLen, err := gate.CheckJSONRPCBatch(t.Context(), "1.2.3.4", strings.NewReader(
+		`[{"method":"eth_call","id":1},{"method":"eth_getBalance","id":2}]`,
+	))
+	require.NoError(t, err)
+	require.False(t, allowed)
+	require.Equal(t, "eth_call", rejectMethod)
+	require.Equal(t, 2, batchLen)
+}
+
+func TestGate_CheckJSONRPCBatchReportsMalformedBatchAsZero(t *testing.T) {
+	reg := mustGateRegistry(t, 0.001, 1)
+	gate := NewGate(reg, "test", 0)
+	ip := "1.2.3.4"
+	require.True(t, reg.Allow(t.Context(), ip, "test", "prime"))
+
+	allowed, rejectMethod, batchLen, err := gate.CheckJSONRPCBatch(t.Context(), ip, strings.NewReader(`[{}]`))
+	require.NoError(t, err)
+	require.False(t, allowed)
+	require.Equal(t, MethodInvalid, rejectMethod)
+	require.Zero(t, batchLen)
+}
+
 func TestGate_CheckJSONRPC_ProbeLimitRejected(t *testing.T) {
 	reg := mustGateRegistry(t, 100, 10)
 	gate := NewGate(reg, "test", 64)

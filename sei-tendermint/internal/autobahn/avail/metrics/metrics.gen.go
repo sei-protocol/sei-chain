@@ -21,6 +21,7 @@ func init() {
 		Global.inFlight,
 		Global.laneQcs,
 		Global.laneVotesIngested,
+		Global.laneBlockReceiveLatency,
 	)
 }
 
@@ -89,6 +90,13 @@ func newMetrics() *metrics {
 			Name:      "lane_votes_ingested",
 			Help:      "Lane votes newly stored.",
 		}, nil),
+		laneBlockReceiveLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "lane_block_receive_latency",
+			Help:      "Latency from a lane block's creation by its producer to its arrival on this node. It includes clock skew between the producer and this node.",
+			Buckets:   prometheus.ExponentialBuckets(0.001, 1.5, 30),
+		}, nil),
 	}
 }
 
@@ -130,4 +138,8 @@ func (m *metrics) laneQcsAt() *tmprometheus.CounterInt {
 
 func (m *metrics) laneVotesIngestedAt() *tmprometheus.CounterInt {
 	return m.laneVotesIngested.WithLabelValues()
+}
+
+func (m *metrics) laneBlockReceiveLatencyAt() *tmprometheus.Histogram {
+	return m.laneBlockReceiveLatency.WithLabelValues()
 }

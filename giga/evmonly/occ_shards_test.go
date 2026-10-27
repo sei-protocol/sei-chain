@@ -162,16 +162,14 @@ func TestTouchedShardsCoversEveryAddressTheResultChanged(t *testing.T) {
 	written := common.Address{0x00}
 	credited := common.Address{0x40}
 	changed := common.Address{0x80}
-	cleared := common.Address{0xc0}
 	result := occTxExecution{
 		writeSet:                 map[stateAccessKey]struct{}{{kind: stateAccessNonce, address: written}: {}},
 		commutativeBalanceDeltas: map[common.Address]*big.Int{credited: big.NewInt(1)},
 	}
 	result.changeSet.Storage = append(result.changeSet.Storage, StorageChange{Address: changed})
-	result.changeSet.StorageClears = append(result.changeSet.StorageClears, cleared)
 
 	touched := result.touchedShards()
-	for _, addr := range []common.Address{written, credited, changed, cleared} {
+	for _, addr := range []common.Address{written, credited, changed} {
 		require.True(t, touched.has(occShardOf(addr)), "%s", addr)
 	}
 	require.False(t, touched.has(occShardOf(common.Address{0x20})))
@@ -181,7 +179,7 @@ func TestSmallMergeStaysOnTheCallingGoroutine(t *testing.T) {
 	pool := newOCCWorkerPool(4)
 	pool.Close()
 	state := newBlockSTMState(NewMemoryState())
-	state.shards[0].nonces[common.Address{0x00}] = 1
+	state.shards[0].accounts[common.Address{0x00}] = &AccountChange{Account: AccountState{Nonce: 1}}
 	require.Less(t, state.keyCount(), occMinParallelMergeKeys)
 
 	var changes StateChangeSet
@@ -193,15 +191,17 @@ func TestReleaseOCCFragmentsClearsBlockData(t *testing.T) {
 	fragments := new(occChangeSetFragments)
 	for i := range fragments {
 		addr := common.Address{byte(i)}
-		fragments[i].Balances = append(fragments[i].Balances, BalanceChange{Address: addr, Balance: big.NewInt(int64(i + 1))})
-		fragments[i].Code = append(fragments[i].Code, CodeChange{Address: addr, Code: []byte{0x60, byte(i)}})
+		fragments[i].Accounts = append(fragments[i].Accounts, AccountChange{
+			Address: addr,
+			Account: AccountState{Balance: big.NewInt(int64(i + 1)), Code: []byte{0x60, byte(i)}},
+		})
 	}
 	releaseOCCFragments(fragments)
 	for i := range fragments {
-		require.Empty(t, fragments[i].Balances)
-		require.Empty(t, fragments[i].Code)
-		require.Nil(t, fragments[i].Balances[:1][0].Balance, "a released fragment must not keep a balance reachable")
-		require.Nil(t, fragments[i].Code[:1][0].Code, "a released fragment must not keep code reachable")
+		require.Empty(t, fragments[i].Accounts)
+		account := fragments[i].Accounts[:1][0].Account
+		require.Nil(t, account.Balance, "a released fragment must not keep a balance reachable")
+		require.Nil(t, account.Code, "a released fragment must not keep code reachable")
 	}
 }
 
@@ -232,23 +232,4 @@ func TestParallelPassLooksAheadTwiceWhatItLastAccepted(t *testing.T) {
 	buffer := &state.passCumulative[:1][0]
 	require.Equal(t, occMinPassLookahead, pass())
 	require.Same(t, buffer, &state.passCumulative[:1][0], "the cumulative-gas buffer is reused")
-}
-
-// A slot written after an earlier transaction cleared its account reports the value it held before
-// the block, not the zero its writer read through the clear.
-func TestMergeReadsPriorOfSlotWrittenAfterClear(t *testing.T) {
-	contract := testAddress(0xc5)
-	key := testHash(0x01)
-	source := NewMemoryState()
-	source.SetState(contract, key, testHash(0x05))
-	state := newBlockSTMState(source)
-
-	state.apply(occTxExecution{changeSet: StateChangeSet{StorageClears: []common.Address{contract}}})
-	state.apply(occTxExecution{changeSet: StateChangeSet{Storage: []StorageChange{
-		{Address: contract, Key: key, Value: testHash(0x07)},
-	}}})
-
-	changes := state.ChangeSet()
-	require.Equal(t, []common.Address{contract}, changes.StorageClears)
-	require.Equal(t, []StorageChange{{Address: contract, Key: key, Value: testHash(0x07), PriorValue: testHash(0x05)}}, changes.Storage)
 }

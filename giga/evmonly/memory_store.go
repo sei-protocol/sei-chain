@@ -23,7 +23,6 @@ const (
 	memoryStoreBalanceKey byte = iota + 1
 	memoryStoreNonceKey
 	memoryStoreCodeKey
-	memoryStoreStorageClearKey
 	memoryStoreStorageKeyKind
 
 	memoryStoreAccountKeyLen = 1 + common.AddressLength
@@ -49,7 +48,6 @@ type MemoryStore struct {
 	nonces       map[common.Address]*memoryStoreValue[uint64]
 	code         map[common.Address]*memoryStoreValue[[]byte]
 	storage      map[memoryStoreStorageKey]*memoryStoreValue[common.Hash]
-	storageClear map[common.Address]*memoryStoreValue[struct{}]
 	storageTouch map[common.Address]int64
 }
 
@@ -79,7 +77,6 @@ func NewMemoryStore(source StateReader) *MemoryStore {
 		nonces:           map[common.Address]*memoryStoreValue[uint64]{},
 		code:             map[common.Address]*memoryStoreValue[[]byte]{},
 		storage:          map[memoryStoreStorageKey]*memoryStoreValue[common.Hash]{},
-		storageClear:     map[common.Address]*memoryStoreValue[struct{}]{},
 		storageTouch:     map[common.Address]int64{},
 	}
 }
@@ -98,16 +95,24 @@ func EncodeMemoryStoreChangeSet(changes StateChangeSet) ([]*proto.NamedChangeSet
 		return nil, err
 	}
 
-	pairCount := len(changes.Balances) + len(changes.Nonces) + len(changes.Code) + len(changes.StorageClears) + len(changes.Storage)
-	accountKeyCount := len(changes.Balances) + len(changes.Nonces) + len(changes.Code) + len(changes.StorageClears)
-	keyBytes := accountKeyCount*memoryStoreAccountKeyLen + len(changes.Storage)*memoryStoreStorageKeyLen
-	fixedValueBytes := len(changes.Balances)*common.HashLength + len(changes.Nonces)*8 + len(changes.Storage)*common.HashLength
-	codeValueBytes := 0
-	for _, change := range changes.Code {
-		if !change.Delete {
-			codeValueBytes += len(change.Code)
+	accountKeyCount, codeValueBytes := 0, 0
+	fixedValueBytes := len(changes.Storage) * common.HashLength
+	for _, change := range changes.Accounts {
+		if change.BalanceChanged() {
+			accountKeyCount++
+			fixedValueBytes += common.HashLength
+		}
+		if change.NonceChanged() {
+			accountKeyCount++
+			fixedValueBytes += 8
+		}
+		if change.CodeChanged() {
+			accountKeyCount++
+			codeValueBytes += len(change.Account.Code)
 		}
 	}
+	pairCount := accountKeyCount + len(changes.Storage)
+	keyBytes := accountKeyCount*memoryStoreAccountKeyLen + len(changes.Storage)*memoryStoreStorageKeyLen
 
 	builder := memoryStoreChangeSetBuilder{
 		pairs:       make([]proto.KVPair, pairCount),
@@ -116,27 +121,36 @@ func EncodeMemoryStoreChangeSet(changes StateChangeSet) ([]*proto.NamedChangeSet
 		fixedValues: make([]byte, fixedValueBytes),
 		codeValues:  make([]byte, codeValueBytes),
 	}
-	for _, change := range changes.Balances {
+	// The EVM-only app hash is taken over these pairs in order, so they are grouped by kind: every
+	// balance, then every nonce, then every code, then storage.
+	for _, change := range changes.Accounts {
+		if !change.BalanceChanged() {
+			continue
+		}
 		pair := builder.addAccountPair(memoryStoreBalanceKey, change.Address, false)
 		pair.Value = builder.takeFixedValue(common.HashLength)
-		if change.Balance != nil {
-			change.Balance.FillBytes(pair.Value)
+		if change.Account.Balance != nil {
+			change.Account.Balance.FillBytes(pair.Value)
 		}
 	}
-	for _, change := range changes.Nonces {
+	for _, change := range changes.Accounts {
+		if !change.NonceChanged() {
+			continue
+		}
 		pair := builder.addAccountPair(memoryStoreNonceKey, change.Address, false)
 		pair.Value = builder.takeFixedValue(8)
-		binary.BigEndian.PutUint64(pair.Value, change.Nonce)
+		binary.BigEndian.PutUint64(pair.Value, change.Account.Nonce)
 	}
-	for _, change := range changes.Code {
-		pair := builder.addAccountPair(memoryStoreCodeKey, change.Address, change.Delete)
-		if !change.Delete {
-			pair.Value = builder.takeCodeValue(len(change.Code))
-			copy(pair.Value, change.Code)
+	for _, change := range changes.Accounts {
+		if !change.CodeChanged() {
+			continue
 		}
-	}
-	for _, address := range changes.StorageClears {
-		builder.addAccountPair(memoryStoreStorageClearKey, address, false)
+		code := change.Account.Code
+		pair := builder.addAccountPair(memoryStoreCodeKey, change.Address, len(code) == 0)
+		if len(code) != 0 {
+			pair.Value = builder.takeCodeValue(len(code))
+			copy(pair.Value, code)
+		}
 	}
 	for _, change := range changes.Storage {
 		pair := builder.addStoragePair(change.Address, change.Key, change.Delete)
@@ -244,11 +258,10 @@ func (s *MemoryStore) CommitStateChanges(blockNum int64, changesets []*proto.Nam
 }
 
 type memoryStorePairCounts struct {
-	balances     int
-	nonces       int
-	code         int
-	storageClear int
-	storage      int
+	balances int
+	nonces   int
+	code     int
+	storage  int
 }
 
 func (c *memoryStorePairCounts) add(kind byte) {
@@ -259,34 +272,29 @@ func (c *memoryStorePairCounts) add(kind byte) {
 		c.nonces++
 	case memoryStoreCodeKey:
 		c.code++
-	case memoryStoreStorageClearKey:
-		c.storageClear++
 	case memoryStoreStorageKeyKind:
 		c.storage++
 	}
 }
 
 type memoryStoreCommitBuffers struct {
-	balances     []memoryStoreValue[common.Hash]
-	nonces       []memoryStoreValue[uint64]
-	code         []memoryStoreValue[[]byte]
-	storageClear []memoryStoreValue[struct{}]
-	storage      []memoryStoreValue[common.Hash]
+	balances []memoryStoreValue[common.Hash]
+	nonces   []memoryStoreValue[uint64]
+	code     []memoryStoreValue[[]byte]
+	storage  []memoryStoreValue[common.Hash]
 
-	balanceOffset      int
-	nonceOffset        int
-	codeOffset         int
-	storageClearOffset int
-	storageOffset      int
+	balanceOffset int
+	nonceOffset   int
+	codeOffset    int
+	storageOffset int
 }
 
 func newMemoryStoreCommitBuffers(counts memoryStorePairCounts) memoryStoreCommitBuffers {
 	return memoryStoreCommitBuffers{
-		balances:     make([]memoryStoreValue[common.Hash], counts.balances),
-		nonces:       make([]memoryStoreValue[uint64], counts.nonces),
-		code:         make([]memoryStoreValue[[]byte], counts.code),
-		storageClear: make([]memoryStoreValue[struct{}], counts.storageClear),
-		storage:      make([]memoryStoreValue[common.Hash], counts.storage),
+		balances: make([]memoryStoreValue[common.Hash], counts.balances),
+		nonces:   make([]memoryStoreValue[uint64], counts.nonces),
+		code:     make([]memoryStoreValue[[]byte], counts.code),
+		storage:  make([]memoryStoreValue[common.Hash], counts.storage),
 	}
 }
 
@@ -315,13 +323,6 @@ func (s *MemoryStore) applyPairLocked(height int64, pair *proto.KVPair, buffers 
 		node.delete = pair.Delete
 		node.previous = s.code[address]
 		s.code[address] = node
-	case memoryStoreStorageClearKey:
-		node := &buffers.storageClear[buffers.storageClearOffset]
-		buffers.storageClearOffset++
-		node.height = height
-		node.previous = s.storageClear[address]
-		s.storageClear[address] = node
-		s.touchStorageAccountLocked(height, address)
 	case memoryStoreStorageKeyKind:
 		key := memoryStoreStorageKey{
 			address: address,
@@ -406,16 +407,12 @@ func (s *memoryStoreSnapshot) GetStorage(address gigatypes.Address, slot gigatyp
 	key := memoryStoreStorageKey{address: address, slot: slot}
 	s.store.mu.RLock()
 	value, valueOK := latestMemoryStoreValue(s.store.storage[key], s.height)
-	clearHeight, clearOK := latestHeightAt(s.store.storageClear[address], s.height)
 	s.store.mu.RUnlock()
-	if valueOK && (!clearOK || value.height >= clearHeight) {
+	if valueOK {
 		if value.delete {
 			return gigatypes.Hash{}
 		}
 		return value.value
-	}
-	if clearOK {
-		return gigatypes.Hash{}
 	}
 	return s.store.base.GetState(address, slot)
 }
@@ -539,18 +536,6 @@ func (s *memoryStoreSnapshot) Get(module string, key []byte) ([]byte, bool) {
 			return nil, false
 		}
 		return cloneBytes(value.value), true
-	case memoryStoreStorageClearKey:
-		if len(key) != memoryStoreAccountKeyLen {
-			return nil, false
-		}
-		address := common.Address(key[1:])
-		s.store.mu.RLock()
-		_, ok := latestHeightAt(s.store.storageClear[address], s.height)
-		s.store.mu.RUnlock()
-		if !ok {
-			return nil, false
-		}
-		return []byte{}, true
 	case memoryStoreStorageKeyKind:
 		if len(key) != memoryStoreStorageKeyLen {
 			return nil, false
@@ -561,9 +546,8 @@ func (s *memoryStoreSnapshot) Get(module string, key []byte) ([]byte, bool) {
 		}
 		s.store.mu.RLock()
 		value, valueOK := latestMemoryStoreValue(s.store.storage[storageKey], s.height)
-		clearHeight, clearOK := latestHeightAt(s.store.storageClear[storageKey.address], s.height)
 		s.store.mu.RUnlock()
-		if !valueOK || value.delete || clearOK && value.height < clearHeight {
+		if !valueOK || value.delete {
 			return nil, false
 		}
 		encoded := make([]byte, common.HashLength)
@@ -604,14 +588,6 @@ func latestMemoryStoreValue[T any](value *memoryStoreValue[T], height int64) (*m
 	return value, value != nil
 }
 
-func latestHeightAt(value *memoryStoreValue[struct{}], height int64) (int64, bool) {
-	value, ok := latestMemoryStoreValue(value, height)
-	if !ok {
-		return 0, false
-	}
-	return value.height, true
-}
-
 func validateMemoryStoreBalance(balance *big.Int) error {
 	if balance == nil {
 		return nil
@@ -623,9 +599,9 @@ func validateMemoryStoreBalance(balance *big.Int) error {
 }
 
 func validateMemoryStoreChangeSet(changes StateChangeSet) error {
-	for i, change := range changes.Balances {
-		if err := validateMemoryStoreBalance(change.Balance); err != nil {
-			return fmt.Errorf("memory store balance change %d: %w", i, err)
+	for i, change := range changes.Accounts {
+		if err := validateMemoryStoreBalance(change.Account.Balance); err != nil {
+			return fmt.Errorf("memory store account change %d: %w", i, err)
 		}
 	}
 	return nil
@@ -663,16 +639,6 @@ func validateMemoryStorePair(pair *proto.KVPair) error {
 		}
 		if pair.Delete && len(pair.Value) != 0 {
 			return errors.New("deleted code has a value")
-		}
-	case memoryStoreStorageClearKey:
-		if len(pair.Key) != memoryStoreAccountKeyLen {
-			return fmt.Errorf("storage-clear key length is %d, want %d", len(pair.Key), memoryStoreAccountKeyLen)
-		}
-		if pair.Delete {
-			return errors.New("storage-clear marker cannot be deleted")
-		}
-		if len(pair.Value) != 0 {
-			return errors.New("storage-clear marker has a value")
 		}
 	case memoryStoreStorageKeyKind:
 		if len(pair.Key) != memoryStoreStorageKeyLen {

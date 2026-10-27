@@ -263,7 +263,11 @@ func (s *StateDB) replay(
 		if !hasNext {
 			break
 		}
-		block, changesets := it.Entry()
+		block, mutations := it.Entry()
+		changesets, err := flatkv.MutationsToChangeSets(mutations)
+		if err != nil {
+			return fmt.Errorf("convert block %d: %w", block, err)
+		}
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("replay stopped at block %d of %d: %w", block, end, err)
 		}

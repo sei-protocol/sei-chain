@@ -21,11 +21,11 @@ func TestFlatKVChangeSetEncoderPersistsExecutorState(t *testing.T) {
 
 	address := common.Address{0x11}
 	slotA, slotB := common.Hash{0x21}, common.Hash{0x22}
-	encode := NewFlatKVChangeSetEncoder(store)
-	changes, err := encode(StateChangeSet{
-		Balances: []BalanceChange{{Address: address, Balance: big.NewInt(99)}},
-		Nonces:   []NonceChange{{Address: address, Nonce: 7}},
-		Code:     []CodeChange{{Address: address, Code: []byte{0x60, 0x01}}},
+	changes, err := NewFlatKVChangeSetEncoder()(StateChangeSet{
+		Accounts: []AccountChange{{
+			Address: address,
+			Account: AccountState{Balance: big.NewInt(99), Nonce: 7, Code: []byte{0x60, 0x01}},
+		}},
 		Storage: []StorageChange{
 			{Address: address, Key: slotA, Value: common.Hash{0xaa}},
 			{Address: address, Key: slotB, Value: common.Hash{0xbb}},
@@ -35,23 +35,12 @@ func TestFlatKVChangeSetEncoderPersistsExecutorState(t *testing.T) {
 	require.NoError(t, store.CommitStateChanges(1, changes))
 
 	view := store.OpenView()
+	defer view.Close()
 	require.Equal(t, common.BigToHash(big.NewInt(99)), view.GetBalance(address))
 	require.Equal(t, uint64(7), view.GetNonce(address))
 	require.Equal(t, []byte{0x60, 0x01}, view.GetCode(address))
 	require.Equal(t, common.Hash{0xaa}, view.GetStorage(address, slotA))
-	view.Close()
-
-	changes, err = encode(StateChangeSet{
-		StorageClears: []common.Address{address},
-		Storage:       []StorageChange{{Address: address, Key: slotB, Value: common.Hash{0xcc}}},
-	})
-	require.NoError(t, err)
-	require.NoError(t, store.CommitStateChanges(2, changes))
-
-	view = store.OpenView()
-	defer view.Close()
-	require.Equal(t, common.Hash{}, view.GetStorage(address, slotA))
-	require.Equal(t, common.Hash{0xcc}, view.GetStorage(address, slotB))
+	require.Equal(t, common.Hash{0xbb}, view.GetStorage(address, slotB))
 }
 
 func openFlatKVTestStore(ctx context.Context, cfg *flatkvconfig.Config) (*flatkv.CommitStore, error) {

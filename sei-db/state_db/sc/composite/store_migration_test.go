@@ -339,6 +339,8 @@ func TestComposite_MigrateEVM_SecondNonEmptyFlushDoesNotAdvanceMigration(t *test
 			{Key: evmStorageTestKey(0x04), Value: evmStorageTestValue(0x44)},
 		}}},
 	}))
+	_, err = cs.Commit(cs.Version() + 1)
+	require.NoError(t, err)
 
 	boundaryBytes, ok := cs.loadFlatKV().Get(migration.MigrationStore, []byte(migration.MigrationBoundaryKey))
 	require.True(t, ok)
@@ -1254,6 +1256,42 @@ func TestComposite_MigrateCosmos_RollbackAcrossCompletionBoundary(t *testing.T) 
 	require.Equal(t, target, cs.Version())
 	requireCommitInfoEqual(t, canonicalTarget, cs.LastCommitInfo(),
 		"post-restart commit info across the MigrateCosmos-completion boundary must re-include memiavl")
+}
+
+// TestComposite_MigrateCosmos_CompletionBlockWorkingInfoMatchesCommitted checks that every MigrateCosmos block,
+// the one completing the migration included, is stored with the commit info its working hash reported.
+func TestComposite_MigrateCosmos_CompletionBlockWorkingInfoMatchesCommitted(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xC0DE)
+	const batch = 8
+
+	cs := openAutoStore(t, dir, batch)
+	defer func() { _ = cs.Close() }()
+	walkToMigrateCosmos(t, cs, workload)
+	require.Equal(t, types.MigrateCosmos, cs.loadWriteMode())
+
+	var working *proto.CommitInfo
+	for done := false; !done; {
+		require.Less(t, cs.Version(), int64(800), "migration did not reach version %d",
+			migration.Version2_FlatKVOnly)
+		next := cs.Version() + 1
+		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(0, 2, 1, 1, 1)))
+		working = cloneCommitInfo(cs.WorkingCommitInfo(next))
+		_, err := cs.Commit(next)
+		require.NoError(t, err)
+		requireCommitInfoEqual(t, working, cs.LastCommitInfo(),
+			fmt.Sprintf("block %d: stored commit info must match the working commit info", next))
+
+		done, err = migration.IsAtVersion(flatKVReaderFor(cs), migration.Version2_FlatKVOnly)
+		require.NoError(t, err)
+	}
+
+	names := make([]string, 0, len(working.StoreInfos))
+	for _, si := range working.StoreInfos {
+		names = append(names, si.Name)
+	}
+	require.Equal(t, []string{"evm_lattice"}, names,
+		"the completion block's working commit info must already exclude memiavl")
 }
 
 // TestComposite_Auto_RollbackAcrossMigrateCosmosCompletionAfterRestart rolls an Auto store that was reopened

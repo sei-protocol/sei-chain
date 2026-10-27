@@ -438,8 +438,7 @@ docker-cluster-start: docker-cluster-stop build-docker-node
 			DETACH_FLAG=""; \
 		fi; \
 		$(CLUSTER_ENV_VARS) docker compose up $$DETACH_FLAG
-
-.PHONY: localnet-start
+.PHONY: docker-cluster-start
 
 # Use this to skip the seid build process
 docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
@@ -451,7 +450,7 @@ docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 			DETACH_FLAG=""; \
 		fi; \
 		$(CLUSTER_ENV_VARS) SKIP_BUILD=true docker compose up $$DETACH_FLAG
-.PHONY: localnet-start
+.PHONY: docker-cluster-start-skipbuild
 
 # EVM RPC per-IP rate and burst for CI clusters, which drive node0 from a single IP.
 CI_EVM_IP_RATE_LIMIT_RPS ?= 300
@@ -477,7 +476,7 @@ docker-cluster-start-ci: docker-cluster-stop ensure-integration-ci-images
 # Stop 4-node docker containers
 docker-cluster-stop:
 	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose down
-.PHONY: localnet-stop
+.PHONY: docker-cluster-stop
 
 # Run the localnet with two non-validating archival nodes frozen before heights
 # 10 and 20, two live validators, and frozen-rpc-router published on port 8553.

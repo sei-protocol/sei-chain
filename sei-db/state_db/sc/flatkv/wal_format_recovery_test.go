@@ -14,7 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal/statewaltest"
 )
 
 // A key read through Get() after recovery, and what it must hold.
@@ -183,7 +182,7 @@ func runReference(t *testing.T, blocks [][]*proto.NamedChangeSet) referenceRun {
 		height := int64(i + 1)
 		prior := store.OpenView()
 		//nolint:gosec // height > 0
-		mutations, err := mutation.MutationsFromChangeSets(block, uint64(height), prior)
+		mutations, err := MutationsFromChangeSets(block, uint64(height), prior)
 		prior.Close()
 		require.NoError(t, err)
 		run.blockMutations[i] = mutations
@@ -241,10 +240,9 @@ func requireMatchesReference(t *testing.T, store *CommitStore, run referenceRun,
 	}
 }
 
-// TestRecoveryFromWALInEitherBlockFormat rebuilds a store from a WAL whose blocks are in the legacy changeset format,
-// in the mutation format, or in both, and requires the recovered state to match a store that committed the same
-// blocks directly.
-func TestRecoveryFromWALInEitherBlockFormat(t *testing.T) {
+// TestRecoveryFromWAL rebuilds a store from a WAL of mutations, and requires the recovered state to match a store
+// that committed the same blocks directly.
+func TestRecoveryFromWAL(t *testing.T) {
 	blocks := recoveryBlocks()
 	lastBlock := len(blocks)
 	run := runReference(t, blocks)
@@ -253,18 +251,13 @@ func TestRecoveryFromWALInEitherBlockFormat(t *testing.T) {
 		name string
 		// The block the store is snapshotted at before recovery; 0 recovers from genesis.
 		snapshotBlock int
-		// The first block written as mutations; earlier blocks are written in the legacy format.
-		firstMutationBlock int
 	}{
-		{name: "legacy format from genesis", snapshotBlock: 0, firstMutationBlock: lastBlock + 1},
-		{name: "mutation format from genesis", snapshotBlock: 0, firstMutationBlock: 1},
-		{name: "both formats from genesis", snapshotBlock: 0, firstMutationBlock: 4},
-		{name: "both formats after a snapshot", snapshotBlock: 3, firstMutationBlock: 6},
+		{name: "from genesis", snapshotBlock: 0},
+		{name: "after a snapshot", snapshotBlock: 3},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			recovered := recoverFromWAL(
-				t, blocks, run.blockMutations, tc.snapshotBlock, tc.firstMutationBlock)
+			recovered := recoverFromWAL(t, blocks, run.blockMutations, tc.snapshotBlock)
 			defer func() { require.NoError(t, recovered.Close()) }()
 
 			requireMatchesReference(t, recovered, run, lastBlock)
@@ -279,20 +272,19 @@ func TestRecoveryFromWALInEitherBlockFormat(t *testing.T) {
 	}
 }
 
-// TestReadOnlyLoadFromWALInEitherBlockFormat opens read-only stores at heights before, on and after the block where a
-// WAL switches from the legacy format to mutations, and requires each to match the reference at its height.
-func TestReadOnlyLoadFromWALInEitherBlockFormat(t *testing.T) {
+// TestReadOnlyLoadFromWAL opens read-only stores at several heights of a WAL of mutations, and requires each to match
+// the reference at its height.
+func TestReadOnlyLoadFromWAL(t *testing.T) {
 	blocks := recoveryBlocks()
 	run := runReference(t, blocks)
-	const firstMutationBlock = 4
 
 	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 0
 	store := setupTestStoreWithConfig(t, cfg)
 	require.NoError(t, store.Close())
-	writeMixedWAL(t, cfg.DataDir, blocks, run.blockMutations, firstMutationBlock)
+	writeWAL(t, cfg.DataDir, run.blockMutations)
 
-	for _, height := range []int{2, firstMutationBlock, 7} {
+	for _, height := range []int{2, 4, 7} {
 		t.Run(fmt.Sprintf("height %d", height), func(t *testing.T) {
 			primary, err := newCommitStoreWithWAL(context.Background(), cfg)
 			require.NoError(t, err)
@@ -306,16 +298,15 @@ func TestReadOnlyLoadFromWALInEitherBlockFormat(t *testing.T) {
 	}
 }
 
-// TestRollbackAcrossWALBlockFormats rolls a store recovered from a WAL in both formats back to a height in the legacy
-// format and to one past the switch, and requires each to match the reference at its height.
-func TestRollbackAcrossWALBlockFormats(t *testing.T) {
+// TestRollbackAfterRecoveryFromWAL rolls a store recovered from a WAL of mutations back to several heights, and
+// requires each to match the reference at its height.
+func TestRollbackAfterRecoveryFromWAL(t *testing.T) {
 	blocks := recoveryBlocks()
 	run := runReference(t, blocks)
-	const firstMutationBlock = 6
 
 	for _, height := range []int{4, 7} {
 		t.Run(fmt.Sprintf("height %d", height), func(t *testing.T) {
-			store := recoverFromWAL(t, blocks, run.blockMutations, 0, firstMutationBlock)
+			store := recoverFromWAL(t, blocks, run.blockMutations, 0)
 			defer func() { require.NoError(t, store.Close()) }()
 
 			require.NoError(t, store.Rollback(int64(height)))
@@ -326,8 +317,7 @@ func TestRollbackAcrossWALBlockFormats(t *testing.T) {
 }
 
 // recoverFromWAL commits blocks up to snapshotBlock, snapshotting the store there, then replaces its WAL with every
-// block, written in the legacy format before firstMutationBlock and as mutations from it on, and reopens the store so
-// it replays the blocks after the snapshot.
+// block and reopens the store so it replays the blocks after the snapshot.
 func recoverFromWAL(
 	t *testing.T,
 	// The changesets of every block.
@@ -336,8 +326,6 @@ func recoverFromWAL(
 	blockMutations [][]mutation.Mutation,
 	// The block to snapshot the store at before recovery, or 0 for none.
 	snapshotBlock int,
-	// The first block to write as mutations.
-	firstMutationBlock int,
 ) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
@@ -348,7 +336,7 @@ func recoverFromWAL(
 		commitAndCheck(t, store)
 	}
 	require.NoError(t, store.Close())
-	writeMixedWAL(t, cfg.DataDir, blocks, blockMutations, firstMutationBlock)
+	writeWAL(t, cfg.DataDir, blockMutations)
 
 	recovered, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)
@@ -356,30 +344,21 @@ func recoverFromWAL(
 	return recovered
 }
 
-// writeMixedWAL replaces the WAL of the closed store in dataDir with every block: in the legacy format before
-// firstMutationBlock, and as mutations from it on.
-func writeMixedWAL(
+// writeWAL replaces the WAL of the closed store in dataDir with every block.
+func writeWAL(
 	t *testing.T,
 	// The data directory of the store.
 	dataDir string,
-	// The changesets of every block.
-	blocks [][]*proto.NamedChangeSet,
 	// The mutations of every block.
 	blockMutations [][]mutation.Mutation,
-	// The first block to write as mutations.
-	firstMutationBlock int,
 ) {
 	t.Helper()
 	walConfig := StateWALConfig(dataDir)
 	require.NoError(t, os.RemoveAll(walConfig.Path))
-	legacyBlocks := blocks[:firstMutationBlock-1]
-	if len(legacyBlocks) > 0 {
-		require.NoError(t, statewaltest.WriteLegacyStateWALBlocks(walConfig.Path, 1, legacyBlocks))
-	}
 	wal, err := statewal.New(walConfig)
 	require.NoError(t, err)
-	for block := firstMutationBlock; block <= len(blocks); block++ {
-		require.NoError(t, wal.Write(uint64(block), blockMutations[block-1])) //nolint:gosec // block > 0
+	for i, mutations := range blockMutations {
+		require.NoError(t, wal.Write(uint64(i+1), mutations)) //nolint:gosec // i >= 0
 	}
 	require.NoError(t, wal.Close())
 }

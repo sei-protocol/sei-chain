@@ -5,6 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
@@ -126,7 +127,7 @@ func (s *CommitStore) feedWALToReadOnlyCopy(clone *CommitStore, targetVersion in
 func (s *CommitStore) openReplayIterator(
 	fromVersion int64,
 	targetVersion int64,
-) (seiwal.Iterator[[]*proto.NamedChangeSet], bool, error) {
+) (seiwal.Iterator[[]mutation.Mutation], bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -190,7 +191,7 @@ func resolveReplayRange(
 // iterator then reads a point-in-time snapshot that concurrent appends and prunes cannot disturb.
 func replayBlocks(
 	dest *CommitStore,
-	it seiwal.Iterator[[]*proto.NamedChangeSet],
+	it seiwal.Iterator[[]mutation.Mutation],
 	alreadyHave map[string]int64,
 ) (replayed int, err error) {
 	defer func() {
@@ -207,7 +208,11 @@ func replayBlocks(
 		if !hasNext {
 			break
 		}
-		block, changesets := it.Entry()
+		block, mutations := it.Entry()
+		changesets, cErr := MutationsToChangeSets(mutations)
+		if cErr != nil {
+			return 0, fmt.Errorf("convert block %d: %w", block, cErr)
+		}
 		//nolint:gosec // block <= end
 		if err := dest.applyAndCommit(int64(block), changesets, alreadyHave); err != nil {
 			return 0, fmt.Errorf("replay block %d: %w", block, err)
@@ -231,13 +236,21 @@ func (s *CommitStore) applyAndCommit(
 	alreadyHave map[string]int64,
 ) error {
 	// Replay re-reads blocks the recorded version already covers, so committedVersion may be ahead of the
-	// block being applied. Rewind it for the duration: ApplyChangeSets and Commit both require the
-	// block to be exactly committedVersion+1, and the stores that already hold this block are skipped
-	// individually via alreadyHave rather than by refusing the whole block.
+	// block being applied. Rewind it for the duration: replay requires the block to be exactly
+	// committedVersion+1, and the stores that already hold this block are skipped individually via
+	// alreadyHave rather than by refusing the whole block.
 	if len(alreadyHave) > 0 && version <= s.committedVersion {
 		s.committedVersion = version - 1
 	}
-	if err := s.applyChangeSets(version, changesets, alreadyHave); err != nil {
+	if version != s.committedVersion+1 {
+		return fmt.Errorf("flatkv: replay version %d must be committed version %d plus one",
+			version, s.committedVersion)
+	}
+	// Staged under mu, as Commit stages, which is what keeps a concurrent read from interleaving with the writes.
+	s.mu.Lock()
+	err := s.stageChangeSets(version, changesets, alreadyHave)
+	s.mu.Unlock()
+	if err != nil {
 		return fmt.Errorf("apply v%d: %w", version, err)
 	}
 	if err := s.sealBlock(version, alreadyHave); err != nil {

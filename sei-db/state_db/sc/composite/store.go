@@ -1022,7 +1022,7 @@ func (cs *CompositeCommitStore) MayHoldStore(name string) bool {
 // building.
 //
 // The height comes from the caller rather than from a backend. Taking a block's hash seals it on
-// flatkv — see latticeHash — so by the time this runs flatkv may already sit at version, and a
+// flatkv — see WorkingCommitInfo — so by the time this runs flatkv may already sit at version, and a
 // height derived from its own state would land on the next block and commit one that never existed.
 // Handing it the height the caller means lets flatkv recognise the block it already committed.
 func (cs *CompositeCommitStore) Commit(version int64) (int64, error) {
@@ -1252,14 +1252,8 @@ func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
 	return false
 }
 
-// migrationStarted reports whether the migration metadata visible through
-// the given flatkv handle shows the EVM migration progressed past
-// MigrationNotStarted: the boundary record decodes to any non-NotStarted
-// status, or the version key exists (which is what survives a completion
-// block — the manager atomically deletes the boundary and writes the
-// version key). This is the moment flatkv joins the AppHash. Works
-// against both live stores (latest + pending writes) and read-only clones
-// (metadata as-of their loaded version).
+// migrationStarted reports whether flatKV's committed migration metadata shows the EVM migration past
+// MigrationNotStarted.
 func migrationStarted(flatKV gigatypes.LiveStateStore) (bool, error) {
 	if boundaryBytes, ok := flatKV.Get(
 		migration.MigrationStore, []byte(migration.MigrationBoundaryKey),
@@ -1298,29 +1292,8 @@ func (cs *CompositeCommitStore) appendEvmLatticeHash(ci *proto.CommitInfo, evmHa
 	}
 }
 
-// shouldIncludeMemiavlInfos reports whether memiavl's per-store infos
-// belong in the commit info (and therefore the AppHash). Memiavl
-// participates until MigrateCosmos completes, i.e. until the persisted
-// migration version reaches Version2_FlatKVOnly; from that commit on, a
-// store with memiavl still open must produce the same commit info as a
-// configured flatkv_only store (memIAVL == nil), or the two configurations
-// fork.
-//
-// The gate is keyed on persisted migration metadata, not on
-// currentWriteMode: write-mode derivation auto-advances on restart
-// (version 2 on disk derives FlatKVOnly) while live peers stay in
-// MigrateCosmos until their transition trigger fires, so a mode-keyed
-// answer would differ between a live and a restarted node at the same
-// height. The metadata read sees pending (uncommitted) writes, so the
-// block that completes the migration already excludes memiavl from its
-// own working hash — deterministically on every node, since migration
-// advances are part of block execution.
-//
-// The per-call metadata read is scoped to the only states that can observe
-// version 2: MigrateCosmos (the migration that produces it) and FlatKVOnly
-// (which the SetWriteMode gate only admits once version 2 is persisted).
-// Every earlier mode includes memiavl unconditionally, and the result is
-// one-way latched once exclusion is observed (mirroring latticeAppendLatched).
+// shouldIncludeMemiavlInfos reports whether memiavl's per-store infos belong in the commit info: true until
+// flatKV's committed migration metadata shows MigrateCosmos complete.
 func (cs *CompositeCommitStore) shouldIncludeMemiavlInfos() bool {
 	if cs.memIAVL == nil {
 		return false
@@ -1343,6 +1316,7 @@ func (cs *CompositeCommitStore) shouldIncludeMemiavlInfos() bool {
 		cs.memiavlHashExcluded.Store(true)
 		return false
 	}
+	// Keyed on persisted metadata rather than the write mode, which a restarted node derives ahead of a live one.
 	complete, err := migration.IsModeComplete(flatKV, types.MigrateCosmos)
 	if err != nil {
 		// Consensus-critical: if the migration version cannot be read we
@@ -1361,6 +1335,26 @@ func (cs *CompositeCommitStore) shouldIncludeMemiavlInfos() bool {
 
 // WorkingCommitInfo returns the working commit info
 func (cs *CompositeCommitStore) WorkingCommitInfo(version int64) *proto.CommitInfo {
+	// Cosmos asks for a block's hash before it calls Commit, and flatKV hashes only committed blocks, so
+	// the commit happens here; the Commit that follows finds the block already committed and does nothing.
+	// It precedes both commit-info gates below, which read only committed migration metadata.
+	//
+	// Committing early requires that every one of the block's writes has already arrived. rootmulti's
+	// GetWorkingHash flushes every buffered changeset into the store before reading the hash, and nothing
+	// writes to the multistore after that point. A changeset arriving later is not caught: the flatKV
+	// writer stamps it at the committed height plus one, which is a valid stamp for the next block, so it
+	// silently becomes part of that block instead.
+	//
+	// Post-Cosmos this goes away along with rootmulti: a single call will supply a block's writes and
+	// commit them, and nothing will ask for a hash mid-block.
+	if flatKV := cs.loadFlatKV(); flatKV != nil {
+		if err := flatKV.CommitPendingBlock(); err != nil {
+			// Panics for the same reason a failed lattice hash does below.
+			panic(fmt.Sprintf("composite: failed to commit flatkv block %d before hashing: %v",
+				version, err))
+		}
+	}
+
 	var ci *proto.CommitInfo
 	if cs.shouldIncludeMemiavlInfos() {
 		ci = cs.memIAVL.WorkingCommitInfo(version)
@@ -1384,30 +1378,13 @@ func (cs *CompositeCommitStore) WorkingCommitInfo(version int64) *proto.CommitIn
 	return ci
 }
 
-// latticeHash returns flatKV's lattice hash for the height the chain is building, sealing that block
-// first if it is still being applied. It returns nil when no flatKV backend is configured.
-//
-// Cosmos asks for a block's hash before it calls Commit, and flatKV has a hash only once the block is
-// committed, so the commit happens here; the Commit that follows finds the block already committed and
-// does nothing. Hashing is asynchronous, so the answer is then waited for on the hash stream — and
-// these reads are also what keeps that stream drained.
-//
-// Sealing early requires that every one of the block's writes has already arrived. rootmulti's
-// GetWorkingHash flushes every buffered changeset into the store before reading the hash, and nothing
-// writes to the multistore after that point. A changeset arriving later is not caught: the flatKV
-// writer stamps it at the sealed height plus one, which is a valid stamp for the next block, so it
-// silently becomes part of that block instead.
-//
-// Post-Cosmos this goes away along with rootmulti: a single call will supply a block's writes and
-// commit them, and nothing will ask for a hash mid-block.
+// latticeHash returns flatKV's lattice hash for the block at version, waiting for flatKV to finish hashing it.
+// flatKV must already have committed every write of the block. It returns nil when no flatKV backend is
+// configured.
 func (cs *CompositeCommitStore) latticeHash(version int64) ([]byte, error) {
 	flatKV := cs.loadFlatKV()
 	if flatKV == nil {
 		return nil, nil
-	}
-	// A block that has not been committed has no hash, so asking for one is asking for the commit.
-	if err := flatKV.CommitPendingBlock(); err != nil {
-		return nil, fmt.Errorf("seal flatkv block %d before hashing: %w", version, err)
 	}
 
 	// A block none of whose writes reached flatKV leaves it a height behind. Its hash has not moved —
