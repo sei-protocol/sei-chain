@@ -83,7 +83,7 @@ func TestBUDSpecVector(t *testing.T) {
 // TestBUDSpecEmptyTreeVector pins the serialized BUD tree and the BUD hash of a block with no budlets in bud_spec.md.
 func TestBUDSpecEmptyTreeVector(t *testing.T) {
 	serializedTree := "01" + "0000000000000000"
-	budHash := "3eeeba2dfb311dad9e9e46eba984fa855be2b872496b921b19da52b3eb09d5e2"
+	budHash := "9725d028d186ff14d54a60658eac9ea435e5bace76d9aa01df155e4e89f1678f"
 
 	tree, err := NewBUDTree(nil)
 	require.NoError(t, err)

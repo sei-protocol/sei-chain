@@ -23,7 +23,7 @@ func TestReceiptHashSpecVector(t *testing.T) {
 	}
 	logsRoots := []string{
 		"c6ab01a590f123c121f3dad8fcc5e8a59ef73156492f384931e0158cd6d12e4e",
-		zeros,
+		"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 		wantLogLeafHashes[1],
 	}
 	receiptLeaves := []string{
@@ -33,16 +33,16 @@ func TestReceiptHashSpecVector(t *testing.T) {
 	}
 	wantReceiptLeafHashes := []string{
 		"42efd94a8e5dd8eaf4fb32037af9eea4081f9ceceda48d09029ee3abf35052a4",
-		"3e3ba08f1b0ae3993e742b7d9dc15730902553c271c14497f67a27e530c7a2e3",
+		"7b3ebdde4b6e5be67617bcc84ece373da7078af8f208bbd1c14989541bc40c14",
 		"c94de41e9c2275fbc03c40cd4af15615d1c4323f7e37be58d0494208cf013545",
 	}
-	inner01 := "76dfd08d8d6d4e48487d35e93b34ea42d175b617f294770f59659ab042bc66d8"
-	root := "18dfa2abc5ce0b1ec609041a2561c9413b51fc521567ce56fe98a2b916be1bd0"
+	inner01 := "de8aa4695eeaaa952d42534537bae36fd063834a93ca54f51c1392a8773552d1"
+	root := "d22c0221b39a0dbe6b22f830ea2615057b470b570f3d550dfdffb8d04bcc1797"
 	receiptHashes := []string{
-		"e040c5d218b18c10ff1b8fb7660cb7779e69bd3a482c9717c4815b87b6035b88",
+		"b76c94e23577845473017e9ffd350313a3a8fe4e63fd7ac0a869ae9ff2f9129b",
 		"32b95177fd02367881c7fbadad25ace4c913704bfb0461a4933801f6707f84c8",
-		"78ba037d0b37247d421b702148ccdb97b66b95ab98190ec5dc017d9b12f4b59f",
-		"22b544a23d66ff07ce814e6e151ad46c8d9d490699af6b5091ceccfaa9573d20",
+		"dcb5777bf0270f28d32b8753e0234b9c2944f80f6ebcae7aa6d1f29699700b37",
+		"3bc5f724a5daab50b2875110abf0c268a7d3e0fd6d23b91f5537a51d9cccb358",
 	}
 
 	log0, log1 := specLogs()

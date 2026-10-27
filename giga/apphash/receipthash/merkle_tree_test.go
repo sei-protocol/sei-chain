@@ -25,15 +25,11 @@ func randomPreimages(rng *rand.Rand, count int) ([][]byte, [][32]byte) {
 
 func TestMerkleRootMatchesRFC6962(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
-	for count := 1; count <= 64; count++ {
+	for count := 0; count <= 64; count++ {
 		preimages, leafHashes := randomPreimages(rng, count)
 		root := merkleRoot(leafHashes)
 		require.Equal(t, merkle.HashFromByteSlices(preimages), root[:], "count %d", count)
 	}
-}
-
-func TestMerkleRootOfNoLeaves(t *testing.T) {
-	require.Equal(t, [32]byte{}, merkleRoot(nil))
 }
 
 func TestMerklePathLeadsToRoot(t *testing.T) {

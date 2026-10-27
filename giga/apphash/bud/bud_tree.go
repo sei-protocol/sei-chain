@@ -190,13 +190,13 @@ func nextBUDTreeLevel(
 	return next
 }
 
-// budTreeRoot returns the root of a BUD tree, or 32 zero bytes when the tree has no leaves.
+// budTreeRoot returns the root of a BUD tree, or SHA-256 of the empty string when the tree has no leaves.
 func budTreeRoot(
 	// The leaf hashes of the BUD tree, in key order.
 	leafHashes [][32]byte,
 ) [32]byte {
 	if len(leafHashes) == 0 {
-		return [32]byte{}
+		return sha256.Sum256(nil)
 	}
 	level := leafHashes
 	for len(level) > 1 {

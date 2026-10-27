@@ -78,7 +78,7 @@ not itself a leaf hash — `MTH` applies the leaf tag (`0x00`) when hashing it.
 logsRoot(r) = MTH([ logLeaf(l) for l in r.logs, in emission order ])
 ```
 
-A receipt that emits no logs has `logsRoot(r)` of 32 zero bytes — the `n = 0` case of `MTH`.
+A receipt that emits no logs has `logsRoot(r) = SHA-256()` — the `n = 0` case of `MTH`.
 Verifying a single log against `logsRoot` in isolation (without the rest of the logs) requires an
 authenticated `len(r.logs)`; that value is committed as `logCount` in `receiptPreimage`, not derived
 here (see [Rationale](#logcount)).
@@ -110,8 +110,7 @@ four `topics` slots are real; zero-padding beyond it is never content-guessed.
 ## Merkle tree construction (MTH)
 
 The receipts tree and each logs tree are Merkle trees over an ordered list of byte-string entries
-`D = [d_0, …, d_{n-1}]`. Their root, `MTH(D)`, is the Merkle Tree Hash of RFC 6962 §2.1, except that
-the root of an empty tree is 32 zero bytes rather than the SHA-256 of the empty string. Its node
+`D = [d_0, …, d_{n-1}]`. Their root, `MTH(D)`, is the Merkle Tree Hash of RFC 6962 §2.1. Its node
 hashes are
 
 ```
@@ -124,7 +123,7 @@ or the reverse.
 
 The root `MTH(D)` is computed level by level:
 
-1. If `n = 0`, `MTH(D)` is 32 zero bytes.
+1. If `n = 0`, `MTH(D)` is `SHA-256()`, the SHA-256 of the empty string.
 2. Level 0 is `leafHash(d_0) … leafHash(d_{n-1})`.
 3. The level above a level of `s > 1` nodes is formed by replacing each pair at positions `(0, 1)`,
    `(2, 3)`, … with `innerHash` of the pair, in order. When `s` is odd, the last node has no pair and
@@ -166,7 +165,7 @@ logLeaf(1) = 3333333333333333333333333333333333333333
 
 ```
 logsRoot({logLeaf(0), logLeaf(1)}) = c6ab01a590f123c121f3dad8fcc5e8a59ef73156492f384931e0158cd6d12e4e
-logsRoot({})                       = 0000000000000000000000000000000000000000000000000000000000000000
+logsRoot({})                       = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 ```
 
 **Receipt 0** — `status` 1, `txHash` 32 bytes of `0xaa`, `blockIndex` 0 (`varint` = `00`),
@@ -182,7 +181,7 @@ the transaction at position 1 was rejected, so it has no receipt), `gasUsed` 250
 (`varint` = `90a10f`), `logCount` 0 (`varint` = `00`), no logs.
 
 ```
-receiptPreimage(1) = 00 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 02 90a10f 00 0000000000000000000000000000000000000000000000000000000000000000
+receiptPreimage(1) = 00 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 02 90a10f 00 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 ```
 
 **Receipt 2** — `status` 1, `txHash` 32 bytes of `0xcc`, `blockIndex` 3 (`varint` = `03`),
@@ -194,10 +193,10 @@ receiptPreimage(2) = 01 cccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 ```
 
 ```
-receiptHash({})                                                           = e040c5d218b18c10ff1b8fb7660cb7779e69bd3a482c9717c4815b87b6035b88
+receiptHash({})                                                           = b76c94e23577845473017e9ffd350313a3a8fe4e63fd7ac0a869ae9ff2f9129b
 receiptHash({receiptPreimage(0)})                                         = 32b95177fd02367881c7fbadad25ace4c913704bfb0461a4933801f6707f84c8
-receiptHash({receiptPreimage(0), receiptPreimage(1)})                     = 78ba037d0b37247d421b702148ccdb97b66b95ab98190ec5dc017d9b12f4b59f
-receiptHash({receiptPreimage(0), receiptPreimage(1), receiptPreimage(2)}) = 22b544a23d66ff07ce814e6e151ad46c8d9d490699af6b5091ceccfaa9573d20
+receiptHash({receiptPreimage(0), receiptPreimage(1)})                     = dcb5777bf0270f28d32b8753e0234b9c2944f80f6ebcae7aa6d1f29699700b37
+receiptHash({receiptPreimage(0), receiptPreimage(1), receiptPreimage(2)}) = 3bc5f724a5daab50b2875110abf0c268a7d3e0fd6d23b91f5537a51d9cccb358
 ```
 
 (All three preimages happen to be 70 bytes here — each `blockIndex` and `logCount` needs 1 LEB128

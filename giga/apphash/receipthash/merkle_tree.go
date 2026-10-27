@@ -118,13 +118,13 @@ func nextMerkleLevel(
 	return next
 }
 
-// merkleRoot returns the root of a tree, or 32 zero bytes when the tree has no leaves.
+// merkleRoot returns the root of a tree, or SHA-256 of the empty string when the tree has no leaves.
 func merkleRoot(
 	// The leaf hashes of the tree, in order.
 	leafHashes [][32]byte,
 ) [32]byte {
 	if len(leafHashes) == 0 {
-		return [32]byte{}
+		return sha256.Sum256(nil)
 	}
 	level := leafHashes
 	for len(level) > 1 {

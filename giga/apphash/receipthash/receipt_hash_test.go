@@ -1,6 +1,7 @@
 package receipthash
 
 import (
+	"crypto/sha256"
 	"math/big"
 	"testing"
 
@@ -21,8 +22,8 @@ func receiptHashOf(t *testing.T, receipts []*ethtypes.Receipt) apphash.ReceiptHa
 }
 
 func TestReceiptHashOfNoReceipts(t *testing.T) {
-	require.Equal(t, computeReceiptHash(0, [32]byte{}), receiptHashOf(t, nil))
-	require.Equal(t, computeReceiptHash(0, [32]byte{}), receiptHashOf(t, []*ethtypes.Receipt{}))
+	require.Equal(t, computeReceiptHash(0, sha256.Sum256(nil)), receiptHashOf(t, nil))
+	require.Equal(t, computeReceiptHash(0, sha256.Sum256(nil)), receiptHashOf(t, []*ethtypes.Receipt{}))
 }
 
 func TestReceiptHashCommitsToEveryField(t *testing.T) {

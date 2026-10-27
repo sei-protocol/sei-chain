@@ -1,6 +1,7 @@
 package bud
 
 import (
+	"crypto/sha256"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -18,7 +19,7 @@ func budHashOf(t *testing.T, budlets []*Budlet) apphash.BUDHash {
 }
 
 func TestBUDHashOfEmptyTree(t *testing.T) {
-	require.Equal(t, computeBUDHash(0, [32]byte{}), budHashOf(t, nil))
+	require.Equal(t, computeBUDHash(0, sha256.Sum256(nil)), budHashOf(t, nil))
 }
 
 func TestBUDHashCommitsToEveryField(t *testing.T) {

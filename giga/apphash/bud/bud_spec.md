@@ -204,7 +204,7 @@ reverse.
 
 The root `R` of the BUD tree over a block's `n` budlets `b[0] … b[n−1]` is computed level by level:
 
-1. If `n = 0`, `R` is 32 zero bytes.
+1. If `n = 0`, `R` is `SHA-256` of the empty string.
 2. Level 0 is `leafHash(b[0]) … leafHash(b[n−1])`.
 3. The level above a level of `s > 1` nodes is formed by replacing each pair at positions `(0, 1)`, `(2, 3)`,
    … with `innerHash` of the pair, in order. When `s` is odd, the last node has no pair and is carried up to
@@ -216,7 +216,7 @@ When `n = 1`, `R` is the single leaf hash.
 *Non-normative:* this is the Merkle Tree Hash of
 [RFC 9162 §2.1.1](https://www.rfc-editor.org/rfc/rfc9162#section-2.1.1)
 ([RFC 6962 §2.1](https://www.rfc-editor.org/rfc/rfc6962#section-2.1)), with `leafHash` and `innerHash` as its leaf
-and node hashes and a different value for the empty tree.
+and node hashes.
 
 *Non-normative:* [BUD tree shapes](bud_tree_shapes.md) shows how to draw the tree for a given `n`.
 
@@ -273,7 +273,7 @@ budlets  serialize(b[0])
          serialize(b[2])
 ```
 
-A block with no budlets has a root `R` of 32 zero bytes. Its serialized BUD tree is:
+A block with no budlets has a root `R` of `SHA-256` of the empty string. Its serialized BUD tree is:
 
 ```
 version  01
@@ -326,10 +326,10 @@ which is
 4f3428944c0a960bb22d615446c3badd7790eaa96a2dd4519c14abc1c48cf086
 ```
 
-The BUD hash of a block with no budlets, with `n` = 0 and `R` 32 zero bytes, is
+The BUD hash of a block with no budlets, with `n` = 0 and `R` `SHA-256` of the empty string, is
 
 ```
-3eeeba2dfb311dad9e9e46eba984fa855be2b872496b921b19da52b3eb09d5e2
+9725d028d186ff14d54a60658eac9ea435e5bace76d9aa01df155e4e89f1678f
 ```
 
 Verified by [`TestBUDSpecVector`](bud_spec_vector_test.go) and
