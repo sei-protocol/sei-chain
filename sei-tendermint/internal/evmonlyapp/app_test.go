@@ -1080,7 +1080,7 @@ func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{finalizePhaseTakeSenders, finalizePhasePrepare, finalizePhaseExecute, finalizePhaseTxResults} {
+	for _, want := range []string{finalizePhaseTakeSenders, finalizePhaseDecodeTxs, finalizePhaseRecoverSenders, finalizePhaseExecute, finalizePhaseTxResults} {
 		_, ok := phases[want]
 		require.True(t, ok, "phase %q not recorded", want)
 	}
