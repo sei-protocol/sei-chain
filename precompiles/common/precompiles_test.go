@@ -3,9 +3,12 @@ package common_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"math/big"
 	"os"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -52,6 +55,27 @@ func TestHandlePrecompileError(t *testing.T) {
 	common.HandlePrecompileError(nil, evm, "no_error")
 	common.HandlePrecompileError(types.NewAssociationMissingErr(evmAddr.Hex()), evm, "association")
 	common.HandlePrecompileError(errors.New("other error"), evm, "other")
+}
+
+func TestHandlePrecompileErrorTruncatesLongMessage(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	stateDB := state.NewDBImpl(ctx, k, false)
+	evm := &vm.EVM{StateDB: stateDB}
+
+	short := errors.New("short error")
+	common.HandlePrecompileError(short, evm, "short")
+	require.Same(t, short, stateDB.GetPrecompileError())
+
+	// "€" is three bytes wide, so the cut lands inside a character.
+	long := fmt.Errorf("wrapped: %w", errors.New(strings.Repeat("€", common.MaxPrecompileErrorLength)))
+	common.HandlePrecompileError(long, evm, "long")
+	stored := stateDB.GetPrecompileError()
+	require.LessOrEqual(t, len(stored.Error()), common.MaxPrecompileErrorLength)
+	require.Greater(t, len(stored.Error()), common.MaxPrecompileErrorLength-utf8.UTFMax)
+	require.True(t, utf8.ValidString(stored.Error()))
+	require.True(t, strings.HasPrefix(long.Error(), stored.Error()))
+	require.ErrorIs(t, stored, long)
 }
 
 type MockPrecompileExecutor struct {
