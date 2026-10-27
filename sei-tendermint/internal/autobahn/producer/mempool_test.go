@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -93,6 +94,8 @@ type testAppInner struct {
 type testApp struct {
 	abci.BaseApplication
 	inner utils.Mutex[*testAppInner]
+	// onEvmNonce, when set, runs at the start of every EvmNonce call.
+	onEvmNonce atomic.Pointer[func()]
 }
 
 func newTestApp() *testApp {
@@ -127,6 +130,9 @@ func (a *testApp) Proxy() *proxy.Proxy {
 }
 
 func (a *testApp) EvmNonce(addr common.Address) uint64 {
+	if hook := a.onEvmNonce.Load(); hook != nil {
+		(*hook)()
+	}
 	for inner := range a.inner.Lock() {
 		return inner.nonces[addr]
 	}
@@ -1012,4 +1018,100 @@ func TestInsertResult(t *testing.T) {
 	} {
 		require.Equal(t, tc.want, insertResult(tc.resp, tc.err))
 	}
+}
+
+// takeAdmissionTurn makes the session look busy, as if another InsertTx call held the admission turn.
+func takeAdmissionTurn(mp *mempool) {
+	mp.admitMu.Lock()
+	defer mp.admitMu.Unlock()
+	mp.admitting = true
+}
+
+// waitAdmitQueued blocks until n InsertTx calls sit in the admission queue.
+func waitAdmitQueued(t *testing.T, mp *mempool, n uint64) {
+	t.Helper()
+	require.Eventually(t, func() bool { return mp.admitQueued.Load() == n }, 5*time.Second, time.Millisecond)
+}
+
+// A queued insert that gives up leaves the admission queue, so the turn passes over it to the next one.
+func TestInsertTx_CancelledQueuedInsertNeverHoldsTheTurn(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+	mp := env.state.mempool.Load().OrPanic("aligned")
+	takeAdmissionTurn(mp)
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		cancelCtx, cancel := context.WithCancel(ctx)
+		addrA, nonceA := app.NewAccount(rng)
+		env.spawnInserter(cancelCtx, s, env.genTx(rng, addrA, nonceA), context.Canceled)
+		waitAdmitQueued(t, mp, 1)
+		addrB, nonceB := app.NewAccount(rng)
+		txB := env.genTx(rng, addrB, nonceB)
+		env.spawnInserter(ctx, s, txB, nil)
+		waitAdmitQueued(t, mp, 2)
+
+		cancel()
+		waitAdmitQueued(t, mp, 1)
+		mp.handOffAdmission()
+		return nil
+	}))
+	require.Len(t, env.state.UnconfirmedTxs(), 1, "only the insert behind the cancelled one is admitted")
+	mp.admitMu.Lock()
+	defer mp.admitMu.Unlock()
+	require.False(t, mp.admitting)
+}
+
+// Under concurrent inserts every InsertTx call returns: a call holding the admission turn runs one
+// batch and passes the turn on rather than draining arrivals indefinitely.
+func TestInsertTx_ConcurrentInsertsAllReturn(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+	var txs []*txSpec
+	for range 512 {
+		addr, nonce := app.NewAccount(rng)
+		txs = append(txs, env.genTx(rng, addr, nonce))
+	}
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for _, tx := range txs {
+			env.spawnInserter(ctx, s, tx, nil)
+		}
+		return nil
+	}))
+	mp := env.state.mempool.Load().OrPanic("aligned")
+	require.Zero(t, mp.admitQueued.Load())
+}
+
+// A prune between a batch's nonce read and its locked append makes the batch read again outside the
+// lock, rather than appending with a stale read.
+func TestInsertTx_PruneDuringNonceReadRereadsOutsideTheLock(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+	mp := env.state.mempool.Load().OrPanic("aligned")
+	for range 2 {
+		_, err := env.state.TryInsertTx(ctx, env.fullTx(rng, app).encode())
+		require.NoError(t, err)
+	}
+
+	var reads atomic.Int32
+	hook := func() {
+		if reads.Add(1) == 1 {
+			env.freeOneBlock(mp)
+		}
+	}
+	app.onEvmNonce.Store(&hook)
+	addr, nonce := app.NewAccount(rng)
+	_, err := env.state.InsertTx(ctx, env.genTx(rng, addr, nonce).encode())
+	app.onEvmNonce.Store(nil)
+
+	require.NoError(t, err)
+	require.Equal(t, int32(2), reads.Load(), "the stale read is redone once")
 }
