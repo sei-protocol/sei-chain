@@ -178,14 +178,16 @@ func TestGigaSnapshotStateReaderMissingStateFallback(t *testing.T) {
 	present := testAddress(0xb0)
 	nonceOnly := testAddress(0xb1)
 	absent := testAddress(0xb2)
+	storageOnly := testAddress(0xb3)
 	slot := common.HexToHash("0x01")
 
 	snapshot := newMemoryGigaSnapshot(3)
 	snapshot.setBalance(present, big.NewInt(5))
 	snapshot.nonces[nonceOnly] = 2
+	snapshot.storage[gigaStorageKey{address: storageOnly, key: slot}] = common.HexToHash("0x42")
 
 	fallback := NewMemoryState()
-	for _, addr := range []common.Address{present, nonceOnly, absent} {
+	for _, addr := range []common.Address{present, nonceOnly, absent, storageOnly} {
 		fallback.SetBalance(addr, big.NewInt(1000))
 		fallback.SetNonce(addr, 77)
 		fallback.SetCode(addr, []byte{0xfe})
@@ -204,7 +206,9 @@ func TestGigaSnapshotStateReaderMissingStateFallback(t *testing.T) {
 	require.Equal(t, big.NewInt(1000), reader.GetBalance(absent))
 	require.Equal(t, uint64(77), reader.GetNonce(absent))
 	require.Equal(t, []byte{0xfe}, reader.GetCode(absent))
-	require.Equal(t, common.HexToHash("0x99"), reader.GetState(absent, slot))
+	require.Equal(t, common.Hash{}, reader.GetState(absent, slot), "storage never falls back")
+
+	require.Equal(t, common.HexToHash("0x42"), reader.GetState(storageOnly, slot))
 
 	noFallback := gigaSnapshotStateReader{snapshot: snapshot}
 	require.Zero(t, noFallback.GetBalance(absent).Sign())

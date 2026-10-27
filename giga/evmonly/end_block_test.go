@@ -10,6 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
 
 var (
@@ -183,6 +186,43 @@ func TestEndBlockerSeesThePreviousBlockBeforeItsCommitLands(t *testing.T) {
 		}
 	}
 	require.Empty(t, want)
+}
+
+// fundedState answers for every address absent from the store with a balance
+// and nothing else, as the EVM-only application's fallback does.
+type fundedState struct{}
+
+func (fundedState) GetBalance(common.Address) *big.Int               { return big.NewInt(behaviorSenderFunds) }
+func (fundedState) GetNonce(common.Address) uint64                   { return 0 }
+func (fundedState) GetCode(common.Address) []byte                    { return nil }
+func (fundedState) GetState(common.Address, common.Hash) common.Hash { return common.Hash{} }
+
+// flatKVStateDB serves a flatkv store as the executor's store, with no history.
+type flatKVStateDB struct{ *flatkv.CommitStore }
+
+func (flatKVStateDB) OpenViewAt(int64) (gigatypes.StateView, bool) { return nil, false }
+
+func TestEndBlockerStorageReadsBackWithoutAnAccountRow(t *testing.T) {
+	cfg := flatkvconfig.DefaultConfig()
+	cfg.DataDir = t.TempDir()
+	store, err := openFlatKVTestStore(t.Context(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	executor := NewExecutor(Config{CustomPrecompiles: recorderRegistry(endBlockRecorder{address: firstEndBlocker})},
+		withTestStores(flatKVStateDB{store}, NewMemoryReceiptStore(), NewFlatKVChangeSetEncoder()), WithMissingAccountState(fundedState{}))
+	t.Cleanup(executor.Close)
+
+	block := blockContext(big.NewInt(testChainID))
+	for number := uint64(1); number <= 2; number++ {
+		block.Number = number
+		_, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: block})
+		require.NoError(t, err)
+	}
+
+	view := store.OpenView()
+	defer view.Close()
+	require.Equal(t, common.BigToHash(big.NewInt(2)), view.GetStorage(firstEndBlocker, blocksSlot))
+	require.False(t, view.AccountExists(firstEndBlocker), "end blockers write no account row")
 }
 
 func TestCustomEndBlockersRejectsMisconfiguration(t *testing.T) {

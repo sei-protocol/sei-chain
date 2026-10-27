@@ -112,7 +112,9 @@ The FlatKV encoder persists balance, nonce, code, and storage changes, and the
 executor reads them through the current Giga state view. EVM-only Autobahn load
 tests use `WithMissingAccountState(...)` to supply the initial funded state for
 synthetic accounts that have not appeared in FlatKV yet; after their first
-change, subsequent reads come from the persisted account row.
+change, subsequent reads come from the persisted account row. The fallback
+answers only for balance, nonce, and code: storage is always read from FlatKV,
+so a slot written at an address with no account row reads back.
 
 `MemoryStore` and `MemoryReceiptStore` are non-persistent unit-test doubles.
 `MemoryStore` wraps an immutable `StateReader`, retains committed values in
