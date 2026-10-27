@@ -20,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
 	"github.com/sei-protocol/sei-chain/x/evm/client/cli"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/migrations"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -149,68 +148,6 @@ func (am AppModule) LegacyQuerierHandler(_ *codec.LegacyAmino) sdk.Querier {
 func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(am.keeper))
 	types.RegisterQueryServer(cfg.QueryServer(), keeper.NewQuerier(am.keeper))
-
-	_ = cfg.RegisterMigration(types.ModuleName, 2, func(ctx sdk.Context) error {
-		return migrations.AddNewParamsAndSetAllToDefaults(ctx, am.keeper)
-	})
-
-	_ = cfg.RegisterMigration(types.ModuleName, 3, func(ctx sdk.Context) error {
-		return migrations.AddNewParamsAndSetAllToDefaults(ctx, am.keeper)
-	})
-
-	_ = cfg.RegisterMigration(types.ModuleName, 4, migrations.RetiredPointerBoundary)
-
-	_ = cfg.RegisterMigration(types.ModuleName, 5, func(ctx sdk.Context) error {
-		return migrations.FixTotalSupply(ctx, am.keeper)
-	})
-
-	_ = cfg.RegisterMigration(types.ModuleName, 6, migrations.RetiredPointerBoundary)
-
-	_ = cfg.RegisterMigration(types.ModuleName, 7, migrations.RetiredPointerBoundary)
-
-	_ = cfg.RegisterMigration(types.ModuleName, 8, migrations.RetiredPointerBoundary)
-
-	_ = cfg.RegisterMigration(types.ModuleName, 9, migrations.RetiredPointerBoundary)
-
-	_ = cfg.RegisterMigration(types.ModuleName, 10, func(ctx sdk.Context) error {
-		return migrations.MigrateCastAddressBalances(ctx, am.keeper)
-	})
-
-	_ = cfg.RegisterMigration(types.ModuleName, 11, func(ctx sdk.Context) error {
-		return migrations.MigrateDeliverTxHookWasmGasLimitParam(ctx, am.keeper)
-	})
-
-	_ = cfg.RegisterMigration(types.ModuleName, 12, func(ctx sdk.Context) error {
-		return migrations.MigrateBlockBloom(ctx, am.keeper)
-	})
-
-	_ = cfg.RegisterMigration(types.ModuleName, 13, func(ctx sdk.Context) error {
-		return migrations.MigrateEip1559Params(ctx, am.keeper)
-	})
-
-	_ = cfg.RegisterMigration(types.ModuleName, 14, func(ctx sdk.Context) error {
-		return migrations.MigrateEip1559MaxFeePerGas(ctx, am.keeper)
-	})
-
-	_ = cfg.RegisterMigration(types.ModuleName, 15, migrations.RetiredPointerBoundary)
-
-	_ = cfg.RegisterMigration(types.ModuleName, 16, func(ctx sdk.Context) error {
-		return migrations.MigrateBaseFeeOffByOne(ctx, am.keeper)
-	})
-
-	_ = cfg.RegisterMigration(types.ModuleName, 17, migrations.RetiredPointerBoundary)
-
-	_ = cfg.RegisterMigration(types.ModuleName, 18, func(ctx sdk.Context) error {
-		return migrations.MigrateDisableRegisterPointer(ctx, am.keeper)
-	})
-
-	_ = cfg.RegisterMigration(types.ModuleName, 19, func(ctx sdk.Context) error {
-		return migrations.MigrateRemoveCurrBlockBaseFee(ctx, am.keeper)
-	})
-
-	_ = cfg.RegisterMigration(types.ModuleName, 20, func(ctx sdk.Context) error {
-		return migrations.MigrateSstoreGas(ctx, am.keeper)
-	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
