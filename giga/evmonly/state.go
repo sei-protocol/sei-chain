@@ -118,21 +118,11 @@ func (s *MemoryState) SetState(addr common.Address, key common.Hash, value commo
 func (s *MemoryState) ApplyChangeSet(cs StateChangeSet) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, change := range cs.Balances {
+	for _, change := range cs.Accounts {
 		acct := s.getOrCreateAccountLocked(change.Address)
-		acct.Balance = cloneBig(change.Balance)
-	}
-	for _, change := range cs.Nonces {
-		acct := s.getOrCreateAccountLocked(change.Address)
-		acct.Nonce = change.Nonce
-	}
-	for _, change := range cs.Code {
-		acct := s.getOrCreateAccountLocked(change.Address)
-		if change.Delete {
-			acct.Code = nil
-		} else {
-			acct.Code = cloneBytes(change.Code)
-		}
+		acct.Balance = cloneBig(change.Account.Balance)
+		acct.Nonce = change.Account.Nonce
+		acct.Code = cloneBytes(change.Account.Code)
 	}
 	for _, change := range cs.Storage {
 		acct := s.getOrCreateAccountLocked(change.Address)

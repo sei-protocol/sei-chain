@@ -321,12 +321,12 @@ func (r gigaSnapshotStateReader) GetCode(addr common.Address) []byte {
 // ReadAccount returns addr's balance, nonce and code in one row read, and fetches code only for an
 // account that has some. It declines an account the snapshot lacks when missingState must answer
 // for it. Satisfies baseAccountReader.
-func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (baseAccount, bool) {
+func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (AccountState, bool) {
 	row, exists := r.snapshot.ReadAccount(addr)
 	if !exists {
-		return baseAccount{}, r.missingState == nil
+		return AccountState{}, r.missingState == nil
 	}
-	account := baseAccount{
+	account := AccountState{
 		Balance: new(big.Int).SetBytes(row.Balance[:]),
 		Nonce:   row.Nonce,
 	}

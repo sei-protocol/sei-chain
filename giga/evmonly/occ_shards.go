@@ -86,13 +86,7 @@ func (r occTxExecution) touchedShards() occShardSet {
 	for addr := range r.commutativeBalanceDeltas {
 		touched = touched.with(occShardOf(addr))
 	}
-	for _, change := range r.changeSet.Balances {
-		touched = touched.with(occShardOf(change.Address))
-	}
-	for _, change := range r.changeSet.Nonces {
-		touched = touched.with(occShardOf(change.Address))
-	}
-	for _, change := range r.changeSet.Code {
+	for _, change := range r.changeSet.Accounts {
 		touched = touched.with(occShardOf(change.Address))
 	}
 	for _, change := range r.changeSet.Storage {
@@ -305,9 +299,7 @@ func (s *blockSTMState) changeSetIntoParallel(ctx context.Context, pool *occWork
 	}
 	for i := range fragments {
 		fragment := &fragments[i]
-		changes.Balances = append(changes.Balances, fragment.Balances...)
-		changes.Nonces = append(changes.Nonces, fragment.Nonces...)
-		changes.Code = append(changes.Code, fragment.Code...)
+		changes.Accounts = append(changes.Accounts, fragment.Accounts...)
 		changes.Storage = append(changes.Storage, fragment.Storage...)
 	}
 	return nil
@@ -318,7 +310,7 @@ func (s *blockSTMState) keyCount() int {
 	count := 0
 	for i := range s.shards {
 		shard := &s.shards[i]
-		count += len(shard.balances) + len(shard.nonces) + len(shard.code) + len(shard.storage)
+		count += len(shard.accounts) + len(shard.storage)
 	}
 	return count
 }
