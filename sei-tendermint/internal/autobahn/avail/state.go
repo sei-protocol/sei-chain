@@ -492,6 +492,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		q.pushBack(p)
 		ctrl.Updated()
 	}
+	meters.LaneBlockReceive.Observe(time.Since(p.Msg().Block().Payload().CreatedAt()).Seconds())
 	return nil
 }
 
@@ -674,6 +675,43 @@ func (s *State) WaitForLaneQCs(
 				return nil, err
 			}
 		}
+	}
+	panic("unreachable")
+}
+
+// LaneTip is how far one lane's blocks have reached on this node.
+type LaneTip struct {
+	// WithCommitQC is one past the highest block finalized by the latest persisted CommitQC.
+	WithCommitQC types.BlockNumber
+	// WithLaneQC is one past the highest block with a LaneQC, and at least WithCommitQC.
+	WithLaneQC types.BlockNumber
+	// Held is one past the highest block this node holds, and at least WithLaneQC.
+	Held types.BlockNumber
+}
+
+// LaneTips returns how far each lane of the applied committee has reached on this node.
+func (s *State) LaneTips() map[types.LaneID]LaneTip {
+	for inner := range s.inner.Lock() {
+		committed := inner.persistedCommitQC.Load()
+		tips := map[types.LaneID]LaneTip{}
+		for lane := range inner.applied().Committee().Lanes().All() {
+			t := LaneTip{WithCommitQC: types.LaneRangeOpt(committed, lane).Next()}
+			t.WithLaneQC = t.WithCommitQC
+			if vq, ok := inner.votes[lane]; ok {
+				for n := vq.next; n > max(vq.first, t.WithCommitQC); n-- {
+					if vq.q[n-1].qc.IsPresent() {
+						t.WithLaneQC = n
+						break
+					}
+				}
+			}
+			t.Held = t.WithLaneQC
+			if bq, ok := inner.blocks[lane]; ok {
+				t.Held = max(t.Held, bq.next)
+			}
+			tips[lane] = t
+		}
+		return tips
 	}
 	panic("unreachable")
 }
