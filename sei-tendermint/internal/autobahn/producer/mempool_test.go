@@ -1115,3 +1115,31 @@ func TestInsertTx_PruneDuringNonceReadRereadsOutsideTheLock(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int32(2), reads.Load(), "the stale read is redone once")
 }
+
+// Inserts still waiting for a batch when the session closes fail with ErrNotProducing, without a nonce
+// read for the closed session.
+func TestInsertTx_CloseFailsTheInsertsWaitingForABatch(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+	mp := env.state.mempool.Load().OrPanic("aligned")
+	takeAdmissionTurn(mp)
+	var reads atomic.Int32
+	hook := func() { reads.Add(1) }
+	app.onEvmNonce.Store(&hook)
+	defer app.onEvmNonce.Store(nil)
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for i := range 2 {
+			addr, nonce := app.NewAccount(rng)
+			env.spawnInserter(ctx, s, env.genTx(rng, addr, nonce), ErrNotProducing)
+			waitAdmitQueued(t, mp, uint64(i+1))
+		}
+		env.state.clearMempool()
+		mp.handOffAdmission()
+		return nil
+	}))
+	require.Zero(t, reads.Load())
+}

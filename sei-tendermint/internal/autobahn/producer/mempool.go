@@ -526,6 +526,17 @@ func (s *State) admitBatch(mp *mempool, batch []*insertTicket) {
 			metrics.ObserveAdmit(now.Sub(ticket.queued))
 		}
 	}()
+	if mp.closed.Load() {
+		// A closed session admits nothing, so the batch skips its nonce read.
+		for range mp.inner.Lock() {
+			for _, ticket := range batch {
+				if !ticket.cancelled {
+					ticket.finish(ErrNotProducing)
+				}
+			}
+		}
+		return
+	}
 	for attempt := 1; ; attempt++ {
 		untracked, first := s.readUntrackedNonces(mp, batch)
 		for m, ctrl := range mp.inner.Lock() {
