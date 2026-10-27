@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
@@ -80,6 +81,7 @@ func New(
 	if err := opts.giga.Validate(); err != nil {
 		return nil, fmt.Errorf("giga config: %w", err)
 	}
+	applyExecutionRuntime(opts.giga.Execution)
 	app, storageManager, err := prepareApplication(ctx, conf, app, opts.giga)
 	if err != nil {
 		return nil, err
@@ -245,4 +247,21 @@ func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]abci.ValidatorUpd
 		validators[i] = abci.ValidatorUpdate{PubKey: crypto.PubKeyToProto(key), Power: 1}
 	}
 	return validators, nil
+}
+
+// applyExecutionRuntime raises the GC target for a load test. The heap is then capped at 80% of
+// the container limit, so a late collection is an ordinary GC rather than an OOM kill.
+func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
+	if cfg.GCPercent <= 0 {
+		return
+	}
+	debug.SetGCPercent(cfg.GCPercent)
+	limit := containerMemoryLimit() / 10 * 8
+	// A limit the operator set through GOMEMLIMIT is only ever lowered, never raised.
+	if limit <= 0 || limit >= debug.SetMemoryLimit(-1) {
+		logger.Info("raised the Go GC target", "gc_percent", cfg.GCPercent)
+		return
+	}
+	debug.SetMemoryLimit(limit)
+	logger.Info("raised the Go GC target", "gc_percent", cfg.GCPercent, "memory_limit", limit)
 }

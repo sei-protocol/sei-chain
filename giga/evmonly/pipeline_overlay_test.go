@@ -48,10 +48,12 @@ func TestOverlayServesPendingChangesOverTheView(t *testing.T) {
 		storage:  map[storageChangeKey]common.Hash{{address: addr, key: slot}: common.HexToHash("0x1")},
 	}
 	overlay := newPendingOverlay(base, &StateChangeSet{
-		Balances: []BalanceChange{{Address: addr, Balance: big.NewInt(99)}},
-		Nonces:   []NonceChange{{Address: addr, Nonce: 99}},
-		Code:     []CodeChange{{Address: addr, Code: []byte{0x99}}},
-		Storage:  []StorageChange{{Address: addr, Key: slot, Value: common.HexToHash("0x99")}},
+		Accounts: []AccountChange{{
+			Address: addr,
+			Account: AccountState{Balance: big.NewInt(99), Nonce: 99, Code: []byte{0x99}},
+			Prior:   AccountState{Balance: big.NewInt(1), Nonce: 1, Code: []byte{0x01}},
+		}},
+		Storage: []StorageChange{{Address: addr, Key: slot, Value: common.HexToHash("0x99")}},
 	})
 
 	require.Equal(t, big.NewInt(99), overlay.GetBalance(addr))
@@ -82,7 +84,7 @@ func TestOverlayReportsDeletedCodeAsAbsent(t *testing.T) {
 	base := fixedStateReader{code: map[common.Address][]byte{addr: {0x01}}}
 
 	overlay := newPendingOverlay(base, &StateChangeSet{
-		Code: []CodeChange{{Address: addr, Delete: true}},
+		Accounts: []AccountChange{{Address: addr, Prior: AccountState{Code: []byte{0x01}}}},
 	})
 	require.Nil(t, overlay.GetCode(addr))
 }
