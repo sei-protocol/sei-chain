@@ -114,7 +114,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 
 		ep0 := registry.MustEpoch(0)
 		qc0, blocks0 := data.TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
-		if err := ds.PushQC(ctx, qc0, data.TestBlockMap(blocks0)); err != nil {
+		if err := ds.PushPartialBlock(ctx, qc0, data.TestBlockMap(blocks0)); err != nil {
 			return err
 		}
 		appHash0 := types.GenAppHash(rng)
@@ -219,7 +219,7 @@ func TestAnchorResetsState(t *testing.T) {
 
 		t.Logf("Push FullCommitQC, blocks, AppHash, AppQC to data")
 		qc, blocks := data.TestCommitQC(rng, epoch, keys, utils.None[*types.CommitQC]())
-		if err := ds.PushQC(ctx, qc, data.TestBlockMap(blocks)); err != nil {
+		if err := ds.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
 			return err
 		}
 		appHash := types.GenAppHash(rng)

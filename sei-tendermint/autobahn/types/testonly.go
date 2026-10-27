@@ -409,8 +409,10 @@ func GenFullProposal(rng utils.Rng) *FullProposal {
 
 // GenSuperBlock generates a random SuperBlock.
 func GenSuperBlock(rng utils.Rng) *SuperBlock {
-	payload := GenPayload(rng)
-	return &SuperBlock{Height: GenRoadIndex(rng), Timestamp: payload.CreatedAt(), GasWanted: payload.TotalGasWanted(), Txs: payload.Txs()}
+	block := GenBlock(rng)
+	qc := GenFullCommitQCAt(rng, GenRoadIndex(rng), 1)
+	qc = NewFullCommitQC(qc.QC(), []*BlockHeader{block.Header()})
+	return NewRoadBlock(qc, []*Block{block}).SuperBlock()
 }
 
 // GenPrepareVote generates a random PrepareVote.

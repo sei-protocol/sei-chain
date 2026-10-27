@@ -123,13 +123,13 @@ func TestDataClientServer(t *testing.T) {
 		for i := range 3 {
 			t.Logf("iteration %v", i)
 			qc, blocks := data.TestCommitQC(rng, server.data.Registry().MustEpoch(0), keys, prev)
-			if err := server.data.PushQC(ctx, qc, data.TestBlockMap(blocks)); err != nil {
-				return fmt.Errorf("serverState.PushQC(): %w", err)
+			if err := server.data.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
+				return fmt.Errorf("serverState.PushPartialBlock(): %w", err)
 			}
 			prev = utils.Some(qc.QC())
 		}
 		t.Logf("wait for replication")
-		for n := firstBlock; n < server.data.NextBlock(); n++ {
+		for n := firstBlock; n < server.data.NextQC(); n++ {
 			want, err := server.data.SuperBlock(ctx, n)
 			if err != nil {
 				return fmt.Errorf("serverState.FinalBlock(): %w", err)

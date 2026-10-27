@@ -45,7 +45,7 @@ func TestDecodeRejectsGarbage(t *testing.T) {
 }
 
 func TestDecodeBlockRejectsInconsistentMetadata(t *testing.T) {
-	for _, field := range []string{"index", "hash", "lane blocks"} {
+	for _, field := range []string{"index", "hash"} {
 		t.Run(field, func(t *testing.T) {
 			rng := utils.TestRngFromSeed(3)
 			lane := types.GenBlock(rng)
@@ -59,8 +59,6 @@ func TestDecodeBlockRejectsInconsistentMetadata(t *testing.T) {
 				record.Index++
 			case "hash":
 				record.Hash[0] ^= 1
-			case "lane blocks":
-				record.LaneBlocks = nil
 			}
 			_, err = decodeBlock(record)
 			require.ErrorIs(t, err, types.ErrQCBlocksMismatch)

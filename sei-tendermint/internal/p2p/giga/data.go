@@ -22,7 +22,7 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 	}
 	defer stream.Close()
 	if err := stream.Send(ctx, StreamFullCommitQCsReqConv.Encode(&StreamFullCommitQCsReq{
-		NextBlock: s.data.NextBlock(),
+		NextBlock: s.data.NextQC(),
 	})); err != nil {
 		recordFetch(ctx, resFullCommitQC, "send")
 		return fmt.Errorf("stream.Send(): %w", err)
@@ -39,7 +39,7 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 			return fmt.Errorf("types.CommitQCConv.Decode(): %w", err)
 		}
 		// TODO: add DoS protection (i.e. that only useful state.Data() has been actually sent).
-		if err := s.data.PushQC(ctx, qc, nil); err != nil {
+		if err := s.data.PushPartialBlock(ctx, qc, nil); err != nil {
 			recordFetch(ctx, resFullCommitQC, "process")
 			return fmt.Errorf("s.PushCommitQC(): %w", err)
 		}
@@ -154,7 +154,7 @@ func (s *Service) clientGetBlock(ctx context.Context, client rpc.Client[API]) er
 func (x *Service) runBlockFetcher(ctx context.Context) error {
 	sem := utils.NewSemaphore(MaxConcurrentBlockFetches)
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		for n := x.data.NextBlock(); ; n += 1 {
+		for n := x.data.NextFullBlock(); ; n += 1 {
 			// Wait for the QC.
 			qc, err := x.data.QC(ctx, n)
 			if err != nil {

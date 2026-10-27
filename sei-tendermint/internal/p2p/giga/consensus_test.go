@@ -47,7 +47,7 @@ func TestConsensusClientServer(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("ds.QC(): %w", err)
 				}
-				want := types.NewSuperBlock(qc, []*types.Block{b.Msg().Block()})
+				want := types.NewRoadBlock(qc, []*types.Block{b.Msg().Block()}).SuperBlock()
 				if err := utils.TestDiff(want, got); err != nil {
 					return err
 				}

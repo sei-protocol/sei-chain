@@ -3,7 +3,6 @@ package blockstore_test
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"testing"
 	"time"
 
@@ -95,7 +94,6 @@ func TestBlockStore(t *testing.T) {
 }
 
 func runContract(t *testing.T, build builder) {
-	t.Run("WriteBlockMismatchRejected", func(t *testing.T) { testWriteBlockMismatchRejected(t, build) })
 	t.Run("EmptyDB", func(t *testing.T) { testEmptyDB(t, build) })
 	t.Run("ReadRoundTrip", func(t *testing.T) { testReadRoundTrip(t, build) })
 	t.Run("QCByBlockNumber", func(t *testing.T) { testQCByBlockNumber(t, build) })
@@ -210,7 +208,7 @@ func drainSuffix(t *testing.T, db types.BlockStore) []iterEntry {
 	for _, group := range suffix.Blocks {
 		qc := group.QC()
 		if qc.Index() >= floor {
-			entries = append(entries, iterEntry{n: qc.Index(), qc: qc, blk: types.NewSuperBlock(qc, group.LaneBlocks())})
+			entries = append(entries, iterEntry{n: qc.Index(), qc: qc, blk: group.SuperBlock()})
 		}
 	}
 	for _, appQC := range suffix.AppQCs {
@@ -519,7 +517,7 @@ func testPruneRetainsAtOrAbove(t *testing.T, build builder) {
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "block %d (>= watermark %d) must be retained", n, watermark)
-			require.Equal(t, blk.CalculateBlockHash(), types.NewSuperBlock(got.QC(), got.LaneBlocks()).CalculateBlockHash())
+			require.Equal(t, blk.CalculateBlockHash(), got.SuperBlock().CalculateBlockHash())
 		}
 		if b.next > watermark {
 			lookup := b.first
@@ -556,7 +554,7 @@ func testPruneAtRoadRetainsQC(t *testing.T, build builder) {
 		require.NoError(t, err)
 		got, ok := opt.Get()
 		require.True(t, ok, "block %d (>= watermark %d) must be retained", n, watermark)
-		require.Equal(t, blk.CalculateBlockHash(), types.NewSuperBlock(got.QC(), got.LaneBlocks()).CalculateBlockHash())
+		require.Equal(t, blk.CalculateBlockHash(), got.SuperBlock().CalculateBlockHash())
 	}
 
 	// The retained QC stays (its Next > watermark); a lookup at or above the
@@ -714,7 +712,7 @@ func testPruneIdempotentMonotonic(t *testing.T, build builder) {
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "block %d (>= watermark %d) must survive redundant prunes", n, watermark)
-			require.Equal(t, blk.CalculateBlockHash(), types.NewSuperBlock(got.QC(), got.LaneBlocks()).CalculateBlockHash())
+			require.Equal(t, blk.CalculateBlockHash(), got.SuperBlock().CalculateBlockHash())
 		}
 	}
 }
@@ -803,7 +801,7 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 				require.NoError(t, err)
 				got, ok := byNum.Get()
 				require.True(t, ok, "block %d in the newest cohort must survive PruneBefore(%d)", n, prune)
-				require.Equal(t, blk.CalculateBlockHash(), types.NewSuperBlock(got.QC(), got.LaneBlocks()).CalculateBlockHash())
+				require.Equal(t, blk.CalculateBlockHash(), got.SuperBlock().CalculateBlockHash())
 
 				byHash, err := db.ReadBlockByHash(blk.CalculateBlockHash())
 				require.NoError(t, err)
@@ -1175,41 +1173,6 @@ func recoverLastAppQC(t *testing.T, db types.BlockStore) (*types.AppQC, bool) {
 	return nil, false
 }
 
-// testWriteBlockMismatchRejected verifies that invalid block lists persist nothing.
-func testWriteBlockMismatchRejected(t *testing.T, build builder) {
-	committee, keys := buildCommittee()
-	b := generateBatches(committee, keys)[0]
-	for _, variant := range []string{"none", "missing", "extra", "reordered", "wrong"} {
-		t.Run(variant, func(t *testing.T) {
-			rng := utils.TestRng()
-			db, _ := openFresh(t, build)
-			defer func() { _ = db.Close() }()
-			blocks := slices.Clone(b.blocks)
-			switch variant {
-			case "none":
-				blocks = nil
-			case "missing":
-				blocks = slices.Delete(blocks, len(blocks)/2, len(blocks)/2+1)
-			case "extra":
-				blocks = append(blocks, blocks[0])
-			case "reordered":
-				blocks[0], blocks[1] = blocks[1], blocks[0]
-			case "wrong":
-				blocks[0] = types.GenBlock(rng)
-			}
-			require.ErrorIs(t, db.WriteBlock(types.NewRoadBlock(b.qc, blocks)), types.ErrQCBlocksMismatch)
-			require.False(t, db.Status().IsPresent())
-			for range b.blocks {
-				got, err := db.ReadBlockByHash(types.NewSuperBlock(b.qc, b.blocks).CalculateBlockHash())
-				require.NoError(t, err)
-				require.False(t, got.IsPresent())
-			}
-			require.NoError(t, db.WriteBlock(types.NewRoadBlock(b.qc, b.blocks)))
-			assertBlocksReadable(t, db, []batch{b})
-		})
-	}
-}
-
 // testWriteEmptyQC verifies that an empty QC persists a SuperBlock and advances the road.
 func testWriteEmptyQC(t *testing.T, build builder) {
 	rng := utils.TestRng()
@@ -1224,7 +1187,7 @@ func testWriteEmptyQC(t *testing.T, build builder) {
 	got, ok := block.Get()
 	require.True(t, ok)
 	require.Empty(t, got.LaneBlocks())
-	byHash, err := db.ReadBlockByHash(types.NewSuperBlock(got.QC(), got.LaneBlocks()).CalculateBlockHash())
+	byHash, err := db.ReadBlockByHash(got.SuperBlock().CalculateBlockHash())
 	require.NoError(t, err)
 	require.True(t, byHash.IsPresent())
 	committee, keys := buildCommittee()
@@ -1341,7 +1304,7 @@ func assertBlocksReadable(t *testing.T, db types.BlockStore, batches []batch) {
 			require.NoError(t, err)
 			got, ok := byNum.Get()
 			require.True(t, ok, "block %d should exist", n)
-			require.Equal(t, blk.CalculateBlockHash(), types.NewSuperBlock(got.QC(), got.LaneBlocks()).CalculateBlockHash())
+			require.Equal(t, blk.CalculateBlockHash(), got.SuperBlock().CalculateBlockHash())
 			require.Equal(t, types.FullCommitQCConv.Encode(b.qc), types.FullCommitQCConv.Encode(got.QC()))
 			require.Len(t, got.LaneBlocks(), len(b.blocks))
 			for offset, laneBlock := range b.blocks {
@@ -1352,7 +1315,7 @@ func assertBlocksReadable(t *testing.T, db types.BlockStore, batches []batch) {
 			require.NoError(t, err)
 			bwn, ok := byHash.Get()
 			require.True(t, ok, "block by hash should exist")
-			require.Equal(t, blk.CalculateBlockHash(), types.NewSuperBlock(bwn.QC(), bwn.LaneBlocks()).CalculateBlockHash())
+			require.Equal(t, blk.CalculateBlockHash(), bwn.SuperBlock().CalculateBlockHash())
 			require.Equal(t, n, bwn.QC().Index(), "block %d hash lookup should return its number", n)
 		}
 	}
@@ -1524,7 +1487,7 @@ func testAppQC(keys []types.SecretKey, proposal *types.AppProposal) *types.AppQC
 
 // superBlocks returns the execution unit represented by this batch.
 func (b batch) superBlocks() []*types.SuperBlock {
-	return []*types.SuperBlock{types.NewSuperBlock(b.qc, b.blocks)}
+	return []*types.SuperBlock{types.NewRoadBlock(b.qc, b.blocks).SuperBlock()}
 }
 
 type failedBlockDB struct {

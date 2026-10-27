@@ -35,7 +35,7 @@ func TestSuperBlockMergesTransactionsInHeaderOrder(t *testing.T) {
 	qc := BuildCommitQC(ep, keys, utils.None[*CommitQC](), laneQCs)
 	fullQC := NewFullCommitQC(qc, headers)
 	require.NoError(t, fullQC.Verify(ep))
-	block := NewSuperBlock(fullQC, blocks)
+	block := NewRoadBlock(fullQC, blocks).SuperBlock()
 	require.Equal(t, qc.Index(), block.Height)
 	require.Equal(t, qc.Proposal().Timestamp(), block.Timestamp)
 	require.Equal(t, uint64(6), block.GasWanted)

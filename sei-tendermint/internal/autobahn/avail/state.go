@@ -702,7 +702,7 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 }
 
 // Task inserting CommitQCs and local blocks to data state.
-func (s *State) runPushQC(ctx context.Context) error {
+func (s *State) runPushPartialBlock(ctx context.Context) error {
 	for n := s.First(); ; n = max(n+1, s.First()) {
 		qc, err := s.fullCommitQC(ctx, n)
 		if err != nil {
@@ -713,21 +713,21 @@ func (s *State) runPushQC(ctx context.Context) error {
 		}
 
 		// Collect the blocks we have locally.
-		blocks := make(map[uint64]*types.Block,len(qc.Headers()))
+		blocks := make(map[uint64]*types.Block, len(qc.Headers()))
 		for inner := range s.inner.Lock() {
-			for i,h := range qc.Headers() {
+			for i, h := range qc.Headers() {
 				if q, ok := inner.blocks[h.Lane()]; ok {
 					// We are not expected to have all the blocks locally - only the available ones.
 					if b, ok := q.q[h.BlockNumber()]; ok {
 						// We don't need to check the blocks against the headers,
-						// as bad blocks will be filtered out by PushQC anyway.
+						// as bad blocks will be filtered out by PushPartialBlock anyway.
 						blocks[uint64(i)] = b.Msg().Block()
 					}
 				}
 			}
 		}
-		if err := s.data.PushQC(ctx, qc, blocks); err != nil {
-			return fmt.Errorf("s.data.PushQC(): %w", err)
+		if err := s.data.PushPartialBlock(ctx, qc, blocks); err != nil {
+			return fmt.Errorf("s.data.PushPartialBlock(): %w", err)
 		}
 	}
 }
@@ -812,7 +812,7 @@ func (s *State) Run(ctx context.Context) error {
 		scope.SpawnNamed("runEpochAdvance", func() error { return s.runEpochAdvance(ctx) })
 		scope.SpawnNamed("runEvict", func() error { return s.runEvict(ctx) })
 		scope.SpawnNamed("runPersist", func() error { return s.runPersist(ctx) })
-		scope.SpawnNamed("runPushQC", func() error { return s.runPushQC(ctx) })
+		scope.SpawnNamed("runPushPartialBlock", func() error { return s.runPushPartialBlock(ctx) })
 		scope.SpawnNamed("runPushAppQC", func() error { return s.runPushAppQC(ctx) })
 		return nil
 	})

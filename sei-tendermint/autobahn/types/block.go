@@ -165,17 +165,6 @@ type SuperBlock struct {
 	Txs       [][]byte
 }
 
-// NewSuperBlock merges blocks supplied in CommitQC header order.
-// Callers must verify that the blocks match qc.
-func NewSuperBlock(qc *FullCommitQC, blocks []*Block) *SuperBlock {
-	b := &SuperBlock{Height: qc.Index(), Timestamp: qc.QC().Proposal().Timestamp()}
-	for _, block := range blocks {
-		b.GasWanted += block.Payload().TotalGasWanted()
-		b.Txs = append(b.Txs, block.Payload().Txs()...)
-	}
-	return b
-}
-
 // NewBlock creates a new Block.
 func NewBlock(
 	lane LaneID,

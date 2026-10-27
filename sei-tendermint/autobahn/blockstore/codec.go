@@ -71,7 +71,7 @@ func encodeBlock(block *types.RoadBlock) blocktypes.BlockRecord {
 	qc, blocks := block.QC(), block.LaneBlocks()
 	record := blocktypes.BlockRecord{
 		Index: blocktypes.BlockNumber(qc.Index()),
-		Hash:  blocktypes.BlockHash(types.NewSuperBlock(qc, blocks).CalculateBlockHash()),
+		Hash:  blocktypes.BlockHash(block.SuperBlock().CalculateBlockHash()),
 		QC:    encodeQC(qc),
 	}
 	for _, lane := range blocks {
@@ -80,7 +80,7 @@ func encodeBlock(block *types.RoadBlock) blocktypes.BlockRecord {
 	return record
 }
 
-// decodeBlock decodes and verifies a road block record.
+// decodeBlock decodes a road block record and checks its index and lookup hash.
 func decodeBlock(record blocktypes.BlockRecord) (*types.RoadBlock, error) {
 	qc, err := decodeQC(record.QC)
 	if err != nil {
@@ -98,10 +98,7 @@ func decodeBlock(record blocktypes.BlockRecord) (*types.RoadBlock, error) {
 		blocks[i] = block
 	}
 	block := types.NewRoadBlock(qc, blocks)
-	if err := block.Verify(); err != nil {
-		return nil, err
-	}
-	if blocktypes.BlockHash(types.NewSuperBlock(qc, blocks).CalculateBlockHash()) != record.Hash {
+	if blocktypes.BlockHash(block.SuperBlock().CalculateBlockHash()) != record.Hash {
 		return nil, types.ErrQCBlocksMismatch
 	}
 	return block, nil

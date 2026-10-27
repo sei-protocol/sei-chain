@@ -45,9 +45,6 @@ func New(db blocktypes.BlockDB) (*Store, error) {
 func (s *Store) WriteBlock(block *types.RoadBlock) error {
 	index := block.QC().Index()
 
-	if err := block.Verify(); err != nil {
-		return fmt.Errorf("invalid road block: %w", err)
-	}
 	record := encodeBlock(block)
 
 	for status := range s.status.Lock() {

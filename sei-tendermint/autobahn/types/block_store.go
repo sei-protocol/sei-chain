@@ -22,8 +22,7 @@ import (
 // return None. Hash lookups return None for unknown or pruned SuperBlocks.
 type BlockStore interface {
 	// WriteBlock stores a road block with its QC and lane blocks in header order.
-	// Gaps and overlaps return ErrUnexpectedIndex. Missing, extra,
-	// reordered, or mismatched blocks return ErrQCBlocksMismatch.
+	// The block must be verified by the caller. Gaps and overlaps return ErrUnexpectedIndex.
 	WriteBlock(block *RoadBlock) error
 	WriteAppQC(qc *AppQC) error
 	WriteAppProposal(proposal *AppProposal) error
@@ -80,8 +79,21 @@ func (b *RoadBlock) QC() *FullCommitQC { return b.qc }
 // LaneBlocks returns the lane blocks in header order.
 func (b *RoadBlock) LaneBlocks() []*Block { return b.laneBlocks }
 
-// Verify checks that lane blocks match their CommitQC in header order.
-func (b *RoadBlock) Verify() error {
+// SuperBlock returns the merged transactions and execution metadata for the road.
+func (b *RoadBlock) SuperBlock() *SuperBlock {
+	superBlock := &SuperBlock{Height: b.qc.Index(), Timestamp: b.qc.QC().Proposal().Timestamp()}
+	for _, block := range b.laneBlocks {
+		superBlock.GasWanted += block.Payload().TotalGasWanted()
+		superBlock.Txs = append(superBlock.Txs, block.Payload().Txs()...)
+	}
+	return superBlock
+}
+
+// Verify verifies the QC against the epoch and checks its lane blocks in header order.
+func (b *RoadBlock) Verify(ep *Epoch) error {
+	if err := b.qc.Verify(ep); err != nil {
+		return fmt.Errorf("qc.Verify(): %w", err)
+	}
 	if len(b.laneBlocks) != len(b.qc.Headers()) {
 		return ErrQCBlocksMismatch
 	}
