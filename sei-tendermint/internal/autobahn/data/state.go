@@ -1091,8 +1091,9 @@ func registryRetainFrom(anchorEpoch types.EpochIndex) types.EpochIndex {
 	if anchorEpoch == 0 {
 		return 0
 	}
-	// The app can trail the anchor by a block, and replaying the closing block
-	// of the previous epoch commits that epoch's committee in the epoch window.
+	// The durable app tip trails the anchor by at most one block, because the
+	// app keeps one state commit in flight. Replaying the closing block of the
+	// previous epoch then needs that epoch's committee for the epoch window.
 	return anchorEpoch - 1
 }
 
