@@ -40,9 +40,6 @@ func (m *CommitQC) LaneRange(lane LaneID) *LaneRange {
 	return m.Proposal().LaneRange(lane)
 }
 
-// Next returns the next road index.
-func (m *CommitQC) Next() RoadIndex { return m.Index() + 1 }
-
 // Verify verifies the CommitQC against the epoch.
 func (m *CommitQC) Verify(ep *Epoch) error {
 	if err := m.Proposal().Verify(ep); err != nil {

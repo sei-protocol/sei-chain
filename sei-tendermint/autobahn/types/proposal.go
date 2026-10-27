@@ -215,9 +215,6 @@ func (m *Proposal) Timestamp() time.Time { return m.timestamp }
 // EpochIndex returns the epoch index encoded in the proposal.
 func (m *Proposal) EpochIndex() EpochIndex { return m.view.EpochIndex }
 
-// Next returns the next road index.
-func (m *Proposal) Next() RoadIndex { return m.Index() + 1 }
-
 // NumBlocks returns the number of lane blocks finalized by this proposal.
 func (m *Proposal) NumBlocks() uint64 {
 	var n uint64

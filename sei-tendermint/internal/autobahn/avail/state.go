@@ -581,22 +581,22 @@ func (s *State) headers(ctx context.Context, ep *types.Epoch, lr *types.LaneRang
 
 // fullCommitQC builds a FullCommitQC for road index n.
 // Headers are collected from votes; this does not wait for future lanes.
-func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Epoch, *types.FullCommitQC, error) {
+func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.FullCommitQC, error) {
 	// Collect the CommitQC.
 	epoch, qc, err := s.commitQC(ctx, n)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	// Collect the headers from the votes.
 	var commitHeaders []*types.BlockHeader
 	for lane := range epoch.Committee().Lanes().All() {
 		headers, err := s.headers(ctx, epoch, qc.LaneRange(lane))
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		commitHeaders = append(commitHeaders, headers...)
 	}
-	return epoch, types.NewFullCommitQC(qc, commitHeaders), nil
+	return types.NewFullCommitQC(qc, commitHeaders), nil
 }
 
 // WaitForCapacity waits until lane has room for toProduce.
@@ -704,7 +704,7 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 // Task inserting CommitQCs and local blocks to data state.
 func (s *State) runPushQC(ctx context.Context) error {
 	for n := s.First(); ; n = max(n+1, s.First()) {
-		epoch, qc, err := s.fullCommitQC(ctx, n)
+		qc, err := s.fullCommitQC(ctx, n)
 		if err != nil {
 			if errors.Is(err, types.ErrPruned) {
 				continue
@@ -713,21 +713,15 @@ func (s *State) runPushQC(ctx context.Context) error {
 		}
 
 		// Collect the blocks we have locally.
-		c := epoch.Committee()
-		var blocks []*types.Block
+		blocks := make(map[uint64]*types.Block,len(qc.Headers()))
 		for inner := range s.inner.Lock() {
-			for lane := range c.Lanes().All() {
-				lr := qc.QC().LaneRange(lane)
-				q, ok := inner.blocks[lr.Lane()]
-				if !ok {
-					continue
-				}
-				for n := lr.First(); n < lr.Next(); n++ {
+			for i,h := range qc.Headers() {
+				if q, ok := inner.blocks[h.Lane()]; ok {
 					// We are not expected to have all the blocks locally - only the available ones.
-					if b, ok := q.q[n]; ok {
+					if b, ok := q.q[h.BlockNumber()]; ok {
 						// We don't need to check the blocks against the headers,
 						// as bad blocks will be filtered out by PushQC anyway.
-						blocks = append(blocks, b.Msg().Block())
+						blocks[uint64(i)] = b.Msg().Block()
 					}
 				}
 			}

@@ -38,11 +38,6 @@ func (m *AppProposal) AppHash() AppHash { return m.appHash }
 // EpochIndex returns the epoch this proposal belongs to.
 func (m *AppProposal) EpochIndex() EpochIndex { return m.epochIndex }
 
-// Next is the next road index after this proposal.
-func (m *AppProposal) Next() RoadIndex {
-	return m.Index() + 1
-}
-
 // Verify verifies that the AppProposal is consistent with the CommitQC.
 func (m *AppProposal) Verify(qc *CommitQC) error {
 	if got, want := m.Index(), qc.Proposal().Index(); got != want {
