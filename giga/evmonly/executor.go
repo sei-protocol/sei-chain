@@ -171,20 +171,38 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockRe
 }
 
 func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (PreparedBlock, error) {
-	chainConfig := e.chainConfig(req.Context)
-	if err := validateBlockContext(chainConfig, req.Context); err != nil {
+	decoded, err := e.DecodeBlock(ctx, req)
+	if err != nil {
 		return PreparedBlock{}, err
 	}
-	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
-	if len(req.Senders) != 0 && len(req.Senders) != len(req.Txs) {
-		return PreparedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(req.Senders), len(req.Txs))
+	return e.RecoverSenders(ctx, decoded)
+}
+
+// DecodeBlock decodes and validates req's transactions, leaving their senders unresolved.
+func (e *Executor) DecodeBlock(ctx context.Context, req BlockRequest) (DecodedBlock, error) {
+	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
+		return DecodedBlock{}, err
 	}
-	parsed, err := parseBlockTxs(ctx, req.Txs, signer, req.Senders, e.cfg.ParseWorkers)
+	if len(req.Senders) != 0 && len(req.Senders) != len(req.Txs) {
+		return DecodedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(req.Senders), len(req.Txs))
+	}
+	txs, err := decodeBlockTxs(ctx, req.Txs, e.cfg.ParseWorkers)
+	if err != nil {
+		return DecodedBlock{}, err
+	}
+	return DecodedBlock{context: req.Context, txs: txs, senders: req.Senders}, nil
+}
+
+// RecoverSenders resolves every transaction's sender in b, recovering it from the signature unless
+// b carries an already verified sender for it.
+func (e *Executor) RecoverSenders(ctx context.Context, b DecodedBlock) (PreparedBlock, error) {
+	signer := ethtypes.MakeSigner(e.chainConfig(b.context), new(big.Int).SetUint64(b.context.Number), b.context.Time)
+	parsed, err := resolveBlockSenders(ctx, b.txs, signer, b.senders, e.cfg.ParseWorkers)
 	if err != nil {
 		return PreparedBlock{}, err
 	}
 	return PreparedBlock{
-		Context: req.Context,
+		Context: b.context,
 		Txs:     parsed,
 	}, nil
 }
