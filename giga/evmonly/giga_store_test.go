@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"slices"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -254,6 +255,39 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 	require.Equal(t, [][]*proto.NamedChangeSet{wantChangesets}, store.commits)
 	require.Contains(t, result.ChangeSet.Balances, BalanceChange{Address: recipient, Balance: big.NewInt(7), PriorBalance: new(uint256.Int).ToBig()})
 	result.Release()
+}
+
+// Releasing a pooled block result resets its change slices; the pending commit, which the next block
+// reads through an overlay, keeps its changes.
+func TestPipelineCommitKeepsItsChangesWhenTheResultIsReleased(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xab)
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(1_000_000_000_000_000_000))
+	store := &recordingGigaStore{snapshot: snapshot}
+	encoder := func(StateChangeSet) ([]*proto.NamedChangeSet, error) { return nil, nil }
+	executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestStores(store, NewMemoryReceiptStore(), encoder))
+	defer executor.Close()
+
+	prepared, err := executor.PrepareBlock(t.Context(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs:     [][]byte{signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)},
+	})
+	require.NoError(t, err)
+	result, err := executor.ExecutePreparedBlock(t.Context(), prepared)
+	require.NoError(t, err)
+	pending := executor.pipelinePending()
+	require.NotNil(t, pending)
+	require.NotEmpty(t, pending.Balances)
+	balances, nonces := slices.Clone(pending.Balances), slices.Clone(pending.Nonces)
+
+	result.Release()
+
+	require.Equal(t, balances, pending.Balances)
+	require.Equal(t, nonces, pending.Nonces)
 }
 
 func TestExecutorGigaStoreSnapshotFeedsOCCExecution(t *testing.T) {

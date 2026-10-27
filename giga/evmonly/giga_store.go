@@ -246,9 +246,8 @@ func (e *Executor) awaitPipelineCommit() error {
 // Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
 // one before this is called.
 func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
-	// The commit outlives the block result, which returns to a pool and is reset. A reset only drops
-	// the result's references, and every value a change holds was allocated for this block, so the
-	// commit needs its own slices but can share the values.
+	// The commit outlives the pooled result, whose reset clears these slices, so it takes its own
+	// copies. The values stay shared; see BlockResult.ChangeSet.
 	pending := &StateChangeSet{
 		Balances: slices.Clone(changes.Balances),
 		Nonces:   slices.Clone(changes.Nonces),
