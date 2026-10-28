@@ -7,7 +7,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 )
@@ -265,7 +264,7 @@ func (s *StateDB) replay(
 			break
 		}
 		block, mutations := it.Entry()
-		changesets, err := mutation.MutationsToChangeSets(mutations)
+		changesets, err := flatkv.MutationsToChangeSets(mutations)
 		if err != nil {
 			return fmt.Errorf("convert block %d: %w", block, err)
 		}
