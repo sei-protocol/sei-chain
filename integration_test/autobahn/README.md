@@ -378,10 +378,10 @@ WebSocket (port 8546 by default):
   and `eth_getTransactionByBlockNumberAndIndex` /
   `eth_getTransactionByBlockHashAndIndex`, which return the transaction at a
   position in a block exactly as the full-transaction block lists it.
-- State: `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`, and
-  `eth_getStorageAt`, at the latest block or a past one still within a full
-  node's retention window; `eth_call` and `eth_estimateGas`, against the
-  latest state only.
+- State: `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`,
+  `eth_getStorageAt`, `eth_call`, and `eth_estimateGas`, at the latest block
+  or a past one, named by number or hash, still within a full node's
+  retention window.
 - Blocks: `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getBlockByHash`,
   `eth_getBlockTransactionCountByNumber` /
   `eth_getBlockTransactionCountByHash`, and `eth_getBlockReceipts`. Block
@@ -422,10 +422,10 @@ subscription other than `newHeads`:
 ### Known limitations
 
 - Past state needs a full node. `eth_getBalance`, `eth_getTransactionCount`,
-  `eth_getCode`, and `eth_getStorageAt` answer an explicit height or
-  `earliest` only on a node that keeps the EVM state store (a full node, not a
-  validator), and only within its retention window. A block hash returns an
-  error. `eth_call` and `eth_estimateGas` serve the latest state only.
+  `eth_getCode`, `eth_getStorageAt`, `eth_call`, and `eth_estimateGas` answer
+  a past height, block hash, or `earliest` only on a node that keeps the EVM
+  state store (a full node, not a validator), and only within its retention
+  window. A validator answers only the latest block.
 - Any address that has never been written reports `2^200` wei, including
   inside `eth_call` and `eth_estimateGas`. This is the test network's funding
   rule, in place of genesis allocations.
@@ -458,7 +458,10 @@ after a 4,000-transfer load and one contract deploy, checks every method above
 except the `debug_trace*` methods on all four validators, including that they
 return the same blocks and receipts. It traces the deploy and its block on the
 RPC node, which keeps the state history a past transaction replays on, and a
-call to the contract on every node.
+call to the contract on every node. On the RPC node it also reads the
+contract's code and slot, calls it, and estimates a call to it, before and at
+the deploy block, by number and by hash, and checks that a validator refuses
+a call at a past block.
 
 ### Request and WebSocket limits
 
@@ -524,10 +527,12 @@ curl -s -X POST http://127.0.0.1:8545 -H 'Content-Type: application/json' \
 
 `eth_getBalance` accepts `latest`, `safe`, `finalized`, and `pending`; all four
 read the current committed state because Sei has instant finality. An explicit
-height (`--block`) reads the balance after that block, and `earliest` reads
-block 0. A past height is served from the EVM state store, so it needs a node
-that keeps one (a full node, not a validator), and fails once that height is
-pruned. A block hash, or a height above the current head, returns an error.
+height (`--block`) or block hash (`{"blockHash": ...}`, as in EIP-1898) reads
+the balance after that block, and `earliest` reads block 0. Every block is
+final, so `requireCanonical` changes nothing. A past block is served from the
+EVM state store, so it needs a node that keeps one (a full node, not a
+validator), and fails once that height is pruned. An unknown hash, or a block
+above the current head, returns an error.
 
 Every previously unseen address starts with the test-only `2^200` wei balance:
 
@@ -641,9 +646,10 @@ cast call \
   0xYOUR_ADDRESS
 ```
 
-`eth_call` accepts only the `latest`/`safe`/`finalized`/`pending` block tags;
-an explicit height, an explicit hash, or `earliest` returns an error, because
-calls do not run against historical state. A caller-omitted
+`eth_call` accepts the same block selectors as `eth_getBalance`. A block tag
+runs the call against the current committed state; an explicit height
+(`--block`), a block hash, or `earliest` runs it against the state after that
+block, in that block's context, so it needs a full node. A caller-omitted
 gas limit defaults to a fixed cap rather than the block gas limit, and an
 explicit limit above that cap is silently lowered to it. A reverted call
 returns a JSON-RPC error carrying the ABI-decoded revert reason, matching
@@ -659,8 +665,8 @@ cast estimate \
   0xYOUR_ADDRESS
 ```
 
-`eth_estimateGas` accepts the same block tags as `eth_call` and rejects
-historical state the same way. A caller-omitted gas limit uses the block gas
+`eth_estimateGas` accepts the same block selectors as `eth_call` and runs
+against the same state; it defaults to `latest`. A caller-omitted gas limit uses the block gas
 limit as the search ceiling rather than the fixed cap `eth_call` defaults to;
 an explicit limit above that cap is silently lowered to it, same as `eth_call`.
 A call that still fails at the highest allowed gas returns the same
@@ -690,12 +696,15 @@ explicit height reads the slot after that block. The slot is a hex number of at
 most 32 bytes, as in go-ethereum. An unset slot, including any slot of an
 address with no contract, returns 32 zero bytes.
 
-Block context for a call is a mix of real and best-effort values: `Number` and
-`GasLimit` are the actual current committed values, but `Coinbase` is always
-the zero address (this application never sets one, even for committed
-blocks) and `blockhash(current-1)` and further back are unavailable (only the
-current block's own hash is tracked outside of block execution). A view
-function that depends on either reads a placeholder rather than a real value.
+Block context for a call is a mix of real and best-effort values. At a block
+tag, `Number` and `GasLimit` are the actual current committed values, and
+`blockhash(current-1)` and further back are unavailable (only the current
+block's own hash is tracked outside of block execution). At a past block,
+`Number` and `Time` are that block's, `GasLimit` is the current limit, and
+`blockhash` answers only for its parent. `Coinbase` is always the zero address
+(this application never sets one, even for committed blocks). A view function
+that depends on an unavailable value reads a placeholder rather than a real
+value.
 
 ### Fetch a block with `cast block`
 

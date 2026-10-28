@@ -54,6 +54,9 @@ type Backend interface {
 	EvmBlockNumber() uint64
 	ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
+	// EvmCallAt executes msg as a read-only call against the committed EVM state after header's
+	// block, in the context that block executed at.
+	EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error)
 	EvmChainConfig() (*params.ChainConfig, error)
 	EvmChainID() uint64
 	EvmCode(common.Address) ([]byte, error)
@@ -61,6 +64,9 @@ type Backend interface {
 	// EvmEstimateGas returns the lowest gas limit that lets msg succeed, and
 	// any revert data if it still fails at gasCap.
 	EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error)
+	// EvmEstimateGasAt returns the lowest gas limit that lets msg succeed against the committed
+	// EVM state after header's block, and any revert data if it still fails at gasCap.
+	EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error)
 	EvmGasLimit() (uint64, error)
 	// EvmMinGasPrice returns the minimum effective gas price this application admits a
 	// transaction at.
@@ -156,13 +162,14 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 	if err := rpcServer.RegisterName("eth", &infoAPI{backend: backend, store: receiptStore}); err != nil {
 		return nil, fmt.Errorf("register EVM-only info RPC: %w", err)
 	}
-	if err := rpcServer.RegisterName("eth", &callAPI{backend: backend}); err != nil {
+	blocks := &blockAPI{backend: backend, store: receiptStore}
+	if err := rpcServer.RegisterName("eth", &callAPI{backend: backend, blocks: blocks}); err != nil {
 		return nil, fmt.Errorf("register EVM-only call RPC: %w", err)
 	}
-	if err := rpcServer.RegisterName("eth", &estimateAPI{backend: backend}); err != nil {
+	if err := rpcServer.RegisterName("eth", &estimateAPI{backend: backend, blocks: blocks}); err != nil {
 		return nil, fmt.Errorf("register EVM-only estimate RPC: %w", err)
 	}
-	if err := rpcServer.RegisterName("eth", &blockAPI{backend: backend, store: receiptStore}); err != nil {
+	if err := rpcServer.RegisterName("eth", blocks); err != nil {
 		return nil, fmt.Errorf("register EVM-only block RPC: %w", err)
 	}
 	if err := rpcServer.RegisterName("eth", &filterAPI{backend: backend, store: receiptStore}); err != nil {

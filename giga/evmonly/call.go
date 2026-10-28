@@ -8,6 +8,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
+
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // callTimeout bounds how long a Call may run before its EVM is cancelled,
@@ -19,24 +21,26 @@ var callTimeout = 60 * time.Second
 // committed state and returns the execution result. It persists no state
 // change.
 func (e *Executor) Call(ctx context.Context, blockCtx BlockContext, msg *core.Message) (*core.ExecutionResult, error) {
+	snapshot, err := e.openCurrentView(ctx, blockCtx)
+	if err != nil {
+		return nil, err
+	}
+	defer snapshot.Close()
+	return e.CallAt(ctx, snapshot, blockCtx, msg)
+}
+
+// CallAt executes msg as a read-only EVM message call against the state view
+// holds and returns the execution result. It persists no state change.
+func (e *Executor) CallAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, msg *core.Message) (*core.ExecutionResult, error) {
 	chainConfig := e.chainConfig(blockCtx)
 	if err := validateBlockContext(chainConfig, blockCtx); err != nil {
 		return nil, err
-	}
-	if e.stateStore == nil {
-		return nil, errMissingStateStore
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	snapshot := e.stateStore.OpenView()
-	if snapshot == nil {
-		return nil, errors.New("giga store returned a nil snapshot")
-	}
-	defer snapshot.Close()
-
-	stateDB := e.acquireStateDB(gigaSnapshotStateReader{snapshot: snapshot, missingState: e.missingState})
+	stateDB := e.acquireStateDB(gigaSnapshotStateReader{snapshot: view, missingState: e.missingState})
 	defer e.releaseStateDB(stateDB)
 
 	// NoBaseFee matches go-ethereum's eth_call: zero fee fields skip the fee-cap check.
@@ -63,4 +67,23 @@ func (e *Executor) Call(ctx context.Context, blockCtx BlockContext, msg *core.Me
 		return nil, stateErr
 	}
 	return result, err
+}
+
+// openCurrentView opens the current committed state for a read-only execution
+// at blockCtx, once blockCtx and ctx are accepted.
+func (e *Executor) openCurrentView(ctx context.Context, blockCtx BlockContext) (gigatypes.StateView, error) {
+	if err := validateBlockContext(e.chainConfig(blockCtx), blockCtx); err != nil {
+		return nil, err
+	}
+	if e.stateStore == nil {
+		return nil, errMissingStateStore
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	snapshot := e.stateStore.OpenView()
+	if snapshot == nil {
+		return nil, errors.New("giga store returned a nil snapshot")
+	}
+	return snapshot, nil
 }

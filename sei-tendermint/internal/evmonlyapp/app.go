@@ -694,6 +694,58 @@ func (a *evmOnlyApplication) EvmEstimateGas(ctx context.Context, msg *ethcore.Me
 	return executor.EstimateGas(ctx, blockCtx, msg, gasCap)
 }
 
+// EvmCallAt executes msg as a read-only call against the committed EVM state after header's block,
+// in the context that block executed at. Only header's number, time and parent hash are read.
+func (a *evmOnlyApplication) EvmCallAt(ctx context.Context, msg *ethcore.Message, header *ethtypes.Header) (_ *ethcore.ExecutionResult, err error) {
+	executor, view, blockCtx, err := a.pastExecutionContext("call", header)
+	if err != nil {
+		return nil, err
+	}
+	defer view.Close()
+	defer recoverPastExecution(view, "call", &err)
+	return executor.CallAt(ctx, view, blockCtx, msg)
+}
+
+// EvmEstimateGasAt returns the lowest gas limit that lets msg execute successfully against the
+// committed EVM state after header's block, in the context that block executed at. Only header's
+// number, time and parent hash are read.
+func (a *evmOnlyApplication) EvmEstimateGasAt(ctx context.Context, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header) (_ uint64, _ []byte, err error) {
+	executor, view, blockCtx, err := a.pastExecutionContext("gas estimate", header)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer view.Close()
+	defer recoverPastExecution(view, "gas estimate", &err)
+	return executor.EstimateGasAt(ctx, view, blockCtx, msg, gasCap)
+}
+
+// pastExecutionContext returns the executor, the committed EVM state after header's block, which the
+// caller must close, and the context that block executed at, for a read-only execution. action names
+// the caller for its error messages.
+func (a *evmOnlyApplication) pastExecutionContext(action string, header *ethtypes.Header) (*evmonly.Executor, gigatypes.StateView, evmonly.BlockContext, error) {
+	executor, err := a.loadedExecutor(action)
+	if err != nil {
+		return nil, nil, evmonly.BlockContext{}, err
+	}
+	number, err := headerNumber(header)
+	if err != nil {
+		return nil, nil, evmonly.BlockContext{}, err
+	}
+	view, err := a.evmStateAt(int64(number)) //nolint:gosec // G115: headerNumber bounds number to int64.
+	if err != nil {
+		return nil, nil, evmonly.BlockContext{}, err
+	}
+	return executor, view, a.traceBlockContext(number, header), nil
+}
+
+// recoverPastExecution turns a panic of a read-only execution against view, such as a read of a height
+// pruned during it, into *err. It must be deferred.
+func recoverPastExecution(view gigatypes.StateView, action string, err *error) {
+	if r := recover(); r != nil {
+		*err = fmt.Errorf("EVM-only %s against the state after block %d: %v", action, view.GetBlockHeight(), r)
+	}
+}
+
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	height := req.Header.Height
 	if height <= 0 {

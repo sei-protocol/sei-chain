@@ -227,6 +227,16 @@ func (app *testEVMApp) EvmEstimateGas(_ context.Context, msg *core.Message, gasC
 	return 21_000, []byte{0x01}, nil
 }
 
+func (app *testEVMApp) EvmCallAt(_ context.Context, msg *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error) {
+	app.gotMsg, app.gotHeader = msg, header
+	return testExecutionResult, nil
+}
+
+func (app *testEVMApp) EvmEstimateGasAt(_ context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error) {
+	app.gotMsg, app.gotGasCap, app.gotHeader = msg, gasCap, header
+	return 22_000, []byte{0x02}, nil
+}
+
 func (app *testEVMApp) EvmChainID() uint64                  { return 713715 }
 func (app *testEVMApp) EvmChainConfig() *params.ChainConfig { return testChainConfig }
 func (app *testEVMApp) EvmBaseFee() *big.Int                { return testBaseFee }
@@ -283,6 +293,34 @@ func TestEVMProxyDelegatesToTheApplication(t *testing.T) {
 		require.Equal(t, []byte{0x01}, revert)
 		require.Same(t, msg, app.gotMsg)
 		require.Equal(t, uint64(10_000_000), app.gotGasCap)
+	})
+
+	t.Run("past block call", func(t *testing.T) {
+		header := &ethtypes.Header{Number: big.NewInt(5)}
+
+		// Test: EvmCallAt.
+		got, err := evm.EvmCallAt(t.Context(), msg, header)
+
+		// Verify: the app's result is returned for the message and block passed in.
+		require.NoError(t, err)
+		require.Same(t, testExecutionResult, got)
+		require.Same(t, msg, app.gotMsg)
+		require.Same(t, header, app.gotHeader)
+	})
+
+	t.Run("past block gas estimate", func(t *testing.T) {
+		header := &ethtypes.Header{Number: big.NewInt(6)}
+
+		// Test: EvmEstimateGasAt with a gas cap.
+		got, revert, err := evm.EvmEstimateGasAt(t.Context(), msg, 9_000_000, header)
+
+		// Verify: the app's estimate and revert data are returned for the message, cap and block.
+		require.NoError(t, err)
+		require.Equal(t, uint64(22_000), got)
+		require.Equal(t, []byte{0x02}, revert)
+		require.Same(t, msg, app.gotMsg)
+		require.Equal(t, uint64(9_000_000), app.gotGasCap)
+		require.Same(t, header, app.gotHeader)
 	})
 
 	t.Run("execution parameters", func(t *testing.T) {
