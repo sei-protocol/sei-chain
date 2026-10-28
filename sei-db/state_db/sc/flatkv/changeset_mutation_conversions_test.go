@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -234,6 +235,38 @@ func TestMutationsFromChangeSetsKeepsLastWrite(t *testing.T) {
 		{Key: evmMiscKey(keyB), NewValue: vtype.SerializeMisc(5, []byte("other"))},
 	}
 	require.ElementsMatch(t, expected, mutations)
+}
+
+// A block large enough to be converted in partitions yields the mutations a single pass over its writes does,
+// including the last of several writes to one key.
+func TestMutationsFromChangeSetsPartitionedMatchesOnePass(t *testing.T) {
+	const accounts = 4 * minWritesPerPartition
+	rows := map[string][]byte{}
+	var pairs []*proto.KVPair
+	for i := range accounts {
+		address := binary.BigEndian.AppendUint32(bytes.Repeat([]byte{0x77}, keys.AddressLen-4), uint32(i)) //nolint:gosec // i < accounts
+		if i%2 == 0 {
+			rows[string(ktype.BuildPhysicalEVMKey(ktype.EVMKeyAccount, address))] = accountRow(t, 3, 1, testCodeHash, testBalance)
+		}
+		pairs = append(pairs,
+			set(keys.BuildEVMKey(keys.EVMKeyNonce, address), nonceBytes(uint64(i))), //nolint:gosec // i < accounts
+			set(keys.BuildEVMKey(keys.EVMKeyBalance, address), testBalance),
+			set(keys.BuildEVMKey(keys.EVMKeyStorage, append(bytes.Clone(address), testSlot...)), testSlot),
+		)
+	}
+	pairs = append(pairs, set(testMiscKey, []byte("first")), set(testMiscKey, []byte("last")))
+	changeSets := []*proto.NamedChangeSet{evmChangeSet(pairs...)}
+	prior := stateAt(4, rows)
+
+	partitioned, err := MutationsFromChangeSets(changeSets, 5, prior)
+	require.NoError(t, err)
+	writes, err := keyWrites(changeSets)
+	require.NoError(t, err)
+	onePass, err := mutationsFromWrites(writes, 5, prior)
+	require.NoError(t, err)
+	require.Len(t, partitioned, 2*accounts+1)
+	require.ElementsMatch(t, onePass, partitioned)
+	require.Contains(t, partitioned, mutation.Mutation{Key: testMiscPhysicalKey, NewValue: vtype.SerializeMisc(5, []byte("last"))})
 }
 
 func TestMutationsFromChangeSetsDoesNotAliasChangeSetValues(t *testing.T) {
