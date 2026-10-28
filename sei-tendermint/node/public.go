@@ -267,6 +267,9 @@ func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
 	if cfg.FlatKVViewShards > 0 {
 		flatkvconfig.AccountShardCount = cfg.FlatKVViewShards
 	}
+	if cfg.FlatKVStorageViewShards > 0 {
+		flatkvconfig.StorageShardCount = cfg.FlatKVStorageViewShards
+	}
 	if cfg.GCPercent <= 0 {
 		return
 	}
