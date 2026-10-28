@@ -41,6 +41,7 @@ func (m *memState) SubBalance(common.Address, *big.Int) error { panic("unsupport
 func (m *memState) GetNonce(common.Address) uint64            { panic("unsupported") }
 func (m *memState) SetNonce(common.Address, uint64)           { panic("unsupported") }
 func (m *memState) GetCode(common.Address) []byte             { panic("unsupported") }
+func (m *memState) Failed() bool                              { return false }
 
 // stateDBView reads storage from a geth StateDB. Only GetState is supported.
 type stateDBView struct {
@@ -58,3 +59,4 @@ func (v stateDBView) SubBalance(common.Address, *big.Int) error         { panic(
 func (v stateDBView) GetNonce(common.Address) uint64                    { panic("unsupported") }
 func (v stateDBView) SetNonce(common.Address, uint64)                   { panic("unsupported") }
 func (v stateDBView) GetCode(common.Address) []byte                     { panic("unsupported") }
+func (v stateDBView) Failed() bool                                      { return false }

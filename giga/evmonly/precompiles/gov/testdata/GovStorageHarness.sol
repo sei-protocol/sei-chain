@@ -17,7 +17,7 @@ contract GovStorageHarness is GovStorage {
         Proposal storage p = proposals[5];
         p.status = 2;
         p.isExpedited = true;
-        p.contentType = 1;
+        p.contentType = 2;
         p.submitTime = 1_700_000_001;
         p.depositEndTime = 1_700_000_002;
         p.votingStartTime = 1_700_000_003;
@@ -38,9 +38,6 @@ contract GovStorageHarness is GovStorage {
         depositors[5].add(other);
         depositors[5].remove(voter);
         votersByProposal[5].add(voter);
-        proposalsVotedBy[voter].add(5);
-        proposalsDepositedBy[other].add(5);
-        proposalsDepositedBy[other].add(6);
         push(votingQueue, (uint256(1_700_000_004) << 64) | 5);
         push(votingQueue, (uint256(1_700_000_004) << 64) | 6);
         push(depositQueue, (uint256(1_700_000_002) << 64) | 3);
@@ -53,8 +50,6 @@ contract GovStorageHarness is GovStorage {
         tally.power = 45;
         tally.counting = true;
         tallyDeductions[5][other] = 46;
-
-        appliedPlanHeight["v6.9.0"] = 123_456;
     }
 
     /// @dev The content struct encodings, with solc's own codegen.
@@ -64,16 +59,10 @@ contract GovStorageHarness is GovStorage {
         return abi.encode(TextContent(title, description, isExpedited));
     }
 
-    function softwareUpgradeContent(
-        string calldata title, string calldata description, string calldata name, int64 height, string calldata info
+    function paramChangeContent(
+        string calldata title, string calldata description, ParamChange[] calldata changes, bool isExpedited
     ) external pure returns (bytes memory) {
-        return abi.encode(SoftwareUpgradeContent(title, description, UpgradePlan(name, height, info)));
-    }
-
-    function cancelSoftwareUpgradeContent(string calldata title, string calldata description)
-        external pure returns (bytes memory)
-    {
-        return abi.encode(CancelSoftwareUpgradeContent(title, description));
+        return abi.encode(ParamChangeContent(title, description, changes, isExpedited));
     }
 
     /// @dev Appends key, which must not break the heap order.

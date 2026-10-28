@@ -25,24 +25,25 @@ func (p Precompile) proposalQuery(s store, method *abi.Method, args []interface{
 	return method.Outputs.Pack(proposalData(s, id, prop))
 }
 
-// proposalsQuery pages through the narrowest index the filters allow: a
-// voter's or depositor's proposals, a status queue, or every proposal id. A
-// page covers a fixed span of that index, so a filtered page may hold fewer
-// than pageLimit proposals while still returning a next key.
+// proposalsQuery pages through proposal ids in order, keeping those that match
+// the filters, so a page may hold fewer than pageLimit proposals while still
+// returning a next key.
 func (p Precompile) proposalsQuery(s store, method *abi.Method, args []interface{}) ([]byte, error) {
 	status := args[0].(int32)
 	voter := args[1].(common.Address)
 	depositor := args[2].(common.Address)
-	pageKey := args[3].([]byte)
 
-	total, idAt := proposalIndex(s, status, voter, depositor)
-	start, end, nextKey, err := page(total, pageKey)
+	first, last := s.startingProposalID(), s.lastProposalID()
+	var total uint64
+	if last >= first {
+		total = last - first + 1
+	}
+	start, end, nextKey, err := page(total, args[3].([]byte))
 	if err != nil {
 		return nil, err
 	}
 	out := make([]ProposalData, 0, end-start)
-	for i := start; i < end; i++ {
-		id := idAt(i)
+	for id := first + start; id < first+end; id++ {
 		prop, ok := s.proposal(id)
 		if !ok || (status != 0 && prop.status != status) {
 			continue
@@ -56,29 +57,6 @@ func (p Precompile) proposalsQuery(s store, method *abi.Method, args []interface
 		out = append(out, proposalData(s, id, prop))
 	}
 	return method.Outputs.Pack(out, nextKey)
-}
-
-// proposalIndex returns the length of the index proposalsQuery pages through
-// and the proposal id at each position.
-func proposalIndex(s store, status int32, voter, depositor common.Address) (uint64, func(uint64) uint64) {
-	var set solstorage.Set
-	switch {
-	case voter != (common.Address{}):
-		set = s.proposalsVotedBy(voter)
-	case depositor != (common.Address{}):
-		set = s.proposalsDepositedBy(depositor)
-	case status == StatusDepositPeriod:
-		return s.depositQueue().Len(), s.depositQueue().id
-	case status == StatusVotingPeriod:
-		return s.votingQueue().Len(), s.votingQueue().id
-	default:
-		first, last := s.startingProposalID(), s.lastProposalID()
-		if last < first {
-			return 0, nil
-		}
-		return last - first + 1, func(i uint64) uint64 { return first + i }
-	}
-	return set.Len(), func(i uint64) uint64 { return solstorage.MemberUint64(set.At(i)) }
 }
 
 func (p Precompile) voteQuery(s store, method *abi.Method, args []interface{}) ([]byte, error) {

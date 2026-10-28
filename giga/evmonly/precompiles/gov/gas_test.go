@@ -17,8 +17,8 @@ func TestRequiredGasMatchesV2(t *testing.T) {
 	args := make([]byte, 100)
 	for name, method := range gov.ABI.Methods {
 		input := append(append([]byte{}, method.ID...), args...)
-		v2Name := name
-		if strings.HasPrefix(name, "submit") {
+		v2Name := method.RawName
+		if strings.HasPrefix(v2Name, "submit") {
 			v2Name = "submitProposal"
 		}
 		want := pcommon.DefaultGasCost(args, v2gov.PrecompileExecutor{}.IsTransaction(v2Name))

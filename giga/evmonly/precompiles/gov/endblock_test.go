@@ -36,7 +36,7 @@ func (h *harness) voteWeighted(voter common.Address, id uint64, percents map[int
 			args = append(args, WeightedVoteOption{Option: o, Weight: weight(p)})
 		}
 	}
-	h.mustCall(voter, callOpts{}, VoteWeightedMethod, id, args)
+	h.mustCall(voter, callOpts{}, voteWeightedTyped, id, args)
 }
 
 func (h *harness) status(id uint64) int32 {
@@ -212,44 +212,16 @@ func (h *harness) pass(content submission) uint64 {
 	return id
 }
 
-func TestEndBlockSchedulesAndCancelsUpgrade(t *testing.T) {
-	h := newElectedHarness(t, equalElectorate)
-	id := h.pass(upgradeProposal("v2", 1_000))
-	require.Equal(t, StatusPassed, h.status(id))
-	require.Equal(t, Plan{Name: "v2", Height: 1_000, Info: "i", ProposalID: id}, newStore(h.state).plan())
-
-	next := h.pass(upgradeProposal("v3", 2_000))
-	require.Equal(t, Plan{Name: "v3", Height: 2_000, Info: "i", ProposalID: next}, newStore(h.state).plan(), "a later upgrade replaces the plan")
-
-	cancel := h.pass(cancelProposal)
-	require.Equal(t, StatusPassed, h.status(cancel))
-	require.Equal(t, Plan{}, newStore(h.state).plan())
-}
-
-func TestEndBlockFailsUpgradeThatCannotBeScheduled(t *testing.T) {
-	h := newElectedHarness(t, equalElectorate)
-	id := h.pass(upgradeProposal("late", 1))
-	require.Equal(t, StatusFailed, h.status(id), "plan height already passed")
-	require.Len(t, h.failures, 1)
-	require.ErrorIs(t, h.failures[0], errInvalidPlan)
-	require.Equal(t, Plan{}, newStore(h.state).plan())
-	require.Equal(t, usei(10), h.state.GetBalance(alice), "a failed proposal still refunds")
-}
-
 func TestSubmitRejectsInvalidContent(t *testing.T) {
 	h := newHarness(t)
-	long := strings.Repeat("d", maxContentLength)
 	for name, tc := range map[string]struct {
 		sub  submission
 		want error
 	}{
-		"no title":          {textSubmission("", "d", false), errMissingText},
-		"no description":    {submission{SubmitCancelSoftwareUpgradeProposalMethod, []interface{}{"t", "", false}}, errMissingText},
-		"upgrade sans name": {upgradeProposal("", 10), errInvalidPlan},
-		"upgrade at zero":   {upgradeProposal("v2", 0), errInvalidPlan},
-		"long title":        {textSubmission(strings.Repeat("t", maxTitleLength+1), "d", false), errContentTooLong},
-		"long description":  {textSubmission("t", strings.Repeat("d", maxDescriptionLength+1), false), errContentTooLong},
-		"long content":      {submission{SubmitSoftwareUpgradeProposalMethod, []interface{}{"t", "d", false, UpgradePlan{Name: "v2", Height: 10, Info: long}}}, errContentTooLong},
+		"no title":         {textSubmission("", "d", false), errMissingText},
+		"no description":   {textSubmission("t", "", false), errMissingText},
+		"long title":       {textSubmission(strings.Repeat("t", maxTitleLength+1), "d", false), errContentTooLong},
+		"long description": {textSubmission("t", strings.Repeat("d", maxDescriptionLength+1), false), errContentTooLong},
 	} {
 		_, err := h.call(alice, callOpts{}, tc.sub.method, tc.sub.args...)
 		require.ErrorIs(t, err, tc.want, name)
@@ -260,17 +232,6 @@ func TestSubmitRejectsInvalidContent(t *testing.T) {
 func TestSubmitAcceptsContentAtLimits(t *testing.T) {
 	h := newHarness(t)
 	h.submit(alice, textSubmission(strings.Repeat("t", maxTitleLength), strings.Repeat("d", maxDescriptionLength), false), nil)
-}
-
-func TestSubmitTakesExpeditedForEveryType(t *testing.T) {
-	h := newHarness(t)
-	for _, sub := range []submission{
-		expedProposal,
-		{SubmitSoftwareUpgradeProposalMethod, []interface{}{"t", "d", true, UpgradePlan{Name: "v2", Height: 10}}},
-		{SubmitCancelSoftwareUpgradeProposalMethod, []interface{}{"t", "d", true}},
-	} {
-		require.True(t, h.proposal(h.submit(alice, sub, nil)).IsExpedited, sub.method)
-	}
 }
 
 // delegatedElectorate has validators v1 (100 tokens, 50 shares) and v2 (60
@@ -378,6 +339,16 @@ func TestDropCostCountsContent(t *testing.T) {
 	require.Greater(t, dropCost(s, long), uint64(maxDescriptionLength/32), "a word per 32 bytes of content")
 }
 
+func TestSettleCostCountsContent(t *testing.T) {
+	h := newHarness(t)
+	short := h.submit(alice, textProposal, nil)
+	long := h.submit(alice, textSubmission("t", strings.Repeat("d", maxDescriptionLength), false), nil)
+	s := newStore(h.state)
+	snap := snapshotElectorate(h.state, equalElectorate)
+	require.Equal(t, uint64(len(snap.validators))+1+s.proposalContentChunks(short), settleCost(s, short, snap))
+	require.Greater(t, settleCost(s, long, snap), uint64(maxDescriptionLength/32), "a word per 32 bytes of content")
+}
+
 func TestEndBlockEndsVotingPastSpentDropBudget(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
 	params := testParams
@@ -443,7 +414,6 @@ func TestEndBlockTalliesAcrossBlocks(t *testing.T) {
 	require.Zero(t, s.votersByProposal(id).Len())
 	require.Empty(t, s.vote(id, alice), "counted votes are removed")
 	require.Empty(t, s.vote(id, depositor(0)))
-	require.Zero(t, s.proposalsVotedBy(depositor(0)).Len())
 }
 
 func TestDecArithmeticRoundsHalfToEven(t *testing.T) {

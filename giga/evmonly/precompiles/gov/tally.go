@@ -65,7 +65,6 @@ func countVotes(state precompiles.State, electorate Electorate, s store, id uint
 			s.setVote(id, voter, nil)
 		}
 		voters.Remove(member)
-		s.proposalsVotedBy(voter).Remove(solstorage.Slot(id))
 	}
 	return true
 }
@@ -130,7 +129,7 @@ func liveTally(state precompiles.State, electorate Electorate, s store, id uint6
 		return s.tallyDeduction(id, validator)
 	}
 	voters := s.votersByProposal(id)
-	for i := range voters.Len() {
+	for i, n := uint64(0), voters.Len(); i < n && !state.Failed(); i++ {
 		creditVoter(state, electorate, s, id, solstorage.MemberAddress(voters.At(i)), snap, &t, func(validator common.Address, shares *big.Int) {
 			deductions[validator] = new(big.Int).Add(deducted(validator), shares)
 		})

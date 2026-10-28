@@ -1,5 +1,104 @@
 [
   {
+    "type": "event",
+    "name": "ProposalDeposit",
+    "inputs": [
+      {
+        "name": "proposalId",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      },
+      {
+        "name": "depositor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "votingStarted",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ProposalVote",
+    "inputs": [
+      {
+        "name": "proposalId",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      },
+      {
+        "name": "voter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "options",
+        "type": "tuple[]",
+        "indexed": false,
+        "internalType": "struct IGov.WeightedVoteOption[]",
+        "components": [
+          {
+            "name": "option",
+            "type": "int32",
+            "internalType": "int32"
+          },
+          {
+            "name": "weight",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SubmitProposal",
+    "inputs": [
+      {
+        "name": "proposalId",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      },
+      {
+        "name": "proposer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "contentType",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "votingStarted",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "function",
     "name": "deposit",
     "inputs": [
@@ -157,6 +256,54 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "grantProposalAuthorization",
+    "inputs": [
+      {
+        "name": "grantee",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "expiration",
+        "type": "int64",
+        "internalType": "int64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "success",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "grantVoteAuthorization",
+    "inputs": [
+      {
+        "name": "grantee",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "expiration",
+        "type": "int64",
+        "internalType": "int64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "success",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -441,6 +588,44 @@
   },
   {
     "type": "function",
+    "name": "revokeProposalAuthorization",
+    "inputs": [
+      {
+        "name": "grantee",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "success",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "revokeVoteAuthorization",
+    "inputs": [
+      {
+        "name": "grantee",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "success",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "submitCancelSoftwareUpgradeProposal",
     "inputs": [
       {
@@ -490,7 +675,7 @@
       {
         "name": "changes",
         "type": "tuple[]",
-        "internalType": "struct IGov.ParamChange[]",
+        "internalType": "struct ParamChange[]",
         "components": [
           {
             "name": "subspace",
@@ -508,6 +693,49 @@
             "internalType": "bytes"
           }
         ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "proposalID",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "submitProposal",
+    "inputs": [
+      {
+        "name": "proposalJSON",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "proposalID",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "submitProposalWithAuthorization",
+    "inputs": [
+      {
+        "name": "proposer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "proposalJSON",
+        "type": "string",
+        "internalType": "string"
       }
     ],
     "outputs": [
@@ -676,6 +904,42 @@
       {
         "name": "options",
         "type": "tuple[]",
+        "internalType": "struct IGov.DecimalWeightedVoteOption[]",
+        "components": [
+          {
+            "name": "option",
+            "type": "int32",
+            "internalType": "int32"
+          },
+          {
+            "name": "weight",
+            "type": "string",
+            "internalType": "string"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "success",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "voteWeighted",
+    "inputs": [
+      {
+        "name": "proposalID",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "options",
+        "type": "tuple[]",
         "internalType": "struct IGov.WeightedVoteOption[]",
         "components": [
           {
@@ -689,6 +953,35 @@
             "internalType": "uint256"
           }
         ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "success",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "voteWithAuthorization",
+    "inputs": [
+      {
+        "name": "voter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "proposalID",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "option",
+        "type": "int32",
+        "internalType": "int32"
       }
     ],
     "outputs": [

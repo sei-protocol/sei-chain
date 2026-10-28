@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"os"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm/runtime"
 	"github.com/stretchr/testify/require"
 
+	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
@@ -43,21 +45,17 @@ func TestLayoutMatchesForge(t *testing.T) {
 	require.NoError(t, json.Unmarshal(bz, &layout))
 
 	topLevel := map[string]member{
-		"lastProposalId":       {slotProposalIDs + lastProposalID.slot, lastProposalID.offset},
-		"startingProposalId":   {slotProposalIDs + startingProposalID.slot, startingProposalID.offset},
-		"plan":                 {slotPlan, 0},
-		"proposals":            {slotProposals, 0},
-		"votes":                {slotVotes, 0},
-		"deposits":             {slotDeposits, 0},
-		"depositors":           {slotDepositors, 0},
-		"proposalsVotedBy":     {slotProposalsVotedBy, 0},
-		"proposalsDepositedBy": {slotProposalsDepositedBy, 0},
-		"votingQueue":          {slotVotingQueue, 0},
-		"depositQueue":         {slotDepositQueue, 0},
-		"appliedPlanHeight":    {slotAppliedPlanHeight, 0},
-		"votersByProposal":     {slotVotersByProposal, 0},
-		"tallies":              {slotTallies, 0},
-		"tallyDeductions":      {slotTallyDeductions, 0},
+		"lastProposalId":     {slotProposalIDs + lastProposalID.slot, lastProposalID.offset},
+		"startingProposalId": {slotProposalIDs + startingProposalID.slot, startingProposalID.offset},
+		"proposals":          {slotProposals, 0},
+		"votes":              {slotVotes, 0},
+		"deposits":           {slotDeposits, 0},
+		"depositors":         {slotDepositors, 0},
+		"votingQueue":        {slotVotingQueue, 0},
+		"depositQueue":       {slotDepositQueue, 0},
+		"votersByProposal":   {slotVotersByProposal, 0},
+		"tallies":            {slotTallies, 0},
+		"tallyDeductions":    {slotTallyDeductions, 0},
 	}
 	got := map[string]member{}
 	for _, e := range layout.Storage {
@@ -66,12 +64,6 @@ func TestLayoutMatchesForge(t *testing.T) {
 	require.Equal(t, topLevel, got)
 
 	structs := map[string]map[string]member{
-		"Plan": {
-			"name":       planName,
-			"height":     planHeight,
-			"info":       planInfo,
-			"proposalId": planProposalID,
-		},
 		"Proposal": {
 			"status":          proposalStatus,
 			"isExpedited":     proposalIsExpedited,
@@ -132,8 +124,9 @@ func mustUint(t *testing.T, s string) uint64 {
 
 // TestStoreReadsCompilerWrites runs GovStorageHarness, which writes GovStorage
 // with solc's codegen, and reads the result back through store. Rebuild
-// testdata with `forge inspect GovStorageHarness deployedBytecode` and the
-// remapping giga-storage/=docs/giga-storage/.
+// testdata with `forge inspect GovStorageHarness deployedBytecode` under solc
+// 0.8.37 and the remappings giga-storage/=docs/giga-storage/ and
+// giga-precompiles/=giga/evmonly/precompiles/.
 func TestStoreReadsCompilerWrites(t *testing.T) {
 	code, err := os.ReadFile("testdata/GovStorageHarness.bin-runtime")
 	require.NoError(t, err)
@@ -168,7 +161,7 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 		tallyNoWithVeto: big.NewInt(25),
 	}, prop)
 	contentType, stored := s.proposalContent(5)
-	require.Equal(t, contentSoftwareUpgrade, contentType)
+	require.Equal(t, uint8(2), contentType)
 	require.Equal(t, content, stored)
 
 	require.Equal(t, []weightedVote{
@@ -180,8 +173,6 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 
 	require.Equal(t, []common.Hash{solstorage.AddressKey(other)}, members(s.depositors(5)))
 	require.Equal(t, []common.Hash{solstorage.AddressKey(voter)}, members(s.votersByProposal(5)))
-	require.Equal(t, []common.Hash{solstorage.Slot(5)}, members(s.proposalsVotedBy(voter)))
-	require.Equal(t, []common.Hash{solstorage.Slot(5), solstorage.Slot(6)}, members(s.proposalsDepositedBy(other)))
 	require.Equal(t, uint64(2), s.votingQueue().Len())
 	require.True(t, s.votingQueue().contains(5, 1_700_000_004))
 	require.True(t, s.votingQueue().contains(6, 1_700_000_004))
@@ -204,8 +195,6 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 	}, s.tally(5))
 	require.Equal(t, big.NewInt(46), s.tallyDeduction(5, other))
 	require.False(t, s.depositors(5).Contains(solstorage.AddressKey(voter)))
-
-	require.Equal(t, int64(123_456), s.Int64(solstorage.MapString(solstorage.Slot(slotAppliedPlanHeight), "v6.9.0"), 0))
 }
 
 func members(set solstorage.Set) []common.Hash {
@@ -236,34 +225,41 @@ func (v stateDBView) SubBalance(common.Address, *big.Int) error         { panic(
 func (v stateDBView) GetNonce(common.Address) uint64                    { panic("unsupported") }
 func (v stateDBView) SetNonce(common.Address, uint64)                   { panic("unsupported") }
 func (v stateDBView) GetCode(common.Address) []byte                     { panic("unsupported") }
+func (v stateDBView) Failed() bool                                      { return false }
 
 // TestContentEncodingMatchesSolc checks encodeContent against solc's
-// abi.encode of each GovStorage content struct, run in GovStorageHarness.
+// abi.encode of each content struct, run in GovStorageHarness. Each harness
+// encoder takes the struct's fields as its arguments.
 func TestContentEncodingMatchesSolc(t *testing.T) {
 	code, err := os.ReadFile("testdata/GovStorageHarness.bin-runtime")
 	require.NoError(t, err)
-	solc := func(sig string, args ...interface{}) []byte {
-		input, err := abiOf(t, sig).Pack(strings.Split(sig, "(")[0], args...)
-		require.NoError(t, err)
-		out, _, err := runtime.Execute(common.FromHex(strings.TrimSpace(string(code))), input, &runtime.Config{GasLimit: 10_000_000})
-		require.NoError(t, err)
-		values, err := abi.Arguments{{Type: abi.Type{T: abi.BytesTy}}}.Unpack(out)
+	bytesOut := abi.Arguments{{Type: abi.Type{T: abi.BytesTy}}}
+	solc := func(fn string, c govContent) []byte {
+		tuple := contentCodecs[c.contentType()].args[0].Type
+		inputs := make(abi.Arguments, len(tuple.TupleElems))
+		fields := make([]interface{}, len(tuple.TupleElems))
+		for i, e := range tuple.TupleElems {
+			inputs[i] = abi.Argument{Name: tuple.TupleRawNames[i], Type: *e}
+			fields[i] = reflect.ValueOf(c).Field(i).Interface()
+		}
+		method := abi.NewMethod(fn, fn, abi.Function, "pure", false, false, inputs, bytesOut)
+		args, err := inputs.Pack(fields...)
+		require.NoError(t, err, fn)
+		out, _, err := runtime.Execute(common.FromHex(strings.TrimSpace(string(code))), append(method.ID, args...), &runtime.Config{GasLimit: 10_000_000})
+		require.NoError(t, err, method.Sig)
+		values, err := bytesOut.Unpack(out)
 		require.NoError(t, err)
 		return values[0].([]byte)
 	}
 	long := strings.Repeat("long enough to spill past a word ", 3)
-	for name, tc := range map[string]struct {
-		content govContent
-		solc    []byte
-	}{
-		"text": {textContent{Title: "t", Description: long, IsExpedited: true},
-			solc("textContent(string,string,bool)", "t", long, true)},
-		"software upgrade": {softwareUpgradeContent{Title: "t", Description: "d", Plan: UpgradePlan{Name: "v2", Height: -3, Info: long}},
-			solc("softwareUpgradeContent(string,string,string,int64,string)", "t", "d", "v2", int64(-3), long)},
-		"cancel software upgrade": {cancelSoftwareUpgradeContent{Title: long, Description: "d"},
-			solc("cancelSoftwareUpgradeContent(string,string)", long, "d")},
+	for fn, c := range map[string]govContent{
+		"textContent": textContent{Title: "t", Description: long, IsExpedited: true},
+		"paramChangeContent": paramChangeContent{Title: long, Description: "d", IsExpedited: true, Changes: []chainparams.Change{
+			{Subspace: "gov", Key: "votingparams.voting_period", Value: common.BigToHash(big.NewInt(7)).Bytes()},
+			{Subspace: "gov", Key: long, Value: []byte(long)},
+		}},
 	} {
-		_, encoded := encodeContent(tc.content)
-		require.Equal(t, tc.solc, encoded, name)
+		_, encoded := encodeContent(c)
+		require.Equal(t, solc(fn, c), encoded, fn)
 	}
 }

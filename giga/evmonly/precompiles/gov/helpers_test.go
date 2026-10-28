@@ -9,18 +9,23 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 )
 
-// memState is a map-backed precompiles.State.
+// memState is a map-backed precompiles.State and LogSink.
 type memState struct {
 	balances map[common.Address]*big.Int
 	storage  map[common.Address]map[common.Hash]common.Hash
+	logs     []*ethtypes.Log
 }
 
-var _ precompiles.State = (*memState)(nil)
+var (
+	_ precompiles.State   = (*memState)(nil)
+	_ precompiles.LogSink = (*memState)(nil)
+)
 
 func newMemState() *memState {
 	return &memState{
@@ -52,6 +57,8 @@ func (m *memState) SubBalance(a common.Address, v *big.Int) error {
 func (m *memState) GetNonce(common.Address) uint64  { return 0 }
 func (m *memState) SetNonce(common.Address, uint64) {}
 func (m *memState) GetCode(common.Address) []byte   { return nil }
+func (m *memState) Failed() bool                    { return false }
+func (m *memState) AddLog(l *ethtypes.Log)          { m.logs = append(m.logs, l) }
 
 func (m *memState) GetState(a common.Address, k common.Hash) common.Hash {
 	return m.storage[a][k]

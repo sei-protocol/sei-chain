@@ -18,17 +18,15 @@ const (
 )
 
 // Content types, as GovStorage.Proposal.contentType numbers them. Each names
-// the GovStorage struct its content is the ABI encoding of.
+// the Gov.sol struct its content is the ABI encoding of; 1 and 2 are reserved
+// for software upgrades.
 const (
-	contentText                  uint8 = 0 // TextContent
-	contentSoftwareUpgrade       uint8 = 1 // SoftwareUpgradeContent
-	contentCancelSoftwareUpgrade uint8 = 2 // CancelSoftwareUpgradeContent
-	contentParameterChange       uint8 = 3 // ParamChangeContent
+	contentText            uint8 = 0 // TextContent
+	contentParameterChange uint8 = 3 // ParamChangeContent
 )
 
 var (
 	errMissingText    = errors.New("proposal title and description are required")
-	errInvalidPlan    = errors.New("invalid upgrade plan")
 	errContentTooLong = errors.New("proposal content is too long")
 	errInvalidContent = errors.New("invalid stored proposal content")
 )
@@ -43,23 +41,12 @@ type govContent interface {
 	execute(block precompiles.BlockContext, s store, id uint64) error
 }
 
-// The GovStorage content structs. Field order matches each struct's.
+// The Gov.sol content structs. Field order matches each struct's.
 type (
 	textContent struct {
 		Title       string
 		Description string
 		IsExpedited bool
-	}
-
-	softwareUpgradeContent struct {
-		Title       string
-		Description string
-		Plan        UpgradePlan
-	}
-
-	cancelSoftwareUpgradeContent struct {
-		Title       string
-		Description string
 	}
 
 	paramChangeContent struct {
@@ -70,24 +57,15 @@ type (
 	}
 )
 
-var (
-	stringArg = abi.ArgumentMarshaling{Type: "string"}
-	planArg   = abi.ArgumentMarshaling{Name: "plan", Type: "tuple", InternalType: "struct GovStorage.UpgradePlan", Components: []abi.ArgumentMarshaling{
-		named("name", stringArg), {Name: "height", Type: "int64"}, named("info", stringArg),
-	}}
-)
+var stringArg = abi.ArgumentMarshaling{Type: "string"}
 
 // contentCodecs encode and decode each content type's struct.
 var contentCodecs = map[uint8]contentCodec{
 	contentText: newCodec[textContent]("TextContent",
 		named("title", stringArg), named("description", stringArg), abi.ArgumentMarshaling{Name: "isExpedited", Type: "bool"}),
-	contentSoftwareUpgrade: newCodec[softwareUpgradeContent]("SoftwareUpgradeContent",
-		named("title", stringArg), named("description", stringArg), planArg),
-	contentCancelSoftwareUpgrade: newCodec[cancelSoftwareUpgradeContent]("CancelSoftwareUpgradeContent",
-		named("title", stringArg), named("description", stringArg)),
 	contentParameterChange: newCodec[paramChangeContent]("ParamChangeContent",
 		named("title", stringArg), named("description", stringArg), abi.ArgumentMarshaling{
-			Name: "changes", Type: "tuple[]", InternalType: "struct GovStorage.ParamChange[]", Components: []abi.ArgumentMarshaling{
+			Name: "changes", Type: "tuple[]", InternalType: "struct ParamChange[]", Components: []abi.ArgumentMarshaling{
 				named("subspace", stringArg), named("key", stringArg), {Name: "value", Type: "bytes"},
 			},
 		}, abi.ArgumentMarshaling{Name: "isExpedited", Type: "bool"}),
@@ -100,7 +78,7 @@ type contentCodec struct {
 }
 
 func newCodec[T govContent](name string, fields ...abi.ArgumentMarshaling) contentCodec {
-	t, err := abi.NewType("tuple", "struct GovStorage."+name, fields)
+	t, err := abi.NewType("tuple", "struct "+name, fields)
 	if err != nil {
 		panic(err)
 	}
@@ -148,30 +126,13 @@ func checkText(title, description string) error {
 	return nil
 }
 
-// executionCost is the EndBlock budget executing c costs: one unit per param
-// change.
-func executionCost(c govContent) uint64 {
-	if pc, ok := c.(paramChangeContent); ok {
-		return uint64(len(pc.Changes))
+// executeProposal carries out passed proposal id.
+func executeProposal(block precompiles.BlockContext, s store, id uint64) error {
+	c, err := decodeContent(s.proposalContent(id))
+	if err != nil {
+		return err
 	}
-	return 0
-}
-
-// paramChanges converts the ABI-decoded changes argument.
-func paramChanges(arg interface{}) ([]chainparams.Change, error) {
-	raw, ok := arg.([]struct {
-		Subspace string `json:"subspace"`
-		Key      string `json:"key"`
-		Value    []byte `json:"value"`
-	})
-	if !ok {
-		return nil, fmt.Errorf("unexpected param changes type %T", arg)
-	}
-	out := make([]chainparams.Change, len(raw))
-	for i, c := range raw {
-		out[i] = chainparams.Change(c)
-	}
-	return out, nil
+	return c.execute(block, s, id)
 }
 
 func (textContent) contentType() uint8 { return contentText }
@@ -179,36 +140,6 @@ func (textContent) contentType() uint8 { return contentText }
 func (c textContent) validate(store) error { return checkText(c.Title, c.Description) }
 
 func (textContent) execute(precompiles.BlockContext, store, uint64) error { return nil }
-
-func (softwareUpgradeContent) contentType() uint8 { return contentSoftwareUpgrade }
-
-func (c softwareUpgradeContent) validate(store) error {
-	if c.Plan.Name == "" || c.Plan.Height <= 0 {
-		return fmt.Errorf("%w: name and a positive height are required", errInvalidPlan)
-	}
-	return checkText(c.Title, c.Description)
-}
-
-// execute replaces the plan with c's, as x/upgrade's ScheduleUpgrade.
-func (c softwareUpgradeContent) execute(block precompiles.BlockContext, s store, id uint64) error {
-	if c.Plan.Height <= 0 || uint64(c.Plan.Height) <= block.Number {
-		return fmt.Errorf("%w: height %d is not after block %d", errInvalidPlan, c.Plan.Height, block.Number)
-	}
-	if s.appliedPlanHeight(c.Plan.Name) != 0 {
-		return fmt.Errorf("%w: %s was already applied", errInvalidPlan, c.Plan.Name)
-	}
-	s.setPlan(Plan{Name: c.Plan.Name, Height: c.Plan.Height, Info: c.Plan.Info, ProposalID: id})
-	return nil
-}
-
-func (cancelSoftwareUpgradeContent) contentType() uint8 { return contentCancelSoftwareUpgrade }
-
-func (c cancelSoftwareUpgradeContent) validate(store) error { return checkText(c.Title, c.Description) }
-
-func (cancelSoftwareUpgradeContent) execute(_ precompiles.BlockContext, s store, _ uint64) error {
-	s.setPlan(Plan{})
-	return nil
-}
 
 func (paramChangeContent) contentType() uint8 { return contentParameterChange }
 

@@ -31,6 +31,8 @@ func (g genesisState) SubBalance(addr common.Address, v *big.Int) error {
 	return nil
 }
 
+func (genesisState) Failed() bool { return false }
+
 func TestGovPrecompileThroughExecutor(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	key, err := crypto.HexToECDSA(behaviorAnvilKey0)

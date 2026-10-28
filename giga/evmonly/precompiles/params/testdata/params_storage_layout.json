@@ -2,7 +2,7 @@
   "storage": [
     {
       "astId": 35,
-      "contract": "src/ParamsStorage.sol:ParamsStorage",
+      "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
       "label": "gov",
       "offset": 0,
       "slot": "0",
@@ -23,7 +23,7 @@
       "members": [
         {
           "astId": 9,
-          "contract": "src/ParamsStorage.sol:ParamsStorage",
+          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "maxDepositPeriod",
           "offset": 0,
           "slot": "0",
@@ -31,7 +31,7 @@
         },
         {
           "astId": 11,
-          "contract": "src/ParamsStorage.sol:ParamsStorage",
+          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "votingPeriod",
           "offset": 8,
           "slot": "0",
@@ -39,7 +39,7 @@
         },
         {
           "astId": 13,
-          "contract": "src/ParamsStorage.sol:ParamsStorage",
+          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "expeditedVotingPeriod",
           "offset": 16,
           "slot": "0",
@@ -47,7 +47,7 @@
         },
         {
           "astId": 15,
-          "contract": "src/ParamsStorage.sol:ParamsStorage",
+          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "minDeposit",
           "offset": 0,
           "slot": "1",
@@ -55,7 +55,7 @@
         },
         {
           "astId": 17,
-          "contract": "src/ParamsStorage.sol:ParamsStorage",
+          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "minExpeditedDeposit",
           "offset": 0,
           "slot": "2",
@@ -63,7 +63,7 @@
         },
         {
           "astId": 19,
-          "contract": "src/ParamsStorage.sol:ParamsStorage",
+          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "quorum",
           "offset": 0,
           "slot": "3",
@@ -71,7 +71,7 @@
         },
         {
           "astId": 21,
-          "contract": "src/ParamsStorage.sol:ParamsStorage",
+          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "threshold",
           "offset": 0,
           "slot": "4",
@@ -79,7 +79,7 @@
         },
         {
           "astId": 23,
-          "contract": "src/ParamsStorage.sol:ParamsStorage",
+          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "vetoThreshold",
           "offset": 0,
           "slot": "5",
@@ -87,7 +87,7 @@
         },
         {
           "astId": 25,
-          "contract": "src/ParamsStorage.sol:ParamsStorage",
+          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "expeditedQuorum",
           "offset": 0,
           "slot": "6",
@@ -95,7 +95,7 @@
         },
         {
           "astId": 27,
-          "contract": "src/ParamsStorage.sol:ParamsStorage",
+          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "expeditedThreshold",
           "offset": 0,
           "slot": "7",
@@ -103,7 +103,7 @@
         },
         {
           "astId": 31,
-          "contract": "src/ParamsStorage.sol:ParamsStorage",
+          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "__gap",
           "offset": 0,
           "slot": "8",

@@ -34,18 +34,23 @@ type submission struct {
 }
 
 var (
-	textProposal   = textSubmission("t", "d", false)
-	expedProposal  = textSubmission("t", "d", true)
-	cancelProposal = submission{SubmitCancelSoftwareUpgradeProposalMethod, []interface{}{"t", "d", false}}
+	textProposal  = textSubmission("t", "d", false)
+	expedProposal = textSubmission("t", "d", true)
 )
 
 func textSubmission(title, description string, expedited bool) submission {
 	return submission{SubmitTextProposalMethod, []interface{}{title, description, expedited}}
 }
 
-func upgradeProposal(name string, height int64) submission {
-	return submission{SubmitSoftwareUpgradeProposalMethod, []interface{}{"t", "d", false, UpgradePlan{Name: name, Height: height, Info: "i"}}}
-}
+// voteWeightedTyped is the ABI key of voteWeighted's 1e18-scaled overload.
+var voteWeightedTyped = func() string {
+	for name, m := range ABI.Methods {
+		if m.Sig == "voteWeighted(uint64,(int32,uint256)[])" {
+			return name
+		}
+	}
+	panic("no typed voteWeighted")
+}()
 
 // weight returns percent as a 1e18-scaled weight.
 func weight(percent int64) *big.Int {
@@ -112,6 +117,7 @@ func (h *harness) call(caller common.Address, opts callOpts, method string, args
 		DelegateCall:  opts.delegateCall,
 		Block:         h.block(),
 		State:         h.state,
+		Logs:          h.state,
 	}, input)
 	if err != nil {
 		return nil, err
@@ -250,7 +256,7 @@ func TestVoteReplacesEarlierVote(t *testing.T) {
 	h := newHarness(t)
 	id := h.submit(alice, textProposal, usei(10))
 	weighted := []WeightedVoteOption{{Option: OptionYes, Weight: weight(70)}, {Option: OptionNoWithVeto, Weight: weight(30)}}
-	h.mustCall(bob, callOpts{}, VoteWeightedMethod, id, weighted)
+	h.mustCall(bob, callOpts{}, voteWeightedTyped, id, weighted)
 
 	var vote VoteData
 	h.convert(h.mustCall(alice, callOpts{}, GetVoteMethod, id, bob)[0], &vote)
@@ -290,13 +296,13 @@ func TestVoteRejections(t *testing.T) {
 		{"unknown proposal", VoteMethod, []interface{}{uint64(42), OptionYes}, 0, errUnknownProposal},
 		{"option zero", VoteMethod, []interface{}{open, int32(0)}, 0, errInvalidVote},
 		{"option five", VoteMethod, []interface{}{open, int32(5)}, 0, errInvalidVote},
-		{"weights under one", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(50)}, {OptionNo, weight(40)}}}, 0, errInvalidVote},
-		{"weights over one", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(60)}, {OptionNo, weight(50)}}}, 0, errInvalidVote},
-		{"duplicate option", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(50)}, {OptionYes, weight(50)}}}, 0, errInvalidVote},
-		{"zero weight", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(100)}, {OptionNo, weight(0)}}}, 0, errInvalidVote},
-		{"weight over one", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, new(big.Int).Lsh(big.NewInt(1), 255)}}}, 0, errInvalidVote},
-		{"no options", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{}}, 0, errInvalidVote},
-		{"too many options", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{1, weight(20)}, {2, weight(20)}, {3, weight(20)}, {4, weight(20)}, {1, weight(20)}}}, 0, errInvalidVote},
+		{"weights under one", voteWeightedTyped, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(50)}, {OptionNo, weight(40)}}}, 0, errInvalidVote},
+		{"weights over one", voteWeightedTyped, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(60)}, {OptionNo, weight(50)}}}, 0, errInvalidVote},
+		{"duplicate option", voteWeightedTyped, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(50)}, {OptionYes, weight(50)}}}, 0, errInvalidVote},
+		{"zero weight", voteWeightedTyped, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(100)}, {OptionNo, weight(0)}}}, 0, errInvalidVote},
+		{"weight over one", voteWeightedTyped, []interface{}{open, []WeightedVoteOption{{OptionYes, new(big.Int).Lsh(big.NewInt(1), 255)}}}, 0, errInvalidVote},
+		{"no options", voteWeightedTyped, []interface{}{open, []WeightedVoteOption{}}, 0, errInvalidVote},
+		{"too many options", voteWeightedTyped, []interface{}{open, []WeightedVoteOption{{1, weight(20)}, {2, weight(20)}, {3, weight(20)}, {4, weight(20)}, {1, weight(20)}}}, 0, errInvalidVote},
 		{"voting ended", VoteMethod, []interface{}{open, OptionYes}, testParams.VotingPeriod + second, errInactiveProposal},
 	}
 	for _, tc := range tests {
@@ -332,11 +338,6 @@ func TestCallGuards(t *testing.T) {
 	_, err = h.call(bob, callOpts{value: big.NewInt(0)}, DepositMethod, id)
 	require.ErrorIs(t, err, errZeroDeposit)
 
-	authz := abiOf(t, "grantVoteAuthorization(address,int64)")
-	input, err := authz.Pack("grantVoteAuthorization", bob, int64(1))
-	require.NoError(t, err)
-	_, err = Precompile{}.Run(&precompiles.Context{State: h.state, Address: Address}, input)
-	require.ErrorIs(t, err, errUnknownMethod)
 	_, err = Precompile{}.Run(&precompiles.Context{State: h.state, Address: Address}, []byte{1, 2})
 	require.ErrorIs(t, err, errUnknownMethod)
 }
@@ -369,16 +370,23 @@ func TestProposalsQueryFiltersAndPages(t *testing.T) {
 	require.Equal(t, voted, rest[len(rest)-1])
 	require.Empty(t, last)
 
-	ids, _ := list(StatusVotingPeriod, common.Address{}, common.Address{}, nil)
-	require.Equal(t, []uint64{voted}, ids)
-	ids, _ = list(0, bob, common.Address{}, nil)
-	require.Equal(t, []uint64{voted}, ids)
-	ids, _ = list(0, common.Address{}, carol, nil)
-	require.Equal(t, []uint64{3}, ids)
-	ids, _ = list(0, bob, carol, nil)
-	require.Empty(t, ids)
-	ids, _ = list(StatusDepositPeriod, common.Address{}, common.Address{}, nil)
-	require.Len(t, ids, pageLimit)
+	all := func(status int32, voter, depositor common.Address) []uint64 {
+		var out []uint64
+		for ids, key := list(status, voter, depositor, nil); ; ids, key = list(status, voter, depositor, key) {
+			out = append(out, ids...)
+			if len(key) == 0 {
+				return out
+			}
+		}
+	}
+	empty, next := list(StatusVotingPeriod, common.Address{}, common.Address{}, nil)
+	require.Empty(t, empty, "a page covers ids 1-100, none voting")
+	require.NotEmpty(t, next)
+	require.Equal(t, []uint64{voted}, all(StatusVotingPeriod, common.Address{}, common.Address{}))
+	require.Equal(t, []uint64{voted}, all(0, bob, common.Address{}))
+	require.Equal(t, []uint64{3}, all(0, common.Address{}, carol))
+	require.Empty(t, all(0, bob, carol))
+	require.Len(t, all(StatusDepositPeriod, common.Address{}, common.Address{}), pageLimit+10)
 
 	_, err := h.call(alice, callOpts{}, ProposalsMethod, int32(0), common.Address{}, common.Address{}, []byte{1})
 	require.ErrorIs(t, err, errInvalidPageKey)
@@ -452,3 +460,81 @@ func TestHasParams(t *testing.T) {
 	require.NoError(t, SetParams(state, testParams))
 	require.True(t, HasParams(state))
 }
+
+func TestRetiredMethodsRevertNamingTheReplacement(t *testing.T) {
+	h := newHarness(t)
+	for sig, args := range map[string][]interface{}{
+		"submitProposal(string)":                                                  {`{"title":"t","description":"d","type":"Text"}`},
+		"voteWeighted(uint64,(int32,string)[])":                                   {uint64(1), []DecimalWeightedVoteOption{{Option: OptionYes, Weight: "1"}}},
+		"submitSoftwareUpgradeProposal(string,string,bool,(string,int64,string))": {"t", "d", false, UpgradePlan{Name: "v2", Height: 10}},
+		"submitCancelSoftwareUpgradeProposal(string,string,bool)":                 {"t", "d", false},
+		"grantVoteAuthorization(address,int64)":                                   {bob, int64(1)},
+		"grantProposalAuthorization(address,int64)":                               {bob, int64(1)},
+		"revokeVoteAuthorization(address)":                                        {bob},
+		"revokeProposalAuthorization(address)":                                    {bob},
+		"voteWithAuthorization(address,uint64,int32)":                             {bob, uint64(1), OptionYes},
+		"submitProposalWithAuthorization(address,string)":                         {bob, "{}"},
+	} {
+		var method abi.Method
+		for _, m := range ABI.Methods {
+			if m.Sig == sig {
+				method = m
+			}
+		}
+		require.Equal(t, sig, method.Sig, "registered")
+		input, err := method.Inputs.Pack(args...)
+		require.NoError(t, err, sig)
+		_, err = Precompile{}.Run(&precompiles.Context{State: h.state, Address: Address}, append(method.ID, input...))
+		require.ErrorIs(t, err, retiredMethods[sig], sig)
+	}
+	require.Len(t, retiredMethods, 10)
+	require.Zero(t, newStore(h.state).lastProposalID())
+}
+
+func TestCallsEmitEvents(t *testing.T) {
+	h := newHarness(t)
+	pending := h.submit(alice, textProposal, usei(4))
+	opened := h.submit(bob, textProposal, nil)
+	h.mustCall(carol, callOpts{value: usei(10)}, DepositMethod, opened)
+	weighted := []WeightedVoteOption{{Option: OptionYes, Weight: weight(60)}, {Option: OptionNo, Weight: weight(40)}}
+	h.mustCall(alice, callOpts{}, voteWeightedTyped, opened, weighted)
+
+	type event struct {
+		name    string
+		indexed []common.Hash
+		data    []interface{}
+	}
+	var got []event
+	for _, l := range h.state.logs {
+		require.Equal(t, Address, l.Address)
+		e, err := ABI.EventByID(l.Topics[0])
+		require.NoError(t, err)
+		data, err := e.Inputs.NonIndexed().Unpack(l.Data)
+		require.NoError(t, err)
+		got = append(got, event{e.Name, l.Topics[1:], data})
+	}
+	var options []WeightedVoteOption
+	abi.ConvertType(got[4].data[0], &options)
+	got[4].data = []interface{}{options}
+	require.Equal(t, []event{
+		{ProposalDepositEvent, []common.Hash{idTopic(pending), addressTopic(alice)}, []interface{}{usei(4), false}},
+		{SubmitProposalEvent, []common.Hash{idTopic(pending), addressTopic(alice)}, []interface{}{contentText, false}},
+		{SubmitProposalEvent, []common.Hash{idTopic(opened), addressTopic(bob)}, []interface{}{contentText, false}},
+		{ProposalDepositEvent, []common.Hash{idTopic(opened), addressTopic(carol)}, []interface{}{usei(10), true}},
+		{ProposalVoteEvent, []common.Hash{idTopic(opened), addressTopic(alice)}, []interface{}{weighted}},
+	}, got)
+}
+
+// The argument tuples of retired methods.
+type (
+	DecimalWeightedVoteOption struct {
+		Option int32
+		Weight string
+	}
+
+	UpgradePlan struct {
+		Name   string
+		Height int64
+		Info   string
+	}
+)

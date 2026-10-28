@@ -132,25 +132,25 @@ func TestParamsReadThroughTheParamsPrecompile(t *testing.T) {
 	require.Equal(t, uint64(1_500_000_001), newStore(state).params().VotingPeriod, "nanoseconds, unrounded")
 }
 
-func TestExecutionCostIsOnePerParamChange(t *testing.T) {
+func TestSettleCostCoversEachParamChange(t *testing.T) {
 	h := newHarness(t)
-	typed, err := h.submitParamChange(false,
-		paramChange{"gov", "votingparams.voting_period", secondsValue(300)},
-		paramChange{"gov", "tallyparams.quorum", uintValue(400_000_000_000_000_000)},
-	)
+	changes := []paramChange{
+		{"gov", "votingparams.voting_period", secondsValue(300)},
+		{"gov", "votingparams.expedited_voting_period", secondsValue(60)},
+		{"gov", "tallyparams.quorum", uintValue(400_000_000_000_000_000)},
+	}
+	id, err := h.submitParamChange(false, changes...)
 	require.NoError(t, err)
-	single, err := h.submitParamChange(false, paramChange{"gov", "votingparams.voting_period", secondsValue(300)})
-	require.NoError(t, err)
-	text := h.submit(alice, textProposal, nil)
-
-	s := newStore(h.state)
-	require.Equal(t, uint64(2), executionCost(mustDecode(t, s, typed)))
-	require.Equal(t, uint64(1), executionCost(mustDecode(t, s, single)))
-	require.Equal(t, uint64(0), executionCost(mustDecode(t, s, text)))
+	require.GreaterOrEqual(t, newStore(h.state).proposalContentChunks(id), uint64(len(changes)),
+		"the content words settleCost charges cover a unit per change")
 }
 
-func mustDecode(t *testing.T, s store, id uint64) govContent {
-	c, err := decodeContent(s.proposalContent(id))
-	require.NoError(t, err)
-	return c
+func TestSubmitRejectsOversizedParamChangeContent(t *testing.T) {
+	h := newHarness(t)
+	changes := make([]paramChange, maxContentLength/(32*8)+1)
+	for i := range changes {
+		changes[i] = paramChange{"gov", "votingparams.voting_period", secondsValue(300)}
+	}
+	_, err := h.submitParamChange(false, changes...)
+	require.ErrorIs(t, err, errContentTooLong)
 }

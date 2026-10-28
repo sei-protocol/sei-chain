@@ -77,6 +77,9 @@ type State interface {
 	GetCode(common.Address) []byte
 	GetState(common.Address, common.Hash) common.Hash
 	SetState(common.Address, common.Hash, common.Hash)
+	// Failed reports whether a read or write has failed, as when the call runs
+	// out of gas. Reads after a failure return zero values.
+	Failed() bool
 }
 
 // LogSink lets custom precompiles emit Ethereum logs without Cosmos events.
