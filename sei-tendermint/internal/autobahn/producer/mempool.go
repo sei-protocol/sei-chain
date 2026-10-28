@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -41,38 +43,81 @@ type mempool struct {
 	inner utils.Watch[*mempoolInner]
 	// pendingInserts is the number of InsertTx calls blocked in the admission queue.
 	pendingInserts utils.AtomicSend[uint64]
+	// closed is the session's closed flag, readable without the lock.
+	closed *atomic.Bool
+	// admitMu guards admitQueue and admitting. It is held only to add, take or hand off tickets.
+	admitMu sync.Mutex
+	// admitQueue holds checked InsertTx calls waiting for the next admission batch, in arrival order.
+	admitQueue []*insertTicket
+	// admitQueued mirrors len(admitQueue) for readers that do not hold admitMu.
+	admitQueued atomic.Uint64
+	// admitting is set while an InsertTx call holds the turn to run the next admission batch.
+	admitting bool
 }
 
-// insertTicket is the place of one blocked InsertTx call in the admission queue.
-// admitted is signalled when the ticket is at the head of the queue and the
-// mempool has capacity, or when the mempool is closed.
+// ticketState is where an InsertTx call stands in admission.
+type ticketState uint8
+
+const (
+	ticketQueued ticketState = iota
+	// ticketLeading gives the ticket's InsertTx call the turn to run the next admission batch.
+	ticketLeading
+	ticketFinished
+)
+
+// insertTicket is one blocked InsertTx call in the admission queue, holding the checked tx it
+// appends once admitted. admitted is signalled after the tx was appended or rejected, or when
+// the mempool is closed; err is then the outcome. done and err are guarded by the mempool lock.
 type insertTicket struct {
-	admitted utils.AtomicSend[bool]
+	admitted utils.AtomicSend[ticketState]
+	done     bool
+	err      error
+	// cancelled is set when the InsertTx call gave up before admission. Guarded by the mempool lock.
+	cancelled bool
+
+	tx           tmtypes.Tx
+	resp         *abci.ResponseCheckTxV2
+	gasWanted    uint64
+	gasEstimated uint64
+	appNonce     utils.Option[uint64]
+	first        types.BlockNumber
+	// queued is when the InsertTx call joined the session's admission queue.
+	queued time.Time
 }
 
 func newInsertTicket() *insertTicket {
-	return &insertTicket{admitted: utils.NewAtomicSend(false)}
+	return &insertTicket{admitted: utils.NewAtomicSend(ticketQueued)}
 }
 
-func (t *insertTicket) wait(ctx context.Context) error {
-	_, err := t.admitted.Wait(ctx, func(admitted bool) bool { return admitted })
-	return err
+// finish records the ticket's outcome and wakes its InsertTx call. Must be called with the
+// mempool locked.
+func (t *insertTicket) finish(err error) {
+	t.done = true
+	t.err = err
+	t.admitted.Store(ticketFinished)
+}
+
+// wait blocks until the ticket is finished or handed the admission turn, and returns which.
+func (t *insertTicket) wait(ctx context.Context) (ticketState, error) {
+	return t.admitted.Wait(ctx, func(state ticketState) bool { return state != ticketQueued })
 }
 
 // mempoolInner is the lock-protected session state. The Watch value is fixed for
 // the session; closed ends the session without replacing that pointer.
 type mempoolInner struct {
-	closed    bool
-	capacity  uint64
-	lane      types.LaneID
-	first     types.BlockNumber
-	next      types.BlockNumber
-	blocks    map[types.BlockNumber]*blockSpec
-	nextBlock *blockSpec
-	evmNonces map[common.Address]uint64
-	evmTxs    map[common.Hash]tmtypes.Tx
-	// waiters is the FIFO admission queue of blocked InsertTx calls; only the head is
-	// ever signalled, so an update costs O(1) regardless of the queue length.
+	closed bool
+	// closedFlag mirrors closed for readers that do not hold the lock.
+	closedFlag atomic.Bool
+	capacity   uint64
+	lane       types.LaneID
+	first      types.BlockNumber
+	next       types.BlockNumber
+	blocks     map[types.BlockNumber]*blockSpec
+	nextBlock  *blockSpec
+	evmNonces  map[common.Address]uint64
+	evmTxs     map[common.Hash]tmtypes.Tx
+	// waiters is the FIFO admission queue of blocked InsertTx calls. Whoever frees capacity
+	// appends queued txs in order until the mempool is full again.
 	waiters []*insertTicket
 }
 
@@ -89,46 +134,46 @@ func newMempoolInner(capacity uint64, lane types.LaneID, n types.BlockNumber) *m
 	}
 }
 
-// close ends the session and releases every blocked InsertTx call.
-func (m *mempoolInner) close(ctrl *utils.WatchCtrl) {
+// close ends the session and fails every blocked InsertTx call with ErrNotProducing.
+func (mp *mempool) close(m *mempoolInner, ctrl *utils.WatchCtrl) {
 	m.closed = true
+	m.closedFlag.Store(true)
 	for _, t := range m.waiters {
-		t.admitted.Store(true)
+		t.finish(ErrNotProducing)
 	}
+	m.waiters = nil
+	mp.pendingInserts.Store(0)
 	ctrl.Updated()
 }
 
-// isHead reports whether ticket is the next call to be admitted: a call without a
-// ticket is admitted only when nobody is queued ahead of it.
-func (m *mempoolInner) isHead(ticket utils.Option[*insertTicket]) bool {
-	t, ok := ticket.Get()
-	if !ok {
-		return len(m.waiters) == 0
-	}
-	return m.waiters[0] == t
-}
-
-// signalHead wakes the oldest blocked InsertTx call if the mempool has capacity.
-func (m *mempoolInner) signalHead() {
-	if len(m.waiters) > 0 && !m.IsFull() {
-		m.waiters[0].admitted.Store(true)
-	}
-}
-
-func (mp *mempool) enqueue(m *mempoolInner) *insertTicket {
-	t := newInsertTicket()
+func (mp *mempool) enqueue(m *mempoolInner, t *insertTicket) {
 	m.waiters = append(m.waiters, t)
 	mp.pendingInserts.Store(uint64(len(m.waiters)))
-	return t
 }
 
-// dequeue removes t from the admission queue and passes the turn to the next waiter.
+// dequeue removes t from the admission queue.
 func (mp *mempool) dequeue(m *mempoolInner, t *insertTicket) {
 	if i := slices.Index(m.waiters, t); i >= 0 {
 		m.waiters = slices.Delete(m.waiters, i, i+1)
 		mp.pendingInserts.Store(uint64(len(m.waiters)))
 	}
-	m.signalHead()
+}
+
+// drainWaiters appends queued txs in arrival order until the mempool is full or the queue is
+// empty, finishing each ticket with its outcome. Must be called with the mempool locked.
+func (s *State) drainWaiters(mp *mempool, m *mempoolInner, ctrl *utils.WatchCtrl) {
+	admitted := 0
+	for admitted < len(m.waiters) && !m.closed && !m.IsFull() {
+		t := m.waiters[admitted]
+		admitted++
+		t.finish(s.appendTx(m, ctrl, t.tx, t.resp, t.gasWanted, t.gasEstimated, t.appNonce, t.first))
+	}
+	if admitted == 0 {
+		return
+	}
+	clear(m.waiters[:admitted])
+	m.waiters = m.waiters[admitted:]
+	mp.pendingInserts.Store(uint64(len(m.waiters)))
 }
 
 func (m *mempoolInner) IsFull() bool {
@@ -207,14 +252,26 @@ func (s *State) pruneMempool(mp *mempool, n types.BlockNumber) {
 			for _, hash := range b.evmHashes {
 				delete(m.evmTxs, hash)
 			}
+			var unsettled []common.Address
+			var wantNonces []uint64
 			for addr, wantNonce := range b.evmNonces {
 				if wantNonce == m.evmNonces[addr] {
 					// Happy path: all account's txs got executed.
 					delete(m.evmNonces, addr)
-				} else if gotNonce := s.app.EvmNonce(addr); gotNonce < wantNonce {
+				} else {
+					unsettled = append(unsettled, addr)
+					wantNonces = append(wantNonces, wantNonce)
+				}
+			}
+			if len(unsettled) == 0 {
+				continue
+			}
+			for i, gotNonce := range s.app.EvmNonces(unsettled) {
+				if gotNonce < wantNonces[i] {
 					// Some txs have not been executed - reset account tracking.
 					// NOTE: app execution is not synchronized with mempool, so nonce could have already
 					// proceeded past wantNonce and that is expected.
+					addr := unsettled[i]
 					delete(m.evmNonces, addr)
 					delete(m.nextBlock.evmNonces, addr)
 					for _, x := range m.blocks {
@@ -227,7 +284,7 @@ func (s *State) pruneMempool(mp *mempool, n types.BlockNumber) {
 		// because local mempool is the only source of local lane blocks,
 		// but we handle it gracefully anyway.
 		m.next = max(m.next, n)
-		m.signalHead()
+		s.drainWaiters(mp, m, ctrl)
 	}
 }
 
@@ -296,6 +353,17 @@ func (s *State) preReadEvmNonce(mp *mempool, addr common.Address) (utils.Option[
 // now, and otherwise the error the admission loop would return, so such an insert skips CheckTx.
 // The admission loop rechecks after CheckTx.
 func (s *State) poolCanAdmit(mp *mempool, waitIfFull bool) error {
+	if waitIfFull {
+		// Read without the mempool lock: under overload every insert passes here, and contending
+		// for the lock starves the producer that frees capacity.
+		switch {
+		case mp.closed.Load():
+			return ErrNotProducing
+		case mp.pendingInserts.Load()+mp.admitQueued.Load() >= s.cfg.maxPendingInserts():
+			return errPendingFull
+		}
+		return nil
+	}
 	for m := range mp.inner.Lock() {
 		switch {
 		case m.closed:
@@ -338,12 +406,202 @@ func (s *State) evmNonce(addr common.Address) uint64 {
 	return s.app.EvmNonce(addr)
 }
 
-// waitForCapacity blocks until the ticket is signalled, returning the time spent waiting.
-func (t *insertTicket) waitForCapacity(ctx context.Context) (time.Duration, error) {
+// waitForCapacity blocks until the ticket is finished or handed the admission turn, returning which
+// and the time spent waiting.
+func (t *insertTicket) waitForCapacity(ctx context.Context) (ticketState, time.Duration, error) {
 	defer metrics.PhaseCapacityWait.Enter()()
 	start := time.Now()
-	err := t.wait(ctx)
-	return time.Since(start), err
+	state, err := t.wait(ctx)
+	return state, time.Since(start), err
+}
+
+// admitQueued hands a checked tx to the session's admission queue and waits for its outcome. A call
+// handed the admission turn runs one batch, which includes its own tx, before waiting on.
+func (s *State) admitQueued(ctx context.Context, mp *mempool, tx tmtypes.Tx, resp *abci.ResponseCheckTxV2, gasWanted, gasEstimated uint64) (*abci.ResponseCheckTx, error) {
+	ticket := newInsertTicket()
+	ticket.tx, ticket.resp = tx, resp
+	ticket.gasWanted, ticket.gasEstimated = gasWanted, gasEstimated
+	ticket.queued = time.Now()
+	if mp.queueForAdmission(ticket) {
+		s.admitNextBatch(mp)
+	}
+	var waited time.Duration
+	defer func() { metrics.ObserveCapacityWait(waited) }()
+	for {
+		state, d, err := ticket.waitForCapacity(ctx)
+		waited += d
+		if err != nil {
+			return s.abandonTicket(mp, ticket, err)
+		}
+		if state == ticketFinished {
+			break
+		}
+		// Only the call holding the turn writes a ticket still in the queue.
+		ticket.admitted.Store(ticketQueued)
+		s.admitNextBatch(mp)
+	}
+	// finish publishes err before it marks the ticket finished, which the wait observed.
+	if ticket.err != nil {
+		return nil, ticket.err
+	}
+	return resp.ResponseCheckTx, nil
+}
+
+// queueForAdmission adds ticket to the admission queue and reports whether its InsertTx call takes the
+// turn to run the next batch.
+func (mp *mempool) queueForAdmission(ticket *insertTicket) bool {
+	mp.admitMu.Lock()
+	defer mp.admitMu.Unlock()
+	mp.admitQueue = append(mp.admitQueue, ticket)
+	mp.admitQueued.Store(uint64(len(mp.admitQueue)))
+	lead := !mp.admitting
+	mp.admitting = true
+	return lead
+}
+
+// admitNextBatch admits every queued insert as one batch, then passes the turn on. Only the InsertTx
+// call holding the turn may call it.
+func (s *State) admitNextBatch(mp *mempool) {
+	mp.admitMu.Lock()
+	batch := mp.admitQueue
+	mp.admitQueue = nil
+	mp.admitQueued.Store(0)
+	mp.admitMu.Unlock()
+	s.admitBatch(mp, batch)
+	mp.handOffAdmission()
+}
+
+// handOffAdmission gives the admission turn to the oldest queued insert, or ends admission when none is
+// queued.
+func (mp *mempool) handOffAdmission() {
+	mp.admitMu.Lock()
+	defer mp.admitMu.Unlock()
+	if len(mp.admitQueue) == 0 {
+		mp.admitting = false
+		return
+	}
+	mp.admitQueue[0].admitted.Store(ticketLeading)
+}
+
+// abandonTicket withdraws the ticket of an InsertTx call that stopped waiting. A ticket holding the
+// admission turn still runs its batch, so the inserts behind it are not stranded, and a tx appended
+// meanwhile is reported as admitted.
+func (s *State) abandonTicket(mp *mempool, ticket *insertTicket, waitErr error) (*abci.ResponseCheckTx, error) {
+	mp.admitMu.Lock()
+	if i := slices.Index(mp.admitQueue, ticket); i >= 0 && ticket.admitted.Load() == ticketQueued {
+		mp.admitQueue = slices.Delete(mp.admitQueue, i, i+1)
+		mp.admitQueued.Store(uint64(len(mp.admitQueue)))
+		mp.admitMu.Unlock()
+		return nil, waitErr
+	}
+	leading := ticket.admitted.Load() == ticketLeading
+	mp.admitMu.Unlock()
+	if leading {
+		ticket.admitted.Store(ticketQueued)
+		s.admitNextBatch(mp)
+	}
+	for m, ctrl := range mp.inner.Lock() {
+		if !ticket.done {
+			// Cancelled before admission: leave the queue so the calls behind it are not held up.
+			ticket.cancelled = true
+			mp.dequeue(m, ticket)
+			s.drainWaiters(mp, m, ctrl)
+			return nil, waitErr
+		}
+	}
+	if ticket.err != nil {
+		return nil, ticket.err
+	}
+	return ticket.resp.ResponseCheckTx, nil
+}
+
+// admitBatch reads the nonces of the batch's untracked senders outside the lock, then appends or
+// queues each insert in order under one lock. Admission is FIFO: a large tx is never passed over
+// in favor of smaller ones behind it.
+func (s *State) admitBatch(mp *mempool, batch []*insertTicket) {
+	defer metrics.PhaseAdmit.Enter()()
+	defer func() {
+		now := time.Now()
+		for _, ticket := range batch {
+			metrics.ObserveAdmit(now.Sub(ticket.queued))
+		}
+	}()
+	if mp.closed.Load() {
+		// A closed session admits nothing, so the batch skips its nonce read.
+		for range mp.inner.Lock() {
+			for _, ticket := range batch {
+				if !ticket.cancelled {
+					ticket.finish(ErrNotProducing)
+				}
+			}
+		}
+		return
+	}
+	for attempt := 1; ; attempt++ {
+		untracked, first := s.readUntrackedNonces(mp, batch)
+		for m, ctrl := range mp.inner.Lock() {
+			// A prune since the read can advance a sender's app nonce, and appendTx would then read it
+			// again under this lock for each such sender, so the read is redone outside the lock instead.
+			if m.first != first && attempt < admissionReadAttempts {
+				break
+			}
+			for _, ticket := range batch {
+				if ticket.cancelled {
+					continue
+				}
+				if ticket.resp.IsEVM {
+					ticket.appNonce, ticket.first = untracked[ticket.resp.EVMSenderAddress], first
+				}
+				switch {
+				case m.closed:
+					ticket.finish(ErrNotProducing)
+				case !m.IsFull() && len(m.waiters) == 0:
+					ticket.finish(s.appendTx(m, ctrl, ticket.tx, ticket.resp, ticket.gasWanted, ticket.gasEstimated, ticket.appNonce, ticket.first))
+				case uint64(len(m.waiters)) >= s.cfg.maxPendingInserts():
+					ticket.finish(errPendingFull)
+				default:
+					mp.enqueue(m, ticket)
+				}
+			}
+			s.drainWaiters(mp, m, ctrl)
+			return
+		}
+	}
+}
+
+// admissionReadAttempts is how many times admitBatch reads nonces outside the lock before it appends
+// with whatever a prune left stale.
+const admissionReadAttempts = 3
+
+// readUntrackedNonces reads, outside the mempool lock, the app nonce of every EVM sender in batch the
+// mempool does not track, and returns them with the lane's first block at the time of the check.
+func (s *State) readUntrackedNonces(mp *mempool, batch []*insertTicket) (map[common.Address]utils.Option[uint64], types.BlockNumber) {
+	untracked := map[common.Address]utils.Option[uint64]{}
+	var addrs []common.Address
+	var first types.BlockNumber
+	for m := range mp.inner.Lock() {
+		first = m.first
+		for _, ticket := range batch {
+			if !ticket.resp.IsEVM {
+				continue
+			}
+			addr := ticket.resp.EVMSenderAddress
+			if _, tracked := m.evmNonces[addr]; !tracked {
+				if _, seen := untracked[addr]; !seen {
+					untracked[addr] = utils.None[uint64]()
+					addrs = append(addrs, addr)
+				}
+			}
+		}
+	}
+	if len(addrs) > 0 {
+		start := time.Now()
+		for i, nonce := range s.app.EvmNonces(addrs) {
+			untracked[addrs[i]] = utils.Some(nonce)
+		}
+		metrics.ObserveNonceLookup(time.Since(start))
+	}
+	return untracked, first
 }
 
 // insertResult classifies an insert outcome for the inserts metric.
@@ -434,6 +692,9 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 		return nil, errTooLarge
 	}
 
+	if waitIfFull {
+		return s.admitQueued(ctx, mp, tx, resp, gasWanted, gasEstimated)
+	}
 	appNonce := utils.None[uint64]()
 	var first types.BlockNumber
 	if resp.IsEVM {
@@ -444,68 +705,22 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 	}
 
 	admitStart := time.Now()
-	var waited time.Duration
-	var wakeups int64
-	defer func() { metrics.ObserveAdmit(time.Since(admitStart) - waited) }()
-	leaveAdmit := metrics.PhaseAdmit.Enter()
-	defer func() { leaveAdmit() }()
-	// mempool is constructed as a FIFO - we do not delay insertions of large txs (going over cap)
-	// in favor of waiting for smaller txs. This simple algorithm allows us to cap
-	// pending txs to size of a single block. We can refine this rule later if needed.
-	// Blocked calls queue up in arrival order and only the head is woken when capacity
-	// frees up, so a mempool update costs O(1) regardless of the number of waiters.
-	ticket := utils.None[*insertTicket]()
-	defer func() {
-		if ticket.IsPresent() {
-			metrics.ObserveCapacityWait(waited, wakeups)
+	defer func() { metrics.ObserveAdmit(time.Since(admitStart)) }()
+	defer metrics.PhaseAdmit.Enter()()
+	for m, ctrl := range mp.inner.Lock() {
+		if m.closed {
+			return nil, ErrNotProducing
 		}
-	}()
-	for {
-		if t, ok := ticket.Get(); ok {
-			leaveAdmit()
-			d, err := t.waitForCapacity(ctx)
-			waited += d
-			leaveAdmit = metrics.PhaseAdmit.Enter()
-			if err != nil {
-				for m := range mp.inner.Lock() {
-					mp.dequeue(m, t)
-				}
-				return nil, err
-			}
+		s.drainWaiters(mp, m, ctrl)
+		// A call that may not wait never joins the queue, and never jumps ahead of it.
+		if m.IsFull() || len(m.waiters) > 0 {
+			return nil, errMempoolFull
 		}
-		for m, ctrl := range mp.inner.Lock() {
-			if m.closed {
-				if t, ok := ticket.Get(); ok {
-					mp.dequeue(m, t)
-				}
-				return nil, ErrNotProducing
-			}
-			if m.IsFull() && !waitIfFull {
-				return nil, errMempoolFull
-			}
-			if m.IsFull() || (waitIfFull && !m.isHead(ticket)) {
-				if t, ok := ticket.Get(); ok {
-					// A TryInsertTx may have filled the mempool since this ticket was signalled.
-					wakeups++
-					t.admitted.Store(false)
-				} else {
-					if uint64(len(m.waiters)) >= s.cfg.maxPendingInserts() {
-						return nil, errPendingFull
-					}
-					ticket = utils.Some(mp.enqueue(m))
-				}
-				continue
-			}
-			err := s.appendTx(m, ctrl, tx, resp, gasWanted, gasEstimated, appNonce, first)
-			if t, ok := ticket.Get(); ok {
-				mp.dequeue(m, t)
-			}
-			if err != nil {
-				return nil, err
-			}
-			return resp.ResponseCheckTx, nil
+		if err := s.appendTx(m, ctrl, tx, resp, gasWanted, gasEstimated, appNonce, first); err != nil {
+			return nil, err
 		}
 	}
+	return resp.ResponseCheckTx, nil
 }
 
 // appendTx adds an admitted tx to the next lane block, sealing the current one first when the

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -77,7 +78,7 @@ func (env *testEnv) genTx(rng utils.Rng, addr common.Address, nonce uint64) *txS
 		Address: addr,
 		Nonce:   nonce,
 		// We randomize the gas in a way that both gas wanted and tx count limit have a chance of being exercised.
-		GasWanted:    min(env.state.cfg.MaxGasWantedPerBlock, uint64(gasBase-gasJitter+rng.Intn(2*gasJitter))),
+		GasWanted:    min(env.state.cfg.MaxGasWantedPerBlock, uint64(gasBase-gasJitter+rng.Intn(2*gasJitter+1))),
 		GasEstimated: uint64(rng.Int63n(int64(env.state.cfg.MaxGasEstimatedPerBlock))),
 		EVMHash:      common.Hash(utils.GenBytes(rng, len(common.Hash{}))),
 		Payload:      [32]byte(utils.GenBytes(rng, 32)),
@@ -93,6 +94,8 @@ type testAppInner struct {
 type testApp struct {
 	abci.BaseApplication
 	inner utils.Mutex[*testAppInner]
+	// onEvmNonce, when set, runs at the start of every EvmNonce call.
+	onEvmNonce atomic.Pointer[func()]
 }
 
 func newTestApp() *testApp {
@@ -127,6 +130,9 @@ func (a *testApp) Proxy() *proxy.Proxy {
 }
 
 func (a *testApp) EvmNonce(addr common.Address) uint64 {
+	if hook := a.onEvmNonce.Load(); hook != nil {
+		(*hook)()
+	}
 	for inner := range a.inner.Lock() {
 		return inner.nonces[addr]
 	}
@@ -838,6 +844,80 @@ func TestInsertTx_FIFOAdmission(t *testing.T) {
 	}))
 }
 
+// smallTx returns a tx many of which fit in one lane block.
+func (env *testEnv) smallTx(rng utils.Rng, app *testApp) *txSpec {
+	addr, nonce := app.NewAccount(rng)
+	tx := env.genTx(rng, addr, nonce)
+	tx.GasWanted = minTxGas
+	tx.GasEstimated = minTxGas
+	return tx
+}
+
+// Freeing one lane block admits every queued tx that fits in the next one, in arrival order.
+func TestInsertTx_FreedBlockAdmitsTheWholeQueue(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+	mp := env.state.mempool.Load().OrPanic("aligned")
+	for range avail.BlocksPerLane {
+		_, err := env.state.TryInsertTx(ctx, env.fullTx(rng, app).encode())
+		require.NoError(t, err)
+	}
+	open := env.smallTx(rng, app)
+	_, err := env.state.TryInsertTx(ctx, open.encode())
+	require.NoError(t, err)
+	_, err = env.state.TryInsertTx(ctx, env.smallTx(rng, app).encode())
+	require.ErrorIs(t, err, errMempoolFull)
+
+	const n = 5
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		want := [][]byte{open.encode()}
+		pending := mp.pendingInserts.Load()
+		for range n {
+			tx := env.smallTx(rng, app)
+			want = append(want, tx.encode())
+			env.spawnInserter(ctx, s, tx, nil)
+			pending++
+			if _, err := mp.pendingInserts.Wait(ctx, func(got uint64) bool { return got == pending }); err != nil {
+				return err
+			}
+		}
+		env.freeOneBlock(mp)
+		if got := mp.pendingInserts.Load(); got != 0 {
+			return fmt.Errorf("pending after freeing one block: got %d, want 0", got)
+		}
+		if !slices.EqualFunc(env.state.UnconfirmedTxs(), want, slices.Equal) {
+			return fmt.Errorf("queued txs were not admitted together in arrival order")
+		}
+		return nil
+	}))
+}
+
+// Closing the session fails every queued InsertTx call and empties the queue.
+func TestInsertTx_CloseFailsTheQueuedInserts(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	mp, err := env.fillMempool(ctx, rng, app)
+	require.NoError(t, err)
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		if _, err := env.enqueueInserters(ctx, s, rng, app, mp, 3, ErrNotProducing); err != nil {
+			return err
+		}
+		for m, ctrl := range mp.inner.Lock() {
+			mp.close(m, ctrl)
+		}
+		if got := mp.pendingInserts.Load(); got != 0 {
+			return fmt.Errorf("pending after close: got %d, want 0", got)
+		}
+		return nil
+	}))
+}
+
 // A cancelled waiter leaves the queue without holding up the ones behind it.
 func TestInsertTx_CancelledWaiterLeavesQueue(t *testing.T) {
 	ctx := t.Context()
@@ -938,4 +1018,128 @@ func TestInsertResult(t *testing.T) {
 	} {
 		require.Equal(t, tc.want, insertResult(tc.resp, tc.err))
 	}
+}
+
+// takeAdmissionTurn makes the session look busy, as if another InsertTx call held the admission turn.
+func takeAdmissionTurn(mp *mempool) {
+	mp.admitMu.Lock()
+	defer mp.admitMu.Unlock()
+	mp.admitting = true
+}
+
+// waitAdmitQueued blocks until n InsertTx calls sit in the admission queue.
+func waitAdmitQueued(t *testing.T, mp *mempool, n uint64) {
+	t.Helper()
+	require.Eventually(t, func() bool { return mp.admitQueued.Load() == n }, 5*time.Second, time.Millisecond)
+}
+
+// A queued insert that gives up leaves the admission queue, so the turn passes over it to the next one.
+func TestInsertTx_CancelledQueuedInsertNeverHoldsTheTurn(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+	mp := env.state.mempool.Load().OrPanic("aligned")
+	takeAdmissionTurn(mp)
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		cancelCtx, cancel := context.WithCancel(ctx)
+		addrA, nonceA := app.NewAccount(rng)
+		env.spawnInserter(cancelCtx, s, env.genTx(rng, addrA, nonceA), context.Canceled)
+		waitAdmitQueued(t, mp, 1)
+		addrB, nonceB := app.NewAccount(rng)
+		txB := env.genTx(rng, addrB, nonceB)
+		env.spawnInserter(ctx, s, txB, nil)
+		waitAdmitQueued(t, mp, 2)
+
+		cancel()
+		waitAdmitQueued(t, mp, 1)
+		mp.handOffAdmission()
+		return nil
+	}))
+	require.Len(t, env.state.UnconfirmedTxs(), 1, "only the insert behind the cancelled one is admitted")
+	mp.admitMu.Lock()
+	defer mp.admitMu.Unlock()
+	require.False(t, mp.admitting)
+}
+
+// Under concurrent inserts every InsertTx call returns: a call holding the admission turn runs one
+// batch and passes the turn on rather than draining arrivals indefinitely.
+func TestInsertTx_ConcurrentInsertsAllReturn(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+	var txs []*txSpec
+	for range 512 {
+		addr, nonce := app.NewAccount(rng)
+		txs = append(txs, env.genTx(rng, addr, nonce))
+	}
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for _, tx := range txs {
+			env.spawnInserter(ctx, s, tx, nil)
+		}
+		return nil
+	}))
+	mp := env.state.mempool.Load().OrPanic("aligned")
+	require.Zero(t, mp.admitQueued.Load())
+}
+
+// A prune between a batch's nonce read and its locked append makes the batch read again outside the
+// lock, rather than appending with a stale read.
+func TestInsertTx_PruneDuringNonceReadRereadsOutsideTheLock(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+	mp := env.state.mempool.Load().OrPanic("aligned")
+	for range 2 {
+		_, err := env.state.TryInsertTx(ctx, env.fullTx(rng, app).encode())
+		require.NoError(t, err)
+	}
+
+	var reads atomic.Int32
+	hook := func() {
+		if reads.Add(1) == 1 {
+			env.freeOneBlock(mp)
+		}
+	}
+	app.onEvmNonce.Store(&hook)
+	addr, nonce := app.NewAccount(rng)
+	_, err := env.state.InsertTx(ctx, env.genTx(rng, addr, nonce).encode())
+	app.onEvmNonce.Store(nil)
+
+	require.NoError(t, err)
+	require.Equal(t, int32(2), reads.Load(), "the stale read is redone once")
+}
+
+// Inserts still waiting for a batch when the session closes fail with ErrNotProducing, without a nonce
+// read for the closed session.
+func TestInsertTx_CloseFailsTheInsertsWaitingForABatch(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+	mp := env.state.mempool.Load().OrPanic("aligned")
+	takeAdmissionTurn(mp)
+	var reads atomic.Int32
+	hook := func() { reads.Add(1) }
+	app.onEvmNonce.Store(&hook)
+	defer app.onEvmNonce.Store(nil)
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for i := range 2 {
+			addr, nonce := app.NewAccount(rng)
+			env.spawnInserter(ctx, s, env.genTx(rng, addr, nonce), ErrNotProducing)
+			waitAdmitQueued(t, mp, uint64(i+1))
+		}
+		env.state.clearMempool()
+		mp.handOffAdmission()
+		return nil
+	}))
+	require.Zero(t, reads.Load())
 }
