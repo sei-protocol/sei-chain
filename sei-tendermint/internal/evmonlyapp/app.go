@@ -129,10 +129,11 @@ const (
 	finalizeMeterName = "evmonly_app"
 	finalizeTimerName = "evmonly_finalize"
 
-	finalizePhaseTakeSenders = "take_senders"
-	finalizePhasePrepare     = "prepare"
-	finalizePhaseExecute     = "execute"
-	finalizePhaseTxResults   = "tx_results"
+	finalizePhaseTakeSenders    = "take_senders"
+	finalizePhaseDecodeTxs      = "decode_txs"
+	finalizePhaseRecoverSenders = "recover_senders"
+	finalizePhaseExecute        = "execute"
+	finalizePhaseTxResults      = "tx_results"
 )
 
 // evmOnlyCursorState is the execution position: the block whose state is
@@ -809,8 +810,13 @@ func (a *evmOnlyApplication) pendingCursor(height int64) (evmOnlyCursor, error) 
 // has started, leaving the commit to land while the next block executes.
 // Readers of committed state settle it through AwaitCommits.
 func (a *evmOnlyApplication) executeBlockPipelined(ctx context.Context, executor *evmonly.Executor, req evmonly.BlockRequest) (*evmonly.BlockResult, error) {
-	a.finalizePhases.SetPhase(finalizePhasePrepare)
-	prepared, err := executor.PrepareBlock(ctx, req)
+	a.finalizePhases.SetPhase(finalizePhaseDecodeTxs)
+	decoded, err := executor.DecodeBlock(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	a.finalizePhases.SetPhase(finalizePhaseRecoverSenders)
+	prepared, err := executor.RecoverSenders(ctx, decoded)
 	if err != nil {
 		return nil, err
 	}

@@ -236,9 +236,9 @@ func (e *Executor) pipelineNonceIndex() map[common.Address]uint64 {
 		return nil
 	}
 	if e.pipelineNonces == nil {
-		e.pipelineNonces = make(map[common.Address]uint64, len(e.pipelineChanges.Nonces))
-		for _, change := range e.pipelineChanges.Nonces {
-			e.pipelineNonces[change.Address] = change.Nonce
+		e.pipelineNonces = make(map[common.Address]uint64, len(e.pipelineChanges.Accounts))
+		for _, change := range e.pipelineChanges.Accounts {
+			e.pipelineNonces[change.Address] = change.Account.Nonce
 		}
 	}
 	return e.pipelineNonces
@@ -389,12 +389,12 @@ func (r gigaSnapshotStateReader) GetCode(addr common.Address) []byte {
 // ReadAccount returns addr's balance, nonce and code in one row read, and fetches code only for an
 // account that has some. It declines an account the snapshot lacks when missingState must answer
 // for it. Satisfies baseAccountReader.
-func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (baseAccount, bool) {
+func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (AccountState, bool) {
 	row, exists := r.snapshot.ReadAccount(addr)
 	if !exists {
-		return baseAccount{}, r.missingState == nil
+		return AccountState{}, r.missingState == nil
 	}
-	account := baseAccount{
+	account := AccountState{
 		Balance: new(big.Int).SetBytes(row.Balance[:]),
 		Nonce:   row.Nonce,
 	}

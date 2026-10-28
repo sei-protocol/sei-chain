@@ -209,7 +209,7 @@ func replayBlocks(
 			break
 		}
 		block, mutations := it.Entry()
-		changesets, cErr := mutation.MutationsToChangeSets(mutations)
+		changesets, cErr := MutationsToChangeSets(mutations)
 		if cErr != nil {
 			return 0, fmt.Errorf("convert block %d: %w", block, cErr)
 		}
@@ -236,13 +236,21 @@ func (s *CommitStore) applyAndCommit(
 	alreadyHave map[string]int64,
 ) error {
 	// Replay re-reads blocks the recorded version already covers, so committedVersion may be ahead of the
-	// block being applied. Rewind it for the duration: ApplyChangeSets and Commit both require the
-	// block to be exactly committedVersion+1, and the stores that already hold this block are skipped
-	// individually via alreadyHave rather than by refusing the whole block.
+	// block being applied. Rewind it for the duration: replay requires the block to be exactly
+	// committedVersion+1, and the stores that already hold this block are skipped individually via
+	// alreadyHave rather than by refusing the whole block.
 	if len(alreadyHave) > 0 && version <= s.committedVersion {
 		s.committedVersion = version - 1
 	}
-	if err := s.applyChangeSets(version, changesets, alreadyHave); err != nil {
+	if version != s.committedVersion+1 {
+		return fmt.Errorf("flatkv: replay version %d must be committed version %d plus one",
+			version, s.committedVersion)
+	}
+	// Staged under mu, as Commit stages, which is what keeps a concurrent read from interleaving with the writes.
+	s.mu.Lock()
+	err := s.stageChangeSets(version, changesets, alreadyHave)
+	s.mu.Unlock()
+	if err != nil {
 		return fmt.Errorf("apply v%d: %w", version, err)
 	}
 	if err := s.sealBlock(version, alreadyHave); err != nil {

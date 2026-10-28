@@ -123,21 +123,23 @@ func initializeApp(
 ) (*app.App, *abci.ResponseFinalizeBlock) {
 	a := app.Setup(t, false, true, chainID == "pacific-1")
 	a.ChainID = chainID
+	header := tmproto.Header{
+		ChainID: chainID,
+		Height:  1,
+		Time:    time.Now(),
+	}
+	// The initializers write into the genesis block InitChain left open, before FinalizeBlock takes its hash.
+	ctx := a.GetContextForDeliverTx(nil).WithBlockHeader(header).WithBlockHeight(header.Height)
+	for _, i := range initializer {
+		i(ctx, a)
+	}
 	res, err := a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-		Txs:  [][]byte{},
-		Hash: mockHash(1, 0),
-		Header: &tmproto.Header{
-			ChainID: chainID,
-			Height:  1,
-			Time:    time.Now(),
-		},
+		Txs:    [][]byte{},
+		Hash:   mockHash(1, 0),
+		Header: &header,
 	})
 	if err != nil {
 		panic(err)
-	}
-	ctx := a.GetContextForDeliverTx(nil)
-	for _, i := range initializer {
-		i(ctx, a)
 	}
 	_, _ = a.Commit(context.Background())
 	return a, res

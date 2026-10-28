@@ -49,7 +49,11 @@ func TestPipelinedBlockSeesThePreviousBlocksUncommittedState(t *testing.T) {
 	first := executePipelinedBlock(t, executor, chainID, 41,
 		signLegacyTx(t, funderKey, chainID, 0, &middle, payment, nil))
 	require.Equal(t, uint64(1), first.Txs[0].Status, "funding transaction must succeed")
-	require.Contains(t, first.ChangeSet.Balances, BalanceChange{Address: middle, Balance: payment, PriorBalance: new(uint256.Int).ToBig()})
+	require.Contains(t, first.ChangeSet.Accounts, AccountChange{
+		Address: middle,
+		Account: AccountState{Balance: payment},
+		Prior:   AccountState{Balance: new(uint256.Int).ToBig()},
+	})
 
 	// Block 42 spends from middle. The store's view is still at genesis, so this can only succeed
 	// if block 41's balance and nonce reached it through the overlay.
@@ -58,7 +62,11 @@ func TestPipelinedBlockSeesThePreviousBlocksUncommittedState(t *testing.T) {
 		signLegacyTx(t, middleKey, chainID, 0, &last, forwarded, nil))
 	require.Equal(t, uint64(1), second.Txs[0].Status,
 		"spending what the previous block paid must succeed, or the overlay is not being read")
-	require.Contains(t, second.ChangeSet.Balances, BalanceChange{Address: last, Balance: forwarded, PriorBalance: new(uint256.Int).ToBig()})
+	require.Contains(t, second.ChangeSet.Accounts, AccountChange{
+		Address: last,
+		Account: AccountState{Balance: forwarded},
+		Prior:   AccountState{Balance: new(uint256.Int).ToBig()},
+	})
 
 	require.NoError(t, executor.AwaitCommits())
 	require.Equal(t, []int64{41, 42}, store.commitBlock, "commits must land in block order")
@@ -169,7 +177,11 @@ func TestRetiringACommitWhileOpeningAViewKeepsThePreviousBlocksState(t *testing.
 	require.Equal(t, 1, retires, "the retire must land while the view is being opened")
 	require.Equal(t, uint64(1), second.Txs[0].Status,
 		"block 42 lost what block 41 paid it when the commit was retired underneath it")
-	require.Contains(t, second.ChangeSet.Balances, BalanceChange{Address: last, Balance: big.NewInt(1_000), PriorBalance: new(uint256.Int).ToBig()})
+	require.Contains(t, second.ChangeSet.Accounts, AccountChange{
+		Address: last,
+		Account: AccountState{Balance: big.NewInt(1_000)},
+		Prior:   AccountState{Balance: new(uint256.Int).ToBig()},
+	})
 }
 
 // The store here never applies a commit to its view, so the nonce a block advanced is visible only

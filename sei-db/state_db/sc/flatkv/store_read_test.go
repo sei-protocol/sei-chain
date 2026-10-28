@@ -22,7 +22,8 @@ import (
 // Get, Has, and Pending Writes
 // =============================================================================
 
-func TestStoreGetPendingWrites(t *testing.T) {
+// TestStoreGetBufferedWrite verifies that a write ApplyChangeSets buffered is not readable until Commit.
+func TestStoreGetBufferedWrite(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -35,25 +36,22 @@ func TestStoreGetPendingWrites(t *testing.T) {
 	_, found := s.Get(keys.EVMStoreKey, key)
 	require.False(t, found)
 
-	// Apply changeset (adds to pending writes)
+	// Apply changeset (buffered until commit)
 	cs := makeChangeSet(key, value, false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	// Should be readable from pending writes
-	got, found := s.Get(keys.EVMStoreKey, key)
-	require.True(t, found)
-	require.Equal(t, value, got)
+	_, found = s.Get(keys.EVMStoreKey, key)
+	require.False(t, found, "a buffered write must not be readable before commit")
 
-	// Commit
 	commitAndCheck(t, s)
 
-	// Should still be readable after commit
-	got, found = s.Get(keys.EVMStoreKey, key)
+	got, found := s.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, value, got)
 }
 
-func TestStoreGetPendingDelete(t *testing.T) {
+// TestStoreGetBufferedDelete verifies that a delete ApplyChangeSets buffered takes effect only at Commit.
+func TestStoreGetBufferedDelete(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -70,18 +68,15 @@ func TestStoreGetPendingDelete(t *testing.T) {
 	_, found := s.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
 
-	// Apply delete (pending)
+	// Apply delete (buffered until commit)
 	cs2 := makeChangeSet(key, nil, true)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
-	// Should not be found (pending delete)
 	_, found = s.Get(keys.EVMStoreKey, key)
-	require.False(t, found)
+	require.True(t, found, "a buffered delete must not take effect before commit")
 
-	// Commit delete
 	commitAndCheck(t, s)
 
-	// Still should not be found
 	_, found = s.Get(keys.EVMStoreKey, key)
 	require.False(t, found)
 }
@@ -132,7 +127,8 @@ func TestStoreHas(t *testing.T) {
 // Misc Key Get Tests
 // =============================================================================
 
-func TestStoreGetMiscPendingWrites(t *testing.T) {
+// TestStoreGetMiscBufferedWrite verifies that a buffered misc write is not readable until Commit.
+func TestStoreGetMiscBufferedWrite(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -147,19 +143,17 @@ func TestStoreGetMiscPendingWrites(t *testing.T) {
 	cs := makeChangeSet(miscKey, []byte{0x00, 0x40}, false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	// Should be readable from pending writes
-	got, found := s.Get(keys.EVMStoreKey, miscKey)
-	require.True(t, found)
-	require.Equal(t, []byte{0x00, 0x40}, got)
+	_, found = s.Get(keys.EVMStoreKey, miscKey)
+	require.False(t, found, "a buffered write must not be readable before commit")
 
-	// Commit and still readable
 	commitAndCheck(t, s)
-	got, found = s.Get(keys.EVMStoreKey, miscKey)
+	got, found := s.Get(keys.EVMStoreKey, miscKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x40}, got)
 }
 
-func TestStoreGetMiscPendingDelete(t *testing.T) {
+// TestStoreGetMiscBufferedDelete verifies that a buffered misc delete takes effect only at Commit.
+func TestStoreGetMiscBufferedDelete(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -174,13 +168,12 @@ func TestStoreGetMiscPendingDelete(t *testing.T) {
 	_, found := s.Get(keys.EVMStoreKey, miscKey)
 	require.True(t, found)
 
-	// Apply delete (pending)
+	// Apply delete (buffered until commit)
 	cs2 := makeChangeSet(miscKey, nil, true)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
-	// Should not be found (pending delete)
 	_, found = s.Get(keys.EVMStoreKey, miscKey)
-	require.False(t, found)
+	require.True(t, found, "a buffered delete must not take effect before commit")
 
 	// Commit delete
 	commitAndCheck(t, s)
@@ -356,27 +349,25 @@ func TestGetCodeFromCommittedDB(t *testing.T) {
 	bytecode := []byte{0x60, 0x80, 0x52}
 	codeKey := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
 
-	// Pending code write is visible before commit
+	// A buffered code write is not visible before commit
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(codePair(addr, bytecode)),
 	}))
-	got, found := s.Get(keys.EVMStoreKey, codeKey)
-	require.True(t, found, "pending code write should be visible")
-	require.Equal(t, bytecode, got)
+	_, found := s.Get(keys.EVMStoreKey, codeKey)
+	require.False(t, found, "buffered code write should not be visible")
 
 	commitAndCheck(t, s)
 
-	// Still visible after commit
-	got, found = s.Get(keys.EVMStoreKey, codeKey)
+	got, found := s.Get(keys.EVMStoreKey, codeKey)
 	require.True(t, found)
 	require.Equal(t, bytecode, got)
 
-	// Pending code delete hides it before commit
+	// A buffered code delete does not hide it before commit
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(codeDeletePair(addr)),
 	}))
 	_, found = s.Get(keys.EVMStoreKey, codeKey)
-	require.False(t, found, "pending code delete should hide the entry")
+	require.True(t, found, "buffered code delete should not hide the entry")
 
 	commitAndCheck(t, s)
 	_, found = s.Get(keys.EVMStoreKey, codeKey)
@@ -429,10 +420,9 @@ func TestGetUnknownKeyTypes(t *testing.T) {
 // R-6 ~ R-8: Account Delete Semantics (isDelete interaction)
 // =============================================================================
 
-// TestGetAccountAfterFullDeletePending verifies that Get returns (nil, false)
-// for both nonce and codehash when all account fields are zeroed (pending).
-// The isDelete guard in store_read.go:39-41 hides the zeroed row entirely.
-func TestGetAccountAfterFullDeletePending(t *testing.T) {
+// TestGetAccountAfterFullDeleteUnflushed verifies that Get returns (nil, false) for both nonce and codehash
+// once all account fields are deleted, while the deleting block has not yet been flushed to disk.
+func TestGetAccountAfterFullDeleteUnflushed(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -448,6 +438,7 @@ func TestGetAccountAfterFullDeletePending(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(nonceDeletePair(addr), codeHashDeletePair(addr)),
 	}))
+	commitBuffered(t, s)
 
 	_, nonceFound := s.Get(keys.EVMStoreKey, nonceKey)
 	require.False(t, nonceFound, "nonce should not be found after full delete (isDelete=true)")
@@ -744,12 +735,10 @@ func TestIteratorDoesNotSeePendingWrites(t *testing.T) {
 		namedCS(storagePair(addr, slot, []byte{0xAA})),
 	}))
 
-	// Before commit: the raw scan is refused outright rather than quietly omitting the staged row. It
-	// iterates the stores, which see staged rows, so the guarantee that an export never contains an
-	// uncommitted row is enforced as a precondition.
+	// Before commit: the raw scan is refused outright while a block is buffered.
 	_, err := s.RawGlobalIterator()
-	require.Error(t, err, "a raw scan must be refused while a block is staged")
-	require.Contains(t, err.Error(), "staged and uncommitted")
+	require.Error(t, err, "a raw scan must be refused while a block is buffered")
+	require.Contains(t, err.Error(), "buffered and uncommitted")
 
 	commitAndCheck(t, s)
 
@@ -776,12 +765,12 @@ func TestIteratorDoesNotSeePendingDeletes(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	// Apply pending delete for middle key
+	// Apply a buffered delete for middle key
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(storageDeletePair(addr, slotN(0x02))),
 	}))
 
-	// The scan is refused while the delete is staged, so it can never report a half-applied block.
+	// The scan is refused while the delete is buffered, so it can never report a half-applied block.
 	commitAndCheck(t, s)
 
 	// After commit: only 2 remain
@@ -888,7 +877,7 @@ func TestHasForAllKeyTypes(t *testing.T) {
 	require.True(t, found)
 }
 
-func TestHasOnPendingDeletes(t *testing.T) {
+func TestHasOnUnflushedDeletes(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -904,8 +893,9 @@ func TestHasOnPendingDeletes(t *testing.T) {
 
 	delCS := makeChangeSet(key, nil, true)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{delCS}))
+	commitBuffered(t, s)
 	found = s.Has(keys.EVMStoreKey, key)
-	require.False(t, found, "Has should return false for pending-deleted key")
+	require.False(t, found, "Has should return false for a deleted key")
 }
 
 func TestHasOnReadOnlyStore(t *testing.T) {
