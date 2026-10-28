@@ -136,7 +136,7 @@ func parseConfig(args []string) (config, error) {
 	erc20Contract := fs.String("erc20-contract", defaultERC20Contract, "EVM address for the generated ERC20 transfer contract")
 	snapshotRevertContract := fs.String("snapshot-revert-contract", defaultSnapshotRevertContract, "EVM address for the generated snapshot-revert outer contract")
 	snapshotRevertHelper := fs.String("snapshot-revert-helper", defaultSnapshotRevertHelper, "EVM address for the generated snapshot-revert helper contract")
-	clobContract := fs.String("clob-contract", defaultCLOBContract, "EVM address for the generated ShardedCLOB contract")
+	clobContract := fs.String("clob-contract", defaultCLOBContract, "EVM address for the generated CLOBv1 contract")
 	recipient := fs.String("recipient", "", "optional fixed transfer recipient; empty creates one recipient per tx")
 	fs.Float64Var(&cfg.recipientConflictRate, "recipient-conflict-rate", 0, "fraction [0,1] of transactions per block paired onto shared recipients; 0 keeps recipients unique")
 	fs.BoolVar(&cfg.sameSender, "same-sender", false, "use one sender with sequential nonces for every transaction in a transfer block")
