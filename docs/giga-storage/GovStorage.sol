@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
-/// @dev Matches `GOV_PRECOMPILE_ADDRESS` in `precompiles/gov/Gov.sol`.
+/// @dev Matches `GOV_PRECOMPILE_ADDRESS` in `giga/evmonly/precompiles/gov/Gov.sol`.
 address constant GOV_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001006;
 
 /// @notice Storage schema of the evmonly gov precompile (0x1006), held as that
