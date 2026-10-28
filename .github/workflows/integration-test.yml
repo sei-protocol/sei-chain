@@ -241,8 +241,6 @@ jobs:
       ROW_BUDGET_SECONDS: 1560
       GHCR_LOCALNODE: ghcr.io/sei-protocol/sei-chain-integration-test-localnode
       GHCR_RPCNODE: ghcr.io/sei-protocol/sei-chain-integration-test-rpcnode
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
     strategy:
       # other jobs should run even if one integration test fails
