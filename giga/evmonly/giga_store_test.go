@@ -286,13 +286,12 @@ func TestPipelineCommitKeepsItsChangesWhenTheResultIsReleased(t *testing.T) {
 	require.NoError(t, err)
 	pending := executor.pipelinePending()
 	require.NotNil(t, pending)
-	require.NotEmpty(t, pending.Balances)
-	balances, nonces := slices.Clone(pending.Balances), slices.Clone(pending.Nonces)
+	require.NotEmpty(t, pending.Accounts)
+	accounts := slices.Clone(pending.Accounts)
 
 	result.Release()
 
-	require.Equal(t, balances, pending.Balances)
-	require.Equal(t, nonces, pending.Nonces)
+	require.Equal(t, accounts, pending.Accounts)
 }
 
 func TestExecutorGigaStoreSnapshotFeedsOCCExecution(t *testing.T) {

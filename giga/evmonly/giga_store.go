@@ -249,9 +249,7 @@ func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.Na
 	// The commit outlives the pooled result, whose reset clears these slices, so it takes its own
 	// copies. The values stay shared; see BlockResult.ChangeSet.
 	pending := &StateChangeSet{
-		Balances: slices.Clone(changes.Balances),
-		Nonces:   slices.Clone(changes.Nonces),
-		Code:     slices.Clone(changes.Code),
+		Accounts: slices.Clone(changes.Accounts),
 		Storage:  slices.Clone(changes.Storage),
 	}
 	// Close sets closed before taking storeMu, which the caller holds, so a block that sees it
