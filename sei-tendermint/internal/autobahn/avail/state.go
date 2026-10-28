@@ -26,6 +26,12 @@ var ErrLaneClosed = errors.New("lane closed")
 // block WAL. It also bounds the sealed blocks a producer's mempool holds until they execute locally.
 const BlocksPerLane = 6 * types.MaxLaneRangeInProposal
 
+// MinProposalLaneBlocks is how many new certified lane blocks a leader waits for before proposing.
+const MinProposalLaneBlocks = 5
+
+// MaxProposalWait bounds how long a leader holding a new LaneQC waits for MinProposalLaneBlocks.
+const MaxProposalWait = 50 * time.Millisecond
+
 var (
 	meters     = metrics.Get()
 	consMeters = consmetrics.Get()
@@ -595,8 +601,9 @@ func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduc
 	return nil
 }
 
-// WaitForLaneQCs waits until there is at least 1 LaneQC (for the given epoch)
-// with a block not finalized by prev.
+// WaitForLaneQCs waits until there is at least 1 LaneQC (for the given epoch) with a block not
+// finalized by prev, and then until MinProposalLaneBlocks such blocks are certified or
+// MaxProposalWait has passed.
 func (s *State) WaitForLaneQCs(
 	ctx context.Context, ep *types.Epoch, prev utils.Option[*types.CommitQC],
 ) (map[types.LaneID]*types.LaneQC, error) {
@@ -607,21 +614,42 @@ func (s *State) WaitForLaneQCs(
 			meters.LaneQCWait.Observe(time.Since(start).Seconds())
 		}
 	}()
+	var deadline utils.Option[time.Time]
 	for inner, ctrl := range s.inner.Lock() {
-		laneQCs := map[types.LaneID]*types.LaneQC{}
 		for {
+			laneQCs := map[types.LaneID]*types.LaneQC{}
+			certified := 0
 			for lane := range ep.Committee().Lanes().All() {
 				first := types.LaneRangeOpt(prev, lane).Next()
 				for i := range types.BlockNumber(types.MaxLaneRangeInProposal) {
-					if qc, ok := inner.laneQC(lane, first+i).Get(); ok {
-						laneQCs[lane] = qc
-					} else {
+					qc, ok := inner.laneQC(lane, first+i).Get()
+					if !ok {
 						break
 					}
+					laneQCs[lane] = qc
+					certified++
 				}
 			}
-			if len(laneQCs) > 0 {
+			if certified >= MinProposalLaneBlocks {
 				return laneQCs, nil
+			}
+			if certified > 0 {
+				d, ok := deadline.Get()
+				if !ok {
+					d = time.Now().Add(MaxProposalWait)
+					deadline = utils.Some(d)
+				}
+				if !time.Now().Before(d) {
+					return laneQCs, nil
+				}
+				waitCtx, cancel := context.WithDeadline(ctx, d)
+				// Returns on an update or at the deadline; the loop re-checks both.
+				_ = ctrl.Wait(waitCtx)
+				cancel()
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
+				continue
 			}
 			if !blocked {
 				meters.LaneQCInFlight.Add(1)
