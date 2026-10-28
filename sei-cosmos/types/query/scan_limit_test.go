@@ -83,7 +83,8 @@ func TestUntrustedQueryRejectsBudgetExhaustBeforeOffsetUnfiltered(t *testing.T) 
 }
 
 func TestUntrustedQueryUnfilteredBudgetExhaustAtOffsetReturnsResumeKey(t *testing.T) {
-	ctx := sdk.Context{}.WithIsABCIQuery(true).WithPaginationLimits(sdk.UntrustedPaginationLimits(1000, 10_000, 50))
+	const maxIterations = 50
+	ctx := sdk.Context{}.WithIsABCIQuery(true).WithPaginationLimits(sdk.UntrustedPaginationLimits(1000, 10_000, maxIterations))
 	store := newTestKVStore(t)
 
 	for i := 0; i < 200; i++ {
@@ -96,15 +97,16 @@ func TestUntrustedQueryUnfilteredBudgetExhaustAtOffsetReturnsResumeKey(t *testin
 		return nil
 	}
 
-	res, err := query.Paginate(ctx, store, &query.PageRequest{Offset: 50, Limit: 10}, collect)
+	res, err := query.Paginate(ctx, store, &query.PageRequest{Offset: maxIterations, Limit: 10}, collect)
 	require.NoError(t, err)
 	require.Empty(t, keys)
-	require.NotNil(t, res.NextKey)
+	require.Equal(t, "050", string(res.NextKey))
 
 	_, err = query.Paginate(ctx, store, &query.PageRequest{Key: res.NextKey, Limit: 10}, collect)
 	require.NoError(t, err)
-	require.NotEmpty(t, keys)
+	require.Len(t, keys, 10)
 	require.Equal(t, []byte("050"), keys[0])
+	require.Equal(t, []byte("059"), keys[9])
 }
 
 func TestUntrustedQueryPartialPageWhenBudgetExhaustDuringCollect(t *testing.T) {
