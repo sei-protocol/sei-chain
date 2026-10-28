@@ -1854,7 +1854,7 @@ func TestCommitKeepsStoresCleanOnLaterParseError(t *testing.T) {
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: nonceBytes(7)},
-			{Key: storageKey, Value: []byte{0x01}}, // not 32 bytes — fails toStorageValues
+			{Key: storageKey, Value: []byte{0x01}}, // not 32 bytes — fails conversion to mutations
 		}},
 	}
 
@@ -1862,7 +1862,7 @@ func TestCommitKeepsStoresCleanOnLaterParseError(t *testing.T) {
 	version := s.Version()
 	_, err := s.Commit(version + 1)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "failed to parse storage changes")
+	require.Contains(t, err.Error(), "invalid storage value")
 
 	requireNotStaged(t, s.accountStore, accountPhysKey(addr),
 		"account rows must not stage before storage validation finishes")
@@ -2146,7 +2146,7 @@ func TestCommitStateChangesStampsRowBlockHeight(t *testing.T) {
 
 	// Start at block 10 the legal way: seed the store so its history begins there.
 	require.NoError(t, s.SetInitialVersion(10))
-	require.NoError(t, s.CommitStateChanges(10, []*proto.NamedChangeSet{cs}))
+	require.NoError(t, commitChangeSets(s, 10, []*proto.NamedChangeSet{cs}))
 	require.Equal(t, int64(10), s.Version())
 
 	height, found, err := s.GetBlockHeightModified(keys.EVMStoreKey, key)
