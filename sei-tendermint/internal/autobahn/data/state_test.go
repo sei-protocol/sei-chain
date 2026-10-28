@@ -132,8 +132,9 @@ func commitQCAtRoad(
 	proposal := types.ProposalAt(ep, types.View{Index: road, Number: 0})
 	block := types.NewBlock(ep.Committee().Lanes().At(0), 0, types.BlockHeaderHash{}, &types.Payload{})
 	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
+	prepareQC := types.BuildPrepareQC(keys, proposal)
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal.View().Number, proposal.Header())))
+		votes = append(votes, types.Sign(k, types.NewCommitVote(prepareQC)))
 	}
 	return types.NewFullCommitQC(types.NewCommitQC(votes), []*types.BlockHeader{block.Header()}), []*types.Block{block}
 }
@@ -146,8 +147,9 @@ func commitQCAtRoadBlocks(
 ) (*types.FullCommitQC, []*types.Block) {
 	proposal, blocks := types.ProposalAtBlocks(ep, types.View{Index: road, Number: 0}, n)
 	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
+	prepareQC := types.BuildPrepareQC(keys, proposal)
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal.View().Number, proposal.Header())))
+		votes = append(votes, types.Sign(k, types.NewCommitVote(prepareQC)))
 	}
 	headers := make([]*types.BlockHeader, len(blocks))
 	for i, b := range blocks {
@@ -328,8 +330,9 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 	require.Equal(t, proposal.Proposal().Msg().Index(), qc1.Index())
 
 	votes := make([]*types.Signed[*types.CommitVote], 0, len(badKeys))
+	prepareQC := types.BuildPrepareQC(keys, proposal.Proposal().Msg())
 	for _, k := range badKeys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal.View().Number, proposal.Header())))
+		votes = append(votes, types.Sign(k, types.NewCommitVote(prepareQC)))
 	}
 	maliciousQC := types.NewFullCommitQC(types.NewCommitQC(votes), headers)
 
@@ -708,8 +711,9 @@ func TestPushEmptyQC(t *testing.T) {
 	proposal, err := types.NewProposal(leader, vs, vs.NextTimestamp(), nil)
 	require.NoError(t, err)
 	votes := make([]*types.Signed[*types.CommitVote], len(keys))
+	prepareQC := types.BuildPrepareQC(keys, proposal.Proposal().Msg())
 	for i, key := range keys {
-		votes[i] = types.Sign(key, types.NewCommitVote(proposal.View().Number, proposal.Header()))
+		votes[i] = types.Sign(key, types.NewCommitVote(prepareQC))
 	}
 	qc := types.NewFullCommitQC(types.NewCommitQC(votes), nil)
 	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
@@ -1442,7 +1446,7 @@ func TestQCCacheBound(t *testing.T) {
 			vs := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{CommitQC: utils.Some(previous), Epoch: ep}}
 			proposal, err := types.NewProposal(keys[0], vs, vs.NextTimestamp(), nil)
 			require.NoError(t, err)
-			qc := types.NewCommitQC([]*types.Signed[*types.CommitVote]{types.Sign(keys[0], types.NewCommitVote(proposal.View().Number, proposal.Header()))})
+			qc := types.NewCommitQC([]*types.Signed[*types.CommitVote]{types.Sign(keys[0], types.NewCommitVote(types.BuildPrepareQC(keys, proposal.Proposal().Msg())))})
 			nextPartialBlock = types.NewFullCommitQC(qc, nil)
 			if i < qcsCacheSize-1 {
 				require.NoError(t, state.PushPartialBlock(t.Context(), nextPartialBlock, nil))

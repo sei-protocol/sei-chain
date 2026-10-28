@@ -15,9 +15,9 @@ type CommitVote struct {
 	header     *RoadBlockHeader
 }
 
-// NewCommitVote creates a new CommitVote.
-func NewCommitVote(viewNumber ViewNumber, header *RoadBlockHeader) *CommitVote {
-	return &CommitVote{viewNumber: viewNumber, header: header}
+// NewCommitVote creates a commit vote for qc.
+func NewCommitVote(qc *PrepareQC) *CommitVote {
+	return &CommitVote{viewNumber: qc.View().Number, header: qc.Header()}
 }
 
 // View returns the vote's consensus view.

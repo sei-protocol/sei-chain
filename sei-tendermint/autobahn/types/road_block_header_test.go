@@ -24,8 +24,8 @@ func TestRoadBlockHeaderHashIndependentOfView(t *testing.T) {
 	require.NotEqual(t, NewHashed(proposal).Hash(), NewHashed(reproposal).Hash())
 
 	key := GenSecretKey(rng)
-	qc := NewCommitQC([]*Signed[*CommitVote]{Sign(key, NewCommitVote(proposal.View().Number, proposal.Header()))})
-	reproposalQC := NewCommitQC([]*Signed[*CommitVote]{Sign(key, NewCommitVote(reproposal.View().Number, reproposal.Header()))})
+	qc := NewCommitQC([]*Signed[*CommitVote]{Sign(key, NewCommitVote(BuildPrepareQC([]SecretKey{key}, proposal)))})
+	reproposalQC := NewCommitQC([]*Signed[*CommitVote]{Sign(key, NewCommitVote(BuildPrepareQC([]SecretKey{key}, reproposal)))})
 	require.Equal(t, proposal.Header().Hash(), qc.Header().Hash())
 	require.Equal(t, qc.Header().Hash(), reproposalQC.Header().Hash())
 	headers := make([]*BlockHeader, len(blocks))
@@ -79,6 +79,8 @@ func TestRoadBlockHeaderHashBytes(t *testing.T) {
 }
 
 func TestRoadBlockHeaderIdentity(t *testing.T) {
+	rng := utils.TestRng()
+	key := GenSecretKey(rng)
 	hashes := map[RoadBlockHeaderHash]struct{}{}
 	for _, view := range []View{
 		{},
@@ -99,8 +101,8 @@ func TestRoadBlockHeaderIdentity(t *testing.T) {
 		require.Equal(t, view.EpochIndex, header.EpochIndex())
 		require.Equal(t, view.Index, header.Index())
 		require.Equal(t, view, proposal.View())
-		require.Equal(t, view, NewPrepareVote(view.Number, header).View())
-		require.Equal(t, view, NewCommitVote(view.Number, header).View())
+		require.Equal(t, view, NewPrepareVote(proposal).View())
+		require.Equal(t, view, NewCommitVote(BuildPrepareQC([]SecretKey{key}, proposal)).View())
 		_, seen := hashes[header.Hash()]
 		require.False(t, seen)
 		hashes[header.Hash()] = struct{}{}

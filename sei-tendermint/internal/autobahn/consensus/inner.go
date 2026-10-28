@@ -234,7 +234,7 @@ func (s *State) pushProposal(ctx context.Context, proposal *types.FullProposal) 
 		if i.View() != proposal.View() || i.TimeoutVote.IsPresent() || i.PrepareVote.IsPresent() {
 			return nil
 		}
-		v := types.Sign(s.cfg.Key, types.NewPrepareVote(proposal.View().Number, proposal.Header()))
+		v := types.Sign(s.cfg.Key, types.NewPrepareVote(proposal.Proposal().Msg()))
 		i.PrepareVote = utils.Some(v)
 		isend.Store(i)
 	}
@@ -262,7 +262,7 @@ func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 			return nil
 		}
 		i.PrepareQC = utils.Some(qc)
-		v := types.Sign(s.cfg.Key, types.NewCommitVote(qc.View().Number, qc.Header()))
+		v := types.Sign(s.cfg.Key, types.NewCommitVote(qc))
 		i.CommitVote = utils.Some(v)
 		isend.Store(i)
 	}

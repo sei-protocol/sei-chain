@@ -555,7 +555,7 @@ func TestPrune_LeavesAppliedToEpochAdvance(t *testing.T) {
 
 	voteProposal := types.ProposalAt(ep1, types.View{Index: registry.LastRoad(1), Number: 0})
 	prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(keys[0], types.NewCommitVote(voteProposal.View().Number, voteProposal.Header())),
+		types.Sign(keys[0], types.NewCommitVote(types.BuildPrepareQC(keys, voteProposal))),
 	})
 	qc := types.BuildCommitQC(ep2, keys, utils.Some(prev), nil)
 	i.prune(data.Anchor{

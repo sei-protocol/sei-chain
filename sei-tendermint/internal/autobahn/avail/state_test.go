@@ -387,7 +387,7 @@ func TestNextViewEpoch(t *testing.T) {
 		last := registry.LastRoad(0)
 		voteProposal := types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0})
 		prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-			types.Sign(keys[0], types.NewCommitVote(voteProposal.View().Number, voteProposal.Header())),
+			types.Sign(keys[0], types.NewCommitVote(types.BuildPrepareQC(keys, voteProposal))),
 		})
 		qcLast := types.BuildCommitQC(ep0, keys, utils.Some(prev), nil)
 		require.Equal(t, last, qcLast.Index())
@@ -418,7 +418,7 @@ func TestNextViewEpoch(t *testing.T) {
 		last := registry.LastRoad(1)
 		voteProposal := types.ProposalAt(ep1, types.View{Index: last - 1, Number: 0})
 		prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-			types.Sign(keys[0], types.NewCommitVote(voteProposal.View().Number, voteProposal.Header())),
+			types.Sign(keys[0], types.NewCommitVote(types.BuildPrepareQC(keys, voteProposal))),
 		})
 		qcLast := types.BuildCommitQC(ep1, keys, utils.Some(prev), nil)
 		require.Equal(t, last, qcLast.Index())

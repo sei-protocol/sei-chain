@@ -51,7 +51,7 @@ func makeLaneQC(
 
 // makeCommitQCFromProposal creates a CommitQC for a FullProposal, signed by all keys.
 func makeCommitQCFromProposal(keys []SecretKey, fp *FullProposal) *CommitQC {
-	vote := NewCommitVote(fp.View().Number, fp.Header())
+	vote := NewCommitVote(BuildPrepareQC(keys, fp.Proposal().Msg()))
 	var votes []*Signed[*CommitVote]
 	for _, k := range keys {
 		votes = append(votes, Sign(k, vote))
@@ -694,7 +694,7 @@ func makeFullProposal(
 }
 
 func makeCommitQC(keys []SecretKey, fullProposal *FullProposal) *CommitQC {
-	vote := NewCommitVote(fullProposal.View().Number, fullProposal.Header())
+	vote := NewCommitVote(BuildPrepareQC(keys, fullProposal.Proposal().Msg()))
 	var votes []*Signed[*CommitVote]
 	for _, k := range keys {
 		votes = append(votes, Sign(k, vote))
@@ -743,7 +743,7 @@ func TestProposalVerifyValidReproposal(t *testing.T) {
 	// Build a PrepareQC for the proposal at (0, 0).
 	var prepareVotes []*Signed[*PrepareVote]
 	for _, k := range keys {
-		prepareVotes = append(prepareVotes, Sign(k, NewPrepareVote(fp0.View().Number, fp0.Header())))
+		prepareVotes = append(prepareVotes, Sign(k, NewPrepareVote(fp0.Proposal().Msg())))
 	}
 	prepareQC := NewPrepareQC(prepareVotes)
 
@@ -778,7 +778,7 @@ func TestProposalVerifyRejectsReproposalWithUnnecessaryData(t *testing.T) {
 
 	var prepareVotes []*Signed[*PrepareVote]
 	for _, k := range keys {
-		prepareVotes = append(prepareVotes, Sign(k, NewPrepareVote(fp0.View().Number, fp0.Header())))
+		prepareVotes = append(prepareVotes, Sign(k, NewPrepareVote(fp0.Proposal().Msg())))
 	}
 	prepareQC := NewPrepareQC(prepareVotes)
 
@@ -817,7 +817,7 @@ func TestProposalVerifyRejectsReproposalHashMismatch(t *testing.T) {
 
 	var prepareVotes []*Signed[*PrepareVote]
 	for _, k := range keys {
-		prepareVotes = append(prepareVotes, Sign(k, NewPrepareVote(fp0.View().Number, fp0.Header())))
+		prepareVotes = append(prepareVotes, Sign(k, NewPrepareVote(fp0.Proposal().Msg())))
 	}
 	prepareQC := NewPrepareQC(prepareVotes)
 

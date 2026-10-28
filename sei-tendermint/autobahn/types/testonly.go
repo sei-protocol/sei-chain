@@ -16,6 +16,16 @@ import (
 // [NextTimestamp(), NextTimestamp() + (view number + 1) * testViewTimeout].
 const testViewTimeout = 1500 * time.Millisecond
 
+// BuildPrepareQC builds a PrepareQC over proposal signed by keys.
+func BuildPrepareQC(keys []SecretKey, proposal *Proposal) *PrepareQC {
+	vote := NewPrepareVote(proposal)
+	votes := make([]*Signed[*PrepareVote], len(keys))
+	for i, key := range keys {
+		votes[i] = Sign(key, vote)
+	}
+	return NewPrepareQC(votes)
+}
+
 // BuildCommitQC builds a valid CommitQC from explicit lane QCs and an optional app QC.
 // If laneQCs is empty, a single 1-block LaneQC is synthesized so the tipcut is non-empty.
 // Use BuildFullCommitQC when you want random blocks generated automatically.
@@ -39,8 +49,9 @@ func BuildCommitQC(
 	}
 	proposal := utils.OrPanic1(NewProposal(leaderKey, vs, vs.ClampTimestamp(time.Now(), testViewTimeout), laneQCs))
 	votes := make([]*Signed[*CommitVote], 0, len(keys))
+	prepareQC := BuildPrepareQC(keys, proposal.Proposal().Msg())
 	for _, k := range keys {
-		votes = append(votes, Sign(k, NewCommitVote(proposal.View().Number, proposal.Header())))
+		votes = append(votes, Sign(k, NewCommitVote(prepareQC)))
 	}
 	return NewCommitQC(votes)
 }
@@ -310,7 +321,7 @@ func GenEpochWithCommittee(rng utils.Rng, committee *Committee) *Epoch {
 // CommitQCAt creates a CommitQC at ep.RoadRange().First, signed by all keys.
 func CommitQCAt(ep *Epoch, keys []SecretKey) *CommitQC {
 	voteProposal := ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First})
-	vote := NewCommitVote(voteProposal.View().Number, voteProposal.Header())
+	vote := NewCommitVote(BuildPrepareQC(keys, voteProposal))
 	votes := make([]*Signed[*CommitVote], len(keys))
 	for i, k := range keys {
 		votes[i] = Sign(k, vote)
@@ -419,7 +430,7 @@ func GenSuperBlock(rng utils.Rng) *SuperBlock {
 // GenPrepareVote generates a random PrepareVote.
 func GenPrepareVote(rng utils.Rng) *PrepareVote {
 	voteProposal := GenProposal(rng)
-	return NewPrepareVote(voteProposal.View().Number, voteProposal.Header())
+	return NewPrepareVote(voteProposal)
 }
 
 // GenPrepareQC generates a random PrepareQC.
@@ -433,8 +444,7 @@ func GenPrepareQC(rng utils.Rng) *PrepareQC {
 
 // GenCommitVote generates a random CommitVote.
 func GenCommitVote(rng utils.Rng) *CommitVote {
-	voteProposal := GenProposal(rng)
-	return NewCommitVote(voteProposal.View().Number, voteProposal.Header())
+	return NewCommitVote(GenPrepareQC(rng))
 }
 
 // GenCommitQC generates a random CommitQC.
@@ -461,7 +471,7 @@ func GenFullCommitQCAt(rng utils.Rng, index RoadIndex, n int) *FullCommitQC {
 	view := GenView(rng)
 	view.Index = index
 	proposal := &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, utils.GenTimestamp(rng), ranges)}
-	qc := NewCommitQC([]*Signed[*CommitVote]{GenSigned(rng, NewCommitVote(proposal.View().Number, proposal.Header()))})
+	qc := NewCommitQC([]*Signed[*CommitVote]{GenSigned(rng, NewCommitVote(BuildPrepareQC([]SecretKey{GenSecretKey(rng)}, proposal)))})
 	return NewFullCommitQC(qc, utils.GenSliceN(rng, n, GenBlockHeader))
 }
 

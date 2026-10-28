@@ -100,7 +100,7 @@ func TestPrepareQCWireguardAcceptsMaxValidators(t *testing.T) {
 	_, keys := maxValidatorCommittee(t)
 	rng := utils.TestRng()
 	voteProposal := GenProposalAt(rng, View{})
-	vote := NewPrepareVote(voteProposal.View().Number, voteProposal.Header())
+	vote := NewPrepareVote(voteProposal)
 	votes := make([]*Signed[*PrepareVote], len(keys))
 	for i, key := range keys {
 		votes[i] = Sign(key, vote)
@@ -117,7 +117,7 @@ func TestCommitQCWireguardAcceptsMaxValidators(t *testing.T) {
 	_, keys := maxValidatorCommittee(t)
 	rng := utils.TestRng()
 	voteProposal := GenProposalAt(rng, View{})
-	vote := NewCommitVote(voteProposal.View().Number, voteProposal.Header())
+	vote := NewCommitVote(BuildPrepareQC(keys, voteProposal))
 	votes := make([]*Signed[*CommitVote], len(keys))
 	for i, key := range keys {
 		votes[i] = Sign(key, vote)
@@ -146,7 +146,7 @@ func TestFullCommitQCWireguardAcceptsMaxValidatorsAndHeaders(t *testing.T) {
 		laneRanges = append(laneRanges, NewLaneRange(lane, 0, utils.Some(lastHeader)))
 	}
 	proposal := &Proposal{header: newRoadBlockHeader(0, 0, time.Unix(1, 2), laneRanges)}
-	vote := NewCommitVote(proposal.View().Number, proposal.Header())
+	vote := NewCommitVote(BuildPrepareQC(keys, proposal))
 	votes := make([]*Signed[*CommitVote], len(keys))
 	for i, key := range keys {
 		votes[i] = Sign(key, vote)

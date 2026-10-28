@@ -122,7 +122,7 @@ func TestNewTimeoutQC(t *testing.T) {
 		if wantView.Less(pView) {
 			wantView = pView
 		}
-		votes = append(votes, NewFullTimeoutVote(k, view, utils.Some(makePrepareQC(keys, NewPrepareVote(p.View().Number, p.Header())))))
+		votes = append(votes, NewFullTimeoutVote(k, view, utils.Some(makePrepareQC(keys, NewPrepareVote(p)))))
 	}
 	tQC := NewTimeoutQC(votes)
 	pQC, ok := tQC.LatestPrepareQC().Get()
@@ -144,7 +144,7 @@ func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 	view := View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}
 
 	voteProposal := ProposalAt(ep, view)
-	pqc := makePrepareQC(keys, NewPrepareVote(voteProposal.View().Number, voteProposal.Header()))
+	pqc := makePrepareQC(keys, NewPrepareVote(voteProposal))
 
 	// Only keys[0] carries the PrepareQC; the rest carry None.
 	votes := make([]*FullTimeoutVote, len(keys))
@@ -199,7 +199,7 @@ func TestTimeoutQCVerify_HighestPrepareQCSelected(t *testing.T) {
 	makePQCAt := func(vn ViewNumber) *PrepareQC {
 		pView := View{Index: 0, Number: vn, EpochIndex: ep.EpochIndex()}
 		voteProposal := ProposalAt(ep, pView)
-		return makePrepareQC(keys, NewPrepareVote(voteProposal.View().Number, voteProposal.Header()))
+		return makePrepareQC(keys, NewPrepareVote(voteProposal))
 	}
 
 	// keys[0] has PrepareQC at view number 2, keys[1] at 4, rest None.

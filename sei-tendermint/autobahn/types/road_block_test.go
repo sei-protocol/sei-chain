@@ -20,8 +20,9 @@ func TestRoadBlockVerify(t *testing.T) {
 				_, signingKeys = GenCommittee(rng, 3)
 			}
 			var votes []*Signed[*CommitVote]
+			prepareQC := BuildPrepareQC(keys, proposal)
 			for _, key := range signingKeys {
-				votes = append(votes, Sign(key, NewCommitVote(proposal.View().Number, proposal.Header())))
+				votes = append(votes, Sign(key, NewCommitVote(prepareQC)))
 			}
 			headers := make([]*BlockHeader, len(blocks))
 			for i, block := range blocks {

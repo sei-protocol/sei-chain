@@ -15,9 +15,9 @@ type PrepareVote struct {
 	header     *RoadBlockHeader
 }
 
-// NewPrepareVote creates a new PrepareVote.
-func NewPrepareVote(viewNumber ViewNumber, header *RoadBlockHeader) *PrepareVote {
-	return &PrepareVote{viewNumber: viewNumber, header: header}
+// NewPrepareVote creates a prepare vote for proposal.
+func NewPrepareVote(proposal *Proposal) *PrepareVote {
+	return &PrepareVote{viewNumber: proposal.View().Number, header: proposal.Header()}
 }
 
 // View returns the vote's consensus view.

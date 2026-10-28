@@ -137,7 +137,7 @@ func TestPrepareQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
 	voteProposal := ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First})
-	vote := NewPrepareVote(voteProposal.View().Number, voteProposal.Header())
+	vote := NewPrepareVote(voteProposal)
 
 	heavyOnly := NewPrepareQC([]*Signed[*PrepareVote]{
 		Sign(keys[0], vote),
@@ -154,7 +154,7 @@ func TestPrepareQCVerifyChecksEpochBinding(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
 	sign := func(p *Proposal) *PrepareQC {
-		return NewPrepareQC([]*Signed[*PrepareVote]{Sign(keys[0], NewPrepareVote(p.View().Number, p.Header()))})
+		return NewPrepareQC([]*Signed[*PrepareVote]{Sign(keys[0], NewPrepareVote(p))})
 	}
 
 	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First})).Verify(ep))
@@ -170,7 +170,7 @@ func TestCommitQCVerifyChecksEpochBinding(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
 	sign := func(p *Proposal) *CommitQC {
-		return NewCommitQC([]*Signed[*CommitVote]{Sign(keys[0], NewCommitVote(p.View().Number, p.Header()))})
+		return NewCommitQC([]*Signed[*CommitVote]{Sign(keys[0], NewCommitVote(BuildPrepareQC(keys, p)))})
 	}
 
 	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First})).Verify(ep))
@@ -186,7 +186,7 @@ func TestCommitQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
 	voteProposal := ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First})
-	vote := NewCommitVote(voteProposal.View().Number, voteProposal.Header())
+	vote := NewCommitVote(BuildPrepareQC(keys, voteProposal))
 
 	heavyOnly := NewCommitQC([]*Signed[*CommitVote]{
 		Sign(keys[0], vote),
