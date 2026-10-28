@@ -62,14 +62,16 @@ func TestCLOBPlaceWorkloadRunsWithoutConflicts(t *testing.T) {
 	require.NotZero(t, fills)
 	t.Logf("fills=%d max gas used=%d", fills, maxGas)
 
-	// Every market's base and quote totals equal what genesis credited it.
+	// Every trader has traded, so each market's base and quote totals equal what the contract
+	// credited its traders.
 	view := store.OpenView()
 	defer view.Close()
 	tradersPerMarket := uint64(accounts / txsPerBlock)
-	for market := uint64(0); market < txsPerBlock; market++ {
+	for slot := uint64(0); slot < txsPerBlock; slot++ {
+		market := scenarios.CLOBMarket(slot)
 		base, quote := new(big.Int), new(big.Int)
 		for round := uint64(0); round < tradersPerMarket; round++ {
-			trader, err := scenarios.CLOBTrader(scenarioConfig(cfg), round, market)
+			trader, err := scenarios.CLOBTrader(scenarioConfig(cfg), round, slot)
 			require.NoError(t, err)
 			baseSlot, quoteSlot := clob.BalanceSlots(market, trader)
 			avail, locked := clob.UnpackBalance(view.GetStorage(cfg.clobContract, baseSlot))
@@ -77,7 +79,7 @@ func TestCLOBPlaceWorkloadRunsWithoutConflicts(t *testing.T) {
 			avail, locked = clob.UnpackBalance(view.GetStorage(cfg.clobContract, quoteSlot))
 			quote.Add(quote, avail).Add(quote, locked)
 		}
-		want := new(big.Int).Mul(new(big.Int).SetUint64(scenarios.CLOBCredit), new(big.Int).SetUint64(tradersPerMarket))
+		want := new(big.Int).Mul(clob.Credit(), new(big.Int).SetUint64(tradersPerMarket))
 		require.Equal(t, want, base, "market %d base", market)
 		require.Equal(t, want, quote, "market %d quote", market)
 	}
