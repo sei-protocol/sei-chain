@@ -30,6 +30,14 @@ type failingEVMStore struct{}
 
 var _ gigatypes.LiveStateStore = (*failingEVMStore)(nil)
 
+type importerFailingEVMStore struct {
+	failingEVMStore
+}
+
+func (f *importerFailingEVMStore) Importer(int64) (types.Importer, error) {
+	return nil, errors.New("flatkv importer unavailable")
+}
+
 func (f *failingEVMStore) LoadLatest() error { return fmt.Errorf("flatkv unavailable") }
 
 func (f *failingEVMStore) LoadVersionReadOnly(int64) (gigatypes.LiveStateStore, error) {
@@ -1230,6 +1238,33 @@ func TestExporterFailsLoudOnFlatKVLoadFailure(t *testing.T) {
 	_, err = cs.Exporter(1)
 	require.Error(t, err, "Exporter must fail loud on an in-history flatkv load failure")
 	require.Contains(t, err.Error(), "failed to load flatkv at export version")
+}
+
+func TestCompositeImporterAbortsMemIAVLWhenFlatKVImporterFails(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.DefaultStateCommitConfig()
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	require.NoError(t, cs.LoadLatest())
+	require.NoError(t, cs.Close())
+
+	cs.storeFlatKV(&importerFailingEVMStore{})
+
+	const importVersion = int64(7)
+	_, err = cs.Importer(importVersion)
+	require.ErrorContains(t, err, "failed to create flatkv importer")
+
+	latestVersion, err := cs.memIAVL.GetLatestVersion()
+	require.NoError(t, err)
+	require.Zero(t, latestVersion)
+
+	retry, err := cs.memIAVL.Importer(importVersion)
+	require.NoError(t, err)
+	require.NoError(t, retry.Abort(errors.New("test cleanup")))
 }
 
 func TestCompositeImporterRouting(t *testing.T) {
