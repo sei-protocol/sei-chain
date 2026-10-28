@@ -15,7 +15,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
@@ -61,7 +60,6 @@ func (m *undoModel) commitBlock(t *testing.T, db *StateDB, writes map[string][]b
 	height := int64(len(m.states))
 	prev := m.states[height-1]
 	next := maps.Clone(prev)
-	var pairs []*proto.KVPair
 	var changes gigatypes.StateChangeSet
 	for key, value := range writes {
 		old := prev[key]
@@ -75,12 +73,10 @@ func (m *undoModel) commitBlock(t *testing.T, db *StateDB, writes map[string][]b
 				Address: common.BytesToAddress([]byte(key[1:21])), Key: common.BytesToHash([]byte(key[21:])),
 				Value: common.BytesToHash(value), PriorValue: common.BytesToHash(old)})
 		}
-		pairs = append(pairs, &proto.KVPair{Key: []byte(key), Value: value})
 		next[key] = value
 	}
 	m.states = append(m.states, next)
-	require.NoError(t, db.CommitStateChangesWithPrior(height,
-		[]*proto.NamedChangeSet{{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: pairs}}}, &changes))
+	require.NoError(t, db.CommitStateChanges(height, &changes))
 }
 
 func storageKey(addr common.Address, slot byte) []byte {
@@ -99,6 +95,15 @@ func nonceValue(nonce uint64) []byte {
 	v := make([]byte, 8)
 	binary.BigEndian.PutUint64(v, nonce)
 	return v
+}
+
+// nonceChanges is a change set moving addr's nonce from prior to nonce.
+func nonceChanges(addr common.Address, prior uint64, nonce uint64) *gigatypes.StateChangeSet {
+	return &gigatypes.StateChangeSet{Accounts: []gigatypes.AccountChange{{
+		Address: addr,
+		Account: gigatypes.AccountState{Nonce: nonce},
+		Prior:   gigatypes.AccountState{Nonce: prior},
+	}}}
 }
 
 // nonceOf decodes a nonce value, 0 for none.
@@ -231,14 +236,8 @@ func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 	defer func() { require.NoError(t, db.Close()) }()
 	addr := common.Address{5}
 	oldCode, newCode := []byte{0x60, 0x00}, []byte{0x60, 0x01}
-	newCodeHash := crypto.Keccak256Hash(newCode)
 
-	require.NoError(t, db.CommitStateChangesWithPrior(1, []*proto.NamedChangeSet{{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{
-		Pairs: []*proto.KVPair{
-			{Key: keys.BuildEVMKey(keys.EVMKeyBalance, addr[:]), Value: common.BigToHash(big.NewInt(9)).Bytes()},
-			{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]), Value: newCodeHash.Bytes()},
-			{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr[:]), Value: newCode},
-		}}}}, &gigatypes.StateChangeSet{
+	require.NoError(t, db.CommitStateChanges(1, &gigatypes.StateChangeSet{
 		Accounts: []gigatypes.AccountChange{{
 			Address: addr,
 			Account: gigatypes.AccountState{Balance: big.NewInt(9), Code: newCode},
@@ -266,12 +265,11 @@ func TestUndoStateDBCommitsABlockThatWritesNoEVMState(t *testing.T) {
 	db := newUndoTestHome(t).open(t)
 	defer func() { require.NoError(t, db.Close()) }()
 	addr := common.Address{3}
-	require.NoError(t, db.CommitStateChangesWithPrior(1, []*proto.NamedChangeSet{{Name: keys.EVMStoreKey,
-		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: nonceKey(addr), Value: nonceValue(1)}}}}},
-		&gigatypes.StateChangeSet{Accounts: []gigatypes.AccountChange{{Address: addr, Account: gigatypes.AccountState{Nonce: 1}}}}))
+	require.NoError(t, db.CommitStateChanges(1, nonceChanges(addr, 0, 1)))
 
-	require.NoError(t, db.CommitStateChangesWithPrior(2, []*proto.NamedChangeSet{{Name: "cursor",
-		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("head"), Value: []byte{2}}}}}}, &gigatypes.StateChangeSet{}))
+	require.NoError(t, db.CommitStateChanges(2, &gigatypes.StateChangeSet{
+		Misc: []gigatypes.MiscChange{{Module: "cursor", Key: []byte("head"), Value: []byte{2}}},
+	}))
 	db.UndoSS().WaitForPendingWrites()
 
 	require.Equal(t, int64(2), db.UndoSS().GetLatestVersion())
@@ -293,13 +291,7 @@ func TestUndoStateDBResumesOnASeededHeight(t *testing.T) {
 	addr := common.Address{4}
 	for block := int64(5); block <= 6; block++ {
 		nonce := uint64(block - 4) //nolint:gosec // positive
-		require.NoError(t, db.CommitStateChangesWithPrior(block, []*proto.NamedChangeSet{{Name: keys.EVMStoreKey,
-			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: nonceKey(addr), Value: nonceValue(nonce)}}}}},
-			&gigatypes.StateChangeSet{Accounts: []gigatypes.AccountChange{{
-				Address: addr,
-				Account: gigatypes.AccountState{Nonce: nonce},
-				Prior:   gigatypes.AccountState{Nonce: nonce - 1},
-			}}}))
+		require.NoError(t, db.CommitStateChanges(block, nonceChanges(addr, nonce-1, nonce)))
 	}
 	db.UndoSS().WaitForPendingWrites()
 
@@ -343,14 +335,11 @@ func TestUndoStateDBClosesWithAHistoricalViewOpen(t *testing.T) {
 	view.Close()
 }
 
-func TestUndoStateDBRefusesABlockWithoutItsChangeSet(t *testing.T) {
+// A block that changes nothing has nothing for the undo log to record, and still commits.
+func TestUndoStateDBCommitsAnEmptyChangeSet(t *testing.T) {
 	db := newUndoTestHome(t).open(t)
 	defer func() { require.NoError(t, db.Close()) }()
-	changeset := []*proto.NamedChangeSet{{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{
-		Pairs: []*proto.KVPair{{Key: nonceKey(common.Address{1}), Value: nonceValue(1)}}}}}
 
-	require.Error(t, db.CommitStateChanges(1, changeset))
-	require.Error(t, db.CommitStateChanges(1, nil), "an undo log needs a change set even for an empty block")
-	require.NoError(t, db.CommitStateChangesWithPrior(1, nil, &gigatypes.StateChangeSet{}),
+	require.NoError(t, db.CommitStateChanges(1, &gigatypes.StateChangeSet{}),
 		"a block that changes nothing has nothing to record")
 }

@@ -58,12 +58,11 @@ func TestSetupWritesDrainIntoTheBlockToCommit(t *testing.T) {
 
 	state, _ := newTestState()
 	account, slot := testAccountKey(1), testSlotKey(1)
-	state.Put(account, []byte("account value"))
-	state.Put(slot, []byte("slot value"))
+	state.Put(account, testWord("account value"))
+	state.Put(slot, testWord("slot value"))
 
 	writes := state.drainSetupWrites(identifierCounters{nextAccountID: 3, nextErc20ContractID: 4})
-	require.Len(t, writes.changeSets, 1)
-	require.Len(t, writes.changeSets[0].Changeset.Pairs, 2+len(counterKeys))
+	require.Len(t, stagedPairs(t, writes), 2+len(counterKeys))
 
 	require.Zero(t, state.setupWrites.count(), "draining must leave the batch empty for the next block")
 }

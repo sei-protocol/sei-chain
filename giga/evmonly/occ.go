@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"slices"
 	"sort"
 	"sync/atomic"
 
@@ -855,6 +856,14 @@ func (s *blockSTMState) ChangeSet() StateChangeSet {
 // ChangeSetInto writes the block's net state changes, in canonical order, on the calling goroutine.
 func (s *blockSTMState) ChangeSetInto(changes *StateChangeSet) {
 	changes.Reset()
+	// Every entry a shard holds is an upper bound on what it contributes, so the set never grows.
+	accountCount, storageCount := 0, 0
+	for i := range s.shards {
+		accountCount += len(s.shards[i].accounts)
+		storageCount += len(s.shards[i].storage)
+	}
+	changes.Accounts = slices.Grow(changes.Accounts, accountCount)
+	changes.Storage = slices.Grow(changes.Storage, storageCount)
 	for i := range s.shards {
 		s.shards[i].changeSetInto(changes)
 	}

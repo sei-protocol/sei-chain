@@ -47,18 +47,14 @@ const (
 	erc20IDCounterName   = "erc20IdCounterKey"
 )
 
-// counterKeys are the keys the identifier counters are stored under, in the order every block commits
-// them. They are built once because every block writes both.
-var counterKeys = [...][]byte{
-	keys.BuildEVMKey(keys.EVMKeyCode, paddedCounterKey(accountIDCounterName)),
-	keys.BuildEVMKey(keys.EVMKeyCode, paddedCounterKey(erc20IDCounterName)),
-}
+// counterModule is the non-EVM module the identifier counters are stored in.
+const counterModule = "gigasim"
 
-// paddedCounterKey pads a name out to an address, which is what the EVM key builders accept.
-func paddedCounterKey(name string) []byte {
-	padded := make([]byte, keys.AddressLen)
-	copy(padded, name)
-	return padded
+// counterKeys are the keys within counterModule the identifier counters are stored under, in the order
+// every block commits them.
+var counterKeys = [...][]byte{
+	[]byte(accountIDCounterName),
+	[]byte(erc20IDCounterName),
 }
 
 // mintCycle is the number of consecutive identifiers one turn of the new-account split covers. A
@@ -206,7 +202,7 @@ func newAccountModel(
 
 // readCounter reads an identifier counter from state, answering 0 when the key has never been written.
 func readCounter(state *executionState, key []byte) int64 {
-	encoded, found := state.Get(key)
+	encoded, found := state.view.Get(counterModule, key)
 	if !found {
 		return 0
 	}

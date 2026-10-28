@@ -106,7 +106,7 @@ func (s *executionState) commitBlock(blockNum int64, writes blockWrites) error {
 	// SC and SS are handed the same changeset, so the volume they take in is the same. SS is reported
 	// only when it is open, which is what makes it fall to zero on a validator's stack rather than
 	// claiming writes nothing performed.
-	keys := int64(len(writes.changeSets[0].Changeset.Pairs))
+	keys := writes.keys
 	s.metrics.ReportStoreBytesWritten(storeStateCommit, writes.bytes)
 	s.metrics.ReportStoreKeysWritten(storeStateCommit, keys)
 	if s.db.SS() != nil {
@@ -118,7 +118,7 @@ func (s *executionState) commitBlock(blockNum int64, writes blockWrites) error {
 	// The state DB splits the commit across the state WAL, SC and SS and times each itself, being the
 	// layer that can tell them apart. Standing down here keeps one commit out of two breakdowns.
 	s.lifecycle.Reset()
-	if err := s.db.CommitStateChanges(blockNum, writes.changeSets); err != nil {
+	if err := s.db.CommitStateChanges(blockNum, writes.changes); err != nil {
 		return fmt.Errorf("failed to commit block %d to the state DB: %w", blockNum, err)
 	}
 	s.metrics.ReportStateCommit(keys)

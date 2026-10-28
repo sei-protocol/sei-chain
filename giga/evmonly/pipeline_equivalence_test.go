@@ -10,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
@@ -138,13 +137,13 @@ func (s *laggingStore) OpenView() gigatypes.StateView {
 	return s.MemoryStore.OpenView()
 }
 
-func (s *laggingStore) CommitStateChanges(blockNum int64, changesets []*proto.NamedChangeSet) error {
+func (s *laggingStore) CommitStateChanges(blockNum int64, changes *gigatypes.StateChangeSet) error {
 	s.mu.Lock()
 	for s.opened <= blockNum && !s.released {
 		s.cond.Wait()
 	}
 	s.mu.Unlock()
-	return s.MemoryStore.CommitStateChanges(blockNum, changesets)
+	return s.MemoryStore.CommitStateChanges(blockNum, changes)
 }
 
 // release lets the last block's commit land without a following block.
@@ -162,9 +161,9 @@ func TestPipelinedExecutionMatchesSynchronousExecution(t *testing.T) {
 	cfg := Config{OCCWorkers: 4}
 	syncStore := NewMemoryStore(scenario.genesis())
 	pipeStore := newLaggingStore(NewMemoryStore(scenario.genesis()))
-	syncExecutor := NewExecutor(cfg, withTestStores(syncStore, NewMemoryReceiptStore(), syncStore.EncodeChangeSet))
+	syncExecutor := NewExecutor(cfg, withTestStores(syncStore, NewMemoryReceiptStore()))
 	defer syncExecutor.Close()
-	pipeExecutor := NewExecutor(cfg, withTestStores(pipeStore, NewMemoryReceiptStore(), pipeStore.EncodeChangeSet))
+	pipeExecutor := NewExecutor(cfg, withTestStores(pipeStore, NewMemoryReceiptStore()))
 	defer pipeExecutor.Close()
 
 	for number := uint64(1); number <= 4; number++ {
