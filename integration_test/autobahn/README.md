@@ -392,6 +392,10 @@ WebSocket (port 8546 by default):
   block whose receipts are indexed, and a block whose receipts are not indexed
   yet returns `null`.
 - Logs: `eth_getLogs`.
+- Filters: `eth_newFilter`, `eth_newBlockFilter`, `eth_getFilterChanges`,
+  `eth_getFilterLogs`, and `eth_uninstallFilter`, polling from a cursor as the
+  regular RPC does (see `evmrpc/AGENTS.md`). `eth_newPendingTransactionFilter`
+  returns a not-supported error, as on the regular RPC.
 - Fees: `eth_gasPrice`, `eth_maxPriorityFeePerGas`, and `eth_feeHistory`.
 - Node: `eth_chainId`, `net_version`, and `eth_syncing`, which returns a
   not-supported error, as on the regular RPC.
@@ -401,10 +405,8 @@ A lookup for a pending or unknown hash returns `null`. Every other method
 returns JSON-RPC method-not-found, and `eth_subscribe` rejects any
 subscription other than `newHeads`:
 
-- Not supported yet: the `debug_*` tracing and raw-data methods, the polling
-  filter methods (`eth_newFilter`, `eth_newBlockFilter`,
-  `eth_newPendingTransactionFilter`, `eth_getFilterChanges`,
-  `eth_getFilterLogs`, `eth_uninstallFilter`), `eth_subscribe("logs")`,
+- Not supported yet: the `debug_*` tracing and raw-data methods,
+  `eth_subscribe("logs")`,
   `eth_getVMError`, `eth_getTransactionErrorByHash`, `eth_createAccessList`,
   `eth_estimateGasAfterCalls`, and `web3_clientVersion`.
 - Not planned, because they need something the EVM-only chain does not have
@@ -437,8 +439,9 @@ subscription other than `newHeads`:
   `transactionIndex` is the position in that list, so a block's receipts can
   skip positions. Hiding rejected transactions from block results is planned.
 - `eth_getLogs` covers at most 2,000 blocks and 10,000 logs per query, and a
-  bound outside the indexed, retained range returns an error.
-  `eth_feeHistory` covers at most 1,024 blocks.
+  bound outside the indexed, retained range returns an error. A log filter's
+  `eth_getFilterChanges` poll covers at most as much, and later polls return
+  the rest. `eth_feeHistory` covers at most 1,024 blocks.
 - `newHeads` is the only subscription.
 - Blocks and receipts below the node's retention window are pruned: a lookup by
   number returns an error, and a lookup by hash returns `null`.
@@ -467,6 +470,9 @@ the row says otherwise:
 | `batch_request_limit` | 100 | requests in one JSON-RPC batch |
 | `batch_response_max_size` | 25000000 | bytes of responses in one JSON-RPC batch |
 | `max_ws_connections` | 2000 | open WebSocket connections; further connections wait |
+| `filter_timeout` | `120s` | how long a filter lives without being polled |
+| `max_filters` | 1000 | installed `eth_newFilter` and `eth_newBlockFilter` filters |
+| `max_block_filter_hashes` | 1000 | unpolled blocks a block filter may fall behind by before it is removed |
 
 A subscription refused by either cap returns an error, and its slot frees when
 the client unsubscribes or the connection closes. A connection is identified by

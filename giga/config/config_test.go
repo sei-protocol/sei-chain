@@ -51,6 +51,9 @@ func TestRPCDefaultsMatchTheV2EVMRPC(t *testing.T) {
 	require.Equal(t, v2.BatchResponseMaxSize, r.BatchResponseMaxSize)
 	require.Equal(t, v2.MaxOpenConnections, r.MaxWSConnections)
 	require.Equal(t, uint64(100), r.MaxSubscriptionsPerConnection)
+	require.Equal(t, v2.FilterTimeout, r.FilterTimeout)
+	require.Equal(t, v2.MaxFilters, r.MaxFilters)
+	require.Equal(t, v2.MaxBlockFilterHashes, r.MaxBlockFilterHashes)
 }
 
 // TestConfigTemplateRendersTheDefaults holds the app.toml template to the section: the rendered
@@ -91,6 +94,9 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.rpc.batch_request_limit":              "10",
 		"giga.rpc.batch_response_max_size":          "1000",
 		"giga.rpc.max_ws_connections":               "7",
+		"giga.rpc.filter_timeout":                   "45s",
+		"giga.rpc.max_filters":                      "12",
+		"giga.rpc.max_block_filter_hashes":          "34",
 		"giga.state_sync.enabled":                   "true",
 	})
 	require.NoError(t, err)
@@ -122,6 +128,9 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			BatchRequestLimit:             10,
 			BatchResponseMaxSize:          1000,
 			MaxWSConnections:              7,
+			FilterTimeout:                 45 * time.Second,
+			MaxFilters:                    12,
+			MaxBlockFilterHashes:          34,
 		},
 		StateSync: gigaconfig.StateSyncConfig{
 			Enabled: true,
@@ -161,6 +170,10 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"non-numeric batch limit":         {"giga.rpc.batch_request_limit": "many"},
 		"non-numeric batch response size": {"giga.rpc.batch_response_max_size": "big"},
 		"non-numeric ws connections":      {"giga.rpc.max_ws_connections": "some"},
+		"negative filter timeout":         {"giga.rpc.filter_timeout": "-1s"},
+		"non-duration filter timeout":     {"giga.rpc.filter_timeout": "later"},
+		"negative filter cap":             {"giga.rpc.max_filters": "-1"},
+		"non-numeric block filter hashes": {"giga.rpc.max_block_filter_hashes": "plenty"},
 		"non-boolean state sync":          {"giga.state_sync.enabled": "maybe"},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)

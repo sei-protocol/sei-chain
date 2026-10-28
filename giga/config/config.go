@@ -99,6 +99,14 @@ type RPCConfig struct {
 	BatchResponseMaxSize int `mapstructure:"batch_response_max_size"`
 	// MaxWSConnections caps simultaneously open WebSocket connections.
 	MaxWSConnections int `mapstructure:"max_ws_connections"`
+	// FilterTimeout is how long an eth_newFilter or eth_newBlockFilter filter lives without being
+	// polled.
+	FilterTimeout time.Duration `mapstructure:"filter_timeout"`
+	// MaxFilters caps the installed eth_newFilter and eth_newBlockFilter filters.
+	MaxFilters uint64 `mapstructure:"max_filters"`
+	// MaxBlockFilterHashes caps the unpolled blocks an eth_newBlockFilter filter may fall behind
+	// by before it is removed.
+	MaxBlockFilterHashes uint64 `mapstructure:"max_block_filter_hashes"`
 }
 
 // StateSyncConfig is the [giga.state_sync] sub-table: whether this node uses giga state sync.
@@ -130,6 +138,9 @@ var DefaultConfig = Config{
 		BatchRequestLimit:             100,
 		BatchResponseMaxSize:          25 * 1000 * 1000,
 		MaxWSConnections:              2000,
+		FilterTimeout:                 120 * time.Second,
+		MaxFilters:                    1000,
+		MaxBlockFilterHashes:          1000,
 	},
 	StateSync: StateSyncConfig{
 		Enabled: false,
@@ -176,6 +187,9 @@ const (
 	FlagRPCBatchRequestLimit             = "giga.rpc.batch_request_limit"
 	FlagRPCBatchResponseMaxSize          = "giga.rpc.batch_response_max_size"
 	FlagRPCMaxWSConnections              = "giga.rpc.max_ws_connections"
+	FlagRPCFilterTimeout                 = "giga.rpc.filter_timeout"
+	FlagRPCMaxFilters                    = "giga.rpc.max_filters"
+	FlagRPCMaxBlockFilterHashes          = "giga.rpc.max_block_filter_hashes"
 	FlagStateSyncEnabled                 = "giga.state_sync.enabled"
 )
 
@@ -298,6 +312,21 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxWSConnections, err)
 		}
 	}
+	if v := opts.Get(FlagRPCFilterTimeout); v != nil {
+		if cfg.RPC.FilterTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCFilterTimeout, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxFilters); v != nil {
+		if cfg.RPC.MaxFilters, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxFilters, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxBlockFilterHashes); v != nil {
+		if cfg.RPC.MaxBlockFilterHashes, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxBlockFilterHashes, err)
+		}
+	}
 	if v := opts.Get(FlagStateSyncEnabled); v != nil {
 		if cfg.StateSync.Enabled, err = cast.ToBoolE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStateSyncEnabled, err)
@@ -375,6 +404,9 @@ func (c Config) Validate() error {
 	}
 	if c.RPC.MaxWSConnections < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxWSConnections, c.RPC.MaxWSConnections)
+	}
+	if c.RPC.FilterTimeout < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %s", FlagRPCFilterTimeout, c.RPC.FilterTimeout)
 	}
 	return nil
 }
@@ -473,6 +505,17 @@ batch_response_max_size = {{ .Giga.RPC.BatchResponseMaxSize }}
 
 # max_ws_connections caps simultaneously open WebSocket connections.
 max_ws_connections = {{ .Giga.RPC.MaxWSConnections }}
+
+# filter_timeout is how long an eth_newFilter or eth_newBlockFilter filter lives without being
+# polled.
+filter_timeout = "{{ .Giga.RPC.FilterTimeout }}"
+
+# max_filters caps the installed eth_newFilter and eth_newBlockFilter filters.
+max_filters = {{ .Giga.RPC.MaxFilters }}
+
+# max_block_filter_hashes caps the unpolled blocks an eth_newBlockFilter filter may fall behind
+# by before it is removed.
+max_block_filter_hashes = {{ .Giga.RPC.MaxBlockFilterHashes }}
 
 [giga.state_sync]
 # enabled allows the state-sync-snapshot create and restore commands on this node, and the
