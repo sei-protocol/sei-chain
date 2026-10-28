@@ -3,7 +3,7 @@ package gov
 import (
 	"errors"
 	"fmt"
-	"time"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -22,11 +22,7 @@ func (p Precompile) proposalQuery(s store, method *abi.Method, args []interface{
 	if !ok {
 		return nil, fmt.Errorf("%w: %d", errUnknownProposal, id)
 	}
-	data, err := proposalData(s, id, prop)
-	if err != nil {
-		return nil, err
-	}
-	return method.Outputs.Pack(data)
+	return method.Outputs.Pack(proposalData(s, id, prop))
 }
 
 // proposalsQuery pages through the narrowest index the filters allow: a
@@ -57,11 +53,7 @@ func (p Precompile) proposalsQuery(s store, method *abi.Method, args []interface
 		if depositor != (common.Address{}) && !s.depositors(id).Contains(solstorage.AddressKey(depositor)) {
 			continue
 		}
-		data, err := proposalData(s, id, prop)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, data)
+		out = append(out, proposalData(s, id, prop))
 	}
 	return method.Outputs.Pack(out, nextKey)
 }
@@ -117,16 +109,16 @@ func (p Precompile) votesQuery(s store, method *abi.Method, args []interface{}) 
 func (p Precompile) paramsQuery(s store, method *abi.Method) ([]byte, error) {
 	params := s.params()
 	return method.Outputs.Pack(GovParams{
-		VotingPeriod:          durationSeconds(params.VotingPeriod),
-		ExpeditedVotingPeriod: durationSeconds(params.ExpeditedVotingPeriod),
-		MinDeposit:            coins(params.MinDeposit),
-		MaxDepositPeriod:      durationSeconds(params.MaxDepositPeriod),
-		MinExpeditedDeposit:   coins(params.MinExpeditedDeposit),
-		Quorum:                formatDec(params.Quorum),
-		Threshold:             formatDec(params.Threshold),
-		VetoThreshold:         formatDec(params.VetoThreshold),
-		ExpeditedQuorum:       formatDec(params.ExpeditedQuorum),
-		ExpeditedThreshold:    formatDec(params.ExpeditedThreshold),
+		VotingPeriod:          params.VotingPeriod,
+		ExpeditedVotingPeriod: params.ExpeditedVotingPeriod,
+		MinDeposit:            params.MinDeposit,
+		MaxDepositPeriod:      params.MaxDepositPeriod,
+		MinExpeditedDeposit:   params.MinExpeditedDeposit,
+		Quorum:                new(big.Int).SetUint64(params.Quorum),
+		Threshold:             new(big.Int).SetUint64(params.Threshold),
+		VetoThreshold:         new(big.Int).SetUint64(params.VetoThreshold),
+		ExpeditedQuorum:       new(big.Int).SetUint64(params.ExpeditedQuorum),
+		ExpeditedThreshold:    new(big.Int).SetUint64(params.ExpeditedThreshold),
 	})
 }
 
@@ -137,7 +129,7 @@ func (p Precompile) depositQuery(s store, method *abi.Method, args []interface{}
 	if amount.Sign() == 0 {
 		return nil, fmt.Errorf("%w: proposal %d depositor %s", errDepositNotFound, id, depositor.Hex())
 	}
-	return method.Outputs.Pack(DepositData{ProposalId: id, Depositor: depositor.Hex(), Amount: coins(amount)})
+	return method.Outputs.Pack(DepositData{ProposalId: id, Depositor: depositor, Amount: amount})
 }
 
 func (p Precompile) depositsQuery(s store, method *abi.Method, args []interface{}) ([]byte, error) {
@@ -150,7 +142,7 @@ func (p Precompile) depositsQuery(s store, method *abi.Method, args []interface{
 	out := make([]DepositData, 0, end-start)
 	for i := start; i < end; i++ {
 		depositor := solstorage.MemberAddress(depositors.At(i))
-		out = append(out, DepositData{ProposalId: id, Depositor: depositor.Hex(), Amount: coins(s.deposit(id, depositor))})
+		out = append(out, DepositData{ProposalId: id, Depositor: depositor, Amount: s.deposit(id, depositor)})
 	}
 	return method.Outputs.Pack(out, nextKey)
 }
@@ -167,62 +159,31 @@ func (p Precompile) tallyResultQuery(s store, method *abi.Method, args []interfa
 	return method.Outputs.Pack(tallyResult(prop))
 }
 
-func proposalData(s store, id uint64, prop proposal) (ProposalData, error) {
-	content, err := decodeContent(s.proposalContent(id))
-	if err != nil {
-		return ProposalData{}, err
-	}
+func proposalData(s store, id uint64, prop proposal) ProposalData {
+	contentType, content := s.proposalContent(id)
 	return ProposalData{
 		Id:               id,
 		Status:           prop.status,
 		FinalTallyResult: tallyResult(prop),
-		SubmitTime:       unixSeconds(prop.submitTime),
-		DepositEndTime:   unixSeconds(prop.depositEndTime),
-		TotalDeposit:     coins(prop.totalDeposit),
-		VotingStartTime:  votingTime(prop.votingStartTime),
-		VotingEndTime:    votingTime(prop.votingEndTime),
+		SubmitTime:       prop.submitTime,
+		DepositEndTime:   prop.depositEndTime,
+		TotalDeposit:     prop.totalDeposit,
+		VotingStartTime:  prop.votingStartTime,
+		VotingEndTime:    prop.votingEndTime,
 		IsExpedited:      prop.isExpedited,
-		Content:          content.v2JSON(),
-	}, nil
-}
-
-// unixSeconds converts Unix nanoseconds to whole Unix seconds, rounding down
-// as time.Time.Unix does.
-func unixSeconds(nanos uint64) int64 {
-	return int64(nanos / uint64(time.Second)) //nolint:gosec // below 2^35 after the division
-}
-
-// unsetTime is the Unix time of V2's unset voting times, time.Time{}.Unix().
-const unsetTime = -62_135_596_800
-
-// votingTime converts a voting time to Unix seconds, giving unsetTime for one
-// not yet set, as V2 does before voting starts.
-func votingTime(nanos uint64) int64 {
-	if nanos == 0 {
-		return unsetTime
+		ContentType:      contentType,
+		Content:          content,
 	}
-	return unixSeconds(nanos)
-}
-
-// durationSeconds converts nanoseconds to whole seconds, rounding down as
-// time.Duration.Seconds does when V2 casts it to uint64.
-func durationSeconds(nanos uint64) uint64 {
-	return nanos / uint64(time.Second)
 }
 
 func tallyResult(prop proposal) TallyResultData {
-	return TallyResultData{
-		Yes:        prop.tallyYes.String(),
-		Abstain:    prop.tallyAbstain.String(),
-		No:         prop.tallyNo.String(),
-		NoWithVeto: prop.tallyNoWithVeto.String(),
-	}
+	return TallyResultData{Yes: prop.tallyYes, Abstain: prop.tallyAbstain, No: prop.tallyNo, NoWithVeto: prop.tallyNoWithVeto}
 }
 
 func voteData(id uint64, voter common.Address, options []weightedVote) VoteData {
-	out := make([]WeightedVoteOptionData, len(options))
+	out := make([]WeightedVoteOption, len(options))
 	for i, o := range options {
-		out[i] = WeightedVoteOptionData{Option: o.option, Weight: formatDec(o.weight)}
+		out[i] = WeightedVoteOption{Option: o.option, Weight: new(big.Int).SetUint64(o.weight)}
 	}
-	return VoteData{ProposalId: id, Voter: voter.Hex(), Options: out}
+	return VoteData{ProposalId: id, Voter: voter, Options: out}
 }

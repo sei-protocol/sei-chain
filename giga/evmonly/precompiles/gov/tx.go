@@ -66,33 +66,27 @@ func (p Precompile) vote(ctx *precompiles.Context, s store, method *abi.Method, 
 
 func (p Precompile) voteWeighted(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
 	id := args[0].(uint64)
-	raw := args[1].([]struct {
-		Option int32  `json:"option"`
-		Weight string `json:"weight"`
-	})
+	var raw []WeightedVoteOption
+	abi.ConvertType(args[1], &raw)
 	if len(raw) == 0 || len(raw) > maxVoteOptions {
 		return nil, fmt.Errorf("%w: between 1 and %d options required", errInvalidVote, maxVoteOptions)
 	}
 	options := make([]weightedVote, len(raw))
 	seen := make(map[int32]bool, len(raw))
-	var total uint64
+	total := new(big.Int)
 	for i, o := range raw {
 		if !validOption(o.Option) || seen[o.Option] {
 			return nil, fmt.Errorf("%w: %d", errInvalidVote, o.Option)
 		}
 		seen[o.Option] = true
-		weight, err := parseDec(o.Weight)
-		if err != nil {
-			return nil, fmt.Errorf("invalid weight format: %w", err)
-		}
-		if weight == 0 || weight > decOne {
+		if o.Weight.Sign() == 0 || o.Weight.Cmp(new(big.Int).SetUint64(decOne)) > 0 {
 			return nil, fmt.Errorf("%w: weight %s", errInvalidVote, o.Weight)
 		}
-		total += weight
-		options[i] = weightedVote{option: o.Option, weight: weight}
+		total.Add(total, o.Weight)
+		options[i] = weightedVote{option: o.Option, weight: o.Weight.Uint64()}
 	}
-	if total != decOne {
-		return nil, fmt.Errorf("%w: weights sum to %s, not 1", errInvalidVote, formatDec(total))
+	if !total.IsUint64() || total.Uint64() != decOne {
+		return nil, fmt.Errorf("%w: weights sum to %s, not 1e18", errInvalidVote, total)
 	}
 	if err := castVote(ctx, s, id, options); err != nil {
 		return nil, err
@@ -135,39 +129,43 @@ func (p Precompile) deposit(ctx *precompiles.Context, s store, method *abi.Metho
 	return method.Outputs.Pack(true)
 }
 
-func (p Precompile) submitProposal(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
-	content, submitted, err := parseProposal(args[0].(string))
-	if err != nil {
-		return nil, err
-	}
-	id, err := createProposal(ctx, s, content, submitted.IsExpedited)
-	if err != nil {
-		return nil, err
-	}
-	return method.Outputs.Pack(id)
+func (p Precompile) submitTextProposal(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
+	content := textContent{Title: args[0].(string), Description: args[1].(string), IsExpedited: args[2].(bool)}
+	return submit(ctx, s, method, content, content.IsExpedited)
 }
 
-// submitParamChangeProposal submits a ParameterChange proposal of typed changes.
+func (p Precompile) submitSoftwareUpgradeProposal(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
+	var plan UpgradePlan
+	abi.ConvertType(args[3], &plan)
+	content := softwareUpgradeContent{Title: args[0].(string), Description: args[1].(string), Plan: plan}
+	return submit(ctx, s, method, content, args[2].(bool))
+}
+
+func (p Precompile) submitCancelSoftwareUpgradeProposal(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
+	content := cancelSoftwareUpgradeContent{Title: args[0].(string), Description: args[1].(string)}
+	return submit(ctx, s, method, content, args[2].(bool))
+}
+
 func (p Precompile) submitParamChangeProposal(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
-	content := paramChangeContent{Title: args[0].(string), Description: args[1].(string), IsExpedited: args[2].(bool)}
-	if err := checkText(content.Title, content.Description); err != nil {
-		return nil, err
-	}
 	changes, err := paramChanges(args[3])
 	if err != nil {
 		return nil, err
 	}
-	content.Changes = changes
-	id, err := createProposal(ctx, s, content, content.IsExpedited)
+	content := paramChangeContent{Title: args[0].(string), Description: args[1].(string), IsExpedited: args[2].(bool), Changes: changes}
+	return submit(ctx, s, method, content, content.IsExpedited)
+}
+
+// submit creates a proposal of content and returns its packed id.
+func submit(ctx *precompiles.Context, s store, method *abi.Method, content govContent, isExpedited bool) ([]byte, error) {
+	id, err := createProposal(ctx, s, content, isExpedited)
 	if err != nil {
 		return nil, err
 	}
 	return method.Outputs.Pack(id)
 }
 
-// createProposal checks content's encoded size and checks it against the
-// current state, assigns the proposal an id, opens its deposit period, and
-// deposits the call's value on it.
+// createProposal checks content, assigns the proposal an id, opens its deposit
+// period, and deposits the call's value on it.
 func createProposal(ctx *precompiles.Context, s store, content govContent, isExpedited bool) (uint64, error) {
 	contentType, encoded := encodeContent(content)
 	if len(encoded) > maxContentLength {

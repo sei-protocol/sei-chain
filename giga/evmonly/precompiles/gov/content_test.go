@@ -1,7 +1,6 @@
 package gov
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -14,29 +13,24 @@ func TestExpeditedTextKeepsItsContentWhenDemoted(t *testing.T) {
 	h.endBlock(0)
 	got := h.proposal(id)
 	require.False(t, got.IsExpedited, "the proposal is now regular")
-	require.Contains(t, string(got.Content), `"is_expedited":true`, "its content is unchanged, as in V2")
+	content, err := decodeContent(got.ContentType, got.Content)
+	require.NoError(t, err)
+	require.Equal(t, textContent{Title: "t", Description: "d", IsExpedited: true}, content, "its content is unchanged, as in V2")
 }
 
-func TestSubmitRejectsFieldsGovDoesNotRead(t *testing.T) {
+func TestProposalReturnsStoredContent(t *testing.T) {
 	h := newHarness(t)
-	for name, content := range map[string]string{
-		"unknown field":          `{"title":"t","description":"d","type":"Text","deposit":"10usei"}`,
-		"unknown plan field":     `{"title":"t","description":"d","type":"SoftwareUpgrade","plan":{"name":"v2","height":10,"time":"2030-01-01T00:00:00Z"}}`,
-		"miscased field":         `{"Title":"t","description":"d","type":"Text"}`,
-		"miscased plan field":    `{"title":"t","description":"d","type":"SoftwareUpgrade","plan":{"NAME":"v2","height":10}}`,
-		"duplicate field":        `{"title":"t","title":"u","description":"d","type":"Text"}`,
-		"duplicate by case":      `{"title":"t","TITLE":"u","description":"d","type":"Text"}`,
-		"duplicate plan field":   `{"title":"t","description":"d","type":"SoftwareUpgrade","plan":{"name":"v2","name":"v3","height":10}}`,
-		"miscased changes":       `{"title":"t","description":"d","type":"ParameterChange","Changes":[{"subspace":"gov","key":"votingparams","value":{"voting_period":"1000000000"}}]}`,
-		"unknown change field":   `{"title":"t","description":"d","type":"ParameterChange","changes":[{"subspace":"gov","key":"votingparams","value":{"voting_period":"1000000000"},"note":"x"}]}`,
-		"duplicate change field": `{"title":"t","description":"d","type":"ParameterChange","changes":[{"subspace":"gov","key":"votingparams","key":"tallyparams","value":{"voting_period":"1000000000"}}]}`,
-		"null plan on text":      `{"title":"t","description":"d","type":"Text","plan":null}`,
-		"null plan on cancel":    `{"title":"t","description":"d","type":"CancelSoftwareUpgrade","plan":null}`,
-		"null changes on text":   `{"title":"t","description":"d","type":"Text","changes":null}`,
-		"V2 community pool type": `{"title":"t","description":"d","type":"Text","community_pool_spend":{"recipient":"0x1","amount":"1usei"}}`,
+	for _, tc := range []struct {
+		sub  submission
+		want govContent
+	}{
+		{textProposal, textContent{Title: "t", Description: "d"}},
+		{upgradeProposal("v2", 10), softwareUpgradeContent{Title: "t", Description: "d", Plan: UpgradePlan{Name: "v2", Height: 10, Info: "i"}}},
+		{cancelProposal, cancelSoftwareUpgradeContent{Title: "t", Description: "d"}},
 	} {
-		_, err := h.call(alice, callOpts{}, SubmitProposalMethod, content)
-		require.True(t, errors.Is(err, errUnknownField) || errors.Is(err, errDuplicateField), "%s: %v", name, err)
+		got := h.proposal(h.submit(alice, tc.sub, nil))
+		wantType, wantBytes := encodeContent(tc.want)
+		require.Equal(t, wantType, got.ContentType, tc.sub.method)
+		require.Equal(t, wantBytes, got.Content, tc.sub.method)
 	}
-	require.Zero(t, newStore(h.state).lastProposalID())
 }

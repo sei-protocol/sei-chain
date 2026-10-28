@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"math/big"
 	"os"
-	"sort"
 	"testing"
 	"time"
 
@@ -24,11 +23,39 @@ var (
 )
 
 const (
-	second        = uint64(time.Second)
-	startTime     = 1_700_000_000 * second
-	textProposal  = `{"title":"t","description":"d","type":"Text"}`
-	expedProposal = `{"title":"t","description":"d","type":"Text","is_expedited":true}`
+	second    = uint64(time.Second)
+	startTime = 1_700_000_000 * second
 )
+
+// submission is a submit method call.
+type submission struct {
+	method string
+	args   []interface{}
+}
+
+var (
+	textProposal   = textSubmission("t", "d", false)
+	expedProposal  = textSubmission("t", "d", true)
+	cancelProposal = submission{SubmitCancelSoftwareUpgradeProposalMethod, []interface{}{"t", "d", false}}
+)
+
+func textSubmission(title, description string, expedited bool) submission {
+	return submission{SubmitTextProposalMethod, []interface{}{title, description, expedited}}
+}
+
+func upgradeProposal(name string, height int64) submission {
+	return submission{SubmitSoftwareUpgradeProposalMethod, []interface{}{"t", "d", false, UpgradePlan{Name: name, Height: height, Info: "i"}}}
+}
+
+// weight returns percent as a 1e18-scaled weight.
+func weight(percent int64) *big.Int {
+	return new(big.Int).Mul(big.NewInt(percent), big.NewInt(10_000_000_000_000_000))
+}
+
+// tally returns a tally's counts for comparison.
+func tally(r TallyResultData) [4]string {
+	return [4]string{r.Yes.String(), r.Abstain.String(), r.No.String(), r.NoWithVeto.String()}
+}
 
 func usei(n int64) *big.Int {
 	return new(big.Int).Mul(big.NewInt(n), weiPerUsei)
@@ -114,8 +141,8 @@ func (h *harness) mustCall(caller common.Address, opts callOpts, method string, 
 	return values
 }
 
-func (h *harness) submit(caller common.Address, content string, value *big.Int) uint64 {
-	return h.mustCall(caller, callOpts{value: value}, SubmitProposalMethod, content)[0].(uint64)
+func (h *harness) submit(caller common.Address, sub submission, value *big.Int) uint64 {
+	return h.mustCall(caller, callOpts{value: value}, sub.method, sub.args...)[0].(uint64)
 }
 
 func (h *harness) proposal(id uint64) ProposalData {
@@ -134,16 +161,17 @@ func TestSubmitBelowMinimumWaitsForDeposits(t *testing.T) {
 	require.Equal(t, uint64(1), id)
 
 	got := h.proposal(id)
+	require.Equal(t, [4]string{"0", "0", "0", "0"}, tally(got.FinalTallyResult))
+	require.Equal(t, usei(4).String(), got.TotalDeposit.String())
+	got.FinalTallyResult, got.TotalDeposit = TallyResultData{}, nil
+	_, content := encodeContent(textContent{Title: "t", Description: "d"})
 	require.Equal(t, ProposalData{
-		Id:               1,
-		Status:           StatusDepositPeriod,
-		FinalTallyResult: TallyResultData{Yes: "0", Abstain: "0", No: "0", NoWithVeto: "0"},
-		SubmitTime:       unixSeconds(startTime),
-		DepositEndTime:   unixSeconds(startTime + testParams.MaxDepositPeriod),
-		TotalDeposit:     []Coin{{Amount: big.NewInt(4), Denom: "usei"}},
-		VotingStartTime:  time.Time{}.Unix(),
-		VotingEndTime:    time.Time{}.Unix(),
-		Content:          []byte(`{"@type":"/cosmos.gov.v1beta1.TextProposal","title":"t","description":"d","is_expedited":false}`),
+		Id:             1,
+		Status:         StatusDepositPeriod,
+		SubmitTime:     startTime,
+		DepositEndTime: startTime + testParams.MaxDepositPeriod,
+		ContentType:    contentText,
+		Content:        content,
 	}, got)
 
 	require.Equal(t, usei(4), h.state.GetBalance(DepositEscrow))
@@ -158,7 +186,7 @@ func TestSubmitWithoutDeposit(t *testing.T) {
 	id := h.submit(alice, textProposal, nil)
 	got := h.proposal(id)
 	require.Equal(t, StatusDepositPeriod, got.Status)
-	require.Empty(t, got.TotalDeposit)
+	require.Zero(t, got.TotalDeposit.Sign())
 	require.Zero(t, newStore(h.state).depositors(id).Len())
 }
 
@@ -170,9 +198,9 @@ func TestDepositReachingMinimumOpensVoting(t *testing.T) {
 
 	got := h.proposal(id)
 	require.Equal(t, StatusVotingPeriod, got.Status)
-	require.Equal(t, unixSeconds(h.time), got.VotingStartTime)
-	require.Equal(t, unixSeconds(h.time+testParams.VotingPeriod), got.VotingEndTime)
-	require.Equal(t, []Coin{{Amount: big.NewInt(10), Denom: "usei"}}, got.TotalDeposit)
+	require.Equal(t, h.time, got.VotingStartTime)
+	require.Equal(t, h.time+testParams.VotingPeriod, got.VotingEndTime)
+	require.Equal(t, usei(10), got.TotalDeposit)
 
 	s := newStore(h.state)
 	require.Zero(t, s.depositQueue().Len())
@@ -183,14 +211,14 @@ func TestDepositReachingMinimumOpensVoting(t *testing.T) {
 	h.mustCall(bob, callOpts{value: usei(1)}, DepositMethod, id)
 	var deposit DepositData
 	h.convert(h.mustCall(carol, callOpts{}, GetDepositMethod, id, bob)[0], &deposit)
-	require.Equal(t, DepositData{ProposalId: id, Depositor: bob.Hex(), Amount: []Coin{{Amount: big.NewInt(7), Denom: "usei"}}}, deposit)
+	require.Equal(t, DepositData{ProposalId: id, Depositor: bob, Amount: usei(7)}, deposit)
 
 	values := h.mustCall(carol, callOpts{}, DepositsMethod, id, []byte{})
 	var deposits []DepositData
 	h.convert(values[0], &deposits)
 	require.Equal(t, []DepositData{
-		{ProposalId: id, Depositor: alice.Hex(), Amount: []Coin{{Amount: big.NewInt(4), Denom: "usei"}}},
-		{ProposalId: id, Depositor: bob.Hex(), Amount: []Coin{{Amount: big.NewInt(7), Denom: "usei"}}},
+		{ProposalId: id, Depositor: alice, Amount: usei(4)},
+		{ProposalId: id, Depositor: bob, Amount: usei(7)},
 	}, deposits)
 	require.Empty(t, values[1])
 }
@@ -204,7 +232,7 @@ func TestExpeditedProposalUsesExpeditedParams(t *testing.T) {
 	got := h.proposal(id)
 	require.True(t, got.IsExpedited)
 	require.Equal(t, StatusVotingPeriod, got.Status)
-	require.Equal(t, unixSeconds(h.time+testParams.ExpeditedVotingPeriod), got.VotingEndTime)
+	require.Equal(t, h.time+testParams.ExpeditedVotingPeriod, got.VotingEndTime)
 }
 
 func TestDepositOutsideItsPeriodIsRejected(t *testing.T) {
@@ -221,19 +249,16 @@ func TestDepositOutsideItsPeriodIsRejected(t *testing.T) {
 func TestVoteReplacesEarlierVote(t *testing.T) {
 	h := newHarness(t)
 	id := h.submit(alice, textProposal, usei(10))
-	weighted := []WeightedVoteOptionData{{Option: OptionYes, Weight: "0.7"}, {Option: OptionNoWithVeto, Weight: ".3"}}
+	weighted := []WeightedVoteOption{{Option: OptionYes, Weight: weight(70)}, {Option: OptionNoWithVeto, Weight: weight(30)}}
 	h.mustCall(bob, callOpts{}, VoteWeightedMethod, id, weighted)
 
 	var vote VoteData
 	h.convert(h.mustCall(alice, callOpts{}, GetVoteMethod, id, bob)[0], &vote)
-	require.Equal(t, VoteData{ProposalId: id, Voter: bob.Hex(), Options: []WeightedVoteOptionData{
-		{Option: OptionYes, Weight: "0.700000000000000000"},
-		{Option: OptionNoWithVeto, Weight: "0.300000000000000000"},
-	}}, vote)
+	require.Equal(t, VoteData{ProposalId: id, Voter: bob, Options: weighted}, vote)
 
 	h.mustCall(bob, callOpts{}, VoteMethod, id, OptionNo)
 	h.convert(h.mustCall(alice, callOpts{}, GetVoteMethod, id, bob)[0], &vote)
-	require.Equal(t, []WeightedVoteOptionData{{Option: OptionNo, Weight: "1.000000000000000000"}}, vote.Options)
+	require.Equal(t, []WeightedVoteOption{{Option: OptionNo, Weight: weight(100)}}, vote.Options)
 
 	// The replaced second element is cleared, as Solidity's array assignment does.
 	second := solstorage.Offset(solstorage.ArrayData(voteBase(id, bob)), 1)
@@ -244,8 +269,8 @@ func TestVoteReplacesEarlierVote(t *testing.T) {
 	var votes []VoteData
 	h.convert(values[0], &votes)
 	require.Len(t, votes, 2)
-	require.Equal(t, bob.Hex(), votes[0].Voter)
-	require.Equal(t, carol.Hex(), votes[1].Voter)
+	require.Equal(t, bob, votes[0].Voter)
+	require.Equal(t, carol, votes[1].Voter)
 	require.Equal(t, uint64(2), newStore(h.state).votersByProposal(id).Len(), "a revote does not re-add the voter")
 }
 
@@ -265,11 +290,13 @@ func TestVoteRejections(t *testing.T) {
 		{"unknown proposal", VoteMethod, []interface{}{uint64(42), OptionYes}, 0, errUnknownProposal},
 		{"option zero", VoteMethod, []interface{}{open, int32(0)}, 0, errInvalidVote},
 		{"option five", VoteMethod, []interface{}{open, int32(5)}, 0, errInvalidVote},
-		{"weights under one", VoteWeightedMethod, []interface{}{open, []WeightedVoteOptionData{{OptionYes, "0.5"}, {OptionNo, "0.4"}}}, 0, errInvalidVote},
-		{"duplicate option", VoteWeightedMethod, []interface{}{open, []WeightedVoteOptionData{{OptionYes, "0.5"}, {OptionYes, "0.5"}}}, 0, errInvalidVote},
-		{"zero weight", VoteWeightedMethod, []interface{}{open, []WeightedVoteOptionData{{OptionYes, "1"}, {OptionNo, "0"}}}, 0, errInvalidVote},
-		{"no options", VoteWeightedMethod, []interface{}{open, []WeightedVoteOptionData{}}, 0, errInvalidVote},
-		{"too many options", VoteWeightedMethod, []interface{}{open, []WeightedVoteOptionData{{1, "0.2"}, {2, "0.2"}, {3, "0.2"}, {4, "0.2"}, {1, "0.2"}}}, 0, errInvalidVote},
+		{"weights under one", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(50)}, {OptionNo, weight(40)}}}, 0, errInvalidVote},
+		{"weights over one", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(60)}, {OptionNo, weight(50)}}}, 0, errInvalidVote},
+		{"duplicate option", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(50)}, {OptionYes, weight(50)}}}, 0, errInvalidVote},
+		{"zero weight", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(100)}, {OptionNo, weight(0)}}}, 0, errInvalidVote},
+		{"weight over one", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, new(big.Int).Lsh(big.NewInt(1), 255)}}}, 0, errInvalidVote},
+		{"no options", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{}}, 0, errInvalidVote},
+		{"too many options", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{1, weight(20)}, {2, weight(20)}, {3, weight(20)}, {4, weight(20)}, {1, weight(20)}}}, 0, errInvalidVote},
 		{"voting ended", VoteMethod, []interface{}{open, OptionYes}, testParams.VotingPeriod + second, errInactiveProposal},
 	}
 	for _, tc := range tests {
@@ -280,11 +307,8 @@ func TestVoteRejections(t *testing.T) {
 		})
 	}
 
-	h.time = startTime
-	_, err := h.call(bob, callOpts{}, VoteWeightedMethod, open, []WeightedVoteOptionData{{OptionYes, "1/2"}})
-	require.ErrorContains(t, err, "invalid weight format")
 	h.time = startTime + testParams.VotingPeriod
-	_, err = h.call(bob, callOpts{}, VoteMethod, open, OptionYes)
+	_, err := h.call(bob, callOpts{}, VoteMethod, open, OptionYes)
 	require.NoError(t, err, "the last second of the voting period still accepts votes")
 }
 
@@ -307,11 +331,6 @@ func TestCallGuards(t *testing.T) {
 	require.ErrorIs(t, err, errWeiRemainder)
 	_, err = h.call(bob, callOpts{value: big.NewInt(0)}, DepositMethod, id)
 	require.ErrorIs(t, err, errZeroDeposit)
-
-	_, err = h.call(bob, callOpts{}, SubmitProposalMethod, `{"title":"t"}`)
-	require.ErrorContains(t, err, "required")
-	_, err = h.call(bob, callOpts{}, SubmitProposalMethod, `not json`)
-	require.ErrorContains(t, err, "failed to parse proposal JSON")
 
 	authz := abiOf(t, "grantVoteAuthorization(address,int64)")
 	input, err := authz.Pack("grantVoteAuthorization", bob, int64(1))
@@ -400,49 +419,31 @@ func TestParamsQuery(t *testing.T) {
 	h := newHarness(t)
 	var got GovParams
 	h.convert(h.mustCall(alice, callOpts{}, ParamsMethod)[0], &got)
+	dec := func(v uint64) *big.Int { return new(big.Int).SetUint64(v) }
 	require.Equal(t, GovParams{
-		VotingPeriod:          100,
-		ExpeditedVotingPeriod: 20,
-		MinDeposit:            []Coin{{Amount: big.NewInt(10), Denom: "usei"}},
-		MaxDepositPeriod:      50,
-		MinExpeditedDeposit:   []Coin{{Amount: big.NewInt(40), Denom: "usei"}},
-		Quorum:                "0.334000000000000000",
-		Threshold:             "0.500000000000000000",
-		VetoThreshold:         "0.334000000000000000",
-		ExpeditedQuorum:       "0.667000000000000000",
-		ExpeditedThreshold:    "0.667000000000000000",
+		VotingPeriod:          100 * second,
+		ExpeditedVotingPeriod: 20 * second,
+		MinDeposit:            usei(10),
+		MaxDepositPeriod:      50 * second,
+		MinExpeditedDeposit:   usei(40),
+		Quorum:                dec(testParams.Quorum),
+		Threshold:             dec(testParams.Threshold),
+		VetoThreshold:         dec(testParams.VetoThreshold),
+		ExpeditedQuorum:       dec(testParams.ExpeditedQuorum),
+		ExpeditedThreshold:    dec(testParams.ExpeditedThreshold),
 	}, got)
 }
 
-// TestABIMatchesV2WithoutAuthz pins the ABI to precompiles/gov's, less the
-// methods sei-chain#4569 removes and plus submitParamChangeProposal.
-func TestABIMatchesV2WithoutAuthz(t *testing.T) {
+// TestABIKeepsV2Methods pins the methods gov shares with precompiles/gov to
+// V2's signatures, so callers of those methods keep working.
+func TestABIKeepsV2Methods(t *testing.T) {
 	bz, err := os.ReadFile("../../../../precompiles/gov/abi.json")
 	require.NoError(t, err)
 	v2, err := abi.JSON(bytes.NewReader(bz))
 	require.NoError(t, err)
-	removed := map[string]bool{
-		"grantVoteAuthorization":          true,
-		"grantProposalAuthorization":      true,
-		"voteWithAuthorization":           true,
-		"revokeVoteAuthorization":         true,
-		"revokeProposalAuthorization":     true,
-		"submitProposalWithAuthorization": true,
+	for _, name := range []string{VoteMethod, DepositMethod, ProposalsMethod, GetVoteMethod, VotesMethod, GetDepositMethod, DepositsMethod, ProposalMethod, ParamsMethod, TallyResultMethod} {
+		require.Equal(t, v2.Methods[name].Sig, ABI.Methods[name].Sig, name)
 	}
-	var want, got []string
-	for name, m := range v2.Methods {
-		if !removed[name] {
-			want = append(want, m.Sig+" "+m.String())
-		}
-	}
-	for name, m := range ABI.Methods {
-		if name != SubmitParamChangeProposalMethod {
-			got = append(got, m.Sig+" "+m.String())
-		}
-	}
-	sort.Strings(want)
-	sort.Strings(got)
-	require.Equal(t, want, got)
 }
 
 func TestHasParams(t *testing.T) {

@@ -49,7 +49,7 @@ func TestGovPrecompileThroughExecutor(t *testing.T) {
 	require.NoError(t, gov.SetParams(genesisState{state}, params))
 
 	govABI := gov.ABI
-	submit, err := govABI.Pack(gov.SubmitProposalMethod, `{"title":"t","description":"d","type":"Text"}`)
+	submit, err := govABI.Pack(gov.SubmitTextProposalMethod, "t", "d", false)
 	require.NoError(t, err)
 	vote, err := govABI.Pack(gov.VoteMethod, uint64(1), gov.OptionYes)
 	require.NoError(t, err)
@@ -112,7 +112,8 @@ func TestGovPrecompileThroughExecutor(t *testing.T) {
 	var prop gov.ProposalData
 	abi.ConvertType(call(gov.ProposalMethod, uint64(1)), &prop)
 	require.Equal(t, gov.StatusPassed, prop.Status)
-	require.Equal(t, gov.TallyResultData{Yes: "1", Abstain: "0", No: "0", NoWithVeto: "0"}, prop.FinalTallyResult)
+	tally := prop.FinalTallyResult
+	require.Equal(t, []string{"1", "0", "0", "0"}, []string{tally.Yes.String(), tally.Abstain.String(), tally.No.String(), tally.NoWithVeto.String()})
 }
 
 // anvilKeys are anvil accounts 0-4 of the test mnemonic.
@@ -142,9 +143,8 @@ func TestGovPrecompileOCCMatchesSequential(t *testing.T) {
 		txs = append(txs, signLegacyTxWithGasPrice(t, keys[i], chainID, nonces[i], &to, value, data, 2_000_000, big.NewInt(1)))
 		nonces[i]++
 	}
-	text := `{"title":"t","description":"d","type":"Text"}`
-	send(0, usei(10), gov.SubmitProposalMethod, text) // 1 opens voting
-	send(1, usei(4), gov.SubmitProposalMethod, text)  // 2 waits for deposits
+	send(0, usei(10), gov.SubmitTextProposalMethod, "t", "d", false) // 1 opens voting
+	send(1, usei(4), gov.SubmitTextProposalMethod, "t", "d", false)  // 2 waits for deposits
 	send(2, usei(3), gov.DepositMethod, uint64(2))
 	send(0, nil, gov.VoteMethod, uint64(1), gov.OptionYes)
 	send(3, usei(3), gov.DepositMethod, uint64(2)) // 2 opens voting

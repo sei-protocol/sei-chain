@@ -1,7 +1,6 @@
 package gov
 
 import (
-	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -22,7 +21,7 @@ func newElectedHarness(t *testing.T, e Electorate) *harness {
 }
 
 // open submits content with the minimum deposit, putting it straight to a vote.
-func (h *harness) open(content string, deposit *big.Int) uint64 {
+func (h *harness) open(content submission, deposit *big.Int) uint64 {
 	return h.submit(alice, content, deposit)
 }
 
@@ -30,11 +29,11 @@ func (h *harness) vote(voter common.Address, id uint64, option int32) {
 	h.mustCall(voter, callOpts{}, VoteMethod, id, option)
 }
 
-func (h *harness) voteWeighted(voter common.Address, id uint64, options map[int32]string) {
-	var args []WeightedVoteOptionData
+func (h *harness) voteWeighted(voter common.Address, id uint64, percents map[int32]int64) {
+	var args []WeightedVoteOption
 	for _, o := range []int32{OptionYes, OptionAbstain, OptionNo, OptionNoWithVeto} {
-		if w, ok := options[o]; ok {
-			args = append(args, WeightedVoteOptionData{Option: o, Weight: w})
+		if p, ok := percents[o]; ok {
+			args = append(args, WeightedVoteOption{Option: o, Weight: weight(p)})
 		}
 	}
 	h.mustCall(voter, callOpts{}, VoteWeightedMethod, id, args)
@@ -76,7 +75,7 @@ func TestEndBlockPassesAndRefunds(t *testing.T) {
 
 	got := h.proposal(id)
 	require.Equal(t, StatusPassed, got.Status)
-	require.Equal(t, TallyResultData{Yes: "200", Abstain: "0", No: "100", NoWithVeto: "0"}, got.FinalTallyResult)
+	require.Equal(t, [4]string{"200", "0", "100", "0"}, tally(got.FinalTallyResult))
 	require.Equal(t, usei(10), h.state.GetBalance(alice), "deposit refunded")
 	require.Zero(t, h.state.GetBalance(DepositEscrow).Sign())
 	require.Zero(t, newStore(h.state).votingQueue().Len())
@@ -89,7 +88,7 @@ func TestVotingEndsAtTheNanosecond(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
 	params := testParams
 	params.VotingPeriod = 100*second + 1
-	SetParams(h.state, params)
+	require.NoError(t, SetParams(h.state, params))
 	id := h.open(textProposal, usei(10))
 	h.vote(alice, id, OptionYes)
 	h.vote(bob, id, OptionYes)
@@ -160,13 +159,13 @@ func TestEndBlockWithoutElectorateRejectsAndRefunds(t *testing.T) {
 func TestEndBlockWeightedVotes(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
 	id := h.open(textProposal, usei(10))
-	h.voteWeighted(alice, id, map[int32]string{OptionYes: "0.75", OptionNo: "0.25"})
+	h.voteWeighted(alice, id, map[int32]int64{OptionYes: 75, OptionNo: 25})
 	h.vote(bob, id, OptionNo)
 	h.time = startTime + testParams.VotingPeriod
 	h.endBlock(1)
 	got := h.proposal(id)
 	require.Equal(t, StatusRejected, got.Status, "75 yes of 200")
-	require.Equal(t, TallyResultData{Yes: "75", Abstain: "0", No: "125", NoWithVeto: "0"}, got.FinalTallyResult)
+	require.Equal(t, [4]string{"75", "0", "125", "0"}, tally(got.FinalTallyResult))
 }
 
 func TestEndBlockConvertsFailedExpedited(t *testing.T) {
@@ -179,7 +178,7 @@ func TestEndBlockConvertsFailedExpedited(t *testing.T) {
 	h.endBlock(1)
 	got := h.proposal(id)
 	require.Equal(t, StatusVotingPeriod, got.Status)
-	require.Equal(t, unixSeconds(startTime+testParams.VotingPeriod), got.VotingEndTime)
+	require.Equal(t, startTime+testParams.VotingPeriod, got.VotingEndTime)
 	require.Equal(t, usei(40), h.state.GetBalance(DepositEscrow), "deposits stay for the regular period")
 	_, err := h.call(alice, callOpts{}, GetVoteMethod, id, alice)
 	require.ErrorIs(t, err, errVoteNotFound, "the regular period starts a fresh round of votes")
@@ -203,13 +202,7 @@ func TestEndBlockPassesExpedited(t *testing.T) {
 	require.Equal(t, StatusPassed, h.status(id))
 }
 
-func upgradeProposal(name string, height int64) string {
-	return fmt.Sprintf(`{"title":"t","description":"d","type":"SoftwareUpgrade","plan":{"name":%q,"height":%d,"info":"i"}}`, name, height)
-}
-
-const cancelProposal = `{"title":"t","description":"d","type":"CancelSoftwareUpgrade"}`
-
-func (h *harness) pass(content string) uint64 {
+func (h *harness) pass(content submission) uint64 {
 	id := h.open(content, usei(10))
 	for _, voter := range []common.Address{alice, bob, carol} {
 		h.vote(voter, id, OptionYes)
@@ -243,38 +236,41 @@ func TestEndBlockFailsUpgradeThatCannotBeScheduled(t *testing.T) {
 	require.Equal(t, usei(10), h.state.GetBalance(alice), "a failed proposal still refunds")
 }
 
-func TestSubmitRejectsUnsupportedContent(t *testing.T) {
+func TestSubmitRejectsInvalidContent(t *testing.T) {
 	h := newHarness(t)
-	for name, content := range map[string]string{
-		"unsupported type":     `{"title":"t","description":"d","type":"CommunityPoolSpend"}`,
-		"no param changes":     `{"title":"t","description":"d","type":"ParameterChange"}`,
-		"upgrade sans plan":    `{"title":"t","description":"d","type":"SoftwareUpgrade"}`,
-		"upgrade sans name":    upgradeProposal("", 10),
-		"upgrade at zero":      upgradeProposal("v2", 0),
-		"long title":           sizedProposal(strings.Repeat("t", maxTitleLength+1), "d", ""),
-		"long description":     sizedProposal("t", strings.Repeat("d", maxDescriptionLength+1), ""),
-		"long content":         sizedProposal("t", "d", strings.Repeat(" ", maxContentLength)),
-		"text with a plan":     `{"title":"t","description":"d","type":"Text","plan":{"name":"v2","height":10}}`,
-		"cancel with a plan":   `{"title":"t","description":"d","type":"CancelSoftwareUpgrade","plan":{"name":"v2","height":10}}`,
-		"text with changes":    `{"title":"t","description":"d","type":"Text","changes":[]}`,
-		"upgrade with changes": `{"title":"t","description":"d","type":"SoftwareUpgrade","plan":{"name":"v2","height":10},"changes":[]}`,
+	long := strings.Repeat("d", maxContentLength)
+	for name, tc := range map[string]struct {
+		sub  submission
+		want error
+	}{
+		"no title":          {textSubmission("", "d", false), errMissingText},
+		"no description":    {submission{SubmitCancelSoftwareUpgradeProposalMethod, []interface{}{"t", "", false}}, errMissingText},
+		"upgrade sans name": {upgradeProposal("", 10), errInvalidPlan},
+		"upgrade at zero":   {upgradeProposal("v2", 0), errInvalidPlan},
+		"long title":        {textSubmission(strings.Repeat("t", maxTitleLength+1), "d", false), errContentTooLong},
+		"long description":  {textSubmission("t", strings.Repeat("d", maxDescriptionLength+1), false), errContentTooLong},
+		"long content":      {submission{SubmitSoftwareUpgradeProposalMethod, []interface{}{"t", "d", false, UpgradePlan{Name: "v2", Height: 10, Info: long}}}, errContentTooLong},
 	} {
-		_, err := h.call(alice, callOpts{}, SubmitProposalMethod, content)
-		require.Error(t, err, name)
+		_, err := h.call(alice, callOpts{}, tc.sub.method, tc.sub.args...)
+		require.ErrorIs(t, err, tc.want, name)
 	}
+	require.Zero(t, newStore(h.state).lastProposalID())
 }
 
 func TestSubmitAcceptsContentAtLimits(t *testing.T) {
 	h := newHarness(t)
-	content := sizedProposal(strings.Repeat("t", maxTitleLength), strings.Repeat("d", maxDescriptionLength), "")
-	_, err := h.call(alice, callOpts{}, SubmitProposalMethod, content)
-	require.NoError(t, err)
+	h.submit(alice, textSubmission(strings.Repeat("t", maxTitleLength), strings.Repeat("d", maxDescriptionLength), false), nil)
 }
 
-// sizedProposal is Text proposal content, with pad as whitespace before its end.
-func sizedProposal(title, description, pad string) string {
-	content := fmt.Sprintf(`{"title":%q,"description":%q,"type":"Text"`, title, description)
-	return content + pad + "}"
+func TestSubmitTakesExpeditedForEveryType(t *testing.T) {
+	h := newHarness(t)
+	for _, sub := range []submission{
+		expedProposal,
+		{SubmitSoftwareUpgradeProposalMethod, []interface{}{"t", "d", true, UpgradePlan{Name: "v2", Height: 10}}},
+		{SubmitCancelSoftwareUpgradeProposalMethod, []interface{}{"t", "d", true}},
+	} {
+		require.True(t, h.proposal(h.submit(alice, sub, nil)).IsExpedited, sub.method)
+	}
 }
 
 // delegatedElectorate has validators v1 (100 tokens, 50 shares) and v2 (60
@@ -315,7 +311,7 @@ func TestTallyDeductsDelegatorVotesFromValidators(t *testing.T) {
 	h.endBlock(1)
 	got := h.proposal(id)
 	require.Equal(t, StatusPassed, got.Status)
-	require.Equal(t, TallyResultData{Yes: "80", Abstain: "0", No: "50", NoWithVeto: "0"}, got.FinalTallyResult)
+	require.Equal(t, [4]string{"80", "0", "50", "0"}, tally(got.FinalTallyResult))
 	require.Zero(t, newStore(h.state).tallyDeduction(id, v1).Sign(), "deductions are cleared")
 }
 
@@ -376,7 +372,7 @@ func TestEndBlockCarriesOverPastBudget(t *testing.T) {
 func TestDropCostCountsContent(t *testing.T) {
 	h := newHarness(t)
 	short := h.submit(alice, textProposal, nil)
-	long := h.submit(alice, sizedProposal("t", strings.Repeat("d", maxDescriptionLength), ""), nil)
+	long := h.submit(alice, textSubmission("t", strings.Repeat("d", maxDescriptionLength), false), nil)
 	s := newStore(h.state)
 	require.Equal(t, 1+s.proposalContentChunks(short), dropCost(s, short))
 	require.Greater(t, dropCost(s, long), uint64(maxDescriptionLength/32), "a word per 32 bytes of content")
@@ -442,7 +438,7 @@ func TestEndBlockTalliesAcrossBlocks(t *testing.T) {
 	h.endBlock(1)
 	got := h.proposal(id)
 	require.Equal(t, StatusPassed, got.Status)
-	require.Equal(t, TallyResultData{Yes: "200", Abstain: "0", No: "0", NoWithVeto: "0"}, got.FinalTallyResult)
+	require.Equal(t, [4]string{"200", "0", "0", "0"}, tally(got.FinalTallyResult))
 	require.False(t, s.tallyCounting(id))
 	require.Zero(t, s.votersByProposal(id).Len())
 	require.Empty(t, s.vote(id, alice), "counted votes are removed")
@@ -528,15 +524,15 @@ func TestTallyResultIsLiveDuringVoting(t *testing.T) {
 	h.vote(alice, id, OptionNo)
 	h.vote(v1, id, OptionYes)
 
-	live := TallyResultData{Yes: "80", Abstain: "0", No: "50", NoWithVeto: "0"}
-	require.Equal(t, live, h.tallyResult(id))
+	live := [4]string{"80", "0", "50", "0"}
+	require.Equal(t, live, tally(h.tallyResult(id)))
 	require.Zero(t, newStore(h.state).tallyDeduction(id, v1).Sign(), "the query writes nothing")
 	require.False(t, newStore(h.state).tallyCounting(id))
 
 	h.time += testParams.VotingPeriod
 	h.endBlock(1)
 	require.Equal(t, StatusPassed, h.status(id))
-	require.Equal(t, live, h.tallyResult(id), "the final tally matches the live one")
+	require.Equal(t, live, tally(h.tallyResult(id)), "the final tally matches the live one")
 }
 
 func TestTallyResultIsLiveWhileCounting(t *testing.T) {
@@ -550,7 +546,7 @@ func TestTallyResultIsLiveWhileCounting(t *testing.T) {
 	h.time += testParams.VotingPeriod
 	h.endBlock(0)
 	require.True(t, newStore(h.state).tallyCounting(id))
-	require.Equal(t, TallyResultData{Yes: "200", Abstain: "0", No: "0", NoWithVeto: "0"}, h.tallyResult(id))
+	require.Equal(t, [4]string{"200", "0", "0", "0"}, tally(h.tallyResult(id)))
 }
 
 func TestTallyResultStartsOverAfterExpeditedConversion(t *testing.T) {
@@ -561,7 +557,7 @@ func TestTallyResultStartsOverAfterExpeditedConversion(t *testing.T) {
 	h.time = startTime + testParams.ExpeditedVotingPeriod
 	h.endBlock(1)
 	require.Equal(t, StatusVotingPeriod, h.status(id))
-	require.Equal(t, TallyResultData{Yes: "0", Abstain: "0", No: "0", NoWithVeto: "0"}, h.tallyResult(id))
+	require.Equal(t, [4]string{"0", "0", "0", "0"}, tally(h.tallyResult(id)))
 }
 
 func TestEndBlockDrainsQueuedMissingProposals(t *testing.T) {

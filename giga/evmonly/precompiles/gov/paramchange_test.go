@@ -1,7 +1,6 @@
 package gov
 
 import (
-	"encoding/json"
 	"math/big"
 	"testing"
 
@@ -60,33 +59,24 @@ func TestTypedParamChangeAppliesWhenPassed(t *testing.T) {
 	require.Equal(t, want, newStore(h.state).params())
 
 	next := h.open(textProposal, usei(10))
-	require.Equal(t, unixSeconds(h.time+300*second), h.proposal(next).VotingEndTime, "later proposals use the new voting period")
+	require.Equal(t, h.time+300*second, h.proposal(next).VotingEndTime, "later proposals use the new voting period")
 }
 
-func TestTypedParamChangeContentIsV2s(t *testing.T) {
+func TestParamChangeContentIsStored(t *testing.T) {
 	h := newHarness(t)
-	id, err := h.submitParamChange(true,
-		paramChange{"gov", "votingparams.voting_period", secondsValue(300)},
-		paramChange{"gov", "votingparams.expedited_voting_period", secondsValue(60)},
-		paramChange{"gov", "tallyparams.quorum", uintValue(400_000_000_000_000_000)},
-	)
+	changes := []paramChange{
+		{"gov", "votingparams.voting_period", secondsValue(300)},
+		{"gov", "tallyparams.quorum", uintValue(400_000_000_000_000_000)},
+	}
+	id, err := h.submitParamChange(true, changes...)
 	require.NoError(t, err)
 	got := h.proposal(id)
-	require.Equal(t, `{"@type":"/cosmos.params.v1beta1.ParameterChangeProposal","title":"t","description":"d","changes":[`+
-		`{"subspace":"gov","key":"votingparams","value":"{\"expedited_voting_period\":\"60000000000\",\"voting_period\":\"300000000000\"}"},`+
-		`{"subspace":"gov","key":"tallyparams","value":"{\"quorum\":\"0.400000000000000000\"}"}],"is_expedited":true}`, string(got.Content))
 	require.True(t, got.IsExpedited)
-}
-
-func TestLegacyParamChangeAppliesWhenPassed(t *testing.T) {
-	h := newElectedHarness(t, equalElectorate)
-	// pacific-1 proposal 86, whose value V2's precompile takes as JSON.
-	id := h.pass(`{"title":"t","description":"d","type":"ParameterChange","changes":[` +
-		`{"subspace":"gov","key":"votingparams","value":{"voting_period":"259200000000000"}}]}`)
-	require.Equal(t, StatusPassed, h.status(id))
-	want := testParams
-	want.VotingPeriod = 259_200 * second
-	require.Equal(t, want, newStore(h.state).params())
+	content, err := decodeContent(got.ContentType, got.Content)
+	require.NoError(t, err)
+	require.Equal(t, paramChangeContent{Title: "t", Description: "d", IsExpedited: true, Changes: []chainparams.Change{
+		chainparams.Change(changes[0]), chainparams.Change(changes[1]),
+	}}, content)
 }
 
 func TestParamChangeFailingAtExecutionChangesNothing(t *testing.T) {
@@ -129,22 +119,6 @@ func TestSubmitRejectsInvalidParamChanges(t *testing.T) {
 	require.Zero(t, newStore(h.state).lastProposalID())
 }
 
-func TestSubmitRejectsInvalidLegacyParamChanges(t *testing.T) {
-	h := newHarness(t)
-	for name, changes := range map[string]string{
-		"undeclared subspace": `[{"subspace":"baseapp","key":"TimeoutParams","value":{"propose":"300000000"}}]`,
-		"undeclared key":      `[{"subspace":"gov","key":"params","value":{}}]`,
-		"unknown field":       `[{"subspace":"gov","key":"votingparams","value":{"voting_periods":"1"}}]`,
-		"string value":        `[{"subspace":"gov","key":"votingparams","value":"{\"voting_period\":\"1\"}"}]`,
-		"fails validation":    `[{"subspace":"gov","key":"votingparams","value":{"voting_period":"1000000000"}}]`,
-	} {
-		content, err := json.Marshal(map[string]any{"title": "t", "description": "d", "type": TypeParameterChange, "changes": json.RawMessage(changes)})
-		require.NoError(t, err)
-		_, err = h.call(alice, callOpts{}, SubmitProposalMethod, string(content))
-		require.Error(t, err, name)
-	}
-}
-
 func TestParamsReadThroughTheParamsPrecompile(t *testing.T) {
 	state := newMemState()
 	require.NoError(t, SetParams(state, testParams))
@@ -165,13 +139,13 @@ func TestExecutionCostIsOnePerParamChange(t *testing.T) {
 		paramChange{"gov", "tallyparams.quorum", uintValue(400_000_000_000_000_000)},
 	)
 	require.NoError(t, err)
-	legacy := h.submit(alice, `{"title":"t","description":"d","type":"ParameterChange","changes":[`+
-		`{"subspace":"gov","key":"votingparams","value":{"voting_period":"259200000000000"}}]}`, nil)
+	single, err := h.submitParamChange(false, paramChange{"gov", "votingparams.voting_period", secondsValue(300)})
+	require.NoError(t, err)
 	text := h.submit(alice, textProposal, nil)
 
 	s := newStore(h.state)
 	require.Equal(t, uint64(2), executionCost(mustDecode(t, s, typed)))
-	require.Equal(t, uint64(1), executionCost(mustDecode(t, s, legacy)))
+	require.Equal(t, uint64(1), executionCost(mustDecode(t, s, single)))
 	require.Equal(t, uint64(0), executionCost(mustDecode(t, s, text)))
 }
 

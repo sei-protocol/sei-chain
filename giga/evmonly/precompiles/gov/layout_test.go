@@ -258,7 +258,7 @@ func TestContentEncodingMatchesSolc(t *testing.T) {
 	}{
 		"text": {textContent{Title: "t", Description: long, IsExpedited: true},
 			solc("textContent(string,string,bool)", "t", long, true)},
-		"software upgrade": {softwareUpgradeContent{Title: "t", Description: "d", Plan: upgradePlan{Name: "v2", Height: -3, Info: long}},
+		"software upgrade": {softwareUpgradeContent{Title: "t", Description: "d", Plan: UpgradePlan{Name: "v2", Height: -3, Info: long}},
 			solc("softwareUpgradeContent(string,string,string,int64,string)", "t", "d", "v2", int64(-3), long)},
 		"cancel software upgrade": {cancelSoftwareUpgradeContent{Title: long, Description: "d"},
 			solc("cancelSoftwareUpgradeContent(string,string)", long, "d")},
