@@ -184,9 +184,9 @@ func (e *Executor) SettledNonce(addr common.Address) uint64 {
 	// Taken before the view, for the reason executePreparedBlockWithStore gives.
 	pending := e.pipelinePending()
 	if pending != nil {
-		for i := len(pending.Nonces) - 1; i >= 0; i-- {
-			if pending.Nonces[i].Address == addr {
-				return pending.Nonces[i].Nonce
+		for i := len(pending.Accounts) - 1; i >= 0; i-- {
+			if pending.Accounts[i].Address == addr {
+				return pending.Accounts[i].Account.Nonce
 			}
 		}
 	}
