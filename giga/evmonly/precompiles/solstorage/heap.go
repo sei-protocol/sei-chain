@@ -44,7 +44,7 @@ func (h Heap) Push(v common.Hash) bool {
 // Remove deletes v, reporting whether it was present.
 func (h Heap) Remove(v common.Hash) bool {
 	pos := h.set.position(v)
-	if pos == 0 {
+	if pos == 0 || pos > h.Len() {
 		return false
 	}
 	i, last := pos-1, h.Len()-1

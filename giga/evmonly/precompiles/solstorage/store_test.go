@@ -86,33 +86,77 @@ func TestSetSwapAndPop(t *testing.T) {
 	require.Empty(t, state, "an emptied set leaves no storage behind")
 }
 
+func TestSetRemoveIgnoresAPositionPastItsLength(t *testing.T) {
+	state := mapState{}
+	set := Set{Store: Store{State: state}, Base: Slot(9)}
+	require.True(t, set.Add(Slot(1)))
+	set.Store.SetWord(set.Base, Slot(0)) // a length read back as zero, as after a failed read
+	require.False(t, set.Remove(Slot(1)))
+	require.Equal(t, uint64(0), set.Len(), "no wrapped length is written")
+}
+
 func TestOffsetWraps(t *testing.T) {
 	max := common.HexToHash("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 	require.Equal(t, Slot(1), Offset(max, 2))
 }
 
-// failingState fails every read after failAt, returning zero.
+// failingState fails every state access after the failAt-th, as running out of
+// gas does: reads return zero and writes are dropped. With failAt 0 it never
+// fails.
 type failingState struct {
 	mapState
-	reads, failAt, readsAfterFailure int
+	accesses, failAt, accessesAfterFailure int
+}
+
+func (f *failingState) access() bool {
+	f.accesses++
+	if f.Failed() {
+		f.accessesAfterFailure++
+		return false
+	}
+	return true
 }
 
 func (f *failingState) GetState(a common.Address, k common.Hash) common.Hash {
-	f.reads++
-	if f.Failed() {
-		f.readsAfterFailure++
+	if !f.access() {
 		return common.Hash{}
 	}
 	return f.mapState.GetState(a, k)
 }
 
-func (f *failingState) Failed() bool { return f.reads > f.failAt }
+func (f *failingState) SetState(a common.Address, k, v common.Hash) {
+	if f.access() {
+		f.mapState.SetState(a, k, v)
+	}
+}
+
+func (f *failingState) Failed() bool { return f.failAt > 0 && f.accesses > f.failAt }
 
 func TestStringStopsOnceReadsFail(t *testing.T) {
-	state := &failingState{mapState: mapState{}, failAt: 1 << 30}
+	state := &failingState{mapState: mapState{}}
 	s := Store{State: state}
 	s.SetString(Slot(3), strings.Repeat("x", 32*100))
-	state.reads, state.failAt = 0, 5
+	state.accesses, state.failAt = 0, 5
 	s.String(Slot(3))
-	require.Equal(t, 1, state.readsAfterFailure, "the chunk loop stops at the first failed read")
+	require.Equal(t, 1, state.accessesAfterFailure, "the chunk loop stops at the first failed read")
+}
+
+func TestSetStringZeroingStopsOnceWritesFail(t *testing.T) {
+	state := &failingState{mapState: mapState{}}
+	s := Store{State: state}
+	s.SetString(Slot(3), strings.Repeat("x", 32*100))
+	state.accesses, state.failAt = 0, 3
+	s.SetString(Slot(3), "short")
+	require.Equal(t, 2, state.accessesAfterFailure, "the zeroing loop stops at the first failed write; the head write follows")
+}
+
+func TestStringLengthCeiling(t *testing.T) {
+	state := mapState{}
+	s := Store{State: state}
+	require.Panics(t, func() { s.SetString(Slot(3), strings.Repeat("x", MaxStringLength+1)) })
+	state[Slot(3)] = common.BigToHash(new(big.Int).SetUint64((MaxStringLength+1)*2 + 1))
+	require.Panics(t, func() { s.String(Slot(3)) }, "a corrupt stored length")
+	require.Panics(t, func() { s.StringChunks(Slot(3)) })
+	s.SetString(Slot(4), strings.Repeat("x", MaxStringLength))
+	require.Len(t, s.String(Slot(4)), MaxStringLength)
 }

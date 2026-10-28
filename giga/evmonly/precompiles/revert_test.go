@@ -10,7 +10,7 @@ import (
 
 func TestRevertEncodesErrorString(t *testing.T) {
 	out, err := Revert("use something else")
-	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+	require.True(t, err == vm.ErrExecutionReverted, "the EVM refunds unused gas only for the unwrapped sentinel") //nolint:errorlint // identity is the contract
 	reason, err := abi.UnpackRevert(out)
 	require.NoError(t, err)
 	require.Equal(t, "use something else", reason)

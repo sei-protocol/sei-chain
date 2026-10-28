@@ -46,8 +46,13 @@ same result from the same block, so each rule below is a consensus rule.
 - `RequiredGas` prices a call from its selector and argument bytes alone (V2's
   `DefaultGasCost` formula). Storage reads, writes and logs are metered by the
   adapter; do not price them into `RequiredGas`.
-- `EndBlock` is not metered. An end blocker bounds its own per-block work (see
-  gov's `endBlockBudget`) so a block's cost cannot grow with user input.
+- `EndBlock` is not metered, so `ctx.State.Failed()` never reports a storage
+  read failure there. An end blocker schedules its work under a budget (see
+  gov's `endBlockBudget`), and each unit of that work is bounded by limits its
+  write path enforces, such as gov's content size and depositor count, so a
+  block's cost cannot grow with user input.
+- An end blocker's operation that fails writes nothing, such as a passed
+  proposal that cannot execute: EndBlock has no snapshot to revert to.
 
 ## Storage
 - Lay out storage as solc would for the matching `docs/giga-storage/*.sol`
