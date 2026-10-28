@@ -146,7 +146,7 @@ Output is written to the file specified by --output.`,
 	// littblock's production default (24h).
 	cmd.Flags().String("blockdb-retention", "30s", "BlockDB retention TTL written into block_db (default 30s for local/docker); pass empty to omit and keep littblock's 24h default")
 	cmd.Flags().String("blockdb-gc-period", "", "optional BlockDB GC period (e.g. 10s); omit to keep littblock default")
-	cmd.Flags().Duration("evm-governance-voting-period", 0, "enable EVM governance with x/gov's default params, this voting and deposit period (whole seconds, at least 2s) and half of it for expedited voting, reading each node's evm_voter.txt; 0 disables it")
+	cmd.Flags().Duration("evm-governance-voting-period", 0, "enable EVM governance with x/gov's default params, this voting and deposit period (at least 2s) and half of it for expedited voting, reading each node's evm_voter.txt; 0 disables it")
 	cmd.Flags().Uint64("evm-governance-starting-proposal-id", 0, "id of the first EVM governance proposal; 0 means 1")
 	return cmd
 }
@@ -185,12 +185,12 @@ func buildGenEVMGovernance(votingPeriod time.Duration, startingProposalID uint64
 		}
 		return utils.None[config.EVMGovernance](), nil
 	}
-	if votingPeriod < 2*time.Second || votingPeriod%time.Second != 0 {
-		return utils.None[config.EVMGovernance](), fmt.Errorf("--evm-governance-voting-period %s must be a whole number of seconds, at least 2s", votingPeriod)
+	if votingPeriod < 2*time.Second {
+		return utils.None[config.EVMGovernance](), fmt.Errorf("--evm-governance-voting-period %s must be at least 2s", votingPeriod)
 	}
 	params := gov.DefaultParams()
 	params.VotingPeriod = uint64(votingPeriod)
 	params.MaxDepositPeriod = params.VotingPeriod
 	params.ExpeditedVotingPeriod = params.VotingPeriod / 2
-	return utils.Some(config.EVMGovernance{Params: params, StartingProposalID: startingProposalID}), nil
+	return utils.Some(config.EVMGovernance{Params: config.NewEVMGovernanceParams(params), StartingProposalID: startingProposalID}), nil
 }

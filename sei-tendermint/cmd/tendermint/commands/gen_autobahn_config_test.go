@@ -66,9 +66,9 @@ func TestGenAutobahnConfigWithEVMGovernance(t *testing.T) {
 
 	governance, ok := cfg.EVMGovernance.Get()
 	require.True(t, ok)
-	require.Equal(t, uint64(40*time.Second), governance.Params.VotingPeriod)
-	require.Equal(t, uint64(40*time.Second), governance.Params.MaxDepositPeriod)
-	require.Equal(t, uint64(20*time.Second), governance.Params.ExpeditedVotingPeriod)
+	require.Equal(t, 40*time.Second, governance.Params.VotingPeriod.Duration())
+	require.Equal(t, 40*time.Second, governance.Params.MaxDepositPeriod.Duration())
+	require.Equal(t, 20*time.Second, governance.Params.ExpeditedVotingPeriod.Duration())
 	require.Equal(t, uint64(500), governance.StartingProposalID)
 	for i, v := range cfg.Validators {
 		voter, ok := v.EVMVoter.Get()
@@ -92,7 +92,6 @@ func TestGenAutobahnConfigRejectsBadEVMGovernance(t *testing.T) {
 		"shared voter": {"--evm-governance-voting-period", "40s",
 			genNodeDir(t, "node0", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
 			genNodeDir(t, "node1", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")},
-		"fractional period":     {"--evm-governance-voting-period", "2500ms", genNodeDir(t, "node0", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")},
 		"period below two":      {"--evm-governance-voting-period", "1s", genNodeDir(t, "node0", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")},
 		"start without enabled": {"--evm-governance-starting-proposal-id", "5", genNodeDir(t, "node0", "")},
 	} {

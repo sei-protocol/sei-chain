@@ -23,7 +23,7 @@ func TestEVMOnlyCustomPrecompiles(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, none.IsPresent(), "no evm_governance, no precompiles")
 
-	fc.EVMGovernance = utils.Some(config.EVMGovernance{Params: gov.DefaultParams()})
+	fc.EVMGovernance = utils.Some(config.EVMGovernance{Params: config.NewEVMGovernanceParams(gov.DefaultParams())})
 	registry, err := evmOnlyCustomPrecompiles(fc, validators)
 	require.NoError(t, err)
 	r, ok := registry.Get()
