@@ -2,19 +2,10 @@ package lthash
 
 import "fmt"
 
-// Config configures a HashEngine. The three queue sizes bound how far hashing may fall behind.
+// Config configures a HashEngine. The two queue sizes bound how far hashing may fall behind.
 type Config struct {
-	// ScheduleQueueSize is how many scheduled blocks may be waiting to be read before ScheduleHash()
-	// blocks. A block waiting here still holds its views, which stops its databases flushing, so this is
-	// what bounds the memory the engine costs.
-	ScheduleQueueSize uint32
-
-	// GatherParallelism is how many blocks may be gathered at once. Each holds its reservations until its
-	// read is done, so this also bounds how many blocks keep their databases from flushing.
-	GatherParallelism uint32
-
-	// CombineQueueSize is how many blocks may be part way through hashing at once. Their views have been
-	// released, so each costs the memory of its changed values rather than of a pinned database.
+	// CombineQueueSize is how many scheduled blocks may be waiting for the combiner before ScheduleHash()
+	// blocks. Each costs the memory of its changed values.
 	CombineQueueSize uint32
 
 	// HashChanSize is the depth of the channel AwaitHash() reads from. Headroom for a consumer that reads
@@ -30,22 +21,14 @@ type Config struct {
 // DefaultConfig returns the default HashEngine configuration.
 func DefaultConfig() *Config {
 	return &Config{
-		ScheduleQueueSize: 64,
-		GatherParallelism: 8,
-		CombineQueueSize:  8,
-		HashChanSize:      1024,
-		ChunkSize:         128,
+		CombineQueueSize: 8,
+		HashChanSize:     1024,
+		ChunkSize:        128,
 	}
 }
 
 // Validate reports whether this configuration can be used to build an engine.
 func (c *Config) Validate() error {
-	if c.ScheduleQueueSize == 0 {
-		return fmt.Errorf("schedule queue size must be greater than 0")
-	}
-	if c.GatherParallelism == 0 {
-		return fmt.Errorf("gather parallelism must be greater than 0")
-	}
 	if c.CombineQueueSize == 0 {
 		return fmt.Errorf("combine queue size must be greater than 0")
 	}

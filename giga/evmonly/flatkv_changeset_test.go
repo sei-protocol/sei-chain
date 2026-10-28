@@ -32,7 +32,11 @@ func TestFlatKVChangeSetEncoderPersistsExecutorState(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.NoError(t, store.CommitStateChanges(1, changes))
+	prior := store.OpenView()
+	mutations, err := flatkv.MutationsFromChangeSets(changes, 1, prior)
+	prior.Close()
+	require.NoError(t, err)
+	require.NoError(t, store.CommitStateChanges(1, mutations))
 
 	view := store.OpenView()
 	defer view.Close()

@@ -12,14 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
-// These tests drive the engine over stub views, so they exercise the pipeline — ordering, backpressure,
-// shutdown, failure — rather than the arithmetic, which lthash_test.go and the store's golden archive
-// cover.
+// These tests drive the engine over synthetic blocks, so they exercise the pipeline — ordering, backpressure,
+// shutdown, failure — rather than the arithmetic, which lthash_test.go and the store's golden archive cover.
 
 const (
 	engineAccountName = "account"
@@ -33,103 +30,49 @@ var engineDBNames = []string{engineAccountName, engineCodeName, engineStorageNam
 // engineModuleOf puts every key in one module, which is all these tests need to distinguish.
 func engineModuleOf([]byte) (string, error) { return "m", nil }
 
-var _ view.View = (*pipeView)(nil)
-
-// pipeView is a view holding one block's diff for one database, over a fixed prior state. Only the
-// three methods the gatherer reaches are implemented.
-type pipeView struct {
-	name string
-
-	// diff is what this block changed, as ForEachDiff reports it. A nil value is a deletion.
-	diff map[string][]byte
-
-	// prior is the state BatchGet answers from, i.e. what the keys held before this block.
-	prior map[string][]byte
-
-	// getDiffErr, when set, fails the read.
-	getDiffErr error
-
-	// reserves and releases count reservations, so a test can assert the engine balanced them.
-	reserves int
-	releases int
-}
-
-func (v *pipeView) Name() string { return v.name }
-
-func (v *pipeView) ForEachDiff(visit func(key string, value []byte) error) error {
-	if v.getDiffErr != nil {
-		return v.getDiffErr
-	}
-	// Sorted, because a real view walks each shard's run in key order and a test that depended on map
-	// order would be depending on something the production walk never produces.
-	for _, key := range slices.Sorted(maps.Keys(v.diff)) {
-		if err := visit(key, v.diff[key]); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (v *pipeView) BatchGet(keys [][]byte) (map[string][]byte, error) {
-	out := make(map[string][]byte, len(keys))
-	for _, key := range keys {
-		if value, ok := v.prior[string(key)]; ok {
-			out[string(key)] = value
-		}
-	}
-	return out, nil
-}
-
-func (v *pipeView) Reserve() error { v.reserves++; return nil }
-func (v *pipeView) Release() error { v.releases++; return nil }
-func (v *pipeView) Abandon()       {}
-
-func (v *pipeView) Get([]byte, bool) ([]byte, bool, error) { panic("pipeView: unexpected Get") }
-func (v *pipeView) Finalize([]*proto.KVPair) error         { panic("pipeView: unexpected Finalize") }
-func (v *pipeView) AwaitFlush(context.Context) error       { panic("pipeView: unexpected AwaitFlush") }
-
-// blockViews builds the pair of store views for one block: current carries the diff, previous answers
-// for the values it replaced.
-func blockViews(
-	t *testing.T,
-	height int64,
-	diff map[string][]byte,
-	prior map[string][]byte,
-) (current *sview.StoreView, previous *sview.StoreView, views []*pipeView) {
-	t.Helper()
-	var currents, previouses []view.View
+// blockMutations builds one block's mutations: diff is what the block wrote, a nil value being a deletion, and
+// prior is what those keys held before it. The whole diff goes to the account database; the rest are untouched,
+// as most blocks leave most databases alone.
+func blockMutations(diff map[string][]byte, prior map[string][]byte) []DatabaseMutations {
+	mutations := make([]DatabaseMutations, 0, len(engineDBNames))
 	for _, dbName := range engineDBNames {
-		// The whole diff goes to the account database; the rest are untouched, as most blocks leave
-		// most databases alone.
-		blockDiff := map[string][]byte{}
+		dbMutations := DatabaseMutations{DBName: dbName}
 		if dbName == engineAccountName {
-			blockDiff = diff
+			for _, key := range slices.Sorted(maps.Keys(diff)) {
+				dbMutations.Mutations = append(dbMutations.Mutations, mutation.Mutation{
+					Key:           []byte(key),
+					NewValue:      diff[key],
+					PreviousValue: prior[key],
+				})
+			}
 		}
-		cur := &pipeView{name: dbName, diff: blockDiff}
-		prev := &pipeView{name: dbName, prior: prior}
-		views = append(views, cur, prev)
-		currents = append(currents, cur)
-		previouses = append(previouses, prev)
+		mutations = append(mutations, dbMutations)
 	}
-	current, err := sview.NewStoreView(height, currents[0], currents[1], currents[2], currents[3])
-	require.NoError(t, err)
-	previous, err = sview.NewStoreView(height-1, previouses[0], previouses[1], previouses[2], previouses[3])
-	require.NoError(t, err)
-	return current, previous, views
+	return mutations
 }
 
 // newTestEngine builds an engine over a small pool, with the given channel depths.
-func newTestEngine(t *testing.T, schedule uint32, fold uint32, hashes uint32) *HashEngine {
+func newTestEngine(t *testing.T, fold uint32, hashes uint32) *HashEngine {
+	t.Helper()
+	return newTestEngineWithModuleOf(t, fold, hashes, engineModuleOf)
+}
+
+// newTestEngineWithModuleOf is newTestEngine with the given module parser.
+func newTestEngineWithModuleOf(
+	t *testing.T,
+	fold uint32,
+	hashes uint32,
+	moduleOf ModuleParser,
+) *HashEngine {
 	t.Helper()
 	pool := threading.NewFixedPool("lthash-engine-test", 4, 64)
 	t.Cleanup(pool.Close)
 
 	cfg := DefaultConfig()
-	cfg.ScheduleQueueSize = schedule
 	cfg.CombineQueueSize = fold
 	cfg.HashChanSize = hashes
 
-	engine, err := NewHashEngine(t.Context(), cfg, pool, engineDBNames, engineModuleOf, NewBlockHash(engineDBNames))
+	engine, err := NewHashEngine(t.Context(), cfg, pool, engineDBNames, moduleOf, NewBlockHash(engineDBNames))
 	require.NoError(t, err)
 	return engine
 }
@@ -169,16 +112,14 @@ func TestHashEngineAgreesWithSynchronousCompute(t *testing.T) {
 	diff := blockDiff(1, 250)
 	prior := map[string][]byte{"m/key-000": []byte("old"), "m/key-001": []byte("older")}
 
-	engine := newTestEngine(t, 4, 4, 4)
-	current, previous, _ := blockViews(t, 1, diff, prior)
-	require.NoError(t, engine.ScheduleHash(current, previous))
+	engine := newTestEngine(t, 4, 4)
+	require.NoError(t, engine.ScheduleHash(1, blockMutations(diff, prior)))
 	got := <-engine.AwaitHash()
 	require.NoError(t, got.Error)
 	require.NoError(t, engine.Close())
 
 	// The same block, folded in one call against the same empty starting state.
-	mutations, err := gatherChangesFromAllStores(mustViews(t, 1, diff, prior))
-	require.NoError(t, err)
+	mutations := blockMutations(diff, prior)
 	want, err := compute(pool, engineDBNames, engineModuleOf, mutations, DefaultConfig().ChunkSize)
 	require.NoError(t, err)
 
@@ -187,25 +128,15 @@ func TestHashEngineAgreesWithSynchronousCompute(t *testing.T) {
 	require.Equal(t, int64(1), got.BlockNumber)
 }
 
-// mustViews is blockViews without the stub handles, for a caller that only wants the views.
-func mustViews(t *testing.T, height int64, diff map[string][]byte, prior map[string][]byte) (
-	*sview.StoreView, *sview.StoreView,
-) {
-	t.Helper()
-	current, previous, _ := blockViews(t, height, diff, prior)
-	return current, previous
-}
-
 // The stream's contract is exactly one hash per block, in block order. This schedules more blocks than
-// the combine queue holds without reading any of them, so the gatherer runs ahead and several blocks are
-// being hashed at once, then checks the order that came out.
+// the combine queue holds without reading any of them, so several blocks are being hashed at once, then
+// checks the order that came out.
 func TestHashEngineStreamsOneHashPerBlockInOrder(t *testing.T) {
 	const blocks = 12
-	engine := newTestEngine(t, 2, 2, blocks)
+	engine := newTestEngine(t, 2, blocks)
 
 	for height := int64(1); height <= blocks; height++ {
-		current, previous := mustViews(t, height, blockDiff(height, 120), nil)
-		require.NoError(t, engine.ScheduleHash(current, previous))
+		require.NoError(t, engine.ScheduleHash(height, blockMutations(blockDiff(height, 120), nil)))
 	}
 
 	for height := int64(1); height <= blocks; height++ {
@@ -219,28 +150,11 @@ func TestHashEngineStreamsOneHashPerBlockInOrder(t *testing.T) {
 	require.False(t, open, "the stream closes once a stopped engine has drained")
 }
 
-// The gatherer owns both blocks' reservations and must hand them back as soon as it has read them —
-// a reservation left held stalls its database's flushes forever.
-func TestHashEngineReleasesBothViews(t *testing.T) {
-	engine := newTestEngine(t, 4, 4, 4)
-
-	current, previous, views := blockViews(t, 1, blockDiff(1, 10), nil)
-	require.NoError(t, engine.ScheduleHash(current, previous))
-	require.NoError(t, (<-engine.AwaitHash()).Error)
-	require.NoError(t, engine.Close())
-
-	for _, v := range views {
-		require.Equal(t, 1, v.reserves, "%s: the engine must take its own reservation", v.name)
-		require.Equal(t, 1, v.releases, "%s: the engine must release the reservation it took", v.name)
-	}
-}
-
 // An engine built with a seed measures its first block against that seed, which is how a store with
 // history avoids folding block N onto an empty predecessor.
 func TestHashEngineStartsFromItsSeed(t *testing.T) {
-	engine := newTestEngine(t, 4, 4, 4)
-	current, previous := mustViews(t, 1, blockDiff(1, 40), nil)
-	require.NoError(t, engine.ScheduleHash(current, previous))
+	engine := newTestEngine(t, 4, 4)
+	require.NoError(t, engine.ScheduleHash(1, blockMutations(blockDiff(1, 40), nil)))
 	fromEmpty := (<-engine.AwaitHash()).Global.Checksum()
 	require.NoError(t, engine.Close())
 
@@ -249,8 +163,7 @@ func TestHashEngineStartsFromItsSeed(t *testing.T) {
 	cfg := DefaultConfig()
 	seeded, err := NewHashEngine(t.Context(), cfg, pool, engineDBNames, engineModuleOf, seedWithOneBlock(t))
 	require.NoError(t, err)
-	current, previous = mustViews(t, 2, blockDiff(2, 40), nil)
-	require.NoError(t, seeded.ScheduleHash(current, previous))
+	require.NoError(t, seeded.ScheduleHash(2, blockMutations(blockDiff(2, 40), nil)))
 	fromSeed := (<-seeded.AwaitHash()).Global.Checksum()
 	require.NoError(t, seeded.Close())
 
@@ -260,9 +173,8 @@ func TestHashEngineStartsFromItsSeed(t *testing.T) {
 // seedWithOneBlock returns the state a store would have loaded after one block.
 func seedWithOneBlock(t *testing.T) *BlockHash {
 	t.Helper()
-	engine := newTestEngine(t, 4, 4, 4)
-	current, previous := mustViews(t, 1, blockDiff(1, 40), nil)
-	require.NoError(t, engine.ScheduleHash(current, previous))
+	engine := newTestEngine(t, 4, 4)
+	require.NoError(t, engine.ScheduleHash(1, blockMutations(blockDiff(1, 40), nil)))
 	seed := <-engine.AwaitHash()
 	require.NoError(t, seed.Error)
 	require.NoError(t, engine.Close())
@@ -272,12 +184,11 @@ func seedWithOneBlock(t *testing.T) *BlockHash {
 // Flush is the barrier a caller uses when it needs the engine to have caught up with what it scheduled.
 func TestHashEngineFlushWaitsForScheduledBlocks(t *testing.T) {
 	const blocks = 6
-	engine := newTestEngine(t, blocks, 2, blocks)
+	engine := newTestEngine(t, 2, blocks)
 	defer func() { require.NoError(t, engine.Close()) }()
 
 	for height := int64(1); height <= blocks; height++ {
-		current, previous := mustViews(t, height, blockDiff(height, 80), nil)
-		require.NoError(t, engine.ScheduleHash(current, previous))
+		require.NoError(t, engine.ScheduleHash(height, blockMutations(blockDiff(height, 80), nil)))
 	}
 	require.NoError(t, engine.Flush())
 
@@ -292,37 +203,23 @@ func TestHashEngineFlushWaitsForScheduledBlocks(t *testing.T) {
 	}
 }
 
-// Close abandons whatever it has not reached rather than finishing it, but every abandoned block still
-// has to hand its reservations back — a view left reserved can never flush, and the store above could
-// never finish tearing down.
-func TestHashEngineCloseAbandonsAndReleases(t *testing.T) {
+// Close abandons whatever it has not reached rather than finishing it, and still returns.
+func TestHashEngineCloseAbandons(t *testing.T) {
 	const blocks = 5
-	engine := newTestEngine(t, blocks, blocks, blocks)
+	engine := newTestEngine(t, blocks, blocks)
 
-	var scheduled [][]*pipeView
 	for height := int64(1); height <= blocks; height++ {
-		current, previous, views := blockViews(t, height, blockDiff(height, 30), nil)
-		scheduled = append(scheduled, views)
-		require.NoError(t, engine.ScheduleHash(current, previous))
+		require.NoError(t, engine.ScheduleHash(height, blockMutations(blockDiff(height, 30), nil)))
 	}
 
 	require.NoError(t, engine.Close())
-
-	for _, views := range scheduled {
-		for _, v := range views {
-			require.Equal(t, 1, v.reserves, "%s: the engine must take its own reservation", v.name)
-			require.Equal(t, 1, v.releases,
-				"%s: a block abandoned at Close must still hand its reservation back", v.name)
-		}
-	}
 
 	// Whatever was hashed before the stop is on the stream, and the stream is closed behind it.
 	for range engine.AwaitHash() {
 	}
 }
 
-// A schedule parked on a full queue has to be released once the engine stops, and the block it could
-// not hand over must go back unreserved: a view left reserved can never flush.
+// A schedule parked on a full queue has to be released once the engine stops.
 func TestScheduleHashIsReleasedWhenTheEngineStops(t *testing.T) {
 	pool := threading.NewFixedPool("lthash-schedule-shutdown-test", 4, 64)
 	t.Cleanup(pool.Close)
@@ -330,8 +227,6 @@ func TestScheduleHashIsReleasedWhenTheEngineStops(t *testing.T) {
 	// One block deep at every stage, so the pipeline saturates within a handful of blocks while nothing
 	// reads AwaitHash. Its own context, so the test can stop it; newTestEngine ties one to t.Context().
 	cfg := DefaultConfig()
-	cfg.ScheduleQueueSize = 1
-	cfg.GatherParallelism = 1
 	cfg.CombineQueueSize = 1
 	cfg.HashChanSize = 1
 	ctx, cancel := context.WithCancel(t.Context())
@@ -343,21 +238,15 @@ func TestScheduleHashIsReleasedWhenTheEngineStops(t *testing.T) {
 
 	// Built here rather than in the goroutine below, which must not touch t.
 	const blocks = 8
-	type pipeBlock struct {
-		current  *sview.StoreView
-		previous *sview.StoreView
-		views    []*pipeView
-	}
-	pending := make([]pipeBlock, 0, blocks)
+	pending := make([][]DatabaseMutations, 0, blocks)
 	for height := int64(1); height <= blocks; height++ {
-		current, previous, views := blockViews(t, height, blockDiff(height, 4), nil)
-		pending = append(pending, pipeBlock{current: current, previous: previous, views: views})
+		pending = append(pending, blockMutations(blockDiff(height, 4), nil))
 	}
 
 	results := make(chan error, blocks)
 	go func() {
-		for _, block := range pending {
-			results <- engine.ScheduleHash(block.current, block.previous)
+		for i, block := range pending {
+			results <- engine.ScheduleHash(int64(i+1), block)
 		}
 	}()
 
@@ -382,59 +271,39 @@ func TestScheduleHashIsReleasedWhenTheEngineStops(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("ScheduleHash never returned after the engine was stopped")
 	}
-
-	for _, v := range pending[accepted].views {
-		require.Equal(t, v.reserves, v.releases,
-			"%s: a block the engine could not take must hold none of its reservations", v.name)
-	}
 }
+
+// failingModuleOf fails every key, so any block with a mutation fails to hash.
+func failingModuleOf([]byte) (string, error) { return "", errors.New("injected module failure") }
 
 // The first failure is delivered on the stream, and nothing is published after it: once a block has
 // failed, the accumulator describes nothing a later block may be derived from.
 func TestHashEngineDeliversFailureAndStops(t *testing.T) {
-	engine := newTestEngine(t, 4, 4, 4)
+	engine := newTestEngineWithModuleOf(t, 4, 4, failingModuleOf)
 
-	current, previous, views := blockViews(t, 1, blockDiff(1, 10), nil)
-	for _, v := range views {
-		v.getDiffErr = errors.New("injected diff failure")
-	}
-	require.NoError(t, engine.ScheduleHash(current, previous))
+	require.NoError(t, engine.ScheduleHash(1, blockMutations(blockDiff(1, 10), nil)))
 
 	got := <-engine.AwaitHash()
 	require.Error(t, got.Error)
-	require.ErrorContains(t, got.Error, "injected diff failure")
+	require.ErrorContains(t, got.Error, "injected module failure")
 	require.Equal(t, int64(1), got.BlockNumber)
 
-	require.ErrorContains(t, engine.Close(), "injected diff failure")
+	require.ErrorContains(t, engine.Close(), "injected module failure")
 
 	_, open := <-engine.AwaitHash()
 	require.False(t, open, "nothing is published after the failure, and the stream closes with the engine")
-
-	for _, v := range views {
-		require.Equal(t, 1, v.reserves, "%s: the engine must take its own reservation", v.name)
-		require.Equal(t, 1, v.releases, "%s: a failed read must still hand its reservation back", v.name)
-	}
 }
 
 // A failed engine refuses further work rather than accepting blocks it will never hash.
 func TestHashEngineRefusesWorkAfterFailure(t *testing.T) {
-	engine := newTestEngine(t, 4, 4, 4)
+	engine := newTestEngineWithModuleOf(t, 4, 4, failingModuleOf)
 
-	current, previous, views := blockViews(t, 1, blockDiff(1, 10), nil)
-	for _, v := range views {
-		v.getDiffErr = errors.New("injected diff failure")
-	}
-	require.NoError(t, engine.ScheduleHash(current, previous))
+	require.NoError(t, engine.ScheduleHash(1, blockMutations(blockDiff(1, 10), nil)))
 	require.Error(t, (<-engine.AwaitHash()).Error)
 
-	next, nextPrev, nextViews := blockViews(t, 2, blockDiff(2, 10), nil)
-	err := engine.ScheduleHash(next, nextPrev)
+	err := engine.ScheduleHash(2, blockMutations(blockDiff(2, 10), nil))
 	require.Error(t, err, "a failed engine must refuse a block rather than swallow it")
-	for _, v := range nextViews {
-		require.Equal(t, 1, v.reserves, "%s: the engine must take its own reservation", v.name)
-		require.Equal(t, 1, v.releases, "%s: a refused block's reservation must be released", v.name)
-	}
-	require.ErrorContains(t, engine.Close(), "injected diff failure")
+	require.ErrorContains(t, engine.Close(), "injected module failure")
 }
 
 // A flush waits to be told the engine has dealt with everything queued ahead of it, which a stopping
@@ -452,8 +321,7 @@ func TestFlushReturnsOnceTheEngineIsStopped(t *testing.T) {
 	// hashing to the pool, and Close is what waits for them to stop.
 	t.Cleanup(func() { require.NoError(t, engine.Close()) })
 
-	current, previous, _ := blockViews(t, 1, blockDiff(1, 4), nil)
-	require.NoError(t, engine.ScheduleHash(current, previous))
+	require.NoError(t, engine.ScheduleHash(1, blockMutations(blockDiff(1, 4), nil)))
 
 	cancel()
 

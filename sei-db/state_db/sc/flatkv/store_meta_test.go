@@ -11,6 +11,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -62,13 +63,13 @@ func TestLoadLocalMeta(t *testing.T) {
 // bookkeeping) are rejected; both would otherwise silently corrupt the
 // per-DB root — and thus the global store hash / AppHash — on the first write.
 func TestValidatePerModuleMetadata(t *testing.T) {
-	nonZero := lthash.ComputeLtHash(nil, []lthash.KeyMutation{
-		{Key: []byte("k"), Value: []byte("v")},
+	nonZero := lthash.ComputeLtHash(nil, []mutation.Mutation{
+		{Key: []byte("k"), NewValue: []byte("v")},
 	})
 	require.False(t, nonZero.IsZero(), "precondition: crafted root must be non-identity")
 
-	other := lthash.ComputeLtHash(nil, []lthash.KeyMutation{
-		{Key: []byte("other"), Value: []byte("w")},
+	other := lthash.ComputeLtHash(nil, []mutation.Mutation{
+		{Key: []byte("other"), NewValue: []byte("w")},
 	})
 	require.False(t, other.IsZero())
 	require.False(t, nonZero.Equal(other), "precondition: distinct hashes")
