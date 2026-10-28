@@ -48,6 +48,7 @@ func TestConv(t *testing.T) {
 			PayloadConv.Test(GenPayload(rng)),
 			BlockConv.Test(GenBlock(rng)),
 			LaneQCConv.Test(GenLaneQC(rng)),
+			RoadBlockHeaderConv.Test(GenProposal(rng).Header()),
 			FullProposalConv.Test(GenFullProposal(rng)),
 			PrepareQCConv.Test(GenPrepareQC(rng)),
 			CommitQCConv.Test(GenCommitQC(rng)),

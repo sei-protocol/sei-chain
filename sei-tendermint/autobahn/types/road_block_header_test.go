@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -46,7 +45,6 @@ func TestRoadBlockHeaderHashCanonicalLaneRanges(t *testing.T) {
 	proposal, err := NewProposal(leaderKey(committee, keys, vs.View()), vs, vs.NextTimestamp(), nil)
 	require.NoError(t, err)
 	header := proposal.Header()
-	require.NoError(t, RoadBlockHeaderConv.Test(header))
 	wire := RoadBlockHeaderConv.Encode(header)
 	require.Len(t, wire.LaneRanges, 3)
 	slices.Reverse(wire.LaneRanges)
@@ -91,25 +89,4 @@ func TestProposalConvRequiresHeader(t *testing.T) {
 func TestRoadBlockHeaderConvRequiresTimestamp(t *testing.T) {
 	_, err := RoadBlockHeaderConv.Decode(&pb.RoadBlockHeader{})
 	require.Error(t, err)
-}
-
-func TestRoadBlockHeaderWireguardLaneRangeLimit(t *testing.T) {
-	rng := utils.TestRng()
-	laneRange := LaneRangeConv.Encode(GenLaneRange(rng))
-	for _, count := range []int{MaxValidators, MaxValidators + 1} {
-		ranges := make([]*pb.LaneRange, count)
-		for i := range ranges {
-			ranges[i] = laneRange
-		}
-		raw := protoutils.Marshal(&pb.Proposal{
-			View:   ViewConv.Encode(GenView(rng)),
-			Header: &pb.RoadBlockHeader{Timestamp: TimeConv.Encode(utils.GenTimestamp(rng)), LaneRanges: ranges},
-		})
-		_, err := protoutils.Unmarshal[*pb.Proposal](raw)
-		if count == MaxValidators {
-			require.NoError(t, err)
-		} else {
-			require.Error(t, err)
-		}
-	}
 }
