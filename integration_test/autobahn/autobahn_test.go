@@ -1495,7 +1495,7 @@ const evmOnlyFailingDeployerAccount = 2_000_001
 // eth_getTransactionErrorByHash report its error and report "" for the
 // successful transfer succeeded, that an unknown hash is "" for
 // eth_getTransactionErrorByHash and an error for eth_getVMError, and that
-// web3_clientVersion answers in the regular RPC's Geth format.
+// web3_clientVersion answers in the Sei/<seid version>/ format.
 func assertEVMOnlyTransactionErrors(t *testing.T, ctx context.Context, clients []*ethrpc.Client, succeeded []byte) {
 	t.Helper()
 	key, err := scenarios.DeterministicPrivateKey(evmOnlyFailingDeployerAccount)
@@ -1562,8 +1562,8 @@ func assertEVMOnlyTransactionErrors(t *testing.T, ctx context.Context, clients [
 
 		var version string
 		decodeEVMOnlyResult(t, nodeIndex, "web3_clientVersion", evmOnlyCall(t, ctx, client, nodeIndex, "web3_clientVersion"), &version)
-		if !strings.HasPrefix(version, "Geth/") {
-			t.Fatalf("node %d web3_clientVersion = %q, want the regular RPC's Geth/ form", nodeIndex, version)
+		if !strings.HasPrefix(version, "Sei/") {
+			t.Fatalf("node %d web3_clientVersion = %q, want the Sei/<seid version>/ form", nodeIndex, version)
 		}
 	}
 }

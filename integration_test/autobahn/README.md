@@ -396,9 +396,10 @@ WebSocket (port 8546 by default):
   yet returns `null`.
 - Logs: `eth_getLogs`.
 - Fees: `eth_gasPrice`, `eth_maxPriorityFeePerGas`, and `eth_feeHistory`.
-- Node: `eth_chainId`, `net_version`, `web3_clientVersion`, which returns the
-  regular RPC's `Geth/<os>-<arch>/<go version>` string, and `eth_syncing`,
-  which returns a not-supported error, as on the regular RPC.
+- Node: `eth_chainId`, `net_version`, `web3_clientVersion`, which returns
+  `Sei/<seid version>/<os>-<arch>/<go version>` (the regular RPC reports
+  `Geth/...`), and `eth_syncing`, which returns a not-supported error, as on the
+  regular RPC.
 - Subscriptions, over WebSocket only: `eth_subscribe("newHeads")`.
 
 A lookup for a pending or unknown hash returns `null`. Every other method
