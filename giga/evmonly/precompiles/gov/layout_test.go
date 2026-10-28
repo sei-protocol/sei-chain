@@ -183,14 +183,15 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 		tallyNo:         big.NewInt(24),
 		tallyNoWithVeto: big.NewInt(25),
 	}, prop)
-	contentType, stored := s.proposalContent(5)
+	contentType, stored, err := s.proposalContent(5)
+	require.NoError(t, err)
 	require.Equal(t, uint8(2), contentType)
 	require.Equal(t, content, stored)
 
 	require.Equal(t, []weightedVote{
 		{option: 1, weight: 700_000_000_000_000_000},
 		{option: 4, weight: 300_000_000_000_000_000},
-	}, s.vote(5, voter))
+	}, must(s.vote(5, voter)))
 	require.Equal(t, ether(31), s.deposit(5, voter))
 	require.Equal(t, ether(32), s.deposit(5, other))
 
@@ -249,6 +250,8 @@ func (v stateDBView) GetNonce(common.Address) uint64                    { panic(
 func (v stateDBView) SetNonce(common.Address, uint64)                   { panic("unsupported") }
 func (v stateDBView) GetCode(common.Address) []byte                     { panic("unsupported") }
 func (v stateDBView) Failed() bool                                      { return false }
+func (v stateDBView) Snapshot() int                                     { panic("unsupported") }
+func (v stateDBView) RevertToSnapshot(int)                              { panic("unsupported") }
 
 // TestContentEncodingMatchesSolc checks encodeContent against solc's
 // abi.encode of each GovStorage content struct, run in GovStorageHarness.

@@ -62,7 +62,10 @@ func (p Precompile) proposalsQuery(s store, method *abi.Method, args []interface
 func (p Precompile) voteQuery(s store, method *abi.Method, args []interface{}) ([]byte, error) {
 	id := args[0].(uint64)
 	voter := args[1].(common.Address)
-	options := s.vote(id, voter)
+	options, err := s.vote(id, voter)
+	if err != nil {
+		return nil, err
+	}
 	if len(options) == 0 {
 		return nil, fmt.Errorf("%w: proposal %d voter %s", errVoteNotFound, id, voter.Hex())
 	}
@@ -79,7 +82,8 @@ func (p Precompile) votesQuery(s store, method *abi.Method, args []interface{}) 
 	out := make([]VoteData, 0, end-start)
 	for i := start; i < end; i++ {
 		voter := solstorage.MemberAddress(voters.At(i))
-		out = append(out, voteData(id, voter, s.vote(id, voter)))
+		options, _ := s.vote(id, voter) // a stored vote that does not add up lists with no options
+		out = append(out, voteData(id, voter, options))
 	}
 	return method.Outputs.Pack(out, nextKey)
 }
@@ -132,13 +136,17 @@ func (p Precompile) tallyResultQuery(s store, method *abi.Method, args []interfa
 		return nil, fmt.Errorf("%w: %d", errUnknownProposal, id)
 	}
 	if prop.status == StatusVotingPeriod {
-		prop.recordTally(liveTally(s.State, p.Electorate, s, id))
+		outcome, err := liveTally(p.Electorate, s, id)
+		if err != nil {
+			return nil, err
+		}
+		prop.recordTally(outcome)
 	}
 	return method.Outputs.Pack(tallyResult(prop))
 }
 
 func proposalData(s store, id uint64, prop proposal) ProposalData {
-	contentType, content := s.proposalContent(id)
+	contentType, content, _ := s.proposalContent(id) // content that does not add up reads as empty
 	return ProposalData{
 		Id:               id,
 		Status:           prop.status,

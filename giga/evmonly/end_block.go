@@ -3,6 +3,7 @@ package evmonly
 import (
 	"bytes"
 	"cmp"
+	"errors"
 	"fmt"
 	"math/big"
 	"slices"
@@ -65,7 +66,7 @@ func (e *Executor) runEndBlockers(block BlockContext, source StateReader, result
 	blockCtx := endBlockContext(block, e.chainConfig(block).ChainID)
 	for _, blocker := range e.endBlockers {
 		state := &precompileState{db: stateDB}
-		failures, err := runEndBlock(blocker.contract, blockCtx, state)
+		failures, err := blocker.contract.EndBlock(blockCtx, state)
 		logEndBlockFailures(block.Number, blocker.address, failures)
 		if err != nil {
 			return fmt.Errorf("end block %d for custom precompile %s: %w", block.Number, blocker.address, err)
@@ -85,23 +86,17 @@ func (e *Executor) runEndBlockers(block BlockContext, source StateReader, result
 	return nil
 }
 
-// runEndBlock runs blocker's EndBlock, returning a panic as errPrecompilePanic.
-// Like any EndBlock error, it fails the block, so the chain does not advance past
-// that height.
-func runEndBlock(blocker precompiles.EndBlocker, block precompiles.BlockContext, state precompiles.State) (failures []error, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			failures, err = nil, fmt.Errorf("%w: %v", errPrecompilePanic, r)
-		}
-	}()
-	return blocker.EndBlock(block, state)
-}
-
 // logEndBlockFailures logs each of an end blocker's failures, its message cut
-// to maxFailureLength bytes.
+// to maxFailureLength bytes: a failure over stored data that does not add up as
+// an error, any other at info.
 func logEndBlockFailures(height uint64, address common.Address, failures []error) {
 	for _, failure := range failures {
-		endBlockLogger.Info("custom precompile end block failure", "height", height, "address", address, "error", truncateUTF8(failure.Error(), maxFailureLength))
+		msg := truncateUTF8(failure.Error(), maxFailureLength)
+		if errors.Is(failure, precompiles.ErrDegraded) {
+			endBlockLogger.Error("custom precompile end block failure over stored data", "height", height, "address", address, "error", msg)
+			continue
+		}
+		endBlockLogger.Info("custom precompile end block failure", "height", height, "address", address, "error", msg)
 	}
 }
 

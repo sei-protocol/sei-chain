@@ -13,98 +13,128 @@ import (
 var _ precompiles.EndBlocker = Precompile{}
 
 var (
-	errEscrowShort    = errors.New("escrow holds less than the deposit")
-	errRefundOverflow = errors.New("refund would overflow the depositor's balance")
+	errEscrowShort           = errors.New("escrow holds less than the deposit")
+	errRefundOverflow        = errors.New("refund would overflow the depositor's balance")
+	errDepositOverTotal      = errors.New("deposits exceed the proposal's total deposit")
+	errInvalidStoredVote     = errors.New("invalid stored vote")
+	errInvalidStoredDeposits = errors.New("invalid stored deposits")
+	errStuckInQueue          = errors.New("proposal did not leave its queue")
+	errQueueCorrupt          = errors.New("queue holds more entries than proposals exist; frozen until an upgrade rebuilds it")
 )
 
 // endBlockBudget bounds each of one EndBlock's two kinds of work, dropping
-// proposals and ending votes, as x/gov's MaxVotesProcessedPerBlock does, in the
-// units dropCost, settleCost and one per counted vote measure. Work past its
-// budget waits for the next EndBlock; work larger than a whole budget runs when
-// nothing has spent that budget, and uses it up.
+// proposals and ending votes, as x/gov's MaxVotesProcessedPerBlock does. The
+// units are those dropCost and settleCost return, one per counted vote, and
+// failCost per failed proposal. Work past its budget waits for the next
+// EndBlock; work larger than a whole budget runs when nothing has spent that
+// budget, and uses it up.
 const endBlockBudget = 1_000
+
+// failCost is the budget failing a proposal in place costs.
+const failCost = 1
 
 // EndBlock drops proposals whose deposit period ended short of the minimum
 // deposit, then tallies and settles those whose voting period is over, each in
 // order of end time, then id, as x/gov's EndBlocker does. Its failures are
-// proposals that failed: passed proposals that could not execute, deposits the
-// escrow could not settle, and proposals whose stored data broke processing,
-// which are marked Failed. It returns no error.
+// passed proposals that could not execute, which are marked Failed, and
+// proposals whose stored data does not add up, which are failed in place. It
+// returns no error.
 func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.State) ([]error, error) {
 	s := newStore(state)
 	var failures []error
-	dropDueProposals(s, block.UnixNano, &failures)
-	budget := uint64(endBlockBudget)
-	for id, end, ok := s.votingQueue().due(block.UnixNano); ok; id, end, ok = s.votingQueue().due(block.UnixNano) {
-		settled := contained(s, s.votingQueue(), id, end, &failures, func() bool {
-			return p.endVoting(block, state, s, id, end, &budget, &failures)
-		})
-		if !settled {
-			break
-		}
-	}
+	drain(s, s.depositQueue(), block.UnixNano, &failures, func(id, end uint64, budget *uint64) (bool, error) {
+		return dropProposal(s, id, end, budget)
+	})
+	drain(s, s.votingQueue(), block.UnixNano, &failures, func(id, end uint64, budget *uint64) (bool, error) {
+		return p.endVoting(block, s, id, end, budget, &failures)
+	})
 	return failures, nil
 }
 
-// dropDueProposals drops proposals whose deposit period ended by now, within a
-// budget of its own so that drops never delay ending votes.
-func dropDueProposals(s store, now uint64, failures *[]error) {
+// drain runs step on each proposal due in q, in queue order, under a budget of
+// its own, until the queue holds nothing due or a step reports it did not
+// finish. A step that fails, or that leaves its proposal at the head of q, is
+// reverted and the proposal is failed in place, so it holds up no other
+// proposal. A queue longer than the proposal ids ever assigned is corrupt and
+// is not drained.
+func drain(s store, q proposalQueue, now uint64, failures *[]error, step func(id, end uint64, budget *uint64) (bool, error)) {
+	if q.Len() > s.proposalIDCount() {
+		*failures = append(*failures, fmt.Errorf("%w: %w: %d entries", precompiles.ErrDegraded, errQueueCorrupt, q.Len()))
+		return
+	}
 	budget := uint64(endBlockBudget)
-	for id, end, ok := s.depositQueue().due(now); ok; id, end, ok = s.depositQueue().due(now) {
-		dropped := contained(s, s.depositQueue(), id, end, failures, func() bool {
-			if !take(&budget, dropCost(s, id)) {
-				return false
+	for id, end, ok := q.due(now); ok; id, end, ok = q.due(now) {
+		snap := s.State.Snapshot()
+		finished, err := step(id, end, &budget)
+		if err == nil && !finished {
+			return
+		}
+		if err == nil {
+			if next, nextEnd, ok := q.due(now); ok && next == id && nextEnd == end {
+				err = errStuckInQueue
 			}
-			dropProposal(s, id, end, failures)
-			return true
-		})
-		if !dropped {
+		}
+		if err == nil {
+			continue
+		}
+		s.State.RevertToSnapshot(snap)
+		*failures = append(*failures, fmt.Errorf("%w: proposal %d: %w", precompiles.ErrDegraded, id, err))
+		failInPlace(s, q, id, failures)
+		if !take(&budget, failCost) {
 			return
 		}
 	}
 }
 
-// contained runs step, one proposal's EndBlock work, reporting whether it
-// finished. A panic in step fails proposal id instead: it is reported in
-// failures, leaves queue q, where it is keyed by end, and is marked Failed.
-// Work on q stops for the block when the proposal cannot leave it.
-func contained(s store, q proposalQueue, id, end uint64, failures *[]error, step func() bool) (finished bool) {
-	defer func() {
-		if r := recover(); r != nil {
-			*failures = append(*failures, fmt.Errorf("proposal %d failed: %v", id, r))
-			finished = failProposal(s, q, id, end)
-		}
-	}()
-	return step()
+// failInPlace takes proposal id, the head of q, out of q and marks it Failed,
+// refunding its deposits. When the refund fails it leaves the deposits in
+// escrow, recorded, and reports why.
+func failInPlace(s store, q proposalQueue, id uint64, failures *[]error) {
+	snap := s.State.Snapshot()
+	q.popHead()
+	markFailed(s, id)
+	if err := settleDeposits(s, id, false); err != nil {
+		s.State.RevertToSnapshot(snap)
+		*failures = append(*failures, fmt.Errorf("%w: proposal %d deposits left in escrow: %w", precompiles.ErrDegraded, id, err))
+		q.popHead()
+		markFailed(s, id)
+	}
 }
 
-// failProposal removes proposal id from queue q and marks it Failed, reporting
-// whether it left q.
-func failProposal(s store, q proposalQueue, id, end uint64) (left bool) {
-	defer func() {
-		if recover() != nil {
-			left = false // a record too broken to update stays as it is
-		}
-	}()
-	q.remove(id, end)
+func markFailed(s store, id uint64) {
 	if prop, ok := s.proposal(id); ok {
 		prop.status = StatusFailed
 		s.setProposal(id, prop)
 	}
-	return !q.contains(id, end)
 }
 
-// dropCost is the budget dropping proposal id costs: it clears every depositor
-// and every word of the proposal's content.
-func dropCost(s store, id uint64) uint64 {
-	return 1 + s.depositors(id).Len() + s.proposalContentChunks(id)
+// dropCost is the budget dropping proposal id costs: one unit, plus one per
+// depositor cleared and one per word of content cleared.
+func dropCost(s store, id uint64) (uint64, error) {
+	depositors, err := s.depositorCount(id)
+	if err != nil {
+		return 0, err
+	}
+	chunks, err := s.proposalContentChunks(id)
+	if err != nil {
+		return 0, err
+	}
+	return 1 + depositors + chunks, nil
 }
 
-// settleCost is the budget finishing proposal id's tally costs: it credits every
-// bonded validator, settles every depositor, and reads and executes the
-// proposal's content, one unit per content word.
-func settleCost(s store, id uint64, snap electorateSnapshot) uint64 {
-	return uint64(len(snap.validators)) + 1 + s.depositors(id).Len() + s.proposalContentChunks(id)
+// settleCost is the budget finishing proposal id's tally costs: one unit, plus
+// one per bonded validator credited, one per depositor settled, and one per word
+// of content read and executed.
+func settleCost(s store, id uint64, snap electorateSnapshot) (uint64, error) {
+	depositors, err := s.depositorCount(id)
+	if err != nil {
+		return 0, err
+	}
+	chunks, err := s.proposalContentChunks(id)
+	if err != nil {
+		return 0, err
+	}
+	return uint64(len(snap.validators)) + 1 + depositors + chunks, nil
 }
 
 // take spends n of budget, reporting whether the work may run. Work larger than
@@ -122,37 +152,57 @@ func take(budget *uint64, n uint64) bool {
 }
 
 // dropProposal burns proposal id's deposits, deletes it, and removes it from
-// the deposit queue, where it is keyed by end.
-func dropProposal(s store, id, end uint64, failures *[]error) {
-	settleDeposits(s, id, true, failures)
+// the deposit queue, where it is keyed by end, reporting whether the budget
+// covered it.
+func dropProposal(s store, id, end uint64, budget *uint64) (bool, error) {
+	cost, err := dropCost(s, id)
+	if err != nil {
+		return false, err
+	}
+	if !take(budget, cost) {
+		return false, nil
+	}
+	if err := settleDeposits(s, id, true); err != nil {
+		return false, err
+	}
 	s.depositQueue().remove(id, end)
-	s.deleteProposal(id)
+	return true, s.deleteProposal(id)
 }
 
 // endVoting counts proposal id's votes and, once all are counted, settles it
 // and removes it from the voting queue, where it is keyed by end, reporting
 // whether it settled within budget. A failed expedited proposal becomes a
 // regular one with a fresh round of voting for the rest of the regular period.
-// A passed proposal that fails to execute adds its error to failures.
-func (p Precompile) endVoting(block precompiles.BlockContext, state precompiles.State, s store, id, end uint64, budget *uint64, failures *[]error) bool {
+// A passed proposal that fails to execute is marked Failed and adds its error to
+// failures.
+func (p Precompile) endVoting(block precompiles.BlockContext, s store, id, end uint64, budget *uint64, failures *[]error) (bool, error) {
 	prop, ok := s.proposal(id)
 	if !ok {
 		s.votingQueue().remove(id, end)
-		return true
+		return true, nil
 	}
-	snap := snapshotElectorate(state, p.Electorate)
-	if !countVotes(state, p.Electorate, s, id, snap, budget) {
-		return false
+	snap := snapshotElectorate(s.State, p.Electorate)
+	if counted, err := countVotes(p.Electorate, s, id, snap, budget); err != nil || !counted {
+		return false, err
 	}
-	if !take(budget, settleCost(s, id, snap)) {
-		return false
+	cost, err := settleCost(s, id, snap)
+	if err != nil {
+		return false, err
+	}
+	if !take(budget, cost) {
+		return false, nil
 	}
 	params := s.params()
-	outcome := finishTally(state, p.Electorate, s, id, prop, params, snap)
+	outcome, err := finishTally(p.Electorate, s, id, prop, params, snap)
+	if err != nil {
+		return false, err
+	}
 
 	s.votingQueue().remove(id, end)
 	if !prop.isExpedited || outcome.passes {
-		settleDeposits(s, id, outcome.burnDeposits, failures)
+		if err := settleDeposits(s, id, outcome.burnDeposits); err != nil {
+			return false, err
+		}
 	}
 	switch {
 	case outcome.passes:
@@ -170,42 +220,56 @@ func (p Precompile) endVoting(block precompiles.BlockContext, state precompiles.
 	}
 	prop.recordTally(outcome)
 	s.setProposal(id, prop)
-	return true
+	return true, nil
 }
 
 // settleDeposits releases every deposit on proposal id from escrow, burning it
-// or refunding it to its depositor, and clears the deposit records. A deposit
-// the escrow cannot cover, or whose refund would overflow the depositor's
-// balance, stays in escrow and is reported in failures.
-func settleDeposits(s store, id uint64, burn bool, failures *[]error) {
+// or refunding it to its depositor, and clears the deposit records. It fails
+// when the deposits do not add up: more depositors than allowed, deposits past
+// the proposal's total, or a release the escrow or a depositor's balance cannot
+// take.
+func settleDeposits(s store, id uint64, burn bool) error {
+	n, err := s.depositorCount(id)
+	if err != nil {
+		return err
+	}
+	remaining := new(big.Int)
+	if prop, ok := s.proposal(id); ok {
+		remaining.Set(prop.totalDeposit)
+	}
 	depositors := s.depositors(id)
-	for n := depositors.Len(); n > 0; n-- {
+	for ; n > 0; n-- {
 		member := depositors.At(n - 1)
 		depositor := solstorage.MemberAddress(member)
 		amount := s.deposit(id, depositor)
-		if err := releaseDeposit(s, depositor, amount, burn); err != nil {
-			*failures = append(*failures, fmt.Errorf("proposal %d deposit from %s: %w", id, depositor, err))
+		if amount.Cmp(remaining) > 0 {
+			return fmt.Errorf("%w: %s from %s", errDepositOverTotal, amount, depositor)
+		}
+		remaining.Sub(remaining, amount)
+		if err := releaseDeposit(s.State, depositor, amount, burn); err != nil {
+			return fmt.Errorf("deposit from %s: %w", depositor, err)
 		}
 		s.setDeposit(id, depositor, new(big.Int))
 		depositors.Remove(member)
 	}
+	return nil
 }
 
 // releaseDeposit moves amount out of escrow, to depositor unless burn, failing
-// without moving anything when the escrow or the depositor's balance cannot
-// take it.
-func releaseDeposit(s store, depositor common.Address, amount *big.Int, burn bool) error {
-	if s.State.GetBalance(DepositEscrow).Cmp(amount) < 0 {
+// without moving anything when the escrow holds less than amount or a refund
+// would overflow the depositor's balance.
+func releaseDeposit(state precompiles.State, depositor common.Address, amount *big.Int, burn bool) error {
+	if state.GetBalance(DepositEscrow).Cmp(amount) < 0 {
 		return errEscrowShort
 	}
-	if !burn && new(big.Int).Add(s.State.GetBalance(depositor), amount).BitLen() > 256 {
+	if !burn && new(big.Int).Add(state.GetBalance(depositor), amount).BitLen() > 256 {
 		return errRefundOverflow
 	}
-	if err := s.State.SubBalance(DepositEscrow, amount); err != nil {
+	if err := state.SubBalance(DepositEscrow, amount); err != nil {
 		return err
 	}
 	if !burn {
-		s.State.AddBalance(depositor, amount)
+		state.AddBalance(depositor, amount)
 	}
 	return nil
 }

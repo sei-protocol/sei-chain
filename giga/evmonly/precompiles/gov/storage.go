@@ -2,6 +2,7 @@ package gov
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 	"math/big"
 
@@ -64,6 +65,15 @@ func at(base common.Hash, m member) common.Hash {
 // lastProposalID returns the highest proposal id assigned, or 0 if none has been.
 func (s store) lastProposalID() uint64 {
 	return s.Uint64(at(solstorage.Slot(slotProposalIDs), lastProposalID), lastProposalID.offset)
+}
+
+// proposalIDCount returns how many proposal ids gov has assigned.
+func (s store) proposalIDCount() uint64 {
+	first, last := s.startingProposalID(), s.lastProposalID()
+	if last < first {
+		return 0
+	}
+	return last - first + 1
 }
 
 // startingProposalID returns the lowest proposal id gov assigns.
@@ -163,37 +173,42 @@ func (s store) setProposal(id uint64, p proposal) {
 }
 
 // deleteProposal zeroes proposal id and its content.
-func (s store) deleteProposal(id uint64) {
+func (s store) deleteProposal(id uint64) error {
 	s.setProposal(id, proposal{})
-	s.setProposalContent(id, 0, nil)
+	return s.setProposalContent(id, 0, nil)
 }
 
 // proposalContent returns proposal id's content type and its ABI encoding.
-func (s store) proposalContent(id uint64) (uint8, []byte) {
+func (s store) proposalContent(id uint64) (uint8, []byte, error) {
 	base := proposalBase(id)
-	return s.Uint8(at(base, proposalContentType), proposalContentType.offset), []byte(s.String(at(base, proposalContent)))
+	content, err := s.String(at(base, proposalContent))
+	return s.Uint8(at(base, proposalContentType), proposalContentType.offset), []byte(content), err
 }
 
 // proposalContentChunks returns how many storage words beyond its head
 // proposal id's content occupies.
-func (s store) proposalContentChunks(id uint64) uint64 {
+func (s store) proposalContentChunks(id uint64) (uint64, error) {
 	return s.StringChunks(at(proposalBase(id), proposalContent))
 }
 
-func (s store) setProposalContent(id uint64, contentType uint8, content []byte) {
+func (s store) setProposalContent(id uint64, contentType uint8, content []byte) error {
 	base := proposalBase(id)
 	s.SetUint8(at(base, proposalContentType), proposalContentType.offset, contentType)
-	s.SetString(at(base, proposalContent), string(content))
+	return s.SetString(at(base, proposalContent), string(content))
 }
 
 func voteBase(id uint64, voter common.Address) common.Hash {
 	return solstorage.MapAddress(solstorage.MapUint64(solstorage.Slot(slotVotes), id), voter)
 }
 
-// vote returns voter's options on proposal id, empty when it has not voted.
-func (s store) vote(id uint64, voter common.Address) []weightedVote {
+// vote returns voter's options on proposal id, empty when it has not voted,
+// failing on a stored vote castVote could not have written.
+func (s store) vote(id uint64, voter common.Address) ([]weightedVote, error) {
 	base := voteBase(id, voter)
-	n := min(s.Uint64(base, 0), maxVoteOptions) // setVote writes at most maxVoteOptions
+	n := s.Uint64(base, 0)
+	if n > maxVoteOptions {
+		return nil, fmt.Errorf("%w: %d options", errInvalidStoredVote, n)
+	}
 	data := solstorage.ArrayData(base)
 	out := make([]weightedVote, n)
 	for i := range out {
@@ -202,8 +217,11 @@ func (s store) vote(id uint64, voter common.Address) []weightedVote {
 			option: s.Int32(slot, weightedVoteOption.offset),
 			weight: s.Uint64(slot, weightedVoteWeight.offset),
 		}
+		if !validOption(out[i].option) {
+			return nil, fmt.Errorf("%w: option %d", errInvalidStoredVote, out[i].option)
+		}
 	}
-	return out
+	return out, nil
 }
 
 // setVote replaces voter's options on proposal id, zeroing elements the new
@@ -238,6 +256,16 @@ func (s store) setDeposit(id uint64, depositor common.Address, amount *big.Int) 
 
 func (s store) depositors(id uint64) solstorage.Set {
 	return solstorage.Set{Store: s.Store, Base: solstorage.MapUint64(solstorage.Slot(slotDepositors), id)}
+}
+
+// depositorCount returns how many depositors proposal id has, failing on a
+// count addDeposit could not have written.
+func (s store) depositorCount(id uint64) (uint64, error) {
+	n := s.depositors(id).Len()
+	if n > maxDepositors {
+		return 0, fmt.Errorf("%w: %d depositors", errInvalidStoredDeposits, n)
+	}
+	return n, nil
 }
 
 func (s store) votersByProposal(id uint64) solstorage.Set {
@@ -285,6 +313,11 @@ func (q proposalQueue) add(id, end uint64) {
 
 func (q proposalQueue) remove(id, end uint64) {
 	q.heap.Remove(queueKey(end, id))
+}
+
+// popHead removes the queue's first entry by its position alone.
+func (q proposalQueue) popHead() {
+	q.heap.PopMin()
 }
 
 // due returns the id and end time of the queued proposal that ends first,

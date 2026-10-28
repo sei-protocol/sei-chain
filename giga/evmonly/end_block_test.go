@@ -371,22 +371,3 @@ func TestMergeChangeSet(t *testing.T) {
 		},
 	}, dst)
 }
-
-// panicking panics from both Run and EndBlock.
-type panicking struct{}
-
-func (panicking) RequiredGas([]byte) uint64 { return 0 }
-func (panicking) Run(*precompiles.Context, []byte) ([]byte, error) {
-	panic("boom")
-}
-func (panicking) EndBlock(precompiles.BlockContext, precompiles.State) ([]error, error) {
-	panic("boom")
-}
-
-func TestPrecompilePanicsBecomeErrors(t *testing.T) {
-	_, err := runContract(panicking{}, &precompiles.Context{}, nil)
-	require.ErrorIs(t, err, errPrecompilePanic)
-	require.ErrorContains(t, err, "boom")
-	_, err = runEndBlock(panicking{}, precompiles.BlockContext{}, nil)
-	require.ErrorIs(t, err, errPrecompilePanic)
-}

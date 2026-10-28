@@ -2,6 +2,7 @@ package solstorage
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -100,22 +101,22 @@ func (s Store) setPacked(slot common.Hash, offset int, b []byte) {
 	s.SetWord(slot, w)
 }
 
-// MaxStringLength is the longest string or bytes value Store writes. A stored
-// value longer than it reads as empty, so lowering it empties longer values
-// already stored.
+// MaxStringLength is the longest string or bytes value Store reads or writes.
 const MaxStringLength = 32 << 10
 
-// String reads a string or bytes value in Solidity's native encoding, or ""
-// for a stored value that is not a valid encoding of at most MaxStringLength
-// bytes.
-func (s Store) String(slot common.Hash) string {
+// ErrInvalidString reports a stored string or bytes value that is not a valid
+// encoding of at most MaxStringLength bytes, or a write longer than that.
+var ErrInvalidString = errors.New("invalid stored string")
+
+// String reads a string or bytes value in Solidity's native encoding.
+func (s Store) String(slot common.Hash) (string, error) {
 	w := s.Word(slot)
-	length, inline, ok := stringLength(w)
+	length, inline, err := stringLength(w)
 	switch {
-	case !ok:
-		return ""
+	case err != nil:
+		return "", err
 	case inline:
-		return string(w[:length])
+		return string(w[:length]), nil
 	}
 	out := make([]byte, 0, length)
 	data := ArrayData(slot)
@@ -123,16 +124,20 @@ func (s Store) String(slot common.Hash) string {
 		chunk := s.Word(Offset(data, i))
 		out = append(out, chunk[:min(32, length-uint64(len(out)))]...)
 	}
-	return string(out)
+	return string(out), nil
 }
 
 // SetString writes v, at most MaxStringLength bytes, in Solidity's native
 // encoding, zeroing any chunks of the previous value that v no longer covers.
-func (s Store) SetString(slot common.Hash, v string) {
+// It writes nothing when v is too long or the previous value is invalid.
+func (s Store) SetString(slot common.Hash, v string) error {
 	if len(v) > MaxStringLength {
-		panic(fmt.Sprintf("solstorage: string of %d bytes exceeds %d", len(v), MaxStringLength))
+		return fmt.Errorf("%w: %d bytes, max %d", ErrInvalidString, len(v), MaxStringLength)
 	}
-	oldChunks := s.StringChunks(slot)
+	oldChunks, err := s.StringChunks(slot)
+	if err != nil {
+		return err
+	}
 	var head common.Hash
 	newChunks := uint64(0)
 	if len(v) <= 31 {
@@ -153,30 +158,32 @@ func (s Store) SetString(slot common.Hash, v string) {
 		s.SetWord(Offset(data, i), common.Hash{})
 	}
 	s.SetWord(slot, head)
+	return nil
 }
 
 // StringChunks returns how many data chunks the string or bytes value at slot
-// occupies, 0 for one held in the slot itself or one String reads as empty.
-func (s Store) StringChunks(slot common.Hash) uint64 {
-	length, inline, ok := stringLength(s.Word(slot))
-	if !ok || inline {
-		return 0
+// occupies, 0 for one held in the slot itself.
+func (s Store) StringChunks(slot common.Hash) (uint64, error) {
+	length, inline, err := stringLength(s.Word(slot))
+	if err != nil || inline {
+		return 0, err
 	}
-	return (length + 31) / 32
+	return (length + 31) / 32, nil
 }
 
 // stringLength returns the length a string's head word w records and whether
-// the value is held in w itself, reporting false for a head that no valid value
-// of at most MaxStringLength bytes has.
-func stringLength(w common.Hash) (length uint64, inline, ok bool) {
+// the value is held in w itself.
+func stringLength(w common.Hash) (length uint64, inline bool, err error) {
 	if w[31]&1 == 0 {
-		length = uint64(w[31] / 2)
-		return length, true, length <= 31
+		if length = uint64(w[31] / 2); length > 31 {
+			return 0, false, fmt.Errorf("%w: inline length %d", ErrInvalidString, length)
+		}
+		return length, true, nil
 	}
 	n := new(big.Int).SetBytes(w[:])
 	n.Rsh(n, 1)
 	if !n.IsUint64() || n.Uint64() <= 31 || n.Uint64() > MaxStringLength {
-		return 0, false, false
+		return 0, false, fmt.Errorf("%w: length %s", ErrInvalidString, n)
 	}
-	return n.Uint64(), false, true
+	return n.Uint64(), false, nil
 }

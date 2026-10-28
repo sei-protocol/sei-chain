@@ -31,6 +31,10 @@ type Contract interface {
 	Run(*Context, []byte) ([]byte, error)
 }
 
+// ErrDegraded marks an end blocker failure over stored data that does not add
+// up, such as a proposal failed in place; the executor logs it as an error.
+var ErrDegraded = errors.New("stored data does not add up")
+
 // EndBlocker is a Contract that also runs once at the end of every block, after
 // the block's transactions, under the same rules as Run. Its writes land in the
 // block's changeset and its storage access is not charged gas. A returned err
@@ -81,6 +85,10 @@ type State interface {
 	// Failed reports whether a state access has failed, as when the call runs
 	// out of gas. Storage reads after a failure return zero and cost nothing.
 	Failed() bool
+	// Snapshot returns an id for the state as it is now.
+	Snapshot() int
+	// RevertToSnapshot undoes every write since Snapshot returned id.
+	RevertToSnapshot(id int)
 }
 
 // LogSink lets custom precompiles emit Ethereum logs without Cosmos events.

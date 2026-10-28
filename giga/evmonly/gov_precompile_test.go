@@ -31,7 +31,9 @@ func (g genesisState) SubBalance(addr common.Address, v *big.Int) error {
 	return nil
 }
 
-func (genesisState) Failed() bool { return false }
+func (genesisState) Failed() bool         { return false }
+func (genesisState) Snapshot() int        { panic("unsupported") }
+func (genesisState) RevertToSnapshot(int) { panic("unsupported") }
 
 func TestGovPrecompileThroughExecutor(t *testing.T) {
 	chainID := big.NewInt(testChainID)
@@ -231,8 +233,8 @@ func callcodeDeposit(id uint64, value *big.Int, successSlot common.Hash) []byte 
 	code = appendPush1(code, 0)
 	code = appendPush32(code, common.BigToHash(value))
 	code = appendPush20(code, gov.Address)
-	code = appendPush2(code, 0xffff)
-	code = append(code, 0xf2) // CALLCODE
+	code = appendPush32(code, common.BigToHash(big.NewInt(900_000))) // gas enough to finish the deposit
+	code = append(code, 0xf2)                                        // CALLCODE
 	code = appendPush32(code, successSlot)
 	return append(code, 0x55, 0x00)
 }
@@ -247,24 +249,37 @@ func TestCallcodeDepositIsRejected(t *testing.T) {
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	caller := testAddress(0xca)
 	successSlot := testHash(0x62)
-	value := new(big.Int).Mul(big.NewInt(5), big.NewInt(1_000_000_000_000))
+	usei := func(n int64) *big.Int { return new(big.Int).Mul(big.NewInt(n), big.NewInt(1_000_000_000_000)) }
+	value := usei(5)
 
 	state := NewMemoryState()
-	state.SetBalance(sender, new(big.Int).Mul(big.NewInt(1_000_000), big.NewInt(1_000_000_000_000)))
+	state.SetBalance(sender, usei(1_000_000))
 	state.SetBalance(caller, value)      // CanTransfer is checked against the caller
 	state.SetBalance(gov.Address, value) // a stray donation sitting at the precompile
 	state.SetCode(caller, callcodeDeposit(1, value, successSlot))
-	tx := signLegacyTxWithGasPrice(t, key, chainID, 0, &caller, big.NewInt(0), nil, 1_000_000, big.NewInt(1))
+	gov.SetParams(genesisState{state}, gov.Params{
+		VotingPeriod:     uint64(100 * time.Second),
+		MinDeposit:       usei(100),
+		MaxDepositPeriod: uint64(50 * time.Second),
+	})
+	submit, err := gov.ABI.Pack(gov.SubmitTextProposalMethod, "t", "d", false)
+	require.NoError(t, err)
+	to := gov.Address
+	txs := [][]byte{
+		signLegacyTxWithGasPrice(t, key, chainID, 0, &to, usei(1), submit, 1_000_000, big.NewInt(1)),
+		signLegacyTxWithGasPrice(t, key, chainID, 1, &caller, big.NewInt(0), nil, 1_000_000, big.NewInt(1)),
+	}
 
 	cfg := Config{
 		MinGasPrice:       big.NewInt(0),
 		CustomPrecompiles: precompiles.NewStaticRegistry(map[common.Address]precompiles.Contract{gov.Address: gov.Precompile{}}, gov.Address),
 	}
-	result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: [][]byte{tx}})
+	result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: txs})
 	require.NoError(t, err)
 	state.ApplyChangeSet(result.ChangeSet)
-	require.Equal(t, uint64(1), result.Txs[0].Status, "the outer frame succeeds")
+	require.Equal(t, uint64(1), result.Txs[0].Status, "proposal 1 is open for deposits")
+	require.Equal(t, uint64(1), result.Txs[1].Status, "the outer frame succeeds")
 	require.Equal(t, common.Hash{}, state.GetState(caller, successSlot), "the CALLCODE sub-call failed")
 	require.Equal(t, value, state.GetBalance(gov.Address), "the donation is untouched")
-	require.Zero(t, state.GetBalance(gov.DepositEscrow).Sign(), "nothing reached escrow")
+	require.Equal(t, usei(1), state.GetBalance(gov.DepositEscrow), "only the submit deposit reached escrow")
 }
