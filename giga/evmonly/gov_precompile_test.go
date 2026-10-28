@@ -213,3 +213,63 @@ func TestRetiredGovMethodRefundsGasAndValue(t *testing.T) {
 	require.Equal(t, new(big.Int).Sub(start, spent), state.GetBalance(sender), "the value comes back; only gas is spent")
 	require.Zero(t, state.GetBalance(gov.Address).Sign())
 }
+
+// callcodeDeposit returns runtime code that CALLCODEs gov.deposit(id) with value
+// wei and stores the call's success flag in successSlot.
+func callcodeDeposit(id uint64, value *big.Int, successSlot common.Hash) []byte {
+	data, err := gov.ABI.Pack("deposit", id)
+	if err != nil {
+		panic(err)
+	}
+	var head, tail common.Hash
+	copy(head[:], data[:4]) // selector in the high bytes of word 0
+	copy(tail[:], data[4:]) // the uint64 argument, already left-padded
+	code := appendPush32(nil, head)
+	code = appendPush1(code, 0)
+	code = append(code, 0x52) // MSTORE
+	code = appendPush32(code, tail)
+	code = appendPush1(code, 4)
+	code = append(code, 0x52) // MSTORE
+	code = appendPush1(code, 0)
+	code = appendPush1(code, 0)
+	code = appendPush1(code, 36)
+	code = appendPush1(code, 0)
+	code = appendPush32(code, common.BigToHash(value))
+	code = appendPush20(code, gov.Address)
+	code = appendPush2(code, 0xffff)
+	code = append(code, 0xf2) // CALLCODE
+	code = appendPush32(code, successSlot)
+	return append(code, 0x55, 0x00)
+}
+
+// CALLCODE hands a precompile a non-zero value that no transfer backed, so gov's
+// delegate-call guard is what keeps a deposit from being minted out of gov's
+// own balance.
+func TestCallcodeDepositIsRejected(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.HexToECDSA(behaviorAnvilKey0)
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	caller := testAddress(0xca)
+	successSlot := testHash(0x62)
+	value := new(big.Int).Mul(big.NewInt(5), big.NewInt(1_000_000_000_000))
+
+	state := NewMemoryState()
+	state.SetBalance(sender, new(big.Int).Mul(big.NewInt(1_000_000), big.NewInt(1_000_000_000_000)))
+	state.SetBalance(caller, value)      // CanTransfer is checked against the caller
+	state.SetBalance(gov.Address, value) // a stray donation sitting at the precompile
+	state.SetCode(caller, callcodeDeposit(1, value, successSlot))
+	tx := signLegacyTxWithGasPrice(t, key, chainID, 0, &caller, big.NewInt(0), nil, 1_000_000, big.NewInt(1))
+
+	cfg := Config{
+		MinGasPrice:       big.NewInt(0),
+		CustomPrecompiles: precompiles.NewStaticRegistry(map[common.Address]precompiles.Contract{gov.Address: gov.Precompile{}}, gov.Address),
+	}
+	result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: [][]byte{tx}})
+	require.NoError(t, err)
+	state.ApplyChangeSet(result.ChangeSet)
+	require.Equal(t, uint64(1), result.Txs[0].Status, "the outer frame succeeds")
+	require.Equal(t, common.Hash{}, state.GetState(caller, successSlot), "the CALLCODE sub-call failed")
+	require.Equal(t, value, state.GetBalance(gov.Address), "the donation is untouched")
+	require.Zero(t, state.GetBalance(gov.DepositEscrow).Sign(), "nothing reached escrow")
+}

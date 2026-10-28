@@ -100,17 +100,23 @@ func (s Store) setPacked(slot common.Hash, offset int, b []byte) {
 	s.SetWord(slot, w)
 }
 
-// MaxStringLength is the longest string or bytes value Store reads or writes.
-const MaxStringLength = 1 << 20
+// MaxStringLength is the longest string or bytes value Store writes. A stored
+// value longer than it reads as empty, so lowering it empties longer values
+// already stored.
+const MaxStringLength = 32 << 10
 
-// String reads a string or bytes value in Solidity's native encoding. It panics
-// on a stored length above MaxStringLength, which no SetString writes.
+// String reads a string or bytes value in Solidity's native encoding, or ""
+// for a stored value that is not a valid encoding of at most MaxStringLength
+// bytes.
 func (s Store) String(slot common.Hash) string {
 	w := s.Word(slot)
-	if w[31]&1 == 0 {
-		return string(w[:w[31]/2])
+	length, inline, ok := stringLength(w)
+	switch {
+	case !ok:
+		return ""
+	case inline:
+		return string(w[:length])
 	}
-	length := longLength(w)
 	out := make([]byte, 0, length)
 	data := ArrayData(slot)
 	for i := uint64(0); uint64(len(out)) < length && !s.State.Failed(); i++ {
@@ -150,22 +156,27 @@ func (s Store) SetString(slot common.Hash, v string) {
 }
 
 // StringChunks returns how many data chunks the string or bytes value at slot
-// occupies, 0 for one held in the slot itself.
+// occupies, 0 for one held in the slot itself or one String reads as empty.
 func (s Store) StringChunks(slot common.Hash) uint64 {
-	w := s.Word(slot)
-	if w[31]&1 == 0 {
+	length, inline, ok := stringLength(s.Word(slot))
+	if !ok || inline {
 		return 0
 	}
-	return (longLength(w) + 31) / 32
+	return (length + 31) / 32
 }
 
-// longLength returns the length a long string's head word w records, panicking
-// above MaxStringLength.
-func longLength(w common.Hash) uint64 {
+// stringLength returns the length a string's head word w records and whether
+// the value is held in w itself, reporting false for a head that no valid value
+// of at most MaxStringLength bytes has.
+func stringLength(w common.Hash) (length uint64, inline, ok bool) {
+	if w[31]&1 == 0 {
+		length = uint64(w[31] / 2)
+		return length, true, length <= 31
+	}
 	n := new(big.Int).SetBytes(w[:])
 	n.Rsh(n, 1)
-	if !n.IsUint64() || n.Uint64() > MaxStringLength {
-		panic(fmt.Sprintf("solstorage: stored string length %s exceeds %d", n, MaxStringLength))
+	if !n.IsUint64() || n.Uint64() <= 31 || n.Uint64() > MaxStringLength {
+		return 0, false, false
 	}
-	return n.Uint64()
+	return n.Uint64(), false, true
 }

@@ -47,16 +47,24 @@ same result from the same block, so each rule below is a consensus rule.
   `DefaultGasCost` formula). Storage reads, writes and logs are metered by the
   adapter; do not price them into `RequiredGas`.
 - `EndBlock` is not metered, so `ctx.State.Failed()` never reports a storage
-  read failure there. An end blocker schedules its work under a budget (see
-  gov's `endBlockBudget`), and each unit of that work is bounded by limits its
-  write path enforces, such as gov's content size and depositor count, so a
-  block's cost cannot grow with user input.
+  read failure there; a balance error still sets it, after which writes are
+  dropped and the block fails. An end blocker schedules its work under a budget
+  (see gov's `endBlockBudget`). Each unit of that work is bounded by limits its
+  write path enforces, such as gov's content size and depositor count, and by
+  the validator set, so a block's cost cannot grow with user input.
 - An end blocker's operation that fails writes nothing, such as a passed
   proposal that cannot execute: EndBlock has no snapshot to revert to.
+- An end blocker never fails the block over data it stored. A gov proposal
+  whose stored data does not add up (content that does not decode, a deposit the
+  escrow cannot cover, a panic while processing it) is marked Failed and
+  reported, and EndBlock moves on.
 
 ## Storage
 - Lay out storage as solc would for the matching `docs/giga-storage/*.sol`
   contract, using `solstorage`. Changing a layout changes the app hash.
+- `solstorage` reads a stored string that is not a valid encoding of at most
+  `MaxStringLength` bytes as empty. Lowering `MaxStringLength` therefore empties
+  any longer value already stored.
 - A storage write through `ctx.State` gives an account with no nonce and no
   code a nonce of 1, so the EVM treats any account holding storage as existing.
 - Chain params live in the params precompile's storage (0x1013), laid out by

@@ -63,9 +63,8 @@ func (p registeredCustomPrecompile) Run(
 // RunAndCalculateGas charges RequiredGas, then runs the contract against the
 // calling EVM's StateDB, charging each storage read and write as an EIP-2929
 // SLOAD or SSTORE and each log as a LOG opcode, from the remaining gas. A
-// failed state access takes precedence over the contract's own result so a
-// precompile cannot return success after an invalid balance or storage
-// mutation, or after running out of gas.
+// panic fails the call with errPrecompilePanic; otherwise a failed state access
+// fails it over the contract's own result. Either uses all the gas.
 func (p registeredCustomPrecompile) RunAndCalculateGas(
 	evm *vm.EVM,
 	sender common.Address,
@@ -112,7 +111,7 @@ func (p registeredCustomPrecompile) RunAndCalculateGas(
 		hooks.OnGasChange(start, state.gas, tracing.GasChangeCallPrecompiledContract)
 	}
 	if panicked {
-		return nil, 0, err
+		return nil, 0, errPrecompilePanic // the panic value stays in the log, out of receipts
 	}
 	if state.err != nil {
 		return nil, 0, state.err

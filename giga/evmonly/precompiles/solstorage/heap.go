@@ -34,20 +34,21 @@ func (h Heap) Contains(v common.Hash) bool {
 
 // Push inserts v, reporting whether it was absent.
 func (h Heap) Push(v common.Hash) bool {
-	if !h.set.Add(v) {
-		return false
+	i, added := h.set.add(v)
+	if added {
+		h.up(i)
 	}
-	h.up(h.Len() - 1)
-	return true
+	return added
 }
 
-// Remove deletes v, reporting whether it was present.
+// Remove deletes v, reporting whether it was present. A position past the
+// length, as a failed read can leave, counts as absent.
 func (h Heap) Remove(v common.Hash) bool {
-	pos := h.set.position(v)
-	if pos == 0 || pos > h.Len() {
+	pos, n := h.set.position(v), h.Len()
+	if pos == 0 || pos > n {
 		return false
 	}
-	i, last := pos-1, h.Len()-1
+	i, last := pos-1, n-1
 	if i != last {
 		h.swap(i, last)
 	}
