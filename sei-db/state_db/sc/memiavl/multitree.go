@@ -153,9 +153,10 @@ func (t *MultiTree) TreeByName(name string) *Tree {
 	return nil
 }
 
-// Trees returns all the trees together with the name, ordered by name.
+// Trees returns a copy of the trees together with their names, ordered by name.
 func (t *MultiTree) Trees() []NamedTree {
-	return t.trees
+	// ApplyUpgrades rewrites t.trees in place.
+	return slices.Clone(t.trees)
 }
 
 func (t *MultiTree) SetInitialVersion(initialVersion int64) error {
@@ -246,7 +247,8 @@ func (t *MultiTree) apply(entry proto.ChangelogEntry) error {
 	return t.ApplyChangeSets(entry.Changesets)
 }
 
-// ApplyUpgrades store name upgrades
+// ApplyUpgrades adds, renames and deletes trees as the upgrades describe, and
+// closes each tree it deletes.
 func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 	if len(upgrades) == 0 {
 		return nil

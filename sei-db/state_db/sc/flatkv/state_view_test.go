@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
@@ -21,7 +22,7 @@ func gigaAddr(addr ktype.Address) gigatypes.Address {
 // commitNonce writes addr's nonce as a whole block through the Giga write entry point.
 func commitNonce(t *testing.T, s *CommitStore, version int64, addr ktype.Address, nonce uint64) {
 	t.Helper()
-	require.NoError(t, s.CommitStateChanges(version, []*proto.NamedChangeSet{namedCS(noncePair(addr, nonce))}))
+	require.NoError(t, commitChangeSets(s, version, []*proto.NamedChangeSet{namedCS(noncePair(addr, nonce))}))
 }
 
 // CommitStateChanges is the Giga write entry point, and its whole job is that a block committed
@@ -44,7 +45,10 @@ func TestCommitStateChangesRejectsNonContiguousVersion(t *testing.T) {
 	s := setupTestStore(t)
 	defer func() { require.NoError(t, s.Close()) }()
 
-	err := s.CommitStateChanges(5, []*proto.NamedChangeSet{namedCS(noncePair(addrN(1), 7))})
+	addr := addrN(1)
+	key := ktype.BuildPhysicalEVMKey(keys.EVMKeyNonce, addr[:])
+	row := vtype.NewAccountData().SetNonce(7).Serialize()
+	err := s.CommitStateChanges(5, []mutation.Mutation{{Key: key, NewValue: row}})
 	require.Error(t, err)
 	require.Equal(t, int64(0), s.Version(), "a refused block must not advance the store")
 }
@@ -158,7 +162,7 @@ func TestStateViewEVMAccessors(t *testing.T) {
 	bytecode := []byte{0x60, 0x80, 0x60, 0x40}
 	codeHash := codeHashN(0xAB)
 
-	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{namedCS(
+	require.NoError(t, commitChangeSets(s, 1, []*proto.NamedChangeSet{namedCS(
 		noncePair(contract, 3),
 		codeHashPair(contract, codeHash),
 		codePair(contract, bytecode),
@@ -211,7 +215,7 @@ func TestStateViewReadAccountMatchesFieldGetters(t *testing.T) {
 
 	contract, funded, missing := addrN(1), addrN(2), addrN(3)
 	codeHash := codeHashN(0xAB)
-	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{namedCS(
+	require.NoError(t, commitChangeSets(s, 1, []*proto.NamedChangeSet{namedCS(
 		noncePair(contract, 3),
 		codeHashPair(contract, codeHash),
 		codePair(contract, []byte{0x60, 0x80}),
@@ -250,7 +254,7 @@ func TestStateViewGetBalance(t *testing.T) {
 	absent := addrN(3)
 	balance := balanceN(42)
 
-	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{
+	require.NoError(t, commitChangeSets(s, 1, []*proto.NamedChangeSet{
 		namedCS(balancePair(funded, balance), noncePair(nonceOnly, 7)),
 	}))
 
@@ -269,7 +273,7 @@ func TestStateViewBalanceCreatesAccount(t *testing.T) {
 	defer func() { require.NoError(t, s.Close()) }()
 
 	addr := addrN(1)
-	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{namedCS(balancePair(addr, balanceN(9)))}))
+	require.NoError(t, commitChangeSets(s, 1, []*proto.NamedChangeSet{namedCS(balancePair(addr, balanceN(9)))}))
 
 	stateView := s.OpenView()
 	defer stateView.Close()
@@ -284,8 +288,8 @@ func TestStateViewBalanceDeletionRemovesAccount(t *testing.T) {
 	defer func() { require.NoError(t, s.Close()) }()
 
 	addr := addrN(1)
-	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{namedCS(balancePair(addr, balanceN(9)))}))
-	require.NoError(t, s.CommitStateChanges(2, []*proto.NamedChangeSet{namedCS(balanceDeletePair(addr))}))
+	require.NoError(t, commitChangeSets(s, 1, []*proto.NamedChangeSet{namedCS(balancePair(addr, balanceN(9)))}))
+	require.NoError(t, commitChangeSets(s, 2, []*proto.NamedChangeSet{namedCS(balanceDeletePair(addr))}))
 
 	stateView := s.OpenView()
 	defer stateView.Close()
@@ -309,7 +313,7 @@ func TestStateViewGetReturnsValues(t *testing.T) {
 	codeHash := codeHashN(0xAB)
 	balance := balanceN(0x77)
 
-	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{
+	require.NoError(t, commitChangeSets(s, 1, []*proto.NamedChangeSet{
 		namedCS(
 			noncePair(addr, 5),
 			codeHashPair(addr, codeHash),
