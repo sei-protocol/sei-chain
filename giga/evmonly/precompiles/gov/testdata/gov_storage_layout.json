@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 1103,
+      "astId": 1070,
       "contract": "src/storage/GovStorage.sol:GovStorage",
       "label": "lastProposalId",
       "offset": 0,
@@ -9,7 +9,7 @@
       "type": "t_uint64"
     },
     {
-      "astId": 1105,
+      "astId": 1072,
       "contract": "src/storage/GovStorage.sol:GovStorage",
       "label": "startingProposalId",
       "offset": 8,
@@ -17,23 +17,23 @@
       "type": "t_uint64"
     },
     {
-      "astId": 1110,
+      "astId": 1077,
       "contract": "src/storage/GovStorage.sol:GovStorage",
       "label": "proposals",
       "offset": 0,
       "slot": "1",
-      "type": "t_mapping(t_uint64,t_struct(Proposal)1078_storage)"
+      "type": "t_mapping(t_uint64,t_struct(Proposal)1045_storage)"
     },
     {
-      "astId": 1118,
+      "astId": 1085,
       "contract": "src/storage/GovStorage.sol:GovStorage",
       "label": "votes",
       "offset": 0,
       "slot": "2",
-      "type": "t_mapping(t_uint64,t_mapping(t_address,t_array(t_struct(WeightedVote)1047_storage)dyn_storage))"
+      "type": "t_mapping(t_uint64,t_mapping(t_address,t_array(t_struct(WeightedVote)1014_storage)dyn_storage))"
     },
     {
-      "astId": 1124,
+      "astId": 1091,
       "contract": "src/storage/GovStorage.sol:GovStorage",
       "label": "deposits",
       "offset": 0,
@@ -41,7 +41,7 @@
       "type": "t_mapping(t_uint64,t_mapping(t_address,t_uint256))"
     },
     {
-      "astId": 1129,
+      "astId": 1096,
       "contract": "src/storage/GovStorage.sol:GovStorage",
       "label": "depositors",
       "offset": 0,
@@ -49,23 +49,23 @@
       "type": "t_mapping(t_uint64,t_struct(AddressSet)325_storage)"
     },
     {
-      "astId": 1132,
+      "astId": 1099,
       "contract": "src/storage/GovStorage.sol:GovStorage",
       "label": "votingQueue",
       "offset": 0,
       "slot": "5",
-      "type": "t_struct(ProposalQueue)1087_storage"
+      "type": "t_struct(ProposalQueue)1054_storage"
     },
     {
-      "astId": 1135,
+      "astId": 1102,
       "contract": "src/storage/GovStorage.sol:GovStorage",
       "label": "depositQueue",
       "offset": 0,
       "slot": "7",
-      "type": "t_struct(ProposalQueue)1087_storage"
+      "type": "t_struct(ProposalQueue)1054_storage"
     },
     {
-      "astId": 1140,
+      "astId": 1107,
       "contract": "src/storage/GovStorage.sol:GovStorage",
       "label": "votersByProposal",
       "offset": 0,
@@ -73,15 +73,15 @@
       "type": "t_mapping(t_uint64,t_struct(AddressSet)325_storage)"
     },
     {
-      "astId": 1145,
+      "astId": 1112,
       "contract": "src/storage/GovStorage.sol:GovStorage",
       "label": "tallies",
       "offset": 0,
       "slot": "10",
-      "type": "t_mapping(t_uint64,t_struct(Tally)1101_storage)"
+      "type": "t_mapping(t_uint64,t_struct(Tally)1068_storage)"
     },
     {
-      "astId": 1151,
+      "astId": 1118,
       "contract": "src/storage/GovStorage.sol:GovStorage",
       "label": "tallyDeductions",
       "offset": 0,
@@ -101,11 +101,11 @@
       "numberOfBytes": "32",
       "base": "t_bytes32"
     },
-    "t_array(t_struct(WeightedVote)1047_storage)dyn_storage": {
+    "t_array(t_struct(WeightedVote)1014_storage)dyn_storage": {
       "encoding": "dynamic_array",
       "label": "struct GovStorage.WeightedVote[]",
       "numberOfBytes": "32",
-      "base": "t_struct(WeightedVote)1047_storage"
+      "base": "t_struct(WeightedVote)1014_storage"
     },
     "t_array(t_uint256)4_storage": {
       "encoding": "inplace",
@@ -139,12 +139,12 @@
       "label": "int32",
       "numberOfBytes": "4"
     },
-    "t_mapping(t_address,t_array(t_struct(WeightedVote)1047_storage)dyn_storage)": {
+    "t_mapping(t_address,t_array(t_struct(WeightedVote)1014_storage)dyn_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct GovStorage.WeightedVote[])",
       "numberOfBytes": "32",
-      "value": "t_array(t_struct(WeightedVote)1047_storage)dyn_storage"
+      "value": "t_array(t_struct(WeightedVote)1014_storage)dyn_storage"
     },
     "t_mapping(t_address,t_uint256)": {
       "encoding": "mapping",
@@ -167,12 +167,12 @@
       "numberOfBytes": "32",
       "value": "t_uint256"
     },
-    "t_mapping(t_uint64,t_mapping(t_address,t_array(t_struct(WeightedVote)1047_storage)dyn_storage))": {
+    "t_mapping(t_uint64,t_mapping(t_address,t_array(t_struct(WeightedVote)1014_storage)dyn_storage))": {
       "encoding": "mapping",
       "key": "t_uint64",
       "label": "mapping(uint64 => mapping(address => struct GovStorage.WeightedVote[]))",
       "numberOfBytes": "32",
-      "value": "t_mapping(t_address,t_array(t_struct(WeightedVote)1047_storage)dyn_storage)"
+      "value": "t_mapping(t_address,t_array(t_struct(WeightedVote)1014_storage)dyn_storage)"
     },
     "t_mapping(t_uint64,t_mapping(t_address,t_uint256))": {
       "encoding": "mapping",
@@ -188,19 +188,19 @@
       "numberOfBytes": "32",
       "value": "t_struct(AddressSet)325_storage"
     },
-    "t_mapping(t_uint64,t_struct(Proposal)1078_storage)": {
+    "t_mapping(t_uint64,t_struct(Proposal)1045_storage)": {
       "encoding": "mapping",
       "key": "t_uint64",
       "label": "mapping(uint64 => struct GovStorage.Proposal)",
       "numberOfBytes": "32",
-      "value": "t_struct(Proposal)1078_storage"
+      "value": "t_struct(Proposal)1045_storage"
     },
-    "t_mapping(t_uint64,t_struct(Tally)1101_storage)": {
+    "t_mapping(t_uint64,t_struct(Tally)1068_storage)": {
       "encoding": "mapping",
       "key": "t_uint64",
       "label": "mapping(uint64 => struct GovStorage.Tally)",
       "numberOfBytes": "32",
-      "value": "t_struct(Tally)1101_storage"
+      "value": "t_struct(Tally)1068_storage"
     },
     "t_struct(AddressSet)325_storage": {
       "encoding": "inplace",
@@ -217,13 +217,13 @@
         }
       ]
     },
-    "t_struct(Proposal)1078_storage": {
+    "t_struct(Proposal)1045_storage": {
       "encoding": "inplace",
       "label": "struct GovStorage.Proposal",
       "numberOfBytes": "384",
       "members": [
         {
-          "astId": 1049,
+          "astId": 1016,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "status",
           "offset": 0,
@@ -231,7 +231,7 @@
           "type": "t_int32"
         },
         {
-          "astId": 1051,
+          "astId": 1018,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "isExpedited",
           "offset": 4,
@@ -239,7 +239,7 @@
           "type": "t_bool"
         },
         {
-          "astId": 1053,
+          "astId": 1020,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "contentType",
           "offset": 5,
@@ -247,7 +247,7 @@
           "type": "t_uint8"
         },
         {
-          "astId": 1055,
+          "astId": 1022,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "submitTime",
           "offset": 6,
@@ -255,7 +255,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 1057,
+          "astId": 1024,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "depositEndTime",
           "offset": 14,
@@ -263,7 +263,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 1059,
+          "astId": 1026,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "votingStartTime",
           "offset": 22,
@@ -271,7 +271,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 1061,
+          "astId": 1028,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "votingEndTime",
           "offset": 0,
@@ -279,7 +279,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 1063,
+          "astId": 1030,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "totalDeposit",
           "offset": 0,
@@ -287,7 +287,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 1065,
+          "astId": 1032,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "tallyYes",
           "offset": 0,
@@ -295,7 +295,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 1067,
+          "astId": 1034,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "tallyAbstain",
           "offset": 0,
@@ -303,7 +303,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 1069,
+          "astId": 1036,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "tallyNo",
           "offset": 0,
@@ -311,7 +311,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 1071,
+          "astId": 1038,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "tallyNoWithVeto",
           "offset": 0,
@@ -319,7 +319,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 1073,
+          "astId": 1040,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "content",
           "offset": 0,
@@ -327,7 +327,7 @@
           "type": "t_bytes_storage"
         },
         {
-          "astId": 1077,
+          "astId": 1044,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "__gap",
           "offset": 0,
@@ -336,13 +336,13 @@
         }
       ]
     },
-    "t_struct(ProposalQueue)1087_storage": {
+    "t_struct(ProposalQueue)1054_storage": {
       "encoding": "inplace",
       "label": "struct GovStorage.ProposalQueue",
       "numberOfBytes": "64",
       "members": [
         {
-          "astId": 1082,
+          "astId": 1049,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "keys",
           "offset": 0,
@@ -350,7 +350,7 @@
           "type": "t_array(t_uint256)dyn_storage"
         },
         {
-          "astId": 1086,
+          "astId": 1053,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "positions",
           "offset": 0,
@@ -382,13 +382,13 @@
         }
       ]
     },
-    "t_struct(Tally)1101_storage": {
+    "t_struct(Tally)1068_storage": {
       "encoding": "inplace",
       "label": "struct GovStorage.Tally",
       "numberOfBytes": "192",
       "members": [
         {
-          "astId": 1090,
+          "astId": 1057,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "yes",
           "offset": 0,
@@ -396,7 +396,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 1092,
+          "astId": 1059,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "abstain",
           "offset": 0,
@@ -404,7 +404,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 1094,
+          "astId": 1061,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "no",
           "offset": 0,
@@ -412,7 +412,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 1096,
+          "astId": 1063,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "noWithVeto",
           "offset": 0,
@@ -420,7 +420,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 1098,
+          "astId": 1065,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "power",
           "offset": 0,
@@ -428,7 +428,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 1100,
+          "astId": 1067,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "counting",
           "offset": 0,
@@ -437,13 +437,13 @@
         }
       ]
     },
-    "t_struct(WeightedVote)1047_storage": {
+    "t_struct(WeightedVote)1014_storage": {
       "encoding": "inplace",
       "label": "struct GovStorage.WeightedVote",
       "numberOfBytes": "32",
       "members": [
         {
-          "astId": 1044,
+          "astId": 1011,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "option",
           "offset": 0,
@@ -451,7 +451,7 @@
           "type": "t_int32"
         },
         {
-          "astId": 1046,
+          "astId": 1013,
           "contract": "src/storage/GovStorage.sol:GovStorage",
           "label": "weight",
           "offset": 4,

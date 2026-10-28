@@ -36,7 +36,7 @@ func (h *harness) voteWeighted(voter common.Address, id uint64, percents map[int
 			args = append(args, WeightedVoteOption{Option: o, Weight: weight(p)})
 		}
 	}
-	h.mustCall(voter, callOpts{}, voteWeightedTyped, id, args)
+	h.mustCall(voter, callOpts{}, VoteWeightedMethod, id, args)
 }
 
 func (h *harness) status(id uint64) int32 {
@@ -540,4 +540,17 @@ func TestEndBlockDrainsQueuedMissingProposals(t *testing.T) {
 	require.Zero(t, s.votingQueue().Len())
 	_, ok := s.proposal(99)
 	require.False(t, ok, "no proposal is written for a missing id")
+}
+
+func TestLiveTallyStopsOnceReadsFail(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	id := h.open(textProposal, usei(10))
+	const voters = 50
+	for i := range voters {
+		h.vote(depositor(i), id, OptionYes)
+	}
+	h.state.failAt = h.state.reads + 20
+	liveTally(h.state, h.gov.Electorate, newStore(h.state), id)
+	require.True(t, h.state.Failed())
+	require.Less(t, h.state.readsAfterFailure, voters, "the voter loop stops instead of reading on for free")
 }

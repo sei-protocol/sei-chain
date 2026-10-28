@@ -2,6 +2,7 @@ package gov
 
 import (
 	"encoding/binary"
+	"math"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -60,11 +61,16 @@ func (s store) setStartingProposalID(id uint64) {
 	s.SetUint64(at(solstorage.Slot(slotProposalIDs), startingProposalID), startingProposalID.offset, id)
 }
 
-// nextProposalID assigns and returns the next proposal id.
-func (s store) nextProposalID() uint64 {
-	id := max(s.lastProposalID()+1, s.startingProposalID())
+// nextProposalID assigns and returns the next proposal id, failing once every
+// id has been assigned.
+func (s store) nextProposalID() (uint64, error) {
+	last := s.lastProposalID()
+	if last == math.MaxUint64 {
+		return 0, errProposalIDsExhausted
+	}
+	id := max(last+1, s.startingProposalID())
 	s.SetUint64(at(solstorage.Slot(slotProposalIDs), lastProposalID), lastProposalID.offset, id)
-	return id
+	return id, nil
 }
 
 // params returns gov's params from the params precompile.
@@ -148,7 +154,7 @@ func voteBase(id uint64, voter common.Address) common.Hash {
 // vote returns voter's options on proposal id, empty when it has not voted.
 func (s store) vote(id uint64, voter common.Address) []weightedVote {
 	base := voteBase(id, voter)
-	n := s.Uint64(base, 0)
+	n := min(s.Uint64(base, 0), maxVoteOptions)
 	data := solstorage.ArrayData(base)
 	out := make([]weightedVote, n)
 	for i := range out {
@@ -165,7 +171,7 @@ func (s store) vote(id uint64, voter common.Address) []weightedVote {
 // array no longer covers.
 func (s store) setVote(id uint64, voter common.Address, options []weightedVote) {
 	base := voteBase(id, voter)
-	old := s.Uint64(base, 0)
+	old := min(s.Uint64(base, 0), maxVoteOptions)
 	data := solstorage.ArrayData(base)
 	for i, o := range options {
 		slot := solstorage.Offset(data, uint64(i)) //nolint:gosec // i is non-negative

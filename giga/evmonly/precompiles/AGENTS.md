@@ -15,8 +15,10 @@ same result from the same block, so each rule below is a consensus rule.
 - `EndBlock` returns the operations that failed, such as a passed proposal
   that could not execute, and the executor logs them. Work it defers to a later
   block is not a failure. A returned error fails the block.
-- A loop whose length comes from storage stops once `ctx.State.Failed()`: reads
-  after a failure, such as running out of gas, return zeros and cost nothing.
+- A storage read after a failure, such as running out of gas, returns zero and
+  costs nothing, so a length read after the failure is zero. A loop that read its
+  bound before the failure, and is not capped by a constant, re-checks
+  `ctx.State.Failed()` each iteration.
 - Compiled-in constants are allowed, but changing one changes the app hash and
   needs an upgrade.
 

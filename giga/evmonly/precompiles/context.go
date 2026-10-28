@@ -34,7 +34,8 @@ type Contract interface {
 // EndBlocker is a Contract that also runs once at the end of every block, after
 // the block's transactions, under the same rules as Run. Its writes land in the
 // block's changeset and its storage access is not charged gas. A returned err
-// fails the block; returned failures do not, and the executor logs them.
+// fails the block, as does a failed state access; returned failures do not, and
+// the executor logs them.
 type EndBlocker interface {
 	EndBlock(BlockContext, State) (failures []error, err error)
 }
@@ -77,8 +78,8 @@ type State interface {
 	GetCode(common.Address) []byte
 	GetState(common.Address, common.Hash) common.Hash
 	SetState(common.Address, common.Hash, common.Hash)
-	// Failed reports whether a read or write has failed, as when the call runs
-	// out of gas. Reads after a failure return zero values.
+	// Failed reports whether a state access has failed, as when the call runs
+	// out of gas. Storage reads after a failure return zero and cost nothing.
 	Failed() bool
 }
 

@@ -36,18 +36,14 @@ struct ParamChangeContent {
 /// Statuses and vote options are numbered as x/gov's.
 /// @dev Every proposal needs a non-empty title of at most 140 bytes and a
 /// non-empty description of at most 10000, and its encoded content may not
-/// exceed 16 KiB. Each submit method deposits msg.value under the same rules as
-/// `deposit`.
+/// exceed 16 KiB. Each submit method deposits any msg.value under the same rules
+/// as `deposit`, except that zero is allowed and creates the proposal with no
+/// deposit. A method marked "Reverts:" is kept so a caller of a V2 method gets a
+/// revert whose Error(string) names the call to use instead.
 interface IGov {
     struct WeightedVoteOption {
         int32 option; // 1=Yes, 2=Abstain, 3=No, 4=NoWithVeto
         uint256 weight; // 1e18-scaled
-    }
-
-    struct UpgradePlan {
-        string name;
-        int64 height;
-        string info;
     }
 
     struct TallyResultData {
@@ -60,14 +56,14 @@ interface IGov {
     struct ProposalData {
         uint64 id;
         int32 status; // 1=DepositPeriod, 2=VotingPeriod, 3=Passed, 4=Rejected, 5=Failed
-        TallyResultData finalTallyResult; // zero until voting ends; see tallyResult
+        TallyResultData finalTallyResult; // the last voting round's tally: zero before one ends, and the expedited round's after a demotion; see tallyResult
         uint64 submitTime;
         uint64 depositEndTime;
         uint256 totalDeposit; // wei
         uint64 votingStartTime; // 0 before voting starts
         uint64 votingEndTime; // 0 before voting starts
         bool isExpedited;
-        uint8 contentType; // 0: TextContent, 3: ParamChangeContent; 1 and 2 are reserved for software upgrades
+        uint8 contentType; // 0: TextContent, 3: ParamChangeContent; 1 and 2 are reserved for software upgrades (CON-573)
         bytes content; // abi.encode of the contentType struct
     }
 
@@ -121,10 +117,11 @@ interface IGov {
     /// weights sum to 1e18, replacing the caller's earlier vote.
     function voteWeighted(uint64 proposalID, WeightedVoteOption[] calldata options) external returns (bool success);
 
-    /// @notice Deposits msg.value on a proposal. The value must be a positive
-    /// whole number of usei, in wei. A proposal takes at most 200 depositors, and
-    /// a depositor's first deposit must be at least the proposal's minimum
-    /// deposit (expedited or regular) divided by 200, rounded up to whole usei.
+    /// @notice Deposits msg.value on a proposal, during its deposit period or its
+    /// voting period until the tally starts. The value must be a positive whole
+    /// number of usei, in wei. A proposal takes at most 200 depositors, and a
+    /// depositor's first deposit must be at least the proposal's minimum deposit
+    /// (expedited or regular) divided by 200, rounded up to whole usei.
     function deposit(uint64 proposalID) external payable returns (bool success);
 
     /// @notice Submits a text proposal, depositing msg.value on it.
@@ -144,20 +141,6 @@ interface IGov {
         ParamChange[] calldata changes
     ) external payable returns (uint64 proposalID);
 
-    /// @notice Reverts: software upgrade proposals are not supported yet.
-    function submitSoftwareUpgradeProposal(
-        string calldata title,
-        string calldata description,
-        bool isExpedited,
-        UpgradePlan calldata plan
-    ) external payable returns (uint64 proposalID);
-
-    /// @notice Reverts: software upgrade proposals are not supported yet.
-    function submitCancelSoftwareUpgradeProposal(string calldata title, string calldata description, bool isExpedited)
-        external
-        payable
-        returns (uint64 proposalID);
-
     /// @notice Returns a proposal. Reverts when the proposal is unknown or was
     /// dropped.
     function proposal(uint64 proposalID) external view returns (ProposalData memory proposal);
@@ -175,19 +158,22 @@ interface IGov {
     /// proposal, including once the tally has counted it.
     function getVote(uint64 proposalID, address voter) external view returns (VoteData memory vote);
 
-    /// @notice Pages through a proposal's votes, 100 at a time.
+    /// @notice Pages through a proposal's votes, 100 at a time. Votes leave as the
+    /// tally counts them.
     function votes(uint64 proposalID, bytes calldata pageKey)
         external
         view
         returns (VoteData[] memory votes, bytes memory nextKey);
 
+    /// @notice Returns gov's params, read from the params precompile's gov subspace.
     function params() external view returns (GovParams memory params);
 
     /// @notice Returns a depositor's deposit on a proposal. Reverts when they have
     /// none, including once the proposal settles and its deposits are cleared.
     function getDeposit(uint64 proposalID, address depositor) external view returns (DepositData memory deposit);
 
-    /// @notice Pages through a proposal's deposits, 100 at a time.
+    /// @notice Pages through a proposal's deposits, 100 at a time. Deposits leave
+    /// when the proposal settles.
     function deposits(uint64 proposalID, bytes calldata pageKey)
         external
         view

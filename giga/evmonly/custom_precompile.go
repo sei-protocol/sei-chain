@@ -2,6 +2,7 @@ package evmonly
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"time"
@@ -21,6 +22,7 @@ var (
 	errPrecompileAmountOverflow  = errors.New("custom precompile balance amount exceeds uint256")
 	errPrecompileBalanceOverflow = errors.New("custom precompile balance exceeds uint256")
 	errPrecompileSstoreSentry    = errors.New("not enough gas for reentrancy sentry")
+	errPrecompilePanic           = errors.New("custom precompile panicked")
 )
 
 // registeredCustomPrecompile runs a native custom precompile against the
@@ -95,7 +97,7 @@ func (p registeredCustomPrecompile) RunAndCalculateGas(
 		State:         state,
 		Logs:          state,
 	}
-	output, err := p.contract.Run(ctx, input)
+	output, err := runContract(p.contract, ctx, input)
 	if state.err != nil {
 		state.gas = 0
 	}
@@ -107,6 +109,17 @@ func (p registeredCustomPrecompile) RunAndCalculateGas(
 	}
 	// The output is kept on error so vm.ErrExecutionReverted carries revert data.
 	return output, state.gas, err
+}
+
+// runContract runs contract, returning a panic as errPrecompilePanic so a call
+// fails rather than stopping the node.
+func runContract(contract precompiles.Contract, ctx *precompiles.Context, input []byte) (output []byte, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			output, err = nil, fmt.Errorf("%w: %v", errPrecompilePanic, r)
+		}
+	}()
+	return contract.Run(ctx, input)
 }
 
 // materializeAccount gives an account with no nonce and no code a nonce of 1.
