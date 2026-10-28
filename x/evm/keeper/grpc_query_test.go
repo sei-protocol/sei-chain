@@ -44,7 +44,7 @@ func TestQueryPointer(t *testing.T) {
 	require.Equal(t, types.QueryPointerResponse{Pointer: evmAddr1.Hex(), Version: uint32(native.CurrentVersion), Exists: true}, *res)
 	res, err = q.Pointer(goCtx, &types.QueryPointerRequest{PointerType: types.PointerType_CW20, Pointee: seiAddr2.String()})
 	require.Nil(t, err)
-	require.Equal(t, types.QueryPointerResponse{Pointer: evmAddr2.Hex(), Version: uint32(cw20.CurrentVersion(ctx)), Exists: true}, *res)
+	require.Equal(t, types.QueryPointerResponse{Pointer: evmAddr2.Hex(), Version: uint32(cw20.CurrentVersion), Exists: true}, *res)
 	res, err = q.Pointer(goCtx, &types.QueryPointerRequest{PointerType: types.PointerType_CW721, Pointee: seiAddr3.String()})
 	require.Nil(t, err)
 	require.Equal(t, types.QueryPointerResponse{Pointer: evmAddr3.Hex(), Version: uint32(cw721.CurrentVersion), Exists: true}, *res)
@@ -115,7 +115,7 @@ func TestQueryPointee(t *testing.T) {
 	// Test for CW20 Pointee
 	res, err = q.Pointee(goCtx, &types.QueryPointeeRequest{PointerType: types.PointerType_CW20, Pointer: evmAddr2.Hex()})
 	require.Nil(t, err)
-	require.Equal(t, types.QueryPointeeResponse{Pointee: seiAddr2.String(), Version: uint32(cw20.CurrentVersion(ctx)), Exists: true}, *res)
+	require.Equal(t, types.QueryPointeeResponse{Pointee: seiAddr2.String(), Version: uint32(cw20.CurrentVersion), Exists: true}, *res)
 
 	// Test for CW721 Pointee
 	res, err = q.Pointee(goCtx, &types.QueryPointeeRequest{PointerType: types.PointerType_CW721, Pointer: evmAddr3.Hex()})

@@ -97,6 +97,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.rpc.max_concurrent_trace_calls":       "3",
 		"giga.rpc.trace_timeout":                    "4s",
 		"giga.rpc.max_trace_struct_log_bytes":       "512",
+		"giga.state_sync.enabled":                   "true",
 	})
 	require.NoError(t, err)
 	want := gigaconfig.Config{
@@ -130,6 +131,9 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			MaxConcurrentTraceCalls:       3,
 			TraceTimeout:                  4 * time.Second,
 			MaxTraceStructLogBytes:        512,
+		},
+		StateSync: gigaconfig.StateSyncConfig{
+			Enabled: true,
 		},
 	}
 	require.Equal(t, want, cfg)
@@ -172,6 +176,7 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"non-numeric batch limit":         {"giga.rpc.batch_request_limit": "many"},
 		"non-numeric batch response size": {"giga.rpc.batch_response_max_size": "big"},
 		"non-numeric ws connections":      {"giga.rpc.max_ws_connections": "some"},
+		"non-boolean state sync":          {"giga.state_sync.enabled": "maybe"},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)

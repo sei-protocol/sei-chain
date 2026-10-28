@@ -42,8 +42,8 @@ func (r frozenStateReader) GetState(addr common.Address, key common.Hash) common
 	return common.Hash{}
 }
 
-func (r frozenStateReader) ReadAccount(addr common.Address) (baseAccount, bool) {
-	return baseAccount{Balance: r.GetBalance(addr), Nonce: r.GetNonce(addr), Code: r.GetCode(addr)}, true
+func (r frozenStateReader) ReadAccount(addr common.Address) (AccountState, bool) {
+	return AccountState{Balance: r.GetBalance(addr), Nonce: r.GetNonce(addr), Code: r.GetCode(addr)}, true
 }
 
 // BenchmarkOCCValidateAndMerge times validation and merge of one block's speculative results, which

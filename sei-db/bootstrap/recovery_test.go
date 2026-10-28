@@ -18,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
@@ -96,7 +95,7 @@ func writeReceipts(t *testing.T, manager *GigaStorageManager, through uint64) {
 func writeWALOnly(t *testing.T, wal statewal.StateWAL, block uint64, changesets []*proto.NamedChangeSet) {
 	t.Helper()
 	//nolint:gosec // small test heights
-	mutations, err := mutation.MutationsFromChangeSets(changesets, block, emptyStateView{height: int64(block) - 1})
+	mutations, err := flatkv.MutationsFromChangeSets(changesets, block, emptyStateView{height: int64(block) - 1})
 	require.NoError(t, err)
 	require.NoError(t, wal.Write(block, mutations))
 	require.NoError(t, wal.Flush())

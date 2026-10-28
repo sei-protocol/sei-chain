@@ -299,11 +299,18 @@ func (rs *Store) flush() error {
 		// never existed.
 		return nil
 	}
-	// A later run that does carry writes falls through, and nothing detects it: flatkv is already sealed
-	// at currentVersion, so its writer stamps the batch currentVersion+1 and the writes silently land in
-	// the next block, while the state store and memIAVL still take them at currentVersion. That nothing
-	// writes to the multistore after the first working hash — notably in the preCommitHandler — is a
-	// convention, not an enforced invariant.
+	if len(changeSets) > 0 && rs.flushedVersion == currentVersion {
+		// The block's first flush is the one its working hash was taken after, so these writes would be
+		// missing from the hash already handed to consensus, and flatkv, already committed at
+		// currentVersion, would silently place them in the next block. Nothing on mainnet writes here.
+		names := make([]string, len(changeSets))
+		for i, cs := range changeSets {
+			names[i] = cs.Name
+		}
+		panic(fmt.Sprintf(
+			"rootmulti: stores %v were written at height %d after the block's working hash was taken",
+			names, currentVersion))
+	}
 	rs.flushedVersion = currentVersion
 
 	// Capture the (sorted) aggregate changeset for hash logging once per block. nil is normalized to an

@@ -27,6 +27,8 @@ type Executor struct {
 	occPool          *occWorkerPool
 	resultPool       *blockResultPool
 	stateDBPool      sync.Pool
+	endBlockers      []endBlocker
+	customContracts  map[common.Address]vm.PrecompiledContract
 	storeMu          sync.Mutex
 	stateStore       gigatypes.StateDB
 	receiptStore     receipt.ReceiptStore
@@ -92,9 +94,11 @@ func WithBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
 // execution on this executor.
 func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
-		cfg:         cfg.WithDefaults(),
-		resultPool:  newBlockResultPool(cfg.BlockResultPoolSize),
-		blockPhases: newBlockPhases(),
+		cfg:             cfg.WithDefaults(),
+		resultPool:      newBlockResultPool(cfg.BlockResultPoolSize),
+		blockPhases:     newBlockPhases(),
+		endBlockers:     customEndBlockers(cfg.CustomPrecompiles),
+		customContracts: customPrecompileMap(cfg.CustomPrecompiles),
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
@@ -171,20 +175,38 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockRe
 }
 
 func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (PreparedBlock, error) {
-	chainConfig := e.chainConfig(req.Context)
-	if err := validateBlockContext(chainConfig, req.Context); err != nil {
+	decoded, err := e.DecodeBlock(ctx, req)
+	if err != nil {
 		return PreparedBlock{}, err
 	}
-	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
-	if len(req.Senders) != 0 && len(req.Senders) != len(req.Txs) {
-		return PreparedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(req.Senders), len(req.Txs))
+	return e.RecoverSenders(ctx, decoded)
+}
+
+// DecodeBlock decodes and validates req's transactions, leaving their senders unresolved.
+func (e *Executor) DecodeBlock(ctx context.Context, req BlockRequest) (DecodedBlock, error) {
+	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
+		return DecodedBlock{}, err
 	}
-	parsed, err := parseBlockTxs(ctx, req.Txs, signer, req.Senders, e.cfg.ParseWorkers)
+	if len(req.Senders) != 0 && len(req.Senders) != len(req.Txs) {
+		return DecodedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(req.Senders), len(req.Txs))
+	}
+	txs, err := decodeBlockTxs(ctx, req.Txs, e.cfg.ParseWorkers)
+	if err != nil {
+		return DecodedBlock{}, err
+	}
+	return DecodedBlock{context: req.Context, txs: txs, senders: req.Senders}, nil
+}
+
+// RecoverSenders resolves every transaction's sender in b, recovering it from the signature unless
+// b carries an already verified sender for it.
+func (e *Executor) RecoverSenders(ctx context.Context, b DecodedBlock) (PreparedBlock, error) {
+	signer := ethtypes.MakeSigner(e.chainConfig(b.context), new(big.Int).SetUint64(b.context.Number), b.context.Time)
+	parsed, err := resolveBlockSenders(ctx, b.txs, signer, b.senders, e.cfg.ParseWorkers)
 	if err != nil {
 		return PreparedBlock{}, err
 	}
 	return PreparedBlock{
-		Context: req.Context,
+		Context: b.context,
 		Txs:     parsed,
 	}, nil
 }
@@ -207,6 +229,18 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 }
 
 func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
+	result, err := e.executeBlockTxs(ctx, req, source)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.runEndBlockers(req.Context, source, result); err != nil {
+		result.Release()
+		return nil, err
+	}
+	return result, nil
+}
+
+func (e *Executor) executeBlockTxs(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
 	if len(req.Txs) == 0 {
 		return e.acquireBlockResult(ctx, 0)
 	}
@@ -238,13 +272,7 @@ func (e *Executor) sinkBlockResult(ctx context.Context, height uint64, result *B
 }
 
 func (e *Executor) useOCC(txCount int) bool {
-	if e.closed.Load() || e.cfg.OCCWorkers <= 1 || txCount <= 1 {
-		return false
-	}
-	if e.cfg.CustomPrecompiles == nil {
-		return true
-	}
-	return len(e.cfg.CustomPrecompiles.Addresses()) == 0
+	return !e.closed.Load() && e.cfg.OCCWorkers > 1 && txCount > 1
 }
 
 func (e *Executor) acquireStateDB(source StateReader) *nativeStateDB {
@@ -273,7 +301,7 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
 	blockCtx := EVMBlockContext(req.Context)
-	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, customPrecompileMap(e.cfg.CustomPrecompiles))
+	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 
 	gasPool := new(core.GasPool).AddGas(req.Context.GasLimit)
@@ -518,7 +546,12 @@ func customPrecompileMap(registry precompiles.Registry) map[common.Address]vm.Pr
 	}
 	contracts := make(map[common.Address]vm.PrecompiledContract, len(addresses))
 	for _, addr := range addresses {
-		contracts[addr] = unresolvedCustomPrecompile{}
+		contract, ok := registry.Get(addr)
+		if !ok || contract == nil {
+			contracts[addr] = unresolvedCustomPrecompile{}
+			continue
+		}
+		contracts[addr] = registeredCustomPrecompile{address: addr, contract: contract}
 	}
 	return contracts
 }

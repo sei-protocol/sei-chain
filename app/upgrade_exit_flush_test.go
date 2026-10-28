@@ -82,12 +82,14 @@ func TestUpgradeNeededPanicFlushesMemIAVLChangelog(t *testing.T) {
 	)
 	require.False(t, testApp.UpgradeKeeper.HasHandler(planName))
 
-	_, err := finalizeEmptyBlock(testApp, 1)
-	require.NoError(t, err)
+	// Scheduled into the deliver state block 1 reuses from InitChain, so the write reaches the store before the
+	// block's working hash is taken, as a governance proposal executed in the block would.
 	require.NoError(t, testApp.UpgradeKeeper.ScheduleUpgrade(testApp.GetContextForDeliverTx(nil), upgradetypes.Plan{
 		Name:   planName,
 		Height: planHeight,
 	}))
+	_, err := finalizeEmptyBlock(testApp, 1)
+	require.NoError(t, err)
 	_, err = testApp.Commit(context.Background())
 	require.NoError(t, err)
 	for height := int64(2); height <= commitBlocks; height++ {

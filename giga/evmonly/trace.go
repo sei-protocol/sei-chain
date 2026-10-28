@@ -31,7 +31,7 @@ func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView,
 		return nil, err
 	}
 	chainConfig := e.chainConfig(prepared.Context)
-	evm := vm.NewEVM(EVMBlockContext(prepared.Context), stateDB, chainConfig, vm.Config{}, customPrecompileMap(e.cfg.CustomPrecompiles))
+	evm := vm.NewEVM(EVMBlockContext(prepared.Context), stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 	// executeTx does not watch ctx, so the EVM is stopped mid-transaction once ctx ends.
 	stop := context.AfterFunc(ctx, evm.Cancel)
@@ -101,7 +101,7 @@ func (r failedReadRecorder) GetState(addr common.Address, key common.Hash) commo
 }
 
 // ReadAccount satisfies baseAccountReader, as reader does.
-func (r failedReadRecorder) ReadAccount(addr common.Address) (baseAccount, bool) {
+func (r failedReadRecorder) ReadAccount(addr common.Address) (AccountState, bool) {
 	defer r.record()
 	return r.reader.ReadAccount(addr)
 }

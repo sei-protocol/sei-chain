@@ -53,13 +53,11 @@ type LiveStateStore interface {
 	// there is none. It does not modify the store.
 	OldestSnapshotAbove(version int64) (snapshot int64, ok bool, err error)
 
-	// ApplyChangeSets buffers changesets at the given version, to be
-	// persisted by the next Commit.
+	// ApplyChangeSets buffers changesets as part of the block at version, which the next Commit writes. Reads do
+	// not observe buffered changesets.
 	//
-	// Exactly one block may be buffered per Commit: repeated calls at the
-	// same version are allowed, any other version is rejected (see
-	// PendingVersion), and Commit must be called with that version.
-	// Batching several blocks into one Commit is not supported.
+	// Exactly one block may be buffered per Commit: repeated calls at the same version are allowed, any other
+	// version is rejected (see PendingVersion), and Commit must be called with that version.
 	ApplyChangeSets(version int64, cs []*proto.NamedChangeSet) error
 
 	// Commit persists buffered writes at the given version (block height).
@@ -70,8 +68,10 @@ type LiveStateStore interface {
 
 	// CommitStateChanges is a Giga-only helper that applies changesets and commits
 	// them at blockNum in one call.
+	//
 	// Callers must use either ApplyChangeSets+Commit or CommitStateChanges
 	// exclusively, never mixing the two on the same store.
+	//
 	// ApplyChangeSets+Commit is expected to be deprecated once all callers
 	// move to CommitStateChanges.
 	CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error
@@ -86,7 +86,7 @@ type LiveStateStore interface {
 	// initialVersion <= 0.
 	SetInitialVersion(initialVersion int64) error
 
-	// Get returns the value for a key within the given module.
+	// Get returns the committed value for a key within the given module.
 	// For EVM keys (moduleName == "evm"), the key is a memiavl EVM key
 	// routed to account/storage/code/misc DBs internally.
 	// For non-EVM modules, the key is read from misc storage with the module prefix.
@@ -116,10 +116,9 @@ type LiveStateStore interface {
 
 	// Create an iterator over a range of keys in a given store.
 	//
-	// The returned iterator is a stable snapshot taken at construction (pending
-	// writes are cloned and the Pebble view is pinned): it may be used
-	// concurrently with, and outlive, subsequent ApplyChangeSets/Commit calls
-	// without observing their effects. The caller must Close it when done; an
+	// The returned iterator is a stable snapshot of committed state taken at
+	// construction: it may be used concurrently with, and outlive, subsequent
+	// ApplyChangeSets/Commit calls without observing their effects. The caller must Close it when done; an
 	// open iterator pins Pebble resources and holds back compaction, so close
 	// promptly rather than relying on it being safe to keep open.
 	Iterator(

@@ -337,32 +337,6 @@ function getEventAttribute(response, type, attribute) {
     throw new Error("attribute not found")
 }
 
-async function testAPIEnabled(provider) {
-    try {
-        // noop operation to see if it throws
-        await incrementPointerVersion(provider, "cw20", 0)
-        return true;
-    } catch(e){
-        console.log(e)
-        return false;
-    }
-}
-
-async function incrementPointerVersion(provider, pointerType, offset) {
-    if(await isDocker()) {
-        // must update on all nodes
-        for(let i=0; i<4; i++) {
-            const resultStr = await execCommand(`docker exec sei-node-${i} curl -s -X POST http://localhost:8545 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"test_incrementPointerVersion","params":["${pointerType}", ${offset}],"id":1}'`)
-            const result = JSON.parse(resultStr)
-            if(result.error){
-                throw new Error(`failed to increment pointer version: ${result.error}`)
-            }
-        }
-    } else {
-       await provider.send("test_incrementPointerVersion", [pointerType, offset]);
-    }
-}
-
 async function rawHttpDebugTraceWithCallTracer(txHash) {
     const payload = {
         jsonrpc: "2.0",
@@ -762,11 +736,6 @@ async function executeWasm(contractAddress, msg, coins = "0usei") {
     return await waitForAdminTxCommit(command)
 }
 
-async function associateWasm(contractAddress) {
-    const command = `seid tx evm associate-contract-address ${contractAddress} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y -b sync -o json`;
-    return await waitForAdminTxCommit(command)
-}
-
 // Current latest block height as observed by the local node.
 async function getCurrentBlockHeight() {
     const status = await execute(`seid status`)
@@ -1009,9 +978,6 @@ module.exports = {
     waitForReceipt,
     getCosmosTx,
     isDocker,
-    testAPIEnabled,
-    incrementPointerVersion,
-    associateWasm,
     generateWallet,
     printClaimMsg,
     printClaimMsgBySender,

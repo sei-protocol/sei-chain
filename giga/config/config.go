@@ -1,5 +1,5 @@
-// Package config defines the [giga] section of app.toml: the storage, execution and EVM RPC
-// settings a Giga (Autobahn) node runs with.
+// Package config defines the [giga] section of app.toml: the storage, execution, EVM RPC and
+// state sync settings a Giga (Autobahn) node runs with.
 package config
 
 import (
@@ -28,6 +28,7 @@ type Config struct {
 	Storage   StorageConfig   `mapstructure:"storage"`
 	Execution ExecutionConfig `mapstructure:"execution"`
 	RPC       RPCConfig       `mapstructure:"rpc"`
+	StateSync StateSyncConfig `mapstructure:"state_sync"`
 }
 
 // StorageConfig is the [giga.storage] sub-table: retention and layout of the Giga stores.
@@ -70,6 +71,9 @@ type ExecutionConfig struct {
 	EvmRpcPort int `mapstructure:"evm_rpc_port"`
 	// EvmWsPort is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
 	EvmWsPort int `mapstructure:"evm_ws_port"`
+	// GCPercent is the Go GC target. 0 leaves the process default. A value above 100 trades memory
+	// for fewer collections; the process then caps the heap from the container limit when it has one.
+	GCPercent int `mapstructure:"gc_percent"`
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
@@ -104,6 +108,13 @@ type RPCConfig struct {
 	MaxTraceStructLogBytes int `mapstructure:"max_trace_struct_log_bytes"`
 }
 
+// StateSyncConfig is the [giga.state_sync] sub-table: whether this node uses giga state sync.
+type StateSyncConfig struct {
+	// Enabled allows the state-sync-snapshot create and restore commands on this node, and the
+	// seed of a restored home on start.
+	Enabled bool `mapstructure:"enabled"`
+}
+
 // DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
 // sei-db ones, so there is a single place they are defined.
 var DefaultConfig = Config{
@@ -129,6 +140,9 @@ var DefaultConfig = Config{
 		MaxConcurrentTraceCalls:       10,
 		TraceTimeout:                  30 * time.Second,
 		MaxTraceStructLogBytes:        32 * 1024 * 1024,
+	},
+	StateSync: StateSyncConfig{
+		Enabled: false,
 	},
 }
 
@@ -163,6 +177,7 @@ const (
 	FlagExecutionBlockResultPoolSize     = "giga.execution.block_result_pool_size"
 	FlagExecutionEvmRpcPort              = "giga.execution.evm_rpc_port"
 	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
+	FlagExecutionGCPercent               = "giga.execution.gc_percent"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
 	FlagRPCMaxRequestBodyBytes           = "giga.rpc.max_request_body_bytes"
@@ -174,6 +189,7 @@ const (
 	FlagRPCMaxConcurrentTraceCalls       = "giga.rpc.max_concurrent_trace_calls"
 	FlagRPCTraceTimeout                  = "giga.rpc.trace_timeout"
 	FlagRPCMaxTraceStructLogBytes        = "giga.rpc.max_trace_struct_log_bytes"
+	FlagStateSyncEnabled                 = "giga.state_sync.enabled"
 )
 
 // ReadConfig reads the [giga] section from app options. An absent key keeps its default.
@@ -250,6 +266,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionEvmWsPort, err)
 		}
 	}
+	if v := opts.Get(FlagExecutionGCPercent); v != nil {
+		if cfg.Execution.GCPercent, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionGCPercent, err)
+		}
+	}
 	if v := opts.Get(FlagRPCMaxSubscriptionsNewHead); v != nil {
 		if cfg.RPC.MaxSubscriptionsNewHead, err = cast.ToUint64E(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxSubscriptionsNewHead, err)
@@ -305,6 +326,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxTraceStructLogBytes, err)
 		}
 	}
+	if v := opts.Get(FlagStateSyncEnabled); v != nil {
+		if cfg.StateSync.Enabled, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStateSyncEnabled, err)
+		}
+	}
 	return cfg, cfg.Validate()
 }
 
@@ -342,6 +368,9 @@ func (c Config) Validate() error {
 	}
 	if c.Execution.ParseWorkers < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionParseWorkers, c.Execution.ParseWorkers)
+	}
+	if c.Execution.GCPercent < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionGCPercent, c.Execution.GCPercent)
 	}
 	if c.Execution.BlockResultPoolSize < 1 {
 		return fmt.Errorf("%s: must be >= 1, got %d", FlagExecutionBlockResultPoolSize,
@@ -393,7 +422,7 @@ const ConfigTemplate = `
 ###                          Giga Node Configuration                        ###
 ###############################################################################
 
-# Storage, execution and EVM RPC settings of a Giga (Autobahn) node. Committee and consensus
+# Storage, execution, EVM RPC and state sync settings of a Giga (Autobahn) node. Committee and consensus
 # settings stay in the file named by autobahn-config-file in config.toml.
 
 [giga.storage]
@@ -448,6 +477,9 @@ evm_rpc_port = {{ .Giga.Execution.EvmRpcPort }}
 # evm_ws_port is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
 evm_ws_port = {{ .Giga.Execution.EvmWsPort }}
 
+# gc_percent is the Go GC target. 0 leaves the process default.
+gc_percent = {{ .Giga.Execution.GCPercent }}
+
 [giga.rpc]
 # Limits the EVM-only JSON-RPC server enforces. 0 disables a limit.
 
@@ -488,4 +520,9 @@ trace_timeout = "{{ .Giga.RPC.TraceTimeout }}"
 # max_trace_struct_log_bytes caps the default struct logger's output, in bytes, for each traced
 # transaction.
 max_trace_struct_log_bytes = {{ .Giga.RPC.MaxTraceStructLogBytes }}
+
+[giga.state_sync]
+# enabled allows the state-sync-snapshot create and restore commands on this node, and the
+# seed of a restored home on start.
+enabled = {{ .Giga.StateSync.Enabled }}
 `

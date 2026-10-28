@@ -207,27 +207,11 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 		}
 		base := s.baseAccount(addr)
 
-		_, hasCommutativeDelta := s.commutativeBalanceDeltas[addr]
-		if !acct.Balance.Eq(base.Balance) || hasCommutativeDelta {
-			changes.Balances = append(changes.Balances, BalanceChange{
-				Address:      addr,
-				Balance:      acct.Balance.ToBig(),
-				PriorBalance: base.Balance.ToBig(),
-			})
-		}
-		if acct.Nonce != base.Nonce {
-			changes.Nonces = append(changes.Nonces, NonceChange{
-				Address:    addr,
-				Nonce:      acct.Nonce,
-				PriorNonce: base.Nonce,
-			})
-		}
-		if !bytes.Equal(acct.Code, base.Code) {
-			changes.Code = append(changes.Code, CodeChange{
-				Address:   addr,
-				Code:      cloneBytes(acct.Code),
-				Delete:    len(acct.Code) == 0,
-				PriorCode: cloneBytes(base.Code),
+		if !acct.Balance.Eq(base.Balance) || acct.Nonce != base.Nonce || !bytes.Equal(acct.Code, base.Code) {
+			changes.Accounts = append(changes.Accounts, AccountChange{
+				Address: addr,
+				Account: AccountState{Balance: acct.Balance.ToBig(), Nonce: acct.Nonce, Code: acct.Code},
+				Prior:   AccountState{Balance: base.Balance.ToBig(), Nonce: base.Nonce, Code: base.Code},
 			})
 		}
 		storageKeys := storageKeyUnion(base.Storage, acct.Storage)
@@ -1135,17 +1119,10 @@ func (s *nativeStateDB) finaliseTxStorage() {
 	clear(s.txStorageClears)
 }
 
-// baseAccount is an account's balance, nonce and code as read from the state beneath a block.
-type baseAccount struct {
-	Balance *big.Int
-	Nonce   uint64
-	Code    []byte
-}
-
 // baseAccountReader is an optional StateReader capability that reads an account's fields in one
 // lookup. ReadAccount returns false when the caller must fall back to the per-field accessors.
 type baseAccountReader interface {
-	ReadAccount(common.Address) (baseAccount, bool)
+	ReadAccount(common.Address) (AccountState, bool)
 }
 
 func (s *nativeStateDB) loadAccount(addr common.Address) *nativeAccount {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -1070,6 +1071,54 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 	if err != nil {
 		require.Equal(t, context.Canceled, err)
 	}
+}
+
+// TestCatchupReleasesTreeDeletedByUpgrade replays a changelog through an upgrade
+// that deletes a tree, and requires the deleted tree's background writer to have
+// stopped, its snapshot to be closed, and the multitree to hold no reference to it.
+func TestCatchupReleasesTreeDeletedByUpgrade(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"drop", "keep"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	commit := func(names ...string) {
+		var changeSets []*proto.NamedChangeSet
+		for _, name := range names {
+			changeSets = append(changeSets, mockNameChangeSet(name, "key", strconv.FormatInt(db.Version(), 10))...)
+		}
+		require.NoError(t, db.ApplyChangeSets(changeSets))
+		_, err := db.Commit()
+		require.NoError(t, err)
+	}
+	commit("drop", "keep")
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	// Replaying this version hands both trees a background writer.
+	commit("drop", "keep")
+	require.NoError(t, db.ApplyUpgrades([]*proto.TreeNameUpgrade{{Name: "drop", Delete: true}}))
+	commit("keep")
+
+	mtree, err := LoadMultiTree(context.Background(), filepath.Join(dir, "current"), Options{Dir: dir})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, mtree.Close()) })
+	dropped := mtree.TreeByName("drop")
+	require.NotNil(t, dropped)
+	snapshot := dropped.snapshot
+	require.NotNil(t, snapshot)
+
+	require.NoError(t, mtree.Catchup(context.Background(), db.GetWAL(), db.walIndexDelta, 0))
+
+	require.Equal(t, db.Version(), mtree.Version())
+	require.Nil(t, mtree.TreeByName("drop"))
+	require.Nil(t, dropped.pendingChanges, "the deleted tree's background writer is still running")
+	require.Zero(t, snapshot.refCount.Load(), "the deleted tree's snapshot is still mapped")
+	require.False(t, slices.ContainsFunc(mtree.trees[:cap(mtree.trees)], func(entry NamedTree) bool {
+		return entry.Tree == dropped
+	}), "the multitree still references the deleted tree")
 }
 
 func TestCloseWaitsForBackgroundSnapshot(t *testing.T) {
