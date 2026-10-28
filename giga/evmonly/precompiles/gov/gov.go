@@ -2,7 +2,8 @@
 // docs/giga-storage/GovStorage.sol, held as contract storage at Address.
 //
 // Its ABI is precompiles/gov's without the grant*, revoke* and
-// *WithAuthorization methods.
+// *WithAuthorization methods, and with submitParamChangeProposal. Its params
+// are the params precompile's gov subspace.
 //
 // Unlike x/gov, it accepts at most 200 depositors per proposal and requires a
 // positive minimum deposit. Unlike V2's precompile, it rejects proposal JSON
@@ -20,6 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 )
 
 //go:embed abi.json
@@ -47,6 +49,9 @@ const (
 	GetDepositMethod     = "getDeposit"
 	DepositsMethod       = "deposits"
 	TallyResultMethod    = "tallyResult"
+
+	// SubmitParamChangeProposalMethod is not in V2's ABI.
+	SubmitParamChangeProposalMethod = "submitParamChangeProposal"
 )
 
 // Flat per-call gas, as V2's pcommon.DefaultGasCost prices it from the
@@ -82,7 +87,7 @@ func (Precompile) RequiredGas(input []byte) uint64 {
 	}
 	args := uint64(len(input) - 4) //nolint:gosec // methodOf requires a 4-byte selector
 	switch method.Name {
-	case VoteMethod, VoteWeightedMethod, DepositMethod, SubmitProposalMethod:
+	case VoteMethod, VoteWeightedMethod, DepositMethod, SubmitProposalMethod, SubmitParamChangeProposalMethod:
 		return transactionGas + transactionByteGas*args
 	default:
 		return queryGas + queryByteGas*args
@@ -101,7 +106,7 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
-	payable := method.Name == DepositMethod || method.Name == SubmitProposalMethod
+	payable := method.Name == DepositMethod || method.Name == SubmitProposalMethod || method.Name == SubmitParamChangeProposalMethod
 	if !payable && ctx.ApparentValue != nil && ctx.ApparentValue.Sign() != 0 {
 		return nil, errNonPayable
 	}
@@ -139,6 +144,8 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 		return p.deposit(ctx, s, method, args)
 	case SubmitProposalMethod:
 		return p.submitProposal(ctx, s, method, args)
+	case SubmitParamChangeProposalMethod:
+		return p.submitParamChangeProposal(ctx, s, method, args, input)
 	}
 	return nil, errUnknownMethod
 }
@@ -155,13 +162,17 @@ func methodOf(input []byte) (*abi.Method, error) {
 }
 
 // SetParams writes p as gov's params, for genesis.
-func SetParams(state precompiles.State, p Params) {
-	newStore(state).setParams(p)
+func SetParams(state precompiles.State, p Params) error {
+	stored, err := p.stored()
+	if err != nil {
+		return err
+	}
+	return chainparams.WriteGov(state, stored)
 }
 
 // HasParams reports whether gov's params have been written.
 func HasParams(state precompiles.State) bool {
-	return newStore(state).params().VotingPeriod != 0
+	return chainparams.ReadGov(state).VotingPeriod != 0
 }
 
 // SetStartingProposalID sets the id gov assigns its first proposal, for

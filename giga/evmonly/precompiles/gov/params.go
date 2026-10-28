@@ -1,14 +1,28 @@
 package gov
 
 import (
-	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"time"
+
+	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 )
 
-// maxPeriod bounds every period, in nanoseconds, so an end time cannot overflow.
-const maxPeriod = 1 << 62
+// Params are gov's params as gov uses them. Periods are nanoseconds, deposits
+// are wei, and ratios are 1e18-scaled decimals.
+type Params struct {
+	VotingPeriod          uint64   `json:"voting_period"`
+	ExpeditedVotingPeriod uint64   `json:"expedited_voting_period"`
+	MinDeposit            *big.Int `json:"min_deposit"`
+	MaxDepositPeriod      uint64   `json:"max_deposit_period"`
+	MinExpeditedDeposit   *big.Int `json:"min_expedited_deposit"`
+	Quorum                uint64   `json:"quorum"`
+	Threshold             uint64   `json:"threshold"`
+	VetoThreshold         uint64   `json:"veto_threshold"`
+	ExpeditedQuorum       uint64   `json:"expedited_quorum"`
+	ExpeditedThreshold    uint64   `json:"expedited_threshold"`
+}
 
 // DefaultParams returns x/gov's default params.
 func DefaultParams() Params {
@@ -26,37 +40,59 @@ func DefaultParams() Params {
 	}
 }
 
-// Validate checks p as x/gov checks its params, and also requires both
-// minimum deposits to be positive, which x/gov does not.
+// Validate checks p as the params precompile checks gov's params.
 func (p Params) Validate() error {
-	if p.VotingPeriod == 0 || p.VotingPeriod > maxPeriod {
-		return fmt.Errorf("voting_period must be in 1..%d nanoseconds", uint64(maxPeriod))
+	stored, err := p.stored()
+	if err != nil {
+		return err
 	}
-	if p.ExpeditedVotingPeriod == 0 || p.ExpeditedVotingPeriod >= p.VotingPeriod {
-		return errors.New("expedited_voting_period must be positive and below voting_period")
-	}
-	if p.MaxDepositPeriod == 0 || p.MaxDepositPeriod > maxPeriod {
-		return fmt.Errorf("max_deposit_period must be in 1..%d nanoseconds", uint64(maxPeriod))
-	}
-	// The depositor cap relies on a positive minimum: a zero one makes
-	// depositorShare zero, so 200 dust deposits could fill every slot.
-	for name, d := range map[string]*big.Int{"min_deposit": p.MinDeposit, "min_expedited_deposit": p.MinExpeditedDeposit} {
-		if d == nil || d.Sign() <= 0 || new(big.Int).Mod(d, weiPerUsei).Sign() != 0 {
-			return fmt.Errorf("%s must be a positive whole number of usei, in wei", name)
+	return stored.Validate()
+}
+
+// stored returns p in ParamsStorage's units.
+func (p Params) stored() (chainparams.Gov, error) {
+	for _, d := range []struct {
+		name string
+		v    *big.Int
+	}{{"min_deposit", p.MinDeposit}, {"min_expedited_deposit", p.MinExpeditedDeposit}} {
+		if d.v == nil || new(big.Int).Mod(d.v, weiPerUsei).Sign() != 0 {
+			return chainparams.Gov{}, fmt.Errorf("%s must be a whole number of usei, in wei", d.name)
 		}
 	}
-	if p.MinExpeditedDeposit.Cmp(p.MinDeposit) < 0 {
-		return errors.New("min_expedited_deposit must not be below min_deposit")
+	return chainparams.Gov{
+		MaxDepositPeriod:      p.MaxDepositPeriod,
+		VotingPeriod:          p.VotingPeriod,
+		ExpeditedVotingPeriod: p.ExpeditedVotingPeriod,
+		MinDeposit:            new(big.Int).Quo(p.MinDeposit, weiPerUsei),
+		MinExpeditedDeposit:   new(big.Int).Quo(p.MinExpeditedDeposit, weiPerUsei),
+		Quorum:                new(big.Int).SetUint64(p.Quorum),
+		Threshold:             new(big.Int).SetUint64(p.Threshold),
+		VetoThreshold:         new(big.Int).SetUint64(p.VetoThreshold),
+		ExpeditedQuorum:       new(big.Int).SetUint64(p.ExpeditedQuorum),
+		ExpeditedThreshold:    new(big.Int).SetUint64(p.ExpeditedThreshold),
+	}, nil
+}
+
+// paramsFrom returns stored gov params in gov's units.
+func paramsFrom(g chainparams.Gov) Params {
+	return Params{
+		VotingPeriod:          g.VotingPeriod,
+		ExpeditedVotingPeriod: g.ExpeditedVotingPeriod,
+		MinDeposit:            new(big.Int).Mul(g.MinDeposit, weiPerUsei),
+		MaxDepositPeriod:      g.MaxDepositPeriod,
+		MinExpeditedDeposit:   new(big.Int).Mul(g.MinExpeditedDeposit, weiPerUsei),
+		Quorum:                decUint64(g.Quorum),
+		Threshold:             decUint64(g.Threshold),
+		VetoThreshold:         decUint64(g.VetoThreshold),
+		ExpeditedQuorum:       decUint64(g.ExpeditedQuorum),
+		ExpeditedThreshold:    decUint64(g.ExpeditedThreshold),
 	}
-	for name, r := range map[string]uint64{"quorum": p.Quorum, "expedited_quorum": p.ExpeditedQuorum} {
-		if r > decOne {
-			return fmt.Errorf("%s must be at most 1e18", name)
-		}
+}
+
+// decUint64 returns a stored ratio, which validation bounds by 1e18.
+func decUint64(v *big.Int) uint64 {
+	if !v.IsUint64() {
+		return math.MaxUint64
 	}
-	for name, r := range map[string]uint64{"threshold": p.Threshold, "veto_threshold": p.VetoThreshold, "expedited_threshold": p.ExpeditedThreshold} {
-		if r == 0 || r > decOne {
-			return fmt.Errorf("%s must be in 1..1e18", name)
-		}
-	}
-	return nil
+	return v.Uint64()
 }

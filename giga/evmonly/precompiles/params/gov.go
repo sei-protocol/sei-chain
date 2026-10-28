@@ -1,0 +1,159 @@
+package params
+
+import (
+	"errors"
+	"fmt"
+	"math/big"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+)
+
+// Gov's flat keys.
+const (
+	keyMinDeposit            = "depositparams.min_deposit"
+	keyMaxDepositPeriod      = "depositparams.max_deposit_period"
+	keyMinExpeditedDeposit   = "depositparams.min_expedited_deposit"
+	keyVotingPeriod          = "votingparams.voting_period"
+	keyExpeditedVotingPeriod = "votingparams.expedited_voting_period"
+	keyQuorum                = "tallyparams.quorum"
+	keyThreshold             = "tallyparams.threshold"
+	keyVetoThreshold         = "tallyparams.veto_threshold"
+	keyExpeditedQuorum       = "tallyparams.expedited_quorum"
+	keyExpeditedThreshold    = "tallyparams.expedited_threshold"
+)
+
+// maxDeposit is the largest minimum deposit, in usei, whose wei value fits in
+// 256 bits.
+var maxDeposit = new(big.Int).Quo(
+	new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1)),
+	big.NewInt(1_000_000_000_000),
+)
+
+var govSubspace = subspace{
+	name: "gov",
+	slot: slotGov,
+	params: []param{
+		{key: keyMinDeposit, kind: coinsKind, at: govMinDeposit},
+		{key: keyMaxDepositPeriod, kind: durationKind, at: govMaxDepositPeriod},
+		{key: keyMinExpeditedDeposit, kind: coinsKind, at: govMinExpeditedDeposit},
+		{key: keyVotingPeriod, kind: durationKind, at: govVotingPeriod},
+		{key: keyExpeditedVotingPeriod, kind: durationKind, at: govExpeditedVotingPeriod},
+		{key: keyQuorum, kind: decKind, at: govQuorum},
+		{key: keyThreshold, kind: decKind, at: govThreshold},
+		{key: keyVetoThreshold, kind: decKind, at: govVetoThreshold},
+		{key: keyExpeditedQuorum, kind: decKind, at: govExpeditedQuorum},
+		{key: keyExpeditedThreshold, kind: decKind, at: govExpeditedThreshold},
+	},
+	check: func(v values) error { return govFrom(v).Validate() },
+}
+
+// Gov is ParamsStorage.Gov. Periods are nanoseconds, deposits are usei, and
+// ratios are 1e18-scaled decimals.
+type Gov struct {
+	MaxDepositPeriod      uint64
+	VotingPeriod          uint64
+	ExpeditedVotingPeriod uint64
+	MinDeposit            *big.Int
+	MinExpeditedDeposit   *big.Int
+	Quorum                *big.Int
+	Threshold             *big.Int
+	VetoThreshold         *big.Int
+	ExpeditedQuorum       *big.Int
+	ExpeditedThreshold    *big.Int
+}
+
+// ReadGov returns gov's params.
+func ReadGov(state precompiles.State) Gov {
+	return govFrom(govSubspace.read(newStore(state)))
+}
+
+// WriteGov writes g as gov's params, for genesis, if g is valid.
+func WriteGov(state precompiles.State, g Gov) error {
+	if err := g.Validate(); err != nil {
+		return err
+	}
+	s := newStore(state)
+	v := g.values()
+	for _, p := range govSubspace.params {
+		govSubspace.set(s, p, v[p.key])
+	}
+	return nil
+}
+
+func govFrom(v values) Gov {
+	return Gov{
+		MaxDepositPeriod:      v[keyMaxDepositPeriod].Uint64(),
+		VotingPeriod:          v[keyVotingPeriod].Uint64(),
+		ExpeditedVotingPeriod: v[keyExpeditedVotingPeriod].Uint64(),
+		MinDeposit:            v[keyMinDeposit],
+		MinExpeditedDeposit:   v[keyMinExpeditedDeposit],
+		Quorum:                v[keyQuorum],
+		Threshold:             v[keyThreshold],
+		VetoThreshold:         v[keyVetoThreshold],
+		ExpeditedQuorum:       v[keyExpeditedQuorum],
+		ExpeditedThreshold:    v[keyExpeditedThreshold],
+	}
+}
+
+func (g Gov) values() values {
+	return values{
+		keyMaxDepositPeriod:      new(big.Int).SetUint64(g.MaxDepositPeriod),
+		keyVotingPeriod:          new(big.Int).SetUint64(g.VotingPeriod),
+		keyExpeditedVotingPeriod: new(big.Int).SetUint64(g.ExpeditedVotingPeriod),
+		keyMinDeposit:            g.MinDeposit,
+		keyMinExpeditedDeposit:   g.MinExpeditedDeposit,
+		keyQuorum:                g.Quorum,
+		keyThreshold:             g.Threshold,
+		keyVetoThreshold:         g.VetoThreshold,
+		keyExpeditedQuorum:       g.ExpeditedQuorum,
+		keyExpeditedThreshold:    g.ExpeditedThreshold,
+	}
+}
+
+// named is a value and the param name its errors use.
+type named struct {
+	name string
+	v    *big.Int
+}
+
+// MaxPeriod is the longest gov period, in nanoseconds.
+const MaxPeriod = 1 << 62 // a block time in Unix nanoseconds plus any period fits in 64 bits
+
+// Validate checks g as x/gov checks its params, and also requires periods of at
+// most MaxPeriod and a positive minimum deposit whose wei value fits in 256 bits.
+func (g Gov) Validate() error {
+	if g.VotingPeriod == 0 || g.VotingPeriod > MaxPeriod {
+		return fmt.Errorf("voting_period must be in 1..%d nanoseconds", uint64(MaxPeriod))
+	}
+	if g.ExpeditedVotingPeriod == 0 || g.ExpeditedVotingPeriod >= g.VotingPeriod {
+		return errors.New("expedited_voting_period must be positive and below voting_period")
+	}
+	if g.MaxDepositPeriod == 0 || g.MaxDepositPeriod > MaxPeriod {
+		return fmt.Errorf("max_deposit_period must be in 1..%d nanoseconds", uint64(MaxPeriod))
+	}
+	for _, d := range []named{{"min_deposit", g.MinDeposit}, {"min_expedited_deposit", g.MinExpeditedDeposit}} {
+		if d.v == nil || d.v.Sign() <= 0 || d.v.Cmp(maxDeposit) > 0 {
+			return fmt.Errorf("%s must be in 1..%s usei", d.name, maxDeposit)
+		}
+	}
+	if g.MinExpeditedDeposit.Cmp(g.MinDeposit) <= 0 {
+		return errors.New("min_expedited_deposit must be above min_deposit")
+	}
+	for _, r := range []named{{"quorum", g.Quorum}, {"expedited_quorum", g.ExpeditedQuorum}} {
+		if r.v == nil || r.v.Sign() < 0 || r.v.Cmp(decOne) > 0 {
+			return fmt.Errorf("%s must be in 0..1", r.name)
+		}
+	}
+	for _, r := range []named{{"threshold", g.Threshold}, {"veto_threshold", g.VetoThreshold}, {"expedited_threshold", g.ExpeditedThreshold}} {
+		if r.v == nil || r.v.Sign() <= 0 || r.v.Cmp(decOne) > 0 {
+			return fmt.Errorf("%s must be above 0 and at most 1", r.name)
+		}
+	}
+	if g.ExpeditedQuorum.Cmp(g.Quorum) <= 0 {
+		return errors.New("expedited_quorum must be above quorum")
+	}
+	if g.ExpeditedThreshold.Cmp(g.Threshold) <= 0 {
+		return errors.New("expedited_threshold must be above threshold")
+	}
+	return nil
+}

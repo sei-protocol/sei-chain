@@ -32,3 +32,12 @@ same result from the same block, so each rule below is a consensus rule.
   contract, using `solstorage`. Changing a layout changes the app hash.
 - A storage write through `ctx.State` gives an account with no nonce and no
   code a nonce of 1, so the EVM treats any account holding storage as existing.
+- Chain params live in the params precompile's storage (0x1013), laid out by
+  `docs/giga-storage/ParamsStorage.sol` and declared in `params`. Read them
+  through `params`; do not keep a copy in another precompile's storage.
+
+## ABI
+- Each precompile package holds its Solidity interface (e.g. `gov/Gov.sol`) next
+  to the embedded `abi.json`, and the two describe the same ABI. A method V2
+  also has keeps V2's address, selector and names; a method V2 lacks is added
+  alongside, never in place of one. CON-567 tracks checking deviations from V2.

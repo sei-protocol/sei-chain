@@ -27,6 +27,9 @@ func TestSubmitRejectsFieldsGovDoesNotRead(t *testing.T) {
 		"duplicate field":        `{"title":"t","title":"u","description":"d","type":"Text"}`,
 		"duplicate by case":      `{"title":"t","TITLE":"u","description":"d","type":"Text"}`,
 		"duplicate plan field":   `{"title":"t","description":"d","type":"SoftwareUpgrade","plan":{"name":"v2","name":"v3","height":10}}`,
+		"miscased changes":       `{"title":"t","description":"d","type":"ParameterChange","Changes":[{"subspace":"gov","key":"votingparams","value":{"voting_period":"1000000000"}}]}`,
+		"unknown change field":   `{"title":"t","description":"d","type":"ParameterChange","changes":[{"subspace":"gov","key":"votingparams","value":{"voting_period":"1000000000"},"note":"x"}]}`,
+		"duplicate change field": `{"title":"t","description":"d","type":"ParameterChange","changes":[{"subspace":"gov","key":"votingparams","key":"tallyparams","value":{"voting_period":"1000000000"}}]}`,
 		"V2 community pool type": `{"title":"t","description":"d","type":"Text","community_pool_spend":{"recipient":"0x1","amount":"1usei"}}`,
 	} {
 		_, err := h.call(alice, callOpts{}, SubmitProposalMethod, content)

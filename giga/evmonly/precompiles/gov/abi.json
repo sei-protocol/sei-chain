@@ -678,5 +678,56 @@
     ],
     "stateMutability": "view",
     "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "title",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "description",
+        "type": "string"
+      },
+      {
+        "internalType": "bool",
+        "name": "isExpedited",
+        "type": "bool"
+      },
+      {
+        "components": [
+          {
+            "internalType": "string",
+            "name": "subspace",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "key",
+            "type": "string"
+          },
+          {
+            "internalType": "bytes",
+            "name": "value",
+            "type": "bytes"
+          }
+        ],
+        "internalType": "struct IGov.ParamChange[]",
+        "name": "changes",
+        "type": "tuple[]"
+      }
+    ],
+    "name": "submitParamChangeProposal",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "proposalID",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "payable",
+    "type": "function"
   }
 ]

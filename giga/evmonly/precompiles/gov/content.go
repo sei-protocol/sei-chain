@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 )
 
 // Proposal types, as the submitted JSON names them.
@@ -18,6 +19,7 @@ const (
 	TypeText                  = "Text"
 	TypeSoftwareUpgrade       = "SoftwareUpgrade"
 	TypeCancelSoftwareUpgrade = "CancelSoftwareUpgrade"
+	TypeParameterChange       = "ParameterChange"
 )
 
 // Size limits on submitted content. The title and description limits are x/gov's.
@@ -33,6 +35,7 @@ const (
 	contentText                  uint8 = 0 // TextContent
 	contentSoftwareUpgrade       uint8 = 1 // SoftwareUpgradeContent
 	contentCancelSoftwareUpgrade uint8 = 2 // CancelSoftwareUpgradeContent
+	contentParameterChange       uint8 = 3 // ParamChangeContent
 )
 
 var (
@@ -51,6 +54,8 @@ type submittedProposal struct {
 	Type        string        `json:"type"`
 	IsExpedited bool          `json:"is_expedited,omitempty"`
 	Plan        *proposalPlan `json:"plan,omitempty"`
+
+	Changes []chainparams.LegacyChange `json:"changes,omitempty"`
 }
 
 // proposalPlan is a SoftwareUpgrade proposal's plan.
@@ -64,6 +69,8 @@ type proposalPlan struct {
 // structs.
 type govContent interface {
 	contentType() uint8
+	// validate checks the content against the current state at submission.
+	validate(s store) error
 	// execute carries out passed proposal id.
 	execute(block precompiles.BlockContext, s store, id uint64) error
 	// v2JSON is V2's proto JSON of the matching Content, as its proposal query
@@ -95,6 +102,13 @@ type (
 		Title       string
 		Description string
 	}
+
+	paramChangeContent struct {
+		Title       string
+		Description string
+		Changes     []chainparams.Change
+		IsExpedited bool
+	}
 )
 
 var (
@@ -112,18 +126,27 @@ var contentCodecs = map[uint8]contentCodec{
 		named("title", stringArg), named("description", stringArg), planArg),
 	contentCancelSoftwareUpgrade: newCodec[cancelSoftwareUpgradeContent]("CancelSoftwareUpgradeContent",
 		named("title", stringArg), named("description", stringArg)),
+	contentParameterChange: newCodec[paramChangeContent]("ParamChangeContent",
+		named("title", stringArg), named("description", stringArg), abi.ArgumentMarshaling{
+			Name: "changes", Type: "tuple[]", InternalType: "struct GovStorage.ParamChange[]", Components: []abi.ArgumentMarshaling{
+				named("subspace", stringArg), named("key", stringArg), {Name: "value", Type: "bytes"},
+			},
+		}, abi.ArgumentMarshaling{Name: "isExpedited", Type: "bool"}),
 }
 
 // proposalTypes build the content of each proposal type gov accepts from its
 // submitted JSON, rejecting a field the type does not use.
 var proposalTypes = map[string]func(submittedProposal) (govContent, error){
 	TypeText: func(p submittedProposal) (govContent, error) {
-		if p.Plan != nil {
-			return nil, fmt.Errorf("%w: plan", errUnknownField)
+		if err := onlyFields(p, false, false); err != nil {
+			return nil, err
 		}
 		return textContent{Title: p.Title, Description: p.Description, IsExpedited: p.IsExpedited}, nil
 	},
 	TypeSoftwareUpgrade: func(p submittedProposal) (govContent, error) {
+		if err := onlyFields(p, true, false); err != nil {
+			return nil, err
+		}
 		if p.Plan == nil || p.Plan.Name == "" || p.Plan.Height <= 0 {
 			return nil, fmt.Errorf("%w: name and a positive height are required", errInvalidPlan)
 		}
@@ -131,11 +154,32 @@ var proposalTypes = map[string]func(submittedProposal) (govContent, error){
 		return softwareUpgradeContent{Title: p.Title, Description: p.Description, Plan: plan}, nil
 	},
 	TypeCancelSoftwareUpgrade: func(p submittedProposal) (govContent, error) {
-		if p.Plan != nil {
-			return nil, fmt.Errorf("%w: plan", errUnknownField)
+		if err := onlyFields(p, false, false); err != nil {
+			return nil, err
 		}
 		return cancelSoftwareUpgradeContent{Title: p.Title, Description: p.Description}, nil
 	},
+	TypeParameterChange: func(p submittedProposal) (govContent, error) {
+		if err := onlyFields(p, false, true); err != nil {
+			return nil, err
+		}
+		changes, err := chainparams.FromLegacy(p.Changes)
+		if err != nil {
+			return nil, err
+		}
+		return paramChangeContent{Title: p.Title, Description: p.Description, Changes: changes, IsExpedited: p.IsExpedited}, nil
+	},
+}
+
+// onlyFields rejects a plan or changes on a proposal type that does not use it.
+func onlyFields(p submittedProposal, plan, changes bool) error {
+	if p.Plan != nil && !plan {
+		return fmt.Errorf("%w: plan", errUnknownField)
+	}
+	if p.Changes != nil && !changes {
+		return fmt.Errorf("%w: changes", errUnknownField)
+	}
+	return nil
 }
 
 // contentCodec is the ABI encoding of one content struct.
@@ -191,11 +235,11 @@ func parseProposal(content string) (govContent, submittedProposal, error) {
 	if err := decodeStrict([]byte(content), &p); err != nil {
 		return nil, p, fmt.Errorf("failed to parse proposal JSON: %w", err)
 	}
-	if p.Title == "" || p.Description == "" || p.Type == "" {
-		return nil, p, errors.New("proposal title, description and type are required")
+	if p.Type == "" {
+		return nil, p, errors.New("proposal type is required")
 	}
-	if len(p.Title) > maxTitleLength || len(p.Description) > maxDescriptionLength {
-		return nil, p, fmt.Errorf("%w: title max %d, description max %d", errContentTooLong, maxTitleLength, maxDescriptionLength)
+	if err := checkText(p.Title, p.Description); err != nil {
+		return nil, p, err
 	}
 	build, ok := proposalTypes[p.Type]
 	if !ok {
@@ -203,6 +247,17 @@ func parseProposal(content string) (govContent, submittedProposal, error) {
 	}
 	c, err := build(p)
 	return c, p, err
+}
+
+// checkText checks a proposal's title and description.
+func checkText(title, description string) error {
+	if title == "" || description == "" {
+		return errors.New("proposal title and description are required")
+	}
+	if len(title) > maxTitleLength || len(description) > maxDescriptionLength {
+		return fmt.Errorf("%w: title max %d, description max %d", errContentTooLong, maxTitleLength, maxDescriptionLength)
+	}
+	return nil
 }
 
 // decodeStrict decodes JSON into v, rejecting at every depth a field v does
@@ -306,7 +361,39 @@ func executeProposal(block precompiles.BlockContext, s store, id uint64) error {
 	return c.execute(block, s, id)
 }
 
+// executionCost is the EndBlock budget executing proposal id costs: one unit
+// per param change.
+func executionCost(s store, id uint64) uint64 {
+	c, err := decodeContent(s.proposalContent(id))
+	if err != nil {
+		return 0
+	}
+	if pc, ok := c.(paramChangeContent); ok {
+		return uint64(len(pc.Changes))
+	}
+	return 0
+}
+
+// paramChanges converts the ABI-decoded changes argument.
+func paramChanges(arg interface{}) ([]chainparams.Change, error) {
+	raw, ok := arg.([]struct {
+		Subspace string `json:"subspace"`
+		Key      string `json:"key"`
+		Value    []byte `json:"value"`
+	})
+	if !ok {
+		return nil, fmt.Errorf("unexpected param changes type %T", arg)
+	}
+	out := make([]chainparams.Change, len(raw))
+	for i, c := range raw {
+		out[i] = chainparams.Change(c)
+	}
+	return out, nil
+}
+
 func (textContent) contentType() uint8 { return contentText }
+
+func (textContent) validate(store) error { return nil }
 
 func (textContent) execute(precompiles.BlockContext, store, uint64) error { return nil }
 
@@ -320,6 +407,8 @@ func (c textContent) v2JSON() []byte {
 }
 
 func (softwareUpgradeContent) contentType() uint8 { return contentSoftwareUpgrade }
+
+func (softwareUpgradeContent) validate(store) error { return nil }
 
 // execute replaces the plan with c's, as x/upgrade's ScheduleUpgrade.
 func (c softwareUpgradeContent) execute(block precompiles.BlockContext, s store, id uint64) error {
@@ -350,6 +439,8 @@ func (c softwareUpgradeContent) v2JSON() []byte {
 
 func (cancelSoftwareUpgradeContent) contentType() uint8 { return contentCancelSoftwareUpgrade }
 
+func (cancelSoftwareUpgradeContent) validate(store) error { return nil }
+
 func (cancelSoftwareUpgradeContent) execute(_ precompiles.BlockContext, s store, _ uint64) error {
 	s.setPlan(Plan{})
 	return nil
@@ -363,7 +454,28 @@ func (c cancelSoftwareUpgradeContent) v2JSON() []byte {
 	}{"/cosmos.upgrade.v1beta1.CancelSoftwareUpgradeProposal", c.Title, c.Description})
 }
 
-// mustJSON marshals v, which holds only strings, numbers and booleans.
+func (paramChangeContent) contentType() uint8 { return contentParameterChange }
+
+func (c paramChangeContent) validate(s store) error {
+	return chainparams.Check(s.State, c.Changes)
+}
+
+func (c paramChangeContent) execute(_ precompiles.BlockContext, s store, _ uint64) error {
+	return chainparams.Apply(s.State, c.Changes)
+}
+
+func (c paramChangeContent) v2JSON() []byte {
+	return mustJSON(struct {
+		Type        string                 `json:"@type"`
+		Title       string                 `json:"title"`
+		Description string                 `json:"description"`
+		Changes     []chainparams.V2Change `json:"changes"`
+		IsExpedited bool                   `json:"is_expedited"`
+	}{"/cosmos.params.v1beta1.ParameterChangeProposal", c.Title, c.Description, chainparams.ToV2(c.Changes), c.IsExpedited})
+}
+
+// mustJSON marshals v, which holds only strings, numbers, booleans and slices
+// of them.
 func mustJSON(v any) []byte {
 	bz, err := json.Marshal(v)
 	if err != nil {

@@ -13,18 +13,6 @@ contract GovStorageHarness is GovStorage {
     function seed(address voter, address other, bytes calldata content) external {
         lastProposalId = 7;
         startingProposalId = 3;
-        params = Params({
-            votingPeriod: 11,
-            expeditedVotingPeriod: 12,
-            minDeposit: 13e18,
-            maxDepositPeriod: 14,
-            minExpeditedDeposit: 15e18,
-            quorum: 0.334e18,
-            threshold: 0.5e18,
-            vetoThreshold: 0.334e18,
-            expeditedQuorum: 0.667e18,
-            expeditedThreshold: 0.667e18
-        });
 
         Proposal storage p = proposals[5];
         p.status = 2;

@@ -24,7 +24,7 @@ contract GovStorage {
     struct Proposal {
         int32 status;
         bool isExpedited;
-        uint8 contentType; // 0: TextContent, 1: SoftwareUpgradeContent, 2: CancelSoftwareUpgradeContent
+        uint8 contentType; // 0: TextContent, 1: SoftwareUpgradeContent, 2: CancelSoftwareUpgradeContent, 3: ParamChangeContent
         uint64 submitTime; // Unix nanoseconds, as are the other times
         uint64 depositEndTime;
         uint64 votingStartTime;
@@ -63,6 +63,21 @@ contract GovStorage {
         string description;
     }
 
+    /// @dev value is the ABI encoding of the param's Solidity type, as the
+    /// params precompile's `param` returns it.
+    struct ParamChange {
+        string subspace;
+        string key;
+        bytes value;
+    }
+
+    struct ParamChangeContent {
+        string title;
+        string description;
+        ParamChange[] changes;
+        bool isExpedited;
+    }
+
     /// @dev A min-heap of `endTime << 64 | proposalId` keys, so its root is the
     /// proposal that ends first, lowest id first. EnumerableSet's layout:
     /// positions are 1-based indexes into keys.
@@ -89,22 +104,8 @@ contract GovStorage {
         uint64 proposalId;
     }
 
-    struct Params {
-        uint64 votingPeriod; // nanoseconds, as are the other periods
-        uint64 expeditedVotingPeriod;
-        uint256 minDeposit;
-        uint64 maxDepositPeriod;
-        uint256 minExpeditedDeposit;
-        uint64 quorum;
-        uint64 threshold;
-        uint64 vetoThreshold;
-        uint64 expeditedQuorum;
-        uint64 expeditedThreshold;
-    }
-
     uint64 internal lastProposalId; // highest id assigned; 0 before the first proposal
     uint64 internal startingProposalId; // first id to assign; 0 means 1
-    Params internal params;
     Plan internal plan; // the single live upgrade plan
 
     mapping(uint64 => Proposal) internal proposals;

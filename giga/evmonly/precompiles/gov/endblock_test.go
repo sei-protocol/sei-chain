@@ -246,15 +246,18 @@ func TestEndBlockFailsUpgradeThatCannotBeScheduled(t *testing.T) {
 func TestSubmitRejectsUnsupportedContent(t *testing.T) {
 	h := newHarness(t)
 	for name, content := range map[string]string{
-		"unsupported type":   `{"title":"t","description":"d","type":"ParameterChange"}`,
-		"upgrade sans plan":  `{"title":"t","description":"d","type":"SoftwareUpgrade"}`,
-		"upgrade sans name":  upgradeProposal("", 10),
-		"upgrade at zero":    upgradeProposal("v2", 0),
-		"long title":         sizedProposal(strings.Repeat("t", maxTitleLength+1), "d", ""),
-		"long description":   sizedProposal("t", strings.Repeat("d", maxDescriptionLength+1), ""),
-		"long content":       sizedProposal("t", "d", strings.Repeat(" ", maxContentLength)),
-		"text with a plan":   `{"title":"t","description":"d","type":"Text","plan":{"name":"v2","height":10}}`,
-		"cancel with a plan": `{"title":"t","description":"d","type":"CancelSoftwareUpgrade","plan":{"name":"v2","height":10}}`,
+		"unsupported type":     `{"title":"t","description":"d","type":"CommunityPoolSpend"}`,
+		"no param changes":     `{"title":"t","description":"d","type":"ParameterChange"}`,
+		"upgrade sans plan":    `{"title":"t","description":"d","type":"SoftwareUpgrade"}`,
+		"upgrade sans name":    upgradeProposal("", 10),
+		"upgrade at zero":      upgradeProposal("v2", 0),
+		"long title":           sizedProposal(strings.Repeat("t", maxTitleLength+1), "d", ""),
+		"long description":     sizedProposal("t", strings.Repeat("d", maxDescriptionLength+1), ""),
+		"long content":         sizedProposal("t", "d", strings.Repeat(" ", maxContentLength)),
+		"text with a plan":     `{"title":"t","description":"d","type":"Text","plan":{"name":"v2","height":10}}`,
+		"cancel with a plan":   `{"title":"t","description":"d","type":"CancelSoftwareUpgrade","plan":{"name":"v2","height":10}}`,
+		"text with changes":    `{"title":"t","description":"d","type":"Text","changes":[]}`,
+		"upgrade with changes": `{"title":"t","description":"d","type":"SoftwareUpgrade","plan":{"name":"v2","height":10},"changes":[]}`,
 	} {
 		_, err := h.call(alice, callOpts{}, SubmitProposalMethod, content)
 		require.Error(t, err, name)
@@ -268,7 +271,7 @@ func TestSubmitAcceptsContentAtLimits(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// sizedProposal is Text proposal content, with pad as an extra field when set.
+// sizedProposal is Text proposal content, with pad as whitespace before its end.
 func sizedProposal(title, description, pad string) string {
 	content := fmt.Sprintf(`{"title":%q,"description":%q,"type":"Text"`, title, description)
 	return content + pad + "}"
@@ -347,7 +350,8 @@ func TestEndBlockCarriesOverPastBudget(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
 	params := testParams
 	params.MinDeposit = usei(1_000_000)
-	SetParams(h.state, params)
+	params.MinExpeditedDeposit = usei(2_000_000)
+	require.NoError(t, SetParams(h.state, params))
 	const proposals = 6
 	for range proposals {
 		h.fillDepositors(h.submit(alice, textProposal, nil), maxDepositors-1)
@@ -372,7 +376,8 @@ func TestEndBlockEndsVotingPastSpentDropBudget(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
 	params := testParams
 	params.MinDeposit = usei(1_000_000)
-	SetParams(h.state, params)
+	params.MinExpeditedDeposit = usei(2_000_000)
+	require.NoError(t, SetParams(h.state, params))
 	voted := h.open(textProposal, params.MinDeposit)
 	h.vote(alice, voted, OptionYes)
 	h.vote(bob, voted, OptionYes)
@@ -455,7 +460,8 @@ func TestDepositorFirstDepositMustMeetShare(t *testing.T) {
 	h := newHarness(t)
 	params := testParams
 	params.MinDeposit = usei(1_000)
-	SetParams(h.state, params)
+	params.MinExpeditedDeposit = usei(2_000)
+	require.NoError(t, SetParams(h.state, params))
 	id := h.submit(alice, textProposal, nil)
 
 	share := depositorShare(params, false)

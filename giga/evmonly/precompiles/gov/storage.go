@@ -7,23 +7,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
-
-// Params is GovStorage.Params. Periods are nanoseconds, deposits are wei, and
-// ratios are 1e18-scaled decimals.
-type Params struct {
-	VotingPeriod          uint64   `json:"voting_period"`
-	ExpeditedVotingPeriod uint64   `json:"expedited_voting_period"`
-	MinDeposit            *big.Int `json:"min_deposit"`
-	MaxDepositPeriod      uint64   `json:"max_deposit_period"`
-	MinExpeditedDeposit   *big.Int `json:"min_expedited_deposit"`
-	Quorum                uint64   `json:"quorum"`
-	Threshold             uint64   `json:"threshold"`
-	VetoThreshold         uint64   `json:"veto_threshold"`
-	ExpeditedQuorum       uint64   `json:"expedited_quorum"`
-	ExpeditedThreshold    uint64   `json:"expedited_threshold"`
-}
 
 // proposal is GovStorage.Proposal without its content, which is read and
 // written separately because only submission and the proposal queries need it.
@@ -89,34 +75,9 @@ func (s store) nextProposalID() uint64 {
 	return id
 }
 
+// params returns gov's params from the params precompile.
 func (s store) params() Params {
-	base := solstorage.Slot(slotParams)
-	return Params{
-		VotingPeriod:          s.Uint64(at(base, paramsVotingPeriod), paramsVotingPeriod.offset),
-		ExpeditedVotingPeriod: s.Uint64(at(base, paramsExpeditedVotingPeriod), paramsExpeditedVotingPeriod.offset),
-		MinDeposit:            s.Uint256(at(base, paramsMinDeposit)),
-		MaxDepositPeriod:      s.Uint64(at(base, paramsMaxDepositPeriod), paramsMaxDepositPeriod.offset),
-		MinExpeditedDeposit:   s.Uint256(at(base, paramsMinExpeditedDeposit)),
-		Quorum:                s.Uint64(at(base, paramsQuorum), paramsQuorum.offset),
-		Threshold:             s.Uint64(at(base, paramsThreshold), paramsThreshold.offset),
-		VetoThreshold:         s.Uint64(at(base, paramsVetoThreshold), paramsVetoThreshold.offset),
-		ExpeditedQuorum:       s.Uint64(at(base, paramsExpeditedQuorum), paramsExpeditedQuorum.offset),
-		ExpeditedThreshold:    s.Uint64(at(base, paramsExpeditedThreshold), paramsExpeditedThreshold.offset),
-	}
-}
-
-func (s store) setParams(p Params) {
-	base := solstorage.Slot(slotParams)
-	s.SetUint64(at(base, paramsVotingPeriod), paramsVotingPeriod.offset, p.VotingPeriod)
-	s.SetUint64(at(base, paramsExpeditedVotingPeriod), paramsExpeditedVotingPeriod.offset, p.ExpeditedVotingPeriod)
-	s.SetUint256(at(base, paramsMinDeposit), p.MinDeposit)
-	s.SetUint64(at(base, paramsMaxDepositPeriod), paramsMaxDepositPeriod.offset, p.MaxDepositPeriod)
-	s.SetUint256(at(base, paramsMinExpeditedDeposit), p.MinExpeditedDeposit)
-	s.SetUint64(at(base, paramsQuorum), paramsQuorum.offset, p.Quorum)
-	s.SetUint64(at(base, paramsThreshold), paramsThreshold.offset, p.Threshold)
-	s.SetUint64(at(base, paramsVetoThreshold), paramsVetoThreshold.offset, p.VetoThreshold)
-	s.SetUint64(at(base, paramsExpeditedQuorum), paramsExpeditedQuorum.offset, p.ExpeditedQuorum)
-	s.SetUint64(at(base, paramsExpeditedThreshold), paramsExpeditedThreshold.offset, p.ExpeditedThreshold)
+	return paramsFrom(chainparams.ReadGov(s.State))
 }
 
 func proposalBase(id uint64) common.Hash {

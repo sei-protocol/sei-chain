@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 )
 
 func TestDefaultParamsAreValid(t *testing.T) {
@@ -15,7 +17,7 @@ func TestDefaultParamsAreValid(t *testing.T) {
 func TestParamsValidateRejects(t *testing.T) {
 	for name, edit := range map[string]func(*Params){
 		"no voting period":           func(p *Params) { p.VotingPeriod = 0 },
-		"huge voting period":         func(p *Params) { p.VotingPeriod = maxPeriod + 1 },
+		"huge voting period":         func(p *Params) { p.VotingPeriod = chainparams.MaxPeriod + 1 },
 		"expedited not shorter":      func(p *Params) { p.ExpeditedVotingPeriod = p.VotingPeriod },
 		"no deposit period":          func(p *Params) { p.MaxDepositPeriod = 0 },
 		"missing deposit":            func(p *Params) { p.MinDeposit = nil },

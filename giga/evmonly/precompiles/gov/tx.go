@@ -140,15 +140,49 @@ func (p Precompile) submitProposal(ctx *precompiles.Context, s store, method *ab
 	if err != nil {
 		return nil, err
 	}
-	amount, err := depositAmount(ctx.ApparentValue)
+	id, err := createProposal(ctx, s, content, submitted.IsExpedited)
 	if err != nil {
 		return nil, err
+	}
+	return method.Outputs.Pack(id)
+}
+
+// submitParamChangeProposal submits a ParameterChange proposal of typed changes.
+func (p Precompile) submitParamChangeProposal(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}, input []byte) ([]byte, error) {
+	if len(input) > maxContentLength {
+		return nil, fmt.Errorf("%w: %d bytes, max %d", errContentTooLong, len(input), maxContentLength)
+	}
+	content := paramChangeContent{Title: args[0].(string), Description: args[1].(string), IsExpedited: args[2].(bool)}
+	if err := checkText(content.Title, content.Description); err != nil {
+		return nil, err
+	}
+	changes, err := paramChanges(args[3])
+	if err != nil {
+		return nil, err
+	}
+	content.Changes = changes
+	id, err := createProposal(ctx, s, content, content.IsExpedited)
+	if err != nil {
+		return nil, err
+	}
+	return method.Outputs.Pack(id)
+}
+
+// createProposal checks content against the current state, assigns the
+// proposal an id, opens its deposit period, and deposits the call's value on it.
+func createProposal(ctx *precompiles.Context, s store, content govContent, isExpedited bool) (uint64, error) {
+	if err := content.validate(s); err != nil {
+		return 0, err
+	}
+	amount, err := depositAmount(ctx.ApparentValue)
+	if err != nil {
+		return 0, err
 	}
 
 	id := s.nextProposalID()
 	prop := proposal{
 		status:          StatusDepositPeriod,
-		isExpedited:     submitted.IsExpedited,
+		isExpedited:     isExpedited,
 		submitTime:      ctx.Block.UnixNano,
 		depositEndTime:  ctx.Block.UnixNano + s.params().MaxDepositPeriod,
 		totalDeposit:    new(big.Int),
@@ -164,10 +198,10 @@ func (p Precompile) submitProposal(ctx *precompiles.Context, s store, method *ab
 
 	if amount.Sign() > 0 {
 		if err := addDeposit(ctx, s, id, prop, amount); err != nil {
-			return nil, err
+			return 0, err
 		}
 	}
-	return method.Outputs.Pack(id)
+	return id, nil
 }
 
 // addDeposit moves amount from the precompile's balance into escrow, credits it

@@ -44,7 +44,6 @@ func TestLayoutMatchesForge(t *testing.T) {
 	topLevel := map[string]member{
 		"lastProposalId":       {slotProposalIDs + lastProposalID.slot, lastProposalID.offset},
 		"startingProposalId":   {slotProposalIDs + startingProposalID.slot, startingProposalID.offset},
-		"params":               {slotParams, 0},
 		"plan":                 {slotPlan, 0},
 		"proposals":            {slotProposals, 0},
 		"votes":                {slotVotes, 0},
@@ -66,18 +65,6 @@ func TestLayoutMatchesForge(t *testing.T) {
 	require.Equal(t, topLevel, got)
 
 	structs := map[string]map[string]member{
-		"Params": {
-			"votingPeriod":          paramsVotingPeriod,
-			"expeditedVotingPeriod": paramsExpeditedVotingPeriod,
-			"minDeposit":            paramsMinDeposit,
-			"maxDepositPeriod":      paramsMaxDepositPeriod,
-			"minExpeditedDeposit":   paramsMinExpeditedDeposit,
-			"quorum":                paramsQuorum,
-			"threshold":             paramsThreshold,
-			"vetoThreshold":         paramsVetoThreshold,
-			"expeditedQuorum":       paramsExpeditedQuorum,
-			"expeditedThreshold":    paramsExpeditedThreshold,
-		},
 		"Plan": {
 			"name":       planName,
 			"height":     planHeight,
@@ -163,18 +150,6 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 
 	require.Equal(t, uint64(7), s.lastProposalID())
 	require.Equal(t, uint64(3), s.startingProposalID())
-	require.Equal(t, Params{
-		VotingPeriod:          11,
-		ExpeditedVotingPeriod: 12,
-		MinDeposit:            ether(13),
-		MaxDepositPeriod:      14,
-		MinExpeditedDeposit:   ether(15),
-		Quorum:                334_000_000_000_000_000,
-		Threshold:             500_000_000_000_000_000,
-		VetoThreshold:         334_000_000_000_000_000,
-		ExpeditedQuorum:       667_000_000_000_000_000,
-		ExpeditedThreshold:    667_000_000_000_000_000,
-	}, s.params())
 
 	prop, ok := s.proposal(5)
 	require.True(t, ok)

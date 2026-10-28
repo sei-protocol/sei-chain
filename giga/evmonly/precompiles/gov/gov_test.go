@@ -59,7 +59,7 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	h := &harness{t: t, state: newMemState(), time: startTime, number: 1}
-	SetParams(h.state, testParams)
+	require.NoError(t, SetParams(h.state, testParams))
 	return h
 }
 
@@ -413,7 +413,7 @@ func TestParamsQuery(t *testing.T) {
 }
 
 // TestABIMatchesV2WithoutAuthz pins the ABI to precompiles/gov's, less the
-// methods sei-chain#4569 removes.
+// methods sei-chain#4569 removes and plus submitParamChangeProposal.
 func TestABIMatchesV2WithoutAuthz(t *testing.T) {
 	bz, err := os.ReadFile("../../../../precompiles/gov/abi.json")
 	require.NoError(t, err)
@@ -433,8 +433,10 @@ func TestABIMatchesV2WithoutAuthz(t *testing.T) {
 			want = append(want, m.Sig+" "+m.String())
 		}
 	}
-	for _, m := range ABI.Methods {
-		got = append(got, m.Sig+" "+m.String())
+	for name, m := range ABI.Methods {
+		if name != SubmitParamChangeProposalMethod {
+			got = append(got, m.Sig+" "+m.String())
+		}
 	}
 	sort.Strings(want)
 	sort.Strings(got)
@@ -444,6 +446,6 @@ func TestABIMatchesV2WithoutAuthz(t *testing.T) {
 func TestHasParams(t *testing.T) {
 	state := newMemState()
 	require.False(t, HasParams(state))
-	SetParams(state, testParams)
+	require.NoError(t, SetParams(state, testParams))
 	require.True(t, HasParams(state))
 }

@@ -13,6 +13,7 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
+	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -46,9 +47,13 @@ func newGovEVMOnlyTestApp(t *testing.T, params gov.Params, startingProposalID ui
 // govCall runs a read-only gov call against the app's committed state.
 func govCall(t *testing.T, app abci.Application, method string, args ...interface{}) ([]interface{}, error) {
 	t.Helper()
-	input, err := gov.ABI.Pack(method, args...)
+	return precompileCall(t, app, gov.Address, gov.ABI, method, args...)
+}
+
+func precompileCall(t *testing.T, app abci.Application, to common.Address, contract abi.ABI, method string, args ...interface{}) ([]interface{}, error) {
+	t.Helper()
+	input, err := contract.Pack(method, args...)
 	require.NoError(t, err)
-	to := gov.Address
 	msg := callMessage(common.Address{}, &to)
 	msg.Data = input
 	msg.GasLimit = 1_000_000
@@ -57,7 +62,7 @@ func govCall(t *testing.T, app abci.Application, method string, args ...interfac
 	if result.Err != nil {
 		return nil, result.Err
 	}
-	return gov.ABI.Methods[method].Outputs.Unpack(result.ReturnData)
+	return contract.Methods[method].Outputs.Unpack(result.ReturnData)
 }
 
 func signedGovTx(t *testing.T, nonce uint64, value *big.Int, method string, args ...interface{}) []byte {
@@ -90,8 +95,12 @@ func TestEVMOnlyApplicationStartsGovAtTheFirstBlock(t *testing.T) {
 
 	_, err := govCall(t, app, gov.ParamsMethod)
 	require.Error(t, err, "gov refuses calls before the first block writes its params")
+	_, err = precompileCall(t, app, chainparams.Address, chainparams.ABI, chainparams.ParamKeysMethod)
+	require.Error(t, err, "params refuses calls before the first block writes them")
 
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	_, err = precompileCall(t, app, chainparams.Address, chainparams.ABI, chainparams.ParamKeysMethod)
+	require.NoError(t, err)
 	out, err := govCall(t, app, gov.ParamsMethod)
 	require.NoError(t, err)
 	var got gov.GovParams

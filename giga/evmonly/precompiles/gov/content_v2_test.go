@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	paramproposal "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 )
 
@@ -24,6 +25,7 @@ func TestContentMatchesV2(t *testing.T) {
 	reg := codectypes.NewInterfaceRegistry()
 	govtypes.RegisterInterfaces(reg)
 	upgradetypes.RegisterInterfaces(reg)
+	paramproposal.RegisterInterfaces(reg)
 	cdc := codec.NewProtoCodec(reg)
 	plan := upgradetypes.Plan{Name: awkward, Height: 1_000, Info: `{"binaries":{"linux/amd64":"https://x?a=1&b=2"}}`}
 	for name, tc := range map[string]struct {
@@ -45,6 +47,16 @@ func TestContentMatchesV2(t *testing.T) {
 		"software upgrade without info": {
 			map[string]any{"title": "t", "description": "d", "type": gov.TypeSoftwareUpgrade, "plan": map[string]any{"name": "v2", "height": 10}},
 			upgradetypes.NewSoftwareUpgradeProposal("t", "d", upgradetypes.Plan{Name: "v2", Height: 10}),
+		},
+		"parameter change": {
+			map[string]any{"title": "t", "description": "d", "type": gov.TypeParameterChange, "is_expedited": true, "changes": []map[string]any{
+				{"subspace": "gov", "key": "votingparams", "value": map[string]string{"voting_period": "259200000000000", "expedited_voting_period": "3600000000000"}},
+				{"subspace": "gov", "key": "tallyparams", "value": map[string]string{"quorum": "0.400000000000000000"}},
+			}},
+			paramproposal.NewParameterChangeProposal("t", "d", []paramproposal.ParamChange{
+				{Subspace: "gov", Key: "votingparams", Value: `{"expedited_voting_period":"3600000000000","voting_period":"259200000000000"}`},
+				{Subspace: "gov", Key: "tallyparams", Value: `{"quorum":"0.400000000000000000"}`},
+			}, true),
 		},
 		"cancel software upgrade": {
 			map[string]any{"title": "t", "description": "d", "type": gov.TypeCancelSoftwareUpgrade, "is_expedited": true},
