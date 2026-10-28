@@ -55,10 +55,11 @@ type ParamKey struct {
 	V2Type    uint8
 }
 
-// retiredMethods are the methods, by signature, params keeps in its ABI only to
-// revert with an error naming the call to use instead.
-var retiredMethods = map[string]error{
-	"params(string,string)": errors.New("params(string,string) is not supported; use param(string,string), which takes a flat key and returns the ABI-encoded value"),
+// retiredMethods are the V2 methods, by signature, params keeps in its ABI only
+// to revert with a reason naming the call to use instead. They are checked before
+// dispatch.
+var retiredMethods = map[string]string{
+	"params(string,string)": "params(string,string) is not supported; use param(string,string), which takes a flat key and returns the ABI-encoded value",
 }
 
 // Precompile is the params precompile.
@@ -81,8 +82,8 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
-	if err := retiredMethods[method.Sig]; err != nil {
-		return nil, err
+	if reason, ok := retiredMethods[method.Sig]; ok {
+		return precompiles.Revert(reason)
 	}
 	args, err := method.Inputs.Unpack(input[4:])
 	if err != nil {

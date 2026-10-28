@@ -28,13 +28,13 @@ enum V2Type {
     StringList
 }
 
-/// @notice Reads chain params. Params change only through a passed gov
-/// ParameterChange proposal (IGov.submitParamChangeProposal); this interface has
-/// no setter.
+/// @notice Reads chain params. After the first block writes them, params change
+/// only through a passed gov ParameterChange proposal
+/// (IGov.submitParamChangeProposal); this interface has no setter.
 interface IParams {
     struct ParamKey {
         string subspace; // e.g. "gov"
-        string key; // flat key, e.g. "tallyparams.quorum"
+        string key; // flat key: the V2 key, or the V2 key, ".", and a field of it, e.g. "tallyparams.quorum"
         string valueType; // Solidity type of the encoded value, e.g. "uint256"
         V2Type v2Type; // the V2 type, which gives the value's unit
     }
@@ -49,7 +49,8 @@ interface IParams {
     function param(string calldata subspace, string calldata key) external view returns (bytes memory value);
 
     /**
-     * @notice List every param
+     * @notice List every param. The flat keys of one V2 key are adjacent and in the
+     *         V2 struct's field order, so a V2 key's value is its fields in this order.
      * @return keys Each param's subspace, flat key, value type and V2 type
      */
     function paramKeys() external view returns (ParamKey[] memory keys);

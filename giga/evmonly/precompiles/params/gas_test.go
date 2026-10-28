@@ -32,7 +32,12 @@ func TestV2TypesMatchParamsSol(t *testing.T) {
 	for _, n := range strings.Split(string(body[1]), ",") {
 		names = append(names, strings.TrimSpace(n))
 	}
+	want := []params.V2Type{
+		params.V2Dec, params.V2Duration, params.V2Coins, params.V2DecCoins, params.V2Int, params.V2Uint, params.V2Uint64,
+		params.V2Uint32, params.V2Int64, params.V2Int32, params.V2Bool, params.V2String, params.V2Address, params.V2StringList,
+	}
 	require.Equal(t, []string{"Dec", "Duration", "Coins", "DecCoins", "Int", "Uint", "Uint64", "Uint32", "Int64", "Int32", "Bool", "String", "Address", "StringList"}, names)
-	require.Equal(t, params.V2Type(len(names)-1), params.V2StringList)
-	require.Equal(t, params.V2Type(2), params.V2Coins)
+	for i, v := range want {
+		require.Equal(t, params.V2Type(i), v, names[i])
+	}
 }

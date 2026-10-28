@@ -132,8 +132,9 @@ interface IGov {
 
     /// @notice Submits a proposal to change chain params, depositing msg.value on
     /// it. Changes apply in order when it passes, all or none, each setting one
-    /// param over the current params. Every change must name a declared param and
-    /// leave its subspace valid when submitted.
+    /// param over the current params. It needs at least one change, and every
+    /// change must name a declared param and leave its subspace valid when
+    /// submitted.
     function submitParamChangeProposal(
         string calldata title,
         string calldata description,

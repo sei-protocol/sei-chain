@@ -2,9 +2,11 @@ package params
 
 import (
 	"math/big"
+	"reflect"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/core/vm"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
@@ -137,8 +139,31 @@ func TestRunRejectsValueAndDelegateCall(t *testing.T) {
 }
 
 func TestRetiredParamsMethodReverts(t *testing.T) {
-	_, err := call(t, newGovState(t), "params", "gov", "votingparams")
-	require.ErrorIs(t, err, retiredMethods["params(string,string)"])
+	method := ABI.Methods["params"]
+	input, err := method.Inputs.Pack("gov", "votingparams")
+	require.NoError(t, err)
+	out, err := Precompile{}.Run(&precompiles.Context{Address: Address, State: newGovState(t)}, append(method.ID, input...))
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+	reason, err := abi.UnpackRevert(out)
+	require.NoError(t, err)
+	require.Equal(t, retiredMethods["params(string,string)"], reason)
+}
+
+func TestEveryMethodIsServedOrRetired(t *testing.T) {
+	for name, method := range ABI.Methods {
+		require.Equal(t, method.RawName, name, "no overload is renamed by go-ethereum")
+		if _, retired := retiredMethods[method.Sig]; retired {
+			continue
+		}
+		args := make([]interface{}, len(method.Inputs))
+		for i, in := range method.Inputs {
+			args[i] = reflect.New(in.Type.GetType()).Elem().Interface()
+		}
+		input, err := method.Inputs.Pack(args...)
+		require.NoError(t, err, name)
+		_, err = Precompile{}.Run(&precompiles.Context{Address: Address, State: newGovState(t)}, append(method.ID, input...))
+		require.NotErrorIs(t, err, errUnknownMethod, name)
+	}
 }
 
 func TestHasGov(t *testing.T) {

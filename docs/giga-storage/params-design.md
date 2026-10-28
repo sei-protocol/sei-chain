@@ -101,6 +101,10 @@ naming `param`.
 - Changes are per field and merge onto the current params, as x/params merges
   a partial struct, so two proposals that change different fields of a
   subspace do not undo each other.
+- Gov charges executing a passed proposal one EndBlock budget unit per word of
+  its stored content, at least ten per change. Applying a change reads its
+  whole subspace, so a subspace's param count must stay within that, or the
+  charge must grow with it.
 - The proposal stores `ParamChangeContent` (declared in `Gov.sol`), and
   `proposal()` returns its ABI encoding.
 - `submitParamChangeProposal` is priced as a gov transaction; `param` and

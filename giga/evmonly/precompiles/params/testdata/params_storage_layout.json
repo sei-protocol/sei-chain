@@ -1,12 +1,12 @@
 {
   "storage": [
     {
-      "astId": 35,
+      "astId": 99,
       "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
       "label": "gov",
       "offset": 0,
       "slot": "0",
-      "type": "t_struct(Gov)32_storage"
+      "type": "t_struct(Gov)96_storage"
     }
   ],
   "types": {
@@ -16,13 +16,13 @@
       "numberOfBytes": "256",
       "base": "t_uint256"
     },
-    "t_struct(Gov)32_storage": {
+    "t_struct(Gov)96_storage": {
       "encoding": "inplace",
       "label": "struct ParamsStorage.Gov",
       "numberOfBytes": "512",
       "members": [
         {
-          "astId": 9,
+          "astId": 73,
           "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "maxDepositPeriod",
           "offset": 0,
@@ -30,7 +30,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 11,
+          "astId": 75,
           "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "votingPeriod",
           "offset": 8,
@@ -38,7 +38,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 13,
+          "astId": 77,
           "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "expeditedVotingPeriod",
           "offset": 16,
@@ -46,7 +46,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 15,
+          "astId": 79,
           "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "minDeposit",
           "offset": 0,
@@ -54,7 +54,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 17,
+          "astId": 81,
           "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "minExpeditedDeposit",
           "offset": 0,
@@ -62,7 +62,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 19,
+          "astId": 83,
           "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "quorum",
           "offset": 0,
@@ -70,7 +70,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 21,
+          "astId": 85,
           "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "threshold",
           "offset": 0,
@@ -78,7 +78,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 23,
+          "astId": 87,
           "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "vetoThreshold",
           "offset": 0,
@@ -86,7 +86,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 25,
+          "astId": 89,
           "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "expeditedQuorum",
           "offset": 0,
@@ -94,7 +94,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 27,
+          "astId": 91,
           "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "expeditedThreshold",
           "offset": 0,
@@ -102,7 +102,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 31,
+          "astId": 95,
           "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
           "label": "__gap",
           "offset": 0,
