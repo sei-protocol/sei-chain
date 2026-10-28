@@ -312,6 +312,26 @@ func (c *readCache) ResolveUnlocked(key []byte, outcome lookupOutcome) ([]byte, 
 	c.metrics.reportCacheMisses(1)
 	startTime := time.Now()
 
+	if outcome.needsSchedule && c.config.InlineMissReads {
+		// The install takes the shard's write lock, so it is left to the pool; it also releases any
+		// other waiter.
+		entry := outcome.entry
+		ch := outcome.valueChan
+		value, _, readErr := c.readFromDB(key)
+		result := readResult{value: value, err: readErr}
+		if readErr != nil {
+			entry.injectValueUnlocked(key, ch, result)
+			c.metrics.reportCacheMissLatency(time.Since(startTime))
+			return nil, false, fmt.Errorf("scheduled read failed: %w", readErr)
+		}
+		if c.ctx.Err() != nil {
+			return nil, false, fmt.Errorf("view manager shut down during read: %w", c.shutdownError())
+		}
+		c.readPool.Submit(func() { entry.injectValueUnlocked(key, ch, result) })
+		c.metrics.reportCacheMissLatency(time.Since(startTime))
+		return value, value != nil, nil
+	}
+
 	if outcome.needsSchedule {
 		entry := outcome.entry
 		ch := outcome.valueChan

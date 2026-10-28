@@ -70,6 +70,10 @@ type ViewManagerConfig struct {
 	// the least recently used of a sample this size.
 	EvictionSampleSize uint64
 
+	// Whether a read that misses the cache reads the DB on the calling goroutine rather than on the read
+	// pool. A caller blocked in such a read is not released by Close.
+	InlineMissReads bool
+
 	// The number of versions a key's in-memory value list is sized for when the key is first written.
 	// A key written at more versions than this grows its list, at the cost of a copy.
 	InitialVersionsPerKey uint64

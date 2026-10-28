@@ -2,6 +2,7 @@ package view
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -156,6 +157,30 @@ func TestShardRetirementServesTheNewestValueBetweenChunks(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, "v2", string(val))
 	require.Empty(t, s.versionedData)
+}
+
+func TestShardInlineMissReadServesAndCachesTheValue(t *testing.T) {
+	db := newTestDB(map[string][]byte{"k": []byte("v")})
+	s := newTestShard(t, 4096, db)
+	s.cache.config.InlineMissReads = true
+
+	val, found, err := s.Get([]byte("k"), s.currentVersion, false)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "v", string(val))
+
+	require.Eventually(t, func() bool {
+		_, _, ok := func() ([]byte, bool, bool) {
+			s.lock.RLock()
+			defer s.lock.RUnlock()
+			return s.cache.AttemptFastLookupRLocked([]byte("k"), false)
+		}()
+		return ok
+	}, 2*time.Second, time.Millisecond, "the value was never installed in the cache")
+	calls := db.getCalls.Load()
+	_, _, err = s.Get([]byte("k"), s.currentVersion, false)
+	require.NoError(t, err)
+	require.Equal(t, calls, db.getCalls.Load(), "a cached value is read from the DB again")
 }
 
 func TestShardDropVersionsRejectsBadRange(t *testing.T) {

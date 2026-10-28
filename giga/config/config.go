@@ -94,6 +94,8 @@ type ExecutionConfig struct {
 	// FlatKVStorageViewShards, when non-zero, replaces the view shard count of the FlatKV storage
 	// database. It must be a power of two.
 	FlatKVStorageViewShards uint64 `mapstructure:"flatkv_storage_view_shards"`
+	// FlatKVInlineMissReads makes the FlatKV storage database read cache misses on the calling goroutine.
+	FlatKVInlineMissReads bool `mapstructure:"flatkv_inline_miss_reads"`
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
@@ -196,6 +198,7 @@ const (
 	FlagExecutionMaxProposalWaitMs       = "giga.execution.max_proposal_wait_ms"
 	FlagExecutionFlatKVViewShards        = "giga.execution.flatkv_view_shards"
 	FlagExecutionFlatKVStorageViewShards = "giga.execution.flatkv_storage_view_shards"
+	FlagExecutionFlatKVInlineMissReads   = "giga.execution.flatkv_inline_miss_reads"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
 	FlagRPCMaxRequestBodyBytes           = "giga.rpc.max_request_body_bytes"
@@ -319,6 +322,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionFlatKVStorageViewShards); v != nil {
 		if cfg.Execution.FlatKVStorageViewShards, err = cast.ToUint64E(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionFlatKVStorageViewShards, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionFlatKVInlineMissReads); v != nil {
+		if cfg.Execution.FlatKVInlineMissReads, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionFlatKVInlineMissReads, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionFlatKVViewShards); v != nil {
@@ -539,6 +547,9 @@ flatkv_view_shards = {{ .Giga.Execution.FlatKVViewShards }}
 
 # flatkv_storage_view_shards, when non-zero, replaces the view shard count of the FlatKV storage database.
 flatkv_storage_view_shards = {{ .Giga.Execution.FlatKVStorageViewShards }}
+
+# flatkv_inline_miss_reads makes the FlatKV storage database read cache misses on the calling goroutine.
+flatkv_inline_miss_reads = {{ .Giga.Execution.FlatKVInlineMissReads }}
 
 [giga.rpc]
 # Limits the EVM-only JSON-RPC server enforces. 0 disables a limit.

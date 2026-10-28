@@ -147,6 +147,10 @@ var AccountShardCount uint64
 // StorageShardCount, when non-zero, replaces the view shard count of the FlatKV storage database.
 var StorageShardCount uint64
 
+// InlineMissReads, when true, makes the FlatKV storage database read cache misses on the calling
+// goroutine.
+var InlineMissReads bool
+
 // DefaultConfig returns Config with safe default values.
 func DefaultConfig() *Config {
 	cfg := &Config{
@@ -188,6 +192,7 @@ func DefaultConfig() *Config {
 	if StorageShardCount > 0 {
 		cfg.StorageStoreConfig.ShardCount = StorageShardCount
 	}
+	cfg.StorageStoreConfig.InlineMissReads = InlineMissReads
 
 	return cfg
 }
