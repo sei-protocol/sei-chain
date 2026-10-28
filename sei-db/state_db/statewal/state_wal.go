@@ -14,7 +14,7 @@ import (
 // A StateWAL is not safe for concurrent use. Callers must serialize their calls to a single instance;
 // in particular Write maintains write-ordering state that is not internally locked.
 //
-// The mutations returned by the iterator are owned by the WAL and must not be modified.
+// The mutations returned by the iterator own their bytes, which may be retained and must not be modified.
 type StateWAL interface {
 	controllertypes.PrunableStore
 
@@ -23,8 +23,8 @@ type StateWAL interface {
 	// This method only schedules the write, it does not block until the write is complete. It does block while the
 	// WAL is behind by more than Config.RequestBufferSize blocks.
 	//
-	// Write takes ownership of mutations. Once the call begins, neither mutations nor any byte slice reachable
-	// through it may be read or modified.
+	// Write does not retain mutations, but it retains the byte slices reachable through it, which must never be
+	// modified.
 	//
 	// Blocks must be written in contiguous ascending order, one Write per block. The first block written to
 	// an empty WAL may be any number; every block after it must be exactly one greater than the last, so
@@ -118,7 +118,8 @@ type HashListener func(
 	hash [32]byte,
 ) error
 
-// An iterator over the blocks of a StateWAL. Entry() returns (blockNumber, mutations).
+// An iterator over the blocks of a StateWAL. Entry() returns (blockNumber, mutations). The mutations own their
+// bytes, so they may be retained past the iterator's next position, but must not be modified.
 type StateWALIterator interface {
 	seiwal.Iterator[[]mutation.Mutation]
 

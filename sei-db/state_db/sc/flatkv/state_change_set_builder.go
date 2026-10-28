@@ -1,4 +1,4 @@
-package mutation
+package flatkv
 
 import (
 	"fmt"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
@@ -24,7 +25,7 @@ type stateChangeSetBuilder struct {
 // nonce come from the account row mutation and its code from the code row mutation.
 func MutationsToStateChangeSet(
 	// The mutations to convert.
-	mutations []Mutation,
+	mutations []mutation.Mutation,
 	// If set, mutations of keys of a kind a state change set does not support are skipped without being parsed.
 	// Otherwise the presence of a state change that doesn't fit into a StateChangeSet results in an error.
 	ignoreUnsupportedKeys bool,
@@ -55,7 +56,7 @@ func MutationsToStateChangeSet(
 
 // add records the changes the mutation makes. Returns false, recording nothing, if the mutation's key is of a kind a
 // state change set does not hold.
-func (b *stateChangeSetBuilder) add(m *Mutation) (bool, error) {
+func (b *stateChangeSetBuilder) add(m *mutation.Mutation) (bool, error) {
 	moduleName, key, err := ktype.StripModulePrefix(m.Key)
 	if err != nil {
 		return false, fmt.Errorf("failed to parse key %x: %w", m.Key, err)
@@ -112,7 +113,7 @@ func (b *stateChangeSetBuilder) accountChange(address gigatypes.Address) *gigaty
 // setAccountRow sets the balance and nonce of an address's account change from an account row mutation.
 func (b *stateChangeSetBuilder) setAccountRow(
 	// The account row mutation.
-	m *Mutation,
+	m *mutation.Mutation,
 	// The account's address.
 	address gigatypes.Address,
 ) error {
@@ -145,7 +146,7 @@ func (b *stateChangeSetBuilder) setAccountRow(
 // setCodeRow sets the code of an address's account change from a code row mutation. A missing row is no code.
 func (b *stateChangeSetBuilder) setCodeRow(
 	// The code row mutation.
-	m *Mutation,
+	m *mutation.Mutation,
 	// The address the code belongs to.
 	address gigatypes.Address,
 ) error {
@@ -174,7 +175,7 @@ func (b *stateChangeSetBuilder) setCodeRow(
 // appendStorageChange appends the storage change a storage row mutation makes.
 func (b *stateChangeSetBuilder) appendStorageChange(
 	// The storage row mutation.
-	m *Mutation,
+	m *mutation.Mutation,
 	// The address the storage belongs to.
 	address gigatypes.Address,
 	// The storage slot.

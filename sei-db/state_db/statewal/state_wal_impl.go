@@ -209,7 +209,8 @@ func (w *stateWALImpl) Write(blockNumber uint64, mutations []mutation.Mutation) 
 		return fmt.Errorf("write rejected: %w", err)
 	}
 
-	if !w.send(writeRequest{blockNumber: blockNumber, mutations: mutations}) {
+	// The goroutine sorts the block in place, so it is given its own slice and the caller keeps theirs.
+	if !w.send(writeRequest{blockNumber: blockNumber, mutations: slices.Clone(mutations)}) {
 		return fmt.Errorf("failed to schedule block %d: %w", blockNumber, w.stoppedErr())
 	}
 	w.lastBlock.Store(blockNumber)
