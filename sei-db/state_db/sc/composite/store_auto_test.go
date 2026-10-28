@@ -517,7 +517,6 @@ func TestComposite_Auto_FlatKVOnlyExportImportRoundTrip(t *testing.T) {
 	require.NoError(t, imp.Close())
 
 	require.NoError(t, dst.LoadLatest())
-	defer func() { _ = dst.Close() }()
 	require.Equal(t, h, dst.Version())
 	require.Equal(t, types.FlatKVOnly, dst.loadWriteMode())
 	require.Equal(t, wantCommitInfo, dst.LastCommitInfo())
@@ -525,6 +524,18 @@ func TestComposite_Auto_FlatKVOnlyExportImportRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, done)
 	requireOracleMatches(t, dst, workload.snapshotOracle())
+
+	runBlocks(t, dst, workload, 2)
+	require.Equal(t, h+2, dst.memIAVL.Version(), "memiavl must stay in lockstep")
+	require.Equal(t, h+2, dst.loadFlatKV().Version(), "flatkv must stay in lockstep")
+	requireOracleMatches(t, dst, workload.snapshotOracle())
+	require.NoError(t, dst.Close())
+
+	reopened := openAutoStoreWithConfig(t, dstDir, cfg, 100)
+	defer func() { _ = reopened.Close() }()
+	require.Equal(t, h+2, reopened.Version())
+	require.Equal(t, types.FlatKVOnly, reopened.loadWriteMode())
+	requireOracleMatches(t, reopened, workload.snapshotOracle())
 }
 
 // TestComposite_ImporterRejectsFlatKVSectionOnMemiavlOnly pins the loud

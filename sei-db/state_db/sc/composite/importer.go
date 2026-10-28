@@ -10,6 +10,9 @@ import (
 
 var _ types.Importer = (*SnapshotImporter)(nil)
 
+// emptyImportPermitter allows an importer to publish no module trees. A FlatKV section is the only
+// stream-level signal for this permission; the final AppHash check rejects a dual-backend snapshot
+// whose Cosmos sections are missing.
 type emptyImportPermitter interface {
 	AllowEmpty()
 }

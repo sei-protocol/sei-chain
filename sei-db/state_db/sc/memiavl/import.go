@@ -135,7 +135,7 @@ func (mti *MultiTreeImporter) Close() (err error) {
 	}()
 
 	if mti.importer == nil && !mti.allowEmpty {
-		return fmt.Errorf("cannot publish memiavl import without modules")
+		return errors.New("cannot publish memiavl import without modules")
 	}
 
 	if mti.importer != nil {

@@ -16,6 +16,7 @@ import (
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,6 +47,12 @@ func snapshotStream(t *testing.T, items []snapshottypes.SnapshotItem) protoio.Re
 // restoreWithin runs Restore and fails the test if it panics or does not return in time.
 func restoreWithin(t *testing.T, store *Store, reader protoio.Reader) error {
 	t.Helper()
+	return restoreAtWithin(t, store, 1, reader)
+}
+
+// restoreAtWithin runs Restore at height and fails the test if it panics or does not return in time.
+func restoreAtWithin(t *testing.T, store *Store, height uint64, reader protoio.Reader) error {
+	t.Helper()
 	result := make(chan error, 1)
 	go func() {
 		defer func() {
@@ -53,7 +60,7 @@ func restoreWithin(t *testing.T, store *Store, reader protoio.Reader) error {
 				result <- fmt.Errorf("restore panicked: %v", r)
 			}
 		}()
-		_, err := store.Restore(1, snapshottypes.CurrentFormat, reader)
+		_, err := store.Restore(height, snapshottypes.CurrentFormat, reader)
 		result <- err
 	}()
 	select {
@@ -64,6 +71,57 @@ func restoreWithin(t *testing.T, store *Store, reader protoio.Reader) error {
 		t.Fatal("restore did not return")
 		return nil
 	}
+}
+
+func TestRestoreAcceptsFlatKVOnlyStreamInAutoMode(t *testing.T) {
+	cfg := autoModeConfig()
+	srcDir := t.TempDir()
+	src, srcKeys := newTestRootMulti(t, srcDir, cfg)
+	evmData := newEVMTestData(0xA7)
+
+	lastBlock := 0
+	for block := 1; block <= 2; block++ {
+		simulateBlock(t, src, srcKeys, block, evmData)
+		lastBlock = block
+	}
+	for lastBlock < 20 {
+		require.NoError(t, src.SetMigrationBatchSize(100, true))
+		lastBlock++
+		simulateBlock(t, src, srcKeys, lastBlock, evmData)
+		mode, ok := src.GetWriteMode()
+		require.True(t, ok)
+		if mode == sctypes.FlatKVOnly {
+			break
+		}
+	}
+	mode, ok := src.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.FlatKVOnly, mode)
+	height := src.LastCommitID().Version
+	require.NoError(t, src.Close())
+
+	src, _ = newTestRootMulti(t, srcDir, cfg)
+	var stream bytes.Buffer
+	require.NoError(t, src.Snapshot(uint64(height), protoio.NewDelimitedWriter(&stream))) //nolint:gosec
+	require.NoError(t, src.Close())
+
+	dst, dstKeys := newTestRootMulti(t, t.TempDir(), cfg)
+	defer func() { _ = dst.Close() }()
+	err := restoreAtWithin(
+		t,
+		dst,
+		uint64(height), //nolint:gosec
+		protoio.NewDelimitedReader(bytes.NewReader(stream.Bytes()), 1<<30),
+	)
+	require.NoError(t, err)
+	require.Equal(t, height, dst.LastCommitID().Version)
+	mode, ok = dst.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.FlatKVOnly, mode)
+
+	blockByte := byte(lastBlock)
+	require.Equal(t, []byte{blockByte, blockByte}, dst.GetKVStore(dstKeys["bank"]).Get([]byte("supply")))
+	require.Equal(t, makeSlot(blockByte, 0xAA), dst.GetKVStore(dstKeys["evm"]).Get(evmData.storKey))
 }
 
 // scSnapshotState lists memIAVL's snapshot directories under home and the one current points to.
