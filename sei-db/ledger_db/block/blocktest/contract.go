@@ -1,4 +1,11 @@
-// Package blocktest holds the BlockDB contract suite and opaque record fixtures.
+// Package blocktest holds the blocktypes.BlockDB contract suite and the record
+// fixtures its backends test against.
+//
+// The suite is shared rather than per-backend: every backend owes the same
+// observable behavior, and a copy per backend is a copy that drifts. It knows
+// nothing of the consensus layer above — a BlockDB stores opaque bytes, so the
+// fixtures store opaque bytes, and the ordering and encoding rules that give
+// those bytes meaning are tested where they live.
 package blocktest
 
 import (
@@ -11,13 +18,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Open opens a handle to the same backing store, including across restart.
+// Open opens a handle to the BlockDB under test. Calling it more than once
+// reopens a handle to the SAME backing store, simulating a process restart:
+// in-memory backends hand back the same instance, durable ones reopen their
+// files. The caller must Close the previous handle before reopening.
 type Open func() (blocktypes.BlockDB, error)
 
-// Builder returns an Open bound to a fresh store for one subtest.
+// Builder returns an Open bound to a fresh, empty backing store, for one subtest.
 type Builder func(t *testing.T) Open
 
-// RunContract exercises record lookups, atomicity, recovery, and retention across backends.
+// RunContract exercises the blocktypes.BlockDB contract against the backing
+// store build produces.
+//
+// Where the watermark is allowed to go is absent, because a BlockDB does not
+// decide that: it moves the floor where it is told. So is physical reclamation —
+// the contract makes eligibility observable through GetPruneWatermark but leaves the
+// timing and granularity of the reclaim to the backend, so what a backend
+// actually drops, and when, is covered in that backend's own package.
 func RunContract(t *testing.T, build Builder) {
 	t.Run("EmptyStore", func(t *testing.T) {
 		db, _ := openFresh(t, build)
@@ -137,6 +154,8 @@ func RunContract(t *testing.T, build Builder) {
 		db, _ := openFresh(t, build)
 		defer func() { require.NoError(t, db.Close()) }()
 		WriteCohorts(t, db, 4, 5)
+		// A floor above everything held is legal: the layer above is the one that caps
+		// the request, and refusing it here would hide that it stopped doing so.
 		for _, n := range []blocktypes.BlockNumber{2, 1, 2, 1000} {
 			previous := db.GetPruneWatermark()
 			db.SetPruneWatermark(n)
@@ -184,6 +203,8 @@ func assertRecord(t *testing.T, db blocktypes.BlockDB, want blocktypes.BlockReco
 	require.False(t, exists)
 }
 
+// openFresh opens a handle to a new, empty backing store and returns it along
+// with the Open that can reopen the same store (for restart).
 func openFresh(t *testing.T, build Builder) (blocktypes.BlockDB, Open) {
 	t.Helper()
 	reopen := build(t)
@@ -192,6 +213,8 @@ func openFresh(t *testing.T, build Builder) (blocktypes.BlockDB, Open) {
 	return db, reopen
 }
 
+// restart flushes and closes db, then reopens a handle to the same backing
+// store. The returned handle must be closed by the caller.
 func restart(t *testing.T, reopen Open, db blocktypes.BlockDB) blocktypes.BlockDB {
 	t.Helper()
 	require.NoError(t, db.Flush())
@@ -201,6 +224,7 @@ func restart(t *testing.T, reopen Open, db blocktypes.BlockDB) blocktypes.BlockD
 	return next
 }
 
+// readSuffix reads the typed recovery suffix.
 func readSuffix(t *testing.T, db blocktypes.BlockDB) blocktypes.Suffix {
 	t.Helper()
 	suffix, err := db.ReadSuffix()
@@ -208,7 +232,10 @@ func readSuffix(t *testing.T, db blocktypes.BlockDB) blocktypes.Suffix {
 	return suffix
 }
 
-// valueSize is the padded fixture width used by torn-write tests.
+// --- record fixtures ---
+
+// valueSize is the width every fixture value is padded to, so a test that
+// truncates bytes off a file can reason about how many records it damaged.
 const valueSize = 64
 
 // BlockHash returns a unique opaque hash for road n.
@@ -218,7 +245,8 @@ func BlockHash(n blocktypes.BlockNumber) blocktypes.BlockHash {
 	return hash
 }
 
-// RecordValue returns a distinct opaque payload for kind at n.
+// RecordValue returns the bytes the fixtures store for kind at n. Values are
+// distinct per record, so a read can prove it found the one it asked for.
 func RecordValue(kind string, n blocktypes.BlockNumber) []byte {
 	value := []byte(fmt.Sprintf("%s@%d", kind, n))
 	return append(value, bytes.Repeat([]byte("."), max(0, valueSize-len(value)))...)
@@ -240,7 +268,8 @@ func PutAppData(t *testing.T, db blocktypes.BlockDB, index blocktypes.BlockNumbe
 	require.NoError(t, db.PutAppQC(blocktypes.AppQCRecord{Index: index, Data: RecordValue("app_qc", index)}))
 }
 
-// WriteCohorts stores consecutive SuperBlocks from road 0, with perCohort lane blocks each.
+// WriteCohorts stores consecutive SuperBlocks from road 0, with perCohort lane
+// blocks each, without app data.
 func WriteCohorts(t *testing.T, db blocktypes.BlockDB, cohorts, perCohort uint64) {
 	t.Helper()
 	for i := range cohorts {
@@ -249,6 +278,7 @@ func WriteCohorts(t *testing.T, db blocktypes.BlockDB, cohorts, perCohort uint64
 }
 
 // WriteAppData stores app data for the SuperBlocks written by WriteCohorts.
+// Call it after WriteCohorts, as application commits trail consensus.
 func WriteAppData(t *testing.T, db blocktypes.BlockDB, cohorts uint64) {
 	t.Helper()
 	for i := range cohorts {

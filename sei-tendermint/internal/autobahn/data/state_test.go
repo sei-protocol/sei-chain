@@ -668,6 +668,47 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	require.Equal(t, blocks[0], got)
 }
 
+func TestPushBlockRejectsMismatchedHeader(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
+	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
+	require.NoError(t, state.PushPartialBlock(ctx, qc, nil))
+
+	// PushBlock with wrong hash.
+	pos := types.LaneBlockPos{Index: qc.Index()}
+	header := blocks[0].Header()
+	wrongBlock := types.NewBlock(header.Lane(), header.BlockNumber(), header.ParentHash(), types.GenPayload(rng))
+	require.NoError(t, wrongBlock.Verify())
+	require.NotEqual(t, qc.Headers()[pos.Offset].Hash(), wrongBlock.Header().Hash())
+	require.Error(t, state.PushBlock(ctx, pos, wrongBlock))
+
+	// PushBlock with wrong LaneBlockPos.
+	wrongPos := types.LaneBlockPos{Index: qc.Index(), Offset: 1}
+	require.NoError(t, blocks[0].Verify())
+	require.NotEqual(t, qc.Headers()[wrongPos.Offset].Hash(), blocks[0].Header().Hash())
+	require.Error(t, state.PushBlock(ctx, wrongPos, blocks[0]))
+
+	// Verify that no block was accepted despite the error.
+	for offset := range blocks {
+		missing := types.LaneBlockPos{Index: qc.Index(), Offset: uint64(offset)}
+		_, err := state.TryBlock(missing)
+		require.ErrorIs(t, err, types.ErrNotFound)
+		require.True(t, state.NeedBlock(missing))
+	}
+
+	// Check that all blocks still can be inserted.
+	for offset, block := range blocks {
+		pos := types.LaneBlockPos{Index: qc.Index(), Offset: uint64(offset)}
+		require.NoError(t, state.PushBlock(ctx, pos, block))
+		require.False(t, state.NeedBlock(pos))
+		got, err := state.TryBlock(pos)
+		require.NoError(t, err)
+		require.Equal(t, block, got)
+	}
+}
+
 func TestInsertAppProposalRequiresCommitQC(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)

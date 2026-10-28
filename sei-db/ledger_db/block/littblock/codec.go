@@ -22,7 +22,7 @@ func encodeBlock(block blocktypes.BlockRecord) record {
 	size := encodedBlockSize(block)
 	r := record{Key: (blockKey{Index: block.Index}).encode(), Value: make([]byte, 0, size)}
 	r.appendUint64(uint64(block.Index))
-	r.appendHash(block.Hash)
+	r.appendBlockHash(block.Hash)
 	r.appendBytes(block.QC, (qcKey{Index: block.Index}).encode())
 	for i, lane := range block.LaneBlocks {
 		r.appendBytes(lane, (laneBlockKey{Index: block.Index, Offset: uint64(i)}).encode())
@@ -41,8 +41,8 @@ func (r *record) appendUint64(value uint64) {
 	r.Value = binary.BigEndian.AppendUint64(r.Value, value)
 }
 
-// appendHash appends a fixed-width block hash to the record's value.
-func (r *record) appendHash(hash blocktypes.BlockHash) {
+// appendBlockHash appends a fixed-width block hash to the record's value.
+func (r *record) appendBlockHash(hash blocktypes.BlockHash) {
 	r.appendRawBytes(hash[:])
 }
 
@@ -110,12 +110,12 @@ func decodeBlock(value []byte) (blocktypes.BlockRecord, error) {
 		return blocktypes.BlockRecord{}, err
 	}
 	for len(value) > 0 {
-		var lane []byte
-		lane, value, err = consumeValue(value)
+		var laneBlock []byte
+		laneBlock, value, err = consumeValue(value)
 		if err != nil {
 			return blocktypes.BlockRecord{}, err
 		}
-		block.LaneBlocks = append(block.LaneBlocks, lane)
+		block.LaneBlocks = append(block.LaneBlocks, laneBlock)
 	}
 	return block, nil
 }
