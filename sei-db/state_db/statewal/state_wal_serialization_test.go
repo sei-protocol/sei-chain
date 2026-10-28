@@ -48,11 +48,11 @@ func TestDeserializeBlockRejectsInvalidInput(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestComputePlaceholderHashRejectsInvalidInput(t *testing.T) {
-	_, err := computePlaceholderHash(nil)
+func TestHashSerializedBlockRejectsInvalidInput(t *testing.T) {
+	_, err := hashSerializedBlock(nil)
 	require.Error(t, err)
 
 	// A block in the changeset format, which is never written.
-	_, err = computePlaceholderHash([]byte{mutationFormatVersion - 1})
+	_, err = hashSerializedBlock([]byte{mutationFormatVersion - 1})
 	require.Error(t, err)
 }

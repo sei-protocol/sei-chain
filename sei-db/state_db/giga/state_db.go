@@ -17,7 +17,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -445,7 +444,7 @@ func (s *StateDB) CommitStateChangesWithPrior(
 	s.commitPhases.SetPhase("convert_mutations")
 	// SC has not taken this block yet, so its view is of the block before.
 	prior := s.sc.OpenView()
-	mutations, err := mutation.MutationsFromChangeSets(changeset, uint64(blockNum), prior)
+	mutations, err := flatkv.MutationsFromChangeSets(changeset, uint64(blockNum), prior)
 	prior.Close()
 	if err != nil {
 		return fmt.Errorf("convert block %d to mutations: %w", blockNum, err)

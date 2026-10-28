@@ -376,10 +376,11 @@ func (s *State) Run(ctx context.Context) error {
 		scope.SpawnNamed("avail", func() error { return s.avail.Run(ctx) })
 		scope.SpawnNamed("propose", func() error { return s.runPropose(ctx) })
 		scope.SpawnNamed("outputs", func() error { return s.runOutputs(ctx) })
+		scope.SpawnNamed("laneBlockStages", func() error { return s.runLaneBlockStages(ctx) })
 		scope.SpawnNamed("storeCommitQC", func() error {
 			return s.commitQC().Iter(ctx, func(ctx context.Context, qc utils.Option[*types.CommitQC]) error {
 				if qc, ok := qc.Get(); ok {
-					// s.metrics.ObserveCommitQC(qc)
+					meters.CommitQCLatency.Observe(time.Since(qc.Proposal().Timestamp()).Seconds())
 					// We push the locally generated CommitQC into "avail" to act as a
 					// sequencer and to trigger data pruning.
 					return s.avail.PushCommitQC(ctx, qc)
