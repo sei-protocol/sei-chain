@@ -150,13 +150,19 @@ func TestSetStringZeroingStopsOnceWritesFail(t *testing.T) {
 	require.Equal(t, 2, state.accessesAfterFailure, "the zeroing loop stops at the first failed write; the head write follows")
 }
 
-func TestStringLengthCeiling(t *testing.T) {
+func TestCorruptStringReadsAsEmpty(t *testing.T) {
 	state := mapState{}
 	s := Store{State: state}
 	require.Panics(t, func() { s.SetString(Slot(3), strings.Repeat("x", MaxStringLength+1)) })
-	state[Slot(3)] = common.BigToHash(new(big.Int).SetUint64((MaxStringLength+1)*2 + 1))
-	require.Panics(t, func() { s.String(Slot(3)) }, "a corrupt stored length")
-	require.Panics(t, func() { s.StringChunks(Slot(3)) })
+	for name, head := range map[string]common.Hash{
+		"long past the ceiling": common.BigToHash(new(big.Int).SetUint64((MaxStringLength+1)*2 + 1)),
+		"long held inline":      common.BigToHash(big.NewInt(31*2 + 1)),
+		"short past one word":   {31: 32 * 2},
+	} {
+		state[Slot(3)] = head
+		require.Empty(t, s.String(Slot(3)), name)
+		require.Zero(t, s.StringChunks(Slot(3)), name)
+	}
 	s.SetString(Slot(4), strings.Repeat("x", MaxStringLength))
 	require.Len(t, s.String(Slot(4)), MaxStringLength)
 }

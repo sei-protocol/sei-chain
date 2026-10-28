@@ -107,6 +107,8 @@ func (Precompile) RequiredGas(input []byte) uint64 {
 }
 
 func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) {
+	// CALLCODE also arrives as DelegateCall, with a value no transfer backed;
+	// refusing it keeps a call from depositing gov's own balance.
 	if ctx.DelegateCall {
 		return nil, errDelegateCall
 	}

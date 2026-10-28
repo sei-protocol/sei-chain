@@ -29,23 +29,30 @@ func (s Set) Contains(v common.Hash) bool {
 
 // Add inserts v, reporting whether it was absent.
 func (s Set) Add(v common.Hash) bool {
+	_, added := s.add(v)
+	return added
+}
+
+// add inserts v, returning its array index and whether it was absent.
+func (s Set) add(v common.Hash) (uint64, bool) {
 	if s.Contains(v) {
-		return false
+		return 0, false
 	}
 	n := s.Len()
 	s.Store.SetWord(Offset(ArrayData(s.Base), n), v)
 	s.Store.SetWord(s.Base, Slot(n+1))
 	s.setPosition(v, n+1)
-	return true
+	return n, true
 }
 
-// Remove deletes v by swap-and-pop, reporting whether it was present.
+// Remove deletes v by swap-and-pop, reporting whether it was present. A
+// position past the length, as a failed read can leave, counts as absent.
 func (s Set) Remove(v common.Hash) bool {
-	pos := s.position(v)
-	if pos == 0 || pos > s.Len() {
+	pos, n := s.position(v), s.Len()
+	if pos == 0 || pos > n {
 		return false
 	}
-	last := s.Len() - 1
+	last := n - 1
 	data := ArrayData(s.Base)
 	if idx := pos - 1; idx != last {
 		moved := s.Store.Word(Offset(data, last))
