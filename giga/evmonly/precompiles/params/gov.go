@@ -121,8 +121,8 @@ type named struct {
 
 // Bounds on every gov period, in nanoseconds.
 const (
-	MinPeriod = uint64(time.Second)
-	MaxPeriod = 1 << 62 // a block time in Unix nanoseconds plus any period fits in 64 bits
+	MinPeriod uint64 = uint64(time.Second)
+	MaxPeriod uint64 = 1 << 62 // a block time in Unix nanoseconds plus any period fits in 64 bits
 )
 
 // Validate checks g as x/gov checks its params, and also requires periods of
@@ -133,7 +133,7 @@ func (g Gov) Validate() error {
 		v    uint64
 	}{{"voting_period", g.VotingPeriod}, {"expedited_voting_period", g.ExpeditedVotingPeriod}, {"max_deposit_period", g.MaxDepositPeriod}} {
 		if p.v < MinPeriod || p.v > MaxPeriod {
-			return fmt.Errorf("%s must be in %d..%d nanoseconds", p.name, MinPeriod, uint64(MaxPeriod))
+			return fmt.Errorf("%s must be in %d..%d nanoseconds", p.name, MinPeriod, MaxPeriod)
 		}
 	}
 	if g.ExpeditedVotingPeriod >= g.VotingPeriod {

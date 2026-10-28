@@ -6,9 +6,8 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
-	"github.com/ethereum/go-ethereum/core/vm"
-
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
@@ -49,6 +48,9 @@ func call(t *testing.T, state precompiles.State, method string, args ...interfac
 	return ABI.Methods[method].Outputs.Unpack(out)
 }
 
+// TestParamKeys pins paramKeys' list. The flat keys of one V2 key stay adjacent
+// and in the V2 struct's field order, as Params.sol states; a new param goes in
+// its place in that order.
 func TestParamKeys(t *testing.T) {
 	out, err := call(t, newMemState(), ParamKeysMethod)
 	require.NoError(t, err)

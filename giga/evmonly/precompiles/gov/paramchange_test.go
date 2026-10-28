@@ -209,3 +209,32 @@ func TestEveryGovParamChangesThroughAProposal(t *testing.T) {
 		require.Equal(t, value, params(chainparams.ParamMethod, "gov", key), key)
 	}
 }
+
+// TestSubspacesFitTheExecutionCharge checks that applying a change, which reads
+// its whole subspace, stays within the content words settleCost charges for it.
+func TestSubspacesFitTheExecutionCharge(t *testing.T) {
+	m := chainparams.ABI.Methods[chainparams.ParamKeysMethod]
+	out, err := chainparams.Precompile{}.Run(&precompiles.Context{Address: chainparams.Address}, m.ID)
+	require.NoError(t, err)
+	values, err := m.Outputs.Unpack(out)
+	require.NoError(t, err)
+	var keys []chainparams.ParamKey
+	abi.ConvertType(values[0], &keys)
+
+	perSubspace := map[string]int{}
+	shortest := map[string]string{}
+	for _, k := range keys {
+		perSubspace[k.Subspace]++
+		if s, ok := shortest[k.Subspace]; !ok || len(k.Key) < len(s) {
+			shortest[k.Subspace] = k.Key
+		}
+	}
+	for subspace, n := range perSubspace {
+		// The smallest valid change: a declared key and a 32-byte value.
+		change := chainparams.Change{Subspace: subspace, Key: shortest[subspace], Value: make([]byte, 32)}
+		_, one := encodeContent(paramChangeContent{Changes: []chainparams.Change{change}})
+		_, two := encodeContent(paramChangeContent{Changes: []chainparams.Change{change, change}})
+		perChange := (len(two) - len(one)) / 32
+		require.LessOrEqual(t, n, perChange, "subspace %s has more params than a change's %d content words", subspace, perChange)
+	}
+}

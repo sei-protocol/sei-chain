@@ -6,8 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 )
@@ -39,5 +41,16 @@ func TestV2TypesMatchParamsSol(t *testing.T) {
 	require.Equal(t, []string{"Dec", "Duration", "Coins", "DecCoins", "Int", "Uint", "Uint64", "Uint32", "Int64", "Int32", "Bool", "String", "Address", "StringList"}, names)
 	for i, v := range want {
 		require.Equal(t, params.V2Type(i), v, names[i])
+	}
+
+	method := params.ABI.Methods[params.ParamKeysMethod]
+	out, err := params.Precompile{}.Run(&precompiles.Context{Address: params.Address}, method.ID)
+	require.NoError(t, err)
+	values, err := method.Outputs.Unpack(out)
+	require.NoError(t, err)
+	var keys []params.ParamKey
+	abi.ConvertType(values[0], &keys)
+	for _, k := range keys {
+		require.Less(t, int(k.V2Type), len(names), "Solidity's decoder rejects a V2Type past the enum: %s", k.Key)
 	}
 }
