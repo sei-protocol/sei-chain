@@ -14,6 +14,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
@@ -57,6 +58,12 @@ type Backend interface {
 	// EvmEstimateGas returns the lowest gas limit that lets msg succeed, and
 	// any revert data if it still fails at gasCap.
 	EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error)
+	// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg with calls applied
+	// to the committed state first, in order.
+	EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error)
+	// EvmCreateAccessList returns the access list msg touches against the committed state, and
+	// the result of executing msg with that list.
+	EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error)
 	EvmGasLimit() (uint64, error)
 	// EvmMinGasPrice returns the minimum effective gas price this application admits a
 	// transaction at.
@@ -149,7 +156,7 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 	if err := rpcServer.RegisterName("eth", &callAPI{backend: backend}); err != nil {
 		return nil, fmt.Errorf("register EVM-only call RPC: %w", err)
 	}
-	if err := rpcServer.RegisterName("eth", &estimateAPI{backend: backend}); err != nil {
+	if err := rpcServer.RegisterName("eth", &estimateAPI{backend: backend, maxCalls: limits.MaxEstimateGasCalls}); err != nil {
 		return nil, fmt.Errorf("register EVM-only estimate RPC: %w", err)
 	}
 	if err := rpcServer.RegisterName("eth", &blockAPI{backend: backend, store: receiptStore}); err != nil {

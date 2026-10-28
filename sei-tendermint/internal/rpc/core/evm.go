@@ -5,6 +5,7 @@ import (
 	"math/big"
 
 	ethcore "github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -53,4 +54,16 @@ func (env *EVMEnvironment) EvmBaseFee() (*big.Int, error) {
 // the current committed EVM state, persisting no state change.
 func (env *EVMEnvironment) EvmEstimateGas(ctx context.Context, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
 	return env.EVM.EvmEstimateGas(ctx, msg, gasCap)
+}
+
+// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg with calls applied to the
+// current committed EVM state first, in order, persisting no state change.
+func (env *EVMEnvironment) EvmEstimateGasAfterCalls(ctx context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
+	return env.EVM.EvmEstimateGasAfterCalls(ctx, calls, msg, gasCap)
+}
+
+// EvmCreateAccessList returns the access list msg touches against the current committed EVM
+// state, and the result of executing msg with that list, persisting no state change.
+func (env *EVMEnvironment) EvmCreateAccessList(ctx context.Context, msg *ethcore.Message) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
+	return env.EVM.EvmCreateAccessList(ctx, msg)
 }

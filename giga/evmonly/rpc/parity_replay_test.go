@@ -12,6 +12,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
@@ -269,6 +270,14 @@ func (b *replayBackend) EvmStorage(address common.Address, key common.Hash) (com
 
 func (b *replayBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
 	return b.executor.EstimateGas(ctx, b.tip, msg, gasCap)
+}
+
+func (b *replayBackend) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+	return b.executor.EstimateGasAfterCalls(ctx, b.tip, calls, msg, gasCap)
+}
+
+func (b *replayBackend) EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
+	return b.executor.CreateAccessList(ctx, b.tip, msg)
 }
 
 func (b *replayBackend) EvmGasLimit() (uint64, error) {

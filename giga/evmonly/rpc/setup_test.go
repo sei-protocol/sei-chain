@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
@@ -51,6 +52,9 @@ type testBackend struct {
 	codeAt             func(common.Address, int64) ([]byte, error)
 	storageAt          func(common.Address, common.Hash, int64) (common.Hash, error)
 	transactionCountAt func(common.Address, int64) (uint64, error)
+
+	estimateGasAfterCalls func(context.Context, []*core.Message, *core.Message, uint64) (uint64, []byte, error)
+	createAccessList      func(context.Context, *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error)
 }
 
 func (b *testBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
@@ -111,6 +115,14 @@ func (b *testBackend) EvmChainID() uint64 {
 
 func (b *testBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
 	return b.estimateGas(ctx, msg, gasCap)
+}
+
+func (b *testBackend) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+	return b.estimateGasAfterCalls(ctx, calls, msg, gasCap)
+}
+
+func (b *testBackend) EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
+	return b.createAccessList(ctx, msg)
 }
 
 func (b *testBackend) EvmCode(address common.Address) ([]byte, error) {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 
@@ -171,6 +172,16 @@ func (app *MockApp) EvmCall(context.Context, *ethcore.Message) (*ethcore.Executi
 // EvmEstimateGas always errors: the mock app keeps no EVM state to execute against.
 func (app *MockApp) EvmEstimateGas(context.Context, *ethcore.Message, uint64) (uint64, []byte, error) {
 	return 0, nil, errMockAppNoExecution
+}
+
+// EvmEstimateGasAfterCalls always errors: the mock app keeps no EVM state to execute against.
+func (app *MockApp) EvmEstimateGasAfterCalls(context.Context, []*ethcore.Message, *ethcore.Message, uint64) (uint64, []byte, error) {
+	return 0, nil, errMockAppNoExecution
+}
+
+// EvmCreateAccessList always errors: the mock app keeps no EVM state to execute against.
+func (app *MockApp) EvmCreateAccessList(context.Context, *ethcore.Message) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
+	return nil, nil, errMockAppNoExecution
 }
 
 func (app *MockApp) EvmBaseFee() *big.Int { return new(big.Int) }

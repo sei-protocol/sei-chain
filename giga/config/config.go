@@ -99,6 +99,8 @@ type RPCConfig struct {
 	BatchResponseMaxSize int `mapstructure:"batch_response_max_size"`
 	// MaxWSConnections caps simultaneously open WebSocket connections.
 	MaxWSConnections int `mapstructure:"max_ws_connections"`
+	// MaxEstimateGasCalls caps the calls one eth_estimateGasAfterCalls request may apply.
+	MaxEstimateGasCalls int `mapstructure:"max_estimate_gas_calls"`
 }
 
 // StateSyncConfig is the [giga.state_sync] sub-table: whether this node uses giga state sync.
@@ -130,6 +132,7 @@ var DefaultConfig = Config{
 		BatchRequestLimit:             100,
 		BatchResponseMaxSize:          25 * 1000 * 1000,
 		MaxWSConnections:              2000,
+		MaxEstimateGasCalls:           100,
 	},
 	StateSync: StateSyncConfig{
 		Enabled: false,
@@ -176,6 +179,7 @@ const (
 	FlagRPCBatchRequestLimit             = "giga.rpc.batch_request_limit"
 	FlagRPCBatchResponseMaxSize          = "giga.rpc.batch_response_max_size"
 	FlagRPCMaxWSConnections              = "giga.rpc.max_ws_connections"
+	FlagRPCMaxEstimateGasCalls           = "giga.rpc.max_estimate_gas_calls"
 	FlagStateSyncEnabled                 = "giga.state_sync.enabled"
 )
 
@@ -298,6 +302,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxWSConnections, err)
 		}
 	}
+	if v := opts.Get(FlagRPCMaxEstimateGasCalls); v != nil {
+		if cfg.RPC.MaxEstimateGasCalls, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxEstimateGasCalls, err)
+		}
+	}
 	if v := opts.Get(FlagStateSyncEnabled); v != nil {
 		if cfg.StateSync.Enabled, err = cast.ToBoolE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStateSyncEnabled, err)
@@ -375,6 +384,9 @@ func (c Config) Validate() error {
 	}
 	if c.RPC.MaxWSConnections < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxWSConnections, c.RPC.MaxWSConnections)
+	}
+	if c.RPC.MaxEstimateGasCalls < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxEstimateGasCalls, c.RPC.MaxEstimateGasCalls)
 	}
 	return nil
 }
@@ -473,6 +485,9 @@ batch_response_max_size = {{ .Giga.RPC.BatchResponseMaxSize }}
 
 # max_ws_connections caps simultaneously open WebSocket connections.
 max_ws_connections = {{ .Giga.RPC.MaxWSConnections }}
+
+# max_estimate_gas_calls caps the calls one eth_estimateGasAfterCalls request may apply.
+max_estimate_gas_calls = {{ .Giga.RPC.MaxEstimateGasCalls }}
 
 [giga.state_sync]
 # enabled allows the state-sync-snapshot create and restore commands on this node, and the

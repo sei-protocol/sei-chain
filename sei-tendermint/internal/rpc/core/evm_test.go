@@ -5,7 +5,9 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -18,6 +20,7 @@ import (
 type testEVMApp struct {
 	abci.BaseApplication
 	gotMsg    *ethcore.Message
+	gotCalls  []*ethcore.Message
 	gotGasCap uint64
 }
 
@@ -25,6 +28,7 @@ var _ proxy.EVMApplication = (*testEVMApp)(nil)
 
 var (
 	testExecutionResult = &ethcore.ExecutionResult{ReturnData: []byte{0x2a}}
+	testAccessList      = ethtypes.AccessList{{Address: common.Address{0x01}, StorageKeys: []common.Hash{{0x02}}}}
 	testChainConfig     = &params.ChainConfig{ChainID: big.NewInt(713715)}
 	testBaseFee         = big.NewInt(7)
 	testMinGasPrice     = big.NewInt(1_000_000_000)
@@ -38,6 +42,16 @@ func (app *testEVMApp) EvmCall(_ context.Context, msg *ethcore.Message) (*ethcor
 func (app *testEVMApp) EvmEstimateGas(_ context.Context, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
 	app.gotMsg, app.gotGasCap = msg, gasCap
 	return 21_000, []byte{0x01}, nil
+}
+
+func (app *testEVMApp) EvmEstimateGasAfterCalls(_ context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
+	app.gotCalls, app.gotMsg, app.gotGasCap = calls, msg, gasCap
+	return 42_000, []byte{0x02}, nil
+}
+
+func (app *testEVMApp) EvmCreateAccessList(_ context.Context, msg *ethcore.Message) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
+	app.gotMsg = msg
+	return testAccessList, testExecutionResult, nil
 }
 
 func (app *testEVMApp) EvmChainID() uint64                  { return 713715 }
@@ -75,6 +89,31 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, []byte{0x01}, revert)
 		require.Equal(t, msg, app.gotMsg)
 		require.Equal(t, uint64(10_000_000), app.gotGasCap)
+	})
+
+	t.Run("estimate gas after calls", func(t *testing.T) {
+		// Test: EvmEstimateGasAfterCalls with one prior call and a gas cap.
+		calls := []*ethcore.Message{{GasLimit: 30_000}}
+		got, revert, err := env.EvmEstimateGasAfterCalls(t.Context(), calls, msg, 10_000_000)
+
+		// Verify: the app's estimate and revert data are returned for the calls, message and cap.
+		require.NoError(t, err)
+		require.Equal(t, uint64(42_000), got)
+		require.Equal(t, []byte{0x02}, revert)
+		require.Equal(t, calls, app.gotCalls)
+		require.Equal(t, msg, app.gotMsg)
+		require.Equal(t, uint64(10_000_000), app.gotGasCap)
+	})
+
+	t.Run("create access list", func(t *testing.T) {
+		// Test: EvmCreateAccessList.
+		accessList, result, err := env.EvmCreateAccessList(t.Context(), msg)
+
+		// Verify: the app's access list and result are returned for the message passed in.
+		require.NoError(t, err)
+		require.Equal(t, testAccessList, accessList)
+		require.Equal(t, testExecutionResult, result)
+		require.Equal(t, msg, app.gotMsg)
 	})
 
 	t.Run("execution parameters", func(t *testing.T) {
