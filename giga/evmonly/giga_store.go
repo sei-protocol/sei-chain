@@ -79,7 +79,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	// moment, and reading second would let it clear these changes after a view was opened that
 	// predates them, leaving nothing to supply them. Read first, the worst case is a view that
 	// already holds them and an overlay that replays the same values over the top.
-	pending := e.pipelinePending()
+	pending := e.pipelinePendingIndex()
 	e.blockPhases.SetPhase(phaseOpenView)
 	snapshot := stateStore.OpenView()
 	if snapshot == nil {
@@ -94,7 +94,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		snapshot:     snapshot,
 		missingState: e.missingState,
 	}
-	source = newPendingOverlay(source, pending)
+	source = pending.overlay(source)
 
 	e.blockPhases.SetPhase(phaseExecute)
 	result, err := e.executePreparedBlock(ctx, req, source)
@@ -300,6 +300,14 @@ func (e *Executor) pipelinePending() *StateChangeSet {
 	return e.pipelineChanges
 }
 
+// pipelinePendingIndex returns the index of pipelinePending's changes, or nil when the store is
+// caught up.
+func (e *Executor) pipelinePendingIndex() *pendingIndex {
+	e.pipelineMu.Lock()
+	defer e.pipelineMu.Unlock()
+	return e.pipelineIndex
+}
+
 // awaitPipelineCommit blocks until the in-flight commit has landed, reporting the first commit that
 // failed. After it returns the store holds every block this executor has run, so the next view
 // opens on a known height and needs no overlay.
@@ -326,6 +334,7 @@ func (e *Executor) awaitPipelineCommit() error {
 			}
 			e.pipelineDone = nil
 			e.pipelineChanges = nil
+			e.pipelineIndex = nil
 			e.pipelineNonces = nil
 			e.pipelineErr = nil
 		}
@@ -364,6 +373,7 @@ func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.Na
 		return failure
 	}
 	e.pipelineChanges = pending
+	e.pipelineIndex = newPendingIndex(pending)
 	e.pipelineNonces = nil
 	e.pipelineDone = done
 	e.pipelineErr = nil
