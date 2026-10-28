@@ -457,7 +457,7 @@ func (s *StateDB) CommitStateChangesWithPrior(
 	}
 
 	s.commitPhases.SetPhase("commit_sc")
-	if err := s.sc.CommitStateChanges(blockNum, changeset); err != nil {
+	if err := s.sc.CommitStateChanges(blockNum, mutations); err != nil {
 		return fmt.Errorf("commit block %d to live state DB: %w", blockNum, err)
 	}
 	// SS takes the block asynchronously and is not waited on: the WAL is written first, so a shutdown

@@ -1,6 +1,7 @@
 package statewal
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -72,6 +73,52 @@ func TestIteratorYieldsBlockContents(t *testing.T) {
 	ok, err = it.Next()
 	require.NoError(t, err)
 	require.False(t, ok)
+}
+
+// TestWriteLeavesCallerSliceInPlace verifies that Write sorts a block without reordering the slice the caller
+// passed, which the caller may still be reading.
+func TestWriteLeavesCallerSliceInPlace(t *testing.T) {
+	w := openWAL(t, testConfig(t.TempDir()))
+	defer func() { require.NoError(t, w.Close()) }()
+
+	unsorted := []mutation.Mutation{
+		makeMutation("bank", []byte("c"), []byte("3")),
+		makeMutation("bank", []byte("a"), []byte("1")),
+		makeMutation("bank", []byte("b"), []byte("2")),
+	}
+	callerOrder := slices.Clone(unsorted)
+	require.NoError(t, w.Write(1, unsorted))
+	require.NoError(t, w.Flush())
+	require.Equal(t, callerOrder, unsorted)
+
+	it, err := w.Iterator(1, 1)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+	ok, err := it.Next()
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, stored := it.Entry()
+	require.Equal(t, []mutation.Mutation{callerOrder[1], callerOrder[2], callerOrder[0]}, stored,
+		"the WAL still stores the block sorted by key")
+}
+
+// TestCloneMutationBytesDetachesFromBuffer verifies that cloned mutations share no memory with the buffer they
+// were decoded from, and that a nil value stays nil.
+func TestCloneMutationBytesDetachesFromBuffer(t *testing.T) {
+	buffer := []byte("keyprevnew")
+	mutations := []mutation.Mutation{
+		{Key: buffer[0:3], PreviousValue: buffer[3:7], NewValue: buffer[7:10]},
+		{Key: buffer[0:3]},
+	}
+
+	cloneMutationBytes(mutations)
+	clear(buffer)
+
+	require.Equal(t, mutation.Mutation{Key: []byte("key"), PreviousValue: []byte("prev"), NewValue: []byte("new")},
+		mutations[0])
+	require.Equal(t, []byte("key"), mutations[1].Key)
+	require.Nil(t, mutations[1].PreviousValue)
+	require.Nil(t, mutations[1].NewValue)
 }
 
 // TestIteratorDoesNotSeePostConstructionBlocks confirms the snapshot contract at the wrapper level: an

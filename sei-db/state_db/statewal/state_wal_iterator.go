@@ -1,6 +1,7 @@
 package statewal
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
@@ -38,10 +39,23 @@ func (it *stateWALIterator) Next() (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("failed to read block %d: %w", blockNumber, err)
 	}
+	cloneMutationBytes(mutations)
 	it.blockNumber = blockNumber
 	it.serialized = serialized
 	it.mutations = mutations
 	return true, nil
+}
+
+// cloneMutationBytes replaces every byte slice in mutations with a copy of its own, preserving nil.
+//
+// Decoded mutations point into the buffer holding the whole WAL file. A caller that retained one value would keep
+// that entire buffer alive, so each value gets its own allocation instead.
+func cloneMutationBytes(mutations []mutation.Mutation) {
+	for i := range mutations {
+		mutations[i].Key = bytes.Clone(mutations[i].Key)
+		mutations[i].PreviousValue = bytes.Clone(mutations[i].PreviousValue)
+		mutations[i].NewValue = bytes.Clone(mutations[i].NewValue)
+	}
 }
 
 // Entry returns the block at the iterator's current position and its mutations.
