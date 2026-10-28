@@ -8,9 +8,11 @@ import (
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
+	"golang.org/x/sync/errgroup"
 
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
@@ -120,34 +122,14 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		}
 	}
 	e.blockPhases.SetPhase(phaseEncodeChangesets)
-	changesets, err := e.changeSetEncoder(result.ChangeSet)
+	changesets, records, err := e.encodeBlockOutputs(ctx, req.Context, result)
 	if err != nil {
-		return nil, fmt.Errorf("encode state changes for block %d: %w", req.Context.Number, err)
-	}
-	if e.blockChangeSetEncoder != nil {
-		extra, err := e.blockChangeSetEncoder(req.Context, result)
-		if err != nil {
-			return nil, fmt.Errorf("encode block changes for block %d: %w", req.Context.Number, err)
-		}
-		// An EVM-keyed changeset here would be written into account, storage and code
-		// state as part of the block, diverging the app hash from the committed state.
-		for _, cs := range extra {
-			if cs != nil && cs.Name == keys.EVMStoreKey {
-				return nil, fmt.Errorf("block encoder returned a changeset named %q for block %d: %w",
-					cs.Name, req.Context.Number, errBlockEncoderUsedEVMStoreKey)
-			}
-		}
-		changesets = append(changesets, extra...)
+		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if receiptStore := e.receiptStore; receiptStore != nil {
-		e.blockPhases.SetPhase(phaseEncodeReceipts)
-		records, err := e.receiptRecordsParallel(ctx, req.Context.Number, result)
-		if err != nil {
-			return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
-		}
 		e.blockPhases.SetPhase(phaseWriteReceipts)
 		if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
 			return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
@@ -167,6 +149,54 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	}
 	ok = true
 	return result, nil
+}
+
+// encodeBlockOutputs encodes the block's state changes, the block encoder's changesets and the
+// receipt records. All three read only the block result, so they run together.
+func (e *Executor) encodeBlockOutputs(ctx context.Context, block BlockContext, result *BlockResult) (
+	[]*proto.NamedChangeSet, []receipt.ReceiptRecord, error) {
+	var changesets, extra []*proto.NamedChangeSet
+	var records []receipt.ReceiptRecord
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		var err error
+		if changesets, err = e.changeSetEncoder(result.ChangeSet); err != nil {
+			return fmt.Errorf("encode state changes for block %d: %w", block.Number, err)
+		}
+		return nil
+	})
+	if e.blockChangeSetEncoder != nil {
+		group.Go(func() error {
+			var err error
+			if extra, err = e.blockChangeSetEncoder(block, result); err != nil {
+				return fmt.Errorf("encode block changes for block %d: %w", block.Number, err)
+			}
+			return nil
+		})
+	}
+	if e.receiptStore != nil {
+		group.Go(func() error {
+			var err error
+			if records, err = e.receiptRecordsParallel(groupCtx, block.Number, result); err != nil {
+				return fmt.Errorf("encode receipts for block %d: %w", block.Number, err)
+			}
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return nil, nil, err
+	}
+	// An EVM-keyed changeset here would be written into account, storage and code
+	// state as part of the block, diverging the app hash from the committed state.
+	for _, cs := range extra {
+		if cs != nil && cs.Name == keys.EVMStoreKey {
+			return nil, nil, fmt.Errorf("block encoder returned a changeset named %q for block %d: %w",
+				cs.Name, block.Number, errBlockEncoderUsedEVMStoreKey)
+		}
+	}
+	all := make([]*proto.NamedChangeSet, 0, len(changesets)+len(extra))
+	all = append(all, changesets...)
+	return append(all, extra...), records, nil
 }
 
 // encodingReadsTheStore reports whether encoding a block's changesets reads the store as well as
