@@ -53,29 +53,12 @@ func MutationsFromChangeSets(
 		partition := maphash.Bytes(seed, write.key) % uint64(partitions) //nolint:gosec // partitions > 0
 		byPartition[partition] = append(byPartition[partition], write)
 	}
-	collected := make([]*collectedWrites, partitions)
+	results := make([][]mutation.Mutation, partitions)
 	var group errgroup.Group
 	for i := range byPartition {
 		group.Go(func() error {
 			var err error
-			collected[i], err = collectWrites(byPartition[i], blockHeight)
-			return err
-		})
-	}
-	if err := group.Wait(); err != nil {
-		return nil, err
-	}
-	// One batch read for the whole block: the store spreads it across its own workers.
-	var physicalKeys [][]byte
-	for _, c := range collected {
-		physicalKeys = append(physicalKeys, c.keys...)
-	}
-	priorValues := priorState.BatchGetRaw(physicalKeys)
-	results := make([][]mutation.Mutation, partitions)
-	for i, c := range collected {
-		group.Go(func() error {
-			var err error
-			results[i], err = c.mutations(priorValues, blockHeight)
+			results[i], err = mutationsFromWrites(byPartition[i], blockHeight, priorState)
 			return err
 		})
 	}
