@@ -84,7 +84,7 @@ const defaultInspectListLimit = 1000
 //   - memIAVL semantic mode (default): raw EVM leaves are independently decoded
 //     into the same logical account / code / storage / misc buckets.
 //   - memIAVL translator mode: each EVM leaf is fed through
-//     flatkv.ImportTranslator, which applies the same classifyAndPrefix +
+//     flatkv.ImportTranslator, which applies the same key routing and
 //     account-merge logic FlatKV uses.
 //
 // The per-bucket accumulator is an XOR of sha256(len(key)||key||len(val)||val),
@@ -1873,8 +1873,8 @@ func runMemiavlSemanticDigest(ctx digestPrintContext, modeLabel, totalLabel stri
 }
 
 // runMemiavlTranslatorDigest digests memiavl EVM leaves by routing every leaf
-// through flatkv.ImportTranslator (the exact classifyAndPrefix + merge path
-// CommitStore.ApplyChangeSets uses) and then through the shared consume, making
+// through flatkv.ImportTranslator (the same changeset conversion a FlatKV
+// commit uses) and then through the shared consume, making
 // the memiavl and flatkv digests byte-identical by construction. Translate
 // streams storage/code/misc out immediately and only buffers account fragments
 // until Finalize, so RSS stays bounded.

@@ -1786,7 +1786,7 @@ func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) 
 		flatKVImporter, err = cs.loadFlatKV().Importer(version)
 		if err != nil {
 			if memIAVLImporter != nil {
-				_ = memIAVLImporter.Close()
+				_ = memIAVLImporter.Abort(err)
 			}
 			return nil, fmt.Errorf("failed to create flatkv importer: %w", err)
 		}
