@@ -92,7 +92,7 @@ func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State 
 func (s *State) alignMempool(lane types.LaneID) (*mempool, types.BlockNumber) {
 	n := s.consensus.Avail().NextBlock(lane)
 	m := newMempoolInner(avail.BlocksPerLane, lane, n)
-	mp := &mempool{inner: utils.NewWatch(m), pendingInserts: utils.NewAtomicSend[uint64](0)}
+	mp := &mempool{inner: utils.NewWatch(m), pendingInserts: utils.NewAtomicSend[uint64](0), closed: &m.closedFlag}
 	s.mempool.Store(utils.Some(mp))
 	return mp, n
 }
@@ -105,7 +105,7 @@ func (s *State) clearMempool() {
 		return
 	}
 	for m, ctrl := range mp.inner.Lock() {
-		m.close(ctrl)
+		mp.close(m, ctrl)
 	}
 }
 
@@ -143,7 +143,7 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 		scope.SpawnBg(func() error {
 			_ = availState.WaitUntilClosed(ctx, lane)
 			for m, ctrl := range mp.inner.Lock() {
-				m.close(ctrl)
+				mp.close(m, ctrl)
 			}
 			return nil
 		})

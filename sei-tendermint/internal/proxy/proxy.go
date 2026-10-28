@@ -76,6 +76,25 @@ func (app *Proxy) RememberEvmSender(hash common.Hash, sender common.Address) {
 	}
 }
 
+// evmNonceBatcher is implemented by applications that read many EVM nonces at once more cheaply than
+// one at a time.
+type evmNonceBatcher interface {
+	EvmNonces([]common.Address) []uint64
+}
+
+// EvmNonces returns, aligned with addrs, each address's EVM nonce in the wrapped application.
+func (app *Proxy) EvmNonces(addrs []common.Address) []uint64 {
+	defer addTimeSample(Global.MethodTimingAt("evm_nonces", "sync"))()
+	if batcher, ok := app.app.(evmNonceBatcher); ok {
+		return batcher.EvmNonces(addrs)
+	}
+	nonces := make([]uint64, len(addrs))
+	for i, addr := range addrs {
+		nonces[i] = app.app.EvmNonce(addr)
+	}
+	return nonces
+}
+
 func (app *Proxy) EvmBalance(addr common.Address, seiAddr []byte) uint256.Int {
 	defer addTimeSample(Global.MethodTimingAt("evm_balance", "sync"))()
 	return app.app.EvmBalance(addr, seiAddr)

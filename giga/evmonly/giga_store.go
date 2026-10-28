@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"slices"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"golang.org/x/sync/errgroup"
@@ -209,6 +210,71 @@ func (e *Executor) encodingReadsTheStore() bool {
 	return e.blockChangeSetEncoder != nil && e.blockEncoderReadsStore
 }
 
+// SettledNonce returns addr's nonce in the state every block this executor has run produced. It
+// reads an in-flight commit's nonces from that commit's changes instead of waiting for it to land.
+func (e *Executor) SettledNonce(addr common.Address) uint64 {
+	// Taken before the view, for the reason executePreparedBlockWithStore gives.
+	if nonce, ok := e.pipelineNonceIndex()[addr]; ok {
+		return nonce
+	}
+	view := e.stateStore.OpenView()
+	defer view.Close()
+	return view.GetNonce(addr)
+}
+
+// SettledNonces returns, aligned with addrs, each address's nonce as SettledNonce reads it, through one
+// view and with the view's reads spread across workers.
+func (e *Executor) SettledNonces(addrs []common.Address) []uint64 {
+	nonces := make([]uint64, len(addrs))
+	// Taken before the view, for the reason executePreparedBlockWithStore gives.
+	pending := e.pipelineNonceIndex()
+	var misses []int
+	for i, addr := range addrs {
+		if nonce, ok := pending[addr]; ok {
+			nonces[i] = nonce
+		} else {
+			misses = append(misses, i)
+		}
+	}
+	if len(misses) == 0 {
+		return nonces
+	}
+	view := e.stateStore.OpenView()
+	defer view.Close()
+	workers := min(len(misses), max(1, e.cfg.ParseWorkers), (len(misses)+settledNoncesPerWorker-1)/settledNoncesPerWorker)
+	chunk := (len(misses) + workers - 1) / workers
+	var wg sync.WaitGroup
+	for start := 0; start < len(misses); start += chunk {
+		wg.Go(func() {
+			for _, i := range misses[start:min(start+chunk, len(misses))] {
+				nonces[i] = view.GetNonce(addrs[i])
+			}
+		})
+	}
+	wg.Wait()
+	return nonces
+}
+
+// settledNoncesPerWorker is the fewest view reads SettledNonces gives a worker of its own.
+const settledNoncesPerWorker = 64
+
+// pipelineNonceIndex returns the nonces the in-flight commit writes, by address, or nil when no commit
+// is in flight. The index is built once per commit.
+func (e *Executor) pipelineNonceIndex() map[common.Address]uint64 {
+	e.pipelineMu.Lock()
+	defer e.pipelineMu.Unlock()
+	if e.pipelineChanges == nil {
+		return nil
+	}
+	if e.pipelineNonces == nil {
+		e.pipelineNonces = make(map[common.Address]uint64, len(e.pipelineChanges.Accounts))
+		for _, change := range e.pipelineChanges.Accounts {
+			e.pipelineNonces[change.Address] = change.Account.Nonce
+		}
+	}
+	return e.pipelineNonces
+}
+
 // AwaitCommits blocks until every block this executor has run is committed, and reports the first
 // commit that failed.
 //
@@ -260,6 +326,7 @@ func (e *Executor) awaitPipelineCommit() error {
 			}
 			e.pipelineDone = nil
 			e.pipelineChanges = nil
+			e.pipelineNonces = nil
 			e.pipelineErr = nil
 		}
 		e.pipelineMu.Unlock()
@@ -297,6 +364,7 @@ func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.Na
 		return failure
 	}
 	e.pipelineChanges = pending
+	e.pipelineNonces = nil
 	e.pipelineDone = done
 	e.pipelineErr = nil
 	e.pipelineMu.Unlock()
