@@ -108,12 +108,12 @@ func (p registeredCustomPrecompile) RunAndCalculateGas(
 	return output, state.gas, err
 }
 
-// materializeAccount gives a precompile account with no nonce and no code a
-// nonce of 1.
+// materializeAccount gives an account with no nonce and no code a nonce of 1.
 func materializeAccount(db vm.StateDB, addr common.Address) {
 	// EIP-158 treats an account with no nonce, code or balance as absent, and
-	// evm.Call would recreate it on every call: an account-level write that
-	// makes every call to the precompile conflict under OCC.
+	// evm.Call recreates an absent account: an account-level write that makes
+	// every call to the precompile conflict under OCC, and that discards the
+	// storage the account already holds.
 	if db.GetNonce(addr) == 0 && len(db.GetCode(addr)) == 0 {
 		db.SetNonce(addr, 1, tracing.NonceChangeUnspecified)
 	}
@@ -208,6 +208,8 @@ func (s *precompileState) SetState(addr common.Address, key common.Hash, value c
 	if !s.writable() || !s.chargeSstore(addr, key, value) {
 		return
 	}
+	// Storage is kept only by an account the EVM treats as existing.
+	materializeAccount(s.db, addr)
 	s.db.SetState(addr, key, value)
 }
 
