@@ -169,8 +169,6 @@ func (c *offsetScanCursor) offsetConsumed() bool {
 
 func (c *offsetScanCursor) beginIteration(key []byte) (stop bool, err error) {
 	if resumeKey, exhausted := c.budget.begin(key); exhausted {
-		// phase() describes the entry just counted, but scanned has not been
-		// incremented for this key yet, so it cannot answer here.
 		if !c.offsetConsumed() {
 			return true, c.budget.offsetNotReachedError()
 		}
