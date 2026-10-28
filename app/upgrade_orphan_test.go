@@ -24,6 +24,12 @@ var removedModulesWithoutStores = map[string]string{
 	vestingModuleName: "v6.8",
 }
 
+// deletedStoresByUpgrade maps an upgrade to the stores its store loader deletes, whose
+// modules the previous release still versioned.
+var deletedStoresByUpgrade = map[string][]string{
+	"v6.8": v68DeletedStores,
+}
+
 // storeKeyOwners names the owning module for the KV stores whose key differs
 // from the module name. Every other mounted store is keyed by its own module.
 var storeKeyOwners = map[string]string{
@@ -64,7 +70,7 @@ func TestLatestUpgradeLeavesNoOrphanedModuleVersions(t *testing.T) {
 	for name := range retainedStores {
 		versionMap[name] = 1
 	}
-	for _, name := range v68DeletedStores {
+	for _, name := range deletedStoresByUpgrade[LatestUpgrade] {
 		versionMap[name] = 1
 	}
 	for name, upgrade := range removedModulesWithoutStores {
