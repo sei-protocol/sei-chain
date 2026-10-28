@@ -674,49 +674,60 @@ func (a *evmOnlyApplication) committedBlockContext(action string) (evmonly.Block
 }
 
 // EvmCall executes msg as a read-only call against the most recently
-// committed EVM state and returns the execution result.
-func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
+// committed EVM state, with overrides applied, and returns the execution result.
+func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message, overrides evmonly.CallOverrides) (*ethcore.ExecutionResult, error) {
 	executor, blockCtx, err := a.currentExecutionContext("call")
 	if err != nil {
 		return nil, err
 	}
-	return executor.Call(ctx, blockCtx, msg)
+	view, err := executor.OpenCurrentView(ctx, blockCtx)
+	if err != nil {
+		return nil, err
+	}
+	defer view.Close()
+	return executor.CallAt(ctx, view, blockCtx, msg, overrides)
 }
 
 // EvmEstimateGas returns the lowest gas limit that lets msg execute
-// successfully against the most recently committed EVM state. Like EvmCall
-// it creates no transaction and persists no state change.
-func (a *evmOnlyApplication) EvmEstimateGas(ctx context.Context, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
+// successfully against the most recently committed EVM state, with overrides
+// applied. Like EvmCall it creates no transaction and persists no state change.
+func (a *evmOnlyApplication) EvmEstimateGas(ctx context.Context, msg *ethcore.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
 	executor, blockCtx, err := a.currentExecutionContext("gas estimate")
 	if err != nil {
 		return 0, nil, err
 	}
-	return executor.EstimateGas(ctx, blockCtx, msg, gasCap)
+	view, err := executor.OpenCurrentView(ctx, blockCtx)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer view.Close()
+	return executor.EstimateGasAt(ctx, view, blockCtx, msg, gasCap, overrides)
 }
 
 // EvmCallAt executes msg as a read-only call against the committed EVM state after header's block,
-// in the context that block executed at. Only header's number, time and parent hash are read.
-func (a *evmOnlyApplication) EvmCallAt(ctx context.Context, msg *ethcore.Message, header *ethtypes.Header) (_ *ethcore.ExecutionResult, err error) {
+// in the context that block executed at, with overrides applied. Only header's number, time and
+// parent hash are read.
+func (a *evmOnlyApplication) EvmCallAt(ctx context.Context, msg *ethcore.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (_ *ethcore.ExecutionResult, err error) {
 	executor, view, blockCtx, err := a.pastExecutionContext("call", header)
 	if err != nil {
 		return nil, err
 	}
 	defer view.Close()
 	defer recoverPastExecution(view, "call", &err)
-	return executor.CallAt(ctx, view, blockCtx, msg)
+	return executor.CallAt(ctx, view, blockCtx, msg, overrides)
 }
 
 // EvmEstimateGasAt returns the lowest gas limit that lets msg execute successfully against the
-// committed EVM state after header's block, in the context that block executed at. Only header's
-// number, time and parent hash are read.
-func (a *evmOnlyApplication) EvmEstimateGasAt(ctx context.Context, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header) (_ uint64, _ []byte, err error) {
+// committed EVM state after header's block, in the context that block executed at, with overrides
+// applied. Only header's number, time and parent hash are read.
+func (a *evmOnlyApplication) EvmEstimateGasAt(ctx context.Context, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (_ uint64, _ []byte, err error) {
 	executor, view, blockCtx, err := a.pastExecutionContext("gas estimate", header)
 	if err != nil {
 		return 0, nil, err
 	}
 	defer view.Close()
 	defer recoverPastExecution(view, "gas estimate", &err)
-	return executor.EstimateGasAt(ctx, view, blockCtx, msg, gasCap)
+	return executor.EstimateGasAt(ctx, view, blockCtx, msg, gasCap, overrides)
 }
 
 // pastExecutionContext returns the executor, the committed EVM state after header's block, which the

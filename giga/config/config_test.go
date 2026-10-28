@@ -53,6 +53,8 @@ func TestRPCDefaultsMatchTheV2EVMRPC(t *testing.T) {
 	require.Equal(t, v2.MaxConcurrentTraceCalls, uint64(r.MaxConcurrentTraceCalls))
 	require.Equal(t, v2.TraceTimeout, r.TraceTimeout)
 	require.Equal(t, v2.MaxTraceStructLogBytes, uint64(r.MaxTraceStructLogBytes))
+	require.Equal(t, v2.MaxStateOverrideAccounts, r.MaxStateOverrideAccounts)
+	require.Equal(t, v2.MaxStateOverrideSlots, r.MaxStateOverrideSlots)
 	require.Equal(t, uint64(100), r.MaxSubscriptionsPerConnection)
 }
 
@@ -97,6 +99,8 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.rpc.max_concurrent_trace_calls":       "3",
 		"giga.rpc.trace_timeout":                    "4s",
 		"giga.rpc.max_trace_struct_log_bytes":       "512",
+		"giga.rpc.max_state_override_accounts":      "5",
+		"giga.rpc.max_state_override_slots":         "6",
 		"giga.state_sync.enabled":                   "true",
 	})
 	require.NoError(t, err)
@@ -131,6 +135,8 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			MaxConcurrentTraceCalls:       3,
 			TraceTimeout:                  4 * time.Second,
 			MaxTraceStructLogBytes:        512,
+			MaxStateOverrideAccounts:      5,
+			MaxStateOverrideSlots:         6,
 		},
 		StateSync: gigaconfig.StateSyncConfig{
 			Enabled: true,
@@ -171,6 +177,10 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"non-numeric trace calls":         {"giga.rpc.max_concurrent_trace_calls": "many"},
 		"non-duration trace timeout":      {"giga.rpc.trace_timeout": "later"},
 		"non-numeric struct log bytes":    {"giga.rpc.max_trace_struct_log_bytes": "big"},
+		"negative override accounts":      {"giga.rpc.max_state_override_accounts": "-1"},
+		"negative override slots":         {"giga.rpc.max_state_override_slots": "-1"},
+		"non-numeric override accounts":   {"giga.rpc.max_state_override_accounts": "all"},
+		"non-numeric override slots":      {"giga.rpc.max_state_override_slots": "all"},
 		"non-numeric request bytes":       {"giga.rpc.max_concurrent_request_bytes": "lots"},
 		"non-duration admission timeout":  {"giga.rpc.ws_admission_timeout": "soon"},
 		"non-numeric batch limit":         {"giga.rpc.batch_request_limit": "many"},

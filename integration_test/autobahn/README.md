@@ -429,8 +429,6 @@ subscription other than `newHeads`:
 - Any address that has never been written reports `2^200` wei, including
   inside `eth_call` and `eth_estimateGas`. This is the test network's funding
   rule, in place of genesis allocations.
-- `eth_call`, `eth_estimateGas`, and `debug_traceCall` take no state or block
-  override arguments, unlike the regular RPC.
 - `pending` means the latest committed state, and there is no mempool view, so
   a submitted transaction is not returned by hash until it executes.
 - Block fields: `logsBloom` is always empty, `baseFeePerGas` is always zero,
@@ -461,7 +459,9 @@ RPC node, which keeps the state history a past transaction replays on, and a
 call to the contract on every node. On the RPC node it also reads the
 contract's code and slot, calls it, and estimates a call to it, before and at
 the deploy block, by number and by hash, and checks that a validator refuses
-a call at a past block.
+a call at a past block. On every node it runs `eth_call`, `eth_estimateGas`,
+and `debug_traceCall` with state and block overrides, and on the RPC node an
+`eth_call` before the deploy with the contract supplied by a state override.
 
 ### Request and WebSocket limits
 
@@ -484,6 +484,8 @@ the row says otherwise:
 | `max_concurrent_trace_calls` | 10 | `debug_trace*` calls running at once; a call past it is refused |
 | `trace_timeout` | `30s` | how long one `debug_trace*` call may run |
 | `max_trace_struct_log_bytes` | 33554432 (32 MiB) | output of the default struct logger for each traced transaction |
+| `max_state_override_accounts` | 100 | accounts one `eth_call`, `eth_estimateGas`, or `debug_traceCall` state override may name |
+| `max_state_override_slots` | 1000 | storage slots such a state override may set for one account |
 
 A subscription refused by either cap returns an error, and its slot frees when
 the client unsubscribes or the connection closes. A connection is identified by
@@ -510,8 +512,8 @@ against the latest block.
 - `debug_traceCall` traces a call against the state after the named block, by
   number, hash, or tag; a tag names the latest committed block, as for
   `eth_call`. `txIndex` traces it before that transaction of the block
-  instead. `pending` is refused, as are state and block overrides, which
-  `eth_call` does not take either.
+  instead. `pending` is refused. `stateOverrides` and `blockOverrides` apply as
+  they do for `eth_call`.
 - `debug_traceBlockByNumber` and `debug_traceBlockByHash` return one
   `{txHash, result}` entry per transaction that executed, in execution order.
   A transaction the block rejected changed nothing, so it is skipped. Tags
@@ -654,6 +656,14 @@ gas limit defaults to a fixed cap rather than the block gas limit, and an
 explicit limit above that cap is silently lowered to it. A reverted call
 returns a JSON-RPC error carrying the ABI-decoded revert reason, matching
 go-ethereum's own `eth_call` behavior.
+
+As in go-ethereum, `eth_call` takes a state override (each account's `balance`,
+`nonce`, `code`, `state`, `stateDiff`, or `movePrecompileToAddress`) and a
+block override (`number`, `time`, `gasLimit`, `feeRecipient`, `prevRandao`,
+`baseFeePerGas`, `blobBaseFee`) after the block selector; `eth_estimateGas`
+takes both too, but cannot move a precompile. A state override naming more
+accounts, or setting more slots of one account, than `[giga.rpc]` allows is
+refused.
 
 ### Estimate gas with `cast estimate`
 

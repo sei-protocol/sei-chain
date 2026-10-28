@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 )
 
@@ -42,8 +43,8 @@ func (env *EVMEnvironment) EvmChainConfig() (*params.ChainConfig, error) {
 
 // EvmCall executes msg as a read-only call against the current committed EVM
 // state, without creating a transaction or persisting any state change.
-func (env *EVMEnvironment) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
-	return env.EVM.EvmCall(ctx, msg)
+func (env *EVMEnvironment) EvmCall(ctx context.Context, msg *ethcore.Message, overrides evmonly.CallOverrides) (*ethcore.ExecutionResult, error) {
+	return env.EVM.EvmCall(ctx, msg, overrides)
 }
 
 // EvmBaseFee returns the base fee the application executes every block at.
@@ -53,20 +54,20 @@ func (env *EVMEnvironment) EvmBaseFee() (*big.Int, error) {
 
 // EvmEstimateGas returns the lowest gas limit that lets msg succeed against
 // the current committed EVM state, persisting no state change.
-func (env *EVMEnvironment) EvmEstimateGas(ctx context.Context, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
-	return env.EVM.EvmEstimateGas(ctx, msg, gasCap)
+func (env *EVMEnvironment) EvmEstimateGas(ctx context.Context, msg *ethcore.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+	return env.EVM.EvmEstimateGas(ctx, msg, gasCap, overrides)
 }
 
 // EvmCallAt executes msg as a read-only call against the committed EVM state
 // after header's block, in the context that block executed at.
-func (env *EVMEnvironment) EvmCallAt(ctx context.Context, msg *ethcore.Message, header *ethtypes.Header) (*ethcore.ExecutionResult, error) {
-	return env.EVM.EvmCallAt(ctx, msg, header)
+func (env *EVMEnvironment) EvmCallAt(ctx context.Context, msg *ethcore.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (*ethcore.ExecutionResult, error) {
+	return env.EVM.EvmCallAt(ctx, msg, header, overrides)
 }
 
 // EvmEstimateGasAt returns the lowest gas limit that lets msg succeed against
 // the committed EVM state after header's block, persisting no state change.
-func (env *EVMEnvironment) EvmEstimateGasAt(ctx context.Context, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error) {
-	return env.EVM.EvmEstimateGasAt(ctx, msg, gasCap, header)
+func (env *EVMEnvironment) EvmEstimateGasAt(ctx context.Context, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+	return env.EVM.EvmEstimateGasAt(ctx, msg, gasCap, header, overrides)
 }
 
 // EvmBlockContext returns the block context header's block executed at.

@@ -8,13 +8,16 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 func callMessage(from common.Address, to *common.Address) *core.Message {
@@ -259,13 +262,123 @@ func TestExecutorExecutesAgainstTheGivenView(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, current.Return())
 
-	result, err := executor.CallAt(t.Context(), view, blockCtx, msg)
+	result, err := executor.CallAt(t.Context(), view, blockCtx, msg, CallOverrides{})
 	require.NoError(t, err)
 	require.Equal(t, value.Bytes(), result.Return())
 
-	estimate, _, err := executor.EstimateGasAt(t.Context(), view, blockCtx, msg, 0)
+	estimate, _, err := executor.EstimateGasAt(t.Context(), view, blockCtx, msg, 0, CallOverrides{})
 	require.NoError(t, err)
 	require.Greater(t, estimate, params.TxGas)
+}
+
+// numberReturnCode is runtime bytecode that returns NUMBER as one 32-byte word.
+var numberReturnCode = []byte{0x43, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3}
+
+// CallAt and EstimateGasAt run with the accounts and block fields the overrides replace, leaving the
+// state beneath unchanged.
+func TestExecutorAppliesCallOverrides(t *testing.T) {
+	contract := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	moved := common.HexToAddress("0x3000000000000000000000000000000000000003")
+	identity := common.BytesToAddress([]byte{0x04})
+	slot := testHash(0x01)
+	stored := testHash(0x2a)
+	replaced := testHash(0x2b)
+	code := hexutil.Bytes(sloadReturnCode(slot))
+	number := hexutil.Uint64(0x1234)
+	for _, tc := range []struct {
+		name       string
+		to         common.Address
+		data       []byte
+		overrides  CallOverrides
+		wantReturn []byte
+		wantErr    bool
+	}{
+		{name: "no overrides", to: contract, wantReturn: stored.Bytes()},
+		{
+			name:       "state diff",
+			to:         contract,
+			overrides:  CallOverrides{State: export.StateOverride{contract: {StateDiff: map[common.Hash]common.Hash{slot: replaced}}}},
+			wantReturn: replaced.Bytes(),
+		},
+		{
+			name:       "replaced storage",
+			to:         contract,
+			overrides:  CallOverrides{State: export.StateOverride{contract: {State: map[common.Hash]common.Hash{}}}},
+			wantReturn: common.Hash{}.Bytes(),
+		},
+		{
+			name:       "code",
+			to:         moved,
+			overrides:  CallOverrides{State: export.StateOverride{moved: {Code: &code}}},
+			wantReturn: common.Hash{}.Bytes(),
+		},
+		{
+			name: "block number",
+			to:   moved,
+			overrides: CallOverrides{
+				State: export.StateOverride{moved: {Code: (*hexutil.Bytes)(&numberReturnCode)}},
+				Block: utils.Some(export.BlockOverrides{Number: (*hexutil.Big)(new(big.Int).SetUint64(uint64(number)))}),
+			},
+			wantReturn: common.BigToHash(new(big.Int).SetUint64(uint64(number))).Bytes(),
+		},
+		{
+			name:       "moved precompile",
+			to:         moved,
+			data:       []byte{0xca, 0xfe},
+			overrides:  CallOverrides{State: export.StateOverride{identity: {MovePrecompileTo: &moved}}},
+			wantReturn: []byte{0xca, 0xfe},
+		},
+		{
+			name:      "state and state diff together",
+			to:        contract,
+			overrides: CallOverrides{State: export.StateOverride{contract: {State: map[common.Hash]common.Hash{}, StateDiff: map[common.Hash]common.Hash{}}}},
+			wantErr:   true,
+		},
+		{
+			name:      "unsupported block field",
+			to:        contract,
+			overrides: CallOverrides{Block: utils.Some(export.BlockOverrides{BeaconRoot: &common.Hash{}})},
+			wantErr:   true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			view := newMemoryGigaSnapshot(7)
+			view.code[contract] = code
+			view.storage[gigaStorageKey{address: contract, key: slot}] = stored
+			executor := NewExecutor(Config{}, withTestState(NewMemoryState()))
+			msg := callMessage(testAddress(0x01), &tc.to)
+			msg.Data = tc.data
+
+			result, err := executor.CallAt(t.Context(), view, blockContext(big.NewInt(testChainID)), msg, tc.overrides)
+
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.NoError(t, result.Err)
+			require.Equal(t, tc.wantReturn, result.Return())
+			require.Equal(t, stored, view.storage[gigaStorageKey{address: contract, key: slot}])
+		})
+	}
+
+	t.Run("estimate", func(t *testing.T) {
+		executor := NewExecutor(Config{}, withTestState(NewMemoryState()))
+		msg := callMessage(testAddress(0x01), &moved)
+		blockCtx := blockContext(big.NewInt(testChainID))
+
+		plain, _, err := executor.EstimateGasAt(t.Context(), newMemoryGigaSnapshot(7), blockCtx, msg, 0, CallOverrides{})
+		require.NoError(t, err)
+		withCode, _, err := executor.EstimateGasAt(t.Context(), newMemoryGigaSnapshot(7), blockCtx, msg, 0,
+			CallOverrides{State: export.StateOverride{moved: {Code: &code}}})
+		require.NoError(t, err)
+		require.Equal(t, params.TxGas, plain)
+		require.Greater(t, withCode, params.TxGas)
+
+		_, _, err = executor.EstimateGasAt(t.Context(), newMemoryGigaSnapshot(7), blockCtx, msg, 0,
+			CallOverrides{Block: utils.Some(export.BlockOverrides{BeaconRoot: &common.Hash{}})})
+		require.Error(t, err)
+	})
 }
 
 func TestExecutorCallRejectsMissingStateStore(t *testing.T) {

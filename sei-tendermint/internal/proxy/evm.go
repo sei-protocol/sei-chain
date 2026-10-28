@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
@@ -17,18 +18,20 @@ import (
 type EVMApplication interface {
 	types.Application
 
-	// EvmCall executes msg as a read-only call against the current EVM state.
-	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
+	// EvmCall executes msg as a read-only call against the current EVM state,
+	// with overrides applied.
+	EvmCall(ctx context.Context, msg *core.Message, overrides evmonly.CallOverrides) (*core.ExecutionResult, error)
 	// EvmEstimateGas returns the lowest gas limit at or below gasCap that lets
-	// msg succeed, and any revert data.
-	EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error)
+	// msg succeed with overrides applied, and any revert data.
+	EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error)
 	// EvmCallAt executes msg as a read-only call against the committed EVM
-	// state after header's block, in the context that block executed at.
-	EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error)
+	// state after header's block, in the context that block executed at, with
+	// overrides applied.
+	EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (*core.ExecutionResult, error)
 	// EvmEstimateGasAt returns the lowest gas limit at or below gasCap that
 	// lets msg succeed against the committed EVM state after header's block,
-	// and any revert data.
-	EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error)
+	// with overrides applied, and any revert data.
+	EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error)
 	// EvmChainID returns the EVM chain ID transactions are signed for.
 	EvmChainID() uint64
 	// EvmChainConfig returns the EVM chain configuration transactions execute
@@ -57,24 +60,24 @@ type EVMProxy struct {
 	app EVMApplication
 }
 
-func (app *EVMProxy) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {
+func (app *EVMProxy) EvmCall(ctx context.Context, msg *core.Message, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_call", "sync"))()
-	return app.app.EvmCall(ctx, msg)
+	return app.app.EvmCall(ctx, msg, overrides)
 }
 
-func (app *EVMProxy) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+func (app *EVMProxy) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_estimate_gas", "sync"))()
-	return app.app.EvmEstimateGas(ctx, msg, gasCap)
+	return app.app.EvmEstimateGas(ctx, msg, gasCap, overrides)
 }
 
-func (app *EVMProxy) EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error) {
+func (app *EVMProxy) EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_call_at", "sync"))()
-	return app.app.EvmCallAt(ctx, msg, header)
+	return app.app.EvmCallAt(ctx, msg, header, overrides)
 }
 
-func (app *EVMProxy) EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error) {
+func (app *EVMProxy) EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_estimate_gas_at", "sync"))()
-	return app.app.EvmEstimateGasAt(ctx, msg, gasCap, header)
+	return app.app.EvmEstimateGasAt(ctx, msg, gasCap, header, overrides)
 }
 
 func (app *EVMProxy) EvmChainID() uint64 {

@@ -40,7 +40,7 @@ func TestEstimateGasHappyPath(t *testing.T) {
 	}
 	api := &estimateAPI{backend: backend}
 
-	got, err := api.EstimateGas(t.Context(), export.TransactionArgs{From: &from, To: &to}, latestBlockSelector())
+	got, err := api.EstimateGas(t.Context(), export.TransactionArgs{From: &from, To: &to}, latestBlockSelector(), nil, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, hexutil.Uint64(21_000), got)
@@ -65,7 +65,7 @@ func TestEstimateGasOmittedGasUsesGasEstimatorDefault(t *testing.T) {
 	}
 	api := &estimateAPI{backend: backend}
 
-	_, err := api.EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latestBlockSelector())
+	_, err := api.EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latestBlockSelector(), nil, nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, gotMsg)
@@ -87,7 +87,7 @@ func TestEstimateGasPreservesExplicitGas(t *testing.T) {
 	api := &estimateAPI{backend: backend}
 	explicit := hexutil.Uint64(50_000)
 
-	_, err := api.EstimateGas(t.Context(), export.TransactionArgs{To: &to, Gas: &explicit}, latestBlockSelector())
+	_, err := api.EstimateGas(t.Context(), export.TransactionArgs{To: &to, Gas: &explicit}, latestBlockSelector(), nil, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, uint64(50_000), gotMsg.GasLimit)
@@ -107,7 +107,7 @@ func TestEstimateGasCapsExplicitGasAboveDefault(t *testing.T) {
 	api := &estimateAPI{backend: backend}
 	explicit := hexutil.Uint64(defaultCallGasCap * 10)
 
-	_, err := api.EstimateGas(t.Context(), export.TransactionArgs{To: &to, Gas: &explicit}, latestBlockSelector())
+	_, err := api.EstimateGas(t.Context(), export.TransactionArgs{To: &to, Gas: &explicit}, latestBlockSelector(), nil, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, uint64(defaultCallGasCap), gotMsg.GasLimit)
@@ -125,7 +125,7 @@ func TestEstimateGasSurfacesRevertReason(t *testing.T) {
 	}
 	api := &estimateAPI{backend: backend}
 
-	got, err := api.EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latestBlockSelector())
+	got, err := api.EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latestBlockSelector(), nil, nil)
 
 	require.Zero(t, got)
 	require.Error(t, err)
@@ -148,7 +148,7 @@ func TestEstimateGasPassesThroughNonRevertError(t *testing.T) {
 	}
 	api := &estimateAPI{backend: backend}
 
-	got, err := api.EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latestBlockSelector())
+	got, err := api.EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latestBlockSelector(), nil, nil)
 
 	require.Zero(t, got)
 	require.ErrorIs(t, err, wantErr)
@@ -171,7 +171,7 @@ func TestEstimateGasRunsAgainstAPastBlock(t *testing.T) {
 				return 30_000, nil, nil
 			}
 
-			got, err := (&estimateAPI{backend: backend, blocks: &blockAPI{backend: backend}}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, &tc.block)
+			got, err := (&estimateAPI{backend: backend, blocks: &blockAPI{backend: backend}}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, &tc.block, nil, nil)
 
 			require.NoError(t, err)
 			require.Equal(t, hexutil.Uint64(30_000), got)
@@ -185,7 +185,7 @@ func TestEstimateGasRunsAgainstAPastBlock(t *testing.T) {
 		}
 		block := ethrpc.BlockNumberOrHashWithNumber(3)
 
-		_, err := (&estimateAPI{backend: backend, blocks: &blockAPI{backend: backend}}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, &block)
+		_, err := (&estimateAPI{backend: backend, blocks: &blockAPI{backend: backend}}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, &block, nil, nil)
 
 		var revert *revertError
 		require.ErrorAs(t, err, &revert)
@@ -196,7 +196,7 @@ func TestEstimateGasRunsAgainstAPastBlock(t *testing.T) {
 		backend := pastBlocksBackend(5)
 		block := ethrpc.BlockNumberOrHashWithHash(common.Hash{0xaa}, false)
 
-		_, err := (&estimateAPI{backend: backend, blocks: &blockAPI{backend: backend}}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, &block)
+		_, err := (&estimateAPI{backend: backend, blocks: &blockAPI{backend: backend}}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, &block, nil, nil)
 
 		require.ErrorIs(t, err, errBlockNotFound)
 	})
@@ -213,7 +213,7 @@ func TestEstimateGasDefaultsBlockSelectorToLatest(t *testing.T) {
 	}
 	api := &estimateAPI{backend: backend}
 
-	got, err := api.EstimateGas(t.Context(), export.TransactionArgs{To: &to}, nil)
+	got, err := api.EstimateGas(t.Context(), export.TransactionArgs{To: &to}, nil, nil, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, hexutil.Uint64(21_000), got)
@@ -231,7 +231,7 @@ func TestEstimateGasBaseFeeError(t *testing.T) {
 		},
 	}
 
-	got, err := (&estimateAPI{backend: backend}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latestBlockSelector())
+	got, err := (&estimateAPI{backend: backend}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latestBlockSelector(), nil, nil)
 
 	require.Zero(t, got)
 	require.ErrorIs(t, err, want)

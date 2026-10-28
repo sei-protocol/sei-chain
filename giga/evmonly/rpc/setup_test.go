@@ -15,6 +15,7 @@ import (
 	"github.com/holiman/uint256"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -53,6 +54,9 @@ type testBackend struct {
 	codeAt             func(common.Address, int64) ([]byte, error)
 	storageAt          func(common.Address, common.Hash, int64) (common.Hash, error)
 	transactionCountAt func(common.Address, int64) (uint64, error)
+
+	// gotOverrides is the overrides the last call or estimate ran with.
+	gotOverrides evmonly.CallOverrides
 
 	callAt        func(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error)
 	estimateGasAt func(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error)
@@ -118,15 +122,18 @@ func (b *testBackend) EvmBlockNumber() uint64 {
 	return b.blockNumber()
 }
 
-func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {
+func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
+	b.gotOverrides = overrides
 	return b.call(ctx, msg)
 }
 
-func (b *testBackend) EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error) {
+func (b *testBackend) EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
+	b.gotOverrides = overrides
 	return b.callAt(ctx, msg, header)
 }
 
-func (b *testBackend) EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error) {
+func (b *testBackend) EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+	b.gotOverrides = overrides
 	return b.estimateGasAt(ctx, msg, gasCap, header)
 }
 
@@ -138,7 +145,8 @@ func (b *testBackend) EvmChainID() uint64 {
 	return b.chainID()
 }
 
-func (b *testBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+func (b *testBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+	b.gotOverrides = overrides
 	return b.estimateGas(ctx, msg, gasCap)
 }
 

@@ -25,18 +25,19 @@ const estimateGasErrorRatio = 0.015
 // against the current committed state. Like Call it persists no state
 // change; a revert's data is returned alongside the error.
 func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
-	snapshot, err := e.openCurrentView(ctx, blockCtx)
+	snapshot, err := e.OpenCurrentView(ctx, blockCtx)
 	if err != nil {
 		return 0, nil, err
 	}
 	defer snapshot.Close()
-	return e.EstimateGasAt(ctx, snapshot, blockCtx, msg, gasCap)
+	return e.EstimateGasAt(ctx, snapshot, blockCtx, msg, gasCap, CallOverrides{})
 }
 
 // EstimateGasAt returns the lowest gas limit that lets msg execute
-// successfully against the state view holds. Like CallAt it persists no state
-// change; a revert's data is returned alongside the error.
-func (e *Executor) EstimateGasAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+// successfully against the state view holds, with overrides applied. Like
+// CallAt it persists no state change; a revert's data is returned alongside
+// the error.
+func (e *Executor) EstimateGasAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, msg *core.Message, gasCap uint64, overrides CallOverrides) (uint64, []byte, error) {
 	chainConfig := e.chainConfig(blockCtx)
 	if err := validateBlockContext(chainConfig, blockCtx); err != nil {
 		return 0, nil, err
@@ -47,6 +48,12 @@ func (e *Executor) EstimateGasAt(ctx context.Context, view gigatypes.EVMStateVie
 
 	// Unpooled: an estimate can hold this stateDB open far longer than a Call.
 	stateDB := newNativeStateDB(gigaSnapshotStateReader{snapshot: view, missingState: e.missingState})
+	if len(overrides.State) > 0 {
+		// As in go-ethereum, a precompile cannot be moved for an estimate.
+		if err := overrides.State.Apply(stateDB, nil); err != nil {
+			return 0, nil, err
+		}
+	}
 
 	estimateCtx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
@@ -57,7 +64,7 @@ func (e *Executor) EstimateGasAt(ctx context.Context, view gigatypes.EVMStateVie
 		Header:            buildEstimateHeader(blockCtx),
 		State:             stateDB,
 		ErrorRatio:        estimateGasErrorRatio,
-		BlockOverrides:    estimateBlockOverrides(blockCtx),
+		BlockOverrides:    estimateBlockOverrides(blockCtx, overrides),
 		CustomPrecompiles: e.customContracts,
 	}
 	estimate, revert, err := gasestimator.Estimate(estimateCtx, resolveBlobGasFeeCap(msg), opts, gasCap)
@@ -72,14 +79,18 @@ func (e *Executor) EstimateGasAt(ctx context.Context, view gigatypes.EVMStateVie
 	return estimate, revert, err
 }
 
-// estimateBlockOverrides returns the coinbase and blob base fee gas estimation applies.
-func estimateBlockOverrides(ctx BlockContext) *export.BlockOverrides {
-	coinbase := ctx.Coinbase
-	overrides := &export.BlockOverrides{FeeRecipient: &coinbase}
-	if blobBaseFee := cloneOptionalBig(ctx.BlobBaseFee); blobBaseFee != nil {
-		overrides.BlobBaseFee = (*hexutil.Big)(blobBaseFee)
+// estimateBlockOverrides returns the block overrides gas estimation applies: those overrides holds,
+// and ctx's coinbase and blob base fee where overrides sets neither.
+func estimateBlockOverrides(ctx BlockContext, overrides CallOverrides) *export.BlockOverrides {
+	applied := overrides.Block.Or(export.BlockOverrides{})
+	if applied.FeeRecipient == nil {
+		coinbase := ctx.Coinbase
+		applied.FeeRecipient = &coinbase
 	}
-	return overrides
+	if blobBaseFee := cloneOptionalBig(ctx.BlobBaseFee); applied.BlobBaseFee == nil && blobBaseFee != nil {
+		applied.BlobBaseFee = (*hexutil.Big)(blobBaseFee)
+	}
+	return &applied
 }
 
 // resolveBlobGasFeeCap defaults a nil BlobGasFeeCap to zero on a copy of msg

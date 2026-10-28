@@ -106,6 +106,10 @@ type RPCConfig struct {
 	// MaxTraceStructLogBytes caps the default struct logger's output, in bytes, for each traced
 	// transaction.
 	MaxTraceStructLogBytes int `mapstructure:"max_trace_struct_log_bytes"`
+	// MaxStateOverrideAccounts caps the accounts one call's state override may name.
+	MaxStateOverrideAccounts int `mapstructure:"max_state_override_accounts"`
+	// MaxStateOverrideSlots caps the storage slots one call's state override may set for an account.
+	MaxStateOverrideSlots int `mapstructure:"max_state_override_slots"`
 }
 
 // StateSyncConfig is the [giga.state_sync] sub-table: whether this node uses giga state sync.
@@ -140,6 +144,8 @@ var DefaultConfig = Config{
 		MaxConcurrentTraceCalls:       10,
 		TraceTimeout:                  30 * time.Second,
 		MaxTraceStructLogBytes:        32 * 1024 * 1024,
+		MaxStateOverrideAccounts:      100,
+		MaxStateOverrideSlots:         1000,
 	},
 	StateSync: StateSyncConfig{
 		Enabled: false,
@@ -189,6 +195,8 @@ const (
 	FlagRPCMaxConcurrentTraceCalls       = "giga.rpc.max_concurrent_trace_calls"
 	FlagRPCTraceTimeout                  = "giga.rpc.trace_timeout"
 	FlagRPCMaxTraceStructLogBytes        = "giga.rpc.max_trace_struct_log_bytes"
+	FlagRPCMaxStateOverrideAccounts      = "giga.rpc.max_state_override_accounts"
+	FlagRPCMaxStateOverrideSlots         = "giga.rpc.max_state_override_slots"
 	FlagStateSyncEnabled                 = "giga.state_sync.enabled"
 )
 
@@ -326,6 +334,16 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxTraceStructLogBytes, err)
 		}
 	}
+	if v := opts.Get(FlagRPCMaxStateOverrideAccounts); v != nil {
+		if cfg.RPC.MaxStateOverrideAccounts, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxStateOverrideAccounts, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxStateOverrideSlots); v != nil {
+		if cfg.RPC.MaxStateOverrideSlots, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxStateOverrideSlots, err)
+		}
+	}
 	if v := opts.Get(FlagStateSyncEnabled); v != nil {
 		if cfg.StateSync.Enabled, err = cast.ToBoolE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStateSyncEnabled, err)
@@ -412,6 +430,12 @@ func (c Config) Validate() error {
 	}
 	if c.RPC.MaxTraceStructLogBytes < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxTraceStructLogBytes, c.RPC.MaxTraceStructLogBytes)
+	}
+	if c.RPC.MaxStateOverrideAccounts < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxStateOverrideAccounts, c.RPC.MaxStateOverrideAccounts)
+	}
+	if c.RPC.MaxStateOverrideSlots < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxStateOverrideSlots, c.RPC.MaxStateOverrideSlots)
 	}
 	return nil
 }
@@ -520,6 +544,12 @@ trace_timeout = "{{ .Giga.RPC.TraceTimeout }}"
 # max_trace_struct_log_bytes caps the default struct logger's output, in bytes, for each traced
 # transaction.
 max_trace_struct_log_bytes = {{ .Giga.RPC.MaxTraceStructLogBytes }}
+
+# max_state_override_accounts caps the accounts one call's state override may name.
+max_state_override_accounts = {{ .Giga.RPC.MaxStateOverrideAccounts }}
+
+# max_state_override_slots caps the storage slots one call's state override may set for an account.
+max_state_override_slots = {{ .Giga.RPC.MaxStateOverrideSlots }}
 
 [giga.state_sync]
 # enabled allows the state-sync-snapshot create and restore commands on this node, and the

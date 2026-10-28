@@ -39,7 +39,6 @@ var (
 	errTraceBusy           = errors.New("trace request rejected due to concurrency limit: server busy")
 	errTraceTxNotFound     = errors.New("transaction not found")
 	errTraceTxNotExecuted  = errors.New("transaction was rejected by its block and never executed")
-	errTraceOverrides      = errors.New("state and block overrides are not supported by EVM-only RPC")
 	errTracerNameEmpty     = errors.New("debug tracer name must not be empty")
 	errTracerNotAllowed    = errors.New("debug tracer is not allowed; only go-ethereum's native tracers may be used")
 	errMuxTracerTooDeep    = fmt.Errorf("muxTracer nesting depth exceeds maximum of %d", maxMuxTracerNestingDepth)
@@ -57,6 +56,7 @@ type debugAPI struct {
 	slots             chan struct{}
 	timeout           time.Duration
 	maxStructLogBytes int
+	overrides         overrideLimits
 }
 
 func newDebugAPI(backend Backend, store receiptpkg.ReceiptStore, limits gigaconfig.RPCConfig) *debugAPI {
@@ -67,6 +67,7 @@ func newDebugAPI(backend Backend, store receiptpkg.ReceiptStore, limits gigaconf
 		store:             store,
 		timeout:           limits.TraceTimeout,
 		maxStructLogBytes: limits.MaxTraceStructLogBytes,
+		overrides:         newOverrideLimits(limits),
 	}
 	if limits.MaxConcurrentTraceCalls > 0 {
 		api.slots = make(chan struct{}, limits.MaxConcurrentTraceCalls)
@@ -93,13 +94,13 @@ func (api *debugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 }
 
 // TraceCall traces args as a call against the committed state after the block blockNrOrHash names,
-// or for a latest tag, the latest committed state.
+// or for a latest tag, the latest committed state, with config's state and block overrides applied.
 func (api *debugAPI) TraceCall(ctx context.Context, args export.TransactionArgs, blockNrOrHash ethrpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (any, error) {
 	if config == nil {
 		config = &tracers.TraceCallConfig{}
 	}
-	if config.StateOverrides != nil || config.BlockOverrides != nil {
-		return nil, &invalidParamsError{error: errTraceOverrides}
+	if err := api.overrides.check(config.StateOverrides); err != nil {
+		return nil, err
 	}
 	if number, ok := blockNrOrHash.Number(); ok && isLatestTag(number) {
 		ctx = withLatestState(ctx)

@@ -22,6 +22,7 @@ import (
 	"golang.org/x/net/netutil"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -53,20 +54,21 @@ type Backend interface {
 	EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error)
 	EvmBlockNumber() uint64
 	ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
-	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
+	EvmCall(ctx context.Context, msg *core.Message, overrides evmonly.CallOverrides) (*core.ExecutionResult, error)
 	// EvmCallAt executes msg as a read-only call against the committed EVM state after header's
-	// block, in the context that block executed at.
-	EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error)
+	// block, in the context that block executed at, with overrides applied.
+	EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (*core.ExecutionResult, error)
 	EvmChainConfig() (*params.ChainConfig, error)
 	EvmChainID() uint64
 	EvmCode(common.Address) ([]byte, error)
 	EvmCodeAt(address common.Address, height int64) ([]byte, error)
-	// EvmEstimateGas returns the lowest gas limit that lets msg succeed, and
-	// any revert data if it still fails at gasCap.
-	EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error)
+	// EvmEstimateGas returns the lowest gas limit that lets msg succeed with overrides applied,
+	// and any revert data if it still fails at gasCap.
+	EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error)
 	// EvmEstimateGasAt returns the lowest gas limit that lets msg succeed against the committed
-	// EVM state after header's block, and any revert data if it still fails at gasCap.
-	EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error)
+	// EVM state after header's block with overrides applied, and any revert data if it still
+	// fails at gasCap.
+	EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error)
 	EvmGasLimit() (uint64, error)
 	// EvmMinGasPrice returns the minimum effective gas price this application admits a
 	// transaction at.
@@ -163,10 +165,11 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 		return nil, fmt.Errorf("register EVM-only info RPC: %w", err)
 	}
 	blocks := &blockAPI{backend: backend, store: receiptStore}
-	if err := rpcServer.RegisterName("eth", &callAPI{backend: backend, blocks: blocks}); err != nil {
+	overrides := newOverrideLimits(limits)
+	if err := rpcServer.RegisterName("eth", &callAPI{backend: backend, blocks: blocks, limits: overrides}); err != nil {
 		return nil, fmt.Errorf("register EVM-only call RPC: %w", err)
 	}
-	if err := rpcServer.RegisterName("eth", &estimateAPI{backend: backend, blocks: blocks}); err != nil {
+	if err := rpcServer.RegisterName("eth", &estimateAPI{backend: backend, blocks: blocks, limits: overrides}); err != nil {
 		return nil, fmt.Errorf("register EVM-only estimate RPC: %w", err)
 	}
 	if err := rpcServer.RegisterName("eth", blocks); err != nil {
