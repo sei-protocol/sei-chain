@@ -1486,11 +1486,37 @@ func assertEVMOnlyNewHeads(t *testing.T, ctx context.Context, clients []*ethrpc.
 	}
 }
 
+// assertEVMOnlyLogsSubscription subscribes to logs matching topics from the
+// earliest block over node nodeIndex's WebSocket listener and checks that the
+// first log pushed is want.
+func assertEVMOnlyLogsSubscription(t *testing.T, ctx context.Context, nodeIndex int, topics [][]common.Hash, want json.RawMessage) {
+	t.Helper()
+	ws, err := ethrpc.DialContext(ctx, fmt.Sprintf("ws://localhost:%d", 8546+2*nodeIndex))
+	if err != nil {
+		t.Fatalf("create node %d EVM WebSocket client: %v", nodeIndex, err)
+	}
+	defer ws.Close()
+	logs := make(chan json.RawMessage, 1)
+	sub, err := ws.EthSubscribe(ctx, logs, "logs", map[string]any{"fromBlock": "earliest", "topics": topics})
+	if err != nil {
+		t.Fatalf("node %d eth_subscribe(logs): %v", nodeIndex, err)
+	}
+	defer sub.Unsubscribe()
+	select {
+	case got := <-logs:
+		requireSameJSON(t, fmt.Sprintf("node %d logs subscription and the polled deploy log", nodeIndex), got, want)
+	case err := <-sub.Err():
+		t.Fatalf("node %d logs subscription ended: %v", nodeIndex, err)
+	case <-ctx.Done():
+		t.Fatalf("node %d pushed no log: %v", nodeIndex, ctx.Err())
+	}
+}
+
 // assertEVMOnlyFilters installs a block filter and a log filter for the
 // contract deploy's log topic from the earliest block on every node, seals a block with one
 // transfer, and checks that polling the log filter finds the deploy's log once,
 // that a log filter bounded to its block returns the same log from
-// eth_getFilterLogs, that polling the block filter returns blocks the node
+// eth_getFilterLogs and a logs subscription pushes it, that polling the block filter returns blocks the node
 // serves, that an uninstalled filter is gone, and that
 // eth_newPendingTransactionFilter is unsupported as on the regular RPC.
 func assertEVMOnlyFilters(t *testing.T, ctx context.Context, clients []*ethrpc.Client) {
@@ -1531,6 +1557,7 @@ func assertEVMOnlyFilters(t *testing.T, ctx context.Context, clients []*ethrpc.C
 			map[string]any{"fromBlock": log.BlockNumber, "toBlock": log.BlockNumber, "topics": topics}), &bounded)
 		requireSameJSON(t, fmt.Sprintf("node %d eth_getFilterLogs and the polled deploy log", nodeIndex),
 			evmOnlyCall(t, ctx, client, nodeIndex, "eth_getFilterLogs", bounded), json.RawMessage(fmt.Sprintf("[%s]", found[0])))
+		assertEVMOnlyLogsSubscription(t, ctx, nodeIndex, topics, found[0])
 
 		var hashes []common.Hash
 		for len(hashes) == 0 {

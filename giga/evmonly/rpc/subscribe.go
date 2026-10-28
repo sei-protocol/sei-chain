@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -13,10 +16,129 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
+// logsRetryInterval is how long a logs subscription waits to poll again when an executed block's
+// receipts are not indexed yet.
+const logsRetryInterval = 100 * time.Millisecond
+
 type subscribeAPI struct {
 	backend Backend
 	store   receipt.ReceiptStore
+	logs    *filterAPI
 	limits  *subscriptionLimiter
+}
+
+// logsErrorNotification is what a logs subscription pushes for a poll that failed. BlockNumber is
+// the block whose logs were skipped when the subscription continues past it.
+type logsErrorNotification struct {
+	Error       string          `json:"error"`
+	BlockNumber *hexutil.Uint64 `json:"blockNumber,omitempty"`
+}
+
+// Logs serves eth_subscribe("logs"), pushing each log crit matches as blocks execute, polled
+// through the same cursor as eth_getFilterChanges. A failed poll pushes a logsErrorNotification;
+// the stream continues only past a block whose logs alone exceed the log caps.
+func (api *subscribeAPI) Logs(ctx context.Context, crit *filters.FilterCriteria) (*ethrpc.Subscription, error) {
+	notifier, ok := ethrpc.NotifierFromContext(ctx)
+	if !ok {
+		return nil, ethrpc.ErrNotificationsUnsupported
+	}
+	criteria := subscriptionLogCriteria(crit)
+	cursor, err := api.logs.pollStart(criteria)
+	if err != nil {
+		return nil, err
+	}
+	executed, err := api.backend.ExecutedBlocks()
+	if err != nil {
+		return nil, err
+	}
+	connection := ethrpc.PeerInfoFromContext(ctx).RemoteAddr
+	if err := api.limits.acquireLogs(connection); err != nil {
+		return nil, err
+	}
+	rpcSub := notifier.CreateSubscription()
+	go func() {
+		<-rpcSub.Err()
+		api.limits.releaseLogs(connection)
+	}()
+	go api.streamLogs(context.WithoutCancel(ctx), notifier, rpcSub, executed, criteria, cursor)
+	return rpcSub, nil
+}
+
+// subscriptionLogCriteria returns the criteria a logs subscription polls with. A fromBlock of 0
+// with a tag toBlock, which ethclient sends for an open-ended query, is treated as an omitted
+// fromBlock.
+func subscriptionLogCriteria(crit *filters.FilterCriteria) filters.FilterCriteria {
+	if crit == nil {
+		return filters.FilterCriteria{}
+	}
+	if crit.FromBlock != nil && crit.FromBlock.Sign() == 0 && crit.ToBlock != nil && crit.ToBlock.Sign() < 0 {
+		return filters.FilterCriteria{Addresses: crit.Addresses, Topics: crit.Topics}
+	}
+	return *crit
+}
+
+func (api *subscribeAPI) streamLogs(
+	ctx context.Context,
+	notifier *ethrpc.Notifier,
+	rpcSub *ethrpc.Subscription,
+	executed utils.AtomicRecv[atypes.ExecutedBlocks],
+	crit filters.FilterCriteria,
+	cursor uint64,
+) {
+	// This goroutine is outside go-ethereum's per-call recovery, so a panic ends the subscription
+	// rather than the node.
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("logs: stream panicked", "subscription", rpcSub.ID, "panic", r)
+		}
+	}()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		<-rpcSub.Err()
+		cancel()
+	}()
+	for {
+		if _, err := executed.Wait(ctx, func(w atypes.ExecutedBlocks) bool { return uint64(w.Latest().Number) >= cursor }); err != nil {
+			return
+		}
+		logs, next, err := api.logs.pollLogs(ctx, crit, cursor)
+		if err != nil {
+			if ctx.Err() != nil || notifier.Notify(rpcSub.ID, newLogsErrorNotification(err)) != nil {
+				return
+			}
+			var oversized *oversizedBlockError
+			if !errors.As(err, &oversized) {
+				return
+			}
+		}
+		for _, lg := range logs {
+			if err := notifier.Notify(rpcSub.ID, lg); err != nil {
+				return
+			}
+		}
+		if logsExhausted(crit, next) {
+			return
+		}
+		if next == cursor {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(logsRetryInterval):
+			}
+		}
+		cursor = next
+	}
+}
+
+func newLogsErrorNotification(err error) logsErrorNotification {
+	notification := logsErrorNotification{Error: err.Error()}
+	var oversized *oversizedBlockError
+	if errors.As(err, &oversized) {
+		height := hexutil.Uint64(oversized.height)
+		notification.BlockNumber = &height
+	}
+	return notification
 }
 
 // NewHeads serves eth_subscribe("newHeads"), pushing one Ethereum header per

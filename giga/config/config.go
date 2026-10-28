@@ -82,6 +82,8 @@ type RPCConfig struct {
 	// MaxSubscriptionsNewHead caps open eth_subscribe("newHeads") subscriptions across all
 	// connections.
 	MaxSubscriptionsNewHead uint64 `mapstructure:"max_subscriptions_new_head"`
+	// MaxSubscriptionsLogs caps open eth_subscribe("logs") subscriptions across all connections.
+	MaxSubscriptionsLogs uint64 `mapstructure:"max_subscriptions_logs"`
 	// MaxSubscriptionsPerConnection caps the open subscriptions of a single WebSocket connection.
 	MaxSubscriptionsPerConnection uint64 `mapstructure:"max_subscriptions_per_connection"`
 	// MaxRequestBodyBytes caps the size, in bytes, of one HTTP request body or WebSocket message.
@@ -131,6 +133,7 @@ var DefaultConfig = Config{
 	// The same limits the v2 EVM RPC defaults to.
 	RPC: RPCConfig{
 		MaxSubscriptionsNewHead:       10_000,
+		MaxSubscriptionsLogs:          1000,
 		MaxSubscriptionsPerConnection: 100,
 		MaxRequestBodyBytes:           5 * 1024 * 1024,
 		MaxConcurrentRequestBytes:     128 * 1024 * 1024,
@@ -180,6 +183,7 @@ const (
 	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
 	FlagExecutionGCPercent               = "giga.execution.gc_percent"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
+	FlagRPCMaxSubscriptionsLogs          = "giga.rpc.max_subscriptions_logs"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
 	FlagRPCMaxRequestBodyBytes           = "giga.rpc.max_request_body_bytes"
 	FlagRPCMaxConcurrentRequestBytes     = "giga.rpc.max_concurrent_request_bytes"
@@ -275,6 +279,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagRPCMaxSubscriptionsNewHead); v != nil {
 		if cfg.RPC.MaxSubscriptionsNewHead, err = cast.ToUint64E(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxSubscriptionsNewHead, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxSubscriptionsLogs); v != nil {
+		if cfg.RPC.MaxSubscriptionsLogs, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxSubscriptionsLogs, err)
 		}
 	}
 	if v := opts.Get(FlagRPCMaxSubscriptionsPerConnection); v != nil {
@@ -481,6 +490,9 @@ gc_percent = {{ .Giga.Execution.GCPercent }}
 # max_subscriptions_new_head caps open eth_subscribe("newHeads") subscriptions across all
 # connections.
 max_subscriptions_new_head = {{ .Giga.RPC.MaxSubscriptionsNewHead }}
+
+# max_subscriptions_logs caps open eth_subscribe("logs") subscriptions across all connections.
+max_subscriptions_logs = {{ .Giga.RPC.MaxSubscriptionsLogs }}
 
 # max_subscriptions_per_connection caps the open subscriptions of a single WebSocket connection.
 max_subscriptions_per_connection = {{ .Giga.RPC.MaxSubscriptionsPerConnection }}

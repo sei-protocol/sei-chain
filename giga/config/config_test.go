@@ -44,6 +44,7 @@ func TestRPCDefaultsMatchTheV2EVMRPC(t *testing.T) {
 	v2 := evmrpcconfig.DefaultConfig
 	r := gigaconfig.DefaultConfig.RPC
 	require.Equal(t, v2.MaxSubscriptionsNewHead, r.MaxSubscriptionsNewHead)
+	require.Equal(t, v2.MaxSubscriptionsLogs, r.MaxSubscriptionsLogs)
 	require.Equal(t, v2.MaxRequestBodyBytes, int64(r.MaxRequestBodyBytes))
 	require.Equal(t, v2.MaxConcurrentRequestBytes, r.MaxConcurrentRequestBytes)
 	require.Equal(t, v2.WSAdmissionTimeout, r.WSAdmissionTimeout)
@@ -87,6 +88,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.execution.evm_rpc_port":               "8600",
 		"giga.execution.evm_ws_port":                "8601",
 		"giga.rpc.max_subscriptions_new_head":       "20",
+		"giga.rpc.max_subscriptions_logs":           "15",
 		"giga.rpc.max_subscriptions_per_connection": "5",
 		"giga.rpc.max_request_body_bytes":           "2048",
 		"giga.rpc.max_concurrent_request_bytes":     "4096",
@@ -121,6 +123,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		},
 		RPC: gigaconfig.RPCConfig{
 			MaxSubscriptionsNewHead:       20,
+			MaxSubscriptionsLogs:          15,
 			MaxSubscriptionsPerConnection: 5,
 			MaxRequestBodyBytes:           2048,
 			MaxConcurrentRequestBytes:     4096,
@@ -156,6 +159,7 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"evm ws port too high":            {"giga.execution.evm_ws_port": "65536"},
 		"evm ws port is rpc port":         {"giga.execution.evm_ws_port": "8545"},
 		"negative subscription cap":       {"giga.rpc.max_subscriptions_new_head": "-1"},
+		"non-numeric logs cap":            {"giga.rpc.max_subscriptions_logs": "lots"},
 		"non-numeric per-connection cap":  {"giga.rpc.max_subscriptions_per_connection": "many"},
 		"zero request body size":          {"giga.rpc.max_request_body_bytes": "0"},
 		"negative request body size":      {"giga.rpc.max_request_body_bytes": "-1"},

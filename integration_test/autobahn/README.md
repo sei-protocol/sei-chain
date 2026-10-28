@@ -399,14 +399,15 @@ WebSocket (port 8546 by default):
 - Fees: `eth_gasPrice`, `eth_maxPriorityFeePerGas`, and `eth_feeHistory`.
 - Node: `eth_chainId`, `net_version`, and `eth_syncing`, which returns a
   not-supported error, as on the regular RPC.
-- Subscriptions, over WebSocket only: `eth_subscribe("newHeads")`.
+- Subscriptions, over WebSocket only: `eth_subscribe("newHeads")` and
+  `eth_subscribe("logs")`, which polls through the same cursor as a log
+  filter as blocks execute.
 
 A lookup for a pending or unknown hash returns `null`. Every other method
 returns JSON-RPC method-not-found, and `eth_subscribe` rejects any
-subscription other than `newHeads`:
+subscription other than `newHeads` and `logs`:
 
 - Not supported yet: the `debug_*` tracing and raw-data methods,
-  `eth_subscribe("logs")`,
   `eth_getVMError`, `eth_getTransactionErrorByHash`, `eth_createAccessList`,
   `eth_estimateGasAfterCalls`, and `web3_clientVersion`.
 - Not planned, because they need something the EVM-only chain does not have
@@ -442,7 +443,6 @@ subscription other than `newHeads`:
   bound outside the indexed, retained range returns an error. A log filter's
   `eth_getFilterChanges` poll covers at most as much, and later polls return
   the rest. `eth_feeHistory` covers at most 1,024 blocks.
-- `newHeads` is the only subscription.
 - Blocks and receipts below the node's retention window are pruned: a lookup by
   number returns an error, and a lookup by hash returns `null`.
 - Blob (EIP-4844) transactions are not accepted.
@@ -455,7 +455,7 @@ receipts.
 ### Request and WebSocket limits
 
 The same methods are served over WebSocket on port 8546
-(`giga.execution.evm_ws_port`), which also serves `eth_subscribe("newHeads")`.
+(`giga.execution.evm_ws_port`), which also serves `eth_subscribe`.
 The `[giga.rpc]` section of `app.toml` sets the limits the server enforces,
 with the same defaults as the regular EVM RPC; `0` disables a limit unless
 the row says otherwise:
@@ -463,6 +463,7 @@ the row says otherwise:
 | Key | Default | Limit |
 | --- | --- | --- |
 | `max_subscriptions_new_head` | 10000 | open `newHeads` subscriptions across all connections |
+| `max_subscriptions_logs` | 1000 | open `logs` subscriptions across all connections |
 | `max_subscriptions_per_connection` | 100 | open subscriptions on one WebSocket connection |
 | `max_request_body_bytes` | 5242880 (5 MiB) | size of one HTTP request body (larger ones get HTTP 413) or WebSocket message (closes the connection with code 1009); must be positive |
 | `max_concurrent_request_bytes` | 134217728 (128 MiB) | WebSocket request bytes read and processed at once; values below `max_request_body_bytes` act as `max_request_body_bytes` |
@@ -474,7 +475,7 @@ the row says otherwise:
 | `max_filters` | 1000 | installed `eth_newFilter` and `eth_newBlockFilter` filters |
 | `max_block_filter_hashes` | 1000 | unpolled blocks a block filter may fall behind by before it is removed |
 
-A subscription refused by either cap returns an error, and its slot frees when
+A subscription refused by a cap returns an error, and its slot frees when
 the client unsubscribes or the connection closes. A connection is identified by
 its remote address, so clients behind one proxy connection share its cap.
 

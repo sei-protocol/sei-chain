@@ -155,19 +155,20 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 	if err := rpcServer.RegisterName("eth", &blockAPI{backend: backend, store: receiptStore}); err != nil {
 		return nil, fmt.Errorf("register EVM-only block RPC: %w", err)
 	}
-	if err := rpcServer.RegisterName("eth", &filterAPI{
+	logs := &filterAPI{
 		backend:              backend,
 		store:                receiptStore,
 		filters:              newFilterRegistry(limits.FilterTimeout, limits.MaxFilters),
 		maxBlockFilterHashes: limits.MaxBlockFilterHashes,
-	}); err != nil {
+	}
+	if err := rpcServer.RegisterName("eth", logs); err != nil {
 		return nil, fmt.Errorf("register EVM-only filter RPC: %w", err)
 	}
 	if err := rpcServer.RegisterName("net", &netAPI{backend: backend}); err != nil {
 		return nil, fmt.Errorf("register EVM-only net RPC: %w", err)
 	}
-	subscriptions := newSubscriptionLimiter(limits.MaxSubscriptionsNewHead, limits.MaxSubscriptionsPerConnection)
-	if err := rpcServer.RegisterName("eth", &subscribeAPI{backend: backend, store: receiptStore, limits: subscriptions}); err != nil {
+	subscriptions := newSubscriptionLimiter(limits.MaxSubscriptionsNewHead, limits.MaxSubscriptionsLogs, limits.MaxSubscriptionsPerConnection)
+	if err := rpcServer.RegisterName("eth", &subscribeAPI{backend: backend, store: receiptStore, logs: logs, limits: subscriptions}); err != nil {
 		return nil, fmt.Errorf("register EVM-only subscription RPC: %w", err)
 	}
 	return rpcServer, nil
