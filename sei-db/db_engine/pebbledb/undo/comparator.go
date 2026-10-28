@@ -11,12 +11,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 )
 
-var (
-	StateKeyPrefix    = []byte{0x03}
-	CodeKeyPrefix     = []byte{0x07}
-	CodeHashKeyPrefix = []byte{0x08}
-	NonceKeyPrefix    = []byte{0x0a}
-	BalanceKeyPrefix  = []byte{0x21}
+// The type of a record, which follows its bucket. An account's records hold its balance, nonce and
+// code hash together.
+const (
+	storageRecord byte = 0x03
+	codeRecord    byte = 0x07
+	accountRecord byte = 0x0a
 )
 
 const (
@@ -25,12 +25,16 @@ const (
 	addressLen = keys.AddressLen
 	wordLen    = 32
 
-	addressKeyLen = 21 // type[1] | address[20]
 	storageKeyLen = 53 // type[1] | address[20] | slot[32]
 
 	// Prefixes exclude the trailing height[8].
 	addressPrefixLen = 29 // bucket[8] | type[1] | address[20]
 	storagePrefixLen = 61 // bucket[8] | type[1] | address[20] | slot[32]
+
+	// An account record's value is empty for an account that did not exist, and otherwise
+	// balance[32] | nonce[8], followed by codeHash[32] when the account held code.
+	accountNoCodeLen = wordLen + 8
+	accountLen       = accountNoCodeLen + wordLen
 
 	// Metadata sorts above every bucket reachable by an int64 block height.
 	metadataBucket = math.MaxUint64
@@ -39,32 +43,12 @@ const (
 // Comparer orders bucket | type | address | optional slot | height byte-wise.
 var Comparer = func() *pebble.Comparer {
 	c := *pebble.DefaultComparer
-	c.Name = "ss_undolog_evm_comparator_v2"
+	c.Name = "ss_undolog_evm_comparator_v3"
 	c.Split = splitKey
 	// The store only uses point keys, not range keys or NextPrefix.
 	c.ImmediateSuccessor = nil
 	return &c
 }()
-
-// keyLayout returns the logical key and value lengths for a supported EVM key.
-// Unknown types return zero lengths; code has a variable value length of -1.
-func keyLayout(key []byte) (keyLen, valueLen int) {
-	if len(key) == 0 {
-		return 0, 0
-	}
-	switch key[0] {
-	case StateKeyPrefix[0]:
-		return storageKeyLen, wordLen
-	case CodeKeyPrefix[0]:
-		return addressKeyLen, -1
-	case CodeHashKeyPrefix[0], BalanceKeyPrefix[0]:
-		return addressKeyLen, wordLen
-	case NonceKeyPrefix[0]:
-		return addressKeyLen, 8
-	default:
-		return 0, 0
-	}
-}
 
 // splitKey returns the prefix length excluding a record's height.
 func splitKey(k []byte) int {
@@ -74,13 +58,31 @@ func splitKey(k []byte) int {
 	}
 	// Shortened index keys may end before the height's fixed offset.
 	switch k[bucketLen] {
-	case StateKeyPrefix[0]:
+	case storageRecord:
 		return min(len(k), storagePrefixLen)
-	case CodeKeyPrefix[0], CodeHashKeyPrefix[0], NonceKeyPrefix[0], BalanceKeyPrefix[0]:
+	case codeRecord, accountRecord:
 		return min(len(k), addressPrefixLen)
 	default:
 		return len(k)
 	}
+}
+
+// historyKey returns the type | address | optional slot of the records holding the history of an EVM
+// key of kind, whose stripped key is its address and optional slot, and false for a kind the store
+// keeps no history of. An account field's history is its account's.
+func historyKey(kind keys.EVMKeyKind, stripped []byte) ([]byte, bool) {
+	var recordType byte
+	switch kind {
+	case keys.EVMKeyBalance, keys.EVMKeyNonce, keys.EVMKeyCodeHash:
+		recordType = accountRecord
+	case keys.EVMKeyCode:
+		recordType = codeRecord
+	case keys.EVMKeyStorage:
+		recordType = storageRecord
+	default:
+		return nil, false
+	}
+	return append([]byte{recordType}, stripped...), true
 }
 
 // recordKeyLen returns the encoded length of a record for key.

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"iter"
 	"maps"
 	"math/big"
 	"math/rand/v2"
@@ -47,6 +48,40 @@ func codeKey(addr common.Address) string {
 	return string(keys.BuildEVMKey(keys.EVMKeyCode, addr[:]))
 }
 
+func codeHashKey(addr common.Address) string {
+	return string(keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]))
+}
+
+// filledKey returns the EVM key of kind whose address and slot bytes are all fill.
+func filledKey(kind keys.EVMKeyKind, fill byte) string {
+	size := addressLen
+	if kind == keys.EVMKeyStorage {
+		size += wordLen
+	}
+	return string(keys.BuildEVMKey(kind, bytes.Repeat([]byte{fill}, size)))
+}
+
+// kindOf returns the kind of an EVM key.
+func kindOf(key string) keys.EVMKeyKind {
+	kind, _ := keys.ParseEVMKey([]byte(key))
+	return kind
+}
+
+// recordOf returns the type | address of addr's records of recordType.
+func recordOf(recordType byte, addr common.Address) string {
+	return string(append([]byte{recordType}, addr[:]...))
+}
+
+// accountValue returns the value of an account record for an account holding balance, nonce n and
+// code.
+func accountValue(balance, n uint64, code []byte) []byte {
+	value := append(word(balance), nonce(n)...)
+	if len(code) != 0 {
+		value = append(value, crypto.Keccak256(code)...)
+	}
+	return value
+}
+
 // storageKey returns the key of storage slot slot of addr.
 func storageKey(addr common.Address, slot uint64) string {
 	return string(keys.BuildEVMKey(keys.EVMKeyStorage, append(addr.Bytes(), word(slot)...)))
@@ -74,48 +109,63 @@ func (s liveState) Get(_ string, key []byte) ([]byte, bool) {
 
 func (liveState) Close() {}
 
-// priorsOf returns the change set of a block that replaced, for each key of prior, the value prior
-// holds for it, nil for none. A code hash changes only with its code, so it has no entry of its own.
-// The log records only what a block replaced, so an account field's value after the block is just
-// one that differs from its prior.
-func priorsOf(t testing.TB, prior map[string][]byte) *gigatypes.StateChangeSet {
+// changeSetOf returns the change set of a block that wrote keys, taking the state from prev to next:
+// each account it wrote goes from its whole state in prev to its whole state in next. A code hash
+// changes only with its code, so it has no entry of its own.
+func changeSetOf(t testing.TB, prev, next map[string][]byte, written iter.Seq[string]) *gigatypes.StateChangeSet {
 	t.Helper()
 	changes := &gigatypes.StateChangeSet{}
-	accounts := map[common.Address]*gigatypes.AccountChange{}
-	account := func(addr common.Address) *gigatypes.AccountChange {
-		if accounts[addr] == nil {
-			accounts[addr] = &gigatypes.AccountChange{Address: addr}
-		}
-		return accounts[addr]
-	}
-	for key, old := range prior {
-		addr := common.BytesToAddress([]byte(key[1 : 1+addressLen]))
-		switch key[0] {
-		case BalanceKeyPrefix[0]:
-			change := account(addr)
-			change.Prior.Balance = new(big.Int).SetBytes(old)
-			change.Account.Balance = new(big.Int).Add(change.Prior.Balance, big.NewInt(1))
-		case NonceKeyPrefix[0]:
-			var n uint64
-			if old != nil {
-				n = binary.BigEndian.Uint64(old)
+	accounts := map[common.Address]bool{}
+	for key := range written {
+		kind, stripped := keys.ParseEVMKey([]byte(key))
+		addr := common.BytesToAddress(stripped[:addressLen])
+		switch kind {
+		case keys.EVMKeyBalance, keys.EVMKeyNonce, keys.EVMKeyCode:
+			if !accounts[addr] {
+				accounts[addr] = true
+				changes.Accounts = append(changes.Accounts, gigatypes.AccountChange{
+					Address: addr, Account: accountIn(next, addr), Prior: accountIn(prev, addr)})
 			}
-			change := account(addr)
-			change.Prior.Nonce, change.Account.Nonce = n, n+1
-		case CodeKeyPrefix[0]:
-			change := account(addr)
-			change.Prior.Code, change.Account.Code = old, append(bytes.Clone(old), 0x00)
-		case StateKeyPrefix[0]:
+		case keys.EVMKeyStorage:
 			changes.Storage = append(changes.Storage, gigatypes.StorageChange{
-				Address: addr, Key: common.BytesToHash([]byte(key[1+addressLen:])), PriorValue: common.BytesToHash(old)})
+				Address:    addr,
+				Key:        common.BytesToHash(stripped[addressLen:]),
+				Delete:     next[key] == nil,
+				Value:      common.BytesToHash(next[key]),
+				PriorValue: common.BytesToHash(prev[key]),
+			})
 		default:
 			t.Fatalf("no change writes key %x on its own", key)
 		}
 	}
-	for _, change := range accounts {
-		changes.Accounts = append(changes.Accounts, *change)
-	}
 	return changes
+}
+
+// accountIn returns addr's account in state.
+func accountIn(state map[string][]byte, addr common.Address) gigatypes.AccountState {
+	account := gigatypes.AccountState{
+		Balance: new(big.Int).SetBytes(state[balanceKey(addr)]),
+		Code:    state[codeKey(addr)],
+	}
+	if n := state[nonceKey(addr)]; n != nil {
+		account.Nonce = binary.BigEndian.Uint64(n)
+	}
+	return account
+}
+
+// priorsOf returns the change set of a block that replaced, for each key of prior, the value prior
+// holds for it, nil for none, in a state holding nothing else. The log reads a block's new values
+// only to tell whether code changed, so the block extends each code by a byte and zeroes every other
+// key.
+func priorsOf(t testing.TB, prior map[string][]byte) *gigatypes.StateChangeSet {
+	t.Helper()
+	next := map[string][]byte{}
+	for key, old := range prior {
+		if kindOf(key) == keys.EVMKeyCode {
+			next[key] = append(bytes.Clone(old), 0x00)
+		}
+	}
+	return changeSetOf(t, prior, next, maps.Keys(prior))
 }
 
 // TestUndoLogByHand spells the store out: the live state after the last block, the value each block
@@ -246,37 +296,40 @@ func (c *chain) stateAt(height int64, key string) ([]byte, bool) {
 	return v, ok
 }
 
-// apply commits one block setting (or, for a nil value, deleting) each key, and feeds its prior
-// values to the store. As in the state commit store, a zero value is no value, except for code, which
-// is absent only when empty and carries its code hash.
+// apply commits one block setting (or, for a nil value, deleting) each key, and feeds its change set
+// to the store. As in the state commit store, a zero value is no value, except for code, which is
+// absent only when empty and carries its code hash while present.
 func (c *chain) apply(changes map[string][]byte, async bool) {
 	c.mu.Lock()
 	prev := c.states[len(c.states)-1]
 	version := c.base + int64(len(c.states))
 	next := maps.Clone(prev)
-	prior := map[string][]byte{}
 	set := func(key string, value []byte) {
-		if len(value) == 0 || key[0] != CodeKeyPrefix[0] && nonZero(value) == nil {
+		if len(value) == 0 || kindOf(key) != keys.EVMKeyCode && nonZero(value) == nil {
 			delete(next, key)
 		} else {
 			next[key] = value
 		}
 	}
 	for key, value := range changes {
-		prior[key] = prev[key]
 		set(key, value)
-		if key[0] == CodeKeyPrefix[0] {
-			set(string(CodeHashKeyPrefix)+key[1:], crypto.Keccak256(value))
+		if kind, addr := keys.ParseEVMKey([]byte(key)); kind == keys.EVMKeyCode {
+			var codeHash []byte
+			if len(value) != 0 {
+				codeHash = crypto.Keccak256(value)
+			}
+			set(codeHashKey(common.BytesToAddress(addr)), codeHash)
 		}
 	}
 	c.states = append(c.states, next)
 	c.mu.Unlock()
 
+	block := changeSetOf(c.t, prev, next, maps.Keys(changes))
 	if async {
-		c.db.ApplyBlock(version, priorsOf(c.t, prior), c.view(next))
+		c.db.ApplyBlock(version, block, c.view(next))
 		return
 	}
-	require.NoError(c.t, c.db.applyBlock(version, priorsOf(c.t, prior), c.view(next)))
+	require.NoError(c.t, c.db.applyBlock(version, block, c.view(next)))
 }
 
 // read returns key's value after block height through a view of the store.
@@ -320,8 +373,10 @@ func records(t testing.TB, db *Database) []record {
 	for itr.First(); itr.Valid(); itr.Next() {
 		height, err := decodeRecordHeight(itr.Key())
 		require.NoError(t, err)
-		value, err := decodeValue(itr.Value())
-		require.NoError(t, err)
+		var value []byte
+		if len(itr.Value()) != 0 {
+			value = bytes.Clone(itr.Value())
+		}
 		body := itr.Key()[:splitKey(itr.Key())]
 		out = append(out, record{
 			bucket: binary.BigEndian.Uint64(body),
@@ -354,9 +409,45 @@ func TestReadsFollowTheSpecExample(t *testing.T) {
 	}
 	require.Nil(t, read(t, c.db, 100, balance), "alice did not exist before block 101")
 
-	// 101, 103 and 109 land in bucket 10 and 112 in bucket 11, each holding the value before its block.
+	// 101, 103 and 109 land in bucket 10 and 112 in bucket 11, each holding alice's account before its
+	// block.
+	account := recordOf(accountRecord, alice)
 	require.Equal(t, []record{
-		{10, balance, 101, nil}, {10, balance, 103, word(10)}, {10, balance, 109, word(15)}, {11, balance, 112, word(25)},
+		{10, account, 101, nil},
+		{10, account, 103, accountValue(10, 0, nil)},
+		{10, account, 109, accountValue(15, 0, nil)},
+		{11, account, 112, accountValue(25, 0, nil)},
+	}, records(t, c.db))
+}
+
+// A block that changes any of an account's fields records all of them as they stood, so a read of
+// one field finds the account's record from a block that changed another.
+func TestAccountFieldsShareOneRecord(t *testing.T) {
+	c := newChain(t, t.TempDir(), 10, 0)
+	defer func() { require.NoError(t, c.db.Close()) }()
+	code := []byte{0x60, 0x00}
+	c.apply(map[string][]byte{balanceKey(alice): word(5), nonceKey(alice): nonce(1)}, false) // 1: alice created
+	c.apply(map[string][]byte{nonceKey(alice): nonce(2)}, false)                             // 2: nonce only
+	c.apply(map[string][]byte{codeKey(contract): code}, false)                               // 3: contract deployed
+	c.apply(map[string][]byte{balanceKey(contract): word(9)}, false)                         // 4: balance only
+	c.apply(map[string][]byte{balanceKey(alice): nil, nonceKey(alice): nil}, false)          // 5: alice emptied
+	c.apply(map[string][]byte{balanceKey(alice): word(7)}, false)                            // 6: alice recreated
+
+	for h := int64(0); h <= c.head(); h++ {
+		for _, addr := range []common.Address{alice, contract} {
+			for _, key := range []string{balanceKey(addr), nonceKey(addr), codeKey(addr), codeHashKey(addr)} {
+				c.requireRead(h, key)
+			}
+		}
+	}
+	require.Equal(t, []record{
+		{0, recordOf(codeRecord, contract), 3, nil},
+		{0, recordOf(accountRecord, contract), 3, nil},
+		{0, recordOf(accountRecord, contract), 4, accountValue(0, 0, code)},
+		{0, recordOf(accountRecord, alice), 1, nil},
+		{0, recordOf(accountRecord, alice), 2, accountValue(5, 1, nil)},
+		{0, recordOf(accountRecord, alice), 5, accountValue(5, 2, nil)},
+		{0, recordOf(accountRecord, alice), 6, nil},
 	}, records(t, c.db))
 }
 
@@ -403,6 +494,47 @@ func TestRandomHistoryMatchesTheModel(t *testing.T) {
 				}
 				for _, slot := range slots {
 					c.requireRead(h, slot)
+				}
+			}
+		})
+	}
+}
+
+func TestRandomAccountHistoryMatchesTheModel(t *testing.T) {
+	for _, async := range []bool{false, true} {
+		t.Run(fmt.Sprintf("async=%v", async), func(t *testing.T) {
+			rng := rand.New(rand.NewPCG(9, 10))
+			c := newChain(t, t.TempDir(), 7, 3)
+			defer func() { require.NoError(t, c.db.Close()) }()
+
+			var written, readable []string
+			for i := range uint64(6) {
+				addr := account(i + 1)
+				written = append(written, balanceKey(addr), nonceKey(addr), codeKey(addr))
+				readable = append(readable, balanceKey(addr), nonceKey(addr), codeKey(addr), codeHashKey(addr))
+			}
+			for range 150 {
+				// Most blocks change one field of an account, recording the others as they stood.
+				changes := map[string][]byte{}
+				for range rng.IntN(4) {
+					key := written[rng.IntN(len(written))]
+					switch {
+					case rng.IntN(4) == 0:
+						changes[key] = nil
+					case kindOf(key) == keys.EVMKeyCode:
+						changes[key] = bytes.Repeat([]byte{byte(rng.IntN(3))}, 1+rng.IntN(3))
+					case kindOf(key) == keys.EVMKeyNonce:
+						changes[key] = nonce(rng.Uint64N(4))
+					default:
+						changes[key] = word(rng.Uint64N(4))
+					}
+				}
+				c.apply(changes, async)
+			}
+			c.db.WaitForPendingWrites()
+			for h := c.base; h <= c.head(); h++ {
+				for _, key := range readable {
+					c.requireRead(h, key)
 				}
 			}
 		})
@@ -1099,14 +1231,14 @@ func TestEveryFamilyIsRecorded(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), height)
 	require.Len(t, records(t, db), recordCount(changes))
-	require.Equal(t, 5, recordCount(changes), "code records its code hash too")
+	require.Equal(t, 4, recordCount(changes), "an account's fields share a record, and code has its own")
 	db.latestHeight.Store(height)
 
 	// An empty block must still advance the committed height.
 	height, err = db.writeBlock(2, nil)
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), height)
-	require.Len(t, records(t, db), 5)
+	require.Len(t, records(t, db), 4)
 	latest, err := readMarker(db.storage, latestVersionKey)
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), latest)
@@ -1118,28 +1250,28 @@ func TestZeroByteCodeIsPresent(t *testing.T) {
 	c.apply(map[string][]byte{codeKey(contract): {0x00}}, false)
 	c.apply(map[string][]byte{codeKey(contract): {0x60, 0x00}}, false)
 	c.requireRead(1, codeKey(contract))
-	c.requireRead(1, string(CodeHashKeyPrefix)+codeKey(contract)[1:])
+	c.requireRead(1, codeHashKey(contract))
 }
 
 func TestEVMFamiliesReadAcrossFlushCompactionAndReopen(t *testing.T) {
 	dir := t.TempDir()
 	c := newChain(t, dir, 2, 0)
+	// The width of each kind's value before and after the update: code grows. A code hash is written
+	// with its code.
+	widths := map[keys.EVMKeyKind][2]int{
+		keys.EVMKeyBalance: {wordLen, wordLen},
+		keys.EVMKeyNonce:   {8, 8},
+		keys.EVMKeyCode:    {1, 4096},
+		keys.EVMKeyStorage: {wordLen, wordLen},
+	}
 	initial, updated, deleted := map[string][]byte{}, map[string][]byte{}, map[string][]byte{}
-	for _, kind := range evmTypes {
-		if kind == CodeHashKeyPrefix[0] {
-			continue // written with its code
-		}
-		_, size := keyLayout([]byte{kind})
+	for kind, width := range widths {
 		for _, fill := range []byte{0, 0xff} {
-			key := string(evmKey(kind, fill))
-			initial[key] = make([]byte, max(size, 1))
-			initial[key][len(initial[key])-1] = 1
-			updatedSize := size
-			if updatedSize < 0 {
-				updatedSize = 4096
-			}
-			updated[key] = make([]byte, updatedSize)
-			updated[key][len(updated[key])-1] = 2
+			key := filledKey(kind, fill)
+			initial[key] = make([]byte, width[0])
+			initial[key][width[0]-1] = 1
+			updated[key] = make([]byte, width[1])
+			updated[key][width[1]-1] = 2
 			deleted[key] = nil
 		}
 	}
@@ -1167,8 +1299,8 @@ func TestEVMFamiliesReadAcrossFlushCompactionAndReopen(t *testing.T) {
 	v, ok := c.db.OpenView(0)
 	require.True(t, ok)
 	defer v.Close()
-	for _, kind := range evmTypes {
-		value, err := v.Get(evmKey(kind, 2))
+	for _, kind := range []keys.EVMKeyKind{keys.EVMKeyBalance, keys.EVMKeyNonce, keys.EVMKeyCodeHash, keys.EVMKeyCode, keys.EVMKeyStorage} {
+		value, err := v.Get([]byte(filledKey(kind, 2)))
 		require.NoError(t, err)
 		require.Nil(t, value)
 	}
@@ -1181,7 +1313,8 @@ func TestReadsRejectUnsupportedAndMalformedKeys(t *testing.T) {
 	for _, height := range []int64{0, 1} {
 		v, ok := c.db.OpenView(height)
 		require.True(t, ok)
-		for _, key := range [][]byte{nil, {0xff}, {StateKeyPrefix[0]}, append([]byte{0x09}, make([]byte, addressLen)...)} {
+		for _, key := range [][]byte{nil, {0xff}, keys.StateKeyPrefix(), append([]byte{0x09}, make([]byte, addressLen)...)} {
+
 			_, err := v.Get(key)
 			require.ErrorContains(t, err, "unsupported or malformed")
 		}
@@ -1190,15 +1323,17 @@ func TestReadsRejectUnsupportedAndMalformedKeys(t *testing.T) {
 }
 
 func TestOldComparerIsRefused(t *testing.T) {
-	dir := t.TempDir()
-	oldComparer := *pebble.DefaultComparer
-	oldComparer.Name = "ss_undolog_comparator"
-	old, err := pebble.Open(dir, &pebble.Options{Comparer: &oldComparer})
-	require.NoError(t, err)
-	require.NoError(t, old.Close())
-	db, err := OpenDB(dir, testConfig())
-	if db != nil {
-		require.NoError(t, db.Close())
+	for _, name := range []string{"ss_undolog_comparator", "ss_undolog_evm_comparator_v2"} {
+		dir := t.TempDir()
+		oldComparer := *pebble.DefaultComparer
+		oldComparer.Name = name
+		old, err := pebble.Open(dir, &pebble.Options{Comparer: &oldComparer})
+		require.NoError(t, err)
+		require.NoError(t, old.Close())
+		db, err := OpenDB(dir, testConfig())
+		if db != nil {
+			require.NoError(t, db.Close())
+		}
+		require.ErrorContains(t, err, "comparer", name)
 	}
-	require.ErrorContains(t, err, "comparer")
 }
