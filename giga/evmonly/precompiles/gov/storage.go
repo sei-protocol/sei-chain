@@ -41,14 +41,6 @@ type proposal struct {
 	tallyNoWithVeto *big.Int
 }
 
-// Plan is GovStorage.Plan, the scheduled software upgrade.
-type Plan struct {
-	Name       string
-	Height     int64
-	Info       string
-	ProposalID uint64
-}
-
 // weightedVote is GovStorage.WeightedVote.
 type weightedVote struct {
 	option int32
@@ -246,14 +238,6 @@ func (s store) votersByProposal(id uint64) solstorage.Set {
 	return solstorage.Set{Store: s.Store, Base: solstorage.MapUint64(solstorage.Slot(slotVotersByProposal), id)}
 }
 
-func (s store) proposalsVotedBy(voter common.Address) solstorage.Set {
-	return solstorage.Set{Store: s.Store, Base: solstorage.MapAddress(solstorage.Slot(slotProposalsVotedBy), voter)}
-}
-
-func (s store) proposalsDepositedBy(depositor common.Address) solstorage.Set {
-	return solstorage.Set{Store: s.Store, Base: solstorage.MapAddress(solstorage.Slot(slotProposalsDepositedBy), depositor)}
-}
-
 // proposalQueue holds proposals by when they end, lowest id first among
 // proposals ending together.
 type proposalQueue struct {
@@ -363,27 +347,4 @@ func (s store) tallyDeduction(id uint64, validator common.Address) *big.Int {
 
 func (s store) setTallyDeduction(id uint64, validator common.Address, shares *big.Int) {
 	s.SetUint256(tallyDeductionSlot(id, validator), shares)
-}
-
-func (s store) plan() Plan {
-	base := solstorage.Slot(slotPlan)
-	return Plan{
-		Name:       s.String(at(base, planName)),
-		Height:     s.Int64(at(base, planHeight), planHeight.offset),
-		Info:       s.String(at(base, planInfo)),
-		ProposalID: s.Uint64(at(base, planProposalID), planProposalID.offset),
-	}
-}
-
-func (s store) setPlan(p Plan) {
-	base := solstorage.Slot(slotPlan)
-	s.SetString(at(base, planName), p.Name)
-	s.SetInt64(at(base, planHeight), planHeight.offset, p.Height)
-	s.SetString(at(base, planInfo), p.Info)
-	s.SetUint64(at(base, planProposalID), planProposalID.offset, p.ProposalID)
-}
-
-// appliedPlanHeight returns the height plan name was applied at, 0 if never.
-func (s store) appliedPlanHeight(name string) int64 {
-	return s.Int64(solstorage.MapString(solstorage.Slot(slotAppliedPlanHeight), name), 0)
 }

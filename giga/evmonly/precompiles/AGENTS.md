@@ -11,8 +11,12 @@ same result from the same block, so each rule below is a consensus rule.
   is a whole second until CON-572 lands; depend on neither that nor sub-second
   resolution.
 - Read and write nothing off-chain: no files, network, environment, wall clock,
-  or randomness. `EndBlock` returns work it could not carry out as a failure,
-  which the executor logs; a returned error fails the block.
+  or randomness.
+- `EndBlock` returns the operations that failed, such as a passed proposal
+  that could not execute, and the executor logs them. Work it defers to a later
+  block is not a failure. A returned error fails the block.
+- A loop whose length comes from storage stops once `ctx.State.Failed()`: reads
+  after a failure, such as running out of gas, return zeros and cost nothing.
 - Compiled-in constants are allowed, but changing one changes the app hash and
   needs an upgrade.
 
@@ -22,6 +26,14 @@ same result from the same block, so each rule below is a consensus rule.
   by 1e18, accounts as `address`. No JSON and no numbers as strings.
 - Match V2's operations and their rules, not its wire format. The seid CLI
   translates V2's JSON and output shapes.
+- Each precompile package holds its Solidity interface (e.g. `gov/Gov.sol`) next
+  to the embedded `abi.json`, generated from it.
+- A method in a shipped ABI keeps its selector. Its implementation may become a
+  revert whose error names the call to use instead. Today the shipped ABI is
+  V2's; once this chain ships, it is every ABI it has shipped. CON-567 tracks
+  checking deviations.
+- Reject delegatecall, reject state changes under staticcall, and reject value
+  sent to a method the ABI does not mark payable.
 
 ## Concurrency and determinism
 - `Run` is called concurrently from OCC workers. A `Contract` keeps no mutable
@@ -29,7 +41,8 @@ same result from the same block, so each rule below is a consensus rule.
 - No goroutines, no map-iteration order in results, no floating point.
 
 ## Gas
-- `RequiredGas` is the flat per-call cost (V2's `DefaultGasCost` formula).
+- `RequiredGas` prices a call from its selector and argument bytes alone (V2's
+  `DefaultGasCost` formula).
   Storage reads, writes and logs are metered by the adapter; do not price them
   into `RequiredGas`.
 - `EndBlock` is not metered. An end blocker bounds its own per-block work (see

@@ -6,6 +6,8 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
@@ -106,8 +108,7 @@ func castVote(ctx *precompiles.Context, s store, id uint64, options []weightedVo
 	}
 	s.setVote(id, ctx.Caller, options)
 	s.votersByProposal(id).Add(solstorage.AddressKey(ctx.Caller))
-	s.proposalsVotedBy(ctx.Caller).Add(solstorage.Slot(id))
-	return nil
+	return emit(ctx, ProposalVoteEvent, []common.Hash{idTopic(id), addressTopic(ctx.Caller)}, voteData(id, ctx.Caller, options).Options)
 }
 
 func (p Precompile) deposit(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
@@ -123,7 +124,7 @@ func (p Precompile) deposit(ctx *precompiles.Context, s store, method *abi.Metho
 	if !ok {
 		return nil, fmt.Errorf("%w: %d", errUnknownProposal, id)
 	}
-	if err := addDeposit(ctx, s, id, prop, amount); err != nil {
+	if _, err := addDeposit(ctx, s, id, prop, amount); err != nil {
 		return nil, err
 	}
 	return method.Outputs.Pack(true)
@@ -132,18 +133,6 @@ func (p Precompile) deposit(ctx *precompiles.Context, s store, method *abi.Metho
 func (p Precompile) submitTextProposal(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
 	content := textContent{Title: args[0].(string), Description: args[1].(string), IsExpedited: args[2].(bool)}
 	return submit(ctx, s, method, content, content.IsExpedited)
-}
-
-func (p Precompile) submitSoftwareUpgradeProposal(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
-	var plan UpgradePlan
-	abi.ConvertType(args[3], &plan)
-	content := softwareUpgradeContent{Title: args[0].(string), Description: args[1].(string), Plan: plan}
-	return submit(ctx, s, method, content, args[2].(bool))
-}
-
-func (p Precompile) submitCancelSoftwareUpgradeProposal(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
-	content := cancelSoftwareUpgradeContent{Title: args[0].(string), Description: args[1].(string)}
-	return submit(ctx, s, method, content, args[2].(bool))
 }
 
 // submit creates a proposal of content and returns its packed id.
@@ -186,47 +175,49 @@ func createProposal(ctx *precompiles.Context, s store, content govContent, isExp
 	s.setProposalContent(id, contentType, encoded)
 	s.depositQueue().add(id, prop.depositEndTime)
 
+	votingStarted := false
 	if amount.Sign() > 0 {
-		if err := addDeposit(ctx, s, id, prop, amount); err != nil {
+		if votingStarted, err = addDeposit(ctx, s, id, prop, amount); err != nil {
 			return 0, err
 		}
 	}
-	return id, nil
+	return id, emit(ctx, SubmitProposalEvent, []common.Hash{idTopic(id), addressTopic(ctx.Caller)}, contentType, votingStarted)
 }
 
 // addDeposit moves amount from the precompile's balance into escrow, credits it
-// to the caller on proposal id, and opens voting once the minimum is reached.
-func addDeposit(ctx *precompiles.Context, s store, id uint64, prop proposal, amount *big.Int) error {
+// to the caller on proposal id, and opens voting once the minimum is reached,
+// reporting whether it did.
+func addDeposit(ctx *precompiles.Context, s store, id uint64, prop proposal, amount *big.Int) (bool, error) {
 	switch {
 	case prop.status == StatusDepositPeriod && ctx.Block.UnixNano <= prop.depositEndTime:
 	case votingOpen(s, id, prop, ctx.Block.UnixNano):
 	default:
-		return fmt.Errorf("%w: %d", errInactiveProposal, id)
+		return false, fmt.Errorf("%w: %d", errInactiveProposal, id)
 	}
 	depositors := s.depositors(id)
 	if !depositors.Contains(solstorage.AddressKey(ctx.Caller)) {
 		if depositors.Len() >= maxDepositors {
-			return fmt.Errorf("%w: %d", errTooManyDepositors, id)
+			return false, fmt.Errorf("%w: %d", errTooManyDepositors, id)
 		}
 		if share := depositorShare(s.params(), prop.isExpedited); amount.Cmp(share) < 0 {
-			return fmt.Errorf("%w: a first deposit must be at least %s wei", errDepositTooSmall, share)
+			return false, fmt.Errorf("%w: a first deposit must be at least %s wei", errDepositTooSmall, share)
 		}
 	}
 	if err := ctx.State.SubBalance(ctx.Address, amount); err != nil {
-		return err
+		return false, err
 	}
 	ctx.State.AddBalance(DepositEscrow, amount)
 
 	prop.totalDeposit = new(big.Int).Add(prop.totalDeposit, amount)
-	if prop.status == StatusDepositPeriod && prop.totalDeposit.Cmp(minDeposit(s.params(), prop.isExpedited)) >= 0 {
+	votingStarted := prop.status == StatusDepositPeriod && prop.totalDeposit.Cmp(minDeposit(s.params(), prop.isExpedited)) >= 0
+	if votingStarted {
 		activateVotingPeriod(ctx, s, id, &prop)
 	}
 	s.setProposal(id, prop)
 
 	s.setDeposit(id, ctx.Caller, new(big.Int).Add(s.deposit(id, ctx.Caller), amount))
 	depositors.Add(solstorage.AddressKey(ctx.Caller))
-	s.proposalsDepositedBy(ctx.Caller).Add(solstorage.Slot(id))
-	return nil
+	return votingStarted, emit(ctx, ProposalDepositEvent, []common.Hash{idTopic(id), addressTopic(ctx.Caller)}, amount, votingStarted)
 }
 
 func activateVotingPeriod(ctx *precompiles.Context, s store, id uint64, prop *proposal) {
@@ -267,4 +258,24 @@ func depositAmount(value *big.Int) (*big.Int, error) {
 
 func validOption(option int32) bool {
 	return option >= OptionYes && option <= OptionNoWithVeto
+}
+
+// emit logs event name with the indexed topics after its signature and data as
+// its non-indexed fields.
+func emit(ctx *precompiles.Context, name string, indexed []common.Hash, data ...interface{}) error {
+	event := ABI.Events[name]
+	bz, err := event.Inputs.NonIndexed().Pack(data...)
+	if err != nil {
+		return err
+	}
+	ctx.Logs.AddLog(&ethtypes.Log{Address: ctx.Address, Topics: append([]common.Hash{event.ID}, indexed...), Data: bz})
+	return nil
+}
+
+func idTopic(id uint64) common.Hash {
+	return common.BigToHash(new(big.Int).SetUint64(id))
+}
+
+func addressTopic(a common.Address) common.Hash {
+	return common.BytesToHash(a[:])
 }

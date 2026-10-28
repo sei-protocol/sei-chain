@@ -34,12 +34,6 @@ type (
 		Weight *big.Int
 	}
 
-	UpgradePlan struct {
-		Name   string
-		Height int64
-		Info   string
-	}
-
 	ProposalData struct {
 		Id               uint64
 		Status           int32

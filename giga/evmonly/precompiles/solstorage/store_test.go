@@ -26,6 +26,7 @@ func (m mapState) SubBalance(common.Address, *big.Int) error { panic("unsupporte
 func (m mapState) GetNonce(common.Address) uint64            { panic("unsupported") }
 func (m mapState) SetNonce(common.Address, uint64)           { panic("unsupported") }
 func (m mapState) GetCode(common.Address) []byte             { panic("unsupported") }
+func (m mapState) Failed() bool                              { return false }
 
 func TestStringShrinkingClearsChunks(t *testing.T) {
 	state := mapState{}

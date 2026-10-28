@@ -11,19 +11,16 @@ import (
 var _ precompiles.EndBlocker = Precompile{}
 
 // endBlockBudget bounds each of one EndBlock's two kinds of work, dropping
-// proposals and ending votes, as x/gov's MaxVotesProcessedPerBlock does.
-// Dropping a proposal costs one unit, plus one per depositor and one per word
-// of its stored content; counting a vote costs one; finishing a tally costs
-// one per bonded validator, one, and one per depositor. Work past its budget waits for the next EndBlock, and work larger than
-// the budget runs alone in one.
+// proposals and ending votes, as x/gov's MaxVotesProcessedPerBlock does, in the
+// units dropCost, settleCost and one per counted vote measure. Work past its
+// budget waits for the next EndBlock, and work larger than the budget runs alone
+// in one.
 const endBlockBudget = 1_000
 
 // EndBlock drops proposals whose deposit period ended short of the minimum
 // deposit, then tallies and settles those whose voting period is over, each in
 // order of end time, then id, as x/gov's EndBlocker does. Its failures are
 // passed proposals that failed to execute.
-//
-// TODO(giga upgrade): apply the plan at its height and record appliedPlanHeight.
 func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.State) ([]error, error) {
 	s := newStore(state)
 	if err := dropDueProposals(s, block.UnixNano); err != nil {
@@ -59,6 +56,13 @@ func dropDueProposals(s store, now uint64) error {
 // and every word of the proposal's content.
 func dropCost(s store, id uint64) uint64 {
 	return 1 + s.depositors(id).Len() + s.proposalContentChunks(id)
+}
+
+// settleCost is the budget finishing proposal id's tally costs: it credits every
+// bonded validator, settles every depositor, and reads the proposal's content to
+// execute it.
+func settleCost(s store, id uint64, snap electorateSnapshot) uint64 {
+	return uint64(len(snap.validators)) + 1 + s.depositors(id).Len() + s.proposalContentChunks(id)
 }
 
 // take spends n of budget, reporting whether the work may run. Work larger than
@@ -101,7 +105,7 @@ func (p Precompile) endVoting(block precompiles.BlockContext, state precompiles.
 	if !countVotes(state, p.Electorate, s, id, snap, budget) {
 		return false, nil
 	}
-	if !take(budget, uint64(len(snap.validators))+1+s.depositors(id).Len()) {
+	if !take(budget, settleCost(s, id, snap)) {
 		return false, nil
 	}
 	params := s.params()
@@ -148,7 +152,6 @@ func settleDeposits(s store, id uint64, burn bool) error {
 		}
 		s.setDeposit(id, depositor, new(big.Int))
 		depositors.Remove(member)
-		s.proposalsDepositedBy(depositor).Remove(solstorage.Slot(id))
 	}
 	return nil
 }

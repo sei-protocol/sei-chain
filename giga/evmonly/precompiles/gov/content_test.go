@@ -20,17 +20,8 @@ func TestExpeditedTextKeepsItsContentWhenDemoted(t *testing.T) {
 
 func TestProposalReturnsStoredContent(t *testing.T) {
 	h := newHarness(t)
-	for _, tc := range []struct {
-		sub  submission
-		want govContent
-	}{
-		{textProposal, textContent{Title: "t", Description: "d"}},
-		{upgradeProposal("v2", 10), softwareUpgradeContent{Title: "t", Description: "d", Plan: UpgradePlan{Name: "v2", Height: 10, Info: "i"}}},
-		{cancelProposal, cancelSoftwareUpgradeContent{Title: "t", Description: "d"}},
-	} {
-		got := h.proposal(h.submit(alice, tc.sub, nil))
-		wantType, wantBytes := encodeContent(tc.want)
-		require.Equal(t, wantType, got.ContentType, tc.sub.method)
-		require.Equal(t, wantBytes, got.Content, tc.sub.method)
-	}
+	got := h.proposal(h.submit(alice, textProposal, nil))
+	wantType, wantBytes := encodeContent(textContent{Title: "t", Description: "d"})
+	require.Equal(t, wantType, got.ContentType)
+	require.Equal(t, wantBytes, got.Content)
 }
