@@ -93,6 +93,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	var source StateReader = gigaSnapshotStateReader{
 		snapshot:     snapshot,
 		missingState: e.missingState,
+		codes:        e.codes,
 	}
 	source = pending.overlay(source)
 
@@ -401,6 +402,8 @@ func (e *Executor) commitState(blockNumber int64, changesets []*proto.NamedChang
 type gigaSnapshotStateReader struct {
 	snapshot     gigatypes.EVMStateView
 	missingState StateReader
+	// Optional: nil copies code out of the snapshot on every read.
+	codes *codeCache
 }
 
 // A non-zero balance, nonce, or code proves the account exists in the snapshot,
@@ -445,7 +448,11 @@ func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (AccountState,
 	}
 	// An account with the empty-code hash has no code, so the code store need not be asked.
 	if row.CodeHash != gigatypes.EmptyCodeHash {
-		account.Code = cloneBytes(r.snapshot.GetCode(addr))
+		if r.codes != nil {
+			account.Code = r.codes.get(row.CodeHash, func() []byte { return r.snapshot.GetCode(addr) })
+		} else {
+			account.Code = cloneBytes(r.snapshot.GetCode(addr))
+		}
 	}
 	return account, common.Hash(row.CodeHash), true
 }
