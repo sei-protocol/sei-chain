@@ -2,13 +2,12 @@
 // docs/giga-storage/ParamsStorage.sol, held as contract storage at Address,
 // and its params are the ones declared in that schema and in this package.
 //
-// Its ABI is precompiles/params' with param and paramKeys added.
+// Its ABI is Params.sol.
 package params
 
 import (
 	"bytes"
 	_ "embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
-	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
 //go:embed abi.json
@@ -32,7 +30,6 @@ var ABI = func() abi.ABI {
 }()
 
 const (
-	ParamsMethod    = "params"
 	ParamMethod     = "param"
 	ParamKeysMethod = "paramKeys"
 )
@@ -86,8 +83,6 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 		return nil, errNonPayable
 	}
 	switch method.Name {
-	case ParamsMethod:
-		return paramsQuery(ctx.State, method, args[0].(string), args[1].(string))
 	case ParamMethod:
 		return paramQuery(ctx.State, method, args[0].(string), args[1].(string))
 	case ParamKeysMethod:
@@ -105,55 +100,6 @@ func methodOf(input []byte) (*abi.Method, error) {
 		return nil, errUnknownMethod
 	}
 	return method, nil
-}
-
-// paramsQuery returns V2 key's value as amino JSON, or "" for an undeclared key.
-func paramsQuery(state precompiles.State, method *abi.Method, subspaceName, key string) ([]byte, error) {
-	ss, ok := lookupSubspace(subspaceName)
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", errUnknownSubspace, subspaceName)
-	}
-	value, err := aminoJSON(newStore(state), ss, key)
-	if err != nil {
-		return nil, err
-	}
-	return method.Outputs.Pack(value)
-}
-
-func aminoJSON(s solstorage.Store, ss *subspace, key string) (string, error) {
-	ps, isStruct := ss.v2Params(key)
-	if len(ps) == 0 {
-		return "", nil
-	}
-	if !isStruct {
-		bz, err := json.Marshal(ps[0].kind.toJSON(ss.get(s, ps[0])))
-		return string(bz), err
-	}
-	var buf bytes.Buffer
-	buf.WriteByte('{')
-	for _, p := range ps {
-		v := ss.get(s, p)
-		if v.Sign() == 0 && p.kind.omitZero {
-			continue
-		}
-		_, field := p.v2Key()
-		name, err := json.Marshal(field)
-		if err != nil {
-			return "", err
-		}
-		value, err := json.Marshal(p.kind.toJSON(v))
-		if err != nil {
-			return "", err
-		}
-		if buf.Len() > 1 {
-			buf.WriteByte(',')
-		}
-		buf.Write(name)
-		buf.WriteByte(':')
-		buf.Write(value)
-	}
-	buf.WriteByte('}')
-	return buf.String(), nil
 }
 
 // paramQuery returns a param's value as abi.encode of its Solidity type.

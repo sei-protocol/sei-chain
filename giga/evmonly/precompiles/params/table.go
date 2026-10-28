@@ -1,9 +1,7 @@
 package params
 
 import (
-	"encoding/json"
 	"math/big"
-	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -11,36 +9,24 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
-// valueKind is how a param's value is stored, ABI-encoded and written as amino
-// JSON.
+// valueKind is the Solidity type a param's value is stored and ABI-encoded as.
 type valueKind struct {
-	solType  string // Solidity type of the stored and ABI-encoded value
-	bits     int
-	fromJSON func(json.RawMessage) (*big.Int, error)
-	toJSON   func(*big.Int) any
-	omitZero bool // amino leaves the field out of a struct when the value is zero
+	solType string
+	bits    int
 }
 
 var (
-	durationKind = valueKind{solType: "uint64", bits: 64, fromJSON: parseDuration, toJSON: formatDuration, omitZero: true}
-	decKind      = valueKind{solType: "uint256", bits: 256, fromJSON: parseDec, toJSON: formatDec}
-	coinsKind    = valueKind{solType: "uint256", bits: 256, fromJSON: parseCoins, toJSON: formatCoins, omitZero: true}
+	uint64Kind  = valueKind{solType: "uint64", bits: 64}
+	uint256Kind = valueKind{solType: "uint256", bits: 256}
 )
 
 // param is one declared param.
 type param struct {
 	// key is the V2 key for a scalar, or the V2 key, ".", and the field's
-	// amino JSON name for a field of a struct-valued V2 key.
+	// name for a field of a struct-valued V2 key.
 	key  string
 	kind valueKind
 	at   member
-}
-
-// v2Key returns the V2 key p is or belongs to, and its field name, empty for a
-// scalar.
-func (p param) v2Key() (key, field string) {
-	key, field, _ = strings.Cut(p.key, ".")
-	return key, field
 }
 
 // values holds params by flat key.
@@ -74,19 +60,6 @@ func (ss *subspace) param(key string) (param, bool) {
 		}
 	}
 	return param{}, false
-}
-
-// v2Params returns the params V2 key holds, in amino field order, and whether
-// key is a struct-valued key.
-func (ss *subspace) v2Params(key string) (ps []param, isStruct bool) {
-	for _, p := range ss.params {
-		k, field := p.v2Key()
-		if k == key {
-			ps = append(ps, p)
-			isStruct = field != ""
-		}
-	}
-	return ps, isStruct
 }
 
 func (ss *subspace) slotOf(p param) common.Hash {

@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-/// @dev Matches `PARAMS_PRECOMPILE_ADDRESS` in `precompiles/params/Params.sol`.
+/// @dev Matches `PARAMS_PRECOMPILE_ADDRESS` in `giga/evmonly/precompiles/params/Params.sol`.
 address constant PARAMS_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001013;
 
 /// @notice Storage schema of the evmonly params precompile (0x1013), held as that
 /// address's contract storage. Each subspace is one struct at a fixed slot, and
 /// each declared param is one field of it.
-/// @dev Value encodings, from the V2 amino types:
+/// @dev Values by V2 type:
 /// - Dec: uint256, fixed point with 18 decimal places (1e18 is 1).
 /// - Duration: uint64 nanoseconds.
-/// - Coins: uint256 usei; only the usei denom is accepted.
-/// - Int: uint256.
-/// - Other integers, bool, string and address: the same Solidity type.
+/// - Coins: uint256 usei; only the usei denom exists.
+/// Other V2 types have no stored form until a param needs one.
 ///
 /// The layout only grows. A new param takes slots from its struct's `__gap`, a
 /// new subspace is appended as a new state variable, and a retired param keeps

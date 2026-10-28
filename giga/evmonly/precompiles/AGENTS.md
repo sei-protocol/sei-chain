@@ -42,7 +42,8 @@ same result from the same block, so each rule below is a consensus rule.
   code a nonce of 1, so the EVM treats any account holding storage as existing.
 - Chain params live in the params precompile's storage (0x1013), laid out by
   `docs/giga-storage/ParamsStorage.sol` and declared in `params`. Read them
-  through `params`; do not keep a copy in another precompile's storage.
+  with the `params` package's Go readers, such as `ReadGov`; do not keep a copy
+  in another precompile's storage.
 
 ## ABI
 - Each precompile package holds its Solidity interface (e.g. `gov/Gov.sol`) next

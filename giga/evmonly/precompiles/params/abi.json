@@ -1,80 +1,56 @@
 [
   {
-    "inputs": [
-      {
-        "internalType": "string",
-        "name": "subspace",
-        "type": "string"
-      },
-      {
-        "internalType": "string",
-        "name": "key",
-        "type": "string"
-      }
-    ],
-    "name": "params",
-    "outputs": [
-      {
-        "internalType": "string",
-        "name": "value",
-        "type": "string"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string",
-        "name": "subspace",
-        "type": "string"
-      },
-      {
-        "internalType": "string",
-        "name": "key",
-        "type": "string"
-      }
-    ],
+    "type": "function",
     "name": "param",
-    "outputs": [
+    "inputs": [
       {
-        "internalType": "bytes",
-        "name": "value",
-        "type": "bytes"
+        "name": "subspace",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "key",
+        "type": "string",
+        "internalType": "string"
       }
     ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "paramKeys",
     "outputs": [
       {
+        "name": "value",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "paramKeys",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "keys",
+        "type": "tuple[]",
+        "internalType": "struct IParams.ParamKey[]",
         "components": [
           {
-            "internalType": "string",
             "name": "subspace",
-            "type": "string"
+            "type": "string",
+            "internalType": "string"
           },
           {
-            "internalType": "string",
             "name": "key",
-            "type": "string"
+            "type": "string",
+            "internalType": "string"
           },
           {
-            "internalType": "string",
             "name": "valueType",
-            "type": "string"
+            "type": "string",
+            "internalType": "string"
           }
-        ],
-        "internalType": "struct IParams.ParamKey[]",
-        "name": "keys",
-        "type": "tuple[]"
+        ]
       }
     ],
-    "stateMutability": "view",
-    "type": "function"
+    "stateMutability": "view"
   }
 ]

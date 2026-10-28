@@ -15,14 +15,6 @@ interface IParams {
     // Queries
 
     /**
-     * @notice Get the stored value of a module parameter
-     * @param subspace The parameter subspace, e.g. "gov"; an unknown subspace reverts
-     * @param key The parameter key, e.g. "tallyparams"; an unknown key returns an empty string
-     * @return value The parameter's amino-JSON encoding; durations are nanosecond strings, e.g. "259200000000000"
-     */
-    function params(string memory subspace, string memory key) external view returns (string memory value);
-
-    /**
      * @notice Get the stored value of a param
      * @param subspace The param's subspace, e.g. "gov"; an unknown subspace reverts
      * @param key The param's flat key, e.g. "tallyparams.quorum"; an unknown key reverts

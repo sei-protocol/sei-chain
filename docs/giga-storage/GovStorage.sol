@@ -8,7 +8,8 @@ address constant GOV_PRECOMPILE_ADDRESS = 0x000000000000000000000000000000000000
 
 /// @notice Storage schema of the evmonly gov precompile (0x1006), held as that
 /// address's contract storage.
-/// @dev Deposits are held as the balance of a separate escrow address, not in
+/// @dev Gov's params are `ParamsStorage.gov`, in the params precompile's
+/// storage. Deposits are held as the balance of a separate escrow address, not in
 /// state variables. The precompile's ABI has no authz grant methods, so there is
 /// no grant storage. `appliedPlanHeight` records the height each upgrade plan
 /// was applied at, for an upgrade precompile to read.
