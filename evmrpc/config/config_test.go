@@ -39,7 +39,6 @@ type opts struct {
 	maxEstimateGasCalls          interface{}
 	maxSubscriptionsNewHead      interface{}
 	maxSubscriptionsLogs         interface{}
-	enableTestAPI                interface{}
 	maxConcurrentTraceCalls      interface{}
 	maxConcurrentSimulationCalls interface{}
 	maxTraceLookbackBlocks       interface{}
@@ -150,9 +149,6 @@ func (o *opts) Get(k string) interface{} {
 	}
 	if k == "evm.max_subscriptions_logs" {
 		return o.maxSubscriptionsLogs
-	}
-	if k == "evm.enable_test_api" {
-		return o.enableTestAPI
 	}
 	if k == "evm.max_concurrent_trace_calls" {
 		return o.maxConcurrentTraceCalls
@@ -279,7 +275,6 @@ func getDefaultOpts() opts {
 		100,
 		10000,
 		1000,
-		false,
 		uint64(10),
 		uint64(10),
 		int64(100),

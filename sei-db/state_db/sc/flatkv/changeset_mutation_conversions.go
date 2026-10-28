@@ -1,4 +1,4 @@
-package mutation
+package flatkv
 
 import (
 	"encoding/binary"
@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
@@ -25,7 +26,7 @@ func MutationsFromChangeSets(
 	blockHeight uint64,
 	// The state as of the block before blockHeight. Supplies each mutation's previous value.
 	priorState gigatypes.StateView,
-) ([]Mutation, error) {
+) ([]mutation.Mutation, error) {
 	priorHeight := priorState.GetBlockHeight()
 	//nolint:gosec // a non-negative height converts exactly
 	if priorHeight < 0 || uint64(priorHeight)+1 != blockHeight {
@@ -88,7 +89,7 @@ func MutationsFromChangeSets(
 	}
 	priorValues := priorState.BatchGetRaw(physicalKeys)
 
-	mutations := make([]Mutation, len(physicalKeys))
+	mutations := make([]mutation.Mutation, len(physicalKeys))
 	for i, key := range physicalKeys {
 		previousValue := priorValues[string(key)]
 		var newValue []byte
@@ -101,20 +102,19 @@ func MutationsFromChangeSets(
 		} else {
 			newValue = nonAccountNewValues[string(key)]
 		}
-		mutations[i] = Mutation{Key: key, PreviousValue: previousValue, NewValue: newValue}
+		mutations[i] = mutation.Mutation{Key: key, PreviousValue: previousValue, NewValue: newValue}
 	}
 	return mutations, nil
 }
 
-// ToChangeSet converts the mutation into a changeset that writes its new value, with one entry per account field for
-// an account row. The previous value is not carried over. Neither the mutation nor the returned changeset may be
-// modified.
-func (m *Mutation) ToChangeSet() (*proto.NamedChangeSet, error) {
+// MutationToChangeSet returns a changeset that writes m's new value, with one entry per account field for an account
+// row. The previous value is not carried over. Neither m nor the returned changeset may be modified.
+func MutationToChangeSet(m *mutation.Mutation) (*proto.NamedChangeSet, error) {
 	moduleName, key, err := ktype.StripModulePrefix(m.Key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse key %x: %w", m.Key, err)
 	}
-	pairs, err := m.changeSetPairs(moduleName, key)
+	pairs, err := changeSetPairs(m, moduleName, key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert key %x: %w", m.Key, err)
 	}
@@ -123,11 +123,11 @@ func (m *Mutation) ToChangeSet() (*proto.NamedChangeSet, error) {
 
 // MutationsToChangeSets converts mutations into one changeset per module that they write. Previous values are not
 // carried over. Neither the mutations nor the returned changesets may be modified.
-func MutationsToChangeSets(mutations []Mutation) ([]*proto.NamedChangeSet, error) {
+func MutationsToChangeSets(mutations []mutation.Mutation) ([]*proto.NamedChangeSet, error) {
 	var changeSets []*proto.NamedChangeSet
 	changeSetByModule := make(map[string]*proto.NamedChangeSet)
 	for i := range mutations {
-		changeSet, err := mutations[i].ToChangeSet()
+		changeSet, err := MutationToChangeSet(&mutations[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert mutation %d: %w", i, err)
 		}
@@ -205,8 +205,10 @@ func rowValue(
 	}
 }
 
-// changeSetPairs returns the changeset pairs that write the mutation's new value.
-func (m *Mutation) changeSetPairs(
+// changeSetPairs returns the changeset pairs that write m's new value.
+func changeSetPairs(
+	// The mutation to convert.
+	m *mutation.Mutation,
 	// The module the mutation's key belongs to.
 	moduleName string,
 	// The mutation's key with the module prefix removed.

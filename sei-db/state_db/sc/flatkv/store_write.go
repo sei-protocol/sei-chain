@@ -9,7 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 	"go.opentelemetry.io/otel/metric"
@@ -25,12 +24,9 @@ func (s *CommitStore) CommitStateChanges(blockNum int64, changeset []*proto.Name
 	return nil
 }
 
-// Commit persists buffered writes at the given version (block height). One Commit persists exactly one
-// block; version must equal the height the pending writes were stamped with. Consecutive commits must also
-// be contiguous: the state WAL rejects a version that skips a height, though the first block written to an
-// empty WAL may be any height.
-// Protocol: WAL → seal on every store, each one's LocalMeta finalized into the same batch as its diff
-// → asynchronous flush. On crash, catchup replays WAL to recover incomplete commits.
+// Commit commits the block ApplyChangeSets buffered at version, or an empty block if nothing is buffered, and
+// returns version. version must be the committed version plus one; committing the committed version again does
+// nothing.
 func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	start := time.Now()
 
@@ -80,16 +76,22 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 			version, s.committedVersion+1, s.committedVersion)
 	}
 
-	// Step 1: Write the WAL (source of truth) before the DBs, so crash recovery via catchup stays valid.
+	// Step 1: Stage the block ApplyChangeSets buffered into the stores. Staging validates every changeset before
+	// it writes anything, so a malformed block fails here, before the WAL records it.
+	if err := s.stageChangeSets(version, s.pendingChangeSets, nil); err != nil {
+		return version, fmt.Errorf("stage block %d: %w", version, err)
+	}
+
+	// Step 2: Write the WAL (source of truth) before the seal, so crash recovery via catchup stays valid.
 	// Write records this block's mutations and Flush makes the record durable. An empty block (no
 	// ApplyChangeSets) writes an empty but contiguous record. Skipped entirely when the WAL is nil — the
 	// outer context then owns the WAL pipeline.
 	if s.wal != nil {
 		s.phaseTimer.SetPhase("commit_convert_mutations")
-		// The last sealed block is the one before this one, since this block is not sealed until Step 2.
+		// The last sealed block is the one before this one, since this block is not sealed until Step 3.
 		height := uint64(version) //nolint:gosec // version > committed >= 0
 		prior := s.OpenView()
-		mutations, err := mutation.MutationsFromChangeSets(s.pendingChangeSets, height, prior)
+		mutations, err := MutationsFromChangeSets(s.pendingChangeSets, height, prior)
 		prior.Close()
 		if err != nil {
 			return version, fmt.Errorf("convert block %d to mutations: %w", version, err)
@@ -104,22 +106,22 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 		}
 	}
 
-	// Step 2: Seal the block on every store, hash it, and carry each database's metadata down with its
-	// diff. The stores flush to Pebble asynchronously from here; the WAL (Step 1) remains the source of
+	// Step 3: Seal the block on every store, hash it, and carry each database's metadata down with its
+	// diff. The stores flush to Pebble asynchronously from here; the WAL (Step 2) remains the source of
 	// truth for anything that has not landed yet, so a restart self-heals via catchup.
 	if err := s.sealBlock(version, nil); err != nil {
 		return version, fmt.Errorf("seal block: %w", err)
 	}
 
-	// Step 3: Update in-memory committed state, only once every store accepted the seal. The block's
+	// Step 4: Update in-memory committed state, only once every store accepted the seal. The block's
 	// hash is not part of this: it is computed and recorded asynchronously, and handed to the
 	// registered listeners once it is.
 	s.committedVersion = version
 
-	// Step 4: Clear per-block bookkeeping
+	// Step 5: Clear per-block bookkeeping
 	s.clearPendingBlock()
 
-	// Step 5: Offer the block to the snapshot writer, which decides whether it becomes a snapshot and,
+	// Step 6: Offer the block to the snapshot writer, which decides whether it becomes a snapshot and,
 	// if so, writes it on its own goroutine. Periodic snapshots are what keep the WAL bounded and
 	// restarts fast.
 	if s.snapshotWriter != nil {

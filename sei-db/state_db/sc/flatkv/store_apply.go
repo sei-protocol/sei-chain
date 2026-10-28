@@ -16,42 +16,27 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// classifyBucketHeadroom is the factor applied to a kind's bucket length in the previous ApplyChangeSets call to
-// size that bucket in the next.
+// classifyBucketHeadroom is the factor applied to a kind's bucket length in the previous staged block to size that
+// bucket in the next.
 const classifyBucketHeadroom = 2
 
 // classifyUnitSize is the most changeset pairs one worker classifies.
 const classifyUnitSize = 1024
 
-// ApplyChangeSets writes one block's changes into the four data stores. Non-EVM modules go to miscDB
-// under "<module>/". Each value records version as the height it was last modified at; the same version
-// must be passed to the subsequent Commit, which is what folds the block into the LtHash.
+// ApplyChangeSets buffers changeSets as part of the block at version, which the next Commit (or
+// CommitPendingBlock) writes. Nothing reaches the stores before then, so reads do not observe buffered
+// writes.
 func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedChangeSet) error {
-	// The read-only refusal belongs here rather than in applyChangeSets, which a read-only store reaches
-	// legitimately: building a view at a past height replays the primary's WAL through the same apply path.
+	// The read-only refusal belongs here rather than in stageChangeSets, which a read-only store reaches
+	// legitimately: building a view at a past height replays the primary's WAL through the same staging path.
 	// Commit and outOfBandSnapshot place their refusals at the same boundary, and readOnly is fixed for a store's
 	// lifetime, so reading it outside the lock is safe.
 	if s.readOnly {
 		return errReadOnly
 	}
-	return s.applyChangeSets(version, changeSets, nil)
-}
 
-// applyChangeSets is ApplyChangeSets with the replay skip list. alreadyHave is nil outside a startup
-// replay, which means every store needs every block.
-func (s *CommitStore) applyChangeSets(
-	version int64,
-	changeSets []*proto.NamedChangeSet,
-	alreadyHave map[string]int64,
-) (err error) {
-	// Hold the write lock for the whole body: it both reads old values out of the stores and writes
-	// this block's values into them, and Get and iterator construction read them under a read lock.
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	obs := s.observeOp("ApplyChangeSets", otelMetrics.ApplyChangesetsLatency,
-		"changesets", len(changeSets))
-	defer obs.done(&err, nil)
 
 	// Blocks are contiguous and the first block is 1, so writes always land at committedVersion+1. See the
 	// Commit contract: a store whose history starts higher is seeded by SetInitialVersion.
@@ -75,8 +60,25 @@ func (s *CommitStore) applyChangeSets(
 	}
 	// A single block's writes may arrive across several ApplyChangeSets calls at the same height (e.g. a
 	// ModuleRouter fanning one block's changesets out to multiple routes that all target flatKV). The check
-	// above already restricts those to committedVersion+1, which is the only height pending writes can be
-	// stamped at, so same-height repeats are accepted and no other height can reach here.
+	// above already restricts those to committedVersion+1, so same-height repeats are accepted and no other
+	// height can reach here.
+	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
+	s.pendingBlockHeight = version
+	return nil
+}
+
+// stageChangeSets writes one block's changesets into the four data stores, where the block's seal picks them up.
+// Non-EVM modules go to miscDB under "<module>/". Each value records version as the height it was last modified
+// at. The caller holds mu, or has the store to itself.
+func (s *CommitStore) stageChangeSets(
+	version int64,
+	changeSets []*proto.NamedChangeSet,
+	// The replay skip list. Nil outside a startup replay, which means every store needs every block.
+	alreadyHave map[string]int64,
+) (err error) {
+	obs := s.observeOp("ApplyChangeSets", otelMetrics.ApplyChangesetsLatency,
+		"changesets", len(changeSets))
+	defer obs.done(&err, nil)
 
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
 	changesByType, err := classifyAndPrefix(changeSets, s.classifyBucketSizes, s.miscPool)
@@ -91,12 +93,12 @@ func (s *CommitStore) applyChangeSets(
 		return fmt.Errorf("prepare writes: %w", err)
 	}
 
-	if err := s.writeToStores(prepared, changeSets, version, alreadyHave); err != nil {
+	if err := s.writeToStores(prepared, version, alreadyHave); err != nil {
 		return fmt.Errorf("write to stores: %w", err)
 	}
 
 	s.phaseTimer.SetPhase("apply_change_done")
-	logger.Debug("FlatKV ApplyChangeSets complete",
+	logger.Debug("FlatKV block staged",
 		"version", version,
 		"changesets", len(changeSets),
 		"writes", prepared.accountCount()+len(prepared.storage)+len(prepared.code)+len(prepared.misc),
@@ -104,9 +106,8 @@ func (s *CommitStore) applyChangeSets(
 	return nil
 }
 
-// preparedWrites holds the fully-validated per-database values and LtHash pairs for one
-// ApplyChangeSets call. Nothing here reaches a store until every kind has validated — see
-// writeToStores.
+// preparedWrites holds the fully-validated per-database values for one staged block. Nothing here reaches a store
+// until every kind has validated — see writeToStores.
 type preparedWrites struct {
 	accounts *accountUpdater
 	storage  []view.Write
@@ -275,7 +276,6 @@ func (p preparedWrites) accountCount() int {
 // writeToStores writes one block's prepared values into the four data stores.
 func (s *CommitStore) writeToStores(
 	prepared preparedWrites,
-	changeSets []*proto.NamedChangeSet,
 	version int64,
 	alreadyHave map[string]int64,
 ) error {
@@ -308,13 +308,7 @@ func (s *CommitStore) writeToStores(
 	})
 
 	wg.Wait()
-	if err := errors.Join(accountErr, storageErr, codeErr, miscErr); err != nil {
-		return err
-	}
-
-	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
-	s.pendingBlockHeight = version
-	return nil
+	return errors.Join(accountErr, storageErr, codeErr, miscErr)
 }
 
 // writeStore writes one database's values, and is a no-op for a store that already holds this block.
@@ -388,7 +382,7 @@ type classifiedChange struct {
 	value []byte
 }
 
-// classifiedChanges holds one ApplyChangeSets call's pairs bucketed by EVM key kind, each bucket in the order the
+// classifiedChanges holds one staged block's pairs bucketed by EVM key kind, each bucket in the order the
 // pairs arrived. A key written more than once appears once per write, and the last of them is its new value.
 type classifiedChanges [keys.EVMKeyKindCount][]classifiedChange
 

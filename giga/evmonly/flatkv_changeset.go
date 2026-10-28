@@ -28,10 +28,10 @@ func NewFlatKVChangeSetEncoder() NamedChangeSetEncoder {
 }
 
 func encodeFlatKVChangeSet(changes StateChangeSet) ([]*proto.NamedChangeSet, error) {
-	if err := validateFlatKVBalances(changes.Balances); err != nil {
+	b, err := newFlatKVChangeSetBuilder(changes)
+	if err != nil {
 		return nil, err
 	}
-	b := newFlatKVChangeSetBuilder(changes)
 	b.fill(changes)
 	if len(b.pairPtrs) == 0 {
 		return nil, nil
@@ -45,14 +45,11 @@ func encodeFlatKVChangeSet(changes StateChangeSet) ([]*proto.NamedChangeSet, err
 // flatKVParallelEncodeChunk is how many changes one goroutine encodes at a time.
 const flatKVParallelEncodeChunk = 4096
 
-// validateFlatKVBalances reports the first balance that does not fit FlatKV's encoding.
-func validateFlatKVBalances(balances []BalanceChange) error {
-	for i, change := range balances {
-		if err := validateFlatKVBalance(change.Balance); err != nil {
-			return fmt.Errorf("balance change %d for %s: %w", i, change.Address, err)
-		}
-	}
-	return nil
+// flatKVAccountLayout is where one account change's pairs and values go in the builder's slabs, and
+// which of its fields the block changed.
+type flatKVAccountLayout struct {
+	pairAt, fixedAt, codeAt int
+	balance, nonce, code    bool
 }
 
 // flatKVChangeSetBuilder lays out a block's pairs in slabs so changes can be encoded in any order.
@@ -62,38 +59,59 @@ type flatKVChangeSetBuilder struct {
 	keys        []byte
 	fixedValues []byte
 	codeValues  []byte
-	// codeOffsets[k] is where code change k's bytes start in codeValues.
-	codeOffsets []int
+	accounts    []flatKVAccountLayout
+	// addressPairs is how many pairs the account changes produce; the storage pairs follow them.
+	addressPairs int
+	// accountFixedBytes is how many fixed-size value bytes the account changes take; the storage
+	// values follow them.
+	accountFixedBytes int
 }
 
-func newFlatKVChangeSetBuilder(changes StateChangeSet) *flatKVChangeSetBuilder {
-	addressPairs := len(changes.Balances) + len(changes.Nonces) + 2*len(changes.Code)
-	pairCount := addressPairs + len(changes.Storage)
-	fixedValueBytes := len(changes.Balances)*vtype.BalanceLen +
-		len(changes.Nonces)*vtype.NonceLen +
-		len(changes.Code)*vtype.CodeHashLen +
-		len(changes.Storage)*common.HashLength
-	codeOffsets := make([]int, len(changes.Code))
-	codeValueBytes := 0
-	for k, change := range changes.Code {
-		codeOffsets[k] = codeValueBytes
-		if !change.Delete {
-			codeValueBytes += len(change.Code)
+// newFlatKVChangeSetBuilder lays out every pair the changes produce, in the order one serial pass
+// emits them, and rejects a changed balance FlatKV cannot encode.
+func newFlatKVChangeSetBuilder(changes StateChangeSet) (*flatKVChangeSetBuilder, error) {
+	accounts := make([]flatKVAccountLayout, len(changes.Accounts))
+	addressPairs, fixedBytes, codeBytes := 0, 0, 0
+	for i := range changes.Accounts {
+		change := &changes.Accounts[i]
+		layout := flatKVAccountLayout{pairAt: addressPairs, fixedAt: fixedBytes, codeAt: codeBytes}
+		if change.BalanceChanged() {
+			if err := validateFlatKVBalance(change.Account.Balance); err != nil {
+				return nil, fmt.Errorf("account change %d for %s: %w", i, change.Address, err)
+			}
+			layout.balance = true
+			addressPairs++
+			fixedBytes += vtype.BalanceLen
 		}
+		if change.NonceChanged() {
+			layout.nonce = true
+			addressPairs++
+			fixedBytes += vtype.NonceLen
+		}
+		if change.CodeChanged() {
+			layout.code = true
+			addressPairs += 2
+			fixedBytes += vtype.CodeHashLen
+			codeBytes += len(change.Account.Code)
+		}
+		accounts[i] = layout
 	}
+	pairCount := addressPairs + len(changes.Storage)
 	return &flatKVChangeSetBuilder{
-		pairs:       make([]proto.KVPair, pairCount),
-		pairPtrs:    make([]*proto.KVPair, pairCount),
-		keys:        make([]byte, addressPairs*flatKVAddressKeyLen+len(changes.Storage)*flatKVStorageKeyLen),
-		fixedValues: make([]byte, fixedValueBytes),
-		codeValues:  make([]byte, codeValueBytes),
-		codeOffsets: codeOffsets,
-	}
+		pairs:             make([]proto.KVPair, pairCount),
+		pairPtrs:          make([]*proto.KVPair, pairCount),
+		keys:              make([]byte, addressPairs*flatKVAddressKeyLen+len(changes.Storage)*flatKVStorageKeyLen),
+		fixedValues:       make([]byte, fixedBytes+len(changes.Storage)*common.HashLength),
+		codeValues:        make([]byte, codeBytes),
+		accounts:          accounts,
+		addressPairs:      addressPairs,
+		accountFixedBytes: fixedBytes,
+	}, nil
 }
 
-// fill encodes every balance, nonce, code and storage change into its place.
+// fill encodes every account and storage change into its place.
 func (b *flatKVChangeSetBuilder) fill(changes StateChangeSet) {
-	total := flatKVChangeCount(changes)
+	total := len(changes.Accounts) + len(changes.Storage)
 	if total < 2*flatKVParallelEncodeChunk {
 		b.encodeRange(changes, 0, total)
 		return
@@ -117,68 +135,61 @@ func (b *flatKVChangeSetBuilder) fill(changes StateChangeSet) {
 	wg.Wait()
 }
 
-// flatKVChangeCount is the number of balance, nonce, code and storage changes fill encodes.
-func flatKVChangeCount(changes StateChangeSet) int {
-	return len(changes.Balances) + len(changes.Nonces) + len(changes.Code) + len(changes.Storage)
-}
-
-// encodeRange encodes changes [start, end) of the block's balance, nonce, code and storage changes,
-// taken in that order.
+// encodeRange encodes changes [start, end) of the block's account and storage changes, taken in that
+// order.
 func (b *flatKVChangeSetBuilder) encodeRange(changes StateChangeSet, start, end int) {
-	balances, nonces, code := len(changes.Balances), len(changes.Nonces), len(changes.Code)
-	nonceStart, codeStart, storageStart := balances, balances+nonces, balances+nonces+code
+	accounts := len(changes.Accounts)
 	for i := start; i < end; i++ {
-		switch {
-		case i < nonceStart:
-			b.encodeBalance(i, changes.Balances[i])
-		case i < codeStart:
-			b.encodeNonce(balances, i-nonceStart, changes.Nonces[i-nonceStart])
-		case i < storageStart:
-			b.encodeCode(balances, nonces, i-codeStart, changes.Code[i-codeStart])
-		default:
-			b.encodeStorage(balances, nonces, code, i-storageStart, changes.Storage[i-storageStart])
+		if i < accounts {
+			b.encodeAccount(&changes.Accounts[i], b.accounts[i])
+		} else {
+			b.encodeStorage(i-accounts, changes.Storage[i-accounts])
 		}
 	}
 }
 
-func (b *flatKVChangeSetBuilder) encodeBalance(i int, change BalanceChange) {
-	pair := b.addressPair(i, keys.EVMKeyBalance, change.Address)
-	if change.Balance == nil || change.Balance.Sign() == 0 {
-		pair.Delete = true
-		return
+func (b *flatKVChangeSetBuilder) encodeAccount(change *AccountChange, layout flatKVAccountLayout) {
+	pairAt, fixedAt := layout.pairAt, layout.fixedAt
+	if layout.balance {
+		pair := b.addressPair(pairAt, keys.EVMKeyBalance, change.Address)
+		pairAt++
+		if balance := change.Account.Balance; balance == nil || balance.Sign() == 0 {
+			pair.Delete = true
+		} else {
+			pair.Value = b.fixedValue(fixedAt, vtype.BalanceLen)
+			balance.FillBytes(pair.Value)
+		}
+		fixedAt += vtype.BalanceLen
 	}
-	pair.Value = b.fixedValue(i*vtype.BalanceLen, vtype.BalanceLen)
-	change.Balance.FillBytes(pair.Value)
-}
-
-func (b *flatKVChangeSetBuilder) encodeNonce(balances int, j int, change NonceChange) {
-	pair := b.addressPair(balances+j, keys.EVMKeyNonce, change.Address)
-	pair.Value = b.fixedValue(balances*vtype.BalanceLen+j*vtype.NonceLen, vtype.NonceLen)
-	binary.BigEndian.PutUint64(pair.Value, change.Nonce)
-}
-
-func (b *flatKVChangeSetBuilder) encodeCode(balances int, nonces int, k int, change CodeChange) {
-	index := balances + nonces + 2*k
-	codeHashPair := b.addressPair(index, keys.EVMKeyCodeHash, change.Address)
-	codePair := b.addressPair(index+1, keys.EVMKeyCode, change.Address)
-	if change.Delete || len(change.Code) == 0 {
-		codeHashPair.Delete = true
-		codePair.Delete = true
-		return
+	if layout.nonce {
+		pair := b.addressPair(pairAt, keys.EVMKeyNonce, change.Address)
+		pairAt++
+		pair.Value = b.fixedValue(fixedAt, vtype.NonceLen)
+		binary.BigEndian.PutUint64(pair.Value, change.Account.Nonce)
+		fixedAt += vtype.NonceLen
 	}
-	codeHashPair.Value = b.fixedValue(balances*vtype.BalanceLen+nonces*vtype.NonceLen+k*vtype.CodeHashLen, vtype.CodeHashLen)
-	codeHash := crypto.Keccak256Hash(change.Code)
-	copy(codeHashPair.Value, codeHash[:])
-	offset := b.codeOffsets[k]
-	codePair.Value = b.codeValues[offset : offset+len(change.Code) : offset+len(change.Code)]
-	copy(codePair.Value, change.Code)
+	if layout.code {
+		code := change.Account.Code
+		codeHashPair := b.addressPair(pairAt, keys.EVMKeyCodeHash, change.Address)
+		codePair := b.addressPair(pairAt+1, keys.EVMKeyCode, change.Address)
+		if len(code) == 0 {
+			codeHashPair.Delete = true
+			codePair.Delete = true
+			return
+		}
+		codeHashPair.Value = b.fixedValue(fixedAt, vtype.CodeHashLen)
+		codeHash := crypto.Keccak256Hash(code)
+		copy(codeHashPair.Value, codeHash[:])
+		codePair.Value = b.codeValues[layout.codeAt : layout.codeAt+len(code) : layout.codeAt+len(code)]
+		copy(codePair.Value, code)
+	}
 }
 
-func (b *flatKVChangeSetBuilder) encodeStorage(balances int, nonces int, code int, s int, change StorageChange) {
-	addressPairs := balances + nonces + 2*code
-	pair := &b.pairs[addressPairs+s]
-	b.pairPtrs[addressPairs+s] = pair
-	keyStart := addressPairs*flatKVAddressKeyLen + s*flatKVStorageKeyLen
+func (b *flatKVChangeSetBuilder) encodeStorage(s int, change StorageChange) {
+	index := b.addressPairs + s
+	pair := &b.pairs[index]
+	b.pairPtrs[index] = pair
+	keyStart := b.addressPairs*flatKVAddressKeyLen + s*flatKVStorageKeyLen
 	pair.Key = b.keys[keyStart : keyStart+flatKVStorageKeyLen : keyStart+flatKVStorageKeyLen]
 	if !keys.PutEVMKey(pair.Key, keys.EVMKeyStorage, change.Address[:], change.Key[:]) {
 		panic("no EVM key prefix for storage")
@@ -187,7 +198,7 @@ func (b *flatKVChangeSetBuilder) encodeStorage(balances int, nonces int, code in
 		pair.Delete = true
 		return
 	}
-	pair.Value = b.fixedValue(balances*vtype.BalanceLen+nonces*vtype.NonceLen+code*vtype.CodeHashLen+s*common.HashLength, common.HashLength)
+	pair.Value = b.fixedValue(b.accountFixedBytes+s*common.HashLength, common.HashLength)
 	copy(pair.Value, change.Value[:])
 }
 

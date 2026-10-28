@@ -10,29 +10,36 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// largeFlatKVChangeSet returns n changes of each kind, plus some code changes, with every encoding
-// branch represented.
+// largeFlatKVChangeSet returns n account changes and n storage changes with every encoding branch
+// represented: balances set and deleted, nonces, code set and deleted, and storage set and deleted.
 func largeFlatKVChangeSet(n int) StateChangeSet {
 	addr := func(kind byte, i int) common.Address {
 		return common.Address{kind, byte(i >> 16), byte(i >> 8), byte(i)}
 	}
 	var changes StateChangeSet
 	for i := range n {
-		balance := big.NewInt(int64(i))
-		if i%7 == 0 {
-			balance = nil
+		account := AccountChange{Address: addr(1, i), Prior: AccountState{Balance: big.NewInt(1), Nonce: 1}}
+		account.Account = account.Prior
+		switch i % 4 {
+		case 0:
+			account.Account.Balance = big.NewInt(int64(i) + 2)
+		case 1:
+			account.Account.Balance = nil
+			account.Account.Nonce = uint64(i) + 2
+		case 2:
+			account.Account.Nonce = uint64(i) + 2
+			account.Account.Code = []byte{0x60, byte(i)}
+		default:
+			account.Prior.Code = []byte{0x60}
+			account.Account.Balance = big.NewInt(int64(i) + 2)
 		}
-		changes.Balances = append(changes.Balances, BalanceChange{Address: addr(1, i), Balance: balance})
-		changes.Nonces = append(changes.Nonces, NonceChange{Address: addr(2, i), Nonce: uint64(i)})
+		changes.Accounts = append(changes.Accounts, account)
 		changes.Storage = append(changes.Storage, StorageChange{
 			Address: addr(3, i),
 			Key:     common.BigToHash(big.NewInt(int64(i))),
 			Value:   common.BigToHash(big.NewInt(int64(i) + 1)),
 			Delete:  i%5 == 0,
 		})
-	}
-	for i := range n / 16 {
-		changes.Code = append(changes.Code, CodeChange{Address: addr(4, i), Code: []byte{0x60, byte(i)}, Delete: i%3 == 0})
 	}
 	return changes
 }
@@ -48,13 +55,15 @@ func flatKVBuilderPairs(b *flatKVChangeSetBuilder) []proto.KVPair {
 // The chunked parallel fill feeds FlatKV's LtHash, so it has to lay out exactly the pairs one serial
 // pass does.
 func TestFlatKVParallelFillMatchesASerialPass(t *testing.T) {
-	changes := largeFlatKVChangeSet(3000)
-	total := flatKVChangeCount(changes)
+	changes := largeFlatKVChangeSet(5000)
+	total := len(changes.Accounts) + len(changes.Storage)
 	require.GreaterOrEqual(t, total, 2*flatKVParallelEncodeChunk, "the change set must take the parallel path")
 
-	parallel := newFlatKVChangeSetBuilder(changes)
+	parallel, err := newFlatKVChangeSetBuilder(changes)
+	require.NoError(t, err)
 	parallel.fill(changes)
-	serial := newFlatKVChangeSetBuilder(changes)
+	serial, err := newFlatKVChangeSetBuilder(changes)
+	require.NoError(t, err)
 	serial.encodeRange(changes, 0, total)
 
 	require.Equal(t, flatKVBuilderPairs(serial), flatKVBuilderPairs(parallel))
