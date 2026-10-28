@@ -64,6 +64,10 @@ func NewMultiTreeImporter(dir string, height uint64) (*MultiTreeImporter, error)
 		_ = fileLock.Unlock()
 		return nil, fmt.Errorf("fail to clear stale import tmp dir: %w", err)
 	}
+	if err := os.MkdirAll(mti.tmpDir(), 0o750); err != nil {
+		_ = fileLock.Unlock()
+		return nil, fmt.Errorf("fail to create import tmp dir: %w", err)
+	}
 	return mti, nil
 }
 

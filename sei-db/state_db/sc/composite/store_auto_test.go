@@ -479,6 +479,54 @@ func TestComposite_Auto_ExportImportRoundTrip(t *testing.T) {
 	requireOracleMatches(t, dst, workload.snapshotOracle())
 }
 
+// TestComposite_Auto_FlatKVOnlyExportImportRoundTrip restores a completed migration snapshot onto a
+// fresh Auto store and verifies that the FlatKV-only stream determines its terminal mode and state.
+func TestComposite_Auto_FlatKVOnlyExportImportRoundTrip(t *testing.T) {
+	workload := newMigrationWorkload(0xA07A)
+	cfg := autoExportConfig()
+
+	src := openAutoStoreWithConfig(t, t.TempDir(), cfg, 100)
+	runBlocks(t, src, workload, 3)
+	require.NoError(t, src.SetWriteMode(types.MigrateEVM))
+	runUntilAtMigrationVersion(t, src, workload, migration.Version1_MigrateEVM, 200)
+	require.NoError(t, src.SetWriteMode(types.EVMMigrated))
+	require.NoError(t, src.SetWriteMode(types.MigrateCosmos))
+	runUntilAtMigrationVersion(t, src, workload, migration.Version2_FlatKVOnly, 200)
+	h := src.Version()
+	wantCommitInfo := src.LastCommitInfo()
+
+	flatKVStore, ok := src.loadFlatKV().(*flatkv.CommitStore)
+	require.True(t, ok)
+	require.NoError(t, flatKVStore.FlushSnapshots())
+
+	exp, err := src.Exporter(h)
+	require.NoError(t, err)
+	items := drainCompositeExporter(t, exp)
+	require.NoError(t, exp.Close())
+	require.Equal(t, []string{keys.FlatKVStoreKey}, moduleNamesOf(items))
+	require.NoError(t, src.Close())
+
+	dstDir := t.TempDir()
+	dst := openAutoStoreWithConfig(t, dstDir, cfg, 100)
+	require.NoError(t, dst.Close())
+	require.Nil(t, dst.loadFlatKV())
+
+	imp, err := dst.Importer(h)
+	require.NoError(t, err)
+	replayImport(t, imp, items)
+	require.NoError(t, imp.Close())
+
+	require.NoError(t, dst.LoadLatest())
+	defer func() { _ = dst.Close() }()
+	require.Equal(t, h, dst.Version())
+	require.Equal(t, types.FlatKVOnly, dst.loadWriteMode())
+	require.Equal(t, wantCommitInfo, dst.LastCommitInfo())
+	done, err := migration.IsAtVersion(flatKVReaderFor(dst), migration.Version2_FlatKVOnly)
+	require.NoError(t, err)
+	require.True(t, done)
+	requireOracleMatches(t, dst, workload.snapshotOracle())
+}
+
 // TestComposite_ImporterRejectsFlatKVSectionOnMemiavlOnly pins the loud
 // rejection: silently dropping a flatkv section would restore a state
 // tree missing data the snapshot's AppHash commits to.

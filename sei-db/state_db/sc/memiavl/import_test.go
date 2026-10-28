@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
@@ -38,6 +39,24 @@ func TestTreeImporterRejectsBranchBeforeLeaves(t *testing.T) {
 
 	require.ErrorContains(t, imp.Close(), "pending children")
 	require.NoError(t, imp.Close(), "a second Close must be a no-op")
+}
+
+// TestMultiTreeImporterPublishesSnapshotWithoutModules verifies an empty stream still records its height.
+func TestMultiTreeImporterPublishesSnapshotWithoutModules(t *testing.T) {
+	dir := t.TempDir()
+	const height = 7
+
+	mti, err := NewMultiTreeImporter(dir, height)
+	require.NoError(t, err)
+	require.NoError(t, mti.Close())
+
+	bz, err := os.ReadFile(filepath.Join(dir, snapshotName(height), MetadataFileName))
+	require.NoError(t, err)
+	var metadata proto.MultiTreeMetadata
+	require.NoError(t, metadata.Unmarshal(bz))
+	require.Equal(t, int64(height), metadata.CommitInfo.Version)
+	require.Empty(t, metadata.CommitInfo.StoreInfos)
+	require.Equal(t, int64(height+1), metadata.InitialVersion)
 }
 
 // TestMultiTreeImporterValidatesModuleName checks that AddModule only accepts
