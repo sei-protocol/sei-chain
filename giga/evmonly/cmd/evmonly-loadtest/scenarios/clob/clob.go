@@ -1,8 +1,7 @@
 // Package clob holds the CLOBv1 order book the load test's clob-place workload drives, with the
 // calldata and storage-slot helpers that workload and its tests need.
 //
-// CLOBv1.sol is the source of truth for the contract; sei-load copies it with `make sync-clob`, and
-// its CI fails when its copy, or the artifacts below, drift from this directory on main. After
+// CLOBv1.sol is the source of truth for the contract; sei-load copies it with `make sync-clob`. After
 // editing the contract, regenerate CLOBv1.abi and CLOBv1.bin here with sei-load's pinned compiler:
 //
 //	docker run --rm --platform linux/amd64 -v "$PWD":/w -w /w ethereum/solc:0.8.19 \
