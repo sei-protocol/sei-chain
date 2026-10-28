@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
 // equalElectorate gives alice, bob and carol 100 tokens each.
@@ -563,4 +564,62 @@ func TestTallyIgnoresAnOptionOutsideTheRange(t *testing.T) {
 		tally.add([]weightedVote{{option: 0, weight: decOne}, {option: OptionYes, weight: decOne}}, big.NewInt(7))
 	}, "a vote read back after a failed read has option 0")
 	require.Equal(t, "7", tally.results[OptionYes].String())
+}
+
+// panickingElectorate panics on every read, as a broken electorate would.
+type panickingElectorate struct{}
+
+func (panickingElectorate) BondedValidators(precompiles.State) []Validator {
+	panic("broken electorate")
+}
+func (panickingElectorate) Delegations(precompiles.State, common.Address) []Delegation {
+	panic("broken electorate")
+}
+func (panickingElectorate) TotalBonded(precompiles.State) *big.Int { panic("broken electorate") }
+
+func TestEndBlockFailsAProposalItCannotProcess(t *testing.T) {
+	h := newElectedHarness(t, panickingElectorate{})
+	first := h.open(textProposal, usei(10))
+	second := h.open(textProposal, usei(10))
+	h.time += testParams.VotingPeriod
+	h.endBlock(1)
+	require.Len(t, h.failures, 2, "each proposal fails on its own; EndBlock returns no error")
+	for _, id := range []uint64{first, second} {
+		require.Equal(t, StatusFailed, h.status(id))
+	}
+	require.Zero(t, newStore(h.state).votingQueue().Len())
+}
+
+func TestCorruptContentFailsThePassedProposal(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	id := h.open(textProposal, usei(10))
+	for _, voter := range []common.Address{alice, bob, carol} {
+		h.vote(voter, id, OptionYes)
+	}
+	head := at(proposalBase(id), proposalContent)
+	h.state.SetState(Address, head, common.BigToHash(new(big.Int).SetUint64((solstorage.MaxStringLength+1)*2+1)))
+	require.Empty(t, h.proposal(id).Content, "a corrupt stored length reads as empty")
+
+	h.time += testParams.VotingPeriod
+	h.endBlock(1)
+	require.Equal(t, StatusFailed, h.status(id))
+	require.Len(t, h.failures, 1)
+	require.ErrorIs(t, h.failures[0], errInvalidContent)
+	require.Equal(t, usei(10), h.state.GetBalance(alice), "deposits still settle")
+}
+
+func TestEscrowShortfallIsAFailure(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	id := h.open(textProposal, usei(10))
+	for _, voter := range []common.Address{alice, bob, carol} {
+		h.vote(voter, id, OptionYes)
+	}
+	require.NoError(t, h.state.SubBalance(DepositEscrow, usei(1)))
+	h.time += testParams.VotingPeriod
+	h.endBlock(1)
+	require.Equal(t, StatusPassed, h.status(id), "the proposal still settles")
+	require.Len(t, h.failures, 1)
+	require.ErrorIs(t, h.failures[0], errEscrowShort)
+	require.Equal(t, usei(9), h.state.GetBalance(DepositEscrow), "the uncovered deposit stays in escrow")
+	require.Zero(t, newStore(h.state).deposit(id, alice).Sign(), "its record is cleared")
 }
