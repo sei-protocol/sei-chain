@@ -2,9 +2,10 @@
 package pb
 
 import (
+	reflect "reflect"
+
 	runtime "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	reflect "reflect"
 )
 
 func (*Timestamp) MaxSize() int {
@@ -47,24 +48,28 @@ func (*View) MaxSize() int {
 	return 33
 }
 
+func (*RoadBlockHeader) MaxSize() int {
+	return 10724
+}
+
 func (*Proposal) MaxSize() int {
-	return 10817
+	return 10762
 }
 
 func (*FullProposal) MaxSize() int {
-	return 1111516
+	return 1111406
 }
 
 func (*PrepareQC) MaxSize() int {
-	return 21220
+	return 21165
 }
 
 func (*CommitQC) MaxSize() int {
-	return 21220
+	return 21165
 }
 
 func (*FullCommitQC) MaxSize() int {
-	return 152224
+	return 152169
 }
 
 func (*TimeoutVote) MaxSize() int {
@@ -72,11 +77,11 @@ func (*TimeoutVote) MaxSize() int {
 }
 
 func (*TimeoutQC) MaxSize() int {
-	return 36724
+	return 36669
 }
 
 func (*FullTimeoutVote) MaxSize() int {
-	return 21379
+	return 21324
 }
 
 func (*AppQC) MaxSize() int {
@@ -92,7 +97,7 @@ func (*Msg) MaxSize() int {
 }
 
 func (*SignedProposal) MaxSize() int {
-	return 10924
+	return 10869
 }
 
 func (*SignedTimeoutVote) MaxSize() int {
@@ -116,7 +121,7 @@ func (*SignedAppProposal) MaxSize() int {
 }
 
 func (*ConsensusMsg) MaxSize() int {
-	return 1111520
+	return 1111410
 }
 
 func (*Committee) MaxSize() int {
@@ -236,12 +241,16 @@ func init() {
 		3: {MaxCount: 1},
 	})
 
+	// Register the wireguard.Schema generated for autobahn.RoadBlockHeader.
+	runtime.MustRegister[*RoadBlockHeader](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Timestamp]())},
+		2: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*LaneRange]())},
+	})
+
 	// Register the wireguard.Schema generated for autobahn.Proposal.
 	runtime.MustRegister[*Proposal](runtime.Schema{
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*View]())},
-		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Timestamp]())},
-		3: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*LaneRange]())},
-		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
+		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*RoadBlockHeader]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.FullProposal.

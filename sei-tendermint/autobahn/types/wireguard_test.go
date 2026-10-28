@@ -143,7 +143,7 @@ func TestFullCommitQCWireguardAcceptsMaxValidatorsAndHeaders(t *testing.T) {
 		}
 		laneRanges = append(laneRanges, NewLaneRange(lane, 0, utils.Some(lastHeader)))
 	}
-	proposal := newProposal(View{}, time.Unix(1, 2), laneRanges)
+	proposal := &Proposal{view: View{}, header: newRoadBlockHeader(time.Unix(1, 2), laneRanges)}
 	vote := NewCommitVote(proposal)
 	votes := make([]*Signed[*CommitVote], len(keys))
 	for i, key := range keys {

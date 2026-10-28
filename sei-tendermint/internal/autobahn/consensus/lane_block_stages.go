@@ -53,7 +53,7 @@ func (i inner) laneBlockStages(tips map[types.LaneID]avail.LaneTip) laneBlockSta
 	for lane, t := range tips {
 		proposed := t.WithCommitQC
 		if p, ok := proposal.Get(); ok {
-			proposed = max(proposed, p.LaneRange(lane).Next())
+			proposed = max(proposed, p.Header().LaneRange(lane).Next())
 		}
 		withLaneQC := max(t.WithLaneQC, proposed)
 		held := max(t.Held, withLaneQC)

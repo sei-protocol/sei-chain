@@ -219,7 +219,7 @@ func (m *TimeoutQC) reproposal() (*Proposal, bool) {
 	if !ok {
 		return nil, false
 	}
-	return pQC.Proposal().atView(m.View().Next()), true
+	return &Proposal{view: m.View().Next(), header: pQC.Proposal().Header()}, true
 }
 
 // TimeoutVoteConv is the protobuf converter for TimeoutVote.

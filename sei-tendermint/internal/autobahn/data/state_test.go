@@ -738,7 +738,7 @@ func TestSuperBlockByHashDoesNotServeGaps(t *testing.T) {
 	require.NoError(t, state.PushPartialBlock(ctx, qc2, TestBlockMap(blocks2)))
 
 	for _, qc := range []*types.FullCommitQC{qc1, qc2} {
-		hash := qc.QC().RoadBlockHash()
+		hash := qc.Header().Hash()
 		for inner := range state.inner.Lock() {
 			n, indexed := inner.byHash[hash]
 			require.True(t, indexed, "CommitQC must be indexed before the contiguous prefix advances")
@@ -751,12 +751,12 @@ func TestSuperBlockByHashDoesNotServeGaps(t *testing.T) {
 
 	require.NoError(t, state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
 	for _, qc := range []*types.FullCommitQC{qc1, qc2} {
-		got, err := state.SuperBlockByHash(qc.QC().RoadBlockHash())
+		got, err := state.SuperBlockByHash(qc.Header().Hash())
 		require.NoError(t, err)
 		block, ok := got.Get()
 		require.True(t, ok)
 		require.Equal(t, qc.Index(), block.Height)
-		require.Equal(t, qc.QC().RoadBlockHash(), block.Hash)
+		require.Equal(t, qc.Header().Hash(), block.Hash)
 	}
 }
 
@@ -781,13 +781,13 @@ func TestSuperBlockByHash(t *testing.T) {
 	require.Equal(t, wantBlock.GasWanted, gotGB.GasWanted)
 
 	// Zero hash → None.
-	zeroOpt, err := state.SuperBlockByHash(types.RoadBlockHash{})
+	zeroOpt, err := state.SuperBlockByHash(types.RoadBlockHeaderHash{})
 	require.NoError(t, err)
 	_, ok = zeroOpt.Get()
 	require.False(t, ok, "SuperBlockByHash(zero) returned Some")
 
 	// Random unknown hash → None.
-	var randHash types.RoadBlockHash
+	var randHash types.RoadBlockHeaderHash
 	rng.Read(randHash[:])
 	randOpt, err := state.SuperBlockByHash(randHash)
 	require.NoError(t, err)
@@ -857,7 +857,7 @@ func TestRunPersistWaitsForCompleteQC(t *testing.T) {
 			return fmt.Errorf("incomplete QC was persisted: %v", got)
 		}
 		for range blocks2 {
-			got, err := store.ReadBlockByHash(qc2.QC().RoadBlockHash())
+			got, err := store.ReadBlockByHash(qc2.Header().Hash())
 			if err != nil {
 				return err
 			}

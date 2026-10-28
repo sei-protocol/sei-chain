@@ -27,11 +27,11 @@ func NewCommitQC(votes []*Signed[*CommitVote]) *CommitQC {
 	return &CommitQC{vote: votes[0].hashed, sigs: sigs}
 }
 
-// RoadBlockHash returns the commit vote hash identifying the road block.
-func (m *CommitQC) RoadBlockHash() RoadBlockHash { return m.vote.Hash() }
-
 // Proposal .
 func (m *CommitQC) Proposal() *Proposal { return m.vote.Msg().proposal }
+
+// Header returns the committed road block header.
+func (m *CommitQC) Header() *RoadBlockHeader { return m.Proposal().Header() }
 
 // Index .
 func (m *CommitQC) Index() RoadIndex {
@@ -40,7 +40,7 @@ func (m *CommitQC) Index() RoadIndex {
 
 // LaneRange returns the range of lane blocks.
 func (m *CommitQC) LaneRange(lane LaneID) *LaneRange {
-	return m.Proposal().LaneRange(lane)
+	return m.Header().LaneRange(lane)
 }
 
 // Verify verifies the CommitQC against the epoch.
@@ -61,7 +61,7 @@ type FullCommitQC struct {
 
 // NewFullCommitQC constructs a new FullCommitQC.
 func NewFullCommitQC(qc *CommitQC, headers []*BlockHeader) *FullCommitQC {
-	if got, want := len(headers), int(qc.Proposal().NumBlocks()); got != want { //nolint:gosec // total lane range len is a small bounded value representing block count in a QC
+	if got, want := len(headers), int(qc.Header().NumBlocks()); got != want { //nolint:gosec // total lane range len is a small bounded value representing block count in a QC
 		//TODO(gprusak): why is it ok to panic here?
 		panic(fmt.Errorf("headers length %d != finalized blocks %d", got, want))
 	}
@@ -70,6 +70,9 @@ func NewFullCommitQC(qc *CommitQC, headers []*BlockHeader) *FullCommitQC {
 
 // QC CommitQC.
 func (m *FullCommitQC) QC() *CommitQC { return m.qc }
+
+// Header returns the committed road block header.
+func (m *FullCommitQC) Header() *RoadBlockHeader { return m.qc.Header() }
 
 // Headers of the blocks finalized by the QC.
 func (m *FullCommitQC) Headers() []*BlockHeader { return m.headers }
@@ -85,7 +88,7 @@ func (m *FullCommitQC) Verify(ep *Epoch) error {
 		return fmt.Errorf("qC: %w", err)
 	}
 	n := uint64(0)
-	if want, got := int(m.qc.Proposal().NumBlocks()), len(m.headers); want != got { //nolint:gosec // lane block count is bounded by the committee size and per-lane limit
+	if want, got := int(m.Header().NumBlocks()), len(m.headers); want != got { //nolint:gosec // lane block count is bounded by the committee size and per-lane limit
 		return fmt.Errorf("len(headers) = %d, want %d", got, want)
 	}
 	for lane := range ep.Committee().Lanes().All() {

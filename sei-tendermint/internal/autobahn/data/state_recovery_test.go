@@ -449,7 +449,7 @@ func TestPushAppHash_ReplayClosingSuperBlockStagesEpoch(t *testing.T) {
 	utils.OrPanic(store.Flush())
 	state := newTestState(t, &Config{Registry: registry}, store)
 
-	require.Equal(t, uint64(2), qc.QC().Proposal().NumBlocks())
+	require.Equal(t, uint64(2), qc.Header().NumBlocks())
 	require.NoError(t, state.PushAppHash(ctx, qc.Index(), appHash, map[types.PublicKey]uint64{keeper: 9}))
 	require.Equal(t, utils.Some(types.EpochIndex(2)), registry.Pending())
 }

@@ -7,7 +7,7 @@ import (
 )
 
 // BlockStore is the durable backing store for data.State. It persists complete
-// CommitQC groups, indexed by RoadIndex and commit vote hash, and execution records.
+// CommitQC groups, indexed by RoadIndex and road block header hash, and execution records.
 // All methods are safe for concurrent use.
 //
 // Writes are visible immediately. Flush makes all previously completed writes
@@ -40,7 +40,7 @@ type BlockStore interface {
 	ReadSuffix() (Suffix, error)
 	ReadLaneBlock(pos LaneBlockPos) (utils.Option[*Block], error)
 	ReadBlock(n RoadIndex) (utils.Option[*RoadBlock], error)
-	ReadBlockByHash(hash RoadBlockHash) (utils.Option[*RoadBlock], error)
+	ReadBlockByHash(hash RoadBlockHeaderHash) (utils.Option[*RoadBlock], error)
 	ReadQC(n RoadIndex) (utils.Option[*FullCommitQC], error)
 	ReadAppProposal(n RoadIndex) (utils.Option[*AppProposal], error)
 	ReadAppQC(n RoadIndex) (utils.Option[*AppQC], error)
@@ -60,9 +60,6 @@ type SuffixRange struct {
 	NextBlock RoadIndex
 }
 
-// RoadBlockHash is the commit vote hash identifying a road block.
-type RoadBlockHash = Hash[*CommitVote]
-
 // RoadBlock is a committed QC and all its blocks in header order.
 type RoadBlock struct {
 	utils.ReadOnly
@@ -75,6 +72,9 @@ func NewRoadBlock(qc *FullCommitQC, laneBlocks []*Block) *RoadBlock {
 	return &RoadBlock{qc: qc, laneBlocks: laneBlocks}
 }
 
+// Header returns the road block header.
+func (b *RoadBlock) Header() *RoadBlockHeader { return b.qc.Header() }
+
 // QC returns the full CommitQC for the road.
 func (b *RoadBlock) QC() *FullCommitQC { return b.qc }
 
@@ -84,9 +84,9 @@ func (b *RoadBlock) LaneBlocks() []*Block { return b.laneBlocks }
 // SuperBlock returns the merged transactions and execution metadata for the road.
 func (b *RoadBlock) SuperBlock() *SuperBlock {
 	superBlock := &SuperBlock{
-		Hash:      b.qc.QC().RoadBlockHash(),
+		Hash:      b.Header().Hash(),
 		Height:    b.qc.Index(),
-		Timestamp: b.qc.QC().Proposal().Timestamp(),
+		Timestamp: b.Header().Timestamp(),
 	}
 	for _, block := range b.laneBlocks {
 		superBlock.GasWanted += block.Payload().TotalGasWanted()

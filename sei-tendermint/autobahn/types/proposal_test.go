@@ -74,8 +74,8 @@ func TestProposalVerifyAcceptsEmptyTipcut(t *testing.T) {
 	ep := genFreshEpoch(rng, committee)
 	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 
-	empty := newProposal(vs.View(), time.Now(), nil)
-	require.Equal(t, uint64(0), empty.NumBlocks())
+	empty := &Proposal{view: vs.View(), header: newRoadBlockHeader(time.Now(), nil)}
+	require.Equal(t, uint64(0), empty.Header().NumBlocks())
 	require.NoError(t, empty.Verify(ep))
 
 	proposal, err := NewProposal(leaderKey(committee, keys, vs.View()), vs, vs.NextTimestamp(), nil)
@@ -86,7 +86,7 @@ func TestProposalVerifyAcceptsEmptyTipcut(t *testing.T) {
 	require.NoError(t, FullCommitQCConv.Test(qc))
 	block := NewRoadBlock(qc, nil).SuperBlock()
 	require.Equal(t, qc.Index(), block.Height)
-	require.Equal(t, proposal.Proposal().Msg().Timestamp(), block.Timestamp)
+	require.Equal(t, proposal.Header().Timestamp(), block.Timestamp)
 	require.Zero(t, block.GasWanted)
 	require.Empty(t, block.Txs)
 }
@@ -149,7 +149,7 @@ func TestProposalTimestampStrictlyMonotone(t *testing.T) {
 	))
 	p0 := firstProposal.Proposal().Msg()
 	require.Equal(t, ep.RoadRange().First, p0.Index())
-	require.Equal(t, uint64(3), p0.NumBlocks())
+	require.Equal(t, uint64(3), p0.Header().NumBlocks())
 
 	commitQC0 := makeCommitQCFromProposal(keys, firstProposal)
 	vs1 := ViewSpec{ConsensusSpec: ConsensusSpec{CommitQC: utils.Some(commitQC0), Epoch: ep}}
@@ -164,7 +164,7 @@ func TestProposalTimestampStrictlyMonotone(t *testing.T) {
 	))
 	p1 := secondProposal.Proposal().Msg()
 	require.Equal(t, p0.Index()+1, p1.Index())
-	require.True(t, p0.Timestamp().Before(p1.Timestamp()), "consecutive SuperBlock timestamps must increase")
+	require.True(t, p0.Header().Timestamp().Before(p1.Header().Timestamp()), "consecutive SuperBlock timestamps must increase")
 }
 
 func TestProposalVerifyRejectsNonMonotoneTimestamp(t *testing.T) {
@@ -179,7 +179,7 @@ func TestProposalVerifyRejectsNonMonotoneTimestamp(t *testing.T) {
 		require.NoError(t, fp.Verify(vs, testViewTimeout))
 
 		vsLater := vs
-		vsLater.Epoch = NewEpoch(ep.EpochIndex(), ep.RoadRange(), fp.Proposal().Msg().Timestamp().Add(time.Nanosecond), committee)
+		vsLater.Epoch = NewEpoch(ep.EpochIndex(), ep.RoadRange(), fp.Header().Timestamp().Add(time.Nanosecond), committee)
 		require.Error(t, fp.Verify(vsLater, testViewTimeout))
 	})
 
@@ -254,16 +254,16 @@ func TestTimestampRange(t *testing.T) {
 	ts := vs.ClampTimestamp(latest.Add(time.Hour), testViewTimeout)
 	require.True(t, ts.Equal(latest))
 	fp := utils.OrPanic1(NewProposal(leader, vs, ts, oneLaneQCMap(rng, committee, keys, vs)))
-	require.True(t, fp.Proposal().Msg().Timestamp().Equal(ts))
+	require.True(t, fp.Header().Timestamp().Equal(ts))
 	require.NoError(t, fp.Verify(vs, testViewTimeout))
 
 	p := fp.Proposal().Msg()
 	var ranges []*LaneRange
-	for _, r := range p.laneRanges {
+	for _, r := range p.header.laneRanges {
 		ranges = append(ranges, r)
 	}
 	late := &FullProposal{
-		proposal:  Sign(leader, newProposal(p.View(), latest.Add(time.Nanosecond), ranges)),
+		proposal:  Sign(leader, &Proposal{view: p.View(), header: newRoadBlockHeader(latest.Add(time.Nanosecond), ranges)}),
 		laneQCs:   fp.laneQCs,
 		timeoutQC: fp.timeoutQC,
 	}
@@ -371,13 +371,13 @@ func TestProposalVerifyRejectsNonCommitteeLane(t *testing.T) {
 	require.False(t, committee.HasLane(extraLane))
 
 	origProposal := fp.Proposal().Msg()
-	tamperedRanges := make([]*LaneRange, 0, len(origProposal.laneRanges)+1)
-	for _, r := range origProposal.laneRanges {
+	tamperedRanges := make([]*LaneRange, 0, len(origProposal.header.laneRanges)+1)
+	for _, r := range origProposal.header.laneRanges {
 		tamperedRanges = append(tamperedRanges, r)
 	}
 	tamperedRanges = append(tamperedRanges, NewLaneRange(extraLane, 0, utils.None[*BlockHeader]()))
 
-	tamperedProposal := newProposal(origProposal.view, origProposal.timestamp, tamperedRanges)
+	tamperedProposal := &Proposal{view: origProposal.view, header: newRoadBlockHeader(origProposal.header.timestamp, tamperedRanges)}
 	maliciousFP := &FullProposal{
 		proposal:  Sign(proposerKey, tamperedProposal),
 		laneQCs:   fp.laneQCs,
@@ -402,7 +402,7 @@ func TestProposalVerifyAcceptsImplicitLaneRange(t *testing.T) {
 	origP := fp.Proposal().Msg()
 	var keptRanges []*LaneRange
 	droppedEmpty := false
-	for _, r := range origP.laneRanges {
+	for _, r := range origP.header.laneRanges {
 		if !droppedEmpty && r.Len() == 0 {
 			droppedEmpty = true
 			continue
@@ -411,7 +411,7 @@ func TestProposalVerifyAcceptsImplicitLaneRange(t *testing.T) {
 	}
 	require.True(t, droppedEmpty)
 
-	shortProposal := newProposal(origP.view, origP.timestamp, keptRanges)
+	shortProposal := &Proposal{view: origP.view, header: newRoadBlockHeader(origP.header.timestamp, keptRanges)}
 	shortFP := &FullProposal{
 		proposal: Sign(proposerKey, shortProposal),
 		laneQCs:  fp.laneQCs,
@@ -432,7 +432,7 @@ func TestProposalVerifyAcceptsNonContiguousImplicitRanges(t *testing.T) {
 	origP := fp.Proposal().Msg()
 	var keptRanges []*LaneRange
 	emptyIdx := 0
-	for _, r := range origP.laneRanges {
+	for _, r := range origP.header.laneRanges {
 		if r.Len() == 0 {
 			if emptyIdx%2 == 0 {
 				emptyIdx++
@@ -443,7 +443,7 @@ func TestProposalVerifyAcceptsNonContiguousImplicitRanges(t *testing.T) {
 		keptRanges = append(keptRanges, r)
 	}
 
-	shortProposal := newProposal(origP.view, origP.timestamp, keptRanges)
+	shortProposal := &Proposal{view: origP.view, header: newRoadBlockHeader(origP.header.timestamp, keptRanges)}
 	shortFP := &FullProposal{
 		proposal: Sign(proposerKey, shortProposal),
 		laneQCs:  fp.laneQCs,
@@ -475,7 +475,7 @@ func TestProposalEmptyLaneAtHeightZeroHasNoHash(t *testing.T) {
 	require.NoError(t, fp.Verify(vs, testViewTimeout))
 	var idle LaneID
 	for lane := range committee.Lanes().All() {
-		r := fp.Proposal().Msg().LaneRange(lane)
+		r := fp.Header().LaneRange(lane)
 		if r.Len() == 0 {
 			require.Equal(t, BlockNumber(0), r.Next())
 			require.Equal(t, BlockHeaderHash{}, r.LastHash())
@@ -487,7 +487,7 @@ func TestProposalEmptyLaneAtHeightZeroHasNoHash(t *testing.T) {
 	// A lane that has not started must not name a tip. There is no previous
 	// CommitQC to copy.
 	var ranges []*LaneRange
-	for _, r := range fp.Proposal().Msg().laneRanges {
+	for _, r := range fp.Proposal().Msg().header.laneRanges {
 		if r.Lane() == idle {
 			ranges = append(ranges, &LaneRange{lane: idle, first: 0, next: 0, lastHash: GenBlockHeaderHash(rng)})
 			continue
@@ -495,9 +495,8 @@ func TestProposalEmptyLaneAtHeightZeroHasNoHash(t *testing.T) {
 		ranges = append(ranges, r)
 	}
 	invented := &FullProposal{
-		proposal: Sign(proposerKey, newProposal(
-			fp.Proposal().Msg().view, fp.Proposal().Msg().timestamp, ranges)),
-		laneQCs: fp.laneQCs,
+		proposal: Sign(proposerKey, &Proposal{view: fp.Proposal().Msg().view, header: newRoadBlockHeader(fp.Proposal().Msg().header.timestamp, ranges)}),
+		laneQCs:  fp.laneQCs,
 	}
 	require.Error(t, invented.Verify(vs, testViewTimeout))
 }
@@ -513,7 +512,7 @@ func TestProposalCopiesEmptyLaneLastHash(t *testing.T) {
 	fp0 := utils.OrPanic1(NewProposal(
 		leaderKey(committee, keys, vs0.View()), vs0, vs0.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs0)))
 	require.NoError(t, fp0.Verify(vs0, testViewTimeout))
-	tip := fp0.Proposal().Msg().LaneRange(lane0).LastHash()
+	tip := fp0.Header().LaneRange(lane0).LastHash()
 	require.NotEqual(t, BlockHeaderHash{}, tip)
 
 	cqc := makeCommitQCFromProposal(keys, fp0)
@@ -523,12 +522,12 @@ func TestProposalCopiesEmptyLaneLastHash(t *testing.T) {
 	fp1 := utils.OrPanic1(NewProposal(
 		leaderKey(committee, keys, vs1.View()), vs1, vs1.NextTimestamp(), map[LaneID]*LaneQC{lane1: qc1}))
 	require.NoError(t, fp1.Verify(vs1, testViewTimeout))
-	empty := fp1.Proposal().Msg().LaneRange(lane0)
+	empty := fp1.Header().LaneRange(lane0)
 	require.Equal(t, uint64(0), empty.Len())
 	require.Equal(t, tip, empty.LastHash())
 
 	var ranges []*LaneRange
-	for _, r := range fp1.Proposal().Msg().laneRanges {
+	for _, r := range fp1.Proposal().Msg().header.laneRanges {
 		if r.Lane() == lane0 {
 			ranges = append(ranges, &LaneRange{lane: lane0, first: r.First(), next: r.First(), lastHash: BlockHeaderHash{}})
 			continue
@@ -536,9 +535,8 @@ func TestProposalCopiesEmptyLaneLastHash(t *testing.T) {
 		ranges = append(ranges, r)
 	}
 	stripped := &FullProposal{
-		proposal: Sign(leaderKey(committee, keys, vs1.View()), newProposal(
-			fp1.Proposal().Msg().view, fp1.Proposal().Msg().timestamp, ranges)),
-		laneQCs: fp1.laneQCs,
+		proposal: Sign(leaderKey(committee, keys, vs1.View()), &Proposal{view: fp1.Proposal().Msg().view, header: newRoadBlockHeader(fp1.Proposal().Msg().header.timestamp, ranges)}),
+		laneQCs:  fp1.laneQCs,
 	}
 	require.Error(t, stripped.Verify(vs1, testViewTimeout))
 }
@@ -556,7 +554,7 @@ func TestProposalVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 	// non-empty range and a matching LaneQC so Verify reaches the first-mismatch check.
 	origP := fp.Proposal().Msg()
 	var target LaneID
-	for _, r := range origP.laneRanges {
+	for _, r := range origP.header.laneRanges {
 		if r.Len() > 0 {
 			target = r.Lane()
 			break
@@ -565,14 +563,14 @@ func TestProposalVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 	require.NotEqual(t, LaneID{}, target)
 	badQC := makeLaneQC(rng, committee, keys, target, 5, GenBlockHeaderHash(rng))
 	var tamperedRanges []*LaneRange
-	for _, r := range origP.laneRanges {
+	for _, r := range origP.header.laneRanges {
 		if r.Lane() == target {
 			tamperedRanges = append(tamperedRanges, NewLaneRange(target, 5, utils.Some(badQC.Header())))
 		} else {
 			tamperedRanges = append(tamperedRanges, r)
 		}
 	}
-	tamperedProposal := newProposal(origP.view, origP.timestamp, tamperedRanges)
+	tamperedProposal := &Proposal{view: origP.view, header: newRoadBlockHeader(origP.header.timestamp, tamperedRanges)}
 	tamperedFP := &FullProposal{
 		proposal: Sign(proposerKey, tamperedProposal),
 		laneQCs:  map[LaneID]*LaneQC{target: badQC},
@@ -662,8 +660,8 @@ func TestProposalConvDecode_RejectsDuplicateLaneRanges(t *testing.T) {
 	_, err := ProposalConv.Decode(encoded)
 	require.NoError(t, err)
 	// Add a duplicate lane range. Now decoding should fail.
-	require.NotEqual(t, 0, len(encoded.LaneRanges))
-	encoded.LaneRanges = append(encoded.LaneRanges, encoded.LaneRanges[0])
+	require.NotEqual(t, 0, len(encoded.Header.LaneRanges))
+	encoded.Header.LaneRanges = append(encoded.Header.LaneRanges, encoded.Header.LaneRanges[0])
 	_, err = ProposalConv.Decode(encoded)
 	require.Error(t, err)
 }
@@ -675,10 +673,7 @@ func TestProposalVerifyRejectsLaneRangeLongerThanMaxLaneRangeInProposal(t *testi
 	view := View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex()}
 	lane := committee.Lane(leaderKey(committee, keys, view).Public()).OrPanic("missing lane")
 	// Bypass NewProposal's check by constructing the proposal directly.
-	oversized := newProposal(
-		view,
-		time.Now(),
-		[]*LaneRange{NewLaneRange(lane, 0, utils.Some(NewBlock(lane, MaxLaneRangeInProposal, GenBlockHeaderHash(rng), GenPayload(rng)).Header()))})
+	oversized := &Proposal{view: view, header: newRoadBlockHeader(time.Now(), []*LaneRange{NewLaneRange(lane, 0, utils.Some(NewBlock(lane, MaxLaneRangeInProposal, GenBlockHeaderHash(rng), GenPayload(rng)).Header()))})}
 	require.Error(t, oversized.Verify(ep))
 }
 
@@ -733,23 +728,6 @@ func TestProposalVerifyRejectsLaneQCHeaderHashMismatch(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestProposalAtView(t *testing.T) {
-	rng := utils.TestRng()
-	view := GenView(rng)
-	timestamp := utils.GenTimestamp(rng)
-	laneRanges := utils.GenSlice(rng, GenLaneRange)
-	p := newProposal(view, timestamp, laneRanges)
-
-	next := GenView(rng)
-	got := p.atView(next)
-	if err := utils.TestDiff(newProposal(next, timestamp, laneRanges), got); err != nil {
-		t.Fatal(err)
-	}
-	if err := utils.TestDiff(newProposal(view, timestamp, laneRanges), p); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestProposalVerifyValidReproposal(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
@@ -784,7 +762,7 @@ func TestProposalVerifyValidReproposal(t *testing.T) {
 
 	// Reproposal keeps the locked proposal's timestamp and road index.
 	require.Equal(t, fp0.Proposal().Msg().Index(), reproposal.Proposal().Msg().Index())
-	require.True(t, fp0.Proposal().Msg().Timestamp().Equal(reproposal.Proposal().Msg().Timestamp()))
+	require.True(t, fp0.Header().Timestamp().Equal(reproposal.Header().Timestamp()))
 	require.NoError(t, reproposal.Verify(vs1, testViewTimeout))
 }
 
@@ -857,10 +835,10 @@ func TestProposalVerifyRejectsReproposalHashMismatch(t *testing.T) {
 
 	origP := reproposal.Proposal().Msg()
 	var ranges []*LaneRange
-	for _, r := range origP.laneRanges {
+	for _, r := range origP.header.laneRanges {
 		ranges = append(ranges, r)
 	}
-	wrongP := newProposal(origP.view, origP.timestamp.Add(time.Millisecond), ranges)
+	wrongP := &Proposal{view: origP.view, header: newRoadBlockHeader(origP.header.timestamp.Add(time.Millisecond), ranges)}
 	wrongFP := &FullProposal{
 		proposal:  Sign(leader1, wrongP),
 		timeoutQC: reproposal.timeoutQC,

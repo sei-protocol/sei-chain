@@ -380,7 +380,7 @@ func (s *State) Run(ctx context.Context) error {
 		scope.SpawnNamed("storeCommitQC", func() error {
 			return s.commitQC().Iter(ctx, func(ctx context.Context, qc utils.Option[*types.CommitQC]) error {
 				if qc, ok := qc.Get(); ok {
-					meters.CommitQCLatency.Observe(time.Since(qc.Proposal().Timestamp()).Seconds())
+					meters.CommitQCLatency.Observe(time.Since(qc.Header().Timestamp()).Seconds())
 					// We push the locally generated CommitQC into "avail" to act as a
 					// sequencer and to trigger data pruning.
 					return s.avail.PushCommitQC(ctx, qc)

@@ -1,12 +1,14 @@
 package types
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -172,26 +174,39 @@ func (vs *ViewSpec) ClampTimestamp(timestamp time.Time, viewTimeout time.Duratio
 	return timestamp
 }
 
-// Proposal is the road tipcut proposal.
-// It consists of ranges of blocks of each lane.
-// AppQC could be nil if we haven't reached any quorum state hash.
-type Proposal struct {
+// RoadBlockHeaderHash is the hash of a RoadBlockHeader.
+type RoadBlockHeaderHash hashable.Hash[*pb.RoadBlockHeader]
+
+// Bytes converts the RoadBlockHeaderHash to a byte slice.
+func (h RoadBlockHeaderHash) Bytes() []byte  { return h[:] }
+func (h RoadBlockHeaderHash) String() string { return hex.EncodeToString(h.Bytes()) }
+
+// ParseRoadBlockHeaderHash constructs a RoadBlockHeaderHash from its raw bytes.
+func ParseRoadBlockHeaderHash(bytes []byte) (RoadBlockHeaderHash, error) {
+	h, err := hashable.ParseHash[*pb.RoadBlockHeader](bytes)
+	return RoadBlockHeaderHash(h), err
+}
+
+// RoadBlockHeader contains the timestamp and lane ranges of a road block.
+type RoadBlockHeader struct {
 	utils.ReadOnly
-	view       View
 	timestamp  time.Time
 	laneRanges map[LaneID]*LaneRange
 }
 
-func newProposal(view View, timestamp time.Time, laneRanges []*LaneRange) *Proposal {
+// Proposal is a road block header proposed at a consensus view.
+type Proposal struct {
+	utils.ReadOnly
+	view   View
+	header *RoadBlockHeader
+}
+
+func newRoadBlockHeader(timestamp time.Time, laneRanges []*LaneRange) *RoadBlockHeader {
 	laneRangesM := map[LaneID]*LaneRange{}
 	for _, r := range laneRanges {
 		laneRangesM[r.Lane()] = r
 	}
-	return &Proposal{
-		view:       view,
-		timestamp:  timestamp,
-		laneRanges: laneRangesM,
-	}
+	return &RoadBlockHeader{timestamp: timestamp, laneRanges: laneRangesM}
 }
 
 // Index of the proposal.
@@ -200,23 +215,22 @@ func (m *Proposal) Index() RoadIndex { return m.view.Index }
 // View of the proposal.
 func (m *Proposal) View() View { return m.view }
 
-// atView returns this tipcut at view.
-func (m *Proposal) atView(view View) *Proposal {
-	return &Proposal{
-		view:       view,
-		timestamp:  m.timestamp,
-		laneRanges: m.laneRanges,
-	}
-}
+// Header returns the road block header.
+func (m *Proposal) Header() *RoadBlockHeader { return m.header }
 
-// Timestamp of the proposal.
-func (m *Proposal) Timestamp() time.Time { return m.timestamp }
+// Timestamp of the road block.
+func (m *RoadBlockHeader) Timestamp() time.Time { return m.timestamp }
+
+// Hash of the RoadBlockHeader.
+func (m *RoadBlockHeader) Hash() RoadBlockHeaderHash {
+	return RoadBlockHeaderHash(hashable.ToHash(RoadBlockHeaderConv.Encode(m)))
+}
 
 // EpochIndex returns the epoch index encoded in the proposal.
 func (m *Proposal) EpochIndex() EpochIndex { return m.view.EpochIndex }
 
-// NumBlocks returns the number of lane blocks finalized by this proposal.
-func (m *Proposal) NumBlocks() uint64 {
+// NumBlocks returns the number of lane blocks finalized by this road block.
+func (m *RoadBlockHeader) NumBlocks() uint64 {
 	var n uint64
 	for _, r := range m.laneRanges {
 		n += r.Len()
@@ -228,7 +242,7 @@ func (m *Proposal) NumBlocks() uint64 {
 const minTimestampDiff = time.Microsecond
 
 // NextTimestamp returns the lowest allowed timestamp for the next proposal.
-func (m *Proposal) NextTimestamp() time.Time { return m.Timestamp().Add(minTimestampDiff) }
+func (m *Proposal) NextTimestamp() time.Time { return m.Header().Timestamp().Add(minTimestampDiff) }
 
 // Verify checks epoch binding and lane-range bounds, lengths, committee membership,
 // and empty height-0 hashes. FullProposal.Verify additionally checks QC-chain continuity.
@@ -236,7 +250,11 @@ func (m *Proposal) Verify(ep *Epoch) error {
 	if err := m.view.Verify(ep); err != nil {
 		return fmt.Errorf("view: %w", err)
 	}
-	c := ep.Committee()
+	return m.header.Verify(ep.Committee())
+}
+
+// Verify checks lane-range bounds, lengths, committee membership, and empty height-0 hashes.
+func (m *RoadBlockHeader) Verify(c *Committee) error {
 	for _, r := range m.laneRanges {
 		if got := r.Len(); got > MaxLaneRangeInProposal {
 			return fmt.Errorf("laneRange[%v].Len() = %d, want <= %d", r.Lane(), got, MaxLaneRangeInProposal)
@@ -249,7 +267,7 @@ func (m *Proposal) Verify(ep *Epoch) error {
 }
 
 // LaneRange returns the range of blocks of the given lane.
-func (m *Proposal) LaneRange(lane LaneID) *LaneRange {
+func (m *RoadBlockHeader) LaneRange(lane LaneID) *LaneRange {
 	if r, ok := m.laneRanges[lane]; ok {
 		return r
 	}
@@ -336,7 +354,7 @@ func buildProposal(
 			laneRanges = append(laneRanges, &LaneRange{lane: lane, first: first, next: first, lastHash: prev.LastHash()})
 		}
 	}
-	return newProposal(viewSpec.View(), timestamp, laneRanges), nil
+	return &Proposal{view: viewSpec.View(), header: newRoadBlockHeader(timestamp, laneRanges)}, nil
 }
 
 // NewProposalForTesting builds a FullProposal exactly like NewProposal but attaches the
@@ -363,6 +381,9 @@ func NewProposalForTesting(
 
 // Proposal .
 func (m *FullProposal) Proposal() *Signed[*Proposal] { return m.proposal }
+
+// Header returns the proposed road block header.
+func (m *FullProposal) Header() *RoadBlockHeader { return m.proposal.Msg().Header() }
 
 // View .
 func (m *FullProposal) View() View {
@@ -391,8 +412,8 @@ func (m *FullProposal) Verify(vs ViewSpec, viewTimeout time.Duration) error {
 		}
 
 		earliest, latest := vs.TimestampRange(viewTimeout)
-		if got := m.proposal.Msg().Timestamp(); got.Before(earliest) || got.After(latest) {
-			return fmt.Errorf("proposal.Timestamp() = %v, want >= %v and <= %v", got, earliest, latest)
+		if got := m.Header().Timestamp(); got.Before(earliest) || got.After(latest) {
+			return fmt.Errorf("proposal.Header().Timestamp() = %v, want >= %v and <= %v", got, earliest, latest)
 		}
 		// Is proposer valid?
 		if got, want := m.proposal.sig.key, c.Leader(vs.View()); got != want {
@@ -433,7 +454,7 @@ func (m *FullProposal) Verify(vs ViewSpec, viewTimeout time.Duration) error {
 		}
 		// Verify each lane range against the previous commitQC and its laneQC justification.
 		for lane := range c.Lanes().All() {
-			r := proposal.LaneRange(lane)
+			r := proposal.Header().LaneRange(lane)
 			prev := LaneRangeOpt(vs.CommitQC, r.Lane())
 			// Verify that range matches previous commitQC.
 			if got, want := r.First(), prev.Next(); got != want {
@@ -530,38 +551,51 @@ var ViewConv = protoutils.Conv[View, *pb.View]{
 	},
 }
 
-// ProposalConv is the protobuf converter for Proposal.
-var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
-	Encode: func(m *Proposal) *pb.Proposal {
+// RoadBlockHeaderConv is the protobuf converter for RoadBlockHeader.
+var RoadBlockHeaderConv = protoutils.Conv[*RoadBlockHeader, *pb.RoadBlockHeader]{
+	Encode: func(m *RoadBlockHeader) *pb.RoadBlockHeader {
 		laneRanges := make([]*LaneRange, 0, len(m.laneRanges))
 		for _, r := range m.laneRanges {
 			laneRanges = append(laneRanges, r)
 		}
 		sort.Slice(laneRanges, func(i, j int) bool { return laneRanges[i].Lane().Compare(laneRanges[j].Lane()) < 0 })
-		return &pb.Proposal{
-			View:       ViewConv.Encode(m.view),
+		return &pb.RoadBlockHeader{
 			Timestamp:  TimeConv.Encode(m.timestamp),
 			LaneRanges: LaneRangeConv.EncodeSlice(laneRanges),
 		}
+	},
+	Decode: func(m *pb.RoadBlockHeader) (*RoadBlockHeader, error) {
+		timestamp, err := TimeConv.DecodeReq(m.Timestamp)
+		if err != nil {
+			return nil, fmt.Errorf("timestamp: %w", err)
+		}
+		laneRanges, err := LaneRangeConv.DecodeSlice(m.LaneRanges)
+		if err != nil {
+			return nil, fmt.Errorf("laneRanges: %w", err)
+		}
+		header := newRoadBlockHeader(timestamp, laneRanges)
+		if len(header.laneRanges) != len(laneRanges) {
+			return nil, fmt.Errorf("laneRanges: duplicate ranges")
+		}
+		return header, nil
+	},
+}
+
+// ProposalConv is the protobuf converter for Proposal.
+var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
+	Encode: func(m *Proposal) *pb.Proposal {
+		return &pb.Proposal{View: ViewConv.Encode(m.view), Header: RoadBlockHeaderConv.Encode(m.header)}
 	},
 	Decode: func(m *pb.Proposal) (*Proposal, error) {
 		view, err := ViewConv.DecodeReq(m.View)
 		if err != nil {
 			return nil, fmt.Errorf("view: %w", err)
 		}
-		laneRanges, err := LaneRangeConv.DecodeSlice(m.LaneRanges)
+		header, err := RoadBlockHeaderConv.DecodeReq(m.Header)
 		if err != nil {
-			return nil, fmt.Errorf("laneRanges: %w", err)
+			return nil, fmt.Errorf("header: %w", err)
 		}
-		timestamp, err := TimeConv.DecodeReq(m.Timestamp)
-		if err != nil {
-			return nil, fmt.Errorf("timestamp: %w", err)
-		}
-		proposal := newProposal(view, timestamp, laneRanges)
-		if len(proposal.laneRanges) != len(laneRanges) {
-			return nil, fmt.Errorf("laneRanges: duplicate ranges")
-		}
-		return proposal, nil
+		return &Proposal{view: view, header: header}, nil
 	},
 }
 

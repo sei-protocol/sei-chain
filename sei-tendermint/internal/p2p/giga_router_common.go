@@ -154,7 +154,7 @@ func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.RoadIndex
 // BlockByHash returns a finalized SuperBlock as a CometBFT ResultBlock.
 // Unknown hashes return an empty ResultBlock with no error.
 func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error) {
-	opt, err := r.data.SuperBlockByHash(atypes.RoadBlockHash(hash))
+	opt, err := r.data.SuperBlockByHash(atypes.RoadBlockHeaderHash(hash))
 	if err != nil {
 		return nil, fmt.Errorf("data.SuperBlockByHash: %w", err)
 	}

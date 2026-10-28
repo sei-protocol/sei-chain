@@ -154,7 +154,7 @@ type Block struct {
 
 // SuperBlock contains all transactions finalized by one CommitQC in header order.
 type SuperBlock struct {
-	Hash      RoadBlockHash
+	Hash      RoadBlockHeaderHash
 	Height    RoadIndex
 	Timestamp time.Time
 	GasWanted uint64

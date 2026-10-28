@@ -238,7 +238,7 @@ func (s *State) pushProposal(ctx context.Context, proposal *types.FullProposal) 
 		i.PrepareVote = utils.Some(v)
 		isend.Store(i)
 	}
-	meters.PrepareVoteLatency.Observe(time.Since(proposal.Proposal().Msg().Timestamp()).Seconds())
+	meters.PrepareVoteLatency.Observe(time.Since(proposal.Header().Timestamp()).Seconds())
 	return nil
 }
 
@@ -266,7 +266,7 @@ func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 		i.CommitVote = utils.Some(v)
 		isend.Store(i)
 	}
-	meters.PrepareQCLatency.Observe(time.Since(qc.Proposal().Timestamp()).Seconds())
+	meters.PrepareQCLatency.Observe(time.Since(qc.Proposal().Header().Timestamp()).Seconds())
 	return nil
 }
 

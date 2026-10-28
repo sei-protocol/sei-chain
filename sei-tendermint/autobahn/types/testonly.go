@@ -319,12 +319,12 @@ func CommitQCAt(ep *Epoch, keys []SecretKey) *CommitQC {
 
 // GenProposal generates a random Proposal.
 func GenProposal(rng utils.Rng) *Proposal {
-	return newProposal(GenView(rng), utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))
+	return &Proposal{view: GenView(rng), header: newRoadBlockHeader(utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))}
 }
 
 // GenProposalAt generates a Proposal at a specific view.
 func GenProposalAt(rng utils.Rng, view View) *Proposal {
-	return newProposal(view, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))
+	return &Proposal{view: view, header: newRoadBlockHeader(utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))}
 }
 
 // ProposalAt returns a Proposal at view, consistent with ep, with a single 1-block lane range.
@@ -347,7 +347,7 @@ func ProposalAtBlocks(ep *Epoch, view View, n int) (*Proposal, []*Block) {
 		num = b.Header().Next()
 	}
 	header := blocks[n-1].Header()
-	return newProposal(view, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))}), blocks
+	return &Proposal{view: view, header: newRoadBlockHeader(time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))})}, blocks
 }
 
 // GenProposalForEpoch generates a Proposal at a specific view whose epochIndex,
@@ -357,7 +357,7 @@ func GenProposalForEpoch(rng utils.Rng, ep *Epoch, view View) *Proposal {
 	view.EpochIndex = ep.EpochIndex()
 	c := ep.Committee()
 	laneRanges := utils.GenSlice(rng, func(rng utils.Rng) *LaneRange { return GenLaneRangeFor(rng, c) })
-	return newProposal(view, utils.GenTimestamp(rng), laneRanges)
+	return &Proposal{view: view, header: newRoadBlockHeader(utils.GenTimestamp(rng), laneRanges)}
 }
 
 // GenAppHash generates a random AppHash.
@@ -457,7 +457,7 @@ func GenFullCommitQCAt(rng utils.Rng, index RoadIndex, n int) *FullCommitQC {
 	}
 	view := GenView(rng)
 	view.Index = index
-	proposal := newProposal(view, utils.GenTimestamp(rng), ranges)
+	proposal := &Proposal{view: view, header: newRoadBlockHeader(utils.GenTimestamp(rng), ranges)}
 	qc := NewCommitQC([]*Signed[*CommitVote]{GenSigned(rng, NewCommitVote(proposal))})
 	return NewFullCommitQC(qc, utils.GenSliceN(rng, n, GenBlockHeader))
 }

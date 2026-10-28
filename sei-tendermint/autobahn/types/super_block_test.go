@@ -37,7 +37,7 @@ func TestSuperBlockMergesTransactionsInHeaderOrder(t *testing.T) {
 	require.NoError(t, fullQC.Verify(ep))
 	block := NewRoadBlock(fullQC, blocks).SuperBlock()
 	require.Equal(t, qc.Index(), block.Height)
-	require.Equal(t, qc.Proposal().Timestamp(), block.Timestamp)
+	require.Equal(t, qc.Header().Timestamp(), block.Timestamp)
 	require.Equal(t, uint64(6), block.GasWanted)
 	require.Equal(t, [][]byte{{0, 0}, {0, 1}, {1, 0}, {1, 1}, {2, 0}, {2, 1}}, block.Txs)
 }

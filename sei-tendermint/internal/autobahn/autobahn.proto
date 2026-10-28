@@ -135,15 +135,20 @@ message View {
   optional uint64 epoch_index = 3; // epoch this view belongs to; required
 }
 
-message Proposal {
-  reserved 2, 6;
-  reserved "created_at", "global_first";
+message RoadBlockHeader {
   option (hashable.hashable) = true;
   option (wireguard.sized) = true;
-  optional View view = 1; // required.
-  optional Timestamp timestamp = 5; // required
-  repeated LaneRange lane_ranges = 3 [(wireguard.max_count) = 100]; // Sorted by lane.
-  optional AppProposal app = 4; // optional
+  optional Timestamp timestamp = 1; // required
+  repeated LaneRange lane_ranges = 2 [(wireguard.max_count) = 100]; // Sorted by lane.
+}
+
+message Proposal {
+  reserved 2, 3, 4, 5, 6;
+  reserved "created_at", "global_first", "lane_ranges", "app", "timestamp";
+  option (hashable.hashable) = true;
+  option (wireguard.sized) = true;
+  optional View view = 1; // required
+  optional RoadBlockHeader header = 7; // required
 }
 
 message FullProposal {

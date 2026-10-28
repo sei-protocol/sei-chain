@@ -53,10 +53,10 @@ func (e *blockEntry) FullBlock() utils.Option[*types.RoadBlock] {
 }
 
 type inner struct {
-	blocks       map[types.RoadIndex]*blockEntry         // [first, nextPartialBlock)
-	appProposals map[types.RoadIndex]*types.AppProposal  // [first, nextAppProposal)
-	appQCs       map[types.RoadIndex]*types.AppQC        // [first, nextAppQC)
-	byHash       map[types.RoadBlockHash]types.RoadIndex // all blocks (including partial ones) by RoadBlockHash.
+	blocks       map[types.RoadIndex]*blockEntry               // [first, nextPartialBlock)
+	appProposals map[types.RoadIndex]*types.AppProposal        // [first, nextAppProposal)
+	appQCs       map[types.RoadIndex]*types.AppQC              // [first, nextAppQC)
+	byHash       map[types.RoadBlockHeaderHash]types.RoadIndex // all blocks (including partial ones) by RoadBlockHeaderHash.
 
 	// first is the inclusive low end of retained in-memory state: maps keep [first, next*).
 	// Advanced by runPersist(). Durable copies below first live in BlockStore.
@@ -241,7 +241,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		blocks:           map[types.RoadIndex]*blockEntry{},
 		appQCs:           map[types.RoadIndex]*types.AppQC{},
 		appProposals:     map[types.RoadIndex]*types.AppProposal{},
-		byHash:           map[types.RoadBlockHash]types.RoadIndex{},
+		byHash:           map[types.RoadBlockHeaderHash]types.RoadIndex{},
 		first:            status.First,
 		nextAppProposal:  status.First,
 		nextAppQC:        status.First,
@@ -267,7 +267,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		for offset, laneBlock := range block.LaneBlocks() {
 			laneBlocks[uint64(offset)] = laneBlock //nolint:gosec // non-negative slice index
 		}
-		inner.byHash[block.QC().QC().RoadBlockHash()] = n
+		inner.byHash[block.Header().Hash()] = n
 		inner.blocks[n] = &blockEntry{qc: block.QC(), epoch: epoch, laneBlocks: laneBlocks}
 		inner.nextPartialBlock += 1
 		inner.nextFullBlock += 1
@@ -367,7 +367,7 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 		if inner.nextPartialBlock == n {
 			updated = true
 			inner.blocks[n] = &blockEntry{qc: qc, epoch: ep, laneBlocks: make(map[uint64]*types.Block, len(qc.Headers()))}
-			inner.byHash[qc.QC().RoadBlockHash()] = n
+			inner.byHash[qc.Header().Hash()] = n
 			inner.nextPartialBlock += 1
 			inner.publishNextCommitEpoch(s.cfg.Registry)
 			s.metrics.NextBlock.QC.Set(utils.Clamp[int64](inner.nextPartialBlock))
@@ -456,7 +456,7 @@ func (s *State) NextAppQC() types.RoadIndex {
 
 // SuperBlockByHash returns a retained SuperBlock by its road block hash.
 // Unknown, pruned, or incomplete blocks and roads beyond the contiguous complete prefix return None.
-func (s *State) SuperBlockByHash(hash types.RoadBlockHash) (utils.Option[*types.SuperBlock], error) {
+func (s *State) SuperBlockByHash(hash types.RoadBlockHeaderHash) (utils.Option[*types.SuperBlock], error) {
 	for inner := range s.inner.Lock() {
 		if n, ok := inner.byHash[hash]; ok {
 			if n >= inner.nextFullBlock {
@@ -861,7 +861,7 @@ func (s *State) runPersist(ctx context.Context) error {
 					s.metrics.BlockLatency.Evict.Observe(latency)
 					s.metrics.TxLatency.Evict.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 				}
-				delete(inner.byHash, e.qc.QC().RoadBlockHash())
+				delete(inner.byHash, e.qc.Header().Hash())
 				delete(inner.blocks, inner.first)
 				delete(inner.appQCs, inner.first)
 				delete(inner.appProposals, inner.first)

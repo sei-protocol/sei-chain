@@ -63,7 +63,7 @@ func ObserveCommitQC(qc *types.CommitQC) {
 			}
 			Global.commitToCommitLatencyAt(timeouts).Observe(now.Sub(last.time).Seconds())
 		}
-		Global.proposalToCommitLatencyAt().Observe(now.Sub(qc.Proposal().Timestamp()).Seconds())
+		Global.proposalToCommitLatencyAt().Observe(now.Sub(qc.Header().Timestamp()).Seconds())
 		Global.commitRoadIndexAt().Set(int64(qc.Index())) // nolint: gosec
 		*mLast = utils.Some(observed[*types.CommitQC]{now, qc})
 	}

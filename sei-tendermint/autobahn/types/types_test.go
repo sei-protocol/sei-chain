@@ -118,7 +118,7 @@ func TestNewTimeoutQC(t *testing.T) {
 			Number:     GenViewNumber(rng) % view.Number,
 			EpochIndex: view.EpochIndex,
 		}
-		p := newProposal(pView, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))
+		p := &Proposal{view: pView, header: newRoadBlockHeader(utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))}
 		if wantView.Less(pView) {
 			wantView = pView
 		}

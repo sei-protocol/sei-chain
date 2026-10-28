@@ -158,10 +158,10 @@ func TestPrepareQCVerifyChecksEpochBinding(t *testing.T) {
 
 	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First})).Verify(ep))
 
-	wrongEpoch := newProposal(View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil)
+	wrongEpoch := &Proposal{view: View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, header: newRoadBlockHeader(time.Time{}, nil)}
 	require.Error(t, sign(wrongEpoch).Verify(ep))
 
-	outOfRoads := newProposal(View{Index: ep.RoadRange().Next, EpochIndex: ep.EpochIndex()}, time.Time{}, nil)
+	outOfRoads := &Proposal{view: View{Index: ep.RoadRange().Next, EpochIndex: ep.EpochIndex()}, header: newRoadBlockHeader(time.Time{}, nil)}
 	require.Error(t, sign(outOfRoads).Verify(ep))
 }
 
@@ -174,10 +174,10 @@ func TestCommitQCVerifyChecksEpochBinding(t *testing.T) {
 
 	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First})).Verify(ep))
 
-	wrongEpoch := newProposal(View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil)
+	wrongEpoch := &Proposal{view: View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, header: newRoadBlockHeader(time.Time{}, nil)}
 	require.Error(t, sign(wrongEpoch).Verify(ep))
 
-	outOfRoads := newProposal(View{Index: ep.RoadRange().Next, EpochIndex: ep.EpochIndex()}, time.Time{}, nil)
+	outOfRoads := &Proposal{view: View{Index: ep.RoadRange().Next, EpochIndex: ep.EpochIndex()}, header: newRoadBlockHeader(time.Time{}, nil)}
 	require.Error(t, sign(outOfRoads).Verify(ep))
 }
 

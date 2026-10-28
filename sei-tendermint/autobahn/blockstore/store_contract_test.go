@@ -153,7 +153,7 @@ func testEmptyDB(t *testing.T, build builder) {
 	require.NoError(t, err)
 	require.False(t, blk.IsPresent())
 
-	byHash, err := db.ReadBlockByHash(types.RoadBlockHash{1})
+	byHash, err := db.ReadBlockByHash(types.RoadBlockHeaderHash{1})
 	require.NoError(t, err)
 	require.False(t, byHash.IsPresent())
 
@@ -337,7 +337,7 @@ func testReadRoundTrip(t *testing.T, build builder) {
 	require.NoError(t, err)
 	require.False(t, missNum.IsPresent())
 
-	missHash, err := db.ReadBlockByHash(types.RoadBlockHash{1})
+	missHash, err := db.ReadBlockByHash(types.RoadBlockHeaderHash{1})
 	require.NoError(t, err)
 	require.False(t, missHash.IsPresent())
 }
@@ -590,7 +590,7 @@ func testPruneRefusesBelowWatermark(t *testing.T, build builder) {
 		require.ErrorIs(t, err, types.ErrPruned, "block %d below watermark %d must be reported pruned", n, watermark)
 		require.False(t, byNum.IsPresent(), "block %d below watermark %d must not be served", n, watermark)
 
-		byHash, err := db.ReadBlockByHash(below.qc.QC().RoadBlockHash())
+		byHash, err := db.ReadBlockByHash(below.qc.Header().Hash())
 		require.NoError(t, err)
 		require.False(t, byHash.IsPresent(), "block %d below watermark %d must not be served by hash", n, watermark)
 
@@ -802,7 +802,7 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 				require.True(t, ok, "block %d in the newest cohort must survive PruneBefore(%d)", n, prune)
 				assertSuperBlocksEqual(t, blk, got.SuperBlock())
 
-				byHash, err := db.ReadBlockByHash(last.qc.QC().RoadBlockHash())
+				byHash, err := db.ReadBlockByHash(last.qc.Header().Hash())
 				require.NoError(t, err)
 				bwn, ok := byHash.Get()
 				require.True(t, ok, "block %d must survive lookup by hash", n)
@@ -1186,7 +1186,7 @@ func testWriteEmptyQC(t *testing.T, build builder) {
 	got, ok := block.Get()
 	require.True(t, ok)
 	require.Empty(t, got.LaneBlocks())
-	byHash, err := db.ReadBlockByHash(got.QC().QC().RoadBlockHash())
+	byHash, err := db.ReadBlockByHash(got.Header().Hash())
 	require.NoError(t, err)
 	require.True(t, byHash.IsPresent())
 	committee, keys := buildCommittee()
@@ -1298,7 +1298,7 @@ func assertBlocksReadable(t *testing.T, db types.BlockStore, batches []batch) {
 			require.True(t, ok)
 			require.Equal(t, laneBlock.Header().Hash(), got.Header().Hash())
 			require.Equal(t, laneBlock.Payload().Txs(), got.Payload().Txs())
-			alias, err := db.ReadBlockByHash(types.RoadBlockHash(laneBlock.Header().Hash()))
+			alias, err := db.ReadBlockByHash(types.RoadBlockHeaderHash(laneBlock.Header().Hash()))
 			require.NoError(t, err)
 			require.False(t, alias.IsPresent(), "lane block hashes must not index SuperBlocks")
 		}
@@ -1319,7 +1319,7 @@ func assertBlocksReadable(t *testing.T, db types.BlockStore, batches []batch) {
 				require.Equal(t, types.BlockConv.Encode(laneBlock), types.BlockConv.Encode(got.LaneBlocks()[offset]))
 			}
 
-			byHash, err := db.ReadBlockByHash(b.qc.QC().RoadBlockHash())
+			byHash, err := db.ReadBlockByHash(b.qc.Header().Hash())
 			require.NoError(t, err)
 			bwn, ok := byHash.Get()
 			require.True(t, ok, "block by hash should exist")

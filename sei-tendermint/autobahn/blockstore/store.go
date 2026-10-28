@@ -270,7 +270,7 @@ func (s *Store) ReadBlock(n types.RoadIndex) (utils.Option[*types.RoadBlock], er
 	return utils.Some(group), nil
 }
 
-func (s *Store) ReadBlockByHash(hash types.RoadBlockHash) (utils.Option[*types.RoadBlock], error) {
+func (s *Store) ReadBlockByHash(hash types.RoadBlockHeaderHash) (utils.Option[*types.RoadBlock], error) {
 	record, exists, err := s.db.GetBlockByHash(blocktypes.BlockHash(hash))
 	if err != nil {
 		return utils.None[*types.RoadBlock](), err
