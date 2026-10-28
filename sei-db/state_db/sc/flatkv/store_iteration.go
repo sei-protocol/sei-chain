@@ -20,10 +20,10 @@ import (
 // order. Within each DB, keys are in key order. Per-DB _meta/* keys are skipped by the stores
 // themselves.
 //
-// Requires that no block be staged: see the check below.
+// Refuses while ApplyChangeSets has a block buffered.
 //
 // It walks the stores rather than the databases, so it needs no flush gate: a store iterator already
-// merges the rows a block has staged and the rows the flusher has not yet written over what is on disk.
+// merges the rows the flusher has not yet written over what is on disk.
 // Scanning the databases directly would instead return whatever the flusher happened to have finished.
 //
 // The returned iterator is a fixed view of the instant it was built, so it may be held while later blocks commit and
@@ -37,12 +37,11 @@ func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
 		return nil, errors.New("flatkv: RawGlobalIterator on a closed store")
 	}
 
-	// Refuse while a block is staged. A store iterator sees staged rows, and every caller here is
-	// exporting or auditing committed state — emitting a row from a block that has not committed would be
-	// wrong, and silently including it would be worse.
+	// Refuse while a block is buffered. A block is buffered only mid-block, and every caller here exports or
+	// audits committed state between blocks.
 	if s.pendingBlockHeight != 0 {
 		return nil, fmt.Errorf(
-			"flatkv: RawGlobalIterator requires no staged block; block %d is staged and uncommitted",
+			"flatkv: RawGlobalIterator requires no buffered block; block %d is buffered and uncommitted",
 			s.pendingBlockHeight)
 	}
 
@@ -75,8 +74,8 @@ func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending
 	}
 
 	// Read lock for the construction span: buildEvmIterator/buildMiscDBLane
-	// copy the pending-writes maps and pin the Pebble reader here, so the
-	// returned iterator may safely outlive a concurrent ApplyChangeSets/Commit.
+	// build their store iterators and pin the Pebble reader here, so the
+	// returned iterator may safely outlive a concurrent Commit.
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

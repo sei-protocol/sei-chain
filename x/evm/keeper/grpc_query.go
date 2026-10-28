@@ -169,7 +169,7 @@ func (q Querier) PointerVersion(c context.Context, req *types.QueryPointerVersio
 		}, nil
 	case types.PointerType_CW20:
 		return &types.QueryPointerVersionResponse{
-			Version: uint32(cw20.CurrentVersion(ctx)),
+			Version: uint32(cw20.CurrentVersion),
 		}, nil
 	case types.PointerType_CW721:
 		return &types.QueryPointerVersionResponse{

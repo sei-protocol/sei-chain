@@ -116,13 +116,9 @@ type EVMKeeper interface {
 	GetPriorityNormalizer(ctx sdk.Context) sdk.Dec
 	GetBaseDenom(ctx sdk.Context) string
 	GetBalance(ctx sdk.Context, addr sdk.AccAddress) *big.Int
-	SetERC20NativePointer(ctx sdk.Context, token string, addr common.Address) error
 	GetERC20NativePointer(ctx sdk.Context, token string) (addr common.Address, version uint16, exists bool)
-	SetERC20CW20Pointer(ctx sdk.Context, cw20Address string, addr common.Address) error
 	GetERC20CW20Pointer(ctx sdk.Context, cw20Address string) (addr common.Address, version uint16, exists bool)
-	SetERC721CW721Pointer(ctx sdk.Context, cw721Address string, addr common.Address) error
 	GetERC721CW721Pointer(ctx sdk.Context, cw721Address string) (addr common.Address, version uint16, exists bool)
-	SetERC1155CW1155Pointer(ctx sdk.Context, cw1155Address string, addr common.Address) error
 	GetERC1155CW1155Pointer(ctx sdk.Context, cw1155Address string) (addr common.Address, version uint16, exists bool)
 	SetCode(ctx sdk.Context, addr common.Address, code []byte)
 	GetEVMGasLimitFromCtx(ctx sdk.Context) uint64

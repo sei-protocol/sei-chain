@@ -12,8 +12,7 @@ import (
 // VerifyLtHash scans all four data stores and checks the recomputed state against the store's maintained
 // metadata. Beyond the global root it validates the per-DB, per-module decomposition — per-module hashes
 // and per-module key/byte totals — catching drift in that bookkeeping even when the global root matches.
-// A store with a staged block is rejected: the scan sees that block's rows and the maintained hashes do
-// not.
+// A store with a buffered, uncommitted block is rejected.
 //
 // Buffers one store's worth of KVs in memory at a time and is not cancellable.
 // Intended for tests and offline maintenance / migration checks; not suitable
@@ -27,12 +26,10 @@ func VerifyLtHash(s gigatypes.LiveStateStore) error {
 }
 
 func verifyLtHashInternal(cs *CommitStore) error {
-	// The scan walks the stores, which merge a staged block's rows, while the hashes it is compared
-	// against do not account for that block until it is sealed. Refuse rather than report a healthy
-	// store as corrupt.
+	// A block is buffered only mid-block, and verification belongs between blocks.
 	if cs.pendingBlockHeight != 0 {
 		return fmt.Errorf(
-			"VerifyLtHash: store has uncommitted writes: block %d is staged; "+
+			"VerifyLtHash: store has uncommitted writes: block %d is buffered; "+
 				"commit or reopen readonly before verifying",
 			cs.pendingBlockHeight,
 		)

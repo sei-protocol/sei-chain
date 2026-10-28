@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"slices"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -232,8 +233,9 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 	encodeCalls := 0
 	encoder := func(changes StateChangeSet) ([]*proto.NamedChangeSet, error) {
 		encodeCalls++
-		require.NotEmpty(t, changes.Balances)
-		require.Contains(t, changes.Nonces, NonceChange{Address: sender, Nonce: 1})
+		require.True(t, slices.ContainsFunc(changes.Accounts, func(change AccountChange) bool {
+			return change.Address == sender && change.Prior.Nonce == 0 && change.Account.Nonce == 1
+		}))
 		return wantChangesets, nil
 	}
 
@@ -252,7 +254,11 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 	require.Equal(t, 1, snapshot.closeCount)
 	require.Equal(t, []int64{41}, store.commitBlock)
 	require.Equal(t, [][]*proto.NamedChangeSet{wantChangesets}, store.commits)
-	require.Contains(t, result.ChangeSet.Balances, BalanceChange{Address: recipient, Balance: big.NewInt(7), PriorBalance: new(uint256.Int).ToBig()})
+	require.Contains(t, result.ChangeSet.Accounts, AccountChange{
+		Address: recipient,
+		Account: AccountState{Balance: big.NewInt(7)},
+		Prior:   AccountState{Balance: new(uint256.Int).ToBig()},
+	})
 	result.Release()
 }
 
@@ -276,10 +282,10 @@ func TestExecutorGigaStoreSnapshotFeedsOCCExecution(t *testing.T) {
 	store := &recordingGigaStore{snapshot: snapshot}
 	encoder := func(changes StateChangeSet) ([]*proto.NamedChangeSet, error) {
 		for i, recipient := range recipients {
-			require.Contains(t, changes.Balances, BalanceChange{
-				Address:      recipient,
-				Balance:      big.NewInt(int64(i + 1)),
-				PriorBalance: new(uint256.Int).ToBig(),
+			require.Contains(t, changes.Accounts, AccountChange{
+				Address: recipient,
+				Account: AccountState{Balance: big.NewInt(int64(i + 1))},
+				Prior:   AccountState{Balance: new(uint256.Int).ToBig()},
 			})
 		}
 		return []*proto.NamedChangeSet{}, nil

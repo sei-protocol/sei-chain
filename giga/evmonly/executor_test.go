@@ -90,7 +90,7 @@ func TestExecutorTransferTx(t *testing.T) {
 	require.Len(t, result.Receipts, 1)
 	require.Equal(t, ethtypes.ReceiptStatusSuccessful, result.Txs[0].Status)
 	require.Equal(t, uint64(21_000), result.GasUsed)
-	require.NotEmpty(t, result.ChangeSet.Balances)
+	require.NotEmpty(t, result.ChangeSet.Accounts)
 
 	state.ApplyChangeSet(result.ChangeSet)
 	require.Equal(t, big.NewInt(7), state.GetBalance(recipient))
@@ -351,15 +351,6 @@ type overflowingBalanceState struct {
 
 func (s *overflowingBalanceState) GetBalance(common.Address) *big.Int {
 	return new(big.Int).Lsh(big.NewInt(1), 256)
-}
-
-type stableBalancePointerState struct {
-	*MemoryState
-	balance *big.Int
-}
-
-func (s *stableBalancePointerState) GetBalance(common.Address) *big.Int {
-	return s.balance
 }
 
 func TestOCCWorkerPoolCloseWaitsForInFlightRun(t *testing.T) {
@@ -1648,18 +1639,24 @@ func TestExecuteBlockChangeSetCarriesPriorValues(t *testing.T) {
 	fees := new(big.Int).SetUint64(result.GasUsed * testGasPriceWei)
 	spent := new(big.Int).Add(fees, big.NewInt(25))
 	want := StateChangeSet{
-		Balances: []BalanceChange{
-			{Address: counter, Balance: big.NewInt(1_020), PriorBalance: big.NewInt(1_000)},
-			{Address: fresh, Balance: big.NewInt(5), PriorBalance: big.NewInt(0)},
-			{Address: coinbase, Balance: fees, PriorBalance: big.NewInt(0)},
-			{Address: sender, Balance: new(big.Int).Sub(funded, spent), PriorBalance: funded},
-		},
-		Nonces: []NonceChange{
-			{Address: created, Nonce: 1, PriorNonce: 0},
-			{Address: sender, Nonce: 5, PriorNonce: 0},
-		},
-		Code: []CodeChange{
-			{Address: created, Code: runtime},
+		Accounts: []AccountChange{
+			{
+				Address: counter,
+				Account: AccountState{Balance: big.NewInt(1_020), Code: counterRuntime(slot)},
+				Prior:   AccountState{Balance: big.NewInt(1_000), Code: counterRuntime(slot)},
+			},
+			{Address: fresh, Account: AccountState{Balance: big.NewInt(5)}, Prior: AccountState{Balance: big.NewInt(0)}},
+			{Address: coinbase, Account: AccountState{Balance: fees}, Prior: AccountState{Balance: big.NewInt(0)}},
+			{
+				Address: created,
+				Account: AccountState{Balance: big.NewInt(0), Nonce: 1, Code: runtime},
+				Prior:   AccountState{Balance: big.NewInt(0)},
+			},
+			{
+				Address: sender,
+				Account: AccountState{Balance: new(big.Int).Sub(funded, spent), Nonce: 5},
+				Prior:   AccountState{Balance: funded},
+			},
 		},
 		Storage: []StorageChange{
 			{Address: counter, Key: slot, Value: testHash(0x07), PriorValue: testHash(0x05)},
@@ -1710,18 +1707,24 @@ func TestExecuteBlockOCCChangeSetCarriesPriorValues(t *testing.T) {
 	fees := new(big.Int).SetUint64(result.GasUsed * testGasPriceWei)
 	spent := new(big.Int).Add(fees, big.NewInt(25))
 	want := StateChangeSet{
-		Balances: []BalanceChange{
-			{Address: counter, Balance: big.NewInt(1_020), PriorBalance: big.NewInt(1_000)},
-			{Address: fresh, Balance: big.NewInt(5), PriorBalance: big.NewInt(0)},
-			{Address: coinbase, Balance: fees, PriorBalance: big.NewInt(0)},
-			{Address: sender, Balance: new(big.Int).Sub(funded, spent), PriorBalance: funded},
-		},
-		Nonces: []NonceChange{
-			{Address: created, Nonce: 1, PriorNonce: 0},
-			{Address: sender, Nonce: 5, PriorNonce: 0},
-		},
-		Code: []CodeChange{
-			{Address: created, Code: runtime},
+		Accounts: []AccountChange{
+			{
+				Address: counter,
+				Account: AccountState{Balance: big.NewInt(1_020), Code: counterRuntime(slot)},
+				Prior:   AccountState{Balance: big.NewInt(1_000), Code: counterRuntime(slot)},
+			},
+			{Address: fresh, Account: AccountState{Balance: big.NewInt(5)}, Prior: AccountState{Balance: big.NewInt(0)}},
+			{Address: coinbase, Account: AccountState{Balance: fees}, Prior: AccountState{Balance: big.NewInt(0)}},
+			{
+				Address: created,
+				Account: AccountState{Balance: big.NewInt(0), Nonce: 1, Code: runtime},
+				Prior:   AccountState{Balance: big.NewInt(0)},
+			},
+			{
+				Address: sender,
+				Account: AccountState{Balance: new(big.Int).Sub(funded, spent), Nonce: 5},
+				Prior:   AccountState{Balance: funded},
+			},
 		},
 		Storage: []StorageChange{
 			{Address: counter, Key: slot, Value: testHash(0x07), PriorValue: testHash(0x05)},
@@ -1831,18 +1834,31 @@ func TestStateDBBalanceErrorsAreSurfaced(t *testing.T) {
 	})
 }
 
-func TestBlockSTMCommutativeBalanceApplyDoesNotMutateSource(t *testing.T) {
+// A fee credit that a balance write in the same block takes back leaves the account unchanged, so the
+// account is not reported.
+func TestStateDBChangeSetOmitsACreditThatNetsOut(t *testing.T) {
+	addr := testAddress(0xc4)
+	state := NewMemoryState()
+	state.SetBalance(addr, big.NewInt(10))
+	stateDB := newNativeStateDB(state)
+
+	stateDB.AddBalance(addr, uint256.NewInt(5), tracing.BalanceIncreaseRewardTransactionFee)
+	stateDB.SubBalance(addr, uint256.NewInt(5), tracing.BalanceChangeTransfer)
+	stateDB.Finalise(true)
+
+	require.Empty(t, stateDB.ChangeSet().Accounts)
+}
+
+// Folding a credit onto an account's prior must leave the prior as the transaction reported it.
+func TestBlockSTMCommutativeBalanceApplyDoesNotMutatePrior(t *testing.T) {
 	addr := testAddress(0xc3)
-	sourceBalance := big.NewInt(10)
-	source := &stableBalancePointerState{
-		MemoryState: NewMemoryState(),
-		balance:     sourceBalance,
-	}
-	state := newBlockSTMState(source)
+	prior := big.NewInt(10)
+	state := newBlockSTMState(NewMemoryState())
 	state.apply(occTxExecution{
-		changeSet: StateChangeSet{Balances: []BalanceChange{{
+		changeSet: StateChangeSet{Accounts: []AccountChange{{
 			Address: addr,
-			Balance: big.NewInt(15),
+			Account: AccountState{Balance: big.NewInt(15)},
+			Prior:   AccountState{Balance: prior},
 		}}},
 		writeSet: map[stateAccessKey]struct{}{},
 		commutativeBalanceDeltas: map[common.Address]*big.Int{
@@ -1850,8 +1866,9 @@ func TestBlockSTMCommutativeBalanceApplyDoesNotMutateSource(t *testing.T) {
 		},
 	})
 
-	require.Equal(t, big.NewInt(10), sourceBalance)
+	require.Equal(t, big.NewInt(10), prior)
 	require.Equal(t, big.NewInt(15), state.GetBalance(addr))
+	require.Equal(t, big.NewInt(10), state.ChangeSet().Accounts[0].Prior.Balance)
 }
 
 func TestSnapshotRevertRestoresBaseState(t *testing.T) {
@@ -2730,4 +2747,8 @@ func (r staticPrecompileRegistry) Get(addr common.Address) (precompiles.Contract
 
 func (r staticPrecompileRegistry) Addresses() []common.Address {
 	return []common.Address{r.addr}
+}
+
+func (staticPrecompileRegistry) EndBlockers() []common.Address {
+	return nil
 }
