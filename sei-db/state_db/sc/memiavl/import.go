@@ -36,6 +36,7 @@ type MultiTreeImporter struct {
 	snapshotDir string
 	height      int64
 	importer    *TreeImporter
+	allowEmpty  bool
 	fileLock    FileLock
 	ctx         context.Context // Context for cancellation support
 }
@@ -113,6 +114,11 @@ func (mti *MultiTreeImporter) AddNode(node *types.SnapshotNode) error {
 	return nil
 }
 
+// AllowEmpty permits Close to publish metadata without module trees.
+func (mti *MultiTreeImporter) AllowEmpty() {
+	mti.allowEmpty = true
+}
+
 func (mti *MultiTreeImporter) Close() (err error) {
 	// Release the import flock on every return path; a leaked lock fails a
 	// same-process restore re-offer with ErrLocked.
@@ -127,6 +133,10 @@ func (mti *MultiTreeImporter) Close() (err error) {
 			_ = os.RemoveAll(mti.tmpDir())
 		}
 	}()
+
+	if mti.importer == nil && !mti.allowEmpty {
+		return fmt.Errorf("cannot publish memiavl import without modules")
+	}
 
 	if mti.importer != nil {
 		if err := mti.importer.Close(); err != nil {

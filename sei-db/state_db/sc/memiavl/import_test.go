@@ -41,13 +41,27 @@ func TestTreeImporterRejectsBranchBeforeLeaves(t *testing.T) {
 	require.NoError(t, imp.Close(), "a second Close must be a no-op")
 }
 
-// TestMultiTreeImporterPublishesSnapshotWithoutModules verifies an empty stream still records its height.
-func TestMultiTreeImporterPublishesSnapshotWithoutModules(t *testing.T) {
+func TestMultiTreeImporterRejectsSnapshotWithoutModules(t *testing.T) {
 	dir := t.TempDir()
 	const height = 7
 
 	mti, err := NewMultiTreeImporter(dir, height)
 	require.NoError(t, err)
+	require.ErrorContains(t, mti.Close(), "without modules")
+
+	require.NoDirExists(t, filepath.Join(dir, snapshotName(height)))
+	require.NoDirExists(t, filepath.Join(dir, snapshotName(height)+"-tmp"))
+	_, err = os.Lstat(filepath.Join(dir, "current"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestMultiTreeImporterPublishesAllowedSnapshotWithoutModules(t *testing.T) {
+	dir := t.TempDir()
+	const height = 7
+
+	mti, err := NewMultiTreeImporter(dir, height)
+	require.NoError(t, err)
+	mti.AllowEmpty()
 	require.NoError(t, mti.Close())
 
 	bz, err := os.ReadFile(filepath.Join(dir, snapshotName(height), MetadataFileName))

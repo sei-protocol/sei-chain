@@ -120,6 +120,29 @@ func TestRestoreRejectsMalformedStream(t *testing.T) {
 	}
 }
 
+func TestRestoreRejectsEmptyStream(t *testing.T) {
+	configs := map[string]seidbconfig.StateCommitConfig{
+		"auto":            autoModeConfig(),
+		"memiavl_only":    memiavlOnlyConfig(),
+		"test_dual_write": dualWriteConfig(),
+	}
+
+	for name, cfg := range configs {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			store, _ := newTestRootMulti(t, home, cfg)
+			ss := &fakeStateStore{}
+			store.ssStore = ss
+			before := readSCSnapshotState(t, home)
+
+			err := restoreWithin(t, store, snapshotStream(t, nil))
+			require.ErrorContains(t, err, "without modules")
+			require.Equal(t, before, readSCSnapshotState(t, home))
+			require.Zero(t, ss.versionWrites)
+		})
+	}
+}
+
 // fakeStateStore is a state store whose Import returns importErr, either at once or after reading and
 // recording every node, and which counts the version writes restore makes.
 type fakeStateStore struct {
