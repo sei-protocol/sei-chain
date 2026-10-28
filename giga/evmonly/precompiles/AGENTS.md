@@ -12,9 +12,6 @@ same result from the same block, so each rule below is a consensus rule.
   resolution.
 - Read and write nothing off-chain: no files, network, environment, wall clock,
   or randomness.
-- `EndBlock` returns the operations that failed, such as a passed proposal
-  that could not execute, and the executor logs them. Work it defers to a later
-  block is not a failure. A returned error fails the block.
 - A storage read after a failure, such as running out of gas, returns zero and
   costs nothing, so a length read after the failure is zero. A loop that read its
   bound before the failure, and is not capped by a constant, re-checks
@@ -47,24 +44,39 @@ same result from the same block, so each rule below is a consensus rule.
   `DefaultGasCost` formula). Storage reads, writes and logs are metered by the
   adapter; do not price them into `RequiredGas`.
 - `EndBlock` is not metered, so `ctx.State.Failed()` never reports a storage
-  read failure there; a balance error still sets it, after which writes are
-  dropped and the block fails. An end blocker schedules its work under a budget
-  (see gov's `endBlockBudget`). Each unit of that work is bounded by limits its
-  write path enforces, such as gov's content size and depositor count, and by
-  the validator set, so a block's cost cannot grow with user input.
-- An end blocker's operation that fails writes nothing, such as a passed
-  proposal that cannot execute: EndBlock has no snapshot to revert to.
-- An end blocker never fails the block over data it stored. A gov proposal
-  whose stored data does not add up (content that does not decode, a deposit the
-  escrow cannot cover, a panic while processing it) is marked Failed and
-  reported, and EndBlock moves on.
+  read failure there. It schedules its work under a budget (see gov's
+  `endBlockBudget`). Each unit of that work is bounded by limits its write path
+  enforces, such as gov's content size and depositor count, and by the
+  validator set, so a block's cost cannot grow with user input.
+
+## EndBlock
+- `EndBlock` returns the operations that failed, and the executor logs them.
+  Work deferred to a later block is not a failure. A returned error fails the
+  block, so an end blocker returns one only when the block cannot be trusted.
+- Never panic. A malformed stored value is an error returned up to the
+  operation that read it; the executor does not recover panics.
+- Each operation runs under a `ctx.State.Snapshot()`. When it returns an error,
+  revert to the snapshot, so the operation writes nothing, then record the
+  outcome in place: gov marks the proposal Failed, refunds its deposits when it
+  can, and removes it from its queue. Wrap the reported error in
+  `precompiles.ErrDegraded`.
+- One operation's failure holds up no other: the next due operation in the same
+  EndBlock proceeds. An operation that returns success but leaves its queue
+  entry in place is failed the same way.
+- Check a balance change before making it. A balance change that fails marks
+  `ctx.State` failed, which reverting a snapshot does not undo: later writes are
+  dropped and the block fails. Gov checks the escrow and the depositor's balance
+  before releasing a deposit.
+- A queue whose stored length exceeds the entries it could hold is frozen: none
+  of its operations run, and each EndBlock reports it. An upgrade rebuilds it
+  from the records it indexes.
 
 ## Storage
 - Lay out storage as solc would for the matching `docs/giga-storage/*.sol`
   contract, using `solstorage`. Changing a layout changes the app hash.
-- `solstorage` reads a stored string that is not a valid encoding of at most
-  `MaxStringLength` bytes as empty. Lowering `MaxStringLength` therefore empties
-  any longer value already stored.
+- `solstorage` returns `ErrInvalidString` for a stored string that is not a
+  valid encoding of at most `MaxStringLength` bytes. Lowering `MaxStringLength`
+  therefore makes any longer value already stored unreadable.
 - A storage write through `ctx.State` gives an account with no nonce and no
   code a nonce of 1, so the EVM treats any account holding storage as existing.
 - Chain params live in the params precompile's storage (0x1013), laid out by

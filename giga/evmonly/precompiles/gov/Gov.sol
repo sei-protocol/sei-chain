@@ -39,7 +39,8 @@ struct ParamChangeContent {
 /// exceed 16 KiB. Each submit method deposits any msg.value under the same rules
 /// as `deposit`, except that zero is allowed and creates the proposal with no
 /// deposit. A method marked "Reverts:" is kept so a caller of a V2 method gets a
-/// revert whose Error(string) names the call to use instead.
+/// revert whose Error(string) names the call to use instead, or says the
+/// operation is not supported.
 interface IGov {
     struct WeightedVoteOption {
         int32 option; // 1=Yes, 2=Abstain, 3=No, 4=NoWithVeto

@@ -183,7 +183,9 @@ func createProposal(ctx *precompiles.Context, s store, content govContent, isExp
 		tallyNoWithVeto: new(big.Int),
 	}
 	s.setProposal(id, prop)
-	s.setProposalContent(id, contentType, encoded)
+	if err := s.setProposalContent(id, contentType, encoded); err != nil {
+		return 0, err
+	}
 	s.depositQueue().add(id, prop.depositEndTime)
 
 	votingStarted := false

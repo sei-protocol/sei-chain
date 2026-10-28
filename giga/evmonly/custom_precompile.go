@@ -2,7 +2,6 @@ package evmonly
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"math/big"
 	"time"
@@ -15,17 +14,13 @@ import (
 	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
-	"github.com/sei-protocol/seilog"
 )
-
-var precompileLogger = seilog.NewLogger("giga", "evmonly", "precompile")
 
 var (
 	errPrecompileNegativeAmount  = errors.New("custom precompile balance amount is negative")
 	errPrecompileAmountOverflow  = errors.New("custom precompile balance amount exceeds uint256")
 	errPrecompileBalanceOverflow = errors.New("custom precompile balance exceeds uint256")
 	errPrecompileSstoreSentry    = errors.New("not enough gas for reentrancy sentry")
-	errPrecompilePanic           = errors.New("custom precompile panicked")
 )
 
 // registeredCustomPrecompile runs a native custom precompile against the
@@ -63,8 +58,8 @@ func (p registeredCustomPrecompile) Run(
 // RunAndCalculateGas charges RequiredGas, then runs the contract against the
 // calling EVM's StateDB, charging each storage read and write as an EIP-2929
 // SLOAD or SSTORE and each log as a LOG opcode, from the remaining gas. A
-// panic fails the call with errPrecompilePanic; otherwise a failed state access
-// fails it over the contract's own result. Either uses all the gas.
+// failed state access fails the call over the contract's own result and uses
+// all the gas.
 func (p registeredCustomPrecompile) RunAndCalculateGas(
 	evm *vm.EVM,
 	sender common.Address,
@@ -99,35 +94,18 @@ func (p registeredCustomPrecompile) RunAndCalculateGas(
 		State:         state,
 		Logs:          state,
 	}
-	output, err := runContract(p.contract, ctx, input)
-	panicked := errors.Is(err, errPrecompilePanic)
-	if panicked {
-		precompileLogger.Warn("custom precompile panicked", "address", p.address, "error", truncateUTF8(err.Error(), maxFailureLength))
-	}
-	if state.err != nil || panicked {
+	output, err := p.contract.Run(ctx, input)
+	if state.err != nil {
 		state.gas = 0
 	}
 	if hooks != nil && hooks.OnGasChange != nil && state.gas != start {
 		hooks.OnGasChange(start, state.gas, tracing.GasChangeCallPrecompiledContract)
-	}
-	if panicked {
-		return nil, 0, errPrecompilePanic // the panic value stays in the log, out of receipts
 	}
 	if state.err != nil {
 		return nil, 0, state.err
 	}
 	// The output is kept on error so vm.ErrExecutionReverted carries revert data.
 	return output, state.gas, err
-}
-
-// runContract runs contract, returning a panic as errPrecompilePanic.
-func runContract(contract precompiles.Contract, ctx *precompiles.Context, input []byte) (output []byte, err error) {
-	defer func() {
-		if r := recover(); r != nil { // fail the call, not the node
-			output, err = nil, fmt.Errorf("%w: %v", errPrecompilePanic, r)
-		}
-	}()
-	return contract.Run(ctx, input)
 }
 
 // materializeAccount gives an account with no nonce and no code a nonce of 1.
@@ -243,6 +221,14 @@ func (s *precompileState) SetState(addr common.Address, key common.Hash, value c
 
 func (s *precompileState) Failed() bool {
 	return s.err != nil
+}
+
+func (s *precompileState) Snapshot() int {
+	return s.db.Snapshot()
+}
+
+func (s *precompileState) RevertToSnapshot(id int) {
+	s.db.RevertToSnapshot(id)
 }
 
 func (s *precompileState) AddLog(log *ethtypes.Log) {

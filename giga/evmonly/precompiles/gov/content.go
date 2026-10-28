@@ -130,7 +130,11 @@ func checkText(title, description string) error {
 
 // executeProposal carries out passed proposal id.
 func executeProposal(block precompiles.BlockContext, s store, id uint64) error {
-	c, err := decodeContent(s.proposalContent(id))
+	t, bz, err := s.proposalContent(id)
+	if err != nil {
+		return err
+	}
+	c, err := decodeContent(t, bz)
 	if err != nil {
 		return err
 	}

@@ -3,6 +3,7 @@ package gov
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
 	"strings"
 	"testing"
@@ -24,6 +25,32 @@ type memState struct {
 	logs     []*ethtypes.Log
 
 	reads, failAt, readsAfterFailure int
+	snapshots                        []memSnapshot
+}
+
+// memSnapshot is a copy of memState's balances, storage and log count.
+type memSnapshot struct {
+	balances map[common.Address]*big.Int
+	storage  map[common.Address]map[common.Hash]common.Hash
+	logs     int
+}
+
+func (m *memState) Snapshot() int {
+	snap := memSnapshot{balances: map[common.Address]*big.Int{}, storage: map[common.Address]map[common.Hash]common.Hash{}, logs: len(m.logs)}
+	for a, b := range m.balances {
+		snap.balances[a] = new(big.Int).Set(b)
+	}
+	for a, slots := range m.storage {
+		snap.storage[a] = maps.Clone(slots)
+	}
+	m.snapshots = append(m.snapshots, snap)
+	return len(m.snapshots) - 1
+}
+
+func (m *memState) RevertToSnapshot(id int) {
+	snap := m.snapshots[id]
+	m.balances, m.storage, m.logs = snap.balances, snap.storage, m.logs[:snap.logs]
+	m.snapshots = m.snapshots[:id]
 }
 
 var (
@@ -99,4 +126,12 @@ func abiOf(t *testing.T, sig string) abi.ABI {
 	)))
 	require.NoError(t, err)
 	return parsed
+}
+
+// must returns v, panicking on err, for test reads that cannot fail.
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
