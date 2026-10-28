@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"time"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
@@ -256,6 +257,10 @@ func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]abci.ValidatorUpd
 // the container limit, so a late collection is an ordinary GC rather than an OOM kill.
 func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
 	producer.MaxExecutionLag = cfg.MaxExecutionLag
+	if cfg.MinProposalLaneBlocks > 0 {
+		avail.MinProposalLaneBlocks = cfg.MinProposalLaneBlocks
+		avail.MaxProposalWait = time.Duration(cfg.MaxProposalWaitMs) * time.Millisecond
+	}
 	if cfg.LaneCapacity > 0 {
 		avail.LaneCapacity = uint64(cfg.LaneCapacity)
 	}

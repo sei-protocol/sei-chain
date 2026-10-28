@@ -84,6 +84,10 @@ type ExecutionConfig struct {
 	LaneCapacity int `mapstructure:"lane_capacity"`
 	// MaxExecutionLag is how many committed superblocks may stay unexecuted before inserts are refused. 0 disables it.
 	MaxExecutionLag uint64 `mapstructure:"max_execution_lag"`
+	// MinProposalLaneBlocks is how many new certified lane blocks a leader waits for before proposing. 0 keeps 1.
+	MinProposalLaneBlocks int `mapstructure:"min_proposal_lane_blocks"`
+	// MaxProposalWaitMs bounds in milliseconds how long a leader waits for MinProposalLaneBlocks.
+	MaxProposalWaitMs int `mapstructure:"max_proposal_wait_ms"`
 	// FlatKVViewShards, when non-zero, replaces the view shard count of the FlatKV account database. It
 	// must be a power of two.
 	FlatKVViewShards uint64 `mapstructure:"flatkv_view_shards"`
@@ -185,6 +189,8 @@ const (
 	FlagExecutionGCPercent               = "giga.execution.gc_percent"
 	FlagExecutionLaneCapacity            = "giga.execution.lane_capacity"
 	FlagExecutionMaxExecutionLag         = "giga.execution.max_execution_lag"
+	FlagExecutionMinProposalLaneBlocks   = "giga.execution.min_proposal_lane_blocks"
+	FlagExecutionMaxProposalWaitMs       = "giga.execution.max_proposal_wait_ms"
 	FlagExecutionFlatKVViewShards        = "giga.execution.flatkv_view_shards"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
@@ -289,6 +295,16 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionMaxExecutionLag); v != nil {
 		if cfg.Execution.MaxExecutionLag, err = cast.ToUint64E(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionMaxExecutionLag, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionMinProposalLaneBlocks); v != nil {
+		if cfg.Execution.MinProposalLaneBlocks, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionMinProposalLaneBlocks, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionMaxProposalWaitMs); v != nil {
+		if cfg.Execution.MaxProposalWaitMs, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionMaxProposalWaitMs, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionLaneCapacity); v != nil {
@@ -502,6 +518,12 @@ lane_capacity = {{ .Giga.Execution.LaneCapacity }}
 
 # max_execution_lag is how many committed superblocks may stay unexecuted before inserts are refused. 0 disables it.
 max_execution_lag = {{ .Giga.Execution.MaxExecutionLag }}
+
+# min_proposal_lane_blocks is how many new certified lane blocks a leader waits for before proposing. 0 keeps 1.
+min_proposal_lane_blocks = {{ .Giga.Execution.MinProposalLaneBlocks }}
+
+# max_proposal_wait_ms bounds in milliseconds how long a leader waits for min_proposal_lane_blocks.
+max_proposal_wait_ms = {{ .Giga.Execution.MaxProposalWaitMs }}
 
 # flatkv_view_shards, when non-zero, replaces the view shard count of the FlatKV account database.
 flatkv_view_shards = {{ .Giga.Execution.FlatKVViewShards }}

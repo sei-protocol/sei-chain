@@ -1414,3 +1414,32 @@ func TestMarkCommitQCsPersisted_DoesNotRewindPruneTip(t *testing.T) {
 		require.Equal(t, qc.Index(), got.Index())
 	}
 }
+
+// A leader short of MinProposalLaneBlocks proposes what it has once MaxProposalWait passes.
+func TestWaitForLaneQCsWaitsForMinProposalLaneBlocksUpToMaxProposalWait(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := utils.OrPanic1(NewState(
+		keys[0],
+		newTestDataState(&data.Config{Registry: registry}),
+		utils.None[string](),
+	))
+	ep := registry.MustEpoch(0)
+	lane := ep.Committee().Lane(keys[0].Public()).OrPanic("lane")
+	b, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	for _, vote := range makeLaneVotes(keys, b.Msg().Block().Header()) {
+		require.NoError(t, state.PushVote(ctx, vote))
+	}
+
+	defer func(minBlocks int, maxWait time.Duration) {
+		MinProposalLaneBlocks, MaxProposalWait = minBlocks, maxWait
+	}(MinProposalLaneBlocks, MaxProposalWait)
+	MinProposalLaneBlocks, MaxProposalWait = 2, 50*time.Millisecond
+	start := time.Now()
+	laneQCs, err := state.WaitForLaneQCs(ctx, ep, utils.None[*types.CommitQC]())
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, time.Since(start), MaxProposalWait)
+	require.Len(t, laneQCs, 1)
+}
