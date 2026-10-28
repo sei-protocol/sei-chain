@@ -110,12 +110,12 @@ func (o *pendingOverlay) GetState(addr common.Address, key common.Hash) common.H
 
 // ReadAccount satisfies baseAccountReader, so a block reading through an overlay keeps the
 // single-row read the view beneath it offers.
-func (o *pendingOverlay) ReadAccount(addr common.Address) (AccountState, bool) {
+func (o *pendingOverlay) ReadAccount(addr common.Address) (AccountState, common.Hash, bool) {
 	if account, ok := o.accounts[addr]; ok {
-		return AccountState{Balance: cloneBig(account.Balance), Nonce: account.Nonce, Code: cloneBytes(account.Code)}, true
+		return AccountState{Balance: cloneBig(account.Balance), Nonce: account.Nonce, Code: cloneBytes(account.Code)}, common.Hash{}, true
 	}
 	if reader, ok := o.base.(baseAccountReader); ok {
 		return reader.ReadAccount(addr)
 	}
-	return AccountState{}, false
+	return AccountState{}, common.Hash{}, false
 }
