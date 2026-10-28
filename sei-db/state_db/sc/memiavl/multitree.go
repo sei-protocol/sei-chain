@@ -257,15 +257,9 @@ func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 	for _, upgrade := range upgrades {
 		switch {
 		case upgrade.Delete:
-			i := slices.IndexFunc(t.trees, func(entry NamedTree) bool {
-				return entry.Name == upgrade.Name
-			})
-			if i < 0 {
-				return fmt.Errorf("unknown tree name %s", upgrade.Name)
+			if err := t.deleteTree(upgrade.Name); err != nil {
+				return err
 			}
-			// swap deletion
-			t.trees[i], t.trees[len(t.trees)-1] = t.trees[len(t.trees)-1], t.trees[i]
-			t.trees = t.trees[:len(t.trees)-1]
 		case upgrade.RenameFrom != "":
 			// rename tree
 			i := slices.IndexFunc(t.trees, func(entry NamedTree) bool {
@@ -298,6 +292,34 @@ func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 		t.treesByName[tree.Name] = i
 	}
 
+	return nil
+}
+
+// deleteTree removes the named tree from the multitree, stops its background
+// writer and closes it. It returns an error only when no tree has that name; a
+// failure to close is logged.
+func (t *MultiTree) deleteTree(name string) error {
+	i := slices.IndexFunc(t.trees, func(entry NamedTree) bool {
+		return entry.Name == name
+	})
+	if i < 0 {
+		return fmt.Errorf("unknown tree name %s", name)
+	}
+	removed := t.trees[i]
+	last := len(t.trees) - 1
+	t.trees[i] = t.trees[last]
+	// The backing array outlives the shortened slice, so the vacated slot would
+	// keep the tree reachable.
+	t.trees[last] = NamedTree{}
+	t.trees = t.trees[:last]
+
+	// Close does not wait for the writer, which a replay can leave mid-changeset.
+	removed.WaitToCompleteAsyncWrite()
+	if err := removed.Close(); err != nil {
+		// The tree has already left the multitree, so returning would fail the
+		// store upgrade over a leak.
+		logger.Error("failed to close deleted tree", "tree", name, "err", err)
+	}
 	return nil
 }
 
