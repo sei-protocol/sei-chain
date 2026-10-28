@@ -76,6 +76,18 @@ func changeset(key string, value string) []*proto.NamedChangeSet {
 	}}
 }
 
+// commitToLiveStateDB commits cs to the live state DB as block, converted to mutations as the state DB converts
+// a block it commits.
+func commitToLiveStateDB(t *testing.T, liveStateDB *flatkv.CommitStore, block int64, cs []*proto.NamedChangeSet) {
+	t.Helper()
+	prior := liveStateDB.OpenView()
+	//nolint:gosec // test heights are small
+	mutations, err := flatkv.MutationsFromChangeSets(cs, uint64(block), prior)
+	prior.Close()
+	require.NoError(t, err)
+	require.NoError(t, liveStateDB.CommitStateChanges(block, mutations))
+}
+
 // Fanning a block out to every layer is the whole job. A layer silently missed here is a layer that
 // falls a block further behind the others with every block committed.
 func TestCommitStateChangesReachesWALAndLiveStateDB(t *testing.T) {

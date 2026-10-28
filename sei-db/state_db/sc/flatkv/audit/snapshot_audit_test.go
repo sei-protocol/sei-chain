@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -248,7 +249,7 @@ func TestAuditSnapshotReportsWrongModuleStats(t *testing.T) {
 func TestAuditSnapshotReportsARecordedModuleWithNoRows(t *testing.T) {
 	snapshot := newAuditTestSnapshot(t)
 	db := openAuditTestSnapshotDB(t, snapshot, miscDB)
-	ghost := lthash.ComputeLtHash(nil, []lthash.KeyMutation{{Key: []byte("ghost/k"), Value: []byte("v")}})
+	ghost := lthash.ComputeLtHash(nil, []mutation.Mutation{{Key: []byte("ghost/k"), NewValue: []byte("v")}})
 	require.NoError(t, db.Set(ktype.ModuleLtHashKey("ghost"), ghost.Marshal(), types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
 

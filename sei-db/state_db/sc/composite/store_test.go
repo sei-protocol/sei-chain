@@ -17,6 +17,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -40,7 +41,7 @@ func (f *failingEVMStore) ApplyChangeSets(int64, []*proto.NamedChangeSet) error 
 	return nil
 }
 func (f *failingEVMStore) Commit(int64) (int64, error) { return 0, nil }
-func (f *failingEVMStore) CommitStateChanges(int64, []*proto.NamedChangeSet) error {
+func (f *failingEVMStore) CommitStateChanges(int64, []mutation.Mutation) error {
 	return nil
 }
 func (f *failingEVMStore) OpenView() gigatypes.StateView     { return nil }
