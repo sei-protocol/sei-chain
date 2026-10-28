@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"sort"
 	"sync/atomic"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -137,6 +138,8 @@ func (r occSpeculativeRunner) runRanges(
 	// Ranges are claimed as workers finish, so a slow slice does not idle the rest of the pass.
 	var claimed atomic.Int64
 	return pool.Run(ctx, len(ranges), func(workerCtx context.Context, _ int, _ int) error {
+		started := time.Now()
+		defer func() { occMetrics.workerSeconds.Add(ctx, time.Since(started).Seconds()) }()
 		stateDB := r.executor.acquireStateDB(nil)
 		defer r.executor.releaseStateDB(stateDB)
 		evm := vm.NewEVM(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, r.executor.customContracts)

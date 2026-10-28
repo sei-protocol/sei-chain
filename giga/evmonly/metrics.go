@@ -35,6 +35,8 @@ var (
 		reruns     metric.Int64Counter
 		conflicts  metric.Int64Counter
 		rerunDepth metric.Int64Histogram
+		// workerSeconds is speculation worker time, from a worker's start to its last transaction.
+		workerSeconds metric.Float64Counter
 	}{
 		blocks: must(occMeter.Int64Counter(
 			"giga_occ_blocks_total",
@@ -61,6 +63,11 @@ var (
 			metric.WithDescription("Deepest transaction incarnation reached per optimistically executed block"),
 			metric.WithUnit("{incarnation}"),
 			metric.WithExplicitBucketBoundaries(occRerunDepthBuckets()...),
+		)),
+		workerSeconds: must(occMeter.Float64Counter(
+			"giga_occ_speculate_worker_seconds",
+			metric.WithDescription("Time OCC speculation workers spend from starting to finishing their last transaction"),
+			metric.WithUnit("s"),
 		)),
 	}
 )
