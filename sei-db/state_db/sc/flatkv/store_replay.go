@@ -3,7 +3,6 @@ package flatkv
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
@@ -209,12 +208,8 @@ func replayBlocks(
 			break
 		}
 		block, mutations := it.Entry()
-		changesets, cErr := MutationsToChangeSets(mutations)
-		if cErr != nil {
-			return 0, fmt.Errorf("convert block %d: %w", block, cErr)
-		}
 		//nolint:gosec // block <= end
-		if err := dest.applyAndCommit(int64(block), changesets, alreadyHave); err != nil {
+		if err := dest.applyAndCommit(int64(block), mutations, alreadyHave); err != nil {
 			return 0, fmt.Errorf("replay block %d: %w", block, err)
 		}
 		replayed++
@@ -226,13 +221,13 @@ func replayBlocks(
 	return replayed, nil
 }
 
-// applyAndCommit replays a single block into the store: it applies the changesets, seals the block on
+// applyAndCommit replays a single block into the store: it stages the mutations, seals the block on
 // every store, advances the committed version and clones the working LtHash to committed. It never
 // touches the WAL — the data being applied was itself read from a WAL, so re-writing it would
 // double-append.
 func (s *CommitStore) applyAndCommit(
 	version int64,
-	changesets []*proto.NamedChangeSet,
+	mutations []mutation.Mutation,
 	alreadyHave map[string]int64,
 ) error {
 	// Replay re-reads blocks the recorded version already covers, so committedVersion may be ahead of the
@@ -248,12 +243,12 @@ func (s *CommitStore) applyAndCommit(
 	}
 	// Staged under mu, as Commit stages, which is what keeps a concurrent read from interleaving with the writes.
 	s.mu.Lock()
-	err := s.stageChangeSets(version, changesets, alreadyHave)
+	staged, err := s.stageMutations(version, mutations, alreadyHave)
 	s.mu.Unlock()
 	if err != nil {
 		return fmt.Errorf("apply v%d: %w", version, err)
 	}
-	if err := s.sealBlock(version, alreadyHave); err != nil {
+	if err := s.sealBlock(version, staged, alreadyHave); err != nil {
 		return fmt.Errorf("commit v%d: %w", version, err)
 	}
 	s.committedVersion = version
