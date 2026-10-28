@@ -1121,6 +1121,24 @@ func TestCatchupReleasesTreeDeletedByUpgrade(t *testing.T) {
 	}), "the multitree still references the deleted tree")
 }
 
+// TestTreesUnaffectedByLaterUpgrades requires a slice returned by Trees to keep
+// its entries when a later upgrade deletes, renames and adds trees.
+func TestTreesUnaffectedByLaterUpgrades(t *testing.T) {
+	mtree := NewEmptyMultiTree(0)
+	t.Cleanup(func() { require.NoError(t, mtree.Close()) })
+	require.NoError(t, mtree.ApplyUpgrades([]*proto.TreeNameUpgrade{{Name: "a"}, {Name: "b"}, {Name: "c"}}))
+
+	held := mtree.Trees()
+	want := slices.Clone(held)
+	require.NoError(t, mtree.ApplyUpgrades([]*proto.TreeNameUpgrade{
+		{Name: "a", Delete: true},
+		{Name: "d", RenameFrom: "b"},
+		{Name: "e"},
+	}))
+
+	require.Equal(t, want, held)
+}
+
 func TestCloseWaitsForBackgroundSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	db, err := OpenDB(0, Options{
