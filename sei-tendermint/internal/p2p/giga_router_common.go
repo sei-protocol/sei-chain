@@ -196,21 +196,10 @@ func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes
 	}
 }
 
-func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.SuperBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
-	app := r.app
-	var proposerAddress types.Address
-	if vals := app.GetValidators(); len(vals) > 0 {
-		// Deterministically select a proposer from the app's validator committee.
-		// We need it so that app does not emit error logs.
-		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
-		key, err := crypto.PubKeyFromProto(proposer.PubKey)
-		if err != nil {
-			return nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
-		}
-		proposerAddress = key.Address()
-	}
-
-	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
+// finalizeRequest builds the FinalizeBlock request for a superblock, except
+// for the header's ProposerAddress, which depends on the committed state.
+func (r *gigaRouterCommon) finalizeRequest(b *atypes.SuperBlock) *abci.RequestFinalizeBlock {
+	return &abci.RequestFinalizeBlock{
 		Txs: b.Txs,
 		// Empty DecidedLastCommit does not indicate missing votes.
 		DecidedLastCommit: abci.CommitInfo{},
@@ -222,11 +211,56 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.SuperBloc
 			ChainID: r.cfg.GenDoc.ChainID,
 			Height:  int64(b.Height), // nolint:gosec // different representations of the same value
 			Time:    b.Timestamp,
-			// WARNING: the reward distribution has corner cases where it forgets the proposer,
-			// because reward is distributed with a delay. This is not our problem here though.
-			ProposerAddress: proposerAddress,
 		}).ToProto(),
-	})
+	}
+}
+
+// proposerAddress returns the proposer of the next block, selected from the
+// app's current validator committee.
+func (r *gigaRouterCommon) proposerAddress() (types.Address, error) {
+	vals := r.app.GetValidators()
+	if len(vals) == 0 {
+		return nil, nil
+	}
+	// Deterministically select a proposer from the app's validator committee.
+	// We need it so that app does not emit error logs.
+	proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
+	key, err := crypto.PubKeyFromProto(proposer.PubKey)
+	if err != nil {
+		return nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
+	}
+	return key.Address(), nil
+}
+
+// fetchedBlock is a superblock with the FinalizeBlock request built for it.
+type fetchedBlock struct {
+	block *atypes.SuperBlock
+	req   *abci.RequestFinalizeBlock
+}
+
+// prepareAheadBlocks is how many fetched blocks may wait for execution, each prepared or being
+// prepared, besides the one the fetcher is handing over. With that block and the one executing, at
+// most prepareAheadBlocks+2 are prepared at once, which the app's prepared queue must hold.
+const prepareAheadBlocks = 3
+
+// pendingBlock is a fetched block whose preparation reports on prepared once it is done.
+type pendingBlock struct {
+	fetchedBlock
+	prepared chan error
+}
+
+func (r *gigaRouterCommon) executeBlock(ctx context.Context, f fetchedBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
+	app := r.app
+	b := f.block
+	// Read from the app's state on the execute loop, after the previous block's Commit.
+	// WARNING: the reward distribution has corner cases where it forgets the proposer,
+	// because reward is distributed with a delay. This is not our problem here though.
+	proposer, err := r.proposerAddress()
+	if err != nil {
+		return nil, err
+	}
+	f.req.Header.ProposerAddress = proposer
+	resp, err := app.FinalizeBlock(ctx, f.req)
 	if err != nil {
 		return nil, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
@@ -442,39 +476,70 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		}
 	}
 
-	for n := next; ; n += 1 {
-		gigametrics.SetPhase(gigametrics.PhaseConsensus)
-		b, err := r.data.SuperBlock(ctx, n)
-		if err != nil {
-			return fmt.Errorf("r.data.SuperBlock(%v): %w", n, err)
-		}
-		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		commitResp, err := r.executeBlock(ctx, b, hashVault)
-		if err != nil {
-			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
-		}
-		pruneBefore, ok := utils.SafeCast[atypes.RoadIndex](commitResp.RetainHeight)
-		if !ok {
-			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
-		}
-		gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneData)
-		if err := r.data.PruneBefore(pruneBefore); err != nil {
-			return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
-		}
-		// Align the vault's retention with the data layer's prune boundary.
-		gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneVault)
-		if err := hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
-			// A canceled context just means we're shutting down between a successful executeBlock
-			// and this prune; that's benign, not a prune failure, so don't alarm operators.
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				logger.Info("hashvault prune aborted by context cancellation during shutdown",
-					"prune_before", pruneBefore, "err", err)
-			} else {
-				logger.Error("failed to prune hashvault", "prune_before", pruneBefore, "err", err)
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		// Blocks are fetched in order and each is prepared on its own goroutine, up to
+		// prepareAheadBlocks beyond the one handed over next; the loop below executes
+		// them in order, each once its preparation is done.
+		blocks := make(chan pendingBlock, prepareAheadBlocks)
+		s.Spawn(func() error {
+			for n := next; ; n += 1 {
+				b, err := r.data.SuperBlock(ctx, n)
+				if err != nil {
+					return fmt.Errorf("r.data.SuperBlock(%v): %w", n, err)
+				}
+				p := pendingBlock{fetchedBlock: fetchedBlock{block: b, req: r.finalizeRequest(b)}, prepared: make(chan error, 1)}
+				s.Spawn(func() error {
+					p.prepared <- app.PrepareBlock(ctx, p.req)
+					return nil
+				})
+				if err := utils.Send(ctx, blocks, p); err != nil {
+					return err
+				}
 			}
+		})
+		for {
+			gigametrics.SetPhase(gigametrics.PhaseConsensus)
+			p, err := utils.Recv(ctx, blocks)
+			if err != nil {
+				return err
+			}
+			prepareErr, err := utils.Recv(ctx, p.prepared)
+			if err != nil {
+				return err
+			}
+			if prepareErr != nil {
+				return fmt.Errorf("app.PrepareBlock(%v): %w", p.block.Height, prepareErr)
+			}
+			f := p.fetchedBlock
+			n := f.block.Height
+			gigametrics.SetPhase(gigametrics.PhaseExecution)
+			commitResp, err := r.executeBlock(ctx, f, hashVault)
+			if err != nil {
+				return fmt.Errorf("r.executeBlock(%v): %w", n, err)
+			}
+			pruneBefore, ok := utils.SafeCast[atypes.RoadIndex](commitResp.RetainHeight)
+			if !ok {
+				return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
+			}
+			gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneData)
+			if err := r.data.PruneBefore(pruneBefore); err != nil {
+				return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
+			}
+			// Align the vault's retention with the data layer's prune boundary.
+			gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneVault)
+			if err := hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
+				// A canceled context just means we're shutting down between a successful executeBlock
+				// and this prune; that's benign, not a prune failure, so don't alarm operators.
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					logger.Info("hashvault prune aborted by context cancellation during shutdown",
+						"prune_before", pruneBefore, "err", err)
+				} else {
+					logger.Error("failed to prune hashvault", "prune_before", pruneBefore, "err", err)
+				}
+			}
+			gigametrics.EndStoragePhase()
 		}
-		gigametrics.EndStoragePhase()
-	}
+	})
 }
 
 // dialAndRunConn dials a peer, handshakes as a SeiGiga connection,

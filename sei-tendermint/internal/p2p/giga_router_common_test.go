@@ -21,6 +21,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -161,6 +162,124 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), state)
 	require.NoError(t, err)
 	require.Equal(t, atypes.ExecutedBlock{Number: last}, router.ExecutedBlocks().Load().Latest())
+}
+
+// prepareAheadTestRouter returns a fullnode router whose BlockStore holds several CommitQCs' blocks,
+// executing into the app newApp builds for the last superblock's height, and the number of superblocks.
+func prepareAheadTestRouter(t *testing.T, newApp func(lastHeight int64) *preparingTestApp) (*gigaFullnodeRouter, *preparingTestApp, int) {
+	t.Helper()
+	const superBlocks = 5
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	keys := []atypes.SecretKey{key}
+	genDoc := &tmtypes.GenesisDoc{
+		ChainID:         "prepare-ahead-test",
+		InitialHeight:   1,
+		GenesisTime:     time.Now(),
+		ConsensusParams: tmtypes.DefaultConsensusParams(),
+		AppState:        testAppStateJSON(rng),
+	}
+	require.NoError(t, genDoc.ValidateAndComplete())
+
+	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
+	require.NoError(t, err)
+	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
+	require.NoError(t, err)
+
+	db, err := blockstore.New(memblock.NewBlockDB())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	prev := utils.None[*atypes.CommitQC]()
+	var last atypes.RoadIndex
+	for range superBlocks {
+		qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, prev)
+		require.NoError(t, db.WriteBlock(types.NewRoadBlock(qc, blocks)))
+		prev = utils.Some(qc.QC())
+		last = qc.Index()
+	}
+	require.NoError(t, db.Flush())
+
+	app := newApp(int64(last)) //nolint:gosec // test heights are small.
+	cfg := &GigaRouterCommonConfig{
+		DialInterval:       time.Second,
+		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
+		PersistentStateDir: t.TempDir(),
+		GenDoc:             genDoc,
+		App:                proxy.New(app),
+	}
+	state, err := BuildDataState(cfg, db)
+	require.NoError(t, err)
+	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), state)
+	require.NoError(t, err)
+	return router, app, superBlocks
+}
+
+// runUntilExecuted runs router's execute loop until app has executed total blocks.
+func runUntilExecuted(t *testing.T, router *gigaFullnodeRouter, app *preparingTestApp, total int) {
+	t.Helper()
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(router.runExecute(ctx)) })
+		for appState, ctrl := range app.state.Lock() {
+			return ctrl.WaitUntil(ctx, func() bool { return len(appState.Blocks) == total })
+		}
+		panic("unreachable")
+	}))
+}
+
+// The execute loop hands every block to PrepareBlock before FinalizeBlock runs it,
+// and prepares the next block while the current one executes. Catching up from a
+// filled BlockStore, where each block is available at once, every block still
+// reaches FinalizeBlock prepared.
+func TestGigaRouterCommon_RunExecutePreparesTheNextBlockAhead(t *testing.T) {
+	router, app, total := prepareAheadTestRouter(t, newPreparingTestApp)
+	runUntilExecuted(t, router, app, total)
+	hits, misses := app.PreparedCounts()
+	require.Equal(t, total, hits)
+	require.Equal(t, 0, misses)
+	snapshot := app.Snapshot()
+	require.NoError(t, snapshot.CheckBlocks())
+}
+
+// Blocks are prepared concurrently, so a later block's preparation can finish first; execution
+// still runs every block in order, each prepared.
+func TestGigaRouterCommon_RunExecuteRunsBlocksInOrderWhenPreparesFinishOutOfOrder(t *testing.T) {
+	router, app, total := prepareAheadTestRouter(t, func(lastHeight int64) *preparingTestApp {
+		app := newPreparingTestApp(0)
+		app.prepareDelay = func(height int64) time.Duration {
+			if height%2 == 1 {
+				return 20 * time.Millisecond
+			}
+			return 0
+		}
+		return app
+	})
+	runUntilExecuted(t, router, app, total)
+	hits, misses := app.PreparedCounts()
+	require.Equal(t, total, hits)
+	require.Equal(t, 0, misses)
+	snapshot := app.Snapshot()
+	require.NoError(t, snapshot.CheckBlocks())
+}
+
+// A PrepareBlock error stops the execute loop with that error.
+func TestGigaRouterCommon_RunExecuteStopsOnAPrepareError(t *testing.T) {
+	errPrepare := errors.New("prepare failed")
+	router, _, _ := prepareAheadTestRouter(t, func(lastHeight int64) *preparingTestApp {
+		app := newPreparingTestApp(0)
+		app.prepareErr = func(height int64) error {
+			if height == 2 {
+				return errPrepare
+			}
+			return nil
+		}
+		return app
+	})
+	require.ErrorIs(t, router.runExecute(t.Context()), errPrepare)
+}
+
+// The look-ahead never prepares more blocks than the EVM-only app's prepared queue holds.
+func TestGigaRouterCommon_PrepareAheadFitsTheAppsPreparedQueue(t *testing.T) {
+	require.LessOrEqual(t, prepareAheadBlocks+2, evmonlyapp.MaxPreparedBlocks)
 }
 
 func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
