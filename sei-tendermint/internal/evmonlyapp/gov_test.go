@@ -96,9 +96,9 @@ func TestEVMOnlyApplicationStartsGovAtTheFirstBlock(t *testing.T) {
 	require.NoError(t, err)
 	var got gov.GovParams
 	abi.ConvertType(out[0], &got)
-	require.Equal(t, uint64(40), got.VotingPeriod)
+	require.Equal(t, uint64(40*time.Second), got.VotingPeriod)
 
-	submit := signedGovTx(t, 0, nil, gov.SubmitProposalMethod, `{"title":"t","description":"d","type":"Text"}`)
+	submit := signedGovTx(t, 0, nil, gov.SubmitTextProposalMethod, "t", "d", false)
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2, submit))
 	out, err = govCall(t, app, gov.ProposalMethod, uint64(500))
 	require.NoError(t, err)

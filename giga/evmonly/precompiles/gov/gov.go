@@ -1,13 +1,9 @@
-// Package gov is the EVM-only governance precompile. Its state is
-// docs/giga-storage/GovStorage.sol, held as contract storage at Address.
-//
-// Its ABI is precompiles/gov's without the grant*, revoke* and
-// *WithAuthorization methods.
+// Package gov is the EVM-only governance precompile. Its ABI is Gov.sol and its
+// state is docs/giga-storage/GovStorage.sol, held as contract storage at
+// Address.
 //
 // Unlike x/gov, it accepts at most 200 depositors per proposal and requires a
-// positive minimum deposit. Unlike V2's precompile, it rejects proposal JSON
-// with a field its type does not read, a field in other case, or a field given
-// twice.
+// positive minimum deposit.
 package gov
 
 import (
@@ -35,18 +31,20 @@ var ABI = func() abi.ABI {
 }()
 
 const (
-	VoteMethod           = "vote"
-	VoteWeightedMethod   = "voteWeighted"
-	DepositMethod        = "deposit"
-	SubmitProposalMethod = "submitProposal"
-	ProposalMethod       = "proposal"
-	ProposalsMethod      = "proposals"
-	GetVoteMethod        = "getVote"
-	VotesMethod          = "votes"
-	ParamsMethod         = "params"
-	GetDepositMethod     = "getDeposit"
-	DepositsMethod       = "deposits"
-	TallyResultMethod    = "tallyResult"
+	VoteMethod                                = "vote"
+	VoteWeightedMethod                        = "voteWeighted"
+	DepositMethod                             = "deposit"
+	SubmitTextProposalMethod                  = "submitTextProposal"
+	SubmitSoftwareUpgradeProposalMethod       = "submitSoftwareUpgradeProposal"
+	SubmitCancelSoftwareUpgradeProposalMethod = "submitCancelSoftwareUpgradeProposal"
+	ProposalMethod                            = "proposal"
+	ProposalsMethod                           = "proposals"
+	GetVoteMethod                             = "getVote"
+	VotesMethod                               = "votes"
+	ParamsMethod                              = "params"
+	GetDepositMethod                          = "getDeposit"
+	DepositsMethod                            = "deposits"
+	TallyResultMethod                         = "tallyResult"
 )
 
 // Flat per-call gas, as V2's pcommon.DefaultGasCost prices it from the
@@ -82,7 +80,8 @@ func (Precompile) RequiredGas(input []byte) uint64 {
 	}
 	args := uint64(len(input) - 4) //nolint:gosec // methodOf requires a 4-byte selector
 	switch method.Name {
-	case VoteMethod, VoteWeightedMethod, DepositMethod, SubmitProposalMethod:
+	case VoteMethod, VoteWeightedMethod, DepositMethod,
+		SubmitTextProposalMethod, SubmitSoftwareUpgradeProposalMethod, SubmitCancelSoftwareUpgradeProposalMethod:
 		return transactionGas + transactionByteGas*args
 	default:
 		return queryGas + queryByteGas*args
@@ -101,8 +100,7 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
-	payable := method.Name == DepositMethod || method.Name == SubmitProposalMethod
-	if !payable && ctx.ApparentValue != nil && ctx.ApparentValue.Sign() != 0 {
+	if !method.IsPayable() && ctx.ApparentValue != nil && ctx.ApparentValue.Sign() != 0 {
 		return nil, errNonPayable
 	}
 	s := newStore(ctx.State)
@@ -137,8 +135,12 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 		return p.voteWeighted(ctx, s, method, args)
 	case DepositMethod:
 		return p.deposit(ctx, s, method, args)
-	case SubmitProposalMethod:
-		return p.submitProposal(ctx, s, method, args)
+	case SubmitTextProposalMethod:
+		return p.submitTextProposal(ctx, s, method, args)
+	case SubmitSoftwareUpgradeProposalMethod:
+		return p.submitSoftwareUpgradeProposal(ctx, s, method, args)
+	case SubmitCancelSoftwareUpgradeProposalMethod:
+		return p.submitCancelSoftwareUpgradeProposal(ctx, s, method, args)
 	}
 	return nil, errUnknownMethod
 }

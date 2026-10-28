@@ -7,14 +7,21 @@ same result from the same block, so each rule below is a consensus rule.
 - Read and write chain state only through `ctx.State` and emit logs only through
   `ctx.Logs`; anything else is invisible to OCC conflict detection.
 - Read block data only from `ctx.Block` (`Number`, `UnixNano`, `ChainID`, fees,
-  `Coinbase`, `PrevRandao`). Keep times and periods in nanoseconds and convert
-  to seconds only for output V2 gives in seconds. `UnixNano` is a whole second
-  until CON-572 lands; depend on neither that nor sub-second resolution.
+  `Coinbase`, `PrevRandao`). Keep times and periods in nanoseconds. `UnixNano`
+  is a whole second until CON-572 lands; depend on neither that nor sub-second
+  resolution.
 - Read and write nothing off-chain: no files, network, environment, wall clock,
   or randomness. `EndBlock` returns work it could not carry out as a failure,
   which the executor logs; a returned error fails the block.
 - Compiled-in constants are allowed, but changing one changes the app hash and
   needs an upgrade.
+
+## Interface
+- Arguments and results are typed ABI values: times and periods as `uint64`
+  nanoseconds, amounts as `uint256` wei, ratios and weights as `uint256` scaled
+  by 1e18, accounts as `address`. No JSON and no numbers as strings.
+- Match V2's operations and their rules, not its wire format. The seid CLI
+  translates V2's JSON and output shapes.
 
 ## Concurrency and determinism
 - `Run` is called concurrently from OCC workers. A `Contract` keeps no mutable
