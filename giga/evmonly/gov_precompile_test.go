@@ -262,11 +262,10 @@ func TestCallcodeDepositIsRejected(t *testing.T) {
 	state.SetBalance(caller, value)      // CanTransfer is checked against the caller
 	state.SetBalance(gov.Address, value) // a stray donation sitting at the precompile
 	state.SetCode(caller, callcodeDeposit(1, value, successSlot))
-	gov.SetParams(genesisState{state}, gov.Params{
-		VotingPeriod:     uint64(100 * time.Second),
-		MinDeposit:       usei(100),
-		MaxDepositPeriod: uint64(50 * time.Second),
-	})
+	params := gov.DefaultParams()
+	params.MinDeposit = usei(100)
+	params.MinExpeditedDeposit = usei(200)
+	require.NoError(t, gov.SetParams(genesisState{state}, params))
 	submit, err := gov.ABI.Pack(gov.SubmitTextProposalMethod, "t", "d", false)
 	require.NoError(t, err)
 	to := gov.Address

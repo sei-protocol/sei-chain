@@ -143,7 +143,7 @@ func TestSettleCostCoversEachParamChange(t *testing.T) {
 	}
 	id, err := h.submitParamChange(false, changes...)
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, newStore(h.state).proposalContentChunks(id), uint64(len(changes)),
+	require.GreaterOrEqual(t, must(newStore(h.state).proposalContentChunks(id)), uint64(len(changes)),
 		"the content words settleCost charges cover a unit per change")
 }
 

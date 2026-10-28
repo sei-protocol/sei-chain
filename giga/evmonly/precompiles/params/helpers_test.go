@@ -42,6 +42,8 @@ func (m *memState) GetNonce(common.Address) uint64            { panic("unsupport
 func (m *memState) SetNonce(common.Address, uint64)           { panic("unsupported") }
 func (m *memState) GetCode(common.Address) []byte             { panic("unsupported") }
 func (m *memState) Failed() bool                              { return false }
+func (m *memState) Snapshot() int                             { panic("unsupported") }
+func (m *memState) RevertToSnapshot(int)                      { panic("unsupported") }
 
 // stateDBView reads storage from a geth StateDB. Only GetState is supported.
 type stateDBView struct {
@@ -60,3 +62,5 @@ func (v stateDBView) GetNonce(common.Address) uint64                    { panic(
 func (v stateDBView) SetNonce(common.Address, uint64)                   { panic("unsupported") }
 func (v stateDBView) GetCode(common.Address) []byte                     { panic("unsupported") }
 func (v stateDBView) Failed() bool                                      { return false }
+func (v stateDBView) Snapshot() int                                     { panic("unsupported") }
+func (v stateDBView) RevertToSnapshot(int)                              { panic("unsupported") }
