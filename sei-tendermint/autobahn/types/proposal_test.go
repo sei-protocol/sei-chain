@@ -51,7 +51,7 @@ func makeLaneQC(
 
 // makeCommitQCFromProposal creates a CommitQC for a FullProposal, signed by all keys.
 func makeCommitQCFromProposal(keys []SecretKey, fp *FullProposal) *CommitQC {
-	vote := NewCommitVote(fp.Proposal().Msg())
+	vote := NewCommitVote(fp.View().Number, fp.Header())
 	var votes []*Signed[*CommitVote]
 	for _, k := range keys {
 		votes = append(votes, Sign(k, vote))
@@ -74,7 +74,7 @@ func TestProposalVerifyAcceptsEmptyTipcut(t *testing.T) {
 	ep := genFreshEpoch(rng, committee)
 	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 
-	empty := &Proposal{view: vs.View(), header: newRoadBlockHeader(time.Now(), nil)}
+	empty := &Proposal{viewNumber: vs.View().Number, header: newRoadBlockHeader(vs.View().EpochIndex, vs.View().Index, time.Now(), nil)}
 	require.Equal(t, uint64(0), empty.Header().NumBlocks())
 	require.NoError(t, empty.Verify(ep))
 
@@ -199,7 +199,7 @@ func TestProposalVerifyRejectsNonMonotoneTimestamp(t *testing.T) {
 		))
 		fp0b := utils.OrPanic1(NewProposal(
 			proposer0,
-			vs0, fp0a.Proposal().Msg().NextTimestamp().Add(time.Hour),
+			vs0, fp0a.Header().NextTimestamp().Add(time.Hour),
 			map[LaneID]*LaneQC{lane: lQC},
 		))
 
@@ -209,7 +209,7 @@ func TestProposalVerifyRejectsNonMonotoneTimestamp(t *testing.T) {
 
 		fp1a := utils.OrPanic1(NewProposal(
 			proposer1,
-			vs1a, fp0a.Proposal().Msg().NextTimestamp(),
+			vs1a, fp0a.Header().NextTimestamp(),
 			oneLaneQCMap(rng, committee, keys, vs1a),
 		))
 
@@ -263,7 +263,7 @@ func TestTimestampRange(t *testing.T) {
 		ranges = append(ranges, r)
 	}
 	late := &FullProposal{
-		proposal:  Sign(leader, &Proposal{view: p.View(), header: newRoadBlockHeader(latest.Add(time.Nanosecond), ranges)}),
+		proposal:  Sign(leader, &Proposal{viewNumber: p.View().Number, header: newRoadBlockHeader(p.View().EpochIndex, p.View().Index, latest.Add(time.Nanosecond), ranges)}),
 		laneQCs:   fp.laneQCs,
 		timeoutQC: fp.timeoutQC,
 	}
@@ -377,7 +377,7 @@ func TestProposalVerifyRejectsNonCommitteeLane(t *testing.T) {
 	}
 	tamperedRanges = append(tamperedRanges, NewLaneRange(extraLane, 0, utils.None[*BlockHeader]()))
 
-	tamperedProposal := &Proposal{view: origProposal.view, header: newRoadBlockHeader(origProposal.header.timestamp, tamperedRanges)}
+	tamperedProposal := &Proposal{viewNumber: origProposal.View().Number, header: newRoadBlockHeader(origProposal.View().EpochIndex, origProposal.View().Index, origProposal.header.timestamp, tamperedRanges)}
 	maliciousFP := &FullProposal{
 		proposal:  Sign(proposerKey, tamperedProposal),
 		laneQCs:   fp.laneQCs,
@@ -411,7 +411,7 @@ func TestProposalVerifyAcceptsImplicitLaneRange(t *testing.T) {
 	}
 	require.True(t, droppedEmpty)
 
-	shortProposal := &Proposal{view: origP.view, header: newRoadBlockHeader(origP.header.timestamp, keptRanges)}
+	shortProposal := &Proposal{viewNumber: origP.View().Number, header: newRoadBlockHeader(origP.View().EpochIndex, origP.View().Index, origP.header.timestamp, keptRanges)}
 	shortFP := &FullProposal{
 		proposal: Sign(proposerKey, shortProposal),
 		laneQCs:  fp.laneQCs,
@@ -443,7 +443,7 @@ func TestProposalVerifyAcceptsNonContiguousImplicitRanges(t *testing.T) {
 		keptRanges = append(keptRanges, r)
 	}
 
-	shortProposal := &Proposal{view: origP.view, header: newRoadBlockHeader(origP.header.timestamp, keptRanges)}
+	shortProposal := &Proposal{viewNumber: origP.View().Number, header: newRoadBlockHeader(origP.View().EpochIndex, origP.View().Index, origP.header.timestamp, keptRanges)}
 	shortFP := &FullProposal{
 		proposal: Sign(proposerKey, shortProposal),
 		laneQCs:  fp.laneQCs,
@@ -495,7 +495,7 @@ func TestProposalEmptyLaneAtHeightZeroHasNoHash(t *testing.T) {
 		ranges = append(ranges, r)
 	}
 	invented := &FullProposal{
-		proposal: Sign(proposerKey, &Proposal{view: fp.Proposal().Msg().view, header: newRoadBlockHeader(fp.Proposal().Msg().header.timestamp, ranges)}),
+		proposal: Sign(proposerKey, &Proposal{viewNumber: fp.Proposal().Msg().View().Number, header: newRoadBlockHeader(fp.Proposal().Msg().View().EpochIndex, fp.Proposal().Msg().View().Index, fp.Proposal().Msg().header.timestamp, ranges)}),
 		laneQCs:  fp.laneQCs,
 	}
 	require.Error(t, invented.Verify(vs, testViewTimeout))
@@ -535,7 +535,7 @@ func TestProposalCopiesEmptyLaneLastHash(t *testing.T) {
 		ranges = append(ranges, r)
 	}
 	stripped := &FullProposal{
-		proposal: Sign(leaderKey(committee, keys, vs1.View()), &Proposal{view: fp1.Proposal().Msg().view, header: newRoadBlockHeader(fp1.Proposal().Msg().header.timestamp, ranges)}),
+		proposal: Sign(leaderKey(committee, keys, vs1.View()), &Proposal{viewNumber: fp1.Proposal().Msg().View().Number, header: newRoadBlockHeader(fp1.Proposal().Msg().View().EpochIndex, fp1.Proposal().Msg().View().Index, fp1.Proposal().Msg().header.timestamp, ranges)}),
 		laneQCs:  fp1.laneQCs,
 	}
 	require.Error(t, stripped.Verify(vs1, testViewTimeout))
@@ -570,7 +570,7 @@ func TestProposalVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 			tamperedRanges = append(tamperedRanges, r)
 		}
 	}
-	tamperedProposal := &Proposal{view: origP.view, header: newRoadBlockHeader(origP.header.timestamp, tamperedRanges)}
+	tamperedProposal := &Proposal{viewNumber: origP.View().Number, header: newRoadBlockHeader(origP.View().EpochIndex, origP.View().Index, origP.header.timestamp, tamperedRanges)}
 	tamperedFP := &FullProposal{
 		proposal: Sign(proposerKey, tamperedProposal),
 		laneQCs:  map[LaneID]*LaneQC{target: badQC},
@@ -673,7 +673,7 @@ func TestProposalVerifyRejectsLaneRangeLongerThanMaxLaneRangeInProposal(t *testi
 	view := View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex()}
 	lane := committee.Lane(leaderKey(committee, keys, view).Public()).OrPanic("missing lane")
 	// Bypass NewProposal's check by constructing the proposal directly.
-	oversized := &Proposal{view: view, header: newRoadBlockHeader(time.Now(), []*LaneRange{NewLaneRange(lane, 0, utils.Some(NewBlock(lane, MaxLaneRangeInProposal, GenBlockHeaderHash(rng), GenPayload(rng)).Header()))})}
+	oversized := &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, time.Now(), []*LaneRange{NewLaneRange(lane, 0, utils.Some(NewBlock(lane, MaxLaneRangeInProposal, GenBlockHeaderHash(rng), GenPayload(rng)).Header()))})}
 	require.Error(t, oversized.Verify(ep))
 }
 
@@ -694,7 +694,7 @@ func makeFullProposal(
 }
 
 func makeCommitQC(keys []SecretKey, fullProposal *FullProposal) *CommitQC {
-	vote := NewCommitVote(fullProposal.Proposal().Msg())
+	vote := NewCommitVote(fullProposal.View().Number, fullProposal.Header())
 	var votes []*Signed[*CommitVote]
 	for _, k := range keys {
 		votes = append(votes, Sign(k, vote))
@@ -743,7 +743,7 @@ func TestProposalVerifyValidReproposal(t *testing.T) {
 	// Build a PrepareQC for the proposal at (0, 0).
 	var prepareVotes []*Signed[*PrepareVote]
 	for _, k := range keys {
-		prepareVotes = append(prepareVotes, Sign(k, NewPrepareVote(fp0.Proposal().Msg())))
+		prepareVotes = append(prepareVotes, Sign(k, NewPrepareVote(fp0.View().Number, fp0.Header())))
 	}
 	prepareQC := NewPrepareQC(prepareVotes)
 
@@ -778,7 +778,7 @@ func TestProposalVerifyRejectsReproposalWithUnnecessaryData(t *testing.T) {
 
 	var prepareVotes []*Signed[*PrepareVote]
 	for _, k := range keys {
-		prepareVotes = append(prepareVotes, Sign(k, NewPrepareVote(fp0.Proposal().Msg())))
+		prepareVotes = append(prepareVotes, Sign(k, NewPrepareVote(fp0.View().Number, fp0.Header())))
 	}
 	prepareQC := NewPrepareQC(prepareVotes)
 
@@ -817,7 +817,7 @@ func TestProposalVerifyRejectsReproposalHashMismatch(t *testing.T) {
 
 	var prepareVotes []*Signed[*PrepareVote]
 	for _, k := range keys {
-		prepareVotes = append(prepareVotes, Sign(k, NewPrepareVote(fp0.Proposal().Msg())))
+		prepareVotes = append(prepareVotes, Sign(k, NewPrepareVote(fp0.View().Number, fp0.Header())))
 	}
 	prepareQC := NewPrepareQC(prepareVotes)
 
@@ -838,7 +838,7 @@ func TestProposalVerifyRejectsReproposalHashMismatch(t *testing.T) {
 	for _, r := range origP.header.laneRanges {
 		ranges = append(ranges, r)
 	}
-	wrongP := &Proposal{view: origP.view, header: newRoadBlockHeader(origP.header.timestamp.Add(time.Millisecond), ranges)}
+	wrongP := &Proposal{viewNumber: origP.View().Number, header: newRoadBlockHeader(origP.View().EpochIndex, origP.View().Index, origP.header.timestamp.Add(time.Millisecond), ranges)}
 	wrongFP := &FullProposal{
 		proposal:  Sign(leader1, wrongP),
 		timeoutQC: reproposal.timeoutQC,

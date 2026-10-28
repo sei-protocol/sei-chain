@@ -21,11 +21,11 @@ type AppProposal struct {
 }
 
 // NewAppProposal creates a new AppProposal.
-func NewAppProposal(proposal *Proposal, appHash AppHash) *AppProposal {
+func NewAppProposal(view View, appHash AppHash) *AppProposal {
 	return &AppProposal{
-		roadIndex:  proposal.Index(),
+		roadIndex:  view.Index,
 		appHash:    appHash,
-		epochIndex: proposal.EpochIndex(),
+		epochIndex: view.EpochIndex,
 	}
 }
 
@@ -40,10 +40,10 @@ func (m *AppProposal) EpochIndex() EpochIndex { return m.epochIndex }
 
 // Verify verifies that the AppProposal is consistent with the CommitQC.
 func (m *AppProposal) Verify(qc *CommitQC) error {
-	if got, want := m.Index(), qc.Proposal().Index(); got != want {
+	if got, want := m.Index(), qc.Index(); got != want {
 		return fmt.Errorf("roadIndex() = %v, want %v", got, want)
 	}
-	if got, want := m.EpochIndex(), qc.Proposal().EpochIndex(); got != want {
+	if got, want := m.EpochIndex(), qc.View().EpochIndex; got != want {
 		return fmt.Errorf("epoch_index = %d, want %d", got, want)
 	}
 

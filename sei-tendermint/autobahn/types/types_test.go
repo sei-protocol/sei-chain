@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -119,11 +118,11 @@ func TestNewTimeoutQC(t *testing.T) {
 			Number:     GenViewNumber(rng) % view.Number,
 			EpochIndex: view.EpochIndex,
 		}
-		p := &Proposal{view: pView, header: newRoadBlockHeader(utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))}
+		p := &Proposal{viewNumber: pView.Number, header: newRoadBlockHeader(pView.EpochIndex, pView.Index, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))}
 		if wantView.Less(pView) {
 			wantView = pView
 		}
-		votes = append(votes, NewFullTimeoutVote(k, view, utils.Some(makePrepareQC(keys, NewPrepareVote(p)))))
+		votes = append(votes, NewFullTimeoutVote(k, view, utils.Some(makePrepareQC(keys, NewPrepareVote(p.View().Number, p.Header())))))
 	}
 	tQC := NewTimeoutQC(votes)
 	pQC, ok := tQC.LatestPrepareQC().Get()
@@ -132,39 +131,6 @@ func TestNewTimeoutQC(t *testing.T) {
 	}
 	if gotView := pQC.View(); gotView != wantView {
 		t.Fatalf("tQC.LatestPrepareQC().View() = %v, want %v", gotView, wantView)
-	}
-}
-
-func TestTimeoutQCConvDecode_EmptyVotesReturnsError(t *testing.T) {
-	if _, err := TimeoutQCConv.Decode(&pb.TimeoutQC{}); err == nil {
-		t.Fatal("Decode() succeeded, want error")
-	}
-}
-
-func TestAppProposalConvDecode_RequiredFields(t *testing.T) {
-	rng := utils.TestRng()
-	base := AppProposalConv.Encode(GenAppProposal(rng))
-	if _, err := AppProposalConv.Decode(base); err != nil {
-		t.Fatal(err)
-	}
-
-	cases := []struct {
-		name string
-		mut  func(*pb.AppProposal)
-	}{
-		{"road_index", func(p *pb.AppProposal) { p.RoadIndex = nil }},
-		{"epoch_index", func(p *pb.AppProposal) { p.EpochIndex = nil }},
-		{"app_hash nil", func(p *pb.AppProposal) { p.AppHash = nil }},
-		{"app_hash empty", func(p *pb.AppProposal) { p.AppHash = []byte{} }},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			p := AppProposalConv.Encode(GenAppProposal(rng))
-			tc.mut(p)
-			if _, err := AppProposalConv.Decode(p); err == nil {
-				t.Fatal("Decode() succeeded, want error")
-			}
-		})
 	}
 }
 
@@ -177,7 +143,8 @@ func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee)
 	view := View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}
 
-	pqc := makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, view)))
+	voteProposal := ProposalAt(ep, view)
+	pqc := makePrepareQC(keys, NewPrepareVote(voteProposal.View().Number, voteProposal.Header()))
 
 	// Only keys[0] carries the PrepareQC; the rest carry None.
 	votes := make([]*FullTimeoutVote, len(keys))
@@ -231,7 +198,8 @@ func TestTimeoutQCVerify_HighestPrepareQCSelected(t *testing.T) {
 
 	makePQCAt := func(vn ViewNumber) *PrepareQC {
 		pView := View{Index: 0, Number: vn, EpochIndex: ep.EpochIndex()}
-		return makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, pView)))
+		voteProposal := ProposalAt(ep, pView)
+		return makePrepareQC(keys, NewPrepareVote(voteProposal.View().Number, voteProposal.Header()))
 	}
 
 	// keys[0] has PrepareQC at view number 2, keys[1] at 4, rest None.

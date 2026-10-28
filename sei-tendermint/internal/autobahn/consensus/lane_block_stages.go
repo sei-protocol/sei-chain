@@ -42,18 +42,18 @@ func (s laneBlockStages) publish() {
 // current view's proposal, then blocks with a LaneQC, then blocks this replica holds without one.
 // Positions in the proposal wait on its PrepareQC until this replica holds one, then on the CommitQC.
 func (i inner) laneBlockStages(tips map[types.LaneID]avail.LaneTip) laneBlockStages {
-	proposal := utils.None[*types.Proposal]()
+	header := utils.None[*types.RoadBlockHeader]()
 	prepared := false
 	if qc, ok := i.PrepareQC.Get(); ok {
-		proposal, prepared = utils.Some(qc.Proposal()), true
+		header, prepared = utils.Some(qc.Header()), true
 	} else if v, ok := i.PrepareVote.Get(); ok {
-		proposal = utils.Some(v.Msg().Proposal())
+		header = utils.Some(v.Msg().Header())
 	}
 	var st laneBlockStages
 	for lane, t := range tips {
 		proposed := t.WithCommitQC
-		if p, ok := proposal.Get(); ok {
-			proposed = max(proposed, p.Header().LaneRange(lane).Next())
+		if h, ok := header.Get(); ok {
+			proposed = max(proposed, h.LaneRange(lane).Next())
 		}
 		withLaneQC := max(t.WithLaneQC, proposed)
 		held := max(t.Held, withLaneQC)

@@ -345,7 +345,7 @@ func writeExecutedTip(
 	t.Helper()
 	qc, blocks := commitQCAtRoad(ep, keys, road)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
-	utils.OrPanic(store.WriteAppProposal(types.NewAppProposal(qc.QC().Proposal(), appHash)))
+	utils.OrPanic(store.WriteAppProposal(types.NewAppProposal(qc.QC().View(), appHash)))
 	utils.OrPanic(store.Flush())
 	return qc.Index()
 }
@@ -445,7 +445,7 @@ func TestPushAppHash_ReplayClosingSuperBlockStagesEpoch(t *testing.T) {
 	ep := registry.MustEpoch(0)
 	qc, blocks := commitQCAtRoadBlocks(ep, keys, registry.LastRoad(0), 2)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
-	utils.OrPanic(store.WriteAppProposal(types.NewAppProposal(qc.QC().Proposal(), appHash)))
+	utils.OrPanic(store.WriteAppProposal(types.NewAppProposal(qc.QC().View(), appHash)))
 	utils.OrPanic(store.Flush())
 	state := newTestState(t, &Config{Registry: registry}, store)
 

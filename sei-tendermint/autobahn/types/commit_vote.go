@@ -8,30 +8,42 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// CommitVote .
+// CommitVote is a vote for a road block header at a consensus view.
 type CommitVote struct {
 	utils.ReadOnly
-	proposal *Proposal
+	viewNumber ViewNumber
+	header     *RoadBlockHeader
 }
 
 // NewCommitVote creates a new CommitVote.
-func NewCommitVote(proposal *Proposal) *CommitVote {
-	return &CommitVote{proposal: proposal}
+func NewCommitVote(viewNumber ViewNumber, header *RoadBlockHeader) *CommitVote {
+	return &CommitVote{viewNumber: viewNumber, header: header}
 }
 
-// Proposal .
-func (m *CommitVote) Proposal() *Proposal { return m.proposal }
+// View returns the vote's consensus view.
+func (m *CommitVote) View() View { return m.header.view(m.viewNumber) }
+
+// Header returns the voted road block header.
+func (m *CommitVote) Header() *RoadBlockHeader { return m.header }
+
+// Verify verifies the vote against the epoch.
+func (m *CommitVote) Verify(ep *Epoch) error {
+	return m.header.Verify(ep)
+}
 
 // CommitVoteConv is the protobuf converter for CommitVote.
-var CommitVoteConv = protoutils.Conv[*CommitVote, *pb.Proposal]{
-	Encode: func(m *CommitVote) *pb.Proposal {
-		return ProposalConv.Encode(m.proposal)
+var CommitVoteConv = protoutils.Conv[*CommitVote, *pb.CommitVote]{
+	Encode: func(m *CommitVote) *pb.CommitVote {
+		return &pb.CommitVote{ViewNumber: utils.Alloc(uint64(m.viewNumber)), Header: RoadBlockHeaderConv.Encode(m.header)}
 	},
-	Decode: func(m *pb.Proposal) (*CommitVote, error) {
-		proposal, err := ProposalConv.DecodeReq(m)
-		if err != nil {
-			return nil, fmt.Errorf("proposal: %w", err)
+	Decode: func(m *pb.CommitVote) (*CommitVote, error) {
+		if m.ViewNumber == nil {
+			return nil, fmt.Errorf("view_number: missing")
 		}
-		return &CommitVote{proposal: proposal}, nil
+		header, err := RoadBlockHeaderConv.DecodeReq(m.Header)
+		if err != nil {
+			return nil, fmt.Errorf("header: %w", err)
+		}
+		return &CommitVote{viewNumber: ViewNumber(*m.ViewNumber), header: header}, nil
 	},
 }

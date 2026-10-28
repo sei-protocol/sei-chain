@@ -252,7 +252,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		nextCommitEpoch:  utils.NewAtomicSend(genesis),
 	}
 	for _, block := range suffix.Blocks {
-		epoch, err := cfg.Registry.EpochByIndex(block.QC().QC().Proposal().EpochIndex())
+		epoch, err := cfg.Registry.EpochByIndex(block.QC().QC().View().EpochIndex)
 		if err != nil {
 			return nil, fmt.Errorf("load block from BlockStore: %w", err)
 		}
@@ -345,7 +345,7 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 	}
 	var ep *types.Epoch
 	if n == nextPartialBlock {
-		ep, err = s.cfg.Registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
+		ep, err = s.cfg.Registry.EpochByIndex(qc.QC().View().EpochIndex)
 		if err != nil {
 			return err
 		}
@@ -626,7 +626,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.A
 			return fmt.Errorf("received appHash for %v: %w", n, ErrOutOfOrder)
 		}
 		e := inner.blocks[n]
-		proposal := types.NewAppProposal(e.qc.QC().Proposal(), hash)
+		proposal := types.NewAppProposal(e.qc.QC().View(), hash)
 		t := time.Now()
 		for _, b := range e.laneBlocks {
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()

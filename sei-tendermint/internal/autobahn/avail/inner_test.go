@@ -89,7 +89,7 @@ func TestInnerPruneViaQCRetainsLast(t *testing.T) {
 
 	i.prune(data.Anchor{
 		CommitQC: qc,
-		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.Proposal(), types.AppHash{})),
+		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.View(), types.AppHash{})),
 		Epoch:    ep,
 	})
 	q := i.blocks[lane]
@@ -121,7 +121,7 @@ func TestInnerPruneKeepsLastAheadOfQC(t *testing.T) {
 
 	i.prune(data.Anchor{
 		CommitQC: qc,
-		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.Proposal(), types.AppHash{})),
+		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.View(), types.AppHash{})),
 		Epoch:    ep,
 	})
 	q := i.blocks[lane]
@@ -422,7 +422,7 @@ func TestPruneKeepsAnchorTipAndLocalBlock(t *testing.T) {
 	i := newInner(ep, 0)
 	i.prune(data.Anchor{
 		CommitQC: qc2,
-		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc2.Proposal(), types.AppHash{})),
+		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc2.View(), types.AppHash{})),
 		Epoch:    ep,
 	})
 	// A newer road QC is ahead of this queue. ProduceLocalBlock still extends
@@ -553,13 +553,14 @@ func TestPrune_LeavesAppliedToEpochAdvance(t *testing.T) {
 	i := newInner(ep0, 0)
 	require.Equal(t, types.EpochIndex(0), i.applied().EpochIndex())
 
+	voteProposal := types.ProposalAt(ep1, types.View{Index: registry.LastRoad(1), Number: 0})
 	prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: registry.LastRoad(1), Number: 0}))),
+		types.Sign(keys[0], types.NewCommitVote(voteProposal.View().Number, voteProposal.Header())),
 	})
 	qc := types.BuildCommitQC(ep2, keys, utils.Some(prev), nil)
 	i.prune(data.Anchor{
 		CommitQC: qc,
-		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.Proposal(), types.AppHash{})),
+		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.View(), types.AppHash{})),
 		Epoch:    ep2,
 	})
 	require.Equal(t, types.EpochIndex(0), i.applied().EpochIndex())

@@ -13,6 +13,8 @@ func (*LaneRange) IsHashable()       {}
 func (*View) IsHashable()            {}
 func (*RoadBlockHeader) IsHashable() {}
 func (*Proposal) IsHashable()        {}
+func (*PrepareVote) IsHashable()     {}
+func (*CommitVote) IsHashable()      {}
 func (*TimeoutVote) IsHashable()     {}
 func (*AppProposal) IsHashable()     {}
 func (*Msg) IsHashable()             {}

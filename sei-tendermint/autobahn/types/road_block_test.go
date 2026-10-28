@@ -21,7 +21,7 @@ func TestRoadBlockVerify(t *testing.T) {
 			}
 			var votes []*Signed[*CommitVote]
 			for _, key := range signingKeys {
-				votes = append(votes, Sign(key, NewCommitVote(proposal)))
+				votes = append(votes, Sign(key, NewCommitVote(proposal.View().Number, proposal.Header())))
 			}
 			headers := make([]*BlockHeader, len(blocks))
 			for i, block := range blocks {

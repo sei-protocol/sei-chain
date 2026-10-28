@@ -17,15 +17,15 @@ func TestRoadBlockHeaderHashIndependentOfView(t *testing.T) {
 	ep := GenEpochWithCommittee(rng, committee)
 	proposal, blocks := ProposalAtBlocks(ep, View{Index: ep.RoadRange().First}, 2)
 	wire := ProposalConv.Encode(proposal)
-	wire.View.Number = utils.Alloc(uint64(proposal.View().Number.Next()))
+	wire.ViewNumber = utils.Alloc(uint64(proposal.View().Number.Next()))
 	reproposal, err := ProposalConv.Decode(wire)
 	require.NoError(t, err)
 	require.Equal(t, proposal.Header().Hash(), reproposal.Header().Hash())
 	require.NotEqual(t, NewHashed(proposal).Hash(), NewHashed(reproposal).Hash())
 
 	key := GenSecretKey(rng)
-	qc := NewCommitQC([]*Signed[*CommitVote]{Sign(key, NewCommitVote(proposal))})
-	reproposalQC := NewCommitQC([]*Signed[*CommitVote]{Sign(key, NewCommitVote(reproposal))})
+	qc := NewCommitQC([]*Signed[*CommitVote]{Sign(key, NewCommitVote(proposal.View().Number, proposal.Header()))})
+	reproposalQC := NewCommitQC([]*Signed[*CommitVote]{Sign(key, NewCommitVote(reproposal.View().Number, reproposal.Header()))})
 	require.Equal(t, proposal.Header().Hash(), qc.Header().Hash())
 	require.Equal(t, qc.Header().Hash(), reproposalQC.Header().Hash())
 	headers := make([]*BlockHeader, len(blocks))
@@ -78,15 +78,31 @@ func TestRoadBlockHeaderHashBytes(t *testing.T) {
 	}
 }
 
-func TestProposalConvRequiresHeader(t *testing.T) {
-	rng := utils.TestRng()
-	wire := ProposalConv.Encode(GenProposal(rng))
-	wire.Header = nil
-	_, err := ProposalConv.Decode(wire)
-	require.Error(t, err)
-}
-
-func TestRoadBlockHeaderConvRequiresTimestamp(t *testing.T) {
-	_, err := RoadBlockHeaderConv.Decode(&pb.RoadBlockHeader{})
-	require.Error(t, err)
+func TestRoadBlockHeaderIdentity(t *testing.T) {
+	hashes := map[RoadBlockHeaderHash]struct{}{}
+	for _, view := range []View{
+		{},
+		{EpochIndex: 7, Index: 29, Number: 13},
+		{EpochIndex: 7, Index: 30, Number: 13},
+		{EpochIndex: 8, Index: 29, Number: 13},
+	} {
+		proposal, err := ProposalConv.Decode(&pb.Proposal{
+			ViewNumber: utils.Alloc(uint64(view.Number)),
+			Header: &pb.RoadBlockHeader{
+				EpochIndex: utils.Alloc(uint64(view.EpochIndex)),
+				Index:      utils.Alloc(uint64(view.Index)),
+				Timestamp:  TimeConv.Encode(time.Time{}),
+			},
+		})
+		require.NoError(t, err)
+		header := proposal.Header()
+		require.Equal(t, view.EpochIndex, header.EpochIndex())
+		require.Equal(t, view.Index, header.Index())
+		require.Equal(t, view, proposal.View())
+		require.Equal(t, view, NewPrepareVote(view.Number, header).View())
+		require.Equal(t, view, NewCommitVote(view.Number, header).View())
+		_, seen := hashes[header.Hash()]
+		require.False(t, seen)
+		hashes[header.Hash()] = struct{}{}
+	}
 }

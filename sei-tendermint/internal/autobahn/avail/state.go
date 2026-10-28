@@ -220,7 +220,7 @@ func restorePlan(ds *data.State, loaded *loadedState) (*types.Epoch, types.RoadI
 		if qc.Index() != want {
 			return nil, 0, nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", want, qc.Index())
 		}
-		ep, err := registry.EpochByIndex(qc.Proposal().EpochIndex())
+		ep, err := registry.EpochByIndex(qc.View().EpochIndex)
 		if err != nil {
 			return nil, 0, nil, fmt.Errorf("persisted commitQC %d epoch: %w", qc.Index(), err)
 		}
@@ -332,8 +332,8 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 // PushCommitQC admits a CommitQC once its epoch is applied and it is the next
 // road. Stale QCs are a no-op.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
-	idx := qc.Proposal().Index()
-	want := qc.Proposal().EpochIndex()
+	idx := qc.Index()
+	want := qc.View().EpochIndex
 	var epoch *types.Epoch
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
@@ -355,7 +355,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		}
 		inner.roads.pushBack(newRoad(qc, epoch))
 		metrics.ObserveCommitQC(qc)
-		leader := epoch.Committee().Leader(qc.Proposal().View())
+		leader := epoch.Committee().Leader(qc.View())
 		consMeters.Commits.WithLabelValues(leader.ED25519().Address().String()).Add(1)
 		// The persist goroutine publishes persistedCommitQC after writing to disk
 		// (or immediately for no-op persisters), so consensus won't advance

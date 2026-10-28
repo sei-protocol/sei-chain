@@ -118,8 +118,9 @@ func setRoadAppQC(s *State, idx types.RoadIndex, appQC *types.AppQC) {
 }
 
 func tipLink(ep *types.Epoch, key types.SecretKey, idx types.RoadIndex) *types.CommitQC {
+	voteProposal := types.ProposalAt(ep, types.View{Index: idx, Number: 0})
 	return types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(key, types.NewCommitVote(types.ProposalAt(ep, types.View{Index: idx, Number: 0}))),
+		types.Sign(key, types.NewCommitVote(voteProposal.View().Number, voteProposal.Header())),
 	})
 }
 
@@ -156,7 +157,7 @@ func TestDriveAdvance(ctx context.Context, state *State, keys []types.SecretKey,
 			return err
 		}
 		state.markCommitQCsPersisted(qc)
-		setRoadAppQC(state, qc.Index(), data.TestAppQC(cks, types.NewAppProposal(qc.Proposal(), types.AppHash{})))
+		setRoadAppQC(state, qc.Index(), data.TestAppQC(cks, types.NewAppProposal(qc.View(), types.AppHash{})))
 		if _, err := state.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
 			return ep.EpochIndex() > cur.EpochIndex()
 		}); err != nil {

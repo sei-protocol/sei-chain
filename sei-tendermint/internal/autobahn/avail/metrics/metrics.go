@@ -58,7 +58,7 @@ func ObserveCommitQC(qc *types.CommitQC) {
 			}
 			// "timeouts" label is capped
 			timeouts := "inf"
-			if n := qc.Proposal().View().Number; n < 20 {
+			if n := qc.View().Number; n < 20 {
 				timeouts = strconv.FormatUint(uint64(n), 10)
 			}
 			Global.commitToCommitLatencyAt(timeouts).Observe(now.Sub(last.time).Seconds())

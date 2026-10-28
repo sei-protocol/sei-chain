@@ -250,7 +250,7 @@ func pushPhaseVote[V any, B comparable, QC any](
 // A vote from an earlier epoch is ignored.
 // The Prepare vote contains only a proposal; Proposal.Verify runs when the QC is formed.
 func (s *State) PushPrepareVote(ctx context.Context, vote *types.Signed[*types.PrepareVote]) error {
-	view := vote.Msg().Proposal().View()
+	view := vote.Msg().View()
 	return pushPhaseVote(ctx, s, view.EpochIndex, &s.prepareVotes, func(ep *types.Epoch) error {
 		if err := verifyVoteEpoch(ep, vote.Key(), view); err != nil {
 			return err
@@ -266,7 +266,7 @@ func (s *State) PushPrepareVote(ctx context.Context, vote *types.Signed[*types.P
 // A vote from an earlier epoch is ignored.
 // The Commit vote contains only a proposal; Proposal.Verify runs when the QC is formed.
 func (s *State) PushCommitVote(ctx context.Context, vote *types.Signed[*types.CommitVote]) error {
-	view := vote.Msg().Proposal().View()
+	view := vote.Msg().View()
 	return pushPhaseVote(ctx, s, view.EpochIndex, &s.commitVotes, func(ep *types.Epoch) error {
 		if err := verifyVoteEpoch(ep, vote.Key(), view); err != nil {
 			return err

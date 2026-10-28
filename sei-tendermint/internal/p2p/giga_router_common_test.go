@@ -220,7 +220,7 @@ func testRouterAtRoad(t *testing.T, registry *epoch.Registry, keys []atypes.Secr
 	proposal, blocks := atypes.ProposalAtBlocks(ep, atypes.View{Index: road, Number: 0}, 1)
 	votes := make([]*atypes.Signed[*atypes.CommitVote], 0, len(keys))
 	for _, k := range keys {
-		votes = append(votes, atypes.Sign(k, atypes.NewCommitVote(proposal)))
+		votes = append(votes, atypes.Sign(k, atypes.NewCommitVote(proposal.View().Number, proposal.Header())))
 	}
 	headers := make([]*atypes.BlockHeader, len(blocks))
 	for i, b := range blocks {

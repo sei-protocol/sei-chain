@@ -27,14 +27,14 @@ func TestLaneBlockStagesFollowTheCurrentProposal(t *testing.T) {
 	for _, k := range keys {
 		votes = append(votes, types.Sign(k, types.NewLaneVote(tip)))
 	}
-	proposal := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
+	commitQC := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
 		lane: types.NewLaneQC(votes),
-	}).Proposal()
+	})
 	tips := map[types.LaneID]avail.LaneTip{lane: {WithCommitQC: 0, WithLaneQC: 4, Held: 6}}
 
 	var prepareVotes []*types.Signed[*types.PrepareVote]
 	for _, k := range keys {
-		prepareVotes = append(prepareVotes, types.Sign(k, types.NewPrepareVote(proposal)))
+		prepareVotes = append(prepareVotes, types.Sign(k, types.NewPrepareVote(commitQC.View().Number, commitQC.Header())))
 	}
 
 	noProposal := inner{}
@@ -71,7 +71,7 @@ func TestLaneBlockStagesPartitionThePositionsPastTheCommittedTip(t *testing.T) {
 		lane: types.NewLaneQC(votes),
 	})
 	voted := inner{}
-	voted.PrepareVote = utils.Some(types.Sign(keys[0], types.NewPrepareVote(commitQC.Proposal())))
+	voted.PrepareVote = utils.Some(types.Sign(keys[0], types.NewPrepareVote(commitQC.View().Number, commitQC.Header())))
 
 	// The proposal arrived before this replica formed any LaneQC or received blocks 2..3, which still
 	// count once, in the proposal.

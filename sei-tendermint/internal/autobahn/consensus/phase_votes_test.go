@@ -15,11 +15,11 @@ func TestPrepareVotes_QuorumFormsQC(t *testing.T) {
 	proposal := types.GenProposalForEpoch(rng, e.ep, e.view)
 
 	for _, k := range e.quorum {
-		pv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewPrepareVote(proposal)))
+		pv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewPrepareVote(proposal.View().Number, proposal.Header())))
 	}
 	got, ok := pv.qc.Load().Get()
 	require.True(t, ok)
-	require.Equal(t, e.view, got.Proposal().View())
+	require.Equal(t, e.view, got.View())
 	require.NoError(t, got.Verify(e.ep))
 }
 
@@ -28,7 +28,7 @@ func TestPrepareVotes_CountsAcceptedNotDuplicates(t *testing.T) {
 	e := newVoteTestEnv(rng)
 	pv := newPrepareVotes()
 	proposal := types.GenProposalForEpoch(rng, e.ep, e.view)
-	vote := types.Sign(e.quorum[0], types.NewPrepareVote(proposal))
+	vote := types.Sign(e.quorum[0], types.NewPrepareVote(proposal.View().Number, proposal.Header()))
 	before := gathered(t, "tendermint_internal_autobahn_consensus_votes_ingested", map[string]string{"type": "prepare"})
 	pv.pushVerifiedVote(e.ep.Committee(), vote)
 	pv.pushVerifiedVote(e.ep.Committee(), vote)
@@ -43,12 +43,12 @@ func TestPrepareVotes_DoesNotReplaceQCAtSameView(t *testing.T) {
 	proposal := types.GenProposalForEpoch(rng, e.ep, view1)
 
 	for _, k := range e.quorum {
-		pv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewPrepareVote(proposal)))
+		pv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewPrepareVote(proposal.View().Number, proposal.Header())))
 	}
 	before, ok := pv.qc.Load().Get()
 	require.True(t, ok)
-	require.Equal(t, view1, before.Proposal().View())
-	pv.pushVerifiedVote(e.ep.Committee(), types.Sign(e.keys[len(e.quorum)], types.NewPrepareVote(proposal)))
+	require.Equal(t, view1, before.View())
+	pv.pushVerifiedVote(e.ep.Committee(), types.Sign(e.keys[len(e.quorum)], types.NewPrepareVote(proposal.View().Number, proposal.Header())))
 	after, ok := pv.qc.Load().Get()
 	require.True(t, ok)
 	require.True(t, before == after)
@@ -63,19 +63,19 @@ func TestPrepareVotes_ReplacesQCAtNewerView(t *testing.T) {
 
 	p0 := types.GenProposalForEpoch(rng, e.ep, e.view)
 	for _, k := range e.quorum {
-		pv.pushVerifiedVote(c, types.Sign(k, types.NewPrepareVote(p0)))
+		pv.pushVerifiedVote(c, types.Sign(k, types.NewPrepareVote(p0.View().Number, p0.Header())))
 	}
 	got, ok := pv.qc.Load().Get()
 	require.True(t, ok)
-	require.Equal(t, e.view, got.Proposal().View())
+	require.Equal(t, e.view, got.View())
 
 	p1 := types.GenProposalForEpoch(rng, e.ep, view1)
 	for _, k := range e.quorum {
-		pv.pushVerifiedVote(c, types.Sign(k, types.NewPrepareVote(p1)))
+		pv.pushVerifiedVote(c, types.Sign(k, types.NewPrepareVote(p1.View().Number, p1.Header())))
 	}
 	got, ok = pv.qc.Load().Get()
 	require.True(t, ok)
-	require.Equal(t, view1, got.Proposal().View())
+	require.Equal(t, view1, got.View())
 	require.NoError(t, got.Verify(e.ep))
 }
 
@@ -90,10 +90,10 @@ func TestPrepareVotes_ConflictingProposalsDoNotFormQC(t *testing.T) {
 	b := types.GenProposalForEpoch(rng, e.ep, e.view)
 
 	for _, k := range first {
-		pv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewPrepareVote(a)))
+		pv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewPrepareVote(a.View().Number, a.Header())))
 	}
 	for _, k := range second {
-		pv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewPrepareVote(b)))
+		pv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewPrepareVote(b.View().Number, b.Header())))
 	}
 	require.False(t, pv.qc.Load().IsPresent())
 }
@@ -105,11 +105,11 @@ func TestCommitVotes_QuorumFormsQC(t *testing.T) {
 	proposal := types.GenProposalForEpoch(rng, e.ep, e.view)
 
 	for _, k := range e.quorum {
-		cv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewCommitVote(proposal)))
+		cv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewCommitVote(proposal.View().Number, proposal.Header())))
 	}
 	got, ok := cv.qc.Load().Get()
 	require.True(t, ok)
-	require.Equal(t, e.view, got.Proposal().View())
+	require.Equal(t, e.view, got.View())
 	require.NoError(t, got.Verify(e.ep))
 }
 
@@ -124,10 +124,10 @@ func TestCommitVotes_ConflictingProposalsDoNotFormQC(t *testing.T) {
 	b := types.GenProposalForEpoch(rng, e.ep, e.view)
 
 	for _, k := range first {
-		cv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewCommitVote(a)))
+		cv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewCommitVote(a.View().Number, a.Header())))
 	}
 	for _, k := range second {
-		cv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewCommitVote(b)))
+		cv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewCommitVote(b.View().Number, b.Header())))
 	}
 	require.False(t, cv.qc.Load().IsPresent())
 }

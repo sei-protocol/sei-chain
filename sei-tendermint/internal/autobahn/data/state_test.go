@@ -94,7 +94,7 @@ func writeToBlockStore(t *testing.T, store types.BlockStore, qcs []*types.FullCo
 func writeAppDataToBlockStore(t testing.TB, rng utils.Rng, store types.BlockStore, keys []types.SecretKey, qcs ...*types.FullCommitQC) {
 	t.Helper()
 	for _, qc := range qcs {
-		appProposal := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
+		appProposal := types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng))
 		utils.OrPanic(store.WriteAppProposal(appProposal))
 		utils.OrPanic(store.WriteAppQC(TestAppQC(keys, appProposal)))
 	}
@@ -133,7 +133,7 @@ func commitQCAtRoad(
 	block := types.NewBlock(ep.Committee().Lanes().At(0), 0, types.BlockHeaderHash{}, &types.Payload{})
 	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal)))
+		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal.View().Number, proposal.Header())))
 	}
 	return types.NewFullCommitQC(types.NewCommitQC(votes), []*types.BlockHeader{block.Header()}), []*types.Block{block}
 }
@@ -147,7 +147,7 @@ func commitQCAtRoadBlocks(
 	proposal, blocks := types.ProposalAtBlocks(ep, types.View{Index: road, Number: 0}, n)
 	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal)))
+		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal.View().Number, proposal.Header())))
 	}
 	headers := make([]*types.BlockHeader, len(blocks))
 	for i, b := range blocks {
@@ -329,7 +329,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 
 	votes := make([]*types.Signed[*types.CommitVote], 0, len(badKeys))
 	for _, k := range badKeys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal.Proposal().Msg())))
+		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal.View().Number, proposal.Header())))
 	}
 	maliciousQC := types.NewFullCommitQC(types.NewCommitQC(votes), headers)
 
@@ -493,7 +493,7 @@ func TestPushAppHash_MidEpochDoesNotRegister(t *testing.T) {
 			return err
 		}
 		if _, err := registry.EpochAt(registry.EpochFirstRoad(2)); err == nil {
-			return fmt.Errorf("epoch 2 must stay absent for road %d", qc.QC().Proposal().Index())
+			return fmt.Errorf("epoch 2 must stay absent for road %d", qc.QC().Index())
 		}
 		if got, ok := registry.Pending().Get(); ok {
 			return fmt.Errorf("Pending() = %v, want nothing staged mid-epoch", got)
@@ -570,7 +570,7 @@ func TestCommitteeFill_AppQCDivergenceLeavesStaged(t *testing.T) {
 		return state.PushAppHash(ctx, n, types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9})
 	}))
 
-	divergent := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
+	divergent := types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng))
 	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, divergent)))
 	_, err := registry.EpochAt(registry.EpochFirstRoad(2))
 	require.Error(t, err, "epoch 2 must stay staged after divergence")
@@ -604,7 +604,7 @@ func TestCommitteeFill_LaterMatchingAppQCDoesNotSkipDivergentLastRoad(t *testing
 		return state.PushAppHash(ctx, qc1.Index(), types.GenAppHash(rng), nil)
 	}))
 
-	divergent := types.NewAppProposal(qc0.QC().Proposal(), types.GenAppHash(rng))
+	divergent := types.NewAppProposal(qc0.QC().View(), types.GenAppHash(rng))
 	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, divergent)))
 	vote1, err := state.AppVote(ctx, qc1.Index())
 	require.NoError(t, err)
@@ -634,7 +634,7 @@ func TestRunPersist_HaltsBeforePersistingDivergentAppQC(t *testing.T) {
 	}))
 	before := store.Status().OrPanic("status after AppHash")
 
-	divergent := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
+	divergent := types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng))
 	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, divergent)))
 
 	require.ErrorIs(t, state.runPersist(ctx), ErrAppHashDivergence)
@@ -673,7 +673,7 @@ func TestInsertAppProposalRequiresCommitQC(t *testing.T) {
 
 	for range 2 {
 		qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, previous)
-		proposal := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
+		proposal := types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng))
 		for inner := range state.inner.Lock() {
 			require.Equal(t, proposal.Index(), inner.nextPartialBlock)
 			require.Equal(t, proposal.Index(), inner.nextAppProposal)
@@ -709,7 +709,7 @@ func TestPushEmptyQC(t *testing.T) {
 	require.NoError(t, err)
 	votes := make([]*types.Signed[*types.CommitVote], len(keys))
 	for i, key := range keys {
-		votes[i] = types.Sign(key, types.NewCommitVote(proposal.Proposal().Msg()))
+		votes[i] = types.Sign(key, types.NewCommitVote(proposal.View().Number, proposal.Header()))
 	}
 	qc := types.NewFullCommitQC(types.NewCommitQC(votes), nil)
 	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
@@ -1442,7 +1442,7 @@ func TestQCCacheBound(t *testing.T) {
 			vs := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{CommitQC: utils.Some(previous), Epoch: ep}}
 			proposal, err := types.NewProposal(keys[0], vs, vs.NextTimestamp(), nil)
 			require.NoError(t, err)
-			qc := types.NewCommitQC([]*types.Signed[*types.CommitVote]{types.Sign(keys[0], types.NewCommitVote(proposal.Proposal().Msg()))})
+			qc := types.NewCommitQC([]*types.Signed[*types.CommitVote]{types.Sign(keys[0], types.NewCommitVote(proposal.View().Number, proposal.Header()))})
 			nextPartialBlock = types.NewFullCommitQC(qc, nil)
 			if i < qcsCacheSize-1 {
 				require.NoError(t, state.PushPartialBlock(t.Context(), nextPartialBlock, nil))

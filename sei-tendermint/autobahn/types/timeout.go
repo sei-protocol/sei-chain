@@ -55,7 +55,7 @@ type FullTimeoutVote struct {
 func NewFullTimeoutVote(key SecretKey, view View, latestPrepareQC utils.Option[*PrepareQC]) *FullTimeoutVote {
 	vote := &TimeoutVote{
 		view:            view,
-		latestPrepareQC: utils.MapOpt(latestPrepareQC, func(qc *PrepareQC) ViewNumber { return qc.Proposal().View().Number }),
+		latestPrepareQC: utils.MapOpt(latestPrepareQC, func(qc *PrepareQC) ViewNumber { return qc.View().Number }),
 	}
 	return &FullTimeoutVote{
 		vote:            Sign(key, vote),
@@ -95,7 +95,7 @@ func (m *FullTimeoutVote) Verify(ep *Epoch) error {
 		if err := pQC.Verify(ep); err != nil {
 			return fmt.Errorf("latestPrepareQC: %w", err)
 		}
-		if got := pQC.Proposal().View(); got != want {
+		if got := pQC.View(); got != want {
 			return fmt.Errorf("latestPrepareQC view mismatch, got %v, want %v", got, want)
 		}
 	} else {
@@ -200,7 +200,7 @@ func (m *TimeoutQC) Verify(ep *Epoch, prev utils.Option[*CommitQC]) error {
 		if !ok {
 			return errors.New("missing latestPrepareQC")
 		}
-		if got, want := pQC.Proposal().View(), (View{Index: view.Index, Number: vn, EpochIndex: view.EpochIndex}); got != want {
+		if got, want := pQC.View(), (View{Index: view.Index, Number: vn, EpochIndex: view.EpochIndex}); got != want {
 			return fmt.Errorf("latestPrepareQC view number mismatch, got %v, want %v", got, want)
 		}
 		if err := pQC.Verify(ep); err != nil {
@@ -219,7 +219,34 @@ func (m *TimeoutQC) reproposal() (*Proposal, bool) {
 	if !ok {
 		return nil, false
 	}
-	return &Proposal{view: m.View().Next(), header: pQC.Proposal().Header()}, true
+	return &Proposal{viewNumber: m.View().Number.Next(), header: pQC.Header()}, true
+}
+
+// ViewConv is the protobuf converter for View.
+var ViewConv = protoutils.Conv[View, *pb.View]{
+	Encode: func(m View) *pb.View {
+		return &pb.View{
+			Index:      utils.Alloc(uint64(m.Index)),
+			Number:     utils.Alloc(uint64(m.Number)),
+			EpochIndex: utils.Alloc(uint64(m.EpochIndex)),
+		}
+	},
+	Decode: func(m *pb.View) (View, error) {
+		if m.Index == nil {
+			return View{}, fmt.Errorf("index: missing")
+		}
+		if m.Number == nil {
+			return View{}, fmt.Errorf("number: missing")
+		}
+		if m.EpochIndex == nil {
+			return View{}, fmt.Errorf("epoch_index: missing")
+		}
+		return View{
+			Index:      RoadIndex(*m.Index),
+			Number:     ViewNumber(*m.Number),
+			EpochIndex: EpochIndex(*m.EpochIndex),
+		}, nil
+	},
 }
 
 // TimeoutVoteConv is the protobuf converter for TimeoutVote.

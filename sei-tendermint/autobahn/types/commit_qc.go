@@ -27,15 +27,15 @@ func NewCommitQC(votes []*Signed[*CommitVote]) *CommitQC {
 	return &CommitQC{vote: votes[0].hashed, sigs: sigs}
 }
 
-// Proposal .
-func (m *CommitQC) Proposal() *Proposal { return m.vote.Msg().proposal }
-
 // Header returns the committed road block header.
-func (m *CommitQC) Header() *RoadBlockHeader { return m.Proposal().Header() }
+func (m *CommitQC) Header() *RoadBlockHeader { return m.vote.Msg().Header() }
+
+// View returns the commit vote's consensus view.
+func (m *CommitQC) View() View { return m.vote.Msg().View() }
 
 // Index .
 func (m *CommitQC) Index() RoadIndex {
-	return m.Proposal().Index()
+	return m.vote.Msg().Header().Index()
 }
 
 // LaneRange returns the range of lane blocks.
@@ -45,7 +45,7 @@ func (m *CommitQC) LaneRange(lane LaneID) *LaneRange {
 
 // Verify verifies the CommitQC against the epoch.
 func (m *CommitQC) Verify(ep *Epoch) error {
-	if err := m.Proposal().Verify(ep); err != nil {
+	if err := m.vote.Msg().Verify(ep); err != nil {
 		return err
 	}
 	c := ep.Committee()
@@ -112,12 +112,12 @@ func (m *FullCommitQC) Verify(ep *Epoch) error {
 var CommitQCConv = protoutils.Conv[*CommitQC, *pb.CommitQC]{
 	Encode: func(m *CommitQC) *pb.CommitQC {
 		return &pb.CommitQC{
-			Vote: CommitVoteConv.Encode(m.vote.Msg()),
-			Sigs: SignatureConv.EncodeSlice(m.sigs),
+			VoteV2: CommitVoteConv.Encode(m.vote.Msg()),
+			Sigs:   SignatureConv.EncodeSlice(m.sigs),
 		}
 	},
 	Decode: func(m *pb.CommitQC) (*CommitQC, error) {
-		vote, err := CommitVoteConv.DecodeReq(m.Vote)
+		vote, err := CommitVoteConv.DecodeReq(m.VoteV2)
 		if err != nil {
 			return nil, fmt.Errorf("vote: %w", err)
 		}

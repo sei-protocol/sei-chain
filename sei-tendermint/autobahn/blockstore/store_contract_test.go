@@ -1481,7 +1481,7 @@ func appQCForBatch(rng utils.Rng, keys []types.SecretKey, b batch) *types.AppQC 
 }
 
 func appProposalForBatch(rng utils.Rng, b batch) *types.AppProposal {
-	return types.NewAppProposal(b.qc.QC().Proposal(), types.GenAppHash(rng))
+	return types.NewAppProposal(b.qc.QC().View(), types.GenAppHash(rng))
 }
 
 func testAppQC(keys []types.SecretKey, proposal *types.AppProposal) *types.AppQC {
