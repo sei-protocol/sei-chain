@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"unsafe"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -152,7 +153,12 @@ func writeStore(
 	}
 	writes := make([]view.Write, len(mutations))
 	for i := range mutations {
-		writes[i] = view.Write{Key: string(mutations[i].Key), Value: mutations[i].NewValue}
+		key := mutations[i].Key
+		// Not copied: mutation keys are never modified, and the view copies any key it keeps past retirement.
+		writes[i] = view.Write{
+			Key:   unsafe.String(unsafe.SliceData(key), len(key)), //nolint:gosec // see above
+			Value: mutations[i].NewValue,
+		}
 	}
 	if err := store.BatchSet(writes); err != nil {
 		return fmt.Errorf("write %s values: %w", dbDir, err)

@@ -69,7 +69,8 @@ type LiveStateStore interface {
 
 	// CommitStateChanges writes and commits the block at blockNum, which must be the committed version plus one.
 	// mutations holds one entry per physical key the block writes, and each PreviousValue must be that key's row
-	// as of blockNum-1: the lattice hash is computed from it without being checked against the store.
+	// as of blockNum-1: the lattice hash is computed from it without being checked against the store. mutations
+	// must not be modified after the call.
 	//
 	// Callers must use either ApplyChangeSets+Commit or CommitStateChanges exclusively, never mixing the two on
 	// the same store.
