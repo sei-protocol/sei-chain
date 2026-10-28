@@ -15,11 +15,15 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 )
 
-// memState is a map-backed precompiles.State and LogSink.
+// memState is a map-backed precompiles.State and LogSink. With failAt set, the
+// read after the failAt-th fails, as running out of gas does: it and every later
+// read return zero, counted in readsAfterFailure.
 type memState struct {
 	balances map[common.Address]*big.Int
 	storage  map[common.Address]map[common.Hash]common.Hash
 	logs     []*ethtypes.Log
+
+	reads, failAt, readsAfterFailure int
 }
 
 var (
@@ -57,10 +61,15 @@ func (m *memState) SubBalance(a common.Address, v *big.Int) error {
 func (m *memState) GetNonce(common.Address) uint64  { return 0 }
 func (m *memState) SetNonce(common.Address, uint64) {}
 func (m *memState) GetCode(common.Address) []byte   { return nil }
-func (m *memState) Failed() bool                    { return false }
+func (m *memState) Failed() bool                    { return m.failAt > 0 && m.reads > m.failAt }
 func (m *memState) AddLog(l *ethtypes.Log)          { m.logs = append(m.logs, l) }
 
 func (m *memState) GetState(a common.Address, k common.Hash) common.Hash {
+	m.reads++
+	if m.Failed() {
+		m.readsAfterFailure++
+		return common.Hash{}
+	}
 	return m.storage[a][k]
 }
 

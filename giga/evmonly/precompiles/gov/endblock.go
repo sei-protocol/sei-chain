@@ -13,8 +13,8 @@ var _ precompiles.EndBlocker = Precompile{}
 // endBlockBudget bounds each of one EndBlock's two kinds of work, dropping
 // proposals and ending votes, as x/gov's MaxVotesProcessedPerBlock does, in the
 // units dropCost, settleCost and one per counted vote measure. Work past its
-// budget waits for the next EndBlock, and work larger than the budget runs alone
-// in one.
+// budget waits for the next EndBlock; work larger than a whole budget runs when
+// nothing has spent that budget, and uses it up.
 const endBlockBudget = 1_000
 
 // EndBlock drops proposals whose deposit period ended short of the minimum
@@ -59,8 +59,8 @@ func dropCost(s store, id uint64) uint64 {
 }
 
 // settleCost is the budget finishing proposal id's tally costs: it credits every
-// bonded validator, settles every depositor, and reads the proposal's content to
-// execute it.
+// bonded validator, settles every depositor, and reads and executes the
+// proposal's content, one unit per content word.
 func settleCost(s store, id uint64, snap electorateSnapshot) uint64 {
 	return uint64(len(snap.validators)) + 1 + s.depositors(id).Len() + s.proposalContentChunks(id)
 }

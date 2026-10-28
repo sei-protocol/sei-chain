@@ -18,7 +18,7 @@ const (
 
 // Content types, as GovStorage.Proposal.contentType numbers them. Each names
 // the Gov.sol struct its content is the ABI encoding of; 1 and 2 are reserved
-// for software upgrades.
+// for software upgrades (CON-573).
 const (
 	contentText uint8 = 0 // TextContent
 )
@@ -35,7 +35,9 @@ type govContent interface {
 	contentType() uint8
 	// validate checks the content at submission.
 	validate() error
-	// execute carries out passed proposal id, writing nothing when it fails.
+	// execute carries out passed proposal id, writing nothing when it fails. Its
+	// work is at most one unit per word of the encoded content, which settleCost
+	// charges.
 	execute(block precompiles.BlockContext, s store, id uint64) error
 }
 
