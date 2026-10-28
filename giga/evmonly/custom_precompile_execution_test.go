@@ -252,3 +252,25 @@ func TestPrecompileStateMetersLogs(t *testing.T) {
 	require.ErrorIs(t, s.err, vm.ErrOutOfGas)
 	require.Empty(t, db.logs, "the log is dropped")
 }
+
+// panicAfterReads reads storage until a read fails, then panics.
+type panicAfterReads struct{}
+
+func (panicAfterReads) RequiredGas([]byte) uint64 { return 1_000 }
+
+func (panicAfterReads) Run(ctx *precompiles.Context, _ []byte) ([]byte, error) {
+	for i := uint64(0); !ctx.State.Failed(); i++ {
+		ctx.State.GetState(ctx.Address, common.BigToHash(new(big.Int).SetUint64(i)))
+	}
+	panic("after out of gas")
+}
+
+func TestRegisteredCustomPrecompileReportsAPanicOverOutOfGas(t *testing.T) {
+	contract := registeredCustomPrecompile{address: registeredPrecompileAddress, contract: panicAfterReads{}}
+	stateDB := newNativeStateDB(NewMemoryState())
+	evm := vm.NewEVM(buildBlockContext(blockContext(big.NewInt(testChainID))), stateDB, params.AllDevChainProtocolChanges, vm.Config{}, nil)
+	stateDB.SetEVM(evm)
+	_, left, err := contract.RunAndCalculateGas(evm, common.Address{}, common.Address{}, nil, 10_000, nil, nil, true, false)
+	require.ErrorIs(t, err, errPrecompilePanic, "a panic is reported even after a failed read")
+	require.Zero(t, left)
+}

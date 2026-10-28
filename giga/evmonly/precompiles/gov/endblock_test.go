@@ -540,14 +540,27 @@ func TestEndBlockDrainsQueuedMissingProposals(t *testing.T) {
 }
 
 func TestLiveTallyStopsOnceReadsFail(t *testing.T) {
-	h := newElectedHarness(t, equalElectorate)
+	electorate := GenesisElectorate{}
+	for i := range 300 {
+		electorate[depositor(1_000+i)] = big.NewInt(100)
+	}
+	h := newElectedHarness(t, electorate)
 	id := h.open(textProposal, usei(10))
-	const voters = 50
-	for i := range voters {
+	for i := range 50 {
 		h.vote(depositor(i), id, OptionYes)
 	}
 	h.state.failAt = h.state.reads + 20
 	liveTally(h.state, h.gov.Electorate, newStore(h.state), id)
 	require.True(t, h.state.Failed())
-	require.Less(t, h.state.readsAfterFailure, voters, "the voter loop stops instead of reading on for free")
+	require.Equal(t, 1, h.state.readsAfterFailure, "neither the voter nor the validator loop reads on for free")
+}
+
+func TestTallyIgnoresAnOptionOutsideTheRange(t *testing.T) {
+	tally := tallyState{power: new(big.Int), results: map[int32]*big.Int{
+		OptionYes: new(big.Int), OptionAbstain: new(big.Int), OptionNo: new(big.Int), OptionNoWithVeto: new(big.Int),
+	}}
+	require.NotPanics(t, func() {
+		tally.add([]weightedVote{{option: 0, weight: decOne}, {option: OptionYes, weight: decOne}}, big.NewInt(7))
+	}, "a vote read back after a failed read has option 0")
+	require.Equal(t, "7", tally.results[OptionYes].String())
 }

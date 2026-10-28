@@ -178,3 +178,33 @@ func TestGovPrecompileOCCMatchesSequential(t *testing.T) {
 	require.Equal(t, sequential.Receipts, occ.Receipts)
 	require.Equal(t, sequential.ChangeSet, occ.ChangeSet)
 }
+
+func TestRetiredGovMethodRefundsGasAndValue(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.HexToECDSA(behaviorAnvilKey0)
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	start := new(big.Int).Mul(big.NewInt(1_000), big.NewInt(1_000_000_000_000_000))
+	value := big.NewInt(10_000_000_000_000)
+
+	state := NewMemoryState()
+	state.SetBalance(sender, start)
+	data, err := gov.ABI.Pack("submitProposal", `{"title":"t","description":"d","type":"Text"}`)
+	require.NoError(t, err)
+	to := gov.Address
+	const gasLimit = 1_000_000
+	tx := signLegacyTxWithGasPrice(t, key, chainID, 0, &to, value, data, gasLimit, big.NewInt(1))
+	cfg := Config{
+		MinGasPrice:       big.NewInt(0),
+		CustomPrecompiles: precompiles.NewStaticRegistry(map[common.Address]precompiles.Contract{gov.Address: gov.Precompile{}}, gov.Address),
+	}
+	result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: [][]byte{tx}})
+	require.NoError(t, err)
+	got := result.Txs[0]
+	require.Equal(t, uint64(0), got.Status)
+	require.Less(t, got.GasUsed, uint64(gasLimit/10), "a retired method's revert refunds unused gas")
+	state.ApplyChangeSet(result.ChangeSet)
+	spent := new(big.Int).Mul(new(big.Int).SetUint64(got.GasUsed), big.NewInt(1))
+	require.Equal(t, new(big.Int).Sub(start, spent), state.GetBalance(sender), "the value comes back; only gas is spent")
+	require.Zero(t, state.GetBalance(gov.Address).Sign())
+}
