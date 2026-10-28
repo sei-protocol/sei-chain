@@ -141,6 +141,8 @@ func TestSubmitBelowMinimumWaitsForDeposits(t *testing.T) {
 		SubmitTime:       unixSeconds(startTime),
 		DepositEndTime:   unixSeconds(startTime + testParams.MaxDepositPeriod),
 		TotalDeposit:     []Coin{{Amount: big.NewInt(4), Denom: "usei"}},
+		VotingStartTime:  time.Time{}.Unix(),
+		VotingEndTime:    time.Time{}.Unix(),
 		Content:          []byte(`{"@type":"/cosmos.gov.v1beta1.TextProposal","title":"t","description":"d","is_expedited":false}`),
 	}, got)
 

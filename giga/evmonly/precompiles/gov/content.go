@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -64,7 +65,7 @@ type proposalPlan struct {
 // structs.
 type govContent interface {
 	contentType() uint8
-	// execute carries out passed proposal id.
+	// execute carries out passed proposal id, writing nothing when it fails.
 	execute(block precompiles.BlockContext, s store, id uint64) error
 	// v2JSON is V2's proto JSON of the matching Content, as its proposal query
 	// returns it.
@@ -114,28 +115,45 @@ var contentCodecs = map[uint8]contentCodec{
 		named("title", stringArg), named("description", stringArg)),
 }
 
-// proposalTypes build the content of each proposal type gov accepts from its
-// submitted JSON, rejecting a field the type does not use.
-var proposalTypes = map[string]func(submittedProposal) (govContent, error){
-	TypeText: func(p submittedProposal) (govContent, error) {
-		if p.Plan != nil {
-			return nil, fmt.Errorf("%w: plan", errUnknownField)
-		}
+// commonFields are the submitted JSON fields every proposal type takes.
+var commonFields = []string{"title", "description", "type", "is_expedited"}
+
+// proposalType is a proposal type gov accepts: the submitted JSON fields it
+// takes beyond commonFields, and how its content is built from them.
+type proposalType struct {
+	fields []string
+	build  func(submittedProposal) (govContent, error)
+}
+
+var proposalTypes = map[string]proposalType{
+	TypeText: {build: func(p submittedProposal) (govContent, error) {
 		return textContent{Title: p.Title, Description: p.Description, IsExpedited: p.IsExpedited}, nil
-	},
-	TypeSoftwareUpgrade: func(p submittedProposal) (govContent, error) {
+	}},
+	TypeSoftwareUpgrade: {fields: []string{"plan"}, build: func(p submittedProposal) (govContent, error) {
 		if p.Plan == nil || p.Plan.Name == "" || p.Plan.Height <= 0 {
 			return nil, fmt.Errorf("%w: name and a positive height are required", errInvalidPlan)
 		}
 		plan := upgradePlan{Name: p.Plan.Name, Height: p.Plan.Height, Info: p.Plan.Info}
 		return softwareUpgradeContent{Title: p.Title, Description: p.Description, Plan: plan}, nil
-	},
-	TypeCancelSoftwareUpgrade: func(p submittedProposal) (govContent, error) {
-		if p.Plan != nil {
-			return nil, fmt.Errorf("%w: plan", errUnknownField)
-		}
+	}},
+	TypeCancelSoftwareUpgrade: {build: func(p submittedProposal) (govContent, error) {
 		return cancelSoftwareUpgradeContent{Title: p.Title, Description: p.Description}, nil
-	},
+	}},
+}
+
+// checkTypeFields rejects a field of the submitted JSON that type t does not
+// take, even when its value is null.
+func checkTypeFields(content string, t proposalType) error {
+	members, err := objectMembers(json.RawMessage(content))
+	if err != nil {
+		return err
+	}
+	for _, m := range members {
+		if !slices.Contains(commonFields, m.name) && !slices.Contains(t.fields, m.name) {
+			return fmt.Errorf("%w: %q", errUnknownField, m.name)
+		}
+	}
+	return nil
 }
 
 // contentCodec is the ABI encoding of one content struct.
@@ -197,11 +215,14 @@ func parseProposal(content string) (govContent, submittedProposal, error) {
 	if len(p.Title) > maxTitleLength || len(p.Description) > maxDescriptionLength {
 		return nil, p, fmt.Errorf("%w: title max %d, description max %d", errContentTooLong, maxTitleLength, maxDescriptionLength)
 	}
-	build, ok := proposalTypes[p.Type]
+	t, ok := proposalTypes[p.Type]
 	if !ok {
 		return nil, p, fmt.Errorf("%w: %s", errUnsupportedType, p.Type)
 	}
-	c, err := build(p)
+	if err := checkTypeFields(content, t); err != nil {
+		return nil, p, err
+	}
+	c, err := t.build(p)
 	return c, p, err
 }
 
