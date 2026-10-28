@@ -704,17 +704,17 @@ func (s *txStore) Update(spec updateSpec) {
 		state := inner.state.Load()
 		for txHash, wtx := range inner.byHash {
 			expired := isExpired(wtx)
-			if expired {
-				Global.ExpiredTxsAt().Add(1)
-			}
 			invalid := spec.InvalidTxs[wtx.Hash()] || wtx.check(spec.Constraints) != nil
 			_, executed := spec.TxResults[wtx.Hash()]
 			// A tx removed for being executed or invalid is not attributed to expiry.
 			removedByExpiry := expired && !executed && !invalid && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx))
 			remove := invalid || executed || removedByExpiry
 			if remove {
-				if removedByExpiry && wtx.evm.IsPresent() {
-					recordPendingNonceExpired()
+				if removedByExpiry {
+					Global.ExpiredTxsAt().Add(1)
+					if wtx.evm.IsPresent() {
+						recordPendingNonceExpired()
+					}
 				}
 				// KeepInvalidTxsInCache decides whether we invalidate txs removed from mempool for any reason.
 				// Executed txs invalidation was handled earlier.

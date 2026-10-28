@@ -8,9 +8,11 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"go.opentelemetry.io/otel/attribute"
@@ -882,4 +884,62 @@ func TestTxStore_PendingNonceAddedExcludesTxEvictedOnInsert(t *testing.T) {
 	require.ErrorIs(t, txStore.Insert(evicted), errMempoolFull)
 
 	require.Equal(t, int64(2*cfg.Size), pendingNonceEvents(t, reader)["added"])
+}
+
+// bindTestGlobalMetrics replaces the global mempool metrics for the duration of the test.
+func bindTestGlobalMetrics(t *testing.T) *Metrics {
+	t.Helper()
+	previous := Global
+	t.Cleanup(func() { Global = previous })
+	Global = NewMetrics()
+	return Global
+}
+
+func counterValue(t *testing.T, c *tmprometheus.CounterInt) int64 {
+	t.Helper()
+	var m dto.Metric
+	require.NoError(t, c.Write(&m))
+	return int64(m.GetCounter().GetValue())
+}
+
+func TestTxStore_ExpiredTxsCountsOnlyTxsRemovedByExpiry(t *testing.T) {
+	rng := utils.TestRng()
+	cfg := TestConfig()
+	cfg.TTLNumBlocks = utils.Some(int64(10))
+	cfg.RemoveExpiredTxsFromQueue = false
+
+	app := newEVMNonceApp()
+	txStore := NewTxStore(cfg, proxy.New(app))
+	insertExpired := func(nonce uint64) *WrappedTx {
+		address := genEvmAddress(rng)
+		app.setNonce(address, 5)
+		app.setBalance(address, 1_000_000)
+		wtx := makeEvmTxForTest(rng, address, nonce, rng.Int63n(1_000_000)+1, 0)
+		wtx.height = 1
+		require.NoError(t, txStore.Insert(wtx))
+		return wtx
+	}
+	kept := insertExpired(5)     // ready, so kept despite expiry
+	executed := insertExpired(5) // removed for being executed
+	pending := insertExpired(7)  // nonce gap, so removed by expiry
+
+	metrics := bindTestGlobalMetrics(t)
+	for height, txResults := range []map[types.TxHash]bool{{executed.Hash(): true}, {}} {
+		txStore.Update(updateSpec{
+			Now:           time.Now(),
+			Height:        int64(20 + height),
+			TxResults:     txResults,
+			Constraints:   NopTxConstraints(),
+			NewPriorities: map[types.TxHash]int64{},
+			InvalidTxs:    map[types.TxHash]bool{},
+		})
+	}
+
+	_, ok := txStore.ByHash(kept.Hash())
+	require.True(t, ok)
+	for _, wtx := range []*WrappedTx{executed, pending} {
+		_, ok := txStore.ByHash(wtx.Hash())
+		require.False(t, ok)
+	}
+	require.Equal(t, int64(1), counterValue(t, metrics.ExpiredTxsAt()))
 }
