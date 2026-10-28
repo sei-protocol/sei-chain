@@ -65,7 +65,7 @@ func (e *Executor) runEndBlockers(block BlockContext, source StateReader, result
 	blockCtx := endBlockContext(block, e.chainConfig(block).ChainID)
 	for _, blocker := range e.endBlockers {
 		state := &precompileState{db: stateDB}
-		failures, err := blocker.contract.EndBlock(blockCtx, state)
+		failures, err := runEndBlock(blocker.contract, blockCtx, state)
 		logEndBlockFailures(block.Number, blocker.address, failures)
 		if err != nil {
 			return fmt.Errorf("end block %d for custom precompile %s: %w", block.Number, blocker.address, err)
@@ -83,6 +83,17 @@ func (e *Executor) runEndBlockers(block BlockContext, source StateReader, result
 	stateDB.ChangeSetInto(&changes)
 	mergeChangeSet(&result.ChangeSet, changes)
 	return nil
+}
+
+// runEndBlock runs blocker's EndBlock, returning a panic as errPrecompilePanic,
+// which fails the block rather than stopping the node.
+func runEndBlock(blocker precompiles.EndBlocker, block precompiles.BlockContext, state precompiles.State) (failures []error, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			failures, err = nil, fmt.Errorf("%w: %v", errPrecompilePanic, r)
+		}
+	}()
+	return blocker.EndBlock(block, state)
 }
 
 // logEndBlockFailures logs each of an end blocker's failures, its message cut

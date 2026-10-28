@@ -21,7 +21,7 @@ contract GovStorage {
     struct Proposal {
         int32 status;
         bool isExpedited;
-        uint8 contentType; // 0: TextContent; 1 and 2 are reserved for software upgrades
+        uint8 contentType; // 0: TextContent; 1 and 2 are reserved for software upgrades (CON-573)
         uint64 submitTime; // Unix nanoseconds, as are the other times
         uint64 depositEndTime;
         uint64 votingStartTime;

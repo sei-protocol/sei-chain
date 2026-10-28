@@ -626,35 +626,6 @@
   },
   {
     "type": "function",
-    "name": "submitCancelSoftwareUpgradeProposal",
-    "inputs": [
-      {
-        "name": "title",
-        "type": "string",
-        "internalType": "string"
-      },
-      {
-        "name": "description",
-        "type": "string",
-        "internalType": "string"
-      },
-      {
-        "name": "isExpedited",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "proposalID",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "payable"
-  },
-  {
-    "type": "function",
     "name": "submitProposal",
     "inputs": [
       {
@@ -685,57 +656,6 @@
         "name": "proposalJSON",
         "type": "string",
         "internalType": "string"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "proposalID",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "payable"
-  },
-  {
-    "type": "function",
-    "name": "submitSoftwareUpgradeProposal",
-    "inputs": [
-      {
-        "name": "title",
-        "type": "string",
-        "internalType": "string"
-      },
-      {
-        "name": "description",
-        "type": "string",
-        "internalType": "string"
-      },
-      {
-        "name": "isExpedited",
-        "type": "bool",
-        "internalType": "bool"
-      },
-      {
-        "name": "plan",
-        "type": "tuple",
-        "internalType": "struct IGov.UpgradePlan",
-        "components": [
-          {
-            "name": "name",
-            "type": "string",
-            "internalType": "string"
-          },
-          {
-            "name": "height",
-            "type": "int64",
-            "internalType": "int64"
-          },
-          {
-            "name": "info",
-            "type": "string",
-            "internalType": "string"
-          }
-        ]
       }
     ],
     "outputs": [
@@ -853,7 +773,7 @@
       {
         "name": "options",
         "type": "tuple[]",
-        "internalType": "struct IGov.DecimalWeightedVoteOption[]",
+        "internalType": "struct IGov.WeightedVoteOption[]",
         "components": [
           {
             "name": "option",
@@ -862,8 +782,8 @@
           },
           {
             "name": "weight",
-            "type": "string",
-            "internalType": "string"
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       }
@@ -889,7 +809,7 @@
       {
         "name": "options",
         "type": "tuple[]",
-        "internalType": "struct IGov.WeightedVoteOption[]",
+        "internalType": "struct IGov.DecimalWeightedVoteOption[]",
         "components": [
           {
             "name": "option",
@@ -898,8 +818,8 @@
           },
           {
             "name": "weight",
-            "type": "uint256",
-            "internalType": "uint256"
+            "type": "string",
+            "internalType": "string"
           }
         ]
       }

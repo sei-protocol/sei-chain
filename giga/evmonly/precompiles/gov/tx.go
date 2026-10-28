@@ -33,13 +33,14 @@ const (
 const maxVoteOptions = 4
 
 var (
-	errUnknownProposal   = errors.New("unknown proposal")
-	errInactiveProposal  = errors.New("inactive proposal")
-	errInvalidVote       = errors.New("invalid vote option")
-	errZeroDeposit       = errors.New("set `value` field to non-zero to deposit fund")
-	errWeiRemainder      = errors.New("selected precompile function does not allow payment with non-zero wei remainder")
-	errTooManyDepositors = errors.New("proposal has the most depositors allowed")
-	errDepositTooSmall   = errors.New("deposit is too small")
+	errUnknownProposal      = errors.New("unknown proposal")
+	errInactiveProposal     = errors.New("inactive proposal")
+	errInvalidVote          = errors.New("invalid vote option")
+	errZeroDeposit          = errors.New("set `value` field to non-zero to deposit fund")
+	errWeiRemainder         = errors.New("selected precompile function does not allow payment with non-zero wei remainder")
+	errTooManyDepositors    = errors.New("proposal has the most depositors allowed")
+	errDepositTooSmall      = errors.New("deposit is too small")
+	errProposalIDsExhausted = errors.New("every proposal id has been assigned")
 )
 
 // maxDepositors is the most distinct depositors a proposal may have.
@@ -124,7 +125,7 @@ func (p Precompile) deposit(ctx *precompiles.Context, s store, method *abi.Metho
 	if !ok {
 		return nil, fmt.Errorf("%w: %d", errUnknownProposal, id)
 	}
-	if _, err := addDeposit(ctx, s, id, prop, amount); err != nil {
+	if _, err := addDeposit(ctx, s, s.params(), id, prop, amount); err != nil {
 		return nil, err
 	}
 	return method.Outputs.Pack(true)
@@ -159,12 +160,16 @@ func createProposal(ctx *precompiles.Context, s store, content govContent, isExp
 		return 0, err
 	}
 
-	id := s.nextProposalID()
+	params := s.params()
+	id, err := s.nextProposalID()
+	if err != nil {
+		return 0, err
+	}
 	prop := proposal{
 		status:          StatusDepositPeriod,
 		isExpedited:     isExpedited,
 		submitTime:      ctx.Block.UnixNano,
-		depositEndTime:  ctx.Block.UnixNano + s.params().MaxDepositPeriod,
+		depositEndTime:  ctx.Block.UnixNano + params.MaxDepositPeriod,
 		totalDeposit:    new(big.Int),
 		tallyYes:        new(big.Int),
 		tallyAbstain:    new(big.Int),
@@ -177,7 +182,7 @@ func createProposal(ctx *precompiles.Context, s store, content govContent, isExp
 
 	votingStarted := false
 	if amount.Sign() > 0 {
-		if votingStarted, err = addDeposit(ctx, s, id, prop, amount); err != nil {
+		if votingStarted, err = addDeposit(ctx, s, params, id, prop, amount); err != nil {
 			return 0, err
 		}
 	}
@@ -187,7 +192,7 @@ func createProposal(ctx *precompiles.Context, s store, content govContent, isExp
 // addDeposit moves amount from the precompile's balance into escrow, credits it
 // to the caller on proposal id, and opens voting once the minimum is reached,
 // reporting whether it did.
-func addDeposit(ctx *precompiles.Context, s store, id uint64, prop proposal, amount *big.Int) (bool, error) {
+func addDeposit(ctx *precompiles.Context, s store, params Params, id uint64, prop proposal, amount *big.Int) (bool, error) {
 	switch {
 	case prop.status == StatusDepositPeriod && ctx.Block.UnixNano <= prop.depositEndTime:
 	case votingOpen(s, id, prop, ctx.Block.UnixNano):
@@ -199,7 +204,7 @@ func addDeposit(ctx *precompiles.Context, s store, id uint64, prop proposal, amo
 		if depositors.Len() >= maxDepositors {
 			return false, fmt.Errorf("%w: %d", errTooManyDepositors, id)
 		}
-		if share := depositorShare(s.params(), prop.isExpedited); amount.Cmp(share) < 0 {
+		if share := depositorShare(params, prop.isExpedited); amount.Cmp(share) < 0 {
 			return false, fmt.Errorf("%w: a first deposit must be at least %s wei", errDepositTooSmall, share)
 		}
 	}
@@ -209,9 +214,9 @@ func addDeposit(ctx *precompiles.Context, s store, id uint64, prop proposal, amo
 	ctx.State.AddBalance(DepositEscrow, amount)
 
 	prop.totalDeposit = new(big.Int).Add(prop.totalDeposit, amount)
-	votingStarted := prop.status == StatusDepositPeriod && prop.totalDeposit.Cmp(minDeposit(s.params(), prop.isExpedited)) >= 0
+	votingStarted := prop.status == StatusDepositPeriod && prop.totalDeposit.Cmp(minDeposit(params, prop.isExpedited)) >= 0
 	if votingStarted {
-		activateVotingPeriod(ctx, s, id, &prop)
+		activateVotingPeriod(ctx, s, params, id, &prop)
 	}
 	s.setProposal(id, prop)
 
@@ -220,8 +225,7 @@ func addDeposit(ctx *precompiles.Context, s store, id uint64, prop proposal, amo
 	return votingStarted, emit(ctx, ProposalDepositEvent, []common.Hash{idTopic(id), addressTopic(ctx.Caller)}, amount, votingStarted)
 }
 
-func activateVotingPeriod(ctx *precompiles.Context, s store, id uint64, prop *proposal) {
-	params := s.params()
+func activateVotingPeriod(ctx *precompiles.Context, s store, params Params, id uint64, prop *proposal) {
 	period := params.VotingPeriod
 	if prop.isExpedited {
 		period = params.ExpeditedVotingPeriod

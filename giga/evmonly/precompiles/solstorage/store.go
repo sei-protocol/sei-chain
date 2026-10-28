@@ -99,6 +99,10 @@ func (s Store) setPacked(slot common.Hash, offset int, b []byte) {
 	s.SetWord(slot, w)
 }
 
+// maxStringPrealloc caps the buffer String allocates up front from a stored
+// length, so a corrupt length cannot force a large allocation.
+const maxStringPrealloc = 64 << 10
+
 // String reads a string or bytes value in Solidity's native encoding.
 func (s Store) String(slot common.Hash) string {
 	w := s.Word(slot)
@@ -108,7 +112,7 @@ func (s Store) String(slot common.Hash) string {
 	n := new(big.Int).SetBytes(w[:])
 	n.Rsh(n, 1)
 	length := n.Uint64()
-	out := make([]byte, 0, length)
+	out := make([]byte, 0, min(length, maxStringPrealloc))
 	data := ArrayData(slot)
 	for i := uint64(0); uint64(len(out)) < length && !s.State.Failed(); i++ {
 		chunk := s.Word(Offset(data, i))

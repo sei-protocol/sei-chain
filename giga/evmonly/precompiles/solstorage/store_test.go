@@ -90,3 +90,29 @@ func TestOffsetWraps(t *testing.T) {
 	max := common.HexToHash("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 	require.Equal(t, Slot(1), Offset(max, 2))
 }
+
+// failingState fails every read after failAt, returning zero.
+type failingState struct {
+	mapState
+	reads, failAt, readsAfterFailure int
+}
+
+func (f *failingState) GetState(a common.Address, k common.Hash) common.Hash {
+	f.reads++
+	if f.Failed() {
+		f.readsAfterFailure++
+		return common.Hash{}
+	}
+	return f.mapState.GetState(a, k)
+}
+
+func (f *failingState) Failed() bool { return f.reads > f.failAt }
+
+func TestStringStopsOnceReadsFail(t *testing.T) {
+	state := &failingState{mapState: mapState{}, failAt: 1 << 30}
+	s := Store{State: state}
+	s.SetString(Slot(3), strings.Repeat("x", 32*100))
+	state.reads, state.failAt = 0, 5
+	s.String(Slot(3))
+	require.Equal(t, 1, state.readsAfterFailure, "the chunk loop stops at the first failed read")
+}

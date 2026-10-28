@@ -52,24 +52,20 @@ const (
 	ProposalVoteEvent    = "ProposalVote"
 )
 
-var (
-	errUnsupportedUpgrade = errors.New("software upgrade proposals are not supported yet")
-	errAuthzUnsupported   = errors.New("gov authorizations are not supported")
-)
+const authzUnsupported = "gov authorizations are not supported"
 
-// retiredMethods are the methods, by signature, gov keeps in its ABI only to
-// revert with an error naming the call to use instead.
-var retiredMethods = map[string]error{
-	"submitProposal(string)":                                                  errors.New("submitProposal(string) is not supported; use submitTextProposal"),
-	"voteWeighted(uint64,(int32,string)[])":                                   errors.New("voteWeighted with decimal string weights is not supported; use voteWeighted(uint64,(int32,uint256)[]) with 1e18-scaled weights"),
-	"submitSoftwareUpgradeProposal(string,string,bool,(string,int64,string))": errUnsupportedUpgrade,
-	"submitCancelSoftwareUpgradeProposal(string,string,bool)":                 errUnsupportedUpgrade,
-	"grantVoteAuthorization(address,int64)":                                   errAuthzUnsupported,
-	"grantProposalAuthorization(address,int64)":                               errAuthzUnsupported,
-	"revokeVoteAuthorization(address)":                                        errAuthzUnsupported,
-	"revokeProposalAuthorization(address)":                                    errAuthzUnsupported,
-	"voteWithAuthorization(address,uint64,int32)":                             errAuthzUnsupported,
-	"submitProposalWithAuthorization(address,string)":                         errAuthzUnsupported,
+// retiredMethods are the V2 methods, by signature, gov keeps in its ABI only to
+// revert with a reason naming the call to use instead. They are checked before
+// dispatch.
+var retiredMethods = map[string]string{
+	"submitProposal(string)":                          "submitProposal(string) is not supported; use submitTextProposal",
+	"voteWeighted(uint64,(int32,string)[])":           "voteWeighted with decimal string weights is not supported; use voteWeighted(uint64,(int32,uint256)[]) with 1e18-scaled weights",
+	"grantVoteAuthorization(address,int64)":           authzUnsupported,
+	"grantProposalAuthorization(address,int64)":       authzUnsupported,
+	"revokeVoteAuthorization(address)":                authzUnsupported,
+	"revokeProposalAuthorization(address)":            authzUnsupported,
+	"voteWithAuthorization(address,uint64,int32)":     authzUnsupported,
+	"submitProposalWithAuthorization(address,string)": authzUnsupported,
 }
 
 // Flat per-call gas, as V2's pcommon.DefaultGasCost prices it from the
@@ -118,8 +114,8 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
-	if err := retiredMethods[method.Sig]; err != nil {
-		return nil, err
+	if reason, ok := retiredMethods[method.Sig]; ok {
+		return precompiles.Revert(reason)
 	}
 	args, err := method.Inputs.Unpack(input[4:])
 	if err != nil {
@@ -130,7 +126,7 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	}
 	s := newStore(ctx.State)
 
-	switch method.RawName {
+	switch method.Name {
 	case ProposalMethod:
 		return p.proposalQuery(s, method, args)
 	case ProposalsMethod:
@@ -153,7 +149,7 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 		return nil, errStaticCall
 	}
 
-	switch method.RawName {
+	switch method.Name {
 	case VoteMethod:
 		return p.vote(ctx, s, method, args)
 	case VoteWeightedMethod:
