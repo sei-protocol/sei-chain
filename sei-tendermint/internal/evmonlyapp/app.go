@@ -939,21 +939,8 @@ func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Has
 	w.writeUint64(height)
 	w.write(blockHash[:])
 	w.writeUint64(result.GasUsed)
-	changesets, err := evmonly.EncodeMemoryStoreChangeSet(result.ChangeSet)
-	if err != nil {
+	if err := evmonly.WriteMemoryStoreHashInput(w.buf, result.ChangeSet); err != nil {
 		return common.Hash{}, err
-	}
-	for _, changeset := range changesets {
-		w.writeSizedString(changeset.Name)
-		for _, pair := range changeset.Changeset.Pairs {
-			w.writeSized(pair.Key)
-			if pair.Delete {
-				w.writeByte(1)
-			} else {
-				w.writeByte(0)
-			}
-			w.writeSized(pair.Value)
-		}
 	}
 	if err := w.flush(); err != nil {
 		return common.Hash{}, err
@@ -978,24 +965,9 @@ func (w *evmOnlyHashWriter) write(value []byte) {
 	_, _ = w.buf.Write(value)
 }
 
-func (w *evmOnlyHashWriter) writeByte(value byte) {
-	_ = w.buf.WriteByte(value)
-}
-
 func (w *evmOnlyHashWriter) writeUint64(value uint64) {
 	binary.BigEndian.PutUint64(w.scratch[:], value)
 	_, _ = w.buf.Write(w.scratch[:])
-}
-
-// writeSized writes value behind its length.
-func (w *evmOnlyHashWriter) writeSized(value []byte) {
-	w.writeUint64(uint64(len(value)))
-	_, _ = w.buf.Write(value)
-}
-
-func (w *evmOnlyHashWriter) writeSizedString(value string) {
-	w.writeUint64(uint64(len(value)))
-	_, _ = w.buf.WriteString(value)
 }
 
 func (w *evmOnlyHashWriter) flush() error {

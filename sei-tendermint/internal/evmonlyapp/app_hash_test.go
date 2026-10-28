@@ -57,6 +57,7 @@ func TestHashEVMOnlyResultGoldenVector(t *testing.T) {
 		{pairs: 0, want: "0x98c012bb0ffae50b5f9969e668577c9449f0aa53d728cfba607162470a07f7cb"},
 		{pairs: 1, want: "0x787e0c740324fd0811925ded7d865e976eb7c59c1043bf89bf4644e221e2f259"},
 		{pairs: 64, want: "0xc6cbf658ce324a5e210da5d7fd32d24239d3471a2716d4343d7096949c25b0ed"},
+		{pairs: 5000, want: "0xfc6c107ac76c09830dec38e73816971b015df93cf873de6d3528e2da8a707d50"},
 	} {
 		t.Run(fmt.Sprintf("pairs=%d", tc.pairs), func(t *testing.T) {
 			got, err := hashEVMOnlyResult(
