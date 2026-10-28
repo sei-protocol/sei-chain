@@ -88,6 +88,7 @@ func makeSeedNode(
 		genDoc,
 		dbProvider,
 		utils.None[*bootstrap.GigaStorageManager](),
+		false,
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {

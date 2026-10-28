@@ -116,6 +116,8 @@ type mempoolInner struct {
 	nextBlock  *blockSpec
 	evmNonces  map[common.Address]uint64
 	evmTxs     map[common.Hash]tmtypes.Tx
+	// throttled holds the mempool full while local execution lags too far behind.
+	throttled bool
 	// waiters is the FIFO admission queue of blocked InsertTx calls. Whoever frees capacity
 	// appends queued txs in order until the mempool is full again.
 	waiters []*insertTicket
@@ -177,7 +179,41 @@ func (s *State) drainWaiters(mp *mempool, m *mempoolInner, ctrl *utils.WatchCtrl
 }
 
 func (m *mempoolInner) IsFull() bool {
-	return uint64(m.next-m.first) >= m.capacity && len(m.nextBlock.txs) > 0
+	return m.throttled || (uint64(m.next-m.first) >= m.capacity && len(m.nextBlock.txs) > 0)
+}
+
+// throttleOnExecutionLag holds the mempool full while this node's execution lags more than
+// MaxExecutionLag committed blocks, and releases it once the lag is back to half that.
+func (s *State) throttleOnExecutionLag(ctx context.Context, mp *mempool) error {
+	if MaxExecutionLag == 0 {
+		return nil
+	}
+	data := s.consensus.Data()
+	throttled := false
+	for {
+		if _, err := data.WaitForExecutionLag(ctx, func(lag uint64) bool {
+			if throttled {
+				return lag <= MaxExecutionLag/2
+			}
+			return lag > MaxExecutionLag
+		}); err != nil {
+			return err
+		}
+		throttled = !throttled
+		s.setThrottled(mp, throttled)
+	}
+}
+
+// setThrottled holds the mempool full or releases it, admitting queued inserts on release.
+func (s *State) setThrottled(mp *mempool, throttled bool) {
+	for m, ctrl := range mp.inner.Lock() {
+		m.throttled = throttled
+		if !throttled {
+			s.drainWaiters(mp, m, ctrl)
+		}
+		ctrl.Updated()
+	}
+	metrics.SetExecutionThrottled(throttled)
 }
 
 func (m *mempoolInner) CanSealBlock(allowEmpty bool) bool {

@@ -967,6 +967,35 @@ func TestInsertTx_CancelledWaiterLeavesQueue(t *testing.T) {
 	}))
 }
 
+// A throttled mempool refuses TryInsertTx and holds InsertTx calls until it is released.
+func TestInsertTx_ThrottledUntilReleased(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+	mp := env.state.mempool.Load().OrPanic("aligned")
+	env.state.setThrottled(mp, true)
+	_, err := env.state.TryInsertTx(ctx, env.fullTx(rng, app).encode())
+	require.ErrorIs(t, err, errMempoolFull)
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		txs, err := env.enqueueInserters(ctx, s, rng, app, mp, 2, nil)
+		if err != nil {
+			return err
+		}
+		env.state.setThrottled(mp, false)
+		if _, err := waitPending(ctx, mp, 0); err != nil {
+			return err
+		}
+		// Each tx fills a block, so only the last one admitted is still unsealed.
+		if want := [][]byte{txs[1].encode()}; !slices.EqualFunc(env.state.UnconfirmedTxs(), want, slices.Equal) {
+			return fmt.Errorf("queued txs admitted out of order")
+		}
+		return nil
+	}))
+}
+
 // Closing the mempool fails every queued InsertTx call with ErrNotProducing.
 func TestInsertTx_WaitersReleasedOnClose(t *testing.T) {
 	ctx := t.Context()

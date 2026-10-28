@@ -331,6 +331,7 @@ func TestScheduleHashIsReleasedWhenTheEngineStops(t *testing.T) {
 	// reads AwaitHash. Its own context, so the test can stop it; newTestEngine ties one to t.Context().
 	cfg := DefaultConfig()
 	cfg.ScheduleQueueSize = 1
+	cfg.GatherParallelism = 1
 	cfg.CombineQueueSize = 1
 	cfg.HashChanSize = 1
 	ctx, cancel := context.WithCancel(t.Context())

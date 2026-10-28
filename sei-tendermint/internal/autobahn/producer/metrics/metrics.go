@@ -25,6 +25,8 @@ type metrics struct {
 	inFlight prometheus.GaugeIntVec `metrics_labels:"phase"`
 	// Number of finished inserts by outcome.
 	inserts prometheus.CounterIntVec `metrics_labels:"result"`
+	// 1 while the mempool refuses inserts because local execution lags too far behind, else 0.
+	executionThrottled prometheus.GaugeIntVec
 }
 
 // Phase is an insert phase tracked by the in-flight gauge.
@@ -72,6 +74,15 @@ func ObserveNonceLookup(d time.Duration) { Global.nonceLookupLatencyAt().Observe
 // ObserveCapacityWait records the total time one insert waited for capacity.
 func ObserveCapacityWait(d time.Duration) {
 	Global.capacityWaitLatencyAt().Observe(d.Seconds())
+}
+
+// SetExecutionThrottled records whether the mempool is refusing inserts because execution lags.
+func SetExecutionThrottled(throttled bool) {
+	var v int64
+	if throttled {
+		v = 1
+	}
+	Global.executionThrottledAt().Set(v)
 }
 
 // ObserveAdmit records the time one insert spent in the locked admission section.

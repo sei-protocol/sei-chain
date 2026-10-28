@@ -46,6 +46,10 @@ func (c *Config) maxConcurrentCheckTx() int {
 	return max(1, runtime.GOMAXPROCS(0)/2)
 }
 
+// MaxExecutionLag is how many committed superblocks this node may leave unexecuted before its
+// mempool refuses new transactions; 0 disables the limit.
+var MaxExecutionLag uint64
+
 // DefaultMaxPendingInserts is the Config.MaxPendingInserts used when the field is 0.
 const DefaultMaxPendingInserts uint64 = 4096
 
@@ -91,7 +95,7 @@ func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State 
 // alignMempool installs a fresh session mempool for lane.
 func (s *State) alignMempool(lane types.LaneID) (*mempool, types.BlockNumber) {
 	n := s.consensus.Avail().NextBlock(lane)
-	m := newMempoolInner(avail.BlocksPerLane, lane, n)
+	m := newMempoolInner(avail.LaneCapacity, lane, n)
 	mp := &mempool{inner: utils.NewWatch(m), pendingInserts: utils.NewAtomicSend[uint64](0), closed: &m.closedFlag}
 	s.mempool.Store(utils.Some(mp))
 	return mp, n
@@ -147,6 +151,7 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 			}
 			return nil
 		})
+		scope.Spawn(func() error { return s.throttleOnExecutionLag(ctx, mp) })
 		scope.Spawn(func() error {
 			// Task pruning executed lane blocks from the mempool
 			dataState := s.consensus.Data()

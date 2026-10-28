@@ -432,6 +432,45 @@ func TestExecution(t *testing.T) {
 	}
 }
 
+func TestWaitForExecutionLagTracksCommittedButUnexecutedSuperBlocks(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+		s.SpawnBgNamed("state.Run()", func() error {
+			return utils.IgnoreCancel(state.Run(ctx))
+		})
+		qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
+		if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
+			return fmt.Errorf("state.PushPartialBlock(): %w", err)
+		}
+		const committed = 1
+		lag, err := state.WaitForExecutionLag(ctx, func(lag uint64) bool { return lag == committed })
+		if err != nil {
+			return fmt.Errorf("WaitForExecutionLag(committed): %w", err)
+		}
+		if lag != committed {
+			return fmt.Errorf("lag = %d, want %d", lag, committed)
+		}
+		caughtUp := make(chan uint64, 1)
+		s.Spawn(func() error {
+			lag, err := state.WaitForExecutionLag(ctx, func(lag uint64) bool { return lag == 0 })
+			caughtUp <- lag
+			return err
+		})
+		if err := state.PushAppHash(ctx, qc.Index(), types.GenAppHash(rng), nil); err != nil {
+			return fmt.Errorf("state.PushAppHash(): %w", err)
+		}
+		if lag, err := utils.Recv(ctx, caughtUp); err != nil || lag != 0 {
+			return fmt.Errorf("lag after execution = %d, %v; want 0", lag, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPushAppHashRejectsJumpOverCommitQCRange(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()

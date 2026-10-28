@@ -53,6 +53,12 @@ type StorageConfig struct {
 	CheckpointTimeInterval time.Duration `mapstructure:"checkpoint_time_interval"`
 	// CheckpointBlockInterval places checkpoints on multiples of itself; 0 disables the rule.
 	CheckpointBlockInterval int64 `mapstructure:"checkpoint_block_interval"`
+	// HashVaultFsyncDisabledUnsafe writes the app-hash vault without fsync. A crash can then lose the
+	// latest recorded hash, so it is for load tests only.
+	HashVaultFsyncDisabledUnsafe bool `mapstructure:"hash_vault_fsync_disabled_unsafe"`
+	// BlockStoreFsyncDisabledUnsafe writes Autobahn's block store without fsync. A crash can then lose
+	// recently stored blocks, so it is for load tests only.
+	BlockStoreFsyncDisabledUnsafe bool `mapstructure:"block_store_fsync_disabled_unsafe"`
 }
 
 // ExecutionConfig is the [giga.execution] sub-table: how the EVM-only executor runs blocks.
@@ -74,6 +80,13 @@ type ExecutionConfig struct {
 	// GCPercent is the Go GC target. 0 leaves the process default. A value above 100 trades memory
 	// for fewer collections; the process then caps the heap from the container limit when it has one.
 	GCPercent int `mapstructure:"gc_percent"`
+	// LaneCapacity is the number of unpruned blocks a lane may hold. 0 keeps the built-in capacity.
+	LaneCapacity int `mapstructure:"lane_capacity"`
+	// MaxExecutionLag is how many committed superblocks may stay unexecuted before inserts are refused. 0 disables it.
+	MaxExecutionLag uint64 `mapstructure:"max_execution_lag"`
+	// FlatKVViewShards, when non-zero, replaces the view shard count of the FlatKV account database. It
+	// must be a power of two.
+	FlatKVViewShards uint64 `mapstructure:"flatkv_view_shards"`
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
@@ -161,6 +174,8 @@ const (
 	FlagStoragePruneInterval             = "giga.storage.prune_interval"
 	FlagStorageCheckpointTimeInterval    = "giga.storage.checkpoint_time_interval"
 	FlagStorageCheckpointBlockInterval   = "giga.storage.checkpoint_block_interval"
+	FlagStorageHashVaultFsyncDisabled    = "giga.storage.hash_vault_fsync_disabled_unsafe"
+	FlagStorageBlockStoreFsyncDisabled   = "giga.storage.block_store_fsync_disabled_unsafe"
 	FlagExecutionMinGasPrice             = "giga.execution.min_gas_price"
 	FlagExecutionOCCWorkers              = "giga.execution.occ_workers"
 	FlagExecutionParseWorkers            = "giga.execution.parse_workers"
@@ -168,6 +183,9 @@ const (
 	FlagExecutionEvmRpcPort              = "giga.execution.evm_rpc_port"
 	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
 	FlagExecutionGCPercent               = "giga.execution.gc_percent"
+	FlagExecutionLaneCapacity            = "giga.execution.lane_capacity"
+	FlagExecutionMaxExecutionLag         = "giga.execution.max_execution_lag"
+	FlagExecutionFlatKVViewShards        = "giga.execution.flatkv_view_shards"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
 	FlagRPCMaxRequestBodyBytes           = "giga.rpc.max_request_body_bytes"
@@ -223,6 +241,16 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagStorageCheckpointBlockInterval, err)
 		}
 	}
+	if v := opts.Get(FlagStorageHashVaultFsyncDisabled); v != nil {
+		if cfg.Storage.HashVaultFsyncDisabledUnsafe, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStorageHashVaultFsyncDisabled, err)
+		}
+	}
+	if v := opts.Get(FlagStorageBlockStoreFsyncDisabled); v != nil {
+		if cfg.Storage.BlockStoreFsyncDisabledUnsafe, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStorageBlockStoreFsyncDisabled, err)
+		}
+	}
 	if v := opts.Get(FlagExecutionMinGasPrice); v != nil {
 		if cfg.Execution.MinGasPrice, err = cast.ToUint64E(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionMinGasPrice, err)
@@ -256,6 +284,21 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionGCPercent); v != nil {
 		if cfg.Execution.GCPercent, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionGCPercent, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionMaxExecutionLag); v != nil {
+		if cfg.Execution.MaxExecutionLag, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionMaxExecutionLag, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionLaneCapacity); v != nil {
+		if cfg.Execution.LaneCapacity, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionLaneCapacity, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionFlatKVViewShards); v != nil {
+		if cfg.Execution.FlatKVViewShards, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionFlatKVViewShards, err)
 		}
 	}
 	if v := opts.Get(FlagRPCMaxSubscriptionsNewHead); v != nil {
@@ -344,6 +387,9 @@ func (c Config) Validate() error {
 	if c.Execution.GCPercent < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionGCPercent, c.Execution.GCPercent)
 	}
+	if c.Execution.LaneCapacity < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionLaneCapacity, c.Execution.LaneCapacity)
+	}
 	if c.Execution.BlockResultPoolSize < 1 {
 		return fmt.Errorf("%s: must be >= 1, got %d", FlagExecutionBlockResultPoolSize,
 			c.Execution.BlockResultPoolSize)
@@ -419,6 +465,14 @@ checkpoint_time_interval = "{{ .Giga.Storage.CheckpointTimeInterval }}"
 # checkpoint_block_interval places checkpoints on multiples of itself; 0 disables the rule.
 checkpoint_block_interval = {{ .Giga.Storage.CheckpointBlockInterval }}
 
+# hash_vault_fsync_disabled_unsafe writes the app-hash vault without fsync. A crash can then lose the
+# latest recorded hash, so it is for load tests only.
+hash_vault_fsync_disabled_unsafe = {{ .Giga.Storage.HashVaultFsyncDisabledUnsafe }}
+
+# block_store_fsync_disabled_unsafe writes Autobahn's block store without fsync. A crash can then
+# lose recently stored blocks, so it is for load tests only.
+block_store_fsync_disabled_unsafe = {{ .Giga.Storage.BlockStoreFsyncDisabledUnsafe }}
+
 [giga.execution]
 # min_gas_price is the lowest effective gas price, in wei, this node admits a transaction at.
 # It only filters local admission; block validity uses the chain-wide floor, and values
@@ -442,6 +496,15 @@ evm_ws_port = {{ .Giga.Execution.EvmWsPort }}
 
 # gc_percent is the Go GC target. 0 leaves the process default.
 gc_percent = {{ .Giga.Execution.GCPercent }}
+
+# lane_capacity is the number of unpruned blocks a lane may hold. 0 keeps the built-in capacity.
+lane_capacity = {{ .Giga.Execution.LaneCapacity }}
+
+# max_execution_lag is how many committed superblocks may stay unexecuted before inserts are refused. 0 disables it.
+max_execution_lag = {{ .Giga.Execution.MaxExecutionLag }}
+
+# flatkv_view_shards, when non-zero, replaces the view shard count of the FlatKV account database.
+flatkv_view_shards = {{ .Giga.Execution.FlatKVViewShards }}
 
 [giga.rpc]
 # Limits the EVM-only JSON-RPC server enforces. 0 disables a limit.
