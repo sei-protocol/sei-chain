@@ -289,6 +289,8 @@ func (*replayBackend) EvmProxyEnabled() bool {
 	return false
 }
 
+func (*replayBackend) EvmMempoolThrottled() bool { return false }
+
 func (b *replayBackend) EvmTransactionCount(address common.Address) uint64 {
 	view := b.store.OpenView()
 	defer view.Close()

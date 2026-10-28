@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"runtime"
+	"sync/atomic"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -77,6 +78,8 @@ type State struct {
 	// tryInsertSem bounds TryInsertTx calls in flight, which are detached from
 	// the request that issued them and would otherwise pile up behind checkTxSem.
 	tryInsertSem *utils.Semaphore
+	// executionThrottled is set while throttleOnExecutionLag holds the mempool full.
+	executionThrottled atomic.Bool
 }
 
 // NewState constructs a new block producer state.

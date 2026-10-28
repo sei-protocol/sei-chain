@@ -213,8 +213,13 @@ func (s *State) setThrottled(mp *mempool, throttled bool) {
 		}
 		ctrl.Updated()
 	}
+	s.executionThrottled.Store(throttled)
 	metrics.SetExecutionThrottled(throttled)
 }
+
+// ExecutionThrottled reports whether the mempool refuses new transactions because local execution
+// lags too far behind.
+func (s *State) ExecutionThrottled() bool { return s.executionThrottled.Load() }
 
 func (m *mempoolInner) CanSealBlock(allowEmpty bool) bool {
 	return uint64(m.next-m.first) < m.capacity && (allowEmpty || len(m.nextBlock.txs) > 0)

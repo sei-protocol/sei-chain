@@ -16,6 +16,9 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+// errMempoolThrottled carries the producer's "mempool is full" refusal text, which clients retry on.
+var errMempoolThrottled = errors.New("mempool is full")
+
 type sendAPI struct {
 	backend Backend
 }
@@ -28,6 +31,11 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 		return common.Hash{}, err
 	}
 	hash := tx.Hash()
+	// Refused before sender recovery, which a lagging node cannot afford to spend on transactions it
+	// would refuse anyway.
+	if api.backend.EvmMempoolThrottled() {
+		return hash, errMempoolThrottled
+	}
 
 	if client, ok := api.shardProxy(tx).Get(); ok {
 		if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {

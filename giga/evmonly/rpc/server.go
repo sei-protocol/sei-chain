@@ -63,6 +63,9 @@ type Backend interface {
 	EvmMinGasPrice() (*big.Int, error)
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 	EvmProxyEnabled() bool
+	// EvmMempoolThrottled reports whether the local mempool refuses new transactions because
+	// local execution lags too far behind.
+	EvmMempoolThrottled() bool
 	// RememberEvmSender records the sender recovered for the transaction with this hash, for the
 	// application to use instead of recovering it again.
 	RememberEvmSender(hash common.Hash, sender common.Address)

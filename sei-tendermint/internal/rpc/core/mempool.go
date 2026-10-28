@@ -36,6 +36,17 @@ func (env *Environment) EvmProxyEnabled() bool {
 	return false
 }
 
+// EvmMempoolThrottled reports whether the local mempool refuses new transactions because local
+// execution lags too far behind.
+func (env *Environment) EvmMempoolThrottled() bool {
+	if giga, ok := env.gigaRouter().Get(); ok {
+		if mp, ok := giga.Mempool().Get(); ok {
+			return mp.ExecutionThrottled()
+		}
+	}
+	return false
+}
+
 // RememberEvmSender records the sender recovered for the transaction with this hash in the
 // application, which then skips recovering it again.
 func (env *Environment) RememberEvmSender(hash common.Hash, sender common.Address) {
