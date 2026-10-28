@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -23,7 +24,8 @@ var (
 )
 
 const (
-	startTime     = uint64(1_700_000_000)
+	second        = uint64(time.Second)
+	startTime     = 1_700_000_000 * second
 	textProposal  = `{"title":"t","description":"d","type":"Text"}`
 	expedProposal = `{"title":"t","description":"d","type":"Text","is_expedited":true}`
 )
@@ -33,10 +35,10 @@ func usei(n int64) *big.Int {
 }
 
 var testParams = Params{
-	VotingPeriod:          100,
-	ExpeditedVotingPeriod: 20,
+	VotingPeriod:          100 * second,
+	ExpeditedVotingPeriod: 20 * second,
 	MinDeposit:            usei(10),
-	MaxDepositPeriod:      50,
+	MaxDepositPeriod:      50 * second,
 	MinExpeditedDeposit:   usei(40),
 	Quorum:                334_000_000_000_000_000,
 	Threshold:             500_000_000_000_000_000,
@@ -51,6 +53,8 @@ type harness struct {
 	state  *memState
 	time   uint64
 	number uint64
+	// failures are the last EndBlock's failures.
+	failures []error
 }
 
 func newHarness(t *testing.T) *harness {
@@ -91,14 +95,17 @@ func (h *harness) call(caller common.Address, opts callOpts, method string, args
 }
 
 func (h *harness) block() precompiles.BlockContext {
-	return precompiles.BlockContext{Number: h.number, Time: h.time}
+	return precompiles.BlockContext{Number: h.number, UnixNano: h.time}
 }
 
-// endBlock ends the block, then starts the next one dt seconds later.
+// endBlock ends the block, keeping its failures, then starts the next one dt
+// seconds later.
 func (h *harness) endBlock(dt uint64) {
-	require.NoError(h.t, h.gov.EndBlock(h.block(), h.state))
+	failures, err := h.gov.EndBlock(h.block(), h.state)
+	require.NoError(h.t, err)
+	h.failures = failures
 	h.number++
-	h.time += dt
+	h.time += dt * second
 }
 
 func (h *harness) mustCall(caller common.Address, opts callOpts, method string, args ...interface{}) []interface{} {
@@ -131,10 +138,10 @@ func TestSubmitBelowMinimumWaitsForDeposits(t *testing.T) {
 		Id:               1,
 		Status:           StatusDepositPeriod,
 		FinalTallyResult: TallyResultData{Yes: "0", Abstain: "0", No: "0", NoWithVeto: "0"},
-		SubmitTime:       int64(startTime),
-		DepositEndTime:   int64(startTime + testParams.MaxDepositPeriod),
+		SubmitTime:       unixSeconds(startTime),
+		DepositEndTime:   unixSeconds(startTime + testParams.MaxDepositPeriod),
 		TotalDeposit:     []Coin{{Amount: big.NewInt(4), Denom: "usei"}},
-		Content:          []byte(textProposal),
+		Content:          []byte(`{"@type":"/cosmos.gov.v1beta1.TextProposal","title":"t","description":"d","is_expedited":false}`),
 	}, got)
 
 	require.Equal(t, usei(4), h.state.GetBalance(DepositEscrow))
@@ -156,13 +163,13 @@ func TestSubmitWithoutDeposit(t *testing.T) {
 func TestDepositReachingMinimumOpensVoting(t *testing.T) {
 	h := newHarness(t)
 	id := h.submit(alice, textProposal, usei(4))
-	h.time += 5
+	h.time += 5 * second
 	h.mustCall(bob, callOpts{value: usei(6)}, DepositMethod, id)
 
 	got := h.proposal(id)
 	require.Equal(t, StatusVotingPeriod, got.Status)
-	require.Equal(t, int64(h.time), got.VotingStartTime)
-	require.Equal(t, int64(h.time+testParams.VotingPeriod), got.VotingEndTime)
+	require.Equal(t, unixSeconds(h.time), got.VotingStartTime)
+	require.Equal(t, unixSeconds(h.time+testParams.VotingPeriod), got.VotingEndTime)
 	require.Equal(t, []Coin{{Amount: big.NewInt(10), Denom: "usei"}}, got.TotalDeposit)
 
 	s := newStore(h.state)
@@ -195,13 +202,13 @@ func TestExpeditedProposalUsesExpeditedParams(t *testing.T) {
 	got := h.proposal(id)
 	require.True(t, got.IsExpedited)
 	require.Equal(t, StatusVotingPeriod, got.Status)
-	require.Equal(t, int64(h.time+testParams.ExpeditedVotingPeriod), got.VotingEndTime)
+	require.Equal(t, unixSeconds(h.time+testParams.ExpeditedVotingPeriod), got.VotingEndTime)
 }
 
 func TestDepositOutsideItsPeriodIsRejected(t *testing.T) {
 	h := newHarness(t)
 	id := h.submit(alice, textProposal, nil)
-	h.time += testParams.MaxDepositPeriod + 1
+	h.time += testParams.MaxDepositPeriod + second
 	_, err := h.call(bob, callOpts{value: usei(10)}, DepositMethod, id)
 	require.ErrorIs(t, err, errInactiveProposal)
 
@@ -261,7 +268,7 @@ func TestVoteRejections(t *testing.T) {
 		{"zero weight", VoteWeightedMethod, []interface{}{open, []WeightedVoteOptionData{{OptionYes, "1"}, {OptionNo, "0"}}}, 0, errInvalidVote},
 		{"no options", VoteWeightedMethod, []interface{}{open, []WeightedVoteOptionData{}}, 0, errInvalidVote},
 		{"too many options", VoteWeightedMethod, []interface{}{open, []WeightedVoteOptionData{{1, "0.2"}, {2, "0.2"}, {3, "0.2"}, {4, "0.2"}, {1, "0.2"}}}, 0, errInvalidVote},
-		{"voting ended", VoteMethod, []interface{}{open, OptionYes}, testParams.VotingPeriod + 1, errInactiveProposal},
+		{"voting ended", VoteMethod, []interface{}{open, OptionYes}, testParams.VotingPeriod + second, errInactiveProposal},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

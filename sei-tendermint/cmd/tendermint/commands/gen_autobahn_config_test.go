@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
@@ -65,9 +66,9 @@ func TestGenAutobahnConfigWithEVMGovernance(t *testing.T) {
 
 	governance, ok := cfg.EVMGovernance.Get()
 	require.True(t, ok)
-	require.Equal(t, uint64(40), governance.Params.VotingPeriod)
-	require.Equal(t, uint64(40), governance.Params.MaxDepositPeriod)
-	require.Equal(t, uint64(20), governance.Params.ExpeditedVotingPeriod)
+	require.Equal(t, uint64(40*time.Second), governance.Params.VotingPeriod)
+	require.Equal(t, uint64(40*time.Second), governance.Params.MaxDepositPeriod)
+	require.Equal(t, uint64(20*time.Second), governance.Params.ExpeditedVotingPeriod)
 	require.Equal(t, uint64(500), governance.StartingProposalID)
 	for i, v := range cfg.Validators {
 		voter, ok := v.EVMVoter.Get()

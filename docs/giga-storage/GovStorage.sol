@@ -24,7 +24,8 @@ contract GovStorage {
     struct Proposal {
         int32 status;
         bool isExpedited;
-        uint64 submitTime;
+        uint8 contentType; // 0: TextContent, 1: SoftwareUpgradeContent, 2: CancelSoftwareUpgradeContent
+        uint64 submitTime; // Unix nanoseconds, as are the other times
         uint64 depositEndTime;
         uint64 votingStartTime;
         uint64 votingEndTime;
@@ -33,8 +34,33 @@ contract GovStorage {
         uint256 tallyAbstain;
         uint256 tallyNo;
         uint256 tallyNoWithVeto;
-        string content; // proposal JSON
+        bytes content; // abi.encode of the contentType struct
         uint256[4] __gap;
+    }
+
+    /// @dev The content structs. Each holds the fields of the V2 Content its
+    /// proposal type creates.
+    struct TextContent {
+        string title;
+        string description;
+        bool isExpedited;
+    }
+
+    struct UpgradePlan {
+        string name;
+        int64 height;
+        string info;
+    }
+
+    struct SoftwareUpgradeContent {
+        string title;
+        string description;
+        UpgradePlan plan;
+    }
+
+    struct CancelSoftwareUpgradeContent {
+        string title;
+        string description;
     }
 
     /// @dev A min-heap of `endTime << 64 | proposalId` keys, so its root is the
@@ -64,7 +90,7 @@ contract GovStorage {
     }
 
     struct Params {
-        uint64 votingPeriod;
+        uint64 votingPeriod; // nanoseconds, as are the other periods
         uint64 expeditedVotingPeriod;
         uint256 minDeposit;
         uint64 maxDepositPeriod;

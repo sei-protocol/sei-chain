@@ -1,6 +1,7 @@
 package gov
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
@@ -19,22 +20,24 @@ const endBlockBudget = 1_000
 
 // EndBlock drops proposals whose deposit period ended short of the minimum
 // deposit, then tallies and settles those whose voting period is over, each in
-// order of end time, then id, as x/gov's EndBlocker does.
+// order of end time, then id, as x/gov's EndBlocker does. Its failures are
+// passed proposals that failed to execute.
 //
 // TODO(giga upgrade): apply the plan at its height and record appliedPlanHeight.
-func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.State) error {
+func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.State) ([]error, error) {
 	s := newStore(state)
-	if err := dropDueProposals(s, block.Time); err != nil {
-		return err
+	if err := dropDueProposals(s, block.UnixNano); err != nil {
+		return nil, err
 	}
 	budget := uint64(endBlockBudget)
-	for id, end, ok := s.votingQueue().due(block.Time); ok; id, end, ok = s.votingQueue().due(block.Time) {
-		settled, err := p.endVoting(block, state, s, id, end, &budget)
+	var failures []error
+	for id, end, ok := s.votingQueue().due(block.UnixNano); ok; id, end, ok = s.votingQueue().due(block.UnixNano) {
+		settled, err := p.endVoting(block, state, s, id, end, &budget, &failures)
 		if err != nil || !settled {
-			return err
+			return failures, err
 		}
 	}
-	return nil
+	return failures, nil
 }
 
 // dropDueProposals drops proposals whose deposit period ended by now, within a
@@ -81,7 +84,8 @@ func dropProposal(s store, id, end uint64) error {
 // and removes it from the voting queue, where it is keyed by end, reporting
 // whether it settled within budget. A failed expedited proposal becomes a
 // regular one with a fresh round of voting for the rest of the regular period.
-func (p Precompile) endVoting(block precompiles.BlockContext, state precompiles.State, s store, id, end uint64, budget *uint64) (bool, error) {
+// A passed proposal that fails to execute adds its error to failures.
+func (p Precompile) endVoting(block precompiles.BlockContext, state precompiles.State, s store, id, end uint64, budget *uint64, failures *[]error) (bool, error) {
 	prop, ok := s.proposal(id)
 	if !ok {
 		s.votingQueue().remove(id, end)
@@ -106,12 +110,13 @@ func (p Precompile) endVoting(block precompiles.BlockContext, state precompiles.
 	switch {
 	case outcome.passes:
 		prop.status = StatusPassed
-		if executeProposal(block, s, id) != nil {
+		if err := executeProposal(block, s, id); err != nil {
 			prop.status = StatusFailed
+			*failures = append(*failures, fmt.Errorf("proposal %d failed to execute: %w", id, err))
 		}
 	case prop.isExpedited:
 		prop.isExpedited = false
-		prop.votingEndTime = block.Time + params.VotingPeriod - min(params.ExpeditedVotingPeriod, params.VotingPeriod)
+		prop.votingEndTime = block.UnixNano + params.VotingPeriod - min(params.ExpeditedVotingPeriod, params.VotingPeriod)
 		s.votingQueue().add(id, prop.votingEndTime)
 	default:
 		prop.status = StatusRejected

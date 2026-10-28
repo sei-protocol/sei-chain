@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -122,7 +123,7 @@ func materializeAccount(db vm.StateDB, addr common.Address) {
 func precompileBlockContext(evm *vm.EVM) precompiles.BlockContext {
 	block := precompiles.BlockContext{
 		Number:      evm.Context.BlockNumber.Uint64(),
-		Time:        evm.Context.Time,
+		UnixNano:    unixNano(evm.Context.Time),
 		ChainID:     cloneOptionalBig(evm.ChainConfig().ChainID),
 		BaseFee:     cloneOptionalBig(evm.Context.BaseFee),
 		BlobBaseFee: cloneOptionalBig(evm.Context.BlobBaseFee),
@@ -132,6 +133,12 @@ func precompileBlockContext(evm *vm.EVM) precompiles.BlockContext {
 		block.PrevRandao = *evm.Context.Random
 	}
 	return block
+}
+
+// unixNano converts a block time in Unix seconds to Unix nanoseconds.
+// TODO(CON-572): pass the block's own nanoseconds once vm.BlockContext has them.
+func unixNano(seconds uint64) uint64 {
+	return seconds * uint64(time.Second)
 }
 
 // precompileState exposes the calling EVM's StateDB to a custom precompile, so

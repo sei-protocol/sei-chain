@@ -75,9 +75,10 @@ var (
 var (
 	proposalStatus          = member{0, 0}
 	proposalIsExpedited     = member{0, 4}
-	proposalSubmitTime      = member{0, 5}
-	proposalDepositEndTime  = member{0, 13}
-	proposalVotingStartTime = member{0, 21}
+	proposalContentType     = member{0, 5}
+	proposalSubmitTime      = member{0, 6}
+	proposalDepositEndTime  = member{0, 14}
+	proposalVotingStartTime = member{0, 22}
 	proposalVotingEndTime   = member{1, 0}
 	proposalTotalDeposit    = member{2, 0}
 	proposalTallyYes        = member{3, 0}

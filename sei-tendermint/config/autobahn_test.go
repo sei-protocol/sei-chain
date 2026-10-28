@@ -141,7 +141,7 @@ func TestAutobahnFileConfig_EVMGovernanceJSON(t *testing.T) {
 	encoded, err := json.Marshal(want)
 	require.NoError(t, err)
 	require.Contains(t, string(encoded), `"starting_proposal_id":7`)
-	require.Contains(t, string(encoded), `"voting_period":172800`)
+	require.Contains(t, string(encoded), `"voting_period":172800000000000`)
 	var got AutobahnFileConfig
 	require.NoError(t, json.Unmarshal(encoded, &got))
 	require.NoError(t, got.Validate())

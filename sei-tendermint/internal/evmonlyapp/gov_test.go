@@ -3,6 +3,7 @@ package evmonlyapp
 import (
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -83,8 +84,8 @@ func signedGovTx(t *testing.T, nonce uint64, value *big.Int, method string, args
 
 func TestEVMOnlyApplicationStartsGovAtTheFirstBlock(t *testing.T) {
 	params := gov.DefaultParams()
-	params.VotingPeriod = 40
-	params.ExpeditedVotingPeriod = 20
+	params.VotingPeriod = uint64(40 * time.Second)
+	params.ExpeditedVotingPeriod = uint64(20 * time.Second)
 	app := newGovEVMOnlyTestApp(t, params, 500)
 
 	_, err := govCall(t, app, gov.ParamsMethod)

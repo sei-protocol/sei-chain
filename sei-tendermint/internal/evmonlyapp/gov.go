@@ -38,12 +38,12 @@ func (g govPrecompile) Run(ctx *precompiles.Context, input []byte) ([]byte, erro
 	return g.Precompile.Run(ctx, input)
 }
 
-func (g govPrecompile) EndBlock(block precompiles.BlockContext, state precompiles.State) error {
+func (g govPrecompile) EndBlock(block precompiles.BlockContext, state precompiles.State) ([]error, error) {
 	if !gov.HasParams(state) {
 		gov.SetParams(state, g.params)
 		if g.startingProposalID != 0 {
 			if err := gov.SetStartingProposalID(state, g.startingProposalID); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}

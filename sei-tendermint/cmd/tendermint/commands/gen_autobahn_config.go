@@ -189,7 +189,7 @@ func buildGenEVMGovernance(votingPeriod time.Duration, startingProposalID uint64
 		return utils.None[config.EVMGovernance](), fmt.Errorf("--evm-governance-voting-period %s must be a whole number of seconds, at least 2s", votingPeriod)
 	}
 	params := gov.DefaultParams()
-	params.VotingPeriod = uint64(votingPeriod / time.Second)
+	params.VotingPeriod = uint64(votingPeriod)
 	params.MaxDepositPeriod = params.VotingPeriod
 	params.ExpeditedVotingPeriod = params.VotingPeriod / 2
 	return utils.Some(config.EVMGovernance{Params: params, StartingProposalID: startingProposalID}), nil

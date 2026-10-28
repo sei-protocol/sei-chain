@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"slices"
+	"unicode/utf8"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/seilog"
@@ -14,6 +15,9 @@ import (
 )
 
 var endBlockLogger = seilog.NewLogger("giga", "evmonly", "endblock")
+
+// maxFailureLength is the most bytes of an end block failure's message logged.
+const maxFailureLength = 1024
 
 // endBlocker is a registered custom precompile that runs at the end of every block.
 type endBlocker struct {
@@ -61,7 +65,9 @@ func (e *Executor) runEndBlockers(block BlockContext, source StateReader, result
 	blockCtx := endBlockContext(block, e.chainConfig(block).ChainID)
 	for _, blocker := range e.endBlockers {
 		state := &precompileState{db: stateDB}
-		if err := blocker.contract.EndBlock(blockCtx, state); err != nil {
+		failures, err := blocker.contract.EndBlock(blockCtx, state)
+		logEndBlockFailures(block.Number, blocker.address, failures)
+		if err != nil {
 			return fmt.Errorf("end block %d for custom precompile %s: %w", block.Number, blocker.address, err)
 		}
 		if state.err != nil {
@@ -79,10 +85,29 @@ func (e *Executor) runEndBlockers(block BlockContext, source StateReader, result
 	return nil
 }
 
+// logEndBlockFailures logs each of an end blocker's failures, its message cut
+// to maxFailureLength bytes.
+func logEndBlockFailures(height uint64, address common.Address, failures []error) {
+	for _, failure := range failures {
+		endBlockLogger.Info("custom precompile end block failure", "height", height, "address", address, "error", truncateUTF8(failure.Error(), maxFailureLength))
+	}
+}
+
+// truncateUTF8 returns at most n bytes of s, cut on a UTF-8 boundary.
+func truncateUTF8(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
 func endBlockContext(block BlockContext, chainID *big.Int) precompiles.BlockContext {
 	return precompiles.BlockContext{
 		Number:      block.Number,
-		Time:        block.Time,
+		UnixNano:    unixNano(block.Time),
 		ChainID:     cloneOptionalBig(chainID),
 		BaseFee:     cloneOptionalBig(block.BaseFee),
 		BlobBaseFee: cloneOptionalBig(block.BlobBaseFee),

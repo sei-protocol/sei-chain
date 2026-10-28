@@ -5,7 +5,9 @@
 // *WithAuthorization methods.
 //
 // Unlike x/gov, it accepts at most 200 depositors per proposal and requires a
-// positive minimum deposit.
+// positive minimum deposit. Unlike V2's precompile, it rejects proposal JSON
+// with a field its type does not read, a field in other case, or a field given
+// twice.
 package gov
 
 import (
