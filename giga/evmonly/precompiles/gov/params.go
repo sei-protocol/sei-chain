@@ -1,7 +1,6 @@
 package gov
 
 import (
-	"fmt"
 	"math"
 	"math/big"
 	"time"
@@ -42,35 +41,23 @@ func DefaultParams() Params {
 
 // Validate checks p as the params precompile checks gov's params.
 func (p Params) Validate() error {
-	stored, err := p.stored()
-	if err != nil {
-		return err
-	}
-	return stored.Validate()
+	return p.stored().Validate()
 }
 
 // stored returns p in ParamsStorage's units.
-func (p Params) stored() (chainparams.Gov, error) {
-	for _, d := range []struct {
-		name string
-		v    *big.Int
-	}{{"min_deposit", p.MinDeposit}, {"min_expedited_deposit", p.MinExpeditedDeposit}} {
-		if d.v == nil || new(big.Int).Mod(d.v, weiPerUsei).Sign() != 0 {
-			return chainparams.Gov{}, fmt.Errorf("%s must be a whole number of usei, in wei", d.name)
-		}
-	}
+func (p Params) stored() chainparams.Gov {
 	return chainparams.Gov{
 		MaxDepositPeriod:      p.MaxDepositPeriod,
 		VotingPeriod:          p.VotingPeriod,
 		ExpeditedVotingPeriod: p.ExpeditedVotingPeriod,
-		MinDeposit:            new(big.Int).Quo(p.MinDeposit, weiPerUsei),
-		MinExpeditedDeposit:   new(big.Int).Quo(p.MinExpeditedDeposit, weiPerUsei),
+		MinDeposit:            p.MinDeposit,
+		MinExpeditedDeposit:   p.MinExpeditedDeposit,
 		Quorum:                new(big.Int).SetUint64(p.Quorum),
 		Threshold:             new(big.Int).SetUint64(p.Threshold),
 		VetoThreshold:         new(big.Int).SetUint64(p.VetoThreshold),
 		ExpeditedQuorum:       new(big.Int).SetUint64(p.ExpeditedQuorum),
 		ExpeditedThreshold:    new(big.Int).SetUint64(p.ExpeditedThreshold),
-	}, nil
+	}
 }
 
 // paramsFrom returns stored gov params in gov's units.
@@ -78,9 +65,9 @@ func paramsFrom(g chainparams.Gov) Params {
 	return Params{
 		VotingPeriod:          g.VotingPeriod,
 		ExpeditedVotingPeriod: g.ExpeditedVotingPeriod,
-		MinDeposit:            new(big.Int).Mul(g.MinDeposit, weiPerUsei),
+		MinDeposit:            g.MinDeposit,
 		MaxDepositPeriod:      g.MaxDepositPeriod,
-		MinExpeditedDeposit:   new(big.Int).Mul(g.MinExpeditedDeposit, weiPerUsei),
+		MinExpeditedDeposit:   g.MinExpeditedDeposit,
 		Quorum:                decUint64(g.Quorum),
 		Threshold:             decUint64(g.Threshold),
 		VetoThreshold:         decUint64(g.VetoThreshold),

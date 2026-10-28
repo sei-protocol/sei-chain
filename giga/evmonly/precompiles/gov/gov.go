@@ -162,11 +162,7 @@ func methodOf(input []byte) (*abi.Method, error) {
 
 // SetParams writes p as gov's params, for genesis.
 func SetParams(state precompiles.State, p Params) error {
-	stored, err := p.stored()
-	if err != nil {
-		return err
-	}
-	return chainparams.WriteGov(state, stored)
+	return chainparams.WriteGov(state, p.stored())
 }
 
 // HasParams reports whether gov's params have been written.

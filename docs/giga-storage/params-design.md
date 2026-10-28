@@ -23,7 +23,7 @@ subspace.
   |---|---|
   | Dec | `uint256`, fixed point with 18 decimal places |
   | Duration | `uint64` nanoseconds |
-  | Coins | `uint256` usei; only the usei denom exists |
+  | Coins | `uint256` wei, a whole number of usei; only the usei denom exists |
 
   Another V2 type gets a stored form when a param first needs one.
 
@@ -48,7 +48,7 @@ Gov's check is x/gov's validation plus:
 - the expedited voting period below the voting period;
 - expedited quorum, threshold and minimum deposit above the regular ones;
 - ratios at most 1;
-- a positive minimum deposit whose wei value fits in 256 bits.
+- positive minimum deposits of whole usei.
 
 A param's flat key is `<V2 key>` for a V2 scalar (`MaxValidators`) and
 `<V2 key>.<field>` for a field of a V2 struct-valued key

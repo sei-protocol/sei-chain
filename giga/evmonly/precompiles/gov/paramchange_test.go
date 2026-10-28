@@ -124,7 +124,7 @@ func TestParamsReadThroughTheParamsPrecompile(t *testing.T) {
 	require.NoError(t, SetParams(state, testParams))
 	stored := chainparams.ReadGov(state)
 	require.Equal(t, testParams.VotingPeriod, stored.VotingPeriod)
-	require.Equal(t, big.NewInt(10), stored.MinDeposit, "usei")
+	require.Equal(t, usei(10), stored.MinDeposit, "wei")
 
 	stored.VotingPeriod = 1_500_000_001
 	stored.ExpeditedVotingPeriod = 1_000_000_000

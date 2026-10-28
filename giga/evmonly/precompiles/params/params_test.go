@@ -17,8 +17,8 @@ var testGov = Gov{
 	MaxDepositPeriod:      172_800_000_000_000,
 	VotingPeriod:          172_800_000_000_000,
 	ExpeditedVotingPeriod: 86_400_000_000_000,
-	MinDeposit:            big.NewInt(10_000_000),
-	MinExpeditedDeposit:   big.NewInt(20_000_000),
+	MinDeposit:            new(big.Int).Mul(big.NewInt(10_000_000), weiPerUsei),
+	MinExpeditedDeposit:   new(big.Int).Mul(big.NewInt(20_000_000), weiPerUsei),
 	Quorum:                big.NewInt(334_000_000_000_000_000),
 	Threshold:             big.NewInt(500_000_000_000_000_000),
 	VetoThreshold:         big.NewInt(334_000_000_000_000_000),
@@ -82,12 +82,12 @@ func TestApplyWritesEachChange(t *testing.T) {
 	state := newGovState(t)
 	require.NoError(t, Apply(state, []Change{
 		{"gov", "votingparams.voting_period", word(200_000_000_000_000)},
-		{"gov", "depositparams.min_deposit", word(5)},
+		{"gov", "depositparams.min_deposit", word(5_000_000_000_000)},
 		{"gov", "votingparams.voting_period", word(300_000_000_000_000)},
 	}))
 	want := testGov
 	want.VotingPeriod = 300_000_000_000_000
-	want.MinDeposit = big.NewInt(5)
+	want.MinDeposit = big.NewInt(5_000_000_000_000)
 	require.Equal(t, want, ReadGov(state), "later changes win")
 }
 
@@ -100,7 +100,8 @@ func TestApplyRejectsAndWritesNothing(t *testing.T) {
 		"duration overflow":   {{"gov", "votingparams.voting_period", common.BigToHash(new(big.Int).Lsh(big.NewInt(1), 64)).Bytes()}},
 		"zero voting period":  {{"gov", "votingparams.voting_period", word(0)}},
 		"quorum above one":    {{"gov", "tallyparams.quorum", common.BigToHash(new(big.Int).Add(decOne, big.NewInt(1))).Bytes()}},
-		"expedited deposit":   {{"gov", "depositparams.min_expedited_deposit", word(10_000_000)}},
+		"expedited deposit":   {{"gov", "depositparams.min_expedited_deposit", common.BigToHash(testGov.MinDeposit).Bytes()}},
+		"partial usei":        {{"gov", "depositparams.min_deposit", word(5_000_000_000_001)}},
 		"expedited threshold": {{"gov", "tallyparams.expedited_threshold", word(500_000_000_000_000_000)}},
 		"huge deposit":        {{"gov", "depositparams.min_expedited_deposit", common.MaxHash.Bytes()}},
 		"valid then invalid": {

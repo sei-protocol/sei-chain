@@ -19,7 +19,7 @@ interface IParams {
      * @param subspace The param's subspace, e.g. "gov"; an unknown subspace reverts
      * @param key The param's flat key, e.g. "tallyparams.quorum"; an unknown key reverts
      * @return value abi.encode of the param's value, of the type paramKeys reports: durations
-     *         in nanoseconds, amounts in usei, and ratios scaled by 1e18
+     *         in nanoseconds, amounts in wei, and ratios scaled by 1e18
      */
     function param(string memory subspace, string memory key) external view returns (bytes memory value);
 

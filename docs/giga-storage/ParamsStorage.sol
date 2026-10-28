@@ -10,7 +10,7 @@ address constant PARAMS_PRECOMPILE_ADDRESS = 0x000000000000000000000000000000000
 /// @dev Values by V2 type:
 /// - Dec: uint256, fixed point with 18 decimal places (1e18 is 1).
 /// - Duration: uint64 nanoseconds.
-/// - Coins: uint256 usei; only the usei denom exists.
+/// - Coins: uint256 wei, a whole number of usei; only the usei denom exists.
 /// Other V2 types have no stored form until a param needs one.
 ///
 /// The layout only grows. A new param takes slots from its struct's `__gap`, a

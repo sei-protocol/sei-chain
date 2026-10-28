@@ -23,12 +23,8 @@ const (
 	keyExpeditedThreshold    = "tallyparams.expedited_threshold"
 )
 
-// maxDeposit is the largest minimum deposit, in usei, whose wei value fits in
-// 256 bits.
-var maxDeposit = new(big.Int).Quo(
-	new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1)),
-	big.NewInt(1_000_000_000_000),
-)
+// weiPerUsei is the wei in one usei, the smallest unit a deposit may hold.
+var weiPerUsei = big.NewInt(1_000_000_000_000)
 
 var govSubspace = subspace{
 	name: "gov",
@@ -48,7 +44,7 @@ var govSubspace = subspace{
 	check: func(v values) error { return govFrom(v).Validate() },
 }
 
-// Gov is ParamsStorage.Gov. Periods are nanoseconds, deposits are usei, and
+// Gov is ParamsStorage.Gov. Periods are nanoseconds, deposits are wei, and
 // ratios are 1e18-scaled decimals.
 type Gov struct {
 	MaxDepositPeriod      uint64
@@ -124,8 +120,7 @@ const (
 )
 
 // Validate checks g as x/gov checks its params, and also requires periods of
-// MinPeriod to MaxPeriod and a positive minimum deposit whose wei value fits in
-// 256 bits.
+// MinPeriod to MaxPeriod and positive minimum deposits of whole usei.
 func (g Gov) Validate() error {
 	for _, p := range []struct {
 		name string
@@ -139,8 +134,8 @@ func (g Gov) Validate() error {
 		return errors.New("expedited_voting_period must be below voting_period")
 	}
 	for _, d := range []named{{"min_deposit", g.MinDeposit}, {"min_expedited_deposit", g.MinExpeditedDeposit}} {
-		if d.v == nil || d.v.Sign() <= 0 || d.v.Cmp(maxDeposit) > 0 {
-			return fmt.Errorf("%s must be in 1..%s usei", d.name, maxDeposit)
+		if d.v == nil || d.v.Sign() <= 0 || new(big.Int).Mod(d.v, weiPerUsei).Sign() != 0 {
+			return fmt.Errorf("%s must be a positive whole number of usei, in wei", d.name)
 		}
 	}
 	if g.MinExpeditedDeposit.Cmp(g.MinDeposit) <= 0 {
