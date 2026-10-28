@@ -170,7 +170,13 @@ func TestExecutionCostIsOnePerParamChange(t *testing.T) {
 	text := h.submit(alice, textProposal, nil)
 
 	s := newStore(h.state)
-	require.Equal(t, uint64(2), executionCost(s, typed))
-	require.Equal(t, uint64(1), executionCost(s, legacy))
-	require.Equal(t, uint64(0), executionCost(s, text))
+	require.Equal(t, uint64(2), executionCost(mustDecode(t, s, typed)))
+	require.Equal(t, uint64(1), executionCost(mustDecode(t, s, legacy)))
+	require.Equal(t, uint64(0), executionCost(mustDecode(t, s, text)))
+}
+
+func mustDecode(t *testing.T, s store, id uint64) govContent {
+	c, err := decodeContent(s.proposalContent(id))
+	require.NoError(t, err)
+	return c
 }

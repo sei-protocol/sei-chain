@@ -33,9 +33,8 @@ type Contract interface {
 
 // EndBlocker is a Contract that also runs once at the end of every block, after
 // the block's transactions, under the same rules as Run. Its writes land in the
-// block's changeset, its storage access is not charged gas, and a returned err
-// fails the block. Failures are work it could not carry out without failing the
-// block, which the executor logs.
+// block's changeset and its storage access is not charged gas. A returned err
+// fails the block; returned failures do not, and the executor logs them.
 type EndBlocker interface {
 	EndBlock(BlockContext, State) (failures []error, err error)
 }
@@ -59,7 +58,7 @@ type Context struct {
 // BlockContext is the block data custom precompiles may read.
 type BlockContext struct {
 	Number      uint64
-	UnixNano    uint64 // block time in Unix nanoseconds
+	UnixNano    uint64 // block time in Unix nanoseconds, a whole second until CON-572
 	ChainID     *big.Int
 	BaseFee     *big.Int
 	BlobBaseFee *big.Int

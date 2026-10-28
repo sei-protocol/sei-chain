@@ -107,7 +107,7 @@ func governedAutobahnFileConfig() AutobahnFileConfig {
 	fc.Validators[0].EVMVoter = utils.Some(common.HexToAddress("0x01"))
 	second.EVMVoter = utils.Some(common.HexToAddress("0x02"))
 	fc.Validators = append(fc.Validators, second)
-	fc.EVMGovernance = utils.Some(EVMGovernance{Params: gov.DefaultParams(), StartingProposalID: 7})
+	fc.EVMGovernance = utils.Some(EVMGovernance{Params: NewEVMGovernanceParams(gov.DefaultParams()), StartingProposalID: 7})
 	return fc
 }
 
@@ -122,6 +122,11 @@ func TestAutobahnFileConfig_ValidateEVMGovernance(t *testing.T) {
 		"invalid params": func(fc *AutobahnFileConfig) {
 			g, _ := fc.EVMGovernance.Get()
 			g.Params.VotingPeriod = 0
+			fc.EVMGovernance = utils.Some(g)
+		},
+		"negative period": func(fc *AutobahnFileConfig) {
+			g, _ := fc.EVMGovernance.Get()
+			g.Params.MaxDepositPeriod = utils.Duration(-time.Hour)
 			fc.EVMGovernance = utils.Some(g)
 		},
 	} {
@@ -141,10 +146,25 @@ func TestAutobahnFileConfig_EVMGovernanceJSON(t *testing.T) {
 	encoded, err := json.Marshal(want)
 	require.NoError(t, err)
 	require.Contains(t, string(encoded), `"starting_proposal_id":7`)
-	require.Contains(t, string(encoded), `"voting_period":172800000000000`)
+	require.Contains(t, string(encoded), `"voting_period":"48h0m0s"`)
 	var got AutobahnFileConfig
 	require.NoError(t, json.Unmarshal(encoded, &got))
 	require.NoError(t, got.Validate())
 	require.Equal(t, want.EVMGovernance, got.EVMGovernance)
 	require.Equal(t, want.Validators[1].EVMVoter, got.Validators[1].EVMVoter)
+}
+
+func TestEVMGovernanceParams_PeriodsAreDurationStrings(t *testing.T) {
+	var p EVMGovernanceParams
+	require.NoError(t, json.Unmarshal([]byte(`{"voting_period":"1.5h","expedited_voting_period":"90s","max_deposit_period":"2h"}`), &p))
+	require.Equal(t, 90*time.Minute, p.VotingPeriod.Duration())
+	require.Equal(t, 90*time.Second, p.ExpeditedVotingPeriod.Duration())
+	require.Equal(t, 2*time.Hour, p.MaxDepositPeriod.Duration())
+
+	require.Error(t, json.Unmarshal([]byte(`{"voting_period":172800000000000}`), &p), "a bare number is not a duration")
+
+	want := gov.DefaultParams()
+	got, err := NewEVMGovernanceParams(want).Gov()
+	require.NoError(t, err)
+	require.Equal(t, want, got)
 }

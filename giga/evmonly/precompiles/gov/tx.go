@@ -148,10 +148,7 @@ func (p Precompile) submitProposal(ctx *precompiles.Context, s store, method *ab
 }
 
 // submitParamChangeProposal submits a ParameterChange proposal of typed changes.
-func (p Precompile) submitParamChangeProposal(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}, input []byte) ([]byte, error) {
-	if len(input) > maxContentLength {
-		return nil, fmt.Errorf("%w: %d bytes, max %d", errContentTooLong, len(input), maxContentLength)
-	}
+func (p Precompile) submitParamChangeProposal(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
 	content := paramChangeContent{Title: args[0].(string), Description: args[1].(string), IsExpedited: args[2].(bool)}
 	if err := checkText(content.Title, content.Description); err != nil {
 		return nil, err
@@ -168,9 +165,14 @@ func (p Precompile) submitParamChangeProposal(ctx *precompiles.Context, s store,
 	return method.Outputs.Pack(id)
 }
 
-// createProposal checks content against the current state, assigns the
-// proposal an id, opens its deposit period, and deposits the call's value on it.
+// createProposal checks content's encoded size and checks it against the
+// current state, assigns the proposal an id, opens its deposit period, and
+// deposits the call's value on it.
 func createProposal(ctx *precompiles.Context, s store, content govContent, isExpedited bool) (uint64, error) {
+	contentType, encoded := encodeContent(content)
+	if len(encoded) > maxContentLength {
+		return 0, fmt.Errorf("%w: %d bytes encoded, max %d", errContentTooLong, len(encoded), maxContentLength)
+	}
 	if err := content.validate(s); err != nil {
 		return 0, err
 	}
@@ -192,7 +194,6 @@ func createProposal(ctx *precompiles.Context, s store, content govContent, isExp
 		tallyNoWithVeto: new(big.Int),
 	}
 	s.setProposal(id, prop)
-	contentType, encoded := encodeContent(content)
 	s.setProposalContent(id, contentType, encoded)
 	s.depositQueue().add(id, prop.depositEndTime)
 

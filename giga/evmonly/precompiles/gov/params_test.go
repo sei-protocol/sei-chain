@@ -16,10 +16,15 @@ func TestDefaultParamsAreValid(t *testing.T) {
 
 func TestParamsValidateRejects(t *testing.T) {
 	for name, edit := range map[string]func(*Params){
-		"no voting period":           func(p *Params) { p.VotingPeriod = 0 },
-		"huge voting period":         func(p *Params) { p.VotingPeriod = chainparams.MaxPeriod + 1 },
-		"expedited not shorter":      func(p *Params) { p.ExpeditedVotingPeriod = p.VotingPeriod },
-		"no deposit period":          func(p *Params) { p.MaxDepositPeriod = 0 },
+		"no voting period":         func(p *Params) { p.VotingPeriod = 0 },
+		"huge voting period":       func(p *Params) { p.VotingPeriod = chainparams.MaxPeriod + 1 },
+		"expedited not shorter":    func(p *Params) { p.ExpeditedVotingPeriod = p.VotingPeriod },
+		"no deposit period":        func(p *Params) { p.MaxDepositPeriod = 0 },
+		"sub-second voting period": func(p *Params) { p.VotingPeriod = chainparams.MinPeriod - 1 },
+		"sub-second expedited":     func(p *Params) { p.ExpeditedVotingPeriod = chainparams.MinPeriod - 1 },
+		"seconds as nanoseconds": func(p *Params) {
+			p.VotingPeriod, p.ExpeditedVotingPeriod, p.MaxDepositPeriod = 172_800, 86_400, 172_800
+		},
 		"missing deposit":            func(p *Params) { p.MinDeposit = nil },
 		"zero deposit":               func(p *Params) { p.MinDeposit = new(big.Int) },
 		"zero expedited deposit":     func(p *Params) { p.MinExpeditedDeposit = new(big.Int) },

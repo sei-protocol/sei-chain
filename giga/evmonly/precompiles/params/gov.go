@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 )
@@ -116,20 +117,26 @@ type named struct {
 	v    *big.Int
 }
 
-// MaxPeriod is the longest gov period, in nanoseconds.
-const MaxPeriod = 1 << 62 // a block time in Unix nanoseconds plus any period fits in 64 bits
+// Bounds on every gov period, in nanoseconds.
+const (
+	MinPeriod = uint64(time.Second)
+	MaxPeriod = 1 << 62 // a block time in Unix nanoseconds plus any period fits in 64 bits
+)
 
-// Validate checks g as x/gov checks its params, and also requires periods of at
-// most MaxPeriod and a positive minimum deposit whose wei value fits in 256 bits.
+// Validate checks g as x/gov checks its params, and also requires periods of
+// MinPeriod to MaxPeriod and a positive minimum deposit whose wei value fits in
+// 256 bits.
 func (g Gov) Validate() error {
-	if g.VotingPeriod == 0 || g.VotingPeriod > MaxPeriod {
-		return fmt.Errorf("voting_period must be in 1..%d nanoseconds", uint64(MaxPeriod))
+	for _, p := range []struct {
+		name string
+		v    uint64
+	}{{"voting_period", g.VotingPeriod}, {"expedited_voting_period", g.ExpeditedVotingPeriod}, {"max_deposit_period", g.MaxDepositPeriod}} {
+		if p.v < MinPeriod || p.v > MaxPeriod {
+			return fmt.Errorf("%s must be in %d..%d nanoseconds", p.name, MinPeriod, uint64(MaxPeriod))
+		}
 	}
-	if g.ExpeditedVotingPeriod == 0 || g.ExpeditedVotingPeriod >= g.VotingPeriod {
-		return errors.New("expedited_voting_period must be positive and below voting_period")
-	}
-	if g.MaxDepositPeriod == 0 || g.MaxDepositPeriod > MaxPeriod {
-		return fmt.Errorf("max_deposit_period must be in 1..%d nanoseconds", uint64(MaxPeriod))
+	if g.ExpeditedVotingPeriod >= g.VotingPeriod {
+		return errors.New("expedited_voting_period must be below voting_period")
 	}
 	for _, d := range []named{{"min_deposit", g.MinDeposit}, {"min_expedited_deposit", g.MinExpeditedDeposit}} {
 		if d.v == nil || d.v.Sign() <= 0 || d.v.Cmp(maxDeposit) > 0 {

@@ -6,12 +6,13 @@ same result from the same block, so each rule below is a consensus rule.
 ## State access
 - Read and write chain state only through `ctx.State` and emit logs only through
   `ctx.Logs`; anything else is invisible to OCC conflict detection.
-- Read block data only from `ctx.Block` (number, time, chain ID, fees, coinbase,
-  prevrandao). Block time is Unix nanoseconds; keep times and periods in
-  nanoseconds and convert to seconds only for output V2 gives in seconds.
+- Read block data only from `ctx.Block` (`Number`, `UnixNano`, `ChainID`, fees,
+  `Coinbase`, `PrevRandao`). Keep times and periods in nanoseconds and convert
+  to seconds only for output V2 gives in seconds. `UnixNano` is a whole second
+  until CON-572 lands; depend on neither that nor sub-second resolution.
 - Read and write nothing off-chain: no files, network, environment, wall clock,
-  or randomness. Return work `EndBlock` could not carry out as a failure, which
-  the executor logs; a returned error fails the block.
+  or randomness. `EndBlock` returns work it could not carry out as a failure,
+  which the executor logs; a returned error fails the block.
 - Compiled-in constants are allowed, but changing one changes the app hash and
   needs an upgrade.
 

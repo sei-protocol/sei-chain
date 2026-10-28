@@ -57,6 +57,25 @@ contract GovStorageHarness is GovStorage {
         appliedPlanHeight["v6.9.0"] = 123_456;
     }
 
+    /// @dev The content struct encodings, with solc's own codegen.
+    function textContent(string calldata title, string calldata description, bool isExpedited)
+        external pure returns (bytes memory)
+    {
+        return abi.encode(TextContent(title, description, isExpedited));
+    }
+
+    function softwareUpgradeContent(
+        string calldata title, string calldata description, string calldata name, int64 height, string calldata info
+    ) external pure returns (bytes memory) {
+        return abi.encode(SoftwareUpgradeContent(title, description, UpgradePlan(name, height, info)));
+    }
+
+    function cancelSoftwareUpgradeContent(string calldata title, string calldata description)
+        external pure returns (bytes memory)
+    {
+        return abi.encode(CancelSoftwareUpgradeContent(title, description));
+    }
+
     /// @dev Appends key, which must not break the heap order.
     function push(ProposalQueue storage q, uint256 key) internal {
         q.keys.push(key);

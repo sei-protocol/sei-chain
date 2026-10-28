@@ -145,7 +145,7 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	case SubmitProposalMethod:
 		return p.submitProposal(ctx, s, method, args)
 	case SubmitParamChangeProposalMethod:
-		return p.submitParamChangeProposal(ctx, s, method, args, input)
+		return p.submitParamChangeProposal(ctx, s, method, args)
 	}
 	return nil, errUnknownMethod
 }

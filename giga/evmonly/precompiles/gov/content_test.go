@@ -30,6 +30,9 @@ func TestSubmitRejectsFieldsGovDoesNotRead(t *testing.T) {
 		"miscased changes":       `{"title":"t","description":"d","type":"ParameterChange","Changes":[{"subspace":"gov","key":"votingparams","value":{"voting_period":"1000000000"}}]}`,
 		"unknown change field":   `{"title":"t","description":"d","type":"ParameterChange","changes":[{"subspace":"gov","key":"votingparams","value":{"voting_period":"1000000000"},"note":"x"}]}`,
 		"duplicate change field": `{"title":"t","description":"d","type":"ParameterChange","changes":[{"subspace":"gov","key":"votingparams","key":"tallyparams","value":{"voting_period":"1000000000"}}]}`,
+		"null plan on text":      `{"title":"t","description":"d","type":"Text","plan":null}`,
+		"null plan on cancel":    `{"title":"t","description":"d","type":"CancelSoftwareUpgrade","plan":null}`,
+		"null changes on text":   `{"title":"t","description":"d","type":"Text","changes":null}`,
 		"V2 community pool type": `{"title":"t","description":"d","type":"Text","community_pool_spend":{"recipient":"0x1","amount":"1usei"}}`,
 	} {
 		_, err := h.call(alice, callOpts{}, SubmitProposalMethod, content)

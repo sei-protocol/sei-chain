@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -71,7 +72,7 @@ type govContent interface {
 	contentType() uint8
 	// validate checks the content against the current state at submission.
 	validate(s store) error
-	// execute carries out passed proposal id.
+	// execute carries out passed proposal id, writing nothing when it fails.
 	execute(block precompiles.BlockContext, s store, id uint64) error
 	// v2JSON is V2's proto JSON of the matching Content, as its proposal query
 	// returns it.
@@ -134,50 +135,50 @@ var contentCodecs = map[uint8]contentCodec{
 		}, abi.ArgumentMarshaling{Name: "isExpedited", Type: "bool"}),
 }
 
-// proposalTypes build the content of each proposal type gov accepts from its
-// submitted JSON, rejecting a field the type does not use.
-var proposalTypes = map[string]func(submittedProposal) (govContent, error){
-	TypeText: func(p submittedProposal) (govContent, error) {
-		if err := onlyFields(p, false, false); err != nil {
-			return nil, err
-		}
+// commonFields are the submitted JSON fields every proposal type takes.
+var commonFields = []string{"title", "description", "type", "is_expedited"}
+
+// proposalType is a proposal type gov accepts: the submitted JSON fields it
+// takes beyond commonFields, and how its content is built from them.
+type proposalType struct {
+	fields []string
+	build  func(submittedProposal) (govContent, error)
+}
+
+var proposalTypes = map[string]proposalType{
+	TypeText: {build: func(p submittedProposal) (govContent, error) {
 		return textContent{Title: p.Title, Description: p.Description, IsExpedited: p.IsExpedited}, nil
-	},
-	TypeSoftwareUpgrade: func(p submittedProposal) (govContent, error) {
-		if err := onlyFields(p, true, false); err != nil {
-			return nil, err
-		}
+	}},
+	TypeSoftwareUpgrade: {fields: []string{"plan"}, build: func(p submittedProposal) (govContent, error) {
 		if p.Plan == nil || p.Plan.Name == "" || p.Plan.Height <= 0 {
 			return nil, fmt.Errorf("%w: name and a positive height are required", errInvalidPlan)
 		}
 		plan := upgradePlan{Name: p.Plan.Name, Height: p.Plan.Height, Info: p.Plan.Info}
 		return softwareUpgradeContent{Title: p.Title, Description: p.Description, Plan: plan}, nil
-	},
-	TypeCancelSoftwareUpgrade: func(p submittedProposal) (govContent, error) {
-		if err := onlyFields(p, false, false); err != nil {
-			return nil, err
-		}
+	}},
+	TypeCancelSoftwareUpgrade: {build: func(p submittedProposal) (govContent, error) {
 		return cancelSoftwareUpgradeContent{Title: p.Title, Description: p.Description}, nil
-	},
-	TypeParameterChange: func(p submittedProposal) (govContent, error) {
-		if err := onlyFields(p, false, true); err != nil {
-			return nil, err
-		}
+	}},
+	TypeParameterChange: {fields: []string{"changes"}, build: func(p submittedProposal) (govContent, error) {
 		changes, err := chainparams.FromLegacy(p.Changes)
 		if err != nil {
 			return nil, err
 		}
 		return paramChangeContent{Title: p.Title, Description: p.Description, Changes: changes, IsExpedited: p.IsExpedited}, nil
-	},
+	}},
 }
 
-// onlyFields rejects a plan or changes on a proposal type that does not use it.
-func onlyFields(p submittedProposal, plan, changes bool) error {
-	if p.Plan != nil && !plan {
-		return fmt.Errorf("%w: plan", errUnknownField)
+// checkTypeFields rejects a field of the submitted JSON that type t does not
+// take, even when its value is null.
+func checkTypeFields(content string, t proposalType) error {
+	members, err := objectMembers(json.RawMessage(content))
+	if err != nil {
+		return err
 	}
-	if p.Changes != nil && !changes {
-		return fmt.Errorf("%w: changes", errUnknownField)
+	for _, m := range members {
+		if !slices.Contains(commonFields, m.name) && !slices.Contains(t.fields, m.name) {
+			return fmt.Errorf("%w: %q", errUnknownField, m.name)
+		}
 	}
 	return nil
 }
@@ -241,11 +242,14 @@ func parseProposal(content string) (govContent, submittedProposal, error) {
 	if err := checkText(p.Title, p.Description); err != nil {
 		return nil, p, err
 	}
-	build, ok := proposalTypes[p.Type]
+	t, ok := proposalTypes[p.Type]
 	if !ok {
 		return nil, p, fmt.Errorf("%w: %s", errUnsupportedType, p.Type)
 	}
-	c, err := build(p)
+	if err := checkTypeFields(content, t); err != nil {
+		return nil, p, err
+	}
+	c, err := t.build(p)
 	return c, p, err
 }
 
@@ -352,22 +356,9 @@ func fieldNamed(t reflect.Type, name string) (reflect.StructField, bool) {
 	return reflect.StructField{}, false
 }
 
-// executeProposal carries out passed proposal id.
-func executeProposal(block precompiles.BlockContext, s store, id uint64) error {
-	c, err := decodeContent(s.proposalContent(id))
-	if err != nil {
-		return err
-	}
-	return c.execute(block, s, id)
-}
-
-// executionCost is the EndBlock budget executing proposal id costs: one unit
-// per param change.
-func executionCost(s store, id uint64) uint64 {
-	c, err := decodeContent(s.proposalContent(id))
-	if err != nil {
-		return 0
-	}
+// executionCost is the EndBlock budget executing c costs: one unit per param
+// change.
+func executionCost(c govContent) uint64 {
 	if pc, ok := c.(paramChangeContent); ok {
 		return uint64(len(pc.Changes))
 	}
