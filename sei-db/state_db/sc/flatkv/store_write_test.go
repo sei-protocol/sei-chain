@@ -353,15 +353,10 @@ func TestAccountValueStorage(t *testing.T) {
 	}
 
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-
-	// AccountValue structure: one row per address containing both nonce and codehash. There is no
-	// staged-row count to assert on any more, so assert the row itself is there.
-	requireStaged(t, s.accountStore, accountPhysKey(addr), "expected one staged AccountValue row")
-
-	// Commit
 	commitAndCheck(t, s)
 
-	// Verify AccountValue is stored in accountDB with physical key
+	// AccountValue structure: one row per address containing both nonce and codehash, stored in accountDB
+	// under the account's physical key.
 	stored, err := s.rawDBFor(accountDBDir).Get(accountPhysKey(addr))
 	require.NoError(t, err)
 	require.NotNil(t, stored)
@@ -402,10 +397,6 @@ func TestStoreWriteMiscKeys(t *testing.T) {
 
 	cs := makeChangeSet(codeSizeKey, codeSizeValue, false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-
-	// Should be staged in the misc store
-	requireStaged(t, s.miscStore, ktype.BuildPhysicalKey(keys.EVMStoreKey, codeSizeKey))
-
 	commitAndCheck(t, s)
 
 	// Verify miscDB LocalMeta is updated. Read it back: the finalizer writes it, so the store's
@@ -862,6 +853,7 @@ func TestAccountFieldsMergeIntoOneRow(t *testing.T) {
 		},
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	commitBuffered(t, s)
 
 	accountWrite := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
 	require.NotNil(t, accountWrite)
@@ -969,9 +961,10 @@ func TestLtHashAccountFieldMerge(t *testing.T) {
 		},
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	commitBuffered(t, s)
 
-	// Both changeset entries merge into one AccountValue: the single staged row carries the nonce and
-	// the codehash together.
+	// Both changeset entries merge into one AccountValue: the single row carries the nonce and the
+	// codehash together.
 	accountWrite := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
 	require.NotNil(t, accountWrite)
 	require.Equal(t, uint64(10), accountWrite.GetNonce())
@@ -1218,7 +1211,7 @@ func TestSubDBEntryCount(t *testing.T) {
 }
 
 // =============================================================================
-// ApplyChangeSets Input Validation Error Paths
+// Changeset Input Validation Error Paths (reported by Commit)
 // =============================================================================
 
 func TestApplyChangeSetsInvalidNonceLength(t *testing.T) {
@@ -1237,7 +1230,8 @@ func TestApplyChangeSetsInvalidNonceLength(t *testing.T) {
 			},
 		},
 	}
-	err := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs})
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err := s.Commit(s.Version() + 1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid nonce value length")
 }
@@ -1258,7 +1252,8 @@ func TestApplyChangeSetsInvalidCodehashLength(t *testing.T) {
 			},
 		},
 	}
-	err := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs})
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err := s.Commit(s.Version() + 1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid codehash value length")
 }
@@ -1672,13 +1667,10 @@ func TestApplyChangeSetsNonEVMModuleRoutesToMisc(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	require.Len(t, s.pendingChangeSets, 1)
 
-	// Physical key in the misc store should be module-prefixed: "bank/some-bank-key"
-	physKey := string(ktype.BuildPhysicalKey("bank", []byte("some-bank-key")))
-	requireStaged(t, s.miscStore, []byte(physKey),
-		"misc store should contain module-prefixed key %q", physKey)
-
-	// Persist and verify round-trip via raw miscDB lookup
+	// Persist and verify round-trip via raw miscDB lookup. The physical key in the misc store should be
+	// module-prefixed: "bank/some-bank-key"
 	commitAndCheck(t, s)
+	physKey := string(ktype.BuildPhysicalKey("bank", []byte("some-bank-key")))
 	require.NotEqual(t, hashBefore, rootHash(s), "misc-routed key changes hash")
 	raw, err := s.rawDBFor(miscDBDir).Get([]byte(physKey))
 	require.NoError(t, err)
@@ -1707,11 +1699,12 @@ func TestApplyChangeSetsMixedEVMAndNonEVM(t *testing.T) {
 	}
 
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{evmCS, bankCS}))
+	commitBuffered(t, s)
 
 	// EVM storage write should exist.
 	requireStaged(t, s.storageStore, ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)))
 
-	// The EVM value should be readable via pending writes.
+	// The EVM value should be readable.
 	val, found := s.Get(keys.EVMStoreKey, storageKey)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x42), val)
@@ -1790,15 +1783,18 @@ func TestApplyChangeSetsInvalidAddressLength(t *testing.T) {
 	}
 	// Routed to EVMKeyMisc (not Nonce), so no address validation error.
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	commitBuffered(t, s)
 	requireStaged(t, s.miscStore, ktype.BuildPhysicalKey(keys.EVMStoreKey, truncatedNonceKey),
 		"malformed nonce key should be treated as misc")
 }
 
-func TestApplyChangeSetsErrorRecoveryPartialState(t *testing.T) {
+// TestCommitParseErrorLeavesNoPartialState verifies that a block whose changesets fail to parse stages none of
+// its rows and leaves the lattice state unchanged.
+func TestCommitParseErrorLeavesNoPartialState(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	// Seed non-trivial per-module state so a failed Apply is checked against
+	// Seed non-trivial per-module state so a failed Commit is checked against
 	// real buckets, not empty maps that would trivially equal a fresh clone.
 	seedAddr := addrN(0xAA)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
@@ -1822,28 +1818,23 @@ func TestApplyChangeSetsErrorRecoveryPartialState(t *testing.T) {
 		}},
 	}
 
-	err := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs})
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	version := s.Version()
+	_, err := s.Commit(version + 1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid nonce value length")
 
-	// A failed Apply must stage nothing and leave the working lattice state untouched, so a later
-	// Commit cannot seal orphaned rows against a stale AppHash. The valid storage pair that preceded
-	// the invalid one is the one that would leak.
+	// A failed Commit must stage nothing and leave the lattice state untouched. The valid storage pair that
+	// preceded the invalid one is the one that would leak.
 	requireNotStaged(t, s.storageStore, ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)))
 	requireNotStaged(t, s.accountStore, accountPhysKey(addr))
-	require.Empty(t, s.pendingChangeSets)
-	require.Equal(t, int64(0), s.pendingBlockHeight)
+	require.Equal(t, version, s.Version())
 	requireWorkingHashesUnchanged(t, s, before)
-
-	validCS := makeChangeSet(storageKey, padLeft32(0xBB), false)
-	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{validCS}))
 }
 
-// TestApplyChangeSetsKeepsPendingCleanOnLaterParseError covers the case where
-// an earlier DB kind would previously have been maps.Copy'd into the pending
-// overlay before a later process*Changes failure — leaving rows that Commit
-// could persist while working LtHash still reflected the pre-failure state.
-func TestApplyChangeSetsKeepsPendingCleanOnLaterParseError(t *testing.T) {
+// TestCommitKeepsStoresCleanOnLaterParseError verifies that when one DB kind of a block fails to parse, no
+// other kind's rows reach a store and the lattice state is unchanged.
+func TestCommitKeepsStoresCleanOnLaterParseError(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -1867,27 +1858,16 @@ func TestApplyChangeSetsKeepsPendingCleanOnLaterParseError(t *testing.T) {
 		}},
 	}
 
-	err := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs})
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	version := s.Version()
+	_, err := s.Commit(version + 1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to parse storage changes")
 
 	requireNotStaged(t, s.accountStore, accountPhysKey(addr),
 		"account rows must not stage before storage validation finishes")
-	require.Empty(t, s.pendingChangeSets)
-	require.Equal(t, int64(0), s.pendingBlockHeight)
+	require.Equal(t, version, s.Version())
 	requireWorkingHashesUnchanged(t, s, before)
-
-	// A subsequent Commit must not invent on-disk state for the failed apply.
-	// A successful apply stages every row, so absence from
-	// pending is not enough — read the keys back and check committedLtHash
-	// (the AppHash input) stayed put.
-	_, err = s.Commit(s.Version() + 1)
-	require.NoError(t, err)
-	require.True(t, s.maintainedHashes().Global.Equal(before.global))
-	_, ok := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
-	require.False(t, ok, "nonce row from the failed apply must not be persisted")
-	_, ok = s.Get(keys.EVMStoreKey, storageKey)
-	require.False(t, ok, "storage row from the failed apply must not be persisted")
 }
 
 // A hash failure is no longer a commit failure: hashing happens after the block is committed, so the
@@ -1983,7 +1963,9 @@ func TestApplyChangeSetsEVMKeyEmptySkipped(t *testing.T) {
 			{Key: []byte{}, Value: []byte{0xAA}},
 		}},
 	}
-	require.Error(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err := s.Commit(s.Version() + 1)
+	require.Error(t, err)
 }
 
 func TestApplyChangeSetsNonPrefixedKeyGoesToMisc(t *testing.T) {
@@ -2103,13 +2085,13 @@ func TestRejectedCommitLeavesStoreIntact(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "committing bad version")
 	require.Equal(t, int64(0), s.Version(), "rejected commit must not advance version")
-	requireStaged(t, s.storageStore,
-		ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01))),
-		"rejected commit must leave the staged row intact")
+	require.Equal(t, int64(1), s.PendingVersion(), "rejected commit must leave the buffered block intact")
 
 	v, err := s.Commit(1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v)
+	_, found := s.Get(keys.EVMStoreKey, key)
+	require.True(t, found, "the buffered row must be committed by the correct commit")
 }
 
 // TestApplyChangeSetsAllowsSameHeightRepeatsOnly pins the one-block-per-commit
