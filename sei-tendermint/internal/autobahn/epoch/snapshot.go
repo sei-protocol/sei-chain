@@ -33,7 +33,7 @@ func openEpochSnapshot(
 
 func encodeEpochRecord(idx types.EpochIndex, committee *types.Committee) *pb.EpochRecord {
 	return &pb.EpochRecord{
-		Index:     utils.Alloc(uint64(idx)),
+		Index:     new(uint64(idx)),
 		Committee: types.CommitteeConv.Encode(committee),
 	}
 }

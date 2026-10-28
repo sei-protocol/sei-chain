@@ -261,7 +261,7 @@ var BlockHeaderConv = protoutils.Conv[*BlockHeader, *pb.BlockHeader]{
 	Encode: func(h *BlockHeader) *pb.BlockHeader {
 		return &pb.BlockHeader{
 			LaneId:      LaneIDConv.Encode(h.lane),
-			BlockNumber: utils.Alloc(uint64(h.blockNumber)),
+			BlockNumber: new(uint64(h.blockNumber)),
 			ParentHash:  h.parentHash[:],
 			PayloadHash: h.payloadHash[:],
 		}
@@ -296,8 +296,8 @@ var PayloadConv = protoutils.Conv[*Payload, *pb.Payload]{
 	Encode: func(p *Payload) *pb.Payload {
 		return &pb.Payload{
 			CreatedAt:         TimeConv.Encode(p.p.CreatedAt),
-			TotalGasWanted:    utils.Alloc(p.p.TotalGasWanted),
-			TotalGasEstimated: utils.Alloc(p.p.TotalGasEstimated),
+			TotalGasWanted:    new(p.p.TotalGasWanted),
+			TotalGasEstimated: new(p.p.TotalGasEstimated),
 			Txs:               p.p.Txs,
 		}
 	},
@@ -345,7 +345,7 @@ var BlockConv = protoutils.Conv[*Block, *pb.Block]{
 // LaneBlockPosConv is the protobuf converter for LaneBlockPos.
 var LaneBlockPosConv = protoutils.Conv[LaneBlockPos, *pb.LaneBlockPos]{
 	Encode: func(p LaneBlockPos) *pb.LaneBlockPos {
-		return &pb.LaneBlockPos{Index: utils.Alloc(uint64(p.Index)), Offset: utils.Alloc(p.Offset)}
+		return &pb.LaneBlockPos{Index: new(uint64(p.Index)), Offset: new(p.Offset)}
 	},
 	Decode: func(p *pb.LaneBlockPos) (LaneBlockPos, error) {
 		if p.Index == nil || p.Offset == nil {

@@ -17,7 +17,7 @@ func TestRoadBlockHeaderHashIndependentOfView(t *testing.T) {
 	ep := GenEpochWithCommittee(rng, committee)
 	proposal, blocks := ProposalAtBlocks(ep, View{Index: ep.RoadRange().First}, 2)
 	wire := ProposalConv.Encode(proposal)
-	wire.ViewNumber = utils.Alloc(uint64(proposal.View().Number.Next()))
+	wire.ViewNumber = new(uint64(proposal.View().Number.Next()))
 	reproposal, err := ProposalConv.Decode(wire)
 	require.NoError(t, err)
 	require.Equal(t, proposal.Header().Hash(), reproposal.Header().Hash())
@@ -89,10 +89,10 @@ func TestRoadBlockHeaderIdentity(t *testing.T) {
 		{EpochIndex: 8, Index: 29, Number: 13},
 	} {
 		proposal, err := ProposalConv.Decode(&pb.Proposal{
-			ViewNumber: utils.Alloc(uint64(view.Number)),
+			ViewNumber: new(uint64(view.Number)),
 			Header: &pb.RoadBlockHeader{
-				EpochIndex: utils.Alloc(uint64(view.EpochIndex)),
-				Index:      utils.Alloc(uint64(view.Index)),
+				EpochIndex: new(uint64(view.EpochIndex)),
+				Index:      new(uint64(view.Index)),
 				Timestamp:  TimeConv.Encode(time.Time{}),
 			},
 		})

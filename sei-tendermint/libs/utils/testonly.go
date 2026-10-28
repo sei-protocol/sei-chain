@@ -115,7 +115,7 @@ func TestRng() Rng {
 }
 
 func TestRngFromSeed(seed int64) Rng {
-	return Rng{Alloc(NewMutex(rand.New(rand.NewSource(seed))))}
+	return Rng{new(NewMutex(rand.New(rand.NewSource(seed))))}
 }
 
 func GenBool(rng Rng) bool {

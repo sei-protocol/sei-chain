@@ -4,8 +4,6 @@ import (
 	"errors"
 	"time"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -17,8 +15,8 @@ var TimeConv = protoutils.Conv[time.Time, *pb.Timestamp]{
 	// https://github.com/pbbuffers/protobuf-go/blob/v1.36.5/types/known/timestamppb/timestamp.pb.go
 	Encode: func(t time.Time) *pb.Timestamp {
 		return &pb.Timestamp{
-			Seconds: proto.Int64(t.Unix()),
-			Nanos:   proto.Int32(int32(t.Nanosecond())),
+			Seconds: new(t.Unix()),
+			Nanos:   new(int32(t.Nanosecond())),
 		}
 	},
 	Decode: func(p *pb.Timestamp) (time.Time, error) {
@@ -41,8 +39,8 @@ var DurationConv = protoutils.Conv[time.Duration, *pb.Duration]{
 		secs := nanos / 1e9
 		nanos -= secs * 1e9
 		return &pb.Duration{
-			Seconds: proto.Int64(secs),
-			Nanos:   proto.Int32(int32(nanos)),
+			Seconds: new(secs),
+			Nanos:   new(int32(nanos)),
 		}
 	},
 	Decode: func(p *pb.Duration) (time.Duration, error) {

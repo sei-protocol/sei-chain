@@ -506,8 +506,8 @@ var LaneRangeConv = protoutils.Conv[*LaneRange, *pb.LaneRange]{
 	Encode: func(m *LaneRange) *pb.LaneRange {
 		return &pb.LaneRange{
 			LaneId:   LaneIDConv.Encode(m.lane),
-			First:    utils.Alloc(uint64(m.first)),
-			Next:     utils.Alloc(uint64(m.next)),
+			First:    new(uint64(m.first)),
+			Next:     new(uint64(m.next)),
 			LastHash: m.lastHash[:],
 		}
 	},
@@ -544,8 +544,8 @@ var RoadBlockHeaderConv = protoutils.Conv[*RoadBlockHeader, *pb.RoadBlockHeader]
 		}
 		sort.Slice(laneRanges, func(i, j int) bool { return laneRanges[i].Lane().Compare(laneRanges[j].Lane()) < 0 })
 		return &pb.RoadBlockHeader{
-			EpochIndex: utils.Alloc(uint64(m.epochIndex)),
-			Index:      utils.Alloc(uint64(m.index)),
+			EpochIndex: new(uint64(m.epochIndex)),
+			Index:      new(uint64(m.index)),
 			Timestamp:  TimeConv.Encode(m.timestamp),
 			LaneRanges: LaneRangeConv.EncodeSlice(laneRanges),
 		}
@@ -576,7 +576,7 @@ var RoadBlockHeaderConv = protoutils.Conv[*RoadBlockHeader, *pb.RoadBlockHeader]
 // ProposalConv is the protobuf converter for Proposal.
 var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 	Encode: func(m *Proposal) *pb.Proposal {
-		return &pb.Proposal{ViewNumber: utils.Alloc(uint64(m.viewNumber)), Header: RoadBlockHeaderConv.Encode(m.header)}
+		return &pb.Proposal{ViewNumber: new(uint64(m.viewNumber)), Header: RoadBlockHeaderConv.Encode(m.header)}
 	},
 	Decode: func(m *pb.Proposal) (*Proposal, error) {
 		if m.ViewNumber == nil {
