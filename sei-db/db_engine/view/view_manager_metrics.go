@@ -32,6 +32,8 @@ type ViewManagerMetrics struct {
 	misses         metric.Int64Counter
 	missLatency    metric.Float64Histogram
 	viewPhaseTimer *metrics.PhaseTimer
+	// lifecyclePhaseTimer times the lifecycle runner's flush and retire work.
+	lifecyclePhaseTimer *metrics.PhaseTimer
 
 	// One per shard. Reads count hits and misses here, and collectLoop publishes the totals to hits
 	// and misses on each scrape.
@@ -105,15 +107,16 @@ func newViewManagerMetrics(
 	viewPhaseTimer := metrics.NewPhaseTimer(meter, "view_manager_view", cacheAttr)
 
 	cm := &ViewManagerMetrics{
-		attrs:          metric.WithAttributes(cacheAttr),
-		sizeBytes:      sizeBytes,
-		sizeEntries:    sizeEntries,
-		hits:           hits,
-		misses:         misses,
-		missLatency:    missLatency,
-		viewPhaseTimer: viewPhaseTimer,
-		shards:         make([]*shardMetrics, shardCount),
-		collectDone:    make(chan struct{}),
+		attrs:               metric.WithAttributes(cacheAttr),
+		sizeBytes:           sizeBytes,
+		sizeEntries:         sizeEntries,
+		hits:                hits,
+		misses:              misses,
+		missLatency:         missLatency,
+		viewPhaseTimer:      viewPhaseTimer,
+		lifecyclePhaseTimer: metrics.NewPhaseTimer(meter, "view_manager_lifecycle", cacheAttr),
+		shards:              make([]*shardMetrics, shardCount),
+		collectDone:         make(chan struct{}),
 	}
 	for i := range cm.shards {
 		cm.shards[i] = &shardMetrics{manager: cm}
@@ -205,6 +208,18 @@ func (cm *ViewManagerMetrics) awaitStopped() {
 		return
 	}
 	<-cm.collectDone
+}
+
+// setLifecyclePhase sets the phase for the lifecycle phase timer, or stops timing when phase is empty.
+func (cm *ViewManagerMetrics) setLifecyclePhase(phase string) {
+	if cm == nil {
+		return
+	}
+	if phase == "" {
+		cm.lifecyclePhaseTimer.Reset()
+		return
+	}
+	cm.lifecyclePhaseTimer.SetPhase(phase)
 }
 
 // setViewPhase sets the phase for the view phase timer.
