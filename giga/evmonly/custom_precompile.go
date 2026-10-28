@@ -15,7 +15,10 @@ import (
 	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/seilog"
 )
+
+var precompileLogger = seilog.NewLogger("giga", "evmonly", "precompile")
 
 var (
 	errPrecompileNegativeAmount  = errors.New("custom precompile balance amount is negative")
@@ -98,11 +101,18 @@ func (p registeredCustomPrecompile) RunAndCalculateGas(
 		Logs:          state,
 	}
 	output, err := runContract(p.contract, ctx, input)
-	if state.err != nil {
+	panicked := errors.Is(err, errPrecompilePanic)
+	if panicked {
+		precompileLogger.Warn("custom precompile panicked", "address", p.address, "error", truncateUTF8(err.Error(), maxFailureLength))
+	}
+	if state.err != nil || panicked {
 		state.gas = 0
 	}
 	if hooks != nil && hooks.OnGasChange != nil && state.gas != start {
 		hooks.OnGasChange(start, state.gas, tracing.GasChangeCallPrecompiledContract)
+	}
+	if panicked {
+		return nil, 0, err
 	}
 	if state.err != nil {
 		return nil, 0, state.err
@@ -111,11 +121,10 @@ func (p registeredCustomPrecompile) RunAndCalculateGas(
 	return output, state.gas, err
 }
 
-// runContract runs contract, returning a panic as errPrecompilePanic so a call
-// fails rather than stopping the node.
+// runContract runs contract, returning a panic as errPrecompilePanic.
 func runContract(contract precompiles.Contract, ctx *precompiles.Context, input []byte) (output []byte, err error) {
 	defer func() {
-		if r := recover(); r != nil {
+		if r := recover(); r != nil { // fail the call, not the node
 			output, err = nil, fmt.Errorf("%w: %v", errPrecompilePanic, r)
 		}
 	}()

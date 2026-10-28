@@ -42,7 +42,7 @@ func (s Set) Add(v common.Hash) bool {
 // Remove deletes v by swap-and-pop, reporting whether it was present.
 func (s Set) Remove(v common.Hash) bool {
 	pos := s.position(v)
-	if pos == 0 {
+	if pos == 0 || pos > s.Len() {
 		return false
 	}
 	last := s.Len() - 1

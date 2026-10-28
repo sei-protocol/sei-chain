@@ -1,6 +1,8 @@
 package precompiles
 
 import (
+	"slices"
+
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -18,7 +20,7 @@ func Revert(reason string) ([]byte, error) {
 	if err != nil {
 		panic(err) // packing a string cannot fail
 	}
-	return append(append([]byte{}, errorSelector...), data...), vm.ErrExecutionReverted
+	return slices.Concat(errorSelector, data), vm.ErrExecutionReverted
 }
 
 func mustType(t string) abi.Type {

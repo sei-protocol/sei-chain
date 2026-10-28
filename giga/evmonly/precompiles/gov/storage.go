@@ -193,7 +193,7 @@ func voteBase(id uint64, voter common.Address) common.Hash {
 // vote returns voter's options on proposal id, empty when it has not voted.
 func (s store) vote(id uint64, voter common.Address) []weightedVote {
 	base := voteBase(id, voter)
-	n := min(s.Uint64(base, 0), maxVoteOptions)
+	n := min(s.Uint64(base, 0), maxVoteOptions) // setVote writes at most maxVoteOptions
 	data := solstorage.ArrayData(base)
 	out := make([]weightedVote, n)
 	for i := range out {

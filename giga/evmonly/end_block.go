@@ -85,8 +85,9 @@ func (e *Executor) runEndBlockers(block BlockContext, source StateReader, result
 	return nil
 }
 
-// runEndBlock runs blocker's EndBlock, returning a panic as errPrecompilePanic,
-// which fails the block rather than stopping the node.
+// runEndBlock runs blocker's EndBlock, returning a panic as errPrecompilePanic.
+// Like any EndBlock error, it fails the block, so the chain does not advance past
+// that height.
 func runEndBlock(blocker precompiles.EndBlocker, block precompiles.BlockContext, state precompiles.State) (failures []error, err error) {
 	defer func() {
 		if r := recover(); r != nil {

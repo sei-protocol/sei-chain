@@ -160,6 +160,9 @@ func creditVoter(state precompiles.State, electorate Electorate, s store, id uin
 // weighted by its delegator shares less deducted(validator).
 func creditValidators(s store, id uint64, snap electorateSnapshot, t *tallyState, deducted func(common.Address) *big.Int) {
 	for _, v := range snap.validators {
+		if s.State.Failed() {
+			return
+		}
 		if vote := s.vote(id, v.Operator); len(vote) > 0 {
 			t.add(vote, votingPower(new(big.Int).Sub(v.DelegatorShares, deducted(v.Operator)), v))
 		}
@@ -171,11 +174,15 @@ func votingPower(shares *big.Int, v Validator) *big.Int {
 	return quoDec(new(big.Int).Mul(shares, v.BondedTokens), v.DelegatorShares)
 }
 
-// add credits power to vote's options by their weights.
+// add credits power to vote's options by their weights, skipping an option
+// outside Yes..NoWithVeto.
 func (t *tallyState) add(vote []weightedVote, power *big.Int) {
 	for _, option := range vote {
-		weighted := mulDec(power, new(big.Int).SetUint64(option.weight))
-		t.results[option.option].Add(t.results[option.option], weighted)
+		result, ok := t.results[option.option]
+		if !ok {
+			continue // a vote read back after a failed read
+		}
+		result.Add(result, mulDec(power, new(big.Int).SetUint64(option.weight)))
 	}
 	t.power.Add(t.power, power)
 }
