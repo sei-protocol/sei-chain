@@ -5,6 +5,7 @@ import "epoch/epoch.proto";
 import "epoch/params.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
+
 // this line is used by starport scaffolding # 1
 
 option go_package = "github.com/sei-protocol/sei-chain/x/epoch/types";

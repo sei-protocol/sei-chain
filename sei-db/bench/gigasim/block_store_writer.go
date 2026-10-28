@@ -11,7 +11,7 @@ import (
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// blockStoreWriter persists one block and its synthetic QC atomically per write.
+// blockStoreWriter persists each SuperBlock and its synthetic QC atomically.
 type blockStoreWriter struct {
 	store  *blockstore.Store
 	config *GigasimConfig
@@ -28,6 +28,8 @@ type blockStoreWriter struct {
 	// The lane-local number of the next block, which advances with the global number because there is
 	// only one lane.
 	laneBlockNumber autobahn.BlockNumber
+
+	pending []*autobahn.Block
 
 	// Breaks the block store write into the records it writes. Owned by the generator, which closes it
 	// once the flush behind them is done, so the phases subdivide its whole write_block phase.
@@ -53,7 +55,7 @@ func newBlockStoreWriter(
 		metrics: gigasimMetrics,
 	}
 	if status, ok := store.Status().Get(); ok {
-		w.laneBlockNumber = autobahn.BlockNumber(status.NextBlock)
+		w.laneBlockNumber = autobahn.BlockNumber(status.NextBlock-1) * autobahn.BlockNumber(config.LaneBlocksPerSuperblock) //nolint:gosec // config validation keeps the lane block count positive
 	}
 	return w
 }
@@ -70,26 +72,45 @@ func (w *blockStoreWriter) nextBlockNumber() (int64, bool) {
 
 // writeBlock persists a block with its QC after finalizing prior blocks.
 func (w *blockStoreWriter) writeBlock(number int64, payload [][]byte) error {
-	//nolint:gosec // G115 - block heights are non-negative and bounded by the run's length
-	globalNumber := autobahn.GlobalBlockNumber(number)
-
-	if err := w.finalizeBlocksBelow(globalNumber); err != nil {
-		return err
-	}
-
 	w.phases.SetPhase("encode_block")
 	block, err := w.buildBlock(payload)
 	if err != nil {
 		return err
 	}
-
-	w.phases.SetPhase("write_block")
-	if err := w.writeCoveringQC(globalNumber, block); err != nil {
-		return fmt.Errorf("failed to write block %d to the block store: %w", number, err)
+	pending := append(w.pending, block)
+	if len(pending) == w.config.LaneBlocksPerSuperblock {
+		index := autobahn.RoadIndex((number-1)/int64(w.config.LaneBlocksPerSuperblock) + 1) //nolint:gosec // generated heights are positive
+		if err := w.writeSuperBlock(index, pending); err != nil {
+			return err
+		}
+		w.pending = pending[:0]
+	} else {
+		w.pending = pending
 	}
-	w.metrics.ReportStoreBytesWritten(storeBlockDB, payloadBytes(payload))
 	w.parentHash = block.Header().Hash()
 	w.laneBlockNumber = block.Header().Next()
+	return nil
+}
+
+// writeSuperBlock persists a complete batch after finalizing prior roads.
+func (w *blockStoreWriter) writeSuperBlock(index autobahn.RoadIndex, blocks []*autobahn.Block) error {
+	if err := w.finalizeBlocksBelow(index); err != nil {
+		return err
+	}
+	w.phases.SetPhase("write_block")
+	qc := autobahn.GenFullCommitQCAt(w.rng, index, len(blocks))
+	headers := make([]*autobahn.BlockHeader, len(blocks))
+	for i, laneBlock := range blocks {
+		headers[i] = laneBlock.Header()
+	}
+	qc = autobahn.NewFullCommitQC(qc.QC(), headers)
+	if err := w.store.WriteBlock(autobahn.NewRoadBlock(qc, blocks)); err != nil {
+		return fmt.Errorf("failed to write SuperBlock %d: %w", index, err)
+	}
+	for _, laneBlock := range blocks {
+		w.metrics.ReportStoreBytesWritten(storeBlockDB, payloadBytes(laneBlock.Payload().Txs()))
+	}
+	w.metrics.ReportQCWritten()
 	return nil
 }
 
@@ -133,36 +154,39 @@ func payloadBytes(payload [][]byte) int64 {
 //
 // The frontier is read from the store rather than tracked here, so it cannot drift from the one the
 // store enforces contiguity against.
-func (w *blockStoreWriter) finalizeBlocksBelow(next autobahn.GlobalBlockNumber) error {
+func (w *blockStoreWriter) finalizeBlocksBelow(next autobahn.RoadIndex) error {
 	status, ok := w.store.Status().Get()
 	if !ok || next <= status.NextAppQC {
 		// Nothing is finalizable before the first QC, and a frontier already at next covers everything.
 		return nil
 	}
-	first := status.NextAppQC
-
-	w.phases.SetPhase("write_app_qc")
-	appProposal := autobahn.GenAppProposalRange(w.rng, first, next)
-	if err := w.store.WriteAppProposal(appProposal); err != nil {
-		return fmt.Errorf("failed to write the AppProposal covering [%d, %d): %w", first, next, err)
-	}
-	if err := w.store.WriteAppQC(autobahn.GenAppQCFor(w.rng, appProposal)); err != nil {
-		return fmt.Errorf("failed to write the AppQC covering [%d, %d): %w", first, next, err)
+	for index := status.NextAppQC; index < next; index++ {
+		if err := w.finalizeBlock(index); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// writeCoveringQC writes the QC finalizing the single lane block at first.
-func (w *blockStoreWriter) writeCoveringQC(first autobahn.GlobalBlockNumber, block *autobahn.Block) error {
-	next := first + 1
-
-	w.phases.SetPhase("write_qc")
-	qc := autobahn.GenFullCommitQCRange(w.rng, first, next)
-	qc = autobahn.NewFullCommitQC(qc.QC(), []*autobahn.BlockHeader{block.Header()})
-	if err := w.store.WriteQC(qc, []*autobahn.Block{block}); err != nil {
-		return fmt.Errorf("failed to write the QC covering [%d, %d): %w", first, next, err)
+// finalizeBlock writes any missing AppProposal and the AppQC for a road.
+func (w *blockStoreWriter) finalizeBlock(index autobahn.RoadIndex) error {
+	w.phases.SetPhase("write_app_qc")
+	var appProposal *autobahn.AppProposal
+	if index < w.store.Status().OrPanic("finalizing a stored block").NextAppProposal {
+		stored, err := w.store.ReadAppProposal(index)
+		if err != nil {
+			return fmt.Errorf("failed to read AppProposal %d: %w", index, err)
+		}
+		appProposal = stored.OrPanic("stored AppProposal missing")
+	} else {
+		appProposal = autobahn.GenAppProposalAt(w.rng, index)
+		if err := w.store.WriteAppProposal(appProposal); err != nil {
+			return fmt.Errorf("failed to write AppProposal %d: %w", index, err)
+		}
 	}
-	w.metrics.ReportQCWritten()
+	if err := w.store.WriteAppQC(autobahn.GenAppQCFor(w.rng, appProposal)); err != nil {
+		return fmt.Errorf("failed to write AppQC %d: %w", index, err)
+	}
 	return nil
 }
 

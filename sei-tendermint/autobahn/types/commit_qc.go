@@ -27,6 +27,9 @@ func NewCommitQC(votes []*Signed[*CommitVote]) *CommitQC {
 	return &CommitQC{vote: votes[0].hashed, sigs: sigs}
 }
 
+// RoadBlockHash returns the commit vote hash identifying the road block.
+func (m *CommitQC) RoadBlockHash() RoadBlockHash { return m.vote.Hash() }
+
 // Proposal .
 func (m *CommitQC) Proposal() *Proposal { return m.vote.Msg().proposal }
 
@@ -38,11 +41,6 @@ func (m *CommitQC) Index() RoadIndex {
 // LaneRange returns the range of lane blocks.
 func (m *CommitQC) LaneRange(lane LaneID) *LaneRange {
 	return m.Proposal().LaneRange(lane)
-}
-
-// GlobalRange returns the finalized global block range.
-func (m *CommitQC) GlobalRange() GlobalRange {
-	return m.Proposal().GlobalRange()
 }
 
 // Verify verifies the CommitQC against the epoch.
@@ -63,8 +61,9 @@ type FullCommitQC struct {
 
 // NewFullCommitQC constructs a new FullCommitQC.
 func NewFullCommitQC(qc *CommitQC, headers []*BlockHeader) *FullCommitQC {
-	if got, want := len(headers), int(qc.GlobalRange().Len()); got != want { //nolint:gosec // total lane range len is a small bounded value representing block count in a QC
-		panic(fmt.Sprintf("headers length %d != finalized blocks %d", got, want))
+	if got, want := len(headers), int(qc.Proposal().NumBlocks()); got != want { //nolint:gosec // total lane range len is a small bounded value representing block count in a QC
+		//TODO(gprusak): why is it ok to panic here?
+		panic(fmt.Errorf("headers length %d != finalized blocks %d", got, want))
 	}
 	return &FullCommitQC{qc: qc, headers: headers}
 }
@@ -86,7 +85,7 @@ func (m *FullCommitQC) Verify(ep *Epoch) error {
 		return fmt.Errorf("qC: %w", err)
 	}
 	n := uint64(0)
-	if want, got := int(m.qc.GlobalRange().Len()), len(m.headers); want != got { //nolint:gosec // global range len is a small bounded value representing block count in a QC
+	if want, got := int(m.qc.Proposal().NumBlocks()), len(m.headers); want != got { //nolint:gosec // lane block count is bounded by the committee size and per-lane limit
 		return fmt.Errorf("len(headers) = %d, want %d", got, want)
 	}
 	for lane := range ep.Committee().Lanes().All() {

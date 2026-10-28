@@ -136,7 +136,7 @@ func TestLaneQCVerifyChecksWeight(t *testing.T) {
 func TestPrepareQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	vote := NewPrepareVote(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First}, ep.FirstBlock()))
+	vote := NewPrepareVote(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First}))
 
 	heavyOnly := NewPrepareQC([]*Signed[*PrepareVote]{
 		Sign(keys[0], vote),
@@ -156,12 +156,12 @@ func TestPrepareQCVerifyChecksEpochBinding(t *testing.T) {
 		return NewPrepareQC([]*Signed[*PrepareVote]{Sign(keys[0], NewPrepareVote(p))})
 	}
 
-	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First}, ep.FirstBlock())).Verify(ep))
+	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First})).Verify(ep))
 
-	wrongEpoch := newProposal(View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil, ep.FirstBlock())
+	wrongEpoch := newProposal(View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil)
 	require.Error(t, sign(wrongEpoch).Verify(ep))
 
-	outOfRoads := newProposal(View{Index: ep.RoadRange().Next, EpochIndex: ep.EpochIndex()}, time.Time{}, nil, ep.FirstBlock())
+	outOfRoads := newProposal(View{Index: ep.RoadRange().Next, EpochIndex: ep.EpochIndex()}, time.Time{}, nil)
 	require.Error(t, sign(outOfRoads).Verify(ep))
 }
 
@@ -172,19 +172,19 @@ func TestCommitQCVerifyChecksEpochBinding(t *testing.T) {
 		return NewCommitQC([]*Signed[*CommitVote]{Sign(keys[0], NewCommitVote(p))})
 	}
 
-	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First}, ep.FirstBlock())).Verify(ep))
+	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First})).Verify(ep))
 
-	wrongEpoch := newProposal(View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil, ep.FirstBlock())
+	wrongEpoch := newProposal(View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil)
 	require.Error(t, sign(wrongEpoch).Verify(ep))
 
-	outOfRoads := newProposal(View{Index: ep.RoadRange().Next, EpochIndex: ep.EpochIndex()}, time.Time{}, nil, ep.FirstBlock())
+	outOfRoads := newProposal(View{Index: ep.RoadRange().Next, EpochIndex: ep.EpochIndex()}, time.Time{}, nil)
 	require.Error(t, sign(outOfRoads).Verify(ep))
 }
 
 func TestCommitQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	vote := NewCommitVote(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First}, ep.FirstBlock()))
+	vote := NewCommitVote(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First}))
 
 	heavyOnly := NewCommitQC([]*Signed[*CommitVote]{
 		Sign(keys[0], vote),
@@ -200,7 +200,7 @@ func TestCommitQCVerifyChecksWeight(t *testing.T) {
 func TestAppQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	vote := NewAppVote(NewAppProposal(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First}, ep.FirstBlock()), GenAppHash(rng)))
+	vote := NewAppVote(NewAppProposal(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First}), GenAppHash(rng)))
 
 	heavyOnly := NewAppQC([]*Signed[*AppVote]{
 		Sign(keys[0], vote),

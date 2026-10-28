@@ -11,11 +11,11 @@ import (
 // This file is the single home for translating between the in-memory consensus
 // types and the opaque byte values the underlying BlockDB stores.
 
-// encodeBlock marshals a block to its protobuf bytes.
-func encodeBlock(block *types.Block) []byte { return types.BlockConv.Marshal(block) }
+// encodeLaneBlock marshals a lane block to its protobuf bytes.
+func encodeLaneBlock(block *types.Block) []byte { return types.BlockConv.Marshal(block) }
 
-// decodeBlock unmarshals a block from its protobuf bytes.
-func decodeBlock(value []byte) (*types.Block, error) {
+// decodeLaneBlock unmarshals a lane block from its protobuf bytes.
+func decodeLaneBlock(value []byte) (*types.Block, error) {
 	block, err := types.BlockConv.Unmarshal(value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal block: %w", err)
@@ -66,21 +66,40 @@ func decodeAppQC(value []byte) (*types.AppQC, error) {
 	return appQC, nil
 }
 
-// decodeQCGroupBlocks decodes and validates a QC's complete block set.
-func decodeQCGroupBlocks(qc *types.FullCommitQC, blocks []blocktypes.BlockRecord) (types.QCGroup, error) {
-	group := types.QCGroup{QC: qc, Blocks: make([]*types.Block, 0, len(blocks))}
-	if len(blocks) != len(qc.Headers()) || uint64(len(blocks)) != qc.QC().GlobalRange().Len() {
-		return types.QCGroup{}, types.ErrQCBlocksMismatch
+// encodeBlock encodes a road block with its commit vote lookup hash.
+func encodeBlock(block *types.RoadBlock) blocktypes.BlockRecord {
+	qc, blocks := block.QC(), block.LaneBlocks()
+	record := blocktypes.BlockRecord{
+		Index: blocktypes.BlockNumber(qc.Index()),
+		Hash:  blocktypes.BlockHash(block.QC().QC().RoadBlockHash()),
+		QC:    encodeQC(qc),
 	}
-	for i, value := range blocks {
-		block, err := decodeBlock(value.Value)
+	for _, lane := range blocks {
+		record.LaneBlocks = append(record.LaneBlocks, encodeLaneBlock(lane))
+	}
+	return record
+}
+
+// decodeBlock decodes a road block record and checks its index and lookup hash.
+func decodeBlock(record blocktypes.BlockRecord) (*types.RoadBlock, error) {
+	qc, err := decodeQC(record.QC)
+	if err != nil {
+		return nil, err
+	}
+	if qc.Index() != types.RoadIndex(record.Index) {
+		return nil, types.ErrQCBlocksMismatch
+	}
+	blocks := make([]*types.Block, len(record.LaneBlocks))
+	for i, value := range record.LaneBlocks {
+		block, err := decodeLaneBlock(value)
 		if err != nil {
-			return types.QCGroup{}, err
+			return nil, err
 		}
-		if types.GlobalBlockNumber(value.Number) != qc.QC().GlobalRange().First+types.GlobalBlockNumber(i) || block.Header().Hash() != qc.Headers()[i].Hash() { //nolint:gosec // non-negative slice index
-			return types.QCGroup{}, types.ErrQCBlocksMismatch
-		}
-		group.Blocks = append(group.Blocks, block)
+		blocks[i] = block
 	}
-	return group, nil
+	block := types.NewRoadBlock(qc, blocks)
+	if blocktypes.BlockHash(block.QC().QC().RoadBlockHash()) != record.Hash {
+		return nil, types.ErrQCBlocksMismatch
+	}
+	return block, nil
 }
