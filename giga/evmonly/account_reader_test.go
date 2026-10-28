@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
@@ -34,7 +35,7 @@ func TestSnapshotReaderServesAnAccountFromOneRead(t *testing.T) {
 	reading := &countingAccountView{memoryGigaSnapshot: snapshot}
 	reader := gigaSnapshotStateReader{snapshot: reading}
 
-	account, served := reader.ReadAccount(addr)
+	account, _, served := reader.ReadAccount(addr)
 
 	require.True(t, served)
 	require.Equal(t, int64(1), reading.reads.Load(), "the row must be resolved once, not once per field")
@@ -49,7 +50,7 @@ func TestSnapshotReaderServesAnAbsentAccountAsEmpty(t *testing.T) {
 	reading := &countingAccountView{memoryGigaSnapshot: newMemoryGigaSnapshot(7)}
 	reader := gigaSnapshotStateReader{snapshot: reading}
 
-	account, served := reader.ReadAccount(testAddress(0xb2))
+	account, _, served := reader.ReadAccount(testAddress(0xb2))
 
 	require.True(t, served)
 	require.Equal(t, AccountState{}, account)
@@ -61,7 +62,7 @@ func TestSnapshotReaderDeclinesWhenMissingStateOwnsTheAccount(t *testing.T) {
 	reading := &countingAccountView{memoryGigaSnapshot: newMemoryGigaSnapshot(7)}
 	reader := gigaSnapshotStateReader{snapshot: reading, missingState: NewMemoryState()}
 
-	_, served := reader.ReadAccount(testAddress(0xb2))
+	_, _, served := reader.ReadAccount(testAddress(0xb2))
 	require.False(t, served)
 }
 
@@ -73,10 +74,36 @@ func TestSnapshotReaderFetchesCodeOnlyWhenTheAccountHasSome(t *testing.T) {
 	reading := &countingAccountView{memoryGigaSnapshot: snapshot}
 	reader := gigaSnapshotStateReader{snapshot: reading}
 
-	account, served := reader.ReadAccount(addr)
+	account, codeHash, served := reader.ReadAccount(addr)
 
 	require.True(t, served)
 	require.Equal(t, []byte{0x60, 0x00}, account.Code)
+	require.Equal(t, crypto.Keccak256Hash(account.Code), codeHash, "the row's stored code hash comes with the code")
+}
+
+// A contract's code hash comes from its account row, so reading it does not hash the code again.
+func TestStateDBTakesTheCodeHashFromTheAccountRow(t *testing.T) {
+	addr := testAddress(0xc4)
+	snapshot := newMemoryGigaSnapshot(7)
+	snapshot.setBalance(addr, big.NewInt(1))
+	snapshot.code[addr] = []byte{0x60, 0x00}
+	stored := common.HexToHash("0x1234")
+	reader := storedCodeHashReader{gigaSnapshotStateReader: gigaSnapshotStateReader{snapshot: snapshot}, codeHash: stored}
+	stateDB := newNativeStateDB(reader)
+
+	require.Equal(t, stored, stateDB.GetCodeHash(addr))
+}
+
+// storedCodeHashReader reports a fixed code hash, standing in for a row whose hash is not the one the
+// code would hash to, so a test can tell whether the hash was read or recomputed.
+type storedCodeHashReader struct {
+	gigaSnapshotStateReader
+	codeHash common.Hash
+}
+
+func (r storedCodeHashReader) ReadAccount(addr common.Address) (AccountState, common.Hash, bool) {
+	account, _, served := r.gigaSnapshotStateReader.ReadAccount(addr)
+	return account, r.codeHash, served
 }
 
 // The merge takes priors from the accepted writes, so it reads no account row, on the pool's workers
