@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 func TestModuleStatsMarshalRoundTrip(t *testing.T) {
@@ -48,44 +49,48 @@ func TestFoldChunkStats(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		pair     KeyMutation
+		pair     mutation.Mutation
 		wantKeys int64
 		wantByte int64
 	}{
 		{
 			name:     "add",
-			pair:     KeyMutation{Key: key, Value: []byte("newvalue")},
+			pair:     mutation.Mutation{Key: key, NewValue: []byte("newvalue")},
 			wantKeys: 1,
 			wantByte: int64(len(key)) + int64(len("newvalue")),
 		},
 		{
-			name:     "update grows",
-			pair:     KeyMutation{Key: key, Value: []byte("longer-value"), LastValue: []byte("short")},
+			name: "update grows",
+			pair: mutation.Mutation{
+				Key:           key,
+				NewValue:      []byte("longer-value"),
+				PreviousValue: []byte("short"),
+			},
 			wantKeys: 0,
 			wantByte: int64(len("longer-value")) - int64(len("short")),
 		},
 		{
 			name:     "update shrinks",
-			pair:     KeyMutation{Key: key, Value: []byte("v"), LastValue: []byte("wasbigger")},
+			pair:     mutation.Mutation{Key: key, NewValue: []byte("v"), PreviousValue: []byte("wasbigger")},
 			wantKeys: 0,
 			wantByte: int64(len("v")) - int64(len("wasbigger")),
 		},
 		{
 			name:     "delete",
-			pair:     KeyMutation{Key: key, LastValue: []byte("oldvalue"), Delete: true},
+			pair:     mutation.Mutation{Key: key, PreviousValue: []byte("oldvalue")},
 			wantKeys: -1,
 			wantByte: -(int64(len(key)) + int64(len("oldvalue"))),
 		},
 		{
 			name:     "delete absent is no-op",
-			pair:     KeyMutation{Key: key, Delete: true},
+			pair:     mutation.Mutation{Key: key},
 			wantKeys: 0,
 			wantByte: 0,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			d := hashChunk([]KeyMutation{tc.pair})
+			d := hashChunk([]mutation.Mutation{tc.pair})
 			require.Equal(t, tc.wantKeys, d.KeyCount)
 			require.Equal(t, tc.wantByte, d.Bytes)
 		})
@@ -102,12 +107,12 @@ func TestComputeModuleHashInfosStatsParallel(t *testing.T) {
 	defer pool.Close()
 	cfg := DefaultConfig()
 	n := int(cfg.ChunkSize)*3 + 7 // spans several chunks, not a chunk multiple
-	mutations := make([]KeyMutation, n)
+	mutations := make([]mutation.Mutation, n)
 	var wantKeys, wantBytes int64
 	for i := range mutations {
 		key := []byte(fmt.Sprintf("m/key-%05d", i))
 		val := []byte(fmt.Sprintf("value-%d", i))
-		mutations[i] = KeyMutation{Key: key, Value: val}
+		mutations[i] = mutation.Mutation{Key: key, NewValue: val}
 		wantKeys++
 		wantBytes += int64(len(key)) + int64(len(val))
 	}
