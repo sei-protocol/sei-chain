@@ -994,21 +994,8 @@ func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Has
 	w.writeUint64(height)
 	w.write(blockHash[:])
 	w.writeUint64(result.GasUsed)
-	changesets, err := evmonly.EncodeMemoryStoreChangeSet(result.ChangeSet)
-	if err != nil {
+	if err := evmonly.WriteMemoryStoreHashInput(w.buf, result.ChangeSet); err != nil {
 		return common.Hash{}, err
-	}
-	for _, changeset := range changesets {
-		w.writeSizedString(changeset.Name)
-		for _, pair := range changeset.Changeset.Pairs {
-			w.writeSized(pair.Key)
-			if pair.Delete {
-				w.writeByte(1)
-			} else {
-				w.writeByte(0)
-			}
-			w.writeSized(pair.Value)
-		}
 	}
 	if err := w.flush(); err != nil {
 		return common.Hash{}, err
