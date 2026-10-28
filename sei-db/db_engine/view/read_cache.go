@@ -398,6 +398,13 @@ func (c *readCache) ResolveBatchUnlocked(pending []pendingRead, results map[stri
 // bound at scheduling time (see Resolve), which is the one every waiter on this read is blocked
 // on; e.valueChan may already have been detached by then.
 func (e *cacheEntry) injectValueUnlocked(key []byte, ch chan readResult, result readResult) {
+	// A successful read is released before the install, so its waiter does not queue behind the shard's
+	// write lock; a reader arriving in between finds the entry still scheduled and takes it from ch. A
+	// failed one is released only once the cache is out of service.
+	if result.err == nil {
+		ch <- result
+	}
+
 	c := e.cache
 	c.lock.Lock()
 
@@ -430,7 +437,9 @@ func (e *cacheEntry) injectValueUnlocked(key []byte, ch chan readResult, result 
 
 	// Release the waiter before bricking. reportReadFailure acquires the manager's versionLock, and
 	// nobody may be blocked on us while we wait for it.
-	ch <- result
+	if result.err != nil {
+		ch <- result
+	}
 
 	if failure != nil {
 		c.reportReadFailure(failure)
