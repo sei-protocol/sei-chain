@@ -211,7 +211,8 @@ func TestEveryGovParamChangesThroughAProposal(t *testing.T) {
 }
 
 // TestSubspacesFitTheExecutionCharge checks that applying a change, which reads
-// its whole subspace, stays within the content words settleCost charges for it.
+// its whole subspace one storage word per param, stays within the content words
+// settleCost charges for it.
 func TestSubspacesFitTheExecutionCharge(t *testing.T) {
 	m := chainparams.ABI.Methods[chainparams.ParamKeysMethod]
 	out, err := chainparams.Precompile{}.Run(&precompiles.Context{Address: chainparams.Address}, m.ID)
@@ -224,6 +225,10 @@ func TestSubspacesFitTheExecutionCharge(t *testing.T) {
 	perSubspace := map[string]int{}
 	shortest := map[string]string{}
 	for _, k := range keys {
+		typ, err := abi.NewType(k.ValueType, "", nil)
+		require.NoError(t, err)
+		require.Contains(t, []byte{abi.UintTy, abi.IntTy, abi.BoolTy, abi.AddressTy, abi.FixedBytesTy}, typ.T,
+			"%s/%s is stored in one word; a longer kind needs settleCost to charge its words", k.Subspace, k.Key)
 		perSubspace[k.Subspace]++
 		if s, ok := shortest[k.Subspace]; !ok || len(k.Key) < len(s) {
 			shortest[k.Subspace] = k.Key

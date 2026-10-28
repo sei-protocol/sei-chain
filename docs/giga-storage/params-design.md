@@ -103,8 +103,9 @@ naming `param`.
   subspace do not undo each other.
 - Gov charges executing a passed proposal one EndBlock budget unit per word of
   its stored content, at least ten per change. Applying a change reads its
-  whole subspace, so a subspace's param count must stay within that, or the
-  charge must grow with it.
+  whole subspace, one storage word per param, so a subspace's param count must
+  stay within that and every param must be one word, or the charge must grow
+  with them. `TestSubspacesFitTheExecutionCharge` checks both.
 - The proposal stores `ParamChangeContent` (declared in `Gov.sol`), and
   `proposal()` returns its ABI encoding.
 - `submitParamChangeProposal` is priced as a gov transaction; `param` and
