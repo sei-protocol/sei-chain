@@ -124,6 +124,79 @@ func TestEndBlockerSeesTheBlockAndCommitsItsWrites(t *testing.T) {
 	require.Equal(t, big.NewInt(15), state.GetBalance(payee))
 }
 
+// storageWriter writes to another account's storage, from calls and at the end
+// of each block.
+type storageWriter struct {
+	target common.Address
+}
+
+func (storageWriter) RequiredGas([]byte) uint64 { return 1_000 }
+
+func (w storageWriter) Run(ctx *precompiles.Context, _ []byte) ([]byte, error) {
+	ctx.State.SetState(w.target, callsSlot, common.Hash{1})
+	return nil, nil
+}
+
+func (w storageWriter) EndBlock(_ precompiles.BlockContext, state precompiles.State) error {
+	state.SetState(w.target, blocksSlot, common.Hash{1})
+	return nil
+}
+
+// refusingReader reads its own callsSlot, then refuses the call.
+type refusingReader struct {
+	address common.Address
+}
+
+func (refusingReader) RequiredGas([]byte) uint64 { return 1_000 }
+
+func (r refusingReader) Run(ctx *precompiles.Context, _ []byte) ([]byte, error) {
+	ctx.State.GetState(r.address, callsSlot)
+	return nil, errRefused
+}
+
+func TestPrecompileWriteGivesAnEmptyAccountARow(t *testing.T) {
+	state := NewMemoryState()
+	tx, sender := recorderCall(t, 0)
+	state.SetBalance(sender, big.NewInt(behaviorSenderFunds))
+	target := common.HexToAddress("0x0000000000000000000000000000000000002103")
+	registry := precompiles.NewStaticRegistry(map[common.Address]precompiles.Contract{
+		firstEndBlocker: storageWriter{target: target},
+	}, firstEndBlocker)
+
+	result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: registry}, withTestState(state)).
+		ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID)), Txs: [][]byte{tx}})
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), result.Txs[0].Status)
+
+	state.ApplyChangeSet(result.ChangeSet)
+	require.Equal(t, uint64(1), state.GetNonce(target))
+	require.Equal(t, common.Hash{1}, state.GetState(target, callsSlot))
+	require.Equal(t, common.Hash{1}, state.GetState(target, blocksSlot))
+}
+
+func TestFailedCallKeepsStorageAPrecompileWrote(t *testing.T) {
+	state := NewMemoryState()
+	key, err := crypto.HexToECDSA(behaviorAnvilKey0)
+	require.NoError(t, err)
+	state.SetBalance(crypto.PubkeyToAddress(key.PublicKey), big.NewInt(behaviorSenderFunds))
+	target := common.HexToAddress("0x0000000000000000000000000000000000002103")
+	registry := precompiles.NewStaticRegistry(map[common.Address]precompiles.Contract{
+		firstEndBlocker: storageWriter{target: target},
+		target:          refusingReader{address: target},
+	}, firstEndBlocker)
+
+	block := blockContext(big.NewInt(testChainID))
+	for nonce, to := range []common.Address{firstEndBlocker, target} {
+		tx := signLegacyTxWithGasPrice(t, key, big.NewInt(testChainID), uint64(nonce), &to, big.NewInt(0), nil, 100_000, big.NewInt(1))
+		block.Number = uint64(nonce) + 1
+		result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: registry}, withTestState(state)).
+			ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: [][]byte{tx}})
+		require.NoError(t, err)
+		state.ApplyChangeSet(result.ChangeSet)
+	}
+	require.Equal(t, common.Hash{1}, state.GetState(target, callsSlot))
+}
+
 func TestEndBlockerRunsOnEmptyBlocks(t *testing.T) {
 	state := NewMemoryState()
 	executor := NewExecutor(Config{CustomPrecompiles: recorderRegistry(endBlockRecorder{address: firstEndBlocker})}, withTestState(state))
@@ -202,7 +275,7 @@ type flatKVStateDB struct{ *flatkv.CommitStore }
 
 func (flatKVStateDB) OpenViewAt(int64) (gigatypes.StateView, bool) { return nil, false }
 
-func TestEndBlockerStorageReadsBackWithoutAnAccountRow(t *testing.T) {
+func TestEndBlockerStorageReadsBackFromFlatKV(t *testing.T) {
 	cfg := flatkvconfig.DefaultConfig()
 	cfg.DataDir = t.TempDir()
 	store, err := openFlatKVTestStore(t.Context(), cfg)
@@ -222,7 +295,7 @@ func TestEndBlockerStorageReadsBackWithoutAnAccountRow(t *testing.T) {
 	view := store.OpenView()
 	defer view.Close()
 	require.Equal(t, common.BigToHash(big.NewInt(2)), view.GetStorage(firstEndBlocker, blocksSlot))
-	require.False(t, view.AccountExists(firstEndBlocker), "end blockers write no account row")
+	require.True(t, view.AccountExists(firstEndBlocker))
 }
 
 func TestCustomEndBlockersRejectsMisconfiguration(t *testing.T) {

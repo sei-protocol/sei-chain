@@ -28,3 +28,5 @@ same result from the same block, so each rule below is a consensus rule.
 ## Storage
 - Lay out storage as solc would for the matching `docs/giga-storage/*.sol`
   contract, using `solstorage`. Changing a layout changes the app hash.
+- A storage write through `ctx.State` gives an account with no nonce and no
+  code a nonce of 1, so the EVM treats any account holding storage as existing.
