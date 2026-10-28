@@ -47,8 +47,37 @@
             "name": "valueType",
             "type": "string",
             "internalType": "string"
+          },
+          {
+            "name": "v2Type",
+            "type": "uint8",
+            "internalType": "enum V2Type"
           }
         ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "params",
+    "inputs": [
+      {
+        "name": "subspace",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "key",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "value",
+        "type": "string",
+        "internalType": "string"
       }
     ],
     "stateMutability": "view"

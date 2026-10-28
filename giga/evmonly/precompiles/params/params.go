@@ -1,8 +1,7 @@
-// Package params is the EVM-only params precompile. Its state is
-// docs/giga-storage/ParamsStorage.sol, held as contract storage at Address,
-// and its params are the ones declared in that schema and in this package.
-//
-// Its ABI is Params.sol.
+// Package params is the EVM-only params precompile. Its ABI is Params.sol and
+// its state is docs/giga-storage/ParamsStorage.sol, held as contract storage at
+// Address. Its params are the ones declared in that schema and in this package,
+// and change only through Apply, which gov calls for a passed proposal.
 package params
 
 import (
@@ -47,12 +46,19 @@ var (
 	errUnknownMethod = errors.New("unknown params method")
 )
 
-// ParamKey is a declared param: its subspace, flat key, and the Solidity type
-// of its value.
+// ParamKey is a declared param: its subspace, flat key, the Solidity type of its
+// value, and its V2 type.
 type ParamKey struct {
 	Subspace  string
 	Key       string
 	ValueType string
+	V2Type    uint8
+}
+
+// retiredMethods are the methods, by signature, params keeps in its ABI only to
+// revert with an error naming the call to use instead.
+var retiredMethods = map[string]error{
+	"params(string,string)": errors.New("params(string,string) is not supported; use param(string,string), which takes a flat key and returns the ABI-encoded value"),
 }
 
 // Precompile is the params precompile.
@@ -75,11 +81,14 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
+	if err := retiredMethods[method.Sig]; err != nil {
+		return nil, err
+	}
 	args, err := method.Inputs.Unpack(input[4:])
 	if err != nil {
 		return nil, err
 	}
-	if ctx.ApparentValue != nil && ctx.ApparentValue.Sign() != 0 {
+	if !method.IsPayable() && ctx.ApparentValue != nil && ctx.ApparentValue.Sign() != 0 {
 		return nil, errNonPayable
 	}
 	switch method.Name {
@@ -119,7 +128,7 @@ func paramKeys() []ParamKey {
 	var out []ParamKey
 	for _, ss := range subspaces {
 		for _, p := range ss.params {
-			out = append(out, ParamKey{Subspace: ss.name, Key: p.key, ValueType: p.kind.solType})
+			out = append(out, ParamKey{Subspace: ss.name, Key: p.key, ValueType: p.kind.solType, V2Type: uint8(p.kind.v2Type)})
 		}
 	}
 	return out

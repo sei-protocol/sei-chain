@@ -19,9 +19,9 @@ var (
 // Change sets one param. Key is its flat key and Value is its new value as
 // abi.encode of the param's Solidity type.
 type Change struct {
-	Subspace string `json:"subspace"`
-	Key      string `json:"key"`
-	Value    []byte `json:"value"`
+	Subspace string
+	Key      string
+	Value    []byte
 }
 
 // Check reports whether changes would apply to the current params.

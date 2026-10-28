@@ -4,17 +4,19 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 )
 
 // paramChange is the ABI tuple submitParamChangeProposal takes.
 type paramChange struct {
-	Subspace string `json:"subspace"`
-	Key      string `json:"key"`
-	Value    []byte `json:"value"`
+	Subspace string
+	Key      string
+	Value    []byte
 }
 
 func uintValue(v uint64) []byte {
@@ -153,4 +155,57 @@ func TestSubmitRejectsOversizedParamChangeContent(t *testing.T) {
 	}
 	_, err := h.submitParamChange(false, changes...)
 	require.ErrorIs(t, err, errContentTooLong)
+}
+
+func TestEveryGovParamChangesThroughAProposal(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	want := Params{
+		VotingPeriod:          200 * second,
+		ExpeditedVotingPeriod: 30 * second,
+		MinDeposit:            usei(20),
+		MaxDepositPeriod:      60 * second,
+		MinExpeditedDeposit:   usei(50),
+		Quorum:                300_000_000_000_000_000,
+		Threshold:             550_000_000_000_000_000,
+		VetoThreshold:         400_000_000_000_000_000,
+		ExpeditedQuorum:       700_000_000_000_000_000,
+		ExpeditedThreshold:    750_000_000_000_000_000,
+	}
+	wantValues := map[string][]byte{
+		"votingparams.voting_period":           uintValue(want.VotingPeriod),
+		"votingparams.expedited_voting_period": uintValue(want.ExpeditedVotingPeriod),
+		"depositparams.min_deposit":            common.BigToHash(want.MinDeposit).Bytes(),
+		"depositparams.max_deposit_period":     uintValue(want.MaxDepositPeriod),
+		"depositparams.min_expedited_deposit":  common.BigToHash(want.MinExpeditedDeposit).Bytes(),
+		"tallyparams.quorum":                   uintValue(want.Quorum),
+		"tallyparams.threshold":                uintValue(want.Threshold),
+		"tallyparams.veto_threshold":           uintValue(want.VetoThreshold),
+		"tallyparams.expedited_quorum":         uintValue(want.ExpeditedQuorum),
+		"tallyparams.expedited_threshold":      uintValue(want.ExpeditedThreshold),
+	}
+	params := func(method string, args ...interface{}) interface{} {
+		m := chainparams.ABI.Methods[method]
+		input, err := m.Inputs.Pack(args...)
+		require.NoError(t, err)
+		out, err := chainparams.Precompile{}.Run(&precompiles.Context{Address: chainparams.Address, State: h.state}, append(m.ID, input...))
+		require.NoError(t, err, args)
+		got, err := m.Outputs.Unpack(out)
+		require.NoError(t, err)
+		return got[0]
+	}
+	var keys []chainparams.ParamKey
+	abi.ConvertType(params(chainparams.ParamKeysMethod), &keys)
+	var changes []paramChange
+	for _, k := range keys {
+		changes = append(changes, paramChange{k.Subspace, k.Key, wantValues[k.Key]})
+	}
+	require.Len(t, changes, len(wantValues), "every declared gov param")
+	id, err := h.submitParamChange(false, changes...)
+	require.NoError(t, err)
+	h.passID(id)
+	require.Equal(t, StatusPassed, h.status(id))
+	require.Equal(t, want, newStore(h.state).params())
+	for key, value := range wantValues {
+		require.Equal(t, value, params(chainparams.ParamMethod, "gov", key), key)
+	}
 }

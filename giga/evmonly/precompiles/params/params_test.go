@@ -53,16 +53,16 @@ func TestParamKeys(t *testing.T) {
 	var keys []ParamKey
 	abi.ConvertType(out[0], &keys)
 	require.Equal(t, []ParamKey{
-		{"gov", "depositparams.min_deposit", "uint256"},
-		{"gov", "depositparams.max_deposit_period", "uint64"},
-		{"gov", "depositparams.min_expedited_deposit", "uint256"},
-		{"gov", "votingparams.voting_period", "uint64"},
-		{"gov", "votingparams.expedited_voting_period", "uint64"},
-		{"gov", "tallyparams.quorum", "uint256"},
-		{"gov", "tallyparams.threshold", "uint256"},
-		{"gov", "tallyparams.veto_threshold", "uint256"},
-		{"gov", "tallyparams.expedited_quorum", "uint256"},
-		{"gov", "tallyparams.expedited_threshold", "uint256"},
+		{"gov", "depositparams.min_deposit", "uint256", uint8(V2Coins)},
+		{"gov", "depositparams.max_deposit_period", "uint64", uint8(V2Duration)},
+		{"gov", "depositparams.min_expedited_deposit", "uint256", uint8(V2Coins)},
+		{"gov", "votingparams.voting_period", "uint64", uint8(V2Duration)},
+		{"gov", "votingparams.expedited_voting_period", "uint64", uint8(V2Duration)},
+		{"gov", "tallyparams.quorum", "uint256", uint8(V2Dec)},
+		{"gov", "tallyparams.threshold", "uint256", uint8(V2Dec)},
+		{"gov", "tallyparams.veto_threshold", "uint256", uint8(V2Dec)},
+		{"gov", "tallyparams.expedited_quorum", "uint256", uint8(V2Dec)},
+		{"gov", "tallyparams.expedited_threshold", "uint256", uint8(V2Dec)},
 	}, keys)
 }
 
@@ -134,4 +134,14 @@ func TestRunRejectsValueAndDelegateCall(t *testing.T) {
 	require.ErrorIs(t, err, errDelegateCall)
 	_, err = Precompile{}.Run(&precompiles.Context{State: newMemState()}, []byte{1, 2, 3})
 	require.ErrorIs(t, err, errUnknownMethod)
+}
+
+func TestRetiredParamsMethodReverts(t *testing.T) {
+	_, err := call(t, newGovState(t), "params", "gov", "votingparams")
+	require.ErrorIs(t, err, retiredMethods["params(string,string)"])
+}
+
+func TestHasGov(t *testing.T) {
+	require.False(t, HasGov(newMemState()))
+	require.True(t, HasGov(newGovState(t)))
 }

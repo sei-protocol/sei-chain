@@ -14,8 +14,9 @@ subspace.
   key that is not declared is rejected, as x/params rejects a key missing from
   its subspace's KeyTable, and `param` reverts for one. A new subspace or param
   ships in a binary upgrade.
-- The layout only grows. A new param takes slots from its struct's `__gap`, a
-  new subspace is a new state variable after the last, and a retired param
+- Until a public network runs this, the layout may be rearranged outright.
+  After that it only grows: a new param takes slots from its struct's `__gap`,
+  a new subspace is a new state variable after the last, and a retired param
   keeps its slot. `layout_test.go` pins every slot and offset.
 - Values are stored as native types:
 
@@ -36,18 +37,18 @@ subspace.
 One Go row per param, in the params package, grouped by subspace:
 
 ```go
-{key: keyVotingPeriod, kind: uint64Kind, at: govVotingPeriod}
+{key: keyVotingPeriod, kind: durationKind, at: govVotingPeriod}
 ```
 
-The table drives the typed ABI and `paramKeys()`. A value must fit its Solidity
-type, and each subspace has a whole-struct check run on the result of a change.
-Gov's check is x/gov's validation plus:
+The table drives `paramKeys()` and the type each value is decoded and stored
+as. A value must fit its Solidity type, and each subspace has a whole-struct
+check run on the result of a change. Gov's check is x/gov's validation plus:
 
 - every period at least `MinPeriod` (1s) and at most `MaxPeriod` (2^62 ns), so
   a block time plus a period fits in 64 bits;
 - the expedited voting period below the voting period;
 - expedited quorum, threshold and minimum deposit above the regular ones;
-- ratios at most 1;
+- quorums in 0..1 and thresholds above 0 and at most 1;
 - positive minimum deposits of whole usei.
 
 A param's flat key is `<V2 key>` for a V2 scalar (`MaxValidators`) and
@@ -63,7 +64,7 @@ results the way V2 prints them.
 Gov (0x1006):
 
 ```solidity
-struct ParamChange { string subspace; string key; bytes value; } // key is the flat key; value is abi.encode(<stored type>)
+struct ParamChange { string subspace; string key; bytes value; } // key is the flat key; value is the 32-byte abi.encode(<stored type>)
 
 function submitParamChangeProposal(
     string calldata title,
@@ -76,11 +77,17 @@ function submitParamChangeProposal(
 Params (0x1013):
 
 ```solidity
-struct ParamKey { string subspace; string key; string valueType; } // valueType is the Solidity type of the encoded value
+enum V2Type { Dec, Duration, Coins, DecCoins, Int, Uint, Uint64, Uint32, Int64, Int32, Bool, String, Address, StringList }
+struct ParamKey { string subspace; string key; string valueType; V2Type v2Type; } // valueType is the Solidity type of the encoded value
 
 function param(string calldata subspace, string calldata key) external view returns (bytes memory); // abi.encode(<stored type>)
 function paramKeys() external view returns (ParamKey[] memory);                                       // from the declaration table
 ```
+
+`V2Type` names every V2 param value type, so a reader can render any param
+without its own table; the types above with no stored form get one when a
+param first needs it. V2's `params(string,string)` stays in the ABI and reverts,
+naming `param`.
 
 ## Proposals
 
@@ -94,8 +101,8 @@ function paramKeys() external view returns (ParamKey[] memory);                 
 - Changes are per field and merge onto the current params, as x/params merges
   a partial struct, so two proposals that change different fields of a
   subspace do not undo each other.
-- The proposal stores `GovStorage.ParamChangeContent`, and `proposal()` returns
-  its ABI encoding.
+- The proposal stores `ParamChangeContent` (declared in `Gov.sol`), and
+  `proposal()` returns its ABI encoding.
 - `submitParamChangeProposal` is priced as a gov transaction; `param` and
   `paramKeys` as queries.
 
@@ -113,16 +120,17 @@ function paramKeys() external view returns (ParamKey[] memory);                 
 
 - Layout: every `ParamsStorage.sol` slot and offset, and values the compiler
   writes read back through the Go table.
-- Each gov param changed through `submitParamChangeProposal`, read back through
-  `param`, and in effect for later proposals; expedited; several changes in one
-  proposal; a change that fails the whole-struct check at execution leaves
-  params untouched.
+- Every gov param changed in one `submitParamChangeProposal` and read back
+  through `param`; a changed voting period in effect for later proposals; a
+  change that fails the whole-struct check at execution leaves params
+  untouched.
 - Rejected at submit: no changes, undeclared subspace or key, short or
-  oversized values, and values that fail validation.
+  oversized values, values that fail validation, and content over 16 KiB.
+- `ParamChangeContent`'s encoding matches solc's `abi.encode`.
 
 ## Later subspaces
 
-Each adds a struct to `ParamsStorage.sol`, rows to the table, and a reader:
+Planned, not decided: the expected shape, not a commitment. Each adds a struct to `ParamsStorage.sol`, rows to the table, and a reader:
 
 | Subspace | Params | Reader |
 |---|---|---|

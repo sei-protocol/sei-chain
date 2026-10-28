@@ -188,7 +188,7 @@ func SetParams(state precompiles.State, p Params) error {
 
 // HasParams reports whether gov's params have been written.
 func HasParams(state precompiles.State) bool {
-	return chainparams.ReadGov(state).VotingPeriod != 0
+	return chainparams.HasGov(state)
 }
 
 // SetStartingProposalID sets the id gov assigns its first proposal, for

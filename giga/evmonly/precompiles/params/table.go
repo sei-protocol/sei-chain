@@ -9,15 +9,39 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
-// valueKind is the Solidity type a param's value is stored and ABI-encoded as.
+// V2Type is a param value's V2 type, as Params.sol's V2Type enum numbers it.
+type V2Type uint8
+
+// The V2 types.
+const (
+	V2Dec V2Type = iota
+	V2Duration
+	V2Coins
+	V2DecCoins
+	V2Int
+	V2Uint
+	V2Uint64
+	V2Uint32
+	V2Int64
+	V2Int32
+	V2Bool
+	V2String
+	V2Address
+	V2StringList
+)
+
+// valueKind is how a param's value is stored and ABI-encoded: its Solidity
+// type, and the V2 type that gives its unit.
 type valueKind struct {
 	solType string
 	bits    int
+	v2Type  V2Type
 }
 
 var (
-	uint64Kind  = valueKind{solType: "uint64", bits: 64}
-	uint256Kind = valueKind{solType: "uint256", bits: 256}
+	decKind      = valueKind{solType: "uint256", bits: 256, v2Type: V2Dec}
+	durationKind = valueKind{solType: "uint64", bits: 64, v2Type: V2Duration}
+	coinsKind    = valueKind{solType: "uint256", bits: 256, v2Type: V2Coins}
 )
 
 // param is one declared param.

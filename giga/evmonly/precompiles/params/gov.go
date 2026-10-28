@@ -30,16 +30,16 @@ var govSubspace = subspace{
 	name: "gov",
 	slot: slotGov,
 	params: []param{
-		{key: keyMinDeposit, kind: uint256Kind, at: govMinDeposit},
-		{key: keyMaxDepositPeriod, kind: uint64Kind, at: govMaxDepositPeriod},
-		{key: keyMinExpeditedDeposit, kind: uint256Kind, at: govMinExpeditedDeposit},
-		{key: keyVotingPeriod, kind: uint64Kind, at: govVotingPeriod},
-		{key: keyExpeditedVotingPeriod, kind: uint64Kind, at: govExpeditedVotingPeriod},
-		{key: keyQuorum, kind: uint256Kind, at: govQuorum},
-		{key: keyThreshold, kind: uint256Kind, at: govThreshold},
-		{key: keyVetoThreshold, kind: uint256Kind, at: govVetoThreshold},
-		{key: keyExpeditedQuorum, kind: uint256Kind, at: govExpeditedQuorum},
-		{key: keyExpeditedThreshold, kind: uint256Kind, at: govExpeditedThreshold},
+		{key: keyMinDeposit, kind: coinsKind, at: govMinDeposit},
+		{key: keyMaxDepositPeriod, kind: durationKind, at: govMaxDepositPeriod},
+		{key: keyMinExpeditedDeposit, kind: coinsKind, at: govMinExpeditedDeposit},
+		{key: keyVotingPeriod, kind: durationKind, at: govVotingPeriod},
+		{key: keyExpeditedVotingPeriod, kind: durationKind, at: govExpeditedVotingPeriod},
+		{key: keyQuorum, kind: decKind, at: govQuorum},
+		{key: keyThreshold, kind: decKind, at: govThreshold},
+		{key: keyVetoThreshold, kind: decKind, at: govVetoThreshold},
+		{key: keyExpeditedQuorum, kind: decKind, at: govExpeditedQuorum},
+		{key: keyExpeditedThreshold, kind: decKind, at: govExpeditedThreshold},
 	},
 	check: func(v values) error { return govFrom(v).Validate() },
 }
@@ -62,6 +62,12 @@ type Gov struct {
 // ReadGov returns gov's params.
 func ReadGov(state precompiles.State) Gov {
 	return govFrom(govSubspace.read(newStore(state)))
+}
+
+// HasGov reports whether gov's params have been written, reading one param.
+func HasGov(state precompiles.State) bool {
+	p, _ := govSubspace.param(keyVotingPeriod)
+	return govSubspace.get(newStore(state), p).Sign() != 0
 }
 
 // WriteGov writes g as gov's params, for genesis, if g is valid.
