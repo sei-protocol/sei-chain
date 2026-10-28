@@ -314,7 +314,7 @@ func TestEndBlockCarriesOverPastBudget(t *testing.T) {
 		h.fillDepositors(h.submit(alice, textProposal, nil), maxDepositors-1)
 	}
 	q := newStore(h.state).depositQueue()
-	settled := int(endBlockBudget / dropCost(newStore(h.state), 1))
+	settled := int(endBlockBudget / must(dropCost(newStore(h.state), 1)))
 	require.Equal(t, 4, settled, "each costs its depositors and content")
 
 	h.time = startTime + params.MaxDepositPeriod
@@ -335,8 +335,8 @@ func TestDropCostCountsContent(t *testing.T) {
 	short := h.submit(alice, textProposal, nil)
 	long := h.submit(alice, textSubmission("t", strings.Repeat("d", maxDescriptionLength), false), nil)
 	s := newStore(h.state)
-	require.Equal(t, 1+s.proposalContentChunks(short), dropCost(s, short))
-	require.Greater(t, dropCost(s, long), uint64(maxDescriptionLength/32), "a word per 32 bytes of content")
+	require.Equal(t, 1+must(s.proposalContentChunks(short)), must(dropCost(s, short)))
+	require.Greater(t, must(dropCost(s, long)), uint64(maxDescriptionLength/32), "a word per 32 bytes of content")
 }
 
 func TestSettleCostCountsContent(t *testing.T) {
@@ -345,8 +345,8 @@ func TestSettleCostCountsContent(t *testing.T) {
 	long := h.submit(alice, textSubmission("t", strings.Repeat("d", maxDescriptionLength), false), nil)
 	s := newStore(h.state)
 	snap := snapshotElectorate(h.state, equalElectorate)
-	require.Equal(t, uint64(len(snap.validators))+1+s.proposalContentChunks(short), settleCost(s, short, snap))
-	require.Greater(t, settleCost(s, long, snap), uint64(maxDescriptionLength/32), "a word per 32 bytes of content")
+	require.Equal(t, uint64(len(snap.validators))+1+must(s.proposalContentChunks(short)), must(settleCost(s, short, snap)))
+	require.Greater(t, must(settleCost(s, long, snap)), uint64(maxDescriptionLength/32), "a word per 32 bytes of content")
 }
 
 func TestEndBlockEndsVotingPastSpentDropBudget(t *testing.T) {
@@ -411,8 +411,8 @@ func TestEndBlockTalliesAcrossBlocks(t *testing.T) {
 	require.Equal(t, [4]string{"200", "0", "0", "0"}, tally(got.FinalTallyResult))
 	require.False(t, s.tallyCounting(id))
 	require.Zero(t, s.votersByProposal(id).Len())
-	require.Empty(t, s.vote(id, alice), "counted votes are removed")
-	require.Empty(t, s.vote(id, depositor(0)))
+	require.Empty(t, must(s.vote(id, alice)), "counted votes are removed")
+	require.Empty(t, must(s.vote(id, depositor(0))))
 }
 
 func TestDecArithmeticRoundsHalfToEven(t *testing.T) {
@@ -531,6 +531,7 @@ func TestTallyResultStartsOverAfterExpeditedConversion(t *testing.T) {
 func TestEndBlockDrainsQueuedMissingProposals(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
 	s := newStore(h.state)
+	s.SetUint64(at(solstorage.Slot(slotProposalIDs), lastProposalID), lastProposalID.offset, 99) // ids issued, records gone
 	s.depositQueue().add(98, startTime)
 	s.votingQueue().add(99, startTime)
 	h.endBlock(1)
@@ -551,75 +552,137 @@ func TestLiveTallyStopsOnceReadsFail(t *testing.T) {
 		h.vote(depositor(i), id, OptionYes)
 	}
 	h.state.failAt = h.state.reads + 20
-	liveTally(h.state, h.gov.Electorate, newStore(h.state), id)
+	_, _ = liveTally(h.gov.Electorate, newStore(h.state), id)
 	require.True(t, h.state.Failed())
 	require.Equal(t, 1, h.state.readsAfterFailure, "neither the voter nor the validator loop reads on for free")
 }
 
-func TestTallyIgnoresAnOptionOutsideTheRange(t *testing.T) {
-	tally := tallyState{power: new(big.Int), results: map[int32]*big.Int{
-		OptionYes: new(big.Int), OptionAbstain: new(big.Int), OptionNo: new(big.Int), OptionNoWithVeto: new(big.Int),
-	}}
-	require.NotPanics(t, func() {
-		tally.add([]weightedVote{{option: 0, weight: decOne}, {option: OptionYes, weight: decOne}}, big.NewInt(7))
-	}, "a vote read back after a failed read has option 0")
-	require.Equal(t, "7", tally.results[OptionYes].String())
+func TestStoredVoteOutsideTheOptionsIsAnError(t *testing.T) {
+	h := newHarness(t)
+	s := newStore(h.state)
+	s.setVote(1, alice, []weightedVote{{option: 0, weight: decOne}})
+	_, err := s.vote(1, alice)
+	require.ErrorIs(t, err, errInvalidStoredVote, "a vote castVote could not have written")
 }
 
-// panickingElectorate panics on every read, as a broken electorate would.
-type panickingElectorate struct{}
-
-func (panickingElectorate) BondedValidators(precompiles.State) []Validator {
-	panic("broken electorate")
+// passing opens a proposal and votes it through, ready to pass at the end of
+// its voting period.
+func (h *harness) passing() uint64 {
+	id := h.open(textProposal, usei(10))
+	for _, voter := range []common.Address{alice, bob, carol} {
+		h.vote(voter, id, OptionYes)
+	}
+	return id
 }
-func (panickingElectorate) Delegations(precompiles.State, common.Address) []Delegation {
-	panic("broken electorate")
-}
-func (panickingElectorate) TotalBonded(precompiles.State) *big.Int { panic("broken electorate") }
 
-func TestEndBlockFailsAProposalItCannotProcess(t *testing.T) {
-	h := newElectedHarness(t, panickingElectorate{})
-	first := h.open(textProposal, usei(10))
-	second := h.open(textProposal, usei(10))
+// corruptContent gives proposal id a content length no write produces.
+func (h *harness) corruptContent(id uint64) {
+	head := at(proposalBase(id), proposalContent)
+	h.state.SetState(Address, head, common.BigToHash(new(big.Int).SetUint64((solstorage.MaxStringLength+1)*2+1)))
+}
+
+func TestEndBlockFailsABadProposalInPlaceAndSettlesAGoodOne(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	bad := h.passing()
+	good := h.passing()
+	h.corruptContent(bad)
 	h.time += testParams.VotingPeriod
 	h.endBlock(1)
-	require.Len(t, h.failures, 2, "each proposal fails on its own; EndBlock returns no error")
-	for _, id := range []uint64{first, second} {
-		require.Equal(t, StatusFailed, h.status(id))
+
+	require.Equal(t, StatusFailed, h.status(bad))
+	require.Equal(t, StatusPassed, h.status(good), "the good proposal settles in the same EndBlock")
+	require.Len(t, h.failures, 1)
+	require.ErrorIs(t, h.failures[0], precompiles.ErrDegraded)
+	require.ErrorIs(t, h.failures[0], solstorage.ErrInvalidString)
+	require.Zero(t, newStore(h.state).votingQueue().Len())
+	require.Zero(t, h.state.GetBalance(DepositEscrow).Sign(), "both refunded")
+	require.Equal(t, usei(20), h.state.GetBalance(alice))
+}
+
+func TestAFailedProposalStepWritesNothing(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	id := h.passing()
+	h.corruptContent(id)
+	h.time += testParams.VotingPeriod
+	before := newStore(h.state).tally(id)
+	h.endBlock(1)
+
+	s := newStore(h.state)
+	require.Equal(t, StatusFailed, h.status(id))
+	require.Equal(t, before, s.tally(id), "the reverted step's counting is undone")
+	require.Equal(t, uint64(3), s.votersByProposal(id).Len(), "its votes stay where they were")
+	require.Equal(t, [4]string{"0", "0", "0", "0"}, tally(h.proposal(id).FinalTallyResult))
+}
+
+func TestEscrowShortfallFailsTheProposalAndKeepsTheDeposits(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	id := h.passing()
+	require.NoError(t, h.state.SubBalance(DepositEscrow, big.NewInt(1)))
+	h.time += testParams.VotingPeriod
+	h.endBlock(1)
+
+	require.Equal(t, StatusFailed, h.status(id))
+	require.Len(t, h.failures, 2, "the failed step, then the refund that cannot be paid")
+	for _, err := range h.failures {
+		require.ErrorIs(t, err, precompiles.ErrDegraded)
+		require.ErrorIs(t, err, errEscrowShort)
 	}
+	require.Equal(t, usei(10), newStore(h.state).deposit(id, alice), "the deposit stays recorded")
 	require.Zero(t, newStore(h.state).votingQueue().Len())
 }
 
-func TestCorruptContentFailsThePassedProposal(t *testing.T) {
+func TestDepositsPastTheTotalAreAnError(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
-	id := h.open(textProposal, usei(10))
-	for _, voter := range []common.Address{alice, bob, carol} {
-		h.vote(voter, id, OptionYes)
-	}
-	head := at(proposalBase(id), proposalContent)
-	h.state.SetState(Address, head, common.BigToHash(new(big.Int).SetUint64((solstorage.MaxStringLength+1)*2+1)))
-	require.Empty(t, h.proposal(id).Content, "a corrupt stored length reads as empty")
-
+	id := h.passing()
+	s := newStore(h.state)
+	s.setDeposit(id, alice, usei(30)) // more than the proposal's 10
 	h.time += testParams.VotingPeriod
 	h.endBlock(1)
 	require.Equal(t, StatusFailed, h.status(id))
-	require.Len(t, h.failures, 1)
-	require.ErrorIs(t, h.failures[0], errInvalidContent)
-	require.Equal(t, usei(10), h.state.GetBalance(alice), "deposits still settle")
+	require.ErrorIs(t, h.failures[0], errDepositOverTotal)
+	require.Equal(t, usei(10), h.state.GetBalance(DepositEscrow), "nothing paid from the pool")
 }
 
-func TestEscrowShortfallIsAFailure(t *testing.T) {
+func TestAProposalThatWillNotLeaveItsQueueIsFailed(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
-	id := h.open(textProposal, usei(10))
-	for _, voter := range []common.Address{alice, bob, carol} {
-		h.vote(voter, id, OptionYes)
-	}
-	require.NoError(t, h.state.SubBalance(DepositEscrow, usei(1)))
+	stuck := h.passing()
+	good := h.passing()
+	q := newStore(h.state).votingQueue()
+	newStore(h.state).Store.SetWord(solstorage.MapWord(solstorage.Offset(solstorage.Slot(slotVotingQueue), 1), q.heap.At(0)), common.Hash{}) // the head's position entry lost
 	h.time += testParams.VotingPeriod
 	h.endBlock(1)
-	require.Equal(t, StatusPassed, h.status(id), "the proposal still settles")
+
+	require.Equal(t, StatusFailed, h.status(stuck))
+	require.ErrorIs(t, h.failures[0], errStuckInQueue)
+	require.Equal(t, StatusPassed, h.status(good))
+	require.Zero(t, newStore(h.state).votingQueue().Len())
+}
+
+func TestACorruptQueueLengthFreezesThatQueue(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	id := h.passing()
+	dropped := h.submit(alice, textProposal, nil)
+	newStore(h.state).Store.SetWord(solstorage.Slot(slotVotingQueue), solstorage.Slot(1_000_000))
+	h.time += testParams.VotingPeriod
+	h.endBlock(1)
+
 	require.Len(t, h.failures, 1)
-	require.ErrorIs(t, h.failures[0], errEscrowShort)
-	require.Equal(t, usei(9), h.state.GetBalance(DepositEscrow), "the uncovered deposit stays in escrow")
-	require.Zero(t, newStore(h.state).deposit(id, alice).Sign(), "its record is cleared")
+	require.ErrorIs(t, h.failures[0], errQueueCorrupt)
+	require.Equal(t, StatusVotingPeriod, h.status(id), "no proposal on the frozen queue proceeds")
+	_, err := h.call(alice, callOpts{}, ProposalMethod, dropped)
+	require.ErrorIs(t, err, errUnknownProposal, "the deposit queue still drains")
+}
+
+func TestMoreDepositorsThanAllowedFailsTheProposal(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	id := h.passing()
+	good := h.passing()
+	d := newStore(h.state).depositors(id)
+	d.Store.SetWord(d.Base, solstorage.Slot(maxDepositors+1))
+	h.time += testParams.VotingPeriod
+	h.endBlock(1)
+
+	require.Equal(t, StatusFailed, h.status(id))
+	require.ErrorIs(t, h.failures[0], errInvalidStoredDeposits)
+	require.Equal(t, StatusPassed, h.status(good))
 }

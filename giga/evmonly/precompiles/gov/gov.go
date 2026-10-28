@@ -2,8 +2,9 @@
 // state is docs/giga-storage/GovStorage.sol, held as contract storage at
 // Address.
 //
-// Unlike x/gov, it accepts at most 200 depositors per proposal and requires a
-// positive minimum deposit.
+// Unlike x/gov, it accepts at most 200 depositors per proposal, requires a
+// positive minimum deposit, and marks Failed a proposal whose stored data does
+// not add up instead of failing the block.
 package gov
 
 import (

@@ -27,6 +27,8 @@ func (m mapState) GetNonce(common.Address) uint64            { panic("unsupporte
 func (m mapState) SetNonce(common.Address, uint64)           { panic("unsupported") }
 func (m mapState) GetCode(common.Address) []byte             { panic("unsupported") }
 func (m mapState) Failed() bool                              { return false }
+func (m mapState) Snapshot() int                             { panic("unsupported") }
+func (m mapState) RevertToSnapshot(int)                      { panic("unsupported") }
 
 func TestStringShrinkingClearsChunks(t *testing.T) {
 	state := mapState{}
@@ -35,15 +37,15 @@ func TestStringShrinkingClearsChunks(t *testing.T) {
 
 	long := strings.Repeat("x", 70)
 	s.SetString(slot, long)
-	require.Equal(t, long, s.String(slot))
+	require.Equal(t, long, readString(t, s, slot))
 	require.Len(t, state, 4, "head plus three chunks")
 
 	s.SetString(slot, "short")
-	require.Equal(t, "short", s.String(slot))
+	require.Equal(t, "short", readString(t, s, slot))
 	require.Len(t, state, 1, "only the inline head remains")
 
 	s.SetString(slot, "")
-	require.Empty(t, s.String(slot))
+	require.Empty(t, readString(t, s, slot))
 	require.Empty(t, state)
 }
 
@@ -137,7 +139,7 @@ func TestStringStopsOnceReadsFail(t *testing.T) {
 	s := Store{State: state}
 	s.SetString(Slot(3), strings.Repeat("x", 32*100))
 	state.accesses, state.failAt = 0, 5
-	s.String(Slot(3))
+	readString(t, s, Slot(3))
 	require.Equal(t, 1, state.accessesAfterFailure, "the chunk loop stops at the first failed read")
 }
 
@@ -150,19 +152,28 @@ func TestSetStringZeroingStopsOnceWritesFail(t *testing.T) {
 	require.Equal(t, 2, state.accessesAfterFailure, "the zeroing loop stops at the first failed write; the head write follows")
 }
 
-func TestCorruptStringReadsAsEmpty(t *testing.T) {
+func TestInvalidStoredStringIsAnError(t *testing.T) {
 	state := mapState{}
 	s := Store{State: state}
-	require.Panics(t, func() { s.SetString(Slot(3), strings.Repeat("x", MaxStringLength+1)) })
+	require.ErrorIs(t, s.SetString(Slot(3), strings.Repeat("x", MaxStringLength+1)), ErrInvalidString)
 	for name, head := range map[string]common.Hash{
 		"long past the ceiling": common.BigToHash(new(big.Int).SetUint64((MaxStringLength+1)*2 + 1)),
 		"long held inline":      common.BigToHash(big.NewInt(31*2 + 1)),
 		"short past one word":   {31: 32 * 2},
 	} {
 		state[Slot(3)] = head
-		require.Empty(t, s.String(Slot(3)), name)
-		require.Zero(t, s.StringChunks(Slot(3)), name)
+		_, err := s.String(Slot(3))
+		require.ErrorIs(t, err, ErrInvalidString, name)
+		_, err = s.StringChunks(Slot(3))
+		require.ErrorIs(t, err, ErrInvalidString, name)
 	}
 	s.SetString(Slot(4), strings.Repeat("x", MaxStringLength))
-	require.Len(t, s.String(Slot(4)), MaxStringLength)
+	require.Len(t, readString(t, s, Slot(4)), MaxStringLength)
+}
+
+func readString(t *testing.T, s Store, slot common.Hash) string {
+	t.Helper()
+	v, err := s.String(slot)
+	require.NoError(t, err)
+	return v
 }

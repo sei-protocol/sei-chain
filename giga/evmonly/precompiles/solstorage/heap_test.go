@@ -42,3 +42,23 @@ func TestHeapKeepsMinimumAndPositions(t *testing.T) {
 	}
 	require.Empty(t, state, "an emptied heap leaves no storage")
 }
+
+func TestPopMinRemovesTheRootWhenItsPositionIsWrong(t *testing.T) {
+	state := mapState{}
+	h := NewHeap(Store{State: state}, Slot(4))
+	for _, v := range []uint64{5, 3, 9, 1} {
+		require.True(t, h.Push(Slot(v)))
+	}
+	h.set.setPosition(Slot(1), 0) // the root's position entry lost
+	require.False(t, h.Remove(Slot(1)), "Remove trusts the position entry")
+	require.True(t, h.PopMin())
+	require.Equal(t, uint64(3), h.Len())
+	require.Equal(t, Slot(3), h.At(0))
+	for _, v := range []uint64{3, 5, 9} {
+		require.True(t, h.Contains(Slot(v)), v)
+	}
+	require.True(t, h.PopMin())
+	require.True(t, h.PopMin())
+	require.True(t, h.PopMin())
+	require.False(t, h.PopMin(), "empty")
+}

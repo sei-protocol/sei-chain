@@ -62,6 +62,29 @@ func (h Heap) Remove(v common.Hash) bool {
 	return true
 }
 
+// PopMin removes the word at index 0 by its array position alone, reporting
+// whether the heap held one. It leaves the heap smaller even when the word's
+// position entry is wrong.
+func (h Heap) PopMin() bool {
+	n := h.Len()
+	if n == 0 {
+		return false
+	}
+	root, last := h.At(0), n-1
+	if last != 0 {
+		moved := h.At(last)
+		h.set.Store.SetWord(h.slot(0), moved)
+		h.set.setPosition(moved, 1)
+	}
+	h.set.Store.SetWord(h.slot(last), common.Hash{})
+	h.set.Store.SetWord(h.set.Base, Slot(last))
+	h.set.setPosition(root, 0)
+	if last != 0 {
+		h.down(0)
+	}
+	return true
+}
+
 func (h Heap) up(i uint64) {
 	for i > 0 {
 		parent := (i - 1) / 2

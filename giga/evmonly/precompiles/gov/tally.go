@@ -45,7 +45,7 @@ func snapshotElectorate(state precompiles.State, electorate Electorate) electora
 // unit per voter, as x/gov's incremental tally does. It removes each vote it
 // counts, except a bonded validator's own vote, which finishTally reads. It
 // reports whether every vote is counted.
-func countVotes(state precompiles.State, electorate Electorate, s store, id uint64, snap electorateSnapshot, budget *uint64) bool {
+func countVotes(electorate Electorate, s store, id uint64, snap electorateSnapshot, budget *uint64) (bool, error) {
 	t := s.tally(id)
 	t.counting = true
 	defer s.setTally(id, t)
@@ -56,27 +56,31 @@ func countVotes(state precompiles.State, electorate Electorate, s store, id uint
 	voters := s.votersByProposal(id)
 	for n := voters.Len(); n > 0; n-- {
 		if !take(budget, 1) {
-			return false
+			return false, nil
 		}
 		member := voters.At(n - 1)
 		voter := solstorage.MemberAddress(member)
-		creditVoter(state, electorate, s, id, voter, snap, &t, deduct)
+		if err := creditVoter(electorate, s, id, voter, snap, &t, deduct); err != nil {
+			return false, err
+		}
 		if _, ok := snap.byOperator[voter]; !ok {
 			s.setVote(id, voter, nil)
 		}
 		voters.Remove(member)
 	}
-	return true
+	return true, nil
 }
 
 // finishTally adds each bonded validator's own vote, weighted by its delegator
 // shares less those whose delegators voted, then clears the tally and decides
 // the outcome as x/gov's tally does.
-func finishTally(state precompiles.State, electorate Electorate, s store, id uint64, prop proposal, params Params, snap electorateSnapshot) tallyOutcome {
+func finishTally(electorate Electorate, s store, id uint64, prop proposal, params Params, snap electorateSnapshot) (tallyOutcome, error) {
 	t := s.tally(id)
-	creditValidators(s, id, snap, &t, func(validator common.Address) *big.Int { return s.tallyDeduction(id, validator) })
+	if err := creditValidators(s, id, snap, &t, func(validator common.Address) *big.Int { return s.tallyDeduction(id, validator) }); err != nil {
+		return tallyOutcome{}, err
+	}
 	for _, v := range snap.validators {
-		if len(s.vote(id, v.Operator)) > 0 {
+		if vote, _ := s.vote(id, v.Operator); len(vote) > 0 { // creditValidators checked every vote
 			s.setVote(id, v.Operator, nil)
 		}
 		s.setTallyDeduction(id, v.Operator, new(big.Int))
@@ -90,11 +94,11 @@ func finishTally(state precompiles.State, electorate Electorate, s store, id uin
 
 	out := tallyOutcome{results: t.results}
 	if electorate == nil {
-		return out
+		return out, nil
 	}
-	bonded := electorate.TotalBonded(state)
+	bonded := electorate.TotalBonded(s.State)
 	if bonded.Sign() == 0 {
-		return out
+		return out, nil
 	}
 	quorum, threshold := params.Quorum, params.Threshold
 	if prop.isExpedited {
@@ -102,24 +106,24 @@ func finishTally(state precompiles.State, electorate Electorate, s store, id uin
 	}
 	if quoDec(t.power, new(big.Int).Mul(bonded, decOneInt)).Cmp(new(big.Int).SetUint64(quorum)) < 0 {
 		out.burnDeposits = true
-		return out
+		return out, nil
 	}
 	nonAbstain := new(big.Int).Sub(t.power, t.results[OptionAbstain])
 	if nonAbstain.Sign() == 0 {
-		return out
+		return out, nil
 	}
 	if quoDec(t.results[OptionNoWithVeto], t.power).Cmp(new(big.Int).SetUint64(params.VetoThreshold)) > 0 {
 		out.burnDeposits = true
-		return out
+		return out, nil
 	}
 	out.passes = quoDec(t.results[OptionYes], nonAbstain).Cmp(new(big.Int).SetUint64(threshold)) > 0
-	return out
+	return out, nil
 }
 
 // liveTally returns proposal id's tally as if its voting ended now, without
 // writing state, as x/gov's TallyResult query does for a proposal in voting.
-func liveTally(state precompiles.State, electorate Electorate, s store, id uint64) tallyOutcome {
-	snap := snapshotElectorate(state, electorate)
+func liveTally(electorate Electorate, s store, id uint64) (tallyOutcome, error) {
+	snap := snapshotElectorate(s.State, electorate)
 	t := s.tally(id)
 	deductions := map[common.Address]*big.Int{}
 	deducted := func(validator common.Address) *big.Int {
@@ -129,24 +133,32 @@ func liveTally(state precompiles.State, electorate Electorate, s store, id uint6
 		return s.tallyDeduction(id, validator)
 	}
 	voters := s.votersByProposal(id)
-	for i, n := uint64(0), voters.Len(); i < n && !state.Failed(); i++ {
-		creditVoter(state, electorate, s, id, solstorage.MemberAddress(voters.At(i)), snap, &t, func(validator common.Address, shares *big.Int) {
+	for i, n := uint64(0), voters.Len(); i < n && !s.State.Failed(); i++ {
+		err := creditVoter(electorate, s, id, solstorage.MemberAddress(voters.At(i)), snap, &t, func(validator common.Address, shares *big.Int) {
 			deductions[validator] = new(big.Int).Add(deducted(validator), shares)
 		})
+		if err != nil {
+			return tallyOutcome{}, err
+		}
 	}
-	creditValidators(s, id, snap, &t, deducted)
-	return tallyOutcome{results: t.results}
+	if err := creditValidators(s, id, snap, &t, deducted); err != nil {
+		return tallyOutcome{}, err
+	}
+	return tallyOutcome{results: t.results}, nil
 }
 
 // creditVoter adds voter's vote on proposal id to t through each of its
 // delegations to a bonded validator, passing deduct the shares it takes from
 // that validator's own vote.
-func creditVoter(state precompiles.State, electorate Electorate, s store, id uint64, voter common.Address, snap electorateSnapshot, t *tallyState, deduct func(common.Address, *big.Int)) {
+func creditVoter(electorate Electorate, s store, id uint64, voter common.Address, snap electorateSnapshot, t *tallyState, deduct func(common.Address, *big.Int)) error {
 	if electorate == nil {
-		return
+		return nil
 	}
-	vote := s.vote(id, voter)
-	for _, d := range electorate.Delegations(state, voter) {
+	vote, err := s.vote(id, voter)
+	if err != nil {
+		return err
+	}
+	for _, d := range electorate.Delegations(s.State, voter) {
 		v, ok := snap.byOperator[d.Validator]
 		if !ok {
 			continue
@@ -154,19 +166,25 @@ func creditVoter(state precompiles.State, electorate Electorate, s store, id uin
 		deduct(v.Operator, d.Shares)
 		t.add(vote, votingPower(d.Shares, v))
 	}
+	return nil
 }
 
 // creditValidators adds each bonded validator's own vote on proposal id to t,
 // weighted by its delegator shares less deducted(validator).
-func creditValidators(s store, id uint64, snap electorateSnapshot, t *tallyState, deducted func(common.Address) *big.Int) {
+func creditValidators(s store, id uint64, snap electorateSnapshot, t *tallyState, deducted func(common.Address) *big.Int) error {
 	for _, v := range snap.validators {
 		if s.State.Failed() {
-			return
+			return nil
 		}
-		if vote := s.vote(id, v.Operator); len(vote) > 0 {
+		vote, err := s.vote(id, v.Operator)
+		if err != nil {
+			return err
+		}
+		if len(vote) > 0 {
 			t.add(vote, votingPower(new(big.Int).Sub(v.DelegatorShares, deducted(v.Operator)), v))
 		}
 	}
+	return nil
 }
 
 // votingPower is shares of v's delegator shares, in 1e18-scaled tokens.
@@ -174,14 +192,11 @@ func votingPower(shares *big.Int, v Validator) *big.Int {
 	return quoDec(new(big.Int).Mul(shares, v.BondedTokens), v.DelegatorShares)
 }
 
-// add credits power to vote's options by their weights, skipping an option
-// outside Yes..NoWithVeto.
+// add credits power to vote's options by their weights. store.vote returns
+// only options in Yes..NoWithVeto.
 func (t *tallyState) add(vote []weightedVote, power *big.Int) {
 	for _, option := range vote {
-		result, ok := t.results[option.option]
-		if !ok {
-			continue // a vote read back after a failed read
-		}
+		result := t.results[option.option]
 		result.Add(result, mulDec(power, new(big.Int).SetUint64(option.weight)))
 	}
 	t.power.Add(t.power, power)
