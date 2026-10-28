@@ -110,7 +110,7 @@ func (s Store) String(slot common.Hash) string {
 	length := n.Uint64()
 	out := make([]byte, 0, length)
 	data := ArrayData(slot)
-	for i := uint64(0); uint64(len(out)) < length; i++ {
+	for i := uint64(0); uint64(len(out)) < length && !s.State.Failed(); i++ {
 		chunk := s.Word(Offset(data, i))
 		out = append(out, chunk[:min(32, length-uint64(len(out)))]...)
 	}

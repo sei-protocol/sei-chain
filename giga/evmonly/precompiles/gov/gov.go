@@ -31,21 +31,46 @@ var ABI = func() abi.ABI {
 }()
 
 const (
-	VoteMethod                                = "vote"
-	VoteWeightedMethod                        = "voteWeighted"
-	DepositMethod                             = "deposit"
-	SubmitTextProposalMethod                  = "submitTextProposal"
-	SubmitSoftwareUpgradeProposalMethod       = "submitSoftwareUpgradeProposal"
-	SubmitCancelSoftwareUpgradeProposalMethod = "submitCancelSoftwareUpgradeProposal"
-	ProposalMethod                            = "proposal"
-	ProposalsMethod                           = "proposals"
-	GetVoteMethod                             = "getVote"
-	VotesMethod                               = "votes"
-	ParamsMethod                              = "params"
-	GetDepositMethod                          = "getDeposit"
-	DepositsMethod                            = "deposits"
-	TallyResultMethod                         = "tallyResult"
+	VoteMethod               = "vote"
+	VoteWeightedMethod       = "voteWeighted"
+	DepositMethod            = "deposit"
+	SubmitTextProposalMethod = "submitTextProposal"
+	ProposalMethod           = "proposal"
+	ProposalsMethod          = "proposals"
+	GetVoteMethod            = "getVote"
+	VotesMethod              = "votes"
+	ParamsMethod             = "params"
+	GetDepositMethod         = "getDeposit"
+	DepositsMethod           = "deposits"
+	TallyResultMethod        = "tallyResult"
 )
+
+// Events.
+const (
+	SubmitProposalEvent  = "SubmitProposal"
+	ProposalDepositEvent = "ProposalDeposit"
+	ProposalVoteEvent    = "ProposalVote"
+)
+
+var (
+	errUnsupportedUpgrade = errors.New("software upgrade proposals are not supported yet")
+	errAuthzUnsupported   = errors.New("gov authorizations are not supported")
+)
+
+// retiredMethods are the methods, by signature, gov keeps in its ABI only to
+// revert with an error naming the call to use instead.
+var retiredMethods = map[string]error{
+	"submitProposal(string)":                                                  errors.New("submitProposal(string) is not supported; use submitTextProposal"),
+	"voteWeighted(uint64,(int32,string)[])":                                   errors.New("voteWeighted with decimal string weights is not supported; use voteWeighted(uint64,(int32,uint256)[]) with 1e18-scaled weights"),
+	"submitSoftwareUpgradeProposal(string,string,bool,(string,int64,string))": errUnsupportedUpgrade,
+	"submitCancelSoftwareUpgradeProposal(string,string,bool)":                 errUnsupportedUpgrade,
+	"grantVoteAuthorization(address,int64)":                                   errAuthzUnsupported,
+	"grantProposalAuthorization(address,int64)":                               errAuthzUnsupported,
+	"revokeVoteAuthorization(address)":                                        errAuthzUnsupported,
+	"revokeProposalAuthorization(address)":                                    errAuthzUnsupported,
+	"voteWithAuthorization(address,uint64,int32)":                             errAuthzUnsupported,
+	"submitProposalWithAuthorization(address,string)":                         errAuthzUnsupported,
+}
 
 // Flat per-call gas, as V2's pcommon.DefaultGasCost prices it from the
 // Cosmos KV gas config, charged on the arguments after the method selector.
@@ -79,13 +104,10 @@ func (Precompile) RequiredGas(input []byte) uint64 {
 		return unknownMethodGas
 	}
 	args := uint64(len(input) - 4) //nolint:gosec // methodOf requires a 4-byte selector
-	switch method.Name {
-	case VoteMethod, VoteWeightedMethod, DepositMethod,
-		SubmitTextProposalMethod, SubmitSoftwareUpgradeProposalMethod, SubmitCancelSoftwareUpgradeProposalMethod:
-		return transactionGas + transactionByteGas*args
-	default:
+	if method.IsConstant() {
 		return queryGas + queryByteGas*args
 	}
+	return transactionGas + transactionByteGas*args
 }
 
 func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) {
@@ -94,6 +116,9 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	}
 	method, err := methodOf(input)
 	if err != nil {
+		return nil, err
+	}
+	if err := retiredMethods[method.Sig]; err != nil {
 		return nil, err
 	}
 	args, err := method.Inputs.Unpack(input[4:])
@@ -105,7 +130,7 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	}
 	s := newStore(ctx.State)
 
-	switch method.Name {
+	switch method.RawName {
 	case ProposalMethod:
 		return p.proposalQuery(s, method, args)
 	case ProposalsMethod:
@@ -128,7 +153,7 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 		return nil, errStaticCall
 	}
 
-	switch method.Name {
+	switch method.RawName {
 	case VoteMethod:
 		return p.vote(ctx, s, method, args)
 	case VoteWeightedMethod:
@@ -137,10 +162,6 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 		return p.deposit(ctx, s, method, args)
 	case SubmitTextProposalMethod:
 		return p.submitTextProposal(ctx, s, method, args)
-	case SubmitSoftwareUpgradeProposalMethod:
-		return p.submitSoftwareUpgradeProposal(ctx, s, method, args)
-	case SubmitCancelSoftwareUpgradeProposalMethod:
-		return p.submitCancelSoftwareUpgradeProposal(ctx, s, method, args)
 	}
 	return nil, errUnknownMethod
 }

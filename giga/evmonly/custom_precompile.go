@@ -220,6 +220,10 @@ func (s *precompileState) SetState(addr common.Address, key common.Hash, value c
 	s.db.SetState(addr, key, value)
 }
 
+func (s *precompileState) Failed() bool {
+	return s.err != nil
+}
+
 func (s *precompileState) AddLog(log *ethtypes.Log) {
 	if !s.writable() || !s.charge(logGas(log)) {
 		return

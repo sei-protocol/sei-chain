@@ -2,16 +2,13 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-
-/// @dev Matches `GOV_PRECOMPILE_ADDRESS` in `giga/evmonly/precompiles/gov/Gov.sol`.
-address constant GOV_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001006;
+import {GOV_PRECOMPILE_ADDRESS, TextContent} from "giga-precompiles/gov/Gov.sol";
 
 /// @notice Storage schema of the evmonly gov precompile (0x1006), held as that
 /// address's contract storage.
-/// @dev Deposits are held as the balance of a separate escrow address, not in
-/// state variables. The precompile's ABI has no authz grant methods, so there is
-/// no grant storage. `appliedPlanHeight` records the height each upgrade plan
-/// was applied at, for an upgrade precompile to read.
+/// @dev Deposited funds sit in the balance of a derived escrow address
+/// (`DepositEscrow` in `gov/layout.go`); `deposits` holds each depositor's
+/// amount. The content structs a proposal stores are declared in `Gov.sol`.
 contract GovStorage {
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.UintSet;
@@ -24,7 +21,7 @@ contract GovStorage {
     struct Proposal {
         int32 status;
         bool isExpedited;
-        uint8 contentType; // 0: TextContent, 1: SoftwareUpgradeContent, 2: CancelSoftwareUpgradeContent
+        uint8 contentType; // 0: TextContent; 1 and 2 are reserved for software upgrades
         uint64 submitTime; // Unix nanoseconds, as are the other times
         uint64 depositEndTime;
         uint64 votingStartTime;
@@ -36,31 +33,6 @@ contract GovStorage {
         uint256 tallyNoWithVeto;
         bytes content; // abi.encode of the contentType struct
         uint256[4] __gap;
-    }
-
-    /// @dev The content structs. Each holds the fields of the V2 Content its
-    /// proposal type creates.
-    struct TextContent {
-        string title;
-        string description;
-        bool isExpedited;
-    }
-
-    struct UpgradePlan {
-        string name;
-        int64 height;
-        string info;
-    }
-
-    struct SoftwareUpgradeContent {
-        string title;
-        string description;
-        UpgradePlan plan;
-    }
-
-    struct CancelSoftwareUpgradeContent {
-        string title;
-        string description;
     }
 
     /// @dev A min-heap of `endTime << 64 | proposalId` keys, so its root is the
@@ -82,13 +54,6 @@ contract GovStorage {
         bool counting;
     }
 
-    struct Plan {
-        string name;
-        int64 height;
-        string info;
-        uint64 proposalId;
-    }
-
     struct Params {
         uint64 votingPeriod; // nanoseconds, as are the other periods
         uint64 expeditedVotingPeriod;
@@ -105,20 +70,15 @@ contract GovStorage {
     uint64 internal lastProposalId; // highest id assigned; 0 before the first proposal
     uint64 internal startingProposalId; // first id to assign; 0 means 1
     Params internal params;
-    Plan internal plan; // the single live upgrade plan
 
     mapping(uint64 => Proposal) internal proposals;
     mapping(uint64 => mapping(address => WeightedVote[])) internal votes; // proposalId => voter => options
     mapping(uint64 => mapping(address => uint256)) internal deposits; // proposalId => depositor => cumulative
 
     mapping(uint64 => EnumerableSet.AddressSet) internal depositors; // proposalId => distinct depositors, at most maxDepositors
-    mapping(address => EnumerableSet.UintSet) internal proposalsVotedBy;
-    mapping(address => EnumerableSet.UintSet) internal proposalsDepositedBy;
 
     ProposalQueue internal votingQueue; // proposals pending a voting-period end
     ProposalQueue internal depositQueue; // proposals pending a deposit-period end
-
-    mapping(string => int64) internal appliedPlanHeight; // plan name => applied height
 
     mapping(uint64 => EnumerableSet.AddressSet) internal votersByProposal; // proposalId => distinct voters
 

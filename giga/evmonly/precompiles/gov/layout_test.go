@@ -43,22 +43,18 @@ func TestLayoutMatchesForge(t *testing.T) {
 	require.NoError(t, json.Unmarshal(bz, &layout))
 
 	topLevel := map[string]member{
-		"lastProposalId":       {slotProposalIDs + lastProposalID.slot, lastProposalID.offset},
-		"startingProposalId":   {slotProposalIDs + startingProposalID.slot, startingProposalID.offset},
-		"params":               {slotParams, 0},
-		"plan":                 {slotPlan, 0},
-		"proposals":            {slotProposals, 0},
-		"votes":                {slotVotes, 0},
-		"deposits":             {slotDeposits, 0},
-		"depositors":           {slotDepositors, 0},
-		"proposalsVotedBy":     {slotProposalsVotedBy, 0},
-		"proposalsDepositedBy": {slotProposalsDepositedBy, 0},
-		"votingQueue":          {slotVotingQueue, 0},
-		"depositQueue":         {slotDepositQueue, 0},
-		"appliedPlanHeight":    {slotAppliedPlanHeight, 0},
-		"votersByProposal":     {slotVotersByProposal, 0},
-		"tallies":              {slotTallies, 0},
-		"tallyDeductions":      {slotTallyDeductions, 0},
+		"lastProposalId":     {slotProposalIDs + lastProposalID.slot, lastProposalID.offset},
+		"startingProposalId": {slotProposalIDs + startingProposalID.slot, startingProposalID.offset},
+		"params":             {slotParams, 0},
+		"proposals":          {slotProposals, 0},
+		"votes":              {slotVotes, 0},
+		"deposits":           {slotDeposits, 0},
+		"depositors":         {slotDepositors, 0},
+		"votingQueue":        {slotVotingQueue, 0},
+		"depositQueue":       {slotDepositQueue, 0},
+		"votersByProposal":   {slotVotersByProposal, 0},
+		"tallies":            {slotTallies, 0},
+		"tallyDeductions":    {slotTallyDeductions, 0},
 	}
 	got := map[string]member{}
 	for _, e := range layout.Storage {
@@ -78,12 +74,6 @@ func TestLayoutMatchesForge(t *testing.T) {
 			"vetoThreshold":         paramsVetoThreshold,
 			"expeditedQuorum":       paramsExpeditedQuorum,
 			"expeditedThreshold":    paramsExpeditedThreshold,
-		},
-		"Plan": {
-			"name":       planName,
-			"height":     planHeight,
-			"info":       planInfo,
-			"proposalId": planProposalID,
 		},
 		"Proposal": {
 			"status":          proposalStatus,
@@ -145,8 +135,9 @@ func mustUint(t *testing.T, s string) uint64 {
 
 // TestStoreReadsCompilerWrites runs GovStorageHarness, which writes GovStorage
 // with solc's codegen, and reads the result back through store. Rebuild
-// testdata with `forge inspect GovStorageHarness deployedBytecode` and the
-// remapping giga-storage/=docs/giga-storage/.
+// testdata with `forge inspect GovStorageHarness deployedBytecode` under solc
+// 0.8.37 and the remappings giga-storage/=docs/giga-storage/ and
+// giga-precompiles/=giga/evmonly/precompiles/.
 func TestStoreReadsCompilerWrites(t *testing.T) {
 	code, err := os.ReadFile("testdata/GovStorageHarness.bin-runtime")
 	require.NoError(t, err)
@@ -193,7 +184,7 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 		tallyNoWithVeto: big.NewInt(25),
 	}, prop)
 	contentType, stored := s.proposalContent(5)
-	require.Equal(t, contentSoftwareUpgrade, contentType)
+	require.Equal(t, uint8(2), contentType)
 	require.Equal(t, content, stored)
 
 	require.Equal(t, []weightedVote{
@@ -205,8 +196,6 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 
 	require.Equal(t, []common.Hash{solstorage.AddressKey(other)}, members(s.depositors(5)))
 	require.Equal(t, []common.Hash{solstorage.AddressKey(voter)}, members(s.votersByProposal(5)))
-	require.Equal(t, []common.Hash{solstorage.Slot(5)}, members(s.proposalsVotedBy(voter)))
-	require.Equal(t, []common.Hash{solstorage.Slot(5), solstorage.Slot(6)}, members(s.proposalsDepositedBy(other)))
 	require.Equal(t, uint64(2), s.votingQueue().Len())
 	require.True(t, s.votingQueue().contains(5, 1_700_000_004))
 	require.True(t, s.votingQueue().contains(6, 1_700_000_004))
@@ -229,8 +218,6 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 	}, s.tally(5))
 	require.Equal(t, big.NewInt(46), s.tallyDeduction(5, other))
 	require.False(t, s.depositors(5).Contains(solstorage.AddressKey(voter)))
-
-	require.Equal(t, int64(123_456), s.Int64(solstorage.MapString(solstorage.Slot(slotAppliedPlanHeight), "v6.9.0"), 0))
 }
 
 func members(set solstorage.Set) []common.Hash {
@@ -261,6 +248,7 @@ func (v stateDBView) SubBalance(common.Address, *big.Int) error         { panic(
 func (v stateDBView) GetNonce(common.Address) uint64                    { panic("unsupported") }
 func (v stateDBView) SetNonce(common.Address, uint64)                   { panic("unsupported") }
 func (v stateDBView) GetCode(common.Address) []byte                     { panic("unsupported") }
+func (v stateDBView) Failed() bool                                      { return false }
 
 // TestContentEncodingMatchesSolc checks encodeContent against solc's
 // abi.encode of each GovStorage content struct, run in GovStorageHarness.
@@ -283,10 +271,6 @@ func TestContentEncodingMatchesSolc(t *testing.T) {
 	}{
 		"text": {textContent{Title: "t", Description: long, IsExpedited: true},
 			solc("textContent(string,string,bool)", "t", long, true)},
-		"software upgrade": {softwareUpgradeContent{Title: "t", Description: "d", Plan: UpgradePlan{Name: "v2", Height: -3, Info: long}},
-			solc("softwareUpgradeContent(string,string,string,int64,string)", "t", "d", "v2", int64(-3), long)},
-		"cancel software upgrade": {cancelSoftwareUpgradeContent{Title: long, Description: "d"},
-			solc("cancelSoftwareUpgradeContent(string,string)", long, "d")},
 	} {
 		_, encoded := encodeContent(tc.content)
 		require.Equal(t, tc.solc, encoded, name)
