@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
+	"unsafe"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -75,7 +78,31 @@ func TestHandlePrecompileErrorTruncatesLongMessage(t *testing.T) {
 	require.Greater(t, len(stored.Error()), common.MaxPrecompileErrorLength-utf8.UTFMax)
 	require.True(t, utf8.ValidString(stored.Error()))
 	require.True(t, strings.HasPrefix(long.Error(), stored.Error()))
-	require.ErrorIs(t, stored, long)
+}
+
+func TestHandlePrecompileErrorDoesNotRetainFullMessage(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	stateDB := state.NewDBImpl(ctx, k, false)
+
+	released := recordLongPrecompileError(&vm.EVM{StateDB: stateDB})
+	runtime.GC()
+	select {
+	case <-released:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the StateDB keeps the full message of a truncated precompile error reachable")
+	}
+	require.Error(t, stateDB.GetPrecompileError())
+}
+
+// recordLongPrecompileError records an error with an over-long message on evm's StateDB and returns
+// a channel that is closed once that message has been garbage collected.
+func recordLongPrecompileError(evm *vm.EVM) <-chan struct{} {
+	err := fmt.Errorf("wrapped: %w", errors.New(strings.Repeat("€", common.MaxPrecompileErrorLength)))
+	released := make(chan struct{})
+	runtime.AddCleanup(unsafe.StringData(err.Error()), func(c chan struct{}) { close(c) }, released)
+	common.HandlePrecompileError(err, evm, "long")
+	return released
 }
 
 type MockPrecompileExecutor struct {
