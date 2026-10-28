@@ -218,6 +218,7 @@ func prepareAheadTestRouter(t *testing.T, newApp func(lastHeight int64) *prepari
 func runUntilExecuted(t *testing.T, router *gigaFullnodeRouter, app *preparingTestApp, total int) {
 	t.Helper()
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(router.data.Run(ctx)) })
 		s.SpawnBg(func() error { return utils.IgnoreCancel(router.runExecute(ctx)) })
 		for appState, ctrl := range app.state.Lock() {
 			return ctrl.WaitUntil(ctx, func() bool { return len(appState.Blocks) == total })
@@ -274,7 +275,10 @@ func TestGigaRouterCommon_RunExecuteStopsOnAPrepareError(t *testing.T) {
 		}
 		return app
 	})
-	require.ErrorIs(t, router.runExecute(t.Context()), errPrepare)
+	require.ErrorIs(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(router.data.Run(ctx)) })
+		return router.runExecute(ctx)
+	}), errPrepare)
 }
 
 // The look-ahead never prepares more blocks than the EVM-only app's prepared queue holds.
