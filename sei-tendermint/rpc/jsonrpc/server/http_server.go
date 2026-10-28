@@ -200,7 +200,7 @@ func writeRPCResponse(w http.ResponseWriter, rsps ...rpctypes.RPCResponse) {
 
 // writeJSONRPCErrorWithStatus writes a JSON-RPC 2.0 error object for POST /
 // admission rejections. The response id is best-effort parsed from reqBody, and
-// is null when reqBody is a batch.
+// is omitted when reqBody is a batch or yields no id.
 func writeJSONRPCErrorWithStatus(w http.ResponseWriter, reqBody []byte, httpStatus int, code rpctypes.ErrorCode, format string, args ...interface{}) {
 	var req rpctypes.RPCRequest
 	if len(reqBody) > 0 && !isBatchRequest(reqBody) {
