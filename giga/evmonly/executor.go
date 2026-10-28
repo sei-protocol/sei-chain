@@ -51,6 +51,8 @@ type Executor struct {
 	pipelineDone    chan struct{}
 	pipelineErr     error
 	pipelineChanges *StateChangeSet
+	// pipelineIndex indexes pipelineChanges for the next block's overlay.
+	pipelineIndex *pendingIndex
 	// pipelineNonces indexes pipelineChanges' nonces by address once a reader asks for one.
 	pipelineNonces map[common.Address]uint64
 	// The first commit that failed, kept so no caller can miss it.
