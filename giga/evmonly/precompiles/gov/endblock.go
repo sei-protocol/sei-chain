@@ -12,9 +12,9 @@ var _ precompiles.EndBlocker = Precompile{}
 
 // endBlockBudget bounds each of one EndBlock's two kinds of work, dropping
 // proposals and ending votes, as x/gov's MaxVotesProcessedPerBlock does.
-// Dropping a proposal costs one unit plus one per depositor; counting a vote
-// costs one; finishing a tally costs one per bonded validator plus the drop
-// cost. Work past its budget waits for the next EndBlock, and work larger than
+// Dropping a proposal costs one unit, plus one per depositor and one per word
+// of its stored content; counting a vote costs one; finishing a tally costs
+// one per bonded validator, one, and one per depositor. Work past its budget waits for the next EndBlock, and work larger than
 // the budget runs alone in one.
 const endBlockBudget = 1_000
 
@@ -45,7 +45,7 @@ func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.S
 func dropDueProposals(s store, now uint64) error {
 	budget := uint64(endBlockBudget)
 	for id, end, ok := s.depositQueue().due(now); ok; id, end, ok = s.depositQueue().due(now) {
-		if !take(&budget, 1+s.depositors(id).Len()) {
+		if !take(&budget, dropCost(s, id)) {
 			return nil
 		}
 		if err := dropProposal(s, id, end); err != nil {
@@ -53,6 +53,12 @@ func dropDueProposals(s store, now uint64) error {
 		}
 	}
 	return nil
+}
+
+// dropCost is the budget dropping proposal id costs: it clears every depositor
+// and every word of the proposal's content.
+func dropCost(s store, id uint64) uint64 {
+	return 1 + s.depositors(id).Len() + s.proposalContentChunks(id)
 }
 
 // take spends n of budget, reporting whether the work may run. Work larger than

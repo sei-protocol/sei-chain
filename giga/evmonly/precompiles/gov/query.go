@@ -179,8 +179,8 @@ func proposalData(s store, id uint64, prop proposal) (ProposalData, error) {
 		SubmitTime:       unixSeconds(prop.submitTime),
 		DepositEndTime:   unixSeconds(prop.depositEndTime),
 		TotalDeposit:     coins(prop.totalDeposit),
-		VotingStartTime:  unixSeconds(prop.votingStartTime),
-		VotingEndTime:    unixSeconds(prop.votingEndTime),
+		VotingStartTime:  votingTime(prop.votingStartTime),
+		VotingEndTime:    votingTime(prop.votingEndTime),
 		IsExpedited:      prop.isExpedited,
 		Content:          content.v2JSON(),
 	}, nil
@@ -190,6 +190,18 @@ func proposalData(s store, id uint64, prop proposal) (ProposalData, error) {
 // as time.Time.Unix does.
 func unixSeconds(nanos uint64) int64 {
 	return int64(nanos / uint64(time.Second)) //nolint:gosec // below 2^35 after the division
+}
+
+// unsetTime is the Unix time of V2's unset voting times, time.Time{}.Unix().
+const unsetTime = -62_135_596_800
+
+// votingTime converts a voting time to Unix seconds, giving unsetTime for one
+// not yet set, as V2 does before voting starts.
+func votingTime(nanos uint64) int64 {
+	if nanos == 0 {
+		return unsetTime
+	}
+	return unixSeconds(nanos)
 }
 
 // durationSeconds converts nanoseconds to whole seconds, rounding down as

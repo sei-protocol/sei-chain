@@ -7,8 +7,11 @@ import (
 	"time"
 )
 
-// maxPeriod bounds every period, in nanoseconds, so an end time cannot overflow.
-const maxPeriod = 1 << 62
+// Bounds on every period, in nanoseconds.
+const (
+	minPeriod = uint64(time.Second)
+	maxPeriod = 1 << 62 // a block time plus any period fits in 64 bits
+)
 
 // DefaultParams returns x/gov's default params.
 func DefaultParams() Params {
@@ -26,17 +29,19 @@ func DefaultParams() Params {
 	}
 }
 
-// Validate checks p as x/gov checks its params, and also requires both
-// minimum deposits to be positive, which x/gov does not.
+// Validate checks p as x/gov checks its params, and also requires periods of
+// 1s to 2^62ns and positive minimum deposits, which x/gov does not.
 func (p Params) Validate() error {
-	if p.VotingPeriod == 0 || p.VotingPeriod > maxPeriod {
-		return fmt.Errorf("voting_period must be in 1..%d nanoseconds", uint64(maxPeriod))
+	for _, d := range []struct {
+		name   string
+		period uint64
+	}{{"voting_period", p.VotingPeriod}, {"expedited_voting_period", p.ExpeditedVotingPeriod}, {"max_deposit_period", p.MaxDepositPeriod}} {
+		if d.period < minPeriod || d.period > maxPeriod {
+			return fmt.Errorf("%s must be in %d..%d nanoseconds", d.name, minPeriod, uint64(maxPeriod))
+		}
 	}
-	if p.ExpeditedVotingPeriod == 0 || p.ExpeditedVotingPeriod >= p.VotingPeriod {
-		return errors.New("expedited_voting_period must be positive and below voting_period")
-	}
-	if p.MaxDepositPeriod == 0 || p.MaxDepositPeriod > maxPeriod {
-		return fmt.Errorf("max_deposit_period must be in 1..%d nanoseconds", uint64(maxPeriod))
+	if p.ExpeditedVotingPeriod >= p.VotingPeriod {
+		return errors.New("expedited_voting_period must be below voting_period")
 	}
 	// The depositor cap relies on a positive minimum: a zero one makes
 	// depositorShare zero, so 200 dust deposits could fill every slot.

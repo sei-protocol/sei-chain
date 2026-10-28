@@ -120,7 +120,7 @@ func (s Store) String(slot common.Hash) string {
 // SetString writes v in Solidity's native encoding, zeroing any chunks of the
 // previous value that v no longer covers.
 func (s Store) SetString(slot common.Hash, v string) {
-	oldChunks := s.longChunks(slot)
+	oldChunks := s.StringChunks(slot)
 	var head common.Hash
 	newChunks := uint64(0)
 	if len(v) <= 31 {
@@ -143,8 +143,9 @@ func (s Store) SetString(slot common.Hash, v string) {
 	s.SetWord(slot, head)
 }
 
-// longChunks returns how many data chunks the string at slot occupies.
-func (s Store) longChunks(slot common.Hash) uint64 {
+// StringChunks returns how many data chunks the string or bytes value at slot
+// occupies, 0 for one held in the slot itself.
+func (s Store) StringChunks(slot common.Hash) uint64 {
 	w := s.Word(slot)
 	if w[31]&1 == 0 {
 		return 0

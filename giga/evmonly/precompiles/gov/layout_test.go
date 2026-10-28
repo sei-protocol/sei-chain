@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/core/vm/runtime"
@@ -260,3 +261,34 @@ func (v stateDBView) SubBalance(common.Address, *big.Int) error         { panic(
 func (v stateDBView) GetNonce(common.Address) uint64                    { panic("unsupported") }
 func (v stateDBView) SetNonce(common.Address, uint64)                   { panic("unsupported") }
 func (v stateDBView) GetCode(common.Address) []byte                     { panic("unsupported") }
+
+// TestContentEncodingMatchesSolc checks encodeContent against solc's
+// abi.encode of each GovStorage content struct, run in GovStorageHarness.
+func TestContentEncodingMatchesSolc(t *testing.T) {
+	code, err := os.ReadFile("testdata/GovStorageHarness.bin-runtime")
+	require.NoError(t, err)
+	solc := func(sig string, args ...interface{}) []byte {
+		input, err := abiOf(t, sig).Pack(strings.Split(sig, "(")[0], args...)
+		require.NoError(t, err)
+		out, _, err := runtime.Execute(common.FromHex(strings.TrimSpace(string(code))), input, &runtime.Config{GasLimit: 10_000_000})
+		require.NoError(t, err)
+		values, err := abi.Arguments{{Type: abi.Type{T: abi.BytesTy}}}.Unpack(out)
+		require.NoError(t, err)
+		return values[0].([]byte)
+	}
+	long := strings.Repeat("long enough to spill past a word ", 3)
+	for name, tc := range map[string]struct {
+		content govContent
+		solc    []byte
+	}{
+		"text": {textContent{Title: "t", Description: long, IsExpedited: true},
+			solc("textContent(string,string,bool)", "t", long, true)},
+		"software upgrade": {softwareUpgradeContent{Title: "t", Description: "d", Plan: upgradePlan{Name: "v2", Height: -3, Info: long}},
+			solc("softwareUpgradeContent(string,string,string,int64,string)", "t", "d", "v2", int64(-3), long)},
+		"cancel software upgrade": {cancelSoftwareUpgradeContent{Title: long, Description: "d"},
+			solc("cancelSoftwareUpgradeContent(string,string)", long, "d")},
+	} {
+		_, encoded := encodeContent(tc.content)
+		require.Equal(t, tc.solc, encoded, name)
+	}
+}

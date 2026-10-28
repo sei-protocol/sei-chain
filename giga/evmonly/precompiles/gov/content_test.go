@@ -27,6 +27,8 @@ func TestSubmitRejectsFieldsGovDoesNotRead(t *testing.T) {
 		"duplicate field":        `{"title":"t","title":"u","description":"d","type":"Text"}`,
 		"duplicate by case":      `{"title":"t","TITLE":"u","description":"d","type":"Text"}`,
 		"duplicate plan field":   `{"title":"t","description":"d","type":"SoftwareUpgrade","plan":{"name":"v2","name":"v3","height":10}}`,
+		"null plan on text":      `{"title":"t","description":"d","type":"Text","plan":null}`,
+		"null plan on cancel":    `{"title":"t","description":"d","type":"CancelSoftwareUpgrade","plan":null}`,
 		"V2 community pool type": `{"title":"t","description":"d","type":"Text","community_pool_spend":{"recipient":"0x1","amount":"1usei"}}`,
 	} {
 		_, err := h.call(alice, callOpts{}, SubmitProposalMethod, content)

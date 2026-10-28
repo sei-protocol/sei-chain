@@ -176,6 +176,12 @@ func (s store) proposalContent(id uint64) (uint8, []byte) {
 	return s.Uint8(at(base, proposalContentType), proposalContentType.offset), []byte(s.String(at(base, proposalContent)))
 }
 
+// proposalContentChunks returns how many storage words beyond its head
+// proposal id's content occupies.
+func (s store) proposalContentChunks(id uint64) uint64 {
+	return s.StringChunks(at(proposalBase(id), proposalContent))
+}
+
 func (s store) setProposalContent(id uint64, contentType uint8, content []byte) {
 	base := proposalBase(id)
 	s.SetUint8(at(base, proposalContentType), proposalContentType.offset, contentType)

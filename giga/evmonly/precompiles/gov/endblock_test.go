@@ -353,10 +353,11 @@ func TestEndBlockCarriesOverPastBudget(t *testing.T) {
 		h.fillDepositors(h.submit(alice, textProposal, nil), maxDepositors-1)
 	}
 	q := newStore(h.state).depositQueue()
+	settled := int(endBlockBudget / dropCost(newStore(h.state), 1))
+	require.Equal(t, 4, settled, "each costs its depositors and content")
 
 	h.time = startTime + params.MaxDepositPeriod
 	h.endBlock(1)
-	settled := endBlockBudget / maxDepositors
 	require.Equal(t, uint64(proposals-settled), q.Len(), "the rest wait for the next block")
 	for id := range uint64(proposals) {
 		_, open := newStore(h.state).proposal(id + 1)
@@ -366,6 +367,15 @@ func TestEndBlockCarriesOverPastBudget(t *testing.T) {
 	h.endBlock(1)
 	require.Zero(t, q.Len())
 	require.Zero(t, h.state.GetBalance(DepositEscrow).Sign(), "all deposits burn")
+}
+
+func TestDropCostCountsContent(t *testing.T) {
+	h := newHarness(t)
+	short := h.submit(alice, textProposal, nil)
+	long := h.submit(alice, sizedProposal("t", strings.Repeat("d", maxDescriptionLength), ""), nil)
+	s := newStore(h.state)
+	require.Equal(t, 1+s.proposalContentChunks(short), dropCost(s, short))
+	require.Greater(t, dropCost(s, long), uint64(maxDescriptionLength/32), "a word per 32 bytes of content")
 }
 
 func TestEndBlockEndsVotingPastSpentDropBudget(t *testing.T) {
