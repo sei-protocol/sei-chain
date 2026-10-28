@@ -97,6 +97,7 @@ func TestLayoutMatchesForge(t *testing.T) {
 			"tallyNo":         proposalTallyNo,
 			"tallyNoWithVeto": proposalTallyNoWithVeto,
 			"content":         proposalContent,
+			"contentType":     proposalContentType,
 			"__gap":           {8, 0},
 		},
 		"Tally": {
@@ -150,9 +151,9 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 	require.NoError(t, err)
 	voter := common.HexToAddress("0x00000000000000000000000000000000000000a1")
 	other := common.HexToAddress("0x00000000000000000000000000000000000000b2")
-	content := `{"title":"long enough to spill past one storage word","description":"d","type":"Text"}`
+	content := []byte("long enough to spill past one storage word")
 
-	seed, err := abiOf(t, "seed(address,address,string)").Pack("seed", voter, other, content)
+	seed, err := abiOf(t, "seed(address,address,bytes)").Pack("seed", voter, other, content)
 	require.NoError(t, err)
 	cfg := &runtime.Config{Origin: voter, GasLimit: 10_000_000}
 	_, db, err := runtime.Execute(common.FromHex(strings.TrimSpace(string(code))), seed, cfg)
@@ -190,7 +191,9 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 		tallyNo:         big.NewInt(24),
 		tallyNoWithVeto: big.NewInt(25),
 	}, prop)
-	require.Equal(t, content, s.proposalContent(5))
+	contentType, stored := s.proposalContent(5)
+	require.Equal(t, contentSoftwareUpgrade, contentType)
+	require.Equal(t, content, stored)
 
 	require.Equal(t, []weightedVote{
 		{option: 1, weight: 700_000_000_000_000_000},

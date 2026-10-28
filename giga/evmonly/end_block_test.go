@@ -35,6 +35,8 @@ type endBlockRecorder struct {
 	payee common.Address
 	pay   *big.Int
 	fail  bool
+	// failures are returned from EndBlock as work it could not carry out.
+	failures []error
 }
 
 func (endBlockRecorder) RequiredGas([]byte) uint64 { return 1_000 }
@@ -45,22 +47,22 @@ func (r endBlockRecorder) Run(ctx *precompiles.Context, _ []byte) ([]byte, error
 	return nil, nil
 }
 
-func (r endBlockRecorder) EndBlock(block precompiles.BlockContext, state precompiles.State) error {
+func (r endBlockRecorder) EndBlock(block precompiles.BlockContext, state precompiles.State) ([]error, error) {
 	if r.fail {
-		return errRefused
+		return nil, errRefused
 	}
 	if r.reads != (common.Address{}) {
 		state.SetState(r.address, observedSlot, state.GetState(r.reads, observedSlot))
-		return nil
+		return r.failures, nil
 	}
 	blocks := state.GetState(r.address, blocksSlot).Big()
 	state.SetState(r.address, blocksSlot, common.BigToHash(blocks.Add(blocks, big.NewInt(1))))
 	state.SetState(r.address, observedSlot, state.GetState(r.address, callsSlot))
-	state.SetState(r.address, timeSlot, common.BigToHash(new(big.Int).SetUint64(block.Time)))
+	state.SetState(r.address, timeSlot, common.BigToHash(new(big.Int).SetUint64(block.UnixNano)))
 	if r.pay != nil {
 		state.AddBalance(r.payee, r.pay)
 	}
-	return nil
+	return r.failures, nil
 }
 
 func recorderRegistry(recorders ...endBlockRecorder) precompiles.Registry {
@@ -120,7 +122,7 @@ func TestEndBlockerSeesTheBlockAndCommitsItsWrites(t *testing.T) {
 	state.ApplyChangeSet(result.ChangeSet)
 	require.Equal(t, big.NewInt(2), state.GetState(firstEndBlocker, observedSlot).Big())
 	require.Equal(t, big.NewInt(1), state.GetState(firstEndBlocker, blocksSlot).Big())
-	require.Equal(t, big.NewInt(77), state.GetState(firstEndBlocker, timeSlot).Big())
+	require.Equal(t, big.NewInt(77_000_000_000), state.GetState(firstEndBlocker, timeSlot).Big(), "the block time in nanoseconds")
 	require.Equal(t, big.NewInt(15), state.GetBalance(payee))
 }
 
@@ -137,9 +139,9 @@ func (w storageWriter) Run(ctx *precompiles.Context, _ []byte) ([]byte, error) {
 	return nil, nil
 }
 
-func (w storageWriter) EndBlock(_ precompiles.BlockContext, state precompiles.State) error {
+func (w storageWriter) EndBlock(_ precompiles.BlockContext, state precompiles.State) ([]error, error) {
 	state.SetState(w.target, blocksSlot, common.Hash{1})
-	return nil
+	return nil, nil
 }
 
 // refusingReader reads its own callsSlot, then refuses the call.
@@ -208,6 +210,23 @@ func TestEndBlockerRunsOnEmptyBlocks(t *testing.T) {
 		state.ApplyChangeSet(result.ChangeSet)
 		require.Equal(t, new(big.Int).SetUint64(number), state.GetState(firstEndBlocker, blocksSlot).Big())
 	}
+}
+
+func TestEndBlockerFailuresDoNotFailTheBlock(t *testing.T) {
+	state := NewMemoryState()
+	recorder := endBlockRecorder{address: firstEndBlocker, failures: []error{errRefused}}
+	executor := NewExecutor(Config{CustomPrecompiles: recorderRegistry(recorder)}, withTestState(state))
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
+	require.NoError(t, err)
+	state.ApplyChangeSet(result.ChangeSet)
+	require.Equal(t, big.NewInt(1), state.GetState(firstEndBlocker, blocksSlot).Big(), "the end blocker's writes are kept")
+}
+
+func TestTruncateUTF8(t *testing.T) {
+	require.Equal(t, "short", truncateUTF8("short", 10))
+	require.Equal(t, "abc", truncateUTF8("abcdef", 3))
+	require.Equal(t, "a", truncateUTF8("aé", 2), "a two-byte rune is not split")
+	require.Equal(t, "aé", truncateUTF8("aé", 3))
 }
 
 func TestEndBlockersRunInListedOrder(t *testing.T) {

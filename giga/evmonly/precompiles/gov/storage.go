@@ -10,7 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
-// Params is GovStorage.Params. Periods are seconds, deposits are wei, and
+// Params is GovStorage.Params. Periods are nanoseconds, deposits are wei, and
 // ratios are 1e18-scaled decimals.
 type Params struct {
 	VotingPeriod          uint64   `json:"voting_period"`
@@ -167,15 +167,19 @@ func (s store) setProposal(id uint64, p proposal) {
 // deleteProposal zeroes proposal id and its content.
 func (s store) deleteProposal(id uint64) {
 	s.setProposal(id, proposal{})
-	s.setProposalContent(id, "")
+	s.setProposalContent(id, 0, nil)
 }
 
-func (s store) proposalContent(id uint64) string {
-	return s.String(at(proposalBase(id), proposalContent))
+// proposalContent returns proposal id's content type and its ABI encoding.
+func (s store) proposalContent(id uint64) (uint8, []byte) {
+	base := proposalBase(id)
+	return s.Uint8(at(base, proposalContentType), proposalContentType.offset), []byte(s.String(at(base, proposalContent)))
 }
 
-func (s store) setProposalContent(id uint64, content string) {
-	s.SetString(at(proposalBase(id), proposalContent), content)
+func (s store) setProposalContent(id uint64, contentType uint8, content []byte) {
+	base := proposalBase(id)
+	s.SetUint8(at(base, proposalContentType), proposalContentType.offset, contentType)
+	s.SetString(at(base, proposalContent), string(content))
 }
 
 func voteBase(id uint64, voter common.Address) common.Hash {

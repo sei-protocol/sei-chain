@@ -49,7 +49,7 @@ func TestEndBlockDropsProposalShortOfDeposit(t *testing.T) {
 	id := h.submit(alice, textProposal, usei(4))
 	h.mustCall(bob, callOpts{value: usei(3)}, DepositMethod, id)
 
-	h.time = startTime + testParams.MaxDepositPeriod - 1
+	h.time = startTime + testParams.MaxDepositPeriod - second
 	h.endBlock(1)
 	require.Equal(t, StatusDepositPeriod, h.status(id), "still open before its deposit end time")
 
@@ -85,10 +85,27 @@ func TestEndBlockPassesAndRefunds(t *testing.T) {
 	require.ErrorIs(t, err, errInactiveProposal)
 }
 
+func TestVotingEndsAtTheNanosecond(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	params := testParams
+	params.VotingPeriod = 100*second + 1
+	SetParams(h.state, params)
+	id := h.open(textProposal, usei(10))
+	h.vote(alice, id, OptionYes)
+	h.vote(bob, id, OptionYes)
+
+	h.time = startTime + 100*second
+	h.endBlock(0)
+	require.Equal(t, StatusVotingPeriod, h.status(id), "one nanosecond short of the end")
+	h.time++
+	h.endBlock(0)
+	require.Equal(t, StatusPassed, h.status(id))
+}
+
 func TestEndBlockWaitsForVotingEnd(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
 	id := h.open(textProposal, usei(10))
-	h.time = startTime + testParams.VotingPeriod - 1
+	h.time = startTime + testParams.VotingPeriod - second
 	h.endBlock(1)
 	require.Equal(t, StatusVotingPeriod, h.status(id))
 
@@ -162,7 +179,7 @@ func TestEndBlockConvertsFailedExpedited(t *testing.T) {
 	h.endBlock(1)
 	got := h.proposal(id)
 	require.Equal(t, StatusVotingPeriod, got.Status)
-	require.Equal(t, int64(startTime+testParams.VotingPeriod), got.VotingEndTime) //nolint:gosec // test constants
+	require.Equal(t, unixSeconds(startTime+testParams.VotingPeriod), got.VotingEndTime)
 	require.Equal(t, usei(40), h.state.GetBalance(DepositEscrow), "deposits stay for the regular period")
 	_, err := h.call(alice, callOpts{}, GetVoteMethod, id, alice)
 	require.ErrorIs(t, err, errVoteNotFound, "the regular period starts a fresh round of votes")
@@ -220,6 +237,8 @@ func TestEndBlockFailsUpgradeThatCannotBeScheduled(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
 	id := h.pass(upgradeProposal("late", 1))
 	require.Equal(t, StatusFailed, h.status(id), "plan height already passed")
+	require.Len(t, h.failures, 1)
+	require.ErrorIs(t, h.failures[0], errInvalidPlan)
 	require.Equal(t, Plan{}, newStore(h.state).plan())
 	require.Equal(t, usei(10), h.state.GetBalance(alice), "a failed proposal still refunds")
 }
@@ -227,13 +246,15 @@ func TestEndBlockFailsUpgradeThatCannotBeScheduled(t *testing.T) {
 func TestSubmitRejectsUnsupportedContent(t *testing.T) {
 	h := newHarness(t)
 	for name, content := range map[string]string{
-		"unsupported type":  `{"title":"t","description":"d","type":"ParameterChange"}`,
-		"upgrade sans plan": `{"title":"t","description":"d","type":"SoftwareUpgrade"}`,
-		"upgrade sans name": upgradeProposal("", 10),
-		"upgrade at zero":   upgradeProposal("v2", 0),
-		"long title":        sizedProposal(strings.Repeat("t", maxTitleLength+1), "d", ""),
-		"long description":  sizedProposal("t", strings.Repeat("d", maxDescriptionLength+1), ""),
-		"long content":      sizedProposal("t", "d", strings.Repeat("x", maxContentLength)),
+		"unsupported type":   `{"title":"t","description":"d","type":"ParameterChange"}`,
+		"upgrade sans plan":  `{"title":"t","description":"d","type":"SoftwareUpgrade"}`,
+		"upgrade sans name":  upgradeProposal("", 10),
+		"upgrade at zero":    upgradeProposal("v2", 0),
+		"long title":         sizedProposal(strings.Repeat("t", maxTitleLength+1), "d", ""),
+		"long description":   sizedProposal("t", strings.Repeat("d", maxDescriptionLength+1), ""),
+		"long content":       sizedProposal("t", "d", strings.Repeat(" ", maxContentLength)),
+		"text with a plan":   `{"title":"t","description":"d","type":"Text","plan":{"name":"v2","height":10}}`,
+		"cancel with a plan": `{"title":"t","description":"d","type":"CancelSoftwareUpgrade","plan":{"name":"v2","height":10}}`,
 	} {
 		_, err := h.call(alice, callOpts{}, SubmitProposalMethod, content)
 		require.Error(t, err, name)
@@ -250,10 +271,7 @@ func TestSubmitAcceptsContentAtLimits(t *testing.T) {
 // sizedProposal is Text proposal content, with pad as an extra field when set.
 func sizedProposal(title, description, pad string) string {
 	content := fmt.Sprintf(`{"title":%q,"description":%q,"type":"Text"`, title, description)
-	if pad != "" {
-		content += fmt.Sprintf(`,"pad":%q`, pad)
-	}
-	return content + "}"
+	return content + pad + "}"
 }
 
 // delegatedElectorate has validators v1 (100 tokens, 50 shares) and v2 (60

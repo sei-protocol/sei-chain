@@ -70,6 +70,15 @@ func (s Store) SetInt32(slot common.Hash, offset int, v int32) {
 	s.setPacked(slot, offset, b[:])
 }
 
+func (s Store) Uint8(slot common.Hash, offset int) uint8 {
+	w := s.Word(slot)
+	return w[31-offset]
+}
+
+func (s Store) SetUint8(slot common.Hash, offset int, v uint8) {
+	s.setPacked(slot, offset, []byte{v})
+}
+
 func (s Store) Bool(slot common.Hash, offset int) bool {
 	w := s.Word(slot)
 	return w[31-offset] != 0

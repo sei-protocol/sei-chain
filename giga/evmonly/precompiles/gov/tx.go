@@ -107,7 +107,7 @@ func castVote(ctx *precompiles.Context, s store, id uint64, options []weightedVo
 	if !ok {
 		return fmt.Errorf("%w: %d", errUnknownProposal, id)
 	}
-	if !votingOpen(s, id, prop, ctx.Block.Time) {
+	if !votingOpen(s, id, prop, ctx.Block.UnixNano) {
 		return fmt.Errorf("%w: %d", errInactiveProposal, id)
 	}
 	s.setVote(id, ctx.Caller, options)
@@ -136,8 +136,7 @@ func (p Precompile) deposit(ctx *precompiles.Context, s store, method *abi.Metho
 }
 
 func (p Precompile) submitProposal(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
-	content := args[0].(string)
-	submitted, err := parseProposal(content)
+	content, submitted, err := parseProposal(args[0].(string))
 	if err != nil {
 		return nil, err
 	}
@@ -150,8 +149,8 @@ func (p Precompile) submitProposal(ctx *precompiles.Context, s store, method *ab
 	prop := proposal{
 		status:          StatusDepositPeriod,
 		isExpedited:     submitted.IsExpedited,
-		submitTime:      ctx.Block.Time,
-		depositEndTime:  ctx.Block.Time + s.params().MaxDepositPeriod,
+		submitTime:      ctx.Block.UnixNano,
+		depositEndTime:  ctx.Block.UnixNano + s.params().MaxDepositPeriod,
 		totalDeposit:    new(big.Int),
 		tallyYes:        new(big.Int),
 		tallyAbstain:    new(big.Int),
@@ -159,7 +158,8 @@ func (p Precompile) submitProposal(ctx *precompiles.Context, s store, method *ab
 		tallyNoWithVeto: new(big.Int),
 	}
 	s.setProposal(id, prop)
-	s.setProposalContent(id, content)
+	contentType, encoded := encodeContent(content)
+	s.setProposalContent(id, contentType, encoded)
 	s.depositQueue().add(id, prop.depositEndTime)
 
 	if amount.Sign() > 0 {
@@ -174,8 +174,8 @@ func (p Precompile) submitProposal(ctx *precompiles.Context, s store, method *ab
 // to the caller on proposal id, and opens voting once the minimum is reached.
 func addDeposit(ctx *precompiles.Context, s store, id uint64, prop proposal, amount *big.Int) error {
 	switch {
-	case prop.status == StatusDepositPeriod && ctx.Block.Time <= prop.depositEndTime:
-	case votingOpen(s, id, prop, ctx.Block.Time):
+	case prop.status == StatusDepositPeriod && ctx.Block.UnixNano <= prop.depositEndTime:
+	case votingOpen(s, id, prop, ctx.Block.UnixNano):
 	default:
 		return fmt.Errorf("%w: %d", errInactiveProposal, id)
 	}
@@ -212,8 +212,8 @@ func activateVotingPeriod(ctx *precompiles.Context, s store, id uint64, prop *pr
 		period = params.ExpeditedVotingPeriod
 	}
 	prop.status = StatusVotingPeriod
-	prop.votingStartTime = ctx.Block.Time
-	prop.votingEndTime = ctx.Block.Time + period
+	prop.votingStartTime = ctx.Block.UnixNano
+	prop.votingEndTime = ctx.Block.UnixNano + period
 	s.depositQueue().remove(id, prop.depositEndTime)
 	s.votingQueue().add(id, prop.votingEndTime)
 }

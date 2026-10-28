@@ -3,6 +3,7 @@ package gov
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -21,7 +22,11 @@ func (p Precompile) proposalQuery(s store, method *abi.Method, args []interface{
 	if !ok {
 		return nil, fmt.Errorf("%w: %d", errUnknownProposal, id)
 	}
-	return method.Outputs.Pack(proposalData(s, id, prop))
+	data, err := proposalData(s, id, prop)
+	if err != nil {
+		return nil, err
+	}
+	return method.Outputs.Pack(data)
 }
 
 // proposalsQuery pages through the narrowest index the filters allow: a
@@ -52,7 +57,11 @@ func (p Precompile) proposalsQuery(s store, method *abi.Method, args []interface
 		if depositor != (common.Address{}) && !s.depositors(id).Contains(solstorage.AddressKey(depositor)) {
 			continue
 		}
-		out = append(out, proposalData(s, id, prop))
+		data, err := proposalData(s, id, prop)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, data)
 	}
 	return method.Outputs.Pack(out, nextKey)
 }
@@ -108,10 +117,10 @@ func (p Precompile) votesQuery(s store, method *abi.Method, args []interface{}) 
 func (p Precompile) paramsQuery(s store, method *abi.Method) ([]byte, error) {
 	params := s.params()
 	return method.Outputs.Pack(GovParams{
-		VotingPeriod:          params.VotingPeriod,
-		ExpeditedVotingPeriod: params.ExpeditedVotingPeriod,
+		VotingPeriod:          durationSeconds(params.VotingPeriod),
+		ExpeditedVotingPeriod: durationSeconds(params.ExpeditedVotingPeriod),
 		MinDeposit:            coins(params.MinDeposit),
-		MaxDepositPeriod:      params.MaxDepositPeriod,
+		MaxDepositPeriod:      durationSeconds(params.MaxDepositPeriod),
 		MinExpeditedDeposit:   coins(params.MinExpeditedDeposit),
 		Quorum:                formatDec(params.Quorum),
 		Threshold:             formatDec(params.Threshold),
@@ -158,19 +167,35 @@ func (p Precompile) tallyResultQuery(s store, method *abi.Method, args []interfa
 	return method.Outputs.Pack(tallyResult(prop))
 }
 
-func proposalData(s store, id uint64, prop proposal) ProposalData {
+func proposalData(s store, id uint64, prop proposal) (ProposalData, error) {
+	content, err := decodeContent(s.proposalContent(id))
+	if err != nil {
+		return ProposalData{}, err
+	}
 	return ProposalData{
 		Id:               id,
 		Status:           prop.status,
 		FinalTallyResult: tallyResult(prop),
-		SubmitTime:       int64(prop.submitTime),     //nolint:gosec // block time in seconds
-		DepositEndTime:   int64(prop.depositEndTime), //nolint:gosec // block time in seconds
+		SubmitTime:       unixSeconds(prop.submitTime),
+		DepositEndTime:   unixSeconds(prop.depositEndTime),
 		TotalDeposit:     coins(prop.totalDeposit),
-		VotingStartTime:  int64(prop.votingStartTime), //nolint:gosec // block time in seconds
-		VotingEndTime:    int64(prop.votingEndTime),   //nolint:gosec // block time in seconds
+		VotingStartTime:  unixSeconds(prop.votingStartTime),
+		VotingEndTime:    unixSeconds(prop.votingEndTime),
 		IsExpedited:      prop.isExpedited,
-		Content:          []byte(s.proposalContent(id)),
-	}
+		Content:          content.v2JSON(),
+	}, nil
+}
+
+// unixSeconds converts Unix nanoseconds to whole Unix seconds, rounding down
+// as time.Time.Unix does.
+func unixSeconds(nanos uint64) int64 {
+	return int64(nanos / uint64(time.Second)) //nolint:gosec // below 2^35 after the division
+}
+
+// durationSeconds converts nanoseconds to whole seconds, rounding down as
+// time.Duration.Seconds does when V2 casts it to uint64.
+func durationSeconds(nanos uint64) uint64 {
+	return nanos / uint64(time.Second)
 }
 
 func tallyResult(prop proposal) TallyResultData {

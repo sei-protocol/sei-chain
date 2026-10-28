@@ -10,7 +10,7 @@ contract GovStorageHarness is GovStorage {
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.UintSet;
 
-    function seed(address voter, address other, string calldata content) external {
+    function seed(address voter, address other, bytes calldata content) external {
         lastProposalId = 7;
         startingProposalId = 3;
         params = Params({
@@ -29,6 +29,7 @@ contract GovStorageHarness is GovStorage {
         Proposal storage p = proposals[5];
         p.status = 2;
         p.isExpedited = true;
+        p.contentType = 1;
         p.submitTime = 1_700_000_001;
         p.depositEndTime = 1_700_000_002;
         p.votingStartTime = 1_700_000_003;

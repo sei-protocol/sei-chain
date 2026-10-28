@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -40,9 +41,9 @@ func TestGovPrecompileThroughExecutor(t *testing.T) {
 	state := NewMemoryState()
 	state.SetBalance(sender, usei(1_000))
 	gov.SetParams(genesisState{state}, gov.Params{
-		VotingPeriod:     100,
+		VotingPeriod:     uint64(100 * time.Second),
 		MinDeposit:       usei(10),
-		MaxDepositPeriod: 50,
+		MaxDepositPeriod: uint64(50 * time.Second),
 	})
 
 	govABI := gov.ABI
@@ -156,7 +157,7 @@ func TestGovPrecompileOCCMatchesSequential(t *testing.T) {
 		for _, key := range keys {
 			state.SetBalance(crypto.PubkeyToAddress(key.PublicKey), usei(1_000))
 		}
-		gov.SetParams(genesisState{state}, gov.Params{VotingPeriod: 100, ExpeditedVotingPeriod: 50, MinDeposit: usei(10), MaxDepositPeriod: 50, MinExpeditedDeposit: usei(40)})
+		gov.SetParams(genesisState{state}, gov.Params{VotingPeriod: uint64(100 * time.Second), ExpeditedVotingPeriod: uint64(50 * time.Second), MinDeposit: usei(10), MaxDepositPeriod: uint64(50 * time.Second), MinExpeditedDeposit: usei(40)})
 		registry := precompiles.NewStaticRegistry(map[common.Address]precompiles.Contract{gov.Address: gov.Precompile{}}, gov.Address)
 		result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: workers, CustomPrecompiles: registry}, withTestState(state)).
 			ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: txs})
