@@ -39,6 +39,19 @@ func budTreeFromMutations(
 	// The block's mutations, strictly sorted by key.
 	mutations []mutation.Mutation,
 ) (*bud.BUDTree, error) {
+	budlets, err := budletsFromMutations(mutations)
+	if err != nil {
+		return nil, err
+	}
+	tree, err := bud.NewBUDTree(budlets)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create BUD tree: %w", err)
+	}
+	return tree, nil
+}
+
+// budletsFromMutations returns the budlet of each mutation, in order.
+func budletsFromMutations(mutations []mutation.Mutation) ([]*bud.Budlet, error) {
 	budlets := make([]*bud.Budlet, len(mutations))
 	errs := make([]error, len(mutations))
 	forEachMutationChunk(len(mutations), func(start int, end int) {
@@ -56,11 +69,7 @@ func budTreeFromMutations(
 			return nil, err
 		}
 	}
-	tree, err := bud.NewBUDTree(budlets)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create BUD tree: %w", err)
-	}
-	return tree, nil
+	return budlets, nil
 }
 
 // budletFromMutation returns the budlet for one key a block modified.

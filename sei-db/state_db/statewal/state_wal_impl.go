@@ -8,6 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
@@ -65,6 +67,9 @@ type stateWALImpl struct {
 	// Whether any block has been written (this session or recovered from disk), which is what tells an
 	// empty WAL apart from one holding only block 0. Only ever touched by the single caller.
 	hasBlock bool
+
+	// Times the stages of each write. Owned by the goroutine.
+	phases *metrics.PhaseTimer
 }
 
 // New opens (or creates) a state WAL in the configured directory, recovering any files left behind by a
@@ -158,6 +163,7 @@ func newStateWAL(
 		hasLastHash:     ok,
 		lastHashedBlock: last,
 		lastHash:        lastHash,
+		phases:          writePhases.Build(),
 	}
 	if ok {
 		w.lastBlock.Store(last)
@@ -416,6 +422,7 @@ func (w *stateWALImpl) run() {
 
 		switch r := request.(type) {
 		case writeRequest:
+			queueDepth.Record(w.ctx, int64(len(w.requestChan)))
 			if err := w.write(r); err != nil {
 				w.cancel(err)
 				return
@@ -451,15 +458,27 @@ func (w *stateWALImpl) run() {
 // write sorts the block's mutations by key, builds their BUD tree, appends their serialization to the WAL, and
 // delivers the block's BUD hash to every listener, returning the first error.
 func (w *stateWALImpl) write(request writeRequest) error {
+	defer w.phases.Reset()
+	w.phases.SetPhase("sort")
 	sortMutationsByKey(request.mutations)
-	tree, err := budTreeFromMutations(request.mutations)
+	w.phases.SetPhase("budlets")
+	budlets, err := budletsFromMutations(request.mutations)
 	if err != nil {
 		return fmt.Errorf("failed to build the BUD tree of block %d: %w", request.blockNumber, err)
 	}
-	if err := w.wal.Append(request.blockNumber, serializeBlock(request.mutations)); err != nil {
+	w.phases.SetPhase("bud_tree")
+	tree, err := bud.NewBUDTree(budlets)
+	if err != nil {
+		return fmt.Errorf("failed to build the BUD tree of block %d: %w", request.blockNumber, err)
+	}
+	w.phases.SetPhase("serialize")
+	serialized := serializeBlock(request.mutations)
+	w.phases.SetPhase("append")
+	if err := w.wal.Append(request.blockNumber, serialized); err != nil {
 		return fmt.Errorf("failed to append block %d: %w", request.blockNumber, err)
 	}
 
+	w.phases.SetPhase("listeners")
 	hash := tree.BUDHash()
 	for _, listener := range w.listeners {
 		if err := listener(w.ctx, request.blockNumber, hash); err != nil {
