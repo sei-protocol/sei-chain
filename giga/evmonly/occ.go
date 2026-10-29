@@ -63,7 +63,7 @@ func newOCCSpeculativeRunner(e *Executor, req PreparedBlock) occSpeculativeRunne
 		executor:      e,
 		req:           req,
 		chainConfig:   e.chainConfig(req.Context),
-		blockCtx:      buildBlockContext(req.Context),
+		blockCtx:      EVMBlockContext(req.Context),
 		baseFee:       cloneOptionalBig(req.Context.BaseFee),
 		blockGasLimit: req.Context.GasLimit,
 	}
