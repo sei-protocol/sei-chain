@@ -7,6 +7,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -201,6 +203,9 @@ type testEVMApp struct {
 	testApp
 	gotMsg    *core.Message
 	gotGasCap uint64
+	gotHeader *ethtypes.Header
+	gotHeight int64
+	gotTxs    [][]byte
 }
 
 var _ EVMApplication = (*testEVMApp)(nil)
@@ -227,6 +232,21 @@ func (app *testEVMApp) EvmChainConfig() *params.ChainConfig { return testChainCo
 func (app *testEVMApp) EvmBaseFee() *big.Int                { return testBaseFee }
 func (app *testEVMApp) EvmGasLimit() uint64                 { return 35_000_000 }
 func (app *testEVMApp) EvmMinGasPrice() *big.Int            { return testMinGasPrice }
+
+func (app *testEVMApp) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
+	app.gotHeader = header
+	return vm.BlockContext{BlockNumber: header.Number}, nil
+}
+
+func (app *testEVMApp) EvmStateAt(_ context.Context, height int64) (vm.StateDB, func(), error) {
+	app.gotHeight = height
+	return nil, func() {}, nil
+}
+
+func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
+	app.gotHeader, app.gotTxs = header, txs
+	return nil, func() {}, nil
+}
 
 func TestEVMIsAbsentForANonEVMApplication(t *testing.T) {
 	// Test: wrap an application that is not an EVMApplication.
@@ -272,5 +292,26 @@ func TestEVMProxyDelegatesToTheApplication(t *testing.T) {
 		require.Same(t, testBaseFee, evm.EvmBaseFee())
 		require.Equal(t, uint64(35_000_000), evm.EvmGasLimit())
 		require.Same(t, testMinGasPrice, evm.EvmMinGasPrice())
+	})
+
+	t.Run("trace reads", func(t *testing.T) {
+		header := &ethtypes.Header{Number: big.NewInt(5)}
+		txs := [][]byte{{1}, {2}}
+
+		// Test: the block context, the state after a block, and the state before a transaction.
+		blockCtx, err := evm.EvmBlockContext(header)
+		require.NoError(t, err)
+		_, release, err := evm.EvmStateAt(t.Context(), 4)
+		require.NoError(t, err)
+		require.NotNil(t, release)
+		require.Equal(t, int64(4), app.gotHeight)
+		_, release, err = evm.EvmStateBeforeTx(t.Context(), header, txs)
+
+		// Verify: each is the app's answer for the arguments passed in.
+		require.NoError(t, err)
+		require.NotNil(t, release)
+		require.Equal(t, header.Number, blockCtx.BlockNumber)
+		require.Same(t, header, app.gotHeader)
+		require.Equal(t, txs, app.gotTxs)
 	})
 }
