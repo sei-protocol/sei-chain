@@ -14,6 +14,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
@@ -47,6 +49,8 @@ type Backend interface {
 	EvmBalance(common.Address) uint256.Int
 	EvmBalanceAt(address common.Address, height int64) (uint256.Int, error)
 	EvmBaseFee() (*big.Int, error)
+	// EvmBlockContext returns the block context header's block executed at.
+	EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error)
 	EvmBlockNumber() uint64
 	ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
@@ -65,6 +69,12 @@ type Backend interface {
 	EvmProxyEnabled() bool
 	EvmStorage(common.Address, common.Hash) (common.Hash, error)
 	EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error)
+	// EvmStateAt returns the committed EVM state after height, or the latest committed state when
+	// height is ethrpc.LatestBlockNumber, and the function that releases it.
+	EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error)
+	// EvmStateBeforeTx returns the EVM state the transaction at index len(txs) of header's block
+	// executed against, and the function that releases it.
+	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error)
 	EvmTransactionCount(common.Address) uint64
 	EvmTransactionCountAt(address common.Address, height int64) (uint64, error)
 }
@@ -157,6 +167,9 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 	}
 	if err := rpcServer.RegisterName("eth", &filterAPI{backend: backend, store: receiptStore}); err != nil {
 		return nil, fmt.Errorf("register EVM-only filter RPC: %w", err)
+	}
+	if err := rpcServer.RegisterName("debug", newDebugAPI(backend, receiptStore, limits)); err != nil {
+		return nil, fmt.Errorf("register EVM-only debug RPC: %w", err)
 	}
 	if err := rpcServer.RegisterName("net", &netAPI{backend: backend}); err != nil {
 		return nil, fmt.Errorf("register EVM-only net RPC: %w", err)
