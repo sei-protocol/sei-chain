@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.8.10 <0.8.31;
+pragma solidity 0.8.30;
 
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "giga-precompiles/gov/Gov.sol";
