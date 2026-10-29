@@ -448,6 +448,7 @@ func buildGigaStorageConfig(
 		storageConfig.WithFullNodeMode()
 	}
 	storageConfig.ReceiptDBConfig.Enable = storage.Receipts
+	storageConfig.ReceiptDBConfig.PipelinedIndexCommits = storage.ReceiptPipelinedIndexCommits
 	return storageConfig, nil
 }
 
