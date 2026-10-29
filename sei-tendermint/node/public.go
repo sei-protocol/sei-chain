@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"runtime/debug"
 	"time"
 
@@ -275,6 +276,9 @@ func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
 	}
 	flatkvconfig.InlineMissReads = cfg.FlatKVInlineMissReads
 	evmonlyapp.DummyAppHash = cfg.DummyAppHash
+	if cfg.MutexProfileFraction > 0 {
+		runtime.SetMutexProfileFraction(cfg.MutexProfileFraction)
+	}
 	if cfg.GCPercent <= 0 {
 		return
 	}
