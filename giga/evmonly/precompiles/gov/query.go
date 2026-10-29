@@ -43,7 +43,8 @@ func (p Precompile) proposalsQuery(s store, method *abi.Method, args []interface
 		return nil, err
 	}
 	out := make([]ProposalData, 0, end-start)
-	for id := first + start; id < first+end; id++ {
+	for i := start; i < end; i++ {
+		id := first + i
 		prop, ok := s.proposal(id)
 		if !ok || (status != 0 && prop.status != status) {
 			continue

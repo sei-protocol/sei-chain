@@ -182,7 +182,7 @@ func runReference(t *testing.T, blocks [][]*proto.NamedChangeSet) referenceRun {
 		height := int64(i + 1)
 		prior := store.OpenView()
 		//nolint:gosec // height > 0
-		mutations, err := mutation.MutationsFromChangeSets(block, uint64(height), prior)
+		mutations, err := MutationsFromChangeSets(block, uint64(height), prior)
 		prior.Close()
 		require.NoError(t, err)
 		run.blockMutations[i] = mutations

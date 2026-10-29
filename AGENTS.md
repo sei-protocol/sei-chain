@@ -214,8 +214,3 @@ Size from the peak each run reports.
 - Each worktree gets its own volume, so parallel agents do not collide. Within one
   worktree only one run at a time: a second is refused, because both would share the
   volume and wipe each other's scratch directories.
-
-## Benchmarking
-
-See [`benchmark/AGENTS.md`](benchmark/AGENTS.md) for benchmark usage, environment
-variables, and comparison workflows.

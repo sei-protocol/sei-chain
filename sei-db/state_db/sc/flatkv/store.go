@@ -113,9 +113,8 @@ type CommitStore struct {
 	// finalizer being rebuilt by restartHashing. Never nil.
 	hashListeners *hashListenerRegistry
 
-	// The four data stores below mediate every read and write of their databases. The block being
-	// applied accumulates its writes inside each store, so a read through a store already sees what
-	// that same block staged, with no separate overlay to consult.
+	// The four data stores below mediate every read and write of their databases. Commit stages a block's
+	// writes inside each store and seals them under mu, so a reader never observes a partly staged block.
 	//
 	// They are constructed as the last step of open, after any replay or rollback has run, and are nil
 	// until then — the bootstrap and import paths deliberately write raw pebble before they exist.
@@ -146,12 +145,11 @@ type CommitStore struct {
 	// lifecycle is decoupled from the DB open/close cycle, so closeDBsOnly does not touch it.
 	wal statewal.StateWAL
 
-	// Changes to feed into the WAL at the next commit.
+	// pendingChangeSets is the changesets ApplyChangeSets has buffered for the block the next Commit writes, in
+	// arrival order.
 	pendingChangeSets []*proto.NamedChangeSet
 
-	// pendingBlockHeight is the version stamped by the current buffered ApplyChangeSets. 0 means no
-	// pending apply. It records the staged height; it does not constrain it — neither ApplyChangeSets
-	// nor Commit validates its version against this field.
+	// pendingBlockHeight is the height of the buffered block, or 0 when nothing is buffered.
 	pendingBlockHeight int64
 
 	// Writes snapshots off the execution thread. Built by openStores once the view managers exist and
@@ -168,10 +166,6 @@ type CommitStore struct {
 	fileLock filelock.TryLockerSafe
 
 	phaseTimer *metrics.PhaseTimer
-
-	// classifyBucketSizes is the length of each kind's bucket in the previous ApplyChangeSets call, used to size
-	// the next call's buckets. Zero for a kind that call did not touch.
-	classifyBucketSizes [keys.EVMKeyKindCount]int
 
 	// readOnly marks stores opened via LoadVersionReadOnly.
 	readOnly bool
@@ -218,9 +212,8 @@ func routePhysicalKey(physicalKey []byte) (string, error) {
 		// An empty module name would fold into moduleLtHash[""]/moduleStats[""]
 		// and later persist as the per-module meta key "_meta/x:/hash", which
 		// ParseModuleLtHashKey rejects on the very next reopen — permanently
-		// bricking the store (root != sum(modules) forever). Reject it here,
-		// at the state-sync import dispatch boundary, mirroring the
-		// classifyAndPrefix guard on the live-commit path (store_apply.go).
+		// bricking the store (root != sum(modules) forever). Every committed
+		// and imported key is routed here, so this is where it is rejected.
 		return "", fmt.Errorf("flatkv: empty module name in physical key %q", physicalKey)
 	}
 	if moduleName != keys.EVMStoreKey {

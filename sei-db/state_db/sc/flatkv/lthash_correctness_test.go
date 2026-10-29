@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -29,7 +30,7 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 	// Independent ground truth means reading the databases directly, which only agrees with the
 	// maintained hashes once the committed block has actually been flushed there.
 	requireFlushedToDisk(t, s)
-	var pairs []lthash.KeyMutation
+	var pairs []mutation.Mutation
 
 	scanDB := func(db types.KeyValueDB) {
 		iter, err := db.NewIter(&types.IterOptions{})
@@ -41,9 +42,9 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 			}
 			key := bytes.Clone(iter.Key())
 			value := bytes.Clone(iter.Value())
-			pairs = append(pairs, lthash.KeyMutation{
-				Key:   key,
-				Value: value,
+			pairs = append(pairs, mutation.Mutation{
+				Key:      key,
+				NewValue: value,
 			})
 		}
 		require.NoError(t, iter.Error())
@@ -939,9 +940,9 @@ func TestLtHashAccountPartialDeletePreservesRow(t *testing.T) {
 	require.Equal(t, &zeroHash, ad.GetCodeHash(), "codehash should be zero after delete")
 }
 
-// TestAccountPendingReadPartialDelete verifies that the isDelete guard in
+// TestAccountReadPartialDelete verifies that the isDelete guard in
 // Get() only fires when all fields are zero, not on partial deletes.
-func TestAccountPendingReadPartialDelete(t *testing.T) {
+func TestAccountReadPartialDelete(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -949,34 +950,33 @@ func TestAccountPendingReadPartialDelete(t *testing.T) {
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 
-	// Apply 1: write nonce + codehash (not committed yet)
+	// Apply 1: write nonce + codehash
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 42), codeHashPair(addr, codeHashN(0xDD))),
 	}))
 
-	// Apply 2: delete only codehash (not committed yet)
+	// Apply 2, same block: delete only codehash
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(codeHashDeletePair(addr)),
 	}))
+	commitBuffered(t, s)
 
-	// Pending reads before commit
 	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
-	require.True(t, found, "nonce should be readable from pending writes")
+	require.True(t, found, "nonce should be readable")
 	require.Equal(t, nonceBytes(42), nonceVal)
 
 	chVal, found := s.Get(keys.EVMStoreKey, chKey)
-	require.False(t, found, "codehash should be not-found after pending delete")
+	require.False(t, found, "codehash should be not-found after its delete")
 	require.Nil(t, chVal)
 
 	paw := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
-	require.NotNil(t, paw, "the staged account row must still be present")
+	require.NotNil(t, paw, "the account row must still be present")
 	require.False(t, paw.IsDelete(), "row should NOT be marked for deletion (partial delete)")
 }
 
-// TestAccountRowDeleteGetBeforeCommit verifies the core behavioral change:
-// after deleting all account fields within a block, Get() returns (nil, false)
-// for both nonce and codehash BEFORE commit.
-func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
+// TestAccountRowDeleteGet verifies that after every account field is deleted, Get() and Has() report the
+// nonce and codehash as not found.
+func TestAccountRowDeleteGet(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -984,44 +984,43 @@ func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 
-	// Write nonce + codehash (not committed yet)
+	// Write nonce + codehash
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 10), codeHashPair(addr, codeHashN(0xEE))),
 	}))
+	commitBuffered(t, s)
 
-	// Verify both fields are readable before commit
 	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
-	require.True(t, found, "nonce should be readable from pending writes")
+	require.True(t, found, "nonce should be readable")
 	require.Equal(t, nonceBytes(10), nonceVal)
 
 	chVal, found := s.Get(keys.EVMStoreKey, chKey)
-	require.True(t, found, "codehash should be readable from pending writes")
+	require.True(t, found, "codehash should be readable")
 	expected := codeHashN(0xEE)
 	require.Equal(t, expected[:], chVal)
 
-	// Delete both fields (still before commit)
+	// Delete both fields
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(nonceDeletePair(addr), codeHashDeletePair(addr)),
 	}))
+	commitBuffered(t, s)
 
-	// Verify both fields return not-found BEFORE commit (the core semantic change)
 	nonceVal, found = s.Get(keys.EVMStoreKey, nonceKey)
-	require.False(t, found, "nonce should not be found after pending full-delete")
+	require.False(t, found, "nonce should not be found after full-delete")
 	require.Nil(t, nonceVal)
 
 	chVal, found = s.Get(keys.EVMStoreKey, chKey)
-	require.False(t, found, "codehash should not be found after pending full-delete")
+	require.False(t, found, "codehash should not be found after full-delete")
 	require.Nil(t, chVal)
 
 	hasNonce := s.Has(keys.EVMStoreKey, nonceKey)
-	require.False(t, hasNonce, "Has(nonce) should be false after pending full-delete")
+	require.False(t, hasNonce, "Has(nonce) should be false after full-delete")
 	hasCodeHash := s.Has(keys.EVMStoreKey, chKey)
-	require.False(t, hasCodeHash, "Has(codehash) should be false after pending full-delete")
+	require.False(t, hasCodeHash, "Has(codehash) should be false after full-delete")
 
-	// A full delete stages a deletion rather than a zeroed row. The tombstone itself is no longer
-	// inspectable — BatchSet turns an IsDelete row into a store-level delete, and reading a key
-	// deleted in the current version reports absent rather than handing back the tombstone — so assert
-	// the observable consequence instead.
+	// A full delete writes a deletion rather than a zeroed row. The tombstone itself is not inspectable —
+	// BatchSet turns an IsDelete row into a store-level delete, and reading a deleted key reports absent
+	// rather than handing back the tombstone — so assert the observable consequence instead.
 	paw := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
 	require.Nil(t, paw, "a fully deleted account row must read back as absent")
 }
