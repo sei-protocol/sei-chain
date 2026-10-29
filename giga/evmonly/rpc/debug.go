@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	tracerlogger "github.com/ethereum/go-ethereum/eth/tracers/logger"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // registers the native tracers
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 )
@@ -122,6 +124,26 @@ func (api *debugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	return api.trace(ctx, config, func(ctx context.Context, config *tracers.TraceConfig) (any, error) {
 		return api.tracers.TraceBlockByHash(ctx, hash, config)
 	})
+}
+
+// GetRawHeader implements debug_getRawHeader, matching v2: Sei serves no raw header.
+func (*debugAPI) GetRawHeader(context.Context, ethrpc.BlockNumberOrHash) (hexutil.Bytes, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "debug_getRawHeader is not supported on Sei EVM RPC"}
+}
+
+// GetRawBlock implements debug_getRawBlock, matching v2: Sei serves no raw block.
+func (*debugAPI) GetRawBlock(context.Context, ethrpc.BlockNumberOrHash) (hexutil.Bytes, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "debug_getRawBlock is not supported on Sei EVM RPC"}
+}
+
+// GetRawReceipts implements debug_getRawReceipts, matching v2: Sei serves no raw receipts.
+func (*debugAPI) GetRawReceipts(context.Context, ethrpc.BlockNumberOrHash) ([]hexutil.Bytes, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "debug_getRawReceipts is not supported on Sei EVM RPC"}
+}
+
+// GetRawTransaction implements debug_getRawTransaction, matching v2: Sei serves no raw transaction.
+func (*debugAPI) GetRawTransaction(context.Context, common.Hash) (hexutil.Bytes, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "debug_getRawTransaction is not supported on Sei EVM RPC"}
 }
 
 // trace runs one trace under config, once the config is accepted and a trace slot is free, bounded

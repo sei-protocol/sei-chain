@@ -20,6 +20,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -609,4 +610,34 @@ func TestPrepareTraceConfigCapsTheStructLogger(t *testing.T) {
 	api := newDebugAPI(&testBackend{}, evmonly.NewMemoryReceiptStore(), gigaconfig.RPCConfig{MaxTraceStructLogBytes: capBytes})
 	require.NoError(t, api.prepareTraceConfig(config))
 	require.Nil(t, config.Config)
+}
+
+func TestDebugRawDataIsNotSupported(t *testing.T) {
+	handler, err := newHandler(&testBackend{}, evmonly.NewMemoryReceiptStore(), noRPCLimits)
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	for _, tc := range []struct {
+		method string
+		param  any
+	}{
+		{method: "debug_getRawHeader", param: "latest"},
+		{method: "debug_getRawBlock", param: "0x1"},
+		{method: "debug_getRawReceipts", param: "latest"},
+		{method: "debug_getRawTransaction", param: common.Hash{}},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			var got any
+			err := client.CallContext(t.Context(), &got, tc.method, tc.param)
+			var rpcErr ethrpc.Error
+			require.ErrorAs(t, err, &rpcErr)
+			require.Equal(t, evmrpc.ErrCodeEVMNotSupported, rpcErr.ErrorCode())
+			require.Equal(t, tc.method+" is not supported on Sei EVM RPC", err.Error())
+		})
+	}
 }

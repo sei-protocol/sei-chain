@@ -410,6 +410,9 @@ WebSocket (port 8546 by default):
   `debug_traceBlockByNumber`, and `debug_traceBlockByHash`, with
   go-ethereum's tracers (see
   [Trace transactions](#trace-transactions-with-debug_trace)).
+  `debug_getRawHeader`, `debug_getRawBlock`, `debug_getRawReceipts`, and
+  `debug_getRawTransaction` return a not-supported error, as on the regular
+  RPC.
 - Subscriptions, over WebSocket only: `eth_subscribe("newHeads")` and
   `eth_subscribe("logs")`, which polls through the same cursor as a log
   filter as blocks execute.
@@ -418,7 +421,8 @@ A lookup for a pending or unknown hash returns `null`. Every other method
 returns JSON-RPC method-not-found, and `eth_subscribe` rejects any
 subscription other than `newHeads` and `logs`:
 
-- Not supported yet: the other `debug_*` methods, such as the raw-data ones.
+- Not supported yet: the other `debug_*` methods, such as
+  `debug_traceStateAccess`.
 - Not planned, because they need something the EVM-only chain does not have
   (Cosmos accounts, server-side keys, a mempool view, blobs, or state proofs),
   duplicate another method, or are development-only: `sei_getSeiAddress`,
