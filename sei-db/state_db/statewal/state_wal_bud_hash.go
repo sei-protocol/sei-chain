@@ -40,12 +40,21 @@ func budTreeFromMutations(
 	mutations []mutation.Mutation,
 ) (*bud.BUDTree, error) {
 	budlets := make([]*bud.Budlet, len(mutations))
-	for i := range mutations {
-		budlet, err := budletFromMutation(&mutations[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert mutation %d: %w", i, err)
+	errs := make([]error, len(mutations))
+	forEachMutationChunk(len(mutations), func(start int, end int) {
+		for i := start; i < end; i++ {
+			budlet, err := budletFromMutation(&mutations[i])
+			if err != nil {
+				errs[i] = fmt.Errorf("failed to convert mutation %d: %w", i, err)
+				return
+			}
+			budlets[i] = budlet
 		}
-		budlets[i] = budlet
+	})
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
 	}
 	tree, err := bud.NewBUDTree(budlets)
 	if err != nil {
