@@ -27,8 +27,9 @@ var (
 // units are those dropCost and settleCost return, one per counted vote, and
 // failCost per failed proposal. Work past its budget waits for the next
 // EndBlock; work larger than a whole budget runs when nothing has spent that
-// budget, and uses it up.
-const endBlockBudget = 1_000
+// budget, and uses it up. It drops more of the cheapest proposals than a block
+// at the default block gas limit can submit.
+const endBlockBudget = 3_000
 
 // failCost is the budget failing a proposal in place costs.
 const failCost = 1
