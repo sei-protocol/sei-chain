@@ -217,8 +217,9 @@ func (e liveEnv) enterEpoch1(ctx context.Context) error {
 	ep0 := e.reg.MustEpoch(0)
 	proposal := types.GenProposalForEpoch(e.rng, ep0, types.View{Index: e.reg.LastRoad(0)})
 	votes := make([]*types.Signed[*types.CommitVote], len(e.keys))
+	prepareQC := types.BuildPrepareQC(e.keys, proposal)
 	for i, k := range e.keys {
-		votes[i] = types.Sign(k, types.NewCommitVote(proposal))
+		votes[i] = types.Sign(k, types.NewCommitVote(prepareQC))
 	}
 	if err := e.s.pushSpec(types.ConsensusSpec{
 		CommitQC: utils.Some(types.NewCommitQC(votes)),
@@ -270,7 +271,7 @@ func waitVerifyPushCases() []waitVerifyPushCase {
 			assertApplied: func(e liveEnv) {
 				vote, ok := e.inner().PrepareVote.Get()
 				require.True(e.t, ok)
-				require.Equal(e.t, e.vs.View(), vote.Msg().Proposal().View())
+				require.Equal(e.t, e.vs.View(), vote.Msg().View())
 			},
 			assertIgnored: func(e liveEnv) {
 				require.False(e.t, e.inner().PrepareVote.IsPresent())
@@ -285,10 +286,10 @@ func waitVerifyPushCases() []waitVerifyPushCase {
 				i := e.inner()
 				qc, ok := i.PrepareQC.Get()
 				require.True(e.t, ok)
-				require.Equal(e.t, e.vs.View(), qc.Proposal().View())
+				require.Equal(e.t, e.vs.View(), qc.View())
 				vote, ok := i.CommitVote.Get()
 				require.True(e.t, ok)
-				require.Equal(e.t, e.vs.View(), vote.Msg().Proposal().View())
+				require.Equal(e.t, e.vs.View(), vote.Msg().View())
 			},
 			assertIgnored: func(e liveEnv) {
 				i := e.inner()
@@ -504,24 +505,24 @@ func pushVoteCases() []pushVoteCase {
 				if !ok {
 					return types.View{}, false
 				}
-				return qc.Proposal().View(), true
+				return qc.View(), true
 			},
 		},
 		{
 			name:   "commit",
 			quorum: (*types.Committee).CommitQuorum,
 			push: func(e liveEnv, k types.SecretKey, p *types.Proposal) error {
-				return e.s.PushCommitVote(e.t.Context(), types.Sign(k, types.NewCommitVote(p)))
+				return e.s.PushCommitVote(e.t.Context(), types.Sign(k, types.NewCommitVote(types.BuildPrepareQC(e.keys, p))))
 			},
 			badSig: utils.Some(func(e liveEnv, p *types.Proposal) error {
-				return e.s.PushCommitVote(e.t.Context(), types.SignedForTesting(types.NewCommitVote(p), fakeSig(e.keys[0].Public())))
+				return e.s.PushCommitVote(e.t.Context(), types.SignedForTesting(types.NewCommitVote(types.BuildPrepareQC(e.keys, p)), fakeSig(e.keys[0].Public())))
 			}),
 			qcView: func(s *State) (types.View, bool) {
 				qc, ok := s.commitQC().Load().Get()
 				if !ok {
 					return types.View{}, false
 				}
-				return qc.Proposal().View(), true
+				return qc.View(), true
 			},
 		},
 		{
@@ -611,12 +612,12 @@ func epochVoteCases() []epochVoteCase {
 				if !ok {
 					return types.View{}, false
 				}
-				return qc.Proposal().View(), true
+				return qc.View(), true
 			},
 			wait: func(ctx context.Context, s *State, view types.View) error {
 				_, err := s.prepareQC().Wait(ctx, func(qc utils.Option[*types.PrepareQC]) bool {
 					got, ok := qc.Get()
-					return ok && got.Proposal().View() == view
+					return ok && got.View() == view
 				})
 				return err
 			},
@@ -632,19 +633,19 @@ func epochVoteCases() []epochVoteCase {
 			name:   "commit",
 			quorum: (*types.Committee).CommitQuorum,
 			push: func(ctx context.Context, e liveEnv, p *types.Proposal, k types.SecretKey) error {
-				return e.s.PushCommitVote(ctx, types.Sign(k, types.NewCommitVote(p)))
+				return e.s.PushCommitVote(ctx, types.Sign(k, types.NewCommitVote(types.BuildPrepareQC(e.keys, p))))
 			},
 			qcView: func(s *State) (types.View, bool) {
 				qc, ok := s.commitQC().Load().Get()
 				if !ok {
 					return types.View{}, false
 				}
-				return qc.Proposal().View(), true
+				return qc.View(), true
 			},
 			wait: func(ctx context.Context, s *State, view types.View) error {
 				_, err := s.commitQC().Wait(ctx, func(qc utils.Option[*types.CommitQC]) bool {
 					got, ok := qc.Get()
-					return ok && got.Proposal().View() == view
+					return ok && got.View() == view
 				})
 				return err
 			},
@@ -688,7 +689,7 @@ func epochVoteCases() []epochVoteCase {
 }
 
 func pushVoteQuorum(ctx context.Context, e liveEnv, tc epochVoteCase, p *types.Proposal) error {
-	c := e.reg.MustEpoch(p.EpochIndex()).Committee()
+	c := e.reg.MustEpoch(p.Header().EpochIndex()).Committee()
 	for _, k := range types.TestKeysWithWeight(c, e.keys, tc.quorum(c)) {
 		if err := tc.push(ctx, e, p, k); err != nil {
 			return err
@@ -824,9 +825,7 @@ func weightedEpoch(idx types.EpochIndex, weights map[types.PublicKey]uint64) *ty
 		idx,
 		types.RoadRange{First: firstRoad, Next: firstRoad + epoch.EpochLength},
 		time.Unix(0, 0),
-		c,
-		0,
-	)
+		c)
 }
 
 // --- propose ---
@@ -959,15 +958,17 @@ func TestRun(t *testing.T) {
 					return err
 				}
 			}
-			if _, err := e.s.innerRecv.Wait(ctx, func(i inner) bool { return i.PrepareQC.IsPresent() }); err != nil {
+			prepared, err := e.s.innerRecv.Wait(ctx, func(i inner) bool { return i.PrepareQC.IsPresent() })
+			if err != nil {
 				return err
 			}
+			prepareQC := prepared.PrepareQC.OrPanic("missing prepare QC")
 			for _, k := range types.TestKeysWithWeight(c, e.keys, c.CommitQuorum()) {
-				if err := e.s.PushCommitVote(ctx, types.Sign(k, types.NewCommitVote(p))); err != nil {
+				if err := e.s.PushCommitVote(ctx, types.Sign(k, types.NewCommitVote(prepareQC))); err != nil {
 					return err
 				}
 			}
-			_, err := e.s.Avail().SubscribeConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
+			_, err = e.s.Avail().SubscribeConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
 				return sp.Index() > e.vs.View().Index
 			})
 			return err
@@ -1142,8 +1143,8 @@ func TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited(t *testing.T) {
 			return fmt.Errorf("PrepareQC should be present")
 		}
 		pqc, _ := gotPQC.Get()
-		if pqc.Proposal().View() != view1 {
-			return fmt.Errorf("expected PrepareQC at view %v, got %v", view1, pqc.Proposal().View())
+		if pqc.View() != view1 {
+			return fmt.Errorf("expected PrepareQC at view %v, got %v", view1, pqc.View())
 		}
 		return nil
 	})
@@ -1186,8 +1187,8 @@ func TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone(t *testing.T) {
 			return fmt.Errorf("PrepareQC should be present")
 		}
 		pqc, _ := gotPQC.Get()
-		if pqc.Proposal().View() != view1 {
-			return fmt.Errorf("expected PrepareQC at view %v, got %v", view1, pqc.Proposal().View())
+		if pqc.View() != view1 {
+			return fmt.Errorf("expected PrepareQC at view %v, got %v", view1, pqc.View())
 		}
 		return nil
 	})

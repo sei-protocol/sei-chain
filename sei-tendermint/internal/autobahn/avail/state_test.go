@@ -67,7 +67,7 @@ func pruneToHeader(state *State, keys []types.SecretKey, h *types.BlockHeader) {
 	for inner, ctrl := range state.inner.Lock() {
 		inner.prune(data.Anchor{
 			CommitQC: qc,
-			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.Proposal(), types.AppHash{})),
+			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.View(), types.AppHash{})),
 			Epoch:    ep,
 		})
 		ctrl.Updated()
@@ -114,19 +114,19 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 
 		ep0 := registry.MustEpoch(0)
 		qc0, blocks0 := data.TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
-		if err := ds.PushQC(ctx, qc0, blocks0); err != nil {
+		if err := ds.PushPartialBlock(ctx, qc0, data.TestBlockMap(blocks0)); err != nil {
 			return err
 		}
 		appHash0 := types.GenAppHash(rng)
-		if err := ds.PushAppHash(ctx, qc0.QC().GlobalRange().Next-1, appHash0, nil); err != nil {
+		if err := ds.PushAppHash(ctx, qc0.Index(), appHash0, nil); err != nil {
 			return err
 		}
-		if err := ds.PushAppQC(ctx, data.TestAppQC(keys, types.NewAppProposal(qc0.QC().Proposal(), appHash0))); err != nil {
+		if err := ds.PushAppQC(ctx, data.TestAppQC(keys, types.NewAppProposal(qc0.QC().View(), appHash0))); err != nil {
 			return err
 		}
 		if _, err := ds.Anchor().Wait(ctx, func(anchor utils.Option[data.Anchor]) bool {
 			got, ok := anchor.Get()
-			return ok && got.CommitQC.Index() == qc0.QC().Index()
+			return ok && got.CommitQC.Index() == qc0.Index()
 		}); err != nil {
 			return err
 		}
@@ -179,7 +179,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 		qcLeave := types.BuildCommitQC(epLeave, []types.SecretKey{b}, utils.Some(prev), nil)
 		anchor := data.Anchor{
 			CommitQC: qcLeave,
-			AppQC:    data.TestAppQC([]types.SecretKey{b}, types.NewAppProposal(qcLeave.Proposal(), types.AppHash{})),
+			AppQC:    data.TestAppQC([]types.SecretKey{b}, types.NewAppProposal(qcLeave.View(), types.AppHash{})),
 			Epoch:    epLeave,
 		}
 
@@ -219,14 +219,14 @@ func TestAnchorResetsState(t *testing.T) {
 
 		t.Logf("Push FullCommitQC, blocks, AppHash, AppQC to data")
 		qc, blocks := data.TestCommitQC(rng, epoch, keys, utils.None[*types.CommitQC]())
-		if err := ds.PushQC(ctx, qc, blocks); err != nil {
+		if err := ds.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
 			return err
 		}
 		appHash := types.GenAppHash(rng)
-		if err := ds.PushAppHash(ctx, qc.QC().GlobalRange().Next-1, appHash, nil); err != nil {
+		if err := ds.PushAppHash(ctx, qc.Index(), appHash, nil); err != nil {
 			return err
 		}
-		appQC := data.TestAppQC(keys, types.NewAppProposal(qc.QC().Proposal(), appHash))
+		appQC := data.TestAppQC(keys, types.NewAppProposal(qc.QC().View(), appHash))
 		if err := ds.PushAppQC(ctx, appQC); err != nil {
 			return err
 		}
@@ -234,7 +234,7 @@ func TestAnchorResetsState(t *testing.T) {
 		t.Logf("wait for anchor to be updated")
 		if _, err := ds.Anchor().Wait(ctx, func(anchor utils.Option[data.Anchor]) bool {
 			a, ok := anchor.Get()
-			return ok && a.CommitQC.Index() == qc.QC().Index()
+			return ok && a.CommitQC.Index() == qc.Index()
 		}); err != nil {
 			return err
 		}
@@ -258,7 +258,7 @@ func TestAnchorResetsState(t *testing.T) {
 		t.Logf("wait for this CommitQC to be persisted in avail")
 		_, err = state.LastCommitQC().Wait(ctx, func(got utils.Option[*types.CommitQC]) bool {
 			gotQC, ok := got.Get()
-			return ok && gotQC.Index() == qc.QC().Index()
+			return ok && gotQC.Index() == qc.Index()
 		})
 		return err
 	}))
@@ -326,7 +326,7 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 			}
 
 			t.Logf("Check that a CommitQC was successfully reconstructed.")
-			_, got, err := state.fullCommitQC(ctx, qc.Proposal().Index())
+			got, err := state.fullCommitQC(ctx, qc.Index())
 			if err != nil {
 				return fmt.Errorf("state.fullCommitQC(): %w", err)
 			}
@@ -336,9 +336,8 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 
 			t.Logf("Push app votes.")
 			appHash := types.GenAppHash(rng)
-			appProposal := types.NewAppProposal(qc.Proposal(), appHash)
-			appGR := appProposal.GlobalRange()
-			if err := ds.PushAppHash(ctx, appGR.Next-1, appHash, nil); err != nil {
+			appProposal := types.NewAppProposal(qc.View(), appHash)
+			if err := ds.PushAppHash(ctx, appProposal.Index(), appHash, nil); err != nil {
 				return fmt.Errorf("ds.PushAppHash(): %w", err)
 			}
 			for _, vote := range makeAppVotes(keys, appProposal) {
@@ -349,7 +348,7 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 
 			t.Logf("Executed CommitQC should be eventually evicted")
 			for inner, ctrl := range state.inner.Lock() {
-				if err := ctrl.WaitUntil(ctx, func() bool { return inner.roads.first == appProposal.RoadIndex()+1 }); err != nil {
+				if err := ctrl.WaitUntil(ctx, func() bool { return inner.roads.first == appProposal.Index()+1 }); err != nil {
 					return err
 				}
 			}
@@ -364,15 +363,12 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 			}
 
 			t.Logf("Check that the blocks were successfully pushed to data state.")
-			gr := got.QC().GlobalRange()
-			for i := gr.First; i < gr.Next; i++ {
-				b, err := ds.Block(ctx, i)
-				if err != nil {
-					return fmt.Errorf("ds.Block(): %w", err)
-				}
-				if err := utils.TestDiff(b.Header(), got.Headers()[i-gr.First]); err != nil {
-					return fmt.Errorf("snapshot: %w", err)
-				}
+			b, err := ds.Block(ctx, types.LaneBlockPos{Index: got.Index()})
+			if err != nil {
+				return fmt.Errorf("ds.Block(): %w", err)
+			}
+			if err := utils.TestDiff(b.Header(), got.Headers()[0]); err != nil {
+				return fmt.Errorf("snapshot: %w", err)
 			}
 		}
 		return nil
@@ -389,8 +385,9 @@ func TestNextViewEpoch(t *testing.T) {
 		ep1 := registry.MustEpoch(1)
 
 		last := registry.LastRoad(0)
+		voteProposal := types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0})
 		prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-			types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0}, ep0.FirstBlock()))),
+			types.Sign(keys[0], types.NewCommitVote(types.BuildPrepareQC(keys, voteProposal))),
 		})
 		qcLast := types.BuildCommitQC(ep0, keys, utils.Some(prev), nil)
 		require.Equal(t, last, qcLast.Index())
@@ -419,8 +416,9 @@ func TestNextViewEpoch(t *testing.T) {
 		require.Error(t, err)
 
 		last := registry.LastRoad(1)
+		voteProposal := types.ProposalAt(ep1, types.View{Index: last - 1, Number: 0})
 		prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-			types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: last - 1, Number: 0}, ep1.FirstBlock()))),
+			types.Sign(keys[0], types.NewCommitVote(types.BuildPrepareQC(keys, voteProposal))),
 		})
 		qcLast := types.BuildCommitQC(ep1, keys, utils.Some(prev), nil)
 		require.Equal(t, last, qcLast.Index())
@@ -500,17 +498,17 @@ func TestStateRestartFromPersisted(t *testing.T) {
 				return fmt.Errorf("PushCommitQC: %w", err)
 			}
 
-			appProposal := types.NewAppProposal(qc.Proposal(), types.GenAppHash(rng))
+			appProposal := types.NewAppProposal(qc.View(), types.GenAppHash(rng))
 			for _, vote := range makeAppVotes(keys, appProposal) {
 				if err := state.PushAppVote(ctx, vote); err != nil {
 					return fmt.Errorf("PushAppVote: %w", err)
 				}
 			}
-			if _, err := state.appQC(ctx, appProposal.RoadIndex()); err != nil {
+			if _, err := state.appQC(ctx, appProposal.Index()); err != nil {
 				return fmt.Errorf("WaitForAppQC: %w", err)
 			}
 			prev = utils.Some(qc)
-			wantAppQCIdx = appProposal.RoadIndex()
+			wantAppQCIdx = appProposal.Index()
 		}
 
 		// Wait for commitQC persistence. markCommitQCsPersisted fires after
@@ -635,7 +633,7 @@ func TestSpliceSuffixReconstructs(t *testing.T) {
 	for inner, ctrl := range state.inner.Lock() {
 		inner.prune(data.Anchor{
 			CommitQC: qc0,
-			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc0.Proposal(), types.AppHash{})),
+			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc0.View(), types.AppHash{})),
 			Epoch:    ep,
 		})
 		ctrl.Updated()
@@ -665,7 +663,7 @@ func TestSpliceSuffixReconstructs(t *testing.T) {
 	headers, err := state.headers(ctx, ep, qc1.LaneRange(lane))
 	require.NoError(t, err)
 	require.Equal(t, []*types.BlockHeader{splice.Header(), childHeader}, headers)
-	_, full, err := state.fullCommitQC(ctx, qc1.Index())
+	full, err := state.fullCommitQC(ctx, qc1.Index())
 	require.NoError(t, err)
 	require.NoError(t, full.Verify(ep))
 	require.Equal(t, headers, full.Headers())
@@ -701,7 +699,7 @@ func TestPushBlockKeepsTipAcrossEmptyCommit(t *testing.T) {
 	for inner, ctrl := range state.inner.Lock() {
 		inner.prune(data.Anchor{
 			CommitQC: qc2,
-			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc2.Proposal(), types.AppHash{})),
+			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc2.View(), types.AppHash{})),
 			Epoch:    ep,
 		})
 		ctrl.Updated()
@@ -971,7 +969,7 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 			stay.Public(): 1, leaver.Public(): 1, a.Public(): 1, b.Public(): 1,
 		})
 		require.NoError(t, err)
-		registry, err := epoch.NewRegistry(genesis, 0, 0, time.Time{}, utils.None[string]())
+		registry, err := epoch.NewRegistry(genesis, 0, time.Time{}, utils.None[string]())
 		require.NoError(t, err)
 		ds := newTestDataState(&data.Config{Registry: registry})
 		state, err := NewState(stay, ds, utils.None[string]())
@@ -1059,9 +1057,9 @@ func TestPushCommitQC_MidEpochNoWait(t *testing.T) {
 	epPrev := f.registry.MustEpoch(f.m - 1)
 	prev := tipLink(epPrev, f.keys[0], f.registry.LastRoad(f.m-1))
 	qc := types.BuildCommitQC(f.ep, f.keys, utils.Some(prev), nil)
-	require.Equal(t, f.registry.EpochFirstRoad(f.m), qc.Proposal().Index())
+	require.Equal(t, f.registry.EpochFirstRoad(f.m), qc.Index())
 
-	leader := f.ep.Committee().Leader(qc.Proposal().View()).ED25519().Address().String()
+	leader := f.ep.Committee().Leader(qc.View()).ED25519().Address().String()
 	commits := gathered(t, "tendermint_internal_autobahn_consensus_commits", map[string]string{"leader": leader})
 	require.NoError(t, f.state.PushCommitQC(t.Context(), qc))
 	require.Equal(t, commits+1, gathered(t, "tendermint_internal_autobahn_consensus_commits", map[string]string{"leader": leader}))
@@ -1086,7 +1084,7 @@ func TestPushCommitQC_StaleAfterAdvanceSoftDrops(t *testing.T) {
 	ep0 := registry.MustEpoch(0)
 	before := nextRoad(state)
 	qc0 := types.BuildCommitQC(ep0, keys, utils.None[*types.CommitQC](), nil)
-	require.Equal(t, types.EpochIndex(0), qc0.Proposal().EpochIndex())
+	require.Equal(t, types.EpochIndex(0), qc0.View().EpochIndex)
 	require.NoError(t, state.PushCommitQC(t.Context(), qc0))
 	require.Equal(t, before, nextRoad(state))
 }
@@ -1159,11 +1157,11 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 
 				prev := tipLink(f.ep, f.keys[0], f.registry.LastRoad(f.m)-1)
 				qcLast := types.BuildCommitQC(f.ep, f.keys, utils.Some(prev), nil)
-				require.Equal(t, f.registry.LastRoad(f.m), qcLast.Proposal().Index())
+				require.Equal(t, f.registry.LastRoad(f.m), qcLast.Index())
 				require.NoError(t, f.state.PushCommitQC(ctx, qcLast))
 				f.state.markCommitQCsPersisted(qcLast)
 				if tc.missing != appQC {
-					setRoadAppQC(f.state, qcLast.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcLast.Proposal(), types.GenAppHash(rng))))
+					setRoadAppQC(f.state, qcLast.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcLast.View(), types.GenAppHash(rng))))
 				}
 				require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex())
 
@@ -1171,7 +1169,7 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 				if tc.parkNextQC {
 					ep2 := f.registry.MustEpoch(f.m + 1)
 					qcNext := types.BuildCommitQC(ep2, f.keys, utils.Some(qcLast), nil)
-					require.Equal(t, f.registry.EpochFirstRoad(f.m+1), qcNext.Proposal().Index())
+					require.Equal(t, f.registry.EpochFirstRoad(f.m+1), qcNext.Index())
 					go func() { pushErr = f.state.PushCommitQC(ctx, qcNext) }()
 					synctest.Wait()
 					require.Equal(t, f.registry.LastRoad(f.m)+1, nextRoad(f.state), "future QC must stay parked")
@@ -1186,7 +1184,7 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 					case registry:
 						addEpoch(t, f.registry, f.m-1, f.keys)
 					case appQC:
-						setRoadAppQC(f.state, qcLast.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcLast.Proposal(), types.GenAppHash(rng))))
+						setRoadAppQC(f.state, qcLast.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcLast.View(), types.GenAppHash(rng))))
 					}
 				}
 
@@ -1222,7 +1220,7 @@ func anchorWalk(t *testing.T, registry *epoch.Registry, keys []types.SecretKey) 
 		require.Equal(t, last, qc.Index())
 		anchors = append(anchors, data.Anchor{
 			CommitQC: qc,
-			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.Proposal(), types.AppHash{})),
+			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.View(), types.AppHash{})),
 			Epoch:    ep,
 		})
 	}
@@ -1370,7 +1368,7 @@ func TestMarkCommitQCsPersisted_RefreshesSpecWhileEpochAdvanceParked(t *testing.
 		require.NoError(t, f.state.PushCommitQC(ctx, qcA))
 		require.NoError(t, f.state.PushCommitQC(ctx, qcB))
 		require.NoError(t, f.state.PushCommitQC(ctx, qcC))
-		setRoadAppQC(f.state, qcC.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcC.Proposal(), types.GenAppHash(rng))))
+		setRoadAppQC(f.state, qcC.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcC.View(), types.GenAppHash(rng))))
 		f.state.markCommitQCsPersisted(qcA)
 
 		spec := f.state.SubscribeConsensusSpec()

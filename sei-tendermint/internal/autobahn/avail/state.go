@@ -185,8 +185,7 @@ func restoreInner(ds *data.State, loaded *loadedState) (*inner, error) {
 	}
 	i.refreshConsensusSpec()
 	if qc, ok := i.persistedCommitQC.Load().Get(); ok {
-		meters.CommitRoadIndex.Set(int64(qc.Index()))                    // nolint: gosec
-		meters.CommitGlobalBlockNumber.Set(int64(qc.GlobalRange().Next)) // nolint: gosec
+		meters.CommitRoadIndex.Set(int64(qc.Index())) // nolint: gosec
 	}
 	return i, nil
 }
@@ -221,7 +220,7 @@ func restorePlan(ds *data.State, loaded *loadedState) (*types.Epoch, types.RoadI
 		if qc.Index() != want {
 			return nil, 0, nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", want, qc.Index())
 		}
-		ep, err := registry.EpochByIndex(qc.Proposal().EpochIndex())
+		ep, err := registry.EpochByIndex(qc.View().EpochIndex)
 		if err != nil {
 			return nil, 0, nil, fmt.Errorf("persisted commitQC %d epoch: %w", qc.Index(), err)
 		}
@@ -333,8 +332,8 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 // PushCommitQC admits a CommitQC once its epoch is applied and it is the next
 // road. Stale QCs are a no-op.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
-	idx := qc.Proposal().Index()
-	want := qc.Proposal().EpochIndex()
+	idx := qc.Index()
+	want := qc.View().EpochIndex
 	var epoch *types.Epoch
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
@@ -356,7 +355,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		}
 		inner.roads.pushBack(newRoad(qc, epoch))
 		metrics.ObserveCommitQC(qc)
-		leader := epoch.Committee().Leader(qc.Proposal().View())
+		leader := epoch.Committee().Leader(qc.View())
 		consMeters.Commits.WithLabelValues(leader.ED25519().Address().String()).Add(1)
 		// The persist goroutine publishes persistedCommitQC after writing to disk
 		// (or immediately for no-op persisters), so consensus won't advance
@@ -370,7 +369,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 // PushAppVote pushes an AppVote to the state.
 func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]) error {
 	// Wait for the corresponding commitQC.
-	idx := v.Msg().Proposal().RoadIndex()
+	idx := v.Msg().Proposal().Index()
 	epoch, commitQC, err := s.commitQC(ctx, idx)
 	if err != nil {
 		if errors.Is(err, types.ErrPruned) {
@@ -583,22 +582,22 @@ func (s *State) headers(ctx context.Context, ep *types.Epoch, lr *types.LaneRang
 
 // fullCommitQC builds a FullCommitQC for road index n.
 // Headers are collected from votes; this does not wait for future lanes.
-func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Epoch, *types.FullCommitQC, error) {
+func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.FullCommitQC, error) {
 	// Collect the CommitQC.
 	epoch, qc, err := s.commitQC(ctx, n)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	// Collect the headers from the votes.
 	var commitHeaders []*types.BlockHeader
 	for lane := range epoch.Committee().Lanes().All() {
 		headers, err := s.headers(ctx, epoch, qc.LaneRange(lane))
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		commitHeaders = append(commitHeaders, headers...)
 	}
-	return epoch, types.NewFullCommitQC(qc, commitHeaders), nil
+	return types.NewFullCommitQC(qc, commitHeaders), nil
 }
 
 // WaitForCapacity waits until lane has room for toProduce.
@@ -741,9 +740,9 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 }
 
 // Task inserting CommitQCs and local blocks to data state.
-func (s *State) runPushQC(ctx context.Context) error {
+func (s *State) runPushPartialBlock(ctx context.Context) error {
 	for n := s.First(); ; n = max(n+1, s.First()) {
-		epoch, qc, err := s.fullCommitQC(ctx, n)
+		qc, err := s.fullCommitQC(ctx, n)
 		if err != nil {
 			if errors.Is(err, types.ErrPruned) {
 				continue
@@ -752,27 +751,21 @@ func (s *State) runPushQC(ctx context.Context) error {
 		}
 
 		// Collect the blocks we have locally.
-		c := epoch.Committee()
-		var blocks []*types.Block
+		blocks := make(map[uint64]*types.Block, len(qc.Headers()))
 		for inner := range s.inner.Lock() {
-			for lane := range c.Lanes().All() {
-				lr := qc.QC().LaneRange(lane)
-				q, ok := inner.blocks[lr.Lane()]
-				if !ok {
-					continue
-				}
-				for n := lr.First(); n < lr.Next(); n++ {
+			for i, h := range qc.Headers() {
+				if q, ok := inner.blocks[h.Lane()]; ok {
 					// We are not expected to have all the blocks locally - only the available ones.
-					if b, ok := q.q[n]; ok {
+					if b, ok := q.q[h.BlockNumber()]; ok {
 						// We don't need to check the blocks against the headers,
-						// as bad blocks will be filtered out by PushQC anyway.
-						blocks = append(blocks, b.Msg().Block())
+						// as bad blocks will be filtered out by PushPartialBlock anyway.
+						blocks[uint64(i)] = b.Msg().Block()
 					}
 				}
 			}
 		}
-		if err := s.data.PushQC(ctx, qc, blocks); err != nil {
-			return fmt.Errorf("s.data.PushQC(): %w", err)
+		if err := s.data.PushPartialBlock(ctx, qc, blocks); err != nil {
+			return fmt.Errorf("s.data.PushPartialBlock(): %w", err)
 		}
 	}
 }
@@ -857,7 +850,7 @@ func (s *State) Run(ctx context.Context) error {
 		scope.SpawnNamed("runEpochAdvance", func() error { return s.runEpochAdvance(ctx) })
 		scope.SpawnNamed("runEvict", func() error { return s.runEvict(ctx) })
 		scope.SpawnNamed("runPersist", func() error { return s.runPersist(ctx) })
-		scope.SpawnNamed("runPushQC", func() error { return s.runPushQC(ctx) })
+		scope.SpawnNamed("runPushPartialBlock", func() error { return s.runPushPartialBlock(ctx) })
 		scope.SpawnNamed("runPushAppQC", func() error { return s.runPushAppQC(ctx) })
 		return nil
 	})

@@ -99,6 +99,13 @@ type RPCConfig struct {
 	BatchResponseMaxSize int `mapstructure:"batch_response_max_size"`
 	// MaxWSConnections caps simultaneously open WebSocket connections.
 	MaxWSConnections int `mapstructure:"max_ws_connections"`
+	// MaxConcurrentTraceCalls caps debug_trace* calls running at once; a call past it is refused.
+	MaxConcurrentTraceCalls int `mapstructure:"max_concurrent_trace_calls"`
+	// TraceTimeout bounds how long one debug_trace* call may run.
+	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
+	// MaxTraceStructLogBytes caps the default struct logger's output, in bytes, for each traced
+	// transaction.
+	MaxTraceStructLogBytes int `mapstructure:"max_trace_struct_log_bytes"`
 }
 
 // StateSyncConfig is the [giga.state_sync] sub-table: whether this node uses giga state sync.
@@ -130,6 +137,9 @@ var DefaultConfig = Config{
 		BatchRequestLimit:             100,
 		BatchResponseMaxSize:          25 * 1000 * 1000,
 		MaxWSConnections:              2000,
+		MaxConcurrentTraceCalls:       10,
+		TraceTimeout:                  30 * time.Second,
+		MaxTraceStructLogBytes:        32 * 1024 * 1024,
 	},
 	StateSync: StateSyncConfig{
 		Enabled: false,
@@ -176,6 +186,9 @@ const (
 	FlagRPCBatchRequestLimit             = "giga.rpc.batch_request_limit"
 	FlagRPCBatchResponseMaxSize          = "giga.rpc.batch_response_max_size"
 	FlagRPCMaxWSConnections              = "giga.rpc.max_ws_connections"
+	FlagRPCMaxConcurrentTraceCalls       = "giga.rpc.max_concurrent_trace_calls"
+	FlagRPCTraceTimeout                  = "giga.rpc.trace_timeout"
+	FlagRPCMaxTraceStructLogBytes        = "giga.rpc.max_trace_struct_log_bytes"
 	FlagStateSyncEnabled                 = "giga.state_sync.enabled"
 )
 
@@ -298,6 +311,21 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxWSConnections, err)
 		}
 	}
+	if v := opts.Get(FlagRPCMaxConcurrentTraceCalls); v != nil {
+		if cfg.RPC.MaxConcurrentTraceCalls, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxConcurrentTraceCalls, err)
+		}
+	}
+	if v := opts.Get(FlagRPCTraceTimeout); v != nil {
+		if cfg.RPC.TraceTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCTraceTimeout, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxTraceStructLogBytes); v != nil {
+		if cfg.RPC.MaxTraceStructLogBytes, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxTraceStructLogBytes, err)
+		}
+	}
 	if v := opts.Get(FlagStateSyncEnabled); v != nil {
 		if cfg.StateSync.Enabled, err = cast.ToBoolE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStateSyncEnabled, err)
@@ -375,6 +403,15 @@ func (c Config) Validate() error {
 	}
 	if c.RPC.MaxWSConnections < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxWSConnections, c.RPC.MaxWSConnections)
+	}
+	if c.RPC.MaxConcurrentTraceCalls < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxConcurrentTraceCalls, c.RPC.MaxConcurrentTraceCalls)
+	}
+	if c.RPC.TraceTimeout < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %s", FlagRPCTraceTimeout, c.RPC.TraceTimeout)
+	}
+	if c.RPC.MaxTraceStructLogBytes < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxTraceStructLogBytes, c.RPC.MaxTraceStructLogBytes)
 	}
 	return nil
 }
@@ -473,6 +510,16 @@ batch_response_max_size = {{ .Giga.RPC.BatchResponseMaxSize }}
 
 # max_ws_connections caps simultaneously open WebSocket connections.
 max_ws_connections = {{ .Giga.RPC.MaxWSConnections }}
+
+# max_concurrent_trace_calls caps debug_trace* calls running at once; a call past it is refused.
+max_concurrent_trace_calls = {{ .Giga.RPC.MaxConcurrentTraceCalls }}
+
+# trace_timeout bounds how long one debug_trace* call may run.
+trace_timeout = "{{ .Giga.RPC.TraceTimeout }}"
+
+# max_trace_struct_log_bytes caps the default struct logger's output, in bytes, for each traced
+# transaction.
+max_trace_struct_log_bytes = {{ .Giga.RPC.MaxTraceStructLogBytes }}
 
 [giga.state_sync]
 # enabled allows the state-sync-snapshot create and restore commands on this node, and the
