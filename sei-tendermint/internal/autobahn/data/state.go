@@ -13,6 +13,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// TODO(gprusak): RoadBlock sizes can vary a lot,
+// switch back to limiting data state based on lane blocks, rather than RoadBlocks.
 const qcsCacheSize = 100
 
 // ErrOutOfOrder is returned when PushAppHash receives an app hash past the
