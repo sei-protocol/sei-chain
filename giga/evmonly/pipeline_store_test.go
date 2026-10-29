@@ -11,18 +11,11 @@ import (
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // errTestCommitFailed is the failure a test store reports from its background commit.
 var errTestCommitFailed = errors.New("commit failed")
-
-// noopChangeSetEncoder stands in for a real encoder: the pipeline only needs something to hand the
-// background commit.
-func noopChangeSetEncoder(StateChangeSet) ([]*proto.NamedChangeSet, error) {
-	return []*proto.NamedChangeSet{{Name: "encoded"}}, nil
-}
 
 // The recording store never applies a commit to its view, so a block can only see the block before
 // it through the pending overlay. That is exactly the property the pipeline depends on: a block
@@ -41,7 +34,7 @@ func TestPipelinedBlockSeesThePreviousBlocksUncommittedState(t *testing.T) {
 	// Enough that middle can cover gas on its own transaction out of what block 41 pays it.
 	snapshot.setBalance(funder, new(big.Int).Mul(big.NewInt(testFundedBalanceWei), big.NewInt(100)))
 	store := &recordingGigaStore{snapshot: snapshot}
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 	defer executor.Close()
 
 	// Block 41 funds middle. Its commit is left running.
@@ -83,7 +76,7 @@ func TestFailedPipelinedCommitIsReportedToEveryWaiter(t *testing.T) {
 	snapshot := newMemoryGigaSnapshot(40)
 	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
 	store := &recordingGigaStore{snapshot: snapshot, commitErr: errTestCommitFailed}
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 	defer executor.Close()
 
 	executePipelinedBlock(t, executor, chainID, 41,
@@ -105,7 +98,7 @@ func TestConcurrentWaitersOnOneCommitAreAllReleased(t *testing.T) {
 	snapshot := newMemoryGigaSnapshot(40)
 	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
 	store := &recordingGigaStore{snapshot: snapshot}
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 	defer executor.Close()
 
 	executePipelinedBlock(t, executor, chainID, 41,
@@ -159,7 +152,7 @@ func TestRetiringACommitWhileOpeningAViewKeepsThePreviousBlocksState(t *testing.
 	snapshot := newMemoryGigaSnapshot(40)
 	snapshot.setBalance(funder, new(big.Int).Mul(big.NewInt(testFundedBalanceWei), big.NewInt(100)))
 	store := &retiringOnOpenStore{recordingGigaStore: &recordingGigaStore{snapshot: snapshot}}
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 	defer executor.Close()
 
 	payment := new(big.Int).Mul(big.NewInt(testFundedBalanceWei), big.NewInt(10))
@@ -195,7 +188,7 @@ func TestSettledNonceReadsTheInFlightCommit(t *testing.T) {
 
 	snapshot := newMemoryGigaSnapshot(40)
 	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
-	executor := NewExecutor(Config{}, withTestStores(&recordingGigaStore{snapshot: snapshot}, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	executor := NewExecutor(Config{}, withTestStores(&recordingGigaStore{snapshot: snapshot}, NewMemoryReceiptStore()))
 	defer executor.Close()
 
 	executePipelinedBlock(t, executor, chainID, 41,
@@ -236,7 +229,7 @@ func TestCloseWaitsForTheCommitOfABlockInFlight(t *testing.T) {
 		entered:            make(chan struct{}),
 		release:            make(chan struct{}),
 	}
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 	blockCtx := blockContext(chainID)
 	blockCtx.Number = 41
@@ -280,7 +273,7 @@ func TestBlockAfterCloseCommitsSynchronously(t *testing.T) {
 	snapshot := newMemoryGigaSnapshot(40)
 	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
 	store := &recordingGigaStore{snapshot: snapshot}
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 	executor.Close()
 
 	executePipelinedBlock(t, executor, chainID, 41,
@@ -309,7 +302,7 @@ func TestLargeBlockWithAClosedPoolStoresItsReceipts(t *testing.T) {
 			}
 			store := NewMemoryStore(state)
 			receipts := NewMemoryReceiptStore()
-			executor := NewExecutor(Config{OCCWorkers: 4}, withTestStores(store, receipts, store.EncodeChangeSet))
+			executor := NewExecutor(Config{OCCWorkers: 4}, withTestStores(store, receipts))
 			shutDown(executor)
 
 			result := executePipelinedBlock(t, executor, chainID, 1, txs...)

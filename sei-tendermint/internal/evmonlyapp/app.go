@@ -25,7 +25,6 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -133,14 +132,13 @@ func (c *senderCache) take(hash common.Hash) utils.Option[common.Address] {
 type evmOnlyApplication struct {
 	abci.BaseApplication
 
-	chainID          *big.Int
-	chainConfig      *params.ChainConfig
-	execution        gigaconfig.ExecutionConfig
-	minGasPrice      *big.Int
-	storage          *bootstrap.GigaStorageManager
-	changeSetEncoder evmonly.NamedChangeSetEncoder
-	validators       []abci.ValidatorUpdate
-	executor         utils.Mutex[*utils.Option[*evmonly.Executor]]
+	chainID     *big.Int
+	chainConfig *params.ChainConfig
+	execution   gigaconfig.ExecutionConfig
+	minGasPrice *big.Int
+	storage     *bootstrap.GigaStorageManager
+	validators  []abci.ValidatorUpdate
+	executor    utils.Mutex[*utils.Option[*evmonly.Executor]]
 	// Lock order: executor before cursor. FinalizeBlock holds executor while
 	// the block's cursor encoder takes cursor.
 	cursor utils.Mutex[*evmOnlyCursorState]
@@ -192,7 +190,6 @@ func NewEVMOnlyApplication(
 	chainID uint64,
 	validators []abci.ValidatorUpdate,
 	storage *bootstrap.GigaStorageManager,
-	changeSetEncoder evmonly.NamedChangeSetEncoder,
 	execution gigaconfig.ExecutionConfig,
 ) (proxy.EVMApplication, error) {
 	chainConfig := *params.AllDevChainProtocolChanges
@@ -203,7 +200,6 @@ func NewEVMOnlyApplication(
 		execution:          execution,
 		minGasPrice:        evmOnlyAdmissionMinGasPrice(execution.MinGasPrice),
 		storage:            storage,
-		changeSetEncoder:   changeSetEncoder,
 		validators:         slices.Clone(validators),
 		executor:           utils.NewMutex(new(utils.Option[*evmonly.Executor])),
 		cursor:             utils.NewMutex(&evmOnlyCursorState{}),
@@ -249,16 +245,19 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 		RejectUnappliableTxs: true,
 		BlockResultPoolSize:  a.execution.BlockResultPoolSize,
 	},
-		evmonly.WithStorageManager(a.storage, a.changeSetEncoder),
+		evmonly.WithStorageManager(a.storage),
 		evmonly.WithMissingAccountState(evmOnlyFundedState{}),
 		evmonly.WithStoreIndependentBlockChangeSetEncoder(a.encodeCursorChangeSet),
 	)
 }
 
 // encodeCursorChangeSet chains the block into the app hash and stages the
-// resulting cursor as pending, returning it as the changeset committed with
+// resulting cursor as pending, returning it as the write committed with
 // the block's state.
-func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, result *evmonly.BlockResult) ([]*proto.NamedChangeSet, error) {
+func (a *evmOnlyApplication) encodeCursorChangeSet(
+	block evmonly.BlockContext,
+	result *evmonly.BlockResult,
+) ([]gigatypes.MiscChange, error) {
 	height, ok := utils.SafeCast[int64](block.Number)
 	if !ok {
 		return nil, fmt.Errorf("EVM-only block number exceeds int64: %d", block.Number)
@@ -279,7 +278,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, r
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
-		return []*proto.NamedChangeSet{next.changeSet()}, nil
+		return []gigatypes.MiscChange{next.miscChange()}, nil
 	}
 	panic("unreachable")
 }

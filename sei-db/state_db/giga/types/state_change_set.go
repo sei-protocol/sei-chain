@@ -5,12 +5,13 @@ import (
 	"math/big"
 )
 
-// StateChangeSet is the deterministic EVM-native state output for a block: one entry per account the
-// block changed and per slot it wrote, in address order and then slot order. Values are post-block
-// values, not deltas, each beside the value it replaced.
+// StateChangeSet is a block's state output: one entry per account the block changed and per slot it wrote,
+// in address order and then slot order, plus one entry per non-EVM key it wrote. Values are post-block
+// values, not deltas. A set is never modified once produced, so any holder may keep it.
 type StateChangeSet struct {
 	Accounts []AccountChange
 	Storage  []StorageChange
+	Misc     []MiscChange
 }
 
 // AccountState is an account's balance, nonce and code. A nil balance is zero. Code is immutable:
@@ -37,6 +38,20 @@ type StorageChange struct {
 	PriorValue Hash
 }
 
+// MiscChange is a write to a key outside the EVM module. Each key appears at most once in a set.
+//
+// No prior value is stored because nothing consumes it yet. One can be added if a consumer needs it.
+type MiscChange struct {
+	// The module the key belongs to. Never the EVM module.
+	Module string
+	// The key within the module.
+	Key []byte
+	// The value written. Ignored when Delete is set.
+	Value []byte
+	// Whether the key is deleted.
+	Delete bool
+}
+
 // BalanceChanged reports whether the block changed the account's balance.
 func (c *AccountChange) BalanceChanged() bool {
 	return orZero(c.Account.Balance).Cmp(orZero(c.Prior.Balance)) != 0
@@ -54,24 +69,7 @@ func (c *AccountChange) CodeChanged() bool {
 
 // IsEmpty reports whether the set would change nothing.
 func (c *StateChangeSet) IsEmpty() bool {
-	return len(c.Accounts) == 0 && len(c.Storage) == 0
-}
-
-// Clone returns a copy of the set that shares nothing mutable with it, nil for a nil set.
-func (c *StateChangeSet) Clone() *StateChangeSet {
-	if c == nil {
-		return nil
-	}
-	cp := &StateChangeSet{
-		Accounts: make([]AccountChange, len(c.Accounts)),
-		Storage:  append([]StorageChange(nil), c.Storage...),
-	}
-	for i, change := range c.Accounts {
-		change.Account.Balance = cloneBig(change.Account.Balance)
-		change.Prior.Balance = cloneBig(change.Prior.Balance)
-		cp.Accounts[i] = change
-	}
-	return cp
+	return len(c.Accounts) == 0 && len(c.Storage) == 0 && len(c.Misc) == 0
 }
 
 // Reset empties the set, keeping its slices' capacity for reuse.
@@ -80,14 +78,8 @@ func (c *StateChangeSet) Reset() {
 	c.Accounts = c.Accounts[:0]
 	clear(c.Storage)
 	c.Storage = c.Storage[:0]
-}
-
-// cloneBig copies v, mapping nil to zero.
-func cloneBig(v *big.Int) *big.Int {
-	if v == nil {
-		return new(big.Int)
-	}
-	return new(big.Int).Set(v)
+	clear(c.Misc)
+	c.Misc = c.Misc[:0]
 }
 
 // zeroBalance is the balance orZero reads in place of nil. It must never be modified.

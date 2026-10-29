@@ -14,8 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	autobahn "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/stretchr/testify/require"
@@ -26,14 +25,12 @@ var (
 	startupTopic = common.HexToHash("0xbeef")
 )
 
-// nonceChange is a one-key EVM state change for block, distinct per block.
-func nonceChange(block uint64) []*proto.NamedChangeSet {
-	key := append([]byte{0x0a, byte(block)}, make([]byte, 19)...)
-	value := append(make([]byte, 7), byte(block))
-	return []*proto.NamedChangeSet{{
-		Name:      evm.EVMStoreKey,
-		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: key, Value: value}}},
-	}}
+// nonceChange is a one-account EVM state change for block, distinct per block.
+func nonceChange(block uint64) *gigatypes.StateChangeSet {
+	return &gigatypes.StateChangeSet{Accounts: []gigatypes.AccountChange{{
+		Address: common.Address{byte(block)},
+		Account: gigatypes.AccountState{Nonce: block},
+	}}}
 }
 
 // writeBlockLedger finalizes SuperBlocks [1, through] in the block store.

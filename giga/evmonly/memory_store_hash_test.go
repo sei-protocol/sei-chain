@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,7 +31,7 @@ func memoryStoreHashInputFromChangeSet(t *testing.T, changes StateChangeSet) []b
 // byte, on one chunk and across many.
 func TestWriteMemoryStoreHashInputMatchesTheChangeSet(t *testing.T) {
 	for _, n := range []int{0, 10, 3*memoryStoreHashChunk + 7} {
-		changes := largeFlatKVChangeSet(n)
+		changes := largeStateChangeSet(n)
 		var got bytes.Buffer
 		require.NoError(t, WriteMemoryStoreHashInput(&got, changes))
 		require.Equal(t, memoryStoreHashInputFromChangeSet(t, changes), got.Bytes(), "n=%d", n)
@@ -38,7 +39,7 @@ func TestWriteMemoryStoreHashInputMatchesTheChangeSet(t *testing.T) {
 }
 
 func TestWriteMemoryStoreHashInputRejectsTheFirstOversizedBalance(t *testing.T) {
-	changes := largeFlatKVChangeSet(3 * memoryStoreHashChunk)
+	changes := largeStateChangeSet(3 * memoryStoreHashChunk)
 	tooLarge := new(big.Int).Lsh(big.NewInt(1), 256)
 	changes.Accounts[2*memoryStoreHashChunk+1].Account.Balance = tooLarge
 	changes.Accounts[memoryStoreHashChunk+5].Account.Balance = tooLarge
@@ -46,4 +47,38 @@ func TestWriteMemoryStoreHashInputRejectsTheFirstOversizedBalance(t *testing.T) 
 	_, want := EncodeMemoryStoreChangeSet(changes)
 	require.Error(t, want)
 	require.EqualError(t, err, want.Error())
+}
+
+// largeStateChangeSet returns n account changes and n storage changes with every encoding branch
+// represented: balances set and deleted, nonces, code set and deleted, and storage set and deleted.
+func largeStateChangeSet(n int) StateChangeSet {
+	addr := func(kind byte, i int) common.Address {
+		return common.Address{kind, byte(i >> 16), byte(i >> 8), byte(i)}
+	}
+	var changes StateChangeSet
+	for i := range n {
+		account := AccountChange{Address: addr(1, i), Prior: AccountState{Balance: big.NewInt(1), Nonce: 1}}
+		account.Account = account.Prior
+		switch i % 4 {
+		case 0:
+			account.Account.Balance = big.NewInt(int64(i) + 2)
+		case 1:
+			account.Account.Balance = nil
+			account.Account.Nonce = uint64(i) + 2
+		case 2:
+			account.Account.Nonce = uint64(i) + 2
+			account.Account.Code = []byte{0x60, byte(i)}
+		default:
+			account.Prior.Code = []byte{0x60}
+			account.Account.Balance = big.NewInt(int64(i) + 2)
+		}
+		changes.Accounts = append(changes.Accounts, account)
+		changes.Storage = append(changes.Storage, StorageChange{
+			Address: addr(3, i),
+			Key:     common.BigToHash(big.NewInt(int64(i))),
+			Value:   common.BigToHash(big.NewInt(int64(i) + 1)),
+			Delete:  i%5 == 0,
+		})
+	}
+	return changes
 }

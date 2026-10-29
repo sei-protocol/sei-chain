@@ -22,18 +22,17 @@ import (
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
 type Executor struct {
-	cfg              Config
-	resultSink       ResultSink
-	occPool          *occWorkerPool
-	resultPool       *blockResultPool
-	stateDBPool      sync.Pool
-	endBlockers      []endBlocker
-	customContracts  map[common.Address]vm.PrecompiledContract
-	storeMu          sync.Mutex
-	stateStore       gigatypes.StateDB
-	receiptStore     receipt.ReceiptStore
-	changeSetEncoder NamedChangeSetEncoder
-	// Optional: nil commits only the state encoder's changesets.
+	cfg             Config
+	resultSink      ResultSink
+	occPool         *occWorkerPool
+	resultPool      *blockResultPool
+	stateDBPool     sync.Pool
+	endBlockers     []endBlocker
+	customContracts map[common.Address]vm.PrecompiledContract
+	storeMu         sync.Mutex
+	stateStore      gigatypes.StateDB
+	receiptStore    receipt.ReceiptStore
+	// Optional: nil commits only the block's EVM state changes.
 	blockChangeSetEncoder BlockChangeSetEncoder
 	// blockEncoderReadsStore is false only for an encoder registered as
 	// store-independent, which lets encoding overlap the previous commit.

@@ -6,12 +6,17 @@ import (
 	"fmt"
 	"math/big"
 	"math/rand/v2"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/require"
+
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
 
 const (
@@ -281,16 +286,51 @@ func occScenarioRun(t *testing.T, scenario *occScenario, reqs []BlockRequest, wo
 	return results
 }
 
-// requireSameStateChanges asserts that two changesets hold the same values in the same order and
-// encode to the same FlatKV pairs. Balances and their priors compare by value, since a zero may be
-// held with or without backing words.
+// requireSameStateChanges asserts that two changesets hold the same values in the same order, compared in
+// canonicalChangeSet's form, and convert to the same FlatKV mutations.
 func requireSameStateChanges(t *testing.T, want StateChangeSet, got StateChangeSet, name string) {
 	t.Helper()
-	require.Equal(t, withCanonicalBalances(want), withCanonicalBalances(got), name)
-	require.Equal(t, flatKVPairDigest(t, want), flatKVPairDigest(t, got), name)
+	require.Equal(t, canonicalChangeSet(want), canonicalChangeSet(got), name)
+	require.Equal(t, flatKVMutationDigest(t, want), flatKVMutationDigest(t, got), name)
 }
 
-func withCanonicalBalances(changes StateChangeSet) StateChangeSet {
+// emptyPriorState is the state before block 1, holding no rows.
+type emptyPriorState struct {
+	gigatypes.StateView
+}
+
+func (emptyPriorState) GetBlockHeight() int64 { return 0 }
+
+func (emptyPriorState) BatchGetRaw([][]byte) map[string][]byte { return map[string][]byte{} }
+
+// flatKVMutationDigest renders, in order, the key and new value of every FlatKV mutation changes converts into when
+// committed as block 1 over an empty state.
+func flatKVMutationDigest(t testing.TB, changes StateChangeSet) string {
+	mutations, err := flatkv.MutationsFromStateChangeSet(&changes, 1, emptyPriorState{},
+		flatkvconfig.DefaultConfig())
+	require.NoError(t, err)
+	var sb strings.Builder
+	for _, m := range mutations {
+		fmt.Fprintf(&sb, "%x|%x\n", m.Key, m.NewValue)
+	}
+	return sb.String()
+}
+
+// canonicalChangeSet returns changes in a form that compares equal to any set holding the same values: balances
+// rebuilt by value, and a kind with no entries held as nil.
+func canonicalChangeSet(changes StateChangeSet) StateChangeSet {
+	if len(changes.Accounts) == 0 {
+		changes.Accounts = nil
+	}
+	if len(changes.Storage) == 0 {
+		changes.Storage = nil
+	}
+	if len(changes.Misc) == 0 {
+		changes.Misc = nil
+	}
+	if changes.Accounts == nil {
+		return changes
+	}
 	accounts := make([]AccountChange, len(changes.Accounts))
 	for i, change := range changes.Accounts {
 		accounts[i] = change

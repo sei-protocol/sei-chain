@@ -350,6 +350,15 @@ func sortWorkerCount(cfg *config.Config, coreCount int) int {
 	return n
 }
 
+// stateChangeSetWorkerCount returns how many tasks convert a block's state change set at once.
+func stateChangeSetWorkerCount(cfg *config.Config, coreCount int) int {
+	n := int(cfg.StateChangeSetThreadsPerCore * float64(coreCount))
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
 // resetPools recreates the context and thread pools after a full Close().
 func (s *CommitStore) resetPools() {
 	coreCount := runtime.NumCPU()

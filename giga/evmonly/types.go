@@ -91,8 +91,8 @@ type BlockContext struct {
 
 // BlockResult is the executor output consumed by the new runtime boundary.
 type BlockResult struct {
-	// ChangeSet holds the block's state changes. Its account balances and code are shared with the
-	// block's pipelined commit and later reads, so they must not be modified.
+	// The block's state changes. Never modified once the block has executed, so a holder may keep it
+	// after the result is released.
 	ChangeSet StateChangeSet
 	Txs       []TxResult
 	Receipts  ethtypes.Receipts
