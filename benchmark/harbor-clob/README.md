@@ -1,7 +1,7 @@
 # CLOB benchmark on Harbor
 
 Reproduces the Autobahn EVM-only CLOB benchmark: 8 validators on dedicated c7i.16xlarge hosts, 8 sei-load
-pods offering 100k tx/s of CLOB orders. This branch sustains about 67-70k TPS chain-wide.
+pods offering 100k tx/s of CLOB orders. This branch sustains about 68k TPS chain-wide, run end to end from this folder.
 
 ## Workload
 
@@ -133,6 +133,8 @@ Latest main, merged with:
 - FlatKV view version retirement in short lock holds, with shards retired in parallel.
 - A cache-miss reader released before its value is installed in the read cache.
 - The dummy app hash knob.
+- CPU savers: a contract's code hash taken from its account row instead of hashing its code, and the lattice
+  hash built with `GOEXPERIMENT=simd` (AVX-512).
 
 ## Results on this setup
 
@@ -142,8 +144,9 @@ Latest main, merged with:
 | + 64 storage shards | 60-64k |
 | + overlay prebuild, retirement in short lock holds retired in parallel, early cache-miss release | 66-69k |
 | + dummy app hash | 67-68k |
+| This branch, run end to end from this folder's manifests | 68.2k |
 
-Where the main loop spends its time (about 12.6 us per transaction): speculation 6.1, validation 2.4, merge 1.1,
-waiting for the previous block's FlatKV commit 1.0, pending overlay 0.7, encoding 0.5. The validator that
+Where the main loop spends its time in that run (about 12.7 us per transaction): speculation 6.2, validation 2.7,
+merge 1.0, waiting for the previous block's FlatKV commit 0.9, pending overlay 0.7, encoding 0.5. The validator that
 receives the least RPC traffic is usually the slowest, since it recovers every sender during block preparation
 alongside speculation.
