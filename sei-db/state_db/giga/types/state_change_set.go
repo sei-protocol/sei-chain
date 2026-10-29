@@ -21,6 +21,12 @@ type AccountState struct {
 	Code    []byte
 }
 
+// IsEmpty reports whether the account has no balance, nonce or code, which is an account that does
+// not exist.
+func (s *AccountState) IsEmpty() bool {
+	return orZero(s.Balance).Sign() == 0 && s.Nonce == 0 && len(s.Code) == 0
+}
+
 // AccountChange is an account whose balance, nonce or code the block changed: its whole state after
 // the block beside its whole state before it.
 type AccountChange struct {
