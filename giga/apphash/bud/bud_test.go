@@ -13,13 +13,24 @@ import (
 func budHashOf(t *testing.T, budlets []*Budlet) apphash.BUDHash {
 	t.Helper()
 
-	tree, err := NewBUDTree(budlets)
+	treeHash, err := ComputeBUDTreeHash(budlets)
 	require.NoError(t, err)
-	return tree.BUDHash()
+	return ComputeBUDHash(uint64(len(budlets)), treeHash)
+}
+
+// mustNewBUDProof returns the BUD proof of the budlet with key, failing the test if the budlets are invalid or none
+// has that key.
+func mustNewBUDProof(t *testing.T, budlets []*Budlet, key []byte) *BUDProof {
+	t.Helper()
+
+	proof, found, err := NewBUDProof(budlets, key)
+	require.NoError(t, err)
+	require.True(t, found, "key %x", key)
+	return proof
 }
 
 func TestBUDHashOfEmptyTree(t *testing.T) {
-	require.Equal(t, computeBUDHash(0, sha256.Sum256(nil)), budHashOf(t, nil))
+	require.Equal(t, ComputeBUDHash(0, sha256.Sum256(nil)), budHashOf(t, nil))
 }
 
 func TestBUDHashCommitsToEveryField(t *testing.T) {
@@ -54,15 +65,13 @@ func TestZeroValuesDoNotPanic(t *testing.T) {
 	_, err := DeserializeBudlet(budlet.Serialize())
 	require.Error(t, err)
 
-	var tree BUDTree
-	_ = tree.BUDHash()
-	require.Empty(t, tree.Budlets())
-	_, found := tree.BuildBUDProof([]byte("evm/a"))
+	_, found, err := NewBUDProof(nil, []byte("evm/a"))
+	require.NoError(t, err)
 	require.False(t, found)
-	_ = tree.Serialize()
 
 	var proof BUDProof
-	_ = proof.ComputeBUDHash()
+	_, err = proof.ComputeBUDHash()
+	require.Error(t, err)
 	require.NotNil(t, proof.Budlet())
 	require.Zero(t, proof.Count())
 	require.Zero(t, proof.Index())

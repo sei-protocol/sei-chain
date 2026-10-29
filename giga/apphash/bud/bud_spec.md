@@ -6,14 +6,14 @@ This document defines the Block Update Digest (BUD), a family of formats that co
 block makes and prove them:
 
 - the budlet, one key's write
-- the BUD tree, the Merkle tree over a block's budlets, and its serialization
+- the BUD tree, the Merkle tree over a block's budlets
 - the BUD hash, a 32-byte commitment to a BUD tree, which is the `budHash` field of the block's
   [app hash](../apphash_spec.md)
 - the BUD proof, which proves that one write is among those a BUD hash commits to
 - the BUD state proof, which pairs a BUD proof with its block's app hash data to prove a key's value over a range
   of heights
 
-It does not define where a BUD tree is stored, or how a reader comes to trust an app hash.
+It does not define how a reader comes to trust an app hash.
 
 ## Notation
 
@@ -220,30 +220,9 @@ and node hashes.
 
 *Non-normative:* [BUD tree shapes](bud_tree_shapes.md) shows how to draw the tree for a given `n`.
 
-#### Serialization
-
-A serialized BUD tree is the fields below, in order, with no padding or separators. It holds the budlets only;
-the root and inner nodes are recomputed from them.
-
-| Offset |     Size | Field     | Encoding                                     |
-|-------:|---------:|-----------|----------------------------------------------|
-|      0 |        1 | `version` | `u8`, the BUD version, `1` for this document |
-|      1 |        8 | `n`       | `u64be`, the number of budlets               |
-|      9 | variable | budlets   | `serialize(b[0]) ‖ … ‖ serialize(b[n−1])`    |
-
-Each budlet's serialization declares its own length, so the budlets need no separators.
-
 ### Verification
 
 An implementation rejects, as an error, budlets that are not strictly increasing by key.
-
-A decoder reads `version` from the first byte and rejects any version it does not support. It then rejects, as
-an error:
-
-- input shorter than 9 bytes
-- input that ends before the `n`th budlet does
-- any budlet the budlet decoder rejects
-- budlets whose keys are not strictly increasing
 
 ### Test vector
 
@@ -263,22 +242,7 @@ N = innerHash(L0, L1) = 329d1fc527f7bc747989903c7a8dc0778cec41b98a695acab12887c0
 R = innerHash(N, L2)  = bc19858156c6b699dd78dd68213e06fbf347d30a6c5596cb3686902775148282
 ```
 
-The serialized BUD tree, one field per line, in hex:
-
-```
-version  01
-n        0000000000000003
-budlets  serialize(b[0])
-         serialize(b[1])
-         serialize(b[2])
-```
-
-A block with no budlets has a root `R` of `SHA-256` of the empty string. Its serialized BUD tree is:
-
-```
-version  01
-n        0000000000000000
-```
+A block with no budlets has a root `R` of `SHA-256` of the empty string.
 
 Verified by [`TestBUDSpecVector`](bud_spec_vector_test.go) and
 [`TestBUDSpecEmptyTreeVector`](bud_spec_vector_test.go).

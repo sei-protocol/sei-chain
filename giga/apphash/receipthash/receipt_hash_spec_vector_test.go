@@ -82,12 +82,14 @@ func TestReceiptHashSpecVector(t *testing.T) {
 	for i := range receipts {
 		proof, err := BuildReceiptProof(receipts, i)
 		require.NoError(t, err, "receipt %d", i)
-		proofHash := proof.ComputeReceiptHash()
+		proofHash, err := proof.ComputeReceiptHash()
+		require.NoError(t, err, "receipt %d proof", i)
 		require.Equal(t, receiptHashes[3], hex.EncodeToString(proofHash[:]), "receipt %d proof", i)
 		for j := range receipts[i].Logs {
 			logProof, err := BuildLogProof(receipts, i, j)
 			require.NoError(t, err, "receipt %d log %d", i, j)
-			logProofHash := logProof.ComputeReceiptHash()
+			logProofHash, err := logProof.ComputeReceiptHash()
+			require.NoError(t, err, "receipt %d log %d proof", i, j)
 			require.Equal(t, receiptHashes[3], hex.EncodeToString(logProofHash[:]),
 				"receipt %d log %d proof", i, j)
 		}

@@ -1,8 +1,10 @@
 package bud
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
+	"slices"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/merkle"
@@ -22,7 +24,7 @@ const (
 )
 
 // BUDProof proves that a budlet is a leaf of the BUD tree under a BUD hash. A BUDProof is immutable; create one with
-// BUDTree.BuildBUDProof() or DeserializeBUDProof().
+// NewBUDProof() or DeserializeBUDProof().
 type BUDProof struct {
 	// The budlet proven to be a leaf.
 	budlet Budlet
@@ -35,6 +37,35 @@ type BUDProof struct {
 
 	// The sibling hashes on the path from the budlet's leaf to the root, leaf end first.
 	siblings [][32]byte
+}
+
+// NewBUDProof returns the BUD proof of the budlet with key in the BUD tree over one block's budlets, or false when
+// no budlet has that key. It returns an error unless every budlet is one NewBudlet() would accept and the budlets
+// are strictly sorted by key.
+func NewBUDProof(
+	// The block's budlets. Must be strictly sorted by key.
+	budlets []*Budlet,
+	// The key of the budlet to prove.
+	key []byte,
+) (*BUDProof, bool, error) {
+	if err := checkBudletsValid(budlets); err != nil {
+		return nil, false, fmt.Errorf("building BUD proof: %w", err)
+	}
+	if err := checkBudletsSortedByKey(budlets); err != nil {
+		return nil, false, fmt.Errorf("building BUD proof: %w", err)
+	}
+	index, found := slices.BinarySearchFunc(budlets, key, func(budlet *Budlet, target []byte) int {
+		return bytes.Compare(budlet.key, target)
+	})
+	if !found {
+		return nil, false, nil
+	}
+	return &BUDProof{
+		budlet:   *budlets[index],
+		count:    uint64(len(budlets)),
+		index:    uint64(index), //nolint:gosec // G115 - a slice index is never negative
+		siblings: merkle.MerkleSiblings(budLeafHashes(budlets), index),
+	}, true, nil
 }
 
 // DeserializeBUDProof parses a BUD proof from the serialized BUD proof format. It returns an error unless data is
@@ -55,10 +86,15 @@ func DeserializeBUDProof(
 }
 
 // ComputeBUDHash returns the BUD hash of the BUD tree the proof places its budlet in. The proof shows that a block
-// wrote the budlet only when the result equals that block's BUD hash, taken from a trusted source.
-func (p *BUDProof) ComputeBUDHash() apphash.BUDHash {
+// wrote the budlet only when the result equals that block's BUD hash, taken from a trusted source. It returns an
+// error unless the proof's index is less than its count and it holds the number of siblings they define.
+func (p *BUDProof) ComputeBUDHash() (apphash.BUDHash, error) {
 	leafHash, _ := budLeafHash(&p.budlet, nil)
-	return computeBUDHash(p.count, merkle.MerkleRootFromSiblings(p.count, p.index, leafHash, p.siblings))
+	treeHash, err := merkle.MerkleRootFromSiblings(p.count, p.index, leafHash, p.siblings)
+	if err != nil {
+		return apphash.BUDHash{}, fmt.Errorf("computing BUD hash from proof: %w", err)
+	}
+	return ComputeBUDHash(p.count, treeHash), nil
 }
 
 // Budlet returns the budlet the proof is about.

@@ -17,7 +17,9 @@ func TestProofsRecomputeReceiptHash(t *testing.T) {
 		for i, receipt := range receipts {
 			proof, err := BuildReceiptProof(receipts, i)
 			require.NoError(t, err, "count %d receipt %d", count, i)
-			require.Equal(t, receiptHash, proof.ComputeReceiptHash(), "count %d receipt %d", count, i)
+			proofHash, err := proof.ComputeReceiptHash()
+			require.NoError(t, err, "count %d receipt %d", count, i)
+			require.Equal(t, receiptHash, proofHash, "count %d receipt %d", count, i)
 			require.Equal(t, receipt.TxHash, proof.TxHash())
 			require.Equal(t, uint64(receipt.TransactionIndex), proof.BlockIndex())
 			require.Equal(t, uint8(receipt.Status), proof.Status())
@@ -28,8 +30,9 @@ func TestProofsRecomputeReceiptHash(t *testing.T) {
 			for j, log := range receipt.Logs {
 				logProof, err := BuildLogProof(receipts, i, j)
 				require.NoError(t, err, "count %d receipt %d log %d", count, i, j)
-				require.Equal(t, receiptHash, logProof.ComputeReceiptHash(),
-					"count %d receipt %d log %d", count, i, j)
+				logProofHash, err := logProof.ComputeReceiptHash()
+				require.NoError(t, err, "count %d receipt %d log %d", count, i, j)
+				require.Equal(t, receiptHash, logProofHash, "count %d receipt %d log %d", count, i, j)
 				require.Equal(t, log.Address, logProof.Address())
 				require.Equal(t, log.Topics, logProof.Topics())
 				require.Equal(t, log.Data, logProof.Data())
@@ -60,7 +63,11 @@ func TestReceiptProofCommitsToEveryField(t *testing.T) {
 			proof, err := BuildReceiptProof(receipts, 0)
 			require.NoError(t, err)
 			mutate(proof)
-			require.NotEqual(t, receiptHash, proof.ComputeReceiptHash())
+			hash, err := proof.ComputeReceiptHash()
+			if err == nil {
+				// A mutation that changes how many siblings the proof needs is rejected instead.
+				require.NotEqual(t, receiptHash, hash)
+			}
 		})
 	}
 }
@@ -88,7 +95,11 @@ func TestLogProofCommitsToEveryField(t *testing.T) {
 			proof, err := BuildLogProof(receipts, 0, 0)
 			require.NoError(t, err)
 			mutate(proof)
-			require.NotEqual(t, receiptHash, proof.ComputeReceiptHash())
+			hash, err := proof.ComputeReceiptHash()
+			if err == nil {
+				// A mutation that changes how many siblings the proof needs is rejected instead.
+				require.NotEqual(t, receiptHash, hash)
+			}
 		})
 	}
 }
@@ -120,7 +131,9 @@ func TestBuildProofsRejectInvalidReceipts(t *testing.T) {
 
 func TestZeroProofsDoNotPanic(t *testing.T) {
 	var proof ReceiptProof
-	_ = proof.ComputeReceiptHash()
+	_, err := proof.ComputeReceiptHash()
+	require.Error(t, err)
 	var logProof LogProof
-	_ = logProof.ComputeReceiptHash()
+	_, err = logProof.ComputeReceiptHash()
+	require.Error(t, err)
 }

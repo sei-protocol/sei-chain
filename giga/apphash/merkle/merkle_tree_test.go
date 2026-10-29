@@ -43,8 +43,35 @@ func TestMerkleSiblingsLeadToRoot(t *testing.T) {
 			siblings := MerkleSiblings(leafHashes, index)
 			require.Len(t, siblings, MerkleSiblingCount(leafCount, leafIndex),
 				"count %d index %d", count, index)
-			computedRoot := MerkleRootFromSiblings(leafCount, leafIndex, leafHashes[index], siblings)
+			computedRoot, err := MerkleRootFromSiblings(leafCount, leafIndex, leafHashes[index], siblings)
+			require.NoError(t, err, "count %d index %d", count, index)
 			require.Equal(t, root, computedRoot, "count %d index %d", count, index)
 		}
+	}
+}
+
+func TestMerkleRootFromSiblingsRejectsMalformedProofs(t *testing.T) {
+	_, leafHashes := randomPreimages(rand.New(rand.NewSource(3)), 5)
+	siblings := MerkleSiblings(leafHashes, 1)
+	require.NotEmpty(t, siblings)
+
+	testCases := map[string]struct {
+		leafCount uint64
+		leafIndex uint64
+		siblings  [][32]byte
+	}{
+		"index equals count": {5, 5, siblings},
+		"index past count":   {5, 6, siblings},
+		"zero count":         {0, 0, nil},
+		"missing sibling":    {5, 1, siblings[:len(siblings)-1]},
+		"extra sibling":      {5, 1, append(append([][32]byte(nil), siblings...), [32]byte{})},
+		"siblings for one":   {1, 0, siblings},
+	}
+	for name, testCase := range testCases {
+		t.Run(name, func(t *testing.T) {
+			_, err := MerkleRootFromSiblings(testCase.leafCount, testCase.leafIndex, leafHashes[1],
+				testCase.siblings)
+			require.Error(t, err)
+		})
 	}
 }

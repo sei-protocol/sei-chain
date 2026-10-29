@@ -1,6 +1,9 @@
 package merkle
 
-import "crypto/sha256"
+import (
+	"crypto/sha256"
+	"fmt"
+)
 
 const (
 	// merkleLeafPrefix is the domain prefix of a leaf hash.
@@ -96,18 +99,26 @@ func MerkleSiblingCount(
 	return count
 }
 
-// MerkleRootFromSiblings returns the root of the tree that siblings place leafHash in.
+// MerkleRootFromSiblings returns the root of the tree that siblings place leafHash in. It returns an error unless
+// leafIndex is less than leafCount and siblings holds MerkleSiblingCount(leafCount, leafIndex) hashes.
 func MerkleRootFromSiblings(
 	// The number of leaves in the tree.
 	leafCount uint64,
-	// The position of the leaf in the tree. Must be less than leafCount.
+	// The position of the leaf in the tree.
 	leafIndex uint64,
 	// The hash of the leaf.
 	leafHash [32]byte,
-	// The sibling hashes on the path from the leaf to the root, leaf end first. Must hold
-	// MerkleSiblingCount(leafCount, leafIndex) hashes.
+	// The sibling hashes on the path from the leaf to the root, leaf end first.
 	siblings [][32]byte,
-) [32]byte {
+) ([32]byte, error) {
+	if leafIndex >= leafCount {
+		return [32]byte{}, fmt.Errorf("leaf index %d is not less than leaf count %d", leafIndex, leafCount)
+	}
+	if want := MerkleSiblingCount(leafCount, leafIndex); len(siblings) != want {
+		return [32]byte{}, fmt.Errorf("%d siblings, want %d for leaf %d of %d", len(siblings), want, leafIndex,
+			leafCount)
+	}
+
 	node := leafHash
 	position := leafIndex
 	// size/2 + size%2 rounds up without overflowing when size is the largest uint64.
@@ -124,7 +135,7 @@ func MerkleRootFromSiblings(
 		}
 		position /= 2
 	}
-	return node
+	return node, nil
 }
 
 // nextMerkleLevel returns the tree level above level: each adjacent pair hashed into its parent, and a trailing

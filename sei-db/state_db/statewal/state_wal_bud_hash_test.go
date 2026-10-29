@@ -166,15 +166,14 @@ func TestBudletFromMutationMatchesSpecVector(t *testing.T) {
 	}
 }
 
-func TestBUDTreeFromNoMutationsIsTheEmptyTree(t *testing.T) {
-	tree, err := budTreeFromMutations(nil)
+func TestBUDHashFromNoMutationsIsTheEmptyTree(t *testing.T) {
+	hash, err := budHashFromMutations(nil)
 	require.NoError(t, err)
-	hash := tree.BUDHash()
 	const emptyTreeBUDHash = "3eeeba2dfb311dad9e9e46eba984fa855be2b872496b921b19da52b3eb09d5e2"
 	require.Equal(t, emptyTreeBUDHash, hex.EncodeToString(hash[:]))
 }
 
-func TestBUDTreeFromMutationsRejectsKeysOutOfOrder(t *testing.T) {
+func TestBUDHashFromMutationsRejectsKeysOutOfOrder(t *testing.T) {
 	tests := []struct {
 		name string
 		keys []string
@@ -191,14 +190,14 @@ func TestBUDTreeFromMutationsRejectsKeysOutOfOrder(t *testing.T) {
 					NewValue: vtype.SerializeMisc(9, []byte("v")),
 				}
 			}
-			_, err := budTreeFromMutations(mutations)
+			_, err := budHashFromMutations(mutations)
 			require.Error(t, err)
 		})
 	}
 }
 
 // The BUD hash commits to every mutation: changing any one changes it.
-func TestBUDTreeFromMutationsHashDependsOnEveryMutation(t *testing.T) {
+func TestBUDHashFromMutationsDependsOnEveryMutation(t *testing.T) {
 	mutations := func() []mutation.Mutation {
 		return []mutation.Mutation{
 			{Key: []byte("a"), NewValue: vtype.SerializeMisc(9, []byte("1"))},
@@ -209,7 +208,7 @@ func TestBUDTreeFromMutationsHashDependsOnEveryMutation(t *testing.T) {
 			},
 		}
 	}
-	baseline, err := budTreeFromMutations(mutations())
+	baseline, err := budHashFromMutations(mutations())
 	require.NoError(t, err)
 
 	edits := []func(m []mutation.Mutation){
@@ -220,9 +219,9 @@ func TestBUDTreeFromMutationsHashDependsOnEveryMutation(t *testing.T) {
 	for i, edit := range edits {
 		edited := mutations()
 		edit(edited)
-		tree, err := budTreeFromMutations(edited)
+		hash, err := budHashFromMutations(edited)
 		require.NoError(t, err)
-		require.NotEqual(t, baseline.BUDHash(), tree.BUDHash(), "edit %d", i)
+		require.NotEqual(t, baseline, hash, "edit %d", i)
 	}
 }
 
@@ -237,9 +236,9 @@ func TestHashIsBUDHashOfMutations(t *testing.T) {
 	}
 	want := make([]recordedHash, 0, len(blocks))
 	for i, mutations := range blocks {
-		tree, err := budTreeFromMutations(mutations)
+		hash, err := budHashFromMutations(mutations)
 		require.NoError(t, err)
-		want = append(want, recordedHash{blockNumber: uint64(i + 1), hash: tree.BUDHash()})
+		want = append(want, recordedHash{blockNumber: uint64(i + 1), hash: hash})
 	}
 
 	w := openWAL(t, cfg)
