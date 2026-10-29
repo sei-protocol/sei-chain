@@ -193,10 +193,8 @@ func TestEveryGovParamChangesThroughAProposal(t *testing.T) {
 		require.NoError(t, err)
 		return got[0]
 	}
-	var keys []chainparams.ParamKey
-	abi.ConvertType(params(chainparams.ParamKeysMethod), &keys)
 	var changes []paramChange
-	for _, k := range keys {
+	for _, k := range chainparams.Keys() {
 		changes = append(changes, paramChange{k.Subspace, k.Key, wantValues[k.Key]})
 	}
 	require.Len(t, changes, len(wantValues), "every declared gov param")
@@ -214,18 +212,10 @@ func TestEveryGovParamChangesThroughAProposal(t *testing.T) {
 // its whole subspace one storage word per param, stays within the content words
 // settleCost charges for it.
 func TestSubspacesFitTheExecutionCharge(t *testing.T) {
-	m := chainparams.ABI.Methods[chainparams.ParamKeysMethod]
-	out, err := chainparams.Precompile{}.Run(&precompiles.Context{Address: chainparams.Address}, m.ID)
-	require.NoError(t, err)
-	values, err := m.Outputs.Unpack(out)
-	require.NoError(t, err)
-	var keys []chainparams.ParamKey
-	abi.ConvertType(values[0], &keys)
-
 	perSubspace := map[string]int{}
 	shortest := map[string]string{}
-	for _, k := range keys {
-		typ, err := abi.NewType(k.ValueType, "", nil)
+	for _, k := range chainparams.Keys() {
+		typ, err := abi.NewType(k.SolType, "", nil)
 		require.NoError(t, err)
 		require.Contains(t, []byte{abi.UintTy, abi.IntTy, abi.BoolTy, abi.AddressTy, abi.FixedBytesTy}, typ.T,
 			"%s/%s is stored in one word; a longer kind needs settleCost to charge its words", k.Subspace, k.Key)

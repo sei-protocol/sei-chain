@@ -14,7 +14,7 @@ struct TextContent {
 }
 
 /// @notice A change to one param. key is its flat key, e.g.
-/// "tallyparams.quorum" (see IParams.paramKeys), and value is the 32-byte
+/// "tallyparams.quorum" (the declared keys are ParamsStorage.sol's fields), and value is the 32-byte
 /// abi.encode of its value, as IParams.param returns it.
 struct ParamChange {
     string subspace;

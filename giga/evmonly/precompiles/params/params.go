@@ -28,10 +28,7 @@ var ABI = func() abi.ABI {
 	return parsed
 }()
 
-const (
-	ParamMethod     = "param"
-	ParamKeysMethod = "paramKeys"
-)
+const ParamMethod = "param"
 
 // Flat per-call gas, as V2's pcommon.DefaultGasCost prices a query.
 const (
@@ -45,15 +42,6 @@ var (
 	errNonPayable    = errors.New("sending funds to a non-payable function")
 	errUnknownMethod = errors.New("unknown params method")
 )
-
-// ParamKey is a declared param: its subspace, flat key, the Solidity type of its
-// value, and its V2 type.
-type ParamKey struct {
-	Subspace  string
-	Key       string
-	ValueType string
-	V2Type    uint8
-}
 
 // retiredMethods are the V2 methods, by signature, params keeps in its ABI only
 // to revert with a reason naming the call to use instead. They are checked before
@@ -95,8 +83,6 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	switch method.Name {
 	case ParamMethod:
 		return paramQuery(ctx.State, method, args[0].(string), args[1].(string))
-	case ParamKeysMethod:
-		return method.Outputs.Pack(paramKeys())
 	}
 	return nil, errUnknownMethod
 }
@@ -123,14 +109,4 @@ func paramQuery(state precompiles.State, method *abi.Method, subspaceName, key s
 		return nil, fmt.Errorf("%w: %s/%s", errUnknownKey, subspaceName, key)
 	}
 	return method.Outputs.Pack(common.BigToHash(ss.get(newStore(state), p)).Bytes())
-}
-
-func paramKeys() []ParamKey {
-	var out []ParamKey
-	for _, ss := range subspaces {
-		for _, p := range ss.params {
-			out = append(out, ParamKey{Subspace: ss.name, Key: p.key, ValueType: p.kind.solType, V2Type: uint8(p.kind.v2Type)})
-		}
-	}
-	return out
 }

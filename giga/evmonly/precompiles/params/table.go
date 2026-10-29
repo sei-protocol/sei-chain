@@ -9,39 +9,17 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
-// V2Type is a param value's V2 type, as Params.sol's V2Type enum numbers it.
-type V2Type uint8
-
-// The V2 types.
-const (
-	V2Dec V2Type = iota
-	V2Duration
-	V2Coins
-	V2DecCoins
-	V2Int
-	V2Uint
-	V2Uint64
-	V2Uint32
-	V2Int64
-	V2Int32
-	V2Bool
-	V2String
-	V2Address
-	V2StringList
-)
-
 // valueKind is how a param's value is stored and ABI-encoded: its Solidity
-// type, and the V2 type that gives its unit.
+// type and width.
 type valueKind struct {
 	solType string
 	bits    int
-	v2Type  V2Type
 }
 
 var (
-	decKind      = valueKind{solType: "uint256", bits: 256, v2Type: V2Dec}
-	durationKind = valueKind{solType: "uint64", bits: 64, v2Type: V2Duration}
-	coinsKind    = valueKind{solType: "uint256", bits: 256, v2Type: V2Coins}
+	decKind      = valueKind{solType: "uint256", bits: 256}
+	durationKind = valueKind{solType: "uint64", bits: 64}
+	coinsKind    = valueKind{solType: "uint256", bits: 256}
 )
 
 // param is one declared param.
@@ -67,6 +45,25 @@ type subspace struct {
 
 // subspaces are the declared subspaces, in ParamsStorage order.
 var subspaces = []*subspace{&govSubspace}
+
+// Key is a declared param: its subspace, flat key, and the Solidity type of its
+// value.
+type Key struct {
+	Subspace string
+	Key      string
+	SolType  string
+}
+
+// Keys returns the declared params in table order.
+func Keys() []Key {
+	var out []Key
+	for _, ss := range subspaces {
+		for _, p := range ss.params {
+			out = append(out, Key{Subspace: ss.name, Key: p.key, SolType: p.kind.solType})
+		}
+	}
+	return out
+}
 
 func lookupSubspace(name string) (*subspace, bool) {
 	for _, ss := range subspaces {

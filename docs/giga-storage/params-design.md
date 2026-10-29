@@ -40,8 +40,7 @@ One Go row per param, in the params package, grouped by subspace:
 {key: keyVotingPeriod, kind: durationKind, at: govVotingPeriod}
 ```
 
-The table drives `paramKeys()` and the type each value is decoded and stored
-as. A value must fit its Solidity type, and each subspace has a whole-struct
+The table sets the type each value is decoded and stored as. A value must fit its Solidity type, and each subspace has a whole-struct
 check run on the result of a change. Gov's check is x/gov's validation plus:
 
 - every period at least `MinPeriod` (1s) and at most `MaxPeriod` (2^62 ns), so
@@ -77,16 +76,11 @@ function submitParamChangeProposal(
 Params (0x1013):
 
 ```solidity
-enum V2Type { Dec, Duration, Coins, DecCoins, Int, Uint, Uint64, Uint32, Int64, Int32, Bool, String, Address, StringList }
-struct ParamKey { string subspace; string key; string valueType; V2Type v2Type; } // valueType is the Solidity type of the encoded value
-
 function param(string calldata subspace, string calldata key) external view returns (bytes memory); // abi.encode(<stored type>)
-function paramKeys() external view returns (ParamKey[] memory);                                       // from the declaration table
 ```
 
-`V2Type` names every V2 param value type, so a reader can render any param
-without its own table; the types above with no stored form get one when a
-param first needs it. V2's `params(string,string)` stays in the ABI and reverts,
+Each param's type is fixed by its field in `ParamsStorage.sol`; the precompile
+does not report it. V2's `params(string,string)` stays in the ABI and reverts,
 naming `param`.
 
 ## Proposals
@@ -108,8 +102,8 @@ naming `param`.
   with them. `TestSubspacesFitTheExecutionCharge` checks both.
 - The proposal stores `ParamChangeContent` (declared in `Gov.sol`), and
   `proposal()` returns its ABI encoding.
-- `submitParamChangeProposal` is priced as a gov transaction; `param` and
-  `paramKeys` as queries.
+- `submitParamChangeProposal` is priced as a gov transaction; `param` as a
+  query.
 
 ## Gov as the first subspace
 

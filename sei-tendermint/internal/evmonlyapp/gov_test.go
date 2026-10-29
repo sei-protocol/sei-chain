@@ -95,11 +95,11 @@ func TestEVMOnlyApplicationStartsGovAtTheFirstBlock(t *testing.T) {
 
 	_, err := govCall(t, app, gov.ParamsMethod)
 	require.Error(t, err, "gov refuses calls before the first block writes its params")
-	_, err = precompileCall(t, app, chainparams.Address, chainparams.ABI, chainparams.ParamKeysMethod)
+	_, err = precompileCall(t, app, chainparams.Address, chainparams.ABI, chainparams.ParamMethod, "gov", "votingparams.voting_period")
 	require.Error(t, err, "params refuses calls before the first block writes them")
 
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
-	_, err = precompileCall(t, app, chainparams.Address, chainparams.ABI, chainparams.ParamKeysMethod)
+	_, err = precompileCall(t, app, chainparams.Address, chainparams.ABI, chainparams.ParamMethod, "gov", "votingparams.voting_period")
 	require.NoError(t, err)
 	out, err := govCall(t, app, gov.ParamsMethod)
 	require.NoError(t, err)

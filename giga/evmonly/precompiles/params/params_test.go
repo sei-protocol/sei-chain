@@ -48,26 +48,21 @@ func call(t *testing.T, state precompiles.State, method string, args ...interfac
 	return ABI.Methods[method].Outputs.Unpack(out)
 }
 
-// TestParamKeys pins paramKeys' list. The flat keys of one V2 key stay adjacent
-// and in the V2 struct's field order, as Params.sol states; a new param goes in
-// its place in that order.
-func TestParamKeys(t *testing.T) {
-	out, err := call(t, newMemState(), ParamKeysMethod)
-	require.NoError(t, err)
-	var keys []ParamKey
-	abi.ConvertType(out[0], &keys)
-	require.Equal(t, []ParamKey{
-		{"gov", "depositparams.min_deposit", "uint256", uint8(V2Coins)},
-		{"gov", "depositparams.max_deposit_period", "uint64", uint8(V2Duration)},
-		{"gov", "depositparams.min_expedited_deposit", "uint256", uint8(V2Coins)},
-		{"gov", "votingparams.voting_period", "uint64", uint8(V2Duration)},
-		{"gov", "votingparams.expedited_voting_period", "uint64", uint8(V2Duration)},
-		{"gov", "tallyparams.quorum", "uint256", uint8(V2Dec)},
-		{"gov", "tallyparams.threshold", "uint256", uint8(V2Dec)},
-		{"gov", "tallyparams.veto_threshold", "uint256", uint8(V2Dec)},
-		{"gov", "tallyparams.expedited_quorum", "uint256", uint8(V2Dec)},
-		{"gov", "tallyparams.expedited_threshold", "uint256", uint8(V2Dec)},
-	}, keys)
+// TestKeys pins the declared params. The flat keys of one V2 key stay adjacent
+// and in the V2 struct's field order; a new param goes in its place in that order.
+func TestKeys(t *testing.T) {
+	require.Equal(t, []Key{
+		{"gov", "depositparams.min_deposit", "uint256"},
+		{"gov", "depositparams.max_deposit_period", "uint64"},
+		{"gov", "depositparams.min_expedited_deposit", "uint256"},
+		{"gov", "votingparams.voting_period", "uint64"},
+		{"gov", "votingparams.expedited_voting_period", "uint64"},
+		{"gov", "tallyparams.quorum", "uint256"},
+		{"gov", "tallyparams.threshold", "uint256"},
+		{"gov", "tallyparams.veto_threshold", "uint256"},
+		{"gov", "tallyparams.expedited_quorum", "uint256"},
+		{"gov", "tallyparams.expedited_threshold", "uint256"},
+	}, Keys())
 }
 
 func TestParamReturnsTheStoredValue(t *testing.T) {
@@ -130,7 +125,7 @@ func TestApplyChecksTheResultAsAWhole(t *testing.T) {
 }
 
 func TestRunRejectsValueAndDelegateCall(t *testing.T) {
-	input, err := ABI.Pack(ParamKeysMethod)
+	input, err := ABI.Pack(ParamMethod, "gov", "votingparams.voting_period")
 	require.NoError(t, err)
 	_, err = Precompile{}.Run(&precompiles.Context{State: newMemState(), ApparentValue: big.NewInt(1)}, input)
 	require.ErrorIs(t, err, errNonPayable)
