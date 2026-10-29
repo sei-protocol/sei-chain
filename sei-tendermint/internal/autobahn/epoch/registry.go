@@ -67,9 +67,10 @@ func (s *registryState) snapshot() *pb.PersistedEpochRegistry {
 }
 
 func (s *registryState) restore(snapshot *pb.PersistedEpochRegistry) error {
-	// TODO: a missing pending is restaged on restart from GetValidators() at app
-	// tip, not stake(LastRoad(E)). Use the LastRoad validator set once it is
-	// persisted in app state.
+	// A missing pending is restaged on restart. An app that stores the epoch
+	// window restages it from the committed window.
+	// TODO: an app without epoch state restages it from GetValidators() at the
+	// app tip, not stake(LastRoad(E)).
 	if snapshot == nil {
 		return fmt.Errorf("missing")
 	}
