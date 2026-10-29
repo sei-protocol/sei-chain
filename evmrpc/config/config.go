@@ -132,7 +132,7 @@ type Config struct {
 	MaxFilters uint64 `mapstructure:"max_filters"`
 
 	// maximum number of block hashes an eth_newBlockFilter filter holds unpolled (Autobahn) or
-	// returns from one poll (otherwise)
+	// block heights one poll covers (otherwise)
 	MaxBlockFilterHashes uint64 `mapstructure:"max_block_filter_hashes"`
 
 	// checkTx timeout for sig verify
@@ -1002,7 +1002,7 @@ max_filters = {{ .EVM.MaxFilters }}
 
 # maximum number of block hashes an eth_newBlockFilter filter handles at once.
 # Under Autobahn a filter holding this many unpolled hashes is invalidated and removed;
-# otherwise one poll returns at most this many hashes and later polls return the rest.
+# otherwise one poll covers at most this many block heights and later polls cover the rest.
 max_block_filter_hashes = {{ .EVM.MaxBlockFilterHashes }}
 
 # checkTx timeout for sig verify

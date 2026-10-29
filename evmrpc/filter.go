@@ -503,10 +503,11 @@ func (a *FilterAPI) updateFilterAccess(filterID ethrpc.ID) {
 	}
 }
 
-// advanceFilterCursor moves a polling filter's cursor forward to cursor, and never back. It is
-// applied also when a poll fails, since a poll that fails on blocks it cannot serve returns a
-// cursor past them. Concurrent polls of one filter read the same cursor and may return the same
-// blocks; keeping the furthest cursor stops a slower poll from delivering them yet again.
+// advanceFilterCursor moves a polling filter's cursor forward to cursor, and never back. Callers
+// apply it to the cursor a poll returns before they check the poll's error: a poll that fails on
+// blocks it cannot serve returns a cursor past them. Concurrent polls of one filter read the same
+// cursor and may return the same blocks; keeping the furthest cursor stops a slower poll from
+// delivering them yet again.
 func (a *FilterAPI) advanceFilterCursor(filterID ethrpc.ID, cursor int64) {
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
@@ -566,11 +567,12 @@ func (a *FilterAPI) NewBlockFilter(
 
 	var start int64
 	if a.blockHeaderNotifier == nil {
-		head, err := a.logFetcher.latestHeight(ctx)
+		earliest, _, head, err := a.logFetcher.watermarks.Watermarks(ctx)
 		if err != nil {
 			return "", err
 		}
-		start = head + 1
+		// On a state-synced node the block store can begin above the safe latest height.
+		start = max(head+1, earliest)
 	}
 
 	_, cancel := context.WithCancel(a.shutdownCtx)
@@ -756,26 +758,29 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 }
 
 // blockHashesFrom returns the hashes of the blocks from cursor on, oldest first, and the cursor the
-// next poll starts from, also when it returns an error. A poll returns at most
-// maxBlockFilterHashes hashes up to the safe latest height, and skips heights the block store does
-// not hold. A cursor below the earliest available block fails the poll with an error naming the
-// pruned blocks, and the returned cursor is that block. It reads the CometBFT block store, so it
-// serves only nodes without a blockHeaderNotifier.
+// next poll starts from, also when it returns an error. A poll covers at most maxBlockFilterHashes
+// heights up to the safe latest height, which must not exceed the block store's height. A cursor
+// below the earliest available block, found before or during the poll, fails it with an error
+// naming the pruned blocks, and the returned cursor is that block. It reads the CometBFT block
+// store, so it serves only nodes without a blockHeaderNotifier.
 func (a *FilterAPI) blockHashesFrom(ctx context.Context, cursor int64) ([]common.Hash, int64, error) {
 	earliest, _, head, err := a.logFetcher.watermarks.Watermarks(ctx)
 	if err != nil {
 		return nil, cursor, err
 	}
 	if cursor < earliest {
-		return nil, earliest, fmt.Errorf("blocks %d to %d were pruned before the filter read them", cursor, earliest-1)
+		return nil, earliest, prunedBlocksError(cursor, earliest)
 	}
-	// #nosec G115 -- the min with math.MaxInt32 keeps the value within int64
+	// #nosec G115 -- min with math.MaxInt32 fits the cap in an int64 with room for cursor+span-1 below
 	span := int64(min(a.filterConfig.maxBlockFilterHashes, math.MaxInt32))
 	to := min(head, cursor+span-1)
 	if to < cursor {
 		return []common.Hash{}, cursor, nil
 	}
 	hashes, err := a.blockHashesDescending(ctx, cursor, to)
+	if errors.Is(err, coretypes.ErrInvalidRequest) {
+		return a.prunedDuringPoll(ctx, cursor, err)
+	}
 	if err != nil {
 		return nil, cursor, err
 	}
@@ -783,10 +788,28 @@ func (a *FilterAPI) blockHashesFrom(ctx context.Context, cursor int64) ([]common
 	return hashes, to + 1, nil
 }
 
+// prunedDuringPoll returns the result of a poll from cursor whose block store read failed with
+// err. When pruning passed the cursor during the poll, it fails with an error naming the pruned
+// blocks and returns the earliest available block as the next cursor, as a poll that found them
+// pruned beforehand does; otherwise it returns err and leaves the cursor where it was.
+func (a *FilterAPI) prunedDuringPoll(ctx context.Context, cursor int64, err error) ([]common.Hash, int64, error) {
+	earliest, _, _, wmErr := a.logFetcher.watermarks.Watermarks(ctx)
+	if wmErr != nil || cursor >= earliest {
+		return nil, cursor, err
+	}
+	return nil, earliest, prunedBlocksError(cursor, earliest)
+}
+
+// prunedBlocksError reports that the blocks from cursor up to earliest were pruned before a block
+// filter read them.
+func prunedBlocksError(cursor, earliest int64) error {
+	return fmt.Errorf("blocks %d to %d were pruned before the filter read them", cursor, earliest-1)
+}
+
 // blockHashesDescending returns the hashes of the blocks the block store holds from height from to
 // height to, newest first. It pages through BlockchainInfo by the heights each page returns.
 func (a *FilterAPI) blockHashesDescending(ctx context.Context, from, to int64) ([]common.Hash, error) {
-	hashes := make([]common.Hash, 0, to-from+1)
+	hashes := make([]common.Hash, 0, min(to-from+1, DefaultMaxBlockFilterHashes))
 	for hi := to; hi >= from; {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -796,8 +819,9 @@ func (a *FilterAPI) blockHashesDescending(ctx context.Context, from, to int64) (
 			return nil, fmt.Errorf("fetching block headers %d to %d: %w", from, hi, err)
 		}
 		if len(res.BlockMetas) == 0 {
-			// The page below hi holds no block, and its size is the provider's to choose, so
-			// only hi is known to be missing.
+			// The CometBFT block store has no holes between its base and height, so this guards
+			// another provider: the page below hi holds no block, and its size is the provider's
+			// to choose, so only hi is known to be missing.
 			hi--
 			continue
 		}
@@ -805,7 +829,7 @@ func (a *FilterAPI) blockHashesDescending(ctx context.Context, from, to int64) (
 			hashes = append(hashes, common.BytesToHash(meta.BlockID.Hash))
 		}
 		lowest := res.BlockMetas[len(res.BlockMetas)-1].Header.Height
-		if lowest > hi {
+		if lowest > hi || lowest < from {
 			return nil, fmt.Errorf("block headers %d to %d returned block %d", from, hi, lowest)
 		}
 		hi = lowest - 1

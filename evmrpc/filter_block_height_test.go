@@ -18,11 +18,14 @@ import (
 
 // blockFilterTestClient serves BlockchainInfo the way sei-tendermint does: at most limit metas per
 // call, newest first, clamped to the stored [earliest, latest] range, skipping heights the store
-// does not hold, and failing when the clamped range is empty.
+// does not hold, and failing with ErrInvalidRequest when the clamped range is empty. beforeCall,
+// when set, runs before each call with the number of calls already made.
 type blockFilterTestClient struct {
 	*heightTestClient
-	limit   int64
-	missing map[int64]bool
+	limit      int64
+	missing    map[int64]bool
+	calls      int
+	beforeCall func(calls int)
 }
 
 func blockFilterTestHash(height int64) common.Hash {
@@ -30,10 +33,15 @@ func blockFilterTestHash(height int64) common.Hash {
 }
 
 func (c *blockFilterTestClient) BlockchainInfo(_ context.Context, minHeight, maxHeight int64) (*coretypes.ResultBlockchainInfo, error) {
+	if c.beforeCall != nil {
+		c.beforeCall(c.calls)
+	}
+	c.calls++
 	maxHeight = min(maxHeight, c.latest)
 	minHeight = max(minHeight, c.earliest, maxHeight-c.limit+1)
 	if minHeight > maxHeight {
-		return nil, fmt.Errorf("min height %d can't be greater than max height %d", minHeight, maxHeight)
+		return nil, fmt.Errorf("%w: min height %d can't be greater than max height %d",
+			coretypes.ErrInvalidRequest, minHeight, maxHeight)
 	}
 	metas := []*tmtypes.BlockMeta{}
 	for h := maxHeight; h >= minHeight; h-- {
@@ -117,7 +125,8 @@ func TestFilterAPI_BlockFilterWithoutNotifierFollowsProviderPageSize(t *testing.
 }
 
 func TestFilterAPI_BlockFilterWithoutNotifierSkipsMissingBlocks(t *testing.T) {
-	// Setup: the block store holds no meta for 105 or for 121-125, which straddles a page edge.
+	// Setup: a provider holding no meta for 105 or for 121-125, which straddles a page edge. The
+	// CometBFT block store has no such holes; this covers the guard for another provider.
 	api, c := newBlockFilterTestAPI(t, DefaultMaxBlockFilterHashes, 1, 100)
 	id, err := api.NewBlockFilter(context.Background())
 	require.NoError(t, err)
@@ -133,7 +142,8 @@ func TestFilterAPI_BlockFilterWithoutNotifierSkipsMissingBlocks(t *testing.T) {
 }
 
 func TestFilterAPI_BlockFilterWithoutNotifierSkipsMissingRangeWiderThanPage(t *testing.T) {
-	// Setup: the block store holds no meta for 106-130, wider than one BlockchainInfo page.
+	// Setup: a provider holding no meta for 106-130, wider than one BlockchainInfo page. The
+	// CometBFT block store has no such holes; this covers the guard for another provider.
 	api, c := newBlockFilterTestAPI(t, DefaultMaxBlockFilterHashes, 1, 100)
 	id, err := api.NewBlockFilter(context.Background())
 	require.NoError(t, err)
@@ -183,6 +193,39 @@ func TestFilterAPI_BlockFilterWithoutNotifierReportsPrunedBlocks(t *testing.T) {
 	_, err = api.GetFilterChanges(context.Background(), id)
 	require.EqualError(t, err, "blocks 101 to 110 were pruned before the filter read them")
 	require.Equal(t, blockFilterTestHashes(111, 115), pollBlockFilter(t, api, id))
+}
+
+func TestFilterAPI_BlockFilterWithoutNotifierReportsBlocksPrunedDuringPoll(t *testing.T) {
+	// Setup: 50 new blocks, and pruning advances the store's base to 135 after the first page.
+	api, c := newBlockFilterTestAPI(t, DefaultMaxBlockFilterHashes, 1, 100)
+	id, err := api.NewBlockFilter(context.Background())
+	require.NoError(t, err)
+	c.latest = 150
+	c.beforeCall = func(calls int) {
+		if calls == 1 {
+			c.earliest = 135
+		}
+	}
+
+	// Verify: the poll names the pruned blocks, and the next poll resumes at the earliest block.
+	_, err = api.GetFilterChanges(context.Background(), id)
+	require.EqualError(t, err, "blocks 101 to 134 were pruned before the filter read them")
+	require.Equal(t, blockFilterTestHashes(135, 150), pollBlockFilter(t, api, id))
+}
+
+func TestFilterAPI_BlockFilterWithoutNotifierStartsAtBlockStoreBase(t *testing.T) {
+	// Setup: a state-synced node whose block store begins at 200 while receipts reach only 150.
+	c := &blockFilterTestClient{heightTestClient: newHeightTestClient(0, 200, 200), limit: 20}
+	api := newTestFilterAPIWithClient(t, nil, &FilterConfig{
+		timeout:              time.Hour,
+		maxFilters:           DefaultMaxFilters,
+		maxBlockFilterHashes: DefaultMaxBlockFilterHashes,
+	}, c, c, 150)
+	id, err := api.NewBlockFilter(context.Background())
+	require.NoError(t, err)
+
+	// Verify: the first poll reports no pruned blocks from before the filter existed.
+	require.Equal(t, []common.Hash{}, pollBlockFilter(t, api, id))
 }
 
 func TestFilterAPI_GetFilterLogsRejectsBlockFilter(t *testing.T) {
