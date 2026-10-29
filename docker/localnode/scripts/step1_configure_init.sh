@@ -46,7 +46,6 @@ echo "$SEI_NODE_ID@$NODE_IP:$P2P_PORT" >> build/generated/persistent_peers.txt
 cp ~/.sei/config/validator_pubkey.txt "$NODE_DIR/" || { echo "ERROR: failed to copy validator_pubkey.txt"; exit 1; }
 cp ~/.sei/config/node_pubkey.txt "$NODE_DIR/" || { echo "ERROR: failed to copy node_pubkey.txt"; exit 1; }
 echo "$NODE_IP:$P2P_PORT" > "$NODE_DIR/autobahn_address.txt"
-echo "ws://$NODE_IP:$EVMWS_PORT" > "$NODE_DIR/evmrpc_url.txt"
 # Autobahn EVM governance votes for node N with anvil account N of the test mnemonic.
 if [ -n "$EVM_GOVERNANCE_VOTING_PERIOD" ]; then
   set -- 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 \
@@ -61,6 +60,8 @@ if [ -n "$EVM_GOVERNANCE_VOTING_PERIOD" ]; then
   shift "$NODE_ID"
   echo "$1" > "$NODE_DIR/evm_voter.txt"
 fi
+# Written last: the RPC node waits for it before reading this directory.
+echo "ws://$NODE_IP:$EVMWS_PORT" > "$NODE_DIR/evmrpc_url.txt"
 
 # Create a new account
 ACCOUNT_NAME="node_admin"
