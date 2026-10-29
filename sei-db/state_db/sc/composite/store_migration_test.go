@@ -1095,17 +1095,12 @@ func TestComposite_MigrateEVM_RollbackAcrossActivationBoundary(t *testing.T) {
 }
 
 // hasLattice reports whether a commit info carries the synthetic
-// evm_lattice store info contributed by the flatkv backend.
+// lattice store info contributed by the flatkv backend.
 func hasLattice(ci *proto.CommitInfo) bool {
 	if ci == nil {
 		return false
 	}
-	for _, si := range ci.StoreInfos {
-		if si.Name == "evm_lattice" {
-			return true
-		}
-	}
-	return false
+	return containsLatticeStoreInfo(ci.StoreInfos)
 }
 
 // TestComposite_MigrateEVM_RollbackRestoresCanonicalCommitInfo pins the
@@ -1238,7 +1233,7 @@ func TestComposite_MigrateCosmos_RollbackAcrossCompletionBoundary(t *testing.T) 
 	// latch reset rather than a mode change. Reaching version 2 latches
 	// memiavlHashExcluded=true and drops memiavl from the commit info.
 	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_FlatKVOnly, 800)
-	require.Equal(t, []string{"evm_lattice"}, storeInfoNames(cs),
+	require.Equal(t, []string{latticeHashStoreInfoName}, storeInfoNames(cs),
 		"once MigrateCosmos completes, memiavl infos are excluded (latches memiavlHashExcluded)")
 
 	// Roll back across the completion boundary. Without resetting
@@ -1270,12 +1265,13 @@ func TestComposite_MigrateCosmos_CompletionBlockWorkingInfoMatchesCommitted(t *t
 	walkToMigrateCosmos(t, cs, workload)
 	require.Equal(t, types.MigrateCosmos, cs.loadWriteMode())
 
-	var working *proto.CommitInfo
+	var preceding, working *proto.CommitInfo
 	for done := false; !done; {
 		require.Less(t, cs.Version(), int64(800), "migration did not reach version %d",
 			migration.Version2_FlatKVOnly)
 		next := cs.Version() + 1
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(0, 2, 1, 1, 1)))
+		preceding = working
 		working = cloneCommitInfo(cs.WorkingCommitInfo(next))
 		_, err := cs.Commit(next)
 		require.NoError(t, err)
@@ -1290,8 +1286,59 @@ func TestComposite_MigrateCosmos_CompletionBlockWorkingInfoMatchesCommitted(t *t
 	for _, si := range working.StoreInfos {
 		names = append(names, si.Name)
 	}
-	require.Equal(t, []string{"evm_lattice"}, names,
+	require.Equal(t, []string{latticeHashStoreInfoName}, names,
 		"the completion block's working commit info must already exclude memiavl")
+
+	require.NotNil(t, preceding, "sanity: the migration must span more than one block")
+	precedingNames := make([]string, 0, len(preceding.StoreInfos))
+	for _, si := range preceding.StoreInfos {
+		precedingNames = append(precedingNames, si.Name)
+	}
+	require.Contains(t, precedingNames, keys.BankStoreKey,
+		"the block before completion must still carry memiavl's store infos")
+	require.Contains(t, precedingNames, evmLatticeStoreInfoName,
+		"the block before completion must still name the lattice evm_lattice")
+	require.NotContains(t, precedingNames, latticeHashStoreInfoName,
+		"the lattice name must switch in the completion block, not before it")
+}
+
+// TestComposite_MigrateCosmos_HistoricalReadOnlyLoadAcrossCompletion loads every height around MigrateCosmos
+// completion read-only from a store that has already completed it, as a historical query does, and requires
+// each to report the commit info the chain committed at that height.
+func TestComposite_MigrateCosmos_HistoricalReadOnlyLoadAcrossCompletion(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xA4C1)
+	const batch = 8
+
+	cs := openAutoStore(t, dir, batch)
+	defer func() { _ = cs.Close() }()
+	walkToMigrateCosmos(t, cs, workload)
+
+	blocks := []recordedBlock{commitRecorded(t, cs, workload.generateBlock(0, 2, 1, 0, 2))}
+	blocks = append(blocks, commitUntilAtMigrationVersion(t, cs, workload, migration.Version2_FlatKVOnly, 800)...)
+	blocks = append(blocks, commitRecorded(t, cs, workload.generateBlock(0, 2, 1, 1, 1)))
+	require.True(t, hasStoreInfoName(blocks[0].info, evmLatticeStoreInfoName),
+		"sanity: an in-progress MigrateCosmos block names the lattice evm_lattice")
+	require.True(t, hasStoreInfoName(blocks[len(blocks)-1].info, latticeHashStoreInfoName),
+		"sanity: a block after completion names the lattice lattice_hash")
+
+	for _, block := range blocks {
+		ro, err := cs.LoadVersionReadOnly(block.info.Version)
+		require.NoError(t, err)
+		requireCommitInfoEqual(t, block.info, ro.LastCommitInfo(),
+			fmt.Sprintf("read-only load of height %d", block.info.Version))
+		require.NoError(t, ro.Close())
+	}
+}
+
+// hasStoreInfoName reports whether ci carries a store info named name.
+func hasStoreInfoName(ci *proto.CommitInfo, name string) bool {
+	for _, si := range ci.StoreInfos {
+		if si.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // TestComposite_Auto_RollbackAcrossMigrateCosmosCompletionAfterRestart rolls an Auto store that was reopened

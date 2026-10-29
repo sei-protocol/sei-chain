@@ -390,15 +390,20 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 	}
 }
 
-// containsLatticeStoreInfo reports whether the given StoreInfos contains an
-// entry named "evm_lattice".
+// containsLatticeStoreInfo reports whether the given StoreInfos contains
+// flatKV's lattice entry, under either of its names.
 func containsLatticeStoreInfo(infos []proto.StoreInfo) bool {
 	for _, si := range infos {
-		if si.Name == "evm_lattice" {
+		if isLatticeStoreInfoName(si.Name) {
 			return true
 		}
 	}
 	return false
+}
+
+// isLatticeStoreInfoName reports whether name is one of the names of flatKV's lattice entry.
+func isLatticeStoreInfoName(name string) bool {
+	return name == evmLatticeStoreInfoName || name == latticeHashStoreInfoName
 }
 
 // cloneStoreInfos returns a deep copy of the given StoreInfos, suitable for

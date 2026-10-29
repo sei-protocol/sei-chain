@@ -247,7 +247,7 @@ func TestFlatKVOnlySnapshotRestoreAppHashParity(t *testing.T) {
 	require.Equal(t, int64(8), srcStore.LastCommitID().Version,
 		"eight blocks must leave the source at height 8 for the snapshot height to mean what it says")
 
-	srcLattice := findStoreInfo(srcStore.lastCommitInfo.StoreInfos, "evm_lattice")
+	srcLattice := findStoreInfo(srcStore.lastCommitInfo.StoreInfos, "lattice_hash")
 	require.NotNil(t, srcLattice)
 	require.NotEmpty(t, srcLattice.CommitId.Hash)
 	srcAppHash := append([]byte(nil), srcStore.LastCommitID().Hash...)
@@ -264,7 +264,7 @@ func TestFlatKVOnlySnapshotRestoreAppHashParity(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, int64(8), dstStore.LastCommitID().Version)
-	dstLattice := findStoreInfo(dstStore.lastCommitInfo.StoreInfos, "evm_lattice")
+	dstLattice := findStoreInfo(dstStore.lastCommitInfo.StoreInfos, "lattice_hash")
 	require.NotNil(t, dstLattice)
 	require.Equal(t, srcLattice.CommitId.Hash, dstLattice.CommitId.Hash,
 		"flatkv_only snapshot restore must reproduce the exact consensus lattice hash")
