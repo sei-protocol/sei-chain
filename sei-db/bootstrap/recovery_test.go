@@ -484,7 +484,11 @@ func TestRecoverReplaysForwardFromTheStoreOwnHeight(t *testing.T) {
 	}
 	// Block 8 goes to SC under an address the WAL's own block 8 does not carry. It marks the working
 	// copy: a rebuild from the snapshot replays the WAL's block 8 instead and the address is gone.
-	require.NoError(t, manager.SC().CommitStateChanges(8, evmBlock(108, 108)))
+	prior := manager.SC().OpenView()
+	marked, err := flatkv.MutationsFromChangeSets(evmBlock(108, 108), 8, prior)
+	prior.Close()
+	require.NoError(t, err)
+	require.NoError(t, manager.SC().CommitStateChanges(8, marked))
 	writeWALOnly(t, manager.StateWAL(), 8, evmBlock(8, 8))
 	writeWALOnly(t, manager.StateWAL(), 9, evmBlock(9, 9))
 	writeWALOnly(t, manager.StateWAL(), 10, evmBlock(10, 10))

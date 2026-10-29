@@ -259,7 +259,7 @@ func randomCodeValue(rng *testutil.TestRandom) []byte {
 
 // randomLegacyValue returns a variable-length value for cosmos / EVM-legacy
 // keys. Roughly 10% of the time it returns an explicit empty value to exercise
-// flatkv's nonNilValue empty-vs-nil WAL round-trip (and memiavl's empty-value
+// flatkv's empty-vs-nil WAL round-trip (and memiavl's empty-value
 // leaf): such keys are present but hold a zero-length value, and the restart /
 // state-sync / migration phases verify they survive replay. Empty values are
 // only ever generated for legacy-style keys -- a fixed-length nonce / code

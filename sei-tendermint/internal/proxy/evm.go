@@ -5,6 +5,8 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -32,6 +34,15 @@ type EVMApplication interface {
 	// EvmMinGasPrice returns the minimum effective gas price a transaction is
 	// admitted at.
 	EvmMinGasPrice() *big.Int
+	// EvmBlockContext returns the block context header's block executed at.
+	EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error)
+	// EvmStateAt returns the committed EVM state after height, or the latest
+	// committed state when height is rpc.LatestBlockNumber, and the function
+	// that releases it.
+	EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error)
+	// EvmStateBeforeTx returns the EVM state the transaction at index len(txs)
+	// of header's block executed against, and the function that releases it.
+	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error)
 }
 
 // EVMProxy wraps an EVMApplication and records EVM method timings.
@@ -72,4 +83,19 @@ func (app *EVMProxy) EvmGasLimit() uint64 {
 func (app *EVMProxy) EvmMinGasPrice() *big.Int {
 	defer addTimeSample(Global.MethodTimingAt("evm_min_gas_price", "sync"))()
 	return app.app.EvmMinGasPrice()
+}
+
+func (app *EVMProxy) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_block_context", "sync"))()
+	return app.app.EvmBlockContext(header)
+}
+
+func (app *EVMProxy) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_state_at", "sync"))()
+	return app.app.EvmStateAt(ctx, height)
+}
+
+func (app *EVMProxy) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_state_before_tx", "sync"))()
+	return app.app.EvmStateBeforeTx(ctx, header, txs)
 }
