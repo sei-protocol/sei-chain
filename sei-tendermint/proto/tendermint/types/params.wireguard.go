@@ -18,6 +18,7 @@ func init() {
 		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SynchronyParams]())},
 		6: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutParams]())},
 		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*ABCIParams]())},
+		8: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*StateSyncParams]())},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.types.BlockParams.
@@ -47,6 +48,7 @@ func init() {
 	runtime.MustRegister[*HashedParams](runtime.Schema{
 		1: {MaxCount: 1},
 		2: {MaxCount: 1},
+		3: {MaxCount: 1},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.types.SynchronyParams.
@@ -69,6 +71,11 @@ func init() {
 	runtime.MustRegister[*ABCIParams](runtime.Schema{
 		1: {MaxCount: 1},
 		2: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for tendermint.types.StateSyncParams.
+	runtime.MustRegister[*StateSyncParams](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*durationpb.Duration]())},
 	})
 
 }

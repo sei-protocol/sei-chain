@@ -18,6 +18,7 @@ message ConsensusParams {
   SynchronyParams synchrony = 5;
   TimeoutParams timeout = 6;
   ABCIParams abci = 7;
+  StateSyncParams state_sync = 8;
 }
 
 // BlockParams contains limits on the block size.
@@ -76,6 +77,9 @@ message VersionParams {
 message HashedParams {
   int64 block_max_bytes = 1;
   int64 block_max_gas = 2;
+  // StateSyncParams.trust_period in nanoseconds. Zero is omitted from the
+  // encoding, which keeps the hash of params that set no trust period unchanged.
+  int64 state_sync_trust_period = 3;
 }
 
 // SynchronyParams configure the bounds under which a proposed block's timestamp is considered valid.
@@ -152,4 +156,13 @@ message ABCIParams {
   // Indicates if CheckTx should be called on all the transactions
   // remaining in the mempool after a block is executed.
   bool recheck_tx = 2;
+}
+
+// StateSyncParams configure how a node that state syncs verifies the chain.
+message StateSyncParams {
+  // trust_period is how long after its time a header can still serve as the
+  // trusted root of light client verification. It must stay below the unbonding
+  // period, so that the validators who signed the root are still slashable.
+  // Zero means the chain sets no trust period.
+  google.protobuf.Duration trust_period = 1 [(gogoproto.stdduration) = true];
 }

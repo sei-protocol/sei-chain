@@ -2,13 +2,15 @@ package types
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
@@ -161,6 +163,36 @@ func TestConsensusParamsValidation(t *testing.T) {
 				messageDelay: 1}),
 			valid: false,
 		},
+		// test state sync params
+		{
+			name: "unset TrustPeriod",
+			params: makeParams(makeParamsArgs{
+				blockBytes:   1,
+				evidenceAge:  2,
+				precision:    1,
+				messageDelay: 1}),
+			valid: true,
+		},
+		{
+			name: "positive TrustPeriod",
+			params: makeParams(makeParamsArgs{
+				blockBytes:   1,
+				evidenceAge:  2,
+				precision:    1,
+				messageDelay: 1,
+				trustPeriod:  time.Hour}),
+			valid: true,
+		},
+		{
+			name: "negative TrustPeriod",
+			params: makeParams(makeParamsArgs{
+				blockBytes:   1,
+				evidenceAge:  2,
+				precision:    1,
+				messageDelay: 1,
+				trustPeriod:  -1}),
+			valid: false,
+		},
 	}
 	for i, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -191,6 +223,8 @@ type makeParamsArgs struct {
 	commit       *time.Duration
 
 	abciExtensionHeight int64
+
+	trustPeriod time.Duration
 }
 
 func makeParams(args makeParamsArgs) ConsensusParams {
@@ -242,6 +276,9 @@ func makeParams(args makeParamsArgs) ConsensusParams {
 			VoteExtensionsEnableHeight: args.abciExtensionHeight,
 			RecheckTx:                  args.recheck,
 		},
+		StateSync: StateSyncParams{
+			TrustPeriod: args.trustPeriod,
+		},
 	}
 }
 
@@ -270,6 +307,36 @@ func TestConsensusParamsHash(t *testing.T) {
 	for i := 0; i < len(hashes)-1; i++ {
 		assert.NotEqual(t, hashes[i], hashes[i+1])
 	}
+}
+
+// TestConsensusParamsHashWithoutTrustPeriod pins that params which set no trust
+// period hash to the encoding of the two block fields alone. Every header written
+// before StateSyncParams existed commits to that hash, so a genesis that predates
+// the field must keep producing it.
+func TestConsensusParamsHashWithoutTrustPeriod(t *testing.T) {
+	params := *DefaultConsensusParams()
+	params.StateSync = StateSyncParams{}
+	params.Complete()
+
+	var legacy []byte
+	legacy = protowire.AppendTag(legacy, 1, protowire.VarintType)
+	legacy = protowire.AppendVarint(legacy, uint64(params.Block.MaxBytes))
+	legacy = protowire.AppendTag(legacy, 2, protowire.VarintType)
+	legacy = protowire.AppendVarint(legacy, uint64(params.Block.MaxGas))
+	want := sha256.Sum256(legacy)
+
+	require.Equal(t, want[:], params.HashConsensusParams())
+}
+
+// TestConsensusParamsHashCommitsToTrustPeriod pins that a header's ConsensusHash
+// changes with the trust period, which is what lets the trusted header vouch for it.
+func TestConsensusParamsHashCommitsToTrustPeriod(t *testing.T) {
+	unset := makeParams(makeParamsArgs{blockBytes: 1, blockGas: 2, evidenceAge: 3})
+	hour := makeParams(makeParamsArgs{blockBytes: 1, blockGas: 2, evidenceAge: 3, trustPeriod: time.Hour})
+	twoHours := makeParams(makeParamsArgs{blockBytes: 1, blockGas: 2, evidenceAge: 3, trustPeriod: 2 * time.Hour})
+
+	require.NotEqual(t, unset.HashConsensusParams(), hour.HashConsensusParams())
+	require.NotEqual(t, hour.HashConsensusParams(), twoHours.HashConsensusParams())
 }
 
 func TestConsensusParamsUpdate(t *testing.T) {
@@ -337,6 +404,24 @@ func TestConsensusParamsUpdate(t *testing.T) {
 				commit:              durationPtr(time.Minute),
 				bypassCommitTimeout: true,
 			}),
+		},
+		{
+			// update state sync params
+			initialParams: makeParams(makeParamsArgs{evidenceAge: 3, trustPeriod: time.Hour}),
+			updates: &tmproto.ConsensusParams{
+				StateSync: &tmproto.StateSyncParams{
+					TrustPeriod: durationPtr(2 * time.Hour),
+				},
+			},
+			updatedParams: makeParams(makeParamsArgs{evidenceAge: 3, trustPeriod: 2 * time.Hour}),
+		},
+		{
+			// a state sync section without a trust period leaves it unchanged
+			initialParams: makeParams(makeParamsArgs{evidenceAge: 3, trustPeriod: time.Hour}),
+			updates: &tmproto.ConsensusParams{
+				StateSync: &tmproto.StateSyncParams{},
+			},
+			updatedParams: makeParams(makeParamsArgs{evidenceAge: 3, trustPeriod: time.Hour}),
 		},
 		// fine updates
 	}
@@ -526,6 +611,7 @@ func TestProto(t *testing.T) {
 			commit:              durationPtr(time.Minute),
 			bypassCommitTimeout: true,
 		}),
+		makeParams(makeParamsArgs{trustPeriod: 112 * time.Hour}),
 	}
 
 	for i := range params {
