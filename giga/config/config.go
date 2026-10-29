@@ -96,6 +96,8 @@ type ExecutionConfig struct {
 	FlatKVStorageViewShards uint64 `mapstructure:"flatkv_storage_view_shards"`
 	// FlatKVInlineMissReads makes the FlatKV storage database read cache misses on the calling goroutine.
 	FlatKVInlineMissReads bool `mapstructure:"flatkv_inline_miss_reads"`
+	// DummyAppHash leaves a block's state changes out of the EVM-only app hash.
+	DummyAppHash bool `mapstructure:"dummy_app_hash"`
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
@@ -199,6 +201,7 @@ const (
 	FlagExecutionFlatKVViewShards        = "giga.execution.flatkv_view_shards"
 	FlagExecutionFlatKVStorageViewShards = "giga.execution.flatkv_storage_view_shards"
 	FlagExecutionFlatKVInlineMissReads   = "giga.execution.flatkv_inline_miss_reads"
+	FlagExecutionDummyAppHash            = "giga.execution.dummy_app_hash"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
 	FlagRPCMaxRequestBodyBytes           = "giga.rpc.max_request_body_bytes"
@@ -322,6 +325,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionFlatKVStorageViewShards); v != nil {
 		if cfg.Execution.FlatKVStorageViewShards, err = cast.ToUint64E(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionFlatKVStorageViewShards, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionDummyAppHash); v != nil {
+		if cfg.Execution.DummyAppHash, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionDummyAppHash, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionFlatKVInlineMissReads); v != nil {
@@ -550,6 +558,9 @@ flatkv_storage_view_shards = {{ .Giga.Execution.FlatKVStorageViewShards }}
 
 # flatkv_inline_miss_reads makes the FlatKV storage database read cache misses on the calling goroutine.
 flatkv_inline_miss_reads = {{ .Giga.Execution.FlatKVInlineMissReads }}
+
+# dummy_app_hash leaves a block's state changes out of the EVM-only app hash.
+dummy_app_hash = {{ .Giga.Execution.DummyAppHash }}
 
 [giga.rpc]
 # Limits the EVM-only JSON-RPC server enforces. 0 disables a limit.

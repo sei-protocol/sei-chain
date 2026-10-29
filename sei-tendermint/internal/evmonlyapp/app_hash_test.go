@@ -70,3 +70,26 @@ func TestHashEVMOnlyResultGoldenVector(t *testing.T) {
 		})
 	}
 }
+
+func TestDummyAppHashLeavesStateChangesOut(t *testing.T) {
+	previous := common.HexToHash("0x01")
+	blockHash := common.HexToHash("0x02")
+	withChange := &evmonly.BlockResult{GasUsed: 21_000, ChangeSet: evmonly.StateChangeSet{
+		Accounts: []evmonly.AccountChange{{Address: common.HexToAddress("0x03"), Account: evmonly.AccountState{Balance: big.NewInt(1)}}},
+	}}
+	without := &evmonly.BlockResult{GasUsed: 21_000}
+
+	full, err := hashEVMOnlyResult(previous, 7, blockHash, withChange)
+	require.NoError(t, err)
+	fullEmpty, err := hashEVMOnlyResult(previous, 7, blockHash, without)
+	require.NoError(t, err)
+	require.NotEqual(t, full, fullEmpty)
+
+	DummyAppHash = true
+	t.Cleanup(func() { DummyAppHash = false })
+	dummy, err := hashEVMOnlyResult(previous, 7, blockHash, withChange)
+	require.NoError(t, err)
+	dummyEmpty, err := hashEVMOnlyResult(previous, 7, blockHash, without)
+	require.NoError(t, err)
+	require.Equal(t, dummy, dummyEmpty)
+}
