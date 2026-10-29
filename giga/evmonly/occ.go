@@ -787,6 +787,21 @@ func (s *blockSTMState) GetCode(addr common.Address) []byte {
 	return s.source.GetCode(addr)
 }
 
+// ReadAccount satisfies baseAccountReader, so a rerun reads an account it has not seen with the
+// source's single-row read, and with the code hash the source holds.
+func (s *blockSTMState) ReadAccount(addr common.Address) (AccountState, bool) {
+	if change, ok := s.shard(addr).accounts[addr]; ok {
+		account := change.Account
+		account.Balance = cloneBig(account.Balance)
+		account.Code = cloneBytes(account.Code)
+		return account, true
+	}
+	if reader, ok := s.source.(baseAccountReader); ok {
+		return reader.ReadAccount(addr)
+	}
+	return AccountState{}, false
+}
+
 func (s *blockSTMState) GetState(addr common.Address, key common.Hash) common.Hash {
 	if change, ok := s.shard(addr).storage[storageChangeKey{address: addr, key: key}]; ok {
 		return change.Value
@@ -830,7 +845,7 @@ func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
 			accepted.Account.Nonce = change.Account.Nonce
 		}
 		if change.CodeChanged() {
-			accepted.Account.Code = change.Account.Code
+			accepted.Account.Code, accepted.Account.CodeHash = change.Account.Code, change.Account.CodeHash
 		}
 	}
 	for change := range ownedChanges(owns, result.changeSet.Storage, storageChangeAddr) {

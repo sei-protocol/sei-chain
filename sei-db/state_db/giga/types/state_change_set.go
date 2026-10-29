@@ -13,12 +13,14 @@ type StateChangeSet struct {
 	Storage  []StorageChange
 }
 
-// AccountState is an account's balance, nonce and code. A nil balance is zero. Code is immutable:
-// it may be shared, and must never be modified in place.
+// AccountState is an account's balance, nonce and code, with CodeHash the keccak256 of Code, or the
+// zero hash when there is no code. A nil balance is zero. Code is immutable: it may be shared, and
+// must never be modified in place.
 type AccountState struct {
-	Balance *big.Int
-	Nonce   uint64
-	Code    []byte
+	Balance  *big.Int
+	Nonce    uint64
+	Code     []byte
+	CodeHash Hash
 }
 
 // AccountChange is an account whose balance, nonce or code the block changed: its whole state after

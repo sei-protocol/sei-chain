@@ -57,8 +57,8 @@ type nativeStateDB struct {
 type nativeAccount struct {
 	Balance        *uint256.Int
 	Nonce          uint64
-	Code           []byte // Immutable after assignment; SetCode replaces the slice.
-	CodeHash       common.Hash
+	Code           []byte      // Immutable after assignment; SetCode replaces the slice.
+	CodeHash       common.Hash // keccak256 of Code once known; read it through codeHash.
 	Storage        map[common.Hash]storageValue
 	StorageCleared bool
 	SelfDestructed bool
@@ -210,8 +210,8 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 		if !acct.Balance.Eq(base.Balance) || acct.Nonce != base.Nonce || !bytes.Equal(acct.Code, base.Code) {
 			changes.Accounts = append(changes.Accounts, AccountChange{
 				Address: addr,
-				Account: AccountState{Balance: acct.Balance.ToBig(), Nonce: acct.Nonce, Code: acct.Code},
-				Prior:   AccountState{Balance: base.Balance.ToBig(), Nonce: base.Nonce, Code: base.Code},
+				Account: AccountState{Balance: acct.Balance.ToBig(), Nonce: acct.Nonce, Code: acct.Code, CodeHash: acct.codeHash()},
+				Prior:   AccountState{Balance: base.Balance.ToBig(), Nonce: base.Nonce, Code: base.Code, CodeHash: base.codeHash()},
 			})
 		}
 		storageKeys := storageKeyUnion(base.Storage, acct.Storage)
@@ -353,10 +353,7 @@ func (s *nativeStateDB) GetCodeHash(addr common.Address) common.Hash {
 	s.markRead(stateAccessKey{kind: stateAccessCode, address: addr})
 	acct := s.account(addr)
 	if len(acct.Code) > 0 {
-		if acct.CodeHash == (common.Hash{}) {
-			acct.CodeHash = crypto.Keccak256Hash(acct.Code)
-		}
-		return acct.CodeHash
+		return acct.codeHash()
 	}
 	s.markRead(stateAccessKey{kind: stateAccessBalance, address: addr})
 	s.markRead(stateAccessKey{kind: stateAccessNonce, address: addr})
@@ -1133,10 +1130,11 @@ func (s *nativeStateDB) loadAccount(addr common.Address) *nativeAccount {
 				s.err = err
 			}
 			return &nativeAccount{
-				Balance: balance,
-				Nonce:   account.Nonce,
-				Code:    account.Code,
-				Storage: map[common.Hash]storageValue{},
+				Balance:  balance,
+				Nonce:    account.Nonce,
+				Code:     account.Code,
+				CodeHash: account.CodeHash,
+				Storage:  map[common.Hash]storageValue{},
 			}
 		}
 	}
@@ -1174,6 +1172,18 @@ func (a *nativeAccount) clone() *nativeAccount {
 		cp.Storage[key] = value
 	}
 	return cp
+}
+
+// codeHash returns keccak256 of the account's code, or the zero hash when it has none. It hashes the
+// code only when no source supplied the hash, and keeps the result.
+func (a *nativeAccount) codeHash() common.Hash {
+	if len(a.Code) == 0 {
+		return common.Hash{}
+	}
+	if a.CodeHash == (common.Hash{}) {
+		a.CodeHash = crypto.Keccak256Hash(a.Code)
+	}
+	return a.CodeHash
 }
 
 func (a *nativeAccount) cloneMetadata() *nativeAccount {

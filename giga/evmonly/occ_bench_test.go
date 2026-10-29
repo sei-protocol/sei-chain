@@ -6,12 +6,25 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 )
 
-// frozenStateReader serves a MemoryState's accounts without its lock, as a read-only snapshot does.
+// frozenStateReader serves a MemoryState's accounts without its lock, as a read-only snapshot does,
+// with each code hash computed once up front, as a snapshot stores it.
 type frozenStateReader struct {
-	accounts map[common.Address]*StateAccount
+	accounts   map[common.Address]*StateAccount
+	codeHashes map[common.Address]common.Hash
+}
+
+func newFrozenStateReader(accounts map[common.Address]*StateAccount) frozenStateReader {
+	codeHashes := map[common.Address]common.Hash{}
+	for addr, account := range accounts {
+		if len(account.Code) != 0 {
+			codeHashes[addr] = crypto.Keccak256Hash(account.Code)
+		}
+	}
+	return frozenStateReader{accounts: accounts, codeHashes: codeHashes}
 }
 
 func (r frozenStateReader) GetBalance(addr common.Address) *big.Int {
@@ -43,7 +56,7 @@ func (r frozenStateReader) GetState(addr common.Address, key common.Hash) common
 }
 
 func (r frozenStateReader) ReadAccount(addr common.Address) (AccountState, bool) {
-	return AccountState{Balance: r.GetBalance(addr), Nonce: r.GetNonce(addr), Code: r.GetCode(addr)}, true
+	return AccountState{Balance: r.GetBalance(addr), Nonce: r.GetNonce(addr), Code: r.GetCode(addr), CodeHash: r.codeHashes[addr]}, true
 }
 
 // BenchmarkOCCValidateAndMerge times validation and merge of one block's speculative results, which
@@ -60,7 +73,8 @@ func BenchmarkOCCValidateAndMerge(b *testing.B) {
 			ctx := b.Context()
 			scenario := newOCCScenario(b, profile, 1)
 			genesis := scenario.genesis()
-			source := frozenStateReader{accounts: genesis.accounts}
+			source := newFrozenStateReader(genesis.accounts)
+
 			executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: workers, RejectUnappliableTxs: true}, withTestState(genesis))
 			b.Cleanup(executor.Close)
 			prepared, err := executor.PrepareBlock(ctx, scenario.block(b, 1))

@@ -1638,18 +1638,19 @@ func TestExecuteBlockChangeSetCarriesPriorValues(t *testing.T) {
 
 	fees := new(big.Int).SetUint64(result.GasUsed * testGasPriceWei)
 	spent := new(big.Int).Add(fees, big.NewInt(25))
+	counterHash := crypto.Keccak256Hash(counterRuntime(slot))
 	want := StateChangeSet{
 		Accounts: []AccountChange{
 			{
 				Address: counter,
-				Account: AccountState{Balance: big.NewInt(1_020), Code: counterRuntime(slot)},
-				Prior:   AccountState{Balance: big.NewInt(1_000), Code: counterRuntime(slot)},
+				Account: AccountState{Balance: big.NewInt(1_020), Code: counterRuntime(slot), CodeHash: counterHash},
+				Prior:   AccountState{Balance: big.NewInt(1_000), Code: counterRuntime(slot), CodeHash: counterHash},
 			},
 			{Address: fresh, Account: AccountState{Balance: big.NewInt(5)}, Prior: AccountState{Balance: big.NewInt(0)}},
 			{Address: coinbase, Account: AccountState{Balance: fees}, Prior: AccountState{Balance: big.NewInt(0)}},
 			{
 				Address: created,
-				Account: AccountState{Balance: big.NewInt(0), Nonce: 1, Code: runtime},
+				Account: AccountState{Balance: big.NewInt(0), Nonce: 1, Code: runtime, CodeHash: crypto.Keccak256Hash(runtime)},
 				Prior:   AccountState{Balance: big.NewInt(0)},
 			},
 			{
@@ -1706,18 +1707,19 @@ func TestExecuteBlockOCCChangeSetCarriesPriorValues(t *testing.T) {
 
 	fees := new(big.Int).SetUint64(result.GasUsed * testGasPriceWei)
 	spent := new(big.Int).Add(fees, big.NewInt(25))
+	counterHash := crypto.Keccak256Hash(counterRuntime(slot))
 	want := StateChangeSet{
 		Accounts: []AccountChange{
 			{
 				Address: counter,
-				Account: AccountState{Balance: big.NewInt(1_020), Code: counterRuntime(slot)},
-				Prior:   AccountState{Balance: big.NewInt(1_000), Code: counterRuntime(slot)},
+				Account: AccountState{Balance: big.NewInt(1_020), Code: counterRuntime(slot), CodeHash: counterHash},
+				Prior:   AccountState{Balance: big.NewInt(1_000), Code: counterRuntime(slot), CodeHash: counterHash},
 			},
 			{Address: fresh, Account: AccountState{Balance: big.NewInt(5)}, Prior: AccountState{Balance: big.NewInt(0)}},
 			{Address: coinbase, Account: AccountState{Balance: fees}, Prior: AccountState{Balance: big.NewInt(0)}},
 			{
 				Address: created,
-				Account: AccountState{Balance: big.NewInt(0), Nonce: 1, Code: runtime},
+				Account: AccountState{Balance: big.NewInt(0), Nonce: 1, Code: runtime, CodeHash: crypto.Keccak256Hash(runtime)},
 				Prior:   AccountState{Balance: big.NewInt(0)},
 			},
 			{
