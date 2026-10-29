@@ -232,10 +232,9 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		NextAppProposal: firstBlock,
 		NextAppQC:       firstBlock,
 	})
-	// Empty-chain default; loaded QCs publish the epoch of their successor.
-	genesis, err := cfg.Registry.EpochByIndex(0)
+	initialEpoch, err := cfg.Registry.EpochAt(status.First)
 	if err != nil {
-		return nil, fmt.Errorf("missing genesis epoch: %w", err)
+		return nil, fmt.Errorf("epoch at retained suffix start: %w", err)
 	}
 	inner := &inner{
 		blocks:           map[types.RoadIndex]*blockEntry{},
@@ -249,7 +248,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		nextPartialBlock: status.First,
 		persisted:        status,
 		anchor:           utils.NewAtomicSend(utils.None[Anchor]()),
-		nextCommitEpoch:  utils.NewAtomicSend(genesis),
+		nextCommitEpoch:  utils.NewAtomicSend(initialEpoch),
 	}
 	for _, block := range suffix.Blocks {
 		epoch, err := cfg.Registry.EpochByIndex(block.QC().QC().View().EpochIndex)

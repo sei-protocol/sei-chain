@@ -1462,7 +1462,7 @@ func buildFullCommitQC(
 			}
 		}
 	}
-	ep := types.NewEpoch(0, types.OpenRoadRange(), genesisTime, committee)
+	ep := types.NewEpoch(0, types.OpenRoadRange(), committee)
 	cqc := types.BuildCommitQC(ep, keys, prev, laneQCs)
 	return types.NewFullCommitQC(cqc, headers), blockList
 }

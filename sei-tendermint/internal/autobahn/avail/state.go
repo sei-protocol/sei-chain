@@ -166,7 +166,7 @@ func restoreInner(ds *data.State, loaded *loadedState) (*inner, error) {
 	if err != nil {
 		return nil, err
 	}
-	i := newInner(applied, first)
+	i := newInner(applied, first, ds.Registry().GenesisTimestamp())
 	for lane := range loaded.blocks {
 		i.addLane(lane)
 	}
@@ -201,11 +201,7 @@ type restoredQC struct {
 // Anchor QC when the queue is empty).
 func restorePlan(ds *data.State, loaded *loadedState) (*types.Epoch, types.RoadIndex, []restoredQC, error) {
 	registry := ds.Registry()
-	genesis, err := registry.EpochByIndex(0)
-	if err != nil {
-		return nil, 0, nil, fmt.Errorf("genesis epoch 0: %w", err)
-	}
-	first := genesis.RoadRange().First
+	first := registry.FirstRoad()
 	tip := utils.None[restoredQC]()
 	if anchor, ok := ds.Anchor().Load().Get(); ok {
 		first = anchor.CommitQC.Index() + 1
@@ -237,6 +233,10 @@ func restorePlan(ds *data.State, loaded *loadedState) (*types.Epoch, types.RoadI
 			return nil, 0, nil, err
 		}
 		return applied, first, qcs, nil
+	}
+	genesis, err := registry.EpochByIndex(0)
+	if err != nil {
+		return nil, 0, nil, fmt.Errorf("genesis epoch 0: %w", err)
 	}
 	return genesis, first, qcs, nil
 }

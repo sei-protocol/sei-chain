@@ -93,7 +93,7 @@ func loadInner(t *testing.T, dir string, registry *epoch.Registry, keys []types.
 // alignAvailToTip pushes CommitQCs from the genesis road through tipIndex
 // through avail and waits until ConsensusSpec covers that tip. The QCs are freshly built for the registry —
 // the tip CommitQC used at restore comes from ConsensusSpec, not the WAL.
-// Callers must keep tipIndex close to the genesis road — EpochLength boundaries are not replayed
+// Callers must keep tipIndex close to the genesis road — epoch boundaries are not replayed
 // in unit tests.
 func alignAvailToTip(
 	ctx context.Context,

@@ -396,7 +396,7 @@ func TestNextViewEpoch(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, ep1.EpochIndex(), applied.EpochIndex())
 
-		i := newInner(applied, last)
+		i := newInner(applied, last, time.Time{})
 		i.roads.pushBack(newRoad(qcLast, ep0))
 		i.persistedCommitQC.Store(utils.Some(qcLast))
 		i.refreshConsensusSpec()

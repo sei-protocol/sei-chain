@@ -266,7 +266,7 @@ func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAdd
 
 func testEpoch(index atypes.EpochIndex, weights map[atypes.PublicKey]uint64) *atypes.Epoch {
 	committee := utils.OrPanic1(atypes.NewCommittee(weights))
-	return atypes.NewEpoch(index, atypes.RoadRange{}, time.Time{}, committee)
+	return atypes.NewEpoch(index, atypes.RoadRange{}, committee)
 }
 
 func testAnchor(ep *atypes.Epoch) utils.Option[data.Anchor] {

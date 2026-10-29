@@ -2,7 +2,6 @@ package consensus
 
 import (
 	"testing"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -23,7 +22,7 @@ func newVoteTestEnv(rng utils.Rng) voteTestEnv {
 		weights[k.Public()] = 1
 	}
 	c := utils.OrPanic1(types.NewCommittee(weights))
-	ep := types.NewEpoch(0, types.OpenRoadRange(), time.Time{}, c)
+	ep := types.NewEpoch(0, types.OpenRoadRange(), c)
 	return voteTestEnv{
 		keys:   keys,
 		ep:     ep,

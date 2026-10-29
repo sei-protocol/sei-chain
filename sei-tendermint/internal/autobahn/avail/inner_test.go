@@ -2,6 +2,7 @@ package avail
 
 import (
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -74,7 +75,7 @@ func TestInnerPruneViaQCRetainsLast(t *testing.T) {
 	ep := registry.MustEpoch(0)
 	lane := ep.Committee().Lane(keys[0].Public()).OrPanic("lane")
 	blocks := contiguousBlocks(keys[0], lane, 3, rng)
-	i := newInner(ep, 0)
+	i := newInner(ep, 0, time.Time{})
 	for _, b := range blocks {
 		i.blocks[lane].pushBack(b.Proposal)
 	}
@@ -109,7 +110,7 @@ func TestInnerPruneKeepsLastAheadOfQC(t *testing.T) {
 	ep := registry.MustEpoch(0)
 	lane := ep.Committee().Lane(keys[0].Public()).OrPanic("lane")
 	blocks := contiguousBlocks(keys[0], lane, 3, rng)
-	i := newInner(ep, 0)
+	i := newInner(ep, 0, time.Time{})
 	for _, b := range blocks {
 		i.blocks[lane].pushBack(b.Proposal)
 	}
@@ -154,7 +155,7 @@ func TestBlockQueueLastSurvivesRestart(t *testing.T) {
 	persister, loaded, err := persist.NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 	require.NoError(t, persister.Close())
-	i := newInner(registry.MustEpoch(0), 0)
+	i := newInner(registry.MustEpoch(0), 0, time.Time{})
 	i.blocks[lane].prune(1, blockHash(block))
 	require.NoError(t, i.restoreBlocks(loaded))
 	localTip, ok := i.blocks[lane].localTip.Get()
@@ -190,7 +191,7 @@ func TestBlockQueueUnflushedLocalTipSurvivesRestart(t *testing.T) {
 	persister, loaded, err := persist.NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 	require.NoError(t, persister.Close())
-	i := newInner(registry.MustEpoch(0), 0)
+	i := newInner(registry.MustEpoch(0), 0, time.Time{})
 	i.blocks[lane].prune(1, blockHash(block))
 	require.NoError(t, i.restoreBlocks(loaded))
 	localTip, ok := i.blocks[lane].localTip.Get()
@@ -259,7 +260,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		registry, keys := epoch.GenRegistry(rng, 4)
 		lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 		blocks := contiguousBlocks(keys[0], lane, 2, rng)
-		i := newInner(registry.MustEpoch(0), 0)
+		i := newInner(registry.MustEpoch(0), 0, time.Time{})
 		i.blocks[lane].prune(2, blockHash(blocks[1]))
 
 		err := i.restoreBlocks(map[types.LaneID][]persist.LoadedBlock{lane: blocks})
@@ -281,7 +282,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		old := testSignedBlock(keys[0], lane, 0, types.BlockHeaderHash{}, rng)
 		require.NotEqual(t, tip, old.Msg().Block().Header().Hash())
 		live := testSignedBlock(keys[0], lane, 1, tip, rng)
-		i := newInner(registry.MustEpoch(0), 0)
+		i := newInner(registry.MustEpoch(0), 0, time.Time{})
 		i.blocks[lane].prune(1, tip)
 
 		err := i.restoreBlocks(map[types.LaneID][]persist.LoadedBlock{lane: {
@@ -303,7 +304,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		old := testSignedBlock(keys[0], lane, 0, types.BlockHeaderHash{}, rng)
 		live := testSignedBlock(keys[0], lane, 1, types.GenBlockHeaderHash(rng), rng)
 		require.NotEqual(t, tip, live.Msg().Block().Header().ParentHash())
-		i := newInner(registry.MustEpoch(0), 0)
+		i := newInner(registry.MustEpoch(0), 0, time.Time{})
 		i.blocks[lane].prune(1, tip)
 
 		err := i.restoreBlocks(map[types.LaneID][]persist.LoadedBlock{lane: {
@@ -419,7 +420,7 @@ func TestPruneKeepsAnchorTipAndLocalBlock(t *testing.T) {
 	require.Equal(t, uint64(0), qc2.LaneRange(lane).Len())
 	require.Equal(t, tip.Hash(), qc2.LaneRange(lane).LastHash())
 
-	i := newInner(ep, 0)
+	i := newInner(ep, 0, time.Time{})
 	i.prune(data.Anchor{
 		CommitQC: qc2,
 		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc2.View(), types.AppHash{})),
@@ -550,7 +551,7 @@ func TestPrune_LeavesAppliedToEpochAdvance(t *testing.T) {
 	ep0 := registry.MustEpoch(0)
 	ep1 := registry.MustEpoch(1)
 	ep2 := registry.MustEpoch(2)
-	i := newInner(ep0, 0)
+	i := newInner(ep0, 0, time.Time{})
 	require.Equal(t, types.EpochIndex(0), i.applied().EpochIndex())
 
 	voteProposal := types.ProposalAt(ep1, types.View{Index: registry.LastRoad(1), Number: 0})

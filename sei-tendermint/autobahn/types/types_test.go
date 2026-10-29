@@ -38,6 +38,7 @@ func TestConv(t *testing.T) {
 	for range 10 {
 		if err := firstErr(
 			TimeConv.Test(utils.GenTimestamp(rng)),
+			EpochConv.Test(GenEpochWithCommittee(rng, utils.OrPanic1(NewCommittee(map[PublicKey]uint64{GenPublicKey(rng): 1})))),
 			DurationConv.Test(time.Duration(int64(rng.Uint64()))),
 			PublicKeyConv.Test(GenPublicKey(rng)),
 			LaneIDConv.Test(GenLaneID(rng)),
@@ -140,7 +141,7 @@ func TestNewTimeoutQC(t *testing.T) {
 func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee)
+	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), committee)
 	view := View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}
 
 	voteProposal := ProposalAt(ep, view)
@@ -171,7 +172,7 @@ func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 func TestNewTimeoutQC_AllNone(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee)
+	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), committee)
 	view := View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}
 
 	votes := make([]*FullTimeoutVote, len(keys))
@@ -193,7 +194,7 @@ func TestNewTimeoutQC_AllNone(t *testing.T) {
 func TestTimeoutQCVerify_HighestPrepareQCSelected(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee)
+	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), committee)
 	view := View{Index: 0, Number: 5, EpochIndex: ep.EpochIndex()}
 
 	makePQCAt := func(vn ViewNumber) *PrepareQC {

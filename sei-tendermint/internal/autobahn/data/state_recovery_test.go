@@ -502,3 +502,25 @@ func TestNewState_LeavesStagedEpochWithoutAppQC(t *testing.T) {
 	_, err := registry.EpochByIndex(2)
 	require.Error(t, err)
 }
+
+func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistryThrough(rng, 3, 3)
+	ep := registry.MustEpoch(2)
+	qc, blocks := commitQCAtRoad(ep, keys, ep.RoadRange().First)
+	dir := t.TempDir()
+	store := newTestBlockStore(t, dir)
+	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
+	require.NoError(t, store.Close())
+	require.NoError(t, registry.PruneBefore(2))
+	for idx := range 2 {
+		_, err := registry.EpochByIndex(types.EpochIndex(idx))
+		require.ErrorIs(t, err, types.ErrPruned)
+	}
+	store = newTestBlockStore(t, dir)
+	state, err := NewState(&Config{Registry: registry}, store)
+	require.NoError(t, err)
+	require.Equal(t, qc.Index(), state.First())
+	require.Equal(t, qc.Index()+1, state.NextQC())
+	require.Equal(t, types.EpochIndex(2), state.NextCommitEpoch().Load().EpochIndex())
+}

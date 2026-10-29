@@ -50,11 +50,11 @@ func TestRoadBlockVerify(t *testing.T) {
 				slices.Reverse(headers)
 				slices.Reverse(blocks)
 			case "epoch":
-				ep = NewEpoch(ep.EpochIndex()+1, ep.RoadRange(), ep.FirstTimestamp(), committee)
+				ep = NewEpoch(ep.EpochIndex()+1, ep.RoadRange(), committee)
 			case "road":
 				roads := ep.RoadRange()
 				roads.First++
-				ep = NewEpoch(ep.EpochIndex(), roads, ep.FirstTimestamp(), committee)
+				ep = NewEpoch(ep.EpochIndex(), roads, committee)
 			}
 			qc := NewFullCommitQC(commitQC, headers)
 			err := NewRoadBlock(qc, blocks).Verify(ep)

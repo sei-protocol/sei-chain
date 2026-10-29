@@ -19,7 +19,7 @@ func TestSuperBlockMergesTransactionsInHeaderOrder(t *testing.T) {
 		var parent BlockHeaderHash
 		for offset := range 2 - laneIndex {
 			i := len(blocks)
-			payload, err := (PayloadBuilder{CreatedAt: ep.FirstTimestamp(), TotalGasWanted: uint64(i + 1), Txs: [][]byte{{byte(i), 0}, {byte(i), 1}}}).Build()
+			payload, err := (PayloadBuilder{CreatedAt: utils.GenTimestamp(rng), TotalGasWanted: uint64(i + 1), Txs: [][]byte{{byte(i), 0}, {byte(i), 1}}}).Build()
 			require.NoError(t, err)
 			block := NewBlock(lane, BlockNumber(offset), parent, payload)
 			blocks = append(blocks, block)

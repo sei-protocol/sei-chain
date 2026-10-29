@@ -3,6 +3,7 @@ package avail
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
@@ -140,13 +141,13 @@ type loadedState struct {
 	blocks    map[types.LaneID][]persist.LoadedBlock
 }
 
-func newInner(ep *types.Epoch, first types.RoadIndex) *inner {
+func newInner(ep *types.Epoch, first types.RoadIndex, firstTimestamp time.Time) *inner {
 	roads := newQueue[types.RoadIndex, *road]()
 	roads.first = first
 	roads.next = first
 	i := &inner{
 		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
-		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep}),
+		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep, FirstTimestamp: firstTimestamp}),
 		roads:              roads,
 		blocks:             map[types.LaneID]*blockQueue{},
 		votes:              map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
@@ -232,7 +233,7 @@ func (i *inner) advanceEpoch(ep *types.Epoch) {
 	for lane := range ep.Committee().Lanes().All() {
 		i.addLane(lane)
 	}
-	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: i.persistedCommitQC.Load(), Epoch: ep})
+	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: i.persistedCommitQC.Load(), Epoch: ep, FirstTimestamp: i.consensusSpec.Load().FirstTimestamp})
 	i.reweightVotes()
 }
 
@@ -279,7 +280,7 @@ func (i *inner) refreshConsensusSpec() {
 	if !ep.RoadRange().Has(next) {
 		return
 	}
-	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: tip, Epoch: ep})
+	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: tip, Epoch: ep, FirstTimestamp: i.consensusSpec.Load().FirstTimestamp})
 }
 
 func (i *inner) addLane(lane types.LaneID) bool {

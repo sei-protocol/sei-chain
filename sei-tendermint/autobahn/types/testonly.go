@@ -307,14 +307,13 @@ func GenEpochIndex(rng utils.Rng) EpochIndex {
 }
 
 // GenEpochWithCommittee returns a random Epoch wrapping committee.
-// epochIndex, timestamp, and Roads.First are randomized so that tests
+// epochIndex and Roads.First are randomized so that tests
 // exercise epoch-binding checks rather than silently passing on zero values.
 func GenEpochWithCommittee(rng utils.Rng, committee *Committee) *Epoch {
 	first := RoadIndex(rng.Uint64() % 1000)
 	return NewEpoch(
 		GenEpochIndex(rng),
 		RoadRange{First: first, Next: first + RoadIndex(rng.Uint64()%10000) + 10},
-		utils.GenTimestamp(rng),
 		committee)
 }
 

@@ -359,17 +359,19 @@ message Committee {
   repeated EpochMember members = 1 [(wireguard.max_count) = 100];
 }
 
-// Committee for an execution-derived epoch.
-message EpochRecord {
+// Epoch index, road range, and committee.
+message Epoch {
   option (wireguard.sized) = true;
   optional uint64 index = 1; // required
   optional Committee committee = 2; // required
+  optional uint64 first_road = 3; // required
+  optional uint64 next_road = 4; // required
 }
 
-// Persisted execution-derived epoch registry state.
+// Persisted epoch registry state.
 message PersistedEpochRegistry {
-  repeated EpochRecord live = 1;
-  optional EpochRecord pending = 2; // optional
+  repeated Epoch live = 1;
+  optional Epoch pending = 2; // optional
 }
 
 message EpochMember {

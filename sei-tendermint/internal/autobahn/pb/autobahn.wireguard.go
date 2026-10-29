@@ -2,9 +2,10 @@
 package pb
 
 import (
+	reflect "reflect"
+
 	runtime "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	reflect "reflect"
 )
 
 func (*Timestamp) MaxSize() int {
@@ -143,8 +144,8 @@ func (*Committee) MaxSize() int {
 	return 6200
 }
 
-func (*EpochRecord) MaxSize() int {
-	return 6214
+func (*Epoch) MaxSize() int {
+	return 6236
 }
 
 func (*EpochMember) MaxSize() int {
@@ -428,16 +429,18 @@ func init() {
 		1: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*EpochMember]())},
 	})
 
-	// Register the wireguard.Schema generated for autobahn.EpochRecord.
-	runtime.MustRegister[*EpochRecord](runtime.Schema{
+	// Register the wireguard.Schema generated for autobahn.Epoch.
+	runtime.MustRegister[*Epoch](runtime.Schema{
 		1: {MaxCount: 1},
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Committee]())},
+		3: {MaxCount: 1},
+		4: {MaxCount: 1},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.PersistedEpochRegistry.
 	runtime.MustRegister[*PersistedEpochRegistry](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*EpochRecord]())},
-		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*EpochRecord]())},
+		1: {Nested: utils.Some(reflect.TypeFor[*Epoch]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Epoch]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.EpochMember.

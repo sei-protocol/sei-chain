@@ -16,7 +16,6 @@ func genFreshEpoch(rng utils.Rng, committee *Committee) *Epoch {
 	return NewEpoch(
 		GenEpochIndex(rng),
 		RoadRange{First: first, Next: utils.Max[RoadIndex]()},
-		time.Time{},
 		committee)
 }
 
@@ -62,7 +61,7 @@ func makeCommitQCFromProposal(keys []SecretKey, fp *FullProposal) *CommitQC {
 func TestViewSpecGenesisRoadOrigin(t *testing.T) {
 	rng := utils.TestRng()
 	committee, _ := GenCommittee(rng, 4)
-	ep := NewEpoch(0, RoadRange{First: 7, Next: 108_000}, time.Time{}, committee)
+	ep := NewEpoch(0, RoadRange{First: 7, Next: 108_000}, committee)
 	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 
 	require.Equal(t, RoadIndex(7), vs.Index())
@@ -172,14 +171,14 @@ func TestProposalVerifyRejectsNonMonotoneTimestamp(t *testing.T) {
 		rng := utils.TestRng()
 		committee, keys := GenCommittee(rng, 4)
 		genesisTimestamp := time.Now()
-		ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), genesisTimestamp, committee)
-		vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
+		ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), committee)
+		vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep, FirstTimestamp: genesisTimestamp}}
 		k := leaderKey(committee, keys, vs.View())
 		fp := utils.OrPanic1(NewProposal(k, vs, genesisTimestamp, oneLaneQCMap(rng, committee, keys, vs)))
 		require.NoError(t, fp.Verify(vs, testViewTimeout))
 
 		vsLater := vs
-		vsLater.Epoch = NewEpoch(ep.EpochIndex(), ep.RoadRange(), fp.Header().Timestamp().Add(time.Nanosecond), committee)
+		vsLater.FirstTimestamp = fp.Header().Timestamp().Add(time.Nanosecond)
 		require.Error(t, fp.Verify(vsLater, testViewTimeout))
 	})
 
@@ -876,7 +875,7 @@ func TestViewSpecViewStampsEpochIndex(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	epochIdx := EpochIndex(7)
-	ep := NewEpoch(epochIdx, OpenRoadRange(), time.Time{}, committee)
+	ep := NewEpoch(epochIdx, OpenRoadRange(), committee)
 
 	// Without TimeoutQC: epoch index must come from vs.Epoch.
 	vs0 := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
