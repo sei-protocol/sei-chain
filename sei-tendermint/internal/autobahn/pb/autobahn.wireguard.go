@@ -48,23 +48,23 @@ func (*View) MaxSize() int {
 }
 
 func (*Proposal) MaxSize() int {
-	return 10850
+	return 10817
 }
 
 func (*FullProposal) MaxSize() int {
-	return 1111604
+	return 1111516
 }
 
 func (*PrepareQC) MaxSize() int {
-	return 21253
+	return 21220
 }
 
 func (*CommitQC) MaxSize() int {
-	return 21253
+	return 21220
 }
 
 func (*FullCommitQC) MaxSize() int {
-	return 152257
+	return 152224
 }
 
 func (*TimeoutVote) MaxSize() int {
@@ -72,19 +72,19 @@ func (*TimeoutVote) MaxSize() int {
 }
 
 func (*TimeoutQC) MaxSize() int {
-	return 36757
+	return 36724
 }
 
 func (*FullTimeoutVote) MaxSize() int {
-	return 21412
+	return 21379
 }
 
 func (*AppQC) MaxSize() int {
-	return 10480
+	return 10458
 }
 
 func (*AppProposal) MaxSize() int {
-	return 78
+	return 56
 }
 
 func (*Msg) MaxSize() int {
@@ -92,7 +92,7 @@ func (*Msg) MaxSize() int {
 }
 
 func (*SignedProposal) MaxSize() int {
-	return 10957
+	return 10924
 }
 
 func (*SignedTimeoutVote) MaxSize() int {
@@ -100,7 +100,7 @@ func (*SignedTimeoutVote) MaxSize() int {
 }
 
 func (*SignedAppVote) MaxSize() int {
-	return 184
+	return 162
 }
 
 func (*SignedBlock) MaxSize() int {
@@ -112,11 +112,11 @@ func (*SignedBlockHeader) MaxSize() int {
 }
 
 func (*SignedAppProposal) MaxSize() int {
-	return 184
+	return 162
 }
 
 func (*ConsensusMsg) MaxSize() int {
-	return 1111608
+	return 1111520
 }
 
 func (*Committee) MaxSize() int {
@@ -129,6 +129,10 @@ func (*EpochRecord) MaxSize() int {
 
 func (*EpochMember) MaxSize() int {
 	return 60
+}
+
+func (*LaneBlockPos) MaxSize() int {
+	return 22
 }
 
 func init() {
@@ -238,7 +242,6 @@ func init() {
 		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Timestamp]())},
 		3: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*LaneRange]())},
 		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
-		6: {MaxCount: 1},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.FullProposal.
@@ -311,8 +314,6 @@ func init() {
 	runtime.MustRegister[*AppProposal](runtime.Schema{
 		4: {MaxCount: 1},
 		2: {MaxCount: 1},
-		5: {MaxCount: 1},
-		6: {MaxCount: 1},
 		3: {MaxCount: 1, MaxSize: 32},
 	})
 
@@ -392,6 +393,12 @@ func init() {
 	// Register the wireguard.Schema generated for autobahn.EpochMember.
 	runtime.MustRegister[*EpochMember](runtime.Schema{
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*LaneID]())},
+		2: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.LaneBlockPos.
+	runtime.MustRegister[*LaneBlockPos](runtime.Schema{
+		1: {MaxCount: 1},
 		2: {MaxCount: 1},
 	})
 

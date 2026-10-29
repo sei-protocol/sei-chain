@@ -260,13 +260,8 @@ func (s *shard) lookupVersionedRLocked(key []byte, version uint64) (versionedVal
 	if !ok {
 		return versionedValue{}, false
 	}
-	if version == s.oldestVersion {
-		next := deque.PeekFront()
-		if next.version == version {
-			return next, true
-		}
-		return versionedValue{}, false
-	}
+	// Scanned from the newest even at oldestVersion: while DropVersions is moving keys, a deque may
+	// still hold values older than oldestVersion.
 	for i := deque.Len() - 1; i >= 0; i-- {
 		next := deque.Get(i)
 		if next.version <= version {
@@ -682,70 +677,90 @@ func (s *shard) DropVersions(
 		}
 	}
 
+	diffs, err := s.claimVersionsToRetire(firstVersion, lastVersion)
+	if err != nil {
+		return err
+	}
+
+	// Moved in chunks, each under a short write lock, so that readers of this shard never wait out a
+	// whole version. Every key's trim and cache insert land in one chunk, and older versions go first,
+	// trimming only up to their own version, so a reader between chunks finds every key either still
+	// in versionedData or already in the read cache.
+	version := firstVersion
+	for _, diff := range diffs {
+		version++
+		for start := 0; start < len(diff); start += retireChunkSize {
+			chunk := diff[start:min(start+retireChunkSize, len(diff))]
+			if err := s.retireChunk(chunk, version); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// retireChunkSize is the number of keys DropVersions moves into the read cache per lock acquisition.
+const retireChunkSize = 256
+
+// claimVersionsToRetire takes the sealed diffs of [firstVersion, lastVersion) out of the shard, oldest
+// first, and advances oldestVersion past them.
+func (s *shard) claimVersionsToRetire(firstVersion uint64, lastVersion uint64) ([][]Write, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	if firstVersion != s.oldestVersion {
-		return fmt.Errorf("firstVersion (%d) must be equal to the oldest version (%d)",
+		return nil, fmt.Errorf("firstVersion (%d) must be equal to the oldest version (%d)",
 			firstVersion, s.oldestVersion)
 	}
 	if lastVersion > s.currentVersion {
-		return fmt.Errorf("lastVersion (%d) must be less than or equal to the current version (%d)",
+		return nil, fmt.Errorf("lastVersion (%d) must be less than or equal to the current version (%d)",
 			lastVersion, s.currentVersion)
 	}
 
-	// Gather the diffs oldest version first. The cache insert below replays them in that order, so a
-	// key written in several retiring versions ends up holding the newest of those values — which is
-	// what combining them into one map used to do.
 	diffs := make([][]Write, 0, lastVersion-firstVersion)
 	for version := firstVersion; version < lastVersion; version++ {
 		handle, sealed := s.sealedDiffs[version]
 		if !sealed {
-			return fmt.Errorf("version %d is not a sealed version and cannot be retired", version)
+			return nil, fmt.Errorf("version %d is not a sealed version and cannot be retired", version)
 		}
 		select {
 		case <-handle.done:
 		default:
-			// The materialize above covers this, so reaching it means the lifecycle is broken. Carrying on
-			// would retire keys whose values never reached the read cache: an unmaterialized version's diff
-			// is empty, and an empty diff is indistinguishable from a version that wrote nothing.
-			return fmt.Errorf("version %d was not materialized and cannot be retired", version)
+			// The materialize in DropVersions covers this, so reaching it means the lifecycle is broken.
+			// Carrying on would retire keys whose values never reached the read cache: an unmaterialized
+			// version's diff is empty, and an empty diff is indistinguishable from a version that wrote
+			// nothing.
+			return nil, fmt.Errorf("version %d was not materialized and cannot be retired", version)
 		}
 		diffs = append(diffs, handle.entries)
 		delete(s.sealedDiffs, version)
 	}
 
-	// Clean up the versioned data map. A key written in more than one retiring version is visited
-	// once per diff, and the trim is idempotent, so the repeat costs a lookup and finds nothing to do.
-	for _, diff := range diffs {
-		for _, entry := range diff {
-			deque, tracked := s.versionedData[entry.Key]
-			if !tracked {
-				continue
-			}
-			for !deque.IsEmpty() {
-				next := deque.PeekFront()
-				if next.version >= lastVersion {
-					break
-				}
-				deque.PopFront()
-			}
-			if deque.IsEmpty() {
-				delete(s.versionedData, entry.Key)
-			}
+	// Advanced before the keys move: no view holds a retiring version, and versionedData still answers
+	// for every key not yet moved.
+	s.oldestVersion = lastVersion
+	return diffs, nil
+}
+
+// retireChunk drops the values of chunk's keys older than retiredThrough from versionedData and
+// installs chunk in the read cache, under one write lock.
+func (s *shard) retireChunk(chunk []Write, retiredThrough uint64) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	for _, entry := range chunk {
+		deque, tracked := s.versionedData[entry.Key]
+		if !tracked {
+			continue
+		}
+		for !deque.IsEmpty() && deque.PeekFront().version < retiredThrough {
+			deque.PopFront()
+		}
+		if deque.IsEmpty() {
+			delete(s.versionedData, entry.Key)
 		}
 	}
-
-	// Push the retired data down into the read cache, still under the same lock grab, so
-	// readers never observe an intermediate state between the deque cleanup and the cache
-	// insert.
-	retireErr := s.cache.PutRetiredWLocked(diffs)
-
-	// Advanced even when the insert reported a failure: the keys have already moved into the cache, so
-	// leaving oldestVersion behind would describe a migration that did not happen.
-	s.oldestVersion = lastVersion
-
-	return retireErr
+	return s.cache.PutRetiredWLocked([][]Write{chunk})
 }
 
 // TakeOutOfService stops this shard from serving reads and accepting writes, reporting err as the

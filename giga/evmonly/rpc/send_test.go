@@ -74,6 +74,20 @@ func TestReturnsCheckTxRejection(t *testing.T) {
 	require.EqualError(t, err, "bad nonce")
 }
 
+func TestSendRawTransactionRefusesWhileThrottled(t *testing.T) {
+	_, raw := testSignedTransaction(t)
+	backend := &testBackend{
+		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+			t.Fatal("a throttled node broadcast a transaction")
+			return nil, nil
+		},
+		throttled: true,
+	}
+	_, err := (&sendAPI{backend: backend}).SendRawTransaction(t.Context(), raw)
+	require.ErrorIs(t, err, errMempoolThrottled)
+	require.Zero(t, backend.proxyCalls)
+}
+
 func TestSendRawTransactionBroadcastError(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	want := errors.New("mempool full")

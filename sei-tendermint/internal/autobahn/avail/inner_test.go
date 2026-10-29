@@ -467,7 +467,6 @@ func TestRestoreInner_LoadedCommitQCs(t *testing.T) {
 		}
 		require.NoError(t, utils.TestDiff(utils.Some(qcs[2]), inner.persistedCommitQC.Load()))
 		require.Equal(t, int64(qcs[2].Index()), gathered(t, "tendermint_internal_autobahn_avail_commit_road_index", nil))
-		require.Equal(t, int64(qcs[2].GlobalRange().Next), gathered(t, "tendermint_internal_autobahn_avail_commit_global_block_number", nil))
 		spec := inner.consensusSpec.Load()
 		require.Equal(t, types.EpochIndex(0), spec.Epoch.EpochIndex())
 		got, ok := spec.CommitQC.Get()
@@ -555,7 +554,7 @@ func TestPrune_LeavesAppliedToEpochAdvance(t *testing.T) {
 	require.Equal(t, types.EpochIndex(0), i.applied().EpochIndex())
 
 	prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: registry.LastRoad(1), Number: 0}, ep1.FirstBlock()))),
+		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: registry.LastRoad(1), Number: 0}))),
 	})
 	qc := types.BuildCommitQC(ep2, keys, utils.Some(prev), nil)
 	i.prune(data.Anchor{

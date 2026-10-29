@@ -938,16 +938,19 @@ func (c *viewManager) doLifecycleWork() error {
 
 		c.versionLock.Unlock()
 
+		c.metrics.setLifecyclePhase("flush")
 		err = c.flushViews(firstFlushVersion, lastFlushVersion, versionWrites)
 		if err != nil {
 			return fmt.Errorf("unable to flush views: %w", err)
 		}
 
+		c.metrics.setLifecyclePhase("retire")
 		err = c.retireViews(firstRetireVersion, lastRetireVersion)
 		if err != nil {
 			return fmt.Errorf("unable to retire views: %w", err)
 		}
 	}
+	c.metrics.setLifecyclePhase("")
 
 	return nil
 }
@@ -1169,11 +1172,22 @@ func (c *viewManager) retireViews(
 		return nil
 	}
 
+	// Shards retire independently, each under its own lock, so they run in parallel: done one at a time,
+	// a slow retirement delays the next flush and backs up Commit.
+	errs := make([]error, len(c.shards))
+	var wg sync.WaitGroup
 	for i, shard := range c.shards {
-		err := shard.DropVersions(firstVersion, lastVersion)
-		if err != nil {
-			return fmt.Errorf("failed to drop versions from shard %d: %w", i, err)
-		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := shard.DropVersions(firstVersion, lastVersion); err != nil {
+				errs[i] = fmt.Errorf("failed to drop versions from shard %d: %w", i, err)
+			}
+		}()
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		return err
 	}
 
 	c.versionLock.Lock()

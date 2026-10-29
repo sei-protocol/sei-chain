@@ -3,11 +3,7 @@ package types
 import (
 	"encoding/hex"
 	"fmt"
-	"math/big"
 	"time"
-
-	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable"
@@ -24,13 +20,16 @@ type NodeID string
 // BlockNumber is the number of a block in a lane.
 type BlockNumber uint64
 
-// GlobalBlockNumber is the number of a block in the global chain.
-type GlobalBlockNumber uint64
+// LaneBlockPos identifies a lane block by its CommitQC road index and header offset.
+type LaneBlockPos struct {
+	Index  RoadIndex
+	Offset uint64
+}
 
 // ExecutedBlock is a block committed to the app together with the gas its
 // transactions used.
 type ExecutedBlock struct {
-	Number  GlobalBlockNumber
+	Number  RoadIndex
 	GasUsed uint64
 }
 
@@ -67,7 +66,7 @@ func (w ExecutedBlocks) Latest() ExecutedBlock {
 }
 
 // Get returns the block numbered n if the window still holds it.
-func (w ExecutedBlocks) Get(n GlobalBlockNumber) (ExecutedBlock, bool) {
+func (w ExecutedBlocks) Get(n RoadIndex) (ExecutedBlock, bool) {
 	if len(w.blocks) == 0 {
 		return ExecutedBlock{}, false
 	}
@@ -76,14 +75,6 @@ func (w ExecutedBlocks) Get(n GlobalBlockNumber) (ExecutedBlock, bool) {
 		return ExecutedBlock{}, false
 	}
 	return w.blocks[n-first], true
-}
-
-// BlockWithNumber pairs a block with its GlobalBlockNumber. It is used as the
-// payload of the utils.Option returned by ReadBlockByHash so that the block
-// number is only present when the block itself is present.
-type BlockWithNumber struct {
-	Block  *Block
-	Number GlobalBlockNumber
 }
 
 // BlockHeaderHash is the hash of a BlockHeader.
@@ -161,12 +152,13 @@ type Block struct {
 	payload *Payload
 }
 
-// GlobalBlock is a finalized block with global block number.
-type GlobalBlock struct {
-	Header       *BlockHeader
-	Timestamp    time.Time
-	GlobalNumber GlobalBlockNumber
-	Payload      *Payload
+// SuperBlock contains all transactions finalized by one CommitQC in header order.
+type SuperBlock struct {
+	Hash      RoadBlockHash
+	Height    RoadIndex
+	Timestamp time.Time
+	GasWanted uint64
+	Txs       [][]byte
 }
 
 // NewBlock creates a new Block.
@@ -350,14 +342,15 @@ var BlockConv = protoutils.Conv[*Block, *pb.Block]{
 	},
 }
 
-// CalculateBlockHash calculates the hash of a block.
-func (b *GlobalBlock) CalculateBlockHash() common.Hash {
-	header := &ethtypes.Header{
-		Time:       uint64(b.Payload.CreatedAt().Unix()), //nolint:gosec // block timestamps are always positive post-epoch values
-		Number:     big.NewInt(int64(b.GlobalNumber)),    //nolint:gosec // block numbers are within int64 range for all practical chain heights
-		GasUsed:    b.Payload.TotalGasWanted(),
-		Difficulty: big.NewInt(0),
-		BaseFee:    big.NewInt(0),
-	}
-	return header.Hash()
+// LaneBlockPosConv is the protobuf converter for LaneBlockPos.
+var LaneBlockPosConv = protoutils.Conv[LaneBlockPos, *pb.LaneBlockPos]{
+	Encode: func(p LaneBlockPos) *pb.LaneBlockPos {
+		return &pb.LaneBlockPos{Index: utils.Alloc(uint64(p.Index)), Offset: utils.Alloc(p.Offset)}
+	},
+	Decode: func(p *pb.LaneBlockPos) (LaneBlockPos, error) {
+		if p.Index == nil || p.Offset == nil {
+			return LaneBlockPos{}, fmt.Errorf("missing lane block position")
+		}
+		return LaneBlockPos{Index: RoadIndex(*p.Index), Offset: *p.Offset}, nil
+	},
 }

@@ -824,9 +824,7 @@ func weightedEpoch(idx types.EpochIndex, weights map[types.PublicKey]uint64) *ty
 		idx,
 		types.RoadRange{First: firstRoad, Next: firstRoad + epoch.EpochLength},
 		time.Unix(0, 0),
-		c,
-		0,
-	)
+		c)
 }
 
 // --- propose ---

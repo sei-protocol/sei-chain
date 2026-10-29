@@ -21,12 +21,12 @@ type metrics struct {
 	capacityWaitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.0001, 2, 30)"`
 	// Time an insert spent acquiring and holding the mempool lock, excluding time spent waiting for capacity.
 	admitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.000001, 2, 30)"`
-	// Number of times a blocked insert woke up and found the mempool still full.
-	capacityWaitWakeups prometheus.CounterIntVec
 	// Number of inserts currently in the given phase.
 	inFlight prometheus.GaugeIntVec `metrics_labels:"phase"`
 	// Number of finished inserts by outcome.
 	inserts prometheus.CounterIntVec `metrics_labels:"result"`
+	// 1 while the mempool refuses inserts because local execution lags too far behind, else 0.
+	executionThrottled prometheus.GaugeIntVec
 }
 
 // Phase is an insert phase tracked by the in-flight gauge.
@@ -71,10 +71,18 @@ func ObserveCheckTx(d time.Duration) { Global.checkTxLatencyAt().Observe(d.Secon
 // ObserveNonceLookup records the duration of one app nonce lookup.
 func ObserveNonceLookup(d time.Duration) { Global.nonceLookupLatencyAt().Observe(d.Seconds()) }
 
-// ObserveCapacityWait records the total time one insert waited for capacity and how many times it woke up.
-func ObserveCapacityWait(d time.Duration, wakeups int64) {
+// ObserveCapacityWait records the total time one insert waited for capacity.
+func ObserveCapacityWait(d time.Duration) {
 	Global.capacityWaitLatencyAt().Observe(d.Seconds())
-	Global.capacityWaitWakeupsAt().Add(wakeups)
+}
+
+// SetExecutionThrottled records whether the mempool is refusing inserts because execution lags.
+func SetExecutionThrottled(throttled bool) {
+	var v int64
+	if throttled {
+		v = 1
+	}
+	Global.executionThrottledAt().Set(v)
 }
 
 // ObserveAdmit records the time one insert spent in the locked admission section.

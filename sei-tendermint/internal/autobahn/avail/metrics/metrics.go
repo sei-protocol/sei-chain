@@ -17,9 +17,6 @@ type metrics struct {
 	// Road index of the highest observed commitQC.
 	commitRoadIndex prometheus.GaugeIntVec
 
-	// First global block number not covered by the highest observed CommitQC.
-	commitGlobalBlockNumber prometheus.GaugeIntVec
-
 	// Latency from proposal being constructed to commit being observed.
 	proposalToCommitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.2, 35)"`
 	// Latency between consecutive commits being observed.
@@ -67,8 +64,7 @@ func ObserveCommitQC(qc *types.CommitQC) {
 			Global.commitToCommitLatencyAt(timeouts).Observe(now.Sub(last.time).Seconds())
 		}
 		Global.proposalToCommitLatencyAt().Observe(now.Sub(qc.Proposal().Timestamp()).Seconds())
-		Global.commitRoadIndexAt().Set(int64(qc.Index()))                    // nolint: gosec
-		Global.commitGlobalBlockNumberAt().Set(int64(qc.GlobalRange().Next)) // nolint: gosec
+		Global.commitRoadIndexAt().Set(int64(qc.Index())) // nolint: gosec
 		*mLast = utils.Some(observed[*types.CommitQC]{now, qc})
 	}
 }
@@ -80,14 +76,13 @@ func ObserveProducedTxs(n int) {
 
 // Metrics are the avail instruments callers write directly.
 type Metrics struct {
-	CommitRoadIndex         *prometheus.GaugeInt
-	CommitGlobalBlockNumber *prometheus.GaugeInt
-	LaneCapacityWait        *prometheus.Histogram
-	LaneQCWait              *prometheus.Histogram
-	LaneCapacityInFlight    *prometheus.GaugeInt
-	LaneQCInFlight          *prometheus.GaugeInt
-	LaneQCs                 *prometheus.CounterInt
-	LaneVotesIngested       *prometheus.CounterInt
+	CommitRoadIndex      *prometheus.GaugeInt
+	LaneCapacityWait     *prometheus.Histogram
+	LaneQCWait           *prometheus.Histogram
+	LaneCapacityInFlight *prometheus.GaugeInt
+	LaneQCInFlight       *prometheus.GaugeInt
+	LaneQCs              *prometheus.CounterInt
+	LaneVotesIngested    *prometheus.CounterInt
 	// Latency from a lane block's creation to its arrival on this node.
 	LaneBlockReceive *prometheus.Histogram
 }
@@ -95,14 +90,13 @@ type Metrics struct {
 // Get returns the avail instruments.
 func Get() *Metrics {
 	return &Metrics{
-		CommitRoadIndex:         Global.commitRoadIndexAt(),
-		CommitGlobalBlockNumber: Global.commitGlobalBlockNumberAt(),
-		LaneCapacityWait:        Global.laneCapacityWaitLatencyAt(),
-		LaneQCWait:              Global.laneQcWaitLatencyAt(),
-		LaneCapacityInFlight:    Global.inFlightAt("lane_capacity"),
-		LaneQCInFlight:          Global.inFlightAt("lane_qc"),
-		LaneQCs:                 Global.laneQcsAt(),
-		LaneVotesIngested:       Global.laneVotesIngestedAt(),
-		LaneBlockReceive:        Global.laneBlockReceiveLatencyAt(),
+		CommitRoadIndex:      Global.commitRoadIndexAt(),
+		LaneCapacityWait:     Global.laneCapacityWaitLatencyAt(),
+		LaneQCWait:           Global.laneQcWaitLatencyAt(),
+		LaneCapacityInFlight: Global.inFlightAt("lane_capacity"),
+		LaneQCInFlight:       Global.inFlightAt("lane_qc"),
+		LaneQCs:              Global.laneQcsAt(),
+		LaneVotesIngested:    Global.laneVotesIngestedAt(),
+		LaneBlockReceive:     Global.laneBlockReceiveLatencyAt(),
 	}
 }

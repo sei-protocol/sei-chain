@@ -3,6 +3,10 @@ package flatkv
 import (
 	"encoding/binary"
 	"fmt"
+	"hash/maphash"
+	"slices"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -34,67 +38,157 @@ func MutationsFromChangeSets(
 			priorHeight, blockHeight)
 	}
 
-	// Both maps are sized to the block's entry count, an upper bound on each, so neither grows while collecting.
+	writes, err := keyWrites(changeSets)
+	if err != nil {
+		return nil, err
+	}
+	partitions := max(1, min(maxConversionPartitions, len(writes)/minWritesPerPartition))
+	if partitions == 1 {
+		return mutationsFromWrites(writes, blockHeight, priorState)
+	}
+	// A key's writes all land in one partition, in block order, so its last write still wins.
+	seed := maphash.MakeSeed()
+	byPartition := make([][]keyedWrite, partitions)
+	for _, write := range writes {
+		partition := maphash.Bytes(seed, write.key) % uint64(partitions) //nolint:gosec // partitions > 0
+		byPartition[partition] = append(byPartition[partition], write)
+	}
+	results := make([][]mutation.Mutation, partitions)
+	var group errgroup.Group
+	for i := range byPartition {
+		group.Go(func() error {
+			var err error
+			results[i], err = mutationsFromWrites(byPartition[i], blockHeight, priorState)
+			return err
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+	return slices.Concat(results...), nil
+}
+
+// maxConversionPartitions bounds the goroutines one block's conversion runs at once.
+const maxConversionPartitions = 16
+
+// minWritesPerPartition is the fewest writes a conversion partition is worth a goroutine for.
+const minWritesPerPartition = 512
+
+// keyedWrite is one changeset write with the physical key and kind it resolves to.
+type keyedWrite struct {
+	module string
+	pair   *proto.KVPair
+	kind   keys.EVMKeyKind
+	key    []byte
+}
+
+// keyWrites resolves every write of the block to its physical key, in block order.
+func keyWrites(changeSets []*proto.NamedChangeSet) ([]keyedWrite, error) {
 	entryCount := 0
 	for _, changeSet := range changeSets {
 		if changeSet != nil {
 			entryCount += len(changeSet.Changeset.Pairs)
 		}
 	}
-	// The account fields the block writes to each account row, keyed by string(physical key). Each is merged onto
-	// the account's previous row to produce its new value.
-	accountFieldWrites := make(map[string]*vtype.PendingAccountWrite, entryCount)
-	// The new value of each storage, code or misc key the block writes, or nil if deleted, keyed by
-	// string(physical key).
-	nonAccountNewValues := make(map[string][]byte, entryCount)
+	writes := make([]keyedWrite, 0, entryCount)
 	for _, changeSet := range changeSets {
 		if changeSet == nil {
 			continue
 		}
 		for _, pair := range changeSet.Changeset.Pairs {
-			kind, key, err := changeSetEntryKey(changeSet.Name, pair.Key)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse module %q key %x: %w",
-					changeSet.Name, pair.Key, err)
-			}
-			if isAccountKind(kind) {
-				fields, ok := accountFieldWrites[string(key)]
-				if !ok {
-					fields = vtype.NewPendingAccountWrite()
-					accountFieldWrites[string(key)] = fields
-				}
-				err = fields.SetField(kind, pair.Value, pair.Delete)
-			} else {
-				nonAccountNewValues[string(key)], err = rowValue(kind, pair, blockHeight)
-			}
-			if err != nil {
-				return nil, fmt.Errorf("failed to apply the write to module %q key %x: %w",
-					changeSet.Name, pair.Key, err)
-			}
+			writes = append(writes, keyedWrite{module: changeSet.Name, pair: pair})
 		}
 	}
-
-	physicalKeys := make([][]byte, 0, len(accountFieldWrites)+len(nonAccountNewValues))
-	for key := range accountFieldWrites {
-		physicalKeys = append(physicalKeys, []byte(key))
+	chunk := max(minWritesPerPartition, (len(writes)+maxConversionPartitions-1)/maxConversionPartitions)
+	var group errgroup.Group
+	for start := 0; start < len(writes); start += chunk {
+		group.Go(func() error {
+			for i := start; i < min(start+chunk, len(writes)); i++ {
+				write := &writes[i]
+				kind, key, err := changeSetEntryKey(write.module, write.pair.Key)
+				if err != nil {
+					return fmt.Errorf("failed to parse module %q key %x: %w", write.module, write.pair.Key, err)
+				}
+				write.kind, write.key = kind, key
+			}
+			return nil
+		})
 	}
-	for key := range nonAccountNewValues {
-		physicalKeys = append(physicalKeys, []byte(key))
+	if err := group.Wait(); err != nil {
+		return nil, err
 	}
-	priorValues := priorState.BatchGetRaw(physicalKeys)
+	return writes, nil
+}
 
-	mutations := make([]mutation.Mutation, len(physicalKeys))
-	for i, key := range physicalKeys {
+// mutationsFromWrites converts writes into one mutation per physical key they write, reading each key's previous
+// value from priorState.
+func mutationsFromWrites(writes []keyedWrite, blockHeight uint64, priorState gigatypes.StateView) ([]mutation.Mutation, error) {
+	c, err := collectWrites(writes, blockHeight)
+	if err != nil {
+		return nil, err
+	}
+	return c.mutations(priorState.BatchGetRaw(c.keys), blockHeight)
+}
+
+// collectedWrites is a set of writes folded to one pending value per physical key.
+type collectedWrites struct {
+	// The account fields written to each account row, keyed by string(physical key). Each is merged onto the
+	// account's previous row to produce its new value.
+	accountFieldWrites map[string]*vtype.PendingAccountWrite
+	// The new value of each storage, code or misc key written, or nil if deleted, keyed by string(physical key).
+	nonAccountNewValues map[string][]byte
+	// Every physical key written.
+	keys [][]byte
+}
+
+// collectWrites folds writes, in order, to the pending value of each physical key they write.
+func collectWrites(writes []keyedWrite, blockHeight uint64) (*collectedWrites, error) {
+	// Both maps are sized to the write count, an upper bound on each, so neither grows while collecting.
+	c := &collectedWrites{
+		accountFieldWrites:  make(map[string]*vtype.PendingAccountWrite, len(writes)),
+		nonAccountNewValues: make(map[string][]byte, len(writes)),
+	}
+	for _, write := range writes {
+		var err error
+		if isAccountKind(write.kind) {
+			fields, ok := c.accountFieldWrites[string(write.key)]
+			if !ok {
+				fields = vtype.NewPendingAccountWrite()
+				c.accountFieldWrites[string(write.key)] = fields
+			}
+			err = fields.SetField(write.kind, write.pair.Value, write.pair.Delete)
+		} else {
+			c.nonAccountNewValues[string(write.key)], err = rowValue(write.kind, write.pair, blockHeight)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to apply the write to module %q key %x: %w",
+				write.module, write.pair.Key, err)
+		}
+	}
+	c.keys = make([][]byte, 0, len(c.accountFieldWrites)+len(c.nonAccountNewValues))
+	for key := range c.accountFieldWrites {
+		c.keys = append(c.keys, []byte(key))
+	}
+	for key := range c.nonAccountNewValues {
+		c.keys = append(c.keys, []byte(key))
+	}
+	return c, nil
+}
+
+// mutations returns one mutation per collected key, taking each key's previous value from priorValues.
+func (c *collectedWrites) mutations(priorValues map[string][]byte, blockHeight uint64) ([]mutation.Mutation, error) {
+	mutations := make([]mutation.Mutation, len(c.keys))
+	for i, key := range c.keys {
 		previousValue := priorValues[string(key)]
 		var newValue []byte
-		if fields, isAccount := accountFieldWrites[string(key)]; isAccount {
+		if fields, isAccount := c.accountFieldWrites[string(key)]; isAccount {
 			var err error
 			newValue, err = mergedAccountRow(fields, previousValue, blockHeight)
 			if err != nil {
 				return nil, fmt.Errorf("failed to compute the new value of key %x: %w", key, err)
 			}
 		} else {
-			newValue = nonAccountNewValues[string(key)]
+			newValue = c.nonAccountNewValues[string(key)]
 		}
 		mutations[i] = mutation.Mutation{Key: key, PreviousValue: previousValue, NewValue: newValue}
 	}
