@@ -81,4 +81,7 @@ same result from the same block, so each rule below is a consensus rule.
 - Chain params live in the params precompile's storage (0x1013), laid out by
   `docs/giga-storage/ParamsStorage.sol` and declared in `params`. Read them
   with the `params` package's Go readers, such as `ReadGov`; do not keep a copy
-  in another precompile's storage.
+  in another precompile's storage. They change only at genesis and through a
+  passed gov proposal (`params.Apply`). Read
+  [`docs/giga-storage/params-design.md`](../../../docs/giga-storage/params-design.md)
+  before adding a subspace or a param.

@@ -3,6 +3,7 @@ package params
 import (
 	"math/big"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -149,6 +150,76 @@ func TestGovUpperBounds(t *testing.T) {
 		require.NoError(t, at.Validate(), name)
 		require.ErrorContains(t, over.Validate(), name+" must be at most", name)
 	}
+}
+
+func TestSetLeavesTheRestOfTheSlot(t *testing.T) {
+	uint32Kind := valueKind{solType: "uint32", bits: 32}
+	ss := &subspace{name: "packed", slot: 99, params: []param{
+		{key: "a", kind: uint32Kind, at: member{0, 0}},
+		{key: "b", kind: uint32Kind, at: member{0, 4}},
+		{key: "c", kind: durationKind, at: member{0, 8}},
+		{key: "d", kind: decKind, at: member{1, 0}},
+	}, check: func(values) error { return nil }}
+	s := newStore(newMemState())
+	for i, p := range ss.params {
+		ss.set(s, p, big.NewInt(int64(i+1)))
+	}
+	for i, p := range ss.params {
+		before := ss.read(s)
+		ss.set(s, p, big.NewInt(int64(100+i)))
+		after := ss.read(s)
+		for _, q := range ss.params {
+			if q.key == p.key {
+				require.Equal(t, int64(100+i), after[q.key].Int64(), q.key)
+			} else {
+				require.Equal(t, before[q.key], after[q.key], "setting %s changed %s", p.key, q.key)
+			}
+		}
+	}
+}
+
+func TestEveryGovParamWritesOnlyItself(t *testing.T) {
+	for _, p := range govSubspace.params {
+		state := newGovState(t)
+		before := govSubspace.read(newStore(state))
+		govSubspace.set(newStore(state), p, big.NewInt(7))
+		after := govSubspace.read(newStore(state))
+		for _, q := range govSubspace.params {
+			if q.key != p.key {
+				require.Equal(t, before[q.key], after[q.key], "setting %s changed %s", p.key, q.key)
+			}
+		}
+	}
+}
+
+func TestGovValuesRoundTrip(t *testing.T) {
+	v := testGov.values()
+	require.Len(t, v, len(govSubspace.params), "values() has one entry per declared gov param")
+	for _, p := range govSubspace.params {
+		require.Contains(t, v, p.key)
+	}
+	require.Equal(t, testGov, govFrom(v), "Gov, the table, govFrom and values() agree")
+}
+
+func TestWriteGovRejectsAValueThatDoesNotFit(t *testing.T) {
+	g := testGov
+	g.MinDeposit = new(big.Int).Add(new(big.Int).Lsh(big.NewInt(1), 256), testGov.MinDeposit)
+	state := newMemState()
+	require.ErrorIs(t, WriteGov(state, g), errInvalidValue)
+	require.False(t, HasGov(state), "nothing is written")
+}
+
+func TestUnknownNamesAreQuotedAndCapped(t *testing.T) {
+	long := strings.Repeat("x", 10_000) + "\n"
+	_, err := plan(newGovState(t), []Change{{long, "k", word(1)}})
+	require.ErrorIs(t, err, errUnknownSubspace)
+	require.Less(t, len(err.Error()), 200)
+	_, err = plan(newGovState(t), []Change{{"gov", long, word(1)}})
+	require.ErrorIs(t, err, errUnknownKey)
+	require.Less(t, len(err.Error()), 200)
+	_, err = call(t, newGovState(t), ParamMethod, long, long)
+	require.ErrorIs(t, err, errUnknownSubspace)
+	require.Less(t, len(err.Error()), 200)
 }
 
 func TestApplyChecksTheResultAsAWhole(t *testing.T) {

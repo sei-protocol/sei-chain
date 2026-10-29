@@ -64,19 +64,21 @@ func ReadGov(state precompiles.State) Gov {
 	return govFrom(govSubspace.read(newStore(state)))
 }
 
-// HasGov reports whether gov's params have been written, reading one param.
+// govVotingPeriodParam is the param HasGov reads.
+var govVotingPeriodParam = govSubspace.mustParam(keyVotingPeriod)
+
+// HasGov reports whether gov's params have been written.
 func HasGov(state precompiles.State) bool {
-	p, _ := govSubspace.param(keyVotingPeriod)
-	return govSubspace.get(newStore(state), p).Sign() != 0
+	return govSubspace.get(newStore(state), govVotingPeriodParam).Sign() != 0
 }
 
 // WriteGov writes g as gov's params, for genesis, if g is valid.
 func WriteGov(state precompiles.State, g Gov) error {
-	if err := g.Validate(); err != nil {
+	v := g.values()
+	if err := govSubspace.validate(v); err != nil {
 		return err
 	}
 	s := newStore(state)
-	v := g.values()
 	for _, p := range govSubspace.params {
 		govSubspace.set(s, p, v[p.key])
 	}

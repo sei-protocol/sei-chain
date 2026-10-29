@@ -134,17 +134,64 @@ func TestParamsReadThroughTheParamsPrecompile(t *testing.T) {
 	require.Equal(t, uint64(1_500_000_001), newStore(state).params().VotingPeriod, "nanoseconds, unrounded")
 }
 
+// TestSettleCostCoversEachParamChange checks that the content words settleCost
+// charges cover what applying the changes does: reading the gov subspace, one
+// word per param, and writing one word per change.
 func TestSettleCostCoversEachParamChange(t *testing.T) {
-	h := newHarness(t)
-	changes := []paramChange{
+	all := []paramChange{
 		{"gov", "votingparams.voting_period", secondsValue(300)},
 		{"gov", "votingparams.expedited_voting_period", secondsValue(60)},
 		{"gov", "tallyparams.quorum", uintValue(400_000_000_000_000_000)},
 	}
-	id, err := h.submitParamChange(false, changes...)
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, must(newStore(h.state).proposalContentChunks(id)), uint64(len(changes)),
-		"the content words settleCost charges cover a unit per change")
+	govParams := uint64(len(chainparams.Keys()))
+	for n := 1; n <= len(all); n++ {
+		h := newHarness(t)
+		id, err := h.submitParamChange(false, all[:n]...)
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, must(newStore(h.state).proposalContentChunks(id)), govParams+uint64(n),
+			"%d changes: the content words settleCost charges cover the subspace read and each write", n)
+	}
+}
+
+// TestAParamChangeGovernsLaterProposalsInTheSameEndBlock pins that EndBlock
+// reads params for each proposal it settles: a quorum raised by a proposal that
+// settles first decides a proposal settled after it in the same EndBlock.
+func TestAParamChangeGovernsLaterProposalsInTheSameEndBlock(t *testing.T) {
+	for name, changeFirst := range map[string]bool{"change settles first": true, "change settles second": false} {
+		h := newElectedHarness(t, equalElectorate)
+		raiseQuorum := func() uint64 {
+			id, err := h.submitParamChange(false,
+				paramChange{"gov", "tallyparams.quorum", uintValue(800_000_000_000_000_000)},
+				paramChange{"gov", "tallyparams.expedited_quorum", uintValue(900_000_000_000_000_000)},
+			)
+			require.NoError(t, err)
+			for _, voter := range []common.Address{alice, bob, carol} {
+				h.vote(voter, id, OptionYes)
+			}
+			return id
+		}
+		twoThirdsTurnout := func() uint64 {
+			id := h.open(textProposal, usei(10))
+			h.vote(alice, id, OptionYes)
+			h.vote(bob, id, OptionYes)
+			return id
+		}
+		var change, other uint64
+		if changeFirst {
+			change, other = raiseQuorum(), twoThirdsTurnout()
+		} else {
+			other, change = twoThirdsTurnout(), raiseQuorum()
+		}
+		h.time += testParams.VotingPeriod
+		h.endBlock(1)
+
+		require.Equal(t, StatusPassed, h.status(change), name)
+		want := StatusPassed
+		if changeFirst {
+			want = StatusRejected
+		}
+		require.Equal(t, want, h.status(other), name)
+	}
 }
 
 func TestSubmitRejectsOversizedParamChangeContent(t *testing.T) {

@@ -64,13 +64,13 @@ func plan(state precompiles.State, changes []Change) ([]update, error) {
 	for _, c := range changes {
 		ss, ok := lookupSubspace(c.Subspace)
 		if !ok {
-			return nil, fmt.Errorf("%w: %s", errUnknownSubspace, c.Subspace)
+			return nil, fmt.Errorf("%w: %.64q", errUnknownSubspace, c.Subspace)
 		}
 		p, ok := ss.param(c.Key)
 		if !ok {
-			return nil, fmt.Errorf("%w: %s/%s", errUnknownKey, c.Subspace, c.Key)
+			return nil, fmt.Errorf("%w: %.64q/%.64q", errUnknownKey, c.Subspace, c.Key)
 		}
-		v, err := decodeValue(p, c.Value)
+		v, err := decodeValue(c.Value)
 		if err != nil {
 			return nil, fmt.Errorf("%s/%s: %w", c.Subspace, c.Key, err)
 		}
@@ -82,21 +82,18 @@ func plan(state precompiles.State, changes []Change) ([]update, error) {
 		updates = append(updates, update{ss: ss, p: p, v: v})
 	}
 	for _, ss := range touched {
-		if err := ss.check(working[ss]); err != nil {
+		if err := ss.validate(working[ss]); err != nil {
 			return nil, fmt.Errorf("%w: %s: %w", errInvalidValue, ss.name, err)
 		}
 	}
 	return updates, nil
 }
 
-// decodeValue decodes abi.encode of p's Solidity type.
-func decodeValue(p param, value []byte) (*big.Int, error) {
+// decodeValue decodes a param value, the 32-byte abi.encode of its Solidity
+// type. validate checks that it fits that type.
+func decodeValue(value []byte) (*big.Int, error) {
 	if len(value) != common.HashLength {
 		return nil, fmt.Errorf("%w: %d bytes, want %d", errInvalidValue, len(value), common.HashLength)
 	}
-	v := new(big.Int).SetBytes(value)
-	if v.BitLen() > p.kind.bits {
-		return nil, fmt.Errorf("%w: does not fit %s", errInvalidValue, p.kind.solType)
-	}
-	return v, nil
+	return new(big.Int).SetBytes(value), nil
 }

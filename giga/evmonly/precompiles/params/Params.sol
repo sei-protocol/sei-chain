@@ -5,9 +5,10 @@ address constant PARAMS_PRECOMPILE_ADDRESS = 0x000000000000000000000000000000000
 
 IParams constant PARAMS_CONTRACT = IParams(PARAMS_PRECOMPILE_ADDRESS);
 
-/// @notice Reads chain params. After the first block writes them, params change
-/// only through a passed gov ParameterChange proposal
-/// (IGov.submitParamChangeProposal); this interface has no setter.
+/// @notice Reads chain params. Every method fails until the chain's first block
+/// writes them; after that they change only through a passed gov
+/// ParameterChange proposal (IGov.submitParamChangeProposal), and this
+/// interface has no setter.
 interface IParams {
     /**
      * @notice Get the stored value of a param

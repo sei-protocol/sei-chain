@@ -26,11 +26,16 @@ subspace.
   | Duration | `uint64` nanoseconds |
   | Coins | `uint256` wei, a whole number of usei; only the usei denom exists |
 
-  Another V2 type gets a stored form when a param first needs one.
+  Another V2 type gets a stored form when a param first needs one. A value of
+  any unsigned width is stored in the bytes of its slot that solc gives its
+  field, so packed fields keep their neighbours. Values decode as unsigned: a
+  signed type needs a decoder before a param can use it.
 
 - Owners read their params from 0x1013's storage with the `params` package's
-  Go readers (`ReadGov`). Gov reads `gov`; later the executor reads block and
-  evm params at the start of each block. Nothing keeps a second copy.
+  Go readers (`ReadGov`). Gov reads `gov`. Nothing keeps a second copy.
+  Planned readers for other subspaces are in *Later subspaces*.
+- Params are written only at genesis (`WriteGov`) and by a passed gov proposal
+  (`Apply`). Both check the whole subspace first.
 
 ## Declaration table
 
@@ -102,10 +107,14 @@ naming `param`.
   a partial struct, so two proposals that change different fields of a
   subspace do not undo each other.
 - Gov charges executing a passed proposal one EndBlock budget unit per word of
-  its stored content, about ten per change. Applying a change reads its
-  whole subspace, one storage word per param, so a subspace's param count must
-  stay within that and every param must be one word, or the charge must grow
-  with them. `TestSubspacesFitTheExecutionCharge` checks both.
+  its stored content. One change adds ten words when the subspace name and the
+  key each fit in 32 bytes. Applying a change reads its whole subspace, one
+  storage word per param, so a subspace may declare at most ten params, every
+  param must be one word, or the charge must grow. Gov declares ten and is at
+  that limit. `TestSubspacesFitTheExecutionCharge` checks both.
+- EndBlock reads gov's params for each proposal it settles. A change applied by
+  one proposal governs every proposal settled after it in the same EndBlock,
+  in queue order.
 - The proposal stores `ParamChangeContent` (declared in `Gov.sol`), and
   `proposal()` returns its ABI encoding.
 - `submitParamChangeProposal` is priced as a gov transaction; `param` as a

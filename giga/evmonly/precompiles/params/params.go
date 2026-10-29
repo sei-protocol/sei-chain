@@ -102,11 +102,11 @@ func methodOf(input []byte) (*abi.Method, error) {
 func paramQuery(state precompiles.State, method *abi.Method, subspaceName, key string) ([]byte, error) {
 	ss, ok := lookupSubspace(subspaceName)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", errUnknownSubspace, subspaceName)
+		return nil, fmt.Errorf("%w: %.64q", errUnknownSubspace, subspaceName)
 	}
 	p, ok := ss.param(key)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s/%s", errUnknownKey, subspaceName, key)
+		return nil, fmt.Errorf("%w: %.64q/%.64q", errUnknownKey, subspaceName, key)
 	}
 	return method.Outputs.Pack(common.BigToHash(ss.get(newStore(state), p)).Bytes())
 }
