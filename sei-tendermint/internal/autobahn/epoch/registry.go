@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"slices"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -17,12 +16,15 @@ import (
 // TODO: move on-chain when epoch length becomes configurable.
 const epochLength types.RoadIndex = 108_000
 
+// registryState contains a nonempty, contiguous range of live epochs.
+// Pending epochs do not count toward the nonempty invariant.
 type registryState struct {
-	persistedRegistry
+	live map[types.EpochIndex]*types.Epoch
+	// liveRange is the nonempty retained epoch range [First, Next) in live.
+	liveRange      types.EpochRange
+	pending        utils.Option[*types.Epoch]
 	firstRoad      types.RoadIndex
 	firstTimestamp time.Time
-	// liveRange is the retained epoch range [First, Next) in live.
-	liveRange types.EpochRange
 }
 
 // activate publishes the next epoch after validating its road range and committee continuity.
@@ -34,17 +36,8 @@ func (s *registryState) activate(epoch *types.Epoch) error {
 	if got, want := epoch.RoadRange(), s.roadRange(idx); got != want {
 		return fmt.Errorf("epoch %d roads %v, want %v", idx, got, want)
 	}
-	if idx >= 2 {
-		prev, ok := s.live[idx-1]
-		if !ok {
-			// A predecessor dropped by PruneBefore cannot be checked and is
-			// accepted; a predecessor missing for any other reason is an error.
-			if idx-1 >= s.liveRange.First {
-				return fmt.Errorf("missing predecessor epoch %d", idx-1)
-			}
-		} else if err := checkDerived(prev, epoch); err != nil {
-			return fmt.Errorf("epoch %d: %w", idx, err)
-		}
+	if err := checkDerived(s.live[idx-1], epoch); err != nil {
+		return fmt.Errorf("epoch %d: %w", idx, err)
 	}
 	s.live[idx] = epoch
 	s.liveRange.Next = idx + 1
@@ -53,26 +46,28 @@ func (s *registryState) activate(epoch *types.Epoch) error {
 
 func (s *registryState) clone() *registryState {
 	return &registryState{
-		persistedRegistry: persistedRegistry{live: maps.Clone(s.live), pending: s.pending},
-		firstRoad:         s.firstRoad,
-		firstTimestamp:    s.firstTimestamp,
-		liveRange:         s.liveRange,
+		live:           maps.Clone(s.live),
+		pending:        s.pending,
+		firstRoad:      s.firstRoad,
+		firstTimestamp: s.firstTimestamp,
+		liveRange:      s.liveRange,
 	}
 }
 
+// newRegistryState constructs a state with at least one live epoch, excluding pending.
 func newRegistryState(
 	genesisCommittee *types.Committee,
 	firstRoad types.RoadIndex,
 	genesisTimestamp time.Time,
-	persisted utils.Option[persistedRegistry],
+	persisted utils.Option[*persistedRegistry],
 ) (*registryState, error) {
 	initial, ok := persisted.Get()
 	if !ok {
 		return &registryState{
-			persistedRegistry: persistedRegistry{live: map[types.EpochIndex]*types.Epoch{
+			live: map[types.EpochIndex]*types.Epoch{
 				0: types.NewEpoch(0, types.RoadRange{First: firstRoad, Next: firstRoad + epochLength}, genesisCommittee),
 				1: types.NewEpoch(1, types.RoadRange{First: firstRoad + epochLength, Next: firstRoad + 2*epochLength}, genesisCommittee),
-			}},
+			},
 			firstRoad:      firstRoad,
 			firstTimestamp: genesisTimestamp,
 			liveRange:      types.EpochRange{First: 0, Next: 2},
@@ -81,29 +76,29 @@ func newRegistryState(
 	if len(initial.live) == 0 {
 		return nil, fmt.Errorf("persisted registry has no live epochs")
 	}
+	first := initial.live[0]
+	idx := first.EpochIndex()
 	s := &registryState{
-		persistedRegistry: initial,
-		firstRoad:         firstRoad,
-		firstTimestamp:    genesisTimestamp,
+		live:           map[types.EpochIndex]*types.Epoch{idx: first},
+		pending:        initial.pending,
+		firstRoad:      firstRoad,
+		firstTimestamp: genesisTimestamp,
+		liveRange:      types.EpochRange{First: idx, Next: idx + 1},
 	}
-	for i, idx := range slices.Sorted(maps.Keys(s.live)) {
-		epoch := s.live[idx]
-		if i == 0 {
-			s.liveRange.First = idx
-			s.liveRange.Next = idx
-		}
+	if got, want := first.RoadRange(), s.roadRange(idx); got != want {
+		return nil, fmt.Errorf("live record 0: epoch %d roads %v, want %v", idx, got, want)
+	}
+	for i, epoch := range initial.live[1:] {
 		if err := s.activate(epoch); err != nil {
-			return nil, fmt.Errorf("live record %d: %w", i, err)
+			return nil, fmt.Errorf("live record %d: %w", i+1, err)
 		}
 	}
+
 	// TODO: a missing pending is restaged on restart from GetValidators() at app
 	// tip, not stake(LastRoad(E)). Use the LastRoad validator set once it is
 	// persisted in app state.
 	if pending, ok := s.pending.Get(); ok {
 		idx := pending.EpochIndex()
-		if idx != s.liveRange.Next {
-			return nil, fmt.Errorf("pending epoch %d, want %d", idx, s.liveRange.Next)
-		}
 		if got, want := pending.RoadRange(), s.roadRange(idx); got != want {
 			return nil, fmt.Errorf("pending epoch %d roads %v, want %v", idx, got, want)
 		}
@@ -119,7 +114,7 @@ func newRegistryState(
 	return s, nil
 }
 
-// Registry stores retained epochs and committees staged for activation.
+// Registry stores at least one live epoch and optional committees staged for activation.
 type Registry struct {
 	state     utils.Watch[*registryState]
 	persister persist.Persister[*pb.PersistedEpochRegistry]
@@ -253,7 +248,15 @@ func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
 // commit writes next to disk, then replaces s with next.
 // s is left unchanged if Persist fails.
 func (r *Registry) commit(s, next *registryState) error {
-	if err := r.persister.Persist(persistedRegistryConv.Encode(next.persistedRegistry)); err != nil {
+	live := make([]*types.Epoch, 0, len(next.live))
+	for idx := next.liveRange.First; idx < next.liveRange.Next; idx++ {
+		live = append(live, next.live[idx])
+	}
+	persisted, err := newPersistedRegistry(live, next.pending)
+	if err != nil {
+		return fmt.Errorf("persist epoch registry: %w", err)
+	}
+	if err := r.persister.Persist(persistedRegistryConv.Encode(persisted)); err != nil {
 		return fmt.Errorf("persist epoch registry: %w", err)
 	}
 	*s = *next
@@ -345,9 +348,6 @@ func (r *Registry) Pending() utils.Option[types.EpochIndex] {
 // TODO: archive nodes need special handling (never prune epochs).
 func (r *Registry) PruneBefore(keep types.EpochIndex) error {
 	for s, ctrl := range r.state.Lock() {
-		if s.liveRange.First == s.liveRange.Next {
-			return nil
-		}
 		keep = min(keep, s.liveRange.Next-1)
 		if keep <= s.liveRange.First {
 			return nil

@@ -3,7 +3,6 @@ package epoch
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -51,61 +50,59 @@ func checkDerived(a, b *types.Epoch) error {
 	return nil
 }
 
-// persistedRegistry contains the retained epochs stored on disk.
+// persistedRegistry contains a nonempty ordered slice of live epochs and an optional next epoch.
 type persistedRegistry struct {
-	live    map[types.EpochIndex]*types.Epoch
+	utils.ReadOnly
+	live    []*types.Epoch
 	pending utils.Option[*types.Epoch]
 }
 
+// newPersistedRegistry constructs a registry with contiguous live and pending epochs.
+func newPersistedRegistry(live []*types.Epoch, pending utils.Option[*types.Epoch]) (*persistedRegistry, error) {
+	if len(live) == 0 {
+		return nil, errors.New("persisted registry has no live epochs")
+	}
+	for i := 1; i < len(live); i++ {
+		prev, epoch := live[i-1], live[i]
+		if epoch.EpochIndex() <= prev.EpochIndex() || epoch.EpochIndex() != prev.EpochIndex()+1 {
+			return nil, fmt.Errorf("live record %d: epoch %d does not follow %d", i, epoch.EpochIndex(), prev.EpochIndex())
+		}
+		if prev.RoadRange().Next != epoch.RoadRange().First {
+			return nil, fmt.Errorf("live record %d: noncontiguous roads", i)
+		}
+	}
+	if epoch, ok := pending.Get(); ok {
+		prev := live[len(live)-1]
+		if epoch.EpochIndex() <= prev.EpochIndex() || epoch.EpochIndex() != prev.EpochIndex()+1 {
+			return nil, fmt.Errorf("pending epoch %d does not follow %d", epoch.EpochIndex(), prev.EpochIndex())
+		}
+		if prev.RoadRange().Next != epoch.RoadRange().First {
+			return nil, errors.New("pending: noncontiguous roads")
+		}
+	}
+	return &persistedRegistry{live: slices.Clone(live), pending: pending}, nil
+}
+
 // persistedRegistryConv converts retained registry state to and from protobuf.
-var persistedRegistryConv = protoutils.Conv[persistedRegistry, *pb.PersistedEpochRegistry]{
-	Encode: func(s persistedRegistry) *pb.PersistedEpochRegistry {
-		out := &pb.PersistedEpochRegistry{
-			Live: make([]*pb.Epoch, len(s.live)),
+var persistedRegistryConv = protoutils.Conv[*persistedRegistry, *pb.PersistedEpochRegistry]{
+	Encode: func(s *persistedRegistry) *pb.PersistedEpochRegistry {
+		return &pb.PersistedEpochRegistry{
+			Live:    types.EpochConv.EncodeSlice(s.live),
+			Pending: types.EpochConv.EncodeOpt(s.pending),
 		}
-		for i, idx := range slices.Sorted(maps.Keys(s.live)) {
-			out.Live[i] = types.EpochConv.Encode(s.live[idx])
-		}
-		if pending, ok := s.pending.Get(); ok {
-			out.Pending = types.EpochConv.Encode(pending)
-		}
-		return out
 	},
-	Decode: func(snapshot *pb.PersistedEpochRegistry) (persistedRegistry, error) {
+	Decode: func(snapshot *pb.PersistedEpochRegistry) (*persistedRegistry, error) {
 		if snapshot == nil {
-			return persistedRegistry{}, errors.New("missing")
+			return nil, errors.New("missing")
 		}
-		s := persistedRegistry{live: make(map[types.EpochIndex]*types.Epoch, len(snapshot.Live))}
-		next := types.EpochIndex(2)
-		for i, record := range snapshot.Live {
-			epoch, err := types.EpochConv.DecodeReq(record)
-			if err != nil {
-				return persistedRegistry{}, fmt.Errorf("live record %d: %w", i, err)
-			}
-			idx := epoch.EpochIndex()
-			if i > 0 && idx != next {
-				return persistedRegistry{}, fmt.Errorf("live record %d: epoch %d, want %d", i, idx, next)
-			}
-			if i > 0 && s.live[idx-1].RoadRange().Next != epoch.RoadRange().First {
-				return persistedRegistry{}, fmt.Errorf("live record %d: noncontiguous roads", i)
-			}
-			s.live[idx] = epoch
-			next = idx + 1
+		live, err := types.EpochConv.DecodeSlice(snapshot.Live)
+		if err != nil {
+			return nil, fmt.Errorf("live: %w", err)
 		}
-		if snapshot.Pending != nil {
-			epoch, err := types.EpochConv.DecodeReq(snapshot.Pending)
-			if err != nil {
-				return persistedRegistry{}, fmt.Errorf("pending: %w", err)
-			}
-			idx := epoch.EpochIndex()
-			if idx < 2 || idx != next {
-				return persistedRegistry{}, fmt.Errorf("pending epoch %d, want %d", idx, next)
-			}
-			if prev, ok := s.live[idx-1]; ok && prev.RoadRange().Next != epoch.RoadRange().First {
-				return persistedRegistry{}, errors.New("pending: noncontiguous roads")
-			}
-			s.pending = utils.Some(epoch)
+		pending, err := types.EpochConv.DecodeOpt(snapshot.Pending)
+		if err != nil {
+			return nil, fmt.Errorf("pending: %w", err)
 		}
-		return s, nil
+		return newPersistedRegistry(live, pending)
 	},
 }
