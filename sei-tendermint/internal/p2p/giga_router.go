@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -35,21 +36,20 @@ type GigaRouterCommonConfig struct {
 	ValidatorAddrs   map[atypes.PublicKey]GigaNodeAddr
 	GenDoc           *types.GenesisDoc
 	// PersistentStateDir is the absolute on-disk root for durable state
-	// (BlockDB, hashvault, epoch snapshots, and the validator's consensus
-	// persister in sibling subdirs). Required and must already exist.
+	// (BlockDB, epoch snapshots, and the validator's consensus persister in
+	// sibling subdirs). Required and must already exist.
 	PersistentStateDir string
-	// App is the ABCI proxy executeBlock drives. NewGigaValidatorRouter
+	// App is the ABCI proxy startExecuteBlock drives. NewGigaValidatorRouter
 	// also passes it to producer.NewState so the producer's internal
 	// mempool drives the same proxy.
 	App *proxy.Proxy
+	// AppHashBuilder is the source of every Autobahn application hash. The
+	// storage manager owns it. The router reports each block hash to it before
+	// execution, and reads the app hashes it publishes.
+	AppHashBuilder builder.AppHashBuilder
 	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
 	// peers. 0 rejects all; positive caps at n, up to maxInboundFullnodePeers.
 	MaxInboundFullnodePeers int
-
-	// HashVaultDisabledUnsafe disables the app-hash equivocation guard (HashVault). The guard is
-	// on by default (false); the GigaRouter builds and owns it (see runExecute). Setting this to true
-	// is an explicit, last-resort operator decision to run WITHOUT equivocation protection.
-	HashVaultDisabledUnsafe bool
 
 	// Whether validator should proxy txs which do not belong to the local node.
 	EnableEvmProxy bool

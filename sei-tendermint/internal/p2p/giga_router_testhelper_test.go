@@ -48,9 +48,11 @@ type testApp struct {
 }
 
 func newTestApp() *testApp {
-	return &testApp{state: utils.NewWatch(&testAppState{
-		Txs: map[shaHash]bool{},
-	})}
+	return &testApp{
+		state: utils.NewWatch(&testAppState{
+			Txs: map[shaHash]bool{},
+		}),
+	}
 }
 
 func (a *testApp) GetValidators() []abci.ValidatorUpdate {
@@ -127,7 +129,7 @@ func (a *testApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain
 	panic("unreachable")
 }
 
-func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+func (a *testApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	for state, ctrl := range a.state.Lock() {
 		if !state.Committed {
 			return nil, fmt.Errorf("FinalizeBlock before Commit")
@@ -160,10 +162,19 @@ func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 		state.Committed = true
 		ctrl.Updated()
 	}
-	return &abci.ResponseCommit{
-		// Don't prune anything.
-		RetainHeight: 0,
-	}, nil
+	return &abci.ResponseCommit{}, nil
+}
+
+// WaitForBlocks waits until the app has finalized at least count blocks and
+// reports how many it had finalized at that moment.
+func (a *testApp) WaitForBlocks(ctx context.Context, count int) (int, error) {
+	for state, ctrl := range a.state.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return len(state.Blocks) >= count }); err != nil {
+			return 0, err
+		}
+		return len(state.Blocks), nil
+	}
+	panic("unreachable")
 }
 
 func (a *testApp) WaitForTx(ctx context.Context, tx []byte) error {
