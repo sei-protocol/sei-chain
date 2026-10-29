@@ -131,7 +131,8 @@ type Config struct {
 	// maximum number of active eth_newFilter and eth_newBlockFilter filters
 	MaxFilters uint64 `mapstructure:"max_filters"`
 
-	// maximum number of unpolled hashes retained by an eth_newBlockFilter filter
+	// maximum number of block hashes an eth_newBlockFilter filter holds unpolled (Autobahn) or
+	// returns from one poll (otherwise)
 	MaxBlockFilterHashes uint64 `mapstructure:"max_block_filter_hashes"`
 
 	// checkTx timeout for sig verify
@@ -999,8 +1000,9 @@ filter_timeout = "{{ .EVM.FilterTimeout }}"
 # filters cannot be added if there are too many active eth_newFilter and eth_newBlockFilter
 max_filters = {{ .EVM.MaxFilters }}
 
-# maximum number of unpolled hashes retained by an eth_newBlockFilter filter;
-# if a filter has more than this many unpolled hashes the filter will be invalidated and removed.
+# maximum number of block hashes an eth_newBlockFilter filter handles at once.
+# Under Autobahn a filter holding this many unpolled hashes is invalidated and removed;
+# otherwise one poll returns at most this many hashes and later polls return the rest.
 max_block_filter_hashes = {{ .EVM.MaxBlockFilterHashes }}
 
 # checkTx timeout for sig verify

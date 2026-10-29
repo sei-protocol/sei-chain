@@ -2,6 +2,8 @@ package evmrpc
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"math/big"
 	"testing"
 	"time"
@@ -14,10 +16,13 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// blockFilterTestClient serves BlockchainInfo the way sei-tendermint does: at most 20 metas
-// per call, newest first, clamped to the stored [earliest, latest] range.
+// blockFilterTestClient serves BlockchainInfo the way sei-tendermint does: at most limit metas per
+// call, newest first, clamped to the stored [earliest, latest] range, skipping heights the store
+// does not hold, and failing when the clamped range is empty.
 type blockFilterTestClient struct {
 	*heightTestClient
+	limit   int64
+	missing map[int64]bool
 }
 
 func blockFilterTestHash(height int64) common.Hash {
@@ -26,9 +31,15 @@ func blockFilterTestHash(height int64) common.Hash {
 
 func (c *blockFilterTestClient) BlockchainInfo(_ context.Context, minHeight, maxHeight int64) (*coretypes.ResultBlockchainInfo, error) {
 	maxHeight = min(maxHeight, c.latest)
-	minHeight = max(minHeight, maxHeight-19, c.earliest)
+	minHeight = max(minHeight, c.earliest, maxHeight-c.limit+1)
+	if minHeight > maxHeight {
+		return nil, fmt.Errorf("min height %d can't be greater than max height %d", minHeight, maxHeight)
+	}
 	metas := []*tmtypes.BlockMeta{}
 	for h := maxHeight; h >= minHeight; h-- {
+		if c.missing[h] {
+			continue
+		}
 		metas = append(metas, &tmtypes.BlockMeta{
 			BlockID: tmtypes.BlockID{Hash: blockFilterTestHash(h).Bytes()},
 			Header:  tmtypes.Header{Height: h},
@@ -39,7 +50,7 @@ func (c *blockFilterTestClient) BlockchainInfo(_ context.Context, minHeight, max
 
 func newBlockFilterTestAPI(t *testing.T, maxHashes uint64, earliest, latest int64) (*FilterAPI, *blockFilterTestClient) {
 	t.Helper()
-	c := &blockFilterTestClient{heightTestClient: newHeightTestClient(0, earliest, latest)}
+	c := &blockFilterTestClient{heightTestClient: newHeightTestClient(0, earliest, latest), limit: 20}
 	api := newTestFilterAPIWithClient(t, nil, &FilterConfig{
 		timeout:              time.Hour,
 		maxFilters:           DefaultMaxFilters,
@@ -48,7 +59,7 @@ func newBlockFilterTestAPI(t *testing.T, maxHashes uint64, earliest, latest int6
 	return api, c
 }
 
-func heightRange(from, to int64) []common.Hash {
+func blockFilterTestHashes(from, to int64) []common.Hash {
 	hashes := []common.Hash{}
 	for h := from; h <= to; h++ {
 		hashes = append(hashes, blockFilterTestHash(h))
@@ -73,7 +84,7 @@ func TestFilterAPI_BlockFilterWithoutNotifierStartsAfterHead(t *testing.T) {
 	require.Equal(t, []common.Hash{}, pollBlockFilter(t, api, id))
 
 	c.latest = 103
-	require.Equal(t, heightRange(101, 103), pollBlockFilter(t, api, id))
+	require.Equal(t, blockFilterTestHashes(101, 103), pollBlockFilter(t, api, id))
 	require.Equal(t, []common.Hash{}, pollBlockFilter(t, api, id))
 }
 
@@ -88,9 +99,53 @@ func TestFilterAPI_BlockFilterWithoutNotifierReturnsEveryBlockSinceLastPoll(t *t
 	for _, gap := range []int64{1, 9, 10, 11, 19, 20, 21, 45, 120} {
 		c.latest = next + gap - 1
 		// Verify: every block since the last poll, ascending, nothing repeated.
-		require.Equal(t, heightRange(next, c.latest), pollBlockFilter(t, api, id), "gap %d", gap)
+		require.Equal(t, blockFilterTestHashes(next, c.latest), pollBlockFilter(t, api, id), "gap %d", gap)
 		next = c.latest + 1
 	}
+}
+
+func TestFilterAPI_BlockFilterWithoutNotifierFollowsProviderPageSize(t *testing.T) {
+	// Setup: BlockchainInfo returns at most 7 metas per call, and 50 new blocks.
+	api, c := newBlockFilterTestAPI(t, DefaultMaxBlockFilterHashes, 1, 100)
+	c.limit = 7
+	id, err := api.NewBlockFilter(context.Background())
+	require.NoError(t, err)
+	c.latest = 150
+
+	// Verify: the poll pages by what each call returns and misses nothing.
+	require.Equal(t, blockFilterTestHashes(101, 150), pollBlockFilter(t, api, id))
+}
+
+func TestFilterAPI_BlockFilterWithoutNotifierSkipsMissingBlocks(t *testing.T) {
+	// Setup: the block store holds no meta for 105 or for 121-125, which straddles a page edge.
+	api, c := newBlockFilterTestAPI(t, DefaultMaxBlockFilterHashes, 1, 100)
+	id, err := api.NewBlockFilter(context.Background())
+	require.NoError(t, err)
+	c.latest = 130
+	c.missing = map[int64]bool{105: true, 121: true, 122: true, 123: true, 124: true, 125: true}
+
+	// Verify: the poll returns the blocks the store holds and moves past the missing ones.
+	want := append(blockFilterTestHashes(101, 104), blockFilterTestHashes(106, 120)...)
+	want = append(want, blockFilterTestHashes(126, 130)...)
+	require.Equal(t, want, pollBlockFilter(t, api, id))
+	c.latest = 132
+	require.Equal(t, blockFilterTestHashes(131, 132), pollBlockFilter(t, api, id))
+}
+
+func TestFilterAPI_BlockFilterWithoutNotifierSkipsMissingRangeWiderThanPage(t *testing.T) {
+	// Setup: the block store holds no meta for 106-130, wider than one BlockchainInfo page.
+	api, c := newBlockFilterTestAPI(t, DefaultMaxBlockFilterHashes, 1, 100)
+	id, err := api.NewBlockFilter(context.Background())
+	require.NoError(t, err)
+	c.latest = 135
+	c.missing = map[int64]bool{}
+	for h := int64(106); h <= 130; h++ {
+		c.missing[h] = true
+	}
+
+	// Verify: the blocks on both sides of the missing range are returned.
+	want := append(blockFilterTestHashes(101, 105), blockFilterTestHashes(131, 135)...)
+	require.Equal(t, want, pollBlockFilter(t, api, id))
 }
 
 func TestFilterAPI_BlockFilterWithoutNotifierCapsOnePollAndResumes(t *testing.T) {
@@ -101,20 +156,33 @@ func TestFilterAPI_BlockFilterWithoutNotifierCapsOnePollAndResumes(t *testing.T)
 	c.latest = 150
 
 	// Verify: the first poll returns the oldest 30 blocks, the next poll the remaining 20.
-	require.Equal(t, heightRange(101, 130), pollBlockFilter(t, api, id))
-	require.Equal(t, heightRange(131, 150), pollBlockFilter(t, api, id))
+	require.Equal(t, blockFilterTestHashes(101, 130), pollBlockFilter(t, api, id))
+	require.Equal(t, blockFilterTestHashes(131, 150), pollBlockFilter(t, api, id))
 	require.Equal(t, []common.Hash{}, pollBlockFilter(t, api, id))
 }
 
-func TestFilterAPI_BlockFilterWithoutNotifierSkipsPrunedHeights(t *testing.T) {
+func TestFilterAPI_BlockFilterWithoutNotifierToleratesOversizedCap(t *testing.T) {
+	// Setup: a cap above math.MaxInt64, and 50 new blocks.
+	api, c := newBlockFilterTestAPI(t, math.MaxUint64, 1, 100)
+	id, err := api.NewBlockFilter(context.Background())
+	require.NoError(t, err)
+	c.latest = 150
+
+	// Verify: the poll returns every new block rather than none.
+	require.Equal(t, blockFilterTestHashes(101, 150), pollBlockFilter(t, api, id))
+}
+
+func TestFilterAPI_BlockFilterWithoutNotifierReportsPrunedBlocks(t *testing.T) {
 	// Setup: blocks 101-110 are pruned before the first poll.
 	api, c := newBlockFilterTestAPI(t, DefaultMaxBlockFilterHashes, 1, 100)
 	id, err := api.NewBlockFilter(context.Background())
 	require.NoError(t, err)
 	c.earliest, c.latest = 111, 115
 
-	// Verify: the poll resumes at the earliest block still served.
-	require.Equal(t, heightRange(111, 115), pollBlockFilter(t, api, id))
+	// Verify: the poll names the pruned blocks, and the next poll resumes at the earliest block.
+	_, err = api.GetFilterChanges(context.Background(), id)
+	require.EqualError(t, err, "blocks 101 to 110 were pruned before the filter read them")
+	require.Equal(t, blockFilterTestHashes(111, 115), pollBlockFilter(t, api, id))
 }
 
 func TestFilterAPI_GetFilterLogsRejectsBlockFilter(t *testing.T) {
