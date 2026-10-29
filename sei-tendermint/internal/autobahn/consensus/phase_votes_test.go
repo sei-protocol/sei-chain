@@ -19,7 +19,7 @@ func TestPrepareVotes_QuorumFormsQC(t *testing.T) {
 	}
 	got, ok := pv.qc.Load().Get()
 	require.True(t, ok)
-	require.Equal(t, e.view, got.Proposal().View())
+	require.Equal(t, e.view, got.View())
 	require.NoError(t, got.Verify(e.ep))
 }
 
@@ -47,7 +47,7 @@ func TestPrepareVotes_DoesNotReplaceQCAtSameView(t *testing.T) {
 	}
 	before, ok := pv.qc.Load().Get()
 	require.True(t, ok)
-	require.Equal(t, view1, before.Proposal().View())
+	require.Equal(t, view1, before.View())
 	pv.pushVerifiedVote(e.ep.Committee(), types.Sign(e.keys[len(e.quorum)], types.NewPrepareVote(proposal)))
 	after, ok := pv.qc.Load().Get()
 	require.True(t, ok)
@@ -67,7 +67,7 @@ func TestPrepareVotes_ReplacesQCAtNewerView(t *testing.T) {
 	}
 	got, ok := pv.qc.Load().Get()
 	require.True(t, ok)
-	require.Equal(t, e.view, got.Proposal().View())
+	require.Equal(t, e.view, got.View())
 
 	p1 := types.GenProposalForEpoch(rng, e.ep, view1)
 	for _, k := range e.quorum {
@@ -75,7 +75,7 @@ func TestPrepareVotes_ReplacesQCAtNewerView(t *testing.T) {
 	}
 	got, ok = pv.qc.Load().Get()
 	require.True(t, ok)
-	require.Equal(t, view1, got.Proposal().View())
+	require.Equal(t, view1, got.View())
 	require.NoError(t, got.Verify(e.ep))
 }
 
@@ -104,12 +104,13 @@ func TestCommitVotes_QuorumFormsQC(t *testing.T) {
 	cv := newCommitVotes()
 	proposal := types.GenProposalForEpoch(rng, e.ep, e.view)
 
+	prepareQC := types.BuildPrepareQC(e.keys, proposal)
 	for _, k := range e.quorum {
-		cv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewCommitVote(proposal)))
+		cv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewCommitVote(prepareQC)))
 	}
 	got, ok := cv.qc.Load().Get()
 	require.True(t, ok)
-	require.Equal(t, e.view, got.Proposal().View())
+	require.Equal(t, e.view, got.View())
 	require.NoError(t, got.Verify(e.ep))
 }
 
@@ -123,11 +124,13 @@ func TestCommitVotes_ConflictingProposalsDoNotFormQC(t *testing.T) {
 	a := types.GenProposalForEpoch(rng, e.ep, e.view)
 	b := types.GenProposalForEpoch(rng, e.ep, e.view)
 
+	prepareQC := types.BuildPrepareQC(e.keys, a)
 	for _, k := range first {
-		cv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewCommitVote(a)))
+		cv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewCommitVote(prepareQC)))
 	}
+	otherPrepareQC := types.BuildPrepareQC(e.keys, b)
 	for _, k := range second {
-		cv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewCommitVote(b)))
+		cv.pushVerifiedVote(e.ep.Committee(), types.Sign(k, types.NewCommitVote(otherPrepareQC)))
 	}
 	require.False(t, cv.qc.Load().IsPresent())
 }

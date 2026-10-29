@@ -40,7 +40,7 @@ func (s *registryState) activate(idx types.EpochIndex, committee *types.Committe
 		First: firstRoad + types.RoadIndex(idx)*EpochLength,
 		Next:  firstRoad + types.RoadIndex(idx+1)*EpochLength,
 	}
-	s.m[idx] = types.NewEpoch(idx, roads, s.m[0].FirstTimestamp(), committee, s.m[0].FirstBlock())
+	s.m[idx] = types.NewEpoch(idx, roads, s.m[0].FirstTimestamp(), committee)
 	s.live.Next = idx + 1
 	return nil
 }
@@ -113,17 +113,16 @@ type Registry struct {
 }
 
 // NewRegistry returns a Registry with epochs 0 and 1 using committee, firstRoad,
-// firstBlock, and genesisTimestamp. stateDir Some opens the epoch snapshot and
+// and genesisTimestamp. stateDir Some opens the epoch snapshot and
 // restores its live and pending committees; None keeps the registry in memory only.
 func NewRegistry(
 	committee *types.Committee,
 	firstRoad types.RoadIndex,
-	firstBlock types.GlobalBlockNumber,
 	genesisTimestamp time.Time,
 	stateDir utils.Option[string],
 ) (*Registry, error) {
-	ep0 := types.NewEpoch(0, types.RoadRange{First: firstRoad, Next: firstRoad + EpochLength}, genesisTimestamp, committee, firstBlock)
-	ep1 := types.NewEpoch(1, types.RoadRange{First: firstRoad + EpochLength, Next: firstRoad + 2*EpochLength}, genesisTimestamp, committee, firstBlock)
+	ep0 := types.NewEpoch(0, types.RoadRange{First: firstRoad, Next: firstRoad + EpochLength}, genesisTimestamp, committee)
+	ep1 := types.NewEpoch(1, types.RoadRange{First: firstRoad + EpochLength, Next: firstRoad + 2*EpochLength}, genesisTimestamp, committee)
 	state := &registryState{
 		m:       map[types.EpochIndex]*types.Epoch{0: ep0, 1: ep1},
 		pending: utils.None[*types.Committee](),
@@ -182,14 +181,6 @@ func (r *Registry) ClosingEpoch(road types.RoadIndex) utils.Option[types.EpochIn
 		return utils.None[types.EpochIndex]()
 	}
 	return utils.Some(idx)
-}
-
-// FirstBlock returns the genesis epoch's first global block number.
-func (r *Registry) FirstBlock() types.GlobalBlockNumber {
-	for s := range r.state.Lock() {
-		return s.m[0].FirstBlock()
-	}
-	panic("unreachable")
 }
 
 // GenesisTimestamp returns the genesis epoch timestamp.
