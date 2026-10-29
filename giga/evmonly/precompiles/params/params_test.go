@@ -114,6 +114,43 @@ func TestApplyRejectsAndWritesNothing(t *testing.T) {
 	}
 }
 
+func TestGovUpperBounds(t *testing.T) {
+	sei := func(n int64) *big.Int { return new(big.Int).Mul(big.NewInt(n), big.NewInt(1_000_000_000_000_000_000)) }
+	ratio := func(v int64) *big.Int { return big.NewInt(v) }
+	for name, set := range map[string]func(g *Gov, over bool){
+		"voting_period": func(g *Gov, over bool) {
+			g.VotingPeriod = MaxVotingPeriod
+			if over {
+				g.VotingPeriod++
+			}
+		},
+		"min_deposit": func(g *Gov, over bool) {
+			g.MinDeposit, g.MinExpeditedDeposit = sei(1_000_000), sei(2_000_000)
+			if over {
+				g.MinDeposit = new(big.Int).Add(sei(1_000_000), weiPerUsei)
+			}
+		},
+		"quorum": func(g *Gov, over bool) {
+			g.Quorum, g.ExpeditedQuorum = ratio(800_000_000_000_000_000), ratio(900_000_000_000_000_000)
+			if over {
+				g.Quorum = ratio(800_000_000_000_000_001)
+			}
+		},
+		"threshold": func(g *Gov, over bool) {
+			g.Threshold, g.ExpeditedThreshold = ratio(800_000_000_000_000_000), ratio(900_000_000_000_000_000)
+			if over {
+				g.Threshold = ratio(800_000_000_000_000_001)
+			}
+		},
+	} {
+		at, over := testGov, testGov
+		set(&at, false)
+		set(&over, true)
+		require.NoError(t, at.Validate(), name)
+		require.ErrorContains(t, over.Validate(), name+" must be at most", name)
+	}
+}
+
 func TestApplyChecksTheResultAsAWhole(t *testing.T) {
 	state := newGovState(t)
 	// Lowering the voting period below the expedited one fails alone and

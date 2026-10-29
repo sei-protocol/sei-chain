@@ -125,8 +125,20 @@ const (
 	MaxPeriod uint64 = 1 << 62 // a block time in Unix nanoseconds plus any period fits in 64 bits
 )
 
+// Upper bounds on the gov params that, set any higher, could leave gov unable to
+// pass a later proposal.
+const MaxVotingPeriod uint64 = uint64(30 * 24 * time.Hour)
+
+var (
+	maxMinDeposit = new(big.Int).Mul(big.NewInt(1_000_000_000_000), weiPerUsei) // 1,000,000 SEI
+	maxQuorum     = big.NewInt(800_000_000_000_000_000)                         // 4/5
+	maxThreshold  = big.NewInt(800_000_000_000_000_000)                         // 4/5
+)
+
 // Validate checks g as x/gov checks its params, and also requires periods of
-// MinPeriod to MaxPeriod and positive minimum deposits of whole usei.
+// MinPeriod to MaxPeriod, positive minimum deposits of whole usei, and
+// voting_period, min_deposit, quorum and threshold at most MaxVotingPeriod,
+// 1,000,000 SEI, 4/5 and 4/5.
 func (g Gov) Validate() error {
 	for _, p := range []struct {
 		name string
@@ -136,6 +148,9 @@ func (g Gov) Validate() error {
 			return fmt.Errorf("%s must be in %d..%d nanoseconds", p.name, MinPeriod, MaxPeriod)
 		}
 	}
+	if g.VotingPeriod > MaxVotingPeriod {
+		return fmt.Errorf("voting_period must be at most %d nanoseconds", MaxVotingPeriod)
+	}
 	if g.ExpeditedVotingPeriod >= g.VotingPeriod {
 		return errors.New("expedited_voting_period must be below voting_period")
 	}
@@ -143,6 +158,9 @@ func (g Gov) Validate() error {
 		if d.v == nil || d.v.Sign() <= 0 || new(big.Int).Mod(d.v, weiPerUsei).Sign() != 0 {
 			return fmt.Errorf("%s must be a positive whole number of usei, in wei", d.name)
 		}
+	}
+	if g.MinDeposit.Cmp(maxMinDeposit) > 0 {
+		return fmt.Errorf("min_deposit must be at most %s wei", maxMinDeposit)
 	}
 	if g.MinExpeditedDeposit.Cmp(g.MinDeposit) <= 0 {
 		return errors.New("min_expedited_deposit must be above min_deposit")
@@ -156,6 +174,12 @@ func (g Gov) Validate() error {
 		if r.v == nil || r.v.Sign() <= 0 || r.v.Cmp(decOne) > 0 {
 			return fmt.Errorf("%s must be above 0 and at most 1", r.name)
 		}
+	}
+	if g.Quorum.Cmp(maxQuorum) > 0 {
+		return fmt.Errorf("quorum must be at most %s", maxQuorum)
+	}
+	if g.Threshold.Cmp(maxThreshold) > 0 {
+		return fmt.Errorf("threshold must be at most %s", maxThreshold)
 	}
 	if g.ExpeditedQuorum.Cmp(g.Quorum) <= 0 {
 		return errors.New("expedited_quorum must be above quorum")

@@ -40,8 +40,9 @@ One Go row per param, in the params package, grouped by subspace:
 {key: keyVotingPeriod, kind: durationKind, at: govVotingPeriod}
 ```
 
-The table sets the type each value is decoded and stored as. A value must fit its Solidity type, and each subspace has a whole-struct
-check run on the result of a change. Gov's check is x/gov's validation plus:
+The table sets the type each value is decoded and stored as. A value must fit
+its Solidity type, and each subspace has a whole-struct check run on the result
+of a change. Gov's check is x/gov's validation plus:
 
 - every period at least `MinPeriod` (1s) and at most `MaxPeriod` (2^62 ns), so
   a block time plus a period fits in 64 bits;
@@ -49,6 +50,11 @@ check run on the result of a change. Gov's check is x/gov's validation plus:
 - expedited quorum, threshold and minimum deposit above the regular ones;
 - quorums in 0..1 and thresholds above 0 and at most 1;
 - positive minimum deposits of whole usei.
+- upper bounds, which x/gov does not have, on the params that could otherwise
+  leave gov unable to pass a later proposal: `voting_period` at most 30 days,
+  `min_deposit` at most 1,000,000 SEI, and `quorum` and `threshold` at most 4/5.
+  The expedited params need no bound of their own: a regular proposal can
+  always fix them.
 
 A param's flat key is `<V2 key>` for a V2 scalar (`MaxValidators`) and
 `<V2 key>.<field>` for a field of a V2 struct-valued key
