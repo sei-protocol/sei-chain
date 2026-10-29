@@ -8,6 +8,8 @@ import (
 	"runtime/debug"
 	"time"
 
+	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
+
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
@@ -256,6 +258,7 @@ func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]abci.ValidatorUpd
 // applyExecutionRuntime raises the GC target for a load test. The heap is then capped at 80% of
 // the container limit, so a late collection is an ordinary GC rather than an OOM kill.
 func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
+	gigametrics.RegisterRuntimeMetrics()
 	producer.MaxExecutionLag = cfg.MaxExecutionLag
 	if cfg.MinProposalLaneBlocks > 0 {
 		avail.MinProposalLaneBlocks = cfg.MinProposalLaneBlocks
@@ -271,6 +274,7 @@ func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
 		flatkvconfig.StorageShardCount = cfg.FlatKVStorageViewShards
 	}
 	flatkvconfig.InlineMissReads = cfg.FlatKVInlineMissReads
+	evmonlyapp.DummyAppHash = cfg.DummyAppHash
 	if cfg.GCPercent <= 0 {
 		return
 	}

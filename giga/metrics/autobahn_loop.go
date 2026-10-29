@@ -65,7 +65,7 @@ func SetupPrometheus() error {
 			return
 		}
 		otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(exporter)))
-		registerRuntimeMetrics()
+		RegisterRuntimeMetrics()
 	})
 	return setupErr
 }
@@ -73,13 +73,17 @@ func SetupPrometheus() error {
 // runtimeMetrics matches the Go runtime metrics exported alongside the default Go collector's.
 var runtimeMetrics = regexp.MustCompile(`^/(sched/latencies:seconds|sync/mutex/wait/total:seconds|cpu/classes/.*:cpu-seconds|gc/pauses:seconds)$`)
 
-// registerRuntimeMetrics replaces the default registerer's Go collector with one that also exports
-// scheduler latency, mutex wait time, CPU time by class and GC pauses.
-func registerRuntimeMetrics() {
-	prometheus.Unregister(collectors.NewGoCollector())
-	prometheus.MustRegister(collectors.NewGoCollector(
-		collectors.WithGoCollectorRuntimeMetrics(collectors.GoRuntimeMetricsRule{Matcher: runtimeMetrics}),
-	))
+var runtimeMetricsOnce sync.Once
+
+// RegisterRuntimeMetrics replaces the default registerer's Go collector with one that also exports
+// scheduler latency, mutex wait time, CPU time by class and GC pauses. Calls after the first do nothing.
+func RegisterRuntimeMetrics() {
+	runtimeMetricsOnce.Do(func() {
+		prometheus.Unregister(collectors.NewGoCollector())
+		prometheus.MustRegister(collectors.NewGoCollector(
+			collectors.WithGoCollectorRuntimeMetrics(collectors.GoRuntimeMetricsRule{Matcher: runtimeMetrics}),
+		))
+	})
 }
 
 // MainLoop is the phase timer for Autobahn's execute loop.
