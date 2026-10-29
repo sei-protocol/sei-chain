@@ -37,7 +37,7 @@ func TestSnapshotReaderReadsEachCodeHashFromTheStoreOnce(t *testing.T) {
 	for range 2 {
 		reader := gigaSnapshotStateReader{snapshot: reading, codes: codes}
 		for _, addr := range []gigatypes.Address{first, second} {
-			account, served := reader.ReadAccount(addr)
+			account, _, served := reader.ReadAccount(addr)
 			require.True(t, served)
 			require.Equal(t, code, account.Code)
 		}
@@ -46,7 +46,7 @@ func TestSnapshotReaderReadsEachCodeHashFromTheStoreOnce(t *testing.T) {
 
 	// The cache keeps its own copy, so a store reusing the slice it returned cannot change it.
 	snapshot.code[first][0] = 0xff
-	account, _ := gigaSnapshotStateReader{snapshot: reading, codes: codes}.ReadAccount(second)
+	account, _, _ := gigaSnapshotStateReader{snapshot: reading, codes: codes}.ReadAccount(second)
 	require.Equal(t, code, account.Code)
 }
 
