@@ -157,6 +157,36 @@ func TestLogsSubscriptionRefusals(t *testing.T) {
 	}
 }
 
+func TestLogsSubscriptionFreesItsSlotWhenItsStreamEnds(t *testing.T) {
+	blockHash := filterBlockHash(5)
+	for _, tc := range []struct {
+		name string
+		crit ethereum.FilterQuery
+	}{
+		{name: "numeric toBlock", crit: ethereum.FilterQuery{FromBlock: big.NewInt(8), ToBlock: big.NewInt(9)}},
+		{name: "blockHash", crit: ethereum.FilterQuery{BlockHash: &blockHash}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			limits := noRPCLimits
+			limits.MaxSubscriptionsLogs = 1
+			fx := newLogsSubscriptionFixture(t, limits)
+			finished, err := fx.client.SubscribeFilterLogs(t.Context(), tc.crit, make(chan ethtypes.Log, 8))
+			require.NoError(t, err)
+			t.Cleanup(finished.Unsubscribe)
+
+			// The finished subscription is never unsubscribed, so only its stream ending frees the slot.
+			require.Eventually(t, func() bool {
+				sub, err := fx.client.SubscribeFilterLogs(t.Context(), ethereum.FilterQuery{}, make(chan ethtypes.Log))
+				if err != nil {
+					return false
+				}
+				sub.Unsubscribe()
+				return true
+			}, 5*time.Second, 10*time.Millisecond)
+		})
+	}
+}
+
 func TestLogsSubscriptionRejectedOverPlainHTTP(t *testing.T) {
 	fx := newPollFixture(t)
 	handler, err := newHandler(fx.api.backend, fx.store, noRPCLimits)

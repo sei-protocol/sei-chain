@@ -57,10 +57,11 @@ func (api *subscribeAPI) Logs(ctx context.Context, crit *filters.FilterCriteria)
 	}
 	rpcSub := notifier.CreateSubscription()
 	go func() {
-		<-rpcSub.Err()
-		api.limits.releaseLogs(connection)
+		// The stream ends on eth_unsubscribe, when the connection drops, or once a bounded query
+		// is delivered, and its slot frees with it.
+		defer api.limits.releaseLogs(connection)
+		api.streamLogs(context.WithoutCancel(ctx), notifier, rpcSub, executed, criteria, cursor)
 	}()
-	go api.streamLogs(context.WithoutCancel(ctx), notifier, rpcSub, executed, criteria, cursor)
 	return rpcSub, nil
 }
 

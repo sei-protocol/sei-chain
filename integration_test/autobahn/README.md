@@ -452,6 +452,16 @@ subscription other than `newHeads` and `logs`:
   bound outside the indexed, retained range returns an error. A log filter's
   `eth_getFilterChanges` poll covers at most as much, and later polls return
   the rest. `eth_feeHistory` covers at most 1,024 blocks.
+- A `logs` subscription whose poll fails pushes `{"error": "..."}` in place
+  of a log, as the regular RPC does. When one block's logs alone exceed the
+  `eth_getLogs` caps, the message also carries that block's `blockNumber`, and
+  the stream skips the block and continues; after any other failure the stream
+  ends. go-ethereum's `ethclient` cannot decode this message and ends its
+  subscription. A stream with a numeric `toBlock` or a `blockHash` also ends
+  once delivered, without a final message.
+- A `logs` subscription with a `fromBlock` of `0` or `earliest` and a tag
+  `toBlock` delivers new logs only, as with no `fromBlock`, because that is how
+  `ethclient` sends an open-ended query. Use `eth_getLogs` for that history.
 - Blocks and receipts below the node's retention window are pruned: a lookup by
   number returns an error, and a lookup by hash returns `null`.
 - Blob (EIP-4844) transactions are not accepted.
@@ -490,7 +500,8 @@ the row says otherwise:
 | `max_trace_struct_log_bytes` | 33554432 (32 MiB) | output of the default struct logger for each traced transaction |
 
 A subscription refused by a cap returns an error, and its slot frees when
-the client unsubscribes or the connection closes. A connection is identified by
+the client unsubscribes, the connection closes, or a `logs` subscription's
+stream ends. A connection is identified by
 its remote address, so clients behind one proxy connection share its cap.
 
 ### Trace transactions with `debug_trace*`
