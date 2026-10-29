@@ -341,7 +341,10 @@ func (e *Executor) validateBlockSTM(
 			backoff.record(state.nextToValidate, accepted)
 		}
 		end := backoff.serialEnd(state.nextToValidate, len(results))
+		frontierStart := time.Now()
 		rerun, err := validateBlockSTMFrontier(ctx, runner, results, state, &validation, end)
+		frontierTime := time.Since(frontierStart)
+		occStepValidateFrontier.record(ctx, frontierTime, frontierTime)
 		if err != nil {
 			return nil, nil, validation, err
 		}
@@ -668,7 +671,7 @@ func fillMergedResults(ctx context.Context, pool *occWorkerPool, blockResult *Bl
 	chunks := (len(results) + occMergeChunk - 1) / occMergeChunk
 	gasBefore := make([]uint64, chunks+1)
 	logsBefore := make([]uint, chunks+1)
-	err := pool.Run(ctx, chunks, func(workerCtx context.Context, workerID int, workers int) error {
+	err := pool.RunStep(ctx, occStepMergeFill, chunks, func(workerCtx context.Context, workerID int, workers int) error {
 		for c := workerID; c < chunks; c += workers {
 			for i := c * occMergeChunk; i < min((c+1)*occMergeChunk, len(results)); i++ {
 				gasBefore[c+1] += results[i].gasUsed
@@ -686,7 +689,7 @@ func fillMergedResults(ctx context.Context, pool *occWorkerPool, blockResult *Bl
 		gasBefore[c+1] += gasBefore[c]
 		logsBefore[c+1] += logsBefore[c]
 	}
-	err = pool.Run(ctx, chunks, func(workerCtx context.Context, workerID int, workers int) error {
+	err = pool.RunStep(ctx, occStepMergeFill, chunks, func(workerCtx context.Context, workerID int, workers int) error {
 		for c := workerID; c < chunks; c += workers {
 			fillMergedRange(blockResult, results, c*occMergeChunk, min((c+1)*occMergeChunk, len(results)), gasBefore[c], logsBefore[c])
 		}

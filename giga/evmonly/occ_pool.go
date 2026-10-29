@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -46,6 +48,29 @@ func (p *occWorkerPool) Run(ctx context.Context, workItems int, run func(context
 		})
 	}
 	return g.Wait()
+}
+
+// RunStep runs like Run and records the run's duration, and its longest worker's, under step.
+func (p *occWorkerPool) RunStep(ctx context.Context, step occStep, workItems int, run func(context.Context, int, int) error) error {
+	start := time.Now()
+	var longest atomic.Int64
+	err := p.Run(ctx, workItems, func(workerCtx context.Context, workerID int, workers int) error {
+		workerStart := time.Now()
+		defer func() { raiseTo(&longest, int64(time.Since(workerStart))) }()
+		return run(workerCtx, workerID, workers)
+	})
+	step.record(ctx, time.Since(start), time.Duration(longest.Load()))
+	return err
+}
+
+// raiseTo raises value to at least candidate.
+func raiseTo(value *atomic.Int64, candidate int64) {
+	for {
+		current := value.Load()
+		if candidate <= current || value.CompareAndSwap(current, candidate) {
+			return
+		}
+	}
 }
 
 // Close rejects future runs and waits for admitted in-flight runs to drain.

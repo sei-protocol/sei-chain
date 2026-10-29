@@ -104,7 +104,7 @@ func (i *stateAccessIndex) indexResults(ctx context.Context, pool *occWorkerPool
 		}
 		return ctx.Err()
 	}
-	return pool.Run(ctx, occStateShards, func(workerCtx context.Context, workerID int, workers int) error {
+	return pool.RunStep(ctx, occStepValidateIndex, occStateShards, func(workerCtx context.Context, workerID int, workers int) error {
 		owns := occShardsOwnedBy(workerID, workers)
 		for txIndex, result := range results {
 			if txIndex%occCancellationCheckInterval == 0 {
@@ -189,7 +189,7 @@ func firstUnacceptedResult(
 ) (int, error) {
 	var stop atomic.Int64
 	stop.Store(int64(to))
-	err := pool.Run(ctx, to-from, func(workerCtx context.Context, workerID int, workers int) error {
+	err := pool.RunStep(ctx, occStepValidateScan, to-from, func(workerCtx context.Context, workerID int, workers int) error {
 		for i := from + workerID; i < to; i += workers {
 			if int64(i) >= stop.Load() {
 				return nil
@@ -244,7 +244,7 @@ func stmFrontierAccepts(result occTxExecution, writes *stateAccessIndex, cumulat
 // applyRange folds a run of accepted results into the prefix in block order, each worker applying
 // the shards it owns.
 func (s *blockSTMState) applyRange(ctx context.Context, pool *occWorkerPool, results []occTxExecution) error {
-	return pool.Run(ctx, occStateShards, func(workerCtx context.Context, workerID int, workers int) error {
+	return pool.RunStep(ctx, occStepValidateApply, occStateShards, func(workerCtx context.Context, workerID int, workers int) error {
 		owns := occShardsOwnedBy(workerID, workers)
 		for txIndex, result := range results {
 			if txIndex%occCancellationCheckInterval == 0 {
@@ -285,7 +285,7 @@ func (s *blockSTMState) changeSetIntoParallel(ctx context.Context, pool *occWork
 	changes.Reset()
 	fragments := occFragmentPool.Get().(*occChangeSetFragments)
 	defer releaseOCCFragments(fragments)
-	err := pool.Run(ctx, occStateShards, func(workerCtx context.Context, workerID int, workers int) error {
+	err := pool.RunStep(ctx, occStepMergeChangeSet, occStateShards, func(workerCtx context.Context, workerID int, workers int) error {
 		for shard := workerID; shard < occStateShards; shard += workers {
 			if err := workerCtx.Err(); err != nil {
 				return err
