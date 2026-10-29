@@ -40,6 +40,8 @@ type StorageConfig struct {
 	// logs and fee history from. When false the node starts no EVM RPC, and refuses to start while a
 	// receipt store with history is on disk: move that directory away first.
 	Receipts bool `mapstructure:"receipts"`
+	// ReceiptPipelinedIndexCommits commits each block's receipt log index while the next block is staged.
+	ReceiptPipelinedIndexCommits bool `mapstructure:"receipt_pipelined_index_commits"`
 	// RollbackWindow is how many blocks behind head the node must remain able to roll back to.
 	RollbackWindow uint64 `mapstructure:"rollback_window"`
 	// LookbackWindow is how many queryable blocks are kept below the rollback window; -1 keeps all.
@@ -180,6 +182,7 @@ func defaultStorageConfig() StorageConfig {
 const (
 	FlagStorageMode                      = "giga.storage.mode"
 	FlagStorageReceipts                  = "giga.storage.receipts"
+	FlagStorageReceiptPipelinedCommits   = "giga.storage.receipt_pipelined_index_commits"
 	FlagStorageRollbackWindow            = "giga.storage.rollback_window"
 	FlagStorageLookbackWindow            = "giga.storage.lookback_window"
 	FlagStorageStateStoreBackend         = "giga.storage.state_store_backend"
@@ -221,6 +224,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagStorageMode); v != nil {
 		if cfg.Storage.Mode, err = cast.ToStringE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStorageMode, err)
+		}
+	}
+	if v := opts.Get(FlagStorageReceiptPipelinedCommits); v != nil {
+		if cfg.Storage.ReceiptPipelinedIndexCommits, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStorageReceiptPipelinedCommits, err)
 		}
 	}
 	if v := opts.Get(FlagStorageReceipts); v != nil {
@@ -485,6 +493,9 @@ mode = "{{ .Giga.Storage.Mode }}"
 # logs and fee history from. When false the node starts no EVM RPC, and refuses to start while a
 # receipt store with history is on disk: move that directory away first.
 receipts = {{ .Giga.Storage.Receipts }}
+
+# receipt_pipelined_index_commits commits each block's receipt log index while the next block is staged.
+receipt_pipelined_index_commits = {{ .Giga.Storage.ReceiptPipelinedIndexCommits }}
 
 # rollback_window is how many blocks behind head the node must remain able to roll back to.
 rollback_window = {{ .Giga.Storage.RollbackWindow }}
