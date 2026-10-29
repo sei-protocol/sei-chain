@@ -378,6 +378,9 @@ WebSocket (port 8546 by default):
   and `eth_getTransactionByBlockNumberAndIndex` /
   `eth_getTransactionByBlockHashAndIndex`, which return the transaction at a
   position in a block exactly as the full-transaction block lists it.
+  `eth_getVMError` and `eth_getTransactionErrorByHash` return the EVM error a
+  finalized transaction failed with, or `""` when it succeeded; for an unknown
+  hash the first returns an error and the second `""`, as on the regular RPC.
 - State: `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`, and
   `eth_getStorageAt`, at the latest block or a past one still within a full
   node's retention window; `eth_call` and `eth_estimateGas`, against the
@@ -393,8 +396,10 @@ WebSocket (port 8546 by default):
   yet returns `null`.
 - Logs: `eth_getLogs`.
 - Fees: `eth_gasPrice`, `eth_maxPriorityFeePerGas`, and `eth_feeHistory`.
-- Node: `eth_chainId`, `net_version`, and `eth_syncing`, which returns a
-  not-supported error, as on the regular RPC.
+- Node: `eth_chainId`, `net_version`, `web3_clientVersion`, which returns
+  `Sei/<seid version>/<os>-<arch>/<go version>` (the regular RPC reports
+  `Geth/...`), and `eth_syncing`, which returns a not-supported error, as on the
+  regular RPC.
 - Tracing: `debug_traceTransaction`, `debug_traceCall`,
   `debug_traceBlockByNumber`, and `debug_traceBlockByHash`, with
   go-ethereum's tracers (see
@@ -409,8 +414,7 @@ subscription other than `newHeads`:
   the polling filter methods (`eth_newFilter`, `eth_newBlockFilter`,
   `eth_newPendingTransactionFilter`, `eth_getFilterChanges`,
   `eth_getFilterLogs`, `eth_uninstallFilter`), `eth_subscribe("logs")`,
-  `eth_getVMError`, `eth_getTransactionErrorByHash`, `eth_createAccessList`,
-  `eth_estimateGasAfterCalls`, and `web3_clientVersion`.
+  `eth_createAccessList`, and `eth_estimateGasAfterCalls`.
 - Not planned, because they need something the EVM-only chain does not have
   (Cosmos accounts, server-side keys, a mempool view, blobs, or state proofs),
   duplicate another method, or are development-only: `sei_getSeiAddress`,
@@ -454,11 +458,11 @@ subscription other than `newHeads`:
 - Blob (EIP-4844) transactions are not accepted.
 
 `make autobahn-integration-test` starts a local four-validator cluster and,
-after a 4,000-transfer load and one contract deploy, checks every method above
-except the `debug_trace*` methods on all four validators, including that they
-return the same blocks and receipts. It traces the deploy and its block on the
-RPC node, which keeps the state history a past transaction replays on, and a
-call to the contract on every node.
+after a 4,000-transfer load, one contract deploy, and one failing deploy,
+checks every method above except the `debug_trace*` methods on all four
+validators, including that they return the same blocks and receipts. It traces
+the deploy and its block on the RPC node, which keeps the state history a past
+transaction replays on, and a call to the contract on every node.
 
 ### Request and WebSocket limits
 

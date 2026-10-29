@@ -174,6 +174,9 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 	if err := rpcServer.RegisterName("net", &netAPI{backend: backend}); err != nil {
 		return nil, fmt.Errorf("register EVM-only net RPC: %w", err)
 	}
+	if err := rpcServer.RegisterName("web3", &web3API{}); err != nil {
+		return nil, fmt.Errorf("register EVM-only web3 RPC: %w", err)
+	}
 	subscriptions := newSubscriptionLimiter(limits.MaxSubscriptionsNewHead, limits.MaxSubscriptionsPerConnection)
 	if err := rpcServer.RegisterName("eth", &subscribeAPI{backend: backend, store: receiptStore, limits: subscriptions}); err != nil {
 		return nil, fmt.Errorf("register EVM-only subscription RPC: %w", err)
