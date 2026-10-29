@@ -5,7 +5,7 @@ import "giga-precompiles/params/Params.sol";
 
 /// @notice Storage schema of the evmonly params precompile (0x1013), held as that
 /// address's contract storage. Each subspace is one struct at a fixed slot, and
-/// each declared param is one field of it.
+/// each declared param is one field of it, commented with its flat key.
 /// @dev Values by V2 type:
 /// - Dec: uint256, fixed point with 18 decimal places (1e18 is 1).
 /// - Duration: uint64 nanoseconds.

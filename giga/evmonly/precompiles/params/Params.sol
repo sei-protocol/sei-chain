@@ -12,11 +12,12 @@ IParams constant PARAMS_CONTRACT = IParams(PARAMS_PRECOMPILE_ADDRESS);
 interface IParams {
     /**
      * @notice Get the stored value of a param
-     * @param subspace The param's subspace, e.g. "gov"; an unknown subspace reverts
+     * @param subspace The param's subspace, e.g. "gov"; an unknown subspace fails the call
      * @param key The param's flat key: the V2 key, or the V2 key, ".", and a field
-     *        of it, e.g. "tallyparams.quorum"; an unknown key reverts
+     *        of it, e.g. "tallyparams.quorum", as the comment on its field in
+     *        docs/giga-storage/ParamsStorage.sol gives it; an unknown key fails the call
      * @return value The 32-byte abi.encode of the param's value. Each param's type
-     *         is its field's in ParamsStorage.sol: Dec is a uint256 with 18
+     *         is its field's in docs/giga-storage/ParamsStorage.sol: Dec is a uint256 with 18
      *         decimal places, Duration a uint64 of nanoseconds, and Coins a
      *         uint256 of wei
      */

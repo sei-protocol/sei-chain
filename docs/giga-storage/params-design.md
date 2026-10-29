@@ -6,13 +6,15 @@ subspace.
 ## Model
 
 - Params live in the storage of the params precompile (0x1013), laid out by
-  `ParamsStorage.sol`: one struct per subspace at a fixed slot and one field per
-  param. Arrays, if a param ever needs one, are Solidity dynamic arrays at a
-  fixed slot.
+  `docs/giga-storage/ParamsStorage.sol`: one struct per subspace at a fixed
+  slot and one field per param, commented with the param's flat key. Every
+  param is a type stored in one storage word; a param that needs an array needs
+  a stored form and a larger execution charge (see *Proposals*) first.
 - The set of params is declared in code. A param exists when its field is in
   `ParamsStorage.sol` and its row is in the Go declaration table. A change to a
   key that is not declared is rejected, as x/params rejects a key missing from
-  its subspace's KeyTable, and `param` reverts for one. A new subspace or param
+  its subspace's KeyTable, and a `param` call for one fails without a revert
+  reason. A new subspace or param
   ships in a binary upgrade.
 - Until a public network runs this, the layout may be rearranged outright.
   After that it only grows: a new param takes slots from its struct's `__gap`,
@@ -23,7 +25,7 @@ subspace.
   | V2 type | Stored as |
   |---|---|
   | Dec | `uint256`, fixed point with 18 decimal places |
-  | Duration | `uint64` nanoseconds |
+  | Duration | `uint64` nanoseconds; every period, read or written, is nanoseconds |
   | Coins | `uint256` wei, a whole number of usei; only the usei denom exists |
 
   Another V2 type gets a stored form when a param first needs one. A value of
@@ -59,7 +61,14 @@ of a change. Gov's check is x/gov's validation plus:
   leave gov unable to pass a later proposal: `voting_period` at most 30 days,
   `min_deposit` at most 1,000,000 SEI, and `quorum` and `threshold` at most 4/5.
   The expedited params need no bound of their own: a regular proposal can
-  always fix them.
+  always fix them. `veto_threshold` is unbounded on purpose: a low one lets a
+  minority block proposals, which is capture rather than a lock, and is out of
+  scope here.
+
+The check runs on genesis params (`WriteGov`) and on every param change. A
+param change also may not set `voting_period` below 5 minutes
+(`MinChangedVotingPeriod`), so that later proposals stay passable. Genesis may
+set a shorter one, so test networks can run short voting periods.
 
 A param's flat key is `<V2 key>` for a V2 scalar (`MaxValidators`) and
 `<V2 key>.<field>` for a field of a V2 struct-valued key
@@ -99,19 +108,24 @@ naming `param`.
 - At submit, every change is decoded and checked against the current params.
   The call reverts, writing nothing, when it has no changes, a change names an
   undeclared subspace or key, a value is not a 32-byte word that fits its type,
-  or the result fails the whole-struct check.
+  the result fails the whole-struct check, or it sets `voting_period` below
+  `MinChangedVotingPeriod`.
 - When the proposal passes, gov applies the changes in order to a copy of each
-  subspace's params, runs the whole-struct check, and writes the changed fields.
-  Any failure marks the proposal Failed and writes nothing.
+  subspace's params, runs the same checks, and writes each changed field's last
+  value. Any failure marks the proposal Failed and writes nothing.
 - Changes are per field and merge onto the current params, as x/params merges
   a partial struct, so two proposals that change different fields of a
   subspace do not undo each other.
 - Gov charges executing a passed proposal one EndBlock budget unit per word of
-  its stored content. One change adds ten words when the subspace name and the
-  key each fit in 32 bytes. Applying a change reads its whole subspace, one
-  storage word per param, so a subspace may declare at most ten params, every
-  param must be one word, or the charge must grow. Gov declares ten and is at
-  that limit. `TestSubspacesFitTheExecutionCharge` checks both.
+  its stored content. The stored content is gov's own ABI encoding of the
+  decoded changes, not the submitted calldata, so its size follows from the
+  changes alone. One change adds ten words when the subspace name and the key
+  each fit in 32 bytes. Applying a proposal reads each subspace it changes
+  once, one storage word per param, and every such subspace has at least one
+  change paying ten words. So the charge covers a proposal across any number of
+  subspaces while each subspace declares at most ten one-word params; past that,
+  the charge must grow. Gov declares ten and is at that limit.
+  `TestSubspacesFitTheExecutionCharge` checks both.
 - EndBlock reads gov's params for each proposal it settles. A change applied by
   one proposal governs every proposal settled after it in the same EndBlock,
   in queue order.
@@ -144,7 +158,7 @@ naming `param`.
 
 ## Later subspaces
 
-Planned, not decided: the expected shape, not a commitment. Each adds a struct to `ParamsStorage.sol`, rows to the table, and a reader:
+Planned, not decided: the expected shape, not a commitment. Each adds a struct to `ParamsStorage.sol`, rows to the table, and a reader. A subspace of more than ten params needs a larger execution charge first (see *Proposals*); x/evm has eleven today.
 
 | Subspace | Params | Reader |
 |---|---|---|

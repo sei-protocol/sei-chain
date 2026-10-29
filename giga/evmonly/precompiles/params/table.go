@@ -30,6 +30,8 @@ type param struct {
 	key  string
 	kind valueKind
 	at   member
+	// least is the smallest value a param change may set, or nil for none.
+	least *big.Int
 }
 
 // values holds every param of one subspace, by flat key.

@@ -83,11 +83,11 @@ func TestParamChangeContentIsStored(t *testing.T) {
 
 func TestParamChangeFailingAtExecutionChangesNothing(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
-	shorter, err := h.submitParamChange(false, paramChange{"gov", "votingparams.voting_period", secondsValue(30)})
+	raised, err := h.submitParamChange(false, paramChange{"gov", "tallyparams.quorum", uintValue(600_000_000_000_000_000)})
 	require.NoError(t, err)
-	longer, err := h.submitParamChange(false, paramChange{"gov", "votingparams.expedited_voting_period", secondsValue(40)})
+	lowered, err := h.submitParamChange(false, paramChange{"gov", "tallyparams.expedited_quorum", uintValue(500_000_000_000_000_000)})
 	require.NoError(t, err, "valid against the params at submission")
-	for _, id := range []uint64{shorter, longer} {
+	for _, id := range []uint64{raised, lowered} {
 		for _, voter := range []common.Address{alice, bob, carol} {
 			h.vote(voter, id, OptionYes)
 		}
@@ -95,10 +95,10 @@ func TestParamChangeFailingAtExecutionChangesNothing(t *testing.T) {
 	h.time += testParams.VotingPeriod
 	h.endBlock(1)
 
-	require.Equal(t, StatusPassed, h.status(shorter))
-	require.Equal(t, StatusFailed, h.status(longer), "expedited period is no longer below the voting period")
+	require.Equal(t, StatusPassed, h.status(raised))
+	require.Equal(t, StatusFailed, h.status(lowered), "expedited quorum is no longer above the quorum")
 	want := testParams
-	want.VotingPeriod = 30 * second
+	want.Quorum = 600_000_000_000_000_000
 	require.Equal(t, want, newStore(h.state).params())
 }
 
@@ -207,7 +207,7 @@ func TestSubmitRejectsOversizedParamChangeContent(t *testing.T) {
 func TestEveryGovParamChangesThroughAProposal(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
 	want := Params{
-		VotingPeriod:          200 * second,
+		VotingPeriod:          400 * second,
 		ExpeditedVotingPeriod: 30 * second,
 		MinDeposit:            usei(20),
 		MaxDepositPeriod:      60 * second,

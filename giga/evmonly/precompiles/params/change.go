@@ -30,8 +30,8 @@ func Check(state precompiles.State, changes []Change) error {
 	return err
 }
 
-// Apply writes changes in order and checks each changed subspace as a whole,
-// writing nothing if any change fails.
+// Apply writes each changed param's final value after checking each changed
+// subspace as a whole, writing nothing if any change fails.
 func Apply(state precompiles.State, changes []Change) error {
 	updates, err := plan(state, changes)
 	if err != nil {
@@ -51,8 +51,9 @@ type update struct {
 	v  *big.Int
 }
 
-// plan decodes changes against the current params and returns the writes
-// they make, in order.
+// plan decodes changes against the current params and returns one write per
+// changed param, holding its last value, in the order first changed. Later
+// changes to a param win.
 func plan(state precompiles.State, changes []Change) ([]update, error) {
 	if len(changes) == 0 {
 		return nil, errNoChanges
@@ -60,7 +61,8 @@ func plan(state precompiles.State, changes []Change) ([]update, error) {
 	s := newStore(state)
 	working := map[*subspace]values{}
 	var touched []*subspace
-	updates := make([]update, 0, len(changes))
+	var updates []update
+	changed := map[*subspace]map[string]bool{}
 	for _, c := range changes {
 		ss, ok := lookupSubspace(c.Subspace)
 		if !ok {
@@ -76,14 +78,25 @@ func plan(state precompiles.State, changes []Change) ([]update, error) {
 		}
 		if _, ok := working[ss]; !ok {
 			working[ss] = ss.read(s)
+			changed[ss] = map[string]bool{}
 			touched = append(touched, ss)
 		}
 		working[ss][p.key] = v
-		updates = append(updates, update{ss: ss, p: p, v: v})
+		if !changed[ss][p.key] {
+			changed[ss][p.key] = true
+			updates = append(updates, update{ss: ss, p: p})
+		}
 	}
 	for _, ss := range touched {
 		if err := ss.validate(working[ss]); err != nil {
 			return nil, fmt.Errorf("%w: %s: %w", errInvalidValue, ss.name, err)
+		}
+	}
+	for i := range updates {
+		u := &updates[i]
+		u.v = working[u.ss][u.p.key]
+		if u.p.least != nil && u.v.Cmp(u.p.least) < 0 {
+			return nil, fmt.Errorf("%w: %s/%s must be at least %s", errInvalidValue, u.ss.name, u.p.key, u.p.least)
 		}
 	}
 	return updates, nil

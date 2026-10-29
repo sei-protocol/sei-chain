@@ -33,7 +33,7 @@ var govSubspace = subspace{
 		{key: keyMinDeposit, kind: coinsKind, at: govMinDeposit},
 		{key: keyMaxDepositPeriod, kind: durationKind, at: govMaxDepositPeriod},
 		{key: keyMinExpeditedDeposit, kind: coinsKind, at: govMinExpeditedDeposit},
-		{key: keyVotingPeriod, kind: durationKind, at: govVotingPeriod},
+		{key: keyVotingPeriod, kind: durationKind, at: govVotingPeriod, least: new(big.Int).SetUint64(MinChangedVotingPeriod)},
 		{key: keyExpeditedVotingPeriod, kind: durationKind, at: govExpeditedVotingPeriod},
 		{key: keyQuorum, kind: decKind, at: govQuorum},
 		{key: keyThreshold, kind: decKind, at: govThreshold},
@@ -127,9 +127,12 @@ const (
 	MaxPeriod uint64 = 1 << 62 // a block time in Unix nanoseconds plus any period fits in 64 bits
 )
 
-// Upper bounds on the gov params that, set any higher, could leave gov unable to
-// pass a later proposal.
-const MaxVotingPeriod uint64 = uint64(30 * 24 * time.Hour)
+// Bounds on the gov params that, set past them, could leave gov unable to pass a
+// later proposal. MinChangedVotingPeriod bounds only param changes, not genesis.
+const (
+	MaxVotingPeriod        uint64 = uint64(30 * 24 * time.Hour)
+	MinChangedVotingPeriod uint64 = uint64(5 * time.Minute)
+)
 
 var (
 	maxMinDeposit = new(big.Int).Mul(big.NewInt(1_000_000_000_000), weiPerUsei) // 1,000,000 SEI

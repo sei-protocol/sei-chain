@@ -1,7 +1,9 @@
 package params
 
 import (
+	"bytes"
 	"math/big"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -226,10 +228,38 @@ func TestApplyChecksTheResultAsAWhole(t *testing.T) {
 	state := newGovState(t)
 	// Lowering the voting period below the expedited one fails alone and
 	// passes with the expedited period lowered too.
-	shorter := Change{"gov", "votingparams.voting_period", word(60_000_000_000)}
+	shorter := Change{"gov", "votingparams.voting_period", word(600_000_000_000)}
 	require.Error(t, Check(state, []Change{shorter}))
-	require.NoError(t, Apply(state, []Change{shorter, {"gov", "votingparams.expedited_voting_period", word(30_000_000_000)}}))
-	require.Equal(t, uint64(60_000_000_000), ReadGov(state).VotingPeriod)
+	require.NoError(t, Apply(state, []Change{shorter, {"gov", "votingparams.expedited_voting_period", word(300_000_000_000)}}))
+	require.Equal(t, uint64(600_000_000_000), ReadGov(state).VotingPeriod)
+}
+
+func TestApplyWritesOnlyEachParamsLastValue(t *testing.T) {
+	state := newGovState(t)
+	oversized := common.BigToHash(new(big.Int).Lsh(big.NewInt(1), 64)).Bytes()
+	require.NoError(t, Apply(state, []Change{
+		{"gov", "votingparams.voting_period", oversized},
+		{"gov", "votingparams.voting_period", word(200_000_000_000_000)},
+	}))
+	want := testGov
+	want.VotingPeriod = 200_000_000_000_000
+	require.Equal(t, want, ReadGov(state))
+}
+
+func TestChangesKeepTheVotingPeriodFloor(t *testing.T) {
+	state := newGovState(t)
+	floor := Change{"gov", "votingparams.voting_period", word(MinChangedVotingPeriod)}
+	expedited := Change{"gov", "votingparams.expedited_voting_period", word(MinChangedVotingPeriod / 2)}
+	below := Change{"gov", "votingparams.voting_period", word(MinChangedVotingPeriod - 1)}
+	require.ErrorIs(t, Check(state, []Change{below, expedited}), errInvalidValue)
+	require.ErrorIs(t, Check(state, []Change{floor, below, expedited}), errInvalidValue, "the last value counts")
+	require.NoError(t, Apply(state, []Change{below, floor, expedited}))
+	require.Equal(t, MinChangedVotingPeriod, ReadGov(state).VotingPeriod)
+
+	short := testGov
+	short.VotingPeriod = 30_000_000_000
+	short.ExpeditedVotingPeriod = 15_000_000_000
+	require.NoError(t, WriteGov(newMemState(), short), "genesis may set a voting period below the floor")
 }
 
 func TestRunRejectsValueAndDelegateCall(t *testing.T) {
@@ -274,4 +304,16 @@ func TestEveryMethodIsServedOrRetired(t *testing.T) {
 func TestHasGov(t *testing.T) {
 	require.False(t, HasGov(newMemState()))
 	require.True(t, HasGov(newGovState(t)))
+}
+
+func TestABIKeepsV2Methods(t *testing.T) {
+	bz, err := os.ReadFile("../../../../precompiles/params/abi.json")
+	require.NoError(t, err)
+	v2, err := abi.JSON(bytes.NewReader(bz))
+	require.NoError(t, err)
+	require.NotEmpty(t, v2.Methods)
+	for _, m := range v2.Methods {
+		require.Contains(t, retiredMethods, m.Sig)
+		require.Equal(t, m.ID, ABI.Methods[m.Name].ID, m.Sig)
+	}
 }

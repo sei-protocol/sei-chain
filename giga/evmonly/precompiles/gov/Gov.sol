@@ -13,9 +13,10 @@ struct TextContent {
     bool isExpedited;
 }
 
-/// @notice A change to one param. key is its flat key, e.g.
-/// "tallyparams.quorum" (the declared keys are ParamsStorage.sol's fields), and value is the 32-byte
-/// abi.encode of its value, as IParams.param returns it.
+/// @notice A change to one param. key is its flat key, e.g. "tallyparams.quorum";
+/// each field of docs/giga-storage/ParamsStorage.sol is a declared param, with its
+/// flat key in the field's comment and its type the field's. value is the 32-byte
+/// abi.encode of the value, as IParams.param returns it; periods are nanoseconds.
 struct ParamChange {
     string subspace;
     string key;

@@ -27,6 +27,7 @@ type forgeEntry struct {
 	Label  string `json:"label"`
 	Offset int    `json:"offset"`
 	Slot   string `json:"slot"`
+	Type   string `json:"type"`
 }
 
 // TestLayoutMatchesForge pins every slot and member offset to the compiler's
@@ -70,7 +71,13 @@ func TestLayoutMatchesForge(t *testing.T) {
 		require.True(t, ok, "struct %s has no Go layout", name)
 		got := map[string]member{}
 		for _, e := range typ.Members {
-			got[e.Label] = member{slot: mustUint(t, e.Slot), offset: e.Offset}
+			at := member{slot: mustUint(t, e.Slot), offset: e.Offset}
+			got[e.Label] = at
+			for _, p := range govSubspace.params {
+				if p.at == at {
+					require.Equal(t, "t_"+p.kind.solType, e.Type, p.key)
+				}
+			}
 		}
 		require.Equal(t, want, got, name)
 		seen++
