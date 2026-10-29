@@ -1090,14 +1090,10 @@ type StateSyncConfig struct {
 	// with net.Dial, for example: "host.example.com:2125".
 	RPCServers []string `mapstructure:"rpc-servers"`
 
-	// The hash and height of a trusted block. Must be within the trust-period.
+	// The hash and height of a trusted block. Must be within the trust period the
+	// chain sets in its consensus params at that height.
 	TrustHeight int64  `mapstructure:"trust-height"`
 	TrustHash   string `mapstructure:"trust-hash"`
-
-	// The trust period should be set so that Tendermint can detect and gossip
-	// misbehavior before it is considered expired. For chains based on the Cosmos SDK,
-	// one day less than the unbonding period should suffice.
-	TrustPeriod time.Duration `mapstructure:"trust-period"`
 
 	// Backfill sequentially fetches, verifies and stores light blocks in reverse order.
 	// It does not stop verifying blocks until reaching a height
@@ -1149,7 +1145,6 @@ func (cfg *StateSyncConfig) TrustHashBytes() []byte {
 // DefaultStateSyncConfig returns a default configuration for the state sync service
 func DefaultStateSyncConfig() *StateSyncConfig {
 	return &StateSyncConfig{
-		TrustPeriod:               168 * time.Hour,
 		DiscoveryTime:             15 * time.Second,
 		ChunkRequestTimeout:       15 * time.Second,
 		Fetchers:                  2,
@@ -1188,10 +1183,6 @@ func (cfg *StateSyncConfig) ValidateBasic() error {
 
 	if cfg.DiscoveryTime != 0 && cfg.DiscoveryTime < 5*time.Second {
 		return errors.New("discovery time must be 0s or greater than five seconds")
-	}
-
-	if cfg.TrustPeriod <= 0 {
-		return errors.New("trusted-period is required")
 	}
 
 	if cfg.TrustHeight <= 0 {

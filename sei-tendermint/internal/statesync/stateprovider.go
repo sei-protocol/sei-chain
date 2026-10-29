@@ -3,6 +3,7 @@ package statesync
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -23,12 +24,19 @@ import (
 	lightdb "github.com/sei-protocol/sei-chain/sei-tendermint/light/store/db"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
 	rpchttp "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 const (
 	consensusParamsResponseTimeout = 5 * time.Second
+)
+
+var (
+	errTrustHashMismatch  = errors.New("the block at the trust height does not have the trust hash")
+	errNoTrustPeriod      = errors.New("the chain sets no state sync trust period at trust height")
+	errParamsHashMismatch = errors.New("consensus params do not match the header's ConsensusHash")
 )
 
 //go:generate ../../scripts/mockery_generate.sh StateProvider
@@ -47,6 +55,50 @@ type StateProvider interface {
 	State(ctx context.Context, height uint64) (sm.State, error)
 }
 
+// TrustRoot is the block, by height and hash, that an operator trusts as the root
+// of light client verification.
+type TrustRoot struct {
+	Height int64
+	Hash   []byte
+}
+
+// paramsSource returns the consensus params at height whose hash is hash.
+type paramsSource func(ctx context.Context, height int64, hash []byte) (types.ConsensusParams, error)
+
+// chainTrustOptions returns the light client trust options for root, with the trust
+// period that root's header commits to through its ConsensusHash. It fails when the
+// chain sets no trust period at root's height.
+func chainTrustOptions(
+	ctx context.Context,
+	root TrustRoot,
+	primary lightprovider.Provider,
+	params paramsSource,
+) (light.TrustOptions, error) {
+	trusted, err := primary.LightBlock(ctx, root.Height)
+	if err != nil {
+		return light.TrustOptions{}, fmt.Errorf("fetching the block at trust height %d: %w", root.Height, err)
+	}
+	// The trust hash vouches for the header, and the header for the params it commits to.
+	if !bytes.Equal(trusted.Hash(), root.Hash) {
+		return light.TrustOptions{}, fmt.Errorf("%w: got %X at height %d, want %X",
+			errTrustHashMismatch, trusted.Hash(), root.Height, root.Hash)
+	}
+	cp, err := params(ctx, root.Height, trusted.ConsensusHash)
+	if err != nil {
+		return light.TrustOptions{}, fmt.Errorf("fetching the consensus params at trust height %d: %w", root.Height, err)
+	}
+	if cp.StateSync.TrustPeriod == 0 {
+		return light.TrustOptions{}, fmt.Errorf("%w %d; choose a trust height at which it does", errNoTrustPeriod, root.Height)
+	}
+	logger.Info("using the state sync trust period committed to by the trusted header",
+		"trustPeriod", cp.StateSync.TrustPeriod, "trustHeight", root.Height)
+	return light.TrustOptions{
+		Period: cp.StateSync.TrustPeriod,
+		Height: root.Height,
+		Hash:   root.Hash,
+	}, nil
+}
+
 type stateProviderRPC struct {
 	sync.Mutex              // light.Client is not concurrency-safe
 	lc                      *light.Client
@@ -62,7 +114,7 @@ func NewRPCStateProvider(
 	initialHeight int64,
 	verifyLightBlockTimeout time.Duration,
 	servers []string,
-	trustOptions light.TrustOptions,
+	root TrustRoot,
 	blacklistTTL time.Duration,
 ) (StateProvider, error) {
 	if len(servers) < 2 {
@@ -71,6 +123,7 @@ func NewRPCStateProvider(
 
 	providers := make([]lightprovider.Provider, 0, len(servers))
 	providerRemotes := make(map[lightprovider.Provider]string)
+	clients := make([]consensusParamsClient, 0, len(servers))
 	for _, server := range servers {
 		client, err := rpcClient(server)
 		if err != nil {
@@ -81,8 +134,13 @@ func NewRPCStateProvider(
 		// We store the RPC addresses keyed by provider, so we can find the address of the primary
 		// provider used by the light client and use it to fetch consensus parameters.
 		providerRemotes[provider] = server
+		clients = append(clients, client)
 	}
 
+	trustOptions, err := chainTrustOptions(ctx, root, providers[0], rpcParams(clients))
+	if err != nil {
+		return nil, err
+	}
 	lc, err := light.NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
 		lightdb.New(dbm.NewMemDB()), blacklistTTL)
 	if err != nil {
@@ -213,12 +271,45 @@ func rpcClient(server string) (*rpchttp.HTTP, error) {
 	return rpchttp.New(server)
 }
 
+// consensusParamsClient serves the consensus params an RPC node holds for a height.
+type consensusParamsClient interface {
+	ConsensusParams(ctx context.Context, height *int64) (*coretypes.ResultConsensusParams, error)
+	Remote() string
+}
+
+// rpcParams returns a paramsSource that asks each client in turn and returns the
+// first params whose hash matches.
+func rpcParams(clients []consensusParamsClient) paramsSource {
+	return func(ctx context.Context, height int64, hash []byte) (types.ConsensusParams, error) {
+		var errs []error
+		for _, client := range clients {
+			res, err := client.ConsensusParams(ctx, &height)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", client.Remote(), err))
+				continue
+			}
+			if !bytes.Equal(res.ConsensusParams.HashConsensusParams(), hash) {
+				errs = append(errs, fmt.Errorf("%s: %w", client.Remote(), errParamsHashMismatch))
+				continue
+			}
+			return res.ConsensusParams, nil
+		}
+		return types.ConsensusParams{}, errors.Join(errs...)
+	}
+}
+
+// paramsResponse is the consensus params a peer reports for a height.
+type paramsResponse struct {
+	height uint64
+	params types.ConsensusParams
+}
+
 type StateProviderP2P struct {
 	sync.Mutex              // light.Client is not concurrency-safe
 	lc                      *light.Client
 	initialHeight           int64
 	paramsSendCh            *p2p.Channel[*pb.Message]
-	paramsRecvCh            chan types.ConsensusParams
+	paramsRecvCh            <-chan paramsResponse
 	verifyLightBlockTimeout time.Duration
 }
 
@@ -230,14 +321,23 @@ func NewP2PStateProvider(
 	initialHeight int64,
 	verifyLightBlockTimeout time.Duration,
 	providers []lightprovider.Provider,
-	trustOptions light.TrustOptions,
+	root TrustRoot,
 	paramsSendCh *p2p.Channel[*pb.Message],
+	paramsRecvCh <-chan paramsResponse,
 	blacklistTTL time.Duration,
 ) (StateProvider, error) {
 	if len(providers) < 2 {
 		return nil, fmt.Errorf("at least 2 peers are required, got %d", len(providers))
 	}
 
+	allProviders := func() []lightprovider.Provider { return providers }
+	params := func(ctx context.Context, height int64, hash []byte) (types.ConsensusParams, error) {
+		return consensusParams(ctx, paramsSendCh, paramsRecvCh, allProviders, height, hash)
+	}
+	trustOptions, err := chainTrustOptions(ctx, root, providers[0], params)
+	if err != nil {
+		return nil, err
+	}
 	lc, err := light.NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
 		lightdb.New(dbm.NewMemDB()), blacklistTTL)
 	if err != nil {
@@ -248,7 +348,7 @@ func NewP2PStateProvider(
 		lc:                      lc,
 		initialHeight:           initialHeight,
 		paramsSendCh:            paramsSendCh,
-		paramsRecvCh:            make(chan types.ConsensusParams),
+		paramsRecvCh:            paramsRecvCh,
 		verifyLightBlockTimeout: verifyLightBlockTimeout,
 	}, nil
 }
@@ -339,15 +439,12 @@ func (s *StateProviderP2P) State(ctx context.Context, height uint64) (sm.State, 
 	state.NextValidators = nextLightBlock.ValidatorSet
 	state.LastHeightValidatorsChanged = nextLightBlock.Height
 
-	// We'll also need to fetch consensus params via P2P.
-	state.ConsensusParams, err = s.consensusParams(ctx, currentLightBlock.Height)
+	// We'll also need to fetch consensus params via P2P. The params for a height are
+	// the ones that height's header commits to.
+	state.ConsensusParams, err = consensusParams(ctx, s.paramsSendCh, s.paramsRecvCh, s.lc.Witnesses,
+		currentLightBlock.Height, currentLightBlock.ConsensusHash)
 	if err != nil {
 		return sm.State{}, fmt.Errorf("fetching consensus params: %w", err)
-	}
-	// validate the consensus params
-	if !bytes.Equal(nextLightBlock.ConsensusHash, state.ConsensusParams.HashConsensusParams()) {
-		return sm.State{}, fmt.Errorf("consensus params hash mismatch at height %d. Expected %v, got %v",
-			currentLightBlock.Height, nextLightBlock.ConsensusHash, state.ConsensusParams.HashConsensusParams())
 	}
 	// set the last height changed to the current height
 	state.LastHeightConsensusParamsChanged = currentLightBlock.Height
@@ -373,22 +470,26 @@ func (s *StateProviderP2P) Providers() []lightprovider.Provider {
 	return s.lc.Witnesses()
 }
 
-func (s *StateProviderP2P) ParamsRecvCh() chan types.ConsensusParams {
-	return s.paramsRecvCh
-}
-
-// consensusParams sends requests for consensus parameters to all witnesses
-// in parallel, retrying with increasing backoff until a response is
-// received or the context is canceled.
+// consensusParams sends requests for consensus parameters to all providers
+// in parallel, retrying with increasing backoff until a response for height
+// whose hash is hash is received or the context is canceled.
 //
-// For each witness, a goroutine sends a parameter request, retrying periodically
-// if no response is obtained, with increasing intervals. It returns the
-// consensus parameters upon receiving a response, or an error if the context is canceled.
-func (s *StateProviderP2P) consensusParams(ctx context.Context, height int64) (types.ConsensusParams, error) {
-	return scope.Run1(ctx, func(ctx context.Context, scope scope.Scope) (types.ConsensusParams, error) {
-		scope.SpawnBg(func() error {
+// A single goroutine sends a parameter request to every provider, retrying periodically
+// if no matching response is obtained, with increasing intervals. Responses for another
+// height or that do not match hash are discarded. It returns the consensus parameters
+// upon receiving a matching response, or an error if the context is canceled.
+func consensusParams(
+	ctx context.Context,
+	sendCh *p2p.Channel[*pb.Message],
+	recvCh <-chan paramsResponse,
+	providers func() []lightprovider.Provider,
+	height int64,
+	hash []byte,
+) (types.ConsensusParams, error) {
+	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (types.ConsensusParams, error) {
+		s.SpawnBg(func() error {
 			for iterCount := int64(1); ; iterCount++ {
-				for _, provider := range s.lc.Witnesses() {
+				for _, provider := range providers() {
 					p, ok := provider.(*BlockProvider)
 					if !ok {
 						return fmt.Errorf("witness is not BlockProvider [%T]", provider)
@@ -398,7 +499,7 @@ func (s *StateProviderP2P) consensusParams(ctx context.Context, height int64) (t
 					if err != nil {
 						return fmt.Errorf("invalid provider (%v) node id: %w", p, err)
 					}
-					s.paramsSendCh.Send(wrap(&pb.ParamsRequest{Height: uint64(height)}), peer) //nolint:gosec // height is a validated positive block height
+					sendCh.Send(wrap(&pb.ParamsRequest{Height: uint64(height)}), peer) //nolint:gosec // height is a validated positive block height
 				}
 				// jitter+backoff the retry loop
 				timeout := time.Duration(iterCount)*consensusParamsResponseTimeout +
@@ -408,6 +509,18 @@ func (s *StateProviderP2P) consensusParams(ctx context.Context, height int64) (t
 				}
 			}
 		})
-		return utils.Recv(ctx, s.paramsRecvCh)
+		for {
+			resp, err := utils.Recv(ctx, recvCh)
+			if err != nil {
+				return types.ConsensusParams{}, err
+			}
+			if resp.height != uint64(height) { //nolint:gosec // height is a validated positive block height
+				continue
+			}
+			if bytes.Equal(resp.params.HashConsensusParams(), hash) {
+				return resp.params, nil
+			}
+			logger.Info("discarding consensus params that do not match the header", "height", height)
+		}
 	})
 }

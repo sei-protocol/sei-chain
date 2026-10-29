@@ -527,14 +527,10 @@ use-p2p = {{ .StateSync.UseP2P }}
 # for example: "host.example.com:2125"
 rpc-servers = "{{ StringsJoin .StateSync.RPCServers "," }}"
 
-# The hash and height of a trusted block. Must be within the trust-period.
+# The hash and height of a trusted block. Must be within the trust period the chain sets in its
+# consensus params at that height, which the trusted block's header commits to.
 trust-height = {{ .StateSync.TrustHeight }}
 trust-hash = "{{ .StateSync.TrustHash }}"
-
-# The trust period should be set so that Tendermint can detect and gossip misbehavior before
-# it is considered expired. For chains based on the Cosmos SDK, one day less than the unbonding
-# period should suffice.
-trust-period = "{{ .StateSync.TrustPeriod }}"
 
 # Whether to use local snapshot only for state sync or not.
 # If this is true, then state sync will look for existing snapshots
