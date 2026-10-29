@@ -147,6 +147,9 @@ var AccountShardCount uint64
 // StorageShardCount, when non-zero, replaces the view shard count of the FlatKV storage database.
 var StorageShardCount uint64
 
+// StorageCacheSize, when non-zero, replaces the read cache budget of the FlatKV storage database, in bytes.
+var StorageCacheSize uint64
+
 // DefaultConfig returns Config with safe default values.
 func DefaultConfig() *Config {
 	cfg := &Config{
@@ -185,6 +188,9 @@ func DefaultConfig() *Config {
 		cfg.AccountStoreConfig.ShardCount = AccountShardCount
 	}
 	cfg.StorageStoreConfig.MaxSize = unit.GB * 4
+	if StorageCacheSize > 0 {
+		cfg.StorageStoreConfig.MaxSize = StorageCacheSize
+	}
 	if StorageShardCount > 0 {
 		cfg.StorageStoreConfig.ShardCount = StorageShardCount
 	}

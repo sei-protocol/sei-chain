@@ -96,6 +96,9 @@ type ExecutionConfig struct {
 	// FlatKVStorageViewShards, when non-zero, replaces the view shard count of the FlatKV storage
 	// database. It must be a power of two.
 	FlatKVStorageViewShards uint64 `mapstructure:"flatkv_storage_view_shards"`
+	// FlatKVStorageCacheGiB, when non-zero, replaces the read cache budget of the FlatKV storage
+	// database, in GiB.
+	FlatKVStorageCacheGiB uint64 `mapstructure:"flatkv_storage_cache_gib"`
 	// DummyAppHash leaves a block's state changes out of the EVM-only app hash.
 	DummyAppHash bool `mapstructure:"dummy_app_hash"`
 	// EarlySpeculationWorkers, when positive, speculates each prepared block's transactions before the
@@ -204,6 +207,7 @@ const (
 	FlagExecutionMaxProposalWaitMs       = "giga.execution.max_proposal_wait_ms"
 	FlagExecutionFlatKVViewShards        = "giga.execution.flatkv_view_shards"
 	FlagExecutionFlatKVStorageViewShards = "giga.execution.flatkv_storage_view_shards"
+	FlagExecutionFlatKVStorageCacheGiB   = "giga.execution.flatkv_storage_cache_gib"
 	FlagExecutionDummyAppHash            = "giga.execution.dummy_app_hash"
 	FlagExecutionEarlySpeculationWorkers = "giga.execution.early_speculation_workers"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
@@ -329,6 +333,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionLaneCapacity); v != nil {
 		if cfg.Execution.LaneCapacity, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionLaneCapacity, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionFlatKVStorageCacheGiB); v != nil {
+		if cfg.Execution.FlatKVStorageCacheGiB, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionFlatKVStorageCacheGiB, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionFlatKVStorageViewShards); v != nil {
@@ -567,6 +576,9 @@ flatkv_view_shards = {{ .Giga.Execution.FlatKVViewShards }}
 
 # flatkv_storage_view_shards, when non-zero, replaces the view shard count of the FlatKV storage database.
 flatkv_storage_view_shards = {{ .Giga.Execution.FlatKVStorageViewShards }}
+
+# flatkv_storage_cache_gib, when non-zero, replaces the read cache budget of the FlatKV storage database, in GiB.
+flatkv_storage_cache_gib = {{ .Giga.Execution.FlatKVStorageCacheGiB }}
 
 # dummy_app_hash leaves a block's state changes out of the EVM-only app hash.
 dummy_app_hash = {{ .Giga.Execution.DummyAppHash }}

@@ -270,6 +270,9 @@ func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
 	if cfg.FlatKVStorageViewShards > 0 {
 		flatkvconfig.StorageShardCount = cfg.FlatKVStorageViewShards
 	}
+	if cfg.FlatKVStorageCacheGiB > 0 {
+		flatkvconfig.StorageCacheSize = cfg.FlatKVStorageCacheGiB << 30
+	}
 	evmonlyapp.DummyAppHash = cfg.DummyAppHash
 	if cfg.GCPercent <= 0 {
 		return
