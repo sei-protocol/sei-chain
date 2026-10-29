@@ -63,6 +63,11 @@ type ReceiptStoreConfig struct {
 	// defaults to 10
 	AsyncWriteBuffer int `mapstructure:"async-write-buffer"`
 
+	// PipelinedIndexCommits commits each block's log index on a goroutine of its own, so the writer stages
+	// the next block meanwhile. It takes effect only with AsyncWriteBuffer set. Like KeepRecent it is not
+	// read from the receipt-store config; Giga sets it.
+	PipelinedIndexCommits bool `mapstructure:"-"`
+
 	// KeepRecent defines the number of versions to keep in receipt store.
 	// Setting it to 0 means keep everything (no pruning).
 	// This is NOT read from receipt-store config; it is always derived from

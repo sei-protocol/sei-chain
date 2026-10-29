@@ -131,6 +131,41 @@ func TestLittIdxWriteBufferBoundsLag(t *testing.T) {
 		5*time.Second, time.Millisecond)
 }
 
+// TestLittIdxPipelinedIndexCommitsKeepEveryBlock pins that pipelined index commits accept consecutive
+// blocks, publish every one, and leave their logs queryable once the store closes and reopens.
+func TestLittIdxPipelinedIndexCommitsKeepEveryBlock(t *testing.T) {
+	storeKey := storetypes.NewKVStoreKey("evm")
+	tkey := storetypes.NewTransientStoreKey("evm_transient")
+	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.DBDirectory = t.TempDir()
+	cfg.KeepRecent = 0
+	cfg.AsyncWriteBuffer = 4
+	cfg.PipelinedIndexCommits = true
+
+	store, err := gigareceipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	addr := common.HexToAddress("0xabc")
+	topic := common.HexToHash("0xbeef")
+	const blocks = 40
+	for block := uint64(1); block <= blocks; block++ {
+		height := int64(block) //nolint:gosec // small test heights
+		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(height),
+			[]receipt.ReceiptRecord{litReceipt(block, 0, addr, topic)}))
+	}
+	require.Eventually(t, func() bool { return store.LatestVersion() == blocks },
+		5*time.Second, time.Millisecond)
+	require.NoError(t, store.Close())
+
+	reopened, err := gigareceipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reopened.Close() })
+	require.Equal(t, int64(blocks), reopened.LatestVersion())
+	logs, err := reopened.FilterLogs(ctx, 1, blocks, filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
+	require.NoError(t, err)
+	require.Len(t, logs, blocks)
+}
+
 func setupLittIdx(t *testing.T, dir string) (receipt.ReceiptStore, sdk.Context) {
 	t.Helper()
 	return setupLittIdxPar(t, dir, dbconfig.DefaultReceiptLogFilterParallelism)
