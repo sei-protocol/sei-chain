@@ -15,25 +15,20 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-func (s *CommitStore) CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error {
-	if err := s.ApplyChangeSets(blockNum, changeset); err != nil {
-		return fmt.Errorf("CommitStateChanges: apply version %d: %w", blockNum, err)
-	}
-	if _, err := s.Commit(blockNum); err != nil {
+// CommitStateChanges writes the block's mutations and commits them at blockNum.
+func (s *CommitStore) CommitStateChanges(blockNum int64, mutations []mutation.Mutation) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.commitMutations(blockNum, mutations); err != nil {
 		return fmt.Errorf("CommitStateChanges: commit version %d: %w", blockNum, err)
 	}
 	return nil
 }
 
-// Commit persists buffered writes at the given version (block height). One Commit persists exactly one
-// block; version must equal the height the pending writes were stamped with. Consecutive commits must also
-// be contiguous: the state WAL rejects a version that skips a height, though the first block written to an
-// empty WAL may be any height.
-// Protocol: WAL → seal on every store, each one's LocalMeta finalized into the same batch as its diff
-// → asynchronous flush. On crash, catchup replays WAL to recover incomplete commits.
-func (s *CommitStore) Commit(version int64) (committed int64, err error) {
-	start := time.Now()
-
+// Commit commits the block ApplyChangeSets buffered at version, or an empty block if nothing is buffered, and
+// returns version. version must be the committed version plus one; committing the committed version again does
+// nothing.
+func (s *CommitStore) Commit(version int64) (int64, error) {
 	// TODO(concurrency): This takes a single coarse write lock for the whole
 	// commit, so it also blocks readers/iterator construction during the WAL
 	// fsync and the periodic auto-snapshot. Views are unaffected, since
@@ -53,79 +48,98 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 		return version, nil
 	}
 
-	// Row counts are no longer available here: the staged rows live inside the stores' current
-	// version, which does not expose a size. The changeset count is the closest stand-in and is what
-	// a failure investigation actually starts from.
-	pendingChangeSets := len(s.pendingChangeSets)
+	mutations, err := s.pendingMutations(version)
+	if err != nil {
+		return version, err
+	}
+	if err := s.commitMutations(version, mutations); err != nil {
+		return version, err
+	}
+	return version, nil
+}
+
+// pendingMutations converts the changesets ApplyChangeSets buffered into the block's mutations at version. The
+// caller holds mu.
+func (s *CommitStore) pendingMutations(version int64) ([]mutation.Mutation, error) {
+	// Ahead of commitMutations' own check, because the conversion reads the state of the block before version.
+	if err := s.requireCommittable(version); err != nil {
+		return nil, err
+	}
+	s.phaseTimer.SetPhase("commit_convert_mutations")
+	// The last sealed block is the one before this one, which commitMutations has yet to seal.
+	prior := s.OpenView()
+	defer prior.Close()
+	height := uint64(version) //nolint:gosec // version > committed >= 0
+	mutations, err := MutationsFromChangeSets(s.pendingChangeSets, height, prior)
+	if err != nil {
+		return nil, fmt.Errorf("convert block %d to mutations: %w", version, err)
+	}
+	return mutations, nil
+}
+
+// commitMutations writes and commits one block's mutations at version, which must be the committed version plus
+// one. The caller holds mu.
+func (s *CommitStore) commitMutations(version int64, mutations []mutation.Mutation) (err error) {
+	start := time.Now()
 	defer func() {
 		otelMetrics.CommitLatency.Record(s.ctx, secondsSince(start),
 			metric.WithAttributes(successAttr(err)))
 		if err != nil && !errors.Is(err, errReadOnly) {
 			logger.Error("FlatKV Commit failed",
 				"version", version,
-				"pendingChangeSets", pendingChangeSets,
+				"mutations", len(mutations),
 				"elapsed", time.Since(start),
 				"err", err)
 		}
 	}()
 
-	if s.readOnly {
-		return 0, errReadOnly
-	}
-	// Blocks are contiguous and the first block is 1, so the next commit is always committedVersion+1. On a
-	// fresh store that means block 1; a store whose history starts higher gets there via SetInitialVersion,
-	// which seeds committedVersion to one below its first block.
-	if version != s.committedVersion+1 {
-		return 0, fmt.Errorf("flatkv: committing bad version: got %d, want %d (current %d)",
-			version, s.committedVersion+1, s.committedVersion)
+	if err := s.requireCommittable(version); err != nil {
+		return err
 	}
 
-	// Step 1: Write the WAL (source of truth) before the DBs, so crash recovery via catchup stays valid.
-	// Write records this block's mutations and Flush makes the record durable. An empty block (no
-	// ApplyChangeSets) writes an empty but contiguous record. Skipped entirely when the WAL is nil — the
-	// outer context then owns the WAL pipeline.
+	// Step 1: Stage the block into the stores. Every key is routed before anything is written, so a malformed
+	// block fails here, before the WAL records it.
+	staged, err := s.stageMutations(version, mutations, nil)
+	if err != nil {
+		return fmt.Errorf("stage block %d: %w", version, err)
+	}
+
+	// Step 2: Write the WAL (source of truth) before the seal, so crash recovery via catchup stays valid.
+	// Write records this block's mutations and Flush makes the record durable. An empty block writes an empty
+	// but contiguous record. Skipped entirely when the WAL is nil — the outer context then owns the WAL pipeline.
 	if s.wal != nil {
-		s.phaseTimer.SetPhase("commit_convert_mutations")
-		// The last sealed block is the one before this one, since this block is not sealed until Step 2.
-		height := uint64(version) //nolint:gosec // version > committed >= 0
-		prior := s.OpenView()
-		mutations, err := mutation.MutationsFromChangeSets(s.pendingChangeSets, height, prior)
-		prior.Close()
-		if err != nil {
-			return version, fmt.Errorf("convert block %d to mutations: %w", version, err)
-		}
-
 		s.phaseTimer.SetPhase("commit_write_wal")
-		if err := s.wal.Write(height, mutations); err != nil {
-			return version, fmt.Errorf("WAL write: %w", err)
+		//nolint:gosec // version > committed >= 0
+		if err := s.wal.Write(uint64(version), mutations); err != nil {
+			return fmt.Errorf("WAL write: %w", err)
 		}
 		if err := s.wal.Flush(); err != nil {
-			return version, fmt.Errorf("WAL flush: %w", err)
+			return fmt.Errorf("WAL flush: %w", err)
 		}
 	}
 
-	// Step 2: Seal the block on every store, hash it, and carry each database's metadata down with its
-	// diff. The stores flush to Pebble asynchronously from here; the WAL (Step 1) remains the source of
+	// Step 3: Seal the block on every store, hash it, and carry each database's metadata down with its
+	// diff. The stores flush to Pebble asynchronously from here; the WAL (Step 2) remains the source of
 	// truth for anything that has not landed yet, so a restart self-heals via catchup.
-	if err := s.sealBlock(version, nil); err != nil {
-		return version, fmt.Errorf("seal block: %w", err)
+	if err := s.sealBlock(version, staged, nil); err != nil {
+		return fmt.Errorf("seal block: %w", err)
 	}
 
-	// Step 3: Update in-memory committed state, only once every store accepted the seal. The block's
+	// Step 4: Update in-memory committed state, only once every store accepted the seal. The block's
 	// hash is not part of this: it is computed and recorded asynchronously, and handed to the
 	// registered listeners once it is.
 	s.committedVersion = version
 
-	// Step 4: Clear per-block bookkeeping
+	// Step 5: Clear per-block bookkeeping
 	s.clearPendingBlock()
 
-	// Step 5: Offer the block to the snapshot writer, which decides whether it becomes a snapshot and,
+	// Step 6: Offer the block to the snapshot writer, which decides whether it becomes a snapshot and,
 	// if so, writes it on its own goroutine. Periodic snapshots are what keep the WAL bounded and
 	// restarts fast.
 	if s.snapshotWriter != nil {
 		s.phaseTimer.SetPhase("commit_offer_snapshot")
 		if err := s.offerToSnapshotWriter(); err != nil {
-			return version, fmt.Errorf("auto snapshot at version %d: %w", version, err)
+			return fmt.Errorf("auto snapshot at version %d: %w", version, err)
 		}
 	}
 
@@ -138,7 +152,22 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	// themselves and not the gaps between them.
 	s.phaseTimer.Reset()
 	otelMetrics.CurrentVersion.Record(s.ctx, version)
-	return version, nil
+	return nil
+}
+
+// requireCommittable returns an error unless this store accepts a commit at version. The caller holds mu.
+func (s *CommitStore) requireCommittable(version int64) error {
+	if s.readOnly {
+		return errReadOnly
+	}
+	// Blocks are contiguous and the first block is 1, so the next commit is always committedVersion+1. On a
+	// fresh store that means block 1; a store whose history starts higher gets there via SetInitialVersion,
+	// which seeds committedVersion to one below its first block.
+	if version != s.committedVersion+1 {
+		return fmt.Errorf("flatkv: committing bad version: got %d, want %d (current %d)",
+			version, s.committedVersion+1, s.committedVersion)
+	}
+	return nil
 }
 
 // FlushSnapshots blocks until no snapshot is being written. It is a synchronization point for callers
@@ -160,17 +189,17 @@ func (s *CommitStore) clearPendingBlock() {
 // sealBlock marks the block as closed for new writes and hands it to the hashing pipeline.
 func (s *CommitStore) sealBlock(
 	version int64,
+	// The block's mutations grouped by database, as stageMutations returned them.
+	staged []lthash.DatabaseMutations,
 	// The replay skip list: the height each database had already reached when replay started, or nil
 	// outside replay. A database listed at or above version keeps the metadata it already has.
 	alreadyHave map[string]int64,
 ) (err error) {
 	var blockView *sview.StoreView
-	var previous *sview.StoreView
 	defer func() {
 		if err != nil {
-			// Error is fatal; the reservations are given up rather than released.
+			// Error is fatal; the reservation is given up rather than released.
 			blockView.Abandon()
-			previous.Abandon()
 		}
 	}()
 
@@ -179,11 +208,6 @@ func (s *CommitStore) sealBlock(
 	blockView, err = s.commitStores(version)
 	if err != nil {
 		return err
-	}
-
-	previous, err = s.lastSealed.Get()
-	if err != nil {
-		return fmt.Errorf("read previous block's view: %w", err)
 	}
 
 	if err := s.lastSealed.Set(blockView); err != nil {
@@ -196,13 +220,10 @@ func (s *CommitStore) sealBlock(
 	}
 
 	s.phaseTimer.SetPhase("commit_schedule_hash")
-	if err := s.hashEngine.ScheduleHash(blockView, previous); err != nil {
+	if err := s.hashEngine.ScheduleHash(version, staged); err != nil {
 		return err
 	}
 
-	if err := previous.Release(); err != nil {
-		return fmt.Errorf("release previous block's view: %w", err)
-	}
 	if err := blockView.Release(); err != nil {
 		return fmt.Errorf("release block %d's view: %w", version, err)
 	}
