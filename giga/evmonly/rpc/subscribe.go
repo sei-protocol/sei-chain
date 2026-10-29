@@ -93,12 +93,8 @@ func (api *subscribeAPI) streamLogs(
 			logger.Error("logs: stream panicked", "subscription", rpcSub.ID, "panic", r)
 		}
 	}()
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := subscriptionContext(ctx, rpcSub.Err())
 	defer cancel()
-	go func() {
-		<-rpcSub.Err()
-		cancel()
-	}()
 	for {
 		if _, err := executed.Wait(ctx, func(w atypes.ExecutedBlocks) bool { return uint64(w.Latest().Number) >= cursor }); err != nil {
 			return
@@ -130,6 +126,20 @@ func (api *subscribeAPI) streamLogs(
 		}
 		cursor = next
 	}
+}
+
+// subscriptionContext returns a context derived from ctx that is cancelled once subErr closes,
+// which happens on eth_unsubscribe and when the connection drops, or once cancel is called.
+func subscriptionContext(ctx context.Context, subErr <-chan error) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-subErr:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancel
 }
 
 func newLogsErrorNotification(err error) logsErrorNotification {
@@ -187,14 +197,8 @@ func (api *subscribeAPI) streamHeads(
 			logger.Error("newHeads: stream panicked", "subscription", rpcSub.ID, "panic", r)
 		}
 	}()
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := subscriptionContext(ctx, rpcSub.Err())
 	defer cancel()
-	go func() {
-		// Err closes on eth_unsubscribe and when the connection drops; that is
-		// the only way this stream ends.
-		<-rpcSub.Err()
-		cancel()
-	}()
 	for next := last + 1; ; next++ {
 		window, err := executed.Wait(ctx, func(w atypes.ExecutedBlocks) bool { return w.Latest().Number >= next })
 		if err != nil {
