@@ -4,7 +4,7 @@
 Usage: add_shard_routing.py <seiload-clob.yaml> <out.yaml> <autobahn.json>
 
 autobahn.json is the committee file of any validator of the chain, for example:
-  kubectl -n NAMESPACE exec CHAIN_ID-0-0 -c seid -- cat /home/nonroot/.sei/config/autobahn.json
+  kubectl -n <namespace> exec <chain-id>-0-0 -c seid -- cat /home/nonroot/.sei/config/autobahn.json
 Validator keys change with every genesis, so the routing is regenerated for each new chain.
 """
 import json

@@ -23,19 +23,19 @@ sei-load branch `yzang/clob-fixed-markets` (image `ghcr.io/sei-protocol/sei-load
    gh workflow run ecr.yml --repo sei-protocol/sei-chain --ref main -f ref=<sha> -f tag=<sha>
    ```
 
-2. Fill `NAMESPACE`, `CHAIN_ID` and `IMAGE` in `seinetwork.yaml` and commit it to your Harbor engineer
+2. Fill `__NAMESPACE__`, `__CHAIN_ID__` and `__IMAGE__` in `seinetwork.yaml` and commit it to your Harbor engineer
    workspace. Re-spinning a chain with the same chain ID needs its genesis artifacts removed from
-   `s3://harbor-sei-k8s-genesis-artifacts/<CHAIN_ID>/` first, and validators are torn down and re-spun rather
+   `s3://harbor-sei-k8s-genesis-artifacts/<chain-id>/` first, and validators are torn down and re-spun rather
    than restarted in place.
 
 3. Once the chain is advancing, build the bench from the live committee:
 
    ```bash
-   kubectl -n NAMESPACE exec CHAIN_ID-0-0 -c seid -- cat /home/nonroot/.sei/config/autobahn.json > autobahn.json
+   kubectl -n <namespace> exec <chain-id>-0-0 -c seid -- cat /home/nonroot/.sei/config/autobahn.json > autobahn.json
    python3 add_shard_routing.py seiload-clob.yaml bench.yaml autobahn.json
    ```
 
-   Fill `NAMESPACE`, `CHAIN_ID`, `RUN_ID` (lowercase) and `COMMIT` in `bench.yaml`, then commit it next to the
+   Fill `__NAMESPACE__`, `__CHAIN_ID__`, `__RUN_ID__` (lowercase) and `__COMMIT__` in `bench.yaml`, then commit it next to the
    chain. Each pod requests 5 CPU and peaks near 5 cores.
 
 4. After at least 5 minutes of load, summarize a 5-minute window:
@@ -68,7 +68,7 @@ sei-load branch `yzang/clob-fixed-markets` (image `ghcr.io/sei-protocol/sei-load
 | Item | Value |
 |---|---|
 | Consensus | Autobahn, `evmOnly: true` |
-| Chain IDs | Cosmos `CHAIN_ID`; EVM chain ID 713715 |
+| Chain IDs | Cosmos chain ID of your choice; EVM chain ID 713715 |
 | Genesis balances | 1e21 usei, uusdc and uatom per genesis account; staking 10,000,000 usei per validator, equal voting power |
 | Block gas | `consensusParams.block.max_gas` and `max_gas_wanted` 30,000,000,000 per superblock, far above what a superblock uses (about 0.65 billion) |
 | Min gas price | 1 gwei (`giga.execution.min_gas_price`, default) |

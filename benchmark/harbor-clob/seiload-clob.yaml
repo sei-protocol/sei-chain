@@ -1,26 +1,26 @@
-# sei-load CLOB bench. Replace NAMESPACE, CHAIN_ID, RUN_ID (lowercase) and COMMIT, then add the live
+# sei-load CLOB bench. Replace __NAMESPACE__, __CHAIN_ID__, __RUN_ID__ (lowercase) and __COMMIT__, then add the live
 # committee's shardRouting with add_shard_routing.py before applying. The sei-load image is built from
 # sei-load branch yzang/clob-fixed-markets (b2faf076).
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: seiload-profile-RUN_ID
-  namespace: NAMESPACE
-  labels: {app.kubernetes.io/name: seiload, sei.io/chain-id: CHAIN_ID, sei.io/bench-name: RUN_ID}
+  name: seiload-profile-__RUN_ID__
+  namespace: __NAMESPACE__
+  labels: {app.kubernetes.io/name: seiload, sei.io/chain-id: __CHAIN_ID__, sei.io/bench-name: __RUN_ID__}
 data:
   profile.json: |
     {
       "chainId": 713715,
-      "seiChainID": "CHAIN_ID",
+      "seiChainID": "__CHAIN_ID__",
       "endpoints": [
-        "ws://CHAIN_ID-0-0.CHAIN_ID-0.NAMESPACE.svc.cluster.local:8546",
-        "ws://CHAIN_ID-1-0.CHAIN_ID-1.NAMESPACE.svc.cluster.local:8546",
-        "ws://CHAIN_ID-2-0.CHAIN_ID-2.NAMESPACE.svc.cluster.local:8546",
-        "ws://CHAIN_ID-3-0.CHAIN_ID-3.NAMESPACE.svc.cluster.local:8546",
-        "ws://CHAIN_ID-4-0.CHAIN_ID-4.NAMESPACE.svc.cluster.local:8546",
-        "ws://CHAIN_ID-5-0.CHAIN_ID-5.NAMESPACE.svc.cluster.local:8546",
-        "ws://CHAIN_ID-6-0.CHAIN_ID-6.NAMESPACE.svc.cluster.local:8546",
-        "ws://CHAIN_ID-7-0.CHAIN_ID-7.NAMESPACE.svc.cluster.local:8546"
+        "ws://__CHAIN_ID__-0-0.__CHAIN_ID__-0.__NAMESPACE__.svc.cluster.local:8546",
+        "ws://__CHAIN_ID__-1-0.__CHAIN_ID__-1.__NAMESPACE__.svc.cluster.local:8546",
+        "ws://__CHAIN_ID__-2-0.__CHAIN_ID__-2.__NAMESPACE__.svc.cluster.local:8546",
+        "ws://__CHAIN_ID__-3-0.__CHAIN_ID__-3.__NAMESPACE__.svc.cluster.local:8546",
+        "ws://__CHAIN_ID__-4-0.__CHAIN_ID__-4.__NAMESPACE__.svc.cluster.local:8546",
+        "ws://__CHAIN_ID__-5-0.__CHAIN_ID__-5.__NAMESPACE__.svc.cluster.local:8546",
+        "ws://__CHAIN_ID__-6-0.__CHAIN_ID__-6.__NAMESPACE__.svc.cluster.local:8546",
+        "ws://__CHAIN_ID__-7-0.__CHAIN_ID__-7.__NAMESPACE__.svc.cluster.local:8546"
       ],
       "accounts": {
         "count": 400000,
@@ -47,9 +47,9 @@ data:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: seiload-RUN_ID
-  namespace: NAMESPACE
-  labels: {app.kubernetes.io/name: seiload, sei.io/chain-id: CHAIN_ID, sei.io/bench-name: RUN_ID}
+  name: seiload-__RUN_ID__
+  namespace: __NAMESPACE__
+  labels: {app.kubernetes.io/name: seiload, sei.io/chain-id: __CHAIN_ID__, sei.io/bench-name: __RUN_ID__}
 spec:
   parallelism: 8
   completions: 8
@@ -59,7 +59,7 @@ spec:
   activeDeadlineSeconds: 3000
   template:
     metadata:
-      labels: {app.kubernetes.io/name: seiload, sei.io/chain-id: CHAIN_ID, sei.io/bench-name: RUN_ID}
+      labels: {app.kubernetes.io/name: seiload, sei.io/chain-id: __CHAIN_ID__, sei.io/bench-name: __RUN_ID__}
     spec:
       serviceAccountName: engineer-service-account
       restartPolicy: Never
@@ -76,18 +76,18 @@ spec:
           topologyKey: kubernetes.io/hostname
           whenUnsatisfiable: ScheduleAnyway
           labelSelector:
-            matchLabels: {sei.io/bench-name: RUN_ID}
+            matchLabels: {sei.io/bench-name: __RUN_ID__}
       volumes:
         - name: profile
-          configMap: {name: seiload-profile-RUN_ID}
+          configMap: {name: seiload-profile-__RUN_ID__}
       containers:
         - name: seiload
           image: ghcr.io/sei-protocol/sei-load:sha-b2faf076774402e14ee83d62347ca78bf9fe1b1e
           args: [--config, /etc/seiload/profile.json, --duration=30m, --tps=12500, --max-in-flight=24000, --post-summary-flush-delay=45s, --track-receipts=false]
           env:
-            - {name: SEILOAD_RUN_ID, value: "RUN_ID"}
-            - {name: SEILOAD_CHAIN_ID, value: "CHAIN_ID"}
-            - {name: SEILOAD_COMMIT_ID, value: "COMMIT"}
+            - {name: SEILOAD_RUN_ID, value: "__RUN_ID__"}
+            - {name: SEILOAD_CHAIN_ID, value: "__CHAIN_ID__"}
+            - {name: SEILOAD_COMMIT_ID, value: "__COMMIT__"}
             - {name: SEILOAD_WORKLOAD, value: engineer}
             - {name: GOMAXPROCS, value: "14"}
           ports: [{name: metrics, containerPort: 9090, protocol: TCP}]
@@ -112,7 +112,7 @@ spec:
               aws s3 cp /tmp/report.log "s3://$S3_BUCKET/$S3_PREFIX/$POD_NAME/report.log"
           env:
             - {name: S3_BUCKET, value: harbor-validation-results}
-            - {name: S3_PREFIX, value: NAMESPACE/clob/RUN_ID}
+            - {name: S3_PREFIX, value: __NAMESPACE__/clob/__RUN_ID__}
             - name: POD_NAME
               valueFrom: {fieldRef: {fieldPath: metadata.name}}
           resources: {requests: {cpu: "100m", memory: "128Mi"}, limits: {cpu: "500m", memory: "256Mi"}}

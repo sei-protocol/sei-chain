@@ -1,13 +1,13 @@
 # EVM-only Autobahn chain the CLOB benchmark ran against: 8 validators on dedicated c7i.16xlarge hosts.
-# Replace NAMESPACE, CHAIN_ID and IMAGE (the ECR image built from this branch, tag mock-<sha>@<digest>).
+# Replace __NAMESPACE__, __CHAIN_ID__ and __IMAGE__ (the ECR image built from this branch, tag mock-<sha>@<digest>).
 apiVersion: sei.io/v1alpha1
 kind: SeiNetwork
 metadata:
   annotations:
     seictl.sei.io/preset: genesis-chain
     seictl.sei.io/version: v0.0.72
-  name: CHAIN_ID
-  namespace: NAMESPACE
+  name: __CHAIN_ID__
+  namespace: __NAMESPACE__
 spec:
   configOverrides:
     network.rpc.pprof_listen_address: 0.0.0.0:6060
@@ -43,13 +43,13 @@ spec:
   deletionPolicy: Delete
   genesis:
     accountBalance: 1000000000000000000000usei,1000000000000000000000uusdc,1000000000000000000000uatom
-    chainId: CHAIN_ID
+    chainId: __CHAIN_ID__
     stakingAmount: 10000000usei
     consensusParams:
       block:
         max_gas: "30000000000"
         max_gas_wanted: "30000000000"
-  image: IMAGE
+  image: __IMAGE__
   replicas: 8
   resources:
     requests:
