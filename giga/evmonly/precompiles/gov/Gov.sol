@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.8.10 <0.8.31;
+pragma solidity 0.8.30;
 
 address constant GOV_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001006;
 
@@ -26,7 +26,8 @@ struct TextContent {
 /// proposal, fails with no revert data and uses its gas. A method marked
 /// "Reverts:" is kept so a caller of a V2 method gets a revert whose
 /// Error(string) names the call to use instead, or says the operation is not
-/// supported. The address holds no code, so call it from solc 0.8.10 or later.
+/// supported. The address holds no code; solc 0.8.10 and later call it
+/// without checking for code.
 /// Calldata over 20 KiB fails the call and uses its gas.
 interface IGov {
     struct WeightedVoteOption {

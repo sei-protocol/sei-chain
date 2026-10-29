@@ -37,9 +37,10 @@ same result from the same block, so each rule below is a consensus rule.
   revert with `precompiles.Revert` naming the argument when one is out of range.
   A list with a repeated entry is out of range. A check that needs state fails
   the call later, as a plain error.
-- Solidity interfaces declare `pragma solidity >=0.8.10 <0.8.31`. The precompile
-  addresses hold no code: solc 0.8.10 and later skip the code check for a call
-  that returns data, and 0.8.31 defaults to Osaka, whose `CLZ` this chain lacks.
+- Solidity interfaces declare `pragma solidity 0.8.30;`. The precompile
+  addresses hold no code, and solc 0.8.10 and later skip the code check for a
+  call that returns data; 0.8.31 and later default to Osaka, whose `CLZ` this
+  chain lacks.
 
 ## Limits
 - Enforce the limits that keep the chain from locking: a state that no
