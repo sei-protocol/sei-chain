@@ -43,6 +43,10 @@ same result from the same block, so each rule below is a consensus rule.
 - `RequiredGas` prices a call from its selector and argument bytes alone (V2's
   `DefaultGasCost` formula). Storage reads, writes and logs are metered by the
   adapter; do not price them into `RequiredGas`.
+- The adapter rejects input over 64 KiB before `RequiredGas` and `Run`, using
+  all the call's gas, because ABI decoding can allocate far more than calldata
+  gas pays for. A method whose arguments could need more takes them over
+  several calls.
 - `EndBlock` is not metered, so `ctx.State.Failed()` never reports a storage
   read failure there. It schedules its work under a budget (see gov's
   `endBlockBudget`). Each unit of that work is bounded by limits its write path
