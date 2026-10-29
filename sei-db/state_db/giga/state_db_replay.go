@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
@@ -170,15 +169,19 @@ func (s *StateDB) catchUpTo(ctx context.Context, target int64) error {
 	}
 	s.logReplayPlan(scFrom, ssFrom, ssReplays, target)
 
-	if err := s.replay(ctx, from, target, func(block int64, changesets []*proto.NamedChangeSet) error {
+	if err := s.replay(ctx, from, target, func(block int64, mutations []mutation.Mutation) error {
 		if block > scFrom {
 			// SC owns no WAL, so re-committing a block read from this one appends nothing. It does run
 			// SC's commit path, so the checkpoint schedule is asked at each block SC takes.
-			if err := s.sc.CommitStateChanges(block, changesets); err != nil {
+			if err := s.sc.CommitStateChanges(block, mutations); err != nil {
 				return err
 			}
 		}
 		if ssReplays && block > ssFrom {
+			changesets, err := flatkv.MutationsToChangeSets(mutations)
+			if err != nil {
+				return fmt.Errorf("convert block %d to changesets: %w", block, err)
+			}
 			return s.ss.ApplyReplayedBlock(block, changesets)
 		}
 		return nil
@@ -228,7 +231,7 @@ func replayPlanFields(store string, from int64, to int64) []any {
 func (s *StateDB) replay(
 	ctx context.Context,
 	from, target int64,
-	apply func(int64, []*proto.NamedChangeSet) error,
+	apply func(int64, []mutation.Mutation) error,
 ) error {
 	stored, first, last, err := s.wal.GetStoredRange()
 	if err != nil {
@@ -265,14 +268,10 @@ func (s *StateDB) replay(
 			break
 		}
 		block, mutations := it.Entry()
-		changesets, err := mutation.MutationsToChangeSets(mutations)
-		if err != nil {
-			return fmt.Errorf("convert block %d: %w", block, err)
-		}
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("replay stopped at block %d of %d: %w", block, end, err)
 		}
-		if err := apply(int64(block), changesets); err != nil { //nolint:gosec // block <= end
+		if err := apply(int64(block), mutations); err != nil { //nolint:gosec // block <= end
 			return fmt.Errorf("replay block %d: %w", block, err)
 		}
 		progress.observe(int64(block)) //nolint:gosec // block <= end

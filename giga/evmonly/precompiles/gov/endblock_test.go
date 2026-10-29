@@ -658,19 +658,29 @@ func TestAProposalThatWillNotLeaveItsQueueIsFailed(t *testing.T) {
 	require.Zero(t, newStore(h.state).votingQueue().Len())
 }
 
-func TestACorruptQueueLengthFreezesThatQueue(t *testing.T) {
+func TestACorruptQueueLengthIsReportedAndDrained(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
 	id := h.passing()
-	dropped := h.submit(alice, textProposal, nil)
+	s := newStore(h.state)
+	s.Store.SetWord(solstorage.Slot(slotVotingQueue), solstorage.Slot(s.votingQueue().Len()+3))
+	h.time += testParams.VotingPeriod
+	h.endBlock(1)
+
+	require.ErrorIs(t, h.failures[0], errQueueCorrupt)
+	require.Equal(t, StatusPassed, h.status(id), "the queue's real proposal proceeds")
+	require.Zero(t, newStore(h.state).votingQueue().Len(), "the entries past the real ones are drained")
+}
+
+func TestAHugeCorruptQueueLengthDrainsWithinTheBudget(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	id := h.passing()
 	newStore(h.state).Store.SetWord(solstorage.Slot(slotVotingQueue), solstorage.Slot(1_000_000))
 	h.time += testParams.VotingPeriod
 	h.endBlock(1)
 
-	require.Len(t, h.failures, 1)
 	require.ErrorIs(t, h.failures[0], errQueueCorrupt)
-	require.Equal(t, StatusVotingPeriod, h.status(id), "no proposal on the frozen queue proceeds")
-	_, err := h.call(alice, callOpts{}, ProposalMethod, dropped)
-	require.ErrorIs(t, err, errUnknownProposal, "the deposit queue still drains")
+	require.Equal(t, StatusPassed, h.status(id))
+	require.LessOrEqual(t, len(h.failures), 1+endBlockBudget/failCost)
 }
 
 func TestMoreDepositorsThanAllowedFailsTheProposal(t *testing.T) {
