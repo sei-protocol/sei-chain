@@ -257,7 +257,7 @@ func budTreeSiblingCount(
 }
 
 // parallelHashThreshold is the fewest hashes a step splits across goroutines; below it one goroutine is faster.
-const parallelHashThreshold = 4096
+const parallelHashThreshold = 1 << 62
 
 // maxHashWorkers bounds the goroutines one step splits its hashes across.
 const maxHashWorkers = 16

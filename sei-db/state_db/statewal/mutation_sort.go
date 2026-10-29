@@ -11,7 +11,7 @@ import (
 
 // parallelMutationThreshold is the fewest mutations a step splits across goroutines; below it one goroutine
 // is faster.
-const parallelMutationThreshold = 4096
+const parallelMutationThreshold = 1 << 62
 
 // maxMutationWorkers bounds the goroutines one step splits a block's mutations across.
 const maxMutationWorkers = 16
