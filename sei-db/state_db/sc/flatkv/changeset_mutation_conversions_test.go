@@ -1,8 +1,7 @@
-package mutation
+package flatkv
 
 import (
 	"bytes"
-	"encoding/binary"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -10,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
@@ -74,10 +74,6 @@ var (
 		append(bytes.Clone(testAddress), testSlot...))
 	testMiscPhysicalKey = ktype.BuildPhysicalKey(keys.EVMStoreKey, testMiscKey)
 )
-
-func nonceBytes(nonce uint64) []byte {
-	return binary.BigEndian.AppendUint64(nil, nonce)
-}
 
 func evmChangeSet(pairs ...*proto.KVPair) *proto.NamedChangeSet {
 	return moduleChangeSet(keys.EVMStoreKey, pairs...)
@@ -151,7 +147,7 @@ func TestMutationsFromChangeSetsBuildsEachKind(t *testing.T) {
 	mutations, err := MutationsFromChangeSets(changeSets, 5, stateAt(4, nil))
 	require.NoError(t, err)
 
-	expected := []Mutation{
+	expected := []mutation.Mutation{
 		{Key: testStoragePhysicalKey, NewValue: storageRow(t, 5, storageValue)},
 		{Key: testCodePhysicalKey, NewValue: vtype.SerializeCode(5, code)},
 		{Key: testMiscPhysicalKey, NewValue: vtype.SerializeMisc(5, []byte("evm misc"))},
@@ -172,7 +168,7 @@ func TestMutationsFromChangeSetsMergesAccountOntoPriorRow(t *testing.T) {
 	mutations, err := MutationsFromChangeSets(changeSets, 5, prior)
 	require.NoError(t, err)
 
-	expected := []Mutation{{
+	expected := []mutation.Mutation{{
 		Key:           testAccountPhysicalKey,
 		PreviousValue: priorRow,
 		NewValue:      accountRow(t, 5, 8, testCodeHash, testBalance),
@@ -204,7 +200,7 @@ func TestMutationsFromChangeSetsDeletes(t *testing.T) {
 	mutations, err := MutationsFromChangeSets(changeSets, 5, prior)
 	require.NoError(t, err)
 
-	expected := []Mutation{
+	expected := []mutation.Mutation{
 		{Key: testStoragePhysicalKey},
 		{Key: ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage,
 			append(bytes.Clone(testAddress), make([]byte, 32)...))},
@@ -233,7 +229,7 @@ func TestMutationsFromChangeSetsKeepsLastWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	evmMiscKey := func(key []byte) []byte { return ktype.BuildPhysicalKey(keys.EVMStoreKey, key) }
-	expected := []Mutation{
+	expected := []mutation.Mutation{
 		{Key: evmMiscKey(keyA), NewValue: vtype.SerializeMisc(5, []byte("last"))},
 		{Key: evmMiscKey(keyB), NewValue: vtype.SerializeMisc(5, []byte("other"))},
 	}
@@ -297,7 +293,7 @@ func TestMutationsFromChangeSetsRejectsInvalidInput(t *testing.T) {
 
 func TestAccountMutationToChangeSet(t *testing.T) {
 	row := accountRow(t, 5, 0, make([]byte, vtype.CodeHashLen), testBalance)
-	changeSet, err := (&Mutation{Key: testAccountPhysicalKey, NewValue: row}).ToChangeSet()
+	changeSet, err := MutationToChangeSet(&mutation.Mutation{Key: testAccountPhysicalKey, NewValue: row})
 	require.NoError(t, err)
 	expected := evmChangeSet(
 		set(testNonceKey, nonceBytes(0)),
@@ -306,7 +302,7 @@ func TestAccountMutationToChangeSet(t *testing.T) {
 	)
 	requireChangeSetsMatch(t, []*proto.NamedChangeSet{expected}, []*proto.NamedChangeSet{changeSet})
 
-	changeSet, err = (&Mutation{Key: testAccountPhysicalKey, PreviousValue: row}).ToChangeSet()
+	changeSet, err = MutationToChangeSet(&mutation.Mutation{Key: testAccountPhysicalKey, PreviousValue: row})
 	require.NoError(t, err)
 	expected = evmChangeSet(del(testNonceKey), del(testCodeHashKey), del(testBalanceKey))
 	requireChangeSetsMatch(t, []*proto.NamedChangeSet{expected}, []*proto.NamedChangeSet{changeSet})
@@ -315,23 +311,23 @@ func TestAccountMutationToChangeSet(t *testing.T) {
 func TestMutationToChangeSetRejectsInvalidInput(t *testing.T) {
 	tests := []struct {
 		name     string
-		mutation Mutation
+		mutation mutation.Mutation
 	}{
-		{name: "key without module prefix", mutation: Mutation{Key: []byte("no-prefix")}},
-		{name: "empty EVM key", mutation: Mutation{Key: []byte("evm/")}},
+		{name: "key without module prefix", mutation: mutation.Mutation{Key: []byte("no-prefix")}},
+		{name: "empty EVM key", mutation: mutation.Mutation{Key: []byte("evm/")}},
 		{
 			name:     "account field key",
-			mutation: Mutation{Key: ktype.BuildPhysicalKey(keys.EVMStoreKey, testBalanceKey)},
+			mutation: mutation.Mutation{Key: ktype.BuildPhysicalKey(keys.EVMStoreKey, testBalanceKey)},
 		},
 		{
 			name:     "corrupt row",
-			mutation: Mutation{Key: testCodePhysicalKey, NewValue: []byte{0xff}},
+			mutation: mutation.Mutation{Key: testCodePhysicalKey, NewValue: []byte{0xff}},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := tt.mutation.ToChangeSet()
+			_, err := MutationToChangeSet(&tt.mutation)
 			require.Error(t, err)
 		})
 	}
@@ -340,7 +336,7 @@ func TestMutationToChangeSetRejectsInvalidInput(t *testing.T) {
 func TestMutationsToChangeSetsGroupsByModule(t *testing.T) {
 	keyA := []byte{0x01, 0x0a}
 	keyC := []byte{0x01, 0x0c}
-	mutations := []Mutation{
+	mutations := []mutation.Mutation{
 		{
 			Key:      ktype.BuildPhysicalKey(keys.EVMStoreKey, keyA),
 			NewValue: vtype.SerializeMisc(5, []byte("a")),

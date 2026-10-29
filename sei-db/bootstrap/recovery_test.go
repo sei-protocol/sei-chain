@@ -18,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
@@ -96,7 +95,7 @@ func writeReceipts(t *testing.T, manager *GigaStorageManager, through uint64) {
 func writeWALOnly(t *testing.T, wal statewal.StateWAL, block uint64, changesets []*proto.NamedChangeSet) {
 	t.Helper()
 	//nolint:gosec // small test heights
-	mutations, err := mutation.MutationsFromChangeSets(changesets, block, emptyStateView{height: int64(block) - 1})
+	mutations, err := flatkv.MutationsFromChangeSets(changesets, block, emptyStateView{height: int64(block) - 1})
 	require.NoError(t, err)
 	require.NoError(t, wal.Write(block, mutations))
 	require.NoError(t, wal.Flush())
@@ -485,7 +484,11 @@ func TestRecoverReplaysForwardFromTheStoreOwnHeight(t *testing.T) {
 	}
 	// Block 8 goes to SC under an address the WAL's own block 8 does not carry. It marks the working
 	// copy: a rebuild from the snapshot replays the WAL's block 8 instead and the address is gone.
-	require.NoError(t, manager.SC().CommitStateChanges(8, evmBlock(108, 108)))
+	prior := manager.SC().OpenView()
+	marked, err := flatkv.MutationsFromChangeSets(evmBlock(108, 108), 8, prior)
+	prior.Close()
+	require.NoError(t, err)
+	require.NoError(t, manager.SC().CommitStateChanges(8, marked))
 	writeWALOnly(t, manager.StateWAL(), 8, evmBlock(8, 8))
 	writeWALOnly(t, manager.StateWAL(), 9, evmBlock(9, 9))
 	writeWALOnly(t, manager.StateWAL(), 10, evmBlock(10, 10))

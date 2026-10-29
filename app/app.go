@@ -95,7 +95,6 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	appante "github.com/sei-protocol/sei-chain/app/ante"
-	"github.com/sei-protocol/sei-chain/app/benchmark"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/app/migration"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
@@ -131,7 +130,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
-	evmconfig "github.com/sei-protocol/sei-chain/x/evm/config"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
@@ -429,8 +427,6 @@ type App struct {
 	forkInitializer func(sdk.Context)
 
 	txPrioritizer sdk.TxPrioritizer
-
-	benchmarkManager *benchmark.Manager
 
 	// GigaExecutorEnabled controls whether to use the Giga executor.
 	GigaExecutorEnabled bool
@@ -891,12 +887,6 @@ func New(
 	app.SetAnteHandler(anteHandler)
 	app.SetMidBlocker(app.MidBlocker)
 
-	// benchmarkEnabled is enabled via build flag (make install-bench)
-	if benchmarkEnabled {
-		evmChainID := evmconfig.GetEVMChainID(app.ChainID).Int64()
-		app.InitBenchmark(context.Background(), app.ChainID, evmChainID)
-	}
-
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
 	app.SetFinalizeBlocker(app.FinalizeBlocker)
 	app.SetInplaceTestnetInitializer(app.inplacetestnetInitializer)
@@ -1127,9 +1117,6 @@ func (app *App) ClearOptimisticProcessingInfo() {
 }
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
-	// Start block processing timing (ends at FinalizeBlock)
-	app.StartBenchmarkBlockProcessing()
-
 	typedTxs, err := app.DecodeTxBytesConcurrently(ctx.Context(), req.Txs)
 	if err != nil {
 		appMetrics.failedGasWantedCheck.Add(ctx.Context(), 1,
@@ -1231,10 +1218,6 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		app.ClearOptimisticProcessingInfo()
 		duration := time.Since(startTime)
 		logger.Info("FinalizeBlock complete", "took-ms", duration/time.Millisecond)
-		// End block processing timing (started at ProcessProposal)
-		app.EndBenchmarkBlockProcessing()
-		// Process receipts for benchmark deployment tracking
-		app.ProcessBenchmarkReceipts(ctx)
 	}()
 
 	// Get all optimistic processing info atomically

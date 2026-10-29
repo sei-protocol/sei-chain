@@ -123,7 +123,7 @@ func TestRegisteredCustomPrecompileReportsGas(t *testing.T) {
 	var remaining uint64
 	contract := registeredCustomPrecompile{address: registeredPrecompileAddress, contract: gasRecorder{&remaining}}
 	stateDB := newNativeStateDB(NewMemoryState())
-	evm := vm.NewEVM(buildBlockContext(blockContext(big.NewInt(testChainID))), stateDB, params.AllDevChainProtocolChanges, vm.Config{}, nil)
+	evm := vm.NewEVM(EVMBlockContext(blockContext(big.NewInt(testChainID))), stateDB, params.AllDevChainProtocolChanges, vm.Config{}, nil)
 	stateDB.SetEVM(evm)
 	type change struct{ from, to uint64 }
 	var changes []change

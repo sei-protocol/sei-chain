@@ -75,7 +75,7 @@ func TestEmptyValueSurvivesWALReplay(t *testing.T) {
 			"empty-value keys must not be dropped on replay")
 }
 
-func TestEmptyValueVisibleBeforeCommit(t *testing.T) {
+func TestEmptyValueVisibleAfterCommit(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s := setupTestStoreWithConfig(t, cfg)
 	defer func() { require.NoError(t, s.Close()) }()
@@ -85,6 +85,7 @@ func TestEmptyValueVisibleBeforeCommit(t *testing.T) {
 		Key:   key,
 		Value: []byte{},
 	})))
+	commitBuffered(t, s)
 
 	value, found := s.Get("bank", key)
 	require.True(t, found)
@@ -96,19 +97,10 @@ func TestEmptyValueVisibleBeforeCommit(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, iter.Valid())
 	require.Equal(t, key, iter.Key())
-	require.NotNil(t, iter.Value(), "pending iterator should preserve empty value presence")
+	require.NotNil(t, iter.Value(), "iterator should preserve empty value presence")
 	require.Empty(t, iter.Value())
 	iter.Next()
 	require.False(t, iter.Valid())
 	require.NoError(t, iter.Error())
 	require.NoError(t, iter.Close())
-
-	_, err = s.Commit(s.Version() + 1)
-	require.NoError(t, err)
-
-	value, found = s.Get("bank", key)
-	require.True(t, found)
-	require.NotNil(t, value)
-	require.Empty(t, value)
-	require.True(t, s.Has("bank", key))
 }
