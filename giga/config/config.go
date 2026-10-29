@@ -96,6 +96,9 @@ type ExecutionConfig struct {
 	FlatKVStorageViewShards uint64 `mapstructure:"flatkv_storage_view_shards"`
 	// DummyAppHash leaves a block's state changes out of the EVM-only app hash.
 	DummyAppHash bool `mapstructure:"dummy_app_hash"`
+	// EarlySpeculationWorkers, when positive, speculates each prepared block's transactions before the
+	// block executes, on up to this many at once.
+	EarlySpeculationWorkers int `mapstructure:"early_speculation_workers"`
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
@@ -199,6 +202,7 @@ const (
 	FlagExecutionFlatKVViewShards        = "giga.execution.flatkv_view_shards"
 	FlagExecutionFlatKVStorageViewShards = "giga.execution.flatkv_storage_view_shards"
 	FlagExecutionDummyAppHash            = "giga.execution.dummy_app_hash"
+	FlagExecutionEarlySpeculationWorkers = "giga.execution.early_speculation_workers"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
 	FlagRPCMaxRequestBodyBytes           = "giga.rpc.max_request_body_bytes"
@@ -322,6 +326,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionFlatKVStorageViewShards); v != nil {
 		if cfg.Execution.FlatKVStorageViewShards, err = cast.ToUint64E(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionFlatKVStorageViewShards, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionEarlySpeculationWorkers); v != nil {
+		if cfg.Execution.EarlySpeculationWorkers, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionEarlySpeculationWorkers, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionDummyAppHash); v != nil {
@@ -550,6 +559,9 @@ flatkv_storage_view_shards = {{ .Giga.Execution.FlatKVStorageViewShards }}
 
 # dummy_app_hash leaves a block's state changes out of the EVM-only app hash.
 dummy_app_hash = {{ .Giga.Execution.DummyAppHash }}
+
+# early_speculation_workers, when positive, speculates each prepared block's transactions before the block executes, on up to this many at once.
+early_speculation_workers = {{ .Giga.Execution.EarlySpeculationWorkers }}
 
 [giga.rpc]
 # Limits the EVM-only JSON-RPC server enforces. 0 disables a limit.

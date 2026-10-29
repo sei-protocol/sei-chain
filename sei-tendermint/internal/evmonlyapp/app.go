@@ -239,10 +239,11 @@ func (a *evmOnlyApplication) installExecutor(slot *utils.Option[*evmonly.Executo
 
 func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 	return evmonly.NewExecutor(evmonly.Config{
-		ChainConfig:  a.chainConfig,
-		MinGasPrice:  big.NewInt(evmOnlyBlockMinGasPrice),
-		OCCWorkers:   workersOrGOMAXPROCS(a.execution.OCCWorkers),
-		ParseWorkers: workersOrGOMAXPROCS(a.execution.ParseWorkers),
+		ChainConfig:             a.chainConfig,
+		MinGasPrice:             big.NewInt(evmOnlyBlockMinGasPrice),
+		OCCWorkers:              workersOrGOMAXPROCS(a.execution.OCCWorkers),
+		ParseWorkers:            workersOrGOMAXPROCS(a.execution.ParseWorkers),
+		EarlySpeculationWorkers: a.execution.EarlySpeculationWorkers,
 		// Autobahn orders transactions without validating them, so a block can hold one
 		// the executor cannot apply; failing the block would halt every validator.
 		RejectUnappliableTxs: true,

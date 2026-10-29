@@ -140,6 +140,13 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 	phases.SetPhase(preparePhaseWarm)
 	executor.WarmAccounts(ctx, prepared)
 	phases.Reset()
+	if parentHash, ok := a.blockHashAt(block.height - 1); ok {
+		// FinalizeBlock executes with these constants; a block executed with others discards the early results.
+		prepared.Context.ParentHash = parentHash
+		prepared.Context.BlockHash = block.blockHash
+		prepared.Context.PrevRandao = evmOnlyPrevRandao(block.timestamp)
+		executor.SpeculateEarly(prepared)
+	}
 	next := a.LastBlockHeight() + 1
 	for queue := range a.prepared.Lock() {
 		queue.put(preparedBlock{
@@ -150,6 +157,26 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 		}, next)
 	}
 	return nil
+}
+
+// blockHashAt returns the hash of the block at height when it is committed, awaiting Commit, or prepared.
+func (a *evmOnlyApplication) blockHashAt(height int64) (common.Hash, bool) {
+	for state := range a.cursor.Lock() {
+		if state.committed.height == height {
+			return state.committed.blockHash, true
+		}
+		if pending, ok := state.pending.Get(); ok && pending.height == height {
+			return pending.blockHash, true
+		}
+	}
+	for queue := range a.prepared.Lock() {
+		for _, b := range *queue {
+			if b.height == height {
+				return b.hash, true
+			}
+		}
+	}
+	return common.Hash{}, false
 }
 
 // takePrepared returns the prepared block with the given height and hash and
