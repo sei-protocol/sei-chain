@@ -67,22 +67,19 @@ func splitKey(k []byte) int {
 	}
 }
 
-// historyKey returns the type | address | optional slot of the records holding the history of an EVM
-// key of kind, whose stripped key is its address and optional slot, and false for a kind the store
-// keeps no history of. An account field's history is its account's.
-func historyKey(kind keys.EVMKeyKind, stripped []byte) ([]byte, bool) {
-	var recordType byte
+// recordTypeOf returns the type of the records holding the history of an EVM key of kind, and false
+// for a kind the store keeps no history of. An account field's history is its account's.
+func recordTypeOf(kind keys.EVMKeyKind) (byte, bool) {
 	switch kind {
 	case keys.EVMKeyBalance, keys.EVMKeyNonce, keys.EVMKeyCodeHash:
-		recordType = accountRecord
+		return accountRecord, true
 	case keys.EVMKeyCode:
-		recordType = codeRecord
+		return codeRecord, true
 	case keys.EVMKeyStorage:
-		recordType = storageRecord
+		return storageRecord, true
 	default:
-		return nil, false
+		return 0, false
 	}
-	return append([]byte{recordType}, stripped...), true
 }
 
 // recordKeyLen returns the encoded length of a record for key.

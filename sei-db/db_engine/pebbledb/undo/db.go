@@ -658,7 +658,7 @@ func (v *View) Close() {
 // Unsupported or malformed keys, and reads after the database is closed, return an error.
 func (v *View) Get(key []byte) (_ []byte, err error) {
 	kind, stripped := keys.ParseEVMKey(key)
-	history, ok := historyKey(kind, stripped)
+	recordType, ok := recordTypeOf(kind)
 	if !ok {
 		return nil, fmt.Errorf("undo: unsupported or malformed EVM key %x", key)
 	}
@@ -683,9 +683,17 @@ func (v *View) Get(key []byte) (_ []byte, err error) {
 
 	first := (v.height + 1) / v.db.bucketSize
 	last := h.height / v.db.bucketSize
+	var historyBuf [storageKeyLen]byte
+	historyBuf[0] = recordType
+	history := historyBuf[:1+copy(historyBuf[1:], stripped)]
+	// The iterator bounds and the seek key share one allocation, sized so the seek key never grows.
+	buf := make([]byte, 2*bucketLen, 2*bucketLen+recordKeyLen(history))
+	lower, upper := buf[:bucketLen:bucketLen], buf[bucketLen:2*bucketLen:2*bucketLen]
+	binary.BigEndian.PutUint64(lower, first)
+	binary.BigEndian.PutUint64(upper, last+1)
 	itr, err := v.db.storage.NewIter(&pebble.IterOptions{
-		LowerBound:   bucketBoundary(first),
-		UpperBound:   bucketBoundary(last + 1),
+		LowerBound:   lower,
+		UpperBound:   upper,
 		UseL6Filters: true,
 	})
 	if err != nil {
@@ -693,7 +701,7 @@ func (v *View) Get(key []byte) (_ []byte, err error) {
 	}
 	defer func() { err = errors.Join(err, itr.Close()) }()
 
-	var seekKey []byte
+	seekKey := buf[2*bucketLen:]
 	for bucket := first; bucket <= last; bucket++ {
 		probes++
 		seekKey = appendRecordKey(seekKey[:0], bucket, history, v.height+1)

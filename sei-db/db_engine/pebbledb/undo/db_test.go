@@ -15,6 +15,7 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
@@ -70,6 +71,22 @@ func kindOf(key string) keys.EVMKeyKind {
 // recordOf returns the type | address of addr's records of recordType.
 func recordOf(recordType byte, addr common.Address) string {
 	return string(append([]byte{recordType}, addr[:]...))
+}
+
+// accountState returns the state of an account holding balance, nonce n and code.
+func accountState(balance, n uint64, code []byte) gigatypes.AccountState {
+	return gigatypes.AccountState{Balance: new(big.Int).SetUint64(balance), Nonce: n, Code: code}
+}
+
+// storageChange returns the change of addr's slot from prior to value, where a zero value is unset.
+func storageChange(addr common.Address, slot, prior, value uint64) gigatypes.StorageChange {
+	return gigatypes.StorageChange{
+		Address:    addr,
+		Key:        common.BytesToHash(word(slot)),
+		Delete:     value == 0,
+		Value:      common.BytesToHash(word(value)),
+		PriorValue: common.BytesToHash(word(prior)),
+	}
 }
 
 // accountValue returns the value of an account record for an account holding balance, nonce n and
@@ -153,47 +170,70 @@ func accountIn(state map[string][]byte, addr common.Address) gigatypes.AccountSt
 	return account
 }
 
-// priorsOf returns the change set of a block that replaced, for each key of prior, the value prior
-// holds for it, nil for none, in a state holding nothing else. The log reads a block's new values
-// only to tell whether code changed, so the block extends each code by a byte and zeroes every other
-// key.
-func priorsOf(t testing.TB, prior map[string][]byte) *gigatypes.StateChangeSet {
-	t.Helper()
-	next := map[string][]byte{}
-	for key, old := range prior {
-		if kindOf(key) == keys.EVMKeyCode {
-			next[key] = append(bytes.Clone(old), 0x00)
-		}
-	}
-	return changeSetOf(t, prior, next, maps.Keys(prior))
-}
-
-// TestUndoLogByHand spells the store out: the live state after the last block, the value each block
-// replaced, and what a read after each block must return.
+// TestUndoLogByHand spells the store out: the live state after the last block, each block's change
+// set, and what a read after each block must return, for every kind of key.
 func TestUndoLogByHand(t *testing.T) {
 	db := openTestDB(t, t.TempDir(), 10) // buckets of 10 blocks: 100-109, 110-119
 	defer func() { require.NoError(t, db.Close()) }()
 
+	code := []byte{0x60, 0x00}
+	toBob, toDave := ethtypes.AddressToDelegation(bob), ethtypes.AddressToDelegation(dave)
+
 	// The live state after block 112.
 	live := liveState{
-		balanceKey(alice): word(80),
-		balanceKey(bob):   word(7),
-		balanceKey(carol): word(3),
+		balanceKey(alice):       word(80),
+		nonceKey(alice):         nonce(2),
+		balanceKey(bob):         word(7),
+		balanceKey(carol):       word(3),
+		nonceKey(carol):         nonce(2),
+		codeKey(carol):          toDave,
+		codeHashKey(carol):      crypto.Keccak256(toDave),
+		balanceKey(contract):    word(9),
+		nonceKey(contract):      nonce(1),
+		codeKey(contract):       code,
+		codeHashKey(contract):   crypto.Keccak256(code),
+		storageKey(contract, 1): word(5),
 	}
 
-	// What each block changed, recorded as the value the key held before the block.
-	blocks := map[int64]map[string][]byte{
-		103: {balanceKey(alice): word(10)}, // alice 10 -> 15
-		105: {balanceKey(carol): nil},      // carol created with 3
-		109: {balanceKey(alice): word(15)}, // alice 15 -> 25
-		110: {balanceKey(dave): word(1)},   // dave deleted
-		112: {balanceKey(alice): word(25)}, // alice 25 -> 80
+	// What each block changed: each account and slot before and after it.
+	blocks := map[int64]gigatypes.StateChangeSet{
+		103: {Accounts: []gigatypes.AccountChange{ // alice's balance and nonce
+			{Address: alice, Prior: accountState(10, 0, nil), Account: accountState(15, 1, nil)},
+		}},
+		104: { // contract deployed, setting slot 1
+			Accounts: []gigatypes.AccountChange{{Address: contract, Account: accountState(0, 1, code)}},
+			Storage:  []gigatypes.StorageChange{storageChange(contract, 1, 0, 4)},
+		},
+		105: {Accounts: []gigatypes.AccountChange{ // carol created
+			{Address: carol, Account: accountState(3, 0, nil)},
+		}},
+		107: { // contract paid; slot 1 updated and slot 2 set
+			Accounts: []gigatypes.AccountChange{
+				{Address: contract, Prior: accountState(0, 1, code), Account: accountState(9, 1, code)},
+			},
+			Storage: []gigatypes.StorageChange{storageChange(contract, 1, 4, 5), storageChange(contract, 2, 0, 6)},
+		},
+		109: {Accounts: []gigatypes.AccountChange{ // alice's balance alone
+			{Address: alice, Prior: accountState(15, 1, nil), Account: accountState(25, 1, nil)},
+		}},
+		110: { // dave emptied, slot 2 cleared
+			Accounts: []gigatypes.AccountChange{{Address: dave, Prior: accountState(1, 0, nil)}},
+			Storage:  []gigatypes.StorageChange{storageChange(contract, 2, 6, 0)},
+		},
+		111: {Accounts: []gigatypes.AccountChange{ // carol delegates to bob
+			{Address: carol, Prior: accountState(3, 0, nil), Account: accountState(3, 1, toBob)},
+		}},
+		112: {Accounts: []gigatypes.AccountChange{ // alice's balance and nonce; carol delegates to dave
+			{Address: alice, Prior: accountState(25, 1, nil), Account: accountState(80, 2, nil)},
+			{Address: carol, Prior: accountState(3, 1, toBob), Account: accountState(3, 2, toDave)},
+		}},
 	}
 
 	require.NoError(t, db.Resume(100, live))
 	for height := int64(101); height <= 112; height++ {
 		// Every block is handed the final live state: only the last block's is ever read.
-		db.ApplyBlock(height, priorsOf(t, blocks[height]), live)
+		changes := blocks[height]
+		db.ApplyBlock(height, &changes, live)
 	}
 	db.WaitForPendingWrites()
 
@@ -203,20 +243,55 @@ func TestUndoLogByHand(t *testing.T) {
 		height int64
 		want   []byte
 	}{
+		// alice: balance and nonce change together, then the balance alone.
 		{balanceKey(alice), 100, word(10)},
 		{balanceKey(alice), 102, word(10)},
 		{balanceKey(alice), 103, word(15)},
 		{balanceKey(alice), 108, word(15)},
-		{balanceKey(alice), 109, word(25)},
+		{balanceKey(alice), 109, word(25)}, // the next record is in bucket 11
 		{balanceKey(alice), 111, word(25)},
 		{balanceKey(alice), 112, word(80)}, // no record above 112: the live state answers
-		{balanceKey(bob), 100, word(7)},    // never changed: the live state answers at every height
+		{nonceKey(alice), 102, absent},
+		{nonceKey(alice), 103, nonce(1)},
+		{nonceKey(alice), 108, nonce(1)}, // read from the record of block 109, which changed the balance alone
+		{nonceKey(alice), 112, nonce(2)},
+		// bob never changed: the live state answers at every height.
+		{balanceKey(bob), 100, word(7)},
 		{balanceKey(bob), 112, word(7)},
+		// carol: created, then delegated and delegated again, which replaces her code.
 		{balanceKey(carol), 104, absent},
 		{balanceKey(carol), 105, word(3)},
-		{balanceKey(dave), 101, word(1)}, // bucket 10 holds nothing for dave; bucket 11 does
+		{balanceKey(carol), 111, word(3)},
+		{nonceKey(carol), 110, absent},
+		{nonceKey(carol), 111, nonce(1)},
+		{codeKey(carol), 110, absent},
+		{codeKey(carol), 111, toBob},
+		{codeKey(carol), 112, toDave},
+		{codeHashKey(carol), 110, absent},
+		{codeHashKey(carol), 111, crypto.Keccak256(toBob)},
+		{codeHashKey(carol), 112, crypto.Keccak256(toDave)},
+		// dave: emptied in bucket 11, which a read in bucket 10 reaches.
+		{balanceKey(dave), 101, word(1)},
 		{balanceKey(dave), 109, word(1)},
 		{balanceKey(dave), 110, absent},
+		// contract: deployed, then paid, its code hash carried by the record of the payment.
+		{codeKey(contract), 103, absent},
+		{codeKey(contract), 104, code},
+		{codeHashKey(contract), 103, absent},
+		{codeHashKey(contract), 104, crypto.Keccak256(code)},
+		{nonceKey(contract), 103, absent},
+		{nonceKey(contract), 104, nonce(1)},
+		{balanceKey(contract), 106, absent},
+		{balanceKey(contract), 107, word(9)},
+		// storage: slot 1 set, then updated; slot 2 set, then cleared.
+		{storageKey(contract, 1), 103, absent},
+		{storageKey(contract, 1), 104, word(4)},
+		{storageKey(contract, 1), 106, word(4)},
+		{storageKey(contract, 1), 107, word(5)},
+		{storageKey(contract, 2), 106, absent},
+		{storageKey(contract, 2), 107, word(6)},
+		{storageKey(contract, 2), 109, word(6)},
+		{storageKey(contract, 2), 110, absent},
 	} {
 		require.Equal(t, tc.want, read(t, db, tc.height, tc.key), "%x after block %d", tc.key, tc.height)
 	}
@@ -715,7 +790,8 @@ func TestNewDatabaseUsesDefaultBucketSize(t *testing.T) {
 	require.Equal(t, uint64(defaultBucketSize), db.bucketSize)
 	key := nonceKey(alice)
 	require.NoError(t, db.Resume(0, liveState{}))
-	db.ApplyBlock(1, priorsOf(t, map[string][]byte{key: nil}), liveState{key: nonce(1)})
+	created := []gigatypes.AccountChange{{Address: alice, Account: accountState(0, 1, nil)}}
+	db.ApplyBlock(1, &gigatypes.StateChangeSet{Accounts: created}, liveState{key: nonce(1)})
 	db.WaitForPendingWrites()
 	require.Nil(t, read(t, db, 0, key))
 	require.Equal(t, nonce(1), read(t, db, 1, key))
@@ -821,7 +897,7 @@ func TestDiscardStateAboveClearsAHalfWrittenBlock(t *testing.T) {
 			for h := uint64(1); h <= 9; h++ {
 				c.apply(map[string][]byte{slot: word(h)}, false)
 			}
-			changes := priorsOf(t, map[string][]byte{slot: word(0xbad)})
+			changes := &gigatypes.StateChangeSet{Storage: []gigatypes.StorageChange{storageChange(contract, 1, 0xbad, 10)}}
 			require.NoError(t, c.db.writeRecords(changes, recordCount(changes), 1, 10))
 			require.NoError(t, c.db.Close())
 
@@ -961,7 +1037,8 @@ func TestBlocksRequireSuccessfulResume(t *testing.T) {
 
 	key := nonceKey(alice)
 	require.NoError(t, db.Resume(5, liveState{key: nonce(1)}))
-	db.ApplyBlock(6, priorsOf(t, map[string][]byte{key: nonce(1)}), liveState{key: nonce(2)})
+	bumped := []gigatypes.AccountChange{{Address: alice, Prior: accountState(0, 1, nil), Account: accountState(0, 2, nil)}}
+	db.ApplyBlock(6, &gigatypes.StateChangeSet{Accounts: bumped}, liveState{key: nonce(2)})
 	db.WaitForPendingWrites()
 	require.Equal(t, int64(6), db.GetLatestVersion())
 	require.Equal(t, nonce(1), read(t, db, 5, key))
@@ -1221,12 +1298,14 @@ func TestLargeBlocksLandWhole(t *testing.T) {
 func TestEveryFamilyIsRecorded(t *testing.T) {
 	db := openTestDB(t, t.TempDir(), 10)
 	defer func() { require.NoError(t, db.Close()) }()
-	changes := priorsOf(t, map[string][]byte{
-		balanceKey(alice):       word(1),
-		nonceKey(alice):         nonce(2),
-		codeKey(contract):       {0x60, 0x00},
-		storageKey(contract, 1): word(3),
-	})
+	changes := &gigatypes.StateChangeSet{
+		Accounts: []gigatypes.AccountChange{
+			{Address: alice, Prior: accountState(1, 2, nil), Account: accountState(2, 3, nil)},
+			{Address: contract, Prior: accountState(0, 0, []byte{0x60, 0x00}), Account: accountState(0, 0, []byte{0x60, 0x01})},
+		},
+		Storage: []gigatypes.StorageChange{storageChange(contract, 1, 3, 4)},
+	}
+
 	height, err := db.writeBlock(1, changes)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), height)
