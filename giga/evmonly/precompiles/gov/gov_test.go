@@ -405,6 +405,19 @@ func TestStartingProposalID(t *testing.T) {
 	require.Empty(t, values[1].([]byte))
 }
 
+func TestProposalsListsTheLastProposalID(t *testing.T) {
+	h := newHarness(t)
+	require.NoError(t, SetStartingProposalID(h.state, math.MaxUint64-1))
+	h.submit(alice, textProposal, nil)
+	h.submit(alice, textProposal, nil)
+
+	values := h.mustCall(alice, callOpts{}, ProposalsMethod, int32(0), common.Address{}, common.Address{}, []byte(nil))
+	var props []ProposalData
+	h.convert(values[0], &props)
+	require.Len(t, props, 2)
+	require.Equal(t, uint64(math.MaxUint64), props[1].Id)
+}
+
 func TestStartingProposalIDIsFixedOnceProposalsExist(t *testing.T) {
 	h := newHarness(t)
 	h.submit(alice, textProposal, nil)
