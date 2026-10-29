@@ -46,7 +46,7 @@ struct ParamChangeContent {
 /// "Reverts:" is kept so a caller of a V2 method gets a revert whose
 /// Error(string) names the call to use instead, or says the operation is not
 /// supported. The address holds no code; solc 0.8.10 and later call it
-/// without checking for code.
+/// without checking for code because every method returns data.
 /// Calldata over 20 KiB fails the call and uses its gas.
 interface IGov {
     struct WeightedVoteOption {
@@ -153,8 +153,8 @@ interface IGov {
         ParamChange[] calldata changes
     ) external payable returns (uint64 proposalID);
 
-    /// @notice Returns a proposal. Reverts when the proposal is unknown or was
-    /// dropped.
+    /// @notice Returns a proposal. Fails with no revert data, using its gas, when
+    /// the proposal is unknown or was dropped.
     function proposal(uint64 proposalID) external view returns (ProposalData memory proposal);
 
     /// @notice Pages through proposals by id, filtered by status (0 for any),
@@ -166,8 +166,9 @@ interface IGov {
         view
         returns (ProposalData[] memory proposals, bytes memory nextKey);
 
-    /// @notice Returns a voter's vote. Reverts when the voter has no vote on the
-    /// proposal, including once the tally has counted it.
+    /// @notice Returns a voter's vote. Fails with no revert data, using its gas,
+    /// when the voter has no vote on the proposal, including once the tally has
+    /// counted it.
     function getVote(uint64 proposalID, address voter) external view returns (VoteData memory vote);
 
     /// @notice Pages through a proposal's votes, 100 at a time. Votes leave as the
@@ -180,8 +181,9 @@ interface IGov {
     /// @notice Returns gov's params, read from the params precompile's gov subspace.
     function params() external view returns (GovParams memory params);
 
-    /// @notice Returns a depositor's deposit on a proposal. Reverts when they have
-    /// none, including once the proposal settles and its deposits are cleared.
+    /// @notice Returns a depositor's deposit on a proposal. Fails with no revert
+    /// data, using its gas, when they have none, including once the proposal
+    /// settles and its deposits are cleared.
     function getDeposit(uint64 proposalID, address depositor) external view returns (DepositData memory deposit);
 
     /// @notice Pages through a proposal's deposits, 100 at a time. Deposits leave

@@ -129,6 +129,9 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	if !method.IsPayable() && ctx.ApparentValue != nil && ctx.ApparentValue.Sign() != 0 {
 		return nil, errNonPayable
 	}
+	if ctx.ReadOnly && !method.IsConstant() {
+		return nil, errStaticCall
+	}
 	if check, ok := argChecks[method.Name]; ok {
 		if err := check(args); err != nil {
 			return precompiles.Revert(err.Error())
@@ -153,10 +156,6 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 		return p.depositsQuery(s, method, args)
 	case TallyResultMethod:
 		return p.tallyResultQuery(s, method, args)
-	}
-
-	if ctx.ReadOnly {
-		return nil, errStaticCall
 	}
 
 	switch method.Name {
