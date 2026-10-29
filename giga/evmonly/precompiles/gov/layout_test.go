@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"os"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm/runtime"
 	"github.com/stretchr/testify/require"
 
+	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
@@ -45,7 +47,6 @@ func TestLayoutMatchesForge(t *testing.T) {
 	topLevel := map[string]member{
 		"lastProposalId":     {slotProposalIDs + lastProposalID.slot, lastProposalID.offset},
 		"startingProposalId": {slotProposalIDs + startingProposalID.slot, startingProposalID.offset},
-		"params":             {slotParams, 0},
 		"proposals":          {slotProposals, 0},
 		"votes":              {slotVotes, 0},
 		"deposits":           {slotDeposits, 0},
@@ -63,18 +64,6 @@ func TestLayoutMatchesForge(t *testing.T) {
 	require.Equal(t, topLevel, got)
 
 	structs := map[string]map[string]member{
-		"Params": {
-			"votingPeriod":          paramsVotingPeriod,
-			"expeditedVotingPeriod": paramsExpeditedVotingPeriod,
-			"minDeposit":            paramsMinDeposit,
-			"maxDepositPeriod":      paramsMaxDepositPeriod,
-			"minExpeditedDeposit":   paramsMinExpeditedDeposit,
-			"quorum":                paramsQuorum,
-			"threshold":             paramsThreshold,
-			"vetoThreshold":         paramsVetoThreshold,
-			"expeditedQuorum":       paramsExpeditedQuorum,
-			"expeditedThreshold":    paramsExpeditedThreshold,
-		},
 		"Proposal": {
 			"status":          proposalStatus,
 			"isExpedited":     proposalIsExpedited,
@@ -155,18 +144,6 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 
 	require.Equal(t, uint64(7), s.lastProposalID())
 	require.Equal(t, uint64(3), s.startingProposalID())
-	require.Equal(t, Params{
-		VotingPeriod:          11,
-		ExpeditedVotingPeriod: 12,
-		MinDeposit:            ether(13),
-		MaxDepositPeriod:      14,
-		MinExpeditedDeposit:   ether(15),
-		Quorum:                334_000_000_000_000_000,
-		Threshold:             500_000_000_000_000_000,
-		VetoThreshold:         334_000_000_000_000_000,
-		ExpeditedQuorum:       667_000_000_000_000_000,
-		ExpeditedThreshold:    667_000_000_000_000_000,
-	}, s.params())
 
 	prop, ok := s.proposal(5)
 	require.True(t, ok)
@@ -254,28 +231,38 @@ func (v stateDBView) Snapshot() int                                     { panic(
 func (v stateDBView) RevertToSnapshot(int)                              { panic("unsupported") }
 
 // TestContentEncodingMatchesSolc checks encodeContent against solc's
-// abi.encode of each GovStorage content struct, run in GovStorageHarness.
+// abi.encode of each content struct, run in GovStorageHarness. Each harness
+// encoder takes the struct's fields as its arguments.
 func TestContentEncodingMatchesSolc(t *testing.T) {
 	code, err := os.ReadFile("testdata/GovStorageHarness.bin-runtime")
 	require.NoError(t, err)
-	solc := func(sig string, args ...interface{}) []byte {
-		input, err := abiOf(t, sig).Pack(strings.Split(sig, "(")[0], args...)
-		require.NoError(t, err)
-		out, _, err := runtime.Execute(common.FromHex(strings.TrimSpace(string(code))), input, &runtime.Config{GasLimit: 10_000_000})
-		require.NoError(t, err)
-		values, err := abi.Arguments{{Type: abi.Type{T: abi.BytesTy}}}.Unpack(out)
+	bytesOut := abi.Arguments{{Type: abi.Type{T: abi.BytesTy}}}
+	solc := func(fn string, c govContent) []byte {
+		tuple := contentCodecs[c.contentType()].args[0].Type
+		inputs := make(abi.Arguments, len(tuple.TupleElems))
+		fields := make([]interface{}, len(tuple.TupleElems))
+		for i, e := range tuple.TupleElems {
+			inputs[i] = abi.Argument{Name: tuple.TupleRawNames[i], Type: *e}
+			fields[i] = reflect.ValueOf(c).Field(i).Interface()
+		}
+		method := abi.NewMethod(fn, fn, abi.Function, "pure", false, false, inputs, bytesOut)
+		args, err := inputs.Pack(fields...)
+		require.NoError(t, err, fn)
+		out, _, err := runtime.Execute(common.FromHex(strings.TrimSpace(string(code))), append(method.ID, args...), &runtime.Config{GasLimit: 10_000_000})
+		require.NoError(t, err, method.Sig)
+		values, err := bytesOut.Unpack(out)
 		require.NoError(t, err)
 		return values[0].([]byte)
 	}
 	long := strings.Repeat("long enough to spill past a word ", 3)
-	for name, tc := range map[string]struct {
-		content govContent
-		solc    []byte
-	}{
-		"text": {textContent{Title: "t", Description: long, IsExpedited: true},
-			solc("textContent(string,string,bool)", "t", long, true)},
+	for fn, c := range map[string]govContent{
+		"textContent": textContent{Title: "t", Description: long, IsExpedited: true},
+		"paramChangeContent": paramChangeContent{Title: long, Description: "d", IsExpedited: true, Changes: []chainparams.Change{
+			{Subspace: "gov", Key: "votingparams.voting_period", Value: common.BigToHash(big.NewInt(7)).Bytes()},
+			{Subspace: "gov", Key: long, Value: []byte(long)},
+		}},
 	} {
-		_, encoded := encodeContent(tc.content)
-		require.Equal(t, tc.solc, encoded, name)
+		_, encoded := encodeContent(c)
+		require.Equal(t, solc(fn, c), encoded, fn)
 	}
 }

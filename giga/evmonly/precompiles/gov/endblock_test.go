@@ -21,6 +21,12 @@ func newElectedHarness(t *testing.T, e Electorate) *harness {
 	return h
 }
 
+// withParams gives h a fresh state holding p as gov's genesis params.
+func (h *harness) withParams(p Params) {
+	h.state = newMemState()
+	require.NoError(h.t, SetParams(h.state, p))
+}
+
 // open submits content with the minimum deposit, putting it straight to a vote.
 func (h *harness) open(content submission, deposit *big.Int) uint64 {
 	return h.submit(alice, content, deposit)
@@ -89,7 +95,7 @@ func TestVotingEndsAtTheNanosecond(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
 	params := testParams
 	params.VotingPeriod = 100*second + 1
-	SetParams(h.state, params)
+	h.withParams(params)
 	id := h.open(textProposal, usei(10))
 	h.vote(alice, id, OptionYes)
 	h.vote(bob, id, OptionYes)
@@ -308,7 +314,8 @@ func TestEndBlockCarriesOverPastBudget(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
 	params := testParams
 	params.MinDeposit = usei(1_000_000)
-	SetParams(h.state, params)
+	params.MinExpeditedDeposit = usei(2_000_000)
+	h.withParams(params)
 	h.fillDepositors(h.submit(alice, textProposal, nil), maxDepositors-1)
 	settled := int(endBlockBudget / must(dropCost(newStore(h.state), 1)))
 	require.Less(t, settled, endBlockBudget/maxDepositors+1, "each costs its depositors and content")
@@ -354,7 +361,8 @@ func TestEndBlockEndsVotingPastSpentDropBudget(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
 	params := testParams
 	params.MinDeposit = usei(1_000_000)
-	SetParams(h.state, params)
+	params.MinExpeditedDeposit = usei(2_000_000)
+	h.withParams(params)
 	voted := h.open(textProposal, params.MinDeposit)
 	h.vote(alice, voted, OptionYes)
 	h.vote(bob, voted, OptionYes)
@@ -438,7 +446,8 @@ func TestDepositorFirstDepositMustMeetShare(t *testing.T) {
 	h := newHarness(t)
 	params := testParams
 	params.MinDeposit = usei(1_000)
-	SetParams(h.state, params)
+	params.MinExpeditedDeposit = usei(2_000)
+	h.withParams(params)
 	id := h.submit(alice, textProposal, nil)
 
 	share := depositorShare(params, false)

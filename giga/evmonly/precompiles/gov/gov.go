@@ -1,6 +1,6 @@
 // Package gov is the EVM-only governance precompile. Its ABI is Gov.sol and its
 // state is docs/giga-storage/GovStorage.sol, held as contract storage at
-// Address.
+// Address. Its params are the params precompile's gov subspace.
 //
 // Unlike x/gov, it accepts at most 200 depositors per proposal, requires a
 // positive minimum deposit, and marks Failed a proposal whose stored data does
@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 )
 
 //go:embed abi.json
@@ -32,18 +33,19 @@ var ABI = func() abi.ABI {
 }()
 
 const (
-	VoteMethod               = "vote"
-	VoteWeightedMethod       = "voteWeighted"
-	DepositMethod            = "deposit"
-	SubmitTextProposalMethod = "submitTextProposal"
-	ProposalMethod           = "proposal"
-	ProposalsMethod          = "proposals"
-	GetVoteMethod            = "getVote"
-	VotesMethod              = "votes"
-	ParamsMethod             = "params"
-	GetDepositMethod         = "getDeposit"
-	DepositsMethod           = "deposits"
-	TallyResultMethod        = "tallyResult"
+	VoteMethod                      = "vote"
+	VoteWeightedMethod              = "voteWeighted"
+	DepositMethod                   = "deposit"
+	SubmitTextProposalMethod        = "submitTextProposal"
+	SubmitParamChangeProposalMethod = "submitParamChangeProposal"
+	ProposalMethod                  = "proposal"
+	ProposalsMethod                 = "proposals"
+	GetVoteMethod                   = "getVote"
+	VotesMethod                     = "votes"
+	ParamsMethod                    = "params"
+	GetDepositMethod                = "getDeposit"
+	DepositsMethod                  = "deposits"
+	TallyResultMethod               = "tallyResult"
 )
 
 // Events.
@@ -59,7 +61,7 @@ const authzUnsupported = "gov authorizations are not supported"
 // revert with a reason naming the call to use instead. They are checked before
 // dispatch.
 var retiredMethods = map[string]string{
-	"submitProposal(string)":                          "submitProposal(string) is not supported; use submitTextProposal",
+	"submitProposal(string)":                          "submitProposal(string) is not supported; use submitTextProposal or submitParamChangeProposal",
 	"voteWeighted(uint64,(int32,string)[])":           "voteWeighted with decimal string weights is not supported; use voteWeighted(uint64,(int32,uint256)[]) with 1e18-scaled weights",
 	"grantVoteAuthorization(address,int64)":           authzUnsupported,
 	"grantProposalAuthorization(address,int64)":       authzUnsupported,
@@ -120,15 +122,20 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	if reason, ok := retiredMethods[method.Sig]; ok {
 		return precompiles.Revert(reason)
 	}
+	if ctx.ReadOnly && !method.IsConstant() {
+		return nil, errStaticCall
+	}
+	if check, ok := encodedChecks[method.Name]; ok {
+		if err := check(input[4:]); err != nil {
+			return precompiles.Revert(err.Error())
+		}
+	}
 	args, err := method.Inputs.Unpack(input[4:])
 	if err != nil {
 		return nil, err
 	}
 	if !method.IsPayable() && ctx.ApparentValue != nil && ctx.ApparentValue.Sign() != 0 {
 		return nil, errNonPayable
-	}
-	if ctx.ReadOnly && !method.IsConstant() {
-		return nil, errStaticCall
 	}
 	if check, ok := argChecks[method.Name]; ok {
 		if err := check(args); err != nil {
@@ -165,6 +172,8 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 		return p.deposit(ctx, s, method, args)
 	case SubmitTextProposalMethod:
 		return p.submitTextProposal(ctx, s, method, args)
+	case SubmitParamChangeProposalMethod:
+		return p.submitParamChangeProposal(ctx, s, method, args)
 	}
 	return nil, errUnknownMethod
 }
@@ -181,13 +190,13 @@ func methodOf(input []byte) (*abi.Method, error) {
 }
 
 // SetParams writes p as gov's params, for genesis.
-func SetParams(state precompiles.State, p Params) {
-	newStore(state).setParams(p)
+func SetParams(state precompiles.State, p Params) error {
+	return chainparams.WriteGov(state, p.stored())
 }
 
 // HasParams reports whether gov's params have been written.
 func HasParams(state precompiles.State) bool {
-	return newStore(state).params().VotingPeriod != 0
+	return chainparams.HasGov(state)
 }
 
 // SetStartingProposalID sets the id gov assigns its first proposal, for
