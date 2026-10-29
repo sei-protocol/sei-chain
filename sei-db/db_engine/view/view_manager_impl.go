@@ -249,6 +249,27 @@ func (c *viewManager) getCacheSizeInfo() (bytes uint64, entries uint64) {
 	return bytes, entries
 }
 
+// maxShardTasks is the most misc pool tasks one call fans out to; a call over more shards gives each
+// task several of them.
+const maxShardTasks = 64
+
+// forEachShardTask calls visit for every index in [0, n) on the misc pool, over at most maxShardTasks
+// tasks, and waits for them all.
+func (c *viewManager) forEachShardTask(n int, visit func(i int)) {
+	tasks := min(n, maxShardTasks)
+	var wg sync.WaitGroup
+	wg.Add(tasks)
+	for task := range tasks {
+		c.miscPool.Submit(func() {
+			defer wg.Done()
+			for i := task; i < n; i += tasks {
+				visit(i)
+			}
+		})
+	}
+	wg.Wait()
+}
+
 func (c *viewManager) BatchSet(writes []Write) error {
 	buckets := c.bucketIndicesByShard(len(writes), func(i int) string { return writes[i].Key })
 
@@ -256,19 +277,12 @@ func (c *viewManager) BatchSet(writes []Write) error {
 	// bricked — fails the whole call; the shards that accepted it have already applied their entries, so
 	// the batch is not atomic across shards in that case. That is acceptable because the manager contract
 	// makes any error fatal.
-	var wg sync.WaitGroup
 	errs := make([]error, len(buckets))
-	for shardIndex := range buckets {
-		if len(buckets[shardIndex]) == 0 {
-			continue
-		}
-		wg.Add(1)
-		c.miscPool.Submit(func() {
-			defer wg.Done()
+	c.forEachShardTask(len(buckets), func(shardIndex int) {
+		if len(buckets[shardIndex]) > 0 {
 			errs[shardIndex] = c.shards[shardIndex].batchSetAt(writes, buckets[shardIndex])
-		})
-	}
-	wg.Wait()
+		}
+	})
 
 	for i := range errs {
 		if errs[i] != nil {
@@ -291,7 +305,7 @@ func (c *viewManager) bucketIndicesByShard(
 ) (byShard [][]int) {
 	byShard = make([][]int, len(c.shards))
 
-	chunks := min(len(c.shards), count)
+	chunks := min(len(c.shards), maxShardTasks, count)
 	if chunks <= 1 {
 		for i := 0; i < count; i++ {
 			shardIndex := c.shardManager.ShardString(keyAt(i))
@@ -359,15 +373,10 @@ func (c *viewManager) BatchGetAtVersion(keys [][]byte, version uint64) (map[stri
 	results := make([]map[string][]byte, len(shardIndices))
 	errs := make([]error, len(shardIndices))
 
-	var wg sync.WaitGroup
-	for i, shardIndex := range shardIndices {
-		wg.Add(1)
-		c.miscPool.Submit(func() {
-			defer wg.Done()
-			results[i], errs[i] = c.shards[shardIndex].BatchGet(work[shardIndex], version)
-		})
-	}
-	wg.Wait()
+	c.forEachShardTask(len(shardIndices), func(i int) {
+		shardIndex := shardIndices[i]
+		results[i], errs[i] = c.shards[shardIndex].BatchGet(work[shardIndex], version)
+	})
 
 	// Merge into a single result map. Any shard error fails the whole call.
 	merged := make(map[string][]byte, len(keys))
@@ -938,7 +947,6 @@ func (c *viewManager) doLifecycleWork() error {
 
 		c.versionLock.Unlock()
 
-		c.metrics.setLifecyclePhase("flush")
 		err = c.flushViews(firstFlushVersion, lastFlushVersion, versionWrites)
 		if err != nil {
 			return fmt.Errorf("unable to flush views: %w", err)
@@ -1060,10 +1068,12 @@ func (c *viewManager) flushViews(
 		// runs rather than a sort. One version at a time and never merged across versions: pebble
 		// resolves two writes to one key by sequence number, which it assigns in batch order, so a key
 		// written in several of a batch's versions must reach it oldest first.
+		c.metrics.setLifecyclePhase("flush_materialize")
 		shardDiffs, err := c.materializeSortedDiffs(version)
 		if err != nil {
 			return err
 		}
+		c.metrics.setLifecyclePhase("flush_build_batch")
 		err = forEachMergedEntry(shardDiffs, func(entry Write) error {
 			if entry.Value == nil {
 				return batch.DeleteString(entry.Key)
@@ -1097,6 +1107,7 @@ func (c *viewManager) flushViews(
 
 		// Len is non-negative, so the conversion is safe.
 		if uint64(batch.Len()) >= c.config.TargetBytesPerFlush { //nolint:gosec
+			c.metrics.setLifecyclePhase("flush_commit")
 			commitErr := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync})
 			closeErr := batch.Close()
 			batch = nil
@@ -1113,6 +1124,7 @@ func (c *viewManager) flushViews(
 		}
 	}
 	if batch != nil {
+		c.metrics.setLifecyclePhase("flush_commit")
 		commitErr := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync})
 		closeErr := batch.Close()
 		batch = nil
