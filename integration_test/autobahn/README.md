@@ -399,6 +399,10 @@ WebSocket (port 8546 by default):
 - Fees: `eth_gasPrice`, `eth_maxPriorityFeePerGas`, and `eth_feeHistory`.
 - Node: `eth_chainId`, `net_version`, and `eth_syncing`, which returns a
   not-supported error, as on the regular RPC.
+- Tracing: `debug_traceTransaction`, `debug_traceCall`,
+  `debug_traceBlockByNumber`, and `debug_traceBlockByHash`, with
+  go-ethereum's tracers (see
+  [Trace transactions](#trace-transactions-with-debug_trace)).
 - Subscriptions, over WebSocket only: `eth_subscribe("newHeads")` and
   `eth_subscribe("logs")`, which polls through the same cursor as a log
   filter as blocks execute.
@@ -407,7 +411,7 @@ A lookup for a pending or unknown hash returns `null`. Every other method
 returns JSON-RPC method-not-found, and `eth_subscribe` rejects any
 subscription other than `newHeads` and `logs`:
 
-- Not supported yet: the `debug_*` tracing and raw-data methods,
+- Not supported yet: the other `debug_*` methods, such as the raw-data ones,
   `eth_getVMError`, `eth_getTransactionErrorByHash`, `eth_createAccessList`,
   `eth_estimateGasAfterCalls`, and `web3_clientVersion`.
 - Not planned, because they need something the EVM-only chain does not have
@@ -428,8 +432,8 @@ subscription other than `newHeads` and `logs`:
 - Any address that has never been written reports `2^200` wei, including
   inside `eth_call` and `eth_estimateGas`. This is the test network's funding
   rule, in place of genesis allocations.
-- `eth_call` and `eth_estimateGas` take no state or block override arguments,
-  unlike the regular RPC.
+- `eth_call`, `eth_estimateGas`, and `debug_traceCall` take no state or block
+  override arguments, unlike the regular RPC.
 - `pending` means the latest committed state, and there is no mempool view, so
   a submitted transaction is not returned by hash until it executes.
 - Block fields: `logsBloom` is always empty, `baseFeePerGas` is always zero,
@@ -439,6 +443,11 @@ subscription other than `newHeads` and `logs`:
 - A block lists every finalized transaction, including rejected ones, and
   `transactionIndex` is the position in that list, so a block's receipts can
   skip positions. Hiding rejected transactions from block results is planned.
+- In `debug_traceBlockByNumber` and `debug_traceBlockByHash`, the
+  `flatCallTracer`'s `transactionPosition`, including inside `muxTracer`,
+  counts only the transactions that executed, so after a rejected transaction
+  it is lower than the receipt's `transactionIndex`. `debug_traceTransaction`
+  reports the receipt's index.
 - `eth_getLogs` covers at most 2,000 blocks and 10,000 logs per query, and a
   bound outside the indexed, retained range returns an error. A log filter's
   `eth_getFilterChanges` poll covers at most as much, and later polls return
@@ -449,8 +458,10 @@ subscription other than `newHeads` and `logs`:
 
 `make autobahn-integration-test` starts a local four-validator cluster and,
 after a 4,000-transfer load and one contract deploy, checks every method above
-on all four validators, including that they return the same blocks and
-receipts.
+except the `debug_trace*` methods on all four validators, including that they
+return the same blocks and receipts. It traces the deploy and its block on the
+RPC node, which keeps the state history a past transaction replays on, and a
+call to the contract on every node.
 
 ### Request and WebSocket limits
 
@@ -474,10 +485,47 @@ the row says otherwise:
 | `filter_timeout` | `120s` | how long a filter lives without being polled |
 | `max_filters` | 1000 | installed `eth_newFilter` and `eth_newBlockFilter` filters |
 | `max_block_filter_hashes` | 1000 | unpolled blocks a block filter may fall behind by before it is removed |
+| `max_concurrent_trace_calls` | 10 | `debug_trace*` calls running at once; a call past it is refused |
+| `trace_timeout` | `30s` | how long one `debug_trace*` call may run |
+| `max_trace_struct_log_bytes` | 33554432 (32 MiB) | output of the default struct logger for each traced transaction |
 
 A subscription refused by a cap returns an error, and its slot frees when
 the client unsubscribes or the connection closes. A connection is identified by
 its remote address, so clients behind one proxy connection share its cap.
+
+### Trace transactions with `debug_trace*`
+
+`debug_traceTransaction`, `debug_traceCall`, `debug_traceBlockByNumber`, and
+`debug_traceBlockByHash` run go-ethereum's tracing API, so requests and
+responses have go-ethereum's shape. Without a `tracer` they return the default
+step-by-step struct log; the named tracers are go-ethereum's native ones:
+`callTracer`, `flatCallTracer`, `prestateTracer`, `4byteTracer`, `muxTracer`,
+and `noopTracer`. JavaScript tracers are refused.
+
+A traced transaction is replayed against the state it executed on: the state
+after the previous block, with the block's earlier transactions applied. That
+state comes from the EVM state store, so tracing a mined transaction or a block
+needs a full node, and fails once the block's parent is pruned, so the oldest
+retained block cannot be traced. A validator can still run `debug_traceCall`
+against the latest block.
+
+- `debug_traceTransaction` takes a mined transaction's hash; an unknown hash,
+  or one its block rejected, returns error `-32602`.
+- `debug_traceCall` traces a call against the state after the named block, by
+  number, hash, or tag; a tag names the latest committed block, as for
+  `eth_call`. `txIndex` traces it before that transaction of the block
+  instead. `pending` is refused, as are state and block overrides, which
+  `eth_call` does not take either.
+- `debug_traceBlockByNumber` and `debug_traceBlockByHash` return one
+  `{txHash, result}` entry per transaction that executed, in execution order.
+  A transaction the block rejected changed nothing, so it is skipped. Tags
+  resolve to the latest block whose receipts are indexed, and a block whose
+  receipts are not indexed yet returns an error.
+
+```sh
+curl -s -X POST http://127.0.0.1:8545 -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"debug_traceTransaction","params":["0xYOUR_TX_HASH",{"tracer":"callTracer"}]}'
+```
 
 ### Fetch balances with `cast`
 

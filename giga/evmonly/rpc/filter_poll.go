@@ -152,7 +152,8 @@ func (api *filterAPI) pollLogs(ctx context.Context, crit filters.FilterCriteria,
 
 // pollBlockHashes returns the hashes of the stored blocks from cursor to the latest committed
 // one, and the cursor the next poll starts from. It returns errFilterNotFound when that is more
-// than maxBlockFilterHashes blocks.
+// than maxBlockFilterHashes blocks. A failed lookup returns cursor, so the next poll returns the
+// same blocks.
 func (api *filterAPI) pollBlockHashes(ctx context.Context, cursor uint64) ([]common.Hash, uint64, error) {
 	latest := api.backend.EvmBlockNumber()
 	if cursor > latest {
@@ -168,7 +169,7 @@ func (api *filterAPI) pollBlockHashes(ctx context.Context, cursor uint64) ([]com
 			return hashes, height, nil
 		}
 		if err != nil {
-			return nil, height, err
+			return nil, cursor, err
 		}
 		hashes = append(hashes, hash)
 	}

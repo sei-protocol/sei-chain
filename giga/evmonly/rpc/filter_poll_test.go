@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"net/http/httptest"
 	"sync/atomic"
@@ -279,6 +280,32 @@ func TestGetFilterChangesPollsBlockHashes(t *testing.T) {
 	require.ErrorIs(t, err, errFilterNotFound)
 	_, err = fx.api.GetFilterChanges(t.Context(), id)
 	require.ErrorIs(t, err, errFilterNotFound)
+}
+
+func TestGetFilterChangesKeepsBlockHashesAfterAFailedLookup(t *testing.T) {
+	fx := newPollFixture(t)
+	backend := fx.api.backend.(*testBackend)
+	serve := backend.block
+	failAt := uint64(11)
+	backend.block = func(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		if uint64(*req.Height) == failAt {
+			return nil, errors.New("block store unavailable")
+		}
+		return serve(ctx, req)
+	}
+	id, err := fx.api.NewBlockFilter(t.Context())
+	require.NoError(t, err)
+	fx.head.Add(2)
+
+	// The lookup of block 11 fails after block 10's succeeded.
+	_, err = fx.api.GetFilterChanges(t.Context(), id)
+	require.Error(t, err)
+
+	// The next poll returns both blocks.
+	failAt = 0
+	got, err := fx.api.GetFilterChanges(t.Context(), id)
+	require.NoError(t, err)
+	require.Equal(t, []common.Hash{filterBlockHash(10), filterBlockHash(11)}, got)
 }
 
 func TestFilterRegistryLifecycle(t *testing.T) {

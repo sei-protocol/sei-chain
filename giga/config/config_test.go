@@ -51,6 +51,9 @@ func TestRPCDefaultsMatchTheV2EVMRPC(t *testing.T) {
 	require.Equal(t, v2.BatchRequestLimit, r.BatchRequestLimit)
 	require.Equal(t, v2.BatchResponseMaxSize, r.BatchResponseMaxSize)
 	require.Equal(t, v2.MaxOpenConnections, r.MaxWSConnections)
+	require.Equal(t, v2.MaxConcurrentTraceCalls, uint64(r.MaxConcurrentTraceCalls))
+	require.Equal(t, v2.TraceTimeout, r.TraceTimeout)
+	require.Equal(t, v2.MaxTraceStructLogBytes, uint64(r.MaxTraceStructLogBytes))
 	require.Equal(t, uint64(100), r.MaxSubscriptionsPerConnection)
 	require.Equal(t, v2.FilterTimeout, r.FilterTimeout)
 	require.Equal(t, v2.MaxFilters, r.MaxFilters)
@@ -99,6 +102,9 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.rpc.filter_timeout":                   "45s",
 		"giga.rpc.max_filters":                      "12",
 		"giga.rpc.max_block_filter_hashes":          "34",
+		"giga.rpc.max_concurrent_trace_calls":       "3",
+		"giga.rpc.trace_timeout":                    "4s",
+		"giga.rpc.max_trace_struct_log_bytes":       "512",
 		"giga.state_sync.enabled":                   "true",
 	})
 	require.NoError(t, err)
@@ -134,6 +140,9 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			FilterTimeout:                 45 * time.Second,
 			MaxFilters:                    12,
 			MaxBlockFilterHashes:          34,
+			MaxConcurrentTraceCalls:       3,
+			TraceTimeout:                  4 * time.Second,
+			MaxTraceStructLogBytes:        512,
 		},
 		StateSync: gigaconfig.StateSyncConfig{
 			Enabled: true,
@@ -169,6 +178,12 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"negative batch limit":            {"giga.rpc.batch_request_limit": "-1"},
 		"negative batch response size":    {"giga.rpc.batch_response_max_size": "-1"},
 		"negative ws connections":         {"giga.rpc.max_ws_connections": "-1"},
+		"negative trace calls":            {"giga.rpc.max_concurrent_trace_calls": "-1"},
+		"negative trace timeout":          {"giga.rpc.trace_timeout": "-1s"},
+		"negative struct log bytes":       {"giga.rpc.max_trace_struct_log_bytes": "-1"},
+		"non-numeric trace calls":         {"giga.rpc.max_concurrent_trace_calls": "many"},
+		"non-duration trace timeout":      {"giga.rpc.trace_timeout": "later"},
+		"non-numeric struct log bytes":    {"giga.rpc.max_trace_struct_log_bytes": "big"},
 		"non-numeric request bytes":       {"giga.rpc.max_concurrent_request_bytes": "lots"},
 		"non-duration admission timeout":  {"giga.rpc.ws_admission_timeout": "soon"},
 		"non-numeric batch limit":         {"giga.rpc.batch_request_limit": "many"},
