@@ -77,7 +77,14 @@ type littReceiptStore struct {
 	index    dbtypes.KeyValueDB
 	storeKey sdk.StoreKey
 
-	latestVersion   atomic.Int64
+	latestVersion atomic.Int64
+	// stagedVersion is the head the next write follows: latestVersion, or above it by a block whose
+	// index commit is still in flight when commits are pipelined.
+	stagedVersion atomic.Int64
+	// pipelinedCommits commits each block's index on its own goroutine; see PipelinedIndexCommits.
+	pipelinedCommits bool
+	// commitDone is closed once the index commit in flight lands. Guarded by writeMu.
+	commitDone      chan struct{}
 	earliestVersion atomic.Int64
 
 	keepRecent           int64
@@ -254,6 +261,7 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	receiptMeter := otel.Meter("seidb_receipt")
 	s.writePhases = seidbmetrics.NewPhaseTimer(receiptMeter, "receipt_store_write")
 	if cfg.AsyncWriteBuffer > 0 {
+		s.pipelinedCommits = cfg.PipelinedIndexCommits
 		s.writes = make(chan receiptWrite, cfg.AsyncWriteBuffer)
 		s.writeQueue = seidbmetrics.NewQueueMeter(receiptMeter, "receipt_write")
 		s.startWriter()
@@ -265,6 +273,7 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	}
 
 	s.latestVersion.Store(s.readMeta(receiptLatestVersionKey))
+	s.stagedVersion.Store(s.latestVersion.Load())
 	s.earliestVersion.Store(s.readMeta(receiptEarliestVersionKey))
 	s.startPruning()
 	s.startFlusher()
@@ -293,6 +302,9 @@ func (s *littReceiptStore) SetLatestVersion(version int64) error {
 		return err
 	}
 	s.latestVersion.Store(version)
+	if version > s.stagedVersion.Load() {
+		s.stagedVersion.Store(version)
+	}
 	return nil
 }
 
@@ -444,7 +456,12 @@ func (s *littReceiptStore) writeReceipts(height int64, receipts []receipt.Receip
 	defer s.writePhases.Reset()
 
 	batch := s.index.NewBatch()
-	defer func() { _ = batch.Close() }()
+	committing := false
+	defer func() {
+		if !committing {
+			_ = batch.Close()
+		}
+	}()
 
 	for _, blockNumber := range blockNumbers {
 		if err := s.writeBlock(batch, blockNumber, receiptsByBlock[blockNumber]); err != nil {
@@ -453,19 +470,51 @@ func (s *littReceiptStore) writeReceipts(height int64, receipts []receipt.Receip
 	}
 
 	maxBlock := blockNumbers[len(blockNumbers)-1]
-	newLatest := s.latestVersion.Load()
+	newLatest := s.stagedVersion.Load()
 	if int64(maxBlock) > newLatest { //nolint:gosec // block heights fit within int64
 		newLatest = int64(maxBlock) //nolint:gosec // block heights fit within int64
 		if err := batch.Set(receiptLatestVersionKey, encodeBlockNumber(maxBlock)); err != nil {
 			return err
 		}
 	}
+	// Index commits land in block order, so the previous one lands before this one starts.
 	s.writePhases.SetPhase("commit_index")
-	if err := batch.Commit(dbtypes.WriteOptions{}); err != nil {
+	if err := s.awaitIndexCommit(); err != nil {
 		return err
 	}
-	s.latestVersion.Store(newLatest)
+	s.stagedVersion.Store(newLatest)
+	if !s.pipelinedCommits {
+		if err := batch.Commit(dbtypes.WriteOptions{}); err != nil {
+			return err
+		}
+		s.latestVersion.Store(newLatest)
+		return nil
+	}
+	committing = true
+	done := make(chan struct{})
+	s.commitDone = done
+	go func() {
+		defer close(done)
+		err := batch.Commit(dbtypes.WriteOptions{})
+		_ = batch.Close()
+		if err != nil {
+			logger.Error("failed to commit receipt log index", "height", maxBlock, "err", err)
+			s.writeErr.CompareAndSwap(nil, &err)
+			return
+		}
+		s.latestVersion.Store(newLatest)
+	}()
 	return nil
+}
+
+// awaitIndexCommit waits for the index commit in flight, if any, and returns the first write failure.
+// The caller holds writeMu.
+func (s *littReceiptStore) awaitIndexCommit() error {
+	if s.commitDone != nil {
+		<-s.commitDone
+		s.commitDone = nil
+	}
+	return s.writeFailure()
 }
 
 // writeBlock appends one part for the block into litt (the receipts
@@ -562,7 +611,7 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 // Contiguity is the caller's to maintain, and Giga's startup convergence is what maintains it, so a
 // refusal here reports a broken invariant rather than a store that has fallen behind the chain.
 func (s *littReceiptStore) requireNoSkippedBlock(blockNumbers []uint64) error {
-	head := s.latestVersion.Load()
+	head := s.stagedVersion.Load()
 	if head <= 0 {
 		// Nothing is recorded yet, so this write establishes where the store's history begins.
 		return nil
@@ -584,7 +633,7 @@ func (s *littReceiptStore) requireNoSkippedBlock(blockNumbers []uint64) error {
 // part in litt as the litt head, which holds only while blocks are written in ascending order.
 // blockNumbers must be sorted ascending.
 func (s *littReceiptStore) requireNoBlockBelowHead(blockNumbers []uint64) error {
-	head := s.latestVersion.Load()
+	head := s.stagedVersion.Load()
 	if head <= 0 || int64(blockNumbers[0]) >= head { //nolint:gosec // block heights fit within int64
 		return nil
 	}
@@ -720,6 +769,9 @@ func (s *littReceiptStore) Close() error {
 		close(s.stopBackground)
 		// The writer drains what it holds before returning, so this is where queued writes land.
 		s.backgroundWg.Wait()
+		s.writeMu.Lock()
+		_ = s.awaitIndexCommit()
+		s.writeMu.Unlock()
 		err = s.writeFailure()
 		// litt's Close flushes, so the last sub-interval of writes is durable.
 		if valuesErr := s.values.Close(); err == nil {
