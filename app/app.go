@@ -2344,6 +2344,11 @@ func cloneConsensusParams(params *tmproto.ConsensusParams) *tmproto.ConsensusPar
 			RecheckTx:                  params.Abci.RecheckTx,
 		}
 	}
+	if params.StateSync != nil {
+		cp.StateSync = &tmproto.StateSyncParams{
+			TrustPeriod: cloneDuration(params.StateSync.TrustPeriod),
+		}
+	}
 
 	return cp
 }

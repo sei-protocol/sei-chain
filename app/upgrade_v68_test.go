@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
 	"github.com/sei-protocol/sei-chain/app/retiredvesting"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -49,7 +50,8 @@ import (
 // balance a schedule had locked, the messages the removed modules served, the
 // allowlist and parameter pruning, the stored wasm parameters, genesis export
 // over the migrated store, and the handler itself. The handler also starts the staking delegation-by-validator
-// index backfill, which the staking EndBlocker completes.
+// index backfill, which the staking EndBlocker completes, and stores the state
+// sync trust period, which headers from the next height on commit to.
 
 // v68RemovedStoreModules are the module version map entries the v6.8 handler
 // deletes along with their stores.
@@ -87,6 +89,9 @@ var v68WasmFlagKeys = [][]byte{
 	[]byte(wasmtypes.ModuleName + "/" + string(wasmtypes.ParamStoreKeyMsgExecuteContractDisabled)),
 	[]byte(wasmtypes.ModuleName + "/" + string(wasmtypes.ParamStoreKeyContractExecutionDisabled)),
 }
+
+// v68StateSyncParamsKey is the params-store key of the state sync consensus params.
+var v68StateSyncParamsKey = []byte(baseapp.Paramspace + "/" + string(baseapp.ParamStoreKeyStateSyncParams))
 
 var v68PostUpgradeBankReceiver = sdk.AccAddress{
 	0x68, 0x68, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -663,9 +668,10 @@ func TestV68DenomAllowListPruneIsBounded(t *testing.T) {
 }
 
 // TestV68PrunesTokenfactoryParams pins that v6.8 deletes every entry of the
-// tokenfactory parameter subspace, writes MigrateCosmosEnabled, and changes
-// nothing else in the params store. The subspace holds the parameter v6.7 keeps
-// and a creation fee an older tokenfactory version left behind.
+// tokenfactory parameter subspace, writes MigrateCosmosEnabled and the state sync
+// trust period, and changes nothing else in the params store. The subspace holds
+// the parameter v6.7 keeps and a creation fee an older tokenfactory version left
+// behind.
 func TestV68PrunesTokenfactoryParams(t *testing.T) {
 	a := newV68Chain(t)
 	store := a.Ctx().KVStore(a.GetKey(paramstypes.StoreKey))
@@ -679,6 +685,7 @@ func TestV68PrunesTokenfactoryParams(t *testing.T) {
 	store.Set([]byte("tokenfactoryless"), []byte("unrelated"))
 	migrateCosmosEnabled := migration.SubspaceName + "/" + string(migration.KeyMigrateCosmosEnabled)
 	store.Delete([]byte(migrateCosmosEnabled))
+	store.Delete(v68StateSyncParamsKey)
 	kept := v68PrefixEntries(t, store, nil)
 	for key := range retired {
 		delete(kept, key)
@@ -687,8 +694,42 @@ func TestV68PrunesTokenfactoryParams(t *testing.T) {
 
 	applyV68(t, a)
 
+	stateSyncParams := store.Get(v68StateSyncParamsKey)
+	require.NotNil(t, stateSyncParams, "v6.8 did not store the state sync trust period")
+	kept[string(v68StateSyncParamsKey)] = stateSyncParams
 	require.Equal(t, kept, v68PrefixEntries(t, store, nil),
-		"v6.8 changed the params store beyond deleting the tokenfactory subspace and enabling MigrateCosmos")
+		"v6.8 changed the params store beyond deleting the tokenfactory subspace, enabling MigrateCosmos "+
+			"and setting the state sync trust period")
+}
+
+// TestV68SetsTheStateSyncTrustPeriod pins that v6.8 stores a state sync trust
+// period of two thirds of the unbonding time, at most 112 hours, in a params
+// store that lacks one, as v6.7 left it.
+func TestV68SetsTheStateSyncTrustPeriod(t *testing.T) {
+	testCases := map[string]struct {
+		unbondingTime time.Duration
+		want          time.Duration
+	}{
+		"a 21-day unbonding time": {unbondingTime: 21 * 24 * time.Hour, want: 112 * time.Hour},
+		"a 7-day unbonding time":  {unbondingTime: 7 * 24 * time.Hour, want: 112 * time.Hour},
+		"a 3-day unbonding time":  {unbondingTime: 3 * 24 * time.Hour, want: 48 * time.Hour},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			a := newV68Chain(t)
+			a.Ctx().KVStore(a.GetKey(paramstypes.StoreKey)).Delete(v68StateSyncParamsKey)
+			stakingParams := a.StakingKeeper.GetParams(a.Ctx())
+			stakingParams.UnbondingTime = tc.unbondingTime
+			a.StakingKeeper.SetParams(a.Ctx(), stakingParams)
+
+			applyV68(t, a)
+
+			stateSync := a.GetConsensusParams(a.Ctx()).StateSync
+			require.NotNil(t, stateSync, "v6.8 did not store the state sync params")
+			require.NotNil(t, stateSync.TrustPeriod, "v6.8 stored state sync params without a trust period")
+			require.Equal(t, tc.want, *stateSync.TrustPeriod)
+		})
+	}
 }
 
 // TestV68EnablesMigrateCosmos pins that the upgrade allows the SC store to
@@ -879,6 +920,8 @@ func seedV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 	for _, key := range v68WasmFlagKeys {
 		require.Empty(t, chain.QueryStore(t, paramstypes.StoreKey, key), "v6.7 already stores %s", key)
 	}
+	require.Empty(t, chain.QueryStore(t, paramstypes.StoreKey, v68StateSyncParamsKey),
+		"v6.7 already stores a state sync trust period")
 	chain.Record(t, "module_versions", versions)
 
 	vestingCommand := chain.Seid("", "tx", v68VestingModule)
@@ -930,6 +973,8 @@ func verifyV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 	for _, key := range v68WasmFlagKeys {
 		require.Equal(t, []byte("false"), chain.QueryStore(t, paramstypes.StoreKey, key), "v6.8 did not store %s as false", key)
 	}
+	require.Equal(t, min(v68UnbondingTime(t, chain)*2/3, 112*time.Hour), v68ConsensusTrustPeriod(t, chain),
+		"the consensus params after v6.8 do not carry the state sync trust period the upgrade sets")
 
 	oracleCommand := chain.Seid("", "q", retiredoracle.ModuleName)
 	require.Error(t, oracleCommand.Err)
@@ -1004,6 +1049,42 @@ func v68ModuleVersions(t *testing.T, chain *upgradetest.CrossVersion) map[string
 
 func v68ModuleVersionKey(module string) []byte {
 	return append([]byte{upgradetypes.VersionMapByte}, []byte(module)...)
+}
+
+// v68UnbondingTime returns the staking unbonding time.
+func v68UnbondingTime(t *testing.T, chain *upgradetest.CrossVersion) time.Duration {
+	t.Helper()
+	output := chain.MustSeid(t, "", "q", "staking", "params", "--output", "json")
+	var params struct {
+		UnbondingTime string `json:"unbonding_time"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(output), &params), output)
+	unbondingTime, err := time.ParseDuration(params.UnbondingTime)
+	require.NoError(t, err, "unbonding time %q", params.UnbondingTime)
+	return unbondingTime
+}
+
+// v68ConsensusTrustPeriod returns the state sync trust period in the consensus
+// params Tendermint holds for the latest height.
+func v68ConsensusTrustPeriod(t *testing.T, chain *upgradetest.CrossVersion) time.Duration {
+	t.Helper()
+	result := chain.Binary("", "curl", "-sf", "-H", "Content-Type: application/json",
+		"-d", `{"jsonrpc":"2.0","id":1,"method":"consensus_params","params":{}}`, "http://127.0.0.1:26657")
+	chain.WriteDiagnostic(t, "v68-consensus-params.stdout", []byte(result.Stdout))
+	require.NoError(t, result.Err, result.Combined())
+	var response struct {
+		Result struct {
+			ConsensusParams struct {
+				StateSync struct {
+					TrustPeriod string `json:"trust_period"`
+				} `json:"state_sync"`
+			} `json:"consensus_params"`
+		} `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(result.Stdout), &response), result.Stdout)
+	nanoseconds, err := strconv.ParseInt(response.Result.ConsensusParams.StateSync.TrustPeriod, 10, 64)
+	require.NoError(t, err, result.Stdout)
+	return time.Duration(nanoseconds)
 }
 
 func v68AppliedHeight(t *testing.T, chain *upgradetest.CrossVersion) int64 {

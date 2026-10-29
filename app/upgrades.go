@@ -6,9 +6,11 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
@@ -16,6 +18,7 @@ import (
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"golang.org/x/mod/semver"
 	"google.golang.org/protobuf/encoding/protowire"
 )
@@ -174,6 +177,7 @@ func (app *App) RegisterUpgradeHandlers() {
 				app.pruneTokenfactoryParams(ctx)
 				app.StakingKeeper.StartDelegationByValIndexBackfill(ctx)
 				app.enableMigrateCosmos(ctx)
+				app.setStateSyncTrustPeriod(ctx)
 				return newVM, nil
 			}
 
@@ -288,6 +292,24 @@ func (app *App) pruneDenomAllowLists(ctx sdk.Context) {
 // pruneTokenfactoryParams removes every parameter of the tokenfactory subspace from the params store.
 func (app *App) pruneTokenfactoryParams(ctx sdk.Context) {
 	deleteByPrefix(ctx.KVStore(app.GetKey(paramstypes.StoreKey)), tokenfactoryParamsPrefix)
+}
+
+// v68MaxStateSyncTrustPeriod is the longest state sync trust period v6.8 sets: two
+// thirds of a 7-day unbonding time.
+const v68MaxStateSyncTrustPeriod = 112 * time.Hour
+
+// setStateSyncTrustPeriod stores the trust period state syncing nodes read from the
+// chain's consensus params: two thirds of the unbonding time, at most
+// v68MaxStateSyncTrustPeriod. Only the state sync section of the consensus params
+// is written.
+func (app *App) setStateSyncTrustPeriod(ctx sdk.Context) {
+	trustPeriod := min(app.StakingKeeper.UnbondingTime(ctx)*2/3, v68MaxStateSyncTrustPeriod)
+	subspace, ok := app.ParamsKeeper.GetSubspace(baseapp.Paramspace)
+	if !ok {
+		panic("baseapp parameter subspace is not registered")
+	}
+	subspace.Set(ctx, baseapp.ParamStoreKeyStateSyncParams, &tmproto.StateSyncParams{TrustPeriod: &trustPeriod})
+	logger.Info("set the state sync trust period", "trust_period", trustPeriod)
 }
 
 // deleteByPrefix deletes the first RetiredPrefixDeleteLimit keys under prefix in

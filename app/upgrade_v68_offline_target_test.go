@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app/migration"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -151,9 +152,9 @@ func applyV68OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offli
 // accounts are rewritten, the retired IBC proposal reads back as a text
 // proposal, the upgraded IBC client record, the denom allowlists and the
 // tokenfactory parameters are pruned, the wasm flag parameters are stored,
-// MigrateCosmos is enabled, the IBC voucher balance and supply are intact and
-// spendable, every delegation is indexed by validator, and nothing else in the
-// retained stores changed.
+// MigrateCosmos is enabled, the state sync trust period is stored, the IBC
+// voucher balance and supply are intact and spendable, every delegation is
+// indexed by validator, and nothing else in the retained stores changed.
 func requireV68OfflineMigrated(t *testing.T, testApp *App, artifact offlineUpgradeArtifact) {
 	t.Helper()
 	requireV68OfflineAppliedName(t, testApp, artifact)
@@ -166,6 +167,7 @@ func requireV68OfflineMigrated(t *testing.T, testApp *App, artifact offlineUpgra
 	requireV68OfflineTokenfactoryParamsPruned(t, testApp, artifact.Stores[paramstypes.StoreKey])
 	requireV68OfflineWasmFlagsStored(t, testApp, artifact.Stores[paramstypes.StoreKey])
 	requireV68OfflineMigrateCosmosEnabled(t, testApp, artifact.Stores[paramstypes.StoreKey])
+	requireV68OfflineStateSyncTrustPeriodStored(t, testApp, artifact.Stores[paramstypes.StoreKey])
 	requireV68OfflineVoucher(t, testApp, artifact.Retained)
 	requireV68OfflineDelegationIndex(t, testApp)
 	requireOfflineUpgradeRetainedStoresExcept(t, testApp, artifact.Stores, v68OfflineTouchedKey(t, artifact))
@@ -493,6 +495,22 @@ func requireV68OfflineMigrateCosmosEnabled(t *testing.T, testApp *App, sourcePar
 	require.False(t, recorded, "the source phase already held MigrateCosmosEnabled")
 	store := testApp.CommitMultiStore().GetCommitKVStore(testApp.GetKey(paramstypes.StoreKey))
 	require.Equal(t, []byte("true"), store.Get(key), "v6.8 did not enable MigrateCosmos")
+}
+
+// requireV68OfflineStateSyncTrustPeriodStored requires the source phase's params
+// snapshot to hold no state sync trust period and the committed consensus params
+// to hold two thirds of the unbonding time, at most v68MaxStateSyncTrustPeriod.
+func requireV68OfflineStateSyncTrustPeriodStored(t *testing.T, testApp *App, sourceParams map[string]string) {
+	t.Helper()
+	key := []byte(baseapp.Paramspace + "/" + string(baseapp.ParamStoreKeyStateSyncParams))
+	_, recorded := sourceParams[encodeOfflineUpgradeKey(key)]
+	require.False(t, recorded, "the source phase already held a state sync trust period")
+	ctx, _ := offlineUpgradeReadContext(testApp, testApp.LastBlockHeight()).CacheContext()
+	stateSync := testApp.GetConsensusParams(ctx).StateSync
+	require.NotNil(t, stateSync, "v6.8 did not store the state sync params")
+	require.NotNil(t, stateSync.TrustPeriod, "v6.8 stored state sync params without a trust period")
+	want := min(testApp.StakingKeeper.UnbondingTime(ctx)*2/3, v68MaxStateSyncTrustPeriod)
+	require.Equal(t, want, *stateSync.TrustPeriod)
 }
 
 func requireV68OfflineVoucher(t *testing.T, testApp *App, retained offlineUpgradeRetainedState) {
