@@ -15,6 +15,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // genesisState lets genesis writers that take a precompiles.State seed a MemoryState.
@@ -286,4 +287,62 @@ func TestCallcodeDepositIsRejected(t *testing.T) {
 	require.Equal(t, common.Hash{}, state.GetState(caller, successSlot), "the CALLCODE sub-call failed")
 	require.Equal(t, value, state.GetBalance(gov.Address), "the donation is untouched")
 	require.Equal(t, usei(1), state.GetBalance(gov.DepositEscrow), "only the submit deposit reached escrow")
+}
+
+// TestGovDropsAFullBlockOfProposalsInOneEndBlock fills a block at the default
+// block gas limit with the cheapest proposals, ones that take no deposit, and
+// checks one EndBlock past their deposit period drops them all, so the deposit
+// queue drains faster than blocks can fill it.
+func TestGovDropsAFullBlockOfProposalsInOneEndBlock(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	usei := func(n int64) *big.Int { return new(big.Int).Mul(big.NewInt(n), big.NewInt(1_000_000_000_000)) }
+	key, err := crypto.HexToECDSA(anvilKeys[0])
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	newState := func() *MemoryState {
+		state := NewMemoryState()
+		state.SetBalance(sender, usei(1_000_000))
+		gov.SetParams(genesisState{state}, gov.Params{VotingPeriod: uint64(100 * time.Second), ExpeditedVotingPeriod: uint64(50 * time.Second), MinDeposit: usei(10), MaxDepositPeriod: uint64(50 * time.Second), MinExpeditedDeposit: usei(40)})
+		return state
+	}
+	cfg := Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: precompiles.NewStaticRegistry(map[common.Address]precompiles.Contract{gov.Address: gov.Precompile{}}, gov.Address)}
+	to := gov.Address
+	data, err := gov.ABI.Pack(gov.SubmitTextProposalMethod, "t", "d", false)
+	require.NoError(t, err)
+	submit := func(nonce uint64) []byte {
+		return signLegacyTxWithGasPrice(t, key, chainID, nonce, &to, big.NewInt(0), data, 2_000_000, big.NewInt(1))
+	}
+
+	block := blockContext(chainID)
+	block.GasLimit = uint64(tmtypes.DefaultBlockParams().MaxGas) //nolint:gosec // MaxGas is positive
+	probe, err := NewExecutor(cfg, withTestState(newState())).ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: [][]byte{submit(0)}})
+	require.NoError(t, err)
+	n := block.GasLimit / probe.Txs[0].GasUsed
+	state := newState()
+	txs := make([][]byte, n)
+	for i := range txs {
+		txs[i] = submit(uint64(i))
+	}
+	res, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: txs})
+	require.NoError(t, err)
+	for i, tx := range res.Txs {
+		require.Equal(t, uint64(1), tx.Status, "proposal %d", i+1)
+	}
+	state.ApplyChangeSet(res.ChangeSet)
+
+	block.Number++
+	block.Time += 60
+	res, err = NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: block})
+	require.NoError(t, err)
+	state.ApplyChangeSet(res.ChangeSet)
+	ex := NewExecutor(cfg, withTestState(state))
+	for id := uint64(1); id <= n; id++ {
+		query, err := gov.ABI.Pack(gov.ProposalMethod, id)
+		require.NoError(t, err)
+		msg := callMessage(sender, &to)
+		msg.Data = query
+		out, err := ex.Call(t.Context(), block, msg)
+		require.NoError(t, err)
+		require.Error(t, out.Err, "proposal %d of %d is still queued", id, n)
+	}
 }

@@ -316,13 +316,14 @@ func TestEndBlockCarriesOverPastBudget(t *testing.T) {
 	params.MinDeposit = usei(1_000_000)
 	params.MinExpeditedDeposit = usei(2_000_000)
 	h.withParams(params)
-	const proposals = 6
-	for range proposals {
+	h.fillDepositors(h.submit(alice, textProposal, nil), maxDepositors-1)
+	settled := int(endBlockBudget / must(dropCost(newStore(h.state), 1)))
+	require.Less(t, settled, endBlockBudget/maxDepositors+1, "each costs its depositors and content")
+	proposals := settled + 2
+	for range proposals - 1 {
 		h.fillDepositors(h.submit(alice, textProposal, nil), maxDepositors-1)
 	}
 	q := newStore(h.state).depositQueue()
-	settled := int(endBlockBudget / must(dropCost(newStore(h.state), 1)))
-	require.Equal(t, 4, settled, "each costs its depositors and content")
 
 	h.time = startTime + params.MaxDepositPeriod
 	h.endBlock(1)
@@ -365,7 +366,9 @@ func TestEndBlockEndsVotingPastSpentDropBudget(t *testing.T) {
 	voted := h.open(textProposal, params.MinDeposit)
 	h.vote(alice, voted, OptionYes)
 	h.vote(bob, voted, OptionYes)
-	for range 6 {
+	first := h.submit(alice, textProposal, nil)
+	h.fillDepositors(first, maxDepositors-1)
+	for range endBlockBudget / must(dropCost(newStore(h.state), first)) {
 		h.fillDepositors(h.submit(alice, textProposal, nil), maxDepositors-1)
 	}
 
