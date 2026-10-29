@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
@@ -181,6 +182,28 @@ func TestRetiringACommitWhileOpeningAViewKeepsThePreviousBlocksState(t *testing.
 		Account: AccountState{Balance: big.NewInt(1_000)},
 		Prior:   AccountState{Balance: new(uint256.Int).ToBig()},
 	})
+}
+
+// The store here never applies a commit to its view, so the nonce a block advanced is visible only
+// through its in-flight commit.
+func TestSettledNonceReadsTheInFlightCommit(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xb4)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	executor := NewExecutor(Config{}, withTestStores(&recordingGigaStore{snapshot: snapshot}, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	defer executor.Close()
+
+	executePipelinedBlock(t, executor, chainID, 41,
+		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1_000), nil))
+
+	require.Equal(t, uint64(1), executor.SettledNonce(sender))
+	require.Equal(t, uint64(0), executor.SettledNonce(recipient))
+	require.Equal(t, []uint64{0, 1, 0}, executor.SettledNonces([]common.Address{recipient, sender, recipient}))
 }
 
 // blockingOpenStore holds a block inside OpenView, and so inside the executor's store lock, until

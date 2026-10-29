@@ -12,9 +12,11 @@ import (
 //
 // Must be called without versionLock held: submitting can block when the pool's queue is full.
 func (c *viewManager) materializeDiffAtVersion(version uint64) {
-	c.sortPool.Submit(func() {
-		_, _ = c.materializeSortedDiffs(version)
-	})
+	for _, shard := range c.shards {
+		c.sortPool.Submit(func() {
+			_ = shard.MaterializeSortedDiff(version)
+		})
+	}
 }
 
 // materializeSortedDiffs materializes one version on every shard and collects the resulting diffs,
@@ -36,29 +38,77 @@ func (c *viewManager) materializeSortedDiffs(version uint64) ([][]Write, error) 
 
 // forEachMergedEntry walks every entry across a version's per-shard diffs in ascending key order.
 func forEachMergedEntry(shardDiffs [][]Write, visit func(entry Write) error) error {
-	cursors := make([]int, len(shardDiffs))
-
+	merge := newDiffMerge(shardDiffs)
 	for {
-		// The smallest head is scanned for rather than kept in a heap: the diffs are disjoint, there are
-		// ShardCount of them, and a handful of comparisons per key beats maintaining one. Worth
-		// revisiting if a deployment raises the shard count by an order of magnitude.
-		next := -1
-		for i, diff := range shardDiffs {
-			if cursors[i] >= len(diff) {
-				continue
-			}
-			if next == -1 || diff[cursors[i]].Key < shardDiffs[next][cursors[next]].Key {
-				next = i
-			}
-		}
-		if next == -1 {
+		entry, ok := merge.next()
+		if !ok {
 			return nil
 		}
-
-		entry := shardDiffs[next][cursors[next]]
-		cursors[next]++
 		if err := visit(entry); err != nil {
 			return err
 		}
+	}
+}
+
+// diffMerge yields the entries of disjoint, key-ordered diffs in ascending key order, keeping each
+// diff's head in a min-heap.
+type diffMerge struct {
+	diffs   [][]Write
+	cursors []int
+	// heap holds the indices of the diffs not yet exhausted, ordered by their head's key.
+	heap []int
+}
+
+func newDiffMerge(diffs [][]Write) *diffMerge {
+	m := &diffMerge{diffs: diffs, cursors: make([]int, len(diffs)), heap: make([]int, 0, len(diffs))}
+	for i, diff := range diffs {
+		if len(diff) > 0 {
+			m.heap = append(m.heap, i)
+		}
+	}
+	for i := len(m.heap)/2 - 1; i >= 0; i-- {
+		m.down(i)
+	}
+	return m
+}
+
+// next returns the smallest remaining entry, or false once every diff is exhausted.
+func (m *diffMerge) next() (Write, bool) {
+	if len(m.heap) == 0 {
+		return Write{}, false
+	}
+	top := m.heap[0]
+	entry := m.diffs[top][m.cursors[top]]
+	m.cursors[top]++
+	if m.cursors[top] == len(m.diffs[top]) {
+		last := len(m.heap) - 1
+		m.heap[0] = m.heap[last]
+		m.heap = m.heap[:last]
+	}
+	if len(m.heap) > 0 {
+		m.down(0)
+	}
+	return entry, true
+}
+
+func (m *diffMerge) head(heapIndex int) string {
+	diff := m.heap[heapIndex]
+	return m.diffs[diff][m.cursors[diff]].Key
+}
+
+func (m *diffMerge) down(i int) {
+	for {
+		smallest := i
+		if left := 2*i + 1; left < len(m.heap) && m.head(left) < m.head(smallest) {
+			smallest = left
+		}
+		if right := 2*i + 2; right < len(m.heap) && m.head(right) < m.head(smallest) {
+			smallest = right
+		}
+		if smallest == i {
+			return
+		}
+		m.heap[i], m.heap[smallest] = m.heap[smallest], m.heap[i]
+		i = smallest
 	}
 }

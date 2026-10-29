@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"slices"
 	"sort"
 	"sync/atomic"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -137,6 +139,8 @@ func (r occSpeculativeRunner) runRanges(
 	// Ranges are claimed as workers finish, so a slow slice does not idle the rest of the pass.
 	var claimed atomic.Int64
 	return pool.Run(ctx, len(ranges), func(workerCtx context.Context, _ int, _ int) error {
+		started := time.Now()
+		defer func() { occMetrics.workerSeconds.Add(ctx, time.Since(started).Seconds()) }()
 		stateDB := r.executor.acquireStateDB(nil)
 		defer r.executor.releaseStateDB(stateDB)
 		evm := vm.NewEVM(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, r.executor.customContracts)
@@ -338,7 +342,10 @@ func (e *Executor) validateBlockSTM(
 			backoff.record(state.nextToValidate, accepted)
 		}
 		end := backoff.serialEnd(state.nextToValidate, len(results))
+		frontierStart := time.Now()
 		rerun, err := validateBlockSTMFrontier(ctx, runner, results, state, &validation, end)
+		frontierTime := time.Since(frontierStart)
+		occStepValidateFrontier.record(ctx, frontierTime, frontierTime)
 		if err != nil {
 			return nil, nil, validation, err
 		}
@@ -665,7 +672,7 @@ func fillMergedResults(ctx context.Context, pool *occWorkerPool, blockResult *Bl
 	chunks := (len(results) + occMergeChunk - 1) / occMergeChunk
 	gasBefore := make([]uint64, chunks+1)
 	logsBefore := make([]uint, chunks+1)
-	err := pool.Run(ctx, chunks, func(workerCtx context.Context, workerID int, workers int) error {
+	err := pool.RunStep(ctx, occStepMergeFill, chunks, func(workerCtx context.Context, workerID int, workers int) error {
 		for c := workerID; c < chunks; c += workers {
 			for i := c * occMergeChunk; i < min((c+1)*occMergeChunk, len(results)); i++ {
 				gasBefore[c+1] += results[i].gasUsed
@@ -683,7 +690,7 @@ func fillMergedResults(ctx context.Context, pool *occWorkerPool, blockResult *Bl
 		gasBefore[c+1] += gasBefore[c]
 		logsBefore[c+1] += logsBefore[c]
 	}
-	err = pool.Run(ctx, chunks, func(workerCtx context.Context, workerID int, workers int) error {
+	err = pool.RunStep(ctx, occStepMergeFill, chunks, func(workerCtx context.Context, workerID int, workers int) error {
 		for c := workerID; c < chunks; c += workers {
 			fillMergedRange(blockResult, results, c*occMergeChunk, min((c+1)*occMergeChunk, len(results)), gasBefore[c], logsBefore[c])
 		}
@@ -745,7 +752,8 @@ type blockSTMShard struct {
 	// accepted write to it carried. No transaction ahead of that writer wrote it, so what it read was
 	// the pre-block value. Later writers read an earlier writer's value.
 	accounts map[common.Address]*AccountChange
-	storage  map[storageChangeKey]StorageChange
+	// storage is split by slot range; see occStorageSubShards. A sub-shard's map is created on first write.
+	storage [occStorageSubShards]map[storageChangeKey]StorageChange
 }
 
 func newBlockSTMState(source StateReader) *blockSTMState {
@@ -754,10 +762,7 @@ func newBlockSTMState(source StateReader) *blockSTMState {
 	}
 	state := &blockSTMState{source: source}
 	for i := range state.shards {
-		state.shards[i] = blockSTMShard{
-			accounts: map[common.Address]*AccountChange{},
-			storage:  map[storageChangeKey]StorageChange{},
-		}
+		state.shards[i] = blockSTMShard{accounts: map[common.Address]*AccountChange{}}
 	}
 	return state
 }
@@ -788,7 +793,7 @@ func (s *blockSTMState) GetCode(addr common.Address) []byte {
 }
 
 func (s *blockSTMState) GetState(addr common.Address, key common.Hash) common.Hash {
-	if change, ok := s.shard(addr).storage[storageChangeKey{address: addr, key: key}]; ok {
+	if change, ok := s.shard(addr).storage[occStorageSubOf(key)][storageChangeKey{address: addr, key: key}]; ok {
 		return change.Value
 	}
 	return s.source.GetState(addr, key)
@@ -796,7 +801,7 @@ func (s *blockSTMState) GetState(addr common.Address, key common.Hash) common.Ha
 
 // apply folds one accepted result into the prefix.
 func (s *blockSTMState) apply(result occTxExecution) {
-	s.applyOwned(result, occAllShards)
+	s.applyOwned(result, occOwnAll)
 }
 
 // applyOwned folds the parts of one accepted result whose addresses fall in the shards owns
@@ -804,8 +809,8 @@ func (s *blockSTMState) apply(result occTxExecution) {
 //
 // Results must be applied in block order, each once, for every account and slot to keep the first
 // writer's prior.
-func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
-	for change := range ownedChanges(owns, result.changeSet.Accounts, accountChangeAddr) {
+func (s *blockSTMState) applyOwned(result occTxExecution, owns occOwnership) {
+	for change := range ownedChanges(owns.accounts, result.changeSet.Accounts, accountChangeAddr) {
 		shard := s.shard(change.Address)
 		accepted, ok := shard.accounts[change.Address]
 		if !ok {
@@ -833,18 +838,24 @@ func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
 			accepted.Account.Code = change.Account.Code
 		}
 	}
-	for change := range ownedChanges(owns, result.changeSet.Storage, storageChangeAddr) {
-		shard := s.shard(change.Address)
+	for _, change := range result.changeSet.Storage {
+		cell := occStorageCellOf(change.Address, change.Key)
+		if !owns.ownsCell(cell) {
+			continue
+		}
+		sub := &s.shard(change.Address).storage[cell%occStorageSubShards]
+		if *sub == nil {
+			*sub = map[storageChangeKey]StorageChange{}
+		}
 		key := storageChangeKey{address: change.Address, key: change.Key}
-		if accepted, ok := shard.storage[key]; ok {
+		if accepted, ok := (*sub)[key]; ok {
 			change.PriorValue = accepted.PriorValue
 		}
-		shard.storage[key] = change
+		(*sub)[key] = change
 	}
 }
 
 func accountChangeAddr(c AccountChange) common.Address { return c.Address }
-func storageChangeAddr(c StorageChange) common.Address { return c.Address }
 
 func (s *blockSTMState) ChangeSet() StateChangeSet {
 	var changes StateChangeSet
@@ -864,24 +875,59 @@ func (s *blockSTMState) ChangeSetInto(changes *StateChangeSet) {
 // the address space in canonical order, so appending shard by shard yields a canonically ordered
 // changeset.
 func (h *blockSTMShard) changeSetInto(changes *StateChangeSet) {
+	h.changedAccountsInto(changes)
+	var runs [occStorageSubShards][]StorageChange
+	for sub := range runs {
+		runs[sub] = h.changedStorage(sub)
+	}
+	changes.Storage = appendStorageRuns(changes.Storage, runs[:])
+}
+
+// changedAccountsInto appends the shard's changed accounts, in canonical order, to changes.
+func (h *blockSTMShard) changedAccountsInto(changes *StateChangeSet) {
 	for _, addr := range sortedAddresses(h.accounts) {
 		if change := h.accounts[addr]; change.BalanceChanged() || change.NonceChanged() || change.CodeChanged() {
 			changes.Accounts = append(changes.Accounts, *change)
 		}
 	}
-	storageKeys := make([]storageChangeKey, 0, len(h.storage))
-	for key := range h.storage {
-		storageKeys = append(storageKeys, key)
+}
+
+// changedStorage returns the changed slots of one storage sub-shard in canonical order.
+func (h *blockSTMShard) changedStorage(sub int) []StorageChange {
+	if len(h.storage[sub]) == 0 {
+		return nil
 	}
-	sort.Slice(storageKeys, func(i, j int) bool {
-		if cmp := bytes.Compare(storageKeys[i].address[:], storageKeys[j].address[:]); cmp != 0 {
-			return cmp < 0
+	changed := make([]StorageChange, 0, len(h.storage[sub]))
+	for _, change := range h.storage[sub] {
+		if change.Value != change.PriorValue {
+			changed = append(changed, change)
 		}
-		return bytes.Compare(storageKeys[i].key[:], storageKeys[j].key[:]) < 0
-	})
-	for _, key := range storageKeys {
-		if change := h.storage[key]; change.Value != change.PriorValue {
-			changes.Storage = append(changes.Storage, change)
+	}
+	slices.SortFunc(changed, compareStorageChange)
+	return changed
+}
+
+// appendStorageRuns appends one shard's sub-shard runs to storage in canonical order. Each run is in
+// canonical order and the sub-shards are ascending slot ranges, so each address's slots are its slots
+// from every run, taken run by run.
+func appendStorageRuns(storage []StorageChange, runs [][]StorageChange) []StorageChange {
+	cursors := make([]int, len(runs))
+	for {
+		var next *common.Address
+		for i, run := range runs {
+			if cursors[i] < len(run) && (next == nil || bytes.Compare(run[cursors[i]].Address[:], next[:]) < 0) {
+				next = &run[cursors[i]].Address
+			}
+		}
+		if next == nil {
+			return storage
+		}
+		addr := *next
+		for i, run := range runs {
+			for cursors[i] < len(run) && run[cursors[i]].Address == addr {
+				storage = append(storage, run[cursors[i]])
+				cursors[i]++
+			}
 		}
 	}
 }
@@ -894,7 +940,9 @@ type stateAccessIndex struct {
 
 // stateAccessShard indexes the writes to the addresses of one shard.
 type stateAccessShard struct {
-	exact              map[stateAccessKey]txIndexSpan
+	exact map[stateAccessKey]txIndexSpan
+	// storage holds the storage-slot writes, split by slot range like the accepted prefix's storage.
+	storage            [occStorageSubShards]map[stateAccessKey]txIndexSpan
 	account            map[common.Address]txIndexSpan
 	touched            map[common.Address]txIndexSpan
 	commutativeBalance map[common.Address]txIndexSpan
@@ -930,7 +978,11 @@ func (i *stateAccessIndex) shard(addr common.Address) *stateAccessShard {
 // never a false negative, and a false positive costs one rerun, not correctness.
 func (i *stateAccessIndex) conflictsWithin(key stateAccessKey, lo int, hi int) bool {
 	shard := i.shard(key.address)
-	if writtenWithin(shard.exact, key, lo, hi) {
+	if key.kind == stateAccessStorage {
+		if writtenWithin(shard.storage[occStorageSubOf(key.slot)], key, lo, hi) {
+			return true
+		}
+	} else if writtenWithin(shard.exact, key, lo, hi) {
 		return true
 	}
 	if writtenWithin(shard.account, key.address, lo, hi) {
@@ -958,20 +1010,32 @@ func writtenWithin[K comparable](writes map[K]txIndexSpan, key K, lo int, hi int
 
 // addAll records the set as written by transactions at every index.
 func (i *stateAccessIndex) addAll(set map[stateAccessKey]struct{}) {
-	i.addSpan(txIndexSpan{first: 0, last: math.MaxInt}, set, occAllShards)
+	i.addSpan(txIndexSpan{first: 0, last: math.MaxInt}, set, occOwnAll)
 }
 
 // addAllAt records the set as written by the transaction at txIndex.
 func (i *stateAccessIndex) addAllAt(txIndex int, set map[stateAccessKey]struct{}) {
-	i.addSpan(txIndexSpan{first: txIndex, last: txIndex}, set, occAllShards)
+	i.addSpan(txIndexSpan{first: txIndex, last: txIndex}, set, occOwnAll)
 }
 
-func (i *stateAccessIndex) addSpan(span txIndexSpan, set map[stateAccessKey]struct{}, owns occShardSet) {
+func (i *stateAccessIndex) addSpan(span txIndexSpan, set map[stateAccessKey]struct{}, owns occOwnership) {
 	for key := range set {
-		if !owns.has(occShardOf(key.address)) {
+		shard := i.shard(key.address)
+		if key.kind == stateAccessStorage {
+			cell := occStorageCellOf(key.address, key.slot)
+			if !owns.ownsCell(cell) {
+				continue
+			}
+			sub := &shard.storage[cell%occStorageSubShards]
+			if *sub == nil {
+				*sub = map[stateAccessKey]txIndexSpan{}
+			}
+			recordSpan(*sub, key, span)
 			continue
 		}
-		shard := i.shard(key.address)
+		if !owns.accounts.has(occShardOf(key.address)) {
+			continue
+		}
 		recordSpan(shard.exact, key, span)
 		// Exist/Empty account reads depend on account metadata, not storage slots.
 		if key.kind != stateAccessStorage {

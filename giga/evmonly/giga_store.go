@@ -5,11 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
+	"golang.org/x/sync/errgroup"
 
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
@@ -75,7 +79,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	// moment, and reading second would let it clear these changes after a view was opened that
 	// predates them, leaving nothing to supply them. Read first, the worst case is a view that
 	// already holds them and an overlay that replays the same values over the top.
-	pending := e.pipelinePending()
+	pending := e.pipelinePendingIndex()
 	e.blockPhases.SetPhase(phaseOpenView)
 	snapshot := stateStore.OpenView()
 	if snapshot == nil {
@@ -90,7 +94,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		snapshot:     snapshot,
 		missingState: e.missingState,
 	}
-	source = newPendingOverlay(source, pending)
+	source = pending.overlay(source)
 
 	e.blockPhases.SetPhase(phaseExecute)
 	result, err := e.executePreparedBlock(ctx, req, source)
@@ -119,34 +123,14 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		}
 	}
 	e.blockPhases.SetPhase(phaseEncodeChangesets)
-	changesets, err := e.changeSetEncoder(result.ChangeSet)
+	changesets, records, err := e.encodeBlockOutputs(ctx, req.Context, result)
 	if err != nil {
-		return nil, fmt.Errorf("encode state changes for block %d: %w", req.Context.Number, err)
-	}
-	if e.blockChangeSetEncoder != nil {
-		extra, err := e.blockChangeSetEncoder(req.Context, result)
-		if err != nil {
-			return nil, fmt.Errorf("encode block changes for block %d: %w", req.Context.Number, err)
-		}
-		// An EVM-keyed changeset here would be written into account, storage and code
-		// state as part of the block, diverging the app hash from the committed state.
-		for _, cs := range extra {
-			if cs != nil && cs.Name == keys.EVMStoreKey {
-				return nil, fmt.Errorf("block encoder returned a changeset named %q for block %d: %w",
-					cs.Name, req.Context.Number, errBlockEncoderUsedEVMStoreKey)
-			}
-		}
-		changesets = append(changesets, extra...)
+		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if receiptStore := e.receiptStore; receiptStore != nil {
-		e.blockPhases.SetPhase(phaseEncodeReceipts)
-		records, err := e.receiptRecordsParallel(ctx, req.Context.Number, result)
-		if err != nil {
-			return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
-		}
 		e.blockPhases.SetPhase(phaseWriteReceipts)
 		if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
 			return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
@@ -168,6 +152,54 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	return result, nil
 }
 
+// encodeBlockOutputs encodes the block's state changes, the block encoder's changesets and the
+// receipt records. All three read only the block result, so they run together.
+func (e *Executor) encodeBlockOutputs(ctx context.Context, block BlockContext, result *BlockResult) (
+	[]*proto.NamedChangeSet, []receipt.ReceiptRecord, error) {
+	var changesets, extra []*proto.NamedChangeSet
+	var records []receipt.ReceiptRecord
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		var err error
+		if changesets, err = e.changeSetEncoder(result.ChangeSet); err != nil {
+			return fmt.Errorf("encode state changes for block %d: %w", block.Number, err)
+		}
+		return nil
+	})
+	if e.blockChangeSetEncoder != nil {
+		group.Go(func() error {
+			var err error
+			if extra, err = e.blockChangeSetEncoder(block, result); err != nil {
+				return fmt.Errorf("encode block changes for block %d: %w", block.Number, err)
+			}
+			return nil
+		})
+	}
+	if e.receiptStore != nil {
+		group.Go(func() error {
+			var err error
+			if records, err = e.receiptRecordsParallel(groupCtx, block.Number, result); err != nil {
+				return fmt.Errorf("encode receipts for block %d: %w", block.Number, err)
+			}
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return nil, nil, err
+	}
+	// An EVM-keyed changeset here would be written into account, storage and code
+	// state as part of the block, diverging the app hash from the committed state.
+	for _, cs := range extra {
+		if cs != nil && cs.Name == keys.EVMStoreKey {
+			return nil, nil, fmt.Errorf("block encoder returned a changeset named %q for block %d: %w",
+				cs.Name, block.Number, errBlockEncoderUsedEVMStoreKey)
+		}
+	}
+	all := make([]*proto.NamedChangeSet, 0, len(changesets)+len(extra))
+	all = append(all, changesets...)
+	return append(all, extra...), records, nil
+}
+
 // encodingReadsTheStore reports whether encoding a block's changesets reads the store as well as
 // the block's own changes, which decides whether encoding may overlap the previous block's commit.
 //
@@ -176,6 +208,71 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 // receipt-stage slack on every block.
 func (e *Executor) encodingReadsTheStore() bool {
 	return e.blockChangeSetEncoder != nil && e.blockEncoderReadsStore
+}
+
+// SettledNonce returns addr's nonce in the state every block this executor has run produced. It
+// reads an in-flight commit's nonces from that commit's changes instead of waiting for it to land.
+func (e *Executor) SettledNonce(addr common.Address) uint64 {
+	// Taken before the view, for the reason executePreparedBlockWithStore gives.
+	if nonce, ok := e.pipelineNonceIndex()[addr]; ok {
+		return nonce
+	}
+	view := e.stateStore.OpenView()
+	defer view.Close()
+	return view.GetNonce(addr)
+}
+
+// SettledNonces returns, aligned with addrs, each address's nonce as SettledNonce reads it, through one
+// view and with the view's reads spread across workers.
+func (e *Executor) SettledNonces(addrs []common.Address) []uint64 {
+	nonces := make([]uint64, len(addrs))
+	// Taken before the view, for the reason executePreparedBlockWithStore gives.
+	pending := e.pipelineNonceIndex()
+	var misses []int
+	for i, addr := range addrs {
+		if nonce, ok := pending[addr]; ok {
+			nonces[i] = nonce
+		} else {
+			misses = append(misses, i)
+		}
+	}
+	if len(misses) == 0 {
+		return nonces
+	}
+	view := e.stateStore.OpenView()
+	defer view.Close()
+	workers := min(len(misses), max(1, e.cfg.ParseWorkers), (len(misses)+settledNoncesPerWorker-1)/settledNoncesPerWorker)
+	chunk := (len(misses) + workers - 1) / workers
+	var wg sync.WaitGroup
+	for start := 0; start < len(misses); start += chunk {
+		wg.Go(func() {
+			for _, i := range misses[start:min(start+chunk, len(misses))] {
+				nonces[i] = view.GetNonce(addrs[i])
+			}
+		})
+	}
+	wg.Wait()
+	return nonces
+}
+
+// settledNoncesPerWorker is the fewest view reads SettledNonces gives a worker of its own.
+const settledNoncesPerWorker = 64
+
+// pipelineNonceIndex returns the nonces the in-flight commit writes, by address, or nil when no commit
+// is in flight. The index is built once per commit.
+func (e *Executor) pipelineNonceIndex() map[common.Address]uint64 {
+	e.pipelineMu.Lock()
+	defer e.pipelineMu.Unlock()
+	if e.pipelineChanges == nil {
+		return nil
+	}
+	if e.pipelineNonces == nil {
+		e.pipelineNonces = make(map[common.Address]uint64, len(e.pipelineChanges.Accounts))
+		for _, change := range e.pipelineChanges.Accounts {
+			e.pipelineNonces[change.Address] = change.Account.Nonce
+		}
+	}
+	return e.pipelineNonces
 }
 
 // AwaitCommits blocks until every block this executor has run is committed, and reports the first
@@ -201,6 +298,14 @@ func (e *Executor) pipelinePending() *StateChangeSet {
 	e.pipelineMu.Lock()
 	defer e.pipelineMu.Unlock()
 	return e.pipelineChanges
+}
+
+// pipelinePendingIndex returns the index of pipelinePending's changes, or nil when the store is
+// caught up.
+func (e *Executor) pipelinePendingIndex() *pendingIndex {
+	e.pipelineMu.Lock()
+	defer e.pipelineMu.Unlock()
+	return e.pipelineIndex
 }
 
 // awaitPipelineCommit blocks until the in-flight commit has landed, reporting the first commit that
@@ -229,6 +334,8 @@ func (e *Executor) awaitPipelineCommit() error {
 			}
 			e.pipelineDone = nil
 			e.pipelineChanges = nil
+			e.pipelineIndex = nil
+			e.pipelineNonces = nil
 			e.pipelineErr = nil
 		}
 		e.pipelineMu.Unlock()
@@ -245,8 +352,12 @@ func (e *Executor) awaitPipelineCommit() error {
 // Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
 // one before this is called.
 func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
-	// The commit outlives the block result, which returns to a pool and is reset.
-	pending := changes.Clone()
+	// The commit outlives the pooled result, whose reset clears these slices, so it takes its own
+	// copies. The values stay shared; see BlockResult.ChangeSet.
+	pending := &StateChangeSet{
+		Accounts: slices.Clone(changes.Accounts),
+		Storage:  slices.Clone(changes.Storage),
+	}
 	// Close sets closed before taking storeMu, which the caller holds, so a block that sees it
 	// unset is one Close waits for.
 	if e.closed.Load() {
@@ -262,6 +373,8 @@ func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.Na
 		return failure
 	}
 	e.pipelineChanges = pending
+	e.pipelineIndex = newPendingIndex(pending)
+	e.pipelineNonces = nil
 	e.pipelineDone = done
 	e.pipelineErr = nil
 	e.pipelineMu.Unlock()
@@ -321,10 +434,10 @@ func (r gigaSnapshotStateReader) GetCode(addr common.Address) []byte {
 // ReadAccount returns addr's balance, nonce and code in one row read, and fetches code only for an
 // account that has some. It declines an account the snapshot lacks when missingState must answer
 // for it. Satisfies baseAccountReader.
-func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (AccountState, bool) {
+func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (AccountState, common.Hash, bool) {
 	row, exists := r.snapshot.ReadAccount(addr)
 	if !exists {
-		return AccountState{}, r.missingState == nil
+		return AccountState{}, common.Hash{}, r.missingState == nil
 	}
 	account := AccountState{
 		Balance: new(big.Int).SetBytes(row.Balance[:]),
@@ -334,7 +447,7 @@ func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (AccountState,
 	if row.CodeHash != gigatypes.EmptyCodeHash {
 		account.Code = cloneBytes(r.snapshot.GetCode(addr))
 	}
-	return account, true
+	return account, common.Hash(row.CodeHash), true
 }
 
 func (r gigaSnapshotStateReader) GetState(addr common.Address, key common.Hash) common.Hash {

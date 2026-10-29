@@ -35,7 +35,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -X ${VERSION_PKG}.Version=$(git describe --tags || echo "${SEI_CHAIN_REF}") \
       -X ${VERSION_PKG}.Commit=$(git log -1 --format='%H') \
       -X '${VERSION_PKG}.BuildTags=${BUILD_TAGS}'" && \
-    go build -tags "${BUILD_TAGS}" -ldflags "${LDFLAGS}" ${GO_BUILD_ARGS} -o /go/bin/seid ./cmd/seid
+    GOEXPERIMENT=simd go build -tags "${BUILD_TAGS}" -ldflags "${LDFLAGS}" ${GO_BUILD_ARGS} -o /go/bin/seid ./cmd/seid
 
 # seidb is pure Go, so it builds without cgo and does not link libwasmvm.
 RUN --mount=type=cache,target=/go/pkg/mod \

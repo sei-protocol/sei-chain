@@ -2,6 +2,7 @@ package view
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -127,6 +128,59 @@ func TestShardDropVersionsPushesLatestToDB(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "v2", string(val))
+}
+
+func TestShardRetirementServesTheNewestValueBetweenChunks(t *testing.T) {
+	s := newTestShard(t, 4096, newTestDB(nil))
+	require.NoError(t, s.Set([]byte("k"), []byte("v1")))
+	commitShard(t, s) // v2
+	require.NoError(t, s.Set([]byte("k"), []byte("v2")))
+	commitShard(t, s) // v3
+	for version := uint64(1); version < 3; version++ {
+		require.NoError(t, s.MaterializeSortedDiff(version))
+	}
+
+	diffs, err := s.claimVersionsToRetire(1, 3)
+	require.NoError(t, err)
+	require.Len(t, diffs, 2)
+
+	// Only the older version has moved: the cache holds v1, and versionedData must still answer v2.
+	require.NoError(t, s.retireChunk(diffs[0], 2))
+	val, found, err := s.Get([]byte("k"), s.currentVersion, false)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "v2", string(val))
+
+	require.NoError(t, s.retireChunk(diffs[1], 3))
+	val, found, err = s.Get([]byte("k"), s.currentVersion, false)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "v2", string(val))
+	require.Empty(t, s.versionedData)
+}
+
+func TestShardInlineMissReadServesAndCachesTheValue(t *testing.T) {
+	db := newTestDB(map[string][]byte{"k": []byte("v")})
+	s := newTestShard(t, 4096, db)
+	s.cache.config.InlineMissReads = true
+
+	val, found, err := s.Get([]byte("k"), s.currentVersion, false)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "v", string(val))
+
+	require.Eventually(t, func() bool {
+		_, _, ok := func() ([]byte, bool, bool) {
+			s.lock.RLock()
+			defer s.lock.RUnlock()
+			return s.cache.AttemptFastLookupRLocked([]byte("k"), false)
+		}()
+		return ok
+	}, 2*time.Second, time.Millisecond, "the value was never installed in the cache")
+	calls := db.getCalls.Load()
+	_, _, err = s.Get([]byte("k"), s.currentVersion, false)
+	require.NoError(t, err)
+	require.Equal(t, calls, db.getCalls.Load(), "a cached value is read from the DB again")
 }
 
 func TestShardDropVersionsRejectsBadRange(t *testing.T) {

@@ -16,75 +16,65 @@ type record struct {
 	Aliases []*litttypes.SecondaryKey
 }
 
-// encodeQCGroup encodes a QC and its numbered blocks as one record with lookup aliases.
-// It panics for an empty group, an unrepresentable block range, or an oversized value.
-func encodeQCGroup(group blocktypes.QCGroupRecord) record {
-	if len(group.Blocks) == 0 {
-		panic("QC group requires blocks")
+// encodeBlock encodes a complete SuperBlock with QC, hash, and lane-block aliases.
+// It panics if the encoded record exceeds the uint32 size limit.
+func encodeBlock(block blocktypes.BlockRecord) record {
+	size := encodedBlockSize(block)
+	r := record{Key: (blockKey{Index: block.Index}).encode(), Value: make([]byte, 0, size)}
+	r.appendUint64(uint64(block.Index))
+	r.appendHash(block.Hash)
+	r.appendBytes(block.QC, (qcKey{Index: block.Index}).encode())
+	for i, lane := range block.LaneBlocks {
+		r.appendBytes(lane, (laneBlockKey{Index: block.Index, Offset: uint64(i)}).encode())
 	}
-	size := uint64(4) + uint64(len(group.QC.Data))
-	for _, block := range group.Blocks {
-		if block.Number == math.MaxUint64 {
-			panic("block number has no exclusive upper bound")
-		}
-		size += 12 + uint64(len(block.Value))
-	}
-	if size >= math.MaxUint32 {
-		panic("QC group exceeds value size limit")
-	}
-	key := kindQCGroup.key(group.Blocks[0].Number)
-	r := record{Key: key}
-	r.Value, _, _ = appendValue(r.Value, group.QC.Data)
-	qcLength := uint32(len(r.Value)) //nolint:gosec // the encoder bounds the value size
-	for _, block := range group.Blocks {
-		value := binary.BigEndian.AppendUint64(nil, uint64(block.Number))
-		value = append(value, block.Value...)
-		var offset, length uint32
-		r.Value, offset, length = appendValue(r.Value, value)
-		key := kindBlock.key(block.Number)
-		qcKey := kindQC.key(block.Number)
-		r.Aliases = append(r.Aliases,
-			&litttypes.SecondaryKey{Key: qcKey, Length: qcLength},
-			&litttypes.SecondaryKey{Key: key, Offset: offset, Length: length},
-			&litttypes.SecondaryKey{Key: blockHashKey(block.Hash), Offset: offset, Length: length})
-	}
+	r.addAlias((blockHashKey{Hash: block.Hash}).encode())
 	return r
 }
 
-// appendValue appends a uint32-length-prefixed value and returns its payload offset and length.
-// The caller must ensure the resulting buffer fits within the uint32 size limit.
-func appendValue(dst, value []byte) ([]byte, uint32, uint32) {
+// addAlias aliases the complete current value under key.
+func (r *record) addAlias(key ledgerKey) {
+	r.Aliases = append(r.Aliases, &litttypes.SecondaryKey{Key: key.bytes(), Length: checkedSize(uint64(len(r.Value)))})
+}
+
+// appendUint64 appends a big-endian uint64 to the record's value.
+func (r *record) appendUint64(value uint64) {
+	r.Value = binary.BigEndian.AppendUint64(r.Value, value)
+}
+
+// appendHash appends a fixed-width block hash to the record's value.
+func (r *record) appendHash(hash blocktypes.BlockHash) {
+	r.appendRawBytes(hash[:])
+}
+
+// appendRawBytes appends bytes without a length prefix.
+func (r *record) appendRawBytes(value []byte) {
+	_ = checkedSize(uint64(len(r.Value)) + uint64(len(value)))
+	r.Value = append(r.Value, value...)
+}
+
+// appendBytes appends a uint32-length-prefixed value and aliases its payload under the supplied keys.
+// The caller must ensure the resulting record fits within the uint32 size limit.
+func (r *record) appendBytes(value []byte, aliases ...ledgerKey) {
 	length := uint32(len(value)) //nolint:gosec // validated before encoding
-	dst = binary.BigEndian.AppendUint32(dst, length)
-	offset := uint32(len(dst)) //nolint:gosec // validated before encoding
-	return append(dst, value...), offset, length
+	r.Value = binary.BigEndian.AppendUint32(r.Value, length)
+	offset := uint32(len(r.Value)) //nolint:gosec // validated before encoding
+	r.appendRawBytes(value)
+	for _, key := range aliases {
+		r.Aliases = append(r.Aliases, &litttypes.SecondaryKey{Key: key.bytes(), Offset: offset, Length: length})
+	}
 }
 
-// encodeAppQC encodes an application QC and its covered-number aliases.
+// encodeAppQC encodes an application QC at its road index.
 func encodeAppQC(qc blocktypes.AppQCRecord) record {
-	return encodeApp(kindAppQC, qc.First, qc.Next, qc.Data)
+	r := record{Key: (appQCKey{Index: qc.Index}).encode()}
+	r.appendRawBytes(qc.Data)
+	return r
 }
 
-// encodeAppProposal encodes an application proposal and its covered-number aliases.
+// encodeAppProposal encodes an application proposal at its road index.
 func encodeAppProposal(proposal blocktypes.AppProposalRecord) record {
-	return encodeApp(kindAppProp, proposal.First, proposal.Next, proposal.Data)
-}
-
-// encodeApp encodes the block range and opaque payload with aliases covering [first, next).
-// It panics if the encoded value exceeds the uint32 size limit.
-func encodeApp(kind recordKind, first, next blocktypes.BlockNumber, data []byte) record {
-	if uint64(len(data))+16 >= math.MaxUint32 {
-		panic("app record exceeds value size limit")
-	}
-	key := kind.key(first)
-	r := record{Key: key}
-	r.Value = binary.BigEndian.AppendUint64(r.Value, uint64(first))
-	r.Value = binary.BigEndian.AppendUint64(r.Value, uint64(next))
-	r.Value = append(r.Value, data...)
-	for n := first + 1; n < next; n++ {
-		key := kind.key(n)
-		r.Aliases = append(r.Aliases, &litttypes.SecondaryKey{Key: key, Length: uint32(len(r.Value))}) //nolint:gosec // checked above
-	}
+	r := record{Key: (appProposalKey{Index: proposal.Index}).encode()}
+	r.appendRawBytes(proposal.Data)
 	return r
 }
 
@@ -102,153 +92,46 @@ func consumeValue(value []byte) ([]byte, []byte, error) {
 	return value[:length], value[length:], nil
 }
 
-// decodeQCGroup reads a QC and its numbered blocks in encoded order, rejecting empty groups.
-// QC and block payloads remain opaque.
-func decodeQCGroup(value []byte) (blocktypes.QCGroupRecord, error) {
-	var group blocktypes.QCGroupRecord
-	var err error
-	group.QC.Data, value, err = consumeValue(value)
-	if err != nil {
-		return blocktypes.QCGroupRecord{}, err
-	}
-	for len(value) > 0 {
-		var encoded []byte
-		encoded, value, err = consumeValue(value)
-		if err != nil {
-			return blocktypes.QCGroupRecord{}, err
-		}
-		block, err := decodeBlock(encoded)
-		if err != nil {
-			return blocktypes.QCGroupRecord{}, err
-		}
-		group.Blocks = append(group.Blocks, block)
-	}
-	if len(group.Blocks) == 0 {
-		return blocktypes.QCGroupRecord{}, fmt.Errorf("QC group requires blocks")
-	}
-	return group, nil
-}
-
-// decodeBlock reads the block number and opaque payload from a block entry.
-// Hash is unset because it is stored only in the secondary lookup key.
+// decodeBlock decodes a SuperBlock record, including an empty set of lane blocks.
 func decodeBlock(value []byte) (blocktypes.BlockRecord, error) {
 	if len(value) < 8 {
-		return blocktypes.BlockRecord{}, fmt.Errorf("truncated block number")
+		return blocktypes.BlockRecord{}, fmt.Errorf("truncated road index")
 	}
-	return blocktypes.BlockRecord{
-		Number: blocktypes.BlockNumber(binary.BigEndian.Uint64(value)),
-		Value:  value[8:],
-	}, nil
-}
-
-// decodeApp reads the first and next block numbers and the opaque application payload.
-func decodeApp(value []byte) (blocktypes.BlockNumber, blocktypes.BlockNumber, []byte, error) {
-	if len(value) < 16 {
-		return 0, 0, nil, fmt.Errorf("truncated app record")
+	block := blocktypes.BlockRecord{Index: blocktypes.BlockNumber(binary.BigEndian.Uint64(value))}
+	value = value[8:]
+	var err error
+	if len(value) < len(block.Hash) {
+		return blocktypes.BlockRecord{}, fmt.Errorf("truncated block hash")
 	}
-	return blocktypes.BlockNumber(binary.BigEndian.Uint64(value[:8])), blocktypes.BlockNumber(binary.BigEndian.Uint64(value[8:16])), value[16:], nil
-}
-
-// decodeAppQC reads an application QC record without decoding its opaque payload.
-func decodeAppQC(value []byte) (blocktypes.AppQCRecord, error) {
-	first, next, data, err := decodeApp(value)
-	return blocktypes.AppQCRecord{First: first, Next: next, Data: data}, err
-}
-
-// decodeAppProposal reads an application proposal record without decoding its opaque payload.
-func decodeAppProposal(value []byte) (blocktypes.AppProposalRecord, error) {
-	first, next, data, err := decodeApp(value)
-	return blocktypes.AppProposalRecord{First: first, Next: next, Data: data}, err
-}
-
-// decodePayload returns a numbered lookup's opaque payload after validating its framing.
-func decodePayload(kind recordKind, value []byte) ([]byte, error) {
-	switch kind {
-	case kindQC:
-		data, _, err := consumeValue(value)
-		return data, err
-	case kindBlock:
-		if len(value) < 8 {
-			return nil, fmt.Errorf("truncated block number")
+	copy(block.Hash[:], value[:len(block.Hash)])
+	value = value[len(block.Hash):]
+	block.QC, value, err = consumeValue(value)
+	if err != nil {
+		return blocktypes.BlockRecord{}, err
+	}
+	for len(value) > 0 {
+		var lane []byte
+		lane, value, err = consumeValue(value)
+		if err != nil {
+			return blocktypes.BlockRecord{}, err
 		}
-		return value[8:], nil
-	case kindAppQC, kindAppProp:
-		if len(value) < 16 {
-			return nil, fmt.Errorf("truncated app record")
-		}
-		return value[16:], nil
-	default:
-		panic(fmt.Errorf("invalid lookup record kind %d", kind))
+		block.LaneBlocks = append(block.LaneBlocks, lane)
 	}
+	return block, nil
 }
 
-// recordKind identifies a primary record or secondary lookup namespace.
-type recordKind uint64
-
-const (
-	kindQCGroup recordKind = iota + 1
-	kindAppQC
-	kindBlock
-	kindBlockHash
-	kindAppProp
-	kindQC
-)
-
-// ledgerKey is a varint kind followed by a block number or block hash.
-type ledgerKey []byte
-
-// key returns the numbered lookup key for kind.
-func (kind recordKind) key(n blocktypes.BlockNumber) ledgerKey {
-	return numberKey(kind, n)
-}
-
-// primaryKind identifies primary record keys; secondary or unknown kinds return false.
-func (k ledgerKey) primaryKind() (recordKind, bool) {
-	kind := keyKind(k)
-	switch kind {
-	case kindQCGroup, kindAppProp, kindAppQC:
-		return kind, true
-	default:
-		return 0, false
+// encodedBlockSize returns the framed record size, panicking if it exceeds LittDB's value limit.
+func encodedBlockSize(block blocktypes.BlockRecord) uint32 {
+	size := uint64(12) + uint64(len(block.Hash)) + uint64(len(block.QC))
+	for _, lane := range block.LaneBlocks {
+		size += 4 + uint64(len(lane))
 	}
+	return checkedSize(size)
 }
 
-// number returns the block number from a numbered key.
-func (k ledgerKey) number() blocktypes.BlockNumber { return decodeNumberKey(k) }
-
-// encodeKey encodes a record number as an 8-byte big-endian value. Big-endian
-// is deliberate: it makes lexicographic byte order match numeric order. This is
-// the inner codec shared by the prefixed key builders below.
-func encodeKey(n blocktypes.BlockNumber) []byte { return binary.BigEndian.AppendUint64(nil, uint64(n)) }
-
-// decodeKey decodes an 8-byte value produced by encodeKey.
-func decodeKey(b [8]byte) blocktypes.BlockNumber {
-	return blocktypes.BlockNumber(binary.BigEndian.Uint64(b[:]))
-}
-
-// numberKey returns the key under which a record of the given kind prefix is
-// stored at number n — used both for a record's primary key and for each
-// covered-number alias.
-func numberKey(kind recordKind, n blocktypes.BlockNumber) ledgerKey {
-	return append(binary.AppendUvarint(nil, uint64(kind)), encodeKey(n)...)
-}
-
-// blockHashKey returns the secondary key under which a block is reachable by its header hash.
-func blockHashKey(hash blocktypes.BlockHash) ledgerKey {
-	return append(binary.AppendUvarint(nil, uint64(kindBlockHash)), hash...)
-}
-
-// keyKind returns the unsigned varint kind, or MaxUint64 for a malformed prefix.
-func keyKind(k []byte) recordKind {
-	kind, n := binary.Uvarint(k)
-	if n <= 0 {
-		return recordKind(math.MaxUint64)
+func checkedSize(size uint64) uint32 {
+	if size >= math.MaxUint32 {
+		panic("block record exceeds value size limit")
 	}
-	return recordKind(kind)
-}
-
-// decodeNumberKey decodes a key's block number after its varint kind.
-func decodeNumberKey(k []byte) blocktypes.BlockNumber {
-	_, n := binary.Uvarint(k)
-	return decodeKey([8]byte(k[n:]))
+	return uint32(size)
 }

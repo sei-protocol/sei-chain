@@ -16,6 +16,9 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+// errMempoolThrottled carries the producer's "mempool is full" refusal text, which clients retry on.
+var errMempoolThrottled = errors.New("mempool is full")
+
 type sendAPI struct {
 	backend Backend
 }
@@ -28,6 +31,11 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 		return common.Hash{}, err
 	}
 	hash := tx.Hash()
+	// Refused before sender recovery, which a lagging node cannot afford to spend on transactions it
+	// would refuse anyway.
+	if api.backend.EvmMempoolThrottled() {
+		return hash, errMempoolThrottled
+	}
 
 	if client, ok := api.shardProxy(tx).Get(); ok {
 		if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
@@ -57,7 +65,9 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 
 // shardProxy returns the RPC client of the validator owning tx's sender shard,
 // or None when the transaction is handled locally. Sender recovery is skipped
-// entirely when the backend has no proxies, since CheckTx recovers it anyway.
+// entirely when the backend has no proxies, since CheckTx recovers it anyway. A
+// sender recovered for a transaction handled locally is handed to the backend,
+// so CheckTx need not recover it again.
 func (api *sendAPI) shardProxy(tx *ethtypes.Transaction) utils.Option[*ethrpc.Client] {
 	if !api.backend.EvmProxyEnabled() {
 		return utils.None[*ethrpc.Client]()
@@ -66,5 +76,9 @@ func (api *sendAPI) shardProxy(tx *ethtypes.Transaction) utils.Option[*ethrpc.Cl
 	if err != nil {
 		return utils.None[*ethrpc.Client]()
 	}
-	return api.backend.EvmProxy(sender)
+	proxy := api.backend.EvmProxy(sender)
+	if !proxy.IsPresent() {
+		api.backend.RememberEvmSender(tx.Hash(), sender)
+	}
+	return proxy
 }

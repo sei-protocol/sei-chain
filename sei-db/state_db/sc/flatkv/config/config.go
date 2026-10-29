@@ -141,6 +141,19 @@ func defaultStoreConfig(name string) view.ViewManagerConfig {
 	return *view.DefaultViewManagerConfig(name, ktype.MetaKeyPrefix)
 }
 
+// AccountShardCount, when non-zero, replaces the view shard count of the FlatKV account database.
+var AccountShardCount uint64
+
+// StorageShardCount, when non-zero, replaces the view shard count of the FlatKV storage database.
+var StorageShardCount uint64
+
+// ReadPoolWorkersPerQueue, when positive, splits the FlatKV read pool into queues of this many workers.
+var ReadPoolWorkersPerQueue int
+
+// InlineMissReads, when true, makes the FlatKV storage database read cache misses on the calling
+// goroutine.
+var InlineMissReads bool
+
 // DefaultConfig returns Config with safe default values.
 func DefaultConfig() *Config {
 	cfg := &Config{
@@ -175,7 +188,14 @@ func DefaultConfig() *Config {
 	}
 
 	cfg.AccountStoreConfig.MaxSize = unit.GB
+	if AccountShardCount > 0 {
+		cfg.AccountStoreConfig.ShardCount = AccountShardCount
+	}
 	cfg.StorageStoreConfig.MaxSize = unit.GB * 4
+	if StorageShardCount > 0 {
+		cfg.StorageStoreConfig.ShardCount = StorageShardCount
+	}
+	cfg.StorageStoreConfig.InlineMissReads = InlineMissReads
 
 	return cfg
 }

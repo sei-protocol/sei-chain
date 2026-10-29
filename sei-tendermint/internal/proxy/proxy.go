@@ -63,6 +63,38 @@ func (app *Proxy) EvmNonce(addr common.Address) uint64 {
 	return app.app.EvmNonce(addr)
 }
 
+// evmSenderRememberer is implemented by applications that can reuse a sender recovered before CheckTx.
+type evmSenderRememberer interface {
+	RememberEvmSender(common.Hash, common.Address)
+}
+
+// RememberEvmSender records the sender recovered for the transaction with this hash, when the wrapped
+// application can use it. It is a no-op otherwise.
+func (app *Proxy) RememberEvmSender(hash common.Hash, sender common.Address) {
+	if rememberer, ok := app.app.(evmSenderRememberer); ok {
+		rememberer.RememberEvmSender(hash, sender)
+	}
+}
+
+// evmNonceBatcher is implemented by applications that read many EVM nonces at once more cheaply than
+// one at a time.
+type evmNonceBatcher interface {
+	EvmNonces([]common.Address) []uint64
+}
+
+// EvmNonces returns, aligned with addrs, each address's EVM nonce in the wrapped application.
+func (app *Proxy) EvmNonces(addrs []common.Address) []uint64 {
+	defer addTimeSample(Global.MethodTimingAt("evm_nonces", "sync"))()
+	if batcher, ok := app.app.(evmNonceBatcher); ok {
+		return batcher.EvmNonces(addrs)
+	}
+	nonces := make([]uint64, len(addrs))
+	for i, addr := range addrs {
+		nonces[i] = app.app.EvmNonce(addr)
+	}
+	return nonces
+}
+
 func (app *Proxy) EvmBalance(addr common.Address, seiAddr []byte) uint256.Int {
 	defer addTimeSample(Global.MethodTimingAt("evm_balance", "sync"))()
 	return app.app.EvmBalance(addr, seiAddr)
@@ -84,6 +116,26 @@ func (app *Proxy) AwaitCommits() error {
 		return nil
 	}
 	return settler.AwaitCommits()
+}
+
+// prepareBlockTiming times PrepareBlock calls.
+var prepareBlockTiming = Global.MethodTimingAt("prepare_block", "sync")
+
+// blockPreparer is implemented by applications that can do the stateless part of
+// FinalizeBlock for a block before it is called.
+type blockPreparer interface {
+	PrepareBlock(context.Context, *types.RequestFinalizeBlock) error
+}
+
+// PrepareBlock lets the wrapped application decode a block ahead of its
+// FinalizeBlock. It is a no-op for an application that does not prepare blocks.
+func (app *Proxy) PrepareBlock(ctx context.Context, req *types.RequestFinalizeBlock) error {
+	defer addTimeSample(prepareBlockTiming)()
+	preparer, ok := app.app.(blockPreparer)
+	if !ok {
+		return nil
+	}
+	return preparer.PrepareBlock(ctx, req)
 }
 
 // evmCodeReader is implemented by applications that can read contract code

@@ -291,6 +291,7 @@ func buildGigaRouter(
 	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
 	blockStore atypes.BlockStore,
+	hashVaultFsyncDisabled bool,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
@@ -328,6 +329,7 @@ func buildGigaRouter(
 		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 		// enable/disable decision through as plain config.
 		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
+		valCfg.HashVaultFsyncDisabledUnsafe = hashVaultFsyncDisabled
 		valCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
@@ -352,6 +354,7 @@ func buildGigaRouter(
 	// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 	// enable/disable decision through as plain config.
 	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
+	fnCfg.HashVaultFsyncDisabledUnsafe = hashVaultFsyncDisabled
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
 	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
@@ -401,6 +404,11 @@ func openAutobahnStorageManager(
 	blockConfig, err := fc.BlockDB.LittBlockConfig(filepath.Join(directory, "blockdb"))
 	if err != nil {
 		return nil, fmt.Errorf("build Autobahn block DB config: %w", err)
+	}
+	if storage.BlockStoreFsyncDisabledUnsafe {
+		logger.Error("BLOCK STORE FSYNC DISABLED (giga.storage.block_store_fsync_disabled_unsafe=true): " +
+			"a crash can lose recently stored blocks; load tests only")
+		blockConfig.Litt.Fsync = false
 	}
 	storageConfig.BlockDBConfig = &blockConfig
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
@@ -559,6 +567,7 @@ func createRouter(
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 	storageManager utils.Option[*bootstrap.GigaStorageManager],
+	hashVaultFsyncDisabled bool,
 ) (*p2p.Router, closer, utils.Option[atypes.BlockStore], error) {
 	closer := func() error { return nil }
 	noneDB := utils.None[atypes.BlockStore]()
@@ -625,7 +634,7 @@ func createRouter(
 		}
 		giga, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
-			manager.BlockStore(),
+			manager.BlockStore(), hashVaultFsyncDisabled,
 		)
 		if err != nil {
 			return nil, closer, noneDB, err

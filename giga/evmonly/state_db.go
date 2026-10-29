@@ -1114,24 +1114,29 @@ func (s *nativeStateDB) finaliseTxStorage() {
 }
 
 // baseAccountReader is an optional StateReader capability that reads an account's fields in one
-// lookup. ReadAccount returns false when the caller must fall back to the per-field accessors.
+// lookup. ReadAccount returns the account's code hash when it knows it and the zero hash otherwise,
+// and false when the caller must fall back to the per-field accessors.
 type baseAccountReader interface {
-	ReadAccount(common.Address) (AccountState, bool)
+	ReadAccount(common.Address) (AccountState, common.Hash, bool)
 }
 
 func (s *nativeStateDB) loadAccount(addr common.Address) *nativeAccount {
 	if reader, ok := s.source.(baseAccountReader); ok {
-		if account, served := reader.ReadAccount(addr); served {
+		if account, codeHash, served := reader.ReadAccount(addr); served {
 			balance, err := uint256FromBig(account.Balance)
 			if err != nil && s.err == nil {
 				s.err = err
 			}
-			return &nativeAccount{
+			acct := &nativeAccount{
 				Balance: balance,
 				Nonce:   account.Nonce,
 				Code:    account.Code,
 				Storage: map[common.Hash]storageValue{},
 			}
+			if len(account.Code) > 0 {
+				acct.CodeHash = codeHash
+			}
+			return acct
 		}
 	}
 	balance, err := uint256FromBig(s.source.GetBalance(addr))

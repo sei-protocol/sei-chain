@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"time"
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -35,6 +36,12 @@ var (
 		reruns     metric.Int64Counter
 		conflicts  metric.Int64Counter
 		rerunDepth metric.Int64Histogram
+		// workerSeconds is speculation worker time, from a worker's start to its last transaction.
+		workerSeconds metric.Float64Counter
+		// stepSeconds is the wall time of each validation and merge step.
+		stepSeconds metric.Float64Counter
+		// stepLongestWorkerSeconds is the longest any one worker ran in each validation and merge step.
+		stepLongestWorkerSeconds metric.Float64Counter
 	}{
 		blocks: must(occMeter.Int64Counter(
 			"giga_occ_blocks_total",
@@ -61,6 +68,21 @@ var (
 			metric.WithDescription("Deepest transaction incarnation reached per optimistically executed block"),
 			metric.WithUnit("{incarnation}"),
 			metric.WithExplicitBucketBoundaries(occRerunDepthBuckets()...),
+		)),
+		workerSeconds: must(occMeter.Float64Counter(
+			"giga_occ_speculate_worker_seconds",
+			metric.WithDescription("Time OCC speculation workers spend from starting to finishing their last transaction"),
+			metric.WithUnit("s"),
+		)),
+		stepSeconds: must(occMeter.Float64Counter(
+			"giga_occ_step_seconds",
+			metric.WithDescription("Wall time of OCC validation and merge steps, by step"),
+			metric.WithUnit("s"),
+		)),
+		stepLongestWorkerSeconds: must(occMeter.Float64Counter(
+			"giga_occ_step_longest_worker_seconds",
+			metric.WithDescription("Longest time any one worker ran in an OCC validation or merge step, by step"),
+			metric.WithUnit("s"),
 		)),
 	}
 )
@@ -331,4 +353,28 @@ func recordOCCConflicts(ctx context.Context, samples []OCCConflictCount) {
 	for label, count := range counts {
 		occMetrics.conflicts.Add(ctx, utils.Clamp[int64](count), occConflictOptions[label])
 	}
+}
+
+// occStep names one OCC validation or merge step for the step metrics.
+type occStep struct {
+	attrs metric.MeasurementOption
+}
+
+func newOCCStep(name string) occStep {
+	return occStep{attrs: metric.WithAttributes(attribute.String("step", name))}
+}
+
+var (
+	occStepValidateIndex    = newOCCStep("validate_index")
+	occStepValidateScan     = newOCCStep("validate_scan")
+	occStepValidateApply    = newOCCStep("validate_apply")
+	occStepValidateFrontier = newOCCStep("validate_frontier")
+	occStepMergeFill        = newOCCStep("merge_fill")
+	occStepMergeChangeSet   = newOCCStep("merge_changeset")
+)
+
+// record adds one run of the step: its wall time and the longest any of its workers ran.
+func (s occStep) record(ctx context.Context, wall time.Duration, longestWorker time.Duration) {
+	occMetrics.stepSeconds.Add(ctx, wall.Seconds(), s.attrs)
+	occMetrics.stepLongestWorkerSeconds.Add(ctx, longestWorker.Seconds(), s.attrs)
 }

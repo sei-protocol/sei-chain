@@ -297,7 +297,7 @@ func TestInsertTx_ClosedSkipsCheckTx(t *testing.T) {
 	mp, err := env.fillMempool(ctx, rng, app.testApp)
 	require.NoError(t, err)
 	for m, ctrl := range mp.inner.Lock() {
-		m.close(ctrl)
+		mp.close(m, ctrl)
 	}
 
 	calls := app.checkTxCalls.Load()
