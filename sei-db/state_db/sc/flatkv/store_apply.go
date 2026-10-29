@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"unsafe"
 
@@ -89,39 +90,115 @@ func (s *CommitStore) stageMutations(
 	return staged, nil
 }
 
-// routeMutations splits mutations by the database each key belongs to, indexed in dataDBDirs order. Every key is
-// routed before anything is returned, so a malformed key fails the block before any store is written.
+// routeMutations splits mutations by the database each key belongs to, indexed in dataDBDirs order, keeping their
+// order within each database. Every key is routed before anything is returned, so a malformed key fails the block
+// before any store is written.
 func routeMutations(
 	mutations []mutation.Mutation,
 	version int64,
 	// The replay skip list. A database listed at or above version gets no mutations.
 	alreadyHave map[string]int64,
 ) ([][]mutation.Mutation, error) {
-	routed := make([][]mutation.Mutation, len(dataDBDirs))
-	dbIndex := make(map[string]int, len(dataDBDirs))
-	for i, dir := range dataDBDirs {
-		dbIndex[dir] = i
+	targets := make([]int8, len(mutations))
+	chunks := routeChunkCount(len(mutations))
+	counts := make([][]int, chunks)
+	errs := make([]error, chunks)
+	forEachRouteChunk(len(mutations), chunks, func(chunk int, start int, end int) {
+		count := make([]int, len(dataDBDirs))
+		for n := start; n < end; n++ {
+			dir, err := routePhysicalKey(mutations[n].Key)
+			if err != nil {
+				errs[chunk] = fmt.Errorf("route key %x: %w", mutations[n].Key, err)
+				return
+			}
+			if alreadyHave[dir] >= version {
+				// A store already holds the block only when a startup replay is catching the stores up to each
+				// other, where its hash already includes the block and writing it again would count it twice.
+				//
+				// TODO: currently, WAL replay may replay blocks already in some stores. In the future when WAL
+				// replay is external, we may be able to simplify this code since we will be able to assume that
+				// all stores start at the same block.
+				targets[n] = -1
+				continue
+			}
+			i := dataDBIndex[dir]
+			targets[n] = int8(i) //nolint:gosec // G115: i indexes dataDBDirs, which has four entries.
+			count[i]++
+		}
+		counts[chunk] = count
+	})
+	// Chunks cover ascending ranges, so the first chunk's error is the first malformed key.
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	for n := range mutations {
-		m := &mutations[n]
-		dir, err := routePhysicalKey(m.Key)
-		if err != nil {
-			return nil, fmt.Errorf("route key %x: %w", m.Key, err)
+	// offsets[chunk][i] is where chunk's first mutation for database i lands in routed[i].
+	offsets := make([][]int, chunks)
+	totals := make([]int, len(dataDBDirs))
+	for chunk, count := range counts {
+		offsets[chunk] = slices.Clone(totals)
+		for i, c := range count {
+			totals[i] += c
 		}
-		if alreadyHave[dir] >= version {
-			// A store already holds the block only when a startup replay is catching the stores up to each
-			// other, where its hash already includes the block and writing it again would count it twice.
-			//
-			// TODO: currently, WAL replay may replay blocks already in some stores. In the future when WAL
-			// replay is external, we may be able to simplify this code since we will be able to assume that
-			// all stores start at the same block.
-			continue
-		}
-		i := dbIndex[dir]
-		routed[i] = append(routed[i], *m)
 	}
+	routed := make([][]mutation.Mutation, len(dataDBDirs))
+	for i, total := range totals {
+		if total > 0 {
+			routed[i] = make([]mutation.Mutation, total)
+		}
+	}
+	forEachRouteChunk(len(mutations), chunks, func(chunk int, start int, end int) {
+		next := offsets[chunk]
+		for n := start; n < end; n++ {
+			i := targets[n]
+			if i < 0 {
+				continue
+			}
+			routed[i][next[i]] = mutations[n]
+			next[i]++
+		}
+	})
 	return routed, nil
+}
+
+// dataDBIndex maps each data database directory to its index in dataDBDirs.
+var dataDBIndex = func() map[string]int {
+	index := make(map[string]int, len(dataDBDirs))
+	for i, dir := range dataDBDirs {
+		index[dir] = i
+	}
+	return index
+}()
+
+const (
+	// minRouteChunk is the fewest mutations routeMutations gives a goroutine of its own.
+	minRouteChunk = 2048
+	// maxRouteChunks bounds the goroutines routeMutations runs at once.
+	maxRouteChunks = 16
+)
+
+// routeChunkCount returns how many chunks routeMutations splits n mutations into.
+func routeChunkCount(n int) int {
+	return max(1, min(maxRouteChunks, n/minRouteChunk))
+}
+
+// forEachRouteChunk calls visit once per chunk over contiguous ascending ranges of [0, n), concurrently when there
+// is more than one chunk.
+func forEachRouteChunk(n int, chunks int, visit func(chunk int, start int, end int)) {
+	if chunks == 1 {
+		visit(0, 0, n)
+		return
+	}
+	size := (n + chunks - 1) / chunks
+	var wg sync.WaitGroup
+	for chunk := range chunks {
+		start := min(chunk*size, n)
+		end := min(start+size, n)
+		wg.Go(func() { visit(chunk, start, end) })
+	}
+	wg.Wait()
 }
 
 // writeToStores writes each database's share of one block, indexed in dataDBDirs order.
