@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -17,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
@@ -67,7 +69,7 @@ func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 			MockApp:     true,
 			FastCheckTx: true,
 		},
-	}, app, gigaconfig.DefaultConfig)
+	}, app, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
 	require.False(t, storage.IsPresent())
 
@@ -82,7 +84,7 @@ func TestPrepareApplicationFastCheckTxWithoutMockApp(t *testing.T) {
 		BaseConfig: config.BaseConfig{
 			FastCheckTx: true,
 		},
-	}, app, gigaconfig.DefaultConfig)
+	}, app, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
 	require.False(t, storage.IsPresent())
 
@@ -101,21 +103,38 @@ func TestPrepareApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 			FastCheckTx: true,
 		},
 		AutobahnConfigFile: autobahnConfigFile,
-	}, app, gigaconfig.DefaultConfig)
+	}, app, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
 	manager, ok := storage.Get()
 	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
-	_, ok = prepared.(*MockApp)
+	mock, ok := prepared.(*MockApp)
 	require.True(t, ok)
 	require.True(t, proxy.New(prepared).EVM().IsPresent())
+
+	_, err = mock.InitChain(&abci.RequestInitChain{InitialHeight: 1})
+	require.NoError(t, err)
+	var blockHash [32]byte
+	blockHash[0] = 1
+	require.NoError(t, manager.AppHashBuilder().ReportBlockHash(t.Context(), 1, blockHash))
+	_, err = mock.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Header: &tmproto.Header{Height: 1},
+	})
+	require.NoError(t, err)
+	_, err = mock.Commit(t.Context())
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		head, err := manager.AppHashVault().GetLatestBlock()
+		require.NoError(t, err)
+		return head >= 1
+	}, 10*time.Second, time.Millisecond)
 }
 
 func TestPrepareApplicationAutobahnRequiresReadableConfig(t *testing.T) {
 	_, _, err := prepareApplication(t.Context(), &config.Config{
 		AutobahnConfigFile: "/missing/autobahn.json",
-	}, abci.BaseApplication{}, gigaconfig.DefaultConfig)
+	}, abci.BaseApplication{}, gigaconfig.DefaultConfig, genesisAt(1))
 
 	require.Error(t, err)
 }
