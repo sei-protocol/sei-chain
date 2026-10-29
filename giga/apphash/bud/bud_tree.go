@@ -45,4 +45,3 @@ func budLeafHashes(
 	}
 	return hashes
 }
-
