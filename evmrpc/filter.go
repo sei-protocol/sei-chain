@@ -25,7 +25,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/seilog"
@@ -48,6 +47,9 @@ const (
 	DefaultMaxLogLimit          = 10000
 	DefaultMaxFilters           = 1000
 	DefaultMaxBlockFilterHashes = 1000
+
+	// blockchainInfoPage is the most block metas one BlockchainInfo call returns.
+	blockchainInfoPage = 20
 
 	// global request rate limit, only applies to queries > RPSLimitThreshold
 	GlobalRPSLimit    = 30
@@ -218,7 +220,9 @@ type filter struct {
 	lastAccess time.Time
 
 	// BlocksSubscription
-	blockCursor string
+	// blockHeight is the first block height the filter's next poll returns, when no
+	// blockHeaderNotifier feeds blockHashes.
+	blockHeight int64
 	blockHashes []common.Hash
 
 	// LogsSubscription
@@ -540,13 +544,22 @@ func (a *FilterAPI) NewBlockFilter(
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_newBlockFilter", a.namespace), a.connectionType, startTime, err, recover())
 	}()
 
+	var start int64
+	if a.blockHeaderNotifier == nil {
+		head, err := a.logFetcher.latestHeight(ctx)
+		if err != nil {
+			return "", err
+		}
+		start = head + 1
+	}
+
 	_, cancel := context.WithCancel(a.shutdownCtx)
 
 	curFilterID, err := a.addFilter(filter{
 		typ:         BlocksSubscription,
 		cancelFunc:  cancel,
 		lastAccess:  time.Now(),
-		blockCursor: "",
+		blockHeight: start,
 	})
 	if err != nil {
 		cancel()
@@ -595,15 +608,16 @@ func (a *FilterAPI) GetFilterChanges(
 		if a.blockHeaderNotifier != nil {
 			return a.takeBlockHashes(filterID)
 		}
-		hashes, cursor, err := a.getBlockHeadersAfter(ctx, filter.blockCursor)
+		hashes, next, err := a.blockHashesFrom(ctx, filter.blockHeight)
 		if err != nil {
 			return nil, err
 		}
 
-		// Update filter with write lock
+		// A concurrent poll of the same filter may have advanced the cursor further; moving it
+		// back would deliver those blocks twice.
 		a.filtersMu.Lock()
-		if updatedFilter, exists := a.filters[filterID]; exists {
-			updatedFilter.blockCursor = cursor
+		if updatedFilter, exists := a.filters[filterID]; exists && next > updatedFilter.blockHeight {
+			updatedFilter.blockHeight = next
 			a.filters[filterID] = updatedFilter
 		}
 		a.filtersMu.Unlock()
@@ -651,7 +665,7 @@ func (a *FilterAPI) GetFilterLogs(
 	filter, ok := a.filters[filterID]
 	a.filtersMu.RUnlock()
 
-	if !ok {
+	if !ok || filter.typ != LogsSubscription {
 		return nil, errors.New("filter does not exist")
 	}
 
@@ -741,42 +755,37 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 	return logs, nil
 }
 
-// get block headers after a certain cursor. Can use an empty string cursor
-// to get the latest block header.
-func (a *FilterAPI) getBlockHeadersAfter(
-	ctx context.Context,
-	cursor string,
-) ([]common.Hash, string, error) {
-	q := NewBlockQueryBuilder()
-	builtQuery := q.Build()
-	hasMore := true
-	headers := []common.Hash{}
-	for hasMore {
-		res, err := a.tmClient.Events(ctx, &coretypes.RequestEvents{
-			Filter: &coretypes.EventFilter{Query: builtQuery},
-			After:  cursor,
-		})
+// blockHashesFrom returns, in ascending height order, the hashes of the blocks from height
+// from up to the safe latest height, and the height the next poll starts from. A poll returns
+// at most maxBlockFilterHashes hashes; the rest are returned by the next poll. Heights below the
+// earliest available block are no longer served and are skipped.
+func (a *FilterAPI) blockHashesFrom(ctx context.Context, from int64) ([]common.Hash, int64, error) {
+	head, err := a.logFetcher.latestHeight(ctx)
+	if err != nil {
+		return nil, from, err
+	}
+	earliest, err := a.logFetcher.watermarks.EarliestHeight(ctx)
+	if err != nil {
+		return nil, from, err
+	}
+	from = max(from, earliest)
+	to := min(head, from+int64(a.filterConfig.maxBlockFilterHashes)-1) //nolint:gosec
+	hashes := []common.Hash{}
+	for lo := from; lo <= to; lo += blockchainInfoPage {
+		hi := min(to, lo+blockchainInfoPage-1)
+		res, err := a.tmClient.BlockchainInfo(ctx, lo, hi)
 		if err != nil {
-			return nil, "", err
+			return nil, from, err
 		}
-		hasMore = res.More
-		cursor = res.Newest
-
-		for _, item := range res.Items {
-			wrapper := EventItemDataWrapper{}
-			err := json.Unmarshal(item.Data, &wrapper)
-			if err != nil {
-				return nil, "", err
-			}
-			block := tmtypes.EventDataNewBlock{}
-			err = json.Unmarshal(wrapper.Value, &block)
-			if err != nil {
-				return nil, "", err
-			}
-			headers = append(headers, common.BytesToHash(block.Block.Hash()))
+		if int64(len(res.BlockMetas)) != hi-lo+1 {
+			return nil, from, fmt.Errorf("block headers %d-%d are not available", lo, hi)
+		}
+		// BlockchainInfo lists the newest block first.
+		for i := len(res.BlockMetas) - 1; i >= 0; i-- {
+			hashes = append(hashes, common.BytesToHash(res.BlockMetas[i].BlockID.Hash))
 		}
 	}
-	return headers, cursor, nil
+	return hashes, max(from, to+1), nil
 }
 
 func (a *FilterAPI) UninstallFilter(

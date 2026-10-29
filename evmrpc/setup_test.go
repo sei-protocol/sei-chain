@@ -12,7 +12,6 @@ import (
 	"math/big"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -551,59 +550,8 @@ func (c *MockClient) Unsubscribe(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
-	if strings.Contains(req.Filter.Query, "tm.event = 'NewBlock'") {
-		var cursor int
-		var err error
-		if req.After != "" {
-			cursor, err = strconv.Atoi(req.After)
-			if err != nil {
-				panic("invalid cursor")
-			}
-		} else {
-			cursor = MockHeight8
-		}
-		resultBlock := c.mockBlock(int64(cursor))
-		data := tmtypes.EventDataNewBlock{
-			Block:   resultBlock.Block,
-			BlockID: tmtypes.BlockID{},
-		}
-		newCursor := strconv.FormatInt(int64(cursor)+1, 10)
-		return buildSingleResultEvent(data, false, newCursor, "event"), nil
-	} else {
-		panic("unknown query")
-	}
-}
-
 func (c *MockClient) Validators(ctx context.Context, height *int64, page, perPage *int) (*coretypes.ResultValidators, error) {
 	return &coretypes.ResultValidators{}, nil
-}
-
-func buildSingleResultEvent(data interface{}, more bool, cursor string, event string) *coretypes.ResultEvents {
-	eventData, err := json.Marshal(data)
-	if err != nil {
-		panic(err)
-	}
-	wrappedData := evmrpc.EventItemDataWrapper{
-		Type:  "NewBlock",
-		Value: eventData,
-	}
-	bz, err := json.Marshal(wrappedData)
-	if err != nil {
-		panic(err)
-	}
-	return &coretypes.ResultEvents{
-		Items: []*coretypes.EventItem{
-			{
-				Cursor: cursor,
-				Event:  event,
-				Data:   bz,
-			},
-		},
-		More:   more,
-		Oldest: cursor,
-		Newest: cursor,
-	}
 }
 
 func (c *MockClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTx, error) {
