@@ -712,6 +712,13 @@ func (app *BaseApp) GetConsensusParams(ctx sdk.Context) *tmproto.ConsensusParams
 		cp.Abci = &vp
 	}
 
+	if app.paramStore.Has(ctx, ParamStoreKeyStateSyncParams) {
+		var sp tmproto.StateSyncParams
+
+		app.paramStore.Get(ctx, ParamStoreKeyStateSyncParams, &sp)
+		cp.StateSync = &sp
+	}
+
 	return cp
 }
 
@@ -746,6 +753,7 @@ func (app *BaseApp) StoreConsensusParams(ctx sdk.Context, cp *tmproto.ConsensusP
 	app.paramStore.Set(ctx, ParamStoreKeySynchronyParams, cp.Synchrony)
 	app.paramStore.Set(ctx, ParamStoreKeyTimeoutParams, cp.Timeout)
 	app.paramStore.Set(ctx, ParamStoreKeyABCIParams, cp.Abci)
+	app.paramStore.Set(ctx, ParamStoreKeyStateSyncParams, cp.StateSync)
 }
 
 func (app *BaseApp) ValidateHeight(height int64) error {

@@ -2,6 +2,7 @@ package baseapp_test
 
 import (
 	"testing"
+	"time"
 
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
@@ -61,5 +62,24 @@ func TestValidateValidatorParams(t *testing.T) {
 
 	for _, tc := range testCases {
 		require.Equal(t, tc.expectErr, baseapp.ValidateValidatorParams(tc.arg) != nil)
+	}
+}
+
+func TestValidateStateSyncParams(t *testing.T) {
+	period := func(d time.Duration) *time.Duration { return &d }
+	testCases := []struct {
+		arg       interface{}
+		expectErr bool
+	}{
+		{nil, true},
+		{&tmproto.StateSyncParams{TrustPeriod: period(time.Hour)}, true},
+		{tmproto.StateSyncParams{}, true},
+		{tmproto.StateSyncParams{TrustPeriod: period(0)}, true},
+		{tmproto.StateSyncParams{TrustPeriod: period(-time.Hour)}, true},
+		{tmproto.StateSyncParams{TrustPeriod: period(112 * time.Hour)}, false},
+	}
+
+	for _, tc := range testCases {
+		require.Equal(t, tc.expectErr, baseapp.ValidateStateSyncParams(tc.arg) != nil)
 	}
 }
