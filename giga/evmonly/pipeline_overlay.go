@@ -79,7 +79,8 @@ func (o *pendingOverlay) GetState(addr common.Address, key common.Hash) common.H
 // single-row read the view beneath it offers.
 func (o *pendingOverlay) ReadAccount(addr common.Address) (AccountState, bool) {
 	if account, ok := o.accounts[addr]; ok {
-		return AccountState{Balance: cloneBig(account.Balance), Nonce: account.Nonce, Code: cloneBytes(account.Code)}, true
+		account.Balance, account.Code = cloneBig(account.Balance), cloneBytes(account.Code)
+		return account, true
 	}
 	if reader, ok := o.base.(baseAccountReader); ok {
 		return reader.ReadAccount(addr)
