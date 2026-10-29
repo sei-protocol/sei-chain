@@ -147,6 +147,9 @@ var AccountShardCount uint64
 // StorageShardCount, when non-zero, replaces the view shard count of the FlatKV storage database.
 var StorageShardCount uint64
 
+// ReadPoolWorkersPerQueue, when positive, splits the FlatKV read pool into queues of this many workers.
+var ReadPoolWorkersPerQueue int
+
 // InlineMissReads, when true, makes the FlatKV storage database read cache misses on the calling
 // goroutine.
 var InlineMissReads bool

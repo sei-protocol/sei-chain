@@ -203,6 +203,15 @@ type CommitStore struct {
 //
 // It answers with a directory name rather than a database handle so that deciding where a key goes stays
 // separate from holding the thing it goes into.
+// newReadPool creates the pool that serves read cache misses, split into several queues when
+// config.ReadPoolWorkersPerQueue is set.
+func newReadPool(workers int, queueSize int) threading.Pool {
+	if config.ReadPoolWorkersPerQueue > 0 {
+		return threading.NewShardedFixedPool("flatkv-read", workers, queueSize, config.ReadPoolWorkersPerQueue)
+	}
+	return threading.NewFixedPool("flatkv-read", workers, queueSize)
+}
+
 func routePhysicalKey(physicalKey []byte) (string, error) {
 	moduleName, innerKey, err := ktype.StripModulePrefix(physicalKey)
 	if err != nil {
@@ -256,7 +265,7 @@ func NewCommitStore(
 	coreCount := runtime.NumCPU()
 
 	readPoolSize := int(cfg.ReaderThreadsPerCore*float64(coreCount) + float64(cfg.ReaderConstantThreadCount))
-	readPool := threading.NewFixedPool("flatkv-read", readPoolSize, cfg.ReaderPoolQueueSize)
+	readPool := newReadPool(readPoolSize, cfg.ReaderPoolQueueSize)
 
 	miscPoolSize := int(cfg.MiscPoolThreadsPerCore*float64(coreCount) + float64(cfg.MiscConstantThreadCount))
 	miscPool := threading.NewElasticPool("flatkv-misc", miscPoolSize)
@@ -357,7 +366,7 @@ func (s *CommitStore) resetPools() {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
 	readPoolSize := int(s.config.ReaderThreadsPerCore*float64(coreCount) + float64(s.config.ReaderConstantThreadCount))
-	s.readPool = threading.NewFixedPool("flatkv-read", readPoolSize, s.config.ReaderPoolQueueSize)
+	s.readPool = newReadPool(readPoolSize, s.config.ReaderPoolQueueSize)
 
 	miscPoolSize := int(s.config.MiscPoolThreadsPerCore*float64(coreCount) + float64(s.config.MiscConstantThreadCount))
 	s.miscPool = threading.NewElasticPool("flatkv-misc", miscPoolSize)

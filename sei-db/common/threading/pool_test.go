@@ -31,6 +31,7 @@ type testPool struct {
 func createPools() []testPool {
 	return []testPool{
 		{"FixedPool", NewFixedPool("test-fixed", 4, 16)},
+		{"ShardedFixedPool", NewShardedFixedPool("test-sharded", 4, 16, 2)},
 		{"ElasticPool", NewElasticPool("test-elastic", 4)},
 		{"AdHocPool", NewAdHocPool()},
 	}

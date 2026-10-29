@@ -276,6 +276,7 @@ func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
 	}
 	flatkvconfig.InlineMissReads = cfg.FlatKVInlineMissReads
 	evmonlyapp.DummyAppHash = cfg.DummyAppHash
+	flatkvconfig.ReadPoolWorkersPerQueue = cfg.FlatKVReadPoolWorkersPerQueue
 	if cfg.MutexProfileFraction > 0 {
 		runtime.SetMutexProfileFraction(cfg.MutexProfileFraction)
 	}

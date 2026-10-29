@@ -101,6 +101,9 @@ type ExecutionConfig struct {
 	// MutexProfileFraction, when positive, samples one in this many mutex contention events for the
 	// mutex profile.
 	MutexProfileFraction int `mapstructure:"mutex_profile_fraction"`
+	// FlatKVReadPoolWorkersPerQueue, when positive, splits the FlatKV read pool into queues of this many
+	// workers.
+	FlatKVReadPoolWorkersPerQueue int `mapstructure:"flatkv_read_pool_workers_per_queue"`
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
@@ -206,6 +209,7 @@ const (
 	FlagExecutionFlatKVInlineMissReads   = "giga.execution.flatkv_inline_miss_reads"
 	FlagExecutionDummyAppHash            = "giga.execution.dummy_app_hash"
 	FlagExecutionMutexProfileFraction    = "giga.execution.mutex_profile_fraction"
+	FlagExecutionFlatKVReadPoolPerQueue  = "giga.execution.flatkv_read_pool_workers_per_queue"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
 	FlagRPCMaxRequestBodyBytes           = "giga.rpc.max_request_body_bytes"
@@ -329,6 +333,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionFlatKVStorageViewShards); v != nil {
 		if cfg.Execution.FlatKVStorageViewShards, err = cast.ToUint64E(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionFlatKVStorageViewShards, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionFlatKVReadPoolPerQueue); v != nil {
+		if cfg.Execution.FlatKVReadPoolWorkersPerQueue, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionFlatKVReadPoolPerQueue, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionMutexProfileFraction); v != nil {
@@ -573,6 +582,9 @@ dummy_app_hash = {{ .Giga.Execution.DummyAppHash }}
 
 # mutex_profile_fraction, when positive, samples one in this many mutex contention events for the mutex profile.
 mutex_profile_fraction = {{ .Giga.Execution.MutexProfileFraction }}
+
+# flatkv_read_pool_workers_per_queue, when positive, splits the FlatKV read pool into queues of this many workers.
+flatkv_read_pool_workers_per_queue = {{ .Giga.Execution.FlatKVReadPoolWorkersPerQueue }}
 
 [giga.rpc]
 # Limits the EVM-only JSON-RPC server enforces. 0 disables a limit.
