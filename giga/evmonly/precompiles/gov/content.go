@@ -113,15 +113,16 @@ func checkText(title, description string) error {
 	return nil
 }
 
-// executeProposal carries out passed proposal id.
+// executeProposal carries out passed proposal id. Stored content that does not
+// decode is reported as precompiles.ErrDegraded.
 func executeProposal(block precompiles.BlockContext, s store, id uint64) error {
 	t, bz, err := s.proposalContent(id)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", precompiles.ErrDegraded, err)
 	}
 	c, err := decodeContent(t, bz)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", precompiles.ErrDegraded, err)
 	}
 	return c.execute(block, s, id)
 }

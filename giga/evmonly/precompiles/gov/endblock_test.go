@@ -599,6 +599,19 @@ func TestEndBlockFailsABadProposalInPlaceAndSettlesAGoodOne(t *testing.T) {
 	require.Equal(t, usei(20), h.state.GetBalance(alice))
 }
 
+func TestUndecodableContentFailsAsDegraded(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	id := h.passing()
+	newStore(h.state).SetUint8(at(proposalBase(id), proposalContentType), proposalContentType.offset, 0xff)
+	h.time += testParams.VotingPeriod
+	h.endBlock(1)
+
+	require.Equal(t, StatusFailed, h.status(id))
+	require.Len(t, h.failures, 1)
+	require.ErrorIs(t, h.failures[0], precompiles.ErrDegraded)
+	require.ErrorIs(t, h.failures[0], errInvalidContent)
+}
+
 func TestAFailedProposalStepWritesNothing(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
 	id := h.passing()
