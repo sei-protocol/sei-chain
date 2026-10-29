@@ -523,9 +523,10 @@ func (g *GigaSim) executeBlock(block *simulatedBlock) {
 	g.executing.Wait()
 }
 
-// persistExecutionResults writes what executing a block produced: its receipts, then its state changes.
-// Receipts go first because a receipt for a block the state DB never committed is reconcilable, while
-// the reverse leaves committed state whose receipts were dropped.
+// persistExecutionResults writes what executing a block produced, its receipts and then its state changes,
+// and submits an empty receipt list for the block to the receipt hasher. Receipts go first because a
+// receipt for a block the state DB never committed is reconcilable, while the reverse leaves committed
+// state whose receipts were dropped.
 func (g *GigaSim) persistExecutionResults(
 	number int64,
 	records []receipt.ReceiptRecord,
@@ -538,7 +539,18 @@ func (g *GigaSim) persistExecutionResults(
 			return err
 		}
 	}
-	return g.state.commitBlock(number, writes)
+	if err := g.state.commitBlock(number, writes); err != nil {
+		return err
+	}
+	// The benchmark runs no EVM, so its blocks have no transactions to hash receipts for. Without a receipt
+	// hash the block's app hash is never built, so the submission is not abandoned when the run is cancelled:
+	// the state is already committed, and closing waits for that block's app hash.
+	//nolint:gosec // block numbers are positive
+	height := uint64(number)
+	if err := g.storage.ReceiptHasher().Submit(context.Background(), height, nil); err != nil {
+		return fmt.Errorf("failed to submit the receipts of block %d: %w", number, err)
+	}
+	return nil
 }
 
 // awaitGenerator stops block production and drains the staging queue, reporting the error that ended

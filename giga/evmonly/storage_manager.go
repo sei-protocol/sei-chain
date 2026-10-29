@@ -6,13 +6,14 @@ import (
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
-// WithStorageManager selects the stores used for state and receipt persistence.
-// The encoder converts executor-native state changes into the state store's format.
+// WithStorageManager selects the stores used for state and receipt persistence, and the receipt hasher each block's
+// receipts are submitted to. The encoder converts executor-native state changes into the state store's format.
 func WithStorageManager(manager *bootstrap.GigaStorageManager, encoder NamedChangeSetEncoder) Option {
 	return func(e *Executor) {
 		if manager != nil {
 			e.stateStore = manager.StateDB()
 			e.receiptStore = manager.ReceiptDB()
+			e.receiptHasher = manager.ReceiptHasher()
 		}
 		e.changeSetEncoder = encoder
 	}

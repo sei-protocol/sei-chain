@@ -9,6 +9,7 @@ import (
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -47,6 +48,10 @@ type GigaStorageManager struct {
 
 	// appHashVault holds the app hashes appHashBuilder stores. It is nil until openAppHashBuilder opens it.
 	appHashVault vault.HashVault
+
+	// receiptHasher reports the receipt hash of each executed block to appHashBuilder. It is nil until
+	// openAppHashBuilder opens it.
+	receiptHasher *receipthash.ReceiptHasher
 }
 
 // NewGigaStorageManager runs the steps that bring storage up:
@@ -128,6 +133,9 @@ func (m *GigaStorageManager) AppHashBuilder() builder.AppHashBuilder { return m.
 // AppHashVault returns the hash vault the app hash builder stores app hashes in.
 func (m *GigaStorageManager) AppHashVault() vault.HashVault { return m.appHashVault }
 
+// ReceiptHasher returns the hasher that reports the receipt hash of each executed block to the app hash builder.
+func (m *GigaStorageManager) ReceiptHasher() *receipthash.ReceiptHasher { return m.receiptHasher }
+
 // SC returns the state commit store, or nil before the StateDB is open.
 func (m *GigaStorageManager) SC() *flatkv.CommitStore {
 	if m.stateDB == nil {
@@ -172,6 +180,12 @@ func (m *GigaStorageManager) Close() error {
 		}
 	}
 	errs = errors.Join(errs, timer.Close("state_db", m.closeState))
+	// Before the builder, which it reports into until it stops.
+	if m.receiptHasher != nil {
+		if err := timer.Close("receipt_hasher", m.receiptHasher.Close); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close receipt hasher: %w", err))
+		}
+	}
 	// After the state DB, whose hash listeners report into the builder until they stop.
 	if m.appHashBuilder != nil {
 		if err := timer.Close("app_hash_builder", m.appHashBuilder.Close); err != nil {
