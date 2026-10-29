@@ -41,6 +41,17 @@ type Executor struct {
 	missingState           StateReader
 	closed                 atomic.Bool
 
+	// earlySlots bounds the transactions early speculation runs at once, across blocks; nil when early
+	// speculation is off.
+	earlySlots chan struct{}
+	earlyMu    sync.Mutex
+	// early holds the blocks being or already speculated ahead of execution, by block number.
+	early map[uint64]*earlySpeculation
+	// recentChanges indexes the changes of the last blocks executed, by block number.
+	recentChanges map[uint64]*pendingIndex
+	// lastExecuted is the number of the last block whose commit has started.
+	lastExecuted atomic.Uint64
+
 	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
 	// serves the executor.
 	blockPhases *seidbmetrics.PhaseTimer
@@ -110,6 +121,11 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 	for _, opt := range opts {
 		opt(e)
 	}
+	if e.cfg.EarlySpeculationWorkers > 0 && e.stateStore != nil && e.occPool != nil {
+		e.earlySlots = make(chan struct{}, e.cfg.EarlySpeculationWorkers)
+		e.early = map[uint64]*earlySpeculation{}
+		e.recentChanges = map[uint64]*pendingIndex{}
+	}
 	return e
 }
 
@@ -120,6 +136,7 @@ func (e *Executor) Close() {
 		return
 	}
 	e.closed.Store(true)
+	e.stopEarlySpeculation()
 	// A block holding storeMu may still start a background commit, so wait it out before awaiting.
 	// A commit failure is kept for the next AwaitCommits rather than reported here.
 	e.storeMu.Lock()

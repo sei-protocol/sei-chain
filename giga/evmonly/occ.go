@@ -75,9 +75,10 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, sourc
 	executionPool := e.occPool
 
 	results := make([]occTxExecution, len(req.Txs))
-	chunkSize := occChunkSize(len(req.Txs), workers)
+	e.blockPhases.SetPhase(phaseOCCEarly)
+	early := e.reuseEarlySpeculation(ctx, req, results)
 	e.blockPhases.SetPhase(phaseOCCSpeculate)
-	if err := runner.runRanges(ctx, executionPool, occRanges(len(req.Txs), chunkSize), source, runner.blockGasLimit, results); err != nil {
+	if err := runner.speculate(ctx, executionPool, workers, source, results, early); err != nil {
 		if errors.Is(err, errOCCWorkerPoolClosed) {
 			return e.executeBlockOCCSequentialFallback(ctx, req, source, occValidationResult{}, occFallbackReasonWorkerPoolClosed)
 		}
@@ -165,6 +166,32 @@ func (r occSpeculativeRunner) runRanges(
 			}
 		}
 	})
+}
+
+// speculate runs every transaction early speculation did not fill, all of them when filled is nil.
+func (r occSpeculativeRunner) speculate(
+	ctx context.Context,
+	pool *occWorkerPool,
+	workers int,
+	source StateReader,
+	results []occTxExecution,
+	filled []bool,
+) error {
+	if filled == nil {
+		return r.runRanges(ctx, pool, occRanges(len(results), occChunkSize(len(results), workers)), source, r.blockGasLimit, results)
+	}
+	tasks := make([]occExecutionTask, 0, len(results))
+	for i, done := range filled {
+		if !done {
+			tasks = append(tasks, occExecutionTask{
+				txIndex:     i,
+				txIndexUint: uint(i), //nolint:gosec // i is a non-negative transaction index.
+				source:      source,
+				gasLimit:    r.blockGasLimit,
+			})
+		}
+	}
+	return r.runTasks(ctx, pool, tasks, results)
 }
 
 func (r occSpeculativeRunner) runTasks(

@@ -373,11 +373,13 @@ func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.Na
 		return failure
 	}
 	e.pipelineChanges = pending
-	e.pipelineIndex = newPendingIndex(pending)
+	index := newPendingIndex(pending)
+	e.pipelineIndex = index
 	e.pipelineNonces = nil
 	e.pipelineDone = done
 	e.pipelineErr = nil
 	e.pipelineMu.Unlock()
+	e.recordExecutedChanges(uint64(blockNumber), index) //nolint:gosec // blockNumber is non-negative.
 
 	go func() {
 		err := e.commitState(blockNumber, changesets, pending)
