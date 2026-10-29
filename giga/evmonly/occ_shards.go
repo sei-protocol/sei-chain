@@ -50,6 +50,53 @@ func occShardOf(addr common.Address) int {
 	return int(addr[0]) * occStateShards / 256
 }
 
+// occStorageSubShards is how many slot ranges each shard's storage is split into, so that one hot
+// contract's slots spread over several workers. Sub-shards are contiguous slot ranges, so within one
+// address they keep canonical slot order.
+const occStorageSubShards = 8
+
+// occStorageCells is the number of storage cells: one per sub-shard of every shard.
+const occStorageCells = occStateShards * occStorageSubShards
+
+// occStorageSubOf returns the sub-shard, within its address's shard, that holds slot.
+func occStorageSubOf(slot common.Hash) int {
+	return int(slot[0]) * occStorageSubShards / 256
+}
+
+// occStorageCellOf returns the storage cell that holds addr's slot.
+func occStorageCellOf(addr common.Address, slot common.Hash) int {
+	return occShardOf(addr)*occStorageSubShards + occStorageSubOf(slot)
+}
+
+// occOwnership is the state one worker handles: whole shards for accounts, and storage cells dealt
+// round-robin over the pool.
+type occOwnership struct {
+	accounts occShardSet
+	// touched is every shard holding an owned account shard or storage cell.
+	touched  occShardSet
+	workerID int
+	// workers is the pool size the storage cells are dealt over, or 0 when every cell is owned.
+	workers int
+}
+
+// occOwnAll owns every account and storage cell.
+var occOwnAll = occOwnership{accounts: occAllShards, touched: occAllShards}
+
+// occOwnershipOf returns what worker workerID of workers handles.
+func occOwnershipOf(workerID int, workers int) occOwnership {
+	o := occOwnership{accounts: occShardsOwnedBy(workerID, workers), workerID: workerID, workers: workers}
+	o.touched = o.accounts
+	for cell := workerID; cell < occStorageCells; cell += workers {
+		o.touched = o.touched.with(cell / occStorageSubShards)
+	}
+	return o
+}
+
+// ownsCell reports whether the worker handles storage cell.
+func (o occOwnership) ownsCell(cell int) bool {
+	return o.workers == 0 || cell%o.workers == o.workerID
+}
+
 func (s occShardSet) has(shard int) bool { return s&(1<<shard) != 0 }
 
 func (s occShardSet) with(shard int) occShardSet { return s | 1<<shard }
@@ -105,18 +152,18 @@ func (i *stateAccessIndex) indexResults(ctx context.Context, pool *occWorkerPool
 		return ctx.Err()
 	}
 	return pool.RunStep(ctx, occStepValidateIndex, occStateShards, func(workerCtx context.Context, workerID int, workers int) error {
-		owns := occShardsOwnedBy(workerID, workers)
+		owns := occOwnershipOf(workerID, workers)
 		for txIndex, result := range results {
 			if txIndex%occCancellationCheckInterval == 0 {
 				if err := workerCtx.Err(); err != nil {
 					return err
 				}
 			}
-			if !result.shards.intersects(owns) {
+			if !result.shards.intersects(owns.touched) {
 				continue
 			}
 			i.addSpan(txIndexSpan{first: txIndex, last: txIndex}, result.writeSet, owns)
-			i.addCommutativeBalanceDeltas(txIndex, result.commutativeBalanceDeltas, owns)
+			i.addCommutativeBalanceDeltas(txIndex, result.commutativeBalanceDeltas, owns.accounts)
 		}
 		return nil
 	})
@@ -245,14 +292,14 @@ func stmFrontierAccepts(result occTxExecution, writes *stateAccessIndex, cumulat
 // the shards it owns.
 func (s *blockSTMState) applyRange(ctx context.Context, pool *occWorkerPool, results []occTxExecution) error {
 	return pool.RunStep(ctx, occStepValidateApply, occStateShards, func(workerCtx context.Context, workerID int, workers int) error {
-		owns := occShardsOwnedBy(workerID, workers)
+		owns := occOwnershipOf(workerID, workers)
 		for txIndex, result := range results {
 			if txIndex%occCancellationCheckInterval == 0 {
 				if err := workerCtx.Err(); err != nil {
 					return err
 				}
 			}
-			if result.shards.intersects(owns) {
+			if result.shards.intersects(owns.touched) {
 				s.applyOwned(result, owns)
 			}
 		}
@@ -285,12 +332,27 @@ func (s *blockSTMState) changeSetIntoParallel(ctx context.Context, pool *occWork
 	changes.Reset()
 	fragments := occFragmentPool.Get().(*occChangeSetFragments)
 	defer releaseOCCFragments(fragments)
-	err := pool.RunStep(ctx, occStepMergeChangeSet, occStateShards, func(workerCtx context.Context, workerID int, workers int) error {
+	var runs [occStorageCells][]StorageChange
+	err := pool.RunStep(ctx, occStepMergeChangeSet, occStorageCells, func(workerCtx context.Context, workerID int, workers int) error {
+		for cell := workerID; cell < occStorageCells; cell += workers {
+			if err := workerCtx.Err(); err != nil {
+				return err
+			}
+			runs[cell] = s.shards[cell/occStorageSubShards].changedStorage(cell % occStorageSubShards)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	err = pool.RunStep(ctx, occStepMergeChangeSet, occStateShards, func(workerCtx context.Context, workerID int, workers int) error {
 		for shard := workerID; shard < occStateShards; shard += workers {
 			if err := workerCtx.Err(); err != nil {
 				return err
 			}
-			s.shards[shard].changeSetInto(&fragments[shard])
+			fragment := &fragments[shard]
+			s.shards[shard].changedAccountsInto(fragment)
+			fragment.Storage = appendStorageRuns(fragment.Storage, runs[shard*occStorageSubShards:(shard+1)*occStorageSubShards])
 		}
 		return nil
 	})
@@ -310,7 +372,10 @@ func (s *blockSTMState) keyCount() int {
 	count := 0
 	for i := range s.shards {
 		shard := &s.shards[i]
-		count += len(shard.accounts) + len(shard.storage)
+		count += len(shard.accounts)
+		for _, sub := range shard.storage {
+			count += len(sub)
+		}
 	}
 	return count
 }

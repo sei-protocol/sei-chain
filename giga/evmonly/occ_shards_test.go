@@ -4,9 +4,11 @@ import (
 	"context"
 	"math"
 	"math/big"
+	"slices"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -232,4 +234,45 @@ func TestParallelPassLooksAheadTwiceWhatItLastAccepted(t *testing.T) {
 	buffer := &state.passCumulative[:1][0]
 	require.Equal(t, occMinPassLookahead, pass())
 	require.Same(t, buffer, &state.passCumulative[:1][0], "the cumulative-gas buffer is reused")
+}
+
+func TestParallelMergeKeepsCanonicalOrderForAHotContract(t *testing.T) {
+	hot := common.HexToAddress("0x4200000000000000000000000000000000000000")
+	others := []common.Address{common.HexToAddress("0x4100000000000000000000000000000000000000"), common.HexToAddress("0x43")}
+	state := newBlockSTMState(NewMemoryState())
+	var want []StorageChange
+	write := func(addr common.Address, i int) {
+		slot := crypto.Keccak256Hash(addr[:], []byte{byte(i >> 8), byte(i)})
+		change := StorageChange{Address: addr, Key: slot, Value: common.BigToHash(big.NewInt(int64(i) + 1))}
+		state.apply(occTxExecution{changeSet: StateChangeSet{Storage: []StorageChange{change}}, shards: occAllShards})
+		want = append(want, change)
+	}
+	for i := 0; i < 3000; i++ {
+		write(hot, i)
+	}
+	for i, addr := range others {
+		write(addr, i)
+	}
+	slices.SortFunc(want, compareStorageChange)
+
+	pool := newOCCWorkerPool(64)
+	defer pool.Close()
+	var got StateChangeSet
+	require.NoError(t, state.changeSetIntoParallel(context.Background(), pool, &got))
+	require.Equal(t, want, got.Storage)
+	require.Equal(t, want, state.ChangeSet().Storage)
+}
+
+func TestOwnershipSpreadsOneShardsStorageOverWorkers(t *testing.T) {
+	owners := map[int]bool{}
+	for workerID := 0; workerID < 64; workerID++ {
+		owns := occOwnershipOf(workerID, 64)
+		for sub := 0; sub < occStorageSubShards; sub++ {
+			if owns.ownsCell(5*occStorageSubShards + sub) {
+				require.True(t, owns.touched.has(5))
+				owners[workerID] = true
+			}
+		}
+	}
+	require.Len(t, owners, occStorageSubShards)
 }
