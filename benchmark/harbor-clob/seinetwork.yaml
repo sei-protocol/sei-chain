@@ -1,0 +1,62 @@
+# EVM-only Autobahn chain the CLOB benchmark ran against: 8 validators on dedicated c7i.16xlarge hosts.
+# Replace NAMESPACE, CHAIN_ID and IMAGE (the ECR image built from this branch, tag mock-<sha>@<digest>).
+apiVersion: sei.io/v1alpha1
+kind: SeiNetwork
+metadata:
+  annotations:
+    seictl.sei.io/preset: genesis-chain
+    seictl.sei.io/version: v0.0.72
+  name: CHAIN_ID
+  namespace: NAMESPACE
+spec:
+  configOverrides:
+    network.rpc.pprof_listen_address: 0.0.0.0:6060
+  configValues:
+    # Load-test only: the block store and HashVault skip fsync.
+    - {fileName: app.toml, key: giga.storage.hash_vault_fsync_disabled_unsafe, value: true}
+    - {fileName: app.toml, key: giga.storage.block_store_fsync_disabled_unsafe, value: true}
+    - {fileName: app.toml, key: giga.execution.gc_percent, value: 400}
+    - {fileName: app.toml, key: giga.execution.parse_workers, value: 8}
+    # Superblock shape: propose once 5 certified lane blocks are in, or after 50ms.
+    - {fileName: app.toml, key: giga.execution.min_proposal_lane_blocks, value: 5}
+    - {fileName: app.toml, key: giga.execution.max_proposal_wait_ms, value: 50}
+    - {fileName: app.toml, key: giga.execution.max_execution_lag, value: 80}
+    - {fileName: app.toml, key: giga.execution.lane_capacity, value: 1000}
+    # FlatKV view shards: account and storage databases.
+    - {fileName: app.toml, key: giga.execution.flatkv_view_shards, value: 64}
+    - {fileName: app.toml, key: giga.execution.flatkv_storage_view_shards, value: 256}
+    - {fileName: app.toml, key: giga.execution.flatkv_read_pool_workers_per_queue, value: 8}
+    # FinalizeBlock's app hash leaves out the state changes; it is replaced by the HashVault app hash.
+    - {fileName: app.toml, key: giga.execution.dummy_app_hash, value: true}
+  consensus:
+    autobahn:
+      allowEmptyBlocks: true
+      blockInterval: 400ms
+      maxTxsPerBlock: 2000
+    engine: Autobahn
+    evmOnly: true
+  dataVolume:
+    storage:
+      resources:
+        requests:
+          storage: 1000Gi
+      volumeAttributesClassName: sei-gp3-performance-10k-1000-v1
+  deletionPolicy: Delete
+  genesis:
+    accountBalance: 1000000000000000000000usei,1000000000000000000000uusdc,1000000000000000000000uatom
+    chainId: CHAIN_ID
+    stakingAmount: 10000000usei
+    consensusParams:
+      block:
+        max_gas: "30000000000"
+        max_gas_wanted: "30000000000"
+  image: IMAGE
+  replicas: 8
+  resources:
+    requests:
+      cpu: "60"
+      memory: 100Gi
+  scheduling:
+    nodeIsolation: Dedicated
+  sidecar:
+    image: 189176372795.dkr.ecr.us-east-2.amazonaws.com/sei/sei-sidecar:5fd7f46aeaaa9f3d3248e07824fe821e594bfa48@sha256:51d36630d67ff964ebed42e39021a756ee06e9605135fc8953195776f7591382
