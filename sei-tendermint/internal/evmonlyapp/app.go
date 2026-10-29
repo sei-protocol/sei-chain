@@ -67,6 +67,9 @@ const evmOnlyHashBufferSize = 32 << 10
 
 var logger = seilog.NewLogger("tendermint", "internal", "evmonlyapp")
 
+// DummyAppHash, when true, leaves a block's state changes out of its app hash.
+var DummyAppHash bool
+
 // evmOnlyBaseFee is the base fee this application executes every block at.
 // Admission and block validity both price against it, so they cannot diverge.
 func evmOnlyBaseFee() *big.Int { return new(big.Int) }
@@ -994,8 +997,10 @@ func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Has
 	w.writeUint64(height)
 	w.write(blockHash[:])
 	w.writeUint64(result.GasUsed)
-	if err := evmonly.WriteMemoryStoreHashInput(w.buf, result.ChangeSet); err != nil {
-		return common.Hash{}, err
+	if !DummyAppHash {
+		if err := evmonly.WriteMemoryStoreHashInput(w.buf, result.ChangeSet); err != nil {
+			return common.Hash{}, err
+		}
 	}
 	if err := w.flush(); err != nil {
 		return common.Hash{}, err
