@@ -77,10 +77,10 @@ type (
 // page returns the half-open range of a total-length index that pageKey
 // selects, and the key of the page after it, empty on the last page.
 func page(total uint64, pageKey []byte) (start, end uint64, nextKey []byte, err error) {
+	if err := checkPageKey(pageKey); err != nil {
+		return 0, 0, nil, err
+	}
 	if len(pageKey) != 0 {
-		if len(pageKey) != pageKeyLen {
-			return 0, 0, nil, errInvalidPageKey
-		}
 		start = binary.BigEndian.Uint64(pageKey)
 		if start > total {
 			return 0, 0, nil, errInvalidPageKey

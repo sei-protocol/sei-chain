@@ -58,9 +58,6 @@ func depositorShare(params Params, expedited bool) *big.Int {
 func (p Precompile) vote(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
 	id := args[0].(uint64)
 	option := args[1].(int32)
-	if !validOption(option) {
-		return nil, fmt.Errorf("%w: %d", errInvalidVote, option)
-	}
 	if err := castVote(ctx, s, id, []weightedVote{{option: option, weight: decOne}}); err != nil {
 		return nil, err
 	}
@@ -69,27 +66,10 @@ func (p Precompile) vote(ctx *precompiles.Context, s store, method *abi.Method, 
 
 func (p Precompile) voteWeighted(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
 	id := args[0].(uint64)
-	var raw []WeightedVoteOption
-	abi.ConvertType(args[1], &raw)
-	if len(raw) == 0 || len(raw) > maxVoteOptions {
-		return nil, fmt.Errorf("%w: between 1 and %d options required", errInvalidVote, maxVoteOptions)
-	}
+	raw := weightedOptionsArg(args[1])
 	options := make([]weightedVote, len(raw))
-	seen := make(map[int32]bool, len(raw))
-	total := new(big.Int)
 	for i, o := range raw {
-		if !validOption(o.Option) || seen[o.Option] {
-			return nil, fmt.Errorf("%w: %d", errInvalidVote, o.Option)
-		}
-		seen[o.Option] = true
-		if o.Weight.Sign() == 0 || o.Weight.Cmp(new(big.Int).SetUint64(decOne)) > 0 {
-			return nil, fmt.Errorf("%w: weight %s", errInvalidVote, o.Weight)
-		}
-		total.Add(total, o.Weight)
 		options[i] = weightedVote{option: o.Option, weight: o.Weight.Uint64()}
-	}
-	if !total.IsUint64() || total.Uint64() != decOne {
-		return nil, fmt.Errorf("%w: weights sum to %s, not 1e18", errInvalidVote, total)
 	}
 	if err := castVote(ctx, s, id, options); err != nil {
 		return nil, err
