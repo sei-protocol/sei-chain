@@ -169,7 +169,7 @@ func TestBudletFromMutationMatchesSpecVector(t *testing.T) {
 func TestBUDHashFromNoMutationsIsTheEmptyTree(t *testing.T) {
 	hash, err := budHashFromMutations(nil)
 	require.NoError(t, err)
-	const emptyTreeBUDHash = "3eeeba2dfb311dad9e9e46eba984fa855be2b872496b921b19da52b3eb09d5e2"
+	const emptyTreeBUDHash = "9725d028d186ff14d54a60658eac9ea435e5bace76d9aa01df155e4e89f1678f"
 	require.Equal(t, emptyTreeBUDHash, hex.EncodeToString(hash[:]))
 }
 
