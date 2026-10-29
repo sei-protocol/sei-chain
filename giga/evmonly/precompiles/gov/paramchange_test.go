@@ -202,12 +202,43 @@ func TestAParamChangeGovernsLaterProposalsInTheSameEndBlock(t *testing.T) {
 
 func TestSubmitRevertsOnARepeatedParam(t *testing.T) {
 	h := newHarness(t)
-	changes := make([]paramChange, maxContentLength/(32*8)+1)
+	_, err := h.submitParamChange(false,
+		paramChange{"gov", "votingparams.voting_period", secondsValue(300)},
+		paramChange{"gov", "votingparams.voting_period", secondsValue(300)})
+	requireReverts(t, err, errors.New("param changed more than once"))
+	require.Zero(t, newStore(h.state).lastProposalID())
+}
+
+func TestSubmitRevertsOnMoreChangesThanParams(t *testing.T) {
+	h := newHarness(t)
+	changes := make([]paramChange, maxParamChanges.Int64()+1)
 	for i := range changes {
 		changes[i] = paramChange{"gov", "votingparams.voting_period", secondsValue(300)}
 	}
 	_, err := h.submitParamChange(false, changes...)
-	requireReverts(t, err, errors.New("param changed more than once"))
+	requireReverts(t, err, errTooManyChanges)
+
+	// Entries sharing one encoded change are counted before decoding copies them.
+	method := ABI.Methods[SubmitParamChangeProposalMethod]
+	args, err := method.Inputs.Pack("t", "d", false, changes[:1])
+	require.NoError(t, err)
+	offset := new(big.Int).SetBytes(args[3*32 : 4*32]).Uint64()
+	n := uint64(200)
+	aliased := append([]byte{}, args[:offset]...)
+	aliased = append(aliased, common.BigToHash(new(big.Int).SetUint64(n)).Bytes()...)
+	entry := new(big.Int).SetBytes(args[offset+32 : offset+64]).Uint64()
+	for i := uint64(0); i < n; i++ {
+		aliased = append(aliased, common.BigToHash(new(big.Int).SetUint64(entry)).Bytes()...)
+	}
+	aliased = append(aliased, args[offset+32+entry:]...)
+	out, err := h.gov.Run(&precompiles.Context{Caller: alice, Address: Address, Block: h.block(), State: h.state, Logs: h.state}, append(method.ID, aliased...))
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+	reason, err := abi.UnpackRevert(out)
+	require.NoError(t, err)
+	require.Contains(t, reason, errTooManyChanges.Error())
+	decoded, err := method.Inputs.Unpack(aliased)
+	require.NoError(t, err, "the aliased encoding decodes")
+	require.Len(t, paramChangesArg(decoded[3]), int(n))
 	require.Zero(t, newStore(h.state).lastProposalID())
 }
 
@@ -262,28 +293,38 @@ func TestEveryGovParamChangesThroughAProposal(t *testing.T) {
 	}
 }
 
-// TestSubspacesFitTheExecutionCharge checks that applying a change, which reads
-// its whole subspace one storage word per param, stays within the content words
-// settleCost charges for it.
+// TestSubspacesFitTheExecutionCharge checks that applying any set of changes,
+// which reads each changed subspace one storage word per param and reads and
+// writes each change's slot, stays within the content words settleCost charges.
 func TestSubspacesFitTheExecutionCharge(t *testing.T) {
 	perSubspace := map[string]int{}
 	shortest := map[string]string{}
+	var names []string
 	for _, k := range chainparams.Keys() {
 		typ, err := abi.NewType(k.SolType, "", nil)
 		require.NoError(t, err)
 		require.Contains(t, []byte{abi.UintTy, abi.IntTy, abi.BoolTy, abi.AddressTy, abi.FixedBytesTy}, typ.T,
 			"%s/%s is stored in one word; a longer kind needs settleCost to charge its words", k.Subspace, k.Key)
+		if _, ok := perSubspace[k.Subspace]; !ok {
+			names = append(names, k.Subspace)
+		}
 		perSubspace[k.Subspace]++
 		if s, ok := shortest[k.Subspace]; !ok || len(k.Key) < len(s) {
 			shortest[k.Subspace] = k.Key
 		}
 	}
-	for subspace, n := range perSubspace {
-		// The smallest valid change: a declared key and a 32-byte value.
-		change := chainparams.Change{Subspace: subspace, Key: shortest[subspace], Value: make([]byte, 32)}
-		_, one := encodeContent(paramChangeContent{Changes: []chainparams.Change{change}})
-		_, two := encodeContent(paramChangeContent{Changes: []chainparams.Change{change, change}})
-		perChange := (len(two) - len(one)) / 32
-		require.LessOrEqual(t, n, perChange, "subspace %s has more params than a change's %d content words", subspace, perChange)
+	// The cheapest content touching a set of subspaces changes one param of
+	// each, by its shortest key, under a one-byte title and description.
+	for set := 1; set < 1<<len(names); set++ {
+		var changes []chainparams.Change
+		work := 0
+		for i, name := range names {
+			if set&(1<<i) != 0 {
+				changes = append(changes, chainparams.Change{Subspace: name, Key: shortest[name], Value: make([]byte, 32)})
+				work += perSubspace[name] + 2
+			}
+		}
+		_, encoded := encodeContent(paramChangeContent{Title: "t", Description: "d", Changes: changes})
+		require.LessOrEqual(t, work, len(encoded)/32, "changing %d subspaces outruns its content words", len(changes))
 	}
 }

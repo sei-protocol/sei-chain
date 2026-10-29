@@ -122,15 +122,20 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	if reason, ok := retiredMethods[method.Sig]; ok {
 		return precompiles.Revert(reason)
 	}
+	if ctx.ReadOnly && !method.IsConstant() {
+		return nil, errStaticCall
+	}
+	if check, ok := encodedChecks[method.Name]; ok {
+		if err := check(input[4:]); err != nil {
+			return precompiles.Revert(err.Error())
+		}
+	}
 	args, err := method.Inputs.Unpack(input[4:])
 	if err != nil {
 		return nil, err
 	}
 	if !method.IsPayable() && ctx.ApparentValue != nil && ctx.ApparentValue.Sign() != 0 {
 		return nil, errNonPayable
-	}
-	if ctx.ReadOnly && !method.IsConstant() {
-		return nil, errStaticCall
 	}
 	if check, ok := argChecks[method.Name]; ok {
 		if err := check(args); err != nil {

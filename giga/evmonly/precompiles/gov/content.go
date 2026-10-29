@@ -144,16 +144,13 @@ func executeProposal(block precompiles.BlockContext, s store, id uint64) error {
 
 func (textContent) contentType() uint8 { return contentText }
 
-func (c textContent) validate(store) error { return checkText(c.Title, c.Description) }
+func (textContent) validate(store) error { return nil }
 
 func (textContent) execute(precompiles.BlockContext, store, uint64) error { return nil }
 
 func (paramChangeContent) contentType() uint8 { return contentParameterChange }
 
 func (c paramChangeContent) validate(s store) error {
-	if err := checkText(c.Title, c.Description); err != nil {
-		return err
-	}
 	return chainparams.Check(s.State, c.Changes)
 }
 

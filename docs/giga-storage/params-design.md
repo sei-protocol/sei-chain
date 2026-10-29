@@ -139,12 +139,14 @@ naming `param`.
   changes alone. One change adds ten words when the subspace name and the key
   each fit in 32 bytes, and the title, description and struct heads add at
   least eight more. Applying a proposal reads each subspace it changes once,
-  one storage word per param, and every such subspace has at least one change
-  paying ten words; writing a change reads and writes its slot, two words that
-  the title and description words cover. So the charge covers a proposal across
-  any number of subspaces while each subspace declares at most ten one-word
-  params; past that, the charge must grow. Gov declares ten and is at that
-  limit. `TestSubspacesFitTheExecutionCharge` checks the subspace reads.
+  one storage word per param, and reads and writes each change's slot. The
+  charge covers that work when, over the subspaces a proposal changes,
+  `8 + 10 * changes >= sum of their params + 2 * changes`. With ten one-word
+  params per subspace that holds for up to four subspaces in one proposal; a
+  larger subspace, or a fifth, needs the charge to grow first. The same words
+  also pay for reading the stored content, so the unit is coarse.
+  `TestSubspacesFitTheExecutionCharge` checks the inequality for every set of
+  declared subspaces.
 - EndBlock reads gov's params for each proposal it settles. A change applied by
   one proposal governs every proposal settled after it in the same EndBlock,
   in queue order.

@@ -139,7 +139,7 @@ interface IGov {
         returns (uint64 proposalID);
 
     /// @notice Submits a proposal to change chain params, depositing msg.value on
-    /// it. It needs at least one change; each names a declared param no other
+    /// it. It needs one to ten changes; each names a declared param no other
     /// change names, with a value that fits its type, and a change to
     /// votingparams.voting_period sets at least 5 minutes, or the call reverts.
     /// The changes must also leave each subspace valid against the current

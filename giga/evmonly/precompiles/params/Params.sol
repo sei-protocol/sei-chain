@@ -9,7 +9,8 @@ IParams constant PARAMS_CONTRACT = IParams(PARAMS_PRECOMPILE_ADDRESS);
 /// writes them; after that they change only through a passed gov
 /// ParameterChange proposal (IGov.submitParamChangeProposal), and this
 /// interface has no setter. The address holds no code; solc 0.8.10 and later
-/// call it without checking for code.
+/// call it without checking for code because every method returns data.
+/// Calldata over 20 KiB fails the call and uses its gas.
 interface IParams {
     /**
      * @notice Get the stored value of a param

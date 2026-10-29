@@ -60,10 +60,11 @@ same result from the same block, so each rule below is a consensus rule.
   `DefaultGasCost` formula). Storage reads, writes and logs are metered by the
   adapter; do not price them into `RequiredGas`.
 - The adapter checks input size first, before pricing or running the call, and
-  fails input over 20 KiB using all the call's gas. ABI decoding can still
-  allocate more than calldata gas pays for under that cap, since array entries
-  may share one encoded value: a method taking an array of dynamic values bounds
-  its length and range-checks it before re-encoding or storing it.
+  fails input over 20 KiB using all the call's gas. Under that cap, decoding an
+  array of dynamic values can still allocate far more than its calldata, since
+  entries may share one encoded value. A method taking one reads the array's
+  length from the encoding and bounds it before decoding, as gov's
+  `encodedChecks` does for `submitParamChangeProposal`.
 - `EndBlock` is not metered, so `ctx.State.Failed()` never reports a storage
   read failure there. It schedules its work under a budget (see gov's
   `endBlockBudget`). Each unit of that work is bounded by limits its write path
