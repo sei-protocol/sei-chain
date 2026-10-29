@@ -52,16 +52,10 @@ func MutationsFromChangeSets(
 			continue
 		}
 		for _, pair := range changeSet.Changeset.Pairs {
-			kind, strippedKey, err := ktype.ParseLogicalKey(changeSet.Name, pair.Key)
+			kind, key, err := changeSetEntryKey(changeSet.Name, pair.Key)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse module %q key %x: %w",
 					changeSet.Name, pair.Key, err)
-			}
-			var key []byte
-			if kind == keys.EVMKeyMisc {
-				key = ktype.BuildPhysicalKey(changeSet.Name, pair.Key)
-			} else {
-				key = ktype.BuildPhysicalEVMKey(kind, strippedKey)
 			}
 			if isAccountKind(kind) {
 				fields, ok := accountFieldWrites[string(key)]
@@ -140,6 +134,24 @@ func MutationsToChangeSets(mutations []mutation.Mutation) ([]*proto.NamedChangeS
 		existing.Changeset.Pairs = append(existing.Changeset.Pairs, changeSet.Changeset.Pairs...)
 	}
 	return changeSets, nil
+}
+
+// changeSetEntryKey returns the kind of row a changeset entry writes and the physical key of that row. Every account
+// field of one account maps to the same account row key.
+func changeSetEntryKey(
+	// The module the changeset belongs to.
+	moduleName string,
+	// The entry's key within that module.
+	key []byte,
+) (keys.EVMKeyKind, []byte, error) {
+	kind, strippedKey, err := ktype.ParseLogicalKey(moduleName, key)
+	if err != nil {
+		return keys.EVMKeyEmpty, nil, fmt.Errorf("parse logical key: %w", err)
+	}
+	if kind == keys.EVMKeyMisc {
+		return kind, ktype.BuildPhysicalKey(moduleName, key), nil
+	}
+	return kind, ktype.BuildPhysicalEVMKey(kind, strippedKey), nil
 }
 
 // isAccountKind reports whether kind is one of the account fields merged into a single account row.
