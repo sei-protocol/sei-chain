@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
@@ -218,6 +219,10 @@ func (b *replayBackend) EvmBaseFee() (*big.Int, error) {
 	return new(big.Int).Set(b.tip.BaseFee), nil
 }
 
+func (*replayBackend) EvmBlockContext(*ethtypes.Header) (vm.BlockContext, error) {
+	return vm.BlockContext{}, errNotReplayed
+}
+
 func (b *replayBackend) EvmBlockNumber() uint64 {
 	return b.tip.Number
 }
@@ -294,6 +299,14 @@ func (*replayBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
 
 func (*replayBackend) EvmProxyEnabled() bool {
 	return false
+}
+
+func (*replayBackend) EvmStateAt(context.Context, int64) (vm.StateDB, func(), error) {
+	return nil, nil, errNotReplayed
+}
+
+func (*replayBackend) EvmStateBeforeTx(context.Context, *ethtypes.Header, [][]byte) (vm.StateDB, func(), error) {
+	return nil, nil, errNotReplayed
 }
 
 func (b *replayBackend) EvmTransactionCount(address common.Address) uint64 {

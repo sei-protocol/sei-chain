@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
@@ -55,6 +56,21 @@ type testBackend struct {
 
 	estimateGasAfterCalls func(context.Context, []*core.Message, *core.Message, uint64) (uint64, []byte, error)
 	createAccessList      func(context.Context, *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error)
+	blockContext          func(*ethtypes.Header) (vm.BlockContext, error)
+	stateAt               func(context.Context, int64) (vm.StateDB, func(), error)
+	stateBeforeTx         func(context.Context, *ethtypes.Header, [][]byte) (vm.StateDB, func(), error)
+}
+
+func (b *testBackend) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
+	return b.blockContext(header)
+}
+
+func (b *testBackend) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error) {
+	return b.stateAt(ctx, height)
+}
+
+func (b *testBackend) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
+	return b.stateBeforeTx(ctx, header, txs)
 }
 
 func (b *testBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {

@@ -6,6 +6,7 @@ import (
 
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -66,4 +67,21 @@ func (env *EVMEnvironment) EvmEstimateGasAfterCalls(ctx context.Context, calls [
 // state, and the result of executing msg with that list, persisting no state change.
 func (env *EVMEnvironment) EvmCreateAccessList(ctx context.Context, msg *ethcore.Message) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
 	return env.EVM.EvmCreateAccessList(ctx, msg)
+}
+
+// EvmBlockContext returns the block context header's block executed at.
+func (env *EVMEnvironment) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
+	return env.EVM.EvmBlockContext(header)
+}
+
+// EvmStateAt returns the committed EVM state after height, or the latest committed state when height
+// is rpc.LatestBlockNumber, and the function that releases it.
+func (env *EVMEnvironment) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error) {
+	return env.EVM.EvmStateAt(ctx, height)
+}
+
+// EvmStateBeforeTx returns the EVM state the transaction at index len(txs) of header's block
+// executed against, and the function that releases it.
+func (env *EVMEnvironment) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
+	return env.EVM.EvmStateBeforeTx(ctx, header, txs)
 }

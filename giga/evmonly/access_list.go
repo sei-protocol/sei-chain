@@ -99,7 +99,7 @@ func (e *Executor) accessListExclusions(chainConfig *params.ChainConfig, blockCt
 		to = &created
 	}
 	excluded := map[common.Address]struct{}{msg.From: {}, *to: {}}
-	evmBlock := buildBlockContext(blockCtx)
+	evmBlock := EVMBlockContext(blockCtx)
 	for _, precompile := range vm.ActivePrecompiles(chainConfig.Rules(evmBlock.BlockNumber, evmBlock.Random != nil, evmBlock.Time)) {
 		excluded[precompile] = struct{}{}
 	}

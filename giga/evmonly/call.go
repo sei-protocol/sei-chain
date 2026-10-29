@@ -64,7 +64,7 @@ func (e *Executor) applyMessage(
 	msg *core.Message,
 	vmConfig vm.Config,
 ) (*core.ExecutionResult, bool, error) {
-	evm := vm.NewEVM(buildBlockContext(blockCtx), stateDB, chainConfig, vmConfig, e.customContracts)
+	evm := vm.NewEVM(EVMBlockContext(blockCtx), stateDB, chainConfig, vmConfig, e.customContracts)
 	stateDB.SetEVM(evm)
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 

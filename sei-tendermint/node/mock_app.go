@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 
@@ -190,6 +191,21 @@ func (app *MockApp) EvmBaseFee() *big.Int { return new(big.Int) }
 func (app *MockApp) EvmGasLimit() uint64 { return 0 }
 
 func (app *MockApp) EvmMinGasPrice() *big.Int { return new(big.Int) }
+
+// EvmBlockContext always errors: the mock app keeps no EVM state to trace against.
+func (app *MockApp) EvmBlockContext(*ethtypes.Header) (vm.BlockContext, error) {
+	return vm.BlockContext{}, errMockAppNoExecution
+}
+
+// EvmStateAt always errors: the mock app keeps no EVM state to trace against.
+func (app *MockApp) EvmStateAt(context.Context, int64) (vm.StateDB, func(), error) {
+	return nil, nil, errMockAppNoExecution
+}
+
+// EvmStateBeforeTx always errors: the mock app keeps no EVM state to trace against.
+func (app *MockApp) EvmStateBeforeTx(context.Context, *ethtypes.Header, [][]byte) (vm.StateDB, func(), error) {
+	return nil, nil, errMockAppNoExecution
+}
 
 func (app *MockApp) ProcessProposal(_ context.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 	return nil, errMockAppProcessProposal
