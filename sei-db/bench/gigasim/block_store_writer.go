@@ -25,10 +25,6 @@ type blockStoreWriter struct {
 	// them keeps every block's hash distinct, which the store requires of the alias it indexes by.
 	parentHash autobahn.BlockHeaderHash
 
-	// The lane-local number of the next block, which advances with the global number because there is
-	// only one lane.
-	laneBlockNumber autobahn.BlockNumber
-
 	pending []*autobahn.Block
 
 	// Breaks the block store write into the records it writes. Owned by the generator, which closes it
@@ -46,7 +42,7 @@ func newBlockStoreWriter(
 	phases *metrics.PhaseTimer,
 ) *blockStoreWriter {
 	rng := tmutils.TestRngFromSeed(config.Seed)
-	w := &blockStoreWriter{
+	return &blockStoreWriter{
 		store:   store,
 		config:  config,
 		rng:     rng,
@@ -54,10 +50,6 @@ func newBlockStoreWriter(
 		phases:  phases,
 		metrics: gigasimMetrics,
 	}
-	if status, ok := store.Status().Get(); ok {
-		w.laneBlockNumber = autobahn.BlockNumber(status.NextBlock-1) * autobahn.BlockNumber(config.LaneBlocksPerSuperblock) //nolint:gosec // config validation keeps the lane block count positive
-	}
-	return w
 }
 
 // nextBlockNumber returns the height the block store will accept next, reporting false for a store
@@ -88,7 +80,6 @@ func (w *blockStoreWriter) writeBlock(number int64, payload [][]byte) error {
 		w.pending = pending
 	}
 	w.parentHash = block.Header().Hash()
-	w.laneBlockNumber = block.Header().Next()
 	return nil
 }
 
@@ -203,7 +194,11 @@ func (w *blockStoreWriter) buildBlock(payload [][]byte) (*autobahn.Block, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build the block payload: %w", err)
 	}
-	return autobahn.NewBlock(w.lane, w.laneBlockNumber, w.parentHash, built), nil
+	number := autobahn.BlockNumber(len(w.pending)) //nolint:gosec // pending length is nonnegative
+	if status, ok := w.store.Status().Get(); ok {
+		number += autobahn.BlockNumber(status.NextBlock-1) * autobahn.BlockNumber(w.config.LaneBlocksPerSuperblock) //nolint:gosec // config validation keeps the lane block count positive
+	}
+	return autobahn.NewBlock(w.lane, number, w.parentHash, built), nil
 }
 
 // Flush pushes the block ledger's buffered writes to disk.

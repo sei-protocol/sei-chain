@@ -461,18 +461,25 @@ func GenFullCommitQC(rng utils.Rng) *FullCommitQC {
 	}
 }
 
-// GenFullCommitQCAt generates a QC at index with n lane block headers.
+// GenFullCommitQCAt generates a QC at index with n chained headers matching its lane range.
 func GenFullCommitQCAt(rng utils.Rng, index RoadIndex, n int) *FullCommitQC {
+	headers := make([]*BlockHeader, n)
 	var ranges []*LaneRange
 	if n > 0 {
-		last := NewBlock(GenLaneID(rng), BlockNumber(n-1), GenBlockHeaderHash(rng), GenPayload(rng)).Header()
+		lane := GenLaneID(rng)
+		var parent BlockHeaderHash
+		for i := range headers {
+			headers[i] = NewBlock(lane, BlockNumber(i), parent, GenPayload(rng)).Header() //nolint:gosec // slice indices are nonnegative
+			parent = headers[i].Hash()
+		}
+		last := headers[n-1]
 		ranges = append(ranges, NewLaneRange(last.Lane(), 0, utils.Some(last)))
 	}
 	view := GenView(rng)
 	view.Index = index
 	proposal := &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, utils.GenTimestamp(rng), ranges)}
 	qc := NewCommitQC([]*Signed[*CommitVote]{GenSigned(rng, NewCommitVote(BuildPrepareQC([]SecretKey{GenSecretKey(rng)}, proposal)))})
-	return NewFullCommitQC(qc, utils.GenSliceN(rng, n, GenBlockHeader))
+	return NewFullCommitQC(qc, headers)
 }
 
 // GenTimeoutVote generates a random TimeoutVote.

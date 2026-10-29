@@ -152,15 +152,6 @@ type Block struct {
 	payload *Payload
 }
 
-// SuperBlock contains all transactions finalized by one CommitQC in header order.
-type SuperBlock struct {
-	Hash      RoadBlockHeaderHash
-	Height    RoadIndex
-	Timestamp time.Time
-	GasWanted uint64
-	Txs       [][]byte
-}
-
 // NewBlock creates a new Block.
 func NewBlock(
 	lane LaneID,
