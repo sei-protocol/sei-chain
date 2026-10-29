@@ -15,7 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
 	"github.com/sei-protocol/sei-chain/app/retiredvesting"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/app/statesync"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -30,6 +30,8 @@ import (
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
 	"github.com/sei-protocol/sei-chain/testutil/processblock/msgs"
@@ -51,7 +53,7 @@ import (
 // allowlist and parameter pruning, the stored wasm parameters, genesis export
 // over the migrated store, and the handler itself. The handler also starts the staking delegation-by-validator
 // index backfill, which the staking EndBlocker completes, and stores the state
-// sync trust period, which headers from the next height on commit to.
+// sync trust period that state syncing nodes read from their RPC servers.
 
 // v68RemovedStoreModules are the module version map entries the v6.8 handler
 // deletes along with their stores.
@@ -90,8 +92,8 @@ var v68WasmFlagKeys = [][]byte{
 	[]byte(wasmtypes.ModuleName + "/" + string(wasmtypes.ParamStoreKeyContractExecutionDisabled)),
 }
 
-// v68StateSyncParamsKey is the params-store key of the state sync consensus params.
-var v68StateSyncParamsKey = []byte(baseapp.Paramspace + "/" + string(baseapp.ParamStoreKeyStateSyncParams))
+// v68StateSyncTrustPeriodKey is the params-store key of the state sync trust period.
+var v68StateSyncTrustPeriodKey = []byte(statesync.SubspaceName + "/" + string(statesync.KeyTrustPeriod))
 
 var v68PostUpgradeBankReceiver = sdk.AccAddress{
 	0x68, 0x68, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -685,7 +687,7 @@ func TestV68PrunesTokenfactoryParams(t *testing.T) {
 	store.Set([]byte("tokenfactoryless"), []byte("unrelated"))
 	migrateCosmosEnabled := migration.SubspaceName + "/" + string(migration.KeyMigrateCosmosEnabled)
 	store.Delete([]byte(migrateCosmosEnabled))
-	store.Delete(v68StateSyncParamsKey)
+	store.Delete(v68StateSyncTrustPeriodKey)
 	kept := v68PrefixEntries(t, store, nil)
 	for key := range retired {
 		delete(kept, key)
@@ -694,9 +696,9 @@ func TestV68PrunesTokenfactoryParams(t *testing.T) {
 
 	applyV68(t, a)
 
-	stateSyncParams := store.Get(v68StateSyncParamsKey)
-	require.NotNil(t, stateSyncParams, "v6.8 did not store the state sync trust period")
-	kept[string(v68StateSyncParamsKey)] = stateSyncParams
+	trustPeriod := store.Get(v68StateSyncTrustPeriodKey)
+	require.NotNil(t, trustPeriod, "v6.8 did not store the state sync trust period")
+	kept[string(v68StateSyncTrustPeriodKey)] = trustPeriod
 	require.Equal(t, kept, v68PrefixEntries(t, store, nil),
 		"v6.8 changed the params store beyond deleting the tokenfactory subspace, enabling MigrateCosmos "+
 			"and setting the state sync trust period")
@@ -717,17 +719,19 @@ func TestV68SetsTheStateSyncTrustPeriod(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			a := newV68Chain(t)
-			a.Ctx().KVStore(a.GetKey(paramstypes.StoreKey)).Delete(v68StateSyncParamsKey)
+			a.Ctx().KVStore(a.GetKey(paramstypes.StoreKey)).Delete(v68StateSyncTrustPeriodKey)
 			stakingParams := a.StakingKeeper.GetParams(a.Ctx())
 			stakingParams.UnbondingTime = tc.unbondingTime
 			a.StakingKeeper.SetParams(a.Ctx(), stakingParams)
 
 			applyV68(t, a)
 
-			stateSync := a.GetConsensusParams(a.Ctx()).StateSync
-			require.NotNil(t, stateSync, "v6.8 did not store the state sync params")
-			require.NotNil(t, stateSync.TrustPeriod, "v6.8 stored state sync params without a trust period")
-			require.Equal(t, tc.want, *stateSync.TrustPeriod)
+			subspace, ok := a.ParamsKeeper.GetSubspace(statesync.SubspaceName)
+			require.True(t, ok)
+			require.True(t, subspace.Has(a.Ctx(), statesync.KeyTrustPeriod), "v6.8 did not store the state sync trust period")
+			var trustPeriod time.Duration
+			subspace.Get(a.Ctx(), statesync.KeyTrustPeriod, &trustPeriod)
+			require.Equal(t, tc.want, trustPeriod)
 		})
 	}
 }
@@ -920,7 +924,7 @@ func seedV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 	for _, key := range v68WasmFlagKeys {
 		require.Empty(t, chain.QueryStore(t, paramstypes.StoreKey, key), "v6.7 already stores %s", key)
 	}
-	require.Empty(t, chain.QueryStore(t, paramstypes.StoreKey, v68StateSyncParamsKey),
+	require.Empty(t, chain.QueryStore(t, paramstypes.StoreKey, v68StateSyncTrustPeriodKey),
 		"v6.7 already stores a state sync trust period")
 	chain.Record(t, "module_versions", versions)
 
@@ -973,8 +977,8 @@ func verifyV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 	for _, key := range v68WasmFlagKeys {
 		require.Equal(t, []byte("false"), chain.QueryStore(t, paramstypes.StoreKey, key), "v6.8 did not store %s as false", key)
 	}
-	require.Equal(t, min(v68UnbondingTime(t, chain)*2/3, 112*time.Hour), v68ConsensusTrustPeriod(t, chain),
-		"the consensus params after v6.8 do not carry the state sync trust period the upgrade sets")
+	require.Equal(t, min(v68UnbondingTime(t, chain)*2/3, 112*time.Hour), v68StateSyncTrustPeriod(t, chain),
+		"the params store after v6.8 does not hold the state sync trust period the upgrade sets")
 
 	oracleCommand := chain.Seid("", "q", retiredoracle.ModuleName)
 	require.Error(t, oracleCommand.Err)
@@ -1064,27 +1068,15 @@ func v68UnbondingTime(t *testing.T, chain *upgradetest.CrossVersion) time.Durati
 	return unbondingTime
 }
 
-// v68ConsensusTrustPeriod returns the state sync trust period in the consensus
-// params Tendermint holds for the latest height.
-func v68ConsensusTrustPeriod(t *testing.T, chain *upgradetest.CrossVersion) time.Duration {
+// v68StateSyncTrustPeriod returns the state sync trust period the node serves to the
+// query a state syncing node sends it, decoded as that node decodes it.
+func v68StateSyncTrustPeriod(t *testing.T, chain *upgradetest.CrossVersion) time.Duration {
 	t.Helper()
-	result := chain.Binary("", "curl", "-sf", "-H", "Content-Type: application/json",
-		"-d", `{"jsonrpc":"2.0","id":1,"method":"consensus_params","params":{}}`, "http://127.0.0.1:26657")
-	chain.WriteDiagnostic(t, "v68-consensus-params.stdout", []byte(result.Stdout))
-	require.NoError(t, result.Err, result.Combined())
-	var response struct {
-		Result struct {
-			ConsensusParams struct {
-				StateSync struct {
-					TrustPeriod string `json:"trust_period"`
-				} `json:"state_sync"`
-			} `json:"consensus_params"`
-		} `json:"result"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(result.Stdout), &response), result.Stdout)
-	nanoseconds, err := strconv.ParseInt(response.Result.ConsensusParams.StateSync.TrustPeriod, 10, 64)
-	require.NoError(t, err, result.Stdout)
-	return time.Duration(nanoseconds)
+	require.Equal(t, "/store/"+paramstypes.StoreKey+"/key", tmcfg.StateSyncTrustPeriodQueryPath)
+	value := chain.QueryStore(t, paramstypes.StoreKey, []byte(tmcfg.StateSyncTrustPeriodQueryKey))
+	var trustPeriod time.Duration
+	require.NoError(t, tmjson.Unmarshal(value, &trustPeriod), "trust period %q", value)
+	return trustPeriod
 }
 
 func v68AppliedHeight(t *testing.T, chain *upgradetest.CrossVersion) int64 {

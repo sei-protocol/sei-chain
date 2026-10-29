@@ -507,13 +507,6 @@ func mockLBResp(ctx context.Context, peer types.NodeID, height int64, time time.
 func mockLB(ctx context.Context, height int64, time time.Time, lastBlockID types.BlockID,
 	currentVals *types.ValidatorSet, currentPrivVals []types.PrivValidator,
 ) (*types.ValidatorSet, []types.PrivValidator, *types.LightBlock) {
-	return mockLBWithParams(ctx, height, time, lastBlockID, currentVals, currentPrivVals, *types.DefaultConsensusParams())
-}
-
-// mockLBWithParams is mockLB with a header that commits to params.
-func mockLBWithParams(ctx context.Context, height int64, time time.Time, lastBlockID types.BlockID,
-	currentVals *types.ValidatorSet, currentPrivVals []types.PrivValidator, params types.ConsensusParams,
-) (*types.ValidatorSet, []types.PrivValidator, *types.LightBlock) {
 	header := factory.MakeHeader(&types.Header{
 		Height:      height,
 		LastBlockID: lastBlockID,
@@ -524,7 +517,7 @@ func mockLBWithParams(ctx context.Context, height int64, time time.Time, lastBlo
 	nextVals, nextPrivVals := factory.ValidatorSet(ctx, 3, 10)
 	header.ValidatorsHash = currentVals.Hash()
 	header.NextValidatorsHash = nextVals.Hash()
-	header.ConsensusHash = params.HashConsensusParams()
+	header.ConsensusHash = types.DefaultConsensusParams().HashConsensusParams()
 	lastBlockID = factory.MakeBlockIDWithHash(header.Hash())
 	voteSet := types.NewVoteSet(factory.DefaultTestChainID, height, 0, tmproto.PrecommitType, currentVals)
 	commit, err := factory.MakeCommit(ctx, lastBlockID, height, 0, voteSet, currentPrivVals, time)

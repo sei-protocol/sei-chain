@@ -315,7 +315,7 @@ enable = false
 # RPC servers (comma-separated) for light client verification of the synced state machine and
 # retrieval of state data for node bootstrapping. Also needs a trusted height and corresponding
 # header hash obtained from a trusted source. The period during which validators can be trusted
-# is the trust period the chain sets in its consensus params, which the trusted header commits to.
+# is the trust period the chain's governance sets, read from the RPC servers (112h if unset).
 rpc-servers = ""
 trust-height = 0
 trust-hash = ""

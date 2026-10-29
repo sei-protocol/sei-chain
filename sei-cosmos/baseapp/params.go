@@ -22,7 +22,6 @@ var (
 	ParamStoreKeySynchronyParams = []byte("SynchronyParams")
 	ParamStoreKeyTimeoutParams   = []byte("TimeoutParams")
 	ParamStoreKeyABCIParams      = []byte("ABCIParams")
-	ParamStoreKeyStateSyncParams = []byte("StateSyncParams")
 )
 
 // ParamStore defines the interface the parameter store used by the BaseApp must
@@ -161,26 +160,6 @@ func ValidateABCIParams(i interface{}) error {
 
 	if v.VoteExtensionsEnableHeight < 0 {
 		return errors.New("invalid vote extensions enable height")
-	}
-
-	return nil
-}
-
-// ValidateStateSyncParams defines a stateless validation on StateSyncParams, which
-// requires a positive trust period. This function is called whenever the parameters
-// are updated or stored.
-func ValidateStateSyncParams(i interface{}) error {
-	v, ok := i.(tmproto.StateSyncParams)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-
-	if v.TrustPeriod == nil {
-		return errors.New("state sync trust period must be set")
-	}
-
-	if *v.TrustPeriod <= 0 {
-		return fmt.Errorf("state sync trust period must be positive: %s", *v.TrustPeriod)
 	}
 
 	return nil

@@ -19,6 +19,7 @@ import (
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -93,10 +94,6 @@ const (
 	// maxLightBlockRequestRetries is the amount of retries acceptable before
 	// the backfill process aborts
 	maxLightBlockRequestRetries = 40
-
-	// paramsResponseQueueSize is the number of consensus params responses that
-	// can wait for a reader before further ones are dropped.
-	paramsResponseQueueSize = 16
 )
 
 func GetSnapshotChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
@@ -198,9 +195,6 @@ type Reactor struct {
 	lightBlockChannel *p2p.Channel[*pb.Message]
 	paramsChannel     *p2p.Channel[*pb.Message]
 
-	// paramsRecvCh delivers consensus params responses to a request waiting for one.
-	paramsRecvCh chan paramsResponse
-
 	// keep track of the last time we saw no available peers, so we can restart if it's been too long
 	lastNoAvailablePeers time.Time
 
@@ -263,7 +257,6 @@ func NewReactor(
 		chunkChannel:                  chunkChannel,
 		lightBlockChannel:             lightBlockChannel,
 		paramsChannel:                 paramsChannel,
-		paramsRecvCh:                  make(chan paramsResponse, paramsResponseQueueSize),
 		lastNoAvailablePeers:          time.Time{},
 		restartEvent:                  restartEvent,
 		restartNoAvailablePeersWindow: time.Duration(selfRemediationConfig.StatesyncNoPeersRestartWindowSeconds) * time.Second, //nolint:gosec // validated in config.ValidateBasic against MaxInt64
@@ -274,14 +267,18 @@ func NewReactor(
 }
 
 func (r *Reactor) initStateProvider(ctx context.Context, chainID string, initialHeight int64) error {
-	root := TrustRoot{
+	to := light.TrustOptions{
 		Height: r.cfg.TrustHeight,
 		Hash:   r.cfg.TrustHashBytes(),
 	}
 	logger.Info("initializing state provider",
-		"trustHeight", root.Height, "useP2P", r.cfg.UseP2P, "module", "stateprovider")
+		"trustHeight", to.Height, "useP2P", r.cfg.UseP2P, "module", "stateprovider")
 
 	if r.cfg.UseP2P {
+		// Peers answer no queries against application state, so a sync over P2P
+		// cannot read the trust period the chain sets.
+		to.Period = config.DefaultStateSyncTrustPeriod
+		logger.Info("state syncing over P2P with the default trust period", "trustPeriod", to.Period)
 		if err := r.waitForEnoughPeers(ctx, 2); err != nil {
 			return err
 		}
@@ -292,7 +289,7 @@ func (r *Reactor) initStateProvider(ctx context.Context, chainID string, initial
 			providers[idx] = NewBlockProvider(p, chainID, r.dispatcher)
 		}
 
-		stateProvider, err := NewP2PStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, providers, root, r.paramsChannel, r.paramsRecvCh, r.cfg.BlacklistTTL)
+		stateProvider, err := NewP2PStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, providers, to, r.paramsChannel, r.cfg.BlacklistTTL)
 		if err != nil {
 			return fmt.Errorf("failed to initialize P2P state provider: %w", err)
 		}
@@ -300,7 +297,12 @@ func (r *Reactor) initStateProvider(ctx context.Context, chainID string, initial
 		return nil
 	}
 
-	stateProvider, err := NewRPCStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, r.cfg.RPCServers, root, r.cfg.BlacklistTTL)
+	trustPeriod, err := rpcTrustPeriod(ctx, r.cfg.RPCServers)
+	if err != nil {
+		return fmt.Errorf("failed to read the state sync trust period: %w", err)
+	}
+	to.Period = trustPeriod
+	stateProvider, err := NewRPCStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, r.cfg.RPCServers, to, r.cfg.BlacklistTTL)
 	if err != nil {
 		return fmt.Errorf("failed to initialize RPC state provider: %w", err)
 	}
@@ -883,16 +885,27 @@ func (r *Reactor) handleParamsMessage(ctx context.Context, m p2p.RecvMsg[*pb.Mes
 		}), m.From)
 	case *pb.Message_ParamsResponse:
 		resp := msg.ParamsResponse
+		r.mtx.RLock()
+		defer r.mtx.RUnlock()
 		logger.Debug("received consensus params response", "height", resp.GetHeight())
 
 		cp := types.ConsensusParamsFromProto(resp.GetConsensusParams())
 
-		// The trust period is read from these responses while Sync holds r.mtx, so
-		// delivering them must not wait for the lock or for a reader.
-		select {
-		case r.paramsRecvCh <- paramsResponse{height: resp.GetHeight(), params: cp}:
-		default:
-			logger.Debug("dropping consensus params response; too many are waiting for a reader", "peer", m.From)
+		if sp, ok := r.stateProvider.(*StateProviderP2P); ok {
+			err := func() error {
+				select {
+				case sp.ParamsRecvCh() <- cp:
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(time.Second):
+					return errors.New("failed to send consensus params, stateprovider not ready for response")
+				}
+				return nil
+			}()
+			// It is not peers fault that we cannot send it consensus params. Just log the received error.
+			logger.Info("r.stateProvider.ParamsRecvCh()", "err", err)
+		} else {
+			logger.Debug("received unexpected params response; using RPC state provider", "peer", m.From)
 		}
 
 	default:

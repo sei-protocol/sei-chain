@@ -18,7 +18,6 @@ func TestGetFinalizeBlockResponsePropagatesFullConsensusParams(t *testing.T) {
 	commit := 200 * time.Millisecond
 	precision := 505 * time.Millisecond
 	messageDelay := 12 * time.Second
-	trustPeriod := 112 * time.Hour
 
 	consensusParamUpdates := &tmproto.ConsensusParams{
 		Block: &tmproto.BlockParams{
@@ -54,9 +53,6 @@ func TestGetFinalizeBlockResponsePropagatesFullConsensusParams(t *testing.T) {
 			VoteExtensionsEnableHeight: 123,
 			RecheckTx:                  true,
 		},
-		StateSync: &tmproto.StateSyncParams{
-			TrustPeriod: &trustPeriod,
-		},
 	}
 
 	app := &App{}
@@ -76,5 +72,4 @@ func TestGetFinalizeBlockResponsePropagatesFullConsensusParams(t *testing.T) {
 	require.Equal(t, consensusParamUpdates.Synchrony, resp.ConsensusParamUpdates.Synchrony)
 	require.Equal(t, consensusParamUpdates.Timeout, resp.ConsensusParamUpdates.Timeout)
 	require.Equal(t, consensusParamUpdates.Abci, resp.ConsensusParamUpdates.Abci)
-	require.Equal(t, consensusParamUpdates.StateSync, resp.ConsensusParamUpdates.StateSync)
 }

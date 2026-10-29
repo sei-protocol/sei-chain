@@ -98,7 +98,7 @@ trust-hash = "AABB"
 
 // TestStateSyncConfigIgnoresTheRemovedTrustPeriod pins that a config.toml which still
 // sets trust-period loads and validates. The trust period comes from the chain's
-// consensus params, so the key is not read, even with a value it used to refuse.
+// governance params, so the key is not read, even with a value it used to refuse.
 func TestStateSyncConfigIgnoresTheRemovedTrustPeriod(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

@@ -527,8 +527,8 @@ use-p2p = {{ .StateSync.UseP2P }}
 # for example: "host.example.com:2125"
 rpc-servers = "{{ StringsJoin .StateSync.RPCServers "," }}"
 
-# The hash and height of a trusted block. Must be within the trust period the chain sets in its
-# consensus params at that height, which the trusted block's header commits to.
+# The hash and height of a trusted block. Must be within the trust period: the one the chain's
+# governance sets, read from the RPC servers, or 112h when none reports one or use-p2p is true.
 trust-height = {{ .StateSync.TrustHeight }}
 trust-hash = "{{ .StateSync.TrustHash }}"
 

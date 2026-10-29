@@ -2,14 +2,12 @@ package params_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/suite"
 
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params"
@@ -88,40 +86,6 @@ func (suite *HandlerTestSuite) TestProposalHandler() {
 			}),
 			func() {
 			},
-			true,
-		},
-		{
-			"state sync trust period",
-			testProposal(proposal.ParamChange{
-				Subspace: baseapp.Paramspace,
-				Key:      string(baseapp.ParamStoreKeyStateSyncParams),
-				Value:    `{"trust_period": "403200000000000"}`,
-			}),
-			func() {
-				trustPeriod := suite.app.GetConsensusParams(suite.ctx).StateSync.TrustPeriod
-				suite.Require().NotNil(trustPeriod)
-				suite.Require().Equal(112*time.Hour, *trustPeriod)
-			},
-			false,
-		},
-		{
-			"zero state sync trust period",
-			testProposal(proposal.ParamChange{
-				Subspace: baseapp.Paramspace,
-				Key:      string(baseapp.ParamStoreKeyStateSyncParams),
-				Value:    `{"trust_period": "0"}`,
-			}),
-			func() {},
-			true,
-		},
-		{
-			"negative state sync trust period",
-			testProposal(proposal.ParamChange{
-				Subspace: baseapp.Paramspace,
-				Key:      string(baseapp.ParamStoreKeyStateSyncParams),
-				Value:    `{"trust_period": "-1"}`,
-			}),
-			func() {},
 			true,
 		},
 	}

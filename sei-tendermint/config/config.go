@@ -1071,6 +1071,18 @@ func (cfg *MempoolConfig) ValidateBasic() error {
 //-----------------------------------------------------------------------------
 // StateSyncConfig
 
+// A node that state syncs over RPC reads the chain's governance-set trust period from
+// its RPC servers with an ABCI query on StateSyncTrustPeriodQueryPath for
+// StateSyncTrustPeriodQueryKey, the params-store entry the application keeps it in.
+const (
+	StateSyncTrustPeriodQueryPath = "/store/params/key"
+	StateSyncTrustPeriodQueryKey  = "statesync/TrustPeriod"
+)
+
+// DefaultStateSyncTrustPeriod is the trust period a node uses when no RPC server reports
+// one the chain sets, and when it state syncs over P2P.
+const DefaultStateSyncTrustPeriod = 112 * time.Hour
+
 // StateSyncConfig defines the configuration for the Tendermint state sync service
 type StateSyncConfig struct {
 	// State sync rapidly bootstraps a new node by discovering, fetching, and restoring a
@@ -1090,8 +1102,9 @@ type StateSyncConfig struct {
 	// with net.Dial, for example: "host.example.com:2125".
 	RPCServers []string `mapstructure:"rpc-servers"`
 
-	// The hash and height of a trusted block. Must be within the trust period the
-	// chain sets in its consensus params at that height.
+	// The hash and height of a trusted block. Must be within the trust period, which is
+	// the one the chain's governance sets as reported by the RPC servers, or
+	// DefaultStateSyncTrustPeriod when none reports one or UseP2P is set.
 	TrustHeight int64  `mapstructure:"trust-height"`
 	TrustHash   string `mapstructure:"trust-hash"`
 

@@ -44,7 +44,6 @@ type ConsensusParams struct {
 	Synchrony SynchronyParams `json:"synchrony"`
 	Timeout   TimeoutParams   `json:"timeout"`
 	ABCI      ABCIParams      `json:"abci"`
-	StateSync StateSyncParams `json:"state_sync"`
 }
 
 // HashedParams is a subset of ConsensusParams.
@@ -123,13 +122,6 @@ type ABCIParams struct {
 	RecheckTx                  bool  `json:"recheck_tx"`
 }
 
-// StateSyncParams configure how a node that state syncs verifies the chain.
-type StateSyncParams struct {
-	// TrustPeriod is how long after its time a header can still serve as the
-	// trusted root of light client verification. Zero means the chain sets none.
-	TrustPeriod time.Duration `json:"trust_period,string"`
-}
-
 // DefaultConsensusParams returns a default ConsensusParams.
 func DefaultConsensusParams() *ConsensusParams {
 	return &ConsensusParams{
@@ -140,7 +132,6 @@ func DefaultConsensusParams() *ConsensusParams {
 		Synchrony: DefaultSynchronyParams(),
 		Timeout:   DefaultTimeoutParams(),
 		ABCI:      DefaultABCIParams(),
-		StateSync: DefaultStateSyncParams(),
 	}
 }
 
@@ -221,13 +212,6 @@ func DefaultABCIParams() ABCIParams {
 		VoteExtensionsEnableHeight: 0,
 		// When true, run CheckTx on each transaction in the mempool after each height.
 		RecheckTx: false,
-	}
-}
-
-// DefaultStateSyncParams returns the StateSyncParams of a new chain.
-func DefaultStateSyncParams() StateSyncParams {
-	return StateSyncParams{
-		TrustPeriod: 168 * time.Hour,
 	}
 }
 
@@ -362,10 +346,6 @@ func (params ConsensusParams) ValidateConsensusParams() error {
 		return fmt.Errorf("ABCI.VoteExtensionsEnableHeight cannot be negative. Got: %d", params.ABCI.VoteExtensionsEnableHeight)
 	}
 
-	if params.StateSync.TrustPeriod < 0 {
-		return fmt.Errorf("stateSync.TrustPeriod cannot be negative. Got: %v", params.StateSync.TrustPeriod)
-	}
-
 	if len(params.Validator.PubKeyTypes) == 0 {
 		return errors.New("len(Validator.PubKeyTypes) must be greater than 0")
 	}
@@ -407,15 +387,14 @@ func (params ConsensusParams) ValidateUpdate(updated *tmproto.ConsensusParams, h
 }
 
 // Hash returns a hash of a subset of the parameters to store in the block header.
-// Only the Block.MaxBytes, Block.MaxGas and StateSync.TrustPeriod are included in
-// the hash. This allows the ConsensusParams to evolve more without breaking the block
+// Only the Block.MaxBytes and Block.MaxGas are included in the hash.
+// This allows the ConsensusParams to evolve more without breaking the block
 // protocol. No need for a Merkle tree here, just a small struct to hash.
 // TODO: We should hash the other parameters as well
 func (params ConsensusParams) HashConsensusParams() []byte {
 	hp := tmproto.HashedParams{
-		BlockMaxBytes:        params.Block.MaxBytes,
-		BlockMaxGas:          params.Block.MaxGas,
-		StateSyncTrustPeriod: params.StateSync.TrustPeriod.Nanoseconds(),
+		BlockMaxBytes: params.Block.MaxBytes,
+		BlockMaxGas:   params.Block.MaxGas,
 	}
 
 	bz, err := hp.Marshal()
@@ -435,7 +414,6 @@ func (params *ConsensusParams) Equals(params2 *ConsensusParams) bool {
 		params.Synchrony == params2.Synchrony &&
 		params.Timeout == params2.Timeout &&
 		params.ABCI == params2.ABCI &&
-		params.StateSync == params2.StateSync &&
 		tmstrings.StringSliceEqual(params.Validator.PubKeyTypes, params2.Validator.PubKeyTypes)
 }
 
@@ -498,9 +476,6 @@ func (params ConsensusParams) UpdateConsensusParams(params2 *tmproto.ConsensusPa
 		res.ABCI.VoteExtensionsEnableHeight = params2.Abci.GetVoteExtensionsEnableHeight()
 		res.ABCI.RecheckTx = params2.Abci.GetRecheckTx()
 	}
-	if params2.StateSync != nil && params2.StateSync.TrustPeriod != nil {
-		res.StateSync.TrustPeriod = *params2.StateSync.GetTrustPeriod()
-	}
 	return res
 }
 
@@ -538,9 +513,6 @@ func (params *ConsensusParams) ToProto() tmproto.ConsensusParams {
 		Abci: &tmproto.ABCIParams{
 			VoteExtensionsEnableHeight: params.ABCI.VoteExtensionsEnableHeight,
 			RecheckTx:                  params.ABCI.RecheckTx,
-		},
-		StateSync: &tmproto.StateSyncParams{
-			TrustPeriod: &params.StateSync.TrustPeriod,
 		},
 	}
 }
@@ -594,9 +566,6 @@ func ConsensusParamsFromProto(pbParams tmproto.ConsensusParams) ConsensusParams 
 	if pbParams.Abci != nil {
 		c.ABCI.VoteExtensionsEnableHeight = pbParams.Abci.GetVoteExtensionsEnableHeight()
 		c.ABCI.RecheckTx = pbParams.Abci.GetRecheckTx()
-	}
-	if pbParams.StateSync != nil && pbParams.StateSync.TrustPeriod != nil {
-		c.StateSync.TrustPeriod = *pbParams.StateSync.GetTrustPeriod()
 	}
 	return c
 }

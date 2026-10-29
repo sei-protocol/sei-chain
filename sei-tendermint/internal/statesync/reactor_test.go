@@ -3,7 +3,6 @@ package statesync
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -25,7 +24,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -532,74 +530,6 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 	require.Equal(t, n1, types.NodeID(sp.Providers()[0].ID()))
 }
 
-// TestReactor_StateProviderP2PUsesTheChainTrustPeriod verifies light blocks from a
-// trusted header about two hours old. Verification may only succeed when the trust
-// period the trusted header commits to outlasts that age; a period a peer serves
-// without the header committing to it is ignored.
-func TestReactor_StateProviderP2PUsesTheChainTrustPeriod(t *testing.T) {
-	testcases := map[string]struct {
-		trustPeriod  time.Duration
-		forgedPeriod utils.Option[time.Duration]
-		wantExpired  bool
-	}{
-		"a trust period shorter than the trusted header's age": {
-			trustPeriod: time.Hour,
-			wantExpired: true,
-		},
-		"a trust period longer than the trusted header's age": {
-			trustPeriod: 3 * time.Hour,
-			wantExpired: false,
-		},
-		"a peer serving a longer trust period than the chain sets": {
-			trustPeriod:  time.Hour,
-			forgedPeriod: utils.Some(1000 * time.Hour),
-			wantExpired:  true,
-		},
-	}
-	for name, tc := range testcases {
-		t.Run(name, func(t *testing.T) {
-			params := *types.DefaultConsensusParams()
-			params.StateSync.TrustPeriod = tc.trustPeriod
-			served := []types.ConsensusParams{params, params}
-			if forged, ok := tc.forgedPeriod.Get(); ok {
-				served[0].StateSync.TrustPeriod = forged
-			}
-
-			rts := setup(t, nil, nil, false)
-			chain := buildLightBlockChainWithParams(t.Context(), t, 1, 10, time.Now().Add(-2*time.Hour), params)
-			rts.reactor.cfg.UseP2P = true
-			rts.reactor.cfg.TrustHeight = 1
-			rts.reactor.cfg.TrustHash = fmt.Sprintf("%X", chain[1].Hash())
-
-			expired, err := scope.Run1(t.Context(), func(ctx context.Context, s scope.Scope) (bool, error) {
-				for _, peerParams := range served {
-					peer, err := rts.AddPeer(ctx, t)
-					if err != nil {
-						return false, fmt.Errorf("rts.AddPeer(): %w", err)
-					}
-					s.SpawnBg(func() error { return utils.IgnoreCancel(peer.handleLightBlockRequests(ctx, chain, false)) })
-					s.SpawnBg(func() error { return utils.IgnoreCancel(peer.serveConsensusParams(ctx, peerParams)) })
-				}
-
-				rts.reactor.mtx.Lock()
-				err := rts.reactor.initStateProvider(ctx, factory.DefaultTestChainID, 1)
-				rts.reactor.mtx.Unlock()
-				if err != nil {
-					return false, fmt.Errorf("initStateProvider(): %w", err)
-				}
-
-				_, err = rts.reactor.stateProvider.AppHash(ctx, 5)
-				if _, ok := errors.AsType[light.ErrOldHeaderExpired](err); ok {
-					return true, nil
-				}
-				return false, err
-			})
-			require.NoError(t, err)
-			require.Equal(t, tc.wantExpired, expired)
-		})
-	}
-}
-
 func TestReactor_Backfill(t *testing.T) {
 	// test backfill algorithm with varying failure rates [0, 10]
 	failureRates := []int{0, 2, 9}
@@ -662,20 +592,12 @@ func TestReactor_Backfill(t *testing.T) {
 
 func buildLightBlockChain(ctx context.Context, t *testing.T, fromHeight, toHeight int64, startTime time.Time) map[int64]*types.LightBlock {
 	t.Helper()
-	return buildLightBlockChainWithParams(ctx, t, fromHeight, toHeight, startTime, *types.DefaultConsensusParams())
-}
-
-// buildLightBlockChainWithParams is buildLightBlockChain with every header committing to params.
-func buildLightBlockChainWithParams(
-	ctx context.Context, t *testing.T, fromHeight, toHeight int64, startTime time.Time, params types.ConsensusParams,
-) map[int64]*types.LightBlock {
-	t.Helper()
 	chain := make(map[int64]*types.LightBlock, toHeight-fromHeight)
 	lastBlockID := factory.MakeBlockID()
 	blockTime := startTime.Add(time.Duration(fromHeight-toHeight) * time.Minute)
 	vals, pv := factory.ValidatorSet(ctx, 3, 10)
 	for height := fromHeight; height < toHeight; height++ {
-		vals, pv, chain[height] = mockLBWithParams(ctx, height, blockTime, lastBlockID, vals, pv, params)
+		vals, pv, chain[height] = mockLB(ctx, height, blockTime, lastBlockID, vals, pv)
 		lastBlockID = factory.MakeBlockIDWithHash(chain[height].Header.Hash())
 		blockTime = blockTime.Add(1 * time.Minute)
 	}
@@ -726,11 +648,7 @@ func (n *Node) handleLightBlockRequests(
 }
 
 func (n *Node) handleConsensusParamsRequest(ctx context.Context) error {
-	return n.serveConsensusParams(ctx, *types.DefaultConsensusParams())
-}
-
-// serveConsensusParams answers every consensus params request with params.
-func (n *Node) serveConsensusParams(ctx context.Context, params types.ConsensusParams) error {
+	params := types.DefaultConsensusParams()
 	paramsProto := params.ToProto()
 	for {
 		m, err := n.paramsCh.Recv(ctx)

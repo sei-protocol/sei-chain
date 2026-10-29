@@ -101,6 +101,7 @@ import (
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
+	"github.com/sei-protocol/sei-chain/app/statesync"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	"github.com/sei-protocol/sei-chain/app/upgrades/kvrepair"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
@@ -2344,11 +2345,6 @@ func cloneConsensusParams(params *tmproto.ConsensusParams) *tmproto.ConsensusPar
 			RecheckTx:                  params.Abci.RecheckTx,
 		}
 	}
-	if params.StateSync != nil {
-		cp.StateSync = &tmproto.StateSyncParams{
-			TrustPeriod: cloneDuration(params.StateSync.TrustPeriod),
-		}
-	}
 
 	return cp
 }
@@ -2677,6 +2673,7 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(evmtypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
 	paramsKeeper.Subspace(migration.SubspaceName).WithKeyTable(migration.ParamKeyTable())
+	paramsKeeper.Subspace(statesync.SubspaceName).WithKeyTable(statesync.ParamKeyTable())
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
 
 	return paramsKeeper

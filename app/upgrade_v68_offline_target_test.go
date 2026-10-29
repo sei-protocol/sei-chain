@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app/migration"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/app/statesync"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -498,19 +498,21 @@ func requireV68OfflineMigrateCosmosEnabled(t *testing.T, testApp *App, sourcePar
 }
 
 // requireV68OfflineStateSyncTrustPeriodStored requires the source phase's params
-// snapshot to hold no state sync trust period and the committed consensus params
-// to hold two thirds of the unbonding time, at most v68MaxStateSyncTrustPeriod.
+// snapshot to hold no state sync trust period and the committed params store to
+// hold two thirds of the unbonding time, at most v68MaxStateSyncTrustPeriod.
 func requireV68OfflineStateSyncTrustPeriodStored(t *testing.T, testApp *App, sourceParams map[string]string) {
 	t.Helper()
-	key := []byte(baseapp.Paramspace + "/" + string(baseapp.ParamStoreKeyStateSyncParams))
+	key := []byte(statesync.SubspaceName + "/" + string(statesync.KeyTrustPeriod))
 	_, recorded := sourceParams[encodeOfflineUpgradeKey(key)]
 	require.False(t, recorded, "the source phase already held a state sync trust period")
 	ctx, _ := offlineUpgradeReadContext(testApp, testApp.LastBlockHeight()).CacheContext()
-	stateSync := testApp.GetConsensusParams(ctx).StateSync
-	require.NotNil(t, stateSync, "v6.8 did not store the state sync params")
-	require.NotNil(t, stateSync.TrustPeriod, "v6.8 stored state sync params without a trust period")
+	subspace, ok := testApp.ParamsKeeper.GetSubspace(statesync.SubspaceName)
+	require.True(t, ok)
+	require.True(t, subspace.Has(ctx, statesync.KeyTrustPeriod), "v6.8 did not store the state sync trust period")
+	var trustPeriod time.Duration
+	subspace.Get(ctx, statesync.KeyTrustPeriod, &trustPeriod)
 	want := min(testApp.StakingKeeper.UnbondingTime(ctx)*2/3, v68MaxStateSyncTrustPeriod)
-	require.Equal(t, want, *stateSync.TrustPeriod)
+	require.Equal(t, want, trustPeriod)
 }
 
 func requireV68OfflineVoucher(t *testing.T, testApp *App, retained offlineUpgradeRetainedState) {

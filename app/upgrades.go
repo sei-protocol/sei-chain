@@ -10,7 +10,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/app/statesync"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
@@ -18,7 +18,6 @@ import (
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"golang.org/x/mod/semver"
 	"google.golang.org/protobuf/encoding/protowire"
 )
@@ -298,17 +297,15 @@ func (app *App) pruneTokenfactoryParams(ctx sdk.Context) {
 // thirds of a 7-day unbonding time.
 const v68MaxStateSyncTrustPeriod = 112 * time.Hour
 
-// setStateSyncTrustPeriod stores the trust period state syncing nodes read from the
-// chain's consensus params: two thirds of the unbonding time, at most
-// v68MaxStateSyncTrustPeriod. Only the state sync section of the consensus params
-// is written.
+// setStateSyncTrustPeriod stores the trust period state syncing nodes read from their
+// RPC servers: two thirds of the unbonding time, at most v68MaxStateSyncTrustPeriod.
 func (app *App) setStateSyncTrustPeriod(ctx sdk.Context) {
 	trustPeriod := min(app.StakingKeeper.UnbondingTime(ctx)*2/3, v68MaxStateSyncTrustPeriod)
-	subspace, ok := app.ParamsKeeper.GetSubspace(baseapp.Paramspace)
+	subspace, ok := app.ParamsKeeper.GetSubspace(statesync.SubspaceName)
 	if !ok {
-		panic("baseapp parameter subspace is not registered")
+		panic("statesync parameter subspace is not registered")
 	}
-	subspace.Set(ctx, baseapp.ParamStoreKeyStateSyncParams, &tmproto.StateSyncParams{TrustPeriod: &trustPeriod})
+	subspace.Set(ctx, statesync.KeyTrustPeriod, trustPeriod)
 	logger.Info("set the state sync trust period", "trust_period", trustPeriod)
 }
 
