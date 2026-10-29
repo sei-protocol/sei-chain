@@ -48,19 +48,78 @@ sei-load branch `yzang/clob-fixed-markets` (image `ghcr.io/sei-protocol/sei-load
    `chain TPS` is the executed rate; `capacity k` is each validator's executed rate divided by the share of
    time its main loop was busy, so the lowest capacity is what the chain can sustain.
 
-## Configuration
+## Exact setup
 
-`seinetwork.yaml` carries every app.toml key the run used:
+### Cluster and hosts
 
-| Key | Run value | Effect |
+| Item | Value |
+|---|---|
+| Cluster | Harbor EKS, `eu-central-1` |
+| Validators | 8, one per host (`scheduling.nodeIsolation: Dedicated`). 10 was the earlier setup; the account's EC2 vCPU quota ruled it out |
+| Validator host | `c7i.16xlarge` on demand: 64 vCPU (32 cores with hyper-threading), 128 GiB, Karpenter node pool `sei-validator` (taint `sei.io/workload=sei-validator:NoSchedule`) |
+| Host OS | Bottlerocket 1.66.0 (aws-k8s-1.34), kernel 6.12 |
+| `seid` container | requests 60 CPU and 100 GiB, memory limit 100 GiB, no CPU limit, so `GOMAXPROCS` is 64; the controller sets `GOMEMLIMIT` to about 87 GiB |
+| Data volume | 1000 GiB gp3 through the EBS CSI driver, `volumeAttributesClassName: sei-gp3-performance-10k-1000-v1` (10,000 IOPS, 1,000 MB/s) |
+| Sidecar | `sei-sidecar:5fd7f46a`, `seictl` preset `genesis-chain` v0.0.72 |
+| Load hosts | Karpenter node pool `default` (c, m or r family, 4 to 32 vCPU, amd64, on demand), spread one pod per host where possible |
+
+### Chain
+
+| Item | Value |
+|---|---|
+| Consensus | Autobahn, `evmOnly: true` |
+| Chain IDs | Cosmos `CHAIN_ID`; EVM chain ID 713715 |
+| Genesis balances | 1e21 usei, uusdc and uatom per genesis account; staking 10,000,000 usei per validator, equal voting power |
+| Block gas | `consensusParams.block.max_gas` and `max_gas_wanted` 30,000,000,000 per superblock, far above what a superblock uses (about 0.65 billion) |
+| Min gas price | 1 gwei (`giga.execution.min_gas_price`, default) |
+| fsync | Off for the block store and HashVault (load test only) |
+
+### Superblock and lane settings
+
+A validator's producer seals a lane block every `block_interval` or once it holds `max_txs_per_block`
+transactions. The leader proposes a superblock that covers the certified lane blocks; the proposal settings
+decide how many it waits for.
+
+| Setting | Where | Run value | Default |
+|---|---|---|---|
+| Lane block interval | `spec.consensus.autobahn.blockInterval` | 400ms | set in the manifest |
+| Transactions per lane block | `spec.consensus.autobahn.maxTxsPerBlock` | 2000 | set in the manifest |
+| Empty lane blocks | `spec.consensus.autobahn.allowEmptyBlocks` | true | set in the manifest |
+| View timeout | autobahn.json `view_timeout`, written by seictl | 1.5s | seictl's value |
+| Lane blocks a proposal waits for | `giga.execution.min_proposal_lane_blocks` | 5 | 1 |
+| Longest a proposal waits for them | `giga.execution.max_proposal_wait_ms` | 50 | 0 |
+| Lane capacity, in lane blocks | `giga.execution.lane_capacity` | 1000 | 300 |
+| Execution lag, in superblocks, at which producers refuse new transactions | `giga.execution.max_execution_lag` | 80 | 0 (off) |
+| Superblocks prepared ahead of execution | code constant `prepareAheadBlocks` | 3 | 3 |
+
+With these values the run produced about 12 superblocks a second, each covering about 3 lane blocks and
+5,000-5,600 transactions. Larger superblocks (10 lane blocks, 100ms) measured slower per transaction.
+
+### Execution and storage knobs
+
+| Setting | Run value | Default |
 |---|---|---|
-| `giga.execution.flatkv_storage_view_shards` | 64 | FlatKV storage view shards (default 8); fewer readers blocked behind one shard's writer |
-| `giga.execution.flatkv_view_shards` | 64 | Same for the account database |
-| `giga.execution.dummy_app_hash` | true | FinalizeBlock's app hash leaves out the state changes; the HashVault app hash replaces it |
-| `giga.execution.min_proposal_lane_blocks`, `max_proposal_wait_ms` | 5, 50 | Superblock shape |
-| `giga.execution.lane_capacity`, `max_execution_lag` | 1000, 80 | Lane depth and the execution lag at which producers refuse new transactions |
-| `giga.execution.gc_percent`, `parse_workers` | 400, 8 | GC target and sender-recovery workers |
-| `giga.storage.*_fsync_disabled_unsafe` | true | Load-test only: block store and HashVault skip fsync |
+| `giga.execution.occ_workers` | unset (`GOMAXPROCS`, 64) | 0 |
+| `giga.execution.parse_workers` | 8 | `GOMAXPROCS` |
+| `giga.execution.gc_percent` | 400 | Go default |
+| `giga.execution.flatkv_view_shards` (account database) | 64 | 8 |
+| `giga.execution.flatkv_storage_view_shards` | 64 | 8 |
+| `giga.execution.dummy_app_hash` | true | false |
+| `giga.storage.hash_vault_fsync_disabled_unsafe`, `block_store_fsync_disabled_unsafe` | true | false |
+
+### Load
+
+| Setting | Value |
+|---|---|
+| Pods | 8 (Job, indexed), `--tps=12500` each, 100k tx/s offered |
+| In flight | `--max-in-flight=24000` per pod |
+| Accounts | 400,000, `disjoint: true`, routed to their owning validator by `shardRouting` |
+| Scenario | `clob`, `markets: 50000`, `forceDeploy: true` |
+| Gas limit | eth_estimateGas of one `placeNext` against the probe market, times `gasMargin` 1.20 (sei-load default): about 204k per transaction, of which about 117.6k is used |
+| Gas price | fee cap is eth_gasPrice times `gasFeeCapMultiplier` 15 (sei-load default), or `gasFeeCapFallbackWei` 20 gwei when the node serves no gas price |
+| Receipts and blocks | not tracked (`trackReceipts`, `trackBlocks` false) |
+| Pod resources | requests 5 CPU and 2 GiB, memory limit 6 GiB, `GOMAXPROCS=14` |
+| Duration | 30 minutes; the first 5 are warm-up and excluded from measurement |
 
 ## What the branch contains
 
