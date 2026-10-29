@@ -335,6 +335,9 @@ func TestCallGuards(t *testing.T) {
 
 	_, err := h.call(bob, callOpts{readOnly: true}, VoteMethod, id, OptionYes)
 	require.ErrorIs(t, err, vm.ErrWriteProtection)
+	_, err = h.call(bob, callOpts{readOnly: true}, VoteMethod, id, int32(9))
+	require.ErrorIs(t, err, vm.ErrWriteProtection, "a static call fails before its arguments are checked")
+	require.NotErrorIs(t, err, vm.ErrExecutionReverted)
 	_, err = h.call(bob, callOpts{readOnly: true}, ProposalMethod, id)
 	require.NoError(t, err, "queries run under staticcall")
 
