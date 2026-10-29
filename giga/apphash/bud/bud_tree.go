@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"runtime"
 	"slices"
+	"sync"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 )
@@ -167,10 +169,12 @@ func budLeafHashes(
 	budlets []*Budlet,
 ) [][32]byte {
 	hashes := make([][32]byte, len(budlets))
-	var scratch []byte
-	for i, budlet := range budlets {
-		hashes[i], scratch = budLeafHash(budlet, scratch)
-	}
+	forEachChunk(len(budlets), func(start int, end int) {
+		var scratch []byte
+		for i := start; i < end; i++ {
+			hashes[i], scratch = budLeafHash(budlets[i], scratch)
+		}
+	})
 	return hashes
 }
 
@@ -180,12 +184,15 @@ func nextBUDTreeLevel(
 	// The hashes of one level of a BUD tree, left to right. Must hold at least two.
 	level [][32]byte,
 ) [][32]byte {
-	next := make([][32]byte, 0, (len(level)+1)/2)
-	for i := 0; i+1 < len(level); i += 2 {
-		next = append(next, budInnerHash(level[i], level[i+1]))
-	}
+	pairs := len(level) / 2
+	next := make([][32]byte, (len(level)+1)/2)
+	forEachChunk(pairs, func(start int, end int) {
+		for pair := start; pair < end; pair++ {
+			next[pair] = budInnerHash(level[2*pair], level[2*pair+1])
+		}
+	})
 	if len(level)%2 == 1 {
-		next = append(next, level[len(level)-1])
+		next[pairs] = level[len(level)-1]
 	}
 	return next
 }
@@ -247,4 +254,29 @@ func budTreeSiblingCount(
 		position /= 2
 	}
 	return count
+}
+
+// parallelHashThreshold is the fewest hashes a step splits across goroutines; below it one goroutine is faster.
+const parallelHashThreshold = 4096
+
+// maxHashWorkers bounds the goroutines one step splits its hashes across.
+const maxHashWorkers = 16
+
+// forEachChunk calls visit over [0, n) split into contiguous chunks, on several goroutines when n is large, and
+// returns once every chunk is done.
+func forEachChunk(n int, visit func(start int, end int)) {
+	workers := 1
+	if n >= parallelHashThreshold {
+		workers = min(maxHashWorkers, runtime.GOMAXPROCS(0), n/(parallelHashThreshold/4))
+	}
+	if workers <= 1 {
+		visit(0, n)
+		return
+	}
+	chunk := (n + workers - 1) / workers
+	var wg sync.WaitGroup
+	for start := 0; start < n; start += chunk {
+		wg.Go(func() { visit(start, min(start+chunk, n)) })
+	}
+	wg.Wait()
 }
