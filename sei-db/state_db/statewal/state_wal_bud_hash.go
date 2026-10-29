@@ -3,6 +3,7 @@ package statewal
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
@@ -26,32 +27,32 @@ func hashSerializedBlock(
 	if err != nil {
 		return [32]byte{}, fmt.Errorf("failed to deserialize block: %w", err)
 	}
-	tree, err := budTreeFromMutations(mutations)
+	hash, err := budHashFromMutations(mutations)
 	if err != nil {
-		return [32]byte{}, fmt.Errorf("failed to build BUD tree: %w", err)
+		return [32]byte{}, fmt.Errorf("failed to compute BUD hash: %w", err)
 	}
-	return tree.BUDHash(), nil
+	return hash, nil
 }
 
-// budTreeFromMutations returns the BUD tree over one block's mutations. Each mutation must meet the requirements of
+// budHashFromMutations returns the BUD hash of one block's mutations. Each mutation must meet the requirements of
 // budletFromMutation().
-func budTreeFromMutations(
+func budHashFromMutations(
 	// The block's mutations, strictly sorted by key.
 	mutations []mutation.Mutation,
-) (*bud.BUDTree, error) {
+) (apphash.BUDHash, error) {
 	budlets := make([]*bud.Budlet, len(mutations))
 	for i := range mutations {
 		budlet, err := budletFromMutation(&mutations[i])
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert mutation %d: %w", i, err)
+			return apphash.BUDHash{}, fmt.Errorf("failed to convert mutation %d: %w", i, err)
 		}
 		budlets[i] = budlet
 	}
-	tree, err := bud.NewBUDTree(budlets)
+	treeHash, err := bud.ComputeBUDTreeHash(budlets)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create BUD tree: %w", err)
+		return apphash.BUDHash{}, fmt.Errorf("failed to compute BUD tree hash: %w", err)
 	}
-	return tree, nil
+	return bud.ComputeBUDHash(uint64(len(budlets)), treeHash), nil
 }
 
 // budletFromMutation returns the budlet for one key a block modified.

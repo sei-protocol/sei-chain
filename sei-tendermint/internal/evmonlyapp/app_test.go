@@ -1234,8 +1234,10 @@ func TestLoadEpochWindowRejectsIncompleteWindow(t *testing.T) {
 	changeSet.Changeset.Pairs = changeSet.Changeset.Pairs[:2]
 	store := storage.SC()
 	require.NoError(t, store.ApplyChangeSets(1, []*proto.NamedChangeSet{changeSet}))
+	_, err := store.Commit(1)
+	require.NoError(t, err)
 
-	_, err := loadEpochWindow(store)
+	_, err = loadEpochWindow(store)
 	require.Error(t, err)
 }
 

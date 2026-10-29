@@ -92,7 +92,7 @@ func (app *Proxy) AwaitCommits() error {
 // its state. Its validator set must not change within a block: the window's
 // next committee is derived from the validators read before FinalizeBlock.
 type epochWindowApp interface {
-	SetEpochWindow(atypes.GlobalBlockNumber, epoch.StateWindow) error
+	SetEpochWindow(atypes.RoadIndex, epoch.StateWindow) error
 	CommittedEpochWindow() (utils.Option[epoch.StateWindow], error)
 }
 
@@ -107,7 +107,7 @@ func (app *Proxy) SupportsEpochWindow() bool {
 
 // SetEpochWindow stages the epoch window that block height commits. It errors
 // if the application does not store Autobahn epoch state.
-func (app *Proxy) SetEpochWindow(height atypes.GlobalBlockNumber, window epoch.StateWindow) error {
+func (app *Proxy) SetEpochWindow(height atypes.RoadIndex, window epoch.StateWindow) error {
 	defer addTimeSample(Global.MethodTimingAt("set_epoch_window", "sync"))()
 	windowApp, ok := app.app.(epochWindowApp)
 	if !ok {

@@ -63,7 +63,7 @@ func Deserialize(data []byte) (*AppHashData, error) {
 		[32]byte(data[blockHashOffset:stateHashOffset]),
 		[32]byte(data[stateHashOffset:budHashOffset]),
 		BUDHash(data[budHashOffset:receiptHashOffset]),
-		[32]byte(data[receiptHashOffset:previousAppHashOffset]),
+		ReceiptHash(data[receiptHashOffset:previousAppHashOffset]),
 		[32]byte(data[previousAppHashOffset:serializedSize]),
 	), nil
 }

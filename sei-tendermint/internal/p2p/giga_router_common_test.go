@@ -17,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
@@ -56,7 +57,7 @@ func (a *fixedHeightApp) Info() *abci.ResponseInfo {
 }
 
 // newSeededVault returns a durable Pebble vault rooted in a temp dir with hash committed at height.
-func newSeededVault(t *testing.T, height atypes.GlobalBlockNumber, hash []byte) hashvault.HashVault {
+func newSeededVault(t *testing.T, height atypes.RoadIndex, hash []byte) hashvault.HashVault {
 	t.Helper()
 	cfg := hashvault.DefaultHashVaultConfig()
 	cfg.DataDir = t.TempDir()
@@ -71,7 +72,7 @@ func newSeededVault(t *testing.T, height atypes.GlobalBlockNumber, hash []byte) 
 // an idempotent match returns nil, a divergent hash halts the node (panic), and a canceled
 // context returns an error without halting.
 func TestCommitHashToVault(t *testing.T) {
-	const height atypes.GlobalBlockNumber = 42
+	const height atypes.RoadIndex = 42
 	h1 := make([]byte, hashvault.BlockHashSize)
 	for i := range h1 {
 		h1[i] = 0xAA
@@ -131,16 +132,18 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 
 	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
 	require.NoError(t, err)
-	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
+	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
 	require.NoError(t, err)
 	qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*atypes.CommitQC]())
-	gr := qc.QC().GlobalRange()
-	require.Greater(t, gr.Len(), 2)
-	last := gr.First + atypes.GlobalBlockNumber(gr.Len()/2)
+	qc2, blocks2 := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc.QC()))
+	qc3, blocks3 := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc2.QC()))
+	last := qc2.Index()
 
 	db, err := blockstore.New(memblock.NewBlockDB())
 	require.NoError(t, err)
-	require.NoError(t, db.WriteQC(qc, blocks))
+	require.NoError(t, db.WriteBlock(types.NewRoadBlock(qc, blocks)))
+	require.NoError(t, db.WriteBlock(types.NewRoadBlock(qc2, blocks2)))
+	require.NoError(t, db.WriteBlock(types.NewRoadBlock(qc3, blocks3)))
 	require.NoError(t, db.Flush())
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -153,9 +156,9 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	}
 	state, err := BuildDataState(cfg, db)
 	require.NoError(t, err)
-	got, err := state.TryBlock(last)
+	got, err := state.TryBlock(atypes.LaneBlockPos{Index: last})
 	require.NoError(t, err)
-	require.Equal(t, blocks[gr.Len()/2].Header().Hash(), got.Header().Hash())
+	require.Equal(t, blocks2[0].Header().Hash(), got.Header().Hash())
 
 	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), state)
 	require.NoError(t, err)
@@ -189,7 +192,7 @@ func (a *epochWindowRestartApp) Commit(context.Context) (*abci.ResponseCommit, e
 	return &abci.ResponseCommit{}, nil
 }
 
-func (a *epochWindowRestartApp) SetEpochWindow(n atypes.GlobalBlockNumber, _ epoch.StateWindow) error {
+func (a *epochWindowRestartApp) SetEpochWindow(n atypes.RoadIndex, _ epoch.StateWindow) error {
 	return fmt.Errorf("unexpected epoch window for block %v", n)
 }
 
@@ -202,12 +205,12 @@ func (a *epochWindowRestartApp) CommittedEpochWindow() (utils.Option[epoch.State
 type epochWindowForwardApp struct {
 	epochWindowRestartApp
 	validators []abci.ValidatorUpdate
-	staged     map[atypes.GlobalBlockNumber]epoch.StateWindow
+	staged     map[atypes.RoadIndex]epoch.StateWindow
 }
 
 func (a *epochWindowForwardApp) GetValidators() []abci.ValidatorUpdate { return a.validators }
 
-func (a *epochWindowForwardApp) SetEpochWindow(n atypes.GlobalBlockNumber, window epoch.StateWindow) error {
+func (a *epochWindowForwardApp) SetEpochWindow(n atypes.RoadIndex, window epoch.StateWindow) error {
 	a.staged[n] = window
 	return nil
 }
@@ -216,14 +219,14 @@ func (a *epochWindowForwardApp) CommittedEpochWindow() (utils.Option[epoch.State
 	return utils.None[epoch.StateWindow](), nil
 }
 
-// testCommitQCAtRoad returns a one-block CommitQC of ep at road, starting at
-// global block first.
-func testCommitQCAtRoad(ep *atypes.Epoch, keys []atypes.SecretKey, road atypes.RoadIndex, first atypes.GlobalBlockNumber) (*atypes.FullCommitQC, []*atypes.Block) {
-	proposal := atypes.ProposalAt(ep, atypes.View{Index: road, Number: 0}, first)
+// testCommitQCAtRoad returns a one-block CommitQC of ep at road.
+func testCommitQCAtRoad(ep *atypes.Epoch, keys []atypes.SecretKey, road atypes.RoadIndex) (*atypes.FullCommitQC, []*atypes.Block) {
+	proposal := atypes.ProposalAt(ep, atypes.View{Index: road, Number: 0})
 	block := atypes.NewBlock(ep.Committee().Lanes().At(0), 0, atypes.BlockHeaderHash{}, &atypes.Payload{})
+	prepareQC := atypes.BuildPrepareQC(keys, proposal)
 	votes := make([]*atypes.Signed[*atypes.CommitVote], 0, len(keys))
 	for _, k := range keys {
-		votes = append(votes, atypes.Sign(k, atypes.NewCommitVote(proposal)))
+		votes = append(votes, atypes.Sign(k, atypes.NewCommitVote(prepareQC)))
 	}
 	return atypes.NewFullCommitQC(atypes.NewCommitQC(votes), []*atypes.BlockHeader{block.Header()}), []*atypes.Block{block}
 }
@@ -242,19 +245,18 @@ func TestRunExecuteRestartAtClosingBlockStagesCommittedEpochWindow(t *testing.T)
 
 	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
 	require.NoError(t, err)
-	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
+	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
 	require.NoError(t, err)
-	ep0 := registry.MustEpoch(0)
-	closingQC, closingBlocks := testCommitQCAtRoad(ep0, keys, registry.LastRoad(0), ep0.FirstBlock())
-	closing := closingQC.QC().GlobalRange().Next - 1
-	nextQC, nextBlocks := testCommitQCAtRoad(registry.MustEpoch(1), keys, registry.EpochFirstRoad(1), closing+1)
+	closingQC, closingBlocks := testCommitQCAtRoad(registry.MustEpoch(0), keys, registry.LastRoad(0))
+	closing := closingQC.Index()
+	nextQC, nextBlocks := testCommitQCAtRoad(registry.MustEpoch(1), keys, registry.EpochFirstRoad(1))
 	window, err := registry.StateWindow(0, map[atypes.PublicKey]uint64{key.Public(): 5})
 	require.NoError(t, err)
 
 	db, err := blockstore.New(memblock.NewBlockDB())
 	require.NoError(t, err)
-	require.NoError(t, db.WriteQC(closingQC, closingBlocks))
-	require.NoError(t, db.WriteQC(nextQC, nextBlocks))
+	require.NoError(t, db.WriteBlock(atypes.NewRoadBlock(closingQC, closingBlocks)))
+	require.NoError(t, db.WriteBlock(atypes.NewRoadBlock(nextQC, nextBlocks)))
 	require.NoError(t, db.Flush())
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -301,27 +303,27 @@ func TestRunExecuteClosingBlockCommitsAndStagesEpochWindow(t *testing.T) {
 
 	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
 	require.NoError(t, err)
-	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
+	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
 	require.NoError(t, err)
 	ep0 := registry.MustEpoch(0)
-	beforeQC, beforeBlocks := testCommitQCAtRoad(ep0, keys, registry.LastRoad(0)-1, ep0.FirstBlock())
-	before := beforeQC.QC().GlobalRange().Next - 1
-	closingQC, closingBlocks := testCommitQCAtRoad(ep0, keys, registry.LastRoad(0), before+1)
-	closing := closingQC.QC().GlobalRange().Next - 1
+	beforeQC, beforeBlocks := testCommitQCAtRoad(ep0, keys, registry.LastRoad(0)-1)
+	before := beforeQC.Index()
+	closingQC, closingBlocks := testCommitQCAtRoad(ep0, keys, registry.LastRoad(0))
+	closing := closingQC.Index()
 	want, err := registry.StateWindow(0, map[atypes.PublicKey]uint64{key.Public(): 5})
 	require.NoError(t, err)
 
 	db, err := blockstore.New(memblock.NewBlockDB())
 	require.NoError(t, err)
-	require.NoError(t, db.WriteQC(beforeQC, beforeBlocks))
-	require.NoError(t, db.WriteQC(closingQC, closingBlocks))
+	require.NoError(t, db.WriteBlock(atypes.NewRoadBlock(beforeQC, beforeBlocks)))
+	require.NoError(t, db.WriteBlock(atypes.NewRoadBlock(closingQC, closingBlocks)))
 	require.NoError(t, db.Flush())
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	app := &epochWindowForwardApp{
 		epochWindowRestartApp: epochWindowRestartApp{height: int64(before)},
 		validators:            []abci.ValidatorUpdate{{PubKey: crypto.PubKeyToProto(valKey.Public()), Power: 5}},
-		staged:                map[atypes.GlobalBlockNumber]epoch.StateWindow{},
+		staged:                map[atypes.RoadIndex]epoch.StateWindow{},
 	}
 	cfg := &GigaRouterCommonConfig{
 		DialInterval:       time.Second,
@@ -366,7 +368,7 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 		mid.Public():  {},
 		high.Public(): {},
 	})
-	first := router.data.Registry().FirstBlock()
+	first := router.data.Registry().FirstRoad()
 
 	got, err := router.Validators(first)
 	require.NoError(t, err)
@@ -391,7 +393,8 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []int64{1, 1, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
 
-	n := pushQCAtRoad(t, router, keys, router.data.Registry().MustEpoch(2), router.data.Registry().EpochFirstRoad(2))
+	n := router.data.Registry().EpochFirstRoad(2)
+	router = testRouterAtRoad(t, router.data.Registry(), keys, router.data.Registry().MustEpoch(2), n)
 	got, err = router.Validators(n)
 	require.NoError(t, err)
 	require.Equal(t, []int64{10, 5, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
@@ -406,21 +409,27 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
 }
 
-func pushQCAtRoad(t *testing.T, router *gigaRouterCommon, keys []atypes.SecretKey, ep *atypes.Epoch, road atypes.RoadIndex) atypes.GlobalBlockNumber {
+func testRouterAtRoad(t *testing.T, registry *epoch.Registry, keys []atypes.SecretKey, ep *atypes.Epoch, road atypes.RoadIndex) *gigaRouterCommon {
 	t.Helper()
-	first := router.data.Registry().FirstBlock()
-	proposal, blocks := atypes.ProposalAtBlocks(ep, atypes.View{Index: road, Number: 0}, first, 1)
+	proposal, blocks := atypes.ProposalAtBlocks(ep, atypes.View{Index: road, Number: 0}, 1)
 	votes := make([]*atypes.Signed[*atypes.CommitVote], 0, len(keys))
+	prepareQC := atypes.BuildPrepareQC(keys, proposal)
 	for _, k := range keys {
-		votes = append(votes, atypes.Sign(k, atypes.NewCommitVote(proposal)))
+		votes = append(votes, atypes.Sign(k, atypes.NewCommitVote(prepareQC)))
 	}
 	headers := make([]*atypes.BlockHeader, len(blocks))
 	for i, b := range blocks {
 		headers[i] = b.Header()
 	}
 	qc := atypes.NewFullCommitQC(atypes.NewCommitQC(votes), headers)
-	require.NoError(t, router.data.PushQC(t.Context(), qc, blocks))
-	return first
+	store, err := blockstore.New(memblock.NewBlockDB())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	require.NoError(t, store.WriteBlock(types.NewRoadBlock(qc, blocks)))
+	require.NoError(t, store.Flush())
+	state, err := data.NewState(&data.Config{Registry: registry}, store)
+	require.NoError(t, err)
+	return &gigaRouterCommon{data: state, nextCommitEpoch: state.NextCommitEpoch()}
 }
 
 func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAddr) *gigaRouterCommon {
@@ -451,7 +460,7 @@ func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAdd
 
 func testEpoch(index atypes.EpochIndex, weights map[atypes.PublicKey]uint64) *atypes.Epoch {
 	committee := utils.OrPanic1(atypes.NewCommittee(weights))
-	return atypes.NewEpoch(index, atypes.RoadRange{}, time.Time{}, committee, 1)
+	return atypes.NewEpoch(index, atypes.RoadRange{}, time.Time{}, committee)
 }
 
 func testAnchor(ep *atypes.Epoch) utils.Option[data.Anchor] {

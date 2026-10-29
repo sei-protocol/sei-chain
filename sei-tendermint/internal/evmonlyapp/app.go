@@ -283,7 +283,7 @@ func (a *evmOnlyApplication) CommittedEpochWindow() (utils.Option[epoch.StateWin
 }
 
 // SetEpochWindow stages the epoch committee window that must be committed with height.
-func (a *evmOnlyApplication) SetEpochWindow(height atypes.GlobalBlockNumber, window epoch.StateWindow) error {
+func (a *evmOnlyApplication) SetEpochWindow(height atypes.RoadIndex, window epoch.StateWindow) error {
 	h, ok := utils.SafeCast[int64](height)
 	if !ok {
 		return fmt.Errorf("EVM-only epoch window height exceeds int64: %d", height)
@@ -663,6 +663,22 @@ func evmOnlyPrevRandao(timestamp uint64) common.Hash {
 	return crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp))
 }
 
+// blockContext returns the context this application executes a block at. Coinbase is zero, and
+// the base fee and blob base fee are always zero.
+func (a *evmOnlyApplication) blockContext(number, timestamp, gasLimit uint64, parentHash, blockHash common.Hash) evmonly.BlockContext {
+	return evmonly.BlockContext{
+		Number:      number,
+		Time:        timestamp,
+		GasLimit:    gasLimit,
+		ChainID:     new(big.Int).Set(a.chainID),
+		BaseFee:     evmOnlyBaseFee(),
+		BlobBaseFee: new(big.Int),
+		ParentHash:  parentHash,
+		BlockHash:   blockHash,
+		PrevRandao:  evmOnlyPrevRandao(timestamp),
+	}
+}
+
 // currentExecutionContext returns the executor and block context for a
 // read-only EVM execution against the most recently committed state. action
 // names the caller for its error messages, e.g. "call" or "gas estimate".
@@ -701,17 +717,8 @@ func (a *evmOnlyApplication) committedBlockContext(action string) (evmonly.Block
 		if !ok {
 			return evmonly.BlockContext{}, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committed.height)
 		}
-		// Coinbase and ParentHash are left zero.
-		return evmonly.BlockContext{
-			Number:      number,
-			Time:        state.lastBlockTime,
-			GasLimit:    state.committed.gasLimit,
-			ChainID:     new(big.Int).Set(a.chainID),
-			BaseFee:     evmOnlyBaseFee(),
-			BlobBaseFee: new(big.Int),
-			BlockHash:   state.committed.blockHash,
-			PrevRandao:  evmOnlyPrevRandao(state.lastBlockTime),
-		}, nil
+		// ParentHash is left zero.
+		return a.blockContext(number, state.lastBlockTime, state.committed.gasLimit, common.Hash{}, state.committed.blockHash), nil
 	}
 	panic("unreachable")
 }
@@ -765,17 +772,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
 		senders := a.takeSenders(req.Txs)
 		result, err := a.executeBlockPipelined(ctx, executor, evmonly.BlockRequest{
-			Context: evmonly.BlockContext{
-				Number:      number,
-				Time:        timestamp,
-				GasLimit:    parent.gasLimit,
-				ChainID:     new(big.Int).Set(a.chainID),
-				BaseFee:     evmOnlyBaseFee(),
-				BlobBaseFee: new(big.Int),
-				ParentHash:  parent.blockHash,
-				BlockHash:   blockHash,
-				PrevRandao:  evmOnlyPrevRandao(timestamp),
-			},
+			Context: a.blockContext(number, timestamp, parent.gasLimit, parent.blockHash, blockHash),
 			Txs:     req.Txs,
 			Senders: senders,
 		})

@@ -63,7 +63,7 @@ func newOCCSpeculativeRunner(e *Executor, req PreparedBlock) occSpeculativeRunne
 		executor:      e,
 		req:           req,
 		chainConfig:   e.chainConfig(req.Context),
-		blockCtx:      buildBlockContext(req.Context),
+		blockCtx:      EVMBlockContext(req.Context),
 		baseFee:       cloneOptionalBig(req.Context.BaseFee),
 		blockGasLimit: req.Context.GasLimit,
 	}
@@ -139,7 +139,7 @@ func (r occSpeculativeRunner) runRanges(
 	return pool.Run(ctx, len(ranges), func(workerCtx context.Context, _ int, _ int) error {
 		stateDB := r.executor.acquireStateDB(nil)
 		defer r.executor.releaseStateDB(stateDB)
-		evm := vm.NewEVM(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, nil)
+		evm := vm.NewEVM(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, r.executor.customContracts)
 		stateDB.SetEVM(evm)
 		for {
 			rangeIndex := int(claimed.Add(1) - 1)
@@ -179,7 +179,7 @@ func (r occSpeculativeRunner) runTasks(
 	return pool.Run(ctx, len(tasks), func(workerCtx context.Context, workerID int, workers int) error {
 		stateDB := r.executor.acquireStateDB(nil)
 		defer r.executor.releaseStateDB(stateDB)
-		evm := vm.NewEVM(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, nil)
+		evm := vm.NewEVM(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, r.executor.customContracts)
 		stateDB.SetEVM(evm)
 		for taskIndex := workerID; taskIndex < len(tasks); taskIndex += workers {
 			if err := workerCtx.Err(); err != nil {

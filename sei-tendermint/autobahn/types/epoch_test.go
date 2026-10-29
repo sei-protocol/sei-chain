@@ -23,7 +23,7 @@ func TestEpochIsClosed(t *testing.T) {
 	c := GenSecretKey(rng).Public()
 
 	ep1 := NewEpoch(1, OpenRoadRange(), time.Time{},
-		utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 1, c: 1})), 0)
+		utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 1, c: 1})))
 
 	stay := LaneID{Validator: a, Joined: 0}
 	leave := LaneID{Validator: b, Joined: 0}

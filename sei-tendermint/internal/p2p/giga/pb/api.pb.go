@@ -425,7 +425,7 @@ func (*StreamAppVotesReq) Descriptor() ([]byte, []int) {
 
 type GetBlockReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	GlobalNumber  uint64                 `protobuf:"varint,1,opt,name=global_number,json=globalNumber,proto3" json:"global_number,omitempty"`
+	Pos           *pb.LaneBlockPos       `protobuf:"bytes,2,opt,name=pos,proto3,oneof" json:"pos,omitempty"` // required
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -460,11 +460,11 @@ func (*GetBlockReq) Descriptor() ([]byte, []int) {
 	return file_p2p_giga_api_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *GetBlockReq) GetGlobalNumber() uint64 {
+func (x *GetBlockReq) GetPos() *pb.LaneBlockPos {
 	if x != nil {
-		return x.GlobalNumber
+		return x.Pos
 	}
-	return 0
+	return nil
 }
 
 type GetBlockResp struct {
@@ -621,9 +621,10 @@ const file_p2p_giga_api_proto_rawDesc = "" +
 	"\b_lane_id\"\x1c\n" +
 	"\x12StreamCommitQCsReq:\x06\xe8\x88\xe2\xab\f\x01\"\x1c\n" +
 	"\x12StreamLaneVotesReq:\x06\xe8\x88\xe2\xab\f\x01\"\x1b\n" +
-	"\x11StreamAppVotesReq:\x06\xe8\x88\xe2\xab\f\x01\":\n" +
-	"\vGetBlockReq\x12#\n" +
-	"\rglobal_number\x18\x01 \x01(\x04R\fglobalNumber:\x06\xe8\x88\xe2\xab\f\x01\"L\n" +
+	"\x11StreamAppVotesReq:\x06\xe8\x88\xe2\xab\f\x01\"a\n" +
+	"\vGetBlockReq\x12-\n" +
+	"\x03pos\x18\x02 \x01(\v2\x16.autobahn.LaneBlockPosH\x00R\x03pos\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\x06\n" +
+	"\x04_posJ\x04\b\x01\x10\x02R\rglobal_number\"L\n" +
 	"\fGetBlockResp\x12*\n" +
 	"\x05block\x18\x01 \x01(\v2\x0f.autobahn.BlockH\x00R\x05block\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\b\n" +
 	"\x06_block\"?\n" +
@@ -666,19 +667,21 @@ var file_p2p_giga_api_proto_goTypes = []any{
 	(*pb.SignedBlock)(nil),         // 15: autobahn.SignedBlock
 	(*pb.SignedAppVote)(nil),       // 16: autobahn.SignedAppVote
 	(*pb.LaneID)(nil),              // 17: autobahn.LaneID
-	(*pb.Block)(nil),               // 18: autobahn.Block
+	(*pb.LaneBlockPos)(nil),        // 18: autobahn.LaneBlockPos
+	(*pb.Block)(nil),               // 19: autobahn.Block
 }
 var file_p2p_giga_api_proto_depIdxs = []int32{
 	14, // 0: p2p.giga.LaneVote.lane_vote_v2:type_name -> autobahn.SignedBlockHeader
 	15, // 1: p2p.giga.LaneProposal.lane_proposal_v2:type_name -> autobahn.SignedBlock
 	16, // 2: p2p.giga.AppVote.app_vote_v2:type_name -> autobahn.SignedAppVote
 	17, // 3: p2p.giga.StreamLaneProposalsReq.lane_id:type_name -> autobahn.LaneID
-	18, // 4: p2p.giga.GetBlockResp.block:type_name -> autobahn.Block
-	5,  // [5:5] is the sub-list for method output_type
-	5,  // [5:5] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	18, // 4: p2p.giga.GetBlockReq.pos:type_name -> autobahn.LaneBlockPos
+	19, // 5: p2p.giga.GetBlockResp.block:type_name -> autobahn.Block
+	6,  // [6:6] is the sub-list for method output_type
+	6,  // [6:6] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_p2p_giga_api_proto_init() }
@@ -687,6 +690,7 @@ func file_p2p_giga_api_proto_init() {
 		return
 	}
 	file_p2p_giga_api_proto_msgTypes[6].OneofWrappers = []any{}
+	file_p2p_giga_api_proto_msgTypes[10].OneofWrappers = []any{}
 	file_p2p_giga_api_proto_msgTypes[11].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
