@@ -2,6 +2,10 @@ package view
 
 import (
 	"errors"
+	"fmt"
+	"math/rand/v2"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -76,4 +80,28 @@ func TestForEachMergedEntryStopsAtTheFirstVisitError(t *testing.T) {
 
 	require.ErrorIs(t, err, failure)
 	require.Equal(t, 2, visited, "the merge must stop at the entry that failed")
+}
+
+func TestForEachMergedEntryMatchesASortAcrossManyShards(t *testing.T) {
+	rng := rand.New(rand.NewPCG(1, 2))
+	const shards = 256
+	shardDiffs := make([][]Write, shards)
+	var want []string
+	for i := 0; i < 20_000; i++ {
+		key := fmt.Sprintf("%016x", rng.Uint64())
+		shard := rng.IntN(shards)
+		shardDiffs[shard] = append(shardDiffs[shard], Write{Key: key, Value: []byte(key)})
+		want = append(want, key)
+	}
+	for _, diff := range shardDiffs {
+		slices.SortFunc(diff, func(a Write, b Write) int { return strings.Compare(a.Key, b.Key) })
+	}
+	slices.Sort(want)
+
+	var got []string
+	require.NoError(t, forEachMergedEntry(shardDiffs, func(entry Write) error {
+		got = append(got, entry.Key)
+		return nil
+	}))
+	require.Equal(t, want, got)
 }
