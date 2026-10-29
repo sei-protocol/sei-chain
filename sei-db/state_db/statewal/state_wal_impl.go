@@ -1,7 +1,6 @@
 package statewal
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -452,9 +451,7 @@ func (w *stateWALImpl) run() {
 // write sorts the block's mutations by key, builds their BUD tree, appends their serialization to the WAL, and
 // delivers the block's BUD hash to every listener, returning the first error.
 func (w *stateWALImpl) write(request writeRequest) error {
-	slices.SortFunc(request.mutations, func(a mutation.Mutation, b mutation.Mutation) int {
-		return bytes.Compare(a.Key, b.Key)
-	})
+	sortMutationsByKey(request.mutations)
 	tree, err := budTreeFromMutations(request.mutations)
 	if err != nil {
 		return fmt.Errorf("failed to build the BUD tree of block %d: %w", request.blockNumber, err)
