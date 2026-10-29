@@ -72,8 +72,14 @@ func HasGov(state precompiles.State) bool {
 	return govSubspace.get(newStore(state), govVotingPeriodParam).Sign() != 0
 }
 
-// WriteGov writes g as gov's params, for genesis, if g is valid.
+var errGovWritten = errors.New("gov's params are already written")
+
+// WriteGov writes g as gov's params, for genesis, if g is valid and gov's
+// params have not been written.
 func WriteGov(state precompiles.State, g Gov) error {
+	if HasGov(state) {
+		return errGovWritten
+	}
 	v := g.values()
 	if err := govSubspace.validate(v); err != nil {
 		return err

@@ -2,6 +2,8 @@ package params
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"math/big"
 	"os"
 	"reflect"
@@ -45,10 +47,22 @@ func call(t *testing.T, state precompiles.State, method string, args ...interfac
 	input, err := ABI.Pack(method, args...)
 	require.NoError(t, err)
 	out, err := Precompile{}.Run(&precompiles.Context{Address: Address, ReadOnly: true, State: state}, input)
+	if errors.Is(err, vm.ErrExecutionReverted) {
+		reason, unpackErr := abi.UnpackRevert(out)
+		require.NoError(t, unpackErr)
+		return nil, fmt.Errorf("%w: %s", err, reason)
+	}
 	if err != nil {
 		return nil, err
 	}
 	return ABI.Methods[method].Outputs.Unpack(out)
+}
+
+// requireReverts checks that err is a revert whose reason carries want's message.
+func requireReverts(t *testing.T, err error, want error) {
+	t.Helper()
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+	require.ErrorContains(t, err, want.Error())
 }
 
 // TestKeys pins the declared params. The flat keys of one V2 key stay adjacent
@@ -75,22 +89,21 @@ func TestParamReturnsTheStoredValue(t *testing.T) {
 	require.Equal(t, word(testGov.VotingPeriod), out[0])
 
 	_, err = call(t, state, ParamMethod, "gov", "votingparams")
-	require.ErrorIs(t, err, errUnknownKey)
+	requireReverts(t, err, errUnknownKey)
 	_, err = call(t, state, ParamMethod, "baseapp", "TimeoutParams")
-	require.ErrorIs(t, err, errUnknownSubspace)
+	requireReverts(t, err, errUnknownSubspace)
 }
 
 func TestApplyWritesEachChange(t *testing.T) {
 	state := newGovState(t)
 	require.NoError(t, Apply(state, []Change{
-		{"gov", "votingparams.voting_period", word(200_000_000_000_000)},
-		{"gov", "depositparams.min_deposit", word(5_000_000_000_000)},
 		{"gov", "votingparams.voting_period", word(300_000_000_000_000)},
+		{"gov", "depositparams.min_deposit", word(5_000_000_000_000)},
 	}))
 	want := testGov
 	want.VotingPeriod = 300_000_000_000_000
 	want.MinDeposit = big.NewInt(5_000_000_000_000)
-	require.Equal(t, want, ReadGov(state), "later changes win")
+	require.Equal(t, want, ReadGov(state))
 }
 
 func TestApplyRejectsAndWritesNothing(t *testing.T) {
@@ -220,7 +233,7 @@ func TestUnknownNamesAreQuotedAndCapped(t *testing.T) {
 	require.ErrorIs(t, err, errUnknownKey)
 	require.Less(t, len(err.Error()), 200)
 	_, err = call(t, newGovState(t), ParamMethod, long, long)
-	require.ErrorIs(t, err, errUnknownSubspace)
+	requireReverts(t, err, errUnknownSubspace)
 	require.Less(t, len(err.Error()), 200)
 }
 
@@ -234,16 +247,30 @@ func TestApplyChecksTheResultAsAWhole(t *testing.T) {
 	require.Equal(t, uint64(600_000_000_000), ReadGov(state).VotingPeriod)
 }
 
-func TestApplyWritesOnlyEachParamsLastValue(t *testing.T) {
+func TestChangesRejectARepeatedParam(t *testing.T) {
 	state := newGovState(t)
 	oversized := common.BigToHash(new(big.Int).Lsh(big.NewInt(1), 64)).Bytes()
-	require.NoError(t, Apply(state, []Change{
+	for name, changes := range map[string][]Change{
+		"same value": {
+			{"gov", "votingparams.voting_period", word(200_000_000_000_000)},
+			{"gov", "votingparams.voting_period", word(200_000_000_000_000)},
+		},
+		"apart": {
+			{"gov", "votingparams.voting_period", word(200_000_000_000_000)},
+			{"gov", "depositparams.min_deposit", word(5_000_000_000_000)},
+			{"gov", "votingparams.voting_period", word(300_000_000_000_000)},
+		},
+	} {
+		require.ErrorIs(t, CheckChanges(changes), errRepeatedKey, name)
+		require.ErrorIs(t, Apply(state, changes), errRepeatedKey, name)
+	}
+	supersededOversized := []Change{
 		{"gov", "votingparams.voting_period", oversized},
 		{"gov", "votingparams.voting_period", word(200_000_000_000_000)},
-	}))
-	want := testGov
-	want.VotingPeriod = 200_000_000_000_000
-	require.Equal(t, want, ReadGov(state))
+	}
+	require.ErrorIs(t, CheckChanges(supersededOversized), errInvalidValue, "each value fits its type")
+	require.ErrorIs(t, Apply(state, supersededOversized), errInvalidValue)
+	require.Equal(t, testGov, ReadGov(state))
 }
 
 func TestChangesKeepTheVotingPeriodFloor(t *testing.T) {
@@ -251,15 +278,22 @@ func TestChangesKeepTheVotingPeriodFloor(t *testing.T) {
 	floor := Change{"gov", "votingparams.voting_period", word(MinChangedVotingPeriod)}
 	expedited := Change{"gov", "votingparams.expedited_voting_period", word(MinChangedVotingPeriod / 2)}
 	below := Change{"gov", "votingparams.voting_period", word(MinChangedVotingPeriod - 1)}
-	require.ErrorIs(t, Check(state, []Change{below, expedited}), errInvalidValue)
-	require.ErrorIs(t, Check(state, []Change{floor, below, expedited}), errInvalidValue, "the last value counts")
-	require.NoError(t, Apply(state, []Change{below, floor, expedited}))
+	require.ErrorIs(t, CheckChanges([]Change{below, expedited}), errInvalidValue)
+	require.NoError(t, Apply(state, []Change{floor, expedited}))
 	require.Equal(t, MinChangedVotingPeriod, ReadGov(state).VotingPeriod)
 
 	short := testGov
 	short.VotingPeriod = 30_000_000_000
 	short.ExpeditedVotingPeriod = 15_000_000_000
 	require.NoError(t, WriteGov(newMemState(), short), "genesis may set a voting period below the floor")
+}
+
+func TestWriteGovRefusesOnceWritten(t *testing.T) {
+	state := newGovState(t)
+	changed := testGov
+	changed.VotingPeriod++
+	require.ErrorIs(t, WriteGov(state, changed), errGovWritten)
+	require.Equal(t, testGov, ReadGov(state))
 }
 
 func TestRunRejectsValueAndDelegateCall(t *testing.T) {

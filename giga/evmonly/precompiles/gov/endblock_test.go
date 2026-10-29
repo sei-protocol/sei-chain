@@ -21,6 +21,12 @@ func newElectedHarness(t *testing.T, e Electorate) *harness {
 	return h
 }
 
+// withParams gives h a fresh state holding p as gov's genesis params.
+func (h *harness) withParams(p Params) {
+	h.state = newMemState()
+	require.NoError(h.t, SetParams(h.state, p))
+}
+
 // open submits content with the minimum deposit, putting it straight to a vote.
 func (h *harness) open(content submission, deposit *big.Int) uint64 {
 	return h.submit(alice, content, deposit)
@@ -89,7 +95,7 @@ func TestVotingEndsAtTheNanosecond(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
 	params := testParams
 	params.VotingPeriod = 100*second + 1
-	require.NoError(t, SetParams(h.state, params))
+	h.withParams(params)
 	id := h.open(textProposal, usei(10))
 	h.vote(alice, id, OptionYes)
 	h.vote(bob, id, OptionYes)
@@ -309,7 +315,7 @@ func TestEndBlockCarriesOverPastBudget(t *testing.T) {
 	params := testParams
 	params.MinDeposit = usei(1_000_000)
 	params.MinExpeditedDeposit = usei(2_000_000)
-	require.NoError(t, SetParams(h.state, params))
+	h.withParams(params)
 	const proposals = 6
 	for range proposals {
 		h.fillDepositors(h.submit(alice, textProposal, nil), maxDepositors-1)
@@ -355,7 +361,7 @@ func TestEndBlockEndsVotingPastSpentDropBudget(t *testing.T) {
 	params := testParams
 	params.MinDeposit = usei(1_000_000)
 	params.MinExpeditedDeposit = usei(2_000_000)
-	require.NoError(t, SetParams(h.state, params))
+	h.withParams(params)
 	voted := h.open(textProposal, params.MinDeposit)
 	h.vote(alice, voted, OptionYes)
 	h.vote(bob, voted, OptionYes)
@@ -438,7 +444,7 @@ func TestDepositorFirstDepositMustMeetShare(t *testing.T) {
 	params := testParams
 	params.MinDeposit = usei(1_000)
 	params.MinExpeditedDeposit = usei(2_000)
-	require.NoError(t, SetParams(h.state, params))
+	h.withParams(params)
 	id := h.submit(alice, textProposal, nil)
 
 	share := depositorShare(params, false)

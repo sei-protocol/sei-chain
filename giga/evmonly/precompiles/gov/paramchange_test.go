@@ -1,11 +1,13 @@
 package gov
 
 import (
+	"errors"
 	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
@@ -110,14 +112,17 @@ func TestSubmitRejectsInvalidParamChanges(t *testing.T) {
 		"undeclared key":      {{"gov", "votingparams", secondsValue(1)}},
 		"short value":         {{"gov", "votingparams.voting_period", []byte{1}}},
 		"duration overflow":   {{"gov", "votingparams.voting_period", common.BigToHash(new(big.Int).Lsh(big.NewInt(1), 64)).Bytes()}},
-		"fails validation":    {{"gov", "votingparams.expedited_voting_period", uintValue(testParams.VotingPeriod)}},
+		"below the floor":     {{"gov", "votingparams.voting_period", secondsValue(299)}},
 	} {
 		_, err := h.submitParamChange(false, changes...)
-		require.Error(t, err, name)
+		require.ErrorIs(t, err, vm.ErrExecutionReverted, name)
 	}
-	_, err := h.call(alice, callOpts{}, SubmitParamChangeProposalMethod, "", "d", false,
+	_, err := h.submitParamChange(false, paramChange{"gov", "votingparams.expedited_voting_period", uintValue(testParams.VotingPeriod)})
+	require.Error(t, err, "fails validation against the current params")
+	require.NotErrorIs(t, err, vm.ErrExecutionReverted, "a check that needs state fails without a revert")
+	_, err = h.call(alice, callOpts{}, SubmitParamChangeProposalMethod, "", "d", false,
 		[]paramChange{{"gov", "votingparams.voting_period", secondsValue(300)}})
-	require.Error(t, err, "no title")
+	requireReverts(t, err, errMissingText)
 	require.Zero(t, newStore(h.state).lastProposalID())
 }
 
@@ -130,6 +135,7 @@ func TestParamsReadThroughTheParamsPrecompile(t *testing.T) {
 
 	stored.VotingPeriod = 1_500_000_001
 	stored.ExpeditedVotingPeriod = 1_000_000_000
+	state = newMemState()
 	require.NoError(t, chainparams.WriteGov(state, stored))
 	require.Equal(t, uint64(1_500_000_001), newStore(state).params().VotingPeriod, "nanoseconds, unrounded")
 }
@@ -194,14 +200,15 @@ func TestAParamChangeGovernsLaterProposalsInTheSameEndBlock(t *testing.T) {
 	}
 }
 
-func TestSubmitRejectsOversizedParamChangeContent(t *testing.T) {
+func TestSubmitRevertsOnARepeatedParam(t *testing.T) {
 	h := newHarness(t)
 	changes := make([]paramChange, maxContentLength/(32*8)+1)
 	for i := range changes {
 		changes[i] = paramChange{"gov", "votingparams.voting_period", secondsValue(300)}
 	}
 	_, err := h.submitParamChange(false, changes...)
-	require.ErrorIs(t, err, errContentTooLong)
+	requireReverts(t, err, errors.New("param changed more than once"))
+	require.Zero(t, newStore(h.state).lastProposalID())
 }
 
 func TestEveryGovParamChangesThroughAProposal(t *testing.T) {

@@ -138,10 +138,13 @@ interface IGov {
         returns (uint64 proposalID);
 
     /// @notice Submits a proposal to change chain params, depositing msg.value on
-    /// it. Changes apply in order when it passes, all or none, each setting one
-    /// param over the current params. It needs at least one change, and every
-    /// change must name a declared param and leave its subspace valid when
-    /// submitted.
+    /// it. It needs at least one change; each names a declared param no other
+    /// change names, with a value that fits its type, and a change to
+    /// votingparams.voting_period sets at least 5 minutes, or the call reverts.
+    /// The changes must also leave each subspace valid against the current
+    /// params, or the call fails with no revert data and nothing is written.
+    /// When the proposal passes, the changes apply all or none; if they no
+    /// longer leave a subspace valid, the proposal is Failed instead.
     function submitParamChangeProposal(
         string calldata title,
         string calldata description,

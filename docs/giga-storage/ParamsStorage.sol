@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
-
-import "giga-precompiles/params/Params.sol";
+pragma solidity 0.8.30;
 
 /// @notice Storage schema of the evmonly params precompile (0x1013), held as that
 /// address's contract storage. Each subspace is one struct at a fixed slot, and

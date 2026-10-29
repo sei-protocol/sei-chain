@@ -8,7 +8,6 @@ import (
 	"bytes"
 	_ "embed"
 	"errors"
-	"fmt"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -82,7 +81,11 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	}
 	switch method.Name {
 	case ParamMethod:
-		return paramQuery(ctx.State, method, args[0].(string), args[1].(string))
+		ss, p, err := lookupParam(args[0].(string), args[1].(string))
+		if err != nil {
+			return precompiles.Revert(err.Error())
+		}
+		return method.Outputs.Pack(common.BigToHash(ss.get(newStore(ctx.State), p)).Bytes())
 	}
 	return nil, errUnknownMethod
 }
@@ -96,17 +99,4 @@ func methodOf(input []byte) (*abi.Method, error) {
 		return nil, errUnknownMethod
 	}
 	return method, nil
-}
-
-// paramQuery returns a param's value as abi.encode of its Solidity type.
-func paramQuery(state precompiles.State, method *abi.Method, subspaceName, key string) ([]byte, error) {
-	ss, ok := lookupSubspace(subspaceName)
-	if !ok {
-		return nil, fmt.Errorf("%w: %.64q", errUnknownSubspace, subspaceName)
-	}
-	p, ok := ss.param(key)
-	if !ok {
-		return nil, fmt.Errorf("%w: %.64q/%.64q", errUnknownKey, subspaceName, key)
-	}
-	return method.Outputs.Pack(common.BigToHash(ss.get(newStore(state), p)).Bytes())
 }

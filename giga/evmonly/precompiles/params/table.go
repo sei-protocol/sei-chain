@@ -31,6 +31,7 @@ type param struct {
 	kind valueKind
 	at   member
 	// least is the smallest value a param change may set, or nil for none.
+	// Genesis may set a smaller one.
 	least *big.Int
 }
 
@@ -66,6 +67,19 @@ func Keys() []Key {
 		}
 	}
 	return out
+}
+
+// lookupParam returns the declared param key of subspace name.
+func lookupParam(name, key string) (*subspace, param, error) {
+	ss, ok := lookupSubspace(name)
+	if !ok {
+		return nil, param{}, fmt.Errorf("%w: %.64q", errUnknownSubspace, name)
+	}
+	p, ok := ss.param(key)
+	if !ok {
+		return nil, param{}, fmt.Errorf("%w: %.64q/%.64q", errUnknownKey, name, key)
+	}
+	return ss, p, nil
 }
 
 func lookupSubspace(name string) (*subspace, bool) {
@@ -115,6 +129,22 @@ func (ss *subspace) set(s solstorage.Store, p param, v *big.Int) {
 	s.SetWord(slot, w)
 }
 
+// decode decodes a value for p, the 32-byte abi.encode of its Solidity type,
+// requiring it to fit that type and to be at least p's least value.
+func (p param) decode(value []byte) (*big.Int, error) {
+	if len(value) != common.HashLength {
+		return nil, fmt.Errorf("%w: %d bytes, want %d", errInvalidValue, len(value), common.HashLength)
+	}
+	v := new(big.Int).SetBytes(value)
+	if v.BitLen() > p.kind.bits {
+		return nil, fmt.Errorf("%w: does not fit %s", errInvalidValue, p.kind.solType)
+	}
+	if p.least != nil && v.Cmp(p.least) < 0 {
+		return nil, fmt.Errorf("%w: must be at least %s", errInvalidValue, p.least)
+	}
+	return v, nil
+}
+
 // bytesOf returns the bytes of word that p occupies.
 func (p param) bytesOf(word []byte) []byte {
 	end := len(word) - p.at.offset
@@ -123,7 +153,7 @@ func (p param) bytesOf(word []byte) []byte {
 
 // validate checks that v holds every param of ss, each fitting its kind, and
 // that the subspace as a whole is valid. Every write of a subspace's params is
-// checked here first.
+// checked here first; a param change is also checked by param.decode.
 func (ss *subspace) validate(v values) error {
 	for _, p := range ss.params {
 		x, ok := v[p.key]

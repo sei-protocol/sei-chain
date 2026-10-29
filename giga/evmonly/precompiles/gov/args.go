@@ -6,6 +6,8 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
+
+	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 )
 
 var errInvalidStatus = errors.New("invalid proposal status")
@@ -16,9 +18,15 @@ var argChecks = map[string]func(args []interface{}) error{
 	VoteMethod:               func(args []interface{}) error { return checkOption(args[1].(int32)) },
 	VoteWeightedMethod:       func(args []interface{}) error { return checkWeightedOptions(weightedOptionsArg(args[1])) },
 	SubmitTextProposalMethod: func(args []interface{}) error { return checkText(args[0].(string), args[1].(string)) },
-	ProposalsMethod:          checkProposalsArgs,
-	VotesMethod:              func(args []interface{}) error { return checkPageKey(args[1].([]byte)) },
-	DepositsMethod:           func(args []interface{}) error { return checkPageKey(args[1].([]byte)) },
+	SubmitParamChangeProposalMethod: func(args []interface{}) error {
+		if err := checkText(args[0].(string), args[1].(string)); err != nil {
+			return err
+		}
+		return chainparams.CheckChanges(paramChangesArg(args[3]))
+	},
+	ProposalsMethod: checkProposalsArgs,
+	VotesMethod:     func(args []interface{}) error { return checkPageKey(args[1].([]byte)) },
+	DepositsMethod:  func(args []interface{}) error { return checkPageKey(args[1].([]byte)) },
 }
 
 func checkOption(option int32) error {
@@ -26,6 +34,12 @@ func checkOption(option int32) error {
 		return fmt.Errorf("%w: %d", errInvalidVote, option)
 	}
 	return nil
+}
+
+func paramChangesArg(arg interface{}) []chainparams.Change {
+	var changes []chainparams.Change
+	abi.ConvertType(arg, &changes)
+	return changes
 }
 
 func weightedOptionsArg(arg interface{}) []WeightedVoteOption {

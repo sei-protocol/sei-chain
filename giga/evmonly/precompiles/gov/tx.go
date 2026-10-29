@@ -117,8 +117,7 @@ func (p Precompile) submitTextProposal(ctx *precompiles.Context, s store, method
 }
 
 func (p Precompile) submitParamChangeProposal(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
-	content := paramChangeContent{Title: args[0].(string), Description: args[1].(string), IsExpedited: args[2].(bool)}
-	abi.ConvertType(args[3], &content.Changes)
+	content := paramChangeContent{Title: args[0].(string), Description: args[1].(string), IsExpedited: args[2].(bool), Changes: paramChangesArg(args[3])}
 	return submit(ctx, s, method, content, content.IsExpedited)
 }
 

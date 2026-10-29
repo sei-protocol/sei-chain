@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/common"
-
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 )
 
@@ -14,6 +12,7 @@ var (
 	errUnknownSubspace = errors.New("unknown param subspace")
 	errUnknownKey      = errors.New("unknown param key")
 	errNoChanges       = errors.New("at least one parameter change must be specified")
+	errRepeatedKey     = errors.New("param changed more than once")
 )
 
 // Change sets one param. Key is its flat key and Value is its new value as
@@ -24,14 +23,22 @@ type Change struct {
 	Value    []byte
 }
 
+// CheckChanges range-checks changes without reading state: there is at least
+// one, and each names a declared param no other change names, with a value
+// that fits its type and is at least its least value.
+func CheckChanges(changes []Change) error {
+	_, err := resolve(changes)
+	return err
+}
+
 // Check reports whether changes would apply to the current params.
 func Check(state precompiles.State, changes []Change) error {
 	_, err := plan(state, changes)
 	return err
 }
 
-// Apply writes each changed param's final value after checking each changed
-// subspace as a whole, writing nothing if any change fails.
+// Apply writes changes after checking each changed subspace as a whole,
+// writing nothing if any change fails.
 func Apply(state precompiles.State, changes []Change) error {
 	updates, err := plan(state, changes)
 	if err != nil {
@@ -51,62 +58,58 @@ type update struct {
 	v  *big.Int
 }
 
-// plan decodes changes against the current params and returns one write per
-// changed param, holding its last value, in the order first changed. Later
-// changes to a param win.
-func plan(state precompiles.State, changes []Change) ([]update, error) {
+// resolve range-checks changes as CheckChanges does and returns their writes,
+// in order.
+func resolve(changes []Change) ([]update, error) {
 	if len(changes) == 0 {
 		return nil, errNoChanges
+	}
+	type ref struct {
+		ss  *subspace
+		key string
+	}
+	seen := map[ref]bool{}
+	updates := make([]update, 0, len(changes))
+	for _, c := range changes {
+		ss, p, err := lookupParam(c.Subspace, c.Key)
+		if err != nil {
+			return nil, err
+		}
+		r := ref{ss, p.key}
+		if seen[r] {
+			return nil, fmt.Errorf("%w: %s/%s", errRepeatedKey, ss.name, p.key)
+		}
+		seen[r] = true
+		v, err := p.decode(c.Value)
+		if err != nil {
+			return nil, fmt.Errorf("%s/%s: %w", ss.name, p.key, err)
+		}
+		updates = append(updates, update{ss: ss, p: p, v: v})
+	}
+	return updates, nil
+}
+
+// plan resolves changes and checks each changed subspace, with the changes
+// applied to its current params, as a whole.
+func plan(state precompiles.State, changes []Change) ([]update, error) {
+	updates, err := resolve(changes)
+	if err != nil {
+		return nil, err
 	}
 	s := newStore(state)
 	working := map[*subspace]values{}
 	var touched []*subspace
-	var updates []update
-	changed := map[*subspace]map[string]bool{}
-	for _, c := range changes {
-		ss, ok := lookupSubspace(c.Subspace)
-		if !ok {
-			return nil, fmt.Errorf("%w: %.64q", errUnknownSubspace, c.Subspace)
+	for _, u := range updates {
+		if _, ok := working[u.ss]; !ok {
+			working[u.ss] = u.ss.read(s)
+			touched = append(touched, u.ss)
 		}
-		p, ok := ss.param(c.Key)
-		if !ok {
-			return nil, fmt.Errorf("%w: %.64q/%.64q", errUnknownKey, c.Subspace, c.Key)
-		}
-		v, err := decodeValue(c.Value)
-		if err != nil {
-			return nil, fmt.Errorf("%s/%s: %w", c.Subspace, c.Key, err)
-		}
-		if _, ok := working[ss]; !ok {
-			working[ss] = ss.read(s)
-			changed[ss] = map[string]bool{}
-			touched = append(touched, ss)
-		}
-		working[ss][p.key] = v
-		if !changed[ss][p.key] {
-			changed[ss][p.key] = true
-			updates = append(updates, update{ss: ss, p: p})
-		}
+		working[u.ss][u.p.key] = u.v
 	}
 	for _, ss := range touched {
 		if err := ss.validate(working[ss]); err != nil {
 			return nil, fmt.Errorf("%w: %s: %w", errInvalidValue, ss.name, err)
 		}
 	}
-	for i := range updates {
-		u := &updates[i]
-		u.v = working[u.ss][u.p.key]
-		if u.p.least != nil && u.v.Cmp(u.p.least) < 0 {
-			return nil, fmt.Errorf("%w: %s/%s must be at least %s", errInvalidValue, u.ss.name, u.p.key, u.p.least)
-		}
-	}
 	return updates, nil
-}
-
-// decodeValue decodes a param value, the 32-byte abi.encode of its Solidity
-// type. validate checks that it fits that type.
-func decodeValue(value []byte) (*big.Int, error) {
-	if len(value) != common.HashLength {
-		return nil, fmt.Errorf("%w: %d bytes, want %d", errInvalidValue, len(value), common.HashLength)
-	}
-	return new(big.Int).SetBytes(value), nil
 }
