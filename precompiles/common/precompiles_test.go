@@ -3,9 +3,15 @@ package common_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"math/big"
 	"os"
+	"runtime"
+	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
+	"unsafe"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -52,6 +58,51 @@ func TestHandlePrecompileError(t *testing.T) {
 	common.HandlePrecompileError(nil, evm, "no_error")
 	common.HandlePrecompileError(types.NewAssociationMissingErr(evmAddr.Hex()), evm, "association")
 	common.HandlePrecompileError(errors.New("other error"), evm, "other")
+}
+
+func TestHandlePrecompileErrorTruncatesLongMessage(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	stateDB := state.NewDBImpl(ctx, k, false)
+	evm := &vm.EVM{StateDB: stateDB}
+
+	short := errors.New("short error")
+	common.HandlePrecompileError(short, evm, "short")
+	require.Same(t, short, stateDB.GetPrecompileError())
+
+	// "€" is three bytes wide, so the cut lands inside a character.
+	long := fmt.Errorf("wrapped: %w", errors.New(strings.Repeat("€", common.MaxPrecompileErrorLength)))
+	common.HandlePrecompileError(long, evm, "long")
+	stored := stateDB.GetPrecompileError()
+	require.LessOrEqual(t, len(stored.Error()), common.MaxPrecompileErrorLength)
+	require.Greater(t, len(stored.Error()), common.MaxPrecompileErrorLength-utf8.UTFMax)
+	require.True(t, utf8.ValidString(stored.Error()))
+	require.True(t, strings.HasPrefix(long.Error(), stored.Error()))
+}
+
+func TestHandlePrecompileErrorDoesNotRetainFullMessage(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	stateDB := state.NewDBImpl(ctx, k, false)
+
+	released := recordLongPrecompileError(&vm.EVM{StateDB: stateDB})
+	runtime.GC()
+	select {
+	case <-released:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the StateDB keeps the full message of a truncated precompile error reachable")
+	}
+	require.Error(t, stateDB.GetPrecompileError())
+}
+
+// recordLongPrecompileError records an error with an over-long message on evm's StateDB and returns
+// a channel that is closed once that message has been garbage collected.
+func recordLongPrecompileError(evm *vm.EVM) <-chan struct{} {
+	err := fmt.Errorf("wrapped: %w", errors.New(strings.Repeat("€", common.MaxPrecompileErrorLength)))
+	released := make(chan struct{})
+	runtime.AddCleanup(unsafe.StringData(err.Error()), func(c chan struct{}) { close(c) }, released)
+	common.HandlePrecompileError(err, evm, "long")
+	return released
 }
 
 type MockPrecompileExecutor struct {
