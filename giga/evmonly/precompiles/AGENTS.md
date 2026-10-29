@@ -33,6 +33,21 @@ same result from the same block, so each rule below is a consensus rule.
   checking deviations.
 - Reject delegatecall, reject state changes under staticcall, and reject value
   sent to a method the ABI does not mark payable.
+- Range-check every argument at the start of `Run`, before reading state, and
+  revert with `precompiles.Revert` naming the argument when one is out of range.
+  A list with a repeated entry is out of range. A check that needs state fails
+  the call later, as a plain error.
+- Solidity interfaces declare `pragma solidity >=0.8.10 <0.8.31`. The precompile
+  addresses hold no code: solc 0.8.10 and later skip the code check for a call
+  that returns data, and 0.8.31 defaults to Osaka, whose `CLZ` this chain lacks.
+
+## Limits
+- Enforce the limits that keep the chain from locking: a state that no
+  transaction can leave, so only a software upgrade recovers it, such as a
+  voting period too short for any proposal to pass.
+- Do not add guardrails against capture, such as a low veto threshold that lets
+  a minority block every proposal. Capture is answered off-chain, for example by
+  restricting inbound RPC until it is repaired.
 
 ## Concurrency and determinism
 - `Run` is called concurrently from OCC workers. A `Contract` keeps no mutable
@@ -43,10 +58,11 @@ same result from the same block, so each rule below is a consensus rule.
 - `RequiredGas` prices a call from its selector and argument bytes alone (V2's
   `DefaultGasCost` formula). Storage reads, writes and logs are metered by the
   adapter; do not price them into `RequiredGas`.
-- The adapter rejects input over 64 KiB before `RequiredGas` and `Run`, using
-  all the call's gas, because ABI decoding can allocate far more than calldata
-  gas pays for. A method whose arguments could need more takes them over
-  several calls.
+- The adapter checks input size first, before pricing or running the call, and
+  fails input over 20 KiB using all the call's gas. ABI decoding can still
+  allocate more than calldata gas pays for under that cap, since array entries
+  may share one encoded value: a method taking an array of dynamic values bounds
+  its length and range-checks it before re-encoding or storing it.
 - `EndBlock` is not metered, so `ctx.State.Failed()` never reports a storage
   read failure there. It schedules its work under a budget (see gov's
   `endBlockBudget`). Each unit of that work is bounded by limits its write path

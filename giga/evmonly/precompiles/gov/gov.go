@@ -127,6 +127,11 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	if !method.IsPayable() && ctx.ApparentValue != nil && ctx.ApparentValue.Sign() != 0 {
 		return nil, errNonPayable
 	}
+	if check, ok := argChecks[method.Name]; ok {
+		if err := check(args); err != nil {
+			return precompiles.Revert(err.Error())
+		}
+	}
 	s := newStore(ctx.State)
 
 	switch method.Name {

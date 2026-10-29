@@ -225,7 +225,7 @@ func TestSubmitRejectsInvalidContent(t *testing.T) {
 		"long description": {textSubmission("t", strings.Repeat("d", maxDescriptionLength+1), false), errContentTooLong},
 	} {
 		_, err := h.call(alice, callOpts{}, tc.sub.method, tc.sub.args...)
-		require.ErrorIs(t, err, tc.want, name)
+		requireReverts(t, err, tc.want, name)
 	}
 	require.Zero(t, newStore(h.state).lastProposalID())
 }

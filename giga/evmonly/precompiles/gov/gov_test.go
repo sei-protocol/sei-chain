@@ -2,6 +2,8 @@ package gov
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"os"
@@ -111,12 +113,24 @@ func (h *harness) call(caller common.Address, opts callOpts, method string, args
 		State:         h.state,
 		Logs:          h.state,
 	}, input)
+	if errors.Is(err, vm.ErrExecutionReverted) {
+		reason, unpackErr := abi.UnpackRevert(out)
+		require.NoError(h.t, unpackErr)
+		return nil, fmt.Errorf("%w: %s", err, reason)
+	}
 	if err != nil {
 		return nil, err
 	}
 	values, err := ABI.Methods[method].Outputs.Unpack(out)
 	require.NoError(h.t, err)
 	return values, nil
+}
+
+// requireReverts checks that err is a revert whose reason carries want's message.
+func requireReverts(t *testing.T, err error, want error, msgAndArgs ...interface{}) {
+	t.Helper()
+	require.ErrorIs(t, err, vm.ErrExecutionReverted, msgAndArgs...)
+	require.ErrorContains(t, err, want.Error(), msgAndArgs...)
 }
 
 func (h *harness) block() precompiles.BlockContext {
@@ -283,24 +297,29 @@ func TestVoteRejections(t *testing.T) {
 		args    []interface{}
 		advance uint64
 		want    error
+		reverts bool
 	}{
-		{"deposit period", VoteMethod, []interface{}{pending, OptionYes}, 0, errInactiveProposal},
-		{"unknown proposal", VoteMethod, []interface{}{uint64(42), OptionYes}, 0, errUnknownProposal},
-		{"option zero", VoteMethod, []interface{}{open, int32(0)}, 0, errInvalidVote},
-		{"option five", VoteMethod, []interface{}{open, int32(5)}, 0, errInvalidVote},
-		{"weights under one", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(50)}, {OptionNo, weight(40)}}}, 0, errInvalidVote},
-		{"weights over one", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(60)}, {OptionNo, weight(50)}}}, 0, errInvalidVote},
-		{"duplicate option", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(50)}, {OptionYes, weight(50)}}}, 0, errInvalidVote},
-		{"zero weight", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(100)}, {OptionNo, weight(0)}}}, 0, errInvalidVote},
-		{"weight over one", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, new(big.Int).Lsh(big.NewInt(1), 255)}}}, 0, errInvalidVote},
-		{"no options", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{}}, 0, errInvalidVote},
-		{"too many options", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{1, weight(20)}, {2, weight(20)}, {3, weight(20)}, {4, weight(20)}, {1, weight(20)}}}, 0, errInvalidVote},
-		{"voting ended", VoteMethod, []interface{}{open, OptionYes}, testParams.VotingPeriod + second, errInactiveProposal},
+		{"deposit period", VoteMethod, []interface{}{pending, OptionYes}, 0, errInactiveProposal, false},
+		{"unknown proposal", VoteMethod, []interface{}{uint64(42), OptionYes}, 0, errUnknownProposal, false},
+		{"option zero", VoteMethod, []interface{}{open, int32(0)}, 0, errInvalidVote, true},
+		{"option five", VoteMethod, []interface{}{open, int32(5)}, 0, errInvalidVote, true},
+		{"weights under one", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(50)}, {OptionNo, weight(40)}}}, 0, errInvalidVote, true},
+		{"weights over one", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(60)}, {OptionNo, weight(50)}}}, 0, errInvalidVote, true},
+		{"duplicate option", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(50)}, {OptionYes, weight(50)}}}, 0, errInvalidVote, true},
+		{"zero weight", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, weight(100)}, {OptionNo, weight(0)}}}, 0, errInvalidVote, true},
+		{"weight over one", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{OptionYes, new(big.Int).Lsh(big.NewInt(1), 255)}}}, 0, errInvalidVote, true},
+		{"no options", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{}}, 0, errInvalidVote, true},
+		{"too many options", VoteWeightedMethod, []interface{}{open, []WeightedVoteOption{{1, weight(20)}, {2, weight(20)}, {3, weight(20)}, {4, weight(20)}, {1, weight(20)}}}, 0, errInvalidVote, true},
+		{"voting ended", VoteMethod, []interface{}{open, OptionYes}, testParams.VotingPeriod + second, errInactiveProposal, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			h.time = startTime + tc.advance
 			_, err := h.call(bob, callOpts{}, tc.method, tc.args...)
+			if tc.reverts {
+				requireReverts(t, err, tc.want)
+				return
+			}
 			require.ErrorIs(t, err, tc.want)
 		})
 	}
@@ -354,7 +373,7 @@ func TestProposalsQueryFiltersAndPages(t *testing.T) {
 		return ids, values[1].([]byte)
 	}
 
-	first, next := list(0, common.Address{}, common.Address{}, nil)
+	first, next := list(0, common.Address{}, common.Address{}, []byte{})
 	require.Len(t, first, pageLimit)
 	require.Equal(t, uint64(1), first[0])
 	rest, last := list(0, common.Address{}, common.Address{}, next)
@@ -371,7 +390,7 @@ func TestProposalsQueryFiltersAndPages(t *testing.T) {
 			}
 		}
 	}
-	empty, next := list(StatusVotingPeriod, common.Address{}, common.Address{}, nil)
+	empty, next := list(StatusVotingPeriod, common.Address{}, common.Address{}, []byte{})
 	require.Empty(t, empty, "a page covers ids 1-100, none voting")
 	require.NotEmpty(t, next)
 	require.Equal(t, []uint64{voted}, all(StatusVotingPeriod, common.Address{}, common.Address{}))
@@ -381,7 +400,11 @@ func TestProposalsQueryFiltersAndPages(t *testing.T) {
 	require.Len(t, all(StatusDepositPeriod, common.Address{}, common.Address{}), pageLimit+10)
 
 	_, err := h.call(alice, callOpts{}, ProposalsMethod, int32(0), common.Address{}, common.Address{}, []byte{1})
-	require.ErrorIs(t, err, errInvalidPageKey)
+	requireReverts(t, err, errInvalidPageKey)
+	_, err = h.call(alice, callOpts{}, ProposalsMethod, int32(StatusFailed+1), common.Address{}, common.Address{}, []byte{})
+	requireReverts(t, err, errInvalidStatus)
+	_, err = h.call(alice, callOpts{}, ProposalsMethod, int32(-1), common.Address{}, common.Address{}, []byte{})
+	requireReverts(t, err, errInvalidStatus)
 }
 
 func TestStartingProposalID(t *testing.T) {
