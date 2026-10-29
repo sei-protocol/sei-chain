@@ -25,7 +25,7 @@ var (
 )
 
 // maxPrecompileInput is the largest input a custom precompile accepts.
-const maxPrecompileInput = 64 << 10
+const maxPrecompileInput = 20 << 10
 
 // registeredCustomPrecompile runs a native custom precompile against the
 // calling EVM's StateDB, so every read and write it makes is tracked for OCC
@@ -62,8 +62,8 @@ func (p registeredCustomPrecompile) Run(
 // RunAndCalculateGas charges RequiredGas, then runs the contract against the
 // calling EVM's StateDB, charging each storage read and write as an EIP-2929
 // SLOAD or SSTORE and each log as a LOG opcode, from the remaining gas. Input
-// over maxPrecompileInput, or a failed state access, fails the call over the
-// contract's own result and uses all the gas.
+// over maxPrecompileInput fails the call before the contract runs, and a failed
+// state access fails it over the contract's own result. Either uses all the gas.
 func (p registeredCustomPrecompile) RunAndCalculateGas(
 	evm *vm.EVM,
 	sender common.Address,

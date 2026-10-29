@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity >=0.8.10 <0.8.31;
 
 address constant GOV_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001006;
 
@@ -39,9 +39,14 @@ struct ParamChangeContent {
 /// non-empty description of at most 10000, and its encoded content may not
 /// exceed 16 KiB. Each submit method deposits any msg.value under the same rules
 /// as `deposit`, except that zero is allowed and creates the proposal with no
-/// deposit. A method marked "Reverts:" is kept so a caller of a V2 method gets a
-/// revert whose Error(string) names the call to use instead, or says the
-/// operation is not supported.
+/// deposit. An argument out of range, such as an unknown vote option, a repeated
+/// weighted option or an empty title, reverts with an Error(string) naming it; a
+/// call that fails against the current state, such as a vote on a closed
+/// proposal, fails with no revert data and uses its gas. A method marked
+/// "Reverts:" is kept so a caller of a V2 method gets a revert whose
+/// Error(string) names the call to use instead, or says the operation is not
+/// supported. The address holds no code, so call it from solc 0.8.10 or later.
+/// Calldata over 20 KiB fails the call and uses its gas.
 interface IGov {
     struct WeightedVoteOption {
         int32 option; // 1=Yes, 2=Abstain, 3=No, 4=NoWithVeto
