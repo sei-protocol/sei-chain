@@ -67,9 +67,8 @@ same result from the same block, so each rule below is a consensus rule.
   `ctx.State` failed, which reverting a snapshot does not undo: later writes are
   dropped and the block fails. Gov checks the escrow and the depositor's balance
   before releasing a deposit.
-- A queue whose stored length exceeds the entries it could hold is frozen: none
-  of its operations run, and each EndBlock reports it. An upgrade rebuilds it
-  from the records it indexes.
+- A queue whose stored length exceeds the entries it could hold is reported each
+  EndBlock and still drained.
 
 ## Storage
 - Lay out storage as solc would for the matching `docs/giga-storage/*.sol`

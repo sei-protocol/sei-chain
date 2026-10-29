@@ -19,7 +19,7 @@ var (
 	errInvalidStoredVote     = errors.New("invalid stored vote")
 	errInvalidStoredDeposits = errors.New("invalid stored deposits")
 	errStuckInQueue          = errors.New("proposal did not leave its queue")
-	errQueueCorrupt          = errors.New("queue holds more entries than proposals exist; frozen until an upgrade rebuilds it")
+	errQueueCorrupt          = errors.New("queue holds more entries than proposals exist")
 )
 
 // endBlockBudget bounds each of one EndBlock's two kinds of work, dropping
@@ -55,12 +55,11 @@ func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.S
 // its own, until the queue holds nothing due or a step reports it did not
 // finish. A step that fails, or that leaves its proposal at the head of q, is
 // reverted and the proposal is failed in place, so it holds up no other
-// proposal. A queue longer than the proposal ids ever assigned is corrupt and
-// is not drained.
+// proposal. A queue longer than the proposal ids ever assigned is reported and
+// still drained.
 func drain(s store, q proposalQueue, now uint64, failures *[]error, step func(id, end uint64, budget *uint64) (bool, error)) {
 	if q.Len() > s.proposalIDCount() {
 		*failures = append(*failures, fmt.Errorf("%w: %w: %d entries", precompiles.ErrDegraded, errQueueCorrupt, q.Len()))
-		return
 	}
 	budget := uint64(endBlockBudget)
 	for id, end, ok := q.due(now); ok; id, end, ok = q.due(now) {
