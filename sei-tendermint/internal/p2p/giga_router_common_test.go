@@ -246,7 +246,7 @@ func TestExecuteBuffersPendingAppHashes(t *testing.T) {
 		if err := state.PushPartialBlock(ctx, qc3, data.TestBlockMap(blocks3)); err != nil {
 			return fmt.Errorf("state.PushPartialBlock(): %w", err)
 		}
-		next, lastBlock, err := router.openApp(ctx)
+		next, lastBlock, err := router.initApp(ctx)
 		if err != nil {
 			return err
 		}
@@ -303,14 +303,9 @@ func TestBackfillAppHashesReadsTheBuilder(t *testing.T) {
 		}
 		require.NoError(t, router.backfillAppHashes(ctx, last))
 		require.Equal(t, last+1, state.NextAppProposal())
-		// The road just proposed is replayed through the same call. The proposal
-		// stays put, and a missing record of that road is still an error.
-		require.NoError(t, router.backfillAppHashes(ctx, last))
-		require.Equal(t, last+1, state.NextAppProposal())
+		// NextAppProposal is past last, so a second call has nothing to push.
 		hashBuilder.entries = nil
-		err = router.backfillAppHashes(ctx, last)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "holds no app hash")
+		require.NoError(t, router.backfillAppHashes(ctx, last))
 		require.Equal(t, last+1, state.NextAppProposal())
 		return nil
 	}))

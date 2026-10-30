@@ -374,6 +374,45 @@ func TestPushAppHash_ReplayClosingRoadStagesEpoch(t *testing.T) {
 	require.Equal(t, staged, registry.Pending())
 }
 
+// proposalWriteStore records registry.Pending at each AppProposal write.
+type proposalWriteStore struct {
+	types.BlockStore
+	registry *epoch.Registry
+	pending  *utils.Option[types.EpochIndex]
+}
+
+func (s proposalWriteStore) WriteAppProposal(p *types.AppProposal) error {
+	*s.pending = s.registry.Pending()
+	return s.BlockStore.WriteAppProposal(p)
+}
+
+// TestPushAppHash_StagesClosingEpochBeforeProposalWrite verifies that C_{E+2}
+// is pending when the closing road's AppProposal is written.
+func TestPushAppHash_StagesClosingEpochBeforeProposalWrite(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	keeper := keys[0].Public()
+	qc, blocks := commitQCAtRoad(registry.MustEpoch(0), keys, registry.LastRoad(0))
+	base := newMemoryBlockStore(t)
+	writeToBlockStore(t, base, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
+	var pendingAtWrite utils.Option[types.EpochIndex]
+	state := newTestState(t, &Config{Registry: registry}, proposalWriteStore{
+		BlockStore: base,
+		registry:   registry,
+		pending:    &pendingAtWrite,
+	})
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
+			return err
+		}
+		return state.PushAppHash(ctx, qc.Index(), types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9})
+	}))
+	require.Equal(t, utils.Some(types.EpochIndex(2)), pendingAtWrite)
+}
+
 func TestPushAppHash_RestartAtEpoch1KeepsLastRoadStake(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()

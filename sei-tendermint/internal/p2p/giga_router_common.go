@@ -367,7 +367,7 @@ func listenerContinuesAt(published utils.Option[apphash.AppHashData], tip atypes
 }
 
 func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
-	next, lastBlock, err := r.openApp(ctx)
+	next, lastBlock, err := r.initApp(ctx)
 	if err != nil {
 		return err
 	}
@@ -405,10 +405,10 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	})
 }
 
-// openApp brings the ABCI app to a state the execute loop can extend: InitChain
+// initApp brings the ABCI app to a state the execute loop can extend: InitChain
 // on a fresh app, or the last committed header on restart. It does not
 // subscribe to hashes; InitChain seeds the store at InitialHeight-1.
-func (r *gigaRouterCommon) openApp(ctx context.Context) (atypes.RoadIndex, *atypes.SuperBlock, error) {
+func (r *gigaRouterCommon) initApp(ctx context.Context) (atypes.RoadIndex, *atypes.SuperBlock, error) {
 	app := r.app
 	info := app.Info()
 	last, ok := utils.SafeCast[atypes.RoadIndex](info.LastBlockHeight)
@@ -457,19 +457,12 @@ func (r *gigaRouterCommon) openApp(ctx context.Context) (atypes.RoadIndex, *atyp
 	return last + 1, b, nil
 }
 
-// backfillAppHashes proposes each committed road through the app tip, starting
-// at the road before NextAppProposal when that road exists and at
-// NextAppProposal otherwise. Each road is proposed by finishExecuteBlock, the
-// same call a published app hash uses. The builder's iterator supplies the hashes.
+// backfillAppHashes pushes all AppHashes from NextAppProposal through last.
 func (r *gigaRouterCommon) backfillAppHashes(
 	ctx context.Context,
 	last atypes.RoadIndex,
 ) error {
-	next := r.data.NextAppProposal()
-	from := next
-	if first := r.data.Registry().FirstRoad(); next > first {
-		from = next - 1
-	}
+	from := r.data.NextAppProposal()
 	if from > last {
 		return nil
 	}
