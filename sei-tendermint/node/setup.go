@@ -436,6 +436,11 @@ func buildGigaStorageConfig(
 	}
 	storageConfig.ReceiptDBConfig.Enable = storage.Receipts
 	storageConfig.ReceiptDBConfig.PipelinedIndexCommits = storage.ReceiptPipelinedIndexCommits
+	if storage.AppHashLog {
+		storageConfig.AppHashBuilderConfig.HashLogEnabled = true
+		storageConfig.AppHashBuilderConfig.HashLogConfig.Path = filepath.Join(directory, "app_hash.log")
+		storageConfig.AppHashBuilderConfig.HashLogConfig.Version = "autobahn"
+	}
 	return storageConfig, nil
 }
 

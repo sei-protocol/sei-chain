@@ -42,6 +42,8 @@ type StorageConfig struct {
 	Receipts bool `mapstructure:"receipts"`
 	// ReceiptPipelinedIndexCommits commits each block's receipt log index while the next block is staged.
 	ReceiptPipelinedIndexCommits bool `mapstructure:"receipt_pipelined_index_commits"`
+	// AppHashLog writes each block's app hash and its component hashes to app_hash.log in the storage directory.
+	AppHashLog bool `mapstructure:"app_hash_log"`
 	// RollbackWindow is how many blocks behind head the node must remain able to roll back to.
 	RollbackWindow uint64 `mapstructure:"rollback_window"`
 	// LookbackWindow is how many queryable blocks are kept below the rollback window; -1 keeps all.
@@ -183,6 +185,7 @@ const (
 	FlagStorageMode                      = "giga.storage.mode"
 	FlagStorageReceipts                  = "giga.storage.receipts"
 	FlagStorageReceiptPipelinedCommits   = "giga.storage.receipt_pipelined_index_commits"
+	FlagStorageAppHashLog                = "giga.storage.app_hash_log"
 	FlagStorageRollbackWindow            = "giga.storage.rollback_window"
 	FlagStorageLookbackWindow            = "giga.storage.lookback_window"
 	FlagStorageStateStoreBackend         = "giga.storage.state_store_backend"
@@ -229,6 +232,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagStorageReceiptPipelinedCommits); v != nil {
 		if cfg.Storage.ReceiptPipelinedIndexCommits, err = cast.ToBoolE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStorageReceiptPipelinedCommits, err)
+		}
+	}
+	if v := opts.Get(FlagStorageAppHashLog); v != nil {
+		if cfg.Storage.AppHashLog, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStorageAppHashLog, err)
 		}
 	}
 	if v := opts.Get(FlagStorageReceipts); v != nil {
@@ -496,6 +504,9 @@ receipts = {{ .Giga.Storage.Receipts }}
 
 # receipt_pipelined_index_commits commits each block's receipt log index while the next block is staged.
 receipt_pipelined_index_commits = {{ .Giga.Storage.ReceiptPipelinedIndexCommits }}
+
+# app_hash_log writes each block's app hash and its component hashes to app_hash.log in the storage directory.
+app_hash_log = {{ .Giga.Storage.AppHashLog }}
 
 # rollback_window is how many blocks behind head the node must remain able to roll back to.
 rollback_window = {{ .Giga.Storage.RollbackWindow }}
