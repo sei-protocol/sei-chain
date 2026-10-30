@@ -40,7 +40,7 @@ func (s *IntegrationTestSuite) TearDownSuite() {
 	s.network.Cleanup()
 }
 
-func (s *IntegrationTestSuite) TestGRPCQuery() {
+func (s *IntegrationTestSuite) TestQueryConn() {
 	val0 := s.network.Validators[0]
 
 	// gRPC query to test service should work

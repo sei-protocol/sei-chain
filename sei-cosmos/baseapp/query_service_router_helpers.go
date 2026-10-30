@@ -17,7 +17,7 @@ import (
 // interfaces needed to register a query service server and create a query
 // service client.
 type QueryServiceTestHelper struct {
-	*GRPCQueryRouter
+	*QueryServiceRouter
 	Ctx sdk.Context
 }
 
@@ -29,9 +29,9 @@ var (
 // NewQueryServerTestHelper creates a new QueryServiceTestHelper that wraps
 // the provided sdk.Context
 func NewQueryServerTestHelper(ctx sdk.Context, interfaceRegistry types.InterfaceRegistry) *QueryServiceTestHelper {
-	qrt := NewGRPCQueryRouter()
+	qrt := NewQueryServiceRouter()
 	qrt.SetInterfaceRegistry(interfaceRegistry)
-	return &QueryServiceTestHelper{GRPCQueryRouter: qrt, Ctx: ctx}
+	return &QueryServiceTestHelper{QueryServiceRouter: qrt, Ctx: ctx}
 }
 
 // Invoke implements the grpc ClientConn.Invoke method
