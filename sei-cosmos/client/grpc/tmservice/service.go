@@ -206,7 +206,7 @@ func (s queryServer) GetNodeInfo(ctx context.Context, req *GetNodeInfoRequest) (
 	return &resp, nil
 }
 
-// RegisterTendermintService registers the tendermint queries on the gRPC router.
+// RegisterTendermintService registers the tendermint queries on the query service router.
 func RegisterTendermintService(
 	qrt gogogrpc.Server,
 	node client.LocalClient,
@@ -215,8 +215,8 @@ func RegisterTendermintService(
 	RegisterServiceServer(qrt, NewQueryServer(node, interfaceRegistry))
 }
 
-// RegisterGRPCGatewayRoutes mounts the tendermint service's GRPC-gateway routes on the
+// RegisterGatewayRoutes mounts the tendermint service's GRPC-gateway routes on the
 // given Mux.
-func RegisterGRPCGatewayRoutes(clientConn gogogrpc.ClientConn, mux *runtime.ServeMux) {
+func RegisterGatewayRoutes(clientConn gogogrpc.ClientConn, mux *runtime.ServeMux) {
 	_ = RegisterServiceHandlerClient(context.Background(), mux, NewServiceClient(clientConn))
 }
