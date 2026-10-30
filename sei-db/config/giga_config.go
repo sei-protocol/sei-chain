@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
@@ -19,7 +20,8 @@ type GigaStorageConfig struct {
 	BlockDBConfig        *littblock.BlockDBConfig       // required
 	PruningConfig        *StorageGarbageCollectorConfig // required
 	CheckpointConfig     CheckpointConfig
-	AppHashBuilderConfig *builder.AppHashBuilderConfig // required
+	AppHashBuilderConfig *builder.AppHashBuilderConfig    // required
+	ReceiptHasherConfig  *receipthash.ReceiptHasherConfig // required
 }
 
 // gigaReceiptBackend is the receipt backend Giga opens (littidx).
@@ -56,6 +58,7 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 
 	appHashBuilderConfig := builder.DefaultAppHashBuilderConfig()
 	appHashBuilderConfig.HashVaultConfig.Path = utils.GetAppHashVaultPath(homePath)
+	receiptHasherConfig := receipthash.DefaultReceiptHasherConfig()
 
 	return &GigaStorageConfig{
 		HomePath:             homePath,
@@ -66,6 +69,7 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 		PruningConfig:        DefaultStorageGarbageCollectorConfig(),
 		CheckpointConfig:     DefaultCheckpointConfig(),
 		AppHashBuilderConfig: &appHashBuilderConfig,
+		ReceiptHasherConfig:  &receiptHasherConfig,
 	}, nil
 }
 
@@ -163,6 +167,12 @@ func (c *GigaStorageConfig) Validate() error {
 	}
 	if err := c.AppHashBuilderConfig.Validate(); err != nil {
 		return fmt.Errorf("app hash builder config is invalid: %w", err)
+	}
+	if c.ReceiptHasherConfig == nil {
+		return fmt.Errorf("receipt hasher config is required")
+	}
+	if err := c.ReceiptHasherConfig.Validate(); err != nil {
+		return fmt.Errorf("receipt hasher config is invalid: %w", err)
 	}
 
 	if !c.CheckpointConfig.Enabled() {

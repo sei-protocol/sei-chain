@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -32,6 +33,7 @@ type Executor struct {
 	storeMu          sync.Mutex
 	stateStore       gigatypes.StateDB
 	receiptStore     receipt.ReceiptStore
+	receiptHasher    *receipthash.ReceiptHasher
 	changeSetEncoder NamedChangeSetEncoder
 	// Optional: nil commits only the state encoder's changesets.
 	blockChangeSetEncoder BlockChangeSetEncoder

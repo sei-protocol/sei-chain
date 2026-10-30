@@ -7,10 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 )
@@ -57,10 +60,14 @@ func receiveAppHashes(t *testing.T, published <-chan *apphash.AppHashData, count
 	return received
 }
 
-// closeAppHashBuilder closes the app hash builder and then its hash vault, and drops both from the manager, leaving
-// the manager as it was before the builder opened.
+// closeAppHashBuilder closes the receipt hasher, the app hash builder and then its hash vault, and drops them from the
+// manager, leaving the manager as it was before the builder opened.
 func closeAppHashBuilder(t *testing.T, manager *GigaStorageManager) {
 	t.Helper()
+	if manager.receiptHasher != nil {
+		require.NoError(t, manager.receiptHasher.Close())
+		manager.receiptHasher = nil
+	}
 	if manager.appHashBuilder != nil {
 		require.NoError(t, manager.appHashBuilder.Close())
 		manager.appHashBuilder = nil
@@ -88,7 +95,7 @@ func restartAt(t *testing.T, manager *GigaStorageManager, target int64) {
 	require.NoError(t, manager.openAppHashBuilder(t.Context()))
 }
 
-// Storage reports every input of each committed block, with a zero block hash and receipt hash.
+// Storage reports the state and BUD hashes of each committed block, with a zero block hash.
 func TestAppHashesBuiltFromCommittedBlocks(t *testing.T) {
 	manager, _ := openManager(t, func(cfg *config.GigaStorageConfig) {
 		cfg.AppHashBuilderConfig.ChainID = testAppHashChainID
@@ -126,8 +133,8 @@ func TestRestartWithStateAheadOfTheAppHashVault(t *testing.T) {
 	savedVaultDir := filepath.Join(t.TempDir(), "vault")
 	require.NoError(t, os.CopyFS(savedVaultDir, os.DirFS(vaultDir)))
 	restartAt(t, manager, 3)
-	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
-	require.NoError(t, manager.StateDB().CommitStateChanges(5, evmBlock(5, 5)))
+	commitBlock(t, manager, 4, evmBlock(4, 4))
+	commitBlock(t, manager, 5, evmBlock(5, 5))
 	awaitAppHashes(t, manager, 5)
 	stopForRestart(t, manager)
 	require.NoError(t, os.RemoveAll(vaultDir))
@@ -146,8 +153,8 @@ func TestRestartWithStateAheadOfTheAppHashVault(t *testing.T) {
 	newest, published := listenForAppHashes(t, manager)
 	require.Equal(t, stored[2].AppHash(), newest.AppHash())
 
-	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
-	require.NoError(t, manager.StateDB().CommitStateChanges(5, evmBlock(5, 5)))
+	commitBlock(t, manager, 4, evmBlock(4, 4))
+	commitBlock(t, manager, 5, evmBlock(5, 5))
 	rebuilt := receiveAppHashes(t, published, 2)
 	require.Equal(t, uint64(4), rebuilt[0].BlockHeight())
 	require.Equal(t, stored[2].AppHash(), rebuilt[0].PreviousAppHash())
@@ -169,8 +176,8 @@ func TestRestartWithTheAppHashVaultAheadOfState(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(5), head, "the app hashes above the recovered height are kept")
 
-	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
-	require.NoError(t, manager.StateDB().CommitStateChanges(5, evmBlock(5, 5)))
+	commitBlock(t, manager, 4, evmBlock(4, 4))
+	commitBlock(t, manager, 5, evmBlock(5, 5))
 	rebuilt := receiveAppHashes(t, published, 2)
 	require.Equal(t, stored[3].AppHash(), rebuilt[0].AppHash())
 	require.Equal(t, stored[4].AppHash(), rebuilt[1].AppHash())
@@ -194,4 +201,22 @@ func TestRegisteringBuilderFailsWhenStateHashesAreOutOfLine(t *testing.T) {
 	manager.appHashBuilder = appHashBuilder
 
 	require.ErrorContains(t, manager.reportStateHashesToAppHashBuilder(2), "state commit store")
+}
+
+// The receipt hash of each block is the hash of the receipts submitted to the manager's receipt hasher.
+func TestAppHashCommitsToTheSubmittedReceipts(t *testing.T) {
+	manager, _ := openManager(t, disableSS)
+	_, published := listenForAppHashes(t, manager)
+	receipts := []*ethtypes.Receipt{{
+		Status:  ethtypes.ReceiptStatusSuccessful,
+		TxHash:  common.Hash{1},
+		GasUsed: 21000,
+	}}
+
+	require.NoError(t, manager.StateDB().CommitStateChanges(1, evmBlock(1, 1)))
+	require.NoError(t, manager.ReceiptHasher().Submit(t.Context(), 1, receipts))
+
+	want, err := receipthash.ComputeReceiptHash(receipts)
+	require.NoError(t, err)
+	require.Equal(t, want, receiveAppHashes(t, published, 1)[0].ReceiptHash())
 }
