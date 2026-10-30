@@ -74,7 +74,7 @@ func NewRegistry(
 			if err := checkDerived(state.live[idx-1], pending); err != nil {
 				return nil, fmt.Errorf("restore epoch snapshot: pending: %w", err)
 			}
-		}	
+		}
 	}
 	stateSend := new(utils.NewAtomicSend(state))
 	r.state = utils.NewMutex(stateSend)
@@ -128,7 +128,7 @@ func (r *Registry) Epoch(idx types.EpochIndex) (*types.Epoch, error) {
 	if idx < s.liveRange.First {
 		return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrPruned)
 	}
-	if s.liveRange.Next <= idx { 
+	if s.liveRange.Next <= idx {
 		return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrNotFound)
 	}
 	return s.live[idx], nil
@@ -164,9 +164,8 @@ func (r *Registry) StageEpoch(endEpoch types.EpochIndex, weights map[types.Publi
 		} else if next != s {
 			return r.commit(state, next)
 		}
-		return nil
 	}
-	panic("unreachable")
+	return nil
 }
 
 // Activate publishes the staged committee for idx.
@@ -179,9 +178,8 @@ func (r *Registry) Activate(idx types.EpochIndex) error {
 		} else if next != s {
 			return r.commit(state, next)
 		}
-		return nil
 	}
-	panic("unreachable")
+	return nil
 }
 
 // Pending returns the staged epoch, or None.
@@ -198,15 +196,13 @@ func (r *Registry) PruneBefore(keep types.EpochIndex) error {
 		if next := s.pruneBefore(keep); next != s {
 			return r.commit(state, next)
 		}
-		return nil
 	}
-	panic("unreachable")
+	return nil
 }
 
 // WaitForEpoch blocks until epoch i is registered.
 func (r *Registry) WaitForEpoch(ctx context.Context, i types.EpochIndex) (*types.Epoch, error) {
 	state, err := r.stateRecv.Wait(ctx, func(s *persistedRegistry) bool { return i < s.liveRange.Next })
-		
 	if err != nil {
 		return nil, err
 	}
