@@ -187,43 +187,55 @@ func (env *testEnv) Run(ctx context.Context) error {
 		s.Spawn(func() error { return env.state.Run(ctx) })
 		// Process blocks.
 		stats := blockStats{}
-		firstBlock := env.data.Registry().FirstBlock()
+		laneBlocks := 0
+		firstBlock := env.data.Registry().FirstRoad()
 		for i := firstBlock; ; i += 1 {
 			// Wait for the next block to be finalized.
-			b, err := env.data.GlobalBlock(ctx, i)
+			b, err := env.data.SuperBlock(ctx, i)
 			if err != nil {
-				return fmt.Errorf("env.data.GlobalBlock(): %w", err)
+				return fmt.Errorf("env.data.SuperBlock(): %w", err)
 			}
 
-			// Check that adding first transaction to the previous block would exceed the limit.
-			if i > firstBlock {
-				tx, err := decodeTxSpec(b.Payload.Txs()[0])
-				if err != nil {
-					return fmt.Errorf("decodeTxSpec(): %w", err)
-				}
-				if stats.Push(tx, env.state.cfg) {
-					return fmt.Errorf("block sealed too early")
-				}
+			qc, err := env.data.QC(ctx, i)
+			if err != nil {
+				return err
 			}
-
-			// Check that block does not exceed limits.
-			stats = blockStats{}
-			for _, txRaw := range b.Payload.Txs() {
-				tx, err := decodeTxSpec(txRaw)
+			for offset := range qc.Headers() {
+				laneBlock, err := env.data.Block(ctx, types.LaneBlockPos{Index: i, Offset: uint64(offset)})
 				if err != nil {
-					return fmt.Errorf("decodeTxSpec(): %w", err)
+					return err
 				}
-				for inner := range env.inner.Lock() {
-					inner.sequenced[tx.Address] = append(inner.sequenced[tx.Address], tx)
+				// Check that adding first transaction to the previous block would exceed the limit.
+				if laneBlocks > 0 {
+					tx, err := decodeTxSpec(laneBlock.Payload().Txs()[0])
+					if err != nil {
+						return fmt.Errorf("decodeTxSpec(): %w", err)
+					}
+					if stats.Push(tx, env.state.cfg) {
+						return fmt.Errorf("block sealed too early")
+					}
 				}
-				if !stats.Push(tx, env.state.cfg) {
-					return fmt.Errorf("block sealed too late")
+
+				// Check that block does not exceed limits.
+				stats = blockStats{}
+				for _, txRaw := range laneBlock.Payload().Txs() {
+					tx, err := decodeTxSpec(txRaw)
+					if err != nil {
+						return fmt.Errorf("decodeTxSpec(): %w", err)
+					}
+					for inner := range env.inner.Lock() {
+						inner.sequenced[tx.Address] = append(inner.sequenced[tx.Address], tx)
+					}
+					if !stats.Push(tx, env.state.cfg) {
+						return fmt.Errorf("block sealed too late")
+					}
 				}
+
+				laneBlocks++
 			}
 
 			// Mark block as executed.
-			h := b.Header.Hash()
-			resp, err := env.app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{Txs: b.Payload.Txs(), Hash: h[:]})
+			resp, err := env.app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{Txs: b.Txs, Hash: b.Hash[:]})
 			if err != nil {
 				return fmt.Errorf("app.FinalizeBlock(): %w", err)
 			}

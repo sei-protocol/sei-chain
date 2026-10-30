@@ -96,7 +96,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 		require.True(t, ep.IsClosed(lane0))
 		n := inner.prune(data.Anchor{
 			CommitQC: tip,
-			AppQC:    data.TestAppQC([]types.SecretKey{b}, types.NewAppProposal(tip.Proposal(), types.AppHash{})),
+			AppQC:    data.TestAppQC([]types.SecretKey{b}, types.NewAppProposal(tip.View(), types.AppHash{})),
 			Epoch:    ep,
 		})
 		require.Equal(t, 1, n)

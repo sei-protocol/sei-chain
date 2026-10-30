@@ -19,7 +19,7 @@ func TestRestoreSnapshotValidatesShape(t *testing.T) {
 	c3 := utils.OrPanic1(c2.DeriveNext(map[types.PublicKey]uint64{a: 1, b: 1}, 3))
 	c4 := utils.OrPanic1(c3.DeriveNext(map[types.PublicKey]uint64{a: 1, b: 1}, 4))
 	restore := func(snapshot *pb.PersistedEpochRegistry) error {
-		r := utils.OrPanic1(NewRegistry(genesis, 0, 0, time.Time{}, utils.None[string]()))
+		r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
 		for state := range r.state.Lock() {
 			return state.restore(snapshot)
 		}
@@ -42,7 +42,7 @@ func TestRestoreSnapshotRejectsBrokenDerivation(t *testing.T) {
 	genesis := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{a: 1}))
 	other := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{a: 1, b: 1}))
 	restore := func(snapshot *pb.PersistedEpochRegistry) error {
-		r := utils.OrPanic1(NewRegistry(genesis, 0, 0, time.Time{}, utils.None[string]()))
+		r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
 		for state := range r.state.Lock() {
 			return state.restore(snapshot)
 		}
@@ -65,7 +65,7 @@ func TestRestoreSnapshotAcceptsDerivedChain(t *testing.T) {
 	c2 := utils.OrPanic1(genesis.DeriveNext(map[types.PublicKey]uint64{a: 1, b: 1}, 2))
 	c3 := utils.OrPanic1(c2.DeriveNext(map[types.PublicKey]uint64{a: 1, b: 1}, 3))
 	restore := func(snapshot *pb.PersistedEpochRegistry) error {
-		r := utils.OrPanic1(NewRegistry(genesis, 0, 0, time.Time{}, utils.None[string]()))
+		r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
 		for state := range r.state.Lock() {
 			return state.restore(snapshot)
 		}
@@ -90,7 +90,7 @@ func TestRestoreSnapshotAllowsUnchainedFirstLive(t *testing.T) {
 	b := types.GenSecretKey(rng).Public()
 	genesis := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{a: 1}))
 	other := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{b: 1}))
-	r := utils.OrPanic1(NewRegistry(genesis, 0, 0, time.Time{}, utils.None[string]()))
+	r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
 	for state := range r.state.Lock() {
 		require.NoError(t, state.restore(&pb.PersistedEpochRegistry{
 			Live: []*pb.EpochRecord{encodeEpochRecord(3, other)},
