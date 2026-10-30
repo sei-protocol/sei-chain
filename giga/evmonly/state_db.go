@@ -666,8 +666,7 @@ func (s *nativeStateDB) Commit(uint64, bool, bool) (common.Hash, error) {
 }
 
 func (s *nativeStateDB) SetTxContext(hash common.Hash, index int) {
-	s.txHash = hash
-	s.txIndex = index
+	s.setTxContext(hash, index, uint(index)) //nolint:gosec // G115: a transaction index is non-negative.
 }
 
 func (s *nativeStateDB) setTxContext(hash common.Hash, index int, indexUint uint) {
@@ -708,8 +707,15 @@ func (s *nativeStateDB) IntermediateRoot(bool) common.Hash {
 	return common.Hash{}
 }
 
-func (s *nativeStateDB) GetLogs(common.Hash, uint64, common.Hash) []*ethtypes.Log {
-	return s.Logs()
+// GetLogs returns the logs transaction hash emitted.
+func (s *nativeStateDB) GetLogs(hash common.Hash, _ uint64, _ common.Hash) []*ethtypes.Log {
+	var logs []*ethtypes.Log
+	for _, log := range s.logs {
+		if log.TxHash == hash {
+			logs = append(logs, log)
+		}
+	}
+	return logs
 }
 
 func (s *nativeStateDB) TxIndex() int {

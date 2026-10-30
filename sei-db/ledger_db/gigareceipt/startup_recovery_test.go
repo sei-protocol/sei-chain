@@ -33,29 +33,26 @@ func nonceChange(block uint64) *gigatypes.StateChangeSet {
 	}}}
 }
 
-// writeBlockLedger finalizes blocks [1, through] in the block store under one synthetic QC.
+// writeBlockLedger finalizes SuperBlocks [1, through] in the block store.
 func writeBlockLedger(t *testing.T, manager *bootstrap.GigaStorageManager, through uint64) {
 	t.Helper()
 	rng := tmutils.TestRng()
-	next := autobahn.GlobalBlockNumber(through + 1)
-	qc := autobahn.GenFullCommitQCRange(rng, 1, next)
-	blocks := make([]*autobahn.Block, 0, through)
-	headers := make([]*autobahn.BlockHeader, 0, through)
-	for n := autobahn.GlobalBlockNumber(1); n < next; n++ {
+	for index := autobahn.RoadIndex(1); index <= autobahn.RoadIndex(through); index++ {
 		block := autobahn.GenBlock(rng)
-		blocks = append(blocks, block)
-		headers = append(headers, block.Header())
+		qc := autobahn.GenFullCommitQCAt(rng, index, 1)
+		qc = autobahn.NewFullCommitQC(qc.QC(), []*autobahn.BlockHeader{block.Header()})
+		require.NoError(t, manager.BlockStore().WriteBlock(autobahn.NewRoadBlock(qc, []*autobahn.Block{block})))
 	}
-	qc = autobahn.NewFullCommitQC(qc.QC(), headers)
-	require.NoError(t, manager.BlockStore().WriteQC(qc, blocks))
 }
 
-// executeBlocks commits state and receipts for blocks [from, through], as executing them would.
+// executeBlocks commits state and receipts for blocks [from, through], and submits an empty receipt list for each to
+// the receipt hasher.
 func executeBlocks(t *testing.T, manager *bootstrap.GigaStorageManager, ctx sdk.Context, from, through uint64) {
 	t.Helper()
 	for block := from; block <= through; block++ {
 		height := int64(block) //nolint:gosec // small test heights
 		require.NoError(t, manager.StateDB().CommitStateChanges(height, nonceChange(block)))
+		require.NoError(t, manager.ReceiptHasher().Submit(t.Context(), block, nil))
 		require.NoError(t, manager.ReceiptDB().SetReceipts(ctx.WithBlockHeight(height),
 			[]receipt.ReceiptRecord{litReceipt(block, 0, startupAddr, startupTopic)}))
 	}

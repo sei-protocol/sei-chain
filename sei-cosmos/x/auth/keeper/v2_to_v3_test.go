@@ -21,7 +21,7 @@ func TestMigrate2to3(t *testing.T) {
 
 	app.AccountKeeper.SetParams(ctx, prevParams)
 	// migrate to default params
-	m := keeper.NewMigrator(app.AccountKeeper, app.GRPCQueryRouter())
+	m := keeper.NewMigrator(app.AccountKeeper, app.QueryServiceRouter())
 	err := m.Migrate2to3(ctx)
 	require.NoError(t, err)
 	params := app.AccountKeeper.GetParams(ctx)

@@ -3,9 +3,12 @@ package keeper_test
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -385,4 +388,84 @@ func (suite *KeeperTestSuite) TestGRPCQueryValidatorDelegationsIndexMatchesScan(
 	suite.NoError(err)
 
 	suite.ElementsMatch(scanned.DelegationResponses, indexed.DelegationResponses)
+}
+
+// TestGRPCQueryValidatorDelegationsScanCursorAfterIndexReady pins that a forward page
+// resumed from a key the scan issued returns, once the index is ready, what the scan
+// would have returned, and that a reverse one is refused.
+func (suite *KeeperTestSuite) TestGRPCQueryValidatorDelegationsScanCursorAfterIndexReady() {
+	for _, abciQuery := range []bool{false, true} {
+		suite.Run(fmt.Sprintf("abciQuery=%v", abciQuery), func() {
+			suite.SetupTest()
+			app, ctx := suite.app, suite.ctx.WithIsABCIQuery(abciQuery)
+			querier := keeper.Querier{Keeper: app.StakingKeeper}
+			unreadyDelegationByValIndex(suite.T(), app, ctx)
+
+			valAddr := suite.vals[1].GetOperator()
+			for b := byte(1); b <= 6; b++ {
+				app.StakingKeeper.SetDelegation(ctx, types.NewDelegation(delegatorAt(0x00, b), valAddr, sdk.NewDec(1)))
+			}
+			shared := delegatorAt(0x00, 3)
+			for _, val := range suite.vals {
+				app.StakingKeeper.SetDelegation(ctx, types.NewDelegation(shared, val.GetOperator(), sdk.NewDec(1)))
+			}
+
+			page := func(pageReq *query.PageRequest) ([]string, []byte, error) {
+				res, err := querier.ValidatorDelegations(sdk.WrapSDKContext(ctx), &types.QueryValidatorDelegationsRequest{
+					ValidatorAddr: valAddr.String(), Pagination: pageReq,
+				})
+				if err != nil {
+					return nil, nil, err
+				}
+				delegators := make([]string, 0, len(res.DelegationResponses))
+				for _, dr := range res.DelegationResponses {
+					delegators = append(delegators, dr.Delegation.DelegatorAddress)
+				}
+				return delegators, res.Pagination.NextKey, nil
+			}
+
+			_, firstPageCursor, err := page(&query.PageRequest{Limit: 2})
+			suite.Require().NoError(err)
+			cursors := [][]byte{firstPageCursor}
+			for _, val := range suite.vals {
+				cursors = append(cursors, types.GetDelegationKey(shared, val.GetOperator())[len(types.DelegationKey):])
+			}
+			scanned := make([][]string, len(cursors))
+			for i, cursor := range cursors {
+				scanned[i], _, err = page(&query.PageRequest{Key: cursor})
+				suite.Require().NoError(err)
+			}
+			_, reverseCursor, err := page(&query.PageRequest{Limit: 2, Reverse: true})
+			suite.Require().NoError(err)
+
+			_, err = app.StakingKeeper.MigrateDelegationByValIndex(ctx)
+			suite.Require().NoError(err)
+
+			for i, cursor := range cursors {
+				indexed, _, err := page(&query.PageRequest{Key: cursor})
+				suite.Require().NoError(err)
+				suite.Require().Equal(scanned[i], indexed, "cursor %X", cursor)
+			}
+			_, _, err = page(&query.PageRequest{Key: reverseCursor, Reverse: true})
+			suite.Require().Equal(codes.InvalidArgument, status.Code(err))
+		})
+	}
+}
+
+// TestGRPCQueryValidatorDelegationsOrphanIndexEntry pins that an index entry without
+// its delegation fails the query rather than panicking it.
+func (suite *KeeperTestSuite) TestGRPCQueryValidatorDelegationsOrphanIndexEntry() {
+	for _, abciQuery := range []bool{false, true} {
+		suite.Run(fmt.Sprintf("abciQuery=%v", abciQuery), func() {
+			suite.SetupTest()
+			app, ctx := suite.app, suite.ctx.WithIsABCIQuery(abciQuery)
+			suite.Require().True(app.StakingKeeper.DelegationByValIndexReady(ctx))
+			valAddr := suite.vals[0].GetOperator()
+			ctx.KVStore(app.StakingKeeper.GetStoreKey()).Set(types.GetDelegationByValIndexKey(delegatorAt(0x00, 1), valAddr), []byte{})
+
+			querier := keeper.Querier{Keeper: app.StakingKeeper}
+			_, err := querier.ValidatorDelegations(sdk.WrapSDKContext(ctx), &types.QueryValidatorDelegationsRequest{ValidatorAddr: valAddr.String()})
+			suite.Require().Equal(codes.Internal, status.Code(err))
+		})
+	}
 }

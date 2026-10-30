@@ -42,8 +42,7 @@ func TestExportGenesisFileWithTimePreservesConsensusParams(t *testing.T) {
 func TestInitializeNodeValidatorFilesFromMnemonic(t *testing.T) {
 	t.Parallel()
 
-	cfg := config.TestConfig()
-	cfg.RootDir = t.TempDir()
+	cfg := config.TestConfig().SetRoot(t.TempDir())
 	require.NoError(t, os.MkdirAll(filepath.Join(cfg.RootDir, "config"), 0755))
 
 	tests := []struct {

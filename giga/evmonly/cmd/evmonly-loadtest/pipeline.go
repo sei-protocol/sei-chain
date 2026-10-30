@@ -159,6 +159,11 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	if err := storage.StateDB().CommitStateChanges(1, &genesisChanges); err != nil {
 		return fmt.Errorf("commit generated genesis state: %w", err)
 	}
+	// Genesis is committed without executing a block, so it has no transactions and its receipts are an empty
+	// list.
+	if err := storage.ReceiptHasher().Submit(ctx, 1, nil); err != nil {
+		return fmt.Errorf("submit generated genesis receipts: %w", err)
+	}
 
 	profiles, err := startProfiles(cfg)
 	if err != nil {

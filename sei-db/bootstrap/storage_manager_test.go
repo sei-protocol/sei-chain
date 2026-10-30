@@ -245,7 +245,7 @@ func TestStateDBCommitsToWALAndLiveSC(t *testing.T) {
 	changes := &gigatypes.StateChangeSet{
 		Misc: []gigatypes.MiscChange{{Module: "bank", Key: []byte("k"), Value: []byte("v")}},
 	}
-	require.NoError(t, manager.StateDB().CommitStateChanges(1, changes))
+	commitBlock(t, manager, 1, changes)
 	waitSSWrites(t, manager, 1)
 
 	require.Equal(t, int64(1), manager.SC().Version())
@@ -261,7 +261,7 @@ func TestStateDBCommitsToWALAndLiveSC(t *testing.T) {
 func TestStateDBCommitsEVMChangesToSS(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
-	require.NoError(t, manager.StateDB().CommitStateChanges(1, evmBlock(1, 1)))
+	commitBlock(t, manager, 1, evmBlock(1, 1))
 	waitSSWrites(t, manager, 1)
 
 	require.Equal(t, int64(1), manager.SS().GetLatestVersion())

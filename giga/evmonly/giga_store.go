@@ -119,6 +119,12 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 			return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
 		}
 	}
+	if receiptHasher := e.receiptHasher; receiptHasher != nil {
+		e.blockPhases.SetPhase(phaseSubmitReceiptHash)
+		if err := receiptHasher.Submit(ctx, req.Context.Number, nonceConsumingReceipts(result)); err != nil {
+			return nil, fmt.Errorf("submit receipts to be hashed for block %d: %w", req.Context.Number, err)
+		}
+	}
 	// One commit is in flight at a time, so the previous one lands before this block starts its
 	// own. It has had this block's whole execution to run, so it rarely still holds.
 	if !settleBeforeEncoding {

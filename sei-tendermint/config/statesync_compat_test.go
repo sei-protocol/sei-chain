@@ -75,7 +75,6 @@ enable = true
 rpc-servers = "localhost:26657,localhost:26659"
 trust-height = 10
 trust-hash = "AABB"
-trust-period = "168h0m0s"
 `), 0600)
 	require.NoError(t, err)
 
@@ -94,5 +93,30 @@ trust-period = "168h0m0s"
 	require.Equal(t, defaults.VerifyLightBlockTimeout, cfg.StateSync.VerifyLightBlockTimeout)
 	require.Equal(t, defaults.BlacklistTTL, cfg.StateSync.BlacklistTTL)
 
+	require.NoError(t, cfg.StateSync.ValidateBasic())
+}
+
+// TestStateSyncConfigIgnoresTrustPeriod pins that a config.toml which still sets
+// trust-period loads and validates, whatever value the key holds.
+func TestStateSyncConfigIgnoresTrustPeriod(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	err := os.WriteFile(configPath, []byte(`
+[statesync]
+enable = true
+rpc-servers = "localhost:26657,localhost:26659"
+trust-height = 10
+trust-hash = "AABB"
+trust-period = "0s"
+`), 0600)
+	require.NoError(t, err)
+
+	viper.SetConfigFile(configPath)
+	require.NoError(t, viper.ReadInConfig())
+
+	cfg, err := commands.ParseConfig(tmconfig.DefaultConfig())
+	require.NoError(t, err)
 	require.NoError(t, cfg.StateSync.ValidateBasic())
 }

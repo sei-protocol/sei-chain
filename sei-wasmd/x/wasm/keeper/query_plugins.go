@@ -32,8 +32,8 @@ func NewQueryHandler(ctx sdk.Context, vmQueryHandler WasmVMQueryHandler, caller 
 	}
 }
 
-type GRPCQueryRouter interface {
-	Route(path string) baseapp.GRPCQueryHandler
+type QueryServiceRouter interface {
+	Route(path string) baseapp.QueryServiceHandler
 }
 
 // -- end baseapp interfaces --
@@ -101,7 +101,7 @@ func DefaultQueryPlugins(
 	bank types.BankViewKeeper,
 	staking types.StakingKeeper,
 	distKeeper types.DistributionKeeper,
-	queryRouter GRPCQueryRouter,
+	queryRouter QueryServiceRouter,
 	wasm wasmQueryKeeper,
 ) QueryPlugins {
 	return QueryPlugins{
@@ -210,7 +210,7 @@ func IBCQuerier(wasm contractMetaDataSource) func(ctx sdk.Context, caller sdk.Ac
 	}
 }
 
-func StargateQuerier(queryRouter GRPCQueryRouter) func(ctx sdk.Context, request *wasmvmtypes.StargateQuery) ([]byte, error) {
+func StargateQuerier(queryRouter QueryServiceRouter) func(ctx sdk.Context, request *wasmvmtypes.StargateQuery) ([]byte, error) {
 	return func(ctx sdk.Context, msg *wasmvmtypes.StargateQuery) ([]byte, error) {
 		return nil, wasmvmtypes.UnsupportedRequest{Kind: "Stargate queries are disabled."}
 	}
