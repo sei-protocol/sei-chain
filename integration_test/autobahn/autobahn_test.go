@@ -807,6 +807,7 @@ func testEVMOnlyLoad(t *testing.T) {
 	contract, deploy := assertEVMOnlyContractQueries(t, rpcCtx, clients)
 	assertEVMOnlyTraces(t, rpcCtx, clients, contract, deploy)
 	assertEVMOnlyNewHeads(t, rpcCtx, clients)
+	assertEVMOnlyFilters(t, rpcCtx, clients)
 	assertEVMOnlyTransactionErrors(t, rpcCtx, clients, block.Txs[0])
 }
 
@@ -1627,6 +1628,93 @@ func assertEVMOnlyNewHeads(t *testing.T, ctx context.Context, clients []*ethrpc.
 			t.Fatalf("node %d newHeads subscription ended: %v", nodeIndex, err)
 		case <-ctx.Done():
 			t.Fatalf("node %d pushed no head: %v", nodeIndex, ctx.Err())
+		}
+	}
+}
+
+// assertEVMOnlyFilters installs a block filter and a log filter for the
+// contract deploy's log topic from the earliest block on every node, seals a block with one
+// transfer, and checks that polling the log filter finds the deploy's log once,
+// that a log filter bounded to its block returns the same log from
+// eth_getFilterLogs, that polling the block filter returns blocks the node
+// serves, that an uninstalled filter is gone, and that
+// eth_newPendingTransactionFilter is unsupported as on the regular RPC.
+func assertEVMOnlyFilters(t *testing.T, ctx context.Context, clients []*ethrpc.Client) {
+	t.Helper()
+	topics := [][]common.Hash{{evmOnlyContractLogTopic}}
+	blockFilters := make([]string, len(clients))
+	logFilters := make([]string, len(clients))
+	for nodeIndex, client := range clients {
+		decodeEVMOnlyResult(t, nodeIndex, "eth_newBlockFilter", evmOnlyCall(t, ctx, client, nodeIndex, "eth_newBlockFilter"), &blockFilters[nodeIndex])
+		decodeEVMOnlyResult(t, nodeIndex, "eth_newFilter", evmOnlyCall(t, ctx, client, nodeIndex, "eth_newFilter",
+			map[string]any{"fromBlock": "earliest", "topics": topics}), &logFilters[nodeIndex])
+	}
+	// Empty blocks are not produced, so a transfer is what seals the next block.
+	sendEvmTx(t, "sei-node-0")
+
+	for nodeIndex, client := range clients {
+		// Each poll covers at most the log range cap, so the filter is polled until it reaches the deploy.
+		var found []json.RawMessage
+		for len(found) == 0 {
+			decodeEVMOnlyResult(t, nodeIndex, "eth_getFilterChanges",
+				evmOnlyCall(t, ctx, client, nodeIndex, "eth_getFilterChanges", logFilters[nodeIndex]), &found)
+			if ctx.Err() != nil {
+				t.Fatalf("node %d log filter never returned the deploy's log: %v", nodeIndex, ctx.Err())
+			}
+		}
+		var again []json.RawMessage
+		decodeEVMOnlyResult(t, nodeIndex, "eth_getFilterChanges",
+			evmOnlyCall(t, ctx, client, nodeIndex, "eth_getFilterChanges", logFilters[nodeIndex]), &again)
+		if len(found) != 1 || len(again) != 0 {
+			t.Fatalf("node %d log filter for the deploy's topic returned %s then %s, want the deploy's one log once", nodeIndex, found, again)
+		}
+		var log struct {
+			BlockNumber hexutil.Uint64 `json:"blockNumber"`
+		}
+		decodeEVMOnlyResult(t, nodeIndex, "eth_getFilterChanges", found[0], &log)
+		var bounded string
+		decodeEVMOnlyResult(t, nodeIndex, "eth_newFilter", evmOnlyCall(t, ctx, client, nodeIndex, "eth_newFilter",
+			map[string]any{"fromBlock": log.BlockNumber, "toBlock": log.BlockNumber, "topics": topics}), &bounded)
+		requireSameJSON(t, fmt.Sprintf("node %d eth_getFilterLogs and the polled deploy log", nodeIndex),
+			evmOnlyCall(t, ctx, client, nodeIndex, "eth_getFilterLogs", bounded), json.RawMessage(fmt.Sprintf("[%s]", found[0])))
+
+		var hashes []common.Hash
+		for len(hashes) == 0 {
+			decodeEVMOnlyResult(t, nodeIndex, "eth_getFilterChanges",
+				evmOnlyCall(t, ctx, client, nodeIndex, "eth_getFilterChanges", blockFilters[nodeIndex]), &hashes)
+			select {
+			case <-ctx.Done():
+				t.Fatalf("node %d block filter returned no block: %v", nodeIndex, ctx.Err())
+			case <-time.After(evmOnlyRPCPoll):
+			}
+		}
+		var previous hexutil.Uint64
+		for i, hash := range hashes {
+			var block evmOnlyBlockSummary
+			decodeEVMOnlyResult(t, nodeIndex, "eth_getBlockByHash", evmOnlyCall(t, ctx, client, nodeIndex, "eth_getBlockByHash", hash, false), &block)
+			if block.Hash != hash || (i > 0 && block.Number != previous+1) {
+				t.Fatalf("node %d block filter returned %s at position %d, it serves %s at height %d after %d",
+					nodeIndex, hash, i, block.Hash, block.Number, previous)
+			}
+			previous = block.Number
+		}
+
+		for _, id := range []string{blockFilters[nodeIndex], logFilters[nodeIndex], bounded} {
+			var removed bool
+			decodeEVMOnlyResult(t, nodeIndex, "eth_uninstallFilter", evmOnlyCall(t, ctx, client, nodeIndex, "eth_uninstallFilter", id), &removed)
+			if !removed {
+				t.Fatalf("node %d eth_uninstallFilter(%s) = false for an installed filter", nodeIndex, id)
+			}
+			var changes json.RawMessage
+			if err := client.CallContext(ctx, &changes, "eth_getFilterChanges", id); err == nil || !strings.Contains(err.Error(), "filter does not exist") {
+				t.Fatalf("node %d eth_getFilterChanges(%s) after uninstall = %s, %v; want the filter-does-not-exist error", nodeIndex, id, changes, err)
+			}
+		}
+
+		var pending string
+		if err := client.CallContext(ctx, &pending, "eth_newPendingTransactionFilter"); err == nil ||
+			!strings.Contains(err.Error(), "eth_newPendingTransactionFilter is not supported") {
+			t.Fatalf("node %d eth_newPendingTransactionFilter = %q, %v; want the not-supported error", nodeIndex, pending, err)
 		}
 	}
 }

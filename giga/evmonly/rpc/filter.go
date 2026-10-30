@@ -54,6 +54,10 @@ func (e *invalidParamsError) Unwrap() error {
 type filterAPI struct {
 	backend Backend
 	store   receiptpkg.ReceiptStore
+	filters *filterRegistry
+	// maxBlockFilterHashes caps the unpolled blocks a block filter may fall behind by; zero
+	// disables the cap.
+	maxBlockFilterHashes uint64
 }
 
 // GetLogs returns the logs matching crit from finalized blocks. Open and tag
@@ -68,7 +72,12 @@ func (api *filterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) 
 	if toBlock-fromBlock+1 > maxBlocksForLogs {
 		return nil, &invalidParamsError{error: errLogRangeTooWide}
 	}
+	return api.rangeLogs(ctx, crit, fromBlock, toBlock)
+}
 
+// rangeLogs returns the logs crit's addresses and topics match in the indexed blocks fromBlock
+// through toBlock, within the per-query log caps.
+func (api *filterAPI) rangeLogs(ctx context.Context, crit filters.FilterCriteria, fromBlock, toBlock uint64) ([]*ethtypes.Log, error) {
 	budget := receiptpkg.NewLogBudget(maxLogsPerQuery, receiptpkg.DefaultMaxLogBytes)
 	logs, err := api.store.FilterLogs(receiptContext(receiptpkg.WithStrictTopicCount(ctx)), fromBlock, toBlock, crit, budget)
 	if err != nil {
