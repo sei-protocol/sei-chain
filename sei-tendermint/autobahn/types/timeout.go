@@ -226,9 +226,9 @@ func (m *TimeoutQC) reproposal() (*Proposal, bool) {
 var ViewConv = protoutils.Conv[View, *pb.View]{
 	Encode: func(m View) *pb.View {
 		return &pb.View{
-			Index:      utils.Alloc(uint64(m.Index)),
-			Number:     utils.Alloc(uint64(m.Number)),
-			EpochIndex: utils.Alloc(uint64(m.EpochIndex)),
+			Index:      new(uint64(m.Index)),
+			Number:     new(uint64(m.Number)),
+			EpochIndex: new(uint64(m.EpochIndex)),
 		}
 	},
 	Decode: func(m *pb.View) (View, error) {
@@ -256,7 +256,7 @@ var TimeoutVoteConv = protoutils.Conv[*TimeoutVote, *pb.TimeoutVote]{
 			View: ViewConv.Encode(m.view),
 			LatestPrepareQcViewNumber: func() *uint64 {
 				if v, ok := m.latestPrepareQC.Get(); ok {
-					return utils.Alloc(uint64(v))
+					return new(uint64(v))
 				}
 				return nil
 			}(),

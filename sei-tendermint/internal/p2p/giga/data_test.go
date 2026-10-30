@@ -110,7 +110,8 @@ func TestDataClientServer(t *testing.T) {
 	env := newTestEnv(registry)
 	server := env.AddNode(keys[0])
 	client := env.AddNode(keys[1])
-	firstBlock := server.data.Registry().FirstRoad()
+	ep0 := registry.MustEpoch(0)
+	firstBlock := ep0.RoadRange().First
 	blockOK := fetchCount(resBlock, "ok")
 	qcOK := fetchCount(resFullCommitQC, "ok")
 	notFound := serveCount(resBlock, "not_found")
@@ -122,7 +123,7 @@ func TestDataClientServer(t *testing.T) {
 		prev := utils.None[*types.CommitQC]()
 		for i := range 3 {
 			t.Logf("iteration %v", i)
-			qc, blocks := data.TestCommitQC(rng, server.data.Registry().MustEpoch(0), keys, prev)
+			qc, blocks := data.TestCommitQC(rng, ep0, keys, prev)
 			if err := server.data.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
 				return fmt.Errorf("serverState.PushPartialBlock(): %w", err)
 			}

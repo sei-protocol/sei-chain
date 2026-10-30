@@ -2,7 +2,6 @@ package types
 
 import (
 	"testing"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -22,8 +21,7 @@ func TestEpochIsClosed(t *testing.T) {
 	b := GenSecretKey(rng).Public()
 	c := GenSecretKey(rng).Public()
 
-	ep1 := NewEpoch(1, OpenRoadRange(), time.Time{},
-		utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 1, c: 1})))
+	ep1 := NewEpoch(1, OpenRoadRange(), utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 1, c: 1})))
 
 	stay := LaneID{Validator: a, Joined: 0}
 	leave := LaneID{Validator: b, Joined: 0}

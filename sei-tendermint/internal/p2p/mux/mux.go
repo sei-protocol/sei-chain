@@ -423,7 +423,7 @@ func (q queue) Pop(id streamID, maxPayload uint64) *frame {
 	f.Header.MaxMsgSize = nil
 	f.Header.WindowEnd = nil
 	f.Payload = f.Payload[maxPayload:]
-	f.Header.PayloadSize = utils.Alloc(uint64(len(f.Payload)))
+	f.Header.PayloadSize = new(uint64(len(f.Payload)))
 	return first
 }
 

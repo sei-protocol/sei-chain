@@ -55,11 +55,11 @@ func TestRoadBlockVerify(t *testing.T) {
 				slices.Reverse(headers)
 				slices.Reverse(blocks)
 			case "epoch":
-				ep = NewEpoch(ep.EpochIndex()+1, ep.RoadRange(), ep.FirstTimestamp(), committee)
+				ep = NewEpoch(ep.EpochIndex()+1, ep.RoadRange(), committee)
 			case "road":
 				roads := ep.RoadRange()
 				roads.First++
-				ep = NewEpoch(ep.EpochIndex(), roads, ep.FirstTimestamp(), committee)
+				ep = NewEpoch(ep.EpochIndex(), roads, committee)
 			}
 			qc := NewFullCommitQC(commitQC, headers)
 			err := NewRoadBlock(qc, blocks).Verify(ep)
@@ -81,7 +81,7 @@ func TestRoadBlockHeaderHashIndependentOfView(t *testing.T) {
 	ep := GenEpochWithCommittee(rng, committee)
 	proposal, blocks := ProposalAtBlocks(ep, View{Index: ep.RoadRange().First}, 2)
 	wire := ProposalConv.Encode(proposal)
-	wire.ViewNumber = utils.Alloc(uint64(proposal.View().Number.Next()))
+	wire.ViewNumber = new(uint64(proposal.View().Number.Next()))
 	reproposal, err := ProposalConv.Decode(wire)
 	require.NoError(t, err)
 	require.Equal(t, proposal.Header().Hash(), reproposal.Header().Hash())
@@ -153,10 +153,10 @@ func TestRoadBlockHeaderIdentity(t *testing.T) {
 		{EpochIndex: 8, Index: 29, Number: 13},
 	} {
 		proposal, err := ProposalConv.Decode(&pb.Proposal{
-			ViewNumber: utils.Alloc(uint64(view.Number)),
+			ViewNumber: new(uint64(view.Number)),
 			Header: &pb.RoadBlockHeader{
-				EpochIndex: utils.Alloc(uint64(view.EpochIndex)),
-				Index:      utils.Alloc(uint64(view.Index)),
+				EpochIndex: new(uint64(view.EpochIndex)),
+				Index:      new(uint64(view.Index)),
 				Timestamp:  TimeConv.Encode(time.Time{}),
 			},
 		})
@@ -185,7 +185,7 @@ func TestSuperBlockMergesTransactionsInHeaderOrder(t *testing.T) {
 		var parent BlockHeaderHash
 		for offset := range 2 - laneIndex {
 			i := len(blocks)
-			payload, err := (PayloadBuilder{CreatedAt: ep.FirstTimestamp(), TotalGasWanted: uint64(i + 1), Txs: [][]byte{{byte(i), 0}, {byte(i), 1}}}).Build()
+			payload, err := (PayloadBuilder{CreatedAt: time.Time{}, TotalGasWanted: uint64(i + 1), Txs: [][]byte{{byte(i), 0}, {byte(i), 1}}}).Build()
 			require.NoError(t, err)
 			block := NewBlock(lane, BlockNumber(offset), parent, payload)
 			blocks = append(blocks, block)

@@ -59,63 +59,63 @@ func TestOptionalFieldStatesAffectHash(t *testing.T) {
 	}{
 		{
 			name:       "BoolValue",
-			setDefault: func(m *pb.TestonlyMsg) { m.BoolValue = utils.Alloc(false) },
-			setNonZero: func(m *pb.TestonlyMsg) { m.BoolValue = utils.Alloc(true) },
+			setDefault: func(m *pb.TestonlyMsg) { m.BoolValue = new(false) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.BoolValue = new(true) },
 		},
 		{
 			name:       "EnumValue",
-			setDefault: func(m *pb.TestonlyMsg) { m.EnumValue = utils.Alloc(pb.TestonlyEnum_TESTONLY_ENUM_UNSPECIFIED) },
-			setNonZero: func(m *pb.TestonlyMsg) { m.EnumValue = utils.Alloc(pb.TestonlyEnum_TESTONLY_ENUM_ALPHA) },
+			setDefault: func(m *pb.TestonlyMsg) { m.EnumValue = new(pb.TestonlyEnum_TESTONLY_ENUM_UNSPECIFIED) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.EnumValue = new(pb.TestonlyEnum_TESTONLY_ENUM_ALPHA) },
 		},
 		{
 			name:       "Int32Value",
-			setDefault: func(m *pb.TestonlyMsg) { m.Int32Value = utils.Alloc(int32(0)) },
-			setNonZero: func(m *pb.TestonlyMsg) { m.Int32Value = utils.Alloc(int32(1)) },
+			setDefault: func(m *pb.TestonlyMsg) { m.Int32Value = new(int32(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Int32Value = new(int32(1)) },
 		},
 		{
 			name:       "Int64Value",
-			setDefault: func(m *pb.TestonlyMsg) { m.Int64Value = utils.Alloc(int64(0)) },
-			setNonZero: func(m *pb.TestonlyMsg) { m.Int64Value = utils.Alloc(int64(1)) },
+			setDefault: func(m *pb.TestonlyMsg) { m.Int64Value = new(int64(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Int64Value = new(int64(1)) },
 		},
 		{
 			name:       "Sint32Value",
-			setDefault: func(m *pb.TestonlyMsg) { m.Sint32Value = utils.Alloc(int32(0)) },
-			setNonZero: func(m *pb.TestonlyMsg) { m.Sint32Value = utils.Alloc(int32(1)) },
+			setDefault: func(m *pb.TestonlyMsg) { m.Sint32Value = new(int32(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Sint32Value = new(int32(1)) },
 		},
 		{
 			name:       "Sint64Value",
-			setDefault: func(m *pb.TestonlyMsg) { m.Sint64Value = utils.Alloc(int64(0)) },
-			setNonZero: func(m *pb.TestonlyMsg) { m.Sint64Value = utils.Alloc(int64(1)) },
+			setDefault: func(m *pb.TestonlyMsg) { m.Sint64Value = new(int64(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Sint64Value = new(int64(1)) },
 		},
 		{
 			name:       "Uint32Value",
-			setDefault: func(m *pb.TestonlyMsg) { m.Uint32Value = utils.Alloc(uint32(0)) },
-			setNonZero: func(m *pb.TestonlyMsg) { m.Uint32Value = utils.Alloc(uint32(1)) },
+			setDefault: func(m *pb.TestonlyMsg) { m.Uint32Value = new(uint32(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Uint32Value = new(uint32(1)) },
 		},
 		{
 			name:       "Uint64Value",
-			setDefault: func(m *pb.TestonlyMsg) { m.Uint64Value = utils.Alloc(uint64(0)) },
-			setNonZero: func(m *pb.TestonlyMsg) { m.Uint64Value = utils.Alloc(uint64(1)) },
+			setDefault: func(m *pb.TestonlyMsg) { m.Uint64Value = new(uint64(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Uint64Value = new(uint64(1)) },
 		},
 		{
 			name:       "Fixed32Value",
-			setDefault: func(m *pb.TestonlyMsg) { m.Fixed32Value = utils.Alloc(uint32(0)) },
-			setNonZero: func(m *pb.TestonlyMsg) { m.Fixed32Value = utils.Alloc(uint32(1)) },
+			setDefault: func(m *pb.TestonlyMsg) { m.Fixed32Value = new(uint32(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Fixed32Value = new(uint32(1)) },
 		},
 		{
 			name:       "Fixed64Value",
-			setDefault: func(m *pb.TestonlyMsg) { m.Fixed64Value = utils.Alloc(uint64(0)) },
-			setNonZero: func(m *pb.TestonlyMsg) { m.Fixed64Value = utils.Alloc(uint64(1)) },
+			setDefault: func(m *pb.TestonlyMsg) { m.Fixed64Value = new(uint64(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Fixed64Value = new(uint64(1)) },
 		},
 		{
 			name:       "Sfixed32Value",
-			setDefault: func(m *pb.TestonlyMsg) { m.Sfixed32Value = utils.Alloc(int32(0)) },
-			setNonZero: func(m *pb.TestonlyMsg) { m.Sfixed32Value = utils.Alloc(int32(1)) },
+			setDefault: func(m *pb.TestonlyMsg) { m.Sfixed32Value = new(int32(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Sfixed32Value = new(int32(1)) },
 		},
 		{
 			name:       "Sfixed64Value",
-			setDefault: func(m *pb.TestonlyMsg) { m.Sfixed64Value = utils.Alloc(int64(0)) },
-			setNonZero: func(m *pb.TestonlyMsg) { m.Sfixed64Value = utils.Alloc(int64(1)) },
+			setDefault: func(m *pb.TestonlyMsg) { m.Sfixed64Value = new(int64(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Sfixed64Value = new(int64(1)) },
 		},
 		{
 			name:       "BytesValue",
@@ -124,8 +124,8 @@ func TestOptionalFieldStatesAffectHash(t *testing.T) {
 		},
 		{
 			name:       "StringValue",
-			setDefault: func(m *pb.TestonlyMsg) { m.StringValue = utils.Alloc("") },
-			setNonZero: func(m *pb.TestonlyMsg) { m.StringValue = utils.Alloc("alpha") },
+			setDefault: func(m *pb.TestonlyMsg) { m.StringValue = new("") },
+			setNonZero: func(m *pb.TestonlyMsg) { m.StringValue = new("alpha") },
 		},
 		{
 			name:       "MessageValue",
@@ -165,46 +165,46 @@ func msgFromSeed(seed int64) *pb.TestonlyMsg {
 	msg := &pb.TestonlyMsg{}
 
 	if r.Intn(2) == 0 {
-		msg.BoolValue = utils.Alloc(r.Intn(2) == 0)
+		msg.BoolValue = new(r.Intn(2) == 0)
 	}
 	if r.Intn(2) == 0 {
-		msg.EnumValue = utils.Alloc(pb.TestonlyEnum(r.Intn(3)))
+		msg.EnumValue = new(pb.TestonlyEnum(r.Intn(3)))
 	}
 	if r.Intn(2) == 0 {
-		msg.Int32Value = utils.Alloc(int32(r.Int63n(1 << 31)))
+		msg.Int32Value = new(int32(r.Int63n(1 << 31)))
 	}
 	if r.Intn(2) == 0 {
-		msg.Int64Value = utils.Alloc(r.Int63())
+		msg.Int64Value = new(r.Int63())
 	}
 	if r.Intn(2) == 0 {
-		msg.Sint32Value = utils.Alloc(int32(r.Intn(1<<15)) - 1<<14)
+		msg.Sint32Value = new(int32(r.Intn(1<<15)) - 1<<14)
 	}
 	if r.Intn(2) == 0 {
-		msg.Sint64Value = utils.Alloc(r.Int63n(1<<40) - 1<<39)
+		msg.Sint64Value = new(r.Int63n(1<<40) - 1<<39)
 	}
 	if r.Intn(2) == 0 {
-		msg.Uint32Value = utils.Alloc(uint32(r.Uint32()))
+		msg.Uint32Value = new(uint32(r.Uint32()))
 	}
 	if r.Intn(2) == 0 {
-		msg.Uint64Value = utils.Alloc(r.Uint64())
+		msg.Uint64Value = new(r.Uint64())
 	}
 	if r.Intn(2) == 0 {
-		msg.Fixed32Value = utils.Alloc(uint32(r.Uint32()))
+		msg.Fixed32Value = new(uint32(r.Uint32()))
 	}
 	if r.Intn(2) == 0 {
-		msg.Fixed64Value = utils.Alloc(r.Uint64())
+		msg.Fixed64Value = new(r.Uint64())
 	}
 	if r.Intn(2) == 0 {
-		msg.Sfixed32Value = utils.Alloc(int32(r.Int63n(1 << 31)))
+		msg.Sfixed32Value = new(int32(r.Int63n(1 << 31)))
 	}
 	if r.Intn(2) == 0 {
-		msg.Sfixed64Value = utils.Alloc(r.Int63())
+		msg.Sfixed64Value = new(r.Int63())
 	}
 	if r.Intn(2) == 0 {
 		msg.BytesValue = randomBytes(r)
 	}
 	if r.Intn(2) == 0 {
-		msg.StringValue = utils.Alloc(randomString(r))
+		msg.StringValue = new(randomString(r))
 	}
 	if r.Intn(2) == 0 {
 		msg.MessageValue = randomNested(r)

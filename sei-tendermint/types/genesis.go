@@ -14,7 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 const (
@@ -94,7 +93,7 @@ func (genDoc *GenesisDoc) ToRequestInitChain() *abci.RequestInitChain {
 		Time:            genDoc.GenesisTime,
 		ChainId:         genDoc.ChainID,
 		InitialHeight:   genDoc.InitialHeight,
-		ConsensusParams: utils.Alloc(genDoc.ConsensusParams.ToProto()),
+		ConsensusParams: new(genDoc.ConsensusParams.ToProto()),
 		AppStateBytes:   genDoc.AppState,
 	}
 }

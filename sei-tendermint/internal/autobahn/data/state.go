@@ -227,17 +227,23 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 	if err != nil {
 		return nil, fmt.Errorf("blockStore.ReadSuffix(): %w", err)
 	}
-	firstBlock := cfg.Registry.FirstRoad()
-	status := suffix.Status.Or(types.SuffixRange{
-		First:           firstBlock,
-		NextBlock:       firstBlock,
-		NextAppProposal: firstBlock,
-		NextAppQC:       firstBlock,
-	})
-	// Empty-chain default; loaded QCs publish the epoch of their successor.
-	genesis, err := cfg.Registry.EpochByIndex(0)
+	status, ok := suffix.Status.Get()
+	if !ok {
+		genesis, err := cfg.Registry.Epoch(0)
+		if err != nil {
+			return nil, fmt.Errorf("genesis epoch 0: %w", err)
+		}
+		first := genesis.RoadRange().First
+		status = types.SuffixRange{
+			First:           first,
+			NextBlock:       first,
+			NextAppProposal: first,
+			NextAppQC:       first,
+		}
+	}
+	initialEpoch, err := cfg.Registry.EpochAt(status.First)
 	if err != nil {
-		return nil, fmt.Errorf("missing genesis epoch: %w", err)
+		return nil, fmt.Errorf("epoch at retained suffix start: %w", err)
 	}
 	inner := &inner{
 		blocks:           map[types.RoadIndex]*blockEntry{},
@@ -251,10 +257,10 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		nextPartialBlock: status.First,
 		persisted:        status,
 		anchor:           utils.NewAtomicSend(utils.None[Anchor]()),
-		nextCommitEpoch:  utils.NewAtomicSend(genesis),
+		nextCommitEpoch:  utils.NewAtomicSend(initialEpoch),
 	}
 	for _, block := range suffix.Blocks {
-		epoch, err := cfg.Registry.EpochByIndex(block.QC().QC().View().EpochIndex)
+		epoch, err := cfg.Registry.Epoch(block.QC().QC().View().EpochIndex)
 		if err != nil {
 			return nil, fmt.Errorf("load block from BlockStore: %w", err)
 		}
@@ -293,7 +299,13 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 }
 
 func (s *State) First() types.RoadIndex {
-	return max(s.blockStore.First(), s.cfg.Registry.FirstRoad())
+	if !s.blockStore.Status().IsPresent() {
+		for inner := range s.inner.Lock() {
+			return inner.first
+		}
+		panic("unreachable")
+	}
+	return s.blockStore.First()
 }
 
 // Registry returns the epoch registry.
@@ -302,10 +314,11 @@ func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
 // activateStagedEpoch publishes the staged committee when LastRoad of the
 // deriving epoch has a matching AppQC, or when that road is already below first.
 func (s *State) activateStagedEpoch() error {
-	idx, ok := s.cfg.Registry.Pending().Get()
+	pending, ok := s.cfg.Registry.Pending().Get()
 	if !ok {
 		return nil
 	}
+	idx := pending.EpochIndex()
 	for inner := range s.inner.Lock() {
 		endEpoch := idx - 2
 		if !inner.appQCCertifiesRoad(s.cfg.Registry.LastRoad(endEpoch)) {
@@ -313,7 +326,7 @@ func (s *State) activateStagedEpoch() error {
 		}
 		break
 	}
-	if err := s.cfg.Registry.ActivateEpoch(idx); err != nil {
+	if err := s.cfg.Registry.Activate(idx); err != nil {
 		return fmt.Errorf("activate epoch %d: %w", idx, err)
 	}
 	for inner := range s.inner.Lock() {
@@ -347,7 +360,7 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 	}
 	var ep *types.Epoch
 	if n == nextPartialBlock {
-		ep, err = s.cfg.Registry.EpochByIndex(qc.QC().View().EpochIndex)
+		ep, err = s.cfg.Registry.Epoch(qc.QC().View().EpochIndex)
 		if err != nil {
 			return err
 		}

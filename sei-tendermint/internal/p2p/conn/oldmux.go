@@ -185,7 +185,7 @@ func NewMConnection(
 		conn:      conn,
 		sendQueue: utils.NewWatch(newSendQueue(chDescs)),
 		recvCh:    make(chan mConnMessage),
-		recvPong:  utils.NewMutex(utils.Alloc(utils.NewAtomicSend(false))),
+		recvPong:  utils.NewMutex(new(utils.NewAtomicSend(false))),
 		config:    config,
 	}
 }

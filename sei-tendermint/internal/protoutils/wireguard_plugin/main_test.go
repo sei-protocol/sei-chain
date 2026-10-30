@@ -9,7 +9,6 @@ import (
 	"github.com/bufbuild/protocompile"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/compiler/protogen"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/pluginpb"
@@ -31,7 +30,7 @@ func compilePluginFixture(t *testing.T, fileToGenerate string) (*pluginpb.CodeGe
 
 	req := &pluginpb.CodeGeneratorRequest{
 		FileToGenerate: []string{fileToGenerate},
-		Parameter:      proto.String("module=github.com/example"),
+		Parameter:      new("module=github.com/example"),
 	}
 	for _, file := range files {
 		collectDescriptors(file, req)

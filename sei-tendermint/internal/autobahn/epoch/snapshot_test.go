@@ -2,7 +2,6 @@ package epoch
 
 import (
 	"testing"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
@@ -10,103 +9,73 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
-func TestRestoreSnapshotValidatesShape(t *testing.T) {
+func TestPersistedRegistryConv(t *testing.T) {
 	rng := utils.TestRng()
-	a := types.GenSecretKey(rng).Public()
-	b := types.GenSecretKey(rng).Public()
-	genesis := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{a: 1}))
-	c2 := utils.OrPanic1(genesis.DeriveNext(map[types.PublicKey]uint64{a: 1, b: 1}, 2))
-	c3 := utils.OrPanic1(c2.DeriveNext(map[types.PublicKey]uint64{a: 1, b: 1}, 3))
-	c4 := utils.OrPanic1(c3.DeriveNext(map[types.PublicKey]uint64{a: 1, b: 1}, 4))
-	restore := func(snapshot *pb.PersistedEpochRegistry) error {
-		r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
-		for state := range r.state.Lock() {
-			return state.restore(snapshot)
-		}
-		panic("unreachable")
-	}
+	committee, _, _ := genCommittee(rng, 3)
+	live := []*types.Epoch{testEpoch(0, 0, committee), testEpoch(1, 0, committee)}
+	require.NoError(t, persistedRegistryConv.Test(testPersistedRegistry(live, utils.None[*types.Epoch]())))
+	require.NoError(t, persistedRegistryConv.Test(testPersistedRegistry(live, utils.Some(testEpoch(2, 0, committee)))))
+	require.NoError(t, persistedRegistryConv.Test(testPersistedRegistry(live[1:], utils.None[*types.Epoch]())))
 
-	require.Error(t, restore(&pb.PersistedEpochRegistry{
-		Live: []*pb.EpochRecord{encodeEpochRecord(2, c2), encodeEpochRecord(4, c4)},
-	}))
-	require.Error(t, restore(&pb.PersistedEpochRegistry{
-		Live:    []*pb.EpochRecord{encodeEpochRecord(2, c2)},
-		Pending: encodeEpochRecord(4, c4),
-	}))
+	live = []*types.Epoch{testEpoch(3, 7, committee), testEpoch(4, 7, committee)}
+	require.NoError(t, persistedRegistryConv.Test(testPersistedRegistry(live, utils.None[*types.Epoch]())))
+	require.NoError(t, persistedRegistryConv.Test(testPersistedRegistry(live, utils.Some(testEpoch(5, 7, committee)))))
+
+	live = []*types.Epoch{
+		types.NewEpoch(3, types.RoadRange{First: 1_000_000, Next: 1_000_017}, committee),
+		types.NewEpoch(4, types.RoadRange{First: 1_000_017, Next: 1_000_060}, committee),
+	}
+	pending := types.NewEpoch(5, types.RoadRange{First: 1_000_060, Next: 1_000_100}, committee)
+	require.NoError(t, persistedRegistryConv.Test(testPersistedRegistry(live, utils.Some(pending))))
 }
 
-func TestRestoreSnapshotRejectsBrokenDerivation(t *testing.T) {
+func TestPersistedRegistryConvRejectsInvalidSnapshots(t *testing.T) {
 	rng := utils.TestRng()
-	a := types.GenSecretKey(rng).Public()
-	b := types.GenSecretKey(rng).Public()
-	genesis := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{a: 1}))
-	other := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{a: 1, b: 1}))
-	restore := func(snapshot *pb.PersistedEpochRegistry) error {
-		r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
-		for state := range r.state.Lock() {
-			return state.restore(snapshot)
-		}
-		panic("unreachable")
+	committee, keys, _ := genCommittee(rng, 3)
+	record := func(idx types.EpochIndex, first, next types.RoadIndex) *pb.Epoch {
+		return types.EpochConv.Encode(types.NewEpoch(idx, types.RoadRange{First: first, Next: next}, committee))
 	}
-
-	require.Error(t, restore(&pb.PersistedEpochRegistry{
-		Live: []*pb.EpochRecord{encodeEpochRecord(2, other)},
-	}))
-	require.Error(t, restore(&pb.PersistedEpochRegistry{
-		Pending: encodeEpochRecord(2, other),
-	}))
-}
-
-func TestRestoreSnapshotAcceptsDerivedChain(t *testing.T) {
-	rng := utils.TestRng()
-	a := types.GenSecretKey(rng).Public()
-	b := types.GenSecretKey(rng).Public()
-	genesis := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{a: 1}))
-	c2 := utils.OrPanic1(genesis.DeriveNext(map[types.PublicKey]uint64{a: 1, b: 1}, 2))
-	c3 := utils.OrPanic1(c2.DeriveNext(map[types.PublicKey]uint64{a: 1, b: 1}, 3))
-	restore := func(snapshot *pb.PersistedEpochRegistry) error {
-		r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
-		for state := range r.state.Lock() {
-			return state.restore(snapshot)
-		}
-		panic("unreachable")
+	reject := func(snapshot *pb.PersistedEpochRegistry) {
+		t.Helper()
+		_, err := persistedRegistryConv.Decode(snapshot)
+		require.Error(t, err)
 	}
+	first := record(2, 20, 30)
+	var missing *pb.PersistedEpochRegistry
+	reject(missing)
+	reject(&pb.PersistedEpochRegistry{PendingV2: first})
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{first, record(2, 30, 40)}})
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{first, record(1, 30, 40)}})
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{first, record(4, 30, 40)}})
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{record(^types.EpochIndex(0), 20, 30)}})
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{first}, PendingV2: record(2, 30, 40)})
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{first}, PendingV2: record(1, 30, 40)})
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{first}, PendingV2: record(4, 30, 40)})
 
-	require.NoError(t, restore(&pb.PersistedEpochRegistry{
-		Live: []*pb.EpochRecord{encodeEpochRecord(2, c2)},
-	}))
-	require.NoError(t, restore(&pb.PersistedEpochRegistry{
-		Live:    []*pb.EpochRecord{encodeEpochRecord(2, c2)},
-		Pending: encodeEpochRecord(3, c3),
-	}))
-	require.NoError(t, restore(&pb.PersistedEpochRegistry{
-		Pending: encodeEpochRecord(2, c2),
-	}))
-}
+	malformed := record(2, 20, 30)
+	malformed.Index = nil
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{malformed}})
+	malformed = record(2, 20, 30)
+	malformed.Committee = nil
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{malformed}})
+	malformed = record(2, 20, 30)
+	malformed.FirstRoad = nil
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{malformed}})
+	malformed = record(2, 20, 30)
+	malformed.NextRoad = nil
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{malformed}})
+	malformed = record(3, 30, 40)
+	malformed.NextRoad = nil
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{first}, PendingV2: malformed})
+	future := utils.OrPanic1(committee.DeriveNext(map[types.PublicKey]uint64{keys[0].Public(): 1, types.GenSecretKey(rng).Public(): 1}, 3))
+	malformed = record(2, 20, 30)
+	malformed.Committee = types.CommitteeConv.Encode(future)
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{malformed}})
 
-func TestRestoreSnapshotAllowsUnchainedFirstLive(t *testing.T) {
-	rng := utils.TestRng()
-	a := types.GenSecretKey(rng).Public()
-	b := types.GenSecretKey(rng).Public()
-	genesis := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{a: 1}))
-	other := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{b: 1}))
-	r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
-	for state := range r.state.Lock() {
-		require.NoError(t, state.restore(&pb.PersistedEpochRegistry{
-			Live: []*pb.EpochRecord{encodeEpochRecord(3, other)},
-		}))
-		return
-	}
-	panic("unreachable")
-}
-
-func TestDecodeEpochRecordRejectsFutureJoin(t *testing.T) {
-	rng := utils.TestRng()
-	a := types.GenSecretKey(rng).Public()
-	b := types.GenSecretKey(rng).Public()
-	genesis := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{a: 1}))
-	committee := utils.OrPanic1(genesis.DeriveNext(map[types.PublicKey]uint64{a: 1, b: 1}, 3))
-
-	_, _, err := decodeEpochRecord(encodeEpochRecord(2, committee))
-	require.Error(t, err)
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{record(2, 20, 20)}})
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{record(2, 31, 30)}})
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{first, record(3, 31, 40)}})
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{first, record(3, 29, 40)}})
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{first}, PendingV2: record(3, 31, 40)})
+	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{first}, PendingV2: record(3, 29, 40)})
 }

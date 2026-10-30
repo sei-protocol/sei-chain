@@ -17,7 +17,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	dto "github.com/prometheus/client_model/go"
 	"go.opentelemetry.io/otel/sdk/trace"
-	"google.golang.org/protobuf/proto"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	evmonlyrpc "github.com/sei-protocol/sei-chain/giga/evmonly/rpc"
@@ -67,8 +66,8 @@ func (g chainIDGatherer) Gather() ([]*dto.MetricFamily, error) {
 			}
 			labels := slices.Clone(metric.Label)
 			labels = append(labels, &dto.LabelPair{
-				Name:  proto.String("chain_id"),
-				Value: proto.String(g.chainID),
+				Name:  new("chain_id"),
+				Value: new(g.chainID),
 			})
 			slices.SortFunc(labels, func(a, b *dto.LabelPair) int {
 				return strings.Compare(a.GetName(), b.GetName())

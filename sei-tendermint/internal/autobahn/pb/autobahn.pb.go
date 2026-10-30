@@ -2514,29 +2514,31 @@ func (x *Committee) GetMembers() []*EpochMember {
 	return nil
 }
 
-// Committee for an execution-derived epoch.
-type EpochRecord struct {
+// Epoch index, road range, and committee.
+type Epoch struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Index         *uint64                `protobuf:"varint,1,opt,name=index,proto3,oneof" json:"index,omitempty"`        // required
-	Committee     *Committee             `protobuf:"bytes,2,opt,name=committee,proto3,oneof" json:"committee,omitempty"` // required
+	Index         *uint64                `protobuf:"varint,1,opt,name=index,proto3,oneof" json:"index,omitempty"`                          // required
+	Committee     *Committee             `protobuf:"bytes,2,opt,name=committee,proto3,oneof" json:"committee,omitempty"`                   // required
+	FirstRoad     *uint64                `protobuf:"varint,3,opt,name=first_road,json=firstRoad,proto3,oneof" json:"first_road,omitempty"` // required
+	NextRoad      *uint64                `protobuf:"varint,4,opt,name=next_road,json=nextRoad,proto3,oneof" json:"next_road,omitempty"`    // required
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *EpochRecord) Reset() {
-	*x = EpochRecord{}
+func (x *Epoch) Reset() {
+	*x = Epoch{}
 	mi := &file_autobahn_autobahn_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *EpochRecord) String() string {
+func (x *Epoch) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*EpochRecord) ProtoMessage() {}
+func (*Epoch) ProtoMessage() {}
 
-func (x *EpochRecord) ProtoReflect() protoreflect.Message {
+func (x *Epoch) ProtoReflect() protoreflect.Message {
 	mi := &file_autobahn_autobahn_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2548,30 +2550,44 @@ func (x *EpochRecord) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use EpochRecord.ProtoReflect.Descriptor instead.
-func (*EpochRecord) Descriptor() ([]byte, []int) {
+// Deprecated: Use Epoch.ProtoReflect.Descriptor instead.
+func (*Epoch) Descriptor() ([]byte, []int) {
 	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{41}
 }
 
-func (x *EpochRecord) GetIndex() uint64 {
+func (x *Epoch) GetIndex() uint64 {
 	if x != nil && x.Index != nil {
 		return *x.Index
 	}
 	return 0
 }
 
-func (x *EpochRecord) GetCommittee() *Committee {
+func (x *Epoch) GetCommittee() *Committee {
 	if x != nil {
 		return x.Committee
 	}
 	return nil
 }
 
-// Persisted execution-derived epoch registry state.
+func (x *Epoch) GetFirstRoad() uint64 {
+	if x != nil && x.FirstRoad != nil {
+		return *x.FirstRoad
+	}
+	return 0
+}
+
+func (x *Epoch) GetNextRoad() uint64 {
+	if x != nil && x.NextRoad != nil {
+		return *x.NextRoad
+	}
+	return 0
+}
+
+// Persisted epoch registry state.
 type PersistedEpochRegistry struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Live          []*EpochRecord         `protobuf:"bytes,1,rep,name=live,proto3" json:"live,omitempty"`
-	Pending       *EpochRecord           `protobuf:"bytes,2,opt,name=pending,proto3,oneof" json:"pending,omitempty"` // optional
+	LiveV2        []*Epoch               `protobuf:"bytes,3,rep,name=live_v2,json=liveV2,proto3" json:"live_v2,omitempty"`
+	PendingV2     *Epoch                 `protobuf:"bytes,4,opt,name=pending_v2,json=pendingV2,proto3,oneof" json:"pending_v2,omitempty"` // optional
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2606,16 +2622,16 @@ func (*PersistedEpochRegistry) Descriptor() ([]byte, []int) {
 	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{42}
 }
 
-func (x *PersistedEpochRegistry) GetLive() []*EpochRecord {
+func (x *PersistedEpochRegistry) GetLiveV2() []*Epoch {
 	if x != nil {
-		return x.Live
+		return x.LiveV2
 	}
 	return nil
 }
 
-func (x *PersistedEpochRegistry) GetPending() *EpochRecord {
+func (x *PersistedEpochRegistry) GetPendingV2() *Epoch {
 	if x != nil {
-		return x.Pending
+		return x.PendingV2
 	}
 	return nil
 }
@@ -2969,18 +2985,24 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"timeout_qc\x18\x05 \x01(\v2\x13.autobahn.TimeoutQCH\x00R\ttimeoutQc:\x06\xe8\x88\xe2\xab\f\x01B\x03\n" +
 	"\x01tJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x06\x10\aJ\x04\b\a\x10\bR\fprepare_voteR\vcommit_voteR\x0fprepare_vote_v2R\x0ecommit_vote_v2\"L\n" +
 	"\tCommittee\x127\n" +
-	"\amembers\x18\x01 \x03(\v2\x15.autobahn.EpochMemberB\x06Ј\xe2\xab\fdR\amembers:\x06\xe8\x88\xe2\xab\f\x01\"\x80\x01\n" +
-	"\vEpochRecord\x12\x19\n" +
+	"\amembers\x18\x01 \x03(\v2\x15.autobahn.EpochMemberB\x06Ј\xe2\xab\fdR\amembers:\x06\xe8\x88\xe2\xab\f\x01\"\xdd\x01\n" +
+	"\x05Epoch\x12\x19\n" +
 	"\x05index\x18\x01 \x01(\x04H\x00R\x05index\x88\x01\x01\x126\n" +
-	"\tcommittee\x18\x02 \x01(\v2\x13.autobahn.CommitteeH\x01R\tcommittee\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\b\n" +
+	"\tcommittee\x18\x02 \x01(\v2\x13.autobahn.CommitteeH\x01R\tcommittee\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"first_road\x18\x03 \x01(\x04H\x02R\tfirstRoad\x88\x01\x01\x12 \n" +
+	"\tnext_road\x18\x04 \x01(\x04H\x03R\bnextRoad\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\b\n" +
 	"\x06_indexB\f\n" +
 	"\n" +
-	"_committee\"\x85\x01\n" +
-	"\x16PersistedEpochRegistry\x12)\n" +
-	"\x04live\x18\x01 \x03(\v2\x15.autobahn.EpochRecordR\x04live\x124\n" +
-	"\apending\x18\x02 \x01(\v2\x15.autobahn.EpochRecordH\x00R\apending\x88\x01\x01B\n" +
+	"_committeeB\r\n" +
+	"\v_first_roadB\f\n" +
 	"\n" +
-	"\b_pending\"y\n" +
+	"_next_road\"\xa1\x01\n" +
+	"\x16PersistedEpochRegistry\x12(\n" +
+	"\alive_v2\x18\x03 \x03(\v2\x0f.autobahn.EpochR\x06liveV2\x123\n" +
+	"\n" +
+	"pending_v2\x18\x04 \x01(\v2\x0f.autobahn.EpochH\x00R\tpendingV2\x88\x01\x01B\r\n" +
+	"\v_pending_v2J\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\x04liveR\apending\"y\n" +
 	"\vEpochMember\x12.\n" +
 	"\alane_id\x18\x01 \x01(\v2\x10.autobahn.LaneIDH\x00R\x06laneId\x88\x01\x01\x12\x1b\n" +
 	"\x06weight\x18\x02 \x01(\x04H\x01R\x06weight\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\n" +
@@ -3048,7 +3070,7 @@ var file_autobahn_autobahn_proto_goTypes = []any{
 	(*SignedAppProposal)(nil),         // 38: autobahn.SignedAppProposal
 	(*ConsensusMsg)(nil),              // 39: autobahn.ConsensusMsg
 	(*Committee)(nil),                 // 40: autobahn.Committee
-	(*EpochRecord)(nil),               // 41: autobahn.EpochRecord
+	(*Epoch)(nil),                     // 41: autobahn.Epoch
 	(*PersistedEpochRegistry)(nil),    // 42: autobahn.PersistedEpochRegistry
 	(*EpochMember)(nil),               // 43: autobahn.EpochMember
 	(*LaneBlockPos)(nil),              // 44: autobahn.LaneBlockPos
@@ -3125,9 +3147,9 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	25, // 67: autobahn.ConsensusMsg.timeout_vote:type_name -> autobahn.FullTimeoutVote
 	24, // 68: autobahn.ConsensusMsg.timeout_qc:type_name -> autobahn.TimeoutQC
 	43, // 69: autobahn.Committee.members:type_name -> autobahn.EpochMember
-	40, // 70: autobahn.EpochRecord.committee:type_name -> autobahn.Committee
-	41, // 71: autobahn.PersistedEpochRegistry.live:type_name -> autobahn.EpochRecord
-	41, // 72: autobahn.PersistedEpochRegistry.pending:type_name -> autobahn.EpochRecord
+	40, // 70: autobahn.Epoch.committee:type_name -> autobahn.Committee
+	41, // 71: autobahn.PersistedEpochRegistry.live_v2:type_name -> autobahn.Epoch
+	41, // 72: autobahn.PersistedEpochRegistry.pending_v2:type_name -> autobahn.Epoch
 	7,  // 73: autobahn.EpochMember.lane_id:type_name -> autobahn.LaneID
 	74, // [74:74] is the sub-list for method output_type
 	74, // [74:74] is the sub-list for method input_type
