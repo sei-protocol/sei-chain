@@ -54,6 +54,7 @@ func TestRPCDefaultsMatchTheV2EVMRPC(t *testing.T) {
 	require.Equal(t, v2.TraceTimeout, r.TraceTimeout)
 	require.Equal(t, v2.MaxTraceStructLogBytes, uint64(r.MaxTraceStructLogBytes))
 	require.Equal(t, uint64(100), r.MaxSubscriptionsPerConnection)
+	require.Equal(t, v2.MaxEstimateGasCalls, r.MaxEstimateGasCalls)
 }
 
 // TestConfigTemplateRendersTheDefaults holds the app.toml template to the section: the rendered
@@ -94,6 +95,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.rpc.batch_request_limit":              "10",
 		"giga.rpc.batch_response_max_size":          "1000",
 		"giga.rpc.max_ws_connections":               "7",
+		"giga.rpc.max_estimate_gas_calls":           "9",
 		"giga.rpc.max_concurrent_trace_calls":       "3",
 		"giga.rpc.trace_timeout":                    "4s",
 		"giga.rpc.max_trace_struct_log_bytes":       "512",
@@ -128,6 +130,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			BatchRequestLimit:             10,
 			BatchResponseMaxSize:          1000,
 			MaxWSConnections:              7,
+			MaxEstimateGasCalls:           9,
 			MaxConcurrentTraceCalls:       3,
 			TraceTimeout:                  4 * time.Second,
 			MaxTraceStructLogBytes:        512,
@@ -176,6 +179,8 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"non-numeric batch limit":         {"giga.rpc.batch_request_limit": "many"},
 		"non-numeric batch response size": {"giga.rpc.batch_response_max_size": "big"},
 		"non-numeric ws connections":      {"giga.rpc.max_ws_connections": "some"},
+		"negative estimate gas calls":     {"giga.rpc.max_estimate_gas_calls": "-1"},
+		"non-numeric estimate gas calls":  {"giga.rpc.max_estimate_gas_calls": "several"},
 		"non-boolean state sync":          {"giga.state_sync.enabled": "maybe"},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)

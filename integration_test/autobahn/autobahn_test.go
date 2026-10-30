@@ -807,6 +807,7 @@ func testEVMOnlyLoad(t *testing.T) {
 	contract, deploy := assertEVMOnlyContractQueries(t, rpcCtx, clients)
 	assertEVMOnlyTraces(t, rpcCtx, clients, contract, deploy)
 	assertEVMOnlyNewHeads(t, rpcCtx, clients)
+	assertEVMOnlySimulations(t, rpcCtx, clients)
 	assertEVMOnlyTransactionErrors(t, rpcCtx, clients, block.Txs[0])
 }
 
@@ -1627,6 +1628,56 @@ func assertEVMOnlyNewHeads(t *testing.T, ctx context.Context, clients []*ethrpc.
 			t.Fatalf("node %d newHeads subscription ended: %v", nodeIndex, err)
 		case <-ctx.Done():
 			t.Fatalf("node %d pushed no head: %v", nodeIndex, ctx.Err())
+		}
+	}
+}
+
+// assertEVMOnlySimulations checks, on every node, eth_createAccessList against
+// the contract assertEVMOnlyContractQueries deployed, which reads its slot 0,
+// and against a plain transfer, and that eth_estimateGasAfterCalls with a
+// transfer applied first estimates the contract call as eth_estimateGas does
+// and refuses more calls than the cap.
+func assertEVMOnlySimulations(t *testing.T, ctx context.Context, clients []*ethrpc.Client) {
+	t.Helper()
+	key, err := scenarios.DeterministicPrivateKey(evmOnlyContractDeployerAccount)
+	if err != nil {
+		t.Fatalf("derive contract deployer key: %v", err)
+	}
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	contract := crypto.CreateAddress(sender, 0)
+	contractCall := map[string]any{"from": sender, "to": contract}
+	transfer := map[string]any{"from": sender, "to": common.Address{0x01}, "value": (*hexutil.Big)(big.NewInt(1))}
+	type accessListResult struct {
+		AccessList ethtypes.AccessList `json:"accessList"`
+		GasUsed    hexutil.Uint64      `json:"gasUsed"`
+		Error      string              `json:"error"`
+	}
+	for nodeIndex, client := range clients {
+		var got accessListResult
+		decodeEVMOnlyResult(t, nodeIndex, "eth_createAccessList", evmOnlyCall(t, ctx, client, nodeIndex, "eth_createAccessList", contractCall, "latest"), &got)
+		want := ethtypes.AccessList{{Address: contract, StorageKeys: []common.Hash{{}}}}
+		if !reflect.DeepEqual(got.AccessList, want) || got.GasUsed <= evmOnlyTransferGas || got.Error != "" {
+			t.Fatalf("node %d eth_createAccessList for the contract call = %+v, want %v with gas above %d and no error", nodeIndex, got, want, evmOnlyTransferGas)
+		}
+		decodeEVMOnlyResult(t, nodeIndex, "eth_createAccessList", evmOnlyCall(t, ctx, client, nodeIndex, "eth_createAccessList", transfer), &got)
+		if len(got.AccessList) != 0 || got.GasUsed != evmOnlyTransferGas || got.Error != "" {
+			t.Fatalf("node %d eth_createAccessList for a transfer = %+v, want an empty list using %d gas", nodeIndex, got, evmOnlyTransferGas)
+		}
+
+		var alone, afterTransfer hexutil.Uint64
+		decodeEVMOnlyResult(t, nodeIndex, "eth_estimateGas", evmOnlyCall(t, ctx, client, nodeIndex, "eth_estimateGas", contractCall), &alone)
+		decodeEVMOnlyResult(t, nodeIndex, "eth_estimateGasAfterCalls",
+			evmOnlyCall(t, ctx, client, nodeIndex, "eth_estimateGasAfterCalls", contractCall, []any{transfer}, "latest"), &afterTransfer)
+		if afterTransfer != alone {
+			t.Fatalf("node %d eth_estimateGasAfterCalls after a transfer = %d, eth_estimateGas = %d; want them equal", nodeIndex, afterTransfer, alone)
+		}
+		tooMany := make([]any, 101)
+		for i := range tooMany {
+			tooMany[i] = transfer
+		}
+		if err := client.CallContext(ctx, &afterTransfer, "eth_estimateGasAfterCalls", contractCall, tooMany); err == nil ||
+			!strings.Contains(err.Error(), "too many calls") {
+			t.Fatalf("node %d eth_estimateGasAfterCalls with %d calls = %d, %v; want the too-many-calls error", nodeIndex, len(tooMany), afterTransfer, err)
 		}
 	}
 }
