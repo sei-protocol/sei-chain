@@ -443,7 +443,7 @@ func (r *gigaRouterCommon) openApp(ctx context.Context) (atypes.RoadIndex, *atyp
 	b, err := r.data.SuperBlock(ctx, last)
 	if err != nil {
 		if errors.Is(err, atypes.ErrPruned) {
-			return 0, nil, fmt.Errorf("app tip %d is unavailable in BlockStore; restore matching BlockStore data or state-sync the node: %w", last, err)
+			return 0, nil, fmt.Errorf("app tip %d is below the BlockStore retention floor, so its header cannot be loaded: %w", last, err)
 		}
 		return 0, nil, fmt.Errorf("r.data.SuperBlock(): %w", err)
 	}
