@@ -55,7 +55,7 @@ func (k Querier) Validators(c context.Context, req *types.QueryValidatorsRequest
 	})
 
 	if err != nil {
-		return nil, query.WrapGRPCError(err)
+		return nil, query.WrapQueryError(err)
 	}
 
 	return &types.QueryValidatorsResponse{Validators: validators, Pagination: pageRes}, nil
@@ -143,7 +143,7 @@ func (k Querier) validatorDelegationsFromIndex(ctx sdk.Context, req *types.Query
 		return nil
 	})
 	if err != nil {
-		return nil, nil, query.WrapGRPCError(err)
+		return nil, nil, query.WrapQueryError(err)
 	}
 	return delegations, pageRes, nil
 }
@@ -179,7 +179,7 @@ func (k Querier) validatorDelegationsFromScan(ctx sdk.Context, req *types.QueryV
 		return true, nil
 	})
 	if err != nil {
-		return nil, nil, query.WrapGRPCError(err)
+		return nil, nil, query.WrapQueryError(err)
 	}
 	return delegations, pageRes, nil
 }
@@ -217,7 +217,7 @@ func (k Querier) ValidatorUnbondingDelegations(c context.Context, req *types.Que
 		return nil
 	})
 	if err != nil {
-		return nil, query.WrapGRPCError(err)
+		return nil, query.WrapQueryError(err)
 	}
 
 	return &types.QueryValidatorUnbondingDelegationsResponse{
@@ -330,7 +330,7 @@ func (k Querier) DelegatorDelegations(c context.Context, req *types.QueryDelegat
 		return nil
 	})
 	if err != nil {
-		return nil, query.WrapGRPCError(err)
+		return nil, query.WrapQueryError(err)
 	}
 
 	delegationResps, err := DelegationsToDelegationResponses(ctx, k.Keeper, delegations)
@@ -402,7 +402,7 @@ func (k Querier) DelegatorUnbondingDelegations(c context.Context, req *types.Que
 		return nil
 	})
 	if err != nil {
-		return nil, query.WrapGRPCError(err)
+		return nil, query.WrapQueryError(err)
 	}
 
 	return &types.QueryDelegatorUnbondingDelegationsResponse{
@@ -449,7 +449,7 @@ func (k Querier) Redelegations(c context.Context, req *types.QueryRedelegationsR
 		redels, pageRes, err = queryAllRedelegations(ctx, store, k, req)
 	}
 	if err != nil {
-		return nil, query.WrapGRPCError(err)
+		return nil, query.WrapQueryError(err)
 	}
 	redelResponses, err := RedelegationsToRedelegationResponses(ctx, k.Keeper, redels)
 	if err != nil {
@@ -494,7 +494,7 @@ func (k Querier) DelegatorValidators(c context.Context, req *types.QueryDelegato
 	})
 
 	if err != nil {
-		return nil, query.WrapGRPCError(err)
+		return nil, query.WrapQueryError(err)
 	}
 
 	return &types.QueryDelegatorValidatorsResponse{Validators: validators, Pagination: pageRes}, nil
