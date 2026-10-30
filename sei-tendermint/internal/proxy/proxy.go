@@ -12,6 +12,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
@@ -84,6 +86,46 @@ func (app *Proxy) AwaitCommits() error {
 		return nil
 	}
 	return settler.AwaitCommits()
+}
+
+// epochWindowApp is an application that stores the Autobahn epoch window in
+// its state. Its validator set must not change within a block: the window's
+// next committee is derived from the validators read before FinalizeBlock.
+type epochWindowApp interface {
+	SetEpochWindow(atypes.RoadIndex, epoch.StateWindow) error
+	CommittedEpochWindow() (utils.Option[epoch.StateWindow], error)
+}
+
+var errNoEpochWindow = errors.New("application does not store Autobahn epoch state")
+
+// SupportsEpochWindow reports whether the wrapped application stores Autobahn
+// epoch state.
+func (app *Proxy) SupportsEpochWindow() bool {
+	_, ok := app.app.(epochWindowApp)
+	return ok
+}
+
+// SetEpochWindow stages the epoch window that block height commits. It errors
+// if the application does not store Autobahn epoch state.
+func (app *Proxy) SetEpochWindow(height atypes.RoadIndex, window epoch.StateWindow) error {
+	defer addTimeSample(Global.MethodTimingAt("set_epoch_window", "sync"))()
+	windowApp, ok := app.app.(epochWindowApp)
+	if !ok {
+		return errNoEpochWindow
+	}
+	return windowApp.SetEpochWindow(height, window)
+}
+
+// CommittedEpochWindow returns the epoch window in the application's committed
+// state, or None if no window was committed. It errors if the application does
+// not store Autobahn epoch state.
+func (app *Proxy) CommittedEpochWindow() (utils.Option[epoch.StateWindow], error) {
+	defer addTimeSample(Global.MethodTimingAt("committed_epoch_window", "sync"))()
+	windowApp, ok := app.app.(epochWindowApp)
+	if !ok {
+		return utils.None[epoch.StateWindow](), errNoEpochWindow
+	}
+	return windowApp.CommittedEpochWindow()
 }
 
 // evmCodeReader is implemented by applications that can read contract code

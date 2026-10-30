@@ -28,6 +28,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -148,6 +150,12 @@ type evmOnlyCursorState struct {
 	// pendingBlockTime is the Time of the block staged in pending; Commit
 	// promotes it to lastBlockTime.
 	pendingBlockTime uint64
+	pendingEpoch     utils.Option[pendingEpochWindow]
+}
+
+type pendingEpochWindow struct {
+	height int64
+	window epoch.StateWindow
 }
 
 var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
@@ -219,9 +227,9 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 	)
 }
 
-// encodeCursorChangeSet chains the block into the app hash and stages the
-// resulting cursor as pending, returning it as the changeset committed with
-// the block's state.
+// encodeCursorChangeSet chains the block and its staged epoch window into the
+// app hash and stages the resulting cursor as pending, returning the cursor and
+// the epoch window as the changesets committed with the block's state.
 func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, result *evmonly.BlockResult) ([]*proto.NamedChangeSet, error) {
 	height, ok := utils.SafeCast[int64](block.Number)
 	if !ok {
@@ -231,7 +239,11 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, r
 		if height != state.committed.height+1 {
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
 		}
-		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result)
+		epochChangeSets, err := epochWindowChangeSets(state.pendingEpoch, height)
+		if err != nil {
+			return nil, err
+		}
+		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result, epochChangeSets...)
 		if err != nil {
 			return nil, err
 		}
@@ -243,7 +255,45 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, r
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
-		return []*proto.NamedChangeSet{next.changeSet()}, nil
+		return append([]*proto.NamedChangeSet{next.changeSet()}, epochChangeSets...), nil
+	}
+	panic("unreachable")
+}
+
+// epochWindowChangeSets returns the changeset of the epoch window staged for
+// height, or none if no window is staged.
+func epochWindowChangeSets(pending utils.Option[pendingEpochWindow], height int64) ([]*proto.NamedChangeSet, error) {
+	p, ok := pending.Get()
+	if !ok {
+		return nil, nil
+	}
+	if p.height != height {
+		return nil, fmt.Errorf("EVM-only block %d has epoch window for height %d", height, p.height)
+	}
+	return []*proto.NamedChangeSet{p.window.ChangeSet()}, nil
+}
+
+// CommittedEpochWindow returns the epoch window in the committed state, or None
+// if no epoch window was committed.
+func (a *evmOnlyApplication) CommittedEpochWindow() (utils.Option[epoch.StateWindow], error) {
+	if err := a.AwaitCommits(); err != nil {
+		return utils.None[epoch.StateWindow](), err
+	}
+	return loadEpochWindow(a.storage.SC())
+}
+
+// SetEpochWindow stages the epoch committee window that must be committed with height.
+func (a *evmOnlyApplication) SetEpochWindow(height atypes.RoadIndex, window epoch.StateWindow) error {
+	h, ok := utils.SafeCast[int64](height)
+	if !ok {
+		return fmt.Errorf("EVM-only epoch window height exceeds int64: %d", height)
+	}
+	for state := range a.cursor.Lock() {
+		if state.pending.IsPresent() {
+			return fmt.Errorf("EVM-only epoch window for block %d staged while a block is pending", height)
+		}
+		state.pendingEpoch = utils.Some(pendingEpochWindow{height: h, window: window})
+		return nil
 	}
 	panic("unreachable")
 }
@@ -773,6 +823,7 @@ func (a *evmOnlyApplication) abandonPending(executor *evmonly.Executor, height i
 	}
 	for state := range a.cursor.Lock() {
 		state.pending = utils.None[evmOnlyCursor]()
+		state.pendingEpoch = utils.None[pendingEpochWindow]()
 	}
 	return commitErr
 }
@@ -819,6 +870,7 @@ func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, erro
 		state.committed = pending
 		state.lastBlockTime = state.pendingBlockTime
 		state.pending = utils.None[evmOnlyCursor]()
+		state.pendingEpoch = utils.None[pendingEpochWindow]()
 		return &abci.ResponseCommit{}, nil
 	}
 	panic("unreachable")
@@ -854,7 +906,9 @@ func evmOnlyTxFailureLog(tx evmonly.TxResult) string {
 	return tx.Err.Error()
 }
 
-func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) (common.Hash, error) {
+// hashEVMOnlyResult chains the block onto previous over its EVM changes and the
+// extra changesets committed with it.
+func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult, extra ...*proto.NamedChangeSet) (common.Hash, error) {
 	h := sha256.New()
 	w := newEVMOnlyHashWriter(h)
 	w.write(previous[:])
@@ -865,7 +919,7 @@ func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Has
 	if err != nil {
 		return common.Hash{}, err
 	}
-	for _, changeset := range changesets {
+	for _, changeset := range append(changesets, extra...) {
 		w.writeSizedString(changeset.Name)
 		for _, pair := range changeset.Changeset.Pairs {
 			w.writeSized(pair.Key)

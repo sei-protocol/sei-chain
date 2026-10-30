@@ -198,8 +198,9 @@ func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes
 
 func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.SuperBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
 	app := r.app
+	vals := app.GetValidators()
 	var proposerAddress types.Address
-	if vals := app.GetValidators(); len(vals) > 0 {
+	if len(vals) > 0 {
 		// Deterministically select a proposer from the app's validator committee.
 		// We need it so that app does not emit error logs.
 		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
@@ -208,6 +209,11 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.SuperBloc
 			return nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
 		}
 		proposerAddress = key.Address()
+	}
+
+	window, err := r.stageEpochWindow(b.Height, vals)
+	if err != nil {
+		return nil, err
 	}
 
 	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
@@ -248,13 +254,8 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.SuperBloc
 	if err != nil {
 		return nil, fmt.Errorf("app.Commit(): %w", err)
 	}
-	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
-	weights, err := committeeWeights(app.GetValidators())
-	if err != nil {
-		return nil, err
-	}
 	gigametrics.SetStoragePhase(gigametrics.StoragePhasePushAppHash)
-	if err := r.data.PushAppHash(ctx, b.Height, resp.AppHash, weights); err != nil {
+	if err := r.pushAppHash(ctx, b.Height, resp.AppHash, window); err != nil {
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.Height, err)
 	}
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
@@ -262,6 +263,43 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.SuperBloc
 	r.data.PushGasUsed(gasUsed)
 	r.executed.Store(r.executed.Load().Push(atypes.ExecutedBlock{Number: b.Height, GasUsed: utils.Clamp[uint64](gasUsed)}))
 	return commitResp, nil
+}
+
+// stageEpochWindow sets the epoch window that block n commits on an app that
+// stores Autobahn epoch state, and returns it. It returns None for any other
+// app and for a block that does not close an epoch.
+func (r *gigaRouterCommon) stageEpochWindow(n atypes.RoadIndex, vals []abci.ValidatorUpdate) (utils.Option[epoch.StateWindow], error) {
+	if !r.app.SupportsEpochWindow() {
+		return utils.None[epoch.StateWindow](), nil
+	}
+	weights, err := committeeWeights(vals)
+	if err != nil {
+		return utils.None[epoch.StateWindow](), err
+	}
+	window, err := r.data.EpochStateWindow(n, weights)
+	if err != nil {
+		return utils.None[epoch.StateWindow](), fmt.Errorf("epoch state window for block %v: %w", n, err)
+	}
+	if w, ok := window.Get(); ok {
+		if err := r.app.SetEpochWindow(n, w); err != nil {
+			return utils.None[epoch.StateWindow](), fmt.Errorf("SetEpochWindow(%v): %w", n, err)
+		}
+	}
+	return window, nil
+}
+
+// pushAppHash records the app hash of the committed block n. On an app that
+// stores Autobahn epoch state, the next committee is staged from window, the
+// epoch window committed with n. Any other app derives it from its validators.
+func (r *gigaRouterCommon) pushAppHash(ctx context.Context, n atypes.RoadIndex, hash atypes.AppHash, window utils.Option[epoch.StateWindow]) error {
+	if r.app.SupportsEpochWindow() {
+		return r.data.PushAppHashWithEpochWindow(ctx, n, hash, window)
+	}
+	weights, err := committeeWeights(r.app.GetValidators())
+	if err != nil {
+		return err
+	}
+	return r.data.PushAppHash(ctx, n, hash, weights)
 }
 
 // runEvmProxy maintains an EVM RPC client for one committee member.
@@ -433,11 +471,13 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		}
 		// Losing a prefix of appHashes on crash is fine: AppQC is reached
 		// once everyone votes on apphashes of a suffix of finalized blocks.
-		weights, err := committeeWeights(app.GetValidators())
-		if err != nil {
-			return err
+		window := utils.None[epoch.StateWindow]()
+		if app.SupportsEpochWindow() {
+			if window, err = app.CommittedEpochWindow(); err != nil {
+				return fmt.Errorf("app.CommittedEpochWindow(): %w", err)
+			}
 		}
-		if err := r.data.PushAppHash(ctx, last, info.LastBlockAppHash, weights); err != nil {
+		if err := r.pushAppHash(ctx, last, info.LastBlockAppHash, window); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(): %w", err)
 		}
 	}

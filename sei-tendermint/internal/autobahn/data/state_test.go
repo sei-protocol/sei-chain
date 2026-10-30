@@ -174,6 +174,114 @@ func TestNextCommitEpoch_AdvancesAtIdleEpochBoundary(t *testing.T) {
 	require.Equal(t, registry.MustEpoch(2), state.NextCommitEpoch().Load())
 }
 
+func TestEpochStateWindowOnlyForClosingRoad(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	weights := map[types.PublicKey]uint64{keys[0].Public(): 1}
+	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
+
+	for _, road := range []types.RoadIndex{registry.EpochFirstRoad(0), registry.LastRoad(0) - 1, registry.EpochFirstRoad(1)} {
+		got, err := state.EpochStateWindow(road, weights)
+		require.NoError(t, err)
+		require.False(t, got.IsPresent(), "road %d", road)
+	}
+
+	want, err := registry.StateWindow(0, weights)
+	require.NoError(t, err)
+	got, err := state.EpochStateWindow(registry.LastRoad(0), weights)
+	require.NoError(t, err)
+	w := got.OrPanic("closing road")
+	require.Equal(t, types.EpochIndex(0), w.Prev().Index)
+	require.True(t, w.Next().Committee.Equal(want.Next().Committee))
+}
+
+func TestEpochStateWindowForClosingRoadBelowFirst(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	weights := map[types.PublicKey]uint64{keys[0].Public(): 1}
+	closing := registry.LastRoad(0)
+	qc0, blocks0 := commitQCAtRoad(registry.MustEpoch(0), keys, closing)
+	qc1, blocks1 := commitQCAtRoad(registry.MustEpoch(1), keys, registry.EpochFirstRoad(1))
+	store := newTestBlockStore(t, t.TempDir())
+	writeToBlockStore(t, store, []*types.FullCommitQC{qc0, qc1}, [][]*types.Block{blocks0, blocks1})
+	state := newTestState(t, &Config{Registry: registry}, store)
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		for _, n := range []types.RoadIndex{qc0.Index(), qc1.Index()} {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), weights); err != nil {
+				return err
+			}
+			if err := pushAppQCForBlock(ctx, state, keys, n); err != nil {
+				return err
+			}
+		}
+		for inner, ctrl := range state.inner.Lock() {
+			if err := ctrl.WaitUntil(ctx, func() bool { return inner.first > closing }); err != nil {
+				return err
+			}
+		}
+
+		window, err := state.EpochStateWindow(closing, weights)
+		if err != nil {
+			return fmt.Errorf("epoch window of closing block below first: %w", err)
+		}
+		if w, ok := window.Get(); !ok || w.Prev().Index != 0 {
+			return fmt.Errorf("epoch window of closing block below first: got %v, want one starting at epoch 0", window)
+		}
+		return nil
+	}))
+}
+
+func TestPushAppHashWithEpochWindow_StagesWindowNext(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
+	window, err := registry.StateWindow(0, map[types.PublicKey]uint64{keys[0].Public(): 9})
+	require.NoError(t, err)
+	want := window.Next().Committee
+	before, blocksBefore := commitQCAtRoad(ep0, keys, registry.LastRoad(0)-1)
+	store := newTestBlockStore(t, t.TempDir())
+	writeToBlockStore(t, store, []*types.FullCommitQC{before}, [][]*types.Block{blocksBefore})
+	state := newTestState(t, &Config{Registry: registry}, store)
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		last, blocksLast := commitQCAtRoad(ep0, keys, registry.LastRoad(0))
+		if err := state.PushPartialBlock(ctx, last, TestBlockMap(blocksLast)); err != nil {
+			return err
+		}
+		hash := types.GenAppHash(rng)
+		if err := state.PushAppHashWithEpochWindow(ctx, before.Index(), hash, utils.None[epoch.StateWindow]()); err != nil {
+			return fmt.Errorf("block before the closing block: %w", err)
+		}
+		if err := pushAppQCForBlock(ctx, state, keys, before.Index()); err != nil {
+			return err
+		}
+		closing := last.Index()
+		if err := state.PushAppHashWithEpochWindow(ctx, closing, hash, utils.None[epoch.StateWindow]()); err == nil {
+			return errors.New("closing block without an epoch window: got nil error")
+		}
+		if registry.Pending().IsPresent() {
+			return errors.New("epoch staged without an epoch window")
+		}
+		if err := state.PushAppHashWithEpochWindow(ctx, closing, hash, utils.Some(window)); err != nil {
+			return err
+		}
+		if err := pushAppQCForBlock(ctx, state, keys, closing); err != nil {
+			return err
+		}
+		ep2, err := registry.EpochByIndex(2)
+		if err != nil {
+			return fmt.Errorf("epoch 2 after AppQC: %w", err)
+		}
+		if !ep2.Committee().Equal(want) {
+			return errors.New("epoch 2 committee differs from the window's next record")
+		}
+		return nil
+	}))
+}
+
 func TestNextCommitEpoch_AfterAppQCActivation(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()

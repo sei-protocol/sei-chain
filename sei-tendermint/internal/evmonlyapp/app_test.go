@@ -28,6 +28,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -266,6 +268,35 @@ func waitForReceiptVersion(t *testing.T, store receipt.ReceiptStore, height int6
 		case <-time.After(time.Millisecond):
 		}
 	}
+}
+
+func evmOnlyTestEpochWindow(t *testing.T) epoch.StateWindow {
+	t.Helper()
+	return evmOnlyTestEpochWindowWithNextWeight(t, 3)
+}
+
+// evmOnlyTestEpochWindowWithNextWeight returns a window whose next committee
+// holds one validator with nextWeight.
+func evmOnlyTestEpochWindowWithNextWeight(t *testing.T, nextWeight uint64) epoch.StateWindow {
+	t.Helper()
+	a := atypes.TestSecretKey("epoch-a").Public()
+	b := atypes.TestSecretKey("epoch-b").Public()
+	prev, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{a: 1, b: 1})
+	require.NoError(t, err)
+	current, err := prev.DeriveNext(map[atypes.PublicKey]uint64{a: 1, b: 2}, 1)
+	require.NoError(t, err)
+	next, err := current.DeriveNext(map[atypes.PublicKey]uint64{b: nextWeight}, 2)
+	require.NoError(t, err)
+	window, err := epoch.NewStateWindow(0, prev, 1, current, 2, next)
+	require.NoError(t, err)
+	return window
+}
+
+func mustGetEpochRecordValue(t *testing.T, app *evmOnlyApplication, key string) []byte {
+	t.Helper()
+	value, found := app.storage.SC().Get(epoch.StateModuleName, []byte(key))
+	require.True(t, found)
+	return value
 }
 
 func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
@@ -1131,6 +1162,106 @@ func TestEVMOnlyApplicationReadsSettleBehindFinalizeBlock(t *testing.T) {
 	latest, err := settler.storage.SC().GetLatestVersion()
 	require.NoError(t, err)
 	require.Equal(t, int64(4), latest)
+}
+
+func TestEVMOnlyApplicationCommitsEpochWindow(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmApp := app.(*evmOnlyApplication)
+	window := evmOnlyTestEpochWindow(t)
+
+	require.NoError(t, evmApp.SetEpochWindow(1, window))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	require.NoError(t, evmApp.AwaitCommits())
+
+	prev := mustGetEpochRecordValue(t, evmApp, epoch.PrevEpochRecordKey)
+	current := mustGetEpochRecordValue(t, evmApp, epoch.CurrentEpochRecordKey)
+	next := mustGetEpochRecordValue(t, evmApp, epoch.NextEpochRecordKey)
+	got, err := epoch.DecodeStateWindow(prev, current, next)
+	require.NoError(t, err)
+	require.True(t, window.Equal(got))
+}
+
+func TestEVMOnlyApplicationHashesEpochWindow(t *testing.T) {
+	appHash := func(window utils.Option[epoch.StateWindow]) []byte {
+		app := newInitializedEVMOnlyTestApp(t)
+		if w, ok := window.Get(); ok {
+			require.NoError(t, app.(*evmOnlyApplication).SetEpochWindow(1, w))
+		}
+		return finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	}
+
+	none := appHash(utils.None[epoch.StateWindow]())
+	windowA := appHash(utils.Some(evmOnlyTestEpochWindowWithNextWeight(t, 3)))
+	windowB := appHash(utils.Some(evmOnlyTestEpochWindowWithNextWeight(t, 4)))
+	require.NotEqual(t, none, windowA)
+	require.NotEqual(t, windowA, windowB)
+	require.Equal(t, windowA, appHash(utils.Some(evmOnlyTestEpochWindowWithNextWeight(t, 3))))
+}
+
+func TestEVMOnlyApplicationReadsCommittedEpochWindow(t *testing.T) {
+	home := t.TempDir()
+	storage := openEVMOnlyTestStorageAt(t, home)
+	app, err := NewEVMOnlyApplication(
+		evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(),
+		gigaconfig.DefaultConfig.Execution,
+	)
+	require.NoError(t, err)
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	evmApp := app.(*evmOnlyApplication)
+	got, err := evmApp.CommittedEpochWindow()
+	require.NoError(t, err)
+	require.False(t, got.IsPresent())
+
+	window := evmOnlyTestEpochWindow(t)
+	require.NoError(t, evmApp.SetEpochWindow(1, window))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2))
+
+	app, storage = reopenEVMOnlyTestApp(t, app, storage, home)
+	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
+	got, err = app.(*evmOnlyApplication).CommittedEpochWindow()
+	require.NoError(t, err)
+	w, ok := got.Get()
+	require.True(t, ok)
+	require.True(t, window.Equal(w))
+}
+
+func TestLoadEpochWindowRejectsIncompleteWindow(t *testing.T) {
+	storage := openEVMOnlyTestStorageAt(t, t.TempDir())
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	changeSet := evmOnlyTestEpochWindow(t).ChangeSet()
+	changeSet.Changeset.Pairs = changeSet.Changeset.Pairs[:2]
+	store := storage.SC()
+	require.NoError(t, store.ApplyChangeSets(1, []*proto.NamedChangeSet{changeSet}))
+	_, err := store.Commit(1)
+	require.NoError(t, err)
+
+	_, err = loadEpochWindow(store)
+	require.Error(t, err)
+}
+
+func TestEVMOnlyApplicationRejectsEpochWindowAtWrongHeight(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmApp := app.(*evmOnlyApplication)
+	require.NoError(t, evmApp.SetEpochWindow(2, evmOnlyTestEpochWindow(t)))
+
+	_, err := app.FinalizeBlock(t.Context(), evmOnlyTestBlock(1))
+	require.Error(t, err)
+}
+
+func TestEVMOnlyApplicationDropsEpochWindowOfFailedBlock(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmApp := app.(*evmOnlyApplication)
+	require.NoError(t, evmApp.SetEpochWindow(2, evmOnlyTestEpochWindow(t)))
+	_, err := app.FinalizeBlock(t.Context(), evmOnlyTestBlock(1))
+	require.Error(t, err)
+
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2))
+	got, err := evmApp.CommittedEpochWindow()
+	require.NoError(t, err)
+	require.False(t, got.IsPresent())
 }
 
 // unwritableEVMChangeSetEncoder encodes every block with an EVM pair the store

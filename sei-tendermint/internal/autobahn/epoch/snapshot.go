@@ -46,19 +46,37 @@ func decodeEpochRecord(record *pb.EpochRecord) (types.EpochIndex, *types.Committ
 		return 0, nil, errors.New("index: missing")
 	}
 	idx := types.EpochIndex(*record.Index)
-	if idx < 2 {
-		return 0, nil, fmt.Errorf("genesis epoch %d", idx)
-	}
 	committee, err := types.CommitteeConv.DecodeReq(record.Committee)
 	if err != nil {
 		return 0, nil, err
 	}
-	for lane := range committee.Lanes().All() {
-		if lane.Joined > idx {
-			return 0, nil, fmt.Errorf("member joined epoch %d after committee epoch %d", lane.Joined, idx)
-		}
+	if err := checkJoinedBy(idx, committee); err != nil {
+		return 0, nil, err
 	}
 	return idx, committee, nil
+}
+
+// decodeSnapshotRecord decodes a registry snapshot record. Genesis epochs are
+// never persisted, so a record for one is an error.
+func decodeSnapshotRecord(record *pb.EpochRecord) (types.EpochIndex, *types.Committee, error) {
+	idx, committee, err := decodeEpochRecord(record)
+	if err != nil {
+		return 0, nil, err
+	}
+	if idx < 2 {
+		return 0, nil, fmt.Errorf("genesis epoch %d", idx)
+	}
+	return idx, committee, nil
+}
+
+// checkJoinedBy returns an error if a member of committee joined after epoch idx.
+func checkJoinedBy(idx types.EpochIndex, committee *types.Committee) error {
+	for lane := range committee.Lanes().All() {
+		if lane.Joined > idx {
+			return fmt.Errorf("member joined epoch %d after committee epoch %d", lane.Joined, idx)
+		}
+	}
+	return nil
 }
 
 // checkDerivedFromPrev returns an error if committee is not DeriveNext of

@@ -70,3 +70,17 @@ func TestHashEVMOnlyResultGoldenVector(t *testing.T) {
 		})
 	}
 }
+
+// TestHashEVMOnlyResultWithEpochWindowGoldenVector pins the app hash of a block
+// that commits an epoch window after its EVM changes.
+func TestHashEVMOnlyResultWithEpochWindowGoldenVector(t *testing.T) {
+	got, err := hashEVMOnlyResult(
+		common.HexToHash("0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"),
+		4_321,
+		common.HexToHash("0xf0e0d0c0b0a090807060504030201000ffeeddccbbaa99887766554433221100"),
+		evmOnlyHashFixture(1),
+		evmOnlyTestEpochWindow(t).ChangeSet(),
+	)
+	require.NoError(t, err)
+	require.Equal(t, "0xb1bf1fc7fa777e9aeb9aef92bd0ed3d439fe233556ec344af20d006274012a64", got.Hex())
+}

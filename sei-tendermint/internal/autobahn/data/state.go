@@ -613,12 +613,42 @@ func (s *State) appQCFromDB(n types.RoadIndex) (*types.AppQC, error) {
 // PushAppHash records the AppHash for executed blocks through n and stages
 // C_{E+2} when n closes LastRoad(E).
 func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.AppHash, weights map[types.PublicKey]uint64) error {
+	return s.pushAppHash(ctx, n, hash, func(e types.EpochIndex) error {
+		if err := s.cfg.Registry.StageEpoch(e, weights); err != nil {
+			return fmt.Errorf("StageEpoch(%d): %w", e, err)
+		}
+		return nil
+	})
+}
+
+// PushAppHashWithEpochWindow records the AppHash for executed blocks through n
+// and, when n closes LastRoad(E), stages C_{E+2} from window, the epoch window
+// committed with n. window is ignored for any other block.
+func (s *State) PushAppHashWithEpochWindow(ctx context.Context, n types.RoadIndex, hash types.AppHash, window utils.Option[epoch.StateWindow]) error {
+	return s.pushAppHash(ctx, n, hash, func(e types.EpochIndex) error {
+		w, ok := window.Get()
+		if !ok {
+			return fmt.Errorf("block %v closes epoch %d without an epoch window", n, e)
+		}
+		if err := s.cfg.Registry.StageWindow(e, w); err != nil {
+			return fmt.Errorf("StageWindow(%d): %w", e, err)
+		}
+		return nil
+	})
+}
+
+// pushAppHash records the AppHash for executed blocks through n and calls
+// stage with E when n closes LastRoad(E).
+func (s *State) pushAppHash(ctx context.Context, n types.RoadIndex, hash types.AppHash, stage func(types.EpochIndex) error) error {
 	var endEpoch utils.Option[types.EpochIndex]
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextFullBlock }); err != nil {
 			return err
 		}
 		if n < inner.nextAppProposal {
+			// Below first, an AppQC for a later block is persisted. It needs this
+			// node's AppProposal for that block, which is pushed only after the
+			// push for n staged its epoch, so there is nothing left to stage.
 			if n >= inner.first {
 				endEpoch = s.cfg.Registry.ClosingEpoch(n)
 			}
@@ -655,11 +685,25 @@ func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.A
 		}
 	}
 	if e, ok := endEpoch.Get(); ok {
-		if err := s.cfg.Registry.StageEpoch(e, weights); err != nil {
-			return fmt.Errorf("StageEpoch(%d): %w", e, err)
+		if err := stage(e); err != nil {
+			return err
 		}
 	}
 	return s.activateStagedEpoch()
+}
+
+// EpochStateWindow returns the state window to commit with block n, if n
+// closes an epoch.
+func (s *State) EpochStateWindow(n types.RoadIndex, weights map[types.PublicKey]uint64) (utils.Option[epoch.StateWindow], error) {
+	endEpoch, ok := s.cfg.Registry.ClosingEpoch(n).Get()
+	if !ok {
+		return utils.None[epoch.StateWindow](), nil
+	}
+	window, err := s.cfg.Registry.StateWindow(endEpoch, weights)
+	if err != nil {
+		return utils.None[epoch.StateWindow](), err
+	}
+	return utils.Some(window), nil
 }
 
 func (s *State) PushGasUsed(gasUsed int64) {
@@ -876,7 +920,7 @@ func (s *State) runPersist(ctx context.Context) error {
 				if !ok {
 					return fmt.Errorf("evict advanced first but Anchor is None")
 				}
-				pruneEpoch = utils.Some(a.Epoch.EpochIndex())
+				pruneEpoch = utils.Some(registryRetainFrom(a.Epoch.EpochIndex()))
 			}
 			ctrl.Updated()
 		}
@@ -886,6 +930,18 @@ func (s *State) runPersist(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// registryRetainFrom returns the earliest epoch the registry keeps for an
+// anchor in anchorEpoch: the epoch before it.
+func registryRetainFrom(anchorEpoch types.EpochIndex) types.EpochIndex {
+	if anchorEpoch == 0 {
+		return 0
+	}
+	// The durable app tip trails the anchor by at most one block, because the
+	// app keeps one state commit in flight. Replaying the closing block of the
+	// previous epoch then needs that epoch's committee for the epoch window.
+	return anchorEpoch - 1
 }
 
 func (i *inner) setAnchor() {

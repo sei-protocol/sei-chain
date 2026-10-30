@@ -143,6 +143,82 @@ func TestStageEpoch_FromEndStake(t *testing.T) {
 	require.Equal(t, ep, r.MustEpoch(2))
 }
 
+func TestStateWindow_FromEndStake(t *testing.T) {
+	rng := utils.TestRng()
+	a := types.GenSecretKey(rng)
+	b := types.GenSecretKey(rng)
+	committee := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{
+		a.Public(): 1, b.Public(): 1,
+	}))
+	r := utils.OrPanic1(NewRegistry(committee, 0, time.Time{}, utils.None[string]()))
+	weights := map[types.PublicKey]uint64{b.Public(): 7}
+
+	window, err := r.StateWindow(0, weights)
+	require.NoError(t, err)
+	require.Equal(t, types.EpochIndex(0), window.Prev().Index)
+	require.Equal(t, types.EpochIndex(1), window.Current().Index)
+	require.Equal(t, types.EpochIndex(2), window.Next().Index)
+	require.True(t, r.MustEpoch(0).Committee().Equal(window.Prev().Committee))
+	require.True(t, r.MustEpoch(1).Committee().Equal(window.Current().Committee))
+
+	staged := addFromEnd(t, r, 0, weights)
+	require.True(t, staged.Committee().Equal(window.Next().Committee))
+}
+
+func TestStateWindow_RequiresCurrentEpochs(t *testing.T) {
+	r, committee := makeRegistry(t)
+	pk := committee.Lanes().At(0).Validator
+	weights := map[types.PublicKey]uint64{pk: 1}
+
+	_, err := r.StateWindow(1, weights)
+	require.Error(t, err)
+
+	require.NoError(t, r.StageAndActivate(0, weights))
+	_, err = r.StateWindow(1, weights)
+	require.NoError(t, err)
+}
+
+func TestStageWindow_StagesNextCommittee(t *testing.T) {
+	r, committee := makeRegistry(t)
+	pk := committee.Lanes().At(0).Validator
+	window, err := r.StateWindow(0, map[types.PublicKey]uint64{pk: 7})
+	require.NoError(t, err)
+
+	require.NoError(t, r.StageWindow(0, window))
+	pending, ok := r.Pending().Get()
+	require.True(t, ok)
+	require.Equal(t, types.EpochIndex(2), pending)
+	require.NoError(t, r.StageWindow(0, window))
+	require.Error(t, r.StageEpoch(0, map[types.PublicKey]uint64{pk: 8}))
+	require.NoError(t, r.ActivateEpoch(2))
+	require.True(t, r.MustEpoch(2).Committee().Equal(window.Next().Committee))
+}
+
+func TestStageWindow_RejectsMismatchedWindow(t *testing.T) {
+	r, committee := makeRegistry(t)
+	pk := committee.Lanes().At(0).Validator
+	window, err := r.StateWindow(0, map[types.PublicKey]uint64{pk: 7})
+	require.NoError(t, err)
+	require.Error(t, r.StageWindow(1, window))
+
+	other := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{
+		types.TestSecretKey("other").Public(): 5,
+	}))
+	prev, next := window.Prev().Committee, window.Next().Committee
+	foreignPrev, err := NewStateWindow(0, other, 1, committee, 2, next)
+	require.NoError(t, err)
+	require.Error(t, r.StageWindow(0, foreignPrev))
+
+	foreignCurrent, err := NewStateWindow(0, prev, 1, other, 2, next)
+	require.NoError(t, err)
+	require.Error(t, r.StageWindow(0, foreignCurrent))
+
+	unrelatedNext, err := NewStateWindow(0, prev, 1, committee, 2, other)
+	require.NoError(t, err)
+	require.Error(t, r.StageWindow(0, unrelatedNext))
+	require.False(t, r.Pending().IsPresent())
+}
+
 func TestStageEpoch_RequiresNext(t *testing.T) {
 	rng := utils.TestRng()
 	pk := types.GenSecretKey(rng).Public()
