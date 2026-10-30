@@ -3,9 +3,11 @@ package evmonly
 import (
 	"context"
 	"math/big"
+	"slices"
 	"sync"
 	"sync/atomic"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 )
 
@@ -174,7 +176,7 @@ func (e *Executor) reuseEarlySpeculation(ctx context.Context, req PreparedBlock,
 				case readsAnyChange(s.results[i].readSet, between):
 					stale.Add(1)
 				default:
-					results[i] = s.results[i]
+					results[i] = rebaseCredits(s.results[i], between)
 					filled[i] = true
 					reused.Add(1)
 				}
@@ -234,6 +236,48 @@ func readsAnyChange(reads map[stateAccessKey]struct{}, blocks []*pendingIndex) b
 		}
 	}
 	return false
+}
+
+// rebaseCredits returns result with each account it only credited, and so never read, restarted from the
+// state the newest of blocks left it in. The speculation saw the account as an older block left it.
+func rebaseCredits(result occTxExecution, blocks []*pendingIndex) occTxExecution {
+	var accounts []AccountChange
+	for i, change := range result.changeSet.Accounts {
+		delta := result.commutativeBalanceDeltas[change.Address]
+		if delta == nil {
+			continue
+		}
+		if _, ok := result.writeSet[stateAccessKey{kind: stateAccessBalance, address: change.Address}]; ok {
+			continue
+		}
+		latest, ok := newestAccountState(blocks, change.Address)
+		if !ok {
+			continue
+		}
+		if accounts == nil {
+			accounts = slices.Clone(result.changeSet.Accounts)
+		}
+		accounts[i].Prior = AccountState{Balance: cloneBig(latest.Balance), Nonce: latest.Nonce, Code: cloneBytes(latest.Code)}
+		accounts[i].Account = AccountState{
+			Balance: new(big.Int).Add(cloneBig(latest.Balance), delta),
+			Nonce:   latest.Nonce,
+			Code:    cloneBytes(latest.Code),
+		}
+	}
+	if accounts != nil {
+		result.changeSet.Accounts = accounts
+	}
+	return result
+}
+
+// newestAccountState returns addr's state after the last of blocks that changed it.
+func newestAccountState(blocks []*pendingIndex, addr common.Address) (AccountState, bool) {
+	for i := len(blocks) - 1; i >= 0; i-- {
+		if state, ok := blocks[i].accounts[addr]; ok {
+			return state, true
+		}
+	}
+	return AccountState{}, false
 }
 
 // sameBlockContext reports whether a and b give execution the same block constants.

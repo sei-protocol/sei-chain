@@ -2,6 +2,7 @@ package evmonly
 
 import (
 	"math/big"
+	"slices"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -105,6 +106,60 @@ func TestEarlySpeculationReusesOnlyResultsNoExecutedBlockChanged(t *testing.T) {
 	filled := executor.reuseEarlySpeculation(t.Context(), block2, results)
 	require.Equal(t, []bool{true, false}, filled)
 	require.NoError(t, executor.AwaitCommits())
+}
+
+// A reused early result credits the coinbase without reading it, so the credit has to land on the balance
+// the blocks executed in between left rather than the one the speculation read.
+func TestEarlySpeculationCreditsTheBalanceBlocksInBetweenLeft(t *testing.T) {
+	scenario := newPipelineScenario(t)
+	idle, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	idle2, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	genesis := func() *MemoryStore {
+		g := scenario.genesis()
+		g.SetBalance(crypto.PubkeyToAddress(idle.PublicKey), big.NewInt(10*testFundedBalanceWei))
+		g.SetBalance(crypto.PubkeyToAddress(idle2.PublicKey), big.NewInt(10*testFundedBalanceWei))
+		return NewMemoryStore(g)
+	}
+	syncExecutor := NewExecutor(Config{OCCWorkers: 4}, withTestStores(genesis(), NewMemoryReceiptStore()))
+	defer syncExecutor.Close()
+	earlyExecutor := newEarlyExecutor(genesis())
+	defer earlyExecutor.Close()
+
+	first := blockContext(scenario.chainID)
+	first.Number = 1
+	second := blockContext(scenario.chainID)
+	second.Number = 2
+	untouched := testAddress(0x77)
+	requests := []BlockRequest{
+		{Context: first, Txs: scenario.block(t, 1)},
+		{Context: second, Txs: [][]byte{
+			signLegacyTx(t, idle, scenario.chainID, 0, &untouched, big.NewInt(5), nil),
+			signLegacyTx(t, idle2, scenario.chainID, 0, &untouched, big.NewInt(6), nil),
+		}},
+	}
+	prepared := make([]PreparedBlock, len(requests))
+	for i, req := range requests {
+		prepared[i], err = earlyExecutor.PrepareBlock(t.Context(), req)
+		require.NoError(t, err)
+	}
+	earlyExecutor.SpeculateEarly(prepared[1])
+	waitEarlySpeculation(earlyExecutor, 2)
+
+	for i, req := range requests {
+		want, err := syncExecutor.ExecuteBlock(t.Context(), req)
+		require.NoError(t, err)
+		got, err := earlyExecutor.ExecutePreparedBlock(t.Context(), prepared[i])
+		require.NoError(t, err)
+		require.Truef(t, slices.ContainsFunc(want.ChangeSet.Accounts, func(c AccountChange) bool {
+			return c.Address == req.Context.Coinbase
+		}), "block %d credits the coinbase", req.Context.Number)
+		require.Equalf(t, want.ChangeSet, got.ChangeSet, "block %d changeset", req.Context.Number)
+		want.Release()
+		got.Release()
+	}
+	require.NoError(t, earlyExecutor.AwaitCommits())
 }
 
 // Early results computed for other block constants are never reused.
