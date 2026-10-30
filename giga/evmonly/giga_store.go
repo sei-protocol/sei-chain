@@ -184,6 +184,23 @@ func (e *Executor) encodingReadsTheStore() bool {
 	return e.blockChangeSetEncoder != nil && e.blockEncoderReadsStore
 }
 
+// SettledNonce returns addr's nonce in the state every block this executor has run produced. It
+// reads an in-flight commit's nonces from that commit's changes instead of waiting for it to land.
+func (e *Executor) SettledNonce(addr common.Address) uint64 {
+	// Taken before the view, for the reason executePreparedBlockWithStore gives.
+	pending := e.pipelinePending()
+	if pending != nil {
+		for i := len(pending.Accounts) - 1; i >= 0; i-- {
+			if pending.Accounts[i].Address == addr {
+				return pending.Accounts[i].Account.Nonce
+			}
+		}
+	}
+	view := e.stateStore.OpenView()
+	defer view.Close()
+	return view.GetNonce(addr)
+}
+
 // AwaitCommits blocks until every block this executor has run is committed, and reports the first
 // commit that failed.
 //
