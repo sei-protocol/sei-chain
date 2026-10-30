@@ -170,7 +170,7 @@ func startLightNode(ctx context.Context, cfg *Config) error {
 		ctx,
 		cfg.ChainID,
 		light.TrustOptions{
-			Period: tmcfg.StateSync.TrustPeriod,
+			Period: config.StateSyncTrustPeriod(cfg.ChainID),
 			Height: tmcfg.StateSync.TrustHeight,
 			Hash:   tmcfg.StateSync.TrustHashBytes(),
 		},
