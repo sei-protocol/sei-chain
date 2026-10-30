@@ -4,16 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/evmrpc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -176,54 +171,6 @@ func (c *MockClient) Validators(ctx context.Context, height *int64, page, perPag
 		return res, nil
 	}
 	return &coretypes.ResultValidators{}, nil
-}
-
-func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
-	if strings.Contains(req.Filter.Query, "tm.event = 'NewBlock'") {
-		var cursor int
-		var err error
-		if req.After != "" {
-			cursor, err = strconv.Atoi(req.After)
-			if err != nil {
-				panic("invalid cursor")
-			}
-		} else {
-			cursor = 0
-		}
-		res := &coretypes.ResultEvents{Oldest: strconv.FormatInt(int64(cursor), 10), Items: make([]*coretypes.EventItem, 0, req.MaxItems)}
-		for ; cursor < len(c.blocks); cursor++ {
-			if len(res.Items) >= req.MaxItems {
-				res.More = true
-				break
-			}
-			block := c.getBlock(int64(cursor + 1))
-			data := tmtypes.EventDataNewBlock{
-				Block:   block.Block,
-				BlockID: block.BlockID,
-			}
-			eventData, err := json.Marshal(data)
-			if err != nil {
-				panic(err)
-			}
-			wrappedData := evmrpc.EventItemDataWrapper{
-				Type:  "NewBlock",
-				Value: eventData,
-			}
-			bz, err := json.Marshal(wrappedData)
-			if err != nil {
-				panic(err)
-			}
-			res.Items = append(res.Items, &coretypes.EventItem{
-				Cursor: strconv.FormatInt(int64(cursor), 10),
-				Data:   bz,
-				Event:  "event",
-			})
-		}
-		res.Newest = strconv.FormatInt(int64(cursor-1), 10)
-		return res, nil
-	} else {
-		panic(fmt.Sprintf("event query %s is not expected to be made by EVM RPC", req.Filter.Query))
-	}
 }
 
 func (c *MockClient) UnconfirmedTxs(context.Context, *int, *int) (*coretypes.ResultUnconfirmedTxs, error) {
