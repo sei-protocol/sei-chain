@@ -285,6 +285,14 @@ func (b *replayBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, g
 	return b.executor.EstimateGas(ctx, b.tip, msg, gasCap)
 }
 
+func (b *replayBackend) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+	return b.executor.EstimateGasAfterCalls(ctx, b.tip, calls, msg, gasCap)
+}
+
+func (b *replayBackend) EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
+	return b.executor.CreateAccessList(ctx, b.tip, msg)
+}
+
 func (b *replayBackend) EvmGasLimit() (uint64, error) {
 	return b.tip.GasLimit, nil
 }

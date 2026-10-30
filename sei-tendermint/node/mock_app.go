@@ -185,6 +185,16 @@ func (app *MockApp) EvmEstimateGasAt(context.Context, *ethcore.Message, uint64, 
 	return 0, nil, errMockAppNoExecution
 }
 
+// EvmEstimateGasAfterCalls always errors: the mock app keeps no EVM state to execute against.
+func (app *MockApp) EvmEstimateGasAfterCalls(context.Context, []*ethcore.Message, *ethcore.Message, uint64) (uint64, []byte, error) {
+	return 0, nil, errMockAppNoExecution
+}
+
+// EvmCreateAccessList always errors: the mock app keeps no EVM state to execute against.
+func (app *MockApp) EvmCreateAccessList(context.Context, *ethcore.Message) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
+	return nil, nil, errMockAppNoExecution
+}
+
 func (app *MockApp) EvmBaseFee() *big.Int { return new(big.Int) }
 
 // EvmGasLimit returns 0: the mock app does not meter block gas.

@@ -87,6 +87,29 @@ func (api *txAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*
 	return result, nil
 }
 
+// GetVMError returns the EVM error hash's transaction failed with, or "" when it
+// succeeded. It returns an error when hash has no finalized receipt.
+func (api *txAPI) GetVMError(ctx context.Context, hash common.Hash) (string, error) {
+	stored, _, err := api.lookupFinalizedTx(ctx, hash)
+	if err != nil {
+		return "", err
+	}
+	if stored == nil {
+		return "", receiptpkg.ErrNotFound
+	}
+	return stored.VmError, nil
+}
+
+// GetTransactionErrorByHash returns the EVM error hash's transaction failed with,
+// or "" when it succeeded or has no finalized receipt.
+func (api *txAPI) GetTransactionErrorByHash(ctx context.Context, hash common.Hash) (string, error) {
+	stored, _, err := api.lookupFinalizedTx(ctx, hash)
+	if err != nil || stored == nil {
+		return "", err
+	}
+	return stored.VmError, nil
+}
+
 // lookupFinalizedTx resolves hash's stored receipt and finalized block. It
 // returns a nil receipt with a nil error when hash is unknown or its block is
 // not yet finalized.

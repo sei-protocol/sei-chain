@@ -1,7 +1,6 @@
 package memblock
 
 import (
-	"math"
 	"slices"
 	"sync"
 
@@ -13,10 +12,8 @@ var _ blocktypes.BlockDB = (*blockDB)(nil)
 type blockDB struct {
 	mu        sync.RWMutex
 	suffix    blocktypes.Suffix
-	groups    []blocktypes.QCGroupRecord
-	qcs       map[blocktypes.BlockNumber]blocktypes.QCRecord
 	blocks    map[blocktypes.BlockNumber]blocktypes.BlockRecord
-	hashes    map[string]blocktypes.BlockRecord
+	hashes    map[blocktypes.BlockHash]blocktypes.BlockNumber
 	appQCs    map[blocktypes.BlockNumber]blocktypes.AppQCRecord
 	proposals map[blocktypes.BlockNumber]blocktypes.AppProposalRecord
 	watermark blocktypes.BlockNumber
@@ -25,117 +22,125 @@ type blockDB struct {
 // NewBlockDB returns an in-memory blocktypes.BlockDB.
 func NewBlockDB() blocktypes.BlockDB {
 	return &blockDB{
-		qcs: make(map[blocktypes.BlockNumber]blocktypes.QCRecord), blocks: make(map[blocktypes.BlockNumber]blocktypes.BlockRecord), hashes: make(map[string]blocktypes.BlockRecord), appQCs: make(map[blocktypes.BlockNumber]blocktypes.AppQCRecord), proposals: make(map[blocktypes.BlockNumber]blocktypes.AppProposalRecord),
+		blocks:    make(map[blocktypes.BlockNumber]blocktypes.BlockRecord),
+		hashes:    make(map[blocktypes.BlockHash]blocktypes.BlockNumber),
+		appQCs:    make(map[blocktypes.BlockNumber]blocktypes.AppQCRecord),
+		proposals: make(map[blocktypes.BlockNumber]blocktypes.AppProposalRecord),
 	}
 }
-func (s *blockDB) PutQC(qc blocktypes.QCGroupRecord) error {
-	if len(qc.Blocks) == 0 {
-		panic("QC group requires blocks")
-	}
-	for _, block := range qc.Blocks {
-		if block.Number == math.MaxUint64 {
-			panic("block number has no exclusive upper bound")
-		}
-	}
-	qc.QC.Data = slices.Clone(qc.QC.Data)
-	qc.Blocks = slices.Clone(qc.Blocks)
-	for i := range qc.Blocks {
-		qc.Blocks[i].Hash = slices.Clone(qc.Blocks[i].Hash)
-		qc.Blocks[i].Value = slices.Clone(qc.Blocks[i].Value)
+
+func (s *blockDB) PutBlock(record blocktypes.BlockRecord) error {
+	record.QC = slices.Clone(record.QC)
+	record.LaneBlocks = slices.Clone(record.LaneBlocks)
+	for i, block := range record.LaneBlocks {
+		record.LaneBlocks[i] = slices.Clone(block)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.groups = append(s.groups, qc)
-	for _, block := range qc.Blocks {
-		s.qcs[block.Number] = qc.QC
-		s.blocks[block.Number] = block
-		s.hashes[string(block.Hash)] = block
-	}
+	s.suffix.Blocks = append(s.suffix.Blocks, record)
+	s.blocks[record.Index] = record
+	s.hashes[record.Hash] = record.Index
 	return nil
 }
-func (s *blockDB) PutAppQC(qc blocktypes.AppQCRecord) error {
-	qc.Data = slices.Clone(qc.Data)
+
+func (s *blockDB) PutAppQC(record blocktypes.AppQCRecord) error {
+	record.Data = slices.Clone(record.Data)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.suffix.AppQCs = append(s.suffix.AppQCs, qc)
-	for n := qc.First; n < qc.Next; n++ {
-		s.appQCs[n] = qc
-	}
+	s.suffix.AppQCs = append(s.suffix.AppQCs, record)
+	s.appQCs[record.Index] = record
 	return nil
 }
-func (s *blockDB) PutAppProposal(proposal blocktypes.AppProposalRecord) error {
-	proposal.Data = slices.Clone(proposal.Data)
+
+func (s *blockDB) PutAppProposal(record blocktypes.AppProposalRecord) error {
+	record.Data = slices.Clone(record.Data)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.suffix.AppProposals = append(s.suffix.AppProposals, proposal)
-	for n := proposal.First; n < proposal.Next; n++ {
-		s.proposals[n] = proposal
-	}
+	s.suffix.AppProposals = append(s.suffix.AppProposals, record)
+	s.proposals[record.Index] = record
 	return nil
 }
+
 func (s *blockDB) GetQC(n blocktypes.BlockNumber) ([]byte, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	qc, ok := s.qcs[n]
-	return qc.Data, ok, nil
+	record, ok := s.blocks[n]
+	return record.QC, ok, nil
 }
-func (s *blockDB) GetBlock(n blocktypes.BlockNumber) ([]byte, bool, error) {
+
+func (s *blockDB) GetBlockByNumber(n blocktypes.BlockNumber) (blocktypes.BlockRecord, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	block, ok := s.blocks[n]
-	return block.Value, ok, nil
+	record, ok := s.blocks[n]
+	return record, ok, nil
 }
-func (s *blockDB) GetBlockByHash(hash blocktypes.BlockHash) (blocktypes.BlockNumber, []byte, bool, error) {
+
+func (s *blockDB) GetBlockByHash(hash blocktypes.BlockHash) (blocktypes.BlockRecord, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	block, ok := s.hashes[string(hash)]
-	return block.Number, block.Value, ok, nil
+	index, ok := s.hashes[hash]
+	if !ok {
+		return blocktypes.BlockRecord{}, false, nil
+	}
+	return s.blocks[index], true, nil
 }
+
+func (s *blockDB) GetLaneBlock(n blocktypes.BlockNumber, offset uint64) ([]byte, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	record, ok := s.blocks[n]
+	if !ok || offset >= uint64(len(record.LaneBlocks)) {
+		return nil, false, nil
+	}
+	return record.LaneBlocks[offset], true, nil
+}
+
 func (s *blockDB) GetAppQC(n blocktypes.BlockNumber) ([]byte, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	qc, ok := s.appQCs[n]
-	return qc.Data, ok, nil
+	record, ok := s.appQCs[n]
+	return record.Data, ok, nil
 }
+
 func (s *blockDB) GetAppProposal(n blocktypes.BlockNumber) ([]byte, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	proposal, ok := s.proposals[n]
-	return proposal.Data, ok, nil
+	record, ok := s.proposals[n]
+	return record.Data, ok, nil
 }
+
 func (s *blockDB) ReadSuffix() (blocktypes.Suffix, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var first blocktypes.BlockNumber
 	if len(s.suffix.AppQCs) > 0 {
-		first = s.suffix.AppQCs[len(s.suffix.AppQCs)-1].First
+		first = s.suffix.AppQCs[len(s.suffix.AppQCs)-1].Index
 	}
 	var suffix blocktypes.Suffix
-	for _, qc := range s.groups {
-		if qc.Blocks[0].Number >= first {
-			suffix.QCs = append(suffix.QCs, qc.QC)
-			for _, block := range qc.Blocks {
-				suffix.Blocks = append(suffix.Blocks, blocktypes.BlockRecord{Number: block.Number, Value: block.Value})
-			}
+	for _, record := range s.suffix.Blocks {
+		if record.Index >= first {
+			suffix.Blocks = append(suffix.Blocks, record)
 		}
 	}
-	for _, qc := range s.suffix.AppQCs {
-		if qc.First >= first {
-			suffix.AppQCs = append(suffix.AppQCs, qc)
+	for _, record := range s.suffix.AppQCs {
+		if record.Index >= first {
+			suffix.AppQCs = append(suffix.AppQCs, record)
 		}
 	}
-	for _, proposal := range s.suffix.AppProposals {
-		if proposal.First >= first {
-			suffix.AppProposals = append(suffix.AppProposals, proposal)
+	for _, record := range s.suffix.AppProposals {
+		if record.Index >= first {
+			suffix.AppProposals = append(suffix.AppProposals, record)
 		}
 	}
 	return suffix, nil
 }
+
 func (s *blockDB) GetPruneWatermark() blocktypes.BlockNumber {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.watermark
 }
+
 func (s *blockDB) SetPruneWatermark(n blocktypes.BlockNumber) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -143,35 +148,26 @@ func (s *blockDB) SetPruneWatermark(n blocktypes.BlockNumber) {
 		return
 	}
 	s.watermark = n
-	s.groups = slices.DeleteFunc(s.groups, func(qc blocktypes.QCGroupRecord) bool {
-		for _, block := range qc.Blocks {
-			if block.Number >= n {
-				return false
-			}
-		}
-		for _, block := range qc.Blocks {
-			delete(s.qcs, block.Number)
-			delete(s.blocks, block.Number)
-			delete(s.hashes, string(block.Hash))
-		}
-		return true
-	})
-	s.suffix.AppQCs = slices.DeleteFunc(s.suffix.AppQCs, func(qc blocktypes.AppQCRecord) bool {
-		if qc.Next > n {
+	s.suffix.Blocks = slices.DeleteFunc(s.suffix.Blocks, func(record blocktypes.BlockRecord) bool {
+		if record.Index >= n {
 			return false
 		}
-		for i := qc.First; i < qc.Next; i++ {
-			delete(s.appQCs, i)
-		}
+		delete(s.blocks, record.Index)
+		delete(s.hashes, record.Hash)
 		return true
 	})
-	s.suffix.AppProposals = slices.DeleteFunc(s.suffix.AppProposals, func(proposal blocktypes.AppProposalRecord) bool {
-		if proposal.Next > n {
+	s.suffix.AppQCs = slices.DeleteFunc(s.suffix.AppQCs, func(record blocktypes.AppQCRecord) bool {
+		if record.Index >= n {
 			return false
 		}
-		for i := proposal.First; i < proposal.Next; i++ {
-			delete(s.proposals, i)
+		delete(s.appQCs, record.Index)
+		return true
+	})
+	s.suffix.AppProposals = slices.DeleteFunc(s.suffix.AppProposals, func(record blocktypes.AppProposalRecord) bool {
+		if record.Index >= n {
+			return false
 		}
+		delete(s.proposals, record.Index)
 		return true
 	})
 }

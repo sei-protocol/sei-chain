@@ -378,10 +378,15 @@ WebSocket (port 8546 by default):
   and `eth_getTransactionByBlockNumberAndIndex` /
   `eth_getTransactionByBlockHashAndIndex`, which return the transaction at a
   position in a block exactly as the full-transaction block lists it.
+  `eth_getVMError` and `eth_getTransactionErrorByHash` return the EVM error a
+  finalized transaction failed with, or `""` when it succeeded; for an unknown
+  hash the first returns an error and the second `""`, as on the regular RPC.
 - State: `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`,
   `eth_getStorageAt`, `eth_call`, and `eth_estimateGas`, at the latest block
   or a past one, named by number or hash, still within a full node's
-  retention window.
+  retention window; `eth_createAccessList` and `eth_estimateGasAfterCalls`
+  (which applies up to `max_estimate_gas_calls` calls before estimating),
+  against the latest state only.
 - Blocks: `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getBlockByHash`,
   `eth_getBlockTransactionCountByNumber` /
   `eth_getBlockTransactionCountByHash`, and `eth_getBlockReceipts`. Block
@@ -393,8 +398,10 @@ WebSocket (port 8546 by default):
   yet returns `null`.
 - Logs: `eth_getLogs`.
 - Fees: `eth_gasPrice`, `eth_maxPriorityFeePerGas`, and `eth_feeHistory`.
-- Node: `eth_chainId`, `net_version`, and `eth_syncing`, which returns a
-  not-supported error, as on the regular RPC.
+- Node: `eth_chainId`, `net_version`, `web3_clientVersion`, which returns
+  `Sei/<seid version>/<os>-<arch>/<go version>` (the regular RPC reports
+  `Geth/...`), and `eth_syncing`, which returns a not-supported error, as on the
+  regular RPC.
 - Tracing: `debug_traceTransaction`, `debug_traceCall`,
   `debug_traceBlockByNumber`, and `debug_traceBlockByHash`, with
   go-ethereum's tracers (see
@@ -408,9 +415,7 @@ subscription other than `newHeads`:
 - Not supported yet: the other `debug_*` methods, such as the raw-data ones,
   the polling filter methods (`eth_newFilter`, `eth_newBlockFilter`,
   `eth_newPendingTransactionFilter`, `eth_getFilterChanges`,
-  `eth_getFilterLogs`, `eth_uninstallFilter`), `eth_subscribe("logs")`,
-  `eth_getVMError`, `eth_getTransactionErrorByHash`, `eth_createAccessList`,
-  `eth_estimateGasAfterCalls`, and `web3_clientVersion`.
+  `eth_getFilterLogs`, `eth_uninstallFilter`), and `eth_subscribe("logs")`.
 - Not planned, because they need something the EVM-only chain does not have
   (Cosmos accounts, server-side keys, a mempool view, blobs, or state proofs),
   duplicate another method, or are development-only: `sei_getSeiAddress`,
@@ -425,12 +430,14 @@ subscription other than `newHeads`:
   `eth_getCode`, `eth_getStorageAt`, `eth_call`, and `eth_estimateGas` answer
   a past height, block hash, or `earliest` only on a node that keeps the EVM
   state store (a full node, not a validator), and only within its retention
-  window. A validator answers only the latest block.
+  window. A validator answers only the latest block. `eth_createAccessList`
+  and `eth_estimateGasAfterCalls` serve the latest state only.
 - Any address that has never been written reports `2^200` wei, including
   inside `eth_call` and `eth_estimateGas`. This is the test network's funding
   rule, in place of genesis allocations.
-- `eth_call`, `eth_estimateGas`, and `debug_traceCall` take no state or block
-  override arguments, unlike the regular RPC.
+- `eth_call`, `eth_estimateGas`, `eth_estimateGasAfterCalls`, and
+  `debug_traceCall` take no state or block override arguments, unlike the
+  regular RPC.
 - `pending` means the latest committed state, and there is no mempool view, so
   a submitted transaction is not returned by hash until it executes.
 - Block fields: `logsBloom` is always empty, `baseFeePerGas` is always zero,
@@ -454,14 +461,14 @@ subscription other than `newHeads`:
 - Blob (EIP-4844) transactions are not accepted.
 
 `make autobahn-integration-test` starts a local four-validator cluster and,
-after a 4,000-transfer load and one contract deploy, checks every method above
-except the `debug_trace*` methods on all four validators, including that they
-return the same blocks and receipts. It traces the deploy and its block on the
-RPC node, which keeps the state history a past transaction replays on, and a
-call to the contract on every node. On the RPC node it also reads the
-contract's code and slot, calls it, and estimates a call to it, before and at
-the deploy block, by number and by hash, and checks that a validator refuses
-a call at a past block.
+after a 4,000-transfer load, one contract deploy, and one failing deploy,
+checks every method above except the `debug_trace*` methods on all four
+validators, including that they return the same blocks and receipts. It traces
+the deploy and its block on the RPC node, which keeps the state history a past
+transaction replays on, and a call to the contract on every node. On the RPC
+node it also reads the contract's code and slot, calls it, and estimates a call
+to it, before and at the deploy block, by number and by hash, and checks that a
+validator refuses a call at a past block.
 
 ### Request and WebSocket limits
 
@@ -481,6 +488,7 @@ the row says otherwise:
 | `batch_request_limit` | 100 | requests in one JSON-RPC batch |
 | `batch_response_max_size` | 25000000 | bytes of responses in one JSON-RPC batch |
 | `max_ws_connections` | 2000 | open WebSocket connections; further connections wait |
+| `max_estimate_gas_calls` | 100 | calls one `eth_estimateGasAfterCalls` request may apply |
 | `max_concurrent_trace_calls` | 10 | `debug_trace*` calls running at once; a call past it is refused |
 | `trace_timeout` | `30s` | how long one `debug_trace*` call may run |
 | `max_trace_struct_log_bytes` | 33554432 (32 MiB) | output of the default struct logger for each traced transaction |

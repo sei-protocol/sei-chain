@@ -67,6 +67,12 @@ type Backend interface {
 	// EvmEstimateGasAt returns the lowest gas limit that lets msg succeed against the committed
 	// EVM state after header's block, and any revert data if it still fails at gasCap.
 	EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error)
+	// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg with calls applied
+	// to the committed state first, in order.
+	EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error)
+	// EvmCreateAccessList returns the access list msg touches against the committed state, and
+	// the result of executing msg with that list.
+	EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error)
 	EvmGasLimit() (uint64, error)
 	// EvmMinGasPrice returns the minimum effective gas price this application admits a
 	// transaction at.
@@ -166,7 +172,7 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 	if err := rpcServer.RegisterName("eth", &callAPI{backend: backend, blocks: blocks}); err != nil {
 		return nil, fmt.Errorf("register EVM-only call RPC: %w", err)
 	}
-	if err := rpcServer.RegisterName("eth", &estimateAPI{backend: backend, blocks: blocks}); err != nil {
+	if err := rpcServer.RegisterName("eth", &estimateAPI{backend: backend, blocks: blocks, maxCalls: limits.MaxEstimateGasCalls}); err != nil {
 		return nil, fmt.Errorf("register EVM-only estimate RPC: %w", err)
 	}
 	if err := rpcServer.RegisterName("eth", blocks); err != nil {
@@ -180,6 +186,9 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 	}
 	if err := rpcServer.RegisterName("net", &netAPI{backend: backend}); err != nil {
 		return nil, fmt.Errorf("register EVM-only net RPC: %w", err)
+	}
+	if err := rpcServer.RegisterName("web3", &web3API{}); err != nil {
+		return nil, fmt.Errorf("register EVM-only web3 RPC: %w", err)
 	}
 	subscriptions := newSubscriptionLimiter(limits.MaxSubscriptionsNewHead, limits.MaxSubscriptionsPerConnection)
 	if err := rpcServer.RegisterName("eth", &subscribeAPI{backend: backend, store: receiptStore, limits: subscriptions}); err != nil {

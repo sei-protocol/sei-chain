@@ -13,7 +13,7 @@ func TestExecutedBlocks(t *testing.T) {
 	require.False(t, ok)
 
 	w := NewExecutedBlocks(ExecutedBlock{Number: 10})
-	for n := GlobalBlockNumber(11); n <= 10+ExecutedBlocksWindow; n++ {
+	for n := RoadIndex(11); n <= 10+ExecutedBlocksWindow; n++ {
 		w = w.Push(ExecutedBlock{Number: n, GasUsed: uint64(n) * 1000})
 	}
 	require.Equal(t, ExecutedBlock{Number: 10 + ExecutedBlocksWindow, GasUsed: (10 + ExecutedBlocksWindow) * 1000}, w.Latest())
