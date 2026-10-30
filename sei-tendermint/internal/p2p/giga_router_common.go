@@ -396,6 +396,9 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		// The buffer lets execution continue while the hash loop proposes earlier
 		// commits.
 		committed := make(chan pendingExecution, pendingExecutionBuffer)
+		s.SpawnNamed("reportBlockHashes", func() error {
+			return r.runReportBlockHashes(ctx, next)
+		})
 		s.SpawnNamed("pushAppHashes", func() error {
 			return r.runPushAppHashes(ctx, committed, hashes)
 		})
@@ -546,6 +549,19 @@ func recvAppHashAtHeight(
 	return record, nil
 }
 
+// runReportBlockHashes reports the road block hash of each block from next.
+func (r *gigaRouterCommon) runReportBlockHashes(ctx context.Context, next atypes.RoadIndex) error {
+	for n := next; ; n += 1 {
+		b, err := r.data.SuperBlock(ctx, n)
+		if err != nil {
+			return fmt.Errorf("r.data.SuperBlock(%v): %w", n, err)
+		}
+		if err := r.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
+			return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", n, err)
+		}
+	}
+}
+
 // runExecuteBlocks keeps FinalizeBlock and Commit together on this loop, one
 // block at a time from next, handing each committed block to the hash loop.
 // The next block's Commit overlaps the previous block's proposal.
@@ -559,10 +575,6 @@ func (r *gigaRouterCommon) runExecuteBlocks(
 		b, err := r.data.SuperBlock(ctx, n)
 		if err != nil {
 			return fmt.Errorf("r.data.SuperBlock(%v): %w", n, err)
-		}
-		blockHash := [32]byte(b.Hash)
-		if err := r.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), blockHash); err != nil {
-			return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", n, err)
 		}
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
 		opt, err := r.startExecuteBlock(ctx, b)
