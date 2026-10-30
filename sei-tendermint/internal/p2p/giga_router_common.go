@@ -336,7 +336,7 @@ func registerAppHashListener(
 	ctx context.Context,
 	appHashes builder.AppHashBuilder,
 	hashes chan<- *apphash.AppHashData,
-) (*apphash.AppHashData, error) {
+) (utils.Option[apphash.AppHashData], error) {
 	// TODO: replace RegisterListener and Iterator with a blocking GetHash(ctx, height).
 	published, err := appHashes.RegisterListener(ctx, func(appHash *apphash.AppHashData) {
 		// A canceled context means the router is stopping. The listener cannot
@@ -344,18 +344,23 @@ func registerAppHashListener(
 		_ = utils.Send(ctx, hashes, appHash)
 	})
 	if err != nil {
-		return nil, err
+		return utils.None[apphash.AppHashData](), err
 	}
-	return published, nil
+	// RegisterListener uses a nil pointer for "nothing published yet".
+	if published == nil {
+		return utils.None[apphash.AppHashData](), nil
+	}
+	return utils.Some(*published), nil
 }
 
-// listenerContinuesAt returns nil when published is the app hash of tip.
+// listenerContinuesAt returns nil when published holds the app hash of tip.
 // The listener's next hash is then the block after tip.
-func listenerContinuesAt(published *apphash.AppHashData, tip atypes.RoadIndex) error {
-	if published == nil {
+func listenerContinuesAt(published utils.Option[apphash.AppHashData], tip atypes.RoadIndex) error {
+	record, ok := published.Get()
+	if !ok {
 		return fmt.Errorf("app hash listener has no hash for app tip %d", tip)
 	}
-	if got := atypes.RoadIndex(published.BlockHeight()); got != tip {
+	if got := atypes.RoadIndex(record.BlockHeight()); got != tip {
 		return fmt.Errorf("app hash listener resumes after block %d, app tip is %d", got, tip)
 	}
 	return nil
