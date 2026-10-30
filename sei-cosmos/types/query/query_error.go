@@ -5,9 +5,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// WrapGRPCError returns err unchanged when it already carries a gRPC status code,
+// WrapQueryError returns err unchanged when it already carries a gRPC status code,
 // otherwise wraps it as Internal.
-func WrapGRPCError(err error) error {
+func WrapQueryError(err error) error {
 	if err == nil {
 		return nil
 	}
