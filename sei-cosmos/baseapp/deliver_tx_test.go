@@ -323,15 +323,15 @@ func TestQuery(t *testing.T) {
 	require.Equal(t, value, res.Value)
 }
 
-func TestGRPCQuery(t *testing.T) {
-	grpcQueryOpt := func(bapp *BaseApp) {
+func TestQueryServiceRouterQuery(t *testing.T) {
+	queryServiceOpt := func(bapp *BaseApp) {
 		testdata.RegisterQueryServer(
-			bapp.GRPCQueryRouter(),
+			bapp.QueryServiceRouter(),
 			testdata.QueryImpl{},
 		)
 	}
 
-	app := setupBaseApp(t, grpcQueryOpt)
+	app := setupBaseApp(t, queryServiceOpt)
 
 	app.InitChain(&abci.RequestInitChain{})
 	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
