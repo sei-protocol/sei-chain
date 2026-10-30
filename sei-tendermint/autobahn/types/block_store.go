@@ -1,8 +1,6 @@
 package types
 
 import (
-	"fmt"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -58,60 +56,6 @@ type SuffixRange struct {
 	NextAppProposal RoadIndex
 	// NextBlock is the next road awaiting a persisted block.
 	NextBlock RoadIndex
-}
-
-// RoadBlock is a committed QC and all its blocks in header order.
-type RoadBlock struct {
-	utils.ReadOnly
-	qc         *FullCommitQC
-	laneBlocks []*Block
-}
-
-// NewRoadBlock constructs a road block with lane blocks in header order.
-func NewRoadBlock(qc *FullCommitQC, laneBlocks []*Block) *RoadBlock {
-	return &RoadBlock{qc: qc, laneBlocks: laneBlocks}
-}
-
-// Header returns the road block header.
-func (b *RoadBlock) Header() *RoadBlockHeader { return b.qc.Header() }
-
-// QC returns the full CommitQC for the road.
-func (b *RoadBlock) QC() *FullCommitQC { return b.qc }
-
-// LaneBlocks returns the lane blocks in header order.
-func (b *RoadBlock) LaneBlocks() []*Block { return b.laneBlocks }
-
-// SuperBlock returns the merged transactions and execution metadata for the road.
-func (b *RoadBlock) SuperBlock() *SuperBlock {
-	superBlock := &SuperBlock{
-		Hash:      b.Header().Hash(),
-		Height:    b.qc.Index(),
-		Timestamp: b.Header().Timestamp(),
-	}
-	for _, block := range b.laneBlocks {
-		superBlock.GasWanted += block.Payload().TotalGasWanted()
-		superBlock.Txs = append(superBlock.Txs, block.Payload().Txs()...)
-	}
-	return superBlock
-}
-
-// Verify verifies the QC against the epoch and checks its lane blocks in header order.
-func (b *RoadBlock) Verify(ep *Epoch) error {
-	if err := b.qc.Verify(ep); err != nil {
-		return fmt.Errorf("qc.Verify(): %w", err)
-	}
-	if len(b.laneBlocks) != len(b.qc.Headers()) {
-		return ErrQCBlocksMismatch
-	}
-	for i, block := range b.laneBlocks {
-		if err := block.Verify(); err != nil {
-			return fmt.Errorf("block %d: %w: %w", i, ErrQCBlocksMismatch, err)
-		}
-		if block.Header().Hash() != b.qc.Headers()[i].Hash() {
-			return ErrQCBlocksMismatch
-		}
-	}
-	return nil
 }
 
 // Suffix is the materialized suffix used by data.State startup recovery.

@@ -450,19 +450,6 @@ func TestProposalVerifyAcceptsNonContiguousImplicitRanges(t *testing.T) {
 	require.NoError(t, shortFP.Verify(vs, testViewTimeout))
 }
 
-func TestLaneRangeVerifyRejectsHashAtHeightZero(t *testing.T) {
-	rng := utils.TestRng()
-	committee, _ := GenCommittee(rng, 4)
-	lane := committee.Lanes().At(0)
-
-	require.Error(t, (&LaneRange{lane: lane, first: 0, next: 0, lastHash: GenBlockHeaderHash(rng)}).Verify(committee))
-	require.NoError(t, (&LaneRange{lane: lane, first: 0, next: 0}).Verify(committee))
-	// Past height 0 an empty range may carry a tip. FullProposal.Verify checks that it matches.
-	require.NoError(t, (&LaneRange{
-		lane: lane, first: 1, next: 1, lastHash: GenBlockHeaderHash(rng),
-	}).Verify(committee))
-}
-
 func TestProposalEmptyLaneAtHeightZeroHasNoHash(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)

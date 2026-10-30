@@ -6,13 +6,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 func TestLocalMetaDecoder(t *testing.T) {
 	t.Run("FullRecord", func(t *testing.T) {
-		root := lthash.ComputeLtHash(nil, []lthash.KeyMutation{{Key: []byte("evm/k"), Value: []byte("v")}})
+		root := lthash.ComputeLtHash(nil, []mutation.Mutation{{Key: []byte("evm/k"), NewValue: []byte("v")}})
 		stats := map[string]lthash.ModuleStats{"evm": {KeyCount: 1, Bytes: 6}}
 		pairs, err := encodeLocalMeta(42, root, map[string]*lthash.LtHash{"evm": root}, stats)
 		require.NoError(t, err)

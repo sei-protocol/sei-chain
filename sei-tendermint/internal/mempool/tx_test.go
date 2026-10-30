@@ -8,11 +8,16 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 func newTxStoreForTest() *txStore {
@@ -788,4 +793,153 @@ func TestTxStore_InsertCompactionKeepsReadyListInSync(t *testing.T) {
 		}
 		require.ElementsMatch(t, toTxs(expected), listed)
 	}
+}
+
+// bindTestPendingNonceMetric rebinds the pending nonce counter to a manual reader
+// for the duration of the test.
+func bindTestPendingNonceMetric(t *testing.T) *sdkmetric.ManualReader {
+	t.Helper()
+	reader := sdkmetric.NewManualReader()
+	meter := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("tendermint_mempool")
+	previous := otelMetrics.pendingNonce
+	t.Cleanup(func() { otelMetrics.pendingNonce = previous })
+	otelMetrics.pendingNonce = utils.OrPanic1(meter.Int64Counter("tendermint_mempool_pending_nonce"))
+	return reader
+}
+
+// pendingNonceEvents returns the collected pending nonce counts keyed by event.
+func pendingNonceEvents(t *testing.T, reader *sdkmetric.ManualReader) map[string]int64 {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	events := map[string]int64{}
+	for _, scope := range rm.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			if !ok {
+				continue
+			}
+			for _, dp := range sum.DataPoints {
+				event, _ := dp.Attributes.Value(attribute.Key("event"))
+				events[event.AsString()] += dp.Value
+			}
+		}
+	}
+	return events
+}
+
+func TestTxStore_PendingNonceExpiredExcludesExecutedAndInvalidTxs(t *testing.T) {
+	rng := utils.TestRng()
+	cfg := TestConfig()
+	cfg.TTLNumBlocks = utils.Some(int64(10))
+	cfg.RemoveExpiredTxsFromQueue = true
+
+	app := newEVMNonceApp()
+	txStore := NewTxStore(cfg, proxy.New(app))
+	address := genEvmAddress(rng)
+	app.setNonce(address, 5)
+	app.setBalance(address, 1_000_000)
+
+	var txs []*WrappedTx
+	for nonce := range uint64(3) {
+		wtx := makeEvmTxForTest(rng, address, 5+nonce, rng.Int63n(1_000_000)+1, 0)
+		wtx.height = 1
+		require.NoError(t, txStore.Insert(wtx))
+		txs = append(txs, wtx)
+	}
+	executed, invalid := txs[0], txs[1]
+
+	reader := bindTestPendingNonceMetric(t)
+	txStore.Update(updateSpec{
+		Now:           time.Now(),
+		Height:        20,
+		TxResults:     map[types.TxHash]bool{executed.Hash(): true},
+		Constraints:   NopTxConstraints(),
+		NewPriorities: map[types.TxHash]int64{},
+		InvalidTxs:    map[types.TxHash]bool{invalid.Hash(): true},
+	})
+
+	for _, wtx := range txs {
+		_, ok := txStore.ByHash(wtx.Hash())
+		require.False(t, ok)
+	}
+	require.Equal(t, int64(1), pendingNonceEvents(t, reader)["expired"])
+}
+
+func TestTxStore_PendingNonceAddedExcludesTxEvictedOnInsert(t *testing.T) {
+	rng := utils.TestRng()
+	cfg := TestConfig()
+	cfg.Size = 1
+	cfg.PendingSize = 0
+
+	app := newEVMNonceApp()
+	txStore := NewTxStore(cfg, proxy.New(app))
+	reader := bindTestPendingNonceMetric(t)
+
+	// Fill the store up to its hard limit with high priority txs.
+	for range 2 * cfg.Size {
+		require.NoError(t, txStore.Insert(makeEvmTxForTest(rng, genEvmAddress(rng), 0, 1_000, 0)))
+	}
+	evicted := makeEvmTxForTest(rng, genEvmAddress(rng), 0, 1, 0)
+	require.ErrorIs(t, txStore.Insert(evicted), errMempoolFull)
+
+	require.Equal(t, int64(2*cfg.Size), pendingNonceEvents(t, reader)["added"])
+}
+
+// bindTestGlobalMetrics replaces the global mempool metrics for the duration of the test.
+func bindTestGlobalMetrics(t *testing.T) *Metrics {
+	t.Helper()
+	previous := Global
+	t.Cleanup(func() { Global = previous })
+	Global = NewMetrics()
+	return Global
+}
+
+func counterValue(t *testing.T, c *tmprometheus.CounterInt) int64 {
+	t.Helper()
+	var m dto.Metric
+	require.NoError(t, c.Write(&m))
+	return int64(m.GetCounter().GetValue())
+}
+
+func TestTxStore_ExpiredTxsCountsOnlyTxsRemovedByExpiry(t *testing.T) {
+	rng := utils.TestRng()
+	cfg := TestConfig()
+	cfg.TTLNumBlocks = utils.Some(int64(10))
+	cfg.RemoveExpiredTxsFromQueue = false
+
+	app := newEVMNonceApp()
+	txStore := NewTxStore(cfg, proxy.New(app))
+	insertExpired := func(nonce uint64) *WrappedTx {
+		address := genEvmAddress(rng)
+		app.setNonce(address, 5)
+		app.setBalance(address, 1_000_000)
+		wtx := makeEvmTxForTest(rng, address, nonce, rng.Int63n(1_000_000)+1, 0)
+		wtx.height = 1
+		require.NoError(t, txStore.Insert(wtx))
+		return wtx
+	}
+	kept := insertExpired(5)     // ready, so kept despite expiry
+	executed := insertExpired(5) // removed for being executed
+	pending := insertExpired(7)  // nonce gap, so removed by expiry
+
+	metrics := bindTestGlobalMetrics(t)
+	for height, txResults := range []map[types.TxHash]bool{{executed.Hash(): true}, {}} {
+		txStore.Update(updateSpec{
+			Now:           time.Now(),
+			Height:        int64(20 + height),
+			TxResults:     txResults,
+			Constraints:   NopTxConstraints(),
+			NewPriorities: map[types.TxHash]int64{},
+			InvalidTxs:    map[types.TxHash]bool{},
+		})
+	}
+
+	_, ok := txStore.ByHash(kept.Hash())
+	require.True(t, ok)
+	for _, wtx := range []*WrappedTx{executed, pending} {
+		_, ok := txStore.ByHash(wtx.Hash())
+		require.False(t, ok)
+	}
+	require.Equal(t, int64(1), counterValue(t, metrics.ExpiredTxsAt()))
 }

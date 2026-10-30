@@ -209,7 +209,8 @@ func (w *stateWALImpl) Write(blockNumber uint64, mutations []mutation.Mutation) 
 		return fmt.Errorf("write rejected: %w", err)
 	}
 
-	if !w.send(writeRequest{blockNumber: blockNumber, mutations: mutations}) {
+	// The goroutine sorts the block in place, so it is given its own slice and the caller keeps theirs.
+	if !w.send(writeRequest{blockNumber: blockNumber, mutations: slices.Clone(mutations)}) {
 		return fmt.Errorf("failed to schedule block %d: %w", blockNumber, w.stoppedErr())
 	}
 	w.lastBlock.Store(blockNumber)
@@ -448,21 +449,20 @@ func (w *stateWALImpl) run() {
 	}
 }
 
-// write sorts the block's mutations by key, builds their BUD tree, appends their serialization to the WAL, and
-// delivers the block's BUD hash to every listener, returning the first error.
+// write sorts the block's mutations by key, computes their BUD hash, appends their serialization to the WAL, and
+// delivers the BUD hash to every listener, returning the first error.
 func (w *stateWALImpl) write(request writeRequest) error {
 	slices.SortFunc(request.mutations, func(a mutation.Mutation, b mutation.Mutation) int {
 		return bytes.Compare(a.Key, b.Key)
 	})
-	tree, err := budTreeFromMutations(request.mutations)
+	hash, err := budHashFromMutations(request.mutations)
 	if err != nil {
-		return fmt.Errorf("failed to build the BUD tree of block %d: %w", request.blockNumber, err)
+		return fmt.Errorf("failed to compute the BUD hash of block %d: %w", request.blockNumber, err)
 	}
 	if err := w.wal.Append(request.blockNumber, serializeBlock(request.mutations)); err != nil {
 		return fmt.Errorf("failed to append block %d: %w", request.blockNumber, err)
 	}
 
-	hash := tree.BUDHash()
 	for _, listener := range w.listeners {
 		if err := listener(w.ctx, request.blockNumber, hash); err != nil {
 			return fmt.Errorf("a hash listener refused block %d: %w", request.blockNumber, err)

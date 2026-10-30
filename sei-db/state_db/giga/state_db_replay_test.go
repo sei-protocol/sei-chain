@@ -161,7 +161,7 @@ func TestCatchUpRefusesAWALMissingTheBlocksAStoreNeeds(t *testing.T) {
 func TestMatchHeightExcusesAStoreLeftToFillForward(t *testing.T) {
 	_, _, sc := newTestStateDB(t)
 	for block := int64(1); block <= 4; block++ {
-		require.NoError(t, sc.CommitStateChanges(block, changeset("k", "v")))
+		commitToLiveStateDB(t, sc, block, changeset("k", "v"))
 	}
 	s := &StateDB{wal: &gapWAL{first: 3, last: 4}, sc: sc, ss: &evm.EVMStateStore{}}
 
@@ -173,7 +173,7 @@ func TestMatchHeightExcusesAStoreLeftToFillForward(t *testing.T) {
 func TestMatchHeightDoesNotExcuseAnEmptyStoreTheWALCanRebuild(t *testing.T) {
 	_, _, sc := newTestStateDB(t)
 	for block := int64(1); block <= 4; block++ {
-		require.NoError(t, sc.CommitStateChanges(block, changeset("k", "v")))
+		commitToLiveStateDB(t, sc, block, changeset("k", "v"))
 	}
 	s := &StateDB{wal: &gapWAL{first: 1, last: 4}, sc: sc, ss: &evm.EVMStateStore{}}
 

@@ -13,6 +13,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// TODO(gprusak): RoadBlock sizes can vary a lot,
+// switch back to limiting data state based on lane blocks, rather than RoadBlocks.
 const qcsCacheSize = 100
 
 // ErrOutOfOrder is returned when PushAppHash receives an app hash past the
@@ -139,16 +141,16 @@ func (i *inner) insertAppProposal(appProposal *types.AppProposal) error {
 	return nil
 }
 
-// insertBlock inserts a pre-verified block into the inner state.
+// insertLaneBlock inserts a pre-verified block into the inner state.
 // Requires a QC to already be present for block n. Callers must verify
-// payload integrity before calling; insertBlock matches the header against
+// payload integrity before calling; insertLaneBlock matches the header against
 // the stored FullCommitQC (unlike insertQC, which verifies the QC itself).
 //
-// insertBlock does NOT advance nextFullBlock — callers should call
+// insertLaneBlock does NOT advance nextFullBlock — callers should call
 // updateNextBlock after inserting one or more blocks. This separation
 // allows batch insertion (e.g. PushPartialBlock inserts multiple blocks, then
 // advances nextFullBlock once).
-func (i *inner) insertBlock(n types.LaneBlockPos, block *types.Block) error {
+func (i *inner) insertLaneBlock(n types.LaneBlockPos, block *types.Block) error {
 	if n.Index < i.nextFullBlock || n.Index >= i.nextPartialBlock {
 		return nil
 	}
@@ -420,7 +422,7 @@ func (s *State) PushBlock(ctx context.Context, n types.LaneBlockPos, block *type
 		return fmt.Errorf("block.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		if err := inner.insertBlock(n, block); err != nil {
+		if err := inner.insertLaneBlock(n, block); err != nil {
 			return err
 		}
 		inner.updateNextFullBlock(s.metrics)
