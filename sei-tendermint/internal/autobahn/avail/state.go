@@ -23,7 +23,10 @@ import (
 // SubscribeLaneProposals.Recv after that lane's maps are dropped.
 var ErrLaneClosed = errors.New("lane closed")
 
-const BlocksPerLane = 3 * types.MaxLaneRangeInProposal
+// BlocksPerLane is the number of unpruned blocks every node holds per lane, in memory and in
+// the block WAL. It also bounds the sealed blocks a producer's mempool holds until they execute
+// locally.
+const BlocksPerLane = 30 * types.MaxLaneRangeInProposal
 
 var (
 	meters     = metrics.Get()
