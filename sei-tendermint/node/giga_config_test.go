@@ -3,6 +3,7 @@ package node
 import (
 	"encoding/binary"
 	"math/big"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -179,4 +180,18 @@ func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
 	got, err := manager.AppHashBuilder().GetAppHash(t.Context(), uint64(initialHeight))
 	require.NoError(t, err)
 	require.Equal(t, uint64(initialHeight), got.BlockHeight())
+}
+
+func TestBuildGigaStorageConfigWritesTheAppHashLogWhenAsked(t *testing.T) {
+	dir := t.TempDir()
+	got, err := buildGigaStorageConfig(dir, config.ModeValidator, gigaconfig.DefaultConfig.Storage, genesisAt(1))
+	require.NoError(t, err)
+	require.False(t, got.AppHashBuilderConfig.HashLogEnabled)
+
+	storage := gigaconfig.DefaultConfig.Storage
+	storage.AppHashLog = true
+	got, err = buildGigaStorageConfig(dir, config.ModeValidator, storage, genesisAt(1))
+	require.NoError(t, err)
+	require.True(t, got.AppHashBuilderConfig.HashLogEnabled)
+	require.Equal(t, filepath.Join(dir, "app_hash.log"), got.AppHashBuilderConfig.HashLogConfig.Path)
 }

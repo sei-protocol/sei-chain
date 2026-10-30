@@ -448,6 +448,11 @@ func buildGigaStorageConfig(
 		storageConfig.WithFullNodeMode()
 	}
 	storageConfig.ReceiptDBConfig.Enable = storage.Receipts
+	if storage.AppHashLog {
+		storageConfig.AppHashBuilderConfig.HashLogEnabled = true
+		storageConfig.AppHashBuilderConfig.HashLogConfig.Path = filepath.Join(directory, "app_hash.log")
+		storageConfig.AppHashBuilderConfig.HashLogConfig.Version = "autobahn"
+	}
 	return storageConfig, nil
 }
 
