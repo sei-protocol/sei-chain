@@ -318,13 +318,13 @@ func TestBackfillAppHashesReadsTheBuilder(t *testing.T) {
 
 func TestListenerContinuesAtTheAppTip(t *testing.T) {
 	tip := atypes.RoadIndex(4)
-	err := listenerContinuesAt(nil, tip)
+	err := listenerContinuesAt(utils.None[apphash.AppHashData](), tip)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no hash")
-	err = listenerContinuesAt(testAppHashData(tip-1), tip)
+	err = listenerContinuesAt(utils.Some(*testAppHashData(tip - 1)), tip)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "resumes after block 3")
-	require.NoError(t, listenerContinuesAt(testAppHashData(tip), tip))
+	require.NoError(t, listenerContinuesAt(utils.Some(*testAppHashData(tip)), tip))
 }
 
 // TestRunExecuteRejectsAListenerOffTheAppTip pins that a restart refuses a
