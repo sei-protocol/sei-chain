@@ -827,17 +827,16 @@ func (r *gigaRouterCommon) runInboundMux(
 // Validators returns the Autobahn validator set that certified global height n.
 // Before the first CommitQC, the genesis road resolves to the genesis committee.
 func (r *gigaRouterCommon) Validators(n atypes.RoadIndex) ([]*types.Validator, error) {
-	first := r.data.Registry().FirstRoad()
 	qc, err := r.data.TryQC(n)
-	var epochIndex atypes.EpochIndex
-	if errors.Is(err, atypes.ErrNotFound) && n == first {
-		epochIndex = 0
-	} else if err != nil {
+	if err != nil {
+		if errors.Is(err, atypes.ErrNotFound) {
+			if genesis, epochErr := r.data.Registry().Epoch(0); epochErr == nil && n == genesis.RoadRange().First {
+				return committeeValidators(genesis.Committee())
+			}
+		}
 		return nil, heightLookupError(n, err)
-	} else {
-		epochIndex = qc.QC().View().EpochIndex
 	}
-	ep, err := r.data.Registry().Epoch(epochIndex)
+	ep, err := r.data.Registry().Epoch(qc.QC().View().EpochIndex)
 	if err != nil {
 		return nil, heightLookupError(n, err)
 	}

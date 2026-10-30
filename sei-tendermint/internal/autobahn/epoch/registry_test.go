@@ -25,7 +25,6 @@ func TestRegistryGenesisAndLookups(t *testing.T) {
 			require.NoError(t, err)
 			epochs := []*types.Epoch{testEpoch(0, first, committee), testEpoch(1, first, committee)}
 			require.Equal(t, testPersistedRegistry(epochs, utils.None[*types.Epoch]()), r.stateRecv.Load())
-			require.Equal(t, first, r.FirstRoad())
 			require.Equal(t, timestamp, r.GenesisTimestamp())
 			require.Equal(t, utils.None[*types.Epoch](), r.Pending())
 			for _, want := range epochs {
@@ -201,7 +200,6 @@ func TestRegistryPrune(t *testing.T) {
 				_, err = r.WaitForEpoch(t.Context(), ep.EpochIndex())
 				require.ErrorIs(t, err, types.ErrPruned)
 			}
-			require.Equal(t, types.RoadIndex(7), r.FirstRoad())
 			if pending {
 				require.NoError(t, r.Activate(6))
 				require.Equal(t, testPersistedRegistry([]*types.Epoch{epochs[5], wantPending.OrPanic("pending")}, utils.None[*types.Epoch]()), r.stateRecv.Load())
@@ -246,7 +244,6 @@ func TestRegistryPersistenceLifecycle(t *testing.T) {
 		r = utils.OrPanic1(NewRegistry(genesis, 7, timestamp, dir))
 		require.Equal(t, step.want, r.stateRecv.Load(), step.name)
 	}
-	require.Equal(t, types.RoadIndex(7), r.FirstRoad())
 	require.Equal(t, timestamp, r.GenesisTimestamp())
 }
 

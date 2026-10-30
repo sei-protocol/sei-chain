@@ -87,18 +87,13 @@ func (r *Registry) roadRange(idx types.EpochIndex) types.RoadRange {
 	return types.RoadRange{First: first, Next: first + epochLength}
 }
 
-// FirstRoad returns the genesis epoch's first road index.
-func (r *Registry) FirstRoad() types.RoadIndex {
-	return r.firstRoad
-}
-
 // LastRoad returns the last road index of epoch idx.
 func (r *Registry) LastRoad(idx types.EpochIndex) types.RoadIndex {
 	return r.roadRange(idx).Next - 1
 }
 
 // IndexForRoad returns the epoch index containing road. Road must not precede
-// FirstRoad.
+// the genesis epoch's road range.
 func (r *Registry) IndexForRoad(road types.RoadIndex) types.EpochIndex {
 	return types.EpochIndex((road - r.firstRoad) / epochLength)
 }

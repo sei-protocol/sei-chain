@@ -299,7 +299,13 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 }
 
 func (s *State) First() types.RoadIndex {
-	return max(s.blockStore.First(), s.cfg.Registry.FirstRoad())
+	if !s.blockStore.Status().IsPresent() {
+		for inner := range s.inner.Lock() {
+			return inner.first
+		}
+		panic("unreachable")
+	}
+	return s.blockStore.First()
 }
 
 // Registry returns the epoch registry.

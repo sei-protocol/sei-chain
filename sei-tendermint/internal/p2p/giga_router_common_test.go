@@ -132,9 +132,10 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	require.NoError(t, err)
 	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
 	require.NoError(t, err)
-	qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*atypes.CommitQC]())
-	qc2, blocks2 := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc.QC()))
-	qc3, blocks3 := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc2.QC()))
+	ep0 := registry.MustEpoch(0)
+	qc, blocks := data.TestCommitQC(rng, ep0, keys, utils.None[*atypes.CommitQC]())
+	qc2, blocks2 := data.TestCommitQC(rng, ep0, keys, utils.Some(qc.QC()))
+	qc3, blocks3 := data.TestCommitQC(rng, ep0, keys, utils.Some(qc2.QC()))
 	last := qc2.Index()
 
 	db, err := blockstore.New(memblock.NewBlockDB())
@@ -174,7 +175,7 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 		mid.Public():  {},
 		high.Public(): {},
 	})
-	first := router.data.Registry().FirstRoad()
+	first := router.data.Registry().MustEpoch(0).RoadRange().First
 
 	got, err := router.Validators(first)
 	require.NoError(t, err)
@@ -193,20 +194,28 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 		high.Public(): 10,
 	}
 	require.NoError(t, router.data.Registry().StageAndActivate(0, weights))
-	fakeNext := utils.NewAtomicSend(router.data.Registry().MustEpoch(2))
+	ep2 := router.data.Registry().MustEpoch(2)
+	fakeNext := utils.NewAtomicSend(ep2)
 	router.nextCommitEpoch = fakeNext.Subscribe()
 	got, err = router.Validators(first)
 	require.NoError(t, err)
 	require.Equal(t, []int64{1, 1, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
 
-	n := router.data.Registry().MustEpoch(2).RoadRange().First
-	router = testRouterAtRoad(t, router.data.Registry(), keys, router.data.Registry().MustEpoch(2), n)
+	n := ep2.RoadRange().First
+	router = testRouterAtRoad(t, router.data.Registry(), keys, ep2, n)
 	got, err = router.Validators(n)
 	require.NoError(t, err)
 	require.Equal(t, []int64{10, 5, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
 	require.Equal(t, high.Public().Bytes(), got[0].PubKey.Bytes())
 	require.Equal(t, mid.Public().Bytes(), got[1].PubKey.Bytes())
 	require.Equal(t, low.Public().Bytes(), got[2].PubKey.Bytes())
+
+	require.NoError(t, router.data.Registry().PruneBefore(2))
+	got, err = router.Validators(n)
+	require.NoError(t, err)
+	require.Equal(t, []int64{10, 5, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
+	_, err = router.Validators(n + 1)
+	require.ErrorIs(t, err, coretypes.ErrHeightExceedsChainHead)
 
 	require.NoError(t, router.data.Registry().StageAndActivate(1, weights))
 	require.NoError(t, router.data.Registry().StageAndActivate(2, weights))
