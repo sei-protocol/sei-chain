@@ -10,6 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
 
 var (
@@ -32,6 +36,8 @@ type endBlockRecorder struct {
 	payee common.Address
 	pay   *big.Int
 	fail  bool
+	// failures are returned from EndBlock as work it could not carry out.
+	failures []error
 }
 
 func (endBlockRecorder) RequiredGas([]byte) uint64 { return 1_000 }
@@ -42,22 +48,22 @@ func (r endBlockRecorder) Run(ctx *precompiles.Context, _ []byte) ([]byte, error
 	return nil, nil
 }
 
-func (r endBlockRecorder) EndBlock(block precompiles.BlockContext, state precompiles.State) error {
+func (r endBlockRecorder) EndBlock(block precompiles.BlockContext, state precompiles.State) ([]error, error) {
 	if r.fail {
-		return errRefused
+		return nil, errRefused
 	}
 	if r.reads != (common.Address{}) {
 		state.SetState(r.address, observedSlot, state.GetState(r.reads, observedSlot))
-		return nil
+		return r.failures, nil
 	}
 	blocks := state.GetState(r.address, blocksSlot).Big()
 	state.SetState(r.address, blocksSlot, common.BigToHash(blocks.Add(blocks, big.NewInt(1))))
 	state.SetState(r.address, observedSlot, state.GetState(r.address, callsSlot))
-	state.SetState(r.address, timeSlot, common.BigToHash(new(big.Int).SetUint64(block.Time)))
+	state.SetState(r.address, timeSlot, common.BigToHash(new(big.Int).SetUint64(block.UnixNano)))
 	if r.pay != nil {
 		state.AddBalance(r.payee, r.pay)
 	}
-	return nil
+	return r.failures, nil
 }
 
 func recorderRegistry(recorders ...endBlockRecorder) precompiles.Registry {
@@ -117,8 +123,81 @@ func TestEndBlockerSeesTheBlockAndCommitsItsWrites(t *testing.T) {
 	state.ApplyChangeSet(result.ChangeSet)
 	require.Equal(t, big.NewInt(2), state.GetState(firstEndBlocker, observedSlot).Big())
 	require.Equal(t, big.NewInt(1), state.GetState(firstEndBlocker, blocksSlot).Big())
-	require.Equal(t, big.NewInt(77), state.GetState(firstEndBlocker, timeSlot).Big())
+	require.Equal(t, big.NewInt(77_000_000_000), state.GetState(firstEndBlocker, timeSlot).Big(), "the block time in nanoseconds")
 	require.Equal(t, big.NewInt(15), state.GetBalance(payee))
+}
+
+// storageWriter writes to another account's storage, from calls and at the end
+// of each block.
+type storageWriter struct {
+	target common.Address
+}
+
+func (storageWriter) RequiredGas([]byte) uint64 { return 1_000 }
+
+func (w storageWriter) Run(ctx *precompiles.Context, _ []byte) ([]byte, error) {
+	ctx.State.SetState(w.target, callsSlot, common.Hash{1})
+	return nil, nil
+}
+
+func (w storageWriter) EndBlock(_ precompiles.BlockContext, state precompiles.State) ([]error, error) {
+	state.SetState(w.target, blocksSlot, common.Hash{1})
+	return nil, nil
+}
+
+// refusingReader reads its own callsSlot, then refuses the call.
+type refusingReader struct {
+	address common.Address
+}
+
+func (refusingReader) RequiredGas([]byte) uint64 { return 1_000 }
+
+func (r refusingReader) Run(ctx *precompiles.Context, _ []byte) ([]byte, error) {
+	ctx.State.GetState(r.address, callsSlot)
+	return nil, errRefused
+}
+
+func TestPrecompileWriteGivesAnEmptyAccountARow(t *testing.T) {
+	state := NewMemoryState()
+	tx, sender := recorderCall(t, 0)
+	state.SetBalance(sender, big.NewInt(behaviorSenderFunds))
+	target := common.HexToAddress("0x0000000000000000000000000000000000002103")
+	registry := precompiles.NewStaticRegistry(map[common.Address]precompiles.Contract{
+		firstEndBlocker: storageWriter{target: target},
+	}, firstEndBlocker)
+
+	result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: registry}, withTestState(state)).
+		ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID)), Txs: [][]byte{tx}})
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), result.Txs[0].Status)
+
+	state.ApplyChangeSet(result.ChangeSet)
+	require.Equal(t, uint64(1), state.GetNonce(target))
+	require.Equal(t, common.Hash{1}, state.GetState(target, callsSlot))
+	require.Equal(t, common.Hash{1}, state.GetState(target, blocksSlot))
+}
+
+func TestFailedCallKeepsStorageAPrecompileWrote(t *testing.T) {
+	state := NewMemoryState()
+	key, err := crypto.HexToECDSA(behaviorAnvilKey0)
+	require.NoError(t, err)
+	state.SetBalance(crypto.PubkeyToAddress(key.PublicKey), big.NewInt(behaviorSenderFunds))
+	target := common.HexToAddress("0x0000000000000000000000000000000000002103")
+	registry := precompiles.NewStaticRegistry(map[common.Address]precompiles.Contract{
+		firstEndBlocker: storageWriter{target: target},
+		target:          refusingReader{address: target},
+	}, firstEndBlocker)
+
+	block := blockContext(big.NewInt(testChainID))
+	for nonce, to := range []common.Address{firstEndBlocker, target} {
+		tx := signLegacyTxWithGasPrice(t, key, big.NewInt(testChainID), uint64(nonce), &to, big.NewInt(0), nil, 100_000, big.NewInt(1))
+		block.Number = uint64(nonce) + 1
+		result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: registry}, withTestState(state)).
+			ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: [][]byte{tx}})
+		require.NoError(t, err)
+		state.ApplyChangeSet(result.ChangeSet)
+	}
+	require.Equal(t, common.Hash{1}, state.GetState(target, callsSlot))
 }
 
 func TestEndBlockerRunsOnEmptyBlocks(t *testing.T) {
@@ -132,6 +211,23 @@ func TestEndBlockerRunsOnEmptyBlocks(t *testing.T) {
 		state.ApplyChangeSet(result.ChangeSet)
 		require.Equal(t, new(big.Int).SetUint64(number), state.GetState(firstEndBlocker, blocksSlot).Big())
 	}
+}
+
+func TestEndBlockerFailuresDoNotFailTheBlock(t *testing.T) {
+	state := NewMemoryState()
+	recorder := endBlockRecorder{address: firstEndBlocker, failures: []error{errRefused}}
+	executor := NewExecutor(Config{CustomPrecompiles: recorderRegistry(recorder)}, withTestState(state))
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
+	require.NoError(t, err)
+	state.ApplyChangeSet(result.ChangeSet)
+	require.Equal(t, big.NewInt(1), state.GetState(firstEndBlocker, blocksSlot).Big(), "the end blocker's writes are kept")
+}
+
+func TestTruncateUTF8(t *testing.T) {
+	require.Equal(t, "short", truncateUTF8("short", 10))
+	require.Equal(t, "abc", truncateUTF8("abcdef", 3))
+	require.Equal(t, "a", truncateUTF8("aé", 2), "a two-byte rune is not split")
+	require.Equal(t, "aé", truncateUTF8("aé", 3))
 }
 
 func TestEndBlockersRunInListedOrder(t *testing.T) {
@@ -183,6 +279,53 @@ func TestEndBlockerSeesThePreviousBlockBeforeItsCommitLands(t *testing.T) {
 		}
 	}
 	require.Empty(t, want)
+}
+
+// fundedState answers for every address absent from the store with a balance
+// and nothing else, as the EVM-only application's fallback does.
+type fundedState struct{}
+
+func (fundedState) GetBalance(common.Address) *big.Int               { return big.NewInt(behaviorSenderFunds) }
+func (fundedState) GetNonce(common.Address) uint64                   { return 0 }
+func (fundedState) GetCode(common.Address) []byte                    { return nil }
+func (fundedState) GetState(common.Address, common.Hash) common.Hash { return common.Hash{} }
+
+// flatKVStateDB serves a flatkv store as the executor's store, with no history.
+type flatKVStateDB struct{ *flatkv.CommitStore }
+
+func (flatKVStateDB) OpenViewAt(int64) (gigatypes.StateView, bool) { return nil, false }
+
+func (s flatKVStateDB) CommitStateChanges(blockNum int64, changesets []*proto.NamedChangeSet) error {
+	prior := s.OpenView()
+	mutations, err := flatkv.MutationsFromChangeSets(changesets, uint64(blockNum), prior)
+	prior.Close()
+	if err != nil {
+		return err
+	}
+	return s.CommitStore.CommitStateChanges(blockNum, mutations)
+}
+
+func TestEndBlockerStorageReadsBackFromFlatKV(t *testing.T) {
+	cfg := flatkvconfig.DefaultConfig()
+	cfg.DataDir = t.TempDir()
+	store, err := openFlatKVTestStore(t.Context(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	executor := NewExecutor(Config{CustomPrecompiles: recorderRegistry(endBlockRecorder{address: firstEndBlocker})},
+		withTestStores(flatKVStateDB{store}, NewMemoryReceiptStore(), NewFlatKVChangeSetEncoder()), WithMissingAccountState(fundedState{}))
+	t.Cleanup(executor.Close)
+
+	block := blockContext(big.NewInt(testChainID))
+	for number := uint64(1); number <= 2; number++ {
+		block.Number = number
+		_, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: block})
+		require.NoError(t, err)
+	}
+
+	view := store.OpenView()
+	defer view.Close()
+	require.Equal(t, common.BigToHash(big.NewInt(2)), view.GetStorage(firstEndBlocker, blocksSlot))
+	require.True(t, view.AccountExists(firstEndBlocker))
 }
 
 func TestCustomEndBlockersRejectsMisconfiguration(t *testing.T) {

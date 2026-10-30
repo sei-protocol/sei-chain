@@ -37,7 +37,7 @@ The `evmonly` package currently provides:
   runtimes, with a concurrency-safe in-memory implementation for unit tests
 - a versioned `MemoryStore` giga implementation over an immutable `StateReader`
   for tests and load generation
-- native custom precompiles run from a `precompiles.Registry`
+- native custom precompiles run from a `precompiles.Registry`, starting with `gov`
 - a standalone load harness at `giga/evmonly/cmd/evmonly-loadtest` that feeds
   generated transfer blocks through the in-memory giga store
 
@@ -112,7 +112,9 @@ The FlatKV encoder persists balance, nonce, code, and storage changes, and the
 executor reads them through the current Giga state view. EVM-only Autobahn load
 tests use `WithMissingAccountState(...)` to supply the initial funded state for
 synthetic accounts that have not appeared in FlatKV yet; after their first
-change, subsequent reads come from the persisted account row.
+change, subsequent reads come from the persisted account row. The fallback
+answers only for balance, nonce, and code: storage is always read from FlatKV,
+so a slot written at an address with no account row reads back.
 
 `MemoryStore` and `MemoryReceiptStore` are non-persistent unit-test doubles.
 `MemoryStore` wraps an immutable `StateReader`, retains committed values in
@@ -200,7 +202,10 @@ A registered `precompiles.Contract` runs against the calling EVM's StateDB, so
 its reads and writes are tracked, for OCC included, and reverted like any other
 call's. After its flat `RequiredGas`, each storage read it makes is charged as
 an EIP-2929 SLOAD. An address registered without a contract stays a fail-closed
-placeholder that returns `ErrCustomPrecompilesOpen`.
+placeholder that returns `ErrCustomPrecompilesOpen`. Each precompile's storage
+follows the solc layout of its schema in `docs/giga-storage/`, read and written
+through `precompiles/solstorage`. `precompiles/gov` (0x1006) is the first
+implementation.
 
 A contract that implements `precompiles.EndBlocker` runs once at the end of
 every block, empty blocks included, after the block's transactions. The
