@@ -113,7 +113,7 @@ func TestCustomQueryEnrichesABCIContext(t *testing.T) {
 func TestGRPCABCIQueryEnrichesSDKContext(t *testing.T) {
 	var captured context.Context
 	grpcQueryOpt := func(app *BaseApp) {
-		testdata.RegisterQueryServer(app.GRPCQueryRouter(), abciContextQuery{ctx: &captured})
+		testdata.RegisterQueryServer(app.QueryServiceRouter(), abciContextQuery{ctx: &captured})
 	}
 
 	app := setupBaseApp(t, grpcQueryOpt)

@@ -42,7 +42,7 @@ func (b AppModuleBasic) RegisterLegacyAminoCodec(amino *codec.LegacyAmino) { //n
 	RegisterCodec(amino)
 }
 
-func (b AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, serveMux *runtime.ServeMux) {
+func (b AppModuleBasic) RegisterGatewayRoutes(clientCtx client.Context, serveMux *runtime.ServeMux) {
 	err := types.RegisterQueryHandlerClient(context.Background(), serveMux, types.NewQueryClient(clientCtx))
 	if err != nil {
 		panic(err)
