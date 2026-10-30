@@ -253,21 +253,20 @@ func TestExecuteBuffersPendingAppHashes(t *testing.T) {
 		if lastBlock != nil {
 			return fmt.Errorf("fresh app returned last block %d", lastBlock.Height)
 		}
-		appHashes, _, err := registerAppHashListener(ctx, hashBuilder)
-		if err != nil {
+		hashes := make(chan *apphash.AppHashData, pendingExecutionBuffer)
+		if _, err := registerAppHashListener(ctx, hashBuilder, hashes); err != nil {
 			return err
 		}
 		hashBuilder.publishOnReport = true
 		committed := make(chan pendingExecution, pendingExecutionBuffer)
 		s.SpawnBgNamed("execute", func() error {
-			defer close(committed)
-			return utils.IgnoreCancel(router.executeBlocks(ctx, committed, next))
+			return utils.IgnoreCancel(router.runExecuteBlocks(ctx, committed, next))
 		})
 		if _, err := app.WaitForBlocks(ctx, 3); err != nil {
 			return err
 		}
-		s.SpawnBgNamed("appHashes", func() error {
-			return utils.IgnoreCancel(router.runAppHashes(ctx, ctx, committed, appHashes))
+		s.SpawnBgNamed("pushAppHashes", func() error {
+			return utils.IgnoreCancel(router.runPushAppHashes(ctx, committed, hashes))
 		})
 		if _, err := state.AppVote(ctx, qc3.Index()); err != nil {
 			return fmt.Errorf("AppVote(%v): %w", qc3.Index(), err)
@@ -355,15 +354,15 @@ func TestRunExecuteRejectsAListenerOffTheAppTip(t *testing.T) {
 	require.Contains(t, got.Error(), "resumes after block")
 }
 
-// TestRunAppHashesStopsWaitingWhenExecuteStops hangs if the hash wait uses the
-// proposal context. Execute's return cancels only the wait.
-func TestRunAppHashesStopsWaitingWhenExecuteStops(t *testing.T) {
+// TestRunPushAppHashesStopsWhenExecuteStops hangs if the push loop waits on a
+// context execute's return does not cancel.
+func TestRunPushAppHashesStopsWhenExecuteStops(t *testing.T) {
 	committed := make(chan pendingExecution, 1)
 	committed <- pendingExecution{number: 1}
 	hashes := make(chan *apphash.AppHashData)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		s.SpawnNamed("appHashes", func() error {
-			return new(gigaRouterCommon).runAppHashes(t.Context(), ctx, committed, hashes)
+		s.SpawnNamed("pushAppHashes", func() error {
+			return new(gigaRouterCommon).runPushAppHashes(ctx, committed, hashes)
 		})
 		s.SpawnNamed("execute", func() error {
 			return errors.New("execute stopped")
@@ -421,14 +420,13 @@ func TestRunExecuteStopsTheListenerWhenItReturns(t *testing.T) {
 	}))
 }
 
-func TestRunAppHashesPanicsOnAHashForADifferentBlock(t *testing.T) {
+func TestRunPushAppHashesPanicsOnAHashForADifferentBlock(t *testing.T) {
 	committed := make(chan pendingExecution, 1)
 	committed <- pendingExecution{number: 2}
-	close(committed)
 	hashes := make(chan *apphash.AppHashData, 1)
 	hashes <- testAppHashData(3)
 	require.Panics(t, func() {
-		_ = new(gigaRouterCommon).runAppHashes(t.Context(), t.Context(), committed, hashes)
+		_ = new(gigaRouterCommon).runPushAppHashes(t.Context(), committed, hashes)
 	})
 }
 
