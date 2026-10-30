@@ -48,6 +48,16 @@ func (app *testEVMApp) EvmEstimateGas(_ context.Context, msg *ethcore.Message, g
 	return 21_000, []byte{0x01}, nil
 }
 
+func (app *testEVMApp) EvmCallAt(_ context.Context, msg *ethcore.Message, header *ethtypes.Header) (*ethcore.ExecutionResult, error) {
+	app.gotMsg, app.gotHeader = msg, header
+	return testExecutionResult, nil
+}
+
+func (app *testEVMApp) EvmEstimateGasAt(_ context.Context, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error) {
+	app.gotMsg, app.gotGasCap, app.gotHeader = msg, gasCap, header
+	return 22_000, []byte{0x02}, nil
+}
+
 func (app *testEVMApp) EvmEstimateGasAfterCalls(_ context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
 	app.gotCalls, app.gotMsg, app.gotGasCap = calls, msg, gasCap
 	return 42_000, []byte{0x02}, nil
@@ -108,6 +118,34 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, []byte{0x01}, revert)
 		require.Equal(t, msg, app.gotMsg)
 		require.Equal(t, uint64(10_000_000), app.gotGasCap)
+	})
+
+	t.Run("past block call", func(t *testing.T) {
+		header := &ethtypes.Header{Number: big.NewInt(5)}
+
+		// Test: EvmCallAt.
+		got, err := env.EvmCallAt(t.Context(), msg, header)
+
+		// Verify: the app's result is returned for the message and block passed in.
+		require.NoError(t, err)
+		require.Equal(t, testExecutionResult, got)
+		require.Equal(t, msg, app.gotMsg)
+		require.Equal(t, header, app.gotHeader)
+	})
+
+	t.Run("past block gas estimate", func(t *testing.T) {
+		header := &ethtypes.Header{Number: big.NewInt(6)}
+
+		// Test: EvmEstimateGasAt with a gas cap.
+		got, revert, err := env.EvmEstimateGasAt(t.Context(), msg, 9_000_000, header)
+
+		// Verify: the app's estimate and revert data are returned for the message, cap and block.
+		require.NoError(t, err)
+		require.Equal(t, uint64(22_000), got)
+		require.Equal(t, []byte{0x02}, revert)
+		require.Equal(t, msg, app.gotMsg)
+		require.Equal(t, uint64(9_000_000), app.gotGasCap)
+		require.Equal(t, header, app.gotHeader)
 	})
 
 	t.Run("estimate gas after calls", func(t *testing.T) {

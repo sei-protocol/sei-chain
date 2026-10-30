@@ -2,7 +2,6 @@ package evmonly
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/big"
 
@@ -16,6 +15,8 @@ import (
 	"github.com/ethereum/go-ethereum/eth/gasestimator"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
+
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // estimateGasErrorRatio is the search's allowed overestimation tolerance.
@@ -25,32 +26,52 @@ const estimateGasErrorRatio = 0.015
 // against the current committed state. Like Call it persists no state
 // change; a revert's data is returned alongside the error.
 func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
-	return e.EstimateGasAfterCalls(ctx, blockCtx, nil, msg, gasCap)
+	snapshot, err := e.openCurrentView(ctx, blockCtx)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer snapshot.Close()
+	return e.EstimateGasAt(ctx, snapshot, blockCtx, msg, gasCap)
+}
+
+// EstimateGasAt returns the lowest gas limit that lets msg execute
+// successfully against the state view holds. Like CallAt it persists no state
+// change; a revert's data is returned alongside the error.
+func (e *Executor) EstimateGasAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+	return e.estimateGasAfterCallsAt(ctx, view, blockCtx, nil, msg, gasCap)
 }
 
 // EstimateGasAfterCalls returns what EstimateGas returns for msg against the current committed
 // state with calls applied to it first, in order. A call that fails in the EVM leaves the state
 // as a failed transaction would; one that cannot be applied at all fails the estimate.
 func (e *Executor) EstimateGasAfterCalls(ctx context.Context, blockCtx BlockContext, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+	snapshot, err := e.openCurrentView(ctx, blockCtx)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer snapshot.Close()
+	return e.estimateGasAfterCallsAt(ctx, snapshot, blockCtx, calls, msg, gasCap)
+}
+
+// estimateGasAfterCallsAt returns what EstimateGasAfterCalls returns, against the state view holds.
+func (e *Executor) estimateGasAfterCallsAt(
+	ctx context.Context,
+	view gigatypes.EVMStateView,
+	blockCtx BlockContext,
+	calls []*core.Message,
+	msg *core.Message,
+	gasCap uint64,
+) (uint64, []byte, error) {
 	chainConfig := e.chainConfig(blockCtx)
 	if err := validateBlockContext(chainConfig, blockCtx); err != nil {
 		return 0, nil, err
-	}
-	if e.stateStore == nil {
-		return 0, nil, errMissingStateStore
 	}
 	if err := ctx.Err(); err != nil {
 		return 0, nil, err
 	}
 
-	snapshot := e.stateStore.OpenView()
-	if snapshot == nil {
-		return 0, nil, errors.New("giga store returned a nil snapshot")
-	}
-	defer snapshot.Close()
-
 	// Unpooled: an estimate can hold this stateDB open far longer than a Call.
-	stateDB := newNativeStateDB(gigaSnapshotStateReader{snapshot: snapshot, missingState: e.missingState})
+	stateDB := newNativeStateDB(gigaSnapshotStateReader{snapshot: view, missingState: e.missingState})
 
 	estimateCtx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()

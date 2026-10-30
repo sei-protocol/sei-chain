@@ -806,6 +806,7 @@ func testEVMOnlyLoad(t *testing.T) {
 	assertEVMOnlyNodeInfo(t, rpcCtx, clients)
 	contract, deploy := assertEVMOnlyContractQueries(t, rpcCtx, clients)
 	assertEVMOnlyTraces(t, rpcCtx, clients, contract, deploy)
+	assertEVMOnlyPastState(t, rpcCtx, clients, contract, deploy)
 	assertEVMOnlyNewHeads(t, rpcCtx, clients)
 	assertEVMOnlySimulations(t, rpcCtx, clients)
 	assertEVMOnlyTransactionErrors(t, rpcCtx, clients, block.Txs[0])
@@ -1477,8 +1478,8 @@ func assertEVMOnlyTraces(t *testing.T, ctx context.Context, clients []*ethrpc.Cl
 	callTracer := map[string]any{"tracer": "callTracer", "tracerConfig": map[string]any{"withLog": true}}
 
 	var frame evmOnlyTraceFrame
-	decodeFullnodeTrace(t, "debug_traceTransaction",
-		fullnodeTrace(t, "debug_traceTransaction", deploy.TransactionHash, callTracer), &frame)
+	decodeFullnodeResult(t, "debug_traceTransaction",
+		fullnodeResult(t, "debug_traceTransaction", deploy.TransactionHash, callTracer), &frame)
 	if frame.Type != "CREATE" || frame.To != contract || frame.GasUsed != deploy.GasUsed || frame.Error != "" ||
 		!bytes.Equal(frame.Output, evmOnlyContractRuntime) || len(frame.Logs) != 1 ||
 		frame.Logs[0].Address != contract || len(frame.Logs[0].Topics) != 1 || frame.Logs[0].Topics[0] != evmOnlyContractLogTopic {
@@ -1491,23 +1492,23 @@ func assertEVMOnlyTraces(t *testing.T, ctx context.Context, clients []*ethrpc.Cl
 		Failed     bool              `json:"failed"`
 		StructLogs []json.RawMessage `json:"structLogs"`
 	}
-	decodeFullnodeTrace(t, "debug_traceTransaction", fullnodeTrace(t, "debug_traceTransaction", deploy.TransactionHash), &structLog)
+	decodeFullnodeResult(t, "debug_traceTransaction", fullnodeResult(t, "debug_traceTransaction", deploy.TransactionHash), &structLog)
 	if structLog.Failed || structLog.Gas != uint64(deploy.GasUsed) || len(structLog.StructLogs) == 0 {
 		t.Fatalf("%s struct log of the deploy: failed %t, gas %d, %d steps; want a successful run of %d gas with steps",
 			fullnodeContainer, structLog.Failed, structLog.Gas, len(structLog.StructLogs), deploy.GasUsed)
 	}
 
 	var byNumber []evmOnlyBlockTrace
-	decodeFullnodeTrace(t, "debug_traceBlockByNumber",
-		fullnodeTrace(t, "debug_traceBlockByNumber", deploy.BlockNumber, callTracer), &byNumber)
+	decodeFullnodeResult(t, "debug_traceBlockByNumber",
+		fullnodeResult(t, "debug_traceBlockByNumber", deploy.BlockNumber, callTracer), &byNumber)
 	var blockFrame evmOnlyTraceFrame
-	decodeFullnodeTrace(t, "debug_traceBlockByNumber", deployBlockTrace(t, "debug_traceBlockByNumber", byNumber, deploy.TransactionHash), &blockFrame)
+	decodeFullnodeResult(t, "debug_traceBlockByNumber", deployBlockTrace(t, "debug_traceBlockByNumber", byNumber, deploy.TransactionHash), &blockFrame)
 	if blockFrame.Type != "CREATE" || blockFrame.To != contract || blockFrame.GasUsed != deploy.GasUsed {
 		t.Fatalf("%s debug_traceBlockByNumber traced the deploy as %+v, want a CREATE of %s using %d gas", fullnodeContainer, blockFrame, contract, deploy.GasUsed)
 	}
 
 	var byHash []evmOnlyBlockTrace
-	decodeFullnodeTrace(t, "debug_traceBlockByHash", fullnodeTrace(t, "debug_traceBlockByHash", deploy.BlockHash,
+	decodeFullnodeResult(t, "debug_traceBlockByHash", fullnodeResult(t, "debug_traceBlockByHash", deploy.BlockHash,
 		map[string]any{"tracer": "prestateTracer", "tracerConfig": map[string]any{"diffMode": true}}), &byHash)
 	var diff struct {
 		Post map[common.Address]struct {
@@ -1515,7 +1516,7 @@ func assertEVMOnlyTraces(t *testing.T, ctx context.Context, clients []*ethrpc.Cl
 			Storage map[common.Hash]common.Hash `json:"storage"`
 		} `json:"post"`
 	}
-	decodeFullnodeTrace(t, "debug_traceBlockByHash", deployBlockTrace(t, "debug_traceBlockByHash", byHash, deploy.TransactionHash), &diff)
+	decodeFullnodeResult(t, "debug_traceBlockByHash", deployBlockTrace(t, "debug_traceBlockByHash", byHash, deploy.TransactionHash), &diff)
 	if post := diff.Post[contract]; !bytes.Equal(post.Code, evmOnlyContractRuntime) || post.Storage[common.Hash{}] != evmOnlyContractSlotValue {
 		t.Fatalf("%s debug_traceBlockByHash diff of the deploy leaves %s with code %s and slot 0 %s, want %s and %s", fullnodeContainer,
 			contract, post.Code, post.Storage[common.Hash{}], hexutil.Bytes(evmOnlyContractRuntime), evmOnlyContractSlotValue)
@@ -1523,7 +1524,7 @@ func assertEVMOnlyTraces(t *testing.T, ctx context.Context, clients []*ethrpc.Cl
 
 	call := map[string]any{"to": contract}
 	var callFrame evmOnlyTraceFrame
-	decodeFullnodeTrace(t, "debug_traceCall", fullnodeTrace(t, "debug_traceCall", call, "latest", callTracer), &callFrame)
+	decodeFullnodeResult(t, "debug_traceCall", fullnodeResult(t, "debug_traceCall", call, "latest", callTracer), &callFrame)
 	if callFrame.Type != "CALL" || callFrame.Error != "" || !bytes.Equal(callFrame.Output, evmOnlyContractSlotValue[:]) {
 		t.Fatalf("%s debug_traceCall(%s) traced %+v, want a CALL returning slot 0's %s", fullnodeContainer, contract, callFrame, evmOnlyContractSlotValue)
 	}
@@ -1542,9 +1543,53 @@ func assertEVMOnlyTraces(t *testing.T, ctx context.Context, clients []*ethrpc.Cl
 	}
 }
 
-// fullnodeTrace calls method on the fullnode until it succeeds and returns its result. The fullnode
-// trails the validators, and a trace waits for the state and receipts it reads to catch up.
-func fullnodeTrace(t *testing.T, method string, params ...any) json.RawMessage {
+// assertEVMOnlyPastState reads the contract's code and slot, calls it, and estimates a call to it on
+// the fullnode, which keeps the state history, at the block before the deploy and at the deploy block
+// named by number and by hash. Before the deploy the contract has no code, so the call returns nothing
+// and costs a plain transfer. A validator, which keeps no history, refuses the call before the deploy.
+func assertEVMOnlyPastState(t *testing.T, ctx context.Context, clients []*ethrpc.Client, contract common.Address, deploy evmOnlyReceiptSummary) {
+	t.Helper()
+	before := hexutil.Uint64(deploy.BlockNumber - 1)
+	byHash := map[string]any{"blockHash": deploy.BlockHash, "requireCanonical": true}
+	call := map[string]any{"to": contract}
+	for _, tc := range []struct {
+		name     string
+		block    any
+		code     []byte
+		slot     common.Hash
+		estimate func(hexutil.Uint64) bool
+	}{
+		{name: "before the deploy", block: before, estimate: func(gas hexutil.Uint64) bool { return gas == evmOnlyTransferGas }},
+		{name: "the deploy block by number", block: deploy.BlockNumber, code: evmOnlyContractRuntime, slot: evmOnlyContractSlotValue,
+			estimate: func(gas hexutil.Uint64) bool { return gas > evmOnlyTransferGas }},
+		{name: "the deploy block by hash", block: byHash, code: evmOnlyContractRuntime, slot: evmOnlyContractSlotValue,
+			estimate: func(gas hexutil.Uint64) bool { return gas > evmOnlyTransferGas }},
+	} {
+		var code, value, result hexutil.Bytes
+		decodeFullnodeResult(t, "eth_getCode", fullnodeResult(t, "eth_getCode", contract, tc.block), &code)
+		decodeFullnodeResult(t, "eth_getStorageAt", fullnodeResult(t, "eth_getStorageAt", contract, "0x0", tc.block), &value)
+		decodeFullnodeResult(t, "eth_call", fullnodeResult(t, "eth_call", call, tc.block), &result)
+		var estimate hexutil.Uint64
+		decodeFullnodeResult(t, "eth_estimateGas", fullnodeResult(t, "eth_estimateGas", call, tc.block), &estimate)
+		wantResult := tc.slot[:]
+		if tc.code == nil {
+			wantResult = nil
+		}
+		if !bytes.Equal(code, tc.code) || common.BytesToHash(value) != tc.slot || !bytes.Equal(result, wantResult) || !tc.estimate(estimate) {
+			t.Fatalf("%s at %s: code %s, slot 0 %s, eth_call %s, eth_estimateGas %d; want code %s and slot 0 %s",
+				fullnodeContainer, tc.name, code, value, result, estimate, hexutil.Bytes(tc.code), tc.slot)
+		}
+	}
+
+	var refused json.RawMessage
+	if err := clients[0].CallContext(ctx, &refused, "eth_call", call, before); err == nil {
+		t.Fatalf("node 0 ran eth_call at block %d without the state history validators do not keep: %s", before, refused)
+	}
+}
+
+// fullnodeResult calls method on the fullnode until it succeeds and returns its result. The fullnode
+// trails the validators, and a call waits for the state and receipts it reads to catch up.
+func fullnodeResult(t *testing.T, method string, params ...any) json.RawMessage {
 	t.Helper()
 	deadline := time.Now().Add(fullnodeReceiptTimeout)
 	for {
@@ -1562,8 +1607,8 @@ func fullnodeTrace(t *testing.T, method string, params ...any) json.RawMessage {
 	}
 }
 
-// decodeFullnodeTrace decodes method's raw result from the fullnode into v.
-func decodeFullnodeTrace(t *testing.T, method string, raw json.RawMessage, v any) {
+// decodeFullnodeResult decodes method's raw result from the fullnode into v.
+func decodeFullnodeResult(t *testing.T, method string, raw json.RawMessage, v any) {
 	t.Helper()
 	if err := json.Unmarshal(raw, v); err != nil {
 		t.Fatalf("%s %s: decode %s: %v", fullnodeContainer, method, raw, err)

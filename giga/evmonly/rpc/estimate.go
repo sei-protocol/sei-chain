@@ -15,15 +15,16 @@ import (
 
 type estimateAPI struct {
 	backend Backend
+	blocks  *blockAPI
 	// maxCalls caps the calls one eth_estimateGasAfterCalls request may apply; zero disables the
 	// cap.
 	maxCalls int
 }
 
 // EstimateGas returns a gas limit that lets args execute without running out
-// of gas against the current committed state. Like eth_call it persists no
-// state change; a call that reverts even at the highest allowed gas returns
-// the revert error.
+// of gas against the committed state after block, the latest by default. Like
+// eth_call it persists no state change; a call that reverts even at the
+// highest allowed gas returns the revert error.
 func (api *estimateAPI) EstimateGas(ctx context.Context, args export.TransactionArgs, block *ethrpc.BlockNumberOrHash) (hexutil.Uint64, error) {
 	return api.EstimateGasAfterCalls(ctx, args, nil, block)
 }
@@ -38,7 +39,13 @@ func (api *estimateAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 	if block != nil {
 		selector = *block
 	}
-	if err := requireCurrentState(selector); err != nil {
+	if len(calls) > 0 {
+		if err := requireCurrentState(selector); err != nil {
+			return 0, err
+		}
+	}
+	height, latest, err := stateHeight(ctx, api.backend, selector)
+	if err != nil {
 		return 0, err
 	}
 	baseFee, err := api.backend.EvmBaseFee()
@@ -63,7 +70,7 @@ func (api *estimateAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 	}
 	msg := args.ToMessage(baseFee, true, true)
 
-	estimate, revert, err := api.estimate(ctx, callMsgs, msg)
+	estimate, revert, err := api.estimate(ctx, callMsgs, msg, height, latest)
 	if err != nil {
 		if errors.Is(err, vm.ErrExecutionReverted) {
 			return 0, newRevertError(revert)
@@ -73,11 +80,18 @@ func (api *estimateAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 	return hexutil.Uint64(estimate), nil
 }
 
-// estimate searches msg's gas against the current committed state, with calls applied first when
-// there are any.
-func (api *estimateAPI) estimate(ctx context.Context, calls []*core.Message, msg *core.Message) (uint64, []byte, error) {
-	if len(calls) == 0 {
+// estimate searches msg's gas against the latest committed state, with calls applied first when
+// there are any, or else against the state after the block at height.
+func (api *estimateAPI) estimate(ctx context.Context, calls []*core.Message, msg *core.Message, height int64, latest bool) (uint64, []byte, error) {
+	if len(calls) > 0 {
+		return api.backend.EvmEstimateGasAfterCalls(ctx, calls, msg, defaultCallGasCap)
+	}
+	if latest {
 		return api.backend.EvmEstimateGas(ctx, msg, defaultCallGasCap)
 	}
-	return api.backend.EvmEstimateGasAfterCalls(ctx, calls, msg, defaultCallGasCap)
+	header, err := api.blocks.executionHeaderAt(ctx, height)
+	if err != nil {
+		return 0, nil, err
+	}
+	return api.backend.EvmEstimateGasAt(ctx, msg, defaultCallGasCap, header)
 }
