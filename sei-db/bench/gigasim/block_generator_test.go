@@ -72,12 +72,7 @@ func TestGeneratedBlockCarriesItsChangeset(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, blk.transactions, g.config.TransactionsPerBlock)
 
-	staged := map[string][]byte{}
-	for _, pair := range blk.writes.changeSets[0].Changeset.Pairs {
-		_, duplicate := staged[string(pair.Key)]
-		require.False(t, duplicate, "key %x is committed twice in one block", pair.Key)
-		staged[string(pair.Key)] = pair.Value
-	}
+	staged := stagedPairs(t, blk.writes)
 
 	written := keysWritten(blk)
 	require.Len(t, staged, len(written)+1+len(counterKeys),
@@ -101,15 +96,9 @@ func TestGeneratedBlockWritesTheFeeAccountOnce(t *testing.T) {
 	blk, err := g.buildBlock()
 	require.NoError(t, err)
 
-	writes := 0
-	var value []byte
-	for _, pair := range blk.writes.changeSets[0].Changeset.Pairs {
-		if string(pair.Key) == feeKey {
-			writes++
-			value = pair.Value
-		}
-	}
-	require.Equal(t, 1, writes, "the fee account must be written exactly once per block")
+	// stagedPairs fails on a key committed more than once.
+	value, written := stagedPairs(t, blk.writes)[feeKey]
+	require.True(t, written, "the fee account must be written exactly once per block")
 
 	last := blk.transactions[len(blk.transactions)-1]
 	require.Equal(t, last.newFeeBalance, value, "the surviving value is the last draw")
@@ -143,8 +132,8 @@ func TestReceiptGasMatchesTheReportedGas(t *testing.T) {
 	}
 }
 
-// A native transfer writes both accounts' balances and no contract state: no balance slot, and no code
-// beyond the identifier counters every block carries.
+// A native transfer writes both accounts' balances and no contract state: no balance slot and no code.
+// Beyond those balances, the block carries only the identifier counters every block carries.
 func TestNativeTransferBlockWritesOnlyAccounts(t *testing.T) {
 	t.Parallel()
 
@@ -162,14 +151,13 @@ func TestNativeTransferBlockWritesOnlyAccounts(t *testing.T) {
 
 	counters := map[string]bool{string(counterKeys[0]): true, string(counterKeys[1]): true}
 	balancePrefix := keys.BuildEVMKey(keys.EVMKeyBalance, make([]byte, keys.AddressLen))[0]
-	pairs := blk.writes.changeSets[0].Changeset.Pairs
-	require.Len(t, pairs, len(accounts)+len(counters),
+	staged := stagedPairs(t, blk.writes)
+	require.Len(t, staged, len(accounts)+len(counters),
 		"the changeset holds both accounts of every transfer, the fee account and the counters")
-	for _, pair := range pairs {
-		key := string(pair.Key)
-		require.True(t, accounts[key] || counters[key], "key %x is neither an account nor a counter", pair.Key)
+	for key := range staged {
+		require.True(t, accounts[key] || counters[key], "key %x is neither an account nor a counter", key)
 		if accounts[key] {
-			require.Equal(t, balancePrefix, pair.Key[0], "accounts are written through their balance")
+			require.Equal(t, balancePrefix, key[0], "accounts are written through their balance")
 		}
 	}
 }
@@ -216,13 +204,9 @@ func TestSuperblockBundlesLaneBlocksIntoOneCommit(t *testing.T) {
 	require.Equal(t, int64(1), first.firstLaneBlock)
 	require.Equal(t, int64(2*g.config.blockPayloadBytes()), first.payloadBytes())
 
-	feeWrites := 0
-	for _, pair := range first.writes.changeSets[0].Changeset.Pairs {
-		if string(pair.Key) == string(g.accounts.FeeCollectionAddress()) {
-			feeWrites++
-		}
-	}
-	require.Equal(t, 1, feeWrites, "the fee account is written once per superblock")
+	// stagedPairs fails on a key committed more than once.
+	require.Contains(t, stagedPairs(t, first.writes), string(g.accounts.FeeCollectionAddress()),
+		"the fee account is written once per superblock")
 
 	second, err := g.buildBlock()
 	require.NoError(t, err)
@@ -241,7 +225,6 @@ func TestEachBlockCarriesOnlyItsOwnWrites(t *testing.T) {
 	second, err := g.buildBlock()
 	require.NoError(t, err)
 
-	require.Len(t, second.writes.changeSets[0].Changeset.Pairs,
-		len(keysWritten(second))+1+len(counterKeys))
+	require.Len(t, stagedPairs(t, second.writes), len(keysWritten(second))+1+len(counterKeys))
 	require.NotEqual(t, first.number, second.number)
 }

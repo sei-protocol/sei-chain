@@ -74,20 +74,19 @@ data: callers should pass the result of `PrepareBlock` unchanged, because
 
 The executor is always store-backed. `WithStorageManager(...)` selects the
 `bootstrap.GigaStorageManager` that provides both `giga.StateDB` and the ledger
-receipt store, plus the `NamedChangeSetEncoder` for its state implementation.
-Unit tests can supply those dependencies independently. Execution fails closed
-if either store or the encoder is missing.
+receipt store. Unit tests can supply those dependencies independently.
+Execution fails closed if the state store is missing.
 For each block the executor opens a current `giga.StateView`, executes against
-its EVM-native read methods, converts the resulting `StateChangeSet`, and calls
+its EVM-native read methods, and passes the resulting `StateChangeSet` to
 `CommitStateChanges`. Execution and commit on an executor are serialized so
 blocks cannot share a stale snapshot or overlap commits; callers must still
 submit block heights in order. The snapshot stays open through the commit and
-is always closed afterward. An empty block still commits an encoded empty
-changeset so the store can advance its height. Stateless preparation can
+is always closed afterward. An empty block still commits an empty
+`StateChangeSet` so the store can advance its height. Stateless preparation can
 continue concurrently with store-backed execution.
 
-The encoder is explicit because `giga.StateDB` defines the protobuf commit
-transport but does not define an on-disk key layout. Encoding, state commit, or
+The store owns its on-disk key layout: `giga.StateDB` converts a
+`StateChangeSet` to the rows it writes. Block-encoder, state commit, or
 receipt-store failures release the block result and return an error without
 invoking `ResultSink`. Ethereum receipts are converted into
 `receipt.ReceiptRecord` values and persisted through the shared

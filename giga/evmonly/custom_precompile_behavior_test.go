@@ -96,7 +96,7 @@ func TestEVMOnlyEstimateGasCustomPrecompile_Behavior(t *testing.T) {
 		state.SetBalance(sender, big.NewInt(behaviorSenderFunds))
 		state.SetCode(caller, callOpcodeRuntime(byte(vm.CALL), behaviorCustomPrecompile, successSlot))
 		store := NewMemoryStore(state)
-		executor := NewExecutor(cfg, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+		executor := NewExecutor(cfg, withTestStores(store, NewMemoryReceiptStore()))
 
 		msg := callMessage(sender, &caller)
 		msg.GasLimit = 0
@@ -121,7 +121,7 @@ func TestEVMOnlyEstimateGasCustomPrecompile_Behavior(t *testing.T) {
 		state := NewMemoryState()
 		state.SetBalance(sender, big.NewInt(behaviorSenderFunds))
 		store := NewMemoryStore(state)
-		executor := NewExecutor(cfg, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+		executor := NewExecutor(cfg, withTestStores(store, NewMemoryReceiptStore()))
 
 		msg := callMessage(sender, &behaviorCustomPrecompile)
 		msg.GasLimit = 0
@@ -139,7 +139,7 @@ func TestEVMOnlyEstimateGasCustomPrecompile_Behavior(t *testing.T) {
 		state.SetBalance(sender, big.NewInt(behaviorSenderFunds))
 		store := NewMemoryStore(state)
 		executor := NewExecutor(cfg,
-			withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet),
+			withTestStores(store, NewMemoryReceiptStore()),
 			WithMissingAccountState(panickingStateReader{}))
 
 		target := testAddress(0x7e)

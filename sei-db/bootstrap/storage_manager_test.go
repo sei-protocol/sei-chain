@@ -12,7 +12,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 )
 
@@ -242,14 +242,11 @@ func TestAnInvalidConfigIsRefusedBeforeAnyStoreOpens(t *testing.T) {
 func TestStateDBCommitsToWALAndLiveSC(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
-	cs := []*proto.NamedChangeSet{{
-		Name: "bank",
-		Changeset: proto.ChangeSet{
-			Pairs: []*proto.KVPair{{Key: []byte("k"), Value: []byte("v")}},
-		},
-	}}
-	commitBlock(t, manager, 1, cs)
-	waitSSWrites(manager)
+	changes := &gigatypes.StateChangeSet{
+		Misc: []gigatypes.MiscChange{{Module: "bank", Key: []byte("k"), Value: []byte("v")}},
+	}
+	commitBlock(t, manager, 1, changes)
+	waitSSWrites(t, manager, 1)
 
 	require.Equal(t, int64(1), manager.SC().Version())
 	require.Equal(t, int64(1), manager.SS().GetLatestVersion(),
@@ -265,7 +262,7 @@ func TestStateDBCommitsEVMChangesToSS(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
 	commitBlock(t, manager, 1, evmBlock(1, 1))
-	waitSSWrites(manager)
+	waitSSWrites(t, manager, 1)
 
 	require.Equal(t, int64(1), manager.SS().GetLatestVersion())
 	value, err := manager.SS().Get(evm.EVMStoreKey, 1, evmNonceKey(1))

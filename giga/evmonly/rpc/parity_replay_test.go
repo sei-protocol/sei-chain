@@ -76,7 +76,7 @@ func replayFixture(t *testing.T, fixture *parity.Fixture) *replayBackend {
 		MinGasPrice:          new(big.Int),
 		OCCWorkers:           replayOCCWorkers,
 		RejectUnappliableTxs: true,
-	}, evmonly.WithStore(store, store.EncodeChangeSet), evmonly.WithReceiptStore(receipts))
+	}, evmonly.WithStore(store), evmonly.WithReceiptStore(receipts))
 	t.Cleanup(executor.Close)
 
 	backend := &replayBackend{

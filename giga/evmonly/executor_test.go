@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"math/big"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -138,7 +139,7 @@ func TestExecutorStoresReceipts(t *testing.T) {
 	receiptStore := NewMemoryReceiptStore()
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
 	stateStore := NewMemoryStore(state)
-	executor := NewExecutor(Config{}, withTestStores(stateStore, receiptStore, stateStore.EncodeChangeSet))
+	executor := NewExecutor(Config{}, withTestStores(stateStore, receiptStore))
 	ctx := blockContext(chainID)
 	ctx.Number = 77
 
@@ -165,7 +166,7 @@ func TestExecutorReturnsReceiptStoreError(t *testing.T) {
 	sink := &recordingResultSink{}
 	executor := NewExecutor(
 		Config{BlockResultPoolSize: 1},
-		withTestStores(stateStore, receiptStore, EncodeMemoryStoreChangeSet),
+		withTestStores(stateStore, receiptStore),
 		WithResultSink(sink),
 	)
 	request := BlockRequest{Context: blockContext(big.NewInt(testChainID))}
@@ -214,6 +215,37 @@ func TestExecutorPooledResultRelease(t *testing.T) {
 	require.NoError(t, err)
 	require.Same(t, first, second)
 	sink.releases[1]()
+	second.Release()
+}
+
+// A block's change set is handed to its commit, which can outlive the block result, so reusing the pooled
+// result for the next block must leave the set it held as it was.
+func TestExecutorPooledResultLeavesAReleasedChangeSetIntact(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
+	executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestState(state))
+	transfer := func(recipient byte, value int64) BlockRequest {
+		to := common.BytesToAddress([]byte{recipient})
+		rawTx := signLegacyTx(t, key, chainID, 0, &to, big.NewInt(value), nil)
+		return BlockRequest{Context: blockContext(chainID), Txs: [][]byte{rawTx}}
+	}
+
+	first, err := executor.ExecuteBlock(t.Context(), transfer(0xa8, 7))
+	require.NoError(t, err)
+	held := first.ChangeSet
+	require.NotEmpty(t, held.Accounts)
+	want := StateChangeSet{Accounts: slices.Clone(held.Accounts), Storage: slices.Clone(held.Storage)}
+	first.Release()
+
+	second, err := executor.ExecuteBlock(t.Context(), transfer(0xa9, 11))
+	require.NoError(t, err)
+	require.Same(t, first, second, "the second block must reuse the pooled result")
+	require.Equal(t, want, held)
 	second.Release()
 }
 
@@ -791,7 +823,7 @@ func TestExecutorOCCLargeMixedBlockMatchesSequential(t *testing.T) {
 	require.Equal(t, seqResult.GasUsed, occResult.GasUsed)
 	require.Equal(t, seqResult.Txs, occResult.Txs)
 	require.Equal(t, seqResult.Receipts, occResult.Receipts)
-	require.Equal(t, seqResult.ChangeSet, occResult.ChangeSet)
+	require.Equal(t, canonicalChangeSet(seqResult.ChangeSet), canonicalChangeSet(occResult.ChangeSet))
 }
 
 func TestExecutorOCCFeePayingTransfersDoNotConflictOnCoinbase(t *testing.T) {
@@ -1663,7 +1695,7 @@ func TestExecuteBlockChangeSetCarriesPriorValues(t *testing.T) {
 			{Address: clearer, Key: slot, Delete: true, PriorValue: testHash(0x09)},
 		},
 	}
-	require.Equal(t, withCanonicalBalances(want), withCanonicalBalances(result.ChangeSet))
+	require.Equal(t, canonicalChangeSet(want), canonicalChangeSet(result.ChangeSet))
 }
 
 // Under OCC, where every transaction after the first reruns on what the earlier ones wrote, executing
@@ -1731,7 +1763,7 @@ func TestExecuteBlockOCCChangeSetCarriesPriorValues(t *testing.T) {
 			{Address: clearer, Key: slot, Delete: true, PriorValue: testHash(0x09)},
 		},
 	}
-	require.Equal(t, withCanonicalBalances(want), withCanonicalBalances(result.ChangeSet))
+	require.Equal(t, canonicalChangeSet(want), canonicalChangeSet(result.ChangeSet))
 }
 
 func TestStateDBGetCommittedStateAdvancesAtFinalise(t *testing.T) {
