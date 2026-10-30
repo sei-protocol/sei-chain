@@ -235,6 +235,14 @@ func (b *replayBackend) EvmCall(ctx context.Context, msg *core.Message) (*core.E
 	return b.executor.Call(ctx, b.tip, msg)
 }
 
+func (*replayBackend) EvmCallAt(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error) {
+	return nil, errNotReplayed
+}
+
+func (*replayBackend) EvmEstimateGasAt(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error) {
+	return 0, nil, errNotReplayed
+}
+
 func (b *replayBackend) EvmChainConfig() (*params.ChainConfig, error) {
 	return b.chainConfig, nil
 }
@@ -275,6 +283,14 @@ func (b *replayBackend) EvmStorage(address common.Address, key common.Hash) (com
 
 func (b *replayBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
 	return b.executor.EstimateGas(ctx, b.tip, msg, gasCap)
+}
+
+func (b *replayBackend) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+	return b.executor.EstimateGasAfterCalls(ctx, b.tip, calls, msg, gasCap)
+}
+
+func (b *replayBackend) EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
+	return b.executor.CreateAccessList(ctx, b.tip, msg)
 }
 
 func (b *replayBackend) EvmGasLimit() (uint64, error) {

@@ -64,10 +64,8 @@ func TestGetTransactionCountReadsNumberedBlocksFromHistory(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, want, *got, "block %d", height)
 	}
-	for _, tag := range []ethrpc.BlockNumberOrHash{ethrpc.BlockNumberOrHashWithHash(common.Hash{0x01}, false), {}} {
-		_, err := api.GetTransactionCount(t.Context(), address, tag)
-		require.ErrorIs(t, err, errBlockHashUnsupported)
-	}
+	_, err := api.GetTransactionCount(t.Context(), address, ethrpc.BlockNumberOrHash{})
+	require.ErrorIs(t, err, errBlockNotSpecified)
 }
 
 func TestGetTransactionCountEndToEnd(t *testing.T) {

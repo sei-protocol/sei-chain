@@ -9,6 +9,7 @@ import (
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -172,6 +173,86 @@ func TestEVMOnlyApplicationExposesChainMetadata(t *testing.T) {
 	require.Equal(t, new(big.Int).SetUint64(evmOnlyTestChainID), chainConfig.ChainID)
 	require.Equal(t, big.NewInt(0), baseFee)
 	require.Equal(t, uint64(30_000_000), gasLimit)
+}
+
+// blockInfoCode is runtime bytecode that returns NUMBER and TIMESTAMP as two 32-byte words.
+var blockInfoCode = []byte{
+	0x43, 0x60, 0x00, 0x52, // NUMBER, PUSH1 0, MSTORE
+	0x42, 0x60, 0x20, 0x52, // TIMESTAMP, PUSH1 32, MSTORE
+	0x60, 0x40, 0x60, 0x00, 0xf3, // PUSH1 64, PUSH1 0, RETURN
+}
+
+// A call or gas estimate at a past block runs against the state after that block, in the context it
+// executed at; a state the node does not hold is refused.
+func TestEVMOnlyApplicationExecutesAgainstAPastBlock(t *testing.T) {
+	app := newUndoLogEVMOnlyTestApp(t)
+	deployRaw, sender, contract := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(blockInfoCode), 300_000)
+	first := evmOnlyTestBlock(1)
+	second := evmOnlyTestBlock(2, deployRaw)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, first)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, second)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(3))
+	// The undo log applies blocks behind the commit; until it has, their history is not held.
+	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+
+	for _, tc := range []struct {
+		name       string
+		header     *ethtypes.Header
+		wantReturn []byte
+		wantCode   bool
+	}{
+		{name: "before the deploy", header: traceTestHeader(1, nil)},
+		{
+			name:       "the deploy block",
+			header:     traceTestHeader(2, first.Hash),
+			wantReturn: append(common.BigToHash(big.NewInt(2)).Bytes(), common.BigToHash(big.NewInt(1_700_000_002)).Bytes()...),
+			wantCode:   true,
+		},
+		{
+			name:       "after the deploy",
+			header:     traceTestHeader(3, second.Hash),
+			wantReturn: append(common.BigToHash(big.NewInt(3)).Bytes(), common.BigToHash(big.NewInt(1_700_000_003)).Bytes()...),
+			wantCode:   true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := app.EvmCallAt(t.Context(), callMessage(sender, &contract), tc.header)
+			require.NoError(t, err)
+			require.NoError(t, result.Err)
+			require.Equal(t, tc.wantReturn, result.Return())
+
+			estimate, _, err := app.EvmEstimateGasAt(t.Context(), callMessage(sender, &contract), 0, tc.header)
+			require.NoError(t, err)
+			// Only a call that runs code costs more than a plain transfer.
+			require.Equal(t, tc.wantCode, estimate > params.TxGas)
+		})
+	}
+
+	t.Run("a state the node does not hold", func(t *testing.T) {
+		_, err := app.EvmCallAt(t.Context(), callMessage(sender, &contract), traceTestHeader(9, nil))
+		require.Error(t, err)
+		_, _, err = app.EvmEstimateGasAt(t.Context(), callMessage(sender, &contract), 0, traceTestHeader(9, nil))
+		require.Error(t, err)
+	})
+}
+
+// A validator keeps no history, so it executes only against the latest block's state.
+func TestEVMOnlyApplicationValidatorExecutesOnlyAgainstTheLatestBlock(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	first := evmOnlyTestBlock(1)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, first)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2))
+	to := common.Address{1}
+
+	_, err := app.EvmCallAt(t.Context(), callMessage(common.Address{}, &to), traceTestHeader(2, first.Hash))
+	require.NoError(t, err)
+	_, _, err = app.EvmEstimateGasAt(t.Context(), callMessage(common.Address{}, &to), 0, traceTestHeader(2, first.Hash))
+	require.NoError(t, err)
+
+	_, err = app.EvmCallAt(t.Context(), callMessage(common.Address{}, &to), traceTestHeader(1, nil))
+	require.Error(t, err)
+	_, _, err = app.EvmEstimateGasAt(t.Context(), callMessage(common.Address{}, &to), 0, traceTestHeader(1, nil))
+	require.Error(t, err)
 }
 
 func TestEVMOnlyApplicationEvmCallRequiresInitChain(t *testing.T) {

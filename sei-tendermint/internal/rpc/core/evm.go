@@ -57,6 +57,30 @@ func (env *EVMEnvironment) EvmEstimateGas(ctx context.Context, msg *ethcore.Mess
 	return env.EVM.EvmEstimateGas(ctx, msg, gasCap)
 }
 
+// EvmCallAt executes msg as a read-only call against the committed EVM state
+// after header's block, in the context that block executed at.
+func (env *EVMEnvironment) EvmCallAt(ctx context.Context, msg *ethcore.Message, header *ethtypes.Header) (*ethcore.ExecutionResult, error) {
+	return env.EVM.EvmCallAt(ctx, msg, header)
+}
+
+// EvmEstimateGasAt returns the lowest gas limit that lets msg succeed against
+// the committed EVM state after header's block, persisting no state change.
+func (env *EVMEnvironment) EvmEstimateGasAt(ctx context.Context, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error) {
+	return env.EVM.EvmEstimateGasAt(ctx, msg, gasCap, header)
+}
+
+// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg with calls applied to the
+// current committed EVM state first, in order, persisting no state change.
+func (env *EVMEnvironment) EvmEstimateGasAfterCalls(ctx context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
+	return env.EVM.EvmEstimateGasAfterCalls(ctx, calls, msg, gasCap)
+}
+
+// EvmCreateAccessList returns the access list msg touches against the current committed EVM
+// state, and the result of executing msg with that list, persisting no state change.
+func (env *EVMEnvironment) EvmCreateAccessList(ctx context.Context, msg *ethcore.Message) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
+	return env.EVM.EvmCreateAccessList(ctx, msg)
+}
+
 // EvmBlockContext returns the block context header's block executed at.
 func (env *EVMEnvironment) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
 	return env.EVM.EvmBlockContext(header)

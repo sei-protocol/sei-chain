@@ -99,6 +99,8 @@ type RPCConfig struct {
 	BatchResponseMaxSize int `mapstructure:"batch_response_max_size"`
 	// MaxWSConnections caps simultaneously open WebSocket connections.
 	MaxWSConnections int `mapstructure:"max_ws_connections"`
+	// MaxEstimateGasCalls caps the calls one eth_estimateGasAfterCalls request may apply.
+	MaxEstimateGasCalls int `mapstructure:"max_estimate_gas_calls"`
 	// MaxConcurrentTraceCalls caps debug_trace* calls running at once; a call past it is refused.
 	MaxConcurrentTraceCalls int `mapstructure:"max_concurrent_trace_calls"`
 	// TraceTimeout bounds how long one debug_trace* call may run.
@@ -137,6 +139,7 @@ var DefaultConfig = Config{
 		BatchRequestLimit:             100,
 		BatchResponseMaxSize:          25 * 1000 * 1000,
 		MaxWSConnections:              2000,
+		MaxEstimateGasCalls:           100,
 		MaxConcurrentTraceCalls:       10,
 		TraceTimeout:                  30 * time.Second,
 		MaxTraceStructLogBytes:        32 * 1024 * 1024,
@@ -186,6 +189,7 @@ const (
 	FlagRPCBatchRequestLimit             = "giga.rpc.batch_request_limit"
 	FlagRPCBatchResponseMaxSize          = "giga.rpc.batch_response_max_size"
 	FlagRPCMaxWSConnections              = "giga.rpc.max_ws_connections"
+	FlagRPCMaxEstimateGasCalls           = "giga.rpc.max_estimate_gas_calls"
 	FlagRPCMaxConcurrentTraceCalls       = "giga.rpc.max_concurrent_trace_calls"
 	FlagRPCTraceTimeout                  = "giga.rpc.trace_timeout"
 	FlagRPCMaxTraceStructLogBytes        = "giga.rpc.max_trace_struct_log_bytes"
@@ -311,6 +315,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxWSConnections, err)
 		}
 	}
+	if v := opts.Get(FlagRPCMaxEstimateGasCalls); v != nil {
+		if cfg.RPC.MaxEstimateGasCalls, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxEstimateGasCalls, err)
+		}
+	}
 	if v := opts.Get(FlagRPCMaxConcurrentTraceCalls); v != nil {
 		if cfg.RPC.MaxConcurrentTraceCalls, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxConcurrentTraceCalls, err)
@@ -403,6 +412,9 @@ func (c Config) Validate() error {
 	}
 	if c.RPC.MaxWSConnections < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxWSConnections, c.RPC.MaxWSConnections)
+	}
+	if c.RPC.MaxEstimateGasCalls < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxEstimateGasCalls, c.RPC.MaxEstimateGasCalls)
 	}
 	if c.RPC.MaxConcurrentTraceCalls < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxConcurrentTraceCalls, c.RPC.MaxConcurrentTraceCalls)
@@ -510,6 +522,9 @@ batch_response_max_size = {{ .Giga.RPC.BatchResponseMaxSize }}
 
 # max_ws_connections caps simultaneously open WebSocket connections.
 max_ws_connections = {{ .Giga.RPC.MaxWSConnections }}
+
+# max_estimate_gas_calls caps the calls one eth_estimateGasAfterCalls request may apply.
+max_estimate_gas_calls = {{ .Giga.RPC.MaxEstimateGasCalls }}
 
 # max_concurrent_trace_calls caps debug_trace* calls running at once; a call past it is refused.
 max_concurrent_trace_calls = {{ .Giga.RPC.MaxConcurrentTraceCalls }}

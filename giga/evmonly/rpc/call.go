@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 )
@@ -19,13 +20,16 @@ const defaultCallGasCap = 10_000_000
 
 type callAPI struct {
 	backend Backend
+	blocks  *blockAPI
 }
 
-// Call executes args as a read-only EVM message call against the current
-// committed state and returns the return data. It creates no transaction and
-// persists no state change.
+// Call executes args as a read-only EVM message call against the committed
+// state after block, in the context that block executed at, and returns the
+// return data. A latest tag runs against the latest committed state. It
+// creates no transaction and persists no state change.
 func (api *callAPI) Call(ctx context.Context, args export.TransactionArgs, block ethrpc.BlockNumberOrHash) (hexutil.Bytes, error) {
-	if err := requireCurrentState(block); err != nil {
+	height, latest, err := stateHeight(ctx, api.backend, block)
+	if err != nil {
 		return nil, err
 	}
 	baseFee, err := api.backend.EvmBaseFee()
@@ -38,7 +42,7 @@ func (api *callAPI) Call(ctx context.Context, args export.TransactionArgs, block
 	}
 	msg := args.ToMessage(baseFee, true, true)
 
-	result, err := api.backend.EvmCall(ctx, msg)
+	result, err := api.execute(ctx, msg, height, latest)
 	if err != nil {
 		return nil, err
 	}
@@ -49,6 +53,19 @@ func (api *callAPI) Call(ctx context.Context, args export.TransactionArgs, block
 		return nil, result.Err
 	}
 	return result.Return(), nil
+}
+
+// execute runs msg against the latest committed state, or else against the
+// state after the block at height.
+func (api *callAPI) execute(ctx context.Context, msg *core.Message, height int64, latest bool) (*core.ExecutionResult, error) {
+	if latest {
+		return api.backend.EvmCall(ctx, msg)
+	}
+	header, err := api.blocks.executionHeaderAt(ctx, height)
+	if err != nil {
+		return nil, err
+	}
+	return api.backend.EvmCallAt(ctx, msg, header)
 }
 
 // newRevertError builds the JSON-RPC error for a reverted call: code 3 with
