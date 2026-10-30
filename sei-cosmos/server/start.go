@@ -26,10 +26,12 @@ import (
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 	tcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -316,6 +318,7 @@ func startInProcess(
 	if ctx.Viper.GetBool("rosetta.enable") {
 		logger.Error("WARNING: rosetta.enable is set in app.toml, but seid no longer includes the Rosetta API server; the setting is ignored")
 	}
+	warnIgnoredStateSyncTrustPeriod(ctx.Viper, clientCtx.ChainID)
 	app := appCreator(nil, traceWriter, ctx.Config, ctx.Viper)
 	defer func() {
 		logger.Info("close any other open resource...")
@@ -416,4 +419,16 @@ func startInProcess(
 
 	// wait for signal capture and gracefully return
 	return WaitForQuitSignals(goCtx, restartCh)
+}
+
+// warnIgnoredStateSyncTrustPeriod logs a warning when v sets [statesync] trust-period to a
+// value other than the trust period state sync uses on chainID.
+func warnIgnoredStateSyncTrustPeriod(v *viper.Viper, chainID string) {
+	const key = "statesync.trust-period"
+	trustPeriod := tmcfg.StateSyncTrustPeriod(chainID)
+	if !v.IsSet(key) || v.GetDuration(key) == trustPeriod {
+		return
+	}
+	logger.Warn("statesync.trust-period is set in config.toml, but state sync uses the trust period built into seid for this chain; the setting is ignored and can be removed",
+		"chainID", chainID, "configured", v.GetString(key), "trustPeriod", trustPeriod.String())
 }
