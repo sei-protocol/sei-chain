@@ -1,7 +1,7 @@
 # CLOB benchmark on Harbor
 
 Reproduces the Autobahn EVM-only CLOB benchmark: 8 validators on dedicated c7i.16xlarge hosts, 8 sei-load
-pods offering 100k tx/s of CLOB orders. This branch sustains about 68k TPS chain-wide, run end to end from this folder.
+pods offering 100k tx/s of CLOB orders. This branch sustains about 88k TPS chain-wide, run end to end from this folder.
 
 ## Workload
 
@@ -38,15 +38,17 @@ sei-load branch `yzang/clob-fixed-markets` (image `ghcr.io/sei-protocol/sei-load
    Fill `__NAMESPACE__`, `__CHAIN_ID__`, `__RUN_ID__` (lowercase) and `__COMMIT__` in `bench.yaml`, then commit it next to the
    chain. Each pod requests 5 CPU and peaks near 5 cores.
 
-4. After at least 5 minutes of load, summarize a 5-minute window:
+4. After at least 14 minutes of load, summarize a 10-minute window:
 
    ```bash
    kubectl -n monitoring port-forward svc/sei-harbor-prometheus 19090:9090 &
-   NAMESPACE=... CHAIN_ID=... python3 measure.py "my run" 5m
+   NAMESPACE=... CHAIN_ID=... python3 measure.py "my run" 10m
    ```
 
    `chain TPS` is the executed rate; `capacity k` is each validator's executed rate divided by the share of
-   time its main loop was busy, so the lowest capacity is what the chain can sustain.
+   time its main loop was busy, so the lowest capacity is what the chain can sustain. A validator can run
+   well below the others for its first 10 minutes, which caps the chain there, so an earlier window
+   understates the steady state.
 
 ## Exact setup
 
@@ -105,6 +107,8 @@ With these values the run produced about 12 superblocks a second, each covering 
 | `giga.execution.flatkv_view_shards` (account database) | 64 | 8 |
 | `giga.execution.flatkv_storage_view_shards` | 64 | 8 |
 | `giga.execution.dummy_app_hash` | true | false |
+| `giga.execution.early_speculation_workers` | 24 | 0 (off) |
+| `giga.storage.receipt_pipelined_index_commits` | true | false |
 | `giga.storage.hash_vault_fsync_disabled_unsafe`, `block_store_fsync_disabled_unsafe` | true | false |
 
 ### Load
@@ -119,7 +123,7 @@ With these values the run produced about 12 superblocks a second, each covering 
 | Gas price | fee cap is eth_gasPrice times `gasFeeCapMultiplier` 15 (sei-load default), or `gasFeeCapFallbackWei` 20 gwei when the node serves no gas price |
 | Receipts and blocks | not tracked (`trackReceipts`, `trackBlocks` false) |
 | Pod resources | requests 5 CPU and 2 GiB, memory limit 6 GiB, `GOMAXPROCS=14` |
-| Duration | 30 minutes; the first 5 are warm-up and excluded from measurement |
+| Duration | 30 minutes; the first 14 are warm-up and excluded from measurement |
 
 ## What the branch contains
 
@@ -135,6 +139,11 @@ Latest main, merged with:
 - The dummy app hash knob.
 - CPU savers: a contract's code hash taken from its account row instead of hashing its code, and the lattice
   hash built with `GOEXPERIMENT=simd` (AVX-512).
+- Early speculation: each prepared superblock is speculated against the last executed state while earlier
+  superblocks still execute, and its results are reused unless a block in between wrote a key they read.
+- Each block's receipt log index committed while the next block is staged.
+- The state WAL's sort, budlets and BUD hashing split across goroutines.
+- Mutations built directly from the executor's state changes (#4672).
 
 ## Results on this setup
 
@@ -144,9 +153,26 @@ Latest main, merged with:
 | + 64 storage shards | 60-64k |
 | + overlay prebuild, retirement in short lock holds retired in parallel, early cache-miss release | 66-69k |
 | + dummy app hash | 67-68k |
-| This branch, run end to end from this folder's manifests | 68.2k |
+| + code hash from the account row and SIMD lattice hash (end to end from this folder) | 68.2k |
+| + early speculation, pipelined receipt index commits, parallel state WAL, #4672 | 87.9k, 89.6k |
 
-Where the main loop spends its time in that run (about 12.7 us per transaction): speculation 6.2, validation 2.7,
-merge 1.0, waiting for the previous block's FlatKV commit 0.9, pending overlay 0.7, encoding 0.5. The validator that
-receives the least RPC traffic is usually the slowest, since it recovers every sender during block preparation
-alongside speculation.
+What each of the last four is worth, measured by leaving it out of the full build (load minutes 14-24; two runs
+of the full build differ by 1.7k):
+
+| Left out | Chain TPS |
+|---|---|
+| Nothing | 88.8k (mean of two runs) |
+| Pipelined receipt index commits | 74.3k |
+| Early speculation | 74.7k |
+| #4672 | 81.0k |
+| Parallel state WAL sort and hashing | 82.8k |
+| All four | 68.5k |
+
+They are a chain of bottlenecks rather than independent gains: early speculation alone moves the main loop's
+wait to the state WAL and then to the receipt store, so the four only pay off together.
+
+Where the main loop spends its time in the full build (about 11.4 us per transaction): speculation 3.0,
+validation 3.1, merge 1.4, opening the view 0.9, waiting for the previous block's commit 0.6, taking over early
+speculation 0.5, encoding receipts 0.5. Early speculation finishes about 70% of transactions before their block
+executes. The validator that receives the least RPC traffic is usually the slowest, since it recovers every
+sender during block preparation alongside speculation.

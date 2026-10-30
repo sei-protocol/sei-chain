@@ -23,6 +23,7 @@ blk='sum by (pod) (rate(tendermint_internal_autobahn_data_latency_count{namespac
 busy=d('sum by (pod) (rate(sei_chain_autobahn_main_loop_phase_duration_seconds_total{%s,phase=~"execution|storage"}[%s]))'%(F,W))
 cap={k:t[k]/busy[k]/1000 for k in t if k in busy and busy[k]>0}
 line('capacity k',cap,'%.0f')
+if cap: print('  capacity k summary   min=%.0f median=%.0f'%(min(cap.values()),sorted(cap.values())[len(cap)//2]))
 line('cpu',d('sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="NAMESPACE_",container="seid",pod=~"CHAIN_.*"}[%s]))'%W))
 line('ingest k/s',d('sum by (pod) (rate(tendermint_internal_autobahn_producer_inserts{namespace="NAMESPACE_",result!~"pending_full|full"}[%s]))/1000'%W))
 sb=q('sum(rate(sei_chain_giga_evmonly_txs_executed_total{%s}[%s]))/sum(rate(tendermint_internal_autobahn_data_latency_count{namespace="NAMESPACE_",resource="blocks",stage="execute"}[%s]))'%(F,W,W))
@@ -37,3 +38,6 @@ line('backpressure ns/tx',d('1e9*sum by (pod) (rate(sei_chain_view_manager_view_
 line('flush busy frac',d('sum by (pod) (rate(sei_chain_view_manager_lifecycle_phase_duration_seconds_total{%s,cache="storage",phase=~"flush.*"}[%s]))'%(F,W)),'%.2f')
 r=q('sum by (phase) (rate(sei_chain_view_manager_lifecycle_phase_duration_seconds_total{%s,cache="storage"}[%s]))/count(count by (pod) (sei_chain_view_manager_lifecycle_phase_duration_seconds_total{%s,cache="storage"}))'%(F,W,F))
 if r: print('  storage lifecycle busy frac/node '+', '.join('%s=%.2f'%(x['metric']['phase'],float(x['value'][1])) for x in sorted(r,key=lambda x:-float(x['value'][1]))))
+eo={x['metric'].get('outcome','?'):float(x['value'][1]) for x in q('sum by (outcome) (rate(sei_chain_giga_occ_early_txs_total{%s}[%s]))'%(F,W))}
+tsum=sum(t.values())
+if eo: print('  early txs per tx      '+', '.join('%s=%.2f'%(k,v/tsum) for k,v in sorted(eo.items())))

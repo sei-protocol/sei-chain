@@ -27,6 +27,10 @@ spec:
     - {fileName: app.toml, key: giga.execution.flatkv_storage_view_shards, value: 64}
     # FinalizeBlock's app hash leaves out the state changes; it is replaced by the HashVault app hash.
     - {fileName: app.toml, key: giga.execution.dummy_app_hash, value: true}
+    # Speculate each prepared superblock before its predecessors finish executing.
+    - {fileName: app.toml, key: giga.execution.early_speculation_workers, value: 24}
+    # Commit each block's receipt log index while the next block is staged.
+    - {fileName: app.toml, key: giga.storage.receipt_pipelined_index_commits, value: true}
   consensus:
     autobahn:
       allowEmptyBlocks: true
