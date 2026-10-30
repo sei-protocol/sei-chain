@@ -371,8 +371,9 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if lastBlock != nil {
-		if err := r.backfillAppHashes(ctx, lastBlock.Height); err != nil {
+	block, hasBlock := lastBlock.Get()
+	if hasBlock {
+		if err := r.backfillAppHashes(ctx, next); err != nil {
 			return err
 		}
 	}
@@ -387,8 +388,8 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("registerAppHashListener(): %w", err)
 		}
-		if lastBlock != nil {
-			if err := listenerContinuesAt(published, lastBlock.Height); err != nil {
+		if hasBlock {
+			if err := listenerContinuesAt(published, block.Height); err != nil {
 				return err
 			}
 		}
@@ -406,14 +407,15 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 }
 
 // initApp brings the ABCI app to a state the execute loop can extend: InitChain
-// on a fresh app, or the last committed header on restart. It does not
-// subscribe to hashes; InitChain seeds the store at InitialHeight-1.
-func (r *gigaRouterCommon) initApp(ctx context.Context) (atypes.RoadIndex, *atypes.SuperBlock, error) {
+// on a fresh app, or the last committed header on restart. It returns None when
+// the app has no committed block. It does not subscribe to hashes; InitChain
+// seeds the store at InitialHeight-1.
+func (r *gigaRouterCommon) initApp(ctx context.Context) (atypes.RoadIndex, utils.Option[atypes.SuperBlock], error) {
 	app := r.app
 	info := app.Info()
 	last, ok := utils.SafeCast[atypes.RoadIndex](info.LastBlockHeight)
 	if !ok {
-		return 0, nil, fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
+		return 0, utils.None[atypes.SuperBlock](), fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
 	}
 	if last == 0 {
 		// Fresh start: CometBFT handshaker is skipped in giga mode (see
@@ -427,13 +429,13 @@ func (r *gigaRouterCommon) initApp(ctx context.Context) (atypes.RoadIndex, *atyp
 		// blocks must report them here and refuse InitChain, since blocks
 		// may be durable before Commit acknowledged them.
 		if _, err := app.InitChain(r.cfg.GenDoc.ToRequestInitChain()); err != nil {
-			return 0, nil, fmt.Errorf("App.InitChain(): %w", err)
+			return 0, utils.None[atypes.SuperBlock](), fmt.Errorf("App.InitChain(): %w", err)
 		}
 		next, ok := utils.SafeCast[atypes.RoadIndex](r.cfg.GenDoc.InitialHeight)
 		if !ok {
-			return 0, nil, fmt.Errorf("invalid GenDoc.InitialHeight = %v", r.cfg.GenDoc.InitialHeight)
+			return 0, utils.None[atypes.SuperBlock](), fmt.Errorf("invalid GenDoc.InitialHeight = %v", r.cfg.GenDoc.InitialHeight)
 		}
-		return next, nil, nil
+		return next, utils.None[atypes.SuperBlock](), nil
 	}
 	// BuildDataState caps recovery at BlockStore's durable block tip, so a crash
 	// after app.Commit but before the BlockStore flush resumes by syncing the
@@ -443,9 +445,9 @@ func (r *gigaRouterCommon) initApp(ctx context.Context) (atypes.RoadIndex, *atyp
 	b, err := r.data.SuperBlock(ctx, last)
 	if err != nil {
 		if errors.Is(err, atypes.ErrPruned) {
-			return 0, nil, fmt.Errorf("app tip %d is below the BlockStore retention floor, so its header cannot be loaded: %w", last, err)
+			return 0, utils.None[atypes.SuperBlock](), fmt.Errorf("app tip %d is below the BlockStore retention floor, so its header cannot be loaded: %w", last, err)
 		}
-		return 0, nil, fmt.Errorf("r.data.SuperBlock(): %w", err)
+		return 0, utils.None[atypes.SuperBlock](), fmt.Errorf("r.data.SuperBlock(): %w", err)
 	}
 	app.InitLastHeader((&types.Header{
 		ChainID: r.cfg.GenDoc.ChainID,
@@ -454,16 +456,16 @@ func (r *gigaRouterCommon) initApp(ctx context.Context) (atypes.RoadIndex, *atyp
 		// TODO: for consistency we should also set proposerAddress here,
 		// but this is a placeholder solution so maybe we don't care.
 	}).ToProto())
-	return last + 1, b, nil
+	return last + 1, utils.Some(*b), nil
 }
 
-// backfillAppHashes pushes all AppHashes from NextAppProposal through last.
+// backfillAppHashes pushes every AppHash in [NextAppProposal, next).
 func (r *gigaRouterCommon) backfillAppHashes(
 	ctx context.Context,
-	last atypes.RoadIndex,
+	next atypes.RoadIndex,
 ) error {
 	from := r.data.NextAppProposal()
-	if from > last {
+	if from >= next {
 		return nil
 	}
 	// TODO: finishExecuteBlock needs the weights from after height n was executed.
@@ -483,7 +485,7 @@ func (r *gigaRouterCommon) backfillAppHashes(
 			logger.Error("failed to close app hash iterator", "err", err)
 		}
 	}()
-	for n := from; n <= last; n++ {
+	for n := from; n < next; n++ {
 		ok, err := stored.Next()
 		if err != nil {
 			return fmt.Errorf("read the app hash of block %d: %w", n, err)

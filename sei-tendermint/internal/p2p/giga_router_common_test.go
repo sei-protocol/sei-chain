@@ -250,8 +250,8 @@ func TestExecuteBuffersPendingAppHashes(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if lastBlock != nil {
-			return fmt.Errorf("fresh app returned last block %d", lastBlock.Height)
+		if block, ok := lastBlock.Get(); ok {
+			return fmt.Errorf("fresh app returned last block %d", block.Height)
 		}
 		hashes := make(chan *apphash.AppHashData, pendingExecutionBuffer)
 		if _, err := registerAppHashListener(ctx, hashBuilder, hashes); err != nil {
@@ -294,19 +294,20 @@ func TestBackfillAppHashesReadsTheBuilder(t *testing.T) {
 			return fmt.Errorf("state.PushPartialBlock(): %w", err)
 		}
 
-		err := router.backfillAppHashes(ctx, last)
+		next := last + 1
+		err := router.backfillAppHashes(ctx, next)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "holds no app hash")
 
-		for n := state.NextAppProposal(); n <= last; n++ {
+		for n := state.NextAppProposal(); n < next; n++ {
 			hashBuilder.entries = append(hashBuilder.entries, testAppHashData(n))
 		}
-		require.NoError(t, router.backfillAppHashes(ctx, last))
-		require.Equal(t, last+1, state.NextAppProposal())
-		// NextAppProposal is past last, so a second call has nothing to push.
+		require.NoError(t, router.backfillAppHashes(ctx, next))
+		require.Equal(t, next, state.NextAppProposal())
+		// The cursor is already next, so a second call has nothing to push.
 		hashBuilder.entries = nil
-		require.NoError(t, router.backfillAppHashes(ctx, last))
-		require.Equal(t, last+1, state.NextAppProposal())
+		require.NoError(t, router.backfillAppHashes(ctx, next))
+		require.Equal(t, next, state.NextAppProposal())
 		return nil
 	}))
 }
