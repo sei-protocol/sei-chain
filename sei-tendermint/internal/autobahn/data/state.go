@@ -446,6 +446,14 @@ func (s *State) NextFullBlock() types.RoadIndex {
 	panic("unreachable")
 }
 
+// NextAppProposal returns the lowest block whose AppHash has not been pushed.
+func (s *State) NextAppProposal() types.RoadIndex {
+	for inner := range s.inner.Lock() {
+		return inner.nextAppProposal
+	}
+	panic("unreachable")
+}
+
 // NextAppQC returns the index of the next AppQC to be pushed.
 func (s *State) NextAppQC() types.RoadIndex {
 	for inner := range s.inner.Lock() {
@@ -611,19 +619,26 @@ func (s *State) appQCFromDB(n types.RoadIndex) (*types.AppQC, error) {
 // PushAppHash records the AppHash for executed blocks through n and stages
 // C_{E+2} when n closes LastRoad(E).
 func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.AppHash, weights map[types.PublicKey]uint64) error {
-	var endEpoch utils.Option[types.EpochIndex]
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextFullBlock }); err != nil {
 			return err
 		}
 		if n < inner.nextAppProposal {
+			// The proposal is already stored. Staging again rejects a different committee.
 			if n >= inner.first {
-				endEpoch = s.cfg.Registry.ClosingEpoch(n)
+				if err := s.stageClosingEpoch(n, weights); err != nil {
+					return err
+				}
 			}
 			break
 		}
 		if n != inner.nextAppProposal {
 			return fmt.Errorf("received appHash for %v: %w", n, ErrOutOfOrder)
+		}
+		// Durable before the cursor moves, so a crash cannot persist this proposal
+		// and leave the epoch it closes unstaged.
+		if err := s.stageClosingEpoch(n, weights); err != nil {
+			return err
 		}
 		e := inner.blocks[n]
 		proposal := types.NewAppProposal(e.qc.QC().Proposal(), hash)
@@ -643,21 +658,27 @@ func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.A
 		inner.appProposals[n] = proposal
 		inner.nextAppProposal++
 		s.metrics.NextBlock.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
-		endEpoch = s.cfg.Registry.ClosingEpoch(n)
 		ctrl.Updated()
-		// CRITICAL: We need to persist AppHash before we return and start executing the next block,
-		// otherwise we lose the apphash on restart.
-		// TODO(gprusak): this is a temporary measure, until AppHashes are persisted outside of BlockStore.
+		// Durable before return. AppVote waits on the same cursor.
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.persisted.NextAppProposal }); err != nil {
 			return err
 		}
 	}
-	if e, ok := endEpoch.Get(); ok {
-		if err := s.cfg.Registry.StageEpoch(e, weights); err != nil {
-			return fmt.Errorf("StageEpoch(%d): %w", e, err)
-		}
-	}
 	return s.activateStagedEpoch()
+}
+
+// stageClosingEpoch persists C_{E+2} when n is the last road of epoch E.
+// StageEpoch returns only after that committee is durable. A road that closes
+// no epoch is left unchanged.
+func (s *State) stageClosingEpoch(n types.RoadIndex, weights map[types.PublicKey]uint64) error {
+	e, ok := s.cfg.Registry.ClosingEpoch(n).Get()
+	if !ok {
+		return nil
+	}
+	if err := s.cfg.Registry.StageEpoch(e, weights); err != nil {
+		return fmt.Errorf("StageEpoch(%d): %w", e, err)
+	}
+	return nil
 }
 
 func (s *State) PushGasUsed(gasUsed int64) {

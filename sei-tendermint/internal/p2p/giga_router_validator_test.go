@@ -88,6 +88,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				ValidatorAddrs:     addrs,
 				PersistentStateDir: dir,
 				App:                proxyApp,
+				AppHashBuilder:     newPublishingAppHashBuilder(),
 				GenDoc:             genDoc,
 				EnableEvmProxy:     true,
 			}
@@ -271,11 +272,13 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	blockStore, err := blockstore.New(db)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = blockStore.Close() })
+	app := newTestApp()
 	commonCfg := GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: dir,
-		App:                proxy.New(newTestApp()),
+		App:                proxy.New(app),
+		AppHashBuilder:     newPublishingAppHashBuilder(),
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}

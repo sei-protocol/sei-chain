@@ -88,7 +88,8 @@ func restartAt(t *testing.T, manager *GigaStorageManager, target int64) {
 	require.NoError(t, manager.openAppHashBuilder(t.Context()))
 }
 
-// Storage reports every input of each committed block, with a zero block hash and receipt hash.
+// Storage reports the state hash, BUD hash and a zero receipt hash of each committed block, and execution
+// reports its block hash.
 func TestAppHashesBuiltFromCommittedBlocks(t *testing.T) {
 	manager, _ := openManager(t, func(cfg *config.GigaStorageConfig) {
 		cfg.AppHashBuilderConfig.ChainID = testAppHashChainID
@@ -103,9 +104,10 @@ func TestAppHashesBuiltFromCommittedBlocks(t *testing.T) {
 		height := uint64(i) + 1 //nolint:gosec // small test heights
 		require.Equal(t, height, appHash.BlockHeight())
 		require.Equal(t, testAppHashChainID, appHash.ChainID())
-		require.Equal(t, [32]byte{}, appHash.BlockHash())
+		require.Equal(t, testBlockHash(height), appHash.BlockHash())
 		require.NotEqual(t, [32]byte{}, appHash.StateHash())
 		require.NotEqual(t, apphash.BUDHash{}, appHash.BUDHash())
+		require.Equal(t, [32]byte{}, appHash.ReceiptHash())
 	}
 	head, err := manager.AppHashVault().GetLatestBlock()
 	require.NoError(t, err)
@@ -126,7 +128,9 @@ func TestRestartWithStateAheadOfTheAppHashVault(t *testing.T) {
 	savedVaultDir := filepath.Join(t.TempDir(), "vault")
 	require.NoError(t, os.CopyFS(savedVaultDir, os.DirFS(vaultDir)))
 	restartAt(t, manager, 3)
+	reportTestBlockHash(t, manager, 4)
 	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
+	reportTestBlockHash(t, manager, 5)
 	require.NoError(t, manager.StateDB().CommitStateChanges(5, evmBlock(5, 5)))
 	awaitAppHashes(t, manager, 5)
 	stopForRestart(t, manager)
@@ -146,7 +150,9 @@ func TestRestartWithStateAheadOfTheAppHashVault(t *testing.T) {
 	newest, published := listenForAppHashes(t, manager)
 	require.Equal(t, stored[2].AppHash(), newest.AppHash())
 
+	reportTestBlockHash(t, manager, 4)
 	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
+	reportTestBlockHash(t, manager, 5)
 	require.NoError(t, manager.StateDB().CommitStateChanges(5, evmBlock(5, 5)))
 	rebuilt := receiveAppHashes(t, published, 2)
 	require.Equal(t, uint64(4), rebuilt[0].BlockHeight())
@@ -169,7 +175,9 @@ func TestRestartWithTheAppHashVaultAheadOfState(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(5), head, "the app hashes above the recovered height are kept")
 
+	reportTestBlockHash(t, manager, 4)
 	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
+	reportTestBlockHash(t, manager, 5)
 	require.NoError(t, manager.StateDB().CommitStateChanges(5, evmBlock(5, 5)))
 	rebuilt := receiveAppHashes(t, published, 2)
 	require.Equal(t, stored[3].AppHash(), rebuilt[0].AppHash())

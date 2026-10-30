@@ -4,7 +4,6 @@ package gigasim
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // GigaSim runs the benchmark, driving generated blocks through the block store, the state DB and the
@@ -532,6 +532,13 @@ func (g *GigaSim) persistExecutionResults(
 	receiptBytes int64,
 	writes blockWrites,
 ) error {
+	height, ok := tmutils.SafeCast[uint64](number)
+	if !ok {
+		return fmt.Errorf("block number %d does not fit in a uint64", number)
+	}
+	if err := reportExecutedBlockHash(g.storage, height); err != nil {
+		return err
+	}
 	if g.receipts != nil {
 		g.lifecycle.SetPhase("write_receipts")
 		if err := g.receipts.writeBlock(number, records, receiptBytes); err != nil {
@@ -616,19 +623,11 @@ func (g *GigaSim) teardown() {
 // closePipeline stops the executor pool and releases every database, in the order the stores require:
 // the executors stop reading first, then the state read view closes, because the commit store cannot
 // release the reference it holds while a view is open, and the storage manager closes last.
-//
-// The app hash of the last block committed is waited for before storage closes. A restart rolls every
-// store back to the newest app hash, and agreedNextBlockNumber refuses a block store left ahead of state.
 func (g *GigaSim) closePipeline() error {
 	g.cancel()
 	g.stopExecutors()
 	g.state.Close()
-	var err error
-	if highest := g.HighestBlock(); highest > 0 {
-		//nolint:gosec // block numbers are positive
-		err = awaitAppHash(g.storage.AppHashVault(), uint64(highest))
-	}
-	err = errors.Join(err, g.storage.Close())
+	err := g.storage.Close()
 	g.stopStorage()
 	return err
 }

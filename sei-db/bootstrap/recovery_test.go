@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math/big"
 	"os"
@@ -68,10 +69,26 @@ func evmChangeSets(addr byte, nonce byte) []*proto.NamedChangeSet {
 	}}
 }
 
+// testBlockHash is the block hash execution would report for height. It is a function of the height
+// alone, so a block re-executed after a restart reports the same hash the vault already stored.
+func testBlockHash(height uint64) [32]byte {
+	var blockHash [32]byte
+	binary.BigEndian.PutUint64(blockHash[:8], height)
+	return blockHash
+}
+
+// reportTestBlockHash reports height's block hash to the app hash builder, as execution does before
+// running the block.
+func reportTestBlockHash(t *testing.T, manager *GigaStorageManager, height uint64) {
+	t.Helper()
+	require.NoError(t, manager.AppHashBuilder().ReportBlockHash(t.Context(), height, testBlockHash(height)))
+}
+
 // commitBlocks commits blocks 1 through through, and waits until their app hashes are stored.
 func commitBlocks(t *testing.T, manager *GigaStorageManager, through byte) {
 	t.Helper()
 	for block := byte(1); block <= through; block++ {
+		reportTestBlockHash(t, manager, uint64(block))
 		require.NoError(t, manager.StateDB().CommitStateChanges(int64(block), evmBlock(block, block)))
 	}
 	awaitAppHashes(t, manager, uint64(through))

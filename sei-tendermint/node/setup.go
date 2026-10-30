@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -291,7 +292,7 @@ func buildGigaRouter(
 	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
 	blockStore atypes.BlockStore,
-	hashVaultFsyncDisabled bool,
+	appHashBuilder builder.AppHashBuilder,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
@@ -326,10 +327,7 @@ func buildGigaRouter(
 			return nil, err
 		}
 		valCfg.PersistentStateDir = stateDir
-		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
-		// enable/disable decision through as plain config.
-		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
-		valCfg.HashVaultFsyncDisabledUnsafe = hashVaultFsyncDisabled
+		valCfg.AppHashBuilder = appHashBuilder
 		valCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
@@ -351,10 +349,7 @@ func buildGigaRouter(
 		return nil, err
 	}
 	fnCfg.PersistentStateDir = stateDir
-	// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
-	// enable/disable decision through as plain config.
-	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
-	fnCfg.HashVaultFsyncDisabledUnsafe = hashVaultFsyncDisabled
+	fnCfg.AppHashBuilder = appHashBuilder
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
 	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
@@ -392,12 +387,13 @@ func openAutobahnStorageManager(
 	nodeMode string,
 	fc *config.AutobahnFileConfig,
 	storage gigaconfig.StorageConfig,
+	genDoc *types.GenesisDoc,
 ) (*bootstrap.GigaStorageManager, error) {
 	directory, err := resolvePersistentStateDir(rootDir, fc.PersistentStateDir)
 	if err != nil {
 		return nil, err
 	}
-	storageConfig, err := buildGigaStorageConfig(directory, nodeMode, storage)
+	storageConfig, err := buildGigaStorageConfig(directory, nodeMode, storage, genDoc)
 	if err != nil {
 		return nil, fmt.Errorf("build Autobahn storage config: %w", err)
 	}
@@ -415,16 +411,27 @@ func openAutobahnStorageManager(
 }
 
 // buildGigaStorageConfig returns the store configs for directory with the [giga.storage]
-// settings applied over the Autobahn defaults.
+// settings applied over the Autobahn defaults. The builder's first block is
+// genDoc.InitialHeight.
 func buildGigaStorageConfig(
 	directory string,
 	nodeMode string,
 	storage gigaconfig.StorageConfig,
+	genDoc *types.GenesisDoc,
 ) (*seidbconfig.GigaStorageConfig, error) {
 	storageConfig, err := seidbconfig.AutobahnStorageConfig(directory)
 	if err != nil {
 		return nil, err
 	}
+	initialHeight := int64(0)
+	if genDoc != nil {
+		initialHeight = genDoc.InitialHeight
+	}
+	if initialHeight < 1 {
+		return nil, fmt.Errorf("initial height = %d, want >= 1", initialHeight)
+	}
+	//nolint:gosec // G115: InitialHeight is at least 1.
+	storageConfig.AppHashBuilderConfig.GigaActivationHeight = uint64(initialHeight)
 	storageConfig.PruningConfig.RollbackWindow = storage.RollbackWindow
 	storageConfig.PruningConfig.LookbackWindow = storage.LookbackWindow
 	storageConfig.PruningConfig.PruneInterval = storage.PruneInterval
@@ -633,9 +640,12 @@ func createRouter(
 		if !ok {
 			return nil, closer, noneDB, fmt.Errorf("autobahn requires a storage manager")
 		}
+		if manager.AppHashBuilder() == nil {
+			return nil, closer, noneDB, fmt.Errorf("autobahn storage manager requires an app hash builder")
+		}
 		giga, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
-			manager.BlockStore(), hashVaultFsyncDisabled,
+			manager.BlockStore(), manager.AppHashBuilder(),
 		)
 		if err != nil {
 			return nil, closer, noneDB, err
