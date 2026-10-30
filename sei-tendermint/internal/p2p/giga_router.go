@@ -76,12 +76,12 @@ type GigaRouter interface {
 	// ExecutedBlocks publishes the recently committed blocks as they are committed to the app.
 	ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks]
 	MaxGasEstimatedPerBlock() uint64
-	BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error)
-	BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error)
+	BlockByNumber(ctx context.Context, n atypes.RoadIndex) (*coretypes.ResultBlock, error)
+	BlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error)
 	EvmProxy(sender common.Address) utils.Option[*rpc.Client]
 	// EvmProxyEnabled reports whether EvmProxy can return Some for any sender.
 	EvmProxyEnabled() bool
 	Mempool() utils.Option[*producer.State]
-	Validators(n atypes.GlobalBlockNumber) ([]*types.Validator, error)
+	Validators(n atypes.RoadIndex) ([]*types.Validator, error)
 	fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer])
 }

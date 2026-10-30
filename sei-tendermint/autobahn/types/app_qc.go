@@ -30,11 +30,6 @@ func NewAppQC(votes []*Signed[*AppVote]) *AppQC {
 // Proposal .
 func (m *AppQC) Proposal() *AppProposal { return m.vote.Msg().Proposal() }
 
-// Next is the number of the next global block to finalize AppHash for.
-func (m *AppQC) Next() RoadIndex {
-	return m.Proposal().Next()
-}
-
 // Verify verifies the AppQC against the committee.
 func (m *AppQC) Verify(c *Committee) error {
 	return m.vote.verifyQC(c, c.AppQuorum(), m.sigs)

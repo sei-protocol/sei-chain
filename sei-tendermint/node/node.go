@@ -682,7 +682,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 
 	// Start giga before the transport so runPersist is active before inbound
 	// giga connections (dispatched via the router) can advance inner cursors
-	// via PushQC. Keep this after the genesis-time wait and EventBus/indexer
+	// via PushPartialBlock. Keep this after the genesis-time wait and EventBus/indexer
 	// init so Autobahn does not InitChain or produce ahead of genesis.
 	if giga, ok := n.giga.Get(); ok {
 		gigaSpawned = true

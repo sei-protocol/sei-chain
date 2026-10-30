@@ -47,24 +47,36 @@ func (*View) MaxSize() int {
 	return 33
 }
 
+func (*RoadBlockHeader) MaxSize() int {
+	return 10746
+}
+
 func (*Proposal) MaxSize() int {
-	return 10850
+	return 10760
+}
+
+func (*PrepareVote) MaxSize() int {
+	return 10760
+}
+
+func (*CommitVote) MaxSize() int {
+	return 10760
 }
 
 func (*FullProposal) MaxSize() int {
-	return 1111604
+	return 1111402
 }
 
 func (*PrepareQC) MaxSize() int {
-	return 21253
+	return 21163
 }
 
 func (*CommitQC) MaxSize() int {
-	return 21253
+	return 21163
 }
 
 func (*FullCommitQC) MaxSize() int {
-	return 152257
+	return 152167
 }
 
 func (*TimeoutVote) MaxSize() int {
@@ -72,19 +84,19 @@ func (*TimeoutVote) MaxSize() int {
 }
 
 func (*TimeoutQC) MaxSize() int {
-	return 36757
+	return 36667
 }
 
 func (*FullTimeoutVote) MaxSize() int {
-	return 21412
+	return 21322
 }
 
 func (*AppQC) MaxSize() int {
-	return 10480
+	return 10458
 }
 
 func (*AppProposal) MaxSize() int {
-	return 78
+	return 56
 }
 
 func (*Msg) MaxSize() int {
@@ -92,7 +104,15 @@ func (*Msg) MaxSize() int {
 }
 
 func (*SignedProposal) MaxSize() int {
-	return 10957
+	return 10867
+}
+
+func (*SignedPrepareVote) MaxSize() int {
+	return 10867
+}
+
+func (*SignedCommitVote) MaxSize() int {
+	return 10867
 }
 
 func (*SignedTimeoutVote) MaxSize() int {
@@ -100,7 +120,7 @@ func (*SignedTimeoutVote) MaxSize() int {
 }
 
 func (*SignedAppVote) MaxSize() int {
-	return 184
+	return 162
 }
 
 func (*SignedBlock) MaxSize() int {
@@ -112,11 +132,11 @@ func (*SignedBlockHeader) MaxSize() int {
 }
 
 func (*SignedAppProposal) MaxSize() int {
-	return 184
+	return 162
 }
 
 func (*ConsensusMsg) MaxSize() int {
-	return 1111608
+	return 1111406
 }
 
 func (*Committee) MaxSize() int {
@@ -129,6 +149,10 @@ func (*EpochRecord) MaxSize() int {
 
 func (*EpochMember) MaxSize() int {
 	return 60
+}
+
+func (*LaneBlockPos) MaxSize() int {
+	return 22
 }
 
 func init() {
@@ -232,13 +256,30 @@ func init() {
 		3: {MaxCount: 1},
 	})
 
+	// Register the wireguard.Schema generated for autobahn.RoadBlockHeader.
+	runtime.MustRegister[*RoadBlockHeader](runtime.Schema{
+		3: {MaxCount: 1},
+		4: {MaxCount: 1},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Timestamp]())},
+		2: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*LaneRange]())},
+	})
+
 	// Register the wireguard.Schema generated for autobahn.Proposal.
 	runtime.MustRegister[*Proposal](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*View]())},
-		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Timestamp]())},
-		3: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*LaneRange]())},
-		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
-		6: {MaxCount: 1},
+		8: {MaxCount: 1},
+		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*RoadBlockHeader]())},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.PrepareVote.
+	runtime.MustRegister[*PrepareVote](runtime.Schema{
+		8: {MaxCount: 1},
+		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*RoadBlockHeader]())},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.CommitVote.
+	runtime.MustRegister[*CommitVote](runtime.Schema{
+		8: {MaxCount: 1},
+		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*RoadBlockHeader]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.FullProposal.
@@ -251,13 +292,13 @@ func init() {
 
 	// Register the wireguard.Schema generated for autobahn.PrepareQC.
 	runtime.MustRegister[*PrepareQC](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Proposal]())},
+		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PrepareVote]())},
 		2: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*Signature]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.CommitQC.
 	runtime.MustRegister[*CommitQC](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Proposal]())},
+		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*CommitVote]())},
 		3: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*Signature]())},
 	})
 
@@ -287,12 +328,12 @@ func init() {
 
 	// Register the wireguard.Schema generated for autobahn.PersistedInner.
 	runtime.MustRegister[*PersistedInner](runtime.Schema{
-		9: {MaxCount: 1},
-		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PrepareQC]())},
-		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutQC]())},
-		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
-		8: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
-		6: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*FullTimeoutVote]())},
+		9:  {MaxCount: 1},
+		2:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PrepareQC]())},
+		3:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutQC]())},
+		10: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedCommitVote]())},
+		11: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedPrepareVote]())},
+		6:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*FullTimeoutVote]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.PersistedAvailPruneAnchor.
@@ -311,8 +352,6 @@ func init() {
 	runtime.MustRegister[*AppProposal](runtime.Schema{
 		4: {MaxCount: 1},
 		2: {MaxCount: 1},
-		5: {MaxCount: 1},
-		6: {MaxCount: 1},
 		3: {MaxCount: 1, MaxSize: 32},
 	})
 
@@ -321,8 +360,8 @@ func init() {
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Block]())},
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*BlockHeader]())},
 		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Proposal]())},
-		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Proposal]())},
-		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Proposal]())},
+		8: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PrepareVote]())},
+		9: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*CommitVote]())},
 		6: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutVote]())},
 		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
 	})
@@ -330,6 +369,18 @@ func init() {
 	// Register the wireguard.Schema generated for autobahn.SignedProposal.
 	runtime.MustRegister[*SignedProposal](runtime.Schema{
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Proposal]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Signature]())},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.SignedPrepareVote.
+	runtime.MustRegister[*SignedPrepareVote](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PrepareVote]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Signature]())},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.SignedCommitVote.
+	runtime.MustRegister[*SignedCommitVote](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*CommitVote]())},
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Signature]())},
 	})
 
@@ -366,8 +417,8 @@ func init() {
 	// Register the wireguard.Schema generated for autobahn.ConsensusMsg.
 	runtime.MustRegister[*ConsensusMsg](runtime.Schema{
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*FullProposal]())},
-		6: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
-		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
+		8: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedPrepareVote]())},
+		9: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedCommitVote]())},
 		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*FullTimeoutVote]())},
 		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutQC]())},
 	})
@@ -392,6 +443,12 @@ func init() {
 	// Register the wireguard.Schema generated for autobahn.EpochMember.
 	runtime.MustRegister[*EpochMember](runtime.Schema{
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*LaneID]())},
+		2: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.LaneBlockPos.
+	runtime.MustRegister[*LaneBlockPos](runtime.Schema{
+		1: {MaxCount: 1},
 		2: {MaxCount: 1},
 	})
 

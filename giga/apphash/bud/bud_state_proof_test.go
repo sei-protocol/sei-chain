@@ -46,12 +46,9 @@ func newTestWrite(
 	slices.SortFunc(budlets, func(a *Budlet, b *Budlet) int {
 		return bytes.Compare(a.Key(), b.Key())
 	})
-	tree, err := NewBUDTree(budlets)
-	require.NoError(t, err)
-	proof, found := tree.BuildBUDProof(budlet.Key())
-	require.True(t, found)
-	appHashData := apphash.NewAppHashData(testChainID, height, [32]byte{0xa1}, [32]byte{0xb2}, tree.BUDHash(),
-		[32]byte{0xd4}, [32]byte{0xe5})
+	proof := mustNewBUDProof(t, budlets, budlet.Key())
+	appHashData := apphash.NewAppHashData(testChainID, height, [32]byte{0xa1}, [32]byte{0xb2},
+		budHashOf(t, budlets), [32]byte{0xd4}, [32]byte{0xe5})
 	return appHashData, proof
 }
 
@@ -170,11 +167,6 @@ func TestNewBUDStateProofRejectsNotModifiedSinceNotBelowBlockHeight(t *testing.T
 func TestNewBUDStateProofRejectsNilAndInvalidParts(t *testing.T) {
 	budlet := newTestBudlet(t, testStateKey, []byte("value"), []byte("previous value"), testNotModifiedSince)
 	appHashData, budProof := newTestWrite(t, rand.New(rand.NewSource(13)), budlet, testWriteHeight)
-	zeroProof := &BUDProof{}
-	// App hash data holding the BUD hash the zero proof computes, so that only the proof's validity is at fault.
-	zeroProofAppHashData := apphash.NewAppHashData(testChainID, testWriteHeight, appHashData.BlockHash(),
-		appHashData.StateHash(), zeroProof.ComputeBUDHash(), appHashData.ReceiptHash(),
-		appHashData.PreviousAppHash())
 	missingSiblings := *budProof
 	require.NotEmpty(t, missingSiblings.siblings)
 	missingSiblings.siblings = nil
@@ -187,7 +179,7 @@ func TestNewBUDStateProofRejectsNilAndInvalidParts(t *testing.T) {
 	}{
 		"nil app hash data":         {nil, budProof},
 		"nil BUD proof":             {appHashData, nil},
-		"zero BUD proof":            {zeroProofAppHashData, zeroProof},
+		"zero BUD proof":            {appHashData, &BUDProof{}},
 		"missing siblings":          {appHashData, &missingSiblings},
 		"index not less than count": {appHashData, &indexOutOfRange},
 	}

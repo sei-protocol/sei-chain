@@ -50,7 +50,7 @@ type AppHashBuilder interface {
 	// may not cause it to return an error immediately, since hash data may be ingested asynchronously. Illegal
 	// input will, however, eventually cause the app hash builder to shut down and start returning errors from all
 	// methods.
-	ReportReceiptHash(ctx context.Context, blockHeight uint64, receiptHash [32]byte) error
+	ReportReceiptHash(ctx context.Context, blockHeight uint64, receiptHash apphash.ReceiptHash) error
 
 	// Marks the end of startup, which publishes the app hashes through blockHeight.
 	//

@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -42,11 +41,13 @@ func TestConv(t *testing.T) {
 			DurationConv.Test(time.Duration(int64(rng.Uint64()))),
 			PublicKeyConv.Test(GenPublicKey(rng)),
 			LaneIDConv.Test(GenLaneID(rng)),
+			LaneBlockPosConv.Test(LaneBlockPos{Index: GenRoadIndex(rng), Offset: rng.Uint64()}),
 			SignatureConv.Test(GenSignature(rng)),
 			BlockHeaderConv.Test(GenBlockHeader(rng)),
 			PayloadConv.Test(GenPayload(rng)),
 			BlockConv.Test(GenBlock(rng)),
 			LaneQCConv.Test(GenLaneQC(rng)),
+			RoadBlockHeaderConv.Test(GenProposal(rng).Header()),
 			FullProposalConv.Test(GenFullProposal(rng)),
 			PrepareQCConv.Test(GenPrepareQC(rng)),
 			CommitQCConv.Test(GenCommitQC(rng)),
@@ -117,7 +118,7 @@ func TestNewTimeoutQC(t *testing.T) {
 			Number:     GenViewNumber(rng) % view.Number,
 			EpochIndex: view.EpochIndex,
 		}
-		p := newProposal(pView, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange), GlobalBlockNumber(rng.Uint64()))
+		p := &Proposal{viewNumber: pView.Number, header: newRoadBlockHeader(pView.EpochIndex, pView.Index, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))}
 		if wantView.Less(pView) {
 			wantView = pView
 		}
@@ -133,51 +134,17 @@ func TestNewTimeoutQC(t *testing.T) {
 	}
 }
 
-func TestTimeoutQCConvDecode_EmptyVotesReturnsError(t *testing.T) {
-	if _, err := TimeoutQCConv.Decode(&pb.TimeoutQC{}); err == nil {
-		t.Fatal("Decode() succeeded, want error")
-	}
-}
-
-func TestAppProposalConvDecode_RequiredFields(t *testing.T) {
-	rng := utils.TestRng()
-	base := AppProposalConv.Encode(GenAppProposal(rng))
-	if _, err := AppProposalConv.Decode(base); err != nil {
-		t.Fatal(err)
-	}
-
-	cases := []struct {
-		name string
-		mut  func(*pb.AppProposal)
-	}{
-		{"road_index", func(p *pb.AppProposal) { p.RoadIndex = nil }},
-		{"epoch_index", func(p *pb.AppProposal) { p.EpochIndex = nil }},
-		{"global_first", func(p *pb.AppProposal) { p.GlobalFirst = nil }},
-		{"global_next", func(p *pb.AppProposal) { p.GlobalNext = nil }},
-		{"app_hash nil", func(p *pb.AppProposal) { p.AppHash = nil }},
-		{"app_hash empty", func(p *pb.AppProposal) { p.AppHash = []byte{} }},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			p := AppProposalConv.Encode(GenAppProposal(rng))
-			tc.mut(p)
-			if _, err := AppProposalConv.Decode(p); err == nil {
-				t.Fatal("Decode() succeeded, want error")
-			}
-		})
-	}
-}
-
 // TestNewTimeoutQC_MixedPrepareQCs verifies quorum-intersection behavior:
 // even if only one vote carries a PrepareQC, NewTimeoutQC picks it up
 // and Verify accepts the result.
 func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee, GlobalBlockNumber(rng.Uint64()%1000000)+1)
+	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee)
 	view := View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}
 
-	pqc := makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, view, ep.FirstBlock())))
+	voteProposal := ProposalAt(ep, view)
+	pqc := makePrepareQC(keys, NewPrepareVote(voteProposal))
 
 	// Only keys[0] carries the PrepareQC; the rest carry None.
 	votes := make([]*FullTimeoutVote, len(keys))
@@ -204,7 +171,7 @@ func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 func TestNewTimeoutQC_AllNone(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee, GlobalBlockNumber(rng.Uint64()%1000000)+1)
+	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee)
 	view := View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}
 
 	votes := make([]*FullTimeoutVote, len(keys))
@@ -226,12 +193,13 @@ func TestNewTimeoutQC_AllNone(t *testing.T) {
 func TestTimeoutQCVerify_HighestPrepareQCSelected(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee, GlobalBlockNumber(rng.Uint64()%1000000)+1)
+	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee)
 	view := View{Index: 0, Number: 5, EpochIndex: ep.EpochIndex()}
 
 	makePQCAt := func(vn ViewNumber) *PrepareQC {
 		pView := View{Index: 0, Number: vn, EpochIndex: ep.EpochIndex()}
-		return makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, pView, ep.FirstBlock())))
+		voteProposal := ProposalAt(ep, pView)
+		return makePrepareQC(keys, NewPrepareVote(voteProposal))
 	}
 
 	// keys[0] has PrepareQC at view number 2, keys[1] at 4, rest None.

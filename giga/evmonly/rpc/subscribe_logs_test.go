@@ -53,7 +53,7 @@ func newLogsSubscriptionFixture(t *testing.T, limits gigaconfig.RPCConfig) *logs
 func (fx *logsSubscriptionFixture) execute(t *testing.T) uint64 {
 	t.Helper()
 	height := fx.commit(t)
-	fx.executed.Store(fx.executed.Load().Push(atypes.ExecutedBlock{Number: atypes.GlobalBlockNumber(height)}))
+	fx.executed.Store(fx.executed.Load().Push(atypes.ExecutedBlock{Number: atypes.RoadIndex(height)}))
 	return height
 }
 

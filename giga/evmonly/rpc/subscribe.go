@@ -188,7 +188,7 @@ func (api *subscribeAPI) streamHeads(
 	notifier *ethrpc.Notifier,
 	rpcSub *ethrpc.Subscription,
 	executed utils.AtomicRecv[atypes.ExecutedBlocks],
-	last atypes.GlobalBlockNumber,
+	last atypes.RoadIndex,
 ) {
 	// Unlike request handlers, this goroutine is outside go-ethereum's per-call
 	// recovery, so a panic here must end the subscription rather than the node.
@@ -221,7 +221,7 @@ func (api *subscribeAPI) streamHeads(
 // header renders the header of the block at height. gasUsed is the total the
 // commit recorded while window still holds height; for an older height the
 // receipt store is read instead, yielding zero until its receipts land.
-func (api *subscribeAPI) header(ctx context.Context, height atypes.GlobalBlockNumber, window atypes.ExecutedBlocks) (map[string]any, error) {
+func (api *subscribeAPI) header(ctx context.Context, height atypes.RoadIndex, window atypes.ExecutedBlocks) (map[string]any, error) {
 	h := coretypes.Int64(utils.Clamp[int64](height))
 	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: &h})
 	if err != nil {
