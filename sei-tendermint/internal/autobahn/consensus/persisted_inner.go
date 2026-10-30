@@ -106,19 +106,19 @@ func (p *persistedInner) Verify(spec types.ConsensusSpec, self types.PublicKey) 
 
 	// PrepareQC is required when CommitVote is present (CommitVote requires PrepareQC justification).
 	if pqc, ok := p.PrepareQC.Get(); ok {
-		if err := checkViewAndSig("PrepareQC", pqc.Proposal().View(), pqc.Verify(ep)); err != nil {
+		if err := checkViewAndSig("PrepareQC", pqc.View(), pqc.Verify(ep)); err != nil {
 			return err
 		}
 	} else if p.CommitVote.IsPresent() {
 		return fmt.Errorf("corrupt persisted state: CommitVote present without PrepareQC")
 	}
 	if v, ok := p.CommitVote.Get(); ok {
-		if err := checkViewAndSig("CommitVote", v.Msg().Proposal().View(), verifyLocalSig(self, v)); err != nil {
+		if err := checkViewAndSig("CommitVote", v.Msg().View(), verifyLocalSig(self, v)); err != nil {
 			return err
 		}
 	}
 	if v, ok := p.PrepareVote.Get(); ok {
-		if err := checkViewAndSig("PrepareVote", v.Msg().Proposal().View(), verifyLocalSig(self, v)); err != nil {
+		if err := checkViewAndSig("PrepareVote", v.Msg().View(), verifyLocalSig(self, v)); err != nil {
 			return err
 		}
 	}
@@ -159,10 +159,10 @@ var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 			p.TimeoutQc = types.TimeoutQCConv.Encode(v)
 		}
 		if v, ok := m.CommitVote.Get(); ok {
-			p.CommitVoteV2 = types.SignedCommitVoteConv.Encode(v)
+			p.CommitVoteV3 = types.SignedCommitVoteConv.Encode(v)
 		}
 		if v, ok := m.PrepareVote.Get(); ok {
-			p.PrepareVoteV2 = types.SignedPrepareVoteConv.Encode(v)
+			p.PrepareVoteV3 = types.SignedPrepareVoteConv.Encode(v)
 		}
 		if v, ok := m.TimeoutVote.Get(); ok {
 			p.TimeoutVote = types.FullTimeoutVoteConv.Encode(v)
@@ -188,15 +188,15 @@ var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 			}
 			m.TimeoutQC = utils.Some(v)
 		}
-		if p.CommitVoteV2 != nil {
-			v, err := types.SignedCommitVoteConv.Decode(p.CommitVoteV2)
+		if p.CommitVoteV3 != nil {
+			v, err := types.SignedCommitVoteConv.Decode(p.CommitVoteV3)
 			if err != nil {
 				return nil, fmt.Errorf("commit_vote: %w", err)
 			}
 			m.CommitVote = utils.Some(v)
 		}
-		if p.PrepareVoteV2 != nil {
-			v, err := types.SignedPrepareVoteConv.Decode(p.PrepareVoteV2)
+		if p.PrepareVoteV3 != nil {
+			v, err := types.SignedPrepareVoteConv.Decode(p.PrepareVoteV3)
 			if err != nil {
 				return nil, fmt.Errorf("prepare_vote: %w", err)
 			}
