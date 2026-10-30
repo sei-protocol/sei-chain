@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -251,8 +252,12 @@ func (e *Executor) awaitPipelineCommit() error {
 // Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
 // one before this is called.
 func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
-	// The commit outlives the block result, which returns to a pool and is reset.
-	pending := changes.Clone()
+	// The commit outlives the pooled result, whose reset clears these slices, so it takes its own
+	// copies. The values stay shared; see BlockResult.ChangeSet.
+	pending := &StateChangeSet{
+		Accounts: slices.Clone(changes.Accounts),
+		Storage:  slices.Clone(changes.Storage),
+	}
 	// Close sets closed before taking storeMu, which the caller holds, so a block that sees it
 	// unset is one Close waits for.
 	if e.closed.Load() {
