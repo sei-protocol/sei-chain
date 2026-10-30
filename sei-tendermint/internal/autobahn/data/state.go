@@ -227,13 +227,20 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 	if err != nil {
 		return nil, fmt.Errorf("blockStore.ReadSuffix(): %w", err)
 	}
-	firstBlock := cfg.Registry.FirstRoad()
-	status := suffix.Status.Or(types.SuffixRange{
-		First:           firstBlock,
-		NextBlock:       firstBlock,
-		NextAppProposal: firstBlock,
-		NextAppQC:       firstBlock,
-	})
+	status, ok := suffix.Status.Get()
+	if !ok {
+		genesis, err := cfg.Registry.EpochByIndex(0)
+		if err != nil {
+			return nil, fmt.Errorf("genesis epoch 0: %w", err)
+		}
+		first := genesis.RoadRange().First
+		status = types.SuffixRange{
+			First:           first,
+			NextBlock:       first,
+			NextAppProposal: first,
+			NextAppQC:       first,
+		}
+	}
 	initialEpoch, err := cfg.Registry.EpochAt(status.First)
 	if err != nil {
 		return nil, fmt.Errorf("epoch at retained suffix start: %w", err)

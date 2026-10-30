@@ -56,9 +56,9 @@ func (v View) Next() View {
 // RoadIndex that follows it. CommitQC is None before the first tip; until then
 // Epoch is genesis epoch 0. Consensus advances with a spec verbatim.
 type ConsensusSpec struct {
-	CommitQC       utils.Option[*CommitQC]
-	Epoch          *Epoch
-	FirstTimestamp time.Time
+	CommitQC         utils.Option[*CommitQC]
+	Epoch            *Epoch
+	GenesisTimestamp time.Time
 }
 
 // Index is the RoadIndex of the next view: CommitQC.Index()+1, or the start of
@@ -94,7 +94,7 @@ func (vs *ViewSpec) NextTimestamp() time.Time {
 	if cQC, ok := vs.CommitQC.Get(); ok {
 		return cQC.Header().NextTimestamp()
 	}
-	return vs.FirstTimestamp
+	return vs.GenesisTimestamp
 }
 
 // TimestampRange returns the earliest and latest proposal timestamps accepted

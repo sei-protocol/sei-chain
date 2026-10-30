@@ -21,10 +21,10 @@ const epochLength types.RoadIndex = 108_000
 type registryState struct {
 	live map[types.EpochIndex]*types.Epoch
 	// liveRange is the nonempty retained epoch range [First, Next) in live.
-	liveRange      types.EpochRange
-	pending        utils.Option[*types.Epoch]
-	firstRoad      types.RoadIndex
-	firstTimestamp time.Time
+	liveRange        types.EpochRange
+	pending          utils.Option[*types.Epoch]
+	firstRoad        types.RoadIndex
+	genesisTimestamp time.Time
 }
 
 // activate publishes the next epoch after validating its road range and committee continuity.
@@ -46,11 +46,11 @@ func (s *registryState) activate(epoch *types.Epoch) error {
 
 func (s *registryState) clone() *registryState {
 	return &registryState{
-		live:           maps.Clone(s.live),
-		pending:        s.pending,
-		firstRoad:      s.firstRoad,
-		firstTimestamp: s.firstTimestamp,
-		liveRange:      s.liveRange,
+		live:             maps.Clone(s.live),
+		pending:          s.pending,
+		firstRoad:        s.firstRoad,
+		genesisTimestamp: s.genesisTimestamp,
+		liveRange:        s.liveRange,
 	}
 }
 
@@ -68,9 +68,9 @@ func newRegistryState(
 				0: types.NewEpoch(0, types.RoadRange{First: firstRoad, Next: firstRoad + epochLength}, genesisCommittee),
 				1: types.NewEpoch(1, types.RoadRange{First: firstRoad + epochLength, Next: firstRoad + 2*epochLength}, genesisCommittee),
 			},
-			firstRoad:      firstRoad,
-			firstTimestamp: genesisTimestamp,
-			liveRange:      types.EpochRange{First: 0, Next: 2},
+			firstRoad:        firstRoad,
+			genesisTimestamp: genesisTimestamp,
+			liveRange:        types.EpochRange{First: 0, Next: 2},
 		}, nil
 	}
 	if len(initial.live) == 0 {
@@ -79,11 +79,11 @@ func newRegistryState(
 	first := initial.live[0]
 	idx := first.EpochIndex()
 	s := &registryState{
-		live:           map[types.EpochIndex]*types.Epoch{idx: first},
-		pending:        initial.pending,
-		firstRoad:      firstRoad,
-		firstTimestamp: genesisTimestamp,
-		liveRange:      types.EpochRange{First: idx, Next: idx + 1},
+		live:             map[types.EpochIndex]*types.Epoch{idx: first},
+		pending:          initial.pending,
+		firstRoad:        firstRoad,
+		genesisTimestamp: genesisTimestamp,
+		liveRange:        types.EpochRange{First: idx, Next: idx + 1},
 	}
 	if got, want := first.RoadRange(), s.roadRange(idx); got != want {
 		return nil, fmt.Errorf("live record 0: epoch %d roads %v, want %v", idx, got, want)
@@ -156,6 +156,17 @@ func (s *registryState) indexForRoad(road types.RoadIndex) types.EpochIndex {
 	return types.EpochIndex((road - s.firstRoad) / epochLength)
 }
 
+func (s *registryState) closingEpoch(road types.RoadIndex) utils.Option[types.EpochIndex] {
+	if road < s.firstRoad {
+		return utils.None[types.EpochIndex]()
+	}
+	idx := s.indexForRoad(road)
+	if road != s.roadRange(idx).Next-1 {
+		return utils.None[types.EpochIndex]()
+	}
+	return utils.Some(idx)
+}
+
 // FirstRoad returns the genesis epoch's first road index.
 func (r *Registry) FirstRoad() types.RoadIndex {
 	for s := range r.state.Lock() {
@@ -192,20 +203,16 @@ func (r *Registry) IndexForRoad(road types.RoadIndex) types.EpochIndex {
 // ClosingEpoch returns the epoch that road ends, if road is that epoch's last
 // road. Otherwise None.
 func (r *Registry) ClosingEpoch(road types.RoadIndex) utils.Option[types.EpochIndex] {
-	if road < r.FirstRoad() {
-		return utils.None[types.EpochIndex]()
+	for s := range r.state.Lock() {
+		return s.closingEpoch(road)
 	}
-	idx := r.IndexForRoad(road)
-	if road != r.LastRoad(idx) {
-		return utils.None[types.EpochIndex]()
-	}
-	return utils.Some(idx)
+	panic("unreachable")
 }
 
 // GenesisTimestamp returns the genesis epoch timestamp.
 func (r *Registry) GenesisTimestamp() time.Time {
 	for s := range r.state.Lock() {
-		return s.firstTimestamp
+		return s.genesisTimestamp
 	}
 	panic("unreachable")
 }

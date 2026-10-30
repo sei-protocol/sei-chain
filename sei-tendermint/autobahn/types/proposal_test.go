@@ -172,13 +172,13 @@ func TestProposalVerifyRejectsNonMonotoneTimestamp(t *testing.T) {
 		committee, keys := GenCommittee(rng, 4)
 		genesisTimestamp := time.Now()
 		ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), committee)
-		vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep, FirstTimestamp: genesisTimestamp}}
+		vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep, GenesisTimestamp: genesisTimestamp}}
 		k := leaderKey(committee, keys, vs.View())
 		fp := utils.OrPanic1(NewProposal(k, vs, genesisTimestamp, oneLaneQCMap(rng, committee, keys, vs)))
 		require.NoError(t, fp.Verify(vs, testViewTimeout))
 
 		vsLater := vs
-		vsLater.FirstTimestamp = fp.Header().Timestamp().Add(time.Nanosecond)
+		vsLater.GenesisTimestamp = fp.Header().Timestamp().Add(time.Nanosecond)
 		require.Error(t, fp.Verify(vsLater, testViewTimeout))
 	})
 

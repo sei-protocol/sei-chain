@@ -8,6 +8,8 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -377,55 +379,55 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 	}
 }
 
-func TestNextViewEpoch(t *testing.T) {
-	t.Run("LastRoad tip pairs next epoch", func(t *testing.T) {
+func TestRestoreInnerNextEpoch(t *testing.T) {
+	t.Run("no QC requires genesis epoch", func(t *testing.T) {
 		rng := utils.TestRng()
-		registry, keys := epoch.GenRegistry(rng, 4)
-		ep0 := registry.MustEpoch(0)
-		ep1 := registry.MustEpoch(1)
-
-		last := registry.LastRoad(0)
-		voteProposal := types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0})
-		prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-			types.Sign(keys[0], types.NewCommitVote(types.BuildPrepareQC(keys, voteProposal))),
-		})
-		qcLast := types.BuildCommitQC(ep0, keys, utils.Some(prev), nil)
-		require.Equal(t, last, qcLast.Index())
-
-		applied, err := nextViewEpoch(registry, qcLast)
+		registry, _ := epoch.GenRegistry(rng, 3)
+		ds := newTestDataState(&data.Config{Registry: registry})
+		i, err := restoreInner(ds, &loadedState{})
 		require.NoError(t, err)
-		require.Equal(t, ep1.EpochIndex(), applied.EpochIndex())
-
-		i := newInner(applied, last, time.Time{})
-		i.roads.pushBack(newRoad(qcLast, ep0))
-		i.persistedCommitQC.Store(utils.Some(qcLast))
-		i.refreshConsensusSpec()
-
-		spec := i.consensusSpec.Load()
-		cqc, ok := spec.CommitQC.Get()
-		require.True(t, ok)
-		require.Equal(t, last, cqc.Index(), "must not walk tip back to LastRoad(0)-1")
-		require.Equal(t, types.EpochIndex(1), spec.Epoch.EpochIndex())
+		require.Equal(t, registry.MustEpoch(0), i.applied())
+		require.NoError(t, registry.PruneBefore(1))
+		_, err = restoreInner(ds, &loadedState{})
+		require.ErrorIs(t, err, types.ErrPruned)
 	})
-
-	t.Run("missing next epoch errors", func(t *testing.T) {
-		rng := utils.TestRng()
-		registry, keys := epoch.GenRegistry(rng, 3)
-		ep1 := registry.MustEpoch(1)
-		_, err := registry.EpochAt(registry.EpochFirstRoad(2))
-		require.Error(t, err)
-
-		last := registry.LastRoad(1)
-		voteProposal := types.ProposalAt(ep1, types.View{Index: last - 1, Number: 0})
-		prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-			types.Sign(keys[0], types.NewCommitVote(types.BuildPrepareQC(keys, voteProposal))),
+	for _, idx := range []types.EpochIndex{0, 1} {
+		t.Run(fmt.Sprintf("anchor at last road of epoch %d", idx), func(t *testing.T) {
+			rng := utils.TestRng()
+			registry, keys := epoch.GenRegistry(rng, 3)
+			ep := registry.MustEpoch(idx)
+			last := registry.LastRoad(idx)
+			proposal, blocks := types.ProposalAtBlocks(ep, types.View{Index: last}, 1)
+			prepareQC := types.BuildPrepareQC(keys, proposal)
+			var votes []*types.Signed[*types.CommitVote]
+			for _, key := range keys {
+				votes = append(votes, types.Sign(key, types.NewCommitVote(prepareQC)))
+			}
+			qc := types.NewCommitQC(votes)
+			fullQC := types.NewFullCommitQC(qc, []*types.BlockHeader{blocks[0].Header()})
+			store, err := blockstore.New(memblock.NewBlockDB())
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = store.Close() })
+			require.NoError(t, store.WriteBlock(types.NewRoadBlock(fullQC, blocks)))
+			app := types.NewAppProposal(qc.View(), types.GenAppHash(rng))
+			require.NoError(t, store.WriteAppProposal(app))
+			require.NoError(t, store.WriteAppQC(data.TestAppQC(keys, app)))
+			require.NoError(t, store.Flush())
+			ds, err := data.NewState(&data.Config{Registry: registry}, store)
+			require.NoError(t, err)
+			i, err := restoreInner(ds, &loadedState{})
+			if idx == 1 {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			spec := i.consensusSpec.Load()
+			cqc, ok := spec.CommitQC.Get()
+			require.True(t, ok)
+			require.Equal(t, last, cqc.Index(), "must not walk tip back to LastRoad(0)-1")
+			require.Equal(t, types.EpochIndex(1), spec.Epoch.EpochIndex())
 		})
-		qcLast := types.BuildCommitQC(ep1, keys, utils.Some(prev), nil)
-		require.Equal(t, last, qcLast.Index())
-
-		_, err = nextViewEpoch(registry, qcLast)
-		require.Error(t, err)
-	})
+	}
 }
 
 // TestStateRestartFromPersisted runs the state with persistence through 2
