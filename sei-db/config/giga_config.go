@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
@@ -22,6 +23,7 @@ type GigaStorageConfig struct {
 	CheckpointConfig     CheckpointConfig
 	AppHashBuilderConfig *builder.AppHashBuilderConfig    // required
 	ReceiptHasherConfig  *receipthash.ReceiptHasherConfig // required
+	BUDHasherConfig      *bud.BUDHasherConfig             // required
 }
 
 // gigaReceiptBackend is the receipt backend Giga opens (littidx).
@@ -59,6 +61,7 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	appHashBuilderConfig := builder.DefaultAppHashBuilderConfig()
 	appHashBuilderConfig.HashVaultConfig.Path = utils.GetAppHashVaultPath(homePath)
 	receiptHasherConfig := receipthash.DefaultReceiptHasherConfig()
+	budHasherConfig := bud.DefaultBUDHasherConfig()
 
 	return &GigaStorageConfig{
 		HomePath:             homePath,
@@ -70,6 +73,7 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 		CheckpointConfig:     DefaultCheckpointConfig(),
 		AppHashBuilderConfig: &appHashBuilderConfig,
 		ReceiptHasherConfig:  &receiptHasherConfig,
+		BUDHasherConfig:      &budHasherConfig,
 	}, nil
 }
 
@@ -173,6 +177,12 @@ func (c *GigaStorageConfig) Validate() error {
 	}
 	if err := c.ReceiptHasherConfig.Validate(); err != nil {
 		return fmt.Errorf("receipt hasher config is invalid: %w", err)
+	}
+	if c.BUDHasherConfig == nil {
+		return fmt.Errorf("BUD hasher config is required")
+	}
+	if err := c.BUDHasherConfig.Validate(); err != nil {
+		return fmt.Errorf("BUD hasher config is invalid: %w", err)
 	}
 
 	if !c.CheckpointConfig.Enabled() {

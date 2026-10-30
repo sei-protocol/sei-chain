@@ -168,8 +168,9 @@ func reconvergeErr(t *testing.T, manager *GigaStorageManager, target int64) erro
 	return manager.recoverStores(t.Context(), target)
 }
 
-// closeStateDB closes the stores the StateDB owns and drops it from the manager, leaving the manager as
-// it was before the StateDB opened. Manager.Close tolerates that, so a test may still defer it.
+// closeStateDB closes the stores the StateDB owns, then the app hash builder and the hashers reporting into it,
+// and drops them from the manager, as a restart does. It does nothing when no StateDB is open. Manager.Close
+// tolerates the result, so a test may still defer it.
 func closeStateDB(t *testing.T, manager *GigaStorageManager) {
 	t.Helper()
 	if manager.StateDB() == nil {
@@ -177,6 +178,9 @@ func closeStateDB(t *testing.T, manager *GigaStorageManager) {
 	}
 	require.NoError(t, manager.StateDB().Close())
 	manager.stateDB = nil
+	// A builder left open would be handed the blocks committed after the state DB reopens, which it has already
+	// moved past.
+	closeAppHashBuilder(t, manager)
 }
 
 // closeReceiptDB closes the receipt store and drops it from the manager, leaving it as it was before
