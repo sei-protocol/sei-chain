@@ -1,0 +1,12 @@
+syntax = "proto3";
+package seiprotocol.seichain.gigaevm;
+
+import "gogoproto/gogo.proto";
+import "google/protobuf/any.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/giga/deps/xevm/types";
+
+message MsgEVMTransaction {
+  google.protobuf.Any data = 1;
+  bytes derived = 2 [(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/giga/deps/xevm/derived.Derived"];
+}

@@ -8,6 +8,7 @@ modules:
   - path: sei-tendermint/proto
   - path: sei-tendermint/internal
   - path: sei-wasmd/proto
+  - path: giga/proto
 
 lint:
   use:
