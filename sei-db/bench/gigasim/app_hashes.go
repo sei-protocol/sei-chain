@@ -1,29 +1,20 @@
 package gigasim
 
 import (
+	"context"
+	"encoding/binary"
 	"fmt"
-	"time"
 
-	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 )
 
-// How often awaitAppHash checks the hash vault's head.
-const appHashPollInterval = 10 * time.Millisecond
-
-// awaitAppHash waits until hashVault holds the app hash of block height.
-func awaitAppHash(hashVault vault.HashVault, height uint64) error {
-	deadline := time.Now().Add(hashWaitTimeout)
-	for {
-		head, err := hashVault.GetLatestBlock()
-		if err != nil {
-			return fmt.Errorf("failed to read the hash vault's head: %w", err)
-		}
-		if head >= height {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("the app hash of block %d was not stored within %s", height, hashWaitTimeout)
-		}
-		time.Sleep(appHashPollInterval)
+// reportExecutedBlockHash reports height's block hash before that block is committed.
+func reportExecutedBlockHash(manager *bootstrap.GigaStorageManager, height uint64) error {
+	var hash [32]byte
+	binary.BigEndian.PutUint64(hash[:8], height)
+	// The benchmark cancels its run context to stop, and the block then in flight still reports.
+	if err := manager.AppHashBuilder().ReportBlockHash(context.Background(), height, hash); err != nil {
+		return fmt.Errorf("report the block hash of block %d: %w", height, err)
 	}
+	return nil
 }

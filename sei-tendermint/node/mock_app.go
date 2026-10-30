@@ -16,6 +16,8 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash"
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -72,6 +74,9 @@ type MockApp struct {
 	app         abci.Application
 	chainConfig *params.ChainConfig
 	state       utils.RWMutex[*mockAppState]
+	// hashes receives each committed block's state, BUD, and receipt hashes.
+	// None means Commit does not report them.
+	hashes utils.Option[builder.AppHashBuilder]
 }
 
 func NewMockApp(app abci.Application) *MockApp {
@@ -215,15 +220,47 @@ func (app *MockApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBl
 	panic("unreachable")
 }
 
-func (app *MockApp) Commit(context.Context) (*abci.ResponseCommit, error) {
+func (app *MockApp) Commit(ctx context.Context) (*abci.ResponseCommit, error) {
+	var height int64
 	for state := range app.state.Lock() {
 		if err := state.checkTransition(mockAppTransitionCommit); err != nil {
 			return nil, err
 		}
+		height = state.lastBlockHeight
+		break
+	}
+	if err := app.reportCommittedHashes(ctx, height); err != nil {
+		return nil, err
+	}
+	for state := range app.state.Lock() {
 		state.nextTransition = mockAppTransitionFinalize
 		return &abci.ResponseCommit{RetainHeight: max(state.lastBlockHeight-blocksToRetain, 0)}, nil
 	}
 	panic("unreachable")
+}
+
+// reportCommittedHashes reports zero state, BUD, and receipt hashes for a committed mock block.
+func (app *MockApp) reportCommittedHashes(ctx context.Context, height int64) error {
+	hashes, ok := app.hashes.Get()
+	if !ok {
+		return nil
+	}
+	if height < 1 {
+		return fmt.Errorf("mock app commit height = %d, want >= 1", height)
+	}
+	//nolint:gosec // height is at least 1
+	blockHeight := uint64(height)
+	var zero [32]byte
+	if err := hashes.ReportReceiptHash(ctx, blockHeight, apphash.ReceiptHash(zero)); err != nil {
+		return fmt.Errorf("report the receipt hash of block %d: %w", blockHeight, err)
+	}
+	if err := hashes.ReportStateHash(ctx, blockHeight, zero, nil); err != nil {
+		return fmt.Errorf("report the state hash of block %d: %w", blockHeight, err)
+	}
+	if err := hashes.ReportBUDHash(ctx, blockHeight, zero); err != nil {
+		return fmt.Errorf("report the BUD hash of block %d: %w", blockHeight, err)
+	}
+	return nil
 }
 
 type mockAppTx struct {
