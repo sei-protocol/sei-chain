@@ -94,14 +94,9 @@ func runUntilAtMigrationVersion(
 }
 
 // hasLatticeHash reports whether the last commit info contains the
-// synthetic evm_lattice store entry.
+// synthetic lattice store entry.
 func hasLatticeHash(cs *CompositeCommitStore) bool {
-	for _, si := range cs.LastCommitInfo().StoreInfos {
-		if si.Name == "evm_lattice" {
-			return true
-		}
-	}
-	return false
+	return containsLatticeStoreInfo(cs.LastCommitInfo().StoreInfos)
 }
 
 // storeInfoNames returns the names in the last commit info, in order.
@@ -193,7 +188,7 @@ func TestComposite_Auto_FullLifecycle(t *testing.T) {
 	// Terminal state: the commit info must be shaped exactly like a
 	// configured flatkv_only node's (no memiavl StoreInfos, only the
 	// lattice) even though memiavl is still open under Auto.
-	require.Equal(t, []string{"evm_lattice"}, storeInfoNames(cs),
+	require.Equal(t, []string{latticeHashStoreInfoName}, storeInfoNames(cs),
 		"effective FlatKVOnly must hash the same store set as configured flatkv_only")
 
 	// End of the chain: no further transitions exist.
@@ -611,7 +606,7 @@ func TestComposite_Auto_MemiavlLeavesHashAtVersion3(t *testing.T) {
 	require.True(t, sawMidFlight,
 		"test must observe at least one mid-flight MigrateCosmos commit; lower the batch size")
 	require.Equal(t, types.MigrateCosmos, cs.loadWriteMode())
-	require.Equal(t, []string{"evm_lattice"}, storeInfoNames(cs),
+	require.Equal(t, []string{latticeHashStoreInfoName}, storeInfoNames(cs),
 		"memiavl StoreInfos must leave the commit info at the version-2 commit, before the mode flips")
 	preRestart := cs.LastCommitInfo()
 	require.NoError(t, cs.Close())
