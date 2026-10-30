@@ -82,9 +82,8 @@ func (m *GigaStorageManager) reportStateHashesToAppHashBuilder(
 	return nil
 }
 
-// reportStateHash reports a committed block's state hash to the app hash builder. The block hash is
-// reported by execution, before the block runs, and the receipt hasher reports the receipt hash. Its
-// signature is gigatypes.HashListener.
+// reportStateHash reports a committed block's state hash to the app hash builder.
+// Its signature is gigatypes.HashListener.
 func (m *GigaStorageManager) reportStateHash(ctx context.Context, blockNumber int64, hash *lthash.BlockHash) error {
 	//nolint:gosec // committed block numbers are non-negative
 	height := uint64(blockNumber)
