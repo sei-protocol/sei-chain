@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"bytes"
 	"context"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
@@ -55,7 +57,7 @@ func (k Querier) Validators(c context.Context, req *types.QueryValidatorsRequest
 	})
 
 	if err != nil {
-		return nil, query.WrapGRPCError(err)
+		return nil, query.WrapQueryError(err)
 	}
 
 	return &types.QueryValidatorsResponse{Validators: validators, Pagination: pageRes}, nil
@@ -132,20 +134,57 @@ func (k Querier) validatorDelegationsFromIndex(ctx sdk.Context, req *types.Query
 	valPrefix := types.GetDelegationsByValIndexKey(valAddr)
 	indexStore := prefix.NewStore(store, valPrefix)
 
-	pageRes, err := query.Paginate(ctx, indexStore, req.Pagination, func(key []byte, _ []byte) error {
-		indexKey := append(append([]byte{}, valPrefix...), key...)
-		storeKey := types.GetDelegationKeyFromValIndexKey(indexKey)
-		delegation, err := types.UnmarshalDelegation(k.cdc, store.Get(storeKey))
+	pageReq, err := withIndexCursor(req.Pagination, valAddr)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Consensus execution defaults to release/v6.6 behavior, as on the scan path.
+	pageRes, err := query.FilteredPaginateForContext(ctx, indexStore, pageReq, func(key []byte, _ []byte, accumulate bool) (bool, error) {
+		if !accumulate {
+			return true, nil
+		}
+		storeKey := types.GetDelegationKeyFromValIndexKey(append(append([]byte{}, valPrefix...), key...))
+		value := store.Get(storeKey)
+		if value == nil {
+			return false, status.Errorf(codes.Internal, "delegation-by-validator index entry %X has no delegation", storeKey)
+		}
+		delegation, err := types.UnmarshalDelegation(k.cdc, value)
 		if err != nil {
-			return err
+			return false, err
 		}
 		delegations = append(delegations, delegation)
-		return nil
+		return true, nil
 	})
 	if err != nil {
-		return nil, nil, query.WrapGRPCError(err)
+		return nil, nil, query.WrapQueryError(err)
 	}
 	return delegations, pageRes, nil
+}
+
+// withIndexCursor returns pageReq with a key issued by validatorDelegationsFromScan,
+// which orders delegations by delegator then validator, translated into the index's
+// per-delegator keyspace. Such a key is refused on a reverse page.
+func withIndexCursor(pageReq *query.PageRequest, valAddr sdk.ValAddress) (*query.PageRequest, error) {
+	if pageReq == nil || len(pageReq.Key) == 0 {
+		return pageReq, nil
+	}
+	delegatorEnd := 1 + int(pageReq.Key[0])
+	if len(pageReq.Key) <= delegatorEnd {
+		return pageReq, nil
+	}
+	if pageReq.Reverse {
+		return nil, status.Error(codes.InvalidArgument, "reverse pagination cannot resume from a key issued before the delegation-by-validator index was ready")
+	}
+	delegator := pageReq.Key[:delegatorEnd]
+	delegationKey := append(append([]byte{}, delegator...), address.MustLengthPrefix(valAddr)...)
+	if bytes.Compare(delegationKey, pageReq.Key) < 0 {
+		// The scan has passed this delegator's delegation to valAddr, and the index
+		// already resumes after the delegator for a key longer than its own.
+		return pageReq, nil
+	}
+	indexReq := *pageReq
+	indexReq.Key = delegator
+	return &indexReq, nil
 }
 
 // validatorDelegationsFromScan filters the whole delegation store for the requested
@@ -179,7 +218,7 @@ func (k Querier) validatorDelegationsFromScan(ctx sdk.Context, req *types.QueryV
 		return true, nil
 	})
 	if err != nil {
-		return nil, nil, query.WrapGRPCError(err)
+		return nil, nil, query.WrapQueryError(err)
 	}
 	return delegations, pageRes, nil
 }
@@ -217,7 +256,7 @@ func (k Querier) ValidatorUnbondingDelegations(c context.Context, req *types.Que
 		return nil
 	})
 	if err != nil {
-		return nil, query.WrapGRPCError(err)
+		return nil, query.WrapQueryError(err)
 	}
 
 	return &types.QueryValidatorUnbondingDelegationsResponse{
@@ -330,7 +369,7 @@ func (k Querier) DelegatorDelegations(c context.Context, req *types.QueryDelegat
 		return nil
 	})
 	if err != nil {
-		return nil, query.WrapGRPCError(err)
+		return nil, query.WrapQueryError(err)
 	}
 
 	delegationResps, err := DelegationsToDelegationResponses(ctx, k.Keeper, delegations)
@@ -402,7 +441,7 @@ func (k Querier) DelegatorUnbondingDelegations(c context.Context, req *types.Que
 		return nil
 	})
 	if err != nil {
-		return nil, query.WrapGRPCError(err)
+		return nil, query.WrapQueryError(err)
 	}
 
 	return &types.QueryDelegatorUnbondingDelegationsResponse{
@@ -449,7 +488,7 @@ func (k Querier) Redelegations(c context.Context, req *types.QueryRedelegationsR
 		redels, pageRes, err = queryAllRedelegations(ctx, store, k, req)
 	}
 	if err != nil {
-		return nil, query.WrapGRPCError(err)
+		return nil, query.WrapQueryError(err)
 	}
 	redelResponses, err := RedelegationsToRedelegationResponses(ctx, k.Keeper, redels)
 	if err != nil {
@@ -494,7 +533,7 @@ func (k Querier) DelegatorValidators(c context.Context, req *types.QueryDelegato
 	})
 
 	if err != nil {
-		return nil, query.WrapGRPCError(err)
+		return nil, query.WrapQueryError(err)
 	}
 
 	return &types.QueryDelegatorValidatorsResponse{Validators: validators, Pagination: pageRes}, nil

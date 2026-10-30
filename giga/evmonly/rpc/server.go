@@ -165,7 +165,12 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 	if err := rpcServer.RegisterName("eth", &blockAPI{backend: backend, store: receiptStore}); err != nil {
 		return nil, fmt.Errorf("register EVM-only block RPC: %w", err)
 	}
-	if err := rpcServer.RegisterName("eth", &filterAPI{backend: backend, store: receiptStore}); err != nil {
+	if err := rpcServer.RegisterName("eth", &filterAPI{
+		backend:              backend,
+		store:                receiptStore,
+		filters:              newFilterRegistry(limits.FilterTimeout, limits.MaxFilters),
+		maxBlockFilterHashes: limits.MaxBlockFilterHashes,
+	}); err != nil {
 		return nil, fmt.Errorf("register EVM-only filter RPC: %w", err)
 	}
 	if err := rpcServer.RegisterName("debug", newDebugAPI(backend, receiptStore, limits)); err != nil {

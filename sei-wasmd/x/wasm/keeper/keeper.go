@@ -102,7 +102,7 @@ func NewKeeper(
 	stakingKeeper types.StakingKeeper,
 	distKeeper types.DistributionKeeper,
 	router MessageRouter,
-	queryRouter GRPCQueryRouter,
+	queryRouter QueryServiceRouter,
 	homeDir string,
 	wasmConfig types.WasmConfig,
 	supportedFeatures string,

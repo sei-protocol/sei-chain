@@ -5,6 +5,8 @@ import (
 	"errors"
 	"math/big"
 	"sync"
+	"testing"
+	"time"
 
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -64,6 +66,16 @@ func NewFilterConfigForTest(cfg FilterConfigTest) *FilterConfig {
 		filterCfg.maxLogBytes = receipt.DefaultMaxLogBytes
 	}
 	return filterCfg
+}
+
+// NewBlockFilterAPIForTest returns a FilterAPI without a blockHeaderNotifier that reads blocks
+// from tmClient and the earliest and latest heights from heightClient.
+func NewBlockFilterAPIForTest(t *testing.T, tmClient, heightClient cosmoclient.LocalClient) *FilterAPI {
+	return newTestFilterAPIWithClient(t, nil, &FilterConfig{
+		timeout:              time.Hour,
+		maxFilters:           DefaultMaxFilters,
+		maxBlockFilterHashes: DefaultMaxBlockFilterHashes,
+	}, tmClient, heightClient, 1<<40)
 }
 
 // LogFetcherTestDeps wires a LogFetcher for range-path integration tests.
