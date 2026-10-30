@@ -337,6 +337,7 @@ func registerAppHashListener(
 	appHashes builder.AppHashBuilder,
 	hashes chan<- *apphash.AppHashData,
 ) (*apphash.AppHashData, error) {
+	// TODO: replace RegisterListener and Iterator with a blocking GetHash(ctx, height).
 	published, err := appHashes.RegisterListener(ctx, func(appHash *apphash.AppHashData) {
 		// A canceled context means the router is stopping. The listener cannot
 		// report that to the builder, and the hash loop observes the same cancel.
@@ -467,12 +468,14 @@ func (r *gigaRouterCommon) backfillAppHashes(
 	if from > last {
 		return nil
 	}
-	// TODO: GetValidators() at the app tip, not stake(LastRoad(E)). Use the
-	// LastRoad validator set once it is persisted in app state.
+	// TODO: finishExecuteBlock needs the weights from after height n was executed.
+	// GetValidators() here is the app tip, so every road gets that one set. Use the
+	// set stored for n once app state has it.
 	weights, err := committeeWeights(r.app.GetValidators())
 	if err != nil {
 		return err
 	}
+	// TODO: replace RegisterListener and Iterator with a blocking GetHash(ctx, height).
 	stored, err := r.cfg.AppHashBuilder.Iterator(ctx, uint64(from))
 	if err != nil {
 		return fmt.Errorf("AppHashBuilder.Iterator(%d): %w", from, err)
@@ -504,7 +507,7 @@ func (r *gigaRouterCommon) backfillAppHashes(
 }
 
 // runPushAppHashes proposes each committed block's app hash.
-// A hash for a different height panics.
+// A hash for a different height is an error.
 func (r *gigaRouterCommon) runPushAppHashes(
 	ctx context.Context,
 	committed <-chan pendingExecution,
@@ -527,7 +530,7 @@ func (r *gigaRouterCommon) runPushAppHashes(
 }
 
 // recvAppHashAtHeight returns the app hash of height. The builder delivers app
-// hashes in order, and any other height panics.
+// hashes in order, and any other height is an error.
 func recvAppHashAtHeight(
 	ctx context.Context,
 	hashes <-chan *apphash.AppHashData,
@@ -538,7 +541,7 @@ func recvAppHashAtHeight(
 		return nil, err
 	}
 	if n := atypes.RoadIndex(record.BlockHeight()); n != height {
-		panic(fmt.Sprintf("app hash builder published block %d, want %d", n, height))
+		return nil, fmt.Errorf("app hash builder published block %d, want %d", n, height)
 	}
 	return record, nil
 }

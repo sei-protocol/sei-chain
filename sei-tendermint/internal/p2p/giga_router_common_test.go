@@ -420,22 +420,22 @@ func TestRunExecuteStopsTheListenerWhenItReturns(t *testing.T) {
 	}))
 }
 
-func TestRunPushAppHashesPanicsOnAHashForADifferentBlock(t *testing.T) {
+func TestRunPushAppHashesRejectsAHashForADifferentBlock(t *testing.T) {
 	committed := make(chan pendingExecution, 1)
 	committed <- pendingExecution{number: 2}
 	hashes := make(chan *apphash.AppHashData, 1)
 	hashes <- testAppHashData(3)
-	require.Panics(t, func() {
-		_ = new(gigaRouterCommon).runPushAppHashes(t.Context(), committed, hashes)
-	})
+	err := new(gigaRouterCommon).runPushAppHashes(t.Context(), committed, hashes)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "published block 3, want 2")
 }
 
-func TestRecvAppHashAtHeightPanicsOnADifferentHeight(t *testing.T) {
+func TestRecvAppHashAtHeightRejectsADifferentHeight(t *testing.T) {
 	hashes := make(chan *apphash.AppHashData, 1)
 	hashes <- testAppHashData(0)
-	require.Panics(t, func() {
-		_, _ = recvAppHashAtHeight(t.Context(), hashes, 1)
-	})
+	_, err := recvAppHashAtHeight(t.Context(), hashes, 1)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "published block 0, want 1")
 }
 
 func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
