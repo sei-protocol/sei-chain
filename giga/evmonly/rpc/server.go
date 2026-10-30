@@ -67,6 +67,9 @@ type Backend interface {
 	EvmMinGasPrice() (*big.Int, error)
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 	EvmProxyEnabled() bool
+	// RememberEvmSender records the sender recovered for the transaction with this hash, for the
+	// application to use instead of recovering it again.
+	RememberEvmSender(hash common.Hash, sender common.Address)
 	EvmStorage(common.Address, common.Hash) (common.Hash, error)
 	EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error)
 	// EvmStateAt returns the committed EVM state after height, or the latest committed state when

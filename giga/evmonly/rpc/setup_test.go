@@ -148,6 +148,8 @@ func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
 	return b.proxy
 }
 
+func (b *testBackend) RememberEvmSender(common.Hash, common.Address) {}
+
 func (b *testBackend) EvmProxyEnabled() bool {
 	return b.proxy.IsPresent()
 }

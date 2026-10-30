@@ -36,6 +36,12 @@ func (env *Environment) EvmProxyEnabled() bool {
 	return false
 }
 
+// RememberEvmSender records the sender recovered for the transaction with this hash in the
+// application, which then skips recovering it again.
+func (env *Environment) RememberEvmSender(hash common.Hash, sender common.Address) {
+	env.App.RememberEvmSender(hash, sender)
+}
+
 // EvmBalance returns the address balance from the current committed EVM state.
 func (env *Environment) EvmBalance(address common.Address) uint256.Int {
 	return env.App.EvmBalance(address, nil)
