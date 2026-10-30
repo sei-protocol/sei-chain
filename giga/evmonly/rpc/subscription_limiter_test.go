@@ -60,7 +60,7 @@ func TestSubscriptionLimiter(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			limiter := newSubscriptionLimiter(tc.maxNewHeads, tc.maxPerConnection)
+			limiter := newSubscriptionLimiter(tc.maxNewHeads, 0, tc.maxPerConnection)
 			for i, s := range tc.steps {
 				if s.release {
 					limiter.releaseNewHeads(s.connection)
@@ -77,7 +77,7 @@ func TestSubscriptionLimiter(t *testing.T) {
 	}
 
 	t.Run("releasing every slot forgets the connection", func(t *testing.T) {
-		limiter := newSubscriptionLimiter(0, 0)
+		limiter := newSubscriptionLimiter(0, 0, 0)
 		require.NoError(t, limiter.acquireNewHeads("a"))
 		require.NoError(t, limiter.acquireNewHeads("a"))
 		limiter.releaseNewHeads("a")
@@ -86,4 +86,37 @@ func TestSubscriptionLimiter(t *testing.T) {
 		require.Empty(t, limiter.perConnection)
 		require.Zero(t, limiter.newHeads)
 	})
+}
+
+func TestSubscriptionLimiterCountsLogsSeparately(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		maxNewHeads      uint64
+		maxLogs          uint64
+		maxPerConnection uint64
+		newHeads, logs   int
+		wantErr          error
+	}{
+		{name: "logs cap refuses a logs subscription", maxNewHeads: 5, maxLogs: 2, logs: 2, wantErr: errLogsSubscriptionLimit},
+		{name: "newHeads subscriptions leave the logs cap", maxNewHeads: 5, maxLogs: 2, newHeads: 5, logs: 1},
+		{name: "per-connection cap spans both kinds", maxPerConnection: 3, newHeads: 2, logs: 1, wantErr: errConnectionSubscriptionLimit},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			limiter := newSubscriptionLimiter(tc.maxNewHeads, tc.maxLogs, tc.maxPerConnection)
+			for range tc.newHeads {
+				require.NoError(t, limiter.acquireNewHeads("a"))
+			}
+			for range tc.logs {
+				require.NoError(t, limiter.acquireLogs("a"))
+			}
+			err := limiter.acquireLogs("a")
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			limiter.releaseLogs("a")
+			require.Equal(t, uint64(tc.logs), limiter.logs) //nolint:gosec // small test count
+		})
+	}
 }

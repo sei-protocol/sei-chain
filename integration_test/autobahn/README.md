@@ -408,15 +408,16 @@ WebSocket (port 8546 by default):
   `debug_traceBlockByNumber`, and `debug_traceBlockByHash`, with
   go-ethereum's tracers (see
   [Trace transactions](#trace-transactions-with-debug_trace)).
-- Subscriptions, over WebSocket only: `eth_subscribe("newHeads")`.
+- Subscriptions, over WebSocket only: `eth_subscribe("newHeads")` and
+  `eth_subscribe("logs")`, which polls through the same cursor as a log
+  filter as blocks execute.
 
 A lookup for a pending or unknown hash returns `null`. Every other method
 returns JSON-RPC method-not-found, and `eth_subscribe` rejects any
-subscription other than `newHeads`:
+subscription other than `newHeads` and `logs`:
 
 - Not supported yet: the other `debug_*` methods, such as the raw-data ones,
-  `eth_subscribe("logs")`, `eth_createAccessList`, and
-  `eth_estimateGasAfterCalls`.
+  `eth_createAccessList` and `eth_estimateGasAfterCalls`.
 - Not planned, because they need something the EVM-only chain does not have
   (Cosmos accounts, server-side keys, a mempool view, blobs, or state proofs),
   duplicate another method, or are development-only: `sei_getSeiAddress`,
@@ -455,7 +456,16 @@ subscription other than `newHeads`:
   bound outside the indexed, retained range returns an error. A log filter's
   `eth_getFilterChanges` poll covers at most as much, and later polls return
   the rest. `eth_feeHistory` covers at most 1,024 blocks.
-- `newHeads` is the only subscription.
+- A `logs` subscription whose poll fails pushes `{"error": "..."}` in place
+  of a log, as the regular RPC does. When one block's logs alone exceed the
+  `eth_getLogs` caps, the message also carries that block's `blockNumber`, and
+  the stream skips the block and continues; after any other failure the stream
+  ends. go-ethereum's `ethclient` cannot decode this message and ends its
+  subscription. A stream with a numeric `toBlock` or a `blockHash` also ends
+  once delivered, without a final message.
+- A `logs` subscription with a `fromBlock` of `0` or `earliest` and a tag
+  `toBlock` delivers new logs only, as with no `fromBlock`, because that is how
+  `ethclient` sends an open-ended query. Use `eth_getLogs` for that history.
 - Blocks and receipts below the node's retention window are pruned: a lookup by
   number returns an error, and a lookup by hash returns `null`.
 - Blob (EIP-4844) transactions are not accepted.
@@ -470,7 +480,7 @@ transaction replays on, and a call to the contract on every node.
 ### Request and WebSocket limits
 
 The same methods are served over WebSocket on port 8546
-(`giga.execution.evm_ws_port`), which also serves `eth_subscribe("newHeads")`.
+(`giga.execution.evm_ws_port`), which also serves `eth_subscribe`.
 The `[giga.rpc]` section of `app.toml` sets the limits the server enforces,
 with the same defaults as the regular EVM RPC; `0` disables a limit unless
 the row says otherwise:
@@ -478,6 +488,7 @@ the row says otherwise:
 | Key | Default | Limit |
 | --- | --- | --- |
 | `max_subscriptions_new_head` | 10000 | open `newHeads` subscriptions across all connections |
+| `max_subscriptions_logs` | 1000 | open `logs` subscriptions across all connections |
 | `max_subscriptions_per_connection` | 100 | open subscriptions on one WebSocket connection |
 | `max_request_body_bytes` | 5242880 (5 MiB) | size of one HTTP request body (larger ones get HTTP 413) or WebSocket message (closes the connection with code 1009); must be positive |
 | `max_concurrent_request_bytes` | 134217728 (128 MiB) | WebSocket request bytes read and processed at once; values below `max_request_body_bytes` act as `max_request_body_bytes` |
@@ -492,8 +503,9 @@ the row says otherwise:
 | `trace_timeout` | `30s` | how long one `debug_trace*` call may run |
 | `max_trace_struct_log_bytes` | 33554432 (32 MiB) | output of the default struct logger for each traced transaction |
 
-A subscription refused by either cap returns an error, and its slot frees when
-the client unsubscribes or the connection closes. A connection is identified by
+A subscription refused by a cap returns an error, and its slot frees when
+the client unsubscribes, the connection closes, or a `logs` subscription's
+stream ends. A connection is identified by
 its remote address, so clients behind one proxy connection share its cap.
 
 ### Trace transactions with `debug_trace*`
