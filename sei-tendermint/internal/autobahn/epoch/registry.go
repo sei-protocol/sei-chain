@@ -3,7 +3,6 @@ package epoch
 import (
 	"context"
 	"fmt"
-	"maps"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -16,108 +15,13 @@ import (
 // TODO: move on-chain when epoch length becomes configurable.
 const epochLength types.RoadIndex = 108_000
 
-// registryState contains a nonempty, contiguous range of live epochs.
-// Pending epochs do not count toward the nonempty invariant.
-type registryState struct {
-	live map[types.EpochIndex]*types.Epoch
-	// liveRange is the nonempty retained epoch range [First, Next) in live.
-	liveRange        types.EpochRange
-	pending          utils.Option[*types.Epoch]
-	firstRoad        types.RoadIndex
-	genesisTimestamp time.Time
-}
-
-// activate publishes the next epoch after validating its road range and committee continuity.
-func (s *registryState) activate(epoch *types.Epoch) error {
-	idx := epoch.EpochIndex()
-	if idx != s.liveRange.Next {
-		return fmt.Errorf("epoch %d cannot be activated, want %d", idx, s.liveRange.Next)
-	}
-	if got, want := epoch.RoadRange(), s.roadRange(idx); got != want {
-		return fmt.Errorf("epoch %d roads %v, want %v", idx, got, want)
-	}
-	if err := checkDerived(s.live[idx-1], epoch); err != nil {
-		return fmt.Errorf("epoch %d: %w", idx, err)
-	}
-	s.live[idx] = epoch
-	s.liveRange.Next = idx + 1
-	return nil
-}
-
-func (s *registryState) clone() *registryState {
-	return &registryState{
-		live:             maps.Clone(s.live),
-		pending:          s.pending,
-		firstRoad:        s.firstRoad,
-		genesisTimestamp: s.genesisTimestamp,
-		liveRange:        s.liveRange,
-	}
-}
-
-// newRegistryState constructs a state with at least one live epoch, excluding pending.
-func newRegistryState(
-	genesisCommittee *types.Committee,
-	firstRoad types.RoadIndex,
-	genesisTimestamp time.Time,
-	persisted utils.Option[*persistedRegistry],
-) (*registryState, error) {
-	initial, ok := persisted.Get()
-	if !ok {
-		return &registryState{
-			live: map[types.EpochIndex]*types.Epoch{
-				0: types.NewEpoch(0, types.RoadRange{First: firstRoad, Next: firstRoad + epochLength}, genesisCommittee),
-				1: types.NewEpoch(1, types.RoadRange{First: firstRoad + epochLength, Next: firstRoad + 2*epochLength}, genesisCommittee),
-			},
-			firstRoad:        firstRoad,
-			genesisTimestamp: genesisTimestamp,
-			liveRange:        types.EpochRange{First: 0, Next: 2},
-		}, nil
-	}
-	if len(initial.live) == 0 {
-		return nil, fmt.Errorf("persisted registry has no live epochs")
-	}
-	first := initial.live[0]
-	idx := first.EpochIndex()
-	s := &registryState{
-		live:             map[types.EpochIndex]*types.Epoch{idx: first},
-		pending:          initial.pending,
-		firstRoad:        firstRoad,
-		genesisTimestamp: genesisTimestamp,
-		liveRange:        types.EpochRange{First: idx, Next: idx + 1},
-	}
-	if got, want := first.RoadRange(), s.roadRange(idx); got != want {
-		return nil, fmt.Errorf("live record 0: epoch %d roads %v, want %v", idx, got, want)
-	}
-	for i, epoch := range initial.live[1:] {
-		if err := s.activate(epoch); err != nil {
-			return nil, fmt.Errorf("live record %d: %w", i+1, err)
-		}
-	}
-
-	// TODO: a missing pending is restaged on restart from GetValidators() at app
-	// tip, not stake(LastRoad(E)). Use the LastRoad validator set once it is
-	// persisted in app state.
-	if pending, ok := s.pending.Get(); ok {
-		idx := pending.EpochIndex()
-		if got, want := pending.RoadRange(), s.roadRange(idx); got != want {
-			return nil, fmt.Errorf("pending epoch %d roads %v, want %v", idx, got, want)
-		}
-		if err := checkDerived(s.live[idx-1], pending); err != nil {
-			return nil, fmt.Errorf("pending: %w", err)
-		}
-	}
-	for idx := types.EpochIndex(0); idx < 2; idx++ {
-		if epoch, ok := s.live[idx]; ok && !epoch.Committee().Equal(genesisCommittee) {
-			return nil, fmt.Errorf("epoch %d does not match genesis", idx)
-		}
-	}
-	return s, nil
-}
-
 // Registry stores at least one live epoch and optional committees staged for activation.
 type Registry struct {
-	state     utils.Watch[*registryState]
-	persister persist.Persister[*pb.PersistedEpochRegistry]
+	firstRoad        types.RoadIndex
+	genesisTimestamp time.Time
+	state            utils.Mutex[*utils.AtomicSend[*persistedRegistry]]
+	stateRecv        utils.AtomicRecv[*persistedRegistry]
+	persister        persist.Persister[*pb.PersistedEpochRegistry]
 }
 
 // NewRegistry opens a registry using the genesis committee, road origin, and timestamp.
@@ -132,141 +36,119 @@ func NewRegistry(
 	if err != nil {
 		return nil, err
 	}
-	raw, _ := loaded.Get()
-	persisted, err := persistedRegistryConv.DecodeOpt(raw)
-	if err != nil {
-		return nil, fmt.Errorf("restore epoch snapshot: %w", err)
+	r := &Registry{
+		firstRoad:        firstRoad,
+		genesisTimestamp: genesisTimestamp,
+		persister:        persister,
 	}
-	state, err := newRegistryState(committee, firstRoad, genesisTimestamp, persisted)
-	if err != nil {
-		return nil, fmt.Errorf("restore epoch snapshot: %w", err)
+	state := newGenesisRegistry(committee, firstRoad)
+	if raw, ok := loaded.Get(); ok {
+		if state, err = persistedRegistryConv.DecodeReq(raw); err != nil {
+			return nil, fmt.Errorf("restore epoch snapshot: %w", err)
+		}
+		for idx := state.liveRange.First; idx < state.liveRange.Next; idx++ {
+			epoch := state.live[idx]
+			if got, want := epoch.RoadRange(), r.roadRange(idx); got != want {
+				return nil, fmt.Errorf("restore epoch snapshot: epoch %d roads %v, want %v", idx, got, want)
+			}
+			if state.liveRange.First < idx {
+				if err := checkDerived(state.live[idx-1], epoch); err != nil {
+					return nil, fmt.Errorf("restore epoch snapshot: epoch %d: %w", idx, err)
+				}
+			}
+		}
+		for idx := range types.EpochIndex(2) {
+			if epoch, ok := state.live[idx]; ok && !epoch.Committee().Equal(committee) {
+				return nil, fmt.Errorf("restore epoch snapshot: epoch %d does not match genesis", idx)
+			}
+		}
+
+		// TODO: a missing pending is restaged on restart from GetValidators() at app
+		// tip, not stake(LastRoad(E)). Use the LastRoad validator set once it is
+		// persisted in app state.
+		if pending, ok := state.pending.Get(); ok {
+			idx := pending.EpochIndex()
+			if got, want := pending.RoadRange(), r.roadRange(idx); got != want {
+				return nil, fmt.Errorf("restore epoch snapshot: pending epoch %d roads %v, want %v", idx, got, want)
+			}
+			if err := checkDerived(state.live[idx-1], pending); err != nil {
+				return nil, fmt.Errorf("restore epoch snapshot: pending: %w", err)
+			}
+		}	
 	}
-	return &Registry{
-		state:     utils.NewWatch(state),
-		persister: persister,
-	}, nil
+	stateSend := new(utils.NewAtomicSend(state))
+	r.state = utils.NewMutex(stateSend)
+	r.stateRecv = stateSend.Subscribe()
+	return r, nil
 }
 
-func (s *registryState) roadRange(idx types.EpochIndex) types.RoadRange {
-	first := s.firstRoad + types.RoadIndex(idx)*epochLength
+func (r *Registry) roadRange(idx types.EpochIndex) types.RoadRange {
+	first := r.firstRoad + types.RoadIndex(idx)*epochLength
 	return types.RoadRange{First: first, Next: first + epochLength}
-}
-
-func (s *registryState) indexForRoad(road types.RoadIndex) types.EpochIndex {
-	return types.EpochIndex((road - s.firstRoad) / epochLength)
-}
-
-func (s *registryState) closingEpoch(road types.RoadIndex) utils.Option[types.EpochIndex] {
-	if road < s.firstRoad {
-		return utils.None[types.EpochIndex]()
-	}
-	idx := s.indexForRoad(road)
-	if road != s.roadRange(idx).Next-1 {
-		return utils.None[types.EpochIndex]()
-	}
-	return utils.Some(idx)
 }
 
 // FirstRoad returns the genesis epoch's first road index.
 func (r *Registry) FirstRoad() types.RoadIndex {
-	for s := range r.state.Lock() {
-		return s.firstRoad
-	}
-	panic("unreachable")
-}
-
-// EpochFirstRoad returns the first road index of epoch idx.
-func (r *Registry) EpochFirstRoad(idx types.EpochIndex) types.RoadIndex {
-	for s := range r.state.Lock() {
-		return s.roadRange(idx).First
-	}
-	panic("unreachable")
+	return r.firstRoad
 }
 
 // LastRoad returns the last road index of epoch idx.
 func (r *Registry) LastRoad(idx types.EpochIndex) types.RoadIndex {
-	for s := range r.state.Lock() {
-		return s.roadRange(idx).Next - 1
-	}
-	panic("unreachable")
+	return r.roadRange(idx).Next - 1
 }
 
 // IndexForRoad returns the epoch index containing road. Road must not precede
 // FirstRoad.
 func (r *Registry) IndexForRoad(road types.RoadIndex) types.EpochIndex {
-	for s := range r.state.Lock() {
-		return s.indexForRoad(road)
-	}
-	panic("unreachable")
+	return types.EpochIndex((road - r.firstRoad) / epochLength)
 }
 
 // ClosingEpoch returns the epoch that road ends, if road is that epoch's last
 // road. Otherwise None.
 func (r *Registry) ClosingEpoch(road types.RoadIndex) utils.Option[types.EpochIndex] {
-	for s := range r.state.Lock() {
-		return s.closingEpoch(road)
+	if road < r.firstRoad {
+		return utils.None[types.EpochIndex]()
 	}
-	panic("unreachable")
+	idx := r.IndexForRoad(road)
+	if road != r.LastRoad(idx) {
+		return utils.None[types.EpochIndex]()
+	}
+	return utils.Some(idx)
 }
 
 // GenesisTimestamp returns the genesis epoch timestamp.
 func (r *Registry) GenesisTimestamp() time.Time {
-	for s := range r.state.Lock() {
-		return s.genesisTimestamp
-	}
-	panic("unreachable")
+	return r.genesisTimestamp
 }
 
-// EpochByIndex returns the registered epoch at idx.
+// Epoch returns the registered epoch at idx.
 // It returns ErrPruned if idx has been dropped by PruneBefore.
-func (r *Registry) EpochByIndex(idx types.EpochIndex) (*types.Epoch, error) {
-	for s := range r.state.Lock() {
-		if idx < s.liveRange.First {
-			return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrPruned)
-		}
-		ep, ok := s.live[idx]
-		if !ok {
-			return nil, fmt.Errorf("epoch %d not registered", idx)
-		}
-		return ep, nil
+func (r *Registry) Epoch(idx types.EpochIndex) (*types.Epoch, error) {
+	s := r.stateRecv.Load()
+	if idx < s.liveRange.First {
+		return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrPruned)
 	}
-	panic("unreachable")
+	if s.liveRange.Next <= idx { 
+		return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrNotFound)
+	}
+	return s.live[idx], nil
 }
 
 // EpochAt returns the registered epoch containing roadIndex.
 func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
-	for s := range r.state.Lock() {
-		firstRoad := s.firstRoad
-		if roadIndex < firstRoad {
-			return nil, fmt.Errorf("road %d: %w", roadIndex, types.ErrPruned)
-		}
-		epochIdx := s.indexForRoad(roadIndex)
-		if epochIdx < s.liveRange.First {
-			return nil, fmt.Errorf("epoch %d (road %d): %w", epochIdx, roadIndex, types.ErrPruned)
-		}
-		if ep, ok := s.live[epochIdx]; ok && ep.RoadRange().Has(roadIndex) {
-			return ep, nil
-		}
-		return nil, fmt.Errorf("epoch %d (road %d) not registered", epochIdx, roadIndex)
+	firstRoad := r.firstRoad
+	if roadIndex < firstRoad {
+		return nil, fmt.Errorf("road %d: %w", roadIndex, types.ErrPruned)
 	}
-	panic("unreachable")
+	return r.Epoch(r.IndexForRoad(roadIndex))
 }
 
-// commit writes next to disk, then replaces s with next.
-// s is left unchanged if Persist fails.
-func (r *Registry) commit(s, next *registryState) error {
-	live := make([]*types.Epoch, 0, len(next.live))
-	for idx := next.liveRange.First; idx < next.liveRange.Next; idx++ {
-		live = append(live, next.live[idx])
-	}
-	persisted, err := newPersistedRegistry(live, next.pending)
-	if err != nil {
+// commit persists and publishes next. Persistence failure leaves the current snapshot unchanged.
+func (r *Registry) commit(state *utils.AtomicSend[*persistedRegistry], next *persistedRegistry) error {
+	if err := r.persister.Persist(persistedRegistryConv.Encode(next)); err != nil {
 		return fmt.Errorf("persist epoch registry: %w", err)
 	}
-	if err := r.persister.Persist(persistedRegistryConv.Encode(persisted)); err != nil {
-		return fmt.Errorf("persist epoch registry: %w", err)
-	}
-	*s = *next
+	state.Store(next)
 	return nil
 }
 
@@ -275,99 +157,47 @@ func (r *Registry) commit(s, next *registryState) error {
 // An error if it conflicts, if the target is not live.Next, or if endEpoch+1
 // is not live.
 func (r *Registry) StageEpoch(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) error {
-	target := endEpoch + 2
-	for s := range r.state.Lock() {
-		if target < s.liveRange.First {
-			return fmt.Errorf("epoch %d: %w", target, types.ErrPruned)
-		}
-		ep, registered := s.live[target]
-		if !registered && target != s.liveRange.Next {
-			return fmt.Errorf("epoch %d cannot be staged, want %d", target, s.liveRange.Next)
-		}
-		prev, ok := s.live[endEpoch+1]
-		if !ok {
-			return fmt.Errorf("epoch %d not registered", endEpoch+1)
-		}
-		committee, err := prev.Committee().DeriveNext(weights, target)
-		if err != nil {
-			return fmt.Errorf("DeriveNext(%d): %w", target, err)
-		}
-		if registered {
-			if !ep.Committee().Equal(committee) {
-				return fmt.Errorf("epoch %d already registered with a different committee", target)
-			}
-			return nil
-		}
-		if staged, ok := s.pending.Get(); ok {
-			if !staged.Committee().Equal(committee) {
-				return fmt.Errorf("epoch %d already staged with a different committee", target)
-			}
-			return nil
-		}
-		next := s.clone()
-		next.pending = utils.Some(types.NewEpoch(target, s.roadRange(target), committee))
-		return r.commit(s, next)
-	}
-	panic("unreachable")
-}
-
-// ActivateEpoch publishes the staged committee for idx.
-// A no-op if idx is already live. An error if idx is not the staged epoch.
-func (r *Registry) ActivateEpoch(idx types.EpochIndex) error {
-	for s, ctrl := range r.state.Lock() {
-		if _, ok := s.live[idx]; ok {
-			return nil
-		}
-		if idx < s.liveRange.First {
-			return fmt.Errorf("epoch %d: %w", idx, types.ErrPruned)
-		}
-		pending, ok := s.pending.Get()
-		if !ok || pending.EpochIndex() != idx {
-			return fmt.Errorf("epoch %d is not staged", idx)
-		}
-		next := s.clone()
-		if err := next.activate(pending); err != nil {
+	for state := range r.state.Lock() {
+		s := state.Load()
+		if next, err := s.stageEpoch(endEpoch, weights); err != nil {
 			return err
+		} else if next != s {
+			return r.commit(state, next)
 		}
-		next.pending = utils.None[*types.Epoch]()
-		if err := r.commit(s, next); err != nil {
-			return err
-		}
-		ctrl.Updated()
 		return nil
 	}
 	panic("unreachable")
 }
 
-// Pending returns the staged epoch index, or None.
-func (r *Registry) Pending() utils.Option[types.EpochIndex] {
-	for s := range r.state.Lock() {
-		if _, ok := s.pending.Get(); !ok {
-			return utils.None[types.EpochIndex]()
+// Activate publishes the staged committee for idx.
+// A no-op if idx is already live. An error if idx is not the staged epoch.
+func (r *Registry) Activate(idx types.EpochIndex) error {
+	for state := range r.state.Lock() {
+		s := state.Load()
+		if next, err := s.activate(idx); err != nil || next == s {
+			return err
+		} else if next != s {
+			return r.commit(state, next)
 		}
-		return utils.Some(s.liveRange.Next)
+		return nil
 	}
 	panic("unreachable")
+}
+
+// Pending returns the staged epoch, or None.
+func (r *Registry) Pending() utils.Option[*types.Epoch] {
+	return r.stateRecv.Load().pending
 }
 
 // PruneBefore drops persisted epochs below keep, retaining the latest live epoch.
 // Pruning only moves forward and preserves staged epochs.
 // TODO: archive nodes need special handling (never prune epochs).
 func (r *Registry) PruneBefore(keep types.EpochIndex) error {
-	for s, ctrl := range r.state.Lock() {
-		keep = min(keep, s.liveRange.Next-1)
-		if keep <= s.liveRange.First {
-			return nil
+	for state := range r.state.Lock() {
+		s := state.Load()
+		if next := s.pruneBefore(keep); next != s {
+			return r.commit(state, next)
 		}
-		next := s.clone()
-		for idx := next.liveRange.First; idx < keep; idx++ {
-			delete(next.live, idx)
-		}
-		next.liveRange.First = keep
-		if err := r.commit(s, next); err != nil {
-			return err
-		}
-		ctrl.Updated()
 		return nil
 	}
 	panic("unreachable")
@@ -375,18 +205,13 @@ func (r *Registry) PruneBefore(keep types.EpochIndex) error {
 
 // WaitForEpoch blocks until epoch i is registered.
 func (r *Registry) WaitForEpoch(ctx context.Context, i types.EpochIndex) (*types.Epoch, error) {
-	for inner, ctrl := range r.state.Lock() {
-		for {
-			if i < inner.liveRange.First {
-				return nil, fmt.Errorf("epoch %d: %w", i, types.ErrPruned)
-			}
-			if ep, ok := inner.live[i]; ok {
-				return ep, nil
-			}
-			if err := ctrl.Wait(ctx); err != nil {
-				return nil, err
-			}
-		}
+	state, err := r.stateRecv.Wait(ctx, func(s *persistedRegistry) bool { return i < s.liveRange.Next })
+		
+	if err != nil {
+		return nil, err
 	}
-	panic("unreachable")
+	if i < state.liveRange.First {
+		return nil, fmt.Errorf("epoch %d: %w", i, types.ErrPruned)
+	}
+	return state.live[i], nil
 }

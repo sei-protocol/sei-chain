@@ -149,7 +149,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 		// Data already holds an AppQC for epoch 0; NewState's prune stamped the
 		// Anchor. Advance the seal cursor without admitting LastRoad tips — runEvict
 		// is not running, and the rest of this test expects empty roads.
-		seekRoads(state, registry.EpochFirstRoad(1))
+		seekRoads(state, registry.MustEpoch(1).RoadRange().First)
 		persistEpochSeal(state, ep0, keys)
 		if _, err := state.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
 			return ep.EpochIndex() >= 1
@@ -161,7 +161,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 			inner.anchorEpoch = utils.Some(ep1)
 			ctrl.Updated()
 		}
-		seekRoads(state, registry.EpochFirstRoad(2))
+		seekRoads(state, registry.MustEpoch(2).RoadRange().First)
 		persistEpochSeal(state, ep1, keys)
 		if _, err := state.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
 			return ep.EpochIndex() >= epLeave.EpochIndex()
@@ -1052,20 +1052,20 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 
 func TestPushCommitQC_MidEpochNoWait(t *testing.T) {
 	f := newSealFixture(t)
-	_, err := f.registry.EpochAt(f.registry.EpochFirstRoad(f.m + 1))
+	_, err := f.registry.EpochAt(f.ep.RoadRange().Next)
 	require.Error(t, err)
 
-	seekRoads(f.state, f.registry.EpochFirstRoad(f.m))
+	seekRoads(f.state, f.ep.RoadRange().First)
 	epPrev := f.registry.MustEpoch(f.m - 1)
 	prev := tipLink(epPrev, f.keys[0], f.registry.LastRoad(f.m-1))
 	qc := types.BuildCommitQC(f.ep, f.keys, utils.Some(prev), nil)
-	require.Equal(t, f.registry.EpochFirstRoad(f.m), qc.Index())
+	require.Equal(t, f.ep.RoadRange().First, qc.Index())
 
 	leader := f.ep.Committee().Leader(qc.View()).ED25519().Address().String()
 	commits := gathered(t, "tendermint_internal_autobahn_consensus_commits", map[string]string{"leader": leader})
 	require.NoError(t, f.state.PushCommitQC(t.Context(), qc))
 	require.Equal(t, commits+1, gathered(t, "tendermint_internal_autobahn_consensus_commits", map[string]string{"leader": leader}))
-	require.Equal(t, f.registry.EpochFirstRoad(f.m)+1, nextRoad(f.state))
+	require.Equal(t, f.ep.RoadRange().First+1, nextRoad(f.state))
 }
 
 func TestPushCommitQC_StaleAfterAdvanceSoftDrops(t *testing.T) {
@@ -1109,7 +1109,7 @@ func newSealFixture(t *testing.T) *sealFixture {
 
 	const m types.EpochIndex = 1
 	ep := registry.MustEpoch(m)
-	_, err = registry.EpochAt(registry.EpochFirstRoad(m + 1))
+	_, err = registry.EpochAt(ep.RoadRange().Next)
 	require.Error(t, err, "epoch 2 must be absent for exec-leash tests")
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
@@ -1171,7 +1171,7 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 				if tc.parkNextQC {
 					ep2 := f.registry.MustEpoch(f.m + 1)
 					qcNext := types.BuildCommitQC(ep2, f.keys, utils.Some(qcLast), nil)
-					require.Equal(t, f.registry.EpochFirstRoad(f.m+1), qcNext.Index())
+					require.Equal(t, f.registry.MustEpoch(f.m+1).RoadRange().First, qcNext.Index())
 					go func() { pushErr = f.state.PushCommitQC(ctx, qcNext) }()
 					synctest.Wait()
 					require.Equal(t, f.registry.LastRoad(f.m)+1, nextRoad(f.state), "future QC must stay parked")
@@ -1199,7 +1199,7 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 				if tc.parkNextQC {
 					synctest.Wait()
 					require.NoError(t, pushErr)
-					require.Equal(t, f.registry.EpochFirstRoad(f.m+1)+1, nextRoad(f.state))
+					require.Equal(t, f.registry.MustEpoch(f.m+1).RoadRange().First+1, nextRoad(f.state))
 				}
 
 				cancel()

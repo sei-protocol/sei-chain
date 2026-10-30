@@ -199,7 +199,7 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []int64{1, 1, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
 
-	n := router.data.Registry().EpochFirstRoad(2)
+	n := router.data.Registry().MustEpoch(2).RoadRange().First
 	router = testRouterAtRoad(t, router.data.Registry(), keys, router.data.Registry().MustEpoch(2), n)
 	got, err = router.Validators(n)
 	require.NoError(t, err)

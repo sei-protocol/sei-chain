@@ -495,7 +495,7 @@ func TestPushAppHash_MidEpochDoesNotRegister(t *testing.T) {
 		if err := state.PushAppHash(ctx, qc.Index(), types.GenAppHash(rng), nil); err != nil {
 			return err
 		}
-		if _, err := registry.EpochAt(registry.EpochFirstRoad(2)); err == nil {
+		if _, err := registry.EpochAt(registry.MustEpoch(1).RoadRange().Next); err == nil {
 			return fmt.Errorf("epoch 2 must stay absent for road %d", qc.QC().Index())
 		}
 		if got, ok := registry.Pending().Get(); ok {
@@ -525,17 +525,17 @@ func TestCommitteeFill_GatedOnAppQC(t *testing.T) {
 		if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9}); err != nil {
 			return err
 		}
-		if _, err := registry.EpochAt(registry.EpochFirstRoad(2)); err == nil {
+		if _, err := registry.EpochAt(registry.MustEpoch(1).RoadRange().Next); err == nil {
 			return errors.New("epoch 2 must stay staged until an AppQC finalizes end(0)")
 		}
-		if want := utils.Some(types.EpochIndex(2)); registry.Pending() != want {
-			return fmt.Errorf("Pending() = %v, want %v", registry.Pending(), want)
+		if pending, ok := registry.Pending().Get(); !ok || pending.EpochIndex() != 2 {
+			return fmt.Errorf("Pending() = %v, want epoch 2", registry.Pending())
 		}
 
 		if err := pushAppQCForBlock(ctx, state, keys, n); err != nil {
 			return err
 		}
-		filled, err := registry.EpochAt(registry.EpochFirstRoad(2))
+		filled, err := registry.EpochAt(registry.MustEpoch(1).RoadRange().Next)
 		if err != nil {
 			return fmt.Errorf("epoch 2 after AppQC: %w", err)
 		}
@@ -575,9 +575,9 @@ func TestCommitteeFill_AppQCDivergenceLeavesStaged(t *testing.T) {
 
 	divergent := types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng))
 	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, divergent)))
-	_, err := registry.EpochAt(registry.EpochFirstRoad(2))
+	_, err := registry.EpochAt(registry.MustEpoch(1).RoadRange().Next)
 	require.Error(t, err, "epoch 2 must stay staged after divergence")
-	require.Equal(t, utils.Some(types.EpochIndex(2)), registry.Pending())
+	require.Equal(t, types.EpochIndex(2), registry.Pending().OrPanic("pending epoch").EpochIndex())
 }
 
 func TestCommitteeFill_LaterMatchingAppQCDoesNotSkipDivergentLastRoad(t *testing.T) {
@@ -591,7 +591,7 @@ func TestCommitteeFill_LaterMatchingAppQCDoesNotSkipDivergentLastRoad(t *testing
 	store := newMemoryBlockStore(t)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc0}, [][]*types.Block{blocks0})
 	state := newTestState(t, &Config{Registry: registry}, store)
-	qc1, blocks1 := commitQCAtRoad(ep1, keys, registry.EpochFirstRoad(1))
+	qc1, blocks1 := commitQCAtRoad(ep1, keys, registry.MustEpoch(1).RoadRange().First)
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
@@ -613,9 +613,9 @@ func TestCommitteeFill_LaterMatchingAppQCDoesNotSkipDivergentLastRoad(t *testing
 	require.NoError(t, err)
 	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, vote1.Proposal())))
 
-	_, err = registry.EpochAt(registry.EpochFirstRoad(2))
+	_, err = registry.EpochAt(registry.MustEpoch(1).RoadRange().Next)
 	require.Error(t, err, "epoch 2 must stay staged when LastRoad(0) diverged")
-	require.Equal(t, utils.Some(types.EpochIndex(2)), registry.Pending())
+	require.Equal(t, types.EpochIndex(2), registry.Pending().OrPanic("pending epoch").EpochIndex())
 }
 
 func TestRunPersist_HaltsBeforePersistingDivergentAppQC(t *testing.T) {

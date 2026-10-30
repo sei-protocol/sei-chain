@@ -1090,12 +1090,12 @@ func TestPushCommitQC_RotatesEpochAtBoundary(t *testing.T) {
 	qc := commitQCAtRoad(ep0, keys, registry.LastRoad(0))
 	require.Equal(t, registry.LastRoad(0), qc.Index())
 	// Avail resolves the next-view epoch; pushSpec advances to it verbatim.
-	ep1, err := registry.EpochAt(registry.EpochFirstRoad(1))
+	ep1, err := registry.Epoch(1)
 	require.NoError(t, err)
 	require.NoError(t, s.pushSpec(types.ConsensusSpec{CommitQC: utils.Some(qc), Epoch: ep1}))
 	got := s.innerRecv.Load()
 	require.Equal(t, types.EpochIndex(1), got.spec.Epoch.EpochIndex())
-	require.Equal(t, registry.EpochFirstRoad(1), got.View().Index)
+	require.Equal(t, ep1.RoadRange().First, got.View().Index)
 }
 
 func TestTimeoutPhase(t *testing.T) {

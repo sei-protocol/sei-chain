@@ -837,7 +837,7 @@ func (r *gigaRouterCommon) Validators(n atypes.RoadIndex) ([]*types.Validator, e
 	} else {
 		epochIndex = qc.QC().View().EpochIndex
 	}
-	ep, err := r.data.Registry().EpochByIndex(epochIndex)
+	ep, err := r.data.Registry().Epoch(epochIndex)
 	if err != nil {
 		return nil, heightLookupError(n, err)
 	}

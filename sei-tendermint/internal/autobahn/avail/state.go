@@ -168,7 +168,7 @@ func restoreInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		anchorEpoch = anchor.Epoch
 		anchorQC = utils.Some(anchor.CommitQC)
 	} else {
-		genesis, err := registry.EpochByIndex(0)
+		genesis, err := registry.Epoch(0)
 		if err != nil {
 			return nil, fmt.Errorf("genesis epoch 0: %w", err)
 		}
@@ -182,7 +182,7 @@ func restoreInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		if want := i.roads.next; qc.Index() != want {
 			return nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", want, qc.Index())
 		}
-		ep, err := registry.EpochByIndex(qc.View().EpochIndex)
+		ep, err := registry.Epoch(qc.View().EpochIndex)
 		if err != nil {
 			return nil, fmt.Errorf("persisted commitQC %d epoch: %w", qc.Index(), err)
 		}

@@ -713,7 +713,7 @@ func TestPushVoteEpoch(t *testing.T) {
 
 		t.Run(tc.name+"/future epoch waits", func(t *testing.T) {
 			e := newLiveEnv(t, utils.TestRng())
-			p := types.GenProposalForEpoch(e.rng, e.reg.MustEpoch(1), types.View{Index: e.reg.EpochFirstRoad(1)})
+			p := types.GenProposalForEpoch(e.rng, e.reg.MustEpoch(1), types.View{Index: e.reg.MustEpoch(1).RoadRange().First})
 			ctx, cancel := context.WithCancel(t.Context())
 			cancel()
 			require.ErrorIs(t, tc.push(ctx, e, p, e.keys[0]), context.Canceled)
@@ -724,7 +724,7 @@ func TestPushVoteEpoch(t *testing.T) {
 		t.Run(tc.name+"/past epoch is ignored", func(t *testing.T) {
 			e := newLiveEnv(t, utils.TestRng())
 			stale := types.GenProposalForEpoch(e.rng, e.reg.MustEpoch(0), types.View{Index: e.reg.FirstRoad()})
-			next := types.GenProposalForEpoch(e.rng, e.reg.MustEpoch(1), types.View{Index: e.reg.EpochFirstRoad(1)})
+			next := types.GenProposalForEpoch(e.rng, e.reg.MustEpoch(1), types.View{Index: e.reg.MustEpoch(1).RoadRange().First})
 			err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 				sc.SpawnBg(func() error { return utils.IgnoreCancel(e.s.runOutputs(ctx)) })
 				if err := e.enterEpoch1(ctx); err != nil {
@@ -756,7 +756,7 @@ func TestPushVoteEpoch(t *testing.T) {
 			require.Equal(t, types.EpochIndex(0), tc.phaseEpoch(e.s))
 			ep1 := e.reg.MustEpoch(1)
 			e.s.myView.Store(types.ViewSpec{ConsensusSpec: types.ConsensusSpec{Epoch: ep1}})
-			p := types.GenProposalForEpoch(e.rng, ep1, types.View{Index: e.reg.EpochFirstRoad(1)})
+			p := types.GenProposalForEpoch(e.rng, ep1, types.View{Index: e.reg.MustEpoch(1).RoadRange().First})
 			require.NoError(t, pushVoteQuorum(t.Context(), e, tc, p))
 			view, ok := tc.qcView(e.s)
 			require.True(t, ok)
@@ -766,7 +766,7 @@ func TestPushVoteEpoch(t *testing.T) {
 
 		t.Run(tc.name+"/future epoch is counted once reached", func(t *testing.T) {
 			e := newLiveEnv(t, utils.TestRng())
-			p := types.GenProposalForEpoch(e.rng, e.reg.MustEpoch(1), types.View{Index: e.reg.EpochFirstRoad(1)})
+			p := types.GenProposalForEpoch(e.rng, e.reg.MustEpoch(1), types.View{Index: e.reg.MustEpoch(1).RoadRange().First})
 			c := e.reg.MustEpoch(1).Committee()
 			keys := types.TestKeysWithWeight(c, e.keys, tc.quorum(c))
 			err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
@@ -821,10 +821,10 @@ func TestPushVoteEpoch(t *testing.T) {
 func weightedEpoch(idx types.EpochIndex, weights map[types.PublicKey]uint64) *types.Epoch {
 	c := utils.OrPanic1(types.NewCommittee(weights))
 	registry := utils.OrPanic1(epoch.NewRegistry(c, 0, time.Time{}, utils.None[string]()))
-	return types.NewEpoch(
-		idx,
-		types.RoadRange{First: registry.EpochFirstRoad(idx), Next: registry.LastRoad(idx) + 1},
-		c)
+	roads := registry.MustEpoch(0).RoadRange()
+	length := roads.Next - roads.First
+	first := roads.First + types.RoadIndex(idx)*length
+	return types.NewEpoch(idx, types.RoadRange{First: first, Next: first + length}, c)
 }
 
 // --- propose ---

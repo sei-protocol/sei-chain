@@ -30,26 +30,26 @@ func TestPersistedRegistryConvRejectsEpochIndexGaps(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestNewRegistryStateRejectsBrokenDerivation(t *testing.T) {
+func TestNewRegistryRejectsBrokenDerivation(t *testing.T) {
 	rng := utils.TestRng()
 	a := types.GenSecretKey(rng).Public()
 	b := types.GenSecretKey(rng).Public()
 	genesis := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{a: 1}))
 	other := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{a: 1, b: 1}))
 	construct := func(persisted *persistedRegistry) error {
-		_, err := newRegistryState(genesis, 0, time.Time{}, utils.Some(persisted))
+		_, err := testNewRegistry(t, genesis, 0, utils.Some(persisted))
 		return err
 	}
 
-	require.Error(t, construct(utils.OrPanic1(newPersistedRegistry(
+	require.Error(t, construct(testPersistedRegistry(
 		[]*types.Epoch{testEpoch(0, genesis), testEpoch(1, genesis), testEpoch(2, other)}, utils.None[*types.Epoch](),
-	))))
-	require.Error(t, construct(utils.OrPanic1(newPersistedRegistry(
+	)))
+	require.Error(t, construct(testPersistedRegistry(
 		[]*types.Epoch{testEpoch(0, genesis), testEpoch(1, genesis)}, utils.Some(testEpoch(2, other)),
-	))))
+	)))
 }
 
-func TestNewRegistryStateAcceptsDerivedChain(t *testing.T) {
+func TestNewRegistryAcceptsDerivedChain(t *testing.T) {
 	rng := utils.TestRng()
 	a := types.GenSecretKey(rng).Public()
 	b := types.GenSecretKey(rng).Public()
@@ -57,27 +57,27 @@ func TestNewRegistryStateAcceptsDerivedChain(t *testing.T) {
 	c2 := utils.OrPanic1(genesis.DeriveNext(map[types.PublicKey]uint64{a: 1, b: 1}, 2))
 	c3 := utils.OrPanic1(c2.DeriveNext(map[types.PublicKey]uint64{a: 1, b: 1}, 3))
 	construct := func(persisted *persistedRegistry) error {
-		_, err := newRegistryState(genesis, 0, time.Time{}, utils.Some(persisted))
+		_, err := testNewRegistry(t, genesis, 0, utils.Some(persisted))
 		return err
 	}
 
-	require.NoError(t, construct(utils.OrPanic1(newPersistedRegistry([]*types.Epoch{testEpoch(2, c2)}, utils.None[*types.Epoch]()))))
-	require.NoError(t, construct(utils.OrPanic1(newPersistedRegistry(
+	require.NoError(t, construct(testPersistedRegistry([]*types.Epoch{testEpoch(2, c2)}, utils.None[*types.Epoch]())))
+	require.NoError(t, construct(testPersistedRegistry(
 		[]*types.Epoch{testEpoch(2, c2)}, utils.Some(testEpoch(3, c3)),
-	))))
-	require.NoError(t, construct(utils.OrPanic1(newPersistedRegistry(
+	)))
+	require.NoError(t, construct(testPersistedRegistry(
 		[]*types.Epoch{testEpoch(0, genesis), testEpoch(1, genesis)}, utils.Some(testEpoch(2, c2)),
-	))))
+	)))
 }
 
-func TestNewRegistryStateAllowsPrunedPredecessor(t *testing.T) {
+func TestNewRegistryAllowsPrunedPredecessor(t *testing.T) {
 	rng := utils.TestRng()
 	a := types.GenSecretKey(rng).Public()
 	b := types.GenSecretKey(rng).Public()
 	genesis := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{a: 1}))
 	other := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{b: 1}))
-	persisted := utils.OrPanic1(newPersistedRegistry([]*types.Epoch{testEpoch(3, other)}, utils.None[*types.Epoch]()))
-	_, err := newRegistryState(genesis, 0, time.Time{}, utils.Some(persisted))
+	persisted := testPersistedRegistry([]*types.Epoch{testEpoch(3, other)}, utils.None[*types.Epoch]())
+	_, err := testNewRegistry(t, genesis, 0, utils.Some(persisted))
 	require.NoError(t, err)
 }
 
@@ -118,7 +118,7 @@ func TestPersistedRegistryConvRoundTrip(t *testing.T) {
 			if tc.pending {
 				pending = utils.Some(testEpoch(tc.last+1, committee))
 			}
-			persisted := utils.OrPanic1(newPersistedRegistry(live, pending))
+			persisted := testPersistedRegistry(live, pending)
 			require.NoError(t, persistedRegistryConv.Test(persisted))
 		})
 	}
@@ -170,16 +170,16 @@ func TestPersistedRegistryConvRejectsInvalidRoadRanges(t *testing.T) {
 }
 
 func testRegistryRoadRanges(committee *types.Committee) *persistedRegistry {
-	return utils.OrPanic1(newPersistedRegistry(
+	return testPersistedRegistry(
 		[]*types.Epoch{
 			types.NewEpoch(3, types.RoadRange{First: 1_000_000, Next: 1_000_017}, committee),
 			types.NewEpoch(4, types.RoadRange{First: 1_000_017, Next: 1_000_060}, committee),
 		},
 		utils.Some(types.NewEpoch(5, types.RoadRange{First: 1_000_060, Next: 1_000_100}, committee)),
-	))
+	)
 }
 
-func TestNewRegistryStateRejectsUnexpectedRoadRanges(t *testing.T) {
+func TestNewRegistryRejectsUnexpectedRoadRanges(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		pending bool
@@ -210,8 +210,8 @@ func TestNewRegistryStateRejectsUnexpectedRoadRanges(t *testing.T) {
 				} else {
 					live = []*types.Epoch{epoch}
 				}
-				persisted := utils.OrPanic1(newPersistedRegistry(live, pending))
-				_, err := newRegistryState(committee, firstRoad, time.Time{}, utils.Some(persisted))
+				persisted := testPersistedRegistry(live, pending)
+				_, err := testNewRegistry(t, committee, firstRoad, utils.Some(persisted))
 				return err
 			}
 			first := firstRoad + types.RoadIndex(idx)*epochLength
@@ -226,7 +226,7 @@ func TestNewRegistryStateRejectsUnexpectedRoadRanges(t *testing.T) {
 	}
 }
 
-func TestNewPersistedRegistryRejectsInvalidEpochOrder(t *testing.T) {
+func TestPersistedRegistryConvRejectsInvalidEpochOrder(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		live    []types.EpochIndex
@@ -237,6 +237,7 @@ func TestNewPersistedRegistryRejectsInvalidEpochOrder(t *testing.T) {
 		{name: "duplicate", live: []types.EpochIndex{2, 2}},
 		{name: "decreasing", live: []types.EpochIndex{3, 2}},
 		{name: "gap", live: []types.EpochIndex{2, 4}},
+		{name: "epoch range overflow", live: []types.EpochIndex{^types.EpochIndex(0)}},
 		{name: "pending duplicate", live: []types.EpochIndex{2}, pending: utils.Some(types.EpochIndex(2))},
 		{name: "pending before live", live: []types.EpochIndex{2}, pending: utils.Some(types.EpochIndex(1))},
 		{name: "pending gap", live: []types.EpochIndex{2}, pending: utils.Some(types.EpochIndex(4))},
@@ -245,28 +246,32 @@ func TestNewPersistedRegistryRejectsInvalidEpochOrder(t *testing.T) {
 			rng := utils.TestRng()
 			committee, _, _ := genCommittee(rng, 3)
 			var live []*types.Epoch
-			for _, idx := range tc.live {
-				live = append(live, testEpoch(idx, committee))
+			for i, idx := range tc.live {
+				first := types.RoadIndex(i) * epochLength
+				live = append(live, types.NewEpoch(idx, types.RoadRange{First: first, Next: first + epochLength}, committee))
 			}
 			pending := utils.None[*types.Epoch]()
 			if idx, ok := tc.pending.Get(); ok {
 				pending = utils.Some(testEpoch(idx, committee))
 			}
-			_, err := newPersistedRegistry(live, pending)
+			_, err := persistedRegistryConv.DecodeReq(&pb.PersistedEpochRegistry{
+				Live:    types.EpochConv.EncodeSlice(live),
+				Pending: types.EpochConv.EncodeOpt(pending),
+			})
 			require.Error(t, err)
 		})
 	}
 }
 
-func TestNewRegistryStateRejectsEmptyPersistedRegistry(t *testing.T) {
+func TestNewRegistryRejectsEmptyPersistedRegistry(t *testing.T) {
 	rng := utils.TestRng()
 	committee, _, _ := genCommittee(rng, 3)
 	persisted := new(persistedRegistry)
-	_, err := newRegistryState(committee, 0, time.Time{}, utils.Some(persisted))
+	_, err := testNewRegistry(t, committee, 0, utils.Some(persisted))
 	require.Error(t, err)
 }
 
-func TestNewRegistryStateRetainsLiveEpochs(t *testing.T) {
+func TestNewRegistryRetainsLiveEpochs(t *testing.T) {
 	for _, mode := range []string{"genesis", "one live", "one live and pending"} {
 		t.Run(mode, func(t *testing.T) {
 			rng := utils.TestRng()
@@ -279,10 +284,11 @@ func TestNewRegistryStateRetainsLiveEpochs(t *testing.T) {
 				if mode == "one live and pending" {
 					pending = utils.Some(testEpoch(4, committee))
 				}
-				persisted = utils.Some(utils.OrPanic1(newPersistedRegistry([]*types.Epoch{testEpoch(3, committee)}, pending)))
+				persisted = utils.Some(testPersistedRegistry([]*types.Epoch{testEpoch(3, committee)}, pending))
 			}
-			state, err := newRegistryState(committee, 0, time.Time{}, persisted)
+			r, err := testNewRegistry(t, committee, 0, persisted)
 			require.NoError(t, err)
+			state := r.stateRecv.Load()
 			require.Equal(t, want, len(state.live))
 			require.Equal(t, types.EpochIndex(want), state.liveRange.Next-state.liveRange.First)
 		})
@@ -306,4 +312,28 @@ func TestPersistedRegistryConvRejectsEmptyLive(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+func testPersistedRegistry(live []*types.Epoch, pending utils.Option[*types.Epoch]) *persistedRegistry {
+	epochs := make(map[types.EpochIndex]*types.Epoch, len(live))
+	for _, epoch := range live {
+		epochs[epoch.EpochIndex()] = epoch
+	}
+	return &persistedRegistry{
+		live:      epochs,
+		liveRange: types.EpochRange{First: live[0].EpochIndex(), Next: live[len(live)-1].EpochIndex() + 1},
+		pending:   pending,
+	}
+}
+
+func testNewRegistry(t *testing.T, committee *types.Committee, firstRoad types.RoadIndex, persisted utils.Option[*persistedRegistry]) (*Registry, error) {
+	t.Helper()
+	dir := utils.None[string]()
+	if state, ok := persisted.Get(); ok {
+		dir = utils.Some(t.TempDir())
+		persister, _, err := openEpochSnapshot(dir)
+		require.NoError(t, err)
+		require.NoError(t, persister.Persist(persistedRegistryConv.Encode(state)))
+	}
+	return NewRegistry(committee, firstRoad, time.Time{}, dir)
 }
