@@ -181,7 +181,7 @@ The operational EVM-only configuration is:
 | EVM chain ID | `713715` |
 | Initial EVM nonce | `0` |
 | Initial balance of an address absent from FlatKV | `2^200` wei |
-| Consensus block gas limit | `35,000,000` |
+| Consensus block gas limit | `30,000,000,000` (`max_gas` and `max_gas_wanted`) |
 | Autobahn transaction limit | `2,000` transactions per block |
 | Block interval | `400ms` |
 | View timeout | `1500ms` (`"1500000000"` nanoseconds in genesis) |
