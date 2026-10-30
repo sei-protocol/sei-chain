@@ -329,26 +329,23 @@ func RestoreMarkerFile(psd string) string {
 	return filepath.Join(psd, "state-sync-restored")
 }
 
-// registerAppHashListener subscribes to app hashes published after the call.
+// registerAppHashListener subscribes hashes to app hashes published after the call.
 // It returns the newest hash already published. The caller reads that hash and
-// everything before it through Iterator; the channel carries only the ones after it.
+// everything before it through Iterator; hashes carries only the ones after it.
 func registerAppHashListener(
 	ctx context.Context,
 	appHashes builder.AppHashBuilder,
-) (<-chan *apphash.AppHashData, *apphash.AppHashData, error) {
-	// The builder calls the listener before the report returns. This bound matches
-	// the pending handoff, so that call does not stall the next Commit while
-	// earlier proposals are still being persisted.
-	hashes := make(chan *apphash.AppHashData, pendingExecutionBuffer)
+	hashes chan<- *apphash.AppHashData,
+) (*apphash.AppHashData, error) {
 	published, err := appHashes.RegisterListener(ctx, func(appHash *apphash.AppHashData) {
 		// A canceled context means the router is stopping. The listener cannot
 		// report that to the builder, and the hash loop observes the same cancel.
 		_ = utils.Send(ctx, hashes, appHash)
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return hashes, published, nil
+	return published, nil
 }
 
 // listenerContinuesAt returns nil when published is the app hash of tip.
@@ -375,31 +372,28 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	}
 	// Subscribe after the backfill. The listener is not told about hashes the
 	// builder has already published, and those are the ones the iterator reads.
-	// listenCtx ends when runExecute returns, so a callback after the hash loop
-	// has stopped does not wait on the parent context.
-	listenCtx, stopListening := context.WithCancel(ctx)
-	defer stopListening()
-	appHashes, published, err := registerAppHashListener(listenCtx, r.cfg.AppHashBuilder)
-	if err != nil {
-		return fmt.Errorf("registerAppHashListener(): %w", err)
-	}
-	if lastBlock != nil {
-		if err := listenerContinuesAt(published, lastBlock.Height); err != nil {
-			return err
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		// The builder calls the listener before the report returns. This bound matches
+		// the pending handoff, so that call does not stall the next Commit while
+		// earlier proposals are still being persisted.
+		hashes := make(chan *apphash.AppHashData, pendingExecutionBuffer)
+		published, err := registerAppHashListener(ctx, r.cfg.AppHashBuilder, hashes)
+		if err != nil {
+			return fmt.Errorf("registerAppHashListener(): %w", err)
 		}
-	}
-	// The buffer lets execution continue while the hash loop proposes earlier
-	// commits.
-	committed := make(chan pendingExecution, pendingExecutionBuffer)
-	return scope.Run(ctx, func(scopeCtx context.Context, s scope.Scope) error {
-		s.SpawnNamed("appHashes", func() error {
-			// scopeCtx ends a hash wait once execute has stopped. ctx is the
-			// proposal, which keeps running through that stop.
-			return r.runAppHashes(ctx, scopeCtx, committed, appHashes)
+		if lastBlock != nil {
+			if err := listenerContinuesAt(published, lastBlock.Height); err != nil {
+				return err
+			}
+		}
+		// The buffer lets execution continue while the hash loop proposes earlier
+		// commits.
+		committed := make(chan pendingExecution, pendingExecutionBuffer)
+		s.SpawnNamed("pushAppHashes", func() error {
+			return r.runPushAppHashes(ctx, committed, hashes)
 		})
 		s.SpawnNamed("executeBlocks", func() error {
-			defer close(committed)
-			return r.executeBlocks(scopeCtx, committed, next)
+			return r.runExecuteBlocks(ctx, committed, next)
 		})
 		return nil
 	})
@@ -509,24 +503,19 @@ func (r *gigaRouterCommon) backfillAppHashes(
 	return nil
 }
 
-// runAppHashes proposes each committed block's app hash. waitCtx bounds the
-// wait for the hash. ctx bounds the proposal and the wait for the next commit.
+// runPushAppHashes proposes each committed block's app hash.
 // A hash for a different height panics.
-func (r *gigaRouterCommon) runAppHashes(
+func (r *gigaRouterCommon) runPushAppHashes(
 	ctx context.Context,
-	waitCtx context.Context,
 	committed <-chan pendingExecution,
 	hashes <-chan *apphash.AppHashData,
 ) error {
 	for {
-		p, ok, err := utils.RecvOrClosed(ctx, committed)
+		p, err := utils.Recv(ctx, committed)
 		if err != nil {
 			return err
 		}
-		if !ok {
-			return nil
-		}
-		record, err := recvAppHashAtHeight(waitCtx, hashes, p.number)
+		record, err := recvAppHashAtHeight(ctx, hashes, p.number)
 		if err != nil {
 			return err
 		}
@@ -554,10 +543,10 @@ func recvAppHashAtHeight(
 	return record, nil
 }
 
-// executeBlocks keeps FinalizeBlock and Commit together on this loop, one
+// runExecuteBlocks keeps FinalizeBlock and Commit together on this loop, one
 // block at a time from next, handing each committed block to the hash loop.
 // The next block's Commit overlaps the previous block's proposal.
-func (r *gigaRouterCommon) executeBlocks(
+func (r *gigaRouterCommon) runExecuteBlocks(
 	ctx context.Context,
 	committed chan<- pendingExecution,
 	next atypes.RoadIndex,
