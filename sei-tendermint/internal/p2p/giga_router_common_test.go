@@ -222,9 +222,9 @@ func newAppHashTestRouter(
 }
 
 // TestExecuteBuffersPendingAppHashes pins that a run of commits finishes before
-// the hash loop receives them. Each block's app hash is published into the
-// listener channel during the block, and the hash loop starts only after those
-// commits. Both handoffs have to hold the run.
+// the hash loop receives them. The report task publishes each block's app hash,
+// and the hash loop starts only after those commits. Both handoffs have to hold
+// the run.
 func TestExecuteBuffersPendingAppHashes(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
@@ -259,6 +259,9 @@ func TestExecuteBuffersPendingAppHashes(t *testing.T) {
 		}
 		hashBuilder.publishOnReport = true
 		committed := make(chan pendingExecution, pendingExecutionBuffer)
+		s.SpawnBgNamed("reportBlockHashes", func() error {
+			return utils.IgnoreCancel(router.runReportBlockHashes(ctx, next))
+		})
 		s.SpawnBgNamed("execute", func() error {
 			return utils.IgnoreCancel(router.runExecuteBlocks(ctx, committed, next))
 		})
@@ -270,6 +273,33 @@ func TestExecuteBuffersPendingAppHashes(t *testing.T) {
 		})
 		if _, err := state.AppVote(ctx, qc3.Index()); err != nil {
 			return fmt.Errorf("AppVote(%v): %w", qc3.Index(), err)
+		}
+		return nil
+	}))
+}
+
+// TestRunExecuteReportsTheBlockHash verifies that runExecute reports the road
+// block hash the hash loop proposes. Deleting that spawn leaves AppVote waiting,
+// and this test hangs.
+func TestRunExecuteReportsTheBlockHash(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	_, hashBuilder, state, router := newAppHashTestRouter(t, rng, key)
+
+	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
+	require.Equal(t, state.Registry().FirstRoad(), qc.Index())
+	hashBuilder.publishOnReport = true
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := state.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
+			return fmt.Errorf("state.PushPartialBlock(): %w", err)
+		}
+		s.SpawnBgNamed("execute", func() error {
+			return utils.IgnoreCancel(router.runExecute(ctx))
+		})
+		if _, err := state.AppVote(ctx, qc.Index()); err != nil {
+			return fmt.Errorf("AppVote(%v): %w", qc.Index(), err)
 		}
 		return nil
 	}))
