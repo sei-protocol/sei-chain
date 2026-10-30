@@ -24,12 +24,14 @@ const (
 	defaultERC20Contract            = "0x000000000000000000000000000000000000e20c"
 	defaultSnapshotRevertContract   = "0x0000000000000000000000000000000000005a90"
 	defaultSnapshotRevertHelper     = "0x0000000000000000000000000000000000005a91"
+	defaultCLOBContract             = "0x000000000000000000000000000000000000c10b"
 	defaultMetricsAddr              = "127.0.0.1:9698"
 	defaultReportInterval           = 5 * time.Second
 	defaultQueueSize                = 64
 	defaultTxGasLimit               = 21_000
 	defaultERC20TxGasLimit          = 100_000
 	defaultSnapshotRevertTxGasLimit = 100_000
+	defaultCLOBTxGasLimit           = 500_000
 	defaultTxsPerBlock              = 1_000
 	defaultPersistBuffer            = 4 << 20
 	defaultGenesisTimestamp         = scenarios.DefaultGenesisTimestamp
@@ -38,6 +40,7 @@ const (
 	workloadTransfer                = scenarios.WorkloadTransfer
 	workloadERC20Transfer           = scenarios.WorkloadERC20Transfer
 	workloadSnapshotRevert          = scenarios.WorkloadSnapshotRevert
+	workloadCLOBPlace               = scenarios.WorkloadCLOBPlace
 	resultSinkDiscard               = "discard"
 	resultSinkFile                  = "file"
 	resultSinkChangeSet             = "changeset"
@@ -79,6 +82,7 @@ type config struct {
 	erc20Contract          common.Address
 	snapshotRevertContract common.Address
 	snapshotRevertHelper   common.Address
+	clobContract           common.Address
 	fixedRecipient         *common.Address
 	recipientConflictRate  float64
 	sameSender             bool
@@ -98,6 +102,7 @@ func scenarioConfig(cfg config) scenarios.Config {
 		ERC20Contract:          cfg.erc20Contract,
 		SnapshotRevertContract: cfg.snapshotRevertContract,
 		SnapshotRevertHelper:   cfg.snapshotRevertHelper,
+		CLOBContract:           cfg.clobContract,
 		FixedRecipient:         cfg.fixedRecipient,
 		RecipientConflictRate:  cfg.recipientConflictRate,
 		SameSender:             cfg.sameSender,
@@ -131,6 +136,7 @@ func parseConfig(args []string) (config, error) {
 	erc20Contract := fs.String("erc20-contract", defaultERC20Contract, "EVM address for the generated ERC20 transfer contract")
 	snapshotRevertContract := fs.String("snapshot-revert-contract", defaultSnapshotRevertContract, "EVM address for the generated snapshot-revert outer contract")
 	snapshotRevertHelper := fs.String("snapshot-revert-helper", defaultSnapshotRevertHelper, "EVM address for the generated snapshot-revert helper contract")
+	clobContract := fs.String("clob-contract", defaultCLOBContract, "EVM address for the generated CLOBv1 contract")
 	recipient := fs.String("recipient", "", "optional fixed transfer recipient; empty creates one recipient per tx")
 	fs.Float64Var(&cfg.recipientConflictRate, "recipient-conflict-rate", 0, "fraction [0,1] of transactions per block paired onto shared recipients; 0 keeps recipients unique")
 	fs.BoolVar(&cfg.sameSender, "same-sender", false, "use one sender with sequential nonces for every transaction in a transfer block")
@@ -159,7 +165,7 @@ func parseConfig(args []string) (config, error) {
 	fs.StringVar(&cfg.cpuProfile, "cpu-profile", "", "write Go CPU profile to this file; starts after prebuild")
 	fs.StringVar(&cfg.heapProfile, "heap-profile", "", "write Go heap profile to this file after execution")
 	fs.StringVar(&cfg.traceProfile, "trace-profile", "", "write Go runtime trace to this file; starts after prebuild")
-	fs.StringVar(&cfg.workload, "workload", workloadTransfer, "workload type: transfer, erc20-transfer, or snapshot-revert")
+	fs.StringVar(&cfg.workload, "workload", workloadTransfer, "workload type: transfer, erc20-transfer, snapshot-revert, or clob-place")
 	fs.Uint64Var(&cfg.txGasLimit, "tx-gas-limit", defaultTxGasLimit, "gas limit for each generated transaction")
 	fs.Uint64Var(&cfg.blockGasLimit, "block-gas-limit", 0, "block gas limit; 0 lets the executor use its maximum")
 	fs.BoolVar(&cfg.disableGasPriceRule, "disable-gas-price-rule", false, "disable the executor min-gas-price validity rule")
@@ -206,8 +212,13 @@ func parseConfig(args []string) (config, error) {
 		return config{}, fmt.Errorf("snapshot-revert-helper must be a hex EVM address")
 	}
 	cfg.snapshotRevertHelper = common.HexToAddress(*snapshotRevertHelper)
+	if !common.IsHexAddress(*clobContract) {
+		return config{}, fmt.Errorf("clob-contract must be a hex EVM address")
+	}
+	cfg.clobContract = common.HexToAddress(*clobContract)
 	cfg.workload = strings.ToLower(strings.TrimSpace(cfg.workload))
-	if cfg.workload != workloadTransfer && cfg.workload != workloadERC20Transfer && cfg.workload != workloadSnapshotRevert {
+	if cfg.workload != workloadTransfer && cfg.workload != workloadERC20Transfer && cfg.workload != workloadSnapshotRevert &&
+		cfg.workload != workloadCLOBPlace {
 		return config{}, fmt.Errorf("unsupported workload %q", cfg.workload)
 	}
 	txGasLimitSet := false
@@ -221,6 +232,9 @@ func parseConfig(args []string) (config, error) {
 	}
 	if cfg.workload == workloadSnapshotRevert && !txGasLimitSet {
 		cfg.txGasLimit = defaultSnapshotRevertTxGasLimit
+	}
+	if cfg.workload == workloadCLOBPlace && !txGasLimitSet {
+		cfg.txGasLimit = defaultCLOBTxGasLimit
 	}
 	if cfg.txsPerBlock <= 0 {
 		return config{}, fmt.Errorf("txs-per-block must be positive")
@@ -237,6 +251,11 @@ func parseConfig(args []string) (config, error) {
 	if cfg.accounts > 0 && cfg.accounts < 2*uint64(cfg.txsPerBlock) { //nolint:gosec // txsPerBlock > 0 here
 		return config{}, fmt.Errorf("accounts must be at least twice txs-per-block (%d), got %d",
 			2*cfg.txsPerBlock, cfg.accounts)
+	}
+	// Account a trades only in market a mod txs-per-block, and a block's transaction i goes to market
+	// i, which holds only when every block's contiguous sender range starts on a market boundary.
+	if cfg.workload == workloadCLOBPlace && (cfg.accounts == 0 || cfg.accounts%uint64(cfg.txsPerBlock) != 0) { //nolint:gosec // txsPerBlock > 0 here
+		return config{}, fmt.Errorf("clob-place needs --accounts set to a multiple of txs-per-block")
 	}
 	if cfg.queueSize <= 0 {
 		return config{}, fmt.Errorf("queue-size must be positive")
@@ -271,11 +290,11 @@ func parseConfig(args []string) (config, error) {
 	if cfg.fixedRecipient != nil && cfg.recipientConflictRate != 0 {
 		return config{}, fmt.Errorf("recipient cannot be combined with recipient-conflict-rate")
 	}
-	if cfg.workload == workloadSnapshotRevert && cfg.fixedRecipient != nil {
-		return config{}, fmt.Errorf("recipient is not supported with snapshot-revert workload")
+	if (cfg.workload == workloadSnapshotRevert || cfg.workload == workloadCLOBPlace) && cfg.fixedRecipient != nil {
+		return config{}, fmt.Errorf("recipient is not supported with %s workload", cfg.workload)
 	}
-	if cfg.workload == workloadSnapshotRevert && cfg.recipientConflictRate != 0 {
-		return config{}, fmt.Errorf("recipient-conflict-rate is not supported with snapshot-revert workload")
+	if (cfg.workload == workloadSnapshotRevert || cfg.workload == workloadCLOBPlace) && cfg.recipientConflictRate != 0 {
+		return config{}, fmt.Errorf("recipient-conflict-rate is not supported with %s workload", cfg.workload)
 	}
 	// A pooled run seeds its senders once, up front. same-sender derives its sender from the block
 	// height instead, so that sender is never funded and every transaction fails for want of funds

@@ -39,6 +39,7 @@ type Executor struct {
 	// store-independent, which lets encoding overlap the previous commit.
 	blockEncoderReadsStore bool
 	missingState           StateReader
+	codes                  *codeCache
 	closed                 atomic.Bool
 
 	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
@@ -99,6 +100,7 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 		blockPhases:     newBlockPhases(),
 		endBlockers:     customEndBlockers(cfg.CustomPrecompiles),
 		customContracts: customPrecompileMap(cfg.CustomPrecompiles),
+		codes:           newCodeCache(),
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
