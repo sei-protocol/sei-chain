@@ -133,7 +133,8 @@ func TestParallelMergeReadsNoAccount(t *testing.T) {
 	require.NoError(t, state.changeSetIntoParallel(t.Context(), pool, &changes))
 
 	require.Zero(t, reading.reads.Load(), "the parallel merge must read no row")
-	require.Equal(t, state.ChangeSet(), changes, "the parallel merge must match the serial one")
+	require.Equal(t, canonicalChangeSet(state.ChangeSet()), canonicalChangeSet(changes),
+		"the parallel merge must match the serial one")
 	require.Zero(t, reading.reads.Load(), "the serial merge must read no row")
 	require.Len(t, changes.Accounts, len(addrs))
 	for i := 1; i < len(changes.Accounts); i++ {

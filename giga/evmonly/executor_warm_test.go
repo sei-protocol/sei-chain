@@ -28,7 +28,7 @@ func (s *readRecordingSnapshot) ReadAccount(address gigatypes.Address) (gigatype
 func TestWarmAccountsReadsEverySenderAndRecipient(t *testing.T) {
 	snapshot := &readRecordingSnapshot{memoryGigaSnapshot: newMemoryGigaSnapshot(40)}
 	executor := NewExecutor(Config{ParseWorkers: 2},
-		withTestStores(&recordingGigaStore{snapshot: snapshot}, NewMemoryReceiptStore(), noopChangeSetEncoder))
+		withTestStores(&recordingGigaStore{snapshot: snapshot}, NewMemoryReceiptStore()))
 	defer executor.Close()
 
 	recipient := testAddress(0xc1)

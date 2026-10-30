@@ -9,7 +9,6 @@ import (
 	"time"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -226,7 +225,6 @@ func wrapApplication(
 			config.AutobahnEVMOnlyChainID,
 			validators,
 			manager,
-			evmonly.NewFlatKVChangeSetEncoder(),
 			execution,
 		)
 		if err != nil {

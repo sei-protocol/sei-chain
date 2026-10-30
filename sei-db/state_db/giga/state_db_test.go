@@ -9,9 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -66,23 +64,34 @@ func newTestStateDB(t *testing.T) (gigatypes.StateDB, *fakeStateWAL, *flatkv.Com
 	return &StateDB{wal: wal, sc: liveStateDB, flatkvCfg: cfg}, wal, liveStateDB
 }
 
-// changeset builds a changeset setting key to value in the test module.
-func changeset(key string, value string) []*proto.NamedChangeSet {
-	return []*proto.NamedChangeSet{{
-		Name: testModule,
-		Changeset: proto.ChangeSet{
-			Pairs: []*proto.KVPair{{Key: []byte(key), Value: []byte(value)}},
-		},
-	}}
+// changeset builds a change set setting key to value in the test module.
+func changeset(key string, value string) *gigatypes.StateChangeSet {
+	return &gigatypes.StateChangeSet{
+		Misc: []gigatypes.MiscChange{{Module: testModule, Key: []byte(key), Value: []byte(value)}},
+	}
+}
+
+// drainSSFeeder hands every block db has queued for its EVM state store to the store, and waits until the store
+// has applied them. db hands the store no further blocks.
+func drainSSFeeder(t *testing.T, db *StateDB) {
+	t.Helper()
+	require.NoError(t, db.ssFeeder.Close())
+	db.ssFeeder = nil
+	db.ss.WaitForPendingWrites()
 }
 
 // commitToLiveStateDB commits cs to the live state DB as block, converted to mutations as the state DB converts
 // a block it commits.
-func commitToLiveStateDB(t *testing.T, liveStateDB *flatkv.CommitStore, block int64, cs []*proto.NamedChangeSet) {
+func commitToLiveStateDB(
+	t *testing.T,
+	liveStateDB *flatkv.CommitStore,
+	block int64,
+	cs *gigatypes.StateChangeSet,
+) {
 	t.Helper()
 	prior := liveStateDB.OpenView()
 	//nolint:gosec // test heights are small
-	mutations, err := flatkv.MutationsFromChangeSets(cs, uint64(block), prior)
+	mutations, err := flatkv.MutationsFromStateChangeSet(cs, uint64(block), prior, flatkvconfig.DefaultConfig())
 	prior.Close()
 	require.NoError(t, err)
 	require.NoError(t, liveStateDB.CommitStateChanges(block, mutations))
@@ -113,23 +122,19 @@ func TestCommitStateChangesReachesWALAndLiveStateDB(t *testing.T) {
 // The EVM state store is a layer of the same fan-out: a commit that reaches WAL and SC but not SS
 // leaves historical EVM reads a block behind with every block.
 func TestCommitStateChangesReachesTheEVMStateStore(t *testing.T) {
-	stateDB, _, _ := newTestStateDB(t)
+	testDB, _, _ := newTestStateDB(t)
+	stateDB := testDB.(*StateDB)
 	ss, err := evm.NewEVMStateStore(t.TempDir(), config.DefaultStateStoreConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, ss.Close()) })
-	stateDB.(*StateDB).ss = ss
+	stateDB.ss = ss
+	stateDB.ssFeeder = newLegacySSFeeder(ss)
 
-	key := append([]byte{0x0a}, make([]byte, 20)...)
-	value := append(make([]byte, 7), byte(1))
-	cs := []*proto.NamedChangeSet{{
-		Name: evm.EVMStoreKey,
-		Changeset: proto.ChangeSet{
-			Pairs: []*proto.KVPair{{Key: key, Value: value}},
-		},
-	}}
-	require.NoError(t, stateDB.CommitStateChanges(1, cs))
+	key := nonceKey(common.Address{})
+	value := nonceValue(1)
+	require.NoError(t, stateDB.CommitStateChanges(1, nonceChanges(common.Address{}, 0, 1)))
 	// The commit hands SS its block asynchronously and does not wait, so the read does.
-	ss.WaitForPendingWrites()
+	drainSSFeeder(t, stateDB)
 
 	require.Equal(t, int64(1), ss.GetLatestVersion())
 	got, err := ss.Get(evm.EVMStoreKey, 1, key)
@@ -181,7 +186,7 @@ func TestCommitStateChangesRefusesANegativeBlockNumber(t *testing.T) {
 func TestCommitStateChangesCommitsABlockWithNoChanges(t *testing.T) {
 	stateDB, wal, liveStateDB := newTestStateDB(t)
 
-	require.NoError(t, stateDB.CommitStateChanges(1, nil))
+	require.NoError(t, stateDB.CommitStateChanges(1, &gigatypes.StateChangeSet{}))
 
 	require.Equal(t, []uint64{1}, wal.writtenBlocks)
 	require.Equal(t, int64(1), liveStateDB.Version(), "the live state DB must commit an empty block rather than skip it")
@@ -223,11 +228,11 @@ func TestSSViewFailsReadsOnceItsHeightIsPruned(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, db.Close()) }()
 	addr := common.Address{1}
-	for height := int64(1); height <= 3; height++ {
-		require.NoError(t, db.CommitStateChanges(height, []*proto.NamedChangeSet{{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{
-			Pairs: []*proto.KVPair{{Key: nonceKey(addr), Value: nonceValue(uint64(height))}}}}}))
+	for height := uint64(1); height <= 3; height++ {
+		//nolint:gosec // small test heights
+		require.NoError(t, db.CommitStateChanges(int64(height), nonceChanges(addr, height-1, height)))
 	}
-	db.SS().WaitForPendingWrites()
+	drainSSFeeder(t, db)
 
 	view, ok := db.OpenViewAt(1)
 	require.True(t, ok)

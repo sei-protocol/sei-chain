@@ -23,13 +23,13 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 func withGeneratedState(state evmonly.StateReader) evmonly.Option {
 	store := evmonly.NewMemoryStore(state)
 	return func(executor *evmonly.Executor) {
-		evmonly.WithStore(store, store.EncodeChangeSet)(executor)
+		evmonly.WithStore(store)(executor)
 		evmonly.WithReceiptStore(evmonly.NewMemoryReceiptStore())(executor)
 	}
 }
@@ -38,14 +38,14 @@ type readOnlyGeneratedStore struct {
 	*evmonly.MemoryStore
 }
 
-func (*readOnlyGeneratedStore) CommitStateChanges(int64, []*proto.NamedChangeSet) error {
+func (*readOnlyGeneratedStore) CommitStateChanges(int64, *gigatypes.StateChangeSet) error {
 	return nil
 }
 
 func withReadOnlyGeneratedState(state evmonly.StateReader) evmonly.Option {
 	store := &readOnlyGeneratedStore{MemoryStore: evmonly.NewMemoryStore(state)}
 	return func(executor *evmonly.Executor) {
-		evmonly.WithStore(store, store.EncodeChangeSet)(executor)
+		evmonly.WithStore(store)(executor)
 		evmonly.WithReceiptStore(evmonly.NewMemoryReceiptStore())(executor)
 	}
 }

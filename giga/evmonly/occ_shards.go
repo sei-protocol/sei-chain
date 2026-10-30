@@ -4,6 +4,7 @@ import (
 	"context"
 	"iter"
 	"math"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -297,6 +298,13 @@ func (s *blockSTMState) changeSetIntoParallel(ctx context.Context, pool *occWork
 	if err != nil {
 		return err
 	}
+	accountCount, storageCount := 0, 0
+	for i := range fragments {
+		accountCount += len(fragments[i].Accounts)
+		storageCount += len(fragments[i].Storage)
+	}
+	changes.Accounts = slices.Grow(changes.Accounts, accountCount)
+	changes.Storage = slices.Grow(changes.Storage, storageCount)
 	for i := range fragments {
 		fragment := &fragments[i]
 		changes.Accounts = append(changes.Accounts, fragment.Accounts...)

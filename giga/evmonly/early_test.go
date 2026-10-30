@@ -20,7 +20,7 @@ func waitEarlySpeculation(e *Executor, number uint64) {
 
 func newEarlyExecutor(store *MemoryStore) *Executor {
 	return NewExecutor(Config{OCCWorkers: 4, EarlySpeculationWorkers: 3},
-		withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+		withTestStores(store, NewMemoryReceiptStore()))
 }
 
 // Blocks speculated early against state several blocks old must still execute to exactly what
@@ -29,7 +29,7 @@ func TestEarlySpeculationMatchesSynchronousExecution(t *testing.T) {
 	scenario := newPipelineScenario(t)
 	syncStore := NewMemoryStore(scenario.genesis())
 	earlyStore := NewMemoryStore(scenario.genesis())
-	syncExecutor := NewExecutor(Config{OCCWorkers: 4}, withTestStores(syncStore, NewMemoryReceiptStore(), syncStore.EncodeChangeSet))
+	syncExecutor := NewExecutor(Config{OCCWorkers: 4}, withTestStores(syncStore, NewMemoryReceiptStore()))
 	defer syncExecutor.Close()
 	earlyExecutor := newEarlyExecutor(earlyStore)
 	defer earlyExecutor.Close()

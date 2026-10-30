@@ -2,9 +2,10 @@ package gigasim
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // maxStagedKeyLen is the longest key the benchmark stages: a storage key, which carries an address and
@@ -38,10 +39,13 @@ type stagedWrite struct {
 // blockWrites is one block's state changes in the form the state DB takes, along with the volume of
 // key and value bytes they carry.
 type blockWrites struct {
-	changeSets []*proto.NamedChangeSet
+	changes *gigatypes.StateChangeSet
 
-	// The bytes the state WAL, SC and SS each take in, counted while the changeset was assembled so
-	// that the commit thread does not walk the pairs again to find out.
+	// The number of keys staged for the block, counters included.
+	keys int64
+
+	// The bytes the state WAL, SC and SS each take in, counted while the changes were assembled so
+	// that the commit thread does not walk them again to find out.
 	bytes int64
 }
 
@@ -65,36 +69,59 @@ func (b *stateBatch) Put(key []byte, value []byte) {
 	b.entries[newStagedKey(key)] = stagedWrite{key: key, value: value}
 }
 
-// drainToChangeSet empties the batch into a single changeset over the EVM store, appending the
-// identifier counters that ride along with every block.
+// drainToChangeSet empties the batch into a state change set, appending the identifier counters that
+// ride along with every block as non-EVM writes.
 func (b *stateBatch) drainToChangeSet(counters identifierCounters) blockWrites {
-	total := b.count() + len(counterKeys)
-	pairs := make([]proto.KVPair, total)
-	pointers := make([]*proto.KVPair, total)
+	changes := &gigatypes.StateChangeSet{
+		Accounts: make([]gigatypes.AccountChange, 0, b.count()),
+		Storage:  make([]gigatypes.StorageChange, 0, b.count()),
+	}
+	// An address can be staged under more than one account field, which must share one account change.
+	accountIndex := make(map[gigatypes.Address]int)
+	account := func(address []byte) *gigatypes.AccountState {
+		i, ok := accountIndex[gigatypes.Address(address)]
+		if !ok {
+			i = len(changes.Accounts)
+			accountIndex[gigatypes.Address(address)] = i
+			changes.Accounts = append(changes.Accounts,
+				gigatypes.AccountChange{Address: gigatypes.Address(address)})
+		}
+		return &changes.Accounts[i].Account
+	}
 
-	next := 0
 	var staged int64
-	stage := func(key []byte, value []byte) {
-		pairs[next] = proto.KVPair{Key: key, Value: value}
-		pointers[next] = &pairs[next]
-		staged += int64(len(key) + len(value))
-		next++
-	}
-
 	for _, write := range b.entries {
-		stage(write.key, write.value)
+		staged += int64(len(write.key) + len(write.value))
+		kind, strippedKey := keys.ParseEVMKey(write.key)
+		switch kind {
+		case keys.EVMKeyBalance:
+			account(strippedKey).Balance = new(big.Int).SetBytes(write.value)
+		case keys.EVMKeyCode:
+			account(strippedKey).Code = write.value
+		case keys.EVMKeyStorage:
+			changes.Storage = append(changes.Storage, gigatypes.StorageChange{
+				Address: gigatypes.Address(strippedKey[:keys.AddressLen]),
+				Key:     gigatypes.Hash(strippedKey[keys.AddressLen:]),
+				Value:   gigatypes.Hash(write.value),
+			})
+		default:
+			panic(fmt.Sprintf("the benchmark staged key %x of unsupported kind %v", write.key, kind))
+		}
 	}
+	keyCount := int64(len(b.entries) + len(counterKeys))
 	clear(b.entries)
-	stage(counterKeys[0], encodeCounter(counters.nextAccountID))
-	stage(counterKeys[1], encodeCounter(counters.nextErc20ContractID))
 
-	return blockWrites{
-		changeSets: []*proto.NamedChangeSet{{
-			Name:      keys.EVMStoreKey,
-			Changeset: proto.ChangeSet{Pairs: pointers},
-		}},
-		bytes: staged,
+	values := [len(counterKeys)][]byte{
+		encodeCounter(counters.nextAccountID),
+		encodeCounter(counters.nextErc20ContractID),
 	}
+	for i, key := range counterKeys {
+		changes.Misc = append(changes.Misc,
+			gigatypes.MiscChange{Module: counterModule, Key: key, Value: values[i]})
+		staged += int64(len(key) + len(values[i]))
+	}
+
+	return blockWrites{changes: changes, keys: keyCount, bytes: staged}
 }
 
 // count returns how many distinct keys the batch holds.

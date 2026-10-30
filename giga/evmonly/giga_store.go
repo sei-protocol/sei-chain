@@ -9,54 +9,30 @@ import (
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
-	"golang.org/x/sync/errgroup"
 
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 const maxGigaStoreBlockNumber = uint64(1<<63 - 1)
 
-var (
-	errMissingStateStore            = errors.New("executor requires a state store")
-	errMissingNamedChangeSetEncoder = errors.New("giga store requires a named changeset encoder")
-	errBlockEncoderUsedEVMStoreKey  = errors.New("block changeset encoder may not write the EVM state changeset")
-)
+var errMissingStateStore = errors.New("executor requires a state store")
 
 var _ StateReader = gigaSnapshotStateReader{}
 
-// historyStore is a giga store that takes a block's change set alongside its changesets, to keep the
-// values the block replaced.
-type historyStore interface {
-	CommitStateChangesWithPrior(blockNum int64, changeset []*proto.NamedChangeSet, changes *gigatypes.StateChangeSet) error
-}
-
-// NamedChangeSetEncoder converts an executor-native state result into the on-disk changesets
-// understood by a giga store. It must treat the input as immutable, and its output must not alias
-// the input, since the commit outlives the pooled block result. It must not read the store, since
-// encoding overlaps the previous block's in-flight commit.
-type NamedChangeSetEncoder func(StateChangeSet) ([]*proto.NamedChangeSet, error)
-
-// BlockChangeSetEncoder contributes named changesets that are committed in the
+// BlockChangeSetEncoder contributes non-EVM writes that are committed in the
 // same CommitStateChanges call as the block's EVM state changes, so they are
 // durable, rolled back and replayed together with that state. It is called
 // after execution with the block's context and result, which it must treat as
-// immutable. Changesets under keys.EVMStoreKey are reserved for the state encoder.
+// immutable. A write to the EVM module fails the commit.
 //
-// As with NamedChangeSetEncoder, what it returns must not alias the result: the commit outlives
-// the block.
-type BlockChangeSetEncoder func(BlockContext, *BlockResult) ([]*proto.NamedChangeSet, error)
+// What it returns must not alias the result, since the commit outlives the block.
+type BlockChangeSetEncoder func(BlockContext, *BlockResult) ([]gigatypes.MiscChange, error)
 
 func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	stateStore := e.stateStore
 	if stateStore == nil {
 		return nil, errMissingStateStore
-	}
-	if e.changeSetEncoder == nil {
-		return nil, errMissingNamedChangeSetEncoder
 	}
 	if req.Context.Number > maxGigaStoreBlockNumber {
 		return nil, fmt.Errorf("giga store block number %d exceeds int64", req.Context.Number)
@@ -122,15 +98,23 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 			return nil, err
 		}
 	}
-	e.blockPhases.SetPhase(phaseEncodeChangesets)
-	changesets, records, err := e.encodeBlockOutputs(ctx, req.Context, result)
-	if err != nil {
-		return nil, err
+	var misc []gigatypes.MiscChange
+	if e.blockChangeSetEncoder != nil {
+		e.blockPhases.SetPhase(phaseEncodeChangesets)
+		misc, err = e.blockChangeSetEncoder(req.Context, result)
+		if err != nil {
+			return nil, fmt.Errorf("encode block changes for block %d: %w", req.Context.Number, err)
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if receiptStore := e.receiptStore; receiptStore != nil {
+		e.blockPhases.SetPhase(phaseEncodeReceipts)
+		records, err := e.receiptRecordsParallel(ctx, req.Context.Number, result)
+		if err != nil {
+			return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
+		}
 		e.blockPhases.SetPhase(phaseWriteReceipts)
 		if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
 			return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
@@ -145,59 +129,11 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		}
 	}
 	e.blockPhases.SetPhase(phaseCommitState)
-	if err := e.startPipelineCommit(blockNumber, changesets, &result.ChangeSet); err != nil {
+	if err := e.startPipelineCommit(blockNumber, misc, &result.ChangeSet); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
 	ok = true
 	return result, nil
-}
-
-// encodeBlockOutputs encodes the block's state changes, the block encoder's changesets and the
-// receipt records. All three read only the block result, so they run together.
-func (e *Executor) encodeBlockOutputs(ctx context.Context, block BlockContext, result *BlockResult) (
-	[]*proto.NamedChangeSet, []receipt.ReceiptRecord, error) {
-	var changesets, extra []*proto.NamedChangeSet
-	var records []receipt.ReceiptRecord
-	group, groupCtx := errgroup.WithContext(ctx)
-	group.Go(func() error {
-		var err error
-		if changesets, err = e.changeSetEncoder(result.ChangeSet); err != nil {
-			return fmt.Errorf("encode state changes for block %d: %w", block.Number, err)
-		}
-		return nil
-	})
-	if e.blockChangeSetEncoder != nil {
-		group.Go(func() error {
-			var err error
-			if extra, err = e.blockChangeSetEncoder(block, result); err != nil {
-				return fmt.Errorf("encode block changes for block %d: %w", block.Number, err)
-			}
-			return nil
-		})
-	}
-	if e.receiptStore != nil {
-		group.Go(func() error {
-			var err error
-			if records, err = e.receiptRecordsParallel(groupCtx, block.Number, result); err != nil {
-				return fmt.Errorf("encode receipts for block %d: %w", block.Number, err)
-			}
-			return nil
-		})
-	}
-	if err := group.Wait(); err != nil {
-		return nil, nil, err
-	}
-	// An EVM-keyed changeset here would be written into account, storage and code
-	// state as part of the block, diverging the app hash from the committed state.
-	for _, cs := range extra {
-		if cs != nil && cs.Name == keys.EVMStoreKey {
-			return nil, nil, fmt.Errorf("block encoder returned a changeset named %q for block %d: %w",
-				cs.Name, block.Number, errBlockEncoderUsedEVMStoreKey)
-		}
-	}
-	all := make([]*proto.NamedChangeSet, 0, len(changesets)+len(extra))
-	all = append(all, changesets...)
-	return append(all, extra...), records, nil
 }
 
 // encodingReadsTheStore reports whether encoding a block's changesets reads the store as well as
@@ -351,12 +287,13 @@ func (e *Executor) awaitPipelineCommit() error {
 //
 // Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
 // one before this is called.
-func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
-	// The commit outlives the pooled result, whose reset clears these slices, so it takes its own
-	// copies. The values stay shared; see BlockResult.ChangeSet.
+func (e *Executor) startPipelineCommit(blockNumber int64, misc []gigatypes.MiscChange, changes *StateChangeSet) error {
+	// A produced set is never modified, so the commit shares its arrays with the block result rather
+	// than copying them. Clipped so the misc writes cannot land in capacity the result still holds.
 	pending := &StateChangeSet{
-		Accounts: slices.Clone(changes.Accounts),
-		Storage:  slices.Clone(changes.Storage),
+		Accounts: changes.Accounts,
+		Storage:  changes.Storage,
+		Misc:     append(slices.Clip(changes.Misc), misc...),
 	}
 	// Close sets closed before taking storeMu, which the caller holds, so a block that sees it
 	// unset is one Close waits for.
@@ -364,7 +301,7 @@ func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.Na
 		if err := e.awaitPipelineCommit(); err != nil {
 			return err
 		}
-		return e.commitState(blockNumber, changesets, pending)
+		return e.stateStore.CommitStateChanges(blockNumber, pending)
 	}
 	done := make(chan struct{})
 	e.pipelineMu.Lock()
@@ -382,22 +319,13 @@ func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.Na
 	e.recordExecutedChanges(uint64(blockNumber), index) //nolint:gosec // blockNumber is non-negative.
 
 	go func() {
-		err := e.commitState(blockNumber, changesets, pending)
+		err := e.stateStore.CommitStateChanges(blockNumber, pending)
 		e.pipelineMu.Lock()
 		e.pipelineErr = err
 		e.pipelineMu.Unlock()
 		close(done)
 	}()
 	return nil
-}
-
-// commitState writes the block to the store, handing over changes as well when the store keeps the
-// values the block replaced.
-func (e *Executor) commitState(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
-	if store, ok := e.stateStore.(historyStore); ok {
-		return store.CommitStateChangesWithPrior(blockNumber, changesets, changes)
-	}
-	return e.stateStore.CommitStateChanges(blockNumber, changesets)
 }
 
 type gigaSnapshotStateReader struct {

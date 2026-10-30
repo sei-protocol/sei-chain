@@ -53,9 +53,9 @@ func TestCommittedBlockHashesReachARealHashLogArchive(t *testing.T) {
 		cs := changeset("key", "value")
 		require.NoError(t, stateDB.CommitStateChanges(height, cs))
 
-		// The changeset column is the logger's own and only the caller can supply it. Without it no
-		// block is ever complete and none reaches disk. The executor plays this part in production.
-		hl.ReportChangeset(uint64(height), cs)
+		// Without a changeset report no block is ever complete and none reaches disk. A nil one
+		// completes the block without recording a changeset, which this test does not check.
+		hl.ReportChangeset(uint64(height), nil)
 	}
 
 	// Hashing runs off the commit path, and the archive is only sealed by Close.
