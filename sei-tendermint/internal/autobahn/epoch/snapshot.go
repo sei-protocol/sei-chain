@@ -162,19 +162,19 @@ var persistedRegistryConv = protoutils.Conv[*persistedRegistry, *pb.PersistedEpo
 			live = append(live, s.live[idx])
 		}
 		return &pb.PersistedEpochRegistry{
-			Live:    types.EpochConv.EncodeSlice(live),
-			Pending: types.EpochConv.EncodeOpt(s.pending),
+			LiveV2:    types.EpochConv.EncodeSlice(live),
+			PendingV2: types.EpochConv.EncodeOpt(s.pending),
 		}
 	},
 	Decode: func(snapshot *pb.PersistedEpochRegistry) (*persistedRegistry, error) {
 		if snapshot == nil {
 			return nil, errors.New("missing")
 		}
-		live, err := types.EpochConv.DecodeSlice(snapshot.Live)
+		live, err := types.EpochConv.DecodeSlice(snapshot.LiveV2)
 		if err != nil {
 			return nil, fmt.Errorf("live: %w", err)
 		}
-		pending, err := types.EpochConv.DecodeOpt(snapshot.Pending)
+		pending, err := types.EpochConv.DecodeOpt(snapshot.PendingV2)
 		if err != nil {
 			return nil, fmt.Errorf("pending: %w", err)
 		}

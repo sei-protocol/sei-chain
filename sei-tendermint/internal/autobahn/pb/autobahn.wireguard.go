@@ -438,8 +438,8 @@ func init() {
 
 	// Register the wireguard.Schema generated for autobahn.PersistedEpochRegistry.
 	runtime.MustRegister[*PersistedEpochRegistry](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*Epoch]())},
-		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Epoch]())},
+		3: {Nested: utils.Some(reflect.TypeFor[*Epoch]())},
+		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Epoch]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.EpochMember.

@@ -2586,8 +2586,8 @@ func (x *Epoch) GetNextRoad() uint64 {
 // Persisted epoch registry state.
 type PersistedEpochRegistry struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Live          []*Epoch               `protobuf:"bytes,1,rep,name=live,proto3" json:"live,omitempty"`
-	Pending       *Epoch                 `protobuf:"bytes,2,opt,name=pending,proto3,oneof" json:"pending,omitempty"` // optional
+	LiveV2        []*Epoch               `protobuf:"bytes,3,rep,name=live_v2,json=liveV2,proto3" json:"live_v2,omitempty"`
+	PendingV2     *Epoch                 `protobuf:"bytes,4,opt,name=pending_v2,json=pendingV2,proto3,oneof" json:"pending_v2,omitempty"` // optional
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2622,16 +2622,16 @@ func (*PersistedEpochRegistry) Descriptor() ([]byte, []int) {
 	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{42}
 }
 
-func (x *PersistedEpochRegistry) GetLive() []*Epoch {
+func (x *PersistedEpochRegistry) GetLiveV2() []*Epoch {
 	if x != nil {
-		return x.Live
+		return x.LiveV2
 	}
 	return nil
 }
 
-func (x *PersistedEpochRegistry) GetPending() *Epoch {
+func (x *PersistedEpochRegistry) GetPendingV2() *Epoch {
 	if x != nil {
-		return x.Pending
+		return x.PendingV2
 	}
 	return nil
 }
@@ -2997,12 +2997,12 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"_committeeB\r\n" +
 	"\v_first_roadB\f\n" +
 	"\n" +
-	"_next_road\"y\n" +
-	"\x16PersistedEpochRegistry\x12#\n" +
-	"\x04live\x18\x01 \x03(\v2\x0f.autobahn.EpochR\x04live\x12.\n" +
-	"\apending\x18\x02 \x01(\v2\x0f.autobahn.EpochH\x00R\apending\x88\x01\x01B\n" +
+	"_next_road\"\xa1\x01\n" +
+	"\x16PersistedEpochRegistry\x12(\n" +
+	"\alive_v2\x18\x03 \x03(\v2\x0f.autobahn.EpochR\x06liveV2\x123\n" +
 	"\n" +
-	"\b_pending\"y\n" +
+	"pending_v2\x18\x04 \x01(\v2\x0f.autobahn.EpochH\x00R\tpendingV2\x88\x01\x01B\r\n" +
+	"\v_pending_v2J\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\x04liveR\apending\"y\n" +
 	"\vEpochMember\x12.\n" +
 	"\alane_id\x18\x01 \x01(\v2\x10.autobahn.LaneIDH\x00R\x06laneId\x88\x01\x01\x12\x1b\n" +
 	"\x06weight\x18\x02 \x01(\x04H\x01R\x06weight\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\n" +
@@ -3148,8 +3148,8 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	24, // 68: autobahn.ConsensusMsg.timeout_qc:type_name -> autobahn.TimeoutQC
 	43, // 69: autobahn.Committee.members:type_name -> autobahn.EpochMember
 	40, // 70: autobahn.Epoch.committee:type_name -> autobahn.Committee
-	41, // 71: autobahn.PersistedEpochRegistry.live:type_name -> autobahn.Epoch
-	41, // 72: autobahn.PersistedEpochRegistry.pending:type_name -> autobahn.Epoch
+	41, // 71: autobahn.PersistedEpochRegistry.live_v2:type_name -> autobahn.Epoch
+	41, // 72: autobahn.PersistedEpochRegistry.pending_v2:type_name -> autobahn.Epoch
 	7,  // 73: autobahn.EpochMember.lane_id:type_name -> autobahn.LaneID
 	74, // [74:74] is the sub-list for method output_type
 	74, // [74:74] is the sub-list for method input_type

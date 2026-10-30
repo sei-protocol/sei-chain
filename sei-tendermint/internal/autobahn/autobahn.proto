@@ -370,8 +370,10 @@ message Epoch {
 
 // Persisted epoch registry state.
 message PersistedEpochRegistry {
-  repeated Epoch live = 1;
-  optional Epoch pending = 2; // optional
+  reserved 1, 2;
+  reserved "live", "pending";
+  repeated Epoch live_v2 = 3;
+  optional Epoch pending_v2 = 4; // optional
 }
 
 message EpochMember {
