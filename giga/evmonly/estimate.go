@@ -26,42 +26,37 @@ const estimateGasErrorRatio = 0.015
 // against the current committed state. Like Call it persists no state
 // change; a revert's data is returned alongside the error.
 func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
-	snapshot, err := e.openCurrentView(ctx, blockCtx)
+	snapshot, err := e.OpenCurrentView(ctx, blockCtx)
 	if err != nil {
 		return 0, nil, err
 	}
 	defer snapshot.Close()
-	return e.EstimateGasAt(ctx, snapshot, blockCtx, msg, gasCap)
+	return e.EstimateGasAt(ctx, snapshot, blockCtx, msg, gasCap, CallOverrides{})
 }
 
 // EstimateGasAt returns the lowest gas limit that lets msg execute
-// successfully against the state view holds. Like CallAt it persists no state
-// change; a revert's data is returned alongside the error.
-func (e *Executor) EstimateGasAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
-	return e.estimateGasAfterCallsAt(ctx, view, blockCtx, nil, msg, gasCap)
+// successfully against the state view holds, with overrides applied. Like
+// CallAt it persists no state change; a revert's data is returned alongside
+// the error.
+func (e *Executor) EstimateGasAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, msg *core.Message, gasCap uint64, overrides CallOverrides) (uint64, []byte, error) {
+	return e.estimateGasAfterCallsAt(ctx, view, blockCtx, nil, msg, gasCap, overrides)
 }
 
 // EstimateGasAfterCalls returns what EstimateGas returns for msg against the current committed
-// state with calls applied to it first, in order. A call that fails in the EVM leaves the state
-// as a failed transaction would; one that cannot be applied at all fails the estimate.
+// state with calls applied to it first, in order.
 func (e *Executor) EstimateGasAfterCalls(ctx context.Context, blockCtx BlockContext, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
-	snapshot, err := e.openCurrentView(ctx, blockCtx)
+	snapshot, err := e.OpenCurrentView(ctx, blockCtx)
 	if err != nil {
 		return 0, nil, err
 	}
 	defer snapshot.Close()
-	return e.estimateGasAfterCallsAt(ctx, snapshot, blockCtx, calls, msg, gasCap)
+	return e.estimateGasAfterCallsAt(ctx, snapshot, blockCtx, calls, msg, gasCap, CallOverrides{})
 }
 
-// estimateGasAfterCallsAt returns what EstimateGasAfterCalls returns, against the state view holds.
-func (e *Executor) estimateGasAfterCallsAt(
-	ctx context.Context,
-	view gigatypes.EVMStateView,
-	blockCtx BlockContext,
-	calls []*core.Message,
-	msg *core.Message,
-	gasCap uint64,
-) (uint64, []byte, error) {
+// estimateGasAfterCallsAt returns what EstimateGasAt returns for msg against the state view holds,
+// with overrides applied and then calls applied, in order. A call that fails in the EVM leaves the
+// state as a failed transaction would; one that cannot be applied at all fails the estimate.
+func (e *Executor) estimateGasAfterCallsAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, calls []*core.Message, msg *core.Message, gasCap uint64, overrides CallOverrides) (uint64, []byte, error) {
 	chainConfig := e.chainConfig(blockCtx)
 	if err := validateBlockContext(chainConfig, blockCtx); err != nil {
 		return 0, nil, err
@@ -72,16 +67,20 @@ func (e *Executor) estimateGasAfterCallsAt(
 
 	// Unpooled: an estimate can hold this stateDB open far longer than a Call.
 	stateDB := newNativeStateDB(gigaSnapshotStateReader{snapshot: view, missingState: e.missingState})
+	if len(overrides.State) > 0 {
+		// As in go-ethereum, a precompile cannot be moved for an estimate.
+		if err := overrides.State.Apply(stateDB, nil); err != nil {
+			return 0, nil, err
+		}
+	}
 
 	estimateCtx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	for i, call := range calls {
-		if err := e.applyCall(estimateCtx, blockCtx, chainConfig, stateDB, call); err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return 0, nil, ctxErr
-			}
-			return 0, nil, fmt.Errorf("call %d: %w", i, err)
+	if err := e.applyCalls(estimateCtx, blockCtx, chainConfig, stateDB, calls, overrides); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return 0, nil, ctxErr
 		}
+		return 0, nil, err
 	}
 
 	opts := &gasestimator.Options{
@@ -90,7 +89,7 @@ func (e *Executor) estimateGasAfterCallsAt(
 		Header:            buildEstimateHeader(blockCtx),
 		State:             stateDB,
 		ErrorRatio:        estimateGasErrorRatio,
-		BlockOverrides:    estimateBlockOverrides(blockCtx),
+		BlockOverrides:    estimateBlockOverrides(blockCtx, overrides),
 		CustomPrecompiles: e.customContracts,
 	}
 	estimate, revert, err := gasestimator.Estimate(estimateCtx, resolveBlobGasFeeCap(msg), opts, gasCap)
@@ -105,9 +104,27 @@ func (e *Executor) estimateGasAfterCallsAt(
 	return estimate, revert, err
 }
 
+// applyCalls applies calls to stateDB, in order, as committed transactions would leave it, in
+// blockCtx with overrides' block fields applied.
+func (e *Executor) applyCalls(ctx context.Context, blockCtx BlockContext, chainConfig *params.ChainConfig, stateDB *nativeStateDB, calls []*core.Message, overrides CallOverrides) error {
+	if len(calls) == 0 {
+		return nil
+	}
+	evmCtx, err := overrides.blockContext(blockCtx)
+	if err != nil {
+		return err
+	}
+	for i, call := range calls {
+		if err := e.applyCall(ctx, evmCtx, chainConfig, stateDB, call); err != nil {
+			return fmt.Errorf("call %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
 // applyCall applies call to stateDB as a committed transaction would leave it.
-func (e *Executor) applyCall(ctx context.Context, blockCtx BlockContext, chainConfig *params.ChainConfig, stateDB *nativeStateDB, call *core.Message) error {
-	_, cancelled, err := e.applyMessage(ctx, blockCtx, chainConfig, stateDB, call, vm.Config{NoBaseFee: true})
+func (e *Executor) applyCall(ctx context.Context, evmCtx vm.BlockContext, chainConfig *params.ChainConfig, stateDB *nativeStateDB, call *core.Message) error {
+	_, cancelled, err := applyMessage(ctx, e.newEVM(evmCtx, stateDB, chainConfig, vm.Config{NoBaseFee: true}), call)
 	if cancelled {
 		return fmt.Errorf("EVM-only gas estimate exceeded %s execution timeout", callTimeout)
 	}
@@ -122,14 +139,18 @@ func (e *Executor) applyCall(ctx context.Context, blockCtx BlockContext, chainCo
 	return nil
 }
 
-// estimateBlockOverrides returns the coinbase and blob base fee gas estimation applies.
-func estimateBlockOverrides(ctx BlockContext) *export.BlockOverrides {
-	coinbase := ctx.Coinbase
-	overrides := &export.BlockOverrides{FeeRecipient: &coinbase}
-	if blobBaseFee := cloneOptionalBig(ctx.BlobBaseFee); blobBaseFee != nil {
-		overrides.BlobBaseFee = (*hexutil.Big)(blobBaseFee)
+// estimateBlockOverrides returns the block overrides gas estimation applies: those overrides holds,
+// and ctx's coinbase and blob base fee where overrides sets neither.
+func estimateBlockOverrides(ctx BlockContext, overrides CallOverrides) *export.BlockOverrides {
+	applied := overrides.Block.Or(export.BlockOverrides{})
+	if applied.FeeRecipient == nil {
+		coinbase := ctx.Coinbase
+		applied.FeeRecipient = &coinbase
 	}
-	return overrides
+	if blobBaseFee := cloneOptionalBig(ctx.BlobBaseFee); applied.BlobBaseFee == nil && blobBaseFee != nil {
+		applied.BlobBaseFee = (*hexutil.Big)(blobBaseFee)
+	}
+	return &applied
 }
 
 // resolveBlobGasFeeCap defaults a nil BlobGasFeeCap to zero on a copy of msg

@@ -9,6 +9,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -38,7 +39,7 @@ func TestEVMOnlyApplicationSimulatesAgainstCommittedState(t *testing.T) {
 	})
 
 	t.Run("estimate gas after calls", func(t *testing.T) {
-		alone, _, err := evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0)
+		alone, _, err := evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0, evmonly.CallOverrides{})
 		require.NoError(t, err)
 
 		// A prior call has already written the slot, so the same write costs less.

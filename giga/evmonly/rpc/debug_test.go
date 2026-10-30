@@ -462,13 +462,24 @@ func TestDebugTraceCall(t *testing.T) {
 		require.Error(t, client.CallContext(t.Context(), &got, "debug_traceCall", transfer, "0x3", config))
 	})
 
-	t.Run("overrides are refused", func(t *testing.T) {
-		config := map[string]any{"stateOverrides": map[string]any{chain.sender.Hex(): map[string]any{"nonce": "0x9"}}}
+	t.Run("overrides apply", func(t *testing.T) {
+		config := map[string]any{
+			"tracer":         "prestateTracer",
+			"stateOverrides": map[string]any{chain.sender.Hex(): map[string]any{"nonce": "0x9"}},
+			"blockOverrides": map[string]any{"number": "0x7"},
+		}
+		var got map[common.Address]prestateAccount
+		require.NoError(t, client.CallContext(t.Context(), &got, "debug_traceCall", transfer, "0x2", config))
+		require.Equal(t, uint64(9), got[chain.sender].Nonce)
+	})
+
+	t.Run("an override above the limits is refused", func(t *testing.T) {
+		limited := chain.client(t, gigaconfig.RPCConfig{MaxRequestBodyBytes: testRequestBodyBytes, MaxStateOverrideAccounts: 1})
+		config := map[string]any{"stateOverrides": map[string]any{
+			chain.sender.Hex(): map[string]any{"nonce": "0x9"}, traceRecipient.Hex(): map[string]any{"nonce": "0x9"},
+		}}
 		var got json.RawMessage
-		err := client.CallContext(t.Context(), &got, "debug_traceCall", transfer, "latest", config)
-		var rpcErr ethrpc.Error
-		require.ErrorAs(t, err, &rpcErr)
-		require.Equal(t, -32602, rpcErr.ErrorCode())
+		require.Error(t, limited.CallContext(t.Context(), &got, "debug_traceCall", transfer, "latest", config))
 	})
 }
 

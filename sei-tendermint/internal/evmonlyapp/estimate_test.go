@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -33,7 +34,7 @@ func TestEVMOnlyApplicationEvmEstimateGasReadsCommittedContractCode(t *testing.T
 	_, err = app.Commit(t.Context())
 	require.NoError(t, err)
 
-	estimate, revert, err := evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0)
+	estimate, revert, err := evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0, evmonly.CallOverrides{})
 
 	require.NoError(t, err)
 	require.Empty(t, revert)
@@ -66,7 +67,7 @@ func TestEVMOnlyApplicationEvmEstimateGasDoesNotMutateCommittedState(t *testing.
 	before.Close()
 	require.Equal(t, common.Hash{}, beforeValue)
 
-	_, _, err = evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0)
+	_, _, err = evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0, evmonly.CallOverrides{})
 	require.NoError(t, err)
 
 	after := evmApp.storage.StateDB().OpenView()
@@ -87,7 +88,7 @@ func TestEVMOnlyApplicationEvmEstimateGasRefusesDuringPendingCommit(t *testing.T
 	})
 	require.NoError(t, err)
 
-	_, _, err = evmApp.EvmEstimateGas(t.Context(), callMessage(common.Address{}, nil), 0)
+	_, _, err = evmApp.EvmEstimateGas(t.Context(), callMessage(common.Address{}, nil), 0, evmonly.CallOverrides{})
 
 	require.Error(t, err)
 }
@@ -96,7 +97,7 @@ func TestEVMOnlyApplicationEvmEstimateGasRequiresInitChain(t *testing.T) {
 	app := newEVMOnlyTestApp(t, nil)
 	evmApp := app.(*evmOnlyApplication)
 
-	_, _, err := evmApp.EvmEstimateGas(t.Context(), callMessage(common.Address{}, nil), 0)
+	_, _, err := evmApp.EvmEstimateGas(t.Context(), callMessage(common.Address{}, nil), 0, evmonly.CallOverrides{})
 
 	require.Error(t, err)
 }

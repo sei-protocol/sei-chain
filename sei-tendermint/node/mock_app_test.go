@@ -12,6 +12,7 @@ import (
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/gogo/protobuf/proto"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
@@ -59,9 +60,9 @@ func TestMockAppServesTheEVMOnlyChainWithoutExecution(t *testing.T) {
 	require.Equal(t, 0, app.EvmBaseFee().Sign())
 	require.Equal(t, 0, app.EvmMinGasPrice().Sign())
 	require.Equal(t, uint64(0), app.EvmGasLimit())
-	_, err := app.EvmCall(t.Context(), &ethcore.Message{})
+	_, err := app.EvmCall(t.Context(), &ethcore.Message{}, evmonly.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
-	_, _, err = app.EvmEstimateGas(t.Context(), &ethcore.Message{}, 0)
+	_, _, err = app.EvmEstimateGas(t.Context(), &ethcore.Message{}, 0, evmonly.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
 	_, _, err = app.EvmEstimateGasAfterCalls(t.Context(), nil, &ethcore.Message{}, 0)
 	require.ErrorIs(t, err, errMockAppNoExecution)
