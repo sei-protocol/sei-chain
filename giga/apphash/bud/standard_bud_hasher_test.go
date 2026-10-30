@@ -1,8 +1,11 @@
-package statewal
+package bud
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
+	"errors"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -11,12 +14,159 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
+// A BUD hash reported by a BUDHasher.
+type reportedBUDHash struct {
+	blockHeight uint64
+	budHash     [32]byte
+}
+
+// recordBUDReports returns a report function that sends each BUD hash to the returned channel, which holds up to
+// capacity of them.
+func recordBUDReports(
+	capacity int,
+) (func(context.Context, uint64, [32]byte) error, <-chan reportedBUDHash) {
+	reported := make(chan reportedBUDHash, capacity)
+	report := func(_ context.Context, blockHeight uint64, budHash [32]byte) error {
+		reported <- reportedBUDHash{blockHeight: blockHeight, budHash: budHash}
+		return nil
+	}
+	return report, reported
+}
+
+// newBUDHasher starts a StandardBUDHasher with the default config and the given buffer size.
+func newBUDHasher(
+	t *testing.T,
+	bufferSize int,
+	report func(context.Context, uint64, [32]byte) error,
+) *StandardBUDHasher {
+	t.Helper()
+	config := DefaultBUDHasherConfig()
+	config.BufferSize = bufferSize
+	hasher, err := NewStandardBUDHasher(t.Context(), config, report)
+	require.NoError(t, err)
+	return hasher
+}
+
+// insertsOf returns a mutation inserting the value of each key, in the order given.
+func insertsOf(keys ...string) []mutation.Mutation {
+	mutations := make([]mutation.Mutation, len(keys))
+	for i, key := range keys {
+		mutations[i] = mutation.Mutation{Key: []byte(key), NewValue: vtype.SerializeMisc(9, []byte("v-"+key))}
+	}
+	return mutations
+}
+
+// budHashOfSorted returns the BUD hash of mutations once sorted by key.
+func budHashOfSorted(t *testing.T, mutations []mutation.Mutation) [32]byte {
+	t.Helper()
+	sorted := slices.Clone(mutations)
+	slices.SortFunc(sorted, func(a mutation.Mutation, b mutation.Mutation) int {
+		return bytes.Compare(a.Key, b.Key)
+	})
+	hash, err := budHashFromMutations(sorted)
+	require.NoError(t, err)
+	return hash
+}
+
 // mustSerializeStorage returns the storage value holding value, written at blockHeight.
 func mustSerializeStorage(t *testing.T, blockHeight int64, value []byte) []byte {
 	t.Helper()
 	serialized, err := vtype.SerializeStorage(blockHeight, value)
 	require.NoError(t, err)
 	return serialized
+}
+
+func TestBUDHasherReportsEveryBlockInOrderBeforeClosing(t *testing.T) {
+	report, reported := recordBUDReports(3)
+	hasher := newBUDHasher(t, 3, report)
+
+	blocks := [][]mutation.Mutation{insertsOf("a"), nil, insertsOf("c", "a", "b")}
+	for i, mutations := range blocks {
+		blockHeight := uint64(10 + i) //nolint:gosec // small test heights
+		require.NoError(t, hasher.Submit(t.Context(), blockHeight, mutations))
+	}
+	require.NoError(t, hasher.Close())
+
+	require.Len(t, reported, len(blocks))
+	for i, mutations := range blocks {
+		blockHeight := uint64(10 + i) //nolint:gosec // small test heights
+		want := reportedBUDHash{blockHeight: blockHeight, budHash: budHashOfSorted(t, mutations)}
+		require.Equal(t, want, <-reported)
+	}
+}
+
+// The hasher sorts its own copy of a block, so the hash does not depend on the order the mutations were submitted
+// in, and the caller's slice is left as it was.
+func TestBUDHasherSortsACopyOfTheBlock(t *testing.T) {
+	report, reported := recordBUDReports(2)
+	hasher := newBUDHasher(t, 2, report)
+
+	forward := insertsOf("a", "b", "c", "d")
+	reverse := insertsOf("d", "c", "b", "a")
+	require.NoError(t, hasher.Submit(t.Context(), 1, forward))
+	require.NoError(t, hasher.Submit(t.Context(), 2, reverse))
+	require.NoError(t, hasher.Close())
+
+	require.Equal(t, (<-reported).budHash, (<-reported).budHash)
+	require.Equal(t, insertsOf("d", "c", "b", "a"), reverse)
+}
+
+func TestBUDHasherStopsOnMutationsItCannotHash(t *testing.T) {
+	report, reported := recordBUDReports(1)
+	hasher := newBUDHasher(t, 1, report)
+
+	require.NoError(t, hasher.Submit(t.Context(), 1, []mutation.Mutation{{Key: []byte{}}}))
+
+	require.ErrorContains(t, hasher.Close(), "failed to hash block 1")
+	require.ErrorContains(t, hasher.Submit(t.Context(), 2, nil), "BUD hasher stopped")
+	require.Empty(t, reported)
+}
+
+func TestBUDHasherStopsWhenAReportFails(t *testing.T) {
+	reportErr := errors.New("builder stopped")
+	hasher := newBUDHasher(t, 1, func(context.Context, uint64, [32]byte) error {
+		return reportErr
+	})
+
+	require.NoError(t, hasher.Submit(t.Context(), 1, nil))
+
+	err := hasher.Close()
+	require.ErrorIs(t, err, reportErr)
+	require.ErrorContains(t, err, "failed to report the BUD hash of block 1")
+	require.ErrorIs(t, hasher.Submit(t.Context(), 2, nil), reportErr)
+}
+
+func TestBUDHasherSubmitGivesUpWhenItsContextIsDone(t *testing.T) {
+	release := make(chan struct{})
+	reporting := make(chan struct{}, 1)
+	hasher := newBUDHasher(t, 1, func(context.Context, uint64, [32]byte) error {
+		select {
+		case reporting <- struct{}{}:
+		default:
+		}
+		<-release
+		return nil
+	})
+
+	// Block 1 holds the hashing goroutine, so the blocks behind it eventually fill both queues.
+	require.NoError(t, hasher.Submit(t.Context(), 1, nil))
+	<-reporting
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	var err error
+	for blockHeight := uint64(2); err == nil; blockHeight++ {
+		err = hasher.Submit(ctx, blockHeight, nil)
+	}
+	require.ErrorIs(t, err, context.Canceled)
+
+	close(release)
+	require.NoError(t, hasher.Close())
+}
+
+func TestBUDHasherRefusesAnInvalidConfig(t *testing.T) {
+	report, _ := recordBUDReports(0)
+	_, err := NewStandardBUDHasher(t.Context(), BUDHasherConfig{BufferSize: 0}, report)
+	require.ErrorContains(t, err, "buffer size must be positive")
 }
 
 func TestBudletFromMutation(t *testing.T) {
@@ -223,42 +373,4 @@ func TestBUDHashFromMutationsDependsOnEveryMutation(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEqual(t, baseline, hash, "edit %d", i)
 	}
-}
-
-// The hash a WAL delivers and iterates for a block is the BUD hash of the block's mutations, before and after a
-// reopen.
-func TestHashIsBUDHashOfMutations(t *testing.T) {
-	cfg := testConfig(t.TempDir())
-	blocks := [][]mutation.Mutation{
-		{makeMutation("bank", []byte("a"), []byte("1"))},
-		{makeMutation("bank", []byte("b"), nil), makeMutation("staking", []byte("c"), []byte("2"))},
-		{},
-	}
-	want := make([]recordedHash, 0, len(blocks))
-	for i, mutations := range blocks {
-		hash, err := budHashFromMutations(mutations)
-		require.NoError(t, err)
-		want = append(want, recordedHash{blockNumber: uint64(i + 1), hash: hash})
-	}
-
-	w := openWAL(t, cfg)
-	recorder := &hashRecorder{}
-	_, _, _, err := w.RegisterHashListener(recorder.listen)
-	require.NoError(t, err)
-	for i, mutations := range blocks {
-		require.NoError(t, w.Write(uint64(i+1), mutations))
-	}
-	require.NoError(t, w.Flush())
-	require.Equal(t, want, recorder.deliveries)
-	require.Equal(t, want, iteratedHashes(t, w, 1, uint64(len(blocks))))
-	require.NoError(t, w.Close())
-
-	reopened := openWAL(t, cfg)
-	defer func() { require.NoError(t, reopened.Close()) }()
-	require.Equal(t, want, iteratedHashes(t, reopened, 1, uint64(len(blocks))))
-	ok, last, lastHash, err := reopened.RegisterHashListener(nil)
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, uint64(len(blocks)), last)
-	require.Equal(t, want[len(want)-1].hash, lastHash)
 }

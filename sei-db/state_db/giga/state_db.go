@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -42,6 +43,9 @@ type StateDB struct {
 
 	// The state WAL a committed block is written to.
 	wal statewal.StateWAL
+
+	// The hasher a committed block's mutations are submitted to.
+	budHasher bud.BUDHasher
 
 	// The state commit store, which both receives writes and serves current-block reads.
 	sc *flatkv.CommitStore
@@ -84,10 +88,14 @@ func NewStateDB(
 	flatkvCfg *flatkvconfig.Config,
 	ssCfg config.StateStoreConfig,
 	checkpointCfg config.CheckpointConfig,
+	// The hasher each committed block's mutations are submitted to. Blocks replayed while opening are not
+	// submitted.
+	budHasher bud.BUDHasher,
 ) (db *StateDB, retErr error) {
 	s := &StateDB{
 		flatkvCfg: flatkvCfg,
 		ssCfg:     stateStoreConfigFor(ssCfg),
+		budHasher: budHasher,
 		commitPhases: metrics.NewPhaseTimerFactory(otel.Meter(gigaMeterName), commitPhaseTimerName).
 			RecordLatencies().Build(),
 	}
@@ -143,6 +151,9 @@ func NewStateDBWithRollback(
 	flatkvCfg *flatkvconfig.Config,
 	ssCfg config.StateStoreConfig,
 	checkpointCfg config.CheckpointConfig,
+	// The hasher each committed block's mutations are submitted to. Blocks replayed while opening are not
+	// submitted.
+	budHasher bud.BUDHasher,
 	target int64,
 ) (*StateDB, error) {
 	if target <= 0 {
@@ -157,7 +168,7 @@ func NewStateDBWithRollback(
 	if err := offline.rewindTo(target); err != nil {
 		return nil, err
 	}
-	db, err := NewStateDB(ctx, flatkvCfg, ssCfg, checkpointCfg)
+	db, err := NewStateDB(ctx, flatkvCfg, ssCfg, checkpointCfg, budHasher)
 	if err != nil {
 		return nil, err
 	}
@@ -412,13 +423,11 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedCha
 	return s.CommitStateChangesWithPrior(blockNum, changeset, nil)
 }
 
-// CommitStateChangesWithPrior writes a block to the state WAL, the state commit store and the EVM
-// state store, in that order. Callers must not run two commits at once. changes is the block's change
-// set, which an undo-log EVM state store keeps the replaced values from and requires: an empty set is
-// a block that changed no EVM state, and nil is no change set at all.
-//
-// The time each of the three takes is published under commitPhaseTimerName, split by phase, which is
-// what makes a slow store on the commit path attributable to that store.
+// CommitStateChangesWithPrior writes a block to the state WAL, submits it to the BUD hasher, and writes
+// it to the state commit store and the EVM state store, in that order. Callers must not run two commits
+// at once. changes is the block's change set, which an undo-log EVM state store keeps the replaced
+// values from and requires: an empty set is a block that changed no EVM state, and nil is no change
+// set at all.
 func (s *StateDB) CommitStateChangesWithPrior(
 	blockNum int64,
 	changeset []*proto.NamedChangeSet,
@@ -454,6 +463,11 @@ func (s *StateDB) CommitStateChangesWithPrior(
 	s.commitPhases.SetPhase("write_state_wal")
 	if err := s.wal.Write(uint64(blockNum), mutations); err != nil {
 		return fmt.Errorf("write block %d to state WAL: %w", blockNum, err)
+	}
+
+	s.commitPhases.SetPhase("submit_bud_hash")
+	if err := s.budHasher.Submit(context.Background(), uint64(blockNum), mutations); err != nil {
+		return fmt.Errorf("submit block %d to the BUD hasher: %w", blockNum, err)
 	}
 
 	s.commitPhases.SetPhase("commit_sc")
