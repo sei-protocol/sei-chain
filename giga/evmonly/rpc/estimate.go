@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -17,6 +18,9 @@ type estimateAPI struct {
 	backend Backend
 	blocks  *blockAPI
 	limits  overrideLimits
+	// maxCalls caps the calls one eth_estimateGasAfterCalls request may apply; zero disables the
+	// cap.
+	maxCalls int
 }
 
 // EstimateGas returns a gas limit that lets args execute without running out
@@ -29,9 +33,35 @@ func (api *estimateAPI) EstimateGas(ctx context.Context, args export.Transaction
 	if err != nil {
 		return 0, err
 	}
+	return api.estimateAfterCalls(ctx, args, nil, block, overrides)
+}
+
+// EstimateGasAfterCalls returns what eth_estimateGas returns for args against the current
+// committed state with calls applied to it first, in order.
+func (api *estimateAPI) EstimateGasAfterCalls(ctx context.Context, args export.TransactionArgs, calls []export.TransactionArgs, block *ethrpc.BlockNumberOrHash) (hexutil.Uint64, error) {
+	if api.maxCalls > 0 && len(calls) > api.maxCalls {
+		return 0, fmt.Errorf("eth_estimateGasAfterCalls: too many calls (%d > %d)", len(calls), api.maxCalls)
+	}
+	return api.estimateAfterCalls(ctx, args, calls, block, evmonly.CallOverrides{})
+}
+
+// estimateAfterCalls returns the gas args needs after calls, with overrides applied, against the
+// state after block, the latest by default. Calls are served against the latest state only.
+func (api *estimateAPI) estimateAfterCalls(
+	ctx context.Context,
+	args export.TransactionArgs,
+	calls []export.TransactionArgs,
+	block *ethrpc.BlockNumberOrHash,
+	overrides evmonly.CallOverrides,
+) (hexutil.Uint64, error) {
 	selector := ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber)
 	if block != nil {
 		selector = *block
+	}
+	if len(calls) > 0 {
+		if err := requireCurrentState(selector); err != nil {
+			return 0, err
+		}
 	}
 	height, latest, err := stateHeight(ctx, api.backend, selector)
 	if err != nil {
@@ -42,6 +72,13 @@ func (api *estimateAPI) EstimateGas(ctx context.Context, args export.Transaction
 		return 0, err
 	}
 	chainID := new(big.Int).SetUint64(api.backend.EvmChainID())
+	callMsgs := make([]*core.Message, len(calls))
+	for i := range calls {
+		if err := calls[i].CallDefaults(defaultCallGasCap, baseFee, chainID); err != nil {
+			return 0, fmt.Errorf("call %d: %w", i, err)
+		}
+		callMsgs[i] = calls[i].ToMessage(baseFee, true, true)
+	}
 	// A zero (not nil) Gas leaves an omitted limit to default to the block gas
 	// limit downstream, rather than the fixed defaultCallGasCap.
 	if args.Gas == nil {
@@ -52,7 +89,7 @@ func (api *estimateAPI) EstimateGas(ctx context.Context, args export.Transaction
 	}
 	msg := args.ToMessage(baseFee, true, true)
 
-	estimate, revert, err := api.estimate(ctx, msg, height, latest, overrides)
+	estimate, revert, err := api.estimate(ctx, callMsgs, msg, height, latest, overrides)
 	if err != nil {
 		if errors.Is(err, vm.ErrExecutionReverted) {
 			return 0, newRevertError(revert)
@@ -62,9 +99,12 @@ func (api *estimateAPI) EstimateGas(ctx context.Context, args export.Transaction
 	return hexutil.Uint64(estimate), nil
 }
 
-// estimate searches msg's gas with overrides against the latest committed
-// state, or else against the state after the block at height.
-func (api *estimateAPI) estimate(ctx context.Context, msg *core.Message, height int64, latest bool, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+// estimate searches msg's gas against the latest committed state, with calls applied first when
+// there are any, or else against the state after the block at height, with overrides applied.
+func (api *estimateAPI) estimate(ctx context.Context, calls []*core.Message, msg *core.Message, height int64, latest bool, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+	if len(calls) > 0 {
+		return api.backend.EvmEstimateGasAfterCalls(ctx, calls, msg, defaultCallGasCap)
+	}
 	if latest {
 		return api.backend.EvmEstimateGas(ctx, msg, defaultCallGasCap, overrides)
 	}

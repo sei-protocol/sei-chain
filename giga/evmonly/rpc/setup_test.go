@@ -58,8 +58,10 @@ type testBackend struct {
 	// gotOverrides is the overrides the last call or estimate ran with.
 	gotOverrides evmonly.CallOverrides
 
-	callAt        func(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error)
-	estimateGasAt func(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error)
+	callAt                func(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error)
+	estimateGasAt         func(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error)
+	estimateGasAfterCalls func(context.Context, []*core.Message, *core.Message, uint64) (uint64, []byte, error)
+	createAccessList      func(context.Context, *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error)
 
 	blockContext  func(*ethtypes.Header) (vm.BlockContext, error)
 	stateAt       func(context.Context, int64) (vm.StateDB, func(), error)
@@ -148,6 +150,14 @@ func (b *testBackend) EvmChainID() uint64 {
 func (b *testBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
 	b.gotOverrides = overrides
 	return b.estimateGas(ctx, msg, gasCap)
+}
+
+func (b *testBackend) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+	return b.estimateGasAfterCalls(ctx, calls, msg, gasCap)
+}
+
+func (b *testBackend) EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
+	return b.createAccessList(ctx, msg)
 }
 
 func (b *testBackend) EvmCode(address common.Address) ([]byte, error) {

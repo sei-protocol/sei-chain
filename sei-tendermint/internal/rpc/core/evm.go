@@ -70,6 +70,18 @@ func (env *EVMEnvironment) EvmEstimateGasAt(ctx context.Context, msg *ethcore.Me
 	return env.EVM.EvmEstimateGasAt(ctx, msg, gasCap, header, overrides)
 }
 
+// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg with calls applied to the
+// current committed EVM state first, in order, persisting no state change.
+func (env *EVMEnvironment) EvmEstimateGasAfterCalls(ctx context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
+	return env.EVM.EvmEstimateGasAfterCalls(ctx, calls, msg, gasCap)
+}
+
+// EvmCreateAccessList returns the access list msg touches against the current committed EVM
+// state, and the result of executing msg with that list, persisting no state change.
+func (env *EVMEnvironment) EvmCreateAccessList(ctx context.Context, msg *ethcore.Message) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
+	return env.EVM.EvmCreateAccessList(ctx, msg)
+}
+
 // EvmBlockContext returns the block context header's block executed at.
 func (env *EVMEnvironment) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
 	return env.EVM.EvmBlockContext(header)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/params"
 
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
@@ -49,26 +50,15 @@ func (e *Executor) CallAt(ctx context.Context, view gigatypes.EVMStateView, bloc
 	defer e.releaseStateDB(stateDB)
 
 	// NoBaseFee matches go-ethereum's eth_call: zero fee fields skip the fee-cap check.
-	evm := vm.NewEVM(evmCtx, stateDB, chainConfig, vm.Config{NoBaseFee: true}, e.customContracts)
-	stateDB.SetEVM(evm)
+	evm := e.newEVM(evmCtx, stateDB, chainConfig, vm.Config{NoBaseFee: true})
 	if err := overrides.applyState(evm, stateDB, e.customContracts); err != nil {
 		return nil, err
 	}
-	evm.SetTxContext(core.NewEVMTxContext(msg))
-
-	// core.ApplyMessage does not itself respect ctx, so bound it with a timer
-	// that cancels the EVM directly; gas pricing alone cannot cap wall-clock
-	// cost (e.g. modexp with adversarial inputs).
+	// Gas pricing alone cannot cap wall-clock cost (e.g. modexp with adversarial inputs).
 	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	go func() {
-		<-callCtx.Done()
-		evm.Cancel()
-	}()
-
-	gasPool := new(core.GasPool).AddGas(msg.GasLimit)
-	result, err := core.ApplyMessage(evm, msg, gasPool)
-	if evm.Cancelled() {
+	result, cancelled, err := applyMessage(callCtx, evm, msg)
+	if cancelled {
 		return nil, fmt.Errorf("EVM-only call exceeded %s execution timeout", callTimeout)
 	}
 	if stateErr := stateDB.Error(); stateErr != nil {
@@ -94,4 +84,29 @@ func (e *Executor) OpenCurrentView(ctx context.Context, blockCtx BlockContext) (
 		return nil, errors.New("giga store returned a nil snapshot")
 	}
 	return snapshot, nil
+}
+
+// newEVM returns an EVM that executes on stateDB in evmCtx under vmConfig, running the executor's
+// registered precompiles.
+func (e *Executor) newEVM(evmCtx vm.BlockContext, stateDB *nativeStateDB, chainConfig *params.ChainConfig, vmConfig vm.Config) *vm.EVM {
+	evm := vm.NewEVM(evmCtx, stateDB, chainConfig, vmConfig, e.customContracts)
+	stateDB.SetEVM(evm)
+	return evm
+}
+
+// applyMessage executes msg on evm and returns its result. It reports whether ctx ended during the
+// execution, in which case the result is incomplete.
+func applyMessage(ctx context.Context, evm *vm.EVM, msg *core.Message) (*core.ExecutionResult, bool, error) {
+	evm.SetTxContext(core.NewEVMTxContext(msg))
+
+	// core.ApplyMessage does not itself respect ctx, so cancel the EVM directly.
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		<-runCtx.Done()
+		evm.Cancel()
+	}()
+
+	result, err := core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(msg.GasLimit))
+	return result, evm.Cancelled(), err
 }

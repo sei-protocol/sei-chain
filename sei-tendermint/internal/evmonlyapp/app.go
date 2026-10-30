@@ -757,6 +757,26 @@ func recoverPastExecution(view gigatypes.StateView, action string, err *error) {
 	}
 }
 
+// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg against the most recently
+// committed EVM state with calls applied to it first, in order.
+func (a *evmOnlyApplication) EvmEstimateGasAfterCalls(ctx context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
+	executor, blockCtx, err := a.currentExecutionContext("gas estimate")
+	if err != nil {
+		return 0, nil, err
+	}
+	return executor.EstimateGasAfterCalls(ctx, blockCtx, calls, msg, gasCap)
+}
+
+// EvmCreateAccessList returns the access list msg touches when executed against the most recently
+// committed EVM state, and the result of executing msg with that list.
+func (a *evmOnlyApplication) EvmCreateAccessList(ctx context.Context, msg *ethcore.Message) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
+	executor, blockCtx, err := a.currentExecutionContext("access list")
+	if err != nil {
+		return nil, nil, err
+	}
+	return executor.CreateAccessList(ctx, blockCtx, msg)
+}
+
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	height := req.Header.Height
 	if height <= 0 {

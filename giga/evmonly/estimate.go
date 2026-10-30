@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth/gasestimator"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
@@ -38,6 +39,24 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 // CallAt it persists no state change; a revert's data is returned alongside
 // the error.
 func (e *Executor) EstimateGasAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, msg *core.Message, gasCap uint64, overrides CallOverrides) (uint64, []byte, error) {
+	return e.estimateGasAfterCallsAt(ctx, view, blockCtx, nil, msg, gasCap, overrides)
+}
+
+// EstimateGasAfterCalls returns what EstimateGas returns for msg against the current committed
+// state with calls applied to it first, in order.
+func (e *Executor) EstimateGasAfterCalls(ctx context.Context, blockCtx BlockContext, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+	snapshot, err := e.OpenCurrentView(ctx, blockCtx)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer snapshot.Close()
+	return e.estimateGasAfterCallsAt(ctx, snapshot, blockCtx, calls, msg, gasCap, CallOverrides{})
+}
+
+// estimateGasAfterCallsAt returns what EstimateGasAt returns for msg against the state view holds,
+// with overrides applied and then calls applied, in order. A call that fails in the EVM leaves the
+// state as a failed transaction would; one that cannot be applied at all fails the estimate.
+func (e *Executor) estimateGasAfterCallsAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, calls []*core.Message, msg *core.Message, gasCap uint64, overrides CallOverrides) (uint64, []byte, error) {
 	chainConfig := e.chainConfig(blockCtx)
 	if err := validateBlockContext(chainConfig, blockCtx); err != nil {
 		return 0, nil, err
@@ -57,6 +76,12 @@ func (e *Executor) EstimateGasAt(ctx context.Context, view gigatypes.EVMStateVie
 
 	estimateCtx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
+	if err := e.applyCalls(estimateCtx, blockCtx, chainConfig, stateDB, calls, overrides); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return 0, nil, ctxErr
+		}
+		return 0, nil, err
+	}
 
 	opts := &gasestimator.Options{
 		Config:            chainConfig,
@@ -77,6 +102,41 @@ func (e *Executor) EstimateGasAt(ctx context.Context, view gigatypes.EVMStateVie
 		return 0, nil, fmt.Errorf("EVM-only gas estimate exceeded %s execution timeout", callTimeout)
 	}
 	return estimate, revert, err
+}
+
+// applyCalls applies calls to stateDB, in order, as committed transactions would leave it, in
+// blockCtx with overrides' block fields applied.
+func (e *Executor) applyCalls(ctx context.Context, blockCtx BlockContext, chainConfig *params.ChainConfig, stateDB *nativeStateDB, calls []*core.Message, overrides CallOverrides) error {
+	if len(calls) == 0 {
+		return nil
+	}
+	evmCtx, err := overrides.blockContext(blockCtx)
+	if err != nil {
+		return err
+	}
+	for i, call := range calls {
+		if err := e.applyCall(ctx, evmCtx, chainConfig, stateDB, call); err != nil {
+			return fmt.Errorf("call %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// applyCall applies call to stateDB as a committed transaction would leave it.
+func (e *Executor) applyCall(ctx context.Context, evmCtx vm.BlockContext, chainConfig *params.ChainConfig, stateDB *nativeStateDB, call *core.Message) error {
+	_, cancelled, err := applyMessage(ctx, e.newEVM(evmCtx, stateDB, chainConfig, vm.Config{NoBaseFee: true}), call)
+	if cancelled {
+		return fmt.Errorf("EVM-only gas estimate exceeded %s execution timeout", callTimeout)
+	}
+	if stateErr := stateDB.Error(); stateErr != nil {
+		return stateErr
+	}
+	if err != nil {
+		return err
+	}
+	stateDB.clearSnapshots()
+	stateDB.Finalise(true)
+	return nil
 }
 
 // estimateBlockOverrides returns the block overrides gas estimation applies: those overrides holds,

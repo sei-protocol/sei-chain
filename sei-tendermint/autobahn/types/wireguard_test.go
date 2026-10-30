@@ -99,7 +99,8 @@ func TestLaneQCWireguardAcceptsMaxValidators(t *testing.T) {
 func TestPrepareQCWireguardAcceptsMaxValidators(t *testing.T) {
 	_, keys := maxValidatorCommittee(t)
 	rng := utils.TestRng()
-	vote := NewPrepareVote(GenProposalAt(rng, View{}))
+	voteProposal := GenProposalAt(rng, View{})
+	vote := NewPrepareVote(voteProposal)
 	votes := make([]*Signed[*PrepareVote], len(keys))
 	for i, key := range keys {
 		votes[i] = Sign(key, vote)
@@ -115,7 +116,8 @@ func TestPrepareQCWireguardAcceptsMaxValidators(t *testing.T) {
 func TestCommitQCWireguardAcceptsMaxValidators(t *testing.T) {
 	_, keys := maxValidatorCommittee(t)
 	rng := utils.TestRng()
-	vote := NewCommitVote(GenProposalAt(rng, View{}))
+	voteProposal := GenProposalAt(rng, View{})
+	vote := NewCommitVote(BuildPrepareQC(keys, voteProposal))
 	votes := make([]*Signed[*CommitVote], len(keys))
 	for i, key := range keys {
 		votes[i] = Sign(key, vote)
@@ -143,8 +145,8 @@ func TestFullCommitQCWireguardAcceptsMaxValidatorsAndHeaders(t *testing.T) {
 		}
 		laneRanges = append(laneRanges, NewLaneRange(lane, 0, utils.Some(lastHeader)))
 	}
-	proposal := newProposal(View{}, time.Unix(1, 2), laneRanges, 0)
-	vote := NewCommitVote(proposal)
+	proposal := &Proposal{header: newRoadBlockHeader(0, 0, time.Unix(1, 2), laneRanges)}
+	vote := NewCommitVote(BuildPrepareQC(keys, proposal))
 	votes := make([]*Signed[*CommitVote], len(keys))
 	for i, key := range keys {
 		votes[i] = Sign(key, vote)
@@ -197,7 +199,7 @@ func TestFullProposalWireguardAcceptsMaxValidators(t *testing.T) {
 	}
 	proposal, err := NewProposal(
 		secretKeyFor(keys, committee.Leader(View{})),
-		ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: NewEpoch(0, OpenRoadRange(), time.Time{}, committee, 0)}},
+		ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: NewEpoch(0, OpenRoadRange(), time.Time{}, committee)}},
 		time.Unix(1, 2),
 		laneQCs,
 	)

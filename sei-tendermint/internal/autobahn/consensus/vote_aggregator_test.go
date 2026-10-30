@@ -23,7 +23,7 @@ func newVoteTestEnv(rng utils.Rng) voteTestEnv {
 		weights[k.Public()] = 1
 	}
 	c := utils.OrPanic1(types.NewCommittee(weights))
-	ep := types.NewEpoch(0, types.OpenRoadRange(), time.Time{}, c, 0)
+	ep := types.NewEpoch(0, types.OpenRoadRange(), time.Time{}, c)
 	return voteTestEnv{
 		keys:   keys,
 		ep:     ep,

@@ -809,6 +809,8 @@ func testEVMOnlyLoad(t *testing.T) {
 	assertEVMOnlyPastState(t, rpcCtx, clients, contract, deploy)
 	assertEVMOnlyCallOverrides(t, rpcCtx, clients, contract, deploy)
 	assertEVMOnlyNewHeads(t, rpcCtx, clients)
+	assertEVMOnlySimulations(t, rpcCtx, clients)
+	assertEVMOnlyTransactionErrors(t, rpcCtx, clients, block.Txs[0])
 }
 
 func assertEVMOnlyBalances(t *testing.T, ctx context.Context, clients []*ethrpc.Client, txs [][]byte) {
@@ -1715,6 +1717,138 @@ func assertEVMOnlyNewHeads(t *testing.T, ctx context.Context, clients []*ethrpc.
 			t.Fatalf("node %d newHeads subscription ended: %v", nodeIndex, err)
 		case <-ctx.Done():
 			t.Fatalf("node %d pushed no head: %v", nodeIndex, ctx.Err())
+		}
+	}
+}
+
+// assertEVMOnlySimulations checks, on every node, eth_createAccessList against
+// the contract assertEVMOnlyContractQueries deployed, which reads its slot 0,
+// and against a plain transfer, and that eth_estimateGasAfterCalls with a
+// transfer applied first estimates the contract call as eth_estimateGas does
+// and refuses more calls than the cap.
+func assertEVMOnlySimulations(t *testing.T, ctx context.Context, clients []*ethrpc.Client) {
+	t.Helper()
+	key, err := scenarios.DeterministicPrivateKey(evmOnlyContractDeployerAccount)
+	if err != nil {
+		t.Fatalf("derive contract deployer key: %v", err)
+	}
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	contract := crypto.CreateAddress(sender, 0)
+	contractCall := map[string]any{"from": sender, "to": contract}
+	transfer := map[string]any{"from": sender, "to": common.Address{0x01}, "value": (*hexutil.Big)(big.NewInt(1))}
+	type accessListResult struct {
+		AccessList ethtypes.AccessList `json:"accessList"`
+		GasUsed    hexutil.Uint64      `json:"gasUsed"`
+		Error      string              `json:"error"`
+	}
+	for nodeIndex, client := range clients {
+		var got accessListResult
+		decodeEVMOnlyResult(t, nodeIndex, "eth_createAccessList", evmOnlyCall(t, ctx, client, nodeIndex, "eth_createAccessList", contractCall, "latest"), &got)
+		want := ethtypes.AccessList{{Address: contract, StorageKeys: []common.Hash{{}}}}
+		if !reflect.DeepEqual(got.AccessList, want) || got.GasUsed <= evmOnlyTransferGas || got.Error != "" {
+			t.Fatalf("node %d eth_createAccessList for the contract call = %+v, want %v with gas above %d and no error", nodeIndex, got, want, evmOnlyTransferGas)
+		}
+		decodeEVMOnlyResult(t, nodeIndex, "eth_createAccessList", evmOnlyCall(t, ctx, client, nodeIndex, "eth_createAccessList", transfer), &got)
+		if len(got.AccessList) != 0 || got.GasUsed != evmOnlyTransferGas || got.Error != "" {
+			t.Fatalf("node %d eth_createAccessList for a transfer = %+v, want an empty list using %d gas", nodeIndex, got, evmOnlyTransferGas)
+		}
+
+		var alone, afterTransfer hexutil.Uint64
+		decodeEVMOnlyResult(t, nodeIndex, "eth_estimateGas", evmOnlyCall(t, ctx, client, nodeIndex, "eth_estimateGas", contractCall), &alone)
+		decodeEVMOnlyResult(t, nodeIndex, "eth_estimateGasAfterCalls",
+			evmOnlyCall(t, ctx, client, nodeIndex, "eth_estimateGasAfterCalls", contractCall, []any{transfer}, "latest"), &afterTransfer)
+		if afterTransfer != alone {
+			t.Fatalf("node %d eth_estimateGasAfterCalls after a transfer = %d, eth_estimateGas = %d; want them equal", nodeIndex, afterTransfer, alone)
+		}
+		tooMany := make([]any, 101)
+		for i := range tooMany {
+			tooMany[i] = transfer
+		}
+		if err := client.CallContext(ctx, &afterTransfer, "eth_estimateGasAfterCalls", contractCall, tooMany); err == nil ||
+			!strings.Contains(err.Error(), "too many calls") {
+			t.Fatalf("node %d eth_estimateGasAfterCalls with %d calls = %d, %v; want the too-many-calls error", nodeIndex, len(tooMany), afterTransfer, err)
+		}
+	}
+}
+
+// evmOnlyFailingDeployerAccount is past the contract deployer, so the failing
+// deploy is the first transaction from its account.
+const evmOnlyFailingDeployerAccount = 2_000_001
+
+// assertEVMOnlyTransactionErrors sends a deploy whose init code is the INVALID
+// opcode and checks, on every node, that eth_getVMError and
+// eth_getTransactionErrorByHash report its error and report "" for the
+// successful transfer succeeded, that an unknown hash is "" for
+// eth_getTransactionErrorByHash and an error for eth_getVMError, and that
+// web3_clientVersion answers in the Sei/<seid version>/ format.
+func assertEVMOnlyTransactionErrors(t *testing.T, ctx context.Context, clients []*ethrpc.Client, succeeded []byte) {
+	t.Helper()
+	key, err := scenarios.DeterministicPrivateKey(evmOnlyFailingDeployerAccount)
+	if err != nil {
+		t.Fatalf("derive failing deployer key: %v", err)
+	}
+	signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{
+		GasPrice: evmOnlyTransferConfig(1).GasPrice,
+		Gas:      evmOnlyContractGasLimit,
+		Data:     []byte{0xfe},
+	}), ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID)), key)
+	if err != nil {
+		t.Fatalf("sign failing deploy: %v", err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatalf("encode failing deploy: %v", err)
+	}
+	if err := clients[0].CallContext(ctx, nil, "eth_sendRawTransaction", hexutil.Bytes(raw)); err != nil {
+		t.Fatalf("send failing deploy: %v", err)
+	}
+	var receipt evmOnlyReceiptSummary
+	decodeEVMOnlyResult(t, 0, "eth_getTransactionReceipt",
+		waitForEVMOnlyResult(t, ctx, clients, "eth_getTransactionReceipt", signed.Hash()), &receipt)
+	if receipt.Status != hexutil.Uint64(ethtypes.ReceiptStatusFailed) {
+		t.Fatalf("failing deploy %s has status %d, want failed", signed.Hash(), receipt.Status)
+	}
+	successful := new(ethtypes.Transaction)
+	if err := successful.UnmarshalBinary(succeeded); err != nil {
+		t.Fatalf("decode successful transfer: %v", err)
+	}
+
+	var wantVMError string
+	for nodeIndex, client := range clients {
+		var vmError, errorByHash string
+		decodeEVMOnlyResult(t, nodeIndex, "eth_getVMError", evmOnlyCall(t, ctx, client, nodeIndex, "eth_getVMError", signed.Hash()), &vmError)
+		decodeEVMOnlyResult(t, nodeIndex, "eth_getTransactionErrorByHash",
+			evmOnlyCall(t, ctx, client, nodeIndex, "eth_getTransactionErrorByHash", signed.Hash()), &errorByHash)
+		if nodeIndex == 0 {
+			wantVMError = vmError
+		}
+		if vmError == "" || vmError != wantVMError || errorByHash != vmError {
+			t.Fatalf("node %d failing deploy: eth_getVMError = %q, eth_getTransactionErrorByHash = %q, want node 0's non-empty %q from both",
+				nodeIndex, vmError, errorByHash, wantVMError)
+		}
+
+		for _, method := range []string{"eth_getVMError", "eth_getTransactionErrorByHash"} {
+			var got string
+			decodeEVMOnlyResult(t, nodeIndex, method, evmOnlyCall(t, ctx, client, nodeIndex, method, successful.Hash()), &got)
+			if got != "" {
+				t.Fatalf("node %d %s(%s) = %q for a successful transfer, want \"\"", nodeIndex, method, successful.Hash(), got)
+			}
+		}
+
+		var unknown string
+		decodeEVMOnlyResult(t, nodeIndex, "eth_getTransactionErrorByHash",
+			evmOnlyCall(t, ctx, client, nodeIndex, "eth_getTransactionErrorByHash", common.Hash{}), &unknown)
+		if unknown != "" {
+			t.Fatalf("node %d eth_getTransactionErrorByHash for an unknown hash = %q, want \"\"", nodeIndex, unknown)
+		}
+		if err := client.CallContext(ctx, &unknown, "eth_getVMError", common.Hash{}); err == nil || !strings.Contains(err.Error(), "receipt not found") {
+			t.Fatalf("node %d eth_getVMError for an unknown hash = %q, %v; want the receipt-not-found error", nodeIndex, unknown, err)
+		}
+
+		var version string
+		decodeEVMOnlyResult(t, nodeIndex, "web3_clientVersion", evmOnlyCall(t, ctx, client, nodeIndex, "web3_clientVersion"), &version)
+		if !strings.HasPrefix(version, "Sei/") {
+			t.Fatalf("node %d web3_clientVersion = %q, want the Sei/<seid version>/ form", nodeIndex, version)
 		}
 	}
 }

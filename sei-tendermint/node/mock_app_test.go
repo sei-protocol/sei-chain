@@ -64,6 +64,10 @@ func TestMockAppServesTheEVMOnlyChainWithoutExecution(t *testing.T) {
 	require.ErrorIs(t, err, errMockAppNoExecution)
 	_, _, err = app.EvmEstimateGas(t.Context(), &ethcore.Message{}, 0, evmonly.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
+	_, _, err = app.EvmEstimateGasAfterCalls(t.Context(), nil, &ethcore.Message{}, 0)
+	require.ErrorIs(t, err, errMockAppNoExecution)
+	_, _, err = app.EvmCreateAccessList(t.Context(), &ethcore.Message{})
+	require.ErrorIs(t, err, errMockAppNoExecution)
 }
 
 func TestMockAppFinalizeBlockFailsNonceMismatch(t *testing.T) {
