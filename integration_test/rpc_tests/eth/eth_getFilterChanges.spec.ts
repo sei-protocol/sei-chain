@@ -1,11 +1,16 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders, rawSei, expectJsonRpcError, waitUntil } from '../utils/chainUtils';
+import { bothProviders, rawSei, expectJsonRpcError, JsonRpcEnvelope, waitUntil } from '../utils/chainUtils';
 import { readRuntimeState, RuntimeState, claimPool } from '../utils/testUtils';
 import { EvmAccount } from '../utils/evmUtils';
 import {
+    deployLogBurst,
     deployLogToken,
     drainFilterChanges,
+    emitBursts,
+    expectBurstLogs,
+    pollUntilEmpty,
+    waitForLogsServed,
     assertFilterChangesMatchGetLogs,
     emitLogScene,
     LogScene,
@@ -14,6 +19,7 @@ import {
     TRANSFER_TOPIC,
 } from '../utils/logsUtils';
 import { HASH32 } from '../utils/format';
+import { FILTER_LIMITS } from '../utils/constants';
 
 describe('eth_getFilterChanges', function () {
     this.timeout(180 * 1000);
@@ -87,6 +93,84 @@ describe('eth_getFilterChanges', function () {
                     a.address.toLowerCase(),
                 ),
             );
+        });
+    });
+
+    describe('log filter (large backlogs)', function () {
+        // A poll scans from its cursor to the head and, when the logs there exceed the caps, halves
+        // the block window until they fit (evmrpc/filter.go getLogsByFiltersWithBackoff), so a
+        // backlog over the cap arrives over several polls instead of failing.
+        this.timeout(5 * 60 * 1000);
+        let burster: EvmAccount;
+
+        before(() => {
+            [burster] = claimPool(runtime, sei, 1, 'eth_getFilterChanges:backlog');
+        });
+
+        it('a filter left unpolled while more than 1000 logs accumulate returns all of them in one poll, then nothing', async () => {
+            const contract = await deployLogBurst(burster);
+            const address = await contract.getAddress();
+            const id = await sei.send('eth_newFilter', [{ address }]);
+
+            const batches = await emitBursts(contract, [600, 600]);
+            await waitForLogsServed(sei, batches[batches.length - 1].blockNumber);
+
+            expectBurstLogs(await sei.send('eth_getFilterChanges', [id]), batches, address, 'the single poll');
+            expect(await sei.send('eth_getFilterChanges', [id]), 'drained').to.deep.equal([]);
+            await sei.send('eth_uninstallFilter', [id]);
+        });
+
+        it(`a backlog over max_log_no_block (${FILTER_LIMITS.maxLogs}) arrives across polls, each under the cap, together complete`, async () => {
+            const contract = await deployLogBurst(burster);
+            const address = await contract.getAddress();
+            const id = await sei.send('eth_newFilter', [{ address }]);
+
+            // Four blocks just under the cap together, plus one log: no block alone exceeds it.
+            const batches = await emitBursts(contract, [...Array(4).fill(FILTER_LIMITS.maxLogs / 4), 1]);
+            await waitForLogsServed(sei, batches[batches.length - 1].blockNumber);
+
+            const deltas = await pollUntilEmpty(sei, id);
+            expect(deltas.length, 'more logs than one poll may return take more than one poll').to.be.greaterThan(1);
+            deltas.forEach((d, i) => expect(d.length, `poll ${i} stays within the cap`).to.be.at.most(FILTER_LIMITS.maxLogs));
+            expectBurstLogs(deltas.flat(), batches, address, 'the polls together');
+            await sei.send('eth_uninstallFilter', [id]);
+        });
+
+        it(`a single block holding more than max_log_no_block logs fails the poll that reaches it, and the filter moves past it`, async () => {
+            // pollLogs: when the poll window has shrunk to one block whose logs alone exceed the
+            // caps, the poll fails with an oversizedBlockError and the cursor moves past that
+            // block (filter.go:1177-1181), so later polls deliver later logs instead of failing
+            // forever. The halving can first reach the empty blocks before it, which poll as [].
+            const contract = await deployLogBurst(burster);
+            const address = await contract.getAddress();
+            const id = await sei.send('eth_newFilter', [{ address }]);
+
+            // ~14.5M gas: one block may hold it (max_gas 35M), but it is over the 10M eth_estimateGas
+            // may simulate, so the limit is set by hand.
+            const [oversized] = await emitBursts(contract, [FILTER_LIMITS.maxLogs + 1], 0, { gasLimit: 20_000_000n });
+            await waitForLogsServed(sei, oversized.blockNumber);
+            const capError = `query matches too many logs: result exceeds the maximum of ${FILTER_LIMITS.maxLogs} logs`;
+
+            let failed: JsonRpcEnvelope | undefined;
+            for (let poll = 0; poll < 20 && !failed; poll++) {
+                const res = await rawSei<any[]>('eth_getFilterChanges', [id]);
+                if (res.error) failed = res;
+                else expect(res.result, `poll ${poll} before the oversized block`).to.deep.equal([]);
+            }
+            expect(failed, 'a poll reaches the oversized block').to.not.equal(undefined);
+            expectJsonRpcError(failed!, -32000, new RegExp(`logs of block ${oversized.blockNumber} skipped: ${capError}`));
+
+            const [later] = await emitBursts(contract, [3], 1);
+            await waitForLogsServed(sei, later.blockNumber);
+            expectBurstLogs(await sei.send('eth_getFilterChanges', [id]), [later], address, 'the poll after the oversized block');
+            expect(await sei.send('eth_getFilterChanges', [id]), 'drained, without the error again').to.deep.equal([]);
+
+            // A history read over the block fails as a whole, as eth_getLogs does.
+            const at = ethers.toQuantity(oversized.blockNumber);
+            const history = await sei.send('eth_newFilter', [{ address, fromBlock: at, toBlock: at }]);
+            expectJsonRpcError(await rawSei('eth_getFilterLogs', [history]), -32000, new RegExp(capError));
+            expectJsonRpcError(await rawSei('eth_getLogs', [{ address, fromBlock: at, toBlock: at }]), -32000, new RegExp(capError));
+            await Promise.all([id, history].map(f => sei.send('eth_uninstallFilter', [f])));
         });
     });
 
@@ -182,6 +266,7 @@ describe('eth_getFilterChanges', function () {
 
             await sei.send('eth_uninstallFilter', [id]);
         });
+
     });
 
     describe('wrong params / error handling', () => {

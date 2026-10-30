@@ -2,7 +2,8 @@ import util from 'node:util';
 import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { EvmAccount, abiOf, deployContract } from './evmUtils';
-import { ADDRESS_LOWER, HASH32, HEX_DATA, HEX_QUANTITY, OPAQUE_HEX_ID, addressWord } from './format';
+import { ADDRESS_LOWER, HASH32, HEX_DATA, HEX_QUANTITY, OPAQUE_HEX_ID, addressWord, uint256Word } from './format';
+import { waitUntil } from './chainUtils';
 import { DOCKER_NODE, SEID_ENV, STAKING_PRECOMPILE_ADDRESS } from './constants';
 
 const exec = util.promisify(require('node:child_process').exec);
@@ -315,6 +316,124 @@ export async function deployLogToken(
     );
     const token = new ethers.Contract(address, ERC20_LOG_IFACE, deployer.wallet);
     return { address, token };
+}
+
+export const BURST_IFACE = new ethers.Interface(abiOf('LogBurst.sol', 'LogBurst'));
+export const BURST_TOPIC = BURST_IFACE.getEvent('Burst')!.topicHash;
+
+/** One LogBurst.burst transaction: `count` Burst(batch, 0..count-1) logs in `blockNumber`. */
+export interface BurstBatch {
+    batch: number;
+    count: number;
+    blockNumber: number;
+}
+
+export interface BurstScene {
+    address: string;
+    batches: BurstBatch[];
+    firstBlock: number;
+    lastBlock: number;
+    total: number;
+}
+
+/** Deploy a LogBurst that has emitted nothing yet. */
+export async function deployLogBurst(deployer: EvmAccount): Promise<ethers.Contract> {
+    const { address } = await deployContract(deployer, 'LogBurst.sol', [], 'LogBurst');
+    return new ethers.Contract(address, BURST_IFACE, deployer.wallet);
+}
+
+/**
+ * Emit `counts[i]` logs in batch `firstBatch + i`, one transaction each. Each transaction is sent
+ * only after the previous one is mined, so every batch lands in a later block than the one before
+ * and a numeric block range selects whole batches. Pass `gasLimit` for a burst above what
+ * eth_estimateGas may simulate (evm.simulation_gas_limit, 10M by default).
+ */
+export async function emitBursts(
+    contract: ethers.Contract,
+    counts: number[],
+    firstBatch = 0,
+    opts: { gasLimit?: bigint } = {},
+): Promise<BurstBatch[]> {
+    const batches: BurstBatch[] = [];
+    for (const [i, count] of counts.entries()) {
+        const batch = firstBatch + i;
+        const overrides = opts.gasLimit === undefined ? {} : { gasLimit: opts.gasLimit };
+        const receipt = await (await contract.burst(batch, count, overrides)).wait();
+        expect(receipt!.status, `burst(${batch}, ${count})`).to.equal(1);
+        expect(receipt!.logs, `burst(${batch}) emitted ${count} logs`).to.have.lengthOf(count);
+        batches.push({ batch, count, blockNumber: receipt!.blockNumber });
+    }
+    return batches;
+}
+
+/** Deploy a LogBurst and emit `counts` through it (see emitBursts). */
+export async function emitBurstScene(deployer: EvmAccount, counts: number[]): Promise<BurstScene> {
+    const contract = await deployLogBurst(deployer);
+    const batches = await emitBursts(contract, counts);
+    return {
+        address: await contract.getAddress(),
+        batches,
+        firstBlock: batches[0].blockNumber,
+        lastBlock: batches[batches.length - 1].blockNumber,
+        total: counts.reduce((sum, c) => sum + c, 0),
+    };
+}
+
+/** The indexed batch topic of a Burst log. */
+export const burstBatchTopic = (batch: number): string => uint256Word(BigInt(batch));
+
+/** The Burst batches whose block lies in [from, to]. */
+export const burstsInRange = (scene: BurstScene, from: number, to: number): BurstBatch[] =>
+    scene.batches.filter(b => b.blockNumber >= from && b.blockNumber <= to);
+
+/**
+ * Wait until the RPC serves logs of `block`. A filter reads the same height bound as eth_getLogs,
+ * which refuses a toBlock past it (ComputeBlockBounds), so once eth_getLogs ending at `block`
+ * answers, a poll made afterwards covers that block.
+ */
+export async function waitForLogsServed(provider: ethers.JsonRpcProvider, block: number): Promise<void> {
+    const at = ethers.toQuantity(block);
+    await waitUntil(
+        async () => {
+            await provider.send('eth_getLogs', [{ fromBlock: at, toBlock: at, address: ethers.ZeroAddress }]);
+            return true;
+        },
+        { timeoutMs: 15_000, label: `logs of block ${block} to be served` },
+    );
+}
+
+/**
+ * Assert `logs` are exactly the Burst logs `batches` emitted from `address`: each (batch, seq)
+ * once, none missing, ordered by (blockNumber, logIndex). The expectation is what was emitted,
+ * not another RPC's answer.
+ */
+export function expectBurstLogs(logs: any[], batches: BurstBatch[], address: string, ctx = 'logs'): void {
+    const expected = batches.flatMap(b => Array.from({ length: b.count }, (_, seq) => `${b.blockNumber}:${b.batch}:${seq}`));
+    const got = logs.map((l: any) => {
+        expect(l.address, `${ctx}: emitter`).to.equal(address.toLowerCase());
+        const parsed = BURST_IFACE.parseLog(l);
+        expect(parsed?.name, `${ctx}: event`).to.equal('Burst');
+        return `${Number(BigInt(l.blockNumber))}:${Number(parsed!.args.batch)}:${Number(parsed!.args.seq)}`;
+    });
+    expect(got.length, `${ctx}: count`).to.equal(expected.length);
+    expect(new Set(got).size, `${ctx}: no duplicates`).to.equal(got.length);
+    expect(got, `${ctx}: every emitted log, in emission order`).to.deep.equal(expected);
+    for (let k = 1; k < logs.length; k++) {
+        const [b, i] = [BigInt(logs[k].blockNumber), BigInt(logs[k].logIndex)];
+        const [pb, pi] = [BigInt(logs[k - 1].blockNumber), BigInt(logs[k - 1].logIndex)];
+        expect(b > pb || (b === pb && i > pi), `${ctx}[${k}] follows ${ctx}[${k - 1}] in (blockNumber, logIndex)`).to.equal(true);
+    }
+}
+
+/** Poll eth_getFilterChanges until a poll comes back empty; returns the non-empty deltas in order. */
+export async function pollUntilEmpty(provider: ethers.JsonRpcProvider, filterId: string, maxPolls = 20): Promise<any[][]> {
+    const deltas: any[][] = [];
+    for (let i = 0; i < maxPolls; i++) {
+        const delta = await provider.send('eth_getFilterChanges', [filterId]);
+        if (delta.length === 0) return deltas;
+        deltas.push(delta);
+    }
+    return expect.fail(`filter ${filterId} still returned logs after ${maxPolls} polls`);
 }
 
 /** Assert a single eth_getLogs entry carries the canonical schema with valid types. */
