@@ -4,7 +4,6 @@ package gigasim
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -634,15 +633,11 @@ func (g *GigaSim) teardown() {
 // closePipeline stops the executor pool and releases every database, in the order the stores require:
 // the executors stop reading first, then the state read view closes, because the commit store cannot
 // release the reference it holds while a view is open, and the storage manager closes last.
-//
-// The app hash of the last block committed is stored before storage closes. A restart rolls every
-// store back to the newest app hash, and agreedNextBlockNumber refuses a block store left ahead of state.
 func (g *GigaSim) closePipeline() error {
 	g.cancel()
 	g.stopExecutors()
 	g.state.Close()
-	err := awaitStoredAppHash(g.storage)
-	err = errors.Join(err, g.storage.Close())
+	err := g.storage.Close()
 	g.stopStorage()
 	return err
 }
