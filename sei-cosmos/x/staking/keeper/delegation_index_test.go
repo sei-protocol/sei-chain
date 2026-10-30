@@ -455,12 +455,17 @@ func (suite *KeeperTestSuite) TestGRPCQueryValidatorDelegationsScanCursorAfterIn
 // TestGRPCQueryValidatorDelegationsOrphanIndexEntry pins that an index entry without
 // its delegation fails the query rather than panicking it.
 func (suite *KeeperTestSuite) TestGRPCQueryValidatorDelegationsOrphanIndexEntry() {
-	app, ctx := suite.app, suite.ctx
-	suite.Require().True(app.StakingKeeper.DelegationByValIndexReady(ctx))
-	valAddr := suite.vals[0].GetOperator()
-	ctx.KVStore(app.StakingKeeper.GetStoreKey()).Set(types.GetDelegationByValIndexKey(delegatorAt(0x00, 1), valAddr), []byte{})
+	for _, abciQuery := range []bool{false, true} {
+		suite.Run(fmt.Sprintf("abciQuery=%v", abciQuery), func() {
+			suite.SetupTest()
+			app, ctx := suite.app, suite.ctx.WithIsABCIQuery(abciQuery)
+			suite.Require().True(app.StakingKeeper.DelegationByValIndexReady(ctx))
+			valAddr := suite.vals[0].GetOperator()
+			ctx.KVStore(app.StakingKeeper.GetStoreKey()).Set(types.GetDelegationByValIndexKey(delegatorAt(0x00, 1), valAddr), []byte{})
 
-	querier := keeper.Querier{Keeper: app.StakingKeeper}
-	_, err := querier.ValidatorDelegations(sdk.WrapSDKContext(ctx), &types.QueryValidatorDelegationsRequest{ValidatorAddr: valAddr.String()})
-	suite.Require().Equal(codes.Internal, status.Code(err))
+			querier := keeper.Querier{Keeper: app.StakingKeeper}
+			_, err := querier.ValidatorDelegations(sdk.WrapSDKContext(ctx), &types.QueryValidatorDelegationsRequest{ValidatorAddr: valAddr.String()})
+			suite.Require().Equal(codes.Internal, status.Code(err))
+		})
+	}
 }
