@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/big"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -25,7 +27,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/seilog"
@@ -218,7 +219,9 @@ type filter struct {
 	lastAccess time.Time
 
 	// BlocksSubscription
-	blockCursor string
+	// blockCursor is the cursor blockHashesFrom takes: the first block height the filter's next
+	// poll returns, when no blockHeaderNotifier feeds blockHashes.
+	blockCursor int64
 	blockHashes []common.Hash
 
 	// LogsSubscription
@@ -500,6 +503,28 @@ func (a *FilterAPI) updateFilterAccess(filterID ethrpc.ID) {
 	}
 }
 
+// advanceFilterCursor moves a polling filter's cursor forward to cursor, and never back. Callers
+// apply it to the cursor a poll returns before they check the poll's error: a poll that fails on
+// blocks it cannot serve returns a cursor past them. Concurrent polls of one filter read the same
+// cursor and may return the same blocks; keeping the furthest cursor stops a slower poll from
+// delivering them yet again.
+func (a *FilterAPI) advanceFilterCursor(filterID ethrpc.ID, cursor int64) {
+	a.filtersMu.Lock()
+	defer a.filtersMu.Unlock()
+
+	f, exists := a.filters[filterID]
+	if !exists {
+		return
+	}
+	switch f.typ {
+	case BlocksSubscription:
+		f.blockCursor = max(f.blockCursor, cursor)
+	case LogsSubscription:
+		f.logCursor = max(f.logCursor, cursor)
+	}
+	a.filters[filterID] = f
+}
+
 const NewFilterMethod = "newFilter"
 
 func (a *FilterAPI) NewFilter(
@@ -540,13 +565,23 @@ func (a *FilterAPI) NewBlockFilter(
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_newBlockFilter", a.namespace), a.connectionType, startTime, err, recover())
 	}()
 
+	var start int64
+	if a.blockHeaderNotifier == nil {
+		earliest, _, head, err := a.logFetcher.watermarks.Watermarks(ctx)
+		if err != nil {
+			return "", err
+		}
+		// On a state-synced node the block store can begin above the safe latest height.
+		start = max(head+1, earliest)
+	}
+
 	_, cancel := context.WithCancel(a.shutdownCtx)
 
 	curFilterID, err := a.addFilter(filter{
 		typ:         BlocksSubscription,
 		cancelFunc:  cancel,
 		lastAccess:  time.Now(),
-		blockCursor: "",
+		blockCursor: start,
 	})
 	if err != nil {
 		cancel()
@@ -595,34 +630,15 @@ func (a *FilterAPI) GetFilterChanges(
 		if a.blockHeaderNotifier != nil {
 			return a.takeBlockHashes(filterID)
 		}
-		hashes, cursor, err := a.getBlockHeadersAfter(ctx, filter.blockCursor)
+		hashes, cursor, err := a.blockHashesFrom(ctx, filter.blockCursor)
+		a.advanceFilterCursor(filterID, cursor)
 		if err != nil {
 			return nil, err
 		}
-
-		// Update filter with write lock
-		a.filtersMu.Lock()
-		if updatedFilter, exists := a.filters[filterID]; exists {
-			updatedFilter.blockCursor = cursor
-			a.filters[filterID] = updatedFilter
-		}
-		a.filtersMu.Unlock()
-
 		return hashes, nil
 	case LogsSubscription:
 		logs, cursor, err := a.logFetcher.pollLogs(ctx, filter.fc, filter.logCursor)
-
-		// Update filter with write lock, also when the poll failed, as a poll that fails on a
-		// block it cannot serve moves the cursor past it. A concurrent poll of the same filter
-		// may have advanced the cursor further, and moving it back would deliver those blocks
-		// again.
-		a.filtersMu.Lock()
-		if updatedFilter, exists := a.filters[filterID]; exists && cursor > updatedFilter.logCursor {
-			updatedFilter.logCursor = cursor
-			a.filters[filterID] = updatedFilter
-		}
-		a.filtersMu.Unlock()
-
+		a.advanceFilterCursor(filterID, cursor)
 		if err != nil {
 			return nil, err
 		}
@@ -651,7 +667,7 @@ func (a *FilterAPI) GetFilterLogs(
 	filter, ok := a.filters[filterID]
 	a.filtersMu.RUnlock()
 
-	if !ok {
+	if !ok || filter.typ != LogsSubscription {
 		return nil, errors.New("filter does not exist")
 	}
 
@@ -741,42 +757,84 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 	return logs, nil
 }
 
-// get block headers after a certain cursor. Can use an empty string cursor
-// to get the latest block header.
-func (a *FilterAPI) getBlockHeadersAfter(
-	ctx context.Context,
-	cursor string,
-) ([]common.Hash, string, error) {
-	q := NewBlockQueryBuilder()
-	builtQuery := q.Build()
-	hasMore := true
-	headers := []common.Hash{}
-	for hasMore {
-		res, err := a.tmClient.Events(ctx, &coretypes.RequestEvents{
-			Filter: &coretypes.EventFilter{Query: builtQuery},
-			After:  cursor,
-		})
-		if err != nil {
-			return nil, "", err
-		}
-		hasMore = res.More
-		cursor = res.Newest
-
-		for _, item := range res.Items {
-			wrapper := EventItemDataWrapper{}
-			err := json.Unmarshal(item.Data, &wrapper)
-			if err != nil {
-				return nil, "", err
-			}
-			block := tmtypes.EventDataNewBlock{}
-			err = json.Unmarshal(wrapper.Value, &block)
-			if err != nil {
-				return nil, "", err
-			}
-			headers = append(headers, common.BytesToHash(block.Block.Hash()))
-		}
+// blockHashesFrom returns the hashes of the blocks from cursor on, oldest first, and the cursor the
+// next poll starts from, also when it returns an error. A poll covers at most maxBlockFilterHashes
+// heights up to the safe latest height, which must not exceed the block store's height. A cursor
+// below the earliest available block, found before or during the poll, fails it with an error
+// naming the pruned blocks, and the returned cursor is that block. It reads the CometBFT block
+// store, so it serves only nodes without a blockHeaderNotifier.
+func (a *FilterAPI) blockHashesFrom(ctx context.Context, cursor int64) ([]common.Hash, int64, error) {
+	earliest, _, head, err := a.logFetcher.watermarks.Watermarks(ctx)
+	if err != nil {
+		return nil, cursor, err
 	}
-	return headers, cursor, nil
+	if cursor < earliest {
+		return nil, earliest, prunedBlocksError(cursor, earliest)
+	}
+	// #nosec G115 -- min with math.MaxInt32 fits the cap in an int64 with room for cursor+span-1 below
+	span := int64(min(a.filterConfig.maxBlockFilterHashes, math.MaxInt32))
+	to := min(head, cursor+span-1)
+	if to < cursor {
+		return []common.Hash{}, cursor, nil
+	}
+	hashes, err := a.blockHashesDescending(ctx, cursor, to)
+	if errors.Is(err, coretypes.ErrInvalidRequest) {
+		return a.prunedDuringPoll(ctx, cursor, err)
+	}
+	if err != nil {
+		return nil, cursor, err
+	}
+	slices.Reverse(hashes)
+	return hashes, to + 1, nil
+}
+
+// prunedDuringPoll returns the result of a poll from cursor whose block store read failed with
+// err. When pruning passed the cursor during the poll, it fails with an error naming the pruned
+// blocks and returns the earliest available block as the next cursor, as a poll that found them
+// pruned beforehand does; otherwise it returns err and leaves the cursor where it was.
+func (a *FilterAPI) prunedDuringPoll(ctx context.Context, cursor int64, err error) ([]common.Hash, int64, error) {
+	earliest, _, _, wmErr := a.logFetcher.watermarks.Watermarks(ctx)
+	if wmErr != nil || cursor >= earliest {
+		return nil, cursor, err
+	}
+	return nil, earliest, prunedBlocksError(cursor, earliest)
+}
+
+// prunedBlocksError reports that the blocks from cursor up to earliest were pruned before a block
+// filter read them.
+func prunedBlocksError(cursor, earliest int64) error {
+	return fmt.Errorf("blocks %d to %d were pruned before the filter read them", cursor, earliest-1)
+}
+
+// blockHashesDescending returns the hashes of the blocks the block store holds from height from to
+// height to, newest first. It pages through BlockchainInfo by the heights each page returns.
+func (a *FilterAPI) blockHashesDescending(ctx context.Context, from, to int64) ([]common.Hash, error) {
+	hashes := make([]common.Hash, 0, min(to-from+1, DefaultMaxBlockFilterHashes))
+	for hi := to; hi >= from; {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		res, err := a.tmClient.BlockchainInfo(ctx, from, hi)
+		if err != nil {
+			return nil, fmt.Errorf("fetching block headers %d to %d: %w", from, hi, err)
+		}
+		if len(res.BlockMetas) == 0 {
+			// The CometBFT block store has no holes between its base and height, so this guards
+			// another provider: the page below hi holds no block, and its size is the provider's
+			// to choose, so only hi is known to be missing.
+			hi--
+			continue
+		}
+		for _, meta := range res.BlockMetas {
+			hashes = append(hashes, common.BytesToHash(meta.BlockID.Hash))
+		}
+		lowest := res.BlockMetas[len(res.BlockMetas)-1].Header.Height
+		if lowest > hi || lowest < from {
+			return nil, fmt.Errorf("block headers %d to %d returned block %d", from, hi, lowest)
+		}
+		hi = lowest - 1
+	}
+	return hashes, nil
 }
 
 func (a *FilterAPI) UninstallFilter(

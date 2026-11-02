@@ -16,14 +16,6 @@ func NewHeadQueryBuilder() *QueryBuilder {
 	}
 }
 
-func NewBlockQueryBuilder() *QueryBuilder {
-	return &QueryBuilder{
-		conditions: []string{
-			"tm.event = 'NewBlock'",
-		},
-	}
-}
-
 func (q *QueryBuilder) Build() string {
 	return strings.Join(q.conditions, " AND ")
 }

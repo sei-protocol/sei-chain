@@ -48,12 +48,14 @@ func writeBlockLedger(t *testing.T, manager *bootstrap.GigaStorageManager, throu
 	}
 }
 
-// executeBlocks commits state and receipts for blocks [from, through], as executing them would.
+// executeBlocks commits state and receipts for blocks [from, through], and submits an empty receipt list for each to
+// the receipt hasher.
 func executeBlocks(t *testing.T, manager *bootstrap.GigaStorageManager, ctx sdk.Context, from, through uint64) {
 	t.Helper()
 	for block := from; block <= through; block++ {
 		height := int64(block) //nolint:gosec // small test heights
 		require.NoError(t, manager.StateDB().CommitStateChanges(height, nonceChange(block)))
+		require.NoError(t, manager.ReceiptHasher().Submit(t.Context(), block, nil))
 		require.NoError(t, manager.ReceiptDB().SetReceipts(ctx.WithBlockHeight(height),
 			[]receipt.ReceiptRecord{litReceipt(block, 0, startupAddr, startupTopic)}))
 	}
