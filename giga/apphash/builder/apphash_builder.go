@@ -6,9 +6,9 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 )
 
-// AppHashBuilder computes the app hash of each block from inputs reported independently, and publishes the app
-// hashes in block order. App hashes start at the giga activation height, which must be a global chain configuration
-// value. No app hash is published below the giga activation height.
+// AppHashBuilder computes the app hash of each block from inputs reported independently, and serves the app hashes
+// by block height. In order to provide protection against equivocation, it never reveals an app hash before it is
+// durable (for a configurable definition of durable).
 type AppHashBuilder interface {
 
 	// Reports the hash of the block.
@@ -52,7 +52,22 @@ type AppHashBuilder interface {
 	// methods.
 	ReportReceiptHash(ctx context.Context, blockHeight uint64, receiptHash apphash.ReceiptHash) error
 
-	// Marks the end of startup, which publishes the app hashes through blockHeight.
+	// Returns the app hash of the block, or nil if it is not available yet. An available app hash never changes.
+	// Reading blocks in ascending order is cheap; reading them in random order is expensive.
+	//
+	// Errors if called before SetupComplete(), if blockHeight is below the giga activation height or has been
+	// pruned, or once the builder stops.
+	GetAppHash(blockHeight uint64) (*apphash.AppHashData, error)
+
+	// Returns the app hash of the block, blocking until it is available. May be called before SetupComplete(). An
+	// available app hash never changes. Reading blocks in ascending order is cheap; reading them in random order is
+	// expensive.
+	//
+	// Errors if ctx is cancelled, if blockHeight is below the giga activation height or has been pruned, or once
+	// the builder stops.
+	AwaitAppHash(ctx context.Context, blockHeight uint64) (*apphash.AppHashData, error)
+
+	// Marks the end of startup. Afterwards, the app hash of every block through blockHeight is available.
 	//
 	// Must be called once, after every call made during startup to the methods that report hashes (i.e. the
 	// Report*() methods), though some of them may never have been called. Afterwards, each Report*() method's next
@@ -64,27 +79,8 @@ type AppHashBuilder interface {
 		blockHeight uint64,
 	) error
 
-	// Registers listener to receive, in block order, every app hash published after the one returned.
-	//
-	// Returns the newest published app hash, or nil if none has been published (this is possible if the builder
-	// is started at a block height below the giga activation height). A published app hash never changes.
-	// Errors if listener is nil, or if called before SetupComplete().
-	RegisterListener(
-		ctx context.Context,
-		// Called once the app hash is stored; the store is durable only if the builder's configuration requests
-		// it. It may delay later app hashes while it runs, and it must not call the builder.
-		listener func(appHash *apphash.AppHashData),
-	) (*apphash.AppHashData, error)
-
-	// Returns an iterator over the published app hashes from startingBlockHeight through the newest one. No app
-	// hash exists below the giga activation height, so iteration from a lower height starts there.
-	//
-	// A published app hash never changes. Errors if called before SetupComplete(), or if startingBlockHeight has
-	// been pruned. The iterator errors once the builder stops.
-	Iterator(ctx context.Context, startingBlockHeight uint64) (apphash.AppHashIterator, error)
-
-	// Stores and publishes the app hash of every block whose inputs were all reported before the call, then stops
-	// the builder and returns once its resources are released. A report made concurrently with the call may or may
-	// not be stored. A builder stopped by an error stores nothing more. Every iterator must be closed first.
+	// Stores the app hash of every block whose inputs were all reported before the call, then stops the builder and
+	// returns once its resources are released. A report made concurrently with the call may or may not be stored. A
+	// builder stopped by an error stores nothing more.
 	Close() error
 }

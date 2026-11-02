@@ -151,59 +151,40 @@ func reportInputBlocks(t *testing.T, b AppHashBuilder, input hashInput, first ui
 	}
 }
 
-// registerListener registers a listener and returns the app hash RegisterListener() returned along with a channel
-// receiving every app hash passed to the listener.
-func registerListener(t *testing.T, b AppHashBuilder) (*apphash.AppHashData, <-chan *apphash.AppHashData) {
+// awaitAppHashes waits for the app hashes of blocks first through last to be published, and returns them.
+func awaitAppHashes(t *testing.T, b AppHashBuilder, first uint64, last uint64) []*apphash.AppHashData {
 	t.Helper()
-	published := make(chan *apphash.AppHashData, 1024)
-	anchor, err := b.RegisterListener(context.Background(), func(appHash *apphash.AppHashData) {
-		published <- appHash
-	})
-	require.NoError(t, err)
-	return anchor, published
-}
-
-// receive returns the next count app hashes from published.
-func receive(t *testing.T, published <-chan *apphash.AppHashData, count int) []*apphash.AppHashData {
-	t.Helper()
-	received := make([]*apphash.AppHashData, 0, count)
-	for len(received) < count {
-		select {
-		case appHash := <-published:
-			received = append(received, appHash)
-		case <-time.After(publishTimeout):
-			require.FailNow(t, "timed out waiting for an app hash",
-				"received %d of %d", len(received), count)
-		}
-	}
-	return received
-}
-
-// requireNothingPublished fails if published receives an app hash within a short wait.
-func requireNothingPublished(t *testing.T, published <-chan *apphash.AppHashData) {
-	t.Helper()
-	select {
-	case appHash := <-published:
-		require.FailNow(t, "unexpected app hash", "block %d", appHash.BlockHeight())
-	case <-time.After(100 * time.Millisecond):
-	}
-}
-
-// iterateAll returns every app hash the builder iterates from start.
-func iterateAll(t *testing.T, b AppHashBuilder, start uint64) []*apphash.AppHashData {
-	t.Helper()
-	it, err := b.Iterator(context.Background(), start)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, it.Close()) }()
-	var appHashes []*apphash.AppHashData
-	for {
-		ok, err := it.Next()
+	ctx, cancel := context.WithTimeout(context.Background(), publishTimeout)
+	defer cancel()
+	appHashes := make([]*apphash.AppHashData, 0, last-first+1)
+	for height := first; height <= last; height++ {
+		appHash, err := b.AwaitAppHash(ctx, height)
 		require.NoError(t, err)
-		if !ok {
-			return appHashes
-		}
-		appHashes = append(appHashes, it.Entry())
+		appHashes = append(appHashes, appHash)
 	}
+	return appHashes
+}
+
+// readAppHashes returns the published app hashes of blocks first through last, failing if any is not published.
+func readAppHashes(t *testing.T, b AppHashBuilder, first uint64, last uint64) []*apphash.AppHashData {
+	t.Helper()
+	appHashes := make([]*apphash.AppHashData, 0, last-first+1)
+	for height := first; height <= last; height++ {
+		appHash, err := b.GetAppHash(height)
+		require.NoError(t, err)
+		require.NotNil(t, appHash, "the app hash of block %d is not published", height)
+		appHashes = append(appHashes, appHash)
+	}
+	return appHashes
+}
+
+// requireNotPublished fails if the app hash of blockHeight is published within a short wait.
+func requireNotPublished(t *testing.T, b AppHashBuilder, blockHeight uint64) {
+	t.Helper()
+	time.Sleep(100 * time.Millisecond)
+	appHash, err := b.GetAppHash(blockHeight)
+	require.NoError(t, err)
+	require.Nil(t, appHash, "unexpected app hash of block %d", blockHeight)
 }
 
 // requireSameAppHashes fails unless expected and actual hold the same app hash data in the same order.
@@ -229,42 +210,39 @@ func buildChain(t *testing.T, dir string, last uint64) {
 	t.Helper()
 	b := openTestBuilder(t, dir, testChainID, 1)
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
-	_, published := registerListener(t, b)
 	reportBlocks(t, b, 1, last)
-	receive(t, published, int(last))
+	awaitAppHashes(t, b, 1, last)
 	require.NoError(t, closeBuilder(b))
 }
 
 func TestBuildsChainFromEmptyVault(t *testing.T) {
 	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
-	anchor, published := registerListener(t, b)
-	require.Nil(t, anchor)
+	requireNotPublished(t, b, 1)
 
 	reportBlocks(t, b, 1, 10)
 	expected := expectedChain(1, 1, 10)
-	requireSameAppHashes(t, expected, receive(t, published, 10))
-	requireSameAppHashes(t, expected, iterateAll(t, b, 1))
-	requireSameAppHashes(t, expected[4:], iterateAll(t, b, 5))
+	requireSameAppHashes(t, expected, awaitAppHashes(t, b, 1, 10))
+	requireSameAppHashes(t, expected, readAppHashes(t, b, 1, 10))
+	requireSameAppHashes(t, expected[4:], readAppHashes(t, b, 5, 10))
 }
 
 func TestWaitsForEveryInput(t *testing.T) {
 	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
-	_, published := registerListener(t, b)
 
 	// Each input reports its blocks in a burst, so the inputs run far apart.
 	reportInputBlocks(t, b, stateHashInput, 1, 5)
 	reportInputBlocks(t, b, blockHashInput, 1, 5)
 	reportInputBlocks(t, b, budHashInput, 1, 5)
-	requireNothingPublished(t, published)
+	requireNotPublished(t, b, 1)
 
 	reportInputBlocks(t, b, receiptHashInput, 1, 3)
-	requireSameAppHashes(t, expectedChain(1, 1, 3), receive(t, published, 3))
-	requireNothingPublished(t, published)
+	requireSameAppHashes(t, expectedChain(1, 1, 3), awaitAppHashes(t, b, 1, 3))
+	requireNotPublished(t, b, 4)
 
 	reportInputBlocks(t, b, receiptHashInput, 4, 5)
-	requireSameAppHashes(t, expectedChain(1, 4, 5), receive(t, published, 2))
+	requireSameAppHashes(t, expectedChain(1, 4, 5), awaitAppHashes(t, b, 4, 5))
 }
 
 func TestPublishedAppHashesSurviveRestart(t *testing.T) {
@@ -273,13 +251,12 @@ func TestPublishedAppHashesSurviveRestart(t *testing.T) {
 
 	b := openTestBuilder(t, dir, testChainID, 1)
 	require.NoError(t, b.SetupComplete(context.Background(), 5))
-	anchor, published := registerListener(t, b)
-	requireSameAppHashes(t, expectedChain(1, 5, 5), []*apphash.AppHashData{anchor})
-	requireSameAppHashes(t, expectedChain(1, 1, 5), iterateAll(t, b, 1))
+	requireSameAppHashes(t, expectedChain(1, 1, 5), readAppHashes(t, b, 1, 5))
+	requireNotPublished(t, b, 6)
 
 	reportBlocks(t, b, 6, 8)
-	requireSameAppHashes(t, expectedChain(1, 6, 8), receive(t, published, 3))
-	requireSameAppHashes(t, expectedChain(1, 1, 8), iterateAll(t, b, 1))
+	requireSameAppHashes(t, expectedChain(1, 6, 8), awaitAppHashes(t, b, 6, 8))
+	requireSameAppHashes(t, expectedChain(1, 1, 8), readAppHashes(t, b, 1, 8))
 }
 
 func TestStartupReplayMatchingStoredAppHashes(t *testing.T) {
@@ -290,11 +267,11 @@ func TestStartupReplayMatchingStoredAppHashes(t *testing.T) {
 	// Replay that reaches the newest stored block on every input, and replay of a single input.
 	reportBlocks(t, b, 4, 10)
 	require.NoError(t, b.SetupComplete(context.Background(), 10))
-	anchor, published := registerListener(t, b)
-	requireSameAppHashes(t, expectedChain(1, 10, 10), []*apphash.AppHashData{anchor})
+	requireSameAppHashes(t, expectedChain(1, 10, 10), readAppHashes(t, b, 10, 10))
+	requireNotPublished(t, b, 11)
 
 	reportBlocks(t, b, 11, 12)
-	requireSameAppHashes(t, expectedChain(1, 11, 12), receive(t, published, 2))
+	requireSameAppHashes(t, expectedChain(1, 11, 12), awaitAppHashes(t, b, 11, 12))
 }
 
 func TestStartupReplayOfOneInput(t *testing.T) {
@@ -304,9 +281,8 @@ func TestStartupReplayOfOneInput(t *testing.T) {
 	b := openTestBuilder(t, dir, testChainID, 1)
 	reportInputBlocks(t, b, stateHashInput, 6, 10)
 	require.NoError(t, b.SetupComplete(context.Background(), 10))
-	_, published := registerListener(t, b)
 	reportBlocks(t, b, 11, 11)
-	requireSameAppHashes(t, expectedChain(1, 11, 11), receive(t, published, 1))
+	requireSameAppHashes(t, expectedChain(1, 11, 11), awaitAppHashes(t, b, 11, 11))
 }
 
 func TestSetupStoresBlocksAboveVault(t *testing.T) {
@@ -317,12 +293,11 @@ func TestSetupStoresBlocksAboveVault(t *testing.T) {
 	// Inputs replay blocks the vault already holds, then blocks it does not.
 	reportBlocks(t, b, 3, 8)
 	require.NoError(t, b.SetupComplete(context.Background(), 8))
-	anchor, published := registerListener(t, b)
-	requireSameAppHashes(t, expectedChain(1, 8, 8), []*apphash.AppHashData{anchor})
-	requireSameAppHashes(t, expectedChain(1, 1, 8), iterateAll(t, b, 1))
+	requireSameAppHashes(t, expectedChain(1, 1, 8), readAppHashes(t, b, 1, 8))
+	requireNotPublished(t, b, 9)
 
 	reportBlocks(t, b, 9, 9)
-	requireSameAppHashes(t, expectedChain(1, 9, 9), receive(t, published, 1))
+	requireSameAppHashes(t, expectedChain(1, 9, 9), awaitAppHashes(t, b, 9, 9))
 }
 
 func TestSetupDiscardsReportsAboveStorageHeight(t *testing.T) {
@@ -333,11 +308,11 @@ func TestSetupDiscardsReportsAboveStorageHeight(t *testing.T) {
 	// Inputs report beyond the height the storage layer settles on, then report those blocks again.
 	reportBlocks(t, b, 6, 9)
 	require.NoError(t, b.SetupComplete(context.Background(), 7))
-	anchor, published := registerListener(t, b)
-	requireSameAppHashes(t, expectedChain(1, 7, 7), []*apphash.AppHashData{anchor})
+	requireSameAppHashes(t, expectedChain(1, 7, 7), readAppHashes(t, b, 7, 7))
+	requireNotPublished(t, b, 8)
 
 	reportBlocks(t, b, 8, 9)
-	requireSameAppHashes(t, expectedChain(1, 8, 9), receive(t, published, 2))
+	requireSameAppHashes(t, expectedChain(1, 8, 9), awaitAppHashes(t, b, 8, 9))
 }
 
 func TestSetupFailsWhenABlockCannotBeComputed(t *testing.T) {
@@ -350,7 +325,7 @@ func TestSetupFailsWhenABlockCannotBeComputed(t *testing.T) {
 	reportInputBlocks(t, b, budHashInput, 6, 8)
 	require.Error(t, b.SetupComplete(context.Background(), 8))
 
-	_, err := b.RegisterListener(context.Background(), func(*apphash.AppHashData) {})
+	_, err := b.GetAppHash(1)
 	require.Error(t, err)
 	require.Error(t, b.ReportBlockHash(context.Background(), 9, [32]byte{}))
 }
@@ -361,13 +336,13 @@ func TestStoredBlocksAboveStorageHeightAreRebuilt(t *testing.T) {
 
 	b := openTestBuilder(t, dir, testChainID, 1)
 	require.NoError(t, b.SetupComplete(context.Background(), 6))
-	anchor, published := registerListener(t, b)
-	requireSameAppHashes(t, expectedChain(1, 6, 6), []*apphash.AppHashData{anchor})
-	requireSameAppHashes(t, expectedChain(1, 1, 6), iterateAll(t, b, 1))
+	requireSameAppHashes(t, expectedChain(1, 1, 6), readAppHashes(t, b, 1, 6))
+	// Stored, but not published until it is rebuilt.
+	requireNotPublished(t, b, 7)
 
 	reportBlocks(t, b, 7, 12)
-	requireSameAppHashes(t, expectedChain(1, 7, 12), receive(t, published, 6))
-	requireSameAppHashes(t, expectedChain(1, 1, 12), iterateAll(t, b, 1))
+	requireSameAppHashes(t, expectedChain(1, 7, 12), awaitAppHashes(t, b, 7, 12))
+	requireSameAppHashes(t, expectedChain(1, 1, 12), readAppHashes(t, b, 1, 12))
 }
 
 func TestInputsBelowGigaActivationHeightAreDiscarded(t *testing.T) {
@@ -375,14 +350,13 @@ func TestInputsBelowGigaActivationHeightAreDiscarded(t *testing.T) {
 	b := openTestBuilder(t, t.TempDir(), testChainID, gigaActivationHeight)
 	reportBlocks(t, b, 3, 8)
 	require.NoError(t, b.SetupComplete(context.Background(), 5))
-	anchor, published := registerListener(t, b)
-	require.Nil(t, anchor)
+	requireNotPublished(t, b, gigaActivationHeight)
 
 	reportBlocks(t, b, 6, 13)
 	expected := expectedChain(gigaActivationHeight, gigaActivationHeight, 13)
 	require.Equal(t, [32]byte{}, expected[0].PreviousAppHash())
-	requireSameAppHashes(t, expected, receive(t, published, 3))
-	requireSameAppHashes(t, expected, iterateAll(t, b, gigaActivationHeight))
+	requireSameAppHashes(t, expected, awaitAppHashes(t, b, gigaActivationHeight, 13))
+	requireSameAppHashes(t, expected, readAppHashes(t, b, gigaActivationHeight, 13))
 }
 
 func TestRestartWithGigaActivationHeight(t *testing.T) {
@@ -390,18 +364,16 @@ func TestRestartWithGigaActivationHeight(t *testing.T) {
 	dir := t.TempDir()
 	b := openTestBuilder(t, dir, testChainID, gigaActivationHeight)
 	require.NoError(t, b.SetupComplete(context.Background(), gigaActivationHeight-1))
-	_, published := registerListener(t, b)
 	reportBlocks(t, b, gigaActivationHeight, gigaActivationHeight+3)
-	receive(t, published, 4)
+	awaitAppHashes(t, b, gigaActivationHeight, gigaActivationHeight+3)
 	require.NoError(t, closeBuilder(b))
 
 	reopened := openTestBuilder(t, dir, testChainID, gigaActivationHeight)
 	require.NoError(t, reopened.SetupComplete(context.Background(), gigaActivationHeight-1))
-	anchor, published := registerListener(t, reopened)
-	require.Nil(t, anchor)
+	requireNotPublished(t, reopened, gigaActivationHeight)
 	reportBlocks(t, reopened, gigaActivationHeight, gigaActivationHeight+4)
 	requireSameAppHashes(t, expectedChain(gigaActivationHeight, gigaActivationHeight, gigaActivationHeight+4),
-		receive(t, published, 5))
+		awaitAppHashes(t, reopened, gigaActivationHeight, gigaActivationHeight+4))
 }
 
 func TestOutOfOrderReportStopsBuilder(t *testing.T) {
@@ -409,7 +381,7 @@ func TestOutOfOrderReportStopsBuilder(t *testing.T) {
 	reportInput(t, b, blockHashInput, 4, 0)
 	reportInput(t, b, blockHashInput, 6, 0)
 
-	_, err := b.RegisterListener(context.Background(), func(*apphash.AppHashData) {})
+	_, err := b.GetAppHash(1)
 	require.Error(t, err)
 	require.Error(t, b.ReportStateHash(context.Background(), 1, [32]byte{}, nil))
 	require.Error(t, b.SetupComplete(context.Background(), 0))
@@ -421,32 +393,20 @@ func TestFirstReportAfterSetupMustFollowStorageHeight(t *testing.T) {
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
 	reportInput(t, b, budHashInput, 4, 0)
 
-	_, err := b.RegisterListener(context.Background(), func(*apphash.AppHashData) {})
+	_, err := b.GetAppHash(1)
 	require.Error(t, err)
 }
 
 func TestCallsBeforeSetupFail(t *testing.T) {
 	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
-	_, err := b.RegisterListener(context.Background(), func(*apphash.AppHashData) {})
-	require.Error(t, err)
-	_, err = b.Iterator(context.Background(), 1)
+	_, err := b.GetAppHash(1)
 	require.Error(t, err)
 
-	// Neither call stops the builder.
+	// The call does not stop the builder.
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
-	_, err = b.RegisterListener(context.Background(), func(*apphash.AppHashData) {})
+	appHash, err := b.GetAppHash(1)
 	require.NoError(t, err)
-}
-
-func TestRegisterListenerRejectsNil(t *testing.T) {
-	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
-	require.NoError(t, b.SetupComplete(context.Background(), 0))
-	_, err := b.RegisterListener(context.Background(), nil)
-	require.Error(t, err)
-
-	// The builder keeps running.
-	_, err = b.RegisterListener(context.Background(), func(*apphash.AppHashData) {})
-	require.NoError(t, err)
+	require.Nil(t, appHash)
 }
 
 func TestSetupCompleteTwiceFails(t *testing.T) {
@@ -455,26 +415,30 @@ func TestSetupCompleteTwiceFails(t *testing.T) {
 	require.Error(t, b.SetupComplete(context.Background(), 0))
 }
 
-func TestIteratorBeyondNewestIsEmpty(t *testing.T) {
+func TestAppHashBeyondNewestIsNil(t *testing.T) {
 	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
-	require.Empty(t, iterateAll(t, b, 1))
+	requireNotPublished(t, b, 1)
 
-	_, published := registerListener(t, b)
 	reportBlocks(t, b, 1, 3)
-	receive(t, published, 3)
-	require.Empty(t, iterateAll(t, b, 4))
-	requireSameAppHashes(t, expectedChain(1, 3, 3), iterateAll(t, b, 3))
+	awaitAppHashes(t, b, 1, 3)
+	requireNotPublished(t, b, 4)
+	requireSameAppHashes(t, expectedChain(1, 3, 3), readAppHashes(t, b, 3, 3))
 }
 
-func TestIteratorFromBelowGigaActivationStartsAtIt(t *testing.T) {
+func TestAppHashBelowGigaActivationFails(t *testing.T) {
 	b := openTestBuilder(t, t.TempDir(), testChainID, 3)
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
-	_, published := registerListener(t, b)
 	reportBlocks(t, b, 3, 5)
-	receive(t, published, 3)
+	awaitAppHashes(t, b, 3, 5)
 
-	requireSameAppHashes(t, expectedChain(3, 3, 5), iterateAll(t, b, 1))
+	_, err := b.GetAppHash(2)
+	require.Error(t, err)
+	_, err = b.AwaitAppHash(context.Background(), 1)
+	require.Error(t, err)
+
+	// Neither call stops the builder.
+	requireSameAppHashes(t, expectedChain(3, 3, 5), readAppHashes(t, b, 3, 5))
 }
 
 func TestOfflineHeadOfEmptyVaultPrecedesGigaActivation(t *testing.T) {
@@ -527,7 +491,7 @@ func TestCloseStoresQueuedAppHashes(t *testing.T) {
 	require.Equal(t, uint64(5), head)
 	reopened := openTestBuilder(t, dir, testChainID, 1)
 	require.NoError(t, reopened.SetupComplete(context.Background(), 5))
-	requireSameAppHashes(t, expectedChain(1, 1, 5), iterateAll(t, reopened, 1))
+	requireSameAppHashes(t, expectedChain(1, 1, 5), readAppHashes(t, reopened, 1, 5))
 }
 
 func TestCloseStopsBuilder(t *testing.T) {
@@ -576,12 +540,273 @@ func TestChangedBlockAboveStorageHeightPanics(t *testing.T) {
 		buildChain(t, dir, 5)
 		b := openTestBuilder(t, dir, testChainID, 1)
 		require.NoError(t, b.SetupComplete(context.Background(), 3))
-		_, published := registerListener(t, b)
 		reportInputBlocks(t, b, blockHashInput, 4, 4)
 		reportInputBlocks(t, b, stateHashInput, 4, 4)
 		reportInputBlocks(t, b, receiptHashInput, 4, 4)
 		reportInput(t, b, budHashInput, 4, 1)
 		// The changed block crashes the process before it is published.
-		receive(t, published, 1)
+		awaitAppHashes(t, b, 4, 4)
 	})
+}
+
+// openCachingTestBuilder opens a builder over the vault in dir, closed when the test ends, that keeps cacheSize recent
+// app hashes in memory. If oneRecordPerFile, the vault seals a file after every record, so a prune removes every
+// record below its height.
+func openCachingTestBuilder(t *testing.T, dir string, cacheSize int, oneRecordPerFile bool) *StandardAppHashBuilder {
+	t.Helper()
+	config := testConfig(dir, 1)
+	config.RecentAppHashCacheSize = cacheSize
+	if oneRecordPerFile {
+		config.HashVaultConfig.TargetFileSize = 1
+	}
+	b, err := openBuilderWithConfig(t.Context(), config)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = closeBuilder(b) })
+	return b
+}
+
+// publishBlocks reports every input for blocks first through last and waits for their app hashes to be published,
+// without reading any, so the wait leaves the read cursor as it is.
+func publishBlocks(t *testing.T, b *StandardAppHashBuilder, first uint64, last uint64) {
+	t.Helper()
+	reportBlocks(t, b, first, last)
+	ctx, cancel := context.WithTimeout(context.Background(), publishTimeout)
+	defer cancel()
+	reached, _, err := b.publishedHeight.Await(ctx, last)
+	require.NoError(t, err)
+	require.True(t, reached, "the builder stopped before block %d was published", last)
+}
+
+// The values returned by one AwaitAppHash() call.
+type awaitResult struct {
+	appHash *apphash.AppHashData
+	err     error
+}
+
+// awaitAsync runs AwaitAppHash() in a goroutine and returns a channel that receives its result.
+func awaitAsync(ctx context.Context, b AppHashBuilder, blockHeight uint64) <-chan awaitResult {
+	result := make(chan awaitResult, 1)
+	go func() {
+		appHash, err := b.AwaitAppHash(ctx, blockHeight)
+		result <- awaitResult{appHash: appHash, err: err}
+	}()
+	return result
+}
+
+// requireStillWaiting fails if result receives a value within a short wait.
+func requireStillWaiting(t *testing.T, result <-chan awaitResult) {
+	t.Helper()
+	select {
+	case r := <-result:
+		require.FailNow(t, "AwaitAppHash() returned early", "app hash %v, err %v", r.appHash, r.err)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// receiveAwaitResult returns the value result receives, failing if it does not arrive in time.
+func receiveAwaitResult(t *testing.T, result <-chan awaitResult) awaitResult {
+	t.Helper()
+	select {
+	case r := <-result:
+		return r
+	case <-time.After(publishTimeout):
+		require.FailNow(t, "timed out waiting for AwaitAppHash() to return")
+		return awaitResult{}
+	}
+}
+
+func TestRecentAppHashesAreServedFromMemory(t *testing.T) {
+	b := openCachingTestBuilder(t, t.TempDir(), 4, false)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	publishBlocks(t, b, 1, 10)
+
+	requireSameAppHashes(t, expectedChain(1, 7, 10), readAppHashes(t, b, 7, 10))
+	require.Nil(t, b.readCursor)
+}
+
+func TestSequentialReadsShareOneCursor(t *testing.T) {
+	b := openCachingTestBuilder(t, t.TempDir(), 4, false)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	publishBlocks(t, b, 1, 10)
+
+	requireSameAppHashes(t, expectedChain(1, 1, 1), readAppHashes(t, b, 1, 1))
+	cursor := b.readCursor
+	require.NotNil(t, cursor)
+	// The block the cursor is on, then each block after it that is too old for the recent app hashes.
+	requireSameAppHashes(t, expectedChain(1, 1, 6), readAppHashes(t, b, 1, 6))
+	require.Same(t, cursor, b.readCursor)
+
+	// The block after the cursor's, served from the recent app hashes, leaves the cursor open.
+	requireSameAppHashes(t, expectedChain(1, 7, 7), readAppHashes(t, b, 7, 7))
+	require.Same(t, cursor, b.readCursor)
+	// The cursor is still on block 6, so it cannot serve block 8.
+	requireSameAppHashes(t, expectedChain(1, 8, 8), readAppHashes(t, b, 8, 8))
+	require.Nil(t, b.readCursor)
+}
+
+func TestReadOfAnotherBlockClosesCursor(t *testing.T) {
+	b := openCachingTestBuilder(t, t.TempDir(), 4, false)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	publishBlocks(t, b, 1, 10)
+
+	// A read served from the recent app hashes.
+	readAppHashes(t, b, 2, 2)
+	require.NotNil(t, b.readCursor)
+	requireSameAppHashes(t, expectedChain(1, 9, 9), readAppHashes(t, b, 9, 9))
+	require.Nil(t, b.readCursor)
+
+	// A read of a block that is not available yet.
+	readAppHashes(t, b, 2, 2)
+	require.NotNil(t, b.readCursor)
+	appHash, err := b.GetAppHash(20)
+	require.NoError(t, err)
+	require.Nil(t, appHash)
+	require.Nil(t, b.readCursor)
+}
+
+func TestIdleCursorIsClosedOnVaultWrite(t *testing.T) {
+	config := testConfig(t.TempDir(), 1)
+	config.RecentAppHashCacheSize = 4
+	config.ReadCursorIdleTimeout = 50 * time.Millisecond
+	b, err := openBuilderWithConfig(t.Context(), config)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = closeBuilder(b) })
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	publishBlocks(t, b, 1, 10)
+
+	readAppHashes(t, b, 2, 2)
+	require.NotNil(t, b.readCursor)
+	time.Sleep(100 * time.Millisecond)
+	publishBlocks(t, b, 11, 11)
+	require.Nil(t, b.readCursor)
+}
+
+func TestActiveCursorSurvivesVaultWrite(t *testing.T) {
+	b := openCachingTestBuilder(t, t.TempDir(), 4, false)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	publishBlocks(t, b, 1, 10)
+
+	readAppHashes(t, b, 2, 2)
+	cursor := b.readCursor
+	require.NotNil(t, cursor)
+	publishBlocks(t, b, 11, 11)
+	require.Same(t, cursor, b.readCursor)
+}
+
+func TestOutOfSequenceReadReplacesCursor(t *testing.T) {
+	b := openCachingTestBuilder(t, t.TempDir(), 4, false)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	publishBlocks(t, b, 1, 10)
+
+	requireSameAppHashes(t, expectedChain(1, 3, 3), readAppHashes(t, b, 3, 3))
+	backward := b.readCursor
+
+	// A read below the cursor.
+	requireSameAppHashes(t, expectedChain(1, 2, 2), readAppHashes(t, b, 2, 2))
+	require.NotSame(t, backward, b.readCursor)
+	skipping := b.readCursor
+
+	// A read that skips a block.
+	requireSameAppHashes(t, expectedChain(1, 4, 4), readAppHashes(t, b, 4, 4))
+	require.NotSame(t, skipping, b.readCursor)
+}
+
+func TestExhaustedCursorIsClosed(t *testing.T) {
+	b := openCachingTestBuilder(t, t.TempDir(), 4, false)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	publishBlocks(t, b, 1, 10)
+	// Opens a cursor through block 10, the newest published.
+	requireSameAppHashes(t, expectedChain(1, 5, 5), readAppHashes(t, b, 5, 5))
+
+	// Block 10 leaves the recent app hashes, so the cursor reads through it.
+	publishBlocks(t, b, 11, 16)
+	requireSameAppHashes(t, expectedChain(1, 6, 10), readAppHashes(t, b, 6, 10))
+	require.Nil(t, b.readCursor)
+
+	requireSameAppHashes(t, expectedChain(1, 11, 16), readAppHashes(t, b, 11, 16))
+}
+
+func TestReadsOfStoredAppHashesAfterRestart(t *testing.T) {
+	dir := t.TempDir()
+	buildChain(t, dir, 10)
+
+	b := openCachingTestBuilder(t, dir, 4, false)
+	require.NoError(t, b.SetupComplete(context.Background(), 6))
+	requireSameAppHashes(t, expectedChain(1, 1, 6), readAppHashes(t, b, 1, 6))
+	requireNotPublished(t, b, 7)
+}
+
+func TestReadOfPrunedAppHashFails(t *testing.T) {
+	b := openCachingTestBuilder(t, t.TempDir(), 4, true)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	publishBlocks(t, b, 1, 10)
+	require.NoError(t, b.vault.PruneHistory(6))
+
+	_, err := b.GetAppHash(3)
+	require.Error(t, err)
+
+	// The failed read does not stop the builder.
+	requireSameAppHashes(t, expectedChain(1, 6, 10), readAppHashes(t, b, 6, 10))
+}
+
+func TestGetAppHashAfterCloseFails(t *testing.T) {
+	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	publishBlocks(t, b, 1, 3)
+	require.NoError(t, b.Close())
+
+	_, err := b.GetAppHash(3)
+	require.Error(t, err)
+}
+
+func TestAwaitAppHashWaitsForPublication(t *testing.T) {
+	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	result := awaitAsync(context.Background(), b, 3)
+	requireStillWaiting(t, result)
+
+	reportBlocks(t, b, 1, 2)
+	requireStillWaiting(t, result)
+	reportBlocks(t, b, 3, 3)
+	r := receiveAwaitResult(t, result)
+	require.NoError(t, r.err)
+	requireSameAppHashes(t, expectedChain(1, 3, 3), []*apphash.AppHashData{r.appHash})
+}
+
+func TestAwaitAppHashWaitsForSetup(t *testing.T) {
+	dir := t.TempDir()
+	buildChain(t, dir, 5)
+
+	b := openTestBuilder(t, dir, testChainID, 1)
+	result := awaitAsync(context.Background(), b, 5)
+	requireStillWaiting(t, result)
+
+	require.NoError(t, b.SetupComplete(context.Background(), 5))
+	r := receiveAwaitResult(t, result)
+	require.NoError(t, r.err)
+	requireSameAppHashes(t, expectedChain(1, 5, 5), []*apphash.AppHashData{r.appHash})
+}
+
+func TestAwaitAppHashIsAbandonedWithItsContext(t *testing.T) {
+	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	ctx, cancel := context.WithCancel(context.Background())
+	result := awaitAsync(ctx, b, 1)
+	requireStillWaiting(t, result)
+
+	cancel()
+	require.ErrorIs(t, receiveAwaitResult(t, result).err, context.Canceled)
+
+	// The abandoned call does not stop the builder.
+	publishBlocks(t, b, 1, 1)
+}
+
+func TestAwaitAppHashFailsWhenBuilderCloses(t *testing.T) {
+	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	result := awaitAsync(context.Background(), b, 1)
+	requireStillWaiting(t, result)
+
+	require.NoError(t, b.Close())
+	require.Error(t, receiveAwaitResult(t, result).err)
 }

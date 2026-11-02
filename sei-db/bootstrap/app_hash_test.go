@@ -34,31 +34,27 @@ func awaitAppHashes(t *testing.T, manager *GigaStorageManager, height uint64) {
 	}, appHashPublishTimeout, time.Millisecond, "the app hash of block %d was not stored", height)
 }
 
-// listenForAppHashes registers a listener on the manager's builder, returning the newest app hash published
-// before it and a channel receiving every one published after.
-func listenForAppHashes(t *testing.T, manager *GigaStorageManager) (*apphash.AppHashData, <-chan *apphash.AppHashData) {
+// publishedAppHashes waits for the manager's builder to publish the app hashes of blocks first through last, and
+// returns them.
+func publishedAppHashes(t *testing.T, manager *GigaStorageManager, first uint64, last uint64) []*apphash.AppHashData {
 	t.Helper()
-	published := make(chan *apphash.AppHashData, 64)
-	listener := func(appHash *apphash.AppHashData) { published <- appHash }
-	newest, err := manager.AppHashBuilder().RegisterListener(context.Background(), listener)
-	require.NoError(t, err)
-	return newest, published
+	ctx, cancel := context.WithTimeout(t.Context(), appHashPublishTimeout)
+	defer cancel()
+	appHashes := make([]*apphash.AppHashData, 0, last-first+1)
+	for height := first; height <= last; height++ {
+		appHash, err := manager.AppHashBuilder().AwaitAppHash(ctx, height)
+		require.NoError(t, err)
+		appHashes = append(appHashes, appHash)
+	}
+	return appHashes
 }
 
-// receiveAppHashes waits for the next count app hashes published.
-func receiveAppHashes(t *testing.T, published <-chan *apphash.AppHashData, count int) []*apphash.AppHashData {
+// getAppHash returns the manager's builder's published app hash of block height, or nil if it is not published.
+func getAppHash(t *testing.T, manager *GigaStorageManager, height uint64) *apphash.AppHashData {
 	t.Helper()
-	received := make([]*apphash.AppHashData, 0, count)
-	for range count {
-		select {
-		case appHash := <-published:
-			received = append(received, appHash)
-		case <-time.After(appHashPublishTimeout):
-			require.FailNow(t, "timed out waiting for an app hash",
-				"received %d of %d", len(received), count)
-		}
-	}
-	return received
+	appHash, err := manager.AppHashBuilder().GetAppHash(height)
+	require.NoError(t, err)
+	return appHash
 }
 
 // closeAppHashBuilder closes the receipt and BUD hashers, the app hash builder and then its hash vault, and drops them
@@ -107,12 +103,11 @@ func TestAppHashesBuiltFromCommittedBlocks(t *testing.T) {
 	manager, _ := openManager(t, func(cfg *config.GigaStorageConfig) {
 		cfg.AppHashBuilderConfig.ChainID = testAppHashChainID
 	})
-	newest, published := listenForAppHashes(t, manager)
-	require.Nil(t, newest)
+	require.Nil(t, getAppHash(t, manager, 1))
 
 	commitBlocks(t, manager, 3)
 
-	appHashes := receiveAppHashes(t, published, 3)
+	appHashes := publishedAppHashes(t, manager, 1, 3)
 	for i, appHash := range appHashes {
 		height := uint64(i) + 1 //nolint:gosec // small test heights
 		require.Equal(t, height, appHash.BlockHeight())
@@ -130,9 +125,8 @@ func TestAppHashesBuiltFromCommittedBlocks(t *testing.T) {
 // blocks above it are re-executed and their app hashes built as they are.
 func TestRestartWithStateAheadOfTheAppHashVault(t *testing.T) {
 	manager, _ := openManager(t, disableSS)
-	_, published := listenForAppHashes(t, manager)
 	commitBlocks(t, manager, 3)
-	stored := receiveAppHashes(t, published, 3)
+	stored := publishedAppHashes(t, manager, 1, 3)
 	// The vault as it stands at block 3 is put back after blocks 4 and 5 commit, as a crash before their app
 	// hashes are stored leaves it.
 	stopForRestart(t, manager)
@@ -157,12 +151,11 @@ func TestRestartWithStateAheadOfTheAppHashVault(t *testing.T) {
 	version, err := manager.SC().GetLatestVersion()
 	require.NoError(t, err)
 	require.Equal(t, int64(3), version)
-	newest, published := listenForAppHashes(t, manager)
-	require.Equal(t, stored[2].AppHash(), newest.AppHash())
+	require.Equal(t, stored[2].AppHash(), getAppHash(t, manager, 3).AppHash())
 
 	commitBlock(t, manager, 4, evmBlock(4, 4))
 	commitBlock(t, manager, 5, evmBlock(5, 5))
-	rebuilt := receiveAppHashes(t, published, 2)
+	rebuilt := publishedAppHashes(t, manager, 4, 5)
 	require.Equal(t, uint64(4), rebuilt[0].BlockHeight())
 	require.Equal(t, stored[2].AppHash(), rebuilt[0].PreviousAppHash())
 }
@@ -171,21 +164,20 @@ func TestRestartWithStateAheadOfTheAppHashVault(t *testing.T) {
 // vault keeps its app hashes, and the re-executed blocks are checked against them.
 func TestRestartWithTheAppHashVaultAheadOfState(t *testing.T) {
 	manager, _ := openManager(t, disableSS)
-	_, published := listenForAppHashes(t, manager)
 	commitBlocks(t, manager, 5)
-	stored := receiveAppHashes(t, published, 5)
+	stored := publishedAppHashes(t, manager, 1, 5)
 
 	restartAt(t, manager, 3)
 
-	newest, published := listenForAppHashes(t, manager)
-	require.Equal(t, stored[2].AppHash(), newest.AppHash())
+	require.Equal(t, stored[2].AppHash(), getAppHash(t, manager, 3).AppHash())
+	require.Nil(t, getAppHash(t, manager, 4), "the stored app hashes above the recovered height are not published")
 	head, err := manager.AppHashVault().GetLatestBlock()
 	require.NoError(t, err)
 	require.Equal(t, uint64(5), head, "the app hashes above the recovered height are kept")
 
 	commitBlock(t, manager, 4, evmBlock(4, 4))
 	commitBlock(t, manager, 5, evmBlock(5, 5))
-	rebuilt := receiveAppHashes(t, published, 2)
+	rebuilt := publishedAppHashes(t, manager, 4, 5)
 	require.Equal(t, stored[3].AppHash(), rebuilt[0].AppHash())
 	require.Equal(t, stored[4].AppHash(), rebuilt[1].AppHash())
 }
@@ -213,7 +205,6 @@ func TestRegisteringBuilderFailsWhenStateHashesAreOutOfLine(t *testing.T) {
 // The receipt hash of each block is the hash of the receipts submitted to the manager's receipt hasher.
 func TestAppHashCommitsToTheSubmittedReceipts(t *testing.T) {
 	manager, _ := openManager(t, disableSS)
-	_, published := listenForAppHashes(t, manager)
 	receipts := []*ethtypes.Receipt{{
 		Status:  ethtypes.ReceiptStatusSuccessful,
 		TxHash:  common.Hash{1},
@@ -225,5 +216,5 @@ func TestAppHashCommitsToTheSubmittedReceipts(t *testing.T) {
 
 	want, err := receipthash.ComputeReceiptHash(receipts)
 	require.NoError(t, err)
-	require.Equal(t, want, receiveAppHashes(t, published, 1)[0].ReceiptHash())
+	require.Equal(t, want, publishedAppHashes(t, manager, 1, 1)[0].ReceiptHash())
 }
