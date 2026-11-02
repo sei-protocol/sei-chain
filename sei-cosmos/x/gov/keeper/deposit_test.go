@@ -14,6 +14,7 @@ import (
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
+	govkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
 )
 
 func TestDeposits(t *testing.T) {
@@ -241,4 +242,55 @@ func TestRefundDepositsLeavesBlockedRecipientPending(t *testing.T) {
 	expectedBalance := initialBalance.Sub(depositAmount.AmountOf(sdk.DefaultBondDenom))
 	require.Equal(t, expectedBalance, app.BankKeeper.GetBalance(ctx, blockedDepositor, sdk.DefaultBondDenom).Amount)
 	require.Equal(t, depositAmount, app.BankKeeper.GetAllBalances(ctx, app.AccountKeeper.GetModuleAddress(types.ModuleName)))
+}
+
+func TestSettleDepositsResumesWithinBudget(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	depositors := seiapp.AddTestAddrsIncremental(app, ctx, 3, sdk.NewInt(100))
+	blockedDepositor := sdk.AccAddress(append(append([]byte{}, bankkeeper.CoinbaseAddressPrefix...), make([]byte, 8)...))
+	require.NoError(t, app.BankKeeper.AddCoins(ctx, blockedDepositor, sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 100)), true))
+
+	burned, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	refunded, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	amount := sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 10))
+	for _, depositor := range depositors {
+		_, err = app.GovKeeper.AddDeposit(ctx, burned.ProposalId, depositor, amount)
+		require.NoError(t, err)
+		_, err = app.GovKeeper.AddDeposit(ctx, refunded.ProposalId, depositor, amount)
+		require.NoError(t, err)
+	}
+	_, err = app.GovKeeper.AddDeposit(ctx, refunded.ProposalId, blockedDepositor, amount)
+	require.NoError(t, err)
+	supply := app.BankKeeper.GetSupply(ctx, sdk.DefaultBondDenom).Amount
+	requireDepositsBacked := func() {
+		msg, broken := govkeeper.ModuleAccountInvariant(app.GovKeeper, app.BankKeeper)(ctx)
+		require.False(t, broken, msg)
+	}
+
+	app.GovKeeper.ScheduleDepositSettlement(ctx, refunded.ProposalId, false)
+	app.GovKeeper.ScheduleDepositSettlement(ctx, burned.ProposalId, true)
+
+	require.Equal(t, 2, app.GovKeeper.SettleDeposits(ctx, 2))
+	require.Len(t, app.GovKeeper.GetDeposits(ctx, burned.ProposalId), 1)
+	require.Len(t, app.GovKeeper.GetDeposits(ctx, refunded.ProposalId), 4)
+	requireDepositsBacked()
+
+	require.Equal(t, 2, app.GovKeeper.SettleDeposits(ctx, 2))
+	require.Empty(t, app.GovKeeper.GetDeposits(ctx, burned.ProposalId))
+	requireDepositsBacked()
+
+	require.Equal(t, 3, app.GovKeeper.SettleDeposits(ctx, 10))
+	remaining := app.GovKeeper.GetDeposits(ctx, refunded.ProposalId)
+	require.Len(t, remaining, 1)
+	require.Equal(t, blockedDepositor.String(), remaining[0].Depositor)
+	require.Zero(t, app.GovKeeper.SettleDeposits(ctx, 10))
+	requireDepositsBacked()
+
+	require.Equal(t, supply.SubRaw(30), app.BankKeeper.GetSupply(ctx, sdk.DefaultBondDenom).Amount)
+	for _, depositor := range depositors {
+		require.Equal(t, sdk.NewInt(90), app.BankKeeper.GetBalance(ctx, depositor, sdk.DefaultBondDenom).Amount)
+	}
 }
