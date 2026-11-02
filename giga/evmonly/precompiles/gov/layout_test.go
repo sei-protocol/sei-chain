@@ -88,6 +88,10 @@ func TestLayoutMatchesForge(t *testing.T) {
 			"power":      tallyPower,
 			"counting":   tallyCounting,
 		},
+		"AddressSet": {
+			"values":    {0, 0},
+			"positions": {1, 0},
+		},
 		"ProposalQueue": {
 			"keys":      {0, 0},
 			"positions": {1, 0},
@@ -101,7 +105,7 @@ func TestLayoutMatchesForge(t *testing.T) {
 	seen := map[string]bool{}
 	for typeID, typ := range layout.Types {
 		m := structName.FindStringSubmatch(typeID)
-		if m == nil || strings.HasSuffix(m[1], "Set") {
+		if m == nil {
 			continue
 		}
 		want, ok := structs[m[1]]
@@ -125,7 +129,7 @@ func mustUint(t *testing.T, s string) uint64 {
 // TestStoreReadsCompilerWrites runs GovStorageHarness, which writes GovStorage
 // with solc's codegen, and reads the result back through store. Rebuild
 // testdata with `forge inspect GovStorageHarness deployedBytecode` under solc
-// 0.8.37 and the remappings giga-storage/=docs/giga-storage/ and
+// 0.8.30 and the remappings giga-storage/=docs/giga-storage/ and
 // giga-precompiles/=giga/evmonly/precompiles/.
 func TestStoreReadsCompilerWrites(t *testing.T) {
 	code, err := os.ReadFile("testdata/GovStorageHarness.bin-runtime")

@@ -7,8 +7,8 @@ import (
 )
 
 // Heap is a min-heap of distinct words, ordered as big-endian integers, in a
-// two-slot struct at Base with EnumerableSet's layout: the heap array at Base
-// and each word's 1-based array position in a mapping at Base+1.
+// two-slot struct at Base with Set's layout: the heap array at Base and each
+// word's 1-based array position in a mapping at Base+1.
 type Heap struct {
 	set Set
 }
