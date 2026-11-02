@@ -383,8 +383,10 @@ WebSocket (port 8546 by default):
   hash the first returns an error and the second `""`, as on the regular RPC.
 - State: `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`, and
   `eth_getStorageAt`, at the latest block or a past one still within a full
-  node's retention window; `eth_call` and `eth_estimateGas`, against the
-  latest state only.
+  node's retention window; `eth_call`, `eth_estimateGas`,
+  `eth_createAccessList`, and `eth_estimateGasAfterCalls` (which applies up
+  to `max_estimate_gas_calls` calls before estimating), against the latest
+  state only.
 - Blocks: `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getBlockByHash`,
   `eth_getBlockTransactionCountByNumber` /
   `eth_getBlockTransactionCountByHash`, and `eth_getBlockReceipts`. Block
@@ -416,8 +418,7 @@ A lookup for a pending or unknown hash returns `null`. Every other method
 returns JSON-RPC method-not-found, and `eth_subscribe` rejects any
 subscription other than `newHeads` and `logs`:
 
-- Not supported yet: the other `debug_*` methods, such as the raw-data ones,
-  `eth_createAccessList` and `eth_estimateGasAfterCalls`.
+- Not supported yet: the other `debug_*` methods, such as the raw-data ones.
 - Not planned, because they need something the EVM-only chain does not have
   (Cosmos accounts, server-side keys, a mempool view, blobs, or state proofs),
   duplicate another method, or are development-only: `sei_getSeiAddress`,
@@ -432,12 +433,14 @@ subscription other than `newHeads` and `logs`:
   `eth_getCode`, and `eth_getStorageAt` answer an explicit height or
   `earliest` only on a node that keeps the EVM state store (a full node, not a
   validator), and only within its retention window. A block hash returns an
-  error. `eth_call` and `eth_estimateGas` serve the latest state only.
+  error. `eth_call`, `eth_estimateGas`, `eth_createAccessList`, and
+  `eth_estimateGasAfterCalls` serve the latest state only.
 - Any address that has never been written reports `2^200` wei, including
   inside `eth_call` and `eth_estimateGas`. This is the test network's funding
   rule, in place of genesis allocations.
-- `eth_call`, `eth_estimateGas`, and `debug_traceCall` take no state or block
-  override arguments, unlike the regular RPC.
+- `eth_call`, `eth_estimateGas`, `eth_estimateGasAfterCalls`, and
+  `debug_traceCall` take no state or block override arguments, unlike the
+  regular RPC.
 - `pending` means the latest committed state, and there is no mempool view, so
   a submitted transaction is not returned by hash until it executes.
 - Block fields: `logsBloom` is always empty, `baseFeePerGas` is always zero,
@@ -496,6 +499,7 @@ the row says otherwise:
 | `batch_request_limit` | 100 | requests in one JSON-RPC batch |
 | `batch_response_max_size` | 25000000 | bytes of responses in one JSON-RPC batch |
 | `max_ws_connections` | 2000 | open WebSocket connections; further connections wait |
+| `max_estimate_gas_calls` | 100 | calls one `eth_estimateGasAfterCalls` request may apply |
 | `filter_timeout` | `120s` | how long a filter lives without being polled |
 | `max_filters` | 1000 | installed `eth_newFilter` and `eth_newBlockFilter` filters |
 | `max_block_filter_hashes` | 1000 | unpolled blocks a block filter may fall behind by before it is removed |
