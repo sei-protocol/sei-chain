@@ -17,7 +17,6 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -118,7 +117,7 @@ func (b *traceBackend) ethBlock(ctx context.Context, block *coretypes.ResultBloc
 			return nil, err
 		}
 	}
-	header, err := b.header(ctx, block)
+	header, err := b.blocks.executionHeader(ctx, block)
 	if err != nil {
 		return nil, err
 	}
@@ -154,48 +153,6 @@ func (b *traceBackend) executedTxs(ctx context.Context, block *coretypes.ResultB
 		txs = append(txs, tx)
 	}
 	return txs, nil
-}
-
-// header returns block's header with the fields its execution context reads.
-func (b *traceBackend) header(ctx context.Context, block *coretypes.ResultBlock) (*ethtypes.Header, error) {
-	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
-	if !ok {
-		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
-	}
-	parentHash, err := b.parentHash(ctx, block.Block.Height)
-	if err != nil {
-		return nil, err
-	}
-	gasLimit, err := b.backend.EvmGasLimit()
-	if err != nil {
-		return nil, err
-	}
-	baseFee, err := b.backend.EvmBaseFee()
-	if err != nil {
-		return nil, err
-	}
-	return &ethtypes.Header{
-		ParentHash: parentHash,
-		Number:     big.NewInt(block.Block.Height),
-		GasLimit:   gasLimit,
-		Time:       blockUnix,
-		Difficulty: new(big.Int),
-		// Zero rather than nil, so a dynamic-fee transaction is priced at its tip as it executed.
-		BaseFee: baseFee,
-	}, nil
-}
-
-// parentHash returns the hash of the block before height, which a stored block does not carry. It is
-// zero before the first block.
-func (b *traceBackend) parentHash(ctx context.Context, height int64) (common.Hash, error) {
-	parent, err := b.blocks.resolveBlockByNumber(ctx, ethrpc.BlockNumber(height-1))
-	if err != nil {
-		return common.Hash{}, fmt.Errorf("read the parent of block %d: %w", height, err)
-	}
-	if parent == nil {
-		return common.Hash{}, nil
-	}
-	return common.BytesToHash(parent.BlockID.Hash), nil
 }
 
 // GetTransaction locates a finalized transaction by its stored receipt. Its index is its position in

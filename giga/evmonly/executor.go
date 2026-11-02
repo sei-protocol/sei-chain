@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -22,18 +23,18 @@ import (
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
 type Executor struct {
-	cfg              Config
-	resultSink       ResultSink
-	occPool          *occWorkerPool
-	resultPool       *blockResultPool
-	stateDBPool      sync.Pool
-	endBlockers      []endBlocker
-	customContracts  map[common.Address]vm.PrecompiledContract
-	storeMu          sync.Mutex
-	stateStore       gigatypes.StateDB
-	receiptStore     receipt.ReceiptStore
-	changeSetEncoder NamedChangeSetEncoder
-	// Optional: nil commits only the state encoder's changesets.
+	cfg             Config
+	resultSink      ResultSink
+	occPool         *occWorkerPool
+	resultPool      *blockResultPool
+	stateDBPool     sync.Pool
+	endBlockers     []endBlocker
+	customContracts map[common.Address]vm.PrecompiledContract
+	storeMu         sync.Mutex
+	stateStore      gigatypes.StateDB
+	receiptStore    receipt.ReceiptStore
+	receiptHasher   *receipthash.ReceiptHasher
+	// Optional: nil commits only the block's EVM state changes.
 	blockChangeSetEncoder BlockChangeSetEncoder
 	// blockEncoderReadsStore is false only for an encoder registered as
 	// store-independent, which lets encoding overlap the previous commit.

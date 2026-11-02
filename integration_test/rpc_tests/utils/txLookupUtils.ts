@@ -75,8 +75,6 @@ export function assertTxReceiptConsistency(tx: any, rc: any): void {
     expect(tx.hash, 'tx.hash == receipt.transactionHash').to.equal(rc.transactionHash);
 
     for (const k of TX_RECEIPT_SHARED_KEYS) {
-        // Sei currently drops `to` on creation receipts; compare only when present.
-        if (k === 'to' && !(k in rc)) continue;
         expect(tx[k], `shared field ${k} agrees between tx and receipt`).to.deep.equal(rc[k]);
     }
 

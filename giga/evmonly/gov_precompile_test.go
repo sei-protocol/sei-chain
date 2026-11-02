@@ -95,7 +95,7 @@ func TestGovPrecompileThroughExecutor(t *testing.T) {
 	require.Equal(t, new(big.Int).Add(afterVoting, usei(10)), state.GetBalance(sender), "deposit refunded")
 
 	store := NewMemoryStore(state)
-	executor := NewExecutor(cfg, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	executor := NewExecutor(cfg, withTestStores(store, NewMemoryReceiptStore()))
 	query := func(method string, args ...interface{}) ([]byte, error) {
 		data, err := govABI.Pack(method, args...)
 		require.NoError(t, err)

@@ -141,6 +141,20 @@ func TestStateSyncConfigValidateBasic(t *testing.T) {
 	require.NoError(t, cfg.ValidateBasic())
 }
 
+func TestStateSyncTrustPeriod(t *testing.T) {
+	testcases := map[string]time.Duration{
+		"pacific-1":  112 * time.Hour,
+		"atlantic-2": 112 * time.Hour,
+		"arctic-1":   112 * time.Hour,
+		"sei":        168 * time.Hour,
+	}
+	for chainID, want := range testcases {
+		t.Run(chainID, func(t *testing.T) {
+			require.Equal(t, want, StateSyncTrustPeriod(chainID))
+		})
+	}
+}
+
 func TestConsensusConfig_ValidateBasic(t *testing.T) {
 	testcases := map[string]struct {
 		modify    func(*ConsensusConfig)

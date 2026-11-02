@@ -25,16 +25,18 @@ func TestParamsValidateRejects(t *testing.T) {
 		"seconds as nanoseconds": func(p *Params) {
 			p.VotingPeriod, p.ExpeditedVotingPeriod, p.MaxDepositPeriod = 172_800, 86_400, 172_800
 		},
-		"missing deposit":            func(p *Params) { p.MinDeposit = nil },
-		"zero deposit":               func(p *Params) { p.MinDeposit = new(big.Int) },
-		"zero expedited deposit":     func(p *Params) { p.MinExpeditedDeposit = new(big.Int) },
-		"wei remainder":              func(p *Params) { p.MinDeposit = big.NewInt(1) },
-		"expedited deposit too low":  func(p *Params) { p.MinExpeditedDeposit = new(big.Int) },
-		"quorum above one":           func(p *Params) { p.Quorum = decOne + 1 },
-		"zero threshold":             func(p *Params) { p.Threshold = 0 },
-		"veto above one":             func(p *Params) { p.VetoThreshold = decOne + 1 },
-		"zero expedited threshold":   func(p *Params) { p.ExpeditedThreshold = 0 },
-		"expedited quorum above one": func(p *Params) { p.ExpeditedQuorum = decOne + 1 },
+		"missing deposit":               func(p *Params) { p.MinDeposit = nil },
+		"zero deposit":                  func(p *Params) { p.MinDeposit = new(big.Int) },
+		"zero expedited deposit":        func(p *Params) { p.MinExpeditedDeposit = new(big.Int) },
+		"wei remainder":                 func(p *Params) { p.MinDeposit = big.NewInt(1) },
+		"expedited deposit not above":   func(p *Params) { p.MinExpeditedDeposit = p.MinDeposit },
+		"quorum above one":              func(p *Params) { p.Quorum = decOne + 1 },
+		"zero threshold":                func(p *Params) { p.Threshold = 0 },
+		"veto above one":                func(p *Params) { p.VetoThreshold = decOne + 1 },
+		"zero expedited threshold":      func(p *Params) { p.ExpeditedThreshold = 0 },
+		"expedited quorum above one":    func(p *Params) { p.ExpeditedQuorum = decOne + 1 },
+		"expedited quorum not above":    func(p *Params) { p.ExpeditedQuorum = p.Quorum },
+		"expedited threshold not above": func(p *Params) { p.ExpeditedThreshold = p.Threshold },
 	} {
 		p := DefaultParams()
 		edit(&p)

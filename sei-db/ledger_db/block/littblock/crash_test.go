@@ -140,17 +140,27 @@ func requireEveryBlockHasItsQC(t *testing.T, db blocktypes.BlockDB) int {
 	t.Helper()
 	suffix, err := db.ReadSuffix()
 	require.NoError(t, err)
-	require.Len(t, suffix.Blocks, len(suffix.QCs)*crashPerCohort)
-	for i, qc := range suffix.QCs {
-		blocks := suffix.Blocks[i*crashPerCohort : (i+1)*crashPerCohort]
-		first := blocks[0].Number
-		require.Equal(t, blocktest.RecordValue("qc", first), qc.Data)
-		for j, block := range blocks {
-			require.Equal(t, first+blocktypes.BlockNumber(j), block.Number)
-			require.Equal(t, blocktest.RecordValue("block", block.Number), block.Value)
+	count := 0
+	for _, record := range suffix.Blocks {
+		want := blocktest.BlockRecord(record.Index, crashPerCohort)
+		require.Equal(t, want, record)
+		byHash, exists, err := db.GetBlockByHash(record.Hash)
+		require.NoError(t, err)
+		require.True(t, exists)
+		require.Equal(t, record, byHash)
+		qc, exists, err := db.GetQC(record.Index)
+		require.NoError(t, err)
+		require.True(t, exists)
+		require.Equal(t, record.QC, qc)
+		for offset, lane := range record.LaneBlocks {
+			value, exists, err := db.GetLaneBlock(record.Index, uint64(offset))
+			require.NoError(t, err)
+			require.True(t, exists)
+			require.Equal(t, lane, value)
 		}
+		count += len(record.LaneBlocks)
 	}
-	return len(suffix.Blocks)
+	return count
 
 }
 
@@ -243,25 +253,25 @@ func TestPackedQCRecoversAtomically(t *testing.T) {
 
 			for range 2 {
 				db = openLitt(t, cfg)
-				for n := blocktypes.BlockNumber(0); n < blocktypes.BlockNumber(cohorts*crashPerCohort); n++ {
-					want := n < blocktypes.BlockNumber((cohorts-1)*crashPerCohort)
-					for _, tc := range []struct {
-						get   func(blocktypes.BlockNumber) ([]byte, bool, error)
-						value []byte
-					}{
-						{db.GetQC, blocktest.RecordValue("qc", n-n%crashPerCohort)},
-						{db.GetBlock, blocktest.RecordValue("block", n)},
-					} {
-						value, present, err := tc.get(n)
-						require.NoError(t, err)
-						require.Equal(t, want, present)
-						if present {
-							require.Equal(t, tc.value, value)
-						}
-					}
-					_, _, present, err := db.GetBlockByHash(blocktest.BlockHash(n))
+				for n := blocktypes.BlockNumber(0); n < blocktypes.BlockNumber(cohorts); n++ {
+					want := n < blocktypes.BlockNumber(cohorts-1)
+					record, present, err := db.GetBlockByNumber(n)
 					require.NoError(t, err)
 					require.Equal(t, want, present)
+					if present {
+						require.Equal(t, blocktest.BlockRecord(n, crashPerCohort), record)
+					}
+					_, present, err = db.GetQC(n)
+					require.NoError(t, err)
+					require.Equal(t, want, present)
+					_, present, err = db.GetBlockByHash(blocktest.BlockHash(n))
+					require.NoError(t, err)
+					require.Equal(t, want, present)
+					for offset := range uint64(crashPerCohort) {
+						_, present, err := db.GetLaneBlock(n, offset)
+						require.NoError(t, err)
+						require.Equal(t, want, present)
+					}
 				}
 				require.Equal(t, int((cohorts-1)*crashPerCohort), requireEveryBlockHasItsQC(t, db))
 				require.NoError(t, db.Close())
@@ -273,15 +283,7 @@ func TestPackedQCRecoversAtomically(t *testing.T) {
 // putPackedCohorts writes opaque QC and block fixtures in atomic groups.
 func putPackedCohorts(t *testing.T, db blocktypes.BlockDB, cohorts uint64) {
 	t.Helper()
-	for cohort := range cohorts {
-		first := blocktypes.BlockNumber(cohort * crashPerCohort)
-		blocks := make([]blocktypes.BlockRecord, crashPerCohort)
-		for i := range blocks {
-			n := first + blocktypes.BlockNumber(i)
-			blocks[i] = blocktypes.BlockRecord{Number: n, Hash: blocktest.BlockHash(n), Value: blocktest.RecordValue("block", n)}
-		}
-		require.NoError(t, db.PutQC(blocktypes.QCGroupRecord{QC: blocktypes.QCRecord{Data: blocktest.RecordValue("qc", first)}, Blocks: blocks}))
-	}
+	blocktest.WriteCohorts(t, db, cohorts, crashPerCohort)
 }
 
 // TestPackedQCPruneRetainsWholeGroup verifies that a packed cohort spanning the
@@ -295,17 +297,23 @@ func TestPackedQCPruneRetainsWholeGroup(t *testing.T) {
 	require.NoError(t, db.Close())
 	db = openLitt(t, cfg)
 	defer func() { require.NoError(t, db.Close()) }()
-	db.SetPruneWatermark(7)
+	db.SetPruneWatermark(1)
 	require.NoError(t, littblock.ForceGC(db))
-	for n := blocktypes.BlockNumber(0); n < 15; n++ {
-		want := n >= 5
-		for _, get := range []func(blocktypes.BlockNumber) ([]byte, bool, error){db.GetQC, db.GetBlock} {
-			_, present, err := get(n)
+	for n := range blocktypes.BlockNumber(3) {
+		want := n >= 1
+		_, present, err := db.GetBlockByNumber(n)
+		require.NoError(t, err)
+		require.Equal(t, want, present)
+		_, present, err = db.GetQC(n)
+		require.NoError(t, err)
+		require.Equal(t, want, present)
+		_, present, err = db.GetBlockByHash(blocktest.BlockHash(n))
+		require.NoError(t, err)
+		require.Equal(t, want, present)
+		for offset := range uint64(crashPerCohort) {
+			_, present, err := db.GetLaneBlock(n, offset)
 			require.NoError(t, err)
 			require.Equal(t, want, present)
 		}
-		_, _, present, err := db.GetBlockByHash(blocktest.BlockHash(n))
-		require.NoError(t, err)
-		require.Equal(t, want, present)
 	}
 }

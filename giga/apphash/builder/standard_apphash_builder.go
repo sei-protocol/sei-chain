@@ -187,7 +187,7 @@ func (b *StandardAppHashBuilder) ReportBUDHash(ctx context.Context, blockHeight 
 func (b *StandardAppHashBuilder) ReportReceiptHash(
 	ctx context.Context,
 	blockHeight uint64,
-	receiptHash [32]byte,
+	receiptHash apphash.ReceiptHash,
 ) error {
 	request := reportRequest{input: receiptHashInput, blockHeight: blockHeight, value: receiptHash}
 	if err := b.submit(ctx, request); err != nil {

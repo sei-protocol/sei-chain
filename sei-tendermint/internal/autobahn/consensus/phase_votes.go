@@ -77,10 +77,10 @@ func (p *phaseVotes[V, B, QC]) pushVerifiedVote(c *types.Committee, vote V) {
 func newPrepareVotes() *prepareVotes {
 	return newPhaseVotes(votePhase[spv, hpv, *types.PrepareQC]{
 		key:      func(v spv) types.PublicKey { return v.Key() },
-		view:     func(v spv) types.View { return v.Msg().Proposal().View() },
+		view:     func(v spv) types.View { return v.Msg().View() },
 		bucket:   func(v spv) hpv { return v.Hash() },
 		quorum:   (*types.Committee).PrepareQuorum,
-		qcView:   func(qc *types.PrepareQC) types.View { return qc.Proposal().View() },
+		qcView:   func(qc *types.PrepareQC) types.View { return qc.View() },
 		newQC:    types.NewPrepareQC,
 		voteType: metrics.VotePrepare,
 	})
@@ -90,10 +90,10 @@ func newPrepareVotes() *prepareVotes {
 func newCommitVotes() *commitVotes {
 	return newPhaseVotes(votePhase[scv, hcv, *types.CommitQC]{
 		key:      func(v scv) types.PublicKey { return v.Key() },
-		view:     func(v scv) types.View { return v.Msg().Proposal().View() },
+		view:     func(v scv) types.View { return v.Msg().View() },
 		bucket:   func(v scv) hcv { return v.Hash() },
 		quorum:   (*types.Committee).CommitQuorum,
-		qcView:   func(qc *types.CommitQC) types.View { return qc.Proposal().View() },
+		qcView:   func(qc *types.CommitQC) types.View { return qc.View() },
 		newQC:    types.NewCommitQC,
 		voteType: metrics.VoteCommit,
 	})
