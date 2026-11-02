@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
@@ -291,13 +290,16 @@ func (fundedState) GetCode(common.Address) []byte                    { return ni
 func (fundedState) GetState(common.Address, common.Hash) common.Hash { return common.Hash{} }
 
 // flatKVStateDB serves a flatkv store as the executor's store, with no history.
-type flatKVStateDB struct{ *flatkv.CommitStore }
+type flatKVStateDB struct {
+	*flatkv.CommitStore
+	cfg *flatkvconfig.Config
+}
 
 func (flatKVStateDB) OpenViewAt(int64) (gigatypes.StateView, bool) { return nil, false }
 
-func (s flatKVStateDB) CommitStateChanges(blockNum int64, changesets []*proto.NamedChangeSet) error {
+func (s flatKVStateDB) CommitStateChanges(blockNum int64, changes *gigatypes.StateChangeSet) error {
 	prior := s.OpenView()
-	mutations, err := flatkv.MutationsFromChangeSets(changesets, uint64(blockNum), prior)
+	mutations, err := flatkv.MutationsFromStateChangeSet(changes, uint64(blockNum), prior, s.cfg)
 	prior.Close()
 	if err != nil {
 		return err
@@ -308,11 +310,12 @@ func (s flatKVStateDB) CommitStateChanges(blockNum int64, changesets []*proto.Na
 func TestEndBlockerStorageReadsBackFromFlatKV(t *testing.T) {
 	cfg := flatkvconfig.DefaultConfig()
 	cfg.DataDir = t.TempDir()
-	store, err := openFlatKVTestStore(t.Context(), cfg)
+	store, err := flatkv.NewCommitStore(t.Context(), cfg, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	require.NoError(t, store.LoadLatest())
 	executor := NewExecutor(Config{CustomPrecompiles: recorderRegistry(endBlockRecorder{address: firstEndBlocker})},
-		withTestStores(flatKVStateDB{store}, NewMemoryReceiptStore(), NewFlatKVChangeSetEncoder()), WithMissingAccountState(fundedState{}))
+		withTestStores(flatKVStateDB{store, cfg}, NewMemoryReceiptStore()), WithMissingAccountState(fundedState{}))
 	t.Cleanup(executor.Close)
 
 	block := blockContext(big.NewInt(testChainID))
