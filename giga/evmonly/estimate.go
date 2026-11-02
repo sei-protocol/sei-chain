@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth/gasestimator"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
@@ -24,6 +25,13 @@ const estimateGasErrorRatio = 0.015
 // against the current committed state. Like Call it persists no state
 // change; a revert's data is returned alongside the error.
 func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+	return e.EstimateGasAfterCalls(ctx, blockCtx, nil, msg, gasCap)
+}
+
+// EstimateGasAfterCalls returns what EstimateGas returns for msg against the current committed
+// state with calls applied to it first, in order. A call that fails in the EVM leaves the state
+// as a failed transaction would; one that cannot be applied at all fails the estimate.
+func (e *Executor) EstimateGasAfterCalls(ctx context.Context, blockCtx BlockContext, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
 	chainConfig := e.chainConfig(blockCtx)
 	if err := validateBlockContext(chainConfig, blockCtx); err != nil {
 		return 0, nil, err
@@ -46,6 +54,14 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 
 	estimateCtx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
+	for i, call := range calls {
+		if err := e.applyCall(estimateCtx, blockCtx, chainConfig, stateDB, call); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return 0, nil, ctxErr
+			}
+			return 0, nil, fmt.Errorf("call %d: %w", i, err)
+		}
+	}
 
 	opts := &gasestimator.Options{
 		Config:            chainConfig,
@@ -66,6 +82,23 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 		return 0, nil, fmt.Errorf("EVM-only gas estimate exceeded %s execution timeout", callTimeout)
 	}
 	return estimate, revert, err
+}
+
+// applyCall applies call to stateDB as a committed transaction would leave it.
+func (e *Executor) applyCall(ctx context.Context, blockCtx BlockContext, chainConfig *params.ChainConfig, stateDB *nativeStateDB, call *core.Message) error {
+	_, cancelled, err := e.applyMessage(ctx, blockCtx, chainConfig, stateDB, call, vm.Config{NoBaseFee: true})
+	if cancelled {
+		return fmt.Errorf("EVM-only gas estimate exceeded %s execution timeout", callTimeout)
+	}
+	if stateErr := stateDB.Error(); stateErr != nil {
+		return stateErr
+	}
+	if err != nil {
+		return err
+	}
+	stateDB.clearSnapshots()
+	stateDB.Finalise(true)
+	return nil
 }
 
 // estimateBlockOverrides returns the coinbase and blob base fee gas estimation applies.

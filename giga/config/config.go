@@ -101,6 +101,8 @@ type RPCConfig struct {
 	BatchResponseMaxSize int `mapstructure:"batch_response_max_size"`
 	// MaxWSConnections caps simultaneously open WebSocket connections.
 	MaxWSConnections int `mapstructure:"max_ws_connections"`
+	// MaxEstimateGasCalls caps the calls one eth_estimateGasAfterCalls request may apply.
+	MaxEstimateGasCalls int `mapstructure:"max_estimate_gas_calls"`
 	// FilterTimeout is how long an eth_newFilter or eth_newBlockFilter filter lives without being
 	// polled.
 	FilterTimeout time.Duration `mapstructure:"filter_timeout"`
@@ -148,6 +150,7 @@ var DefaultConfig = Config{
 		BatchRequestLimit:             100,
 		BatchResponseMaxSize:          25 * 1000 * 1000,
 		MaxWSConnections:              2000,
+		MaxEstimateGasCalls:           100,
 		FilterTimeout:                 120 * time.Second,
 		MaxFilters:                    1000,
 		MaxBlockFilterHashes:          1000,
@@ -201,6 +204,7 @@ const (
 	FlagRPCBatchRequestLimit             = "giga.rpc.batch_request_limit"
 	FlagRPCBatchResponseMaxSize          = "giga.rpc.batch_response_max_size"
 	FlagRPCMaxWSConnections              = "giga.rpc.max_ws_connections"
+	FlagRPCMaxEstimateGasCalls           = "giga.rpc.max_estimate_gas_calls"
 	FlagRPCFilterTimeout                 = "giga.rpc.filter_timeout"
 	FlagRPCMaxFilters                    = "giga.rpc.max_filters"
 	FlagRPCMaxBlockFilterHashes          = "giga.rpc.max_block_filter_hashes"
@@ -334,6 +338,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxWSConnections, err)
 		}
 	}
+	if v := opts.Get(FlagRPCMaxEstimateGasCalls); v != nil {
+		if cfg.RPC.MaxEstimateGasCalls, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxEstimateGasCalls, err)
+		}
+	}
 	if v := opts.Get(FlagRPCFilterTimeout); v != nil {
 		if cfg.RPC.FilterTimeout, err = cast.ToDurationE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCFilterTimeout, err)
@@ -441,6 +450,9 @@ func (c Config) Validate() error {
 	}
 	if c.RPC.MaxWSConnections < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxWSConnections, c.RPC.MaxWSConnections)
+	}
+	if c.RPC.MaxEstimateGasCalls < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxEstimateGasCalls, c.RPC.MaxEstimateGasCalls)
 	}
 	if c.RPC.FilterTimeout < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %s", FlagRPCFilterTimeout, c.RPC.FilterTimeout)
@@ -554,6 +566,9 @@ batch_response_max_size = {{ .Giga.RPC.BatchResponseMaxSize }}
 
 # max_ws_connections caps simultaneously open WebSocket connections.
 max_ws_connections = {{ .Giga.RPC.MaxWSConnections }}
+
+# max_estimate_gas_calls caps the calls one eth_estimateGasAfterCalls request may apply.
+max_estimate_gas_calls = {{ .Giga.RPC.MaxEstimateGasCalls }}
 
 # filter_timeout is how long an eth_newFilter or eth_newBlockFilter filter lives without being
 # polled.
