@@ -69,27 +69,6 @@ func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State 
 	}
 }
 
-// alignMempool installs a fresh session mempool for lane.
-func (s *State) alignMempool(lane types.LaneID) (*mempool, types.BlockNumber) {
-	n := s.consensus.Avail().NextBlock(lane)
-	m := newMempoolInner(avail.BlocksPerLane, lane, n)
-	mp := &mempool{inner: utils.NewWatch(m), pendingInserts: utils.NewAtomicSend[uint64](0)}
-	s.mempool.Store(utils.Some(mp))
-	return mp, n
-}
-
-func (s *State) clearMempool() {
-	mp, ok := s.mempool.Load().Get()
-	// Always publish None so InsertTx waiters re-evaluate (e.g. LocalLane gone).
-	s.mempool.Store(utils.None[*mempool]())
-	if !ok {
-		return
-	}
-	for m, ctrl := range mp.inner.Lock() {
-		m.close(ctrl)
-	}
-}
-
 // Run runs the background tasks of the producer state:
 // * prunes executed lane blocks from mempool
 // * pushes new lane blocks from mempool to avail state
@@ -118,17 +97,52 @@ func (s *State) Run(ctx context.Context) error {
 }
 
 func (s *State) runMempool(ctx context.Context, availState *avail.State, lane types.LaneID) error {
-	mp, firstBlock := s.alignMempool(lane)
-	defer s.clearMempool()
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		scope.SpawnBg(func() error {
-			_ = availState.WaitUntilClosed(ctx, lane)
+		// Register mempool for lane.
+		firstBlock := s.consensus.Avail().NextBlock(lane)
+		inner := newMempoolInner(avail.BlocksPerLane, lane, firstBlock)
+		mp := &mempool{
+			inner: utils.NewWatch(inner),
+			insertTxCh: make(chan insertTxReq),
+		}
+		s.mempool.Store(utils.Some(mp))
+		defer func() {
+			s.mempool.Store(utils.None[*mempool]())
 			for m, ctrl := range mp.inner.Lock() {
-				m.close(ctrl)
+				m.closed = true
+				ctrl.Updated()
 			}
-			return nil
+		}()
+
+		scope.SpawnBg(func() error {
+			// Task sequencing InsertTx calls. 
+			// We use it to avoid spurious goroutine waking when many InsertTx calls are waiting for capacity.
+			limit := rate.Inf
+			burst := 1
+			if l, ok := s.cfg.MaxTxsPerSecond.Get(); ok {
+				limit = rate.Limit(l)
+				burst = int(l + s.cfg.MaxTxsPerBlock) // nolint:gosec
+			}
+			limiter := rate.NewLimiter(limit, burst)
+			for ctx.Err()==nil {
+				if err := limiter.Wait(ctx); err != nil {
+					return err 
+				}
+				req,err := utils.Recv(ctx,mp.insertTxCh)
+				if err!=nil { return err }
+				resp,err := s.insertTx(ctx,mp,req.tx,true)
+				if ctx.Err()!=nil {
+					// ctx error means we stopped producing.
+					err = ErrNotProducing
+				}
+				// Respond unconditionally to unblock InsertTx call.
+				// non-blocking, since we are the only writer to this channel
+				// and it has capacity 1.
+				req.respCh <- insertTxResp{resp,err}
+			}
+			return ctx.Err()
 		})
-		scope.Spawn(func() error {
+		scope.SpawnBg(func() error {
 			// Task pruning executed lane blocks from the mempool
 			dataState := s.consensus.Data()
 			var err error
@@ -139,15 +153,8 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 				s.pruneMempool(mp, toExecute)
 			}
 		})
-		scope.Spawn(func() error {
-			// Task pushing blocks from mempool to avail state.
-			limit := rate.Inf
-			burst := 1
-			if l, ok := s.cfg.MaxTxsPerSecond.Get(); ok {
-				limit = rate.Limit(l)
-				burst = int(l + s.cfg.MaxTxsPerBlock) // nolint:gosec
-			}
-			limiter := rate.NewLimiter(limit, burst)
+		scope.SpawnBg(func() error {
+			// Task pushing blocks from mempool to avail state.	
 			for toProduce := firstBlock; ; toProduce += 1 {
 				if err := availState.WaitForCapacity(ctx, lane, toProduce); err != nil {
 					if errors.Is(err, avail.ErrLaneClosed) {
@@ -164,28 +171,22 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 					// Note that in total the time between blocks is WaitForLocalCapacity delay + BlockInterval
 					// We don't want to cap them together with BlockInterval, because that will cause production of almost empty blocks.
 					if err := utils.WithTimeout(ctx, s.cfg.BlockInterval, func(ctx context.Context) error {
-						return ctrl.WaitUntil(ctx, func() bool { return m.closed || toProduce < m.next })
+						return ctrl.WaitUntil(ctx, func() bool { return toProduce < m.next })
 					}); err != nil {
 						if ctx.Err() != nil {
 							return ctx.Err()
 						}
 						// Wait for non-empty payload.
 						if err := ctrl.WaitUntil(ctx, func() bool {
-							return m.closed || toProduce < m.next || (toProduce == m.next && m.CanSealBlock(s.cfg.AllowEmptyBlocks))
+							return toProduce < m.next || (toProduce == m.next && m.CanSealBlock(s.cfg.AllowEmptyBlocks))
 						}); err != nil {
 							return err
-						}
-						if m.closed {
-							return nil
 						}
 						// Seal the payload if needed.
 						if toProduce == m.next {
 							m.SealBlock()
 							ctrl.Updated()
 						}
-					}
-					if m.closed {
-						return nil
 					}
 					b, ok := m.blocks[toProduce]
 					if !ok {
@@ -212,13 +213,9 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 						return nil
 					}
 					return fmt.Errorf("availState.ProduceLocalBlock(): %w", err)
-				}
-				// TODO(gprusak): move this limit to insertTx instead.
-				if err := limiter.WaitN(ctx, len(payload.Txs())); err != nil {
-					return fmt.Errorf("limiter(): %w", err)
-				}
+				}	
 			}
 		})
-		return nil
+		return availState.WaitUntilClosed(ctx, lane)
 	})
 }
