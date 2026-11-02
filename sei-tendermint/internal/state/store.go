@@ -473,7 +473,12 @@ func (store dbStore) saveFinalizeBlockResponses(height int64, finalizeBlockRespo
 
 	finalizeBlockResponses.TxResults = dtxs
 
-	bz, err := storedFinalizeBlockResponses(finalizeBlockResponses, maxStoredFinalizeBlockResponsesBytes).Marshal()
+	stored := storedFinalizeBlockResponses(finalizeBlockResponses, maxStoredFinalizeBlockResponsesBytes)
+	if stored != finalizeBlockResponses {
+		logger.Error("FinalizeBlock response too large to store with events; stored without events",
+			"height", height, "size", finalizeBlockResponses.Size(), "maxSize", maxStoredFinalizeBlockResponsesBytes)
+	}
+	bz, err := stored.Marshal()
 	if err != nil {
 		return err
 	}
