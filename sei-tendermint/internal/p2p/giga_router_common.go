@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sort"
 	"sync/atomic"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -37,6 +38,10 @@ import (
 const maxInboundFullnodePeers = 10000
 
 var errGigaMembershipChanged = errors.New("inbound giga peer changed committee membership")
+
+// errAppAheadOfBlockStore reports an app that has executed blocks the BlockStore
+// does not hold, so they cannot be replayed on restart.
+var errAppAheadOfBlockStore = errors.New("app has executed past the BlockStore")
 
 type gigaRouterCommon struct {
 	cfg             *GigaRouterCommonConfig
@@ -451,6 +456,28 @@ func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context, committed <-cha
 			return fmt.Errorf("r.finishExecuteBlock(%v): %w", p.number, err)
 		}
 	}
+}
+
+// awaitStartupReplay waits until execution has run every stored block below stop.
+// It returns errAppAheadOfBlockStore when the app has already executed past stop-1.
+func (r *gigaRouterCommon) awaitStartupReplay(ctx context.Context, stop atypes.RoadIndex) error {
+	appTip := r.executed.Load().Latest().Number
+	next := max(appTip+1, atypes.RoadIndex(r.cfg.GenDoc.InitialHeight)) // nolint:gosec // verified to be positive.
+	if next > stop {
+		return fmt.Errorf("app tip %d, BlockStore tip %d: %w", appTip, stop-1, errAppAheadOfBlockStore)
+	}
+	if next == stop {
+		return nil
+	}
+	logger.Info("Autobahn: replaying stored blocks before joining consensus", "from", next, "through", stop-1)
+	start := time.Now()
+	if _, err := r.executed.Subscribe().Wait(ctx, func(w atypes.ExecutedBlocks) bool {
+		return w.Latest().Number+1 >= stop
+	}); err != nil {
+		return err
+	}
+	logger.Info("Autobahn: replayed stored blocks", "from", next, "through", stop-1, "duration", time.Since(start))
+	return nil
 }
 
 // runReportBlockHashes reports the road block hash of each block from next.

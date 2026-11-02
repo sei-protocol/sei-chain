@@ -95,14 +95,18 @@ func (r *gigaValidatorRouter) Mempool() utils.Option[*producer.State] {
 }
 
 func (r *gigaValidatorRouter) Run(ctx context.Context) error {
+	stop := r.data.NextFullBlock()
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
+		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
+		if err := r.awaitStartupReplay(ctx, stop); err != nil {
+			return err
+		}
 		s.SpawnNamed("committeeMembers", func() error {
 			return r.runPerCommitteeMember(ctx, r.runCommitteePeer, r.runEvmProxy)
 		})
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
 		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
-		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
-		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		return nil
 	})

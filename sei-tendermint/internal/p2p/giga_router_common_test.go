@@ -21,6 +21,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -257,6 +258,185 @@ func TestExecuteBuffersPendingAppHashes(t *testing.T) {
 		}
 		return nil
 	}))
+}
+
+// testRoad is one committed road: its QC and the lane blocks it finalized.
+type testRoad struct {
+	qc     *atypes.FullCommitQC
+	blocks []*atypes.Block
+}
+
+// testRoads returns n consecutive committed roads of the genesis epoch, signed by key.
+func testRoads(rng utils.Rng, state *data.State, key atypes.SecretKey, n int) []testRoad {
+	roads := make([]testRoad, 0, n)
+	prev := utils.None[*atypes.CommitQC]()
+	for range n {
+		qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, prev)
+		roads = append(roads, testRoad{qc: qc, blocks: blocks})
+		prev = utils.Some(qc.QC())
+	}
+	return roads
+}
+
+// pushRoads adds roads to state, as consensus does once they are finalized.
+func pushRoads(ctx context.Context, state *data.State, roads []testRoad) error {
+	for _, road := range roads {
+		if err := state.PushPartialBlock(ctx, road.qc, data.TestBlockMap(road.blocks)); err != nil {
+			return fmt.Errorf("state.PushPartialBlock(%v): %w", road.qc.Index(), err)
+		}
+	}
+	return nil
+}
+
+// TestAwaitStartupReplayWithoutBlocksToReplay verifies that awaitStartupReplay
+// returns at once, without execution running, when the BlockStore holds no
+// block above the app. It hangs otherwise.
+func TestAwaitStartupReplayWithoutBlocksToReplay(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		initialHeight int64
+		appTip        atypes.RoadIndex
+		stop          atypes.RoadIndex
+		wantErr       error
+	}{
+		{name: "fresh node with an empty BlockStore", initialHeight: 1, appTip: 0, stop: 1},
+		{name: "fresh node whose chain starts above height 1", initialHeight: 5, appTip: 0, stop: 5},
+		{name: "app at the BlockStore tip", initialHeight: 1, appTip: 7, stop: 8},
+		{name: "app ahead of the BlockStore", initialHeight: 1, appTip: 8, stop: 8, wantErr: errAppAheadOfBlockStore},
+		{name: "app ahead of an empty BlockStore", initialHeight: 1, appTip: 3, stop: 1, wantErr: errAppAheadOfBlockStore},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			router := &gigaRouterCommon{
+				cfg:      &GigaRouterCommonConfig{GenDoc: &tmtypes.GenesisDoc{InitialHeight: tc.initialHeight}},
+				executed: utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: tc.appTip})),
+			}
+			err := router.awaitStartupReplay(t.Context(), tc.stop)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestAwaitStartupReplayWaitsForStoredBlocks verifies that on a fresh app,
+// awaitStartupReplay returns only once execution has run every stored block.
+func TestAwaitStartupReplayWaitsForStoredBlocks(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	app, hashBuilder, state, router := newAppHashTestRouter(t, rng, key)
+	hashBuilder.publishOnReport = true
+	roads := testRoads(rng, state, key, 3)
+
+	var heightAtReturn int64
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := pushRoads(ctx, state, roads); err != nil {
+			return err
+		}
+		stop := state.NextFullBlock()
+		s.SpawnBgNamed("execute", func() error { return utils.IgnoreCancel(router.runExecute(ctx)) })
+		if err := router.awaitStartupReplay(ctx, stop); err != nil {
+			return err
+		}
+		heightAtReturn = app.LastBlockHeight()
+		return nil
+	}))
+	require.Equal(t, int64(roads[2].qc.Index()), heightAtReturn)
+}
+
+// TestAwaitStartupReplayResumesAfterTheAppTip verifies the restart path: a node
+// that stopped after executing block 1, with blocks 2 and 3 already stored,
+// replays exactly blocks 2 and 3.
+func TestAwaitStartupReplayResumesAfterTheAppTip(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	app, hashBuilder, state, router := newAppHashTestRouter(t, rng, key)
+	hashBuilder.publishOnReport = true
+	roads := testRoads(rng, state, key, 3)
+	tip := roads[0].qc.Index()
+
+	var heightAtReturn int64
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := pushRoads(ctx, state, roads[:1]); err != nil {
+			return err
+		}
+		// The first run executes block 1 and stops.
+		if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			s.SpawnBgNamed("execute", func() error { return utils.IgnoreCancel(router.runExecute(ctx)) })
+			_, err := app.WaitForBlocks(ctx, 1)
+			return err
+		}); err != nil {
+			return err
+		}
+		if err := pushRoads(ctx, state, roads[1:]); err != nil {
+			return err
+		}
+
+		// The first run left block 1's app hash in the builder, as storage keeps it across a restart.
+		restarted := &gigaRouterCommon{
+			cfg:      router.cfg,
+			data:     state,
+			app:      router.app,
+			executed: utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: tip})),
+		}
+		stop := state.NextFullBlock()
+		s.SpawnBgNamed("execute", func() error { return utils.IgnoreCancel(restarted.runExecute(ctx)) })
+		if err := restarted.awaitStartupReplay(ctx, stop); err != nil {
+			return err
+		}
+		heightAtReturn = app.LastBlockHeight()
+		return nil
+	}))
+	require.Equal(t, int64(roads[2].qc.Index()), heightAtReturn)
+	// The app counts its finalized blocks, so re-executing block 1 would show here.
+	require.Equal(t, int64(roads[2].qc.Index()), app.LastBlockHeight())
+}
+
+// TestGigaRouterRunRejectsAnAppAheadOfTheBlockStore verifies that both roles'
+// Run stop with errAppAheadOfBlockStore when the app has executed blocks the
+// BlockStore does not hold. It hangs if a role does not wait for the replay.
+func TestGigaRouterRunRejectsAnAppAheadOfTheBlockStore(t *testing.T) {
+	for _, role := range []string{"fullnode", "validator"} {
+		t.Run(role, func(t *testing.T) {
+			rng := utils.TestRng()
+			key := atypes.GenSecretKey(rng)
+			nodeKey := makeKey(rng)
+			_, _, state, router := newAppHashTestRouter(t, rng, key)
+			cfg := *router.cfg
+			cfg.App = proxy.New(&fixedHeightApp{height: int64(state.NextFullBlock())})
+			cfg.ValidatorAddrs = map[atypes.PublicKey]GigaNodeAddr{key.Public(): {
+				Key:      nodeKey.Public(),
+				HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
+				EVMRPC:   *utils.OrPanic1(url.Parse("ws://127.0.0.1:8546")),
+			}}
+
+			var giga GigaRouter
+			var err error
+			if role == "fullnode" {
+				giga, err = NewGigaFullnodeRouter(&cfg, nodeKey, state)
+			} else {
+				giga, err = NewGigaValidatorRouter(&GigaValidatorConfig{
+					GigaRouterCommonConfig: cfg,
+					ValidatorKey:           key,
+					ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
+					ProposalTimeout:        time.Hour,
+					Producer: &producer.Config{
+						MaxGasWantedPerBlock:    1,
+						MaxGasEstimatedPerBlock: 1,
+						MaxTxsPerBlock:          1,
+						MaxTxsPerSecond:         utils.None[uint64](),
+						BlockInterval:           time.Hour,
+						MaxPendingInserts:       producer.DefaultMaxPendingInserts,
+					},
+				}, nodeKey, state)
+			}
+			require.NoError(t, err)
+			require.ErrorIs(t, giga.Run(t.Context()), errAppAheadOfBlockStore)
+		})
+	}
 }
 
 // TestRunExecuteReportsTheBlockHash verifies that runExecute reports the road

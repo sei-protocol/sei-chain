@@ -49,7 +49,13 @@ func (r *gigaFullnodeRouter) Mempool() utils.Option[*producer.State] {
 }
 
 func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
+	stop := r.data.NextFullBlock()
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
+		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
+		if err := r.awaitStartupReplay(ctx, stop); err != nil {
+			return err
+		}
 		// Single-active subscriber: walk the committee in a stable order,
 		// move to the next on disconnect. Avoids the N× QC duplication of
 		// fanning out to every committee member.
@@ -58,8 +64,6 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 		// validator (or a subset of trusted validators) instead of walking
 		// the whole committee.
 		s.Spawn(func() error { return r.runFullnodeSubscriber(ctx) })
-		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
-		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		s.SpawnNamed("committeeMembers", func() error {
 			return r.runPerCommitteeMember(ctx, r.runEvmProxy)
