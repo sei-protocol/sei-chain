@@ -301,20 +301,22 @@ func TestFilterReadsSpendTheGetLogsBudget(t *testing.T) {
 }
 
 // TestRefusedPollKeepsCursor pins that a poll refused for load leaves the filter's cursor where it
-// was, so the next poll retries the same blocks.
+// was, so the next poll retries the same blocks. A filter from block 0 keeps cursor 0 rather than
+// the earliest block the refused poll would have started at.
 func TestRefusedPollKeepsCursor(t *testing.T) {
 	t.Parallel()
 
-	api := newAdmissionTestAPI(limiterWithTokens(0), busyMetrics(), nil)
-	from := admissionHead - 49
-	id, err := api.NewFilter(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(from)})
-	require.NoError(t, err)
+	for _, from := range []int64{admissionHead - 49, 0} {
+		api := newAdmissionTestAPI(limiterWithTokens(0), busyMetrics(), nil)
+		id, err := api.NewFilter(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(from)})
+		require.NoError(t, err)
 
-	_, err = api.GetFilterChanges(t.Context(), id)
-	requireRefusedWith(t, err, tooBusyMsg)
-	api.filtersMu.RLock()
-	defer api.filtersMu.RUnlock()
-	require.Equal(t, from, api.filters[id].logCursor)
+		_, err = api.GetFilterChanges(t.Context(), id)
+		requireRefusedWith(t, err, tooBusyMsg)
+		api.filtersMu.RLock()
+		require.Equal(t, from, api.filters[id].logCursor, "fromBlock %d", from)
+		api.filtersMu.RUnlock()
+	}
 }
 
 // TestLaggingFilterCatchesUpWithoutTokens pins the liveness of a filter that has fallen behind:

@@ -755,14 +755,16 @@ func checkLogQueryAdmission(blockRange, maxBlock int64, limiter *rate.Limiter, m
 }
 
 // checkPollAdmission returns how many of blockRange blocks a filter poll may scan: all of them
-// with a large-query token, RPSLimitThreshold without one. A poll is cut rather than refused, so
-// a filter that has fallen behind keeps moving instead of waiting on tokens. It is refused only
-// for a range over maxBlock or for load, as in checkLogQueryAdmission.
+// with a large-query token, RPSLimitThreshold without one. It refuses the poll only under load, as
+// checkLogQueryAdmission does.
 func checkPollAdmission(blockRange, maxBlock int64, limiter *rate.Limiter, m *WorkerPoolMetrics) (allowed int64, err error) {
+	// A safeguard only: pollWindow already caps a poll at maxBlock.
 	if err := checkBlockRange(blockRange, maxBlock); err != nil {
 		return 0, err
 	}
 	if blockRange > RPSLimitThreshold && !limiter.Allow() {
+		// Cut rather than refused, so a filter that has fallen behind keeps moving instead of
+		// waiting on tokens.
 		blockRange = RPSLimitThreshold
 	}
 	if err := checkLoad(m); err != nil {
@@ -1237,6 +1239,9 @@ func (f *LogFetcher) pollLogs(ctx context.Context, crit filters.FilterCriteria, 
 	if err != nil {
 		return nil, cursor, err
 	}
+	// A failed poll returns cursor rather than start, so a filter from block 0 keeps following the
+	// earliest block instead of being pinned to the one this poll saw.
+	start := cursor
 	if earliest, err := f.earliestHeight(ctx); err == nil && cursor < earliest {
 		// Pruned blocks cannot be served on any later poll either, so the filter moves on to the
 		// earliest block. A filter from block 0 asked for whatever the node has, so only a filter
@@ -1244,11 +1249,11 @@ func (f *LogFetcher) pollLogs(ctx context.Context, crit filters.FilterCriteria, 
 		if cursor > 0 {
 			return nil, earliest, prunedLogsError(crit, cursor, earliest)
 		}
-		cursor = earliest
+		start = earliest
 	}
-	from, to, ok := pollWindow(crit.ToBlock, cursor, head, f.filterConfig.maxBlock)
+	from, to, ok := pollWindow(crit.ToBlock, start, head, f.filterConfig.maxBlock)
 	if !ok {
-		return []*ethtypes.Log{}, cursor, nil
+		return []*ethtypes.Log{}, start, nil
 	}
 	if admit != nil {
 		allowed, err := admit(to - from + 1)
