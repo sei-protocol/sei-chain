@@ -10,13 +10,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func TestWrapGRPCErrorNil(t *testing.T) {
-	require.NoError(t, query.WrapGRPCError(nil))
+func TestWrapQueryErrorNil(t *testing.T) {
+	require.NoError(t, query.WrapQueryError(nil))
 }
 
-func TestWrapGRPCErrorPreservesStatus(t *testing.T) {
+func TestWrapQueryErrorPreservesStatus(t *testing.T) {
 	orig := status.Errorf(codes.InvalidArgument, "limit exceeds maximum")
-	wrapped := query.WrapGRPCError(orig)
+	wrapped := query.WrapQueryError(orig)
 	require.Equal(t, orig, wrapped)
 
 	st, ok := status.FromError(wrapped)
@@ -24,9 +24,9 @@ func TestWrapGRPCErrorPreservesStatus(t *testing.T) {
 	require.Equal(t, codes.InvalidArgument, st.Code())
 }
 
-func TestWrapGRPCErrorWrapsPlainError(t *testing.T) {
+func TestWrapQueryErrorWrapsPlainError(t *testing.T) {
 	orig := fmt.Errorf("unmarshal failed")
-	wrapped := query.WrapGRPCError(orig)
+	wrapped := query.WrapQueryError(orig)
 
 	st, ok := status.FromError(wrapped)
 	require.True(t, ok)

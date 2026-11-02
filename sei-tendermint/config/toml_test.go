@@ -99,6 +99,12 @@ func checkConfig(t *testing.T, configFile string) {
 		}
 	}
 
+	// The state sync trust period is built into the binary per chain, so the
+	// template must not offer a key for it. See StateSyncTrustPeriod.
+	if configContainsKey(configFile, "trust-period") {
+		t.Errorf("config file was not expected to contain trust-period")
+	}
+
 	// accept-interval is rendered deliberately: an accept rate too low to drain
 	// the kernel backlog silently stops a node acquiring inbound peers, and the
 	// template is where an operator looks. Keep it discoverable.
