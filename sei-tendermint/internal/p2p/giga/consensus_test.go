@@ -22,7 +22,7 @@ func TestConsensusClientServer(t *testing.T) {
 	for _, key := range types.TestKeysWithWeight(committee, keys, committee.CommitQuorum()) {
 		nodes = append(nodes, env.AddNode(key))
 	}
-	firstBlock := nodes[0].data.Registry().FirstRoad()
+	firstBlock := nodes[0].data.Registry().MustEpoch(0).RoadRange().First
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		for offset := range types.RoadIndex(20) {

@@ -29,7 +29,7 @@ func GenRegistryThrough(
 	registry := utils.OrPanic1(NewRegistry(committee, firstRoad, time.Now(), utils.None[string]()))
 	for target := types.EpochIndex(2); target <= last; target++ {
 		utils.OrPanic(registry.StageEpoch(target-2, weights))
-		utils.OrPanic(registry.ActivateEpoch(target))
+		utils.OrPanic(registry.Activate(target))
 	}
 	return registry, sks
 }
@@ -49,12 +49,12 @@ func (r *Registry) StageAndActivate(endEpoch types.EpochIndex, weights map[types
 	if err := r.StageEpoch(endEpoch, weights); err != nil {
 		return err
 	}
-	return r.ActivateEpoch(endEpoch + 2)
+	return r.Activate(endEpoch + 2)
 }
 
 // MustEpoch returns the registered epoch at i. Panics if it is missing.
 func (r *Registry) MustEpoch(i types.EpochIndex) *types.Epoch {
-	ep, err := r.EpochByIndex(i)
+	ep, err := r.Epoch(i)
 	if err != nil {
 		panic(err)
 	}

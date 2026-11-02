@@ -110,6 +110,7 @@ func TestClassifyRPCMetricError(t *testing.T) {
 		{name: "evm_not_supported", err: &ErrEVMNotSupported{Msg: "nope"}, wantClass: errorClassEVMNotSupported, wantCode: jsonrpcCodeBucketServer},
 		{name: "sei_legacy", err: errSeiLegacyNotEnabledForTest("m"), wantClass: errorClassSeiLegacyDisabled, wantCode: jsonrpcCodeBucketSpec},
 		{name: "association", err: types.NewAssociationMissingErr("0xabc"), wantClass: errorClassAssociationMissing, wantCode: ""},
+		{name: "log_query_refused", err: &errLogQueryRefused{msg: "server too busy"}, wantClass: errorClassLogQueryRefused, wantCode: jsonrpcCodeBucketServer},
 		{name: "wrapped_revert", err: errors.Join(errors.New("outer"), NewRevertErrorFromError(errors.New("execution reverted"))), wantClass: errorClassExecutionReverted, wantCode: jsonrpcCodeBucketOther},
 		{name: "unknown", err: errors.New("something else"), wantClass: errorClassUnknown, wantCode: ""},
 	}
