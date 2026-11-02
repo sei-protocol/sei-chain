@@ -117,7 +117,7 @@ For validator or seed nodes, pass --mode validator or --mode seed so RPC and P2P
 
 			chainID, _ := cmd.Flags().GetString(flags.FlagChainID)
 			if chainID == "" {
-				panic("chain-id is required, please set using --chain-id")
+				return errors.New("chain-id is required, please set using --chain-id")
 			}
 
 			applyDefaultBootstrapPeers(tmConfig, chainID)
