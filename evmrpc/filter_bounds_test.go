@@ -216,7 +216,7 @@ func TestPollLogsReportsPrunedBlocks(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			logs, cursor, err := fetcher.pollLogs(t.Context(), tc.crit, 10)
+			logs, cursor, err := fetcher.pollLogs(t.Context(), tc.crit, 10, nil)
 			require.ErrorContains(t, err, tc.errContains)
 			require.Nil(t, logs)
 			require.Equal(t, earliest, cursor)
