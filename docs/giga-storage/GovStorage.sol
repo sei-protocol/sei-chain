@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {GOV_PRECOMPILE_ADDRESS, TextContent} from "giga-precompiles/gov/Gov.sol";
 
 /// @notice Storage schema of the evmonly gov precompile (0x1006), held as that
@@ -10,9 +9,6 @@ import {GOV_PRECOMPILE_ADDRESS, TextContent} from "giga-precompiles/gov/Gov.sol"
 /// (`DepositEscrow` in `gov/layout.go`); `deposits` holds each depositor's
 /// amount. The content structs a proposal stores are declared in `Gov.sol`.
 contract GovStorage {
-    using EnumerableSet for EnumerableSet.AddressSet;
-    using EnumerableSet for EnumerableSet.UintSet;
-
     struct WeightedVote {
         int32 option;
         uint64 weight; // 1e18-scaled; a simple vote is a one-entry array at weight 1e18
@@ -35,9 +31,16 @@ contract GovStorage {
         uint256[4] __gap;
     }
 
+    /// @dev Distinct addresses. positions holds each value's 1-based index in
+    /// values, 0 when absent; a removal moves the last value into the gap.
+    struct AddressSet {
+        address[] values;
+        mapping(address => uint256) positions;
+    }
+
     /// @dev A min-heap of `endTime << 64 | proposalId` keys, so its root is the
-    /// proposal that ends first, lowest id first. EnumerableSet's layout:
-    /// positions are 1-based indexes into keys.
+    /// proposal that ends first, lowest id first. positions holds each key's
+    /// 1-based index in keys, as AddressSet's does.
     struct ProposalQueue {
         uint256[] keys;
         mapping(uint256 => uint256) positions;
@@ -75,12 +78,12 @@ contract GovStorage {
     mapping(uint64 => mapping(address => WeightedVote[])) internal votes; // proposalId => voter => options
     mapping(uint64 => mapping(address => uint256)) internal deposits; // proposalId => depositor => cumulative
 
-    mapping(uint64 => EnumerableSet.AddressSet) internal depositors; // proposalId => distinct depositors, at most maxDepositors
+    mapping(uint64 => AddressSet) internal depositors; // proposalId => distinct depositors, at most maxDepositors
 
     ProposalQueue internal votingQueue; // proposals pending a voting-period end
     ProposalQueue internal depositQueue; // proposals pending a deposit-period end
 
-    mapping(uint64 => EnumerableSet.AddressSet) internal votersByProposal; // proposalId => distinct voters
+    mapping(uint64 => AddressSet) internal votersByProposal; // proposalId => distinct voters
 
     mapping(uint64 => Tally) internal tallies; // proposalId => tally in progress
     mapping(uint64 => mapping(address => uint256)) internal tallyDeductions; // proposalId => validator => shares whose delegators voted

@@ -94,6 +94,9 @@ same result from the same block, so each rule below is a consensus rule.
 ## Storage
 - Lay out storage as solc would for the matching `docs/giga-storage/*.sol`
   contract, using `solstorage`. Changing a layout changes the app hash.
+- A storage schema imports nothing from outside this repository, such as
+  OpenZeppelin's `EnumerableSet`. Declare each struct it needs in the schema
+  itself, so its layout is pinned by its own forge golden.
 - `solstorage` returns `ErrInvalidString` for a stored string that is not a
   valid encoding of at most `MaxStringLength` bytes. Lowering `MaxStringLength`
   therefore makes any longer value already stored unreadable.
