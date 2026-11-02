@@ -1,11 +1,9 @@
 package statewal
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -17,8 +15,8 @@ var _ StateWAL = (*stateWALImpl)(nil)
 
 // A WAL for storing each block's state mutations by block number.
 //
-// Each block is sorted, serialized, appended and hashed, and its hash delivered to the listeners, on the WAL's own
-// goroutine and in write order. Every request that must stay ordered with writes passes through that goroutine.
+// Each block is serialized and appended on the WAL's own goroutine, in write order. Every request that must stay
+// ordered with writes passes through that goroutine.
 //
 // Not safe for concurrent use; see the StateWAL interface doc. The gc.PrunableStore surface in
 // state_wal_gc.go is the exception: it runs on the collector's goroutine, and touches only lastBlock and
@@ -31,7 +29,7 @@ type stateWALImpl struct {
 	closed bool
 
 	// Cancelled when the WAL stops: by fail() with the fatal error that bricked the WAL as its cause, or by
-	// Close() with a nil cause. Every blocking operation aborts on it, and it is the ctx passed to hash listeners.
+	// Close() with a nil cause. Every blocking operation aborts on it.
 	ctx context.Context
 
 	// Cancels ctx, recording the fatal error (or nil) as its cause. Only the first call takes effect.
@@ -42,19 +40,6 @@ type stateWALImpl struct {
 
 	// Tracks the goroutine so Close() can wait for it to exit.
 	wg sync.WaitGroup
-
-	// The listeners each block's hash is delivered to, in registration order. Owned by the goroutine.
-	listeners []HashListener
-
-	// Whether lastHashedBlock and lastHash are set. Owned by the goroutine.
-	hasLastHash bool
-
-	// The block of the most recent hash delivered, or of the last stored block when the WAL was opened. Owned by
-	// the goroutine.
-	lastHashedBlock uint64
-
-	// The hash of lastHashedBlock. Owned by the goroutine.
-	lastHash [32]byte
 
 	// The highest block number written. Atomic because the garbage collector reads it off-goroutine
 	// (GetLatestBlock); Write is its only mutator.
@@ -134,31 +119,19 @@ func newStateWAL(
 	// The capacity of the channel carrying requests to the goroutine.
 	requestBufferSize uint,
 ) (StateWAL, error) {
-	// Recover the write-ordering position, and the hash reported to listeners registered before any block is
-	// written, from the highest block already on disk.
+	// Recover the write-ordering position from the highest block already on disk.
 	ok, _, last, err := wal.Bounds()
 	if err != nil {
 		_ = wal.Close()
 		return nil, fmt.Errorf("failed to read WAL bounds: %w", err)
 	}
-	var lastHash [32]byte
-	if ok {
-		lastHash, err = computeStoredHash(wal, last)
-		if err != nil {
-			_ = wal.Close()
-			return nil, fmt.Errorf("failed to compute the hash of the last stored block: %w", err)
-		}
-	}
 
 	ctx, cancel := context.WithCancelCause(context.Background())
 	w := &stateWALImpl{
-		wal:             wal,
-		ctx:             ctx,
-		cancel:          cancel,
-		requestChan:     make(chan any, requestBufferSize),
-		hasLastHash:     ok,
-		lastHashedBlock: last,
-		lastHash:        lastHash,
+		wal:         wal,
+		ctx:         ctx,
+		cancel:      cancel,
+		requestChan: make(chan any, requestBufferSize),
 	}
 	if ok {
 		w.lastBlock.Store(last)
@@ -167,34 +140,6 @@ func newStateWAL(
 	w.wg.Add(1)
 	go w.run()
 	return w, nil
-}
-
-// computeStoredHash returns the hash of a block already stored in wal.
-func computeStoredHash(
-	// The WAL holding the block.
-	wal seiwal.WAL[[]byte],
-	// The block to compute the hash of.
-	blockNumber uint64,
-) ([32]byte, error) {
-	it, err := wal.Iterator(blockNumber, blockNumber)
-	if err != nil {
-		return [32]byte{}, fmt.Errorf("failed to create WAL iterator: %w", err)
-	}
-	defer func() { _ = it.Close() }()
-
-	ok, err := it.Next()
-	if err != nil {
-		return [32]byte{}, fmt.Errorf("failed to read block %d: %w", blockNumber, err)
-	}
-	if !ok {
-		return [32]byte{}, fmt.Errorf("block %d is not stored", blockNumber)
-	}
-	_, serialized := it.Entry()
-	hash, err := hashSerializedBlock(serialized)
-	if err != nil {
-		return [32]byte{}, fmt.Errorf("failed to hash block %d: %w", blockNumber, err)
-	}
-	return hash, nil
 }
 
 // Write appends a block's mutations to the WAL as a single record.
@@ -209,8 +154,7 @@ func (w *stateWALImpl) Write(blockNumber uint64, mutations []mutation.Mutation) 
 		return fmt.Errorf("write rejected: %w", err)
 	}
 
-	// The goroutine sorts the block in place, so it is given its own slice and the caller keeps theirs.
-	if !w.send(writeRequest{blockNumber: blockNumber, mutations: slices.Clone(mutations)}) {
+	if !w.send(writeRequest{blockNumber: blockNumber, mutations: mutations}) {
 		return fmt.Errorf("failed to schedule block %d: %w", blockNumber, w.stoppedErr())
 	}
 	w.lastBlock.Store(blockNumber)
@@ -233,7 +177,7 @@ func (w *stateWALImpl) checkBlockOrder(blockNumber uint64) error {
 	return nil
 }
 
-// Flush blocks until all previously scheduled writes are durable and their hashes delivered.
+// Flush blocks until all previously scheduled writes are durable.
 func (w *stateWALImpl) Flush() error {
 	if w.closed {
 		return fmt.Errorf("state WAL is closed")
@@ -253,26 +197,6 @@ func (w *stateWALImpl) Flush() error {
 		return nil
 	case <-w.ctx.Done():
 		return w.stoppedErr()
-	}
-}
-
-// RegisterHashListener adds listener to those each block's hash is delivered to, and reports the most recent hash.
-func (w *stateWALImpl) RegisterHashListener(listener HashListener) (bool, uint64, [32]byte, error) {
-	if w.closed {
-		return false, 0, [32]byte{}, fmt.Errorf("state WAL is closed")
-	}
-	if err := w.fatalErr(); err != nil {
-		return false, 0, [32]byte{}, fmt.Errorf("state WAL failed: %w", err)
-	}
-	request := registerRequest{listener: listener, reply: make(chan registerResult, 1)}
-	if !w.send(request) {
-		return false, 0, [32]byte{}, w.stoppedErr()
-	}
-	select {
-	case result := <-request.reply:
-		return result.hasLastHash, result.lastHashedBlock, result.lastHash, nil
-	case <-w.ctx.Done():
-		return false, 0, [32]byte{}, w.stoppedErr()
 	}
 }
 
@@ -431,15 +355,6 @@ func (w *stateWALImpl) run() {
 		case iteratorRequest:
 			iterator, err := w.wal.Iterator(r.startingBlockNumber, r.endingBlockNumber)
 			r.reply <- iteratorResult{iterator: iterator, err: err}
-		case registerRequest:
-			if r.listener != nil {
-				w.listeners = append(w.listeners, r.listener)
-			}
-			r.reply <- registerResult{
-				hasLastHash:     w.hasLastHash,
-				lastHashedBlock: w.lastHashedBlock,
-				lastHash:        w.lastHash,
-			}
 		case closeRequest:
 			return
 		default:
@@ -449,28 +364,11 @@ func (w *stateWALImpl) run() {
 	}
 }
 
-// write sorts the block's mutations by key, computes their BUD hash, appends their serialization to the WAL, and
-// delivers the BUD hash to every listener, returning the first error.
+// write appends the serialization of the block's mutations to the WAL.
 func (w *stateWALImpl) write(request writeRequest) error {
-	slices.SortFunc(request.mutations, func(a mutation.Mutation, b mutation.Mutation) int {
-		return bytes.Compare(a.Key, b.Key)
-	})
-	hash, err := budHashFromMutations(request.mutations)
-	if err != nil {
-		return fmt.Errorf("failed to compute the BUD hash of block %d: %w", request.blockNumber, err)
-	}
 	if err := w.wal.Append(request.blockNumber, serializeBlock(request.mutations)); err != nil {
 		return fmt.Errorf("failed to append block %d: %w", request.blockNumber, err)
 	}
-
-	for _, listener := range w.listeners {
-		if err := listener(w.ctx, request.blockNumber, hash); err != nil {
-			return fmt.Errorf("a hash listener refused block %d: %w", request.blockNumber, err)
-		}
-	}
-	w.hasLastHash = true
-	w.lastHashedBlock = request.blockNumber
-	w.lastHash = hash
 	return nil
 }
 
@@ -484,12 +382,12 @@ func (w *stateWALImpl) send(request any) bool {
 	}
 }
 
-// A written block to sort, serialize, append and hash.
+// A written block to serialize and append.
 type writeRequest struct {
 	// The block number.
 	blockNumber uint64
 
-	// The block's mutations, in any order.
+	// The block's mutations, in the order written.
 	mutations []mutation.Mutation
 }
 
@@ -548,28 +446,6 @@ type iteratorResult struct {
 
 	// Any error creating the iterator.
 	err error
-}
-
-// Asks the goroutine to add a hash listener and report the most recent hash delivered before it was added.
-type registerRequest struct {
-	// The listener to add, or nil to only read the most recent hash.
-	listener HashListener
-
-	// Receives the result.
-	reply chan registerResult
-}
-
-// The result of a registerRequest.
-type registerResult struct {
-	// Whether lastHashedBlock and lastHash are set.
-	hasLastHash bool
-
-	// The block of the most recent hash delivered before the listener was added, or of the last stored block when
-	// none has been.
-	lastHashedBlock uint64
-
-	// The hash of lastHashedBlock.
-	lastHash [32]byte
 }
 
 // Asks the goroutine to exit once every request sent before it has been served.

@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -51,6 +52,16 @@ func (w *fakeStateWAL) Write(blockNumber uint64, mutations []mutation.Mutation) 
 // newTestStateDB builds a StateDB over a fake WAL and a real FlatKV store. The store is constructed
 // with no WAL of its own, which is the arrangement StateDB requires: it writes the WAL on the store's
 // behalf, and replays that WAL into the store to catch it up.
+// newDiscardingBUDHasher starts a BUD hasher that discards each hash it computes, and closes it when the test ends.
+func newDiscardingBUDHasher(t *testing.T) bud.BUDHasher {
+	t.Helper()
+	hasher, err := bud.NewStandardBUDHasher(t.Context(), bud.DefaultBUDHasherConfig(),
+		func(context.Context, uint64, [32]byte) error { return nil })
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, hasher.Close()) })
+	return hasher
+}
+
 func newTestStateDB(t *testing.T) (gigatypes.StateDB, *fakeStateWAL, *flatkv.CommitStore) {
 	t.Helper()
 
@@ -63,7 +74,7 @@ func newTestStateDB(t *testing.T) (gigatypes.StateDB, *fakeStateWAL, *flatkv.Com
 	require.NoError(t, liveStateDB.LoadLatest())
 
 	wal := &fakeStateWAL{}
-	return &StateDB{wal: wal, sc: liveStateDB, flatkvCfg: cfg}, wal, liveStateDB
+	return &StateDB{wal: wal, budHasher: newDiscardingBUDHasher(t), sc: liveStateDB, flatkvCfg: cfg}, wal, liveStateDB
 }
 
 // changeset builds a changeset setting key to value in the test module.
@@ -219,7 +230,8 @@ func TestSSViewFailsReadsOnceItsHeightIsPruned(t *testing.T) {
 	ssCfg.Enable = true
 	ssCfg.EVMDBDirectory = filepath.Join(t.TempDir(), "ss")
 	ssCfg.ExternalPruning = true
-	db, err := NewStateDB(t.Context(), flatkvconfig.DefaultTestConfig(t), ssCfg, config.CheckpointConfig{BlockInterval: 1_000})
+	db, err := NewStateDB(t.Context(), flatkvconfig.DefaultTestConfig(t), ssCfg,
+		config.CheckpointConfig{BlockInterval: 1_000}, newDiscardingBUDHasher(t))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, db.Close()) }()
 	addr := common.Address{1}
