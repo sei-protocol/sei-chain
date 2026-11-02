@@ -57,7 +57,7 @@ type AppHashBuilder interface {
 	//
 	// Errors if called before SetupComplete(), if blockHeight is below the giga activation height or has been
 	// pruned, or once the builder stops.
-	GetAppHash(blockHeight uint64) (*apphash.AppHashData, error)
+	TryGetAppHash(blockHeight uint64) (*apphash.AppHashData, error)
 
 	// Returns the app hash of the block, blocking until it is available. May be called before SetupComplete(). An
 	// available app hash never changes. Reading blocks in ascending order is cheap; reading them in random order is
@@ -65,7 +65,18 @@ type AppHashBuilder interface {
 	//
 	// Errors if ctx is cancelled, if blockHeight is below the giga activation height or has been pruned, or once
 	// the builder stops.
-	AwaitAppHash(ctx context.Context, blockHeight uint64) (*apphash.AppHashData, error)
+	GetAppHash(ctx context.Context, blockHeight uint64) (*apphash.AppHashData, error)
+
+	// Returns lowest and highest blocks whose app hashes are currently available.
+	Bounds() (
+		// The lowest block whose app hash is available. Valid only if ok.
+		lowest uint64,
+		// The highest block whose app hash is available. Valid only if ok.
+		highest uint64,
+		// False if no app hash is available yet.
+		ok bool,
+		err error,
+	)
 
 	// Marks the end of startup. Afterwards, the app hash of every block through blockHeight is available.
 	//

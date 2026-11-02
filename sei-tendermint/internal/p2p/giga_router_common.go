@@ -13,7 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -201,7 +200,7 @@ func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes
 }
 
 // pendingExecutionBuffer is how many committed blocks execution may run ahead of
-// app-hash proposal. The pending handoff and the app-hash listener both use it.
+// app-hash proposal. The pending handoff uses it.
 const pendingExecutionBuffer = 128
 
 // pendingExecution is the committed block the hash loop still has to propose:
@@ -329,51 +328,27 @@ func RestoreMarkerFile(psd string) string {
 	return filepath.Join(psd, "state-sync-restored")
 }
 
-// registerAppHashListener subscribes hashes to app hashes published after the call.
-// It returns the newest hash already published. The caller reads that hash and
-// everything before it through Iterator; hashes carries only the ones after it.
-func registerAppHashListener(
-	ctx context.Context,
-	appHashes builder.AppHashBuilder,
-	hashes chan<- *apphash.AppHashData,
-) (utils.Option[apphash.AppHashData], error) {
-	// TODO: replace RegisterListener and Iterator with a blocking GetHash(ctx, height).
-	published, err := appHashes.RegisterListener(ctx, func(appHash *apphash.AppHashData) {
-		// A canceled context means the router is stopping. The listener cannot
-		// report that to the builder, and the hash loop observes the same cancel.
-		_ = utils.Send(ctx, hashes, appHash)
-	})
-	if err != nil {
-		return utils.None[apphash.AppHashData](), err
-	}
-	// RegisterListener uses a nil pointer for "nothing published yet".
-	if published == nil {
-		return utils.None[apphash.AppHashData](), nil
-	}
-	return utils.Some(*published), nil
-}
+// errNoAppHash is returned when the app hash builder has no app hash available.
+var errNoAppHash = errors.New("app hash builder has no app hash")
 
-// errListenerNoHash is returned when the listener has published no app hash.
-var errListenerNoHash = errors.New("app hash listener has no hash")
-
-// errListenerOffTip is returned when the listener's newest hash is not the app tip.
-var errListenerOffTip = errors.New("app hash listener resumes after a different block")
+// errAppHashesOffTip is returned when the builder's newest app hash is not the app tip.
+var errAppHashesOffTip = errors.New("app hash builder's newest app hash is not the app tip")
 
 // errNoStoredAppHash is returned when a committed block has no stored app hash.
 var errNoStoredAppHash = errors.New("app hash builder holds no app hash")
 
-// errAppHashHeight is returned when the builder publishes an app hash for another block.
-var errAppHashHeight = errors.New("app hash builder published a different block")
-
-// listenerContinuesAt returns nil when published holds the app hash of tip.
-// The listener's next hash is then the block after tip.
-func listenerContinuesAt(published utils.Option[apphash.AppHashData], tip atypes.RoadIndex) error {
-	record, ok := published.Get()
-	if !ok {
-		return fmt.Errorf("%w for app tip %d", errListenerNoHash, tip)
+// appHashesContinueAt returns nil when the newest app hash appHashes has available
+// is the app hash of tip, so the next one it builds is the block after tip.
+func appHashesContinueAt(appHashes builder.AppHashBuilder, tip atypes.RoadIndex) error {
+	_, highest, ok, err := appHashes.Bounds()
+	if err != nil {
+		return fmt.Errorf("AppHashBuilder.Bounds(): %w", err)
 	}
-	if got := atypes.RoadIndex(record.BlockHeight()); got != tip {
-		return fmt.Errorf("%w: resumes after block %d, app tip is %d", errListenerOffTip, got, tip)
+	if !ok {
+		return fmt.Errorf("%w for app tip %d", errNoAppHash, tip)
+	}
+	if got := atypes.RoadIndex(highest); got != tip {
+		return fmt.Errorf("%w: newest app hash is block %d, app tip is %d", errAppHashesOffTip, got, tip)
 	}
 	return nil
 }
@@ -383,28 +358,15 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	block, hasBlock := lastBlock.Get()
-	if hasBlock {
+	if block, ok := lastBlock.Get(); ok {
+		if err := appHashesContinueAt(r.cfg.AppHashBuilder, block.Height); err != nil {
+			return err
+		}
 		if err := r.backfillAppHashes(ctx, next); err != nil {
 			return err
 		}
 	}
-	// Subscribe after the backfill. The listener is not told about hashes the
-	// builder has already published, and those are the ones the iterator reads.
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		// The builder calls the listener before the report returns. This bound matches
-		// the pending handoff, so that call does not stall the next Commit while
-		// earlier proposals are still being persisted.
-		hashes := make(chan *apphash.AppHashData, pendingExecutionBuffer)
-		published, err := registerAppHashListener(ctx, r.cfg.AppHashBuilder, hashes)
-		if err != nil {
-			return fmt.Errorf("registerAppHashListener(): %w", err)
-		}
-		if hasBlock {
-			if err := listenerContinuesAt(published, block.Height); err != nil {
-				return err
-			}
-		}
 		// The buffer lets execution continue while the hash loop proposes earlier
 		// commits.
 		committed := make(chan pendingExecution, pendingExecutionBuffer)
@@ -412,7 +374,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			return r.runReportBlockHashes(ctx, next)
 		})
 		s.SpawnNamed("pushAppHashes", func() error {
-			return r.runPushAppHashes(ctx, committed, hashes)
+			return r.runPushAppHashes(ctx, committed)
 		})
 		s.SpawnNamed("executeBlocks", func() error {
 			return r.runExecuteBlocks(ctx, committed, next)
@@ -488,27 +450,13 @@ func (r *gigaRouterCommon) backfillAppHashes(
 	if err != nil {
 		return err
 	}
-	// TODO: replace RegisterListener and Iterator with a blocking GetHash(ctx, height).
-	stored, err := r.cfg.AppHashBuilder.Iterator(ctx, uint64(from))
-	if err != nil {
-		return fmt.Errorf("AppHashBuilder.Iterator(%d): %w", from, err)
-	}
-	defer func() {
-		if err := stored.Close(); err != nil {
-			logger.Error("failed to close app hash iterator", "err", err)
-		}
-	}()
 	for n := from; n < next; n++ {
-		ok, err := stored.Next()
+		entry, err := r.cfg.AppHashBuilder.TryGetAppHash(uint64(n))
 		if err != nil {
-			return fmt.Errorf("read the app hash of block %d: %w", n, err)
+			return fmt.Errorf("AppHashBuilder.TryGetAppHash(%v): %w", n, err)
 		}
-		if !ok {
+		if entry == nil {
 			return fmt.Errorf("%w for committed block %d", errNoStoredAppHash, n)
-		}
-		entry := stored.Entry()
-		if entry.BlockHeight() != uint64(n) {
-			return fmt.Errorf("app hash builder returned block %d, want %d", entry.BlockHeight(), n)
 		}
 		appHash := entry.AppHash()
 		pending := pendingExecution{number: n, weights: weights}
@@ -520,43 +468,21 @@ func (r *gigaRouterCommon) backfillAppHashes(
 }
 
 // runPushAppHashes proposes each committed block's app hash.
-// A hash for a different height is an error.
-func (r *gigaRouterCommon) runPushAppHashes(
-	ctx context.Context,
-	committed <-chan pendingExecution,
-	hashes <-chan *apphash.AppHashData,
-) error {
+func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context, committed <-chan pendingExecution) error {
 	for {
 		p, err := utils.Recv(ctx, committed)
 		if err != nil {
 			return err
 		}
-		record, err := recvAppHashAtHeight(ctx, hashes, p.number)
+		record, err := r.cfg.AppHashBuilder.GetAppHash(ctx, uint64(p.number))
 		if err != nil {
-			return err
+			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", p.number, err)
 		}
 		appHash := record.AppHash()
 		if err := r.finishExecuteBlock(ctx, p.number, p, appHash[:]); err != nil {
 			return fmt.Errorf("r.finishExecuteBlock(%v): %w", p.number, err)
 		}
 	}
-}
-
-// recvAppHashAtHeight returns the app hash of height. The builder delivers app
-// hashes in order, and any other height is an error.
-func recvAppHashAtHeight(
-	ctx context.Context,
-	hashes <-chan *apphash.AppHashData,
-	height atypes.RoadIndex,
-) (*apphash.AppHashData, error) {
-	record, err := utils.Recv(ctx, hashes)
-	if err != nil {
-		return nil, err
-	}
-	if n := atypes.RoadIndex(record.BlockHeight()); n != height {
-		return nil, fmt.Errorf("%w: published block %d, want %d", errAppHashHeight, n, height)
-	}
-	return record, nil
 }
 
 // runReportBlockHashes reports the road block hash of each block from next.

@@ -229,7 +229,7 @@ func (b *StandardAppHashBuilder) SetupComplete(ctx context.Context, blockHeight 
 	return nil
 }
 
-func (b *StandardAppHashBuilder) GetAppHash(blockHeight uint64) (*apphash.AppHashData, error) {
+func (b *StandardAppHashBuilder) TryGetAppHash(blockHeight uint64) (*apphash.AppHashData, error) {
 	appHash, err := b.requestAppHash(context.Background(), blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get the app hash of block %d: %w", blockHeight, err)
@@ -237,7 +237,7 @@ func (b *StandardAppHashBuilder) GetAppHash(blockHeight uint64) (*apphash.AppHas
 	return appHash, nil
 }
 
-func (b *StandardAppHashBuilder) AwaitAppHash(ctx context.Context, blockHeight uint64) (*apphash.AppHashData, error) {
+func (b *StandardAppHashBuilder) GetAppHash(ctx context.Context, blockHeight uint64) (*apphash.AppHashData, error) {
 	reached, _, err := b.publishedHeight.Await(ctx, blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("abandoned waiting for the app hash of block %d: %w", blockHeight, err)
@@ -251,6 +251,18 @@ func (b *StandardAppHashBuilder) AwaitAppHash(ctx context.Context, blockHeight u
 		return nil, fmt.Errorf("failed to get the app hash of block %d: %w", blockHeight, err)
 	}
 	return appHash, nil
+}
+
+func (b *StandardAppHashBuilder) Bounds() (uint64, uint64, bool, error) {
+	reply := make(chan callResult[appHashBounds], 1)
+	if err := b.submit(context.Background(), boundsRequest{reply: reply}); err != nil {
+		return 0, 0, false, fmt.Errorf("failed to request the app hash bounds: %w", err)
+	}
+	bounds, err := awaitReply(b, reply)
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("failed to read the app hash bounds: %w", err)
+	}
+	return bounds.lowest, bounds.highest, bounds.ok, nil
 }
 
 func (b *StandardAppHashBuilder) Close() error {
@@ -392,7 +404,7 @@ func (b *StandardAppHashBuilder) requestAppHash(ctx context.Context, blockHeight
 // iterators and the hash log, and seals publishedHeight.
 func (b *StandardAppHashBuilder) run() {
 	defer b.closeStores()
-	// Runs before closeStores(), so an AwaitAppHash() call woken by the seal finds the builder stopped with a
+	// Runs before closeStores(), so a GetAppHash() call woken by the seal finds the builder stopped with a
 	// cause.
 	defer b.cancel(fmt.Errorf("app hash builder is closed"))
 	for {
@@ -475,6 +487,10 @@ func (b *StandardAppHashBuilder) handleRequest(request any) error {
 	case getAppHashRequest:
 		appHash, err := b.readAppHash(r.blockHeight)
 		r.reply <- callResult[*apphash.AppHashData]{value: appHash, err: err}
+		return nil
+	case boundsRequest:
+		bounds, err := b.readBounds()
+		r.reply <- callResult[appHashBounds]{value: bounds, err: err}
 		return nil
 	default:
 		return fmt.Errorf("unknown app hash builder request %T", request)
@@ -583,6 +599,25 @@ func (b *StandardAppHashBuilder) readAppHash(blockHeight uint64) (*apphash.AppHa
 		return nil, fmt.Errorf("failed to read the stored app hash of block %d: %w", blockHeight, err)
 	}
 	return appHash, nil
+}
+
+// Returns the range of available app hashes. Errors before setup.
+func (b *StandardAppHashBuilder) readBounds() (appHashBounds, error) {
+	if !b.setupDone {
+		return appHashBounds{}, fmt.Errorf("cannot read app hash bounds before setup is complete")
+	}
+	if b.newestPublished == nil {
+		return appHashBounds{}, nil
+	}
+	vaultLowest, _, err := b.vault.Bounds()
+	if err != nil {
+		return appHashBounds{}, fmt.Errorf("failed to read the hash vault bounds: %w", err)
+	}
+	return appHashBounds{
+		lowest:  max(vaultLowest, b.gigaActivationHeight),
+		highest: b.newestPublished.BlockHeight(),
+		ok:      true,
+	}, nil
 }
 
 // Close the cursor if it can't be used to serve this read request.
@@ -772,7 +807,7 @@ func (b *StandardAppHashBuilder) publishCompleteBlocks() error {
 }
 
 // Makes record, the app hash of the block after the newest published one, the newest published app hash, and adds
-// it to the recent app hash cache. AwaitAppHash() callers learn of it once advancePublishedHeight() runs.
+// it to the recent app hash cache. GetAppHash() callers learn of it once advancePublishedHeight() runs.
 func (b *StandardAppHashBuilder) publish(record *apphash.AppHashData) {
 	if b.cache.Len() == b.recentAppHashCacheSize {
 		b.cache.PopFront()
@@ -781,7 +816,7 @@ func (b *StandardAppHashBuilder) publish(record *apphash.AppHashData) {
 	b.newestPublished = record
 }
 
-// Raises publishedHeight to the block height of the newest published app hash, waking the AwaitAppHash() calls
+// Raises publishedHeight to the block height of the newest published app hash, waking the GetAppHash() calls
 // waiting for it.
 func (b *StandardAppHashBuilder) advancePublishedHeight() error {
 	if b.newestPublished == nil {

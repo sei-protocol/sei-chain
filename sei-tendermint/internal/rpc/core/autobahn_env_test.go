@@ -38,20 +38,14 @@ func (stubAppHashBuilder) ReportBUDHash(context.Context, uint64, [32]byte) error
 func (stubAppHashBuilder) ReportReceiptHash(context.Context, uint64, apphash.ReceiptHash) error {
 	return nil
 }
-func (stubAppHashBuilder) SetupComplete(context.Context, uint64) error { return nil }
-func (stubAppHashBuilder) RegisterListener(context.Context, func(*apphash.AppHashData)) (*apphash.AppHashData, error) {
-	return nil, nil
+func (stubAppHashBuilder) SetupComplete(context.Context, uint64) error        { return nil }
+func (stubAppHashBuilder) TryGetAppHash(uint64) (*apphash.AppHashData, error) { return nil, nil }
+func (stubAppHashBuilder) GetAppHash(ctx context.Context, _ uint64) (*apphash.AppHashData, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
 }
-func (stubAppHashBuilder) Iterator(context.Context, uint64) (apphash.AppHashIterator, error) {
-	return stubAppHashIterator{}, nil
-}
-func (stubAppHashBuilder) Close() error { return nil }
-
-type stubAppHashIterator struct{}
-
-func (stubAppHashIterator) Next() (bool, error)         { return false, nil }
-func (stubAppHashIterator) Entry() *apphash.AppHashData { return nil }
-func (stubAppHashIterator) Close() error                { return nil }
+func (stubAppHashBuilder) Bounds() (uint64, uint64, bool, error) { return 0, 0, false, nil }
+func (stubAppHashBuilder) Close() error                          { return nil }
 
 func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	t.Helper()
