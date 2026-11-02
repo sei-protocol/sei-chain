@@ -36,7 +36,8 @@ func newUndoTestHome(t *testing.T) undoTestHome {
 
 func (h undoTestHome) open(t *testing.T) *StateDB {
 	t.Helper()
-	db, err := NewStateDB(t.Context(), h.flatkv, h.ss, config.CheckpointConfig{BlockInterval: 1_000})
+	db, err := NewStateDB(t.Context(), h.flatkv, h.ss, config.CheckpointConfig{BlockInterval: 1_000},
+		newDiscardingBUDHasher(t))
 	require.NoError(t, err)
 	require.NotNil(t, db.UndoSS())
 	require.Nil(t, db.SS())
@@ -216,7 +217,9 @@ func TestUndoStateDBRollsBackByDiscardingLaterRecords(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	// The rollback to 9 discards every record above it.
-	db, err := NewStateDBWithRollback(t.Context(), home.flatkv, home.ss, config.CheckpointConfig{BlockInterval: 1_000}, 9)
+	db, err := NewStateDBWithRollback(
+		t.Context(), home.flatkv, home.ss, config.CheckpointConfig{BlockInterval: 1_000},
+		newDiscardingBUDHasher(t), 9)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, db.Close()) }()
 	require.Equal(t, int64(9), db.UndoSS().GetLatestVersion())
@@ -313,7 +316,8 @@ func TestUndoStateDBRefusesAnUndoLogOverAnEmptySC(t *testing.T) {
 	require.NoError(t, db.Close())
 	require.NoError(t, os.RemoveAll(home.flatkv.DataDir))
 
-	_, err := NewStateDB(t.Context(), home.flatkv, home.ss, config.CheckpointConfig{BlockInterval: 1_000})
+	_, err := NewStateDB(t.Context(), home.flatkv, home.ss, config.CheckpointConfig{BlockInterval: 1_000},
+		newDiscardingBUDHasher(t))
 	require.ErrorContains(t, err, "the state commit store is empty")
 }
 

@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -41,6 +42,9 @@ type StateDB struct {
 
 	// The state WAL a committed block is written to.
 	wal statewal.StateWAL
+
+	// The hasher a committed block's mutations are submitted to.
+	budHasher bud.BUDHasher
 
 	// The state commit store, which both receives writes and serves current-block reads.
 	sc *flatkv.CommitStore
@@ -86,10 +90,14 @@ func NewStateDB(
 	flatkvCfg *flatkvconfig.Config,
 	ssCfg config.StateStoreConfig,
 	checkpointCfg config.CheckpointConfig,
+	// The hasher each committed block's mutations are submitted to. Blocks replayed while opening are not
+	// submitted.
+	budHasher bud.BUDHasher,
 ) (db *StateDB, retErr error) {
 	s := &StateDB{
 		flatkvCfg: flatkvCfg,
 		ssCfg:     stateStoreConfigFor(ssCfg),
+		budHasher: budHasher,
 		commitPhases: metrics.NewPhaseTimerFactory(otel.Meter(gigaMeterName), commitPhaseTimerName).
 			RecordLatencies().Build(),
 	}
@@ -149,6 +157,9 @@ func NewStateDBWithRollback(
 	flatkvCfg *flatkvconfig.Config,
 	ssCfg config.StateStoreConfig,
 	checkpointCfg config.CheckpointConfig,
+	// The hasher each committed block's mutations are submitted to. Blocks replayed while opening are not
+	// submitted.
+	budHasher bud.BUDHasher,
 	target int64,
 ) (*StateDB, error) {
 	if target <= 0 {
@@ -163,7 +174,7 @@ func NewStateDBWithRollback(
 	if err := offline.rewindTo(target); err != nil {
 		return nil, err
 	}
-	db, err := NewStateDB(ctx, flatkvCfg, ssCfg, checkpointCfg)
+	db, err := NewStateDB(ctx, flatkvCfg, ssCfg, checkpointCfg, budHasher)
 	if err != nil {
 		return nil, err
 	}
@@ -418,9 +429,9 @@ func (s *StateDB) PrunableStores() []controllertypes.PrunableStore {
 	return stores
 }
 
-// CommitStateChanges schedules a block's state changes to be written to the state WAL, the state commit
-// store and the EVM state store. Commits must be made one at a time. Returns an error if writing this block
-// or an earlier one has failed.
+// CommitStateChanges writes a block's state changes to the state WAL, submits them to the BUD hasher, and
+// schedules them for the state commit store and the EVM state store. Commits must be made one at a time.
+// Returns an error if writing this block or an earlier one has failed.
 func (s *StateDB) CommitStateChanges(blockNum int64, changes *gigatypes.StateChangeSet) error {
 	if blockNum < 0 {
 		// The WAL numbers blocks with a uint64, so a negative height converts to a block far in the
@@ -447,6 +458,11 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changes *gigatypes.StateCha
 	s.commitPhases.SetPhase("write_state_wal")
 	if err := s.wal.Write(uint64(blockNum), mutations); err != nil {
 		return fmt.Errorf("write block %d to state WAL: %w", blockNum, err)
+	}
+
+	s.commitPhases.SetPhase("submit_bud_hash")
+	if err := s.budHasher.Submit(context.Background(), uint64(blockNum), mutations); err != nil {
+		return fmt.Errorf("submit block %d to the BUD hasher: %w", blockNum, err)
 	}
 
 	s.commitPhases.SetPhase("commit_sc")
