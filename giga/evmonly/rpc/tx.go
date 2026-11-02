@@ -26,8 +26,8 @@ type txAPI struct {
 }
 
 // GetTransactionCount returns the address nonce in the committed EVM state after block.
-func (api *txAPI) GetTransactionCount(_ context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
-	height, latest, err := stateHeight(api.backend, block)
+func (api *txAPI) GetTransactionCount(ctx context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
+	height, latest, err := stateHeight(ctx, api.backend, block)
 	if err != nil {
 		return nil, err
 	}
