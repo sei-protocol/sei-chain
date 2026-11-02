@@ -281,6 +281,21 @@ func TestStateChangeSetRejectsAMiscChangeInTheEVMModule(t *testing.T) {
 	require.ErrorContains(t, err, "EVM module")
 }
 
+// A misc change with no module would persist a per-module hash that a reopened store cannot load.
+func TestStateChangeSetRejectsAMiscChangeWithNoModule(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { require.NoError(t, s.Close()) }()
+	seedPriorRows(t, s, nil)
+	changes := &gigatypes.StateChangeSet{
+		Misc: []gigatypes.MiscChange{{Module: "", Key: []byte{0x01}, Value: []byte{0x02}}},
+	}
+
+	prior := s.OpenView()
+	defer prior.Close()
+	_, err := MutationsFromStateChangeSet(changes, 2, prior, config.DefaultTestConfig(t))
+	require.ErrorContains(t, err, "no module")
+}
+
 // A balance wider than an account row's balance field cannot be stored without truncation.
 func TestStateChangeSetRejectsABalanceWiderThan256Bits(t *testing.T) {
 	s := setupTestStore(t)

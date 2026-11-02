@@ -170,6 +170,9 @@ func (c *stateChangeSetConverter) convertMisc() error {
 		if change.Module == keys.EVMStoreKey {
 			return fmt.Errorf("misc change %d writes key %x in the EVM module", i, change.Key)
 		}
+		if change.Module == "" {
+			return fmt.Errorf("misc change %d writes key %x with no module", i, change.Key)
+		}
 		end := offset + len(change.Module) + 1 + len(change.Key)
 		key := ktype.WritePhysicalKeyToBuffer(c.keySlab[offset:offset:end], change.Module, change.Key)
 		c.mutations[first+i].Key = key

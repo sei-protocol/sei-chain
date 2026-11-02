@@ -42,7 +42,7 @@ type StorageChange struct {
 //
 // No prior value is stored because nothing consumes it yet. One can be added if a consumer needs it.
 type MiscChange struct {
-	// The module the key belongs to. Never the EVM module.
+	// The module the key belongs to. Never empty and never the EVM module.
 	Module string
 	// The key within the module.
 	Key []byte
