@@ -155,16 +155,12 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	defer func() {
 		err = errors.Join(err, storage.Close())
 	}()
-	changeSetEncoder := evmonly.NewFlatKVChangeSetEncoder()
-	genesisChanges, err := changeSetEncoder(state.changeSet())
-	if err != nil {
-		return fmt.Errorf("encode generated genesis state: %w", err)
-	}
+	genesisChanges := state.changeSet()
 	genesisHash := scenarios.BlockContext(scenarioConfig(cfg), 1).BlockHash
 	if err := storage.AppHashBuilder().ReportBlockHash(ctx, 1, [32]byte(genesisHash)); err != nil {
 		return fmt.Errorf("report the block hash of block 1: %w", err)
 	}
-	if err := storage.StateDB().CommitStateChanges(1, genesisChanges); err != nil {
+	if err := storage.StateDB().CommitStateChanges(1, &genesisChanges); err != nil {
 		return fmt.Errorf("commit generated genesis state: %w", err)
 	}
 	// Genesis is committed without executing a block, so it has no transactions and its receipts are an empty
@@ -191,7 +187,7 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	group, groupCtx := errgroup.WithContext(ctx)
 	executor := evmonly.NewExecutor(
 		executorConfig(cfg),
-		evmonly.WithStorageManager(storage, changeSetEncoder),
+		evmonly.WithStorageManager(storage),
 		evmonly.WithResultSink(sinks),
 	)
 	defer executor.Close()

@@ -6,7 +6,6 @@ package types
 import (
 	"context"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
@@ -18,8 +17,8 @@ type HashListener func(ctx context.Context, blockNum int64, hash *lthash.BlockHa
 // the current block or for a past block (if retained by the SS).
 type StateDB interface {
 
-	// Ingest key-value pair changes for a block.
-	CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error
+	// Ingest a block's state changes.
+	CommitStateChanges(blockNum int64, changes *StateChangeSet) error
 
 	// OpenView returns a read-only StateView of the current block
 	// (backed by an SC ephemeral snapshot). The caller must Close it when done.
