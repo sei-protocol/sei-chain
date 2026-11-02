@@ -290,7 +290,8 @@ func pushRoads(ctx context.Context, state *data.State, roads []testRoad) error {
 
 // TestAwaitStartupReplayWithoutBlocksToReplay verifies that awaitStartupReplay
 // returns at once, without execution running, when the BlockStore holds no
-// block above the app. It hangs otherwise.
+// block above the app, and fails only for an app ahead of a non-empty
+// BlockStore. It hangs otherwise.
 func TestAwaitStartupReplayWithoutBlocksToReplay(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
@@ -303,7 +304,10 @@ func TestAwaitStartupReplayWithoutBlocksToReplay(t *testing.T) {
 		{name: "fresh node whose chain starts above height 1", initialHeight: 5, appTip: 0, stop: 5},
 		{name: "app at the BlockStore tip", initialHeight: 1, appTip: 7, stop: 8},
 		{name: "app ahead of the BlockStore", initialHeight: 1, appTip: 8, stop: 8, wantErr: errAppAheadOfBlockStore},
-		{name: "app ahead of an empty BlockStore", initialHeight: 1, appTip: 3, stop: 1, wantErr: errAppAheadOfBlockStore},
+		{name: "app ahead of a BlockStore holding only the first block", initialHeight: 1, appTip: 2, stop: 2, wantErr: errAppAheadOfBlockStore},
+		// A crash after the first Commit and before the first BlockStore flush.
+		{name: "app ahead of an empty BlockStore", initialHeight: 1, appTip: 3, stop: 1},
+		{name: "app ahead of an empty BlockStore whose chain starts above height 1", initialHeight: 5, appTip: 6, stop: 5},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			router := &gigaRouterCommon{
@@ -396,8 +400,8 @@ func TestAwaitStartupReplayResumesAfterTheAppTip(t *testing.T) {
 }
 
 // TestGigaRouterRunRejectsAnAppAheadOfTheBlockStore verifies that both roles'
-// Run stop with errAppAheadOfBlockStore when the app has executed blocks the
-// BlockStore does not hold. It hangs if a role does not wait for the replay.
+// Run stop with errAppAheadOfBlockStore when the app has executed past the
+// newest stored block. It hangs if a role does not wait for the replay.
 func TestGigaRouterRunRejectsAnAppAheadOfTheBlockStore(t *testing.T) {
 	for _, role := range []string{"fullnode", "validator"} {
 		t.Run(role, func(t *testing.T) {
@@ -405,6 +409,7 @@ func TestGigaRouterRunRejectsAnAppAheadOfTheBlockStore(t *testing.T) {
 			key := atypes.GenSecretKey(rng)
 			nodeKey := makeKey(rng)
 			_, _, state, router := newAppHashTestRouter(t, rng, key)
+			require.NoError(t, pushRoads(t.Context(), state, testRoads(rng, state, key, 1)))
 			cfg := *router.cfg
 			cfg.App = proxy.New(&fixedHeightApp{height: int64(state.NextFullBlock())})
 			cfg.ValidatorAddrs = map[atypes.PublicKey]GigaNodeAddr{key.Public(): {

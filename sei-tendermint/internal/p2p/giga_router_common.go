@@ -39,8 +39,8 @@ const maxInboundFullnodePeers = 10000
 
 var errGigaMembershipChanged = errors.New("inbound giga peer changed committee membership")
 
-// errAppAheadOfBlockStore reports an app that has executed blocks the BlockStore
-// does not hold, so they cannot be replayed on restart.
+// errAppAheadOfBlockStore reports an app that has executed past the newest block
+// a non-empty BlockStore holds.
 var errAppAheadOfBlockStore = errors.New("app has executed past the BlockStore")
 
 type gigaRouterCommon struct {
@@ -459,14 +459,20 @@ func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context, committed <-cha
 }
 
 // awaitStartupReplay waits until execution has run every stored block below stop.
-// It returns errAppAheadOfBlockStore when the app has already executed past stop-1.
+// It returns errAppAheadOfBlockStore when the app has executed past a non-empty
+// BlockStore. Past an empty one it returns at once, leaving consensus to
+// redeliver the blocks.
 func (r *gigaRouterCommon) awaitStartupReplay(ctx context.Context, stop atypes.RoadIndex) error {
 	appTip := r.executed.Load().Latest().Number
-	next := max(appTip+1, atypes.RoadIndex(r.cfg.GenDoc.InitialHeight)) // nolint:gosec // verified to be positive.
-	if next > stop {
+	first := atypes.RoadIndex(r.cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
+	next := max(appTip+1, first)
+	switch {
+	case next > stop && stop == first:
+		logger.Warn("Autobahn: app is ahead of an empty BlockStore; waiting for consensus to redeliver its blocks", "app_tip", appTip)
+		return nil
+	case next > stop:
 		return fmt.Errorf("app tip %d, BlockStore tip %d: %w", appTip, stop-1, errAppAheadOfBlockStore)
-	}
-	if next == stop {
+	case next == stop:
 		return nil
 	}
 	logger.Info("Autobahn: replaying stored blocks before joining consensus", "from", next, "through", stop-1)
