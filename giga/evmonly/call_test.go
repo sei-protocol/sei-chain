@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -239,6 +240,32 @@ func TestExecutorCallTimesOutOnUnboundedExecution(t *testing.T) {
 	_, err = executor.Call(t.Context(), blockContext(chainID), msg)
 
 	require.ErrorContains(t, err, "timeout")
+}
+
+// CallAt and EstimateGasAt read the view they are given rather than the store's current state.
+func TestExecutorExecutesAgainstTheGivenView(t *testing.T) {
+	contract := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	slot := testHash(0x01)
+	value := testHash(0x2a)
+	view := newMemoryGigaSnapshot(7)
+	view.code[contract] = sloadReturnCode(slot)
+	view.storage[gigaStorageKey{address: contract, key: slot}] = value
+	// The contract does not exist in the current state.
+	executor := NewExecutor(Config{}, withTestState(NewMemoryState()))
+	blockCtx := blockContext(big.NewInt(testChainID))
+	msg := callMessage(testAddress(0x01), &contract)
+
+	current, err := executor.Call(t.Context(), blockCtx, msg)
+	require.NoError(t, err)
+	require.Empty(t, current.Return())
+
+	result, err := executor.CallAt(t.Context(), view, blockCtx, msg)
+	require.NoError(t, err)
+	require.Equal(t, value.Bytes(), result.Return())
+
+	estimate, _, err := executor.EstimateGasAt(t.Context(), view, blockCtx, msg, 0)
+	require.NoError(t, err)
+	require.Greater(t, estimate, params.TxGas)
 }
 
 func TestExecutorCallRejectsMissingStateStore(t *testing.T) {

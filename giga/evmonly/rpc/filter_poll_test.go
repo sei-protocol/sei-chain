@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/big"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,16 +26,17 @@ import (
 type pollFixture struct {
 	api   *filterAPI
 	store *evmonly.MemoryReceiptStore
-	head  uint64
+	head  atomic.Uint64
 }
 
 func newPollFixture(t *testing.T) *pollFixture {
 	t.Helper()
-	fx := &pollFixture{store: filterFixtureStore(t), head: 9}
+	fx := &pollFixture{store: filterFixtureStore(t)}
+	fx.head.Store(9)
 	backend := filterFixtureBackend(t, 0)
-	backend.blockNumber = func() uint64 { return fx.head }
+	backend.blockNumber = fx.head.Load
 	backend.blockByHash = func(ctx context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
-		return filterFixtureBackend(t, fx.head).BlockByHash(ctx, req)
+		return filterFixtureBackend(t, fx.head.Load()).BlockByHash(ctx, req)
 	}
 	fx.api = &filterAPI{
 		backend:              backend,
@@ -48,16 +50,16 @@ func newPollFixture(t *testing.T) *pollFixture {
 // commit indexes one contract A log with topic X at the next height and moves the head to it.
 func (fx *pollFixture) commit(t *testing.T) uint64 {
 	t.Helper()
-	fx.head++
-	hash := filterTxHash(fx.head, 0)
+	height := fx.head.Add(1)
+	hash := filterTxHash(height, 0)
 	require.NoError(t, fx.store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
 		TxHash: hash,
-		Receipt: &evmtypes.Receipt{TxHashHex: hash.Hex(), BlockNumber: fx.head, Logs: []*evmtypes.Log{
+		Receipt: &evmtypes.Receipt{TxHashHex: hash.Hex(), BlockNumber: height, Logs: []*evmtypes.Log{
 			{Address: filterContractA.Hex(), Topics: []string{filterTopicX.Hex()}},
 		}},
 	}}))
-	require.NoError(t, fx.store.SetLatestVersion(int64(fx.head))) //nolint:gosec // test heights are small
-	return fx.head
+	require.NoError(t, fx.store.SetLatestVersion(int64(height))) //nolint:gosec // test heights are small
+	return height
 }
 
 func logBlocks(logs []*ethtypes.Log) []uint64 {
@@ -263,17 +265,17 @@ func TestGetFilterChangesPollsBlockHashes(t *testing.T) {
 	}
 
 	require.Empty(t, poll())
-	fx.head += 2
+	fx.head.Add(2)
 	require.Equal(t, []common.Hash{filterBlockHash(10), filterBlockHash(11)}, poll())
 	require.Empty(t, poll())
-	fx.head++
+	fx.head.Add(1)
 	require.Equal(t, []common.Hash{filterBlockHash(12)}, poll())
 
 	_, err = fx.api.GetFilterLogs(t.Context(), id)
 	require.ErrorIs(t, err, errFilterNotFound)
 
 	// A filter left behind by more than maxBlockFilterHashes blocks is removed.
-	fx.head += fx.api.maxBlockFilterHashes + 1
+	fx.head.Add(fx.api.maxBlockFilterHashes + 1)
 	_, err = fx.api.GetFilterChanges(t.Context(), id)
 	require.ErrorIs(t, err, errFilterNotFound)
 	_, err = fx.api.GetFilterChanges(t.Context(), id)
@@ -293,7 +295,7 @@ func TestGetFilterChangesKeepsBlockHashesAfterAFailedLookup(t *testing.T) {
 	}
 	id, err := fx.api.NewBlockFilter(t.Context())
 	require.NoError(t, err)
-	fx.head += 2
+	fx.head.Add(2)
 
 	// The lookup of block 11 fails after block 10's succeeded.
 	_, err = fx.api.GetFilterChanges(t.Context(), id)
