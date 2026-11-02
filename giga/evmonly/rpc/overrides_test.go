@@ -92,8 +92,11 @@ func TestHandlerPassesCallOverrides(t *testing.T) {
 				require.Equal(t, want, backend.gotOverrides)
 
 				tooMany := map[string]any{address.Hex(): map[string]any{}, common.Address{1}.Hex(): map[string]any{}}
-				require.ErrorContains(t, client.CallContext(t.Context(), &got, method, call, block, tooMany),
-					errStateOverrideTooManyAccounts.Error())
+				err := client.CallContext(t.Context(), &got, method, call, block, tooMany)
+				require.ErrorContains(t, err, errStateOverrideTooManyAccounts.Error())
+				var rpcErr ethrpc.Error
+				require.ErrorAs(t, err, &rpcErr)
+				require.Equal(t, -32602, rpcErr.ErrorCode())
 			})
 		}
 	}

@@ -691,7 +691,7 @@ block override (`number`, `time`, `gasLimit`, `feeRecipient`, `prevRandao`,
 `baseFeePerGas`, `blobBaseFee`) after the block selector; `eth_estimateGas`
 takes both too, but cannot move a precompile. A state override naming more
 accounts, or setting more slots of one account, than `[giga.rpc]` allows is
-refused.
+refused with an invalid-params error (`-32602`).
 
 ### Estimate gas with `cast estimate`
 
