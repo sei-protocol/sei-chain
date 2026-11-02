@@ -1,11 +1,13 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders, rawSei, expectJsonRpcError, sleep } from '../utils/chainUtils';
-import { FILTER_LIMITS } from '../utils/constants';
+import { bothProviders, rawSei, rawGeth, expectJsonRpcError, sleep } from '../utils/chainUtils';
+import { FILTER_LIMITS, LOG_QUERY_ADMISSION } from '../utils/constants';
 import { readRuntimeState, RuntimeState, claimPool } from '../utils/testUtils';
 import {
+    afterLargeQueryBudgetSpent,
     BURST_TOPIC,
     BurstScene,
+    RATE_LIMITED,
     burstBatchTopic,
     burstsInRange,
     emitBurstScene,
@@ -20,7 +22,7 @@ import {
 describe('eth_getFilterLogs', function () {
     this.timeout(180 * 1000);
 
-    const { sei } = bothProviders();
+    const { sei, geth } = bothProviders();
 
     let runtime: RuntimeState;
     let scene: LogScene;
@@ -182,23 +184,36 @@ describe('eth_getFilterLogs', function () {
         });
     });
 
-    describe('filter lifetime', function () {
-        // cleanupLoop sweeps every timeout / 2 and removes a filter idle for longer than timeout, so
-        // an unread filter is gone within 1.5 x timeout, and one read more often than that is kept.
-        this.timeout(FILTER_LIMITS.timeoutMs * 2 + 60_000);
-        const SWEPT_BY = FILTER_LIMITS.timeoutMs * 1.5 + 10_000;
-        const READ_EVERY = FILTER_LIMITS.timeoutMs / 3;
+    describe('admission (shared with eth_getLogs)', () => {
+        const LARGE = LOG_QUERY_ADMISSION.largeRangeBlocks;
 
-        it('a filter left unread past filter_timeout is removed, while one read within it is kept', async () => {
-            const idle = await newSceneFilter();
-            const kept = await newSceneFilter();
-            const start = Date.now();
-            while (Date.now() - start < SWEPT_BY) {
-                await sleep(Math.min(READ_EVERY, SWEPT_BY - (Date.now() - start)));
-                expect(await sei.send('eth_getFilterLogs', [kept]), 'the read filter still answers').to.have.lengthOf(scene.totalCount);
-            }
-            expectJsonRpcError(await rawSei('eth_getFilterLogs', [idle]), -32000, /filter does not exist/);
-            await sei.send('eth_uninstallFilter', [kept]);
+        // The batches below spend the large-query budget; let it refill for the specs that follow.
+        after(() => sleep(LOG_QUERY_ADMISSION.refillMs));
+
+        it(`a range over ${LARGE} blocks takes the large-query token eth_getLogs takes, and is refused with -32005 once none is left, while ${LARGE} blocks still answers`, async () => {
+            const head = await sei.getBlockNumber();
+            const lastBlocks = (n: number) => ({
+                fromBlock: ethers.toQuantity(head - n + 1),
+                toBlock: ethers.toQuantity(head),
+                address: scene.erc20,
+            });
+            const large = lastBlocks(LARGE + 1);
+            const atThreshold = lastBlocks(LARGE);
+            const [largeId, atThresholdId] = await Promise.all(
+                [large, atThreshold].map(c => sei.send('eth_newFilter', [c])),
+            );
+
+            const [refused, admitted] = await afterLargeQueryBudgetSpent(large, [
+                { method: 'eth_getFilterLogs', params: [largeId] },
+                { method: 'eth_getFilterLogs', params: [atThresholdId] },
+            ]);
+            expectJsonRpcError(refused, LOG_QUERY_ADMISSION.refusedCode, RATE_LIMITED);
+            expect(admitted.error, `${LARGE} blocks takes no token`).to.equal(undefined);
+            expect(admitted.result, 'getFilterLogs == getLogs for the same range').to.deep.equal(
+                await sei.send('eth_getLogs', [atThreshold]),
+            );
+
+            await Promise.all([largeId, atThresholdId].map(id => sei.send('eth_uninstallFilter', [id])));
         });
     });
 
@@ -215,5 +230,18 @@ describe('eth_getFilterLogs', function () {
             expectJsonRpcError(res, -32000, /filter does not exist/);
         });
 
+        it('a block filter id fails with -32000: only log filters have logs', async () => {
+            const id = await sei.send('eth_newBlockFilter', []);
+            const res = await rawSei('eth_getFilterLogs', [id]);
+            expectJsonRpcError(res, -32000, /filter does not exist/);
+            await sei.send('eth_uninstallFilter', [id]);
+        });
+
+        it('geth also fails a block filter id with -32000 (filter not found)', async () => {
+            const id = await geth.send('eth_newBlockFilter', []);
+            const res = await rawGeth('eth_getFilterLogs', [id]);
+            expectJsonRpcError(res, -32000, /filter not found/);
+            await geth.send('eth_uninstallFilter', [id]);
+        });
     });
 });

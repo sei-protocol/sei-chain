@@ -3,8 +3,8 @@ import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { EvmAccount, abiOf, deployContract } from './evmUtils';
 import { ADDRESS_LOWER, HASH32, HEX_DATA, HEX_QUANTITY, OPAQUE_HEX_ID, addressWord, uint256Word } from './format';
-import { waitUntil } from './chainUtils';
-import { DOCKER_NODE, SEID_ENV, STAKING_PRECOMPILE_ADDRESS } from './constants';
+import { JsonRpcEnvelope, expectJsonRpcError, rawSeiBatch, waitUntil } from './chainUtils';
+import { DOCKER_NODE, LOG_QUERY_ADMISSION, SEID_ENV, STAKING_PRECOMPILE_ADDRESS } from './constants';
 
 const exec = util.promisify(require('node:child_process').exec);
 
@@ -505,6 +505,30 @@ export async function drainFilterChanges(
     }
     return collected;
 }
+
+/**
+ * Sends `calls` in one batch right behind enough eth_getLogs over `criteria`, a range over
+ * LOG_QUERY_ADMISSION.largeRangeBlocks blocks, to spend the shared large-query budget, and returns
+ * the responses to `calls`. Fails unless the last eth_getLogs was refused, so `calls` reach the
+ * node with no token left.
+ */
+export async function afterLargeQueryBudgetSpent(
+    criteria: object,
+    calls: { method: string; params: unknown }[],
+): Promise<JsonRpcEnvelope[]> {
+    const spend = Array.from({ length: 2 * LOG_QUERY_ADMISSION.largeQueryBurst }, () => ({
+        method: 'eth_getLogs',
+        params: [criteria],
+    }));
+    const res = await rawSeiBatch([...spend, ...calls]);
+    const spent = res.slice(0, spend.length);
+    spent.filter(r => r.error).forEach(r => expectJsonRpcError(r, LOG_QUERY_ADMISSION.refusedCode, RATE_LIMITED));
+    expect(spent[spent.length - 1].error, 'the batch ran the large-query budget dry').to.not.equal(undefined);
+    return res.slice(spend.length);
+}
+
+/** The message of a log query refused for want of a large-query token. */
+export const RATE_LIMITED = /log query rate limit exceeded for large queries/;
 
 export async function assertFilterChangesMatchGetLogs(
     provider: ethers.JsonRpcProvider,

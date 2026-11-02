@@ -1,9 +1,10 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders, rawSei, expectJsonRpcError, JsonRpcEnvelope, waitUntil } from '../utils/chainUtils';
+import { bothProviders, rawSei, expectJsonRpcError, JsonRpcEnvelope, sleep, waitUntil } from '../utils/chainUtils';
 import { readRuntimeState, RuntimeState, claimPool } from '../utils/testUtils';
 import { EvmAccount } from '../utils/evmUtils';
 import {
+    afterLargeQueryBudgetSpent,
     deployLogBurst,
     deployLogToken,
     drainFilterChanges,
@@ -19,7 +20,12 @@ import {
     TRANSFER_TOPIC,
 } from '../utils/logsUtils';
 import { HASH32 } from '../utils/format';
-import { FILTER_LIMITS } from '../utils/constants';
+import { FILTER_LIMITS, LOG_QUERY_ADMISSION } from '../utils/constants';
+import { waitForNextBlock } from '../utils/txUtils';
+
+// More blocks than one page of the CometBFT event log (10) or of BlockchainInfo (20), which a
+// poll must cover in full.
+const UNPOLLED_BLOCKS = 25;
 
 describe('eth_getFilterChanges', function () {
     this.timeout(180 * 1000);
@@ -33,6 +39,18 @@ describe('eth_getFilterChanges', function () {
         runtime = readRuntimeState();
         [emitter] = claimPool(runtime, sei, 1, 'eth_getFilterChanges');
     });
+
+    // The height of each block filter hash, through eth_getBlockByHash, failing on a hash the
+    // node does not know as a canonical block.
+    const blockHeights = (hashes: string[]): Promise<number[]> =>
+        Promise.all(
+            hashes.map(async hash => {
+                expect(hash).to.match(HASH32);
+                const block = await sei.send('eth_getBlockByHash', [hash, false]);
+                expect(block, `block ${hash} resolves`).to.not.equal(null);
+                return Number(block.number);
+            }),
+        );
 
     describe('log filter (incremental delivery)', () => {
         it('delivers only the logs that arrived since the previous poll', async () => {
@@ -63,6 +81,36 @@ describe('eth_getFilterChanges', function () {
             expect(delivered, 'getFilterChanges deltas == eth_getLogs result').to.deep.equal(
                 viaGetLogs,
             );
+
+            await sei.send('eth_uninstallFilter', [id]);
+        });
+
+        it('a poll after many unpolled blocks returns every log emitted across them, once, in order', async () => {
+            const { address, token } = await deployLogToken(emitter);
+            const criteria = { address, topics: [TRANSFER_TOPIC] };
+            const id = await sei.send('eth_newFilter', [criteria]);
+
+            // Three Transfers spread over more than UNPOLLED_BLOCKS blocks, with no poll between.
+            const receipts: ethers.TransactionReceipt[] = [];
+            for (let i = 0; i < 3; i++) {
+                if (i > 0) {
+                    await waitForNextBlock(sei, 'log filter: blocks pass unpolled', Math.ceil(UNPOLLED_BLOCKS / 2));
+                }
+                receipts.push((await (await token.mint(emitter.address, 1n)).wait())!);
+            }
+            const first = receipts[0].blockNumber;
+            const last = receipts[receipts.length - 1].blockNumber;
+            expect(last - first, 'the Transfers span more than one page of blocks').to.be.greaterThan(
+                UNPOLLED_BLOCKS,
+            );
+
+            const delivered = await drainFilterChanges(sei, id, receipts.length);
+            const viaGetLogs = await sei.send('eth_getLogs', [
+                { ...criteria, fromBlock: ethers.toQuantity(first), toBlock: ethers.toQuantity(last) },
+            ]);
+            expect(viaGetLogs.length, 'eth_getLogs sees the three Transfers').to.equal(receipts.length);
+            expect(delivered, 'getFilterChanges == eth_getLogs over the span').to.deep.equal(viaGetLogs);
+            expect(await sei.send('eth_getFilterChanges', [id]), 'drained').to.deep.equal([]);
 
             await sei.send('eth_uninstallFilter', [id]);
         });
@@ -267,6 +315,72 @@ describe('eth_getFilterChanges', function () {
             await sei.send('eth_uninstallFilter', [id]);
         });
 
+        it('the first poll returns no block from before the filter was created', async () => {
+            const headBefore = await sei.getBlockNumber();
+            const id = await sei.send('eth_newBlockFilter', []);
+
+            const heights = await blockHeights(await sei.send('eth_getFilterChanges', [id]));
+            heights.forEach(h =>
+                expect(h, `block ${h} was mined after the filter was created`).to.be.greaterThan(headBefore),
+            );
+
+            await sei.send('eth_uninstallFilter', [id]);
+        });
+
+        it('a poll after many unpolled blocks returns every block since the previous poll, oldest first, once', async () => {
+            const headBefore = await sei.getBlockNumber();
+            const id = await sei.send('eth_newBlockFilter', []);
+
+            const hashes: string[] = [...(await sei.send('eth_getFilterChanges', [id]))];
+            await waitForNextBlock(sei, 'block filter: blocks pass unpolled', UNPOLLED_BLOCKS);
+            hashes.push(...(await sei.send('eth_getFilterChanges', [id])));
+            await waitForNextBlock(sei, 'block filter: one more block', 1);
+            hashes.push(...(await sei.send('eth_getFilterChanges', [id])));
+
+            const heights = await blockHeights(hashes);
+            expect(heights.length, 'every block mined across the polls').to.be.greaterThan(UNPOLLED_BLOCKS);
+            expect(heights[0], 'the first block was mined after creation').to.be.greaterThan(headBefore);
+            heights.slice(1).forEach((h, i) =>
+                expect(h, `the block after ${heights[i]}: none missing, repeated or out of order`).to.equal(
+                    heights[i] + 1,
+                ),
+            );
+
+            await sei.send('eth_uninstallFilter', [id]);
+        });
+    });
+
+    describe('admission (shared with eth_getLogs)', () => {
+        const LARGE = LOG_QUERY_ADMISSION.largeRangeBlocks;
+
+        // The batch below spends the large-query budget; let it refill for the specs that follow.
+        after(() => sleep(LOG_QUERY_ADMISSION.refillMs));
+
+        it(`without a large-query token a poll scans the next ${LARGE} blocks instead of failing, and the next poll continues from there`, async () => {
+            const { address, token } = await deployLogToken(emitter);
+            const minted = (await (await token.mint(emitter.address, 1n)).wait())!.blockNumber;
+            await waitForLogsServed(sei, minted);
+
+            // 151 blocks ending at the mint: the first LARGE of them hold none of the token's logs.
+            const criteria = {
+                address,
+                fromBlock: ethers.toQuantity(minted - LARGE - 50),
+                toBlock: ethers.toQuantity(minted),
+            };
+            const want = await sei.send('eth_getLogs', [criteria]);
+            expect(want, 'the token logged within the range').to.not.be.empty;
+            const id = await sei.send('eth_newFilter', [criteria]);
+
+            const [cut] = await afterLargeQueryBudgetSpent(criteria, [{ method: 'eth_getFilterChanges', params: [id] }]);
+            expect(cut.error, 'a poll is cut, never refused, for want of a token').to.equal(undefined);
+            expect(cut.result, `the cut poll scanned only the first ${LARGE} blocks, which hold no logs`).to.deep.equal([]);
+
+            // The remaining 51 blocks are under the threshold, so this poll takes no token.
+            expect(await sei.send('eth_getFilterChanges', [id]), 'the next poll returns the rest').to.deep.equal(want);
+            expect(await sei.send('eth_getFilterChanges', [id]), 'then nothing').to.deep.equal([]);
+
+            await sei.send('eth_uninstallFilter', [id]);
+        });
     });
 
     describe('wrong params / error handling', () => {

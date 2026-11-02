@@ -23,6 +23,19 @@ export const FILTER_LIMITS = {
     timeoutMs: 120_000,
 } as const;
 
+/**
+ * Admission of log queries (evmrpc/filter.go): a range over `largeRangeBlocks` blocks takes a token
+ * from one rate limit of `largeQueryBurst` tokens, refilled at that many per second, which
+ * eth_getLogs, eth_getFilterLogs and eth_getFilterChanges share. Without a token the one-shot reads
+ * are refused with `refusedCode`, and a poll scans only the next `largeRangeBlocks` blocks.
+ */
+export const LOG_QUERY_ADMISSION = {
+    largeRangeBlocks: 100,
+    largeQueryBurst: 30,
+    refillMs: 1_000,
+    refusedCode: -32005,
+} as const;
+
 /** Sei's staking precompile address (used by precompile-call fixtures). */
 export const STAKING_PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000001005';
 

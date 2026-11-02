@@ -225,7 +225,8 @@ async function pricing(
     return { maxFeePerGas, maxPriorityFeePerGas: tip, gasPrice: maxFeePerGas };
 }
 
-async function waitForNextBlock(
+/** Wait until the head is `blocks` blocks past the head read on entry. */
+export async function waitForNextBlock(
     provider: ethers.JsonRpcProvider,
     label: string,
     blocks = 1,
@@ -1198,10 +1199,7 @@ export function assertCanonicalReceipt(
     blockNumber: number,
     index: number,
 ): void {
-    // `to` is the one field that diverges: Sei omits it on a creation receipt while geth
-    // returns `to: null`. Every other field is present on both chains for every receipt.
     for (const f of CORE_RECEIPT_FIELDS) {
-        if (f === 'to') continue;
         expect(rc, `receipt missing ${f}`).to.have.property(f);
     }
     expect(rc.transactionHash, 'transactionHash').to.match(HASH32);
@@ -1221,8 +1219,7 @@ export function assertCanonicalReceipt(
     const isCreation = rc.contractAddress !== null && rc.contractAddress !== undefined;
     if (isCreation) {
         expect(rc.contractAddress, 'creation sets contractAddress').to.match(ADDRESS);
-        // `to` is either absent (Sei) or null (geth) — never an address.
-        expect(rc.to ?? null, 'creation receipt has no recipient').to.equal(null);
+        expect(rc.to, 'creation receipt has a null recipient').to.equal(null);
     } else {
         expect(rc, 'non-creation receipt has to').to.have.property('to');
         expect(rc.to, 'to is an address').to.match(ADDRESS);
