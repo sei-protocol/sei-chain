@@ -344,21 +344,11 @@ func TestFilterBlockFilter(t *testing.T) {
 	t.Parallel()
 	resObj := sendRequestGood(t, "newBlockFilter")
 	blockFilterId := resObj["result"].(string)
+	// Verify: with the head unchanged since creation, no poll returns a block.
 	resObj = sendRequestGood(t, evmrpc.GetFilterChangesMethod, blockFilterId)
-	hashesInterface := resObj["result"].([]interface{})
-	for _, hashInterface := range hashesInterface {
-		hash := hashInterface.(string)
-		require.Equal(t, 66, len(hash))
-		require.Equal(t, "0x", hash[:2])
-	}
-	// query again to make sure cursor is updated
+	require.Equal(t, []interface{}{}, resObj["result"])
 	resObj = sendRequestGood(t, evmrpc.GetFilterChangesMethod, blockFilterId)
-	hashesInterface = resObj["result"].([]interface{})
-	for _, hashInterface := range hashesInterface {
-		hash := hashInterface.(string)
-		require.Equal(t, 66, len(hash))
-		require.Equal(t, "0x", hash[:2])
-	}
+	require.Equal(t, []interface{}{}, resObj["result"])
 }
 
 func TestFilterBlockFilterAutobahn(t *testing.T) {

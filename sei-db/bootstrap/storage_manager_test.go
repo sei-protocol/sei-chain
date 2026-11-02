@@ -248,7 +248,7 @@ func TestStateDBCommitsToWALAndLiveSC(t *testing.T) {
 			Pairs: []*proto.KVPair{{Key: []byte("k"), Value: []byte("v")}},
 		},
 	}}
-	require.NoError(t, manager.StateDB().CommitStateChanges(1, cs))
+	commitBlock(t, manager, 1, cs)
 	waitSSWrites(manager)
 
 	require.Equal(t, int64(1), manager.SC().Version())
@@ -264,7 +264,7 @@ func TestStateDBCommitsToWALAndLiveSC(t *testing.T) {
 func TestStateDBCommitsEVMChangesToSS(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
-	require.NoError(t, manager.StateDB().CommitStateChanges(1, evmBlock(1, 1)))
+	commitBlock(t, manager, 1, evmBlock(1, 1))
 	waitSSWrites(manager)
 
 	require.Equal(t, int64(1), manager.SS().GetLatestVersion())

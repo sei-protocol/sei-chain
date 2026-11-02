@@ -17,9 +17,9 @@ import (
 
 var protoCodec = encoding.GetCodec(proto.Name)
 
-// GRPCQueryRouter routes ABCI Query requests to GRPC handlers
-type GRPCQueryRouter struct {
-	routes            map[string]GRPCQueryHandler
+// QueryServiceRouter routes ABCI Query requests to protobuf Query service handlers
+type QueryServiceRouter struct {
+	routes            map[string]QueryServiceHandler
 	interfaceRegistry codectypes.InterfaceRegistry
 	serviceData       []serviceData
 }
@@ -30,22 +30,22 @@ type serviceData struct {
 	handler     interface{}
 }
 
-var _ gogogrpc.Server = &GRPCQueryRouter{}
+var _ gogogrpc.Server = &QueryServiceRouter{}
 
-// NewGRPCQueryRouter creates a new GRPCQueryRouter
-func NewGRPCQueryRouter() *GRPCQueryRouter {
-	return &GRPCQueryRouter{
-		routes: map[string]GRPCQueryHandler{},
+// NewQueryServiceRouter creates a new QueryServiceRouter
+func NewQueryServiceRouter() *QueryServiceRouter {
+	return &QueryServiceRouter{
+		routes: map[string]QueryServiceHandler{},
 	}
 }
 
-// GRPCQueryHandler defines a function type which handles ABCI Query requests
-// using gRPC
-type GRPCQueryHandler = func(ctx sdk.Context, req abci.RequestQuery) (abci.ResponseQuery, error)
+// QueryServiceHandler defines a function type which handles ABCI Query requests
+// with a protobuf Query service
+type QueryServiceHandler = func(ctx sdk.Context, req abci.RequestQuery) (abci.ResponseQuery, error)
 
-// Route returns the GRPCQueryHandler for a given query route path or nil
+// Route returns the QueryServiceHandler for a given query route path or nil
 // if not found
-func (qrt *GRPCQueryRouter) Route(path string) GRPCQueryHandler {
+func (qrt *QueryServiceRouter) Route(path string) QueryServiceHandler {
 	handler, found := qrt.routes[path]
 	if !found {
 		return nil
@@ -58,7 +58,7 @@ func (qrt *GRPCQueryRouter) Route(path string) GRPCQueryHandler {
 //
 // This functions PANICS:
 // - if a protobuf service is registered twice.
-func (qrt *GRPCQueryRouter) RegisterService(sd *grpc.ServiceDesc, handler interface{}) {
+func (qrt *QueryServiceRouter) RegisterService(sd *grpc.ServiceDesc, handler interface{}) {
 	// adds a top-level query handler based on the gRPC service name
 	for _, method := range sd.Methods {
 		fqName := fmt.Sprintf("/%s/%s", sd.ServiceName, method.MethodName)
@@ -118,9 +118,12 @@ func (qrt *GRPCQueryRouter) RegisterService(sd *grpc.ServiceDesc, handler interf
 
 // SetInterfaceRegistry sets the interface registry for the router. This will
 // also register the interface reflection gRPC service.
-func (qrt *GRPCQueryRouter) SetInterfaceRegistry(interfaceRegistry codectypes.InterfaceRegistry) {
+func (qrt *QueryServiceRouter) SetInterfaceRegistry(interfaceRegistry codectypes.InterfaceRegistry) {
 	qrt.interfaceRegistry = interfaceRegistry
 	// Once we have an interface registry, we can register the interface
 	// registry reflection gRPC service.
 	reflection.RegisterReflectionServiceServer(qrt, reflection.NewReflectionServiceServer(interfaceRegistry))
 }
+
+// QueryServiceRouter returns the QueryServiceRouter of a BaseApp.
+func (app *BaseApp) QueryServiceRouter() *QueryServiceRouter { return app.queryServiceRouter }

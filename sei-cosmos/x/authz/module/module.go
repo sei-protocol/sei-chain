@@ -80,8 +80,8 @@ func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config sdkcl
 func (AppModuleBasic) RegisterRESTRoutes(clientCtx sdkclient.Context, r *mux.Router) {
 }
 
-// RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the authz module.
-func (a AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx sdkclient.Context, mux *runtime.ServeMux) {
+// RegisterGatewayRoutes registers the gRPC Gateway routes for the authz module.
+func (a AppModuleBasic) RegisterGatewayRoutes(clientCtx sdkclient.Context, mux *runtime.ServeMux) {
 	_ = authz.RegisterQueryHandlerClient(context.Background(), mux, authz.NewQueryClient(clientCtx))
 }
 

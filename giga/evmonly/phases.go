@@ -31,6 +31,8 @@ const (
 	phaseEncodeReceipts = "encode_receipts"
 	// phaseWriteReceipts covers writing the block's receipts to the receipt store.
 	phaseWriteReceipts = "write_receipts"
+	// phaseSubmitReceiptHash covers handing the block's receipts to the receipt hasher.
+	phaseSubmitReceiptHash = "submit_receipt_hash"
 	// phaseCommitState covers starting the block's state commit.
 	phaseCommitState = "commit_state"
 )

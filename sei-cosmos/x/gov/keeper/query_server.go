@@ -86,7 +86,7 @@ func (q Keeper) Proposals(c context.Context, req *types.QueryProposalsRequest) (
 	})
 
 	if err != nil {
-		return nil, query.WrapGRPCError(err)
+		return nil, query.WrapQueryError(err)
 	}
 
 	return &types.QueryProposalsResponse{Proposals: filteredProposals, Pagination: pageRes}, nil
@@ -148,7 +148,7 @@ func (q Keeper) Votes(c context.Context, req *types.QueryVotesRequest) (*types.Q
 	})
 
 	if err != nil {
-		return nil, query.WrapGRPCError(err)
+		return nil, query.WrapQueryError(err)
 	}
 
 	return &types.QueryVotesResponse{Votes: votes, Pagination: pageRes}, nil
@@ -237,7 +237,7 @@ func (q Keeper) Deposits(c context.Context, req *types.QueryDepositsRequest) (*t
 	})
 
 	if err != nil {
-		return nil, query.WrapGRPCError(err)
+		return nil, query.WrapQueryError(err)
 	}
 
 	return &types.QueryDepositsResponse{Deposits: deposits, Pagination: pageRes}, nil
