@@ -21,10 +21,10 @@ type ConsensusMsgPrepareVote struct{ *Signed[*PrepareVote] }
 type ConsensusMsgCommitVote struct{ *Signed[*CommitVote] }
 
 // View implements ConsensusMsg.
-func (m *ConsensusMsgPrepareVote) View() View { return m.Msg().Proposal().View() }
+func (m *ConsensusMsgPrepareVote) View() View { return m.Msg().View() }
 
 // View implements ConsensusMsg.
-func (m *ConsensusMsgCommitVote) View() View { return m.Msg().Proposal().View() }
+func (m *ConsensusMsgCommitVote) View() View { return m.Msg().View() }
 
 func (m *FullProposal) isConsensusMsg()            {}
 func (m *ConsensusMsgPrepareVote) isConsensusMsg() {}
@@ -42,11 +42,11 @@ var ConsensusMsgConv = protoutils.Conv[ConsensusMsg, *pb.ConsensusMsg]{
 			}
 		case *ConsensusMsgPrepareVote:
 			return &pb.ConsensusMsg{
-				T: &pb.ConsensusMsg_PrepareVoteV2{PrepareVoteV2: SignedPrepareVoteConv.Encode(m.Signed)},
+				T: &pb.ConsensusMsg_PrepareVoteV3{PrepareVoteV3: SignedPrepareVoteConv.Encode(m.Signed)},
 			}
 		case *ConsensusMsgCommitVote:
 			return &pb.ConsensusMsg{
-				T: &pb.ConsensusMsg_CommitVoteV2{CommitVoteV2: SignedCommitVoteConv.Encode(m.Signed)},
+				T: &pb.ConsensusMsg_CommitVoteV3{CommitVoteV3: SignedCommitVoteConv.Encode(m.Signed)},
 			}
 		case *FullTimeoutVote:
 			return &pb.ConsensusMsg{
@@ -67,14 +67,14 @@ var ConsensusMsgConv = protoutils.Conv[ConsensusMsg, *pb.ConsensusMsg]{
 		switch t := m.T.(type) {
 		case *pb.ConsensusMsg_Proposal:
 			return FullProposalConv.DecodeReq(t.Proposal)
-		case *pb.ConsensusMsg_PrepareVoteV2:
-			vote, err := SignedPrepareVoteConv.DecodeReq(t.PrepareVoteV2)
+		case *pb.ConsensusMsg_PrepareVoteV3:
+			vote, err := SignedPrepareVoteConv.DecodeReq(t.PrepareVoteV3)
 			if err != nil {
 				return nil, fmt.Errorf("prepareVote: %w", err)
 			}
 			return &ConsensusMsgPrepareVote{vote}, nil
-		case *pb.ConsensusMsg_CommitVoteV2:
-			vote, err := SignedCommitVoteConv.DecodeReq(t.CommitVoteV2)
+		case *pb.ConsensusMsg_CommitVoteV3:
+			vote, err := SignedCommitVoteConv.DecodeReq(t.CommitVoteV3)
 			if err != nil {
 				return nil, fmt.Errorf("commitVote: %w", err)
 			}

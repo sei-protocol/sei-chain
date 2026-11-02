@@ -86,27 +86,21 @@ type Config struct {
 	// pulls blocks from committee members). A warning is logged at startup
 	// if mode disagrees with address-book membership.
 	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
-
-	// HashVaultDisabledUnsafe disables the app-hash equivocation guard (HashVault). The vault is
-	// on by default (false). Setting this to true is an explicit, last-resort operator decision to
-	// run WITHOUT equivocation protection; the node logs loudly that it is unsafe.
-	HashVaultDisabledUnsafe bool `mapstructure:"hash-vault-disabled-unsafe"`
 }
 
 // DefaultConfig returns a default configuration for a Tendermint node
 func DefaultConfig() *Config {
 	return &Config{
-		BaseConfig:              DefaultBaseConfig(),
-		RPC:                     DefaultRPCConfig(),
-		P2P:                     DefaultP2PConfig(),
-		Mempool:                 DefaultMempoolConfig(),
-		StateSync:               DefaultStateSyncConfig(),
-		Consensus:               DefaultConsensusConfig(),
-		TxIndex:                 DefaultTxIndexConfig(),
-		Instrumentation:         DefaultInstrumentationConfig(),
-		PrivValidator:           DefaultPrivValidatorConfig(),
-		SelfRemediation:         DefaultSelfRemediationConfig(),
-		HashVaultDisabledUnsafe: false,
+		BaseConfig:      DefaultBaseConfig(),
+		RPC:             DefaultRPCConfig(),
+		P2P:             DefaultP2PConfig(),
+		Mempool:         DefaultMempoolConfig(),
+		StateSync:       DefaultStateSyncConfig(),
+		Consensus:       DefaultConsensusConfig(),
+		TxIndex:         DefaultTxIndexConfig(),
+		Instrumentation: DefaultInstrumentationConfig(),
+		PrivValidator:   DefaultPrivValidatorConfig(),
+		SelfRemediation: DefaultSelfRemediationConfig(),
 	}
 }
 
@@ -1071,6 +1065,28 @@ func (cfg *MempoolConfig) ValidateBasic() error {
 //-----------------------------------------------------------------------------
 // StateSyncConfig
 
+// stateSyncTrustPeriods maps a well-known chain ID to its state sync trust period.
+var stateSyncTrustPeriods = map[string]time.Duration{
+	// A trust period plus the time needed to check headers and to report and
+	// punish misbehavior must stay below the network's unbonding time.
+	"pacific-1":  112 * time.Hour,
+	"atlantic-2": 112 * time.Hour,
+	"arctic-1":   112 * time.Hour,
+}
+
+// defaultStateSyncTrustPeriod is the state sync trust period of a chain that
+// stateSyncTrustPeriods does not list.
+const defaultStateSyncTrustPeriod = 168 * time.Hour
+
+// StateSyncTrustPeriod returns how long after its time a header of chainID can
+// still serve as the trusted root state sync verifies light blocks from.
+func StateSyncTrustPeriod(chainID string) time.Duration {
+	if trustPeriod, ok := stateSyncTrustPeriods[chainID]; ok {
+		return trustPeriod
+	}
+	return defaultStateSyncTrustPeriod
+}
+
 // StateSyncConfig defines the configuration for the Tendermint state sync service
 type StateSyncConfig struct {
 	// State sync rapidly bootstraps a new node by discovering, fetching, and restoring a
@@ -1090,14 +1106,10 @@ type StateSyncConfig struct {
 	// with net.Dial, for example: "host.example.com:2125".
 	RPCServers []string `mapstructure:"rpc-servers"`
 
-	// The hash and height of a trusted block. Must be within the trust-period.
+	// The hash and height of a trusted block. Must be within the trust period
+	// StateSyncTrustPeriod returns for the chain.
 	TrustHeight int64  `mapstructure:"trust-height"`
 	TrustHash   string `mapstructure:"trust-hash"`
-
-	// The trust period should be set so that Tendermint can detect and gossip
-	// misbehavior before it is considered expired. For chains based on the Cosmos SDK,
-	// one day less than the unbonding period should suffice.
-	TrustPeriod time.Duration `mapstructure:"trust-period"`
 
 	// Backfill sequentially fetches, verifies and stores light blocks in reverse order.
 	// It does not stop verifying blocks until reaching a height
@@ -1149,7 +1161,6 @@ func (cfg *StateSyncConfig) TrustHashBytes() []byte {
 // DefaultStateSyncConfig returns a default configuration for the state sync service
 func DefaultStateSyncConfig() *StateSyncConfig {
 	return &StateSyncConfig{
-		TrustPeriod:               168 * time.Hour,
 		DiscoveryTime:             15 * time.Second,
 		ChunkRequestTimeout:       15 * time.Second,
 		Fetchers:                  2,
@@ -1188,10 +1199,6 @@ func (cfg *StateSyncConfig) ValidateBasic() error {
 
 	if cfg.DiscoveryTime != 0 && cfg.DiscoveryTime < 5*time.Second {
 		return errors.New("discovery time must be 0s or greater than five seconds")
-	}
-
-	if cfg.TrustPeriod <= 0 {
-		return errors.New("trusted-period is required")
 	}
 
 	if cfg.TrustHeight <= 0 {

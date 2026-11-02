@@ -33,7 +33,7 @@ type AppHashData struct {
 
 	// The hash of the transaction receipts
 	// produced by executing this block.
-	receiptHash [32]byte
+	receiptHash ReceiptHash
 
 	// The app hash of block (blockHeight-1).
 	// All 0s if this is the first block.
@@ -51,6 +51,9 @@ type AppHashData struct {
 // BUDHash is the hash committing to the key-value changes produced by executing a block.
 type BUDHash [32]byte
 
+// ReceiptHash is the hash committing to the transaction receipts produced by executing a block.
+type ReceiptHash [32]byte
+
 // Construct a new AppHashData object at the current schema version.
 func NewAppHashData(
 	// The EVM chain ID of the chain the block belongs to.
@@ -65,7 +68,7 @@ func NewAppHashData(
 	// executing this block.
 	budHash BUDHash,
 	// The hash of the transaction receipts produced by executing this block.
-	receiptHash [32]byte,
+	receiptHash ReceiptHash,
 	// The app hash of block (blockHeight-1), or all 0s if this is the first block.
 	previousAppHash [32]byte,
 ) *AppHashData {
@@ -131,7 +134,7 @@ func (ahd *AppHashData) BUDHash() BUDHash {
 }
 
 // ReceiptHash returns the hash of the transaction receipts produced by executing this block.
-func (ahd *AppHashData) ReceiptHash() [32]byte {
+func (ahd *AppHashData) ReceiptHash() ReceiptHash {
 	return ahd.receiptHash
 }
 

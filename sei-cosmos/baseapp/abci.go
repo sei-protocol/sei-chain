@@ -441,8 +441,8 @@ func (app *BaseApp) Query(ctx context.Context, req *abci.RequestQuery) (res *abc
 
 	// handle gRPC routes first rather than calling splitPath because '/' characters
 	// are used as part of gRPC paths
-	if grpcHandler := app.grpcQueryRouter.Route(req.Path); grpcHandler != nil {
-		resp := app.handleQueryGRPC(ctx, grpcHandler, *req)
+	if grpcHandler := app.queryServiceRouter.Route(req.Path); grpcHandler != nil {
+		resp := app.handleQueryService(ctx, grpcHandler, *req)
 		return &resp, nil
 	}
 
@@ -603,7 +603,7 @@ func (app *BaseApp) ApplySnapshotChunk(context context.Context, req *abci.Reques
 	}
 }
 
-func (app *BaseApp) handleQueryGRPC(ctx context.Context, handler GRPCQueryHandler, req abci.RequestQuery) abci.ResponseQuery {
+func (app *BaseApp) handleQueryService(ctx context.Context, handler QueryServiceHandler, req abci.RequestQuery) abci.ResponseQuery {
 	sdkCtx, err := app.CreateQueryContext(req.Height, req.Prove)
 	if err != nil {
 		return sdkerrors.QueryResultWithDebug(err, app.trace)

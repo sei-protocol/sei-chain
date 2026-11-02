@@ -36,6 +36,7 @@ const (
 	errorClassEVMNotSupported    = "evm_not_supported"
 	errorClassSeiLegacyDisabled  = "sei_legacy_disabled"
 	errorClassAssociationMissing = "association_missing"
+	errorClassLogQueryRefused    = "log_query_refused"
 	errorClassJSONRPCError       = "jsonrpc_error"
 	errorClassUnknown            = "unknown"
 	// jsonrpc_code bucket values; empty string ("") means no code (success or untyped error).
@@ -120,6 +121,10 @@ func classifyRPCMetricError(err error, panicked bool) (errorClass string, jsonrp
 	var legacy *errSeiLegacyNotEnabled
 	if errors.As(err, &legacy) {
 		return errorClassSeiLegacyDisabled, bucketJSONRPCCode(int64(legacy.ErrorCode()))
+	}
+	var refused *errLogQueryRefused
+	if errors.As(err, &refused) {
+		return errorClassLogQueryRefused, bucketJSONRPCCode(int64(refused.ErrorCode()))
 	}
 	var assoc types.AssociationMissingErr
 	if errors.As(err, &assoc) {

@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -153,25 +154,52 @@ func TestEstimateGasPassesThroughNonRevertError(t *testing.T) {
 	require.ErrorIs(t, err, wantErr)
 }
 
-func TestEstimateGasRejectsHistoricalState(t *testing.T) {
+// A past block's estimate runs against the state after that block, in the context it executed at.
+func TestEstimateGasRunsAgainstAPastBlock(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	backend := &testBackend{
-		estimateGas: func(context.Context, *core.Message, uint64) (uint64, []byte, error) {
-			t.Fatal("historical estimate request reached the backend")
-			return 0, nil, nil
-		},
-	}
-	api := &estimateAPI{backend: backend}
+	for _, tc := range pastBlockSelectors {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := pastBlocksBackend(5)
+			backend.estimateGas = func(context.Context, *core.Message, uint64) (uint64, []byte, error) {
+				t.Fatal("a past block's estimate ran against the latest state")
+				return 0, nil, nil
+			}
+			backend.estimateGasAt = func(_ context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error) {
+				require.Equal(t, &to, msg.To)
+				require.Equal(t, uint64(defaultCallGasCap), gasCap)
+				requirePastHeader(t, tc.wantNumber, header)
+				return 30_000, nil, nil
+			}
 
-	for _, block := range []ethrpc.BlockNumberOrHash{
-		ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber),
-		ethrpc.BlockNumberOrHashWithNumber(7),
-		ethrpc.BlockNumberOrHashWithHash(common.Hash{2}, true),
-	} {
-		got, err := api.EstimateGas(t.Context(), export.TransactionArgs{To: &to}, &block)
-		require.ErrorIs(t, err, errHistoricalStateUnsupported)
-		require.Zero(t, got)
+			got, err := (&estimateAPI{backend: backend, blocks: &blockAPI{backend: backend}}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, &tc.block)
+
+			require.NoError(t, err)
+			require.Equal(t, hexutil.Uint64(30_000), got)
+		})
 	}
+
+	t.Run("revert", func(t *testing.T) {
+		backend := pastBlocksBackend(5)
+		backend.estimateGasAt = func(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error) {
+			return 0, revertData("too early"), vm.ErrExecutionReverted
+		}
+		block := ethrpc.BlockNumberOrHashWithNumber(3)
+
+		_, err := (&estimateAPI{backend: backend, blocks: &blockAPI{backend: backend}}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, &block)
+
+		var revert *revertError
+		require.ErrorAs(t, err, &revert)
+		require.Equal(t, hexutil.Encode(revertData("too early")), revert.ErrorData())
+	})
+
+	t.Run("unknown hash", func(t *testing.T) {
+		backend := pastBlocksBackend(5)
+		block := ethrpc.BlockNumberOrHashWithHash(common.Hash{0xaa}, false)
+
+		_, err := (&estimateAPI{backend: backend, blocks: &blockAPI{backend: backend}}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, &block)
+
+		require.ErrorIs(t, err, errBlockNotFound)
+	})
 }
 
 func TestEstimateGasDefaultsBlockSelectorToLatest(t *testing.T) {

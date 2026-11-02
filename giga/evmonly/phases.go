@@ -25,12 +25,14 @@ const (
 	phaseOCCMerge = "occ_merge"
 	// phaseAwaitCommit covers waiting for the previous block's state commit to land.
 	phaseAwaitCommit = "await_commit"
-	// phaseEncodeChangesets covers encoding the block's state changes for the store.
+	// phaseEncodeChangesets covers the block encoder producing the block's non-EVM writes.
 	phaseEncodeChangesets = "encode_changesets"
 	// phaseEncodeReceipts covers encoding the block's receipts.
 	phaseEncodeReceipts = "encode_receipts"
 	// phaseWriteReceipts covers writing the block's receipts to the receipt store.
 	phaseWriteReceipts = "write_receipts"
+	// phaseSubmitReceiptHash covers handing the block's receipts to the receipt hasher.
+	phaseSubmitReceiptHash = "submit_receipt_hash"
 	// phaseCommitState covers starting the block's state commit.
 	phaseCommitState = "commit_state"
 )

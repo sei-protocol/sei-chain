@@ -261,7 +261,7 @@ func TestEndBlockerSeesThePreviousBlockBeforeItsCommitLands(t *testing.T) {
 	store := NewMemoryStore(state)
 	executor := NewExecutor(
 		Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: recorderRegistry(endBlockRecorder{address: firstEndBlocker})},
-		withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet),
+		withTestStores(store, NewMemoryReceiptStore()),
 	)
 	t.Cleanup(executor.Close)
 

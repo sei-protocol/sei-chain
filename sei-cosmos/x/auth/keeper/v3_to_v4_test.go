@@ -68,7 +68,7 @@ func TestMigrate3to4RewritesLegacyVestingAccountsAsBaseAccounts(t *testing.T) {
 	app.AccountKeeper.GetModuleAccount(ctx, "migration-test-module")
 	before := accountStoreEntries(store)
 
-	m := keeper.NewMigrator(app.AccountKeeper, app.GRPCQueryRouter())
+	m := keeper.NewMigrator(app.AccountKeeper, app.QueryServiceRouter())
 	require.NoError(t, m.Migrate3to4(ctx))
 
 	after := accountStoreEntries(store)
@@ -95,7 +95,7 @@ func TestMigrate3to4IsANoOpOnceApplied(t *testing.T) {
 	store := ctx.KVStore(app.GetKey(types.StoreKey))
 	setLegacyVestingAccount(t, store, legacyVestingAccount(t, authtestutil.LegacyDelayedVestingAccountTypeURL, 7))
 
-	m := keeper.NewMigrator(app.AccountKeeper, app.GRPCQueryRouter())
+	m := keeper.NewMigrator(app.AccountKeeper, app.QueryServiceRouter())
 	require.NoError(t, m.Migrate3to4(ctx))
 	once := accountStoreEntries(store)
 	require.NoError(t, m.Migrate3to4(ctx))
@@ -148,7 +148,7 @@ func TestMigrate3to4RejectsUnconvertibleAccounts(t *testing.T) {
 			store.Set(types.AddressStoreKey(address), encoded)
 			before := accountStoreEntries(store)
 
-			m := keeper.NewMigrator(app.AccountKeeper, app.GRPCQueryRouter())
+			m := keeper.NewMigrator(app.AccountKeeper, app.QueryServiceRouter())
 			require.ErrorContains(t, m.Migrate3to4(ctx), tc.err)
 			require.Equal(t, before, accountStoreEntries(store))
 		})

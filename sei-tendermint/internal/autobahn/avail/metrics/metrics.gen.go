@@ -12,7 +12,6 @@ var Global = newMetrics()
 func init() {
 	prometheus.MustRegister(
 		Global.commitRoadIndex,
-		Global.commitGlobalBlockNumber,
 		Global.proposalToCommitLatency,
 		Global.commitToCommitLatency,
 		Global.producedTxs,
@@ -32,12 +31,6 @@ func newMetrics() *metrics {
 			Subsystem: MetricsSubsystem,
 			Name:      "commit_road_index",
 			Help:      "Road index of the highest observed commitQC.",
-		}, nil),
-		commitGlobalBlockNumber: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "commit_global_block_number",
-			Help:      "First global block number not covered by the highest observed CommitQC.",
 		}, nil),
 		proposalToCommitLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
@@ -102,10 +95,6 @@ func newMetrics() *metrics {
 
 func (m *metrics) commitRoadIndexAt() *tmprometheus.GaugeInt {
 	return m.commitRoadIndex.WithLabelValues()
-}
-
-func (m *metrics) commitGlobalBlockNumberAt() *tmprometheus.GaugeInt {
-	return m.commitGlobalBlockNumber.WithLabelValues()
 }
 
 func (m *metrics) proposalToCommitLatencyAt() *tmprometheus.Histogram {
