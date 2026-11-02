@@ -564,11 +564,14 @@ func recvAppHashAtHeight(
 // runReportBlockHashes reports the road block hash of each block from next.
 func (r *gigaRouterCommon) runReportBlockHashes(ctx context.Context, next atypes.RoadIndex) error {
 	for n := next; ; n += 1 {
-		b, err := r.data.SuperBlock(ctx, n)
+		// The hash is the CommitQC's road header hash. QC returns that
+		// certificate without copying the lane transactions SuperBlock
+		// assembles for execution.
+		qc, err := r.data.QC(ctx, n)
 		if err != nil {
-			return fmt.Errorf("r.data.SuperBlock(%v): %w", n, err)
+			return fmt.Errorf("r.data.QC(%v): %w", n, err)
 		}
-		if err := r.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
+		if err := r.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(qc.Index()), [32]byte(qc.Header().Hash())); err != nil {
 			return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", n, err)
 		}
 	}
