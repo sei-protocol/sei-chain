@@ -15,14 +15,14 @@ import (
 	dbm "github.com/tendermint/tm-db"
 )
 
-func TestGRPCGatewayRouter(t *testing.T) {
-	qr := baseapp.NewGRPCQueryRouter()
+func TestQueryServiceRouter(t *testing.T) {
+	qr := baseapp.NewQueryServiceRouter()
 	interfaceRegistry := testdata.NewTestInterfaceRegistry()
 	qr.SetInterfaceRegistry(interfaceRegistry)
 	testdata.RegisterQueryServer(qr, testdata.QueryImpl{})
 	helper := &baseapp.QueryServiceTestHelper{
-		GRPCQueryRouter: qr,
-		Ctx:             sdk.NewContext(nil, tmproto.Header{}, false).WithContext(context.Background()),
+		QueryServiceRouter: qr,
+		Ctx:                sdk.NewContext(nil, tmproto.Header{}, false).WithContext(context.Background()),
 	}
 	client := testdata.NewQueryClient(helper)
 
@@ -60,7 +60,7 @@ func TestRegisterQueryServiceTwice(t *testing.T) {
 	// First time registering service shouldn't panic.
 	require.NotPanics(t, func() {
 		testdata.RegisterQueryServer(
-			app.GRPCQueryRouter(),
+			app.QueryServiceRouter(),
 			testdata.QueryImpl{},
 		)
 	})
@@ -68,7 +68,7 @@ func TestRegisterQueryServiceTwice(t *testing.T) {
 	// Second time should panic.
 	require.Panics(t, func() {
 		testdata.RegisterQueryServer(
-			app.GRPCQueryRouter(),
+			app.QueryServiceRouter(),
 			testdata.QueryImpl{},
 		)
 	})

@@ -589,7 +589,7 @@ func New(
 		app.StakingKeeper,
 		app.DistrKeeper,
 		app.MsgServiceRouter(),
-		app.GRPCQueryRouter(),
+		app.QueryServiceRouter(),
 		wasmDir,
 		wasmConfig,
 		supportedFeatures,
@@ -838,7 +838,7 @@ func New(
 	)
 
 	app.mm.RegisterRoutes(app.Router(), app.QueryRouter(), encodingConfig.Amino)
-	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter())
+	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.QueryServiceRouter())
 	app.mm.RegisterServices(app.configurator)
 
 	app.RegisterUpgradeHandlers()
@@ -2414,13 +2414,13 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 	// Register legacy tx routes.
 	authrest.RegisterTxRoutes(clientCtx, apiSvr.Router)
 	// Register new tx routes from grpc-gateway.
-	authtx.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+	authtx.RegisterGatewayRoutes(clientCtx, apiSvr.GatewayRouter)
 	// Register new tendermint queries routes from grpc-gateway.
-	tmservice.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+	tmservice.RegisterGatewayRoutes(clientCtx, apiSvr.GatewayRouter)
 
 	// Register legacy and grpc-gateway routes for all modules.
 	ModuleBasics.RegisterRESTRoutes(clientCtx, apiSvr.Router)
-	ModuleBasics.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+	ModuleBasics.RegisterGatewayRoutes(clientCtx, apiSvr.GatewayRouter)
 
 }
 
@@ -2493,8 +2493,8 @@ func (app *App) SnapshotAwareRPCContextProvider() evmrpc.TraceContextProvider {
 
 // RegisterTendermintService implements the Application.RegisterLocalServices method.
 func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig) {
-	authtx.RegisterTxService(app.GRPCQueryRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
-	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), node, app.interfaceRegistry)
+	authtx.RegisterTxService(app.QueryServiceRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
+	tmservice.RegisterTendermintService(app.QueryServiceRouter(), node, app.interfaceRegistry)
 	txConfigProvider := func(height int64) client.TxConfig {
 		if app.ChainID != "pacific-1" {
 			return app.encodingConfig.TxConfig

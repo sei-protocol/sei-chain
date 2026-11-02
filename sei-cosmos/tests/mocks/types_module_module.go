@@ -99,16 +99,16 @@ func (mr *MockAppModuleBasicMockRecorder) Name() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Name", reflect.TypeOf((*MockAppModuleBasic)(nil).Name))
 }
 
-// RegisterGRPCGatewayRoutes mocks base method.
-func (m *MockAppModuleBasic) RegisterGRPCGatewayRoutes(arg0 client.Context, arg1 *runtime.ServeMux) {
+// RegisterGatewayRoutes mocks base method.
+func (m *MockAppModuleBasic) RegisterGatewayRoutes(arg0 client.Context, arg1 *runtime.ServeMux) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "RegisterGRPCGatewayRoutes", arg0, arg1)
+	m.ctrl.Call(m, "RegisterGatewayRoutes", arg0, arg1)
 }
 
-// RegisterGRPCGatewayRoutes indicates an expected call of RegisterGRPCGatewayRoutes.
-func (mr *MockAppModuleBasicMockRecorder) RegisterGRPCGatewayRoutes(arg0, arg1 interface{}) *gomock.Call {
+// RegisterGatewayRoutes indicates an expected call of RegisterGatewayRoutes.
+func (mr *MockAppModuleBasicMockRecorder) RegisterGatewayRoutes(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterGRPCGatewayRoutes", reflect.TypeOf((*MockAppModuleBasic)(nil).RegisterGRPCGatewayRoutes), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterGatewayRoutes", reflect.TypeOf((*MockAppModuleBasic)(nil).RegisterGatewayRoutes), arg0, arg1)
 }
 
 // RegisterInterfaces mocks base method.
@@ -268,16 +268,16 @@ func (mr *MockAppModuleGenesisMockRecorder) Name() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Name", reflect.TypeOf((*MockAppModuleGenesis)(nil).Name))
 }
 
-// RegisterGRPCGatewayRoutes mocks base method.
-func (m *MockAppModuleGenesis) RegisterGRPCGatewayRoutes(arg0 client.Context, arg1 *runtime.ServeMux) {
+// RegisterGatewayRoutes mocks base method.
+func (m *MockAppModuleGenesis) RegisterGatewayRoutes(arg0 client.Context, arg1 *runtime.ServeMux) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "RegisterGRPCGatewayRoutes", arg0, arg1)
+	m.ctrl.Call(m, "RegisterGatewayRoutes", arg0, arg1)
 }
 
-// RegisterGRPCGatewayRoutes indicates an expected call of RegisterGRPCGatewayRoutes.
-func (mr *MockAppModuleGenesisMockRecorder) RegisterGRPCGatewayRoutes(arg0, arg1 interface{}) *gomock.Call {
+// RegisterGatewayRoutes indicates an expected call of RegisterGatewayRoutes.
+func (mr *MockAppModuleGenesisMockRecorder) RegisterGatewayRoutes(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterGRPCGatewayRoutes", reflect.TypeOf((*MockAppModuleGenesis)(nil).RegisterGRPCGatewayRoutes), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterGatewayRoutes", reflect.TypeOf((*MockAppModuleGenesis)(nil).RegisterGatewayRoutes), arg0, arg1)
 }
 
 // RegisterInterfaces mocks base method.
@@ -479,16 +479,16 @@ func (mr *MockAppModuleMockRecorder) QuerierRoute() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QuerierRoute", reflect.TypeOf((*MockAppModule)(nil).QuerierRoute))
 }
 
-// RegisterGRPCGatewayRoutes mocks base method.
-func (m *MockAppModule) RegisterGRPCGatewayRoutes(arg0 client.Context, arg1 *runtime.ServeMux) {
+// RegisterGatewayRoutes mocks base method.
+func (m *MockAppModule) RegisterGatewayRoutes(arg0 client.Context, arg1 *runtime.ServeMux) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "RegisterGRPCGatewayRoutes", arg0, arg1)
+	m.ctrl.Call(m, "RegisterGatewayRoutes", arg0, arg1)
 }
 
-// RegisterGRPCGatewayRoutes indicates an expected call of RegisterGRPCGatewayRoutes.
-func (mr *MockAppModuleMockRecorder) RegisterGRPCGatewayRoutes(arg0, arg1 interface{}) *gomock.Call {
+// RegisterGatewayRoutes indicates an expected call of RegisterGatewayRoutes.
+func (mr *MockAppModuleMockRecorder) RegisterGatewayRoutes(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterGRPCGatewayRoutes", reflect.TypeOf((*MockAppModule)(nil).RegisterGRPCGatewayRoutes), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterGatewayRoutes", reflect.TypeOf((*MockAppModule)(nil).RegisterGatewayRoutes), arg0, arg1)
 }
 
 // RegisterInterfaces mocks base method.
@@ -740,16 +740,16 @@ func (mr *MockBeginBlockAppModuleMockRecorder) QuerierRoute() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QuerierRoute", reflect.TypeOf((*MockBeginBlockAppModule)(nil).QuerierRoute))
 }
 
-// RegisterGRPCGatewayRoutes mocks base method.
-func (m *MockBeginBlockAppModule) RegisterGRPCGatewayRoutes(arg0 client.Context, arg1 *runtime.ServeMux) {
+// RegisterGatewayRoutes mocks base method.
+func (m *MockBeginBlockAppModule) RegisterGatewayRoutes(arg0 client.Context, arg1 *runtime.ServeMux) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "RegisterGRPCGatewayRoutes", arg0, arg1)
+	m.ctrl.Call(m, "RegisterGatewayRoutes", arg0, arg1)
 }
 
-// RegisterGRPCGatewayRoutes indicates an expected call of RegisterGRPCGatewayRoutes.
-func (mr *MockBeginBlockAppModuleMockRecorder) RegisterGRPCGatewayRoutes(arg0, arg1 interface{}) *gomock.Call {
+// RegisterGatewayRoutes indicates an expected call of RegisterGatewayRoutes.
+func (mr *MockBeginBlockAppModuleMockRecorder) RegisterGatewayRoutes(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterGRPCGatewayRoutes", reflect.TypeOf((*MockBeginBlockAppModule)(nil).RegisterGRPCGatewayRoutes), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterGatewayRoutes", reflect.TypeOf((*MockBeginBlockAppModule)(nil).RegisterGatewayRoutes), arg0, arg1)
 }
 
 // RegisterInterfaces mocks base method.
@@ -1001,16 +1001,16 @@ func (mr *MockMidBlockAppModuleMockRecorder) QuerierRoute() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QuerierRoute", reflect.TypeOf((*MockMidBlockAppModule)(nil).QuerierRoute))
 }
 
-// RegisterGRPCGatewayRoutes mocks base method.
-func (m *MockMidBlockAppModule) RegisterGRPCGatewayRoutes(arg0 client.Context, arg1 *runtime.ServeMux) {
+// RegisterGatewayRoutes mocks base method.
+func (m *MockMidBlockAppModule) RegisterGatewayRoutes(arg0 client.Context, arg1 *runtime.ServeMux) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "RegisterGRPCGatewayRoutes", arg0, arg1)
+	m.ctrl.Call(m, "RegisterGatewayRoutes", arg0, arg1)
 }
 
-// RegisterGRPCGatewayRoutes indicates an expected call of RegisterGRPCGatewayRoutes.
-func (mr *MockMidBlockAppModuleMockRecorder) RegisterGRPCGatewayRoutes(arg0, arg1 interface{}) *gomock.Call {
+// RegisterGatewayRoutes indicates an expected call of RegisterGatewayRoutes.
+func (mr *MockMidBlockAppModuleMockRecorder) RegisterGatewayRoutes(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterGRPCGatewayRoutes", reflect.TypeOf((*MockMidBlockAppModule)(nil).RegisterGRPCGatewayRoutes), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterGatewayRoutes", reflect.TypeOf((*MockMidBlockAppModule)(nil).RegisterGatewayRoutes), arg0, arg1)
 }
 
 // RegisterInterfaces mocks base method.
@@ -1264,16 +1264,16 @@ func (mr *MockEndBlockAppModuleMockRecorder) QuerierRoute() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QuerierRoute", reflect.TypeOf((*MockEndBlockAppModule)(nil).QuerierRoute))
 }
 
-// RegisterGRPCGatewayRoutes mocks base method.
-func (m *MockEndBlockAppModule) RegisterGRPCGatewayRoutes(arg0 client.Context, arg1 *runtime.ServeMux) {
+// RegisterGatewayRoutes mocks base method.
+func (m *MockEndBlockAppModule) RegisterGatewayRoutes(arg0 client.Context, arg1 *runtime.ServeMux) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "RegisterGRPCGatewayRoutes", arg0, arg1)
+	m.ctrl.Call(m, "RegisterGatewayRoutes", arg0, arg1)
 }
 
-// RegisterGRPCGatewayRoutes indicates an expected call of RegisterGRPCGatewayRoutes.
-func (mr *MockEndBlockAppModuleMockRecorder) RegisterGRPCGatewayRoutes(arg0, arg1 interface{}) *gomock.Call {
+// RegisterGatewayRoutes indicates an expected call of RegisterGatewayRoutes.
+func (mr *MockEndBlockAppModuleMockRecorder) RegisterGatewayRoutes(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterGRPCGatewayRoutes", reflect.TypeOf((*MockEndBlockAppModule)(nil).RegisterGRPCGatewayRoutes), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterGatewayRoutes", reflect.TypeOf((*MockEndBlockAppModule)(nil).RegisterGatewayRoutes), arg0, arg1)
 }
 
 // RegisterInterfaces mocks base method.
