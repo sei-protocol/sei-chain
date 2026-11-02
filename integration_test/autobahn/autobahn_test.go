@@ -1100,17 +1100,15 @@ func waitForEVMOnlyResult(t *testing.T, ctx context.Context, clients []*ethrpc.C
 // non-null, and returns that answer.
 func waitForEVMOnlyNodeResult(t *testing.T, ctx context.Context, client *ethrpc.Client, nodeIndex int, method string, args ...any) json.RawMessage {
 	t.Helper()
-	for {
+	for ctx.Err() == nil {
 		raw := evmOnlyCall(t, ctx, client, nodeIndex, method, args...)
 		if string(raw) != "null" {
 			return raw
 		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("node %d %s%v stayed null: %v", nodeIndex, method, args, ctx.Err())
-		case <-time.After(evmOnlyRPCPoll):
-		}
+		time.Sleep(evmOnlyRPCPoll)
 	}
+	t.Fatalf("node %d %s%v stayed null: %v", nodeIndex, method, args, ctx.Err())
+	return nil
 }
 
 // assertEVMOnlyBlockQueries checks every block-scoped method against the block
