@@ -12,7 +12,8 @@ import (
 func reportExecutedBlockHash(manager *bootstrap.GigaStorageManager, height uint64) error {
 	var hash [32]byte
 	binary.BigEndian.PutUint64(hash[:8], height)
-	// The benchmark cancels its run context to stop, and the block then in flight still reports.
+	// TODO: pass a context that outlives the run. The benchmark cancels its run
+	// context to stop, and the block then in flight still reports.
 	if err := manager.AppHashBuilder().ReportBlockHash(context.Background(), height, hash); err != nil {
 		return fmt.Errorf("report the block hash of block %d: %w", height, err)
 	}
