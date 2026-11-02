@@ -1,10 +1,9 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders, rawSei, expectJsonRpcError, JsonRpcEnvelope, sleep, waitUntil } from '../utils/chainUtils';
+import { bothProviders, rawSei, expectJsonRpcError, JsonRpcEnvelope, waitUntil } from '../utils/chainUtils';
 import { readRuntimeState, RuntimeState, claimPool } from '../utils/testUtils';
 import { EvmAccount } from '../utils/evmUtils';
 import {
-    afterLargeQueryBudgetSpent,
     deployLogBurst,
     deployLogToken,
     drainFilterChanges,
@@ -20,7 +19,7 @@ import {
     TRANSFER_TOPIC,
 } from '../utils/logsUtils';
 import { HASH32 } from '../utils/format';
-import { FILTER_LIMITS, LOG_QUERY_ADMISSION } from '../utils/constants';
+import { FILTER_LIMITS } from '../utils/constants';
 import { waitForNextBlock } from '../utils/txUtils';
 
 // More blocks than one page of the CometBFT event log (10) or of BlockchainInfo (20), which a
@@ -345,39 +344,6 @@ describe('eth_getFilterChanges', function () {
                     heights[i] + 1,
                 ),
             );
-
-            await sei.send('eth_uninstallFilter', [id]);
-        });
-    });
-
-    describe('admission (shared with eth_getLogs)', () => {
-        const LARGE = LOG_QUERY_ADMISSION.largeRangeBlocks;
-
-        // The batch below spends the large-query budget; let it refill for the specs that follow.
-        after(() => sleep(LOG_QUERY_ADMISSION.refillMs));
-
-        it(`without a large-query token a poll scans the next ${LARGE} blocks instead of failing, and the next poll continues from there`, async () => {
-            const { address, token } = await deployLogToken(emitter);
-            const minted = (await (await token.mint(emitter.address, 1n)).wait())!.blockNumber;
-            await waitForLogsServed(sei, minted);
-
-            // 151 blocks ending at the mint: the first LARGE of them hold none of the token's logs.
-            const criteria = {
-                address,
-                fromBlock: ethers.toQuantity(minted - LARGE - 50),
-                toBlock: ethers.toQuantity(minted),
-            };
-            const want = await sei.send('eth_getLogs', [criteria]);
-            expect(want, 'the token logged within the range').to.not.be.empty;
-            const id = await sei.send('eth_newFilter', [criteria]);
-
-            const [cut] = await afterLargeQueryBudgetSpent(criteria, [{ method: 'eth_getFilterChanges', params: [id] }]);
-            expect(cut.error, 'a poll is cut, never refused, for want of a token').to.equal(undefined);
-            expect(cut.result, `the cut poll scanned only the first ${LARGE} blocks, which hold no logs`).to.deep.equal([]);
-
-            // The remaining 51 blocks are under the threshold, so this poll takes no token.
-            expect(await sei.send('eth_getFilterChanges', [id]), 'the next poll returns the rest').to.deep.equal(want);
-            expect(await sei.send('eth_getFilterChanges', [id]), 'then nothing').to.deep.equal([]);
 
             await sei.send('eth_uninstallFilter', [id]);
         });

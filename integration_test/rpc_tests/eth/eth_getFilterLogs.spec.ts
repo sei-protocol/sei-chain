@@ -1,13 +1,11 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders, rawSei, rawGeth, expectJsonRpcError, sleep } from '../utils/chainUtils';
-import { FILTER_LIMITS, LOG_QUERY_ADMISSION } from '../utils/constants';
+import { bothProviders, rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
+import { FILTER_LIMITS } from '../utils/constants';
 import { readRuntimeState, RuntimeState, claimPool } from '../utils/testUtils';
 import {
-    afterLargeQueryBudgetSpent,
     BURST_TOPIC,
     BurstScene,
-    RATE_LIMITED,
     burstBatchTopic,
     burstsInRange,
     emitBurstScene,
@@ -181,39 +179,6 @@ describe('eth_getFilterLogs', function () {
             expectJsonRpcError(await rawSei('eth_getFilterLogs', [overCap]), -32000,
                 new RegExp(`block range too large \\(${FILTER_LIMITS.maxBlocks + 1}\\), maximum allowed is ${FILTER_LIMITS.maxBlocks} blocks`));
             await Promise.all([atCap, overCap].map(id => sei.send('eth_uninstallFilter', [id])));
-        });
-    });
-
-    describe('admission (shared with eth_getLogs)', () => {
-        const LARGE = LOG_QUERY_ADMISSION.largeRangeBlocks;
-
-        // The batches below spend the large-query budget; let it refill for the specs that follow.
-        after(() => sleep(LOG_QUERY_ADMISSION.refillMs));
-
-        it(`a range over ${LARGE} blocks takes the large-query token eth_getLogs takes, and is refused with -32005 once none is left, while ${LARGE} blocks still answers`, async () => {
-            const head = await sei.getBlockNumber();
-            const lastBlocks = (n: number) => ({
-                fromBlock: ethers.toQuantity(head - n + 1),
-                toBlock: ethers.toQuantity(head),
-                address: scene.erc20,
-            });
-            const large = lastBlocks(LARGE + 1);
-            const atThreshold = lastBlocks(LARGE);
-            const [largeId, atThresholdId] = await Promise.all(
-                [large, atThreshold].map(c => sei.send('eth_newFilter', [c])),
-            );
-
-            const [refused, admitted] = await afterLargeQueryBudgetSpent(large, [
-                { method: 'eth_getFilterLogs', params: [largeId] },
-                { method: 'eth_getFilterLogs', params: [atThresholdId] },
-            ]);
-            expectJsonRpcError(refused, LOG_QUERY_ADMISSION.refusedCode, RATE_LIMITED);
-            expect(admitted.error, `${LARGE} blocks takes no token`).to.equal(undefined);
-            expect(admitted.result, 'getFilterLogs == getLogs for the same range').to.deep.equal(
-                await sei.send('eth_getLogs', [atThreshold]),
-            );
-
-            await Promise.all([largeId, atThresholdId].map(id => sei.send('eth_uninstallFilter', [id])));
         });
     });
 

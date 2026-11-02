@@ -106,20 +106,6 @@ export const rawGeth = <T = unknown>(method: string, params: unknown) =>
     rawJsonRpc<T>(Endpoints.eth.geth, method, params);
 
 /**
- * Raw JSON-RPC batch POST to Sei, returning the envelopes in request order. The node answers the
- * calls of a batch one after another, in order.
- */
-export async function rawSeiBatch(calls: { method: string; params: unknown }[]): Promise<JsonRpcEnvelope[]> {
-    const res = await fetch(Endpoints.sei.evmRpc, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(calls.map((c, id) => ({ jsonrpc: '2.0', id, ...c }))),
-    });
-    const envelopes = (await res.json()) as JsonRpcEnvelope[];
-    return envelopes.sort((a, b) => Number(a.id) - Number(b.id));
-}
-
-/**
  * Resolve a promise expected to throw an ethers RPC error and return the underlying
  * JSON-RPC envelope. Unwraps both `e.info.error` (ethers v6 default) and `e.error`
  * (older shapes). Throws if the promise resolved or the error carried no RPC envelope.
