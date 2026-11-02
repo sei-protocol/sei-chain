@@ -105,7 +105,6 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					MaxTxsPerSecond:         utils.None[uint64](),
 					BlockInterval:           100 * time.Millisecond,
 					AllowEmptyBlocks:        false,
-					MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 				},
 			}, cfg.nodeKey, dataState)
 			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
@@ -292,7 +291,6 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			MaxTxsPerBlock:          1,
 			MaxTxsPerSecond:         utils.None[uint64](),
 			BlockInterval:           time.Second,
-			MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 		},
 	}, nodeKeys[0], dataState)
 	require.NoError(t, err)

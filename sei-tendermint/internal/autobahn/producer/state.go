@@ -32,11 +32,6 @@ type Config struct {
 	// Max number of CheckTx calls executed concurrently by InsertTx/TryInsertTx.
 	// None or Some(0) means half of GOMAXPROCS, at least 1.
 	MaxConcurrentCheckTx utils.Option[uint64]
-	// Max number of pending inserts, bounding separately the InsertTx calls
-	// blocked waiting for mempool capacity and the TryInsertTx calls in flight;
-	// further calls fail immediately with a mempool-full error.
-	// 0 means DefaultMaxPendingInserts.
-	MaxPendingInserts uint64
 }
 
 func (c *Config) maxConcurrentCheckTx() int {
@@ -46,20 +41,10 @@ func (c *Config) maxConcurrentCheckTx() int {
 	return max(1, runtime.GOMAXPROCS(0)/2)
 }
 
-// DefaultMaxPendingInserts is the Config.MaxPendingInserts used when the field is 0.
-const DefaultMaxPendingInserts uint64 = 4096
-
 const minTxGas = 21000
 
 func (c *Config) maxTxsPerBlock() uint64 {
 	return min(types.MaxTxsPerBlock, c.MaxTxsPerBlock)
-}
-
-func (c *Config) maxPendingInserts() uint64 {
-	if c.MaxPendingInserts == 0 {
-		return DefaultMaxPendingInserts
-	}
-	return c.MaxPendingInserts
 }
 
 // State is the block producer state.
@@ -70,21 +55,17 @@ type State struct {
 	consensus *consensus.State
 	// checkTxSem bounds concurrent CheckTx calls on the insert path.
 	checkTxSem *utils.Semaphore
-	// tryInsertSem bounds TryInsertTx calls in flight, which are detached from
-	// the request that issued them and would otherwise pile up behind checkTxSem.
-	tryInsertSem *utils.Semaphore
 }
 
 // NewState constructs a new block producer state.
 // Mempool starts None; alignMempool creates it for each produce session.
 func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State {
 	return &State{
-		cfg:          cfg,
-		app:          app,
-		mempool:      utils.NewAtomicSend(utils.None[*mempool]()),
-		consensus:    consensus,
-		checkTxSem:   utils.NewSemaphore(cfg.maxConcurrentCheckTx()),
-		tryInsertSem: utils.NewSemaphore(int(min(cfg.maxPendingInserts(), math.MaxInt32))),
+		cfg:        cfg,
+		app:        app,
+		mempool:    utils.NewAtomicSend(utils.None[*mempool]()),
+		consensus:  consensus,
+		checkTxSem: utils.NewSemaphore(cfg.maxConcurrentCheckTx()),
 	}
 }
 

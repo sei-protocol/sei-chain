@@ -70,7 +70,6 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 			MaxTxsPerBlock:          1,
 			MaxTxsPerSecond:         utils.None[uint64](),
 			BlockInterval:           time.Second,
-			MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 		},
 	}, nodeKey, dataState)
 	require.NoError(t, err)

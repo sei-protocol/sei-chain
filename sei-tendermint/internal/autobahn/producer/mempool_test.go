@@ -118,7 +118,6 @@ func (a *testApp) Cfg() *Config {
 		MaxGasEstimatedPerBlock: 1000000,
 		MaxTxsPerBlock:          types.MaxTxsPerBlock,
 		BlockInterval:           time.Hour,
-		MaxPendingInserts:       DefaultMaxPendingInserts,
 	}
 }
 
@@ -905,32 +904,6 @@ func TestInsertTx_WaitersReleasedOnClose(t *testing.T) {
 	}))
 }
 
-// Once MaxPendingInserts calls are blocked, InsertTx fails immediately with errMempoolFull.
-func TestInsertTx_PendingInsertsBounded(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	app := newTestApp()
-	cfg := app.Cfg()
-	cfg.MaxPendingInserts = 2
-	env := newTestEnv(rng, cfg, app.Proxy())
-	mp, err := env.fillMempool(ctx, rng, app)
-	require.NoError(t, err)
-
-	require.NoError(t, utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		if _, err := env.enqueueInserters(ctx, s, rng, app, mp, 2, context.Canceled); err != nil {
-			return err
-		}
-		if _, err := env.state.InsertTx(ctx, env.fullTx(rng, app).encode()); !errors.Is(err, errMempoolFull) {
-			return fmt.Errorf("InsertTx over the bound: got %v, want errMempoolFull", err)
-		}
-		if got := mp.pendingInserts.Load(); got != 2 {
-			return fmt.Errorf("pending: got %d, want 2", got)
-		}
-		s.Cancel(context.Canceled)
-		return nil
-	})))
-}
-
 func TestInsertResult(t *testing.T) {
 	ok := &abci.ResponseCheckTx{Code: abci.CodeTypeOK}
 	rejected := &abci.ResponseCheckTx{Code: 1}
@@ -943,11 +916,28 @@ func TestInsertResult(t *testing.T) {
 		{rejected, nil, metrics.ResultRejected},
 		{nil, errTooLarge, metrics.ResultTooLarge},
 		{nil, errMempoolFull, metrics.ResultFull},
-		{nil, errPendingFull, metrics.ResultPendingFull},
 		{nil, ErrNotProducing, metrics.ResultNotProducing},
 		{nil, fmt.Errorf("%w: got 1, want 2", errBadNonce), metrics.ResultBadNonce},
 		{nil, context.Canceled, metrics.ResultError},
 	} {
 		require.Equal(t, tc.want, insertResult(tc.resp, tc.err))
 	}
+}
+
+// InsertTx queues callers beyond the EVM RPC's default concurrency limit.
+func TestInsertTx_QueuesWithoutRPCAdmission(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	mp, err := env.fillMempool(ctx, rng, app)
+	require.NoError(t, err)
+
+	require.NoError(t, utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		if _, err := env.enqueueInserters(ctx, s, rng, app, mp, 4097, context.Canceled); err != nil {
+			return err
+		}
+		s.Cancel(context.Canceled)
+		return nil
+	})))
 }

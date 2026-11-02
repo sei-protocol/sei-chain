@@ -19,10 +19,6 @@ var errTooLarge = errors.New("transaction too large")
 var errBadNonce = errors.New("bad nonce")
 var errMempoolFull = errors.New("mempool is full")
 
-// errPendingFull is returned when Config.MaxPendingInserts inserts are already pending. It
-// matches errMempoolFull under errors.Is so callers treat both as mempool-full.
-var errPendingFull = fmt.Errorf("%w: too many pending inserts", errMempoolFull)
-
 var ErrNotProducing = errors.New("not producing")
 
 type blockSpec struct {
@@ -231,15 +227,14 @@ func (s *State) pruneMempool(mp *mempool, n types.BlockNumber) {
 	}
 }
 
-// TryInsertTx inserts tx to the mempool. Returns errMempoolFull if the mempool is full or
-// Config.MaxPendingInserts TryInsertTx calls are already in flight.
+// TryInsertTx inserts tx to the mempool. Returns errMempoolFull if the mempool is full.
 func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
 	return s.insertTx(ctx, tx, false)
 }
 
 // InsertTx inserts tx to the mempool. Blocks if mempool is full; blocked InsertTx calls are
 // admitted in arrival order relative to each other, but TryInsertTx calls do not queue and may
-// take freed capacity ahead of them. Returns errMempoolFull once Config.MaxPendingInserts calls are blocked.
+// take freed capacity ahead of them.
 // The blocked calls are effectively the "unsequenced" part of the mempool.
 // After InsertTx returns, the sequence is already scheduled to be included in a lane.
 // TODO(gprusak): we might need some prioritization mechanism in case our node can handle more InsertTx calls/s
@@ -302,8 +297,6 @@ func (s *State) poolCanAdmit(mp *mempool, waitIfFull bool) error {
 			return ErrNotProducing
 		case !waitIfFull && m.IsFull():
 			return errMempoolFull
-		case waitIfFull && uint64(len(m.waiters)) >= s.cfg.maxPendingInserts():
-			return errPendingFull
 		}
 	}
 	return nil
@@ -351,8 +344,6 @@ func insertResult(resp *abci.ResponseCheckTx, err error) metrics.Result {
 	switch {
 	case errors.Is(err, errTooLarge):
 		return metrics.ResultTooLarge
-	case errors.Is(err, errPendingFull):
-		return metrics.ResultPendingFull
 	case errors.Is(err, errMempoolFull):
 		return metrics.ResultFull
 	case errors.Is(err, ErrNotProducing):
@@ -369,26 +360,10 @@ func insertResult(resp *abci.ResponseCheckTx, err error) metrics.Result {
 }
 
 // Inserts transaction. Blocks until there is capacity in the mempool.
-// NOTE: we currently don't do any tx filtering, which would prevent expensive CheckTxSafe calls.
-// It has to be added after testnet launch.
 func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
-	resp, err := s.boundedInsertTx(ctx, tx, waitIfFull)
+	resp, err := s.doInsertTx(ctx, tx, waitIfFull)
 	insertResult(resp, err).Observe()
 	return resp, err
-}
-
-// boundedInsertTx runs doInsertTx, holding one of cfg.MaxPendingInserts in-flight slots for
-// the duration of a TryInsertTx call. Returns errPendingFull when no slot is free.
-func (s *State) boundedInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
-	if waitIfFull {
-		return s.doInsertTx(ctx, tx, waitIfFull)
-	}
-	release, ok := s.tryInsertSem.TryAcquire()
-	if !ok {
-		return nil, errPendingFull
-	}
-	defer release()
-	return s.doInsertTx(ctx, tx, waitIfFull)
 }
 
 func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
@@ -489,9 +464,6 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 					wakeups++
 					t.admitted.Store(false)
 				} else {
-					if uint64(len(m.waiters)) >= s.cfg.maxPendingInserts() {
-						return nil, errPendingFull
-					}
 					ticket = utils.Some(mp.enqueue(m))
 				}
 				continue

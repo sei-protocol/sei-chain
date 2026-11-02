@@ -166,44 +166,6 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 	require.Equal(t, 2, len(env.state.UnconfirmedTxs()))
 }
 
-// Once MaxPendingInserts TryInsertTx calls are in flight, further TryInsertTx calls fail
-// immediately with errMempoolFull instead of queueing for a CheckTx permit, and the bound
-// is released as they complete.
-func TestTryInsertTx_InFlightBounded(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	app := newGatedApp()
-	cfg := app.Cfg()
-	cfg.MaxConcurrentCheckTx = utils.Some[uint64](1)
-	cfg.MaxPendingInserts = 1
-	env := newTestEnv(rng, cfg, app.Proxy())
-	env.alignLocalMempool()
-
-	newTx := func() []byte {
-		addr, nonce := app.NewAccount(rng)
-		return env.genTx(rng, addr, nonce).encode()
-	}
-	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		holder := newTx()
-		s.Spawn(func() error {
-			_, err := env.state.TryInsertTx(ctx, holder)
-			return err
-		})
-		// holder occupies the only in-flight slot, blocked in CheckTx.
-		if err := app.waitInflight(ctx, 1); err != nil {
-			return err
-		}
-		if _, err := env.state.TryInsertTx(ctx, newTx()); !errors.Is(err, errMempoolFull) {
-			return fmt.Errorf("TryInsertTx over the bound: got %v, want errMempoolFull", err)
-		}
-		app.openGate()
-		return nil
-	}))
-	_, err := env.state.TryInsertTx(ctx, newTx())
-	require.NoError(t, err)
-	require.Equal(t, 2, len(env.state.UnconfirmedTxs()))
-}
-
 // countingApp is a testApp that counts its CheckTx calls.
 type countingApp struct {
 	*testApp
@@ -256,35 +218,6 @@ func TestTryInsertTx_FullRejectsInvalidTxAsFull(t *testing.T) {
 	require.Nil(t, resp)
 	require.Equal(t, metrics.ResultFull, insertResult(nil, err))
 	require.Equal(t, calls, app.checkTxCalls.Load())
-}
-
-// InsertTx on a full mempool with MaxPendingInserts calls already queued fails with
-// errPendingFull without running CheckTx.
-func TestInsertTx_PendingFullSkipsCheckTx(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	app := newCountingApp()
-	cfg := app.Cfg()
-	cfg.MaxPendingInserts = 2
-	env := newTestEnv(rng, cfg, app.Proxy())
-	mp, err := env.fillMempool(ctx, rng, app.testApp)
-	require.NoError(t, err)
-
-	require.NoError(t, utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		if _, err := env.enqueueInserters(ctx, s, rng, app.testApp, mp, 2, context.Canceled); err != nil {
-			return err
-		}
-		calls := app.checkTxCalls.Load()
-		_, err := env.state.InsertTx(ctx, env.fullTx(rng, app.testApp).encode())
-		if insertResult(nil, err) != metrics.ResultPendingFull {
-			return fmt.Errorf("InsertTx over the bound: got %v, want errPendingFull", err)
-		}
-		if got := app.checkTxCalls.Load(); got != calls {
-			return fmt.Errorf("CheckTx calls: got %d, want %d", got, calls)
-		}
-		s.Cancel(context.Canceled)
-		return nil
-	})))
 }
 
 // Inserts into a closed session fail with ErrNotProducing without running CheckTx,
