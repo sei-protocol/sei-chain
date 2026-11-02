@@ -6,9 +6,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// Set is an OpenZeppelin EnumerableSet (AddressSet, UintSet or Bytes32Set)
-// whose two-slot struct begins at Base: the _values array length at Base and
-// the 1-based _positions mapping at Base+1.
+// Set is a set of distinct words in a two-slot struct at Base: the values array
+// at Base and each value's 1-based array position in a mapping at Base+1, as
+// GovStorage.AddressSet lays it out.
 type Set struct {
 	Store Store
 	Base  common.Hash

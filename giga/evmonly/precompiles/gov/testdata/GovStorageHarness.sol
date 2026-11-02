@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "giga-storage/GovStorage.sol";
 
 /// @notice Writes known values into GovStorage with solc's own codegen, so the
 /// Go reader can be checked against the compiler's slot derivation.
 contract GovStorageHarness is GovStorage {
-    using EnumerableSet for EnumerableSet.AddressSet;
-    using EnumerableSet for EnumerableSet.UintSet;
-
     function seed(address voter, address other, bytes calldata content) external {
         lastProposalId = 7;
         startingProposalId = 3;
@@ -46,10 +42,10 @@ contract GovStorageHarness is GovStorage {
         deposits[5][voter] = 31e18;
         deposits[5][other] = 32e18;
 
-        depositors[5].add(voter);
-        depositors[5].add(other);
-        depositors[5].remove(voter);
-        votersByProposal[5].add(voter);
+        add(depositors[5], voter);
+        add(depositors[5], other);
+        remove(depositors[5], voter);
+        add(votersByProposal[5], voter);
         push(votingQueue, (uint256(1_700_000_004) << 64) | 5);
         push(votingQueue, (uint256(1_700_000_004) << 64) | 6);
         push(depositQueue, (uint256(1_700_000_002) << 64) | 3);
@@ -75,5 +71,21 @@ contract GovStorageHarness is GovStorage {
     function push(ProposalQueue storage q, uint256 key) internal {
         q.keys.push(key);
         q.positions[key] = q.keys.length;
+    }
+
+    /// @dev Appends v, which must be absent.
+    function add(AddressSet storage set, address v) internal {
+        set.values.push(v);
+        set.positions[v] = set.values.length;
+    }
+
+    /// @dev Removes v, which must be present, moving the last value into its place.
+    function remove(AddressSet storage set, address v) internal {
+        uint256 idx = set.positions[v] - 1;
+        address last = set.values[set.values.length - 1];
+        set.values[idx] = last;
+        set.positions[last] = idx + 1;
+        set.values.pop();
+        delete set.positions[v];
     }
 }
