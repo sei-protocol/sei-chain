@@ -686,7 +686,7 @@ func (a *FilterAPI) GetFilterLogs(
 	}
 
 	// Read-only history query: the eth_getFilterChanges cursor is left untouched.
-	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, withBounds(filter.fc, begin, end))
+	logs, _, err := a.logFetcher.logsInRange(ctx, filter.fc, begin, end)
 	if err != nil {
 		return nil, err
 	}
@@ -718,7 +718,7 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 		return nil, err
 	}
 
-	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, withBounds(crit, begin, end))
+	logs, _, err := a.logFetcher.logsInRange(ctx, crit, begin, end)
 	if err != nil {
 		return nil, err
 	}
@@ -774,6 +774,8 @@ func checkPollAdmission(blockRange, maxBlock int64, limiter *rate.Limiter, m *Wo
 }
 
 // checkLoad refuses any log query while the worker queue or the DB read semaphore in m is 80% used.
+// It reads m without reserving capacity, so concurrent queries arriving together can all pass it;
+// the worker queue's capacity is the hard bound.
 func checkLoad(m *WorkerPoolMetrics) error {
 	pending := m.TasksSubmitted.Load() - m.TasksCompleted.Load()
 	maxPending := int64(float64(m.QueueCapacity.Load()) * 0.8) // 80% threshold
@@ -991,8 +993,7 @@ func (f *LogFetcher) storeCandidateBudget() *receipt.LogBudget {
 	return receipt.NewLogBudgetBytesOnly(maxLogBytes)
 }
 
-// withBounds returns crit fixed to the numeric range [begin, end], so a query re-resolving it reads
-// exactly the range that was admitted even if the head moves meanwhile. A blockHash crit is returned
+// withBounds returns crit fixed to the numeric range [begin, end]. A blockHash crit is returned
 // unchanged.
 func withBounds(crit filters.FilterCriteria, begin, end int64) filters.FilterCriteria {
 	if crit.BlockHash != nil {
@@ -1018,6 +1019,7 @@ func (f *LogFetcher) queryBounds(ctx context.Context, crit filters.FilterCriteri
 }
 
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria) (res []*ethtypes.Log, end int64, err error) {
+	// Before the bounds, so a node without a receipt store says so rather than failing on heights.
 	if err := requireReceiptStore(f.k); err != nil {
 		return nil, 0, err
 	}
@@ -1025,6 +1027,17 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	if err != nil {
 		return nil, 0, err
 	}
+	return f.logsInRange(ctx, crit, begin, end)
+}
+
+// logsInRange returns the logs crit matches in [begin, end], a range the caller resolved with
+// queryBounds, and the last block read.
+func (f *LogFetcher) logsInRange(ctx context.Context, crit filters.FilterCriteria, begin, end int64) (res []*ethtypes.Log, last int64, err error) {
+	if err := requireReceiptStore(f.k); err != nil {
+		return nil, 0, err
+	}
+	// Fixed to the resolved range, so the block-by-block fallback reads it even if the head moves.
+	crit = withBounds(crit, begin, end)
 	if err := checkBlockRange(end-begin+1, f.filterConfig.maxBlock); err != nil {
 		return nil, 0, err
 	}
