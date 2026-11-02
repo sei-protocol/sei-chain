@@ -122,6 +122,16 @@ func (keeper Keeper) AddDeposit(ctx sdk.Context, proposalID uint64, depositorAdd
 		}
 	}
 
+	if keeper.IncrementalTallyEnabled(ctx) {
+		if depositAmount.Empty() {
+			return false, nil
+		}
+		minDeposit := keeper.GetDepositParams(ctx).GetMinimumDeposit(proposal.IsExpedited)
+		if !depositAmount.DenomsSubsetOf(minDeposit) {
+			return false, sdkerrors.Wrapf(sdkerrors.ErrInvalidCoins, "deposit denoms must be in %s", minDeposit)
+		}
+	}
+
 	// update the governance module's account coins pool
 	err := keeper.bankKeeper.SendCoinsFromAccountToModule(ctx, depositorAddr, types.ModuleName, depositAmount)
 	if err != nil {

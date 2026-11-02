@@ -13,6 +13,7 @@ import (
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 )
 
@@ -241,4 +242,34 @@ func TestRefundDepositsLeavesBlockedRecipientPending(t *testing.T) {
 	expectedBalance := initialBalance.Sub(depositAmount.AmountOf(sdk.DefaultBondDenom))
 	require.Equal(t, expectedBalance, app.BankKeeper.GetBalance(ctx, blockedDepositor, sdk.DefaultBondDenom).Amount)
 	require.Equal(t, depositAmount, app.BankKeeper.GetAllBalances(ctx, app.AccountKeeper.GetModuleAddress(types.ModuleName)))
+}
+
+func TestAddDepositIgnoresEmptyAndRejectsOtherDenoms(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	require.True(t, app.GovKeeper.IncrementalTallyEnabled(ctx))
+	depositor := seiapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(100))[0]
+	require.NoError(t, app.BankKeeper.AddCoins(ctx, depositor, sdk.NewCoins(sdk.NewInt64Coin("other", 100)), true))
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+
+	_, err = app.GovKeeper.AddDeposit(ctx, proposal.ProposalId, depositor, sdk.NewCoins())
+	require.NoError(t, err)
+	_, found := app.GovKeeper.GetDeposit(ctx, proposal.ProposalId, depositor)
+	require.False(t, found)
+
+	for _, amount := range []sdk.Coins{
+		sdk.NewCoins(sdk.NewInt64Coin("other", 1)),
+		sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 1), sdk.NewInt64Coin("other", 1)),
+	} {
+		_, err = app.GovKeeper.AddDeposit(ctx, proposal.ProposalId, depositor, amount)
+		require.ErrorIs(t, err, sdkerrors.ErrInvalidCoins)
+	}
+	_, found = app.GovKeeper.GetDeposit(ctx, proposal.ProposalId, depositor)
+	require.False(t, found)
+
+	_, err = app.GovKeeper.AddDeposit(ctx, proposal.ProposalId, depositor, sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 1)))
+	require.NoError(t, err)
+	_, found = app.GovKeeper.GetDeposit(ctx, proposal.ProposalId, depositor)
+	require.True(t, found)
 }
