@@ -468,8 +468,6 @@ func (r *gigaRouterCommon) initApp(ctx context.Context) (atypes.RoadIndex, utils
 		ChainID: r.cfg.GenDoc.ChainID,
 		Height:  int64(b.Height), // nolint:gosec // different representations of the same value
 		Time:    b.Timestamp,
-		// TODO: for consistency we should also set proposerAddress here,
-		// but this is a placeholder solution so maybe we don't care.
 	}).ToProto())
 	return last + 1, utils.Some(*b), nil
 }
