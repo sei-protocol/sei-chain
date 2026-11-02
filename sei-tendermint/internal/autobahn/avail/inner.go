@@ -37,6 +37,9 @@ func newBlockQueue() *blockQueue {
 func (q *blockQueue) pushBack(p *types.Signed[*types.LaneProposal]) {
 	q.queue.pushBack(p)
 	q.localTip = utils.Some(p)
+	if q.Len() == 1 {
+		q.logLocalBlock()
+	}
 }
 
 // parentHash is the parent ProduceLocalBlock uses for the block at q.next:
@@ -59,24 +62,24 @@ func (q *blockQueue) prune(newFirst types.BlockNumber, parent types.BlockHeaderH
 		q.localTip = utils.None[*types.Signed[*types.LaneProposal]]()
 	}
 	q.queue.prune(newFirst)
-	q.logLocalBlock(parent)
 	q.parentOfFirstLaneBlock = parent
+	q.logLocalBlock()
 }
 
 // logLocalBlock logs when the block at first does not name parent.
-func (q *blockQueue) logLocalBlock(parent types.BlockHeaderHash) {
+func (q *blockQueue) logLocalBlock() {
 	if q.first >= q.next {
 		return
 	}
 	h := q.q[q.first].Msg().Block().Header()
-	if h.ParentHash() == parent {
+	if h.ParentHash() == q.parentOfFirstLaneBlock {
 		return
 	}
 	logger.Info("local block does not extend certified tip",
 		"lane", h.Lane(),
 		slog.Uint64("block", uint64(h.BlockNumber())),
 		"got", h.ParentHash(),
-		"want", parent)
+		"want", q.parentOfFirstLaneBlock)
 }
 
 // unpersistedLocalTip returns localTip once it has left the active range and
@@ -202,7 +205,6 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 				}
 			}
 			q.pushBack(b.Proposal)
-			q.logLocalBlock(q.parentOfFirstLaneBlock)
 		}
 		i.nextBlockToPersist[lane] = q.next
 	}
