@@ -54,11 +54,14 @@ type testBackend struct {
 	storageAt          func(common.Address, common.Hash, int64) (common.Hash, error)
 	transactionCountAt func(common.Address, int64) (uint64, error)
 
+	callAt                func(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error)
+	estimateGasAt         func(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error)
 	estimateGasAfterCalls func(context.Context, []*core.Message, *core.Message, uint64) (uint64, []byte, error)
 	createAccessList      func(context.Context, *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error)
-	blockContext          func(*ethtypes.Header) (vm.BlockContext, error)
-	stateAt               func(context.Context, int64) (vm.StateDB, func(), error)
-	stateBeforeTx         func(context.Context, *ethtypes.Header, [][]byte) (vm.StateDB, func(), error)
+
+	blockContext  func(*ethtypes.Header) (vm.BlockContext, error)
+	stateAt       func(context.Context, int64) (vm.StateDB, func(), error)
+	stateBeforeTx func(context.Context, *ethtypes.Header, [][]byte) (vm.StateDB, func(), error)
 }
 
 func (b *testBackend) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
@@ -119,6 +122,14 @@ func (b *testBackend) EvmBlockNumber() uint64 {
 
 func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 	return b.call(ctx, msg)
+}
+
+func (b *testBackend) EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error) {
+	return b.callAt(ctx, msg, header)
+}
+
+func (b *testBackend) EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error) {
+	return b.estimateGasAt(ctx, msg, gasCap, header)
 }
 
 func (b *testBackend) EvmChainConfig() (*params.ChainConfig, error) {

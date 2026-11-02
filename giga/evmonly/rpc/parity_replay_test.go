@@ -235,6 +235,14 @@ func (b *replayBackend) EvmCall(ctx context.Context, msg *core.Message) (*core.E
 	return b.executor.Call(ctx, b.tip, msg)
 }
 
+func (*replayBackend) EvmCallAt(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error) {
+	return nil, errNotReplayed
+}
+
+func (*replayBackend) EvmEstimateGasAt(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error) {
+	return 0, nil, errNotReplayed
+}
+
 func (b *replayBackend) EvmChainConfig() (*params.ChainConfig, error) {
 	return b.chainConfig, nil
 }
