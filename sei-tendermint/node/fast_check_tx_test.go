@@ -4,19 +4,20 @@ import (
 	"context"
 	"math/big"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/gogo/protobuf/proto"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -118,17 +119,20 @@ func TestPrepareApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 	var blockHash [32]byte
 	blockHash[0] = 1
 	require.NoError(t, manager.AppHashBuilder().ReportBlockHash(t.Context(), 1, blockHash))
+	published := make(chan *apphash.AppHashData, 1)
+	_, err = manager.AppHashBuilder().RegisterListener(t.Context(), func(appHash *apphash.AppHashData) {
+		published <- appHash
+	})
+	require.NoError(t, err)
 	_, err = mock.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
 		Header: &tmproto.Header{Height: 1},
 	})
 	require.NoError(t, err)
 	_, err = mock.Commit(t.Context())
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		head, err := manager.AppHashVault().GetLatestBlock()
-		require.NoError(t, err)
-		return head >= 1
-	}, 10*time.Second, time.Millisecond)
+	got, err := utils.Recv(t.Context(), published)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), got.BlockHeight())
 }
 
 func TestPrepareApplicationAutobahnRequiresReadableConfig(t *testing.T) {

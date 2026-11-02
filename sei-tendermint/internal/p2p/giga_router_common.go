@@ -216,7 +216,7 @@ type pendingExecution struct {
 func (r *gigaRouterCommon) startExecuteBlock(
 	ctx context.Context,
 	b *atypes.SuperBlock,
-) (utils.Option[pendingExecution], error) {
+) (pendingExecution, error) {
 	app := r.app
 	var proposerAddress types.Address
 	if vals := app.GetValidators(); len(vals) > 0 {
@@ -225,7 +225,7 @@ func (r *gigaRouterCommon) startExecuteBlock(
 		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
 		key, err := crypto.PubKeyFromProto(proposer.PubKey)
 		if err != nil {
-			return utils.None[pendingExecution](), fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
+			return pendingExecution{}, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
 		}
 		proposerAddress = key.Address()
 	}
@@ -248,19 +248,19 @@ func (r *gigaRouterCommon) startExecuteBlock(
 		}).ToProto(),
 	})
 	if err != nil {
-		return utils.None[pendingExecution](), fmt.Errorf("app.FinalizeBlock(): %w", err)
+		return pendingExecution{}, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
 	gigametrics.SetPhase(gigametrics.PhaseStorage)
 	r.data.PushGasUsed(finalizeBlockGasUsed(resp))
 
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseAppCommit)
 	if _, err := app.Commit(ctx); err != nil {
-		return utils.None[pendingExecution](), fmt.Errorf("app.Commit(): %w", err)
+		return pendingExecution{}, fmt.Errorf("app.Commit(): %w", err)
 	}
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
 	weights, err := committeeWeights(app.GetValidators())
 	if err != nil {
-		return utils.None[pendingExecution](), err
+		return pendingExecution{}, err
 	}
 	r.executed.Store(r.executed.Load().Push(atypes.ExecutedBlock{
 		Number:  b.Height,
@@ -268,10 +268,10 @@ func (r *gigaRouterCommon) startExecuteBlock(
 	}))
 	gigametrics.EndStoragePhase()
 
-	return utils.Some(pendingExecution{
+	return pendingExecution{
 		number:  b.Height,
 		weights: weights,
-	}), nil
+	}, nil
 }
 
 // finishExecuteBlock proposes pending's app hash to the data layer.
@@ -353,15 +353,27 @@ func registerAppHashListener(
 	return utils.Some(*published), nil
 }
 
+// errListenerNoHash is returned when the listener has published no app hash.
+var errListenerNoHash = errors.New("app hash listener has no hash")
+
+// errListenerOffTip is returned when the listener's newest hash is not the app tip.
+var errListenerOffTip = errors.New("app hash listener resumes after a different block")
+
+// errNoStoredAppHash is returned when a committed block has no stored app hash.
+var errNoStoredAppHash = errors.New("app hash builder holds no app hash")
+
+// errAppHashHeight is returned when the builder publishes an app hash for another block.
+var errAppHashHeight = errors.New("app hash builder published a different block")
+
 // listenerContinuesAt returns nil when published holds the app hash of tip.
 // The listener's next hash is then the block after tip.
 func listenerContinuesAt(published utils.Option[apphash.AppHashData], tip atypes.RoadIndex) error {
 	record, ok := published.Get()
 	if !ok {
-		return fmt.Errorf("app hash listener has no hash for app tip %d", tip)
+		return fmt.Errorf("%w for app tip %d", errListenerNoHash, tip)
 	}
 	if got := atypes.RoadIndex(record.BlockHeight()); got != tip {
-		return fmt.Errorf("app hash listener resumes after block %d, app tip is %d", got, tip)
+		return fmt.Errorf("%w: resumes after block %d, app tip is %d", errListenerOffTip, got, tip)
 	}
 	return nil
 }
@@ -494,7 +506,7 @@ func (r *gigaRouterCommon) backfillAppHashes(
 			return fmt.Errorf("read the app hash of block %d: %w", n, err)
 		}
 		if !ok {
-			return fmt.Errorf("app hash builder holds no app hash for committed block %d", n)
+			return fmt.Errorf("%w for committed block %d", errNoStoredAppHash, n)
 		}
 		entry := stored.Entry()
 		if entry.BlockHeight() != uint64(n) {
@@ -544,7 +556,7 @@ func recvAppHashAtHeight(
 		return nil, err
 	}
 	if n := atypes.RoadIndex(record.BlockHeight()); n != height {
-		return nil, fmt.Errorf("app hash builder published block %d, want %d", n, height)
+		return nil, fmt.Errorf("%w: published block %d, want %d", errAppHashHeight, n, height)
 	}
 	return record, nil
 }
@@ -577,11 +589,10 @@ func (r *gigaRouterCommon) runExecuteBlocks(
 			return fmt.Errorf("r.data.SuperBlock(%v): %w", n, err)
 		}
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		opt, err := r.startExecuteBlock(ctx, b)
+		p, err := r.startExecuteBlock(ctx, b)
 		if err != nil {
 			return fmt.Errorf("r.startExecuteBlock(%v): %w", n, err)
 		}
-		p := opt.OrPanic("successful block execution returned no pending block")
 		if err := utils.Send(ctx, committed, p); err != nil {
 			return err
 		}

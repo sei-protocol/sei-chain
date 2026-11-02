@@ -326,8 +326,9 @@ func TestBackfillAppHashesReadsTheBuilder(t *testing.T) {
 
 		next := last + 1
 		err := router.backfillAppHashes(ctx, next)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "holds no app hash")
+		if !errors.Is(err, errNoStoredAppHash) {
+			return fmt.Errorf("backfillAppHashes() = %v, want missing app hash", err)
+		}
 
 		for n := state.NextAppProposal(); n < next; n++ {
 			hashBuilder.entries = append(hashBuilder.entries, testAppHashData(n))
@@ -345,11 +346,9 @@ func TestBackfillAppHashesReadsTheBuilder(t *testing.T) {
 func TestListenerContinuesAtTheAppTip(t *testing.T) {
 	tip := atypes.RoadIndex(4)
 	err := listenerContinuesAt(utils.None[apphash.AppHashData](), tip)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "no hash")
+	require.ErrorIs(t, err, errListenerNoHash)
 	err = listenerContinuesAt(utils.Some(*testAppHashData(tip - 1)), tip)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "resumes after block 3")
+	require.ErrorIs(t, err, errListenerOffTip)
 	require.NoError(t, listenerContinuesAt(utils.Some(*testAppHashData(tip)), tip))
 }
 
@@ -376,8 +375,7 @@ func TestRunExecuteRejectsAListenerOffTheAppTip(t *testing.T) {
 		got = router.runExecute(ctx)
 		return nil
 	}))
-	require.Error(t, got)
-	require.Contains(t, got.Error(), "resumes after block")
+	require.ErrorIs(t, got, errListenerOffTip)
 }
 
 // TestRunPushAppHashesStopsWhenExecuteStops hangs if the push loop waits on a
@@ -391,12 +389,11 @@ func TestRunPushAppHashesStopsWhenExecuteStops(t *testing.T) {
 			return new(gigaRouterCommon).runPushAppHashes(ctx, committed, hashes)
 		})
 		s.SpawnNamed("execute", func() error {
-			return errors.New("execute stopped")
+			return errExecuteStopped
 		})
 		return nil
 	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "execute stopped")
+	require.ErrorIs(t, err, errExecuteStopped)
 }
 
 // commitFailApp accepts startup and finalization, then fails Commit.
@@ -417,6 +414,8 @@ func (commitFailApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 }
 
 var errCommitFailed = errors.New("commit failed")
+
+var errExecuteStopped = errors.New("execute stopped")
 
 // TestRunExecuteStopsTheListenerWhenItReturns hangs if the listener keeps
 // runExecute's context. Execution has stopped and nothing is reading the
@@ -452,16 +451,14 @@ func TestRunPushAppHashesRejectsAHashForADifferentBlock(t *testing.T) {
 	hashes := make(chan *apphash.AppHashData, 1)
 	hashes <- testAppHashData(3)
 	err := new(gigaRouterCommon).runPushAppHashes(t.Context(), committed, hashes)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "published block 3, want 2")
+	require.ErrorIs(t, err, errAppHashHeight)
 }
 
 func TestRecvAppHashAtHeightRejectsADifferentHeight(t *testing.T) {
 	hashes := make(chan *apphash.AppHashData, 1)
 	hashes <- testAppHashData(0)
 	_, err := recvAppHashAtHeight(t.Context(), hashes, 1)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "published block 0, want 1")
+	require.ErrorIs(t, err, errAppHashHeight)
 }
 
 func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
