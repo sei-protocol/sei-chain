@@ -176,7 +176,7 @@ func NewEVMOnlyApplication(
 		executor:         utils.NewMutex(new(utils.Option[*evmonly.Executor])),
 		cursor:           utils.NewMutex(&evmOnlyCursorState{}),
 		settler:          utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
-		checkedSenders:   utils.NewMutex(utils.Alloc(newSenderCache())),
+		checkedSenders:   utils.NewMutex(new(newSenderCache())),
 		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
 	}
 	cursor, err := loadEVMOnlyCursor(storage.SC())

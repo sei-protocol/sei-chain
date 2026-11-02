@@ -188,7 +188,7 @@ func (env *testEnv) Run(ctx context.Context) error {
 		// Process blocks.
 		stats := blockStats{}
 		laneBlocks := 0
-		firstBlock := env.data.Registry().FirstRoad()
+		firstBlock := env.data.Registry().MustEpoch(0).RoadRange().First
 		for i := firstBlock; ; i += 1 {
 			// Wait for the next block to be finalized.
 			b, err := env.data.SuperBlock(ctx, i)

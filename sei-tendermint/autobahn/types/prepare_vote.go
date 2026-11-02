@@ -34,7 +34,7 @@ func (m *PrepareVote) Verify(ep *Epoch) error {
 // PrepareVoteConv is the protobuf converter for PrepareVote.
 var PrepareVoteConv = protoutils.Conv[*PrepareVote, *pb.PrepareVote]{
 	Encode: func(m *PrepareVote) *pb.PrepareVote {
-		return &pb.PrepareVote{ViewNumber: utils.Alloc(uint64(m.viewNumber)), Header: RoadBlockHeaderConv.Encode(m.header)}
+		return &pb.PrepareVote{ViewNumber: new(uint64(m.viewNumber)), Header: RoadBlockHeaderConv.Encode(m.header)}
 	},
 	Decode: func(m *pb.PrepareVote) (*PrepareVote, error) {
 		if m.ViewNumber == nil {

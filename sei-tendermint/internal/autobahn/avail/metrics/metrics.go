@@ -43,7 +43,7 @@ type observed[T any] struct {
 }
 
 func newObserved[T any]() utils.Mutex[*utils.Option[observed[T]]] {
-	return utils.NewMutex(utils.Alloc(utils.None[observed[T]]()))
+	return utils.NewMutex(new(utils.None[observed[T]]()))
 }
 
 var observedCommitQC = newObserved[*types.CommitQC]()

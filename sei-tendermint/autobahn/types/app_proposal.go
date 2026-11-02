@@ -54,9 +54,9 @@ func (m *AppProposal) Verify(qc *CommitQC) error {
 var AppProposalConv = protoutils.Conv[*AppProposal, *pb.AppProposal]{
 	Encode: func(m *AppProposal) *pb.AppProposal {
 		return &pb.AppProposal{
-			RoadIndex:  utils.Alloc(uint64(m.roadIndex)),
+			RoadIndex:  new(uint64(m.roadIndex)),
 			AppHash:    m.appHash,
-			EpochIndex: utils.Alloc(uint64(m.epochIndex)),
+			EpochIndex: new(uint64(m.epochIndex)),
 		}
 	},
 	Decode: func(m *pb.AppProposal) (*AppProposal, error) {
