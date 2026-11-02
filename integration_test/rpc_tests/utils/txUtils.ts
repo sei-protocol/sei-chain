@@ -183,8 +183,8 @@ export interface RpcLog {
 }
 
 /**
- * The JSON-RPC transaction-receipt object. `to` is creation-dependent (Sei omits it on a
- * creation receipt, geth returns null), and `contractAddress` is set iff it was a creation.
+ * The JSON-RPC transaction-receipt object. `to` is null on a creation receipt, on Sei as on
+ * geth, and `contractAddress` is set iff it was a creation.
  */
 export interface RpcReceipt {
     transactionHash: string;
@@ -192,7 +192,7 @@ export interface RpcReceipt {
     blockHash: string;
     blockNumber: string;
     from: string;
-    to?: string | null;
+    to: string | null;
     cumulativeGasUsed: string;
     gasUsed: string;
     effectiveGasPrice: string;

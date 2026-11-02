@@ -511,7 +511,7 @@ func TestEncodeReceiptContractAddress(t *testing.T) {
 	// Test coverage for lines 456-463: contract address handling
 	txHash := common.HexToHash("0xbbbb0000000000000000000000000000000000000000000000000000000000bb")
 
-	// Create a receipt with contract address but no "to" field (contract creation)
+	// A stored contract-creation receipt: contract address set, To empty
 	receipt := &types.Receipt{
 		TxHashHex:        txHash.Hex(),
 		BlockNumber:      8,

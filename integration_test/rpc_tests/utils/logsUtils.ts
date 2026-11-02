@@ -425,15 +425,28 @@ export function expectBurstLogs(logs: any[], batches: BurstBatch[], address: str
     }
 }
 
-/** Poll eth_getFilterChanges until a poll comes back empty; returns the non-empty deltas in order. */
-export async function pollUntilEmpty(provider: ethers.JsonRpcProvider, filterId: string, maxPolls = 20): Promise<any[][]> {
+/**
+ * Poll eth_getFilterChanges until `expected` logs have arrived, then assert one more poll is empty;
+ * returns the non-empty deltas in order. A poll may return [] before then: when a backlog exceeds
+ * the caps the window is halved from the front, which can land on blocks without matching logs.
+ */
+export async function pollUntilLogCount(
+    provider: ethers.JsonRpcProvider,
+    filterId: string,
+    expected: number,
+    maxPolls = 20,
+): Promise<any[][]> {
     const deltas: any[][] = [];
-    for (let i = 0; i < maxPolls; i++) {
+    let received = 0;
+    for (let i = 0; i < maxPolls && received < expected; i++) {
         const delta = await provider.send('eth_getFilterChanges', [filterId]);
-        if (delta.length === 0) return deltas;
+        if (delta.length === 0) continue;
         deltas.push(delta);
+        received += delta.length;
     }
-    return expect.fail(`filter ${filterId} still returned logs after ${maxPolls} polls`);
+    expect(received, `filter ${filterId}: logs received within ${maxPolls} polls`).to.equal(expected);
+    expect(await provider.send('eth_getFilterChanges', [filterId]), `filter ${filterId}: drained`).to.deep.equal([]);
+    return deltas;
 }
 
 /** Assert a single eth_getLogs entry carries the canonical schema with valid types. */

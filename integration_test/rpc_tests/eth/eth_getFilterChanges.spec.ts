@@ -9,7 +9,7 @@ import {
     drainFilterChanges,
     emitBursts,
     expectBurstLogs,
-    pollUntilEmpty,
+    pollUntilLogCount,
     waitForLogsServed,
     assertFilterChangesMatchGetLogs,
     emitLogScene,
@@ -173,10 +173,11 @@ describe('eth_getFilterChanges', function () {
             const id = await sei.send('eth_newFilter', [{ address }]);
 
             // Four blocks just under the cap together, plus one log: no block alone exceeds it.
-            const batches = await emitBursts(contract, [...Array(4).fill(FILTER_LIMITS.maxLogs / 4), 1]);
+            const sizes = [...Array(4).fill(FILTER_LIMITS.maxLogs / 4), 1];
+            const batches = await emitBursts(contract, sizes);
             await waitForLogsServed(sei, batches[batches.length - 1].blockNumber);
 
-            const deltas = await pollUntilEmpty(sei, id);
+            const deltas = await pollUntilLogCount(sei, id, sizes.reduce((a, b) => a + b, 0));
             expect(deltas.length, 'more logs than one poll may return take more than one poll').to.be.greaterThan(1);
             deltas.forEach((d, i) => expect(d.length, `poll ${i} stays within the cap`).to.be.at.most(FILTER_LIMITS.maxLogs));
             expectBurstLogs(deltas.flat(), batches, address, 'the polls together');
