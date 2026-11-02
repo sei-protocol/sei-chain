@@ -15,7 +15,7 @@ func init() {
 }
 
 var PubKeyConv = utils.ProtoConv[PubKey, *pb.PublicKey]{
-	Encode: func(k PubKey) *pb.PublicKey { return utils.Alloc(PubKeyToProto(k)) },
+	Encode: func(k PubKey) *pb.PublicKey { return new(PubKeyToProto(k)) },
 	Decode: func(x *pb.PublicKey) (PubKey, error) { return PubKeyFromProto(*x) },
 }
 

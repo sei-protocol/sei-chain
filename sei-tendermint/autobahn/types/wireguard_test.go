@@ -71,8 +71,8 @@ func TestPayloadWireguardRejectsTooManyTxs(t *testing.T) {
 	txs := make([][]byte, int(MaxTxsPerBlock)+1)
 	raw := protoutils.Marshal(&pb.Payload{
 		CreatedAt:         TimeConv.Encode(time.Unix(1, 2)),
-		TotalGasWanted:    utils.Alloc(uint64(1)),
-		TotalGasEstimated: utils.Alloc(uint64(1)),
+		TotalGasWanted:    new(uint64(1)),
+		TotalGasEstimated: new(uint64(1)),
 		Txs:               txs,
 	})
 	_, err := protoutils.Unmarshal[*pb.Payload](raw)
@@ -199,7 +199,7 @@ func TestFullProposalWireguardAcceptsMaxValidators(t *testing.T) {
 	}
 	proposal, err := NewProposal(
 		secretKeyFor(keys, committee.Leader(View{})),
-		ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: NewEpoch(0, OpenRoadRange(), time.Time{}, committee)}},
+		ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: NewEpoch(0, OpenRoadRange(), committee)}},
 		time.Unix(1, 2),
 		laneQCs,
 	)
