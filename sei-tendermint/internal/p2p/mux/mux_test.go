@@ -550,7 +550,7 @@ func TestProtocol_TooManyAccepts(t *testing.T) {
 			for queue, ctrl := range badMux.queue.Lock() {
 				for i := range badMux.cfg.Kinds[kind].MaxConnects + 1 {
 					f := queue.Get(streamID(2 * i))
-					f.Header.Kind = utils.Alloc(uint64(kind))
+					f.Header.Kind = new(uint64(kind))
 				}
 				ctrl.Updated()
 			}
@@ -582,7 +582,7 @@ func TestProtocol_UnknownStream(t *testing.T) {
 			// Artificially accept a stream without connect.
 			for queue, ctrl := range badMux.queue.Lock() {
 				f := queue.Get(streamID(1))
-				f.Header.Kind = utils.Alloc(uint64(kind))
+				f.Header.Kind = new(uint64(kind))
 				ctrl.Updated()
 			}
 			return nil
@@ -614,7 +614,7 @@ func TestProtocol_UnknownKind(t *testing.T) {
 			// Artificially connect a stream of unknown kind.
 			for queue, ctrl := range badMux.queue.Lock() {
 				f := queue.Get(streamID(0))
-				f.Header.Kind = utils.Alloc(uint64(badKind))
+				f.Header.Kind = new(uint64(badKind))
 				ctrl.Updated()
 			}
 			return nil
@@ -683,7 +683,7 @@ func TestProtocol_ConnectDoubleOpen(t *testing.T) {
 			t.Log("Send another opening frame for the same stream.")
 			for queue, ctrl := range badMux.queue.Lock() {
 				f := queue.Get(stream.state.id)
-				f.Header.Kind = utils.Alloc(uint64(kind))
+				f.Header.Kind = new(uint64(kind))
 				ctrl.Updated()
 			}
 			<-ctx.Done()
@@ -740,7 +740,7 @@ func TestProtocol_AcceptDoubleOpen(t *testing.T) {
 			t.Log("Send another OPEN frame for the same stream.")
 			for queue, ctrl := range badMux.queue.Lock() {
 				f := queue.Get(stream.state.id)
-				f.Header.Kind = utils.Alloc(uint64(stream.state.kind))
+				f.Header.Kind = new(uint64(stream.state.kind))
 				ctrl.Updated()
 			}
 			<-ctx.Done()

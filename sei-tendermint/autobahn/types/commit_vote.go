@@ -34,7 +34,7 @@ func (m *CommitVote) Verify(ep *Epoch) error {
 // CommitVoteConv is the protobuf converter for CommitVote.
 var CommitVoteConv = protoutils.Conv[*CommitVote, *pb.CommitVote]{
 	Encode: func(m *CommitVote) *pb.CommitVote {
-		return &pb.CommitVote{ViewNumber: utils.Alloc(uint64(m.viewNumber)), Header: RoadBlockHeaderConv.Encode(m.header)}
+		return &pb.CommitVote{ViewNumber: new(uint64(m.viewNumber)), Header: RoadBlockHeaderConv.Encode(m.header)}
 	},
 	Decode: func(m *pb.CommitVote) (*CommitVote, error) {
 		if m.ViewNumber == nil {
