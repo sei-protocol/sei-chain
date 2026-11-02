@@ -82,7 +82,7 @@ func NewMemoryStore(source StateReader) *MemoryStore {
 }
 
 // EncodeChangeSet converts an executor-native state changeset into the direct
-// key/value format consumed by MemoryStore.CommitStateChanges.
+// key/value format MemoryStore stores.
 func (s *MemoryStore) EncodeChangeSet(changes StateChangeSet) ([]*proto.NamedChangeSet, error) {
 	return EncodeMemoryStoreChangeSet(changes)
 }
@@ -216,7 +216,21 @@ func (b *memoryStoreChangeSetBuilder) takeCodeValue(size int) []byte {
 	return value
 }
 
-func (s *MemoryStore) CommitStateChanges(blockNum int64, changesets []*proto.NamedChangeSet) error {
+// CommitStateChanges commits a block's state changes. Non-EVM writes are rejected.
+func (s *MemoryStore) CommitStateChanges(blockNum int64, changes *StateChangeSet) error {
+	if len(changes.Misc) != 0 {
+		return fmt.Errorf("memory store cannot hold the %d non-EVM writes of block %d",
+			len(changes.Misc), blockNum)
+	}
+	changesets, err := EncodeMemoryStoreChangeSet(*changes)
+	if err != nil {
+		return fmt.Errorf("encode block %d for the memory store: %w", blockNum, err)
+	}
+	return s.commitChangeSets(blockNum, changesets)
+}
+
+// commitChangeSets commits a block's changesets in the memory store's key format.
+func (s *MemoryStore) commitChangeSets(blockNum int64, changesets []*proto.NamedChangeSet) error {
 	if blockNum < 0 {
 		return fmt.Errorf("memory store block number must be non-negative: %d", blockNum)
 	}

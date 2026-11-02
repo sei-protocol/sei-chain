@@ -3,44 +3,31 @@ package types
 // BlockNumber identifies a block in the ledger.
 type BlockNumber uint64
 
-// BlockHash identifies a block by its header hash.
-type BlockHash []byte
+// BlockHash is a block's opaque 32-byte lookup hash.
+type BlockHash [32]byte
 
-// QCRecord contains a QC's serialized data.
-type QCRecord struct {
-	Data []byte
-}
-
-// QCGroupRecord contains a QC record and its numbered blocks.
-type QCGroupRecord struct {
-	QC     QCRecord
-	Blocks []BlockRecord
-}
-
-// AppQCRecord contains an AppQC's serialized data and block range.
-type AppQCRecord struct {
-	Data  []byte
-	First BlockNumber
-	Next  BlockNumber
-}
-
-// AppProposalRecord contains an AppProposal's serialized data and block range.
-type AppProposalRecord struct {
-	Data  []byte
-	First BlockNumber
-	Next  BlockNumber
-}
-
-// BlockRecord is an opaque encoded block with its number and header-hash lookup key.
+// BlockRecord contains a SuperBlock's storage index, hash, QC, and lane blocks.
 type BlockRecord struct {
-	Number BlockNumber
-	Hash   BlockHash // secondary lookup key for writes; unset in ReadSuffix
-	Value  []byte
+	Index      BlockNumber
+	Hash       BlockHash
+	QC         []byte
+	LaneBlocks [][]byte
+}
+
+// AppQCRecord contains an AppQC's serialized data and road index.
+type AppQCRecord struct {
+	Index BlockNumber
+	Data  []byte
+}
+
+// AppProposalRecord contains an AppProposal's serialized data and road index.
+type AppProposalRecord struct {
+	Index BlockNumber
+	Data  []byte
 }
 
 // Suffix contains whole records in increasing order within each kind.
 type Suffix struct {
-	QCs          []QCRecord
 	Blocks       []BlockRecord
 	AppQCs       []AppQCRecord
 	AppProposals []AppProposalRecord
@@ -60,7 +47,7 @@ type Suffix struct {
 //
 // # Durability
 //
-// Writes are two-phase: PutQC, PutAppQC and PutAppProposal may return before
+// Writes are two-phase: PutBlock, PutAppQC and PutAppProposal may return before
 // their records are on disk. Flush blocks until every previously-returned
 // write is durable.
 // Reads observe a write as soon as it returns, whether or not it is durable.
@@ -87,44 +74,43 @@ type Suffix struct {
 // # Recovery
 //
 // The floor is not persisted. On open an implementation re-derives it as the
-// number of the oldest QC group it still holds, so a restart forgets every
-// SetPruneWatermark but never serves a record whose covering QC has already
-// been reclaimed. Opening a store that holds records but no QC group
+// number of the oldest SuperBlock it still holds, so a restart forgets every
+// SetPruneWatermark but never serves a record whose QC has already
+// been reclaimed. Opening a store that holds app records but no SuperBlock
 // fails: it has lost the records that bound what it may serve.
 type BlockDB interface {
-	// PutQC atomically stores qc and its blocks. QC lookups resolve at each block's
-	// Number; blocks resolve by Number and Hash. qc.Blocks must be non-empty and
-	// ordered by increasing Number. The group is indexed by qc.Blocks[0].Number.
-	// Invalid or oversized groups panic.
-	// ReadSuffix returns the QC and block records of each retained group.
-	PutQC(qc QCGroupRecord) error
+	// PutBlock atomically stores a SuperBlock's QC and lane blocks in header order.
+	// LaneBlocks may be empty. Rewriting an index or hash
+	// is unsupported. ReadSuffix includes the complete record.
+	PutBlock(record BlockRecord) error
 
-	// PutAppQC stores record at every number in [record.First, record.Next).
-	// Oversized records panic. Storing an already-stored number is unsupported
-	// and the result is undefined.
-	PutAppQC(record AppQCRecord) error
-
-	// PutAppProposal stores record at every number in [record.First, record.Next).
-	// Oversized records panic. Storing an already-stored number is unsupported
-	// and the result is undefined.
+	// PutAppProposal stores the application proposal at record.Index.
+	// Rewriting an index is unsupported.
 	PutAppProposal(record AppProposalRecord) error
 
-	// GetQC returns the serialized QC covering n.
+	// PutAppQC stores the application QC at record.Index.
+	// Rewriting an index is unsupported.
+	PutAppQC(record AppQCRecord) error
+
+	// GetQC returns the serialized QC at n.
 	GetQC(n BlockNumber) ([]byte, bool, error)
-	// GetBlock returns the serialized block numbered n.
-	GetBlock(n BlockNumber) ([]byte, bool, error)
-	// GetBlockByHash returns the number and serialized payload of the block indexed by hash.
-	GetBlockByHash(hash BlockHash) (BlockNumber, []byte, bool, error)
-	// GetAppQC returns the serialized application QC covering n.
-	GetAppQC(n BlockNumber) ([]byte, bool, error)
-	// GetAppProposal returns the serialized application proposal covering n.
+	// GetBlockByNumber returns the complete SuperBlock record at n.
+	GetBlockByNumber(n BlockNumber) (BlockRecord, bool, error)
+	// GetBlockByHash returns the complete SuperBlock record indexed by hash.
+	GetBlockByHash(hash BlockHash) (BlockRecord, bool, error)
+	// GetLaneBlock returns a lane block at its header offset within SuperBlock n.
+	// A missing SuperBlock or out-of-range offset returns false.
+	GetLaneBlock(n BlockNumber, offset uint64) ([]byte, bool, error)
+	// GetAppProposal returns the serialized application proposal at n.
 	GetAppProposal(n BlockNumber) ([]byte, bool, error)
-	// ReadSuffix returns a snapshot starting at the newest AppQC's group,
-	// or all retained records when no AppQC exists. Returned bytes are immutable.
+	// GetAppQC returns the serialized application QC at n.
+	GetAppQC(n BlockNumber) ([]byte, bool, error)
+	// ReadSuffix returns a snapshot starting at the newest AppQC's SuperBlock,
+	// or all retained records when no AppQC exists. Returned records are immutable.
 	ReadSuffix() (Suffix, error)
 
 	// GetPruneWatermark returns the number below which records are eligible for
-	// reclamation, which is 0 until the first SetPruneWatermark advances it.
+	// reclamation. A fresh store starts at 0; reopening restores the oldest retained index.
 	GetPruneWatermark() BlockNumber
 
 	// SetPruneWatermark moves the reclamation floor to n verbatim, and does

@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -32,7 +31,6 @@ func newGovEVMOnlyTestApp(t *testing.T, params gov.Params, startingProposalID ui
 		evmOnlyTestChainID,
 		nil,
 		storage,
-		evmonly.NewFlatKVChangeSetEncoder(),
 		gigaconfig.DefaultConfig.Execution,
 		utils.Some(registry),
 	)

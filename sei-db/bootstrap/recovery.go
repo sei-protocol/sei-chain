@@ -36,6 +36,12 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// After the vault head is read, which needs the vault closed, and before the state DB opens, which submits
+	// to the BUD hasher.
+	logger.Info("Opening the app hash builder")
+	if err := m.openAppHashBuilder(ctx); err != nil {
+		return err
+	}
 	if err := m.recoverStores(ctx, targetHeight); err != nil {
 		return err
 	}
@@ -45,8 +51,8 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	if err := m.openReceiptStore(); err != nil {
 		return err
 	}
-	logger.Info("Opening the app hash builder")
-	return m.openAppHashBuilder(ctx)
+	logger.Info("Completing the app hash builder setup")
+	return m.completeAppHashBuilderSetup(ctx)
 }
 
 // recoverStores puts the receipt store, the state commit store and the EVM state store (when enabled)
@@ -214,7 +220,7 @@ func recoveryTarget(
 // openStateDB opens the state commit store, the EVM state store (when enabled) and the state WAL,
 // leaving them on the height the WAL holds.
 func (m *GigaStorageManager) openStateDB(ctx context.Context) error {
-	stateDB, err := giga.NewStateDB(ctx, m.cfg.FlatKVConfig, m.cfg.SSConfig, m.cfg.CheckpointConfig)
+	stateDB, err := giga.NewStateDB(ctx, m.cfg.FlatKVConfig, m.cfg.SSConfig, m.cfg.CheckpointConfig, m.budHasher)
 	if err != nil {
 		return err
 	}
@@ -228,7 +234,7 @@ func (m *GigaStorageManager) openStateDB(ctx context.Context) error {
 // already-open state DB would have to close and reopen it.
 func (m *GigaStorageManager) openStateDBAt(ctx context.Context, target int64) error {
 	stateDB, err := giga.NewStateDBWithRollback(
-		ctx, m.cfg.FlatKVConfig, m.cfg.SSConfig, m.cfg.CheckpointConfig, target)
+		ctx, m.cfg.FlatKVConfig, m.cfg.SSConfig, m.cfg.CheckpointConfig, m.budHasher, target)
 	if err != nil {
 		return err
 	}

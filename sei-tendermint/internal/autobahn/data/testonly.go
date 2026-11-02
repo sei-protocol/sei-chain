@@ -57,3 +57,12 @@ func TestCommitQC(
 	cqc := types.BuildCommitQC(ep, keys, prev, laneQCs)
 	return types.NewFullCommitQC(cqc, headers), blockList
 }
+
+// TestBlockMap indexes blocks by their offsets in header order.
+func TestBlockMap(blocks []*types.Block) map[uint64]*types.Block {
+	result := make(map[uint64]*types.Block, len(blocks))
+	for i, block := range blocks {
+		result[uint64(i)] = block
+	}
+	return result
+}

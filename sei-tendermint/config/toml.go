@@ -163,20 +163,6 @@ mock-app = {{ .BaseConfig.MockApp }}
 # would otherwise nest it under the immediately preceding section.
 autobahn-config-file = "{{ .AutobahnConfigFile }}"
 
-# hash-vault-disabled-unsafe disables the app-hash equivocation guard (HashVault).
-# DO NOT set this to true unless you are knowingly running an UNSAFE node as a last-resort
-# recovery measure. A node with this enabled has NO protection against changing its mind about
-# a committed block's app hash, and will log error-level warnings on every startup.
-#
-# It is safer to leave HashVault enabled: if you hit a startup panic, first remove the HashVault
-# files as instructed in the panic message and let the node run. Only disable HashVault if you are
-# very sure the stored hashes are totally wrong and you keep hitting the same panic on new blocks.
-#
-# Placed here (as a top-level key, before any [section] header) so the TOML parser sees it at
-# root scope where mapstructure expects it — viper would otherwise nest it under the
-# immediately preceding section.
-hash-vault-disabled-unsafe = {{ .HashVaultDisabledUnsafe }}
-
 #######################################################################
 ###                 Advanced Configuration Options                  ###
 #######################################################################
@@ -527,14 +513,10 @@ use-p2p = {{ .StateSync.UseP2P }}
 # for example: "host.example.com:2125"
 rpc-servers = "{{ StringsJoin .StateSync.RPCServers "," }}"
 
-# The hash and height of a trusted block. Must be within the trust-period.
+# The hash and height of a trusted block. Must be within the chain's trust period, which is
+# built into the binary (112h on pacific-1, atlantic-2 and arctic-1).
 trust-height = {{ .StateSync.TrustHeight }}
 trust-hash = "{{ .StateSync.TrustHash }}"
-
-# The trust period should be set so that Tendermint can detect and gossip misbehavior before
-# it is considered expired. For chains based on the Cosmos SDK, one day less than the unbonding
-# period should suffice.
-trust-period = "{{ .StateSync.TrustPeriod }}"
 
 # Whether to use local snapshot only for state sync or not.
 # If this is true, then state sync will look for existing snapshots

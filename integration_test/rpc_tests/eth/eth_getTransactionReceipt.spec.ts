@@ -186,15 +186,14 @@ describe('eth_getTransactionReceipt', function () {
     });
 
     describe('contract-creation receipt', () => {
-        it('identifies the creation via contractAddress, and `to` (if present) is null', async () => {
+        it('identifies the creation via contractAddress, with `to: null`', async () => {
             const creation = rich.txs.find(t => t.to === null)!;
             const rc = await sei.send('eth_getTransactionReceipt', [creation.hash]);
             expect(rc.contractAddress, 'creation receipt sets contractAddress').to.match(
                 /^0x[0-9a-fA-F]{40}$/,
             );
-            if ('to' in rc) {
-                expect(rc.to, 'creation receipt to, when present, is null').to.equal(null);
-            }
+            expect(rc, 'creation receipt carries a to key').to.have.property('to');
+            expect(rc.to, 'creation receipt to is null').to.equal(null);
         });
     });
 
