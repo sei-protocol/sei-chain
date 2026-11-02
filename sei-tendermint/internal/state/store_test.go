@@ -317,25 +317,42 @@ func TestPruneStates(t *testing.T) {
 	}
 }
 
-func TestStoredFinalizeBlockResponses(t *testing.T) {
+func TestMarshalStoredFinalizeBlockResponses(t *testing.T) {
 	event := abci.Event{Type: "transfer", Attributes: []abci.EventAttribute{{Key: []byte("amount"), Value: []byte("1usei")}}}
 	res := &abci.ResponseFinalizeBlock{
-		Events:    []abci.Event{event},
-		TxResults: []*abci.ExecTxResult{{Code: 1, Data: []byte("data"), GasWanted: 2, GasUsed: 3, Events: []abci.Event{event}}},
-		AppHash:   []byte("app-hash"),
+		Events: []abci.Event{event},
+		TxResults: []*abci.ExecTxResult{{
+			Code: 1, Data: []byte("data"), Log: "log", Info: "info", GasWanted: 2, GasUsed: 3,
+			Events: []abci.Event{event}, Codespace: "sdk",
+		}},
+		AppHash: []byte("app-hash"),
 	}
+	full, err := res.Marshal()
+	require.NoError(t, err)
 	resultsHash, err := abci.MarshalTxResults(res.TxResults)
 	require.NoError(t, err)
 
-	require.Same(t, res, sm.StoredFinalizeBlockResponses(res, res.Size()))
+	bz, reduced, err := sm.MarshalStoredFinalizeBlockResponses(res, len(full))
+	require.NoError(t, err)
+	require.False(t, reduced)
+	require.Equal(t, full, bz)
 
-	stored := sm.StoredFinalizeBlockResponses(res, res.Size()-1)
+	bz, reduced, err = sm.MarshalStoredFinalizeBlockResponses(res, len(full)-1)
+	require.NoError(t, err)
+	require.True(t, reduced)
+	var stored abci.ResponseFinalizeBlock
+	require.NoError(t, stored.Unmarshal(bz))
 	require.Empty(t, stored.Events)
 	require.Empty(t, stored.TxResults[0].Events)
+	require.Empty(t, stored.TxResults[0].Log)
+	require.Empty(t, stored.TxResults[0].Info)
+	require.Equal(t, "sdk", stored.TxResults[0].Codespace)
 	require.Equal(t, res.AppHash, stored.AppHash)
 	storedResultsHash, err := abci.MarshalTxResults(stored.TxResults)
 	require.NoError(t, err)
 	require.Equal(t, resultsHash, storedResultsHash)
+
 	require.Len(t, res.Events, 1, "caller's events must be preserved")
 	require.Len(t, res.TxResults[0].Events, 1, "caller's tx events must be preserved")
+	require.Equal(t, "log", res.TxResults[0].Log, "caller's tx log must be preserved")
 }
