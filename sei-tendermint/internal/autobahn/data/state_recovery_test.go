@@ -391,7 +391,11 @@ type proposalWriteStore struct {
 }
 
 func (s proposalWriteStore) WriteAppProposal(p *types.AppProposal) error {
-	*s.pending = s.registry.Pending()
+	if e, ok := s.registry.Pending().Get(); ok {
+		*s.pending = utils.Some(e.EpochIndex())
+	} else {
+		*s.pending = utils.None[types.EpochIndex]()
+	}
 	return s.BlockStore.WriteAppProposal(p)
 }
 

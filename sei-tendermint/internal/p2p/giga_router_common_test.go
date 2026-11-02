@@ -233,7 +233,7 @@ func TestExecuteBuffersPendingAppHashes(t *testing.T) {
 	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
 	qc2, blocks2 := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.Some(qc.QC()))
 	qc3, blocks3 := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.Some(qc2.QC()))
-	require.Equal(t, state.Registry().FirstRoad(), qc.Index())
+	require.Equal(t, state.Registry().MustEpoch(0).RoadRange().First, qc.Index())
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
@@ -287,7 +287,7 @@ func TestRunExecuteReportsTheBlockHash(t *testing.T) {
 	_, hashBuilder, state, router := newAppHashTestRouter(t, rng, key)
 
 	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
-	require.Equal(t, state.Registry().FirstRoad(), qc.Index())
+	require.Equal(t, state.Registry().MustEpoch(0).RoadRange().First, qc.Index())
 	hashBuilder.publishOnReport = true
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
@@ -316,7 +316,7 @@ func TestBackfillAppHashesReadsTheBuilder(t *testing.T) {
 
 	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
 	last := qc.Index()
-	require.Equal(t, state.Registry().FirstRoad(), last)
+	require.Equal(t, state.Registry().MustEpoch(0).RoadRange().First, last)
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
