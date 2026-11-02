@@ -556,10 +556,7 @@ describe('eth_getBlockReceipts', function () {
             expect(viaHash).to.deep.equal(viaNumber);
         });
 
-        it('creation receipts identify the creation via contractAddress (to, if present, is null)', async () => {
-            // execution-apis ReceiptInfo: `to` is NOT required (oneOf[null,address]); contractAddress
-            // is the canonical creation signal. geth emits `to: null`, Sei omits the key — both are
-            // spec-compliant, so assert the creation address and only check `to` where present.
+        it('creation receipts identify the creation via contractAddress, with to: null', async () => {
             const seiReceipts = await blockReceipts(sei, richSei.number);
             const seiDeploy = seiReceipts.find(
                 r => r.transactionHash === richSei.txs.find(t => t.kind === 'deploy')!.hash,
@@ -569,6 +566,9 @@ describe('eth_getBlockReceipts', function () {
 
             expect(seiDeploy.contractAddress, 'Sei creation contractAddress').to.match(ADDRESS);
             expect(gethDeploy.contractAddress, 'geth creation contractAddress').to.match(ADDRESS);
+            expect(seiDeploy, 'Sei creation carries a to key').to.have.property('to');
+            expect(seiDeploy.to, 'Sei creation to is null').to.equal(null);
+            expect(gethDeploy.to, 'geth creation to is null').to.equal(null);
         });
     });
 

@@ -540,6 +540,9 @@ func TestEncodeReceiptContractAddress(t *testing.T) {
 	if resObj["result"] != nil {
 		resultMap := resObj["result"].(map[string]interface{})
 		require.NotNil(t, resultMap["contractAddress"])
+		to, hasTo := resultMap["to"]
+		require.True(t, hasTo, "creation receipt must carry a to key")
+		require.Nil(t, to)
 	}
 }
 
