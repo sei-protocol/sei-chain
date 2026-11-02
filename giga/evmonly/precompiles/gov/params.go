@@ -50,8 +50,8 @@ func (p Params) Validate() error {
 			return fmt.Errorf("%s must be a positive whole number of usei, in wei", name)
 		}
 	}
-	if p.MinExpeditedDeposit.Cmp(p.MinDeposit) < 0 {
-		return errors.New("min_expedited_deposit must not be below min_deposit")
+	if p.MinExpeditedDeposit.Cmp(p.MinDeposit) <= 0 {
+		return errors.New("min_expedited_deposit must be above min_deposit")
 	}
 	for name, r := range map[string]uint64{"quorum": p.Quorum, "expedited_quorum": p.ExpeditedQuorum} {
 		if r > decOne {
@@ -62,6 +62,12 @@ func (p Params) Validate() error {
 		if r == 0 || r > decOne {
 			return fmt.Errorf("%s must be in 1..1e18", name)
 		}
+	}
+	if p.ExpeditedQuorum <= p.Quorum {
+		return errors.New("expedited_quorum must be above quorum")
+	}
+	if p.ExpeditedThreshold <= p.Threshold {
+		return errors.New("expedited_threshold must be above threshold")
 	}
 	return nil
 }
