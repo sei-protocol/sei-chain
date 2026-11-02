@@ -473,7 +473,7 @@ func (store dbStore) saveFinalizeBlockResponses(height int64, finalizeBlockRespo
 
 	finalizeBlockResponses.TxResults = dtxs
 
-	bz, err := finalizeBlockResponses.Marshal()
+	bz, err := storedFinalizeBlockResponses(finalizeBlockResponses, maxStoredFinalizeBlockResponsesBytes).Marshal()
 	if err != nil {
 		return err
 	}
@@ -482,6 +482,27 @@ func (store dbStore) saveFinalizeBlockResponses(height int64, finalizeBlockRespo
 	}
 
 	return store.db.SetSync(finalizeBlockResponsesKey(height), bz)
+}
+
+// maxStoredFinalizeBlockResponsesBytes is the largest serialized FinalizeBlock
+// response stored with its events.
+const maxStoredFinalizeBlockResponsesBytes = 1 << 30
+
+// storedFinalizeBlockResponses returns res, or a copy of res without block and
+// transaction events when its serialized size exceeds maxBytes.
+func storedFinalizeBlockResponses(res *abci.ResponseFinalizeBlock, maxBytes int) *abci.ResponseFinalizeBlock {
+	if res.Size() <= maxBytes {
+		return res
+	}
+	stored := *res
+	stored.Events = nil
+	stored.TxResults = make([]*abci.ExecTxResult, len(res.TxResults))
+	for i, txResult := range res.TxResults {
+		withoutEvents := *txResult
+		withoutEvents.Events = nil
+		stored.TxResults[i] = &withoutEvents
+	}
+	return &stored
 }
 
 // SaveValidatorSets is used to save the validator set over multiple heights.

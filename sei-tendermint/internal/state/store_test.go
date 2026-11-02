@@ -316,3 +316,26 @@ func TestPruneStates(t *testing.T) {
 		})
 	}
 }
+
+func TestStoredFinalizeBlockResponses(t *testing.T) {
+	event := abci.Event{Type: "transfer", Attributes: []abci.EventAttribute{{Key: []byte("amount"), Value: []byte("1usei")}}}
+	res := &abci.ResponseFinalizeBlock{
+		Events:    []abci.Event{event},
+		TxResults: []*abci.ExecTxResult{{Code: 1, Data: []byte("data"), GasWanted: 2, GasUsed: 3, Events: []abci.Event{event}}},
+		AppHash:   []byte("app-hash"),
+	}
+	resultsHash, err := abci.MarshalTxResults(res.TxResults)
+	require.NoError(t, err)
+
+	require.Same(t, res, sm.StoredFinalizeBlockResponses(res, res.Size()))
+
+	stored := sm.StoredFinalizeBlockResponses(res, res.Size()-1)
+	require.Empty(t, stored.Events)
+	require.Empty(t, stored.TxResults[0].Events)
+	require.Equal(t, res.AppHash, stored.AppHash)
+	storedResultsHash, err := abci.MarshalTxResults(stored.TxResults)
+	require.NoError(t, err)
+	require.Equal(t, resultsHash, storedResultsHash)
+	require.Len(t, res.Events, 1, "caller's events must be preserved")
+	require.Len(t, res.TxResults[0].Events, 1, "caller's tx events must be preserved")
+}
