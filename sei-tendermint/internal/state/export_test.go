@@ -30,7 +30,7 @@ func (blockExec *BlockExecutor) PruneBlocks(retainHeight int64) (uint64, error) 
 	return blockExec.pruneBlocks(retainHeight)
 }
 
-// MarshalStoredFinalizeBlockResponses is an alias for marshalStoredFinalizeBlockResponses exported for testing.
-func MarshalStoredFinalizeBlockResponses(res *abci.ResponseFinalizeBlock, maxBytes int) ([]byte, bool, error) {
-	return marshalStoredFinalizeBlockResponses(res, maxBytes)
+// StoredFinalizeBlockResponses is an alias for storedFinalizeBlockResponses exported for testing.
+func StoredFinalizeBlockResponses(res *abci.ResponseFinalizeBlock, maxBytes int) *abci.ResponseFinalizeBlock {
+	return storedFinalizeBlockResponses(res, maxBytes)
 }

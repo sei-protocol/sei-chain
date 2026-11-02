@@ -317,7 +317,7 @@ func TestPruneStates(t *testing.T) {
 	}
 }
 
-func TestMarshalStoredFinalizeBlockResponses(t *testing.T) {
+func TestStoredFinalizeBlockResponses(t *testing.T) {
 	event := abci.Event{Type: "transfer", Attributes: []abci.EventAttribute{{Key: []byte("amount"), Value: []byte("1usei")}}}
 	res := &abci.ResponseFinalizeBlock{
 		Events: []abci.Event{event},
@@ -327,21 +327,12 @@ func TestMarshalStoredFinalizeBlockResponses(t *testing.T) {
 		}},
 		AppHash: []byte("app-hash"),
 	}
-	full, err := res.Marshal()
-	require.NoError(t, err)
 	resultsHash, err := abci.MarshalTxResults(res.TxResults)
 	require.NoError(t, err)
 
-	bz, reduced, err := sm.MarshalStoredFinalizeBlockResponses(res, len(full))
-	require.NoError(t, err)
-	require.False(t, reduced)
-	require.Equal(t, full, bz)
+	require.Same(t, res, sm.StoredFinalizeBlockResponses(res, res.Size()))
 
-	bz, reduced, err = sm.MarshalStoredFinalizeBlockResponses(res, len(full)-1)
-	require.NoError(t, err)
-	require.True(t, reduced)
-	var stored abci.ResponseFinalizeBlock
-	require.NoError(t, stored.Unmarshal(bz))
+	stored := sm.StoredFinalizeBlockResponses(res, res.Size()-1)
 	require.Empty(t, stored.Events)
 	require.Empty(t, stored.TxResults[0].Events)
 	require.Empty(t, stored.TxResults[0].Log)

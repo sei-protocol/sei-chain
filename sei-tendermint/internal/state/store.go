@@ -473,11 +473,12 @@ func (store dbStore) saveFinalizeBlockResponses(height int64, finalizeBlockRespo
 
 	finalizeBlockResponses.TxResults = dtxs
 
-	bz, reduced, err := marshalStoredFinalizeBlockResponses(finalizeBlockResponses, maxStoredFinalizeBlockResponsesBytes)
+	stored := storedFinalizeBlockResponses(finalizeBlockResponses, maxStoredFinalizeBlockResponsesBytes)
+	bz, err := stored.Marshal()
 	if err != nil {
 		return err
 	}
-	if reduced {
+	if stored != finalizeBlockResponses {
 		logger.Error("FinalizeBlock response too large to store in full; stored without events and logs",
 			"height", height, "storedSize", len(bz), "maxSize", maxStoredFinalizeBlockResponsesBytes)
 	}
@@ -492,16 +493,14 @@ func (store dbStore) saveFinalizeBlockResponses(height int64, finalizeBlockRespo
 // response stored in full.
 const maxStoredFinalizeBlockResponsesBytes = 1 << 30
 
-// marshalStoredFinalizeBlockResponses returns the bytes to store for res. When
-// res serializes to more than maxBytes, it returns res without its block and
-// transaction events and logs, and reduced is true.
-func marshalStoredFinalizeBlockResponses(res *abci.ResponseFinalizeBlock, maxBytes int) (bz []byte, reduced bool, err error) {
-	bz, err = res.Marshal()
-	if err != nil || len(bz) <= maxBytes {
-		return bz, false, err
+// storedFinalizeBlockResponses returns res, or a copy of res without block and
+// transaction events and logs when res serializes to more than maxBytes.
+func storedFinalizeBlockResponses(res *abci.ResponseFinalizeBlock, maxBytes int) *abci.ResponseFinalizeBlock {
+	// Size, unlike Marshal, does not allocate the oversized encoding.
+	if res.Size() <= maxBytes {
+		return res
 	}
-	bz, err = withoutEventsAndLogs(res).Marshal()
-	return bz, true, err
+	return withoutEventsAndLogs(res)
 }
 
 // withoutEventsAndLogs returns a copy of res without block and transaction
