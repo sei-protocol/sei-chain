@@ -160,6 +160,10 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	if err != nil {
 		return fmt.Errorf("encode generated genesis state: %w", err)
 	}
+	genesisHash := scenarios.BlockContext(scenarioConfig(cfg), 1).BlockHash
+	if err := storage.AppHashBuilder().ReportBlockHash(ctx, 1, [32]byte(genesisHash)); err != nil {
+		return fmt.Errorf("report the block hash of block 1: %w", err)
+	}
 	if err := storage.StateDB().CommitStateChanges(1, genesisChanges); err != nil {
 		return fmt.Errorf("commit generated genesis state: %w", err)
 	}
@@ -206,7 +210,7 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	for workerID := 0; workerID < cfg.workers; workerID++ {
 		workerID := workerID
 		group.Go(func() error {
-			return executeBlocks(groupCtx, workerID, executor, preparedBlocks, metrics)
+			return executeBlocks(groupCtx, workerID, storage, executor, preparedBlocks, metrics)
 		})
 	}
 
@@ -570,6 +574,7 @@ func durationFromUint64Nanos(nanos uint64) time.Duration {
 func executeBlocks(
 	ctx context.Context,
 	workerID int,
+	storage *bootstrap.GigaStorageManager,
 	executor *evmonly.Executor,
 	blocks <-chan preparedBlockEnvelope,
 	metrics *loadMetrics,
@@ -582,6 +587,10 @@ func executeBlocks(
 		case block, ok := <-blocks:
 			if !ok {
 				return nil
+			}
+			blockHash := [32]byte(block.block.Context.BlockHash)
+			if err := storage.AppHashBuilder().ReportBlockHash(ctx, block.block.Context.Number, blockHash); err != nil {
+				return fmt.Errorf("report the block hash of block %d: %w", block.block.Context.Number, err)
 			}
 			result, err := executor.ExecutePreparedBlock(ctx, block.block)
 			if err != nil {
