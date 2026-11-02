@@ -16,8 +16,8 @@ type Config struct {
 	// instances in the same process. Required; must match [a-zA-Z0-9_-]+.
 	Name string
 
-	// The size of the channel used to send work from the caller to the WAL's goroutine, which sorts, serializes,
-	// appends and hashes each block. Write blocks while it is full.
+	// The size of the channel used to send work from the caller to the WAL's goroutine, which serializes and
+	// appends each block. Write blocks while it is full.
 	RequestBufferSize uint
 
 	// The size of the channel used to send framed records from the underlying WAL's serialization to its
@@ -49,8 +49,8 @@ func DefaultConfig(path string, name string) *Config {
 	return &Config{
 		Path:                  path,
 		Name:                  name,
-		RequestBufferSize:     16,
-		WriteBufferSize:       2048,
+		RequestBufferSize:     8,
+		WriteBufferSize:       8,
 		TargetFileSize:        s.TargetFileSize,
 		FsyncOnFlush:          s.FsyncOnFlush,
 		IteratorPrefetchSize:  s.IteratorPrefetchSize,
