@@ -8,6 +8,7 @@ import (
 
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
@@ -52,12 +53,17 @@ type GigaStorageManager struct {
 	// receiptHasher reports the receipt hash of each executed block to appHashBuilder. It is nil until
 	// openAppHashBuilder opens it.
 	receiptHasher *receipthash.ReceiptHasher
+
+	// budHasher reports the BUD hash of each block the state DB commits to appHashBuilder. It is nil until
+	// openAppHashBuilder opens it.
+	budHasher bud.BUDHasher
 }
 
 // NewGigaStorageManager runs the steps that bring storage up:
 //  1. Perform a config validation.
 //  2. Construct and open all DBs with the config.
-//  3. OpenDBWithRecovery: bring every store onto one height, then open the app hash builder at that height.
+//  3. OpenDBWithRecovery: open the app hash builder, bring every store onto one height, then complete the
+//     builder's setup at that height.
 //  4. Start the garbage collector.
 func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (*GigaStorageManager, error) {
 	if err := cfg.Validate(); err != nil {
@@ -184,6 +190,12 @@ func (m *GigaStorageManager) Close() error {
 	if m.receiptHasher != nil {
 		if err := timer.Close("receipt_hasher", m.receiptHasher.Close); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close receipt hasher: %w", err))
+		}
+	}
+	// After the state DB, which submits to it, and before the builder, which it reports into until it stops.
+	if m.budHasher != nil {
+		if err := timer.Close("bud_hasher", m.budHasher.Close); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close BUD hasher: %w", err))
 		}
 	}
 	// After the state DB, whose hash listeners report into the builder until they stop.
