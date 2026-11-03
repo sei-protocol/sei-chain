@@ -84,11 +84,10 @@ func TestHashLogRecordsEachAppHashBuilt(t *testing.T) {
 	dir := t.TempDir()
 	b := openHashLoggingBuilder(t, dir)
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
-	_, published := registerListener(t, b)
 	for height := uint64(1); height <= 3; height++ {
 		reportLoggedBlock(t, b, height, 0)
 	}
-	receive(t, published, 3)
+	awaitAppHashes(t, b, 1, 3)
 	require.NoError(t, closeBuilder(b))
 
 	for _, record := range expectedChain(1, 1, 3) {
@@ -104,9 +103,8 @@ func TestHashLogThatFailsToOpenDoesNotStopBuilder(t *testing.T) {
 	t.Cleanup(func() { _ = closeBuilder(b) })
 
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
-	_, published := registerListener(t, b)
 	reportLoggedBlock(t, b, 1, 0)
-	requireSameAppHashes(t, expectedChain(1, 1, 1), receive(t, published, 1))
+	requireSameAppHashes(t, expectedChain(1, 1, 1), awaitAppHashes(t, b, 1, 1))
 }
 
 func TestChangedAppHashIsFlushedToHashLogBeforeCrash(t *testing.T) {
@@ -114,10 +112,9 @@ func TestChangedAppHashIsFlushedToHashLogBeforeCrash(t *testing.T) {
 		buildChain(t, filepath.Join(dir, "vault"), 5)
 		b := openHashLoggingBuilder(t, dir)
 		require.NoError(t, b.SetupComplete(context.Background(), 3))
-		_, published := registerListener(t, b)
 		reportLoggedBlock(t, b, 4, 1)
 		// The changed block crashes the process before it is published.
-		receive(t, published, 1)
+		awaitAppHashes(t, b, 4, 4)
 	})
 
 	changed := apphash.NewAppHashData(
