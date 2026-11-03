@@ -6,12 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/giga/apphash"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -168,11 +166,6 @@ func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
 	var blockHash [32]byte
 	binary.BigEndian.PutUint64(blockHash[:], uint64(initialHeight))
 	require.NoError(t, manager.AppHashBuilder().ReportBlockHash(t.Context(), uint64(initialHeight), blockHash))
-	published := make(chan *apphash.AppHashData, 1)
-	_, err = manager.AppHashBuilder().RegisterListener(t.Context(), func(appHash *apphash.AppHashData) {
-		published <- appHash
-	})
-	require.NoError(t, err)
 	_, err = app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
 		Hash: blockHash[:],
 		Header: &tmproto.Header{
@@ -183,7 +176,7 @@ func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
 	require.NoError(t, err)
 	_, err = app.Commit(t.Context())
 	require.NoError(t, err)
-	got, err := utils.Recv(t.Context(), published)
+	got, err := manager.AppHashBuilder().GetAppHash(t.Context(), uint64(initialHeight))
 	require.NoError(t, err)
 	require.Equal(t, uint64(initialHeight), got.BlockHeight())
 }
