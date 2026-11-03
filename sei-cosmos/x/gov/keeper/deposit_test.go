@@ -294,3 +294,39 @@ func TestSettleDepositsResumesWithinBudget(t *testing.T) {
 		require.Equal(t, sdk.NewInt(90), app.BankKeeper.GetBalance(ctx, depositor, sdk.DefaultBondDenom).Amount)
 	}
 }
+
+func TestScheduleDepositSettlementSkipsProposalsWithoutDeposits(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+
+	app.GovKeeper.ScheduleDepositSettlement(ctx, proposal.ProposalId, true)
+	require.Zero(t, queuedDepositSettlements(ctx, app))
+}
+
+func TestSettleDepositsCountsProposalsWithoutRecords(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	depositor := seiapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(100))[0]
+	for range 3 {
+		proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+		require.NoError(t, err)
+		_, err = app.GovKeeper.AddDeposit(ctx, proposal.ProposalId, depositor, sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 1)))
+		require.NoError(t, err)
+		app.GovKeeper.ScheduleDepositSettlement(ctx, proposal.ProposalId, true)
+		app.GovKeeper.DeleteDeposits(ctx, proposal.ProposalId)
+	}
+
+	require.Equal(t, 2, app.GovKeeper.SettleDeposits(ctx, 2))
+	require.Equal(t, 1, queuedDepositSettlements(ctx, app))
+}
+
+func queuedDepositSettlements(ctx sdk.Context, app *seiapp.App) (queued int) {
+	iterator := sdk.KVStorePrefixIterator(ctx.KVStore(app.GetKey(types.StoreKey)), types.DepositSettlementKeyPrefix)
+	defer func() { _ = iterator.Close() }()
+	for ; iterator.Valid(); iterator.Next() {
+		queued++
+	}
+	return queued
+}

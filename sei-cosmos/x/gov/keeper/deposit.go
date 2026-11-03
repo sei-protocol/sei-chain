@@ -168,13 +168,24 @@ func (keeper Keeper) RefundDeposits(ctx sdk.Context, proposalID uint64) {
 }
 
 // ScheduleDepositSettlement queues a finished proposal's deposits to be burned or
-// refunded by SettleDeposits.
+// refunded by SettleDeposits. A proposal without deposits is not queued.
 func (keeper Keeper) ScheduleDepositSettlement(ctx sdk.Context, proposalID uint64, burn bool) {
+	if !keeper.hasDeposits(ctx, proposalID) {
+		return
+	}
 	ctx.KVStore(keeper.storeKey).Set(types.DepositSettlementKey(proposalID), encodeDepositSettlement(burn, nil))
 }
 
+// hasDeposits reports whether a proposal has any deposit record.
+func (keeper Keeper) hasDeposits(ctx sdk.Context, proposalID uint64) bool {
+	iterator := sdk.KVStorePrefixIterator(ctx.KVStore(keeper.storeKey), types.DepositsKey(proposalID))
+	defer func() { _ = iterator.Close() }()
+	return iterator.Valid()
+}
+
 // SettleDeposits burns or refunds up to maxDeposits queued deposit records, oldest
-// proposal first, and returns how many records it processed.
+// proposal first, and returns how many records it processed. A queued proposal
+// with no records left counts as one record.
 func (keeper Keeper) SettleDeposits(ctx sdk.Context, maxDeposits int) (settled int) {
 	store := ctx.KVStore(keeper.storeKey)
 	iterator := sdk.KVStorePrefixIterator(store, types.DepositSettlementKeyPrefix)
@@ -184,7 +195,7 @@ func (keeper Keeper) SettleDeposits(ctx sdk.Context, maxDeposits int) (settled i
 		proposalID := types.SplitDepositSettlementKey(iterator.Key())
 		burn, cursor := decodeDepositSettlement(iterator.Value())
 		count, complete, nextCursor := keeper.settleProposalDeposits(ctx, proposalID, burn, maxDeposits-settled, cursor)
-		settled += count
+		settled += max(count, 1)
 
 		settlementKey := types.DepositSettlementKey(proposalID)
 		if complete {
