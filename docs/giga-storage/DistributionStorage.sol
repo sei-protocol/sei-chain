@@ -32,7 +32,7 @@ contract DistributionStorage {
     }
 
     uint256 internal communityPool; // 0x00: FeePool.community_pool
-    address internal previousProposer; // 0x01: consensus address
+    address internal previousProposer; // 0x01: operator
     mapping(address => uint256) internal validatorOutstandingRewards; // 0x02: validator =>
     mapping(address => address) internal delegatorWithdrawAddr; // 0x03: delegator => payee; zero is the delegator
     mapping(address => mapping(address => DelegatorStartingInfo)) internal delegatorStartingInfo; // 0x04: validator => delegator =>
