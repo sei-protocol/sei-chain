@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -39,16 +40,18 @@ type GigaRouterCommonConfig struct {
 	// (BlockDB, epoch snapshots, and the validator's consensus persister in
 	// sibling subdirs). Required and must already exist.
 	PersistentStateDir string
-	// App is the ABCI proxy startExecuteBlock drives. NewGigaValidatorRouter
+	// App is the ABCI proxy Executor drives. NewGigaValidatorRouter
 	// also passes it to producer.NewState so the producer's internal
 	// mempool drives the same proxy.
 	App *proxy.Proxy
 	// AppHashBuilder is the source of every Autobahn application hash. The
-	// storage manager owns it. The router reports each block hash to it before
-	// execution, and reads each block's app hash from it. Currently app hashes
-	// are computed per lane block, but in the future they may be computed once
-	// per superblock.
+	// storage manager owns it. The router reads each executed block's app hash
+	// from it. Currently app hashes are computed per lane block, but in the
+	// future they may be computed once per superblock.
 	AppHashBuilder builder.AppHashBuilder
+	// Executor executes the blocks the BlockStore makes durable. The router runs
+	// it and proposes the app hash of each block it commits.
+	Executor *execution.Executor
 	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
 	// peers. 0 rejects all; positive caps at n, up to maxInboundFullnodePeers.
 	MaxInboundFullnodePeers int

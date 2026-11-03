@@ -3,6 +3,7 @@
 package blockstore
 
 import (
+	"context"
 	"fmt"
 
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
@@ -11,6 +12,10 @@ import (
 )
 
 var _ types.BlockStore = (*Store)(nil)
+
+// recentBlocksCacheSize is how many of the most recently flushed blocks Store
+// keeps in memory for DurableBlock.
+const recentBlocksCacheSize = 256
 
 // Store implements the consensus block store contract on top of any
 // blocktypes.BlockDB. It owns what the storage layer is deliberately ignorant
@@ -22,19 +27,42 @@ type Store struct {
 	// status is the explicit write-order/recovery suffix status (see the
 	// types.BlockStore contract). None means the store is empty.
 	status utils.Mutex[*utils.Option[types.SuffixRange]]
+
+	// handoff holds the blocks written since the last Flush and the most
+	// recently flushed ones. Lock order: status before handoff.
+	handoff utils.Mutex[*blockHandoff]
+
+	// nextDurable is the lowest road whose block is not durable yet.
+	nextDurable utils.AtomicSend[types.RoadIndex]
+}
+
+// blockHandoff carries written blocks from WriteBlock to DurableBlock.
+type blockHandoff struct {
+	// unflushed holds the blocks written since the last Flush, in road order.
+	unflushed []*types.RoadBlock
+	// recent holds up to recentBlocksCacheSize of the latest durable blocks, by road.
+	recent map[types.RoadIndex]*types.RoadBlock
 }
 
 // New returns a block store backed by db, recovering its write cursors from the
 // records already in db. The store takes ownership of db: Close closes it. New
 // does not close db when it returns an error.
 func New(db blocktypes.BlockDB) (*Store, error) {
-	s := &Store{db: db, status: utils.NewMutex(new(utils.Option[types.SuffixRange]))}
+	s := &Store{
+		db:          db,
+		status:      utils.NewMutex(new(utils.Option[types.SuffixRange])),
+		handoff:     utils.NewMutex(&blockHandoff{recent: map[types.RoadIndex]*types.RoadBlock{}}),
+		nextDurable: utils.NewAtomicSend(types.RoadIndex(0)),
+	}
 	suffix, err := s.ReadSuffix()
 	if err != nil {
 		return nil, fmt.Errorf("ReadSuffix(): %w", err)
 	}
 	for status := range s.status.Lock() {
 		*status = suffix.Status
+	}
+	if current, ok := suffix.Status.Get(); ok {
+		s.nextDurable.Store(current.NextBlock)
 	}
 	Global.pruneWatermarkAt().Set(utils.Clamp[int64](db.GetPruneWatermark()))
 	return s, nil
@@ -67,6 +95,9 @@ func (s *Store) WriteBlock(block *types.RoadBlock) error {
 		}
 		current.NextBlock = index + 1
 		*status = utils.Some(current)
+		for handoff := range s.handoff.Lock() {
+			handoff.unflushed = append(handoff.unflushed, block)
+		}
 		return nil
 	}
 	panic("unreachable")
@@ -156,10 +187,64 @@ func (s *Store) First() types.RoadIndex {
 }
 
 func (s *Store) Flush() error {
+	var written []*types.RoadBlock
+	for handoff := range s.handoff.Lock() {
+		written, handoff.unflushed = handoff.unflushed, nil
+	}
 	if err := s.db.Flush(); err != nil {
+		for handoff := range s.handoff.Lock() {
+			handoff.unflushed = append(written, handoff.unflushed...)
+		}
 		return fmt.Errorf("failed to flush block db: %w", err)
 	}
+	s.publishDurable(written)
 	return nil
+}
+
+// publishDurable caches blocks, which a Flush has just made durable, and moves
+// the durable tip past the last of them.
+func (s *Store) publishDurable(blocks []*types.RoadBlock) {
+	if len(blocks) == 0 {
+		return
+	}
+	for handoff := range s.handoff.Lock() {
+		for _, block := range blocks {
+			n := block.QC().Index()
+			handoff.recent[n] = block
+			if n >= recentBlocksCacheSize {
+				delete(handoff.recent, n-recentBlocksCacheSize)
+			}
+		}
+		// A concurrent Flush may have already published a later tip.
+		if next := blocks[len(blocks)-1].QC().Index() + 1; next > s.nextDurable.Load() {
+			s.nextDurable.Store(next)
+		}
+	}
+}
+
+// DurableBlock returns the block of road n, waiting until a Flush has made it
+// durable. It returns ErrPruned when n is below First.
+func (s *Store) DurableBlock(ctx context.Context, n types.RoadIndex) (*types.RoadBlock, error) {
+	if _, err := s.nextDurable.Subscribe().Wait(ctx, func(next types.RoadIndex) bool { return n < next }); err != nil {
+		return nil, err
+	}
+	if n < s.First() {
+		return nil, fmt.Errorf("block %d: %w", n, types.ErrPruned)
+	}
+	for handoff := range s.handoff.Lock() {
+		if block, ok := handoff.recent[n]; ok {
+			return block, nil
+		}
+	}
+	stored, err := s.ReadBlock(n)
+	if err != nil {
+		return nil, fmt.Errorf("ReadBlock(%d): %w", n, err)
+	}
+	block, ok := stored.Get()
+	if !ok {
+		return nil, fmt.Errorf("durable block %d: %w", n, types.ErrNotFound)
+	}
+	return block, nil
 }
 
 func (s *Store) Status() utils.Option[types.SuffixRange] {

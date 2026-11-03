@@ -11,9 +11,11 @@ import (
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
@@ -260,4 +262,16 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 	info = app.Info()
 	require.Equal(t, initialHeight, info.LastBlockHeight,
 		"testApp should report InitialHeight after 1 block")
+}
+
+// withTestExecutor sets cfg.Executor to an executor of cfg's app over the
+// blocks store makes durable, and returns cfg.
+func withTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store) *GigaRouterCommonConfig {
+	cfg.Executor = execution.New(&execution.Config{
+		GenDoc:         cfg.GenDoc,
+		App:            cfg.App,
+		AppHashBuilder: cfg.AppHashBuilder,
+		Blocks:         store,
+	})
+	return cfg
 }

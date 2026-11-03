@@ -6,19 +6,16 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
-	"slices"
 	"sort"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -58,9 +55,6 @@ type gigaRouterCommon struct {
 	// anchor is data.Anchor() cached at construction: the AppQC/CommitQC covering
 	// the lowest row data.State still holds.
 	anchor utils.AtomicRecv[utils.Option[data.Anchor]]
-	// executed is the window of blocks executeBlock committed to the app, seeded
-	// with the app's height at construction.
-	executed utils.AtomicSend[atypes.ExecutedBlocks]
 
 	// inboundFullnodeCount tracks inbound connections currently served the
 	// block-sync subset. Optimistic Add(1) + compare against cap;
@@ -98,6 +92,9 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 	if cfg.AppHashBuilder == nil {
 		return nil, errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
 	}
+	if cfg.Executor == nil {
+		return nil, errors.New("GigaRouterCommonConfig.Executor is required")
+	}
 	firstRoad := atypes.RoadIndex(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
 	genesisWeights := map[atypes.PublicKey]uint64{}
 	for k := range cfg.ValidatorAddrs {
@@ -122,9 +119,9 @@ func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {
 	return r.app.LastBlockHeight()
 }
 
-// ExecutedBlocks publishes the recently committed blocks as executeBlock commits them.
+// ExecutedBlocks publishes the recently committed blocks as the executor commits them.
 func (r *gigaRouterCommon) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
-	return r.executed.Subscribe()
+	return r.cfg.Executor.ExecutedBlocks()
 }
 
 // MaxGasEstimatedPerBlock reflects the network-wide block gas budget. Both
@@ -199,87 +196,18 @@ func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes
 }
 
 // pendingExecutionBuffer is how many committed blocks execution may run ahead of
-// app-hash proposal. The pending handoff uses it.
+// app-hash proposal.
 const pendingExecutionBuffer = 128
 
-// pendingExecution is the committed block the hash loop still has to propose:
-// its height and the epoch weights as of this Commit.
-type pendingExecution struct {
-	number  atypes.RoadIndex
-	weights map[atypes.PublicKey]uint64
-}
-
-// startExecuteBlock finalizes and commits b. AppHash handling stays on the
-// hash loop so state hashing can overlap the next consensus wait.
-func (r *gigaRouterCommon) startExecuteBlock(
-	ctx context.Context,
-	b *atypes.SuperBlock,
-) (pendingExecution, error) {
-	app := r.app
-	var proposerAddress types.Address
-	if vals := app.GetValidators(); len(vals) > 0 {
-		// Deterministically select a proposer from the app's validator committee.
-		// We need it so that app does not emit error logs.
-		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
-		key, err := crypto.PubKeyFromProto(proposer.PubKey)
-		if err != nil {
-			return pendingExecution{}, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
-		}
-		proposerAddress = key.Address()
-	}
-
-	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
-		Txs: b.Txs,
-		// Empty DecidedLastCommit does not indicate missing votes.
-		DecidedLastCommit: abci.CommitInfo{},
-		// The road block hash identifies the block before execution.
-		// It is used to identify block processed optimistically
-		// and is fed as block hash to EVM contracts.
-		Hash: b.Hash[:],
-		Header: (&types.Header{
-			ChainID: r.cfg.GenDoc.ChainID,
-			Height:  int64(b.Height), // nolint:gosec // different representations of the same value
-			Time:    b.Timestamp,
-			// WARNING: the reward distribution has corner cases where it forgets the proposer,
-			// because reward is distributed with a delay. This is not our problem here though.
-			ProposerAddress: proposerAddress,
-		}).ToProto(),
-	})
-	if err != nil {
-		return pendingExecution{}, fmt.Errorf("app.FinalizeBlock(): %w", err)
-	}
-	gigametrics.SetPhase(gigametrics.PhaseStorage)
-	r.data.PushGasUsed(finalizeBlockGasUsed(resp))
-
-	gigametrics.SetStoragePhase(gigametrics.StoragePhaseAppCommit)
-	if _, err := app.Commit(ctx); err != nil {
-		return pendingExecution{}, fmt.Errorf("app.Commit(): %w", err)
-	}
-	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
-	weights, err := committeeWeights(app.GetValidators())
-	if err != nil {
-		return pendingExecution{}, err
-	}
-	r.executed.Store(r.executed.Load().Push(atypes.ExecutedBlock{
-		Number:  b.Height,
-		GasUsed: utils.Clamp[uint64](finalizeBlockGasUsed(resp)),
-	}))
-	gigametrics.EndStoragePhase()
-
-	return pendingExecution{
-		number:  b.Height,
-		weights: weights,
-	}, nil
-}
-
-// finishExecuteBlock proposes pending's app hash to the data layer.
-func (r *gigaRouterCommon) finishExecuteBlock(
+// proposeAppHash proposes block n's app hash to the data layer, with the
+// committee weights as of its Commit.
+func (r *gigaRouterCommon) proposeAppHash(
 	ctx context.Context,
 	n atypes.RoadIndex,
-	pending pendingExecution,
 	appHash atypes.AppHash,
+	weights map[atypes.PublicKey]uint64,
 ) error {
-	if err := r.data.PushAppHash(ctx, n, appHash, pending.weights); err != nil {
+	if err := r.data.PushAppHash(ctx, n, appHash, weights); err != nil {
 		return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
 	}
 	return nil
@@ -310,29 +238,21 @@ func (r *gigaRouterCommon) runEvmProxy(ctx context.Context, validator atypes.Pub
 	}
 }
 
-// gas used, as reported by finalizeBlock() call.
-func finalizeBlockGasUsed(resp *abci.ResponseFinalizeBlock) int64 {
-	var total int64
-	for _, result := range resp.TxResults {
-		if result != nil {
-			total += max(0, result.GasUsed)
-		}
-	}
-	return total
-}
-
 // RestoreMarkerFile returns the path of the marker file that a state sync restore
 // writes in the persistent state dir psd.
 func RestoreMarkerFile(psd string) string {
 	return filepath.Join(psd, "state-sync-restored")
 }
 
+// runExecute runs the executor and proposes the app hash of each block it
+// commits. On restart it first proposes the app hashes of the blocks the app
+// committed but did not propose.
 func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
-	next, lastBlock, err := r.initApp(ctx)
+	next, restarted, err := r.cfg.Executor.Init(ctx)
 	if err != nil {
 		return err
 	}
-	if lastBlock.IsPresent() {
+	if restarted {
 		if err := r.backfillAppHashes(ctx, next); err != nil {
 			return err
 		}
@@ -340,69 +260,15 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// The buffer lets execution continue while the hash loop proposes earlier
 		// commits.
-		committed := make(chan pendingExecution, pendingExecutionBuffer)
-		s.SpawnNamed("reportBlockHashes", func() error {
-			return r.runReportBlockHashes(ctx, next)
-		})
+		committed := make(chan execution.Committed, pendingExecutionBuffer)
 		s.SpawnNamed("pushAppHashes", func() error {
 			return r.runPushAppHashes(ctx, committed)
 		})
 		s.SpawnNamed("executeBlocks", func() error {
-			return r.runExecuteBlocks(ctx, committed, next)
+			return r.cfg.Executor.Run(ctx, next, committed)
 		})
 		return nil
 	})
-}
-
-// initApp brings the ABCI app to a state the execute loop can extend: InitChain
-// on a fresh app, or the last committed header on restart. It returns None when
-// the app has no committed block. It does not subscribe to hashes; InitChain
-// seeds the store at InitialHeight-1.
-func (r *gigaRouterCommon) initApp(ctx context.Context) (atypes.RoadIndex, utils.Option[atypes.SuperBlock], error) {
-	app := r.app
-	info := app.Info()
-	last, ok := utils.SafeCast[atypes.RoadIndex](info.LastBlockHeight)
-	if !ok {
-		return 0, utils.None[atypes.SuperBlock](), fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
-	}
-	if last == 0 {
-		// Fresh start: CometBFT handshaker is skipped in giga mode (see
-		// node.go: shouldHandshake = !stateSync && !gigaEnabled), so we
-		// call InitChain ourselves. It sets up the app's deliverState
-		// against which the first FinalizeBlock below runs.
-		//
-		// Re-entering on restart (crashed after InitChain, before the first
-		// block became durable) is safe — nothing was committed, so it
-		// behaves as a fresh init. An app whose storage already holds
-		// blocks must report them here and refuse InitChain, since blocks
-		// may be durable before Commit acknowledged them.
-		if _, err := app.InitChain(r.cfg.GenDoc.ToRequestInitChain()); err != nil {
-			return 0, utils.None[atypes.SuperBlock](), fmt.Errorf("App.InitChain(): %w", err)
-		}
-		next, ok := utils.SafeCast[atypes.RoadIndex](r.cfg.GenDoc.InitialHeight)
-		if !ok {
-			return 0, utils.None[atypes.SuperBlock](), fmt.Errorf("invalid GenDoc.InitialHeight = %v", r.cfg.GenDoc.InitialHeight)
-		}
-		return next, utils.None[atypes.SuperBlock](), nil
-	}
-	// BuildDataState caps recovery at BlockStore's durable block tip, so a crash
-	// after app.Commit but before the BlockStore flush resumes by syncing the
-	// missing suffix. If retention instead passed the app tip, SuperBlock
-	// returns ErrPruned here. A readable tip restores the last header and
-	// replays AppHash.
-	b, err := r.data.SuperBlock(ctx, last)
-	if err != nil {
-		if errors.Is(err, atypes.ErrPruned) {
-			return 0, utils.None[atypes.SuperBlock](), fmt.Errorf("app tip %d is below the BlockStore retention floor, so its header cannot be loaded: %w", last, err)
-		}
-		return 0, utils.None[atypes.SuperBlock](), fmt.Errorf("r.data.SuperBlock(): %w", err)
-	}
-	app.InitLastHeader((&types.Header{
-		ChainID: r.cfg.GenDoc.ChainID,
-		Height:  int64(b.Height), // nolint:gosec // different representations of the same value
-		Time:    b.Timestamp,
-	}).ToProto())
-	return last + 1, utils.Some(*b), nil
 }
 
 // backfillAppHashes pushes every AppHash in [NextAppProposal, next).
@@ -414,10 +280,10 @@ func (r *gigaRouterCommon) backfillAppHashes(
 	if from >= next {
 		return nil
 	}
-	// TODO: finishExecuteBlock needs the weights from after height n was executed.
+	// TODO: proposeAppHash needs the weights from after height n was executed.
 	// GetValidators() here is the app tip, so every road gets that one set. Use the
 	// set stored for n once app state has it.
-	weights, err := committeeWeights(r.app.GetValidators())
+	weights, err := execution.CommitteeWeights(r.app.GetValidators())
 	if err != nil {
 		return err
 	}
@@ -427,68 +293,27 @@ func (r *gigaRouterCommon) backfillAppHashes(
 			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", n, err)
 		}
 		appHash := entry.AppHash()
-		pending := pendingExecution{number: n, weights: weights}
-		if err := r.finishExecuteBlock(ctx, n, pending, appHash[:]); err != nil {
-			return fmt.Errorf("r.finishExecuteBlock(%v): %w", n, err)
+		if err := r.proposeAppHash(ctx, n, appHash[:], weights); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
 // runPushAppHashes proposes each committed block's app hash.
-func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context, committed <-chan pendingExecution) error {
+func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context, committed <-chan execution.Committed) error {
 	for {
-		p, err := utils.Recv(ctx, committed)
+		c, err := utils.Recv(ctx, committed)
 		if err != nil {
 			return err
 		}
-		record, err := r.cfg.AppHashBuilder.GetAppHash(ctx, uint64(p.number))
+		r.data.PushGasUsed(c.GasUsed)
+		record, err := r.cfg.AppHashBuilder.GetAppHash(ctx, uint64(c.Number))
 		if err != nil {
-			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", p.number, err)
+			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", c.Number, err)
 		}
 		appHash := record.AppHash()
-		if err := r.finishExecuteBlock(ctx, p.number, p, appHash[:]); err != nil {
-			return fmt.Errorf("r.finishExecuteBlock(%v): %w", p.number, err)
-		}
-	}
-}
-
-// runReportBlockHashes reports the road block hash of each block from next.
-func (r *gigaRouterCommon) runReportBlockHashes(ctx context.Context, next atypes.RoadIndex) error {
-	for n := next; ; n += 1 {
-		// The hash is the CommitQC's road header hash. QC returns that
-		// certificate without copying the lane transactions SuperBlock
-		// assembles for execution.
-		qc, err := r.data.QC(ctx, n)
-		if err != nil {
-			return fmt.Errorf("r.data.QC(%v): %w", n, err)
-		}
-		if err := r.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(qc.Index()), [32]byte(qc.Header().Hash())); err != nil {
-			return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", n, err)
-		}
-	}
-}
-
-// runExecuteBlocks keeps FinalizeBlock and Commit together on this loop, one
-// block at a time from next, handing each committed block to the hash loop.
-// The next block's Commit overlaps the previous block's proposal.
-func (r *gigaRouterCommon) runExecuteBlocks(
-	ctx context.Context,
-	committed chan<- pendingExecution,
-	next atypes.RoadIndex,
-) error {
-	for n := next; ; n += 1 {
-		gigametrics.SetPhase(gigametrics.PhaseConsensus)
-		b, err := r.data.SuperBlock(ctx, n)
-		if err != nil {
-			return fmt.Errorf("r.data.SuperBlock(%v): %w", n, err)
-		}
-		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		p, err := r.startExecuteBlock(ctx, b)
-		if err != nil {
-			return fmt.Errorf("r.startExecuteBlock(%v): %w", n, err)
-		}
-		if err := utils.Send(ctx, committed, p); err != nil {
+		if err := r.proposeAppHash(ctx, c.Number, appHash[:], c.Weights); err != nil {
 			return err
 		}
 	}
@@ -896,31 +721,4 @@ func (r *gigaRouterCommon) evmProxy(validator atypes.PublicKey) utils.Option[*et
 		}
 	}
 	return utils.None[*ethrpc.Client]()
-}
-
-// committeeWeights maps the bonded validator set after Commit to voting power.
-func committeeWeights(vals []abci.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
-	weights := make(map[atypes.PublicKey]uint64, len(vals))
-	for _, v := range vals {
-		if v.Power <= 0 {
-			continue
-		}
-		pk, err := crypto.PubKeyFromProto(v.PubKey)
-		if err != nil {
-			return nil, fmt.Errorf("PubKeyFromProto: %w", err)
-		}
-		apk, err := atypes.PublicKeyFromBytes(pk.Bytes())
-		if err != nil {
-			return nil, fmt.Errorf("PublicKeyFromBytes: %w", err)
-		}
-		if _, dup := weights[apk]; dup {
-			return nil, fmt.Errorf("duplicate public key %s", apk)
-		}
-		power, ok := utils.SafeCast[uint64](v.Power)
-		if !ok {
-			return nil, fmt.Errorf("validator power %d does not fit uint64", v.Power)
-		}
-		weights[apk] = power
-	}
-	return weights, nil
 }

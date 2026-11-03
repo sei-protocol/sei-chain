@@ -92,6 +92,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				GenDoc:             genDoc,
 				EnableEvmProxy:     true,
 			}
+			withTestExecutor(&commonCfg, blockStore)
 			dataState, err := BuildDataState(&commonCfg, blockStore)
 			require.NoError(t, err, "BuildDataState[%v]", i)
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
@@ -281,6 +282,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}
+	withTestExecutor(&commonCfg, blockStore)
 	dataState, err := BuildDataState(&commonCfg, blockStore)
 	require.NoError(t, err)
 
