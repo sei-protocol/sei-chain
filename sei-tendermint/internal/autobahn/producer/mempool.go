@@ -104,18 +104,19 @@ func (s *State) UnconfirmedTxs() [][]byte {
 	panic("unreachable")
 }
 
-func (m *mempool) pendingNonces(addr common.Address) (*nonceRange, bool) {
+func (m *mempool) pendingNonces(addr common.Address) (*nonceRange, nonceRange, bool) {
 	for inner := range m.inner.Lock() {
-		r, ok := inner.evmNonces[addr]
-		return r, ok
+		if r, ok := inner.evmNonces[addr]; ok {
+			return r, *r, ok
+		}
 	}
-	panic("unreachable")
+	return nil, nonceRange{}, false
 }
 
 func (s *State) evmNextPendingNonce(m *mempool, addr common.Address) uint64 {
 	// IMPORTANT: first snapshot the pending nonces THEN query app nonce.
 	// There would be a race condition otherwise.
-	pendingNonces, ok := m.pendingNonces(addr)
+	ptr, pendingNonces, ok := m.pendingNonces(addr)
 	appNonce := s.app.EvmNonce(addr)
 
 	if !ok {
@@ -129,7 +130,7 @@ func (s *State) evmNextPendingNonce(m *mempool, addr common.Address) uint64 {
 	// Nonce gap detected, invalidate pending nonces.
 	for inner, ctrl := range m.inner.Lock() {
 		// Ensure that evmNonces were not updated in the meantime.
-		if inner.evmNonces[addr] == pendingNonces {
+		if inner.evmNonces[addr] == ptr {
 			delete(inner.evmNonces, addr)
 			ctrl.Updated()
 		}
@@ -146,18 +147,14 @@ func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
 }
 
 func (s *State) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
-	mp, ok := s.mempool.Load().Get()
-	if !ok {
-		return nil, false
-	}
-	for m := range mp.inner.Lock() {
-		if m.closed {
-			return nil, false
+	if m, ok := s.mempool.Load().Get(); ok {
+		for inner := range m.inner.Lock() {
+			if tx, ok := inner.evmTxs[hash]; ok {
+				return tx.raw, ok
+			}
 		}
-		tx, ok := m.evmTxs[hash]
-		return tx.raw, ok
 	}
-	panic("unreachable")
+	return nil, false
 }
 
 // Removes txs from mempool assigned to lane blocks <n.
@@ -292,6 +289,9 @@ func (s *State) insertTx(ctx context.Context, mp *mempool, tx tmtypes.Tx, waitIf
 			return nil, errMempoolFull
 		}
 		// Verify the nonce again under lock.
+		// Here we have a race condition between app execution and evmNonces updates.
+		// This is fine, as our pending nonce tracking is always consistent,
+		// and converges to correct state if sender's txs are submitted sequentially in nonce order.
 		if r, ok := m.evmNonces[addr]; ok {
 			if r.next != resp.EVMNonce {
 				return nil, fmt.Errorf("%w: got %v, want %v", errBadNonce, resp.EVMNonce, r.next)
@@ -320,6 +320,7 @@ func (s *State) insertTx(ctx context.Context, mp *mempool, tx tmtypes.Tx, waitIf
 		b.sizeBytes += uint64(len(tx))
 		b.rawTxs = append(b.rawTxs, tx)
 		p := &pendingTx{
+			raw: tx,
 			addr:       addr,
 			hash:       resp.EVMHash,
 			nonceRange: m.evmNonces[addr],

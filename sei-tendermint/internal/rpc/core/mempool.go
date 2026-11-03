@@ -73,8 +73,9 @@ func (env *Environment) BroadcastTxAsync(ctx context.Context, req *coretypes.Req
 		if !ok {
 			return nil, errors.New("autobahn fullnode has no local mempool; broadcast_tx_* must be sent to a validator")
 		}
-		// The request ctx is cancelled as soon as the handler returns; the insert must outlive it.
-		go func() { _, _ = v.TryInsertTx(context.WithoutCancel(ctx), req.Tx) }()
+		if _, err := v.TryInsertTx(ctx, req.Tx); err!=nil {
+			return nil, err
+		}
 		return &coretypes.ResultBroadcastTx{Hash: req.Tx.Hash().Bytes()}, nil
 	}
 	mp, err := env.requireMempool()
