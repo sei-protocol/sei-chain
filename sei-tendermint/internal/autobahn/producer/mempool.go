@@ -231,6 +231,15 @@ func (s *State) insertTx(ctx context.Context, mp *mempool, tx tmtypes.Tx, waitIf
 	if uint64(len(tx)) > types.MaxTxsBytesPerBlock {
 		return nil, errTooLarge
 	}
+	// Early exit if mempool is full and we won't wait.
+	if !waitIfFull {
+		for m := range mp.inner.Lock() {
+			if m.IsFull() {
+				return nil, errMempoolFull
+			}
+		}
+	}
+	// Rate limiting for incoming transactions.
 	if err := s.insertTxLimiter.Wait(ctx); err != nil {
 		return nil, err
 	}
