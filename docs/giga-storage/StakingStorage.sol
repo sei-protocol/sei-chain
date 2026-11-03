@@ -9,8 +9,9 @@ import "./Sets.sol";
 /// @dev Params are `ParamsStorage.staking`. Bonded tokens sit in the balance of
 /// `BondedEscrow` and unbonded and unbonding tokens in `NotBondedEscrow`, derived
 /// addresses in `staking/layout.go`. Tokens and balances are wei; shares and
-/// rates are 1e18-scaled; times are Unix nanoseconds. Accounts and operators are EVM
-/// addresses; a consensus address is sha256(consensusPubkey)[:20].
+/// rates are 1e18-scaled; times are Unix nanoseconds. Accounts are EVM addresses,
+/// and a validator is keyed by its operator's. An enumeration is kept only where an
+/// on-chain path walks it.
 contract StakingStorage {
     struct Description {
         string moniker;
@@ -45,6 +46,12 @@ contract StakingStorage {
         uint256[8] __gap;
     }
 
+    /// @dev A bonded validator and the consensus power last sent for it.
+    struct ValidatorPower {
+        address operator;
+        uint64 power;
+    }
+
     struct Delegation {
         uint256 shares;
     }
@@ -56,13 +63,6 @@ contract StakingStorage {
         uint256 balance;
     }
 
-    struct RedelegationEntry {
-        uint64 creationHeight;
-        uint64 completionTime;
-        uint256 initialBalance;
-        uint256 sharesDst;
-    }
-
     /// @dev A queue entry's completionTime is never earlier than the one before it.
     struct UnbondingQueueEntry {
         uint64 completionTime;
@@ -70,11 +70,16 @@ contract StakingStorage {
         address validator;
     }
 
+    /// @dev A redelegation entry's only record: V2's queue triplet and its
+    /// RedelegationEntry together.
     struct RedelegationQueueEntry {
         uint64 completionTime;
         address delegator;
+        uint64 creationHeight;
         address srcValidator;
         address dstValidator;
+        uint256 initialBalance;
+        uint256 sharesDst;
     }
 
     struct ValidatorQueueEntry {
@@ -89,29 +94,21 @@ contract StakingStorage {
         uint64 tail;
     }
 
-    mapping(address => uint64) internal lastValidatorPower; // 0x11: operator => power
-    AddressSet internal lastValidatorPowerSet; // operators with a lastValidatorPower
+    ValidatorPower[] internal lastValidators; // 0x11: the bonded set, as last sent to consensus
     uint256 internal lastTotalPower; // 0x12
 
     mapping(address => Validator) internal validators; // 0x21: operator =>
     AddressSet internal validatorSet; // every operator in validators
-    mapping(address => address) internal validatorsByConsAddr; // 0x22: consensus address => operator
+    mapping(bytes32 => address) internal validatorsByConsensusPubkey; // 0x22, keyed by the key itself: consensusPubkey => operator
     address[] internal validatorsByPower; // 0x23: unjailed operators, descending by power, ties to the lower address
 
     mapping(address => mapping(address => Delegation)) internal delegations; // 0x31: delegator => validator =>
-    mapping(address => AddressSet) internal delegationsByValidator; // 0x37: validator => delegators
     mapping(address => AddressSet) internal delegationsByDelegator; // delegator => validators
 
     mapping(address => mapping(address => UnbondingDelegationEntry[])) internal unbondingDelegations; // 0x32: delegator => validator => entries, at most maxEntries
-    mapping(address => AddressSet) internal unbondingDelegationsByValidator; // 0x33: validator => delegators
-    mapping(address => AddressSet) internal unbondingDelegationsByDelegator; // delegator => validators
 
-    mapping(address => mapping(address => mapping(address => RedelegationEntry[]))) internal redelegations; // 0x34: delegator => src => dst => entries, at most maxEntries
-    mapping(address => mapping(address => AddressSet)) internal redelegationsByValSrc; // 0x35: src => delegator => dsts
-    mapping(address => AddressSet) internal redelegationDelegatorsByValSrc; // src => delegators
+    mapping(address => mapping(address => mapping(address => uint256))) internal redelegationEntryCounts; // 0x34: delegator => src => dst => open entries, at most maxEntries
     mapping(address => mapping(address => uint256)) internal redelegationsByValDst; // 0x36: dst => delegator => open entries into dst
-    mapping(address => mapping(address => AddressSet)) internal redelegationsByDelegator; // delegator => src => dsts
-    mapping(address => AddressSet) internal redelegationSrcsByDelegator; // delegator => srcs
 
     QueueBounds internal unbondingQueueBounds;
     mapping(uint64 => UnbondingQueueEntry) internal unbondingQueue; // 0x41: index =>
