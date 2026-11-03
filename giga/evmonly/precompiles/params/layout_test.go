@@ -43,7 +43,7 @@ func TestLayoutMatchesForge(t *testing.T) {
 	for _, e := range layout.Storage {
 		got[e.Label] = member{slot: mustUint(t, e.Slot), offset: e.Offset}
 	}
-	require.Equal(t, map[string]member{"gov": {slotGov, 0}}, got)
+	require.Equal(t, map[string]member{"gov": {slotGov, 0}, "staking": {slotStaking, 0}}, got)
 
 	structs := map[string]map[string]member{
 		"Gov": {
@@ -59,7 +59,16 @@ func TestLayoutMatchesForge(t *testing.T) {
 			"expeditedThreshold":    govExpeditedThreshold,
 			"__gap":                 {8, 0},
 		},
+		"Staking": {
+			"unbondingTime":                      stakingUnbondingTime,
+			"maxValidators":                      stakingMaxValidators,
+			"maxEntries":                         stakingMaxEntries,
+			"maxVotingPowerRatio":                stakingMaxVotingPowerRatio,
+			"maxVotingPowerEnforcementThreshold": stakingMaxVotingPowerEnforcementThreshold,
+			"__gap":                              {3, 0},
+		},
 	}
+	subspaceOf := map[string]*subspace{"Gov": &govSubspace, "Staking": &stakingSubspace}
 	seen := 0
 	for typeID, typ := range layout.Types {
 		name, ok := strings.CutPrefix(typeID, "t_struct(")
@@ -73,7 +82,7 @@ func TestLayoutMatchesForge(t *testing.T) {
 		for _, e := range typ.Members {
 			at := member{slot: mustUint(t, e.Slot), offset: e.Offset}
 			got[e.Label] = at
-			for _, p := range govSubspace.params {
+			for _, p := range subspaceOf[name].params {
 				if p.at == at {
 					require.Equal(t, "t_"+p.kind.solType, e.Type, p.key)
 				}
@@ -88,16 +97,23 @@ func TestLayoutMatchesForge(t *testing.T) {
 // TestLayoutCoversEveryDeclaredParam checks each declared param sits at a
 // member of its subspace's struct.
 func TestLayoutCoversEveryDeclaredParam(t *testing.T) {
-	members := map[member]bool{
-		govMaxDepositPeriod: true, govVotingPeriod: true, govExpeditedVotingPeriod: true,
-		govMinDeposit: true, govMinExpeditedDeposit: true, govQuorum: true, govThreshold: true,
-		govVetoThreshold: true, govExpeditedQuorum: true, govExpeditedThreshold: true,
+	for ss, members := range map[*subspace]map[member]bool{
+		&govSubspace: {
+			govMaxDepositPeriod: true, govVotingPeriod: true, govExpeditedVotingPeriod: true,
+			govMinDeposit: true, govMinExpeditedDeposit: true, govQuorum: true, govThreshold: true,
+			govVetoThreshold: true, govExpeditedQuorum: true, govExpeditedThreshold: true,
+		},
+		&stakingSubspace: {
+			stakingUnbondingTime: true, stakingMaxValidators: true, stakingMaxEntries: true,
+			stakingMaxVotingPowerRatio: true, stakingMaxVotingPowerEnforcementThreshold: true,
+		},
+	} {
+		for _, p := range ss.params {
+			require.True(t, members[p.at], p.key)
+			delete(members, p.at)
+		}
+		require.Empty(t, members, "every %s member is declared once", ss.name)
 	}
-	for _, p := range govSubspace.params {
-		require.True(t, members[p.at], p.key)
-		delete(members, p.at)
-	}
-	require.Empty(t, members, "every member is declared once")
 }
 
 func mustUint(t *testing.T, s string) uint64 {
@@ -117,7 +133,7 @@ func TestReadsCompilerWrites(t *testing.T) {
 	_, db, err := runtime.Execute(common.FromHex(strings.TrimSpace(string(code))), seed, &runtime.Config{GasLimit: 10_000_000})
 	require.NoError(t, err)
 	// runtime.Execute deploys the code at the zero-padded address of "contract".
-	values := govSubspace.read(solstorage.Store{State: stateDBView{db}, Address: common.BytesToAddress([]byte("contract"))})
+	s := solstorage.Store{State: stateDBView{db}, Address: common.BytesToAddress([]byte("contract"))}
 	require.Equal(t, Gov{
 		MaxDepositPeriod:      172_800_000_000_000,
 		VotingPeriod:          259_200_000_000_000,
@@ -129,5 +145,12 @@ func TestReadsCompilerWrites(t *testing.T) {
 		VetoThreshold:         big.NewInt(334_000_000_000_000_000),
 		ExpeditedQuorum:       big.NewInt(667_000_000_000_000_000),
 		ExpeditedThreshold:    big.NewInt(667_000_000_000_000_000),
-	}, govFrom(values))
+	}, govFrom(govSubspace.read(s)))
+	require.Equal(t, Staking{
+		UnbondingTime:                      1_814_400_000_000_000,
+		MaxValidators:                      35,
+		MaxEntries:                         7,
+		MaxVotingPowerRatio:                big.NewInt(200_000_000_000_000_000),
+		MaxVotingPowerEnforcementThreshold: big.NewInt(1_000_001),
+	}, stakingFrom(stakingSubspace.read(s)))
 }

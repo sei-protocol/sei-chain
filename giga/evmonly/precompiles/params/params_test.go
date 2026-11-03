@@ -79,6 +79,11 @@ func TestKeys(t *testing.T) {
 		{"gov", "tallyparams.veto_threshold", "uint256"},
 		{"gov", "tallyparams.expedited_quorum", "uint256"},
 		{"gov", "tallyparams.expedited_threshold", "uint256"},
+		{"staking", "UnbondingTime", "uint64"},
+		{"staking", "MaxValidators", "uint32"},
+		{"staking", "MaxEntries", "uint32"},
+		{"staking", "MaxVotingPower", "uint256"},
+		{"staking", "MaxVotingPowerEnforcementThreshold", "uint256"},
 	}, Keys())
 }
 
@@ -350,4 +355,66 @@ func TestABIKeepsV2Methods(t *testing.T) {
 		require.Contains(t, retiredMethods, m.Sig)
 		require.Equal(t, m.ID, ABI.Methods[m.Name].ID, m.Sig)
 	}
+}
+
+// testStaking is x/staking's default params.
+var testStaking = Staking{
+	UnbondingTime:                      1_814_400_000_000_000,
+	MaxValidators:                      35,
+	MaxEntries:                         7,
+	MaxVotingPowerRatio:                big.NewInt(200_000_000_000_000_000),
+	MaxVotingPowerEnforcementThreshold: big.NewInt(1_000_000),
+}
+
+func TestStakingValuesRoundTrip(t *testing.T) {
+	v := testStaking.values()
+	require.Len(t, v, len(stakingSubspace.params), "values() has one entry per declared staking param")
+	for _, p := range stakingSubspace.params {
+		require.Contains(t, v, p.key)
+	}
+	require.Equal(t, testStaking, stakingFrom(v), "Staking, the table, stakingFrom and values() agree")
+}
+
+func TestWriteStakingRefusesOnceWritten(t *testing.T) {
+	state := newMemState()
+	require.False(t, HasStaking(state))
+	require.NoError(t, WriteStaking(state, testStaking))
+	require.True(t, HasStaking(state))
+	require.Equal(t, testStaking, ReadStaking(state))
+	require.ErrorIs(t, WriteStaking(state, testStaking), errStakingWritten)
+}
+
+func TestStakingBounds(t *testing.T) {
+	for name, edit := range map[string]func(*Staking){
+		"zero unbonding time":      func(s *Staking) { s.UnbondingTime = 0 },
+		"unbonding time too long":  func(s *Staking) { s.UnbondingTime = MaxPeriod + 1 },
+		"no validators":            func(s *Staking) { s.MaxValidators = 0 },
+		"more than a committee":    func(s *Staking) { s.MaxValidators = MaxBondedValidators + 1 },
+		"no entries":               func(s *Staking) { s.MaxEntries = 0 },
+		"zero voting power ratio":  func(s *Staking) { s.MaxVotingPowerRatio = new(big.Int) },
+		"voting power ratio above": func(s *Staking) { s.MaxVotingPowerRatio = new(big.Int).Add(decOne, big.NewInt(1)) },
+	} {
+		s := testStaking
+		edit(&s)
+		require.Error(t, s.Validate(), name)
+		state := newMemState()
+		require.Error(t, WriteStaking(state, s), name)
+		require.False(t, HasStaking(state), "%s: nothing is written", name)
+	}
+	s := testStaking
+	s.MaxValidators = MaxBondedValidators
+	s.MaxVotingPowerRatio = decOne
+	s.MaxVotingPowerEnforcementThreshold = new(big.Int)
+	require.NoError(t, s.Validate())
+}
+
+func TestApplyChangesAStakingParam(t *testing.T) {
+	state := newMemState()
+	require.NoError(t, WriteStaking(state, testStaking))
+	require.NoError(t, Apply(state, []Change{{"staking", "MaxValidators", word(50)}}))
+	want := testStaking
+	want.MaxValidators = 50
+	require.Equal(t, want, ReadStaking(state))
+	require.ErrorIs(t, Apply(state, []Change{{"staking", "MaxValidators", word(uint64(MaxBondedValidators) + 1)}}), errInvalidValue)
+	require.Equal(t, want, ReadStaking(state), "a change failing the whole-struct check writes nothing")
 }
