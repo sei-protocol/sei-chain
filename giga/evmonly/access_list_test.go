@@ -46,7 +46,7 @@ func TestExecutorCreateAccessList(t *testing.T) {
 	state.SetCode(caller, staticCallCode(reader))
 	state.SetCode(reverter, revertReasonRuntime("no"))
 	store := NewMemoryStore(state)
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 	ecrecover := common.BytesToAddress([]byte{0x01})
 	for _, tc := range []struct {
@@ -89,7 +89,7 @@ func TestExecutorCreateAccessListLeavesOutTheCreatedContract(t *testing.T) {
 	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
 	state.SetNonce(sender, 3)
 	store := NewMemoryStore(state)
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 	msg := callMessage(sender, nil)
 	msg.Data = selfBalanceCode // the constructor reads its own balance
@@ -115,13 +115,13 @@ func TestExecutorCreateAccessListRefusals(t *testing.T) {
 		wantErr  string
 	}{
 		{name: "missing state store", executor: NewExecutor(Config{}), msg: func() *core.Message { return callMessage(sender, &target) }, wantErr: errMissingStateStore.Error()},
-		{name: "unappliable message", executor: NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet)),
+		{name: "unappliable message", executor: NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore())),
 			msg: func() *core.Message {
 				msg := callMessage(sender, &target)
 				msg.Value = big.NewInt(1) // the sender holds nothing
 				return msg
 			}, wantErr: "failed to apply transaction"},
-		{name: "more authorizations than gas", executor: NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet)),
+		{name: "more authorizations than gas", executor: NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore())),
 			msg: func() *core.Message {
 				msg := callMessage(sender, &target)
 				msg.GasLimit = params.CallNewAccountGas
@@ -149,7 +149,7 @@ func TestExecutorEstimateGasAfterCalls(t *testing.T) {
 		state.SetCode(writer, sstoreCode(slot, 1))
 		state.SetCode(reverter, revertReasonRuntime("no"))
 		store := NewMemoryStore(state)
-		return NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet)), state
+		return NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore())), state
 	}
 	executor, _ := newExecutor()
 	fresh, _, err := executor.EstimateGas(t.Context(), blockContext(chainID), callMessage(sender, &writer), 0)

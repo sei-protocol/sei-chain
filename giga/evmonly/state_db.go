@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"math/big"
+	"slices"
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -198,13 +199,23 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 		return bytes.Compare(addresses[i][:], addresses[j][:]) < 0
 	})
 
-	for _, addr := range addresses {
-		acct := s.accounts[addr]
-		if acct.StorageCleared {
+	// Taken ahead of the changes so the set is sized once: the key count bounds the storage changes.
+	storageKeysByAccount := make([][]common.Hash, len(addresses))
+	storageKeyCount := 0
+	for i, addr := range addresses {
+		if s.accounts[addr].StorageCleared {
 			// Committing a replaced storage would mean deleting every stored slot of the account, which the
 			// changeset has no way to express.
 			panic("cannot produce a changeset after SetStorage replaced an account's storage")
 		}
+		storageKeysByAccount[i] = storageKeyUnion(s.baseAccount(addr).Storage, s.accounts[addr].Storage)
+		storageKeyCount += len(storageKeysByAccount[i])
+	}
+	changes.Accounts = slices.Grow(changes.Accounts, len(addresses))
+	changes.Storage = slices.Grow(changes.Storage, storageKeyCount)
+
+	for i, addr := range addresses {
+		acct := s.accounts[addr]
 		base := s.baseAccount(addr)
 
 		if !acct.Balance.Eq(base.Balance) || acct.Nonce != base.Nonce || !bytes.Equal(acct.Code, base.Code) {
@@ -214,8 +225,7 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 				Prior:   AccountState{Balance: base.Balance.ToBig(), Nonce: base.Nonce, Code: base.Code},
 			})
 		}
-		storageKeys := storageKeyUnion(base.Storage, acct.Storage)
-		for _, key := range storageKeys {
+		for _, key := range storageKeysByAccount[i] {
 			priorValue := storageHash(base.Storage, key)
 			newValue := storageHash(acct.Storage, key)
 			if priorValue == newValue {
