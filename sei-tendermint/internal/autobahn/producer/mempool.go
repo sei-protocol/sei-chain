@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -18,10 +20,10 @@ var errMempoolFull = errors.New("mempool is full")
 var ErrNotProducing = errors.New("not producing")
 
 type pendingTx struct {
-	raw        tmtypes.Tx
-	addr       common.Address
-	hash       common.Hash
-	nonceRange *nonceRange
+	raw          tmtypes.Tx
+	addr         common.Address
+	hash         common.Hash
+	nonceRangeID nonceRangeID
 }
 
 func (r *nonceRange) Len() uint64 { return r.next - r.first }
@@ -36,11 +38,17 @@ type blockSpec struct {
 
 // mempool is one produce session. State.mempool publishes it; nil means idle.
 type mempool struct {
-	inner       utils.Watch[*mempoolInner]
-	insertTxSem *utils.Semaphore
+	inner utils.Watch[*mempoolInner]
 }
 
+// Incarnation of nonceRange of pending txs.
+// Tx with the same nonce can be inserted multiple times
+// when pending tx get invalidated, but each one will be
+// added to a nonceRange with different ID.
+type nonceRangeID uint64
+
 type nonceRange struct {
+	id    nonceRangeID
 	first uint64
 	next  uint64
 }
@@ -48,15 +56,16 @@ type nonceRange struct {
 // mempoolInner is the lock-protected session state. The Watch value is fixed for
 // the session; closed ends the session without replacing that pointer.
 type mempoolInner struct {
-	closed    bool
-	capacity  uint64
-	lane      types.LaneID
-	first     types.BlockNumber
-	next      types.BlockNumber
-	blocks    map[types.BlockNumber]*blockSpec
-	nextBlock *blockSpec
-	evmNonces map[common.Address]*nonceRange // ranges of pending txs by sender.
-	evmTxs    map[common.Hash]*pendingTx     // pendingTxs by hash.
+	closed           bool
+	capacity         uint64
+	lane             types.LaneID
+	first            types.BlockNumber
+	next             types.BlockNumber
+	blocks           map[types.BlockNumber]*blockSpec
+	nextBlock        *blockSpec
+	nextNonceRangeID nonceRangeID
+	evmNonces        map[common.Address]*nonceRange // ranges of pending txs by sender.
+	evmTxs           map[common.Hash]*pendingTx     // pendingTxs by hash.
 }
 
 func newMempool(capacity uint64, lane types.LaneID, n types.BlockNumber) *mempool {
@@ -104,19 +113,19 @@ func (s *State) UnconfirmedTxs() [][]byte {
 	panic("unreachable")
 }
 
-func (m *mempool) pendingNonces(addr common.Address) (*nonceRange, nonceRange, bool) {
+func (m *mempool) pendingNonces(addr common.Address) (nonceRange, bool) {
 	for inner := range m.inner.Lock() {
 		if r, ok := inner.evmNonces[addr]; ok {
-			return r, *r, ok
+			return *r, ok
 		}
 	}
-	return nil, nonceRange{}, false
+	return nonceRange{}, false
 }
 
 func (s *State) evmNextPendingNonce(m *mempool, addr common.Address) uint64 {
 	// IMPORTANT: first snapshot the pending nonces THEN query app nonce.
 	// There would be a race condition otherwise.
-	ptr, pendingNonces, ok := m.pendingNonces(addr)
+	pendingNonces, ok := m.pendingNonces(addr)
 	appNonce := s.app.EvmNonce(addr)
 
 	if !ok {
@@ -130,7 +139,7 @@ func (s *State) evmNextPendingNonce(m *mempool, addr common.Address) uint64 {
 	// Nonce gap detected, invalidate pending nonces.
 	for inner, ctrl := range m.inner.Lock() {
 		// Ensure that evmNonces were not updated in the meantime.
-		if inner.evmNonces[addr] == ptr {
+		if got, ok := inner.evmNonces[addr]; ok && got.id == pendingNonces.id {
 			delete(inner.evmNonces, addr)
 			ctrl.Updated()
 		}
@@ -174,13 +183,13 @@ func (s *State) pruneMempool(mp *mempool, n types.BlockNumber) {
 				if m.evmTxs[tx.hash] == tx {
 					delete(m.evmTxs, tx.hash)
 				}
-				// blocks are constructed in nonce order, so
-				// nonce of tx is tx.nonceRange.first at this point.
-				tx.nonceRange.first += 1
-				if tx.nonceRange.Len() == 0 {
-					// evmNonces entry could be overriden in case
-					// pending txs were invalidated, and new pending txs were added.
-					if m.evmNonces[tx.addr] == tx.nonceRange {
+				// evmNonces entry could be overriden in case
+				// pending txs were invalidated, and new pending txs were added.
+				if r, ok := m.evmNonces[tx.addr]; ok && r.id == tx.nonceRangeID {
+					// blocks are constructed in nonce order, so
+					// nonce of tx is tx.nonceRange.first at this point.
+					r.first += 1
+					if r.Len() == 0 {
 						delete(m.evmNonces, tx.addr)
 					}
 				}
@@ -195,10 +204,7 @@ func (s *State) pruneMempool(mp *mempool, n types.BlockNumber) {
 
 // TryInsertTx inserts tx to the mempool. Returns errMempoolFull if the mempool is full.
 func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
-	if mp, ok := s.mempool.Load().Get(); ok {
-		return s.insertTx(ctx, mp, tx, false)
-	}
-	return nil, ErrNotProducing
+	return s.insertTx(ctx, tx, false)
 }
 
 // InsertTx inserts tx to the mempool. Blocks if mempool is full; blocked InsertTx calls are
@@ -209,16 +215,15 @@ func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseC
 // TODO(gprusak): we might need some prioritization mechanism in case our node can handle more InsertTx calls/s
 // than the lane throughput.
 func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
-	if mp, ok := s.mempool.Load().Get(); ok {
-		return s.insertTx(ctx, mp, tx, true)
-	}
-	return nil, ErrNotProducing
+	return s.insertTx(ctx, tx, true)
 }
 
 // checkTx runs the app CheckTx for tx, holding one of cfg.MaxConcurrentCheckTx permits
 // for the duration of the call. Waiting for a permit is cancelled with ctx.
 func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTxV2, error) {
+	start := time.Now()
 	release, err := s.checkTxSem.Acquire(ctx)
+	metrics.ObserveCheckTxWait(time.Since(start))
 	if err != nil {
 		return nil, err
 	}
@@ -226,8 +231,36 @@ func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheck
 	return s.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
 }
 
+// insertTx inserts a transaction and records its outcome.
+func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
+	resp, err := s.doInsertTx(ctx, tx, waitIfFull)
+	var result string
+	switch {
+	case errors.Is(err, errTooLarge):
+		result = "too_large"
+	case errors.Is(err, errMempoolFull):
+		result = "full"
+	case errors.Is(err, ErrNotProducing):
+		result = "not_producing"
+	case errors.Is(err, errBadNonce):
+		result = "bad_nonce"
+	case err != nil:
+		result = "error"
+	case !resp.IsOK():
+		result = "rejected"
+	default:
+		result = "ok"
+	}
+	metrics.Global.InsertsAt(result).Add(1)
+	return resp, err
+}
+
 // Inserts transaction. Blocks until there is capacity in the mempool.
-func (s *State) insertTx(ctx context.Context, mp *mempool, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
+func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
+	mp, ok := s.mempool.Load().Get()
+	if !ok {
+		return nil, ErrNotProducing
+	}
 	if uint64(len(tx)) > types.MaxTxsBytesPerBlock {
 		return nil, errTooLarge
 	}
@@ -307,7 +340,8 @@ func (s *State) insertTx(ctx context.Context, mp *mempool, tx tmtypes.Tx, waitIf
 			}
 			r.next += 1
 		} else {
-			m.evmNonces[addr] = &nonceRange{resp.EVMNonce, resp.EVMNonce + 1}
+			m.evmNonces[addr] = &nonceRange{m.nextNonceRangeID, resp.EVMNonce, resp.EVMNonce + 1}
+			m.nextNonceRangeID += 1
 		}
 		// If any limit would be exceeded, then construct a payload.
 		// Note that we use subtraction in a way avoiding arithmetic overflows.
@@ -329,10 +363,10 @@ func (s *State) insertTx(ctx context.Context, mp *mempool, tx tmtypes.Tx, waitIf
 		b.sizeBytes += uint64(len(tx))
 		b.rawTxs = append(b.rawTxs, tx)
 		p := &pendingTx{
-			raw: tx,
-			addr:       addr,
-			hash:       resp.EVMHash,
-			nonceRange: m.evmNonces[addr],
+			raw:          tx,
+			addr:         addr,
+			hash:         resp.EVMHash,
+			nonceRangeID: m.evmNonces[addr].id,
 		}
 		b.txs = append(b.txs, p)
 		m.evmTxs[resp.EVMHash] = p

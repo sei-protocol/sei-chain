@@ -35,7 +35,7 @@ type Config struct {
 
 func (c *Config) maxConcurrentCheckTx() int {
 	if v, ok := c.MaxConcurrentCheckTx.Get(); ok && v > 0 {
-		return utils.Clamp[int](v) 
+		return utils.Clamp[int](v)
 	}
 	return max(1, runtime.GOMAXPROCS(0)/2)
 }
