@@ -30,6 +30,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## v6.7
 sei-chain
+* [#4702](https://github.com/sei-protocol/sei-chain/pull/4702) Backport deterministic simulation limiter test fix to v6.7
+* [#4690](https://github.com/sei-protocol/sei-chain/pull/4690) Backport `release/v6.7`: Hard-code the state sync trust period per chain
+* [#4559](https://github.com/sei-protocol/sei-chain/pull/4559) Backport `release/v6.7`: Update v6.7 change log in prep to cut v6.7.2 patch
+* [#4558](https://github.com/sei-protocol/sei-chain/pull/4558) Bump version to v6.7.2 in prep for patch release
 * [#4520](https://github.com/sei-protocol/sei-chain/pull/4520) Backport `release/v6.7`: Export known peer address count as a Prometheus gauge
 * [#4515](https://github.com/sei-protocol/sei-chain/pull/4515) Backport `release/v6.7`: Count only connected peers in /net_info n_peers
 * [#4508](https://github.com/sei-protocol/sei-chain/pull/4508) Backport `release/v6.7`: Fix pruning issue in SS causing huge disk spike
