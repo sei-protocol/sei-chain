@@ -49,12 +49,12 @@ func publishedAppHashes(t *testing.T, manager *GigaStorageManager, first uint64,
 	return appHashes
 }
 
-// tryGetAppHash returns the manager's builder's published app hash of block height, or nil if it is not published.
-func tryGetAppHash(t *testing.T, manager *GigaStorageManager, height uint64) *apphash.AppHashData {
+// requireNotPublished fails if the manager's builder has published the app hash of block height.
+func requireNotPublished(t *testing.T, manager *GigaStorageManager, height uint64, msgAndArgs ...any) {
 	t.Helper()
-	appHash, err := manager.AppHashBuilder().TryGetAppHash(height)
+	_, highest, ok, err := manager.AppHashBuilder().Bounds()
 	require.NoError(t, err)
-	return appHash
+	require.False(t, ok && highest >= height, msgAndArgs...)
 }
 
 // closeAppHashBuilder closes the receipt and BUD hashers, the app hash builder and then its hash vault, and drops them
@@ -104,7 +104,7 @@ func TestAppHashesBuiltFromCommittedBlocks(t *testing.T) {
 	manager, _ := openManager(t, func(cfg *config.GigaStorageConfig) {
 		cfg.AppHashBuilderConfig.ChainID = testAppHashChainID
 	})
-	require.Nil(t, tryGetAppHash(t, manager, 1))
+	requireNotPublished(t, manager, 1)
 
 	commitBlocks(t, manager, 3)
 
@@ -157,7 +157,7 @@ func TestRestartWithStateAheadOfTheAppHashVault(t *testing.T) {
 	version, err := manager.SC().GetLatestVersion()
 	require.NoError(t, err)
 	require.Equal(t, int64(3), version)
-	require.Equal(t, stored[2].AppHash(), tryGetAppHash(t, manager, 3).AppHash())
+	require.Equal(t, stored[2].AppHash(), publishedAppHashes(t, manager, 3, 3)[0].AppHash())
 
 	reportTestBlockHash(t, manager, 4)
 	commitBlock(t, manager, 4, evmBlock(4, 4))
@@ -177,9 +177,8 @@ func TestRestartWithTheAppHashVaultAheadOfState(t *testing.T) {
 
 	restartAt(t, manager, 3)
 
-	require.Equal(t, stored[2].AppHash(), tryGetAppHash(t, manager, 3).AppHash())
-	require.Nil(t, tryGetAppHash(t, manager, 4),
-		"the stored app hashes above the recovered height are not published")
+	require.Equal(t, stored[2].AppHash(), publishedAppHashes(t, manager, 3, 3)[0].AppHash())
+	requireNotPublished(t, manager, 4, "the stored app hashes above the recovered height are not published")
 	head, err := manager.AppHashVault().GetLatestBlock()
 	require.NoError(t, err)
 	require.Equal(t, uint64(5), head, "the app hashes above the recovered height are kept")

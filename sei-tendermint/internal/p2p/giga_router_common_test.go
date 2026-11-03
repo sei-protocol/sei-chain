@@ -110,14 +110,6 @@ func (b *manualAppHashBuilder) ReportReceiptHash(context.Context, uint64, apphas
 	return nil
 }
 
-func (b *manualAppHashBuilder) TryGetAppHash(blockHeight uint64) (*apphash.AppHashData, error) {
-	var appHash *apphash.AppHashData
-	for state := range b.state.Lock() {
-		appHash = state.appHashes[blockHeight]
-	}
-	return appHash, nil
-}
-
 func (b *manualAppHashBuilder) GetAppHash(ctx context.Context, blockHeight uint64) (*apphash.AppHashData, error) {
 	var appHash *apphash.AppHashData
 	for state, ctrl := range b.state.Lock() {
@@ -297,7 +289,7 @@ func TestRunExecuteReportsTheBlockHash(t *testing.T) {
 // TestBackfillAppHashesReadsTheBuilder pins the restart path: every block the
 // app committed but did not get proposed is recovered from the app hash
 // builder, oldest first, so execution can resume at the block after the app
-// tip. A height the builder does not hold is unrecoverable and must fail loudly.
+// tip.
 func TestBackfillAppHashesReadsTheBuilder(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
@@ -314,11 +306,6 @@ func TestBackfillAppHashesReadsTheBuilder(t *testing.T) {
 		}
 
 		next := last + 1
-		err := router.backfillAppHashes(ctx, next)
-		if !errors.Is(err, errNoStoredAppHash) {
-			return fmt.Errorf("backfillAppHashes() = %v, want missing app hash", err)
-		}
-
 		for n := state.NextAppProposal(); n < next; n++ {
 			hashBuilder.add(testAppHashData(n))
 		}
@@ -330,40 +317,6 @@ func TestBackfillAppHashesReadsTheBuilder(t *testing.T) {
 		require.Equal(t, next, state.NextAppProposal())
 		return nil
 	}))
-}
-
-func TestAppHashesContinueAtTheAppTip(t *testing.T) {
-	tip := atypes.RoadIndex(4)
-	hashBuilder := newManualAppHashBuilder()
-	require.ErrorIs(t, appHashesContinueAt(hashBuilder, tip), errNoAppHash)
-	hashBuilder.add(testAppHashData(tip - 1))
-	require.ErrorIs(t, appHashesContinueAt(hashBuilder, tip), errAppHashesOffTip)
-	hashBuilder.add(testAppHashData(tip))
-	require.NoError(t, appHashesContinueAt(hashBuilder, tip))
-}
-
-// TestRunExecuteRejectsAppHashesOffTheAppTip pins that a restart refuses a
-// builder whose newest app hash is not the app tip.
-func TestRunExecuteRejectsAppHashesOffTheAppTip(t *testing.T) {
-	rng := utils.TestRng()
-	key := atypes.GenSecretKey(rng)
-	_, hashBuilder, state, router := newAppHashTestRouter(t, rng, key)
-
-	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
-	last := qc.Index()
-	router.app = proxy.New(&fixedHeightApp{height: int64(last)})
-	hashBuilder.add(testAppHashData(last - 1))
-
-	var got error
-	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		if err := state.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
-			return fmt.Errorf("state.PushPartialBlock(): %w", err)
-		}
-		got = router.runExecute(ctx)
-		return nil
-	}))
-	require.ErrorIs(t, got, errAppHashesOffTip)
 }
 
 // TestRunPushAppHashesStopsWhenExecuteStops hangs if the push loop waits on a

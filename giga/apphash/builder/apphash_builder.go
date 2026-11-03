@@ -52,13 +52,6 @@ type AppHashBuilder interface {
 	// methods.
 	ReportReceiptHash(ctx context.Context, blockHeight uint64, receiptHash apphash.ReceiptHash) error
 
-	// Returns the app hash of the block, or nil if it is not available yet. An available app hash never changes.
-	// Reading blocks in ascending order is cheap; reading them in random order is expensive.
-	//
-	// Errors if called before SetupComplete(), if blockHeight is below the giga activation height or has been
-	// pruned, or once the builder stops.
-	TryGetAppHash(blockHeight uint64) (*apphash.AppHashData, error)
-
 	// Returns the app hash of the block, blocking until it is available. May be called before SetupComplete(). An
 	// available app hash never changes. Reading blocks in ascending order is cheap; reading them in random order is
 	// expensive.

@@ -229,15 +229,11 @@ func (b *StandardAppHashBuilder) SetupComplete(ctx context.Context, blockHeight 
 	return nil
 }
 
-func (b *StandardAppHashBuilder) TryGetAppHash(blockHeight uint64) (*apphash.AppHashData, error) {
-	appHash, err := b.requestAppHash(context.Background(), blockHeight)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get the app hash of block %d: %w", blockHeight, err)
-	}
-	return appHash, nil
-}
-
 func (b *StandardAppHashBuilder) GetAppHash(ctx context.Context, blockHeight uint64) (*apphash.AppHashData, error) {
+	if blockHeight < b.gigaActivationHeight {
+		return nil, fmt.Errorf("block %d is below the giga activation height %d, so it has no app hash",
+			blockHeight, b.gigaActivationHeight)
+	}
 	reached, _, err := b.publishedHeight.Await(ctx, blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("abandoned waiting for the app hash of block %d: %w", blockHeight, err)
@@ -574,14 +570,10 @@ func (b *StandardAppHashBuilder) compareStoredInput(
 }
 
 // Returns the published app hash of blockHeight, or nil if it is not published yet. Errors before setup, and if
-// blockHeight is below the giga activation height or pruned.
+// blockHeight is pruned.
 func (b *StandardAppHashBuilder) readAppHash(blockHeight uint64) (*apphash.AppHashData, error) {
 	if !b.setupDone {
 		return nil, fmt.Errorf("cannot read app hashes before setup is complete")
-	}
-	if blockHeight < b.gigaActivationHeight {
-		return nil, fmt.Errorf("block %d is below the giga activation height %d, so it has no app hash",
-			blockHeight, b.gigaActivationHeight)
 	}
 	if err := b.maybeRetireReadCursor(blockHeight); err != nil {
 		return nil, fmt.Errorf("failed to retire the read cursor before reading block %d: %w", blockHeight, err)
@@ -614,7 +606,7 @@ func (b *StandardAppHashBuilder) readBounds() (appHashBounds, error) {
 		return appHashBounds{}, fmt.Errorf("failed to read the hash vault bounds: %w", err)
 	}
 	return appHashBounds{
-		lowest:  max(vaultLowest, b.gigaActivationHeight),
+		lowest:  min(max(vaultLowest, b.gigaActivationHeight), b.cache.PeekFront().BlockHeight()),
 		highest: b.newestPublished.BlockHeight(),
 		ok:      true,
 	}, nil

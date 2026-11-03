@@ -13,7 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -328,40 +327,12 @@ func RestoreMarkerFile(psd string) string {
 	return filepath.Join(psd, "state-sync-restored")
 }
 
-// errNoAppHash is returned when the app hash builder has no app hash available.
-var errNoAppHash = errors.New("app hash builder has no app hash")
-
-// errAppHashesOffTip is returned when the builder's newest app hash is not the app tip.
-var errAppHashesOffTip = errors.New("app hash builder's newest app hash is not the app tip")
-
-// errNoStoredAppHash is returned when a committed block has no stored app hash.
-var errNoStoredAppHash = errors.New("app hash builder holds no app hash")
-
-// appHashesContinueAt returns nil when the newest app hash appHashes has available
-// is the app hash of tip, so the next one it builds is the block after tip.
-func appHashesContinueAt(appHashes builder.AppHashBuilder, tip atypes.RoadIndex) error {
-	_, highest, ok, err := appHashes.Bounds()
-	if err != nil {
-		return fmt.Errorf("AppHashBuilder.Bounds(): %w", err)
-	}
-	if !ok {
-		return fmt.Errorf("%w for app tip %d", errNoAppHash, tip)
-	}
-	if got := atypes.RoadIndex(highest); got != tip {
-		return fmt.Errorf("%w: newest app hash is block %d, app tip is %d", errAppHashesOffTip, got, tip)
-	}
-	return nil
-}
-
 func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	next, lastBlock, err := r.initApp(ctx)
 	if err != nil {
 		return err
 	}
-	if block, ok := lastBlock.Get(); ok {
-		if err := appHashesContinueAt(r.cfg.AppHashBuilder, block.Height); err != nil {
-			return err
-		}
+	if lastBlock.IsPresent() {
 		if err := r.backfillAppHashes(ctx, next); err != nil {
 			return err
 		}
@@ -451,12 +422,9 @@ func (r *gigaRouterCommon) backfillAppHashes(
 		return err
 	}
 	for n := from; n < next; n++ {
-		entry, err := r.cfg.AppHashBuilder.TryGetAppHash(uint64(n))
+		entry, err := r.cfg.AppHashBuilder.GetAppHash(ctx, uint64(n))
 		if err != nil {
-			return fmt.Errorf("AppHashBuilder.TryGetAppHash(%v): %w", n, err)
-		}
-		if entry == nil {
-			return fmt.Errorf("%w for committed block %d", errNoStoredAppHash, n)
+			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", n, err)
 		}
 		appHash := entry.AppHash()
 		pending := pendingExecution{number: n, weights: weights}

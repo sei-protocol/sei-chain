@@ -168,23 +168,19 @@ func awaitAppHashes(t *testing.T, b AppHashBuilder, first uint64, last uint64) [
 // readAppHashes returns the published app hashes of blocks first through last, failing if any is not published.
 func readAppHashes(t *testing.T, b AppHashBuilder, first uint64, last uint64) []*apphash.AppHashData {
 	t.Helper()
-	appHashes := make([]*apphash.AppHashData, 0, last-first+1)
-	for height := first; height <= last; height++ {
-		appHash, err := b.TryGetAppHash(height)
-		require.NoError(t, err)
-		require.NotNil(t, appHash, "the app hash of block %d is not published", height)
-		appHashes = append(appHashes, appHash)
-	}
-	return appHashes
+	_, highest, ok, err := b.Bounds()
+	require.NoError(t, err)
+	require.True(t, ok && highest >= last, "the app hash of block %d is not published", last)
+	return awaitAppHashes(t, b, first, last)
 }
 
 // requireNotPublished fails if the app hash of blockHeight is published within a short wait.
 func requireNotPublished(t *testing.T, b AppHashBuilder, blockHeight uint64) {
 	t.Helper()
 	time.Sleep(100 * time.Millisecond)
-	appHash, err := b.TryGetAppHash(blockHeight)
+	_, highest, ok, err := b.Bounds()
 	require.NoError(t, err)
-	require.Nil(t, appHash, "unexpected app hash of block %d", blockHeight)
+	require.False(t, ok && highest >= blockHeight, "unexpected app hash of block %d", blockHeight)
 }
 
 // requireSameAppHashes fails unless expected and actual hold the same app hash data in the same order.
@@ -325,7 +321,7 @@ func TestSetupFailsWhenABlockCannotBeComputed(t *testing.T) {
 	reportInputBlocks(t, b, budHashInput, 6, 8)
 	require.Error(t, b.SetupComplete(context.Background(), 8))
 
-	_, err := b.TryGetAppHash(1)
+	_, err := b.GetAppHash(context.Background(), 1)
 	require.Error(t, err)
 	require.Error(t, b.ReportBlockHash(context.Background(), 9, [32]byte{}))
 }
@@ -381,7 +377,7 @@ func TestOutOfOrderReportStopsBuilder(t *testing.T) {
 	reportInput(t, b, blockHashInput, 4, 0)
 	reportInput(t, b, blockHashInput, 6, 0)
 
-	_, err := b.TryGetAppHash(1)
+	_, err := b.GetAppHash(context.Background(), 1)
 	require.Error(t, err)
 	require.Error(t, b.ReportStateHash(context.Background(), 1, [32]byte{}, nil))
 	require.Error(t, b.SetupComplete(context.Background(), 0))
@@ -393,20 +389,8 @@ func TestFirstReportAfterSetupMustFollowStorageHeight(t *testing.T) {
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
 	reportInput(t, b, budHashInput, 4, 0)
 
-	_, err := b.TryGetAppHash(1)
+	_, err := b.GetAppHash(context.Background(), 1)
 	require.Error(t, err)
-}
-
-func TestCallsBeforeSetupFail(t *testing.T) {
-	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
-	_, err := b.TryGetAppHash(1)
-	require.Error(t, err)
-
-	// The call does not stop the builder.
-	require.NoError(t, b.SetupComplete(context.Background(), 0))
-	appHash, err := b.TryGetAppHash(1)
-	require.NoError(t, err)
-	require.Nil(t, appHash)
 }
 
 func TestSetupCompleteTwiceFails(t *testing.T) {
@@ -432,13 +416,24 @@ func TestAppHashBelowGigaActivationFails(t *testing.T) {
 	reportBlocks(t, b, 3, 5)
 	awaitAppHashes(t, b, 3, 5)
 
-	_, err := b.TryGetAppHash(2)
+	_, err := b.GetAppHash(context.Background(), 2)
 	require.Error(t, err)
 	_, err = b.GetAppHash(context.Background(), 1)
 	require.Error(t, err)
 
 	// Neither call stops the builder.
 	requireSameAppHashes(t, expectedChain(3, 3, 5), readAppHashes(t, b, 3, 5))
+}
+
+func TestAppHashBelowGigaActivationFailsBeforeActivation(t *testing.T) {
+	b := openTestBuilder(t, t.TempDir(), testChainID, 3)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+
+	ctx, cancel := context.WithTimeout(context.Background(), publishTimeout)
+	defer cancel()
+	_, err := b.GetAppHash(ctx, 2)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestOfflineHeadOfEmptyVaultPrecedesGigaActivation(t *testing.T) {
@@ -654,14 +649,6 @@ func TestReadOfAnotherBlockClosesCursor(t *testing.T) {
 	require.NotNil(t, b.readCursor)
 	requireSameAppHashes(t, expectedChain(1, 9, 9), readAppHashes(t, b, 9, 9))
 	require.Nil(t, b.readCursor)
-
-	// A read of a block that is not available yet.
-	readAppHashes(t, b, 2, 2)
-	require.NotNil(t, b.readCursor)
-	appHash, err := b.TryGetAppHash(20)
-	require.NoError(t, err)
-	require.Nil(t, appHash)
-	require.Nil(t, b.readCursor)
 }
 
 func TestIdleCursorIsClosedOnVaultWrite(t *testing.T) {
@@ -742,20 +729,20 @@ func TestReadOfPrunedAppHashFails(t *testing.T) {
 	publishBlocks(t, b, 1, 10)
 	require.NoError(t, b.vault.PruneHistory(6))
 
-	_, err := b.TryGetAppHash(3)
+	_, err := b.GetAppHash(context.Background(), 3)
 	require.Error(t, err)
 
 	// The failed read does not stop the builder.
 	requireSameAppHashes(t, expectedChain(1, 6, 10), readAppHashes(t, b, 6, 10))
 }
 
-func TestTryGetAppHashAfterCloseFails(t *testing.T) {
+func TestGetAppHashAfterCloseFails(t *testing.T) {
 	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
 	publishBlocks(t, b, 1, 3)
 	require.NoError(t, b.Close())
 
-	_, err := b.TryGetAppHash(3)
+	_, err := b.GetAppHash(context.Background(), 3)
 	require.Error(t, err)
 }
 
@@ -825,6 +812,9 @@ func TestBoundsBeforeSetupFail(t *testing.T) {
 	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
 	_, _, _, err := b.Bounds()
 	require.Error(t, err)
+
+	// The call does not stop the builder.
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
 }
 
 func TestBoundsCoverAvailableAppHashes(t *testing.T) {
@@ -855,6 +845,16 @@ func TestBoundsRiseAsAppHashesArePruned(t *testing.T) {
 	require.NoError(t, b.vault.PruneHistory(6))
 
 	requireBounds(t, b, 6, 10)
+}
+
+func TestBoundsIncludeCachedAppHashesAfterPruning(t *testing.T) {
+	b := openCachingTestBuilder(t, t.TempDir(), 8, true)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	publishBlocks(t, b, 1, 10)
+	require.NoError(t, b.vault.PruneHistory(6))
+
+	requireBounds(t, b, 3, 10)
+	requireSameAppHashes(t, expectedChain(1, 3, 10), readAppHashes(t, b, 3, 10))
 }
 
 func TestBoundsStartAtGigaActivation(t *testing.T) {

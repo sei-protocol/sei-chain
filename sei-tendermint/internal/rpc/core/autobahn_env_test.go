@@ -38,8 +38,7 @@ func (stubAppHashBuilder) ReportBUDHash(context.Context, uint64, [32]byte) error
 func (stubAppHashBuilder) ReportReceiptHash(context.Context, uint64, apphash.ReceiptHash) error {
 	return nil
 }
-func (stubAppHashBuilder) SetupComplete(context.Context, uint64) error        { return nil }
-func (stubAppHashBuilder) TryGetAppHash(uint64) (*apphash.AppHashData, error) { return nil, nil }
+func (stubAppHashBuilder) SetupComplete(context.Context, uint64) error { return nil }
 func (stubAppHashBuilder) GetAppHash(ctx context.Context, _ uint64) (*apphash.AppHashData, error) {
 	<-ctx.Done()
 	return nil, ctx.Err()
