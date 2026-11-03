@@ -223,7 +223,7 @@ func (b *StandardAppHashBuilder) SetupComplete(ctx context.Context, blockHeight 
 	if err := b.submit(ctx, setupCompleteRequest{blockHeight: blockHeight, reply: reply}); err != nil {
 		return fmt.Errorf("failed to complete app hash builder setup at block %d: %w", blockHeight, err)
 	}
-	if _, err := awaitReply(b, reply); err != nil {
+	if _, err := awaitReply(ctx, b, reply); err != nil {
 		return fmt.Errorf("failed to complete app hash builder setup at block %d: %w", blockHeight, err)
 	}
 	return nil
@@ -254,7 +254,7 @@ func (b *StandardAppHashBuilder) Bounds() (uint64, uint64, bool, error) {
 	if err := b.submit(context.Background(), boundsRequest{reply: reply}); err != nil {
 		return 0, 0, false, fmt.Errorf("failed to request the app hash bounds: %w", err)
 	}
-	bounds, err := awaitReply(b, reply)
+	bounds, err := awaitReply(context.Background(), b, reply)
 	if err != nil {
 		return 0, 0, false, fmt.Errorf("failed to read the app hash bounds: %w", err)
 	}
@@ -266,7 +266,7 @@ func (b *StandardAppHashBuilder) Close() error {
 	reply := make(chan callResult[struct{}], 1)
 	// A builder already stopped refuses the request, and has nothing left to store.
 	if b.submit(context.Background(), closeRequest{reply: reply}) == nil {
-		if _, err := awaitReply(b, reply); err != nil {
+		if _, err := awaitReply(context.Background(), b, reply); err != nil {
 			sweepErr = fmt.Errorf("failed to store the queued app hashes: %w", err)
 		}
 	}
@@ -363,14 +363,18 @@ func (b *StandardAppHashBuilder) stoppedError() error {
 	return fmt.Errorf("app hash builder stopped: %w", context.Cause(b.ctx))
 }
 
-// Waits for the reply to a request already handed to the builder goroutine.
-func awaitReply[T any](b *StandardAppHashBuilder, reply <-chan callResult[T]) (T, error) {
+// Waits for the reply to a request already handed to the builder goroutine. Errors if ctx is cancelled first.
+func awaitReply[T any](ctx context.Context, b *StandardAppHashBuilder, reply <-chan callResult[T]) (T, error) {
 	select {
 	case result := <-reply:
 		return result.value, result.err
+	case <-ctx.Done():
+		// The reply is buffered, so the builder goroutine never blocks on the abandoned reply.
+		var zero T
+		return zero, fmt.Errorf("app hash builder call abandoned: %w", ctx.Err())
 	case <-b.ctx.Done():
-		// Once the builder goroutine exits, the reply is either buffered or never sent. A buffered result, such
-		// as an open iterator, must reach the caller.
+		// Once the builder goroutine exits, the reply is either buffered or never sent. A buffered reply is the
+		// request's result, so it reaches the caller.
 		b.wg.Wait()
 		select {
 		case result := <-reply:
@@ -382,14 +386,13 @@ func awaitReply[T any](b *StandardAppHashBuilder, reply <-chan callResult[T]) (T
 	}
 }
 
-// Asks the builder goroutine for the published app hash of blockHeight, or nil if it is not published yet. ctx bounds
-// only the wait to hand the request over.
+// Asks the builder goroutine for the published app hash of blockHeight, or nil if it is not published yet.
 func (b *StandardAppHashBuilder) requestAppHash(ctx context.Context, blockHeight uint64) (*apphash.AppHashData, error) {
 	reply := make(chan callResult[*apphash.AppHashData], 1)
 	if err := b.submit(ctx, getAppHashRequest{blockHeight: blockHeight, reply: reply}); err != nil {
 		return nil, fmt.Errorf("failed to request the app hash: %w", err)
 	}
-	appHash, err := awaitReply(b, reply)
+	appHash, err := awaitReply(ctx, b, reply)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the app hash: %w", err)
 	}

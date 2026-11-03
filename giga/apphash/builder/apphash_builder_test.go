@@ -746,6 +746,15 @@ func TestGetAppHashAfterCloseFails(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestAwaitReplyAbandonedWhenCtxCancelled(t *testing.T) {
+	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := awaitReply(ctx, b, make(chan callResult[struct{}], 1))
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 func TestGetAppHashWaitsForPublication(t *testing.T) {
 	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
