@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
+	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
@@ -60,14 +61,18 @@ func receiveAppHashes(t *testing.T, published <-chan *apphash.AppHashData, count
 	return received
 }
 
-// closeAppHashBuilder closes the receipt hasher, the app hash builder and then its hash vault, and drops them from the
-// manager, leaving the manager as it was before the builder opened.
+// closeAppHashBuilder closes the receipt and BUD hashers, the app hash builder and then its hash vault, and drops them
+// from the manager. It leaves a no-op BUD hasher in place, so a state DB reopened afterwards has one to submit to.
 func closeAppHashBuilder(t *testing.T, manager *GigaStorageManager) {
 	t.Helper()
 	if manager.receiptHasher != nil {
 		require.NoError(t, manager.receiptHasher.Close())
 		manager.receiptHasher = nil
 	}
+	if manager.budHasher != nil {
+		require.NoError(t, manager.budHasher.Close())
+	}
+	manager.budHasher = bud.NewNoOpBUDHasher()
 	if manager.appHashBuilder != nil {
 		require.NoError(t, manager.appHashBuilder.Close())
 		manager.appHashBuilder = nil
@@ -87,15 +92,18 @@ func stopForRestart(t *testing.T, manager *GigaStorageManager) {
 }
 
 // restartAt re-runs what a restart converging on target does: it closes the builder and every store recovery
-// touches, recovers them onto target, and opens the receipt store and the builder again.
+// touches, opens the builder again, recovers the stores onto target, opens the receipt store, and completes the
+// builder's setup.
 func restartAt(t *testing.T, manager *GigaStorageManager, target int64) {
 	t.Helper()
 	stopForRestart(t, manager)
-	reconverge(t, manager, target)
 	require.NoError(t, manager.openAppHashBuilder(t.Context()))
+	reconverge(t, manager, target)
+	require.NoError(t, manager.completeAppHashBuilderSetup(t.Context()))
 }
 
-// Storage reports the state and BUD hashes of each committed block, with a zero block hash.
+// Storage reports the state hash and BUD hash of each committed block, execution reports its block
+// hash, and the receipt hasher reports the receipt hash.
 func TestAppHashesBuiltFromCommittedBlocks(t *testing.T) {
 	manager, _ := openManager(t, func(cfg *config.GigaStorageConfig) {
 		cfg.AppHashBuilderConfig.ChainID = testAppHashChainID
@@ -110,9 +118,12 @@ func TestAppHashesBuiltFromCommittedBlocks(t *testing.T) {
 		height := uint64(i) + 1 //nolint:gosec // small test heights
 		require.Equal(t, height, appHash.BlockHeight())
 		require.Equal(t, testAppHashChainID, appHash.ChainID())
-		require.Equal(t, [32]byte{}, appHash.BlockHash())
+		require.Equal(t, testBlockHash(height), appHash.BlockHash())
 		require.NotEqual(t, [32]byte{}, appHash.StateHash())
 		require.NotEqual(t, apphash.BUDHash{}, appHash.BUDHash())
+		emptyReceipts, err := receipthash.ComputeReceiptHash(nil)
+		require.NoError(t, err)
+		require.Equal(t, emptyReceipts, appHash.ReceiptHash())
 	}
 	head, err := manager.AppHashVault().GetLatestBlock()
 	require.NoError(t, err)
@@ -133,7 +144,9 @@ func TestRestartWithStateAheadOfTheAppHashVault(t *testing.T) {
 	savedVaultDir := filepath.Join(t.TempDir(), "vault")
 	require.NoError(t, os.CopyFS(savedVaultDir, os.DirFS(vaultDir)))
 	restartAt(t, manager, 3)
+	reportTestBlockHash(t, manager, 4)
 	commitBlock(t, manager, 4, evmBlock(4, 4))
+	reportTestBlockHash(t, manager, 5)
 	commitBlock(t, manager, 5, evmBlock(5, 5))
 	awaitAppHashes(t, manager, 5)
 	stopForRestart(t, manager)
@@ -153,7 +166,9 @@ func TestRestartWithStateAheadOfTheAppHashVault(t *testing.T) {
 	newest, published := listenForAppHashes(t, manager)
 	require.Equal(t, stored[2].AppHash(), newest.AppHash())
 
+	reportTestBlockHash(t, manager, 4)
 	commitBlock(t, manager, 4, evmBlock(4, 4))
+	reportTestBlockHash(t, manager, 5)
 	commitBlock(t, manager, 5, evmBlock(5, 5))
 	rebuilt := receiveAppHashes(t, published, 2)
 	require.Equal(t, uint64(4), rebuilt[0].BlockHeight())
@@ -176,7 +191,9 @@ func TestRestartWithTheAppHashVaultAheadOfState(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(5), head, "the app hashes above the recovered height are kept")
 
+	reportTestBlockHash(t, manager, 4)
 	commitBlock(t, manager, 4, evmBlock(4, 4))
+	reportTestBlockHash(t, manager, 5)
 	commitBlock(t, manager, 5, evmBlock(5, 5))
 	rebuilt := receiveAppHashes(t, published, 2)
 	require.Equal(t, stored[3].AppHash(), rebuilt[0].AppHash())
@@ -213,6 +230,7 @@ func TestAppHashCommitsToTheSubmittedReceipts(t *testing.T) {
 		GasUsed: 21000,
 	}}
 
+	reportTestBlockHash(t, manager, 1)
 	require.NoError(t, manager.StateDB().CommitStateChanges(1, evmBlock(1, 1)))
 	require.NoError(t, manager.ReceiptHasher().Submit(t.Context(), 1, receipts))
 

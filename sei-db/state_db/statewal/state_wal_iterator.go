@@ -10,16 +10,13 @@ import (
 
 var _ StateWALIterator = (*stateWALIterator)(nil)
 
-// An iterator over the blocks of a state WAL, which computes a block's hash only when asked for it.
+// An iterator over the blocks of a state WAL.
 type stateWALIterator struct {
 	// The iterator over the serialized blocks.
 	serializedBlocks seiwal.Iterator[[]byte]
 
 	// The block at the iterator's current position.
 	blockNumber uint64
-
-	// The serialization of the block at the iterator's current position.
-	serialized []byte
 
 	// The mutations of the block at the iterator's current position.
 	mutations []mutation.Mutation
@@ -41,7 +38,6 @@ func (it *stateWALIterator) Next() (bool, error) {
 	}
 	cloneMutationBytes(mutations)
 	it.blockNumber = blockNumber
-	it.serialized = serialized
 	it.mutations = mutations
 	return true, nil
 }
@@ -69,13 +65,4 @@ func (it *stateWALIterator) Close() error {
 		return fmt.Errorf("failed to close the WAL iterator: %w", err)
 	}
 	return nil
-}
-
-// GetHash returns the hash of the block at the iterator's current position.
-func (it *stateWALIterator) GetHash() ([32]byte, error) {
-	hash, err := hashSerializedBlock(it.serialized)
-	if err != nil {
-		return [32]byte{}, fmt.Errorf("failed to hash block %d: %w", it.blockNumber, err)
-	}
-	return hash, nil
 }
