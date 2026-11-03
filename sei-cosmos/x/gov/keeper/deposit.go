@@ -52,17 +52,8 @@ func (keeper Keeper) GetDeposits(ctx sdk.Context, proposalID uint64) (deposits t
 
 // DeleteDeposits deletes all the deposits on a specific proposal without refunding them
 func (keeper Keeper) DeleteDeposits(ctx sdk.Context, proposalID uint64) {
-	store := ctx.KVStore(keeper.storeKey)
-
 	keeper.IterateDeposits(ctx, proposalID, func(deposit types.Deposit) bool {
-		err := keeper.bankKeeper.BurnCoins(ctx, types.ModuleName, deposit.Amount)
-		if err != nil {
-			panic(err)
-		}
-
-		depositor := sdk.MustAccAddressFromBech32(deposit.Depositor)
-
-		store.Delete(types.DepositKey(proposalID, depositor))
+		keeper.burnDeposit(ctx, deposit)
 		return false
 	})
 }
@@ -170,23 +161,127 @@ func (keeper Keeper) AddDeposit(ctx sdk.Context, proposalID uint64, depositorAdd
 // their records. Deposits for unpayable recipients remain recorded and backed by
 // the governance module balance.
 func (keeper Keeper) RefundDeposits(ctx sdk.Context, proposalID uint64) {
-	store := ctx.KVStore(keeper.storeKey)
-
 	keeper.IterateDeposits(ctx, proposalID, func(deposit types.Deposit) bool {
-		depositor := sdk.MustAccAddressFromBech32(deposit.Depositor)
-		if keeper.bankKeeper.BlockedAddr(depositor) || !keeper.bankKeeper.CanSendTo(ctx, depositor) {
-			// Retain the deposit so its record continues to account for the backing
-			// module balance. Recovering a permanently unreceivable deposit requires
-			// a migration.
-			return false
-		}
-
-		err := keeper.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, depositor, deposit.Amount)
-		if err != nil {
-			panic(err)
-		}
-
-		store.Delete(types.DepositKey(proposalID, depositor))
+		keeper.refundDeposit(ctx, deposit)
 		return false
 	})
+}
+
+// ScheduleDepositSettlement queues a finished proposal's deposits to be burned or
+// refunded by SettleDeposits. A proposal without deposits is not queued.
+func (keeper Keeper) ScheduleDepositSettlement(ctx sdk.Context, proposalID uint64, burn bool) {
+	if !keeper.hasDeposits(ctx, proposalID) {
+		return
+	}
+	ctx.KVStore(keeper.storeKey).Set(types.DepositSettlementKey(proposalID), encodeDepositSettlement(burn, nil))
+}
+
+// hasDeposits reports whether a proposal has any deposit record.
+func (keeper Keeper) hasDeposits(ctx sdk.Context, proposalID uint64) bool {
+	iterator := sdk.KVStorePrefixIterator(ctx.KVStore(keeper.storeKey), types.DepositsKey(proposalID))
+	defer func() { _ = iterator.Close() }()
+	return iterator.Valid()
+}
+
+// SettleDeposits burns or refunds up to maxDeposits queued deposit records, oldest
+// proposal first, and returns how many records it processed. A queued proposal
+// with no records left counts as one record.
+func (keeper Keeper) SettleDeposits(ctx sdk.Context, maxDeposits int) (settled int) {
+	store := ctx.KVStore(keeper.storeKey)
+	iterator := sdk.KVStorePrefixIterator(store, types.DepositSettlementKeyPrefix)
+	defer func() { _ = iterator.Close() }()
+
+	for ; iterator.Valid() && settled < maxDeposits; iterator.Next() {
+		proposalID := types.SplitDepositSettlementKey(iterator.Key())
+		burn, cursor := decodeDepositSettlement(iterator.Value())
+		count, complete, nextCursor := keeper.settleProposalDeposits(ctx, proposalID, burn, maxDeposits-settled, cursor)
+		settled += max(count, 1)
+
+		settlementKey := types.DepositSettlementKey(proposalID)
+		if complete {
+			store.Delete(settlementKey)
+		} else {
+			store.Set(settlementKey, encodeDepositSettlement(burn, nextCursor))
+		}
+	}
+	return settled
+}
+
+func (keeper Keeper) settleProposalDeposits(
+	ctx sdk.Context,
+	proposalID uint64,
+	burn bool,
+	maxDeposits int,
+	after []byte,
+) (settled int, complete bool, cursor []byte) {
+	store := ctx.KVStore(keeper.storeKey)
+	depositsPrefix := types.DepositsKey(proposalID)
+	start := depositsPrefix
+	if len(after) != 0 {
+		start = sdk.PrefixEndBytes(after)
+	}
+	iterator := store.Iterator(start, sdk.PrefixEndBytes(depositsPrefix))
+	defer func() { _ = iterator.Close() }()
+
+	for ; iterator.Valid() && settled < maxDeposits; iterator.Next() {
+		cursor = append(cursor[:0], iterator.Key()...)
+		var deposit types.Deposit
+		keeper.cdc.MustUnmarshal(iterator.Value(), &deposit)
+		if burn {
+			keeper.burnDeposit(ctx, deposit)
+		} else {
+			keeper.refundDeposit(ctx, deposit)
+		}
+		settled++
+	}
+
+	complete = !iterator.Valid()
+	return settled, complete, cursor
+}
+
+// burnDeposit burns a deposit's amount and deletes its record.
+func (keeper Keeper) burnDeposit(ctx sdk.Context, deposit types.Deposit) {
+	if err := keeper.bankKeeper.BurnCoins(ctx, types.ModuleName, deposit.Amount); err != nil {
+		panic(err)
+	}
+	depositor := sdk.MustAccAddressFromBech32(deposit.Depositor)
+	ctx.KVStore(keeper.storeKey).Delete(types.DepositKey(deposit.ProposalId, depositor))
+}
+
+// refundDeposit returns a deposit to its depositor and deletes its record. A
+// deposit whose depositor cannot receive funds stays recorded, backed by the
+// governance module balance; recovering it requires a migration.
+func (keeper Keeper) refundDeposit(ctx sdk.Context, deposit types.Deposit) {
+	depositor := sdk.MustAccAddressFromBech32(deposit.Depositor)
+	if keeper.bankKeeper.BlockedAddr(depositor) || !keeper.bankKeeper.CanSendTo(ctx, depositor) {
+		return
+	}
+	if err := keeper.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, depositor, deposit.Amount); err != nil {
+		panic(err)
+	}
+	ctx.KVStore(keeper.storeKey).Delete(types.DepositKey(deposit.ProposalId, depositor))
+}
+
+const (
+	depositSettlementBurn   byte = 0
+	depositSettlementRefund byte = 1
+)
+
+func encodeDepositSettlement(burn bool, cursor []byte) []byte {
+	mode := depositSettlementRefund
+	if burn {
+		mode = depositSettlementBurn
+	}
+	return append([]byte{mode}, cursor...)
+}
+
+func decodeDepositSettlement(value []byte) (burn bool, cursor []byte) {
+	switch value[0] {
+	case depositSettlementBurn:
+		burn = true
+	case depositSettlementRefund:
+	default:
+		panic(fmt.Sprintf("invalid deposit settlement mode %d", value[0]))
+	}
+	return burn, append([]byte(nil), value[1:]...)
 }
