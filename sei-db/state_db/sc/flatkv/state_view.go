@@ -3,6 +3,7 @@ package flatkv
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -102,24 +103,48 @@ func (v *flatKVStateView) GetRaw(key []byte) ([]byte, bool) {
 // BatchGetRaw returns the bytes stored in this block under each found physical key, keyed by string(key).
 // It panics on a key under the store's metadata prefix.
 func (v *flatKVStateView) BatchGetRaw(keys [][]byte) map[string][]byte {
-	keysByStore := make(map[view.View][][]byte)
-	for _, key := range keys {
+	// There are at most four stores, so a list searched linearly beats a map keyed by store.
+	var batches []storeBatch
+	for k, key := range keys {
 		dbView, err := v.storeViewFor(key)
 		if err != nil {
 			panic(err)
 		}
-		keysByStore[dbView] = append(keysByStore[dbView], key)
+		i := slices.IndexFunc(batches, func(b storeBatch) bool { return b.dbView == dbView })
+		if i < 0 {
+			i = len(batches)
+			// Sized for every remaining key, since a batch's keys usually all belong to one store.
+			batches = append(batches, storeBatch{dbView: dbView, keys: make([][]byte, 0, len(keys)-k)})
+		}
+		batches[i].keys = append(batches[i].keys, key)
 	}
-	values := make(map[string][]byte, len(keys))
-	for dbView, storeKeys := range keysByStore {
-		found, err := dbView.BatchGet(storeKeys)
+
+	// Each store's answer is a map of its own, so the largest one collects the others rather than all of
+	// them being copied into a new one. A batch within one store returns that store's answer as is.
+	var values map[string][]byte
+	for _, batch := range batches {
+		found, err := batch.dbView.BatchGet(batch.keys)
 		if err != nil {
 			panic(fmt.Sprintf("flatkv: %s batch read of %d keys at height %d: %v",
-				dbView.Name(), len(storeKeys), v.blockView.BlockHeight(), err))
+				batch.dbView.Name(), len(batch.keys), v.blockView.BlockHeight(), err))
+		}
+		if len(found) > len(values) {
+			values, found = found, values
 		}
 		maps.Copy(values, found)
 	}
+	if values == nil {
+		return map[string][]byte{}
+	}
 	return values
+}
+
+// storeBatch is the keys of one BatchGetRaw() call that belong to one store.
+type storeBatch struct {
+	// The view of the store the keys belong to.
+	dbView view.View
+	// The keys, in the order they were requested.
+	keys [][]byte
 }
 
 // AccountExists reports whether addr has an account in this block.

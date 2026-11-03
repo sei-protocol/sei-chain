@@ -322,7 +322,7 @@ func replayForTrace(t *testing.T, fixture *parity.Fixture) *traceReplayBackend {
 		MinGasPrice:          new(big.Int),
 		OCCWorkers:           replayOCCWorkers,
 		RejectUnappliableTxs: true,
-	}, evmonly.WithStore(store, store.EncodeChangeSet), evmonly.WithReceiptStore(receipts))
+	}, evmonly.WithStore(store), evmonly.WithReceiptStore(receipts))
 	t.Cleanup(executor.Close)
 
 	first := fixture.Blocks[0]

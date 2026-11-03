@@ -10,6 +10,19 @@ export const WEI_PER_USEI = 10n ** 12n;
 /** Alias kept for the balance/fee-reconciliation specs that read this as `USEI`. */
 export const USEI = WEI_PER_USEI;
 
+/**
+ * Server-side log-filter limits of Sei's EVM RPC: the evmrpc/config/config.go defaults, which the
+ * docker devnet does not override. A query over `maxLogs` matching logs or `maxBlocks` blocks fails
+ * instead of truncating; at most `maxFilters` filters exist at once, and one not read for
+ * `timeoutMs` is removed by a sweep that runs every `timeoutMs / 2` (evmrpc/filter.go cleanupLoop).
+ */
+export const FILTER_LIMITS = {
+    maxLogs: 10_000,
+    maxBlocks: 2_000,
+    maxFilters: 1_000,
+    timeoutMs: 120_000,
+} as const;
+
 /** Sei's staking precompile address (used by precompile-call fixtures). */
 export const STAKING_PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000001005';
 
