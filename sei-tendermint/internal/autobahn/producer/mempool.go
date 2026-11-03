@@ -202,6 +202,12 @@ func (s *State) pruneMempool(mp *mempool, n types.BlockNumber) {
 	}
 }
 
+// WaitForMempool waits until an active produce session is available or ctx is canceled.
+func (s *State) WaitForMempool(ctx context.Context) error {
+	_, err := s.mempool.Wait(ctx, func(mp utils.Option[*mempool]) bool { return mp.IsPresent() })
+	return err
+}
+
 // TryInsertTx inserts tx to the mempool. Returns errMempoolFull if the mempool is full.
 func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
 	return s.insertTx(ctx, tx, false)

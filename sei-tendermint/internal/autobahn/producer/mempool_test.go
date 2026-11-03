@@ -288,8 +288,7 @@ func newTestEnvN(rng utils.Rng, n int, cfg *Config, app *proxy.Proxy) (*testEnv,
 
 // waitForMempool waits until the producer publishes a session mempool.
 func (env *testEnv) waitForMempool(ctx context.Context) error {
-	_, err := env.state.mempool.Wait(ctx, func(mp utils.Option[*mempool]) bool { return mp.IsPresent() })
-	return err
+	return env.state.WaitForMempool(ctx)
 }
 
 func TestInsertTx_TooLargeTx(t *testing.T) {
