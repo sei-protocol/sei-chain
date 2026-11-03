@@ -49,23 +49,32 @@ func (c *Config) maxTxsPerBlock() uint64 {
 
 // State is the block producer state.
 type State struct {
-	cfg       *Config
-	app       *proxy.Proxy
-	mempool   utils.AtomicSend[utils.Option[*mempool]] // None when not producing
-	consensus *consensus.State
-	// checkTxSem bounds concurrent CheckTx calls on the insert path.
-	checkTxSem *utils.Semaphore
+	cfg             *Config
+	app             *proxy.Proxy
+	mempool         utils.AtomicSend[utils.Option[*mempool]] // None when not producing
+	consensus       *consensus.State
+	checkTxSem      *utils.Semaphore // bounds CheckTx calls.
+	insertTxSem     *utils.Semaphore // bounds InsertTx calls waiting for mempool capacity.
+	insertTxLimiter *rate.Limiter
 }
 
 // NewState constructs a new block producer state.
 // Mempool starts None; alignMempool creates it for each produce session.
 func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State {
+	limit := rate.Inf
+	burst := 1
+	if l, ok := cfg.MaxTxsPerSecond.Get(); ok {
+		limit = rate.Limit(l)
+		burst = int(l + cfg.MaxTxsPerBlock) // nolint:gosec
+	}
 	return &State{
-		cfg:        cfg,
-		app:        app,
-		mempool:    utils.NewAtomicSend(utils.None[*mempool]()),
-		consensus:  consensus,
-		checkTxSem: utils.NewSemaphore(cfg.maxConcurrentCheckTx()),
+		cfg:             cfg,
+		app:             app,
+		mempool:         utils.NewAtomicSend(utils.None[*mempool]()),
+		consensus:       consensus,
+		checkTxSem:      utils.NewSemaphore(cfg.maxConcurrentCheckTx()),
+		insertTxSem:     utils.NewSemaphore(1),
+		insertTxLimiter: rate.NewLimiter(limit, burst),
 	}
 }
 
@@ -100,11 +109,7 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		// Register mempool for lane.
 		firstBlock := s.consensus.Avail().NextBlock(lane)
-		inner := newMempoolInner(avail.BlocksPerLane, lane, firstBlock)
-		mp := &mempool{
-			inner: utils.NewWatch(inner),
-			insertTxCh: make(chan insertTxReq),
-		}
+		mp := newMempool(avail.BlocksPerLane, lane, firstBlock)
 		s.mempool.Store(utils.Some(mp))
 		defer func() {
 			s.mempool.Store(utils.None[*mempool]())
@@ -113,35 +118,6 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 				ctrl.Updated()
 			}
 		}()
-
-		scope.SpawnBg(func() error {
-			// Task sequencing InsertTx calls. 
-			// We use it to avoid spurious goroutine waking when many InsertTx calls are waiting for capacity.
-			limit := rate.Inf
-			burst := 1
-			if l, ok := s.cfg.MaxTxsPerSecond.Get(); ok {
-				limit = rate.Limit(l)
-				burst = int(l + s.cfg.MaxTxsPerBlock) // nolint:gosec
-			}
-			limiter := rate.NewLimiter(limit, burst)
-			for ctx.Err()==nil {
-				if err := limiter.Wait(ctx); err != nil {
-					return err 
-				}
-				req,err := utils.Recv(ctx,mp.insertTxCh)
-				if err!=nil { return err }
-				resp,err := s.insertTx(ctx,mp,req.tx,true)
-				if ctx.Err()!=nil {
-					// ctx error means we stopped producing.
-					err = ErrNotProducing
-				}
-				// Respond unconditionally to unblock InsertTx call.
-				// non-blocking, since we are the only writer to this channel
-				// and it has capacity 1.
-				req.respCh <- insertTxResp{resp,err}
-			}
-			return ctx.Err()
-		})
 		scope.SpawnBg(func() error {
 			// Task pruning executed lane blocks from the mempool
 			dataState := s.consensus.Data()
@@ -154,8 +130,8 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 			}
 		})
 		scope.SpawnBg(func() error {
-			// Task pushing blocks from mempool to avail state.	
-			for toProduce := firstBlock; ; toProduce += 1 {
+			// Task pushing blocks from mempool to avail state.
+			for toProduce := firstBlock; ctx.Err() == nil; toProduce += 1 {
 				if err := availState.WaitForCapacity(ctx, lane, toProduce); err != nil {
 					if errors.Is(err, avail.ErrLaneClosed) {
 						return nil
@@ -201,7 +177,7 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 						CreatedAt:         time.Now(),
 						TotalGasWanted:    b.gasWanted,
 						TotalGasEstimated: b.gasEstimated,
-						Txs:               b.txs,
+						Txs:               b.rawTxs,
 					}.Build()
 					if err != nil {
 						// This should never happen: we construct the payload from correctly sized data.
@@ -213,8 +189,9 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 						return nil
 					}
 					return fmt.Errorf("availState.ProduceLocalBlock(): %w", err)
-				}	
+				}
 			}
+			return ctx.Err()
 		})
 		return availState.WaitUntilClosed(ctx, lane)
 	})
