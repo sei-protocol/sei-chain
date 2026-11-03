@@ -82,6 +82,8 @@ const (
 // - 0x44<proposalID_Bytes><tallyRound_Byte><validatorAddrLen (1 Byte)><validatorAddr_Bytes>: Tally validator accumulator
 
 // - 0x45<proposalID_Bytes><tallyRound_Byte>: Tally validator accumulator cleanup cursor
+
+// - 0x46<proposalID_Bytes>: Finished proposal's pending deposit settlement
 var (
 	ProposalsKeyPrefix          = []byte{0x00}
 	ActiveProposalQueuePrefix   = []byte{0x01}
@@ -117,6 +119,7 @@ var (
 	ModernTallyRoundKeyPrefix           = []byte{0x43}
 	TallyValidatorAccumulatorsKeyPrefix = []byte{0x44}
 	TallyAccumulatorCleanupKeyPrefix    = []byte{0x45}
+	DepositSettlementKeyPrefix          = []byte{0x46}
 )
 
 var lenTime = len(sdk.FormatTimeBytes(time.Now()))
@@ -306,6 +309,11 @@ func TallyAccumulatorCleanupKey(proposalID uint64, expedited bool) []byte {
 	return append(append(TallyAccumulatorCleanupKeyPrefix, GetProposalIDBytes(proposalID)...), tallyRound(expedited))
 }
 
+// DepositSettlementKey returns the key for a finished proposal's pending deposit settlement.
+func DepositSettlementKey(proposalID uint64) []byte {
+	return append(append([]byte(nil), DepositSettlementKeyPrefix...), GetProposalIDBytes(proposalID)...)
+}
+
 func tallyRound(expedited bool) byte {
 	if expedited {
 		return 0
@@ -359,6 +367,15 @@ func SplitTallyAccumulatorCleanupKey(key []byte) (proposalID uint64, expedited b
 		panic(fmt.Sprintf("invalid tally accumulator cleanup key prefix %d", key[0]))
 	}
 	return GetProposalIDFromBytes(key[1:9]), decodeTallyRound(key[9])
+}
+
+// SplitDepositSettlementKey returns the proposal encoded in a deposit settlement key.
+func SplitDepositSettlementKey(key []byte) (proposalID uint64) {
+	kv.AssertKeyLength(key, 9)
+	if key[0] != DepositSettlementKeyPrefix[0] {
+		panic(fmt.Sprintf("invalid deposit settlement key prefix %d", key[0]))
+	}
+	return GetProposalIDFromBytes(key[1:])
 }
 
 // SplitKeyDeposit split the deposits key and returns the proposal id and depositor address
