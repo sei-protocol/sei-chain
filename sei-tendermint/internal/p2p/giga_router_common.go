@@ -197,9 +197,9 @@ func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", n, err)
 		}
-		// TODO: PushAppHash needs the validator set from right after block n was
-		// committed. GetValidators() is the app tip, which may already be past n.
-		// Read the set stored for n once app state keeps one.
+		// TODO: PushAppHash needs the validator set from right after block n.
+		// GetValidators() is the app tip, which can be past n. Read the next
+		// epoch's validator set from app state once it keeps one.
 		weights, err := committeeWeights(r.app.GetValidators())
 		if err != nil {
 			return err
