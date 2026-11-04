@@ -1,11 +1,11 @@
 // Package blockstore implements types.BlockStore, the durable backing store for
-// the consensus state machine, over any sei-db block database.
+// the consensus state machine, over any block database.
 package blockstore
 
 import (
 	"fmt"
 
-	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
+	blocktypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )

@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/littblock"
 )
 
 // openManager opens a manager over a fresh home directory, applying tweak to the default config

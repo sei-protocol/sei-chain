@@ -6,12 +6,12 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/littblock"
 )
 
 // OpenDBWithRecovery opens every store and brings them onto one height after an unclean shutdown: the lowest

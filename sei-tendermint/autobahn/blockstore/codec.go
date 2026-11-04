@@ -3,7 +3,7 @@ package blockstore
 import (
 	"fmt"
 
-	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
+	blocktypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/types"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )

@@ -3,10 +3,10 @@ package memblock_test
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/blocktest"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/blocktest"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
-	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/memblock"
+	blocktypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/types"
 )
 
 // TestBlockDBContract runs the shared storage contract against memblock. One

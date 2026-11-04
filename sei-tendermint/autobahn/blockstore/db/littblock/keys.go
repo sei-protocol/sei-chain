@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
+	blocktypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/types"
 )
 
 // ledgerKey contains a record or alias kind and its encoded payload.

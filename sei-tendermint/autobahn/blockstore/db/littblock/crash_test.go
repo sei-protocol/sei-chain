@@ -10,14 +10,14 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/blocktest"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/blocktest"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/littblock"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
-	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
+	blocktypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/types"
 )
 
 const (

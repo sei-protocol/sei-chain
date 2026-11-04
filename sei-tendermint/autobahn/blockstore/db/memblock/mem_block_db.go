@@ -4,7 +4,7 @@ import (
 	"slices"
 	"sync"
 
-	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
+	blocktypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/types"
 )
 
 var _ blocktypes.BlockDB = (*blockDB)(nil)

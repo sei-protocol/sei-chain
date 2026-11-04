@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/blocktest"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/blocktest"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
-	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/littblock"
+	blocktypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/types"
 )
 
 // strandingConfig builds a config whose only segment-rollover trigger is a small

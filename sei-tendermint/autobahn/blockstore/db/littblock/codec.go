@@ -6,7 +6,7 @@ import (
 	"math"
 
 	litttypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
-	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
+	blocktypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/types"
 )
 
 // record contains the encoded data passed to LittDB.
