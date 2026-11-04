@@ -47,6 +47,7 @@ type mempool struct {
 // added to a nonceRange with different ID.
 type nonceRangeID uint64
 
+// range [first,next) of pending txs in lane + mempool
 type nonceRange struct {
 	id    nonceRangeID
 	first uint64
@@ -138,7 +139,7 @@ func (s *State) evmNextPendingNonce(m *mempool, addr common.Address) uint64 {
 	}
 	// Nonce gap detected, invalidate pending nonces.
 	for inner, ctrl := range m.inner.Lock() {
-		// Ensure that evmNonces were not updated in the meantime.
+		// Check ID, since pending nonces could have been invalidated by a concurrent call.
 		if got, ok := inner.evmNonces[addr]; ok && got.id == pendingNonces.id {
 			delete(inner.evmNonces, addr)
 			ctrl.Updated()
@@ -278,10 +279,6 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 			}
 		}
 	}
-	// Rate limiting for incoming transactions.
-	if err := s.insertTxLimiter.Wait(ctx); err != nil {
-		return nil, err
-	}
 	resp, err := s.checkTx(ctx, tx)
 	if err != nil {
 		return nil, err
@@ -312,8 +309,15 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 	if got, want := resp.EVMNonce, s.evmNextPendingNonce(mp, addr); got != want {
 		return nil, fmt.Errorf("%w: got %v, want %v", errBadNonce, got, want)
 	}
-
+	// Rate limiting for incoming transactions.
+	// This is lane throughput throttling, so it comes after tx validation.
+	// Also it is TESTONLY feature as of today, noop in prod.
+	if err := s.insertTxLimiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+	var capacityWaitStart time.Time
 	if waitIfFull {
+		capacityWaitStart = time.Now()
 		// In case there are many concurrent insertTx calls waiting for capacity,
 		// it gets CPU heavy to wake all of them every time mempool gets updated.
 		// Therefore we guard the inner mutex with a semaphore which wakes 1 task at a time.
@@ -329,6 +333,7 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 			if err := ctrl.WaitUntil(ctx, func() bool { return m.closed || !m.IsFull() }); err != nil {
 				return nil, err
 			}
+			metrics.ObserveCapacityWait(time.Since(capacityWaitStart))
 		}
 		if m.closed {
 			return nil, ErrNotProducing

@@ -12,6 +12,7 @@ var Global = newMetrics()
 func init() {
 	prometheus.MustRegister(
 		Global.checkTxWaitLatency,
+		Global.capacityWaitLatency,
 		Global.Inserts,
 	)
 }
@@ -25,6 +26,13 @@ func newMetrics() *metrics {
 			Help:      "Time an insert spent waiting for a CheckTx concurrency permit.",
 			Buckets:   prometheus.ExponentialBuckets(0.00001, 2, 30),
 		}, nil),
+		capacityWaitLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "capacity_wait_latency",
+			Help:      "Time an insert spent blocked waiting for mempool capacity.",
+			Buckets:   prometheus.ExponentialBuckets(0.0001, 2, 30),
+		}, nil),
 		Inserts: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -36,6 +44,10 @@ func newMetrics() *metrics {
 
 func (m *metrics) checkTxWaitLatencyAt() *tmprometheus.Histogram {
 	return m.checkTxWaitLatency.WithLabelValues()
+}
+
+func (m *metrics) capacityWaitLatencyAt() *tmprometheus.Histogram {
+	return m.capacityWaitLatency.WithLabelValues()
 }
 
 func (m *metrics) InsertsAt(result string) *tmprometheus.CounterInt {

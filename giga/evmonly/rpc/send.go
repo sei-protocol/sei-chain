@@ -20,8 +20,9 @@ import (
 
 // limitExceededError reports a request exceeding an RPC resource limit.
 type limitExceededError struct{}
+
 func (limitExceededError) ErrorCode() int { return -32005 }
-func (limitExceededError) Error() string { return "server busy" }
+func (limitExceededError) Error() string  { return "server busy" }
 
 type sendAPI struct {
 	backend        Backend
@@ -39,7 +40,7 @@ func newSendAPI(backend Backend, maxConcurrentSendCalls int) *sendAPI {
 // returns its Ethereum transaction hash.
 func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (common.Hash, error) {
 	if !api.requestLimiter.TryAcquire(1) {
-		return common.Hash{}, limitExceededError{} 
+		return common.Hash{}, limitExceededError{}
 	}
 	defer api.requestLimiter.Release(1)
 	tx := new(ethtypes.Transaction)
