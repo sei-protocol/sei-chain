@@ -181,7 +181,7 @@ func (env *testEnv) executor(app *recordingApp) *Executor {
 		GenDoc:         env.genDoc,
 		App:            proxy.New(app),
 		AppHashBuilder: recordingBuilder{events: env.events},
-		Blocks:         env.store,
+		BlockStore:     env.store,
 	})
 }
 

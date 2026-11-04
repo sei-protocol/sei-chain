@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	datametrics "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data/metrics"
@@ -19,12 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// DurableBlocks serves the blocks execution runs, once they are durable.
-type DurableBlocks interface {
-	// WaitForBlock returns the block of road n, waiting until it is durable.
-	WaitForBlock(ctx context.Context, n atypes.RoadIndex) (*atypes.RoadBlock, error)
-}
-
 // Config configures an Executor.
 type Config struct {
 	// GenDoc is the genesis a fresh app is initialized from.
@@ -33,8 +28,8 @@ type Config struct {
 	App *proxy.Proxy
 	// AppHashBuilder receives each block's hash before the block runs.
 	AppHashBuilder builder.AppHashBuilder
-	// Blocks serves the blocks to execute.
-	Blocks DurableBlocks
+	// BlockStore holds the blocks to execute.
+	BlockStore *blockstore.Store
 }
 
 // Executor executes durable blocks on the app, one at a time in road order.
@@ -69,7 +64,7 @@ func (e *Executor) Run(ctx context.Context) error {
 	}
 	for n := next; ; n += 1 {
 		gigametrics.SetPhase(gigametrics.PhaseConsensus)
-		block, err := e.cfg.Blocks.WaitForBlock(ctx, n)
+		block, err := e.cfg.BlockStore.WaitForBlock(ctx, n)
 		if err != nil {
 			return fmt.Errorf("WaitForBlock(%v): %w", n, err)
 		}
@@ -112,7 +107,7 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 	}
 	// Blocks execute only once durable, so the app tip is in the BlockStore
 	// unless retention has passed it.
-	block, err := e.cfg.Blocks.WaitForBlock(ctx, last)
+	block, err := e.cfg.BlockStore.WaitForBlock(ctx, last)
 	if err != nil {
 		if errors.Is(err, atypes.ErrPruned) {
 			return 0, fmt.Errorf("app tip %d is below the BlockStore retention floor, so its header cannot be loaded: %w", last, err)

@@ -271,6 +271,6 @@ func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store) *exec
 		GenDoc:         cfg.GenDoc,
 		App:            cfg.App,
 		AppHashBuilder: cfg.AppHashBuilder,
-		Blocks:         store,
+		BlockStore:     store,
 	})
 }

@@ -371,7 +371,7 @@ func buildExecutor(app *proxy.Proxy, genDoc *types.GenesisDoc, manager *bootstra
 		GenDoc:         genDoc,
 		App:            app,
 		AppHashBuilder: manager.AppHashBuilder(),
-		Blocks:         manager.BlockStore(),
+		BlockStore:     manager.BlockStore(),
 	})
 }
 
