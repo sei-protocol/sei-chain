@@ -2,9 +2,12 @@ package blockstore_test
 
 import (
 	"context"
+	"errors"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
+	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -43,6 +46,44 @@ func TestDurableBlockServesABlockOnlyAfterFlush(t *testing.T) {
 	_, err := store.DurableBlock(canceledContext(t), batches[0].first)
 	require.ErrorIs(t, err, context.Canceled)
 
+	require.NoError(t, store.Flush())
+	got, err := store.DurableBlock(canceledContext(t), batches[0].first)
+	require.NoError(t, err)
+	require.Equal(t, batches[0].qc.Header().Hash(), got.Header().Hash())
+}
+
+var errFlushFailed = errors.New("flush failed")
+
+// failingFlushDB is a BlockDB whose Flush fails while fail is set.
+type failingFlushDB struct {
+	blocktypes.BlockDB
+	fail *atomic.Bool
+}
+
+func (d failingFlushDB) Flush() error {
+	if d.fail.Load() {
+		return errFlushFailed
+	}
+	return d.BlockDB.Flush()
+}
+
+// TestDurableBlockKeepsBlocksAcrossAFailedFlush verifies that a failed Flush
+// leaves its blocks for the next Flush, even one with no new writes.
+func TestDurableBlockKeepsBlocksAcrossAFailedFlush(t *testing.T) {
+	var fail atomic.Bool
+	store, err := blockstore.New(failingFlushDB{BlockDB: memblock.NewBlockDB(), fail: &fail})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	writeBatch(t, store, batches[0])
+
+	fail.Store(true)
+	require.ErrorIs(t, store.Flush(), errFlushFailed)
+	_, err = store.DurableBlock(canceledContext(t), batches[0].first)
+	require.ErrorIs(t, err, context.Canceled)
+
+	fail.Store(false)
 	require.NoError(t, store.Flush())
 	got, err := store.DurableBlock(canceledContext(t), batches[0].first)
 	require.NoError(t, err)

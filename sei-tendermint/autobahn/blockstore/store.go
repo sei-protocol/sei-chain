@@ -32,6 +32,11 @@ type Store struct {
 	// recently flushed ones. Lock order: status before handoff.
 	handoff utils.Mutex[*blockHandoff]
 
+	// flushing serializes Flush and holds the blocks the running Flush is making
+	// durable, so blocks reach handoff in road order. Lock order: flushing before
+	// handoff.
+	flushing utils.Mutex[*[]*types.RoadBlock]
+
 	// nextDurable is the lowest road whose block is not durable yet.
 	nextDurable utils.AtomicSend[types.RoadIndex]
 }
@@ -52,6 +57,7 @@ func New(db blocktypes.BlockDB) (*Store, error) {
 		db:          db,
 		status:      utils.NewMutex(new(utils.Option[types.SuffixRange])),
 		handoff:     utils.NewMutex(&blockHandoff{recent: map[types.RoadIndex]*types.RoadBlock{}}),
+		flushing:    utils.NewMutex(new([]*types.RoadBlock)),
 		nextDurable: utils.NewAtomicSend(types.RoadIndex(0)),
 	}
 	suffix, err := s.ReadSuffix()
@@ -187,18 +193,25 @@ func (s *Store) First() types.RoadIndex {
 }
 
 func (s *Store) Flush() error {
-	var written []*types.RoadBlock
-	for handoff := range s.handoff.Lock() {
-		written, handoff.unflushed = handoff.unflushed, nil
-	}
-	if err := s.db.Flush(); err != nil {
+	for batch := range s.flushing.Lock() {
 		for handoff := range s.handoff.Lock() {
-			handoff.unflushed = append(written, handoff.unflushed...)
+			*batch, handoff.unflushed = handoff.unflushed, nil
 		}
-		return fmt.Errorf("failed to flush block db: %w", err)
+		err := s.db.Flush()
+		if err != nil {
+			for handoff := range s.handoff.Lock() {
+				handoff.unflushed = append(*batch, handoff.unflushed...)
+			}
+		} else {
+			s.publishDurable(*batch)
+		}
+		*batch = nil
+		if err != nil {
+			return fmt.Errorf("failed to flush block db: %w", err)
+		}
+		return nil
 	}
-	s.publishDurable(written)
-	return nil
+	panic("unreachable")
 }
 
 // publishDurable caches blocks, which a Flush has just made durable, and moves
@@ -215,10 +228,7 @@ func (s *Store) publishDurable(blocks []*types.RoadBlock) {
 				delete(handoff.recent, n-recentBlocksCacheSize)
 			}
 		}
-		// A concurrent Flush may have already published a later tip.
-		if next := blocks[len(blocks)-1].QC().Index() + 1; next > s.nextDurable.Load() {
-			s.nextDurable.Store(next)
-		}
+		s.nextDurable.Store(blocks[len(blocks)-1].QC().Index() + 1)
 	}
 }
 
