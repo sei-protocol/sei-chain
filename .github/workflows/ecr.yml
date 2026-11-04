@@ -1,10 +1,6 @@
 name: ECR
 
 on:
-  push:
-    branches:
-      - main
-      - 'release/**'
   workflow_dispatch:
     inputs:
       ref:
@@ -18,7 +14,7 @@ on:
 jobs:
   publisher:
     name: Publish Container
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     permissions:
       id-token: write
       contents: read
@@ -37,66 +33,19 @@ jobs:
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-      - name: Compute the ordered main tag
-        # main-<UTC committer timestamp>-<sha7>, which Flux image policies can
-        # order numerically. Only a push to main gets one.
-        id: ordered
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          set -euo pipefail
-          TS=$(TZ=UTC0 git show -s --format=%cd --date=format-local:%Y%m%d%H%M%S HEAD)
-          echo "tag=main-${TS}-$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
       - name: Set up Docker Buildx
         # See: https://github.com/docker/setup-buildx-action/releases/tag/v4.1.0
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
-      - name: Build and push seid with mock balances
+      - name: Build and push arm64 seid with mock balances
         uses: docker/build-push-action@v6
         with:
           context: '.'
-          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
-          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
-          platforms: linux/amd64
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:arm64
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:arm64,mode=max
+          platforms: linux/arm64
           push: true
-          tags: |
-            ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:mock-${{ inputs.tag || inputs.ref || github.sha }}
-            ${{ steps.ordered.outputs.tag && format('{0}/sei/sei-chain:mock-{1}', steps.login-ecr.outputs.registry, steps.ordered.outputs.tag) || '' }}
+          provenance: false
+          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:mock-${{ inputs.tag || inputs.ref }}-arm64
           build-args: |
-            SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
+            SEI_CHAIN_REF=${{ inputs.ref }}
             GO_BUILD_TAGS=mock_balances
-      - name: Build and push seid with mock block validation
-        uses: docker/build-push-action@v6
-        with:
-          context: '.'
-          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
-          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:mock_block_validation-${{ inputs.tag || inputs.ref || github.sha }}
-          build-args: |
-            SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
-            GO_BUILD_TAGS=mock_block_validation
-      - name: Build and push seid with mock chain validation
-        uses: docker/build-push-action@v6
-        with:
-          context: '.'
-          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
-          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:mock_chain_validation-${{ inputs.tag || inputs.ref || github.sha }}
-          build-args: |
-            SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
-            GO_BUILD_TAGS=mock_chain_validation
-      - name: Build and push seid
-        uses: docker/build-push-action@v6
-        with:
-          context: '.'
-          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
-          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ inputs.tag || inputs.ref || github.sha }}
-            ${{ steps.ordered.outputs.tag && format('{0}/sei/sei-chain:{1}', steps.login-ecr.outputs.registry, steps.ordered.outputs.tag) || '' }}
-          build-args: |
-            SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
