@@ -121,6 +121,16 @@ func (p Precompile) submitParamChangeProposal(ctx *precompiles.Context, s store,
 	return submit(ctx, s, method, content, content.IsExpedited)
 }
 
+func (p Precompile) submitSoftwareUpgradeProposal(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
+	content := softwareUpgradeContent{Title: args[0].(string), Description: args[1].(string), IsExpedited: args[2].(bool), Plan: upgradePlanArg(args[3])}
+	return submit(ctx, s, method, content, content.IsExpedited)
+}
+
+func (p Precompile) submitCancelSoftwareUpgradeProposal(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
+	content := cancelSoftwareUpgradeContent{Title: args[0].(string), Description: args[1].(string), IsExpedited: args[2].(bool), Name: args[3].(string)}
+	return submit(ctx, s, method, content, content.IsExpedited)
+}
+
 // submit creates a proposal of content and returns its packed id.
 func submit(ctx *precompiles.Context, s store, method *abi.Method, content govContent, isExpedited bool) ([]byte, error) {
 	id, err := createProposal(ctx, s, content, isExpedited)
@@ -137,7 +147,7 @@ func createProposal(ctx *precompiles.Context, s store, content govContent, isExp
 	if len(encoded) > maxContentLength {
 		return 0, fmt.Errorf("%w: %d bytes encoded, max %d", errContentTooLong, len(encoded), maxContentLength)
 	}
-	if err := content.validate(s); err != nil {
+	if err := content.validate(ctx.Block, s); err != nil {
 		return 0, err
 	}
 	amount, err := depositAmount(ctx.ApparentValue)

@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
 )
 
 var (
@@ -63,6 +64,18 @@ var argChecks = map[string]func(args []interface{}) error{
 		}
 		return chainparams.CheckChanges(paramChangesArg(args[3]))
 	},
+	SubmitSoftwareUpgradeMethod: func(args []interface{}) error {
+		if err := checkText(args[0].(string), args[1].(string)); err != nil {
+			return err
+		}
+		return upgradePlanArg(args[3]).ValidateBasic()
+	},
+	SubmitCancelUpgradeMethod: func(args []interface{}) error {
+		if err := checkText(args[0].(string), args[1].(string)); err != nil {
+			return err
+		}
+		return upgrade.ValidateName(args[3].(string))
+	},
 	ProposalsMethod: checkProposalsArgs,
 	VotesMethod:     func(args []interface{}) error { return checkPageKey(args[1].([]byte)) },
 	DepositsMethod:  func(args []interface{}) error { return checkPageKey(args[1].([]byte)) },
@@ -79,6 +92,12 @@ func paramChangesArg(arg interface{}) []chainparams.Change {
 	var changes []chainparams.Change
 	abi.ConvertType(arg, &changes)
 	return changes
+}
+
+func upgradePlanArg(arg interface{}) upgrade.Plan {
+	var plan upgrade.Plan
+	abi.ConvertType(arg, &plan)
+	return plan
 }
 
 func weightedOptionsArg(arg interface{}) []WeightedVoteOption {

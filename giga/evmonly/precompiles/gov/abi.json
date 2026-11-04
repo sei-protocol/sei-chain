@@ -677,6 +677,91 @@
   },
   {
     "type": "function",
+    "name": "submitSoftwareUpgradeProposal",
+    "inputs": [
+      {
+        "name": "title",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "description",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "isExpedited",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "plan",
+        "type": "tuple",
+        "internalType": "struct UpgradePlan",
+        "components": [
+          {
+            "name": "name",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "height",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "info",
+            "type": "string",
+            "internalType": "string"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "proposalID",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "submitCancelSoftwareUpgradeProposal",
+    "inputs": [
+      {
+        "name": "title",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "description",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "isExpedited",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "proposalID",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
     "name": "submitProposal",
     "inputs": [
       {

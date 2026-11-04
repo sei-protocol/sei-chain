@@ -13,6 +13,34 @@ struct TextContent {
     bool isExpedited;
 }
 
+/// @notice A software upgrade plan. The plan takes effect at the first EVM
+/// block at or after height; info is V2's Plan.Info, where
+/// {"upgradeType":"minor"} marks a minor release whose binary may be installed
+/// before height.
+struct UpgradePlan {
+    string name;
+    uint64 height;
+    string info;
+}
+
+/// @notice Content of a software upgrade proposal; `ProposalData.content` is
+/// its abi.encode when `contentType` is 1.
+struct SoftwareUpgradeContent {
+    string title;
+    string description;
+    UpgradePlan plan;
+    bool isExpedited;
+}
+
+/// @notice Content of a proposal cancelling the scheduled software upgrade
+/// named name; `ProposalData.content` is its abi.encode when `contentType` is 2.
+struct CancelSoftwareUpgradeContent {
+    string title;
+    string description;
+    string name;
+    bool isExpedited;
+}
+
 /// @notice A change to one param. key is its flat key, e.g. "tallyparams.quorum";
 /// each field of docs/giga-storage/ParamsStorage.sol is a declared param, with its
 /// flat key in the field's comment and its type the field's. value is the 32-byte
@@ -71,7 +99,7 @@ interface IGov {
         uint64 votingStartTime; // 0 before voting starts
         uint64 votingEndTime; // 0 before voting starts
         bool isExpedited;
-        uint8 contentType; // 0: TextContent, 3: ParamChangeContent; 1 and 2 are reserved for software upgrades (CON-573)
+        uint8 contentType; // 0: TextContent, 1: SoftwareUpgradeContent, 2: CancelSoftwareUpgradeContent, 3: ParamChangeContent
         bytes content; // abi.encode of the contentType struct
     }
 
@@ -151,6 +179,35 @@ interface IGov {
         string calldata description,
         bool isExpedited,
         ParamChange[] calldata changes
+    ) external payable returns (uint64 proposalID);
+
+    /// @notice Submits a proposal to schedule a software upgrade, depositing
+    /// msg.value on it. plan needs a name of 1 to 128 ASCII letters, digits,
+    /// '.', '+' or '-', info of at most 8 KiB, and a height above 0 that fits
+    /// an int64, or the call reverts. The call fails with no revert data when
+    /// plan's height is below the current block or its name was already
+    /// applied. When the proposal passes, plan replaces any scheduled plan; if
+    /// its height is then below the block or its name was applied, the proposal
+    /// is Failed instead.
+    function submitSoftwareUpgradeProposal(
+        string calldata title,
+        string calldata description,
+        bool isExpedited,
+        UpgradePlan calldata plan
+    ) external payable returns (uint64 proposalID);
+
+    /// @notice Submits a proposal to cancel the scheduled software upgrade
+    /// named name, depositing msg.value on it. name needs 1 to 128 ASCII
+    /// letters, digits, '.', '+' or '-', or the call reverts. The call
+    /// fails with no revert data when no plan is scheduled or the scheduled plan
+    /// is not named name. When the proposal passes it clears the plan; if the
+    /// scheduled plan is then not named name, the proposal is Failed instead and
+    /// any plan is kept.
+    function submitCancelSoftwareUpgradeProposal(
+        string calldata title,
+        string calldata description,
+        bool isExpedited,
+        string calldata name
     ) external payable returns (uint64 proposalID);
 
     /// @notice Returns a proposal. Fails with no revert data, using its gas, when
