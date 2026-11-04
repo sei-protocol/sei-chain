@@ -98,7 +98,7 @@ func (v *fakeView) ForEachDiff(func(key string, value []byte) error) error {
 	panic("fakeView: unexpected ForEachDiff")
 }
 
-func (v *fakeView) Finalize([]*proto.KVPair) error {
+func (v *fakeView) Finalize(uint64, []*proto.KVPair) error {
 	panic("fakeView: unexpected Finalize")
 }
 

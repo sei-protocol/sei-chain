@@ -315,7 +315,7 @@ func newTestManagerWithDB(t *testing.T, db *testDB, shardCount, maxSize uint64) 
 func newTestManagerWithConfig(t *testing.T, config *ViewManagerConfig, db *testDB) ViewManager {
 	t.Helper()
 	pool := threading.NewAdHocPool()
-	manager, err := NewViewManager(config, db, pool, pool, pool)
+	manager, err := NewViewManager(config, 1, threading.NoOpCounter{}, db, pool, pool, pool)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = manager.Close()
@@ -333,7 +333,7 @@ func newTestShard(t *testing.T, maxSize uint64, db *testDB) *shard {
 	config.EstimatedOverheadPerEntry = 0
 	// A standalone shard has no manager to brick, and it takes itself out of service on a failed read
 	// without help, so the report is a no-op here.
-	s, err := NewShard(context.Background(), config, db, threading.NewAdHocPool(), maxSize,
+	s, err := NewShard(context.Background(), config, db, threading.NewAdHocPool(), maxSize, 1,
 		func() error { return ErrViewManagerClosed },
 		func(error) {})
 	require.NoError(t, err)
@@ -368,7 +368,7 @@ func collectDiff(t *testing.T, view View) map[string][]byte {
 
 func finalizeAndRelease(t *testing.T, view View) {
 	t.Helper()
-	require.NoError(t, view.Finalize(hashWrites(testHash)))
+	require.NoError(t, view.Finalize(heightOf(view), hashWrites(testHash)))
 	require.NoError(t, view.Release())
 }
 
@@ -378,7 +378,7 @@ func finalizeAndRelease(t *testing.T, view View) {
 // lifecycle goroutine.
 func finalizeAwaitFlushAndRelease(t *testing.T, view View) {
 	t.Helper()
-	require.NoError(t, view.Finalize(hashWrites(testHash)))
+	require.NoError(t, view.Finalize(heightOf(view), hashWrites(testHash)))
 	awaitFlushed(t, view, time.Second)
 	require.NoError(t, view.Release())
 }
@@ -397,26 +397,26 @@ func awaitFlushed(t *testing.T, view View, timeout time.Duration) {
 	require.NoError(t, view.AwaitFlush(ctx))
 }
 
-// awaitRetired blocks until the given version has been retired (dropped from the manager's version
+// awaitRetired blocks until the given block height has been retired (dropped from the manager's version
 // map), failing the test if it does not happen within a short window.
-func awaitRetired(t *testing.T, manager ViewManager, version uint64) {
+func awaitRetired(t *testing.T, manager ViewManager, blockHeight uint64) {
 	t.Helper()
 	e := manager.(*viewManager)
 	require.Eventually(t, func() bool {
 		e.versionLock.Lock()
 		defer e.versionLock.Unlock()
-		_, tracked := e.versionMap[version]
+		_, tracked := e.versionMap[blockHeight]
 		return !tracked
-	}, 2*time.Second, 2*time.Millisecond, "version %d was not retired in time", version)
+	}, 2*time.Second, 2*time.Millisecond, "version %d was not retired in time", blockHeight)
 }
 
 // commitShard seals the shard's current version, failing the test if its once-per-block cache
-// maintenance reported a failure. Returns the new version number.
+// maintenance reported a failure. Returns the new block height.
 func commitShard(t *testing.T, s *shard) uint64 {
 	t.Helper()
-	version, err := s.Commit()
+	blockHeight, err := s.Commit()
 	require.NoError(t, err)
-	return version
+	return blockHeight
 }
 
 // openIteratorCount reports how many iterators are currently open on the manager. Every iterator
@@ -428,12 +428,12 @@ func openIteratorCount(manager ViewManager) uint64 {
 	return s.openIterators
 }
 
-// isTracked reports whether the manager still tracks the given view version.
-func isTracked(manager ViewManager, version uint64) bool {
+// isTracked reports whether the manager still tracks the view at the given block height.
+func isTracked(manager ViewManager, blockHeight uint64) bool {
 	e := manager.(*viewManager)
 	e.versionLock.Lock()
 	defer e.versionLock.Unlock()
-	_, ok := e.versionMap[version]
+	_, ok := e.versionMap[blockHeight]
 	return ok
 }
 
@@ -459,4 +459,9 @@ func collectIterator(t *testing.T, it dbm.Iterator) []kvPair {
 	require.NoError(t, err)
 	require.NoError(t, it.Close())
 	return out
+}
+
+// heightOf returns the block height a view must be finalized at, which is its version.
+func heightOf(view View) uint64 {
+	return view.(*viewImpl).blockHeight
 }

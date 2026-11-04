@@ -33,7 +33,7 @@ func TestFlushFailureBricksManagerCleanly(t *testing.T) {
 	}()
 
 	// Make view1 flush-eligible; the flush attempt fails and bricks the manager.
-	require.NoError(t, view1.Finalize(hashWrites(testHash)))
+	require.NoError(t, view1.Finalize(heightOf(view1), hashWrites(testHash)))
 	require.NoError(t, view1.Release())
 
 	select {

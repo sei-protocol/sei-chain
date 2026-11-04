@@ -31,7 +31,7 @@ func TestFlushWritesEachVersionsKeysInAscendingOrder(t *testing.T) {
 
 	view, err := manager.Commit()
 	require.NoError(t, err)
-	require.NoError(t, view.Finalize(hashWrites(testHash)))
+	require.NoError(t, view.Finalize(heightOf(view), hashWrites(testHash)))
 	awaitFlushed(t, view, time.Second)
 	require.NoError(t, view.Release())
 

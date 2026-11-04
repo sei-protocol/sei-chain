@@ -12,7 +12,7 @@ func TestViewFinalizeThenReleaseHappyPath(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 1, 4096)
 	view, err := manager.Commit()
 	require.NoError(t, err)
-	require.NoError(t, view.Finalize(hashWrites(testHash)))
+	require.NoError(t, view.Finalize(heightOf(view), hashWrites(testHash)))
 	require.NoError(t, view.Release())
 }
 
@@ -24,7 +24,7 @@ func TestViewFinalizeWithNoWritesIsLegal(t *testing.T) {
 	view, err := manager.Commit()
 	require.NoError(t, err)
 
-	require.NoError(t, view.Finalize(nil))
+	require.NoError(t, view.Finalize(heightOf(view), nil))
 	awaitFlushed(t, view, time.Second)
 	require.NoError(t, view.Release())
 
@@ -38,8 +38,8 @@ func TestViewFinalizeTwiceFails(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 1, 4096)
 	view, err := manager.Commit()
 	require.NoError(t, err)
-	require.NoError(t, view.Finalize(hashWrites(testHash)))
-	require.Error(t, view.Finalize(hashWrites(testHash)))
+	require.NoError(t, view.Finalize(heightOf(view), hashWrites(testHash)))
+	require.Error(t, view.Finalize(heightOf(view), hashWrites(testHash)))
 	require.NoError(t, view.Release())
 }
 
@@ -55,7 +55,7 @@ func TestViewDoubleReleaseFails(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 1, 4096)
 	view, err := manager.Commit()
 	require.NoError(t, err)
-	require.NoError(t, view.Finalize(hashWrites(testHash)))
+	require.NoError(t, view.Finalize(heightOf(view), hashWrites(testHash)))
 	require.NoError(t, view.Release())
 	require.Error(t, view.Release())
 }
@@ -67,7 +67,7 @@ func TestViewReserveExtendsLifetime(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, view.Reserve()) // refCount = 2
-	require.NoError(t, view.Finalize(hashWrites(testHash)))
+	require.NoError(t, view.Finalize(heightOf(view), hashWrites(testHash)))
 	require.NoError(t, view.Release()) // refCount = 1, still alive
 
 	val, found, err := view.Get([]byte("k"), false)
@@ -90,7 +90,7 @@ func TestViewFinalizeGatesFlush(t *testing.T) {
 	require.Never(t, func() bool { return db.has("k") }, 40*time.Millisecond, 5*time.Millisecond,
 		"unfinalized view must not flush")
 
-	require.NoError(t, view.Finalize(hashWrites(testHash)))
+	require.NoError(t, view.Finalize(heightOf(view), hashWrites(testHash)))
 	awaitFlushed(t, view, time.Second)
 	require.NoError(t, view.Release())
 
@@ -108,7 +108,7 @@ func TestViewAwaitFlushContextCancelled(t *testing.T) {
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
-	require.NoError(t, view.Finalize(hashWrites(testHash)))
+	require.NoError(t, view.Finalize(heightOf(view), hashWrites(testHash)))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
@@ -122,9 +122,9 @@ func TestAwaitFlushRetiredVersionWithCancelledCtx(t *testing.T) {
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
-	ver := view.(*viewImpl).version
+	height := view.(*viewImpl).blockHeight
 	finalizeAndRelease(t, view)
-	awaitRetired(t, manager, ver)
+	awaitRetired(t, manager, height)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -184,7 +184,7 @@ func TestHeldReservationDoesNotTriggerCommitBackpressure(t *testing.T) {
 	require.NoError(t, manager.Set([]byte("k1"), []byte("v1")))
 	view1, err := manager.Commit()
 	require.NoError(t, err)
-	require.NoError(t, view1.Finalize(hashWrites(testHash)))
+	require.NoError(t, view1.Finalize(heightOf(view1), hashWrites(testHash)))
 	awaitFlushed(t, view1, 2*time.Second)
 
 	// Accumulate well more than MaxUnflushedVersions finalized-and-released versions behind the

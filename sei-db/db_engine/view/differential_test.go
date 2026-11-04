@@ -99,7 +99,7 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 			ver := model.Commit()
 			// Hash immediately while holding the reservation: this lets the background flusher race
 			// ahead of Release, exercising the flush-then-read (merge in-memory + DB) path.
-			require.NoError(t, view.Finalize(hashWrites(testHash)))
+			require.NoError(t, view.Finalize(heightOf(view), hashWrites(testHash)))
 			opens = append(opens, openSnap{view: view, ver: ver})
 		}
 

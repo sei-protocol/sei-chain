@@ -362,8 +362,9 @@ func finalizeStore(
 	// The block's hashes, which this store's own entry is read out of.
 	hashes *lthash.BlockHash,
 ) error {
+	height := uint64(version) //nolint:gosec // block heights are non-negative
 	if alreadyHave[dbView.Name()] >= version {
-		return dbView.Finalize(nil)
+		return dbView.Finalize(height, nil)
 	}
 
 	writes, err := encodeLocalMeta(
@@ -375,7 +376,7 @@ func finalizeStore(
 	if err != nil {
 		return fmt.Errorf("encode %s local meta at version %d: %w", dbView.Name(), version, err)
 	}
-	if err := dbView.Finalize(writes); err != nil {
+	if err := dbView.Finalize(height, writes); err != nil {
 		return fmt.Errorf("finalize view at version %d: %w", version, err)
 	}
 	return nil
@@ -388,17 +389,24 @@ type rawKVPair struct {
 }
 
 // FinalizeImport persists each data DB's metadata (version + LtHash) after all
-// import data has been written, and recomputes the store's global state from it.
+// import data has been written, and reopens the store at that version.
 // This must be called exactly once at the end of an import to make the data
 // durable across restarts.
 func (s *CommitStore) FinalizeImport(version int64) error {
+	if err := s.persistLocalMetaAndReopen(version); err != nil {
+		return fmt.Errorf("after import: %w", err)
+	}
+	return nil
+}
+
+// persistLocalMetaAndReopen writes, durably and straight to each data DB, metadata recording version as the
+// height the DB has reached and loadedHashes as its hashes, then closes and reopens the store on it.
+func (s *CommitStore) persistLocalMetaAndReopen(version int64) error {
 	syncOpt := types.WriteOptions{Sync: true}
 	for _, dir := range dataDBDirs {
-		db := s.rawDBFor(dir)
-		moduleHashes := s.loadedHashes.PerModule[dir]
-		moduleStats := s.loadedHashes.PerModuleStats[dir]
-		batch := db.NewBatch()
-		err := writeLocalMetaToBatch(batch, version, s.loadedHashes.PerDB[dir], moduleHashes, moduleStats)
+		batch := s.rawDBFor(dir).NewBatch()
+		err := writeLocalMetaToBatch(batch, version, s.loadedHashes.PerDB[dir],
+			s.loadedHashes.PerModule[dir], s.loadedHashes.PerModuleStats[dir])
 		if err != nil {
 			_ = batch.Close()
 			return fmt.Errorf("%s local meta: %w", dir, err)
@@ -408,64 +416,15 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 			return fmt.Errorf("%s commit: %w", dir, err)
 		}
 		_ = batch.Close()
-		s.localMeta[dir] = &LocalMeta{
-			CommittedVersion: version,
-			LtHash:           s.loadedHashes.PerDB[dir].Clone(),
-			ModuleLtHashes:   cloneModuleHashes(moduleHashes),
-			ModuleStats:      cloneModuleStats(moduleStats),
-		}
 	}
 
-	s.loadedHashes.Global = lthash.SumDBHashes(dataDBDirs, s.loadedHashes.PerDB)
-	s.loadedHashes.BlockNumber = version
-	s.committedVersion = version
-
-	// The engine's accumulator described the databases this import has just replaced wholesale, so it is
-	// replaced too. Without this the first block committed afterwards would be folded onto state that no
-	// longer exists.
-	if err := s.restartHashing(); err != nil {
-		return fmt.Errorf("after import: %w", err)
+	// The view managers count versions from the height they were opened at, so a store whose height has
+	// jumped is reopened rather than sealed at the new height.
+	if err := s.closeDBsOnly(); err != nil {
+		return fmt.Errorf("close before reopening at version %d: %w", version, err)
 	}
-
-	// Imported data goes straight to Pebble, so no view describes it and the sealed view is still the
-	// one open() installed. Sealing here is what leaves the store's committed version and its sealed
-	// view naming the same block.
-	if err := s.sealBaseline(); err != nil {
-		return fmt.Errorf("seal imported version: %w", err)
-	}
-	return nil
-}
-
-// sealSeededVersion seals a data-free version on every store, recording seededVersion as the height each
-// one has reached.
-//
-// It is how SetInitialVersion persists a seed. Every write goes through the view manager that owns its
-// database, as a block's finalization writes do, so seeding needs no access to the databases themselves.
-//
-// Releasing the reservation matters as much as the writes: a view must be released before the next one
-// can flush, so a seal that kept the baseline's reservation would stall every flush after it, and the
-// checkpoint SetInitialVersion takes next would wait forever.
-func (s *CommitStore) sealSeededVersion(seededVersion int64) error {
-	blockView, err := s.commitStores(seededVersion)
-	if err != nil {
-		return fmt.Errorf("seal seeded version: %w", err)
-	}
-
-	for _, dbView := range blockView.Views() {
-		if err := finalizeStore(dbView, seededVersion, nil, s.loadedHashes); err != nil {
-			// Error is fatal; the reservations are given up rather than released.
-			blockView.Abandon()
-			return fmt.Errorf("%s finalize seeded version: %w", dbView.Name(), err)
-		}
-	}
-
-	if err := s.replaceSealedView(blockView); err != nil {
-		// Error is fatal; the reservations are given up rather than released.
-		blockView.Abandon()
-		return fmt.Errorf("install seeded version: %w", err)
-	}
-	if err := blockView.Release(); err != nil {
-		return fmt.Errorf("release seeded version's reservations: %w", err)
+	if err := s.open(); err != nil {
+		return fmt.Errorf("reopen at version %d: %w", version, err)
 	}
 	return nil
 }
@@ -478,8 +437,9 @@ func (s *CommitStore) sealBaseline() error {
 		return fmt.Errorf("seal baseline: %w", err)
 	}
 
+	baselineHeight := uint64(s.committedVersion) //nolint:gosec // committed versions are non-negative
 	for _, dbView := range blockView.Views() {
-		if err := dbView.Finalize(nil); err != nil {
+		if err := dbView.Finalize(baselineHeight, nil); err != nil {
 			// Error is fatal; the reservations are given up rather than released.
 			blockView.Abandon()
 			return fmt.Errorf("%s finalize baseline: %w", dbView.Name(), err)

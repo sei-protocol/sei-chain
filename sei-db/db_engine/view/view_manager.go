@@ -14,29 +14,12 @@ import (
 // closed normally rather than failed. Detect it with errors.Is.
 var ErrViewManagerClosed = errors.New("view manager closed")
 
-// ViewManager provides a read-through cache and efficient point-in-time views on top of a basic
-// key-value database. It also coordinates writes to the database, since efficient views require
-// careful staging of inserts.
+// ViewManager is a key-value store over a database that stages writes in memory, serves immutable
+// point-in-time views of them, and flushes them to the database asynchronously.
 //
-// Data is asynchronously flushed to disk once it has been finalized and all its reservations
-// released. See View for the full lifecycle.
-//
-// Warning: it is not safe to mutate byte slices (keys or values) passed to or received from the manager.
-// The manager is not required to make defensive copies, and so these slices must be treated as immutable.
-//
-// There are no recoverable ViewManager errors. Any error returned by the manager is fatal, and
-// halting is the caller's responsibility: on the first error the caller is expected to stop, because
-// continuing on top of state the manager could not vouch for risks forking the chain.
-//
-// A caller that ignores an error gets nowhere. After the first failure the manager will eventually
-// begin returning errors for all future calls, and calls made concurrently with the original failure
-// may go either way: a real response, or a second-hand error inherited from that earlier failure.
-// This is a consequence of failing, not a service the manager offers — there is no deadline by which
-// it converges and no promise about which error any particular call receives. Do not treat it as a
-// safety net for skipping the halt.
-//
-// The configured metadata key prefix is reserved for the manager; keys under it must not be written
-// or read through the manager's key-value methods (see ViewManagerConfig.ReservedPrefix).
+// Keys and values passed to or returned by the manager must not be mutated, and keys under
+// ViewManagerConfig.ReservedPrefix must not be read or written through it. Every error it returns is fatal:
+// the caller must halt on the first one.
 type ViewManager interface {
 
 	// Name identifies this manager instance (see ViewManagerConfig.Name). Constant for the
@@ -233,7 +216,14 @@ type View interface {
 	//
 	// An empty write set is legal: a consumer with nothing to record still has to finalize, because
 	// finalization is what makes the view flushable.
-	Finalize(writes []*proto.KVPair) error
+	//
+	// Returns an error if blockHeight is not this view's version.
+	Finalize(
+		// The block height of the view, which must equal its version.
+		blockHeight uint64,
+		// The metadata pairs to write alongside the view's diff.
+		writes []*proto.KVPair,
+	) error
 
 	// AwaitFlush blocks until the view's data has been written to disk, returning nil once
 	// the flush has completed. Returns an error if ctx is cancelled or the manager shuts down

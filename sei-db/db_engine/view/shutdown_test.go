@@ -28,7 +28,7 @@ func TestCloseWaitsForLifecycleMidCommit(t *testing.T) {
 	require.NoError(t, err)
 
 	db.commitBlock = make(chan struct{})
-	require.NoError(t, view.Finalize(hashWrites(testHash)))
+	require.NoError(t, view.Finalize(heightOf(view), hashWrites(testHash)))
 
 	// Wait until the flusher is stalled inside Commit.
 	require.Eventually(t, func() bool { return db.commitEntered.Load() > 0 },
@@ -66,7 +66,7 @@ func TestCloseUnblocksFlushWaiters(t *testing.T) {
 	require.NoError(t, err)
 	finalized, err := manager.Commit()
 	require.NoError(t, err)
-	require.NoError(t, finalized.Finalize(hashWrites(testHash)))
+	require.NoError(t, finalized.Finalize(heightOf(finalized), hashWrites(testHash)))
 
 	unfinalizedErr := make(chan error, 1)
 	strandedErr := make(chan error, 1)
@@ -227,7 +227,7 @@ func TestCloseLeavesNoManagerGoroutines(t *testing.T) {
 		cfg.MetricsScrapeIntervalSeconds = 0.001
 		db := newTestDB(map[string][]byte{"seeded": []byte("v")})
 		pool := threading.NewAdHocPool()
-		manager, err := NewViewManager(cfg, db, pool, pool, pool)
+		manager, err := NewViewManager(cfg, 1, threading.NoOpCounter{}, db, pool, pool, pool)
 		require.NoError(t, err)
 
 		require.NoError(t, manager.Set([]byte("k"), []byte("v")))

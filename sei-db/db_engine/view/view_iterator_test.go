@@ -100,7 +100,7 @@ func TestIteratorExcludesReservedPrefix(t *testing.T) {
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
 	view1, err := manager.Commit()
 	require.NoError(t, err)
-	require.NoError(t, view1.Finalize(writes))
+	require.NoError(t, view1.Finalize(heightOf(view1), writes))
 	awaitFlushed(t, view1, time.Second)
 	require.NoError(t, view1.Release())
 	for _, key := range metaKeys {

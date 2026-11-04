@@ -55,11 +55,11 @@ func sealFlushRetire(t *testing.T, manager ViewManager) {
 	t.Helper()
 	view, err := manager.Commit()
 	require.NoError(t, err)
-	version := view.(*viewImpl).version
-	require.NoError(t, view.Finalize(nil))
+	blockHeight := view.(*viewImpl).blockHeight
+	require.NoError(t, view.Finalize(heightOf(view), nil))
 	awaitFlushed(t, view, 2*time.Second)
 	require.NoError(t, view.Release())
-	awaitRetired(t, manager, version)
+	awaitRetired(t, manager, blockHeight)
 }
 
 // Every write path must be accepted while an iterator is open, and none of them may be visible
@@ -275,7 +275,7 @@ func TestIteratorIsStableUnderConcurrentCommits(t *testing.T) {
 				writerErr = err
 				return
 			}
-			if err := view.Finalize(nil); err != nil {
+			if err := view.Finalize(heightOf(view), nil); err != nil {
 				writerErr = err
 				return
 			}
