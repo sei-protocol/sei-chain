@@ -39,7 +39,6 @@ var (
 	CreateTestInput        = keeper.CreateTestInput
 	NewWasmProposalHandler = keeper.NewWasmProposalHandler
 	NewQuerier             = keeper.Querier
-	ContractFromPortID     = keeper.ContractFromPortID
 
 	EnableAllProposals  = types.EnableAllProposals
 	DisableAllProposals = types.DisableAllProposals

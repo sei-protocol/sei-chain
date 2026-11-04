@@ -17,67 +17,19 @@ var _ types.WasmerEngine = &MockWasmer{}
 // MockWasmer implements types.WasmerEngine for testing purpose. One or multiple messages can be stubbed.
 // Without a stub function a panic is thrown.
 type MockWasmer struct {
-	CreateFn            func(codeID wasmvm.WasmCode) (wasmvm.Checksum, error)
-	AnalyzeCodeFn       func(codeID wasmvm.Checksum) (*wasmvmtypes.AnalysisReport, error)
-	InstantiateFn       func(codeID wasmvm.Checksum, env wasmvmtypes.Env, info wasmvmtypes.MessageInfo, initMsg []byte, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.Response, uint64, error)
-	ExecuteFn           func(codeID wasmvm.Checksum, env wasmvmtypes.Env, info wasmvmtypes.MessageInfo, executeMsg []byte, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.Response, uint64, error)
-	QueryFn             func(codeID wasmvm.Checksum, env wasmvmtypes.Env, queryMsg []byte, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) ([]byte, uint64, error)
-	MigrateFn           func(codeID wasmvm.Checksum, env wasmvmtypes.Env, migrateMsg []byte, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.Response, uint64, error)
-	SudoFn              func(codeID wasmvm.Checksum, env wasmvmtypes.Env, sudoMsg []byte, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.Response, uint64, error)
-	ReplyFn             func(codeID wasmvm.Checksum, env wasmvmtypes.Env, reply wasmvmtypes.Reply, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.Response, uint64, error)
-	GetCodeFn           func(codeID wasmvm.Checksum) (wasmvm.WasmCode, error)
-	CleanupFn           func()
-	IBCChannelOpenFn    func(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCChannelOpenMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBC3ChannelOpenResponse, uint64, error)
-	IBCChannelConnectFn func(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCChannelConnectMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBCBasicResponse, uint64, error)
-	IBCChannelCloseFn   func(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCChannelCloseMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBCBasicResponse, uint64, error)
-	IBCPacketReceiveFn  func(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCPacketReceiveMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBCReceiveResult, uint64, error)
-	IBCPacketAckFn      func(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCPacketAckMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBCBasicResponse, uint64, error)
-	IBCPacketTimeoutFn  func(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCPacketTimeoutMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBCBasicResponse, uint64, error)
-	PinFn               func(checksum wasmvm.Checksum) error
-	UnpinFn             func(checksum wasmvm.Checksum) error
-	GetMetricsFn        func() (*wasmvmtypes.Metrics, error)
-}
-
-func (m *MockWasmer) IBCChannelOpen(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCChannelOpenMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBC3ChannelOpenResponse, uint64, error) {
-	if m.IBCChannelOpenFn == nil {
-		panic("not supposed to be called!")
-	}
-	return m.IBCChannelOpenFn(codeID, env, msg, store, goapi, querier, gasMeter, gasLimit, deserCost)
-}
-
-func (m *MockWasmer) IBCChannelConnect(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCChannelConnectMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBCBasicResponse, uint64, error) {
-	if m.IBCChannelConnectFn == nil {
-		panic("not supposed to be called!")
-	}
-	return m.IBCChannelConnectFn(codeID, env, msg, store, goapi, querier, gasMeter, gasLimit, deserCost)
-}
-
-func (m *MockWasmer) IBCChannelClose(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCChannelCloseMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBCBasicResponse, uint64, error) {
-	if m.IBCChannelCloseFn == nil {
-		panic("not supposed to be called!")
-	}
-	return m.IBCChannelCloseFn(codeID, env, msg, store, goapi, querier, gasMeter, gasLimit, deserCost)
-}
-
-func (m *MockWasmer) IBCPacketReceive(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCPacketReceiveMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBCReceiveResult, uint64, error) {
-	if m.IBCPacketReceiveFn == nil {
-		panic("not supposed to be called!")
-	}
-	return m.IBCPacketReceiveFn(codeID, env, msg, store, goapi, querier, gasMeter, gasLimit, deserCost)
-}
-
-func (m *MockWasmer) IBCPacketAck(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCPacketAckMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBCBasicResponse, uint64, error) {
-	if m.IBCPacketAckFn == nil {
-		panic("not supposed to be called!")
-	}
-	return m.IBCPacketAckFn(codeID, env, msg, store, goapi, querier, gasMeter, gasLimit, deserCost)
-}
-
-func (m *MockWasmer) IBCPacketTimeout(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCPacketTimeoutMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBCBasicResponse, uint64, error) {
-	if m.IBCPacketTimeoutFn == nil {
-		panic("not supposed to be called!")
-	}
-	return m.IBCPacketTimeoutFn(codeID, env, msg, store, goapi, querier, gasMeter, gasLimit, deserCost)
+	CreateFn      func(codeID wasmvm.WasmCode) (wasmvm.Checksum, error)
+	AnalyzeCodeFn func(codeID wasmvm.Checksum) (*wasmvmtypes.AnalysisReport, error)
+	InstantiateFn func(codeID wasmvm.Checksum, env wasmvmtypes.Env, info wasmvmtypes.MessageInfo, initMsg []byte, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.Response, uint64, error)
+	ExecuteFn     func(codeID wasmvm.Checksum, env wasmvmtypes.Env, info wasmvmtypes.MessageInfo, executeMsg []byte, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.Response, uint64, error)
+	QueryFn       func(codeID wasmvm.Checksum, env wasmvmtypes.Env, queryMsg []byte, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) ([]byte, uint64, error)
+	MigrateFn     func(codeID wasmvm.Checksum, env wasmvmtypes.Env, migrateMsg []byte, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.Response, uint64, error)
+	SudoFn        func(codeID wasmvm.Checksum, env wasmvmtypes.Env, sudoMsg []byte, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.Response, uint64, error)
+	ReplyFn       func(codeID wasmvm.Checksum, env wasmvmtypes.Env, reply wasmvmtypes.Reply, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.Response, uint64, error)
+	GetCodeFn     func(codeID wasmvm.Checksum) (wasmvm.WasmCode, error)
+	CleanupFn     func()
+	PinFn         func(checksum wasmvm.Checksum) error
+	UnpinFn       func(checksum wasmvm.Checksum) error
+	GetMetricsFn  func() (*wasmvmtypes.Metrics, error)
 }
 
 func (m *MockWasmer) Create(codeID wasmvm.WasmCode) (wasmvm.Checksum, error) {
@@ -197,97 +149,6 @@ func SelfCallingInstMockWasmer(executeCalled *bool) *MockWasmer {
 	}
 }
 
-// IBCContractCallbacks defines the methods from wasmvm to interact with the wasm contract.
-// A mock contract would implement the interface to fully simulate a wasm contract's behaviour.
-type IBCContractCallbacks interface {
-	IBCChannelOpen(
-		codeID wasmvm.Checksum,
-		env wasmvmtypes.Env,
-		channel wasmvmtypes.IBCChannelOpenMsg,
-		store wasmvm.KVStore,
-		goapi wasmvm.GoAPI,
-		querier wasmvm.Querier,
-		gasMeter wasmvm.GasMeter,
-		gasLimit uint64,
-		deserCost wasmvmtypes.UFraction,
-	) (*wasmvmtypes.IBC3ChannelOpenResponse, uint64, error)
-
-	IBCChannelConnect(
-		codeID wasmvm.Checksum,
-		env wasmvmtypes.Env,
-		channel wasmvmtypes.IBCChannelConnectMsg,
-		store wasmvm.KVStore,
-		goapi wasmvm.GoAPI,
-		querier wasmvm.Querier,
-		gasMeter wasmvm.GasMeter,
-		gasLimit uint64,
-		deserCost wasmvmtypes.UFraction,
-	) (*wasmvmtypes.IBCBasicResponse, uint64, error)
-
-	IBCChannelClose(
-		codeID wasmvm.Checksum,
-		env wasmvmtypes.Env,
-		channel wasmvmtypes.IBCChannelCloseMsg,
-		store wasmvm.KVStore,
-		goapi wasmvm.GoAPI,
-		querier wasmvm.Querier,
-		gasMeter wasmvm.GasMeter,
-		gasLimit uint64,
-		deserCost wasmvmtypes.UFraction,
-	) (*wasmvmtypes.IBCBasicResponse, uint64, error)
-
-	IBCPacketReceive(
-		codeID wasmvm.Checksum,
-		env wasmvmtypes.Env,
-		packet wasmvmtypes.IBCPacketReceiveMsg,
-		store wasmvm.KVStore,
-		goapi wasmvm.GoAPI,
-		querier wasmvm.Querier,
-		gasMeter wasmvm.GasMeter,
-		gasLimit uint64,
-		deserCost wasmvmtypes.UFraction,
-	) (*wasmvmtypes.IBCReceiveResult, uint64, error)
-
-	IBCPacketAck(
-		codeID wasmvm.Checksum,
-		env wasmvmtypes.Env,
-		ack wasmvmtypes.IBCPacketAckMsg,
-		store wasmvm.KVStore,
-		goapi wasmvm.GoAPI,
-		querier wasmvm.Querier,
-		gasMeter wasmvm.GasMeter,
-		gasLimit uint64,
-		deserCost wasmvmtypes.UFraction,
-	) (*wasmvmtypes.IBCBasicResponse, uint64, error)
-
-	IBCPacketTimeout(
-		codeID wasmvm.Checksum,
-		env wasmvmtypes.Env,
-		packet wasmvmtypes.IBCPacketTimeoutMsg,
-		store wasmvm.KVStore,
-		goapi wasmvm.GoAPI,
-		querier wasmvm.Querier,
-		gasMeter wasmvm.GasMeter,
-		gasLimit uint64,
-		deserCost wasmvmtypes.UFraction,
-	) (*wasmvmtypes.IBCBasicResponse, uint64, error)
-}
-
-type contractExecutable interface {
-	Execute(
-		codeID wasmvm.Checksum,
-		env wasmvmtypes.Env,
-		info wasmvmtypes.MessageInfo,
-		executeMsg []byte,
-		store wasmvm.KVStore,
-		goapi wasmvm.GoAPI,
-		querier wasmvm.Querier,
-		gasMeter wasmvm.GasMeter,
-		gasLimit uint64,
-		deserCost wasmvmtypes.UFraction,
-	) (*wasmvmtypes.Response, uint64, error)
-}
-
 // MakeInstantiable adds some noop functions to not fail when contract is used for instantiation
 func MakeInstantiable(m *MockWasmer) {
 	m.CreateFn = HashOnlyCreateFn
@@ -299,26 +160,6 @@ func MakeInstantiable(m *MockWasmer) {
 func MakeIBCInstantiable(m *MockWasmer) {
 	MakeInstantiable(m)
 	m.AnalyzeCodeFn = HasIBCAnalyzeFn
-}
-
-// NewIBCContractMockWasmer prepares a mocked wasm_engine for testing with an IBC contract test type.
-// It is safe to use the mock with store code and instantiate functions in keeper as is also prepared
-// with stubs. Execute is optional. When implemented by the Go test contract then it can be used with
-// the mock.
-func NewIBCContractMockWasmer(c IBCContractCallbacks) *MockWasmer {
-	m := &MockWasmer{
-		IBCChannelOpenFn:    c.IBCChannelOpen,
-		IBCChannelConnectFn: c.IBCChannelConnect,
-		IBCChannelCloseFn:   c.IBCChannelClose,
-		IBCPacketReceiveFn:  c.IBCPacketReceive,
-		IBCPacketAckFn:      c.IBCPacketAck,
-		IBCPacketTimeoutFn:  c.IBCPacketTimeout,
-	}
-	MakeIBCInstantiable(m)
-	if e, ok := c.(contractExecutable); ok { // optional function
-		m.ExecuteFn = e.Execute
-	}
-	return m
 }
 
 func HashOnlyCreateFn(code wasmvm.WasmCode) (wasmvm.Checksum, error) {
