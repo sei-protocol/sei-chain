@@ -13,6 +13,25 @@ struct TextContent {
     bool isExpedited;
 }
 
+/// @notice A change to one param. key is its flat key, e.g. "tallyparams.quorum";
+/// each field of docs/giga-storage/ParamsStorage.sol is a declared param, with its
+/// flat key in the field's comment and its type the field's. value is the 32-byte
+/// abi.encode of the value, as IParams.param returns it; periods are nanoseconds.
+struct ParamChange {
+    string subspace;
+    string key;
+    bytes value;
+}
+
+/// @notice Content of a param change proposal; `ProposalData.content` is its
+/// abi.encode when `contentType` is 3.
+struct ParamChangeContent {
+    string title;
+    string description;
+    ParamChange[] changes;
+    bool isExpedited;
+}
+
 /// @notice The EVM-only gov precompile. Times are Unix nanoseconds, periods are
 /// nanoseconds, amounts are wei, and ratios and vote weights are 1e18-scaled.
 /// Statuses and vote options are numbered as x/gov's.
@@ -52,7 +71,7 @@ interface IGov {
         uint64 votingStartTime; // 0 before voting starts
         uint64 votingEndTime; // 0 before voting starts
         bool isExpedited;
-        uint8 contentType; // 0: TextContent; 1 and 2 are reserved for software upgrades (CON-573)
+        uint8 contentType; // 0: TextContent, 3: ParamChangeContent; 1 and 2 are reserved for software upgrades (CON-573)
         bytes content; // abi.encode of the contentType struct
     }
 
@@ -119,6 +138,21 @@ interface IGov {
         payable
         returns (uint64 proposalID);
 
+    /// @notice Submits a proposal to change chain params, depositing msg.value on
+    /// it. It needs one to ten changes; each names a declared param no other
+    /// change names, with a value that fits its type, and a change to
+    /// votingparams.voting_period sets at least 5 minutes, or the call reverts.
+    /// The changes must also leave each subspace valid against the current
+    /// params, or the call fails with no revert data and nothing is written.
+    /// When the proposal passes, the changes apply all or none; if they no
+    /// longer leave a subspace valid, the proposal is Failed instead.
+    function submitParamChangeProposal(
+        string calldata title,
+        string calldata description,
+        bool isExpedited,
+        ParamChange[] calldata changes
+    ) external payable returns (uint64 proposalID);
+
     /// @notice Returns a proposal. Fails with no revert data, using its gas, when
     /// the proposal is unknown or was dropped.
     function proposal(uint64 proposalID) external view returns (ProposalData memory proposal);
@@ -165,7 +199,7 @@ interface IGov {
     // V2 methods this precompile no longer serves. Each reverts, naming the call
     // to use instead where there is one.
 
-    /// @notice Reverts: use submitTextProposal.
+    /// @notice Reverts: use submitTextProposal or submitParamChangeProposal.
     function submitProposal(string calldata proposalJSON) external payable returns (uint64 proposalID);
 
     /// @notice Reverts: use voteWeighted with 1e18-scaled weights.

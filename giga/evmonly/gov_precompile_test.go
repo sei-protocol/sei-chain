@@ -45,11 +45,13 @@ func TestGovPrecompileThroughExecutor(t *testing.T) {
 
 	state := NewMemoryState()
 	state.SetBalance(sender, usei(1_000))
-	gov.SetParams(genesisState{state}, gov.Params{
-		VotingPeriod:     uint64(100 * time.Second),
-		MinDeposit:       usei(10),
-		MaxDepositPeriod: uint64(50 * time.Second),
-	})
+	params := gov.DefaultParams()
+	params.VotingPeriod = uint64(100 * time.Second)
+	params.ExpeditedVotingPeriod = uint64(50 * time.Second)
+	params.MinDeposit = usei(10)
+	params.MaxDepositPeriod = uint64(50 * time.Second)
+	params.MinExpeditedDeposit = usei(20)
+	require.NoError(t, gov.SetParams(genesisState{state}, params))
 
 	govABI := gov.ABI
 	submit, err := govABI.Pack(gov.SubmitTextProposalMethod, "t", "d", false)
@@ -162,7 +164,10 @@ func TestGovPrecompileOCCMatchesSequential(t *testing.T) {
 		for _, key := range keys {
 			state.SetBalance(crypto.PubkeyToAddress(key.PublicKey), usei(1_000))
 		}
-		gov.SetParams(genesisState{state}, gov.Params{VotingPeriod: uint64(100 * time.Second), ExpeditedVotingPeriod: uint64(50 * time.Second), MinDeposit: usei(10), MaxDepositPeriod: uint64(50 * time.Second), MinExpeditedDeposit: usei(40)})
+		params := gov.DefaultParams()
+		params.VotingPeriod, params.ExpeditedVotingPeriod, params.MaxDepositPeriod = uint64(100*time.Second), uint64(50*time.Second), uint64(50*time.Second)
+		params.MinDeposit, params.MinExpeditedDeposit = usei(10), usei(40)
+		require.NoError(t, gov.SetParams(genesisState{state}, params))
 		registry := precompiles.NewStaticRegistry(map[common.Address]precompiles.Contract{gov.Address: gov.Precompile{}}, gov.Address)
 		result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: workers, CustomPrecompiles: registry}, withTestState(state)).
 			ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: txs})
@@ -258,11 +263,10 @@ func TestCallcodeDepositIsRejected(t *testing.T) {
 	state.SetBalance(caller, value)      // CanTransfer is checked against the caller
 	state.SetBalance(gov.Address, value) // a stray donation sitting at the precompile
 	state.SetCode(caller, callcodeDeposit(1, value, successSlot))
-	gov.SetParams(genesisState{state}, gov.Params{
-		VotingPeriod:     uint64(100 * time.Second),
-		MinDeposit:       usei(100),
-		MaxDepositPeriod: uint64(50 * time.Second),
-	})
+	params := gov.DefaultParams()
+	params.MinDeposit = usei(100)
+	params.MinExpeditedDeposit = usei(200)
+	require.NoError(t, gov.SetParams(genesisState{state}, params))
 	submit, err := gov.ABI.Pack(gov.SubmitTextProposalMethod, "t", "d", false)
 	require.NoError(t, err)
 	to := gov.Address

@@ -85,7 +85,7 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	h := &harness{t: t, state: newMemState(), time: startTime, number: 1}
-	SetParams(h.state, testParams)
+	require.NoError(t, SetParams(h.state, testParams))
 	return h
 }
 
@@ -488,7 +488,7 @@ func TestABIKeepsV2Methods(t *testing.T) {
 func TestHasParams(t *testing.T) {
 	state := newMemState()
 	require.False(t, HasParams(state))
-	SetParams(state, testParams)
+	require.NoError(t, SetParams(state, testParams))
 	require.True(t, HasParams(state))
 }
 
