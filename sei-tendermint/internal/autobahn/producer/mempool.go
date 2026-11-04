@@ -135,8 +135,12 @@ func (m *mempoolInner) IsFull() bool {
 	return uint64(m.next-m.first) >= m.capacity && len(m.nextBlock.txs) > 0
 }
 
+// CanSealBlock reports whether the next block may be sealed now. Without
+// allowEmpty it needs a tx, except for the lane's first block.
 func (m *mempoolInner) CanSealBlock(allowEmpty bool) bool {
-	return uint64(m.next-m.first) < m.capacity && (allowEmpty || len(m.nextBlock.txs) > 0)
+	// An empty first block from each lane lets a new chain finalize its first
+	// block, whose execution writes genesis state, before any tx arrives.
+	return uint64(m.next-m.first) < m.capacity && (allowEmpty || m.next == 0 || len(m.nextBlock.txs) > 0)
 }
 
 func (m *mempoolInner) SealBlock() {

@@ -177,7 +177,7 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 				var payload *types.Payload
 				// Wait until either
 				// * there is a full proposal in mempool
-				// * BlockInterval since the last block passed AND (AllowEmptyBlocks OR mempool is non-empty)
+				// * BlockInterval since the last block passed AND (AllowEmptyBlocks OR mempool is non-empty OR it is the lane's first block)
 				for m, ctrl := range mp.inner.Lock() {
 					// Wait for full payload with timeout.
 					// Note that in total the time between blocks is WaitForLocalCapacity delay + BlockInterval
