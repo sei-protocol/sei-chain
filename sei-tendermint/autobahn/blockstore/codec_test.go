@@ -17,7 +17,7 @@ func TestLaneBlockRoundTrip(t *testing.T) {
 	for range 16 {
 		blk := types.GenBlock(rng)
 		value := types.BlockConv.Marshal(blk)
-		decoded, err := decodeLaneBlock(value)
+		decoded, err := types.BlockConv.Unmarshal(value)
 		require.NoError(t, err)
 		// Header hash uniquely identifies a block; equal hash => same block.
 		require.Equal(t, blk.Header().Hash(), decoded.Header().Hash())
@@ -31,7 +31,7 @@ func TestQCRoundTrip(t *testing.T) {
 	for range 16 {
 		qc := types.GenFullCommitQC(rng)
 		value := types.FullCommitQCConv.Marshal(qc)
-		decoded, err := decodeQC(value)
+		decoded, err := types.FullCommitQCConv.Unmarshal(value)
 		require.NoError(t, err)
 		// Re-encoding the decoded QC must reproduce the same bytes.
 		require.Equal(t, value, types.FullCommitQCConv.Marshal(decoded))
@@ -41,9 +41,9 @@ func TestQCRoundTrip(t *testing.T) {
 func TestDecodeRejectsGarbage(t *testing.T) {
 	// Invalid bytes must surface an error rather than a partial value.
 	garbage := []byte{0xff, 0xff, 0xff, 0xff}
-	_, blockErr := decodeLaneBlock(garbage)
+	_, blockErr := types.BlockConv.Unmarshal(garbage)
 	require.Error(t, blockErr)
-	_, qcErr := decodeQC(garbage)
+	_, qcErr := types.FullCommitQCConv.Unmarshal(garbage)
 	require.Error(t, qcErr)
 }
 

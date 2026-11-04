@@ -117,9 +117,9 @@ func decodeBlock(value []byte) (*types.RoadBlock, error) {
 	if err != nil {
 		return nil, fmt.Errorf("consumeValue(): %w", err)
 	}
-	qc, err := decodeQC(qcBytes)
+	qc, err := types.FullCommitQCConv.Unmarshal(qcBytes)
 	if err != nil {
-		return nil, fmt.Errorf("decodeQC(): %w", err)
+		return nil, fmt.Errorf("types.FullCommitQCConv.Unmarshal(): %w", err)
 	}
 	if qc.Index() != index {
 		return nil, types.ErrQCBlocksMismatch
@@ -131,9 +131,9 @@ func decodeBlock(value []byte) (*types.RoadBlock, error) {
 		if err != nil {
 			return nil, fmt.Errorf("consumeValue(): %w", err)
 		}
-		lane, err := decodeLaneBlock(laneBytes)
+		lane, err := types.BlockConv.Unmarshal(laneBytes)
 		if err != nil {
-			return nil, fmt.Errorf("decodeLaneBlock(): %w", err)
+			return nil, fmt.Errorf("types.BlockConv.Unmarshal(): %w", err)
 		}
 		lanes = append(lanes, lane)
 	}
@@ -149,40 +149,4 @@ func checkedSize(size uint64) uint32 {
 		panic("block record exceeds value size limit")
 	}
 	return uint32(size)
-}
-
-// decodeLaneBlock unmarshals a lane block from its protobuf bytes.
-func decodeLaneBlock(value []byte) (*types.Block, error) {
-	block, err := types.BlockConv.Unmarshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("types.BlockConv.Unmarshal(): %w", err)
-	}
-	return block, nil
-}
-
-// decodeQC unmarshals a FullCommitQC from its protobuf bytes.
-func decodeQC(value []byte) (*types.FullCommitQC, error) {
-	qc, err := types.FullCommitQCConv.Unmarshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("types.FullCommitQCConv.Unmarshal(): %w", err)
-	}
-	return qc, nil
-}
-
-// decodeAppProposal unmarshals an application proposal.
-func decodeAppProposal(value []byte) (*types.AppProposal, error) {
-	appProposal, err := types.AppProposalConv.Unmarshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("types.AppProposalConv.Unmarshal(): %w", err)
-	}
-	return appProposal, nil
-}
-
-// decodeAppQC unmarshals an application QC.
-func decodeAppQC(value []byte) (*types.AppQC, error) {
-	appQC, err := types.AppQCConv.Unmarshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("types.AppQCConv.Unmarshal(): %w", err)
-	}
-	return appQC, nil
 }

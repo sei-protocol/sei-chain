@@ -220,18 +220,18 @@ func (s *Store) readSuffix() (types.Suffix, error) {
 				}
 				suffix.Blocks = append(suffix.Blocks, block)
 			case kindAppQC:
-				qc, err := decodeAppQC(value)
+				qc, err := types.AppQCConv.Unmarshal(value)
 				if err != nil {
-					return types.Suffix{}, fmt.Errorf("decodeAppQC(): %w", err)
+					return types.Suffix{}, fmt.Errorf("types.AppQCConv.Unmarshal(): %w", err)
 				}
 				if qc.Proposal().Index() != index {
 					return types.Suffix{}, types.ErrUnexpectedIndex
 				}
 				suffix.AppQCs = append(suffix.AppQCs, qc)
 			case kindAppProp:
-				proposal, err := decodeAppProposal(value)
+				proposal, err := types.AppProposalConv.Unmarshal(value)
 				if err != nil {
-					return types.Suffix{}, fmt.Errorf("decodeAppProposal(): %w", err)
+					return types.Suffix{}, fmt.Errorf("types.AppProposalConv.Unmarshal(): %w", err)
 				}
 				if proposal.Index() != index {
 					return types.Suffix{}, types.ErrUnexpectedIndex
@@ -373,9 +373,9 @@ func (s *Store) ReadLaneBlock(pos types.LaneBlockPos) (utils.Option[*types.Block
 	if !exists {
 		return utils.None[*types.Block](), nil
 	}
-	block, err := decodeLaneBlock(value)
+	block, err := types.BlockConv.Unmarshal(value)
 	if err != nil {
-		return utils.None[*types.Block](), fmt.Errorf("decodeLaneBlock(): %w", err)
+		return utils.None[*types.Block](), fmt.Errorf("types.BlockConv.Unmarshal(): %w", err)
 	}
 	return utils.Some(block), nil
 }
@@ -435,9 +435,9 @@ func (s *Store) ReadQC(n types.RoadIndex) (utils.Option[*types.FullCommitQC], er
 	if !exists {
 		return utils.None[*types.FullCommitQC](), nil
 	}
-	qc, err := decodeQC(value)
+	qc, err := types.FullCommitQCConv.Unmarshal(value)
 	if err != nil {
-		return utils.None[*types.FullCommitQC](), fmt.Errorf("decodeQC(): %w", err)
+		return utils.None[*types.FullCommitQC](), fmt.Errorf("types.FullCommitQCConv.Unmarshal(): %w", err)
 	}
 	return utils.Some(qc), nil
 }
@@ -453,9 +453,9 @@ func (s *Store) ReadAppProposal(n types.RoadIndex) (utils.Option[*types.AppPropo
 	if !exists {
 		return utils.None[*types.AppProposal](), nil
 	}
-	appProposal, err := decodeAppProposal(value)
+	appProposal, err := types.AppProposalConv.Unmarshal(value)
 	if err != nil {
-		return utils.None[*types.AppProposal](), fmt.Errorf("decodeAppProposal(): %w", err)
+		return utils.None[*types.AppProposal](), fmt.Errorf("types.AppProposalConv.Unmarshal(): %w", err)
 	}
 	return utils.Some(appProposal), nil
 }
@@ -471,9 +471,9 @@ func (s *Store) ReadAppQC(n types.RoadIndex) (utils.Option[*types.AppQC], error)
 	if !exists {
 		return utils.None[*types.AppQC](), nil
 	}
-	appQC, err := decodeAppQC(value)
+	appQC, err := types.AppQCConv.Unmarshal(value)
 	if err != nil {
-		return utils.None[*types.AppQC](), fmt.Errorf("decodeAppQC(): %w", err)
+		return utils.None[*types.AppQC](), fmt.Errorf("types.AppQCConv.Unmarshal(): %w", err)
 	}
 	return utils.Some(appQC), nil
 }
