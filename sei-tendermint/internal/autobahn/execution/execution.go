@@ -62,7 +62,7 @@ func (e *Executor) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for n := next; ; n += 1 {
+	for n := next; ; n++ {
 		gigametrics.SetPhase(gigametrics.PhaseConsensus)
 		block, err := e.cfg.BlockStore.WaitForBlock(ctx, n)
 		if err != nil {
