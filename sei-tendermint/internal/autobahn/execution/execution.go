@@ -12,8 +12,10 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	datametrics "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -35,20 +37,11 @@ type Config struct {
 	Blocks Blocks
 }
 
-// Committed is a block the app has finalized and committed.
-type Committed struct {
-	// Number is the block's road.
-	Number atypes.RoadIndex
-	// GasUsed is the gas the block's transactions used.
-	GasUsed int64
-	// Weights is the committee voting power after the block.
-	Weights map[atypes.PublicKey]uint64
-}
-
 // Executor executes durable blocks on the app, one at a time in road order.
 type Executor struct {
 	cfg      *Config
 	executed utils.AtomicSend[atypes.ExecutedBlocks]
+	gasUsed  *prometheus.CounterInt
 }
 
 // New returns an Executor for cfg.
@@ -58,6 +51,7 @@ func New(cfg *Config) *Executor {
 		executed: utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{
 			Number: utils.Clamp[atypes.RoadIndex](cfg.App.LastBlockHeight()),
 		})),
+		gasUsed: datametrics.Get().GasUsed,
 	}
 }
 
@@ -66,15 +60,35 @@ func (e *Executor) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
 	return e.executed.Subscribe()
 }
 
-// Init brings the app to a state execution can extend: InitChain on a fresh app,
-// or the committed tip's header on restart. It returns the first road to execute,
-// and whether the app had committed blocks.
-func (e *Executor) Init(ctx context.Context) (atypes.RoadIndex, bool, error) {
+// Run initializes the app, then executes the durable blocks after its tip in
+// road order until ctx is canceled or a block fails.
+func (e *Executor) Run(ctx context.Context) error {
+	next, err := e.initApp(ctx)
+	if err != nil {
+		return err
+	}
+	for n := next; ; n += 1 {
+		gigametrics.SetPhase(gigametrics.PhaseConsensus)
+		block, err := e.cfg.Blocks.EVMBlock(ctx, n)
+		if err != nil {
+			return fmt.Errorf("EVMBlock(%v): %w", n, err)
+		}
+		gigametrics.SetPhase(gigametrics.PhaseExecution)
+		if err := e.executeBlock(ctx, block.SuperBlock()); err != nil {
+			return fmt.Errorf("executeBlock(%v): %w", n, err)
+		}
+	}
+}
+
+// initApp brings the app to a state execution can extend: InitChain on a fresh
+// app, or the committed tip's header on restart. It returns the first road to
+// execute.
+func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 	app := e.cfg.App
 	info := app.Info()
 	last, ok := utils.SafeCast[atypes.RoadIndex](info.LastBlockHeight)
 	if !ok {
-		return 0, false, fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
+		return 0, fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
 	}
 	if last == 0 {
 		// Fresh start: CometBFT handshaker is skipped in giga mode (see
@@ -88,22 +102,22 @@ func (e *Executor) Init(ctx context.Context) (atypes.RoadIndex, bool, error) {
 		// blocks must report them here and refuse InitChain, since blocks
 		// may be durable before Commit acknowledged them.
 		if _, err := app.InitChain(e.cfg.GenDoc.ToRequestInitChain()); err != nil {
-			return 0, false, fmt.Errorf("App.InitChain(): %w", err)
+			return 0, fmt.Errorf("App.InitChain(): %w", err)
 		}
 		next, ok := utils.SafeCast[atypes.RoadIndex](e.cfg.GenDoc.InitialHeight)
 		if !ok {
-			return 0, false, fmt.Errorf("invalid GenDoc.InitialHeight = %v", e.cfg.GenDoc.InitialHeight)
+			return 0, fmt.Errorf("invalid GenDoc.InitialHeight = %v", e.cfg.GenDoc.InitialHeight)
 		}
-		return next, false, nil
+		return next, nil
 	}
 	// Blocks execute only once durable, so the app tip is in the BlockStore
 	// unless retention has passed it.
 	block, err := e.cfg.Blocks.EVMBlock(ctx, last)
 	if err != nil {
 		if errors.Is(err, atypes.ErrPruned) {
-			return 0, false, fmt.Errorf("app tip %d is below the BlockStore retention floor, so its header cannot be loaded: %w", last, err)
+			return 0, fmt.Errorf("app tip %d is below the BlockStore retention floor, so its header cannot be loaded: %w", last, err)
 		}
-		return 0, false, fmt.Errorf("EVMBlock(%v): %w", last, err)
+		return 0, fmt.Errorf("EVMBlock(%v): %w", last, err)
 	}
 	app.InitLastHeader((&types.Header{
 		ChainID: e.cfg.GenDoc.ChainID,
@@ -112,34 +126,14 @@ func (e *Executor) Init(ctx context.Context) (atypes.RoadIndex, bool, error) {
 		// TODO: for consistency we should also set proposerAddress here,
 		// but this is a placeholder solution so maybe we don't care.
 	}).ToProto())
-	return last + 1, true, nil
-}
-
-// Run executes the blocks from next in road order, sending each committed block
-// to committed.
-func (e *Executor) Run(ctx context.Context, next atypes.RoadIndex, committed chan<- Committed) error {
-	for n := next; ; n += 1 {
-		gigametrics.SetPhase(gigametrics.PhaseConsensus)
-		block, err := e.cfg.Blocks.EVMBlock(ctx, n)
-		if err != nil {
-			return fmt.Errorf("EVMBlock(%v): %w", n, err)
-		}
-		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		c, err := e.executeBlock(ctx, block.SuperBlock())
-		if err != nil {
-			return fmt.Errorf("executeBlock(%v): %w", n, err)
-		}
-		if err := utils.Send(ctx, committed, c); err != nil {
-			return err
-		}
-	}
+	return last + 1, nil
 }
 
 // executeBlock reports b's hash to the app hash builder, then finalizes and
 // commits b.
-func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) (Committed, error) {
+func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error {
 	if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
-		return Committed{}, fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
+		return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 	}
 	app := e.cfg.App
 	var proposerAddress types.Address
@@ -149,7 +143,7 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) (Comm
 		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
 		key, err := crypto.PubKeyFromProto(proposer.PubKey)
 		if err != nil {
-			return Committed{}, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
+			return fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
 		}
 		proposerAddress = key.Address()
 	}
@@ -172,53 +166,23 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) (Comm
 		}).ToProto(),
 	})
 	if err != nil {
-		return Committed{}, fmt.Errorf("app.FinalizeBlock(): %w", err)
+		return fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
 	gigametrics.SetPhase(gigametrics.PhaseStorage)
 	gasUsed := finalizeBlockGasUsed(resp)
 
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseAppCommit)
 	if _, err := app.Commit(ctx); err != nil {
-		return Committed{}, fmt.Errorf("app.Commit(): %w", err)
+		return fmt.Errorf("app.Commit(): %w", err)
 	}
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
-	weights, err := CommitteeWeights(app.GetValidators())
-	if err != nil {
-		return Committed{}, err
-	}
+	e.gasUsed.Add(gasUsed)
 	e.executed.Store(e.executed.Load().Push(atypes.ExecutedBlock{
 		Number:  b.Height,
 		GasUsed: utils.Clamp[uint64](gasUsed),
 	}))
 	gigametrics.EndStoragePhase()
-	return Committed{Number: b.Height, GasUsed: gasUsed, Weights: weights}, nil
-}
-
-// CommitteeWeights maps the bonded validator set after Commit to voting power.
-func CommitteeWeights(vals []abci.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
-	weights := make(map[atypes.PublicKey]uint64, len(vals))
-	for _, v := range vals {
-		if v.Power <= 0 {
-			continue
-		}
-		pk, err := crypto.PubKeyFromProto(v.PubKey)
-		if err != nil {
-			return nil, fmt.Errorf("PubKeyFromProto: %w", err)
-		}
-		apk, err := atypes.PublicKeyFromBytes(pk.Bytes())
-		if err != nil {
-			return nil, fmt.Errorf("PublicKeyFromBytes: %w", err)
-		}
-		if _, dup := weights[apk]; dup {
-			return nil, fmt.Errorf("duplicate public key %s", apk)
-		}
-		power, ok := utils.SafeCast[uint64](v.Power)
-		if !ok {
-			return nil, fmt.Errorf("validator power %d does not fit uint64", v.Power)
-		}
-		weights[apk] = power
-	}
-	return weights, nil
+	return nil
 }
 
 // finalizeBlockGasUsed returns the gas used, as reported by FinalizeBlock.

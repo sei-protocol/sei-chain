@@ -58,7 +58,7 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 		// the whole committee.
 		s.Spawn(func() error { return r.runFullnodeSubscriber(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
-		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
+		s.SpawnNamed("proposeAppHashes", func() error { return r.runProposeAppHashes(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		s.SpawnNamed("committeeMembers", func() error {
 			return r.runPerCommitteeMember(ctx, r.runEvmProxy)

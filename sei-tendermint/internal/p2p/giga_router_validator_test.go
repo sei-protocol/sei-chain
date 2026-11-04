@@ -19,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
@@ -61,6 +62,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		var apps []*testApp
 		var gigas []*gigaValidatorRouter
+		var executors []*execution.Executor
 		var allTxs [][]byte
 		for i, cfg := range cfgs {
 			nodeInfo := makeInfo(cfg.nodeKey)
@@ -69,8 +71,8 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp()
 			proxyApp := proxy.New(app)
-			// In giga mode the CometBFT handshaker is skipped; the router's
-			// runExecute calls InitChain itself on fresh start.
+			// In giga mode the CometBFT handshaker is skipped; the executor
+			// calls InitChain itself on fresh start.
 			dir := t.TempDir()
 			// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
 			// (zero overrides); p2p can't import config (import cycle).
@@ -92,7 +94,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				GenDoc:             genDoc,
 				EnableEvmProxy:     true,
 			}
-			withTestExecutor(&commonCfg, blockStore)
+			executor := newTestExecutor(&commonCfg, blockStore)
 			dataState, err := BuildDataState(&commonCfg, blockStore)
 			require.NoError(t, err, "BuildDataState[%v]", i)
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
@@ -128,8 +130,10 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			require.NoError(t, err, "NewRouter[%v]", i)
 			s.SpawnBgNamed(fmt.Sprintf("router[%v]", i), func() error { return utils.IgnoreCancel(router.Run(ctx)) })
 			s.SpawnBgNamed(fmt.Sprintf("giga[%v]", i), func() error { return utils.IgnoreCancel(giga.Run(ctx)) })
+			s.SpawnBgNamed(fmt.Sprintf("execution[%v]", i), func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
 			apps = append(apps, app)
 			gigas = append(gigas, giga)
+			executors = append(executors, executor)
 			var txs [][]byte
 			for range maxTxsPerBlock * blocksPerLane {
 				tx := utils.GenBytes(rng, 100)
@@ -164,13 +168,13 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		for i, giga := range gigas {
 			committed := giga.LastCommittedBlockNumber()
 			require.Positive(t, committed, "router[%v].LastCommittedBlockNumber()", i)
-			// Covers GigaRouter.ExecutedBlocks — the watch behind
+			// Covers Executor.ExecutedBlocks — the watch behind
 			// eth_subscribe("newHeads"). It must reach the committed height,
 			// and the block it names must be readable via BlockByNumber.
-			executed, err := giga.ExecutedBlocks().Wait(ctx, func(w atypes.ExecutedBlocks) bool {
+			executed, err := executors[i].ExecutedBlocks().Wait(ctx, func(w atypes.ExecutedBlocks) bool {
 				return int64(w.Latest().Number) >= committed
 			})
-			require.NoError(t, err, "router[%v].ExecutedBlocks().Wait()", i)
+			require.NoError(t, err, "executor[%v].ExecutedBlocks().Wait()", i)
 			_, err = giga.BlockByNumber(ctx, executed.Latest().Number)
 			require.NoError(t, err, "router[%v].BlockByNumber(executed=%v)", i, executed.Latest().Number)
 			// Covers GigaRouter.BlockByNumber — the accessor used by the
@@ -282,7 +286,6 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}
-	withTestExecutor(&commonCfg, blockStore)
 	dataState, err := BuildDataState(&commonCfg, blockStore)
 	require.NoError(t, err)
 

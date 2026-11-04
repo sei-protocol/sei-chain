@@ -10,8 +10,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -191,32 +189,37 @@ func (env *testEnv) road(i int) atypes.RoadIndex {
 	return env.blocks[i].QC().Index()
 }
 
-func TestInitStartsAFreshAppAtTheGenesisHeight(t *testing.T) {
+// waitExecuted waits until executor has committed road n.
+func waitExecuted(ctx context.Context, executor *Executor, n atypes.RoadIndex) error {
+	_, err := executor.ExecutedBlocks().Wait(ctx, func(w atypes.ExecutedBlocks) bool { return w.Latest().Number >= n })
+	return err
+}
+
+func TestInitAppStartsAFreshAppAtTheGenesisHeight(t *testing.T) {
 	rng := utils.TestRng()
 	env := newTestEnv(t, rng, 1)
 	app := newRecordingApp(env.events, 0)
 
-	next, restarted, err := env.executor(app).Init(t.Context())
+	next, err := env.executor(app).initApp(t.Context())
 	require.NoError(t, err)
-	require.False(t, restarted)
 	require.Equal(t, env.road(0), next)
 	for state := range app.state.Lock() {
 		require.True(t, state.inited)
 	}
 }
 
-// TestInitRestoresTheTipHeaderFromTheBlockStore verifies the restart path: the
-// committed tip's header comes from the BlockStore, and execution resumes after it.
-func TestInitRestoresTheTipHeaderFromTheBlockStore(t *testing.T) {
+// TestInitAppRestoresTheTipHeaderFromTheBlockStore verifies the restart path:
+// the committed tip's header comes from the BlockStore, and execution resumes
+// after it.
+func TestInitAppRestoresTheTipHeaderFromTheBlockStore(t *testing.T) {
 	rng := utils.TestRng()
 	env := newTestEnv(t, rng, 3)
 	require.NoError(t, env.write(0, 3, true))
 	tip := env.road(1)
 	app := newRecordingApp(env.events, int64(tip))
 
-	next, restarted, err := env.executor(app).Init(t.Context())
+	next, err := env.executor(app).initApp(t.Context())
 	require.NoError(t, err)
-	require.True(t, restarted)
 	require.Equal(t, tip+1, next)
 	for state := range app.state.Lock() {
 		require.False(t, state.inited)
@@ -227,7 +230,7 @@ func TestInitRestoresTheTipHeaderFromTheBlockStore(t *testing.T) {
 	}
 }
 
-func TestInitFailsWhenTheTipIsPruned(t *testing.T) {
+func TestInitAppFailsWhenTheTipIsPruned(t *testing.T) {
 	rng := utils.TestRng()
 	env := newTestEnv(t, rng, 1)
 	require.NoError(t, env.write(0, 1, true))
@@ -235,7 +238,7 @@ func TestInitFailsWhenTheTipIsPruned(t *testing.T) {
 	require.True(t, env.road(0) > 1)
 	app := newRecordingApp(env.events, int64(env.road(0))-1)
 
-	_, _, err := env.executor(app).Init(t.Context())
+	_, err := env.executor(app).initApp(t.Context())
 	require.ErrorIs(t, err, atypes.ErrPruned)
 }
 
@@ -249,30 +252,22 @@ func TestRunExecutesOnlyDurableBlocks(t *testing.T) {
 
 	var executedBeforeFlush int
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		next, _, err := executor.Init(ctx)
-		if err != nil {
-			return err
-		}
-		committed := make(chan Committed, len(env.blocks))
-		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx, next, committed)) })
+		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
 		if err := env.write(0, 2, true); err != nil {
 			return err
 		}
 		if err := env.write(2, 3, false); err != nil {
 			return err
 		}
-		for range 2 {
-			if _, err := utils.Recv(ctx, committed); err != nil {
-				return err
-			}
+		if err := waitExecuted(ctx, executor, env.road(1)); err != nil {
+			return err
 		}
 		// Block 3 is written but not durable, so execution cannot have reached it.
 		executedBeforeFlush = len(app.finalized())
 		if err := env.store.Flush(); err != nil {
 			return err
 		}
-		_, err = utils.Recv(ctx, committed)
-		return err
+		return waitExecuted(ctx, executor, env.road(2))
 	}))
 	require.Equal(t, 2, executedBeforeFlush)
 	require.Equal(t, 3, len(app.finalized()))
@@ -287,22 +282,9 @@ func TestRunReportsEachBlockHashBeforeExecutingIt(t *testing.T) {
 	app := newRecordingApp(env.events, 0)
 	executor := env.executor(app)
 
-	var got []Committed
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		next, _, err := executor.Init(ctx)
-		if err != nil {
-			return err
-		}
-		committed := make(chan Committed, len(env.blocks))
-		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx, next, committed)) })
-		for range env.blocks {
-			c, err := utils.Recv(ctx, committed)
-			if err != nil {
-				return err
-			}
-			got = append(got, c)
-		}
-		return nil
+		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
+		return waitExecuted(ctx, executor, env.road(1))
 	}))
 
 	for log := range env.events.Lock() {
@@ -318,9 +300,17 @@ func TestRunReportsEachBlockHashBeforeExecutingIt(t *testing.T) {
 		require.True(t, want.Timestamp.Equal(req.Header.Time))
 		require.Equal(t, want.Hash[:], req.Hash)
 		require.Equal(t, len(want.Txs), len(req.Txs))
-		require.Equal(t, want.Height, got[i].Number)
 	}
-	require.Equal(t, env.road(1), executor.ExecutedBlocks().Load().Latest().Number)
+}
+
+// TestNewPublishesTheAppTipAsExecuted verifies that the executed-block feed
+// starts at the app's committed tip, before any block runs.
+func TestNewPublishesTheAppTipAsExecuted(t *testing.T) {
+	rng := utils.TestRng()
+	env := newTestEnv(t, rng, 1)
+	tip := env.road(0)
+	executor := env.executor(newRecordingApp(env.events, int64(tip)))
+	require.Equal(t, atypes.ExecutedBlock{Number: tip}, executor.ExecutedBlocks().Load().Latest())
 }
 
 // TestRunReplaysStoredBlocksAfterRestart verifies that a restarted app executes
@@ -333,57 +323,13 @@ func TestRunReplaysStoredBlocksAfterRestart(t *testing.T) {
 	executor := env.executor(app)
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		next, _, err := executor.Init(ctx)
-		if err != nil {
-			return err
-		}
-		committed := make(chan Committed, len(env.blocks))
-		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx, next, committed)) })
-		for range 2 {
-			if _, err := utils.Recv(ctx, committed); err != nil {
-				return err
-			}
-		}
-		return nil
+		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
+		return waitExecuted(ctx, executor, env.road(2))
 	}))
 	finalized := app.finalized()
 	require.Equal(t, 2, len(finalized))
 	require.Equal(t, int64(env.road(1)), finalized[0].Header.Height)
 	require.Equal(t, int64(env.road(2)), finalized[1].Header.Height)
-}
-
-func TestCommitteeWeights(t *testing.T) {
-	rng := utils.TestRng()
-	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
-	wantPK := utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes()))
-	got, err := CommitteeWeights([]abci.ValidatorUpdate{{
-		PubKey: crypto.PubKeyToProto(sk.Public()),
-		Power:  42,
-	}})
-	require.NoError(t, err)
-	require.Equal(t, map[atypes.PublicKey]uint64{wantPK: 42}, got)
-}
-
-func TestCommitteeWeights_SkipsZeroPower(t *testing.T) {
-	rng := utils.TestRng()
-	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
-	got, err := CommitteeWeights([]abci.ValidatorUpdate{{
-		PubKey: crypto.PubKeyToProto(sk.Public()),
-		Power:  0,
-	}})
-	require.NoError(t, err)
-	require.Empty(t, got)
-}
-
-func TestCommitteeWeights_DuplicateKey(t *testing.T) {
-	rng := utils.TestRng()
-	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
-	pk := crypto.PubKeyToProto(sk.Public())
-	_, err := CommitteeWeights([]abci.ValidatorUpdate{
-		{PubKey: pk, Power: 1},
-		{PubKey: pk, Power: 2},
-	})
-	require.Error(t, err)
 }
 
 func TestFinalizeBlockGasUsed(t *testing.T) {

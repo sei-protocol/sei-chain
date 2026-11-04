@@ -16,7 +16,6 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
@@ -78,12 +77,6 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 		App:                app,
 		AppHashBuilder:     stubAppHashBuilder{},
 		GenDoc:             genDoc,
-		Executor: execution.New(&execution.Config{
-			GenDoc:         genDoc,
-			App:            app,
-			AppHashBuilder: stubAppHashBuilder{},
-			Blocks:         blockStore,
-		}),
 	}
 	dataState, err := p2p.BuildDataState(&commonCfg, blockStore)
 	require.NoError(t, err)

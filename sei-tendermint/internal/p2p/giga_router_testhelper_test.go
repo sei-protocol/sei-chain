@@ -218,7 +218,7 @@ func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
 }
 
 // TestInitChainCommitThenFinalize is a contract test for testApp: it verifies
-// that testApp supports the autobahn block execution flow where runExecute
+// that testApp supports the autobahn block execution flow where the executor
 // calls InitChain (no Commit), then FinalizeBlock at InitialHeight using the
 // deliverState set up by InitChain, followed by Commit.
 func TestInitChainCommitThenFinalize(t *testing.T) {
@@ -264,14 +264,13 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 		"testApp should report InitialHeight after 1 block")
 }
 
-// withTestExecutor sets cfg.Executor to an executor of cfg's app over the
-// blocks store makes durable, and returns cfg.
-func withTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store) *GigaRouterCommonConfig {
-	cfg.Executor = execution.New(&execution.Config{
+// newTestExecutor returns an executor of cfg's app over the blocks store makes
+// durable.
+func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store) *execution.Executor {
+	return execution.New(&execution.Config{
 		GenDoc:         cfg.GenDoc,
 		App:            cfg.App,
 		AppHashBuilder: cfg.AppHashBuilder,
 		Blocks:         store,
 	})
-	return cfg
 }

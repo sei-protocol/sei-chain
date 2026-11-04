@@ -80,7 +80,6 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}
-	withTestExecutor(cfg, blockStore)
 	dataState, err := BuildDataState(cfg, blockStore)
 	require.NoError(t, err)
 

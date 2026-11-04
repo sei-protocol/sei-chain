@@ -16,7 +16,6 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -293,19 +292,13 @@ func buildGigaRouter(
 	validatorKey utils.Option[atypes.SecretKey],
 	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
-	blockStore *blockstore.Store,
+	blockStore atypes.BlockStore,
 	appHashBuilder builder.AppHashBuilder,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
 		return nil, err
 	}
-	executor := execution.New(&execution.Config{
-		GenDoc:         genDoc,
-		App:            app,
-		AppHashBuilder: appHashBuilder,
-		Blocks:         blockStore,
-	})
 	if valKey, ok := validatorKey.Get(); ok {
 		_, inAddressBook := validatorAddrs[valKey.Public()]
 		switch {
@@ -336,7 +329,6 @@ func buildGigaRouter(
 		}
 		valCfg.PersistentStateDir = stateDir
 		valCfg.AppHashBuilder = appHashBuilder
-		valCfg.Executor = executor
 		valCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
@@ -359,7 +351,6 @@ func buildGigaRouter(
 	}
 	fnCfg.PersistentStateDir = stateDir
 	fnCfg.AppHashBuilder = appHashBuilder
-	fnCfg.Executor = executor
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
 	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
@@ -371,6 +362,17 @@ func buildGigaRouter(
 		return nil, err
 	}
 	return giga, nil
+}
+
+// buildExecutor returns the Autobahn executor that runs the blocks in manager's
+// BlockStore on app.
+func buildExecutor(app *proxy.Proxy, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager) *execution.Executor {
+	return execution.New(&execution.Config{
+		GenDoc:         genDoc,
+		App:            app,
+		AppHashBuilder: manager.AppHashBuilder(),
+		Blocks:         manager.BlockStore(),
+	})
 }
 
 // resolvePersistentStateDir resolves a relative persistent state dir against the

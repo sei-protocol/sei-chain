@@ -12,10 +12,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -92,9 +93,6 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 	if cfg.AppHashBuilder == nil {
 		return nil, errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
 	}
-	if cfg.Executor == nil {
-		return nil, errors.New("GigaRouterCommonConfig.Executor is required")
-	}
 	firstRoad := atypes.RoadIndex(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
 	genesisWeights := map[atypes.PublicKey]uint64{}
 	for k := range cfg.ValidatorAddrs {
@@ -117,11 +115,6 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 
 func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {
 	return r.app.LastBlockHeight()
-}
-
-// ExecutedBlocks publishes the recently committed blocks as the executor commits them.
-func (r *gigaRouterCommon) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
-	return r.cfg.Executor.ExecutedBlocks()
 }
 
 // MaxGasEstimatedPerBlock reflects the network-wide block gas budget. Both
@@ -195,22 +188,54 @@ func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes
 	}
 }
 
-// pendingExecutionBuffer is how many committed blocks execution may run ahead of
-// app-hash proposal.
-const pendingExecutionBuffer = 128
-
-// proposeAppHash proposes block n's app hash to the data layer, with the
-// committee weights as of its Commit.
-func (r *gigaRouterCommon) proposeAppHash(
-	ctx context.Context,
-	n atypes.RoadIndex,
-	appHash atypes.AppHash,
-	weights map[atypes.PublicKey]uint64,
-) error {
-	if err := r.data.PushAppHash(ctx, n, appHash, weights); err != nil {
-		return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
+// runProposeAppHashes proposes the app hash of each executed block, in road
+// order from the data layer's next app proposal. It waits on the app hash
+// builder for each one, so it never runs ahead of execution.
+func (r *gigaRouterCommon) runProposeAppHashes(ctx context.Context) error {
+	for n := r.data.NextAppProposal(); ; n++ {
+		entry, err := r.cfg.AppHashBuilder.GetAppHash(ctx, uint64(n))
+		if err != nil {
+			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", n, err)
+		}
+		// TODO: PushAppHash needs the validator set from right after block n was
+		// committed. GetValidators() is the app tip, which may already be past n.
+		// Read the set stored for n once app state keeps one.
+		weights, err := committeeWeights(r.app.GetValidators())
+		if err != nil {
+			return err
+		}
+		appHash := entry.AppHash()
+		if err := r.data.PushAppHash(ctx, n, appHash[:], weights); err != nil {
+			return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
+		}
 	}
-	return nil
+}
+
+// committeeWeights maps a bonded validator set to Autobahn voting power.
+func committeeWeights(vals []abci.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
+	weights := make(map[atypes.PublicKey]uint64, len(vals))
+	for _, v := range vals {
+		if v.Power <= 0 {
+			continue
+		}
+		pk, err := crypto.PubKeyFromProto(v.PubKey)
+		if err != nil {
+			return nil, fmt.Errorf("PubKeyFromProto: %w", err)
+		}
+		apk, err := atypes.PublicKeyFromBytes(pk.Bytes())
+		if err != nil {
+			return nil, fmt.Errorf("PublicKeyFromBytes: %w", err)
+		}
+		if _, dup := weights[apk]; dup {
+			return nil, fmt.Errorf("duplicate public key %s", apk)
+		}
+		power, ok := utils.SafeCast[uint64](v.Power)
+		if !ok {
+			return nil, fmt.Errorf("validator power %d does not fit uint64", v.Power)
+		}
+		weights[apk] = power
+	}
+	return weights, nil
 }
 
 // runEvmProxy maintains an EVM RPC client for one committee member.
@@ -242,81 +267,6 @@ func (r *gigaRouterCommon) runEvmProxy(ctx context.Context, validator atypes.Pub
 // writes in the persistent state dir psd.
 func RestoreMarkerFile(psd string) string {
 	return filepath.Join(psd, "state-sync-restored")
-}
-
-// runExecute runs the executor and proposes the app hash of each block it
-// commits. On restart it first proposes the app hashes of the blocks the app
-// committed but did not propose.
-func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
-	next, restarted, err := r.cfg.Executor.Init(ctx)
-	if err != nil {
-		return err
-	}
-	if restarted {
-		if err := r.backfillAppHashes(ctx, next); err != nil {
-			return err
-		}
-	}
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		// The buffer lets execution continue while the hash loop proposes earlier
-		// commits.
-		committed := make(chan execution.Committed, pendingExecutionBuffer)
-		s.SpawnNamed("pushAppHashes", func() error {
-			return r.runPushAppHashes(ctx, committed)
-		})
-		s.SpawnNamed("executeBlocks", func() error {
-			return r.cfg.Executor.Run(ctx, next, committed)
-		})
-		return nil
-	})
-}
-
-// backfillAppHashes pushes every AppHash in [NextAppProposal, next).
-func (r *gigaRouterCommon) backfillAppHashes(
-	ctx context.Context,
-	next atypes.RoadIndex,
-) error {
-	from := r.data.NextAppProposal()
-	if from >= next {
-		return nil
-	}
-	// TODO: proposeAppHash needs the weights from after height n was executed.
-	// GetValidators() here is the app tip, so every road gets that one set. Use the
-	// set stored for n once app state has it.
-	weights, err := execution.CommitteeWeights(r.app.GetValidators())
-	if err != nil {
-		return err
-	}
-	for n := from; n < next; n++ {
-		entry, err := r.cfg.AppHashBuilder.GetAppHash(ctx, uint64(n))
-		if err != nil {
-			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", n, err)
-		}
-		appHash := entry.AppHash()
-		if err := r.proposeAppHash(ctx, n, appHash[:], weights); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// runPushAppHashes proposes each committed block's app hash.
-func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context, committed <-chan execution.Committed) error {
-	for {
-		c, err := utils.Recv(ctx, committed)
-		if err != nil {
-			return err
-		}
-		r.data.PushGasUsed(c.GasUsed)
-		record, err := r.cfg.AppHashBuilder.GetAppHash(ctx, uint64(c.Number))
-		if err != nil {
-			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", c.Number, err)
-		}
-		appHash := record.AppHash()
-		if err := r.proposeAppHash(ctx, c.Number, appHash[:], c.Weights); err != nil {
-			return err
-		}
-	}
 }
 
 // dialAndRunConn dials a peer, handshakes as a SeiGiga connection,

@@ -17,6 +17,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
@@ -153,12 +155,13 @@ func testAppHashData(height atypes.RoadIndex) *apphash.AppHashData {
 }
 
 // newAppHashTestRouter returns a single-validator router over an in-memory
-// block store, with a test app and a hash store the caller publishes by hand.
+// block store, with a test app, a hash store the caller publishes by hand, and
+// an executor of that app over the store.
 func newAppHashTestRouter(
 	t *testing.T,
 	rng utils.Rng,
 	key atypes.SecretKey,
-) (*testApp, *manualAppHashBuilder, *data.State, *gigaRouterCommon) {
+) (*testApp, *manualAppHashBuilder, *data.State, *gigaRouterCommon, *execution.Executor) {
 	t.Helper()
 	genDoc := &tmtypes.GenesisDoc{
 		ChainID:         "apphash-test",
@@ -175,36 +178,37 @@ func newAppHashTestRouter(
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
-	cfg := withTestExecutor(&GigaRouterCommonConfig{
+	cfg := &GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
 		App:                proxy.New(app),
 		AppHashBuilder:     hashBuilder,
-	}, db)
+	}
 	state, err := BuildDataState(cfg, db)
 	require.NoError(t, err)
-	return app, hashBuilder, state, &gigaRouterCommon{
+	router := &gigaRouterCommon{
 		cfg:  cfg,
 		data: state,
 		app:  cfg.App,
 	}
+	return app, hashBuilder, state, router, newTestExecutor(cfg, db)
 }
 
-// TestExecuteBuffersPendingAppHashes pins that a run of commits finishes before
-// the hash loop receives them. Reporting each block's hash makes its app hash
-// available, and the hash loop starts only after those commits. The committed
-// handoff has to hold the run.
-func TestExecuteBuffersPendingAppHashes(t *testing.T) {
+// TestExecutionRunsAheadOfAppHashProposal verifies that execution does not wait
+// for consensus: the executor commits every durable block while no app hash is
+// being proposed, and proposal then catches up from the app hash builder.
+func TestExecutionRunsAheadOfAppHashProposal(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
-	app, hashBuilder, state, router := newAppHashTestRouter(t, rng, key)
+	app, hashBuilder, state, router, executor := newAppHashTestRouter(t, rng, key)
 
 	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
 	qc2, blocks2 := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.Some(qc.QC()))
 	qc3, blocks3 := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.Some(qc2.QC()))
 	require.Equal(t, state.Registry().MustEpoch(0).RoadRange().First, qc.Index())
+	hashBuilder.publishOnReport = true
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
@@ -217,23 +221,12 @@ func TestExecuteBuffersPendingAppHashes(t *testing.T) {
 		if err := state.PushPartialBlock(ctx, qc3, data.TestBlockMap(blocks3)); err != nil {
 			return fmt.Errorf("state.PushPartialBlock(): %w", err)
 		}
-		next, restarted, err := router.cfg.Executor.Init(ctx)
-		if err != nil {
-			return err
-		}
-		if restarted {
-			return fmt.Errorf("fresh app reported committed blocks")
-		}
-		hashBuilder.publishOnReport = true
-		committed := make(chan execution.Committed, pendingExecutionBuffer)
-		s.SpawnBgNamed("execute", func() error {
-			return utils.IgnoreCancel(router.cfg.Executor.Run(ctx, next, committed))
-		})
+		s.SpawnBgNamed("execute", func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
 		if _, err := app.WaitForBlocks(ctx, 3); err != nil {
 			return err
 		}
-		s.SpawnBgNamed("pushAppHashes", func() error {
-			return utils.IgnoreCancel(router.runPushAppHashes(ctx, committed))
+		s.SpawnBgNamed("proposeAppHashes", func() error {
+			return utils.IgnoreCancel(router.runProposeAppHashes(ctx))
 		})
 		if _, err := state.AppVote(ctx, qc3.Index()); err != nil {
 			return fmt.Errorf("AppVote(%v): %w", qc3.Index(), err)
@@ -242,86 +235,74 @@ func TestExecuteBuffersPendingAppHashes(t *testing.T) {
 	}))
 }
 
-// TestRunExecuteReportsTheBlockHash verifies that runExecute reports the road
-// block hash the hash loop proposes. Without the report AppVote keeps waiting,
-// and this test hangs.
-func TestRunExecuteReportsTheBlockHash(t *testing.T) {
+// TestProposeAppHashesResumesAtNextAppProposal pins the restart path: the app
+// hashes of blocks executed but not yet proposed come from the app hash builder,
+// with no executor running.
+func TestProposeAppHashesResumesAtNextAppProposal(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
-	_, hashBuilder, state, router := newAppHashTestRouter(t, rng, key)
+	_, hashBuilder, state, router, _ := newAppHashTestRouter(t, rng, key)
 
 	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
+	qc2, blocks2 := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.Some(qc.QC()))
+	last := qc2.Index()
 	require.Equal(t, state.Registry().MustEpoch(0).RoadRange().First, qc.Index())
-	hashBuilder.publishOnReport = true
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		if err := state.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
 			return fmt.Errorf("state.PushPartialBlock(): %w", err)
 		}
-		s.SpawnBgNamed("execute", func() error {
-			return utils.IgnoreCancel(router.runExecute(ctx))
-		})
-		if _, err := state.AppVote(ctx, qc.Index()); err != nil {
-			return fmt.Errorf("AppVote(%v): %w", qc.Index(), err)
-		}
-		return nil
-	}))
-}
-
-// TestBackfillAppHashesReadsTheBuilder pins the restart path: every block the
-// app committed but did not get proposed is recovered from the app hash
-// builder, oldest first, so execution can resume at the block after the app
-// tip.
-func TestBackfillAppHashesReadsTheBuilder(t *testing.T) {
-	rng := utils.TestRng()
-	key := atypes.GenSecretKey(rng)
-	_, hashBuilder, state, router := newAppHashTestRouter(t, rng, key)
-
-	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
-	last := qc.Index()
-	require.Equal(t, state.Registry().MustEpoch(0).RoadRange().First, last)
-
-	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		if err := state.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
+		if err := state.PushPartialBlock(ctx, qc2, data.TestBlockMap(blocks2)); err != nil {
 			return fmt.Errorf("state.PushPartialBlock(): %w", err)
 		}
-
-		next := last + 1
-		for n := state.NextAppProposal(); n < next; n++ {
+		for n := state.NextAppProposal(); n <= last; n++ {
 			hashBuilder.add(testAppHashData(n))
 		}
-		require.NoError(t, router.backfillAppHashes(ctx, next))
-		require.Equal(t, next, state.NextAppProposal())
-		// The cursor is already next, so a second call has nothing to push.
-		hashBuilder.clear()
-		require.NoError(t, router.backfillAppHashes(ctx, next))
-		require.Equal(t, next, state.NextAppProposal())
+		s.SpawnBgNamed("proposeAppHashes", func() error {
+			return utils.IgnoreCancel(router.runProposeAppHashes(ctx))
+		})
+		if _, err := state.AppVote(ctx, last); err != nil {
+			return fmt.Errorf("AppVote(%v): %w", last, err)
+		}
 		return nil
 	}))
+	require.Equal(t, last+1, state.NextAppProposal())
 }
 
-// TestRunPushAppHashesStopsWhenExecuteStops hangs if the push loop waits on a
-// context execute's return does not cancel.
-func TestRunPushAppHashesStopsWhenExecuteStops(t *testing.T) {
+func TestCommitteeWeights(t *testing.T) {
 	rng := utils.TestRng()
-	_, _, _, router := newAppHashTestRouter(t, rng, atypes.GenSecretKey(rng))
-	committed := make(chan execution.Committed, 1)
-	committed <- execution.Committed{Number: 1}
-	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		s.SpawnNamed("pushAppHashes", func() error {
-			return router.runPushAppHashes(ctx, committed)
-		})
-		s.SpawnNamed("execute", func() error {
-			return errExecuteStopped
-		})
-		return nil
-	})
-	require.ErrorIs(t, err, errExecuteStopped)
+	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
+	wantPK := utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes()))
+	got, err := committeeWeights([]abci.ValidatorUpdate{{
+		PubKey: crypto.PubKeyToProto(sk.Public()),
+		Power:  42,
+	}})
+	require.NoError(t, err)
+	require.Equal(t, map[atypes.PublicKey]uint64{wantPK: 42}, got)
 }
 
-var errExecuteStopped = errors.New("execute stopped")
+func TestCommitteeWeights_SkipsZeroPower(t *testing.T) {
+	rng := utils.TestRng()
+	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
+	got, err := committeeWeights([]abci.ValidatorUpdate{{
+		PubKey: crypto.PubKeyToProto(sk.Public()),
+		Power:  0,
+	}})
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+func TestCommitteeWeights_DuplicateKey(t *testing.T) {
+	rng := utils.TestRng()
+	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
+	pk := crypto.PubKeyToProto(sk.Public())
+	_, err := committeeWeights([]abci.ValidatorUpdate{
+		{PubKey: pk, Power: 1},
+		{PubKey: pk, Power: 2},
+	})
+	require.Error(t, err)
+}
 
 func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	rng := utils.TestRng()
@@ -355,23 +336,19 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	require.NoError(t, db.Flush())
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
-	cfg := withTestExecutor(&GigaRouterCommonConfig{
+	cfg := &GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     validatorAddrs,
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
 		App:                proxy.New(&fixedHeightApp{height: int64(last)}),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
-	}, db)
+	}
 	state, err := BuildDataState(cfg, db)
 	require.NoError(t, err)
 	got, err := state.TryBlock(atypes.LaneBlockPos{Index: last})
 	require.NoError(t, err)
 	require.Equal(t, blocks2[0].Header().Hash(), got.Header().Hash())
-
-	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), state)
-	require.NoError(t, err)
-	require.Equal(t, atypes.ExecutedBlock{Number: last}, router.ExecutedBlocks().Load().Latest())
 }
 
 func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
@@ -469,14 +446,14 @@ func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAdd
 	db, err := blockstore.New(memblock.NewBlockDB())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	state, err := BuildDataState(withTestExecutor(&GigaRouterCommonConfig{
+	state, err := BuildDataState(&GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
 		App:                proxy.New(&fixedHeightApp{height: 1}),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
-	}, db), db)
+	}, db)
 	require.NoError(t, err)
 	return &gigaRouterCommon{
 		data:            state,
