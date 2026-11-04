@@ -207,7 +207,6 @@ const pendingExecutionBuffer = 128
 type pendingExecution struct {
 	number  atypes.RoadIndex
 	weights map[atypes.PublicKey]uint64
-	window  utils.Option[epoch.Window]
 }
 
 // startExecuteBlock finalizes and commits b. AppHash handling stays on the
@@ -247,22 +246,7 @@ func (r *gigaRouterCommon) startExecuteBlock(
 			ProposerAddress: proposerAddress,
 		}).ToProto(),
 	}
-	var window utils.Option[epoch.Window]
-	var resp *abci.ResponseFinalizeBlock
-	var err error
-	if evm, ok := app.EVM().Get(); ok {
-		weights, err := committeeWeights(vals)
-		if err != nil {
-			return pendingExecution{}, err
-		}
-		window, err = r.data.OpeningEpochWindow(b.Height, weights)
-		if err != nil {
-			return pendingExecution{}, fmt.Errorf("opening epoch window for block %v: %w", b.Height, err)
-		}
-		resp, err = evm.FinalizeBlockWithEpochWindow(ctx, req, window)
-	} else {
-		resp, err = app.FinalizeBlock(ctx, req)
-	}
+	resp, err := r.finalizeBlock(ctx, b.Height, req, vals)
 	if err != nil {
 		return pendingExecution{}, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
@@ -290,14 +274,55 @@ func (r *gigaRouterCommon) startExecuteBlock(
 	}, nil
 }
 
-// finishExecuteBlock proposes pending's app hash to the data layer.
+// finalizeBlock finalizes block n on the app. An EVM app also commits the
+// epoch window with n when n is the first road of an epoch.
+func (r *gigaRouterCommon) finalizeBlock(
+	ctx context.Context,
+	n atypes.RoadIndex,
+	req *abci.RequestFinalizeBlock,
+	vals []abci.ValidatorUpdate,
+) (*abci.ResponseFinalizeBlock, error) {
+	evm, ok := r.app.EVM().Get()
+	if !ok {
+		return r.app.FinalizeBlock(ctx, req)
+	}
+	window, err := r.openingEpochWindow(n, vals)
+	if err != nil {
+		return nil, err
+	}
+	return evm.FinalizeBlockWithEpochWindow(ctx, req, window)
+}
+
+// openingEpochWindow returns the epoch window to commit with road n, derived
+// from vals, the validators after the previous road's Commit. It returns None
+// unless n is the first road after an epoch closes.
+func (r *gigaRouterCommon) openingEpochWindow(n atypes.RoadIndex, vals []abci.ValidatorUpdate) (utils.Option[epoch.Window], error) {
+	if n == 0 {
+		return utils.None[epoch.Window](), nil
+	}
+	registry := r.data.Registry()
+	endEpoch, ok := registry.ClosingEpoch(n - 1).Get()
+	if !ok {
+		return utils.None[epoch.Window](), nil
+	}
+	weights, err := committeeWeights(vals)
+	if err != nil {
+		return utils.None[epoch.Window](), err
+	}
+	window, err := registry.Window(endEpoch, weights)
+	if err != nil {
+		return utils.None[epoch.Window](), fmt.Errorf("epoch window for block %v: %w", n, err)
+	}
+	return utils.Some(window), nil
+}
+
+// finishExecuteBlock proposes the app hash of block n to the data layer.
 func (r *gigaRouterCommon) finishExecuteBlock(
 	ctx context.Context,
 	n atypes.RoadIndex,
-	pending pendingExecution,
+	source data.NextEpochSource,
 	appHash atypes.AppHash,
 ) error {
-	source := data.NextEpochSource{Weights: pending.weights, Window: pending.window}
 	if err := r.data.PushAppHashWithEpochSource(ctx, n, appHash, source); err != nil {
 		return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
 	}
@@ -433,14 +458,17 @@ func (r *gigaRouterCommon) backfillAppHashes(
 	if from >= next {
 		return nil
 	}
+	// TODO: finishExecuteBlock needs the weights from after height n was executed.
+	// GetValidators() here is the app tip, so every road gets that one set. An EVM
+	// app's committed epoch window replaces it for the road that window closes;
+	// other apps still need the set stored for n once app state has it.
 	weights, err := committeeWeights(r.app.GetValidators())
 	if err != nil {
 		return err
 	}
-	var window utils.Option[epoch.Window]
+	source := data.NextEpochSource{Weights: weights}
 	if evm, ok := r.app.EVM().Get(); ok {
-		window, err = evm.CommittedEpochWindow()
-		if err != nil {
+		if source.Window, err = evm.CommittedEpochWindow(); err != nil {
 			return fmt.Errorf("app.CommittedEpochWindow(): %w", err)
 		}
 	}
@@ -450,8 +478,7 @@ func (r *gigaRouterCommon) backfillAppHashes(
 			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", n, err)
 		}
 		appHash := entry.AppHash()
-		pending := pendingExecution{number: n, weights: weights, window: window}
-		if err := r.finishExecuteBlock(ctx, n, pending, appHash[:]); err != nil {
+		if err := r.finishExecuteBlock(ctx, n, source, appHash[:]); err != nil {
 			return fmt.Errorf("r.finishExecuteBlock(%v): %w", n, err)
 		}
 	}
@@ -470,7 +497,7 @@ func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context, committed <-cha
 			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", p.number, err)
 		}
 		appHash := record.AppHash()
-		if err := r.finishExecuteBlock(ctx, p.number, p, appHash[:]); err != nil {
+		if err := r.finishExecuteBlock(ctx, p.number, data.NextEpochSource{Weights: p.weights}, appHash[:]); err != nil {
 			return fmt.Errorf("r.finishExecuteBlock(%v): %w", p.number, err)
 		}
 	}

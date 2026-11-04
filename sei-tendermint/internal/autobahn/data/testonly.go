@@ -58,6 +58,18 @@ func TestCommitQC(
 	return types.NewFullCommitQC(cqc, headers), blockList
 }
 
+// TestCommitQCAtRoad returns a CommitQC for road in ep with one empty block.
+func TestCommitQCAtRoad(ep *types.Epoch, keys []types.SecretKey, road types.RoadIndex) (*types.FullCommitQC, []*types.Block) {
+	proposal := types.ProposalAt(ep, types.View{Index: road, Number: 0})
+	block := types.NewBlock(ep.Committee().Lanes().At(0), 0, types.BlockHeaderHash{}, &types.Payload{})
+	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
+	prepareQC := types.BuildPrepareQC(keys, proposal)
+	for _, k := range keys {
+		votes = append(votes, types.Sign(k, types.NewCommitVote(prepareQC)))
+	}
+	return types.NewFullCommitQC(types.NewCommitQC(votes), []*types.BlockHeader{block.Header()}), []*types.Block{block}
+}
+
 // TestBlockMap indexes blocks by their offsets in header order.
 func TestBlockMap(blocks []*types.Block) map[uint64]*types.Block {
 	result := make(map[uint64]*types.Block, len(blocks))

@@ -75,20 +75,23 @@ func TestHashEVMOnlyResultGoldenVector(t *testing.T) {
 	}
 }
 
-func TestHashEVMOnlyResultIncludesEpochWindow(t *testing.T) {
-	fixture := evmOnlyHashFixture(1)
-	prev := common.HexToHash("0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")
-	blockHash := common.HexToHash("0xf0e0d0c0b0a090807060504030201000ffeeddccbbaa99887766554433221100")
-	withoutWindow, err := hashEVMOnlyResult(prev, 4_321, blockHash, fixture, utils.None[epoch.Window]())
+// TestHashEVMOnlyResultEpochWindowGoldenVector pins the app-hash byte stream of
+// a block that commits an epoch window.
+func TestHashEVMOnlyResultEpochWindowGoldenVector(t *testing.T) {
+	got, err := hashEVMOnlyResult(
+		common.HexToHash("0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"),
+		4_321,
+		common.HexToHash("0xf0e0d0c0b0a090807060504030201000ffeeddccbbaa99887766554433221100"),
+		evmOnlyHashFixture(1),
+		utils.Some(evmOnlyTestEpochWindow()),
+	)
 	require.NoError(t, err)
-	withWindow, err := hashEVMOnlyResult(prev, 4_321, blockHash, fixture, utils.Some(evmOnlyHashTestWindow(t)))
-	require.NoError(t, err)
-	require.NotEqual(t, withoutWindow, withWindow)
+	require.Equal(t, "0x7045855282fa7291357e08a3dd9cabe77776fbc8741bb4cda778e453b19b7eab", got.Hex())
 }
 
-func evmOnlyHashTestWindow(t *testing.T) epoch.Window {
-	t.Helper()
-	key := atypes.GenSecretKey(utils.TestRng())
+// evmOnlyTestEpochWindow returns a fixed epoch window over a one-validator committee.
+func evmOnlyTestEpochWindow() epoch.Window {
+	key := atypes.TestSecretKey("evmonly-epoch-window")
 	weights := map[atypes.PublicKey]uint64{key.Public(): 1}
 	committee := utils.OrPanic1(atypes.NewCommittee(weights))
 	nextCommittee := utils.OrPanic1(committee.DeriveNext(weights, 2))

@@ -97,7 +97,7 @@ func TestEVMOnlyAppCommitsEpochWindow(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(proxy.EVMApplication)
 	require.Equal(t, utils.None[epoch.Window](), utils.OrPanic1(app.CommittedEpochWindow()))
 
-	window := evmOnlyHashTestWindow(t)
+	window := evmOnlyTestEpochWindow()
 	response, err := app.FinalizeBlockWithEpochWindow(t.Context(), evmOnlyTestBlock(1), utils.Some(window))
 	require.NoError(t, err)
 	require.NotEmpty(t, response.AppHash)

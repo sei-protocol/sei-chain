@@ -164,16 +164,18 @@ func (r *Registry) StageEpoch(endEpoch types.EpochIndex, weights map[types.Publi
 }
 
 // Window returns the epoch state committed with the first block after endEpoch.
+// It returns ErrPruned if endEpoch has been dropped by PruneBefore.
 func (r *Registry) Window(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) (Window, error) {
 	for state := range r.state.Lock() {
 		s := state.Load()
-		var prev utils.Option[*types.Epoch]
-		if endEpoch >= s.liveRange.First {
-			epoch, ok := s.live[endEpoch]
-			if !ok {
-				return Window{}, fmt.Errorf("epoch %d not registered", endEpoch)
-			}
-			prev = utils.Some(epoch)
+		// The window goes into the app hash, so prev must not depend on how far
+		// this node has pruned.
+		if endEpoch < s.liveRange.First {
+			return Window{}, fmt.Errorf("epoch %d: %w", endEpoch, types.ErrPruned)
+		}
+		prev, ok := s.live[endEpoch]
+		if !ok {
+			return Window{}, fmt.Errorf("epoch %d not registered", endEpoch)
 		}
 		current, ok := s.live[endEpoch+1]
 		if !ok {
@@ -183,9 +185,9 @@ func (r *Registry) Window(endEpoch types.EpochIndex, weights map[types.PublicKey
 		if err != nil {
 			return Window{}, err
 		}
-		return NewWindow(prev, current, next)
+		return NewWindow(utils.Some(prev), current, next)
 	}
-	return Window{}, nil
+	panic("unreachable")
 }
 
 // StageWindow persists window's next epoch as pending.

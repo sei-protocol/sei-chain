@@ -694,23 +694,6 @@ func (s *State) PushAppHashWithEpochSource(ctx context.Context, n types.RoadInde
 	return s.activateStagedEpoch()
 }
 
-// OpeningEpochWindow returns the state window to commit with road n, if it is
-// the first road after an epoch closes.
-func (s *State) OpeningEpochWindow(n types.RoadIndex, weights map[types.PublicKey]uint64) (utils.Option[epoch.Window], error) {
-	if n == 0 {
-		return utils.None[epoch.Window](), nil
-	}
-	endEpoch, ok := s.cfg.Registry.ClosingEpoch(n - 1).Get()
-	if !ok {
-		return utils.None[epoch.Window](), nil
-	}
-	window, err := s.cfg.Registry.Window(endEpoch, weights)
-	if err != nil {
-		return utils.None[epoch.Window](), err
-	}
-	return utils.Some(window), nil
-}
-
 // stageClosingEpoch persists C_{E+2} when n is the last road of epoch E.
 // StageEpoch returns only after that committee is durable. A road that closes
 // no epoch is left unchanged.
@@ -719,7 +702,7 @@ func (s *State) stageClosingEpoch(n types.RoadIndex, source NextEpochSource) err
 	if !ok {
 		return nil
 	}
-	if window, ok := source.Window.Get(); ok && windowClosesEpoch(window, e) {
+	if window, ok := source.Window.Get(); ok && window.Current().EpochIndex() == e+1 {
 		if err := s.cfg.Registry.StageWindow(window); err != nil {
 			return fmt.Errorf("StageWindow(%d): %w", e, err)
 		}
@@ -729,13 +712,6 @@ func (s *State) stageClosingEpoch(n types.RoadIndex, source NextEpochSource) err
 		return fmt.Errorf("StageEpoch(%d): %w", e, err)
 	}
 	return nil
-}
-
-func windowClosesEpoch(window epoch.Window, e types.EpochIndex) bool {
-	if prev, ok := window.Prev().Get(); ok {
-		return prev.EpochIndex() == e
-	}
-	return window.Current().EpochIndex() == e+1
 }
 
 func (s *State) PushGasUsed(gasUsed int64) {

@@ -227,7 +227,10 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 // encodeCursorChangeSet chains the block into the app hash and stages the
 // resulting cursor as pending, returning it as the write committed with
 // the block's state.
-func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
+func (a *evmOnlyApplication) encodeCursorChangeSet(
+	block evmonly.BlockContext,
+	result *evmonly.BlockResult,
+) ([]gigatypes.MiscChange, error) {
 	height, ok := utils.SafeCast[int64](block.Number)
 	if !ok {
 		return nil, fmt.Errorf("EVM-only block number exceeds int64: %d", block.Number)
@@ -881,7 +884,6 @@ func (a *evmOnlyApplication) abandonPending(executor *evmonly.Executor, height i
 	}
 	for state := range a.cursor.Lock() {
 		state.pending = utils.None[evmOnlyCursor]()
-		state.finalizingEpochWindow = utils.None[epoch.Window]()
 	}
 	return commitErr
 }
@@ -1000,17 +1002,19 @@ func hashEVMOnlyResult(
 		}
 	}
 	if window, ok := window.Get(); ok {
-		change := epochWindowMiscChange(window)
-		w.writeSizedString(change.Module)
-		w.writeSized(change.Key)
-		w.writeByte(0)
-		w.writeSized(change.Value)
+		// The changesets carry no count, so the tag keeps the window from
+		// reading as one more changeset.
+		w.writeByte(evmOnlyHashEpochWindowTag)
+		w.writeSized(epoch.WindowConv.Marshal(window))
 	}
 	if err := w.flush(); err != nil {
 		return common.Hash{}, err
 	}
 	return common.BytesToHash(h.Sum(nil)), nil
 }
+
+// evmOnlyHashEpochWindowTag marks the epoch window in the app-hash stream.
+const evmOnlyHashEpochWindowTag byte = 0xff
 
 // evmOnlyHashBufferSize is the buffer between the stream and the hash.
 const evmOnlyHashBufferSize = 32 << 10

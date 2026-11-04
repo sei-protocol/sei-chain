@@ -155,12 +155,8 @@ func TestRegistryWindowAfterPrevPruned(t *testing.T) {
 	r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
 	require.NoError(t, r.PruneBefore(1))
 
-	window, err := r.Window(0, weights)
-	require.NoError(t, err)
-	require.Equal(t, utils.None[*types.Epoch](), window.Prev())
-	require.Equal(t, testEpoch(1, 0, genesis), window.Current())
-	require.NoError(t, r.StageWindow(window))
-	require.Equal(t, utils.Some(window.Next()), r.Pending())
+	_, err := r.Window(0, weights)
+	require.ErrorIs(t, err, types.ErrPruned)
 }
 
 func TestRegistryWaitForEpoch(t *testing.T) {
