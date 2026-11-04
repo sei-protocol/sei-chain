@@ -338,8 +338,78 @@ func TestNewState_NextCommitEpochAtBoundaryTip(t *testing.T) {
 	writeAppDataToBlockStore(t, rng, db, keys, qc)
 
 	state := newTestState(t, &Config{Registry: registry}, db)
-	require.Equal(t, ep2, state.NextCommitEpoch().Load())
+	require.Equal(t, ep2, state.NextCommitEpoch())
 }
+
+// The suffix starts on the last road of epoch 0, so the pair captured at the
+// suffix start has epoch 1 as Next. It ends on the last road of epoch 1, and
+// epoch 2 is pending rather than live, so the publish of the following road
+// does not replace the pair stored from that last block.
+func TestNewState_PendingNextSurvivesUnregisteredTip(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 1)
+	require.NoError(t, registry.StageEpoch(0, map[types.PublicKey]uint64{keys[0].Public(): 9}))
+	ep0 := registry.MustEpoch(0)
+	ep1 := registry.MustEpoch(1)
+	first := registry.LastRoad(0)
+	last := registry.LastRoad(1)
+	blocks := make([]*types.RoadBlock, 0, last-first+1)
+	for road := first; road <= last; road++ {
+		ep := ep1
+		if road == first {
+			ep = ep0
+		}
+		qc, laneBlocks := commitQCAtRoad(ep, keys, road)
+		blocks = append(blocks, types.NewRoadBlock(qc, laneBlocks))
+	}
+	state := newTestState(t, &Config{Registry: registry}, suffixOnlyStore{suffix: types.Suffix{
+		Status: utils.Some(types.SuffixRange{
+			First:           first,
+			NextAppQC:       first,
+			NextAppProposal: first,
+			NextBlock:       last + 1,
+		}),
+		Blocks: blocks,
+	}})
+	require.Equal(t, epoch.EpochAndNext{Current: ep1, Next: registry.Pending()}, state.NextCommitEpochs().Load())
+}
+
+type suffixOnlyStore struct {
+	suffix types.Suffix
+}
+
+func (s suffixOnlyStore) ReadSuffix() (types.Suffix, error) { return s.suffix, nil }
+
+func (suffixOnlyStore) WriteBlock(*types.RoadBlock) error { panic("unused") }
+func (suffixOnlyStore) WriteAppQC(*types.AppQC) error     { panic("unused") }
+func (suffixOnlyStore) WriteAppProposal(*types.AppProposal) error {
+	panic("unused")
+}
+func (suffixOnlyStore) PruneBefore(types.RoadIndex) error { panic("unused") }
+func (suffixOnlyStore) First() types.RoadIndex            { panic("unused") }
+func (suffixOnlyStore) Flush() error                      { panic("unused") }
+func (suffixOnlyStore) Status() utils.Option[types.SuffixRange] {
+	panic("unused")
+}
+func (suffixOnlyStore) ReadLaneBlock(types.LaneBlockPos) (utils.Option[*types.Block], error) {
+	panic("unused")
+}
+func (suffixOnlyStore) ReadBlock(types.RoadIndex) (utils.Option[*types.RoadBlock], error) {
+	panic("unused")
+}
+func (suffixOnlyStore) ReadBlockByHash(types.RoadBlockHeaderHash) (utils.Option[*types.RoadBlock], error) {
+	panic("unused")
+}
+func (suffixOnlyStore) ReadQC(types.RoadIndex) (utils.Option[*types.FullCommitQC], error) {
+	panic("unused")
+}
+func (suffixOnlyStore) ReadAppProposal(types.RoadIndex) (utils.Option[*types.AppProposal], error) {
+	panic("unused")
+}
+func (suffixOnlyStore) ReadAppQC(types.RoadIndex) (utils.Option[*types.AppQC], error) {
+	panic("unused")
+}
+func (suffixOnlyStore) Close() error { panic("unused") }
 
 // writeExecutedTip writes a one-block CommitQC and its AppProposal at road.
 func writeExecutedTip(
@@ -576,5 +646,5 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, qc.Index(), state.First())
 	require.Equal(t, qc.Index()+1, state.NextQC())
-	require.Equal(t, types.EpochIndex(2), state.NextCommitEpoch().Load().EpochIndex())
+	require.Equal(t, types.EpochIndex(2), state.NextCommitEpoch().EpochIndex())
 }

@@ -116,17 +116,26 @@ func (r *Registry) GenesisTimestamp() time.Time {
 	return r.genesisTimestamp
 }
 
+// EpochAndNext is an epoch and the epoch after it.
+type EpochAndNext struct {
+	Current *types.Epoch
+	// Next is None when the following epoch is neither live nor pending.
+	// None is fine: Next is only used to optimistically admit new members of the next epoch.
+	Next utils.Option[*types.Epoch]
+}
+
+// EpochAndNextAt returns the epoch containing road and the epoch after it.
+func (r *Registry) EpochAndNextAt(road types.RoadIndex) (EpochAndNext, error) {
+	if road < r.firstRoad {
+		return EpochAndNext{}, fmt.Errorf("road %d: %w", road, types.ErrPruned)
+	}
+	return r.stateRecv.Load().epochAndNext(r.IndexForRoad(road))
+}
+
 // Epoch returns the registered epoch at idx.
 // It returns ErrPruned if idx has been dropped by PruneBefore.
 func (r *Registry) Epoch(idx types.EpochIndex) (*types.Epoch, error) {
-	s := r.stateRecv.Load()
-	if idx < s.liveRange.First {
-		return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrPruned)
-	}
-	if s.liveRange.Next <= idx {
-		return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrNotFound)
-	}
-	return s.live[idx], nil
+	return r.stateRecv.Load().epoch(idx)
 }
 
 // EpochAt returns the registered epoch containing roadIndex.

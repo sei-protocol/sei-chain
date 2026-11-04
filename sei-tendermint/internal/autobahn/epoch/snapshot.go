@@ -60,6 +60,38 @@ type persistedRegistry struct {
 	pending   utils.Option[*types.Epoch]
 }
 
+// epoch returns the live epoch at idx.
+func (s *persistedRegistry) epoch(idx types.EpochIndex) (*types.Epoch, error) {
+	if idx < s.liveRange.First {
+		return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrPruned)
+	}
+	if s.liveRange.Next <= idx {
+		return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrNotFound)
+	}
+	return s.live[idx], nil
+}
+
+// epochAndNext returns the live epoch idx and the epoch after it.
+func (s *persistedRegistry) epochAndNext(idx types.EpochIndex) (EpochAndNext, error) {
+	current, err := s.epoch(idx)
+	if err != nil {
+		return EpochAndNext{}, err
+	}
+	return EpochAndNext{Current: current, Next: s.epochAfter(idx)}, nil
+}
+
+// epochAfter returns the epoch following idx when it is live or pending.
+func (s *persistedRegistry) epochAfter(idx types.EpochIndex) utils.Option[*types.Epoch] {
+	next := idx + 1
+	if ep, ok := s.live[next]; ok {
+		return utils.Some(ep)
+	}
+	if pending, ok := s.pending.Get(); ok && pending.EpochIndex() == next {
+		return utils.Some(pending)
+	}
+	return utils.None[*types.Epoch]()
+}
+
 // newGenesisRegistry constructs the first two live epochs from the genesis committee.
 func newGenesisRegistry(committee *types.Committee, firstRoad types.RoadIndex) *persistedRegistry {
 	return &persistedRegistry{

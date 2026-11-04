@@ -63,17 +63,17 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
 	return &gigaValidatorRouter{
 		gigaRouterCommon: &gigaRouterCommon{
-			cfg:             &cfg.GigaRouterCommonConfig,
-			key:             key,
-			data:            dataState,
-			nextCommitEpoch: dataState.NextCommitEpoch(),
-			anchor:          dataState.Anchor(),
-			service:         giga.NewService(consensusState),
-			poolIn:          giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
-			poolInCommittee: giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
-			poolOut:         giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
-			proxies:         utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
-			app:             cfg.App,
+			cfg:              &cfg.GigaRouterCommonConfig,
+			key:              key,
+			data:             dataState,
+			nextCommitEpochs: dataState.NextCommitEpochs(),
+			anchor:           dataState.Anchor(),
+			service:          giga.NewService(consensusState),
+			poolIn:           giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
+			poolInCommittee:  giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
+			poolOut:          giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
+			proxies:          utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
+			app:              cfg.App,
 			offer: utils.Some(handshakeOffer{
 				ValidatorKey: cfg.ValidatorKey,
 				EVMRPC:       self.EVMRPC,
@@ -140,7 +140,7 @@ func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*ethr
 	if !r.EvmProxyEnabled() {
 		return utils.None[*ethrpc.Client]()
 	}
-	validator := r.nextCommitEpoch.Load().Committee().EvmShard(sender)
+	validator := r.nextCommitEpochs.Load().Current.Committee().EvmShard(sender)
 	if r.validatorKey == validator {
 		return utils.None[*ethrpc.Client]()
 	}
