@@ -18,9 +18,17 @@ override_genesis '.app_state["staking"]["params"]["bond_denom"]="usei"'
 override_genesis '.app_state["slashing"]["params"]["signed_blocks_window"]="10000"'
 override_genesis '.app_state["slashing"]["params"]["min_signed_per_window"]="0.050000000000000000"'
 override_genesis '.app_state["staking"]["params"]["max_validators"]="50"'
-override_genesis '.consensus_params["block"]["max_gas"]="35000000"'
-# Set MaxGasWanted to be 2x of MaxGas, similar to mainnet, in order to avoid false-positive gas related issue reports. 
-override_genesis '.consensus_params["block"]["max_gas_wanted"]="70000000"'
+if [ "${AUTOBAHN:-false}" = "true" ]; then
+  # Autobahn caps a lane block at 2000 transactions; a 35M gas limit would bind first, at 1666 transfers.
+  BLOCK_MAX_GAS=30000000000
+  BLOCK_MAX_GAS_WANTED=30000000000
+else
+  BLOCK_MAX_GAS=35000000
+  # Set MaxGasWanted to be 2x of MaxGas, similar to mainnet, in order to avoid false-positive gas related issue reports.
+  BLOCK_MAX_GAS_WANTED=70000000
+fi
+override_genesis ".consensus_params[\"block\"][\"max_gas\"]=\"$BLOCK_MAX_GAS\""
+override_genesis ".consensus_params[\"block\"][\"max_gas_wanted\"]=\"$BLOCK_MAX_GAS_WANTED\""
 # 1500ms, quoted nanoseconds, same encoding as the other genesis durations.
 override_genesis '.autobahn["view_timeout"]="1500000000"'
 override_genesis '.app_state["staking"]["params"]["unbonding_time"]="10s"'
