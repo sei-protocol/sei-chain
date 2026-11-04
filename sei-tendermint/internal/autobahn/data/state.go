@@ -13,7 +13,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-const laneBlocksCacheSize = 1000
+const maxLaneBlock  = 1000
+const maxRoadBlocks = 100
 
 // ErrOutOfOrder is returned when PushAppHash receives an app hash past the
 // next CommitQC range waiting for execution.
@@ -57,7 +58,7 @@ type inner struct {
 	appProposals   map[types.RoadIndex]*types.AppProposal        // [first, nextAppProposal)
 	appQCs         map[types.RoadIndex]*types.AppQC              // [first, nextAppQC)
 	byHash         map[types.RoadBlockHeaderHash]types.RoadIndex // all blocks (including partial ones) by RoadBlockHeaderHash.
-	laneBlockCount uint64                                        // Total lane blocks of all partial blocks.
+	laneBlockCount uint64                                        // Total lane blocks (present and missing) of all partial and full blocks.
 
 	// first is the inclusive low end of retained in-memory state: maps keep [first, next*).
 	// Advanced by runPersist(). Durable copies below first live in BlockStore.
@@ -346,14 +347,12 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
 				// Wait until either we already have the road block, or until this is the next road block AND we have capacity.
-				// We have capacity iff we are at or below the total block limit OR we have just 1 road block.
-				// Count roadblocks as well as lane blocks to account for empty roadblocks.
+				// We have capacity iff road/lane block limits allow another road block OR we have <2 road blocks.
+				// Count road blocks separately to account for empty road blocks.
 				// For liveness we need to be able to keep in data state at least 2 road blocks,
 				// because we always keep 1 executed block.
-				// NOTE that capacity counts both lane blocks and road blocks to account for potentially empty roadblocks.
-				capacityUsed := inner.laneBlockCount + uint64(len(inner.blocks))
-				return n < inner.nextPartialBlock ||
-					(n == inner.nextPartialBlock && (capacityUsed <= laneBlocksCacheSize || n == inner.first+1))
+				hasCapacity := len(inner.blocks) < 2 || (len(inner.blocks) < maxRoadBlocks && inner.laneBlockCount <= maxLaneBlock)
+				return n < inner.nextPartialBlock || (n == inner.nextPartialBlock && hasCapacity)
 			}); err != nil {
 				return 0, 0, err
 			}
