@@ -18,13 +18,13 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"go.opentelemetry.io/otel/sdk/trace"
 
+	"github.com/sei-protocol/sei-chain/giga/blockexecutor"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	evmonlyrpc "github.com/sei-protocol/sei-chain/giga/evmonly/rpc"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -130,7 +130,7 @@ type nodeImpl struct {
 	// network
 	router               *p2p.Router
 	giga                 utils.Option[p2p.GigaRouter]
-	executor             utils.Option[*execution.Executor]
+	executor             utils.Option[*blockexecutor.Executor]
 	gigaStorageManager   utils.Option[*bootstrap.GigaStorageManager]
 	gigaStorageCloseOnce sync.Once
 	ServiceRestartCh     utils.Option[chan []string]

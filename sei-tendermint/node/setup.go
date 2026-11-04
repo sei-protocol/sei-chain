@@ -13,13 +13,14 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/giga/blockexecutor"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
+	datametrics "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
@@ -366,12 +367,13 @@ func buildGigaRouter(
 
 // buildExecutor returns the Autobahn executor that runs the blocks in manager's
 // BlockStore on app.
-func buildExecutor(app *proxy.Proxy, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager) *execution.Executor {
-	return execution.New(&execution.Config{
+func buildExecutor(app *proxy.Proxy, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager) *blockexecutor.Executor {
+	return blockexecutor.New(&blockexecutor.Config{
 		GenDoc:         genDoc,
 		App:            app,
 		AppHashBuilder: manager.AppHashBuilder(),
 		Blocks:         manager.BlockStore(),
+		GasUsed:        datametrics.Get().GasUsed,
 	})
 }
 
