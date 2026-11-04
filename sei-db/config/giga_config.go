@@ -7,8 +7,8 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 )
 
 // GigaStorageConfig composes the store configs a Giga node opens. It is not read from
@@ -18,7 +18,7 @@ type GigaStorageConfig struct {
 	FlatKVConfig         *flatkvConfig.Config           // required
 	SSConfig             StateStoreConfig               // optional via Enable
 	ReceiptDBConfig      ReceiptStoreConfig             // optional via Enable
-	BlockDBConfig        *littblock.BlockDBConfig       // required
+	BlockDBConfig        *blockstore.Config             // required
 	PruningConfig        *StorageGarbageCollectorConfig // required
 	CheckpointConfig     CheckpointConfig
 	AppHashBuilderConfig *builder.AppHashBuilderConfig    // required
@@ -39,7 +39,7 @@ const gigaReceiptBackend = "littidx"
 //
 // SS is opened at EVMDBDirectory. Every store sets ExternalPruning so PruningConfig owns retention.
 func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
-	blockDBConfig, err := littblock.DefaultConfig(utils.GetBlockStorePath(homePath))
+	blockDBConfig, err := blockstore.DefaultConfig(utils.GetBlockStorePath(homePath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build block db config: %w", err)
 	}

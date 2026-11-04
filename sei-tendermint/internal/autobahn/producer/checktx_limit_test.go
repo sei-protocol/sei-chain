@@ -87,7 +87,7 @@ func TestInsertTx_BoundsConcurrentCheckTx(t *testing.T) {
 			app := newGatedApp()
 			cfg := app.Cfg()
 			cfg.MaxConcurrentCheckTx = utils.Some(uint64(limit)) //nolint:gosec // small test constant
-			env := newTestEnv(rng, cfg, app.Proxy())
+			env := newTestEnv(t, rng, cfg, app.Proxy())
 			env.alignLocalMempool()
 
 			const m = 6
@@ -123,7 +123,7 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 	app := newGatedApp()
 	cfg := app.Cfg()
 	cfg.MaxConcurrentCheckTx = utils.Some[uint64](1)
-	env := newTestEnv(rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, app.Proxy())
 	env.alignLocalMempool()
 
 	newTx := func() []byte {
@@ -176,7 +176,7 @@ func TestTryInsertTx_InFlightBounded(t *testing.T) {
 	cfg := app.Cfg()
 	cfg.MaxConcurrentCheckTx = utils.Some[uint64](1)
 	cfg.MaxPendingInserts = 1
-	env := newTestEnv(rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, app.Proxy())
 	env.alignLocalMempool()
 
 	newTx := func() []byte {
@@ -228,7 +228,7 @@ func TestTryInsertTx_FullSkipsCheckTx(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newCountingApp()
-	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
 	_, err := env.fillMempool(ctx, rng, app.testApp)
 	require.NoError(t, err)
 
@@ -244,7 +244,7 @@ func TestTryInsertTx_FullRejectsInvalidTxAsFull(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newCountingApp()
-	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
 	_, err := env.fillMempool(ctx, rng, app.testApp)
 	require.NoError(t, err)
 	tx := utils.GenBytes(rng, 1)
@@ -266,7 +266,7 @@ func TestInsertTx_PendingFullSkipsCheckTx(t *testing.T) {
 	app := newCountingApp()
 	cfg := app.Cfg()
 	cfg.MaxPendingInserts = 2
-	env := newTestEnv(rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, app.Proxy())
 	mp, err := env.fillMempool(ctx, rng, app.testApp)
 	require.NoError(t, err)
 
@@ -293,7 +293,7 @@ func TestInsertTx_ClosedSkipsCheckTx(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newCountingApp()
-	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
 	mp, err := env.fillMempool(ctx, rng, app.testApp)
 	require.NoError(t, err)
 	for m, ctrl := range mp.inner.Lock() {

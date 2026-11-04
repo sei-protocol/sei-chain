@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
@@ -246,14 +246,14 @@ func (env *testEnv) Run(ctx context.Context) error {
 	}))
 }
 
-func newTestEnv(rng utils.Rng, cfg *Config, app *proxy.Proxy) *testEnv {
-	env, _, _ := newTestEnvN(rng, 1, cfg, app)
+func newTestEnv(t testing.TB, rng utils.Rng, cfg *Config, app *proxy.Proxy) *testEnv {
+	env, _, _ := newTestEnvN(t, rng, 1, cfg, app)
 	return env
 }
 
-func newTestEnvN(rng utils.Rng, n int, cfg *Config, app *proxy.Proxy) (*testEnv, *epoch.Registry, []types.SecretKey) {
+func newTestEnvN(t testing.TB, rng utils.Rng, n int, cfg *Config, app *proxy.Proxy) (*testEnv, *epoch.Registry, []types.SecretKey) {
 	registry, keys := epoch.GenRegistry(rng, n)
-	store := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
+	store := blockstore.NewTestStore(t)
 	dataState := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, store))
 	consensusState := utils.OrPanic1(consensus.NewState(&consensus.Config{
 		Key:                keys[0],
@@ -296,7 +296,7 @@ func TestInsertTx_TooLargeTx(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
 	// Tx with size exceeding block limit.
 	tx := utils.GenBytes(rng, int(types.MaxTxsBytesPerBlock+1))
 	// Should be rejected by mempool.
@@ -310,7 +310,7 @@ func TestInsertTx_GasWantedExceeded(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
 	cfg := app.Cfg()
-	env := newTestEnv(rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, app.Proxy())
 	env.alignLocalMempool()
 	// Tx with gas wanted exceeding block limit
 	addr, nonce := app.NewAccount(rng)
@@ -329,7 +329,7 @@ func TestInsertTx_GasEstimatedExceeded(t *testing.T) {
 	cfg := app.Cfg()
 	cfg.MaxGasEstimatedPerBlock = 10000
 	cfg.MaxGasWantedPerBlock = cfg.MaxGasEstimatedPerBlock * 2
-	env := newTestEnv(rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, app.Proxy())
 	env.alignLocalMempool()
 	// Tx with gas wanted exceeding block limit
 	addr, nonce := app.NewAccount(rng)
@@ -346,7 +346,7 @@ func TestInsertTx_AppRejectsTx(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
 	env.alignLocalMempool()
 	// Construct tx with invalid encoding.
 	tx := utils.GenBytes(rng, 1)
@@ -363,7 +363,7 @@ func TestMempool_BadNonce(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
 	env.alignLocalMempool()
 	// Initialize nonce for random account.
 	addr := common.Address(utils.GenBytes(rng, len(common.Address{})))
@@ -387,7 +387,7 @@ func TestInsertTx_NewSenderUsesAppNonce(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
 	env.alignLocalMempool()
 	addr, nonce := app.NewAccount(rng)
 
@@ -402,7 +402,7 @@ func TestInsertTx_ConcurrentSequentialNonces(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
 	env.alignLocalMempool()
 
 	const (
@@ -443,7 +443,7 @@ func TestInsertTx_BadNonceRejected(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
 	env.alignLocalMempool()
 	addr, nonce := app.NewAccount(rng)
 
@@ -487,7 +487,7 @@ func TestMempool_HappyPath(t *testing.T) {
 	cfg.MaxTxsPerBlock = 20
 	cfg.MaxGasWantedPerBlock = 100
 	cfg.MaxGasEstimatedPerBlock = 100
-	env := newTestEnv(rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, app.Proxy())
 	want := utils.NewMutex(map[common.Address][]*txSpec{})
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("env", func() error { return env.Run(ctx) })
@@ -575,7 +575,7 @@ func TestMempool_EvmTxByHash(t *testing.T) {
 	// single-tx blocks expected so env.Run's "sealed too early" check stays quiet.
 	cfg.BlockInterval = time.Millisecond
 	cfg.MaxTxsPerBlock = 1
-	env := newTestEnv(rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, app.Proxy())
 	addr, nonce := app.NewAccount(rng)
 
 	txs := utils.Slice(
@@ -643,7 +643,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 	cfg := app.Cfg()
 	cfg.AllowEmptyBlocks = true
 	cfg.BlockInterval = 10 * time.Millisecond
-	env, registry, keys := newTestEnvN(rng, 2, cfg, app.Proxy())
+	env, registry, keys := newTestEnvN(t, rng, 2, cfg, app.Proxy())
 	a, b := keys[0], keys[1]
 	availState := env.consensus.Avail()
 
@@ -720,7 +720,7 @@ func TestInsertTx_WaitUnblocksOnLeave(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env, registry, keys := newTestEnvN(rng, 2, app.Cfg(), app.Proxy())
+	env, registry, keys := newTestEnvN(t, rng, 2, app.Cfg(), app.Proxy())
 	b := keys[1]
 	availState := env.consensus.Avail()
 	_, ok := availState.LocalLane().Get()
@@ -823,7 +823,7 @@ func TestInsertTx_FIFOAdmission(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
 	mp, err := env.fillMempool(ctx, rng, app)
 	require.NoError(t, err)
 
@@ -855,7 +855,7 @@ func TestInsertTx_CancelledWaiterLeavesQueue(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
 	mp, err := env.fillMempool(ctx, rng, app)
 	require.NoError(t, err)
 
@@ -892,7 +892,7 @@ func TestInsertTx_WaitersReleasedOnClose(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
 	mp, err := env.fillMempool(ctx, rng, app)
 	require.NoError(t, err)
 
@@ -912,7 +912,7 @@ func TestInsertTx_PendingInsertsBounded(t *testing.T) {
 	app := newTestApp()
 	cfg := app.Cfg()
 	cfg.MaxPendingInserts = 2
-	env := newTestEnv(rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, app.Proxy())
 	mp, err := env.fillMempool(ctx, rng, app)
 	require.NoError(t, err)
 
