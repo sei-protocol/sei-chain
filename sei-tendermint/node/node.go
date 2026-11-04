@@ -302,6 +302,12 @@ func makeNode(
 	gigaValidatorKey := utils.None[atypes.SecretKey]()
 	if gigaEnabled {
 		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
+		manager, ok := gigaStorageManager.Get()
+		if !ok {
+			return nil, errors.New("autobahn requires a storage manager")
+		}
+		node.executor = utils.Some(buildExecutor(proxyApp, genDoc, manager))
+		node.rpcEnv.Executor = node.executor
 	}
 	router, peerCloser, _, err := createRouter(
 		node.NodeInfo,
@@ -312,6 +318,7 @@ func makeNode(
 		genDoc,
 		dbProvider,
 		gigaStorageManager,
+		node.executor,
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {
@@ -326,14 +333,6 @@ func makeNode(
 	//   - OnStart defer if Start fails before giga is spawned
 	//   - SpawnCritical wrapper after giga.Run and the executor return (happy path / cancel)
 	node.rpcEnv.Router = router
-	if gigaEnabled {
-		manager, ok := gigaStorageManager.Get()
-		if !ok {
-			return nil, errors.New("autobahn requires a storage manager")
-		}
-		node.executor = utils.Some(buildExecutor(proxyApp, genDoc, manager))
-		node.rpcEnv.Executor = node.executor
-	}
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
 		stateStore, blockStore, node.router, eventBus)

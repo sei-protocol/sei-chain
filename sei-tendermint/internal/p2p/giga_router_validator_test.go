@@ -95,6 +95,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				EnableEvmProxy:     true,
 			}
 			executor := newTestExecutor(&commonCfg, blockStore)
+			commonCfg.Committees = executor.Committees()
 			dataState, err := BuildDataState(&commonCfg, blockStore)
 			require.NoError(t, err, "BuildDataState[%v]", i)
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
@@ -283,6 +284,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		PersistentStateDir: dir,
 		App:                proxy.New(app),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
+		Committees:         noCommittees(),
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}

@@ -34,9 +34,10 @@ type Config struct {
 
 // Executor executes durable blocks on the app, one at a time in road order.
 type Executor struct {
-	cfg      *Config
-	executed utils.AtomicSend[atypes.ExecutedBlocks]
-	gasUsed  *prometheus.CounterInt
+	cfg        *Config
+	executed   utils.AtomicSend[atypes.ExecutedBlocks]
+	committees utils.AtomicSend[Committees]
+	gasUsed    *prometheus.CounterInt
 }
 
 // New returns an Executor for cfg.
@@ -46,7 +47,8 @@ func New(cfg *Config) *Executor {
 		executed: utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{
 			Number: utils.Clamp[atypes.RoadIndex](cfg.App.LastBlockHeight()),
 		})),
-		gasUsed: datametrics.Get().GasUsed,
+		committees: utils.NewAtomicSend(Committees{}),
+		gasUsed:    datametrics.Get().GasUsed,
 	}
 }
 
@@ -55,11 +57,22 @@ func (e *Executor) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
 	return e.executed.Subscribe()
 }
 
+// Committees publishes the committee weights after each committed block. It
+// holds no committed block until Run has initialized the app.
+func (e *Executor) Committees() utils.AtomicRecv[Committees] {
+	return e.committees.Subscribe()
+}
+
 // Run initializes the app, then executes the durable blocks after its tip in
 // road order until ctx is canceled or a block fails.
 func (e *Executor) Run(ctx context.Context) error {
 	next, err := e.initApp(ctx)
 	if err != nil {
+		return err
+	}
+	// TODO: the app keeps only its current validator set, so blocks committed
+	// before a restart are reported with the set at the app tip.
+	if err := e.recordCommit(next - 1); err != nil {
 		return err
 	}
 	for n := next; ; n++ {
@@ -172,11 +185,25 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error
 	}
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
 	e.gasUsed.Add(gasUsed)
+	if err := e.recordCommit(b.Height); err != nil {
+		return err
+	}
 	e.executed.Store(e.executed.Load().Push(atypes.ExecutedBlock{
 		Number:  b.Height,
 		GasUsed: utils.Clamp[uint64](gasUsed),
 	}))
 	gigametrics.EndStoragePhase()
+	return nil
+}
+
+// recordCommit publishes block n as committed, with the app's validator set as
+// the committee weights after it.
+func (e *Executor) recordCommit(n atypes.RoadIndex) error {
+	weights, err := committeeWeights(e.cfg.App.GetValidators())
+	if err != nil {
+		return err
+	}
+	e.committees.Store(e.committees.Load().record(n, weights))
 	return nil
 }
 

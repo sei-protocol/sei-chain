@@ -16,6 +16,7 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
@@ -70,12 +71,14 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, blockStore.Close()) })
 	app := proxy.New(&abci.BaseApplication{})
+	committees := utils.NewAtomicSend(execution.Committees{})
 	commonCfg := p2p.GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: t.TempDir(),
 		App:                app,
 		AppHashBuilder:     stubAppHashBuilder{},
+		Committees:         committees.Subscribe(),
 		GenDoc:             genDoc,
 	}
 	dataState, err := p2p.BuildDataState(&commonCfg, blockStore)
