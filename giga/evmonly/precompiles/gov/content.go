@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 )
 
 // Size limits on submitted content. The title and description limits are x/gov's.
@@ -20,7 +21,8 @@ const (
 // the Gov.sol struct its content is the ABI encoding of; 1 and 2 are reserved
 // for software upgrades (CON-573).
 const (
-	contentText uint8 = 0 // TextContent
+	contentText            uint8 = 0 // TextContent
+	contentParameterChange uint8 = 3 // ParamChangeContent
 )
 
 var (
@@ -33,8 +35,8 @@ var (
 // structs.
 type govContent interface {
 	contentType() uint8
-	// validate checks the content at submission.
-	validate() error
+	// validate checks the content against the current state at submission.
+	validate(s store) error
 	// execute carries out passed proposal id, writing nothing when it fails. Its
 	// work is at most one unit per word of the encoded content, which settleCost
 	// charges.
@@ -48,6 +50,13 @@ type (
 		Description string
 		IsExpedited bool
 	}
+
+	paramChangeContent struct {
+		Title       string
+		Description string
+		Changes     []chainparams.Change
+		IsExpedited bool
+	}
 )
 
 var stringArg = abi.ArgumentMarshaling{Type: "string"}
@@ -56,6 +65,12 @@ var stringArg = abi.ArgumentMarshaling{Type: "string"}
 var contentCodecs = map[uint8]contentCodec{
 	contentText: newCodec[textContent]("TextContent",
 		named("title", stringArg), named("description", stringArg), abi.ArgumentMarshaling{Name: "isExpedited", Type: "bool"}),
+	contentParameterChange: newCodec[paramChangeContent]("ParamChangeContent",
+		named("title", stringArg), named("description", stringArg), abi.ArgumentMarshaling{
+			Name: "changes", Type: "tuple[]", InternalType: "struct ParamChange[]", Components: []abi.ArgumentMarshaling{
+				named("subspace", stringArg), named("key", stringArg), {Name: "value", Type: "bytes"},
+			},
+		}, abi.ArgumentMarshaling{Name: "isExpedited", Type: "bool"}),
 }
 
 // contentCodec is the ABI encoding of one content struct.
@@ -129,6 +144,16 @@ func executeProposal(block precompiles.BlockContext, s store, id uint64) error {
 
 func (textContent) contentType() uint8 { return contentText }
 
-func (c textContent) validate() error { return checkText(c.Title, c.Description) }
+func (textContent) validate(store) error { return nil }
 
 func (textContent) execute(precompiles.BlockContext, store, uint64) error { return nil }
+
+func (paramChangeContent) contentType() uint8 { return contentParameterChange }
+
+func (c paramChangeContent) validate(s store) error {
+	return chainparams.Check(s.State, c.Changes)
+}
+
+func (c paramChangeContent) execute(_ precompiles.BlockContext, s store, _ uint64) error {
+	return chainparams.Apply(s.State, c.Changes)
+}
