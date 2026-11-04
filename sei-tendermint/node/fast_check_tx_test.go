@@ -4,7 +4,6 @@ import (
 	"context"
 	"math/big"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -124,11 +123,9 @@ func TestPrepareApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 	require.NoError(t, err)
 	_, err = mock.Commit(t.Context())
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		head, err := manager.AppHashVault().GetLatestBlock()
-		require.NoError(t, err)
-		return head >= 1
-	}, 10*time.Second, time.Millisecond)
+	got, err := manager.AppHashBuilder().GetAppHash(t.Context(), 1)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), got.BlockHeight())
 }
 
 func TestPrepareApplicationAutobahnRequiresReadableConfig(t *testing.T) {

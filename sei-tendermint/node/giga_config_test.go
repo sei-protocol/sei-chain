@@ -176,10 +176,7 @@ func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
 	require.NoError(t, err)
 	_, err = app.Commit(t.Context())
 	require.NoError(t, err)
-
-	require.Eventually(t, func() bool {
-		head, err := manager.AppHashVault().GetLatestBlock()
-		require.NoError(t, err)
-		return head >= uint64(initialHeight)
-	}, 10*time.Second, time.Millisecond)
+	got, err := manager.AppHashBuilder().GetAppHash(t.Context(), uint64(initialHeight))
+	require.NoError(t, err)
+	require.Equal(t, uint64(initialHeight), got.BlockHeight())
 }

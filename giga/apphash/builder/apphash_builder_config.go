@@ -2,6 +2,7 @@ package builder
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
@@ -14,16 +15,22 @@ type AppHashBuilderConfig struct {
 	ChainID uint64
 
 	// The giga activation height: the first block with an app hash, whose previous app hash is all zeros. Inputs
-	// for blocks below it are discarded.
+	// for blocks below it are discarded. Must be the same on every node of the chain.
 	GigaActivationHeight uint64
 
 	// The number of calls that may wait for the builder before callers block. Higher values absorb longer stalls,
 	// at the cost of memory.
 	InputBufferSize int
 
-	// The most requests the builder runs before storing and publishing the blocks they complete. Higher values
+	// The most requests the builder runs before storing the app hashes of the blocks they complete. Higher values
 	// amortize each store over more blocks, at the cost of latency.
 	MaxBatchSize int
+
+	// The number of newest app hashes kept in memory for reads.
+	RecentAppHashCacheSize int
+
+	// How long a read cursor may go without serving a read before it is closed.
+	ReadCursorIdleTimeout time.Duration
 
 	// Configures the WAL holding the app hashes. Its Path is the hash vault's directory, and its PermitGaps is
 	// ignored. App hashes survive a power loss only if its FsyncOnFlush is true.
@@ -43,13 +50,15 @@ func DefaultAppHashBuilderConfig() AppHashBuilderConfig {
 	hashVault := seiwal.DefaultConfig("", "app_hash_vault")
 	hashVault.FsyncOnFlush = true
 	return AppHashBuilderConfig{
-		ChainID:              0,
-		GigaActivationHeight: 1,
-		InputBufferSize:      1024,
-		MaxBatchSize:         1024,
-		HashVaultConfig:      *hashVault,
-		HashLogEnabled:       false,
-		HashLogConfig:        *hashlog.DefaultHashLoggerConfig("", ""),
+		ChainID:                0,
+		GigaActivationHeight:   1,
+		InputBufferSize:        1024,
+		MaxBatchSize:           1024,
+		RecentAppHashCacheSize: 1024,
+		ReadCursorIdleTimeout:  60 * time.Second,
+		HashVaultConfig:        *hashVault,
+		HashLogEnabled:         false,
+		HashLogConfig:          *hashlog.DefaultHashLoggerConfig("", ""),
 	}
 }
 
@@ -63,6 +72,12 @@ func (c *AppHashBuilderConfig) Validate() error {
 	}
 	if c.MaxBatchSize <= 0 {
 		return fmt.Errorf("max batch size must be positive, got %d", c.MaxBatchSize)
+	}
+	if c.RecentAppHashCacheSize <= 0 {
+		return fmt.Errorf("recent app hash cache size must be positive, got %d", c.RecentAppHashCacheSize)
+	}
+	if c.ReadCursorIdleTimeout <= 0 {
+		return fmt.Errorf("read cursor idle timeout must be positive, got %s", c.ReadCursorIdleTimeout)
 	}
 	if err := c.HashVaultConfig.Validate(); err != nil {
 		return fmt.Errorf("invalid hash vault config: %w", err)
