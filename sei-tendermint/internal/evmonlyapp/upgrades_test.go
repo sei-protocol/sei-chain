@@ -1,11 +1,27 @@
 package evmonlyapp
 
 import (
+	"encoding/json"
+	"errors"
+	"math/big"
+	"os"
+	"path/filepath"
+	"slices"
 	"testing"
+	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app/upgradenames"
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
+	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
@@ -36,9 +52,158 @@ func TestEVMOnlyApplicationRecordsAppliedUpgradesAtTheFirstBlock(t *testing.T) {
 
 func TestUpgradeHandlersCoverEveryReleaseName(t *testing.T) {
 	handlers := upgradeHandlers()
-	require.Equal(t, len(upgradenames.Release()), len(handlers))
+	want := len(upgradenames.Release())
+	if testUpgradeHandler {
+		want++
+	}
+	require.Equal(t, want, len(handlers))
 	for _, name := range upgradenames.Release() {
 		_, ok := handlers[name]
 		require.True(t, ok, name)
 	}
+	for name := range releaseMigrations {
+		require.True(t, slices.Contains(upgradenames.Release(), name), "migration %q is for a release name", name)
+	}
+}
+
+func TestReleaseNamesFollowTheUpgradeNameRule(t *testing.T) {
+	// Genesis records it as applied, so gov never schedules it.
+	const exempt = "1.0.5beta upgrade"
+	for _, name := range upgradenames.Release() {
+		if name != exempt {
+			require.NoError(t, upgrade.ValidateName(name), name)
+		}
+	}
+	require.True(t, slices.Contains(upgradenames.Release(), exempt))
+	require.Error(t, upgrade.ValidateName(exempt))
+}
+
+// upgradeTestNode is an app over storage at home whose gov electorate is
+// anvil account 0. halting is app as the node runs it, writing
+// upgrade-info.json under home.
+type upgradeTestNode struct {
+	app     proxy.EVMApplication
+	halting proxy.EVMApplication
+	storage *bootstrap.GigaStorageManager
+}
+
+func (n upgradeTestNode) close(t *testing.T) {
+	t.Helper()
+	closeEVMOnlyTestApp(t, n.app, n.storage)
+}
+
+// upgradeTestApp starts an upgradeTestNode with handlers for the release
+// names, and for testUpgradeName when withTestUpgrade is set, whatever the
+// build's tags.
+func upgradeTestApp(t *testing.T, home string, withTestUpgrade bool) upgradeTestNode {
+	t.Helper()
+	handlers := upgradeHandlers()
+	delete(handlers, testUpgradeName)
+	if withTestUpgrade {
+		handlers[testUpgradeName] = applyTestUpgrade
+	}
+	params := gov.DefaultParams()
+	params.VotingPeriod = uint64(4 * time.Second)
+	params.ExpeditedVotingPeriod = uint64(2 * time.Second)
+	registry := newGovRegistry(params, 0, gov.GenesisElectorate{anvilAddress(t): big.NewInt(1)}, GovUpgrades{Applied: testAppliedUpgrades}, handlers)
+	storage := openEVMOnlyTestStorageAt(t, home)
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, gigaconfig.DefaultConfig.Execution, utils.Some(registry))
+	require.NoError(t, err)
+	return upgradeTestNode{app: app, halting: WithUpgradeInfo(app, home), storage: storage}
+}
+
+// maxDepositPeriod returns gov's max deposit period as the params precompile
+// serves it.
+func maxDepositPeriod(t *testing.T, app proxy.EVMApplication) uint64 {
+	t.Helper()
+	out, err := precompileCall(t, app, chainparams.Address, chainparams.ABI, chainparams.ParamMethod, "gov", "depositparams.max_deposit_period")
+	require.NoError(t, err)
+	return new(big.Int).SetBytes(out[0].([]byte)).Uint64()
+}
+
+func anvilAddress(t *testing.T) common.Address {
+	t.Helper()
+	key, err := crypto.HexToECDSA(anvilKey0)
+	require.NoError(t, err)
+	return crypto.PubkeyToAddress(key.PublicKey)
+}
+
+// passUpgrade passes an expedited upgrade proposal for plan, starting at
+// block next, and returns the next block to finalize.
+func passUpgrade(t *testing.T, app abci.Application, next int64, plan upgrade.Plan) int64 {
+	t.Helper()
+	deposit := gov.DefaultParams().MinExpeditedDeposit
+	submit := signedGovTx(t, 0, deposit, gov.SubmitSoftwareUpgradeMethod, "t", "d", true,
+		struct {
+			Name   string
+			Height uint64
+			Info   string
+		}{plan.Name, plan.Height, plan.Info})
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(next, submit))
+	vote := signedGovTx(t, 1, nil, gov.VoteMethod, uint64(1), gov.OptionYes)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(next+1, vote))
+	for n := next + 2; n < next+5; n++ {
+		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(n))
+	}
+	out, err := precompileCall(t, app, upgrade.Address, upgrade.ABI, upgrade.CurrentPlanMethod)
+	require.NoError(t, err)
+	var got struct {
+		Name   string
+		Height uint64
+		Info   string
+	}
+	abi.ConvertType(out[0], &got)
+	require.Equal(t, plan.Name, got.Name, "the proposal passed and scheduled its plan")
+	return next + 5
+}
+
+func TestEVMOnlyApplicationHaltsAtAnUpgradeAndResumesWithItsHandler(t *testing.T) {
+	home := t.TempDir()
+	node := upgradeTestApp(t, home, false)
+	_, err := node.app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	finalizeAndCommitEVMOnlyTestBlock(t, node.halting, evmOnlyTestBlock(1))
+	next := passUpgrade(t, node.app, 2, upgrade.Plan{Name: testUpgradeName, Height: 9, Info: `{"binaries":{}}`})
+	require.Equal(t, gov.DefaultParams().MaxDepositPeriod, maxDepositPeriod(t, node.app))
+	for ; next < 9; next++ {
+		finalizeAndCommitEVMOnlyTestBlock(t, node.halting, evmOnlyTestBlock(next))
+	}
+
+	_, err = node.halting.FinalizeBlock(t.Context(), evmOnlyTestBlock(9))
+	var needed *upgrade.NeededError
+	require.True(t, errors.As(err, &needed), "the block halts on the plan: %v", err)
+	require.Equal(t, uint64(9), needed.Block)
+	bz, err := os.ReadFile(filepath.Join(home, "data", UpgradeInfoFileName))
+	require.NoError(t, err)
+	var info upgradeInfo
+	require.NoError(t, json.Unmarshal(bz, &info))
+	require.Equal(t, upgradeInfo{Name: testUpgradeName, Height: 9, Info: `{"binaries":{}}`}, info)
+
+	node.close(t)
+	resumed := upgradeTestApp(t, home, true)
+	t.Cleanup(func() { resumed.close(t) })
+	finalizeAndCommitEVMOnlyTestBlock(t, resumed.halting, evmOnlyTestBlock(9))
+	out, err := precompileCall(t, resumed.app, upgrade.Address, upgrade.ABI, upgrade.AppliedPlanMethod, testUpgradeName)
+	require.NoError(t, err)
+	require.Equal(t, uint64(9), out[0].(uint64), "the resumed binary applied the plan at the block the old one halted at")
+	require.Equal(t, uint64(testUpgradeMaxDepositPeriod), maxDepositPeriod(t, resumed.app), "the handler's change is in state")
+	finalizeAndCommitEVMOnlyTestBlock(t, resumed.halting, evmOnlyTestBlock(10))
+}
+
+func TestEVMOnlyApplicationHaltsAnOldBinaryAfterAnUpgrade(t *testing.T) {
+	home := t.TempDir()
+	node := upgradeTestApp(t, home, true)
+	_, err := node.app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	finalizeAndCommitEVMOnlyTestBlock(t, node.halting, evmOnlyTestBlock(1))
+	next := passUpgrade(t, node.app, 2, upgrade.Plan{Name: testUpgradeName, Height: 8, Info: `{"upgradeType":"minor"}`})
+	for ; next <= 8; next++ {
+		finalizeAndCommitEVMOnlyTestBlock(t, node.halting, evmOnlyTestBlock(next))
+	}
+
+	node.close(t)
+	old := upgradeTestApp(t, home, false)
+	t.Cleanup(func() { old.close(t) })
+	_, err = old.halting.FinalizeBlock(t.Context(), evmOnlyTestBlock(9))
+	require.ErrorIs(t, err, upgrade.ErrWrongBinary)
 }

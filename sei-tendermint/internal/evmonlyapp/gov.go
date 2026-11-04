@@ -17,20 +17,35 @@ var (
 	errParamsNotStarted = errors.New("params start after the first block")
 )
 
+// GovUpgrades configures the upgrade precompile a gov registry runs.
+type GovUpgrades struct {
+	// Applied are the upgrade names the chain starts past, in order, recorded
+	// as applied at the height of the chain's first block.
+	Applied []string
+	// SkipHeights are the blocks at which this node clears a due plan instead
+	// of applying it or halting.
+	SkipHeights []uint64
+}
+
 // NewGovRegistry returns a registry running gov, weighing votes by electorate,
-// the params precompile and the upgrade precompile. The first block writes
-// params, startingProposalID and appliedUpgrades, the upgrade names the chain
-// starts past; until then gov and params refuse calls.
-func NewGovRegistry(params gov.Params, startingProposalID uint64, electorate gov.GenesisElectorate, appliedUpgrades []string) precompiles.Registry {
+// the params precompile and the upgrade precompile, with a handler for every
+// upgrade name this build ships. The first block writes params,
+// startingProposalID and upgrades.Applied; until then gov and params refuse
+// calls.
+func NewGovRegistry(params gov.Params, startingProposalID uint64, electorate gov.GenesisElectorate, upgrades GovUpgrades) precompiles.Registry {
+	return newGovRegistry(params, startingProposalID, electorate, upgrades, upgradeHandlers())
+}
+
+func newGovRegistry(params gov.Params, startingProposalID uint64, electorate gov.GenesisElectorate, upgrades GovUpgrades, handlers map[string]upgrade.Handler) precompiles.Registry {
 	return precompiles.NewStaticRegistry(map[common.Address]precompiles.Contract{
 		gov.Address: govPrecompile{
 			Precompile:         gov.Precompile{Electorate: electorate},
 			params:             params,
 			startingProposalID: startingProposalID,
-			appliedUpgrades:    slices.Clone(appliedUpgrades),
+			appliedUpgrades:    slices.Clone(upgrades.Applied),
 		},
 		chainparams.Address: paramsPrecompile{},
-		upgrade.Address:     upgrade.Precompile{Handlers: upgradeHandlers()},
+		upgrade.Address:     upgrade.Precompile{Handlers: handlers, SkipHeights: slices.Clone(upgrades.SkipHeights)},
 	}, gov.Address).WithBeginBlockers(upgrade.Address)
 }
 

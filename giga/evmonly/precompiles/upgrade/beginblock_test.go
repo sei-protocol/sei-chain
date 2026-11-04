@@ -77,6 +77,7 @@ func TestBeginBlockHaltsWithoutAHandler(t *testing.T) {
 	var needed *NeededError
 	require.ErrorAs(t, err, &needed)
 	require.Equal(t, plan, needed.Plan)
+	require.Equal(t, uint64(10), needed.Block)
 	require.Equal(t, `UPGRADE "v7.0" NEEDED at height: 10: {"upgradeType":"minor"}`, err.Error())
 	require.Equal(t, before, state)
 }

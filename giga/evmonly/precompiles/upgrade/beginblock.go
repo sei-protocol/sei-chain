@@ -12,9 +12,11 @@ import (
 // writes land in that block's changeset; an error fails the block.
 type Handler func(precompiles.BlockContext, precompiles.State) error
 
-// NeededError halts the chain at a due plan this binary has no handler for.
+// NeededError halts the chain at Block, where Plan is due and this binary
+// has no handler for it.
 type NeededError struct {
-	Plan Plan
+	Plan  Plan
+	Block uint64
 }
 
 func (e *NeededError) Error() string {
@@ -65,7 +67,7 @@ func (p Precompile) applyDue(block precompiles.BlockContext, state precompiles.S
 	}
 	handler, ok := p.Handlers[plan.Name]
 	if !ok {
-		return nil, &NeededError{Plan: plan}
+		return nil, &NeededError{Plan: plan, Block: block.Number}
 	}
 	if handler != nil {
 		if err := handler(block, state); err != nil {

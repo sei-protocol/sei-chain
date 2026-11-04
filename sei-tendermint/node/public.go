@@ -238,7 +238,7 @@ func wrapApplication(
 		if err != nil {
 			return nil, fmt.Errorf("load EVM-only validator set: %w", err)
 		}
-		customPrecompiles, err := evmOnlyCustomPrecompiles(committee, validators)
+		customPrecompiles, err := evmOnlyCustomPrecompiles(committee, validators, execution.UnsafeSkipUpgrades)
 		if err != nil {
 			return nil, fmt.Errorf("load EVM-only governance: %w", err)
 		}
@@ -253,7 +253,7 @@ func wrapApplication(
 		if err != nil {
 			return nil, fmt.Errorf("restore EVM-only application: %w", err)
 		}
-		return prepared, nil
+		return evmonlyapp.WithUpgradeInfo(prepared, conf.RootDir), nil
 	}
 	if conf.FastCheckTx {
 		return fastCheckTxApplication{Application: app}, nil
@@ -276,8 +276,8 @@ func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]abci.ValidatorUpd
 
 // evmOnlyCustomPrecompiles returns the gov precompile registry when the
 // committee sets evm_governance, with each validator's evm_voter voting at that
-// validator's power.
-func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []abci.ValidatorUpdate) (utils.Option[precompiles.Registry], error) {
+// validator's power, skipping upgrade plans at skipUpgradeHeights.
+func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []abci.ValidatorUpdate, skipUpgradeHeights []uint64) (utils.Option[precompiles.Registry], error) {
 	governance, ok := fc.EVMGovernance.Get()
 	if !ok {
 		return utils.None[precompiles.Registry](), nil
@@ -294,7 +294,10 @@ func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []abci.V
 	if err != nil {
 		return utils.None[precompiles.Registry](), err
 	}
-	return utils.Some(evmonlyapp.NewGovRegistry(params, governance.StartingProposalID, electorate, governance.AppliedUpgrades)), nil
+	return utils.Some(evmonlyapp.NewGovRegistry(params, governance.StartingProposalID, electorate, evmonlyapp.GovUpgrades{
+		Applied:     governance.AppliedUpgrades,
+		SkipHeights: skipUpgradeHeights,
+	})), nil
 }
 
 // applyExecutionRuntime raises the GC target for a load test. The heap is then capped at 80% of
