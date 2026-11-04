@@ -636,6 +636,38 @@ func TestMempool_EvmTxByHash(t *testing.T) {
 	require.Equal(t, nonce+uint64(len(txs)), app.EvmNonce(addr))
 }
 
+func TestProducer_FirstRoadBlockFinalizesEmpty(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	cfg := app.Cfg()
+	cfg.BlockInterval = time.Millisecond
+	cfg.MaxTxsPerBlock = 1
+	env := newTestEnv(rng, cfg, app.Proxy())
+	addr, nonce := app.NewAccount(rng)
+	tx := env.genTx(rng, addr, nonce)
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("env", func() error { return env.Run(ctx) })
+		first := env.data.Registry().MustEpoch(0).RoadRange().First
+		b, err := env.data.SuperBlock(ctx, first)
+		if err != nil {
+			return err
+		}
+		if len(b.Txs) != 0 {
+			return fmt.Errorf("first block has %d txs, want 0", len(b.Txs))
+		}
+		if _, err := env.state.InsertTx(ctx, tx.encode()); err != nil {
+			return err
+		}
+		b, err = env.data.SuperBlock(ctx, first+1)
+		if err != nil {
+			return err
+		}
+		return utils.TestDiff(utils.Slice(tx.encode()), b.Txs)
+	}))
+}
+
 func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()

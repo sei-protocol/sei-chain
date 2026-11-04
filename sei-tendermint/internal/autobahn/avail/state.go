@@ -594,7 +594,8 @@ func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduc
 }
 
 // WaitForLaneQCs waits until there is at least 1 LaneQC (for the given epoch)
-// with a block not finalized by prev.
+// with a block not finalized by prev. With no prev, the chain's first road
+// block, it returns at once, possibly with no LaneQCs.
 func (s *State) WaitForLaneQCs(
 	ctx context.Context, ep *types.Epoch, prev utils.Option[*types.CommitQC],
 ) (map[types.LaneID]*types.LaneQC, error) {
@@ -618,7 +619,9 @@ func (s *State) WaitForLaneQCs(
 					}
 				}
 			}
-			if len(laneQCs) > 0 {
+			// The first road block may be empty, so a new chain finalizes it, and
+			// executes the genesis state its first block writes, without a tx.
+			if len(laneQCs) > 0 || !prev.IsPresent() {
 				return laneQCs, nil
 			}
 			if !blocked {
