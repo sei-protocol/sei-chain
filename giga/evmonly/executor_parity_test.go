@@ -916,7 +916,7 @@ func executeGethReferenceBlock(t *testing.T, initial *MemoryState, cfg Config, c
 		return nil, err
 	}
 	stateDB := newGethStateFromMemory(t, initial)
-	evm := vm.NewEVM(buildBlockContext(ctx), stateDB, chainConfig, vm.Config{}, nil)
+	evm := vm.NewEVM(EVMBlockContext(ctx), stateDB, chainConfig, vm.Config{}, nil)
 	gasPool := new(core.GasPool).AddGas(ctx.GasLimit)
 	baseFee := cloneOptionalBig(ctx.BaseFee)
 	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(ctx.Number), ctx.Time)

@@ -3,9 +3,9 @@ package statewal
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -267,49 +267,52 @@ func TestVerifyIntegrity(t *testing.T) {
 	require.Error(t, VerifyIntegrity(cfg))
 }
 
-// TestWriteStoresMutationsInKeyOrder writes the same mutations in two orders to two WALs, and requires both to read
-// back the same block, in key order, with the same hash.
-func TestWriteStoresMutationsInKeyOrder(t *testing.T) {
-	keys := [][]byte{[]byte("c"), []byte("a"), []byte("d"), []byte("b")}
-	inOrder := func(reverse bool) []mutation.Mutation {
-		mutations := make([]mutation.Mutation, 0, len(keys))
-		for _, key := range keys {
-			mutations = append(mutations, makeMutation("bank", key, key))
-		}
-		if reverse {
-			slices.Reverse(mutations)
-		}
-		return mutations
-	}
+// TestWriteStoresMutationsInWriteOrder requires a block to read back with its mutations in the order written.
+func TestWriteStoresMutationsInWriteOrder(t *testing.T) {
+	w := openWAL(t, testConfig(t.TempDir()))
+	defer func() { require.NoError(t, w.Close()) }()
 
-	readBack := func(mutations []mutation.Mutation) ([]mutation.Mutation, [32]byte) {
-		w := openWAL(t, testConfig(t.TempDir()))
-		defer func() { require.NoError(t, w.Close()) }()
-		require.NoError(t, w.Write(1, mutations))
-		require.NoError(t, w.Flush())
-
-		it, err := w.Iterator(1, 1)
-		require.NoError(t, err)
-		defer func() { require.NoError(t, it.Close()) }()
-		ok, err := it.Next()
-		require.NoError(t, err)
-		require.True(t, ok)
-		_, stored := it.Entry()
-		hash, err := it.GetHash()
-		require.NoError(t, err)
-		return stored, hash
-	}
-
-	forwardMutations, forwardHash := readBack(inOrder(false))
-	reverseMutations, reverseHash := readBack(inOrder(true))
-	require.Equal(t, forwardMutations, reverseMutations)
-	require.Equal(t, forwardHash, reverseHash)
-
-	expected := []mutation.Mutation{
-		makeMutation("bank", []byte("a"), []byte("a")),
-		makeMutation("bank", []byte("b"), []byte("b")),
+	written := []mutation.Mutation{
 		makeMutation("bank", []byte("c"), []byte("c")),
+		makeMutation("bank", []byte("a"), []byte("a")),
 		makeMutation("bank", []byte("d"), []byte("d")),
+		makeMutation("bank", []byte("b"), []byte("b")),
 	}
-	require.Equal(t, expected, forwardMutations)
+	require.NoError(t, w.Write(1, written))
+	require.NoError(t, w.Flush())
+
+	it, err := w.Iterator(1, 1)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+	ok, err := it.Next()
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, stored := it.Entry()
+	require.Equal(t, written, stored)
+}
+
+// Once the request channel is full behind a blocked append, Write blocks until the append completes.
+func TestWriteBlocksWhileRequestBufferIsFull(t *testing.T) {
+	f := &fakeWAL{appendEntered: make(chan struct{}, 2), appendRelease: make(chan struct{})}
+	w, err := newStateWAL(f, 0)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, w.Close()) }()
+
+	require.NoError(t, w.Write(1, nil)) // taken by the goroutine, which blocks in the append
+	<-f.appendEntered
+
+	written := make(chan error, 1)
+	go func() {
+		written <- w.Write(2, nil)
+	}()
+	select {
+	case err := <-written:
+		close(f.appendRelease)
+		t.Fatalf("Write returned while the request buffer was full: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(f.appendRelease)
+	require.NoError(t, <-written)
+	require.NoError(t, w.Flush())
 }

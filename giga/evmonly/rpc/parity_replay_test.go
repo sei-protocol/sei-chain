@@ -12,6 +12,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
@@ -74,7 +76,7 @@ func replayFixture(t *testing.T, fixture *parity.Fixture) *replayBackend {
 		MinGasPrice:          new(big.Int),
 		OCCWorkers:           replayOCCWorkers,
 		RejectUnappliableTxs: true,
-	}, evmonly.WithStore(store, store.EncodeChangeSet), evmonly.WithReceiptStore(receipts))
+	}, evmonly.WithStore(store), evmonly.WithReceiptStore(receipts))
 	t.Cleanup(executor.Close)
 
 	backend := &replayBackend{
@@ -217,6 +219,10 @@ func (b *replayBackend) EvmBaseFee() (*big.Int, error) {
 	return new(big.Int).Set(b.tip.BaseFee), nil
 }
 
+func (*replayBackend) EvmBlockContext(*ethtypes.Header) (vm.BlockContext, error) {
+	return vm.BlockContext{}, errNotReplayed
+}
+
 func (b *replayBackend) EvmBlockNumber() uint64 {
 	return b.tip.Number
 }
@@ -227,6 +233,14 @@ func (*replayBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks],
 
 func (b *replayBackend) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 	return b.executor.Call(ctx, b.tip, msg)
+}
+
+func (*replayBackend) EvmCallAt(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error) {
+	return nil, errNotReplayed
+}
+
+func (*replayBackend) EvmEstimateGasAt(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error) {
+	return 0, nil, errNotReplayed
 }
 
 func (b *replayBackend) EvmChainConfig() (*params.ChainConfig, error) {
@@ -271,6 +285,14 @@ func (b *replayBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, g
 	return b.executor.EstimateGas(ctx, b.tip, msg, gasCap)
 }
 
+func (b *replayBackend) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+	return b.executor.EstimateGasAfterCalls(ctx, b.tip, calls, msg, gasCap)
+}
+
+func (b *replayBackend) EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
+	return b.executor.CreateAccessList(ctx, b.tip, msg)
+}
+
 func (b *replayBackend) EvmGasLimit() (uint64, error) {
 	return b.tip.GasLimit, nil
 }
@@ -285,6 +307,14 @@ func (*replayBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
 
 func (*replayBackend) EvmProxyEnabled() bool {
 	return false
+}
+
+func (*replayBackend) EvmStateAt(context.Context, int64) (vm.StateDB, func(), error) {
+	return nil, nil, errNotReplayed
+}
+
+func (*replayBackend) EvmStateBeforeTx(context.Context, *ethtypes.Header, [][]byte) (vm.StateDB, func(), error) {
+	return nil, nil, errNotReplayed
 }
 
 func (b *replayBackend) EvmTransactionCount(address common.Address) uint64 {

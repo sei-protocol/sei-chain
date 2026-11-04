@@ -74,6 +74,25 @@ func TestIteratorYieldsBlockContents(t *testing.T) {
 	require.False(t, ok)
 }
 
+// TestCloneMutationBytesDetachesFromBuffer verifies that cloned mutations share no memory with the buffer they
+// were decoded from, and that a nil value stays nil.
+func TestCloneMutationBytesDetachesFromBuffer(t *testing.T) {
+	buffer := []byte("keyprevnew")
+	mutations := []mutation.Mutation{
+		{Key: buffer[0:3], PreviousValue: buffer[3:7], NewValue: buffer[7:10]},
+		{Key: buffer[0:3]},
+	}
+
+	cloneMutationBytes(mutations)
+	clear(buffer)
+
+	require.Equal(t, mutation.Mutation{Key: []byte("key"), PreviousValue: []byte("prev"), NewValue: []byte("new")},
+		mutations[0])
+	require.Equal(t, []byte("key"), mutations[1].Key)
+	require.Nil(t, mutations[1].PreviousValue)
+	require.Nil(t, mutations[1].NewValue)
+}
+
 // TestIteratorDoesNotSeePostConstructionBlocks confirms the snapshot contract at the wrapper level: an
 // iterator yields only blocks that were complete when it was created.
 func TestIteratorDoesNotSeePostConstructionBlocks(t *testing.T) {

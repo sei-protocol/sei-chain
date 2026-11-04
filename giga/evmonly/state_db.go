@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"math/big"
+	"slices"
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -198,13 +199,23 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 		return bytes.Compare(addresses[i][:], addresses[j][:]) < 0
 	})
 
-	for _, addr := range addresses {
-		acct := s.accounts[addr]
-		if acct.StorageCleared {
+	// Taken ahead of the changes so the set is sized once: the key count bounds the storage changes.
+	storageKeysByAccount := make([][]common.Hash, len(addresses))
+	storageKeyCount := 0
+	for i, addr := range addresses {
+		if s.accounts[addr].StorageCleared {
 			// Committing a replaced storage would mean deleting every stored slot of the account, which the
 			// changeset has no way to express.
 			panic("cannot produce a changeset after SetStorage replaced an account's storage")
 		}
+		storageKeysByAccount[i] = storageKeyUnion(s.baseAccount(addr).Storage, s.accounts[addr].Storage)
+		storageKeyCount += len(storageKeysByAccount[i])
+	}
+	changes.Accounts = slices.Grow(changes.Accounts, len(addresses))
+	changes.Storage = slices.Grow(changes.Storage, storageKeyCount)
+
+	for i, addr := range addresses {
+		acct := s.accounts[addr]
 		base := s.baseAccount(addr)
 
 		if !acct.Balance.Eq(base.Balance) || acct.Nonce != base.Nonce || !bytes.Equal(acct.Code, base.Code) {
@@ -214,8 +225,7 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 				Prior:   AccountState{Balance: base.Balance.ToBig(), Nonce: base.Nonce, Code: base.Code},
 			})
 		}
-		storageKeys := storageKeyUnion(base.Storage, acct.Storage)
-		for _, key := range storageKeys {
+		for _, key := range storageKeysByAccount[i] {
 			priorValue := storageHash(base.Storage, key)
 			newValue := storageHash(acct.Storage, key)
 			if priorValue == newValue {
@@ -656,8 +666,7 @@ func (s *nativeStateDB) Commit(uint64, bool, bool) (common.Hash, error) {
 }
 
 func (s *nativeStateDB) SetTxContext(hash common.Hash, index int) {
-	s.txHash = hash
-	s.txIndex = index
+	s.setTxContext(hash, index, uint(index)) //nolint:gosec // G115: a transaction index is non-negative.
 }
 
 func (s *nativeStateDB) setTxContext(hash common.Hash, index int, indexUint uint) {
@@ -698,8 +707,15 @@ func (s *nativeStateDB) IntermediateRoot(bool) common.Hash {
 	return common.Hash{}
 }
 
-func (s *nativeStateDB) GetLogs(common.Hash, uint64, common.Hash) []*ethtypes.Log {
-	return s.Logs()
+// GetLogs returns the logs transaction hash emitted.
+func (s *nativeStateDB) GetLogs(hash common.Hash, _ uint64, _ common.Hash) []*ethtypes.Log {
+	var logs []*ethtypes.Log
+	for _, log := range s.logs {
+		if log.TxHash == hash {
+			logs = append(logs, log)
+		}
+	}
+	return logs
 }
 
 func (s *nativeStateDB) TxIndex() int {

@@ -22,7 +22,7 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 	}
 	defer stream.Close()
 	if err := stream.Send(ctx, StreamFullCommitQCsReqConv.Encode(&StreamFullCommitQCsReq{
-		NextBlock: s.data.NextBlock(),
+		NextBlock: s.data.NextQC(),
 	})); err != nil {
 		recordFetch(ctx, resFullCommitQC, "send")
 		return fmt.Errorf("stream.Send(): %w", err)
@@ -39,7 +39,7 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 			return fmt.Errorf("types.CommitQCConv.Decode(): %w", err)
 		}
 		// TODO: add DoS protection (i.e. that only useful state.Data() has been actually sent).
-		if err := s.data.PushQC(ctx, qc, nil); err != nil {
+		if err := s.data.PushPartialBlock(ctx, qc, nil); err != nil {
 			recordFetch(ctx, resFullCommitQC, "process")
 			return fmt.Errorf("s.PushCommitQC(): %w", err)
 		}
@@ -94,7 +94,7 @@ const BlockFetchTimeout = 2 * time.Second
 const BlockFetchRetryInterval = 1 * time.Second
 
 type req struct {
-	n    types.GlobalBlockNumber
+	n    types.LaneBlockPos
 	done chan struct{}
 }
 
@@ -116,7 +116,7 @@ func (s *Service) clientGetBlock(ctx context.Context, client rpc.Client[API]) er
 				defer close(req.done)
 				operation := "send"
 				resp, err := utils.WithTimeout1(ctx, BlockFetchTimeout, func(ctx context.Context) (*pb.GetBlockResp, error) {
-					if err := stream.Send(ctx, GetBlockReqConv.Encode(&GetBlockReq{GlobalNumber: req.n})); err != nil {
+					if err := stream.Send(ctx, GetBlockReqConv.Encode(&GetBlockReq{Pos: req.n})); err != nil {
 						return nil, fmt.Errorf("stream.Send(): %w", err)
 					}
 					operation = "receive"
@@ -154,42 +154,46 @@ func (s *Service) clientGetBlock(ctx context.Context, client rpc.Client[API]) er
 func (x *Service) runBlockFetcher(ctx context.Context) error {
 	sem := utils.NewSemaphore(MaxConcurrentBlockFetches)
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		for n := x.data.NextBlock(); ; n += 1 {
+		for n := x.data.NextFullBlock(); ; n += 1 {
 			// Wait for the QC.
-			if _, err := x.data.QC(ctx, n); err != nil {
-				return err
-			}
-			release, err := sem.Acquire(ctx)
+			qc, err := x.data.QC(ctx, n)
 			if err != nil {
 				return err
 			}
-			scope.Spawn(func() error {
-				defer release()
-				for first := true; ; first = false {
-					// NeedBlock (not TryBlock): gap-fills above nextBlock already
-					// satisfy this height. Re-fetching them while a lower hole is
-					// empty wastes the shared per-peer GetBlock queue and can
-					// starve the contiguous prefix.
-					if !x.data.NeedBlock(n) {
-						return nil
-					}
-					// Back off between repeated requests for the same block —
-					// avoids hammering a peer that responded with an empty
-					// block (doesn't have it yet).
-					if !first {
-						if err := utils.Sleep(ctx, BlockFetchRetryInterval); err != nil {
+			for offset := range qc.Headers() {
+				pos := types.LaneBlockPos{Index: n, Offset: uint64(offset)}
+				release, err := sem.Acquire(ctx)
+				if err != nil {
+					return err
+				}
+				scope.Spawn(func() error {
+					defer release()
+					for first := true; ; first = false {
+						// NeedBlock skips received gap-fills without consulting BlockStore.
+						// Re-fetching them while a lower hole is empty wastes the
+						// shared per-peer GetBlock queue and can
+						// starve the contiguous prefix.
+						if !x.data.NeedBlock(pos) {
+							return nil
+						}
+						// Back off between repeated requests for the same block —
+						// avoids hammering a peer that responded with an empty
+						// block (doesn't have it yet).
+						if !first {
+							if err := utils.Sleep(ctx, BlockFetchRetryInterval); err != nil {
+								return err
+							}
+						}
+						req := req{n: pos, done: make(chan struct{})}
+						if err := utils.Send(ctx, x.getBlockReqs, req); err != nil {
+							return err
+						}
+						if _, _, err := utils.RecvOrClosed(ctx, req.done); err != nil {
 							return err
 						}
 					}
-					req := req{n: n, done: make(chan struct{})}
-					if err := utils.Send(ctx, x.getBlockReqs, req); err != nil {
-						return err
-					}
-					if _, _, err := utils.RecvOrClosed(ctx, req.done); err != nil {
-						return err
-					}
-				}
-			})
+				})
+			}
 		}
 	})
 }
@@ -214,7 +218,7 @@ func (s *Service) serverStreamFullCommitQCs(ctx context.Context, server rpc.Serv
 				return fmt.Errorf("s.data.QC(): %w", err)
 			}
 			// Don't send the same QC twice.
-			next = qc.QC().GlobalRange().Next
+			next = qc.QC().Index() + 1
 			if err := stream.Send(ctx, types.FullCommitQCConv.Encode(qc)); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
@@ -241,7 +245,7 @@ func (s *Service) serverStreamAppQCs(ctx context.Context, server rpc.Server[API]
 				}
 				return fmt.Errorf("x.validatorState().Data().AppQC(): %w", err)
 			}
-			next = appQC.Proposal().GlobalRange().Next
+			next = appQC.Proposal().Index() + 1
 			if err := stream.Send(ctx, types.AppQCConv.Encode(appQC)); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
@@ -260,7 +264,7 @@ func (x *Service) serverGetBlock(ctx context.Context, server rpc.Server[API]) er
 		if err != nil {
 			return fmt.Errorf("GetBlockReqConv.Decode(): %w", err)
 		}
-		block, err := x.data.TryBlock(req.GlobalNumber)
+		block, err := x.data.TryBlock(req.Pos)
 		if err != nil {
 			// Absent (not yet / pruned) is a successful empty response so the
 			// peer can retry. Any other error is a store failure — do not
@@ -274,7 +278,7 @@ func (x *Service) serverGetBlock(ctx context.Context, server rpc.Server[API]) er
 				return stream.Send(ctx, GetBlockRespConv.Encode(utils.None[*types.Block]()))
 			}
 			recordServe(resBlock, "store_error")
-			return fmt.Errorf("TryBlock(%d): %w", req.GlobalNumber, err)
+			return fmt.Errorf("TryBlock(%d): %w", req.Pos, err)
 		}
 		return stream.Send(ctx, GetBlockRespConv.Encode(utils.Some(block)))
 	})

@@ -8,6 +8,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -66,15 +67,14 @@ type LiveStateStore interface {
 	// (see PendingVersion).
 	Commit(version int64) (int64, error)
 
-	// CommitStateChanges is a Giga-only helper that applies changesets and commits
-	// them at blockNum in one call.
+	// CommitStateChanges writes and commits the block at blockNum, which must be the committed version plus one.
+	// mutations holds one entry per physical key the block writes, and each PreviousValue must be that key's row
+	// as of blockNum-1: the lattice hash is computed from it without being checked against the store. mutations
+	// must not be modified after the call.
 	//
-	// Callers must use either ApplyChangeSets+Commit or CommitStateChanges
-	// exclusively, never mixing the two on the same store.
-	//
-	// ApplyChangeSets+Commit is expected to be deprecated once all callers
-	// move to CommitStateChanges.
-	CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error
+	// Callers must use either ApplyChangeSets+Commit or CommitStateChanges exclusively, never mixing the two on
+	// the same store.
+	CommitStateChanges(blockNum int64, mutations []mutation.Mutation) error
 
 	// OpenView returns a read-only StateView of the current block. The caller must Close it when done.
 	OpenView() StateView

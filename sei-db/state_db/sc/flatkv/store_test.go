@@ -1263,7 +1263,10 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 	err = s.LoadLatest()
 	require.NoError(t, err)
 
+	// accountDB is put back as it was at block 4 while the others reach block 6, which is what a crash
+	// between the databases' flushes leaves behind.
 	addr := addrN(0x01)
+	var accountAt4 string
 	for i := 1; i <= 6; i++ {
 		cs := &proto.NamedChangeSet{
 			Name: "evm",
@@ -1274,24 +1277,15 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
+		if i == 4 {
+			s = reopenStore(t, s, cfg)
+			accountAt4 = copyDataDB(t, cfg, accountDBDir)
+			require.NoError(t, s.LoadLatest())
+		}
 	}
 	require.Equal(t, int64(6), s.Version())
-
-	// Save the correct per-DB LtHash for accountDB before skewing version.
-	savedAccountLtHash := s.maintainedHashes().PerDB[accountDBDir].Clone()
-
-	// Skew accountDB's local meta version to 4 while keeping the correct
-	// LtHash. This simulates a crash where the version watermark wasn't
-	// persisted but the actual data and hash are intact.
-	batch := s.rawDBFor(accountDBDir).NewBatch()
-	maintained := s.maintainedHashes()
-	require.NoError(t, writeLocalMetaToBatch(
-		batch, 4, savedAccountLtHash,
-		maintained.PerModule[accountDBDir], maintained.PerModuleStats[accountDBDir]))
-	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
-	_ = batch.Close()
-
 	require.NoError(t, s.Close())
+	restoreDataDB(t, cfg, accountDBDir, accountAt4)
 
 	// Reopen: loadGlobalMetadata detects version skew and catchup replays.
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
@@ -1327,28 +1321,23 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 	err = s.LoadLatest()
 	require.NoError(t, err)
 
+	// Simulate crash: storageDB only flushed v3 while the others reached v5.
 	addr := addrN(0x02)
+	var storageAt3 string
 	for i := 1; i <= 5; i++ {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i*11)), false)
 		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
+		if i == 3 {
+			s = reopenStore(t, s, cfg)
+			storageAt3 = copyDataDB(t, cfg, storageDBDir)
+			require.NoError(t, s.LoadLatest())
+		}
 	}
-
-	// Save the correct storageDB per-DB LtHash before skewing.
-	savedStorageLtHash := s.maintainedHashes().PerDB[storageDBDir].Clone()
-
-	// Simulate crash: storageDB only flushed v3 (version watermark behind).
-	batch := s.rawDBFor(storageDBDir).NewBatch()
-	maintained := s.maintainedHashes()
-	require.NoError(t, writeLocalMetaToBatch(
-		batch, 3, savedStorageLtHash,
-		maintained.PerModule[storageDBDir], maintained.PerModuleStats[storageDBDir]))
-	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
-	_ = batch.Close()
-
 	require.NoError(t, s.Close())
+	restoreDataDB(t, cfg, storageDBDir, storageAt3)
 
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)

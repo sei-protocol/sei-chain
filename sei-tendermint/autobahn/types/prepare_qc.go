@@ -28,17 +28,17 @@ func NewPrepareQC(votes []*Signed[*PrepareVote]) *PrepareQC {
 	return &PrepareQC{vote: votes[0].hashed, sigs: sigs}
 }
 
-// Proposal .
-func (m *PrepareQC) Proposal() *Proposal { return m.vote.Msg().Proposal() }
+// Header returns the prepared road block header.
+func (m *PrepareQC) Header() *RoadBlockHeader { return m.vote.Msg().Header() }
 
 // View .
 func (m *PrepareQC) View() View {
-	return m.vote.Msg().Proposal().View()
+	return m.vote.Msg().View()
 }
 
 // Verify verifies the PrepareQC against the epoch.
 func (m *PrepareQC) Verify(ep *Epoch) error {
-	if err := m.Proposal().Verify(ep); err != nil {
+	if err := m.vote.Msg().Verify(ep); err != nil {
 		return err
 	}
 	c := ep.Committee()
@@ -49,12 +49,12 @@ func (m *PrepareQC) Verify(ep *Epoch) error {
 var PrepareQCConv = protoutils.Conv[*PrepareQC, *pb.PrepareQC]{
 	Encode: func(m *PrepareQC) *pb.PrepareQC {
 		return &pb.PrepareQC{
-			Vote: PrepareVoteConv.Encode(m.vote.Msg()),
-			Sigs: SignatureConv.EncodeSlice(m.sigs),
+			VoteV2: PrepareVoteConv.Encode(m.vote.Msg()),
+			Sigs:   SignatureConv.EncodeSlice(m.sigs),
 		}
 	},
 	Decode: func(m *pb.PrepareQC) (*PrepareQC, error) {
-		vote, err := PrepareVoteConv.DecodeReq(m.Vote)
+		vote, err := PrepareVoteConv.DecodeReq(m.VoteV2)
 		if err != nil {
 			return nil, fmt.Errorf("vote: %w", err)
 		}

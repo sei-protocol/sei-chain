@@ -76,6 +76,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: dir,
 		App:                proxyApp,
+		AppHashBuilder:     newPublishingAppHashBuilder(),
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}
@@ -122,7 +123,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	require.Equal(t, uint64(12345), router.MaxGasEstimatedPerBlock())
 	// BlockByHash returns &ResultBlock{Block:nil} for an unknown hash, the
 	// same shape the validator path returns — no sentinel mode-check.
-	rb, err := router.BlockByHash(t.Context(), atypes.BlockHeaderHash{})
+	rb, err := router.BlockByHash(t.Context(), common.Hash{})
 	require.NoError(t, err)
 	require.Nil(t, rb.Block)
 }

@@ -165,7 +165,7 @@ func parseRow[T vtype.VType](raw []byte, found bool, parse func([]byte) (T, erro
 // hash or a balance. The second return reports whether that field is set.
 //
 // A zero code hash and a zero balance both report false. A deletion is stored by zeroing the field
-// rather than by removing anything (see mergeAccountUpdates), so answering "present" for a zero would
+// rather than by removing anything (see PendingAccountWrite.SetField()), so answering "present" for a zero would
 // hand back a key the block deleted. The nonce is the exception: it answers for every row that exists.
 func accountFieldValue(kind keys.EVMKeyKind, account *vtype.AccountData) ([]byte, bool) {
 	switch kind {

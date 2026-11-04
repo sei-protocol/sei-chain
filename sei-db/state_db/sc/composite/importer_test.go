@@ -9,17 +9,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// endRecordingImporter is an importer whose AddNode returns addNodeErr and whose Close returns closeErr, and
-// which records whether Close or Abort ended it.
+// endRecordingImporter is a configurable importer that records how it ended and whether it received
+// permission to publish an empty import.
 type endRecordingImporter struct {
-	addNodeErr error
-	closeErr   error
-	endedBy    string
+	addModuleErr error
+	addNodeErr   error
+	closeErr     error
+	allowEmpty   bool
+	endedBy      string
 }
 
-func (e *endRecordingImporter) AddModule(string) error { return nil }
+func (e *endRecordingImporter) AddModule(string) error { return e.addModuleErr }
 
 func (e *endRecordingImporter) AddNode(*types.SnapshotNode) error { return e.addNodeErr }
+
+func (e *endRecordingImporter) AllowEmpty() {
+	e.allowEmpty = true
+}
 
 func (e *endRecordingImporter) Close() error {
 	e.endedBy = "close"
@@ -66,4 +72,25 @@ func TestSnapshotImporterAddNodeReturnsBackendError(t *testing.T) {
 	require.ErrorContains(t, imp.AddNode(node), "cosmos rejected node")
 	require.NoError(t, imp.AddModule(keys.FlatKVStoreKey))
 	require.ErrorContains(t, imp.AddNode(node), "flatkv rejected node")
+}
+
+func TestSnapshotImporterAllowsEmptyCosmosAfterFlatKVSection(t *testing.T) {
+	t.Run("flatkv section accepted", func(t *testing.T) {
+		cosmos, flatkv := &endRecordingImporter{}, &endRecordingImporter{}
+		require.NoError(t, NewImporter(cosmos, flatkv, nil).AddModule(keys.FlatKVStoreKey))
+		require.True(t, cosmos.allowEmpty)
+	})
+
+	t.Run("flatkv section rejected", func(t *testing.T) {
+		cosmos := &endRecordingImporter{}
+		flatkv := &endRecordingImporter{addModuleErr: errors.New("flatkv rejected module")}
+		require.ErrorContains(t, NewImporter(cosmos, flatkv, nil).AddModule(keys.FlatKVStoreKey), "flatkv rejected module")
+		require.False(t, cosmos.allowEmpty)
+	})
+
+	t.Run("cosmos section accepted", func(t *testing.T) {
+		cosmos, flatkv := &endRecordingImporter{}, &endRecordingImporter{}
+		require.NoError(t, NewImporter(cosmos, flatkv, nil).AddModule(keys.BankStoreKey))
+		require.False(t, cosmos.allowEmpty)
+	})
 }

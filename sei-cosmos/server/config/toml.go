@@ -119,9 +119,13 @@ max-limit = {{ .Query.MaxLimit }}
 max-offset = {{ .Query.MaxOffset }}
 
 # MaxIterations is the maximum store entries a single untrusted query may scan. 0 uses
-# the default. When the budget is exhausted the response is a partial page with next_key;
-# total stays 0 even when the client set count_total, so next_key != nil with total == 0
-# means the total is unknown rather than zero results.
+# the default. When the budget is exhausted after the offset is reached, the response is
+# a partial page with next_key; total stays 0 even when the client set count_total, so
+# next_key != nil with total == 0 means the total is unknown rather than zero results.
+# When the budget is exhausted before the offset is reached, the query fails with
+# InvalidArgument. Filtered queries (for example gov proposals with a status filter)
+# can hit this on defaults, because entries the filter rejects still count against
+# the budget but not toward the offset.
 max-iterations = {{ .Query.MaxIterations }}
 `
 

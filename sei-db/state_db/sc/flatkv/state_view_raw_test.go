@@ -29,7 +29,7 @@ func commitRowInEveryStore(t *testing.T, s *CommitStore) []rawRow {
 	evmMisc := evmMiscKey(0x05)
 	bankKey := []byte{0x06}
 
-	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{
+	require.NoError(t, commitChangeSets(s, 1, []*proto.NamedChangeSet{
 		namedCS(
 			noncePair(addr, 7),
 			balancePair(addr, balance),

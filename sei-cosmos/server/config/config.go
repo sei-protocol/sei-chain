@@ -418,6 +418,8 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			StreamImport:      v.GetBool("genesis.stream-import"),
 			GenesisStreamFile: v.GetString("genesis.genesis-stream-file"),
 		},
+		// The query.* keys are read at runtime by baseapp.readQueryConfig; nothing consumes
+		// this field, so parsing them here would add a second reader that could drift.
 		Query: DefaultQueryConfig(),
 	}
 

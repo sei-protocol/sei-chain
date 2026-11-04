@@ -4,7 +4,6 @@ package gigasim
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // GigaSim runs the benchmark, driving generated blocks through the block store, the state DB and the
@@ -309,28 +309,25 @@ func (g *GigaSim) stopExecutors() {
 	g.executorsRunning.Wait()
 }
 
-// agreedNextBlockNumber returns the height the next superblock commits at, refusing a data directory
-// whose block store and state DB disagree on where they left off. Lane blocks and superblocks stay in
-// step: after superblock h the block store's next height is the first lane block of superblock h+1.
-// A gap is what a run which died without draining leaves behind, and such a directory has to be
-// cleaned rather than resumed.
+// agreedNextBlockNumber returns the next SuperBlock height shared by the block store and state DB.
 func agreedNextBlockNumber(config *GigasimConfig, state *executionState, blocks *blockStoreWriter) (int64, error) {
 	next := state.height() + 1
-	expectedLane := config.firstLaneBlock(next)
 	blockStoreNext, ok := blocks.nextBlockNumber()
-	if !ok || blockStoreNext == expectedLane {
+	if !ok {
 		return next, nil
 	}
-	if config.LaneBlocksPerSuperblock == 1 {
-		return 0, fmt.Errorf(
-			"the block store resumes at block %d but the state DB resumes at block %d; "+
-				"this data directory was left by an interrupted run and has to be cleaned to be reused",
-			blockStoreNext, next)
+	if blockStoreNext != next {
+		return 0, fmt.Errorf("the block store resumes at block %d but the state DB resumes at block %d; this data directory was left by an interrupted run and has to be cleaned to be reused", blockStoreNext, next)
 	}
-	return 0, fmt.Errorf(
-		"the block store resumes at lane block %d but superblock %d starts at lane block %d; "+
-			"this data directory was left by an interrupted run and has to be cleaned to be reused",
-		blockStoreNext, next, expectedLane)
+	suffix, err := blocks.store.ReadSuffix()
+	if err != nil {
+		return 0, err
+	}
+	last := suffix.Blocks[len(suffix.Blocks)-1]
+	if got := len(last.LaneBlocks()); got != config.LaneBlocksPerSuperblock {
+		return 0, fmt.Errorf("stored SuperBlock has %d lane blocks, configured %d", got, config.LaneBlocksPerSuperblock)
+	}
+	return next, nil
 }
 
 // setup brings the ERC20 contracts and the account population up to the configured size before
@@ -526,22 +523,39 @@ func (g *GigaSim) executeBlock(block *simulatedBlock) {
 	g.executing.Wait()
 }
 
-// persistExecutionResults writes what executing a block produced: its receipts, then its state changes.
-// Receipts go first because a receipt for a block the state DB never committed is reconcilable, while
-// the reverse leaves committed state whose receipts were dropped.
+// persistExecutionResults writes what executing a block produced, its receipts and then its state changes,
+// and submits an empty receipt list for the block to the receipt hasher. Receipts go first because a
+// receipt for a block the state DB never committed is reconcilable, while the reverse leaves committed
+// state whose receipts were dropped.
 func (g *GigaSim) persistExecutionResults(
 	number int64,
 	records []receipt.ReceiptRecord,
 	receiptBytes int64,
 	writes blockWrites,
 ) error {
+	height, ok := tmutils.SafeCast[uint64](number)
+	if !ok {
+		return fmt.Errorf("block number %d does not fit in a uint64", number)
+	}
+	if err := reportExecutedBlockHash(g.storage, height); err != nil {
+		return err
+	}
 	if g.receipts != nil {
 		g.lifecycle.SetPhase("write_receipts")
 		if err := g.receipts.writeBlock(number, records, receiptBytes); err != nil {
 			return err
 		}
 	}
-	return g.state.commitBlock(number, writes)
+	if err := g.state.commitBlock(number, writes); err != nil {
+		return err
+	}
+	// The benchmark runs no EVM, so its blocks have no transactions to hash receipts for. Without a receipt
+	// hash the block's app hash is never built, so the submission is not abandoned when the run is cancelled:
+	// the state is already committed, and closing waits for that block's app hash.
+	if err := g.storage.ReceiptHasher().Submit(context.Background(), height, nil); err != nil {
+		return fmt.Errorf("failed to submit the receipts of block %d: %w", number, err)
+	}
+	return nil
 }
 
 // awaitGenerator stops block production and drains the staging queue, reporting the error that ended
@@ -619,19 +633,11 @@ func (g *GigaSim) teardown() {
 // closePipeline stops the executor pool and releases every database, in the order the stores require:
 // the executors stop reading first, then the state read view closes, because the commit store cannot
 // release the reference it holds while a view is open, and the storage manager closes last.
-//
-// The app hash of the last block committed is waited for before storage closes. A restart rolls every
-// store back to the newest app hash, and agreedNextBlockNumber refuses a block store left ahead of state.
 func (g *GigaSim) closePipeline() error {
 	g.cancel()
 	g.stopExecutors()
 	g.state.Close()
-	var err error
-	if highest := g.HighestBlock(); highest > 0 {
-		//nolint:gosec // block numbers are positive
-		err = awaitAppHash(g.storage.AppHashVault(), uint64(highest))
-	}
-	err = errors.Join(err, g.storage.Close())
+	err := g.storage.Close()
 	g.stopStorage()
 	return err
 }

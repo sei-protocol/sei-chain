@@ -21,10 +21,7 @@ import (
 )
 
 // translatorBatchSize bounds how many memiavl key/value pairs we hand to a
-// single flatkv.ImportTranslator.Translate call. Batching amortizes the
-// per-call classifyAndPrefix map allocations across many keys without
-// growing ImportTranslator's account-buffer memory beyond what an unbatched
-// stream would already need.
+// single flatkv.ImportTranslator.Translate call.
 //
 // Distinct from flatkv.importBatchSize, which is the per-DB-worker flush
 // threshold (in already-translated physical pairs); the two constants tune

@@ -18,6 +18,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"golang.org/x/time/rate"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -68,7 +69,7 @@ type auditBatch struct {
 	db string
 
 	// rows are the rows, each with its key and value copied out of the iterator.
-	rows []lthash.KeyMutation
+	rows []mutation.Mutation
 }
 
 // auditedDatabase is what the reader learned about one database besides its rows.
@@ -326,7 +327,7 @@ func (a *snapshotAuditor) readDatabase(
 		if err := a.throttle(ctx, len(key)+len(value)); err != nil {
 			return nil, err
 		}
-		batch.rows = append(batch.rows, lthash.KeyMutation{Key: bytes.Clone(key), Value: bytes.Clone(value)})
+		batch.rows = append(batch.rows, mutation.Mutation{Key: bytes.Clone(key), NewValue: bytes.Clone(value)})
 		a.rows++
 		a.bytes += uint64(len(key)) + uint64(len(value))
 		if len(batch.rows) == int(a.config.BatchSize) {
@@ -367,7 +368,7 @@ func openPebbleReadOnly(dbDir string) (*pebble.DB, error) {
 
 // newBatch returns an empty batch for the named database.
 func (a *snapshotAuditor) newBatch(db string) *auditBatch {
-	return &auditBatch{db: db, rows: make([]lthash.KeyMutation, 0, a.config.BatchSize)}
+	return &auditBatch{db: db, rows: make([]mutation.Mutation, 0, a.config.BatchSize)}
 }
 
 // throttle waits until the read budget allows n more bytes. It returns at once when the read rate is uncapped.
@@ -453,11 +454,11 @@ func hashAuditBatch(batch *auditBatch, modules map[lthash.ModuleKey]*lthash.Modu
 		info.Hash.MixIn(lthash.ComputeLtHash(nil, rows))
 		for _, row := range rows {
 			// The membership rule the hash applies: a row with an empty key or value is not a member.
-			if len(row.Key) == 0 || len(row.Value) == 0 {
+			if len(row.Key) == 0 || len(row.NewValue) == 0 {
 				continue
 			}
 			info.KeyCount++
-			info.Bytes += int64(len(row.Key)) + int64(len(row.Value))
+			info.Bytes += int64(len(row.Key)) + int64(len(row.NewValue))
 		}
 	}
 	return nil

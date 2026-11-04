@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 // The hash phase: turning a block's changed key-value pairs into one homomorphic delta per (database,
@@ -81,7 +82,7 @@ func ComputeModuleHashInfos(
 // a single (database, module) bucket.
 type lthashTask struct {
 	key       ModuleKey
-	mutations []KeyMutation
+	mutations []mutation.Mutation
 }
 
 // buildTasks buckets each database's mutations by module and splits every bucket into fixed-size
@@ -114,7 +115,7 @@ func buildTasks(moduleOf ModuleParser, mutations []DatabaseMutations, chunkSize 
 }
 
 // ComputeLtHash applies mutations to prev and returns the result. A nil prev starts from zero.
-func ComputeLtHash(prev *LtHash, mutations []KeyMutation) *LtHash {
+func ComputeLtHash(prev *LtHash, mutations []mutation.Mutation) *LtHash {
 	result := New()
 	if prev != nil {
 		result = prev.Clone()
@@ -125,40 +126,40 @@ func ComputeLtHash(prev *LtHash, mutations []KeyMutation) *LtHash {
 
 // hashChunk computes the homomorphic hash delta and the net key-count / byte
 // deltas for one chunk of pairs. Key presence is defined exactly as the hash
-// defines it: a prior value exists iff LastValue is non-empty (an unmix), and a
-// new value exists iff the entry is not a delete and Value is non-empty (a mix).
+// defines it: a prior value exists iff PreviousValue is non-empty (an unmix), and a
+// new value exists iff NewValue is non-empty (a mix).
 //   - add    (!old,  new): +1 key, + (len(key)+len(newVal)) bytes
 //   - update ( old,  new):  0 keys, + (len(newVal)-len(oldVal)) bytes
 //   - delete ( old, !new): -1 key, - (len(key)+len(oldVal)) bytes
 //   - no-op  (!old, !new): unchanged (delete of an absent key)
-func hashChunk(mutations []KeyMutation) *ModuleHashInfo {
+func hashChunk(mutations []mutation.Mutation) *ModuleHashInfo {
 	d := &ModuleHashInfo{Hash: New()}
-	for _, mutation := range mutations {
+	for _, m := range mutations {
 		// A member exists iff serializeKV would produce a non-nil buffer, i.e.
 		// key and value are both non-empty. Keeping these predicates identical
 		// to the mix conditions guarantees the stats track exactly the set the
 		// hash represents.
-		hadOld := len(mutation.Key) > 0 && len(mutation.LastValue) > 0
-		hasNew := len(mutation.Key) > 0 && !mutation.Delete && len(mutation.Value) > 0
+		hadOld := len(m.Key) > 0 && len(m.PreviousValue) > 0
+		hasNew := len(m.Key) > 0 && len(m.NewValue) > 0
 		if hadOld {
-			h := hash(serializeKV(mutation.Key, mutation.LastValue))
+			h := hash(serializeKV(m.Key, m.PreviousValue))
 			d.Hash.MixOut(h)
 			putLtHashToPool(h)
 		}
 		if hasNew {
-			h := hash(serializeKV(mutation.Key, mutation.Value))
+			h := hash(serializeKV(m.Key, m.NewValue))
 			d.Hash.MixIn(h)
 			putLtHashToPool(h)
 		}
 		switch {
 		case !hadOld && hasNew:
 			d.KeyCount++
-			d.Bytes += int64(len(mutation.Key)) + int64(len(mutation.Value))
+			d.Bytes += int64(len(m.Key)) + int64(len(m.NewValue))
 		case hadOld && hasNew:
-			d.Bytes += int64(len(mutation.Value)) - int64(len(mutation.LastValue))
+			d.Bytes += int64(len(m.NewValue)) - int64(len(m.PreviousValue))
 		case hadOld && !hasNew:
 			d.KeyCount--
-			d.Bytes -= int64(len(mutation.Key)) + int64(len(mutation.LastValue))
+			d.Bytes -= int64(len(m.Key)) + int64(len(m.PreviousValue))
 		}
 	}
 	return d
@@ -211,16 +212,16 @@ func hashChunks(pool threading.Pool, tasks []lthashTask) map[ModuleKey]*ModuleHa
 // physical key via moduleOf. Used to decompose a per-DB root into additive
 // per-module hashes without changing the root.
 func BucketByModule(
-	mutations []KeyMutation,
+	mutations []mutation.Mutation,
 	moduleOf ModuleParser,
-) (map[string][]KeyMutation, error) {
-	byModule := make(map[string][]KeyMutation)
-	for _, mutation := range mutations {
-		module, err := moduleOf(mutation.Key)
+) (map[string][]mutation.Mutation, error) {
+	byModule := make(map[string][]mutation.Mutation)
+	for _, m := range mutations {
+		module, err := moduleOf(m.Key)
 		if err != nil {
 			return nil, err
 		}
-		byModule[module] = append(byModule[module], mutation)
+		byModule[module] = append(byModule[module], m)
 	}
 	return byModule, nil
 }

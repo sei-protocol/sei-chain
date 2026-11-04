@@ -6,6 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
@@ -95,7 +96,7 @@ func scanStoreByModule(
 	}
 	defer func() { _ = iter.Close() }()
 
-	byModule := make(map[string][]lthash.KeyMutation)
+	byModule := make(map[string][]mutation.Mutation)
 	stats := make(map[string]lthash.ModuleStats)
 	for ; iter.Valid(); iter.Next() {
 		// Match foldChunk / serializeKV: empty key or empty value is not a
@@ -108,9 +109,9 @@ func scanStoreByModule(
 		if err != nil {
 			return nil, nil, fmt.Errorf("route key %x: %w", iter.Key(), err)
 		}
-		byModule[module] = append(byModule[module], lthash.KeyMutation{
-			Key:   bytes.Clone(iter.Key()),
-			Value: bytes.Clone(iter.Value()),
+		byModule[module] = append(byModule[module], mutation.Mutation{
+			Key:      bytes.Clone(iter.Key()),
+			NewValue: bytes.Clone(iter.Value()),
 		})
 		st := stats[module]
 		st.KeyCount++

@@ -879,7 +879,7 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 //
 // Invariants verified:
 //  1. ApplyChangeSets routes non-EVM modules to miscDB under a
-//     "<module>/" physical-key prefix via classifyAndPrefix.
+//     "<module>/" physical-key prefix via MutationsFromChangeSets.
 //  2. The Exporter emits raw physical keys carrying that prefix.
 //  3. The Importer re-routes via routePhysicalKey, sending non-EVM keys
 //     back to miscDB with the prefix intact.
@@ -925,7 +925,7 @@ func TestExporterImporterNonEVMMiscRoundTrip(t *testing.T) {
 	}
 
 	// Block 1: mixed changeset — non-EVM and EVM in the same commit — so
-	// classifyAndPrefix has to route both kinds in one pass.
+	// MutationsFromChangeSets has to route both kinds in one pass.
 	require.NoError(t, src.ApplyChangeSets(src.Version()+1, []*proto.NamedChangeSet{
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: bankPairs}},
 		{Name: "staking", Changeset: proto.ChangeSet{Pairs: stakingPairs}},

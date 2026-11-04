@@ -5,6 +5,8 @@ import (
 	"errors"
 	"math/big"
 	"sync"
+	"testing"
+	"time"
 
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -66,6 +68,16 @@ func NewFilterConfigForTest(cfg FilterConfigTest) *FilterConfig {
 	return filterCfg
 }
 
+// NewBlockFilterAPIForTest returns a FilterAPI without a blockHeaderNotifier that reads blocks
+// from tmClient and the earliest and latest heights from heightClient.
+func NewBlockFilterAPIForTest(t *testing.T, tmClient, heightClient cosmoclient.LocalClient) *FilterAPI {
+	return newTestFilterAPIWithClient(t, nil, &FilterConfig{
+		timeout:              time.Hour,
+		maxFilters:           DefaultMaxFilters,
+		maxBlockFilterHashes: DefaultMaxBlockFilterHashes,
+	}, tmClient, heightClient, 1<<40)
+}
+
 // LogFetcherTestDeps wires a LogFetcher for range-path integration tests.
 type LogFetcherTestDeps struct {
 	TmClient                 cosmoclient.LocalClient
@@ -115,7 +127,7 @@ func (f *LogFetcher) PollLogsForTest(
 	crit filters.FilterCriteria,
 	cursor int64,
 ) ([]*ethtypes.Log, int64, error) {
-	return f.pollLogs(ctx, crit, cursor)
+	return f.pollLogs(ctx, crit, cursor, nil)
 }
 
 // NewLogsSubscriptionAPIForTest returns a SubscriptionAPI that serves eth_subscribe("logs") from

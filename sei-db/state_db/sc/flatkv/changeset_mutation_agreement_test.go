@@ -45,6 +45,38 @@ func TestMutationsAgreeWithFlatKV(t *testing.T) {
 	}
 }
 
+// TestCommitStateChangesAgreesWithApplyChangeSets commits each block to one store as changesets through
+// ApplyChangeSets and Commit, and to another as mutations through CommitStateChanges, and requires both stores to
+// hold the same rows and reach the same lattice hash.
+func TestCommitStateChangesAgreesWithApplyChangeSets(t *testing.T) {
+	viaChangeSets := newFlatKVStore(t)
+	viaMutations := newFlatKVStore(t)
+
+	for i, block := range changesetAgreementBlocks() {
+		height := uint64(i + 1)
+		commitBlock(t, viaChangeSets, height, block)
+		//nolint:gosec // test heights are small
+		require.NoError(t, commitChangeSets(viaMutations, int64(height), block), "block %d", height)
+
+		require.Equal(t, latestHash(t, viaChangeSets), latestHash(t, viaMutations), "block %d", height)
+		require.Equal(t, rawRows(t, viaChangeSets), rawRows(t, viaMutations), "block %d", height)
+	}
+}
+
+// rawRows returns every committed row of store, keyed by physical key.
+func rawRows(t *testing.T, store *CommitStore) map[string][]byte {
+	t.Helper()
+	it, err := store.RawGlobalIterator()
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+	rows := make(map[string][]byte)
+	for ; it.Valid(); it.Next() {
+		rows[string(it.Key())] = bytes.Clone(it.Value())
+	}
+	require.NoError(t, it.Error())
+	return rows
+}
+
 // changesetAgreementBlocks returns a sequence of blocks, each a list of changesets, that writes and deletes every
 // kind of row and changes account fields one at a time.
 func changesetAgreementBlocks() [][]*proto.NamedChangeSet {

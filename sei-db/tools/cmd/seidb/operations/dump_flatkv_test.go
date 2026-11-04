@@ -9,6 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/stretchr/testify/require"
 )
@@ -136,12 +137,12 @@ func TestDumpFlatKVFromStoreSingleBucket(t *testing.T) {
 func TestBucketLtHasherMatchesSingleShot(t *testing.T) {
 	// More than one batch so the incremental MixIn path is exercised.
 	n := lthashBatchCap*2 + 17
-	all := make([]lthash.KeyMutation, 0, n)
+	all := make([]mutation.Mutation, 0, n)
 	hashers := map[string]*bucketLtHasher{
 		FlatKVBucketAccount: newBucketLtHasher(),
 		FlatKVBucketStorage: newBucketLtHasher(),
 	}
-	bucketPairs := map[string][]lthash.KeyMutation{}
+	bucketPairs := map[string][]mutation.Mutation{}
 
 	for i := 0; i < n; i++ {
 		bucket := FlatKVBucketAccount
@@ -151,8 +152,8 @@ func TestBucketLtHasherMatchesSingleShot(t *testing.T) {
 		key := []byte{byte(bucket[0]), byte(i), byte(i >> 8), byte(i >> 16)}
 		val := []byte{byte(i), 0xAB, byte(i >> 8)}
 		hashers[bucket].add(key, val)
-		bucketPairs[bucket] = append(bucketPairs[bucket], lthash.KeyMutation{Key: key, Value: val})
-		all = append(all, lthash.KeyMutation{Key: key, Value: val})
+		bucketPairs[bucket] = append(bucketPairs[bucket], mutation.Mutation{Key: key, NewValue: val})
+		all = append(all, mutation.Mutation{Key: key, NewValue: val})
 	}
 
 	total := lthash.New()

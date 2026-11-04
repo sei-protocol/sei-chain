@@ -47,12 +47,3 @@ func TestDeserializeBlockRejectsInvalidInput(t *testing.T) {
 	_, err = deserializeBlock(serialized[:len(serialized)-1])
 	require.Error(t, err)
 }
-
-func TestHashSerializedBlockRejectsInvalidInput(t *testing.T) {
-	_, err := hashSerializedBlock(nil)
-	require.Error(t, err)
-
-	// A block in the changeset format, which is never written.
-	_, err = hashSerializedBlock([]byte{mutationFormatVersion - 1})
-	require.Error(t, err)
-}

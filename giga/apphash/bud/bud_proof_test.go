@@ -15,17 +15,17 @@ import (
 func TestBUDProofVerifiesEveryLeaf(t *testing.T) {
 	rng := rand.New(rand.NewSource(2))
 	for count := 1; count <= 17; count++ {
-		tree, err := NewBUDTree(randomBudlets(t, rng, count))
-		require.NoError(t, err)
-		budHash := tree.BUDHash()
+		budlets := randomBudlets(t, rng, count)
+		budHash := budHashOf(t, budlets)
 
-		for index, budlet := range tree.Budlets() {
-			proof, found := tree.BuildBUDProof(budlet.Key())
-			require.True(t, found, "count %d index %d", count, index)
+		for index, budlet := range budlets {
+			proof := mustNewBUDProof(t, budlets, budlet.Key())
 			require.Equal(t, budlet, proof.Budlet())
 			require.Equal(t, uint64(count), proof.Count())
 			require.Equal(t, uint64(index), proof.Index())
-			require.Equal(t, budHash, proof.ComputeBUDHash(), "count %d index %d", count, index)
+			proofHash, err := proof.ComputeBUDHash()
+			require.NoError(t, err, "count %d index %d", count, index)
+			require.Equal(t, budHash, proofHash, "count %d index %d", count, index)
 
 			deserialized, err := DeserializeBUDProof(proof.Serialize())
 			require.NoError(t, err, "count %d index %d", count, index)
@@ -34,23 +34,31 @@ func TestBUDProofVerifiesEveryLeaf(t *testing.T) {
 	}
 }
 
+func TestNewBUDProofOfAbsentKey(t *testing.T) {
+	proof, found, err := NewBUDProof(threeBudlets(t), []byte("evm/bb"))
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Nil(t, proof)
+}
+
 // TestBUDProofRejectsTampering requires every single-field alteration of a serialized BUD proof either to fail to
 // deserialize or to compute a BUD hash other than the one claimed.
 func TestBUDProofRejectsTampering(t *testing.T) {
 	rng := rand.New(rand.NewSource(3))
 	for _, count := range []int{1, 2, 3, 5, 8, 13} {
-		tree, err := NewBUDTree(randomBudlets(t, rng, count))
-		require.NoError(t, err)
+		budlets := randomBudlets(t, rng, count)
+		budHash := budHashOf(t, budlets)
 
-		for index, budlet := range tree.Budlets() {
-			proof, found := tree.BuildBUDProof(budlet.Key())
-			require.True(t, found)
-			for name, tampered := range tamperedBUDProofClaims(tree.BUDHash(), proof) {
+		for index, budlet := range budlets {
+			proof := mustNewBUDProof(t, budlets, budlet.Key())
+			for name, tampered := range tamperedBUDProofClaims(budHash, proof) {
 				deserialized, err := DeserializeBUDProof(tampered.proof.Serialize())
 				if err != nil {
 					continue
 				}
-				require.NotEqual(t, tampered.budHash, deserialized.ComputeBUDHash(),
+				proofHash, err := deserialized.ComputeBUDHash()
+				require.NoError(t, err, "count %d index %d: %s", count, index, name)
+				require.NotEqual(t, tampered.budHash, proofHash,
 					"count %d index %d: %s", count, index, name)
 			}
 		}

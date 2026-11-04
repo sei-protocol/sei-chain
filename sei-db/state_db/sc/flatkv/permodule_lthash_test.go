@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -34,16 +35,16 @@ func fullScanModuleLtHash(t *testing.T, db types.KeyValueDB) map[string]*lthash.
 	require.NoError(t, err)
 	defer iter.Close()
 
-	byModule := make(map[string][]lthash.KeyMutation)
+	byModule := make(map[string][]mutation.Mutation)
 	for ; iter.Valid(); iter.Next() {
 		if ktype.IsMetaKey(iter.Key()) {
 			continue
 		}
 		module, _, err := ktype.StripModulePrefix(iter.Key())
 		require.NoError(t, err)
-		byModule[module] = append(byModule[module], lthash.KeyMutation{
-			Key:   bytes.Clone(iter.Key()),
-			Value: bytes.Clone(iter.Value()),
+		byModule[module] = append(byModule[module], mutation.Mutation{
+			Key:      bytes.Clone(iter.Key()),
+			NewValue: bytes.Clone(iter.Value()),
 		})
 	}
 	require.NoError(t, iter.Error())

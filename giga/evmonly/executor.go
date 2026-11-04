@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -22,18 +23,18 @@ import (
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
 type Executor struct {
-	cfg              Config
-	resultSink       ResultSink
-	occPool          *occWorkerPool
-	resultPool       *blockResultPool
-	stateDBPool      sync.Pool
-	endBlockers      []endBlocker
-	customContracts  map[common.Address]vm.PrecompiledContract
-	storeMu          sync.Mutex
-	stateStore       gigatypes.StateDB
-	receiptStore     receipt.ReceiptStore
-	changeSetEncoder NamedChangeSetEncoder
-	// Optional: nil commits only the state encoder's changesets.
+	cfg             Config
+	resultSink      ResultSink
+	occPool         *occWorkerPool
+	resultPool      *blockResultPool
+	stateDBPool     sync.Pool
+	endBlockers     []endBlocker
+	customContracts map[common.Address]vm.PrecompiledContract
+	storeMu         sync.Mutex
+	stateStore      gigatypes.StateDB
+	receiptStore    receipt.ReceiptStore
+	receiptHasher   *receipthash.ReceiptHasher
+	// Optional: nil commits only the block's EVM state changes.
 	blockChangeSetEncoder BlockChangeSetEncoder
 	// blockEncoderReadsStore is false only for an encoder registered as
 	// store-independent, which lets encoding overlap the previous commit.
@@ -63,8 +64,9 @@ func WithResultSink(sink ResultSink) Option {
 	}
 }
 
-// WithMissingAccountState supplies state for accounts absent from the
-// persistent state snapshot.
+// WithMissingAccountState supplies the balance, nonce and code of accounts
+// absent from the persistent state snapshot. Storage is always read from the
+// snapshot.
 func WithMissingAccountState(state StateReader) Option {
 	return func(e *Executor) {
 		e.missingState = state
@@ -300,7 +302,7 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 
 	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
-	blockCtx := buildBlockContext(req.Context)
+	blockCtx := EVMBlockContext(req.Context)
 	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 
@@ -500,7 +502,9 @@ func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) *core.Message 
 	return msg
 }
 
-func buildBlockContext(ctx BlockContext) vm.BlockContext {
+// EVMBlockContext returns the go-ethereum block context the executor runs a block with context ctx
+// at. BLOCKHASH answers only for the parent block.
+func EVMBlockContext(ctx BlockContext) vm.BlockContext {
 	prevRandao := ctx.PrevRandao
 	baseFee := cloneOptionalBig(ctx.BaseFee)
 	blobBaseFee := cloneOptionalBig(ctx.BlobBaseFee)

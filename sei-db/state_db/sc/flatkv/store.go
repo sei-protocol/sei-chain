@@ -167,10 +167,6 @@ type CommitStore struct {
 
 	phaseTimer *metrics.PhaseTimer
 
-	// classifyBucketSizes is the length of each kind's bucket in the previous staged block, used to size the next
-	// block's buckets. Zero for a kind that block did not touch.
-	classifyBucketSizes [keys.EVMKeyKindCount]int
-
 	// readOnly marks stores opened via LoadVersionReadOnly.
 	readOnly bool
 
@@ -216,9 +212,8 @@ func routePhysicalKey(physicalKey []byte) (string, error) {
 		// An empty module name would fold into moduleLtHash[""]/moduleStats[""]
 		// and later persist as the per-module meta key "_meta/x:/hash", which
 		// ParseModuleLtHashKey rejects on the very next reopen — permanently
-		// bricking the store (root != sum(modules) forever). Reject it here,
-		// at the state-sync import dispatch boundary, mirroring the
-		// classifyAndPrefix guard on the live-commit path (store_apply.go).
+		// bricking the store (root != sum(modules) forever). Every committed
+		// and imported key is routed here, so this is where it is rejected.
 		return "", fmt.Errorf("flatkv: empty module name in physical key %q", physicalKey)
 	}
 	if moduleName != keys.EVMStoreKey {
@@ -349,6 +344,15 @@ func lthashWorkerCount(cfg *config.Config, coreCount int) int {
 // sortWorkerCount computes the fixed diff-sorting pool worker count from config, clamped to at least 1.
 func sortWorkerCount(cfg *config.Config, coreCount int) int {
 	n := int(cfg.SortThreadsPerCore * float64(coreCount))
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+// stateChangeSetWorkerCount returns how many tasks convert a block's state change set at once.
+func stateChangeSetWorkerCount(cfg *config.Config, coreCount int) int {
+	n := int(cfg.StateChangeSetThreadsPerCore * float64(coreCount))
 	if n < 1 {
 		n = 1
 	}

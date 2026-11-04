@@ -24,11 +24,21 @@ type fakeWAL struct {
 
 	// The indices successfully appended, so tests can assert that a failed append persisted nothing.
 	appended []uint64
+
+	// When set, Append signals on appendEntered and then waits for appendRelease to close.
+	appendEntered chan struct{}
+
+	// Closed to let an Append blocked on it return.
+	appendRelease chan struct{}
 }
 
 var _ seiwal.WAL[[]byte] = (*fakeWAL)(nil)
 
 func (f *fakeWAL) Append(index uint64, data []byte) error {
+	if f.appendEntered != nil {
+		f.appendEntered <- struct{}{}
+		<-f.appendRelease
+	}
 	if f.appendErr != nil {
 		return f.appendErr
 	}
@@ -80,8 +90,6 @@ func requireBricked(t *testing.T, w StateWAL) {
 	require.ErrorIs(t, w.Prune(1), errInjected)
 	_, err = w.Iterator(0, 0)
 	require.ErrorIs(t, err, errInjected)
-	_, _, _, err = w.RegisterHashListener(nil)
-	require.ErrorIs(t, err, errInjected)
 }
 
 // TestFatalErrorsBrickWAL verifies that a fatal error from any underlying-WAL operation permanently
@@ -91,8 +99,7 @@ func TestFatalErrorsBrickWAL(t *testing.T) {
 		f := &fakeWAL{}
 		w := newFakeStateWAL(t, f)
 		f.appendErr = errInjected
-		// The append happens on the sorter's goroutine, so its failure surfaces on the next call that waits on
-		// it.
+		// The append happens on the WAL's goroutine, so its failure surfaces on the next call that waits on it.
 		require.NoError(t, w.Write(1, nil))
 		require.ErrorIs(t, w.Flush(), errInjected)
 		requireBricked(t, w)

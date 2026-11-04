@@ -3,10 +3,7 @@ package flatkv
 import (
 	"errors"
 	"fmt"
-	"strings"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
@@ -29,10 +26,8 @@ type PhysicalKVPair struct {
 // ImportTranslator converts raw EVM/non-EVM changesets into physically-encoded
 // pairs ready for FlatKV bulk import.
 //
-// It applies the same translation logic that CommitStore.ApplyChangeSets uses
-// (classifyAndPrefix + toStorageValues + toCodeValues +
-// toMiscValues + mergeAccountUpdates), but assumes the import target
-// is empty so it does not merge with prior DB values.
+// It produces the same rows a committed block would, but assumes the import
+// target is empty so it does not merge with prior DB values.
 //
 // Storage / code / misc / non-EVM pairs are emitted directly from each
 // Translate call. Account-related entries (nonce, codehash, balance) are buffered
@@ -44,8 +39,10 @@ type PhysicalKVPair struct {
 //
 // ImportTranslator is not safe for concurrent use.
 type ImportTranslator struct {
-	blockHeight  int64
-	pendingAccts map[string]vtype.PendingAccountWrite
+	blockHeight int64
+
+	// The account fields written so far to each account row, keyed by string(physical key).
+	pendingAccts map[string]*vtype.PendingAccountWrite
 }
 
 // NewImportTranslator creates a translator that stamps blockHeight onto every
@@ -54,7 +51,7 @@ type ImportTranslator struct {
 func NewImportTranslator(blockHeight int64) *ImportTranslator {
 	return &ImportTranslator{
 		blockHeight:  blockHeight,
-		pendingAccts: make(map[string]vtype.PendingAccountWrite),
+		pendingAccts: make(map[string]*vtype.PendingAccountWrite),
 	}
 }
 
@@ -71,81 +68,37 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 		return nil, nil
 	}
 
-	// Drop deletes up front: import targets an empty store, so deleting a
-	// non-existent key is a no-op. This also keeps mergeAccountUpdates
-	// from interpreting nil values as "set field to zero".
-	filteredPairs := make([]*proto.KVPair, 0, len(cs.Changeset.Pairs))
-	for _, p := range cs.Changeset.Pairs {
-		if p == nil || p.Delete {
+	var out []PhysicalKVPair
+	for _, pair := range cs.Changeset.Pairs {
+		if pair == nil || pair.Delete {
 			continue
 		}
-		filteredPairs = append(filteredPairs, p)
-	}
-	if len(filteredPairs) == 0 {
-		return nil, nil
-	}
-	filteredCS := &proto.NamedChangeSet{
-		Name:      cs.Name,
-		Changeset: proto.ChangeSet{Pairs: filteredPairs},
-	}
-
-	changesByType, err := classifyAndPrefix([]*proto.NamedChangeSet{filteredCS}, [keys.EVMKeyKindCount]int{}, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	out := make([]PhysicalKVPair, 0, len(filteredPairs))
-
-	storageChanges, err := toStorageValues(changesByType[keys.EVMKeyStorage], t.blockHeight)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process storage changes: %w", err)
-	}
-	out = appendWrites(out, storageChanges)
-
-	codeChanges, err := toCodeValues(changesByType[keys.EVMKeyCode], t.blockHeight)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process code changes: %w", err)
-	}
-	out = appendWrites(out, codeChanges)
-
-	miscChanges, err := toMiscValues(changesByType[keys.EVMKeyMisc], t.blockHeight)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process misc changes: %w", err)
-	}
-	out = appendWrites(out, miscChanges)
-
-	// Accumulate nonce + codeHash + balance entries from this batch into the
-	// translator-level pending account map, so that several Translate calls
-	// fold their updates for one address together.
-	batchAccts, err := mergeAccountUpdates(
-		changesByType[keys.EVMKeyNonce],
-		changesByType[keys.EVMKeyCodeHash],
-		changesByType[keys.EVMKeyBalance],
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to merge account changes: %w", err)
-	}
-	for arenaAddr, batchUpdate := range batchAccts {
-		// arenaAddr is carved from a key arena and this map outlives the call, so storing it as a key
-		// would pin the arena for the rest of the import. Every map write stores its key.
-		addr := strings.Clone(arenaAddr)
-		existing, ok := t.pendingAccts[addr]
-		if !ok {
-			t.pendingAccts[addr] = batchUpdate
+		kind, key, err := changeSetEntryKey(cs.Name, pair.Key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse module %q key %x: %w", cs.Name, pair.Key, err)
+		}
+		if isAccountKind(kind) {
+			fields, ok := t.pendingAccts[string(key)]
+			if !ok {
+				fields = vtype.NewPendingAccountWrite()
+				t.pendingAccts[string(key)] = fields
+			}
+			if err := fields.SetField(kind, pair.Value, false); err != nil {
+				return nil, fmt.Errorf("failed to set account field of key %x: %w", key, err)
+			}
 			continue
 		}
-		if batchUpdate.IsNonceSet() {
-			existing.SetNonce(batchUpdate.GetNonce())
+		//nolint:gosec // block heights are non-negative
+		value, err := rowValue(kind, pair, uint64(t.blockHeight))
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode module %q key %x: %w", cs.Name, pair.Key, err)
 		}
-		if batchUpdate.IsCodeHashSet() {
-			existing.SetCodeHash(batchUpdate.GetCodeHash())
+		if value == nil {
+			// The write empties the row, which an empty import target does not have.
+			continue
 		}
-		if batchUpdate.IsBalanceSet() {
-			existing.SetBalance(batchUpdate.GetBalance())
-		}
-		t.pendingAccts[addr] = existing
+		out = append(out, PhysicalKVPair{Key: key, Value: value})
 	}
-
 	return out, nil
 }
 
@@ -156,34 +109,14 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 // Call once after all Translate calls. Translate must not be called after
 // Finalize.
 func (t *ImportTranslator) Finalize() []PhysicalKVPair {
-	merged := make(map[string]*vtype.AccountData, len(t.pendingAccts))
-	for addr, pending := range t.pendingAccts {
-		merged[addr] = pending.Merge(nil, t.blockHeight)
+	out := make([]PhysicalKVPair, 0, len(t.pendingAccts))
+	for key, fields := range t.pendingAccts {
+		account := fields.Merge(nil, t.blockHeight)
+		if account.IsDelete() {
+			continue
+		}
+		out = append(out, PhysicalKVPair{Key: []byte(key), Value: account.Serialize()})
 	}
 	t.pendingAccts = nil
-	return appendNonDeletes(make([]PhysicalKVPair, 0, len(merged)), merged)
-}
-
-// appendWrites appends every write that is not a deletion to out. A nil Value is the store's
-// tombstone, and an import target starts empty, so there is nothing for one to delete.
-func appendWrites(out []PhysicalKVPair, writes []view.Write) []PhysicalKVPair {
-	for _, w := range writes {
-		if w.Value == nil {
-			continue
-		}
-		out = append(out, PhysicalKVPair{Key: []byte(w.Key), Value: w.Value})
-	}
-	return out
-}
-
-// appendNonDeletes serializes every non-delete entry in m and appends the resulting
-// (physical_key, serialized_value) pair to out.
-func appendNonDeletes[T vtype.VType](out []PhysicalKVPair, m map[string]T) []PhysicalKVPair {
-	for k, v := range m {
-		if v.IsDelete() {
-			continue
-		}
-		out = append(out, PhysicalKVPair{Key: []byte(k), Value: v.Serialize()})
-	}
 	return out
 }
