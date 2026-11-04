@@ -34,10 +34,34 @@ const tableName = "blocks"
 // nothing. Reads below First return ErrPruned; absent records at or above First
 // return None. Hash lookups return None for unknown or pruned SuperBlocks.
 type Store struct {
-	status utils.Mutex[*utils.Option[types.SuffixRange]]
+	status utils.Mutex[*utils.Option[SuffixRange]]
 	first  atomic.Uint64
 	db     littdb.DB
 	table  littdb.Table
+}
+
+// SuffixRange contains the road cursors restored by startup recovery.
+// First <= NextAppQC <= NextAppProposal <= NextBlock.
+type SuffixRange struct {
+	// First is the latest AppQC's road, or the first retained QC's road if no AppQC exists.
+	First types.RoadIndex
+	// NextAppQC is the next road awaiting a persisted AppQC.
+	NextAppQC types.RoadIndex
+	// NextAppProposal is the next road awaiting a persisted AppProposal.
+	NextAppProposal types.RoadIndex
+	// NextBlock is the next road awaiting a persisted block.
+	NextBlock types.RoadIndex
+}
+
+// Suffix is a recovery snapshot of retained blocks, application proposals, and application QCs.
+type Suffix struct {
+	// Ranges of elements in the suffix.
+	// None if the BlockStore is empty.
+	Status utils.Option[SuffixRange]
+	// Elements which constitute the suffix.
+	Blocks       []*types.RoadBlock
+	AppProposals []*types.AppProposal
+	AppQCs       []*types.AppQC
 }
 
 // New opens a consensus block store and restores its retention floor and write cursors.
@@ -50,7 +74,7 @@ func New(config *Config) (*Store, error) {
 		return nil, fmt.Errorf("littbuilder.NewDB(): %w", err)
 	}
 
-	s := &Store{db: db, status: utils.NewMutex(new(utils.Option[types.SuffixRange]))}
+	s := &Store{db: db, status: utils.NewMutex(new(utils.Option[SuffixRange]))}
 	Global.pruneWatermarkAt().Set(0)
 
 	// Every record kind lives in one table with a single write shard. The store
@@ -151,47 +175,47 @@ func (s *Store) getRecord(key ledgerKey) ([]byte, bool, error) {
 }
 
 // readSuffix reads complete primary records from the latest AppQC onward.
-func (s *Store) readSuffix() (types.Suffix, error) {
+func (s *Store) readSuffix() (Suffix, error) {
 	it, err := s.table.Iterator(true)
 	if err != nil {
-		return types.Suffix{}, fmt.Errorf("s.table.Iterator(true): %w", err)
+		return Suffix{}, fmt.Errorf("s.table.Iterator(true): %w", err)
 	}
 	defer func() { _ = it.Close() }()
-	var suffix types.Suffix
+	var suffix Suffix
 
 	var first types.RoadIndex
 	gotAppQC := false
 	for {
 		ok, err := it.Next()
 		if err != nil {
-			return types.Suffix{}, fmt.Errorf("it.Next(): %w", err)
+			return Suffix{}, fmt.Errorf("it.Next(): %w", err)
 		}
 		if !ok {
 			break
 		}
 		rawKey, isPrimary, err := it.GetKey()
 		if err != nil {
-			return types.Suffix{}, fmt.Errorf("it.GetKey(): %w", err)
+			return Suffix{}, fmt.Errorf("it.GetKey(): %w", err)
 		}
 		if !isPrimary {
 			continue
 		}
 		key, err := decodeLedgerKey(rawKey)
 		if err != nil {
-			return types.Suffix{}, fmt.Errorf("decodeLedgerKey(): %w", err)
+			return Suffix{}, fmt.Errorf("decodeLedgerKey(): %w", err)
 		}
 		var index types.RoadIndex
 		switch key.kind {
 		case kindBlock:
 			key, err := key.decodeBlock()
 			if err != nil {
-				return types.Suffix{}, fmt.Errorf("key.decodeBlock(): %w", err)
+				return Suffix{}, fmt.Errorf("key.decodeBlock(): %w", err)
 			}
 			index = key.Index
 		case kindAppQC:
 			key, err := key.decodeAppQC()
 			if err != nil {
-				return types.Suffix{}, fmt.Errorf("key.decodeAppQC(): %w", err)
+				return Suffix{}, fmt.Errorf("key.decodeAppQC(): %w", err)
 			}
 			index = key.Index
 			if !gotAppQC {
@@ -201,40 +225,40 @@ func (s *Store) readSuffix() (types.Suffix, error) {
 		case kindAppProp:
 			key, err := key.decodeAppProposal()
 			if err != nil {
-				return types.Suffix{}, fmt.Errorf("key.decodeAppProposal(): %w", err)
+				return Suffix{}, fmt.Errorf("key.decodeAppProposal(): %w", err)
 			}
 			index = key.Index
 		default:
-			return types.Suffix{}, fmt.Errorf("invalid primary ledger key %x", key)
+			return Suffix{}, fmt.Errorf("invalid primary ledger key %x", key)
 		}
 		if !gotAppQC || index >= first {
 			value, err := it.GetValue()
 			if err != nil {
-				return types.Suffix{}, fmt.Errorf("it.GetValue(): %w", err)
+				return Suffix{}, fmt.Errorf("it.GetValue(): %w", err)
 			}
 			switch key.kind {
 			case kindBlock:
 				block, err := decodeBlock(value)
 				if err != nil {
-					return types.Suffix{}, fmt.Errorf("decodeBlock(): %w", err)
+					return Suffix{}, fmt.Errorf("decodeBlock(): %w", err)
 				}
 				suffix.Blocks = append(suffix.Blocks, block)
 			case kindAppQC:
 				qc, err := types.AppQCConv.Unmarshal(value)
 				if err != nil {
-					return types.Suffix{}, fmt.Errorf("types.AppQCConv.Unmarshal(): %w", err)
+					return Suffix{}, fmt.Errorf("types.AppQCConv.Unmarshal(): %w", err)
 				}
 				if qc.Proposal().Index() != index {
-					return types.Suffix{}, types.ErrUnexpectedIndex
+					return Suffix{}, types.ErrUnexpectedIndex
 				}
 				suffix.AppQCs = append(suffix.AppQCs, qc)
 			case kindAppProp:
 				proposal, err := types.AppProposalConv.Unmarshal(value)
 				if err != nil {
-					return types.Suffix{}, fmt.Errorf("types.AppProposalConv.Unmarshal(): %w", err)
+					return Suffix{}, fmt.Errorf("types.AppProposalConv.Unmarshal(): %w", err)
 				}
 				if proposal.Index() != index {
-					return types.Suffix{}, types.ErrUnexpectedIndex
+					return Suffix{}, types.ErrUnexpectedIndex
 				}
 				suffix.AppProposals = append(suffix.AppProposals, proposal)
 			}
@@ -274,7 +298,7 @@ func (s *Store) WriteBlock(block *types.RoadBlock) error {
 	for status := range s.status.Lock() {
 		current, ok := status.Get()
 		if !ok {
-			current = types.SuffixRange{
+			current = SuffixRange{
 				First:           index,
 				NextBlock:       index,
 				NextAppQC:       index,
@@ -350,12 +374,12 @@ func (s *Store) WriteAppProposal(appProposal *types.AppProposal) error {
 }
 
 // ReadSuffix returns a validated recovery snapshot.
-func (s *Store) ReadSuffix() (types.Suffix, error) {
+func (s *Store) ReadSuffix() (Suffix, error) {
 	// Exclude writes and pruning until the snapshot is validated.
 	for range s.status.Lock() {
 		suffix, err := s.readSuffix()
 		if err != nil {
-			return types.Suffix{}, fmt.Errorf("s.readSuffix(): %w", err)
+			return Suffix{}, fmt.Errorf("s.readSuffix(): %w", err)
 		}
 		return validateSuffix(suffix)
 	}
@@ -478,7 +502,7 @@ func (s *Store) ReadAppQC(n types.RoadIndex) (utils.Option[*types.AppQC], error)
 	return utils.Some(appQC), nil
 }
 
-func (s *Store) Status() utils.Option[types.SuffixRange] {
+func (s *Store) Status() utils.Option[SuffixRange] {
 	for status := range s.status.Lock() {
 		return *status
 	}
@@ -486,7 +510,7 @@ func (s *Store) Status() utils.Option[types.SuffixRange] {
 }
 
 // restore initializes the cursors and floor from retained records.
-func (s *Store) restore(first types.RoadIndex, suffix types.Suffix) error {
+func (s *Store) restore(first types.RoadIndex, suffix Suffix) error {
 	suffix, err := validateSuffix(suffix)
 	if err != nil {
 		return err
@@ -500,41 +524,41 @@ func (s *Store) restore(first types.RoadIndex, suffix types.Suffix) error {
 }
 
 // validateSuffix checks that recovery streams are contiguous and have their prerequisites.
-func validateSuffix(suffix types.Suffix) (types.Suffix, error) {
+func validateSuffix(suffix Suffix) (Suffix, error) {
 	if len(suffix.AppQCs) > 1 {
-		return types.Suffix{}, fmt.Errorf("too large suffix")
+		return Suffix{}, fmt.Errorf("too large suffix")
 	}
 	if len(suffix.Blocks) == 0 {
 		if len(suffix.AppQCs) > 0 || len(suffix.AppProposals) > 0 {
-			return types.Suffix{}, types.ErrMissingQC
+			return Suffix{}, types.ErrMissingQC
 		}
-		suffix.Status = utils.None[types.SuffixRange]()
+		suffix.Status = utils.None[SuffixRange]()
 		return suffix, nil
 	}
 	first := suffix.Blocks[0].QC().Index()
-	status := types.SuffixRange{First: first, NextBlock: first, NextAppProposal: first, NextAppQC: first}
+	status := SuffixRange{First: first, NextBlock: first, NextAppProposal: first, NextAppQC: first}
 	for _, block := range suffix.Blocks {
 		if block.QC().Index() != status.NextBlock {
-			return types.Suffix{}, types.ErrUnexpectedIndex
+			return Suffix{}, types.ErrUnexpectedIndex
 		}
 		status.NextBlock++
 	}
 	for _, proposal := range suffix.AppProposals {
 		if proposal.Index() >= status.NextBlock {
-			return types.Suffix{}, types.ErrMissingQC
+			return Suffix{}, types.ErrMissingQC
 		}
 		if proposal.Index() != status.NextAppProposal {
-			return types.Suffix{}, types.ErrUnexpectedIndex
+			return Suffix{}, types.ErrUnexpectedIndex
 		}
 		status.NextAppProposal++
 	}
 	for _, qc := range suffix.AppQCs {
 		index := qc.Proposal().Index()
 		if index >= status.NextAppProposal {
-			return types.Suffix{}, types.ErrMissingAppProposal
+			return Suffix{}, types.ErrMissingAppProposal
 		}
 		if index != status.NextAppQC {
-			return types.Suffix{}, types.ErrUnexpectedIndex
+			return Suffix{}, types.ErrUnexpectedIndex
 		}
 		status.First = index
 		status.NextAppQC++

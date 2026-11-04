@@ -106,7 +106,7 @@ func restart(t *testing.T, o storeOpener, db *Store) *Store {
 	return reopened
 }
 
-func status(t *testing.T, db *Store) types.SuffixRange {
+func status(t *testing.T, db *Store) SuffixRange {
 	t.Helper()
 	return db.Status().OrPanic("non-empty BlockDB status")
 }
@@ -164,7 +164,7 @@ func drainSuffix(t *testing.T, db *Store) []iterEntry {
 	suffix, err := db.ReadSuffix()
 	require.NoError(t, err)
 	var entries []iterEntry
-	floor := suffix.Status.Or(types.SuffixRange{
+	floor := suffix.Status.Or(SuffixRange{
 		First:           0,
 		NextBlock:       0,
 		NextAppQC:       0,

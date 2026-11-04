@@ -70,7 +70,7 @@ type inner struct {
 	nextAppProposal  types.RoadIndex
 	nextFullBlock    types.RoadIndex
 	nextPartialBlock types.RoadIndex
-	persisted        types.SuffixRange
+	persisted        blockstore.SuffixRange
 
 	// Anchor represents the highest fully processed row:
 	// CommitQC, Blocks, AppProposal, AppQC present and persisted.
@@ -235,7 +235,7 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 			return nil, fmt.Errorf("genesis epoch 0: %w", err)
 		}
 		first := genesis.RoadRange().First
-		status = types.SuffixRange{
+		status = blockstore.SuffixRange{
 			First:           first,
 			NextBlock:       first,
 			NextAppProposal: first,
@@ -833,7 +833,7 @@ func (s *State) runPersist(ctx context.Context, writeAppProposal func(*types.App
 		var blocks []*types.RoadBlock
 		var appProposals []*types.AppProposal
 		var appQCs []*types.AppQC
-		var status types.SuffixRange
+		var status blockstore.SuffixRange
 		for inner, ctrl := range s.inner.Lock() {
 			status = inner.persisted
 			// Wait until there is anything to persist.
