@@ -179,12 +179,12 @@ func (s *State) pruneMempool(mp *mempool, n types.BlockNumber) {
 			delete(m.blocks, m.first)
 			m.first += 1
 			for _, tx := range b.txs {
-				// evmTxs entry could be overriden in case
+				// evmTxs entry could be overridden in case
 				// invalidated pending txs are submitted again.
 				if m.evmTxs[tx.hash] == tx {
 					delete(m.evmTxs, tx.hash)
 				}
-				// evmNonces entry could be overriden in case
+				// evmNonces entry could be overridden in case
 				// pending txs were invalidated, and new pending txs were added.
 				if r, ok := m.evmNonces[tx.addr]; ok && r.id == tx.nonceRangeID {
 					// blocks are constructed in nonce order, so
