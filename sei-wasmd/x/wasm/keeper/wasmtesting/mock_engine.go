@@ -156,12 +156,6 @@ func MakeInstantiable(m *MockWasmer) {
 	m.AnalyzeCodeFn = WithoutIBCAnalyzeFn
 }
 
-// MakeIBCInstantiable adds some noop functions to not fail when contract is used for instantiation
-func MakeIBCInstantiable(m *MockWasmer) {
-	MakeInstantiable(m)
-	m.AnalyzeCodeFn = HasIBCAnalyzeFn
-}
-
 func HashOnlyCreateFn(code wasmvm.WasmCode) (wasmvm.Checksum, error) {
 	if code == nil {
 		return nil, sdkerrors.Wrap(types.ErrInvalid, "wasm code must not be nil")
@@ -176,12 +170,6 @@ func NoOpInstantiateFn(wasmvm.Checksum, wasmvmtypes.Env, wasmvmtypes.MessageInfo
 
 func NoOpCreateFn(_ wasmvm.WasmCode) (wasmvm.Checksum, error) {
 	return rand.Bytes(32), nil
-}
-
-func HasIBCAnalyzeFn(wasmvm.Checksum) (*wasmvmtypes.AnalysisReport, error) {
-	return &wasmvmtypes.AnalysisReport{
-		HasIBCEntryPoints: true,
-	}, nil
 }
 
 func WithoutIBCAnalyzeFn(wasmvm.Checksum) (*wasmvmtypes.AnalysisReport, error) {

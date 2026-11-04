@@ -24,7 +24,7 @@ type WasmerEngine interface {
 	Create(code wasmvm.WasmCode) (wasmvm.Checksum, error)
 
 	// AnalyzeCode will statically analyze the code.
-	// Currently just reports if it exposes all IBC entry points.
+	// It reports whether the code exports IBC entry points and which capabilities it requires.
 	AnalyzeCode(checksum wasmvm.Checksum) (*wasmvmtypes.AnalysisReport, error)
 
 	// Instantiate will create a new contract based on the given codeID.
