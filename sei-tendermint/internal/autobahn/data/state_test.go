@@ -1496,7 +1496,7 @@ func TestLaneBlockCacheBound(t *testing.T) {
 			require.NoError(t, state.PushPartialBlock(t.Context(), qc, nil))
 			qcs, blocks = append(qcs, qc), append(blocks, bs)
 			prev = utils.Some(qc.QC())
-			count += len(bs)
+			count += len(bs) + 1
 		}
 		nextQC, _ := TestCommitQC(rng, ep, keys, prev)
 		// Admitted QCs still accept missing payloads above the limit.
@@ -1511,7 +1511,7 @@ func TestLaneBlockCacheBound(t *testing.T) {
 			s.Spawn(func() error { return state.PushPartialBlock(ctx, nextQC, nil) })
 			synctest.Wait()
 			if state.NextQC() != nextQC.Index() {
-				return fmt.Errorf("new QC admitted while recovered lane block count exceeds the limit")
+				return fmt.Errorf("new QC admitted while recovered capacity usage exceeds the limit")
 			}
 			// Recovered QCs still accept duplicates above the limit.
 			for i, qc := range qcs {
@@ -1542,10 +1542,10 @@ func TestLaneBlockCacheAllowsOvershoot(t *testing.T) {
 	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
 	prev := utils.None[*types.CommitQC]()
 	for count := 0; count < laneBlocksCacheSize; {
-		qc, blocks := TestCommitQC(rng, ep, keys, prev)
+		qc, blocks := commitQCAtRoad(ep, keys, state.NextQC())
 		require.NoError(t, state.PushPartialBlock(t.Context(), qc, TestBlockMap(blocks)))
 		prev = utils.Some(qc.QC())
-		count += len(blocks)
+		count += len(blocks) + 1
 	}
 	// At the limit, one more road is accepted; the following road must wait.
 	qc, blocks := TestCommitQC(rng, ep, keys, prev)
@@ -1563,7 +1563,7 @@ func TestLaneBlockCacheManySmallRoads(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 1)
 	ep := registry.MustEpoch(0)
 	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
-	for i := range laneBlocksCacheSize + 1 {
+	for i := range laneBlocksCacheSize/2 + 1 {
 		qc, _ := commitQCAtRoad(ep, keys, ep.RoadRange().First+types.RoadIndex(i))
 		require.NoError(t, state.PushPartialBlock(t.Context(), qc, nil))
 	}
@@ -1571,4 +1571,34 @@ func TestLaneBlockCacheManySmallRoads(t *testing.T) {
 	cancel()
 	nextQC, _ := commitQCAtRoad(ep, keys, state.NextQC())
 	require.ErrorIs(t, state.PushPartialBlock(ctx, nextQC, nil), context.Canceled)
+}
+
+func TestLaneBlockCacheEmptyRoads(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistry(rng, 1)
+		ep := registry.MustEpoch(0)
+		state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
+		prev := utils.None[*types.CommitQC]()
+		var nextQC *types.FullCommitQC
+		for i := range laneBlocksCacheSize + 2 {
+			vs := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{CommitQC: prev, Epoch: ep}}
+			proposal, err := types.NewProposal(keys[0], vs, vs.NextTimestamp(), nil)
+			require.NoError(t, err)
+			vote := types.NewCommitVote(types.BuildPrepareQC(keys, proposal.Proposal().Msg()))
+			nextQC = types.NewFullCommitQC(types.NewCommitQC([]*types.Signed[*types.CommitVote]{types.Sign(keys[0], vote)}), nil)
+			if i <= laneBlocksCacheSize {
+				require.NoError(t, state.PushPartialBlock(t.Context(), nextQC, nil))
+			}
+			prev = utils.Some(nextQC.QC())
+		}
+		require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+			s.SpawnBg(func() error { return utils.IgnoreCancel(state.PushPartialBlock(ctx, nextQC, nil)) })
+			synctest.Wait()
+			if state.NextQC() != nextQC.Index() {
+				return fmt.Errorf("empty road admitted while capacity usage exceeds the limit")
+			}
+			return nil
+		}))
+	})
 }

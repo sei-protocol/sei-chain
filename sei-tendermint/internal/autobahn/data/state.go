@@ -339,18 +339,21 @@ func (s *State) activateStagedEpoch() error {
 // PushPartialBlock pushes FullCommitQC and a subset of blocks that were finalized by it.
 // Pushing the qc and blocks is atomic, so that no unnecessary GetBlock RPCs are issued.
 // Even if the qc was already pushed earlier, the blocks are pushed anyway.
-// New QCs wait for lane-block capacity, while always allowing two retained roadblocks.
+// New QCs wait for lane-block and roadblock capacity, while always allowing two retained roadblocks.
 func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, blocks map[uint64]*types.Block) error {
 	n := qc.Index()
 	nextFullBlock, nextPartialBlock, err := func() (types.RoadIndex, types.RoadIndex, error) {
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
 				// Wait until either we already have the road block, or until this is the next road block AND we have capacity.
-				// We have capacity iff we are below lane block limit OR we have just 1 road block.
+				// We have capacity iff we are at or below the total block limit OR we have just 1 road block.
+				// Count roadblocks as well as lane blocks to account for empty roadblocks.
 				// For liveness we need to be able to keep in data state at least 2 road blocks,
 				// because we always keep 1 executed block.
+				// NOTE that capacity counts both lane blocks and road blocks to account for potentially empty roadblocks.
+				capacityUsed := inner.laneBlockCount + uint64(len(inner.blocks))
 				return n < inner.nextPartialBlock ||
-					(n == inner.nextPartialBlock && (inner.laneBlockCount <= laneBlocksCacheSize || n == inner.first+1))
+					(n == inner.nextPartialBlock && (capacityUsed <= laneBlocksCacheSize || n == inner.first+1))
 			}); err != nil {
 				return 0, 0, err
 			}
