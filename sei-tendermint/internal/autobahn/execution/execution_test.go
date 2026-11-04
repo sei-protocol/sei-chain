@@ -3,7 +3,6 @@ package execution
 import (
 	"context"
 	"fmt"
-	"slices"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
@@ -11,8 +10,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -47,9 +44,6 @@ type recordingAppState struct {
 	inited     bool
 	lastHeader utils.Option[*tmproto.Header]
 	finalized  []*abci.RequestFinalizeBlock
-	validators []abci.ValidatorUpdate
-	// validatorsAfter replaces the validator set when the block of that height commits.
-	validatorsAfter map[int64][]abci.ValidatorUpdate
 }
 
 func newRecordingApp(events *eventLog, last int64) *recordingApp {
@@ -92,18 +86,8 @@ func (a *recordingApp) FinalizeBlock(_ context.Context, req *abci.RequestFinaliz
 func (a *recordingApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 	for state := range a.state.Lock() {
 		state.last = state.pending
-		if validators, ok := state.validatorsAfter[state.last]; ok {
-			state.validators = validators
-		}
 	}
 	return &abci.ResponseCommit{}, nil
-}
-
-func (a *recordingApp) GetValidators() []abci.ValidatorUpdate {
-	for state := range a.state.Lock() {
-		return slices.Clone(state.validators)
-	}
-	panic("unreachable")
 }
 
 func (a *recordingApp) finalized() []*abci.RequestFinalizeBlock {
@@ -346,88 +330,6 @@ func TestRunReplaysStoredBlocksAfterRestart(t *testing.T) {
 	require.Equal(t, 2, len(finalized))
 	require.Equal(t, int64(env.road(1)), finalized[0].Header.Height)
 	require.Equal(t, int64(env.road(2)), finalized[1].Header.Height)
-}
-
-func testValidator(rng utils.Rng, power int64) abci.ValidatorUpdate {
-	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
-	return abci.ValidatorUpdate{PubKey: crypto.PubKeyToProto(sk.Public()), Power: power}
-}
-
-// TestRunRecordsTheCommitteeOnlyWhenItChanges verifies that Committees reports
-// each block's committee once the block commits, keeping an entry only where
-// the validator set changes.
-func TestRunRecordsTheCommitteeOnlyWhenItChanges(t *testing.T) {
-	rng := utils.TestRng()
-	env := newTestEnv(t, rng, 3)
-	require.NoError(t, env.write(0, 3, true))
-	before := []abci.ValidatorUpdate{testValidator(rng, 1)}
-	after := []abci.ValidatorUpdate{testValidator(rng, 2)}
-	app := newRecordingApp(env.events, 0)
-	for state := range app.state.Lock() {
-		state.validators = before
-		state.validatorsAfter = map[int64][]abci.ValidatorUpdate{int64(env.road(1)): after}
-	}
-	executor := env.executor(app)
-	require.Equal(t, atypes.RoadIndex(0), executor.Committees().Load().Committed)
-
-	var got Committees
-	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
-		var err error
-		got, err = executor.Committees().Wait(ctx, func(c Committees) bool { return c.Committed >= env.road(2) })
-		return err
-	}))
-	beforeWeights := utils.OrPanic1(committeeWeights(before))
-	afterWeights := utils.OrPanic1(committeeWeights(after))
-	require.Equal(t, env.road(2), got.Committed)
-	require.Equal(t, beforeWeights, got.After(env.road(0)))
-	require.Equal(t, afterWeights, got.After(env.road(1)))
-	require.Equal(t, afterWeights, got.After(env.road(2)))
-	require.Equal(t, 2, len(got.changes))
-}
-
-func TestCommitteesAfter(t *testing.T) {
-	rng := utils.TestRng()
-	a := map[atypes.PublicKey]uint64{atypes.GenPublicKey(rng): 1}
-	b := map[atypes.PublicKey]uint64{atypes.GenPublicKey(rng): 2}
-	c := Committees{}.record(10, a).record(11, a).record(12, b)
-
-	require.Equal(t, atypes.RoadIndex(12), c.Committed)
-	require.Equal(t, 2, len(c.changes))
-	// Blocks before the first record get the earliest set.
-	require.Equal(t, a, c.After(5))
-	require.Equal(t, a, c.After(11))
-	require.Equal(t, b, c.After(12))
-
-	later := c.record(13, a)
-	require.Equal(t, a, later.After(13))
-	require.Equal(t, 2, len(c.changes), "record must not change an earlier value")
-}
-
-func TestCommitteeWeights(t *testing.T) {
-	rng := utils.TestRng()
-	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
-	wantPK := utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes()))
-	got, err := committeeWeights([]abci.ValidatorUpdate{{
-		PubKey: crypto.PubKeyToProto(sk.Public()),
-		Power:  42,
-	}})
-	require.NoError(t, err)
-	require.Equal(t, map[atypes.PublicKey]uint64{wantPK: 42}, got)
-}
-
-func TestCommitteeWeights_SkipsZeroPower(t *testing.T) {
-	rng := utils.TestRng()
-	got, err := committeeWeights([]abci.ValidatorUpdate{testValidator(rng, 0)})
-	require.NoError(t, err)
-	require.Empty(t, got)
-}
-
-func TestCommitteeWeights_DuplicateKey(t *testing.T) {
-	rng := utils.TestRng()
-	v := testValidator(rng, 1)
-	_, err := committeeWeights([]abci.ValidatorUpdate{v, {PubKey: v.PubKey, Power: 2}})
-	require.Error(t, err)
 }
 
 func TestFinalizeBlockGasUsed(t *testing.T) {

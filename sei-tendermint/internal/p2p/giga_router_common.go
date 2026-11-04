@@ -12,10 +12,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -91,9 +92,6 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 	}
 	if cfg.AppHashBuilder == nil {
 		return nil, errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
-	}
-	if cfg.Committees == (utils.AtomicRecv[execution.Committees]{}) {
-		return nil, errors.New("GigaRouterCommonConfig.Committees is required")
 	}
 	firstRoad := atypes.RoadIndex(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
 	genesisWeights := map[atypes.PublicKey]uint64{}
@@ -191,24 +189,53 @@ func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes
 }
 
 // runPushAppHashes pushes the app hash of each executed block to the data layer,
-// in road order from its next app proposal, with the committee weights after
-// that block. It never runs ahead of execution.
+// in road order from its next app proposal. It waits on the app hash builder for
+// each one, so it never runs ahead of execution.
 func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context) error {
 	for n := r.data.NextAppProposal(); ; n++ {
 		entry, err := r.cfg.AppHashBuilder.GetAppHash(ctx, uint64(n))
 		if err != nil {
 			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", n, err)
 		}
-		// The app hash can be ready before Commit returns, and the weights only after.
-		committees, err := r.cfg.Committees.Wait(ctx, func(c execution.Committees) bool { return c.Committed >= n })
+		// TODO: PushAppHash needs the validator set from right after block n was
+		// committed. GetValidators() is the app tip, which may already be past n.
+		// Read the set stored for n once app state keeps one.
+		weights, err := committeeWeights(r.app.GetValidators())
 		if err != nil {
 			return err
 		}
 		appHash := entry.AppHash()
-		if err := r.data.PushAppHash(ctx, n, appHash[:], committees.After(n)); err != nil {
+		if err := r.data.PushAppHash(ctx, n, appHash[:], weights); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
 		}
 	}
+}
+
+// committeeWeights maps a bonded validator set to Autobahn voting power.
+func committeeWeights(vals []abci.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
+	weights := make(map[atypes.PublicKey]uint64, len(vals))
+	for _, v := range vals {
+		if v.Power <= 0 {
+			continue
+		}
+		pk, err := crypto.PubKeyFromProto(v.PubKey)
+		if err != nil {
+			return nil, fmt.Errorf("PubKeyFromProto: %w", err)
+		}
+		apk, err := atypes.PublicKeyFromBytes(pk.Bytes())
+		if err != nil {
+			return nil, fmt.Errorf("PublicKeyFromBytes: %w", err)
+		}
+		if _, dup := weights[apk]; dup {
+			return nil, fmt.Errorf("duplicate public key %s", apk)
+		}
+		power, ok := utils.SafeCast[uint64](v.Power)
+		if !ok {
+			return nil, fmt.Errorf("validator power %d does not fit uint64", v.Power)
+		}
+		weights[apk] = power
+	}
+	return weights, nil
 }
 
 // runEvmProxy maintains an EVM RPC client for one committee member.

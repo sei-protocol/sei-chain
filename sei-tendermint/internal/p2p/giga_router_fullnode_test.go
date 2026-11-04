@@ -77,7 +77,6 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		PersistentStateDir: dir,
 		App:                proxyApp,
 		AppHashBuilder:     newPublishingAppHashBuilder(),
-		Committees:         noCommittees(),
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}

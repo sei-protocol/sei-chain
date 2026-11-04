@@ -12,7 +12,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
@@ -89,7 +88,6 @@ func makeSeedNode(
 		genDoc,
 		dbProvider,
 		utils.None[*bootstrap.GigaStorageManager](),
-		utils.None[*execution.Executor](),
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {

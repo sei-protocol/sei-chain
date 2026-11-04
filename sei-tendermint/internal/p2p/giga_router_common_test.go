@@ -17,6 +17,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
@@ -184,8 +186,6 @@ func newAppHashTestRouter(
 		App:                proxy.New(app),
 		AppHashBuilder:     hashBuilder,
 	}
-	executor := newTestExecutor(cfg, db)
-	cfg.Committees = executor.Committees()
 	state, err := BuildDataState(cfg, db)
 	require.NoError(t, err)
 	router := &gigaRouterCommon{
@@ -193,7 +193,7 @@ func newAppHashTestRouter(
 		data: state,
 		app:  cfg.App,
 	}
-	return app, hashBuilder, state, router, executor
+	return app, hashBuilder, state, router, newTestExecutor(cfg, db)
 }
 
 // TestExecutionRunsAheadOfAppHashPush verifies that execution does not wait for
@@ -237,7 +237,7 @@ func TestExecutionRunsAheadOfAppHashPush(t *testing.T) {
 
 // TestPushAppHashesResumesAtNextAppProposal pins the restart path: the app
 // hashes of blocks executed but not yet pushed come from the app hash builder,
-// and the committee from the executor's restart record, with no block executing.
+// with no executor running.
 func TestPushAppHashesResumesAtNextAppProposal(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
@@ -247,8 +247,6 @@ func TestPushAppHashesResumesAtNextAppProposal(t *testing.T) {
 	qc2, blocks2 := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.Some(qc.QC()))
 	last := qc2.Index()
 	require.Equal(t, state.Registry().MustEpoch(0).RoadRange().First, qc.Index())
-	committees := utils.NewAtomicSend(execution.TestCommittees(last, map[atypes.PublicKey]uint64{key.Public(): 1}))
-	router.cfg.Committees = committees.Subscribe()
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
@@ -270,6 +268,40 @@ func TestPushAppHashesResumesAtNextAppProposal(t *testing.T) {
 		return nil
 	}))
 	require.Equal(t, last+1, state.NextAppProposal())
+}
+
+func TestCommitteeWeights(t *testing.T) {
+	rng := utils.TestRng()
+	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
+	wantPK := utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes()))
+	got, err := committeeWeights([]abci.ValidatorUpdate{{
+		PubKey: crypto.PubKeyToProto(sk.Public()),
+		Power:  42,
+	}})
+	require.NoError(t, err)
+	require.Equal(t, map[atypes.PublicKey]uint64{wantPK: 42}, got)
+}
+
+func TestCommitteeWeights_SkipsZeroPower(t *testing.T) {
+	rng := utils.TestRng()
+	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
+	got, err := committeeWeights([]abci.ValidatorUpdate{{
+		PubKey: crypto.PubKeyToProto(sk.Public()),
+		Power:  0,
+	}})
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+func TestCommitteeWeights_DuplicateKey(t *testing.T) {
+	rng := utils.TestRng()
+	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
+	pk := crypto.PubKeyToProto(sk.Public())
+	_, err := committeeWeights([]abci.ValidatorUpdate{
+		{PubKey: pk, Power: 1},
+		{PubKey: pk, Power: 2},
+	})
+	require.Error(t, err)
 }
 
 func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
@@ -311,7 +343,6 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		GenDoc:             genDoc,
 		App:                proxy.New(&fixedHeightApp{height: int64(last)}),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
-		Committees:         noCommittees(),
 	}
 	state, err := BuildDataState(cfg, db)
 	require.NoError(t, err)
@@ -422,7 +453,6 @@ func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAdd
 		GenDoc:             genDoc,
 		App:                proxy.New(&fixedHeightApp{height: 1}),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
-		Committees:         noCommittees(),
 	}, db)
 	require.NoError(t, err)
 	return &gigaRouterCommon{

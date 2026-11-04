@@ -264,13 +264,6 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 		"testApp should report InitialHeight after 1 block")
 }
 
-// noCommittees returns a Committees watch with no committed block, for routers
-// whose tests push no app hashes.
-func noCommittees() utils.AtomicRecv[execution.Committees] {
-	committees := utils.NewAtomicSend(execution.Committees{})
-	return committees.Subscribe()
-}
-
 // newTestExecutor returns an executor of cfg's app over the blocks store makes
 // durable.
 func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store) *execution.Executor {

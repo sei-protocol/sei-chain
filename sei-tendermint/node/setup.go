@@ -294,7 +294,6 @@ func buildGigaRouter(
 	genDoc *types.GenesisDoc,
 	blockStore atypes.BlockStore,
 	appHashBuilder builder.AppHashBuilder,
-	committees utils.AtomicRecv[execution.Committees],
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
@@ -330,7 +329,6 @@ func buildGigaRouter(
 		}
 		valCfg.PersistentStateDir = stateDir
 		valCfg.AppHashBuilder = appHashBuilder
-		valCfg.Committees = committees
 		valCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
@@ -353,7 +351,6 @@ func buildGigaRouter(
 	}
 	fnCfg.PersistentStateDir = stateDir
 	fnCfg.AppHashBuilder = appHashBuilder
-	fnCfg.Committees = committees
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
 	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
@@ -584,7 +581,6 @@ func createRouter(
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 	storageManager utils.Option[*bootstrap.GigaStorageManager],
-	executor utils.Option[*execution.Executor],
 ) (*p2p.Router, closer, utils.Option[atypes.BlockStore], error) {
 	closer := func() error { return nil }
 	noneDB := utils.None[atypes.BlockStore]()
@@ -652,13 +648,9 @@ func createRouter(
 		if manager.AppHashBuilder() == nil {
 			return nil, closer, noneDB, fmt.Errorf("autobahn storage manager requires an app hash builder")
 		}
-		executor, ok := executor.Get()
-		if !ok {
-			return nil, closer, noneDB, fmt.Errorf("autobahn requires an executor")
-		}
 		giga, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
-			manager.BlockStore(), manager.AppHashBuilder(), executor.Committees(),
+			manager.BlockStore(), manager.AppHashBuilder(),
 		)
 		if err != nil {
 			return nil, closer, noneDB, err

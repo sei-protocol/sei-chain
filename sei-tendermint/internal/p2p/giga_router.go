@@ -10,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -49,9 +48,6 @@ type GigaRouterCommonConfig struct {
 	// from it. Currently app hashes are computed per lane block, but in the
 	// future they may be computed once per superblock.
 	AppHashBuilder builder.AppHashBuilder
-	// Committees is the executor's record of the committee weights after each
-	// committed block.
-	Committees utils.AtomicRecv[execution.Committees]
 	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
 	// peers. 0 rejects all; positive caps at n, up to maxInboundFullnodePeers.
 	MaxInboundFullnodePeers int
