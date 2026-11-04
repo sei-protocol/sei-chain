@@ -28,25 +28,26 @@ type Store struct {
 	// types.BlockStore contract). None means the store is empty.
 	status utils.Mutex[*utils.Option[types.SuffixRange]]
 
-	// handoff holds the blocks written since the last Flush and the most
-	// recently flushed ones. Lock order: status before handoff.
-	handoff utils.Mutex[*blockHandoff]
+	// executionBuffer holds the blocks on their way to execution. Lock order:
+	// status before executionBuffer.
+	executionBuffer utils.Mutex[*executionBuffer]
 
 	// flushing serializes Flush and holds the blocks the running Flush is making
-	// durable, so blocks reach handoff in road order. Lock order: flushing before
-	// handoff.
+	// durable, so blocks reach executionBuffer in road order. Lock order: flushing
+	// before executionBuffer.
 	flushing utils.Mutex[*[]*types.RoadBlock]
 
 	// nextDurable is the lowest road whose block is not durable yet.
 	nextDurable utils.AtomicSend[types.RoadIndex]
 }
 
-// blockHandoff carries written blocks from WriteBlock to EVMBlock.
-type blockHandoff struct {
+// executionBuffer holds written blocks until a Flush makes them durable, then
+// keeps the latest durable ones in memory for EVMBlock.
+type executionBuffer struct {
 	// unflushed holds the blocks written since the last Flush, in road order.
 	unflushed []*types.RoadBlock
-	// recent holds up to recentBlocksCacheSize of the latest durable blocks, by road.
-	recent map[types.RoadIndex]*types.RoadBlock
+	// durable holds up to recentBlocksCacheSize of the latest durable blocks, by road.
+	durable map[types.RoadIndex]*types.RoadBlock
 }
 
 // New returns a block store backed by db, recovering its write cursors from the
@@ -54,11 +55,11 @@ type blockHandoff struct {
 // does not close db when it returns an error.
 func New(db blocktypes.BlockDB) (*Store, error) {
 	s := &Store{
-		db:          db,
-		status:      utils.NewMutex(new(utils.Option[types.SuffixRange])),
-		handoff:     utils.NewMutex(&blockHandoff{recent: map[types.RoadIndex]*types.RoadBlock{}}),
-		flushing:    utils.NewMutex(new([]*types.RoadBlock)),
-		nextDurable: utils.NewAtomicSend(types.RoadIndex(0)),
+		db:              db,
+		status:          utils.NewMutex(new(utils.Option[types.SuffixRange])),
+		executionBuffer: utils.NewMutex(&executionBuffer{durable: map[types.RoadIndex]*types.RoadBlock{}}),
+		flushing:        utils.NewMutex(new([]*types.RoadBlock)),
+		nextDurable:     utils.NewAtomicSend(types.RoadIndex(0)),
 	}
 	suffix, err := s.ReadSuffix()
 	if err != nil {
@@ -101,8 +102,8 @@ func (s *Store) WriteBlock(block *types.RoadBlock) error {
 		}
 		current.NextBlock = index + 1
 		*status = utils.Some(current)
-		for handoff := range s.handoff.Lock() {
-			handoff.unflushed = append(handoff.unflushed, block)
+		for buffer := range s.executionBuffer.Lock() {
+			buffer.unflushed = append(buffer.unflushed, block)
 		}
 		return nil
 	}
@@ -194,13 +195,13 @@ func (s *Store) First() types.RoadIndex {
 
 func (s *Store) Flush() error {
 	for batch := range s.flushing.Lock() {
-		for handoff := range s.handoff.Lock() {
-			*batch, handoff.unflushed = handoff.unflushed, nil
+		for buffer := range s.executionBuffer.Lock() {
+			*batch, buffer.unflushed = buffer.unflushed, nil
 		}
 		err := s.db.Flush()
 		if err != nil {
-			for handoff := range s.handoff.Lock() {
-				handoff.unflushed = append(*batch, handoff.unflushed...)
+			for buffer := range s.executionBuffer.Lock() {
+				buffer.unflushed = append(*batch, buffer.unflushed...)
 			}
 		} else {
 			s.publishDurable(*batch)
@@ -220,12 +221,12 @@ func (s *Store) publishDurable(blocks []*types.RoadBlock) {
 	if len(blocks) == 0 {
 		return
 	}
-	for handoff := range s.handoff.Lock() {
+	for buffer := range s.executionBuffer.Lock() {
 		for _, block := range blocks {
 			n := block.QC().Index()
-			handoff.recent[n] = block
+			buffer.durable[n] = block
 			if n >= recentBlocksCacheSize {
-				delete(handoff.recent, n-recentBlocksCacheSize)
+				delete(buffer.durable, n-recentBlocksCacheSize)
 			}
 		}
 		s.nextDurable.Store(blocks[len(blocks)-1].QC().Index() + 1)
@@ -241,8 +242,8 @@ func (s *Store) EVMBlock(ctx context.Context, n types.RoadIndex) (*types.RoadBlo
 	if n < s.First() {
 		return nil, fmt.Errorf("block %d: %w", n, types.ErrPruned)
 	}
-	for handoff := range s.handoff.Lock() {
-		if block, ok := handoff.recent[n]; ok {
+	for buffer := range s.executionBuffer.Lock() {
+		if block, ok := buffer.durable[n]; ok {
 			return block, nil
 		}
 	}
