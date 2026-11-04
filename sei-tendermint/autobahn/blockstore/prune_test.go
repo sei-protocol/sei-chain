@@ -4,55 +4,22 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/stretchr/testify/require"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/littblock"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/stretchr/testify/require"
 )
 
-// collectorBuilder returns a store the collector's surface can be exercised on,
-// as the concrete type rather than types.BlockStore: the prune surface is the
-// collector's contract, not the consensus layer's, so it is deliberately absent
-// from the latter.
+// collectorBuilder opens a store for the collector contract tests.
 type collectorBuilder func(t *testing.T) *blockstore.Store
 
-func collectorImpls() []struct {
-	name  string
-	build collectorBuilder
-} {
-	return []struct {
-		name  string
-		build collectorBuilder
-	}{
-		{"memblock", func(t *testing.T) *blockstore.Store {
-			store, err := blockstore.New(memblock.NewBlockDB())
-			require.NoError(t, err)
-			return store
-		}},
-		{"littblock", func(t *testing.T) *blockstore.Store {
-			db, err := littblock.NewBlockDB(littConfig(t, t.TempDir()))
-			require.NoError(t, err)
-			store, err := blockstore.New(db)
-			require.NoError(t, err)
-			return store
-		}},
-	}
-}
-
-// TestCollectorSurface exercises the controllertypes.PrunableStore half of the store's
-// contract, which the storage garbage collector drives.
+// TestCollectorSurface exercises the storage garbage collector contract.
 func TestCollectorSurface(t *testing.T) {
-	for _, impl := range collectorImpls() {
-		t.Run(impl.name, func(t *testing.T) {
-			t.Run("EmptyStore", func(t *testing.T) { testCollectorEmptyStore(t, impl.build) })
-			t.Run("LatestBlock", func(t *testing.T) { testCollectorLatestBlock(t, impl.build) })
-			t.Run("RollbackFloor", func(t *testing.T) { testCollectorRollbackFloor(t, impl.build) })
-			t.Run("PruneHistory", func(t *testing.T) { testCollectorPruneHistory(t, impl.build) })
-			t.Run("PruneSnapshotsIsANoOp", func(t *testing.T) { testCollectorPruneSnapshots(t, impl.build) })
-		})
-	}
+	build := collectorBuilder(newTestStore)
+	t.Run("EmptyStore", func(t *testing.T) { testCollectorEmptyStore(t, build) })
+	t.Run("LatestBlock", func(t *testing.T) { testCollectorLatestBlock(t, build) })
+	t.Run("RollbackFloor", func(t *testing.T) { testCollectorRollbackFloor(t, build) })
+	t.Run("PruneHistory", func(t *testing.T) { testCollectorPruneHistory(t, build) })
+	t.Run("PruneSnapshotsIsANoOp", func(t *testing.T) { testCollectorPruneSnapshots(t, build) })
 }
 
 func testCollectorEmptyStore(t *testing.T, build collectorBuilder) {

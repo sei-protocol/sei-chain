@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -29,15 +30,14 @@ func TestRecoveryEmpty(t *testing.T) {
 	}
 }
 
-// TestNewStateInMemoryMode verifies that NewState with an in-memory store followed by Run
-// works end-to-end: QCs and blocks are accessible without a durable store dir.
-func TestNewStateInMemoryMode(t *testing.T) {
+// TestNewStateRun verifies that NewState followed by Run serves QCs and blocks.
+func TestNewStateRun(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 
-	store := newMemoryBlockStore(t)
+	store := newTestStore(t)
 	state := utils.OrPanic1(NewState(&Config{Registry: registry}, store))
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -243,7 +243,7 @@ func TestRecoveryAfterPruneNoGC(t *testing.T) {
 	store2 := newTestBlockStore(t, dir)
 
 	// NewState must succeed — below-watermark blocks never outlive their QCs
-	// because blocks and QCs share the same GC filter in littblock. Without GC,
+	// because blocks and QCs share the same GC filter in blockstore. Without GC,
 	// all entries are still present and recovery treats the store as unpruned.
 	// This is the PruneBefore-without-GC path: the watermark advanced but
 	// physical reclamation has not happened yet, so the store looks like a
@@ -344,7 +344,7 @@ func TestNewState_NextCommitEpochAtBoundaryTip(t *testing.T) {
 // writeExecutedTip writes a one-block CommitQC and its AppProposal at road.
 func writeExecutedTip(
 	t *testing.T,
-	store types.BlockStore,
+	store *blockstore.Store,
 	ep *types.Epoch,
 	keys []types.SecretKey,
 	road types.RoadIndex,
@@ -365,7 +365,7 @@ func TestPushAppHash_ReplayClosingRoadStagesEpoch(t *testing.T) {
 	ep1 := registry.MustEpoch(1)
 	keeper := keys[0].Public()
 	appHash := types.GenAppHash(rng)
-	store := newMemoryBlockStore(t)
+	store := newTestStore(t)
 	n := writeExecutedTip(t, store, registry.MustEpoch(0), keys, registry.LastRoad(0), appHash)
 	state := newTestState(t, &Config{Registry: registry}, store)
 	_, err := registry.EpochAt(ep1.RoadRange().Next)
@@ -383,22 +383,6 @@ func TestPushAppHash_ReplayClosingRoadStagesEpoch(t *testing.T) {
 	require.Equal(t, staged, registry.Pending())
 }
 
-// proposalWriteStore records registry.Pending at each AppProposal write.
-type proposalWriteStore struct {
-	types.BlockStore
-	registry *epoch.Registry
-	pending  *utils.Option[types.EpochIndex]
-}
-
-func (s proposalWriteStore) WriteAppProposal(p *types.AppProposal) error {
-	if e, ok := s.registry.Pending().Get(); ok {
-		*s.pending = utils.Some(e.EpochIndex())
-	} else {
-		*s.pending = utils.None[types.EpochIndex]()
-	}
-	return s.BlockStore.WriteAppProposal(p)
-}
-
 // TestPushAppHash_StagesClosingEpochBeforeProposalWrite verifies that C_{E+2}
 // is pending when the closing road's AppProposal is written.
 func TestPushAppHash_StagesClosingEpochBeforeProposalWrite(t *testing.T) {
@@ -407,17 +391,21 @@ func TestPushAppHash_StagesClosingEpochBeforeProposalWrite(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 	keeper := keys[0].Public()
 	qc, blocks := commitQCAtRoad(registry.MustEpoch(0), keys, registry.LastRoad(0))
-	base := newMemoryBlockStore(t)
+	base := newTestStore(t)
 	writeToBlockStore(t, base, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
 	var pendingAtWrite utils.Option[types.EpochIndex]
-	state := newTestState(t, &Config{Registry: registry}, proposalWriteStore{
-		BlockStore: base,
-		registry:   registry,
-		pending:    &pendingAtWrite,
-	})
+	state := newTestState(t, &Config{Registry: registry}, base)
+	writeAppProposal := func(p *types.AppProposal) error {
+		if e, ok := registry.Pending().Get(); ok {
+			pendingAtWrite = utils.Some(e.EpochIndex())
+		} else {
+			pendingAtWrite = utils.None[types.EpochIndex]()
+		}
+		return base.WriteAppProposal(p)
+	}
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.runPersist(ctx, writeAppProposal)) })
 		if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
 			return err
 		}
@@ -494,7 +482,7 @@ func TestPushAppHash_ReplayClosingSuperBlockStagesEpoch(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 	keeper := keys[0].Public()
 	appHash := types.GenAppHash(rng)
-	store := newMemoryBlockStore(t)
+	store := newTestStore(t)
 	ep := registry.MustEpoch(0)
 	qc, blocks := commitQCAtRoadBlocks(ep, keys, registry.LastRoad(0), 2)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
@@ -513,7 +501,7 @@ func TestPushAppHash_ReplayMidEpochDoesNotStage(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 	ep0 := registry.MustEpoch(0)
 	appHash := types.GenAppHash(rng)
-	store := newMemoryBlockStore(t)
+	store := newTestStore(t)
 	n := writeExecutedTip(t, store, ep0, keys, ep0.RoadRange().First, appHash)
 	state := newTestState(t, &Config{Registry: registry}, store)
 
@@ -528,7 +516,7 @@ func TestNewState_ActivatesStagedEpochFromPersistedAppQC(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 	keeper := keys[0].Public()
 	ep := registry.MustEpoch(0)
-	store := newMemoryBlockStore(t)
+	store := newTestStore(t)
 	qc, blocks := commitQCAtRoad(ep, keys, registry.LastRoad(0))
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
 	writeAppDataToBlockStore(t, rng, store, keys, qc)
@@ -547,7 +535,7 @@ func TestNewState_LeavesStagedEpochWithoutAppQC(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 	keeper := keys[0].Public()
 	appHash := types.GenAppHash(rng)
-	store := newMemoryBlockStore(t)
+	store := newTestStore(t)
 	_ = writeExecutedTip(t, store, registry.MustEpoch(0), keys, registry.LastRoad(0), appHash)
 	require.NoError(t, registry.StageEpoch(0, map[types.PublicKey]uint64{keeper: 9}))
 

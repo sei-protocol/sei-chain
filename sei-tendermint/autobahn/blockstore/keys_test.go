@@ -1,4 +1,4 @@
-package littblock
+package blockstore
 
 import (
 	"bytes"
@@ -6,12 +6,12 @@ import (
 	"math"
 	"testing"
 
-	blocktypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/stretchr/testify/require"
 )
 
 func TestKeyRoundTrip(t *testing.T) {
-	for _, n := range []blocktypes.BlockNumber{0, 1, 42, 255, 256, 1 << 32, ^blocktypes.BlockNumber(0)} {
+	for _, n := range []types.RoadIndex{0, 1, 42, 255, 256, 1 << 32, ^types.RoadIndex(0)} {
 		block := blockKey{Index: n}
 		gotBlock, err := parseTestKey(t, block.encode()).decodeBlock()
 		require.NoError(t, err)
@@ -35,7 +35,7 @@ func TestKeyRoundTrip(t *testing.T) {
 			require.Equal(t, lane, gotLane)
 		}
 	}
-	var hash blocktypes.BlockHash
+	var hash types.RoadBlockHeaderHash
 	for i := range hash {
 		hash[i] = byte(i)
 	}
@@ -46,7 +46,7 @@ func TestKeyRoundTrip(t *testing.T) {
 }
 
 func TestKeyBigEndianOrdering(t *testing.T) {
-	for _, pair := range [][2]blocktypes.BlockNumber{{0, 1}, {1, 2}, {255, 256}, {1 << 16, 1 << 32}} {
+	for _, pair := range [][2]types.RoadIndex{{0, 1}, {1, 2}, {255, 256}, {1 << 16, 1 << 32}} {
 		require.Negative(t, bytes.Compare((blockKey{Index: pair[0]}).encode().bytes(), (blockKey{Index: pair[1]}).encode().bytes()))
 	}
 	first := (laneBlockKey{Index: 42, Offset: 255}).encode()
@@ -55,7 +55,7 @@ func TestKeyBigEndianOrdering(t *testing.T) {
 }
 
 func TestKeyLayouts(t *testing.T) {
-	var hash blocktypes.BlockHash
+	var hash types.RoadBlockHeaderHash
 	for i := range hash {
 		hash[i] = byte(i)
 	}
@@ -115,7 +115,11 @@ func TestVarintKindPrefixes(t *testing.T) {
 }
 
 func TestInvalidKindUvarints(t *testing.T) {
-	db := &blockDB{}
+	cfg, err := DefaultConfig(t.TempDir())
+	require.NoError(t, err)
+	db, err := New(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
 	for _, value := range [][]byte{
 		nil,
 		{0x80},

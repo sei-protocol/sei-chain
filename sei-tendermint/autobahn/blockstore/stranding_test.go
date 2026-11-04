@@ -1,25 +1,24 @@
-package littblock_test
+package blockstore_test
 
 import (
 	"math"
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/blocktest"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/internal/blocktest"
 	"github.com/stretchr/testify/require"
-
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/littblock"
-	blocktypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/types"
 )
 
 // strandingConfig builds a config whose only segment-rollover trigger is a small
 // MaxSegmentKeyCount, so a test can place a segment boundary at a precise key.
 // Retention is tiny (the prune watermark is the sole reclamation gate) and GC is
 // effectively background-disabled so ForceGC is the only thing that reclaims.
-func strandingConfig(t *testing.T, dir string, maxSegmentKeyCount uint32) *littblock.BlockDBConfig {
+func strandingConfig(t *testing.T, dir string, maxSegmentKeyCount uint32) *blockstore.Config {
 	t.Helper()
-	cfg, err := littblock.DefaultConfig(dir)
+	cfg, err := blockstore.DefaultConfig(dir)
 	require.NoError(t, err)
 	cfg.RetentionTime = time.Nanosecond
 	cfg.Litt.TargetSegmentFileSize = math.MaxUint32
@@ -32,7 +31,7 @@ func strandingConfig(t *testing.T, dir string, maxSegmentKeyCount uint32) *littb
 // physicallyPresent reports whether a record is still on disk. Reads are not
 // gated on the watermark, so this distinguishes a record GC has reclaimed from
 // one that is merely below the floor.
-func physicallyPresent(t *testing.T, get func(blocktypes.BlockNumber) ([]byte, bool, error), n blocktypes.BlockNumber) bool {
+func physicallyPresent(t *testing.T, get func(types.RoadIndex) ([]byte, bool, error), n types.RoadIndex) bool {
 	t.Helper()
 	_, exists, err := get(n)
 	require.NoError(t, err)
@@ -50,11 +49,11 @@ func TestRecoveredWatermarkTracksOldestBlock(t *testing.T) {
 	require.NoError(t, db.Close())
 	db = openLitt(t, cfg)
 	db.SetPruneWatermark(1)
-	require.NoError(t, littblock.ForceGC(db))
+	require.NoError(t, db.ForceGC())
 	require.NoError(t, db.Close())
 	db = openLitt(t, cfg)
 	defer func() { require.NoError(t, db.Close()) }()
-	require.Equal(t, blocktypes.BlockNumber(1), db.GetPruneWatermark())
+	require.Equal(t, types.RoadIndex(1), db.GetPruneWatermark())
 	requireRetainedBlocks(t, db, 1)
 }
 
@@ -70,19 +69,19 @@ func TestReclaimsAcrossRestart(t *testing.T) {
 	db = openLitt(t, cfg)
 	defer func() { require.NoError(t, db.Close()) }()
 	db.SetPruneWatermark(3)
-	require.NoError(t, littblock.ForceGC(db))
+	require.NoError(t, db.ForceGC())
 	requireRetainedBlocks(t, db, 3)
 }
 
-func requireRetainedBlocks(t *testing.T, db blocktypes.BlockDB, first blocktypes.BlockNumber) {
+func requireRetainedBlocks(t *testing.T, db blocktest.DB, first types.RoadIndex) {
 	t.Helper()
-	for n := blocktypes.BlockNumber(0); n < 4; n++ {
+	for n := types.RoadIndex(0); n < 4; n++ {
 		want := n >= first
 		record, present, err := db.GetBlockByNumber(n)
 		require.NoError(t, err)
 		require.Equal(t, want, present)
 		if present {
-			require.Equal(t, blocktest.BlockRecord(n, 5), record)
+			require.Equal(t, blocktest.BlockFixture(n, 5), record)
 		}
 		require.Equal(t, want, physicallyPresent(t, db.GetQC, n))
 		_, present, err = db.GetBlockByHash(blocktest.BlockHash(n))
@@ -103,6 +102,6 @@ func TestRefusesToOpenWithoutBlock(t *testing.T) {
 	blocktest.PutAppData(t, db, 5)
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
-	_, err := littblock.NewBlockDB(strandingConfig(t, dir, 8))
+	_, err := blockstore.OpenRecords(strandingConfig(t, dir, 8))
 	require.Error(t, err)
 }

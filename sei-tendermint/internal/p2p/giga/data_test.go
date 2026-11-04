@@ -7,9 +7,7 @@ import (
 	"time"
 
 	dto "github.com/prometheus/client_model/go"
-
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/memblock"
+	blocktestutil "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/testutil"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -29,12 +27,9 @@ type testNode struct {
 
 func defaultViewTimeout(view types.View) time.Duration { return time.Hour }
 
-func newTestNode(registry *epoch.Registry, cfg *consensus.Config) *testNode {
+func newTestNode(t testing.TB, registry *epoch.Registry, cfg *consensus.Config) *testNode {
 	cfg.PersistentStateDir = utils.None[string]()
-	store, err := blockstore.New(memblock.NewBlockDB())
-	if err != nil {
-		panic(fmt.Sprintf("blockstore.New: %v", err))
-	}
+	store := blocktestutil.New(t)
 	dataState, err := data.NewState(&data.Config{Registry: registry}, store)
 	if err != nil {
 		panic(fmt.Sprintf("data.NewState: %v", err))
@@ -70,8 +65,8 @@ func newTestEnv(registry *epoch.Registry) *testEnv {
 }
 
 // Call AddNode BEFORE Run.
-func (e *testEnv) AddNode(key types.SecretKey) *testNode {
-	n := newTestNode(e.registry, &consensus.Config{
+func (e *testEnv) AddNode(t testing.TB, key types.SecretKey) *testNode {
+	n := newTestNode(t, e.registry, &consensus.Config{
 		Key: key,
 		ViewTimeout: func(view types.View) time.Duration {
 			if _, ok := e.nodes[e.committee.Leader(view)]; ok {
@@ -108,8 +103,8 @@ func TestDataClientServer(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
 	env := newTestEnv(registry)
-	server := env.AddNode(keys[0])
-	client := env.AddNode(keys[1])
+	server := env.AddNode(t, keys[0])
+	client := env.AddNode(t, keys[1])
 	ep0 := registry.MustEpoch(0)
 	firstBlock := ep0.RoadRange().First
 	blockOK := fetchCount(resBlock, "ok")

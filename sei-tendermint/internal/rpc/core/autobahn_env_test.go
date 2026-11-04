@@ -6,13 +6,9 @@ import (
 	"testing"
 	"time"
 
-	dbm "github.com/tendermint/tm-db"
-	"golang.org/x/time/rate"
-
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/memblock"
+	blocktestutil "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/testutil"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
@@ -26,6 +22,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	dbm "github.com/tendermint/tm-db"
+	"golang.org/x/time/rate"
 )
 
 type stubAppHashBuilder struct{}
@@ -66,8 +64,7 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 			EVMRPC:   *utils.OrPanic1(url.Parse("ws://127.0.0.1:8546")),
 		},
 	}
-	blockStore, err := blockstore.New(memblock.NewBlockDB())
-	require.NoError(t, err)
+	blockStore := blocktestutil.New(t)
 	t.Cleanup(func() { require.NoError(t, blockStore.Close()) })
 	app := proxy.New(&abci.BaseApplication{})
 	commonCfg := p2p.GigaRouterCommonConfig{

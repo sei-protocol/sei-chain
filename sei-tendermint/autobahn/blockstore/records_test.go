@@ -1,32 +1,29 @@
-package littblock_test
+package blockstore_test
 
 import (
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/blocktest"
-
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/internal/blocktest"
 	"github.com/stretchr/testify/require"
-
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/littblock"
-	blocktypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/types"
 )
 
-// littConfig builds a littblock config rooted at dir with a tiny retention, so
+// littConfig builds a LittDB config rooted at dir with a tiny retention, so
 // the prune watermark is the sole gate on reclamation rather than the TTL.
-func littConfig(t *testing.T, dir string) *littblock.BlockDBConfig {
+func littConfig(t *testing.T, dir string) *blockstore.Config {
 	t.Helper()
-	cfg, err := littblock.DefaultConfig(dir)
+	cfg, err := blockstore.DefaultConfig(dir)
 	require.NoError(t, err)
 	cfg.RetentionTime = time.Nanosecond
 	return cfg
 }
 
 // openLitt opens a store at cfg's paths, failing the test if it cannot.
-func openLitt(t *testing.T, cfg *littblock.BlockDBConfig) blocktypes.BlockDB {
+func openLitt(t *testing.T, cfg *blockstore.Config) blocktest.DB {
 	t.Helper()
-	db, err := littblock.NewBlockDB(cfg)
+	db, err := blockstore.OpenRecords(cfg)
 	require.NoError(t, err)
 	return db
 }
@@ -45,14 +42,14 @@ func TestTableDirectoryName(t *testing.T) {
 	require.DirExists(t, filepath.Join(dir, "blocks"))
 }
 
-// TestBlockDBContract runs the shared storage contract against littblock. One
+// TestBlockDBContract runs the shared storage contract against blockstore. One
 // backing directory serves every reopen, so a "restart" reloads persisted state
 // from disk.
 func TestBlockDBContract(t *testing.T) {
 	blocktest.RunContract(t, func(t *testing.T) blocktest.Open {
 		dir := t.TempDir()
-		return func() (blocktypes.BlockDB, error) {
-			return littblock.NewBlockDB(littConfig(t, dir))
+		return func() (blocktest.DB, error) {
+			return blockstore.OpenRecords(littConfig(t, dir))
 		}
 	})
 }

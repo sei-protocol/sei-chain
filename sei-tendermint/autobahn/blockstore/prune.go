@@ -2,12 +2,10 @@ package blockstore
 
 import (
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
-// The prune policy lives here because eligibility depends on how far the
-// application has committed; the block database stores opaque records.
+// Pruning retains the latest complete application row as a recovery anchor.
 
 // A block store is what the storage garbage collector prunes.
 var _ controllertypes.PrunableStore = (*Store)(nil)
@@ -51,7 +49,7 @@ func (s *Store) GetRollbackFloor(rollbackWindow uint64) uint64 {
 // indistinguishable from an empty one.
 func (s *Store) GetLatestBlock() (uint64, error) {
 	for status := range s.status.Lock() {
-		if current, ok := status.Get(); ok && types.RoadIndex(s.db.GetPruneWatermark()) < current.NextBlock {
+		if current, ok := status.Get(); ok && s.First() < current.NextBlock {
 			return uint64(current.NextBlock - 1), nil
 		}
 		return 0, nil

@@ -11,7 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/littblock"
 )
 
 // OpenDBWithRecovery opens every store and brings them onto one height after an unclean shutdown: the lowest
@@ -80,16 +79,9 @@ func (m *GigaStorageManager) recoverStores(ctx context.Context, target int64) er
 
 // openBlockStore opens the block ledger consensus reads and writes.
 func (m *GigaStorageManager) openBlockStore() error {
-	blockDB, err := littblock.NewBlockDB(m.cfg.BlockDBConfig)
+	blockStore, err := blockstore.New(m.cfg.BlockDBConfig)
 	if err != nil {
 		return fmt.Errorf("open block db: %w", err)
-	}
-	blockStore, err := blockstore.New(blockDB)
-	if err != nil {
-		if closeErr := blockDB.Close(); closeErr != nil {
-			logger.Error("failed to close the block db after the block store failed to open", "err", closeErr)
-		}
-		return fmt.Errorf("failed to open block store: %w", err)
 	}
 	m.blockStore = blockStore
 	return nil

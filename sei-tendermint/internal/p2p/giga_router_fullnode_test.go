@@ -9,9 +9,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/littblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -63,12 +61,10 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	dir := t.TempDir()
 	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
 	// (zero overrides); p2p can't import config (import cycle).
-	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
+	littCfg, err := blockstore.DefaultConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
 	littCfg.Litt.Fsync = true
-	db, err := littblock.NewBlockDB(littCfg)
-	require.NoError(t, err)
-	blockStore, err := blockstore.New(db)
+	blockStore, err := blockstore.New(littCfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = blockStore.Close() })
 	cfg := &GigaRouterCommonConfig{

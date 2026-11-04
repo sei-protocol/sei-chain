@@ -1,4 +1,4 @@
-package littblock_test
+package blockstore_test
 
 import (
 	"os"
@@ -10,14 +10,12 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/blocktest"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/littblock"
-
-	"github.com/stretchr/testify/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
-	blocktypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/db/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/internal/blocktest"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -136,13 +134,13 @@ func runCrashChild(t *testing.T) {
 // covered by a surviving QC, and returns how many blocks survived.
 //
 // With no app data, the recovery suffix contains every surviving group.
-func requireEveryBlockHasItsQC(t *testing.T, db blocktypes.BlockDB) int {
+func requireEveryBlockHasItsQC(t *testing.T, db blocktest.DB) int {
 	t.Helper()
 	suffix, err := db.ReadSuffix()
 	require.NoError(t, err)
 	count := 0
 	for _, record := range suffix.Blocks {
-		want := blocktest.BlockRecord(record.Index, crashPerCohort)
+		want := blocktest.BlockFixture(record.Index, crashPerCohort)
 		require.Equal(t, want, record)
 		byHash, exists, err := db.GetBlockByHash(record.Hash)
 		require.NoError(t, err)
@@ -253,13 +251,13 @@ func TestPackedQCRecoversAtomically(t *testing.T) {
 
 			for range 2 {
 				db = openLitt(t, cfg)
-				for n := blocktypes.BlockNumber(0); n < blocktypes.BlockNumber(cohorts); n++ {
-					want := n < blocktypes.BlockNumber(cohorts-1)
+				for n := types.RoadIndex(0); n < types.RoadIndex(cohorts); n++ {
+					want := n < types.RoadIndex(cohorts-1)
 					record, present, err := db.GetBlockByNumber(n)
 					require.NoError(t, err)
 					require.Equal(t, want, present)
 					if present {
-						require.Equal(t, blocktest.BlockRecord(n, crashPerCohort), record)
+						require.Equal(t, blocktest.BlockFixture(n, crashPerCohort), record)
 					}
 					_, present, err = db.GetQC(n)
 					require.NoError(t, err)
@@ -281,7 +279,7 @@ func TestPackedQCRecoversAtomically(t *testing.T) {
 }
 
 // putPackedCohorts writes opaque QC and block fixtures in atomic groups.
-func putPackedCohorts(t *testing.T, db blocktypes.BlockDB, cohorts uint64) {
+func putPackedCohorts(t *testing.T, db blocktest.DB, cohorts uint64) {
 	t.Helper()
 	blocktest.WriteCohorts(t, db, cohorts, crashPerCohort)
 }
@@ -298,8 +296,8 @@ func TestPackedQCPruneRetainsWholeGroup(t *testing.T) {
 	db = openLitt(t, cfg)
 	defer func() { require.NoError(t, db.Close()) }()
 	db.SetPruneWatermark(1)
-	require.NoError(t, littblock.ForceGC(db))
-	for n := range blocktypes.BlockNumber(3) {
+	require.NoError(t, db.ForceGC())
+	for n := range types.RoadIndex(3) {
 		want := n >= 1
 		_, present, err := db.GetBlockByNumber(n)
 		require.NoError(t, err)
