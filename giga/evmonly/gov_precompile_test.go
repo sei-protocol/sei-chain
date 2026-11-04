@@ -309,19 +309,22 @@ func TestGovDropsAFullBlockOfProposalsInOneEndBlock(t *testing.T) {
 	to := gov.Address
 	data, err := gov.ABI.Pack(gov.SubmitTextProposalMethod, "t", "d", false)
 	require.NoError(t, err)
-	submit := func(nonce uint64) []byte {
-		return signLegacyTxWithGasPrice(t, key, chainID, nonce, &to, big.NewInt(0), data, 2_000_000, big.NewInt(1))
+	submit := func(nonce, gas uint64) []byte {
+		return signLegacyTxWithGasPrice(t, key, chainID, nonce, &to, big.NewInt(0), data, gas, big.NewInt(1))
 	}
 
 	block := blockContext(chainID)
 	block.GasLimit = uint64(tmtypes.DefaultBlockParams().MaxGas) //nolint:gosec // MaxGas is positive
-	probe, err := NewExecutor(cfg, withTestState(newState())).ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: [][]byte{submit(0)}})
+	probe, err := NewExecutor(cfg, withTestState(newState())).ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: [][]byte{submit(0, 2_000_000)}})
 	require.NoError(t, err)
-	n := block.GasLimit / probe.Txs[0].GasUsed
+	// The pool must hold each tx's declared gas before it runs, so declaring
+	// the probe's cost lets all n fit whatever each one uses.
+	gas := probe.Txs[0].GasUsed
+	n := block.GasLimit / gas
 	state := newState()
 	txs := make([][]byte, n)
 	for i := range txs {
-		txs[i] = submit(uint64(i))
+		txs[i] = submit(uint64(i), gas)
 	}
 	res, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: txs})
 	require.NoError(t, err)
