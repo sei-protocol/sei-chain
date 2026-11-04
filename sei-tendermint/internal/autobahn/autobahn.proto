@@ -368,6 +368,14 @@ message Epoch {
   optional uint64 next_road = 4; // required
 }
 
+// Epoch window committed with the first block of an epoch.
+message EpochWindow {
+  option (wireguard.sized) = true;
+  optional Epoch prev = 1; // optional
+  optional Epoch current = 2; // required
+  optional Epoch next = 3; // required
+}
+
 // Persisted epoch registry state.
 message PersistedEpochRegistry {
   reserved 1, 2;

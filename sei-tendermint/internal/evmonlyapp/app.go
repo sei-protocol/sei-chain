@@ -28,6 +28,7 @@ import (
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -148,7 +149,8 @@ type evmOnlyCursorState struct {
 	lastBlockTime uint64
 	// pendingBlockTime is the Time of the block staged in pending; Commit
 	// promotes it to lastBlockTime.
-	pendingBlockTime uint64
+	pendingBlockTime      uint64
+	finalizingEpochWindow utils.Option[epoch.Window]
 }
 
 var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
@@ -225,10 +227,7 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 // encodeCursorChangeSet chains the block into the app hash and stages the
 // resulting cursor as pending, returning it as the write committed with
 // the block's state.
-func (a *evmOnlyApplication) encodeCursorChangeSet(
-	block evmonly.BlockContext,
-	result *evmonly.BlockResult,
-) ([]gigatypes.MiscChange, error) {
+func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
 	height, ok := utils.SafeCast[int64](block.Number)
 	if !ok {
 		return nil, fmt.Errorf("EVM-only block number exceeds int64: %d", block.Number)
@@ -237,7 +236,8 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		if height != state.committed.height+1 {
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
 		}
-		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result)
+		window := state.finalizingEpochWindow
+		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result, window)
 		if err != nil {
 			return nil, err
 		}
@@ -249,7 +249,11 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
-		return []gigatypes.MiscChange{next.miscChange()}, nil
+		misc := []gigatypes.MiscChange{next.miscChange()}
+		if window, ok := window.Get(); ok {
+			misc = append(misc, epochWindowMiscChange(window))
+		}
+		return misc, nil
 	}
 	panic("unreachable")
 }
@@ -773,6 +777,14 @@ func (a *evmOnlyApplication) EvmCreateAccessList(ctx context.Context, msg *ethco
 }
 
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	return a.FinalizeBlockWithEpochWindow(ctx, req, utils.None[epoch.Window]())
+}
+
+func (a *evmOnlyApplication) FinalizeBlockWithEpochWindow(
+	ctx context.Context,
+	req *abci.RequestFinalizeBlock,
+	window utils.Option[epoch.Window],
+) (*abci.ResponseFinalizeBlock, error) {
 	height := req.Header.Height
 	if height <= 0 {
 		return nil, fmt.Errorf("EVM-only block height must be positive: %d", height)
@@ -795,6 +807,8 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		if err != nil {
 			return nil, err
 		}
+		a.setFinalizingEpochWindow(window)
+		defer a.clearFinalizingEpochWindow()
 		// Closes the stage in flight, so the gap until the next block is charged to neither.
 		defer a.finalizePhases.Reset()
 		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
@@ -817,6 +831,22 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 			AppHash:   append([]byte(nil), pending.appHash[:]...),
 			TxResults: evmOnlyABCIResults(result),
 		}, nil
+	}
+	panic("unreachable")
+}
+
+func (a *evmOnlyApplication) setFinalizingEpochWindow(window utils.Option[epoch.Window]) {
+	for state := range a.cursor.Lock() {
+		state.finalizingEpochWindow = window
+		return
+	}
+	panic("unreachable")
+}
+
+func (a *evmOnlyApplication) clearFinalizingEpochWindow() {
+	for state := range a.cursor.Lock() {
+		state.finalizingEpochWindow = utils.None[epoch.Window]()
+		return
 	}
 	panic("unreachable")
 }
@@ -851,6 +881,7 @@ func (a *evmOnlyApplication) abandonPending(executor *evmonly.Executor, height i
 	}
 	for state := range a.cursor.Lock() {
 		state.pending = utils.None[evmOnlyCursor]()
+		state.finalizingEpochWindow = utils.None[epoch.Window]()
 	}
 	return commitErr
 }
@@ -902,6 +933,13 @@ func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, erro
 	panic("unreachable")
 }
 
+func (a *evmOnlyApplication) CommittedEpochWindow() (utils.Option[epoch.Window], error) {
+	if err := a.AwaitCommits(); err != nil {
+		return utils.None[epoch.Window](), err
+	}
+	return loadEpochWindow(a.storage.SC())
+}
+
 // evmOnlyABCIResults reports a block's executed transactions to consensus, each
 // one an OK result carrying the EVM failure reason, if it had one, in its log.
 //
@@ -932,7 +970,13 @@ func evmOnlyTxFailureLog(tx evmonly.TxResult) string {
 	return tx.Err.Error()
 }
 
-func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) (common.Hash, error) {
+func hashEVMOnlyResult(
+	previous common.Hash,
+	height uint64,
+	blockHash common.Hash,
+	result *evmonly.BlockResult,
+	window utils.Option[epoch.Window],
+) (common.Hash, error) {
 	h := sha256.New()
 	w := newEVMOnlyHashWriter(h)
 	w.write(previous[:])
@@ -954,6 +998,13 @@ func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Has
 			}
 			w.writeSized(pair.Value)
 		}
+	}
+	if window, ok := window.Get(); ok {
+		change := epochWindowMiscChange(window)
+		w.writeSizedString(change.Module)
+		w.writeSized(change.Key)
+		w.writeByte(0)
+		w.writeSized(change.Value)
 	}
 	if err := w.flush(); err != nil {
 		return common.Hash{}, err

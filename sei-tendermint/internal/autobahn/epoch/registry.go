@@ -163,6 +163,52 @@ func (r *Registry) StageEpoch(endEpoch types.EpochIndex, weights map[types.Publi
 	return nil
 }
 
+// Window returns the epoch state committed with the first block after endEpoch.
+func (r *Registry) Window(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) (Window, error) {
+	for state := range r.state.Lock() {
+		s := state.Load()
+		var prev utils.Option[*types.Epoch]
+		if endEpoch >= s.liveRange.First {
+			epoch, ok := s.live[endEpoch]
+			if !ok {
+				return Window{}, fmt.Errorf("epoch %d not registered", endEpoch)
+			}
+			prev = utils.Some(epoch)
+		}
+		current, ok := s.live[endEpoch+1]
+		if !ok {
+			return Window{}, fmt.Errorf("epoch %d not registered", endEpoch+1)
+		}
+		next, err := s.deriveNext(endEpoch, weights)
+		if err != nil {
+			return Window{}, err
+		}
+		return NewWindow(prev, current, next)
+	}
+	return Window{}, nil
+}
+
+// StageWindow persists window's next epoch as pending.
+func (r *Registry) StageWindow(window Window) error {
+	current := window.Current()
+	for state := range r.state.Lock() {
+		s := state.Load()
+		registered, ok := s.live[current.EpochIndex()]
+		if !ok {
+			return fmt.Errorf("epoch %d not registered", current.EpochIndex())
+		}
+		if !epochEqual(registered, current) {
+			return fmt.Errorf("epoch %d in the window differs from the registered epoch", current.EpochIndex())
+		}
+		if next, err := s.stageNext(window.Next()); err != nil || next == s {
+			return err
+		} else if next != s {
+			return r.commit(state, next)
+		}
+	}
+	return nil
+}
+
 // Activate publishes the staged committee for idx.
 // A no-op if idx is already live. An error if idx is not the staged epoch.
 func (r *Registry) Activate(idx types.EpochIndex) error {

@@ -207,6 +207,7 @@ const pendingExecutionBuffer = 128
 type pendingExecution struct {
 	number  atypes.RoadIndex
 	weights map[atypes.PublicKey]uint64
+	window  utils.Option[epoch.Window]
 }
 
 // startExecuteBlock finalizes and commits b. AppHash handling stays on the
@@ -217,7 +218,8 @@ func (r *gigaRouterCommon) startExecuteBlock(
 ) (pendingExecution, error) {
 	app := r.app
 	var proposerAddress types.Address
-	if vals := app.GetValidators(); len(vals) > 0 {
+	vals := app.GetValidators()
+	if len(vals) > 0 {
 		// Deterministically select a proposer from the app's validator committee.
 		// We need it so that app does not emit error logs.
 		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
@@ -228,7 +230,7 @@ func (r *gigaRouterCommon) startExecuteBlock(
 		proposerAddress = key.Address()
 	}
 
-	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
+	req := &abci.RequestFinalizeBlock{
 		Txs: b.Txs,
 		// Empty DecidedLastCommit does not indicate missing votes.
 		DecidedLastCommit: abci.CommitInfo{},
@@ -244,7 +246,23 @@ func (r *gigaRouterCommon) startExecuteBlock(
 			// because reward is distributed with a delay. This is not our problem here though.
 			ProposerAddress: proposerAddress,
 		}).ToProto(),
-	})
+	}
+	var window utils.Option[epoch.Window]
+	var resp *abci.ResponseFinalizeBlock
+	var err error
+	if evm, ok := app.EVM().Get(); ok {
+		weights, err := committeeWeights(vals)
+		if err != nil {
+			return pendingExecution{}, err
+		}
+		window, err = r.data.OpeningEpochWindow(b.Height, weights)
+		if err != nil {
+			return pendingExecution{}, fmt.Errorf("opening epoch window for block %v: %w", b.Height, err)
+		}
+		resp, err = evm.FinalizeBlockWithEpochWindow(ctx, req, window)
+	} else {
+		resp, err = app.FinalizeBlock(ctx, req)
+	}
 	if err != nil {
 		return pendingExecution{}, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
@@ -279,7 +297,8 @@ func (r *gigaRouterCommon) finishExecuteBlock(
 	pending pendingExecution,
 	appHash atypes.AppHash,
 ) error {
-	if err := r.data.PushAppHash(ctx, n, appHash, pending.weights); err != nil {
+	source := data.NextEpochSource{Weights: pending.weights, Window: pending.window}
+	if err := r.data.PushAppHashWithEpochSource(ctx, n, appHash, source); err != nil {
 		return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
 	}
 	return nil
@@ -414,12 +433,16 @@ func (r *gigaRouterCommon) backfillAppHashes(
 	if from >= next {
 		return nil
 	}
-	// TODO: finishExecuteBlock needs the weights from after height n was executed.
-	// GetValidators() here is the app tip, so every road gets that one set. Use the
-	// set stored for n once app state has it.
 	weights, err := committeeWeights(r.app.GetValidators())
 	if err != nil {
 		return err
+	}
+	var window utils.Option[epoch.Window]
+	if evm, ok := r.app.EVM().Get(); ok {
+		window, err = evm.CommittedEpochWindow()
+		if err != nil {
+			return fmt.Errorf("app.CommittedEpochWindow(): %w", err)
+		}
 	}
 	for n := from; n < next; n++ {
 		entry, err := r.cfg.AppHashBuilder.GetAppHash(ctx, uint64(n))
@@ -427,7 +450,7 @@ func (r *gigaRouterCommon) backfillAppHashes(
 			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", n, err)
 		}
 		appHash := entry.AppHash()
-		pending := pendingExecution{number: n, weights: weights}
+		pending := pendingExecution{number: n, weights: weights, window: window}
 		if err := r.finishExecuteBlock(ctx, n, pending, appHash[:]); err != nil {
 			return fmt.Errorf("r.finishExecuteBlock(%v): %w", n, err)
 		}

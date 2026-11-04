@@ -13,6 +13,8 @@ import (
 	"github.com/holiman/uint256"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -222,6 +224,18 @@ var (
 func (app *testEVMApp) EvmCall(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 	app.gotMsg = msg
 	return testExecutionResult, nil
+}
+
+func (app *testEVMApp) FinalizeBlockWithEpochWindow(
+	ctx context.Context,
+	req *types.RequestFinalizeBlock,
+	_ utils.Option[epoch.Window],
+) (*types.ResponseFinalizeBlock, error) {
+	return app.FinalizeBlock(ctx, req)
+}
+
+func (app *testEVMApp) CommittedEpochWindow() (utils.Option[epoch.Window], error) {
+	return utils.None[epoch.Window](), nil
 }
 
 func (app *testEVMApp) EvmEstimateGas(_ context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {

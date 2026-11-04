@@ -25,6 +25,12 @@ var ErrOutOfOrder = errors.New("out of order")
 // the one local execution produced.
 var ErrAppHashDivergence = errors.New("AppHash divergence")
 
+// NextEpochSource is the input used to stage the epoch after a closing road.
+type NextEpochSource struct {
+	Weights map[types.PublicKey]uint64
+	Window  utils.Option[epoch.Window]
+}
+
 // Config is the config for the data State.
 type Config struct {
 	// Registry is the authoritative source of committee and stake information.
@@ -634,6 +640,12 @@ func (s *State) appQCFromDB(n types.RoadIndex) (*types.AppQC, error) {
 // PushAppHash records the AppHash for executed blocks through n and stages
 // C_{E+2} when n closes LastRoad(E).
 func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.AppHash, weights map[types.PublicKey]uint64) error {
+	return s.PushAppHashWithEpochSource(ctx, n, hash, NextEpochSource{Weights: weights})
+}
+
+// PushAppHashWithEpochSource records the AppHash for executed blocks through n
+// and stages C_{E+2} from source when n closes LastRoad(E).
+func (s *State) PushAppHashWithEpochSource(ctx context.Context, n types.RoadIndex, hash types.AppHash, source NextEpochSource) error {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextFullBlock }); err != nil {
 			return err
@@ -641,7 +653,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.A
 		if n < inner.nextAppProposal {
 			// The proposal is already stored. Staging again rejects a different committee.
 			if n >= inner.first {
-				if err := s.stageClosingEpoch(n, weights); err != nil {
+				if err := s.stageClosingEpoch(n, source); err != nil {
 					return err
 				}
 			}
@@ -652,7 +664,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.A
 		}
 		// Durable before the cursor moves, so a crash cannot persist this proposal
 		// and leave the epoch it closes unstaged.
-		if err := s.stageClosingEpoch(n, weights); err != nil {
+		if err := s.stageClosingEpoch(n, source); err != nil {
 			return err
 		}
 		e := inner.blocks[n]
@@ -682,18 +694,48 @@ func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.A
 	return s.activateStagedEpoch()
 }
 
+// OpeningEpochWindow returns the state window to commit with road n, if it is
+// the first road after an epoch closes.
+func (s *State) OpeningEpochWindow(n types.RoadIndex, weights map[types.PublicKey]uint64) (utils.Option[epoch.Window], error) {
+	if n == 0 {
+		return utils.None[epoch.Window](), nil
+	}
+	endEpoch, ok := s.cfg.Registry.ClosingEpoch(n - 1).Get()
+	if !ok {
+		return utils.None[epoch.Window](), nil
+	}
+	window, err := s.cfg.Registry.Window(endEpoch, weights)
+	if err != nil {
+		return utils.None[epoch.Window](), err
+	}
+	return utils.Some(window), nil
+}
+
 // stageClosingEpoch persists C_{E+2} when n is the last road of epoch E.
 // StageEpoch returns only after that committee is durable. A road that closes
 // no epoch is left unchanged.
-func (s *State) stageClosingEpoch(n types.RoadIndex, weights map[types.PublicKey]uint64) error {
+func (s *State) stageClosingEpoch(n types.RoadIndex, source NextEpochSource) error {
 	e, ok := s.cfg.Registry.ClosingEpoch(n).Get()
 	if !ok {
 		return nil
 	}
-	if err := s.cfg.Registry.StageEpoch(e, weights); err != nil {
+	if window, ok := source.Window.Get(); ok && windowClosesEpoch(window, e) {
+		if err := s.cfg.Registry.StageWindow(window); err != nil {
+			return fmt.Errorf("StageWindow(%d): %w", e, err)
+		}
+		return nil
+	}
+	if err := s.cfg.Registry.StageEpoch(e, source.Weights); err != nil {
 		return fmt.Errorf("StageEpoch(%d): %w", e, err)
 	}
 	return nil
+}
+
+func windowClosesEpoch(window epoch.Window, e types.EpochIndex) bool {
+	if prev, ok := window.Prev().Get(); ok {
+		return prev.EpochIndex() == e
+	}
+	return window.Current().EpochIndex() == e+1
 }
 
 func (s *State) PushGasUsed(gasUsed int64) {

@@ -10,6 +10,8 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // EVMApplication is an ABCI application that executes EVM transactions and
@@ -17,6 +19,10 @@ import (
 type EVMApplication interface {
 	types.Application
 
+	// FinalizeBlockWithEpochWindow finalizes req and commits window with it when present.
+	FinalizeBlockWithEpochWindow(context.Context, *types.RequestFinalizeBlock, utils.Option[epoch.Window]) (*types.ResponseFinalizeBlock, error)
+	// CommittedEpochWindow returns the epoch window in committed state, or None.
+	CommittedEpochWindow() (utils.Option[epoch.Window], error)
 	// EvmCall executes msg as a read-only call against the current EVM state.
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
 	// EvmEstimateGas returns the lowest gas limit at or below gasCap that lets
@@ -61,6 +67,20 @@ type EVMApplication interface {
 // EVMProxy wraps an EVMApplication and records EVM method timings.
 type EVMProxy struct {
 	app EVMApplication
+}
+
+func (app *EVMProxy) FinalizeBlockWithEpochWindow(
+	ctx context.Context,
+	req *types.RequestFinalizeBlock,
+	window utils.Option[epoch.Window],
+) (*types.ResponseFinalizeBlock, error) {
+	defer addTimeSample(Global.MethodTimingAt("finalize_block_with_epoch_window", "sync"))()
+	return app.app.FinalizeBlockWithEpochWindow(ctx, req, window)
+}
+
+func (app *EVMProxy) CommittedEpochWindow() (utils.Option[epoch.Window], error) {
+	defer addTimeSample(Global.MethodTimingAt("committed_epoch_window", "sync"))()
+	return app.app.CommittedEpochWindow()
 }
 
 func (app *EVMProxy) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {

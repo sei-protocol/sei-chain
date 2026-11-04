@@ -29,6 +29,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -90,6 +91,24 @@ func finalizeAndCommitEVMOnlyTestBlock(t *testing.T, app abci.Application, req *
 	_, err = app.Commit(t.Context())
 	require.NoError(t, err)
 	return response.AppHash
+}
+
+func TestEVMOnlyAppCommitsEpochWindow(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t).(proxy.EVMApplication)
+	require.Equal(t, utils.None[epoch.Window](), utils.OrPanic1(app.CommittedEpochWindow()))
+
+	window := evmOnlyHashTestWindow(t)
+	response, err := app.FinalizeBlockWithEpochWindow(t.Context(), evmOnlyTestBlock(1), utils.Some(window))
+	require.NoError(t, err)
+	require.NotEmpty(t, response.AppHash)
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+
+	got, err := app.CommittedEpochWindow()
+	require.NoError(t, err)
+	gotWindow, ok := got.Get()
+	require.True(t, ok)
+	require.True(t, gotWindow.Equal(window))
 }
 
 // evmOnlyTestInitCode deploys a contract whose runtime code is the single

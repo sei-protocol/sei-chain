@@ -147,6 +147,10 @@ func (*Epoch) MaxSize() int {
 	return 6236
 }
 
+func (*EpochWindow) MaxSize() int {
+	return 18717
+}
+
 func (*EpochMember) MaxSize() int {
 	return 60
 }
@@ -434,6 +438,13 @@ func init() {
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Committee]())},
 		3: {MaxCount: 1},
 		4: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.EpochWindow.
+	runtime.MustRegister[*EpochWindow](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Epoch]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Epoch]())},
+		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Epoch]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.PersistedEpochRegistry.

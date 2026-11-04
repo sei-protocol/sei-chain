@@ -125,6 +125,44 @@ func TestRegistryStageActivateAndImmutableSnapshots(t *testing.T) {
 	}
 }
 
+func TestRegistryWindowAndStageWindow(t *testing.T) {
+	rng := utils.TestRng()
+	genesis, keys, _ := genCommittee(rng, 3)
+	weights := map[types.PublicKey]uint64{keys[1].Public(): 7}
+	r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
+
+	window, err := r.Window(0, weights)
+	require.NoError(t, err)
+	prev, ok := window.Prev().Get()
+	require.True(t, ok)
+	require.Equal(t, testEpoch(0, 0, genesis), prev)
+	require.Equal(t, testEpoch(1, 0, genesis), window.Current())
+
+	require.NoError(t, r.StageWindow(window))
+	require.Equal(t, utils.Some(window.Next()), r.Pending())
+	require.NoError(t, r.StageWindow(window))
+
+	conflict := map[types.PublicKey]uint64{keys[0].Public(): 9}
+	conflicting, err := r.Window(0, conflict)
+	require.NoError(t, err)
+	require.Error(t, r.StageWindow(conflicting))
+}
+
+func TestRegistryWindowAfterPrevPruned(t *testing.T) {
+	rng := utils.TestRng()
+	genesis, keys, _ := genCommittee(rng, 3)
+	weights := map[types.PublicKey]uint64{keys[1].Public(): 7}
+	r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
+	require.NoError(t, r.PruneBefore(1))
+
+	window, err := r.Window(0, weights)
+	require.NoError(t, err)
+	require.Equal(t, utils.None[*types.Epoch](), window.Prev())
+	require.Equal(t, testEpoch(1, 0, genesis), window.Current())
+	require.NoError(t, r.StageWindow(window))
+	require.Equal(t, utils.Some(window.Next()), r.Pending())
+}
+
 func TestRegistryWaitForEpoch(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		rng := utils.TestRng()

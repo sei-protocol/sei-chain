@@ -8,6 +8,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
@@ -64,9 +67,33 @@ func TestHashEVMOnlyResultGoldenVector(t *testing.T) {
 				4_321,
 				common.HexToHash("0xf0e0d0c0b0a090807060504030201000ffeeddccbbaa99887766554433221100"),
 				evmOnlyHashFixture(tc.pairs),
+				utils.None[epoch.Window](),
 			)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, got.Hex())
 		})
 	}
+}
+
+func TestHashEVMOnlyResultIncludesEpochWindow(t *testing.T) {
+	fixture := evmOnlyHashFixture(1)
+	prev := common.HexToHash("0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")
+	blockHash := common.HexToHash("0xf0e0d0c0b0a090807060504030201000ffeeddccbbaa99887766554433221100")
+	withoutWindow, err := hashEVMOnlyResult(prev, 4_321, blockHash, fixture, utils.None[epoch.Window]())
+	require.NoError(t, err)
+	withWindow, err := hashEVMOnlyResult(prev, 4_321, blockHash, fixture, utils.Some(evmOnlyHashTestWindow(t)))
+	require.NoError(t, err)
+	require.NotEqual(t, withoutWindow, withWindow)
+}
+
+func evmOnlyHashTestWindow(t *testing.T) epoch.Window {
+	t.Helper()
+	key := atypes.GenSecretKey(utils.TestRng())
+	weights := map[atypes.PublicKey]uint64{key.Public(): 1}
+	committee := utils.OrPanic1(atypes.NewCommittee(weights))
+	nextCommittee := utils.OrPanic1(committee.DeriveNext(weights, 2))
+	prev := atypes.NewEpoch(0, atypes.RoadRange{First: 0, Next: 10}, committee)
+	current := atypes.NewEpoch(1, atypes.RoadRange{First: 10, Next: 20}, committee)
+	next := atypes.NewEpoch(2, atypes.RoadRange{First: 20, Next: 30}, nextCommittee)
+	return utils.OrPanic1(epoch.NewWindow(utils.Some(prev), current, next))
 }
