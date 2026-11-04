@@ -15,6 +15,16 @@ BOUNDARY_FROM=
 BOUNDARY_TO=
 UPGRADE_TAG=
 
+# upgrade_tags_file prints the path of a checkout's upgrade name list, which
+# releases before app/upgradenames keep at app/tags.
+upgrade_tags_file() {
+  if [[ -f "$1/app/upgradenames/tags" ]]; then
+    printf '%s\n' "$1/app/upgradenames/tags"
+  else
+    printf '%s\n' "$1/app/tags"
+  fi
+}
+
 log() {
   printf '\n[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"
 }
@@ -95,11 +105,11 @@ prepare_worktrees() {
   git worktree add --detach "$SOURCE_WORKTREE" "$source_sha"
   git worktree add --detach "$TARGET_WORKTREE" "$target_sha"
 
-  grep -Fxq "$BOUNDARY_FROM" "$SOURCE_WORKTREE/app/tags" ||
+  grep -Fxq "$BOUNDARY_FROM" "$(upgrade_tags_file "$SOURCE_WORKTREE")" ||
     die "$FROM_REF does not contain source upgrade $BOUNDARY_FROM"
-  ! grep -Fxq "$BOUNDARY_TO" "$SOURCE_WORKTREE/app/tags" ||
+  ! grep -Fxq "$BOUNDARY_TO" "$(upgrade_tags_file "$SOURCE_WORKTREE")" ||
     die "$FROM_REF already contains target upgrade $BOUNDARY_TO"
-  grep -Fxq "$BOUNDARY_TO" "$TARGET_WORKTREE/app/tags" ||
+  grep -Fxq "$BOUNDARY_TO" "$(upgrade_tags_file "$TARGET_WORKTREE")" ||
     die "$TO_REF does not contain target upgrade $BOUNDARY_TO"
 
   {

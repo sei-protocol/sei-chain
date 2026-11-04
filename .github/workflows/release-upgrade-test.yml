@@ -9,7 +9,7 @@ on:
       - .github/scripts/release-upgrade-test.sh
       - Makefile
       - app/app.go
-      - app/tags
+      - app/upgradenames/tags
       - app/upgrade_v*_test.go
       - app/upgrades.go
       - docker/**
