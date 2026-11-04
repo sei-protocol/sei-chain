@@ -68,6 +68,24 @@ func TestPackedFieldsLeaveNeighboursIntact(t *testing.T) {
 	require.Equal(t, uint64(1<<63+7), s.Uint64(slot, 5))
 }
 
+func TestPackedAddressLeavesNeighboursIntact(t *testing.T) {
+	s := Store{State: mapState{}}
+	slot := Slot(1)
+	a := common.HexToAddress("0xffeeddccbbaa99887766554433221100ffeeddcc")
+	s.SetUint64(slot, 0, 1<<63+7)
+	s.SetAddressAt(slot, 8, a)
+	s.SetInt32(slot, 28, -9)
+
+	require.Equal(t, a, s.AddressAt(slot, 8))
+	require.Equal(t, uint64(1<<63+7), s.Uint64(slot, 0))
+	require.Equal(t, int32(-9), s.Int32(slot, 28))
+
+	s.SetAddressAt(slot, 8, common.Address{})
+	require.Equal(t, common.Address{}, s.AddressAt(slot, 8))
+	require.Equal(t, uint64(1<<63+7), s.Uint64(slot, 0))
+	require.Equal(t, int32(-9), s.Int32(slot, 28))
+}
+
 func TestSetSwapAndPop(t *testing.T) {
 	state := mapState{}
 	set := Set{Store: Store{State: state}, Base: Slot(9)}
