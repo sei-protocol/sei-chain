@@ -29,7 +29,7 @@ func writeBatch(t *testing.T, store *blockstore.Store, b batch) {
 	require.NoError(t, store.WriteBlock(types.NewRoadBlock(b.qc, b.blocks)))
 }
 
-// canceledContext returns a context that is already canceled, so EVMBlock
+// canceledContext returns a context that is already canceled, so WaitForBlock
 // returns at once: the block when it is durable, and the cancellation otherwise.
 func canceledContext(t *testing.T) context.Context {
 	ctx, cancel := context.WithCancel(t.Context())
@@ -37,17 +37,17 @@ func canceledContext(t *testing.T) context.Context {
 	return ctx
 }
 
-// TestEVMBlockServesABlockOnlyAfterFlush verifies that a written block reaches
-// EVMBlock only once Flush has made it durable.
-func TestEVMBlockServesABlockOnlyAfterFlush(t *testing.T) {
+// TestWaitForBlockServesABlockOnlyAfterFlush verifies that a written block reaches
+// WaitForBlock only once Flush has made it durable.
+func TestWaitForBlockServesABlockOnlyAfterFlush(t *testing.T) {
 	store, batches := newDurableTestStore(t)
 	writeBatch(t, store, batches[0])
 
-	_, err := store.EVMBlock(canceledContext(t), batches[0].first)
+	_, err := store.WaitForBlock(canceledContext(t), batches[0].first)
 	require.ErrorIs(t, err, context.Canceled)
 
 	require.NoError(t, store.Flush())
-	got, err := store.EVMBlock(canceledContext(t), batches[0].first)
+	got, err := store.WaitForBlock(canceledContext(t), batches[0].first)
 	require.NoError(t, err)
 	require.Equal(t, batches[0].qc.Header().Hash(), got.Header().Hash())
 }
@@ -67,9 +67,9 @@ func (d failingFlushDB) Flush() error {
 	return d.BlockDB.Flush()
 }
 
-// TestEVMBlockKeepsBlocksAcrossAFailedFlush verifies that a failed Flush
+// TestWaitForBlockKeepsBlocksAcrossAFailedFlush verifies that a failed Flush
 // leaves its blocks for the next Flush, even one with no new writes.
-func TestEVMBlockKeepsBlocksAcrossAFailedFlush(t *testing.T) {
+func TestWaitForBlockKeepsBlocksAcrossAFailedFlush(t *testing.T) {
 	var fail atomic.Bool
 	store, err := blockstore.New(failingFlushDB{BlockDB: memblock.NewBlockDB(), fail: &fail})
 	require.NoError(t, err)
@@ -80,25 +80,25 @@ func TestEVMBlockKeepsBlocksAcrossAFailedFlush(t *testing.T) {
 
 	fail.Store(true)
 	require.ErrorIs(t, store.Flush(), errFlushFailed)
-	_, err = store.EVMBlock(canceledContext(t), batches[0].first)
+	_, err = store.WaitForBlock(canceledContext(t), batches[0].first)
 	require.ErrorIs(t, err, context.Canceled)
 
 	fail.Store(false)
 	require.NoError(t, store.Flush())
-	got, err := store.EVMBlock(canceledContext(t), batches[0].first)
+	got, err := store.WaitForBlock(canceledContext(t), batches[0].first)
 	require.NoError(t, err)
 	require.Equal(t, batches[0].qc.Header().Hash(), got.Header().Hash())
 }
 
-// TestEVMBlockWaitsForFlush verifies that a reader waiting on a block wakes
+// TestWaitForBlockWaitsForFlush verifies that a reader waiting on a block wakes
 // up once a Flush makes it durable.
-func TestEVMBlockWaitsForFlush(t *testing.T) {
+func TestWaitForBlockWaitsForFlush(t *testing.T) {
 	store, batches := newDurableTestStore(t)
 
 	var got *types.RoadBlock
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error {
-			block, err := store.EVMBlock(ctx, batches[1].first)
+			block, err := store.WaitForBlock(ctx, batches[1].first)
 			got = block
 			return err
 		})
@@ -112,9 +112,9 @@ func TestEVMBlockWaitsForFlush(t *testing.T) {
 	require.Equal(t, batches[1].qc.Header().Hash(), got.Header().Hash())
 }
 
-// TestEVMBlockReadsStoredBlocksAfterReopen verifies the restart path: a store
+// TestWaitForBlockReadsStoredBlocksAfterReopen verifies the restart path: a store
 // reopened over existing data serves every stored block at once, from the BlockDB.
-func TestEVMBlockReadsStoredBlocksAfterReopen(t *testing.T) {
+func TestWaitForBlockReadsStoredBlocksAfterReopen(t *testing.T) {
 	db := memblock.NewBlockDB()
 	first, err := blockstore.New(db)
 	require.NoError(t, err)
@@ -129,15 +129,15 @@ func TestEVMBlockReadsStoredBlocksAfterReopen(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	for _, b := range batches {
-		got, err := reopened.EVMBlock(canceledContext(t), b.first)
+		got, err := reopened.WaitForBlock(canceledContext(t), b.first)
 		require.NoError(t, err)
 		require.Equal(t, b.qc.Header().Hash(), got.Header().Hash())
 	}
 }
 
-// TestEVMBlockBelowFirstIsPruned verifies that EVMBlock refuses a block
+// TestWaitForBlockBelowFirstIsPruned verifies that WaitForBlock refuses a block
 // below the retention floor, even one it still has cached.
-func TestEVMBlockBelowFirstIsPruned(t *testing.T) {
+func TestWaitForBlockBelowFirstIsPruned(t *testing.T) {
 	store, batches := newDurableTestStore(t)
 	_, keys := buildCommittee()
 	for _, b := range batches {
@@ -148,9 +148,9 @@ func TestEVMBlockBelowFirstIsPruned(t *testing.T) {
 	require.NoError(t, store.PruneBefore(batches[1].first))
 	require.Equal(t, batches[1].first, store.First())
 
-	_, err := store.EVMBlock(t.Context(), batches[0].first)
+	_, err := store.WaitForBlock(t.Context(), batches[0].first)
 	require.ErrorIs(t, err, types.ErrPruned)
-	got, err := store.EVMBlock(t.Context(), batches[1].first)
+	got, err := store.WaitForBlock(t.Context(), batches[1].first)
 	require.NoError(t, err)
 	require.Equal(t, batches[1].qc.Header().Hash(), got.Header().Hash())
 }

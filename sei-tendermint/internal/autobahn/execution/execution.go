@@ -19,10 +19,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// Blocks serves the blocks execution runs, in road order.
-type Blocks interface {
-	// EVMBlock returns the block of road n, waiting until it is durable.
-	EVMBlock(ctx context.Context, n atypes.RoadIndex) (*atypes.RoadBlock, error)
+// DurableBlocks serves the blocks execution runs, once they are durable.
+type DurableBlocks interface {
+	// WaitForBlock returns the block of road n, waiting until it is durable.
+	WaitForBlock(ctx context.Context, n atypes.RoadIndex) (*atypes.RoadBlock, error)
 }
 
 // Config configures an Executor.
@@ -34,7 +34,7 @@ type Config struct {
 	// AppHashBuilder receives each block's hash before the block runs.
 	AppHashBuilder builder.AppHashBuilder
 	// Blocks serves the blocks to execute.
-	Blocks Blocks
+	Blocks DurableBlocks
 }
 
 // Executor executes durable blocks on the app, one at a time in road order.
@@ -69,9 +69,9 @@ func (e *Executor) Run(ctx context.Context) error {
 	}
 	for n := next; ; n += 1 {
 		gigametrics.SetPhase(gigametrics.PhaseConsensus)
-		block, err := e.cfg.Blocks.EVMBlock(ctx, n)
+		block, err := e.cfg.Blocks.WaitForBlock(ctx, n)
 		if err != nil {
-			return fmt.Errorf("EVMBlock(%v): %w", n, err)
+			return fmt.Errorf("WaitForBlock(%v): %w", n, err)
 		}
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
 		if err := e.executeBlock(ctx, block.SuperBlock()); err != nil {
@@ -112,12 +112,12 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 	}
 	// Blocks execute only once durable, so the app tip is in the BlockStore
 	// unless retention has passed it.
-	block, err := e.cfg.Blocks.EVMBlock(ctx, last)
+	block, err := e.cfg.Blocks.WaitForBlock(ctx, last)
 	if err != nil {
 		if errors.Is(err, atypes.ErrPruned) {
 			return 0, fmt.Errorf("app tip %d is below the BlockStore retention floor, so its header cannot be loaded: %w", last, err)
 		}
-		return 0, fmt.Errorf("EVMBlock(%v): %w", last, err)
+		return 0, fmt.Errorf("WaitForBlock(%v): %w", last, err)
 	}
 	app.InitLastHeader((&types.Header{
 		ChainID: e.cfg.GenDoc.ChainID,
