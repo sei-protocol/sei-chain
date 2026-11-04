@@ -14,7 +14,7 @@ import (
 var _ types.BlockStore = (*Store)(nil)
 
 // recentBlocksCacheSize is how many of the most recently flushed blocks Store
-// keeps in memory for DurableBlock.
+// keeps in memory for EVMBlock.
 const recentBlocksCacheSize = 256
 
 // Store implements the consensus block store contract on top of any
@@ -41,7 +41,7 @@ type Store struct {
 	nextDurable utils.AtomicSend[types.RoadIndex]
 }
 
-// blockHandoff carries written blocks from WriteBlock to DurableBlock.
+// blockHandoff carries written blocks from WriteBlock to EVMBlock.
 type blockHandoff struct {
 	// unflushed holds the blocks written since the last Flush, in road order.
 	unflushed []*types.RoadBlock
@@ -232,9 +232,9 @@ func (s *Store) publishDurable(blocks []*types.RoadBlock) {
 	}
 }
 
-// DurableBlock returns the block of road n, waiting until a Flush has made it
-// durable. It returns ErrPruned when n is below First.
-func (s *Store) DurableBlock(ctx context.Context, n types.RoadIndex) (*types.RoadBlock, error) {
+// EVMBlock returns the block of road n for EVM execution, waiting until a Flush
+// has made it durable. It returns ErrPruned when n is below First.
+func (s *Store) EVMBlock(ctx context.Context, n types.RoadIndex) (*types.RoadBlock, error) {
 	if _, err := s.nextDurable.Subscribe().Wait(ctx, func(next types.RoadIndex) bool { return n < next }); err != nil {
 		return nil, err
 	}
@@ -252,7 +252,7 @@ func (s *Store) DurableBlock(ctx context.Context, n types.RoadIndex) (*types.Roa
 	}
 	block, ok := stored.Get()
 	if !ok {
-		return nil, fmt.Errorf("durable block %d: %w", n, types.ErrNotFound)
+		return nil, fmt.Errorf("EVM block %d: %w", n, types.ErrNotFound)
 	}
 	return block, nil
 }

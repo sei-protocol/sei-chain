@@ -19,8 +19,8 @@ import (
 
 // Blocks serves the blocks execution runs, in road order.
 type Blocks interface {
-	// DurableBlock returns the block of road n, waiting until it is durable.
-	DurableBlock(ctx context.Context, n atypes.RoadIndex) (*atypes.RoadBlock, error)
+	// EVMBlock returns the block of road n, waiting until it is durable.
+	EVMBlock(ctx context.Context, n atypes.RoadIndex) (*atypes.RoadBlock, error)
 }
 
 // Config configures an Executor.
@@ -98,12 +98,12 @@ func (e *Executor) Init(ctx context.Context) (atypes.RoadIndex, bool, error) {
 	}
 	// Blocks execute only once durable, so the app tip is in the BlockStore
 	// unless retention has passed it.
-	block, err := e.cfg.Blocks.DurableBlock(ctx, last)
+	block, err := e.cfg.Blocks.EVMBlock(ctx, last)
 	if err != nil {
 		if errors.Is(err, atypes.ErrPruned) {
 			return 0, false, fmt.Errorf("app tip %d is below the BlockStore retention floor, so its header cannot be loaded: %w", last, err)
 		}
-		return 0, false, fmt.Errorf("DurableBlock(%v): %w", last, err)
+		return 0, false, fmt.Errorf("EVMBlock(%v): %w", last, err)
 	}
 	app.InitLastHeader((&types.Header{
 		ChainID: e.cfg.GenDoc.ChainID,
@@ -120,9 +120,9 @@ func (e *Executor) Init(ctx context.Context) (atypes.RoadIndex, bool, error) {
 func (e *Executor) Run(ctx context.Context, next atypes.RoadIndex, committed chan<- Committed) error {
 	for n := next; ; n += 1 {
 		gigametrics.SetPhase(gigametrics.PhaseConsensus)
-		block, err := e.cfg.Blocks.DurableBlock(ctx, n)
+		block, err := e.cfg.Blocks.EVMBlock(ctx, n)
 		if err != nil {
-			return fmt.Errorf("DurableBlock(%v): %w", n, err)
+			return fmt.Errorf("EVMBlock(%v): %w", n, err)
 		}
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
 		c, err := e.executeBlock(ctx, block.SuperBlock())
