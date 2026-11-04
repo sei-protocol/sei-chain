@@ -217,9 +217,10 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			require.NoError(t, err, "router[0].BlockByNumber(%v)", h)
 			// Convert rb.Block.Data.Txs ([]types.Tx) back to [][]byte
 			// to compare against gb.Txs directly.
-			rbBytes := make([][]byte, len(rb.Block.Data.Txs))
-			for j, t := range rb.Block.Data.Txs {
-				rbBytes[j] = t
+			// Appended rather than preallocated, so the empty first block stays nil like gb.Txs.
+			var rbBytes [][]byte
+			for _, t := range rb.Block.Data.Txs {
+				rbBytes = append(rbBytes, t)
 			}
 			require.Equal(t, gb.Txs, rbBytes, "router[0].BlockByNumber(%v).Block.Data.Txs ≠ data.SuperBlock(%v).Payload.Txs", h, h)
 		}
