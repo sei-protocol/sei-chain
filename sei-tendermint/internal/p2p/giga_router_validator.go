@@ -101,7 +101,7 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
 		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
-		s.SpawnNamed("proposeAppHashes", func() error { return r.runProposeAppHashes(ctx) })
+		s.SpawnNamed("pushAppHashes", func() error { return r.runPushAppHashes(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		return nil
 	})

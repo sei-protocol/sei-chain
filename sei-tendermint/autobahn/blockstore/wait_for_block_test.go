@@ -15,7 +15,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-func newDurableTestStore(t *testing.T) (*blockstore.Store, []batch) {
+// newTestStore returns an empty in-memory store and the batches to write to it.
+func newTestStore(t *testing.T) (*blockstore.Store, []batch) {
 	t.Helper()
 	store, err := blockstore.New(memblock.NewBlockDB())
 	require.NoError(t, err)
@@ -40,7 +41,7 @@ func canceledContext(t *testing.T) context.Context {
 // TestWaitForBlockServesABlockOnlyAfterFlush verifies that a written block reaches
 // WaitForBlock only once Flush has made it durable.
 func TestWaitForBlockServesABlockOnlyAfterFlush(t *testing.T) {
-	store, batches := newDurableTestStore(t)
+	store, batches := newTestStore(t)
 	writeBatch(t, store, batches[0])
 
 	_, err := store.WaitForBlock(canceledContext(t), batches[0].first)
@@ -93,7 +94,7 @@ func TestWaitForBlockKeepsBlocksAcrossAFailedFlush(t *testing.T) {
 // TestWaitForBlockWaitsForFlush verifies that a reader waiting on a block wakes
 // up once a Flush makes it durable.
 func TestWaitForBlockWaitsForFlush(t *testing.T) {
-	store, batches := newDurableTestStore(t)
+	store, batches := newTestStore(t)
 
 	var got *types.RoadBlock
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
@@ -138,7 +139,7 @@ func TestWaitForBlockReadsStoredBlocksAfterReopen(t *testing.T) {
 // TestWaitForBlockBelowFirstIsPruned verifies that WaitForBlock refuses a block
 // below the retention floor, even one it still has cached.
 func TestWaitForBlockBelowFirstIsPruned(t *testing.T) {
-	store, batches := newDurableTestStore(t)
+	store, batches := newTestStore(t)
 	_, keys := buildCommittee()
 	for _, b := range batches {
 		writeBatch(t, store, b)

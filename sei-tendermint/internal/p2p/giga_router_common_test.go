@@ -196,10 +196,10 @@ func newAppHashTestRouter(
 	return app, hashBuilder, state, router, newTestExecutor(cfg, db)
 }
 
-// TestExecutionRunsAheadOfAppHashProposal verifies that execution does not wait
-// for consensus: the executor commits every durable block while no app hash is
-// being proposed, and proposal then catches up from the app hash builder.
-func TestExecutionRunsAheadOfAppHashProposal(t *testing.T) {
+// TestExecutionRunsAheadOfAppHashPush verifies that execution does not wait for
+// consensus: the executor commits every durable block while no app hash is being
+// pushed, and the push then catches up from the app hash builder.
+func TestExecutionRunsAheadOfAppHashPush(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
 	app, hashBuilder, state, router, executor := newAppHashTestRouter(t, rng, key)
@@ -225,8 +225,8 @@ func TestExecutionRunsAheadOfAppHashProposal(t *testing.T) {
 		if _, err := app.WaitForBlocks(ctx, 3); err != nil {
 			return err
 		}
-		s.SpawnBgNamed("proposeAppHashes", func() error {
-			return utils.IgnoreCancel(router.runProposeAppHashes(ctx))
+		s.SpawnBgNamed("pushAppHashes", func() error {
+			return utils.IgnoreCancel(router.runPushAppHashes(ctx))
 		})
 		if _, err := state.AppVote(ctx, qc3.Index()); err != nil {
 			return fmt.Errorf("AppVote(%v): %w", qc3.Index(), err)
@@ -235,10 +235,10 @@ func TestExecutionRunsAheadOfAppHashProposal(t *testing.T) {
 	}))
 }
 
-// TestProposeAppHashesResumesAtNextAppProposal pins the restart path: the app
-// hashes of blocks executed but not yet proposed come from the app hash builder,
+// TestPushAppHashesResumesAtNextAppProposal pins the restart path: the app
+// hashes of blocks executed but not yet pushed come from the app hash builder,
 // with no executor running.
-func TestProposeAppHashesResumesAtNextAppProposal(t *testing.T) {
+func TestPushAppHashesResumesAtNextAppProposal(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
 	_, hashBuilder, state, router, _ := newAppHashTestRouter(t, rng, key)
@@ -259,8 +259,8 @@ func TestProposeAppHashesResumesAtNextAppProposal(t *testing.T) {
 		for n := state.NextAppProposal(); n <= last; n++ {
 			hashBuilder.add(testAppHashData(n))
 		}
-		s.SpawnBgNamed("proposeAppHashes", func() error {
-			return utils.IgnoreCancel(router.runProposeAppHashes(ctx))
+		s.SpawnBgNamed("pushAppHashes", func() error {
+			return utils.IgnoreCancel(router.runPushAppHashes(ctx))
 		})
 		if _, err := state.AppVote(ctx, last); err != nil {
 			return fmt.Errorf("AppVote(%v): %w", last, err)

@@ -28,17 +28,17 @@ type Store struct {
 	// types.BlockStore contract). None means the store is empty.
 	status utils.Mutex[*utils.Option[types.SuffixRange]]
 
-	// durable tracks which written blocks a Flush has made durable. Lock order:
-	// status before durable.
-	durable utils.Watch[*durableBlocks]
+	// recent holds the latest written blocks and how far a Flush has made them
+	// durable. Lock order: status before recent.
+	recent utils.Watch[*recentBlocks]
 }
 
-// durableBlocks is the durable tip and the latest written blocks.
-type durableBlocks struct {
-	// next is the lowest road whose block is not durable yet.
-	next types.RoadIndex
-	// recent holds up to recentBlocksCacheSize of the latest written blocks, by road.
-	recent map[types.RoadIndex]*types.RoadBlock
+// recentBlocks is the latest written blocks and the durable tip.
+type recentBlocks struct {
+	// blocks holds up to recentBlocksCacheSize of the latest written blocks, by road.
+	blocks map[types.RoadIndex]*types.RoadBlock
+	// nextDurable is the lowest road whose block is not durable yet.
+	nextDurable types.RoadIndex
 }
 
 // New returns a block store backed by db, recovering its write cursors from the
@@ -46,9 +46,9 @@ type durableBlocks struct {
 // does not close db when it returns an error.
 func New(db blocktypes.BlockDB) (*Store, error) {
 	s := &Store{
-		db:      db,
-		status:  utils.NewMutex(new(utils.Option[types.SuffixRange])),
-		durable: utils.NewWatch(&durableBlocks{recent: map[types.RoadIndex]*types.RoadBlock{}}),
+		db:     db,
+		status: utils.NewMutex(new(utils.Option[types.SuffixRange])),
+		recent: utils.NewWatch(&recentBlocks{blocks: map[types.RoadIndex]*types.RoadBlock{}}),
 	}
 	suffix, err := s.ReadSuffix()
 	if err != nil {
@@ -58,8 +58,8 @@ func New(db blocktypes.BlockDB) (*Store, error) {
 		*status = suffix.Status
 	}
 	next := s.nextBlock()
-	for durable := range s.durable.Lock() {
-		durable.next = next
+	for recent := range s.recent.Lock() {
+		recent.nextDurable = next
 	}
 	Global.pruneWatermarkAt().Set(utils.Clamp[int64](db.GetPruneWatermark()))
 	return s, nil
@@ -92,10 +92,10 @@ func (s *Store) WriteBlock(block *types.RoadBlock) error {
 		}
 		current.NextBlock = index + 1
 		*status = utils.Some(current)
-		for durable := range s.durable.Lock() {
-			durable.recent[index] = block
+		for recent := range s.recent.Lock() {
+			recent.blocks[index] = block
 			if index >= recentBlocksCacheSize {
-				delete(durable.recent, index-recentBlocksCacheSize)
+				delete(recent.blocks, index-recentBlocksCacheSize)
 			}
 		}
 		return nil
@@ -192,8 +192,8 @@ func (s *Store) Flush() error {
 	if err := s.db.Flush(); err != nil {
 		return fmt.Errorf("failed to flush block db: %w", err)
 	}
-	for durable, ctrl := range s.durable.Lock() {
-		durable.next = max(durable.next, next)
+	for recent, ctrl := range s.recent.Lock() {
+		recent.nextDurable = max(recent.nextDurable, next)
 		ctrl.Updated()
 	}
 	return nil
@@ -210,14 +210,14 @@ func (s *Store) nextBlock() types.RoadIndex {
 // WaitForBlock returns the block of road n, waiting until a Flush has made it
 // durable. It returns ErrPruned when n is below First.
 func (s *Store) WaitForBlock(ctx context.Context, n types.RoadIndex) (*types.RoadBlock, error) {
-	for durable, ctrl := range s.durable.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return n < durable.next }); err != nil {
+	for recent, ctrl := range s.recent.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < recent.nextDurable }); err != nil {
 			return nil, err
 		}
 		if n < s.First() {
 			return nil, fmt.Errorf("block %d: %w", n, types.ErrPruned)
 		}
-		if block, ok := durable.recent[n]; ok {
+		if block, ok := recent.blocks[n]; ok {
 			return block, nil
 		}
 	}

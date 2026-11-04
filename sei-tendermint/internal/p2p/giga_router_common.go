@@ -188,10 +188,10 @@ func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes
 	}
 }
 
-// runProposeAppHashes proposes the app hash of each executed block, in road
-// order from the data layer's next app proposal. It waits on the app hash
-// builder for each one, so it never runs ahead of execution.
-func (r *gigaRouterCommon) runProposeAppHashes(ctx context.Context) error {
+// runPushAppHashes pushes the app hash of each executed block to the data layer,
+// in road order from its next app proposal. It waits on the app hash builder for
+// each one, so it never runs ahead of execution.
+func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context) error {
 	for n := r.data.NextAppProposal(); ; n++ {
 		entry, err := r.cfg.AppHashBuilder.GetAppHash(ctx, uint64(n))
 		if err != nil {
