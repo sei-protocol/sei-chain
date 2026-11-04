@@ -206,8 +206,8 @@ func (env *testEnv) Run(ctx context.Context) error {
 					return err
 				}
 				// Check that adding first transaction to the previous block would exceed the limit.
-				// The lane's first block may be sealed empty, which leaves stats empty.
-				if laneBlocks > 0 && stats.count > 0 {
+				// The lane's first block may be sealed empty, so either block may have no txs.
+				if laneBlocks > 0 && stats.count > 0 && len(laneBlock.Payload().Txs()) > 0 {
 					tx, err := decodeTxSpec(laneBlock.Payload().Txs()[0])
 					if err != nil {
 						return fmt.Errorf("decodeTxSpec(): %w", err)
