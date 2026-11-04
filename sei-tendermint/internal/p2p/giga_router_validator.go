@@ -81,7 +81,6 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			selfAddr:           utils.Some(selfAddr),
 			liveAddrs:          utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
 			liveAddrVersion:    utils.NewAtomicSend(uint64(0)),
-			executed:           utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: utils.Clamp[atypes.RoadIndex](cfg.App.LastBlockHeight())})),
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
 		consensus:    consensusState,
@@ -102,7 +101,7 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
 		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
-		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
+		s.SpawnNamed("proposeAppHashes", func() error { return r.runProposeAppHashes(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		return nil
 	})

@@ -3,6 +3,7 @@
 package blockstore
 
 import (
+	"context"
 	"fmt"
 
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
@@ -11,6 +12,10 @@ import (
 )
 
 var _ types.BlockStore = (*Store)(nil)
+
+// recentBlocksCacheSize is how many of the most recently flushed blocks Store
+// keeps in memory for EVMBlock.
+const recentBlocksCacheSize = 256
 
 // Store implements the consensus block store contract on top of any
 // blocktypes.BlockDB. It owns what the storage layer is deliberately ignorant
@@ -22,19 +27,49 @@ type Store struct {
 	// status is the explicit write-order/recovery suffix status (see the
 	// types.BlockStore contract). None means the store is empty.
 	status utils.Mutex[*utils.Option[types.SuffixRange]]
+
+	// executionBuffer holds the blocks on their way to execution. Lock order:
+	// status before executionBuffer.
+	executionBuffer utils.Mutex[*executionBuffer]
+
+	// flushing serializes Flush and holds the blocks the running Flush is making
+	// durable, so blocks reach executionBuffer in road order. Lock order: flushing
+	// before executionBuffer.
+	flushing utils.Mutex[*[]*types.RoadBlock]
+
+	// nextDurable is the lowest road whose block is not durable yet.
+	nextDurable utils.AtomicSend[types.RoadIndex]
+}
+
+// executionBuffer holds written blocks until a Flush makes them durable, then
+// keeps the latest durable ones in memory for EVMBlock.
+type executionBuffer struct {
+	// unflushed holds the blocks written since the last Flush, in road order.
+	unflushed []*types.RoadBlock
+	// durable holds up to recentBlocksCacheSize of the latest durable blocks, by road.
+	durable map[types.RoadIndex]*types.RoadBlock
 }
 
 // New returns a block store backed by db, recovering its write cursors from the
 // records already in db. The store takes ownership of db: Close closes it. New
 // does not close db when it returns an error.
 func New(db blocktypes.BlockDB) (*Store, error) {
-	s := &Store{db: db, status: utils.NewMutex(new(utils.Option[types.SuffixRange]))}
+	s := &Store{
+		db:              db,
+		status:          utils.NewMutex(new(utils.Option[types.SuffixRange])),
+		executionBuffer: utils.NewMutex(&executionBuffer{durable: map[types.RoadIndex]*types.RoadBlock{}}),
+		flushing:        utils.NewMutex(new([]*types.RoadBlock)),
+		nextDurable:     utils.NewAtomicSend(types.RoadIndex(0)),
+	}
 	suffix, err := s.ReadSuffix()
 	if err != nil {
 		return nil, fmt.Errorf("ReadSuffix(): %w", err)
 	}
 	for status := range s.status.Lock() {
 		*status = suffix.Status
+	}
+	if current, ok := suffix.Status.Get(); ok {
+		s.nextDurable.Store(current.NextBlock)
 	}
 	Global.pruneWatermarkAt().Set(utils.Clamp[int64](db.GetPruneWatermark()))
 	return s, nil
@@ -67,6 +102,9 @@ func (s *Store) WriteBlock(block *types.RoadBlock) error {
 		}
 		current.NextBlock = index + 1
 		*status = utils.Some(current)
+		for buffer := range s.executionBuffer.Lock() {
+			buffer.unflushed = append(buffer.unflushed, block)
+		}
 		return nil
 	}
 	panic("unreachable")
@@ -156,10 +194,68 @@ func (s *Store) First() types.RoadIndex {
 }
 
 func (s *Store) Flush() error {
-	if err := s.db.Flush(); err != nil {
-		return fmt.Errorf("failed to flush block db: %w", err)
+	for batch := range s.flushing.Lock() {
+		for buffer := range s.executionBuffer.Lock() {
+			*batch, buffer.unflushed = buffer.unflushed, nil
+		}
+		err := s.db.Flush()
+		if err != nil {
+			for buffer := range s.executionBuffer.Lock() {
+				buffer.unflushed = append(*batch, buffer.unflushed...)
+			}
+		} else {
+			s.publishDurable(*batch)
+		}
+		*batch = nil
+		if err != nil {
+			return fmt.Errorf("failed to flush block db: %w", err)
+		}
+		return nil
 	}
-	return nil
+	panic("unreachable")
+}
+
+// publishDurable caches blocks, which a Flush has just made durable, and moves
+// the durable tip past the last of them.
+func (s *Store) publishDurable(blocks []*types.RoadBlock) {
+	if len(blocks) == 0 {
+		return
+	}
+	for buffer := range s.executionBuffer.Lock() {
+		for _, block := range blocks {
+			n := block.QC().Index()
+			buffer.durable[n] = block
+			if n >= recentBlocksCacheSize {
+				delete(buffer.durable, n-recentBlocksCacheSize)
+			}
+		}
+		s.nextDurable.Store(blocks[len(blocks)-1].QC().Index() + 1)
+	}
+}
+
+// EVMBlock returns the block of road n for EVM execution, waiting until a Flush
+// has made it durable. It returns ErrPruned when n is below First.
+func (s *Store) EVMBlock(ctx context.Context, n types.RoadIndex) (*types.RoadBlock, error) {
+	if _, err := s.nextDurable.Subscribe().Wait(ctx, func(next types.RoadIndex) bool { return n < next }); err != nil {
+		return nil, err
+	}
+	if n < s.First() {
+		return nil, fmt.Errorf("block %d: %w", n, types.ErrPruned)
+	}
+	for buffer := range s.executionBuffer.Lock() {
+		if block, ok := buffer.durable[n]; ok {
+			return block, nil
+		}
+	}
+	stored, err := s.ReadBlock(n)
+	if err != nil {
+		return nil, fmt.Errorf("ReadBlock(%d): %w", n, err)
+	}
+	block, ok := stored.Get()
+	if !ok {
+		return nil, fmt.Errorf("EVM block %d: %w", n, types.ErrNotFound)
+	}
+	return block, nil
 }
 
 func (s *Store) Status() utils.Option[types.SuffixRange] {

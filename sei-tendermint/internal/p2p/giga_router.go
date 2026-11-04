@@ -39,15 +39,14 @@ type GigaRouterCommonConfig struct {
 	// (BlockDB, epoch snapshots, and the validator's consensus persister in
 	// sibling subdirs). Required and must already exist.
 	PersistentStateDir string
-	// App is the ABCI proxy executeBlock drives. NewGigaValidatorRouter
-	// also passes it to producer.NewState so the producer's internal
-	// mempool drives the same proxy.
+	// App is the application the blocks run on. The router reads its committed
+	// height and validator set, and NewGigaValidatorRouter passes it to the
+	// producer's mempool.
 	App *proxy.Proxy
 	// AppHashBuilder is the source of every Autobahn application hash. The
-	// storage manager owns it. The router reports each block hash to it before
-	// execution, and reads each block's app hash from it. Currently app hashes
-	// are computed per lane block, but in the future they may be computed once
-	// per superblock.
+	// storage manager owns it. The router proposes each executed block's app
+	// hash from it. Currently app hashes are computed per lane block, but in the
+	// future they may be computed once per superblock.
 	AppHashBuilder builder.AppHashBuilder
 	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
 	// peers. 0 rejects all; positive caps at n, up to maxInboundFullnodePeers.
@@ -75,8 +74,6 @@ type GigaRouter interface {
 	Run(ctx context.Context) error
 	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
 	LastCommittedBlockNumber() int64
-	// ExecutedBlocks publishes the recently committed blocks as they are committed to the app.
-	ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks]
 	MaxGasEstimatedPerBlock() uint64
 	BlockByNumber(ctx context.Context, n atypes.RoadIndex) (*coretypes.ResultBlock, error)
 	BlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error)
