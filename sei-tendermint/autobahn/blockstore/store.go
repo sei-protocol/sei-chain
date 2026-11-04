@@ -5,6 +5,7 @@ package blockstore
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -12,10 +13,6 @@ import (
 )
 
 var _ types.BlockStore = (*Store)(nil)
-
-// recentBlocksCacheSize is how many of the most recently written blocks Store
-// keeps in memory for WaitForBlock.
-const recentBlocksCacheSize = 256
 
 // Store implements the consensus block store contract on top of any
 // blocktypes.BlockDB. It owns what the storage layer is deliberately ignorant
@@ -28,14 +25,14 @@ type Store struct {
 	// types.BlockStore contract). None means the store is empty.
 	status utils.Mutex[*utils.Option[types.SuffixRange]]
 
-	// recent holds the latest written blocks and how far a Flush has made them
-	// durable. Lock order: status before recent.
+	// recent holds the blocks written since the last AppQC and how far a Flush
+	// has made them durable. Lock order: status before recent.
 	recent utils.Watch[*recentBlocks]
 }
 
-// recentBlocks is the latest written blocks and the durable tip.
+// recentBlocks is the blocks written since the last AppQC and the durable tip.
 type recentBlocks struct {
-	// blocks holds up to recentBlocksCacheSize of the latest written blocks, by road.
+	// blocks holds every block written from the last AppQC's road on, by road.
 	blocks map[types.RoadIndex]*types.RoadBlock
 	// nextDurable is the lowest road whose block is not durable yet.
 	nextDurable types.RoadIndex
@@ -94,9 +91,6 @@ func (s *Store) WriteBlock(block *types.RoadBlock) error {
 		*status = utils.Some(current)
 		for recent := range s.recent.Lock() {
 			recent.blocks[index] = block
-			if index >= recentBlocksCacheSize {
-				delete(recent.blocks, index-recentBlocksCacheSize)
-			}
 		}
 		return nil
 	}
@@ -124,6 +118,11 @@ func (s *Store) WriteAppQC(appQC *types.AppQC) error {
 		current.First = index
 		current.NextAppQC = index + 1
 		*status = utils.Some(current)
+		// An AppQC follows the local AppProposal, which follows local execution,
+		// so execution needs no block below it.
+		for recent := range s.recent.Lock() {
+			maps.DeleteFunc(recent.blocks, func(n types.RoadIndex, _ *types.RoadBlock) bool { return n < index })
+		}
 		return nil
 	}
 	panic("unreachable")
@@ -213,9 +212,6 @@ func (s *Store) WaitForBlock(ctx context.Context, n types.RoadIndex) (*types.Roa
 	for recent, ctrl := range s.recent.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < recent.nextDurable }); err != nil {
 			return nil, err
-		}
-		if n < s.First() {
-			return nil, fmt.Errorf("block %d: %w", n, types.ErrPruned)
 		}
 		if block, ok := recent.blocks[n]; ok {
 			return block, nil

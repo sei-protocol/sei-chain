@@ -91,6 +91,47 @@ func TestWaitForBlockKeepsBlocksAcrossAFailedFlush(t *testing.T) {
 	require.Equal(t, batches[0].qc.Header().Hash(), got.Header().Hash())
 }
 
+// countingReadsDB is a BlockDB that counts the blocks read from it by number.
+type countingReadsDB struct {
+	blocktypes.BlockDB
+	reads *atomic.Int64
+}
+
+func (d countingReadsDB) GetBlockByNumber(n blocktypes.BlockNumber) (blocktypes.BlockRecord, bool, error) {
+	d.reads.Add(1)
+	return d.BlockDB.GetBlockByNumber(n)
+}
+
+// TestWaitForBlockServesBlocksSinceTheLastAppQCFromMemory verifies that blocks
+// from the last AppQC on are served without reading the BlockDB, and blocks
+// below it are read back from it.
+func TestWaitForBlockServesBlocksSinceTheLastAppQCFromMemory(t *testing.T) {
+	var reads atomic.Int64
+	store, err := blockstore.New(countingReadsDB{BlockDB: memblock.NewBlockDB(), reads: &reads})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	for _, b := range batches {
+		writeBatch(t, store, b)
+	}
+	writeAppData(t, store, utils.TestRng(), keys, batches[:2])
+	require.NoError(t, store.Flush())
+
+	reads.Store(0)
+	for _, b := range batches[1:] {
+		got, err := store.WaitForBlock(canceledContext(t), b.first)
+		require.NoError(t, err)
+		require.Equal(t, b.qc.Header().Hash(), got.Header().Hash())
+	}
+	require.Equal(t, int64(0), reads.Load())
+
+	got, err := store.WaitForBlock(canceledContext(t), batches[0].first)
+	require.NoError(t, err)
+	require.Equal(t, batches[0].qc.Header().Hash(), got.Header().Hash())
+	require.Equal(t, int64(1), reads.Load())
+}
+
 // TestWaitForBlockWaitsForFlush verifies that a reader waiting on a block wakes
 // up once a Flush makes it durable.
 func TestWaitForBlockWaitsForFlush(t *testing.T) {
@@ -137,7 +178,7 @@ func TestWaitForBlockReadsStoredBlocksAfterReopen(t *testing.T) {
 }
 
 // TestWaitForBlockBelowFirstIsPruned verifies that WaitForBlock refuses a block
-// below the retention floor, even one it still has cached.
+// below the retention floor.
 func TestWaitForBlockBelowFirstIsPruned(t *testing.T) {
 	store, batches := newTestStore(t)
 	_, keys := buildCommittee()
