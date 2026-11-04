@@ -5,7 +5,8 @@ import (
 	"testing"
 	"time"
 
-	blocktestutil "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/testutil"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -15,7 +16,7 @@ import (
 )
 
 func newTestDataState(t testing.TB, cfg *data.Config) *data.State {
-	store := blocktestutil.New(t)
+	store := blockstore.NewTestStore(t)
 	return utils.OrPanic1(data.NewState(cfg, store))
 }
 

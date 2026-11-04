@@ -10,10 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	blocktestutil "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/testutil"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
@@ -252,7 +253,7 @@ func newTestEnv(t testing.TB, rng utils.Rng, cfg *Config, app *proxy.Proxy) *tes
 
 func newTestEnvN(t testing.TB, rng utils.Rng, n int, cfg *Config, app *proxy.Proxy) (*testEnv, *epoch.Registry, []types.SecretKey) {
 	registry, keys := epoch.GenRegistry(rng, n)
-	store := blocktestutil.New(t)
+	store := blockstore.NewTestStore(t)
 	dataState := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, store))
 	consensusState := utils.OrPanic1(consensus.NewState(&consensus.Config{
 		Key:                keys[0],

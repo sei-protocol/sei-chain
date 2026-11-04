@@ -8,7 +8,8 @@ import (
 	"testing/synctest"
 	"time"
 
-	blocktestutil "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/testutil"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -405,7 +406,7 @@ func TestRestoreInnerNextEpoch(t *testing.T) {
 			}
 			qc := types.NewCommitQC(votes)
 			fullQC := types.NewFullCommitQC(qc, []*types.BlockHeader{blocks[0].Header()})
-			store := blocktestutil.New(t)
+			store := blockstore.NewTestStore(t)
 			t.Cleanup(func() { _ = store.Close() })
 			require.NoError(t, store.WriteBlock(types.NewRoadBlock(fullQC, blocks)))
 			app := types.NewAppProposal(qc.View(), types.GenAppHash(rng))

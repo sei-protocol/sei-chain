@@ -32,7 +32,7 @@ type Config struct {
 func DefaultConfig(dir string) (*Config, error) {
 	littConfig, err := littdb.DefaultConfig(dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build litt config: %w", err)
+		return nil, fmt.Errorf("littdb.DefaultConfig(): %w", err)
 	}
 	return &Config{
 		Litt:          littConfig,

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
-	blocktestutil "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/testutil"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
@@ -32,7 +31,7 @@ func newTestBlockStore(t *testing.T, dir string) *blockstore.Store {
 }
 
 func newTestDataState(t testing.TB, registry *epoch.Registry) *data.State {
-	store := blocktestutil.New(t)
+	store := blockstore.NewTestStore(t)
 	return utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, store))
 }
 

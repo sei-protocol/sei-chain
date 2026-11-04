@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	blocktestutil "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/testutil"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
@@ -64,7 +65,7 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 			EVMRPC:   *utils.OrPanic1(url.Parse("ws://127.0.0.1:8546")),
 		},
 	}
-	blockStore := blocktestutil.New(t)
+	blockStore := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, blockStore.Close()) })
 	app := proxy.New(&abci.BaseApplication{})
 	commonCfg := p2p.GigaRouterCommonConfig{

@@ -1,10 +1,11 @@
 package blockstore
 
 import (
+	"encoding/binary"
 	"strconv"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/internal/blocktest"
+	litttypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -15,13 +16,13 @@ func TestLaneBlockRoundTrip(t *testing.T) {
 	rng := utils.TestRngFromSeed(1)
 	for range 16 {
 		blk := types.GenBlock(rng)
-		value := encodeLaneBlock(blk)
+		value := types.BlockConv.Marshal(blk)
 		decoded, err := decodeLaneBlock(value)
 		require.NoError(t, err)
 		// Header hash uniquely identifies a block; equal hash => same block.
 		require.Equal(t, blk.Header().Hash(), decoded.Header().Hash())
 		// Re-encoding the decoded block must reproduce the same bytes.
-		require.Equal(t, value, encodeLaneBlock(decoded))
+		require.Equal(t, value, types.BlockConv.Marshal(decoded))
 	}
 }
 
@@ -29,11 +30,11 @@ func TestQCRoundTrip(t *testing.T) {
 	rng := utils.TestRngFromSeed(2)
 	for range 16 {
 		qc := types.GenFullCommitQC(rng)
-		value := encodeQC(qc)
+		value := types.FullCommitQCConv.Marshal(qc)
 		decoded, err := decodeQC(value)
 		require.NoError(t, err)
 		// Re-encoding the decoded QC must reproduce the same bytes.
-		require.Equal(t, value, encodeQC(decoded))
+		require.Equal(t, value, types.FullCommitQCConv.Marshal(decoded))
 	}
 }
 
@@ -81,11 +82,21 @@ func TestBlockEncodingMatchesPersistedLayout(t *testing.T) {
 			qc := types.GenFullCommitQCAt(rng, 7, count)
 			qc = types.NewFullCommitQC(qc.QC(), headers)
 			block := types.NewRoadBlock(qc, lanes)
-			fixture := blocktest.BlockRecord{Index: qc.Index(), Hash: block.Header().Hash(), QC: encodeQC(qc)}
-			for _, lane := range lanes {
-				fixture.LaneBlocks = append(fixture.LaneBlocks, encodeLaneBlock(lane))
+			hash := block.Header().Hash()
+			want := record{Key: (blockKey{Index: qc.Index()}).encode()}
+			want.Value = binary.BigEndian.AppendUint64(want.Value, uint64(qc.Index()))
+			want.Value = append(want.Value, hash[:]...)
+			appendValue := func(value []byte, key ledgerKey) {
+				want.Value = binary.BigEndian.AppendUint32(want.Value, uint32(len(value)))
+				offset := uint32(len(want.Value))
+				want.Value = append(want.Value, value...)
+				want.Aliases = append(want.Aliases, &litttypes.SecondaryKey{Key: key.bytes(), Offset: offset, Length: uint32(len(value))})
 			}
-			want := encodeFixtureBlock(fixture)
+			appendValue(types.FullCommitQCConv.Marshal(qc), (qcKey{Index: qc.Index()}).encode())
+			for i, lane := range lanes {
+				appendValue(types.BlockConv.Marshal(lane), (laneBlockKey{Index: qc.Index(), Offset: uint64(i)}).encode())
+			}
+			want.Aliases = append(want.Aliases, &litttypes.SecondaryKey{Key: (blockHashKey{Hash: hash}).encode().bytes(), Length: uint32(len(want.Value))})
 			got := encodeBlock(block)
 			require.Equal(t, want, got)
 			decoded, err := decodeBlock(got.Value)

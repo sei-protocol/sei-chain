@@ -11,7 +11,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
-	blocktestutil "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/testutil"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -66,7 +65,7 @@ func newTestBlockStore(t *testing.T, dir string) *blockstore.Store {
 
 func newTestStore(t testing.TB) *blockstore.Store {
 	t.Helper()
-	store := blocktestutil.New(t)
+	store := blockstore.NewTestStore(t)
 	t.Cleanup(func() { _ = store.Close() })
 	return store
 }

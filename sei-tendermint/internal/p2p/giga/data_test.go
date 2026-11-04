@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+
 	dto "github.com/prometheus/client_model/go"
-	blocktestutil "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore/testutil"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -29,7 +30,7 @@ func defaultViewTimeout(view types.View) time.Duration { return time.Hour }
 
 func newTestNode(t testing.TB, registry *epoch.Registry, cfg *consensus.Config) *testNode {
 	cfg.PersistentStateDir = utils.None[string]()
-	store := blocktestutil.New(t)
+	store := blockstore.NewTestStore(t)
 	dataState, err := data.NewState(&data.Config{Registry: registry}, store)
 	if err != nil {
 		panic(fmt.Sprintf("data.NewState: %v", err))
