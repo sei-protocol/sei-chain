@@ -55,7 +55,6 @@ However, there are a number of other places where we could potentially provide a
 for custom web assembly contracts,to be added after the original integration work. Some other
 important use cases that will need different adapters:
 
-* **IBC verification function** The current ICS23 spec mentions wasm uploaded code to verify external proofs. This should be easily creatable with a custom interface .
 * **Delegation Rewards** Support different commission to different validators based on on-chain rules.
 * **Signature Verification** Allow uploading new algorithms, like `ed25519` or `BLS`. These would obviously need to be enabled by a governance vote.
 

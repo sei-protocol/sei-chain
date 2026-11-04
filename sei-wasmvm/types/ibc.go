@@ -1,29 +1,5 @@
 package types
 
-type IBCEndpoint struct {
-	PortID    string `json:"port_id"`
-	ChannelID string `json:"channel_id"`
-}
-
-type IBCChannel struct {
-	Endpoint             IBCEndpoint `json:"endpoint"`
-	CounterpartyEndpoint IBCEndpoint `json:"counterparty_endpoint"`
-	Order                IBCOrder    `json:"order"`
-	Version              string      `json:"version"`
-	ConnectionID         string      `json:"connection_id"`
-}
-
-// TODO: test what the sdk Order.String() represents and how to parse back
-// Proto files: https://github.com/cosmos/cosmos-sdk/blob/v0.40.0/proto/ibc/core/channel/v1/channel.proto#L69-L80
-// Auto-gen code: https://github.com/cosmos/cosmos-sdk/blob/v0.40.0/x/ibc/core/04-channel/types/channel.pb.go#L70-L101
-type IBCOrder = string
-
-// These are the only two valid values for IbcOrder
-const (
-	Unordered = "ORDER_UNORDERED"
-	Ordered   = "ORDER_ORDERED"
-)
-
 // IBCTimeoutBlock Height is a monotonically increasing data type
 // that can be compared against another Height for the purposes of updating and
 // freezing clients.
