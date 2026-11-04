@@ -46,6 +46,13 @@ halt-height = {{ .BaseConfig.HaltHeight }}
 # mempool gossip, and state sync are disabled from startup.
 freeze-height = {{ .BaseConfig.FreezeHeight }}
 
+# Ingress runs a full node that serves EVM traffic with bounded memory: the EVM HTTP/WebSocket
+# servers stay on, while the REST API, the transaction index and state-sync snapshot production are
+# off, and state, blocks and receipts are kept for the last 1000 blocks. P2P and the mempool are
+# unchanged. The node must be bootstrapped with state sync ([statesync] in config.toml) from a node
+# past the EVM migration; it refuses to build state from genesis.
+ingress = {{ .BaseConfig.Ingress }}
+
 # HaltTime contains a non-zero minimum block time (in Unix seconds) at which
 # a node will gracefully halt and shutdown that can be used to assist upgrades
 # and testing.

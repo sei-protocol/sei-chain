@@ -189,6 +189,36 @@ func DefaultConfig() *Config {
 	return cfg
 }
 
+// ApplyLowMemoryProfile bounds the read caches, Pebble block caches, memtables and write backlogs of
+// the four databases for a node that serves only current state.
+func (c *Config) ApplyLowMemoryProfile() {
+	c.AccountStoreConfig.MaxSize = 256 * unit.MB
+	c.CodeStoreConfig.MaxSize = 64 * unit.MB
+	c.StorageStoreConfig.MaxSize = 512 * unit.MB
+	c.MiscStoreConfig.MaxSize = 128 * unit.MB
+	c.MaxSnapshotLagBlocks = 8
+	c.MiscPoolThreadsPerCore = 1
+
+	for _, store := range []*view.ViewManagerConfig{
+		&c.AccountStoreConfig,
+		&c.CodeStoreConfig,
+		&c.StorageStoreConfig,
+		&c.MiscStoreConfig,
+	} {
+		store.MaxUnflushedVersions = 8
+	}
+	for _, db := range []*pebbledb.PebbleDBConfig{
+		&c.AccountDBConfig,
+		&c.CodeDBConfig,
+		&c.StorageDBConfig,
+		&c.MiscDBConfig,
+	} {
+		db.BlockCacheSize = int64(64 * unit.MB)
+		db.MemTableSize = uint64(32 * unit.MB)
+		db.MemTableStopWritesThreshold = 4
+	}
+}
+
 // Copy returns a deep copy of the Config.
 func (c *Config) Copy() *Config {
 	//  The nested PebbleDB configs are value types, so a shallow struct copy is sufficient.

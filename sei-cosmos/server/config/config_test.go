@@ -147,6 +147,16 @@ func TestValidateBasic(t *testing.T) {
 			},
 			expectErr: true,
 		},
+		{
+			name: "freeze height and ingress",
+			setupCfg: func() *Config {
+				cfg := DefaultConfig()
+				cfg.FreezeHeight = 100
+				cfg.Ingress = true
+				return cfg
+			},
+			expectErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -168,6 +178,16 @@ func TestGetConfigRejectsNegativeFreezeHeight(t *testing.T) {
 
 	_, err := GetConfig(v)
 	require.Error(t, err)
+}
+
+func TestGetConfigReadsIngressIntoStateCommit(t *testing.T) {
+	v := seedViperWithDefaultConfig(t)
+	v.Set("ingress", true)
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	require.True(t, cfg.Ingress)
+	require.True(t, cfg.StateCommit.IngressProfile)
 }
 
 func TestGetMinGasPrices(t *testing.T) {
