@@ -55,6 +55,9 @@ type EVMGovernance struct {
 	// StartingProposalID is the id of the first proposal, so ids continue
 	// past another chain's. Zero means 1.
 	StartingProposalID uint64 `json:"starting_proposal_id,omitzero"`
+	// AppliedUpgrades are the upgrade names the chain starts past, in order;
+	// the last is the upgrade applied last. A plan cannot reuse one.
+	AppliedUpgrades []string `json:"applied_upgrades,omitzero"`
 }
 
 // EVMGovernanceParams are gov's genesis params. Periods are duration strings

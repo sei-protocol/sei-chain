@@ -294,7 +294,7 @@ func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []abci.V
 	if err != nil {
 		return utils.None[precompiles.Registry](), err
 	}
-	return utils.Some(evmonlyapp.NewGovRegistry(params, governance.StartingProposalID, electorate)), nil
+	return utils.Some(evmonlyapp.NewGovRegistry(params, governance.StartingProposalID, electorate, governance.AppliedUpgrades)), nil
 }
 
 // applyExecutionRuntime raises the GC target for a load test. The heap is then capped at 80% of
