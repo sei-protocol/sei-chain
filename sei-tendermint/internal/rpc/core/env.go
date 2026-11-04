@@ -12,10 +12,10 @@ import (
 	"github.com/rs/cors"
 	"github.com/sei-protocol/seilog"
 
-	"github.com/sei-protocol/sei-chain/giga/blockexecutor"
 	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -89,7 +89,7 @@ type Environment struct {
 
 	Router *p2p.Router
 	// Executor runs the Autobahn blocks. None when Autobahn is off.
-	Executor utils.Option[*blockexecutor.Executor]
+	Executor utils.Option[*execution.Executor]
 
 	// objects
 	PubKey           utils.Option[crypto.PubKey]

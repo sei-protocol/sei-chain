@@ -1,6 +1,5 @@
-// Package blockexecutor runs the application over the Autobahn blocks the
-// BlockStore has made durable.
-package blockexecutor
+// Package execution runs the application over the blocks the BlockStore has made durable.
+package execution
 
 import (
 	"context"
@@ -13,9 +12,10 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	datametrics "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data/metrics"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -25,35 +25,23 @@ type Blocks interface {
 	EVMBlock(ctx context.Context, n atypes.RoadIndex) (*atypes.RoadBlock, error)
 }
 
-// App is the part of an ABCI application the Executor drives.
-type App interface {
-	Info() *abci.ResponseInfo
-	LastBlockHeight() int64
-	GetValidators() []abci.ValidatorUpdate
-	InitChain(*abci.RequestInitChain) (*abci.ResponseInitChain, error)
-	InitLastHeader(lastHeader *tmproto.Header)
-	FinalizeBlock(context.Context, *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error)
-	Commit(context.Context) (*abci.ResponseCommit, error)
-}
-
 // Config configures an Executor.
 type Config struct {
 	// GenDoc is the genesis a fresh app is initialized from.
 	GenDoc *types.GenesisDoc
 	// App is the application blocks are executed on.
-	App App
+	App *proxy.Proxy
 	// AppHashBuilder receives each block's hash before the block runs.
 	AppHashBuilder builder.AppHashBuilder
 	// Blocks serves the blocks to execute.
 	Blocks Blocks
-	// GasUsed counts the gas used by executed blocks.
-	GasUsed *prometheus.CounterInt
 }
 
 // Executor executes durable blocks on the app, one at a time in road order.
 type Executor struct {
 	cfg      *Config
 	executed utils.AtomicSend[atypes.ExecutedBlocks]
+	gasUsed  *prometheus.CounterInt
 }
 
 // New returns an Executor for cfg.
@@ -63,6 +51,7 @@ func New(cfg *Config) *Executor {
 		executed: utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{
 			Number: utils.Clamp[atypes.RoadIndex](cfg.App.LastBlockHeight()),
 		})),
+		gasUsed: datametrics.Get().GasUsed,
 	}
 }
 
@@ -187,7 +176,7 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error
 		return fmt.Errorf("app.Commit(): %w", err)
 	}
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
-	e.cfg.GasUsed.Add(gasUsed)
+	e.gasUsed.Add(gasUsed)
 	e.executed.Store(e.executed.Load().Push(atypes.ExecutedBlock{
 		Number:  b.Height,
 		GasUsed: utils.Clamp[uint64](gasUsed),

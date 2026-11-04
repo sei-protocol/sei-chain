@@ -10,13 +10,12 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/giga/blockexecutor"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	datametrics "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data/metrics"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
@@ -267,12 +266,11 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 
 // newTestExecutor returns an executor of cfg's app over the blocks store makes
 // durable.
-func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store) *blockexecutor.Executor {
-	return blockexecutor.New(&blockexecutor.Config{
+func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store) *execution.Executor {
+	return execution.New(&execution.Config{
 		GenDoc:         cfg.GenDoc,
 		App:            cfg.App,
 		AppHashBuilder: cfg.AppHashBuilder,
 		Blocks:         store,
-		GasUsed:        datametrics.Get().GasUsed,
 	})
 }

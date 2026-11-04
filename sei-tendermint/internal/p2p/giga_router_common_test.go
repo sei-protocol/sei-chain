@@ -12,7 +12,6 @@ import (
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/giga/apphash"
-	"github.com/sei-protocol/sei-chain/giga/blockexecutor"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -22,6 +21,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -161,7 +161,7 @@ func newAppHashTestRouter(
 	t *testing.T,
 	rng utils.Rng,
 	key atypes.SecretKey,
-) (*testApp, *manualAppHashBuilder, *data.State, *gigaRouterCommon, *blockexecutor.Executor) {
+) (*testApp, *manualAppHashBuilder, *data.State, *gigaRouterCommon, *execution.Executor) {
 	t.Helper()
 	genDoc := &tmtypes.GenesisDoc{
 		ChainID:         "apphash-test",

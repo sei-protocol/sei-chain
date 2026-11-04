@@ -1,19 +1,19 @@
-package blockexecutor
+package execution
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
-	promclient "github.com/prometheus/client_golang/prometheus"
-
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -137,30 +137,17 @@ type testEnv struct {
 	genDoc *types.GenesisDoc
 }
 
-// testRoadBlocks returns count consecutive road blocks of a one-validator
-// committee, each holding one lane block.
-func testRoadBlocks(rng utils.Rng, count int) []*atypes.RoadBlock {
-	committee, keys := atypes.GenCommittee(rng, 1)
-	first := atypes.GenRoadIndex(rng)%1000000 + 2
-	ep := atypes.NewEpoch(0, atypes.RoadRange{First: first, Next: first + atypes.RoadIndex(count)}, committee)
-	lane := committee.Lanes().At(0)
+func newTestEnv(t *testing.T, rng utils.Rng, count int) *testEnv {
+	t.Helper()
+	registry, keys := epoch.GenRegistry(rng, 1)
+	ep := registry.MustEpoch(0)
 	blocks := make([]*atypes.RoadBlock, 0, count)
 	prev := utils.None[*atypes.CommitQC]()
 	for range count {
-		block := atypes.NewBlock(lane, atypes.LaneRangeOpt(prev, lane).Next(), atypes.GenBlockHeaderHash(rng), atypes.GenPayload(rng))
-		laneQC := atypes.NewLaneQC([]*atypes.Signed[*atypes.LaneVote]{atypes.Sign(keys[0], atypes.NewLaneVote(block.Header()))})
-		qc := atypes.BuildCommitQC(ep, keys, prev, map[atypes.LaneID]*atypes.LaneQC{lane: laneQC})
-		full := atypes.NewFullCommitQC(qc, []*atypes.BlockHeader{block.Header()})
-		blocks = append(blocks, atypes.NewRoadBlock(full, []*atypes.Block{block}))
-		prev = utils.Some(qc)
+		qc, laneBlocks := data.TestCommitQC(rng, ep, keys, prev)
+		blocks = append(blocks, atypes.NewRoadBlock(qc, laneBlocks))
+		prev = utils.Some(qc.QC())
 	}
-	return blocks
-}
-
-func newTestEnv(t *testing.T, rng utils.Rng, count int) *testEnv {
-	t.Helper()
-	blocks := testRoadBlocks(rng, count)
-	first := blocks[0].QC().Index()
 	store, err := blockstore.New(memblock.NewBlockDB())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
@@ -170,7 +157,7 @@ func newTestEnv(t *testing.T, rng utils.Rng, count int) *testEnv {
 		blocks: blocks,
 		genDoc: &types.GenesisDoc{
 			ChainID:         testChainID,
-			InitialHeight:   int64(first),
+			InitialHeight:   int64(ep.RoadRange().First),
 			ConsensusParams: types.DefaultConsensusParams(),
 		},
 	}
@@ -192,10 +179,9 @@ func (env *testEnv) write(from, to int, flush bool) error {
 func (env *testEnv) executor(app *recordingApp) *Executor {
 	return New(&Config{
 		GenDoc:         env.genDoc,
-		App:            app,
+		App:            proxy.New(app),
 		AppHashBuilder: recordingBuilder{events: env.events},
 		Blocks:         env.store,
-		GasUsed:        prometheus.NewCounterIntVec(promclient.CounterOpts{Name: "gas_used"}, nil).WithLabelValues(),
 	})
 }
 
