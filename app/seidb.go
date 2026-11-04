@@ -7,6 +7,7 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
@@ -135,6 +136,9 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	}
 	if v := appOpts.Get(FlagSCFlatKVReadWriteMetrics); v != nil {
 		scConfig.FlatKVConfig.EnableReadWriteMetrics = cast.ToBool(v)
+	}
+	if v := appOpts.Get(server.FlagIngress); v != nil {
+		scConfig.IngressProfile = cast.ToBool(v)
 	}
 
 	// sc-write-mode-enable-auto (default true) decides whether the node may run

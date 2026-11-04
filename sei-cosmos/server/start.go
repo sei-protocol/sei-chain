@@ -48,6 +48,7 @@ const (
 	FlagMinGasPrices       = "minimum-gas-prices"
 	FlagHaltHeight         = "halt-height"
 	FlagFreezeHeight       = "freeze-height"
+	FlagIngress            = "ingress"
 	FlagHaltTime           = "halt-time"
 	FlagInterBlockCache    = "inter-block-cache"
 	FlagUnsafeSkipUpgrades = "unsafe-skip-upgrades"
@@ -102,6 +103,11 @@ will not be able to commit subsequent blocks.
 The '--freeze-height' flag puts a full node in read-only freeze mode. Query RPC remains available,
 but transaction and evidence submission, mempool gossip, and state sync are disabled from startup.
 Block sync and consensus stop before executing the configured height.
+The '--ingress' flag runs a full node that serves EVM traffic with bounded memory. The EVM HTTP and
+WebSocket servers stay on; the REST API, the transaction index and state-sync snapshot production are
+turned off, and state, blocks and receipts are kept for the last 100 blocks. P2P and the mempool are
+unchanged. The node must be bootstrapped with state sync from a node past the EVM migration, and it
+refuses to build state from genesis.
 For profiling and benchmarking purposes, CPU profiling can be enabled via the '--cpu-profile' flag
 which accepts a path for the resulting pprof file.
 `,
@@ -205,6 +211,7 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().IntSlice(FlagUnsafeSkipUpgrades, []int{}, "Skip a set of upgrade heights to continue the old binary")
 	cmd.Flags().Uint64(FlagHaltHeight, 0, "Block height at which to gracefully halt the chain and shutdown the node")
 	cmd.Flags().Uint64(FlagFreezeHeight, 0, "Block height at which a full node stops executing while continuing to serve query RPC")
+	cmd.Flags().Bool(FlagIngress, false, "Run a full node that serves EVM traffic over the last 100 blocks with bounded memory; bootstrap it with state sync from a node past the EVM migration")
 	cmd.Flags().Uint64(FlagHaltTime, 0, "Minimum block time (in Unix seconds) at which to gracefully halt the chain and shutdown the node")
 	cmd.Flags().Bool(FlagInterBlockCache, true, "Enable inter-block caching")
 	cmd.Flags().String(flagCPUProfile, "", "Enable CPU profiling and write to the provided file")
@@ -303,6 +310,9 @@ func startInProcess(
 		return err
 	}
 
+	if err := configureIngressProfile(ctx); err != nil {
+		return err
+	}
 	config, err := config.GetConfig(ctx.Viper)
 	if err != nil {
 		return err
@@ -419,6 +429,42 @@ func startInProcess(
 
 	// wait for signal capture and gracefully return
 	return WaitForQuitSignals(goCtx, restartCh)
+}
+
+// ingressLookbackBlocks is how many recent blocks of state, blocks and receipts an ingress node keeps.
+const ingressLookbackBlocks = 100
+
+// configureIngressProfile narrows a node started with --ingress to serving EVM traffic over the last
+// ingressLookbackBlocks blocks, overriding the settings that would serve deeper history, the REST API or
+// snapshots to other nodes.
+func configureIngressProfile(ctx *Context) error {
+	if !ctx.Viper.GetBool(FlagIngress) {
+		return nil
+	}
+	if ctx.Config.Mode != tmcfg.ModeFull {
+		return fmt.Errorf("--%s requires Tendermint mode %q, got %q", FlagIngress, tmcfg.ModeFull, ctx.Config.Mode)
+	}
+	if ctx.Config.AutobahnConfigFile != "" {
+		return fmt.Errorf("--%s is not supported with Autobahn", FlagIngress)
+	}
+
+	ctx.Config.TxIndex.Indexer = []string{"null"}
+	for key, value := range map[string]any{
+		"api.enable":                      false,
+		"state-store.ss-enable":           true,
+		"state-store.ss-keep-recent":      ingressLookbackBlocks,
+		FlagMinRetainBlocks:               uint64(ingressLookbackBlocks),
+		FlagStateSyncSnapshotInterval:     uint64(0),
+		"evm.http_enabled":                true,
+		"evm.ws_enabled":                  true,
+		"evm.enable_simulation":           false,
+		"evm.trace_bake_enabled":          false,
+		"wasm.memory_cache_size":          uint32(16),
+		"light_invariance.supply_enabled": false,
+	} {
+		ctx.Viper.Set(key, value)
+	}
+	return nil
 }
 
 // warnIgnoredStateSyncTrustPeriod logs a warning when v sets [statesync] trust-period to a
