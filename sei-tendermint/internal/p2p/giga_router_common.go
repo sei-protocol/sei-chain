@@ -198,8 +198,10 @@ func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context) error {
 			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", n, err)
 		}
 		// TODO: PushAppHash needs the validator set from right after block n.
-		// GetValidators() is the app tip, which can be past n. Read the next
-		// epoch's validator set from app state once it keeps one.
+		// GetValidators() is the app tip, which can be past n. This is exact only
+		// while the app's validator set never changes, as for the EVM-only and mock
+		// apps Autobahn runs. Read the next epoch's validator set from app state
+		// once it keeps one.
 		weights, err := committeeWeights(r.app.GetValidators())
 		if err != nil {
 			return err
