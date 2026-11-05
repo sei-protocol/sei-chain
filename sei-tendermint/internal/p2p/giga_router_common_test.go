@@ -173,6 +173,30 @@ func newAppHashTestRouter(
 	key atypes.SecretKey,
 ) (*testApp, *manualAppHashBuilder, *data.State, *gigaRouterCommon) {
 	t.Helper()
+	app := newTestApp()
+	hashBuilder, state, router := newAppHashTestRouterOver(t, rng, key, app, newAppHashTestBlockStore(t))
+	return app, hashBuilder, state, router
+}
+
+// newAppHashTestBlockStore returns an empty in-memory block store.
+func newAppHashTestBlockStore(t *testing.T) *blockstore.Store {
+	t.Helper()
+	db, err := blockstore.New(memblock.NewBlockDB())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	return db
+}
+
+// newAppHashTestRouterOver returns a single-validator router over app and db,
+// with a hash store the caller publishes by hand.
+func newAppHashTestRouterOver(
+	t *testing.T,
+	rng utils.Rng,
+	key atypes.SecretKey,
+	app abci.Application,
+	db atypes.BlockStore,
+) (*manualAppHashBuilder, *data.State, *gigaRouterCommon) {
+	t.Helper()
 	genDoc := &tmtypes.GenesisDoc{
 		ChainID:         "apphash-test",
 		InitialHeight:   1,
@@ -182,12 +206,7 @@ func newAppHashTestRouter(
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
-	app := newTestApp()
 	hashBuilder := newManualAppHashBuilder()
-	db, err := blockstore.New(memblock.NewBlockDB())
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-
 	cfg := &GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
@@ -198,7 +217,7 @@ func newAppHashTestRouter(
 	}
 	state, err := BuildDataState(cfg, db)
 	require.NoError(t, err)
-	return app, hashBuilder, state, &gigaRouterCommon{
+	return hashBuilder, state, &gigaRouterCommon{
 		cfg:      cfg,
 		data:     state,
 		app:      cfg.App,

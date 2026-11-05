@@ -147,6 +147,32 @@ func (r *Registry) commit(state *utils.AtomicSend[*persistedRegistry], next *per
 	return nil
 }
 
+// Window returns the epoch state committed with the first block after endEpoch.
+// Its previous epoch is None when this node has pruned endEpoch.
+func (r *Registry) Window(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) (Window, error) {
+	for state := range r.state.Lock() {
+		s := state.Load()
+		prev := utils.None[*types.Epoch]()
+		if endEpoch >= s.liveRange.First {
+			epoch, ok := s.live[endEpoch]
+			if !ok {
+				return Window{}, fmt.Errorf("epoch %d not registered", endEpoch)
+			}
+			prev = utils.Some(epoch)
+		}
+		current, ok := s.live[endEpoch+1]
+		if !ok {
+			return Window{}, fmt.Errorf("epoch %d not registered", endEpoch+1)
+		}
+		next, err := s.deriveNext(endEpoch, weights)
+		if err != nil {
+			return Window{}, err
+		}
+		return NewWindow(prev, current, next)
+	}
+	panic("unreachable")
+}
+
 // StageEpoch derives C_{endEpoch+2} from weights and persists it as pending.
 // A no-op if that epoch is already staged or live with the same committee.
 // An error if it conflicts, if the target is not live.Next, or if endEpoch+1

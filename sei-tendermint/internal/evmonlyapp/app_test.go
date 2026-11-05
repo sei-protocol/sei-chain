@@ -29,6 +29,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -135,6 +137,83 @@ func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 	_, err := app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 	return app
+}
+
+func TestEVMOnlyAppCommitsEpochWindow(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmOnly, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	require.Equal(t, utils.None[epoch.Window](), utils.OrPanic1(loadEpochWindow(evmOnly.storage.SC())))
+
+	window := evmOnlyTestEpochWindow()
+	response, err := evmOnly.FinalizeBlockWithEpochWindow(t.Context(), evmOnlyTestBlock(1), utils.Some(window))
+	require.NoError(t, err)
+	require.NotEmpty(t, response.AppHash)
+	_, err = evmOnly.Commit(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, evmOnly.AwaitCommits())
+
+	got, err := loadEpochWindow(evmOnly.storage.SC())
+	require.NoError(t, err)
+	require.True(t, got.OrPanic("committed epoch window").Equal(window))
+	for _, key := range [][]byte{[]byte(epochWindowPrevKey), []byte(epochWindowCurrentKey), []byte(epochWindowNextKey)} {
+		_, found := evmOnly.storage.SC().Get(epochWindowModule, key)
+		require.True(t, found)
+	}
+	_, found := evmOnly.storage.SC().Get(epochWindowModule, []byte("window"))
+	require.False(t, found)
+}
+
+func TestEVMOnlyAppCompletesPrunedEpochWindow(t *testing.T) {
+	reference := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	pruned := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	base := evmOnlyTestEpochWindow()
+	full := evmOnlyTestShiftedEpochWindow(utils.Some(base.Current()))
+	withoutPrev := evmOnlyTestShiftedEpochWindow(utils.None[*atypes.Epoch]())
+
+	for _, app := range []*evmOnlyApplication{reference, pruned} {
+		_, err := app.FinalizeBlockWithEpochWindow(t.Context(), evmOnlyTestBlock(1), utils.Some(base))
+		require.NoError(t, err)
+		_, err = app.Commit(t.Context())
+		require.NoError(t, err)
+		require.NoError(t, app.AwaitCommits())
+	}
+
+	_, err := reference.FinalizeBlockWithEpochWindow(t.Context(), evmOnlyTestBlock(2), utils.Some(full))
+	require.NoError(t, err)
+	_, err = reference.Commit(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, reference.AwaitCommits())
+	_, err = pruned.FinalizeBlockWithEpochWindow(t.Context(), evmOnlyTestBlock(2), utils.Some(withoutPrev))
+	require.NoError(t, err)
+	_, err = pruned.Commit(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, pruned.AwaitCommits())
+
+	got, err := loadEpochWindow(pruned.storage.SC())
+	require.NoError(t, err)
+	require.True(t, got.OrPanic("committed epoch window").Equal(full))
+	require.Equal(t, epochWindowRows(t, reference), epochWindowRows(t, pruned))
+}
+
+func TestEVMOnlyAppRefusesFirstEpochWindowWithoutPrev(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	withoutPrev := evmOnlyTestShiftedEpochWindow(utils.None[*atypes.Epoch]())
+
+	_, err := app.FinalizeBlockWithEpochWindow(t.Context(), evmOnlyTestBlock(1), utils.Some(withoutPrev))
+	require.ErrorIs(t, err, atypes.ErrPruned)
+	require.Equal(t, utils.None[epoch.Window](), utils.OrPanic1(loadEpochWindow(app.storage.SC())))
+}
+
+func epochWindowRows(t *testing.T, app *evmOnlyApplication) map[string][]byte {
+	t.Helper()
+	rows := map[string][]byte{}
+	for _, key := range []string{epochWindowPrevKey, epochWindowCurrentKey, epochWindowNextKey} {
+		raw, found := app.storage.SC().Get(epochWindowModule, []byte(key))
+		require.True(t, found)
+		rows[key] = raw
+	}
+	return rows
 }
 
 // newUndoLogEVMOnlyTestApp returns an initialized application whose state store

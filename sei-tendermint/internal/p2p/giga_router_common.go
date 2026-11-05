@@ -217,7 +217,8 @@ func (r *gigaRouterCommon) startExecuteBlock(
 ) (pendingExecution, error) {
 	app := r.app
 	var proposerAddress types.Address
-	if vals := app.GetValidators(); len(vals) > 0 {
+	vals := app.GetValidators()
+	if len(vals) > 0 {
 		// Deterministically select a proposer from the app's validator committee.
 		// We need it so that app does not emit error logs.
 		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
@@ -228,7 +229,7 @@ func (r *gigaRouterCommon) startExecuteBlock(
 		proposerAddress = key.Address()
 	}
 
-	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
+	req := &abci.RequestFinalizeBlock{
 		Txs: b.Txs,
 		// Empty DecidedLastCommit does not indicate missing votes.
 		DecidedLastCommit: abci.CommitInfo{},
@@ -244,7 +245,8 @@ func (r *gigaRouterCommon) startExecuteBlock(
 			// because reward is distributed with a delay. This is not our problem here though.
 			ProposerAddress: proposerAddress,
 		}).ToProto(),
-	})
+	}
+	resp, err := r.finalizeBlock(ctx, b.Height, req, vals)
 	if err != nil {
 		return pendingExecution{}, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
@@ -270,6 +272,48 @@ func (r *gigaRouterCommon) startExecuteBlock(
 		number:  b.Height,
 		weights: weights,
 	}, nil
+}
+
+// finalizeBlock finalizes block n on the app. An EVM app also commits the
+// epoch window with n when n is the first road of an epoch.
+func (r *gigaRouterCommon) finalizeBlock(
+	ctx context.Context,
+	n atypes.RoadIndex,
+	req *abci.RequestFinalizeBlock,
+	vals []abci.ValidatorUpdate,
+) (*abci.ResponseFinalizeBlock, error) {
+	evm, ok := r.app.EVM().Get()
+	if !ok {
+		return r.app.FinalizeBlock(ctx, req)
+	}
+	window, err := r.openingEpochWindow(n, vals)
+	if err != nil {
+		return nil, err
+	}
+	return evm.FinalizeBlockWithEpochWindow(ctx, req, window)
+}
+
+// openingEpochWindow returns the epoch window to commit with road n, derived
+// from vals, the validators after the previous road's Commit. It returns None
+// unless n is the first road after an epoch closes.
+func (r *gigaRouterCommon) openingEpochWindow(n atypes.RoadIndex, vals []abci.ValidatorUpdate) (utils.Option[epoch.Window], error) {
+	if n == 0 {
+		return utils.None[epoch.Window](), nil
+	}
+	registry := r.data.Registry()
+	endEpoch, ok := registry.ClosingEpoch(n - 1).Get()
+	if !ok {
+		return utils.None[epoch.Window](), nil
+	}
+	weights, err := committeeWeights(vals)
+	if err != nil {
+		return utils.None[epoch.Window](), err
+	}
+	window, err := registry.Window(endEpoch, weights)
+	if err != nil {
+		return utils.None[epoch.Window](), fmt.Errorf("epoch window for block %v: %w", n, err)
+	}
+	return utils.Some(window), nil
 }
 
 // finishExecuteBlock proposes pending's app hash to the data layer.

@@ -12,7 +12,9 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
@@ -37,6 +39,14 @@ var (
 	testBaseFee         = big.NewInt(7)
 	testMinGasPrice     = big.NewInt(1_000_000_000)
 )
+
+func (app *testEVMApp) FinalizeBlockWithEpochWindow(
+	ctx context.Context,
+	req *abci.RequestFinalizeBlock,
+	_ utils.Option[epoch.Window],
+) (*abci.ResponseFinalizeBlock, error) {
+	return app.FinalizeBlock(ctx, req)
+}
 
 func (app *testEVMApp) EvmCall(_ context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
 	app.gotMsg = msg

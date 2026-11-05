@@ -21,6 +21,7 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -151,6 +152,14 @@ func (app *MockApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci
 
 func (app *MockApp) GetTxPriorityHint(context.Context, *abci.RequestGetTxPriorityHintV2) (*abci.ResponseGetTxPriorityHint, error) {
 	return &abci.ResponseGetTxPriorityHint{}, nil
+}
+
+func (app *MockApp) FinalizeBlockWithEpochWindow(
+	ctx context.Context,
+	req *abci.RequestFinalizeBlock,
+	_ utils.Option[epoch.Window],
+) (*abci.ResponseFinalizeBlock, error) {
+	return app.FinalizeBlock(ctx, req)
 }
 
 func (app *MockApp) EvmNonce(addr common.Address) uint64 {
