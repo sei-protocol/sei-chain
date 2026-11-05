@@ -13,7 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-const maxLaneBlock  = 1000
+const maxLaneBlock = 1000
 const maxRoadBlocks = 100
 
 // ErrOutOfOrder is returned when PushAppHash receives an app hash past the
