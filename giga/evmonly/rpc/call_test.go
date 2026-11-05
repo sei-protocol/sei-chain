@@ -57,8 +57,7 @@ func TestCallHappyPath(t *testing.T) {
 	require.NotNil(t, gotMsg)
 	require.Equal(t, from, gotMsg.From)
 	require.Equal(t, &to, gotMsg.To)
-	require.True(t, gotMsg.SkipNonceChecks)
-	require.True(t, gotMsg.SkipTransactionChecks)
+	requireSimulationChecksSkipped(t, gotMsg)
 	require.Equal(t, uint64(defaultCallGasCap), gotMsg.GasLimit)
 }
 
@@ -249,4 +248,11 @@ func TestCallUndecodableRevertKeepsGenericMessage(t *testing.T) {
 	require.ErrorAs(t, err, &revertErr)
 	require.Equal(t, 3, revertErr.ErrorCode())
 	require.Equal(t, hexutil.Encode(revert), revertErr.ErrorData())
+}
+
+// requireSimulationChecksSkipped checks msg skips the nonce, EOA and gas limit cap checks.
+func requireSimulationChecksSkipped(t *testing.T, msg *core.Message) {
+	t.Helper()
+	want := *msg
+	require.Equal(t, want.SkipNonceCheck().SkipEOACheck().SkipGasLimitCapCheck(), msg)
 }
