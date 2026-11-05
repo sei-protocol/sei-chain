@@ -286,9 +286,13 @@ func newTestEnvN(rng utils.Rng, n int, cfg *Config, app *proxy.Proxy) (*testEnv,
 	}, registry, keys
 }
 
-// waitForMempool waits until the producer publishes a session mempool.
-func (env *testEnv) waitForMempool(ctx context.Context) error {
-	return env.state.WaitForMempool(ctx)
+// waitForMempool returns the next active session mempool.
+func (env *testEnv) waitForMempool(ctx context.Context) (*mempool, error) {
+	mp, err := env.state.mempool.Wait(ctx, func(mp utils.Option[*mempool]) bool { return mp.IsPresent() })
+	if err != nil {
+		return nil, err
+	}
+	return mp.OrPanic("active session"), nil
 }
 
 func TestInsertTx_TooLargeTx(t *testing.T) {
@@ -298,7 +302,7 @@ func TestInsertTx_TooLargeTx(t *testing.T) {
 	env := newTestEnv(rng, app.Cfg(), app.Proxy())
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
-		if err := env.waitForMempool(ctx); err != nil {
+		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
 		}
 
@@ -324,7 +328,7 @@ func TestInsertTx_GasWantedExceeded(t *testing.T) {
 	env := newTestEnv(rng, cfg, app.Proxy())
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
-		if err := env.waitForMempool(ctx); err != nil {
+		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
 		}
 
@@ -354,7 +358,7 @@ func TestInsertTx_GasEstimatedExceeded(t *testing.T) {
 	env := newTestEnv(rng, cfg, app.Proxy())
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
-		if err := env.waitForMempool(ctx); err != nil {
+		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
 		}
 
@@ -382,7 +386,7 @@ func TestInsertTx_AppRejectsTx(t *testing.T) {
 	env := newTestEnv(rng, app.Cfg(), app.Proxy())
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
-		if err := env.waitForMempool(ctx); err != nil {
+		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
 		}
 
@@ -414,7 +418,7 @@ func TestInsertTx_ConcurrentSequentialNonces(t *testing.T) {
 	env := newTestEnv(rng, app.Cfg(), app.Proxy())
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
-		if err := env.waitForMempool(ctx); err != nil {
+		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
 		}
 
@@ -465,7 +469,7 @@ func TestInsertTx_BadNonceRejected(t *testing.T) {
 	env := newTestEnv(rng, app.Cfg(), app.Proxy())
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
-		if err := env.waitForMempool(ctx); err != nil {
+		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
 		}
 
@@ -523,7 +527,7 @@ func TestMempool_HappyPath(t *testing.T) {
 	want := utils.NewMutex(map[common.Address][]*txSpec{})
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("env", func() error { return env.Run(ctx) })
-		if err := env.waitForMempool(ctx); err != nil {
+		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
 		}
 		for range 10 {
@@ -617,7 +621,7 @@ func TestMempool_EvmTxByHash(t *testing.T) {
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("env", func() error { return env.Run(ctx) })
-		if err := env.waitForMempool(ctx); err != nil {
+		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
 		}
 		for _, tx := range txs {
@@ -821,7 +825,7 @@ func TestInsertTx_AdmissionAfterExecution(t *testing.T) {
 	env := newTestEnv(rng, app.Cfg(), app.Proxy())
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
-		if err := env.waitForMempool(ctx); err != nil {
+		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
 		}
 
@@ -877,7 +881,7 @@ func TestInsertTx_QueuesWithoutRPCAdmission(t *testing.T) {
 	env := newTestEnv(rng, app.Cfg(), app.Proxy())
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
-		if err := env.waitForMempool(ctx); err != nil {
+		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
 		}
 
