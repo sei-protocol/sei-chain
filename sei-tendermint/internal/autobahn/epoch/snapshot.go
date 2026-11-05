@@ -101,13 +101,13 @@ func (s *persistedRegistry) stageEpoch(endEpoch types.EpochIndex, weights map[ty
 	target := next.EpochIndex()
 	ep, registered := s.live[target]
 	if registered {
-		if !epochEqual(ep, next) {
+		if !ep.Committee().Equal(next.Committee()) {
 			return nil, fmt.Errorf("epoch %d already registered with a different committee", target)
 		}
 		return s, nil
 	}
 	if staged, ok := s.pending.Get(); ok {
-		if !epochEqual(staged, next) {
+		if !staged.Committee().Equal(next.Committee()) {
 			return nil, fmt.Errorf("epoch %d already staged with a different committee", target)
 		}
 		return s, nil

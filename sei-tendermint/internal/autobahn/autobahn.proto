@@ -355,12 +355,14 @@ message ConsensusMsg {
 }
 
 message Committee {
+  option (hashable.hashable) = true;
   option (wireguard.sized) = true;
   repeated EpochMember members = 1 [(wireguard.max_count) = 100];
 }
 
 // Epoch index, road range, and committee.
 message Epoch {
+  option (hashable.hashable) = true;
   option (wireguard.sized) = true;
   optional uint64 index = 1; // required
   optional Committee committee = 2; // required
@@ -377,6 +379,7 @@ message PersistedEpochRegistry {
 }
 
 message EpochMember {
+  option (hashable.hashable) = true;
   option (wireguard.sized) = true;
   optional LaneID lane_id = 1; // required
   optional uint64 weight = 2; // required, can't be zero

@@ -58,7 +58,6 @@ func TestCompleteWindowRejectsConflicts(t *testing.T) {
 	committee2 := utils.OrPanic1(genesis.DeriveNext(weights2, 2))
 	weights3 := map[types.PublicKey]uint64{keys[0].Public(): 5, keys[1].Public(): 7}
 	committee3 := utils.OrPanic1(committee2.DeriveNext(weights3, 3))
-	other, _, _ := genCommittee(rng, 2)
 	e0 := testEpoch(0, 11, genesis)
 	e1 := testEpoch(1, 11, genesis)
 	e2 := testEpoch(2, 11, committee2)
@@ -71,9 +70,11 @@ func TestCompleteWindowRejectsConflicts(t *testing.T) {
 	)
 	require.Error(t, err)
 
+	// committee2 also derives from this prev, so only the prev conflicts with committed.
+	otherPrev := testEpoch(1, 11, utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{keys[1].Public(): 1})))
 	_, err = CompleteWindow(
 		utils.Some(committed),
-		Window{prev: utils.Some(testEpoch(1, 11, other)), current: e2, next: e3},
+		utils.OrPanic1(NewWindow(utils.Some(otherPrev), e2, e3)),
 	)
 	require.Error(t, err)
 }
