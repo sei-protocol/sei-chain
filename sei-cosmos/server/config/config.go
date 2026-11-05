@@ -65,10 +65,6 @@ type BaseConfig struct {
 	// mempool gossip, and state sync are disabled from startup.
 	FreezeHeight uint64 `mapstructure:"freeze-height"`
 
-	// Ingress runs a full node that serves EVM traffic over the last 1000 blocks with bounded memory. It
-	// must be bootstrapped with state sync from a node past the EVM migration.
-	Ingress bool `mapstructure:"ingress"`
-
 	// HaltTime contains a non-zero minimum block time (in Unix seconds) at which
 	// a node will gracefully halt and shutdown that can be used to assist
 	// upgrades and testing.
@@ -258,7 +254,6 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("invalid freeze-height: %w", err)
 	}
-	ingress := v.GetBool("ingress")
 
 	globalLabels := make([][]string, 0, len(globalLabelsRaw))
 	for idx, glr := range globalLabelsRaw {
@@ -365,7 +360,6 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			PruningInterval:    v.GetString("pruning-interval"),
 			HaltHeight:         v.GetUint64("halt-height"),
 			FreezeHeight:       freezeHeight,
-			Ingress:            ingress,
 			HaltTime:           v.GetUint64("halt-time"),
 			IndexEvents:        v.GetStringSlice("index-events"),
 			MinRetainBlocks:    v.GetUint64("min-retain-blocks"),
@@ -403,7 +397,6 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			WriteModeEnableAuto: scWriteModeEnableAuto,
 			MemIAVLConfig:       memIAVLConfig,
 			FlatKVConfig:        flatKVConfig,
-			IngressProfile:      ingress,
 		},
 		StateStore: config.StateStoreConfig{
 			Enable:               v.GetBool("state-store.ss-enable"),
@@ -453,9 +446,6 @@ func (c Config) ValidateFreeze() error {
 	}
 	if c.FreezeHeight > 0 && (c.HaltHeight > 0 || c.HaltTime > 0) {
 		return sdkerrors.ErrAppConfig.Wrap("freeze-height cannot be combined with halt-height or halt-time")
-	}
-	if c.FreezeHeight > 0 && c.Ingress {
-		return sdkerrors.ErrAppConfig.Wrap("freeze-height cannot be combined with ingress")
 	}
 
 	return nil

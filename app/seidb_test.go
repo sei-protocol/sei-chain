@@ -140,17 +140,18 @@ func TestParseSCConfigs_FlatKVReadWriteMetrics(t *testing.T) {
 }
 
 func TestParseSCConfigs_Ingress(t *testing.T) {
-	assert.False(t, parseSCConfigs(mapAppOpts{FlagSCEnable: true}).IngressProfile)
+	assert.Equal(t, config.DefaultStateCommitConfig().FlatKVConfig,
+		parseSCConfigs(mapAppOpts{FlagSCEnable: true}).FlatKVConfig)
 
 	scConfig := parseSCConfigs(mapAppOpts{
 		FlagSCEnable:       true,
 		server.FlagIngress: "true",
 	})
-	assert.True(t, scConfig.IngressProfile)
-	// The node keeps following the chain's migration, and the FlatKV bounds are applied when the
-	// store is built rather than by this parse.
+	want := config.DefaultStateCommitConfig().FlatKVConfig
+	want.ApplyLowFootprintProfile()
+	assert.Equal(t, want, scConfig.FlatKVConfig)
+	// The node keeps following the chain's migration.
 	assert.Equal(t, sctypes.Auto, scConfig.WriteMode)
-	assert.Equal(t, config.DefaultStateCommitConfig().FlatKVConfig, scConfig.FlatKVConfig)
 }
 
 func TestParseSCConfigs_DoesNotAlignFlatKV(t *testing.T) {

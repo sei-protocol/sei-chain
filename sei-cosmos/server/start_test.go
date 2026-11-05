@@ -76,6 +76,9 @@ func TestConfigureIngressProfile(t *testing.T) {
 	require.False(t, ctx.Viper.GetBool("api.enable"))
 	require.True(t, ctx.Viper.GetBool("state-store.ss-enable"))
 	require.Equal(t, 1000, ctx.Viper.GetInt("state-store.ss-keep-recent"))
+	require.False(t, ctx.Viper.GetBool("state-store.ss-snapshot-enable"))
+	require.False(t, ctx.Viper.GetBool("state-commit.sc-enable-state-proof"))
+	require.Equal(t, uint(1000), ctx.Viper.GetUint("state-commit.sc-hash-logger-blocks-to-retain"))
 	require.Equal(t, uint64(1000), ctx.Viper.GetUint64(FlagMinRetainBlocks))
 	require.Zero(t, ctx.Viper.GetUint64(FlagStateSyncSnapshotInterval))
 	require.True(t, ctx.Viper.GetBool("evm.http_enabled"))
@@ -101,6 +104,7 @@ func TestConfigureIngressProfileRefusesOtherNodeShapes(t *testing.T) {
 		"validator": func(ctx *Context) { ctx.Config.Mode = tmcfg.ModeValidator },
 		"seed":      func(ctx *Context) { ctx.Config.Mode = tmcfg.ModeSeed },
 		"autobahn":  func(ctx *Context) { ctx.Config.AutobahnConfigFile = "autobahn.json" },
+		"frozen":    func(ctx *Context) { ctx.Viper.Set(FlagFreezeHeight, uint64(100)) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx := NewDefaultContext()

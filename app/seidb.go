@@ -137,8 +137,8 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	if v := appOpts.Get(FlagSCFlatKVReadWriteMetrics); v != nil {
 		scConfig.FlatKVConfig.EnableReadWriteMetrics = cast.ToBool(v)
 	}
-	if v := appOpts.Get(server.FlagIngress); v != nil {
-		scConfig.IngressProfile = cast.ToBool(v)
+	if cast.ToBool(appOpts.Get(server.FlagIngress)) {
+		scConfig.FlatKVConfig.ApplyLowFootprintProfile()
 	}
 
 	// sc-write-mode-enable-auto (default true) decides whether the node may run

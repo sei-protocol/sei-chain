@@ -142,9 +142,9 @@ func TestValidateNestedEngineConfigError(t *testing.T) {
 	require.Contains(t, err.Error(), "ShardCount must be a power of two and greater than 0")
 }
 
-func TestApplyLowMemoryProfile(t *testing.T) {
+func TestApplyLowFootprintProfile(t *testing.T) {
 	cfg := validBaseConfig()
-	cfg.ApplyLowMemoryProfile()
+	cfg.ApplyLowFootprintProfile()
 	require.NoError(t, cfg.Validate())
 
 	require.Equal(t, uint64(256*unit.MB), cfg.AccountStoreConfig.MaxSize)
@@ -153,6 +153,7 @@ func TestApplyLowMemoryProfile(t *testing.T) {
 	require.Equal(t, uint64(128*unit.MB), cfg.MiscStoreConfig.MaxSize)
 	require.Equal(t, uint32(8), cfg.MaxSnapshotLagBlocks)
 	require.Equal(t, 1.0, cfg.MiscPoolThreadsPerCore)
+	require.Equal(t, uint32(1), cfg.SnapshotKeepRecent)
 
 	stores := map[string]view.ViewManagerConfig{
 		"account": cfg.AccountStoreConfig,

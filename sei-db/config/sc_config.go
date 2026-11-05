@@ -99,11 +99,6 @@ type StateCommitConfig struct {
 	// FlatKVConfig is the configuration for the FlatKV (EVM) backend
 	FlatKVConfig config.Config
 
-	// IngressProfile runs the store for an ingress node: FlatKV memory is bounded, only the current
-	// version can be opened, and state must be restored from a node past the EVM migration rather
-	// than built from genesis. It is set from the top-level ingress option, not from [state-commit].
-	IngressProfile bool `mapstructure:"-"`
-
 	// Max concurrent historical proof queries (RPC /store path).
 	HistoricalProofMaxInFlight int `mapstructure:"historical-proof-max-inflight"`
 

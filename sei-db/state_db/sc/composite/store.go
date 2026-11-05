@@ -37,11 +37,6 @@ var _ types.Committer = (*CompositeCommitStore)(nil)
 // built at.
 var errDerivedStore = errors.New("composite: cannot load on a derived store (read-only view or copy)")
 
-// errIngressGenesis is returned when a store under the ingress profile would commit a block while holding
-// no version, which is building state from genesis.
-var errIngressGenesis = errors.New("composite: the ingress profile cannot build state from genesis; " +
-	"bootstrap the node with state sync ([statesync] enable = true in config.toml)")
-
 // CompositeCommitStore manages multiple commit store backends (Cosmos/memiavl and FlatKV)
 // and routes operations based on the configured migration strategy.
 type CompositeCommitStore struct {
@@ -174,9 +169,6 @@ func NewCompositeCommitStore(
 		return nil, fmt.Errorf("invalid state commit config: %w", err)
 	}
 	alignFlatKVSnapshotWithMemIAVL(&cfg)
-	if cfg.IngressProfile {
-		cfg.FlatKVConfig.ApplyLowMemoryProfile()
-	}
 
 	var memIAVL *memiavl.CommitStore
 	if cfg.WriteMode != types.FlatKVOnly {
@@ -419,27 +411,9 @@ func (cs *CompositeCommitStore) LoadLatest() error {
 	if err := cs.adoptPersistedWriteMode(); err != nil {
 		return err
 	}
-	if err := cs.requireIngressLayout(); err != nil {
-		return err
-	}
 	// After the router, because the gating this reads gets its answer from migration metadata through
 	// the backends the router was just built against.
 	return cs.refreshLastCommitInfo()
-}
-
-// requireIngressLayout returns an error when the ingress profile is set and the store holds state from
-// before the EVM migration completed.
-func (cs *CompositeCommitStore) requireIngressLayout() error {
-	// A store holding no version is what state sync restores into.
-	if !cs.config.IngressProfile || cs.Version() == 0 {
-		return nil
-	}
-	mode := cs.loadWriteMode()
-	if ahead, ok := types.ChainDistance(types.EVMMigrated, mode); ok && ahead >= 0 {
-		return nil
-	}
-	return fmt.Errorf("the ingress profile requires state past the EVM migration, but this store is at %q; "+
-		"bootstrap the node with state sync from a node past the EVM migration", mode)
 }
 
 // discardStaleIdleFlatKV removes an Auto-mode FlatKV directory that has no migration state and whose seed
@@ -501,10 +475,6 @@ func (cs *CompositeCommitStore) LoadVersionReadOnlyForExport(targetVersion int64
 func (cs *CompositeCommitStore) loadVersionReadOnly(targetVersion int64, allowPreMigration bool) (_ types.Committer, retErr error) {
 	if cs.derived {
 		return nil, errDerivedStore
-	}
-	if cs.config.IngressProfile && targetVersion != 0 && targetVersion != cs.Version() {
-		return nil, fmt.Errorf("the ingress profile opens only the current state-commit version %d, not version %d",
-			cs.Version(), targetVersion)
 	}
 
 	var memIAVLCommitter *memiavl.CommitStore
@@ -1059,9 +1029,6 @@ func (cs *CompositeCommitStore) Commit(version int64) (int64, error) {
 	// Captured before committing: a store that has never committed may begin its history above height
 	// 1, in which case the height it lands on legitimately differs from the one the caller counted to.
 	neverCommitted := cs.Version() == 0
-	if neverCommitted && cs.config.IngressProfile {
-		return 0, errIngressGenesis
-	}
 
 	var cosmosVersion int64 = -1
 	if cs.memIAVL != nil {

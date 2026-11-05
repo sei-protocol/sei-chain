@@ -103,11 +103,11 @@ will not be able to commit subsequent blocks.
 The '--freeze-height' flag puts a full node in read-only freeze mode. Query RPC remains available,
 but transaction and evidence submission, mempool gossip, and state sync are disabled from startup.
 Block sync and consensus stop before executing the configured height.
-The '--ingress' flag runs a full node that serves EVM traffic with bounded memory. The EVM HTTP and
-WebSocket servers stay on; the REST API, the transaction index and state-sync snapshot production are
-turned off, and state, blocks and receipts are kept for the last 1000 blocks. P2P and the mempool are
-unchanged. The node must be bootstrapped with state sync from a node past the EVM migration, and it
-refuses to build state from genesis.
+The '--ingress' flag runs a full node that serves EVM traffic with a small memory and disk footprint.
+The EVM HTTP and WebSocket servers stay on; the REST API, the transaction index, state proofs and
+snapshot production are turned off. State, receipts and hash logs are kept for the last 1000 blocks,
+and blocks for the chain's evidence window. P2P and the mempool are unchanged. Bootstrap the node with
+state sync.
 For profiling and benchmarking purposes, CPU profiling can be enabled via the '--cpu-profile' flag
 which accepts a path for the resulting pprof file.
 `,
@@ -211,7 +211,7 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().IntSlice(FlagUnsafeSkipUpgrades, []int{}, "Skip a set of upgrade heights to continue the old binary")
 	cmd.Flags().Uint64(FlagHaltHeight, 0, "Block height at which to gracefully halt the chain and shutdown the node")
 	cmd.Flags().Uint64(FlagFreezeHeight, 0, "Block height at which a full node stops executing while continuing to serve query RPC")
-	cmd.Flags().Bool(FlagIngress, false, "Run a full node that serves EVM traffic over the last 1000 blocks with bounded memory; bootstrap it with state sync from a node past the EVM migration")
+	cmd.Flags().Bool(FlagIngress, false, "Run a full node that serves EVM traffic over the last 1000 blocks with a small memory and disk footprint; bootstrap it with state sync")
 	cmd.Flags().Uint64(FlagHaltTime, 0, "Minimum block time (in Unix seconds) at which to gracefully halt the chain and shutdown the node")
 	cmd.Flags().Bool(FlagInterBlockCache, true, "Enable inter-block caching")
 	cmd.Flags().String(flagCPUProfile, "", "Enable CPU profiling and write to the provided file")
@@ -431,12 +431,12 @@ func startInProcess(
 	return WaitForQuitSignals(goCtx, restartCh)
 }
 
-// ingressLookbackBlocks is how many recent blocks of state, blocks and receipts an ingress node keeps.
+// ingressLookbackBlocks is how many recent blocks of state, receipts and hash logs an ingress node keeps.
 const ingressLookbackBlocks = 1000
 
 // configureIngressProfile narrows a node started with --ingress to serving EVM traffic over the last
-// ingressLookbackBlocks blocks, overriding the settings that would serve deeper history, the REST API or
-// snapshots to other nodes.
+// ingressLookbackBlocks blocks, overriding the settings that would serve deeper history, the REST API,
+// state proofs or snapshots to other nodes.
 func configureIngressProfile(ctx *Context) error {
 	if !ctx.Viper.GetBool(FlagIngress) {
 		return nil
@@ -447,20 +447,26 @@ func configureIngressProfile(ctx *Context) error {
 	if ctx.Config.AutobahnConfigFile != "" {
 		return fmt.Errorf("--%s is not supported with Autobahn", FlagIngress)
 	}
+	if ctx.Viper.GetUint64(FlagFreezeHeight) > 0 {
+		return fmt.Errorf("--%s cannot be combined with --%s", FlagIngress, FlagFreezeHeight)
+	}
 
 	ctx.Config.TxIndex.Indexer = []string{"null"}
 	for key, value := range map[string]any{
-		"api.enable":                      false,
-		"state-store.ss-enable":           true,
-		"state-store.ss-keep-recent":      ingressLookbackBlocks,
-		FlagMinRetainBlocks:               uint64(ingressLookbackBlocks),
-		FlagStateSyncSnapshotInterval:     uint64(0),
-		"evm.http_enabled":                true,
-		"evm.ws_enabled":                  true,
-		"evm.enable_simulation":           false,
-		"evm.trace_bake_enabled":          false,
-		"wasm.memory_cache_size":          uint32(16),
-		"light_invariance.supply_enabled": false,
+		"api.enable":                                   false,
+		"state-store.ss-enable":                        true,
+		"state-store.ss-keep-recent":                   ingressLookbackBlocks,
+		"state-store.ss-snapshot-enable":               false,
+		"state-commit.sc-enable-state-proof":           false,
+		"state-commit.sc-hash-logger-blocks-to-retain": uint(ingressLookbackBlocks),
+		FlagMinRetainBlocks:                            uint64(ingressLookbackBlocks),
+		FlagStateSyncSnapshotInterval:                  uint64(0),
+		"evm.http_enabled":                             true,
+		"evm.ws_enabled":                               true,
+		"evm.enable_simulation":                        false,
+		"evm.trace_bake_enabled":                       false,
+		"wasm.memory_cache_size":                       uint32(16),
+		"light_invariance.supply_enabled":              false,
 	} {
 		ctx.Viper.Set(key, value)
 	}

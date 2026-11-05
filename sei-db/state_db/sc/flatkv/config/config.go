@@ -189,15 +189,18 @@ func DefaultConfig() *Config {
 	return cfg
 }
 
-// ApplyLowMemoryProfile bounds the read caches, Pebble block caches, memtables and write backlogs of
-// the four databases for a node that serves only current state.
-func (c *Config) ApplyLowMemoryProfile() {
+// ApplyLowFootprintProfile bounds the memory and disk FlatKV uses on a node that serves only current
+// state: read caches, Pebble block caches, memtables, write backlogs, and retained snapshots.
+func (c *Config) ApplyLowFootprintProfile() {
 	c.AccountStoreConfig.MaxSize = 256 * unit.MB
 	c.CodeStoreConfig.MaxSize = 64 * unit.MB
 	c.StorageStoreConfig.MaxSize = 512 * unit.MB
 	c.MiscStoreConfig.MaxSize = 128 * unit.MB
 	c.MaxSnapshotLagBlocks = 8
 	c.MiscPoolThreadsPerCore = 1
+	// Reconciling with a memIAVL that lost its async commit queue in a crash can roll FlatKV back past
+	// its newest snapshot.
+	c.SnapshotKeepRecent = 1
 
 	for _, store := range []*view.ViewManagerConfig{
 		&c.AccountStoreConfig,
