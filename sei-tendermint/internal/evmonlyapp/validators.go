@@ -46,13 +46,11 @@ func (a *evmOnlyApplication) bondedValidators() ([]abci.ValidatorUpdate, error) 
 
 // validatorUpdate returns bonded validator v as consensus reads it.
 func validatorUpdate(v staking.BondedValidator) (abci.ValidatorUpdate, error) {
-	key, err := ed25519.PublicKeyFromBytes(v.ConsensusPubkey[:])
-	if err != nil {
-		return abci.ValidatorUpdate{}, fmt.Errorf("validator %s: %w", v.Operator, err)
-	}
 	power, ok := utils.SafeCast[int64](v.Power)
 	if !ok {
 		return abci.ValidatorUpdate{}, fmt.Errorf("validator %s power %d does not fit int64", v.Operator, v.Power)
 	}
+	// PublicKeyFromBytes checks only the length, and a common.Hash is always 32 bytes.
+	key := utils.OrPanic1(ed25519.PublicKeyFromBytes(v.ConsensusPubkey[:]))
 	return abci.ValidatorUpdate{PubKey: crypto.PubKeyToProto(key), Power: power}, nil
 }
