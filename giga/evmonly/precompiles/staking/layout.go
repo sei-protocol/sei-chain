@@ -54,11 +54,10 @@ var (
 	validatorCommissionMaxChange = member{12, 0}
 	validatorCommissionUpdate    = member{13, 0}
 	validatorMinSelfDelegation   = member{14, 0}
-	validatorGap                 = member{15, 0}
 )
 
 // validatorSlots is how many slots a StakingStorage.Validator takes.
-const validatorSlots = 23
+const validatorSlots = 15
 
 // StakingStorage.ValidatorPower members.
 var (
