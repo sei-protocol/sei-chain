@@ -55,7 +55,7 @@ slot 7 of `StakingStorage` (the set before it takes two slots), so the shares
 are at `keccak256(validator . keccak256(delegator . 7))`, with each key padded
 to 32 bytes.
 
-`Validator` shows the struct rules on a larger record. In the draft it takes 23
+`Validator` shows the struct rules on a larger record. In the draft it takes 15
 slots:
 
 | Slot offset | Fields |
@@ -68,7 +68,6 @@ slots:
 | 9 | `unbondingHeight`, `unbondingTime` (packed) |
 | 10–13 | `commission` (three rates, then `updateTime`) |
 | 14 | `minSelfDelegation` |
-| 15–22 | `__gap` (reserved) |
 
 ### Why
 
@@ -83,11 +82,33 @@ slots:
 
 ### Consequences
 
-**Layouts only grow.** Once a public network runs a layout, a state variable or
-field cannot move. New fields would take slots from a struct's `__gap`, and new
-state variables would go after the last one. The draft `Validator` reserves
-eight slots for this, and `layout_test.go` pins would catch an accidental
-reorder.
+**Layouts only grow.** Once a public network runs a layout, no state variable
+or field can move, change type or go away. A retired field keeps its slot, and
+the slot is not reused for anything else, since records written before still
+hold the old values. New state variables go after the last one. A new field
+reads as zero in every record written before it, so zero has to mean what the
+code did before, or the upgrade that adds the field writes it. Where a new field
+can go depends on where its struct is stored:
+
+- **A mapping value** (`Validator`, `Delegation`, the queue entries,
+  `DelegatorStartingInfo`, `ValidatorSigningInfo`) grows at its end. Each value
+  starts at its own hashed slot, so the slots after it are free, and no
+  reserved slots are needed.
+- **A struct inside another** (`Description` and `Commission` in `Validator`)
+  cannot grow without moving the fields after it. A new field goes at the end
+  of the outer struct instead.
+- **A top-level struct with state variables after it** grows only into room it
+  already has: `ParamsStorage`'s subspaces into their `__gap`, a `QueueBounds`
+  into the 16 free bytes of its slot.
+- **An array element** cannot grow, since a larger element moves every element
+  after the first. `lastValidators` holds at most 100, so the upgrade can
+  rewrite it. Unbonding entries complete within the unbonding time, so a new
+  layout can start in a new state variable while the old one drains.
+  `validatorSlashEvents` is kept for good, so its element has to be settled
+  before launch (see *Open questions*).
+
+`layout_test.go` pins every slot and offset, so a change that moves one fails
+it.
 
 **No library dependencies.** The draft layouts import nothing from outside this
 directory, including OpenZeppelin. The precompiles need enumerable sets, and
@@ -570,3 +591,6 @@ Known gaps that need an owner or a decision.
    acceptable for very large proposals?
 6. Is the validator set frozen during the migration, or can it change?
 7. Who owns the V2 read side of the sweep, and can the flatkv copy serve it?
+8. `validatorSlashEvents` is the one array of structs kept for good, so its
+   element can never grow. Should it be a mapping by index with a count, whose
+   values can?
