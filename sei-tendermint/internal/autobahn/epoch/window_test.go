@@ -18,12 +18,12 @@ func TestWindowConvRoundTripAndOptionalPrev(t *testing.T) {
 	next := testEpoch(2, 11, nextCommittee)
 
 	withPrev := utils.OrPanic1(NewWindow(utils.Some(prev), current, next))
-	decoded, err := WindowConv.Decode(WindowConv.Encode(withPrev))
+	decoded, err := windowConv.Decode(windowConv.Encode(withPrev))
 	require.NoError(t, err)
 	require.True(t, withPrev.Equal(decoded))
 
 	withoutPrev := utils.OrPanic1(NewWindow(utils.None[*types.Epoch](), current, next))
-	decoded, err = WindowConv.Decode(WindowConv.Encode(withoutPrev))
+	decoded, err = windowConv.Decode(windowConv.Encode(withoutPrev))
 	require.NoError(t, err)
 	require.True(t, withoutPrev.Equal(decoded))
 	require.Equal(t, utils.None[*types.Epoch](), decoded.Prev())
@@ -39,7 +39,7 @@ func TestMarshalWindowRoundTrip(t *testing.T) {
 	for _, prev := range []utils.Option[*types.Epoch]{utils.Some(testEpoch(0, 11, genesis)), utils.None[*types.Epoch]()} {
 		window := utils.OrPanic1(NewWindow(prev, current, next))
 		raw := MarshalWindow(window)
-		decoded, err := WindowConv.Unmarshal(raw)
+		decoded, err := UnmarshalWindow(raw)
 		require.NoError(t, err)
 		require.True(t, window.Equal(decoded))
 		require.Equal(t, raw, MarshalWindow(decoded))

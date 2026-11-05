@@ -80,11 +80,16 @@ func epochEqual(a, b *types.Epoch) bool {
 
 // MarshalWindow returns the canonical encoding of w, which chain state stores and hashes.
 func MarshalWindow(w Window) []byte {
-	return hashable.MarshalCanonical(WindowConv.Encode(w))
+	return hashable.MarshalCanonical(windowConv.Encode(w))
 }
 
-// WindowConv converts an epoch window to and from protobuf.
-var WindowConv = protoutils.Conv[Window, *pb.EpochWindow]{
+// UnmarshalWindow decodes and validates an epoch window encoded by MarshalWindow.
+func UnmarshalWindow(raw []byte) (Window, error) {
+	return windowConv.Unmarshal(raw)
+}
+
+// windowConv converts an epoch window to and from protobuf.
+var windowConv = protoutils.Conv[Window, *pb.EpochWindow]{
 	Encode: func(w Window) *pb.EpochWindow {
 		return &pb.EpochWindow{
 			Prev:    types.EpochConv.EncodeOpt(w.prev),

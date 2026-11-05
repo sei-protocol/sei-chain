@@ -29,7 +29,7 @@ func loadEpochWindow(store *flatkv.CommitStore) (utils.Option[epoch.Window], err
 	if !found {
 		return utils.None[epoch.Window](), nil
 	}
-	window, err := epoch.WindowConv.Unmarshal(raw)
+	window, err := epoch.UnmarshalWindow(raw)
 	if err != nil {
 		return utils.None[epoch.Window](), fmt.Errorf("decode epoch window: %w", err)
 	}
