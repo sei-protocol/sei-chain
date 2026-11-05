@@ -81,6 +81,15 @@ func (s Store) SetUint8(slot common.Hash, offset int, v uint8) {
 	s.setPacked(slot, offset, []byte{v})
 }
 
+func (s Store) AddressAt(slot common.Hash, offset int) common.Address {
+	w := s.Word(slot)
+	return common.BytesToAddress(w[32-offset-common.AddressLength : 32-offset])
+}
+
+func (s Store) SetAddressAt(slot common.Hash, offset int, a common.Address) {
+	s.setPacked(slot, offset, a[:])
+}
+
 func (s Store) Bool(slot common.Hash, offset int) bool {
 	w := s.Word(slot)
 	return w[31-offset] != 0
