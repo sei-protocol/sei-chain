@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
 var handlerSlot = common.Hash{0xaa}
@@ -144,6 +145,23 @@ func TestBeginBlockRunsOnBlankUpgradeState(t *testing.T) {
 		require.Empty(t, failures, n)
 		require.Empty(t, state.storage[Address], n)
 	}
+}
+
+func TestBeginBlockReportsALastAppliedNameThatDoesNotDecode(t *testing.T) {
+	state := newMemState()
+	state.SetState(Address, solstorage.Slot(slotLastApplied), common.Hash{0: 0xff, 31: 0x01})
+	failures, err := Precompile{}.BeginBlock(block(5), state)
+	require.NoError(t, err)
+	require.Len(t, failures, 1)
+	require.ErrorIs(t, failures[0], precompiles.ErrDegraded)
+
+	require.NoError(t, Schedule(state, 5, Plan{Name: "v7.0", Height: 10}))
+	p := Precompile{SkipHeights: []uint64{10}}
+	failures, err = p.BeginBlock(block(10), state)
+	require.NoError(t, err)
+	require.Len(t, failures, 2, "the skip reports the check it could not make")
+	require.ErrorIs(t, failures[0], precompiles.ErrDegraded)
+	requireNoPlan(t, state)
 }
 
 func TestBeginBlockClearsAPlanThatDoesNotDecode(t *testing.T) {
