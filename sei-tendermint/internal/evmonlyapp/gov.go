@@ -31,8 +31,25 @@ func NewGovRegistry(params gov.Params, startingProposalID uint64, electorate gov
 		},
 		chainparams.Address: paramsPrecompile{},
 		upgrade.Address:     upgrade.Precompile{Handlers: upgradeHandlers()},
-	}, gov.Address).WithBeginBlockers(upgrade.Address)
+	}, endBlockOrder...).WithBeginBlockers(beginBlockOrder...)
 }
+
+// beginBlockOrder and endBlockOrder are the order each block runs the custom
+// precompiles' BeginBlock and EndBlock.
+//
+// Both follow V2's order, so a precompile ported from a V2 module goes where
+// that module runs, whichever change lands first; keep every entry already
+// here in place when merging.
+var (
+	// V2's BeginBlock (app/legacyabci/begin_block.go): upgrade, distribution,
+	// slashing, evidence, staking. Upgrade stays first, so a halt or an
+	// upgrade's handler comes before any other precompile's begin block.
+	beginBlockOrder = []common.Address{upgrade.Address}
+	// V2's EndBlock (app/legacyabci/end_block.go): gov, then staking. Gov
+	// tallies against the bonded set the block began with, and staking then
+	// applies the block's changes to that set.
+	endBlockOrder = []common.Address{gov.Address}
+)
 
 // govPrecompile is gov with the genesis state it writes at its first EndBlock.
 type govPrecompile struct {
