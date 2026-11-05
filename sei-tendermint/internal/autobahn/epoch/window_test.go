@@ -46,6 +46,18 @@ func TestMarshalWindowRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMarshalEpochRoundTrip(t *testing.T) {
+	rng := utils.TestRng()
+	committee, _, _ := genCommittee(rng, 3)
+	epoch := testEpoch(7, 11, committee)
+
+	raw := MarshalEpoch(epoch)
+	decoded, err := UnmarshalEpoch(raw)
+	require.NoError(t, err)
+	require.True(t, epochEqual(epoch, decoded))
+	require.Equal(t, raw, MarshalEpoch(decoded))
+}
+
 func TestCompleteWindow(t *testing.T) {
 	rng := utils.TestRng()
 	genesis, keys, _ := genCommittee(rng, 3)

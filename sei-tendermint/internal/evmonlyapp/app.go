@@ -269,7 +269,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		state.pendingEpochWindow = window
 		misc := []gigatypes.MiscChange{next.miscChange()}
 		if window, ok := window.Get(); ok {
-			misc = append(misc, epochWindowMiscChange(window))
+			misc = append(misc, epochWindowMiscChanges(window)...)
 		}
 		return misc, nil
 	}

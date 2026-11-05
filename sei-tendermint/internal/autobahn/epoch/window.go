@@ -103,6 +103,16 @@ func MarshalWindow(w Window) []byte {
 	return hashable.MarshalCanonical(windowConv.Encode(w))
 }
 
+// MarshalEpoch returns the canonical encoding of e.
+func MarshalEpoch(e *types.Epoch) []byte {
+	return hashable.MarshalCanonical(types.EpochConv.Encode(e))
+}
+
+// UnmarshalEpoch decodes and validates an epoch encoded by MarshalEpoch.
+func UnmarshalEpoch(raw []byte) (*types.Epoch, error) {
+	return types.EpochConv.Unmarshal(raw)
+}
+
 // UnmarshalWindow decodes and validates an epoch window encoded by MarshalWindow.
 func UnmarshalWindow(raw []byte) (Window, error) {
 	return windowConv.Unmarshal(raw)

@@ -110,6 +110,14 @@ func TestEVMOnlyAppCommitsEpochWindow(t *testing.T) {
 	gotWindow, ok := got.Get()
 	require.True(t, ok)
 	require.True(t, gotWindow.Equal(window))
+	evmOnly, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	for _, key := range [][]byte{[]byte(epochWindowPrevKey), []byte(epochWindowCurrentKey), []byte(epochWindowNextKey)} {
+		_, found := evmOnly.storage.SC().Get(epochWindowModule, key)
+		require.True(t, found)
+	}
+	_, found := evmOnly.storage.SC().Get(epochWindowModule, []byte("window"))
+	require.False(t, found)
 }
 
 func TestEVMOnlyAppCompletesPrunedEpochWindow(t *testing.T) {
