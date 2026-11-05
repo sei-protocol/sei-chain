@@ -2425,21 +2425,25 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 }
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
+	ctx := app.RPCContextProviderWithoutConsensusParams(i)
+	// Neither GetCheckCtx nor CreateQueryContext sets ConsensusParams (only
+	// the tx-execution path does, via getContextForTx), so without this,
+	// ctx.ConsensusParams() returns nil from any RPC handler. evmrpc/block.go's
+	// gasLimit and evmrpc/info.go's gas-used-ratio rely on it.
+	return ctx.WithConsensusParams(app.GetConsensusParams(ctx))
+}
+
+// RPCContextProviderWithoutConsensusParams returns the context RPCContextProvider
+// returns for height i, with ConsensusParams left nil.
+func (app *App) RPCContextProviderWithoutConsensusParams(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
 		ctx := app.GetCheckCtx()
-		// Populate ConsensusParams on the RPC ctx. Neither GetCheckCtx nor
-		// CreateQueryContext sets it (only the tx-execution path does, via
-		// getContextForTx), so without this, ctx.ConsensusParams() returns
-		// nil from any RPC handler. evmrpc/block.go's gasLimit and
-		// evmrpc/info.go's gas-used-ratio rely on it.
-		ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 		return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
 		panic(err)
 	}
-	ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 	closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
 	if closestUpgrade == "" && upgradeHeight == 0 {
 		closestUpgrade = LatestUpgrade
@@ -2512,7 +2516,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	// Autobahn serves the node's EVM-only JSON-RPC. Cosmos evmrpc would bind
 	// the same 8545 once Initialized fires (mock-app forwards InitChain).
 	if app.evmRPCConfig.HTTPEnabled && !app.autobahnEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier, traceCtxProvider)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, app.RPCContextProviderWithoutConsensusParams, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier, traceCtxProvider)
 		if err != nil {
 			panic(err)
 		}
@@ -2525,7 +2529,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	}
 
 	if app.evmRPCConfig.WSEnabled && !app.autobahnEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, app.RPCContextProviderWithoutConsensusParams, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier)
 		if err != nil {
 			panic(err)
 		}
