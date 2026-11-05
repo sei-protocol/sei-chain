@@ -246,17 +246,17 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		if height != state.committed.height+1 {
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
 		}
-		window := state.finalizingEpochWindow
-		var windowChanges []gigatypes.MiscChange
-		if incoming, ok := window.Get(); ok {
+		epochWindow := state.finalizingEpochWindow
+		var epochWindowChanges []gigatypes.MiscChange
+		if incoming, ok := epochWindow.Get(); ok {
 			completed, err := epoch.CompleteWindow(state.committedEpochWindow, incoming)
 			if err != nil {
 				return nil, fmt.Errorf("complete epoch window: %w", err)
 			}
-			if windowChanges, err = epochWindowMiscChanges(completed); err != nil {
+			if epochWindowChanges, err = epochWindowMiscChanges(completed); err != nil {
 				return nil, err
 			}
-			window = utils.Some(completed)
+			epochWindow = utils.Some(completed)
 		}
 		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result)
 		if err != nil {
@@ -270,8 +270,8 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
-		state.pendingEpochWindow = window
-		return append([]gigatypes.MiscChange{next.miscChange()}, windowChanges...), nil
+		state.pendingEpochWindow = epochWindow
+		return append([]gigatypes.MiscChange{next.miscChange()}, epochWindowChanges...), nil
 	}
 	panic("unreachable")
 }

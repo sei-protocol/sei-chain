@@ -71,13 +71,14 @@ func newGenesisRegistry(committee *types.Committee, firstRoad types.RoadIndex) *
 	}
 }
 
-// deriveNext returns C_{endEpoch+2} derived from endEpoch's closing weights.
-func (s *persistedRegistry) deriveNext(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) (*types.Epoch, error) {
+// stageEpoch returns a registry with the committee derived from endEpoch's weights staged as pending.
+func (s *persistedRegistry) stageEpoch(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) (*persistedRegistry, error) {
 	target := endEpoch + 2
 	if target < s.liveRange.First {
 		return nil, fmt.Errorf("epoch %d: %w", target, types.ErrPruned)
 	}
-	if _, registered := s.live[target]; !registered && target != s.liveRange.Next {
+	ep, registered := s.live[target]
+	if !registered && target != s.liveRange.Next {
 		return nil, fmt.Errorf("epoch %d cannot be staged, want %d", target, s.liveRange.Next)
 	}
 	prev, ok := s.live[endEpoch+1]
@@ -88,31 +89,21 @@ func (s *persistedRegistry) deriveNext(endEpoch types.EpochIndex, weights map[ty
 	if err != nil {
 		return nil, fmt.Errorf("DeriveNext(%d): %w", target, err)
 	}
-	first := prev.RoadRange().Next
-	return types.NewEpoch(target, types.RoadRange{First: first, Next: first + epochLength}, committee), nil
-}
-
-// stageEpoch returns a registry with the committee derived from endEpoch's weights staged as pending.
-func (s *persistedRegistry) stageEpoch(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) (*persistedRegistry, error) {
-	next, err := s.deriveNext(endEpoch, weights)
-	if err != nil {
-		return nil, err
-	}
-	target := next.EpochIndex()
-	ep, registered := s.live[target]
 	if registered {
-		if !ep.Committee().Equal(next.Committee()) {
+		if !ep.Committee().Equal(committee) {
 			return nil, fmt.Errorf("epoch %d already registered with a different committee", target)
 		}
 		return s, nil
 	}
 	if staged, ok := s.pending.Get(); ok {
-		if !staged.Committee().Equal(next.Committee()) {
+		if !staged.Committee().Equal(committee) {
 			return nil, fmt.Errorf("epoch %d already staged with a different committee", target)
 		}
 		return s, nil
 	}
-	return &persistedRegistry{live: s.live, liveRange: s.liveRange, pending: utils.Some(next)}, nil
+	first := prev.RoadRange().Next
+	pending := types.NewEpoch(target, types.RoadRange{First: first, Next: first + epochLength}, committee)
+	return &persistedRegistry{live: s.live, liveRange: s.liveRange, pending: utils.Some(pending)}, nil
 }
 
 // activate returns a registry with idx activated and no pending epoch, or the same registry if idx is live.
