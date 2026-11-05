@@ -29,7 +29,7 @@ type Delegation struct {
 // gives it to x/gov. Tallies are in the unit of its tokens.
 //
 // TODO(giga staking): add an Electorate reading StakingStorage at 0x1005, from
-// bondedValidatorSet, validators[operator].tokens and .delegatorShares,
+// lastValidators, validators[operator].tokens and .delegatorShares,
 // delegationsByDelegator[voter] and delegations[voter][validator].shares, with
 // TotalBonded the bonded escrow's balance. It replaces GenesisElectorate.
 type Electorate interface {
