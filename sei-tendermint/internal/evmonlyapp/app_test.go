@@ -147,6 +147,15 @@ func TestEVMOnlyAppCompletesPrunedEpochWindow(t *testing.T) {
 	require.True(t, got.OrPanic("committed epoch window").Equal(full))
 }
 
+func TestEVMOnlyAppRefusesFirstEpochWindowWithoutPrev(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t).(proxy.EVMApplication)
+	withoutPrev := evmOnlyTestShiftedEpochWindow(utils.None[*atypes.Epoch]())
+
+	_, err := app.FinalizeBlockWithEpochWindow(t.Context(), evmOnlyTestBlock(1), utils.Some(withoutPrev))
+	require.ErrorIs(t, err, atypes.ErrPruned)
+	require.Equal(t, utils.None[epoch.Window](), utils.OrPanic1(app.CommittedEpochWindow()))
+}
+
 // evmOnlyTestInitCode deploys a contract whose runtime code is the single
 // INVALID opcode 0xfe: PUSH1 0xfe, PUSH1 0, MSTORE8, PUSH1 1, PUSH1 0, RETURN.
 var evmOnlyTestInitCode = []byte{0x60, 0xfe, 0x60, 0x00, 0x53, 0x60, 0x01, 0x60, 0x00, 0xf3}

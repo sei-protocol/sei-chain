@@ -53,10 +53,18 @@ func (w Window) Equal(other Window) bool {
 		epochEqual(w.next, other.next)
 }
 
-// CompleteWindow returns incoming with its missing previous epoch filled from committed.
+// CompleteWindow returns incoming with its previous epoch taken from committed when
+// incoming has none. It returns an error unless incoming follows committed, or, when no
+// window is committed, unless incoming has its previous epoch.
 func CompleteWindow(committed utils.Option[Window], incoming Window) (Window, error) {
+	// The window goes into the app hash, so the result must not depend on how far
+	// this node has pruned.
 	committedWindow, ok := committed.Get()
 	if !ok {
+		if !incoming.prev.IsPresent() {
+			return Window{}, fmt.Errorf("epoch %d: %w and no epoch window is committed",
+				incoming.current.EpochIndex()-1, types.ErrPruned)
+		}
 		return incoming, nil
 	}
 	if !epochEqual(committedWindow.next, incoming.current) {

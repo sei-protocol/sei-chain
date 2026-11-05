@@ -164,6 +164,7 @@ func (r *Registry) StageEpoch(endEpoch types.EpochIndex, weights map[types.Publi
 }
 
 // Window returns the epoch state committed with the first block after endEpoch.
+// Its previous epoch is None when this node has pruned endEpoch.
 func (r *Registry) Window(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) (Window, error) {
 	for state := range r.state.Lock() {
 		s := state.Load()

@@ -81,9 +81,12 @@ func TestCompleteWindow(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, full.Equal(completed))
 
-	completed, err = CompleteWindow(utils.None[Window](), withoutPrev)
+	completed, err = CompleteWindow(utils.None[Window](), full)
 	require.NoError(t, err)
-	require.True(t, withoutPrev.Equal(completed))
+	require.True(t, full.Equal(completed))
+
+	_, err = CompleteWindow(utils.None[Window](), withoutPrev)
+	require.ErrorIs(t, err, types.ErrPruned)
 }
 
 func TestCompleteWindowRejectsConflicts(t *testing.T) {
