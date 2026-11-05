@@ -73,7 +73,7 @@ func (app *EVMProxy) FinalizeBlockWithEpochWindow(
 	req *types.RequestFinalizeBlock,
 	window utils.Option[epoch.Window],
 ) (*types.ResponseFinalizeBlock, error) {
-	defer addTimeSample(Global.MethodTimingAt("finalize_block_with_epoch_window", "sync"))()
+	defer addTimeSample(Global.MethodTimingAt("finalize_block", "sync"))()
 	return app.app.FinalizeBlockWithEpochWindow(ctx, req, window)
 }
 
