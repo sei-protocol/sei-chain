@@ -29,6 +29,7 @@ contract DistributionStorage {
         uint64 height;
         uint64 validatorPeriod;
         uint256 fraction;
+        uint256[8] __gap;
     }
 
     uint256 internal communityPool; // 0x00: FeePool.community_pool
