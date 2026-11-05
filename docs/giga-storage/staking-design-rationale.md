@@ -55,7 +55,7 @@ slot 7 of `StakingStorage` (the set before it takes two slots), so the shares
 are at `keccak256(validator . keccak256(delegator . 7))`, with each key padded
 to 32 bytes.
 
-`Validator` shows the struct rules on a larger record. In the draft it takes 23
+`Validator` shows the struct rules on a larger record. In the draft it takes 15
 slots:
 
 | Slot offset | Fields |
@@ -68,7 +68,6 @@ slots:
 | 9 | `unbondingHeight`, `unbondingTime` (packed) |
 | 10–13 | `commission` (three rates, then `updateTime`) |
 | 14 | `minSelfDelegation` |
-| 15–22 | `__gap` (reserved) |
 
 ### Why
 
@@ -94,7 +93,7 @@ can go depends on where its struct is stored:
 - **A mapping value** (`Validator`, `Delegation`, the queue entries,
   `DelegatorStartingInfo`, `ValidatorSigningInfo`) grows at its end. Each value
   starts at its own hashed slot, so the slots after it are free, and no
-  reserved slots are needed: `Validator`'s `__gap` is optional.
+  reserved slots are needed.
 - **A struct inside another** (`Description` and `Commission` in `Validator`)
   cannot grow without moving the fields after it. A new field goes at the end
   of the outer struct instead.
