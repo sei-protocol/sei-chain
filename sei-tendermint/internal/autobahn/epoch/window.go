@@ -5,6 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -75,6 +76,11 @@ func epochEqual(a, b *types.Epoch) bool {
 	return a.EpochIndex() == b.EpochIndex() &&
 		a.RoadRange() == b.RoadRange() &&
 		a.Committee().Equal(b.Committee())
+}
+
+// MarshalWindow returns the canonical encoding of w, which chain state stores and hashes.
+func MarshalWindow(w Window) []byte {
+	return hashable.MarshalCanonical(WindowConv.Encode(w))
 }
 
 // WindowConv converts an epoch window to and from protobuf.

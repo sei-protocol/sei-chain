@@ -1005,7 +1005,7 @@ func hashEVMOnlyResult(
 		// The changesets carry no count, so the tag keeps the window from
 		// reading as one more changeset.
 		w.writeByte(evmOnlyHashEpochWindowTag)
-		w.writeSized(epoch.WindowConv.Marshal(window))
+		w.writeSized(epoch.MarshalWindow(window))
 	}
 	if err := w.flush(); err != nil {
 		return common.Hash{}, err

@@ -18,7 +18,7 @@ func epochWindowMiscChange(window epoch.Window) gigatypes.MiscChange {
 	return gigatypes.MiscChange{
 		Module: epochWindowModule,
 		Key:    []byte(epochWindowKey),
-		Value:  epoch.WindowConv.Marshal(window),
+		Value:  epoch.MarshalWindow(window),
 	}
 }
 

@@ -29,6 +29,23 @@ func TestWindowConvRoundTripAndOptionalPrev(t *testing.T) {
 	require.Equal(t, utils.None[*types.Epoch](), decoded.Prev())
 }
 
+func TestMarshalWindowRoundTrip(t *testing.T) {
+	rng := utils.TestRng()
+	genesis, keys, _ := genCommittee(rng, 3)
+	nextCommittee := utils.OrPanic1(genesis.DeriveNext(map[types.PublicKey]uint64{keys[1].Public(): 7}, 2))
+	current := testEpoch(1, 11, genesis)
+	next := testEpoch(2, 11, nextCommittee)
+
+	for _, prev := range []utils.Option[*types.Epoch]{utils.Some(testEpoch(0, 11, genesis)), utils.None[*types.Epoch]()} {
+		window := utils.OrPanic1(NewWindow(prev, current, next))
+		raw := MarshalWindow(window)
+		decoded, err := WindowConv.Unmarshal(raw)
+		require.NoError(t, err)
+		require.True(t, window.Equal(decoded))
+		require.Equal(t, raw, MarshalWindow(decoded))
+	}
+}
+
 func TestWindowRejectsNonConsecutiveEpochs(t *testing.T) {
 	rng := utils.TestRng()
 	genesis, keys, _ := genCommittee(rng, 3)
