@@ -37,7 +37,7 @@ The `evmonly` package currently provides:
   runtimes, with a concurrency-safe in-memory implementation for unit tests
 - a versioned `MemoryStore` giga implementation over an immutable `StateReader`
   for tests and load generation
-- native custom precompiles run from a `precompiles.Registry`
+- native custom precompiles run from a `precompiles.Registry`, starting with `gov`
 - a standalone load harness at `giga/evmonly/cmd/evmonly-loadtest` that feeds
   generated transfer blocks through the in-memory giga store
 
@@ -74,20 +74,19 @@ data: callers should pass the result of `PrepareBlock` unchanged, because
 
 The executor is always store-backed. `WithStorageManager(...)` selects the
 `bootstrap.GigaStorageManager` that provides both `giga.StateDB` and the ledger
-receipt store, plus the `NamedChangeSetEncoder` for its state implementation.
-Unit tests can supply those dependencies independently. Execution fails closed
-if either store or the encoder is missing.
+receipt store. Unit tests can supply those dependencies independently.
+Execution fails closed if the state store is missing.
 For each block the executor opens a current `giga.StateView`, executes against
-its EVM-native read methods, converts the resulting `StateChangeSet`, and calls
+its EVM-native read methods, and passes the resulting `StateChangeSet` to
 `CommitStateChanges`. Execution and commit on an executor are serialized so
 blocks cannot share a stale snapshot or overlap commits; callers must still
 submit block heights in order. The snapshot stays open through the commit and
-is always closed afterward. An empty block still commits an encoded empty
-changeset so the store can advance its height. Stateless preparation can
+is always closed afterward. An empty block still commits an empty
+`StateChangeSet` so the store can advance its height. Stateless preparation can
 continue concurrently with store-backed execution.
 
-The encoder is explicit because `giga.StateDB` defines the protobuf commit
-transport but does not define an on-disk key layout. Encoding, state commit, or
+The store owns its on-disk key layout: `giga.StateDB` converts a
+`StateChangeSet` to the rows it writes. Block-encoder, state commit, or
 receipt-store failures release the block result and return an error without
 invoking `ResultSink`. Ethereum receipts are converted into
 `receipt.ReceiptRecord` values and persisted through the shared
@@ -112,7 +111,9 @@ The FlatKV encoder persists balance, nonce, code, and storage changes, and the
 executor reads them through the current Giga state view. EVM-only Autobahn load
 tests use `WithMissingAccountState(...)` to supply the initial funded state for
 synthetic accounts that have not appeared in FlatKV yet; after their first
-change, subsequent reads come from the persisted account row.
+change, subsequent reads come from the persisted account row. The fallback
+answers only for balance, nonce, and code: storage is always read from FlatKV,
+so a slot written at an address with no account row reads back.
 
 `MemoryStore` and `MemoryReceiptStore` are non-persistent unit-test doubles.
 `MemoryStore` wraps an immutable `StateReader`, retains committed values in
@@ -200,7 +201,10 @@ A registered `precompiles.Contract` runs against the calling EVM's StateDB, so
 its reads and writes are tracked, for OCC included, and reverted like any other
 call's. After its flat `RequiredGas`, each storage read it makes is charged as
 an EIP-2929 SLOAD. An address registered without a contract stays a fail-closed
-placeholder that returns `ErrCustomPrecompilesOpen`.
+placeholder that returns `ErrCustomPrecompilesOpen`. Each precompile's storage
+follows the solc layout of its schema in `docs/giga-storage/`, read and written
+through `precompiles/solstorage`. `precompiles/gov` (0x1006) is the first
+implementation.
 
 A contract that implements `precompiles.EndBlocker` runs once at the end of
 every block, empty blocks included, after the block's transactions. The

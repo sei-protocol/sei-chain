@@ -10,6 +10,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -94,8 +96,14 @@ func (a *testApp) LastBlockHeight() int64 {
 	panic("unreachable")
 }
 
-func (a *testApp) CheckTx(context.Context, *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+func (a *testApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+	hash := sha256.Sum256(req.Tx)
 	return &abci.ResponseCheckTxV2{
+		// Each mock transaction has its own sender and uses nonce zero.
+		IsEVM:            true,
+		EVMSenderAddress: common.Address(hash[:20]),
+		SeiSenderAddress: hash[:20],
+		EVMHash:          common.Hash(hash),
 		ResponseCheckTx: &abci.ResponseCheckTx{
 			Code:         abci.CodeTypeOK,
 			GasWanted:    1,

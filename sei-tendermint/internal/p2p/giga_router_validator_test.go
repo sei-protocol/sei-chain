@@ -75,12 +75,18 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
 			// (zero overrides); p2p can't import config (import cycle).
 			littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
-			require.NoError(t, err, "littblock.DefaultConfig[%v]", i)
+			if err != nil {
+				return fmt.Errorf("littblock.DefaultConfig[%v]: %w", i, err)
+			}
 			littCfg.Litt.Fsync = true
 			db, err := littblock.NewBlockDB(littCfg)
-			require.NoError(t, err, "littblock.NewBlockDB[%v]", i)
+			if err != nil {
+				return fmt.Errorf("littblock.NewBlockDB[%v]: %w", i, err)
+			}
 			blockStore, err := blockstore.New(db)
-			require.NoError(t, err, "blockstore.New[%v]", i)
+			if err != nil {
+				return fmt.Errorf("blockstore.New[%v]: %w", i, err)
+			}
 			t.Cleanup(func() { _ = blockStore.Close() })
 			commonCfg := GigaRouterCommonConfig{
 				// Aggressive dialing rate to speed up startup.
@@ -93,7 +99,9 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				EnableEvmProxy:     true,
 			}
 			dataState, err := BuildDataState(&commonCfg, blockStore)
-			require.NoError(t, err, "BuildDataState[%v]", i)
+			if err != nil {
+				return fmt.Errorf("BuildDataState[%v]: %w", i, err)
+			}
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
 				GigaRouterCommonConfig: commonCfg,
 				ValidatorKey:           cfg.validatorKey,
@@ -106,10 +114,11 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					MaxTxsPerSecond:         utils.None[uint64](),
 					BlockInterval:           100 * time.Millisecond,
 					AllowEmptyBlocks:        false,
-					MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 				},
 			}, cfg.nodeKey, dataState)
-			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
+			if err != nil {
+				return fmt.Errorf("NewGigaValidatorRouter[%v]: %w", i, err)
+			}
 			router, err := NewRouter(
 				cfg.nodeKey,
 				func() *types.NodeInfo { return &nodeInfo },
@@ -124,7 +133,9 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					Giga:                     utils.Some[GigaRouter](giga),
 				},
 			)
-			require.NoError(t, err, "NewRouter[%v]", i)
+			if err != nil {
+				return fmt.Errorf("NewRouter[%v]: %w", i, err)
+			}
 			s.SpawnBgNamed(fmt.Sprintf("router[%v]", i), func() error { return utils.IgnoreCancel(router.Run(ctx)) })
 			s.SpawnBgNamed(fmt.Sprintf("giga[%v]", i), func() error { return utils.IgnoreCancel(giga.Run(ctx)) })
 			apps = append(apps, app)
@@ -137,6 +148,9 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			}
 			s.SpawnNamed(fmt.Sprintf("producer[%v]", i), func() error {
 				v := giga.Mempool().OrPanic("validator giga must have a mempool")
+				if err := v.WaitForMempool(ctx); err != nil {
+					return fmt.Errorf("producer.WaitForMempool(): %w", err)
+				}
 				for _, tx := range txs {
 					if _, err := v.InsertTx(ctx, tx); err != nil {
 						return fmt.Errorf("producer.InsertTx(): %w", err)
@@ -148,56 +162,95 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		// Each node should finalize all txs locally.
 		for _, app := range apps {
 			for _, tx := range allTxs {
-				require.NoError(t, app.WaitForTx(ctx, tx), "WaitForTx")
+				if err := app.WaitForTx(ctx, tx); err != nil {
+					return fmt.Errorf("WaitForTx: %w", err)
+				}
 			}
 		}
 		// Nodes should agree on the final state.
 		want := apps[0].Snapshot()
 		for i, app := range apps {
 			t.Logf("app[%v]", i)
-			require.NoError(t, utils.TestDiff(want, app.Snapshot()), "state mismatch app[%v]", i)
+			if err := utils.TestDiff(want, app.Snapshot()); err != nil {
+				return fmt.Errorf("state mismatch app[%v]: %w", i, err)
+			}
 		}
 		// Covers GigaRouter.LastCommittedBlockNumber() — after blocks have
 		// been finalized every node should report a non-zero
 		// consensus-committed height through the accessor used by /status.
 		for i, giga := range gigas {
 			committed := giga.LastCommittedBlockNumber()
-			require.Positive(t, committed, "router[%v].LastCommittedBlockNumber()", i)
+			if committed <= 0 {
+				return fmt.Errorf("router[%v].LastCommittedBlockNumber(): got %v, want positive", i, committed)
+			}
 			// Covers GigaRouter.ExecutedBlocks — the watch behind
 			// eth_subscribe("newHeads"). It must reach the committed height,
 			// and the block it names must be readable via BlockByNumber.
 			executed, err := giga.ExecutedBlocks().Wait(ctx, func(w atypes.ExecutedBlocks) bool {
 				return int64(w.Latest().Number) >= committed
 			})
-			require.NoError(t, err, "router[%v].ExecutedBlocks().Wait()", i)
+			if err != nil {
+				return fmt.Errorf("router[%v].ExecutedBlocks().Wait(): %w", i, err)
+			}
 			_, err = giga.BlockByNumber(ctx, executed.Latest().Number)
-			require.NoError(t, err, "router[%v].BlockByNumber(executed=%v)", i, executed.Latest().Number)
+			if err != nil {
+				return fmt.Errorf("router[%v].BlockByNumber(executed=%v): %w", i, executed.Latest().Number, err)
+			}
 			// Covers GigaRouter.BlockByNumber — the accessor used by the
 			// Autobahn branch in env.Block to serve /block and evmrpc block
 			// lookups. Fetch the last committed block and verify it carries
 			// the expected height + hash, the right chain id, and that the
 			// payload Txs round-tripped (we just submitted txs).
 			rb, err := giga.BlockByNumber(ctx, atypes.RoadIndex(committed)) //nolint:gosec // committed is positive (validated above)
-			require.NoError(t, err, "router[%v].BlockByNumber(%v)", i, committed)
-			require.NotNil(t, rb.Block, "router[%v].BlockByNumber(%v).Block", i, committed)
-			require.Equal(t, committed, rb.Block.Height, "router[%v].BlockByNumber(%v) height", i, committed)
-			require.NotEmpty(t, rb.BlockID.Hash, "router[%v].BlockByNumber(%v) block hash", i, committed)
-			require.Equal(t, genDoc.ChainID, rb.Block.Header.ChainID, "router[%v].BlockByNumber(%v) chain id", i, committed)
+			if err != nil {
+				return fmt.Errorf("router[%v].BlockByNumber(%v): %w", i, committed, err)
+			}
+			if rb.Block == nil {
+				return fmt.Errorf("router[%v].BlockByNumber(%v).Block: unexpected nil", i, committed)
+			}
+			if err := utils.TestDiff(committed, rb.Block.Height); err != nil {
+				return fmt.Errorf("router[%v].BlockByNumber(%v) height: %w", i, committed, err)
+			}
+			if len(rb.BlockID.Hash) == 0 {
+				return fmt.Errorf("router[%v].BlockByNumber(%v) block hash: expected nonempty", i, committed)
+			}
+			if err := utils.TestDiff(genDoc.ChainID, rb.Block.Header.ChainID); err != nil {
+				return fmt.Errorf("router[%v].BlockByNumber(%v) chain id: %w", i, committed, err)
+			}
 			// LastCommit is non-nil with empty Signatures — mirrors
 			// executeBlock's FinalizeBlock(DecidedLastCommit: empty)
 			// so trace replay and production both see "no votes" on
 			// the prior block. ToReqBeginBlock skips the per-val loop
 			// when Signatures is empty, so this is also enough to
 			// avoid the OOB deref the original PR was guarding against.
-			require.NotNil(t, rb.Block.LastCommit, "router[%v].BlockByNumber(%v) LastCommit", i, committed)
-			require.Empty(t, rb.Block.LastCommit.Signatures, "router[%v].BlockByNumber(%v) Signatures", i, committed)
+			if rb.Block.LastCommit == nil {
+				return fmt.Errorf("router[%v].BlockByNumber(%v) LastCommit: unexpected nil", i, committed)
+			}
+			if len(rb.Block.LastCommit.Signatures) != 0 {
+				return fmt.Errorf("router[%v].BlockByNumber(%v) Signatures: expected empty", i, committed)
+			}
 			// Round-trip the just-fetched block hash back through
 			// BlockByHash and assert we get the same ResultBlock back.
 			var hashKey common.Hash
 			copy(hashKey[:], rb.BlockID.Hash)
 			rbh, err := giga.BlockByHash(ctx, hashKey)
-			require.NoError(t, err, "router[%v].BlockByHash(%x)", i, rb.BlockID.Hash)
-			require.Equal(t, rb, rbh, "router[%v].BlockByHash(%x) ≠ BlockByNumber(%v)", i, rb.BlockID.Hash, committed)
+			if err != nil {
+				return fmt.Errorf("router[%v].BlockByHash(%x): %w", i, rb.BlockID.Hash, err)
+			}
+			if err := utils.TestDiff(rb.BlockID, rbh.BlockID); err != nil {
+				return fmt.Errorf("router[%v].BlockByHash(%x) block ID: %w", i, rb.BlockID.Hash, err)
+			}
+			wantBlock, err := rb.Block.ToProto()
+			if err != nil {
+				return err
+			}
+			gotBlock, err := rbh.Block.ToProto()
+			if err != nil {
+				return err
+			}
+			if err := utils.TestDiff(wantBlock, gotBlock); err != nil {
+				return fmt.Errorf("router[%v].BlockByHash(%x) ≠ BlockByNumber(%v): %w", i, rb.BlockID.Hash, committed, err)
+			}
 		}
 		// Payload.Txs round-trips: for every retained block, the txs the
 		// data layer holds (SuperBlock.Payload.Txs) must equal the txs
@@ -214,14 +267,18 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				continue // pruned out of the retain window
 			}
 			rb, err := giga0.BlockByNumber(ctx, gbn)
-			require.NoError(t, err, "router[0].BlockByNumber(%v)", h)
+			if err != nil {
+				return fmt.Errorf("router[0].BlockByNumber(%v): %w", h, err)
+			}
 			// Convert rb.Block.Data.Txs ([]types.Tx) back to [][]byte
 			// to compare against gb.Txs directly.
 			rbBytes := make([][]byte, len(rb.Block.Data.Txs))
 			for j, t := range rb.Block.Data.Txs {
 				rbBytes[j] = t
 			}
-			require.Equal(t, gb.Txs, rbBytes, "router[0].BlockByNumber(%v).Block.Data.Txs ≠ data.SuperBlock(%v).Payload.Txs", h, h)
+			if err := utils.TestDiff(gb.Txs, rbBytes); err != nil {
+				return fmt.Errorf("router[0].BlockByNumber(%v).Block.Data.Txs ≠ data.SuperBlock(%v).Payload.Txs: %w", h, h, err)
+			}
 		}
 		return nil
 	})
@@ -295,7 +352,6 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			MaxTxsPerBlock:          1,
 			MaxTxsPerSecond:         utils.None[uint64](),
 			BlockInterval:           time.Second,
-			MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 		},
 	}, nodeKeys[0], dataState)
 	require.NoError(t, err)

@@ -105,6 +105,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.rpc.max_filters":                      "12",
 		"giga.rpc.max_block_filter_hashes":          "34",
 		"giga.rpc.max_concurrent_trace_calls":       "3",
+		"giga.rpc.max_concurrent_send_calls":        "7",
 		"giga.rpc.trace_timeout":                    "4s",
 		"giga.rpc.max_trace_struct_log_bytes":       "512",
 		"giga.state_sync.enabled":                   "true",
@@ -144,6 +145,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			MaxFilters:                    12,
 			MaxBlockFilterHashes:          34,
 			MaxConcurrentTraceCalls:       3,
+			MaxConcurrentSendCalls:        7,
 			TraceTimeout:                  4 * time.Second,
 			MaxTraceStructLogBytes:        512,
 		},
@@ -181,6 +183,8 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"negative batch limit":            {"giga.rpc.batch_request_limit": "-1"},
 		"negative batch response size":    {"giga.rpc.batch_response_max_size": "-1"},
 		"negative ws connections":         {"giga.rpc.max_ws_connections": "-1"},
+		"negative send calls":             {"giga.rpc.max_concurrent_send_calls": "-1"},
+		"non-numeric send calls":          {"giga.rpc.max_concurrent_send_calls": "many"},
 		"negative trace calls":            {"giga.rpc.max_concurrent_trace_calls": "-1"},
 		"negative trace timeout":          {"giga.rpc.trace_timeout": "-1s"},
 		"negative struct log bytes":       {"giga.rpc.max_trace_struct_log_bytes": "-1"},
@@ -203,4 +207,11 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)
 	}
+}
+
+func TestSendConcurrencyLimitDefaultAndZero(t *testing.T) {
+	require.Equal(t, 4096, gigaconfig.DefaultConfig.RPC.MaxConcurrentSendCalls)
+	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{"giga.rpc.max_concurrent_send_calls": "0"})
+	require.NoError(t, err)
+	require.Zero(t, cfg.RPC.MaxConcurrentSendCalls)
 }

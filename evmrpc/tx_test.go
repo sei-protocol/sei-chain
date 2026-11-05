@@ -511,7 +511,7 @@ func TestEncodeReceiptContractAddress(t *testing.T) {
 	// Test coverage for lines 456-463: contract address handling
 	txHash := common.HexToHash("0xbbbb0000000000000000000000000000000000000000000000000000000000bb")
 
-	// Create a receipt with contract address but no "to" field (contract creation)
+	// A stored contract-creation receipt: contract address set, To empty
 	receipt := &types.Receipt{
 		TxHashHex:        txHash.Hex(),
 		BlockNumber:      8,
@@ -540,6 +540,9 @@ func TestEncodeReceiptContractAddress(t *testing.T) {
 	if resObj["result"] != nil {
 		resultMap := resObj["result"].(map[string]interface{})
 		require.NotNil(t, resultMap["contractAddress"])
+		to, hasTo := resultMap["to"]
+		require.True(t, hasTo, "creation receipt must carry a to key")
+		require.Nil(t, to)
 	}
 }
 

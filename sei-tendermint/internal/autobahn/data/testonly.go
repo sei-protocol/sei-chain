@@ -1,6 +1,8 @@
 package data
 
 import (
+	"slices"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -29,6 +31,16 @@ func TestCommitQC(
 	keys []types.SecretKey,
 	prev utils.Option[*types.CommitQC],
 ) (*types.FullCommitQC, []*types.Block) {
+	return testCommitQCBlocks(rng, ep, keys, prev, 10)
+}
+
+func testCommitQCBlocks(
+	rng utils.Rng,
+	ep *types.Epoch,
+	keys []types.SecretKey,
+	prev utils.Option[*types.CommitQC],
+	blockCount int,
+) (*types.FullCommitQC, []*types.Block) {
 	committee := ep.Committee()
 	blocks := map[types.LaneID][]*types.Block{}
 	makeBlock := func(producer types.LaneID) *types.Block {
@@ -38,9 +50,14 @@ func TestCommitQC(
 		}
 		return types.NewBlock(producer, types.LaneRangeOpt(prev, producer).Next(), types.GenBlockHeaderHash(rng), types.GenPayload(rng))
 	}
-	for range 10 {
-		producer := committee.Lanes().At(rng.Intn(committee.Lanes().Len()))
+	available := slices.Collect(committee.Lanes().All())
+	for range blockCount {
+		i := rng.Intn(len(available))
+		producer := available[i]
 		blocks[producer] = append(blocks[producer], makeBlock(producer))
+		if len(blocks[producer]) == types.MaxLaneRangeInProposal {
+			available = slices.Delete(available, i, i+1)
+		}
 	}
 	laneQCs := map[types.LaneID]*types.LaneQC{}
 	var headers []*types.BlockHeader
