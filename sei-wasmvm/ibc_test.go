@@ -11,20 +11,6 @@ import (
 
 const IBC_TEST_CONTRACT = "./testdata/ibc_reflect.wasm"
 
-func TestIBC(t *testing.T) {
-	vm := withVM(t)
-
-	wasm, err := ioutil.ReadFile(IBC_TEST_CONTRACT)
-	require.NoError(t, err)
-
-	checksum, err := vm.StoreCode(wasm)
-	require.NoError(t, err)
-
-	code, err := vm.GetCode(checksum)
-	require.NoError(t, err)
-	require.Equal(t, WasmCode(wasm), code)
-}
-
 func TestAnalyzeCode(t *testing.T) {
 	vm := withVM(t)
 

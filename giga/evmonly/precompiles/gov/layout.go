@@ -11,16 +11,15 @@ var Address = common.HexToAddress("0x0000000000000000000000000000000000001006")
 // Top-level slots of docs/giga-storage/GovStorage.sol.
 const (
 	slotProposalIDs      = 0
-	slotParams           = 1
-	slotProposals        = 7
-	slotVotes            = 8
-	slotDeposits         = 9
-	slotDepositors       = 10
-	slotVotingQueue      = 11
-	slotDepositQueue     = 13
-	slotVotersByProposal = 15
-	slotTallies          = 16
-	slotTallyDeductions  = 17
+	slotProposals        = 1
+	slotVotes            = 2
+	slotDeposits         = 3
+	slotDepositors       = 4
+	slotVotingQueue      = 5
+	slotDepositQueue     = 7
+	slotVotersByProposal = 9
+	slotTallies          = 10
+	slotTallyDeductions  = 11
 )
 
 // member is a struct member's position relative to the struct's base slot.
@@ -43,20 +42,6 @@ var (
 	tallyNoWithVeto = member{3, 0}
 	tallyPower      = member{4, 0}
 	tallyCounting   = member{5, 0}
-)
-
-// GovStorage.Params members.
-var (
-	paramsVotingPeriod          = member{0, 0}
-	paramsExpeditedVotingPeriod = member{0, 8}
-	paramsMinDeposit            = member{1, 0}
-	paramsMaxDepositPeriod      = member{2, 0}
-	paramsMinExpeditedDeposit   = member{3, 0}
-	paramsQuorum                = member{4, 0}
-	paramsThreshold             = member{4, 8}
-	paramsVetoThreshold         = member{4, 16}
-	paramsExpeditedQuorum       = member{4, 24}
-	paramsExpeditedThreshold    = member{5, 0}
 )
 
 // GovStorage.Proposal members.
