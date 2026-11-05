@@ -112,11 +112,11 @@ on where the state is stored:
   element moves every element after the first. A gap costs nothing to store, as
   a zero slot is not stored, provided adding, moving and clearing elements
   write only the fields in use: Solidity's `delete` and `pop` zero every slot.
-  Without a gap, `lastValidators` holds at most 100, so the upgrade can rewrite
-  it, and unbonding entries complete within the unbonding time, so a new layout
-  can start in a new state variable while the old one drains.
-  `validatorSlashEvents` is kept for good, so its element has to be settled
-  before launch (see *Open questions*).
+  `ValidatorSlashEvent` has one, since `validatorSlashEvents` is kept for good.
+  The other arrays have none: `lastValidators` holds at most 100, so the
+  upgrade can rewrite it, and unbonding entries complete within the unbonding
+  time, so a new layout can start in a new state variable while the old one
+  drains.
 - **An enumeration set** keeps its shape, and dropping one only stops its
   writes. Adding one after launch means filling it with the existing members,
   and a mapping's keys cannot be listed from its slots, so a set can be added
@@ -607,6 +607,3 @@ Known gaps that need an owner or a decision.
    acceptable for very large proposals?
 6. Is the validator set frozen during the migration, or can it change?
 7. Who owns the V2 read side of the sweep, and can the flatkv copy serve it?
-8. `validatorSlashEvents` is the one array of structs kept for good. Should its
-   element get a `__gap`, or should it be a mapping by index with a count,
-   whose values grow at their end?
