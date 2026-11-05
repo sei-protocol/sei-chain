@@ -88,7 +88,6 @@ func TestLayoutMatchesSolc(t *testing.T) {
 			"unbondingTime":     validatorUnbondingTime,
 			"commission":        validatorCommissionRate,
 			"minSelfDelegation": validatorMinSelfDelegation,
-			"__gap":             validatorGap,
 		}, validatorSlots},
 		"struct StakingStorage.Description": {map[string]member{
 			"moniker":         sub(validatorMoniker, validatorMoniker),
