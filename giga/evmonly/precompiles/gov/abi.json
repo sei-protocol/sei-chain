@@ -626,6 +626,57 @@
   },
   {
     "type": "function",
+    "name": "submitParamChangeProposal",
+    "inputs": [
+      {
+        "name": "title",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "description",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "isExpedited",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "changes",
+        "type": "tuple[]",
+        "internalType": "struct ParamChange[]",
+        "components": [
+          {
+            "name": "subspace",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "key",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "value",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "proposalID",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
     "name": "submitProposal",
     "inputs": [
       {

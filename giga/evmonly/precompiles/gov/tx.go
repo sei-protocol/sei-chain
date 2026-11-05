@@ -116,6 +116,11 @@ func (p Precompile) submitTextProposal(ctx *precompiles.Context, s store, method
 	return submit(ctx, s, method, content, content.IsExpedited)
 }
 
+func (p Precompile) submitParamChangeProposal(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
+	content := paramChangeContent{Title: args[0].(string), Description: args[1].(string), IsExpedited: args[2].(bool), Changes: paramChangesArg(args[3])}
+	return submit(ctx, s, method, content, content.IsExpedited)
+}
+
 // submit creates a proposal of content and returns its packed id.
 func submit(ctx *precompiles.Context, s store, method *abi.Method, content govContent, isExpedited bool) ([]byte, error) {
 	id, err := createProposal(ctx, s, content, isExpedited)
@@ -132,7 +137,7 @@ func createProposal(ctx *precompiles.Context, s store, content govContent, isExp
 	if len(encoded) > maxContentLength {
 		return 0, fmt.Errorf("%w: %d bytes encoded, max %d", errContentTooLong, len(encoded), maxContentLength)
 	}
-	if err := content.validate(); err != nil {
+	if err := content.validate(s); err != nil {
 		return 0, err
 	}
 	amount, err := depositAmount(ctx.ApparentValue)
