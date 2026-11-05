@@ -11,8 +11,8 @@ import (
 	"time"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -54,54 +54,6 @@ func (a *fixedHeightApp) Info() *abci.ResponseInfo {
 	return &abci.ResponseInfo{LastBlockHeight: a.height}
 }
 
-// newSeededVault returns a durable Pebble vault rooted in a temp dir with hash committed at height.
-func newSeededVault(t *testing.T, height atypes.RoadIndex, hash []byte) hashvault.HashVault {
-	t.Helper()
-	cfg := hashvault.DefaultHashVaultConfig()
-	cfg.DataDir = t.TempDir()
-	v, err := hashvault.NewUnsafePebbleHashVault(context.Background(), cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = v.Close(context.Background()) })
-	require.NoError(t, v.CommitToHash(context.Background(), uint64(height), hash))
-	return v
-}
-
-// TestCommitHashToVault covers the safety contract the restart path in runExecute relies on:
-// an idempotent match returns nil, a divergent hash halts the node (panic), and a canceled
-// context returns an error without halting.
-func TestCommitHashToVault(t *testing.T) {
-	const height atypes.RoadIndex = 42
-	h1 := make([]byte, hashvault.BlockHashSize)
-	for i := range h1 {
-		h1[i] = 0xAA
-	}
-	h2 := make([]byte, hashvault.BlockHashSize)
-	for i := range h2 {
-		h2[i] = 0xBB
-	}
-
-	t.Run("matching hash is idempotent", func(t *testing.T) {
-		vault := newSeededVault(t, height, h1)
-		require.NoError(t, commitAppHashToVault(context.Background(), vault, height, h1))
-	})
-
-	t.Run("divergent hash halts the node", func(t *testing.T) {
-		vault := newSeededVault(t, height, h1)
-		require.Panics(t, func() {
-			_ = commitAppHashToVault(context.Background(), vault, height, h2)
-		})
-	})
-
-	t.Run("canceled context returns error without halting", func(t *testing.T) {
-		vault := newSeededVault(t, height, h1)
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-		// Must not panic: a canceled context is a benign shutdown, not an equivocation.
-		err := commitAppHashToVault(ctx, vault, height, h2)
-		require.Error(t, err)
-	})
-}
-
 func TestFinalizeBlockGasUsed(t *testing.T) {
 	resp := &abci.ResponseFinalizeBlock{
 		TxResults: []*abci.ExecTxResult{
@@ -113,6 +65,279 @@ func TestFinalizeBlockGasUsed(t *testing.T) {
 	}
 	require.Equal(t, int64(30), finalizeBlockGasUsed(resp))
 }
+
+// manualAppHashBuilder is an AppHashBuilder whose app hashes become available
+// only when the test adds them, so a committed block's app hash reaches the
+// router only when the test says so. With publishOnReport set, ReportBlockHash
+// makes the block's app hash available immediately, which is what a router
+// under test needs in order to propose the block it just ran.
+type manualAppHashBuilder struct {
+	state           utils.Watch[*manualAppHashBuilderState]
+	publishOnReport bool
+}
+
+type manualAppHashBuilderState struct {
+	appHashes map[uint64]*apphash.AppHashData
+}
+
+func newManualAppHashBuilder() *manualAppHashBuilder {
+	return &manualAppHashBuilder{state: utils.NewWatch(&manualAppHashBuilderState{
+		appHashes: map[uint64]*apphash.AppHashData{},
+	})}
+}
+
+func newPublishingAppHashBuilder() *manualAppHashBuilder {
+	builder := newManualAppHashBuilder()
+	builder.publishOnReport = true
+	return builder
+}
+
+func (b *manualAppHashBuilder) ReportBlockHash(_ context.Context, blockHeight uint64, blockHash [32]byte) error {
+	if b.publishOnReport {
+		b.add(apphash.NewAppHashData(
+			0, blockHeight, blockHash, [32]byte{}, apphash.BUDHash{}, apphash.ReceiptHash{}, [32]byte{}))
+	}
+	return nil
+}
+
+func (b *manualAppHashBuilder) ReportStateHash(context.Context, uint64, [32]byte, map[string][]byte) error {
+	return nil
+}
+
+func (b *manualAppHashBuilder) ReportBUDHash(context.Context, uint64, [32]byte) error { return nil }
+
+func (b *manualAppHashBuilder) ReportReceiptHash(context.Context, uint64, apphash.ReceiptHash) error {
+	return nil
+}
+
+func (b *manualAppHashBuilder) GetAppHash(ctx context.Context, blockHeight uint64) (*apphash.AppHashData, error) {
+	var appHash *apphash.AppHashData
+	for state, ctrl := range b.state.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return state.appHashes[blockHeight] != nil }); err != nil {
+			return nil, err
+		}
+		appHash = state.appHashes[blockHeight]
+	}
+	return appHash, nil
+}
+
+func (b *manualAppHashBuilder) Bounds() (uint64, uint64, bool, error) {
+	var lowest, highest uint64
+	var ok bool
+	for state := range b.state.Lock() {
+		for height := range state.appHashes {
+			if !ok || height < lowest {
+				lowest = height
+			}
+			if !ok || height > highest {
+				highest = height
+			}
+			ok = true
+		}
+	}
+	return lowest, highest, ok, nil
+}
+
+func (b *manualAppHashBuilder) SetupComplete(context.Context, uint64) error { return nil }
+
+func (b *manualAppHashBuilder) Close() error { return nil }
+
+// add makes appHash available.
+func (b *manualAppHashBuilder) add(appHash *apphash.AppHashData) {
+	for state, ctrl := range b.state.Lock() {
+		state.appHashes[appHash.BlockHeight()] = appHash
+		ctrl.Updated()
+	}
+}
+
+// clear makes every app hash unavailable.
+func (b *manualAppHashBuilder) clear() {
+	for state, ctrl := range b.state.Lock() {
+		clear(state.appHashes)
+		ctrl.Updated()
+	}
+}
+
+func testAppHashData(height atypes.RoadIndex) *apphash.AppHashData {
+	var blockHash [32]byte
+	blockHash[0] = byte(height)
+	sum := [32]byte{byte(height)}
+	return apphash.NewAppHashData(0, uint64(height), blockHash, sum, apphash.BUDHash{}, apphash.ReceiptHash{}, [32]byte{})
+}
+
+// newAppHashTestRouter returns a single-validator router over an in-memory
+// block store, with a test app and a hash store the caller publishes by hand.
+func newAppHashTestRouter(
+	t *testing.T,
+	rng utils.Rng,
+	key atypes.SecretKey,
+) (*testApp, *manualAppHashBuilder, *data.State, *gigaRouterCommon) {
+	t.Helper()
+	genDoc := &tmtypes.GenesisDoc{
+		ChainID:         "apphash-test",
+		InitialHeight:   1,
+		GenesisTime:     time.Now(),
+		AppState:        testAppStateJSON(rng),
+		ConsensusParams: tmtypes.DefaultConsensusParams(),
+	}
+	require.NoError(t, genDoc.ValidateAndComplete())
+
+	app := newTestApp()
+	hashBuilder := newManualAppHashBuilder()
+	db, err := blockstore.New(memblock.NewBlockDB())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	cfg := &GigaRouterCommonConfig{
+		DialInterval:       time.Second,
+		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
+		PersistentStateDir: t.TempDir(),
+		GenDoc:             genDoc,
+		App:                proxy.New(app),
+		AppHashBuilder:     hashBuilder,
+	}
+	state, err := BuildDataState(cfg, db)
+	require.NoError(t, err)
+	return app, hashBuilder, state, &gigaRouterCommon{
+		cfg:      cfg,
+		data:     state,
+		app:      cfg.App,
+		executed: utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{})),
+	}
+}
+
+// TestExecuteBuffersPendingAppHashes pins that a run of commits finishes before
+// the hash loop receives them. The report task makes each block's app hash
+// available, and the hash loop starts only after those commits. The committed
+// handoff has to hold the run.
+func TestExecuteBuffersPendingAppHashes(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	app, hashBuilder, state, router := newAppHashTestRouter(t, rng, key)
+
+	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
+	qc2, blocks2 := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.Some(qc.QC()))
+	qc3, blocks3 := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.Some(qc2.QC()))
+	require.Equal(t, state.Registry().MustEpoch(0).RoadRange().First, qc.Index())
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := state.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
+			return fmt.Errorf("state.PushPartialBlock(): %w", err)
+		}
+		if err := state.PushPartialBlock(ctx, qc2, data.TestBlockMap(blocks2)); err != nil {
+			return fmt.Errorf("state.PushPartialBlock(): %w", err)
+		}
+		if err := state.PushPartialBlock(ctx, qc3, data.TestBlockMap(blocks3)); err != nil {
+			return fmt.Errorf("state.PushPartialBlock(): %w", err)
+		}
+		next, lastBlock, err := router.initApp(ctx)
+		if err != nil {
+			return err
+		}
+		if block, ok := lastBlock.Get(); ok {
+			return fmt.Errorf("fresh app returned last block %d", block.Height)
+		}
+		hashBuilder.publishOnReport = true
+		committed := make(chan pendingExecution, pendingExecutionBuffer)
+		s.SpawnBgNamed("reportBlockHashes", func() error {
+			return utils.IgnoreCancel(router.runReportBlockHashes(ctx, next))
+		})
+		s.SpawnBgNamed("execute", func() error {
+			return utils.IgnoreCancel(router.runExecuteBlocks(ctx, committed, next))
+		})
+		if _, err := app.WaitForBlocks(ctx, 3); err != nil {
+			return err
+		}
+		s.SpawnBgNamed("pushAppHashes", func() error {
+			return utils.IgnoreCancel(router.runPushAppHashes(ctx, committed))
+		})
+		if _, err := state.AppVote(ctx, qc3.Index()); err != nil {
+			return fmt.Errorf("AppVote(%v): %w", qc3.Index(), err)
+		}
+		return nil
+	}))
+}
+
+// TestRunExecuteReportsTheBlockHash verifies that runExecute reports the road
+// block hash the hash loop proposes. Deleting that spawn leaves AppVote waiting,
+// and this test hangs.
+func TestRunExecuteReportsTheBlockHash(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	_, hashBuilder, state, router := newAppHashTestRouter(t, rng, key)
+
+	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
+	require.Equal(t, state.Registry().MustEpoch(0).RoadRange().First, qc.Index())
+	hashBuilder.publishOnReport = true
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := state.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
+			return fmt.Errorf("state.PushPartialBlock(): %w", err)
+		}
+		s.SpawnBgNamed("execute", func() error {
+			return utils.IgnoreCancel(router.runExecute(ctx))
+		})
+		if _, err := state.AppVote(ctx, qc.Index()); err != nil {
+			return fmt.Errorf("AppVote(%v): %w", qc.Index(), err)
+		}
+		return nil
+	}))
+}
+
+// TestBackfillAppHashesReadsTheBuilder pins the restart path: every block the
+// app committed but did not get proposed is recovered from the app hash
+// builder, oldest first, so execution can resume at the block after the app
+// tip.
+func TestBackfillAppHashesReadsTheBuilder(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	_, hashBuilder, state, router := newAppHashTestRouter(t, rng, key)
+
+	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
+	last := qc.Index()
+	require.Equal(t, state.Registry().MustEpoch(0).RoadRange().First, last)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := state.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
+			return fmt.Errorf("state.PushPartialBlock(): %w", err)
+		}
+
+		next := last + 1
+		for n := state.NextAppProposal(); n < next; n++ {
+			hashBuilder.add(testAppHashData(n))
+		}
+		require.NoError(t, router.backfillAppHashes(ctx, next))
+		require.Equal(t, next, state.NextAppProposal())
+		// The cursor is already next, so a second call has nothing to push.
+		hashBuilder.clear()
+		require.NoError(t, router.backfillAppHashes(ctx, next))
+		require.Equal(t, next, state.NextAppProposal())
+		return nil
+	}))
+}
+
+// TestRunPushAppHashesStopsWhenExecuteStops hangs if the push loop waits on a
+// context execute's return does not cancel.
+func TestRunPushAppHashesStopsWhenExecuteStops(t *testing.T) {
+	committed := make(chan pendingExecution, 1)
+	committed <- pendingExecution{number: 1}
+	router := &gigaRouterCommon{cfg: &GigaRouterCommonConfig{AppHashBuilder: newManualAppHashBuilder()}}
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnNamed("pushAppHashes", func() error {
+			return router.runPushAppHashes(ctx, committed)
+		})
+		s.SpawnNamed("execute", func() error {
+			return errExecuteStopped
+		})
+		return nil
+	})
+	require.ErrorIs(t, err, errExecuteStopped)
+}
+
+var errExecuteStopped = errors.New("execute stopped")
 
 func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	rng := utils.TestRng()
@@ -152,6 +377,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
 		App:                proxy.New(&fixedHeightApp{height: int64(last)}),
+		AppHashBuilder:     newPublishingAppHashBuilder(),
 	}
 	state, err := BuildDataState(cfg, db)
 	require.NoError(t, err)
@@ -265,6 +491,7 @@ func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAdd
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
 		App:                proxy.New(&fixedHeightApp{height: 1}),
+		AppHashBuilder:     newPublishingAppHashBuilder(),
 	}, db)
 	require.NoError(t, err)
 	return &gigaRouterCommon{

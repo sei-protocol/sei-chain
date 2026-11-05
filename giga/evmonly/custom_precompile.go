@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -20,7 +21,11 @@ var (
 	errPrecompileAmountOverflow  = errors.New("custom precompile balance amount exceeds uint256")
 	errPrecompileBalanceOverflow = errors.New("custom precompile balance exceeds uint256")
 	errPrecompileSstoreSentry    = errors.New("not enough gas for reentrancy sentry")
+	errPrecompileInputTooLarge   = errors.New("custom precompile input is too large")
 )
+
+// maxPrecompileInput is the largest input a custom precompile accepts.
+const maxPrecompileInput = 20 << 10
 
 // registeredCustomPrecompile runs a native custom precompile against the
 // calling EVM's StateDB, so every read and write it makes is tracked for OCC
@@ -56,10 +61,9 @@ func (p registeredCustomPrecompile) Run(
 
 // RunAndCalculateGas charges RequiredGas, then runs the contract against the
 // calling EVM's StateDB, charging each storage read and write as an EIP-2929
-// SLOAD or SSTORE and each log as a LOG opcode, from the remaining gas. A
-// failed state access takes precedence over the contract's own result so a
-// precompile cannot return success after an invalid balance or storage
-// mutation, or after running out of gas.
+// SLOAD or SSTORE and each log as a LOG opcode, from the remaining gas. Input
+// over maxPrecompileInput fails the call before the contract runs, and a failed
+// state access fails it over the contract's own result. Either uses all the gas.
 func (p registeredCustomPrecompile) RunAndCalculateGas(
 	evm *vm.EVM,
 	sender common.Address,
@@ -71,6 +75,10 @@ func (p registeredCustomPrecompile) RunAndCalculateGas(
 	readOnly bool,
 	isFromDelegateCall bool,
 ) ([]byte, uint64, error) {
+	// ABI decoding can allocate far more than the gas charged per input byte.
+	if len(input) > maxPrecompileInput {
+		return nil, 0, errPrecompileInputTooLarge
+	}
 	gasCost := p.RequiredGas(input)
 	if suppliedGas < gasCost {
 		return nil, 0, vm.ErrOutOfGas
@@ -108,12 +116,12 @@ func (p registeredCustomPrecompile) RunAndCalculateGas(
 	return output, state.gas, err
 }
 
-// materializeAccount gives a precompile account with no nonce and no code a
-// nonce of 1.
+// materializeAccount gives an account with no nonce and no code a nonce of 1.
 func materializeAccount(db vm.StateDB, addr common.Address) {
 	// EIP-158 treats an account with no nonce, code or balance as absent, and
-	// evm.Call would recreate it on every call: an account-level write that
-	// makes every call to the precompile conflict under OCC.
+	// evm.Call recreates an absent account: an account-level write that makes
+	// every call to the precompile conflict under OCC, and that discards the
+	// storage the account already holds.
 	if db.GetNonce(addr) == 0 && len(db.GetCode(addr)) == 0 {
 		db.SetNonce(addr, 1, tracing.NonceChangeUnspecified)
 	}
@@ -122,7 +130,7 @@ func materializeAccount(db vm.StateDB, addr common.Address) {
 func precompileBlockContext(evm *vm.EVM) precompiles.BlockContext {
 	block := precompiles.BlockContext{
 		Number:      evm.Context.BlockNumber.Uint64(),
-		Time:        evm.Context.Time,
+		UnixNano:    unixNano(evm.Context.Time),
 		ChainID:     cloneOptionalBig(evm.ChainConfig().ChainID),
 		BaseFee:     cloneOptionalBig(evm.Context.BaseFee),
 		BlobBaseFee: cloneOptionalBig(evm.Context.BlobBaseFee),
@@ -132,6 +140,12 @@ func precompileBlockContext(evm *vm.EVM) precompiles.BlockContext {
 		block.PrevRandao = *evm.Context.Random
 	}
 	return block
+}
+
+// unixNano converts a block time in Unix seconds to Unix nanoseconds.
+// TODO(CON-572): pass the block's own nanoseconds once vm.BlockContext has them.
+func unixNano(seconds uint64) uint64 {
+	return seconds * uint64(time.Second)
 }
 
 // precompileState exposes the calling EVM's StateDB to a custom precompile, so
@@ -208,7 +222,21 @@ func (s *precompileState) SetState(addr common.Address, key common.Hash, value c
 	if !s.writable() || !s.chargeSstore(addr, key, value) {
 		return
 	}
+	// Storage is kept only by an account the EVM treats as existing.
+	materializeAccount(s.db, addr)
 	s.db.SetState(addr, key, value)
+}
+
+func (s *precompileState) Failed() bool {
+	return s.err != nil
+}
+
+func (s *precompileState) Snapshot() int {
+	return s.db.Snapshot()
+}
+
+func (s *precompileState) RevertToSnapshot(id int) {
+	s.db.RevertToSnapshot(id)
 }
 
 func (s *precompileState) AddLog(log *ethtypes.Log) {

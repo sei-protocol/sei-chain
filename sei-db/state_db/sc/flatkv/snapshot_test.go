@@ -1955,9 +1955,16 @@ func TestWALSegmentCorruption(t *testing.T) {
 	}
 	require.Greater(t, corrupted, 0, "should have found at least one WAL segment to corrupt")
 
+	// Opening reads only the WAL's file names, so the corruption is reported once the WAL is read.
 	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
-	_, err = newCommitStoreWithWAL(context.Background(), cfg2)
+	reopened, err := newCommitStoreWithWAL(context.Background(), cfg2)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, reopened.Close()) }()
+	it, err := reopened.wal.Iterator(1, 2)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+	_, err = it.Next()
 	require.ErrorContains(t, err, "invalid magic prefix")
 }
 

@@ -23,9 +23,9 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -95,14 +95,15 @@ const minTxsPerHashWorker = 64
 type evmOnlyApplication struct {
 	abci.BaseApplication
 
-	chainID          *big.Int
-	chainConfig      *params.ChainConfig
-	execution        gigaconfig.ExecutionConfig
-	minGasPrice      *big.Int
-	storage          *bootstrap.GigaStorageManager
-	changeSetEncoder evmonly.NamedChangeSetEncoder
-	validators       []abci.ValidatorUpdate
-	executor         utils.Mutex[*utils.Option[*evmonly.Executor]]
+	chainID     *big.Int
+	chainConfig *params.ChainConfig
+	execution   gigaconfig.ExecutionConfig
+	minGasPrice *big.Int
+	storage     *bootstrap.GigaStorageManager
+	validators  []abci.ValidatorUpdate
+	// customPrecompiles are the native contracts every executor runs.
+	customPrecompiles utils.Option[precompiles.Registry]
+	executor          utils.Mutex[*utils.Option[*evmonly.Executor]]
 	// Lock order: executor before cursor. FinalizeBlock holds executor while
 	// the block's cursor encoder takes cursor.
 	cursor utils.Mutex[*evmOnlyCursorState]
@@ -152,32 +153,33 @@ type evmOnlyCursorState struct {
 
 var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
 
-// NewEVMOnlyApplication returns the raw-Ethereum application used by Autobahn
-// load tests. State, receipts, and blocks are owned by storage; execution sizes the executor
-// and prices admission. A storage that already holds committed blocks resumes from its
-// durable cursor, so Info reports the stored height and InitChain is refused.
+// NewEVMOnlyApplication returns the raw-Ethereum application Autobahn runs.
+// Storage owns state, receipts and blocks; execution sizes the executor and
+// prices admission; customPrecompiles are the native contracts the chain runs.
+// A storage that already holds committed blocks resumes from its durable
+// cursor, so Info reports the stored height and InitChain is refused.
 func NewEVMOnlyApplication(
 	chainID uint64,
 	validators []abci.ValidatorUpdate,
 	storage *bootstrap.GigaStorageManager,
-	changeSetEncoder evmonly.NamedChangeSetEncoder,
 	execution gigaconfig.ExecutionConfig,
+	customPrecompiles utils.Option[precompiles.Registry],
 ) (proxy.EVMApplication, error) {
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	a := &evmOnlyApplication{
-		chainID:          new(big.Int).SetUint64(chainID),
-		chainConfig:      &chainConfig,
-		execution:        execution,
-		minGasPrice:      evmOnlyAdmissionMinGasPrice(execution.MinGasPrice),
-		storage:          storage,
-		changeSetEncoder: changeSetEncoder,
-		validators:       slices.Clone(validators),
-		executor:         utils.NewMutex(new(utils.Option[*evmonly.Executor])),
-		cursor:           utils.NewMutex(&evmOnlyCursorState{}),
-		settler:          utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
-		checkedSenders:   utils.NewMutex(new(newSenderCache())),
-		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
+		chainID:           new(big.Int).SetUint64(chainID),
+		chainConfig:       &chainConfig,
+		execution:         execution,
+		minGasPrice:       evmOnlyAdmissionMinGasPrice(execution.MinGasPrice),
+		storage:           storage,
+		validators:        slices.Clone(validators),
+		customPrecompiles: customPrecompiles,
+		executor:          utils.NewMutex(new(utils.Option[*evmonly.Executor])),
+		cursor:            utils.NewMutex(&evmOnlyCursorState{}),
+		settler:           utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
+		checkedSenders:    utils.NewMutex(new(newSenderCache())),
+		finalizePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
 	}
 	cursor, err := loadEVMOnlyCursor(storage.SC())
 	if err != nil {
@@ -212,17 +214,21 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 		// the executor cannot apply; failing the block would halt every validator.
 		RejectUnappliableTxs: true,
 		BlockResultPoolSize:  a.execution.BlockResultPoolSize,
+		CustomPrecompiles:    a.customPrecompiles.Or(nil),
 	},
-		evmonly.WithStorageManager(a.storage, a.changeSetEncoder),
+		evmonly.WithStorageManager(a.storage),
 		evmonly.WithMissingAccountState(evmOnlyFundedState{}),
 		evmonly.WithStoreIndependentBlockChangeSetEncoder(a.encodeCursorChangeSet),
 	)
 }
 
 // encodeCursorChangeSet chains the block into the app hash and stages the
-// resulting cursor as pending, returning it as the changeset committed with
+// resulting cursor as pending, returning it as the write committed with
 // the block's state.
-func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, result *evmonly.BlockResult) ([]*proto.NamedChangeSet, error) {
+func (a *evmOnlyApplication) encodeCursorChangeSet(
+	block evmonly.BlockContext,
+	result *evmonly.BlockResult,
+) ([]gigatypes.MiscChange, error) {
 	height, ok := utils.SafeCast[int64](block.Number)
 	if !ok {
 		return nil, fmt.Errorf("EVM-only block number exceeds int64: %d", block.Number)
@@ -243,7 +249,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, r
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
-		return []*proto.NamedChangeSet{next.changeSet()}, nil
+		return []gigatypes.MiscChange{next.miscChange()}, nil
 	}
 	panic("unreachable")
 }
