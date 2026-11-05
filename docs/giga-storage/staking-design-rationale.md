@@ -100,10 +100,13 @@ can go depends on where its struct is stored:
 - **A top-level struct with state variables after it** grows only into room it
   already has: `ParamsStorage`'s subspaces into their `__gap`, a `QueueBounds`
   into the 16 free bytes of its slot.
-- **An array element** cannot grow, since a larger element moves every element
-  after the first. `lastValidators` holds at most 100, so the upgrade can
-  rewrite it. Unbonding entries complete within the unbonding time, so a new
-  layout can start in a new state variable while the old one drains.
+- **An array element** grows only into a `__gap` of its own, since a larger
+  element moves every element after the first. A gap costs nothing to store, as
+  a zero slot is not stored, provided adding, moving and clearing elements
+  write only the fields in use: Solidity's `delete` and `pop` zero every slot.
+  Without a gap, `lastValidators` holds at most 100, so the upgrade can rewrite
+  it, and unbonding entries complete within the unbonding time, so a new layout
+  can start in a new state variable while the old one drains.
   `validatorSlashEvents` is kept for good, so its element has to be settled
   before launch (see *Open questions*).
 
@@ -591,6 +594,6 @@ Known gaps that need an owner or a decision.
    acceptable for very large proposals?
 6. Is the validator set frozen during the migration, or can it change?
 7. Who owns the V2 read side of the sweep, and can the flatkv copy serve it?
-8. `validatorSlashEvents` is the one array of structs kept for good, so its
-   element can never grow. Should it be a mapping by index with a count, whose
-   values can?
+8. `validatorSlashEvents` is the one array of structs kept for good. Should its
+   element get a `__gap`, or should it be a mapping by index with a count,
+   whose values grow at their end?
