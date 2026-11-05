@@ -675,11 +675,14 @@ type memberSession struct {
 }
 
 // keepReplicas is the validators whose sessions stay up: anchor epoch, commit
-// epoch, and the next epoch.
-func keepReplicas(anchor utils.Option[data.Anchor], commitEpoch *atypes.Epoch, next utils.Option[*atypes.Epoch]) map[atypes.PublicKey]struct{} {
+// epoch, and the next epoch. currentCommitteeOnly returns the commit committee alone.
+func keepReplicas(anchor utils.Option[data.Anchor], commitEpoch *atypes.Epoch, next utils.Option[*atypes.Epoch], currentCommitteeOnly bool) map[atypes.PublicKey]struct{} {
 	keep := map[atypes.PublicKey]struct{}{}
 	for lane := range commitEpoch.Committee().Lanes().All() {
 		keep[lane.Validator] = struct{}{}
+	}
+	if currentCommitteeOnly {
+		return keep
 	}
 	if a, ok := anchor.Get(); ok {
 		for lane := range a.Epoch.Committee().Lanes().All() {
@@ -694,6 +697,11 @@ func keepReplicas(anchor utils.Option[data.Anchor], commitEpoch *atypes.Epoch, n
 	return keep
 }
 
+// nextCommitEpoch returns the commit epoch.
+func (r *gigaRouterCommon) nextCommitEpoch() *atypes.Epoch {
+	return r.nextCommitEpochs.Load().Current
+}
+
 // admitsCommittee reports whether key is in the commit committee or the next one.
 func (r *gigaRouterCommon) admitsCommittee(key atypes.PublicKey) bool {
 	view := r.nextCommitEpochs.Load()
@@ -704,8 +712,13 @@ func (r *gigaRouterCommon) admitsCommittee(key atypes.PublicKey) bool {
 	return ok && next.Committee().HasReplica(key)
 }
 
-// keptReplica reports whether key is in the anchor, commit, or next committee.
-func (r *gigaRouterCommon) keptReplica(key atypes.PublicKey) bool {
+// keptReplica reports whether key stays connected. currentCommitteeOnly limits
+// that to the commit committee. Otherwise key stays while it is in the anchor,
+// commit, or next committee.
+func (r *gigaRouterCommon) keptReplica(key atypes.PublicKey, currentCommitteeOnly bool) bool {
+	if currentCommitteeOnly {
+		return r.nextCommitEpoch().Committee().HasReplica(key)
+	}
 	if r.admitsCommittee(key) {
 		return true
 	}
@@ -769,22 +782,20 @@ func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[aty
 
 // stopStaleSessions stops sessions for validators outside keepReplicas or
 // dialing an address that is no longer current, and drops the overlay addresses
-// of the departed. Departures are only acted on once Anchor is at most one
-// epoch behind commitEpoch.
+// of the departed. Validator sessions outside that set stay up while Anchor is
+// missing. currentCommitteeOnly limits the set to the commit committee and
+// stops those sessions even then.
 func (r *gigaRouterCommon) stopStaleSessions(
 	ctx context.Context,
 	live map[atypes.PublicKey]*memberSession,
 	anchor utils.Option[data.Anchor],
 	commitEpoch *atypes.Epoch,
 	next utils.Option[*atypes.Epoch],
+	currentCommitteeOnly bool,
 ) error {
-	a, hasAnchor := anchor.Get()
-	// Until Anchor is within one epoch, validators of the epochs in between are
-	// in neither endpoint committee, and the AppQCs for those epochs cannot form
-	// without them.
-	settled := hasAnchor && commitEpoch.EpochIndex() <= a.Epoch.EpochIndex()+1
-	keep := keepReplicas(anchor, commitEpoch, next)
-	if settled {
+	_, hasAnchor := anchor.Get()
+	keep := keepReplicas(anchor, commitEpoch, next, currentCommitteeOnly)
+	if hasAnchor {
 		for addrs := range r.liveAddrs.Lock() {
 			dropped := false
 			for validator := range addrs {
@@ -802,7 +813,8 @@ func (r *gigaRouterCommon) stopStaleSessions(
 	// Cancel every stale session before waiting for any of them.
 	for validator, session := range live {
 		if _, kept := keep[validator]; !kept {
-			if !settled {
+			// Validator sessions wait until the first Anchor.
+			if !currentCommitteeOnly && !hasAnchor {
 				continue
 			}
 		} else if addr, ok := r.validatorAddr(validator); ok && sameGigaNodeAddr(session.addr, addr) {
@@ -821,8 +833,9 @@ func (r *gigaRouterCommon) stopStaleSessions(
 }
 
 // runPerCommitteeMember runs tasks for each reachable member of the anchor
-// epoch, the commit epoch, or the next epoch.
-func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...committeeMemberTask) error {
+// epoch, the commit epoch, or the next epoch. currentCommitteeOnly restricts
+// that set to the commit committee.
+func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCommitteeOnly bool, tasks ...committeeMemberTask) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		live := map[atypes.PublicKey]*memberSession{}
 		addrUpdates := r.liveAddrVersion.Subscribe()
@@ -844,10 +857,10 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...c
 			commitEpoch := view.Current
 			next := view.Next
 			anchor := r.anchor.Load()
-			if err := r.stopStaleSessions(ctx, live, anchor, commitEpoch, next); err != nil {
+			if err := r.stopStaleSessions(ctx, live, anchor, commitEpoch, next, currentCommitteeOnly); err != nil {
 				return err
 			}
-			for validator := range keepReplicas(anchor, commitEpoch, next) {
+			for validator := range keepReplicas(anchor, commitEpoch, next, currentCommitteeOnly) {
 				if _, ok := live[validator]; ok {
 					continue
 				}
@@ -886,15 +899,19 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...c
 }
 
 // runUntilMembershipChange runs f until validator is outside the anchor, commit,
-// and next committees. It reports whether that leave ended f.
+// and next committees. currentCommitteeOnly ends f when the validator leaves the commit
+// committee. It reports whether that leave ended f.
 func (r *gigaRouterCommon) runUntilMembershipChange(
 	ctx context.Context,
 	validator atypes.PublicKey,
+	currentCommitteeOnly bool,
 	f func(ctx context.Context) error,
 ) (changed bool, err error) {
 	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
-			err := utils.WaitAny(ctx, func() bool { return !r.keptReplica(validator) }, r.nextCommitEpochs, r.anchor)
+			err := utils.WaitAny(ctx, func() bool {
+				return !r.keptReplica(validator, currentCommitteeOnly)
+			}, r.nextCommitEpochs, r.anchor)
 			if err != nil {
 				return err
 			}
@@ -945,7 +962,7 @@ func (r *gigaRouterCommon) runInboundValidator(ctx context.Context, hConn *hands
 	server := rpc.NewServer[giga.API]()
 	return r.poolInCommittee.InsertAndRun(ctx, member, server, func(ctx context.Context) error {
 		return r.runInboundMux(ctx, server, hConn, func(ctx context.Context) error {
-			changed, err := r.runUntilMembershipChange(ctx, member, func(ctx context.Context) error {
+			changed, err := r.runUntilMembershipChange(ctx, member, false, func(ctx context.Context) error {
 				return r.service.RunServer(ctx, server, true)
 			})
 			if err != nil {

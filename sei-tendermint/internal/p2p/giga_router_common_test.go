@@ -818,8 +818,9 @@ func TestGigaRouterCommon_RunInboundConnLearnsMemberAndClosesOnLeave(t *testing.
 			ctx,
 			map[atypes.PublicKey]*memberSession{},
 			router.anchor.Load(),
-			router.nextCommitEpochs.Load().Current,
+			router.nextCommitEpoch(),
 			router.nextCommitEpochs.Load().Next,
+			false,
 		); err != nil {
 			return err
 		}
@@ -851,7 +852,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberFollowsCommittee(t *testing.T) {
 	stoppedB := make(chan struct{}, 1)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
-			return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
+			return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, false, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
 				switch {
 				case validator.Compare(a) == 0:
 					startedA <- struct{}{}
@@ -911,7 +912,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberKeepsNextEpoch(t *testing.T) {
 	stoppedB := make(chan struct{}, 1)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
-			return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
+			return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, false, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
 				started <- validator
 				<-ctx.Done()
 				if validator.Compare(b) == 0 {
@@ -990,7 +991,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberKeepsLeaversWhileAnchorLags(t *te
 			stoppedB := make(chan struct{}, 1)
 			err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 				s.SpawnBg(func() error {
-					return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
+					return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, false, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
 						started <- validator
 						<-ctx.Done()
 						if validator.Compare(b) == 0 {
@@ -1018,7 +1019,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberKeepsLeaversWhileAnchorLags(t *te
 	}
 }
 
-func TestGigaRouterCommon_RunPerCommitteeMemberDialsBothCommitteesUntilStable(t *testing.T) {
+func TestGigaRouterCommon_RunPerCommitteeMemberDropsLeaverDespiteEpochGap(t *testing.T) {
 	rng := utils.TestRng()
 	a := atypes.GenSecretKey(rng).Public()
 	b := atypes.GenSecretKey(rng).Public()
@@ -1026,8 +1027,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsBothCommitteesUntilStable(t 
 	d := atypes.GenSecretKey(rng).Public()
 	nextEpoch := utils.NewAtomicSend(commitView(testEpoch(4, map[atypes.PublicKey]uint64{a: 1, c: 1}), utils.None[*atypes.Epoch]()))
 	anchor := utils.NewAtomicSend(testAnchor(testEpoch(1, map[atypes.PublicKey]uint64{a: 1, b: 1})))
-	lagAnchor := testEpoch(2, map[atypes.PublicKey]uint64{a: 1, c: 1, d: 1})
-	dropAnchor := testEpoch(3, map[atypes.PublicKey]uint64{a: 1, c: 1})
+	nextAnchor := testEpoch(2, map[atypes.PublicKey]uint64{a: 1, c: 1, d: 1})
 	router := &gigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
@@ -1046,7 +1046,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsBothCommitteesUntilStable(t 
 	onStart := map[atypes.PublicKey]struct{}{}
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
-			return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
+			return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, false, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
 				started <- validator
 				<-ctx.Done()
 				if validator.Compare(b) == 0 {
@@ -1058,14 +1058,10 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsBothCommitteesUntilStable(t 
 		for range 3 {
 			onStart[<-started] = struct{}{}
 		}
-		anchor.Store(testAnchor(lagAnchor))
-		<-started // d joined, so the prune for lagAnchor already ran
-		select {
-		case <-stoppedB:
-			return fmt.Errorf("b stopped while Anchor was still more than one epoch behind")
-		default:
+		anchor.Store(testAnchor(nextAnchor))
+		if got := <-started; got.Compare(d) != 0 {
+			return fmt.Errorf("started %v, want the new anchor member", got)
 		}
-		anchor.Store(testAnchor(dropAnchor))
 		<-stoppedB
 		return nil
 	})
@@ -1095,7 +1091,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberRunsOneSessionPerMember(t *testin
 	var live atomic.Int64
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
-			return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, func(ctx context.Context, _ atypes.PublicKey, _ GigaNodeAddr) error {
+			return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, false, func(ctx context.Context, _ atypes.PublicKey, _ GigaNodeAddr) error {
 				started <- struct{}{}
 				if n := live.Add(1); n > 1 {
 					return fmt.Errorf("%d concurrent sessions for the same member", n)
@@ -1141,7 +1137,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberCancelsAllDepartingBeforeAwait(t 
 	release := make(chan struct{})
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
-			return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
+			return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, false, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
 				started <- validator
 				<-ctx.Done()
 				canceled <- struct{}{}
@@ -1212,7 +1208,7 @@ func TestGigaRouterCommon_RunUntilMembershipChangeKeepsAnchorAndNext(t *testing.
 			started := make(chan struct{})
 			left := make(chan struct{})
 			s.SpawnBg(func() error {
-				changed, err := router.runUntilMembershipChange(ctx, a, func(ctx context.Context) error {
+				changed, err := router.runUntilMembershipChange(ctx, a, false, func(ctx context.Context) error {
 					close(started)
 					<-ctx.Done()
 					return ctx.Err()
@@ -1256,6 +1252,150 @@ func TestGigaRouterCommon_RunUntilMembershipChangeKeepsAnchorAndNext(t *testing.
 	})
 }
 
+func TestGigaRouterCommon_RunUntilMembershipChangeCurrentCommitteeOnly(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		rng := utils.TestRng()
+		a := atypes.GenSecretKey(rng).Public()
+		b := atypes.GenSecretKey(rng).Public()
+		commit := utils.NewAtomicSend(commitView(
+			testEpoch(2, map[atypes.PublicKey]uint64{a: 1}),
+			utils.Some(testEpoch(3, map[atypes.PublicKey]uint64{a: 1})),
+		))
+		anchor := utils.NewAtomicSend(testAnchor(testEpoch(2, map[atypes.PublicKey]uint64{a: 1})))
+		router := &gigaRouterCommon{
+			nextCommitEpochs: commit.Subscribe(),
+			anchor:           anchor.Subscribe(),
+		}
+		run := func(leave func()) error {
+			return scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+				started := make(chan struct{})
+				left := make(chan struct{})
+				s.SpawnBg(func() error {
+					changed, err := router.runUntilMembershipChange(ctx, a, true, func(ctx context.Context) error {
+						close(started)
+						<-ctx.Done()
+						return ctx.Err()
+					})
+					if err != nil {
+						return err
+					}
+					if !changed {
+						return fmt.Errorf("leaving the commit committee must cancel f and report true")
+					}
+					close(left)
+					return nil
+				})
+				<-started
+				commit.Store(commitView(
+					testEpoch(3, map[atypes.PublicKey]uint64{a: 1, b: 1}),
+					utils.None[*atypes.Epoch](),
+				))
+				synctest.Wait()
+				select {
+				case <-left:
+					return fmt.Errorf("disconnected while still in the commit committee")
+				default:
+				}
+				leave()
+				synctest.Wait()
+				select {
+				case <-left:
+				default:
+					return fmt.Errorf("stayed connected after leaving the commit committee")
+				}
+				return nil
+			})
+		}
+		err := run(func() {
+			commit.Store(commitView(
+				testEpoch(3, map[atypes.PublicKey]uint64{b: 1}),
+				utils.Some(testEpoch(4, map[atypes.PublicKey]uint64{a: 1})),
+			))
+			anchor.Store(testAnchor(testEpoch(3, map[atypes.PublicKey]uint64{b: 1})))
+		})
+		require.NoError(t, err)
+		commit.Store(commitView(testEpoch(2, map[atypes.PublicKey]uint64{a: 1}), utils.None[*atypes.Epoch]()))
+		anchor.Store(testAnchor(testEpoch(2, map[atypes.PublicKey]uint64{a: 1})))
+		err = run(func() {
+			commit.Store(commitView(testEpoch(3, map[atypes.PublicKey]uint64{b: 1}), utils.None[*atypes.Epoch]()))
+			anchor.Store(testAnchor(testEpoch(3, map[atypes.PublicKey]uint64{a: 1})))
+		})
+		require.NoError(t, err)
+	})
+}
+
+func TestGigaRouterCommon_RunPerCommitteeMemberCurrentCommitteeOnly(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		rng := utils.TestRng()
+		a := atypes.GenSecretKey(rng).Public()
+		b := atypes.GenSecretKey(rng).Public()
+		c := atypes.GenSecretKey(rng).Public()
+		d := atypes.GenSecretKey(rng).Public()
+		commit := utils.NewAtomicSend(commitView(
+			testEpoch(2, map[atypes.PublicKey]uint64{a: 1}),
+			utils.Some(testEpoch(3, map[atypes.PublicKey]uint64{b: 1})),
+		))
+		anchor := utils.NewAtomicSend(testAnchor(testEpoch(1, map[atypes.PublicKey]uint64{c: 1})))
+		router := &gigaRouterCommon{
+			cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
+				a: {Key: makeKey(rng).Public()},
+				b: {Key: makeKey(rng).Public()},
+				c: {Key: makeKey(rng).Public()},
+				d: {Key: makeKey(rng).Public()},
+			}},
+			nextCommitEpochs: commit.Subscribe(),
+			anchor:           anchor.Subscribe(),
+			liveAddrs:        utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
+			liveAddrVersion:  utils.NewAtomicSend(uint64(0)),
+		}
+		err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+			started := make(chan atypes.PublicKey, 4)
+			stoppedA := make(chan struct{}, 1)
+			s.SpawnBg(func() error {
+				return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, true, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
+					started <- validator
+					<-ctx.Done()
+					if validator.Compare(a) == 0 {
+						stoppedA <- struct{}{}
+					}
+					return ctx.Err()
+				}))
+			})
+			synctest.Wait()
+			select {
+			case got := <-started:
+				if got.Compare(a) != 0 {
+					return fmt.Errorf("dialed %v, want the commit member", got)
+				}
+			default:
+				return fmt.Errorf("commit member was not dialed")
+			}
+			select {
+			case got := <-started:
+				return fmt.Errorf("dialed %v outside the commit committee", got)
+			default:
+			}
+			commit.Store(commitView(testEpoch(4, map[atypes.PublicKey]uint64{d: 1}), utils.None[*atypes.Epoch]()))
+			synctest.Wait()
+			select {
+			case <-stoppedA:
+			default:
+				return fmt.Errorf("commit member stayed connected after leaving the committee")
+			}
+			select {
+			case got := <-started:
+				if got.Compare(d) != 0 {
+					return fmt.Errorf("dialed %v, want the new commit member", got)
+				}
+			default:
+				return fmt.Errorf("new commit member was not dialed")
+			}
+			return nil
+		})
+		require.NoError(t, err)
+	})
+}
+
 func TestGigaRouterCommon_CommitteeTasksReturnWhenWorkReturns(t *testing.T) {
 	rng := utils.TestRng()
 	a := atypes.GenSecretKey(rng).Public()
@@ -1265,7 +1405,7 @@ func TestGigaRouterCommon_CommitteeTasksReturnWhenWorkReturns(t *testing.T) {
 		anchor:           noAnchor(),
 	}
 
-	changed, err := router.runUntilMembershipChange(t.Context(), a, func(context.Context) error {
+	changed, err := router.runUntilMembershipChange(t.Context(), a, false, func(context.Context) error {
 		return nil
 	})
 	require.NoError(t, err)
@@ -1282,24 +1422,29 @@ func TestGigaRouterCommon_RunUntilMembershipChangeCancelsFWhenMembershipChanges(
 		anchor:           noAnchor(),
 	}
 	started := make(chan struct{})
+	left := make(chan error, 1)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
-			changed, err := router.runUntilMembershipChange(ctx, a, func(ctx context.Context) error {
+			changed, err := router.runUntilMembershipChange(ctx, a, false, func(ctx context.Context) error {
 				close(started)
 				<-ctx.Done()
 				return ctx.Err()
 			})
 			if err != nil {
+				left <- err
 				return err
 			}
 			if !changed {
-				return fmt.Errorf("membership change must cancel f and report true")
+				err = fmt.Errorf("membership change must cancel f and report true")
+				left <- err
+				return err
 			}
+			left <- nil
 			return nil
 		})
 		<-started
 		nextEpoch.Store(commitView(testEpoch(3, map[atypes.PublicKey]uint64{b: 1}), utils.None[*atypes.Epoch]()))
-		return nil
+		return <-left
 	})
 	require.NoError(t, err)
 }

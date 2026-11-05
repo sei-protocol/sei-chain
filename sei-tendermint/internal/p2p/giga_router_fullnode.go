@@ -62,7 +62,7 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		s.SpawnNamed("committeeMembers", func() error {
-			return r.runPerCommitteeMember(ctx, r.runEvmProxy)
+			return r.runPerCommitteeMember(ctx, true, r.runEvmProxy)
 		})
 		return nil
 	})
@@ -75,7 +75,7 @@ func (r *gigaFullnodeRouter) EvmProxyEnabled() bool { return true }
 // EvmProxy on the fullnode always returns the shard owner's EVM RPC client.
 // EnableEvmProxy is a no-op here because fullnodes do not have a local mempool.
 func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
-	return r.evmProxy(r.nextCommitEpochs.Load().Current.Committee().EvmShard(sender))
+	return r.evmProxy(r.nextCommitEpoch().Committee().EvmShard(sender))
 }
 
 // runFullnodeSubscriber: pick a committee member, dial + block-sync,
@@ -92,7 +92,7 @@ func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrp
 // near-tip node."
 func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 	for {
-		ep := r.nextCommitEpochs.Load().Current
+		ep := r.nextCommitEpoch()
 		var validators []atypes.PublicKey
 		for lane := range ep.Committee().Lanes().All() {
 			if _, ok := r.cfg.ValidatorAddrs[lane.Validator]; ok {
@@ -111,11 +111,11 @@ func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 		// instead of all moving to a new ring at once.
 		rand.Shuffle(len(validators), func(i, j int) { validators[i], validators[j] = validators[j], validators[i] })
 		for _, validator := range validators {
-			if !r.nextCommitEpochs.Load().Current.Committee().Equal(snap) {
+			if !r.nextCommitEpoch().Committee().Equal(snap) {
 				break
 			}
 			addr := r.cfg.ValidatorAddrs[validator]
-			left, err := r.runUntilMembershipChange(ctx, validator, func(ctx context.Context) error {
+			left, err := r.runUntilMembershipChange(ctx, validator, true, func(ctx context.Context) error {
 				return r.dialAndRunConn(ctx, validator, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
 					// Consensus PublicKey (committee member), not GigaNodeAddr.Key (p2p NodePublicKey).
 					return r.service.RunClient(ctx, client, validator, true)
