@@ -12,16 +12,22 @@ import (
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
-// ReplayState returns the state view holds with req's transactions applied in order, as a block
-// applies them: a transaction the block rejected changes nothing. The result is in memory only,
-// reads through view, and belongs to the caller; it must not be used once view is closed. Its Error
-// reports the first read of view that failed, even after a reverted snapshot.
+// ReplayState returns the state view holds after the block's begin blockers and req's transactions,
+// applied in order as a block applies them: a transaction the block rejected changes nothing. The
+// result is in memory only, reads through view, and belongs to the caller; it must not be used once
+// view is closed. Its Error reports the first read of view that failed, even after a reverted
+// snapshot.
 func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView, req BlockRequest) (vm.StateDB, error) {
 	reads := &failedRead{}
-	stateDB := newNativeStateDB(failedReadRecorder{
+	source := failedReadRecorder{
 		reader:  gigaSnapshotStateReader{snapshot: view, missingState: e.missingState},
 		failure: reads,
-	})
+	}
+	begin, err := e.runBeginBlockers(req.Context, source)
+	if err != nil {
+		return nil, err
+	}
+	stateDB := newNativeStateDB(newPendingOverlay(source, &begin))
 	replayed := &replayedStateDB{nativeStateDB: stateDB, reads: reads}
 	if len(req.Txs) == 0 {
 		return replayed, nil
