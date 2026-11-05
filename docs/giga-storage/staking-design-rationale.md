@@ -87,13 +87,21 @@ or field can move, change type or go away. A retired field keeps its slot, and
 the slot is not reused for anything else, since records written before still
 hold the old values. New state variables go after the last one. A new field
 reads as zero in every record written before it, so zero has to mean what the
-code did before, or the upgrade that adds the field writes it. Where a new field
-can go depends on where its struct is stored:
+code did before, or the upgrade that adds the field writes it. A delete has to
+clear every slot the record has used, fields added since included, or a record
+later created under the same key reads the old values. What can change depends
+on where the state is stored:
 
+- **A top-level value** (`lastTotalPower`, `communityPool`, `previousProposer`)
+  cannot change type. A new state variable replaces it, and the upgrade copies
+  the value over.
 - **A mapping value** (`Validator`, `Delegation`, the queue entries,
   `DelegatorStartingInfo`, `ValidatorSigningInfo`) grows at its end. Each value
   starts at its own hashed slot, so the slots after it are free, and no
   reserved slots are needed.
+- **A mapping value that is not a struct** (`validatorOutstandingRewards`,
+  `delegatorWithdrawAddr`, `redelegationEntryCounts`) can become a struct whose
+  first field is the old value, which stays in the same slot.
 - **A struct inside another** (`Description` and `Commission` in `Validator`)
   cannot grow without moving the fields after it. A new field goes at the end
   of the outer struct instead.
@@ -104,11 +112,16 @@ can go depends on where its struct is stored:
   element moves every element after the first. A gap costs nothing to store, as
   a zero slot is not stored, provided adding, moving and clearing elements
   write only the fields in use: Solidity's `delete` and `pop` zero every slot.
-  Without a gap, `lastValidators` holds at most 100, so the upgrade can rewrite
-  it, and unbonding entries complete within the unbonding time, so a new layout
-  can start in a new state variable while the old one drains.
-  `validatorSlashEvents` is kept for good, so its element has to be settled
-  before launch (see *Open questions*).
+  `ValidatorSlashEvent` has one, since `validatorSlashEvents` is kept for good.
+  The other arrays have none: `lastValidators` holds at most 100, so the
+  upgrade can rewrite it, and unbonding entries complete within the unbonding
+  time, so a new layout can start in a new state variable while the old one
+  drains.
+- **An enumeration set** keeps its shape, and dropping one only stops its
+  writes. Adding one after launch means filling it with the existing members,
+  and a mapping's keys cannot be listed from its slots, so a set can be added
+  only where its members can be found another way. The sets a later upgrade may
+  need are decided before launch (see *Prefix walks*).
 
 `layout_test.go` pins every slot and offset, so a change that moves one fails
 it.
@@ -594,6 +607,3 @@ Known gaps that need an owner or a decision.
    acceptable for very large proposals?
 6. Is the validator set frozen during the migration, or can it change?
 7. Who owns the V2 read side of the sweep, and can the flatkv copy serve it?
-8. `validatorSlashEvents` is the one array of structs kept for good. Should its
-   element get a `__gap`, or should it be a mapping by index with a count,
-   whose values grow at their end?
