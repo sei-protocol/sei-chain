@@ -1800,7 +1800,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 	}()
 
 	for height = start; height <= end; height++ {
-		// The caller stops reading once its request is cancelled, e.g. by the RPC timeout.
+		// Stop reading once the request is cancelled, e.g. by the RPC timeout.
 		if ctx.Err() != nil {
 			return
 		}
