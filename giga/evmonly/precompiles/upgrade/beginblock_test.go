@@ -135,6 +135,39 @@ func TestBeginBlockHaltsABinaryWithoutTheLastAppliedHandler(t *testing.T) {
 	require.NoError(t, err, "a chain with no applied upgrades runs any binary")
 }
 
+func TestBeginBlockReplaySkipsTheBinaryChecks(t *testing.T) {
+	replay := block(9)
+	replay.Replay = true
+	p := Precompile{Handlers: map[string]Handler{"v6.8": nil, "v7.0": nil}}
+	_, err := p.BeginBlock(replay, scheduled(t, Plan{Name: "v7.0", Height: 10}))
+	require.NoError(t, err, "a replay before a plan's height runs on the binary that has its handler")
+
+	state := newMemState()
+	require.NoError(t, WriteGenesis(state, []string{"v6.7", "v6.8"}, 1))
+	replay = block(2)
+	replay.Replay = true
+	_, err = Precompile{Handlers: map[string]Handler{"v6.7": nil}}.BeginBlock(replay, state)
+	require.NoError(t, err, "a replay does not check the upgrade applied last")
+}
+
+func TestBeginBlockReplayAppliesADuePlan(t *testing.T) {
+	state := scheduled(t, Plan{Name: "v7.0", Height: 10})
+	replay := block(10)
+	replay.Replay = true
+	p := Precompile{Handlers: map[string]Handler{"v6.8": nil, "v7.0": func(_ precompiles.BlockContext, s precompiles.State) error {
+		s.SetState(Address, common.Hash{0xaa}, common.Hash{31: 1})
+		return nil
+	}}}
+	_, err := p.BeginBlock(replay, state)
+	require.NoError(t, err)
+	require.Equal(t, common.Hash{31: 1}, state.GetState(Address, common.Hash{0xaa}), "the replay runs the handler")
+	require.Equal(t, uint64(10), Applied(state, "v7.0"))
+
+	_, err = Precompile{Handlers: map[string]Handler{"v6.8": nil}}.BeginBlock(replay, scheduled(t, Plan{Name: "v7.0", Height: 10}))
+	var needed *NeededError
+	require.ErrorAs(t, err, &needed, "a binary without the handler cannot rebuild the block")
+}
+
 func TestBeginBlockRunsOnBlankUpgradeState(t *testing.T) {
 	p := Precompile{Handlers: map[string]Handler{"v6.8": nil, "v7.0": nil}}
 	// A new chain's first block, and a first block after a handoff at 1,000,000,

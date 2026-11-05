@@ -79,6 +79,9 @@ type BlockContext struct {
 	BlobBaseFee *big.Int
 	Coinbase    common.Address
 	PrevRandao  common.Hash
+	// Replay is set when the block runs only to rebuild its state, as for a
+	// trace, rather than to execute it.
+	Replay bool
 }
 
 // State is the precompile-facing state API. Implementations must make these
