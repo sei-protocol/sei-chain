@@ -46,8 +46,7 @@ func TestEstimateGasHappyPath(t *testing.T) {
 	require.NotNil(t, gotMsg)
 	require.Equal(t, from, gotMsg.From)
 	require.Equal(t, &to, gotMsg.To)
-	require.True(t, gotMsg.SkipNonceChecks)
-	require.True(t, gotMsg.SkipTransactionChecks)
+	requireSimulationChecksSkipped(t, gotMsg)
 	require.Equal(t, uint64(defaultCallGasCap), gotGasCap)
 }
 

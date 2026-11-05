@@ -343,7 +343,9 @@ func (e *Executor) executeTx(
 	if err != nil {
 		return e.unappliableTx(p, block, txIndexUint, baseFee, err)
 	}
-	msg.SkipNonceChecks = e.cfg.DisableNonceCheck
+	if e.cfg.DisableNonceCheck {
+		msg.SkipNonceCheck()
+	}
 
 	stateDB.setTxContext(tx.Hash(), txIndex, txIndexUint)
 	logStart := len(stateDB.logs)
@@ -496,8 +498,6 @@ func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) (*core.Message
 		Data:                  tx.Data(),
 		AccessList:            tx.AccessList(),
 		SetCodeAuthorizations: tx.SetCodeAuthorizations(),
-		SkipNonceChecks:       false,
-		SkipTransactionChecks: false,
 		BlobHashes:            tx.BlobHashes(),
 		BlobGasFeeCap:         blobGasFeeCap,
 	}
