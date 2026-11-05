@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
@@ -163,4 +164,38 @@ func TestReplayStateReportsAFailedReadOfTheStateUnderIt(t *testing.T) {
 	replayed.RevertToSnapshot(snapshot)
 
 	require.Error(t, replayed.Error())
+}
+
+// TestReplayStateRunsBeginBlockersFirst replays a block whose begin blocker writes state, and checks
+// that every prefix, the empty one included, starts from the state the begin blocker left.
+func TestReplayStateRunsBeginBlockersFirst(t *testing.T) {
+	tx, sender := beginBlockCall(t)
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(behaviorSenderFunds))
+	cfg := Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: beginBlockRegistry(beginBlockRecorder{})}
+	req := BlockRequest{Context: blockContext(big.NewInt(testChainID)), Txs: [][]byte{tx}}
+
+	view := NewMemoryStore(state).OpenView()
+	defer view.Close()
+	before, err := NewExecutor(cfg).ReplayState(t.Context(), view, BlockRequest{Context: req.Context})
+	require.NoError(t, err)
+	require.Equal(t, common.BigToHash(big.NewInt(1)), before.GetState(beginBlockerAddress, begunSlot))
+	require.Equal(t, sharedStart, before.GetState(beginBlockerAddress, sharedSlot))
+
+	after, err := NewExecutor(cfg).ReplayState(t.Context(), view, req)
+	require.NoError(t, err)
+	require.Equal(t, common.BigToHash(big.NewInt(1)), after.GetState(beginBlockerAddress, sawSlot))
+	require.Equal(t, sharedCall, after.GetState(beginBlockerAddress, sharedSlot))
+	// The replay stays in memory: the view still holds the state before the block.
+	require.Zero(t, view.GetStorage(beginBlockerAddress, begunSlot))
+}
+
+// TestReplayStateFailsWhenABeginBlockerFails refuses to replay a block whose begin blocker fails.
+func TestReplayStateFailsWhenABeginBlockerFails(t *testing.T) {
+	cfg := Config{CustomPrecompiles: beginBlockRegistry(beginBlockRecorder{fail: true})}
+	view := NewMemoryStore(NewMemoryState()).OpenView()
+	defer view.Close()
+
+	_, err := NewExecutor(cfg).ReplayState(t.Context(), view, BlockRequest{Context: blockContext(big.NewInt(testChainID))})
+	require.ErrorIs(t, err, errRefused)
 }

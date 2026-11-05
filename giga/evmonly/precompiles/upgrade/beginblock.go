@@ -44,26 +44,28 @@ func (p Precompile) BeginBlock(block precompiles.BlockContext, state precompiles
 	if scheduled && plan.Height <= block.Number {
 		return p.applyDue(block, state, plan)
 	}
-	if err := p.checkLastApplied(state); err != nil {
+	failures, err := p.checkLastApplied(state)
+	if err != nil {
 		return nil, err
 	}
 	if scheduled && !plan.IsMinorRelease() && p.hasHandler(plan.Name) {
 		return nil, fmt.Errorf("%w! UPGRADE \"%s\" - in binary but not executed on chain", ErrBinaryUpdatedBeforeTrigger, plan.Name)
 	}
-	return nil, nil
+	return failures, nil
 }
 
 // applyDue runs the due plan's handler and records it applied at this block,
 // clears the plan when this is a block the node skips, or halts.
 func (p Precompile) applyDue(block precompiles.BlockContext, state precompiles.State, plan Plan) ([]error, error) {
 	if slices.Contains(p.SkipHeights, block.Number) {
-		if err := p.checkLastApplied(state); err != nil {
+		failures, err := p.checkLastApplied(state)
+		if err != nil {
 			return nil, err
 		}
 		if err := writePlan(newStore(state), Plan{}); err != nil {
 			return nil, err
 		}
-		return []error{fmt.Errorf("UPGRADE \"%s\" SKIPPED at %d: %s", plan.Name, plan.Height, plan.Info)}, nil
+		return append(failures, fmt.Errorf("UPGRADE \"%s\" SKIPPED at %d: %s", plan.Name, plan.Height, plan.Info)), nil
 	}
 	handler, ok := p.Handlers[plan.Name]
 	if !ok {
@@ -78,16 +80,17 @@ func (p Precompile) applyDue(block precompiles.BlockContext, state precompiles.S
 }
 
 // checkLastApplied returns ErrWrongBinary when this binary has no handler for
-// the upgrade applied last.
-func (p Precompile) checkLastApplied(state precompiles.State) error {
+// the upgrade applied last, and a degraded failure when that upgrade's name
+// does not decode.
+func (p Precompile) checkLastApplied(state precompiles.State) ([]error, error) {
 	last, err := LastApplied(state)
-	if err != nil || last == "" {
-		return nil
+	if err != nil {
+		return []error{fmt.Errorf("%w: skipped the wrong-binary check, the upgrade applied last does not decode: %w", precompiles.ErrDegraded, err)}, nil
 	}
-	if !p.hasHandler(last) {
-		return fmt.Errorf("%w: upgrade handler is missing for %q, the upgrade applied last", ErrWrongBinary, last)
+	if last != "" && !p.hasHandler(last) {
+		return nil, fmt.Errorf("%w: upgrade handler is missing for %q, the upgrade applied last", ErrWrongBinary, last)
 	}
-	return nil
+	return nil, nil
 }
 
 func (p Precompile) hasHandler(name string) bool {
