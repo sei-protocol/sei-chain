@@ -249,23 +249,41 @@ func (k Keeper) IsUpgradeActiveAtHeight(ctx sdk.Context, name string, height int
 	return doneHeight > 0 && height >= doneHeight
 }
 
+// GetClosestUpgrade returns DoneUpgrades.Closest(height) over the upgrades completed in ctx's state.
 func (k Keeper) GetClosestUpgrade(ctx sdk.Context, height int64) (string, int64) {
+	return k.GetDoneUpgrades(ctx).Closest(height)
+}
+
+// DoneUpgrades is the set of completed upgrades, in reverse key order.
+type DoneUpgrades []upgrade
+
+// GetDoneUpgrades returns the upgrades completed in ctx's state.
+func (k Keeper) GetDoneUpgrades(ctx sdk.Context) DoneUpgrades {
 	iter := sdk.KVStoreReversePrefixIterator(ctx.KVStore(k.storeKey), []byte{types.DoneByte})
 	defer func() { _ = iter.Close() }()
 
+	var done DoneUpgrades
+	for ; iter.Valid(); iter.Next() {
+		upgradeHeight := int64(sdk.BigEndianToUint64(iter.Value())) //nolint:gosec // stored by SetDone from block heights which are always non-negative
+		done = append(done, upgrade{Name: parseDoneKey(iter.Key()), BlockHeight: upgradeHeight})
+	}
+	return done
+}
+
+// Closest returns the name and height of the upgrade picked for height: the first upgrade in d,
+// replaced by each later one completed at or after height and below the current pick. It returns
+// "" and 0 when d is empty.
+func (d DoneUpgrades) Closest(height int64) (string, int64) {
 	var (
 		closest upgrade
 		found   bool
 	)
-	for ; iter.Valid(); iter.Next() {
-		upgradeHeight := int64(sdk.BigEndianToUint64(iter.Value())) //nolint:gosec // stored by SetDone from block heights which are always non-negative
-		if !found || (upgradeHeight >= height && upgradeHeight < closest.BlockHeight) {
+	for _, u := range d {
+		if !found || (u.BlockHeight >= height && u.BlockHeight < closest.BlockHeight) {
 			found = true
-			name := parseDoneKey(iter.Key())
-			closest = upgrade{Name: name, BlockHeight: upgradeHeight}
+			closest = u
 		}
 	}
-
 	return closest.Name, closest.BlockHeight
 }
 
