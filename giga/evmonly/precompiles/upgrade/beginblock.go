@@ -31,7 +31,7 @@ var ErrBinaryUpdatedBeforeTrigger = errors.New("BINARY UPDATED BEFORE TRIGGER")
 var ErrWrongBinary = errors.New("wrong binary")
 
 // BeginBlock applies, skips or halts on a due plan, and halts a binary that
-// does not match the chain's upgrade history.
+// does not match the chain's upgrade history unless block.Replay is set.
 func (p Precompile) BeginBlock(block precompiles.BlockContext, state precompiles.State) ([]error, error) {
 	s := newStore(state)
 	plan, scheduled, err := CurrentPlan(state)
@@ -44,11 +44,11 @@ func (p Precompile) BeginBlock(block precompiles.BlockContext, state precompiles
 	if scheduled && plan.Height <= block.Number {
 		return p.applyDue(block, state, plan)
 	}
-	failures, err := p.checkLastApplied(state)
+	failures, err := p.checkLastApplied(block, state)
 	if err != nil {
 		return nil, err
 	}
-	if scheduled && !plan.IsMinorRelease() && p.hasHandler(plan.Name) {
+	if scheduled && !block.Replay && !plan.IsMinorRelease() && p.hasHandler(plan.Name) {
 		return nil, fmt.Errorf("%w! UPGRADE \"%s\" - in binary but not executed on chain", ErrBinaryUpdatedBeforeTrigger, plan.Name)
 	}
 	return failures, nil
@@ -58,7 +58,7 @@ func (p Precompile) BeginBlock(block precompiles.BlockContext, state precompiles
 // clears the plan when this is a block the node skips, or halts.
 func (p Precompile) applyDue(block precompiles.BlockContext, state precompiles.State, plan Plan) ([]error, error) {
 	if slices.Contains(p.SkipHeights, block.Number) {
-		failures, err := p.checkLastApplied(state)
+		failures, err := p.checkLastApplied(block, state)
 		if err != nil {
 			return nil, err
 		}
@@ -81,8 +81,11 @@ func (p Precompile) applyDue(block precompiles.BlockContext, state precompiles.S
 
 // checkLastApplied returns ErrWrongBinary when this binary has no handler for
 // the upgrade applied last, and a degraded failure when that upgrade's name
-// does not decode.
-func (p Precompile) checkLastApplied(state precompiles.State) ([]error, error) {
+// does not decode. It checks nothing when block.Replay is set.
+func (p Precompile) checkLastApplied(block precompiles.BlockContext, state precompiles.State) ([]error, error) {
+	if block.Replay {
+		return nil, nil
+	}
 	last, err := LastApplied(state)
 	if err != nil {
 		return []error{fmt.Errorf("%w: skipped the wrong-binary check, the upgrade applied last does not decode: %w", precompiles.ErrDegraded, err)}, nil

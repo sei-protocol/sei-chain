@@ -181,6 +181,7 @@ func TestReplayStateRunsBeginBlockersFirst(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, common.BigToHash(big.NewInt(1)), before.GetState(beginBlockerAddress, begunSlot))
 	require.Equal(t, sharedStart, before.GetState(beginBlockerAddress, sharedSlot))
+	require.Equal(t, common.Hash{31: 1}, before.GetState(beginBlockerAddress, replaySlot), "the begin blocker runs as a replay")
 
 	after, err := NewExecutor(cfg).ReplayState(t.Context(), view, req)
 	require.NoError(t, err)
@@ -198,4 +199,18 @@ func TestReplayStateFailsWhenABeginBlockerFails(t *testing.T) {
 
 	_, err := NewExecutor(cfg).ReplayState(t.Context(), view, BlockRequest{Context: blockContext(big.NewInt(testChainID))})
 	require.ErrorIs(t, err, errRefused)
+}
+
+// TestViewStateRunsNoBeginBlockers reads a view through an executor with a begin blocker, and checks
+// that the state holds what the view does.
+func TestViewStateRunsNoBeginBlockers(t *testing.T) {
+	cfg := Config{CustomPrecompiles: beginBlockRegistry(beginBlockRecorder{})}
+	state := NewMemoryState()
+	state.SetState(beginBlockerAddress, sharedSlot, sharedCall)
+	view := NewMemoryStore(state).OpenView()
+	defer view.Close()
+
+	committed := NewExecutor(cfg).ViewState(view)
+	require.Zero(t, committed.GetState(beginBlockerAddress, begunSlot))
+	require.Equal(t, sharedCall, committed.GetState(beginBlockerAddress, sharedSlot))
 }

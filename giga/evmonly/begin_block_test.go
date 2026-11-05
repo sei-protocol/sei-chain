@@ -17,6 +17,7 @@ var (
 	begunSlot   = common.Hash{0xc0} // blocks begun
 	sawSlot     = common.Hash{0xc1} // begunSlot as the block's transactions saw it
 	sharedSlot  = common.Hash{0xc2} // written by BeginBlock, then by each call
+	replaySlot  = common.Hash{0xc3} // set by a BeginBlock run as a replay
 	sharedStart = common.Hash{0x05}
 	sharedCall  = common.Hash{0x07}
 )
@@ -35,9 +36,12 @@ func (beginBlockRecorder) Run(ctx *precompiles.Context, _ []byte) ([]byte, error
 	return nil, nil
 }
 
-func (r beginBlockRecorder) BeginBlock(_ precompiles.BlockContext, state precompiles.State) ([]error, error) {
+func (r beginBlockRecorder) BeginBlock(block precompiles.BlockContext, state precompiles.State) ([]error, error) {
 	if r.fail {
 		return nil, errRefused
+	}
+	if block.Replay {
+		state.SetState(beginBlockerAddress, replaySlot, common.Hash{31: 1})
 	}
 	begun := state.GetState(beginBlockerAddress, begunSlot).Big()
 	state.SetState(beginBlockerAddress, begunSlot, common.BigToHash(begun.Add(begun, big.NewInt(1))))
@@ -88,6 +92,7 @@ func TestBeginBlockerRunsBeforeTheBlocksTransactions(t *testing.T) {
 
 	state.ApplyChangeSet(result.ChangeSet)
 	require.Equal(t, big.NewInt(1), state.GetState(beginBlockerAddress, begunSlot).Big())
+	require.Zero(t, state.GetState(beginBlockerAddress, replaySlot), "an executed block is not a replay")
 }
 
 func TestBeginBlockerWritesLandInABlockWithNoTransactions(t *testing.T) {

@@ -233,7 +233,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 }
 
 func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
-	begin, err := e.runBeginBlockers(req.Context, source)
+	begin, err := e.runBeginBlockers(req.Context, source, false)
 	if err != nil {
 		return nil, err
 	}
