@@ -105,10 +105,37 @@ block_hash() { cast block "$2" --field hash --rpc-url "$(rpc "$1")"; }
 
 node_sh() { docker exec "sei-node-$1" sh -c "$2"; }
 
-# restart_node starts seid from binary $2 on node $1, as step5_start_sei.sh does.
+# restart_node stops seid on node $1, waiting up to 30s for it to exit, then
+# starts it from binary $2 as step5_start_sei.sh does.
 restart_node() {
-  node_sh "$1" "pkill -x seid; sleep 1; cp /sei-protocol/sei-chain/$2 \$HOME/go/bin/seid && \
+  if ! node_sh "$1" "pkill -x seid; i=0; while pgrep -x seid >/dev/null; do \
+      i=\$((i + 1)); [ \$i -le 30 ] || exit 1; sleep 1; done"; then
+    fail "seid on node $1 did not exit within 30s"
+    return 0
+  fi
+  node_sh "$1" "cp /sei-protocol/sei-chain/$2 \$HOME/go/bin/seid && \
     cd /sei-protocol/sei-chain && nohup \$HOME/go/bin/seid start --chain-id sei >> build/generated/logs/seid-$1.log 2>&1 &"
+}
+
+# tick_past ticks until node 0 is past block $1 or stops serving RPC. It fails
+# once 30 ticks in a row leave the height unchanged.
+tick_past() {
+  local last now stalled=0
+  last=$(height 0)
+  while [ "$last" != unreachable ] && [ "$last" -le "$1" ]; do
+    tick || true
+    now=$(height 0)
+    if [ "$now" = "$last" ]; then
+      stalled=$((stalled + 1))
+      if [ "$stalled" -ge 30 ]; then
+        fail "no block past $last"
+        return 0
+      fi
+    else
+      stalled=0
+    fi
+    last=$now
+  done
 }
 
 # wait_ready waits for node $1 to serve RPC, polling every 2s up to $2 times
@@ -142,7 +169,7 @@ node_sh 0 "cp \$HOME/go/bin/seid /sei-protocol/sei-chain/build/seid-old"
 log "Scheduling $TEST_UPGRADE"
 # Gov writes its genesis state at the chain's first block and refuses calls
 # until then, so a transaction must produce that block first.
-tick
+tick || fail "the chain produced no first block"
 start=$(height 0)
 target=$((start + 40))
 id=$(gov_send "${VOTER_KEYS[0]}" "submitSoftwareUpgradeProposal(string,string,bool,(string,uint64,string))" \
@@ -172,7 +199,7 @@ check "node 3 is not past the plan's height" "$([ "$(height 3)" -lt "$target" ] 
 log "Ticking to block $target"
 # The plan's height is reached, and the chain halts, only when a transaction
 # produces that block.
-while [ "$(height 0)" != unreachable ] && [ "$(height 0)" -lt $((target - 1)) ]; do tick || true; done
+tick_past $((target - 2))
 tick || true
 sleep 5
 for n in 0 1 2 3; do
@@ -186,8 +213,8 @@ done
 log "Restarting every validator on the giga_test_upgrade binary"
 for n in 0 1 2 3; do restart_node "$n" "$TEST_BINARY"; done
 for n in 0 1 2 3; do wait_ready "$n" || fail "node $n did not come back"; done
-tick
-tick
+tick || fail "no block after the restart"
+tick || fail "no second block after the restart"
 want_hash=$(block_hash 0 "$target")
 for n in 0 1 2 3; do
   check "node $n applied $TEST_UPGRADE at the halt block" "$(applied "$n" "$TEST_UPGRADE")" "$target"
@@ -207,7 +234,7 @@ restart_node 3 "$TEST_BINARY"
 wait_ready 3 || fail "node 3 did not come back"
 
 log "Cancelling a plan before its height"
-tick
+tick || fail "no block before the cancel"
 cancelled=$(( $(height 0) + 40 ))
 id=$(gov_send "${VOTER_KEYS[0]}" "submitSoftwareUpgradeProposal(string,string,bool,(string,uint64,string))" \
   "upgrade" "schedules never-applied" true "(never-applied,$cancelled,none)" --value "$EXPEDITED_DEPOSIT" | proposal_id)
@@ -220,7 +247,7 @@ id=$(gov_send "${VOTER_KEYS[0]}" "submitCancelSoftwareUpgradeProposal(string,str
   "cancel" "cancels never-applied" true never-applied --value "$EXPEDITED_DEPOSIT" | proposal_id)
 check "cancel proposal passes" "$(pass_proposal "$id")" 3
 for n in 0 1 2 3; do check "node $n has no plan after the cancel" "$(plan_name "$n")" ""; done
-while [ "$(height 0)" != unreachable ] && [ "$(height 0)" -le $((cancelled + 1)) ]; do tick || fail "no block past $(height 0)"; done
+tick_past $((cancelled + 1))
 for n in 0 1 2 3; do
   check "node $n runs past the cancelled height" "$(seid_running "$n")" yes
   check "node $n did not apply the cancelled plan" "$(applied "$n" never-applied)" 0
