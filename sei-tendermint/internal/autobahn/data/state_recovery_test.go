@@ -341,11 +341,9 @@ func TestNewState_NextCommitEpochAtBoundaryTip(t *testing.T) {
 	require.Equal(t, ep2, state.NextCommitEpoch())
 }
 
-// The suffix starts on the last road of epoch 0, so the pair captured at the
-// suffix start has epoch 1 as Next. It ends on the last road of epoch 1, and
-// epoch 2 is pending rather than live, so the publish of the following road
-// does not replace the pair stored from that last block.
-func TestNewState_PendingNextSurvivesUnregisteredTip(t *testing.T) {
+// The suffix ends on the last road of epoch 1. The following road is in epoch 2,
+// which is staged but not live, so the published pair stays on epoch 1.
+func TestNewState_UnregisteredTipKeepsLastLiveEpoch(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 1)
 	require.NoError(t, registry.StageEpoch(0, map[types.PublicKey]uint64{keys[0].Public(): 9}))
@@ -371,7 +369,7 @@ func TestNewState_PendingNextSurvivesUnregisteredTip(t *testing.T) {
 		}),
 		Blocks: blocks,
 	}})
-	require.Equal(t, epoch.EpochAndNext{Current: ep1, Next: registry.Pending()}, state.NextCommitEpochs().Load())
+	require.Equal(t, ep1, state.NextCommitEpoch())
 }
 
 type suffixOnlyStore struct {

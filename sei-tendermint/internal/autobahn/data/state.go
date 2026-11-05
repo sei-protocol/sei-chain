@@ -74,21 +74,20 @@ type inner struct {
 	// Anchor represents the highest fully processed row:
 	// CommitQC, Blocks, AppProposal, AppQC present and persisted.
 	anchor utils.AtomicSend[utils.Option[Anchor]]
-	// nextCommitEpochs covers nextPartialBlock once that epoch is registered, and
-	// carries the epoch after it. Otherwise the previous publish stands
-	// (genesis epoch 0 before any CommitQC).
-	nextCommitEpochs utils.AtomicSend[epoch.EpochAndNext]
+	// nextCommitEpoch covers nextPartialBlock once that epoch is registered.
+	// Otherwise the previous publish stands (genesis epoch 0 before any CommitQC).
+	nextCommitEpoch utils.AtomicSend[*types.Epoch]
 }
 
-func (i *inner) publishNextCommitEpochs(registry *epoch.Registry) {
-	got, err := registry.EpochAndNextAt(i.nextPartialBlock)
+func (i *inner) publishNextCommitEpoch(registry *epoch.Registry) {
+	got, err := registry.EpochAt(i.nextPartialBlock)
 	if err != nil {
 		return
 	}
-	if i.nextCommitEpochs.Load() == got {
+	if i.nextCommitEpoch.Load().EpochIndex() == got.EpochIndex() {
 		return
 	}
-	i.nextCommitEpochs.Store(got)
+	i.nextCommitEpoch.Store(got)
 }
 
 func (i *inner) insertAppQC(appQC *types.AppQC) error {
@@ -242,7 +241,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 			NextAppQC:       first,
 		}
 	}
-	initialEpochs, err := cfg.Registry.EpochAndNextAt(status.First)
+	initialEpoch, err := cfg.Registry.EpochAt(status.First)
 	if err != nil {
 		return nil, fmt.Errorf("epoch at retained suffix start: %w", err)
 	}
@@ -258,7 +257,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		nextPartialBlock: status.First,
 		persisted:        status,
 		anchor:           utils.NewAtomicSend(utils.None[Anchor]()),
-		nextCommitEpochs: utils.NewAtomicSend(initialEpochs),
+		nextCommitEpoch:  utils.NewAtomicSend(initialEpoch),
 	}
 	for _, block := range suffix.Blocks {
 		epoch, err := cfg.Registry.Epoch(block.QC().QC().View().EpochIndex)
@@ -294,13 +293,13 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 	}
 	if inner.first < inner.nextPartialBlock {
 		last := inner.blocks[inner.nextPartialBlock-1].epoch
-		got, err := cfg.Registry.EpochAndNextAt(last.RoadRange().First)
+		got, err := cfg.Registry.EpochAt(last.RoadRange().First)
 		if err != nil {
 			return nil, fmt.Errorf("epoch at last committed road: %w", err)
 		}
-		inner.nextCommitEpochs.Store(got)
+		inner.nextCommitEpoch.Store(got)
 	}
-	inner.publishNextCommitEpochs(cfg.Registry)
+	inner.publishNextCommitEpoch(cfg.Registry)
 	inner.setAnchor()
 	return inner, nil
 }
@@ -337,7 +336,7 @@ func (s *State) activateStagedEpoch() error {
 		return fmt.Errorf("activate epoch %d: %w", idx, err)
 	}
 	for inner := range s.inner.Lock() {
-		inner.publishNextCommitEpochs(s.cfg.Registry)
+		inner.publishNextCommitEpoch(s.cfg.Registry)
 		return nil
 	}
 	panic("unreachable")
@@ -399,7 +398,7 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 			inner.laneBlockCount += uint64(len(qc.Headers()))
 			inner.byHash[qc.Header().Hash()] = n
 			inner.nextPartialBlock += 1
-			inner.publishNextCommitEpochs(s.cfg.Registry)
+			inner.publishNextCommitEpoch(s.cfg.Registry)
 			s.metrics.NextBlock.QC.Set(utils.Clamp[int64](inner.nextPartialBlock))
 		}
 		e := inner.blocks[n]
@@ -708,7 +707,7 @@ func (s *State) stageClosingEpoch(inner *inner, n types.RoadIndex, weights map[t
 	if err := s.cfg.Registry.StageEpoch(e, weights); err != nil {
 		return fmt.Errorf("StageEpoch(%d): %w", e, err)
 	}
-	inner.publishNextCommitEpochs(s.cfg.Registry)
+	inner.publishNextCommitEpoch(s.cfg.Registry)
 	return nil
 }
 
@@ -788,13 +787,11 @@ func (s *State) Anchor() utils.AtomicRecv[utils.Option[Anchor]] {
 	panic("unreachable")
 }
 
-// NextCommitEpochs returns the epoch covering the road after the latest CommitQC
-// and the epoch after it. Next is None when that following epoch is neither live
-// nor pending. If the covering epoch is not registered yet, the previous value
-// stands.
-func (s *State) NextCommitEpochs() utils.AtomicRecv[epoch.EpochAndNext] {
+// NextCommitEpochRecv subscribes to the epoch covering the road after the latest
+// CommitQC. If that epoch is not registered yet, the previous value stands.
+func (s *State) NextCommitEpochRecv() utils.AtomicRecv[*types.Epoch] {
 	for inner := range s.inner.Lock() {
-		return inner.nextCommitEpochs.Subscribe()
+		return inner.nextCommitEpoch.Subscribe()
 	}
 	panic("unreachable")
 }
@@ -803,7 +800,7 @@ func (s *State) NextCommitEpochs() utils.AtomicRecv[epoch.EpochAndNext] {
 // If that epoch is not registered yet, the previous value stands.
 func (s *State) NextCommitEpoch() *types.Epoch {
 	for inner := range s.inner.Lock() {
-		return inner.nextCommitEpochs.Load().Current
+		return inner.nextCommitEpoch.Load()
 	}
 	panic("unreachable")
 }

@@ -28,7 +28,8 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 			cfg:                cfg,
 			key:                key,
 			data:               dataState,
-			nextCommitEpochs:   dataState.NextCommitEpochs(),
+			nextCommitEpoch:    dataState.NextCommitEpochRecv(),
+			registry:           dataState.Registry(),
 			anchor:             dataState.Anchor(),
 			service:            giga.NewFullNodeService(dataState),
 			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
@@ -75,7 +76,7 @@ func (r *gigaFullnodeRouter) EvmProxyEnabled() bool { return true }
 // EvmProxy on the fullnode always returns the shard owner's EVM RPC client.
 // EnableEvmProxy is a no-op here because fullnodes do not have a local mempool.
 func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
-	return r.evmProxy(r.nextCommitEpoch().Committee().EvmShard(sender))
+	return r.evmProxy(r.nextCommitEpochValue().Committee().EvmShard(sender))
 }
 
 // runFullnodeSubscriber: pick a committee member, dial + block-sync,
@@ -92,7 +93,7 @@ func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrp
 // near-tip node."
 func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 	for {
-		ep := r.nextCommitEpoch()
+		ep := r.nextCommitEpochValue()
 		var validators []atypes.PublicKey
 		for lane := range ep.Committee().Lanes().All() {
 			if _, ok := r.cfg.ValidatorAddrs[lane.Validator]; ok {
@@ -111,7 +112,7 @@ func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 		// instead of all moving to a new ring at once.
 		rand.Shuffle(len(validators), func(i, j int) { validators[i], validators[j] = validators[j], validators[i] })
 		for _, validator := range validators {
-			if !r.nextCommitEpoch().Committee().Equal(snap) {
+			if !r.nextCommitEpochValue().Committee().Equal(snap) {
 				break
 			}
 			addr := r.cfg.ValidatorAddrs[validator]

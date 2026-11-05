@@ -149,7 +149,7 @@ func TestGigaFullnodeRouter_CurrentCommitteeOnly(t *testing.T) {
 	aEVM, aEVMURL, closeAEVM := reserveWebsocket(t)
 	bEVM, bEVMURL, closeBEVM := reserveWebsocket(t)
 
-	commit := utils.NewAtomicSend(commitView(testEpoch(2, map[atypes.PublicKey]uint64{a: 1}), utils.Some(testEpoch(3, map[atypes.PublicKey]uint64{b: 1}))))
+	commit := utils.NewAtomicSend(testEpoch(2, map[atypes.PublicKey]uint64{a: 1}))
 	anchor := utils.NewAtomicSend(testAnchor(testEpoch(2, map[atypes.PublicKey]uint64{a: 1})))
 	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{atypes.GenSecretKey(rng).Public(): 1})
 	require.NoError(t, err)
@@ -178,7 +178,8 @@ func TestGigaFullnodeRouter_CurrentCommitteeOnly(t *testing.T) {
 		AppHashBuilder: newPublishingAppHashBuilder(),
 	}, makeKey(rng), state)
 	require.NoError(t, err)
-	router.nextCommitEpochs = commit.Subscribe()
+	router.nextCommitEpoch = commit.Subscribe()
+	router.registry = idleRegistry(t)
 	router.anchor = anchor.Subscribe()
 
 	aGigaAccepted := make(chan struct{})
@@ -214,7 +215,7 @@ func TestGigaFullnodeRouter_CurrentCommitteeOnly(t *testing.T) {
 		if err := wait(aEVMAccepted); err != nil {
 			return err
 		}
-		commit.Store(commitView(testEpoch(3, map[atypes.PublicKey]uint64{b: 1}), utils.None[*atypes.Epoch]()))
+		commit.Store(testEpoch(3, map[atypes.PublicKey]uint64{b: 1}))
 		anchor.Store(testAnchor(testEpoch(2, map[atypes.PublicKey]uint64{a: 1})))
 		if err := wait(aEVMClosed); err != nil {
 			return err

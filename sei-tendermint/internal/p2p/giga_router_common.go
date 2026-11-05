@@ -52,10 +52,12 @@ type gigaRouterCommon struct {
 	selfAddr        utils.Option[NodeAddress]
 	liveAddrs       utils.RWMutex[map[atypes.PublicKey]GigaNodeAddr]
 	liveAddrVersion utils.AtomicSend[uint64]
-	// nextCommitEpochs is data.NextCommitEpochs() cached at construction so
+	// nextCommitEpoch is data.NextCommitEpochRecv() cached at construction so
 	// EvmProxy can Load() without taking the data lock on every call.
-	// Current is the commit epoch; Next is the epoch after it.
-	nextCommitEpochs utils.AtomicRecv[epoch.EpochAndNext]
+	nextCommitEpoch utils.AtomicRecv[*atypes.Epoch]
+	// registry resolves the epoch after the commit epoch. That epoch is live
+	// whenever the anchor epoch and the commit epoch match.
+	registry *epoch.Registry
 	// anchor is data.Anchor() cached at construction: the AppQC/CommitQC covering
 	// the lowest row data.State still holds.
 	anchor utils.AtomicRecv[utils.Option[data.Anchor]]
@@ -597,9 +599,18 @@ func keepReplicas(anchor utils.Option[data.Anchor], commitEpoch *atypes.Epoch, n
 	return keep
 }
 
-// nextCommitEpoch returns the commit epoch.
-func (r *gigaRouterCommon) nextCommitEpoch() *atypes.Epoch {
-	return r.nextCommitEpochs.Load().Current
+// nextCommitEpochValue returns the commit epoch.
+func (r *gigaRouterCommon) nextCommitEpochValue() *atypes.Epoch {
+	return r.nextCommitEpoch.Load()
+}
+
+// nextEpoch returns the live epoch after commit. None when that epoch is not live.
+func (r *gigaRouterCommon) nextEpoch(commit *atypes.Epoch) utils.Option[*atypes.Epoch] {
+	ep, err := r.registry.EpochAt(commit.RoadRange().Next)
+	if err != nil {
+		return utils.None[*atypes.Epoch]()
+	}
+	return utils.Some(ep)
 }
 
 // keptReplica reports whether key stays connected. currentCommitteeOnly limits
@@ -607,8 +618,8 @@ func (r *gigaRouterCommon) nextCommitEpoch() *atypes.Epoch {
 // committee while Anchor is on the commit epoch, and in the anchor or commit
 // committee while Anchor lags it.
 func (r *gigaRouterCommon) keptReplica(key atypes.PublicKey, currentCommitteeOnly bool) bool {
-	view := r.nextCommitEpochs.Load()
-	_, ok := keepReplicas(r.anchor.Load(), view.Current, view.Next, currentCommitteeOnly)[key]
+	commit := r.nextCommitEpochValue()
+	_, ok := keepReplicas(r.anchor.Load(), commit, r.nextEpoch(commit), currentCommitteeOnly)[key]
 	return ok
 }
 
@@ -732,16 +743,15 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 			}
 		}()
 		// Anchor is republished on every persist batch; only its epoch can
-		// change the keep set. nextCommitEpochs is republished when the next
-		// epoch is staged.
+		// change the keep set. The epoch after the commit epoch is read from
+		// the registry, and it is live before the anchor epoch catches up.
 		epochOf := func(opt utils.Option[data.Anchor]) utils.Option[atypes.EpochIndex] {
 			return utils.MapOpt(opt, func(a data.Anchor) atypes.EpochIndex { return a.Epoch.EpochIndex() })
 		}
 		for ctx.Err() == nil {
 			addrVersion := addrUpdates.Load()
-			view := r.nextCommitEpochs.Load()
-			commitEpoch := view.Current
-			next := view.Next
+			commitEpoch := r.nextCommitEpochValue()
+			next := r.nextEpoch(commitEpoch)
 			anchor := r.anchor.Load()
 			if err := r.stopStaleSessions(ctx, live, anchor, commitEpoch, next, currentCommitteeOnly); err != nil {
 				return err
@@ -769,14 +779,10 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 				})
 			}
 			if err := utils.WaitAny(ctx, func() bool {
-				got := r.nextCommitEpochs.Load()
-				gn, gok := got.Next.Get()
-				hn, hok := next.Get()
-				return got.Current.EpochIndex() != commitEpoch.EpochIndex() ||
+				return r.nextCommitEpochValue().EpochIndex() != commitEpoch.EpochIndex() ||
 					epochOf(r.anchor.Load()) != epochOf(anchor) ||
-					addrUpdates.Load() != addrVersion ||
-					gok != hok || (gok && gn != hn)
-			}, r.nextCommitEpochs, r.anchor, addrUpdates); err != nil {
+					addrUpdates.Load() != addrVersion
+			}, r.nextCommitEpoch, r.anchor, addrUpdates); err != nil {
 				return err
 			}
 		}
@@ -797,7 +803,7 @@ func (r *gigaRouterCommon) runUntilMembershipChange(
 		s.SpawnBg(func() error {
 			err := utils.WaitAny(ctx, func() bool {
 				return !r.keptReplica(validator, currentCommitteeOnly)
-			}, r.nextCommitEpochs, r.anchor)
+			}, r.nextCommitEpoch, r.anchor)
 			if err != nil {
 				return err
 			}
@@ -820,7 +826,7 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 	if member, ok := r.acceptInbound(hConn).Get(); ok {
 		return r.runInboundValidator(ctx, hConn, member)
 	}
-	// A member who inbounds before they appear in our nextCommitEpochs view is
+	// A member who inbounds before they appear in our commit-epoch view is
 	// served as a fullnode for this socket's life; their own dialer redials
 	// after DialInterval and re-handshakes into the validator role.
 	return r.runInboundFullnode(ctx, hConn)
