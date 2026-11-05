@@ -684,6 +684,10 @@ func keepReplicas(anchor utils.Option[data.Anchor], commitEpoch *atypes.Epoch, n
 	if currentCommitteeOnly {
 		return keep
 	}
+	// A validator that left the commit committee may hold the only copy of a lane
+	// block, or of the headers a CommitQC needs, that a remaining validator is
+	// missing to build the FullCommitQC. Once everyone else disconnects it can no
+	// longer gossip them, so its sessions stay until Anchor moves past its epoch.
 	if a, ok := anchor.Get(); ok {
 		for lane := range a.Epoch.Committee().Lanes().All() {
 			keep[lane.Validator] = struct{}{}
@@ -813,7 +817,7 @@ func (r *gigaRouterCommon) stopStaleSessions(
 	// Cancel every stale session before waiting for any of them.
 	for validator, session := range live {
 		if _, kept := keep[validator]; !kept {
-			// Validator sessions wait until the first Anchor.
+			// With no Anchor the keep set has no anchor epoch, so wait for the first one.
 			if !currentCommitteeOnly && !hasAnchor {
 				continue
 			}
