@@ -87,13 +87,21 @@ or field can move, change type or go away. A retired field keeps its slot, and
 the slot is not reused for anything else, since records written before still
 hold the old values. New state variables go after the last one. A new field
 reads as zero in every record written before it, so zero has to mean what the
-code did before, or the upgrade that adds the field writes it. Where a new field
-can go depends on where its struct is stored:
+code did before, or the upgrade that adds the field writes it. A delete has to
+clear every slot the record has used, fields added since included, or a record
+later created under the same key reads the old values. What can change depends
+on where the state is stored:
 
+- **A top-level value** (`lastTotalPower`, `communityPool`, `previousProposer`)
+  cannot change type. A new state variable replaces it, and the upgrade copies
+  the value over.
 - **A mapping value** (`Validator`, `Delegation`, the queue entries,
   `DelegatorStartingInfo`, `ValidatorSigningInfo`) grows at its end. Each value
   starts at its own hashed slot, so the slots after it are free, and no
   reserved slots are needed.
+- **A mapping value that is not a struct** (`validatorOutstandingRewards`,
+  `delegatorWithdrawAddr`, `redelegationEntryCounts`) can become a struct whose
+  first field is the old value, which stays in the same slot.
 - **A struct inside another** (`Description` and `Commission` in `Validator`)
   cannot grow without moving the fields after it. A new field goes at the end
   of the outer struct instead.
@@ -109,6 +117,11 @@ can go depends on where its struct is stored:
   can start in a new state variable while the old one drains.
   `validatorSlashEvents` is kept for good, so its element has to be settled
   before launch (see *Open questions*).
+- **An enumeration set** keeps its shape, and dropping one only stops its
+  writes. Adding one after launch means filling it with the existing members,
+  and a mapping's keys cannot be listed from its slots, so a set can be added
+  only where its members can be found another way. The sets a later upgrade may
+  need are decided before launch (see *Prefix walks*).
 
 `layout_test.go` pins every slot and offset, so a change that moves one fails
 it.
