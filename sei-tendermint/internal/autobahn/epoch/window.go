@@ -53,6 +53,26 @@ func (w Window) Equal(other Window) bool {
 		epochEqual(w.next, other.next)
 }
 
+// CompleteWindow returns incoming with its missing previous epoch filled from committed.
+func CompleteWindow(committed utils.Option[Window], incoming Window) (Window, error) {
+	committedWindow, ok := committed.Get()
+	if !ok {
+		return incoming, nil
+	}
+	if !epochEqual(committedWindow.next, incoming.current) {
+		return Window{}, fmt.Errorf("incoming current epoch %d does not match committed next epoch %d",
+			incoming.current.EpochIndex(), committedWindow.next.EpochIndex())
+	}
+	if prev, ok := incoming.prev.Get(); ok {
+		if !epochEqual(committedWindow.current, prev) {
+			return Window{}, fmt.Errorf("incoming previous epoch %d does not match committed current epoch %d",
+				prev.EpochIndex(), committedWindow.current.EpochIndex())
+		}
+		return incoming, nil
+	}
+	return NewWindow(utils.Some(committedWindow.current), incoming.current, incoming.next)
+}
+
 func checkConsecutive(a, b *types.Epoch) error {
 	if b.EpochIndex() != a.EpochIndex()+1 {
 		return fmt.Errorf("epoch %d does not follow %d", b.EpochIndex(), a.EpochIndex())

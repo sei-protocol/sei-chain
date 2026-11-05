@@ -29,6 +29,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -109,6 +110,33 @@ func TestEVMOnlyAppCommitsEpochWindow(t *testing.T) {
 	gotWindow, ok := got.Get()
 	require.True(t, ok)
 	require.True(t, gotWindow.Equal(window))
+}
+
+func TestEVMOnlyAppCompletesPrunedEpochWindow(t *testing.T) {
+	reference := newInitializedEVMOnlyTestApp(t).(proxy.EVMApplication)
+	pruned := newInitializedEVMOnlyTestApp(t).(proxy.EVMApplication)
+	base := evmOnlyTestEpochWindow()
+	full := evmOnlyTestShiftedEpochWindow(utils.Some(base.Current()))
+	withoutPrev := evmOnlyTestShiftedEpochWindow(utils.None[*atypes.Epoch]())
+
+	for _, app := range []proxy.EVMApplication{reference, pruned} {
+		_, err := app.FinalizeBlockWithEpochWindow(t.Context(), evmOnlyTestBlock(1), utils.Some(base))
+		require.NoError(t, err)
+		_, err = app.Commit(t.Context())
+		require.NoError(t, err)
+	}
+
+	referenceResponse, err := reference.FinalizeBlockWithEpochWindow(t.Context(), evmOnlyTestBlock(2), utils.Some(full))
+	require.NoError(t, err)
+	prunedResponse, err := pruned.FinalizeBlockWithEpochWindow(t.Context(), evmOnlyTestBlock(2), utils.Some(withoutPrev))
+	require.NoError(t, err)
+	require.Equal(t, referenceResponse.AppHash, prunedResponse.AppHash)
+	_, err = pruned.Commit(t.Context())
+	require.NoError(t, err)
+
+	got, err := pruned.CommittedEpochWindow()
+	require.NoError(t, err)
+	require.True(t, got.OrPanic("committed epoch window").Equal(full))
 }
 
 // evmOnlyTestInitCode deploys a contract whose runtime code is the single

@@ -100,3 +100,14 @@ func evmOnlyTestEpochWindow() epoch.Window {
 	next := atypes.NewEpoch(2, atypes.RoadRange{First: 20, Next: 30}, nextCommittee)
 	return utils.OrPanic1(epoch.NewWindow(utils.Some(prev), current, next))
 }
+
+func evmOnlyTestShiftedEpochWindow(prev utils.Option[*atypes.Epoch]) epoch.Window {
+	key := atypes.TestSecretKey("evmonly-epoch-window")
+	weights := map[atypes.PublicKey]uint64{key.Public(): 1}
+	committee := utils.OrPanic1(atypes.NewCommittee(weights))
+	nextCommittee := utils.OrPanic1(committee.DeriveNext(weights, 2))
+	shiftedCommittee := utils.OrPanic1(nextCommittee.DeriveNext(weights, 3))
+	current := atypes.NewEpoch(2, atypes.RoadRange{First: 20, Next: 30}, nextCommittee)
+	next := atypes.NewEpoch(3, atypes.RoadRange{First: 30, Next: 40}, shiftedCommittee)
+	return utils.OrPanic1(epoch.NewWindow(prev, current, next))
+}

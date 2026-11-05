@@ -150,6 +150,8 @@ type evmOnlyCursorState struct {
 	// pendingBlockTime is the Time of the block staged in pending; Commit
 	// promotes it to lastBlockTime.
 	pendingBlockTime      uint64
+	committedEpochWindow  utils.Option[epoch.Window]
+	pendingEpochWindow    utils.Option[epoch.Window]
 	finalizingEpochWindow utils.Option[epoch.Window]
 }
 
@@ -187,12 +189,17 @@ func NewEVMOnlyApplication(
 	if err != nil {
 		return nil, err
 	}
+	window, err := loadEpochWindow(storage.SC())
+	if err != nil {
+		return nil, err
+	}
 	if cursor, ok := cursor.Get(); ok {
 		for executor := range a.executor.Lock() {
 			a.installExecutor(executor)
 		}
 		for state := range a.cursor.Lock() {
 			state.committed = cursor
+			state.committedEpochWindow = window
 		}
 	}
 	return a, nil
@@ -240,6 +247,13 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
 		}
 		window := state.finalizingEpochWindow
+		if incoming, ok := window.Get(); ok {
+			completed, err := epoch.CompleteWindow(state.committedEpochWindow, incoming)
+			if err != nil {
+				return nil, fmt.Errorf("complete epoch window: %w", err)
+			}
+			window = utils.Some(completed)
+		}
 		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result, window)
 		if err != nil {
 			return nil, err
@@ -252,6 +266,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
+		state.pendingEpochWindow = window
 		misc := []gigatypes.MiscChange{next.miscChange()}
 		if window, ok := window.Get(); ok {
 			misc = append(misc, epochWindowMiscChange(window))
@@ -884,6 +899,7 @@ func (a *evmOnlyApplication) abandonPending(executor *evmonly.Executor, height i
 	}
 	for state := range a.cursor.Lock() {
 		state.pending = utils.None[evmOnlyCursor]()
+		state.pendingEpochWindow = utils.None[epoch.Window]()
 	}
 	return commitErr
 }
@@ -930,6 +946,10 @@ func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, erro
 		state.committed = pending
 		state.lastBlockTime = state.pendingBlockTime
 		state.pending = utils.None[evmOnlyCursor]()
+		if window, ok := state.pendingEpochWindow.Get(); ok {
+			state.committedEpochWindow = utils.Some(window)
+		}
+		state.pendingEpochWindow = utils.None[epoch.Window]()
 		return &abci.ResponseCommit{}, nil
 	}
 	panic("unreachable")
