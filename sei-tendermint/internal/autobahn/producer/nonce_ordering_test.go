@@ -7,44 +7,55 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-type nonceReadGate struct {
-	enabled  bool
-	entered  bool
-	released bool
+type nonceOrderingGate struct {
+	pauseEVMNonce      bool
+	pauseFinalizeBlock bool
 }
 
 type nonceOrderingApp struct {
+	t *testing.T
 	*testApp
-	ctx  context.Context
-	gate utils.Watch[*nonceReadGate]
+	gate utils.Watch[*nonceOrderingGate]
 }
 
 func (a *nonceOrderingApp) EvmNonce(addr common.Address) uint64 {
 	nonce := a.testApp.EvmNonce(addr)
 	for gate, ctrl := range a.gate.Lock() {
-		if gate.enabled {
-			gate.entered = true
+		if gate.pauseEVMNonce {
+			gate.pauseFinalizeBlock = false
 			ctrl.Updated()
 			// Return the snapshot even if execution advances while this read is blocked.
-			_ = ctrl.WaitUntil(a.ctx, func() bool { return gate.released })
+			_ = ctrl.WaitUntil(a.t.Context(), func() bool { return !gate.pauseEVMNonce })
 		}
 	}
 	return nonce
 }
 
-func TestInsertTx_PendingNoncesReadBeforeAppNonce(t *testing.T) {
+func (a *nonceOrderingApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	for gate, ctrl := range a.gate.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return !gate.pauseFinalizeBlock }); err != nil {
+			return nil, err
+		}
+	}
+	return a.testApp.FinalizeBlock(ctx, req)
+}
+
+// Test checking that evmNextPendingNonce accesses
+// app.EVMNonce and mempool.evmNonces in the correct order.
+// NOTE: this is a fragile test, remove if no longer relevant
+// or too hard to maintain.
+func TestEVMNextPendingNonce_race(t *testing.T) {
 	rng := utils.TestRng()
 	app := &nonceOrderingApp{
+		t:       t,
 		testApp: newTestApp(),
-		ctx:     t.Context(),
-		gate:    utils.NewWatch(&nonceReadGate{}),
+		gate:    utils.NewWatch(&nonceOrderingGate{pauseFinalizeBlock: true}),
 	}
 	cfg := app.Cfg()
 	cfg.BlockInterval = 0
@@ -53,71 +64,59 @@ func TestInsertTx_PendingNoncesReadBeforeAppNonce(t *testing.T) {
 	addr, nonce := app.NewAccount(rng)
 	tx1 := env.genTx(rng, addr, nonce)
 	tx2 := env.genTx(rng, addr, nonce+1)
-	tx3 := env.genTx(rng, addr, nonce+2)
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBg(func() error { return utils.IgnoreCancel(env.data.Run(ctx)) })
-		s.SpawnBg(func() error { return utils.IgnoreCancel(env.consensus.Run(ctx)) })
-		s.SpawnBg(func() error { return utils.IgnoreCancel(env.state.Run(ctx)) })
-		s.SpawnBg(func() error {
-			return utils.IgnoreCancel(consensus.RunTestNetwork(ctx, utils.Slice(env.consensus)))
-		})
+		s.SpawnBg(func() error { return env.Run(ctx) })
 		mp, err := env.waitForMempool(ctx)
 		if err != nil {
 			return err
 		}
+		t.Log("sequence tx1")
 		if _, err := env.state.InsertTx(ctx, tx1.encode()); err != nil {
 			return err
 		}
 		index := env.data.Registry().MustEpoch(0).RoadRange().First
-		block, err := env.data.SuperBlock(ctx, index)
+		firstBlock, err := env.data.SuperBlock(ctx, index)
 		if err != nil {
 			return err
 		}
-		if err := utils.TestDiff([][]byte{tx1.encode()}, block.Txs); err != nil {
+		if err := utils.TestDiff([][]byte{tx1.encode()}, firstBlock.Txs); err != nil {
 			return err
 		}
+		t.Log("insert tx2")
 		if _, err := env.state.InsertTx(ctx, tx2.encode()); err != nil {
 			return err
 		}
-		for gate := range app.gate.Lock() {
-			gate.enabled = true
+		// We test evmNextPendingNonce directly instead of InsertTx or EVMNextPendingNonce,
+		// because this test wouldn't make sense if evmNextPendingNonce() call was removed from either.
+		t.Log("pause EVMNonce()")
+		for gate, ctrl := range app.gate.Lock() {
+			gate.pauseEVMNonce = true
+			ctrl.Updated()
 		}
-		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			app.ctx = ctx
-			s.Spawn(func() error {
-				resp, err := env.state.InsertTx(ctx, tx3.encode())
-				if err != nil {
-					return fmt.Errorf("InsertTx(tx3): %w", err)
-				}
-				return utils.TestDiff(tx3.asResponse().ResponseCheckTx, resp)
-			})
-			for gate, ctrl := range app.gate.Lock() {
-				if err := ctrl.WaitUntil(ctx, func() bool { return gate.entered }); err != nil {
-					return err
-				}
-			}
-			resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{Txs: block.Txs, Hash: block.Hash[:]})
-			if err != nil {
-				return err
-			}
-			// PushAppHash records the AppProposal and lets the producer prune tx1.
-			if err := env.data.PushAppHash(ctx, index, resp.AppHash, nil); err != nil {
-				return err
-			}
-			for inner, ctrl := range mp.inner.Lock() {
-				if err := ctrl.WaitUntil(ctx, func() bool {
-					r, ok := inner.evmNonces[addr]
-					return ok && r.first == tx2.Nonce && r.next == tx3.Nonce
-				}); err != nil {
-					return err
-				}
-			}
-			for gate, ctrl := range app.gate.Lock() {
-				gate.released = true
-				ctrl.Updated()
+		t.Log("start evmNextPendingNonce()")
+		s.Spawn(func() error {
+			// WARNING: this call is blocking because we made EVMNonce blocking
+			// for test purposes.
+			if got, want := env.state.evmNextPendingNonce(mp, addr), nonce+2; got != want {
+				return fmt.Errorf("evmNextPendingNonce() = %v, want %v", got, want)
 			}
 			return nil
 		})
+		t.Log("wait for tx1 to be pruned from mempool")
+		for inner, ctrl := range mp.inner.Lock() {
+			if err := ctrl.WaitUntil(ctx, func() bool {
+				r, ok := inner.evmNonces[addr]
+				return ok && r.first == tx2.Nonce
+			}); err != nil {
+				return err
+			}
+		}
+		t.Log("unpause EVMNonce()")
+		for gate, ctrl := range app.gate.Lock() {
+			gate.pauseEVMNonce = false
+			ctrl.Updated()
+		}
+		return nil
 	}))
 }
