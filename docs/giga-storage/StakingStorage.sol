@@ -43,7 +43,6 @@ contract StakingStorage {
         uint64 unbondingTime;
         Commission commission;
         uint256 minSelfDelegation;
-        uint256[8] __gap;
     }
 
     /// @dev A bonded validator and the consensus power last sent for it.
