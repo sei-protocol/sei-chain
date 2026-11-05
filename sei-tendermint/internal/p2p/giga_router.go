@@ -45,8 +45,7 @@ type GigaRouterCommonConfig struct {
 	App *proxy.Proxy
 	// AppHashBuilder is the source of every Autobahn application hash. The
 	// storage manager owns it. The router reads each executed block's app hash
-	// from it. Currently app hashes are computed per lane block, but in the
-	// future they may be computed once per superblock.
+	// from it.
 	AppHashBuilder builder.AppHashBuilder
 	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
 	// peers. 0 rejects all; positive caps at n, up to maxInboundFullnodePeers.

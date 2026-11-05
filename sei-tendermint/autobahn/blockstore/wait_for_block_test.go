@@ -155,9 +155,11 @@ func TestWaitForBlockWaitsForFlush(t *testing.T) {
 }
 
 // TestWaitForBlockReadsStoredBlocksAfterReopen verifies the restart path: a store
-// reopened over existing data serves every stored block at once, from the BlockDB.
+// reopened over existing data serves every stored block at once, from the
+// recovery suffix it loaded rather than from the BlockDB.
 func TestWaitForBlockReadsStoredBlocksAfterReopen(t *testing.T) {
-	db := memblock.NewBlockDB()
+	var reads atomic.Int64
+	db := countingReadsDB{BlockDB: memblock.NewBlockDB(), reads: &reads}
 	first, err := blockstore.New(db)
 	require.NoError(t, err)
 	committee, keys := buildCommittee()
@@ -170,11 +172,13 @@ func TestWaitForBlockReadsStoredBlocksAfterReopen(t *testing.T) {
 	reopened, err := blockstore.New(db)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	reads.Store(0)
 	for _, b := range batches {
 		got, err := reopened.WaitForBlock(canceledContext(t), b.first)
 		require.NoError(t, err)
 		require.Equal(t, b.qc.Header().Hash(), got.Header().Hash())
 	}
+	require.Equal(t, int64(0), reads.Load())
 }
 
 // TestWaitForBlockBelowFirstIsPruned verifies that WaitForBlock refuses a block

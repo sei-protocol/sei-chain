@@ -2,16 +2,19 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/giga/apphash"
+	dto "github.com/prometheus/client_model/go"
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -44,7 +47,14 @@ type recordingAppState struct {
 	inited     bool
 	lastHeader utils.Option[*tmproto.Header]
 	finalized  []*abci.RequestFinalizeBlock
+	// failCommitAt makes Commit fail for the block of this height.
+	failCommitAt utils.Option[int64]
 }
+
+// testGasPerBlock is the gas FinalizeBlock reports for every block.
+const testGasPerBlock = 7
+
+var errCommitFailed = errors.New("commit failed")
 
 func newRecordingApp(events *eventLog, last int64) *recordingApp {
 	return &recordingApp{events: events, state: utils.NewMutex(&recordingAppState{last: last})}
@@ -80,11 +90,14 @@ func (a *recordingApp) FinalizeBlock(_ context.Context, req *abci.RequestFinaliz
 		state.pending = req.Header.Height
 		state.finalized = append(state.finalized, req)
 	}
-	return &abci.ResponseFinalizeBlock{}, nil
+	return &abci.ResponseFinalizeBlock{TxResults: []*abci.ExecTxResult{{GasUsed: testGasPerBlock}}}, nil
 }
 
 func (a *recordingApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 	for state := range a.state.Lock() {
+		if fail, ok := state.failCommitAt.Get(); ok && fail == state.pending {
+			return nil, errCommitFailed
+		}
 		state.last = state.pending
 	}
 	return &abci.ResponseCommit{}, nil
@@ -97,8 +110,10 @@ func (a *recordingApp) finalized() []*abci.RequestFinalizeBlock {
 	panic("unreachable")
 }
 
-// recordingBuilder is an app hash builder that records each block hash reported to it.
+// recordingBuilder is an app hash builder that records each block hash reported
+// to it. Execution calls nothing else on it.
 type recordingBuilder struct {
+	builder.AppHashBuilder
 	events *eventLog
 }
 
@@ -106,27 +121,6 @@ func (b recordingBuilder) ReportBlockHash(_ context.Context, blockHeight uint64,
 	logEvent(b.events, "report %d", blockHeight)
 	return nil
 }
-
-func (recordingBuilder) ReportStateHash(context.Context, uint64, [32]byte, map[string][]byte) error {
-	return nil
-}
-
-func (recordingBuilder) ReportBUDHash(context.Context, uint64, [32]byte) error { return nil }
-
-func (recordingBuilder) ReportReceiptHash(context.Context, uint64, apphash.ReceiptHash) error {
-	return nil
-}
-
-func (recordingBuilder) GetAppHash(ctx context.Context, _ uint64) (*apphash.AppHashData, error) {
-	<-ctx.Done()
-	return nil, ctx.Err()
-}
-
-func (recordingBuilder) Bounds() (uint64, uint64, bool, error) { return 0, 0, false, nil }
-
-func (recordingBuilder) SetupComplete(context.Context, uint64) error { return nil }
-
-func (recordingBuilder) Close() error { return nil }
 
 // testEnv is an executor over a fresh BlockStore holding no blocks, and the road
 // blocks a test writes to it.
@@ -330,6 +324,31 @@ func TestRunReplaysStoredBlocksAfterRestart(t *testing.T) {
 	require.Equal(t, 2, len(finalized))
 	require.Equal(t, int64(env.road(1)), finalized[0].Header.Height)
 	require.Equal(t, int64(env.road(2)), finalized[1].Header.Height)
+}
+
+func gasUsedTotal(t *testing.T) float64 {
+	t.Helper()
+	var m dto.Metric
+	require.NoError(t, metrics.GasUsed.Write(&m))
+	return m.GetCounter().GetValue()
+}
+
+// TestRunCountsGasOnlyAfterCommit verifies that a block's gas is counted only
+// once the app has committed it.
+func TestRunCountsGasOnlyAfterCommit(t *testing.T) {
+	rng := utils.TestRng()
+	env := newTestEnv(t, rng, 2)
+	require.NoError(t, env.write(0, 2, true))
+	app := newRecordingApp(env.events, 0)
+	for state := range app.state.Lock() {
+		state.failCommitAt = utils.Some(int64(env.road(1)))
+	}
+	executor := env.executor(app)
+	before := gasUsedTotal(t)
+
+	require.ErrorIs(t, executor.Run(t.Context()), errCommitFailed)
+	require.Equal(t, before+testGasPerBlock, gasUsedTotal(t), "only the committed block is counted")
+	require.Equal(t, env.road(0), executor.ExecutedBlocks().Load().Latest().Number)
 }
 
 func TestFinalizeBlockGasUsed(t *testing.T) {

@@ -13,10 +13,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	datametrics "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data/metrics"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -36,7 +35,6 @@ type Config struct {
 type Executor struct {
 	cfg      *Config
 	executed utils.AtomicSend[atypes.ExecutedBlocks]
-	gasUsed  *prometheus.CounterInt
 }
 
 // New returns an Executor for cfg.
@@ -46,7 +44,6 @@ func New(cfg *Config) *Executor {
 		executed: utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{
 			Number: utils.Clamp[atypes.RoadIndex](cfg.App.LastBlockHeight()),
 		})),
-		gasUsed: datametrics.Get().GasUsed,
 	}
 }
 
@@ -171,7 +168,7 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error
 		return fmt.Errorf("app.Commit(): %w", err)
 	}
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
-	e.gasUsed.Add(gasUsed)
+	metrics.GasUsed.Add(gasUsed)
 	e.executed.Store(e.executed.Load().Push(atypes.ExecutedBlock{
 		Number:  b.Height,
 		GasUsed: utils.Clamp[uint64](gasUsed),
