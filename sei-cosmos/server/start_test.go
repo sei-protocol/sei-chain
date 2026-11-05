@@ -79,6 +79,7 @@ func TestConfigureIngressProfile(t *testing.T) {
 	require.False(t, ctx.Viper.GetBool("state-store.ss-snapshot-enable"))
 	require.False(t, ctx.Viper.GetBool("state-commit.sc-enable-state-proof"))
 	require.Equal(t, uint(1000), ctx.Viper.GetUint("state-commit.sc-hash-logger-blocks-to-retain"))
+	require.Equal(t, 1, ctx.Viper.GetInt("state-commit.sc-snapshot-writer-limit"))
 	require.Equal(t, uint64(1000), ctx.Viper.GetUint64(FlagMinRetainBlocks))
 	require.Zero(t, ctx.Viper.GetUint64(FlagStateSyncSnapshotInterval))
 	require.True(t, ctx.Viper.GetBool("evm.http_enabled"))

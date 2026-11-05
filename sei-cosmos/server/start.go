@@ -459,14 +459,16 @@ func configureIngressProfile(ctx *Context) error {
 		"state-store.ss-snapshot-enable":               false,
 		"state-commit.sc-enable-state-proof":           false,
 		"state-commit.sc-hash-logger-blocks-to-retain": uint(ingressLookbackBlocks),
-		FlagMinRetainBlocks:                            uint64(ingressLookbackBlocks),
-		FlagStateSyncSnapshotInterval:                  uint64(0),
-		"evm.http_enabled":                             true,
-		"evm.ws_enabled":                               true,
-		"evm.enable_simulation":                        false,
-		"evm.trace_bake_enabled":                       false,
-		"wasm.memory_cache_size":                       uint32(16),
-		"light_invariance.supply_enabled":              false,
+		// Each memIAVL tree being written holds three 128 MiB buffers; all trees share one write-rate limit.
+		"state-commit.sc-snapshot-writer-limit": 1,
+		FlagMinRetainBlocks:                     uint64(ingressLookbackBlocks),
+		FlagStateSyncSnapshotInterval:           uint64(0),
+		"evm.http_enabled":                      true,
+		"evm.ws_enabled":                        true,
+		"evm.enable_simulation":                 false,
+		"evm.trace_bake_enabled":                false,
+		"wasm.memory_cache_size":                uint32(16),
+		"light_invariance.supply_enabled":       false,
 	} {
 		ctx.Viper.Set(key, value)
 	}
