@@ -119,7 +119,14 @@ func (r *Registry) GenesisTimestamp() time.Time {
 // Epoch returns the registered epoch at idx.
 // It returns ErrPruned if idx has been dropped by PruneBefore.
 func (r *Registry) Epoch(idx types.EpochIndex) (*types.Epoch, error) {
-	return r.stateRecv.Load().epoch(idx)
+	s := r.stateRecv.Load()
+	if idx < s.liveRange.First {
+		return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrPruned)
+	}
+	if s.liveRange.Next <= idx {
+		return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrNotFound)
+	}
+	return s.live[idx], nil
 }
 
 // EpochAt returns the registered epoch containing roadIndex.

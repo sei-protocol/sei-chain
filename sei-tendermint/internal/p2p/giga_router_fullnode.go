@@ -28,7 +28,7 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 			cfg:                cfg,
 			key:                key,
 			data:               dataState,
-			nextCommitEpoch:    dataState.NextCommitEpochRecv(),
+			nextCommitEpoch:    dataState.NextCommitEpoch(),
 			registry:           dataState.Registry(),
 			anchor:             dataState.Anchor(),
 			service:            giga.NewFullNodeService(dataState),

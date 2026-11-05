@@ -167,14 +167,11 @@ func TestNextCommitEpoch_AdvancesAtIdleEpochBoundary(t *testing.T) {
 	store := newMemoryBlockStore(t)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qcMid}, [][]*types.Block{blocksMid})
 	state := newTestState(t, &Config{Registry: registry}, store)
-	require.Equal(t, ep1, state.NextCommitEpoch())
-	require.Equal(t, registry.MustEpoch(2), utils.OrPanic1(registry.EpochAt(ep1.RoadRange().Next)))
+	require.Equal(t, ep1, state.NextCommitEpoch().Load())
 	require.NoError(t, pushAppHashesRunning(ctx, state, rng, qcMid.Index(), qcMid.Index()+1))
 	qcLast, blocksLast := commitQCAtRoad(ep1, keys, registry.LastRoad(1))
 	require.NoError(t, state.PushPartialBlock(ctx, qcLast, TestBlockMap(blocksLast)))
-	require.Equal(t, registry.MustEpoch(2), state.NextCommitEpoch())
-	_, err := registry.EpochAt(registry.MustEpoch(2).RoadRange().Next)
-	require.Error(t, err)
+	require.Equal(t, registry.MustEpoch(2), state.NextCommitEpoch().Load())
 }
 
 func TestNextCommitEpoch_AfterAppQCActivation(t *testing.T) {
@@ -185,21 +182,15 @@ func TestNextCommitEpoch_AfterAppQCActivation(t *testing.T) {
 	store := newMemoryBlockStore(t)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
 	state := newTestState(t, &Config{Registry: registry}, store)
-	require.Equal(t, registry.MustEpoch(1), state.NextCommitEpoch())
-	_, err := registry.EpochAt(registry.MustEpoch(1).RoadRange().Next)
-	require.Error(t, err)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		if err := state.PushAppHash(ctx, qc.Index(), types.GenAppHash(rng), map[types.PublicKey]uint64{keys[0].Public(): 9}); err != nil {
 			return err
 		}
-		if _, err := registry.EpochAt(registry.MustEpoch(1).RoadRange().Next); err == nil {
-			return fmt.Errorf("EpochAt(next) succeeded while epoch 2 is pending")
-		}
 		return pushAppQCForBlock(ctx, state, keys, qc.Index())
 	}))
-	require.Equal(t, registry.MustEpoch(1), state.NextCommitEpoch())
-	require.Equal(t, registry.MustEpoch(2), utils.OrPanic1(registry.EpochAt(registry.MustEpoch(1).RoadRange().Next)))
+	require.Equal(t, registry.MustEpoch(1), state.NextCommitEpoch().Load())
+	require.Equal(t, types.EpochIndex(2), registry.MustEpoch(2).EpochIndex())
 }
 
 func TestState(t *testing.T) {

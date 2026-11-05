@@ -52,7 +52,7 @@ type gigaRouterCommon struct {
 	selfAddr        utils.Option[NodeAddress]
 	liveAddrs       utils.RWMutex[map[atypes.PublicKey]GigaNodeAddr]
 	liveAddrVersion utils.AtomicSend[uint64]
-	// nextCommitEpoch is data.NextCommitEpochRecv() cached at construction so
+	// nextCommitEpoch is data.NextCommitEpoch() cached at construction so
 	// EvmProxy can Load() without taking the data lock on every call.
 	nextCommitEpoch utils.AtomicRecv[*atypes.Epoch]
 	// registry resolves the epoch after the commit epoch. That epoch is live

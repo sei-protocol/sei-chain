@@ -60,17 +60,6 @@ type persistedRegistry struct {
 	pending   utils.Option[*types.Epoch]
 }
 
-// epoch returns the live epoch at idx.
-func (s *persistedRegistry) epoch(idx types.EpochIndex) (*types.Epoch, error) {
-	if idx < s.liveRange.First {
-		return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrPruned)
-	}
-	if s.liveRange.Next <= idx {
-		return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrNotFound)
-	}
-	return s.live[idx], nil
-}
-
 // newGenesisRegistry constructs the first two live epochs from the genesis committee.
 func newGenesisRegistry(committee *types.Committee, firstRoad types.RoadIndex) *persistedRegistry {
 	return &persistedRegistry{

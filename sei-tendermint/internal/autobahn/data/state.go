@@ -74,20 +74,20 @@ type inner struct {
 	// Anchor represents the highest fully processed row:
 	// CommitQC, Blocks, AppProposal, AppQC present and persisted.
 	anchor utils.AtomicSend[utils.Option[Anchor]]
-	// nextCommitEpoch covers nextPartialBlock once that epoch is registered.
-	// Otherwise the previous publish stands (genesis epoch 0 before any CommitQC).
+	// nextCommitEpoch covers nextPartialBlock once that epoch is registered; otherwise
+	// the previous publish stands (genesis epoch 0 before any CommitQC).
 	nextCommitEpoch utils.AtomicSend[*types.Epoch]
 }
 
 func (i *inner) publishNextCommitEpoch(registry *epoch.Registry) {
-	got, err := registry.EpochAt(i.nextPartialBlock)
+	ep, err := registry.EpochAt(i.nextPartialBlock)
 	if err != nil {
 		return
 	}
-	if i.nextCommitEpoch.Load().EpochIndex() == got.EpochIndex() {
+	if ep.EpochIndex() == i.nextCommitEpoch.Load().EpochIndex() {
 		return
 	}
-	i.nextCommitEpoch.Store(got)
+	i.nextCommitEpoch.Store(ep)
 }
 
 func (i *inner) insertAppQC(appQC *types.AppQC) error {
@@ -292,12 +292,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		}
 	}
 	if inner.first < inner.nextPartialBlock {
-		last := inner.blocks[inner.nextPartialBlock-1].epoch
-		got, err := cfg.Registry.EpochAt(last.RoadRange().First)
-		if err != nil {
-			return nil, fmt.Errorf("epoch at last committed road: %w", err)
-		}
-		inner.nextCommitEpoch.Store(got)
+		inner.nextCommitEpoch.Store(inner.blocks[inner.nextPartialBlock-1].epoch)
 	}
 	inner.publishNextCommitEpoch(cfg.Registry)
 	inner.setAnchor()
@@ -655,7 +650,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.A
 		if n < inner.nextAppProposal {
 			// The proposal is already stored. Staging again rejects a different committee.
 			if n >= inner.first {
-				if err := s.stageClosingEpoch(inner, n, weights); err != nil {
+				if err := s.stageClosingEpoch(n, weights); err != nil {
 					return err
 				}
 			}
@@ -666,7 +661,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.A
 		}
 		// Durable before the cursor moves, so a crash cannot persist this proposal
 		// and leave the epoch it closes unstaged.
-		if err := s.stageClosingEpoch(inner, n, weights); err != nil {
+		if err := s.stageClosingEpoch(n, weights); err != nil {
 			return err
 		}
 		e := inner.blocks[n]
@@ -699,7 +694,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.A
 // stageClosingEpoch persists C_{E+2} when n is the last road of epoch E.
 // StageEpoch returns only after that committee is durable. A road that closes
 // no epoch is left unchanged.
-func (s *State) stageClosingEpoch(inner *inner, n types.RoadIndex, weights map[types.PublicKey]uint64) error {
+func (s *State) stageClosingEpoch(n types.RoadIndex, weights map[types.PublicKey]uint64) error {
 	e, ok := s.cfg.Registry.ClosingEpoch(n).Get()
 	if !ok {
 		return nil
@@ -707,7 +702,6 @@ func (s *State) stageClosingEpoch(inner *inner, n types.RoadIndex, weights map[t
 	if err := s.cfg.Registry.StageEpoch(e, weights); err != nil {
 		return fmt.Errorf("StageEpoch(%d): %w", e, err)
 	}
-	inner.publishNextCommitEpoch(s.cfg.Registry)
 	return nil
 }
 
@@ -787,20 +781,12 @@ func (s *State) Anchor() utils.AtomicRecv[utils.Option[Anchor]] {
 	panic("unreachable")
 }
 
-// NextCommitEpochRecv subscribes to the epoch covering the road after the latest
-// CommitQC. If that epoch is not registered yet, the previous value stands.
-func (s *State) NextCommitEpochRecv() utils.AtomicRecv[*types.Epoch] {
+// NextCommitEpoch returns the epoch covering the road after the latest CommitQC
+// in blocks, or genesis epoch 0 when blocks is empty. If that epoch is not registered
+// yet, the previous value stands. Used by giga EVM tx sharding.
+func (s *State) NextCommitEpoch() utils.AtomicRecv[*types.Epoch] {
 	for inner := range s.inner.Lock() {
 		return inner.nextCommitEpoch.Subscribe()
-	}
-	panic("unreachable")
-}
-
-// NextCommitEpoch returns the epoch covering the road after the latest CommitQC.
-// If that epoch is not registered yet, the previous value stands.
-func (s *State) NextCommitEpoch() *types.Epoch {
-	for inner := range s.inner.Lock() {
-		return inner.nextCommitEpoch.Load()
 	}
 	panic("unreachable")
 }

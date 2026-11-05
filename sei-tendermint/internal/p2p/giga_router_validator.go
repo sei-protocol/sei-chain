@@ -66,7 +66,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			cfg:             &cfg.GigaRouterCommonConfig,
 			key:             key,
 			data:            dataState,
-			nextCommitEpoch: dataState.NextCommitEpochRecv(),
+			nextCommitEpoch: dataState.NextCommitEpoch(),
 			registry:        dataState.Registry(),
 			anchor:          dataState.Anchor(),
 			service:         giga.NewService(consensusState),
