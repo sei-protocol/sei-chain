@@ -14,6 +14,7 @@ import (
 	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 var (
@@ -166,6 +167,12 @@ var (
 	_ precompiles.State   = (*precompileState)(nil)
 	_ precompiles.LogSink = (*precompileState)(nil)
 )
+
+// ReadOnlyState returns view as a custom precompile's State under a static
+// call: a write is dropped and fails the state, and nothing is charged.
+func ReadOnlyState(view gigatypes.EVMStateView) precompiles.State {
+	return &precompileState{db: newNativeStateDB(gigaSnapshotStateReader{snapshot: view}), readOnly: true}
+}
 
 func (s *precompileState) GetBalance(addr common.Address) *big.Int {
 	return s.db.GetBalance(addr).ToBig()
