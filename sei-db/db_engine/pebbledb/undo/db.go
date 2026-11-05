@@ -5,12 +5,14 @@
 //	bucket(h) | key | h        with bucket(h) = h / bucketSize
 //
 // and nothing else: the value after the latest block lives in the state commit store, which this
-// store reads through a LiveStateView. The state after block T is the first record above T, or the
-// current value when there is none. Buckets are contiguous key ranges, so dropping history is one
-// Excise per expired bucket rather than a scan and a tombstone per version.
+// store reads through a LiveStateView. An account's balance, nonce and code hash are one key, and
+// its code and each storage slot one key apiece. The state after block T is the first record above
+// T, or the current value when there is none. Buckets are contiguous key ranges, so dropping history
+// is one Excise per expired bucket rather than a scan and a tombstone per version.
 package undo
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -65,9 +67,6 @@ const (
 
 	// metricsRefreshInterval is how often Pebble's internal stats and the queue depth are resampled.
 	metricsRefreshInterval = 10 * time.Second
-
-	valueAbsent  = 0
-	valuePresent = 1
 
 	// module is the state commit store module whose history the store keeps.
 	module = keys.EVMStoreKey
@@ -423,31 +422,25 @@ func (db *Database) writeBlock(version int64, changes *gigatypes.StateChangeSet)
 	return height, nil
 }
 
-// recordCount returns how many records changes writes: one per key it changed, and two per code
-// change, which changes the code hash too.
+// recordCount returns how many records changes writes: one per account and slot it changed, and one
+// more per code change.
 func recordCount(changes *gigatypes.StateChangeSet) int {
 	if changes == nil {
 		return 0
 	}
-	count := len(changes.Storage)
+	count := len(changes.Accounts) + len(changes.Storage)
 	for _, change := range changes.Accounts {
-		if change.BalanceChanged() {
-			count++
-		}
-		if change.NonceChanged() {
-			count++
-		}
 		if change.CodeChanged() {
-			count += 2
+			count++
 		}
 	}
 	return count
 }
 
-// writeRecords writes a record of the value before the block at height of every key changes writes,
-// absent for a key that held a zero value or none; records is how many that is, as recordCount
-// reports. A storage clear writes none: it only clears accounts created in the same transaction,
-// whose storage was empty.
+// writeRecords writes a record of the state before the block at height of every account and slot
+// changes writes, and of the code of every account whose code it changes; records is how many that
+// is, as recordCount reports. A storage clear writes none: it only clears accounts created in the
+// same transaction, whose storage was empty.
 func (db *Database) writeRecords(changes *gigatypes.StateChangeSet, records int, bucket, height uint64) error {
 	if changes == nil {
 		return nil
@@ -458,34 +451,33 @@ func (db *Database) writeRecords(changes *gigatypes.StateChangeSet, records int,
 		height: height,
 		size:   max(minBatchRecords, (records+writeParallelism-1)/writeParallelism),
 	}
+	var account [accountLen]byte
 	for _, change := range changes.Accounts {
-		prior := change.Prior
-		if change.BalanceChanged() {
-			var balance [wordLen]byte
-			if prior.Balance != nil {
-				prior.Balance.FillBytes(balance[:])
-			}
-			w.add(BalanceKeyPrefix[0], change.Address[:], nil, nonZero(balance[:]))
-		}
-		if change.NonceChanged() {
-			var nonce [8]byte
-			binary.BigEndian.PutUint64(nonce[:], prior.Nonce)
-			w.add(NonceKeyPrefix[0], change.Address[:], nil, nonZero(nonce[:]))
-		}
+		w.add(accountRecord, change.Address[:], nil, appendAccount(account[:0], &change.Prior))
 		if change.CodeChanged() {
-			// Code is absent only when empty: zero bytes are valid code.
-			var code, codeHash []byte
-			if len(prior.Code) != 0 {
-				code, codeHash = prior.Code, crypto.Keccak256(prior.Code)
-			}
-			w.add(CodeHashKeyPrefix[0], change.Address[:], nil, codeHash)
-			w.add(CodeKeyPrefix[0], change.Address[:], nil, code)
+			w.add(codeRecord, change.Address[:], nil, change.Prior.Code)
 		}
 	}
 	for _, change := range changes.Storage {
-		w.add(StateKeyPrefix[0], change.Address[:], change.Key[:], nonZero(change.PriorValue[:]))
+		w.add(storageRecord, change.Address[:], change.Key[:], nonZero(change.PriorValue[:]))
 	}
 	return w.finish()
+}
+
+// appendAccount appends to dst the value of an account record holding prior.
+func appendAccount(dst []byte, prior *gigatypes.AccountState) []byte {
+	if prior.IsEmpty() {
+		return dst
+	}
+	var balance [wordLen]byte
+	if prior.Balance != nil {
+		prior.Balance.FillBytes(balance[:])
+	}
+	dst = binary.BigEndian.AppendUint64(append(dst, balance[:]...), prior.Nonce)
+	if len(prior.Code) != 0 {
+		dst = append(dst, crypto.Keccak256(prior.Code)...)
+	}
+	return dst
 }
 
 // nonZero returns value, or nil when it is empty or all zeros.
@@ -512,8 +504,9 @@ type recordWriter struct {
 	g      errgroup.Group
 }
 
-// add stages the record of the key prefix | addr | slot, holding value, or absent when value is nil.
-func (w *recordWriter) add(prefix byte, addr, slot, value []byte) {
+// add stages the record of recordType | addr | slot holding value, where an empty value is a key that
+// did not exist.
+func (w *recordWriter) add(recordType byte, addr, slot, value []byte) {
 	if w.err != nil {
 		return
 	}
@@ -521,15 +514,11 @@ func (w *recordWriter) add(prefix byte, addr, slot, value []byte) {
 		w.batch = w.db.storage.NewBatch()
 	}
 	var buf [storageKeyLen]byte
-	buf[0] = prefix
+	buf[0] = recordType
 	key := buf[:1+copy(buf[1:], addr)+copy(buf[1+len(addr):], slot)]
-	d := w.batch.SetDeferred(recordKeyLen(key), 1+len(value))
+	d := w.batch.SetDeferred(recordKeyLen(key), len(value))
 	encodeRecordKey(d.Key, w.bucket, key, w.height)
-	d.Value[0] = valueAbsent
-	if value != nil {
-		d.Value[0] = valuePresent
-		copy(d.Value[1:], value)
-	}
+	copy(d.Value, value)
 	if err := d.Finish(); err != nil {
 		w.err = fmt.Errorf("undo: stage record: %w", err)
 		return
@@ -668,8 +657,9 @@ func (v *View) Close() {
 // Get returns a supported EVM key's value at the view's height, nil when it did not exist.
 // Unsupported or malformed keys, and reads after the database is closed, return an error.
 func (v *View) Get(key []byte) (_ []byte, err error) {
-	keyLen, _ := keyLayout(key)
-	if keyLen == 0 || len(key) != keyLen {
+	kind, stripped := keys.ParseEVMKey(key)
+	recordType, ok := recordTypeOf(kind)
+	if !ok {
 		return nil, fmt.Errorf("undo: unsupported or malformed EVM key %x", key)
 	}
 	v.db.lifecycleMu.RLock()
@@ -693,9 +683,17 @@ func (v *View) Get(key []byte) (_ []byte, err error) {
 
 	first := (v.height + 1) / v.db.bucketSize
 	last := h.height / v.db.bucketSize
+	var historyBuf [storageKeyLen]byte
+	historyBuf[0] = recordType
+	history := historyBuf[:1+copy(historyBuf[1:], stripped)]
+	// The iterator bounds and the seek key share one allocation, sized so the seek key never grows.
+	buf := make([]byte, 2*bucketLen, 2*bucketLen+recordKeyLen(history))
+	lower, upper := buf[:bucketLen:bucketLen], buf[bucketLen:2*bucketLen:2*bucketLen]
+	binary.BigEndian.PutUint64(lower, first)
+	binary.BigEndian.PutUint64(upper, last+1)
 	itr, err := v.db.storage.NewIter(&pebble.IterOptions{
-		LowerBound:   bucketBoundary(first),
-		UpperBound:   bucketBoundary(last + 1),
+		LowerBound:   lower,
+		UpperBound:   upper,
 		UseL6Filters: true,
 	})
 	if err != nil {
@@ -703,10 +701,10 @@ func (v *View) Get(key []byte) (_ []byte, err error) {
 	}
 	defer func() { err = errors.Join(err, itr.Close()) }()
 
-	var seekKey []byte
+	seekKey := buf[2*bucketLen:]
 	for bucket := first; bucket <= last; bucket++ {
 		probes++
-		seekKey = appendRecordKey(seekKey[:0], bucket, key, v.height+1)
+		seekKey = appendRecordKey(seekKey[:0], bucket, history, v.height+1)
 		if !itr.SeekPrefixGE(seekKey) {
 			if err := itr.Error(); err != nil {
 				return nil, fmt.Errorf("undo: seek bucket %d: %w", bucket, err)
@@ -721,7 +719,7 @@ func (v *View) Get(key []byte) (_ []byte, err error) {
 		if height > h.height {
 			continue
 		}
-		return decodeValue(itr.Value())
+		return valueIn(kind, itr.Value())
 	}
 	return foundValue(h.view.Get(module, key)), nil
 }
@@ -964,19 +962,38 @@ func (db *Database) Close() error {
 	return db.storage.Close()
 }
 
-// decodeValue returns a copy of the value a record holds, nil when the key did not exist.
-func decodeValue(v []byte) ([]byte, error) {
-	if len(v) == 0 {
-		return nil, errors.New("undo: empty record value")
-	}
-	switch v[0] {
-	case valueAbsent:
+// valueIn returns a copy of the value an EVM key of kind holds in a record of its history, nil when
+// the key held none.
+func valueIn(kind keys.EVMKeyKind, record []byte) ([]byte, error) {
+	if len(record) == 0 {
 		return nil, nil
-	case valuePresent:
-		// Non-nil even when empty: a found empty value is distinct from an absent key.
-		return append([]byte{}, v[1:]...), nil
+	}
+	switch kind {
+	case keys.EVMKeyBalance, keys.EVMKeyNonce, keys.EVMKeyCodeHash:
+		field, err := accountField(kind, record)
+		if err != nil {
+			return nil, err
+		}
+		// A zero field reads as absent.
+		record = nonZero(field)
+	}
+	return bytes.Clone(record), nil
+}
+
+// accountField returns the part of an account record's value holding the field of kind, empty for a
+// code hash the account did not hold.
+func accountField(kind keys.EVMKeyKind, account []byte) ([]byte, error) {
+	if len(account) != accountNoCodeLen && len(account) != accountLen {
+		return nil, fmt.Errorf("undo: account record has %d bytes", len(account))
+	}
+	switch kind {
+	case keys.EVMKeyBalance:
+		return account[:wordLen], nil
+	case keys.EVMKeyNonce:
+		return account[wordLen:accountNoCodeLen], nil
+
 	default:
-		return nil, fmt.Errorf("undo: unknown record tag %d", v[0])
+		return account[accountNoCodeLen:], nil
 	}
 }
 

@@ -12,17 +12,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var evmTypes = []byte{StateKeyPrefix[0], CodeKeyPrefix[0], CodeHashKeyPrefix[0], NonceKeyPrefix[0], BalanceKeyPrefix[0]}
+var recordTypes = []byte{storageRecord, codeRecord, accountRecord}
 
-func evmKey(kind, fill byte) []byte {
-	size, _ := keyLayout([]byte{kind})
-	key := bytes.Repeat([]byte{fill}, size)
-	key[0] = kind
-	return key
+// recordBody returns the type | address | optional slot of a record of recordType, every byte after
+// the type set to fill.
+func recordBody(recordType, fill byte) []byte {
+	size := 1 + addressLen
+	if recordType == storageRecord {
+		size = storageKeyLen
+	}
+	body := bytes.Repeat([]byte{fill}, size)
+	body[0] = recordType
+	return body
 }
 
 func randomRecord(rng *rand.Rand) []byte {
-	key := evmKey(evmTypes[rng.IntN(len(evmTypes))], 0)
+	key := recordBody(recordTypes[rng.IntN(len(recordTypes))], 0)
 	for i := 1; i < len(key); i++ {
 		key[i] = byte(rng.IntN(3))
 	}
@@ -49,9 +54,9 @@ func TestComparerPrefixAndSuffixOrder(t *testing.T) {
 	var keys [][]byte
 	for _, bucket := range []uint64{0, 1, math.MaxInt64} {
 		keys = append(keys, bucketBoundary(bucket))
-		for _, kind := range evmTypes {
+		for _, kind := range recordTypes {
 			for _, fill := range []byte{0, 0xff} {
-				key := evmKey(kind, fill)
+				key := recordBody(kind, fill)
 				prefix := append(bucketBoundary(bucket), key...)
 				keys = append(keys, prefix)
 				for _, height := range []uint64{0, 1, 255, 256, 1 << 40, math.MaxInt64} {
@@ -74,15 +79,15 @@ func TestComparerPrefixAndSuffixOrder(t *testing.T) {
 }
 
 func TestRecordEncoding(t *testing.T) {
-	for _, kind := range evmTypes {
-		key := evmKey(kind, 0xff)
+	for _, kind := range recordTypes {
+		key := recordBody(kind, 0xff)
 		want := binary.BigEndian.AppendUint64(nil, 2)
 		want = append(want, key...)
 		want = binary.BigEndian.AppendUint64(want, 77)
 		record := appendRecordKey(nil, 2, key, 77)
 		require.Equal(t, want, record)
 		size := 37
-		if kind == StateKeyPrefix[0] {
+		if kind == storageRecord {
 			size = 69
 		}
 		require.Len(t, record, size)
@@ -106,10 +111,10 @@ func TestRecordEncoding(t *testing.T) {
 
 func TestRecordsOfABucketSitBetweenItsBoundaries(t *testing.T) {
 	for _, bucket := range []uint64{0, 1, math.MaxInt64} {
-		for _, kind := range evmTypes {
+		for _, kind := range recordTypes {
 			for _, fill := range []byte{0, 0xff} {
 				for _, height := range []uint64{0, 1, math.MaxInt64} {
-					record := appendRecordKey(nil, bucket, evmKey(kind, fill), height)
+					record := appendRecordKey(nil, bucket, recordBody(kind, fill), height)
 					require.Negative(t, Comparer.Compare(bucketBoundary(bucket), record))
 					require.Negative(t, Comparer.Compare(record, bucketBoundary(bucket+1)))
 				}
@@ -120,10 +125,11 @@ func TestRecordsOfABucketSitBetweenItsBoundaries(t *testing.T) {
 }
 
 func TestRecordsOfAKeyAscendByHeight(t *testing.T) {
-	for _, kind := range evmTypes {
+	for _, kind := range recordTypes {
+
 		var records [][]byte
 		for _, height := range []uint64{12, 3, 1 << 33, 0, 255, 256} {
-			records = append(records, appendRecordKey(nil, 4, evmKey(kind, 1), height))
+			records = append(records, appendRecordKey(nil, 4, recordBody(kind, 1), height))
 		}
 		slices.SortFunc(records, Comparer.Compare)
 		var heights []uint64
