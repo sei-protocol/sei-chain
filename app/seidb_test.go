@@ -140,16 +140,18 @@ func TestParseSCConfigs_FlatKVReadWriteMetrics(t *testing.T) {
 }
 
 func TestParseSCConfigs_Ingress(t *testing.T) {
-	assert.Equal(t, config.DefaultStateCommitConfig().FlatKVConfig,
-		parseSCConfigs(mapAppOpts{FlagSCEnable: true}).FlatKVConfig)
+	scConfig := parseSCConfigs(mapAppOpts{FlagSCEnable: true})
+	assert.Equal(t, config.DefaultStateCommitConfig().FlatKVConfig, scConfig.FlatKVConfig)
+	assert.False(t, scConfig.MemIAVLConfig.SnapshotKeepLatestOnly)
 
-	scConfig := parseSCConfigs(mapAppOpts{
+	scConfig = parseSCConfigs(mapAppOpts{
 		FlagSCEnable:       true,
 		server.FlagIngress: "true",
 	})
 	want := config.DefaultStateCommitConfig().FlatKVConfig
 	want.ApplyLowFootprintProfile()
 	assert.Equal(t, want, scConfig.FlatKVConfig)
+	assert.True(t, scConfig.MemIAVLConfig.SnapshotKeepLatestOnly)
 	// The node keeps following the chain's migration.
 	assert.Equal(t, sctypes.Auto, scConfig.WriteMode)
 }

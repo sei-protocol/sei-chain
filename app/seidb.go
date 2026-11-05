@@ -138,6 +138,7 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 		scConfig.FlatKVConfig.EnableReadWriteMetrics = cast.ToBool(v)
 	}
 	if cast.ToBool(appOpts.Get(server.FlagIngress)) {
+		scConfig.MemIAVLConfig.SnapshotKeepLatestOnly = true
 		scConfig.FlatKVConfig.ApplyLowFootprintProfile()
 	}
 
