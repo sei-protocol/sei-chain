@@ -41,7 +41,9 @@ type govContent interface {
 	validate(block precompiles.BlockContext, s store) error
 	// execute carries out passed proposal id, writing nothing when it fails. Its
 	// work is at most one unit per word of the encoded content, which settleCost
-	// charges.
+	// charges. A software upgrade or cancel also clears the scheduled plan it
+	// replaces; settleCost does not charge that work, which upgrade.MaxNameLength
+	// and upgrade.MaxInfoLength bound.
 	execute(block precompiles.BlockContext, s store, id uint64) error
 }
 

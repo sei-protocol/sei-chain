@@ -24,6 +24,7 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
@@ -103,7 +104,10 @@ type evmOnlyApplication struct {
 	validators  []abci.ValidatorUpdate
 	// customPrecompiles are the native contracts every executor runs.
 	customPrecompiles utils.Option[precompiles.Registry]
-	executor          utils.Mutex[*utils.Option[*evmonly.Executor]]
+	// upgradeInfoPath is where a halt on a due upgrade plan writes
+	// UpgradeInfoFileName.
+	upgradeInfoPath utils.Option[string]
+	executor        utils.Mutex[*utils.Option[*evmonly.Executor]]
 	// Lock order: executor before cursor. FinalizeBlock holds executor while
 	// the block's cursor encoder takes cursor.
 	cursor utils.Mutex[*evmOnlyCursorState]
@@ -156,14 +160,17 @@ var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
 // NewEVMOnlyApplication returns the raw-Ethereum application Autobahn runs.
 // Storage owns state, receipts and blocks; execution sizes the executor and
 // prices admission; customPrecompiles are the native contracts the chain runs.
-// A storage that already holds committed blocks resumes from its durable
-// cursor, so Info reports the stored height and InitChain is refused.
+// A block that halts on a due upgrade plan writes UpgradeInfoFileName under
+// homeDir's data directory, when homeDir is set, and prints the halt line to
+// stderr. A storage that already holds committed blocks resumes from its
+// durable cursor, so Info reports the stored height and InitChain is refused.
 func NewEVMOnlyApplication(
 	chainID uint64,
 	validators []abci.ValidatorUpdate,
 	storage *bootstrap.GigaStorageManager,
 	execution gigaconfig.ExecutionConfig,
 	customPrecompiles utils.Option[precompiles.Registry],
+	homeDir utils.Option[string],
 ) (proxy.EVMApplication, error) {
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
@@ -175,6 +182,7 @@ func NewEVMOnlyApplication(
 		storage:           storage,
 		validators:        slices.Clone(validators),
 		customPrecompiles: customPrecompiles,
+		upgradeInfoPath:   utils.MapOpt(homeDir, upgradeInfoPath),
 		executor:          utils.NewMutex(new(utils.Option[*evmonly.Executor])),
 		cursor:            utils.NewMutex(&evmOnlyCursorState{}),
 		settler:           utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
@@ -773,6 +781,15 @@ func (a *evmOnlyApplication) EvmCreateAccessList(ctx context.Context, msg *ethco
 }
 
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	response, err := a.finalizeBlock(ctx, req)
+	var needed *upgrade.NeededError
+	if errors.As(err, &needed) {
+		return nil, a.haltForUpgrade(needed, err)
+	}
+	return response, err
+}
+
+func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	height := req.Header.Height
 	if height <= 0 {
 		return nil, fmt.Errorf("EVM-only block height must be positive: %d", height)

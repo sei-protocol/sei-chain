@@ -1,7 +1,6 @@
 package evmonlyapp
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,8 +8,6 @@ import (
 	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 )
 
 // UpgradeInfoFileName is the file, under a node's data directory, that names
@@ -25,28 +22,26 @@ type upgradeInfo struct {
 	Info   string `json:"info,omitempty"`
 }
 
-// WithUpgradeInfo returns app, writing UpgradeInfoFileName under homeDir's
-// data directory and the halt message to stderr when a block halts on a due
-// upgrade plan.
-func WithUpgradeInfo(app proxy.EVMApplication, homeDir string) proxy.EVMApplication {
-	return upgradeInfoApplication{EVMApplication: app, path: filepath.Join(homeDir, "data", UpgradeInfoFileName)}
+// upgradeInfoPath returns where a node with home directory homeDir writes
+// UpgradeInfoFileName.
+func upgradeInfoPath(homeDir string) string {
+	return filepath.Join(homeDir, "data", UpgradeInfoFileName)
 }
 
-type upgradeInfoApplication struct {
-	proxy.EVMApplication
-	path string
-}
-
-func (a upgradeInfoApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
-	response, err := a.EVMApplication.FinalizeBlock(ctx, req)
-	var needed *upgrade.NeededError
-	if errors.As(err, &needed) {
-		logger.Error(needed.Error())
-		// The raw line, unescaped, is what cosmovisor-style tooling matches.
-		fmt.Fprintln(os.Stderr, needed.Error())
-		return nil, errors.Join(err, writeUpgradeInfo(a.path, needed))
+// haltForUpgrade writes UpgradeInfoFileName for needed, when the app has a
+// path for it, then logs the halt and prints it to stderr. It returns err,
+// joined with the write's error when the write fails, in which case nothing is
+// printed.
+func (a *evmOnlyApplication) haltForUpgrade(needed *upgrade.NeededError, err error) error {
+	if path, ok := a.upgradeInfoPath.Get(); ok {
+		if writeErr := writeUpgradeInfo(path, needed); writeErr != nil {
+			return errors.Join(err, writeErr)
+		}
 	}
-	return response, err
+	logger.Error(needed.Error())
+	// The raw line, unescaped, is what cosmovisor-style tooling matches.
+	fmt.Fprintln(os.Stderr, needed.Error())
+	return err
 }
 
 // writeUpgradeInfo writes needed's plan, and the block it halted at, to path.

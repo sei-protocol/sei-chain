@@ -34,6 +34,7 @@ func newGovEVMOnlyTestApp(t *testing.T, params gov.Params, startingProposalID ui
 		storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.Some(registry),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })

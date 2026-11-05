@@ -249,11 +249,12 @@ func wrapApplication(
 			manager,
 			execution,
 			customPrecompiles,
+			utils.Some(conf.RootDir),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("restore EVM-only application: %w", err)
 		}
-		return evmonlyapp.WithUpgradeInfo(prepared, conf.RootDir), nil
+		return prepared, nil
 	}
 	if conf.FastCheckTx {
 		return fastCheckTxApplication{Application: app}, nil
