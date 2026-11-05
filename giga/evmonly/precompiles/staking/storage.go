@@ -144,6 +144,12 @@ func (s store) validatorPower(op common.Address) *big.Int {
 	return consensusPower(s.Uint256(at(validatorBase(op), validatorTokens)))
 }
 
+// consensusPubkey returns op's stored consensus key, zero when op has no
+// validator.
+func (s store) consensusPubkey(op common.Address) common.Hash {
+	return s.Word(at(validatorBase(op), validatorConsensusPubkey))
+}
+
 func (s store) validatorSet() solstorage.Set {
 	return solstorage.Set{Store: s.Store, Base: solstorage.Slot(slotValidatorSet)}
 }
