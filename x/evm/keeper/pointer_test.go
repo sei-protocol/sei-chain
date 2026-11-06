@@ -8,10 +8,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/app"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
 
@@ -401,4 +403,55 @@ func TestGetAnyPointeeInfo(t *testing.T) {
 	require.Equal(t, evmAddress, addr)
 	require.Equal(t, cw20.CurrentVersion, version)
 	require.True(t, exists)
+}
+
+func TestGetPointerInfoMatchesExactPointee(t *testing.T) {
+	ctx, _ := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).CacheContext()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	short := common.HexToAddress("0x00000000000000000000000000000000000000a1")
+	long := common.HexToAddress("0x00000000000000000000000000000000000000a2")
+	require.NoError(t, k.SetERC20NativePointer(ctx, "factory/creator/pamp", short))
+	require.NoError(t, k.SetERC20NativePointer(ctx, "factory/creator/pamp/vest", long))
+
+	addr, version, exists := k.GetERC20NativePointer(ctx, "factory/creator/pamp")
+	require.True(t, exists)
+	require.Equal(t, short, addr)
+	require.Equal(t, native.CurrentVersion, version)
+
+	addr, _, exists = k.GetERC20NativePointer(ctx, "factory/creator/pamp/vest")
+	require.True(t, exists)
+	require.Equal(t, long, addr)
+
+	_, _, exists = k.GetERC20NativePointer(ctx, "factory/creator/pam")
+	require.False(t, exists)
+}
+
+func TestGetPointerInfoReturnsHighestStoredVersion(t *testing.T) {
+	ctx, _ := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).CacheContext()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	current := common.HexToAddress("0x00000000000000000000000000000000000000b1")
+	higher := common.HexToAddress("0x00000000000000000000000000000000000000b2")
+	require.NoError(t, k.SetERC20NativePointerWithVersion(ctx, "ufoo", current, native.CurrentVersion))
+	require.NoError(t, k.SetERC20NativePointerWithVersion(ctx, "ufoo", higher, 1000))
+
+	addr, version, exists := k.GetERC20NativePointer(ctx, "ufoo")
+	require.True(t, exists)
+	require.Equal(t, higher, addr)
+	require.Equal(t, uint16(1000), version)
+}
+
+func TestGetPointerInfoGasIgnoresUpgradeName(t *testing.T) {
+	deliverCtx, _ := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).CacheContext()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	require.NoError(t, k.SetERC20NativePointer(deliverCtx, "ufoo", common.HexToAddress("0x00000000000000000000000000000000000000c1")))
+	gasOf := func(ctx types.Context, denom string) uint64 {
+		ctx = ctx.WithGasMeter(types.NewGasMeter(1_000_000_000, 1, 1))
+		k.GetERC20NativePointer(ctx, denom)
+		return ctx.GasMeter().GasConsumed()
+	}
+
+	traceCtx := deliverCtx.WithClosestUpgradeName(app.LatestUpgrade)
+	for _, denom := range []string{"ufoo", "ubar"} {
+		require.Equal(t, gasOf(deliverCtx, denom), gasOf(traceCtx, denom), denom)
+	}
 }

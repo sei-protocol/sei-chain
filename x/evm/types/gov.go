@@ -7,10 +7,9 @@ import (
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
 
-// Names of the retired pointer governance proposals. Pointers can no longer be
-// created, so each type below refuses both submission and execution. They remain
-// registered because gov keeps a proposal in state once its vote has ended, and a
-// content type missing from the registry fails the Any unpack inside
+// Names of the retired pointer governance proposals, each of which refuses submission.
+// They remain registered because gov keeps a proposal in state once its vote has ended,
+// and a content type missing from the registry fails the Any unpack inside
 // MustUnmarshalProposal, which panics.
 const (
 	ProposalTypeAddERCNativePointer   = "AddERCNativePointer"

@@ -68,10 +68,8 @@ message Params {
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "maximum_fee_per_gas"
   ];
-  bool register_pointer_disabled = 14 [
-    (gogoproto.moretags) = "yaml:\"register_pointer_disabled\"",
-    (gogoproto.jsontag) = "register_pointer_disabled"
-  ];
+  reserved 14;
+  reserved "register_pointer_disabled";
   uint64 sei_sstore_set_gas_eip2200 = 15;
 }
 
