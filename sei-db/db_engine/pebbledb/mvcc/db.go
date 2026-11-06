@@ -193,7 +193,7 @@ func newPebbleOptions(config config.StateStoreConfig, cache *pebble.Cache) *pebb
 }
 
 func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, error) {
-	cache := pebble.NewCache(1024 * 1024 * 32)
+	cache := pebble.NewCache(config.EffectiveBlockCacheSize())
 	defer cache.Unref()
 
 	opts := newPebbleOptions(config, cache)

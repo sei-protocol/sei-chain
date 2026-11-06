@@ -74,6 +74,11 @@ type StateStoreConfig struct {
 	// defaults to false (use MVCCComparer for backwards compatibility)
 	UseDefaultComparer bool `mapstructure:"use-default-comparer"`
 
+	// BlockCacheSize is the Pebble block cache, in bytes, of each pebbledb database the state store
+	// opens. Zero means DefaultSSBlockCacheSize. It is set by the code applying a node profile rather
+	// than read from app.toml.
+	BlockCacheSize int64 `mapstructure:"-"`
+
 	// SnapshotEnable controls whether the state store takes periodic online
 	// snapshots. Snapshots are Pebble checkpoints (hardlink trees), so the
 	// backend must be pebbledb and each SS database must be able to hardlink into
@@ -155,6 +160,19 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		EVMSplit:             false,
 		SeparateEVMSubDBs:    false,
 	}
+}
+
+// DefaultSSBlockCacheSize is the Pebble block cache, in bytes, of a state store database whose config
+// sets none.
+const DefaultSSBlockCacheSize = 32 << 20
+
+// EffectiveBlockCacheSize returns the Pebble block cache, in bytes, of each pebbledb database the
+// state store opens.
+func (c StateStoreConfig) EffectiveBlockCacheSize() int64 {
+	if c.BlockCacheSize > 0 {
+		return c.BlockCacheSize
+	}
+	return DefaultSSBlockCacheSize
 }
 
 // AlignSSSnapshotWithSC mirrors the state-commit interval, minimum time

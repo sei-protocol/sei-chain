@@ -156,6 +156,16 @@ func TestParseSCConfigs_Ingress(t *testing.T) {
 	assert.Equal(t, sctypes.Auto, scConfig.WriteMode)
 }
 
+func TestParseSSConfigs_Ingress(t *testing.T) {
+	opts := mapAppOpts{FlagSSEnable: true, FlagSSKeepRecent: 1000}
+	want := parseSSConfigs(opts)
+	assert.Equal(t, int64(config.DefaultSSBlockCacheSize), want.EffectiveBlockCacheSize())
+
+	opts[server.FlagIngress] = "true"
+	want.BlockCacheSize = ingressSSBlockCacheSize
+	assert.Equal(t, want, parseSSConfigs(opts))
+}
+
 func TestParseSCConfigs_DoesNotAlignFlatKV(t *testing.T) {
 	// parseSCConfigs is a raw parse: memIAVL takes the flag values while FlatKV
 	// keeps its own in-code defaults. The FlatKV<-memIAVL alignment happens later
