@@ -35,7 +35,7 @@ func TestAvailClientServer(t *testing.T) {
 	}
 
 	totalBlocks := 3 * avail.BlocksPerLane
-	firstBlock := nodes[0].data.Registry().MustEpoch(0).RoadRange().First
+	firstBlock := nodes[0].data.Anchor().Load().Epochs[0].RoadRange().First
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		t.Log("Spawn network.")
 		s.SpawnBg(func() error { return env.Run(ctx) })

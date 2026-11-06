@@ -15,7 +15,7 @@ import (
 // TODO: move on-chain when epoch length becomes configurable.
 const epochLength types.RoadIndex = 108_000
 
-// Registry stores at least one live epoch and optional committees staged for activation.
+// Registry stores the retained execution-derived epochs.
 type Registry struct {
 	firstRoad        types.RoadIndex
 	genesisTimestamp time.Time
@@ -134,10 +134,8 @@ func (r *Registry) commit(state *utils.AtomicSend[*persistedRegistry], next *per
 	return nil
 }
 
-// StageEpoch derives C_{endEpoch+2} from weights and persists it as pending.
-// A no-op if that epoch is already staged or live with the same committee.
-// An error if it conflicts, if the target is not live.Next, or if endEpoch+1
-// is not live.
+// TryPushEpoch derives and persists the next epoch when n closes the required execution epoch.
+// Earlier roads are ignored; roads beyond the required boundary return an error.
 func (r *Registry) TryPushEpoch(n types.RoadIndex, weights map[types.PublicKey]uint64) error {
 	for state := range r.state.Lock() {
 		s := state.Load()
@@ -151,7 +149,7 @@ func (r *Registry) TryPushEpoch(n types.RoadIndex, weights map[types.PublicKey]u
 }
 
 // PruneBefore drops persisted epochs below keep, retaining the latest live epoch.
-// Pruning only moves forward and preserves staged epochs.
+// Pruning only moves forward.
 // TODO: archive nodes need special handling (never prune epochs).
 func (r *Registry) PruneBefore(keep types.EpochIndex) error {
 	for state := range r.state.Lock() {

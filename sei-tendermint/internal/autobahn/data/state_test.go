@@ -158,7 +158,7 @@ func commitQCAtRoadBlocks(
 	return types.NewFullCommitQC(types.NewCommitQC(votes), headers), blocks
 }
 
-func TestNextCommitEpoch_AdvancesAtIdleEpochBoundary(t *testing.T) {
+func TestAnchorEpochs_CommitQCLeavesAnchorUnchanged(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistryThrough(rng, 3, 2)
@@ -171,7 +171,8 @@ func TestNextCommitEpoch_AdvancesAtIdleEpochBoundary(t *testing.T) {
 	require.NoError(t, pushAppHashesRunning(ctx, state, rng, qcMid.Index(), qcMid.Index()+1))
 	qcLast, blocksLast := commitQCAtRoad(ep1, keys, registry.LastRoad(1))
 	require.NoError(t, state.PushPartialBlock(ctx, qcLast, TestBlockMap(blocksLast)))
-	require.Equal(t, registry.MustEpoch(2), state.NextCommitEpoch().Load())
+	require.Equal(t, [2]*types.Epoch{ep1, registry.MustEpoch(2)}, state.Anchor().Load().Epochs)
+	require.False(t, state.Anchor().Load().First.IsPresent())
 }
 
 func TestNextCommitEpoch_AfterAppQCActivation(t *testing.T) {
@@ -499,14 +500,11 @@ func TestPushAppHash_MidEpochDoesNotRegister(t *testing.T) {
 		if _, err := registry.EpochAt(registry.MustEpoch(1).RoadRange().Next); err == nil {
 			return fmt.Errorf("epoch 2 must stay absent for road %d", qc.QC().Index())
 		}
-		if got, ok := registry.Pending().Get(); ok {
-			return fmt.Errorf("Pending() = %v, want nothing staged mid-epoch", got)
-		}
 		return nil
 	}))
 }
 
-func TestCommitteeFill_GatedOnAppQC(t *testing.T) {
+func TestCommitteeFill_DerivedBeforeAppQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -527,11 +525,11 @@ func TestCommitteeFill_GatedOnAppQC(t *testing.T) {
 		if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9}); err != nil {
 			return err
 		}
-		if _, err := registry.EpochAt(ep1.RoadRange().Next); err == nil {
-			return errors.New("epoch 2 must stay staged until an AppQC finalizes end(0)")
+		if _, err := registry.EpochAt(ep1.RoadRange().Next); err != nil {
+			return err
 		}
-		if pending, ok := registry.Pending().Get(); !ok || pending.EpochIndex() != 2 {
-			return fmt.Errorf("Pending() = %v, want epoch 2", registry.Pending())
+		if state.Anchor().Load().First.IsPresent() {
+			return errors.New("anchor certified before AppQC")
 		}
 
 		if err := pushAppQCForBlock(ctx, state, keys, n); err != nil {
@@ -578,11 +576,11 @@ func TestCommitteeFill_AppQCDivergenceLeavesStaged(t *testing.T) {
 	divergent := types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng))
 	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, divergent)))
 	_, err := registry.EpochAt(registry.MustEpoch(1).RoadRange().Next)
-	require.Error(t, err, "epoch 2 must stay staged after divergence")
-	require.Equal(t, types.EpochIndex(2), registry.Pending().OrPanic("pending epoch").EpochIndex())
+	require.NoError(t, err)
+	require.Equal(t, types.EpochIndex(2), registry.MustEpoch(2).EpochIndex())
 }
 
-func TestCommitteeFill_LaterMatchingAppQCDoesNotSkipDivergentLastRoad(t *testing.T) {
+func TestCommitteeFill_DivergentLastRoadKeepsExecutionDerivedEpoch(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -616,8 +614,8 @@ func TestCommitteeFill_LaterMatchingAppQCDoesNotSkipDivergentLastRoad(t *testing
 	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, vote1.Proposal())))
 
 	_, err = registry.EpochAt(ep1.RoadRange().Next)
-	require.Error(t, err, "epoch 2 must stay staged when LastRoad(0) diverged")
-	require.Equal(t, types.EpochIndex(2), registry.Pending().OrPanic("pending epoch").EpochIndex())
+	require.NoError(t, err)
+	require.Equal(t, types.EpochIndex(2), registry.MustEpoch(2).EpochIndex())
 }
 
 func TestRunPersist_HaltsBeforePersistingDivergentAppQC(t *testing.T) {
@@ -961,8 +959,8 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 		if err := pushAppQCForBlock(ctx, state, keys, qc1.Index()); err != nil {
 			return fmt.Errorf("pushAppQCForBlock(%d): %w", qc1.Index(), err)
 		}
-		if _, err := state.Anchor().Wait(ctx, func(anchor utils.Option[Anchor]) bool {
-			if anchor, ok := anchor.Get(); ok {
+		if _, err := state.Anchor().Wait(ctx, func(anchor Anchor) bool {
+			if anchor, ok := anchor.First.Get(); ok {
 				return anchor.AppQC.Proposal().Index() >= qc1.Index()
 			}
 			return false
@@ -982,7 +980,7 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 			if inner.first != evictionBound {
 				return fmt.Errorf("after catching up, first = %d, want eviction bound %d", inner.first, evictionBound)
 			}
-			if anchor, ok := inner.anchor.Load().Get(); !ok || anchor.AppQC != inner.appQCs[inner.first] || anchor.CommitQC != inner.blocks[inner.first].qc.QC() {
+			if anchor, ok := inner.anchor.Load().First.Get(); !ok || anchor.AppQC != inner.appQCs[inner.first] || anchor.CommitQC != inner.blocks[inner.first].qc.QC() {
 				return fmt.Errorf("anchor must cover inner.first %d", inner.first)
 			}
 			for n := qc1.Index(); n < inner.first; n++ {
@@ -1057,8 +1055,8 @@ func TestPushAppHashBelowAnchorSucceeds(t *testing.T) {
 			}
 		}
 		// Wait for anchor to progress past first block.
-		if _, err := state.Anchor().Wait(ctx, func(anchor utils.Option[Anchor]) bool {
-			if anchor, ok := anchor.Get(); ok {
+		if _, err := state.Anchor().Wait(ctx, func(anchor Anchor) bool {
+			if anchor, ok := anchor.First.Get(); ok {
 				return epoch.RoadRange().First < anchor.AppQC.Proposal().Index()
 			}
 			return false
@@ -1101,8 +1099,8 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 		if err := pushAppQCForBlock(ctx, state, keys, qc1.Index()); err != nil {
 			return fmt.Errorf("pushAppQCForBlock(%d): %w", qc1.Index(), err)
 		}
-		if _, err := state.Anchor().Wait(ctx, func(anchor utils.Option[Anchor]) bool {
-			if anchor, ok := anchor.Get(); ok {
+		if _, err := state.Anchor().Wait(ctx, func(anchor Anchor) bool {
+			if anchor, ok := anchor.First.Get(); ok {
 				return anchor.AppQC.Proposal().Index() >= qc1.Index()
 			}
 			return false
@@ -1179,8 +1177,8 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 		if err := pushAppQCForBlock(ctx, state1, keys, qc1.Index()); err != nil {
 			return fmt.Errorf("pushAppQCForBlock(%d): %w", qc1.Index(), err)
 		}
-		if _, err := state1.Anchor().Wait(ctx, func(anchor utils.Option[Anchor]) bool {
-			if anchor, ok := anchor.Get(); ok {
+		if _, err := state1.Anchor().Wait(ctx, func(anchor Anchor) bool {
+			if anchor, ok := anchor.First.Get(); ok {
 				return anchor.AppQC.Proposal().Index() >= qc1.Index()
 			}
 			return false
@@ -1275,8 +1273,8 @@ func TestPruningPreservesRAMAndRecoveryAnchor(t *testing.T) {
 		if err := pushAppQCForBlock(ctx, state1, keys, qc1.Index()); err != nil {
 			return err
 		}
-		if _, err := state1.Anchor().Wait(ctx, func(anchor utils.Option[Anchor]) bool {
-			if anchor, ok := anchor.Get(); ok {
+		if _, err := state1.Anchor().Wait(ctx, func(anchor Anchor) bool {
+			if anchor, ok := anchor.First.Get(); ok {
 				return anchor.AppQC.Proposal().Index() >= qc1.Index()
 			}
 			return false

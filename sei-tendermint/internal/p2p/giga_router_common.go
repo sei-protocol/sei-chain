@@ -54,10 +54,14 @@ type gigaRouterCommon struct {
 	liveAddrVersion utils.AtomicSend[uint64]
 	// nextCommitEpoch is data.NextCommitEpoch() cached at construction so
 	// EvmProxy can Load() without taking the data lock on every call.
-	nextCommitEpoch utils.AtomicRecv[*atypes.Epoch]
+	nextCommitEpoch interface {
+		utils.AtomicUpdate
+		Load() *atypes.Epoch
+		Wait(context.Context, func(*atypes.Epoch) bool) (*atypes.Epoch, error)
+	}
 	// anchor is data.Anchor() cached at construction: the AppQC/CommitQC covering
 	// the lowest row data.State still holds.
-	anchor utils.AtomicRecv[utils.Option[data.Anchor]]
+	anchor utils.AtomicRecv[data.Anchor]
 	// executed is the window of blocks executeBlock committed to the app, seeded
 	// with the app's height at construction.
 	executed utils.AtomicSend[atypes.ExecutedBlocks]
@@ -567,16 +571,14 @@ type memberSession struct {
 	addr   GigaNodeAddr
 }
 
-// keepReplicas is commitEpoch's committee, plus the committee Anchor covers when present.
-func keepReplicas(anchor utils.Option[data.Anchor], commitEpoch *atypes.Epoch) map[atypes.PublicKey]struct{} {
+// keepReplicas is the union of the commit and anchor committees.
+func keepReplicas(anchor data.Anchor, commitEpoch *atypes.Epoch) map[atypes.PublicKey]struct{} {
 	keep := map[atypes.PublicKey]struct{}{}
 	for lane := range commitEpoch.Committee().Lanes().All() {
 		keep[lane.Validator] = struct{}{}
 	}
-	if a, ok := anchor.Get(); ok {
-		for lane := range a.Epoch.Committee().Lanes().All() {
-			keep[lane.Validator] = struct{}{}
-		}
+	for lane := range anchor.Epochs[0].Committee().Lanes().All() {
+		keep[lane.Validator] = struct{}{}
 	}
 	return keep
 }
@@ -642,14 +644,13 @@ func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[aty
 func (r *gigaRouterCommon) stopStaleSessions(
 	ctx context.Context,
 	live map[atypes.PublicKey]*memberSession,
-	anchor utils.Option[data.Anchor],
+	anchor data.Anchor,
 	commitEpoch *atypes.Epoch,
 ) error {
-	a, hasAnchor := anchor.Get()
 	// Until Anchor is within one epoch, validators of the epochs in between are
 	// in neither endpoint committee, and the AppQCs for those epochs cannot form
 	// without them.
-	settled := hasAnchor && commitEpoch.EpochIndex() <= a.Epoch.EpochIndex()+1
+	settled := commitEpoch.EpochIndex() <= anchor.Epochs[0].EpochIndex()+1
 	keep := keepReplicas(anchor, commitEpoch)
 	if settled {
 		for addrs := range r.liveAddrs.Lock() {
@@ -700,9 +701,8 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...c
 		}()
 		// Anchor is republished on every persist batch; only its epoch can
 		// change the keep set.
-		epochOf := func(opt utils.Option[data.Anchor]) utils.Option[atypes.EpochIndex] {
-			return utils.MapOpt(opt, func(a data.Anchor) atypes.EpochIndex { return a.Epoch.EpochIndex() })
-		}
+		epochOf := func(a data.Anchor) atypes.EpochIndex { return a.Epochs[0].EpochIndex() }
+
 		for ctx.Err() == nil {
 			addrVersion := addrUpdates.Load()
 			commitEpoch := r.nextCommitEpoch.Load()
@@ -847,13 +847,13 @@ func (r *gigaRouterCommon) Validators(n atypes.RoadIndex) ([]*types.Validator, e
 	qc, err := r.data.TryQC(n)
 	if err != nil {
 		if errors.Is(err, atypes.ErrNotFound) {
-			if genesis, epochErr := r.data.Registry().Epoch(0); epochErr == nil && n == genesis.RoadRange().First {
+			if genesis, epochErr := r.data.EpochAt(n); epochErr == nil && genesis.EpochIndex() == 0 && n == genesis.RoadRange().First {
 				return committeeValidators(genesis.Committee())
 			}
 		}
 		return nil, heightLookupError(n, err)
 	}
-	ep, err := r.data.Registry().Epoch(qc.QC().View().EpochIndex)
+	ep, err := r.data.EpochAt(qc.Index())
 	if err != nil {
 		return nil, heightLookupError(n, err)
 	}

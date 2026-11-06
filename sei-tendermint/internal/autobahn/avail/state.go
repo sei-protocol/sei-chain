@@ -39,9 +39,8 @@ var (
 // to trigger internal pruning, which allows it to manage memory independently
 // of the main consensus loop.
 //
-// Lane maps and WALs outlive committee membership until the anchor epoch
-// IsClosed that LaneID. Before any Anchor exists, the anchor epoch is the
-// applied epoch.
+// Lane maps and WALs outlive committee membership until the anchor's first
+// epoch closes that LaneID.
 type State struct {
 	key   types.SecretKey
 	data  *data.State
@@ -140,7 +139,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	if err != nil {
 		return nil, err
 	}
-	inner, err := restoreInner(data, loaded)
+	inner, err := newInner(data.Anchor().Load(), data.GenesisTimestamp(), loaded)
 	if err != nil {
 		_ = pers.close()
 		return nil, err
@@ -157,56 +156,6 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		spec:       inner.consensusSpec.Subscribe(),
 		persisters: pers,
 	}, nil
-}
-
-// restoreInner constructs inner from persisted WAL records and data.State.
-func restoreInner(ds *data.State, loaded *loadedState) (*inner, error) {
-	registry := ds.Registry()
-	var anchorEpoch *types.Epoch
-	var anchorQC utils.Option[*types.CommitQC]
-	if anchor, ok := ds.Anchor().Load().Get(); ok {
-		anchorEpoch = anchor.Epoch
-		anchorQC = utils.Some(anchor.CommitQC)
-	} else {
-		genesis, err := registry.Epoch(0)
-		if err != nil {
-			return nil, fmt.Errorf("genesis epoch 0: %w", err)
-		}
-		anchorEpoch = genesis
-	}
-	i := newInner(anchorEpoch, anchorQC, registry.GenesisTimestamp())
-	for _, qc := range loaded.commitQCs {
-		if qc.Index() < i.roads.first {
-			continue
-		}
-		if want := i.roads.next; qc.Index() != want {
-			return nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", want, qc.Index())
-		}
-		ep, err := registry.Epoch(qc.View().EpochIndex)
-		if err != nil {
-			return nil, fmt.Errorf("persisted commitQC %d epoch: %w", qc.Index(), err)
-		}
-		if err := qc.Verify(ep); err != nil {
-			return nil, fmt.Errorf("persisted commitQC %d verify: %w", qc.Index(), err)
-		}
-		i.roads.pushBack(newRoad(qc, ep))
-		i.persistedCommitQC.Store(utils.Some(qc))
-	}
-	if lastQC, ok := i.persistedCommitQC.Load().Get(); ok {
-		ep, err := registry.EpochAt(lastQC.Index() + 1)
-		if err != nil {
-			return nil, fmt.Errorf("epoch after tip %d: %w", lastQC.Index(), err)
-		}
-		i.advanceEpoch(ep)
-	}
-	if err := i.restoreBlocks(loaded.blocks); err != nil {
-		return nil, err
-	}
-	i.refreshConsensusSpec()
-	if qc, ok := i.persistedCommitQC.Load().Get(); ok {
-		meters.CommitRoadIndex.Set(int64(qc.Index())) // nolint: gosec
-	}
-	return i, nil
 }
 
 // Close releases the WALs this state owns, and with them the exclusive lock each holds on its
@@ -746,67 +695,19 @@ func (s *State) runPushAppQC(ctx context.Context) error {
 }
 
 func (s *State) runEvict(ctx context.Context) error {
-	return s.data.Anchor().Iter(ctx, func(ctx context.Context, anchorOpt utils.Option[data.Anchor]) error {
-		anchor, ok := anchorOpt.Get()
-		if !ok {
-			return nil
-		}
+	return s.data.Anchor().Iter(ctx, func(ctx context.Context, anchor data.Anchor) error {
 		for inner, ctrl := range s.inner.Lock() {
-			if anchor.CommitQC.Index() >= inner.roads.first {
-				inner.prune(anchor)
-			}
+			inner.prune(anchor)
 			ctrl.Updated()
 		}
 		return nil
 	})
 }
 
-// runEpochAdvance is the sole writer of the applied epoch after construction.
-func (s *State) runEpochAdvance(ctx context.Context) error {
-	registry := s.data.Registry()
-	for {
-		var next types.EpochIndex
-		for inner, ctrl := range s.inner.Lock() {
-			if err := ctrl.WaitUntil(ctx, func() bool {
-				next = inner.advanceTarget(registry)
-				return next > inner.applied().EpochIndex()+1 || inner.canAdvanceEpoch()
-			}); err != nil {
-				return err
-			}
-		}
-		ep, err := registry.WaitForEpoch(ctx, next)
-		if err != nil {
-			if !errors.Is(err, types.ErrPruned) {
-				return err
-			}
-			// Data never re-registers a pruned epoch, so wait until the tip
-			// names a different one.
-			for inner, ctrl := range s.inner.Lock() {
-				if err := ctrl.WaitUntil(ctx, func() bool {
-					return inner.advanceTarget(registry) != next
-				}); err != nil {
-					return err
-				}
-			}
-			continue
-		}
-		for inner, ctrl := range s.inner.Lock() {
-			// The tip may have moved while WaitForEpoch was parked. Installing
-			// next now would pair it with a tip whose next road is in a later
-			// epoch, so recompute instead.
-			if inner.advanceTarget(registry) != next {
-				break
-			}
-			inner.advanceEpoch(ep)
-			ctrl.Updated()
-		}
-	}
-}
 
 // Run runs the background tasks of the state.
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		scope.SpawnNamed("runEpochAdvance", func() error { return s.runEpochAdvance(ctx) })
 		scope.SpawnNamed("runEvict", func() error { return s.runEvict(ctx) })
 		scope.SpawnNamed("runPersist", func() error { return s.runPersist(ctx) })
 		scope.SpawnNamed("runPushPartialBlock", func() error { return s.runPushPartialBlock(ctx) })
@@ -900,7 +801,7 @@ func (s *State) markCommitQCsPersisted(qc *types.CommitQC) {
 			return
 		}
 		inner.persistedCommitQC.Store(utils.Some(qc))
-		inner.refreshConsensusSpec()
+		inner.advance()
 		ctrl.Updated()
 	}
 }

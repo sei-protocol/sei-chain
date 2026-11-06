@@ -51,7 +51,6 @@ func checkDerived(a, b *types.Epoch) error {
 }
 
 // persistedRegistry is an immutable, nonempty, contiguous range of live epochs.
-// Pending epochs do not count toward the nonempty invariant.
 type persistedRegistry struct {
 	utils.ReadOnly
 	live map[types.EpochIndex]*types.Epoch
@@ -70,12 +69,12 @@ func newGenesisRegistry(committee *types.Committee, firstRoad types.RoadIndex) *
 	}
 }
 
-// stageEpoch returns a registry with the committee derived from endEpoch's weights staged as pending.
+// tryPushEpoch returns a registry with the next execution-derived epoch.
 func (s *persistedRegistry) tryPushEpoch(n types.RoadIndex, weights map[types.PublicKey]uint64) (*persistedRegistry, error) {
 	next := s.liveRange.Next
 	last := s.live[next-1]
 	if n >= last.RoadRange().First {
-		return nil, fmt.Errorf("need weights at %v",last.RoadRange().First-1)
+		return nil, fmt.Errorf("need weights at %v", last.RoadRange().First-1)
 	}
 	if n+1 != last.RoadRange().First {
 		return s, nil
@@ -87,7 +86,7 @@ func (s *persistedRegistry) tryPushEpoch(n types.RoadIndex, weights map[types.Pu
 	first := last.RoadRange().Next
 	live := maps.Clone(s.live)
 	liveRange := s.liveRange
-	liveRange.Next = next+1
+	liveRange.Next = next + 1
 	live[next] = types.NewEpoch(next, types.RoadRange{First: first, Next: first + epochLength}, committee)
 	return &persistedRegistry{live: live, liveRange: liveRange}, nil
 }
@@ -116,7 +115,7 @@ var persistedRegistryConv = protoutils.Conv[*persistedRegistry, *pb.PersistedEpo
 			live = append(live, s.live[idx])
 		}
 		return &pb.PersistedEpochRegistry{
-			LiveV2:    types.EpochConv.EncodeSlice(live),
+			LiveV2: types.EpochConv.EncodeSlice(live),
 		}
 	},
 	Decode: func(snapshot *pb.PersistedEpochRegistry) (*persistedRegistry, error) {

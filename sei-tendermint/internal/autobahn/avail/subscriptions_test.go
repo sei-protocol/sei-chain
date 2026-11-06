@@ -61,7 +61,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 			got1, err = sub.Recv(ctx)
 			return err
 		})
-		if err := TestDriveAdvance(ctx, state, keys, 1); err != nil {
+		if err := TestDriveAdvance(ctx, state, keys, registry, 1); err != nil {
 			return err
 		}
 		if cur := state.LocalLane().OrPanic("stay"); cur != lane0 {
@@ -78,15 +78,22 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 
 	// Leave: peer drops from committee at epoch 2 (first vacant after genesis seeds).
 	// Anchor-epoch prune drops closed lane maps (same path as runEvict) and ends the subscribe.
-	require.NoError(t, registry.StageAndActivate(0, map[types.PublicKey]uint64{b.Public(): 1}))
+	require.NoError(t, registry.TestPushEpoch(0, map[types.PublicKey]uint64{b.Public(): 1}))
 	epLeave := registry.MustEpoch(2)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBgNamed("runEpochAdvance", func() error {
 			return utils.IgnoreCancel(state.runEpochAdvance(ctx))
 		})
-		return TestDriveAdvance(ctx, state, keys, epLeave.EpochIndex())
+		return TestDriveAdvance(ctx, state, keys, registry, epLeave.EpochIndex())
 	}))
 	require.False(t, state.LocalLane().IsPresent())
+
+	require.NoError(t, registry.TestPushEpoch(1, map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1}))
+	epJoin := registry.MustEpoch(3)
+	prev := state.LastCommitQC().Load().OrPanic("epoch 1 seal")
+	firstLeave := types.BuildCommitQC(epLeave, []types.SecretKey{b}, utils.Some(prev), nil)
+	require.NoError(t, state.PushCommitQC(ctx, firstLeave))
+	state.markCommitQCsPersisted(firstLeave)
 
 	for inner, ctrl := range state.inner.Lock() {
 		require.Greater(t, inner.roads.next, inner.roads.first)
@@ -94,11 +101,10 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 		ep := inner.applied()
 		require.Equal(t, epLeave.EpochIndex(), ep.EpochIndex())
 		require.True(t, ep.IsClosed(lane0))
-		n := inner.prune(data.Anchor{
+		n := inner.prune(data.Anchor{First: utils.Some(data.AnchorFirst{
 			CommitQC: tip,
 			AppQC:    data.TestAppQC([]types.SecretKey{b}, types.NewAppProposal(tip.View(), types.AppHash{})),
-			Epoch:    ep,
-		})
+		}), Epochs: [2]*types.Epoch{ep, epJoin}})
 		require.Equal(t, 1, n)
 		ctrl.Updated()
 	}
@@ -119,11 +125,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 			gotLane = lane
 			return nil
 		})
-		if err := registry.StageAndActivate(1, map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1}); err != nil {
-			return err
-		}
-		epJoin := registry.MustEpoch(3)
-		return TestDriveAdvance(ctx, state, keys, epJoin.EpochIndex())
+		return TestDriveAdvance(ctx, state, keys, registry, epJoin.EpochIndex())
 	}))
 	lane1 := state.LocalLane().OrPanic("rejoin")
 	require.NotEqual(t, lane0, lane1)
@@ -161,7 +163,7 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		laneA := stateA.LocalLane().OrPanic("genesis")
 
 		register := func(end types.EpochIndex, weights map[types.PublicKey]uint64) *types.Epoch {
-			require.NoError(t, registry.StageAndActivate(end, weights))
+			require.NoError(t, registry.TestPushEpoch(end, weights))
 			return registry.MustEpoch(end + 2)
 		}
 		advance := func(want types.EpochIndex) {
@@ -169,7 +171,7 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 				sc.SpawnBgNamed("runEpochAdvance", func() error {
 					return utils.IgnoreCancel(stateB.runEpochAdvance(ctx))
 				})
-				return TestDriveAdvance(ctx, stateB, allKeys, want)
+				return TestDriveAdvance(ctx, stateB, allKeys, registry, want)
 			}))
 		}
 		produce := func(n types.BlockNumber) *types.Signed[*types.LaneProposal] {

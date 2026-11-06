@@ -15,12 +15,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
-	"github.com/stretchr/testify/require"
 )
 
 func pushPeerLaneBlock(state *State, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
-	lane := state.data.Registry().MustEpoch(0).Committee().Lane(key.Public()).OrPanic("lane")
+	lane := state.data.Anchor().Load().Epochs[0].Committee().Lane(key.Public()).OrPanic("lane")
 	var b *types.Signed[*types.LaneProposal]
 	for inner, ctrl := range state.inner.Lock() {
 		q, ok := inner.blocks[lane]
@@ -67,11 +67,10 @@ func pruneToHeader(state *State, keys []types.SecretKey, h *types.BlockHeader) {
 		h.Lane(): types.NewLaneQC(makeLaneVotes(keys, h)),
 	})
 	for inner, ctrl := range state.inner.Lock() {
-		inner.prune(data.Anchor{
+		inner.prune(data.Anchor{First: utils.Some(data.AnchorFirst{
 			CommitQC: qc,
 			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.View(), types.AppHash{})),
-			Epoch:    ep,
-		})
+		}), Epochs: data.TestAnchor(ep).Epochs})
 		ctrl.Updated()
 	}
 }
@@ -126,8 +125,8 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 		if err := ds.PushAppQC(ctx, data.TestAppQC(keys, types.NewAppProposal(qc0.QC().View(), appHash0))); err != nil {
 			return err
 		}
-		if _, err := ds.Anchor().Wait(ctx, func(anchor utils.Option[data.Anchor]) bool {
-			got, ok := anchor.Get()
+		if _, err := ds.Anchor().Wait(ctx, func(anchor data.Anchor) bool {
+			got, ok := anchor.First.Get()
 			return ok && got.CommitQC.Index() == qc0.Index()
 		}); err != nil {
 			return err
@@ -142,7 +141,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 		lane0 := state.LocalLane().OrPanic("genesis")
 		sub := state.SubscribeLaneProposals(lane0, 0)
 
-		if err := registry.StageAndActivate(0, map[types.PublicKey]uint64{b.Public(): 1}); err != nil {
+		if err := registry.TestPushEpoch(0, map[types.PublicKey]uint64{b.Public(): 1}); err != nil {
 			return err
 		}
 		epLeave := registry.MustEpoch(2)
@@ -158,7 +157,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 			return err
 		}
 		for inner, ctrl := range state.inner.Lock() {
-			inner.anchorEpoch = utils.Some(ep1)
+			inner.anchor = data.Anchor{Epochs: [2]*types.Epoch{ep1, epLeave}}
 			ctrl.Updated()
 		}
 		seekRoads(state, epLeave.RoadRange().First)
@@ -179,11 +178,10 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 		// first CommitQC of epoch 2 cannot be pushed without filling the road gap.
 		prev := tipLink(ep1, keys[0], registry.LastRoad(1))
 		qcLeave := types.BuildCommitQC(epLeave, []types.SecretKey{b}, utils.Some(prev), nil)
-		anchor := data.Anchor{
+		anchor := data.Anchor{First: utils.Some(data.AnchorFirst{
 			CommitQC: qcLeave,
 			AppQC:    data.TestAppQC([]types.SecretKey{b}, types.NewAppProposal(qcLeave.View(), types.AppHash{})),
-			Epoch:    epLeave,
-		}
+		}), Epochs: data.TestAnchor(epLeave).Epochs}
 
 		for inner, ctrl := range state.inner.Lock() {
 			if inner.roads.first < inner.roads.next {
@@ -234,8 +232,8 @@ func TestAnchorResetsState(t *testing.T) {
 		}
 
 		t.Logf("wait for anchor to be updated")
-		if _, err := ds.Anchor().Wait(ctx, func(anchor utils.Option[data.Anchor]) bool {
-			a, ok := anchor.Get()
+		if _, err := ds.Anchor().Wait(ctx, func(anchor data.Anchor) bool {
+			a, ok := anchor.First.Get()
 			return ok && a.CommitQC.Index() == qc.Index()
 		}); err != nil {
 			return err
@@ -381,21 +379,22 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 }
 
 func TestRestoreInnerNextEpoch(t *testing.T) {
-	t.Run("no QC requires genesis epoch", func(t *testing.T) {
+	t.Run("genesis anchor survives registry pruning", func(t *testing.T) {
 		rng := utils.TestRng()
 		registry, _ := epoch.GenRegistry(rng, 3)
 		ds := newTestDataState(&data.Config{Registry: registry})
-		i, err := restoreInner(ds, &loadedState{})
+		i, err := newInner(ds.Anchor().Load(), ds.GenesisTimestamp(), &loadedState{})
 		require.NoError(t, err)
 		require.Equal(t, registry.MustEpoch(0), i.applied())
 		require.NoError(t, registry.PruneBefore(1))
-		_, err = restoreInner(ds, &loadedState{})
-		require.ErrorIs(t, err, types.ErrPruned)
+		restored, err := newInner(ds.Anchor().Load(), ds.GenesisTimestamp(), &loadedState{})
+		require.NoError(t, err)
+		require.Equal(t, i.applied(), restored.applied())
 	})
 	for _, idx := range []types.EpochIndex{0, 1} {
 		t.Run(fmt.Sprintf("anchor at last road of epoch %d", idx), func(t *testing.T) {
 			rng := utils.TestRng()
-			registry, keys := epoch.GenRegistry(rng, 3)
+			registry, keys := epoch.GenRegistryThrough(rng, 3, 2)
 			ep := registry.MustEpoch(idx)
 			last := registry.LastRoad(idx)
 			proposal, blocks := types.ProposalAtBlocks(ep, types.View{Index: last}, 1)
@@ -416,17 +415,13 @@ func TestRestoreInnerNextEpoch(t *testing.T) {
 			require.NoError(t, store.Flush())
 			ds, err := data.NewState(&data.Config{Registry: registry}, store)
 			require.NoError(t, err)
-			i, err := restoreInner(ds, &loadedState{})
-			if idx == 1 {
-				require.Error(t, err)
-				return
-			}
+			i, err := newInner(ds.Anchor().Load(), ds.GenesisTimestamp(), &loadedState{})
 			require.NoError(t, err)
 			spec := i.consensusSpec.Load()
 			cqc, ok := spec.CommitQC.Get()
 			require.True(t, ok)
 			require.Equal(t, last, cqc.Index(), "must not walk tip back to LastRoad(0)-1")
-			require.Equal(t, types.EpochIndex(1), spec.Epoch.EpochIndex())
+			require.Equal(t, idx+1, spec.Epoch.EpochIndex())
 		})
 	}
 }
@@ -434,7 +429,7 @@ func TestRestoreInnerNextEpoch(t *testing.T) {
 // TestStateRestartFromPersisted runs the state with persistence through 2
 // iterations (blocks → votes → commitQC → appQC each), stops, and restarts
 // from the same directory. This verifies that what the runtime persist
-// goroutine writes can be correctly loaded back by loadPersistedState/restoreInner.
+// goroutine writes can be correctly loaded back by loadPersistedState/newInner.
 //
 // The restarted state uses a fresh in-memory data.State, so this covers the
 // availability persisters themselves: CommitQCs and local blocks are loaded back
@@ -635,11 +630,10 @@ func TestSpliceSuffixReconstructs(t *testing.T) {
 		lane: types.NewLaneQC(makeLaneVotes(keys, tipHeader)),
 	})
 	for inner, ctrl := range state.inner.Lock() {
-		inner.prune(data.Anchor{
+		inner.prune(data.Anchor{First: utils.Some(data.AnchorFirst{
 			CommitQC: qc0,
 			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc0.View(), types.AppHash{})),
-			Epoch:    ep,
-		})
+		}), Epochs: data.TestAnchor(ep).Epochs})
 		ctrl.Updated()
 	}
 
@@ -701,11 +695,10 @@ func TestPushBlockKeepsTipAcrossEmptyCommit(t *testing.T) {
 	require.Equal(t, uint64(0), qc2.LaneRange(lane).Len())
 	require.Equal(t, tip.Hash(), qc2.LaneRange(lane).LastHash())
 	for inner, ctrl := range state.inner.Lock() {
-		inner.prune(data.Anchor{
+		inner.prune(data.Anchor{First: utils.Some(data.AnchorFirst{
 			CommitQC: qc2,
 			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc2.View(), types.AppHash{})),
-			Epoch:    ep,
-		})
+		}), Epochs: data.TestAnchor(ep).Epochs})
 		ctrl.Updated()
 	}
 
@@ -990,12 +983,12 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 			header := types.NewBlock(lane, 0, types.BlockHeaderHash{}, &types.Payload{}).Header()
 			leaverVote := types.Sign(leaver, types.NewLaneVote(header))
 
-			if err := registry.StageAndActivate(0, map[types.PublicKey]uint64{stay.Public(): 1, a.Public(): 1, b.Public(): 1}); err != nil {
+			if err := registry.TestPushEpoch(0, map[types.PublicKey]uint64{stay.Public(): 1, a.Public(): 1, b.Public(): 1}); err != nil {
 				return err
 			}
 			epLeave := registry.MustEpoch(2)
 			keys := []types.SecretKey{stay, leaver, a, b}
-			if err := TestDriveAdvance(ctx, state, keys, epLeave.EpochIndex()); err != nil {
+			if err := TestDriveAdvance(ctx, state, keys, registry, epLeave.EpochIndex()); err != nil {
 				return err
 			}
 
@@ -1003,10 +996,7 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 				if inner.applied().EpochIndex() != epLeave.EpochIndex() {
 					return fmt.Errorf("applied epoch = %d, want %d", inner.applied().EpochIndex(), epLeave.EpochIndex())
 				}
-				ae, ok := inner.anchorEpoch.Get()
-				if !ok {
-					return fmt.Errorf("anchor epoch missing")
-				}
+				ae := inner.anchor.Epochs[0]
 				if ae.EpochIndex() >= epLeave.EpochIndex() {
 					return fmt.Errorf("anchor epoch = %d, want < %d", ae.EpochIndex(), epLeave.EpochIndex())
 				}
@@ -1054,7 +1044,8 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 }
 
 func TestPushCommitQC_MidEpochNoWait(t *testing.T) {
-	f := newSealFixture(t)
+	rng := utils.TestRng()
+	f := newSealFixture(t, rng)
 	_, err := f.registry.EpochAt(f.ep.RoadRange().Next)
 	require.Error(t, err)
 
@@ -1083,7 +1074,7 @@ func TestPushCommitQC_StaleAfterAdvanceSoftDrops(t *testing.T) {
 		sc.SpawnBgNamed("runEpochAdvance", func() error {
 			return utils.IgnoreCancel(state.runEpochAdvance(ctx))
 		})
-		return TestDriveAdvance(ctx, state, keys, ep1.EpochIndex())
+		return TestDriveAdvance(ctx, state, keys, registry, ep1.EpochIndex())
 	}))
 
 	ep0 := registry.MustEpoch(0)
@@ -1102,9 +1093,8 @@ type sealFixture struct {
 	m        types.EpochIndex
 }
 
-func newSealFixture(t *testing.T) *sealFixture {
+func newSealFixture(t *testing.T, rng utils.Rng) *sealFixture {
 	t.Helper()
-	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
 	ds := newTestDataState(&data.Config{Registry: registry})
 	state, err := NewState(keys[0], ds, utils.None[string]())
@@ -1119,7 +1109,7 @@ func newSealFixture(t *testing.T) *sealFixture {
 		sc.SpawnBgNamed("runEpochAdvance", func() error {
 			return utils.IgnoreCancel(state.runEpochAdvance(ctx))
 		})
-		return TestDriveAdvance(ctx, state, keys, m)
+		return TestDriveAdvance(ctx, state, keys, registry, m)
 	}))
 	seekRoads(state, registry.LastRoad(m))
 	return &sealFixture{registry: registry, keys: keys, state: state, ep: ep, m: m}
@@ -1131,83 +1121,48 @@ func addEpoch(t *testing.T, registry *epoch.Registry, end types.EpochIndex, keys
 	for _, key := range keys {
 		weights[key.Public()] = 1
 	}
-	require.NoError(t, registry.StageAndActivate(end, weights))
+	require.NoError(t, registry.TestPushEpoch(end, weights))
 }
 
-func TestRunEpochAdvance_Leashes(t *testing.T) {
-	type missing int
-	const (
-		none missing = iota
-		registry
-		appQC
-	)
-	for _, tc := range []struct {
-		name       string
-		missing    missing
-		parkNextQC bool
-	}{
-		{name: "both met parks future QC until advance", missing: none, parkNextQC: true},
-		{name: "waits for registry", missing: registry},
-		{name: "waits for AppQC", missing: appQC},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
+func TestRunEpochAdvance_AnchorAndSeal(t *testing.T) {
+	for _, missingAnchor := range []bool{false, true} {
+		t.Run(fmt.Sprint(missingAnchor), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				ctx, cancel := context.WithCancel(t.Context())
-				defer cancel()
 				rng := utils.TestRng()
-				f := newSealFixture(t)
-				if tc.missing != registry {
-					addEpoch(t, f.registry, f.m-1, f.keys)
+				f := newSealFixture(t, rng)
+				addEpoch(t, f.registry, f.m-1, f.keys)
+				before := types.BuildCommitQC(f.ep, f.keys, utils.Some(tipLink(f.ep, f.keys[0], f.registry.LastRoad(f.m)-2)), nil)
+				last := types.BuildCommitQC(f.ep, f.keys, utils.Some(before), nil)
+				anchor := data.Anchor{
+					First:  utils.Some(data.AnchorFirst{CommitQC: before, AppQC: data.TestAppQC(f.keys, types.NewAppProposal(before.View(), types.GenAppHash(rng)))}),
+					Epochs: [2]*types.Epoch{f.ep, f.registry.MustEpoch(f.m + 1)},
 				}
-
-				prev := tipLink(f.ep, f.keys[0], f.registry.LastRoad(f.m)-1)
-				qcLast := types.BuildCommitQC(f.ep, f.keys, utils.Some(prev), nil)
-				require.Equal(t, f.registry.LastRoad(f.m), qcLast.Index())
-				require.NoError(t, f.state.PushCommitQC(ctx, qcLast))
-				f.state.markCommitQCsPersisted(qcLast)
-				if tc.missing != appQC {
-					setRoadAppQC(f.state, qcLast.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcLast.View(), types.GenAppHash(rng))))
+				if missingAnchor {
+					require.NoError(t, f.state.PushCommitQC(t.Context(), last))
+					f.state.markCommitQCsPersisted(last)
+				} else {
+					pruneToAnchors(f.state, []data.Anchor{anchor})
 				}
-				require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex())
-
-				var pushErr error
-				if tc.parkNextQC {
-					ep2 := f.registry.MustEpoch(f.m + 1)
-					qcNext := types.BuildCommitQC(ep2, f.keys, utils.Some(qcLast), nil)
-					require.Equal(t, f.registry.MustEpoch(f.m+1).RoadRange().First, qcNext.Index())
-					go func() { pushErr = f.state.PushCommitQC(ctx, qcNext) }()
-					synctest.Wait()
-					require.Equal(t, f.registry.LastRoad(f.m)+1, nextRoad(f.state), "future QC must stay parked")
-				}
-
-				var runErr error
-				go func() { runErr = f.state.runEpochAdvance(ctx) }()
-				if tc.missing != none {
+				require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+					sc.SpawnBg(func() error { return utils.IgnoreCancel(f.state.runEpochAdvance(ctx)) })
 					synctest.Wait()
 					require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex())
-					switch tc.missing {
-					case registry:
-						addEpoch(t, f.registry, f.m-1, f.keys)
-					case appQC:
-						setRoadAppQC(f.state, qcLast.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcLast.View(), types.GenAppHash(rng))))
+					if missingAnchor {
+						pruneToAnchors(f.state, []data.Anchor{anchor})
+					} else {
+						if err := f.state.PushCommitQC(ctx, last); err != nil {
+							return err
+						}
+						f.state.markCommitQCsPersisted(last)
 					}
-				}
-
-				ep, err := f.state.Epoch().Wait(t.Context(), func(ep *types.Epoch) bool {
-					return ep.EpochIndex() >= f.m+1
-				})
-				require.NoError(t, err)
-				require.Equal(t, f.m+1, ep.EpochIndex())
-				require.Equal(t, f.m+1, f.state.Epoch().Load().EpochIndex())
-				if tc.parkNextQC {
-					synctest.Wait()
-					require.NoError(t, pushErr)
-					require.Equal(t, f.registry.MustEpoch(f.m+1).RoadRange().First+1, nextRoad(f.state))
-				}
-
-				cancel()
-				synctest.Wait()
-				require.ErrorIs(t, runErr, context.Canceled)
+					ep, err := f.state.Epoch().Wait(ctx, func(ep *types.Epoch) bool { return ep.EpochIndex() == f.m+1 })
+					if err != nil {
+						return err
+					}
+					require.Equal(t, f.registry.MustEpoch(f.m+1), ep)
+					requireSpec(t, f.state, last, f.m+1)
+					return nil
+				}))
 			})
 		})
 	}
@@ -1223,11 +1178,10 @@ func anchorWalk(t *testing.T, registry *epoch.Registry, keys []types.SecretKey) 
 		last := registry.LastRoad(m)
 		qc := types.BuildCommitQC(ep, keys, utils.Some(tipLink(ep, keys[0], last-1)), nil)
 		require.Equal(t, last, qc.Index())
-		anchors = append(anchors, data.Anchor{
+		anchors = append(anchors, data.Anchor{First: utils.Some(data.AnchorFirst{
 			CommitQC: qc,
 			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.View(), types.AppHash{})),
-			Epoch:    ep,
-		})
+		}), Epochs: [2]*types.Epoch{ep, registry.MustEpoch(m + 1)}})
 	}
 	return anchors
 }
@@ -1241,7 +1195,7 @@ func pruneToAnchors(state *State, anchors []data.Anchor) *types.CommitQC {
 			ctrl.Updated()
 		}
 	}
-	return anchors[len(anchors)-1].CommitQC
+	return anchors[len(anchors)-1].First.OrPanic("anchor").CommitQC
 }
 
 func requireSpec(t *testing.T, state *State, qc *types.CommitQC, idx types.EpochIndex) {
@@ -1294,7 +1248,7 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 			qc0 := types.BuildCommitQC(ep0, keys, utils.None[*types.CommitQC](), nil)
 			require.Equal(t, ep0.RoadRange().First, qc0.Index())
 			for inner, ctrl := range state.inner.Lock() {
-				inner.persistedCommitQC.Store(utils.Some(qc0))
+				inner.setPersistedCommitQC(utils.Some(qc0))
 				ctrl.Updated()
 			}
 
@@ -1316,9 +1270,8 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 		})
 	})
 
-	// The registry follows data's Anchor, so it can drop applied+1 before avail
-	// observes the Anchor that moves its own tip past that epoch.
-	t.Run("pruned target retries once the tip names another epoch", func(t *testing.T) {
+	// An anchor retains its epochs even after the registry drops them.
+	t.Run("retained anchor epochs survive registry pruning", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -1336,8 +1289,7 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 			go func() { runErr = state.runEpochAdvance(ctx) }()
 			synctest.Wait()
 			require.Nil(t, runErr)
-			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex(),
-				"epoch 2 is pruned: park instead of dying")
+			require.Equal(t, types.EpochIndex(2), state.Epoch().Load().EpochIndex())
 
 			qc := pruneToAnchors(state, anchors[2:])
 			synctest.Wait()
@@ -1359,8 +1311,9 @@ func TestMarkCommitQCsPersisted_RefreshesSpecWhileEpochAdvanceParked(t *testing.
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		rng := utils.TestRng()
-		f := newSealFixture(t)
+		f := newSealFixture(t, rng)
 
+		addEpoch(t, f.registry, f.m-1, f.keys)
 		last := f.registry.LastRoad(f.m)
 		seekRoads(f.state, last-2)
 		prev := tipLink(f.ep, f.keys[0], last-3)
@@ -1373,7 +1326,7 @@ func TestMarkCommitQCsPersisted_RefreshesSpecWhileEpochAdvanceParked(t *testing.
 		require.NoError(t, f.state.PushCommitQC(ctx, qcA))
 		require.NoError(t, f.state.PushCommitQC(ctx, qcB))
 		require.NoError(t, f.state.PushCommitQC(ctx, qcC))
-		setRoadAppQC(f.state, qcC.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcC.View(), types.GenAppHash(rng))))
+		setRoadAppQC(f.state, qcC.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcC.View(), types.GenAppHash(rng))), f.registry.MustEpoch(f.m+1))
 		f.state.markCommitQCsPersisted(qcA)
 
 		spec := f.state.SubscribeConsensusSpec()

@@ -7,6 +7,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -105,14 +106,14 @@ func seekRoads(s *State, idx types.RoadIndex) {
 	}
 }
 
-func setRoadAppQC(s *State, idx types.RoadIndex, appQC *types.AppQC) {
+func setRoadAppQC(s *State, idx types.RoadIndex, appQC *types.AppQC, nextEpoch *types.Epoch) {
 	for inner, ctrl := range s.inner.Lock() {
 		r := inner.roads.q[idx]
 		r.appQC = utils.Some(appQC)
 		// Tests inject road AppQCs without going through data's persist/Anchor
 		// pipeline; stamp the Anchor watermark to the road's epoch so the prune
 		// leash sees the same coverage production would after one flush.
-		inner.anchorEpoch = utils.Some(r.epoch)
+		inner.anchor = data.Anchor{Epochs: [2]*types.Epoch{r.epoch, nextEpoch}}
 		ctrl.Updated()
 	}
 }
@@ -127,7 +128,7 @@ func tipLink(ep *types.Epoch, key types.SecretKey, idx types.RoadIndex) *types.C
 // TestDriveAdvance seals each applied epoch through want-1 and waits for
 // runEpochAdvance to advance to want. The registry must already contain want;
 // runEpochAdvance must be running.
-func TestDriveAdvance(ctx context.Context, state *State, keys []types.SecretKey, want types.EpochIndex) error {
+func TestDriveAdvance(ctx context.Context, state *State, keys []types.SecretKey, registry *epoch.Registry, want types.EpochIndex) error {
 	for state.Epoch().Load().EpochIndex() < want {
 		cur := state.Epoch().Load()
 		last := cur.RoadRange().Next - 1
@@ -157,7 +158,7 @@ func TestDriveAdvance(ctx context.Context, state *State, keys []types.SecretKey,
 			return err
 		}
 		state.markCommitQCsPersisted(qc)
-		setRoadAppQC(state, qc.Index(), data.TestAppQC(cks, types.NewAppProposal(qc.View(), types.AppHash{})))
+		setRoadAppQC(state, qc.Index(), data.TestAppQC(cks, types.NewAppProposal(qc.View(), types.AppHash{})), registry.MustEpoch(cur.EpochIndex()+1))
 		if _, err := state.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
 			return ep.EpochIndex() > cur.EpochIndex()
 		}); err != nil {

@@ -222,7 +222,7 @@ func TestRestore_BoundaryCatchUpSpecCoversWAL(t *testing.T) {
 		s.SpawnBgNamed("avail.Run", func() error {
 			return utils.IgnoreCancel(av.Run(ctx))
 		})
-		if err := avail.TestDriveAdvance(ctx, av, keys, 1); err != nil {
+		if err := avail.TestDriveAdvance(ctx, av, keys, registry, 1); err != nil {
 			return fmt.Errorf("TestDriveAdvance: %w", err)
 		}
 		if _, err := av.LastCommitQC().Wait(ctx, func(o utils.Option[*types.CommitQC]) bool {
