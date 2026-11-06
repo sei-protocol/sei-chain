@@ -1,0 +1,58 @@
+name: AI review (runner) eval
+
+# Replays the runner review on pull requests seidroid already reviewed, at the commits it
+# reviewed, so the two verdicts can be compared. followup re-reviews a later commit of the
+# same pull request with the state the first pass left.
+on:
+  push:
+    branches: ['masih/*-ai-review-runner']
+
+permissions: {}
+
+jobs:
+  first:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {pr: 4735, sha: d09eb1520b1ae4537632e3820810a82b4e64c7e0}
+          - {pr: 4677, sha: d7997f59462af4fcca2a86d2632126813f0c4e8a}
+          - {pr: 4710, sha: f7d7d735d85f7cb2fb4f15809cf856578f25e2bd}
+          - {pr: 4718, sha: 1ecccd721a3a1d4ca04a1e9e635465be5bee43a5}
+          - {pr: 4732, sha: 0846375045b14cf8fad4d5fa25f36fe3064dc9c1}
+          - {pr: 4669, sha: e373f1a7e33b049736fc6cf5a004ec3368c0a1cb}
+          - {pr: 4648, sha: 5c887ed68ee348f74f293366b8c585509d73dc46}
+          - {pr: 4651, sha: 4c0efde24b9334523380633bb03fc5380fd16f6b}
+          - {pr: 4743, sha: d7a8e44cd3b24e29c05526256f41bc7d1c79b4dc}
+          - {pr: 4740, sha: 2012de0987c1b2dc94214bf46d81693291161589}
+          - {pr: 4738, sha: 9f46faaf9bb8dc7d9eec67364cc4306f13bdb84e}
+          - {pr: 4709, sha: c40e72848ff2cbf04eab1bd9f9941b3fcf7b37f9}
+    uses: ./.github/workflows/ai-review-runner.yml
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    with:
+      pr: ${{ matrix.pr }}
+      head-sha: ${{ matrix.sha }}
+      state-key: eval-${{ github.run_id }}-${{ matrix.pr }}
+
+  followup:
+    needs: first
+    if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {pr: 4740, sha: e4cdbe955d34eebc7a8ecf57f764a5994c487d13}
+          - {pr: 4738, sha: 3b2ccff26033854cf9df6fe9cf796e31b59d4dcc}
+          - {pr: 4709, sha: 4a6954813a49f1f84fe91492f54eeef9c5bffd6c}
+    uses: ./.github/workflows/ai-review-runner.yml
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    with:
+      pr: ${{ matrix.pr }}
+      head-sha: ${{ matrix.sha }}
+      state-key: eval-${{ github.run_id }}-${{ matrix.pr }}

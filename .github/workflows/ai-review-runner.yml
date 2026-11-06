@@ -1,0 +1,184 @@
+name: AI review (runner)
+
+# Prototype of the review running on the GitHub runner itself, alongside seidroid.
+# It publishes nothing to the pull request: the verdict, cost and timing land in the job
+# summary and an artifact, so the two can be compared on the same pull requests.
+on:
+  pull_request:
+    types: [labeled, synchronize, ready_for_review]
+  workflow_call:
+    inputs:
+      pr:
+        type: number
+        required: true
+      head-sha:
+        type: string
+        required: true
+      state-key:
+        description: Cache key prefix for the state carried between reviews of one pull request.
+        type: string
+        default: ''
+
+permissions: {}
+
+jobs:
+  review:
+    if: >-
+      inputs.pr ||
+      (github.event.pull_request.draft == false &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'ai-review-runner'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    concurrency:
+      group: ai-review-runner-${{ inputs.pr || github.event.pull_request.number }}-${{ inputs.head-sha || 'live' }}
+      cancel-in-progress: true
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR: ${{ inputs.pr || github.event.pull_request.number }}
+      HEAD_SHA: ${{ inputs.head-sha || github.event.pull_request.head.sha }}
+      STATE_KEY: ${{ inputs.state-key || format('ai-review-runner-{0}', inputs.pr || github.event.pull_request.number) }}
+      INPUTS: ${{ github.workspace }}/../review-inputs
+      STATE: ${{ github.workspace }}/../review-state
+    steps:
+      - name: Start clock
+        run: echo "STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Restore the previous review of this pull request
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.STATE }}
+          key: ${{ env.STATE_KEY }}-${{ env.HEAD_SHA }}
+          restore-keys: ${{ env.STATE_KEY }}-
+
+      - name: Prepare the review inputs
+        id: prep
+        run: |
+          set -euo pipefail
+          mkdir -p "$INPUTS"
+          git fetch -q --no-tags origin "$HEAD_SHA"
+          git checkout -q --detach "$HEAD_SHA"
+
+          gh api "repos/$REPO/pulls/$PR" > "$INPUTS/pr.json"
+          base_ref=$(jq -r .base.ref "$INPUTS/pr.json")
+          jq -r '"# \(.title)\n\n\(.body // "")"' "$INPUTS/pr.json" > "$INPUTS/intent.md"
+          git fetch -q --no-tags origin "$base_ref"
+          git show "origin/$base_ref:REVIEW.md" > "$INPUTS/guidelines.md" 2>/dev/null || : > "$INPUTS/guidelines.md"
+
+          base_sha=$(git merge-base "origin/$base_ref" HEAD)
+          git diff "$base_sha" HEAD > "$INPUTS/pr.diff"
+          DIFF_LINES=$(wc -l < "$INPUTS/pr.diff")
+          export BASE_SHA=$base_sha DIFF_LINES
+
+          export PRIOR_STEP=""
+          if [ -f "$STATE/prior.json" ]; then
+            cp "$STATE/prior.json" "$INPUTS/prior.json"
+            PRIOR_SHA=$(jq -r .sha "$STATE/prior.json") SINCE_LINES=0
+            export PRIOR_SHA SINCE_LINES
+            # The earlier head replayed onto today's merge base, so base-branch changes merged
+            # into the pull request since then do not read as its own.
+            if git fetch -q --no-tags origin "$PRIOR_SHA" 2>/dev/null &&
+               prior_tree=$(git merge-tree --write-tree "$base_sha" "$PRIOR_SHA" 2>/dev/null); then
+              git diff "$prior_tree" HEAD > "$INPUTS/since-last.diff"
+              SINCE_LINES=$(wc -l < "$INPUTS/since-last.diff")
+            fi
+            PRIOR_STEP=$(envsubst "\${PRIOR_SHA} \${INPUTS} \${SINCE_LINES}" < .github/ai-review-runner/prior.md)
+          fi
+
+          {
+            echo 'prompt<<PROMPT_EOF'
+            envsubst "\${REPO} \${PR} \${HEAD_SHA} \${BASE_SHA} \${INPUTS} \${DIFF_LINES} \${PRIOR_STEP}" \
+              < .github/ai-review-runner/prompt.md
+            echo 'PROMPT_EOF'
+          } >> "$GITHUB_OUTPUT"
+          echo "DIFF_LINES=$DIFF_LINES" >> "$GITHUB_ENV"
+
+      - name: Review
+        id: review
+        uses: anthropics/claude-code-action@v1
+        with:
+          github_token: ${{ github.token }}
+          anthropic_federation_rule_id: ${{ vars.PLATFORM_CODE_AGENT_ANTHROPIC_FDRL_ID }}
+          anthropic_organization_id: ${{ vars.SEI_LABS_ANTHROPIC_ORG_ID }}
+          anthropic_service_account_id: ${{ vars.PLATFORM_CODE_AGENT_ANTHROPIC_SVAC_ID }}
+          prompt: ${{ steps.prep.outputs.prompt }}
+          claude_args: |
+            --model "claude-opus-5-5[1m]"
+            --effort high
+            --add-dir "${{ env.INPUTS }}"
+            --allowedTools "Read,Glob,Grep,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git blame:*),Bash(git grep:*),Bash(wc:*)"
+            --json-schema '{"type":"object","additionalProperties":false,"required":["read","decision","summary","inline_comments","blockers","non_blockers","pre_existing_issues","resolved_finding_ids","memo"],"properties":{"read":{"type":"integer"},"decision":{"type":"string","enum":["approve","comment","request_changes"]},"summary":{"type":"string"},"inline_comments":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["path","line","side","severity","body","supersedes_finding_ids"],"properties":{"path":{"type":"string"},"line":{"type":"integer"},"side":{"type":"string","enum":["RIGHT","LEFT"]},"severity":{"type":"string","enum":["blocker","suggestion","nit"]},"body":{"type":"string"},"supersedes_finding_ids":{"type":"array","items":{"type":"string"}}}}},"blockers":{"type":"array","items":{"type":"string"}},"non_blockers":{"type":"array","items":{"type":"string"}},"pre_existing_issues":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["severity","body"],"properties":{"severity":{"type":"string","enum":["blocker","suggestion"]},"body":{"type":"string"}}}},"resolved_finding_ids":{"type":"array","items":{"type":"string"}},"memo":{"type":"string"}}}'
+
+      - name: Record the review
+        id: record
+        if: ${{ !cancelled() && steps.prep.outcome == 'success' }}
+        env:
+          VERDICT: ${{ steps.review.outputs.structured_output }}
+          EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/out" && mkdir -p "$out" "$STATE"
+          printf '%s' "${VERDICT:-null}" > "$out/verdict.json"
+          result='{}'
+          if [ -f "${EXECUTION_FILE:-}" ]; then
+            cp "$EXECUTION_FILE" "$out/execution.json"
+            result=$(jq -c '[.[] | select(.type == "result")] | last // {}
+              | {num_turns, duration_ms, total_cost_usd, usage, is_error}' "$EXECUTION_FILE")
+          fi
+          jq -n --argjson r "$result" --arg pr "$PR" --arg sha "$HEAD_SHA" \
+            --argjson wall "$(( $(date +%s) - STARTED ))" --argjson lines "$DIFF_LINES" \
+            --argjson prior "$([ -f "$INPUTS/prior.json" ] && echo true || echo false)" \
+            '{pr: ($pr|tonumber), sha: $sha, wall_seconds: $wall, diff_lines: $lines, re_review: $prior} + $r' \
+            > "$out/metrics.json"
+
+          short=${HEAD_SHA:0:8}
+          if jq -e 'type == "object"' "$out/verdict.json" > /dev/null &&
+             jq --arg sha "$HEAD_SHA" --arg short "$short" '{
+              sha: $sha, memo: (.memo // ""),
+              findings: (
+                [(.inline_comments // [])[] | {kind: "inline", path, line, severity, body}]
+                + [(.blockers // [])[] | {kind: "blocker", body: .}]
+                + [(.non_blockers // [])[] | {kind: "non_blocker", body: .}]
+                | to_entries | map(.value + {id: "\($short)-\(.key + 1)"}))
+            }' "$out/verdict.json" > "$STATE/prior.json"; then
+            echo "state=true" >> "$GITHUB_OUTPUT"
+          else
+            rm -f "$STATE/prior.json"
+          fi
+
+          {
+            echo "## AI review (runner) — #$PR @ $short"
+            jq -r '"**\(.decision // "no verdict")** — \(.summary // "")"' "$out/verdict.json"
+            echo
+            jq -r '(.inline_comments // [])[] | "- `\(.path):\(.line)` **\(.severity)** — \(.body)"' "$out/verdict.json"
+            jq -r '(.blockers // [])[] | "- **blocker** — \(.)"' "$out/verdict.json"
+            jq -r '(.non_blockers // [])[] | "- **non-blocking** — \(.)"' "$out/verdict.json"
+            jq -r '(.pre_existing_issues // [])[] | "- **pre-existing \(.severity)** — \(.body)"' "$out/verdict.json"
+            jq -r 'if (.resolved_finding_ids // []) != [] then "\nResolved: \(.resolved_finding_ids | join(", "))" else empty end' "$out/verdict.json"
+            echo
+            jq -r '"Wall \(.wall_seconds)s, model \((.duration_ms // 0) / 1000 | floor)s, \(.num_turns // "?") turns, $\(.total_cost_usd // "?"), tokens in \(.usage.input_tokens // "?") / cache-write \(.usage.cache_creation_input_tokens // "?") / cache-read \(.usage.cache_read_input_tokens // "?") / out \(.usage.output_tokens // "?")"' "$out/metrics.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "OUT=$out" >> "$GITHUB_ENV"
+
+      - name: Keep this review for the next one
+        if: ${{ !cancelled() && steps.record.outputs.state == 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.STATE }}
+          key: ${{ env.STATE_KEY }}-${{ env.HEAD_SHA }}
+
+      - uses: actions/upload-artifact@v5
+        if: ${{ !cancelled() && env.OUT != '' }}
+        with:
+          name: ai-review-runner-${{ env.PR }}-${{ env.HEAD_SHA }}
+          path: ${{ env.OUT }}
