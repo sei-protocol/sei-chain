@@ -265,6 +265,17 @@ func (h *harness) redelegate(delegator, src, dst common.Address, amount *big.Int
 	return h.call(delegator, callOpts{}, RedelegateMethod, src, dst, amount)
 }
 
+// unjail runs Unjail for op as the slashing precompile's call does, keeping no
+// write when it fails.
+func (h *harness) unjail(op common.Address) error {
+	snap := h.state.Snapshot()
+	err := Unjail(h.state, op)
+	if err != nil {
+		h.state.RevertToSnapshot(snap)
+	}
+	return err
+}
+
 func (h *harness) store() store {
 	return newStore(h.state)
 }

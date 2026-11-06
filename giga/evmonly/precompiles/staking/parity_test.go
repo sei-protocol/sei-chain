@@ -14,6 +14,7 @@ import (
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
@@ -232,8 +233,49 @@ func TestValidatorLifecycleMatchesV2(t *testing.T) {
 	}
 }
 
+// TestUnjailMatchesV2 takes unjail through each of x/slashing's rules for a
+// validator jailed for its self-delegation, on the precompile and on V2,
+// checking after every step that both end it alike and hold the same state.
+func TestUnjailMatchesV2(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		run  func(t *testing.T, pr *pair)
+	}{
+		{"a jailed operator unjails once its self-delegation is back at its minimum, and bonds again", func(t *testing.T, pr *pair) {
+			require.NoError(t, pr.undelegate(val2, val2, 24*seiInUsei+1))
+			pr.endBlock()
+			require.Equal(t, stakingtypes.Unbonding, pr.v2Status(val2))
+			require.ErrorIs(t, pr.unjail(val2), slashingtypes.ErrSelfDelegationTooLowToUnjail)
+			require.NoError(t, pr.delegate(val2, val2, 24*seiInUsei+1))
+			require.NoError(t, pr.unjail(val2))
+			require.ErrorIs(t, pr.unjail(val2), slashingtypes.ErrValidatorNotJailed)
+			pr.endBlock()
+			require.Equal(t, stakingtypes.Bonded, pr.v2Status(val2))
+			require.Equal(t, stakingtypes.Unbonding, pr.v2Status(val4))
+		}},
+		{"a validator unjailed before the next EndBlock stays bonded, at the power it gained while jailed", func(t *testing.T, pr *pair) {
+			require.NoError(t, pr.undelegate(val3, val3, 20*seiInUsei))
+			require.NoError(t, pr.delegate(alice, val3, 18*seiInUsei))
+			require.NoError(t, pr.delegate(val3, val3, seiInUsei))
+			require.NoError(t, pr.unjail(val3))
+			pr.endBlock()
+			require.Equal(t, stakingtypes.Bonded, pr.v2Status(val3))
+		}},
+		{"unjail is refused by each of its checks", func(t *testing.T, pr *pair) {
+			require.ErrorIs(t, pr.unjail(alice), slashingtypes.ErrNoValidatorForAddress)
+			require.ErrorIs(t, pr.unjail(val1), slashingtypes.ErrValidatorNotJailed)
+			require.NoError(t, pr.undelegate(val3, val3, 20*seiInUsei))
+			require.ErrorIs(t, pr.unjail(val3), slashingtypes.ErrMissingSelfDelegation)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.run(t, newParityPair(t))
+		})
+	}
+}
+
 // TestRandomOperationsMatchV2 runs random delegations, undelegations,
-// redelegations and EndBlocks on the precompile and on x/staking, checking
+// redelegations, unjails and EndBlocks on the precompile and on V2, checking
 // after every step, and requires the runs between them to reach each rule.
 // Redelegations the precompile's queue would complete later than x/staking are
 // left out.
@@ -261,6 +303,11 @@ func TestRandomOperationsMatchV2(t *testing.T) {
 		"redelegate: " + stakingtypes.ErrBadRedelegationDst.Error(),
 		"redelegate: " + stakingtypes.ErrTransitiveRedelegation.Error(),
 		"redelegate: " + stakingtypes.ErrMaxRedelegationEntries.Error(),
+		"unjail: ok",
+		"unjail: " + slashingtypes.ErrNoValidatorForAddress.Error(),
+		"unjail: " + slashingtypes.ErrMissingSelfDelegation.Error(),
+		"unjail: " + slashingtypes.ErrSelfDelegationTooLowToUnjail.Error(),
+		"unjail: " + slashingtypes.ErrValidatorNotJailed.Error(),
 		"hook: AfterValidatorBonded",
 		"hook: AfterValidatorBeginUnbonding",
 		"hook: BeforeDelegationRemoved",
@@ -293,8 +340,10 @@ func randomOperations(pr *pair, rng *rand.Rand, steps int) {
 			if !pr.clampsRedelegation(src) {
 				_ = pr.redelegate(d, src, dst, randomUnbond(rng, pr.v2.delegatedTokens(d, src)))
 			}
-		case n < 95:
+		case n < 92:
 			pr.endBlock()
+		case n < 96:
+			_ = pr.unjail(pick(rng, actors))
 		default:
 			pr.wait(uint64(rng.Int63n(int64(parityParams.UnbondingTime)))) //nolint:gosec // a positive duration
 			pr.endBlock()

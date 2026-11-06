@@ -190,6 +190,13 @@ func (s store) jail(op common.Address, v *validator) error {
 	return nil
 }
 
+// unjail unjails op's validator and returns it to the power index.
+func (s store) unjail(op common.Address, v *validator) {
+	s.powerIndex().insert(op, consensusPower(v.tokens))
+	v.jailed = false
+	s.setValidator(op, *v)
+}
+
 // removeValidator deletes op's validator, which must be unbonded and hold no
 // tokens, and every index naming it, then runs AfterValidatorRemoved.
 func (p Precompile) removeValidator(block precompiles.BlockContext, s store, op common.Address, v validator) error {
