@@ -326,7 +326,7 @@ func TestLogFetcherSkipsUnavailableCachedBlock(t *testing.T) {
 
 	resCh := make(chan *coretypes.ResultBlock, 1)
 	errCh := make(chan error, 1)
-	fetcher.processBatch(context.Background(), highHeight, highHeight, filters.FilterCriteria{}, nil, resCh, errCh)
+	fetcher.processBatch(context.Background(), blockWindow{earliest: earliest, latest: latest}, highHeight, highHeight, filters.FilterCriteria{}, nil, resCh, errCh)
 
 	select {
 	case <-resCh:

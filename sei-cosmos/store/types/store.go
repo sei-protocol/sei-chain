@@ -160,6 +160,7 @@ type CacheMultiStore interface {
 // CommitMultiStore is an interface for a MultiStore without cache capabilities.
 type CommitMultiStore interface {
 	Committer
+	LastCommitVersion() int64
 	MultiStore
 	snapshottypes.Snapshotter
 

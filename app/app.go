@@ -18,6 +18,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -366,6 +367,7 @@ func newGigaBlockCache(ctx sdk.Context, keeper *gigaevmkeeper.Keeper) (*gigaBloc
 }
 
 type App struct {
+	doneUpgradesCache atomic.Pointer[doneUpgradesAtHeight]
 	*baseapp.BaseApp
 
 	cdc               *codec.LegacyAmino
@@ -2516,26 +2518,26 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 }
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
+	ctx := app.RPCContextProviderWithoutConsensusParams(i)
+	// Neither GetCheckCtx nor CreateQueryContext sets ConsensusParams (only
+	// the tx-execution path does, via getContextForTx), so without this,
+	// ctx.ConsensusParams() returns nil from any RPC handler. evmrpc/block.go's
+	// gasLimit and evmrpc/info.go's gas-used-ratio rely on it.
+	return ctx.WithConsensusParams(app.GetConsensusParams(ctx))
+}
+
+// RPCContextProviderWithoutConsensusParams returns the context RPCContextProvider
+// returns for height i, with ConsensusParams left nil.
+func (app *App) RPCContextProviderWithoutConsensusParams(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
 		ctx := app.GetCheckCtx()
-		// Populate ConsensusParams on the RPC ctx. Neither GetCheckCtx nor
-		// CreateQueryContext sets it (only the tx-execution path does, via
-		// getContextForTx), so without this, ctx.ConsensusParams() returns
-		// nil from any RPC handler. evmrpc/block.go's gasLimit and
-		// evmrpc/info.go's gas-used-ratio rely on it.
-		ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 		return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
 		panic(err)
 	}
-	ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
-	closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
-	if closestUpgrade == "" && upgradeHeight == 0 {
-		closestUpgrade = LatestUpgrade
-	}
-	ctx = ctx.WithClosestUpgradeName(closestUpgrade)
+	ctx = ctx.WithClosestUpgradeName(app.closestUpgradeName(app.GetCheckCtx(), i))
 	return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
 }
 
@@ -2568,10 +2570,7 @@ func (app *App) SnapshotAwareRPCContextProvider() evmrpc.TraceContextProvider {
 			return app.RPCContextProvider(i), func() {}
 		}
 		checkCtx := app.GetCheckCtx()
-		closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(checkCtx, i)
-		if closestUpgrade == "" && upgradeHeight == 0 {
-			closestUpgrade = LatestUpgrade
-		}
+		closestUpgrade := app.closestUpgradeName(checkCtx, i)
 		ctx := sdk.NewContext(cms, checkCtx.BlockHeader(), true).
 			WithMinGasPrices(checkCtx.MinGasPrices()).
 			WithBlockHeight(i).
@@ -2600,7 +2599,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	rpcCtxProvider := app.RPCContextProvider
 	traceCtxProvider := app.SnapshotAwareRPCContextProvider()
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), traceCtxProvider)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, app.RPCContextProviderWithoutConsensusParams, txConfigProvider, DefaultNodeHome, app.GetStateStore(), traceCtxProvider)
 		if err != nil {
 			panic(err)
 		}
@@ -2615,7 +2614,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 
 	if app.evmRPCConfig.WSEnabled {
 		headNotifier, _ := app.blockHeaderNotifier.Get()
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), headNotifier)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, app.RPCContextProviderWithoutConsensusParams, txConfigProvider, DefaultNodeHome, app.GetStateStore(), headNotifier)
 		if err != nil {
 			panic(err)
 		}
@@ -3009,4 +3008,27 @@ func (app *App) validateGigaEVMTx(
 func init() {
 	// override max wasm size to 2MB
 	wasmtypes.MaxWasmSize = 2 * 1024 * 1024
+}
+
+type doneUpgradesAtHeight struct {
+	height   int64
+	upgrades upgradekeeper.DoneUpgrades
+}
+
+func (app *App) closestUpgradeName(checkCtx sdk.Context, i int64) string {
+	name, height := app.doneUpgrades(checkCtx).Closest(i)
+	if name == "" && height == 0 {
+		return LatestUpgrade
+	}
+	return name
+}
+
+func (app *App) doneUpgrades(checkCtx sdk.Context) upgradekeeper.DoneUpgrades {
+	height := checkCtx.BlockHeight()
+	if cached := app.doneUpgradesCache.Load(); cached != nil && cached.height == height {
+		return cached.upgrades
+	}
+	upgrades := app.UpgradeKeeper.GetDoneUpgrades(checkCtx)
+	app.doneUpgradesCache.Store(&doneUpgradesAtHeight{height: height, upgrades: upgrades})
+	return upgrades
 }
