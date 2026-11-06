@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -38,7 +39,8 @@ type blockSpec struct {
 
 // mempool is one produce session. State.mempool publishes it; nil means idle.
 type mempool struct {
-	inner utils.Watch[*mempoolInner]
+	inner     utils.Watch[*mempoolInner]
+	throttled atomic.Bool // mirrors inner.throttled for lock-free reads.
 }
 
 // Incarnation of nonceRange of pending txs.
@@ -58,6 +60,7 @@ type nonceRange struct {
 // the session; closed ends the session without replacing that pointer.
 type mempoolInner struct {
 	closed           bool
+	throttled        bool // refuses new transactions while local execution lags too far behind.
 	capacity         uint64
 	lane             types.LaneID
 	first            types.BlockNumber
@@ -85,7 +88,7 @@ func newMempool(capacity uint64, lane types.LaneID, n types.BlockNumber) *mempoo
 }
 
 func (m *mempoolInner) IsFull() bool {
-	return uint64(m.next-m.first) >= m.capacity && len(m.nextBlock.txs) > 0
+	return m.throttled || (uint64(m.next-m.first) >= m.capacity && len(m.nextBlock.txs) > 0)
 }
 
 func (m *mempoolInner) CanSealBlock(allowEmpty bool) bool {
@@ -112,6 +115,13 @@ func (s *State) UnconfirmedTxs() [][]byte {
 		return m.nextBlock.rawTxs
 	}
 	panic("unreachable")
+}
+
+// ExecutionThrottled reports whether the mempool refuses new transactions because local execution
+// lags too far behind.
+func (s *State) ExecutionThrottled() bool {
+	mp, ok := s.mempool.Load().Get()
+	return ok && mp.throttled.Load()
 }
 
 func (m *mempool) pendingNonces(addr common.Address) (nonceRange, bool) {
@@ -383,4 +393,39 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 		m.evmTxs[resp.EVMHash] = p
 	}
 	return resp.ResponseCheckTx, nil
+}
+
+// throttleOnExecutionLag refuses new transactions while more than MaxExecutionLag committed
+// superblocks are unexecuted locally, and admits them again once the lag is back to half that.
+func (s *State) throttleOnExecutionLag(ctx context.Context, mp *mempool) error {
+	limit := s.cfg.MaxExecutionLag
+	if limit == 0 {
+		return nil
+	}
+	defer metrics.SetExecutionThrottled(false)
+	dataState := s.consensus.Data()
+	throttled := false
+	for {
+		if _, err := dataState.WaitForExecutionLag(ctx, func(lag uint64) bool {
+			if throttled {
+				return lag <= limit/2
+			}
+			return lag > limit
+		}); err != nil {
+			return err
+		}
+		throttled = !throttled
+		mp.setThrottled(throttled)
+	}
+}
+
+// setThrottled makes the mempool refuse new transactions, or admit them again and wake the
+// inserts waiting for it.
+func (m *mempool) setThrottled(throttled bool) {
+	for inner, ctrl := range m.inner.Lock() {
+		inner.throttled = throttled
+		m.throttled.Store(throttled)
+		ctrl.Updated()
+	}
+	metrics.SetExecutionThrottled(throttled)
 }

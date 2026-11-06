@@ -293,6 +293,7 @@ func buildGigaRouter(
 	genDoc *types.GenesisDoc,
 	blockStore atypes.BlockStore,
 	appHashBuilder builder.AppHashBuilder,
+	maxExecutionLag uint64,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
@@ -328,6 +329,7 @@ func buildGigaRouter(
 		}
 		valCfg.PersistentStateDir = stateDir
 		valCfg.AppHashBuilder = appHashBuilder
+		valCfg.Producer.MaxExecutionLag = maxExecutionLag
 		valCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
@@ -580,6 +582,7 @@ func createRouter(
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 	storageManager utils.Option[*bootstrap.GigaStorageManager],
+	maxExecutionLag uint64,
 ) (*p2p.Router, closer, utils.Option[atypes.BlockStore], error) {
 	closer := func() error { return nil }
 	noneDB := utils.None[atypes.BlockStore]()
@@ -649,7 +652,7 @@ func createRouter(
 		}
 		giga, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
-			manager.BlockStore(), manager.AppHashBuilder(),
+			manager.BlockStore(), manager.AppHashBuilder(), maxExecutionLag,
 		)
 		if err != nil {
 			return nil, closer, noneDB, err

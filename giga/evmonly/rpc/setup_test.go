@@ -48,6 +48,7 @@ type testBackend struct {
 	minGasPrice      func() (*big.Int, error)
 	proxy            utils.Option[*ethrpc.Client]
 	proxyCalls       int
+	throttled        bool
 	storage          func(common.Address, common.Hash) (common.Hash, error)
 	executedBlocks   func() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	transactionCount func(common.Address) uint64
@@ -175,6 +176,8 @@ func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
 func (b *testBackend) EvmProxyEnabled() bool {
 	return b.proxy.IsPresent()
 }
+
+func (b *testBackend) EvmMempoolThrottled() bool { return b.throttled }
 
 func (b *testBackend) EvmStorage(address common.Address, key common.Hash) (common.Hash, error) {
 	return b.storage(address, key)

@@ -24,6 +24,9 @@ type limitExceededError struct{}
 func (limitExceededError) ErrorCode() int { return -32005 }
 func (limitExceededError) Error() string  { return "server busy" }
 
+// errMempoolThrottled carries the producer's "mempool is full" refusal text, which clients retry on.
+var errMempoolThrottled = errors.New("mempool is full")
+
 type sendAPI struct {
 	backend        Backend
 	requestLimiter *semaphore.Weighted
@@ -48,6 +51,11 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 		return common.Hash{}, err
 	}
 	hash := tx.Hash()
+	// Refused before sender recovery, which a lagging node cannot afford to spend on transactions it
+	// would refuse anyway.
+	if api.backend.EvmMempoolThrottled() {
+		return hash, errMempoolThrottled
+	}
 
 	if client, ok := api.shardProxy(tx).Get(); ok {
 		if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {

@@ -901,3 +901,56 @@ func TestInsertTx_QueuesWithoutRPCAdmission(t *testing.T) {
 		return nil
 	}))
 }
+
+// A throttled mempool refuses TryInsertTx and holds InsertTx until it is released.
+func TestInsertTx_ThrottledUntilReleased(t *testing.T) {
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return env.Run(ctx) })
+		mp, err := env.waitForMempool(ctx)
+		if err != nil {
+			return err
+		}
+		mp.setThrottled(true)
+		if !env.state.ExecutionThrottled() {
+			return errors.New("throttled mempool not reported as throttled")
+		}
+		if _, err := env.state.TryInsertTx(ctx, env.fullTx(rng, app).encode()); !errors.Is(err, errMempoolFull) {
+			return fmt.Errorf("TryInsertTx on a throttled mempool: got %v, want %v", err, errMempoolFull)
+		}
+		tx := env.fullTx(rng, app)
+		checked := app.checked.Load()
+		s.Spawn(func() error {
+			_, err := env.state.InsertTx(ctx, tx.encode())
+			return err
+		})
+		if _, err := app.checked.Wait(ctx, func(got uint64) bool { return got > checked }); err != nil {
+			return err
+		}
+		if _, ok := env.state.EvmTxByHash(tx.EVMHash); ok {
+			return errors.New("InsertTx admitted a transaction while throttled")
+		}
+		mp.setThrottled(false)
+		return nil
+	}))
+}
+
+// The throttle ends with its produce session.
+func TestExecutionThrottled_EndsWithSession(t *testing.T) {
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	require.NoError(t, utils.IgnoreCancel(scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return env.Run(ctx) })
+		mp, err := env.waitForMempool(ctx)
+		if err != nil {
+			return err
+		}
+		mp.setThrottled(true)
+		s.Cancel(context.Canceled)
+		return nil
+	})))
+	require.False(t, env.state.ExecutionThrottled())
+}

@@ -36,6 +36,17 @@ func (env *Environment) EvmProxyEnabled() bool {
 	return false
 }
 
+// EvmMempoolThrottled reports whether the local mempool refuses new transactions because local
+// execution lags too far behind.
+func (env *Environment) EvmMempoolThrottled() bool {
+	if r, ok := env.gigaRouter().Get(); ok {
+		if mp, ok := r.Mempool().Get(); ok {
+			return mp.ExecutionThrottled()
+		}
+	}
+	return false
+}
+
 // EvmBalance returns the address balance from the current committed EVM state.
 func (env *Environment) EvmBalance(address common.Address) uint256.Int {
 	return env.App.EvmBalance(address, nil)

@@ -17,6 +17,8 @@ type metrics struct {
 	capacityWaitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.0001, 2, 30)"`
 	// Number of finished inserts by outcome.
 	Inserts prometheus.CounterIntVec `metrics_labels:"result"`
+	// 1 while the mempool refuses new transactions because local execution lags too far behind.
+	executionThrottled prometheus.GaugeIntVec
 }
 
 // ObserveCheckTxWait records the time one insert waited for a CheckTx permit.
@@ -24,3 +26,13 @@ func ObserveCheckTxWait(d time.Duration) { Global.checkTxWaitLatencyAt().Observe
 
 // ObserveCapacityWait records the time one insert waited for mempool capacity.
 func ObserveCapacityWait(d time.Duration) { Global.capacityWaitLatencyAt().Observe(d.Seconds()) }
+
+// SetExecutionThrottled records whether the mempool refuses new transactions because local
+// execution lags too far behind.
+func SetExecutionThrottled(throttled bool) {
+	var v int64
+	if throttled {
+		v = 1
+	}
+	Global.executionThrottledAt().Set(v)
+}

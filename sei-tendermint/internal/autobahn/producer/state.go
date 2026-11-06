@@ -31,6 +31,9 @@ type Config struct {
 	// Max number of CheckTx calls executed concurrently by InsertTx/TryInsertTx.
 	// None or Some(0) means half of GOMAXPROCS, at least 1.
 	MaxConcurrentCheckTx utils.Option[uint64]
+	// MaxExecutionLag is how many committed superblocks may stay unexecuted locally before the
+	// mempool refuses new transactions. 0 disables the limit.
+	MaxExecutionLag uint64
 }
 
 func (c *Config) maxConcurrentCheckTx() int {
@@ -117,6 +120,7 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 				ctrl.Updated()
 			}
 		}()
+		scope.SpawnBg(func() error { return s.throttleOnExecutionLag(ctx, mp) })
 		scope.SpawnBg(func() error {
 			// Task pruning executed lane blocks from the mempool
 			dataState := s.consensus.Data()
