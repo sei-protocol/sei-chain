@@ -59,8 +59,10 @@ func TestRunRefusesDelegateCallStaticCallAndValue(t *testing.T) {
 	h.state.AddBalance(val1, sei(1))
 	_, err = h.unjail(val1, callOpts{value: sei(1)})
 	require.ErrorIs(t, err, errNonPayable)
-	_, err = h.run(Precompile{}, Address, val1, callOpts{}, []byte{1, 2, 3})
-	require.ErrorIs(t, err, errUnknownMethod)
+	for _, input := range [][]byte{{1, 2, 3}, {1, 2, 3, 4}} {
+		_, err = h.run(Precompile{}, Address, val1, callOpts{}, input)
+		require.ErrorIs(t, err, errUnknownMethod, "%x", input)
+	}
 }
 
 func TestRetiredMethodsRevertWithAReason(t *testing.T) {
@@ -108,6 +110,7 @@ func TestRequiredGas(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(transactionGas+transactionByteGas*32), Precompile{}.RequiredGas(input))
 	require.Equal(t, uint64(unknownMethodGas), Precompile{}.RequiredGas([]byte{1}))
+	require.Equal(t, uint64(unknownMethodGas), Precompile{}.RequiredGas([]byte{1, 2, 3, 4}))
 }
 
 func methodBySig(t *testing.T, sig string) abi.Method {
