@@ -17,7 +17,7 @@ permissions: {}
 
 jobs:
   seidroid:
-    uses: sei-protocol/seidroid/.github/workflows/review.yml@f51b52497d18b26186333d5eff5c0d726a70f532
+    uses: sei-protocol/seidroid/.github/workflows/review.yml@8cabbd6f1e4c33752584528090d2b9d83f9dc895
     permissions:
       contents: read
       pull-requests: read
