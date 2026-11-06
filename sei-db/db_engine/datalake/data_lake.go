@@ -13,9 +13,10 @@ import (
 // its iterators are not safe to modify.
 type DataLake interface {
 	// Put writes value at key. It returns once the write is accepted, and the write becomes crash durable later.
-	// In a store that does not allow gaps, it returns an error if key is not one above the highest key; an empty
-	// store accepts any key. In a store that allows gaps, writing a key that already exists is a background write
-	// failure.
+	// It returns an error if key is not above every key in the store and every key deleted from it, or, in a store
+	// that does not allow gaps and is not empty, if key is not one above the highest key. A completed rollback
+	// forgets every deletion above the highest key it leaves in the store, or, if it leaves none, every deletion at
+	// or above its watermark.
 	Put(
 		ctx context.Context,
 		key uint64,
@@ -23,17 +24,20 @@ type DataLake interface {
 	) error
 
 	// PutStream writes the bytes read from value at key. It returns once the write is accepted, and the write
-	// becomes crash durable later. In a store that does not allow gaps, it returns an error if key is not one above
-	// the highest key; an empty store accepts any key. A failure to read value is a background write failure, as
-	// is, in a store that allows gaps, writing a key that already exists.
+	// becomes crash durable later. It returns an error if key is not above every key in the store and every key
+	// deleted from it, or, in a store that does not allow gaps and is not empty, if key is not one above the
+	// highest key. A completed rollback forgets every deletion above the highest key it leaves in the store,
+	// or, if it leaves none, every deletion at or above its watermark. A failure of value is a background write
+	// failure.
 	PutStream(
 		ctx context.Context,
 		key uint64,
-		// Read and closed by the store in the background. Must not be used by the caller after the call.
-		value io.ReadCloser,
+		// Read in the background, possibly more than once: Reset() is called before each read after the first.
+		// Closed by the store when it is done with it. Must not be used by the caller after the call.
+		value DataLakeStream,
 	) error
 
-	// Get returns the value at key. A key at or below the durable watermark that has not been deleted is always
+	// Get returns the value at key. A key below the durable watermark that has not been deleted is always
 	// found; a key above it may not be found yet.
 	Get(
 		ctx context.Context,
@@ -45,7 +49,7 @@ type DataLake interface {
 		err error,
 	)
 
-	// GetStream returns a reader over the value at key. A key at or below the durable watermark that has not been
+	// GetStream returns a reader over the value at key. A key below the durable watermark that has not been
 	// deleted is always found; a key above it may not be found yet.
 	GetStream(
 		ctx context.Context,
@@ -58,7 +62,7 @@ type DataLake interface {
 		err error,
 	)
 
-	// Has reports whether key exists. A key at or below the durable watermark that has not been deleted is always
+	// Has reports whether key exists. A key below the durable watermark that has not been deleted is always
 	// found; a key above it may not be found yet.
 	Has(
 		ctx context.Context,
@@ -81,13 +85,9 @@ type DataLake interface {
 		key uint64,
 	) error
 
-	// GetDurableWatermark returns the key at or below which every accepted write is crash durable. When the store
-	// opens, it is the highest key in the store.
-	GetDurableWatermark() (
-		watermark uint64,
-		// False if nothing is crash durable.
-		ok bool,
-	)
+	// GetDurableWatermark returns the durable watermark: every accepted write to a key strictly less than it is
+	// crash durable.
+	GetDurableWatermark() uint64
 
 	// GetFirstKey returns the lowest key in the store, whether or not it is crash durable yet.
 	GetFirstKey() (
@@ -97,10 +97,10 @@ type DataLake interface {
 	)
 
 	// Flush blocks until every Put(), PutStream(), Delete() and PruneBelow() accepted before the call is crash
-	// durable.
+	// durable and every change to the backing store it requires is complete.
 	Flush(ctx context.Context) error
 
-	// Iterator returns an iterator, in key order, over the keys that are at or below the durable watermark when it
+	// Iterator returns an iterator, in key order, over the keys that are below the durable watermark when it
 	// is called. The caller must close it.
 	Iterator(
 		ctx context.Context,
