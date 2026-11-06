@@ -226,7 +226,9 @@ func TestMatchesRejectsInvalidRegexp(t *testing.T) {
 	for _, s := range []string{
 		`tm.event MATCHES '('`,
 		`tm.event MATCHES '[a-z]{1,1000}'`,
-		`tm.event MATCHES '[a-z]{1,400}' AND tm.event MATCHES '[a-z]{1,400}'`,
+		`tm.event MATCHES '[a-z]{1,150}' AND tm.event MATCHES '[a-z]{1,150}'`,
+		`tm.event MATCHES '(?:[a-z]{1,1000}){0,}'`,
+		`tm.event MATCHES '\pL\pN\pS'`,
 	} {
 		if q, err := query.New(s); err == nil {
 			t.Errorf("New(%q): got %v, want error", s, q)

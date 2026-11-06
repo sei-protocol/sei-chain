@@ -212,17 +212,17 @@ func (env *Environment) Events(ctx context.Context, req *coretypes.RequestEvents
 	}
 
 	if before.IsZero() {
-		ctx, cancel := context.WithTimeout(ctx, waitTime)
+		waitCtx, cancel := context.WithTimeout(ctx, waitTime)
 		defer cancel()
 
 		// Long poll. The loop here is because new items may not match the query,
 		// and we want to keep waiting until we have relevant results (or time out).
 		cur := after
 		for len(items) == 0 {
-			info, err = eventLog.WaitScan(ctx, cur, accept)
+			info, err = eventLog.WaitScan(waitCtx, cur, accept)
 			if err != nil {
 				// Don't report a timeout as a request failure.
-				if errors.Is(err, context.DeadlineExceeded) {
+				if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 					err = nil
 				}
 				break

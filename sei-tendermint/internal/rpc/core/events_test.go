@@ -45,4 +45,9 @@ func TestEventsScanStopsWhenContextEnds(t *testing.T) {
 	cancel()
 	_, err = env.Events(ctx, req)
 	require.ErrorIs(t, err, context.Canceled)
+
+	ctx, cancel = context.WithDeadline(t.Context(), time.Unix(0, 0))
+	defer cancel()
+	_, err = env.Events(ctx, &coretypes.RequestEvents{})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }

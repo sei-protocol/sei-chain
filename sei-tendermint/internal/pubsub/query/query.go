@@ -205,7 +205,7 @@ func compileCondition(cond syntax.Condition, regexpBudget *int) (condition, erro
 
 // maxRegexpSize is the maximum total estimated program size of the MATCHES
 // patterns in a query.
-const maxRegexpSize = 1000
+const maxRegexpSize = 500
 
 // compileRegexp compiles pattern and deducts its estimated size from budget.
 func compileRegexp(pattern string, budget *int) (*regexp.Regexp, error) {
@@ -221,17 +221,21 @@ func compileRegexp(pattern string, budget *int) (*regexp.Regexp, error) {
 	return regexp.Compile(pattern)
 }
 
-// regexpSize estimates the number of instructions re compiles to.
+// regexpSize estimates the size of the program re compiles to, counting its
+// instructions and character class ranges.
 func regexpSize(re *resyntax.Regexp) int {
 	var size int
-	if re.Op == resyntax.OpLiteral {
+	switch re.Op {
+	case resyntax.OpLiteral:
 		size = len(re.Rune)
+	case resyntax.OpCharClass:
+		size = len(re.Rune) / 2
 	}
 	for _, sub := range re.Sub {
 		size += regexpSize(sub) + 1
 	}
 	if re.Op == resyntax.OpRepeat {
-		size *= max(re.Min, re.Max)
+		size *= max(re.Min, re.Max, 1)
 	}
 	return max(size, 1)
 }
