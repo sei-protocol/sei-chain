@@ -4,6 +4,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 )
 
 // validBaseConfig returns a Config that passes Validate() so tests can
@@ -136,4 +140,40 @@ func TestValidateNestedEngineConfigError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "storage store config is invalid")
 	require.Contains(t, err.Error(), "ShardCount must be a power of two and greater than 0")
+}
+
+func TestApplyLowFootprintProfile(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.ApplyLowFootprintProfile()
+	require.NoError(t, cfg.Validate())
+
+	require.Equal(t, uint64(256*unit.MB), cfg.AccountStoreConfig.MaxSize)
+	require.Equal(t, uint64(64*unit.MB), cfg.CodeStoreConfig.MaxSize)
+	require.Equal(t, uint64(512*unit.MB), cfg.StorageStoreConfig.MaxSize)
+	require.Equal(t, uint64(128*unit.MB), cfg.MiscStoreConfig.MaxSize)
+	require.Equal(t, uint32(8), cfg.MaxSnapshotLagBlocks)
+	require.Equal(t, 1.0, cfg.MiscPoolThreadsPerCore)
+	require.Equal(t, uint32(1), cfg.SnapshotKeepRecent)
+
+	stores := map[string]view.ViewManagerConfig{
+		"account": cfg.AccountStoreConfig,
+		"code":    cfg.CodeStoreConfig,
+		"storage": cfg.StorageStoreConfig,
+		"misc":    cfg.MiscStoreConfig,
+	}
+	dbs := map[string]pebbledb.PebbleDBConfig{
+		"account": cfg.AccountDBConfig,
+		"code":    cfg.CodeDBConfig,
+		"storage": cfg.StorageDBConfig,
+		"misc":    cfg.MiscDBConfig,
+	}
+	for name, store := range stores {
+		db := dbs[name]
+		require.Equal(t, uint64(8), store.MaxUnflushedVersions, name)
+		require.Equal(t, int64(64*unit.MB), db.BlockCacheSize, name)
+		require.Equal(t, uint64(32*unit.MB), db.MemTableSize, name)
+		require.Equal(t, 4, db.MemTableStopWritesThreshold, name)
+		// Pebble moves a batch larger than half a memtable onto its flushable-batch slow path.
+		require.Greater(t, db.MemTableSize, 2*store.TargetBytesPerFlush, name)
+	}
 }

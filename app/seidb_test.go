@@ -139,6 +139,23 @@ func TestParseSCConfigs_FlatKVReadWriteMetrics(t *testing.T) {
 	assert.True(t, scConfig.FlatKVConfig.EnableReadWriteMetrics)
 }
 
+func TestParseSCConfigs_Ingress(t *testing.T) {
+	scConfig := parseSCConfigs(mapAppOpts{FlagSCEnable: true})
+	assert.Equal(t, config.DefaultStateCommitConfig().FlatKVConfig, scConfig.FlatKVConfig)
+	assert.False(t, scConfig.MemIAVLConfig.SnapshotKeepLatestOnly)
+
+	scConfig = parseSCConfigs(mapAppOpts{
+		FlagSCEnable:       true,
+		server.FlagIngress: "true",
+	})
+	want := config.DefaultStateCommitConfig().FlatKVConfig
+	want.ApplyLowFootprintProfile()
+	assert.Equal(t, want, scConfig.FlatKVConfig)
+	assert.True(t, scConfig.MemIAVLConfig.SnapshotKeepLatestOnly)
+	// The node keeps following the chain's migration.
+	assert.Equal(t, sctypes.Auto, scConfig.WriteMode)
+}
+
 func TestParseSCConfigs_DoesNotAlignFlatKV(t *testing.T) {
 	// parseSCConfigs is a raw parse: memIAVL takes the flag values while FlatKV
 	// keeps its own in-code defaults. The FlatKV<-memIAVL alignment happens later

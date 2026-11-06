@@ -23,6 +23,10 @@ type Config struct {
 	// Defaults to 1; a configured value of 0 is overridden to the default by FillDefaults.
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
+	// SnapshotKeepLatestOnly keeps no snapshot besides the latest, overriding SnapshotKeepRecent. It is set
+	// by the code that builds the config, not read from app.toml.
+	SnapshotKeepLatestOnly bool `mapstructure:"-"`
+
 	// SnapshotInterval defines the block interval the memiavl snapshot is taken, default to 10000.
 	SnapshotInterval uint32 `mapstructure:"snapshot-interval"`
 
@@ -54,5 +58,17 @@ func DefaultConfig() Config {
 		SnapshotPrefetchThreshold: DefaultSnapshotPrefetchThreshold,
 		SnapshotWriteRateMBps:     DefaultSnapshotWriteRateMBps,
 		SnapshotWriterLimit:       DefaultSnapshotWriterLimit,
+	}
+}
+
+// EffectiveSnapshotKeepRecent returns how many old snapshots, besides the latest, memIAVL keeps.
+func (c Config) EffectiveSnapshotKeepRecent() uint32 {
+	switch {
+	case c.SnapshotKeepLatestOnly:
+		return 0
+	case c.SnapshotKeepRecent == 0:
+		return DefaultSnapshotKeepRecent
+	default:
+		return c.SnapshotKeepRecent
 	}
 }

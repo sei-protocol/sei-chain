@@ -43,6 +43,17 @@ func TestAlignSSSnapshotWithSCHealsZeroToSCDefaults(t *testing.T) {
 	)
 }
 
+func TestAlignSSSnapshotWithSCMirrorsKeepLatestOnly(t *testing.T) {
+	scConfig := DefaultStateCommitConfig()
+	scConfig.MemIAVLConfig.SnapshotKeepLatestOnly = true
+	ssConfig := DefaultStateStoreConfig()
+	ssConfig.SnapshotEnable = true
+
+	AlignSSSnapshotWithSC(scConfig, &ssConfig)
+
+	require.Zero(t, ssConfig.SnapshotKeepRecent)
+}
+
 func TestDefaultStateStoreConfigDisablesSnapshots(t *testing.T) {
 	require.False(t, DefaultStateStoreConfig().SnapshotEnable,
 		"snapshots require an explicit ss-snapshot-enable opt-in")
