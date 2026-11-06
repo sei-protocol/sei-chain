@@ -91,7 +91,7 @@ type CompositeCommitStore struct {
 
 	// latticeAppendLatched is a sticky one-way flag: once it transitions
 	// to true, LastCommitInfo and WorkingCommitInfo unconditionally
-	// append the evm_lattice StoreInfo without consulting the on-disk
+	// append the lattice StoreInfo without consulting the on-disk
 	// migration metadata again. The flag protects the AppHash continuity
 	// invariant for a live MemiavlOnly -> MigrateEVM transition: while the
 	// migration boundary on flatkv is still NotStarted, the lattice must
@@ -1168,10 +1168,10 @@ func (cs *CompositeCommitStore) GetLatestVersion() (int64, error) {
 }
 
 // shouldAppendLatticeHash reports whether LastCommitInfo and
-// WorkingCommitInfo should append the synthetic evm_lattice StoreInfo to
+// WorkingCommitInfo should append the synthetic lattice StoreInfo to
 // the commit info.
 //
-// The composite store contributes an evm_lattice entry to every commit
+// The composite store contributes a lattice entry to every commit
 // info whenever the flatkv backend is participating in the AppHash. The
 // one exception is the brief NotStarted window of a live
 // MemiavlOnly -> MigrateEVM transition: between the time flatkv is
@@ -1274,16 +1274,33 @@ func migrationStarted(flatKV gigatypes.LiveStateStore) (bool, error) {
 	return false, nil
 }
 
-// appendEvmLatticeHash returns a new CommitInfo with the EVM lattice hash
-// appended, without mutating the original.
-func (cs *CompositeCommitStore) appendEvmLatticeHash(ci *proto.CommitInfo, evmHash []byte) *proto.CommitInfo {
+const (
+	// evmLatticeStoreInfoName is the commit-info name of flatKV's lattice hash in a commit info that also
+	// carries memiavl's per-store infos.
+	evmLatticeStoreInfoName = "evm_lattice"
+	// latticeHashStoreInfoName is the commit-info name of flatKV's lattice hash in a commit info without
+	// memiavl's per-store infos.
+	latticeHashStoreInfoName = "lattice_hash"
+)
+
+// appendLatticeHash returns a new CommitInfo with flatKV's lattice hash appended, without mutating the
+// original. memiavlIncluded reports whether ci carries memiavl's per-store infos, and selects the name of
+// the appended entry.
+func appendLatticeHash(ci *proto.CommitInfo, latticeHash []byte, memiavlIncluded bool) *proto.CommitInfo {
+	// The name is part of the AppHash leaf, and heights committed before MigrateCosmos completed carry
+	// evm_lattice. Keying it on the memiavl gate switches it in the same block that drops memiavl, and
+	// lets restart, rollback and state sync to those heights reproduce it.
+	name := latticeHashStoreInfoName
+	if memiavlIncluded {
+		name = evmLatticeStoreInfoName
+	}
 	combined := make([]proto.StoreInfo, len(ci.StoreInfos)+1)
 	copy(combined, ci.StoreInfos)
 	combined[len(combined)-1] = proto.StoreInfo{
-		Name: "evm_lattice",
+		Name: name,
 		CommitId: proto.CommitID{
 			Version: ci.Version,
-			Hash:    evmHash,
+			Hash:    latticeHash,
 		},
 	}
 	return &proto.CommitInfo{
@@ -1356,7 +1373,8 @@ func (cs *CompositeCommitStore) WorkingCommitInfo(version int64) *proto.CommitIn
 	}
 
 	var ci *proto.CommitInfo
-	if cs.shouldIncludeMemiavlInfos() {
+	memiavlIncluded := cs.shouldIncludeMemiavlInfos()
+	if memiavlIncluded {
 		ci = cs.memIAVL.WorkingCommitInfo(version)
 	} else {
 		ci = &proto.CommitInfo{
@@ -1372,7 +1390,7 @@ func (cs *CompositeCommitStore) WorkingCommitInfo(version int64) *proto.CommitIn
 			// and letting the chain proceed on a stale hash is the worse failure.
 			panic(fmt.Sprintf("composite: failed to obtain flatkv hash for block %d: %v", version, err))
 		}
-		return cs.appendEvmLatticeHash(ci, hash)
+		return appendLatticeHash(ci, hash, memiavlIncluded)
 	}
 
 	return ci
@@ -1424,7 +1442,8 @@ func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
 // It reports the failure to obtain flatKV's hash, which leaves the stored commit info untouched.
 func (cs *CompositeCommitStore) refreshLastCommitInfo() error {
 	var ci *proto.CommitInfo
-	if cs.shouldIncludeMemiavlInfos() {
+	memiavlIncluded := cs.shouldIncludeMemiavlInfos()
+	if memiavlIncluded {
 		ci = cs.memIAVL.LastCommitInfo()
 	} else {
 		ci = &proto.CommitInfo{
@@ -1437,7 +1456,7 @@ func (cs *CompositeCommitStore) refreshLastCommitInfo() error {
 		if err != nil {
 			return fmt.Errorf("obtain flatkv hash for block %d: %w", ci.Version, err)
 		}
-		ci = cs.appendEvmLatticeHash(ci, hash)
+		ci = appendLatticeHash(ci, hash, memiavlIncluded)
 	}
 	// Cloned because this is held until the next refresh, and memiavl's hashes point into a snapshot
 	// mapping it is free to drop before then.
