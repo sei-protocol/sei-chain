@@ -100,6 +100,15 @@ func finalizeAndCommitEVMOnlyTestBlock(t *testing.T, app abci.Application, req *
 	return response.AppHash
 }
 
+// requireEvmNonce settles in-flight commits, then asserts address's EvmNonce.
+func requireEvmNonce(t *testing.T, app abci.Application, address common.Address, want uint64) {
+	t.Helper()
+	settler, ok := app.(interface{ AwaitCommits() error })
+	require.True(t, ok)
+	require.NoError(t, settler.AwaitCommits())
+	require.Equal(t, want, app.EvmNonce(address))
+}
+
 // evmOnlyTestInitCode deploys a contract whose runtime code is the single
 // INVALID opcode 0xfe: PUSH1 0xfe, PUSH1 0, MSTORE8, PUSH1 1, PUSH1 0, RETURN.
 var evmOnlyTestInitCode = []byte{0x60, 0xfe, 0x60, 0x00, 0x53, 0x60, 0x01, 0x60, 0x00, 0xf3}
@@ -438,7 +447,7 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	_, err = app.Commit(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, int64(1), app.LastBlockHeight())
-	require.Equal(t, uint64(1), app.EvmNonce(sender))
+	requireEvmNonce(t, app, sender, 1)
 	wantBalance := new(big.Int).Sub(
 		new(big.Int).Sub(new(big.Int).Set(evmOnlyBaseBalance), big.NewInt(1)),
 		new(big.Int).Mul(big.NewInt(evmOnlyMinGasPrice), big.NewInt(response.TxResults[0].GasUsed)),
@@ -484,7 +493,7 @@ func TestEVMOnlyApplicationFinalizesBlocksWithoutReceiptStore(t *testing.T) {
 	_, err = app.Commit(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, int64(1), app.LastBlockHeight())
-	require.Equal(t, uint64(1), app.EvmNonce(sender))
+	requireEvmNonce(t, app, sender, 1)
 }
 
 func TestEVMOnlyApplicationRejectsWrongChain(t *testing.T) {
@@ -607,7 +616,7 @@ func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
 	require.Equal(t, uncheckedResponse.TxResults[0].GasUsed, checkedResponse.TxResults[0].GasUsed)
 	_, err = checked.Commit(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, uint64(1), checked.EvmNonce(sender))
+	requireEvmNonce(t, checked, sender, 1)
 }
 
 // CheckTx uses the sender recorded for a transaction before it arrived, instead of recovering it.
@@ -761,7 +770,7 @@ func TestEVMOnlyApplicationResumedAppSettlesItsCommits(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, resumed.settler.Load().IsPresent(), "a resumed app must publish its executor to the settler")
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1)))
-	require.Equal(t, uint64(2), app.EvmNonce(sender))
+	requireEvmNonce(t, app, sender, 2)
 }
 
 func TestEVMOnlyApplicationResumesFromBlockFinalizedButNotCommitted(t *testing.T) {
@@ -920,7 +929,7 @@ func TestEVMOnlyApplicationCommitsBlockWithStaleNonce(t *testing.T) {
 	_, err = app.Commit(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, int64(2), app.LastBlockHeight())
-	require.Equal(t, uint64(2), app.EvmNonce(sender))
+	requireEvmNonce(t, app, sender, 2)
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(3))
 }
 
@@ -1278,9 +1287,8 @@ func TestHashRawTxsMatchesKeccak256Hash(t *testing.T) {
 	}
 }
 
-// A block's state lands in the store behind FinalizeBlock. Readers of committed
-// state see it before Commit, and the next block builds on it whether or not
-// the store has caught up.
+// A block's state lands in the store behind FinalizeBlock. Once settled, readers see it before
+// Commit, and the next block builds on it whether or not the store has caught up.
 func TestEVMOnlyApplicationReadsSettleBehindFinalizeBlock(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	key, err := crypto.GenerateKey()
@@ -1293,7 +1301,7 @@ func TestEVMOnlyApplicationReadsSettleBehindFinalizeBlock(t *testing.T) {
 	for height := range int64(4) {
 		_, err := app.FinalizeBlock(t.Context(), block(height+1))
 		require.NoError(t, err)
-		require.Equal(t, uint64(height+1), app.EvmNonce(sender)) //nolint:gosec // G115: test heights are positive.
+		requireEvmNonce(t, app, sender, uint64(height+1)) //nolint:gosec // G115: test heights are positive.
 		require.Equal(t, height, app.LastBlockHeight())
 		_, err = app.Commit(t.Context())
 		require.NoError(t, err)
