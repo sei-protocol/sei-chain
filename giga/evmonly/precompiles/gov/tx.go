@@ -131,22 +131,24 @@ func (p Precompile) submitCancelSoftwareUpgradeProposal(ctx *precompiles.Context
 	return submit(ctx, s, method, content, content.IsExpedited)
 }
 
-// submit creates a proposal of content and returns its packed id.
+// submit creates a proposal of content and returns its packed id. It reverts
+// when content encodes to more than maxContentLength bytes.
 func submit(ctx *precompiles.Context, s store, method *abi.Method, content govContent, isExpedited bool) ([]byte, error) {
-	id, err := createProposal(ctx, s, content, isExpedited)
+	contentType, encoded := encodeContent(content)
+	if len(encoded) > maxContentLength {
+		return precompiles.Revert(fmt.Sprintf("%v: %d bytes encoded, max %d", errContentTooLong, len(encoded), maxContentLength))
+	}
+	id, err := createProposal(ctx, s, content, contentType, encoded, isExpedited)
 	if err != nil {
 		return nil, err
 	}
 	return method.Outputs.Pack(id)
 }
 
-// createProposal checks content, assigns the proposal an id, opens its deposit
-// period, and deposits the call's value on it.
-func createProposal(ctx *precompiles.Context, s store, content govContent, isExpedited bool) (uint64, error) {
-	contentType, encoded := encodeContent(content)
-	if len(encoded) > maxContentLength {
-		return 0, fmt.Errorf("%w: %d bytes encoded, max %d", errContentTooLong, len(encoded), maxContentLength)
-	}
+// createProposal checks content against state, assigns the proposal an id,
+// stores contentType and encoded as its content, opens its deposit period, and
+// deposits the call's value on it.
+func createProposal(ctx *precompiles.Context, s store, content govContent, contentType uint8, encoded []byte, isExpedited bool) (uint64, error) {
 	if err := content.validate(ctx.Block, s); err != nil {
 		return 0, err
 	}

@@ -4,10 +4,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
 )
 
@@ -93,6 +95,27 @@ func TestSoftwareUpgradeOfAnAppliedNameFails(t *testing.T) {
 
 	h.passID(id)
 	require.Equal(t, StatusFailed, h.status(id), "the name was applied while the proposal was voting")
+}
+
+func TestSoftwareUpgradeAcceptsEveryFieldAtItsLimit(t *testing.T) {
+	h := newHarness(t)
+	plan := upgradePlan{Name: strings.Repeat("v", upgrade.MaxNameLength), Height: 100, Info: strings.Repeat("i", upgrade.MaxInfoLength)}
+	_, err := h.call(alice, callOpts{}, SubmitSoftwareUpgradeMethod,
+		strings.Repeat("t", maxTitleLength), strings.Repeat("d", maxDescriptionLength), false, plan)
+	require.NoError(t, err)
+}
+
+func TestSubmitRevertsContentOverTheCap(t *testing.T) {
+	h := newHarness(t)
+	content := textContent{Title: "t", Description: strings.Repeat("d", maxContentLength)}
+	method := ABI.Methods[SubmitTextProposalMethod]
+	out, err := submit(&precompiles.Context{Caller: alice, Address: Address, Block: h.block(), State: h.state, Logs: h.state},
+		newStore(h.state), &method, content, false)
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+	reason, err := abi.UnpackRevert(out)
+	require.NoError(t, err)
+	require.Contains(t, reason, errContentTooLong.Error())
+	require.Zero(t, newStore(h.state).lastProposalID())
 }
 
 func TestSoftwareUpgradeRejectsAnInvalidPlan(t *testing.T) {
