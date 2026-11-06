@@ -47,7 +47,7 @@ func TestReadReceiptConfigEnable(t *testing.T) {
 }
 
 func TestReadReceiptConfigRewardPercentiles(t *testing.T) {
-	// Unset leaves it empty; the littidx backend applies receipt.DefaultRewardPercentiles itself.
+	// Unset leaves it empty; the littidx backend applies gigareceipt.DefaultRewardPercentiles itself.
 	cfg, err := ReadReceiptConfig(mapAppOpts{})
 	require.NoError(t, err)
 	require.Empty(t, cfg.RewardPercentiles)

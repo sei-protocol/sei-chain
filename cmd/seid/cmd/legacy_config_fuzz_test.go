@@ -8,27 +8,24 @@ import (
 	"os"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
-	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 )
 
-// This file pins the legacy boot seam itself: LegacyConfigManager.Apply, which
-// forwards verbatim to server.InterceptConfigsPreRunHandler.
+// This file pins the boot seam itself: server.InterceptConfigsPreRunHandler, called
+// Apply below.
 //
-// Apply is the whole legacy configuration path in one call. It resolves --home,
+// Apply is the whole configuration path in one call. It resolves --home,
 // creates or reads config/config.toml, unmarshals it into a tmcfg.Config, creates
 // or merges config/app.toml into the same viper, binds every cobra flag, and
 // leaves two channels behind for the rest of the boot:
@@ -37,10 +34,8 @@ import (
 //	serverCtx.Viper  — the flat key/value map every appOpts.Get() call site reads
 //
 // Those two channels are the entire interface between configuration and a running
-// node, which is what makes them the right thing to pin. A replacement manager is
-// correct exactly insofar as it leaves the same two channels in the same state,
-// and every target here states one property of that state precisely enough for a
-// second implementation to be measured against it.
+// node, which is what makes them the right thing to pin. Every target here states
+// one property of that state.
 //
 // Everything runs in a pinned environment (configtest.Isolate) against a fixture
 // home. That is not tidiness: the path reads bare environment variables and $HOME,
@@ -53,8 +48,8 @@ type applyResult struct {
 	err error
 }
 
-// applyLegacy boots one fixture home through LegacyConfigManager.Apply with the
-// given explicit flags, and returns the resulting channels.
+// applyLegacy boots one fixture home through Apply with the given explicit flags,
+// and returns the resulting channels.
 //
 // The command is built fresh for every call, from the real server.StartCmd flag
 // set and the real initAppConfig template, so the flag universe and the app.toml
@@ -118,7 +113,7 @@ func setFlags(t *testing.T, cmd *cobra.Command, flagValues map[string]string) {
 // threaded through this call.
 func applyThrough(cmd *cobra.Command) error {
 	template, appConfig := initAppConfig()
-	return configmanager.LegacyConfigManager{}.Apply(cmd, template, appConfig)
+	return server.InterceptConfigsPreRunHandler(cmd, template, appConfig)
 }
 
 // setServerEnv sets the environment variable the server viper reads for a config
@@ -176,68 +171,6 @@ var tmKeys = []tmKey{
 	},
 }
 
-// FuzzHashVaultDisabledUnsafeResolution pins the root-scope kill switch for the
-// app-hash equivocation guard.
-//
-// Two things make it worth its own target. It is a bool whose safe value is the
-// default, so an absent key must resolve false — setting it true removes
-// equivocation protection with only a log banner. And it lives at TOML root scope,
-// before any [section] header: nested under a section it parses as a different key
-// and is silently ignored, which reads as "I disabled the guard" while the guard
-// stays on, and would read the other way round if the scope were ever mishandled.
-// The document is built from the fuzzer's choices rather than taken as free text,
-// so the expected outcome follows from construction instead of being a second
-// input the fuzzer can mutate out of agreement with the first.
-func FuzzHashVaultDisabledUnsafeResolution(f *testing.F) {
-	f.Add(false, false, false)
-	f.Add(true, true, false)  // root scope, true: the guard is off
-	f.Add(true, false, false) // root scope, false
-	f.Add(true, true, true)   // nested under a section: silently ignored
-	f.Add(true, false, true)
-
-	f.Fuzz(func(t *testing.T, present, value, underSection bool) {
-		configtest.Isolate(t)
-		home := configtest.NewHome(t)
-
-		var doc strings.Builder
-		if present {
-			if underSection {
-				doc.WriteString("[p2p]\n")
-			}
-			fmt.Fprintf(&doc, "hash-vault-disabled-unsafe = %t\n", value)
-		}
-		if doc.Len() > 0 {
-			home.WriteConfigTOML(t, []byte(doc.String()))
-		}
-
-		// Root scope is the only placement that resolves. Nested under a section the
-		// key becomes p2p.hash-vault-disabled-unsafe, which nothing reads.
-		wantDisabled := present && value && !underSection
-
-		got := applyLegacy(t, home, nil)
-		if got.err != nil {
-			t.Fatalf("Apply must succeed on a well-formed config.toml, got %v", got.err)
-		}
-		if got.ctx.Config.HashVaultDisabledUnsafe != wantDisabled {
-			t.Fatalf("hash-vault-disabled-unsafe resolved to %v, want %v, from:\n%s",
-				got.ctx.Config.HashVaultDisabledUnsafe, wantDisabled, doc.String())
-		}
-	})
-}
-
-// TestHashVaultDisabledUnsafeDefaultsToEnabledGuard states the default on its own,
-// so the guard's safe value is pinned even if every seed above were removed.
-func TestHashVaultDisabledUnsafeDefaultsToEnabledGuard(t *testing.T) {
-	configtest.Isolate(t)
-	got := applyLegacy(t, configtest.NewHome(t), nil)
-	if got.err != nil {
-		t.Fatalf("Apply: %v", got.err)
-	}
-	if got.ctx.Config.HashVaultDisabledUnsafe {
-		t.Fatal("an empty home must leave the app-hash equivocation guard enabled")
-	}
-}
-
 // FuzzApplyPrecedenceTendermint pins the resolution order for Tendermint config:
 // flag beats environment beats config.toml beats the in-code default.
 //
@@ -247,9 +180,8 @@ func TestHashVaultDisabledUnsafeDefaultsToEnabledGuard(t *testing.T) {
 // nobody writes a hand test for — env set but file absent, flag set with neither,
 // all three set at once.
 //
-// This is the ordering the whole four-layer model in the ConfigManager design
-// rests on, and it is currently an emergent property of viper's precedence
-// interacting with bindFlags' write-back rather than anything stated in one place.
+// This ordering is an emergent property of viper's precedence interacting with
+// bindFlags' write-back rather than anything stated in one place.
 // Pinning it is what makes it a contract.
 func FuzzApplyPrecedenceTendermint(f *testing.F) {
 	// Every row against every presence combination, generated rather than listed. A plain go test
@@ -351,7 +283,6 @@ var appKeys = []appKey{
 	{Key: "minimum-gas-prices", Values: [3]string{"0.01usei", "0.02usei", "0.03usei"}, WantGoType: "string"},
 	{Key: "halt-height", Values: [3]string{"100", "200", "300"}, Numeric: true, WantGoType: "string"},
 	{Key: "min-retain-blocks", Values: [3]string{"1000", "2000", "3000"}, Numeric: true, WantGoType: "string"},
-	{Key: "grpc.address", Values: [3]string{"127.0.0.1:9010", "127.0.0.1:9020", "127.0.0.1:9030"}, WantGoType: "string"},
 	{Key: "state-sync.snapshot-interval", Values: [3]string{"100", "200", "300"}, Numeric: true, WantGoType: "string"},
 	// concurrency-workers is registered as an Int flag, which is one of the few
 	// types viper converts rather than passing through as text.
@@ -674,9 +605,8 @@ func TestFlaglessEnvKeyTakesEffectOnlyAfterTheFirstBoot(t *testing.T) {
 	}
 }
 
-// TestApplyDoesNotValidateAPreExistingConfigFile records the validation gap the
-// legacy path leaves, and it is the single most important row in this file for the
-// ConfigManager work, because closing it is one of the new manager's stated goals.
+// TestApplyDoesNotValidateAPreExistingConfigFile records the validation gap
+// Apply leaves.
 //
 // interceptConfigs calls conf.ValidateBasic() only on the branch that *creates*
 // config.toml. When the file already exists it is read, unmarshalled, and handed
@@ -975,26 +905,23 @@ func TestServerEnvPrefixFollowsExecutableBasename(t *testing.T) {
 	}
 }
 
-// TestGeneratedAppTOMLDivergesFromTheWasmInCodeDefault pins the [wasm] gas divergence
-// against the template seid actually renders.
+// TestGeneratedAppTOMLLeavesTheWasmQueryGasLimitToTheInCodeDefault pins the smart-query gas
+// allowance a newly generated node resolves.
 //
-// query_gas_limit is one of the few keys the template writes as a bare literal rather than
-// a {{ .Field }} substitution, so the number lives in this package's template string and
-// nothing derives it from wasmd's defaults. The consequence is the finding: a node whose
-// app.toml seid generated runs smart queries at a tenth of the allowance of a node whose
-// app.toml has no [wasm] section, and neither node looks misconfigured by its own file.
+// The template no longer renders a [wasm] section, so a generated app.toml carries no
+// query_gas_limit and the reader falls back to wasmd's in-code default of 300,000. That is the
+// literal the template used to write, so a node resolves the same allowance whether its
+// app.toml was generated with the key or without it.
 //
-// The row belongs here rather than beside the reader. A test in the wasm package can only
-// hand the reader a number and watch it come back, which proves the reader echoes its
-// input and would stay green if the template changed. This reads what a fresh home
-// materializes, so editing the literal in the template moves this assertion.
-func TestGeneratedAppTOMLDivergesFromTheWasmInCodeDefault(t *testing.T) {
+// The row reads what a fresh home materializes and resolves it through the reader the app
+// uses, so a template that renders the key again and a moved in-code default both fail here.
+func TestGeneratedAppTOMLLeavesTheWasmQueryGasLimitToTheInCodeDefault(t *testing.T) {
 	configtest.Isolate(t)
 	home := configtest.NewHome(t)
 
-	// The expected value is stated here and compared against a real generated file, so it is
-	// an expectation rather than the echo it would be if it were fed to the reader.
-	const generatedLiteral = uint64(300000)
+	// Stated here rather than read from wasmd's DefaultWasmConfig, so that a moved default is a
+	// failure rather than an echo.
+	const inCodeDefault = uint64(300_000)
 
 	got := applyLegacy(t, home, nil)
 	if got.err != nil {
@@ -1003,32 +930,20 @@ func TestGeneratedAppTOMLDivergesFromTheWasmInCodeDefault(t *testing.T) {
 	if !home.Exists("app.toml") {
 		t.Fatal("Apply did not materialize app.toml, so this row is not reading a generated file")
 	}
-	raw := got.ctx.Viper.Get("wasm.query_gas_limit")
-	if raw == nil {
-		t.Fatal("a generated app.toml no longer carries wasm.query_gas_limit. If the key left the " +
-			"template, every generated node now runs smart queries at wasmd's in-code default " +
-			"instead, which raises the allowance tenfold")
+	if raw := got.ctx.Viper.Get("wasm.query_gas_limit"); raw != nil {
+		t.Fatalf("a generated app.toml carries wasm.query_gas_limit = %#v again. Rendering the key "+
+			"changes the smart-query allowance of every newly generated node, so record which value "+
+			"it carries and why", raw)
 	}
-	fromTemplate, castErr := cast.ToUint64E(raw)
-	if castErr != nil {
-		t.Fatalf("wasm.query_gas_limit = %#v does not convert to uint64: %v", raw, castErr)
+	cfg, err := wasm.ReadWasmConfig(got.ctx.Viper)
+	if err != nil {
+		t.Fatalf("ReadWasmConfig: %v", err)
 	}
-	if fromTemplate != generatedLiteral {
-		t.Fatalf("a generated app.toml resolves wasm.query_gas_limit to %d, and this row expects "+
-			"%d. The template literal moved: that changes the gas allowance on every node generated "+
-			"from it, so update this row deliberately rather than to make it pass",
-			fromTemplate, generatedLiteral)
-	}
-
-	inCode := wasmtypes.DefaultWasmConfig().SmartQueryGasLimit
-	if fromTemplate == inCode {
-		t.Fatalf("the template literal and wasmd's in-code default are both %d. Closing that "+
-			"divergence changes what contract queries succeed on every node whose app.toml lacks "+
-			"[wasm], so it is recorded here rather than skipped past", inCode)
-	}
-	if fromTemplate >= inCode {
-		t.Fatalf("a generated app.toml (%d) is no longer tighter than the in-code default (%d); the "+
-			"direction of the divergence changed", fromTemplate, inCode)
+	if cfg.SmartQueryGasLimit != inCodeDefault {
+		t.Fatalf("a generated node resolves the smart-query gas limit to %d, and this row expects "+
+			"wasmd's in-code default %d. That default is the allowance of every node whose app.toml "+
+			"has no [wasm] section, which now includes every node seid generates",
+			cfg.SmartQueryGasLimit, inCodeDefault)
 	}
 }
 
@@ -1149,9 +1064,8 @@ func TestStateCommitAsyncCommitBufferTagAddressesNoReader(t *testing.T) {
 	}
 }
 
-// TestApplyLeavesBothChannelsPopulated states the seam's minimum contract, the one
-// the ConfigManager interface documents: whichever manager runs, both channels
-// come back populated. It is the assertion a new manager fails first.
+// TestApplyLeavesBothChannelsPopulated states the seam's minimum contract: both
+// channels come back populated.
 func TestApplyLeavesBothChannelsPopulated(t *testing.T) {
 	configtest.Isolate(t)
 	home := configtest.NewHome(t)

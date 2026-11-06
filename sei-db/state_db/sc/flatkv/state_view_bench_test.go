@@ -32,7 +32,7 @@ func benchView(b *testing.B) (gigatypes.StateView, gigatypes.Address) {
 		Key:   keys.BuildEVMKey(keys.EVMKeyBalance, addr[:]),
 		Value: padLeft32(0x05),
 	})
-	require.NoError(b, s.CommitStateChanges(1, []*proto.NamedChangeSet{cs}))
+	require.NoError(b, commitChangeSets(s, 1, []*proto.NamedChangeSet{cs}))
 	v := s.OpenView()
 	b.Cleanup(v.Close)
 	return v, gigaAddr(addr)

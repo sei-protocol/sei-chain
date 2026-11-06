@@ -309,7 +309,7 @@ func EvmCheckAndChargeFees(ctx sdk.Context, sender common.Address, ek *evmkeeper
 		return nil, err
 	}
 	txCtx := core.NewEVMTxContext(emsg)
-	evmInstance := vm.NewEVMWithCustomPrecompiles(*blockCtx, stateDB, ethCfg, vm.Config{}, ek.CustomPrecompiles(ctx))
+	evmInstance := vm.NewEVMWithCustomPrecompiles(*blockCtx, stateDB, ethCfg, vm.Config{}, ek.CustomPrecompiles())
 	evmInstance.SetTxContext(txCtx)
 	st := core.NewStateTransition(evmInstance, emsg, gp, true, false)
 	if statelessChecks {

@@ -45,10 +45,7 @@ func (h *EVMQueryHandler) HandleStaticCall(ctx sdk.Context, from string, to stri
 }
 
 func (h *EVMQueryHandler) HandleERC20TransferPayload(ctx sdk.Context, recipient string, amount *sdk.Int) ([]byte, error) {
-	abi, err := native.NativeMetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := native.GetParsedABI()
 	evmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(recipient))
 	if !found {
 		return nil, types.NewAssociationMissingErr(recipient)
@@ -67,10 +64,7 @@ func (h *EVMQueryHandler) HandleERC20TokenInfo(ctx sdk.Context, contractAddress 
 		return nil, err
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := native.NativeMetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := native.GetParsedABI()
 	response := bindings.ERC20TokenInfoResponse{}
 
 	bz, err := abi.Pack("totalSupply")
@@ -143,10 +137,7 @@ func (h *EVMQueryHandler) HandleERC20Balance(ctx sdk.Context, contractAddress st
 		return nil, types.NewAssociationMissingErr(addr.String())
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := native.NativeMetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := native.GetParsedABI()
 
 	bz, err := abi.Pack("balanceOf", evmAddr)
 	if err != nil {
@@ -170,10 +161,7 @@ func (h *EVMQueryHandler) HandleERC721Owner(ctx sdk.Context, caller string, cont
 		return nil, err
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := cw721.Cw721MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw721.GetParsedABI()
 	t, ok := sdk.NewIntFromString(tokenId)
 	if !ok {
 		return nil, errors.New("invalid token ID for ERC721, must be a big Int")
@@ -200,10 +188,7 @@ func (h *EVMQueryHandler) HandleERC721Owner(ctx sdk.Context, caller string, cont
 }
 
 func (h *EVMQueryHandler) HandleERC721TransferPayload(ctx sdk.Context, from string, recipient string, tokenId string) ([]byte, error) {
-	abi, err := cw721.Cw721MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw721.GetParsedABI()
 	fromEvmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(from))
 	if !found {
 		return nil, types.NewAssociationMissingErr(from)
@@ -234,10 +219,7 @@ func (h *EVMQueryHandler) HandleERC721ApprovePayload(ctx sdk.Context, spender st
 		}
 		spenderEvmAddr = evmAddr
 	}
-	abi, err := cw721.Cw721MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw721.GetParsedABI()
 	t, ok := sdk.NewIntFromString(tokenId)
 	if !ok {
 		return nil, errors.New("invalid token ID for ERC721, must be a big Int")
@@ -255,10 +237,7 @@ func (h *EVMQueryHandler) HandleERC721SetApprovalAllPayload(ctx sdk.Context, to 
 	if !found {
 		return nil, types.NewAssociationMissingErr(to)
 	}
-	abi, err := cw721.Cw721MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw721.GetParsedABI()
 	bz, err := abi.Pack("setApprovalForAll", evmAddr, approved)
 	if err != nil {
 		return nil, err
@@ -268,10 +247,7 @@ func (h *EVMQueryHandler) HandleERC721SetApprovalAllPayload(ctx sdk.Context, to 
 }
 
 func (h *EVMQueryHandler) HandleERC20TransferFromPayload(ctx sdk.Context, owner string, recipient string, amount *sdk.Int) ([]byte, error) {
-	abi, err := native.NativeMetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := native.GetParsedABI()
 	ownerEvmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(owner))
 	if !found {
 		return nil, types.NewAssociationMissingErr(owner)
@@ -289,10 +265,7 @@ func (h *EVMQueryHandler) HandleERC20TransferFromPayload(ctx sdk.Context, owner 
 }
 
 func (h *EVMQueryHandler) HandleERC20ApprovePayload(ctx sdk.Context, spender string, amount *sdk.Int) ([]byte, error) {
-	abi, err := native.NativeMetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := native.GetParsedABI()
 	spenderEvmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(spender))
 	if !found {
 		return nil, types.NewAssociationMissingErr(spender)
@@ -325,10 +298,7 @@ func (h *EVMQueryHandler) HandleERC20Allowance(ctx sdk.Context, contractAddress 
 
 	// Fetch the contract ABI
 	contract := common.HexToAddress(contractAddress)
-	abi, err := native.NativeMetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := native.GetParsedABI()
 
 	// Make the query to allowance(owner, spender)
 	bz, err := abi.Pack("allowance", ownerEvmAddr, spenderEvmAddr)
@@ -357,10 +327,7 @@ func (h *EVMQueryHandler) HandleERC721Approved(ctx sdk.Context, caller string, c
 		return nil, err
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := cw721.Cw721MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw721.GetParsedABI()
 	t, ok := sdk.NewIntFromString(tokenId)
 	if !ok {
 		return nil, errors.New("invalid token ID for ERC721, must be a big Int")
@@ -400,10 +367,7 @@ func (h *EVMQueryHandler) HandleERC721IsApprovedForAll(ctx sdk.Context, caller s
 		return nil, types.NewAssociationMissingErr(operator)
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := cw721.Cw721MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw721.GetParsedABI()
 	bz, err := abi.Pack("isApprovedForAll", ownerEvmAddr, operatorEvmAddr)
 	if err != nil {
 		return nil, err
@@ -426,10 +390,7 @@ func (h *EVMQueryHandler) HandleERC721TotalSupply(ctx sdk.Context, caller string
 		return nil, err
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := cw721.Cw721MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw721.GetParsedABI()
 	bz, err := abi.Pack("totalSupply")
 	if err != nil {
 		return nil, err
@@ -453,10 +414,7 @@ func (h *EVMQueryHandler) HandleERC721NameSymbol(ctx sdk.Context, caller string,
 		return nil, err
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := cw721.Cw721MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw721.GetParsedABI()
 	bz, err := abi.Pack("name")
 	if err != nil {
 		return nil, err
@@ -497,10 +455,7 @@ func (h *EVMQueryHandler) HandleERC721Uri(ctx sdk.Context, caller string, contra
 		return nil, errors.New("invalid token ID for ERC721, must be a big Int")
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := cw721.Cw721MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw721.GetParsedABI()
 	bz, err := abi.Pack("tokenURI", t.BigInt())
 	if err != nil {
 		return nil, err
@@ -527,10 +482,7 @@ func (h *EVMQueryHandler) HandleERC721RoyaltyInfo(ctx sdk.Context, caller string
 		return nil, errors.New("invalid token ID for ERC721, must be a big Int")
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := cw721.Cw721MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw721.GetParsedABI()
 	bz, err := abi.Pack("royaltyInfo", t.BigInt(), salePrice.BigInt())
 	if err != nil {
 		return nil, err
@@ -555,10 +507,7 @@ func (h *EVMQueryHandler) HandleERC721RoyaltyInfo(ctx sdk.Context, caller string
 }
 
 func (h *EVMQueryHandler) HandleERC1155TransferPayload(ctx sdk.Context, from string, recipient string, tokenId string, amount *sdk.Int) ([]byte, error) {
-	abi, err := cw1155.Cw1155MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw1155.GetParsedABI()
 	fromEvmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(from))
 	if !found {
 		return nil, types.NewAssociationMissingErr(from)
@@ -580,10 +529,7 @@ func (h *EVMQueryHandler) HandleERC1155TransferPayload(ctx sdk.Context, from str
 }
 
 func (h *EVMQueryHandler) HandleERC1155BatchTransferPayload(ctx sdk.Context, from string, recipient string, tokenIds []string, amounts []*sdk.Int) ([]byte, error) {
-	abi, err := cw1155.Cw1155MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw1155.GetParsedABI()
 	if len(tokenIds) != len(amounts) {
 		return nil, errors.New("mismatched argument lengths for tokenIds and amounts")
 	}
@@ -620,10 +566,7 @@ func (h *EVMQueryHandler) HandleERC1155SetApprovalAllPayload(ctx sdk.Context, to
 	if !found {
 		return nil, types.NewAssociationMissingErr(to)
 	}
-	abi, err := cw1155.Cw1155MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw1155.GetParsedABI()
 	bz, err := abi.Pack("setApprovalForAll", evmAddr, approved)
 	if err != nil {
 		return nil, err
@@ -646,10 +589,7 @@ func (h *EVMQueryHandler) HandleERC1155IsApprovedForAll(ctx sdk.Context, caller 
 		return nil, types.NewAssociationMissingErr(operator)
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := cw1155.Cw1155MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw1155.GetParsedABI()
 	bz, err := abi.Pack("isApprovedForAll", ownerEvmAddr, operatorEvmAddr)
 	if err != nil {
 		return nil, err
@@ -671,10 +611,7 @@ func (h *EVMQueryHandler) HandleERC1155BalanceOf(ctx sdk.Context, caller string,
 	if err != nil {
 		return nil, err
 	}
-	abi, err := cw1155.Cw1155MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw1155.GetParsedABI()
 	addr, err := sdk.AccAddressFromBech32(account)
 	if err != nil {
 		return nil, err
@@ -713,10 +650,7 @@ func (h *EVMQueryHandler) HandleERC1155BalanceOfBatch(ctx sdk.Context, caller st
 	if err != nil {
 		return nil, err
 	}
-	abi, err := cw1155.Cw1155MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw1155.GetParsedABI()
 	contract := common.HexToAddress(contractAddress)
 
 	var evmAddrs []common.Address
@@ -772,10 +706,7 @@ func (h *EVMQueryHandler) HandleERC1155Uri(ctx sdk.Context, caller string, contr
 		return nil, errors.New("invalid token ID for ERC1155, must be a big Int")
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := cw1155.Cw1155MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw1155.GetParsedABI()
 	bz, err := abi.Pack("uri", t.BigInt())
 	if err != nil {
 		return nil, err
@@ -798,10 +729,7 @@ func (h *EVMQueryHandler) HandleERC1155TotalSupply(ctx sdk.Context, caller strin
 		return nil, err
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := cw1155.Cw1155MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw1155.GetParsedABI()
 	bz, err := abi.Pack("totalSupply")
 	if err != nil {
 		return nil, err
@@ -829,10 +757,7 @@ func (h *EVMQueryHandler) HandleERC1155TotalSupplyForToken(ctx sdk.Context, call
 		return nil, errors.New("invalid token ID for ERC1155, must be a big Int")
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := cw1155.Cw1155MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw1155.GetParsedABI()
 	bz, err := abi.Pack("totalSupply0", t.BigInt())
 	if err != nil {
 		return nil, err
@@ -860,10 +785,7 @@ func (h *EVMQueryHandler) HandleERC1155TokenExists(ctx sdk.Context, caller strin
 		return nil, errors.New("invalid token ID for ERC1155, must be a big Int")
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := cw1155.Cw1155MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw1155.GetParsedABI()
 	bz, err := abi.Pack("exists", t.BigInt())
 	if err != nil {
 		return nil, err
@@ -886,10 +808,7 @@ func (h *EVMQueryHandler) HandleERC1155NameSymbol(ctx sdk.Context, caller string
 		return nil, err
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := cw1155.Cw1155MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw1155.GetParsedABI()
 	bz, err := abi.Pack("name")
 	if err != nil {
 		return nil, err
@@ -930,10 +849,7 @@ func (h *EVMQueryHandler) HandleERC1155RoyaltyInfo(ctx sdk.Context, caller strin
 		return nil, errors.New("invalid token ID for ERC1155, must be a big Int")
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := cw1155.Cw1155MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw1155.GetParsedABI()
 	bz, err := abi.Pack("royaltyInfo", t.BigInt(), salePrice.BigInt())
 	if err != nil {
 		return nil, err
@@ -963,10 +879,7 @@ func (h *EVMQueryHandler) HandleSupportsInterface(ctx sdk.Context, caller string
 		return nil, err
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := cw721.Cw721MetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	abi := cw721.GetParsedABI()
 	aid := [4]byte{}
 	idbz, err := hex.DecodeString(strings.TrimPrefix(id, "0x"))
 	if err != nil {

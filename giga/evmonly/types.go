@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -51,9 +52,17 @@ type BlockRequest struct {
 	Senders []utils.Option[common.Address]
 }
 
-// PreparedBlock contains decoded transactions with recovered senders. It is a
-// trusted executor-produced value: ExecutePreparedBlock assumes callers pass the
-// result of PrepareBlock unchanged and does not recover senders again.
+// DecodedBlock is a block whose transactions are decoded and validated but whose senders are not
+// yet resolved. Only DecodeBlock builds one.
+type DecodedBlock struct {
+	context BlockContext
+	txs     []*ethtypes.Transaction
+	// senders is either empty or aligned with txs.
+	senders []utils.Option[common.Address]
+}
+
+// PreparedBlock contains decoded transactions with recovered senders, as returned by PrepareBlock
+// or RecoverSenders. ExecutePreparedBlock trusts it unchanged and does not recover senders again.
 type PreparedBlock struct {
 	Context BlockContext
 	Txs     []PreparedTx
@@ -82,6 +91,8 @@ type BlockContext struct {
 
 // BlockResult is the executor output consumed by the new runtime boundary.
 type BlockResult struct {
+	// The block's state changes. Never modified once the block has executed, so a holder may keep it
+	// after the result is released.
 	ChangeSet StateChangeSet
 	Txs       []TxResult
 	Receipts  ethtypes.Receipts
@@ -144,39 +155,13 @@ type BlockResultPoolStats struct {
 	OverflowAllocations uint64
 }
 
-// StateChangeSet is the deterministic EVM-native state output for a block.
-// Values are post-block values, not deltas. Store-specific encoders must retain
-// StorageClears as prefix-clear operations and apply them before Storage.
-type StateChangeSet struct {
-	Balances      []BalanceChange
-	Nonces        []NonceChange
-	Code          []CodeChange
-	StorageClears []common.Address
-	Storage       []StorageChange
-}
-
-type BalanceChange struct {
-	Address common.Address
-	Balance *big.Int
-}
-
-type NonceChange struct {
-	Address common.Address
-	Nonce   uint64
-}
-
-type CodeChange struct {
-	Address common.Address
-	Code    []byte
-	Delete  bool
-}
-
-type StorageChange struct {
-	Address common.Address
-	Key     common.Hash
-	Value   common.Hash
-	Delete  bool
-}
+// StateChangeSet and its entry types are shared with the state store.
+type (
+	StateChangeSet = gigatypes.StateChangeSet
+	AccountState   = gigatypes.AccountState
+	AccountChange  = gigatypes.AccountChange
+	StorageChange  = gigatypes.StorageChange
+)
 
 // TxResult is the minimum per-transaction output needed for receipts, RPC, and
 // runtime result reporting.

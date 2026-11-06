@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,8 +67,6 @@ import (
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/sei-protocol/seilog"
 
-	"github.com/gorilla/mux"
-	"github.com/rakyll/statik/fs"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
@@ -80,15 +77,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmclient "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/client"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
-
-	// unnamed import of statik for swagger UI support
-	_ "github.com/sei-protocol/sei-chain/sei-cosmos/client/docs/statik"
 )
 
-const (
-	appName              = "WasmApp"
-	feegrantStoreKeyName = "feegrant"
-)
+const appName = "WasmApp"
 
 // We pull these out so we can set them with LDFLAGS in the Makefile
 var (
@@ -255,7 +246,7 @@ func NewWasmApp(
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey, upgradetypes.StoreKey,
 		evidencetypes.StoreKey,
-		feegrantStoreKeyName, authzkeeper.StoreKey, wasm.StoreKey,
+		authzkeeper.StoreKey, wasm.StoreKey,
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
 	memKeys := sdk.NewMemoryStoreKeys(banktypes.DeferredCacheStoreKey)
@@ -378,7 +369,7 @@ func NewWasmApp(
 		app.stakingKeeper,
 		app.distrKeeper,
 		app.MsgServiceRouter(),
-		app.GRPCQueryRouter(),
+		app.QueryServiceRouter(),
 		wasmDir,
 		wasmConfig,
 		supportedFeatures,
@@ -450,7 +441,7 @@ func NewWasmApp(
 
 	app.mm.RegisterRoutes(app.Router(), app.QueryRouter(), encodingConfig.Amino)
 
-	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter())
+	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.QueryServiceRouter())
 	app.mm.RegisterServices(app.configurator)
 
 	// initialize stores
@@ -641,24 +632,19 @@ func (app *WasmApp) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APICo
 	// Register legacy tx routes.
 	authrest.RegisterTxRoutes(clientCtx, apiSvr.Router)
 	// Register new tx routes from grpc-gateway.
-	authtx.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+	authtx.RegisterGatewayRoutes(clientCtx, apiSvr.GatewayRouter)
 	// Register new tendermint queries routes from grpc-gateway.
-	tmservice.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+	tmservice.RegisterGatewayRoutes(clientCtx, apiSvr.GatewayRouter)
 
 	// Register legacy and grpc-gateway routes for all modules.
 	ModuleBasics.RegisterRESTRoutes(clientCtx, apiSvr.Router)
-	ModuleBasics.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
-
-	// register swagger API from root so that other applications can override easily
-	if apiConfig.Swagger {
-		RegisterSwaggerAPI(apiSvr.Router)
-	}
+	ModuleBasics.RegisterGatewayRoutes(clientCtx, apiSvr.GatewayRouter)
 }
 
 // RegisterTxService implements the Application.RegisterLocalServices method.
 func (app *WasmApp) RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig) {
-	authtx.RegisterTxService(app.GRPCQueryRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
-	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), node, app.interfaceRegistry)
+	authtx.RegisterTxService(app.QueryServiceRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
+	tmservice.RegisterTendermintService(app.QueryServiceRouter(), node, app.interfaceRegistry)
 }
 
 func (app *WasmApp) AppCodec() codec.Codec {
@@ -675,17 +661,6 @@ func (app *WasmApp) GetSlashingKeeper() *slashingkeeper.Keeper {
 
 func (app *WasmApp) GetEvidenceKeeper() *evidencekeeper.Keeper {
 	return &app.evidenceKeeper
-}
-
-// RegisterSwaggerAPI registers swagger route with API Server
-func RegisterSwaggerAPI(rtr *mux.Router) {
-	statikFS, err := fs.New()
-	if err != nil {
-		panic(err)
-	}
-
-	staticServer := http.FileServer(statikFS)
-	rtr.PathPrefix("/swagger/").Handler(http.StripPrefix("/swagger/", staticServer))
 }
 
 // GetMaccPerms returns a copy of the module account permissions

@@ -3,29 +3,28 @@
     # Get admin addr
     - cmd: printf "12345678\n" | seid keys list --output json | jq ".[] | select (.name==\"admin\")" | jq -r .address
       env: ADMIN_ADDR
-    # MSG type "/seiprotocol.seichain.tokenfactory.MsgCreateDenom"
-    # create new grantee addr
-    - cmd: printf "12345678\ny\n" | seid keys add grantee --output json | jq -r ".address"
+    # create a grantee of its own, so this generic grant does not replace the send authorization test's grant
+    - cmd: printf "12345678\ny\n" | seid keys add generic-grantee --output json | jq -r ".address"
       env: GRANTEE_ADDR
+    # create the recipient of the send the grantee executes
+    - cmd: printf "12345678\ny\n" | seid keys add generic-recipient --output json | jq -r ".address"
+      env: RECIPIENT_ADDR
     # send some funds to grantee for gas
     - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait admin bank send admin $GRANTEE_ADDR 1sei --fees 2000usei
-    # create an authz grant for tokenfactory create denom
-    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait admin authz grant $GRANTEE_ADDR generic --msg-type "/seiprotocol.seichain.tokenfactory.MsgCreateDenom" --fees 2000usei
-    - cmd: uuidgen
-      env: TF_UUID
-    # create TF create-denom tx and write to json
-    - cmd: printf "12345678\n" | seid tx tokenfactory create-denom $TF_UUID --from $ADMIN_ADDR --generate-only > create_denom_tx.json
+    # create a generic authz grant for bank send
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait admin authz grant $GRANTEE_ADDR generic --msg-type "/cosmos.bank.v1beta1.MsgSend" --fees 2000usei
+    # generate a bank send from admin and write it to json
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $RECIPIENT_ADDR 3sei --generate-only > generic_send_tx.json
     # execute the authz tx - we want to validate that this succeeds with code 0
-    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait $GRANTEE_ADDR authz exec create_denom_tx.json --fees 2000usei
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait $GRANTEE_ADDR authz exec generic_send_tx.json --fees 2000usei
       env: AUTHZ_1_ERROR_CODE
-    # verify that the denom exists
-    - cmd: seid q tokenfactory denom-authority-metadata factory/$ADMIN_ADDR/$TF_UUID --output json | jq -r ".authority_metadata.admin"
-      env: TF_ADMIN
-    # verify that the admin is ADMIN_ADDR
+    # query the recipient's balance to validate the send was executed on admin's behalf
+    - cmd: seid q bank balances $RECIPIENT_ADDR --denom usei --output json | jq -r ".amount"
+      env: RECIPIENT_BALANCE
   verifiers:
-    # verify that error code == 0 for first authz exec
+    # verify that error code == 0 for the authz exec
     - type: eval
       expr: AUTHZ_1_ERROR_CODE == 0
-    # verify TF metadata is correct
+    # verify that the recipient holds the 3 sei the grantee sent
     - type: eval
-      expr: TF_ADMIN == ADMIN_ADDR
+      expr: RECIPIENT_BALANCE == 3000000

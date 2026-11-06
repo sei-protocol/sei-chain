@@ -81,17 +81,17 @@ func TestIsGenesisBlockRequest(t *testing.T) {
 func TestComputeBlockBoundsClampsEarliest(t *testing.T) {
 	const latest, floor = int64(1000), int64(500)
 	for _, from := range []*big.Int{big.NewInt(0), big.NewInt(rpc.EarliestBlockNumber.Int64())} {
-		begin, end, err := ComputeBlockBounds(latest, floor, 0, filters.FilterCriteria{FromBlock: from, ToBlock: big.NewInt(rpc.LatestBlockNumber.Int64())})
+		begin, end, err := ComputeBlockBounds(latest, floor, filters.FilterCriteria{FromBlock: from, ToBlock: big.NewInt(rpc.LatestBlockNumber.Int64())})
 		require.NoError(t, err)
 		require.Equal(t, floor, begin)
 		require.Equal(t, latest, end)
 	}
-	begin, end, err := ComputeBlockBounds(latest, floor, 0, filters.FilterCriteria{FromBlock: big.NewInt(0), ToBlock: big.NewInt(rpc.EarliestBlockNumber.Int64())})
+	begin, end, err := ComputeBlockBounds(latest, floor, filters.FilterCriteria{FromBlock: big.NewInt(0), ToBlock: big.NewInt(rpc.EarliestBlockNumber.Int64())})
 	require.NoError(t, err)
 	require.Equal(t, floor, begin)
 	require.Equal(t, floor, end)
 
-	_, _, err = ComputeBlockBounds(latest, floor, 0, filters.FilterCriteria{FromBlock: big.NewInt(100)})
+	_, _, err = ComputeBlockBounds(latest, floor, filters.FilterCriteria{FromBlock: big.NewInt(100)})
 	require.ErrorContains(t, err, "before earliest available block 500")
 }
 
@@ -107,7 +107,7 @@ func TestFetchBlocksByCritClampsEarliestToReceiptFloor(t *testing.T) {
 	}
 	crit := filters.FilterCriteria{FromBlock: big.NewInt(rpc.EarliestBlockNumber.Int64()), ToBlock: big.NewInt(10)}
 
-	blocks, _, err := fetcher.fetchBlocksByCrit(context.Background(), crit, 0, nil)
+	blocks, _, err := fetcher.fetchBlocksByCrit(context.Background(), crit, nil)
 	require.NoError(t, err)
 	var heights []int64
 	for b := range blocks {
@@ -147,9 +147,9 @@ func TestGetLogsReturnsEarliestFloorLookupError(t *testing.T) {
 	}
 	crit := filters.FilterCriteria{FromBlock: big.NewInt(rpc.EarliestBlockNumber.Int64()), ToBlock: big.NewInt(10)}
 
-	_, _, err := newFetcher().GetLogsByFilters(context.Background(), crit, 0)
+	_, _, err := newFetcher().GetLogsByFilters(context.Background(), crit)
 	require.ErrorIs(t, err, errStatusUnavailable)
 
-	_, _, err = newFetcher().fetchBlocksByCrit(context.Background(), crit, 0, nil)
+	_, _, err = newFetcher().fetchBlocksByCrit(context.Background(), crit, nil)
 	require.ErrorIs(t, err, errStatusUnavailable)
 }

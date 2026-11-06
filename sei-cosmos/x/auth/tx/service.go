@@ -254,7 +254,7 @@ func (s txServer) BroadcastTx(ctx context.Context, req *txtypes.BroadcastTxReque
 	return client.TxServiceBroadcast(ctx, s.node, req)
 }
 
-// RegisterTxService registers the tx service on the gRPC router.
+// RegisterTxService registers the tx service on the query service router.
 func RegisterTxService(
 	qrt gogogrpc.Server,
 	node client.LocalClient,
@@ -265,9 +265,9 @@ func RegisterTxService(
 	txtypes.RegisterServiceServer(qrt, NewTxServer(node, txConfig, simulateFn, interfaceRegistry))
 }
 
-// RegisterGRPCGatewayRoutes mounts the tx service's GRPC-gateway routes on the
+// RegisterGatewayRoutes mounts the tx service's GRPC-gateway routes on the
 // given Mux.
-func RegisterGRPCGatewayRoutes(clientConn gogogrpc.ClientConn, mux *runtime.ServeMux) {
+func RegisterGatewayRoutes(clientConn gogogrpc.ClientConn, mux *runtime.ServeMux) {
 	_ = txtypes.RegisterServiceHandlerClient(context.Background(), mux, txtypes.NewServiceClient(clientConn))
 }
 

@@ -41,7 +41,7 @@ func collectorImpls() []struct {
 	}
 }
 
-// TestCollectorSurface exercises the controller.PrunableStore half of the store's
+// TestCollectorSurface exercises the controllertypes.PrunableStore half of the store's
 // contract, which the storage garbage collector drives.
 func TestCollectorSurface(t *testing.T) {
 	for _, impl := range collectorImpls() {

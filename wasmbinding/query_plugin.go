@@ -9,10 +9,9 @@ import (
 )
 
 const (
-	EpochRoute        = "epoch"
-	TokenFactoryRoute = "tokenfactory"
-	EVMRoute          = "evm"
-	StakingExtRoute   = "stakingext"
+	EpochRoute      = "epoch"
+	EVMRoute        = "evm"
+	StakingExtRoute = "stakingext"
 )
 
 type SeiQueryWrapper struct {
@@ -31,8 +30,6 @@ func CustomQuerier(qp *QueryPlugin) func(ctx sdk.Context, request json.RawMessag
 		switch contractQuery.Route {
 		case EpochRoute:
 			return qp.HandleEpochQuery(ctx, contractQuery.QueryData)
-		case TokenFactoryRoute:
-			return qp.HandleTokenFactoryQuery(ctx, contractQuery.QueryData)
 		case EVMRoute:
 			return qp.HandleEVMQuery(ctx, contractQuery.QueryData)
 		case StakingExtRoute:

@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"go.opentelemetry.io/otel/metric"
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // CommitStore participates in the shared prune cycle as a snapshot store: it restores only at a
@@ -18,7 +18,7 @@ import (
 //
 // The state WAL must be managed by the same collector. This store reports a floor that keeps the WAL
 // it replays from, but never prunes that WAL itself.
-var _ controller.PrunableStore = (*CommitStore)(nil)
+var _ controllertypes.PrunableStore = (*CommitStore)(nil)
 
 // checkpointStoreName identifies this store to the collector it is pruned by and to the schedule it
 // checkpoints on, which name it independently of each other.

@@ -46,7 +46,7 @@ func makeValidator(valSeed, nodeSeed []byte, address string) config.AutobahnVali
 		ValidatorKey: valKey.Public(),
 		NodeKey:      nodeKey.Public(),
 		Address:      hp,
-		EVMRPC:       config.URL{URL: utils.OrPanic1(url.Parse("http://" + address))},
+		EVMRPC:       config.URL{URL: utils.OrPanic1(url.Parse("ws://" + address))},
 	}
 }
 
@@ -372,7 +372,7 @@ func TestPrepareApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig:         config.BaseConfig{FastCheckTx: true},
 		AutobahnConfigFile: autobahnConfigFile,
-	}, app, gigaconfig.DefaultConfig)
+	}, app, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
 	manager, ok := storage.Get()
 	require.True(t, ok)
@@ -383,6 +383,7 @@ func TestPrepareApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	require.Nil(t, manager.SS())
 	require.NotNil(t, manager.ReceiptDB())
 	require.Equal(t, "evmonly", prepared.Info().Data)
+	require.True(t, proxy.New(prepared).EVM().IsPresent())
 	validators := prepared.GetValidators()
 	require.Len(t, validators, 1)
 	require.Equal(t, int64(1), validators[0].Power)
@@ -405,7 +406,7 @@ func TestWrapApplicationAutobahnWithoutStorageErrors(t *testing.T) {
 
 func TestPrepareApplicationWithoutAutobahnLeavesAppUnchanged(t *testing.T) {
 	app := abci.BaseApplication{}
-	prepared, storage, err := prepareApplication(t.Context(), &config.Config{}, app, gigaconfig.DefaultConfig)
+	prepared, storage, err := prepareApplication(t.Context(), &config.Config{}, app, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
 	_, ok := storage.Get()
 	require.False(t, ok)

@@ -7,20 +7,14 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // errTestCommitFailed is the failure a test store reports from its background commit.
 var errTestCommitFailed = errors.New("commit failed")
-
-// noopChangeSetEncoder stands in for a real encoder: the pipeline only needs something to hand the
-// background commit.
-func noopChangeSetEncoder(StateChangeSet) ([]*proto.NamedChangeSet, error) {
-	return []*proto.NamedChangeSet{{Name: "encoded"}}, nil
-}
 
 // The recording store never applies a commit to its view, so a block can only see the block before
 // it through the pending overlay. That is exactly the property the pipeline depends on: a block
@@ -39,7 +33,7 @@ func TestPipelinedBlockSeesThePreviousBlocksUncommittedState(t *testing.T) {
 	// Enough that middle can cover gas on its own transaction out of what block 41 pays it.
 	snapshot.setBalance(funder, new(big.Int).Mul(big.NewInt(testFundedBalanceWei), big.NewInt(100)))
 	store := &recordingGigaStore{snapshot: snapshot}
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 	defer executor.Close()
 
 	// Block 41 funds middle. Its commit is left running.
@@ -47,7 +41,11 @@ func TestPipelinedBlockSeesThePreviousBlocksUncommittedState(t *testing.T) {
 	first := executePipelinedBlock(t, executor, chainID, 41,
 		signLegacyTx(t, funderKey, chainID, 0, &middle, payment, nil))
 	require.Equal(t, uint64(1), first.Txs[0].Status, "funding transaction must succeed")
-	require.Contains(t, first.ChangeSet.Balances, BalanceChange{Address: middle, Balance: payment})
+	require.Contains(t, first.ChangeSet.Accounts, AccountChange{
+		Address: middle,
+		Account: AccountState{Balance: payment},
+		Prior:   AccountState{Balance: new(uint256.Int).ToBig()},
+	})
 
 	// Block 42 spends from middle. The store's view is still at genesis, so this can only succeed
 	// if block 41's balance and nonce reached it through the overlay.
@@ -56,7 +54,11 @@ func TestPipelinedBlockSeesThePreviousBlocksUncommittedState(t *testing.T) {
 		signLegacyTx(t, middleKey, chainID, 0, &last, forwarded, nil))
 	require.Equal(t, uint64(1), second.Txs[0].Status,
 		"spending what the previous block paid must succeed, or the overlay is not being read")
-	require.Contains(t, second.ChangeSet.Balances, BalanceChange{Address: last, Balance: forwarded})
+	require.Contains(t, second.ChangeSet.Accounts, AccountChange{
+		Address: last,
+		Account: AccountState{Balance: forwarded},
+		Prior:   AccountState{Balance: new(uint256.Int).ToBig()},
+	})
 
 	require.NoError(t, executor.AwaitCommits())
 	require.Equal(t, []int64{41, 42}, store.commitBlock, "commits must land in block order")
@@ -73,7 +75,7 @@ func TestFailedPipelinedCommitIsReportedToEveryWaiter(t *testing.T) {
 	snapshot := newMemoryGigaSnapshot(40)
 	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
 	store := &recordingGigaStore{snapshot: snapshot, commitErr: errTestCommitFailed}
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 	defer executor.Close()
 
 	executePipelinedBlock(t, executor, chainID, 41,
@@ -95,7 +97,7 @@ func TestConcurrentWaitersOnOneCommitAreAllReleased(t *testing.T) {
 	snapshot := newMemoryGigaSnapshot(40)
 	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
 	store := &recordingGigaStore{snapshot: snapshot}
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 	defer executor.Close()
 
 	executePipelinedBlock(t, executor, chainID, 41,
@@ -149,7 +151,7 @@ func TestRetiringACommitWhileOpeningAViewKeepsThePreviousBlocksState(t *testing.
 	snapshot := newMemoryGigaSnapshot(40)
 	snapshot.setBalance(funder, new(big.Int).Mul(big.NewInt(testFundedBalanceWei), big.NewInt(100)))
 	store := &retiringOnOpenStore{recordingGigaStore: &recordingGigaStore{snapshot: snapshot}}
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 	defer executor.Close()
 
 	payment := new(big.Int).Mul(big.NewInt(testFundedBalanceWei), big.NewInt(10))
@@ -167,7 +169,11 @@ func TestRetiringACommitWhileOpeningAViewKeepsThePreviousBlocksState(t *testing.
 	require.Equal(t, 1, retires, "the retire must land while the view is being opened")
 	require.Equal(t, uint64(1), second.Txs[0].Status,
 		"block 42 lost what block 41 paid it when the commit was retired underneath it")
-	require.Contains(t, second.ChangeSet.Balances, BalanceChange{Address: last, Balance: big.NewInt(1_000)})
+	require.Contains(t, second.ChangeSet.Accounts, AccountChange{
+		Address: last,
+		Account: AccountState{Balance: big.NewInt(1_000)},
+		Prior:   AccountState{Balance: new(uint256.Int).ToBig()},
+	})
 }
 
 // blockingOpenStore holds a block inside OpenView, and so inside the executor's store lock, until
@@ -200,7 +206,7 @@ func TestCloseWaitsForTheCommitOfABlockInFlight(t *testing.T) {
 		entered:            make(chan struct{}),
 		release:            make(chan struct{}),
 	}
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 	blockCtx := blockContext(chainID)
 	blockCtx.Number = 41
@@ -244,7 +250,7 @@ func TestBlockAfterCloseCommitsSynchronously(t *testing.T) {
 	snapshot := newMemoryGigaSnapshot(40)
 	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
 	store := &recordingGigaStore{snapshot: snapshot}
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 	executor.Close()
 
 	executePipelinedBlock(t, executor, chainID, 41,
@@ -273,7 +279,7 @@ func TestLargeBlockWithAClosedPoolStoresItsReceipts(t *testing.T) {
 			}
 			store := NewMemoryStore(state)
 			receipts := NewMemoryReceiptStore()
-			executor := NewExecutor(Config{OCCWorkers: 4}, withTestStores(store, receipts, store.EncodeChangeSet))
+			executor := NewExecutor(Config{OCCWorkers: 4}, withTestStores(store, receipts))
 			shutDown(executor)
 
 			result := executePipelinedBlock(t, executor, chainID, 1, txs...)

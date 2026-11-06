@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: '1.27.1'
+  GO_VERSION: '1.27.3'
   LTHASH_PKG: ./sei-db/state_db/sc/flatkv/lthash
   BENCH_COUNT: 8
 

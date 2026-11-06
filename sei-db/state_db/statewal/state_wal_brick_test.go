@@ -6,7 +6,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 )
 
@@ -25,11 +24,21 @@ type fakeWAL struct {
 
 	// The indices successfully appended, so tests can assert that a failed append persisted nothing.
 	appended []uint64
+
+	// When set, Append signals on appendEntered and then waits for appendRelease to close.
+	appendEntered chan struct{}
+
+	// Closed to let an Append blocked on it return.
+	appendRelease chan struct{}
 }
 
-var _ seiwal.WAL[[]*proto.NamedChangeSet] = (*fakeWAL)(nil)
+var _ seiwal.WAL[[]byte] = (*fakeWAL)(nil)
 
-func (f *fakeWAL) Append(index uint64, data []*proto.NamedChangeSet) error {
+func (f *fakeWAL) Append(index uint64, data []byte) error {
+	if f.appendEntered != nil {
+		f.appendEntered <- struct{}{}
+		<-f.appendRelease
+	}
 	if f.appendErr != nil {
 		return f.appendErr
 	}
@@ -52,7 +61,7 @@ func (f *fakeWAL) PruneBefore(lowestIndexToKeep uint64) error {
 	return f.pruneErr
 }
 
-func (f *fakeWAL) Iterator(startIndex uint64, endIndex uint64) (seiwal.Iterator[[]*proto.NamedChangeSet], error) {
+func (f *fakeWAL) Iterator(startIndex uint64, endIndex uint64) (seiwal.Iterator[[]byte], error) {
 	if f.iteratorErr != nil {
 		return nil, f.iteratorErr
 	}
@@ -65,7 +74,7 @@ func (f *fakeWAL) Close() error {
 
 func newFakeStateWAL(t *testing.T, f *fakeWAL) StateWAL {
 	t.Helper()
-	w, err := newStateWAL(f)
+	w, err := newStateWAL(f, DefaultConfig("", "test").RequestBufferSize)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, w.Close()) })
 	return w
@@ -90,7 +99,9 @@ func TestFatalErrorsBrickWAL(t *testing.T) {
 		f := &fakeWAL{}
 		w := newFakeStateWAL(t, f)
 		f.appendErr = errInjected
-		require.ErrorIs(t, w.Write(1, nil), errInjected)
+		// The append happens on the WAL's goroutine, so its failure surfaces on the next call that waits on it.
+		require.NoError(t, w.Write(1, nil))
+		require.ErrorIs(t, w.Flush(), errInjected)
 		requireBricked(t, w)
 	})
 
@@ -130,13 +141,13 @@ func TestFatalErrorsBrickWAL(t *testing.T) {
 }
 
 // TestAppendFailureDoesNotSilentlyAdvance verifies the Bugbot scenario: when the append for a block fails,
-// the write head is not advanced past it. The WAL is bricked, so a write to the next block is rejected
-// rather than skipping the lost block.
+// the WAL is bricked, so a write to the next block is rejected rather than skipping the lost block.
 func TestAppendFailureDoesNotSilentlyAdvance(t *testing.T) {
 	f := &fakeWAL{appendErr: errInjected}
 	w := newFakeStateWAL(t, f)
 
-	require.ErrorIs(t, w.Write(1, nil), errInjected)
+	require.NoError(t, w.Write(1, nil))
+	require.ErrorIs(t, w.Flush(), errInjected)
 
 	require.ErrorIs(t, w.Write(2, nil), errInjected)
 	require.Empty(t, f.appended)

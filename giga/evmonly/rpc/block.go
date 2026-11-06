@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -160,6 +161,64 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 		return nil, nil
 	}
 	return block, nil
+}
+
+// executionHeaderAt returns the header of the block at height with the fields its execution context
+// reads. Block 0, which no store holds, carries only its number.
+func (api *blockAPI) executionHeaderAt(ctx context.Context, height int64) (*ethtypes.Header, error) {
+	if height == 0 {
+		return genesisBlock().Header(), nil
+	}
+	block, err := api.resolveBlockByNumber(ctx, ethrpc.BlockNumber(height))
+	if err != nil {
+		return nil, err
+	}
+	if block == nil {
+		return nil, fmt.Errorf("%w: %d", errBlockNotFound, height)
+	}
+	return api.executionHeader(ctx, block)
+}
+
+// executionHeader returns block's header with the fields its execution context reads.
+func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.ResultBlock) (*ethtypes.Header, error) {
+	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
+	if !ok {
+		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
+	}
+	parentHash, err := api.parentHash(ctx, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
+	gasLimit, err := api.backend.EvmGasLimit()
+	if err != nil {
+		return nil, err
+	}
+	baseFee, err := api.backend.EvmBaseFee()
+	if err != nil {
+		return nil, err
+	}
+	return &ethtypes.Header{
+		ParentHash: parentHash,
+		Number:     big.NewInt(block.Block.Height),
+		GasLimit:   gasLimit,
+		Time:       blockUnix,
+		Difficulty: new(big.Int),
+		// Zero rather than nil, so a dynamic-fee transaction is priced at its tip as it executed.
+		BaseFee: baseFee,
+	}, nil
+}
+
+// parentHash returns the hash of the block before height, which a stored block does not carry. It is
+// zero before the first block.
+func (api *blockAPI) parentHash(ctx context.Context, height int64) (common.Hash, error) {
+	parent, err := api.resolveBlockByNumber(ctx, ethrpc.BlockNumber(height-1))
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("read the parent of block %d: %w", height, err)
+	}
+	if parent == nil {
+		return common.Hash{}, nil
+	}
+	return common.BytesToHash(parent.BlockID.Hash), nil
 }
 
 // encodeBlock renders block as an eth_getBlockBy* response. nonce, mixHash,
@@ -318,12 +377,9 @@ func blockGasUsed(ctx context.Context, store receiptpkg.ReceiptStore, block *cor
 	if !errors.Is(err, receiptpkg.ErrBlockStatsNotSupported) {
 		return 0, fmt.Errorf("read block stats for block %d: %w", height, err)
 	}
-	records, err := receiptRecordsFromIterator(ctx, store, height)
-	if errors.Is(err, receiptpkg.ErrRangeQueryNotSupported) {
-		records, err = receiptRecordsFromBlock(ctx, store, block)
-	}
+	records, err := blockReceiptRecords(ctx, store, block)
 	if err != nil {
 		return 0, err
 	}
-	return receiptpkg.ComputeBlockStats(records, nil).TotalGasUsed, nil
+	return gigareceipt.ComputeBlockStats(records, nil).TotalGasUsed, nil
 }

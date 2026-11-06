@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
@@ -59,6 +62,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		var apps []*testApp
 		var gigas []*gigaValidatorRouter
+		var executors []*execution.Executor
 		var allTxs [][]byte
 		for i, cfg := range cfgs {
 			nodeInfo := makeInfo(cfg.nodeKey)
@@ -67,18 +71,24 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp()
 			proxyApp := proxy.New(app)
-			// In giga mode the CometBFT handshaker is skipped; the router's
-			// runExecute calls InitChain itself on fresh start.
+			// In giga mode the CometBFT handshaker is skipped; the executor
+			// calls InitChain itself on fresh start.
 			dir := t.TempDir()
 			// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
 			// (zero overrides); p2p can't import config (import cycle).
 			littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
-			require.NoError(t, err, "littblock.DefaultConfig[%v]", i)
+			if err != nil {
+				return fmt.Errorf("littblock.DefaultConfig[%v]: %w", i, err)
+			}
 			littCfg.Litt.Fsync = true
 			db, err := littblock.NewBlockDB(littCfg)
-			require.NoError(t, err, "littblock.NewBlockDB[%v]", i)
+			if err != nil {
+				return fmt.Errorf("littblock.NewBlockDB[%v]: %w", i, err)
+			}
 			blockStore, err := blockstore.New(db)
-			require.NoError(t, err, "blockstore.New[%v]", i)
+			if err != nil {
+				return fmt.Errorf("blockstore.New[%v]: %w", i, err)
+			}
 			t.Cleanup(func() { _ = blockStore.Close() })
 			commonCfg := GigaRouterCommonConfig{
 				// Aggressive dialing rate to speed up startup.
@@ -86,11 +96,15 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				ValidatorAddrs:     addrs,
 				PersistentStateDir: dir,
 				App:                proxyApp,
+				AppHashBuilder:     newPublishingAppHashBuilder(),
 				GenDoc:             genDoc,
 				EnableEvmProxy:     true,
 			}
+			executor := newTestExecutor(&commonCfg, blockStore)
 			dataState, err := BuildDataState(&commonCfg, blockStore)
-			require.NoError(t, err, "BuildDataState[%v]", i)
+			if err != nil {
+				return fmt.Errorf("BuildDataState[%v]: %w", i, err)
+			}
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
 				GigaRouterCommonConfig: commonCfg,
 				ValidatorKey:           cfg.validatorKey,
@@ -103,10 +117,11 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					MaxTxsPerSecond:         utils.None[uint64](),
 					BlockInterval:           100 * time.Millisecond,
 					AllowEmptyBlocks:        false,
-					MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 				},
 			}, cfg.nodeKey, dataState)
-			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
+			if err != nil {
+				return fmt.Errorf("NewGigaValidatorRouter[%v]: %w", i, err)
+			}
 			router, err := NewRouter(
 				cfg.nodeKey,
 				func() *types.NodeInfo { return &nodeInfo },
@@ -121,11 +136,15 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					Giga:                     utils.Some[GigaRouter](giga),
 				},
 			)
-			require.NoError(t, err, "NewRouter[%v]", i)
+			if err != nil {
+				return fmt.Errorf("NewRouter[%v]: %w", i, err)
+			}
 			s.SpawnBgNamed(fmt.Sprintf("router[%v]", i), func() error { return utils.IgnoreCancel(router.Run(ctx)) })
 			s.SpawnBgNamed(fmt.Sprintf("giga[%v]", i), func() error { return utils.IgnoreCancel(giga.Run(ctx)) })
+			s.SpawnBgNamed(fmt.Sprintf("execution[%v]", i), func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
 			apps = append(apps, app)
 			gigas = append(gigas, giga)
+			executors = append(executors, executor)
 			var txs [][]byte
 			for range maxTxsPerBlock * blocksPerLane {
 				tx := utils.GenBytes(rng, 100)
@@ -134,6 +153,9 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			}
 			s.SpawnNamed(fmt.Sprintf("producer[%v]", i), func() error {
 				v := giga.Mempool().OrPanic("validator giga must have a mempool")
+				if err := v.WaitForMempool(ctx); err != nil {
+					return fmt.Errorf("producer.WaitForMempool(): %w", err)
+				}
 				for _, tx := range txs {
 					if _, err := v.InsertTx(ctx, tx); err != nil {
 						return fmt.Errorf("producer.InsertTx(): %w", err)
@@ -145,59 +167,98 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		// Each node should finalize all txs locally.
 		for _, app := range apps {
 			for _, tx := range allTxs {
-				require.NoError(t, app.WaitForTx(ctx, tx), "WaitForTx")
+				if err := app.WaitForTx(ctx, tx); err != nil {
+					return fmt.Errorf("WaitForTx: %w", err)
+				}
 			}
 		}
 		// Nodes should agree on the final state.
 		want := apps[0].Snapshot()
 		for i, app := range apps {
 			t.Logf("app[%v]", i)
-			require.NoError(t, utils.TestDiff(want, app.Snapshot()), "state mismatch app[%v]", i)
+			if err := utils.TestDiff(want, app.Snapshot()); err != nil {
+				return fmt.Errorf("state mismatch app[%v]: %w", i, err)
+			}
 		}
 		// Covers GigaRouter.LastCommittedBlockNumber() — after blocks have
 		// been finalized every node should report a non-zero
 		// consensus-committed height through the accessor used by /status.
 		for i, giga := range gigas {
 			committed := giga.LastCommittedBlockNumber()
-			require.Positive(t, committed, "router[%v].LastCommittedBlockNumber()", i)
-			// Covers GigaRouter.ExecutedBlocks — the watch behind
+			if committed <= 0 {
+				return fmt.Errorf("router[%v].LastCommittedBlockNumber(): got %v, want positive", i, committed)
+			}
+			// Covers Executor.ExecutedBlocks — the watch behind
 			// eth_subscribe("newHeads"). It must reach the committed height,
 			// and the block it names must be readable via BlockByNumber.
-			executed, err := giga.ExecutedBlocks().Wait(ctx, func(w atypes.ExecutedBlocks) bool {
+			executed, err := executors[i].ExecutedBlocks().Wait(ctx, func(w atypes.ExecutedBlocks) bool {
 				return int64(w.Latest().Number) >= committed
 			})
-			require.NoError(t, err, "router[%v].ExecutedBlocks().Wait()", i)
+			if err != nil {
+				return fmt.Errorf("executor[%v].ExecutedBlocks().Wait(): %w", i, err)
+			}
 			_, err = giga.BlockByNumber(ctx, executed.Latest().Number)
-			require.NoError(t, err, "router[%v].BlockByNumber(executed=%v)", i, executed.Latest().Number)
+			if err != nil {
+				return fmt.Errorf("router[%v].BlockByNumber(executed=%v): %w", i, executed.Latest().Number, err)
+			}
 			// Covers GigaRouter.BlockByNumber — the accessor used by the
 			// Autobahn branch in env.Block to serve /block and evmrpc block
 			// lookups. Fetch the last committed block and verify it carries
 			// the expected height + hash, the right chain id, and that the
 			// payload Txs round-tripped (we just submitted txs).
-			rb, err := giga.BlockByNumber(ctx, atypes.GlobalBlockNumber(committed)) //nolint:gosec // committed is positive (validated above)
-			require.NoError(t, err, "router[%v].BlockByNumber(%v)", i, committed)
-			require.NotNil(t, rb.Block, "router[%v].BlockByNumber(%v).Block", i, committed)
-			require.Equal(t, committed, rb.Block.Height, "router[%v].BlockByNumber(%v) height", i, committed)
-			require.NotEmpty(t, rb.BlockID.Hash, "router[%v].BlockByNumber(%v) block hash", i, committed)
-			require.Equal(t, genDoc.ChainID, rb.Block.Header.ChainID, "router[%v].BlockByNumber(%v) chain id", i, committed)
+			rb, err := giga.BlockByNumber(ctx, atypes.RoadIndex(committed)) //nolint:gosec // committed is positive (validated above)
+			if err != nil {
+				return fmt.Errorf("router[%v].BlockByNumber(%v): %w", i, committed, err)
+			}
+			if rb.Block == nil {
+				return fmt.Errorf("router[%v].BlockByNumber(%v).Block: unexpected nil", i, committed)
+			}
+			if err := utils.TestDiff(committed, rb.Block.Height); err != nil {
+				return fmt.Errorf("router[%v].BlockByNumber(%v) height: %w", i, committed, err)
+			}
+			if len(rb.BlockID.Hash) == 0 {
+				return fmt.Errorf("router[%v].BlockByNumber(%v) block hash: expected nonempty", i, committed)
+			}
+			if err := utils.TestDiff(genDoc.ChainID, rb.Block.Header.ChainID); err != nil {
+				return fmt.Errorf("router[%v].BlockByNumber(%v) chain id: %w", i, committed, err)
+			}
 			// LastCommit is non-nil with empty Signatures — mirrors
 			// executeBlock's FinalizeBlock(DecidedLastCommit: empty)
 			// so trace replay and production both see "no votes" on
 			// the prior block. ToReqBeginBlock skips the per-val loop
 			// when Signatures is empty, so this is also enough to
 			// avoid the OOB deref the original PR was guarding against.
-			require.NotNil(t, rb.Block.LastCommit, "router[%v].BlockByNumber(%v) LastCommit", i, committed)
-			require.Empty(t, rb.Block.LastCommit.Signatures, "router[%v].BlockByNumber(%v) Signatures", i, committed)
+			if rb.Block.LastCommit == nil {
+				return fmt.Errorf("router[%v].BlockByNumber(%v) LastCommit: unexpected nil", i, committed)
+			}
+			if len(rb.Block.LastCommit.Signatures) != 0 {
+				return fmt.Errorf("router[%v].BlockByNumber(%v) Signatures: expected empty", i, committed)
+			}
 			// Round-trip the just-fetched block hash back through
 			// BlockByHash and assert we get the same ResultBlock back.
-			var hashKey atypes.BlockHeaderHash
+			var hashKey common.Hash
 			copy(hashKey[:], rb.BlockID.Hash)
 			rbh, err := giga.BlockByHash(ctx, hashKey)
-			require.NoError(t, err, "router[%v].BlockByHash(%x)", i, rb.BlockID.Hash)
-			require.Equal(t, rb, rbh, "router[%v].BlockByHash(%x) ≠ BlockByNumber(%v)", i, rb.BlockID.Hash, committed)
+			if err != nil {
+				return fmt.Errorf("router[%v].BlockByHash(%x): %w", i, rb.BlockID.Hash, err)
+			}
+			if err := utils.TestDiff(rb.BlockID, rbh.BlockID); err != nil {
+				return fmt.Errorf("router[%v].BlockByHash(%x) block ID: %w", i, rb.BlockID.Hash, err)
+			}
+			wantBlock, err := rb.Block.ToProto()
+			if err != nil {
+				return err
+			}
+			gotBlock, err := rbh.Block.ToProto()
+			if err != nil {
+				return err
+			}
+			if err := utils.TestDiff(wantBlock, gotBlock); err != nil {
+				return fmt.Errorf("router[%v].BlockByHash(%x) ≠ BlockByNumber(%v): %w", i, rb.BlockID.Hash, committed, err)
+			}
 		}
 		// Payload.Txs round-trips: for every retained block, the txs the
-		// data layer holds (GlobalBlock.Payload.Txs) must equal the txs
+		// data layer holds (SuperBlock.Payload.Txs) must equal the txs
 		// surfaced through BlockByNumber. Iterates the full retain window
 		// rather than a fixed tail so the assertion holds regardless of
 		// where producers placed the test txs. Reaches into giga0.data
@@ -205,20 +266,24 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		giga0 := gigas[0]
 		latest := giga0.LastCommittedBlockNumber()
 		for h := int64(1); h <= latest; h++ {
-			gbn := atypes.GlobalBlockNumber(h) //nolint:gosec // h is positive
-			gb, err := giga0.data.GlobalBlock(ctx, gbn)
+			gbn := atypes.RoadIndex(h) //nolint:gosec // h is positive
+			gb, err := giga0.data.SuperBlock(ctx, gbn)
 			if err != nil {
 				continue // pruned out of the retain window
 			}
 			rb, err := giga0.BlockByNumber(ctx, gbn)
-			require.NoError(t, err, "router[0].BlockByNumber(%v)", h)
+			if err != nil {
+				return fmt.Errorf("router[0].BlockByNumber(%v): %w", h, err)
+			}
 			// Convert rb.Block.Data.Txs ([]types.Tx) back to [][]byte
-			// to compare against gb.Payload.Txs() directly.
+			// to compare against gb.Txs directly.
 			rbBytes := make([][]byte, len(rb.Block.Data.Txs))
 			for j, t := range rb.Block.Data.Txs {
 				rbBytes[j] = t
 			}
-			require.Equal(t, gb.Payload.Txs(), rbBytes, "router[0].BlockByNumber(%v).Block.Data.Txs ≠ data.GlobalBlock(%v).Payload.Txs", h, h)
+			if err := utils.TestDiff(gb.Txs, rbBytes); err != nil {
+				return fmt.Errorf("router[0].BlockByNumber(%v).Block.Data.Txs ≠ data.SuperBlock(%v).Payload.Txs: %w", h, h, err)
+			}
 		}
 		return nil
 	})
@@ -231,12 +296,18 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	var nodeKeys []NodeSecretKey
 	addrs := map[atypes.PublicKey]GigaNodeAddr{}
 	urlByValidator := map[atypes.PublicKey]url.URL{}
+	// DialContext opens the websocket before the first call, so the URL has
+	// to name a listener.
+	rpcSrv := ethrpc.NewServer()
+	t.Cleanup(rpcSrv.Stop)
+	httpSrv := httptest.NewServer(rpcSrv.WebsocketHandler([]string{"*"}))
+	t.Cleanup(httpSrv.Close)
+	rpcURL := *utils.OrPanic1(url.Parse("ws" + strings.TrimPrefix(httpSrv.URL, "http")))
 	// NewGigaRouter requires EVMRPC on every committee member in both
 	// validator and fullnode modes.
-	for i, validatorKey := range validatorKeys {
+	for _, validatorKey := range validatorKeys {
 		nodeKey := makeKey(rng)
 		nodeKeys = append(nodeKeys, nodeKey)
-		rpcURL := *utils.OrPanic1(url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i)))
 		addrs[validatorKey.Public()] = GigaNodeAddr{
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
@@ -262,11 +333,13 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	blockStore, err := blockstore.New(db)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = blockStore.Close() })
+	app := newTestApp()
 	commonCfg := GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: dir,
-		App:                proxy.New(newTestApp()),
+		App:                proxy.New(app),
+		AppHashBuilder:     newPublishingAppHashBuilder(),
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}
@@ -284,7 +357,6 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			MaxTxsPerBlock:          1,
 			MaxTxsPerSecond:         utils.None[uint64](),
 			BlockInterval:           time.Second,
-			MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 		},
 	}, nodeKeys[0], dataState)
 	require.NoError(t, err)

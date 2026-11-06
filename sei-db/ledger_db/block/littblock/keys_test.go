@@ -2,92 +2,139 @@ package littblock
 
 import (
 	"bytes"
+	"encoding/binary"
+	"math"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
+	"github.com/stretchr/testify/require"
 )
 
 func TestKeyRoundTrip(t *testing.T) {
-	cases := []uint64{
-		0,
-		1,
-		42,
-		255,
-		256,
-		1 << 32,
-		^uint64(0), // max uint64
+	for _, n := range []blocktypes.BlockNumber{0, 1, 42, 255, 256, 1 << 32, ^blocktypes.BlockNumber(0)} {
+		block := blockKey{Index: n}
+		gotBlock, err := parseTestKey(t, block.encode()).decodeBlock()
+		require.NoError(t, err)
+		require.Equal(t, block, gotBlock)
+		qc := qcKey{Index: n}
+		gotQC, err := parseTestKey(t, qc.encode()).decodeQC()
+		require.NoError(t, err)
+		require.Equal(t, qc, gotQC)
+		appQC := appQCKey{Index: n}
+		gotAppQC, err := parseTestKey(t, appQC.encode()).decodeAppQC()
+		require.NoError(t, err)
+		require.Equal(t, appQC, gotAppQC)
+		proposal := appProposalKey{Index: n}
+		gotProposal, err := parseTestKey(t, proposal.encode()).decodeAppProposal()
+		require.NoError(t, err)
+		require.Equal(t, proposal, gotProposal)
+		for _, offset := range []uint64{0, 1, math.MaxUint64} {
+			lane := laneBlockKey{Index: n, Offset: offset}
+			gotLane, err := parseTestKey(t, lane.encode()).decodeLaneBlock()
+			require.NoError(t, err)
+			require.Equal(t, lane, gotLane)
+		}
 	}
-	for _, n := range cases {
-		key := encodeKey(n)
-		require.Len(t, key, 8, "key must be 8 bytes")
-		require.Equal(t, n, decodeKey([8]byte(key)))
-	}
-}
-
-func TestKeyBigEndianOrdering(t *testing.T) {
-	// Lexicographic byte order must match numeric order so LittDB's
-	// insertion/range semantics line up with block numbers.
-	pairs := [][2]uint64{
-		{0, 1},
-		{1, 2},
-		{255, 256},
-		{1 << 16, 1 << 32},
-	}
-	for _, p := range pairs {
-		require.Negative(t, bytes.Compare(encodeKey(p[0]), encodeKey(p[1])),
-			"encodeKey(%d) should sort before encodeKey(%d)", p[0], p[1])
-	}
-}
-
-func TestPrefixedKeys(t *testing.T) {
-	// Block and QC number keys carry distinct kind prefixes, so the same number
-	// never collides across the two record kinds in the shared table.
-	const n uint64 = 42
-	bk := numberKey(kindBlock, n)
-	qk := numberKey(kindQC, n)
-	require.Len(t, bk, 9, "block key is 1 prefix byte + 8 number bytes")
-	require.Len(t, qk, 9, "qc key is 1 prefix byte + 8 number bytes")
-	require.Equal(t, kindBlock, keyKind(bk))
-	require.Equal(t, kindQC, keyKind(qk))
-	require.NotEqual(t, bk, qk, "same number must not collide across kinds")
-	require.Equal(t, n, decodeNumberKey(bk))
-	require.Equal(t, n, decodeNumberKey(qk))
-
-	// The header-hash alias has its own kind and round-trips the hash bytes.
-	hash := make([]byte, 32)
+	var hash blocktypes.BlockHash
 	for i := range hash {
 		hash[i] = byte(i)
 	}
-	hk := blockHashKey(hash)
-	require.Equal(t, kindBlockHash, keyKind(hk))
-	require.Len(t, hk, 1+len(hash))
-	require.Equal(t, hash, hk[1:])
+	key := blockHashKey{Hash: hash}
+	got, err := parseTestKey(t, key.encode()).decodeBlockHash()
+	require.NoError(t, err)
+	require.Equal(t, key, got)
 }
 
-func TestKindPrefixRoundTrip(t *testing.T) {
-	// Every kind the storage contract defines must map to a prefix and back, so
-	// a record written under one kind is never scanned back as another.
-	kinds := []blocktypes.RecordKind{
-		blocktypes.KindBlock,
-		blocktypes.KindQC,
-		blocktypes.KindAppProposal,
-		blocktypes.KindAppQC,
+func TestKeyBigEndianOrdering(t *testing.T) {
+	for _, pair := range [][2]blocktypes.BlockNumber{{0, 1}, {1, 2}, {255, 256}, {1 << 16, 1 << 32}} {
+		require.Negative(t, bytes.Compare((blockKey{Index: pair[0]}).encode().bytes(), (blockKey{Index: pair[1]}).encode().bytes()))
 	}
-	seen := make(map[byte]blocktypes.RecordKind, len(kinds))
-	for _, kind := range kinds {
-		prefix, err := kindPrefix(kind)
+	first := (laneBlockKey{Index: 42, Offset: 255}).encode()
+	next := (laneBlockKey{Index: 42, Offset: 256}).encode()
+	require.Negative(t, bytes.Compare(first.bytes(), next.bytes()))
+}
+
+func TestKeyLayouts(t *testing.T) {
+	var hash blocktypes.BlockHash
+	for i := range hash {
+		hash[i] = byte(i)
+	}
+	cases := []struct {
+		key  ledgerKey
+		want []byte
+	}{
+		{(blockKey{Index: 42}).encode(), binary.BigEndian.AppendUint64([]byte{0}, 42)},
+		{(appQCKey{Index: 42}).encode(), binary.BigEndian.AppendUint64([]byte{1}, 42)},
+		{(laneBlockKey{Index: 42, Offset: 7}).encode(), binary.BigEndian.AppendUint64(binary.BigEndian.AppendUint64([]byte{2}, 42), 7)},
+		{(blockHashKey{Hash: hash}).encode(), append([]byte{3}, hash[:]...)},
+		{(appProposalKey{Index: 42}).encode(), binary.BigEndian.AppendUint64([]byte{4}, 42)},
+		{(qcKey{Index: 42}).encode(), binary.BigEndian.AppendUint64([]byte{5}, 42)},
+	}
+	for _, tc := range cases {
+		require.Equal(t, tc.want, tc.key.bytes())
+	}
+}
+
+func TestKeyDecodersRejectInvalidKeys(t *testing.T) {
+	cases := []struct {
+		key    ledgerKey
+		decode func(ledgerKey) error
+	}{
+		{(blockKey{}).encode(), func(k ledgerKey) error { _, err := k.decodeBlock(); return err }},
+		{(qcKey{}).encode(), func(k ledgerKey) error { _, err := k.decodeQC(); return err }},
+		{(appQCKey{}).encode(), func(k ledgerKey) error { _, err := k.decodeAppQC(); return err }},
+		{(appProposalKey{}).encode(), func(k ledgerKey) error { _, err := k.decodeAppProposal(); return err }},
+		{(laneBlockKey{}).encode(), func(k ledgerKey) error { _, err := k.decodeLaneBlock(); return err }},
+		{(blockHashKey{}).encode(), func(k ledgerKey) error { _, err := k.decodeBlockHash(); return err }},
+	}
+	for i, tc := range cases {
+		for j, other := range cases {
+			if i != j {
+				require.Error(t, tc.decode(other.key))
+			}
+		}
+		for _, invalid := range []ledgerKey{
+			{kind: tc.key.kind},
+			{kind: tc.key.kind, payload: tc.key.payload[:len(tc.key.payload)-1]},
+			{kind: tc.key.kind, payload: append(append([]byte{}, tc.key.payload...), 0)},
+		} {
+			require.Error(t, tc.decode(invalid))
+		}
+	}
+}
+
+func TestVarintKindPrefixes(t *testing.T) {
+	for _, kind := range []uint64{0, 127, 128, 300, math.MaxUint64} {
+		encoded := append(binary.AppendUvarint(nil, kind), 1, 2, 3)
+		key, err := decodeLedgerKey(encoded)
 		require.NoError(t, err)
-		require.NotContains(t, seen, prefix, "kind prefixes must be distinct")
-		seen[prefix] = kind
-
-		got, ok := recordKind(prefix)
-		require.True(t, ok)
-		require.Equal(t, kind, got)
+		require.Equal(t, recordKind(kind), key.kind)
+		require.Equal(t, []byte{1, 2, 3}, key.payload)
+		require.Equal(t, encoded, key.bytes())
 	}
+}
 
-	// A hash alias is not number-keyed, so a scan must not report it as a record.
-	_, ok := recordKind(kindBlockHash)
-	require.False(t, ok, "hash alias prefix must not decode to a record kind")
+func TestInvalidKindUvarints(t *testing.T) {
+	db := &blockDB{}
+	for _, value := range [][]byte{
+		nil,
+		{0x80},
+		bytes.Repeat([]byte{0x80}, 10),
+		append(bytes.Repeat([]byte{0xff}, 9), 2),
+		append(bytes.Repeat([]byte{0x80}, 10), 0),
+	} {
+		_, err := decodeLedgerKey(value)
+		require.Error(t, err)
+		reclaim, err := db.gcFilter(value, false)
+		require.Error(t, err)
+		require.False(t, reclaim)
+	}
+}
+
+func parseTestKey(t *testing.T, key ledgerKey) ledgerKey {
+	t.Helper()
+	decoded, err := decodeLedgerKey(key.bytes())
+	require.NoError(t, err)
+	require.Equal(t, key, decoded)
+	return decoded
 }

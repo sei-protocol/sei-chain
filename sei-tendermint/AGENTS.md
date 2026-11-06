@@ -1,12 +1,16 @@
 Within sei-tendermint subdirectory
 * sei-tendermint is a root of the go module, but it is not the root of the repo. When refactoring check references across of the whole repo.
   Comply with repo's root AGENTS.md, except where they conflict with the rules below.
+* ensure type safety wherever possible, in particular
+    * use strong types rather than underlying primitives (urls should use URL type instead of string, time duration should use time.Duration instead of int, etc.)
+    * avoid dynamic casts - type information should be passed along the callstack, not rediscovered at the bottom
+    * use strongly typed utils/require asserts instead of testify/require
 * use sei-tendermint/libs/utils.Option for optional values, passing nil as function value is not allowed,
     unless explicitly documented (except for maps and slices, for which nil is a valid empty value).
-* struct fields are assumed to be non-nil by default. Do not add defensive nil-checks in internal logic.
+* struct fields are assumed to be non-nil by default. Storing nil as field value is not allowed (except for slices and constant maps).
+  Do not add defensive nil-checks in internal logic.
   External data, like proto generated code for example, might require nil checks.
 * use utils.Recv/utils.Send instead of select { case <-ctx.Done(); ... }
-* use strongly typed utils/require asserts instead of testify/require
 * use sei-tendermint/libs/utils/scope.Run for structured concurrency (instead of waitgroup).
     * Don't spawn goroutines with plain "go func(){...}"
     * using testing.T assertions (inclusing those from "require" library) is not allowed from non-main test goroutine.
@@ -22,7 +26,7 @@ Within sei-tendermint subdirectory
   of sync.Mutex.
 * use public api of types in tests, never malform internal state of types. For read-only access,
   you can use private fields directly in case it is not accessible via public api.
-* when writing tests, focus on asserting the publically visible properties, especially the API contract. Avoid asserting implementation details.
+* when writing tests, focus on asserting the publicly visible properties, especially the API contract. Avoid asserting implementation details.
 * Avoid sleeping and active polling in tests. Prefer waiting for updates (for example by using sei-tendermint/libs/utils.Watch or AtomicWatch).
 * Do not introduce artificial timeouts in tests because they are a source of flakiness. Let the test hang and make the user run go tests with explicit
   timeout instead.
@@ -37,3 +41,6 @@ Within sei-tendermint subdirectory
 * TestRng instance should be one per test, constructed directly in the test function. In case of nested/table tests, each nested test should create its own instance. 
   Use TestRng.Split() (before spawning) if you need to pass entropy source to a spawned goroutine
   to ensure deterministic entropy across the goroutines.
+* In tests always check if you can reuse preexisting test fixture generators provided with the types (usually in testonly.go file of the module).
+  If not, always deduplicate test fixture generators within the go package. If you have minimally different generators you can usually generalize them into
+  1 generator at no cost.

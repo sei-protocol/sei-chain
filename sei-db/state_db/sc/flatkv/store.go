@@ -13,7 +13,6 @@ import (
 	"github.com/zbiljic/go-filelock"
 	"go.opentelemetry.io/otel/attribute"
 
-	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
@@ -114,9 +113,8 @@ type CommitStore struct {
 	// finalizer being rebuilt by restartHashing. Never nil.
 	hashListeners *hashListenerRegistry
 
-	// The four data stores below mediate every read and write of their databases. The block being
-	// applied accumulates its writes inside each store, so a read through a store already sees what
-	// that same block staged, with no separate overlay to consult.
+	// The four data stores below mediate every read and write of their databases. Commit stages a block's
+	// writes inside each store and seals them under mu, so a reader never observes a partly staged block.
 	//
 	// They are constructed as the last step of open, after any replay or rollback has run, and are nil
 	// until then — the bootstrap and import paths deliberately write raw pebble before they exist.
@@ -147,12 +145,11 @@ type CommitStore struct {
 	// lifecycle is decoupled from the DB open/close cycle, so closeDBsOnly does not touch it.
 	wal statewal.StateWAL
 
-	// Changes to feed into the WAL at the next commit.
+	// pendingChangeSets is the changesets ApplyChangeSets has buffered for the block the next Commit writes, in
+	// arrival order.
 	pendingChangeSets []*proto.NamedChangeSet
 
-	// pendingBlockHeight is the version stamped by the current buffered ApplyChangeSets. 0 means no
-	// pending apply. It records the staged height; it does not constrain it — neither ApplyChangeSets
-	// nor Commit validates its version against this field.
+	// pendingBlockHeight is the height of the buffered block, or 0 when nothing is buffered.
 	pendingBlockHeight int64
 
 	// Writes snapshots off the execution thread. Built by openStores once the view managers exist and
@@ -169,10 +166,6 @@ type CommitStore struct {
 	fileLock filelock.TryLockerSafe
 
 	phaseTimer *metrics.PhaseTimer
-
-	// classifyBucketSizes is the length of each kind's bucket in the previous ApplyChangeSets call, used to size
-	// the next call's buckets. Zero for a kind that call did not touch.
-	classifyBucketSizes [keys.EVMKeyKindCount]int
 
 	// readOnly marks stores opened via LoadVersionReadOnly.
 	readOnly bool
@@ -219,9 +212,8 @@ func routePhysicalKey(physicalKey []byte) (string, error) {
 		// An empty module name would fold into moduleLtHash[""]/moduleStats[""]
 		// and later persist as the per-module meta key "_meta/x:/hash", which
 		// ParseModuleLtHashKey rejects on the very next reopen — permanently
-		// bricking the store (root != sum(modules) forever). Reject it here,
-		// at the state-sync import dispatch boundary, mirroring the
-		// classifyAndPrefix guard on the live-commit path (store_apply.go).
+		// bricking the store (root != sum(modules) forever). Every committed
+		// and imported key is routed here, so this is where it is rejected.
 		return "", fmt.Errorf("flatkv: empty module name in physical key %q", physicalKey)
 	}
 	if moduleName != keys.EVMStoreKey {
@@ -352,6 +344,15 @@ func lthashWorkerCount(cfg *config.Config, coreCount int) int {
 // sortWorkerCount computes the fixed diff-sorting pool worker count from config, clamped to at least 1.
 func sortWorkerCount(cfg *config.Config, coreCount int) int {
 	n := int(cfg.SortThreadsPerCore * float64(coreCount))
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+// stateChangeSetWorkerCount returns how many tasks convert a block's state change set at once.
+func stateChangeSetWorkerCount(cfg *config.Config, coreCount int) int {
+	n := int(cfg.StateChangeSetThreadsPerCore * float64(coreCount))
 	if n < 1 {
 		n = 1
 	}
@@ -816,23 +817,9 @@ func (s *CommitStore) open() (retErr error) {
 }
 
 func (s *CommitStore) acquireFileLock(dir string) error {
-	lockPath, err := filepath.Abs(filepath.Join(dir, lockFileName))
+	fl, err := lockDir(dir)
 	if err != nil {
-		return fmt.Errorf("abs lock path: %w", err)
-	}
-	fl, err := filelock.New(lockPath)
-	if err != nil {
-		return fmt.Errorf("create file lock: %w", err)
-	}
-	locked, err := fl.TryLock()
-	if err != nil {
-		if errors.Is(err, filelock.ErrLocked) {
-			return fmt.Errorf("%w: %v", commonerrors.ErrFileLockUnavailable, err)
-		}
-		return fmt.Errorf("acquire file lock: %w", err)
-	}
-	if !locked {
-		return fmt.Errorf("%w: held by another process (%s)", commonerrors.ErrFileLockUnavailable, lockPath)
+		return err
 	}
 	s.fileLock = fl
 	return nil

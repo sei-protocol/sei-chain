@@ -97,7 +97,7 @@ func TestPerModuleStatsAddUpdateDeleteTransitions(t *testing.T) {
 	defer s.Close()
 
 	govKey := []byte{0x01, 0x2A}
-	physKeyLen := int64(len(ktype.ModulePhysicalKey("gov", govKey)))
+	physKeyLen := int64(len(ktype.BuildPhysicalKey("gov", govKey)))
 	stats := func() lthash.ModuleStats { return s.maintainedHashes().PerModuleStats[miscDBDir]["gov"] }
 
 	// Add: one key with a short value. Footprint must exceed the physical key
@@ -226,7 +226,7 @@ func TestPerModuleStatsAfterImportSurvivesRestart(t *testing.T) {
 
 		govVal := vtype.NewMiscData().SetBlockHeight(7).SetValue([]byte{i, 0xC0}).Serialize()
 		nodes = append(nodes, &scTypes.SnapshotNode{
-			Key:     ktype.ModulePhysicalKey("gov", []byte{i}),
+			Key:     ktype.BuildPhysicalKey("gov", []byte{i}),
 			Value:   govVal,
 			Version: 7,
 		})

@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -26,14 +26,14 @@ func testFullScanDBLtHash(t *testing.T, db types.KeyValueDB) *lthash.LtHash {
 	require.NoError(t, err)
 	defer iter.Close()
 
-	var pairs []lthash.KeyMutation
+	var pairs []mutation.Mutation
 	for ; iter.Valid(); iter.Next() {
 		if ktype.IsMetaKey(iter.Key()) {
 			continue
 		}
-		pairs = append(pairs, lthash.KeyMutation{
-			Key:   bytes.Clone(iter.Key()),
-			Value: bytes.Clone(iter.Value()),
+		pairs = append(pairs, mutation.Mutation{
+			Key:      bytes.Clone(iter.Key()),
+			NewValue: bytes.Clone(iter.Value()),
 		})
 	}
 	require.NoError(t, iter.Error())
@@ -92,26 +92,20 @@ func commitMixedState(t *testing.T, s *CommitStore, round byte) {
 	require.NoError(t, err)
 }
 
-// Test: crash recovery where one data DB's version record is behind the others.
-//
-// A data DB commits its version in the same batch as its data, so a torn commit
-// leaves the DBs at different versions. The store then opens at the lowest and
-// replays from there — into DBs that already hold those blocks. This pins that
-// the replay is idempotent: re-applying a block to a DB that already has it is a
-// no-op for the LtHash, because the old value read back is the new value.
+// TestPerDBLtHashSkewRecovery pins crash recovery where one data DB is a block behind the others: the store opens
+// at the lowest height, replays the missing block into that DB alone, and lands on the root it had before.
 func TestPerDBLtHashSkewRecovery(t *testing.T) {
-	dir := t.TempDir()
-	dbDir := filepath.Join(dir, flatkvRootDir)
-
 	cfg := config.DefaultTestConfig(t)
-	cfg.DataDir = dbDir
+	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
 
 	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	err = s1.LoadLatest()
-	require.NoError(t, err)
-
+	require.NoError(t, s1.LoadLatest())
 	commitMixedState(t, s1, 1)
+	s1 = reopenStore(t, s1, cfg)
+	accountAt1 := copyDataDB(t, cfg, accountDBDir)
+
+	require.NoError(t, s1.LoadLatest())
 	commitMixedState(t, s1, 2)
 	verifyPerDBLtHash(t, s1)
 	wantRoot := bytes.Clone(rootHash(s1))
@@ -119,25 +113,16 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 	for _, dbDir := range dataDBDirs {
 		wantPerDB[dbDir] = s1.maintainedHashes().PerDB[dbDir].Checksum()
 	}
-	// Rewind accountDB's version record to 1, leaving its data — and every other DB — at 2. The
-	// store must open at 1 and replay block 2. The rewind goes into the working dir, which is what a
-	// torn commit leaves behind and what the next open actually reads: tampering with the snapshot
-	// instead has no effect, because SNAPSHOT_BASE still matches and the working dir is reused.
-	rewindVersionRecords(t, s1, 1, accountDBDir)
 	require.NoError(t, s1.Close())
 
-	// Reopen -- catchup should replay version 2 from WAL
-	cfg2 := config.DefaultTestConfig(t)
-	cfg2.DataDir = dbDir
+	restoreDataDB(t, cfg, accountDBDir, accountAt1)
 
-	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
+	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	err = s2.LoadLatest()
-	require.NoError(t, err)
+	require.NoError(t, s2.LoadLatest())
 	defer s2.Close()
 
-	require.Equal(t, wantRoot, rootHash(s2),
-		"replaying an already-applied block must reproduce the same global root")
+	require.Equal(t, wantRoot, rootHash(s2), "replaying the lagging DB must reproduce the same global root")
 	for _, dbDir := range dataDBDirs {
 		require.Equal(t, wantPerDB[dbDir], s2.maintainedHashes().PerDB[dbDir].Checksum(),
 			"%s per-DB root must be bit-identical after replay", dbDir)
@@ -615,8 +600,8 @@ func TestPerDBLtHashSumInvariantAcrossAllOperations(t *testing.T) {
 // apply each block only to the stores missing it, or the ones that already have it fold that block
 // into their LtHash twice.
 //
-// The skew is forged by rewinding one data database's recorded height on disk while the store is
-// closed, which is what a lost flush of that database looks like on the next open.
+// The skew is built by putting back a copy of the storage database taken at block 1, which is what a lost
+// flush of that database looks like on the next open.
 func TestPerDBLtHashLevelsUpStoresAtDifferentHeights(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
@@ -629,6 +614,12 @@ func TestPerDBLtHashLevelsUpStoresAtDifferentHeights(t *testing.T) {
 	require.NoError(t, s1.LoadLatest())
 
 	commitMixedState(t, s1, 1)
+	s1 = reopenStore(t, s1, cfg)
+	require.Equal(t, resolveConfig(cfg).StorageDBConfig.DataDir, filepath.Join(dbDir, workingDirName, storageDBDir),
+		"the skew must target the directory the store opens, or this test proves nothing")
+	storageAt1 := copyDataDB(t, cfg, storageDBDir)
+
+	require.NoError(t, s1.LoadLatest())
 	commitMixedState(t, s1, 2)
 	commitMixedState(t, s1, 3)
 	verifyPerDBLtHash(t, s1)
@@ -639,20 +630,9 @@ func TestPerDBLtHashLevelsUpStoresAtDifferentHeights(t *testing.T) {
 	wantGlobal := s1.maintainedHashes().Global.Clone()
 	require.NoError(t, s1.Close())
 
-	// Rewind only the storage database's recorded height, leaving the others at 3. On reopen the stores
-	// are at {storage: 1, others: 3}, so the store derives version 1 and replays 2 and 3 into databases
-	// that already hold them.
-	// The working directory, not the snapshot — see TestPerDBLtHashSkewRecovery.
-	storageCfg := pebbledb.DefaultConfig()
-	storageCfg.DataDir = filepath.Join(dbDir, workingDirName, storageDBDir)
-	resolved := resolveConfig(cfg)
-	require.Equal(t, resolved.StorageDBConfig.DataDir, storageCfg.DataDir,
-		"the forged skew must target the directory the store opens, or this test proves nothing")
-	storageCfg.EnableMetrics = false
-	db, err := pebbledb.Open(t.Context(), &storageCfg)
-	require.NoError(t, err)
-	require.NoError(t, db.Set(ktype.MetaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
-	require.NoError(t, db.Close())
+	// On reopen the stores are at {storage: 1, others: 3}, so the store derives version 1 and replays 2
+	// and 3 into the storage database alone.
+	restoreDataDB(t, cfg, storageDBDir, storageAt1)
 
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)

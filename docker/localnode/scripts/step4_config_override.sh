@@ -186,13 +186,15 @@ if [ "$AUTOBAHN" = "true" ]; then
     NODE_DIRS="$NODE_DIRS build/generated/node_${i}"
   done
 
-  seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
+  GOVERNANCE_FLAGS=""
+  if [ -n "$EVM_GOVERNANCE_VOTING_PERIOD" ]; then
+    GOVERNANCE_FLAGS="--evm-governance-voting-period $EVM_GOVERNANCE_VOTING_PERIOD"
+  fi
+  seid tendermint gen-autobahn-config $NODE_DIRS $GOVERNANCE_FLAGS --output "$AUTOBAHN_CONFIG"
   # Autobahn serves the EVM JSON-RPC only: clear the Tendermint RPC and Cosmos
   # query surfaces it does not serve.
   sed -i '/^\[rpc\]/,/^\[/ s|^laddr = .*|laddr = ""|' ~/.sei/config/config.toml
   sed -i '/^\[api\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
-  sed -i '/^\[grpc\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
-  sed -i '/^\[grpc-web\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
   echo "Enabled Autobahn for node $NODE_ID (EVM JSON-RPC only)"
   # Inject autobahn config file path into config.toml
   # Must be placed before any [section] header so TOML parser reads it as a top-level key.

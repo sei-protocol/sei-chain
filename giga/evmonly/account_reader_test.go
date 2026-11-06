@@ -52,7 +52,7 @@ func TestSnapshotReaderServesAnAbsentAccountAsEmpty(t *testing.T) {
 	account, served := reader.ReadAccount(testAddress(0xb2))
 
 	require.True(t, served)
-	require.Equal(t, baseAccount{}, account)
+	require.Equal(t, AccountState{}, account)
 }
 
 // With a missing-account reader configured, an account the view does not hold is that reader's to
@@ -79,9 +79,9 @@ func TestSnapshotReaderFetchesCodeOnlyWhenTheAccountHasSome(t *testing.T) {
 	require.Equal(t, []byte{0x60, 0x00}, account.Code)
 }
 
-// The merge compares balance, nonce and code against the same row, and resolves that row once per
-// touched account across the pool's workers.
-func TestParallelMergeResolvesEveryTouchedAccountOnce(t *testing.T) {
+// The merge takes priors from the accepted writes, so it reads no account row, on the pool's workers
+// or on the calling goroutine.
+func TestParallelMergeReadsNoAccount(t *testing.T) {
 	snapshot := newMemoryGigaSnapshot(7)
 	addrs := make([]common.Address, 0, 512)
 	for i := range 512 {
@@ -94,8 +94,10 @@ func TestParallelMergeResolvesEveryTouchedAccountOnce(t *testing.T) {
 
 	state := newBlockSTMState(gigaSnapshotStateReader{snapshot: reading})
 	for i, addr := range addrs {
-		state.shard(addr).balances[addr] = big.NewInt(int64(i) + 100)
-		state.shard(addr).nonces[addr] = uint64(i) + 1 //nolint:gosec // i is non-negative.
+		state.shard(addr).accounts[addr] = &AccountChange{
+			Address: addr,
+			Account: AccountState{Balance: big.NewInt(int64(i) + 100), Nonce: uint64(i) + 1}, //nolint:gosec // i is non-negative.
+		}
 	}
 	pool := newOCCWorkerPool(4)
 	defer pool.Close()
@@ -103,12 +105,12 @@ func TestParallelMergeResolvesEveryTouchedAccountOnce(t *testing.T) {
 	var changes StateChangeSet
 	require.NoError(t, state.changeSetIntoParallel(t.Context(), pool, &changes))
 
-	require.Equal(t, int64(len(addrs)), reading.reads.Load(), "each row must be read once")
-	require.Equal(t, state.ChangeSet(), changes, "the parallel merge must match the serial one")
-	require.Equal(t, int64(2*len(addrs)), reading.reads.Load(), "the serial merge reads each row once too")
-	require.Len(t, changes.Balances, len(addrs))
-	require.Len(t, changes.Nonces, len(addrs))
-	for i := 1; i < len(changes.Balances); i++ {
-		require.Negative(t, bytes.Compare(changes.Balances[i-1].Address[:], changes.Balances[i].Address[:]))
+	require.Zero(t, reading.reads.Load(), "the parallel merge must read no row")
+	require.Equal(t, canonicalChangeSet(state.ChangeSet()), canonicalChangeSet(changes),
+		"the parallel merge must match the serial one")
+	require.Zero(t, reading.reads.Load(), "the serial merge must read no row")
+	require.Len(t, changes.Accounts, len(addrs))
+	for i := 1; i < len(changes.Accounts); i++ {
+		require.Negative(t, bytes.Compare(changes.Accounts[i-1].Address[:], changes.Accounts[i].Address[:]))
 	}
 }

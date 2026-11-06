@@ -14,25 +14,20 @@ import (
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"
 	evmbindings "github.com/sei-protocol/sei-chain/x/evm/client/wasm/bindings"
-	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
-	tokenfactorybindings "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm/bindings"
-	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
 type QueryPlugin struct {
-	epochHandler        epochwasm.EpochWasmQueryHandler
-	tokenfactoryHandler tokenfactorywasm.TokenFactoryWasmQueryHandler
-	evmHandler          evmwasm.EVMQueryHandler
-	stakingKeeper       stakingkeeper.Keeper
+	epochHandler  epochwasm.EpochWasmQueryHandler
+	evmHandler    evmwasm.EVMQueryHandler
+	stakingKeeper stakingkeeper.Keeper
 }
 
 // NewQueryPlugin returns a reference to a new QueryPlugin.
-func NewQueryPlugin(eh *epochwasm.EpochWasmQueryHandler, th *tokenfactorywasm.TokenFactoryWasmQueryHandler, evmh *evmwasm.EVMQueryHandler, sk stakingkeeper.Keeper) *QueryPlugin {
+func NewQueryPlugin(eh *epochwasm.EpochWasmQueryHandler, evmh *evmwasm.EVMQueryHandler, sk stakingkeeper.Keeper) *QueryPlugin {
 	return &QueryPlugin{
-		epochHandler:        *eh,
-		tokenfactoryHandler: *th,
-		evmHandler:          *evmh,
-		stakingKeeper:       sk,
+		epochHandler:  *eh,
+		evmHandler:    *evmh,
+		stakingKeeper: sk,
 	}
 }
 
@@ -55,39 +50,6 @@ func (qp QueryPlugin) HandleEpochQuery(ctx sdk.Context, queryData json.RawMessag
 		return bz, nil
 	default:
 		return nil, epochtypes.ErrUnknownSeiEpochQuery
-	}
-}
-
-func (qp QueryPlugin) HandleTokenFactoryQuery(ctx sdk.Context, queryData json.RawMessage) ([]byte, error) {
-	var parsedQuery tokenfactorybindings.SeiTokenFactoryQuery
-	if err := json.Unmarshal(queryData, &parsedQuery); err != nil {
-		return nil, tokenfactorytypes.ErrParsingSeiTokenFactoryQuery
-	}
-	switch {
-	case parsedQuery.DenomAuthorityMetadata != nil:
-		res, err := qp.tokenfactoryHandler.GetDenomAuthorityMetadata(ctx, parsedQuery.DenomAuthorityMetadata)
-		if err != nil {
-			return nil, err
-		}
-		bz, err := json.Marshal(res)
-		if err != nil {
-			return nil, tokenfactorytypes.ErrEncodingDenomAuthorityMetadata
-		}
-
-		return bz, nil
-	case parsedQuery.DenomsFromCreator != nil:
-		res, err := qp.tokenfactoryHandler.GetDenomsFromCreator(ctx, parsedQuery.DenomsFromCreator)
-		if err != nil {
-			return nil, err
-		}
-		bz, err := json.Marshal(res)
-		if err != nil {
-			return nil, tokenfactorytypes.ErrEncodingDenomsFromCreator
-		}
-
-		return bz, nil
-	default:
-		return nil, tokenfactorytypes.ErrUnknownSeiTokenFactoryQuery
 	}
 }
 

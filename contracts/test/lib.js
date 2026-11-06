@@ -337,32 +337,6 @@ function getEventAttribute(response, type, attribute) {
     throw new Error("attribute not found")
 }
 
-async function testAPIEnabled(provider) {
-    try {
-        // noop operation to see if it throws
-        await incrementPointerVersion(provider, "cw20", 0)
-        return true;
-    } catch(e){
-        console.log(e)
-        return false;
-    }
-}
-
-async function incrementPointerVersion(provider, pointerType, offset) {
-    if(await isDocker()) {
-        // must update on all nodes
-        for(let i=0; i<4; i++) {
-            const resultStr = await execCommand(`docker exec sei-node-${i} curl -s -X POST http://localhost:8545 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"test_incrementPointerVersion","params":["${pointerType}", ${offset}],"id":1}'`)
-            const result = JSON.parse(resultStr)
-            if(result.error){
-                throw new Error(`failed to increment pointer version: ${result.error}`)
-            }
-        }
-    } else {
-       await provider.send("test_incrementPointerVersion", [pointerType, offset]);
-    }
-}
-
 async function rawHttpDebugTraceWithCallTracer(txHash) {
     const payload = {
         jsonrpc: "2.0",
@@ -374,53 +348,6 @@ async function rawHttpDebugTraceWithCallTracer(txHash) {
         headers: { "Content-Type": "application/json" },
     });
     return response.data;
-}
-
-async function createTokenFactoryTokenAndMint(name, amount, recipient, from=adminKeyName) {
-    const fromSeiAddr = await getKeySeiAddress(from)
-    // Tokenfactory denom is deterministic: factory/<creator-bech32>/<subdenom>.
-    const token_denom = `factory/${fromSeiAddr}/${name}`
-    const target = BigInt(amount)
-
-    // Step 1: create-denom. Wait for the denom to exist before submitting
-    // the next tx — each `seid tx` reads the node's committed account
-    // sequence, so consecutive -b sync submissions from the same key
-    // without a between-commit wait construct duplicate-sequence txs and
-    // get rejected with "account sequence mismatch".
-    const create_cmd = `seid tx tokenfactory create-denom ${name} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
-    const response = JSON.parse(await execute(create_cmd))
-    if (response.code !== 0) throw new Error(`create-denom rejected: ${response.raw_log}`)
-    await waitForCondition(
-        async () => {
-            try {
-                const out = await execute(`seid query tokenfactory denom-authority-metadata ${token_denom} --output json`)
-                // For a non-existent denom this query returns {"authority_metadata":{"admin":""}}
-                // (no error). Only a non-empty admin indicates the create-denom is committed.
-                return (JSON.parse(out).authority_metadata?.admin || '') !== ''
-            } catch (e) { return false }
-        },
-        `denom ${token_denom} to be created`,
-    )
-
-    // Step 2: mint to ${from}. Wait until the creator holds the minted
-    // amount before the bank send, for the same sequence reason.
-    const mint_cmd = `seid tx tokenfactory mint ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
-    const mintResp = JSON.parse(await execute(mint_cmd))
-    if (mintResp.code !== 0) throw new Error(`mint rejected: ${mintResp.raw_log}`)
-    await waitForCondition(
-        async () => (await getSeiBalanceBigInt(fromSeiAddr, token_denom)) >= target,
-        `${from} ${token_denom} balance >= ${target}`,
-    )
-
-    // Step 3: bank send to recipient. Wait for the recipient to hold the amount.
-    const send_cmd = `seid tx bank send ${from} ${recipient} ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
-    const sendResp = JSON.parse(await execute(send_cmd))
-    if (sendResp.code !== 0) throw new Error(`bank send rejected: ${sendResp.raw_log}`)
-    await waitForCondition(
-        async () => (await getSeiBalanceBigInt(recipient, token_denom)) >= target,
-        `${recipient} ${token_denom} balance >= ${target}`,
-    )
-    return token_denom
 }
 
 async function getChainId() {
@@ -809,11 +736,6 @@ async function executeWasm(contractAddress, msg, coins = "0usei") {
     return await waitForAdminTxCommit(command)
 }
 
-async function associateWasm(contractAddress) {
-    const command = `seid tx evm associate-contract-address ${contractAddress} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y -b sync -o json`;
-    return await waitForAdminTxCommit(command)
-}
-
 // Current latest block height as observed by the local node.
 async function getCurrentBlockHeight() {
     const status = await execute(`seid status`)
@@ -1025,7 +947,6 @@ module.exports = {
     storeWasm,
     deployWasm,
     instantiateWasm,
-    createTokenFactoryTokenAndMint,
     getChainId,
     getGasPrice,
     execute,
@@ -1057,9 +978,6 @@ module.exports = {
     waitForReceipt,
     getCosmosTx,
     isDocker,
-    testAPIEnabled,
-    incrementPointerVersion,
-    associateWasm,
     generateWallet,
     printClaimMsg,
     printClaimMsgBySender,

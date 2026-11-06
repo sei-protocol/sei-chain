@@ -180,3 +180,28 @@ func TestCommitAndHistoricalQueryWithDoubleFlush(t *testing.T) {
 		scStore.Close()
 	}
 }
+
+// TestWriteAfterWorkingHashPanics verifies that a write reaching the commit store after the block's working hash
+// was taken crashes rather than being silently moved into another block.
+func TestWriteAfterWorkingHashPanics(t *testing.T) {
+	scConfig := seidbconfig.DefaultStateCommitConfig()
+	scConfig.MemIAVLConfig.AsyncCommitBuffer = 0
+	store := NewStore(t.TempDir(), scConfig, seidbconfig.StateStoreConfig{}, nil)
+	defer func() { _ = store.Close() }()
+
+	bankKey := types.NewKVStoreKey("bank")
+	store.MountStoreWithDB(bankKey, types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	cms := store.CacheMultiStore()
+	cms.GetKVStore(bankKey).Set([]byte("supply"), []byte("1000"))
+	cms.Write()
+	_, err := store.GetWorkingHash()
+	require.NoError(t, err)
+
+	cms.GetKVStore(bankKey).Set([]byte("supply"), []byte("2000"))
+	cms.Write()
+	require.PanicsWithValue(t,
+		"rootmulti: stores [bank] were written at height 1 after the block's working hash was taken",
+		func() { _, _ = store.GetWorkingHash() })
+}

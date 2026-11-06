@@ -82,6 +82,33 @@ func TestUntrustedQueryRejectsBudgetExhaustBeforeOffsetUnfiltered(t *testing.T) 
 	require.Contains(t, err.Error(), "scanned more than 50 entries before reaching offset")
 }
 
+func TestUntrustedQueryUnfilteredBudgetExhaustAtOffsetReturnsResumeKey(t *testing.T) {
+	const maxIterations = 50
+	ctx := sdk.Context{}.WithIsABCIQuery(true).WithPaginationLimits(sdk.UntrustedPaginationLimits(1000, 10_000, maxIterations))
+	store := newTestKVStore(t)
+
+	for i := 0; i < 200; i++ {
+		store.Set([]byte(fmt.Sprintf("%03d", i)), []byte("v"))
+	}
+
+	var keys [][]byte
+	collect := func(key, _ []byte) error {
+		keys = append(keys, key)
+		return nil
+	}
+
+	res, err := query.Paginate(ctx, store, &query.PageRequest{Offset: maxIterations, Limit: 10}, collect)
+	require.NoError(t, err)
+	require.Empty(t, keys)
+	require.Equal(t, "050", string(res.NextKey))
+
+	_, err = query.Paginate(ctx, store, &query.PageRequest{Key: res.NextKey, Limit: 10}, collect)
+	require.NoError(t, err)
+	require.Len(t, keys, 10)
+	require.Equal(t, []byte("050"), keys[0])
+	require.Equal(t, []byte("059"), keys[9])
+}
+
 func TestUntrustedQueryPartialPageWhenBudgetExhaustDuringCollect(t *testing.T) {
 	ctx := sdk.Context{}.WithIsABCIQuery(true).WithPaginationLimits(sdk.UntrustedPaginationLimits(1000, 10_000, 25))
 	store := newTestKVStore(t)

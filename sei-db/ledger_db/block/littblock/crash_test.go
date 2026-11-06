@@ -11,9 +11,11 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/blocktest"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
 )
@@ -25,21 +27,8 @@ const (
 	crashTotalBlock = crashCohorts * crashPerCohort
 )
 
-// TestNoBlockWithoutQCAfterTornTail is the end-to-end proof of the headline crash
-// invariant: after a torn write, every surviving block is still covered by a
-// surviving QC. A surviving QC may be missing some of its blocks; never the
-// reverse.
-//
-// It writes QC-then-blocks cohorts into the single-shard ledger table, then
-// physically truncates the tail of the segment's value file — dropping the
-// last-written bytes — and marks the segment unsealed so reopening runs litt's
-// group-atomic recovery, which keeps a contiguous write-order prefix. Because
-// every covering QC is written before its blocks, that prefix can never contain a
-// block whose QC was dropped.
-//
-// The segment-level TestSealLoadedSegmentSingleShardPrefix proves the underlying
-// single-shard prefix property in isolation; this pins the store behavior that
-// depends on it: one shared table, QC before block.
+// TestNoBlockWithoutQCAfterTornTail verifies that a torn value discards the
+// entire QC group and preserves the earlier groups.
 func TestNoBlockWithoutQCAfterTornTail(t *testing.T) {
 	dir := t.TempDir()
 
@@ -56,7 +45,7 @@ func TestNoBlockWithoutQCAfterTornTail(t *testing.T) {
 	// a single torn tail, rather than spilling across value boundaries, only while
 	// every stored value is larger than it.
 	const tornTailBytes = 16
-	require.Greater(t, len(blocktest.RecordValue(blocktypes.KindBlock, 0)), tornTailBytes,
+	require.Greater(t, len(blocktest.RecordValue("block", 0)), tornTailBytes,
 		"fixture values must exceed the torn tail, or the truncation model breaks")
 
 	valPath, metaPath := largestValueSegmentFiles(t, dir)
@@ -135,7 +124,7 @@ func runCrashChild(t *testing.T) {
 	require.NotEmpty(t, dir)
 
 	db := openLitt(t, littConfig(t, dir))
-	blocktest.WriteCohorts(t, db, crashCohorts, crashPerCohort)
+	putPackedCohorts(t, db, crashCohorts)
 	require.NoError(t, db.Flush())
 
 	// Hard crash: uncatchable, runs no defers and no graceful Close.
@@ -146,37 +135,33 @@ func runCrashChild(t *testing.T) {
 // requireEveryBlockHasItsQC fails unless every surviving block record is still
 // covered by a surviving QC, and returns how many blocks survived.
 //
-// Survivors are enumerated by scanning rather than by reading each number in
-// turn: the scan reports what recovery kept, where a point read of a number
-// whose value was torn away fails instead of reporting the record as absent.
+// With no app data, the recovery suffix contains every surviving group.
 func requireEveryBlockHasItsQC(t *testing.T, db blocktypes.BlockDB) int {
 	t.Helper()
-	it, err := db.Scan(false)
+	suffix, err := db.ReadSuffix()
 	require.NoError(t, err)
-	defer func() { require.NoError(t, it.Close()) }()
-
-	var blocks []uint64
-	qcs := map[uint64]bool{}
-	for {
-		ok, err := it.Next()
+	count := 0
+	for _, record := range suffix.Blocks {
+		want := blocktest.BlockRecord(record.Index, crashPerCohort)
+		require.Equal(t, want, record)
+		byHash, exists, err := db.GetBlockByHash(record.Hash)
 		require.NoError(t, err)
-		if !ok {
-			break
+		require.True(t, exists)
+		require.Equal(t, record, byHash)
+		qc, exists, err := db.GetQC(record.Index)
+		require.NoError(t, err)
+		require.True(t, exists)
+		require.Equal(t, record.QC, qc)
+		for offset, lane := range record.LaneBlocks {
+			value, exists, err := db.GetLaneBlock(record.Index, uint64(offset))
+			require.NoError(t, err)
+			require.True(t, exists)
+			require.Equal(t, lane, value)
 		}
-		switch it.Kind() {
-		case blocktypes.KindBlock:
-			blocks = append(blocks, it.Number())
-		case blocktypes.KindQC:
-			qcs[it.Number()] = true
-		}
+		count += len(record.LaneBlocks)
 	}
+	return count
 
-	for _, n := range blocks {
-		cohortStart := n - n%crashPerCohort
-		require.True(t, qcs[cohortStart],
-			"block %d survived but its covering QC at %d was lost", n, cohortStart)
-	}
-	return len(blocks)
 }
 
 // largestValueSegmentFiles walks the litt data directory under dir and returns
@@ -248,3 +233,87 @@ const (
 	// so both processes operate on the same on-disk DB.
 	crashDirEnv = "LITTBLOCK_CRASH_DIR"
 )
+
+// TestPackedQCRecoversAtomically verifies that a torn packed value loses every
+// lookup key in that group and preserves earlier groups.
+func TestPackedQCRecoversAtomically(t *testing.T) {
+	for _, cohorts := range []uint64{1, 2} {
+		t.Run(strconv.FormatUint(cohorts, 10), func(t *testing.T) {
+			dir := t.TempDir()
+			cfg := littConfig(t, dir)
+			// A volatile keymap models a crash before its derived index is durable.
+			cfg.Litt.KeymapType = keymap.MemKeymapType
+			db := openLitt(t, cfg)
+			putPackedCohorts(t, db, cohorts)
+			require.NoError(t, db.Flush())
+			require.NoError(t, db.Close())
+			valPath, metaPath := largestValueSegmentFiles(t, dir)
+			truncateFileBy(t, valPath, 16)
+			markSegmentUnsealedOnDisk(t, metaPath)
+
+			for range 2 {
+				db = openLitt(t, cfg)
+				for n := blocktypes.BlockNumber(0); n < blocktypes.BlockNumber(cohorts); n++ {
+					want := n < blocktypes.BlockNumber(cohorts-1)
+					record, present, err := db.GetBlockByNumber(n)
+					require.NoError(t, err)
+					require.Equal(t, want, present)
+					if present {
+						require.Equal(t, blocktest.BlockRecord(n, crashPerCohort), record)
+					}
+					_, present, err = db.GetQC(n)
+					require.NoError(t, err)
+					require.Equal(t, want, present)
+					_, present, err = db.GetBlockByHash(blocktest.BlockHash(n))
+					require.NoError(t, err)
+					require.Equal(t, want, present)
+					for offset := range uint64(crashPerCohort) {
+						_, present, err := db.GetLaneBlock(n, offset)
+						require.NoError(t, err)
+						require.Equal(t, want, present)
+					}
+				}
+				require.Equal(t, int((cohorts-1)*crashPerCohort), requireEveryBlockHasItsQC(t, db))
+				require.NoError(t, db.Close())
+			}
+		})
+	}
+}
+
+// putPackedCohorts writes opaque QC and block fixtures in atomic groups.
+func putPackedCohorts(t *testing.T, db blocktypes.BlockDB, cohorts uint64) {
+	t.Helper()
+	blocktest.WriteCohorts(t, db, cohorts, crashPerCohort)
+}
+
+// TestPackedQCPruneRetainsWholeGroup verifies that a packed cohort spanning the
+// segment key-count threshold is retained until its entire range is eligible.
+func TestPackedQCPruneRetainsWholeGroup(t *testing.T) {
+	dir := t.TempDir()
+	cfg := strandingConfig(t, dir, 8)
+	db := openLitt(t, cfg)
+	putPackedCohorts(t, db, 3)
+	require.NoError(t, db.Flush())
+	require.NoError(t, db.Close())
+	db = openLitt(t, cfg)
+	defer func() { require.NoError(t, db.Close()) }()
+	db.SetPruneWatermark(1)
+	require.NoError(t, littblock.ForceGC(db))
+	for n := range blocktypes.BlockNumber(3) {
+		want := n >= 1
+		_, present, err := db.GetBlockByNumber(n)
+		require.NoError(t, err)
+		require.Equal(t, want, present)
+		_, present, err = db.GetQC(n)
+		require.NoError(t, err)
+		require.Equal(t, want, present)
+		_, present, err = db.GetBlockByHash(blocktest.BlockHash(n))
+		require.NoError(t, err)
+		require.Equal(t, want, present)
+		for offset := range uint64(crashPerCohort) {
+			_, present, err := db.GetLaneBlock(n, offset)
+			require.NoError(t, err)
+			require.Equal(t, want, present)
+		}
+	}
+}

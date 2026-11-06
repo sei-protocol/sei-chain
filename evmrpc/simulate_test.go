@@ -381,46 +381,6 @@ func TestNewRevertError(t *testing.T) {
 	require.Equal(t, "0x", err.ErrorData())
 }
 
-func TestConvertBlockNumber(t *testing.T) {
-	tmClient := &MockClient{}
-	watermarks := evmrpc.NewWatermarkManager(tmClient, func(i int64) sdk.Context {
-		if i == evmrpc.LatestCtxHeight {
-			return sdk.Context{}.WithBlockHeight(1000)
-		}
-		return sdk.Context{}
-	}, nil, nil)
-	backend := evmrpc.NewBackend(func(i int64) sdk.Context {
-		if i == evmrpc.LatestCtxHeight {
-			return sdk.Context{}.WithBlockHeight(1000)
-		}
-		return sdk.Context{}
-	}, nil, legacyabci.BeginBlockKeepers{}, nil, &MockClient{}, nil, nil, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks)
-	for _, tc := range []struct {
-		name    string
-		bn      rpc.BlockNumber
-		want    int64
-		wantErr bool
-	}{
-		{name: "number", bn: 10, want: 10},
-		{name: "0x0", bn: 0, want: 1},
-		{name: "earliest", bn: rpc.EarliestBlockNumber, want: 1},
-		{name: "latest", bn: rpc.LatestBlockNumber, want: 1000},
-		{name: "finalized", bn: rpc.FinalizedBlockNumber, want: 1000},
-		{name: "safe", bn: rpc.SafeBlockNumber, want: 1000},
-		{name: "pending", bn: rpc.PendingBlockNumber, wantErr: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := backend.ConvertBlockNumber(tc.bn)
-			if tc.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, tc.want, got)
-		})
-	}
-}
-
 func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 	// Set up a test context with a height before v6.2.0 upgrade
 	// For pacific-1 chain, we need to set a height that's before the v6.2.0 upgrade
@@ -999,6 +959,68 @@ func (c *fixedBlockClient) Validators(context.Context, *int64, *int, *int) (*cor
 	return &coretypes.ResultValidators{}, nil
 }
 
+// heightBlockClient serves an empty block at every height up to latest.
+type heightBlockClient struct {
+	fixedBlockClient
+	latest int64
+}
+
+func (c *heightBlockClient) Block(_ context.Context, height *int64) (*coretypes.ResultBlock, error) {
+	h := c.latest
+	if height != nil {
+		h = *height
+	}
+	if h > c.latest {
+		return nil, fmt.Errorf("height %d is above latest %d", h, c.latest)
+	}
+	return &coretypes.ResultBlock{
+		Block: &tmtypes.Block{Header: mockBlockHeader(h), LastCommit: &tmtypes.Commit{Height: h}},
+	}, nil
+}
+
+func (c *heightBlockClient) BlockResults(ctx context.Context, height *int64) (*coretypes.ResultBlockResults, error) {
+	block, err := c.Block(ctx, height)
+	if err != nil {
+		return nil, err
+	}
+	return &coretypes.ResultBlockResults{Height: block.Block.Height}, nil
+}
+
+func (c *heightBlockClient) Status(_ context.Context) (*coretypes.ResultStatus, error) {
+	return &coretypes.ResultStatus{
+		SyncInfo: coretypes.SyncInfo{LatestBlockHeight: c.latest, EarliestBlockHeight: 1},
+	}, nil
+}
+
+func TestBlockByNumberResolvesLatestToSafeLatest(t *testing.T) {
+	const safeLatest = int64(42)
+
+	testApp := app.Setup(t, false, false, false)
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(safeLatest + 1)
+	// The receipt store trails the block store and app state by one block.
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), safeLatest)
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return ctx
+		}
+		return ctx.WithBlockHeight(height)
+	}
+	tmClient := &heightBlockClient{latest: safeLatest + 1}
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+	backend := evmrpc.NewBackend(
+		ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
+		func(int64) client.TxConfig { return TxConfig }, tmClient, &SConfig,
+		testApp.BaseApp, testApp.TracerAnteHandler,
+		evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks,
+	)
+
+	for _, bn := range []rpc.BlockNumber{rpc.LatestBlockNumber, rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.PendingBlockNumber} {
+		ethBlock, err := backend.BlockByNumber(t.Context(), bn)
+		require.NoError(t, err, bn.String())
+		require.Equal(t, safeLatest, ethBlock.Number().Int64(), bn.String())
+	}
+}
+
 func TestStateAtBlockReplaysIncrementalTallyActivationAndGapBoundary(t *testing.T) {
 	const (
 		v67UpgradeHeight = int64(200)
@@ -1111,11 +1133,9 @@ func TestStateAtBlockRetracesLockedCoinsLookupFromRecordedUpgradeHeights(t *test
 		return genesisTime.Add(time.Duration(height) * time.Second)
 	}
 	for height := int64(1); height <= latestHeight; height++ {
-		_, err := testApp.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
-			Header: &tenderminttypes.Header{ChainID: testApp.ChainID, Height: height, Time: blockTime(height)},
-		})
-		require.NoError(t, err)
-		blockCtx := testApp.GetContextForDeliverTx(nil)
+		header := tenderminttypes.Header{ChainID: testApp.ChainID, Height: height, Time: blockTime(height)}
+		// Writes made on the commit store before FinalizeBlock land in this height's working hash.
+		blockCtx, writeBlock := testApp.NewUncachedContext(false, header).CacheContext()
 		switch height {
 		case 1:
 			testApp.AccountKeeper.SetAccount(blockCtx, testApp.AccountKeeper.NewAccountWithAddress(blockCtx, holder))
@@ -1124,6 +1144,9 @@ func TestStateAtBlockRetracesLockedCoinsLookupFromRecordedUpgradeHeights(t *test
 		case v68UpgradeHeight:
 			testApp.UpgradeKeeper.SetDone(blockCtx, "v6.8")
 		}
+		writeBlock()
+		_, err := testApp.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{Header: &header})
+		require.NoError(t, err)
 		_, err = testApp.Commit(t.Context())
 		require.NoError(t, err)
 	}

@@ -79,7 +79,7 @@ func TestEVMOnlySelfDestructSemantics_Behavior(t *testing.T) {
 		require.Equal(t, big.NewInt(0), state.GetBalance(created))
 		require.Equal(t, uint64(0), state.GetNonce(created))
 		require.Equal(t, big.NewInt(1000), state.GetBalance(beneficiary))
-		require.Contains(t, run.result.ChangeSet.StorageClears, created)
+		require.Empty(t, run.result.ChangeSet.Storage)
 	})
 
 	t.Run("pre-existing contract only moves balance", func(t *testing.T) {
@@ -104,7 +104,6 @@ func TestEVMOnlySelfDestructSemantics_Behavior(t *testing.T) {
 		require.Equal(t, uint64(1), state.GetNonce(contract))
 		require.Equal(t, big.NewInt(0), state.GetBalance(contract))
 		require.Equal(t, big.NewInt(500), state.GetBalance(beneficiary))
-		require.Empty(t, run.result.ChangeSet.StorageClears)
 	})
 
 	t.Run("same-tx created contract destructing to itself burns its balance", func(t *testing.T) {

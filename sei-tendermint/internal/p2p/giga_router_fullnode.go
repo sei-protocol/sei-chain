@@ -38,7 +38,6 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 			app:                cfg.App,
 			liveAddrs:          utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
 			liveAddrVersion:    utils.NewAtomicSend(uint64(0)),
-			executed:           utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: utils.Clamp[atypes.GlobalBlockNumber](cfg.App.LastBlockHeight())})),
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
 	}, nil
@@ -59,7 +58,7 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 		// the whole committee.
 		s.Spawn(func() error { return r.runFullnodeSubscriber(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
-		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
+		s.SpawnNamed("pushAppHashes", func() error { return r.runPushAppHashes(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		s.SpawnNamed("committeeMembers", func() error {
 			return r.runPerCommitteeMember(ctx, r.runEvmProxy)
@@ -85,7 +84,7 @@ func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrp
 // it. A live connection is not dropped just because the epoch advanced.
 //
 // TODO(autobahn-state-sync): block sync from a single peer is bounded by
-// GetBlock's per-stream rate limit (rpc.Limit{Rate:10, Concurrent:10}) —
+// GetBlock's per-stream rate limit (rpc.Limit{Rate:200, Concurrent:10}) —
 // initial catch-up of a fresh node joining an established cluster is
 // slow. Long-term fix is autobahn snapshot transfer (CometBFT-style state
 // sync). This loop is correct for "fresh cluster" and "restart of a

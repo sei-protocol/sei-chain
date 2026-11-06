@@ -32,9 +32,9 @@ func (s *CommitStore) OpenView() gigatypes.StateView {
 // Panics on I/O errors or unsupported key types.
 func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
 	// Read lock: the internal getters (getAccountData, getStorageData,
-	// getCodeData, getMiscData) read the pending-writes maps, which
-	// ApplyChangeSets/Commit mutate under the write lock. Has delegates to Get
-	// and must not take its own lock (RWMutex read locks are not reentrant).
+	// getCodeData, getMiscData) read the stores, which Commit stages a block
+	// into under the write lock. Has delegates to Get and must not take its
+	// own lock (RWMutex read locks are not reentrant).
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -92,7 +92,7 @@ func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
 // If not found, returns (-1, false, nil).
 func (s *CommitStore) GetBlockHeightModified(moduleName string, key []byte) (int64, bool, error) {
 	// Read lock: the internal getters (getStorageData, getAccountData,
-	// getCodeData) read the pending-writes maps mutated under the write lock.
+	// getCodeData) read the stores, which Commit stages a block into under the write lock.
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -148,17 +148,10 @@ func (s *CommitStore) Has(moduleName string, key []byte) bool {
 // Internal Getters
 // =============================================================================
 //
-// Each of these reads through its store, which already merges the values staged by the block currently
-// being applied over the on-disk data. A key absent from both, and a key that same block deleted
-// earlier, both come back as the zero value; every caller below collapses those two cases anyway.
+// Each of these reads the committed block through its store. An absent key comes back as the zero value.
 
 // parseRow deserializes a row read out of a store, or returns the zero value of T when the row was
 // not there.
-//
-// A key that the block currently being applied has already deleted reads as absent rather than as a
-// tombstone, so callers need not distinguish "never existed" from "deleted by the block in progress" —
-// both yield the zero value, which every FlatKV read path already treats the same way as a value whose
-// IsDelete reports true.
 func parseRow[T vtype.VType](raw []byte, found bool, parse func([]byte) (T, error)) (T, error) {
 	var zero T
 	if !found {
@@ -172,7 +165,7 @@ func parseRow[T vtype.VType](raw []byte, found bool, parse func([]byte) (T, erro
 // hash or a balance. The second return reports whether that field is set.
 //
 // A zero code hash and a zero balance both report false. A deletion is stored by zeroing the field
-// rather than by removing anything (see mergeAccountUpdates), so answering "present" for a zero would
+// rather than by removing anything (see PendingAccountWrite.SetField()), so answering "present" for a zero would
 // hand back a key the block deleted. The nonce is the exception: it answers for every row that exists.
 func accountFieldValue(kind keys.EVMKeyKind, account *vtype.AccountData) ([]byte, bool) {
 	switch kind {
@@ -204,7 +197,7 @@ func (s *CommitStore) getAccountData(keyBytes []byte) (*vtype.AccountData, error
 	if len(keyBytes) != ktype.AddressLen {
 		return nil, fmt.Errorf("accountDB: expected key length %d, got %d", ktype.AddressLen, len(keyBytes))
 	}
-	physKey := ktype.EVMPhysicalKey(ktype.EVMKeyAccount, keyBytes)
+	physKey := ktype.BuildPhysicalEVMKey(ktype.EVMKeyAccount, keyBytes)
 	raw, found, err := s.accountStore.Get(physKey, true)
 	if err != nil {
 		return nil, fmt.Errorf("accountDB read of key %x: %w", physKey, err)
@@ -216,7 +209,7 @@ func (s *CommitStore) getStorageData(keyBytes []byte) (*vtype.StorageData, error
 	if len(keyBytes) != ktype.AddressLen+ktype.SlotLen {
 		return nil, fmt.Errorf("storageDB: expected key length %d, got %d", ktype.AddressLen+ktype.SlotLen, len(keyBytes))
 	}
-	physKey := ktype.EVMPhysicalKey(keys.EVMKeyStorage, keyBytes)
+	physKey := ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, keyBytes)
 	raw, found, err := s.storageStore.Get(physKey, true)
 	if err != nil {
 		return nil, fmt.Errorf("storageDB read of key %x: %w", physKey, err)
@@ -239,7 +232,7 @@ func (s *CommitStore) getCodeData(keyBytes []byte) (*vtype.CodeData, error) {
 	if len(keyBytes) != ktype.AddressLen {
 		return nil, fmt.Errorf("codeDB: expected key length %d, got %d", ktype.AddressLen, len(keyBytes))
 	}
-	physKey := ktype.EVMPhysicalKey(keys.EVMKeyCode, keyBytes)
+	physKey := ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, keyBytes)
 	raw, found, err := s.codeStore.Get(physKey, true)
 	if err != nil {
 		return nil, fmt.Errorf("codeDB read of key %x: %w", physKey, err)
@@ -259,7 +252,7 @@ func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
 }
 
 func (s *CommitStore) getMiscData(moduleName string, keyBytes []byte) (*vtype.MiscData, error) {
-	physKey := ktype.ModulePhysicalKey(moduleName, keyBytes)
+	physKey := ktype.BuildPhysicalKey(moduleName, keyBytes)
 	raw, found, err := s.miscStore.Get(physKey, true)
 	if err != nil {
 		return nil, fmt.Errorf("miscDB read of key %x: %w", physKey, err)

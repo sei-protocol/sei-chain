@@ -20,7 +20,6 @@ var (
 		ApplyChangesetsLatency   metric.Float64Histogram
 		CommitLatency            metric.Float64Histogram
 		CommitBatchLatency       metric.Float64Histogram
-		AccountUpdateLatency     metric.Float64Histogram
 		NumKVPairs               metric.Int64Counter
 		PendingWrites            metric.Int64Gauge
 		CurrentVersion           metric.Int64Gauge
@@ -58,14 +57,6 @@ var (
 		CommitBatchLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_commit_batch_latency",
 			metric.WithDescription("Time taken to commit a FlatKV data DB batch"),
-			metric.WithUnit("s"),
-			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
-		)),
-		AccountUpdateLatency: must(flatkvMeter.Float64Histogram(
-			"flatkv_account_update_latency",
-			metric.WithDescription(
-				"Time taken to stage one block's account changes with the account store, which folds "+
-					"them onto the rows they modify on its own threads"),
 			metric.WithUnit("s"),
 			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
 		)),

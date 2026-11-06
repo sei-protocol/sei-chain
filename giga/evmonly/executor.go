@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -23,16 +24,18 @@ import (
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
 type Executor struct {
-	cfg              Config
-	resultSink       ResultSink
-	occPool          *occWorkerPool
-	resultPool       *blockResultPool
-	stateDBPool      sync.Pool
-	storeMu          sync.Mutex
-	stateStore       gigatypes.StateDB
-	receiptStore     receipt.ReceiptStore
-	changeSetEncoder NamedChangeSetEncoder
-	// Optional: nil commits only the state encoder's changesets.
+	cfg             Config
+	resultSink      ResultSink
+	occPool         *occWorkerPool
+	resultPool      *blockResultPool
+	stateDBPool     sync.Pool
+	endBlockers     []endBlocker
+	customContracts map[common.Address]vm.CustomPrecompiledContract
+	storeMu         sync.Mutex
+	stateStore      gigatypes.StateDB
+	receiptStore    receipt.ReceiptStore
+	receiptHasher   *receipthash.ReceiptHasher
+	// Optional: nil commits only the block's EVM state changes.
 	blockChangeSetEncoder BlockChangeSetEncoder
 	// blockEncoderReadsStore is false only for an encoder registered as
 	// store-independent, which lets encoding overlap the previous commit.
@@ -62,8 +65,9 @@ func WithResultSink(sink ResultSink) Option {
 	}
 }
 
-// WithMissingAccountState supplies state for accounts absent from the
-// persistent state snapshot.
+// WithMissingAccountState supplies the balance, nonce and code of accounts
+// absent from the persistent state snapshot. Storage is always read from the
+// snapshot.
 func WithMissingAccountState(state StateReader) Option {
 	return func(e *Executor) {
 		e.missingState = state
@@ -93,9 +97,11 @@ func WithBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
 // execution on this executor.
 func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
-		cfg:         cfg.WithDefaults(),
-		resultPool:  newBlockResultPool(cfg.BlockResultPoolSize),
-		blockPhases: newBlockPhases(),
+		cfg:             cfg.WithDefaults(),
+		resultPool:      newBlockResultPool(cfg.BlockResultPoolSize),
+		blockPhases:     newBlockPhases(),
+		endBlockers:     customEndBlockers(cfg.CustomPrecompiles),
+		customContracts: customPrecompileMap(cfg.CustomPrecompiles),
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
@@ -172,20 +178,38 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockRe
 }
 
 func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (PreparedBlock, error) {
-	chainConfig := e.chainConfig(req.Context)
-	if err := validateBlockContext(chainConfig, req.Context); err != nil {
+	decoded, err := e.DecodeBlock(ctx, req)
+	if err != nil {
 		return PreparedBlock{}, err
 	}
-	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
-	if len(req.Senders) != 0 && len(req.Senders) != len(req.Txs) {
-		return PreparedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(req.Senders), len(req.Txs))
+	return e.RecoverSenders(ctx, decoded)
+}
+
+// DecodeBlock decodes and validates req's transactions, leaving their senders unresolved.
+func (e *Executor) DecodeBlock(ctx context.Context, req BlockRequest) (DecodedBlock, error) {
+	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
+		return DecodedBlock{}, err
 	}
-	parsed, err := parseBlockTxs(ctx, req.Txs, signer, req.Senders, e.cfg.ParseWorkers)
+	if len(req.Senders) != 0 && len(req.Senders) != len(req.Txs) {
+		return DecodedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(req.Senders), len(req.Txs))
+	}
+	txs, err := decodeBlockTxs(ctx, req.Txs, e.cfg.ParseWorkers)
+	if err != nil {
+		return DecodedBlock{}, err
+	}
+	return DecodedBlock{context: req.Context, txs: txs, senders: req.Senders}, nil
+}
+
+// RecoverSenders resolves every transaction's sender in b, recovering it from the signature unless
+// b carries an already verified sender for it.
+func (e *Executor) RecoverSenders(ctx context.Context, b DecodedBlock) (PreparedBlock, error) {
+	signer := ethtypes.MakeSigner(e.chainConfig(b.context), new(big.Int).SetUint64(b.context.Number), b.context.Time)
+	parsed, err := resolveBlockSenders(ctx, b.txs, signer, b.senders, e.cfg.ParseWorkers)
 	if err != nil {
 		return PreparedBlock{}, err
 	}
 	return PreparedBlock{
-		Context: req.Context,
+		Context: b.context,
 		Txs:     parsed,
 	}, nil
 }
@@ -208,6 +232,18 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 }
 
 func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
+	result, err := e.executeBlockTxs(ctx, req, source)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.runEndBlockers(req.Context, source, result); err != nil {
+		result.Release()
+		return nil, err
+	}
+	return result, nil
+}
+
+func (e *Executor) executeBlockTxs(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
 	if len(req.Txs) == 0 {
 		return e.acquireBlockResult(ctx, 0)
 	}
@@ -239,13 +275,7 @@ func (e *Executor) sinkBlockResult(ctx context.Context, height uint64, result *B
 }
 
 func (e *Executor) useOCC(txCount int) bool {
-	if e.closed.Load() || e.cfg.OCCWorkers <= 1 || txCount <= 1 {
-		return false
-	}
-	if e.cfg.CustomPrecompiles == nil {
-		return true
-	}
-	return len(e.cfg.CustomPrecompiles.Addresses()) == 0
+	return !e.closed.Load() && e.cfg.OCCWorkers > 1 && txCount > 1
 }
 
 func (e *Executor) acquireStateDB(source StateReader) *nativeStateDB {
@@ -273,8 +303,8 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 
 	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
-	blockCtx := buildBlockContext(req.Context)
-	evm := vm.NewEVMWithCustomPrecompiles(blockCtx, stateDB, chainConfig, vm.Config{}, customPrecompileMap(e.cfg.CustomPrecompiles))
+	blockCtx := EVMBlockContext(req.Context)
+	evm := vm.NewEVMWithCustomPrecompiles(blockCtx, stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 
 	gasPool := core.NewGasPool(req.Context.GasLimit)
@@ -507,7 +537,9 @@ func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) (*core.Message
 	return msg, nil
 }
 
-func buildBlockContext(ctx BlockContext) vm.BlockContext {
+// EVMBlockContext returns the go-ethereum block context the executor runs a block with context ctx
+// at. BLOCKHASH answers only for the parent block.
+func EVMBlockContext(ctx BlockContext) vm.BlockContext {
 	prevRandao := ctx.PrevRandao
 	baseFee := cloneOptionalBig(ctx.BaseFee)
 	blobBaseFee := cloneOptionalBig(ctx.BlobBaseFee)
@@ -551,7 +583,12 @@ func customPrecompileMap(registry precompiles.Registry) map[common.Address]vm.Cu
 	}
 	contracts := make(map[common.Address]vm.CustomPrecompiledContract, len(addresses))
 	for _, addr := range addresses {
-		contracts[addr] = unresolvedCustomPrecompile{}
+		contract, ok := registry.Get(addr)
+		if !ok || contract == nil {
+			contracts[addr] = unresolvedCustomPrecompile{}
+			continue
+		}
+		contracts[addr] = registeredCustomPrecompile{address: addr, contract: contract}
 	}
 	return contracts
 }
@@ -586,14 +623,14 @@ func validateBlockContext(chainConfig *params.ChainConfig, ctx BlockContext) err
 	if ctx.GasLimit == 0 {
 		return errInvalidBlockGasLimit
 	}
-	if chainConfig != nil {
-		blockNumber := new(big.Int).SetUint64(ctx.Number)
-		if chainConfig.IsLondon(blockNumber) && ctx.BaseFee == nil {
-			return errMissingBaseFee
-		}
-		if chainConfig.IsCancun(blockNumber, ctx.Time) && ctx.BlobBaseFee == nil {
-			return errMissingBlobBaseFee
-		}
+	if !chainConfig.IsCancun(new(big.Int).SetUint64(ctx.Number), ctx.Time) {
+		return errPreCancunBlock
+	}
+	if ctx.BaseFee == nil {
+		return errMissingBaseFee
+	}
+	if ctx.BlobBaseFee == nil {
+		return errMissingBlobBaseFee
 	}
 	return nil
 }
@@ -615,7 +652,8 @@ func EffectiveGasPrice(tx *ethtypes.Transaction, baseFee *big.Int) *big.Int {
 var (
 	errInsufficientGasPrice = fmt.Errorf("insufficient gas price")
 	errInvalidBlockGasLimit = fmt.Errorf("block gas limit must be non-zero")
-	errMissingBaseFee       = fmt.Errorf("missing base fee for post-London block")
-	errMissingBlobBaseFee   = fmt.Errorf("missing blob base fee for post-Cancun block")
+	errPreCancunBlock       = fmt.Errorf("pre-Cancun blocks are not supported")
+	errMissingBaseFee       = fmt.Errorf("missing base fee")
+	errMissingBlobBaseFee   = fmt.Errorf("missing blob base fee")
 	errUnsupportedBlobTx    = fmt.Errorf("blob transactions require block-level blob gas accounting")
 )

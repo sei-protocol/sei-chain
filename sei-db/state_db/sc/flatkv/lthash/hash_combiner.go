@@ -15,7 +15,7 @@ type hashCombiner struct {
 	// has been combined.
 	combined *BlockHash
 
-	// Gathered blocks arrive here, in block order.
+	// Submitted blocks arrive here, in block order.
 	combineJobChan <-chan any
 
 	// When a block is fully hashed, the result is put onto this channel.
@@ -36,7 +36,7 @@ func newHashCombiner(
 	dbNames []string,
 	// The hash state the first block is summed onto.
 	runningHash *BlockHash,
-	// Gathered blocks arrive here, in block order.
+	// Submitted blocks arrive here, in block order.
 	combineJobChan <-chan any,
 	// Cancelled when the engine is stopping, to release a publish that nobody is reading.
 	ctx context.Context,
@@ -57,19 +57,16 @@ func newHashCombiner(
 	return c
 }
 
-// run combines blocks until the gatherer stops sending them.
+// run combines blocks until the engine stops.
 func (c *hashCombiner) run() {
 	defer close(c.blockHashChan)
 
 	publishing := true
 	for {
 		select {
-		case job, open := <-c.combineJobChan:
-			if !open {
-				return
-			}
+		case job := <-c.combineJobChan:
 			switch job := job.(type) {
-			case *gatheredBlock:
+			case *submittedBlock:
 				if publishing {
 					publishing = c.combineBlock(job)
 				}
@@ -86,7 +83,7 @@ func (c *hashCombiner) run() {
 
 // combineBlock waits for one block's leaf hashes, sums them onto the running state, and publishes it,
 // reporting whether the stream may carry on.
-func (c *hashCombiner) combineBlock(job *gatheredBlock) bool {
+func (c *hashCombiner) combineBlock(job *submittedBlock) bool {
 	if job.err != nil {
 		// The running hashes describe nothing trustworthy once a block has failed, so no later block
 		// may be derived from them.

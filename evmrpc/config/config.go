@@ -131,7 +131,8 @@ type Config struct {
 	// maximum number of active eth_newFilter and eth_newBlockFilter filters
 	MaxFilters uint64 `mapstructure:"max_filters"`
 
-	// maximum number of unpolled hashes retained by an eth_newBlockFilter filter
+	// maximum number of block hashes an eth_newBlockFilter filter holds unpolled (Autobahn) or
+	// block heights one poll covers (otherwise)
 	MaxBlockFilterHashes uint64 `mapstructure:"max_block_filter_hashes"`
 
 	// checkTx timeout for sig verify
@@ -176,9 +177,6 @@ type Config struct {
 
 	// max number of concurrent logs subscriptions
 	MaxSubscriptionsLogs uint64 `mapstructure:"max_subscriptions_logs"`
-
-	// test api enables certain override apis for integration test situations
-	EnableTestAPI bool `mapstructure:"enable_test_api"`
 
 	// MaxConcurrentTraceCalls defines the maximum number of concurrent debug_trace calls.
 	// Set to 0 for unlimited.
@@ -374,7 +372,6 @@ var DefaultConfig = Config{
 	MaxStateOverrideSlots:        1000,
 	MaxSubscriptionsNewHead:      10000,
 	MaxSubscriptionsLogs:         1000,
-	EnableTestAPI:                false,
 	MaxConcurrentTraceCalls:      10,
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
 	MaxTraceLookbackBlocks:       10000,
@@ -444,7 +441,6 @@ const (
 	flagMaxStateOverrideSlots        = "evm.max_state_override_slots"
 	flagMaxSubscriptionsNewHead      = "evm.max_subscriptions_new_head"
 	flagMaxSubscriptionsLogs         = "evm.max_subscriptions_logs"
-	flagEnableTestAPI                = "evm.enable_test_api"
 	flagMaxConcurrentTraceCalls      = "evm.max_concurrent_trace_calls"
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
 	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
@@ -625,11 +621,6 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagMaxSubscriptionsLogs); v != nil {
 		if cfg.MaxSubscriptionsLogs, err = cast.ToUint64E(v); err != nil {
-			return cfg, err
-		}
-	}
-	if v := opts.Get(flagEnableTestAPI); v != nil {
-		if cfg.EnableTestAPI, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -1009,8 +1000,9 @@ filter_timeout = "{{ .EVM.FilterTimeout }}"
 # filters cannot be added if there are too many active eth_newFilter and eth_newBlockFilter
 max_filters = {{ .EVM.MaxFilters }}
 
-# maximum number of unpolled hashes retained by an eth_newBlockFilter filter;
-# if a filter has more than this many unpolled hashes the filter will be invalidated and removed.
+# maximum number of block hashes an eth_newBlockFilter filter handles at once.
+# Under Autobahn a filter holding this many unpolled hashes is invalidated and removed;
+# otherwise one poll covers at most this many block heights and later polls cover the rest.
 max_block_filter_hashes = {{ .EVM.MaxBlockFilterHashes }}
 
 # checkTx timeout for sig verify

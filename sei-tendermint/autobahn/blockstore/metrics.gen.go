@@ -21,7 +21,7 @@ func newMetrics() *metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "prune_watermark",
-			Help:      "Lowest global block retained by BlockDB.",
+			Help:      "Lowest SuperBlock road index retained by BlockDB.",
 		}, nil),
 	}
 }

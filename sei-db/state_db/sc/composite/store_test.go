@@ -17,6 +17,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -30,6 +31,14 @@ type failingEVMStore struct{}
 
 var _ gigatypes.LiveStateStore = (*failingEVMStore)(nil)
 
+type importerFailingEVMStore struct {
+	failingEVMStore
+}
+
+func (f *importerFailingEVMStore) Importer(int64) (types.Importer, error) {
+	return nil, errors.New("flatkv importer unavailable")
+}
+
 func (f *failingEVMStore) LoadLatest() error { return fmt.Errorf("flatkv unavailable") }
 
 func (f *failingEVMStore) LoadVersionReadOnly(int64) (gigatypes.LiveStateStore, error) {
@@ -40,7 +49,7 @@ func (f *failingEVMStore) ApplyChangeSets(int64, []*proto.NamedChangeSet) error 
 	return nil
 }
 func (f *failingEVMStore) Commit(int64) (int64, error) { return 0, nil }
-func (f *failingEVMStore) CommitStateChanges(int64, []*proto.NamedChangeSet) error {
+func (f *failingEVMStore) CommitStateChanges(int64, []mutation.Mutation) error {
 	return nil
 }
 func (f *failingEVMStore) OpenView() gigatypes.StateView     { return nil }
@@ -1230,6 +1239,33 @@ func TestExporterFailsLoudOnFlatKVLoadFailure(t *testing.T) {
 	_, err = cs.Exporter(1)
 	require.Error(t, err, "Exporter must fail loud on an in-history flatkv load failure")
 	require.Contains(t, err.Error(), "failed to load flatkv at export version")
+}
+
+func TestCompositeImporterAbortsMemIAVLWhenFlatKVImporterFails(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.DefaultStateCommitConfig()
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	require.NoError(t, cs.LoadLatest())
+	require.NoError(t, cs.Close())
+
+	cs.storeFlatKV(&importerFailingEVMStore{})
+
+	const importVersion = int64(7)
+	_, err = cs.Importer(importVersion)
+	require.ErrorContains(t, err, "failed to create flatkv importer")
+
+	latestVersion, err := cs.memIAVL.GetLatestVersion()
+	require.NoError(t, err)
+	require.Zero(t, latestVersion)
+
+	retry, err := cs.memIAVL.Importer(importVersion)
+	require.NoError(t, err)
+	require.NoError(t, retry.Abort(errors.New("test cleanup")))
 }
 
 func TestCompositeImporterRouting(t *testing.T) {
@@ -2679,4 +2715,69 @@ func TestNewCompositeCommitStoreKeepsFlatKVKeepRecent(t *testing.T) {
 
 func TestPrecedesMigrationFalseWithoutLaterSnapshot(t *testing.T) {
 	require.False(t, precedesMigration(&failingEVMStore{}, 5))
+}
+
+func TestCompositeApplyUpgradesRefusesRemovingFlatKVStores(t *testing.T) {
+	cases := []struct {
+		mode    types.WriteMode
+		upgrade *proto.TreeNameUpgrade
+		refused bool
+	}{
+		{types.MemiavlOnly, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, false},
+		{types.EVMMigrated, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, false},
+		{types.EVMMigrated, &proto.TreeNameUpgrade{Name: keys.EVMStoreKey, Delete: true}, true},
+		{types.MigrateCosmos, &proto.TreeNameUpgrade{Name: keys.BankStoreKey, Delete: true}, true},
+		{types.MigrateCosmos, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, true},
+		{types.MigrateCosmos, &proto.TreeNameUpgrade{Name: keys.MintStoreKey, RenameFrom: keys.StakingStoreKey}, true},
+		{types.MigrateCosmos, &proto.TreeNameUpgrade{Name: "tokenfactory", Delete: true}, true},
+		{types.MigrateCosmos, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, RenameFrom: keys.BankStoreKey}, true},
+		{types.EVMMigrated, &proto.TreeNameUpgrade{Name: keys.EVMStoreKey, RenameFrom: keys.StakingStoreKey}, true},
+		{types.MigrateEVM, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, false},
+		{types.MigrateEVM, &proto.TreeNameUpgrade{Name: keys.EVMStoreKey, Delete: true}, true},
+		{types.TestOnlyDualWrite, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, false},
+		{types.TestOnlyDualWrite, &proto.TreeNameUpgrade{Name: keys.EVMStoreKey, Delete: true}, true},
+		{types.FlatKVOnly, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, true},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%s/%s", tc.mode, tc.upgrade), func(t *testing.T) {
+			cs := setupComposite(t, tc.mode)
+			removed := tc.upgrade.Name
+			if tc.upgrade.RenameFrom != "" {
+				removed = tc.upgrade.RenameFrom
+			}
+			hasTree := func(name string) bool { return cs.memIAVL != nil && cs.memIAVL.MayHoldStore(name) }
+			present := hasTree(removed)
+
+			err := cs.ApplyUpgrades([]*proto.TreeNameUpgrade{tc.upgrade})
+			if tc.refused {
+				require.ErrorContains(t, err, "the mode routes it to flatkv")
+				require.Equal(t, present, hasTree(removed), "a refused upgrade changed memiavl")
+				return
+			}
+			require.True(t, present)
+			require.NoError(t, err)
+			require.False(t, hasTree(removed))
+		})
+	}
+}
+
+func TestCompositeMayHoldStore(t *testing.T) {
+	cases := []struct {
+		mode types.WriteMode
+		name string
+		want bool
+	}{
+		{types.MemiavlOnly, keys.StakingStoreKey, true},
+		{types.MemiavlOnly, "oracle", false},
+		{types.EVMMigrated, "oracle", false},
+		{types.EVMMigrated, keys.EVMStoreKey, true},
+		{types.MigrateCosmos, "tokenfactory", true},
+		{types.FlatKVOnly, "oracle", true},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%s/%s", tc.mode, tc.name), func(t *testing.T) {
+			cs := setupComposite(t, tc.mode)
+			require.Equal(t, tc.want, cs.MayHoldStore(tc.name))
+		})
+	}
 }

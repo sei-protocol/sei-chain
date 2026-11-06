@@ -76,6 +76,10 @@ func InitGenesis(
 		}
 	}
 
+	if _, err := keeper.MigrateDelegationByValIndex(ctx); err != nil {
+		panic(err)
+	}
+
 	for _, ubd := range data.UnbondingDelegations {
 		keeper.SetUnbondingDelegation(ctx, ubd)
 

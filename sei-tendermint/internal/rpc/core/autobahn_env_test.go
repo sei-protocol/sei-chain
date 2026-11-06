@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"net/url"
 	"testing"
 	"time"
@@ -8,6 +9,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -26,6 +28,24 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+type stubAppHashBuilder struct{}
+
+func (stubAppHashBuilder) ReportBlockHash(context.Context, uint64, [32]byte) error { return nil }
+func (stubAppHashBuilder) ReportStateHash(context.Context, uint64, [32]byte, map[string][]byte) error {
+	return nil
+}
+func (stubAppHashBuilder) ReportBUDHash(context.Context, uint64, [32]byte) error { return nil }
+func (stubAppHashBuilder) ReportReceiptHash(context.Context, uint64, apphash.ReceiptHash) error {
+	return nil
+}
+func (stubAppHashBuilder) SetupComplete(context.Context, uint64) error { return nil }
+func (stubAppHashBuilder) GetAppHash(ctx context.Context, _ uint64) (*apphash.AppHashData, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+func (stubAppHashBuilder) Bounds() (uint64, uint64, bool, error) { return 0, 0, false, nil }
+func (stubAppHashBuilder) Close() error                          { return nil }
+
 func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	t.Helper()
 	rng := utils.TestRng()
@@ -43,7 +63,7 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 		valKey.Public(): {
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
-			EVMRPC:   *utils.OrPanic1(url.Parse("http://127.0.0.1:8545")),
+			EVMRPC:   *utils.OrPanic1(url.Parse("ws://127.0.0.1:8546")),
 		},
 	}
 	blockStore, err := blockstore.New(memblock.NewBlockDB())
@@ -55,6 +75,7 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: t.TempDir(),
 		App:                app,
+		AppHashBuilder:     stubAppHashBuilder{},
 		GenDoc:             genDoc,
 	}
 	dataState, err := p2p.BuildDataState(&commonCfg, blockStore)
@@ -70,7 +91,6 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 			MaxTxsPerBlock:          1,
 			MaxTxsPerSecond:         utils.None[uint64](),
 			BlockInterval:           time.Second,
-			MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 		},
 	}, nodeKey, dataState)
 	require.NoError(t, err)

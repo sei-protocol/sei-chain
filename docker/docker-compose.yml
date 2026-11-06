@@ -6,7 +6,6 @@ services:
     user: "${USERID}:${GROUPID}"
     ports:
       - "26656-26658:26656-26658"
-      - "9090-9091:9090-9091"
       - "8545-8546:8545-8546"
     environment:
       - ID=0
@@ -20,6 +19,7 @@ services:
       - GIGA_OCC
       - RECEIPT_BACKEND
       - AUTOBAHN
+      - EVM_GOVERNANCE_VOTING_PERIOD
       - GIGA_STORAGE
       - GIGA_MIGRATE_FROM_MEMIAVL
       - GIGA_FLATKV_ONLY
@@ -44,7 +44,6 @@ services:
     user: "${USERID}:${GROUPID}"
     ports:
       - "26659-26661:26656-26658"
-      - "9092-9093:9090-9091"
       - "8547-8548:8545-8546"
     environment:
       - ID=1
@@ -57,6 +56,7 @@ services:
       - GIGA_OCC
       - RECEIPT_BACKEND
       - AUTOBAHN
+      - EVM_GOVERNANCE_VOTING_PERIOD
       - GIGA_STORAGE
       - GIGA_MIGRATE_FROM_MEMIAVL
       - GIGA_FLATKV_ONLY
@@ -90,6 +90,7 @@ services:
       - GIGA_OCC
       - RECEIPT_BACKEND
       - AUTOBAHN
+      - EVM_GOVERNANCE_VOTING_PERIOD
       - GIGA_STORAGE
       - GIGA_MIGRATE_FROM_MEMIAVL
       - GIGA_FLATKV_ONLY
@@ -97,7 +98,6 @@ services:
       - EVM_IP_RATE_LIMIT_BURST
     ports:
       - "26662-26664:26656-26658"
-      - "9094-9095:9090-9091"
       - "8549-8550:8545-8546"
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
@@ -127,6 +127,7 @@ services:
       - GIGA_OCC
       - RECEIPT_BACKEND
       - AUTOBAHN
+      - EVM_GOVERNANCE_VOTING_PERIOD
       - GIGA_STORAGE
       - GIGA_MIGRATE_FROM_MEMIAVL
       - GIGA_FLATKV_ONLY
@@ -134,7 +135,6 @@ services:
       - EVM_IP_RATE_LIMIT_BURST
     ports:
       - "26665-26667:26656-26658"
-      - "9096-9097:9090-9091"
       - "8551-8552:8545-8546"
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"

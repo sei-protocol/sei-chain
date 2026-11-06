@@ -27,7 +27,6 @@ type Application interface {
 	CheckTx(context.Context, *RequestCheckTxV2) *ResponseCheckTxV2                                      // Validate a tx for the mempool
 	GetTxPriorityHint(context.Context, *RequestGetTxPriorityHintV2) (*ResponseGetTxPriorityHint, error) // Get tx priority before checkTx
 	EvmBalance(common.Address, []byte) uint256.Int
-	EvmChainID() uint64
 	EvmNonce(common.Address) uint64
 
 	// Consensus Connection
@@ -107,10 +106,6 @@ func (BaseApplication) EvmNonce(common.Address) uint64 {
 
 func (BaseApplication) EvmBalance(common.Address, []byte) uint256.Int {
 	return uint256.Int{}
-}
-
-func (BaseApplication) EvmChainID() uint64 {
-	return 0
 }
 
 func (BaseApplication) FinalizeBlock(_ context.Context, req *RequestFinalizeBlock) (*ResponseFinalizeBlock, error) {

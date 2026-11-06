@@ -277,8 +277,8 @@ func TestManager_MidBlock(t *testing.T) {
 	mockCtrl := gomock.NewController(t)
 	t.Cleanup(mockCtrl.Finish)
 
-	mockAppModule1 := mocks.NewMockAppModule(mockCtrl)
-	mockAppModule2 := mocks.NewMockAppModule(mockCtrl)
+	mockAppModule1 := mocks.NewMockMidBlockAppModule(mockCtrl)
+	mockAppModule2 := mocks.NewMockMidBlockAppModule(mockCtrl)
 	mockAppModule1.EXPECT().Name().Times(2).Return("module1")
 	mockAppModule2.EXPECT().Name().Times(2).Return("module2")
 	mm := module.NewManager(mockAppModule1, mockAppModule2)

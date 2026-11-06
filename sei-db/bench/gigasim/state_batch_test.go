@@ -25,20 +25,45 @@ func testSlotKey(id int) []byte {
 	return keys.BuildEVMKey(keys.EVMKeyStorage, slot)
 }
 
-// stagedPairs indexes a drained changeset by key, which is the form the assertions are written in. It
-// also asserts the changeset's shape: one entry, over the EVM store.
-func stagedPairs(t *testing.T, batch *stateBatch, counters identifierCounters) map[string][]byte {
+// testWord returns text as a value of the width every balance and slot the batch stages has.
+func testWord(text string) []byte {
+	word := make([]byte, storageSlotValueLen)
+	copy(word, text)
+	return word
+}
+
+// stagedPairs indexes a drained change set by the key each entry was staged under, which is the form the
+// assertions are written in: a balance or code under its EVM key, a slot under its EVM storage key, and a
+// counter under its key within counterModule. A balance is given at the width it was staged at. It also
+// asserts that no key is committed twice and that the key count matches the entries.
+func stagedPairs(t *testing.T, writes blockWrites) map[string][]byte {
 	t.Helper()
-	writes := batch.drainToChangeSet(counters)
-	require.Len(t, writes.changeSets, 1)
-	require.Equal(t, keys.EVMStoreKey, writes.changeSets[0].Name)
 
 	staged := map[string][]byte{}
-	for _, pair := range writes.changeSets[0].Changeset.Pairs {
-		_, duplicate := staged[string(pair.Key)]
-		require.False(t, duplicate, "key %x was committed twice in one block", pair.Key)
-		staged[string(pair.Key)] = pair.Value
+	stage := func(key []byte, value []byte) {
+		_, duplicate := staged[string(key)]
+		require.False(t, duplicate, "key %x was committed twice in one block", key)
+		staged[string(key)] = value
 	}
+	for _, change := range writes.changes.Accounts {
+		if change.Account.Balance != nil {
+			balance := change.Account.Balance.FillBytes(make([]byte, accountRecordLen))
+			stage(keys.BuildEVMKey(keys.EVMKeyBalance, change.Address[:]), balance)
+		}
+		if change.Account.Code != nil {
+			stage(keys.BuildEVMKey(keys.EVMKeyCode, change.Address[:]), change.Account.Code)
+		}
+	}
+	for _, change := range writes.changes.Storage {
+		slotKey := append(change.Address[:], change.Key[:]...)
+		stage(keys.BuildEVMKey(keys.EVMKeyStorage, slotKey), change.Value[:])
+	}
+	for _, change := range writes.changes.Misc {
+		require.Equal(t, counterModule, change.Module)
+		require.False(t, change.Delete, "counter %q is deleted", change.Key)
+		stage(change.Key, change.Value)
+	}
+	require.Equal(t, int64(len(staged)), writes.keys, "the key count must match the keys committed")
 	return staged
 }
 
@@ -52,13 +77,13 @@ func TestBatchKeepsKeysOfDifferentLengthsApart(t *testing.T) {
 	short := keys.BuildEVMKey(accountKeyPrefix, make([]byte, keys.AddressLen))
 	long := keys.BuildEVMKey(keys.EVMKeyStorage, make([]byte, storageKeyLen))
 
-	batch.Put(short, []byte("short"))
-	batch.Put(long, []byte("long"))
+	batch.Put(short, testWord("short"))
+	batch.Put(long, testWord("long"))
 	require.Equal(t, 2, batch.count())
 
-	staged := stagedPairs(t, batch, identifierCounters{})
-	require.Equal(t, []byte("short"), staged[string(short)])
-	require.Equal(t, []byte("long"), staged[string(long)])
+	staged := stagedPairs(t, batch.drainToChangeSet(identifierCounters{}))
+	require.Equal(t, testWord("short"), staged[string(short)])
+	require.Equal(t, testWord("long"), staged[string(long)])
 }
 
 // A key written more than once in a block commits once, holding the last value written.
@@ -68,12 +93,12 @@ func TestBatchCommitsARewrittenKeyOnce(t *testing.T) {
 	batch := newStateBatch(1)
 
 	account := testAccountKey(1)
-	batch.Put(account, []byte("first"))
-	batch.Put(account, []byte("second"))
+	batch.Put(account, testWord("first"))
+	batch.Put(account, testWord("second"))
 	require.Equal(t, 1, batch.count())
 
-	staged := stagedPairs(t, batch, identifierCounters{})
-	require.Equal(t, []byte("second"), staged[string(account)])
+	staged := stagedPairs(t, batch.drainToChangeSet(identifierCounters{}))
+	require.Equal(t, testWord("second"), staged[string(account)])
 }
 
 // Draining commits every staged write together with the identifier counters, and leaves the batch
@@ -85,21 +110,21 @@ func TestDrainCommitsEveryWriteAndEmptiesTheBatch(t *testing.T) {
 	batch := newStateBatch(2 * written)
 
 	for i := range written {
-		batch.Put(testAccountKey(i), []byte(fmt.Sprintf("account %d", i)))
-		batch.Put(testSlotKey(i), []byte(fmt.Sprintf("slot %d", i)))
+		batch.Put(testAccountKey(i), testWord(fmt.Sprintf("account %d", i)))
+		batch.Put(testSlotKey(i), testWord(fmt.Sprintf("slot %d", i)))
 	}
 
-	staged := stagedPairs(t, batch, identifierCounters{nextAccountID: 7, nextErc20ContractID: 9})
+	staged := stagedPairs(t, batch.drainToChangeSet(identifierCounters{nextAccountID: 7, nextErc20ContractID: 9}))
 	require.Len(t, staged, 2*written+len(counterKeys))
 	for i := range written {
-		require.Equal(t, []byte(fmt.Sprintf("account %d", i)), staged[string(testAccountKey(i))])
-		require.Equal(t, []byte(fmt.Sprintf("slot %d", i)), staged[string(testSlotKey(i))])
+		require.Equal(t, testWord(fmt.Sprintf("account %d", i)), staged[string(testAccountKey(i))])
+		require.Equal(t, testWord(fmt.Sprintf("slot %d", i)), staged[string(testSlotKey(i))])
 	}
 	require.Equal(t, encodeCounter(7), staged[string(counterKeys[0])])
 	require.Equal(t, encodeCounter(9), staged[string(counterKeys[1])])
 
 	require.Equal(t, 0, batch.count())
-	require.Len(t, stagedPairs(t, batch, identifierCounters{}), len(counterKeys))
+	require.Len(t, stagedPairs(t, batch.drainToChangeSet(identifierCounters{})), len(counterKeys))
 }
 
 // The volume a block commits is counted as its changeset is assembled, which is what keeps the commit
@@ -110,14 +135,14 @@ func TestDrainCountsEveryByteItStaged(t *testing.T) {
 
 	batch := newStateBatch(2)
 	account, slot := testAccountKey(1), testSlotKey(1)
-	batch.Put(account, []byte("account value"))
-	batch.Put(slot, []byte("slot value"))
+	batch.Put(account, testWord("account value"))
+	batch.Put(slot, testWord("slot value"))
 
 	writes := batch.drainToChangeSet(identifierCounters{})
 
 	var expected int64
-	for _, pair := range writes.changeSets[0].Changeset.Pairs {
-		expected += int64(len(pair.Key) + len(pair.Value))
+	for key, value := range stagedPairs(t, writes) {
+		expected += int64(len(key) + len(value))
 	}
 	require.Equal(t, expected, writes.bytes)
 }

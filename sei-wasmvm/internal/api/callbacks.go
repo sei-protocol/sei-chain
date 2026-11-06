@@ -40,6 +40,7 @@ GoError cQueryExternal_cgo(querier_t *ptr, uint64_t gas_limit, uint64_t *used_ga
 import "C"
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -303,16 +304,12 @@ func cNext(ref C.iterator_t, gasMeter *C.gas_meter_t, usedGas *cu64, key *C.Unma
 	}
 
 	gasBefore := gm.GasConsumed()
-	// call Next at the end, upon creation we have first data loaded
-	k := iter.Key()
-	v := iter.Value()
-	// check iter.Error() ????
-	iter.Next()
+	copied := copyCurrentThenAdvance(iter, iteratorKey, iteratorValue)
 	gasAfter := gm.GasConsumed()
 	*usedGas = (cu64)(gasAfter - gasBefore)
 
-	*key = newUnmanagedVector(k)
-	*val = newUnmanagedVector(v)
+	*key = newUnmanagedVector(copied[0])
+	*val = newUnmanagedVector(copied[1])
 	return C.GoError_None
 }
 
@@ -354,16 +351,29 @@ func nextPart(ref C.iterator_t, gasMeter *C.gas_meter_t, usedGas *cu64, output *
 	}
 
 	gasBefore := gm.GasConsumed()
-	// call Next at the end, upon creation we have first data loaded
-	out := valFn(iter)
-	// check iter.Error() ????
-	iter.Next()
+	copied := copyCurrentThenAdvance(iter, valFn)
 	gasAfter := gm.GasConsumed()
 	*usedGas = (cu64)(gasAfter - gasBefore)
 
-	*output = newUnmanagedVector(out)
+	*output = newUnmanagedVector(copied[0])
 	return C.GoError_None
 }
+
+// copyCurrentThenAdvance returns copies of the slices read from iter, then advances it.
+// A nil slice stays nil. The copies remain valid after the iterator moves.
+func copyCurrentThenAdvance(iter types.Iterator, reads ...func(types.Iterator) []byte) [][]byte {
+	copied := make([][]byte, len(reads))
+	for i, read := range reads {
+		// Next may reuse the buffer behind the slice Key or Value just returned.
+		copied[i] = bytes.Clone(read(iter))
+	}
+	iter.Next()
+	return copied
+}
+
+func iteratorKey(iter types.Iterator) []byte { return iter.Key() }
+
+func iteratorValue(iter types.Iterator) []byte { return iter.Value() }
 
 var api_vtable = C.GoApi_vtable{
 	humanize_address:     (C.humanize_address_fn)(C.cHumanAddress_cgo),

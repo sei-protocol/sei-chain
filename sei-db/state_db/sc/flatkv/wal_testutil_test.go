@@ -5,7 +5,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/stretchr/testify/require"
@@ -61,24 +60,4 @@ func walBlockNumbers(t *testing.T, s *CommitStore) []uint64 {
 		blocks = append(blocks, block)
 	}
 	return blocks
-}
-
-// singleWALBlockChangesets returns the changesets of the sole block stored in the store's WAL, asserting
-// there is exactly one. Test-only.
-func singleWALBlockChangesets(t *testing.T, s *CommitStore) []*proto.NamedChangeSet {
-	t.Helper()
-	ok, first, last, err := s.wal.GetStoredRange()
-	require.NoError(t, err)
-	require.True(t, ok, "expected a WAL block")
-	require.Equal(t, first, last, "expected exactly one WAL block")
-
-	it, err := s.wal.Iterator(first, last)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, it.Close()) }()
-
-	hasNext, err := it.Next()
-	require.NoError(t, err)
-	require.True(t, hasNext)
-	_, changesets := it.Entry()
-	return changesets
 }

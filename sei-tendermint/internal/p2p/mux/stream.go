@@ -41,9 +41,9 @@ func (s *Stream) open(ctx context.Context, maxMsgSize uint64, window uint64) err
 				ctrl.Updated()
 			}
 			f := queue.Get(s.state.id)
-			f.Header.Kind = utils.Alloc(uint64(s.state.kind))
-			f.Header.MaxMsgSize = utils.Alloc(maxMsgSize)
-			f.Header.WindowEnd = utils.Alloc(window)
+			f.Header.Kind = new(uint64(s.state.kind))
+			f.Header.MaxMsgSize = new(maxMsgSize)
+			f.Header.WindowEnd = new(window)
 		}
 		if err := ctrl.WaitUntil(ctx, func() bool { return inner.send.remoteOpened }); err != nil {
 			s.close(inner)
@@ -89,8 +89,8 @@ func (s *Stream) Send(ctx context.Context, msg []byte) error {
 			}
 			f := queue.Get(s.state.id)
 			f.Payload = msg
-			f.Header.PayloadSize = utils.Alloc(uint64(len(msg)))
-			f.Header.MsgEnd = utils.Alloc(true)
+			f.Header.PayloadSize = new(uint64(len(msg)))
+			f.Header.MsgEnd = new(true)
 		}
 		inner.metrics.Send(len(msg))
 	}
@@ -108,7 +108,7 @@ func (s *Stream) close(inner *streamStateInner) {
 			ctrl.Updated()
 		}
 		f := queue.Get(s.state.id)
-		f.Header.Close = utils.Alloc(true)
+		f.Header.Close = new(true)
 	}
 }
 
@@ -150,7 +150,7 @@ func (s *Stream) Recv(ctx context.Context, freeBuffer bool) ([]byte, error) {
 					ctrl.Updated()
 				}
 				f := queue.Get(s.state.id)
-				f.Header.WindowEnd = utils.Alloc(inner.recv.end)
+				f.Header.WindowEnd = new(inner.recv.end)
 			}
 		}
 		inner.metrics.Recv(len(msg))

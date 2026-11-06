@@ -1,33 +1,28 @@
 package statewal
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
-// A WAL for state.
+// A WAL for state. Each block is written and read back as mutations.
 //
 // A StateWAL is not safe for concurrent use. Callers must serialize their calls to a single instance;
 // in particular Write maintains write-ordering state that is not internally locked.
 //
-// Slices are not copied at the call boundary. Changesets passed to Write — and every byte slice reachable
-// through them — must not be modified after the call: the WAL retains them and serializes them
-// asynchronously, so mutating them races the WAL and can corrupt what is persisted. Likewise the changesets
-// returned by the iterator are owned by the WAL and must be treated as read-only. Callers that need to
-// mutate such data must copy it first.
+// The mutations returned by the iterator own their bytes, which may be retained and must not be modified.
 type StateWAL interface {
-	controller.PrunableStore
+	controllertypes.PrunableStore
 
-	// Write a block's changes to the WAL as a single record.
+	// Write a block's mutations to the WAL as a single record.
 	//
-	// This method only schedules the write, it does not block until the write is complete.
+	// This method only schedules the write, it does not block until the write is complete. It does block while the
+	// WAL is behind by more than Config.RequestBufferSize blocks.
 	//
-	// cs, and every byte slice reachable through it (changeset keys and values), must not be modified after
-	// this call. Callers that need to modify those buffers must copy them first.
-	//
-	// A nil entry in cs is rejected synchronously with an error and leaves the WAL usable; cs itself may be
-	// nil or empty.
+	// Write retains mutations and the byte slices reachable through them, none of which may be modified after the
+	// call. The block is stored with its mutations in the order given.
 	//
 	// Blocks must be written in contiguous ascending order, one Write per block. The first block written to
 	// an empty WAL may be any number; every block after it must be exactly one greater than the last, so
@@ -35,10 +30,10 @@ type StateWAL interface {
 	//
 	// Violations are reported synchronously and leave the WAL usable.
 	Write(
-		// The block number associated with the changeset.
+		// The block number associated with the mutations.
 		blockNumber uint64,
-		// The changeset to write.
-		cs []*proto.NamedChangeSet,
+		// The block's mutations, one per key the block writes.
+		mutations []mutation.Mutation,
 	) error
 
 	// Flush the WAL to disk, making every block written so far crash durable.
@@ -76,11 +71,16 @@ type StateWAL interface {
 	// start and the return of this call. Data written before that instant is included; data written after it
 	// is not. For data written concurrently with this call, whether it is included is unspecified.
 	//
-	// The iterator yields one entry per block in ascending block order. Its Entry() returns (blockNumber,
-	// changesets), where changesets are the changes written for that block. The returned changesets, and
-	// every byte slice reachable through them, must be treated as read-only.
-	Iterator(startingBlockNumber uint64, endingBlockNumber uint64) (seiwal.Iterator[[]*proto.NamedChangeSet], error)
+	// The iterator yields one entry per block in ascending block order.
+	Iterator(startingBlockNumber uint64, endingBlockNumber uint64) (StateWALIterator, error)
 
-	// Close the WAL, flushing the blocks written so far to disk and releasing resources.
+	// Close blocks until all work submitted before the call has been fully handled, then releases the WAL's
+	// resources.
 	Close() error
+}
+
+// An iterator over the blocks of a StateWAL. Entry() returns (blockNumber, mutations). The mutations own their
+// bytes, so they may be retained past the iterator's next position, but must not be modified.
+type StateWALIterator interface {
+	seiwal.Iterator[[]mutation.Mutation]
 }

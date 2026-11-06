@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,14 +17,4 @@ func TestKVStoreKeyNamesMatchMemIAVLStoreKeys(t *testing.T) {
 		"app.kvStoreKeyNames (passed to sdk.NewKVStoreKeys in app.New) "+
 			"is out of sync with sei-db/common/keys.MemIAVLStoreKeys; "+
 			"update both lists together")
-}
-
-func TestFeegrantStoreRemainsMounted(t *testing.T) {
-	require.Contains(t, kvStoreKeyNames, keys.FeegrantStoreKey)
-
-	testApp := Setup(t, false, false, false)
-	ctx := testApp.NewContext(false, tmproto.Header{})
-	store := ctx.KVStore(testApp.GetKey(keys.FeegrantStoreKey))
-	store.Set([]byte("allowance"), []byte("retained"))
-	require.Equal(t, []byte("retained"), store.Get([]byte("allowance")))
 }

@@ -88,6 +88,7 @@ func withTestMemIAVL(cfg seidbconfig.StateCommitConfig) seidbconfig.StateCommitC
 	cfg.FlatKVConfig.SnapshotKeepRecent = 1000
 	cfg.HistoricalProofRateLimit = 0
 	cfg.HistoricalProofMaxInFlight = 100
+	cfg.EnableStateProof = true
 	return cfg
 }
 
@@ -128,6 +129,12 @@ func memiavlOnlyConfig() seidbconfig.StateCommitConfig {
 func migrateEVMConfig() seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
 	cfg.WriteMode = sctypes.MigrateEVM
+	return withTestMemIAVL(cfg)
+}
+
+func migrateCosmosConfig() seidbconfig.StateCommitConfig {
+	cfg := seidbconfig.DefaultStateCommitConfig()
+	cfg.WriteMode = sctypes.MigrateCosmos
 	return withTestMemIAVL(cfg)
 }
 

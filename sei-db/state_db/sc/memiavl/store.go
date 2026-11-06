@@ -221,6 +221,11 @@ func (cs *CommitStore) GetChildStoreByName(name string) types.CommitKVStore {
 	return tree
 }
 
+// MayHoldStore reports whether the working state holds a tree named name.
+func (cs *CommitStore) MayHoldStore(name string) bool {
+	return cs.GetChildStoreByName(name) != nil
+}
+
 // IsLoaded reports whether the underlying memiavl DB has been opened. It is
 // safe to call on a nil receiver. Callers built on top of CommitStore use this
 // to distinguish "store has no committed data yet" (during state-sync, before

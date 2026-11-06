@@ -9,9 +9,14 @@ import (
 // The version of the record encoding written by this package. It is independent of the app hash schema version.
 const recordVersion uint8 = 1
 
-// Encodes a record as recordVersion followed by the record's canonical app hash serialization.
-func serializeRecord(record *apphash.AppHashData) []byte {
-	return append([]byte{recordVersion}, record.Serialize()...)
+// Encodes a record as recordVersion followed by the record's canonical app hash serialization. Errors if the record
+// cannot be serialized.
+func serializeRecord(record *apphash.AppHashData) ([]byte, error) {
+	data, err := record.Serialize()
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize app hash data: %w", err)
+	}
+	return append([]byte{recordVersion}, data...), nil
 }
 
 // Decodes a record written by serializeRecord(). Errors on an unsupported record version or malformed data.

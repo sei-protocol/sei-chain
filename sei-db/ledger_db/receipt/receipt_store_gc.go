@@ -1,8 +1,8 @@
 package receipt
 
-import "github.com/sei-protocol/sei-chain/sei-db/controller"
+import controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 
-var _ controller.PrunableStore = (*receiptStore)(nil)
+var _ controllertypes.PrunableStore = (*receiptStore)(nil)
 
 func (s *receiptStore) Name() string {
 	return "ReceiptDB"

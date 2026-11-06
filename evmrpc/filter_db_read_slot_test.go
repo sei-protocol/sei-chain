@@ -86,7 +86,7 @@ func TestFetchBlocksByCritFailsWhenABlockReadPanics(t *testing.T) {
 	}
 	done := make(chan fetchResult, 1)
 	go func() {
-		blocks, _, err := fetcher.fetchBlocksByCrit(context.Background(), crit, 0, nil)
+		blocks, _, err := fetcher.fetchBlocksByCrit(context.Background(), crit, nil)
 		done <- fetchResult{blocks: blocks, err: err}
 	}()
 

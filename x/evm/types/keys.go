@@ -38,10 +38,10 @@ var (
 	CodeSizeKeyPrefix                          = []byte{0x09}
 	NonceKeyPrefix                             = []byte{0x0a}
 	ReceiptKeyPrefix                           = []byte{0x0b}
-	WhitelistedCodeHashesForBankSendPrefix     = []byte{0x0c}
+	WhitelistedCodeHashesForBankSendPrefix     = []byte{0x0c} // deprecated
 	BlockBloomPrefix                           = []byte{0x0d}
 	TxHashesPrefix                             = []byte{0x0e} // deprecated
-	WhitelistedCodeHashesForDelegateCallPrefix = []byte{0x0f}
+	WhitelistedCodeHashesForDelegateCallPrefix = []byte{0x0f} // deprecated
 
 	// TxHashPrefix  = []byte{0x10}
 	// TxBloomPrefix = []byte{0x11}

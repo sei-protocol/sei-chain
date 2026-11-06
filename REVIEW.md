@@ -87,8 +87,8 @@ Consequences for review:
 - A fee-less `native-associate` for a fresh (unassociated) account is
   correct. Do not report "insufficient fees at CheckTx" for it, and do not
   infer breakage from sibling commands that do pass `--fees` (e.g.
-  `bank send`, `associate-contract-address`) — those message types are not
-  gasless, so the asymmetry is intentional.
+  `bank send`) — those message types are not gasless, so the asymmetry is
+  intentional.
 - Best-effort re-association of an already-associated account is not gasless
   and its CheckTx would reject, but helpers written as try/catch plus a
   poll for `associated == true` (e.g. `associateKey` in

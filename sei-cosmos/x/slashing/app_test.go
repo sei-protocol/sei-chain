@@ -75,7 +75,12 @@ func TestSlashingMsgs(t *testing.T) {
 	require.NoError(t, err)
 	seiapp.CheckBalance(t, app, addr1, sdk.Coins{genCoin.Sub(bondCoin)})
 
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}})
+	_, err = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Header: &tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1},
+	})
+	require.NoError(t, err)
+	_, err = app.Commit(context.Background())
+	require.NoError(t, err)
 
 	validator := checkValidator(t, app, addr1, true)
 	require.Equal(t, sdk.ValAddress(addr1).String(), validator.OperatorAddress)

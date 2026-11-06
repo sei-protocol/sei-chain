@@ -30,7 +30,7 @@ func main() {
 
 	file = filepath.Clean(file)
 	fmt.Printf("Running %s...\n", file)
-	bz, err := os.ReadFile(file)
+	bz, err := os.ReadFile(file) //nolint:gosec // G703: the demo reads the wasm file named on its command line
 	if err != nil {
 		panic(err)
 	}

@@ -7,92 +7,129 @@ import (
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
 )
 
-// This file is the single home for the table's key layout.
+// ledgerKey contains a record or alias kind and its encoded payload.
+type ledgerKey struct {
+	kind    recordKind
+	payload []byte
+}
 
-// Every record kind shares one LittDB table. Each key carries a 1-byte kind prefix
-// so the per-kind number spaces never collide:
-//
-//   - kindBlock     'b' + 8-byte big-endian number (block primary key)
-//   - kindBlockHash 'h' + header hash              (block hash alias)
-//   - kindQC        'q' + 8-byte big-endian number (QC primary + covered aliases)
-//   - kindAppQC     'a' + 8-byte big-endian number (AppQC primary + covered aliases)
-//   - kindAppProp   'p' + 8-byte big-endian number (AppProposal primary + covered aliases)
-const (
-	kindAppQC     byte = 'a'
-	kindBlock     byte = 'b'
-	kindBlockHash byte = 'h'
-	kindAppProp   byte = 'p'
-	kindQC        byte = 'q'
-)
+// blockKey identifies a SuperBlock record by its road index.
+type blockKey struct{ Index blocktypes.BlockNumber }
 
-// kindPrefix returns the key prefix byte for a record kind.
-func kindPrefix(kind blocktypes.RecordKind) (byte, error) {
-	switch kind {
-	case blocktypes.KindBlock:
-		return kindBlock, nil
-	case blocktypes.KindQC:
-		return kindQC, nil
-	case blocktypes.KindAppProposal:
-		return kindAppProp, nil
-	case blocktypes.KindAppQC:
-		return kindAppQC, nil
-	default:
-		return 0, fmt.Errorf("unknown record kind %d", kind)
+func (k blockKey) encode() ledgerKey {
+	// Big-endian encoding preserves numeric road order in lexicographic comparisons.
+	return ledgerKey{kind: kindBlock, payload: binary.BigEndian.AppendUint64(nil, uint64(k.Index))}
+}
+
+func (k ledgerKey) decodeBlock() (blockKey, error) {
+	payload, err := k.checkedPayload(kindBlock, 8)
+	if err != nil {
+		return blockKey{}, err
 	}
+	return blockKey{Index: blocktypes.BlockNumber(binary.BigEndian.Uint64(payload))}, nil
 }
 
-// recordKind returns the record kind a key prefix denotes. The second result is
-// false for a prefix that is not number-keyed, such as a hash alias.
-func recordKind(prefix byte) (blocktypes.RecordKind, bool) {
-	switch prefix {
-	case kindBlock:
-		return blocktypes.KindBlock, true
-	case kindQC:
-		return blocktypes.KindQC, true
-	case kindAppProp:
-		return blocktypes.KindAppProposal, true
-	case kindAppQC:
-		return blocktypes.KindAppQC, true
-	default:
-		return 0, false
+// qcKey identifies a QC alias by its road index.
+type qcKey struct{ Index blocktypes.BlockNumber }
+
+func (k qcKey) encode() ledgerKey {
+	// Big-endian encoding preserves numeric road order in lexicographic comparisons.
+	return ledgerKey{kind: kindQC, payload: binary.BigEndian.AppendUint64(nil, uint64(k.Index))}
+}
+
+func (k ledgerKey) decodeQC() (qcKey, error) {
+	payload, err := k.checkedPayload(kindQC, 8)
+	if err != nil {
+		return qcKey{}, err
 	}
+	return qcKey{Index: blocktypes.BlockNumber(binary.BigEndian.Uint64(payload))}, nil
 }
 
-// encodeKey encodes a record number as an 8-byte big-endian value. Big-endian
-// is deliberate: it makes lexicographic byte order match numeric order. This is
-// the inner codec shared by the prefixed key builders below.
-func encodeKey(n uint64) []byte {
-	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, n)
-	return b
+// appQCKey identifies an AppQC record by its road index.
+type appQCKey struct{ Index blocktypes.BlockNumber }
+
+func (k appQCKey) encode() ledgerKey {
+	// Big-endian encoding preserves numeric road order in lexicographic comparisons.
+	return ledgerKey{kind: kindAppQC, payload: binary.BigEndian.AppendUint64(nil, uint64(k.Index))}
 }
 
-// decodeKey decodes an 8-byte value produced by encodeKey.
-func decodeKey(b [8]byte) uint64 {
-	return binary.BigEndian.Uint64(b[:])
+func (k ledgerKey) decodeAppQC() (appQCKey, error) {
+	payload, err := k.checkedPayload(kindAppQC, 8)
+	if err != nil {
+		return appQCKey{}, err
+	}
+	return appQCKey{Index: blocktypes.BlockNumber(binary.BigEndian.Uint64(payload))}, nil
 }
 
-// numberKey returns the key under which a record of the given kind prefix is
-// stored at number n — used both for a record's primary key and for each
-// covered-number alias.
-func numberKey(prefix byte, n uint64) []byte {
-	return append([]byte{prefix}, encodeKey(n)...)
+// appProposalKey identifies an AppProposal record by its road index.
+type appProposalKey struct{ Index blocktypes.BlockNumber }
+
+func (k appProposalKey) encode() ledgerKey {
+	// Big-endian encoding preserves numeric road order in lexicographic comparisons.
+	return ledgerKey{kind: kindAppProp, payload: binary.BigEndian.AppendUint64(nil, uint64(k.Index))}
 }
 
-// blockHashKey returns the secondary (alias) key under which a block is reachable
-// by its header hash.
-func blockHashKey(hash []byte) []byte {
-	return append([]byte{kindBlockHash}, hash...)
+func (k ledgerKey) decodeAppProposal() (appProposalKey, error) {
+	payload, err := k.checkedPayload(kindAppProp, 8)
+	if err != nil {
+		return appProposalKey{}, err
+	}
+	return appProposalKey{Index: blocktypes.BlockNumber(binary.BigEndian.Uint64(payload))}, nil
 }
 
-// keyKind returns the kind prefix byte of a stored key.
-func keyKind(key []byte) byte {
-	return key[0]
+// laneBlockKey identifies a lane block by road index and header offset.
+type laneBlockKey struct {
+	Index  blocktypes.BlockNumber
+	Offset uint64
 }
 
-// decodeNumberKey decodes the record number from a number-keyed key (i.e. a key
-// whose prefix is followed by an 8-byte big-endian number). Panics if key is not
-// 9 bytes (1B kind + 8B number).
-func decodeNumberKey(key []byte) uint64 {
-	return decodeKey([8]byte(key[1:]))
+func (k laneBlockKey) encode() ledgerKey {
+	payload := binary.BigEndian.AppendUint64(nil, uint64(k.Index))
+	return ledgerKey{kind: kindLaneBlock, payload: binary.BigEndian.AppendUint64(payload, k.Offset)}
+}
+
+func (k ledgerKey) decodeLaneBlock() (laneBlockKey, error) {
+	payload, err := k.checkedPayload(kindLaneBlock, 16)
+	if err != nil {
+		return laneBlockKey{}, err
+	}
+	return laneBlockKey{Index: blocktypes.BlockNumber(binary.BigEndian.Uint64(payload)), Offset: binary.BigEndian.Uint64(payload[8:])}, nil
+}
+
+// blockHashKey identifies a SuperBlock by its hash.
+type blockHashKey struct{ Hash blocktypes.BlockHash }
+
+func (k blockHashKey) encode() ledgerKey {
+	return ledgerKey{kind: kindBlockHash, payload: k.Hash[:]}
+}
+
+func (k ledgerKey) decodeBlockHash() (blockHashKey, error) {
+	var hash blocktypes.BlockHash
+	payload, err := k.checkedPayload(kindBlockHash, len(hash))
+	if err != nil {
+		return blockHashKey{}, err
+	}
+	return blockHashKey{Hash: blocktypes.BlockHash(payload)}, nil
+}
+
+// checkedPayload returns the payload of a key with the expected kind and size.
+func (k ledgerKey) checkedPayload(expected recordKind, size int) ([]byte, error) {
+	if k.kind != expected || len(k.payload) != size {
+		return nil, fmt.Errorf("invalid key for record kind %d: kind %d, payload %x", expected, k.kind, k.payload)
+	}
+	return k.payload, nil
+}
+
+// bytes returns the key's varint kind followed by its payload.
+func (k ledgerKey) bytes() []byte {
+	return append(binary.AppendUvarint(nil, uint64(k.kind)), k.payload...)
+}
+
+// decodeLedgerKey parses a key's varint kind and payload.
+func decodeLedgerKey(value []byte) (ledgerKey, error) {
+	kind, n := binary.Uvarint(value)
+	if n <= 0 {
+		return ledgerKey{}, fmt.Errorf("invalid record kind uvarint in key %x", value)
+	}
+	return ledgerKey{kind: recordKind(kind), payload: value[n:]}, nil
 }

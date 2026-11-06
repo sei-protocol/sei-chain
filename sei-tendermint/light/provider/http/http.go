@@ -177,13 +177,13 @@ func (p *http) validatorSet(ctx context.Context, height *int64) (*types.Validato
 				if len(res.Validators) == 0 {
 					return nil, provider.ErrBadLightBlock{
 						Reason: fmt.Errorf("validator set is empty (height: %d, page: %d, per_page: %d)",
-							height, page, perPage),
+							*height, page, perPage),
 					}
 				}
 				if res.Total <= 0 {
 					return nil, provider.ErrBadLightBlock{
 						Reason: fmt.Errorf("total number of vals is <= 0: %d (height: %d, page: %d, per_page: %d)",
-							res.Total, height, page, perPage),
+							res.Total, *height, page, perPage),
 					}
 				}
 			} else {

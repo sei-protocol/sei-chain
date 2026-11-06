@@ -45,29 +45,33 @@ func TestGetTransactionCountCurrentState(t *testing.T) {
 	}
 }
 
-func TestGetTransactionCountRejectsHistoricalState(t *testing.T) {
+func TestGetTransactionCountReadsNumberedBlocksFromHistory(t *testing.T) {
 	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	backend := &testBackend{transactionCount: func(common.Address) uint64 {
-		t.Fatal("historical lookup reached the backend")
-		return 0
+	api := &txAPI{backend: &testBackend{
+		blockNumber: func() uint64 { return 9 },
+		transactionCount: func(common.Address) uint64 {
+			t.Fatal("a numbered block read the latest state")
+			return 0
+		},
+		transactionCountAt: func(got common.Address, height int64) (uint64, error) {
+			require.Equal(t, address, got)
+			return uint64(height), nil //nolint:gosec // test heights are small
+		},
 	}}
-	api := &txAPI{backend: backend}
 
-	for _, tag := range []ethrpc.BlockNumberOrHash{
-		ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber),
-		ethrpc.BlockNumberOrHashWithNumber(8),
-		ethrpc.BlockNumberOrHashWithHash(common.Hash{0x01}, false),
-		{},
-	} {
-		_, err := api.GetTransactionCount(t.Context(), address, tag)
-		require.ErrorIs(t, err, errHistoricalStateUnsupported)
+	for height, want := range map[ethrpc.BlockNumber]hexutil.Uint64{ethrpc.EarliestBlockNumber: 0, 8: 8, 9: 9} {
+		got, err := api.GetTransactionCount(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(height))
+		require.NoError(t, err)
+		require.Equal(t, want, *got, "block %d", height)
 	}
+	_, err := api.GetTransactionCount(t.Context(), address, ethrpc.BlockNumberOrHash{})
+	require.ErrorIs(t, err, errBlockNotSpecified)
 }
 
 func TestGetTransactionCountEndToEnd(t *testing.T) {
 	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	backend := &testBackend{transactionCount: func(common.Address) uint64 { return 3 }}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -124,7 +128,7 @@ func TestGetTransactionReceipt(t *testing.T) {
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
-	handler, err := newHandler(backend, store)
+	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -397,7 +401,7 @@ func TestGetTransactionByHashEndToEnd(t *testing.T) {
 		chainConfig: func() (*params.ChainConfig, error) { return chainConfig, nil },
 		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
 	}
-	handler, err := newHandler(backend, store)
+	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -423,7 +427,7 @@ func TestGetTransactionByHashEndToEnd(t *testing.T) {
 }
 
 func TestHandlerRequiresReceiptStore(t *testing.T) {
-	_, err := newHandler(&testBackend{}, nil)
+	_, err := newHandler(&testBackend{}, nil, noRPCLimits)
 	require.EqualError(t, err, "EVM-only RPC requires a receipt store")
 }
 
@@ -715,4 +719,78 @@ func TestGetTransactionReceiptIncludesContractAddressAndSkipsNilLogs(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, &created, got["contractAddress"])
 	require.Empty(t, got["logs"])
+}
+
+func TestTransactionErrorMethods(t *testing.T) {
+	failed, succeeded, unfinalized := common.Hash{1}, common.Hash{2}, common.Hash{3}
+	store := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+		{TxHash: failed, Receipt: &evmtypes.Receipt{TxHashHex: failed.Hex(), BlockNumber: 7, VmError: "execution reverted"}},
+		{TxHash: succeeded, Receipt: &evmtypes.Receipt{TxHashHex: succeeded.Hex(), BlockNumber: 7}},
+		{TxHash: unfinalized, Receipt: &evmtypes.Receipt{TxHashHex: unfinalized.Hex(), BlockNumber: 8}},
+	}))
+	backend := &testBackend{
+		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+			if *req.Height > 7 {
+				return nil, fmt.Errorf("%w: %d", coretypes.ErrHeightExceedsChainHead, *req.Height)
+			}
+			return &coretypes.ResultBlock{Block: &tmtypes.Block{}}, nil
+		},
+	}
+	handler, err := newHandler(backend, store, noRPCLimits)
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	for _, tc := range []struct {
+		name     string
+		hash     common.Hash
+		want     string
+		notFound bool
+	}{
+		{name: "failed transaction", hash: failed, want: "execution reverted"},
+		{name: "successful transaction", hash: succeeded, want: ""},
+		{name: "unknown hash", hash: common.Hash{9}, notFound: true},
+		{name: "block not finalized", hash: unfinalized, notFound: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var byHash string
+			require.NoError(t, client.CallContext(t.Context(), &byHash, "eth_getTransactionErrorByHash", tc.hash))
+			require.Equal(t, tc.want, byHash)
+
+			var vmError string
+			err := client.CallContext(t.Context(), &vmError, "eth_getVMError", tc.hash)
+			if tc.notFound {
+				require.ErrorContains(t, err, receipt.ErrNotFound.Error())
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, vmError)
+		})
+	}
+}
+
+func TestTransactionErrorMethodsSurfaceStoreErrors(t *testing.T) {
+	storeErr := errors.New("store unavailable")
+	api := &txAPI{backend: &testBackend{}, store: stubReceiptStore{
+		get: func(sdk.Context, common.Hash) (*evmtypes.Receipt, error) { return nil, storeErr },
+	}}
+
+	for _, tc := range []struct {
+		name   string
+		method func(context.Context, common.Hash) (string, error)
+	}{
+		{name: "eth_getVMError", method: api.GetVMError},
+		{name: "eth_getTransactionErrorByHash", method: api.GetTransactionErrorByHash},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.method(t.Context(), common.Hash{1})
+			require.ErrorIs(t, err, storeErr)
+			require.Empty(t, got)
+		})
+	}
 }

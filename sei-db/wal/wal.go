@@ -208,16 +208,16 @@ func (walLog *WAL[T]) Write(entry T) error {
 	return nil
 }
 
-// reportFatalError records a fatal error and shuts down the WAL. err is the fatal error to report and store.
-// chanErr, if non-nil, is used to notify the caller of the request that triggered the error.
+// reportFatalError shuts down the WAL with err, then sends err to chanErr if it is non-nil. Callers notify other
+// waiting requests only after it returns, so a writer that sees an error always finds the WAL shut down.
 func (walLog *WAL[T]) reportFatalError(err error, chanErr chan error) {
-	if chanErr != nil {
-		chanErr <- err
-	}
 	// Store on heap so the pointer remains valid after this function returns.
 	p := new(error)
 	*p = err
 	walLog.asyncError.Store(p)
+	if chanErr != nil {
+		chanErr <- err
+	}
 }
 
 // This method is called asynchronously in response to a call to Write.
@@ -262,10 +262,10 @@ func (walLog *WAL[T]) handleBatchedWrite(req *writeRequest[T]) {
 	lastOffset, err := walLog.log.LastIndex()
 	if err != nil {
 		err = fmt.Errorf("error fetching last index: %w", err)
+		walLog.reportFatalError(err, nil)
 		for _, req := range requests {
 			req.errChan <- err
 		}
-		walLog.reportFatalError(err, nil)
 		return
 	}
 
@@ -276,6 +276,7 @@ func (walLog *WAL[T]) handleBatchedWrite(req *writeRequest[T]) {
 		if err != nil {
 			err = fmt.Errorf("marshalling error: %w", err)
 			altErr := fmt.Errorf("another request failed to marshal, WAL is shutting down")
+			walLog.reportFatalError(err, nil)
 			for j, r := range requests {
 				if i == j {
 					r.errChan <- err
@@ -283,7 +284,6 @@ func (walLog *WAL[T]) handleBatchedWrite(req *writeRequest[T]) {
 					r.errChan <- altErr
 				}
 			}
-			walLog.reportFatalError(err, nil)
 			return
 		}
 
@@ -293,12 +293,12 @@ func (walLog *WAL[T]) handleBatchedWrite(req *writeRequest[T]) {
 
 	if err := walLog.log.WriteBatch(batch); err != nil {
 		err = fmt.Errorf("failed to write batch: %w", err)
+		walLog.reportFatalError(err, nil)
 		for _, r := range requests {
 			if r.errChan != nil {
 				r.errChan <- err
 			}
 		}
-		walLog.reportFatalError(err, nil)
 		return
 	}
 

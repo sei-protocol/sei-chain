@@ -494,9 +494,11 @@ func TestUpdateParamsProposal(t *testing.T) {
 	)
 
 	specs := map[string]struct {
-		src                proposal.ParamChange
-		expUploadConfig    types.AccessConfig
-		expInstantiateType types.AccessType
+		src                           proposal.ParamChange
+		expUploadConfig               types.AccessConfig
+		expInstantiateType            types.AccessType
+		expMsgExecuteContractDisabled bool
+		expContractExecutionDisabled  bool
 	}{
 		"update upload permission param": {
 			src: proposal.ParamChange{
@@ -543,6 +545,26 @@ func TestUpdateParamsProposal(t *testing.T) {
 			expUploadConfig:    types.AllowEverybody,
 			expInstantiateType: types.AccessTypeEverybody,
 		},
+		"disable MsgExecuteContract": {
+			src: proposal.ParamChange{
+				Subspace: types.ModuleName,
+				Key:      string(types.ParamStoreKeyMsgExecuteContractDisabled),
+				Value:    string(legacyAmino.MustMarshalJSON(true)),
+			},
+			expUploadConfig:               types.AllowEverybody,
+			expInstantiateType:            types.AccessTypeEverybody,
+			expMsgExecuteContractDisabled: true,
+		},
+		"disable contract execution": {
+			src: proposal.ParamChange{
+				Subspace: types.ModuleName,
+				Key:      string(types.ParamStoreKeyContractExecutionDisabled),
+				Value:    string(legacyAmino.MustMarshalJSON(true)),
+			},
+			expUploadConfig:              types.AllowEverybody,
+			expInstantiateType:           types.AccessTypeEverybody,
+			expContractExecutionDisabled: true,
+		},
 	}
 	for msg, spec := range specs {
 		t.Run(msg, func(t *testing.T) {
@@ -576,6 +598,8 @@ func TestUpdateParamsProposal(t *testing.T) {
 			assert.True(t, spec.expUploadConfig.Equals(wasmKeeper.getUploadAccessConfig(ctx)),
 				"got %#v not %#v", wasmKeeper.getUploadAccessConfig(ctx), spec.expUploadConfig)
 			assert.Equal(t, spec.expInstantiateType, wasmKeeper.getInstantiateAccessConfig(ctx))
+			assert.Equal(t, spec.expMsgExecuteContractDisabled, wasmKeeper.msgExecuteContractDisabled(ctx))
+			assert.Equal(t, spec.expContractExecutionDisabled, wasmKeeper.contractExecutionDisabled(ctx))
 		})
 	}
 }

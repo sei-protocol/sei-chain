@@ -45,12 +45,21 @@ func TestDecodeGigaClaimEVMRPC(t *testing.T) {
 			EvmRpc:           &evm,
 		}
 	}
-	for _, s := range []string{"http://validator.example:8545", "https://validator.example:8545"} {
+	for _, s := range []string{
+		"ws://validator.example:8546",
+		"wss://validator.example:8546",
+	} {
 		got, err := decodeGigaClaim(claim(s))
 		require.NoError(t, err)
 		require.Equal(t, s, got.OrPanic("missing claim").evmRPC)
 	}
-	for _, s := range []string{"file://localhost/rpc", "ws://validator.example:8545", "http://", "http://u:p@validator.example:8545"} {
+	for _, s := range []string{
+		"http://validator.example:8545",
+		"https://validator.example:8545",
+		"file://localhost/rpc",
+		"ws://",
+		"ws://u:p@validator.example:8546",
+	} {
 		_, err := decodeGigaClaim(claim(s))
 		require.Error(t, err)
 	}
@@ -60,7 +69,7 @@ func TestDecodeGigaClaimRequiresAllFields(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
 	sig := key.SignWithTag(gigaValidatorHandshakeTag, []byte("x"))
-	evmRPC := "http://validator.example:8545"
+	evmRPC := "ws://validator.example:8546"
 	full := func() *pb.Handshake {
 		return &pb.Handshake{
 			ValidatorAuthKey: key.Public().Bytes(),

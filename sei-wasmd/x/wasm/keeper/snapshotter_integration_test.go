@@ -16,6 +16,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
@@ -43,13 +44,16 @@ func TestSnapshotter(t *testing.T) {
 			// setup source app
 			srcWasmApp, genesisAddr := newWasmExampleApp(t)
 
-			// store wasm codes on chain (use cached deliver-state context so
-			// writes are visible to subsequent reads within the same block)
-			ctx := srcWasmApp.NewContext(false, tmproto.Header{
-				ChainID: "foo",
+			// close the block setup left open, then store wasm codes in the next block before its
+			// hash is taken
+			_, err := srcWasmApp.Commit(context.Background())
+			require.NoError(t, err)
+			header := tmproto.Header{
+				ChainID: srcWasmApp.ChainID,
 				Height:  srcWasmApp.LastBlockHeight() + 1,
 				Time:    time.Now(),
-			})
+			}
+			ctx, writeCodes := srcWasmApp.NewUncachedContext(false, header).CacheContext()
 			wasmKeeper := app.NewTestSupport(t, srcWasmApp).WasmKeeper()
 			contractKeeper := keeper.NewDefaultPermissionKeeper(&wasmKeeper)
 
@@ -63,9 +67,13 @@ func TestSnapshotter(t *testing.T) {
 				hash := sha256.Sum256(wasmCode)
 				srcCodeIDToChecksum[codeID] = hash[:]
 			}
+			writeCodes()
 			// create snapshot
-			srcWasmApp.SetDeliverStateToCommit()
-			srcWasmApp.Commit(context.Background())
+			_, err = srcWasmApp.FinalizeBlock(
+				context.Background(), &abci.RequestFinalizeBlock{Header: &header})
+			require.NoError(t, err)
+			_, err = srcWasmApp.Commit(context.Background())
+			require.NoError(t, err)
 			snapshotHeight := uint64(srcWasmApp.LastBlockHeight())
 			snapshot, err := srcWasmApp.SnapshotManager().Create(snapshotHeight)
 			require.NoError(t, err)

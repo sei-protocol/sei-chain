@@ -201,7 +201,7 @@ func blockByNumberWithRetry(ctx context.Context, client client.LocalClient, heig
 		return nil, err
 	}
 	if blockRes.Block == nil {
-		return nil, fmt.Errorf("could not find block for height %d", height)
+		return nil, fmt.Errorf("could not find block for height %s", stringifyInt64Ptr(height))
 	}
 	TraceTendermintIfApplicable(ctx, "Block", []string{stringifyInt64Ptr(height)}, blockRes)
 	return blockRes, err
@@ -258,6 +258,10 @@ func requireReceiptStore(k *keeper.Keeper) error {
 	return nil
 }
 
+// filterTransactions returns, in block order, the block's EVM transaction messages that executed in
+// it, plus its CosmWasm execute messages when includeSyntheticTxs is set. A message whose receipt
+// cannot be read is omitted, so callers answering for a block identifier must reject heights below
+// the receipt floor before calling it.
 func filterTransactions(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
@@ -404,6 +408,11 @@ func getTxHashesFromBlock(
 	if err != nil {
 		return nil, err
 	}
+	return typedTxHashesOf(block, txs), nil
+}
+
+// typedTxHashesOf returns the hash of each message in txs, in order.
+func typedTxHashesOf(block *coretypes.ResultBlock, txs []indexedMsg) []typedTxHash {
 	txHashes := []typedTxHash{}
 	for _, tx := range txs {
 		switch tx.msg.(type) {
@@ -414,7 +423,7 @@ func getTxHashesFromBlock(
 			txHashes = append(txHashes, typedTxHash{hash: common.Hash(sha256.Sum256(block.Block.Txs[tx.index])), isEvm: false})
 		}
 	}
-	return txHashes, nil
+	return txHashes
 }
 
 func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {

@@ -23,27 +23,15 @@ const (
 	// Migration version 1.
 	EVMMigrated WriteMode = "evm_migrated"
 
-	// MigrateAllButBank migrates all but the bank module from memiavl to flatkv.
+	// MigrateCosmos migrates every module except evm/ from memiavl to flatkv.
 	//
 	// Handles the transition from migration version 1 to 2,
 	// and continues to function once we reach migration version 2.
-	MigrateAllButBank WriteMode = "migrate_all_but_bank"
-
-	// AllMigratedButBank is the steady state after all but the bank module has been migrated,
-	// but before we are ready to do the next migration.
-	//
-	// Migration version 2.
-	AllMigratedButBank WriteMode = "all_migrated_but_bank"
-
-	// MigrateBank migrates the bank module from memiavl to flatkv.
-	//
-	// Handles the transition from migration version 2 to 3,
-	// and continues to function once we reach migration version 3.
-	MigrateBank WriteMode = "migrate_bank"
+	MigrateCosmos WriteMode = "migrate_cosmos"
 
 	// All data is written to FlatKV.
 	//
-	// Migration version 3.
+	// Migration version 2.
 	FlatKVOnly WriteMode = "flatkv_only"
 
 	// TestOnlyDualWrite is a test-only dual-write router. EVM traffic is written to both memiavl and flatkv,
@@ -78,8 +66,7 @@ const (
 // IsValid returns true if the write mode is a recognized value
 func (m WriteMode) IsValid() bool {
 	switch m {
-	case MemiavlOnly, MigrateEVM, EVMMigrated, MigrateAllButBank,
-		AllMigratedButBank, MigrateBank, FlatKVOnly, TestOnlyDualWrite, Auto:
+	case MemiavlOnly, MigrateEVM, EVMMigrated, MigrateCosmos, FlatKVOnly, TestOnlyDualWrite, Auto:
 		return true
 	default:
 		return false
@@ -93,7 +80,7 @@ func (m WriteMode) IsValid() bool {
 // MigrationStore tree exists on memiavl.
 func (m WriteMode) IsMigrationMode() bool {
 	switch m {
-	case MigrateEVM, MigrateAllButBank, MigrateBank:
+	case MigrateEVM, MigrateCosmos:
 		return true
 	default:
 		return false
@@ -116,9 +103,7 @@ var migrationChain = []WriteMode{
 	MemiavlOnly,
 	MigrateEVM,
 	EVMMigrated,
-	MigrateAllButBank,
-	AllMigratedButBank,
-	MigrateBank,
+	MigrateCosmos,
 	FlatKVOnly,
 }
 
@@ -134,13 +119,31 @@ func nextInChain(m WriteMode) (WriteMode, bool) {
 	return "", false
 }
 
+// ChainDistance returns how many steps along the migration chain to lies
+// ahead of from; the result is negative when to lies behind. ok is false when
+// either mode is off the chain (Auto, TestOnlyDualWrite, unknown modes).
+func ChainDistance(from, to WriteMode) (distance int, ok bool) {
+	fromIdx, toIdx := -1, -1
+	for i, mode := range migrationChain {
+		if mode == from {
+			fromIdx = i
+		}
+		if mode == to {
+			toIdx = i
+		}
+	}
+	if fromIdx < 0 || toIdx < 0 {
+		return 0, false
+	}
+	return toIdx - fromIdx, true
+}
+
 // ValidateTransition returns nil if from -> to is a legal runtime
 // write-mode transition, or an error describing why it is not.
 //
 // Legal transitions walk the migration chain forward one step at a time:
 //
-//	MemiavlOnly -> MigrateEVM -> EVMMigrated -> MigrateAllButBank ->
-//	AllMigratedButBank -> MigrateBank -> FlatKVOnly
+//	MemiavlOnly -> MigrateEVM -> EVMMigrated -> MigrateCosmos -> FlatKVOnly
 //
 // ValidateTransition checks structural legality only; it is pure and
 // consults no disk state. Transitions that leave a migration mode (i.e.

@@ -8,16 +8,29 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
+
+// testRequestBodyBytes is the request size limit the handler runs under in tests. Unlike the other
+// limits it cannot be disabled.
+var testRequestBodyBytes = gigaconfig.DefaultConfig.RPC.MaxRequestBodyBytes
+
+// noRPCLimits disables every limit the handler can run without.
+var noRPCLimits = gigaconfig.RPCConfig{
+	MaxRequestBodyBytes:    testRequestBodyBytes,
+	MaxConcurrentSendCalls: gigaconfig.DefaultConfig.RPC.MaxConcurrentSendCalls,
+}
 
 type testBackend struct {
 	balance          func(common.Address) uint256.Int
@@ -35,8 +48,35 @@ type testBackend struct {
 	minGasPrice      func() (*big.Int, error)
 	proxy            utils.Option[*ethrpc.Client]
 	proxyCalls       int
+	storage          func(common.Address, common.Hash) (common.Hash, error)
 	executedBlocks   func() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	transactionCount func(common.Address) uint64
+
+	balanceAt          func(common.Address, int64) (uint256.Int, error)
+	codeAt             func(common.Address, int64) ([]byte, error)
+	storageAt          func(common.Address, common.Hash, int64) (common.Hash, error)
+	transactionCountAt func(common.Address, int64) (uint64, error)
+
+	callAt                func(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error)
+	estimateGasAt         func(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error)
+	estimateGasAfterCalls func(context.Context, []*core.Message, *core.Message, uint64) (uint64, []byte, error)
+	createAccessList      func(context.Context, *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error)
+
+	blockContext  func(*ethtypes.Header) (vm.BlockContext, error)
+	stateAt       func(context.Context, int64) (vm.SeiStateDB, func(), error)
+	stateBeforeTx func(context.Context, *ethtypes.Header, [][]byte) (vm.SeiStateDB, func(), error)
+}
+
+func (b *testBackend) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
+	return b.blockContext(header)
+}
+
+func (b *testBackend) EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, func(), error) {
+	return b.stateAt(ctx, height)
+}
+
+func (b *testBackend) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
+	return b.stateBeforeTx(ctx, header, txs)
 }
 
 func (b *testBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
@@ -59,6 +99,22 @@ func (b *testBackend) EvmBalance(address common.Address) uint256.Int {
 	return b.balance(address)
 }
 
+func (b *testBackend) EvmBalanceAt(address common.Address, height int64) (uint256.Int, error) {
+	return b.balanceAt(address, height)
+}
+
+func (b *testBackend) EvmCodeAt(address common.Address, height int64) ([]byte, error) {
+	return b.codeAt(address, height)
+}
+
+func (b *testBackend) EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error) {
+	return b.storageAt(address, key, height)
+}
+
+func (b *testBackend) EvmTransactionCountAt(address common.Address, height int64) (uint64, error) {
+	return b.transactionCountAt(address, height)
+}
+
 func (b *testBackend) EvmBaseFee() (*big.Int, error) {
 	return b.baseFee()
 }
@@ -71,6 +127,14 @@ func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message) (*core.Exe
 	return b.call(ctx, msg)
 }
 
+func (b *testBackend) EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error) {
+	return b.callAt(ctx, msg, header)
+}
+
+func (b *testBackend) EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error) {
+	return b.estimateGasAt(ctx, msg, gasCap, header)
+}
+
 func (b *testBackend) EvmChainConfig() (*params.ChainConfig, error) {
 	return b.chainConfig()
 }
@@ -81,6 +145,14 @@ func (b *testBackend) EvmChainID() uint64 {
 
 func (b *testBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
 	return b.estimateGas(ctx, msg, gasCap)
+}
+
+func (b *testBackend) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+	return b.estimateGasAfterCalls(ctx, calls, msg, gasCap)
+}
+
+func (b *testBackend) EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
+	return b.createAccessList(ctx, msg)
 }
 
 func (b *testBackend) EvmCode(address common.Address) ([]byte, error) {
@@ -102,6 +174,10 @@ func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
 
 func (b *testBackend) EvmProxyEnabled() bool {
 	return b.proxy.IsPresent()
+}
+
+func (b *testBackend) EvmStorage(address common.Address, key common.Hash) (common.Hash, error) {
+	return b.storage(address, key)
 }
 
 func (b *testBackend) EvmTransactionCount(address common.Address) uint64 {

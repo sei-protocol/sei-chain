@@ -2,15 +2,19 @@ package app
 
 import (
 	"embed"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
+	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	"golang.org/x/mod/semver"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -22,7 +26,11 @@ var retiredIBCStores = []string{"capability", "ibc", "transfer"}
 
 // v68DeletedStores are the KV stores deleted from the multistore at the v6.8
 // upgrade height. Their module version map entries go with them.
-var v68DeletedStores = append([]string{retiredoracle.ModuleName}, retiredIBCStores...)
+var v68DeletedStores = append([]string{feegrantModuleName, retiredoracle.ModuleName, retiredtokenfactory.ModuleName}, retiredIBCStores...)
+
+// tokenfactoryParamsPrefix is the params-store prefix of the tokenfactory
+// parameter subspace.
+var tokenfactoryParamsPrefix = []byte(retiredtokenfactory.ModuleName + "/")
 
 // retiredIBCProposalTypeURLPrefix matches governance proposal content types
 // whose decoders no longer exist.
@@ -34,6 +42,10 @@ const retiredIBCProposalTypeURLPrefix = "/ibc."
 // cannot carry IBC content and are not decoded. The bound keeps the upgrade
 // block's work independent of how many proposals are submitted before it.
 const RetiredIBCProposalIDLimit uint64 = 1000
+
+// RetiredPrefixDeleteLimit is the most keys the v6.8 upgrade deletes under one
+// retired store prefix.
+const RetiredPrefixDeleteLimit = 1000
 
 // upgradedIBCStateKeyPrefix is the upgrade-store prefix under which the cosmos
 // upgrade module recorded planned IBC client state before IBC was retired.
@@ -143,6 +155,9 @@ func (app *App) RegisterUpgradeHandlers() {
 			}
 
 			if upgradeName == "v6.8" {
+				if err := app.requireStoresDeleted(plan, v68DeletedStores); err != nil {
+					return nil, err
+				}
 				// Proposals must be readable before any module migration walks
 				// the gov store, so the retired IBC records are rewritten first.
 				app.rewriteRetiredIBCProposals(ctx)
@@ -153,9 +168,12 @@ func (app *App) RegisterUpgradeHandlers() {
 				for _, name := range v68DeletedStores {
 					app.UpgradeKeeper.DeleteModuleVersion(ctx, name)
 				}
-				app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, vestingModuleName)
 				app.pruneUpgradedIBCState(ctx)
+				app.pruneDenomAllowLists(ctx)
+				app.pruneTokenfactoryParams(ctx)
+				app.StakingKeeper.StartDelegationByValIndexBackfill(ctx)
+				app.enableMigrateCosmos(ctx)
 				return newVM, nil
 			}
 
@@ -171,6 +189,21 @@ func (app *App) deleteRetiredModuleVersions(ctx sdk.Context) {
 		app.UpgradeKeeper.DeleteModuleVersion(ctx, name)
 	}
 	app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
+}
+
+// requireStoresDeleted returns an error if the state commitment store may still hold data for any of
+// names when plan runs. The store loader deletes them only if upgrade-info.json named plan when the
+// node started.
+func (app *App) requireStoresDeleted(plan upgradetypes.Plan, names []string) error {
+	for _, name := range names {
+		if app.rootStore.MayHoldStore(name) {
+			return fmt.Errorf("store %q was not deleted before the %s upgrade handler ran because "+
+				"data/upgrade-info.json did not name the upgrade when the node started: write "+
+				`{"name":%q,"height":%d} to data/upgrade-info.json in the node home and restart`,
+				name, plan.Name, plan.Name, plan.Height)
+		}
+	}
+	return nil
 }
 
 // rewriteRetiredIBCProposals replaces the content of every stored governance
@@ -246,10 +279,25 @@ func (app *App) pruneUpgradedIBCState(ctx sdk.Context) {
 	deleteByPrefix(ctx.KVStore(app.GetKey(upgradetypes.StoreKey)), []byte(upgradedIBCStateKeyPrefix))
 }
 
+// pruneDenomAllowLists deletes the denom transfer allowlists tokenfactory kept in
+// the bank store, up to RetiredPrefixDeleteLimit of them.
+func (app *App) pruneDenomAllowLists(ctx sdk.Context) {
+	deleteByPrefix(ctx.KVStore(app.GetKey(banktypes.StoreKey)), banktypes.DenomAllowListPrefix)
+}
+
+// pruneTokenfactoryParams removes every parameter of the tokenfactory subspace from the params store.
+func (app *App) pruneTokenfactoryParams(ctx sdk.Context) {
+	deleteByPrefix(ctx.KVStore(app.GetKey(paramstypes.StoreKey)), tokenfactoryParamsPrefix)
+}
+
+// deleteByPrefix deletes the first RetiredPrefixDeleteLimit keys under prefix in
+// store and leaves any others in place.
 func deleteByPrefix(store sdk.KVStore, prefix []byte) {
 	iterator := sdk.KVStorePrefixIterator(store, prefix)
 	var keys [][]byte
-	for ; iterator.Valid(); iterator.Next() {
+	// Anyone may have written keys under the prefix before the upgrade, so the
+	// upgrade block's work must not grow with how many there are.
+	for ; iterator.Valid() && len(keys) < RetiredPrefixDeleteLimit; iterator.Next() {
 		keys = append(keys, iterator.Key())
 	}
 	if err := iterator.Close(); err != nil {

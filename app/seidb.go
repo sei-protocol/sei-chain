@@ -28,6 +28,7 @@ const (
 	FlagSCHistoricalProofMaxInFlight = "state-commit.sc-historical-proof-max-inflight"
 	FlagSCHistoricalProofRateLimit   = "state-commit.sc-historical-proof-rate-limit"
 	FlagSCHistoricalProofBurst       = "state-commit.sc-historical-proof-burst"
+	FlagSCEnableStateProof           = "state-commit.sc-enable-state-proof"
 	FlagSCSubspaceQueryMaxInFlight   = "state-commit.sc-subspace-query-max-inflight"
 	FlagSCSubspaceMaxPairs           = "state-commit.sc-subspace-max-pairs"
 	FlagSCSubspaceMaxBytes           = "state-commit.sc-subspace-max-bytes"
@@ -167,6 +168,9 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	}
 	if v := appOpts.Get(FlagSCHistoricalProofBurst); v != nil {
 		scConfig.HistoricalProofBurst = cast.ToInt(v)
+	}
+	if v := appOpts.Get(FlagSCEnableStateProof); v != nil {
+		scConfig.EnableStateProof = cast.ToBool(v)
 	}
 	if v := appOpts.Get(FlagSCSubspaceQueryMaxInFlight); v != nil {
 		scConfig.SubspaceQueryMaxInFlight = cast.ToInt(v)

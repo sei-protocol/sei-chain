@@ -76,6 +76,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: dir,
 		App:                proxyApp,
+		AppHashBuilder:     newPublishingAppHashBuilder(),
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}
@@ -83,7 +84,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	require.NoError(t, err)
 
 	// Fullnodes have no validator key and no Producer config.
-	// App is required for executeBlock but isn't exercised by this test.
+	// App is required for execution but isn't exercised by this test.
 	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), dataState)
 	require.NoError(t, err)
 	clientByValidator := map[atypes.PublicKey]*ethrpc.Client{}
@@ -122,7 +123,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	require.Equal(t, uint64(12345), router.MaxGasEstimatedPerBlock())
 	// BlockByHash returns &ResultBlock{Block:nil} for an unknown hash, the
 	// same shape the validator path returns — no sentinel mode-check.
-	rb, err := router.BlockByHash(t.Context(), atypes.BlockHeaderHash{})
+	rb, err := router.BlockByHash(t.Context(), common.Hash{})
 	require.NoError(t, err)
 	require.Nil(t, rb.Block)
 }

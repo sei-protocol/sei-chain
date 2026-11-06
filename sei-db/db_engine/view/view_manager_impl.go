@@ -167,8 +167,7 @@ func NewViewManager(
 	miscPool threading.Pool,
 	// A work pool for ordering each sealed version's writes by key.
 	//
-	// Must not be readPool or miscPool: a sort job blocks awaiting the folds that resolve on those
-	// pools. Its queue must be large enough never to fill in practice, because Commit submits to it,
+	// Its queue must be large enough never to fill in practice, because Commit submits to it,
 	// and backpressure on commits belongs to MaxUnflushedVersions alone. The count of outstanding jobs
 	// is not bounded by that setting either, because a version held by an outside reservation stops
 	// being counted as unflushed (see scanForFlushEligibilityLocked) while its successors keep being
@@ -218,7 +217,7 @@ func NewViewManager(
 	shards := make([]*shard, config.ShardCount)
 	for i := uint64(0); i < config.ShardCount; i++ {
 		shards[i], err = NewShard(childCtx, config, db, readPool, sizePerShard,
-			c.shutdownError, c.reportReadFailure, c.reportFoldFailure)
+			c.shutdownError, c.reportReadFailure)
 		if err != nil {
 			cancel()
 			return nil, fmt.Errorf("failed to create shard: %w", err)
@@ -277,61 +276,6 @@ func (c *viewManager) BatchSet(writes []Write) error {
 		}
 	}
 	return nil
-}
-
-func (c *viewManager) BatchUpdate(keys []string, updater BatchUpdater) error {
-	work := c.bucketIndicesByShard(len(keys), func(i int) string { return keys[i] })
-	version := c.currentVersion
-
-	// Shards partition the keys, so they stage disjoint sets and run concurrently.
-	staged := make([][]stagedFold, len(c.shards))
-	errs := make([]error, len(c.shards))
-	var wg sync.WaitGroup
-	for shardIndex := range work {
-		if len(work[shardIndex]) == 0 {
-			continue
-		}
-		wg.Add(1)
-		c.miscPool.Submit(func() {
-			defer wg.Done()
-			staged[shardIndex], errs[shardIndex] =
-				c.shards[shardIndex].StageUpdates(keys, work[shardIndex], version)
-		})
-	}
-	wg.Wait()
-
-	for _, err := range errs {
-		if err != nil {
-			// The shards that did stage are holding values nothing will ever fold, and a reader would
-			// park on one forever. Fail them before reporting. A shard whose own staging failed staged
-			// nothing, so its empty entry is skipped.
-			c.abandonStaged(staged, version, err)
-			return fmt.Errorf("failed to stage update in shard: %w", err)
-		}
-	}
-
-	// Folding happens here, off this thread, and nothing waits for it: whatever reads, hashes or
-	// flushes one of these keys is what waits.
-	for shardIndex, folds := range staged {
-		if len(folds) == 0 {
-			continue
-		}
-		shard := c.shards[shardIndex]
-		c.miscPool.Submit(func() {
-			shard.FoldStagedValues(folds, updater, version)
-		})
-	}
-	return nil
-}
-
-// abandonStaged fails every fold staged so far, for a BatchUpdate that could not finish staging.
-func (c *viewManager) abandonStaged(staged [][]stagedFold, version uint64, err error) {
-	for shardIndex, folds := range staged {
-		if len(folds) == 0 {
-			continue
-		}
-		c.shards[shardIndex].FailStagedFolds(folds, version, err)
-	}
 }
 
 // bucketIndicesByShard decides which shard each key of a batch belongs to.
@@ -546,7 +490,7 @@ func (c *viewManager) sealShardsLocked() error {
 	var wg sync.WaitGroup
 	wg.Add(len(c.shards))
 	// One task per shard. Sealing a shard is almost entirely the wait to take its lock from the
-	// readers and folds holding it, and those waits are independent, so overlapping them costs one
+	// readers holding it, and those waits are independent, so overlapping them costs one
 	// wait rather than eight. Holding every shard lock at once is safe because no shard lock holder
 	// reaches back for the versionLock (see the cache field on shard).
 	for i, shard := range c.shards {
@@ -948,15 +892,6 @@ func (c *viewManager) reportReadFailure(err error) {
 	c.brick(fmt.Errorf("failed to read from the underlying database: %w", err))
 }
 
-// reportFoldFailure handles a fold that could not produce its value by bricking the manager. The
-// latched error names the fold rather than the read that may have fed it.
-//
-// Must be called without the shard lock held: it acquires versionLock, and the established order is
-// versionLock before any shard lock.
-func (c *viewManager) reportFoldFailure(err error) {
-	c.brick(fmt.Errorf("failed to fold a staged value: %w", err))
-}
-
 // brickLocked latches the fatal error, cancels the manager context, wakes backpressure waiters, and
 // takes every shard out of service, so callers observe the failure immediately rather than waiting
 // for Close.
@@ -1286,27 +1221,12 @@ func (c *viewManager) Close() error {
 	return c.closeErr
 }
 
-// awaitOutstandingFolds blocks until every fold staged by BatchUpdate has resolved in every shard.
-//
-// A fold is the manager's only background work that no caller waits for: it runs on a pool, reads
-// through to the database the manager owns, and submits that read to a pool the manager's owner
-// closes once Close returns. Close calls this before cancelling, so that a fold in flight resolves
-// against an open database instead of abandoning a read that would then race db.Close, and outside
-// versionLock, which a failing fold takes to brick the manager.
-func (c *viewManager) awaitOutstandingFolds() {
-	for _, s := range c.shards {
-		s.AwaitOutstandingFolds()
-	}
-}
-
 func (c *viewManager) closeInternal() error {
 	// Tell the lifecycle runner to exit, then wait for it to report offline. The send is
 	// buffered, so it does not block when the runner has already exited (manager failure), and
 	// the runner is guaranteed to close lifecycleExited (its defer runs even on panic).
 	c.lifecycleExit <- struct{}{}
 	<-c.lifecycleExited
-
-	c.awaitOutstandingFolds()
 
 	// Release everyone blocked on the manager's future: AwaitFlush, backpressured
 	// View callers, and reads still awaiting results. The cancel happens under versionLock

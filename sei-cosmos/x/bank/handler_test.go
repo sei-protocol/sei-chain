@@ -66,7 +66,7 @@ func TestSendToModuleAccount(t *testing.T) {
 	}
 
 	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx, _ := app.NewUncachedContext(false, tmproto.Header{}).CacheContext()
 
 	app.BankKeeper = bankkeeper.NewBaseKeeper(
 		app.AppCodec(), app.GetKey(types.StoreKey), app.AccountKeeper, app.GetSubspace(types.ModuleName), map[string]bool{

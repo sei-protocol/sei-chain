@@ -32,9 +32,8 @@ import (
 // panics on a mismatch before any app is constructed.
 //
 // What is NOT reachable here, and is stated rather than silently skipped: cpu-profile,
-// trace-store, the second GetConfig, grpc-only forcing GRPC.Enable, and the
-// api/grpc-web gating all live inside unexported startInProcess, which opens listeners
-// and starts a node. Pinning those needs an integration harness.
+// trace-store, the second GetConfig, and the api gating all live inside unexported
+// startInProcess, which opens listeners and starts a node. Pinning those needs an integration harness.
 
 // nodeEscapedMarker is a fixed token so CI triage can grep one string for this failure, and
 // nodeEscaped carries it from the row that detected it to TestMain.
@@ -152,7 +151,7 @@ func FuzzStartPreRunPruningFailsFast(f *testing.F) {
 // sees flags Apply did not.
 //
 // Apply binds the flag set it is given; PreRunE binds it again into the same viper.
-// The second bind is what makes start-only flags (grpc-only, profile, the archival
+// The second bind is what makes start-only flags (cpu-profile, the archival
 // group) visible to appOpts.Get, and it is a second place where the flag set and the
 // viper have to stay in step.
 func TestStartPreRunRebindsFlagsIntoTheApplyViper(t *testing.T) {
@@ -161,13 +160,13 @@ func TestStartPreRunRebindsFlagsIntoTheApplyViper(t *testing.T) {
 
 	cmd, serverCtx, _ := newStartCmd(t, home, map[string]string{
 		server.FlagPruning: "nothing",
-		"grpc-only":        "true",
+		"cpu-profile":      "cpu.pprof",
 	})
 	if err := cmd.PreRunE(cmd, nil); err != nil {
 		t.Fatalf("PreRunE: %v", err)
 	}
 
-	if !serverCtx.Viper.GetBool("grpc-only") {
+	if serverCtx.Viper.GetString("cpu-profile") != "cpu.pprof" {
 		t.Fatal("PreRunE must re-bind start's own flags into the viper Apply populated")
 	}
 	if got := serverCtx.Viper.GetString(server.FlagPruning); got != "nothing" {
@@ -422,11 +421,4 @@ global-labels = []
 enable = false
 address = "tcp://127.0.0.1:0"
 
-[grpc]
-enable = false
-address = "127.0.0.1:0"
-
-[grpc-web]
-enable = false
-address = "127.0.0.1:0"
 `

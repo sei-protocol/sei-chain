@@ -491,7 +491,7 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 		return nil, fmt.Errorf("convertFlatKVNodes failed: %w", err)
 	}
 	if moduleName == "" {
-		// Same guard as classifyAndPrefix and routePhysicalKey: an empty
+		// Same guard as ParseLogicalKey and routePhysicalKey: an empty
 		// module would produce a StoreKey the SS importer silently drops.
 		return nil, fmt.Errorf("flatkv: empty module name in physical key %q", node.Key)
 	}
@@ -509,7 +509,7 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 	// with an EVM prefix byte and satisfy its length check, and would then be
 	// deserialized as the wrong vtype (observed on production-scale data).
 	// Default them to the misc kind — their values are always MiscData. This
-	// mirrors the write side (classifyAndPrefix) and the read routing
+	// mirrors the write side (ParseLogicalKey) and the read routing
 	// (routePhysicalKey), which both gate EVM parsing on the module name.
 	kind, strippedKey := keys.EVMKeyMisc, innerKey
 	if moduleName == evm.EVMStoreKey {

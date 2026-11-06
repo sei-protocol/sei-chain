@@ -40,7 +40,7 @@ OUT="build/seid-$ARCH"
 # The checksums and the -L directory are both derived from $LIBGCC_ARCH above, so a
 # build cannot verify one architecture's archives while linking another's.
 # GO_IMAGE is pinned per architecture, to the platform children of the
-# golang:1.27.1-alpine index sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125.
+# golang:1.27.3-alpine index sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd.
 # It must NOT be collapsed back to one `tag@index-digest` ref with --platform selecting the
 # platform: the release runs both architectures on one runner, and the second `docker run`
 # then tries to rebind the same reference to different content, which the classic image
@@ -49,12 +49,12 @@ case "$LIBGCC_ARCH" in
   x86_64)
     LIBGCC_SHA=d3e066fafde74d53a89d48f2ceb9ed9934249a5d450e281edd22947a829469d8
     LIBGCC_EH_SHA=d14c9973a735909e11a863b0c850300bfd3aa683ef4689cbe76a53139766ed79
-    GO_IMAGE=golang@sha256:f86f1a6701e3dcc445fec097a42f78b758f15950ccf032c2d3e54e2754d32fdb
+    GO_IMAGE=golang@sha256:cd410a5c6686417875bc4815688e96ae9769f8562debc545d29fe58e73d174f0
     ;;
   aarch64)
     LIBGCC_SHA=119d1714e0a2b47e1d829d0e92dc3ab51a25e1778f67ed43d2e6c87469573cc2
     LIBGCC_EH_SHA=2963a26e62a46ee283c5463ebaad176ddf74b6a049850df833cee5f333ca57a9
-    GO_IMAGE=golang@sha256:df4c4a0eeb85873e0122c6e2eb1b436f3131576f572505c1ea61954b00fa6460
+    GO_IMAGE=golang@sha256:866d2c31bdecdade2f3249ef6413647c3521e7f2afe40c432bb15c792cb0cb18
     ;;
 esac
 

@@ -121,7 +121,7 @@ func newState(
 		return nil, fmt.Errorf("newInner: %w", err)
 	}
 
-	innerSend := utils.Alloc(utils.NewAtomicSend(initialInner))
+	innerSend := new(utils.NewAtomicSend(initialInner))
 	s := &State{
 		cfg: cfg,
 		// metrics: NewMetrics(),
@@ -250,7 +250,7 @@ func pushPhaseVote[V any, B comparable, QC any](
 // A vote from an earlier epoch is ignored.
 // The Prepare vote contains only a proposal; Proposal.Verify runs when the QC is formed.
 func (s *State) PushPrepareVote(ctx context.Context, vote *types.Signed[*types.PrepareVote]) error {
-	view := vote.Msg().Proposal().View()
+	view := vote.Msg().View()
 	return pushPhaseVote(ctx, s, view.EpochIndex, &s.prepareVotes, func(ep *types.Epoch) error {
 		if err := verifyVoteEpoch(ep, vote.Key(), view); err != nil {
 			return err
@@ -266,7 +266,7 @@ func (s *State) PushPrepareVote(ctx context.Context, vote *types.Signed[*types.P
 // A vote from an earlier epoch is ignored.
 // The Commit vote contains only a proposal; Proposal.Verify runs when the QC is formed.
 func (s *State) PushCommitVote(ctx context.Context, vote *types.Signed[*types.CommitVote]) error {
-	view := vote.Msg().Proposal().View()
+	view := vote.Msg().View()
 	return pushPhaseVote(ctx, s, view.EpochIndex, &s.commitVotes, func(ep *types.Epoch) error {
 		if err := verifyVoteEpoch(ep, vote.Key(), view); err != nil {
 			return err
@@ -376,10 +376,11 @@ func (s *State) Run(ctx context.Context) error {
 		scope.SpawnNamed("avail", func() error { return s.avail.Run(ctx) })
 		scope.SpawnNamed("propose", func() error { return s.runPropose(ctx) })
 		scope.SpawnNamed("outputs", func() error { return s.runOutputs(ctx) })
+		scope.SpawnNamed("laneBlockStages", func() error { return s.runLaneBlockStages(ctx) })
 		scope.SpawnNamed("storeCommitQC", func() error {
 			return s.commitQC().Iter(ctx, func(ctx context.Context, qc utils.Option[*types.CommitQC]) error {
 				if qc, ok := qc.Get(); ok {
-					// s.metrics.ObserveCommitQC(qc)
+					meters.CommitQCLatency.Observe(time.Since(qc.Header().Timestamp()).Seconds())
 					// We push the locally generated CommitQC into "avail" to act as a
 					// sequencer and to trigger data pruning.
 					return s.avail.PushCommitQC(ctx, qc)

@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"bytes"
-	"strings"
 
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
@@ -11,10 +10,6 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	cosmosbanktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
-)
-
-const (
-	TokenFactoryPrefix = "factory"
 )
 
 var CoinbaseAddressPrefix = []byte("evm_coinbase")
@@ -38,9 +33,6 @@ type SendKeeper interface {
 
 	IsSendEnabledCoin(ctx sdk.Context, coin sdk.Coin) bool
 	IsSendEnabledCoins(ctx sdk.Context, coins ...sdk.Coin) error
-	SetDenomAllowList(ctx sdk.Context, denom string, allowList types.AllowList)
-	GetDenomAllowList(ctx sdk.Context, denom string) types.AllowList
-	IsInDenomAllowList(ctx sdk.Context, addr sdk.AccAddress, coins sdk.Coins, cache map[string]AllowedAddresses) bool
 
 	BlockedAddr(addr sdk.AccAddress) bool
 	RegisterRecipientChecker(RecipientChecker)
@@ -451,84 +443,4 @@ func (k BaseSendKeeper) CanSendTo(ctx sdk.Context, recipient sdk.AccAddress) boo
 
 func SplitUseiWeiAmount(amt sdk.Int) (sdk.Int, sdk.Int) {
 	return amt.Quo(OneUseiInWei), amt.Mod(OneUseiInWei)
-}
-
-func (k BaseSendKeeper) SetDenomAllowList(ctx sdk.Context, denom string, allowList types.AllowList) {
-	store := k.GetKVStore(ctx)
-	denomAllowListStore := prefix.NewStore(store, types.DenomAllowListKey(denom))
-
-	m := k.cdc.MustMarshal(&allowList)
-	denomAllowListStore.Set([]byte(denom), m)
-}
-
-func (k BaseSendKeeper) GetDenomAllowList(ctx sdk.Context, denom string) types.AllowList {
-	store := k.GetKVStore(ctx)
-	store = prefix.NewStore(store, types.DenomAllowListKey(denom))
-
-	bz := store.Get([]byte(denom))
-	if bz == nil {
-		return types.AllowList{}
-	}
-
-	var allowList types.AllowList
-	k.cdc.MustUnmarshal(bz, &allowList)
-
-	return allowList
-}
-
-// IsInDenomAllowList checks if the given address is allowed to send the given coins.
-// The check is performed only fot token factory denoms. For each token factory denom,
-// it checks if there is allow list for the given denom. If there is no allow list,
-// the address is allowed to send the coins. If there is an allow list, the address is
-// allowed to send the coins only if it is in the allow list.
-func (k BaseSendKeeper) IsInDenomAllowList(ctx sdk.Context, addr sdk.AccAddress, coins sdk.Coins, cache map[string]AllowedAddresses) bool {
-	for _, coin := range coins {
-		// Skip if denom does not contain the token factory prefix
-		if !strings.HasPrefix(coin.Denom, TokenFactoryPrefix) {
-			continue
-		}
-
-		allowedAddresses := k.getAllowedAddresses(ctx, cache, coin.Denom)
-		// skip if there is no allow list for the denom
-		if len(allowedAddresses.set) == 0 {
-			continue
-		}
-
-		if !allowedAddresses.contains(addr) {
-			return false
-		}
-	}
-	return true
-}
-
-func (k BaseSendKeeper) getAllowedAddresses(ctx sdk.Context, cache map[string]AllowedAddresses, denom string) AllowedAddresses {
-	allowedAddresses, exists := cache[denom]
-	if !exists {
-		allowList := k.GetDenomAllowList(ctx, denom)
-		allowedAddresses = k.buildAllowedAddressesMap(allowList)
-		// we cache even if the allowList is empty to avoid multiple db reads
-		cache[denom] = allowedAddresses
-	}
-	return allowedAddresses
-}
-
-type AllowedAddresses struct {
-	set map[string]struct{}
-}
-
-func (a AllowedAddresses) contains(address sdk.AccAddress) bool {
-	_, exists := a.set[address.String()]
-	return exists
-}
-
-func (k BaseSendKeeper) buildAllowedAddressesMap(allowList types.AllowList) AllowedAddresses {
-	allowedAddressesMap := make(map[string]struct{})
-	if len(allowList.Addresses) > 0 {
-		for _, addr := range allowList.Addresses {
-			allowedAddressesMap[addr] = struct{}{}
-		}
-	}
-	return AllowedAddresses{
-		set: allowedAddressesMap,
-	}
 }

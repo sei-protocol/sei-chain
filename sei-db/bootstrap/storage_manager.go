@@ -6,6 +6,12 @@ import (
 	"errors"
 	"fmt"
 
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
+	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
+	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
@@ -37,12 +43,27 @@ type GigaStorageManager struct {
 
 	// gc is nil until startGarbageCollector succeeds.
 	gc *controller.StorageGarbageCollector
+
+	// appHashBuilder is nil until openAppHashBuilder opens it.
+	appHashBuilder builder.AppHashBuilder
+
+	// appHashVault holds the app hashes appHashBuilder stores. It is nil until openAppHashBuilder opens it.
+	appHashVault vault.HashVault
+
+	// receiptHasher reports the receipt hash of each executed block to appHashBuilder. It is nil until
+	// openAppHashBuilder opens it.
+	receiptHasher *receipthash.ReceiptHasher
+
+	// budHasher reports the BUD hash of each block the state DB commits to appHashBuilder. It is nil until
+	// openAppHashBuilder opens it.
+	budHasher bud.BUDHasher
 }
 
 // NewGigaStorageManager runs the steps that bring storage up:
 //  1. Perform a config validation.
 //  2. Construct and open all DBs with the config.
-//  3. OpenDBWithRecovery: bring every store onto one height.
+//  3. OpenDBWithRecovery: open the app hash builder, bring every store onto one height, then complete the
+//     builder's setup at that height.
 //  4. Start the garbage collector.
 func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (*GigaStorageManager, error) {
 	if err := cfg.Validate(); err != nil {
@@ -77,8 +98,8 @@ func (m *GigaStorageManager) startGarbageCollector(ctx context.Context, pruningC
 
 // prunableStores returns the opened stores that can join the shared prune cycle. The state stores come
 // from the StateDB that owns them.
-func (m *GigaStorageManager) prunableStores() []controller.PrunableStore {
-	stores := make([]controller.PrunableStore, 0, 5)
+func (m *GigaStorageManager) prunableStores() []controllertypes.PrunableStore {
+	stores := make([]controllertypes.PrunableStore, 0, 6)
 	if m.stateDB != nil {
 		stores = append(stores, m.stateDB.PrunableStores()...)
 	}
@@ -87,6 +108,9 @@ func (m *GigaStorageManager) prunableStores() []controller.PrunableStore {
 	}
 	if m.blockStore != nil {
 		stores = append(stores, m.blockStore)
+	}
+	if m.appHashVault != nil {
+		stores = append(stores, m.appHashVault)
 	}
 	return stores
 }
@@ -108,6 +132,15 @@ func (m *GigaStorageManager) StateWAL() statewal.StateWAL {
 	}
 	return m.stateDB.WAL()
 }
+
+// AppHashBuilder returns the app hash builder.
+func (m *GigaStorageManager) AppHashBuilder() builder.AppHashBuilder { return m.appHashBuilder }
+
+// AppHashVault returns the hash vault the app hash builder stores app hashes in.
+func (m *GigaStorageManager) AppHashVault() vault.HashVault { return m.appHashVault }
+
+// ReceiptHasher returns the hasher that reports the receipt hash of each executed block to the app hash builder.
+func (m *GigaStorageManager) ReceiptHasher() *receipthash.ReceiptHasher { return m.receiptHasher }
 
 // SC returns the state commit store, or nil before the StateDB is open.
 func (m *GigaStorageManager) SC() *flatkv.CommitStore {
@@ -153,6 +186,30 @@ func (m *GigaStorageManager) Close() error {
 		}
 	}
 	errs = errors.Join(errs, timer.Close("state_db", m.closeState))
+	// Before the builder, which it reports into until it stops.
+	if m.receiptHasher != nil {
+		if err := timer.Close("receipt_hasher", m.receiptHasher.Close); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close receipt hasher: %w", err))
+		}
+	}
+	// After the state DB, which submits to it, and before the builder, which it reports into until it stops.
+	if m.budHasher != nil {
+		if err := timer.Close("bud_hasher", m.budHasher.Close); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close BUD hasher: %w", err))
+		}
+	}
+	// After the state DB, whose hash listeners report into the builder until they stop.
+	if m.appHashBuilder != nil {
+		if err := timer.Close("app_hash_builder", m.appHashBuilder.Close); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close app hash builder: %w", err))
+		}
+	}
+	// After the builder, which stores into it until it stops.
+	if m.appHashVault != nil {
+		if err := timer.Close("app_hash_vault", m.appHashVault.Close); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close app hash vault: %w", err))
+		}
+	}
 	logger.Info("Closed storage", timer.Fields()...)
 	return errs
 }

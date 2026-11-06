@@ -6,12 +6,13 @@ import (
 	"testing"
 	"time"
 
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 )
 
@@ -145,11 +146,11 @@ func TestStateStoreDisabled(t *testing.T) {
 		"SC still needs the schedule that replaces its own interval")
 	require.True(t, manager.SC().ExternalPruning())
 
-	names := make([]string, 0, 4)
+	names := make([]string, 0, 5)
 	for _, store := range manager.prunableStores() {
 		names = append(names, store.Name())
 	}
-	require.Equal(t, []string{"FlatKV", "StateWAL", "ReceiptDB", "BlockDB"}, names,
+	require.Equal(t, []string{"FlatKV", "StateWAL", "ReceiptDB", "BlockDB", "AppHashVault"}, names,
 		"a store this node never opened must not be offered to the collector")
 }
 
@@ -241,14 +242,11 @@ func TestAnInvalidConfigIsRefusedBeforeAnyStoreOpens(t *testing.T) {
 func TestStateDBCommitsToWALAndLiveSC(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
-	cs := []*proto.NamedChangeSet{{
-		Name: "bank",
-		Changeset: proto.ChangeSet{
-			Pairs: []*proto.KVPair{{Key: []byte("k"), Value: []byte("v")}},
-		},
-	}}
-	require.NoError(t, manager.StateDB().CommitStateChanges(1, cs))
-	waitSSWrites(manager)
+	changes := &gigatypes.StateChangeSet{
+		Misc: []gigatypes.MiscChange{{Module: "bank", Key: []byte("k"), Value: []byte("v")}},
+	}
+	commitBlock(t, manager, 1, changes)
+	waitSSWrites(t, manager, 1)
 
 	require.Equal(t, int64(1), manager.SC().Version())
 	require.Equal(t, int64(1), manager.SS().GetLatestVersion(),
@@ -263,8 +261,8 @@ func TestStateDBCommitsToWALAndLiveSC(t *testing.T) {
 func TestStateDBCommitsEVMChangesToSS(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
-	require.NoError(t, manager.StateDB().CommitStateChanges(1, evmBlock(1, 1)))
-	waitSSWrites(manager)
+	commitBlock(t, manager, 1, evmBlock(1, 1))
+	waitSSWrites(t, manager, 1)
 
 	require.Equal(t, int64(1), manager.SS().GetLatestVersion())
 	value, err := manager.SS().Get(evm.EVMStoreKey, 1, evmNonceKey(1))
@@ -285,14 +283,14 @@ func TestEveryStoreJoinsThePruneCycle(t *testing.T) {
 	require.True(t, manager.SC().ExternalPruning())
 	require.True(t, manager.SS().ExternalPruning())
 
-	names := make([]string, 0, 5)
+	names := make([]string, 0, 6)
 	for _, store := range manager.prunableStores() {
 		names = append(names, store.Name())
 	}
 	// The three state stores arrive as one group, from the StateDB that owns them. Order carries no
 	// meaning to the collector: it fixes both cut lines as a minimum over every store before pruning
 	// any of them.
-	require.Equal(t, []string{"FlatKV", "StateWAL", "EVM SS", "ReceiptDB", "BlockDB"}, names)
+	require.Equal(t, []string{"FlatKV", "StateWAL", "EVM SS", "ReceiptDB", "BlockDB", "AppHashVault"}, names)
 }
 
 // TestPrunableStoresOmitsDisabledReceipts pins that a store that was never opened is not offered
@@ -302,7 +300,7 @@ func TestPrunableStoresOmitsDisabledReceipts(t *testing.T) {
 		cfg.ReceiptDBConfig.Enable = false
 	})
 
-	var stores []controller.PrunableStore
+	var stores []controllertypes.PrunableStore
 	stores = append(stores, manager.prunableStores()...)
 	for _, store := range stores {
 		require.NotEqual(t, "ReceiptDB", store.Name())

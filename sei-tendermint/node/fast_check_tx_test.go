@@ -15,7 +15,9 @@ import (
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
@@ -66,7 +68,7 @@ func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 			MockApp:     true,
 			FastCheckTx: true,
 		},
-	}, app, gigaconfig.DefaultConfig)
+	}, app, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
 	require.False(t, storage.IsPresent())
 
@@ -81,7 +83,7 @@ func TestPrepareApplicationFastCheckTxWithoutMockApp(t *testing.T) {
 		BaseConfig: config.BaseConfig{
 			FastCheckTx: true,
 		},
-	}, app, gigaconfig.DefaultConfig)
+	}, app, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
 	require.False(t, storage.IsPresent())
 
@@ -100,20 +102,36 @@ func TestPrepareApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 			FastCheckTx: true,
 		},
 		AutobahnConfigFile: autobahnConfigFile,
-	}, app, gigaconfig.DefaultConfig)
+	}, app, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
 	manager, ok := storage.Get()
 	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
-	_, ok = prepared.(*MockApp)
+	mock, ok := prepared.(*MockApp)
 	require.True(t, ok)
+	require.True(t, proxy.New(prepared).EVM().IsPresent())
+
+	_, err = mock.InitChain(&abci.RequestInitChain{InitialHeight: 1})
+	require.NoError(t, err)
+	var blockHash [32]byte
+	blockHash[0] = 1
+	require.NoError(t, manager.AppHashBuilder().ReportBlockHash(t.Context(), 1, blockHash))
+	_, err = mock.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Header: &tmproto.Header{Height: 1},
+	})
+	require.NoError(t, err)
+	_, err = mock.Commit(t.Context())
+	require.NoError(t, err)
+	got, err := manager.AppHashBuilder().GetAppHash(t.Context(), 1)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), got.BlockHeight())
 }
 
 func TestPrepareApplicationAutobahnRequiresReadableConfig(t *testing.T) {
 	_, _, err := prepareApplication(t.Context(), &config.Config{
 		AutobahnConfigFile: "/missing/autobahn.json",
-	}, abci.BaseApplication{}, gigaconfig.DefaultConfig)
+	}, abci.BaseApplication{}, gigaconfig.DefaultConfig, genesisAt(1))
 
 	require.Error(t, err)
 }

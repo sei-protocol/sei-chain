@@ -108,8 +108,7 @@ func parseRequests(data []byte) ([]rpctypes.RPCRequest, error) {
 	var reqs []rpctypes.RPCRequest
 	var err error
 
-	isArray := bytes.HasPrefix(bytes.TrimSpace(data), []byte("["))
-	if isArray {
+	if isBatchRequest(data) {
 		err = json.Unmarshal(data, &reqs)
 	} else {
 		reqs = append(reqs, rpctypes.RPCRequest{})
@@ -119,6 +118,11 @@ func parseRequests(data []byte) ([]rpctypes.RPCRequest, error) {
 		return nil, err
 	}
 	return reqs, nil
+}
+
+// isBatchRequest reports whether data holds a JSON-RPC batch (a JSON array).
+func isBatchRequest(data []byte) bool {
+	return bytes.HasPrefix(bytes.TrimSpace(data), []byte("["))
 }
 
 // writes a list of available rpc endpoints as an html page

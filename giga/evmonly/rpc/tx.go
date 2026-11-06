@@ -25,13 +25,19 @@ type txAPI struct {
 	store   receiptpkg.ReceiptStore
 }
 
-// GetTransactionCount returns the address nonce from the current committed EVM state.
-func (api *txAPI) GetTransactionCount(_ context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
-	if err := requireCurrentState(block); err != nil {
+// GetTransactionCount returns the address nonce in the committed EVM state after block.
+func (api *txAPI) GetTransactionCount(ctx context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
+	height, latest, err := stateHeight(ctx, api.backend, block)
+	if err != nil {
 		return nil, err
 	}
-	nonce := hexutil.Uint64(api.backend.EvmTransactionCount(address))
-	return &nonce, nil
+	var nonce uint64
+	if latest {
+		nonce = api.backend.EvmTransactionCount(address)
+	} else if nonce, err = api.backend.EvmTransactionCountAt(address, height); err != nil {
+		return nil, err
+	}
+	return (*hexutil.Uint64)(&nonce), nil
 }
 
 // GetTransactionReceipt returns the finalized Ethereum receipt for hash.
@@ -79,6 +85,29 @@ func (api *txAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*
 		uint64(stored.TransactionIndex), baseFee, chainConfig)
 	replaceFrom(result, stored)
 	return result, nil
+}
+
+// GetVMError returns the EVM error hash's transaction failed with, or "" when it
+// succeeded. It returns an error when hash has no finalized receipt.
+func (api *txAPI) GetVMError(ctx context.Context, hash common.Hash) (string, error) {
+	stored, _, err := api.lookupFinalizedTx(ctx, hash)
+	if err != nil {
+		return "", err
+	}
+	if stored == nil {
+		return "", receiptpkg.ErrNotFound
+	}
+	return stored.VmError, nil
+}
+
+// GetTransactionErrorByHash returns the EVM error hash's transaction failed with,
+// or "" when it succeeded or has no finalized receipt.
+func (api *txAPI) GetTransactionErrorByHash(ctx context.Context, hash common.Hash) (string, error) {
+	stored, _, err := api.lookupFinalizedTx(ctx, hash)
+	if err != nil || stored == nil {
+		return "", err
+	}
+	return stored.VmError, nil
 }
 
 // lookupFinalizedTx resolves hash's stored receipt and finalized block. It

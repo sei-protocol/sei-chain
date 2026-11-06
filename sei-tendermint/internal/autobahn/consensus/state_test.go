@@ -215,10 +215,11 @@ func advancingSpec(keys []types.SecretKey, registry *epoch.Registry) types.Conse
 // enterEpoch1 advances myView to epoch 1. runOutputs must be running.
 func (e liveEnv) enterEpoch1(ctx context.Context) error {
 	ep0 := e.reg.MustEpoch(0)
-	proposal := types.GenProposalForEpoch(e.rng, ep0, types.View{Index: epoch.LastRoad(0)})
+	proposal := types.GenProposalForEpoch(e.rng, ep0, types.View{Index: e.reg.LastRoad(0)})
 	votes := make([]*types.Signed[*types.CommitVote], len(e.keys))
+	prepareQC := types.BuildPrepareQC(e.keys, proposal)
 	for i, k := range e.keys {
-		votes[i] = types.Sign(k, types.NewCommitVote(proposal))
+		votes[i] = types.Sign(k, types.NewCommitVote(prepareQC))
 	}
 	if err := e.s.pushSpec(types.ConsensusSpec{
 		CommitQC: utils.Some(types.NewCommitQC(votes)),
@@ -270,7 +271,7 @@ func waitVerifyPushCases() []waitVerifyPushCase {
 			assertApplied: func(e liveEnv) {
 				vote, ok := e.inner().PrepareVote.Get()
 				require.True(e.t, ok)
-				require.Equal(e.t, e.vs.View(), vote.Msg().Proposal().View())
+				require.Equal(e.t, e.vs.View(), vote.Msg().View())
 			},
 			assertIgnored: func(e liveEnv) {
 				require.False(e.t, e.inner().PrepareVote.IsPresent())
@@ -285,10 +286,10 @@ func waitVerifyPushCases() []waitVerifyPushCase {
 				i := e.inner()
 				qc, ok := i.PrepareQC.Get()
 				require.True(e.t, ok)
-				require.Equal(e.t, e.vs.View(), qc.Proposal().View())
+				require.Equal(e.t, e.vs.View(), qc.View())
 				vote, ok := i.CommitVote.Get()
 				require.True(e.t, ok)
-				require.Equal(e.t, e.vs.View(), vote.Msg().Proposal().View())
+				require.Equal(e.t, e.vs.View(), vote.Msg().View())
 			},
 			assertIgnored: func(e liveEnv) {
 				i := e.inner()
@@ -504,24 +505,24 @@ func pushVoteCases() []pushVoteCase {
 				if !ok {
 					return types.View{}, false
 				}
-				return qc.Proposal().View(), true
+				return qc.View(), true
 			},
 		},
 		{
 			name:   "commit",
 			quorum: (*types.Committee).CommitQuorum,
 			push: func(e liveEnv, k types.SecretKey, p *types.Proposal) error {
-				return e.s.PushCommitVote(e.t.Context(), types.Sign(k, types.NewCommitVote(p)))
+				return e.s.PushCommitVote(e.t.Context(), types.Sign(k, types.NewCommitVote(types.BuildPrepareQC(e.keys, p))))
 			},
 			badSig: utils.Some(func(e liveEnv, p *types.Proposal) error {
-				return e.s.PushCommitVote(e.t.Context(), types.SignedForTesting(types.NewCommitVote(p), fakeSig(e.keys[0].Public())))
+				return e.s.PushCommitVote(e.t.Context(), types.SignedForTesting(types.NewCommitVote(types.BuildPrepareQC(e.keys, p)), fakeSig(e.keys[0].Public())))
 			}),
 			qcView: func(s *State) (types.View, bool) {
 				qc, ok := s.commitQC().Load().Get()
 				if !ok {
 					return types.View{}, false
 				}
-				return qc.Proposal().View(), true
+				return qc.View(), true
 			},
 		},
 		{
@@ -611,12 +612,12 @@ func epochVoteCases() []epochVoteCase {
 				if !ok {
 					return types.View{}, false
 				}
-				return qc.Proposal().View(), true
+				return qc.View(), true
 			},
 			wait: func(ctx context.Context, s *State, view types.View) error {
 				_, err := s.prepareQC().Wait(ctx, func(qc utils.Option[*types.PrepareQC]) bool {
 					got, ok := qc.Get()
-					return ok && got.Proposal().View() == view
+					return ok && got.View() == view
 				})
 				return err
 			},
@@ -632,19 +633,19 @@ func epochVoteCases() []epochVoteCase {
 			name:   "commit",
 			quorum: (*types.Committee).CommitQuorum,
 			push: func(ctx context.Context, e liveEnv, p *types.Proposal, k types.SecretKey) error {
-				return e.s.PushCommitVote(ctx, types.Sign(k, types.NewCommitVote(p)))
+				return e.s.PushCommitVote(ctx, types.Sign(k, types.NewCommitVote(types.BuildPrepareQC(e.keys, p))))
 			},
 			qcView: func(s *State) (types.View, bool) {
 				qc, ok := s.commitQC().Load().Get()
 				if !ok {
 					return types.View{}, false
 				}
-				return qc.Proposal().View(), true
+				return qc.View(), true
 			},
 			wait: func(ctx context.Context, s *State, view types.View) error {
 				_, err := s.commitQC().Wait(ctx, func(qc utils.Option[*types.CommitQC]) bool {
 					got, ok := qc.Get()
-					return ok && got.Proposal().View() == view
+					return ok && got.View() == view
 				})
 				return err
 			},
@@ -688,7 +689,7 @@ func epochVoteCases() []epochVoteCase {
 }
 
 func pushVoteQuorum(ctx context.Context, e liveEnv, tc epochVoteCase, p *types.Proposal) error {
-	c := e.reg.MustEpoch(p.EpochIndex()).Committee()
+	c := e.reg.MustEpoch(p.Header().EpochIndex()).Committee()
 	for _, k := range types.TestKeysWithWeight(c, e.keys, tc.quorum(c)) {
 		if err := tc.push(ctx, e, p, k); err != nil {
 			return err
@@ -712,7 +713,8 @@ func TestPushVoteEpoch(t *testing.T) {
 
 		t.Run(tc.name+"/future epoch waits", func(t *testing.T) {
 			e := newLiveEnv(t, utils.TestRng())
-			p := types.GenProposalForEpoch(e.rng, e.reg.MustEpoch(1), types.View{Index: epoch.FirstRoad(1)})
+			ep1 := e.reg.MustEpoch(1)
+			p := types.GenProposalForEpoch(e.rng, ep1, types.View{Index: ep1.RoadRange().First})
 			ctx, cancel := context.WithCancel(t.Context())
 			cancel()
 			require.ErrorIs(t, tc.push(ctx, e, p, e.keys[0]), context.Canceled)
@@ -722,8 +724,10 @@ func TestPushVoteEpoch(t *testing.T) {
 
 		t.Run(tc.name+"/past epoch is ignored", func(t *testing.T) {
 			e := newLiveEnv(t, utils.TestRng())
-			stale := types.GenProposalForEpoch(e.rng, e.reg.MustEpoch(0), types.View{})
-			next := types.GenProposalForEpoch(e.rng, e.reg.MustEpoch(1), types.View{Index: epoch.FirstRoad(1)})
+			ep0 := e.reg.MustEpoch(0)
+			ep1 := e.reg.MustEpoch(1)
+			stale := types.GenProposalForEpoch(e.rng, ep0, types.View{Index: ep0.RoadRange().First})
+			next := types.GenProposalForEpoch(e.rng, ep1, types.View{Index: ep1.RoadRange().First})
 			err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 				sc.SpawnBg(func() error { return utils.IgnoreCancel(e.s.runOutputs(ctx)) })
 				if err := e.enterEpoch1(ctx); err != nil {
@@ -755,7 +759,7 @@ func TestPushVoteEpoch(t *testing.T) {
 			require.Equal(t, types.EpochIndex(0), tc.phaseEpoch(e.s))
 			ep1 := e.reg.MustEpoch(1)
 			e.s.myView.Store(types.ViewSpec{ConsensusSpec: types.ConsensusSpec{Epoch: ep1}})
-			p := types.GenProposalForEpoch(e.rng, ep1, types.View{Index: epoch.FirstRoad(1)})
+			p := types.GenProposalForEpoch(e.rng, ep1, types.View{Index: ep1.RoadRange().First})
 			require.NoError(t, pushVoteQuorum(t.Context(), e, tc, p))
 			view, ok := tc.qcView(e.s)
 			require.True(t, ok)
@@ -765,8 +769,9 @@ func TestPushVoteEpoch(t *testing.T) {
 
 		t.Run(tc.name+"/future epoch is counted once reached", func(t *testing.T) {
 			e := newLiveEnv(t, utils.TestRng())
-			p := types.GenProposalForEpoch(e.rng, e.reg.MustEpoch(1), types.View{Index: epoch.FirstRoad(1)})
-			c := e.reg.MustEpoch(1).Committee()
+			ep1 := e.reg.MustEpoch(1)
+			p := types.GenProposalForEpoch(e.rng, ep1, types.View{Index: ep1.RoadRange().First})
+			c := ep1.Committee()
 			keys := types.TestKeysWithWeight(c, e.keys, tc.quorum(c))
 			err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 				sc.SpawnBg(func() error { return utils.IgnoreCancel(e.s.runOutputs(ctx)) })
@@ -807,7 +812,7 @@ func TestPushVoteEpoch(t *testing.T) {
 			require.False(t, ok)
 
 			e.s.myView.Store(types.ViewSpec{ConsensusSpec: types.ConsensusSpec{Epoch: heavy}})
-			next := types.GenProposalForEpoch(rng, heavy, types.View{Index: epoch.FirstRoad(2)})
+			next := types.GenProposalForEpoch(rng, heavy, types.View{Index: heavy.RoadRange().First})
 			require.NoError(t, tc.push(t.Context(), e, next, e.keys[0]))
 			view, ok := tc.qcView(e.s)
 			require.True(t, ok)
@@ -819,13 +824,11 @@ func TestPushVoteEpoch(t *testing.T) {
 
 func weightedEpoch(idx types.EpochIndex, weights map[types.PublicKey]uint64) *types.Epoch {
 	c := utils.OrPanic1(types.NewCommittee(weights))
-	return types.NewEpoch(
-		idx,
-		types.RoadRange{First: epoch.FirstRoad(idx), Next: epoch.FirstRoad(idx + 1)},
-		time.Unix(0, 0),
-		c,
-		0,
-	)
+	registry := utils.OrPanic1(epoch.NewRegistry(c, 0, time.Time{}, utils.None[string]()))
+	roads := registry.MustEpoch(0).RoadRange()
+	length := roads.Next - roads.First
+	first := roads.First + types.RoadIndex(idx)*length
+	return types.NewEpoch(idx, types.RoadRange{First: first, Next: first + length}, c)
 }
 
 // --- propose ---
@@ -834,7 +837,7 @@ func TestRunPropose(t *testing.T) {
 	t.Run("fresh proposal", func(t *testing.T) {
 		rng := utils.TestRng()
 		e := newLiveEnvWith(t, rng, utils.Some(testKeyPick(func(reg *epoch.Registry, keys []types.SecretKey) types.SecretKey {
-			return secretKeyForView(reg, keys, types.View{})
+			return secretKeyForView(reg, keys, types.View{Index: reg.MustEpoch(0).RoadRange().First})
 		})), utils.None[ViewTimeoutFunc]())
 		require.Equal(t, e.s.cfg.Key.Public(), e.committee().Leader(e.vs.View()))
 
@@ -866,9 +869,8 @@ func TestRunPropose(t *testing.T) {
 
 	t.Run("reproposal", func(t *testing.T) {
 		rng := utils.TestRng()
-		next := types.View{}.Next()
 		e := newLiveEnvWith(t, rng, utils.Some(testKeyPick(func(reg *epoch.Registry, keys []types.SecretKey) types.SecretKey {
-			return secretKeyForView(reg, keys, next)
+			return secretKeyForView(reg, keys, types.View{Index: reg.MustEpoch(0).RoadRange().First}.Next())
 		})), utils.None[ViewTimeoutFunc]())
 		e.occupyBusy()
 		// inner PrepareQC carries a random timestamp, which Verify rejects.
@@ -959,15 +961,17 @@ func TestRun(t *testing.T) {
 					return err
 				}
 			}
-			if _, err := e.s.innerRecv.Wait(ctx, func(i inner) bool { return i.PrepareQC.IsPresent() }); err != nil {
+			prepared, err := e.s.innerRecv.Wait(ctx, func(i inner) bool { return i.PrepareQC.IsPresent() })
+			if err != nil {
 				return err
 			}
+			prepareQC := prepared.PrepareQC.OrPanic("missing prepare QC")
 			for _, k := range types.TestKeysWithWeight(c, e.keys, c.CommitQuorum()) {
-				if err := e.s.PushCommitVote(ctx, types.Sign(k, types.NewCommitVote(p))); err != nil {
+				if err := e.s.PushCommitVote(ctx, types.Sign(k, types.NewCommitVote(prepareQC))); err != nil {
 					return err
 				}
 			}
-			_, err := e.s.Avail().SubscribeConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
+			_, err = e.s.Avail().SubscribeConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
 				return sp.Index() > e.vs.View().Index
 			})
 			return err
@@ -998,12 +1002,12 @@ func TestRun(t *testing.T) {
 
 func TestVoteTimeoutPrepareQC_BothNone(t *testing.T) {
 	rng := utils.TestRng()
-	s, _, _ := newTestState(rng)
+	s, _, registry := newTestState(rng)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
 
-		if err := s.voteTimeout(ctx, types.View{Index: 0, Number: 0}); err != nil {
+		if err := s.voteTimeout(ctx, types.View{Index: registry.MustEpoch(0).RoadRange().First, Number: 0}); err != nil {
 			return fmt.Errorf("voteTimeout: %w", err)
 		}
 		tv, ok := s.innerRecv.Load().TimeoutVote.Get()
@@ -1021,15 +1025,16 @@ func TestVoteTimeoutPrepareQC_BothNone(t *testing.T) {
 func TestVoteTimeoutPrepareQC_OnlyCurrentView(t *testing.T) {
 	rng := utils.TestRng()
 	s, keys, registry := newTestState(rng)
+	ep0 := registry.MustEpoch(0)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
 
-		pqc := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: 0, Number: 0}))
+		pqc := makePrepareQC(keys, types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First, Number: 0}))
 		if err := s.pushPrepareQC(ctx, pqc); err != nil {
 			return fmt.Errorf("pushPrepareQC: %w", err)
 		}
-		if err := s.voteTimeout(ctx, types.View{Index: 0, Number: 0}); err != nil {
+		if err := s.voteTimeout(ctx, types.View{Index: ep0.RoadRange().First, Number: 0}); err != nil {
 			return fmt.Errorf("voteTimeout: %w", err)
 		}
 		tv, ok := s.innerRecv.Load().TimeoutVote.Get()
@@ -1049,25 +1054,26 @@ func TestVoteTimeoutPrepareQC_OnlyCurrentView(t *testing.T) {
 func TestVoteTimeoutPrepareQC_InheritedFromTimeoutQC(t *testing.T) {
 	rng := utils.TestRng()
 	s, keys, registry := newTestState(rng)
+	ep0 := registry.MustEpoch(0)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
 
-		// View (0, 0): push PrepareQC for proposal P.
-		view0 := types.View{Index: 0, Number: 0}
-		pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.MustEpoch(0), view0))
+		// View (firstRoad, 0): push PrepareQC for proposal P.
+		view0 := types.View{Index: ep0.RoadRange().First, Number: 0}
+		pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, ep0, view0))
 		if err := s.pushPrepareQC(ctx, pqc0); err != nil {
 			return fmt.Errorf("pushPrepareQC: %w", err)
 		}
 
-		// Timeout at (0, 0) — all votes carry pqc0.
+		// Timeout at (firstRoad, 0) — all votes carry pqc0.
 		tqc0 := makeTimeoutQC(keys, view0, utils.Some(pqc0))
 		if err := s.pushTimeoutQC(ctx, tqc0); err != nil {
 			return fmt.Errorf("pushTimeoutQC(tqc0): %w", err)
 		}
 
-		// Now at (0, 1). PrepareQC was cleared; voteTimeout must inherit it.
-		view1 := types.View{Index: 0, Number: 1}
+		// Now at (firstRoad, 1). PrepareQC was cleared; voteTimeout must inherit it.
+		view1 := types.View{Index: ep0.RoadRange().First, Number: 1}
 		if err := s.voteTimeout(ctx, view1); err != nil {
 			return fmt.Errorf("voteTimeout(view1): %w", err)
 		}
@@ -1084,7 +1090,7 @@ func TestVoteTimeoutPrepareQC_InheritedFromTimeoutQC(t *testing.T) {
 		if err := s.pushTimeoutQC(ctx, tqc1); err != nil {
 			return fmt.Errorf("pushTimeoutQC(tqc1): %w", err)
 		}
-		view2 := types.View{Index: 0, Number: 2}
+		view2 := types.View{Index: ep0.RoadRange().First, Number: 2}
 		if err := s.voteTimeout(ctx, view2); err != nil {
 			return fmt.Errorf("voteTimeout(view2): %w", err)
 		}
@@ -1106,26 +1112,27 @@ func TestVoteTimeoutPrepareQC_InheritedFromTimeoutQC(t *testing.T) {
 func TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited(t *testing.T) {
 	rng := utils.TestRng()
 	s, keys, registry := newTestState(rng)
+	ep0 := registry.MustEpoch(0)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
 
-		// View (0, 0): PrepareQC for P.
-		view0 := types.View{Index: 0, Number: 0}
-		pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.MustEpoch(0), view0))
+		// View (firstRoad, 0): PrepareQC for P.
+		view0 := types.View{Index: ep0.RoadRange().First, Number: 0}
+		pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, ep0, view0))
 		if err := s.pushPrepareQC(ctx, pqc0); err != nil {
 			return fmt.Errorf("pushPrepareQC(pqc0): %w", err)
 		}
 
-		// Timeout at (0, 0) → advance to (0, 1).
+		// Timeout at (firstRoad, 0) → advance to (firstRoad, 1).
 		tqc0 := makeTimeoutQC(keys, view0, utils.Some(pqc0))
 		if err := s.pushTimeoutQC(ctx, tqc0); err != nil {
 			return fmt.Errorf("pushTimeoutQC: %w", err)
 		}
 
-		// Reproposal at (0, 1) succeeds — new PrepareQC at view (0, 1).
-		view1 := types.View{Index: 0, Number: 1}
-		pqc1 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.MustEpoch(0), view1))
+		// Reproposal at (firstRoad, 1) succeeds — new PrepareQC at view (firstRoad, 1).
+		view1 := types.View{Index: ep0.RoadRange().First, Number: 1}
+		pqc1 := makePrepareQC(keys, types.GenProposalForEpoch(rng, ep0, view1))
 		if err := s.pushPrepareQC(ctx, pqc1); err != nil {
 			return fmt.Errorf("pushPrepareQC(pqc1): %w", err)
 		}
@@ -1142,8 +1149,8 @@ func TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited(t *testing.T) {
 			return fmt.Errorf("PrepareQC should be present")
 		}
 		pqc, _ := gotPQC.Get()
-		if pqc.Proposal().View() != view1 {
-			return fmt.Errorf("expected PrepareQC at view %v, got %v", view1, pqc.Proposal().View())
+		if pqc.View() != view1 {
+			return fmt.Errorf("expected PrepareQC at view %v, got %v", view1, pqc.View())
 		}
 		return nil
 	})
@@ -1156,20 +1163,21 @@ func TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited(t *testing.T) {
 func TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone(t *testing.T) {
 	rng := utils.TestRng()
 	s, keys, registry := newTestState(rng)
+	ep0 := registry.MustEpoch(0)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
 
-		// Timeout at (0, 0) without PrepareQC.
-		view0 := types.View{Index: 0, Number: 0}
+		// Timeout at (firstRoad, 0) without PrepareQC.
+		view0 := types.View{Index: ep0.RoadRange().First, Number: 0}
 		tqc0 := makeTimeoutQC(keys, view0, utils.None[*types.PrepareQC]())
 		if err := s.pushTimeoutQC(ctx, tqc0); err != nil {
 			return fmt.Errorf("pushTimeoutQC: %w", err)
 		}
 
-		// Fresh PrepareQC at (0, 1).
-		view1 := types.View{Index: 0, Number: 1}
-		pqc1 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.MustEpoch(0), view1))
+		// Fresh PrepareQC at (firstRoad, 1).
+		view1 := types.View{Index: ep0.RoadRange().First, Number: 1}
+		pqc1 := makePrepareQC(keys, types.GenProposalForEpoch(rng, ep0, view1))
 		if err := s.pushPrepareQC(ctx, pqc1); err != nil {
 			return fmt.Errorf("pushPrepareQC: %w", err)
 		}
@@ -1186,8 +1194,8 @@ func TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone(t *testing.T) {
 			return fmt.Errorf("PrepareQC should be present")
 		}
 		pqc, _ := gotPQC.Get()
-		if pqc.Proposal().View() != view1 {
-			return fmt.Errorf("expected PrepareQC at view %v, got %v", view1, pqc.Proposal().View())
+		if pqc.View() != view1 {
+			return fmt.Errorf("expected PrepareQC at view %v, got %v", view1, pqc.View())
 		}
 		return nil
 	})
@@ -1199,6 +1207,7 @@ func TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone(t *testing.T) {
 func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 	dir := t.TempDir()
 
 	makeCfg := func() *Config {
@@ -1211,8 +1220,8 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 	}
 	makeDataState := func() *data.State { return newTestDataState(registry) }
 
-	view0 := types.View{Index: 0, Number: 0}
-	pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.MustEpoch(0), view0))
+	view0 := types.View{Index: ep0.RoadRange().First, Number: 0}
+	pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, ep0, view0))
 
 	// Session 1: push PrepareQC + TimeoutQC, let runOutputs persist.
 	// Hoisted so session 1's WALs can be released after its goroutines have stopped: they hold an
@@ -1254,7 +1263,7 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 		}
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s2.Run(ctx)) })
 
-		view1 := types.View{Index: 0, Number: 1}
+		view1 := types.View{Index: ep0.RoadRange().First, Number: 1}
 		if err := s2.voteTimeout(ctx, view1); err != nil {
 			return fmt.Errorf("voteTimeout: %w", err)
 		}
@@ -1273,8 +1282,9 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 func TestPushTimeoutQC_CountsLeaderTimeout(t *testing.T) {
 	rng := utils.TestRng()
 	s, keys, registry := newTestState(rng)
-	view := types.View{Index: 0, Number: 0}
-	leader := registry.MustEpoch(0).Committee().Leader(view).ED25519().Address().String()
+	ep0 := registry.MustEpoch(0)
+	view := types.View{Index: ep0.RoadRange().First, Number: 0}
+	leader := ep0.Committee().Leader(view).ED25519().Address().String()
 	timeouts := gathered(t, "tendermint_internal_autobahn_consensus_timeouts", map[string]string{"leader": leader})
 
 	require.NoError(t, s.PushTimeoutQC(t.Context(), makeTimeoutQC(keys, view, utils.None[*types.PrepareQC]())))
@@ -1285,7 +1295,7 @@ func TestPushTimeoutQC_CountsLeaderTimeout(t *testing.T) {
 
 	next := view
 	next.Number++
-	nextLeader := registry.MustEpoch(0).Committee().Leader(next).ED25519().Address().String()
+	nextLeader := ep0.Committee().Leader(next).ED25519().Address().String()
 	nextTimeouts := gathered(t, "tendermint_internal_autobahn_consensus_timeouts", map[string]string{"leader": nextLeader})
 	require.NoError(t, s.PushTimeoutQC(t.Context(), makeTimeoutQC(keys, next, utils.None[*types.PrepareQC]())))
 	require.Equal(t, nextTimeouts+1, gathered(t, "tendermint_internal_autobahn_consensus_timeouts", map[string]string{"leader": nextLeader}))
@@ -1297,15 +1307,16 @@ func TestPushTimeoutQC_CountsLeaderTimeout(t *testing.T) {
 
 func TestVoteTimeout_RecordsPhases(t *testing.T) {
 	rng := utils.TestRng()
-	view := types.View{Index: 0, Number: 0}
 	phaseCount := func(t *testing.T, leader, phase string) int64 {
 		t.Helper()
 		return gathered(t, "tendermint_internal_autobahn_consensus_timeout_votes", map[string]string{"leader": leader, "phase": phase})
 	}
 
 	s, keys, registry := newTestState(rng)
-	leader := registry.MustEpoch(0).Committee().Leader(view).ED25519().Address().String()
-	proposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), view)
+	ep0 := registry.MustEpoch(0)
+	view := types.View{Index: ep0.RoadRange().First, Number: 0}
+	leader := ep0.Committee().Leader(view).ED25519().Address().String()
+	proposal := types.GenProposalForEpoch(rng, ep0, view)
 
 	noProposal := phaseCount(t, leader, "no_proposal")
 	require.NoError(t, s.voteTimeout(t.Context(), view))
@@ -1314,7 +1325,10 @@ func TestVoteTimeout_RecordsPhases(t *testing.T) {
 	require.Equal(t, noProposal+1, phaseCount(t, leader, "no_proposal"))
 
 	s, keys, registry = newTestState(rng)
-	leader = registry.MustEpoch(0).Committee().Leader(view).ED25519().Address().String()
+	ep0 = registry.MustEpoch(0)
+	view = types.View{Index: ep0.RoadRange().First}
+	proposal = types.GenProposalForEpoch(rng, ep0, view)
+	leader = ep0.Committee().Leader(view).ED25519().Address().String()
 	for isend := range s.inner.Lock() {
 		i := isend.Load()
 		i.PrepareVote = utils.Some(types.Sign(keys[0], types.NewPrepareVote(proposal)))
@@ -1325,8 +1339,11 @@ func TestVoteTimeout_RecordsPhases(t *testing.T) {
 	require.Equal(t, noPrepareQC+1, phaseCount(t, leader, "no_prepare_qc"))
 
 	s, keys, registry = newTestState(rng)
-	leader = registry.MustEpoch(0).Committee().Leader(view).ED25519().Address().String()
-	require.NoError(t, s.pushPrepareQC(t.Context(), makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.MustEpoch(0), view))))
+	ep0 = registry.MustEpoch(0)
+	view = types.View{Index: ep0.RoadRange().First}
+	proposal = types.GenProposalForEpoch(rng, ep0, view)
+	leader = ep0.Committee().Leader(view).ED25519().Address().String()
+	require.NoError(t, s.pushPrepareQC(t.Context(), makePrepareQC(keys, types.GenProposalForEpoch(rng, ep0, view))))
 	noCommit := phaseCount(t, leader, "no_commit")
 	require.NoError(t, s.voteTimeout(t.Context(), view))
 	require.Equal(t, noCommit+1, phaseCount(t, leader, "no_commit"))

@@ -1,38 +1,43 @@
 package types
 
-// RecordKind is the namespace a stored record belongs to. Kinds partition the
-// number space, so a block numbered n and a QC numbered n are distinct records.
-type RecordKind uint8
+// BlockNumber identifies a block in the ledger.
+type BlockNumber uint64
 
-const (
-	KindBlock RecordKind = iota
-	KindQC
-	KindAppProposal
-	KindAppQC
-)
+// BlockHash is a block's opaque 32-byte lookup hash.
+type BlockHash [32]byte
 
-// String returns the kind's name.
-func (k RecordKind) String() string {
-	switch k {
-	case KindBlock:
-		return "block"
-	case KindQC:
-		return "qc"
-	case KindAppProposal:
-		return "app_proposal"
-	case KindAppQC:
-		return "app_qc"
-	default:
-		return "unknown"
-	}
+// BlockRecord contains a SuperBlock's storage index, hash, QC, and lane blocks.
+type BlockRecord struct {
+	Index      BlockNumber
+	Hash       BlockHash
+	QC         []byte
+	LaneBlocks [][]byte
+}
+
+// AppQCRecord contains an AppQC's serialized data and road index.
+type AppQCRecord struct {
+	Index BlockNumber
+	Data  []byte
+}
+
+// AppProposalRecord contains an AppProposal's serialized data and road index.
+type AppProposalRecord struct {
+	Index BlockNumber
+	Data  []byte
+}
+
+// Suffix contains whole records in increasing order within each kind.
+type Suffix struct {
+	Blocks       []BlockRecord
+	AppQCs       []AppQCRecord
+	AppProposals []AppProposalRecord
 }
 
 // BlockDB is the storage substrate a consensus block store is built on. It
-// holds immutable opaque records addressed by (RecordKind, number), plus a
+// holds immutable opaque records addressed by block number, plus a
 // by-hash alias for block records, and it owns reclamation.
 //
-// It ascribes no meaning to a record's bytes or to the numbers it is filed
-// under: ordering rules, contiguity, encoding and recovery all belong to the
+// Record payloads are opaque; contiguity and payload encoding belong to the
 // layer above.
 //
 // # Concurrency
@@ -42,8 +47,9 @@ func (k RecordKind) String() string {
 //
 // # Durability
 //
-// Writes are two-phase: PutRecord and PutBlock may return before the record is
-// on disk, and Flush blocks until every previously-returned write is durable.
+// Writes are two-phase: PutBlock, PutAppQC and PutAppProposal may return before
+// their records are on disk. Flush blocks until every previously-returned
+// write is durable.
 // Reads observe a write as soon as it returns, whether or not it is durable.
 //
 // Implementations must make writes durable in the order they were issued, so
@@ -68,43 +74,49 @@ func (k RecordKind) String() string {
 // # Recovery
 //
 // The floor is not persisted. On open an implementation re-derives it as the
-// number of the oldest KindQC record it still holds, so a restart forgets every
-// SetPruneWatermark but never serves a record whose covering QC has already
-// been reclaimed. Opening a store that holds records but no KindQC record
+// number of the oldest SuperBlock it still holds, so a restart forgets every
+// SetPruneWatermark but never serves a record whose QC has already
+// been reclaimed. Opening a store that holds app records but no SuperBlock
 // fails: it has lost the records that bound what it may serve.
 type BlockDB interface {
-	// PutRecord stores value once, addressable as kind at every number in the
-	// half-open range [first, next). Storing an already-stored number is not
-	// supported and the result is undefined.
-	PutRecord(kind RecordKind, first, next uint64, value []byte) error
+	// PutBlock atomically stores a SuperBlock's QC and lane blocks in header order.
+	// LaneBlocks may be empty. Rewriting an index or hash
+	// is unsupported. ReadSuffix includes the complete record.
+	PutBlock(record BlockRecord) error
 
-	// PutBlock stores value as a KindBlock record at n, additionally
-	// addressable by hash through GetBlockByHash. hash must be unique.
-	PutBlock(n uint64, hash []byte, value []byte) error
+	// PutAppProposal stores the application proposal at record.Index.
+	// Rewriting an index is unsupported.
+	PutAppProposal(record AppProposalRecord) error
 
-	// GetRecord returns the value filed under kind at n, and whether one is
-	// present.
-	GetRecord(kind RecordKind, n uint64) (value []byte, exists bool, err error)
+	// PutAppQC stores the application QC at record.Index.
+	// Rewriting an index is unsupported.
+	PutAppQC(record AppQCRecord) error
 
-	// GetBlockByHash returns the block record stored under hash by PutBlock,
-	// and whether one is present.
-	GetBlockByHash(hash []byte) (value []byte, exists bool, err error)
-
-	// Scan iterates the records in the order they were written, newest first
-	// when newestFirst is set and oldest first otherwise. It visits each
-	// record once, at the number it was filed under by PutRecord's first or
-	// PutBlock's n, and never at an alias. The iterator observes a snapshot of
-	// the records present when Scan is called, and must be closed.
-	Scan(newestFirst bool) (RecordIterator, error)
+	// GetQC returns the serialized QC at n.
+	GetQC(n BlockNumber) ([]byte, bool, error)
+	// GetBlockByNumber returns the complete SuperBlock record at n.
+	GetBlockByNumber(n BlockNumber) (BlockRecord, bool, error)
+	// GetBlockByHash returns the complete SuperBlock record indexed by hash.
+	GetBlockByHash(hash BlockHash) (BlockRecord, bool, error)
+	// GetLaneBlock returns a lane block at its header offset within SuperBlock n.
+	// A missing SuperBlock or out-of-range offset returns false.
+	GetLaneBlock(n BlockNumber, offset uint64) ([]byte, bool, error)
+	// GetAppProposal returns the serialized application proposal at n.
+	GetAppProposal(n BlockNumber) ([]byte, bool, error)
+	// GetAppQC returns the serialized application QC at n.
+	GetAppQC(n BlockNumber) ([]byte, bool, error)
+	// ReadSuffix returns a snapshot starting at the newest AppQC's SuperBlock,
+	// or all retained records when no AppQC exists. Returned records are immutable.
+	ReadSuffix() (Suffix, error)
 
 	// GetPruneWatermark returns the number below which records are eligible for
-	// reclamation, which is 0 until the first SetPruneWatermark advances it.
-	GetPruneWatermark() uint64
+	// reclamation. A fresh store starts at 0; reopening restores the oldest retained index.
+	GetPruneWatermark() BlockNumber
 
 	// SetPruneWatermark moves the reclamation floor to n verbatim, and does
 	// nothing when n is at or below the current floor. The floor only rises, so
 	// a record that became eligible stays eligible.
-	SetPruneWatermark(n uint64)
+	SetPruneWatermark(n BlockNumber)
 
 	// Flush blocks until every write that returned before the call is durable.
 	// Writes made concurrently with Flush may or may not be durable when it
@@ -113,29 +125,5 @@ type BlockDB interface {
 
 	// Close releases the resources held by the store. No other method may be
 	// called afterwards.
-	Close() error
-}
-
-// RecordIterator walks the records of a BlockDB. It is created by BlockDB.Scan
-// and is not safe for concurrent use.
-type RecordIterator interface {
-	// Next advances to the next record, reporting false once the scan is
-	// complete. After it returns false or an error, only Close may be called.
-	Next() (bool, error)
-
-	// Kind returns the current record's kind. Valid only after Next returned
-	// true.
-	Kind() RecordKind
-
-	// Number returns the number the current record was filed under. Valid only
-	// after Next returned true.
-	Number() uint64
-
-	// Value returns the current record's bytes, which must not be modified.
-	// Valid only after Next returned true.
-	Value() ([]byte, error)
-
-	// Close releases the iterator's resources. It MUST be called; failing to
-	// do so may leak disk.
 	Close() error
 }

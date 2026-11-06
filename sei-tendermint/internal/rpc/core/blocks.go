@@ -2,8 +2,11 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
+
+	"github.com/ethereum/go-ethereum/common"
 
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
@@ -92,7 +95,7 @@ func filterMinMax(base, height, min, max, limit int64) (int64, int64, error) {
 // More: https://docs.tendermint.com/master/rpc/#/Info/block
 //
 // Under Autobahn the CometBFT BlockStore is not populated; route through
-// GigaRouter, which reads the finalized global block from data.State and
+// GigaRouter, which reads the finalized SuperBlock from data.State and
 // returns it in the same coretypes.ResultBlock shape. This keeps every
 // downstream consumer (evmrpc, /block HTTP, seid q block) working without
 // individually branching on consensus mode.
@@ -103,9 +106,9 @@ func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockIn
 			return nil, err
 		}
 		// Cast happens at the boundary so giga.BlockByNumber stays
-		// strongly typed on atypes.GlobalBlockNumber. autobahnCheckAndGetHeight
+		// strongly typed on atypes.RoadIndex. autobahnCheckAndGetHeight
 		// has already validated height is positive and within chain head.
-		gbn, ok := utils.SafeCast[atypes.GlobalBlockNumber](height)
+		gbn, ok := utils.SafeCast[atypes.RoadIndex](height)
 		if !ok {
 			return nil, fmt.Errorf("invalid height %d", height)
 		}
@@ -138,7 +141,7 @@ func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockIn
 // TODO(autobahn): wire a real lower bound and pass it as `base` to
 // env.getHeight. We currently pass env.BlockStore.Base() (always 0 under
 // Autobahn), which means any positive height < chain head passes validation
-// here and is rejected one layer down (data.GlobalBlock returns
+// here and is rejected one layer down (data.SuperBlock returns
 // types.ErrPruned, which BlockByNumber maps to ErrHeightNotAvailable). With
 // a real lower bound the rejection happens at this layer instead. The
 // natural source becomes available once sei-db/ledger_db/block.BlockDB is
@@ -159,15 +162,15 @@ func (env *Environment) autobahnCheckAndGetHeight(heightPtr *int64) (int64, erro
 //
 // The Tendermint RPC boundary (req.Hash is bytes.HexBytes — a []byte alias
 // for wire-format flexibility) gets converted to the strongly-typed
-// atypes.BlockHeaderHash here, before reaching GigaRouter.BlockByHash.
+// common.Hash here, before reaching GigaRouter.BlockByHash.
 // Wrong-size inputs short-circuit to the same zero-result CometBFT
 // returns for an unknown hash.
 func (env *Environment) BlockByHash(ctx context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
 	if giga, ok := env.gigaRouter().Get(); ok {
-		if len(req.Hash) != len(atypes.BlockHeaderHash{}) {
+		if len(req.Hash) != len(common.Hash{}) {
 			return &coretypes.ResultBlock{}, nil
 		}
-		return giga.BlockByHash(ctx, atypes.BlockHeaderHash(req.Hash))
+		return giga.BlockByHash(ctx, common.Hash(req.Hash))
 	}
 	block := env.BlockStore.LoadBlockByHash(req.Hash)
 	if block == nil {
@@ -304,6 +307,8 @@ const DescendingOrder = "desc"
 func (env *Environment) BlockSearch(ctx context.Context, req *coretypes.RequestBlockSearch) (*coretypes.ResultBlockSearch, error) {
 	if !indexer.KVSinkEnabled(env.EventSinks) {
 		return nil, fmt.Errorf("block searching is disabled due to no kvEventSink")
+	} else if len(req.Query) > maxQueryLength {
+		return nil, errors.New("maximum query length exceeded")
 	}
 
 	q, err := tmquery.New(req.Query)

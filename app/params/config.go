@@ -1,7 +1,6 @@
 package params
 
 import (
-	"github.com/sei-protocol/sei-chain/config/registry"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
@@ -95,11 +94,8 @@ const (
 )
 
 // IsFullnodeType returns true if the node is a fullnode-like node (full or archive)
-//
-// The rule itself lives in the configuration registry, because a section's own package needs the same
-// fact and cannot import this one.
 func (m NodeMode) IsFullnodeType() bool {
-	return registry.IsFullnodeMode(registry.Mode(m))
+	return m == NodeModeFull || m == NodeModeArchive
 }
 
 // setValidatorTypeTendermintConfig sets common Tendermint config for validator-like nodes
@@ -145,8 +141,6 @@ func SetTendermintConfigByMode(config *tmcfg.Config) {
 func setValidatorTypeAppConfig(config *srvconfig.Config) {
 	// Services: validators should minimize exposed services for security
 	config.API.Enable = false
-	config.GRPC.Enable = false
-	config.GRPCWeb.Enable = false
 	config.StateStore.Enable = false
 }
 
@@ -154,8 +148,6 @@ func setValidatorTypeAppConfig(config *srvconfig.Config) {
 func setFullnodeTypeAppConfig(config *srvconfig.Config) {
 	// Services: full nodes provide query services
 	config.API.Enable = true
-	config.GRPC.Enable = true
-	config.GRPCWeb.Enable = true
 	config.StateStore.Enable = true
 
 	// StateStore: full nodes keep recent history for queries

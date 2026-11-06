@@ -10,12 +10,12 @@ package blocktest
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
+	"github.com/stretchr/testify/require"
 )
 
 // Open opens a handle to the BlockDB under test. Calling it more than once
@@ -36,265 +36,200 @@ type Builder func(t *testing.T) Open
 // timing and granularity of the reclaim to the backend, so what a backend
 // actually drops, and when, is covered in that backend's own package.
 func RunContract(t *testing.T, build Builder) {
-	t.Run("EmptyStore", func(t *testing.T) { testEmptyStore(t, build) })
-	t.Run("RecordRoundTrip", func(t *testing.T) { testRecordRoundTrip(t, build) })
-	t.Run("BlockHashAlias", func(t *testing.T) { testBlockHashAlias(t, build) })
-	t.Run("ScanFollowsWriteOrder", func(t *testing.T) { testScanFollowsWriteOrder(t, build) })
-	t.Run("ScanIsASnapshot", func(t *testing.T) { testScanIsASnapshot(t, build) })
-	t.Run("RestartPersistsRecords", func(t *testing.T) { testRestartPersistsRecords(t, build) })
-	t.Run("WatermarkIsMonotonic", func(t *testing.T) { testWatermarkIsMonotonic(t, build) })
+	t.Run("EmptyStore", func(t *testing.T) {
+		db, _ := openFresh(t, build)
+		defer func() { require.NoError(t, db.Close()) }()
+		record, exists, err := db.GetBlockByNumber(0)
+		require.NoError(t, err)
+		require.False(t, exists)
+		require.Equal(t, blocktypes.BlockRecord{}, record)
+		_, exists, err = db.GetBlockByHash(BlockHash(0))
+		require.NoError(t, err)
+		require.False(t, exists)
+		for _, get := range []func(blocktypes.BlockNumber) ([]byte, bool, error){db.GetQC, db.GetAppQC, db.GetAppProposal} {
+			_, exists, err := get(0)
+			require.NoError(t, err)
+			require.False(t, exists)
+		}
+		_, exists, err = db.GetLaneBlock(0, 0)
+		require.NoError(t, err)
+		require.False(t, exists)
+		require.Equal(t, blocktypes.Suffix{}, readSuffix(t, db))
+		require.Zero(t, db.GetPruneWatermark())
+	})
+	t.Run("TypedRecordRoundTrip", func(t *testing.T) {
+		db, reopen := openFresh(t, build)
+		defer func() { require.NoError(t, db.Close()) }()
+		records := []blocktypes.BlockRecord{
+			{Index: 3, Hash: BlockHash(3), QC: []byte("opaque QC"), LaneBlocks: [][]byte{[]byte("lane 0"), {}, []byte("lane 2")}},
+			{Index: 4, Hash: BlockHash(4), QC: []byte("empty SuperBlock QC")},
+		}
+		for _, record := range records {
+			require.NoError(t, db.PutBlock(record))
+		}
+		proposal := blocktypes.AppProposalRecord{Index: 3, Data: []byte("opaque AppProposal")}
+		qc := blocktypes.AppQCRecord{Index: 3, Data: []byte("opaque AppQC")}
+		require.NoError(t, db.PutAppProposal(proposal))
+		require.NoError(t, db.PutAppQC(qc))
+		db = restart(t, reopen, db)
+		for _, record := range records {
+			assertRecord(t, db, record)
+		}
+		gotProposal, exists, err := db.GetAppProposal(3)
+		require.NoError(t, err)
+		require.True(t, exists)
+		require.Equal(t, proposal.Data, gotProposal)
+		gotQC, exists, err := db.GetAppQC(3)
+		require.NoError(t, err)
+		require.True(t, exists)
+		require.Equal(t, qc.Data, gotQC)
+		for _, get := range []func(blocktypes.BlockNumber) ([]byte, bool, error){db.GetAppQC, db.GetAppProposal} {
+			_, exists, err := get(4)
+			require.NoError(t, err)
+			require.False(t, exists, "app records occupy only their own index")
+		}
+		require.Equal(t, blocktypes.Suffix{Blocks: records, AppQCs: []blocktypes.AppQCRecord{qc}, AppProposals: []blocktypes.AppProposalRecord{proposal}}, readSuffix(t, db))
+	})
+	t.Run("WriteCopiesInput", func(t *testing.T) {
+		db, _ := openFresh(t, build)
+		defer func() { require.NoError(t, db.Close()) }()
+		record := BlockRecord(7, 2)
+		want := BlockRecord(7, 2)
+		require.NoError(t, db.PutBlock(record))
+		record.Hash[0] ^= 1
+		record.QC[0] ^= 1
+		record.LaneBlocks[0][0] ^= 1
+		record.LaneBlocks[1] = []byte("changed")
+		assertRecord(t, db, want)
+		proposal := blocktypes.AppProposalRecord{Index: 7, Data: []byte("proposal")}
+		appQC := blocktypes.AppQCRecord{Index: 7, Data: []byte("appQC")}
+		require.NoError(t, db.PutAppProposal(proposal))
+		require.NoError(t, db.PutAppQC(appQC))
+		proposal.Data[0] ^= 1
+		appQC.Data[0] ^= 1
+		got, _, err := db.GetAppProposal(7)
+		require.NoError(t, err)
+		require.Equal(t, []byte("proposal"), got)
+		got, _, err = db.GetAppQC(7)
+		require.NoError(t, err)
+		require.Equal(t, []byte("appQC"), got)
+	})
+	t.Run("ReadSuffixIsASnapshot", func(t *testing.T) {
+		db, _ := openFresh(t, build)
+		defer func() { require.NoError(t, db.Close()) }()
+		require.NoError(t, db.PutBlock(BlockRecord(0, 2)))
+		before := readSuffix(t, db)
+		require.NoError(t, db.PutBlock(BlockRecord(1, 3)))
+		db.SetPruneWatermark(1)
+		require.Equal(t, []blocktypes.BlockRecord{BlockRecord(0, 2)}, before.Blocks)
+		require.Equal(t, BlockRecord(1, 3), readSuffix(t, db).Blocks[len(readSuffix(t, db).Blocks)-1])
+	})
+	t.Run("ReadSuffixStartsAtLatestAppQC", func(t *testing.T) {
+		db, _ := openFresh(t, build)
+		defer func() { require.NoError(t, db.Close()) }()
+		WriteCohorts(t, db, 5, 3)
+		PutAppData(t, db, 0)
+		PutAppData(t, db, 1)
+		require.NoError(t, db.PutAppProposal(blocktypes.AppProposalRecord{Index: 2, Data: RecordValue("app_proposal", 2)}))
+		suffix := readSuffix(t, db)
+		require.Len(t, suffix.Blocks, 4)
+		for i, record := range suffix.Blocks {
+			require.Equal(t, blocktypes.BlockNumber(i+1), record.Index)
+		}
+		require.Equal(t, []blocktypes.AppQCRecord{{Index: 1, Data: RecordValue("app_qc", 1)}}, suffix.AppQCs)
+		require.Equal(t, []blocktypes.AppProposalRecord{{Index: 1, Data: RecordValue("app_proposal", 1)}, {Index: 2, Data: RecordValue("app_proposal", 2)}}, suffix.AppProposals)
+	})
+	t.Run("RestartPersistsRecords", func(t *testing.T) {
+		db, reopen := openFresh(t, build)
+		defer func() { require.NoError(t, db.Close()) }()
+		WriteCohorts(t, db, 4, 5)
+		before := readSuffix(t, db)
+		db = restart(t, reopen, db)
+		require.Equal(t, before, readSuffix(t, db))
+		for _, record := range before.Blocks {
+			assertRecord(t, db, record)
+		}
+	})
+	t.Run("WatermarkIsMonotonic", func(t *testing.T) {
+		db, _ := openFresh(t, build)
+		defer func() { require.NoError(t, db.Close()) }()
+		WriteCohorts(t, db, 4, 5)
+		// A floor above everything held is legal: the layer above is the one that caps
+		// the request, and refusing it here would hide that it stopped doing so.
+		for _, n := range []blocktypes.BlockNumber{2, 1, 2, 1000} {
+			previous := db.GetPruneWatermark()
+			db.SetPruneWatermark(n)
+			require.Equal(t, max(previous, n), db.GetPruneWatermark())
+		}
+	})
+	t.Run("AtomicBlock", func(t *testing.T) {
+		db, reopen := openFresh(t, build)
+		defer func() { require.NoError(t, db.Close()) }()
+		for index := range blocktypes.BlockNumber(3) {
+			require.NoError(t, db.PutBlock(BlockRecord(index, int(index))))
+		}
+		db = restart(t, reopen, db)
+		for index := range blocktypes.BlockNumber(3) {
+			assertRecord(t, db, BlockRecord(index, int(index)))
+		}
+		_, exists, err := db.GetBlockByHash(BlockHash(100))
+		require.NoError(t, err)
+		require.False(t, exists)
+	})
+}
+
+func assertRecord(t *testing.T, db blocktypes.BlockDB, want blocktypes.BlockRecord) {
+	t.Helper()
+	got, exists, err := db.GetBlockByNumber(want.Index)
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, want, got)
+	byHash, exists, err := db.GetBlockByHash(want.Hash)
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, want, byHash)
+	qc, exists, err := db.GetQC(want.Index)
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, want.QC, qc)
+	for offset, lane := range want.LaneBlocks {
+		got, exists, err := db.GetLaneBlock(want.Index, uint64(offset))
+		require.NoError(t, err)
+		require.True(t, exists)
+		require.True(t, bytes.Equal(lane, got))
+	}
+	_, exists, err = db.GetLaneBlock(want.Index, uint64(len(want.LaneBlocks)))
+	require.NoError(t, err)
+	require.False(t, exists)
 }
 
 // openFresh opens a handle to a new, empty backing store and returns it along
 // with the Open that can reopen the same store (for restart).
 func openFresh(t *testing.T, build Builder) (blocktypes.BlockDB, Open) {
 	t.Helper()
-	o := build(t)
-	db, err := o()
+	reopen := build(t)
+	db, err := reopen()
 	require.NoError(t, err)
-	return db, o
+	return db, reopen
 }
 
 // restart flushes and closes db, then reopens a handle to the same backing
 // store. The returned handle must be closed by the caller.
-func restart(t *testing.T, o Open, db blocktypes.BlockDB) blocktypes.BlockDB {
+func restart(t *testing.T, reopen Open, db blocktypes.BlockDB) blocktypes.BlockDB {
 	t.Helper()
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
-	reopened, err := o()
+	next, err := reopen()
 	require.NoError(t, err)
-	return reopened
+	return next
 }
 
-// allKinds is every RecordKind, for assertions that must hold across the whole
-// partitioned number space.
-var allKinds = []blocktypes.RecordKind{
-	blocktypes.KindBlock,
-	blocktypes.KindQC,
-	blocktypes.KindAppProposal,
-	blocktypes.KindAppQC,
-}
-
-func testEmptyStore(t *testing.T, build Builder) {
-	db, _ := openFresh(t, build)
-	defer func() { _ = db.Close() }()
-
-	for _, kind := range allKinds {
-		_, exists, err := db.GetRecord(kind, 0)
-		require.NoError(t, err)
-		require.False(t, exists, "%s must be absent from an empty store", kind)
-	}
-	_, exists, err := db.GetBlockByHash(BlockHash(0))
-	require.NoError(t, err)
-	require.False(t, exists, "no hash resolves in an empty store")
-
-	require.Empty(t, drain(t, db, false), "an empty store scans to nothing")
-
-	require.Equal(t, uint64(0), db.GetPruneWatermark(), "nothing is eligible for reclamation yet")
-}
-
-func testRecordRoundTrip(t *testing.T, build Builder) {
-	db, _ := openFresh(t, build)
-	defer func() { _ = db.Close() }()
-
-	PutQC(t, db, 3, 8)
-
-	want := RecordValue(blocktypes.KindQC, 3)
-	for n := uint64(3); n < 8; n++ {
-		value, exists, err := db.GetRecord(blocktypes.KindQC, n)
-		require.NoError(t, err)
-		require.True(t, exists, "the record must be addressable at covered number %d", n)
-		require.Equal(t, want, value, "every covered number resolves to the one stored value")
-	}
-	for _, n := range []uint64{2, 8} {
-		_, exists, err := db.GetRecord(blocktypes.KindQC, n)
-		require.NoError(t, err)
-		require.False(t, exists, "%d is outside the stored range", n)
-	}
-
-	// Kinds partition the number space, so nothing else was filed at 3.
-	for _, kind := range allKinds {
-		if kind == blocktypes.KindQC {
-			continue
-		}
-		_, exists, err := db.GetRecord(kind, 3)
-		require.NoError(t, err)
-		require.False(t, exists, "a %s and a qc at the same number are distinct records", kind)
-	}
-}
-
-func testBlockHashAlias(t *testing.T, build Builder) {
-	db, _ := openFresh(t, build)
-	defer func() { _ = db.Close() }()
-
-	PutBlocks(t, db, 0, 3)
-
-	for n := uint64(0); n < 3; n++ {
-		want := RecordValue(blocktypes.KindBlock, n)
-
-		byNumber, exists, err := db.GetRecord(blocktypes.KindBlock, n)
-		require.NoError(t, err)
-		require.True(t, exists, "block %d must resolve by number", n)
-		require.Equal(t, want, byNumber)
-
-		byHash, exists, err := db.GetBlockByHash(BlockHash(n))
-		require.NoError(t, err)
-		require.True(t, exists, "block %d must resolve by hash", n)
-		require.Equal(t, want, byHash, "both addresses reach the same value")
-	}
-
-	_, exists, err := db.GetBlockByHash([]byte("no-block-was-stored-under-this"))
-	require.NoError(t, err)
-	require.False(t, exists)
-}
-
-func testScanFollowsWriteOrder(t *testing.T, build Builder) {
-	db, _ := openFresh(t, build)
-	defer func() { _ = db.Close() }()
-
-	PutQC(t, db, 0, 3)
-	PutBlocks(t, db, 0, 3)
-	PutAppData(t, db, 0, 3)
-
-	// One entry per record, at the number it was filed under — never at a covered
-	// alias, and never at a block's hash.
-	want := []position{
-		{blocktypes.KindQC, 0},
-		{blocktypes.KindBlock, 0},
-		{blocktypes.KindBlock, 1},
-		{blocktypes.KindBlock, 2},
-		{blocktypes.KindAppProposal, 0},
-		{blocktypes.KindAppQC, 0},
-	}
-	require.Equal(t, want, positions(drain(t, db, false)), "oldest-first must reproduce the write order")
-
-	newestFirst := positions(drain(t, db, true))
-	require.Equal(t, reversed(want), newestFirst, "newest-first must be the exact reverse")
-}
-
-func testScanIsASnapshot(t *testing.T, build Builder) {
-	db, _ := openFresh(t, build)
-	defer func() { _ = db.Close() }()
-
-	PutQC(t, db, 0, 2)
-	PutBlocks(t, db, 0, 2)
-
-	it, err := db.Scan(false)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, it.Close()) }()
-
-	// Written after the scan opened, so the walk below must not see it.
-	PutQC(t, db, 2, 4)
-	PutBlocks(t, db, 2, 4)
-
-	seen := 0
-	for {
-		ok, err := it.Next()
-		require.NoError(t, err)
-		if !ok {
-			break
-		}
-		require.Less(t, it.Number(), uint64(2), "the scan must not surface a record written after it opened")
-		seen++
-	}
-	require.Equal(t, 3, seen, "the snapshot holds exactly the QC and two blocks present at Scan")
-}
-
-func testRestartPersistsRecords(t *testing.T, build Builder) {
-	db, o := openFresh(t, build)
-	WriteCohorts(t, db, 2, 3)
-	before := drain(t, db, false)
-
-	db = restart(t, o, db)
-	defer func() { _ = db.Close() }()
-
-	require.Equal(t, before, drain(t, db, false), "a restart must not disturb the record log")
-	for n := uint64(0); n < 6; n++ {
-		_, exists, err := db.GetRecord(blocktypes.KindBlock, n)
-		require.NoError(t, err)
-		require.True(t, exists, "block %d must survive the restart", n)
-
-		_, exists, err = db.GetBlockByHash(BlockHash(n))
-		require.NoError(t, err)
-		require.True(t, exists, "block %d's hash alias must survive the restart", n)
-	}
-}
-
-func testWatermarkIsMonotonic(t *testing.T, build Builder) {
-	db, _ := openFresh(t, build)
-	defer func() { _ = db.Close() }()
-
-	WriteCohorts(t, db, 4, 5)
-
-	db.SetPruneWatermark(10)
-	require.Equal(t, uint64(10), db.GetPruneWatermark(), "the floor moves where it is told")
-
-	db.SetPruneWatermark(3)
-	require.Equal(t, uint64(10), db.GetPruneWatermark(), "the floor must never move backwards")
-
-	db.SetPruneWatermark(10)
-	require.Equal(t, uint64(10), db.GetPruneWatermark(), "repeating a request changes nothing")
-
-	// A floor above everything held is legal: the layer above is the one that caps
-	// the request, and refusing it here would hide that it stopped doing so.
-	db.SetPruneWatermark(1_000)
-	require.Equal(t, uint64(1_000), db.GetPruneWatermark())
-}
-
-// --- scanning ---
-
-// position is a record's kind and the number it was filed under.
-type position struct {
-	Kind   blocktypes.RecordKind
-	Number uint64
-}
-
-// entry is one record observed while draining a scan.
-type entry struct {
-	position
-	Value []byte
-}
-
-// drain walks a whole scan and returns what it visited.
-func drain(t *testing.T, db blocktypes.BlockDB, newestFirst bool) []entry {
+// readSuffix reads the typed recovery suffix.
+func readSuffix(t *testing.T, db blocktypes.BlockDB) blocktypes.Suffix {
 	t.Helper()
-	it, err := db.Scan(newestFirst)
+	suffix, err := db.ReadSuffix()
 	require.NoError(t, err)
-	defer func() { require.NoError(t, it.Close()) }()
-
-	var out []entry
-	for {
-		ok, err := it.Next()
-		require.NoError(t, err)
-		if !ok {
-			return out
-		}
-		value, err := it.Value()
-		require.NoError(t, err)
-		out = append(out, entry{
-			position: position{Kind: it.Kind(), Number: it.Number()},
-			Value:    bytes.Clone(value),
-		})
-	}
-}
-
-// positions drops the values, for assertions about what was visited and in what
-// order.
-func positions(entries []entry) []position {
-	out := make([]position, 0, len(entries))
-	for _, e := range entries {
-		out = append(out, e.position)
-	}
-	return out
-}
-
-// reversed returns ps back to front.
-func reversed(ps []position) []position {
-	out := make([]position, 0, len(ps))
-	for i := len(ps) - 1; i >= 0; i-- {
-		out = append(out, ps[i])
-	}
-	return out
+	return suffix
 }
 
 // --- record fixtures ---
@@ -303,69 +238,50 @@ func reversed(ps []position) []position {
 // truncates bytes off a file can reason about how many records it damaged.
 const valueSize = 64
 
-// BlockHash returns the hash the fixtures file the block at n under. A hash must
-// be unique per block, so it is derived from the number.
-func BlockHash(n uint64) []byte {
-	return []byte(fmt.Sprintf("block-hash-%020d", n))
+// BlockHash returns a unique opaque hash for road n.
+func BlockHash(n blocktypes.BlockNumber) blocktypes.BlockHash {
+	var hash blocktypes.BlockHash
+	binary.BigEndian.PutUint64(hash[len(hash)-8:], uint64(n))
+	return hash
 }
 
-// RecordValue returns the bytes the fixtures store for kind at first. Values are
+// RecordValue returns the bytes the fixtures store for kind at n. Values are
 // distinct per record, so a read can prove it found the one it asked for.
-func RecordValue(kind blocktypes.RecordKind, first uint64) []byte {
-	value := []byte(fmt.Sprintf("%s@%d", kind, first))
-	if len(value) >= valueSize {
-		return value
+func RecordValue(kind string, n blocktypes.BlockNumber) []byte {
+	value := []byte(fmt.Sprintf("%s@%d", kind, n))
+	return append(value, bytes.Repeat([]byte("."), max(0, valueSize-len(value)))...)
+}
+
+// BlockRecord returns an opaque SuperBlock fixture with the requested lane-block count.
+func BlockRecord(index blocktypes.BlockNumber, lanes int) blocktypes.BlockRecord {
+	record := blocktypes.BlockRecord{Index: index, Hash: BlockHash(index), QC: RecordValue("qc", index)}
+	for offset := range lanes {
+		record.LaneBlocks = append(record.LaneBlocks, RecordValue("block", index*blocktypes.BlockNumber(lanes)+blocktypes.BlockNumber(offset)))
 	}
-	return append(value, bytes.Repeat([]byte("."), valueSize-len(value))...)
+	return record
 }
 
-// PutQC stores a QC record covering [first, next).
-func PutQC(t *testing.T, db blocktypes.BlockDB, first, next uint64) {
+// PutAppData stores one application proposal and its QC at index.
+func PutAppData(t *testing.T, db blocktypes.BlockDB, index blocktypes.BlockNumber) {
 	t.Helper()
-	require.NoError(t, db.PutRecord(blocktypes.KindQC, first, next, RecordValue(blocktypes.KindQC, first)))
+	require.NoError(t, db.PutAppProposal(blocktypes.AppProposalRecord{Index: index, Data: RecordValue("app_proposal", index)}))
+	require.NoError(t, db.PutAppQC(blocktypes.AppQCRecord{Index: index, Data: RecordValue("app_qc", index)}))
 }
 
-// PutBlocks stores one block record at every number in [first, next).
-func PutBlocks(t *testing.T, db blocktypes.BlockDB, first, next uint64) {
-	t.Helper()
-	for n := first; n < next; n++ {
-		require.NoError(t, db.PutBlock(n, BlockHash(n), RecordValue(blocktypes.KindBlock, n)))
-	}
-}
-
-// PutAppData stores an AppProposal and an AppQC, each covering [first, next).
-// The pair is what moves the ceiling a prune is capped at.
-func PutAppData(t *testing.T, db blocktypes.BlockDB, first, next uint64) {
-	t.Helper()
-	require.NoError(t, db.PutRecord(
-		blocktypes.KindAppProposal, first, next, RecordValue(blocktypes.KindAppProposal, first)))
-	require.NoError(t, db.PutRecord(
-		blocktypes.KindAppQC, first, next, RecordValue(blocktypes.KindAppQC, first)))
-}
-
-// WriteCohorts stores cohorts consecutive cohorts of perCohort blocks starting at
-// 0. Every cohort is stored QC-first, which is the order the layer above writes
-// in and the order the crash guarantee is stated against: a surviving block
-// always has a surviving QC, never the reverse.
-//
-// It writes no app data, so a store built this way has committed nothing and
-// cannot be pruned. A test that needs pruning to move calls WriteAppData too.
+// WriteCohorts stores consecutive SuperBlocks from road 0, with perCohort lane
+// blocks each, without app data.
 func WriteCohorts(t *testing.T, db blocktypes.BlockDB, cohorts, perCohort uint64) {
 	t.Helper()
 	for i := range cohorts {
-		first := i * perCohort
-		PutQC(t, db, first, first+perCohort)
-		PutBlocks(t, db, first, first+perCohort)
+		require.NoError(t, db.PutBlock(BlockRecord(blocktypes.BlockNumber(i), int(perCohort)))) //nolint:gosec // small fixture sizes
 	}
 }
 
-// WriteAppData stores app data covering each of the cohorts WriteCohorts wrote,
-// which is what lifts the ceiling a prune is capped at. It trails the whole run,
-// as it does in production, where the application commits behind consensus.
-func WriteAppData(t *testing.T, db blocktypes.BlockDB, cohorts, perCohort uint64) {
+// WriteAppData stores app data for the SuperBlocks written by WriteCohorts.
+// Call it after WriteCohorts, as application commits trail consensus.
+func WriteAppData(t *testing.T, db blocktypes.BlockDB, cohorts uint64) {
 	t.Helper()
 	for i := range cohorts {
-		first := i * perCohort
-		PutAppData(t, db, first, first+perCohort)
+		PutAppData(t, db, blocktypes.BlockNumber(i))
 	}
 }

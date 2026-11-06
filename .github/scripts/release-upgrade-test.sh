@@ -10,6 +10,10 @@ readonly BUILD_ROOT="$RUN_ROOT/bin"
 readonly ARTIFACT_ROOT="$RUN_ROOT/artifacts"
 readonly NODE_COUNT=4
 readonly CROSS_VERSION_ARTIFACT="$ARTIFACT_ROOT/cross-version.json"
+readonly CONTAINER_REPO_ROOT=/sei-protocol/sei-chain
+# Each binary is built and its shared libraries staged under its own directory
+# of the repo mount, so its cgo rpath never resolves to the other tree's files.
+readonly BINARY_TREES=build/upgrade-test
 
 RELEASE_BRANCH="${RELEASE_BRANCH:-}"
 MAIN_REF="${MAIN_REF:-${GITHUB_SHA:-HEAD}}"
@@ -21,7 +25,6 @@ BOUNDARY_FROM=
 UPGRADE_NAME=
 UPGRADE_TAG=
 CROSS_VERSION_TESTS=
-STAGED_RELEASE_LIBS=()
 
 log() {
   printf '\n[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"
@@ -208,14 +211,16 @@ build_binary() {
   go_build_cache="$(go env GOCACHE)"
   mkdir -p "$go_mod_cache" "$go_build_cache"
 
+  local container_source_dir="$CONTAINER_REPO_ROOT/$BINARY_TREES/$label"
+
   log "Building $label seid"
   docker run --rm \
     --user="$(id -u):$(id -g)" \
     --platform linux/amd64 \
-    -v "$source_dir:/sei-protocol/sei-chain:Z" \
+    -v "$source_dir:$container_source_dir:Z" \
     -v "$go_mod_cache:/root/go/pkg/mod:Z" \
     -v "$go_build_cache:/root/.cache/go-build:Z" \
-    -w /sei-protocol/sei-chain \
+    -w "$container_source_dir" \
     -e LEDGER_ENABLED=false \
     -e GOFLAGS=-buildvcs=false \
     -e "GOTOOLCHAIN=$source_go_toolchain" \
@@ -228,20 +233,41 @@ build_binary() {
   sha256sum "$output_path" | tee "$ARTIFACT_ROOT/$label.sha256"
 }
 
-# stage_release_shared_libraries copies release libraries missing from the main worktree.
-stage_release_shared_libraries() {
-  log "Staging release shared libraries missing from $REPO_ROOT"
+# stage_shared_libraries copies every shared library of a worktree to the
+# path its binary was built under.
+stage_shared_libraries() {
+  local source_dir="$1"
+  local label="$2"
   local lib rel
+  log "Staging $label shared libraries under $REPO_ROOT/$BINARY_TREES/$label"
   while IFS= read -r -d '' lib; do
-    rel="${lib#"$RELEASE_WORKTREE"/}"
-    if [[ -e "$REPO_ROOT/$rel" ]]; then
-      printf 'skipped_release_lib=%s\n' "$rel" | tee -a "$ARTIFACT_ROOT/revisions.txt"
-      continue
-    fi
-    install -D -m 0644 "$lib" "$REPO_ROOT/$rel"
-    STAGED_RELEASE_LIBS+=("$REPO_ROOT/$rel")
-    printf 'staged_release_lib=%s\n' "$rel" | tee -a "$ARTIFACT_ROOT/revisions.txt"
-  done < <(find "$RELEASE_WORKTREE" -name '.git' -prune -o -type f -name '*.so' -print0)
+    rel="${lib#"$source_dir"/}"
+    install -D -m 0644 "$lib" "$REPO_ROOT/$BINARY_TREES/$label/$rel"
+    printf 'staged_%s_lib=%s\n' "$label" "$rel" | tee -a "$ARTIFACT_ROOT/revisions.txt"
+  done < <(find "$source_dir" -name '.git' -prune -o -type f -name '*.so' -print0)
+}
+
+# verify_shared_libraries fails unless every library a binary in each validator
+# loads from the repo mount comes from that binary's own tree.
+verify_shared_libraries() {
+  local binary="$1"
+  local label="$2"
+  local own_tree="$CONTAINER_REPO_ROOT/$BINARY_TREES/$label/"
+  local node
+  local resolved
+  local path
+
+  for ((i = 0; i < NODE_COUNT; i++)); do
+    node="sei-node-$i"
+    resolved="$(docker exec "$node" ldd "$binary")" ||
+      die "unable to resolve the $label shared libraries in $node"
+    ! grep -q 'not found' <<<"$resolved" ||
+      die "$node cannot resolve every $label shared library: $resolved"
+    while IFS= read -r path; do
+      [[ "$path" == "$own_tree"* ]] ||
+        die "$node $label binary loads $path from outside $own_tree"
+    done < <(awk -v root="$CONTAINER_REPO_ROOT/" '$2 == "=>" && index($3, root) == 1 { print $3 }' <<<"$resolved")
+  done
 }
 
 height() {
@@ -330,6 +356,7 @@ start_release_cluster() {
   local release_hash
   release_hash="$(sha256sum "$BUILD_ROOT/release-seid" | awk '{print $1}')"
   verify_running_binary_hash "$release_hash" release
+  verify_shared_libraries /root/go/bin/seid release
   assert_all_nodes_progress 5 "pre-upgrade"
 }
 
@@ -392,6 +419,7 @@ stage_main_binary() {
     [[ "$actual_hash" == "$MAIN_BINARY_HASH" ]] ||
       die "$node staged binary checksum mismatch"
   done
+  verify_shared_libraries /tmp/seid.next main
 }
 
 node_has_upgrade_halt() {
@@ -606,13 +634,7 @@ cleanup() {
       DOCKER_PLATFORM=linux/amd64 make docker-cluster-stop
     )
   fi
-  if ((${#STAGED_RELEASE_LIBS[@]})); then
-    rm -f "${STAGED_RELEASE_LIBS[@]}"
-    local lib
-    for lib in "${STAGED_RELEASE_LIBS[@]}"; do
-      rmdir -p --ignore-fail-on-non-empty "$(dirname "$lib")" 2>/dev/null || true
-    done
-  fi
+  rm -rf "${REPO_ROOT:?}/$BINARY_TREES"
   git -C "$REPO_ROOT" worktree remove --force "$MAIN_WORKTREE" 2>/dev/null
   git -C "$REPO_ROOT" worktree remove --force "$RELEASE_WORKTREE" 2>/dev/null
   exit "$exit_code"
@@ -630,8 +652,9 @@ main() {
   discover_cross_version_tests
   build_localnode_image
   build_binary "$RELEASE_WORKTREE" "$BUILD_ROOT/release-seid" release
-  stage_release_shared_libraries
   build_binary "$MAIN_WORKTREE" "$BUILD_ROOT/main-seid" main
+  stage_shared_libraries "$RELEASE_WORKTREE" release
+  stage_shared_libraries "$MAIN_WORKTREE" main
   start_release_cluster
   run_cross_version_phase before
   stage_main_binary

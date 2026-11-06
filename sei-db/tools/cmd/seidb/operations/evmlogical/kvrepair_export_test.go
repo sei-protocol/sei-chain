@@ -52,12 +52,15 @@ func listReport(backend string, version int64, bucket string, rows ...inspectRow
 }
 
 func storageRow(addr ktype.Address, slot ktype.Slot, value []byte) inspectRow {
-	return inspectRow{physKey: ktype.EVMPhysicalKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)), logical: value}
+	return inspectRow{
+		physKey: ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)),
+		logical: value,
+	}
 }
 
 func accountRow(addr ktype.Address, balance []byte, nonce uint64, codeHash []byte) inspectRow {
 	logical := append(append(append([]byte{}, balance...), nonceBytes(nonce)...), codeHash...)
-	return inspectRow{physKey: ktype.EVMPhysicalKey(keys.EVMKeyNonce, addr[:]), logical: logical}
+	return inspectRow{physKey: ktype.BuildPhysicalEVMKey(keys.EVMKeyNonce, addr[:]), logical: logical}
 }
 
 func addrN(last byte) ktype.Address {
@@ -165,15 +168,15 @@ func TestExportMapsCodeAndMiscKeys(t *testing.T) {
 	addr := addrN(0x02)
 	codeKey := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
 	reserve := listReport("memiavl", 10, operations.FlatKVBucketCode,
-		inspectRow{physKey: ktype.EVMPhysicalKey(keys.EVMKeyCode, addr[:]), logical: []byte{0x60, 0x01}})
+		inspectRow{physKey: ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, addr[:]), logical: []byte{0x60, 0x01}})
 	prod := listReport("composite", 10, operations.FlatKVBucketCode,
-		inspectRow{physKey: ktype.EVMPhysicalKey(keys.EVMKeyCode, addr[:]), logical: []byte{0x60, 0x02}})
+		inspectRow{physKey: ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, addr[:]), logical: []byte{0x60, 0x02}})
 	require.Equal(t, []kvrepair.Entry{entry(codeKey, []byte{0x60, 0x01}, []byte{0x60, 0x02})},
 		exportForTest(t, reserve, prod))
 
 	miscKey := append([]byte{0x09}, addr[:]...)
 	reserve = listReport("memiavl", 10, operations.FlatKVBucketMisc,
-		inspectRow{physKey: ktype.ModulePhysicalKey(keys.EVMStoreKey, miscKey), logical: []byte{}})
+		inspectRow{physKey: ktype.BuildPhysicalKey(keys.EVMStoreKey, miscKey), logical: []byte{}})
 	prod = listReport("composite", 10, operations.FlatKVBucketMisc,
 		inspectRow{physKey: migrationBoundaryPhysKey, logical: []byte{0x01}},
 		inspectRow{physKey: migrationVersionPhysKey, logical: []byte{0x02}})
@@ -293,7 +296,8 @@ func TestExportRefusesInputs(t *testing.T) {
 		"short account value": {
 			edit: func(reserve, prod *evmInspectJSON) {
 				reserve.InspectBucket, prod.InspectBucket = operations.FlatKVBucketAccount, operations.FlatKVBucketAccount
-				reserve.Entries[0].Key = fmt.Sprintf("%X", ktype.EVMPhysicalKey(keys.EVMKeyNonce, addr[:]))
+				physicalKey := ktype.BuildPhysicalEVMKey(keys.EVMKeyNonce, addr[:])
+				reserve.Entries[0].Key = fmt.Sprintf("%X", physicalKey)
 				prod.Entries = nil
 				prod.Listed, prod.Matched = 0, 0
 			},

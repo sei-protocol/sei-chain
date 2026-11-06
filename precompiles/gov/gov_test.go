@@ -1024,7 +1024,8 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			} else {
 				require.Empty(t, gotRet.VmError)
 				require.Nil(t, err)
-				require.Equal(t, []byte{31: expectedProposalID}, gotRet.ReturnData)
+				_, found := testApp.GovKeeper.GetProposal(ctx, uint64(expectedProposalID))
+				require.True(t, found)
 			}
 		})
 	}

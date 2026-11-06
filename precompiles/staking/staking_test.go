@@ -26,6 +26,7 @@ import (
 	crptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/teststaking"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
@@ -1545,6 +1546,60 @@ func TestPrecompile_Run_Redelegations(t *testing.T) {
 			wantRet: happyPathPackedOutput,
 			wantErr: false,
 		},
+		{
+			name: "should return redelegations filtered by source validator only",
+			fields: &TestStakingQuerier{
+				RedelegationsResponse: redelegationsResponse,
+			},
+			args:    []interface{}{"", srcValidatorAddress, "", []byte{}},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+		{
+			name: "should return redelegations filtered by delegator only",
+			fields: &TestStakingQuerier{
+				RedelegationsResponse: redelegationsResponse,
+			},
+			args:    []interface{}{callerSeiAddress.String(), "", "", []byte{}},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+		{
+			name: "fails with delegator and source validator only",
+			fields: &TestStakingQuerier{
+				RedelegationsResponse: redelegationsResponse,
+			},
+			args:       []interface{}{callerSeiAddress.String(), srcValidatorAddress, "", []byte{}},
+			wantErr:    true,
+			wantErrMsg: "unsupported redelegations filter",
+		},
+		{
+			name: "fails with delegator and destination validator only",
+			fields: &TestStakingQuerier{
+				RedelegationsResponse: redelegationsResponse,
+			},
+			args:       []interface{}{callerSeiAddress.String(), "", dstValidatorAddress, []byte{}},
+			wantErr:    true,
+			wantErrMsg: "unsupported redelegations filter",
+		},
+		{
+			name: "fails with destination validator only",
+			fields: &TestStakingQuerier{
+				RedelegationsResponse: redelegationsResponse,
+			},
+			args:       []interface{}{"", "", dstValidatorAddress, []byte{}},
+			wantErr:    true,
+			wantErrMsg: "unsupported redelegations filter",
+		},
+		{
+			name: "fails with no filter",
+			fields: &TestStakingQuerier{
+				RedelegationsResponse: redelegationsResponse,
+			},
+			args:       []interface{}{"", "", "", []byte{}},
+			wantErr:    true,
+			wantErrMsg: "unsupported redelegations filter",
+		},
 	}
 
 	for _, tt := range tests {
@@ -2600,4 +2655,38 @@ func TestStakingPrecompileStaticCallPrevention(t *testing.T) {
 		// We're just testing that static calls are allowed for query methods
 		_ = err
 	})
+}
+
+func TestIsTransactionMatchesABI(t *testing.T) {
+	p, err := staking.NewPrecompile(&utils.EmptyKeepers{})
+	require.NoError(t, err)
+	executor := p.GetExecutor().(*staking.PrecompileExecutor)
+	for name, method := range p.ABI.Methods {
+		require.Equal(t, method.StateMutability != "view", executor.IsTransaction(name), name)
+	}
+}
+
+func TestPoolQueryDoesNotPersistWrites(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx, _ := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2).CacheContext()
+	authKey := testApp.GetKey(authtypes.StoreKey)
+
+	// Pool creates the bonded pool module account when it is missing.
+	bondedAddr := testApp.AccountKeeper.GetModuleAddress(stakingtypes.BondedPoolName)
+	acc := testApp.AccountKeeper.GetAccount(ctx, bondedAddr)
+	require.NotNil(t, acc)
+	testApp.AccountKeeper.RemoveAccount(ctx, acc)
+	accountNumber := ctx.KVStore(authKey).Get(authtypes.GlobalAccountNumberKey)
+
+	p, err := staking.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.NoError(t, err)
+	stateDb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
+	evm := vm.EVM{StateDB: stateDb}
+	poolID := p.GetExecutor().(*staking.PrecompileExecutor).PoolID
+	_, _, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, poolID, math.MaxUint64, nil, nil, true, false)
+	require.NoError(t, err)
+
+	after := stateDb.Ctx()
+	require.False(t, testApp.AccountKeeper.HasAccount(after, bondedAddr))
+	require.Equal(t, accountNumber, after.KVStore(authKey).Get(authtypes.GlobalAccountNumberKey))
 }

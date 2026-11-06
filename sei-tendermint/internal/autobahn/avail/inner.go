@@ -3,6 +3,7 @@ package avail
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
@@ -11,13 +12,21 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// blockQueue is a per-lane block queue.
+// blockQueue is one lane's candidate suffix [first, next).
+//
+// Blocks inside the suffix are parent-linked, so an honest LaneQC voter for its
+// tip has the ancestors back to first. The block at first may name any parent,
+// so a cut may splice onto a different branch. A CommitQC that chose another
+// hash does not rewrite the suffix: execution fetches the chosen body separately
+// and verifies it against the FullCommitQC. Prune, driven by the AppQC anchor,
+// drops only heights below the anchor's Next(); a later block stays until its
+// own height is pruned. parentOfFirstLaneBlock is the parent ProduceLocalBlock
+// uses when the suffix is empty. It does not constrain admission.
 type blockQueue struct {
 	queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	// localTip is None, or this node's latest pushed proposal, at a height of at least first-1.
 	localTip utils.Option[*types.Signed[*types.LaneProposal]]
-	// parentOfFirstLaneBlock is the parent hash of the lane block numbered first.
-	// Zero before any prune, which is the parent of block 0.
+	// parentOfFirstLaneBlock is the certified tip at first-1. Zero before any prune.
 	parentOfFirstLaneBlock types.BlockHeaderHash
 }
 
@@ -28,10 +37,13 @@ func newBlockQueue() *blockQueue {
 func (q *blockQueue) pushBack(p *types.Signed[*types.LaneProposal]) {
 	q.queue.pushBack(p)
 	q.localTip = utils.Some(p)
+	if q.Len() == 1 {
+		q.logLocalBlock()
+	}
 }
 
-// parentHash is the parent the block at q.next must name: the hash of the
-// predecessor while it is in the queue, else parentOfFirstLaneBlock (first == next).
+// parentHash is the parent ProduceLocalBlock uses for the block at q.next:
+// the in-queue predecessor while first < next, else parentOfFirstLaneBlock.
 func (q *blockQueue) parentHash() types.BlockHeaderHash {
 	if q.first < q.next {
 		return q.q[q.next-1].Msg().Block().Header().Hash()
@@ -39,10 +51,9 @@ func (q *blockQueue) parentHash() types.BlockHeaderHash {
 	return q.parentOfFirstLaneBlock
 }
 
-// prune drops [first, newFirst) and records parent as the parent hash of block
-// newFirst. A stale newFirst changes nothing. localTip is kept when newFirst <= next
-// and cleared when newFirst > next. A block already in the queue at or after
-// newFirst stays; it is this lane's local block.
+// prune drops [first, newFirst) and records parent as parentOfFirstLaneBlock.
+// A stale newFirst changes nothing. localTip is kept when newFirst <= next and
+// cleared when newFirst > next. A block at or after newFirst stays.
 func (q *blockQueue) prune(newFirst types.BlockNumber, parent types.BlockHeaderHash) {
 	if newFirst <= q.first {
 		return
@@ -51,27 +62,24 @@ func (q *blockQueue) prune(newFirst types.BlockNumber, parent types.BlockHeaderH
 		q.localTip = utils.None[*types.Signed[*types.LaneProposal]]()
 	}
 	q.queue.prune(newFirst)
-	// TODO: the block at newFirst may not name parent when the cluster certified
-	// a different block at newFirst-1. Switching to the certified branch would
-	// rewrite the lane WAL, so the local block is kept for now.
-	q.logLocalBlock(parent)
 	q.parentOfFirstLaneBlock = parent
+	q.logLocalBlock()
 }
 
 // logLocalBlock logs when the block at first does not name parent.
-func (q *blockQueue) logLocalBlock(parent types.BlockHeaderHash) {
+func (q *blockQueue) logLocalBlock() {
 	if q.first >= q.next {
 		return
 	}
 	h := q.q[q.first].Msg().Block().Header()
-	if h.ParentHash() == parent {
+	if h.ParentHash() == q.parentOfFirstLaneBlock {
 		return
 	}
-	logger.Error("local block does not extend certified tip",
+	logger.Info("local block does not extend certified tip",
 		"lane", h.Lane(),
 		slog.Uint64("block", uint64(h.BlockNumber())),
 		"got", h.ParentHash(),
-		"want", parent)
+		"want", q.parentOfFirstLaneBlock)
 }
 
 // unpersistedLocalTip returns localTip once it has left the active range and
@@ -104,7 +112,7 @@ type inner struct {
 	roads         *queue[types.RoadIndex, *road]
 
 	// anchorEpoch is the epoch of data's Anchor CommitQC when one exists.
-	// None until the first Anchor arrives (construction prune or runEvict).
+	// None until an Anchor is supplied at construction or by runEvict.
 	// When it lags applied, epochForVote falls back to this committee for
 	// departing-lane voters.
 	anchorEpoch utils.Option[*types.Epoch]
@@ -136,20 +144,34 @@ type loadedState struct {
 	blocks    map[types.LaneID][]persist.LoadedBlock
 }
 
-func newInner(ep *types.Epoch, first types.RoadIndex) *inner {
+// newInner constructs state at the anchor QC in ep, or at epoch 0's start without an anchor.
+// It panics if the QC belongs to another epoch or is absent for a nonzero epoch.
+func newInner(ep *types.Epoch, anchorQC utils.Option[*types.CommitQC], genesisTimestamp time.Time) *inner {
+	first := ep.RoadRange().First
+	// TODO(gprusak): replace ep and anchorQC with a full proper anchor,
+	// so we don't need these panicking checks.
+	if qc, ok := anchorQC.Get(); ok {
+		if qc.View().EpochIndex != ep.EpochIndex() {
+			panic("anchor QC does not belong to epoch")
+		}
+		first = qc.Index() + 1
+	} else if ep.EpochIndex() != 0 {
+		panic("anchor QC is required outside epoch 0")
+	}
 	roads := newQueue[types.RoadIndex, *road]()
 	roads.first = first
 	roads.next = first
 	i := &inner{
-		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
-		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep}),
+		persistedCommitQC:  utils.NewAtomicSend(anchorQC),
+		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: anchorQC, Epoch: ep, GenesisTimestamp: genesisTimestamp}),
 		roads:              roads,
 		blocks:             map[types.LaneID]*blockQueue{},
 		votes:              map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
 		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
 	}
-	for lane := range ep.Committee().Lanes().All() {
-		i.addLane(lane)
+	i.advanceEpoch(ep)
+	if qc, ok := anchorQC.Get(); ok {
+		i.pruneTo(ep, qc)
 	}
 	return i
 }
@@ -158,14 +180,10 @@ func newInner(ep *types.Epoch, first types.RoadIndex) *inner {
 // first and blocks are written sequentially per lane, so gaps, parent-hash
 // mismatches, and over-capacity indicate corruption or a bug.
 func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) error {
-	for lane, bs := range blocks {
-		q, ok := i.blocks[lane]
-		if !ok || len(bs) == 0 {
-			continue
-		}
-		for _, b := range bs {
+	for lane, q := range i.blocks {
+		for _, b := range blocks[lane] {
 			if q.Len() >= BlocksPerLane {
-				return fmt.Errorf("lane %s: loaded %d blocks exceeds capacity %d", lane, len(bs), BlocksPerLane)
+				return fmt.Errorf("lane %s: loaded %d blocks exceeds capacity %d", lane, len(blocks[lane]), BlocksPerLane)
 			}
 			if b.Number < q.next {
 				// Certified. Restore localTip from the proposal at first-1 when present.
@@ -180,7 +198,6 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 			// Parent is checked only inside [first, next). The persisted block at
 			// first is this lane's local block. localTip restored from first-1 is
 			// for local production, not this check.
-			frontier := q.first == q.next
 			if q.first < q.next {
 				ph := b.Proposal.Msg().Block().Header().ParentHash()
 				if q.q[q.next-1].Msg().Block().Header().Hash() != ph {
@@ -188,9 +205,6 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 				}
 			}
 			q.pushBack(b.Proposal)
-			if frontier {
-				q.logLocalBlock(q.parentOfFirstLaneBlock)
-			}
 		}
 		i.nextBlockToPersist[lane] = q.next
 	}
@@ -228,20 +242,20 @@ func (i *inner) advanceEpoch(ep *types.Epoch) {
 	for lane := range ep.Committee().Lanes().All() {
 		i.addLane(lane)
 	}
-	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: i.persistedCommitQC.Load(), Epoch: ep})
+	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: i.persistedCommitQC.Load(), Epoch: ep, GenesisTimestamp: i.consensusSpec.Load().GenesisTimestamp})
 	i.reweightVotes()
 }
 
 // advanceTarget is the epoch to install next: the epoch of the road following
 // the durable tip, or applied+1 while that road is still inside the applied
 // epoch.
-func (i *inner) advanceTarget() types.EpochIndex {
+func (i *inner) advanceTarget(registry *epoch.Registry) types.EpochIndex {
 	next := i.applied().EpochIndex() + 1
 	tip, ok := i.persistedCommitQC.Load().Get()
 	if !ok {
 		return next
 	}
-	return max(next, epoch.IndexForRoad(tip.Index()+1))
+	return max(next, registry.IndexForRoad(tip.Index()+1))
 }
 
 // canAdvanceEpoch reports whether the applied epoch is sealed and its prune leash is
@@ -275,7 +289,7 @@ func (i *inner) refreshConsensusSpec() {
 	if !ep.RoadRange().Has(next) {
 		return
 	}
-	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: tip, Epoch: ep})
+	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: tip, Epoch: ep, GenesisTimestamp: i.consensusSpec.Load().GenesisTimestamp})
 }
 
 func (i *inner) addLane(lane types.LaneID) bool {
@@ -330,15 +344,17 @@ func (i *inner) reweightVotes() {
 // Applied epoch changes belong to construction and runEpochAdvance.
 // Returns the number of lanes dropped.
 func (i *inner) prune(anchor data.Anchor) int {
-	anchorEpoch := anchor.Epoch
-	idx := anchor.CommitQC.Index()
+	return i.pruneTo(anchor.Epoch, anchor.CommitQC)
+}
+
+// pruneTo advances the queues and anchor epoch to qc.
+func (i *inner) pruneTo(anchorEpoch *types.Epoch, qc *types.CommitQC) int {
+	idx := qc.Index()
 	i.roads.prune(idx + 1)
 	for lane, vq := range i.votes {
-		lr := anchor.CommitQC.LaneRange(lane)
+		lr := qc.LaneRange(lane)
 		bq := i.blocks[lane]
 		vq.prune(lr.Next())
-		// LastHash is the parent of block Next(). An empty range carries the
-		// previous commit's LastHash, so it names the same parent for the same height.
 		bq.prune(lr.Next(), lr.LastHash())
 		// A lagging cursor stops at retentionFloor so an unflushed localTip can still
 		// be written. The cursor is never rewound: already past localTip means it is on disk.
@@ -347,7 +363,7 @@ func (i *inner) prune(anchor data.Anchor) int {
 		}
 	}
 	if i.roads.Len() == 0 {
-		i.persistedCommitQC.Store(utils.Some(anchor.CommitQC))
+		i.persistedCommitQC.Store(utils.Some(qc))
 	}
 	i.anchorEpoch = utils.Some(anchorEpoch)
 	var closed []types.LaneID

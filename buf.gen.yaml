@@ -4,6 +4,7 @@ inputs:
   - directory: sei-cosmos/proto
   - directory: sei-tendermint/proto
   - directory: sei-wasmd/proto
+  - directory: giga/proto
 plugins:
   - local:
       - ./build/proto/gocosmos/protoc-gen-gocosmos

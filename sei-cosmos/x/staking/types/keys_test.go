@@ -49,6 +49,16 @@ func TestGetValidatorPowerRank(t *testing.T) {
 	}
 }
 
+func TestGetDelegationKeyFromValIndexKey(t *testing.T) {
+	delAddr := sdk.AccAddress(keysAddr1)
+	valAddr := sdk.ValAddress(keysAddr2)
+
+	delegationKey := types.GetDelegationKey(delAddr, valAddr)
+	indexKey := types.GetDelegationByValIndexKey(delAddr, valAddr)
+
+	require.Equal(t, delegationKey, types.GetDelegationKeyFromValIndexKey(indexKey))
+}
+
 func TestGetREDByValDstIndexKey(t *testing.T) {
 	tests := []struct {
 		delAddr    sdk.AccAddress

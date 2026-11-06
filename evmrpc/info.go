@@ -91,7 +91,9 @@ func (i *InfoAPI) Accounts(ctx context.Context) (result []common.Address, return
 	if err != nil {
 		return []common.Address{}, err
 	}
-	for addr := range getAddressPrivKeyMap(kb) {
+	keys := getAddressPrivKeyMap(kb)
+	result = make([]common.Address, 0, len(keys))
+	for addr := range keys {
 		result = append(result, common.HexToAddress(addr))
 	}
 	return result, nil
@@ -202,7 +204,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 	}
 
 	if lastBlockNumber < earliestHeight {
-		return nil, errors.New("requested last block is before earliest available height")
+		return nil, fmt.Errorf("requested last block %d is before earliest available height %d", lastBlockNumber, earliestHeight)
 	}
 
 	if uint64(lastBlockNumber-earliestHeight) < uint64(blockCount) { //nolint:gosec
@@ -513,7 +515,7 @@ func (i *InfoAPI) latestHeight(ctx context.Context) (int64, error) {
 }
 
 func (i *InfoAPI) earliestBlockWatermark(ctx context.Context) (int64, error) {
-	return i.watermarks.EarliestHeight(ctx)
+	return i.watermarks.EarliestReceiptHeight(ctx)
 }
 
 // Following go-ethereum implementation

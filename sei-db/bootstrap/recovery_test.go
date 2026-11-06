@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math/big"
 	"os"
@@ -17,11 +18,30 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
+
+var _ gigatypes.StateView = emptyStateView{}
+
+// emptyStateView is a StateView holding no keys. Only the raw reads are supported.
+type emptyStateView struct {
+	// Left nil, so every read other than the raw reads panics.
+	gigatypes.StateView
+
+	// The block height the view reports.
+	height int64
+}
+
+func (v emptyStateView) GetBlockHeight() int64 { return v.height }
+
+func (v emptyStateView) BatchGetRaw([][]byte) map[string][]byte { return map[string][]byte{} }
+
+func (v emptyStateView) Close() {}
 
 func evmNonceKey(addr byte) []byte {
 	return append([]byte{0x0a}, append([]byte{addr}, make([]byte, 19)...)...)
@@ -31,7 +51,16 @@ func evmNonce(value byte) []byte {
 	return append(make([]byte, 7), value)
 }
 
-func evmBlock(addr, nonce byte) []*proto.NamedChangeSet {
+// evmBlock returns a block that sets the nonce of the account evmNonceKey(addr) names to nonce.
+func evmBlock(addr byte, nonce byte) *gigatypes.StateChangeSet {
+	return &gigatypes.StateChangeSet{Accounts: []gigatypes.AccountChange{{
+		Address: gigatypes.Address{addr},
+		Account: gigatypes.AccountState{Nonce: uint64(nonce)},
+	}}}
+}
+
+// evmChangeSets is evmBlock in the changeset form the EVM state store takes.
+func evmChangeSets(addr byte, nonce byte) []*proto.NamedChangeSet {
 	return []*proto.NamedChangeSet{{
 		Name: evm.EVMStoreKey,
 		Changeset: proto.ChangeSet{
@@ -40,10 +69,39 @@ func evmBlock(addr, nonce byte) []*proto.NamedChangeSet {
 	}}
 }
 
+// testBlockHash is the block hash execution would report for height. It is a function of the height
+// alone, so a block re-executed after a restart reports the same hash the vault already stored.
+func testBlockHash(height uint64) [32]byte {
+	var blockHash [32]byte
+	binary.BigEndian.PutUint64(blockHash[:8], height)
+	return blockHash
+}
+
+// reportTestBlockHash reports height's block hash to the app hash builder, as execution does before
+// running the block.
+func reportTestBlockHash(t *testing.T, manager *GigaStorageManager, height uint64) {
+	t.Helper()
+	require.NoError(t, manager.AppHashBuilder().ReportBlockHash(t.Context(), height, testBlockHash(height)))
+}
+
+// commitBlocks commits blocks 1 through through, and waits until their app hashes are stored.
 func commitBlocks(t *testing.T, manager *GigaStorageManager, through byte) {
 	t.Helper()
 	for block := byte(1); block <= through; block++ {
-		require.NoError(t, manager.StateDB().CommitStateChanges(int64(block), evmBlock(block, block)))
+		reportTestBlockHash(t, manager, uint64(block))
+		commitBlock(t, manager, int64(block), evmBlock(block, block))
+	}
+	awaitAppHashes(t, manager, uint64(through))
+}
+
+// commitBlock commits changes as block height and, while a receipt hasher is open, submits an empty receipt
+// list for the block.
+func commitBlock(t *testing.T, manager *GigaStorageManager, height int64, changes *gigatypes.StateChangeSet) {
+	t.Helper()
+	require.NoError(t, manager.StateDB().CommitStateChanges(height, changes))
+	if manager.receiptHasher != nil {
+		blockHeight := uint64(height) //nolint:gosec // small test heights
+		require.NoError(t, manager.receiptHasher.Submit(t.Context(), blockHeight, nil))
 	}
 }
 
@@ -70,15 +128,24 @@ func writeReceipts(t *testing.T, manager *GigaStorageManager, through uint64) {
 	}
 }
 
-func writeWALOnly(t *testing.T, wal statewal.StateWAL, block uint64, changesets []*proto.NamedChangeSet) {
+// writeWALOnly writes block to the state WAL alone, converting changes as though no key they write existed
+// before the block.
+func writeWALOnly(t *testing.T, wal statewal.StateWAL, block uint64, changes *gigatypes.StateChangeSet) {
 	t.Helper()
-	require.NoError(t, wal.Write(block, changesets))
+	//nolint:gosec // small test heights
+	mutations, err := flatkv.MutationsFromStateChangeSet(changes, block, emptyStateView{height: int64(block) - 1},
+		flatkvconfig.DefaultConfig())
+	require.NoError(t, err)
+	require.NoError(t, wal.Write(block, mutations))
 	require.NoError(t, wal.Flush())
 }
 
-// waitSSWrites blocks until SS has applied every block committed so far. A commit hands SS its block
-// asynchronously and does not wait, so a test reading SS straight after one waits here instead.
-func waitSSWrites(manager *GigaStorageManager) {
+// waitSSWrites blocks until SS has applied every block through height. A commit hands SS its block on a
+// goroutine of the state DB's and does not wait, so a test reading SS straight after one waits here instead.
+func waitSSWrites(t *testing.T, manager *GigaStorageManager, height int64) {
+	t.Helper()
+	require.Eventually(t, func() bool { return manager.SS().GetLatestVersion() >= height },
+		10*time.Second, time.Millisecond, "SS never took block %d", height)
 	manager.SS().WaitForPendingWrites()
 }
 
@@ -107,7 +174,7 @@ func commitBlocksWithSSSnapshots(t *testing.T, manager *GigaStorageManager, thro
 	t.Helper()
 	for block := byte(1); block <= through; block++ {
 		snapshotSSEveryBlock(manager)
-		require.NoError(t, manager.StateDB().CommitStateChanges(int64(block), evmBlock(block, block)))
+		commitBlock(t, manager, int64(block), evmBlock(block, block))
 		waitSSSnapshot(t, manager, int64(block))
 	}
 }
@@ -132,8 +199,9 @@ func reconvergeErr(t *testing.T, manager *GigaStorageManager, target int64) erro
 	return manager.recoverStores(t.Context(), target)
 }
 
-// closeStateDB closes the stores the StateDB owns and drops it from the manager, leaving the manager as
-// it was before the StateDB opened. Manager.Close tolerates that, so a test may still defer it.
+// closeStateDB closes the stores the StateDB owns, then the app hash builder and the hashers reporting into it,
+// and drops them from the manager, as a restart does. It does nothing when no StateDB is open. Manager.Close
+// tolerates the result, so a test may still defer it.
 func closeStateDB(t *testing.T, manager *GigaStorageManager) {
 	t.Helper()
 	if manager.StateDB() == nil {
@@ -141,6 +209,9 @@ func closeStateDB(t *testing.T, manager *GigaStorageManager) {
 	}
 	require.NoError(t, manager.StateDB().Close())
 	manager.stateDB = nil
+	// A builder left open would be handed the blocks committed after the state DB reopens, which it has already
+	// moved past.
+	closeAppHashBuilder(t, manager)
 }
 
 // closeReceiptDB closes the receipt store and drops it from the manager, leaving it as it was before
@@ -166,7 +237,7 @@ func snapshotSCAt(t *testing.T, manager *GigaStorageManager, height byte) {
 	t.Helper()
 	require.NoError(t, manager.SC().FlushSnapshots())
 	manager.SC().SetCheckpointScheduler(controller.NewCheckpointScheduler(config.CheckpointConfig{BlockInterval: 1}))
-	require.NoError(t, manager.StateDB().CommitStateChanges(int64(height), evmBlock(height, height)))
+	commitBlock(t, manager, int64(height), evmBlock(height, height))
 	require.NoError(t, manager.SC().FlushSnapshots())
 }
 
@@ -202,23 +273,42 @@ func replaceWALWithBlocks(t *testing.T, cfg *config.GigaStorageConfig, from, thr
 
 func TestRecoveryTarget(t *testing.T) {
 	for _, tc := range []struct {
-		name                                  string
-		blockHeight, stateHeight, receiptHead uint64
-		want                                  uint64
+		name        string
+		blockHeight uint64
+		stateHeight uint64
+		receiptHead uint64
+		appHashHead uint64
+		want        uint64
+		wantErr     bool
 	}{
 		{name: "a fresh node has no height to converge on"},
-		{name: "the lowest head wins", blockHeight: 7, stateHeight: 5, receiptHead: 6, want: 5},
-		{name: "receipts can be the lowest", blockHeight: 7, stateHeight: 6, receiptHead: 4, want: 4},
+		{name: "the lowest head wins", blockHeight: 7, stateHeight: 5, receiptHead: 6, appHashHead: 9, want: 5},
+		{name: "receipts can be the lowest",
+			blockHeight: 7, stateHeight: 6, receiptHead: 4, appHashHead: 9, want: 4},
 		// The regression: receipts newly enabled, or a receipt directory recreated after corruption,
 		// leave a head of 0 alongside real block and state history. Folding that 0 into the minimum
 		// collapses the target and skips recovery for the stores that do have history.
-		{name: "an empty receipt store does not collapse the target", blockHeight: 7, stateHeight: 5, want: 5},
-		{name: "a disabled receipt store reads the same as an empty one", blockHeight: 4, stateHeight: 4, want: 4},
+		{name: "an empty receipt store does not collapse the target",
+			blockHeight: 7, stateHeight: 5, appHashHead: 9, want: 5},
+		{name: "a disabled receipt store reads the same as an empty one",
+			blockHeight: 4, stateHeight: 4, appHashHead: 9, want: 4},
 		{name: "an empty state WAL yields no target", blockHeight: 7, receiptHead: 7},
 		{name: "an empty block store yields no target", stateHeight: 7, receiptHead: 7},
+		{name: "the app hash vault can be the lowest", blockHeight: 7, stateHeight: 5, appHashHead: 4, want: 4},
+		// An empty vault's head is the block before the giga activation height, which holds the stores there.
+		{name: "an empty app hash vault holds the target below a later giga activation",
+			blockHeight: 7, stateHeight: 7, appHashHead: 3, want: 3},
+		{name: "an empty app hash vault at giga activation 1 refuses stores holding blocks",
+			blockHeight: 7, stateHeight: 5, wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, recoveryTarget(tc.blockHeight, tc.stateHeight, tc.receiptHead))
+			got, err := recoveryTarget(tc.blockHeight, tc.stateHeight, tc.receiptHead, tc.appHashHead)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -245,9 +335,9 @@ func TestFindTargetRecoveryHeightIsZeroWithoutABlockLedger(t *testing.T) {
 	pinner, ok := manager.ReceiptDB().(receipt.VersionPinner)
 	require.True(t, ok)
 	require.NoError(t, pinner.SetLatestVersion(3))
-	// findTargetRecoveryHeight reads the state and receipt directories offline, so both stores have
-	// to be closed for it.
-	closeStateDB(t, manager)
+	// findTargetRecoveryHeight reads the state, receipt and app hash directories offline, so those
+	// stores have to be closed for it.
+	stopForRestart(t, manager)
 	closeReceiptDB(t, manager)
 
 	got, err := manager.findTargetRecoveryHeight()
@@ -265,7 +355,7 @@ func TestRecoverStateDropsWALBlocksAboveTheTarget(t *testing.T) {
 	reconverge(t, manager, 3)
 
 	requireWALTail(t, manager, 3)
-	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
+	commitBlock(t, manager, 4, evmBlock(4, 4))
 }
 
 // A plain open replays SC up to the WAL's head. SC comes up on the version its own files hold, which a
@@ -280,7 +370,7 @@ func TestOpenReplaysSCUpToTheWALHead(t *testing.T) {
 	require.NoError(t, manager.openStateDB(t.Context()))
 
 	require.Equal(t, int64(3), manager.SC().Version())
-	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
+	commitBlock(t, manager, 4, evmBlock(4, 4))
 }
 
 // A plain open discards a working copy holding blocks the WAL no longer has and rebuilds it from the
@@ -295,7 +385,7 @@ func TestOpenRebuildsSCAboveTheWALHead(t *testing.T) {
 	require.NoError(t, manager.openStateDB(t.Context()))
 
 	require.Equal(t, int64(2), manager.SC().Version())
-	require.NoError(t, manager.StateDB().CommitStateChanges(3, evmBlock(3, 3)))
+	commitBlock(t, manager, 3, evmBlock(3, 3))
 }
 
 // The WAL is written unflushed, so a crash can lose its tail while a snapshot published above that tail
@@ -313,7 +403,7 @@ func TestOpenRewindsSCFromASnapshotAboveTheWALHead(t *testing.T) {
 	require.NoError(t, manager.openStateDB(t.Context()))
 
 	require.Equal(t, int64(3), manager.SC().Version())
-	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
+	commitBlock(t, manager, 4, evmBlock(4, 4))
 }
 
 // SS reaches the same place through its databases rather than a snapshot, since it keeps no working
@@ -328,7 +418,7 @@ func TestOpenRewindsSSAboveTheWALHead(t *testing.T) {
 	require.NoError(t, manager.openStateDB(t.Context()))
 
 	require.Equal(t, int64(2), manager.SS().GetLatestVersion())
-	require.NoError(t, manager.StateDB().CommitStateChanges(3, evmBlock(3, 3)))
+	commitBlock(t, manager, 3, evmBlock(3, 3))
 }
 
 // An SS above the WAL head with no snapshot at or below it is emptied and replayed from block 1 rather
@@ -339,7 +429,7 @@ func TestOpenRewindsSSAboveTheWALHead(t *testing.T) {
 func TestOpenSSAboveTheWALHeadRebuildsItFromBlockOne(t *testing.T) {
 	manager, cfg := openManager(t, nil)
 	commitBlocks(t, manager, 3)
-	waitSSWrites(manager)
+	waitSSWrites(t, manager, 3)
 	require.Equal(t, int64(3), manager.SS().GetLatestVersion())
 	require.Zero(t, manager.SS().Snapshots().Newest(), "fixture precondition: SS has no snapshot to land on")
 	closeStateDB(t, manager)
@@ -354,7 +444,7 @@ func TestOpenSSAboveTheWALHeadRebuildsItFromBlockOne(t *testing.T) {
 	above, err := manager.SS().Get(evm.EVMStoreKey, 2, evmNonceKey(3))
 	require.NoError(t, err)
 	require.Nil(t, above, "the block above the head must not have survived")
-	require.NoError(t, manager.StateDB().CommitStateChanges(3, evmBlock(3, 3)))
+	commitBlock(t, manager, 3, evmBlock(3, 3))
 }
 
 // An SC above the WAL head with no snapshot at or below it cannot be rewound. Rebuilding the working
@@ -436,11 +526,15 @@ func TestRecoverReplaysForwardFromTheStoreOwnHeight(t *testing.T) {
 	manager.SC().SetCheckpointScheduler(controller.NewCheckpointScheduler(
 		config.CheckpointConfig{BlockInterval: 1_000_000}))
 	for block := byte(2); block <= 7; block++ {
-		require.NoError(t, manager.StateDB().CommitStateChanges(int64(block), evmBlock(block, block)))
+		commitBlock(t, manager, int64(block), evmBlock(block, block))
 	}
 	// Block 8 goes to SC under an address the WAL's own block 8 does not carry. It marks the working
 	// copy: a rebuild from the snapshot replays the WAL's block 8 instead and the address is gone.
-	require.NoError(t, manager.SC().CommitStateChanges(8, evmBlock(108, 108)))
+	prior := manager.SC().OpenView()
+	marked, err := flatkv.MutationsFromStateChangeSet(evmBlock(108, 108), 8, prior, flatkvconfig.DefaultConfig())
+	prior.Close()
+	require.NoError(t, err)
+	require.NoError(t, manager.SC().CommitStateChanges(8, marked))
 	writeWALOnly(t, manager.StateWAL(), 8, evmBlock(8, 8))
 	writeWALOnly(t, manager.StateWAL(), 9, evmBlock(9, 9))
 	writeWALOnly(t, manager.StateWAL(), 10, evmBlock(10, 10))
@@ -465,7 +559,7 @@ func TestRecoverLeavesAStoreAlreadyOnTheTargetAlone(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 4)
 	// A key no WAL block carries, so a wipe loses it where a replay would not put it back.
-	require.NoError(t, manager.SS().ApplyChangesetSync(4, evmBlock(9, 9)))
+	require.NoError(t, manager.SS().ApplyChangesetSync(4, evmChangeSets(9, 9)))
 	writeWALOnly(t, manager.StateWAL(), 5, evmBlock(5, 5))
 
 	reconverge(t, manager, 4)
@@ -509,7 +603,7 @@ func TestRecoverToATargetThatEmptiesTheWALLandsOnTheSnapshot(t *testing.T) {
 	manager.SC().SetCheckpointScheduler(huge)
 	manager.SS().SetCheckpointScheduler(huge)
 	for block := byte(2); block <= 5; block++ {
-		require.NoError(t, manager.StateDB().CommitStateChanges(int64(block), evmBlock(block, block)))
+		commitBlock(t, manager, int64(block), evmBlock(block, block))
 	}
 	closeStateDB(t, manager)
 	replaceWALWithBlocks(t, cfg, 2, 5)
@@ -519,7 +613,7 @@ func TestRecoverToATargetThatEmptiesTheWALLandsOnTheSnapshot(t *testing.T) {
 	require.Equal(t, int64(1), manager.SC().Version())
 	require.Equal(t, int64(1), manager.SS().GetLatestVersion())
 	requireWALTail(t, manager, 0)
-	require.NoError(t, manager.StateDB().CommitStateChanges(2, evmBlock(2, 2)))
+	commitBlock(t, manager, 2, evmBlock(2, 2))
 }
 
 // A target the WAL no longer spans is refused before snapshots, the WAL tail or the receipt head move,
@@ -532,7 +626,7 @@ func TestRecoverRefusesATargetTheWALCannotSpan(t *testing.T) {
 	manager.SC().SetCheckpointScheduler(controller.NewCheckpointScheduler(
 		config.CheckpointConfig{BlockInterval: 1_000_000}))
 	for block := byte(2); block <= 5; block++ {
-		require.NoError(t, manager.StateDB().CommitStateChanges(int64(block), evmBlock(block, block)))
+		commitBlock(t, manager, int64(block), evmBlock(block, block))
 	}
 	writeReceipts(t, manager, 5)
 	closeStateDB(t, manager)
@@ -560,7 +654,7 @@ func TestOpenWithAnEmptyWALLeavesBothStoresAlone(t *testing.T) {
 	manager.SC().SetCheckpointScheduler(huge)
 	manager.SS().SetCheckpointScheduler(huge)
 	for block := byte(1); block <= 3; block++ {
-		require.NoError(t, manager.StateDB().CommitStateChanges(int64(block), evmBlock(block, block)))
+		commitBlock(t, manager, int64(block), evmBlock(block, block))
 	}
 	closeStateDB(t, manager)
 	require.NoError(t, statewal.PruneAfter(flatkv.StateWALConfig(cfg.FlatKVConfig.DataDir), 0))
@@ -569,7 +663,7 @@ func TestOpenWithAnEmptyWALLeavesBothStoresAlone(t *testing.T) {
 
 	require.Equal(t, int64(3), manager.SC().Version())
 	require.Equal(t, int64(3), manager.SS().GetLatestVersion())
-	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
+	commitBlock(t, manager, 4, evmBlock(4, 4))
 }
 
 // A commit store held above the WAL head by a snapshot of its own is rewound to a snapshot boundary at
@@ -588,13 +682,13 @@ func TestRecoverSCAboveTheWALHeadRewindsToASnapshotAndReplays(t *testing.T) {
 
 	require.Equal(t, int64(2), manager.SC().Version())
 	requireWALTail(t, manager, 2)
-	require.NoError(t, manager.StateDB().CommitStateChanges(3, evmBlock(3, 3)))
+	commitBlock(t, manager, 3, evmBlock(3, 3))
 }
 
 func TestRecoverSSReplaysEVMChangesets(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 2)
-	waitSSWrites(manager)
+	waitSSWrites(t, manager, 2)
 	require.Equal(t, int64(2), manager.SS().GetLatestVersion())
 	writeWALOnly(t, manager.StateWAL(), 3, evmBlock(3, 3))
 
@@ -646,7 +740,7 @@ func TestOpenAtATargetRewindsEveryStoreAndTheWAL(t *testing.T) {
 	require.Equal(t, int64(2), manager.SS().GetLatestVersion())
 	requireWALTail(t, manager, 2)
 
-	require.NoError(t, manager.StateDB().CommitStateChanges(3, evmBlock(3, 3)))
+	commitBlock(t, manager, 3, evmBlock(3, 3))
 	require.Equal(t, int64(3), manager.SC().Version())
 }
 
@@ -683,7 +777,7 @@ func TestRecoverAboveSSWithoutASnapshotRebuildsItFromBlockOne(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, above, "the block above the target must not have survived")
 	requireWALTail(t, manager, 2)
-	require.NoError(t, manager.StateDB().CommitStateChanges(3, evmBlock(3, 3)))
+	commitBlock(t, manager, 3, evmBlock(3, 3))
 }
 
 // Refusing is still right once the WAL has had a retention cut: with no snapshot at or below the target
@@ -695,7 +789,7 @@ func TestRecoverAboveSSWithoutASnapshotOrBlockOneIsRefused(t *testing.T) {
 	// SC gets a snapshot on the target so that it reaches the target on its own. Without one it lands
 	// on 0, which this WAL cannot replay from either, and SC refuses before SS is ever asked.
 	snapshotSCAt(t, manager, 4)
-	require.NoError(t, manager.StateDB().CommitStateChanges(5, evmBlock(5, 5)))
+	commitBlock(t, manager, 5, evmBlock(5, 5))
 	closeStateDB(t, manager)
 	replaceWALWithBlocks(t, cfg, 3, 5)
 

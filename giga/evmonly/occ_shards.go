@@ -4,6 +4,7 @@ import (
 	"context"
 	"iter"
 	"math"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -86,17 +87,8 @@ func (r occTxExecution) touchedShards() occShardSet {
 	for addr := range r.commutativeBalanceDeltas {
 		touched = touched.with(occShardOf(addr))
 	}
-	for _, change := range r.changeSet.Balances {
+	for _, change := range r.changeSet.Accounts {
 		touched = touched.with(occShardOf(change.Address))
-	}
-	for _, change := range r.changeSet.Nonces {
-		touched = touched.with(occShardOf(change.Address))
-	}
-	for _, change := range r.changeSet.Code {
-		touched = touched.with(occShardOf(change.Address))
-	}
-	for _, addr := range r.changeSet.StorageClears {
-		touched = touched.with(occShardOf(addr))
 	}
 	for _, change := range r.changeSet.Storage {
 		touched = touched.with(occShardOf(change.Address))
@@ -279,20 +271,19 @@ var occFragmentPool = sync.Pool{New: func() any { return new(occChangeSetFragmen
 // releaseOCCFragments clears every fragment and returns the array to occFragmentPool.
 func releaseOCCFragments(fragments *occChangeSetFragments) {
 	for i := range fragments {
-		fragments[i].resetForReuse()
+		fragments[i].Reset()
 	}
 	occFragmentPool.Put(fragments)
 }
 
 // changeSetIntoParallel writes the block's net state changes, in canonical order, computing each
-// shard's part on the pool. The shards' base-state reads are what the merge mostly spends its time
-// on, and they are independent of each other.
+// shard's part on the pool. The shards are independent of each other.
 func (s *blockSTMState) changeSetIntoParallel(ctx context.Context, pool *occWorkerPool, changes *StateChangeSet) error {
 	if pool == nil || s.keyCount() < occMinParallelMergeKeys {
 		s.ChangeSetInto(changes)
 		return ctx.Err()
 	}
-	changes.resetForReuse()
+	changes.Reset()
 	fragments := occFragmentPool.Get().(*occChangeSetFragments)
 	defer releaseOCCFragments(fragments)
 	err := pool.Run(ctx, occStateShards, func(workerCtx context.Context, workerID int, workers int) error {
@@ -300,19 +291,23 @@ func (s *blockSTMState) changeSetIntoParallel(ctx context.Context, pool *occWork
 			if err := workerCtx.Err(); err != nil {
 				return err
 			}
-			s.shards[shard].changeSetInto(s.source, &fragments[shard])
+			s.shards[shard].changeSetInto(&fragments[shard])
 		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
+	accountCount, storageCount := 0, 0
+	for i := range fragments {
+		accountCount += len(fragments[i].Accounts)
+		storageCount += len(fragments[i].Storage)
+	}
+	changes.Accounts = slices.Grow(changes.Accounts, accountCount)
+	changes.Storage = slices.Grow(changes.Storage, storageCount)
 	for i := range fragments {
 		fragment := &fragments[i]
-		changes.Balances = append(changes.Balances, fragment.Balances...)
-		changes.Nonces = append(changes.Nonces, fragment.Nonces...)
-		changes.Code = append(changes.Code, fragment.Code...)
-		changes.StorageClears = append(changes.StorageClears, fragment.StorageClears...)
+		changes.Accounts = append(changes.Accounts, fragment.Accounts...)
 		changes.Storage = append(changes.Storage, fragment.Storage...)
 	}
 	return nil
@@ -323,7 +318,7 @@ func (s *blockSTMState) keyCount() int {
 	count := 0
 	for i := range s.shards {
 		shard := &s.shards[i]
-		count += len(shard.balances) + len(shard.nonces) + len(shard.code) + len(shard.storageClears) + len(shard.storage)
+		count += len(shard.accounts) + len(shard.storage)
 	}
 	return count
 }

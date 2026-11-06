@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { expectRevert } = require('@openzeppelin/test-helpers');
-const { setupSigners, getAdmin, deployWasm, storeWasm, execute, isDocker, ABI, createTokenFactoryTokenAndMint, getSeiBalance, rawHttpDebugTraceWithCallTracer, proposeParamChange} = require("./lib");
+const { setupSigners, getAdmin, deployWasm, storeWasm, execute, isDocker, ABI, fundSeiAddress, getSeiBalance, rawHttpDebugTraceWithCallTracer, proposeParamChange} = require("./lib");
 
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -355,8 +355,9 @@ describe("EVM Precompile Tester", function () {
 
             accounts = await setupSigners(await hre.ethers.getSigners())
             admin = await getAdmin()
-            const random_num = Math.floor(Math.random() * 10000)
-            denom = await createTokenFactoryTokenAndMint(`native-pointer-test-${random_num}`, 1000, accounts[0].seiAddress);
+            // The docker devnet genesis funds the admin key with uatom.
+            denom = "uatom"
+            await fundSeiAddress(accounts[0].seiAddress, "1000", denom)
         });
 
         it("Wasm Precompile Instantiate", async function () {

@@ -5,9 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
+	"runtime/debug"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -80,7 +83,12 @@ func New(
 	if err := opts.giga.Validate(); err != nil {
 		return nil, fmt.Errorf("giga config: %w", err)
 	}
-	app, storageManager, err := prepareApplication(ctx, conf, app, opts.giga)
+	applyExecutionRuntime(opts.giga.Execution)
+	genDoc, err := genesisDocument(conf, gen)
+	if err != nil {
+		return nil, err
+	}
+	app, storageManager, err := prepareApplication(ctx, conf, app, opts.giga, genDoc)
 	if err != nil {
 		return nil, err
 	}
@@ -99,13 +107,7 @@ func New(
 		return nil, fmt.Errorf("failed to load or gen node key %s: %w", conf.NodeKeyFile(), err)
 	}
 
-	var genProvider genesisDocProvider
-	switch gen {
-	case nil:
-		genProvider = defaultGenesisDocProviderFunc(conf)
-	default:
-		genProvider = func() (*tmtypes.GenesisDoc, error) { return gen, nil }
-	}
+	genProvider := func() (*tmtypes.GenesisDoc, error) { return genDoc, nil }
 
 	switch conf.Mode {
 	case config.ModeFull, config.ModeValidator:
@@ -162,11 +164,28 @@ func validateNodeSetupConfig(conf *config.Config) error {
 	return nil
 }
 
+// genesisDocument returns the genesis document the node starts from. A nil
+// document is loaded from the config's genesis file. The result is validated.
+func genesisDocument(conf *config.Config, gen *tmtypes.GenesisDoc) (*tmtypes.GenesisDoc, error) {
+	if gen == nil {
+		loaded, err := defaultGenesisDocProviderFunc(conf)()
+		if err != nil {
+			return nil, fmt.Errorf("genesisDocProvider(): %w", err)
+		}
+		gen = loaded
+	}
+	if err := gen.ValidateAndComplete(); err != nil {
+		return nil, fmt.Errorf("error in genesis doc: %w", err)
+	}
+	return gen, nil
+}
+
 func prepareApplication(
 	ctx context.Context,
 	conf *config.Config,
 	app abci.Application,
 	giga gigaconfig.Config,
+	genDoc *tmtypes.GenesisDoc,
 ) (abci.Application, utils.Option[*bootstrap.GigaStorageManager], error) {
 	noStorage := utils.None[*bootstrap.GigaStorageManager]()
 	storage := noStorage
@@ -176,7 +195,7 @@ func prepareApplication(
 		if err != nil {
 			return nil, noStorage, fmt.Errorf("load Autobahn committee: %w", err)
 		}
-		manager, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, fc, giga.Storage)
+		manager, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, fc, giga.Storage, genDoc)
 		if err != nil {
 			return nil, noStorage, fmt.Errorf("open Autobahn storage: %w", err)
 		}
@@ -204,7 +223,11 @@ func wrapApplication(
 	execution gigaconfig.ExecutionConfig,
 ) (abci.Application, error) {
 	if conf.MockApp {
-		return NewMockApp(app), nil
+		mock := NewMockApp(app)
+		if manager, ok := storage.Get(); ok {
+			mock.hashes = utils.Some(manager.AppHashBuilder())
+		}
+		return mock, nil
 	}
 	if conf.AutobahnConfigFile != "" {
 		manager, ok := storage.Get()
@@ -215,13 +238,17 @@ func wrapApplication(
 		if err != nil {
 			return nil, fmt.Errorf("load EVM-only validator set: %w", err)
 		}
+		customPrecompiles, err := evmOnlyCustomPrecompiles(committee, validators)
+		if err != nil {
+			return nil, fmt.Errorf("load EVM-only governance: %w", err)
+		}
 		logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
 		prepared, err := evmonlyapp.NewEVMOnlyApplication(
 			config.AutobahnEVMOnlyChainID,
 			validators,
 			manager,
-			evmonly.NewFlatKVChangeSetEncoder(manager.SC()),
 			execution,
+			customPrecompiles,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("restore EVM-only application: %w", err)
@@ -245,4 +272,44 @@ func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]abci.ValidatorUpd
 		validators[i] = abci.ValidatorUpdate{PubKey: crypto.PubKeyToProto(key), Power: 1}
 	}
 	return validators, nil
+}
+
+// evmOnlyCustomPrecompiles returns the gov precompile registry when the
+// committee sets evm_governance, with each validator's evm_voter voting at that
+// validator's power.
+func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []abci.ValidatorUpdate) (utils.Option[precompiles.Registry], error) {
+	governance, ok := fc.EVMGovernance.Get()
+	if !ok {
+		return utils.None[precompiles.Registry](), nil
+	}
+	electorate := make(gov.GenesisElectorate, len(fc.Validators))
+	for i, validator := range fc.Validators {
+		voter, ok := validator.EVMVoter.Get()
+		if !ok {
+			return utils.None[precompiles.Registry](), fmt.Errorf("validator %d is missing evm_voter", i)
+		}
+		electorate[voter] = big.NewInt(validators[i].Power)
+	}
+	params, err := governance.Params.Gov()
+	if err != nil {
+		return utils.None[precompiles.Registry](), err
+	}
+	return utils.Some(evmonlyapp.NewGovRegistry(params, governance.StartingProposalID, electorate)), nil
+}
+
+// applyExecutionRuntime raises the GC target for a load test. The heap is then capped at 80% of
+// the container limit, so a late collection is an ordinary GC rather than an OOM kill.
+func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
+	if cfg.GCPercent <= 0 {
+		return
+	}
+	debug.SetGCPercent(cfg.GCPercent)
+	limit := containerMemoryLimit() / 10 * 8
+	// A limit the operator set through GOMEMLIMIT is only ever lowered, never raised.
+	if limit <= 0 || limit >= debug.SetMemoryLimit(-1) {
+		logger.Info("raised the Go GC target", "gc_percent", cfg.GCPercent)
+		return
+	}
+	debug.SetMemoryLimit(limit)
+	logger.Info("raised the Go GC target", "gc_percent", cfg.GCPercent, "memory_limit", limit)
 }

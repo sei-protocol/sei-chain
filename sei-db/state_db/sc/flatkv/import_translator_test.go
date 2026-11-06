@@ -69,7 +69,7 @@ func TestImportTranslator_CodeEntry(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pairs, 1)
 
-	expectedKey := ktype.EVMPhysicalKey(keys.EVMKeyCode, addr[:])
+	expectedKey := ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, addr[:])
 	require.Equal(t, expectedKey, pairs[0].Key)
 
 	got, err := vtype.DeserializeCodeData(pairs[0].Value)
@@ -96,7 +96,7 @@ func TestImportTranslator_MiscEntryWithinEVMModule(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pairs, 1)
 
-	expectedKey := ktype.ModulePhysicalKey(keys.EVMStoreKey, rawKey)
+	expectedKey := ktype.BuildPhysicalKey(keys.EVMStoreKey, rawKey)
 	require.Equal(t, expectedKey, pairs[0].Key)
 
 	got, err := vtype.DeserializeMiscData(pairs[0].Value)
@@ -123,7 +123,7 @@ func TestImportTranslator_NonEVMModuleRoutesToMisc(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pairs, 1)
 
-	expectedKey := ktype.ModulePhysicalKey("bank", rawKey)
+	expectedKey := ktype.BuildPhysicalKey("bank", rawKey)
 	require.Equal(t, expectedKey, pairs[0].Key)
 
 	got, err := vtype.DeserializeMiscData(pairs[0].Value)

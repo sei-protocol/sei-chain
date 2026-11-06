@@ -22,7 +22,7 @@ func TestHandlerServesNetVersion(t *testing.T) {
 	backend := &testBackend{
 		chainID: func() uint64 { return 1329 },
 	}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)

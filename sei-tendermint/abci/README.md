@@ -13,13 +13,12 @@ The community has provided a number of additional implementations, see the [Tend
 
 ## Installation & Usage
 
-To get up and running quickly, see the [getting started guide](../docs/app-dev/getting-started.md) along with the [abci-cli documentation](../docs/app-dev/abci-cli.md) which will go through the examples found in the [examples](./example/) directory.
+See the [examples](./example/) directory for sample ABCI applications.
 
 ## Specification
 
 A detailed description of the ABCI methods and message types is contained in:
 
-- [The main spec](../spec/abci/abci.md)
 - [A protobuf file](../proto/tendermint/abci/types.proto)
 - [A Go interface](./types/application.go)
 
@@ -28,7 +27,7 @@ A detailed description of the ABCI methods and message types is contained in:
 To compile the protobuf file, run (from the root of the repo):
 
 ```sh
-make protoc_abci
+./scripts/protoc.sh
 ```
 
 See `protoc --help` and [the Protocol Buffers site](https://developers.google.com/protocol-buffers)

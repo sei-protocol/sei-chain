@@ -111,7 +111,7 @@ var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 	Encode: func(m *handshakeMsg) *pb.Handshake {
 		var selfAddr *string
 		if addr, ok := m.SelfAddr.Get(); ok {
-			selfAddr = utils.Alloc(addr.String())
+			selfAddr = new(addr.String())
 		}
 		pexAddrs := make([]string, len(m.PexAddrs))
 		for i, addr := range m.PexAddrs {
@@ -127,7 +127,7 @@ var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 		if claim, ok := m.GigaClaim.Get(); ok {
 			out.ValidatorAuthKey = claim.Validator.Bytes()
 			out.ValidatorAuthSig = claim.sig.Bytes()
-			out.EvmRpc = utils.Alloc(claim.evmRPC)
+			out.EvmRpc = new(claim.evmRPC)
 		}
 		return out
 	},
@@ -192,7 +192,7 @@ func decodeGigaClaim(p *pb.Handshake) (utils.Option[gigaHandshakeClaim], error) 
 	if err != nil {
 		return utils.None[gigaHandshakeClaim](), fmt.Errorf("EvmRpc: %w", err)
 	}
-	if err := utils.CheckHTTPURL(*u); err != nil {
+	if err := utils.CheckRPCURL(*u); err != nil {
 		return utils.None[gigaHandshakeClaim](), fmt.Errorf("EvmRpc: %w", err)
 	}
 	return utils.Some(gigaHandshakeClaim{

@@ -2,6 +2,7 @@ package evmrpc_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -256,6 +258,112 @@ func TestSubscribeNewLogs(t *testing.T) {
 			}
 			return
 		}
+	}
+}
+
+// dialLogsSubscriptions serves eth_subscribe("logs") from fetcher in-process and returns a client
+// connected to it.
+func dialLogsSubscriptions(t *testing.T, fetcher *evmrpc.LogFetcher) *rpc.Client {
+	t.Helper()
+	server := rpc.NewServer()
+	require.NoError(t, server.RegisterName("eth", evmrpc.NewLogsSubscriptionAPIForTest(fetcher, 10)))
+	client := rpc.DialInProc(server)
+	t.Cleanup(func() {
+		client.Close()
+		server.Stop()
+	})
+	return client
+}
+
+// subscribeLogs subscribes client to the logs crit matches and returns the raw notifications.
+func subscribeLogs(t *testing.T, client *rpc.Client, crit map[string]interface{}) <-chan json.RawMessage {
+	t.Helper()
+	notifications := make(chan json.RawMessage, 16)
+	sub, err := client.EthSubscribe(t.Context(), notifications, "logs", crit)
+	require.NoError(t, err)
+	t.Cleanup(sub.Unsubscribe)
+	return notifications
+}
+
+// TestSubscribeLogsNotifiesAnOversizedBlock asserts that a logs subscription
+// reaching a block whose logs alone exceed the log caps notifies an error that
+// names the block.
+func TestSubscribeLogsNotifiesAnOversizedBlock(t *testing.T) {
+	t.Parallel()
+	match := common.HexToAddress(LogCapAddr)
+	topic := common.HexToHash(LogCapBlockHash)
+	candidates := buildRangeCapCandidates(5, uint64(rangeCapTestHeight), match, topic, nil)
+	fixture := setupRangeCapFixture(t, 5, candidates, evmrpc.FilterConfigTest{
+		MaxLog:   1,
+		MaxBlock: evmrpc.DefaultMaxBlockRange,
+	})
+
+	notifications := subscribeLogs(t, dialLogsSubscriptions(t, fixture.fetcher), map[string]interface{}{
+		"fromBlock": hexutil.EncodeUint64(uint64(rangeCapTestHeight)),
+		"address":   match,
+	})
+
+	select {
+	case raw := <-notifications:
+		var notification map[string]string
+		require.NoError(t, json.Unmarshal(raw, &notification), "notification %s", raw)
+		require.Equal(t, hexutil.EncodeUint64(uint64(rangeCapTestHeight)), notification["blockNumber"], "notification %s", raw)
+		require.Contains(t, notification["error"], fmt.Sprintf("logs of block %d skipped", rangeCapTestHeight))
+		require.Contains(t, notification["error"], "too many logs")
+		require.Len(t, notification, 2, "notification %s", raw)
+	case <-time.After(10 * time.Second):
+		t.Fatal("no notification for the oversized block")
+	}
+}
+
+// TestSubscribeLogsStartsAfterTheHead asserts that a logs subscription with an
+// omitted fromBlock, or with the fromBlock 0 to latest range ethclient sends
+// for an open-ended query, does not deliver the logs of the head block at
+// subscription, while a numeric fromBlock at that block does.
+func TestSubscribeLogsStartsAfterTheHead(t *testing.T) {
+	t.Parallel()
+	const headLogs = 2
+	match := common.HexToAddress(LogCapAddr)
+	topic := common.HexToHash(LogCapBlockHash)
+	candidates := buildRangeCapCandidates(headLogs, uint64(rangeCapTestHeight), match, topic, nil)
+	fixture := setupRangeCapFixture(t, headLogs, candidates, evmrpc.FilterConfigTest{
+		MaxLog:   10,
+		MaxBlock: evmrpc.DefaultMaxBlockRange,
+	})
+	client := dialLogsSubscriptions(t, fixture.fetcher)
+
+	atHead := subscribeLogs(t, client, map[string]interface{}{
+		"fromBlock": hexutil.EncodeUint64(uint64(rangeCapTestHeight)),
+		"address":   match,
+	})
+	omitted := subscribeLogs(t, client, map[string]interface{}{"address": match})
+	openEnded := subscribeLogs(t, client, map[string]interface{}{
+		"fromBlock": "0x0",
+		"toBlock":   "latest",
+		"address":   match,
+	})
+
+	for range headLogs {
+		select {
+		case raw := <-atHead:
+			var log struct {
+				BlockNumber hexutil.Uint64 `json:"blockNumber"`
+			}
+			require.NoError(t, json.Unmarshal(raw, &log), "notification %s", raw)
+			require.Equal(t, hexutil.Uint64(rangeCapTestHeight), log.BlockNumber)
+		case <-time.After(10 * time.Second):
+			t.Fatal("no log for the subscription from the head block")
+		}
+	}
+
+	// Each subscription polls as soon as it is created, so the others have had as long as the
+	// one above to deliver the head block.
+	select {
+	case raw := <-omitted:
+		t.Fatalf("subscription with an omitted fromBlock delivered %s", raw)
+	case raw := <-openEnded:
+		t.Fatalf("subscription from block 0 to latest delivered %s", raw)
+	case <-time.After(time.Second):
 	}
 }
 

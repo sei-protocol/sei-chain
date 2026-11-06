@@ -5,6 +5,8 @@ import (
 	"errors"
 	"math/big"
 	"sync"
+	"testing"
+	"time"
 
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -16,7 +18,9 @@ import (
 	cosmoclient "github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // HoldSimulationSlotsForTest occupies simulation request slots until the returned function is called.
@@ -64,6 +68,16 @@ func NewFilterConfigForTest(cfg FilterConfigTest) *FilterConfig {
 	return filterCfg
 }
 
+// NewBlockFilterAPIForTest returns a FilterAPI without a blockHeaderNotifier that reads blocks
+// from tmClient and the earliest and latest heights from heightClient.
+func NewBlockFilterAPIForTest(t *testing.T, tmClient, heightClient cosmoclient.LocalClient) *FilterAPI {
+	return newTestFilterAPIWithClient(t, nil, &FilterConfig{
+		timeout:              time.Hour,
+		maxFilters:           DefaultMaxFilters,
+		maxBlockFilterHashes: DefaultMaxBlockFilterHashes,
+	}, tmClient, heightClient, 1<<40)
+}
+
 // LogFetcherTestDeps wires a LogFetcher for range-path integration tests.
 type LogFetcherTestDeps struct {
 	TmClient                 cosmoclient.LocalClient
@@ -107,14 +121,22 @@ func NewLogFetcherForTest(deps LogFetcherTestDeps) *LogFetcher {
 	}
 }
 
-// GetLogsByFiltersWithBackoffForTest exposes the polling-path overflow-backoff
-// wrapper for integration tests.
-func (f *LogFetcher) GetLogsByFiltersWithBackoffForTest(
+// PollLogsForTest exposes the log-filter poll step for integration tests.
+func (f *LogFetcher) PollLogsForTest(
 	ctx context.Context,
 	crit filters.FilterCriteria,
-	lastToHeight int64,
+	cursor int64,
 ) ([]*ethtypes.Log, int64, error) {
-	return f.getLogsByFiltersWithBackoff(ctx, crit, lastToHeight)
+	return f.pollLogs(ctx, crit, cursor, nil)
+}
+
+// NewLogsSubscriptionAPIForTest returns a SubscriptionAPI that serves eth_subscribe("logs") from
+// logFetcher, admitting up to logLimit concurrent logs subscriptions.
+func NewLogsSubscriptionAPIForTest(logFetcher *LogFetcher, logLimit uint64) *SubscriptionAPI {
+	return &SubscriptionAPI{
+		logFetcher:        logFetcher,
+		subscriptonConfig: &SubscriptionConfig{logLimit: logLimit},
+	}
 }
 
 // TryFilterLogsRangeForTest exposes the litt range-query path for integration tests.
@@ -166,4 +188,10 @@ func (i *InfoAPI) GasPriceHelperForTest(ctx context.Context, baseFee *big.Int, t
 // CalculateGasUsedRatioForTest exposes calculateGasUsedRatio for integration tests in evmrpc_test.
 func (i *InfoAPI) CalculateGasUsedRatioForTest(ctx context.Context, blockHeight int64) (float64, error) {
 	return i.calculateGasUsedRatio(ctx, blockHeight)
+}
+
+// EncodeReceiptForTest exposes encodeReceipt, the eth_getTransactionReceipt encoder, so tests can
+// compare eth_getBlockReceipts bodies against it.
+func EncodeReceiptForTest(ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) cosmoclient.TxConfig, receipt *evmtypes.Receipt, k *keeper.Keeper, block *coretypes.ResultBlock, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) (map[string]any, error) {
+	return encodeReceipt(ctxProvider, txConfigProvider, receipt, k, block, false, globalBlockCache, cacheCreationMutex)
 }

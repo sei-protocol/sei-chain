@@ -375,7 +375,7 @@ func TestAdditionalReceiptHandlersReturnDeadlineExceededDuringRead(t *testing.T)
 					Watermarks:       watermarks,
 				})
 				blockHash := common.Hash{31: 1}
-				_, _, err := fetcher.GetLogsByFilters(ctx, filters.FilterCriteria{BlockHash: &blockHash}, 0)
+				_, _, err := fetcher.GetLogsByFilters(ctx, filters.FilterCriteria{BlockHash: &blockHash})
 				return err
 			},
 		},
@@ -429,7 +429,7 @@ func TestLogFilteringDoesNotReturnNonRequestWorkerErrors(t *testing.T) {
 	})
 	blockHash := common.Hash{31: 1}
 
-	logs, _, err := fetcher.GetLogsByFilters(t.Context(), filters.FilterCriteria{BlockHash: &blockHash}, 0)
+	logs, _, err := fetcher.GetLogsByFilters(t.Context(), filters.FilterCriteria{BlockHash: &blockHash})
 
 	require.NoError(t, err)
 	require.Empty(t, logs)

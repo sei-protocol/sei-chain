@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
 	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -20,7 +22,7 @@ var logger = seilog.NewLogger("db", "gc")
 // old snapshots/checkpoints and history data based on RollbackWindow and LookbackWindow setting.
 type StorageGarbageCollector struct {
 	config *config.StorageGarbageCollectorConfig
-	stores []PrunableStore
+	stores []controllertypes.PrunableStore
 	ctx    context.Context
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -31,7 +33,7 @@ type StorageGarbageCollector struct {
 func NewStorageGarbageCollector(
 	ctx context.Context,
 	cfg *config.StorageGarbageCollectorConfig,
-	stores []PrunableStore,
+	stores []controllertypes.PrunableStore,
 ) (*StorageGarbageCollector, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("context is required")
@@ -85,7 +87,7 @@ func (s *StorageGarbageCollector) run() {
 //  3. historyCutLine = snapshotCutLine - LookbackWindow, or 0 when LookbackWindow is -1
 //  4. every store reporting ExternalPruning gets PruneSnapshots(snapshotCutLine), then
 //     PruneHistory(historyCutLine)
-func prune(cfg *config.StorageGarbageCollectorConfig, stores []PrunableStore) error {
+func prune(cfg *config.StorageGarbageCollectorConfig, stores []controllertypes.PrunableStore) error {
 	if len(stores) == 0 {
 		return nil
 	}
@@ -115,7 +117,7 @@ func prune(cfg *config.StorageGarbageCollectorConfig, stores []PrunableStore) er
 // pruneStores issues the cycle's deletions: snapshots below snapshotHeight and history below
 // historyHeight. A height of 0 is skipped, and a store that prunes itself is left alone.
 func pruneStores(
-	stores []PrunableStore,
+	stores []controllertypes.PrunableStore,
 	decisions []storeDecision,
 	snapshotHeight uint64,
 	historyHeight uint64,
@@ -138,7 +140,7 @@ func pruneStores(
 
 // pruneStore removes one store's snapshots below snapshotHeight and its history below historyHeight,
 // skipping a height of 0. A failure to prune snapshots does not stop history from being pruned.
-func pruneStore(store PrunableStore, snapshotHeight uint64, historyHeight uint64) error {
+func pruneStore(store controllertypes.PrunableStore, snapshotHeight uint64, historyHeight uint64) error {
 	var errs error
 	if snapshotHeight > 0 {
 		if err := store.PruneSnapshots(snapshotHeight); err != nil {
@@ -163,7 +165,7 @@ type storeDecision struct {
 
 // describeDecisions renders one "name=floor" entry per store, in store order, for the prune log. A
 // store that prunes itself is tagged selfPruned.
-func describeDecisions(stores []PrunableStore, decisions []storeDecision) string {
+func describeDecisions(stores []controllertypes.PrunableStore, decisions []storeDecision) string {
 	var sb strings.Builder
 	for i, store := range stores {
 		if i > 0 {

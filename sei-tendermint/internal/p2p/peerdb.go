@@ -11,7 +11,6 @@ import (
 	"github.com/google/orderedcode"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	p2pproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -57,7 +56,7 @@ func peerDBRowFromBytes(buf []byte) (peerDBRow, error) {
 func (r peerDBRow) ToProto() *p2pproto.PeerInfo {
 	return &p2pproto.PeerInfo{
 		ID:            string(r.Addr.NodeID),
-		LastConnected: utils.Alloc(r.LastConnected),
+		LastConnected: new(r.LastConnected),
 		AddressInfo:   []*p2pproto.PeerAddressInfo{{Address: r.Addr.String()}},
 	}
 }

@@ -3,27 +3,20 @@ package cmd
 import (
 	"context"
 	"io"
-	"os"
-	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 
-	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
-// The rest of this package's config tests call LegacyConfigManager.Apply directly,
-// which isolates the resolution. This file drives the seam as seid actually wires it:
-// the root command's PersistentPreRunE, where two decisions are made before Apply is
-// ever reached.
-//
-// Which manager runs comes from SEI_CONFIG_MANAGER through Select, read once per
-// invocation. And whether Apply runs at all comes from a prefix match on the
-// subcommand's Use string. Both are the seam's own contract rather than
-// configuration values, and neither is observable from Apply.
+// The rest of this package's config tests call server.InterceptConfigsPreRunHandler
+// (Apply) directly, which isolates the resolution. This file drives the seam as seid
+// actually wires it: the root command's PersistentPreRunE, which decides whether Apply
+// runs at all from a prefix match on the subcommand's Use string. That is the seam's
+// own contract rather than a configuration value, and it is not observable from Apply.
 
 // runRootPreRun builds a real root command, resolves the named subcommand, and runs
 // the root's PersistentPreRunE against it — the same call seid makes for every
@@ -139,140 +132,4 @@ func TestPreRunSkipsConfigForInitPrefixedSubcommands(t *testing.T) {
 			t.Fatal("a command whose Use starts with init must skip Apply under the prefix match")
 		}
 	})
-}
-
-// FuzzPreRunManagerSelection pins the manager gate at its real call site.
-//
-// Select is read once per PersistentPreRunE from SEI_CONFIG_MANAGER, matched exactly:
-// unset and "legacy" run the legacy path, "v2" selects the new manager, and anything
-// else is a hard error. No trimming, no case folding, and deliberately no fallback —
-// a typo'd value stops the command rather than quietly booting the wrong manager,
-// which is what makes the flag safe to leave in a deployment.
-//
-// What the gate does is all this pins. The v2 body is advisory, so it validates the
-// config, logs what it finds, and re-enters the legacy reader on the operator's own
-// files, which means an accepted value boots exactly as legacy does. The observable
-// difference is therefore acceptance versus rejection rather than which manager ran,
-// and the legacy-vs-v2 differential is what proves the two produce the same channels.
-func FuzzPreRunManagerSelection(f *testing.F) {
-	f.Add("")
-	f.Add("legacy")
-	f.Add("v2")
-	f.Add("V2")      // case-sensitive
-	f.Add(" v2")     // not trimmed
-	f.Add("legacy ") // not trimmed
-	f.Add("v3")
-	f.Add("sei")
-
-	f.Fuzz(func(t *testing.T, value string) {
-		if !configtest.EnvValueIsSettable(value) {
-			return
-		}
-		configtest.Isolate(t)
-		home := configtest.NewHome(t)
-
-		if value != "" {
-			if err := os.Setenv(configmanager.EnvVar, value); err != nil {
-				t.Fatalf("set %s: %v", configmanager.EnvVar, err)
-			}
-		}
-
-		serverCtx, err := runRootPreRun(t, home, "start")
-
-		switch value {
-		case "", "legacy":
-			if err != nil {
-				t.Fatalf("%s=%q selects the legacy manager and must boot, got %v",
-					configmanager.EnvVar, value, err)
-			}
-			if serverCtx.Viper == nil {
-				t.Fatal("the legacy manager must populate the boot channels")
-			}
-		case "v2":
-			if err != nil {
-				t.Fatalf("%s=%q selects the v2 manager, which validates advisorily and re-enters "+
-					"the legacy reader, so it must boot, got %v", configmanager.EnvVar, value, err)
-			}
-			if serverCtx.Viper == nil {
-				t.Fatal("the v2 manager must populate the boot channels")
-			}
-		default:
-			if err == nil {
-				t.Fatalf("%s=%q is not a legal value and must be a hard error, never a silent "+
-					"fallback to legacy", configmanager.EnvVar, value)
-			}
-			if !strings.Contains(err.Error(), "invalid") {
-				t.Fatalf("an illegal value must be reported as invalid, got %v", err)
-			}
-			if serverCtx.Viper != nil {
-				t.Fatalf("%s=%q was rejected, so no manager may have populated the boot channels",
-					configmanager.EnvVar, value)
-			}
-		}
-	})
-}
-
-// TestPreRunReadsTheManagerGatePerInvocation pins the gate's read discipline: exactly
-// one read per Select, and a fresh read on every invocation.
-//
-// The design calls this out as load-bearing because both halves can fail in opposite
-// directions. Reading twice within one invocation would let a variable that changed
-// mid-command select two managers for one boot. Reading once per *process* — a memoized
-// or sync.Once'd gate — would pin the whole process to whatever the first command saw,
-// so a later command could not change managers at all. A future `seid config` subtree
-// that skips PersistentPreRunE has to re-own both.
-//
-// The second half is what makes this falsifiable. Setting the variable after
-// PersistentPreRunE has returned and observing that the resolved channels did not
-// change asserts nothing: no implementation could fail it, since nothing reads the gate
-// after the call completes. Two invocations with different values in one process can
-// fail, and they fail exactly when the gate has been cached.
-func TestPreRunReadsTheManagerGatePerInvocation(t *testing.T) {
-	configtest.Isolate(t)
-
-	var reads []string
-	getenv := func(key string) string {
-		if key == configmanager.EnvVar {
-			reads = append(reads, key)
-		}
-		return ""
-	}
-	if _, err := configmanager.Select(getenv); err != nil {
-		t.Fatalf("Select: %v", err)
-	}
-	if len(reads) != 1 {
-		t.Fatalf("Select consulted the environment %d times, want exactly 1", len(reads))
-	}
-
-	// First invocation: the gate is unset, so the legacy manager runs and populates.
-	first, err := runRootPreRun(t, configtest.NewHome(t), "start")
-	if err != nil {
-		t.Fatalf("with %s unset the first invocation must boot legacy, got %v",
-			configmanager.EnvVar, err)
-	}
-	if first.Viper == nil {
-		t.Fatal("the legacy manager must populate the boot channels")
-	}
-
-	// Second invocation in the same process, gate now set to a value the gate rejects.
-	// The rejection is the observable, and it belongs to the gate rather than to any
-	// manager's body: a cached answer would boot legacy cleanly here instead of failing.
-	// A legal "v2" cannot serve that purpose, because the v2 body is advisory and boots
-	// identically to legacy, so it would leave a re-read and a cached answer
-	// indistinguishable from outside.
-	if err := os.Setenv(configmanager.EnvVar, "v3"); err != nil {
-		t.Fatalf("set %s: %v", configmanager.EnvVar, err)
-	}
-	second, secondErr := runRootPreRun(t, configtest.NewHome(t), "start")
-	if secondErr == nil {
-		t.Fatalf("the second invocation has %s=v3, which the gate rejects, so it must fail. It "+
-			"booted cleanly instead, so the gate is being cached across invocations and one "+
-			"process can no longer change managers between commands", configmanager.EnvVar)
-	}
-	if !strings.Contains(secondErr.Error(), configmanager.EnvVar) {
-		t.Fatalf("the rejection must name the gate, got %v", secondErr)
-	}
-	if second.Viper != nil {
-		t.Fatal("a rejected invocation must leave the boot channels unpopulated")
-	}
 }

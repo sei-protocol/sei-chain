@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -34,16 +35,16 @@ func fullScanModuleLtHash(t *testing.T, db types.KeyValueDB) map[string]*lthash.
 	require.NoError(t, err)
 	defer iter.Close()
 
-	byModule := make(map[string][]lthash.KeyMutation)
+	byModule := make(map[string][]mutation.Mutation)
 	for ; iter.Valid(); iter.Next() {
 		if ktype.IsMetaKey(iter.Key()) {
 			continue
 		}
 		module, _, err := ktype.StripModulePrefix(iter.Key())
 		require.NoError(t, err)
-		byModule[module] = append(byModule[module], lthash.KeyMutation{
-			Key:   bytes.Clone(iter.Key()),
-			Value: bytes.Clone(iter.Value()),
+		byModule[module] = append(byModule[module], mutation.Mutation{
+			Key:      bytes.Clone(iter.Key()),
+			NewValue: bytes.Clone(iter.Value()),
 		})
 	}
 	require.NoError(t, iter.Error())
@@ -272,7 +273,7 @@ func TestPerModuleLtHashAfterImport(t *testing.T) {
 		// A non-EVM module row goes to miscDB under "gov/".
 		govVal := vtype.NewMiscData().SetBlockHeight(1).SetValue([]byte{i, 0xC0}).Serialize()
 		nodes = append(nodes, &scTypes.SnapshotNode{
-			Key:     ktype.ModulePhysicalKey("gov", []byte{i}),
+			Key:     ktype.BuildPhysicalKey("gov", []byte{i}),
 			Value:   govVal,
 			Version: 1,
 		})
@@ -324,12 +325,12 @@ func TestPerModuleLtHashStateSyncImportSurvivesRestart(t *testing.T) {
 		govVal := vtype.NewMiscData().SetBlockHeight(7).SetValue([]byte{i, 0xC0}).Serialize()
 		bankVal := vtype.NewMiscData().SetBlockHeight(7).SetValue([]byte{i, 0xD0}).Serialize()
 		nodes = append(nodes, &scTypes.SnapshotNode{
-			Key:     ktype.ModulePhysicalKey("gov", []byte{i}),
+			Key:     ktype.BuildPhysicalKey("gov", []byte{i}),
 			Value:   govVal,
 			Version: 7,
 		})
 		nodes = append(nodes, &scTypes.SnapshotNode{
-			Key:     ktype.ModulePhysicalKey("bank", []byte{i}),
+			Key:     ktype.BuildPhysicalKey("bank", []byte{i}),
 			Value:   bankVal,
 			Version: 7,
 		})

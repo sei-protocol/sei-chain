@@ -13,8 +13,10 @@ import (
 )
 
 var (
-	ParamStoreKeyUploadAccess      = []byte("uploadAccess")
-	ParamStoreKeyInstantiateAccess = []byte("instantiateAccess")
+	ParamStoreKeyUploadAccess               = []byte("uploadAccess")
+	ParamStoreKeyInstantiateAccess          = []byte("instantiateAccess")
+	ParamStoreKeyMsgExecuteContractDisabled = []byte("msgExecuteContractDisabled")
+	ParamStoreKeyContractExecutionDisabled  = []byte("contractExecutionDisabled")
 )
 
 var AllAccessTypes = []AccessType{
@@ -109,6 +111,8 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(ParamStoreKeyUploadAccess, &p.CodeUploadAccess, validateAccessConfig),
 		paramtypes.NewParamSetPair(ParamStoreKeyInstantiateAccess, &p.InstantiateDefaultPermission, validateAccessType),
+		paramtypes.NewParamSetPair(ParamStoreKeyMsgExecuteContractDisabled, &p.MsgExecuteContractDisabled, validateBool),
+		paramtypes.NewParamSetPair(ParamStoreKeyContractExecutionDisabled, &p.ContractExecutionDisabled, validateBool),
 	}
 }
 
@@ -145,6 +149,13 @@ func validateAccessType(i interface{}) error {
 		}
 	}
 	return sdkerrors.Wrapf(ErrInvalid, "unknown type: %q", a)
+}
+
+func validateBool(i interface{}) error {
+	if _, ok := i.(bool); !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+	return nil
 }
 
 func (a AccessConfig) ValidateBasic() error {

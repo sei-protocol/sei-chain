@@ -1,20 +1,14 @@
 package lthash
 
+import "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
+
 // The vocabulary shared by everything that hashes a block: the engine's inputs, its per-module
 // intermediates, and the state it produces.
-
-// KeyMutation holds a KV change for LtHash computation.
-type KeyMutation struct {
-	Key       []byte
-	Value     []byte
-	LastValue []byte // Previous value (nil for new keys)
-	Delete    bool   // If true, only remove last value
-}
 
 // DatabaseMutations is everything one database changed in a block.
 type DatabaseMutations struct {
 	DBName    string
-	Mutations []KeyMutation
+	Mutations []mutation.Mutation
 }
 
 // ModuleParser extracts the owning module name from a physical key. Injected by

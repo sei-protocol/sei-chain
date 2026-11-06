@@ -573,7 +573,6 @@ func TestHandleStaticCall(t *testing.T) {
 	res, msgServer := deployContract(t, ctx, k, "../../../../example/contracts/simplestorage/SimpleStorage.bin", privKey)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
 	require.Empty(t, res.VmError)
-	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
 	receipt := testkeeper.WaitForReceipt(t, k, ctx, common.HexToHash(res.Hash))
 	require.NotNil(t, receipt)

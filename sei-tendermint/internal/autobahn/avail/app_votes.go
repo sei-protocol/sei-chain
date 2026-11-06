@@ -46,7 +46,7 @@ func (r *road) pushAppVote(vote *types.Signed[*types.AppVote]) bool {
 	if !ok {
 		if len(r.appByHash) == 1 {
 			// Log an error just at the first conflicting hash.
-			logger.Error("appHash mismatch", slog.Uint64("n", uint64(vote.Msg().Proposal().RoadIndex())))
+			logger.Error("appHash mismatch", slog.Uint64("n", uint64(vote.Msg().Proposal().Index())))
 		}
 		byHash = &voteSet[*types.Signed[*types.AppVote]]{}
 		r.appByHash[vote.Hash()] = byHash

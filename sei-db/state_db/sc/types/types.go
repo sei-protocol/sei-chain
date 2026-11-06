@@ -131,6 +131,11 @@ type Committer interface {
 	// must not be used after Close.
 	GetChildStoreByName(name string) CommitKVStore
 
+	// MayHoldStore reports whether the working state may hold data for the
+	// named store, whether or not any store is mounted for it. False is exact;
+	// true may be conservative for a backend that cannot answer precisely.
+	MayHoldStore(name string) bool
+
 	// Copy returns an in-memory snapshot of the current committer state.
 	// O(1) for memiavl. Returns nil when the backend can't produce one
 	// (e.g. flatkv) — callers should treat nil as "snapshot unavailable"

@@ -34,6 +34,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	govkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
+	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -386,6 +387,9 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found
 	receipt, err := readStoreAtHeight(ctx, LatestCtxHeight, b.ctxProvider, func(sdkCtx sdk.Context) (*types.Receipt, error) {
 		return b.keeper.GetReceipt(sdkCtx, txHash)
 	})
+	if errors.Is(err, receiptpkg.ErrNotFound) {
+		return false, nil, common.Hash{}, 0, 0, nil
+	}
 	if err != nil {
 		return false, nil, common.Hash{}, 0, 0, err
 	}
@@ -432,21 +436,13 @@ func (b *Backend) GetCanonicalTransaction(txHash common.Hash) (bool, *ethtypes.T
 	return true, tx, blockHash, blockNumber, index
 }
 
-// TxIndexDone reports whether transaction indexing is complete; it is always false.
+// TxIndexDone reports true, so an unknown transaction hash reads as not found.
 func (b *Backend) TxIndexDone() bool {
-	// A transaction that cannot be found is then reported as a tx-indexing error.
-	return false
+	return true
 }
 
 func (b *Backend) ChainDb() ethdb.Database {
 	panic("implement me")
-}
-
-func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) (int64, error) {
-	if bn == rpc.PendingBlockNumber {
-		return 0, errors.New("tracing on pending block is not supported")
-	}
-	return resolveHeight(context.Background(), b.tmClient, b.ctxProvider(LatestCtxHeight).BlockHeight(), bn)
 }
 
 func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, error) {
@@ -460,11 +456,11 @@ func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.B
 }
 
 func (b Backend) BlockWithTraceMetadataByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
-	blockNum, err := b.ConvertBlockNumber(bn)
+	heightPtr, err := getBlockNumber(ctx, b.tmClient, bn)
 	if err != nil {
 		return nil, nil, err
 	}
-	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNum, 1)
+	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, heightPtr, 1)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -829,7 +825,7 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 	}
 	height := h.Number.Int64()
 	chainCfg := b.chainConfigForHeight(height)
-	evm := vm.NewEVMWithCustomPrecompiles(*blockCtx, stateDB, chainCfg, *vmConfig, b.keeper.CustomPrecompiles(b.ctxProvider(height)))
+	evm := vm.NewEVMWithCustomPrecompiles(*blockCtx, stateDB, chainCfg, *vmConfig, b.keeper.CustomPrecompiles())
 	evm.SetTxContext(txContext)
 	return evm
 }
@@ -916,8 +912,8 @@ func (b *Backend) getHeader(tmBlock *coretypes.ResultBlock) *ethtypes.Header {
 	return header
 }
 
-func (b *Backend) GetCustomPrecompiles(h int64) map[common.Address]vm.CustomPrecompiledContract {
-	return b.keeper.CustomPrecompiles(b.ctxProvider(h))
+func (b *Backend) GetCustomPrecompiles(int64) map[common.Address]vm.CustomPrecompiledContract {
+	return b.keeper.CustomPrecompiles()
 }
 
 func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error {

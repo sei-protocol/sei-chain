@@ -2,6 +2,8 @@ package flatkv
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -81,6 +83,68 @@ func (v *flatKVStateView) Get(module string, key []byte) ([]byte, bool) {
 	default:
 		panic(fmt.Sprintf("flatkv: Get unsupported key type: %v", kind))
 	}
+}
+
+// GetRaw returns the bytes stored under a physical key in this block, and whether it was found. It
+// panics on a key under the store's metadata prefix.
+func (v *flatKVStateView) GetRaw(key []byte) ([]byte, bool) {
+	dbView, err := v.storeViewFor(key)
+	if err != nil {
+		panic(err)
+	}
+	value, found, err := dbView.Get(key, true)
+	if err != nil {
+		panic(fmt.Sprintf("flatkv: %s read of key %x at height %d: %v",
+			dbView.Name(), key, v.blockView.BlockHeight(), err))
+	}
+	return value, found
+}
+
+// BatchGetRaw returns the bytes stored in this block under each found physical key, keyed by string(key).
+// It panics on a key under the store's metadata prefix.
+func (v *flatKVStateView) BatchGetRaw(keys [][]byte) map[string][]byte {
+	// There are at most four stores, so a list searched linearly beats a map keyed by store.
+	var batches []storeBatch
+	for k, key := range keys {
+		dbView, err := v.storeViewFor(key)
+		if err != nil {
+			panic(err)
+		}
+		i := slices.IndexFunc(batches, func(b storeBatch) bool { return b.dbView == dbView })
+		if i < 0 {
+			i = len(batches)
+			// Sized for every remaining key, since a batch's keys usually all belong to one store.
+			batches = append(batches, storeBatch{dbView: dbView, keys: make([][]byte, 0, len(keys)-k)})
+		}
+		batches[i].keys = append(batches[i].keys, key)
+	}
+
+	// Each store's answer is a map of its own, so the largest one collects the others rather than all of
+	// them being copied into a new one. A batch within one store returns that store's answer as is.
+	var values map[string][]byte
+	for _, batch := range batches {
+		found, err := batch.dbView.BatchGet(batch.keys)
+		if err != nil {
+			panic(fmt.Sprintf("flatkv: %s batch read of %d keys at height %d: %v",
+				batch.dbView.Name(), len(batch.keys), v.blockView.BlockHeight(), err))
+		}
+		if len(found) > len(values) {
+			values, found = found, values
+		}
+		maps.Copy(values, found)
+	}
+	if values == nil {
+		return map[string][]byte{}
+	}
+	return values
+}
+
+// storeBatch is the keys of one BatchGetRaw() call that belong to one store.
+type storeBatch struct {
+	// The view of the store the keys belong to.
+	dbView view.View
+	// The keys, in the order they were requested.
+	keys [][]byte
 }
 
 // AccountExists reports whether addr has an account in this block.
@@ -243,7 +307,7 @@ func (v *flatKVStateView) codeData(keyBytes []byte) *vtype.CodeData {
 
 // miscValue returns the value stored under keyBytes in the named module, and whether it was found.
 func (v *flatKVStateView) miscValue(module string, keyBytes []byte) ([]byte, bool) {
-	raw, found := v.readRow(v.blockView.MiscView(), ktype.ModulePhysicalKey(module, keyBytes))
+	raw, found := v.readRow(v.blockView.MiscView(), ktype.BuildPhysicalKey(module, keyBytes))
 	misc, err := parseRow(raw, found, vtype.DeserializeMiscData)
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: parse misc %s/%x at height %d: %v",
@@ -259,7 +323,7 @@ func (v *flatKVStateView) miscValue(module string, keyBytes []byte) ([]byte, boo
 // readEVMRow returns the bytes stored under an EVM physical key for kind and key parts.
 func (v *flatKVStateView) readEVMRow(dbView view.View, kind keys.EVMKeyKind, keyParts ...[]byte) ([]byte, bool) {
 	buf := physKeyBufs.Get().(*[physKeyBufLen]byte)
-	physKey := ktype.AppendEVMPhysicalKey(buf[:0], kind, keyParts[0])
+	physKey := ktype.WritePhysicalEVMKeyToBuffer(buf[:], kind, keyParts[0])
 	for _, keyPart := range keyParts[1:] {
 		physKey = append(physKey, keyPart...)
 	}
@@ -268,6 +332,30 @@ func (v *flatKVStateView) readEVMRow(dbView view.View, kind keys.EVMKeyKind, key
 	// physKey, and a buffer that may still be read must not go back to the pool.
 	physKeyBufs.Put(buf)
 	return value, found
+}
+
+// storeViewFor returns the view of the store that holds physKey. It returns an error for a metadata
+// key, since the store's own metadata is not part of any block's state, and for a key no store holds.
+func (v *flatKVStateView) storeViewFor(physKey []byte) (view.View, error) {
+	if ktype.IsMetaKey(physKey) {
+		return nil, fmt.Errorf("flatkv: raw key %x is store metadata, not block state", physKey)
+	}
+	dbDir, err := routePhysicalKey(physKey)
+	if err != nil {
+		return nil, fmt.Errorf("flatkv: route raw key %x at height %d: %w", physKey, v.blockView.BlockHeight(), err)
+	}
+	switch dbDir {
+	case accountDBDir:
+		return v.blockView.AccountView(), nil
+	case codeDBDir:
+		return v.blockView.CodeView(), nil
+	case storageDBDir:
+		return v.blockView.StorageView(), nil
+	case miscDBDir:
+		return v.blockView.MiscView(), nil
+	default:
+		return nil, fmt.Errorf("flatkv: raw key %x routes to unknown store %q", physKey, dbDir)
+	}
 }
 
 // readRow returns the bytes stored under physKey, without deserializing them.

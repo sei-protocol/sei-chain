@@ -54,6 +54,10 @@ func (e *invalidParamsError) Unwrap() error {
 type filterAPI struct {
 	backend Backend
 	store   receiptpkg.ReceiptStore
+	filters *filterRegistry
+	// maxBlockFilterHashes caps the unpolled blocks a block filter may fall behind by; zero
+	// disables the cap.
+	maxBlockFilterHashes uint64
 }
 
 // GetLogs returns the logs matching crit from finalized blocks. Open and tag
@@ -68,7 +72,12 @@ func (api *filterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) 
 	if toBlock-fromBlock+1 > maxBlocksForLogs {
 		return nil, &invalidParamsError{error: errLogRangeTooWide}
 	}
+	return api.rangeLogs(ctx, crit, fromBlock, toBlock)
+}
 
+// rangeLogs returns the logs crit's addresses and topics match in the indexed blocks fromBlock
+// through toBlock, within the per-query log caps.
+func (api *filterAPI) rangeLogs(ctx context.Context, crit filters.FilterCriteria, fromBlock, toBlock uint64) ([]*ethtypes.Log, error) {
 	budget := receiptpkg.NewLogBudget(maxLogsPerQuery, receiptpkg.DefaultMaxLogBytes)
 	logs, err := api.store.FilterLogs(receiptContext(receiptpkg.WithStrictTopicCount(ctx)), fromBlock, toBlock, crit, budget)
 	if err != nil {
@@ -100,11 +109,11 @@ func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCr
 			return 0, 0, fmt.Errorf("block %s not found", crit.BlockHash)
 		}
 		height := uint64(block.Block.Height) //nolint:gosec // block heights are positive
-		earliest, latest := api.indexedRange()
+		earliest, latest := indexedRange(api.backend, api.store)
 		return height, height, checkIndexed(height, height, earliest, latest)
 	}
 
-	earliest, latest := api.indexedRange()
+	earliest, latest := indexedRange(api.backend, api.store)
 	fromBlock, err := resolveLogBound(crit.FromBlock, earliest, latest)
 	if err != nil {
 		return 0, 0, err
@@ -122,12 +131,12 @@ func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCr
 // indexedRange returns the inclusive height range the receipt store can
 // answer for: from its retention floor to the lower of the committed head and
 // the last block whose receipts it has indexed.
-func (api *filterAPI) indexedRange() (uint64, uint64) {
-	latest := api.backend.EvmBlockNumber()
-	if stored := api.store.LatestVersion(); stored >= 0 && uint64(stored) < latest { //nolint:gosec // stored is non-negative
+func indexedRange(backend Backend, store receiptpkg.ReceiptStore) (uint64, uint64) {
+	latest := backend.EvmBlockNumber()
+	if stored := store.LatestVersion(); stored >= 0 && uint64(stored) < latest { //nolint:gosec // stored is non-negative
 		latest = uint64(stored) //nolint:gosec // stored is non-negative
 	}
-	earliest := uint64(earliestRetainedHeight(api.store)) //nolint:gosec // never below earliestCommittedHeight
+	earliest := uint64(earliestRetainedHeight(store)) //nolint:gosec // never below earliestCommittedHeight
 	return earliest, latest
 }
 

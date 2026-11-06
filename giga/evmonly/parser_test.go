@@ -145,6 +145,45 @@ func TestExecutorPrepareBlockUsesKnownSender(t *testing.T) {
 	require.Equal(t, sender, prepared.Txs[0].Sender)
 }
 
+func TestExecutorDecodeThenRecoverMatchesPrepareBlock(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	recipient := testAddress(0xc7)
+	const n = 40
+	raws := make([][]byte, n)
+	senders := make([]common.Address, n)
+	known := make([]utils.Option[common.Address], n)
+	for i := range n {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		senders[i] = crypto.PubkeyToAddress(key.PublicKey)
+		raws[i] = signLegacyTx(t, key, chainID, uint64(i), &recipient, big.NewInt(1), nil) //nolint:gosec // G115: i < n.
+		if i%3 == 0 {
+			known[i] = utils.Some(senders[i])
+		}
+	}
+	req := BlockRequest{Context: blockContext(chainID), Txs: raws, Senders: known}
+	executor := NewExecutor(Config{ParseWorkers: 4}, withTestState(NewMemoryState()))
+
+	decoded, err := executor.DecodeBlock(t.Context(), req)
+	require.NoError(t, err)
+	require.Len(t, decoded.txs, n)
+	recovered, err := executor.RecoverSenders(t.Context(), decoded)
+	require.NoError(t, err)
+	prepared, err := executor.PrepareBlock(t.Context(), req)
+	require.NoError(t, err)
+
+	require.Equal(t, prepared.Context, recovered.Context)
+	require.Len(t, recovered.Txs, n)
+	for i := range n {
+		require.Equal(t, senders[i], recovered.Txs[i].Sender)
+		require.Equal(t, prepared.Txs[i].Sender, recovered.Txs[i].Sender)
+		require.Equal(t, prepared.Txs[i].Tx.Hash(), recovered.Txs[i].Tx.Hash())
+	}
+
+	_, err = executor.DecodeBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: [][]byte{{0x01}}})
+	require.Error(t, err)
+}
+
 func BenchmarkParsePreparedTx(b *testing.B) {
 	chainID := big.NewInt(testChainID)
 	signer := ethtypes.LatestSignerForChainID(chainID)

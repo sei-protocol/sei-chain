@@ -5,8 +5,6 @@ const (
 	Version0_MemiavlOnly = 0
 	// The version where EVM data lives in flatkv and all other data lives in memiavl.
 	Version1_MigrateEVM = 1
-	// The version where all but the bank module data lives in flatkv and the bank module data lives in memiavl.
-	Version2_MigrateAllButBank = 2
 	// The version where all data lives in flatkv.
-	Version3_FlatKVOnly = 3
+	Version2_FlatKVOnly = 2
 )

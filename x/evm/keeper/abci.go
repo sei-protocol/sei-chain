@@ -36,7 +36,7 @@ func (k *Keeper) BeginBlock(ctx sdk.Context) {
 				panic(err)
 			}
 			statedb := state.NewDBImpl(ctx, k, false)
-			vmenv := vm.NewEVMWithCustomPrecompiles(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx)), vm.Config{}, k.CustomPrecompiles(ctx))
+			vmenv := vm.NewEVMWithCustomPrecompiles(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx)), vm.Config{}, k.CustomPrecompiles())
 			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv, nil)
 			_, err = statedb.Finalize()
 			if err != nil {
@@ -51,7 +51,7 @@ func (k *Keeper) BeginBlock(ctx sdk.Context) {
 			panic(err)
 		}
 		statedb := state.NewDBImpl(ctx, k, false)
-		vmenv := vm.NewEVMWithCustomPrecompiles(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx)), vm.Config{}, k.CustomPrecompiles(ctx))
+		vmenv := vm.NewEVMWithCustomPrecompiles(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx)), vm.Config{}, k.CustomPrecompiles())
 		core.ProcessParentBlockHash(parentHash, vmenv, nil)
 		_, err = statedb.Finalize()
 		if err != nil {
