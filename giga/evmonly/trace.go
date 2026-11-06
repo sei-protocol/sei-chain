@@ -12,16 +12,26 @@ import (
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
-// ReplayState returns the state view holds with req's transactions applied in order, as a block
-// applies them: a transaction the block rejected changes nothing. The result is in memory only,
+// ViewState returns the state view holds, with no block applied. The result is in memory only,
 // reads through view, and belongs to the caller; it must not be used once view is closed. Its Error
 // reports the first read of view that failed, even after a reverted snapshot.
+func (e *Executor) ViewState(view gigatypes.EVMStateView) vm.StateDB {
+	source, reads := e.recordingReader(view)
+	return &replayedStateDB{nativeStateDB: newNativeStateDB(source), reads: reads}
+}
+
+// ReplayState returns the state view holds after req's block runs its begin blockers and then req's
+// transactions, in order as the block applies them: a transaction the block rejected changes
+// nothing. The result is in memory only, reads through view, and belongs to the caller; it must not
+// be used once view is closed. Its Error reports the first read of view that failed, even after a
+// reverted snapshot.
 func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView, req BlockRequest) (vm.StateDB, error) {
-	reads := &failedRead{}
-	stateDB := newNativeStateDB(failedReadRecorder{
-		reader:  gigaSnapshotStateReader{snapshot: view, missingState: e.missingState},
-		failure: reads,
-	})
+	source, reads := e.recordingReader(view)
+	begin, err := e.runBeginBlockers(req.Context, source, true)
+	if err != nil {
+		return nil, err
+	}
+	stateDB := newNativeStateDB(newPendingOverlay(source, &begin))
 	replayed := &replayedStateDB{nativeStateDB: stateDB, reads: reads}
 	if len(req.Txs) == 0 {
 		return replayed, nil
@@ -51,6 +61,16 @@ func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView,
 		return nil, err
 	}
 	return replayed, nil
+}
+
+// recordingReader returns a reader of view that records the first read that fails in the returned
+// failedRead.
+func (e *Executor) recordingReader(view gigatypes.EVMStateView) (failedReadRecorder, *failedRead) {
+	reads := &failedRead{}
+	return failedReadRecorder{
+		reader:  gigaSnapshotStateReader{snapshot: view, missingState: e.missingState},
+		failure: reads,
+	}, reads
 }
 
 // replayedStateDB is a replayed state whose Error also reports a failed read of the state under it.
