@@ -37,6 +37,16 @@ func TestCancelRequiresTheScheduledName(t *testing.T) {
 	require.NoError(t, CheckCancel(state, "v7.1"))
 }
 
+func TestCancelClearsAPlanWhoseInfoDoesNotDecode(t *testing.T) {
+	state := newMemState()
+	require.NoError(t, Schedule(state, 10, Plan{Name: "v7.0", Height: 30}))
+	state.SetState(Address, planSlot(planInfo), common.Hash{0: 0xff, 31: 0x01})
+	_, _, err := CurrentPlan(state)
+	require.Error(t, err)
+	require.NoError(t, Cancel(state, "v7.0"), "a cancel matches only the name")
+	requireNoPlan(t, state)
+}
+
 func TestScheduleAcceptsTheCurrentBlock(t *testing.T) {
 	state := newMemState()
 	require.NoError(t, Schedule(state, 20, Plan{Name: "v7.0", Height: 20}))

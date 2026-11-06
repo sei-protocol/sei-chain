@@ -33,22 +33,45 @@ var ErrWrongBinary = errors.New("wrong binary")
 // BeginBlock applies, skips or halts on a due plan, and halts a binary that
 // does not match the chain's upgrade history unless block.Replay is set.
 func (p Precompile) BeginBlock(block precompiles.BlockContext, state precompiles.State) ([]error, error) {
-	s := newStore(state)
-	plan, scheduled, err := CurrentPlan(state)
+	plan, scheduled, err := scheduledPlan(state)
 	if err != nil {
-		if clearErr := writePlan(s, Plan{}); clearErr != nil {
-			return nil, clearErr
-		}
-		return []error{fmt.Errorf("%w: cleared an upgrade plan that does not decode: %w", precompiles.ErrDegraded, err)}, nil
+		return clearUndecodablePlan(state, err)
 	}
 	if scheduled && plan.Height <= block.Number {
+		if plan.Info, err = planInfoOf(state); err != nil {
+			return clearUndecodablePlan(state, err)
+		}
 		return p.applyDue(block, state, plan)
 	}
 	failures, err := p.checkLastApplied(block, state)
 	if err != nil {
 		return nil, err
 	}
-	if scheduled && !block.Replay && !plan.IsMinorRelease() && p.hasHandler(plan.Name) {
+	if scheduled && !block.Replay && p.hasHandler(plan.Name) {
+		return p.checkEarlyBinary(state, plan, failures)
+	}
+	return failures, nil
+}
+
+// clearUndecodablePlan clears the scheduled plan and reports it as degraded.
+func clearUndecodablePlan(state precompiles.State, err error) ([]error, error) {
+	if clearErr := writePlan(newStore(state), Plan{}); clearErr != nil {
+		return nil, clearErr
+	}
+	return []error{fmt.Errorf("%w: cleared an upgrade plan that does not decode: %w", precompiles.ErrDegraded, err)}, nil
+}
+
+// checkEarlyBinary returns ErrBinaryUpdatedBeforeTrigger unless plan, not yet
+// due, is a minor release, and a degraded failure when its Info does not decode.
+func (p Precompile) checkEarlyBinary(state precompiles.State, plan Plan, failures []error) ([]error, error) {
+	info, err := planInfoOf(state)
+	if err != nil {
+		// Only binaries holding the plan's handler get here, so clearing the
+		// plan would split the chain's state; the plan clears once it is due.
+		return append(failures, fmt.Errorf("%w: skipped the early-binary check, the scheduled plan does not decode: %w", precompiles.ErrDegraded, err)), nil
+	}
+	plan.Info = info
+	if !plan.IsMinorRelease() {
 		return nil, fmt.Errorf("%w! UPGRADE \"%s\" - in binary but not executed on chain", ErrBinaryUpdatedBeforeTrigger, plan.Name)
 	}
 	return failures, nil
