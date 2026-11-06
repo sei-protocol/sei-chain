@@ -1785,6 +1785,9 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	if firstErr != nil {
 		return nil, 0, firstErr
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
 
 	return res, end, nil
 }

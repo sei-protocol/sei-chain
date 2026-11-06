@@ -130,7 +130,7 @@ func TestFetchBlocksByCritStopsReadingBlocksOnceCancelled(t *testing.T) {
 	crit := filters.FilterCriteria{FromBlock: big.NewInt(1), ToBlock: big.NewInt(3 * int64(evmrpcconfig.WorkerBatchSize))}
 
 	blocks, _, err := fetcher.fetchBlocksByCrit(ctx, crit, nil)
-	require.NoError(t, err)
-	require.Empty(t, blocks)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, blocks)
 	require.Zero(t, client.blockCalls.Load())
 }
