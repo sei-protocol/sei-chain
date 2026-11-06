@@ -223,8 +223,10 @@ func TestCompiledMatches(t *testing.T) {
 }
 
 func TestMatchesRejectsInvalidRegexp(t *testing.T) {
-	if q, err := query.New(`tm.event MATCHES '('`); err == nil {
-		t.Fatalf("New: got %v, want error", q)
+	for _, pattern := range []string{`(`, `[a-z]{1,1000}`} {
+		if q, err := query.New(`tm.event MATCHES '` + pattern + `'`); err == nil {
+			t.Errorf("New(%q): got %v, want error", pattern, q)
+		}
 	}
 }
 

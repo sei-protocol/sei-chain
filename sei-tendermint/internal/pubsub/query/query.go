@@ -12,8 +12,10 @@
 package query
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
+	resyntax "regexp/syntax"
 	"strconv"
 	"strings"
 	"time"
@@ -178,7 +180,7 @@ func compileCondition(cond syntax.Condition) (condition, error) {
 	case syntax.TString:
 		argValue = cond.Arg.Value()
 		if cond.Op == syntax.TMatches {
-			re, err := regexp.Compile(cond.Arg.Value())
+			re, err := compileRegexp(cond.Arg.Value())
 			if err != nil {
 				return condition{}, fmt.Errorf("invalid regular expression: %w", err)
 			}
@@ -198,6 +200,35 @@ func compileCondition(cond syntax.Condition) (condition, error) {
 	}
 	out.match = mcons(argValue)
 	return out, nil
+}
+
+// maxRegexpSize is the maximum estimated program size of a MATCHES pattern.
+const maxRegexpSize = 1000
+
+func compileRegexp(pattern string) (*regexp.Regexp, error) {
+	re, err := resyntax.Parse(pattern, resyntax.Perl)
+	if err != nil {
+		return nil, err
+	}
+	if regexpSize(re) > maxRegexpSize {
+		return nil, errors.New("pattern is too large")
+	}
+	return regexp.Compile(pattern)
+}
+
+// regexpSize estimates the number of instructions re compiles to.
+func regexpSize(re *resyntax.Regexp) int {
+	var size int
+	if re.Op == resyntax.OpLiteral {
+		size = len(re.Rune)
+	}
+	for _, sub := range re.Sub {
+		size += regexpSize(sub) + 1
+	}
+	if re.Op == resyntax.OpRepeat {
+		size *= max(re.Min, re.Max)
+	}
+	return max(size, 1)
 }
 
 // TODO(creachadair): The existing implementation allows anything number shaped
