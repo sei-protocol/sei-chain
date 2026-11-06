@@ -4,30 +4,31 @@ import (
 	"fmt"
 )
 
-// materializeDiffAtVersion orders a sealed version's writes by key, per shard, on the sort pool.
+// materializeDiffAtBlockHeight orders a sealed version's writes by key, per shard, on the sort pool.
 //
 // Work done ahead of the flush rather than for it: the flush calls materializeSortedDiffs itself and so
 // finds the result already published, or waits for it. That is also why a failure here is dropped — the
 // flush repeats the same call and reports it.
 //
 // Must be called without versionLock held: submitting can block when the pool's queue is full.
-func (c *viewManager) materializeDiffAtVersion(version uint64) {
+func (c *viewManager) materializeDiffAtBlockHeight(blockHeight uint64) {
 	c.sortPool.Submit(func() {
-		_, _ = c.materializeSortedDiffs(version)
+		_, _ = c.materializeSortedDiffs(blockHeight)
 	})
 }
 
 // materializeSortedDiffs materializes one version on every shard and collects the resulting diffs,
 // waiting for any shard another caller is already materializing.
-func (c *viewManager) materializeSortedDiffs(version uint64) ([][]Write, error) {
+func (c *viewManager) materializeSortedDiffs(blockHeight uint64) ([][]Write, error) {
 	shardDiffs := make([][]Write, len(c.shards))
 	for i, shard := range c.shards {
-		if err := shard.MaterializeSortedDiff(version); err != nil {
-			return nil, fmt.Errorf("failed to materialize shard %d at version %d: %w", i, version, err)
+		if err := shard.MaterializeSortedDiff(blockHeight); err != nil {
+			return nil, fmt.Errorf("failed to materialize shard %d at version %d: %w", i, blockHeight, err)
 		}
-		diff, err := shard.SortedDiff(version)
+		diff, err := shard.SortedDiff(blockHeight)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read the diff of shard %d at version %d: %w", i, version, err)
+			return nil, fmt.Errorf("failed to read the diff of shard %d at version %d: %w",
+				i, blockHeight, err)
 		}
 		shardDiffs[i] = diff
 	}

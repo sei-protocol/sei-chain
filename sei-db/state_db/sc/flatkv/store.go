@@ -943,8 +943,11 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 	// readPool and miscPool must stay distinct pools: misc tasks block on read results, so sharing one
 	// bounded pool can deadlock. Nothing may sit between a store and its database that schedules its
 	// own reads onto either pool, for the same reason.
+	// Every store starts at the version the store as a whole loaded at, which is the lowest any database holds.
+	initialHeight := uint64(s.committedVersion) //nolint:gosec // committed versions are non-negative
 	open := func(cfg *view.ViewManagerConfig, db seidbtypes.KeyValueDB) (view.ViewManager, error) {
-		store, storeErr := view.NewViewManager(cfg, db, s.readPool, s.miscPool, s.sortPool)
+		store, storeErr := view.NewViewManager(
+			cfg, initialHeight, threading.NoOpCounter{}, db, s.readPool, s.miscPool, s.sortPool)
 		if storeErr != nil {
 			return nil, fmt.Errorf("failed to create %s view manager: %w", cfg.Name, storeErr)
 		}

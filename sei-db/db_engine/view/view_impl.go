@@ -13,7 +13,7 @@ var _ View = (*viewImpl)(nil)
 // viewImpl is the ViewManager's implementation of View: an immutable, version-pinned
 // view of the data in the manager.
 type viewImpl struct {
-	version       uint64
+	blockHeight   uint64
 	parentManager *viewManager
 
 	// closed records whether the view's last reservation has been released, or the view abandoned.
@@ -25,7 +25,7 @@ func (s *viewImpl) Name() string {
 }
 
 func (s *viewImpl) BatchGet(keys [][]byte) (map[string][]byte, error) {
-	results, err := s.parentManager.BatchGetAtVersion(keys, s.version)
+	results, err := s.parentManager.BatchGetAtBlockHeight(keys, s.blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to batch get: %w", err)
 	}
@@ -33,7 +33,7 @@ func (s *viewImpl) BatchGet(keys [][]byte) (map[string][]byte, error) {
 }
 
 func (s *viewImpl) Get(key []byte, updateLru bool) ([]byte, bool, error) {
-	value, ok, err := s.parentManager.GetAtVersion(key, s.version, updateLru)
+	value, ok, err := s.parentManager.GetAtBlockHeight(key, s.blockHeight, updateLru)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get: %w", err)
 	}
@@ -41,14 +41,14 @@ func (s *viewImpl) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 }
 
 func (s *viewImpl) ForEachDiff(visit func(key string, value []byte) error) error {
-	if err := s.parentManager.ForEachDiffAtVersion(s.version, visit); err != nil {
+	if err := s.parentManager.ForEachDiffAtBlockHeight(s.blockHeight, visit); err != nil {
 		return fmt.Errorf("failed to walk diff: %w", err)
 	}
 	return nil
 }
 
 func (s *viewImpl) Reserve() error {
-	err := s.parentManager.IncrementReferenceCount(s.version)
+	err := s.parentManager.IncrementReferenceCount(s.blockHeight)
 	if err != nil {
 		return fmt.Errorf("failed to increment reference count: %w", err)
 	}
@@ -56,7 +56,7 @@ func (s *viewImpl) Reserve() error {
 }
 
 func (s *viewImpl) Release() error {
-	lastReleased, err := s.parentManager.DecrementReferenceCount(s.version)
+	lastReleased, err := s.parentManager.DecrementReferenceCount(s.blockHeight)
 	if err != nil {
 		// Every failure leaves the version already dropped or the manager bricked, so nothing more is
 		// released through this view.
@@ -73,19 +73,22 @@ func (s *viewImpl) Abandon() {
 	s.closed.Close(s)
 }
 
-func (s *viewImpl) Finalize(writes []*proto.KVPair) error {
-	return s.parentManager.FinalizeView(s.version, writes)
+func (s *viewImpl) Finalize(blockHeight uint64, writes []*proto.KVPair) error {
+	if blockHeight != s.blockHeight {
+		return fmt.Errorf("cannot finalize the view at version %d as block %d", s.blockHeight, blockHeight)
+	}
+	return s.parentManager.FinalizeView(s.blockHeight, writes)
 }
 
 func (s *viewImpl) AwaitFlush(ctx context.Context) error {
 	c := s.parentManager
-	version := s.version
+	blockHeight := s.blockHeight
 
 	c.versionLock.Lock()
-	counter, ok := c.versionMap[version]
+	counter, ok := c.versionMap[blockHeight]
 	if !ok {
 		c.versionLock.Unlock()
-		return fmt.Errorf("view version (%d) is no longer tracked", version)
+		return fmt.Errorf("view version (%d) is no longer tracked", blockHeight)
 	}
 	flushCompleted := counter.flushCompleted
 	c.versionLock.Unlock()
@@ -96,9 +99,9 @@ func (s *viewImpl) AwaitFlush(ctx context.Context) error {
 	case <-flushCompleted:
 		return nil
 	case <-ctx.Done():
-		return fmt.Errorf("context cancelled before flush of version (%d): %w", version, ctx.Err())
+		return fmt.Errorf("context cancelled before flush of version (%d): %w", blockHeight, ctx.Err())
 	case <-c.ctx.Done():
 		return fmt.Errorf("view manager shut down before flush of version (%d): %w",
-			version, c.shutdownError())
+			blockHeight, c.shutdownError())
 	}
 }

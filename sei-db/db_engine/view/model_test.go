@@ -22,8 +22,8 @@ type modelManager struct {
 	// value records a delete.
 	pending map[string][]byte
 	// versions holds sealed views by version number.
-	versions       map[uint64]*modelVersion
-	currentVersion uint64
+	versions           map[uint64]*modelVersion
+	currentBlockHeight uint64
 }
 
 type modelVersion struct {
@@ -35,10 +35,10 @@ type modelVersion struct {
 
 func newModelManager(seed map[string][]byte) *modelManager {
 	return &modelManager{
-		current:        cloneMap(seed),
-		pending:        make(map[string][]byte),
-		versions:       make(map[uint64]*modelVersion),
-		currentVersion: 1,
+		current:            cloneMap(seed),
+		pending:            make(map[string][]byte),
+		versions:           make(map[uint64]*modelVersion),
+		currentBlockHeight: 1,
 	}
 }
 
@@ -70,13 +70,13 @@ func (m *modelManager) BatchSet(muts []Write) {
 
 // View seals the current version and advances, returning the sealed version number.
 func (m *modelManager) Commit() uint64 {
-	v := m.currentVersion
+	v := m.currentBlockHeight
 	m.versions[v] = &modelVersion{
 		full: cloneMap(m.current),
 		diff: m.pending,
 	}
 	m.pending = make(map[string][]byte)
-	m.currentVersion++
+	m.currentBlockHeight++
 	return v
 }
 
@@ -87,15 +87,15 @@ func (m *modelManager) GetLive(key []byte) ([]byte, bool) {
 }
 
 // GetAt returns the value for key as of the given sealed version.
-func (m *modelManager) GetAt(version uint64, key []byte) ([]byte, bool) {
-	mv := m.versions[version]
+func (m *modelManager) GetAt(blockHeight uint64, key []byte) ([]byte, bool) {
+	mv := m.versions[blockHeight]
 	v, ok := mv.full[string(key)]
 	return v, ok
 }
 
 // DiffAt returns the mutations applied in the given sealed version (nil value == delete).
-func (m *modelManager) DiffAt(version uint64) map[string][]byte {
-	return m.versions[version].diff
+func (m *modelManager) DiffAt(blockHeight uint64) map[string][]byte {
+	return m.versions[blockHeight].diff
 }
 
 // IterateLive returns the ascending, tombstone-free key/value pairs of the live (mutable) version.

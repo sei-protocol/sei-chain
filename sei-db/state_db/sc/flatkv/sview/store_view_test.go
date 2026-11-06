@@ -54,7 +54,7 @@ func (s *stubView) Reserve() error {
 	return nil
 }
 
-func (s *stubView) Finalize(writes []*proto.KVPair) error {
+func (s *stubView) Finalize(_ uint64, writes []*proto.KVPair) error {
 	panic("stubView: unexpected Finalize")
 }
 

@@ -14,7 +14,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("db", "db-engine", "view")
 
 var _ ViewManager = (*viewManager)(nil)
 
@@ -46,21 +49,26 @@ type viewManager struct {
 	// The underlying key-value database.
 	db types.KeyValueDB
 
+	// Each flush to the underlying database waits until this counter reaches the highest block height
+	// the flush writes.
+	commitCounter threading.ReadOnlyCounter
+
 	// Protects modification to version state.
 	versionLock *sync.Mutex
 
-	// The current version number. All modifications to the manager will happen at this version number.
+	// The current version number, which is the block height of the block being written. All modifications to
+	// the manager will happen at this version number.
 	//
 	// Written only while holding versionLock (by Commit()). Read without the lock by the
 	// Get/BatchGet paths; this is sound only because the manager contract forbids calling
 	// Commit() concurrently with operations on the current version, so no lockless read can
 	// race the write.
-	currentVersion uint64
+	currentBlockHeight uint64
 
-	// The version of the oldest view we are currently tracking.
+	// The block height of the oldest view we are currently tracking.
 	//
 	// Protected by versionLock.
-	oldestVersion uint64
+	oldestBlockHeight uint64
 
 	// Reference counts for all views we are currently tracking. The current (mutable) version
 	// does not have a reference count and so it does not appear in this map.
@@ -77,17 +85,17 @@ type viewManager struct {
 	// Protected by versionLock.
 	unflushedCount uint64
 
-	// The highest view version that either has been flushed or can be flushed. There may be older view
-	// versions that have not yet been flushed, but it is guaranteed that any view version older than this value
-	// is likewise eligible to be flushed or has already been flushed.
+	// One past the highest view version that either has been flushed or can be flushed. There may be older
+	// view versions that have not yet been flushed, but it is guaranteed that any view version older than this
+	// value is likewise eligible to be flushed or has already been flushed.
 	//
 	// Protected by versionLock.
-	highestFlushEligibleVersion uint64
+	flushScanBlockHeight uint64
 
-	// The highest view version that is eligible for retirement.
+	// One past the highest view version that is eligible for retirement.
 	//
 	// Protected by versionLock.
-	highestRetirementEligibleVersion uint64
+	retireScanBlockHeight uint64
 
 	// Used to enforce lifecycle backpressure. We want to block Commit() if unretiredVersions grows too large.
 	lifecycleBackpressureCond *sync.Cond
@@ -123,8 +131,8 @@ type viewManager struct {
 
 // Tracks the reference count for a particular view.
 type viewReferenceCounter struct {
-	// The version/block height of the view.
-	version uint64
+	// The block height of the view.
+	blockHeight uint64
 
 	// The number of reservations currently held for this view. When this count reaches 0,
 	// the view is eligible for retirement.
@@ -156,6 +164,11 @@ type viewReferenceCounter struct {
 // since the manager's goroutines submit to them.
 func NewViewManager(
 	config *ViewManagerConfig,
+	// The block height the underlying database holds. The first version the manager seals is this height.
+	initialHeight uint64,
+	// Each flush to db waits until this counter reaches the highest block height it writes. A flush that finds
+	// the counter sealed below that height is abandoned, and nothing further is flushed.
+	commitCounter threading.ReadOnlyCounter,
 	// The underlying key-value database.
 	db types.KeyValueDB,
 	// A work pool for reading from the DB.
@@ -177,6 +190,9 @@ func NewViewManager(
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid view manager config: %w", err)
 	}
+	if commitCounter == nil {
+		return nil, fmt.Errorf("commitCounter must be non-nil")
+	}
 
 	shardManager, err := newShardManager(config.ShardCount)
 	if err != nil {
@@ -192,18 +208,20 @@ func NewViewManager(
 	lifecycleBackpressureCond := sync.NewCond(versionLock)
 
 	c := &viewManager{
-		ctx:          childCtx,
-		cancel:       cancel,
-		config:       *config,
-		shardManager: shardManager,
-		readPool:     readPool,
-		miscPool:     miscPool,
-		sortPool:     sortPool,
-		db:           db,
-		versionMap:   make(map[uint64]*viewReferenceCounter),
-		// Versions start at 1 (not 0) so a version-1 lookup never underflows.
-		currentVersion:            1,
-		oldestVersion:             1,
+		ctx:                       childCtx,
+		cancel:                    cancel,
+		config:                    *config,
+		shardManager:              shardManager,
+		readPool:                  readPool,
+		miscPool:                  miscPool,
+		sortPool:                  sortPool,
+		db:                        db,
+		commitCounter:             commitCounter,
+		versionMap:                make(map[uint64]*viewReferenceCounter),
+		currentBlockHeight:        initialHeight,
+		oldestBlockHeight:         initialHeight,
+		flushScanBlockHeight:      initialHeight,
+		retireScanBlockHeight:     initialHeight,
 		versionLock:               versionLock,
 		lifecycleBackpressureCond: lifecycleBackpressureCond,
 		lifecycleWake:             make(chan struct{}, 1),
@@ -216,7 +234,7 @@ func NewViewManager(
 	// cancellation — see the Close contract on ViewManager.
 	shards := make([]*shard, config.ShardCount)
 	for i := uint64(0); i < config.ShardCount; i++ {
-		shards[i], err = NewShard(childCtx, config, db, readPool, sizePerShard,
+		shards[i], err = NewShard(childCtx, config, db, readPool, sizePerShard, initialHeight,
 			c.shutdownError, c.reportReadFailure)
 		if err != nil {
 			cancel()
@@ -339,11 +357,11 @@ func (c *viewManager) bucketIndicesByShard(
 }
 
 func (c *viewManager) BatchGet(keys [][]byte) (map[string][]byte, error) {
-	return c.BatchGetAtVersion(keys, c.currentVersion)
+	return c.BatchGetAtBlockHeight(keys, c.currentBlockHeight)
 }
 
-// Similar semantics to BatchGet, but reads from the given version of the manager.
-func (c *viewManager) BatchGetAtVersion(keys [][]byte, version uint64) (map[string][]byte, error) {
+// Similar semantics to BatchGet, but reads at the given block height.
+func (c *viewManager) BatchGetAtBlockHeight(keys [][]byte, blockHeight uint64) (map[string][]byte, error) {
 	// Partition the keys by shard so each shard is queried once.
 	work := make(map[uint64][][]byte)
 	for _, key := range keys {
@@ -364,7 +382,7 @@ func (c *viewManager) BatchGetAtVersion(keys [][]byte, version uint64) (map[stri
 		wg.Add(1)
 		c.miscPool.Submit(func() {
 			defer wg.Done()
-			results[i], errs[i] = c.shards[shardIndex].BatchGet(work[shardIndex], version)
+			results[i], errs[i] = c.shards[shardIndex].BatchGet(work[shardIndex], blockHeight)
 		})
 	}
 	wg.Wait()
@@ -392,14 +410,14 @@ func (c *viewManager) Delete(key []byte) error {
 }
 
 func (c *viewManager) Get(key []byte, updateLru bool) ([]byte, bool, error) {
-	return c.GetAtVersion(key, c.currentVersion, updateLru)
+	return c.GetAtBlockHeight(key, c.currentBlockHeight, updateLru)
 }
 
-func (c *viewManager) GetAtVersion(key []byte, version uint64, updateLru bool) ([]byte, bool, error) {
+func (c *viewManager) GetAtBlockHeight(key []byte, blockHeight uint64, updateLru bool) ([]byte, bool, error) {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]
 
-	value, ok, err := shard.Get(key, version, updateLru)
+	value, ok, err := shard.Get(key, blockHeight, updateLru)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get value from shard: %w", err)
 	}
@@ -440,20 +458,20 @@ func (c *viewManager) Commit() (View, error) {
 		return nil, fmt.Errorf("cannot create view: %w", err)
 	}
 
-	sealedVersion := c.currentVersion
+	sealedBlockHeight := c.currentBlockHeight
 
-	c.versionMap[sealedVersion] = &viewReferenceCounter{
-		version:        sealedVersion,
+	c.versionMap[sealedBlockHeight] = &viewReferenceCounter{
+		blockHeight:    sealedBlockHeight,
 		referenceCount: 1,
 		flushCompleted: make(chan struct{}),
 	}
 
 	view := &viewImpl{
-		version:       sealedVersion,
+		blockHeight:   sealedBlockHeight,
 		parentManager: c,
 	}
 
-	c.currentVersion++
+	c.currentBlockHeight++
 
 	c.metrics.setViewPhase("shards_view")
 
@@ -472,7 +490,7 @@ func (c *viewManager) Commit() (View, error) {
 	c.versionLock.Unlock()
 
 	c.metrics.setViewPhase("submit_diff_sort")
-	c.materializeDiffAtVersion(sealedVersion)
+	c.materializeDiffAtBlockHeight(sealedBlockHeight)
 
 	view.closed = utils.MustClose(view, "view")
 	return view, nil
@@ -484,7 +502,7 @@ func (c *viewManager) Commit() (View, error) {
 // The Locked postfix indicates that the caller must hold the versionLock.
 func (c *viewManager) sealShardsLocked() error {
 	// Read once here rather than from the tasks, which do not hold the versionLock that guards it.
-	expectedVersion := c.currentVersion
+	expectedBlockHeight := c.currentBlockHeight
 
 	errs := make([]error, len(c.shards))
 	var wg sync.WaitGroup
@@ -496,18 +514,18 @@ func (c *viewManager) sealShardsLocked() error {
 	for i, shard := range c.shards {
 		c.miscPool.Submit(func() {
 			defer wg.Done()
-			shardVersion, err := shard.Commit()
+			shardBlockHeight, err := shard.Commit()
 			if err != nil {
 				// Either the shard was out of service and sealed nothing, or it sealed and then could
 				// not maintain its read cache.
 				errs[i] = fmt.Errorf("seal shard %d: %w", i, err)
 				return
 			}
-			if shardVersion != expectedVersion {
+			if shardBlockHeight != expectedBlockHeight {
 				// Should be impossible: the manager is now inconsistent, with some shards sealed and
 				// some not.
 				errs[i] = fmt.Errorf("shard %d is at version %d, but the manager is at %d",
-					i, shardVersion, expectedVersion)
+					i, shardBlockHeight, expectedBlockHeight)
 			}
 		})
 	}
@@ -555,66 +573,68 @@ func (c *viewManager) shutdownError() error {
 	return c.shutdownErrorLocked()
 }
 
-// Increment the reference count for the given version.
-func (c *viewManager) IncrementReferenceCount(version uint64) error {
+// Increment the reference count for the view at the given block height.
+func (c *viewManager) IncrementReferenceCount(blockHeight uint64) error {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
-	if version < c.oldestVersion {
-		return fmt.Errorf("version (%d) is less than the oldest version (%d)", version, c.oldestVersion)
+	if blockHeight < c.oldestBlockHeight {
+		return fmt.Errorf("version (%d) is less than the oldest version (%d)", blockHeight, c.oldestBlockHeight)
 	}
-	if version >= c.currentVersion {
-		return fmt.Errorf("version (%d) must be less than the current version (%d)", version, c.currentVersion)
+	if blockHeight >= c.currentBlockHeight {
+		return fmt.Errorf("version (%d) must be less than the current version (%d)",
+			blockHeight, c.currentBlockHeight)
 	}
 
-	counter, ok := c.versionMap[version]
+	counter, ok := c.versionMap[blockHeight]
 	if !ok {
 		// Should be impossible since version retirement never leaves gaps
-		return fmt.Errorf("version (%d) not found", version)
+		return fmt.Errorf("version (%d) not found", blockHeight)
 	}
 
 	if counter.referenceCount == 0 {
-		return fmt.Errorf("version (%d) has already been dropped", version)
+		return fmt.Errorf("version (%d) has already been dropped", blockHeight)
 	}
 
 	counter.referenceCount++
 	return nil
 }
 
-// DecrementReferenceCount releases one reservation on version, reporting whether it was the last one.
-func (c *viewManager) DecrementReferenceCount(version uint64) (lastReleased bool, err error) {
+// DecrementReferenceCount releases one reservation on the view at blockHeight, reporting whether it was the last one.
+func (c *viewManager) DecrementReferenceCount(blockHeight uint64) (lastReleased bool, err error) {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
-	if version < c.oldestVersion {
-		return false, fmt.Errorf("version (%d) is less than the oldest version (%d)", version, c.oldestVersion)
+	if blockHeight < c.oldestBlockHeight {
+		return false, fmt.Errorf("version (%d) is less than the oldest version (%d)",
+			blockHeight, c.oldestBlockHeight)
 	}
-	if version >= c.currentVersion {
+	if blockHeight >= c.currentBlockHeight {
 		return false, fmt.Errorf("version (%d) must be less than the current version (%d)",
-			version, c.currentVersion)
+			blockHeight, c.currentBlockHeight)
 	}
 
-	counter, ok := c.versionMap[version]
+	counter, ok := c.versionMap[blockHeight]
 	if !ok {
 		// Should be impossible since version retirement never leaves gaps
-		return false, fmt.Errorf("version (%d) not found", version)
+		return false, fmt.Errorf("version (%d) not found", blockHeight)
 	}
 
 	if counter.referenceCount == 0 {
-		return false, fmt.Errorf("version (%d) has already been dropped", version)
+		return false, fmt.Errorf("version (%d) has already been dropped", blockHeight)
 	}
 
 	if counter.referenceCount == 1 && !counter.finalized {
 		// Releasing the last reservation without finalizing is fatal (see the finalization-duty
 		// contract on View). This view can now never make progress:
-		// determineVersionsToFlushLocked skips unfinalized versions, retirement requires a flush, and
+		// determineBlocksToFlushLocked skips unfinalized versions, retirement requires a flush, and
 		// finalization will never arrive because the caller has spent its Release. Every later version
 		// stalls behind it with its in-memory data accumulating. Note the reference count is not what
 		// traps it — decrementing would not help.
 		//
 		// The sibling errors in this method deliberately do not brick: those reject a bogus version
 		// and leave manager state untouched, so that caller can retry with the right one.
-		err := fmt.Errorf("version (%d) was fully released without first being finalized", version)
+		err := fmt.Errorf("version (%d) was fully released without first being finalized", blockHeight)
 		c.brickLocked(err)
 		return false, err
 	}
@@ -630,23 +650,22 @@ func (c *viewManager) DecrementReferenceCount(version uint64) (lastReleased bool
 //
 // The Locked postfix indicates that the caller must hold the versionLock.
 func (c *viewManager) scanForFlushEligibilityLocked() bool {
-	oldHighestFlushEligibleVersion := c.highestFlushEligibleVersion
+	oldFlushScanBlockHeight := c.flushScanBlockHeight
 
-	if counter, ok := c.versionMap[oldHighestFlushEligibleVersion]; ok && counter.referenceCount > 0 {
-		// The version at the watermark is still referenced, so nothing past it can be flushed
-		// until it is released and retired.
-		return false
+	if oldFlushScanBlockHeight > c.oldestBlockHeight {
+		if counter, ok := c.versionMap[oldFlushScanBlockHeight-1]; ok && counter.referenceCount > 0 {
+			// The version at the watermark is still referenced, so nothing past it can be flushed
+			// until it is released and retired.
+			return false
+		}
 	}
 
-	// Clip the start to oldestVersion: prior retirements may have advanced oldestVersion past the
-	// stale oldHighestFlushEligibleVersion, leaving any versions in between absent from versionMap.
-	start := oldHighestFlushEligibleVersion + 1
-	if start < c.oldestVersion {
-		start = c.oldestVersion
-	}
+	// Clip the start to oldestBlockHeight: prior retirements may have advanced oldestBlockHeight past the
+	// stale oldFlushScanBlockHeight, leaving any versions in between absent from versionMap.
+	start := max(oldFlushScanBlockHeight, c.oldestBlockHeight)
 
-	for version := start; version < c.currentVersion; version++ {
-		counter := c.versionMap[version]
+	for blockHeight := start; blockHeight < c.currentBlockHeight; blockHeight++ {
+		counter := c.versionMap[blockHeight]
 
 		if !counter.finalized {
 			// We can only flush finalized views. If we hit an unfinalized one, no more flushing is
@@ -657,7 +676,7 @@ func (c *viewManager) scanForFlushEligibilityLocked() bool {
 		if !counter.flushedToDisk {
 			// This view is flush eligible.
 			c.unflushedCount++
-			c.highestFlushEligibleVersion = version
+			c.flushScanBlockHeight = blockHeight + 1
 		}
 
 		if counter.referenceCount > 0 {
@@ -667,32 +686,29 @@ func (c *viewManager) scanForFlushEligibilityLocked() bool {
 		}
 	}
 
-	return c.highestFlushEligibleVersion > oldHighestFlushEligibleVersion
+	return c.flushScanBlockHeight > oldFlushScanBlockHeight
 }
 
 // Scans for new retirement eligible versions. Returns true if there is a new retirement eligible version discovered.
 //
 // The Locked postfix indicates that the caller must hold the versionLock.
 func (c *viewManager) scanForRetirementEligibilityLocked() bool {
-	oldHighestRetirementEligibleVersion := c.highestRetirementEligibleVersion
+	oldRetireScanBlockHeight := c.retireScanBlockHeight
 
-	// Clip the start to oldestVersion: prior retirements may have advanced oldestVersion past the
-	// stale oldHighestRetirementEligibleVersion, leaving any versions in between absent from versionMap.
-	start := oldHighestRetirementEligibleVersion + 1
-	if start < c.oldestVersion {
-		start = c.oldestVersion
-	}
+	// Clip the start to oldestBlockHeight: prior retirements may have advanced oldestBlockHeight past the
+	// stale oldRetireScanBlockHeight, leaving any versions in between absent from versionMap.
+	start := max(oldRetireScanBlockHeight, c.oldestBlockHeight)
 
-	for version := start; version < c.currentVersion; version++ {
-		counter := c.versionMap[version]
+	for blockHeight := start; blockHeight < c.currentBlockHeight; blockHeight++ {
+		counter := c.versionMap[blockHeight]
 		if counter.referenceCount != 0 || !counter.flushedToDisk {
 			// We can only retire views that are fully released and flushed to disk.
 			break
 		}
-		c.highestRetirementEligibleVersion = version
+		c.retireScanBlockHeight = blockHeight + 1
 	}
 
-	return c.highestRetirementEligibleVersion > oldHighestRetirementEligibleVersion
+	return c.retireScanBlockHeight > oldRetireScanBlockHeight
 }
 
 // Determine if we need to wake up the lifecycle runner to do work (either flushing or retiring views).
@@ -710,19 +726,19 @@ func (c *viewManager) maybeWakeLifecycleLocked() {
 	}
 }
 
-// FinalizeView attaches metadata writes to the view at the given version and makes it
+// FinalizeView attaches metadata writes to the view at the given block height and makes it
 // eligible to be flushed. An empty write set is legal.
-func (c *viewManager) FinalizeView(version uint64, writes []*proto.KVPair) error {
+func (c *viewManager) FinalizeView(blockHeight uint64, writes []*proto.KVPair) error {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
-	counter, ok := c.versionMap[version]
+	counter, ok := c.versionMap[blockHeight]
 	if !ok {
-		return fmt.Errorf("version (%d) not found", version)
+		return fmt.Errorf("version (%d) not found", blockHeight)
 	}
 
 	if counter.finalized {
-		return fmt.Errorf("version %d has already been finalized", version)
+		return fmt.Errorf("version %d has already been finalized", blockHeight)
 	}
 
 	counter.finalized = true
@@ -733,15 +749,15 @@ func (c *viewManager) FinalizeView(version uint64, writes []*proto.KVPair) error
 	return nil
 }
 
-// ForEachDiffAtVersion visits every write at a sealed version, waiting for it to be materialized if that
+// ForEachDiffAtBlockHeight visits every write at a sealed version, waiting for it to be materialized if that
 // has not happened yet. Shard by shard, so the keys arrive ordered within a shard but not across them: no
 // consumer of a whole version's diff depends on a global order, and merging the shards to provide one
 // would cost the caller a comparison per key for nothing.
-func (c *viewManager) ForEachDiffAtVersion(version uint64, visit func(key string, value []byte) error) error {
+func (c *viewManager) ForEachDiffAtBlockHeight(blockHeight uint64, visit func(key string, value []byte) error) error {
 	for i, shard := range c.shards {
-		diff, err := shard.SortedDiff(version)
+		diff, err := shard.SortedDiff(blockHeight)
 		if err != nil {
-			return fmt.Errorf("failed to get the diff of shard %d at version %d: %w", i, version, err)
+			return fmt.Errorf("failed to get the diff of shard %d at version %d: %w", i, blockHeight, err)
 		}
 		for _, entry := range diff {
 			if err := visit(entry.Key, entry.Value); err != nil {
@@ -862,11 +878,14 @@ func (c *viewManager) lifecycleRunner() {
 		case <-c.lifecycleWake:
 		}
 
-		err := c.doLifecycleWork()
+		stopped, err := c.doLifecycleWork()
 		if err != nil {
 			// Brick the manager and exit. The caller is expected to halt the node on the
 			// first error it sees.
 			c.brick(err)
+			return
+		}
+		if stopped {
 			return
 		}
 	}
@@ -916,70 +935,75 @@ func (c *viewManager) brickLocked(err error) {
 	}
 }
 
-// Flushes and retires views. Continues running until there is no more work, then returns.
-func (c *viewManager) doLifecycleWork() error {
+// Flushes and retires views. Continues running until there is no more work, then returns. Reports stopped when
+// the commit counter was sealed below a block height due to be flushed, in which case nothing more may be flushed.
+func (c *viewManager) doLifecycleWork() (bool, error) {
 	hasWork := true
 
 	for hasWork {
 
 		c.versionLock.Lock()
 
-		firstFlushVersion, lastFlushVersion, versionWrites, err := c.determineVersionsToFlushLocked()
+		firstFlushBlockHeight, lastFlushBlockHeight, finalWritesByBlockHeight, err :=
+			c.determineBlocksToFlushLocked()
 		if err != nil {
 			c.versionLock.Unlock()
-			return fmt.Errorf("unable to determine versions to flush: %w", err)
+			return false, fmt.Errorf("unable to determine versions to flush: %w", err)
 		}
 
-		firstRetireVersion, lastRetireVersion := c.determineVersionsToRetireLocked()
+		firstRetireBlockHeight, lastRetireBlockHeight := c.determineVersionsToRetireLocked()
 
-		unflushedCount := lastFlushVersion - firstFlushVersion
-		unretiredCount := lastRetireVersion - firstRetireVersion
+		unflushedCount := lastFlushBlockHeight - firstFlushBlockHeight
+		unretiredCount := lastRetireBlockHeight - firstRetireBlockHeight
 		hasWork = unflushedCount > 0 || unretiredCount > 0
 
 		c.versionLock.Unlock()
 
-		err = c.flushViews(firstFlushVersion, lastFlushVersion, versionWrites)
+		stopped, err := c.flushViews(firstFlushBlockHeight, lastFlushBlockHeight, finalWritesByBlockHeight)
 		if err != nil {
-			return fmt.Errorf("unable to flush views: %w", err)
+			return false, fmt.Errorf("unable to flush views: %w", err)
+		}
+		if stopped {
+			return true, nil
 		}
 
-		err = c.retireViews(firstRetireVersion, lastRetireVersion)
+		err = c.retireViews(firstRetireBlockHeight, lastRetireBlockHeight)
 		if err != nil {
-			return fmt.Errorf("unable to retire views: %w", err)
+			return false, fmt.Errorf("unable to retire views: %w", err)
 		}
 	}
 
-	return nil
+	return false, nil
 }
 
 // Determine which versions need to be flushed to disk.
-func (c *viewManager) determineVersionsToFlushLocked() (
+func (c *viewManager) determineBlocksToFlushLocked() (
 	// The first version to be flushed, inclusive.
-	firstVersion uint64,
+	firstBlockHeight uint64,
 	// The last version to be flushed, exclusive.
-	lastVersion uint64,
+	lastBlockHeight uint64,
 	// The finalization writes of the versions to be flushed.
-	versionWrites map[uint64][]*proto.KVPair,
+	finalWritesByBlockHeight map[uint64][]*proto.KVPair,
 	err error,
 ) {
 
-	firstVersion = c.oldestVersion
-	lastVersion = c.oldestVersion
-	versionWrites = make(map[uint64][]*proto.KVPair)
+	firstBlockHeight = c.oldestBlockHeight
+	lastBlockHeight = c.oldestBlockHeight
+	finalWritesByBlockHeight = make(map[uint64][]*proto.KVPair)
 
-	if c.oldestVersion == c.currentVersion {
+	if c.oldestBlockHeight == c.currentBlockHeight {
 		// The only version we are tracking is the mutable version, which is never flush eligible.
 		return
 	}
 
 	// If the oldest tracked version has already been flushed, then there is a pending retirement
 	// that hasn't run yet.
-	if c.versionMap[c.oldestVersion].flushedToDisk {
+	if c.versionMap[c.oldestBlockHeight].flushedToDisk {
 		return
 	}
 
-	for targetVersion := firstVersion; targetVersion < c.currentVersion; targetVersion++ {
-		counter := c.versionMap[targetVersion]
+	for targetBlockHeight := firstBlockHeight; targetBlockHeight < c.currentBlockHeight; targetBlockHeight++ {
+		counter := c.versionMap[targetBlockHeight]
 
 		if !counter.finalized {
 			// Unfinalized views are not flush eligible.
@@ -987,8 +1011,8 @@ func (c *viewManager) determineVersionsToFlushLocked() (
 		}
 
 		// Mark the current view as flush eligible.
-		versionWrites[targetVersion] = counter.finalWrites
-		lastVersion++
+		finalWritesByBlockHeight[targetBlockHeight] = counter.finalWrites
+		lastBlockHeight++
 
 		if counter.referenceCount > 0 {
 			// We've encountered a view that is not retirement eligible. Although this view
@@ -997,22 +1021,22 @@ func (c *viewManager) determineVersionsToFlushLocked() (
 		}
 	}
 
-	return firstVersion, lastVersion, versionWrites, nil
+	return firstBlockHeight, lastBlockHeight, finalWritesByBlockHeight, nil
 }
 
 // Determine which versions need to be retired.
 func (c *viewManager) determineVersionsToRetireLocked() (
 	// The first version to be retired, inclusive.
-	firstVersion uint64,
+	firstBlockHeight uint64,
 	// The last version to be retired, exclusive.
-	lastVersion uint64,
+	lastBlockHeight uint64,
 ) {
 
-	firstVersion = c.oldestVersion
-	lastVersion = c.oldestVersion
+	firstBlockHeight = c.oldestBlockHeight
+	lastBlockHeight = c.oldestBlockHeight
 
-	for targetVersion := c.oldestVersion; targetVersion < c.currentVersion; targetVersion++ {
-		counter := c.versionMap[targetVersion]
+	for targetBlockHeight := c.oldestBlockHeight; targetBlockHeight < c.currentBlockHeight; targetBlockHeight++ {
+		counter := c.versionMap[targetBlockHeight]
 
 		if counter.referenceCount > 0 || !counter.flushedToDisk {
 			// We can only retire versions that are entirely released and flushed to disk.
@@ -1020,22 +1044,24 @@ func (c *viewManager) determineVersionsToRetireLocked() (
 		}
 
 		// Include this view in the set to be retired
-		lastVersion++
+		lastBlockHeight++
 	}
 
-	return firstVersion, lastVersion
+	return firstBlockHeight, lastBlockHeight
 }
 
-// flushViews writes the versions in [firstVersion, lastVersion) to the underlying DB in batches, each
-// version's own writes ordered by key and followed by its finalization writes, and marks them flushed.
+// flushViews writes the versions in [firstBlockHeight, lastBlockHeight) to the underlying DB in batches, each
+// version's own writes ordered by key and followed by its finalization writes, and marks them flushed. Each batch
+// is committed only once the commit counter reaches the batch's highest block height. Reports stopped, having marked
+// nothing flushed, if the counter is sealed below a batch's highest block height.
 func (c *viewManager) flushViews(
 	// The first version to flush (inclusive).
-	firstVersion uint64,
+	firstBlockHeight uint64,
 	// The last version to flush (exclusive).
-	lastVersion uint64,
+	lastBlockHeight uint64,
 	// The finalization writes of each version to flush.
-	versionWrites map[uint64][]*proto.KVPair,
-) error {
+	finalWritesByBlockHeight map[uint64][]*proto.KVPair,
+) (bool, error) {
 
 	// Write diffs to the DB in batches, oldest version first.
 	var batch types.Batch
@@ -1045,7 +1071,7 @@ func (c *viewManager) flushViews(
 		}
 	}()
 	versionsInBatch := uint64(0)
-	for version := firstVersion; version < lastVersion; version++ {
+	for blockHeight := firstBlockHeight; blockHeight < lastBlockHeight; blockHeight++ {
 		versionsInBatch++
 		if batch == nil {
 			// Never sized up front: pebble hands back a pooled batch still carrying the buffer its last
@@ -1057,9 +1083,9 @@ func (c *viewManager) flushViews(
 		// runs rather than a sort. One version at a time and never merged across versions: pebble
 		// resolves two writes to one key by sequence number, which it assigns in batch order, so a key
 		// written in several of a batch's versions must reach it oldest first.
-		shardDiffs, err := c.materializeSortedDiffs(version)
+		shardDiffs, err := c.materializeSortedDiffs(blockHeight)
 		if err != nil {
-			return err
+			return false, err
 		}
 		err = forEachMergedEntry(shardDiffs, func(entry Write) error {
 			if entry.Value == nil {
@@ -1068,7 +1094,7 @@ func (c *viewManager) flushViews(
 			return batch.SetString(entry.Key, entry.Value)
 		})
 		if err != nil {
-			return fmt.Errorf("flush failed to write the diff at version %d: %w", version, err)
+			return false, fmt.Errorf("flush failed to write the diff at version %d: %w", blockHeight, err)
 		}
 
 		// The caller's metadata goes in the same batch as its block's data, so the two land atomically,
@@ -1076,10 +1102,10 @@ func (c *viewManager) flushViews(
 		// merge above: that runs over diffs ordered when the version was sealed, and FinalizeView
 		// supplies these writes later. A Delete pair becomes a tombstone, and a pair carrying an empty
 		// value is normalized to a non-nil empty slice to keep the two distinguishable.
-		for _, pair := range versionWrites[version] {
+		for _, pair := range finalWritesByBlockHeight[blockHeight] {
 			if pair.Delete {
 				if err := batch.Delete(pair.Key); err != nil {
-					return fmt.Errorf("flush failed to delete metadata key: %w", err)
+					return false, fmt.Errorf("flush failed to delete metadata key: %w", err)
 				}
 				continue
 			}
@@ -1088,52 +1114,79 @@ func (c *viewManager) flushViews(
 				value = []byte{}
 			}
 			if err := batch.Set(pair.Key, value); err != nil {
-				return fmt.Errorf("flush failed to set metadata key: %w", err)
+				return false, fmt.Errorf("flush failed to set metadata key: %w", err)
 			}
 		}
 
 		// Len is non-negative, so the conversion is safe.
 		if uint64(batch.Len()) >= c.config.TargetBytesPerFlush { //nolint:gosec
-			commitErr := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync})
-			closeErr := batch.Close()
+			stopped, err := c.commitFlushBatch(batch, blockHeight, versionsInBatch)
 			batch = nil
-			if commitErr != nil {
-				return fmt.Errorf("flush failed to commit batch: %w", commitErr)
-			}
-			if closeErr != nil {
-				return fmt.Errorf("flush failed to close batch: %w", closeErr)
-			}
-			if err := c.recordFlushedVersions(versionsInBatch); err != nil {
-				return fmt.Errorf("flush failed to record flushed versions: %w", err)
+			if err != nil || stopped {
+				return stopped, err
 			}
 			versionsInBatch = 0
 		}
 	}
 	if batch != nil {
-		commitErr := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync})
-		closeErr := batch.Close()
+		stopped, err := c.commitFlushBatch(batch, lastBlockHeight-1, versionsInBatch)
 		batch = nil
-		if commitErr != nil {
-			return fmt.Errorf("flush failed to commit batch: %w", commitErr)
-		}
-		if closeErr != nil {
-			return fmt.Errorf("flush failed to close batch: %w", closeErr)
-		}
-		if err := c.recordFlushedVersions(versionsInBatch); err != nil {
-			return fmt.Errorf("flush failed to record flushed versions: %w", err)
+		if err != nil || stopped {
+			return stopped, err
 		}
 	}
 
 	// Mark the flushed versions as having been flushed.
 	c.versionLock.Lock()
-	for version := firstVersion; version < lastVersion; version++ {
-		counter := c.versionMap[version]
+	for blockHeight := firstBlockHeight; blockHeight < lastBlockHeight; blockHeight++ {
+		counter := c.versionMap[blockHeight]
 		counter.flushedToDisk = true
 		close(counter.flushCompleted)
 	}
 	c.versionLock.Unlock()
 
-	return nil
+	return false, nil
+}
+
+// commitFlushBatch waits for the commit counter to reach highestBlockHeight, then commits and closes the batch and
+// records its versions as flushed. The batch is closed whatever the outcome. Reports stopped, without committing,
+// if the counter is sealed below highestBlockHeight.
+func (c *viewManager) commitFlushBatch(
+	// The batch to commit.
+	batch types.Batch,
+	// The highest block height the batch writes.
+	highestBlockHeight uint64,
+	// The number of versions the batch writes.
+	versionCount uint64,
+) (bool, error) {
+	reached, counterValue, err := c.commitCounter.Await(c.ctx, highestBlockHeight)
+	if err != nil {
+		_ = batch.Close()
+		return false, fmt.Errorf("flush failed to await the commit counter at block height %d: %w",
+			highestBlockHeight, err)
+	}
+	if !reached {
+		_ = batch.Close()
+		logger.Warn("abandoning flush: the commit counter was sealed below the block height being flushed, "+
+			"and no further versions will be flushed",
+			"manager", c.config.Name,
+			"block_height", highestBlockHeight,
+			"commit_counter", counterValue)
+		return true, nil
+	}
+
+	commitErr := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync})
+	closeErr := batch.Close()
+	if commitErr != nil {
+		return false, fmt.Errorf("flush failed to commit batch: %w", commitErr)
+	}
+	if closeErr != nil {
+		return false, fmt.Errorf("flush failed to close batch: %w", closeErr)
+	}
+	if err := c.recordFlushedVersions(versionCount); err != nil {
+		return false, fmt.Errorf("flush failed to record flushed versions: %w", err)
+	}
+	return false, nil
 }
 
 // recordFlushedVersions debits versionCount from the unflushed version count and releases any Commit
@@ -1158,19 +1211,19 @@ func (c *viewManager) recordFlushedVersions(versionCount uint64) error {
 // Retire all eligible views.
 func (c *viewManager) retireViews(
 	// The first version to retire (inclusive).
-	firstVersion uint64,
+	firstBlockHeight uint64,
 	// The last version to retire (exclusive).
-	lastVersion uint64,
+	lastBlockHeight uint64,
 ) error {
 
-	if firstVersion >= lastVersion {
+	if firstBlockHeight >= lastBlockHeight {
 		// Nothing to retire. Callers in doLifecycleWork pass the same first/last when
 		// no version is retirement-eligible.
 		return nil
 	}
 
 	for i, shard := range c.shards {
-		err := shard.DropVersions(firstVersion, lastVersion)
+		err := shard.DropVersions(firstBlockHeight, lastBlockHeight)
 		if err != nil {
 			return fmt.Errorf("failed to drop versions from shard %d: %w", i, err)
 		}
@@ -1179,16 +1232,16 @@ func (c *viewManager) retireViews(
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
-	for targetVersion := firstVersion; targetVersion < lastVersion; targetVersion++ {
-		counter := c.versionMap[targetVersion]
+	for targetBlockHeight := firstBlockHeight; targetBlockHeight < lastBlockHeight; targetBlockHeight++ {
+		counter := c.versionMap[targetBlockHeight]
 		if counter.referenceCount > 0 || !counter.flushedToDisk {
 			// Sanity check, should be impossible
 			return fmt.Errorf("expected view to be released and flushed, refcount = %d, flushed = %t",
 				counter.referenceCount, counter.flushedToDisk)
 		}
-		delete(c.versionMap, targetVersion)
+		delete(c.versionMap, targetBlockHeight)
 	}
-	c.oldestVersion = lastVersion
+	c.oldestBlockHeight = lastBlockHeight
 
 	return nil
 }

@@ -47,7 +47,7 @@ func (v *recordingView) Abandon() {
 	panic("unexpected call")
 }
 
-func (v *recordingView) Finalize([]*proto.KVPair) error {
+func (v *recordingView) Finalize(uint64, []*proto.KVPair) error {
 	panic("unexpected call")
 }
 

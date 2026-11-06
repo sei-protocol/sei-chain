@@ -30,7 +30,7 @@ func TestViewIsolationUnderConcurrentMutation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("view: %v", err)
 	}
-	if err := view.Finalize(hashWrites(testHash)); err != nil {
+	if err := view.Finalize(heightOf(view), hashWrites(testHash)); err != nil {
 		t.Fatalf("set hash: %v", err)
 	}
 
@@ -172,7 +172,7 @@ func TestConcurrentDifferential(t *testing.T) {
 				t.Fatalf("view: %v", err)
 			}
 			ver := model.Commit()
-			if err := view.Finalize(hashWrites(testHash)); err != nil {
+			if err := view.Finalize(heightOf(view), hashWrites(testHash)); err != nil {
 				t.Fatalf("set hash: %v", err)
 			}
 			// Hand off with an extra reservation so the reader owns teardown; drop the writer's

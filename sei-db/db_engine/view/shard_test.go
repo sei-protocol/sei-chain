@@ -13,13 +13,13 @@ func TestShardVersionedReads(t *testing.T) {
 	require.NoError(t, s.Set([]byte("k"), []byte("v2")))
 
 	for _, tc := range []struct {
-		version uint64
-		want    string
+		blockHeight uint64
+		want        string
 	}{{1, "v1"}, {2, "v2"}} {
-		val, found, err := s.Get([]byte("k"), tc.version, false)
-		require.NoError(t, err, "version=%d", tc.version)
-		require.True(t, found, "version=%d", tc.version)
-		require.Equal(t, tc.want, string(val), "version=%d", tc.version)
+		val, found, err := s.Get([]byte("k"), tc.blockHeight, false)
+		require.NoError(t, err, "blockHeight=%d", tc.blockHeight)
+		require.True(t, found, "blockHeight=%d", tc.blockHeight)
+		require.Equal(t, tc.want, string(val), "blockHeight=%d", tc.blockHeight)
 	}
 }
 
@@ -45,7 +45,7 @@ func TestShardValidateVersionUnderflow(t *testing.T) {
 
 func TestShardValidateVersionOverflow(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
-	_, _, err := s.Get([]byte("k"), s.currentVersion+5, false)
+	_, _, err := s.Get([]byte("k"), s.currentBlockHeight+5, false)
 	require.ErrorContains(t, err, "current")
 }
 
@@ -107,7 +107,7 @@ func TestShardDeleteWritesTombstone(t *testing.T) {
 	require.NoError(t, s.Delete([]byte("k")))
 
 	// Delete in the same version overwrites the value with a tombstone (nil).
-	val, found, err := s.Get([]byte("k"), s.currentVersion, false)
+	val, found, err := s.Get([]byte("k"), s.currentBlockHeight, false)
 	require.NoError(t, err)
 	require.False(t, found)
 	require.Nil(t, val)
@@ -123,7 +123,7 @@ func TestShardDropVersionsPushesLatestToDB(t *testing.T) {
 	// Drop versions [1, 3): their data collapses into the dbCache, latest value winning.
 	require.NoError(t, s.DropVersions(1, 3))
 
-	val, found, err := s.Get([]byte("k"), s.currentVersion, false)
+	val, found, err := s.Get([]byte("k"), s.currentBlockHeight, false)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "v2", string(val))
@@ -151,7 +151,7 @@ func TestShardConcurrentReadsCollapseToOneDBRead(t *testing.T) {
 	results := make(chan result, 2)
 	for i := 0; i < 2; i++ {
 		go func() {
-			val, found, err := s.Get([]byte("k"), s.currentVersion, true)
+			val, found, err := s.Get([]byte("k"), s.currentBlockHeight, true)
 			results <- result{val, found, err}
 		}()
 	}

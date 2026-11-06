@@ -16,7 +16,7 @@ func TestFlushPersistsSetsDeletesAndFinalizationToDB(t *testing.T) {
 	require.NoError(t, manager.Delete([]byte("del")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
-	require.NoError(t, view.Finalize(hashWrites([]byte("the-hash"))))
+	require.NoError(t, view.Finalize(heightOf(view), hashWrites([]byte("the-hash"))))
 	awaitFlushed(t, view, time.Second)
 	require.NoError(t, view.Release())
 
@@ -34,24 +34,24 @@ func TestFlushPersistsSetsDeletesAndFinalizationToDB(t *testing.T) {
 func TestFlushPersistsEveryFinalizationPairPerVersion(t *testing.T) {
 	manager, db := newTestManager(t, nil, 1, 1<<20)
 
-	writes := func(version string) []*proto.KVPair {
+	writes := func(blockHeight string) []*proto.KVPair {
 		return []*proto.KVPair{
-			{Key: []byte("_meta/hash"), Value: []byte("hash-" + version)},
-			{Key: []byte("_meta/version"), Value: []byte(version)},
-			{Key: []byte("_meta/x:evm/stats"), Value: []byte("stats-" + version)},
+			{Key: []byte("_meta/hash"), Value: []byte("hash-" + blockHeight)},
+			{Key: []byte("_meta/version"), Value: []byte(blockHeight)},
+			{Key: []byte("_meta/x:evm/stats"), Value: []byte("stats-" + blockHeight)},
 		}
 	}
 
 	require.NoError(t, manager.Set([]byte("k"), []byte("v1")))
 	view1, err := manager.Commit()
 	require.NoError(t, err)
-	require.NoError(t, view1.Finalize(writes("1")))
+	require.NoError(t, view1.Finalize(heightOf(view1), writes("1")))
 	require.NoError(t, view1.Release())
 
 	require.NoError(t, manager.Set([]byte("k"), []byte("v2")))
 	view2, err := manager.Commit()
 	require.NoError(t, err)
-	require.NoError(t, view2.Finalize(writes("2")))
+	require.NoError(t, view2.Finalize(heightOf(view2), writes("2")))
 	awaitFlushed(t, view2, time.Second)
 	require.NoError(t, view2.Release())
 
@@ -94,7 +94,7 @@ func TestFlushRacesAheadOfRelease(t *testing.T) {
 	require.NoError(t, err)
 
 	// Finalize but do NOT release: a finalized oldest view may flush with a reservation outstanding.
-	require.NoError(t, view.Finalize(hashWrites(testHash)))
+	require.NoError(t, view.Finalize(heightOf(view), hashWrites(testHash)))
 	awaitFlushed(t, view, time.Second)
 	require.True(t, db.has("k"), "finalized view must flush even with an outstanding reservation")
 
@@ -132,8 +132,9 @@ func TestOutOfOrderReleaseDoesNotRetireNewer(t *testing.T) {
 	view2, err := manager.Commit() // version 2
 	require.NoError(t, err)
 
-	require.NoError(t, view1.Finalize(hashWrites(testHash))) // finalized but held
-	finalizeAndRelease(t, view2)                             // released out of order (before view1)
+	// view1 is finalized but held, and view2 is released out of order, before view1.
+	require.NoError(t, view1.Finalize(heightOf(view1), hashWrites(testHash)))
+	finalizeAndRelease(t, view2)
 
 	// view2 cannot retire while view1 is still held.
 	require.Never(t, func() bool { return !isTracked(manager, 2) }, 50*time.Millisecond, 5*time.Millisecond,
@@ -203,9 +204,9 @@ func TestReserveAfterRetirementFails(t *testing.T) {
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
-	ver := view.(*viewImpl).version
+	height := view.(*viewImpl).blockHeight
 	finalizeAndRelease(t, view)
-	awaitRetired(t, manager, ver)
+	awaitRetired(t, manager, height)
 
 	require.Error(t, view.Reserve(), "reserving a retired view must fail")
 }
@@ -215,11 +216,11 @@ func TestFinalizeAfterRetirementFails(t *testing.T) {
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
-	ver := view.(*viewImpl).version
+	height := view.(*viewImpl).blockHeight
 	finalizeAndRelease(t, view)
-	awaitRetired(t, manager, ver)
+	awaitRetired(t, manager, height)
 
-	require.Error(t, view.Finalize(hashWrites(testHash)), "finalizing a retired view must fail")
+	require.Error(t, view.Finalize(heightOf(view), hashWrites(testHash)), "finalizing a retired view must fail")
 }
 
 func TestAwaitFlushAfterRetirementFails(t *testing.T) {
@@ -227,9 +228,9 @@ func TestAwaitFlushAfterRetirementFails(t *testing.T) {
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
-	ver := view.(*viewImpl).version
+	height := view.(*viewImpl).blockHeight
 	finalizeAndRelease(t, view)
-	awaitRetired(t, manager, ver)
+	awaitRetired(t, manager, height)
 
 	require.Error(t, view.AwaitFlush(context.Background()), "AwaitFlush on a retired view must fail")
 }

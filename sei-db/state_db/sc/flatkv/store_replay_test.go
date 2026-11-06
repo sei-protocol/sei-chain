@@ -71,11 +71,30 @@ func TestCatchupRejectsWALStartingAfterReplayStart(t *testing.T) {
 // TestCatchupAcceptsWALStartingExactlyAtReplayStart pins the boundary: a WAL whose first block is exactly
 // committedVersion+1 has no gap and must replay. An off-by-one here would reject healthy stores.
 func TestCatchupAcceptsWALStartingExactlyAtReplayStart(t *testing.T) {
-	s := gappedWALStore(t, 10)
-	defer func() { require.NoError(t, s.Close()) }()
+	cfg := config.DefaultTestConfig(t)
+	first, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, first.LoadLatest())
+	require.NoError(t, first.SetInitialVersion(10))
+	first = reopenStore(t, first, cfg)
+	copies := make(map[string]string, len(dataDBDirs))
+	for _, dbName := range dataDBDirs {
+		copies[dbName] = copyDataDB(t, cfg, dbName)
+	}
+	require.NoError(t, first.LoadLatest())
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0xAB}, ktype.Slot{0xCD}))
+	cs := makeChangeSet(key, padLeft32(0x11), false)
+	require.NoError(t, commitChangeSets(first, 10, []*proto.NamedChangeSet{cs}))
+	require.NoError(t, first.Close())
 
-	s.committedVersion = 9
-	require.NoError(t, s.sealBaseline(), "re-seal the baseline at the rewound height, as open would")
+	// The databases go back to block 9 while the WAL goes on to block 10, as a crash before block 10's flush
+	// leaves them.
+	for dbName, copied := range copies {
+		restoreDataDB(t, cfg, dbName, copied)
+	}
+
+	s := openWorkingCopy(t, cfg)
+	require.Equal(t, int64(9), s.committedVersion, "fixture precondition: block 10 must not be on disk")
 	require.NoError(t, s.replayIntoMutableStore(0))
 	require.Equal(t, int64(10), s.committedVersion)
 }
@@ -289,20 +308,32 @@ func TestResolveReplayRangeOnEmptyWAL(t *testing.T) {
 // misreports how much recovery a restart actually did.
 func TestReplayBlocksReturnsAppliedCount(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	first, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	require.NoError(t, s.LoadLatest())
-	defer func() { require.NoError(t, s.Close()) }()
-
-	for i := byte(1); i <= 3; i++ {
-		commitStorageEntry(t, s, ktype.Address{i}, ktype.Slot{i}, []byte{i})
+	require.NoError(t, first.LoadLatest())
+	commitStorageEntry(t, first, ktype.Address{1}, ktype.Slot{1}, []byte{1})
+	first = reopenStore(t, first, cfg)
+	copies := make(map[string]string, len(dataDBDirs))
+	for _, dbName := range dataDBDirs {
+		copies[dbName] = copyDataDB(t, cfg, dbName)
 	}
-	require.Equal(t, int64(3), s.committedVersion)
+	require.NoError(t, first.LoadLatest())
+	for i := byte(2); i <= 3; i++ {
+		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{i}, ktype.Slot{i}))
+		require.NoError(t, first.ApplyChangeSets(int64(i),
+			[]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(i), false)}))
+		commitBuffered(t, first)
+	}
+	require.NoError(t, first.Close())
 
-	// Rewind the in-memory watermark so the WAL holds blocks the store must re-apply, and re-seal the
-	// baseline there, which is the pair of things open does before it replays.
-	s.committedVersion = 1
-	require.NoError(t, s.sealBaseline())
+	// The databases go back to block 1 while the WAL goes on to block 3, as a crash before blocks 2 and 3
+	// flush leaves them.
+	for dbName, copied := range copies {
+		restoreDataDB(t, cfg, dbName, copied)
+	}
+
+	s := openWorkingCopy(t, cfg)
+	require.Equal(t, int64(1), s.committedVersion, "fixture precondition: blocks 2 and 3 must not be on disk")
 	it, ok, err := s.openReplayIterator(s.committedVersion, 0)
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -352,57 +383,53 @@ func TestReplayIntoReadOnlyCopyDoesNotDisturbPrimary(t *testing.T) {
 // The skew is the skip list, which is an argument to applyAndCommit, so no partial flush needs
 // manufacturing: hand it a list that marks the other stores as already holding a later block.
 func TestReplaySkipDoesNotRewindRecordedHeight(t *testing.T) {
-	s := setupTestStore(t)
-	defer func() { _ = s.Close() }()
-
-	for round := byte(1); round <= 4; round++ {
+	cfg := config.DefaultTestConfig(t)
+	s := setupTestStoreWithConfig(t, cfg)
+	for round := byte(1); round <= 2; round++ {
 		commitMixedState(t, s, round)
 	}
 	requireFlushedToDisk(t, s)
-	require.Equal(t, int64(4), s.Version())
+	require.NoError(t, s.Close())
+	storageAtBlock2 := copyDataDB(t, cfg, storageDBDir)
 
-	// What each database recorded at block 4, which is the state it must keep.
-	before := make(map[string]*LocalMeta, len(dataDBDirs))
-	for _, dir := range dataDBDirs {
+	s = openLatest(t, cfg)
+	for round := byte(3); round <= 4; round++ {
+		commitMixedState(t, s, round)
+	}
+	requireFlushedToDisk(t, s)
+	require.NoError(t, s.Close())
+
+	// The storage database goes back to block 2 while the others keep block 4, as a crash between their
+	// flushes leaves them. What each of the others recorded at block 4 is the state it must keep.
+	restoreDataDB(t, cfg, storageDBDir, storageAtBlock2)
+	skipped := []string{accountDBDir, codeDBDir, miscDBDir}
+	before := make(map[string]*LocalMeta, len(skipped))
+	s = openWorkingCopy(t, cfg)
+	require.Equal(t, int64(2), s.committedVersion, "fixture precondition: the store opens at its lowest database")
+	for _, dir := range skipped {
 		meta, err := loadLocalMeta(s.rawDBFor(dir))
 		require.NoError(t, err)
 		require.Equal(t, int64(4), meta.CommittedVersion, "%s must start at block 4", dir)
 		before[dir] = meta
 	}
+	require.NoError(t, s.Close())
 
-	// Replay block 3 with only the storage database behind. Every other store already holds block 4
-	// and is skipped, exactly as a catch-up after a partial flush would do.
-	skipped := []string{accountDBDir, codeDBDir, miscDBDir}
-	alreadyHave := map[string]int64{
-		accountDBDir: 4, codeDBDir: 4, miscDBDir: 4,
-		storageDBDir: 2,
-	}
-	// Open would have derived the committed version from the lowest height any store reached and sealed
-	// the baseline there, which is what a catch-up replays forward from.
-	s.committedVersion = 2
-	require.NoError(t, s.sealBaseline())
-
-	addr, slot := addrN(3), slotN(3)
-	prior := s.OpenView()
-	block3, err := MutationsFromChangeSets([]*proto.NamedChangeSet{namedCS(
-		noncePair(addr, 3),
-		codeHashPair(addr, codeHashN(3)),
-		codePair(addr, []byte{0x60, 0x80, 3}),
-		storagePair(addr, slot, []byte{3, 0xAA}),
-	)}, 3, prior)
-	prior.Close()
-	require.NoError(t, err)
-	require.NoError(t, s.applyAndCommit(3, block3, alreadyHave))
+	// Catch-up replays blocks 3 and 4 into the storage database alone. Each block's seal records metadata for
+	// every store, so a store sitting at block 4 would be handed a note claiming an earlier height, paired with
+	// the hash of the height it actually holds.
+	s = openLatest(t, cfg)
 	requireFlushedToDisk(t, s)
-
 	for _, dir := range skipped {
 		meta, err := loadLocalMeta(s.rawDBFor(dir))
 		require.NoError(t, err)
 		require.Equal(t, int64(4), meta.CommittedVersion,
-			"%s skipped block 3, so its recorded height must not be rewound to 3", dir)
+			"%s skipped blocks 3 and 4, so its recorded height must not be rewound", dir)
 		require.True(t, before[dir].LtHash.Equal(meta.LtHash),
-			"%s skipped block 3, so its recorded hash must not change", dir)
+			"%s skipped blocks 3 and 4, so its recorded hash must not change", dir)
 	}
+	meta, err := loadLocalMeta(s.rawDBFor(storageDBDir))
+	require.NoError(t, err)
+	require.Equal(t, int64(4), meta.CommittedVersion, "catch-up must bring the storage database to block 4")
 }
 
 // TestReplayConvergesOnPartialAccountFieldWrites pins replaying blocks that each write only some fields
@@ -513,4 +540,25 @@ func TestReplayDrainsHashStreamPastItsDepth(t *testing.T) {
 	require.NoError(t, reopened.LoadLatest())
 	require.Equal(t, int64(blocks), reopened.Version())
 	require.Equal(t, expected, rootHash(reopened))
+}
+
+// openWorkingCopy opens the store under cfg on the version its databases hold, replaying nothing, and closes
+// it when the test ends.
+func openWorkingCopy(t *testing.T, cfg *config.Config) *CommitStore {
+	t.Helper()
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadWorkingCopy())
+	t.Cleanup(func() { _ = s.Close() })
+	return s
+}
+
+// openLatest opens the store under cfg and catches it up to the end of its WAL, closing it when the test ends.
+func openLatest(t *testing.T, cfg *config.Config) *CommitStore {
+	t.Helper()
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	t.Cleanup(func() { _ = s.Close() })
+	return s
 }
