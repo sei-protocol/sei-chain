@@ -29,7 +29,7 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 			key:                key,
 			data:               dataState,
 			nextCommitEpoch:    dataState.NextCommitEpoch(),
-			registry:           dataState.Registry(),
+			nextLiveEpoch:      dataState.NextLiveEpoch(),
 			anchor:             dataState.Anchor(),
 			service:            giga.NewFullNodeService(dataState),
 			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),

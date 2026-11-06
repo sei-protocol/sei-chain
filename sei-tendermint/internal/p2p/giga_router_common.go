@@ -55,9 +55,10 @@ type gigaRouterCommon struct {
 	// nextCommitEpoch is data.NextCommitEpoch() cached at construction so
 	// EvmProxy can Load() without taking the data lock on every call.
 	nextCommitEpoch utils.AtomicRecv[*atypes.Epoch]
-	// registry resolves the epoch after the commit epoch. That epoch is live
-	// whenever the anchor epoch and the commit epoch match.
-	registry *epoch.Registry
+	// nextLiveEpoch is data.NextLiveEpoch() cached at construction. It is the
+	// epoch after the commit epoch when that epoch is live, otherwise the
+	// commit epoch last published.
+	nextLiveEpoch utils.AtomicRecv[*atypes.Epoch]
 	// anchor is data.Anchor() cached at construction: the AppQC/CommitQC covering
 	// the lowest row data.State still holds.
 	anchor utils.AtomicRecv[utils.Option[data.Anchor]]
@@ -570,17 +571,21 @@ type memberSession struct {
 	addr   GigaNodeAddr
 }
 
-// keepReplicas is the validators whose sessions stay up. currentCommitteeOnly
-// returns the commit committee alone. Otherwise the set is the commit committee
-// and the next one while Anchor is on the commit epoch, or the anchor committee
-// and the commit committee while Anchor lags it.
-func keepReplicas(anchor utils.Option[data.Anchor], commitEpoch *atypes.Epoch, next utils.Option[*atypes.Epoch], currentCommitteeOnly bool) map[atypes.PublicKey]struct{} {
+// keepReplicas returns the validators whose sessions stay up, and whether an
+// Anchor is present. currentCommitteeOnly returns the commit committee alone.
+// Otherwise the set is the commit committee and the next one while Anchor is on
+// the commit epoch, or the anchor committee and the commit committee while
+// Anchor lags it.
+func (r *gigaRouterCommon) keepReplicas(currentCommitteeOnly bool) (map[atypes.PublicKey]struct{}, bool) {
+	commitEpoch := r.nextCommitEpochValue()
+	anchor := r.anchor.Load()
+	_, hasAnchor := anchor.Get()
 	keep := map[atypes.PublicKey]struct{}{}
 	for lane := range commitEpoch.Committee().Lanes().All() {
 		keep[lane.Validator] = struct{}{}
 	}
 	if currentCommitteeOnly {
-		return keep
+		return keep, hasAnchor
 	}
 	if a, ok := anchor.Get(); ok && a.Epoch.EpochIndex() != commitEpoch.EpochIndex() {
 		// Anchor lags the commit epoch, so the next committee is two epochs ahead.
@@ -589,14 +594,12 @@ func keepReplicas(anchor utils.Option[data.Anchor], commitEpoch *atypes.Epoch, n
 		for lane := range a.Epoch.Committee().Lanes().All() {
 			keep[lane.Validator] = struct{}{}
 		}
-		return keep
+		return keep, hasAnchor
 	}
-	if n, ok := next.Get(); ok {
-		for lane := range n.Committee().Lanes().All() {
-			keep[lane.Validator] = struct{}{}
-		}
+	for lane := range r.nextLiveEpoch.Load().Committee().Lanes().All() {
+		keep[lane.Validator] = struct{}{}
 	}
-	return keep
+	return keep, hasAnchor
 }
 
 // nextCommitEpochValue returns the commit epoch.
@@ -604,22 +607,11 @@ func (r *gigaRouterCommon) nextCommitEpochValue() *atypes.Epoch {
 	return r.nextCommitEpoch.Load()
 }
 
-// nextEpoch returns the live epoch after commit. None when that epoch is not live.
-func (r *gigaRouterCommon) nextEpoch(commit *atypes.Epoch) utils.Option[*atypes.Epoch] {
-	ep, err := r.registry.EpochAt(commit.RoadRange().Next)
-	if err != nil {
-		return utils.None[*atypes.Epoch]()
-	}
-	return utils.Some(ep)
-}
-
 // keptReplica reports whether key stays connected. currentCommitteeOnly limits
-// that to the commit committee. Otherwise key stays in the commit or next
-// committee while Anchor is on the commit epoch, and in the anchor or commit
-// committee while Anchor lags it.
+// that to the commit committee.
 func (r *gigaRouterCommon) keptReplica(key atypes.PublicKey, currentCommitteeOnly bool) bool {
-	commit := r.nextCommitEpochValue()
-	_, ok := keepReplicas(r.anchor.Load(), commit, r.nextEpoch(commit), currentCommitteeOnly)[key]
+	keep, _ := r.keepReplicas(currentCommitteeOnly)
+	_, ok := keep[key]
 	return ok
 }
 
@@ -685,13 +677,10 @@ func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[aty
 func (r *gigaRouterCommon) stopStaleSessions(
 	ctx context.Context,
 	live map[atypes.PublicKey]*memberSession,
-	anchor utils.Option[data.Anchor],
-	commitEpoch *atypes.Epoch,
-	next utils.Option[*atypes.Epoch],
+	keep map[atypes.PublicKey]struct{},
+	hasAnchor bool,
 	currentCommitteeOnly bool,
 ) error {
-	_, hasAnchor := anchor.Get()
-	keep := keepReplicas(anchor, commitEpoch, next, currentCommitteeOnly)
 	if hasAnchor {
 		for addrs := range r.liveAddrs.Lock() {
 			dropped := false
@@ -743,20 +732,24 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 			}
 		}()
 		// Anchor is republished on every persist batch; only its epoch can
-		// change the keep set. The epoch after the commit epoch is read from
-		// the registry, and it is live before the anchor epoch catches up.
+		// change the keep set. Validators also wake when the following live
+		// epoch changes.
 		epochOf := func(opt utils.Option[data.Anchor]) utils.Option[atypes.EpochIndex] {
 			return utils.MapOpt(opt, func(a data.Anchor) atypes.EpochIndex { return a.Epoch.EpochIndex() })
 		}
 		for ctx.Err() == nil {
 			addrVersion := addrUpdates.Load()
-			commitEpoch := r.nextCommitEpochValue()
-			next := r.nextEpoch(commitEpoch)
-			anchor := r.anchor.Load()
-			if err := r.stopStaleSessions(ctx, live, anchor, commitEpoch, next, currentCommitteeOnly); err != nil {
+			commitIndex := r.nextCommitEpochValue().EpochIndex()
+			anchorEpoch := epochOf(r.anchor.Load())
+			var nextIndex atypes.EpochIndex
+			if !currentCommitteeOnly {
+				nextIndex = r.nextLiveEpoch.Load().EpochIndex()
+			}
+			keep, hasAnchor := r.keepReplicas(currentCommitteeOnly)
+			if err := r.stopStaleSessions(ctx, live, keep, hasAnchor, currentCommitteeOnly); err != nil {
 				return err
 			}
-			for validator := range keepReplicas(anchor, commitEpoch, next, currentCommitteeOnly) {
+			for validator := range keep {
 				if _, ok := live[validator]; ok {
 					continue
 				}
@@ -778,11 +771,21 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 					}))
 				})
 			}
+			watch := []utils.AtomicUpdate{r.nextCommitEpoch, r.anchor, addrUpdates}
+			if !currentCommitteeOnly {
+				watch = append(watch, r.nextLiveEpoch)
+			}
 			if err := utils.WaitAny(ctx, func() bool {
-				return r.nextCommitEpochValue().EpochIndex() != commitEpoch.EpochIndex() ||
-					epochOf(r.anchor.Load()) != epochOf(anchor) ||
-					addrUpdates.Load() != addrVersion
-			}, r.nextCommitEpoch, r.anchor, addrUpdates); err != nil {
+				if r.nextCommitEpochValue().EpochIndex() != commitIndex ||
+					epochOf(r.anchor.Load()) != anchorEpoch ||
+					addrUpdates.Load() != addrVersion {
+					return true
+				}
+				if currentCommitteeOnly {
+					return false
+				}
+				return r.nextLiveEpoch.Load().EpochIndex() != nextIndex
+			}, watch...); err != nil {
 				return err
 			}
 		}
@@ -801,9 +804,13 @@ func (r *gigaRouterCommon) runUntilMembershipChange(
 ) (changed bool, err error) {
 	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
+			watch := []utils.AtomicUpdate{r.nextCommitEpoch, r.anchor}
+			if !currentCommitteeOnly {
+				watch = append(watch, r.nextLiveEpoch)
+			}
 			err := utils.WaitAny(ctx, func() bool {
 				return !r.keptReplica(validator, currentCommitteeOnly)
-			}, r.nextCommitEpoch, r.anchor)
+			}, watch...)
 			if err != nil {
 				return err
 			}
