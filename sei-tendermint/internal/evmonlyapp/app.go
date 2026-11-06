@@ -141,20 +141,16 @@ const (
 // committed to storage and the block finalized but not yet acknowledged by
 // Commit.
 type evmOnlyCursorState struct {
-	committed  evmOnlyCursor
-	pending    utils.Option[evmOnlyCursor]
-	finalizing utils.Option[finalizingBlock]
+	committed evmOnlyCursor
+	pending   utils.Option[evmOnlyCursor]
+	// consensusState is committed with the block being finalized.
+	consensusState utils.Option[proxy.ConsensusState]
 	// lastBlockTime is the Time of the most recently committed block, used by
 	// EvmCall to reproduce that block's execution context for a read-only call.
 	lastBlockTime uint64
 	// pendingBlockTime is the Time of the block staged in pending; Commit
 	// promotes it to lastBlockTime.
 	pendingBlockTime uint64
-}
-
-type finalizingBlock struct {
-	height int64
-	state  utils.Option[proxy.ConsensusState]
 }
 
 var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
@@ -243,12 +239,8 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		if height != state.committed.height+1 {
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
 		}
-		finalizing, ok := state.finalizing.Get()
-		if !ok || finalizing.height != height {
-			return nil, fmt.Errorf("EVM-only block %d encoded without matching finalizing state", height)
-		}
 		var consensusChanges []gigatypes.MiscChange
-		if consensusState, ok := finalizing.state.Get(); ok {
+		if consensusState, ok := state.consensusState.Get(); ok {
 			consensusChanges = consensusStateMiscChanges(consensusState)
 		}
 		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result)
@@ -843,7 +835,8 @@ func (a *evmOnlyApplication) FinalizeBlockWithConsensusState(
 	panic("unreachable")
 }
 
-// beginBlock checks height is the next block to finalize and returns the committed cursor it builds on.
+// beginBlock checks height is the next block to finalize, records consensusState
+// for it, and returns the committed cursor it builds on.
 func (a *evmOnlyApplication) beginBlock(
 	height int64,
 	consensusState utils.Option[proxy.ConsensusState],
@@ -855,7 +848,7 @@ func (a *evmOnlyApplication) beginBlock(
 		if next := state.committed.height + 1; height != next {
 			return evmOnlyCursor{}, fmt.Errorf("EVM-only block height %d does not match next height %d", height, next)
 		}
-		state.finalizing = utils.Some(finalizingBlock{height: height, state: consensusState})
+		state.consensusState = consensusState
 		return state.committed, nil
 	}
 	panic("unreachable")
@@ -876,7 +869,6 @@ func (a *evmOnlyApplication) abandonPending(executor *evmonly.Executor, height i
 	}
 	for state := range a.cursor.Lock() {
 		state.pending = utils.None[evmOnlyCursor]()
-		state.finalizing = utils.None[finalizingBlock]()
 	}
 	return commitErr
 }
@@ -923,7 +915,6 @@ func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, erro
 		state.committed = pending
 		state.lastBlockTime = state.pendingBlockTime
 		state.pending = utils.None[evmOnlyCursor]()
-		state.finalizing = utils.None[finalizingBlock]()
 		return &abci.ResponseCommit{}, nil
 	}
 	panic("unreachable")
