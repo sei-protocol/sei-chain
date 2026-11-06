@@ -77,6 +77,9 @@ type inner struct {
 	// nextCommitEpoch covers nextPartialBlock once that epoch is registered; otherwise
 	// the previous publish stands (genesis epoch 0 before any CommitQC).
 	nextCommitEpoch utils.AtomicSend[*types.Epoch]
+	// nextLiveEpoch is the epoch after nextCommitEpoch when that epoch is live,
+	// otherwise the commit epoch last published.
+	nextLiveEpoch utils.AtomicSend[*types.Epoch]
 }
 
 func (i *inner) publishNextCommitEpoch(registry *epoch.Registry) {
@@ -88,6 +91,20 @@ func (i *inner) publishNextCommitEpoch(registry *epoch.Registry) {
 		return
 	}
 	i.nextCommitEpoch.Store(ep)
+	i.publishNextLiveEpoch(registry, ep)
+}
+
+// publishNextLiveEpoch stores the epoch after commit when that epoch is live.
+// Otherwise it stores commit.
+func (i *inner) publishNextLiveEpoch(registry *epoch.Registry, commit *types.Epoch) {
+	next, err := registry.EpochAt(commit.RoadRange().Next)
+	if err != nil {
+		next = commit
+	}
+	if i.nextLiveEpoch.Load().EpochIndex() >= next.EpochIndex() {
+		return
+	}
+	i.nextLiveEpoch.Store(next)
 }
 
 func (i *inner) insertAppQC(appQC *types.AppQC) error {
@@ -258,6 +275,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		persisted:        status,
 		anchor:           utils.NewAtomicSend(utils.None[Anchor]()),
 		nextCommitEpoch:  utils.NewAtomicSend(initialEpoch),
+		nextLiveEpoch:    utils.NewAtomicSend(initialEpoch),
 	}
 	for _, block := range suffix.Blocks {
 		epoch, err := cfg.Registry.Epoch(block.QC().QC().View().EpochIndex)
@@ -295,6 +313,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		inner.nextCommitEpoch.Store(inner.blocks[inner.nextPartialBlock-1].epoch)
 	}
 	inner.publishNextCommitEpoch(cfg.Registry)
+	inner.publishNextLiveEpoch(cfg.Registry, inner.nextCommitEpoch.Load())
 	inner.setAnchor()
 	return inner, nil
 }
@@ -332,6 +351,7 @@ func (s *State) activateStagedEpoch() error {
 	}
 	for inner := range s.inner.Lock() {
 		inner.publishNextCommitEpoch(s.cfg.Registry)
+		inner.publishNextLiveEpoch(s.cfg.Registry, inner.nextCommitEpoch.Load())
 		return nil
 	}
 	panic("unreachable")
@@ -787,6 +807,15 @@ func (s *State) Anchor() utils.AtomicRecv[utils.Option[Anchor]] {
 func (s *State) NextCommitEpoch() utils.AtomicRecv[*types.Epoch] {
 	for inner := range s.inner.Lock() {
 		return inner.nextCommitEpoch.Subscribe()
+	}
+	panic("unreachable")
+}
+
+// NextLiveEpoch returns the epoch after NextCommitEpoch when that epoch is live,
+// otherwise the commit epoch last published.
+func (s *State) NextLiveEpoch() utils.AtomicRecv[*types.Epoch] {
+	for inner := range s.inner.Lock() {
+		return inner.nextLiveEpoch.Subscribe()
 	}
 	panic("unreachable")
 }
