@@ -58,8 +58,9 @@ func MustCompile(query string) *Query {
 // Compile compiles the given query AST so it can be used to match events.
 func Compile(ast syntax.Query) (*Query, error) {
 	conds := make([]condition, len(ast))
+	regexpBudget := maxRegexpSize
 	for i, q := range ast {
-		cond, err := compileCondition(q)
+		cond, err := compileCondition(q, &regexpBudget)
 		if err != nil {
 			return nil, fmt.Errorf("compile %s: %w", q, err)
 		}
@@ -157,7 +158,7 @@ func (c condition) matchesEvent(event types.Event) bool {
 	return false
 }
 
-func compileCondition(cond syntax.Condition) (condition, error) {
+func compileCondition(cond syntax.Condition, regexpBudget *int) (condition, error) {
 	out := condition{tag: cond.Tag}
 
 	// Handle existence checks separately to simplify the logic below for
@@ -180,7 +181,7 @@ func compileCondition(cond syntax.Condition) (condition, error) {
 	case syntax.TString:
 		argValue = cond.Arg.Value()
 		if cond.Op == syntax.TMatches {
-			re, err := compileRegexp(cond.Arg.Value())
+			re, err := compileRegexp(cond.Arg.Value(), regexpBudget)
 			if err != nil {
 				return condition{}, fmt.Errorf("invalid regular expression: %w", err)
 			}
@@ -202,17 +203,21 @@ func compileCondition(cond syntax.Condition) (condition, error) {
 	return out, nil
 }
 
-// maxRegexpSize is the maximum estimated program size of a MATCHES pattern.
+// maxRegexpSize is the maximum total estimated program size of the MATCHES
+// patterns in a query.
 const maxRegexpSize = 1000
 
-func compileRegexp(pattern string) (*regexp.Regexp, error) {
+// compileRegexp compiles pattern and deducts its estimated size from budget.
+func compileRegexp(pattern string, budget *int) (*regexp.Regexp, error) {
 	re, err := resyntax.Parse(pattern, resyntax.Perl)
 	if err != nil {
 		return nil, err
 	}
-	if regexpSize(re) > maxRegexpSize {
-		return nil, errors.New("pattern is too large")
+	size := regexpSize(re)
+	if size > *budget {
+		return nil, errors.New("patterns are too large")
 	}
+	*budget -= size
 	return regexp.Compile(pattern)
 }
 

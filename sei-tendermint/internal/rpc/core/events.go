@@ -103,6 +103,9 @@ func (env *Environment) Subscribe(ctx context.Context, req *coretypes.RequestSub
 // Unsubscribe from events via WebSocket.
 // More: https://docs.tendermint.com/master/rpc/#/Websocket/unsubscribe
 func (env *Environment) Unsubscribe(ctx context.Context, req *coretypes.RequestUnsubscribe) (*coretypes.ResultUnsubscribe, error) {
+	if len(req.Query) > maxQueryLength {
+		return nil, errors.New("maximum query length exceeded")
+	}
 	args := tmpubsub.UnsubscribeArgs{Subscriber: rpctypes.GetCallInfo(ctx).RemoteAddr()}
 	logger.Info("Unsubscribe from query", "remote", args.Subscriber, "subscription", req.Query)
 
