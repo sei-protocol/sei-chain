@@ -74,6 +74,9 @@ type ExecutionConfig struct {
 	// GCPercent is the Go GC target. 0 leaves the process default. A value above 100 trades memory
 	// for fewer collections; the process then caps the heap from the container limit when it has one.
 	GCPercent int `mapstructure:"gc_percent"`
+	// EarlySpeculationWorkers, when positive, speculates each prepared block's transactions before the
+	// block executes, on up to this many at once. 0 disables it.
+	EarlySpeculationWorkers int `mapstructure:"early_speculation_workers"`
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
@@ -199,6 +202,7 @@ const (
 	FlagExecutionEvmRpcPort              = "giga.execution.evm_rpc_port"
 	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
 	FlagExecutionGCPercent               = "giga.execution.gc_percent"
+	FlagExecutionEarlySpeculationWorkers = "giga.execution.early_speculation_workers"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsLogs          = "giga.rpc.max_subscriptions_logs"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
@@ -296,6 +300,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionGCPercent); v != nil {
 		if cfg.Execution.GCPercent, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionGCPercent, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionEarlySpeculationWorkers); v != nil {
+		if cfg.Execution.EarlySpeculationWorkers, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionEarlySpeculationWorkers, err)
 		}
 	}
 	if v := opts.Get(FlagRPCMaxSubscriptionsNewHead); v != nil {
@@ -426,6 +435,9 @@ func (c Config) Validate() error {
 	if c.Execution.ParseWorkers < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionParseWorkers, c.Execution.ParseWorkers)
 	}
+	if c.Execution.EarlySpeculationWorkers < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionEarlySpeculationWorkers, c.Execution.EarlySpeculationWorkers)
+	}
 	if c.Execution.GCPercent < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionGCPercent, c.Execution.GCPercent)
 	}
@@ -545,6 +557,10 @@ evm_ws_port = {{ .Giga.Execution.EvmWsPort }}
 
 # gc_percent is the Go GC target. 0 leaves the process default.
 gc_percent = {{ .Giga.Execution.GCPercent }}
+
+# early_speculation_workers, when positive, speculates each prepared block's transactions before the
+# block executes, on up to this many at once. 0 disables it.
+early_speculation_workers = {{ .Giga.Execution.EarlySpeculationWorkers }}
 
 [giga.rpc]
 # Limits the EVM-only JSON-RPC server enforces. Zero disables a limit unless noted otherwise.
