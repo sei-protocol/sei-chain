@@ -1,13 +1,11 @@
 package evmonlyapp
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"hash"
 	"math/big"
 	"runtime"
 	"slices"
@@ -244,10 +242,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		if epochState, ok := state.epochState.Get(); ok {
 			epochChanges = epochStateMiscChanges(epochState)
 		}
-		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result)
-		if err != nil {
-			return nil, err
-		}
+		appHash := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result.GasUsed)
 		next := evmOnlyCursor{
 			height:    height,
 			appHash:   appHash,
@@ -948,74 +943,15 @@ func evmOnlyTxFailureLog(tx evmonly.TxResult) string {
 	return tx.Err.Error()
 }
 
-func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) (common.Hash, error) {
-	h := sha256.New()
-	w := newEVMOnlyHashWriter(h)
-	w.write(previous[:])
-	w.writeUint64(height)
-	w.write(blockHash[:])
-	w.writeUint64(result.GasUsed)
-	changesets, err := evmonly.EncodeMemoryStoreChangeSet(result.ChangeSet)
-	if err != nil {
-		return common.Hash{}, err
-	}
-	for _, changeset := range changesets {
-		w.writeSizedString(changeset.Name)
-		for _, pair := range changeset.Changeset.Pairs {
-			w.writeSized(pair.Key)
-			if pair.Delete {
-				w.writeByte(1)
-			} else {
-				w.writeByte(0)
-			}
-			w.writeSized(pair.Value)
-		}
-	}
-	if err := w.flush(); err != nil {
-		return common.Hash{}, err
-	}
-	return common.BytesToHash(h.Sum(nil)), nil
-}
-
-// evmOnlyHashBufferSize is the buffer between the stream and the hash.
-const evmOnlyHashBufferSize = 32 << 10
-
-// evmOnlyHashWriter buffers the app-hash byte stream into a hash; flush before reading the digest.
-type evmOnlyHashWriter struct {
-	buf     *bufio.Writer
-	scratch [8]byte
-}
-
-func newEVMOnlyHashWriter(h hash.Hash) *evmOnlyHashWriter {
-	return &evmOnlyHashWriter{buf: bufio.NewWriterSize(h, evmOnlyHashBufferSize)}
-}
-
-func (w *evmOnlyHashWriter) write(value []byte) {
-	_, _ = w.buf.Write(value)
-}
-
-func (w *evmOnlyHashWriter) writeByte(value byte) {
-	_ = w.buf.WriteByte(value)
-}
-
-func (w *evmOnlyHashWriter) writeUint64(value uint64) {
-	binary.BigEndian.PutUint64(w.scratch[:], value)
-	_, _ = w.buf.Write(w.scratch[:])
-}
-
-// writeSized writes value behind its length.
-func (w *evmOnlyHashWriter) writeSized(value []byte) {
-	w.writeUint64(uint64(len(value)))
-	_, _ = w.buf.Write(value)
-}
-
-func (w *evmOnlyHashWriter) writeSizedString(value string) {
-	w.writeUint64(uint64(len(value)))
-	_, _ = w.buf.WriteString(value)
-}
-
-func (w *evmOnlyHashWriter) flush() error {
-	return w.buf.Flush()
+// hashEVMOnlyResult returns a block's cursor hash: previous chained with the block's height, hash and
+// gas used. It does not cover the block's state changes; the storage app hash does.
+func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, gasUsed uint64) common.Hash {
+	var buf [2*common.HashLength + 16]byte
+	copy(buf[:], previous[:])
+	binary.BigEndian.PutUint64(buf[common.HashLength:], height)
+	copy(buf[common.HashLength+8:], blockHash[:])
+	binary.BigEndian.PutUint64(buf[2*common.HashLength+8:], gasUsed)
+	return sha256.Sum256(buf[:])
 }
 
 type evmOnlyFundedState struct{}
