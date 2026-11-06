@@ -26,3 +26,4 @@ jobs:
       openai-api-key: ${{ secrets.PLATFORM_CODE_AGENT_OPENAI_API_KEY }}
     with:
       shadow: true
+      allowed-bots: seidroid[bot]
