@@ -41,3 +41,6 @@ Within sei-tendermint subdirectory
 * TestRng instance should be one per test, constructed directly in the test function. In case of nested/table tests, each nested test should create its own instance. 
   Use TestRng.Split() (before spawning) if you need to pass entropy source to a spawned goroutine
   to ensure deterministic entropy across the goroutines.
+* In tests always check if you can reuse preexisting test fixture generators provided with the types (usually in testonly.go file of the module).
+  If not, always deduplicate test fixture generators within the go package. If you have minimally different generators you can usually generalize them into
+  1 generator at no cost.

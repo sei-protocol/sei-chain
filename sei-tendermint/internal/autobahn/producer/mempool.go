@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -18,117 +17,71 @@ import (
 var errTooLarge = errors.New("transaction too large")
 var errBadNonce = errors.New("bad nonce")
 var errMempoolFull = errors.New("mempool is full")
-
-// errPendingFull is returned when Config.MaxPendingInserts inserts are already pending. It
-// matches errMempoolFull under errors.Is so callers treat both as mempool-full.
-var errPendingFull = fmt.Errorf("%w: too many pending inserts", errMempoolFull)
-
 var ErrNotProducing = errors.New("not producing")
+
+type pendingTx struct {
+	raw          tmtypes.Tx
+	addr         common.Address
+	hash         common.Hash
+	nonceRangeID nonceRangeID
+}
+
+func (r *nonceRange) Len() uint64 { return r.next - r.first }
 
 type blockSpec struct {
 	gasEstimated uint64
 	gasWanted    uint64
 	sizeBytes    uint64
-	txs          [][]byte
-	evmHashes    []common.Hash
-	// nonces of accounts which are expected to be bumped by this block.
-	// They are checked against the app state after the block is executed.
-	evmNonces map[common.Address]uint64
+	rawTxs       [][]byte
+	txs          []*pendingTx
 }
 
 // mempool is one produce session. State.mempool publishes it; nil means idle.
 type mempool struct {
 	inner utils.Watch[*mempoolInner]
-	// pendingInserts is the number of InsertTx calls blocked in the admission queue.
-	pendingInserts utils.AtomicSend[uint64]
 }
 
-// insertTicket is the place of one blocked InsertTx call in the admission queue.
-// admitted is signalled when the ticket is at the head of the queue and the
-// mempool has capacity, or when the mempool is closed.
-type insertTicket struct {
-	admitted utils.AtomicSend[bool]
-}
+// Incarnation of nonceRange of pending txs.
+// Tx with the same nonce can be inserted multiple times
+// when pending tx get invalidated, but each one will be
+// added to a nonceRange with different ID.
+type nonceRangeID uint64
 
-func newInsertTicket() *insertTicket {
-	return &insertTicket{admitted: utils.NewAtomicSend(false)}
-}
-
-func (t *insertTicket) wait(ctx context.Context) error {
-	_, err := t.admitted.Wait(ctx, func(admitted bool) bool { return admitted })
-	return err
+// range [first,next) of pending txs in lane + mempool
+type nonceRange struct {
+	id    nonceRangeID
+	first uint64
+	next  uint64
 }
 
 // mempoolInner is the lock-protected session state. The Watch value is fixed for
 // the session; closed ends the session without replacing that pointer.
 type mempoolInner struct {
-	closed    bool
-	capacity  uint64
-	lane      types.LaneID
-	first     types.BlockNumber
-	next      types.BlockNumber
-	blocks    map[types.BlockNumber]*blockSpec
-	nextBlock *blockSpec
-	evmNonces map[common.Address]uint64
-	evmTxs    map[common.Hash]tmtypes.Tx
-	// waiters is the FIFO admission queue of blocked InsertTx calls; only the head is
-	// ever signalled, so an update costs O(1) regardless of the queue length.
-	waiters []*insertTicket
+	closed           bool
+	capacity         uint64
+	lane             types.LaneID
+	first            types.BlockNumber
+	next             types.BlockNumber
+	blocks           map[types.BlockNumber]*blockSpec
+	nextBlock        *blockSpec
+	nextNonceRangeID nonceRangeID
+	evmNonces        map[common.Address]*nonceRange // ranges of pending txs by sender.
+	evmTxs           map[common.Hash]*pendingTx     // pendingTxs by hash.
 }
 
-func newMempoolInner(capacity uint64, lane types.LaneID, n types.BlockNumber) *mempoolInner {
-	return &mempoolInner{
-		capacity:  capacity,
-		lane:      lane,
-		first:     n,
-		next:      n,
-		blocks:    map[types.BlockNumber]*blockSpec{},
-		nextBlock: &blockSpec{evmNonces: map[common.Address]uint64{}},
-		evmNonces: map[common.Address]uint64{},
-		evmTxs:    map[common.Hash]tmtypes.Tx{},
+func newMempool(capacity uint64, lane types.LaneID, n types.BlockNumber) *mempool {
+	return &mempool{
+		inner: utils.NewWatch(&mempoolInner{
+			capacity:  capacity,
+			lane:      lane,
+			first:     n,
+			next:      n,
+			blocks:    map[types.BlockNumber]*blockSpec{},
+			nextBlock: &blockSpec{},
+			evmNonces: map[common.Address]*nonceRange{},
+			evmTxs:    map[common.Hash]*pendingTx{},
+		}),
 	}
-}
-
-// close ends the session and releases every blocked InsertTx call.
-func (m *mempoolInner) close(ctrl *utils.WatchCtrl) {
-	m.closed = true
-	for _, t := range m.waiters {
-		t.admitted.Store(true)
-	}
-	ctrl.Updated()
-}
-
-// isHead reports whether ticket is the next call to be admitted: a call without a
-// ticket is admitted only when nobody is queued ahead of it.
-func (m *mempoolInner) isHead(ticket utils.Option[*insertTicket]) bool {
-	t, ok := ticket.Get()
-	if !ok {
-		return len(m.waiters) == 0
-	}
-	return m.waiters[0] == t
-}
-
-// signalHead wakes the oldest blocked InsertTx call if the mempool has capacity.
-func (m *mempoolInner) signalHead() {
-	if len(m.waiters) > 0 && !m.IsFull() {
-		m.waiters[0].admitted.Store(true)
-	}
-}
-
-func (mp *mempool) enqueue(m *mempoolInner) *insertTicket {
-	t := newInsertTicket()
-	m.waiters = append(m.waiters, t)
-	mp.pendingInserts.Store(uint64(len(m.waiters)))
-	return t
-}
-
-// dequeue removes t from the admission queue and passes the turn to the next waiter.
-func (mp *mempool) dequeue(m *mempoolInner, t *insertTicket) {
-	if i := slices.Index(m.waiters, t); i >= 0 {
-		m.waiters = slices.Delete(m.waiters, i, i+1)
-		mp.pendingInserts.Store(uint64(len(m.waiters)))
-	}
-	m.signalHead()
 }
 
 func (m *mempoolInner) IsFull() bool {
@@ -142,9 +95,7 @@ func (m *mempoolInner) CanSealBlock(allowEmpty bool) bool {
 func (m *mempoolInner) SealBlock() {
 	m.blocks[m.next] = m.nextBlock
 	m.next += 1
-	m.nextBlock = &blockSpec{
-		evmNonces: map[common.Address]uint64{},
-	}
+	m.nextBlock = &blockSpec{}
 }
 
 // TODO(gprusak): this rpc is probably unused, but if it is
@@ -158,9 +109,43 @@ func (s *State) UnconfirmedTxs() [][]byte {
 		if m.closed {
 			return nil
 		}
-		return m.nextBlock.txs
+		return m.nextBlock.rawTxs
 	}
 	panic("unreachable")
+}
+
+func (m *mempool) pendingNonces(addr common.Address) (nonceRange, bool) {
+	for inner := range m.inner.Lock() {
+		if r, ok := inner.evmNonces[addr]; ok {
+			return *r, ok
+		}
+	}
+	return nonceRange{}, false
+}
+
+func (s *State) evmNextPendingNonce(m *mempool, addr common.Address) uint64 {
+	// IMPORTANT: first snapshot the pending nonces THEN query app nonce.
+	// There would be a race condition otherwise.
+	pendingNonces, ok := m.pendingNonces(addr)
+	appNonce := s.app.EvmNonce(addr)
+
+	if !ok {
+		// no pending txs.
+		return appNonce
+	}
+	if pendingNonces.first <= appNonce {
+		// pending txs and no gap.
+		return pendingNonces.next
+	}
+	// Nonce gap detected, invalidate pending nonces.
+	for inner, ctrl := range m.inner.Lock() {
+		// Check ID, since pending nonces could have been invalidated by a concurrent call.
+		if got, ok := inner.evmNonces[addr]; ok && got.id == pendingNonces.id {
+			delete(inner.evmNonces, addr)
+			ctrl.Updated()
+		}
+	}
+	return appNonce
 }
 
 func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
@@ -168,29 +153,18 @@ func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
 	if !ok {
 		return s.app.EvmNonce(addr)
 	}
-	for m := range mp.inner.Lock() {
-		if !m.closed {
-			if nonce, ok := m.evmNonces[addr]; ok {
-				return nonce
-			}
-		}
-	}
-	return s.app.EvmNonce(addr)
+	return s.evmNextPendingNonce(mp, addr)
 }
 
 func (s *State) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
-	mp, ok := s.mempool.Load().Get()
-	if !ok {
-		return nil, false
-	}
-	for m := range mp.inner.Lock() {
-		if m.closed {
-			return nil, false
+	if m, ok := s.mempool.Load().Get(); ok {
+		for inner := range m.inner.Lock() {
+			if tx, ok := inner.evmTxs[hash]; ok {
+				return tx.raw, ok
+			}
 		}
-		tx, ok := m.evmTxs[hash]
-		return tx, ok
 	}
-	panic("unreachable")
+	return nil, false
 }
 
 // Removes txs from mempool assigned to lane blocks <n.
@@ -204,21 +178,20 @@ func (s *State) pruneMempool(mp *mempool, n types.BlockNumber) {
 			b := m.blocks[m.first]
 			delete(m.blocks, m.first)
 			m.first += 1
-			for _, hash := range b.evmHashes {
-				delete(m.evmTxs, hash)
-			}
-			for addr, wantNonce := range b.evmNonces {
-				if wantNonce == m.evmNonces[addr] {
-					// Happy path: all account's txs got executed.
-					delete(m.evmNonces, addr)
-				} else if gotNonce := s.app.EvmNonce(addr); gotNonce < wantNonce {
-					// Some txs have not been executed - reset account tracking.
-					// NOTE: app execution is not synchronized with mempool, so nonce could have already
-					// proceeded past wantNonce and that is expected.
-					delete(m.evmNonces, addr)
-					delete(m.nextBlock.evmNonces, addr)
-					for _, x := range m.blocks {
-						delete(x.evmNonces, addr)
+			for _, tx := range b.txs {
+				// evmTxs entry could be overridden in case
+				// invalidated pending txs are submitted again.
+				if m.evmTxs[tx.hash] == tx {
+					delete(m.evmTxs, tx.hash)
+				}
+				// evmNonces entry could be overridden in case
+				// pending txs were invalidated, and new pending txs were added.
+				if r, ok := m.evmNonces[tx.addr]; ok && r.id == tx.nonceRangeID {
+					// blocks are constructed in nonce order, so
+					// nonce of tx is tx.nonceRange.first at this point.
+					r.first += 1
+					if r.Len() == 0 {
+						delete(m.evmNonces, tx.addr)
 					}
 				}
 			}
@@ -227,19 +200,23 @@ func (s *State) pruneMempool(mp *mempool, n types.BlockNumber) {
 		// because local mempool is the only source of local lane blocks,
 		// but we handle it gracefully anyway.
 		m.next = max(m.next, n)
-		m.signalHead()
 	}
 }
 
-// TryInsertTx inserts tx to the mempool. Returns errMempoolFull if the mempool is full or
-// Config.MaxPendingInserts TryInsertTx calls are already in flight.
+// WaitForMempool waits until an active produce session is available or ctx is canceled.
+func (s *State) WaitForMempool(ctx context.Context) error {
+	_, err := s.mempool.Wait(ctx, func(mp utils.Option[*mempool]) bool { return mp.IsPresent() })
+	return err
+}
+
+// TryInsertTx inserts tx to the mempool. Returns errMempoolFull if the mempool is full.
 func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
 	return s.insertTx(ctx, tx, false)
 }
 
 // InsertTx inserts tx to the mempool. Blocks if mempool is full; blocked InsertTx calls are
 // admitted in arrival order relative to each other, but TryInsertTx calls do not queue and may
-// take freed capacity ahead of them. Returns errMempoolFull once Config.MaxPendingInserts calls are blocked.
+// take freed capacity ahead of them.
 // The blocked calls are effectively the "unsequenced" part of the mempool.
 // After InsertTx returns, the sequence is already scheduled to be included in a lane.
 // TODO(gprusak): we might need some prioritization mechanism in case our node can handle more InsertTx calls/s
@@ -248,171 +225,59 @@ func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseChec
 	return s.insertTx(ctx, tx, true)
 }
 
-// getMempool waits until a produce session is published so inserts racing the
-// start of production are admitted. Leave (LocalLane gone) ends the wait with
-// ErrNotProducing — including when clearMempool publishes None after the session ends.
-func (s *State) getMempool(ctx context.Context) (*mempool, error) {
-	if mp, ok := s.mempool.Load().Get(); ok {
-		return mp, nil
-	}
-	if _, ok := s.consensus.Avail().LocalLane().Get(); !ok {
-		return nil, ErrNotProducing
-	}
-	opt, err := s.mempool.Wait(ctx, func(opt utils.Option[*mempool]) bool {
-		if opt.IsPresent() {
-			return true
-		}
-		_, ok := s.consensus.Avail().LocalLane().Get()
-		return !ok
-	})
-	if err != nil {
-		return nil, err
-	}
-	mp, ok := opt.Get()
-	if !ok {
-		return nil, ErrNotProducing
-	}
-	return mp, nil
-}
-
-// preReadEvmNonce reads the app nonce of addr outside the mempool lock, returning None
-// when the mempool already tracks addr. It also returns the lane's first block at the
-// time of the check, which insertTx uses to detect prunes racing the read.
-func (s *State) preReadEvmNonce(mp *mempool, addr common.Address) (utils.Option[uint64], types.BlockNumber, error) {
-	var first types.BlockNumber
-	for m := range mp.inner.Lock() {
-		if m.closed {
-			return utils.None[uint64](), 0, ErrNotProducing
-		}
-		first = m.first
-		if _, tracked := m.evmNonces[addr]; tracked {
-			return utils.None[uint64](), first, nil
-		}
-	}
-	return utils.Some(s.evmNonce(addr)), first, nil
-}
-
-// poolCanAdmit returns nil when the pool would admit or queue an insert without a ticket right
-// now, and otherwise the error the admission loop would return, so such an insert skips CheckTx.
-// The admission loop rechecks after CheckTx.
-func (s *State) poolCanAdmit(mp *mempool, waitIfFull bool) error {
-	for m := range mp.inner.Lock() {
-		switch {
-		case m.closed:
-			return ErrNotProducing
-		case !waitIfFull && m.IsFull():
-			return errMempoolFull
-		case waitIfFull && uint64(len(m.waiters)) >= s.cfg.maxPendingInserts():
-			return errPendingFull
-		}
-	}
-	return nil
-}
-
 // checkTx runs the app CheckTx for tx, holding one of cfg.MaxConcurrentCheckTx permits
 // for the duration of the call. Waiting for a permit is cancelled with ctx.
 func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTxV2, error) {
-	release, err := s.acquireCheckTxPermit(ctx)
+	start := time.Now()
+	release, err := s.checkTxSem.Acquire(ctx)
+	metrics.ObserveCheckTxWait(time.Since(start))
 	if err != nil {
 		return nil, err
 	}
 	defer release()
-	defer metrics.PhaseCheckTx.Enter()()
-	start := time.Now()
-	defer func() { metrics.ObserveCheckTx(time.Since(start)) }()
 	return s.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
 }
 
-// acquireCheckTxPermit takes one CheckTx permit, recording the wait as its own insert phase.
-func (s *State) acquireCheckTxPermit(ctx context.Context) (func(), error) {
-	defer metrics.PhaseCheckTxWait.Enter()()
-	start := time.Now()
-	defer func() { metrics.ObserveCheckTxWait(time.Since(start)) }()
-	return s.checkTxSem.Acquire(ctx)
-}
-
-// evmNonce reads the executed nonce of addr from the app.
-func (s *State) evmNonce(addr common.Address) uint64 {
-	start := time.Now()
-	defer func() { metrics.ObserveNonceLookup(time.Since(start)) }()
-	return s.app.EvmNonce(addr)
-}
-
-// waitForCapacity blocks until the ticket is signalled, returning the time spent waiting.
-func (t *insertTicket) waitForCapacity(ctx context.Context) (time.Duration, error) {
-	defer metrics.PhaseCapacityWait.Enter()()
-	start := time.Now()
-	err := t.wait(ctx)
-	return time.Since(start), err
-}
-
-// insertResult classifies an insert outcome for the inserts metric.
-func insertResult(resp *abci.ResponseCheckTx, err error) metrics.Result {
+// insertTx inserts a transaction and records its outcome.
+func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
+	resp, err := s.doInsertTx(ctx, tx, waitIfFull)
+	var result string
 	switch {
 	case errors.Is(err, errTooLarge):
-		return metrics.ResultTooLarge
-	case errors.Is(err, errPendingFull):
-		return metrics.ResultPendingFull
+		result = "too_large"
 	case errors.Is(err, errMempoolFull):
-		return metrics.ResultFull
+		result = "full"
 	case errors.Is(err, ErrNotProducing):
-		return metrics.ResultNotProducing
+		result = "not_producing"
 	case errors.Is(err, errBadNonce):
-		return metrics.ResultBadNonce
+		result = "bad_nonce"
 	case err != nil:
-		return metrics.ResultError
+		result = "error"
 	case !resp.IsOK():
-		return metrics.ResultRejected
+		result = "rejected"
 	default:
-		return metrics.ResultOK
+		result = "ok"
 	}
-}
-
-// Inserts transaction. Blocks until there is capacity in the mempool.
-// NOTE: we currently don't do any tx filtering, which would prevent expensive CheckTxSafe calls.
-// It has to be added after testnet launch.
-func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
-	resp, err := s.boundedInsertTx(ctx, tx, waitIfFull)
-	insertResult(resp, err).Observe()
+	metrics.Global.InsertsAt(result).Add(1)
 	return resp, err
 }
 
-// boundedInsertTx runs doInsertTx, holding one of cfg.MaxPendingInserts in-flight slots for
-// the duration of a TryInsertTx call. Returns errPendingFull when no slot is free.
-func (s *State) boundedInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
-	if waitIfFull {
-		return s.doInsertTx(ctx, tx, waitIfFull)
-	}
-	release, ok := s.tryInsertSem.TryAcquire()
-	if !ok {
-		return nil, errPendingFull
-	}
-	defer release()
-	return s.doInsertTx(ctx, tx, waitIfFull)
-}
-
+// Inserts transaction. Blocks until there is capacity in the mempool.
 func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
+	mp, ok := s.mempool.Load().Get()
+	if !ok {
+		return nil, ErrNotProducing
+	}
 	if uint64(len(tx)) > types.MaxTxsBytesPerBlock {
 		return nil, errTooLarge
 	}
-	// Reject / wait for a produce session before CheckTxSafe — IsFull and closed
-	// are checked again after, since they can change while CheckTx runs.
-	var mp *mempool
-	var err error
-	if waitIfFull {
-		mp, err = s.getMempool(ctx)
-		if err != nil {
-			return nil, err
+	// Early exit if mempool is full and we won't wait.
+	if !waitIfFull {
+		for m := range mp.inner.Lock() {
+			if m.IsFull() {
+				return nil, errMempoolFull
+			}
 		}
-	} else {
-		loaded, ok := s.mempool.Load().Get()
-		if !ok {
-			return nil, ErrNotProducing
-		}
-		mp = loaded
-	}
-	if err := s.poolCanAdmit(mp, waitIfFull); err != nil {
-		return nil, err
 	}
 	resp, err := s.checkTx(ctx, tx)
 	if err != nil {
@@ -421,6 +286,10 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 	if !resp.IsOK() {
 		return resp.ResponseCheckTx, nil
 	}
+	if !resp.IsEVM {
+		return nil, fmt.Errorf("non-evm tx")
+	}
+
 	gasWanted := utils.Clamp[uint64](resp.GasWanted)
 	if gasWanted > s.cfg.MaxGasWantedPerBlock {
 		return nil, errTooLarge
@@ -434,129 +303,84 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 		return nil, errTooLarge
 	}
 
-	appNonce := utils.None[uint64]()
-	var first types.BlockNumber
-	if resp.IsEVM {
-		appNonce, first, err = s.preReadEvmNonce(mp, resp.EVMSenderAddress)
+	// Quick check the evm pending nonce.
+	// It has a side effect of resetting the pending nonce, if gap is detected.
+	addr := resp.EVMSenderAddress
+	if got, want := resp.EVMNonce, s.evmNextPendingNonce(mp, addr); got != want {
+		return nil, fmt.Errorf("%w: got %v, want %v", errBadNonce, got, want)
+	}
+	// Rate limiting for incoming transactions.
+	// This is lane throughput throttling, so it comes after tx validation.
+	// Also it is TESTONLY feature as of today, noop in prod.
+	if err := s.insertTxLimiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+	var capacityWaitStart time.Time
+	if waitIfFull {
+		capacityWaitStart = time.Now()
+		// In case there are many concurrent insertTx calls waiting for capacity,
+		// it gets CPU heavy to wake all of them every time mempool gets updated.
+		// Therefore we guard the inner mutex with a semaphore which wakes 1 task at a time.
+		// It is ok, because all waiting insertTx calls wait on exactly the same condition (capacity).
+		release, err := s.insertTxSem.Acquire(ctx)
 		if err != nil {
 			return nil, err
 		}
+		defer release()
 	}
-
-	admitStart := time.Now()
-	var waited time.Duration
-	var wakeups int64
-	defer func() { metrics.ObserveAdmit(time.Since(admitStart) - waited) }()
-	leaveAdmit := metrics.PhaseAdmit.Enter()
-	defer func() { leaveAdmit() }()
-	// mempool is constructed as a FIFO - we do not delay insertions of large txs (going over cap)
-	// in favor of waiting for smaller txs. This simple algorithm allows us to cap
-	// pending txs to size of a single block. We can refine this rule later if needed.
-	// Blocked calls queue up in arrival order and only the head is woken when capacity
-	// frees up, so a mempool update costs O(1) regardless of the number of waiters.
-	ticket := utils.None[*insertTicket]()
-	defer func() {
-		if ticket.IsPresent() {
-			metrics.ObserveCapacityWait(waited, wakeups)
-		}
-	}()
-	for {
-		if t, ok := ticket.Get(); ok {
-			leaveAdmit()
-			d, err := t.waitForCapacity(ctx)
-			waited += d
-			leaveAdmit = metrics.PhaseAdmit.Enter()
-			if err != nil {
-				for m := range mp.inner.Lock() {
-					mp.dequeue(m, t)
-				}
+	for m, ctrl := range mp.inner.Lock() {
+		if waitIfFull {
+			if err := ctrl.WaitUntil(ctx, func() bool { return m.closed || !m.IsFull() }); err != nil {
 				return nil, err
 			}
+			metrics.ObserveCapacityWait(time.Since(capacityWaitStart))
 		}
-		for m, ctrl := range mp.inner.Lock() {
-			if m.closed {
-				if t, ok := ticket.Get(); ok {
-					mp.dequeue(m, t)
-				}
-				return nil, ErrNotProducing
-			}
-			if m.IsFull() && !waitIfFull {
-				return nil, errMempoolFull
-			}
-			if m.IsFull() || (waitIfFull && !m.isHead(ticket)) {
-				if t, ok := ticket.Get(); ok {
-					// A TryInsertTx may have filled the mempool since this ticket was signalled.
-					wakeups++
-					t.admitted.Store(false)
-				} else {
-					if uint64(len(m.waiters)) >= s.cfg.maxPendingInserts() {
-						return nil, errPendingFull
-					}
-					ticket = utils.Some(mp.enqueue(m))
-				}
-				continue
-			}
-			err := s.appendTx(m, ctrl, tx, resp, gasWanted, gasEstimated, appNonce, first)
-			if t, ok := ticket.Get(); ok {
-				mp.dequeue(m, t)
-			}
-			if err != nil {
-				return nil, err
-			}
-			return resp.ResponseCheckTx, nil
+		if m.closed {
+			return nil, ErrNotProducing
 		}
-	}
-}
-
-// appendTx adds an admitted tx to the next lane block, sealing the current one first when the
-// tx would exceed one of its limits. appNonce is the sender's app nonce pre-read outside the
-// lock, valid only while m.first is unchanged since the read; see preReadEvmNonce.
-// Must be called with the mempool locked and not full.
-func (s *State) appendTx(m *mempoolInner, ctrl *utils.WatchCtrl, tx tmtypes.Tx, resp *abci.ResponseCheckTxV2, gasWanted, gasEstimated uint64, appNonce utils.Option[uint64], first types.BlockNumber) error {
-	if resp.IsEVM {
-		addr := resp.EVMSenderAddress
-		nonce, ok := m.evmNonces[addr]
+		if m.IsFull() {
+			return nil, errMempoolFull
+		}
+		// Verify the nonce again under lock.
+		// Here we have a race condition between app execution and evmNonces updates.
+		// This is fine, as our pending nonce tracking is always consistent,
+		// and converges to correct state if sender's txs are submitted sequentially in nonce order.
+		if r, ok := m.evmNonces[addr]; ok {
+			if r.next != resp.EVMNonce {
+				return nil, fmt.Errorf("%w: got %v, want %v", errBadNonce, resp.EVMNonce, r.next)
+			}
+			r.next += 1
+		} else {
+			m.evmNonces[addr] = &nonceRange{m.nextNonceRangeID, resp.EVMNonce, resp.EVMNonce + 1}
+			m.nextNonceRangeID += 1
+		}
+		// If any limit would be exceeded, then construct a payload.
+		// Note that we use subtraction in a way avoiding arithmetic overflows.
+		ok := s.cfg.maxTxsPerBlock()-uint64(len(m.nextBlock.txs)) >= 1
+		ok = ok && types.MaxTxsBytesPerBlock-m.nextBlock.sizeBytes >= uint64(len(tx))
+		ok = ok && s.cfg.MaxGasWantedPerBlock-m.nextBlock.gasWanted >= gasWanted
+		ok = ok && s.cfg.MaxGasEstimatedPerBlock-m.nextBlock.gasEstimated >= gasEstimated
 		if !ok {
-			// The tracked entry, when present, is authoritative: it covers txs already
-			// sequenced but not yet executed. The pre-read app nonce is used only when
-			// there is no entry and no block was pruned since it was taken (m.first
-			// unchanged), since pruning may delete this sender's entry and advance the
-			// app nonce.
-			if pre, ok := appNonce.Get(); ok && m.first == first {
-				nonce = pre
-			} else {
-				nonce = s.evmNonce(addr)
-			}
+			m.SealBlock()
 		}
-		if nonce != resp.EVMNonce {
-			return fmt.Errorf("%w: got %v, want %v", errBadNonce, resp.EVMNonce, nonce)
+		if len(m.nextBlock.txs) == 0 {
+			// We notify that we start a new block.
+			ctrl.Updated()
 		}
-		m.evmNonces[addr] = nonce + 1
-	}
-	// If any limit would be exceeded, then construct a payload.
-	// Note that we use subtraction in a way avoiding arithmetic overflows.
-	ok := s.cfg.maxTxsPerBlock()-uint64(len(m.nextBlock.txs)) >= 1
-	ok = ok && types.MaxTxsBytesPerBlock-m.nextBlock.sizeBytes >= uint64(len(tx))
-	ok = ok && s.cfg.MaxGasWantedPerBlock-m.nextBlock.gasWanted >= gasWanted
-	ok = ok && s.cfg.MaxGasEstimatedPerBlock-m.nextBlock.gasEstimated >= gasEstimated
-	if !ok {
-		m.SealBlock()
-	}
-	if len(m.nextBlock.txs) == 0 {
-		// We notify that we start a new block.
-		ctrl.Updated()
-	}
 
-	b := m.nextBlock
-	b.gasEstimated += utils.Clamp[uint64](gasEstimated)
-	b.gasWanted += utils.Clamp[uint64](resp.GasWanted)
-	b.sizeBytes += uint64(len(tx))
-	b.txs = append(b.txs, tx)
-	if resp.IsEVM {
-		addr := resp.EVMSenderAddress
-		b.evmNonces[addr] = m.evmNonces[addr]
-		b.evmHashes = append(b.evmHashes, resp.EVMHash)
-		m.evmTxs[resp.EVMHash] = tx
+		b := m.nextBlock
+		b.gasEstimated += utils.Clamp[uint64](gasEstimated)
+		b.gasWanted += utils.Clamp[uint64](resp.GasWanted)
+		b.sizeBytes += uint64(len(tx))
+		b.rawTxs = append(b.rawTxs, tx)
+		p := &pendingTx{
+			raw:          tx,
+			addr:         addr,
+			hash:         resp.EVMHash,
+			nonceRangeID: m.evmNonces[addr].id,
+		}
+		b.txs = append(b.txs, p)
+		m.evmTxs[resp.EVMHash] = p
 	}
-	return nil
+	return resp.ResponseCheckTx, nil
 }

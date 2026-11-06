@@ -75,7 +75,7 @@ func (e MessageEncoders) Merge(o *MessageEncoders) MessageEncoders {
 	return e
 }
 
-func (e MessageEncoders) Encode(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]sdk.Msg, error) {
+func (e MessageEncoders) Encode(ctx sdk.Context, contractAddr sdk.AccAddress, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]sdk.Msg, error) {
 	switch {
 	case msg.Bank != nil:
 		return e.Bank(contractAddr, msg.Bank)
@@ -84,7 +84,7 @@ func (e MessageEncoders) Encode(ctx sdk.Context, contractAddr sdk.AccAddress, co
 	case msg.Distribution != nil:
 		return e.Distribution(contractAddr, msg.Distribution)
 	case msg.IBC != nil:
-		return EncodeIBCMsg(ctx, contractAddr, contractIBCPortID, msg.IBC)
+		return EncodeIBCMsg(ctx, contractAddr, msg.IBC)
 	case msg.Staking != nil:
 		return e.Staking(contractAddr, msg.Staking)
 	case msg.Stargate != nil:
@@ -254,7 +254,7 @@ func EncodeWasmMsg(sender sdk.AccAddress, msg *wasmvmtypes.WasmMsg) ([]sdk.Msg, 
 	}
 }
 
-func EncodeIBCMsg(_ sdk.Context, _ sdk.AccAddress, _ string, msg *wasmvmtypes.IBCMsg) ([]sdk.Msg, error) {
+func EncodeIBCMsg(_ sdk.Context, _ sdk.AccAddress, msg *wasmvmtypes.IBCMsg) ([]sdk.Msg, error) {
 	switch {
 	case msg.SendPacket != nil:
 		return nil, sdkerrors.Wrap(types.ErrUnsupportedForContract, "ibc send packet")
