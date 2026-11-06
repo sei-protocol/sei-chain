@@ -22,6 +22,10 @@ on:
         description: Read the pull request description as it stood at this time, for replaying past reviews.
         type: string
         default: ''
+      allowed-bots:
+        description: Bot actors allowed to trigger the review, for the eval replay.
+        type: string
+        default: ''
 
 permissions: {}
 
@@ -55,10 +59,14 @@ jobs:
             echo "STARTED=$(date +%s)"
             echo "INPUTS=$RUNNER_TEMP/review-inputs"
             echo "STATE=$RUNNER_TEMP/review-state"
+            echo "BASE_TREE=$RUNNER_TEMP/review-base"
           } >> "$GITHUB_ENV"
 
+      # Into a subdirectory, so the reviewed commit's CLAUDE.md and .claude/ do not
+      # configure the reviewer from the working directory.
       - uses: actions/checkout@v5
         with:
+          path: tree
           fetch-depth: 0
           persist-credentials: false
 
@@ -74,6 +82,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$INPUTS"
+          cd tree
           # The prompt comes from the revision this workflow runs at, not the one under review.
           templates="$RUNNER_TEMP/templates" && cp -r .github/ai-review-runner "$templates"
           git fetch -q --no-tags origin "$HEAD_SHA"
@@ -100,6 +109,7 @@ jobs:
 
           base_sha=$(git merge-base "origin/$base_ref" HEAD)
           git diff "$base_sha" HEAD > "$INPUTS/pr.diff"
+          git worktree add -q --detach "$BASE_TREE" "$base_sha"
           DIFF_LINES=$(wc -l < "$INPUTS/pr.diff")
           export BASE_SHA=$base_sha DIFF_LINES
 
@@ -120,7 +130,7 @@ jobs:
 
           {
             echo 'prompt<<PROMPT_EOF'
-            envsubst "\${REPO} \${PR} \${HEAD_SHA} \${BASE_SHA} \${INPUTS} \${DIFF_LINES} \${PRIOR_STEP}" \
+            envsubst "\${REPO} \${PR} \${HEAD_SHA} \${BASE_SHA} \${BASE_TREE} \${INPUTS} \${DIFF_LINES} \${PRIOR_STEP}" \
               < "$templates/prompt.md"
             echo 'PROMPT_EOF'
           } >> "$GITHUB_OUTPUT"
@@ -134,12 +144,17 @@ jobs:
           anthropic_federation_rule_id: ${{ vars.PLATFORM_CODE_AGENT_ANTHROPIC_FDRL_ID }}
           anthropic_organization_id: ${{ vars.SEI_LABS_ANTHROPIC_ORG_ID }}
           anthropic_service_account_id: ${{ vars.PLATFORM_CODE_AGENT_ANTHROPIC_SVAC_ID }}
+          allowed_bots: ${{ inputs.allowed-bots }}
           prompt: ${{ steps.prep.outputs.prompt }}
+          # File tools only, and no project or local settings: the reviewed commit is data,
+          # and this job holds the Anthropic federation and a GitHub token.
           claude_args: |
             --model "claude-opus-5-5[1m]"
             --effort high
-            --add-dir "${{ env.INPUTS }}"
-            --allowedTools "Read,Glob,Grep,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git blame:*),Bash(git grep:*),Bash(wc:*)"
+            --setting-sources user
+            --tools "Read,Glob,Grep"
+            --allowedTools "Read,Glob,Grep"
+            --add-dir "${{ env.INPUTS }}" "${{ env.BASE_TREE }}"
             --json-schema '{"type":"object","additionalProperties":false,"required":["read","decision","summary","inline_comments","blockers","non_blockers","pre_existing_issues","resolved_finding_ids","memo"],"properties":{"read":{"type":"integer"},"decision":{"type":"string","enum":["approve","comment","request_changes"]},"summary":{"type":"string"},"inline_comments":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["path","line","side","severity","body","supersedes_finding_ids"],"properties":{"path":{"type":"string"},"line":{"type":"integer"},"side":{"type":"string","enum":["RIGHT","LEFT"]},"severity":{"type":"string","enum":["blocker","suggestion","nit"]},"body":{"type":"string"},"supersedes_finding_ids":{"type":"array","items":{"type":"string"}}}}},"blockers":{"type":"array","items":{"type":"string"}},"non_blockers":{"type":"array","items":{"type":"string"}},"pre_existing_issues":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["severity","body"],"properties":{"severity":{"type":"string","enum":["blocker","suggestion"]},"body":{"type":"string"}}}},"resolved_finding_ids":{"type":"array","items":{"type":"string"}},"memo":{"type":"string"}}}'
 
       - name: Record the review

@@ -41,6 +41,7 @@ jobs:
       head-sha: ${{ matrix.sha }}
       state-key: eval-${{ github.run_id }}-${{ matrix.pr }}
       as-of: ${{ matrix.at }}
+      allowed-bots: devin-ai-integration
 
   followup:
     needs: first
@@ -62,3 +63,4 @@ jobs:
       head-sha: ${{ matrix.sha }}
       state-key: eval-${{ github.run_id }}-${{ matrix.pr }}
       as-of: ${{ matrix.at }}
+      allowed-bots: devin-ai-integration
