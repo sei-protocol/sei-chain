@@ -32,6 +32,8 @@ import (
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
+	slashingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/keeper"
+	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -70,20 +72,22 @@ func v2Params(p chainparams.Staking) stakingtypes.Params {
 }
 
 // v2Chain is x/staking's keeper, with the auth and bank keepers it moves
-// tokens through, over in-memory stores.
+// tokens through and x/slashing's msg server for unjailing, over in-memory
+// stores. x/slashing has no hooks on x/staking, so it keeps no signing info.
 type v2Chain struct {
-	t        *testing.T
-	ctx      sdk.Context
-	keeper   stakingkeeper.Keeper
-	msgs     stakingtypes.MsgServer
-	bank     bankkeeper.BaseKeeper
-	accounts authkeeper.AccountKeeper
+	t            *testing.T
+	ctx          sdk.Context
+	keeper       stakingkeeper.Keeper
+	msgs         stakingtypes.MsgServer
+	slashingMsgs slashingtypes.MsgServer
+	bank         bankkeeper.BaseKeeper
+	accounts     authkeeper.AccountKeeper
 }
 
 func newV2Chain(t *testing.T, params stakingtypes.Params, hooks stakingtypes.StakingHooks) *v2Chain {
 	// x/staking logs every delegation the voting power ratio refuses as an error.
 	seilog.SetLevel("cosmos/x/staking/keeper", slog.LevelError+1)
-	keys := sdk.NewKVStoreKeys(authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey, paramstypes.StoreKey)
+	keys := sdk.NewKVStoreKeys(authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey, slashingtypes.StoreKey, paramstypes.StoreKey)
 	tkey := sdk.NewTransientStoreKey(paramstypes.TStoreKey)
 	db := dbm.NewMemDB()
 	ms := sdkstore.NewCommitMultiStore(db)
@@ -112,7 +116,11 @@ func newV2Chain(t *testing.T, params stakingtypes.Params, hooks stakingtypes.Sta
 	keeper := stakingkeeper.NewKeeper(cdc, keys[stakingtypes.StoreKey], accounts, bank, paramsKeeper.Subspace(stakingtypes.ModuleName))
 	keeper.SetParams(ctx, params)
 	keeper.SetHooks(hooks)
-	return &v2Chain{t: t, ctx: ctx, keeper: keeper, msgs: stakingkeeper.NewMsgServerImpl(keeper), bank: bank, accounts: accounts}
+	slashing := slashingkeeper.NewKeeper(cdc, keys[slashingtypes.StoreKey], keeper, paramsKeeper.Subspace(slashingtypes.ModuleName))
+	return &v2Chain{
+		t: t, ctx: ctx, keeper: keeper, msgs: stakingkeeper.NewMsgServerImpl(keeper),
+		slashingMsgs: slashingkeeper.NewMsgServerImpl(slashing), bank: bank, accounts: accounts,
+	}
 }
 
 // setBlock makes the current block number, at unixNano.
@@ -172,6 +180,14 @@ func (c *v2Chain) redelegate(delegator, src, dst common.Address, amount sdk.Int)
 	msg := stakingtypes.NewMsgBeginRedelegate(sdk.AccAddress(delegator[:]), sdk.ValAddress(src[:]), sdk.ValAddress(dst[:]), sdk.NewCoin(bondDenom, amount))
 	return c.deliver(msg, func(ctx context.Context) error {
 		_, err := c.msgs.BeginRedelegate(ctx, msg)
+		return err
+	})
+}
+
+func (c *v2Chain) unjail(op common.Address) error {
+	msg := slashingtypes.NewMsgUnjail(sdk.ValAddress(op[:]))
+	return c.deliver(msg, func(ctx context.Context) error {
+		_, err := c.slashingMsgs.Unjail(ctx, msg)
 		return err
 	})
 }
@@ -490,8 +506,8 @@ func (h v2LoggingHooks) BeforeValidatorSlashed(_ sdk.Context, v sdk.ValAddress, 
 	h.log.add("BeforeValidatorSlashed", common.BytesToAddress(v))
 }
 
-// v2Errors pairs each x/staking error a delegation can fail with to the
-// precompile's error for the same rule.
+// v2Errors pairs each x/staking or x/slashing error a delegation or unjail can
+// fail with to the precompile's error for the same rule.
 var v2Errors = []struct{ v2, precompile error }{
 	{stakingtypes.ErrNoValidatorFound, errNoValidatorFound},
 	{stakingtypes.ErrNoDelegation, errNoDelegation},
@@ -506,6 +522,10 @@ var v2Errors = []struct{ v2, precompile error }{
 	{stakingtypes.ErrTinyRedelegationAmount, errTinyRedelegationAmount},
 	// ValidateUnbondAmount's "invalid shares amount", for more than the delegation holds.
 	{sdkerrors.ErrInvalidRequest, errInvalidShares},
+	{slashingtypes.ErrNoValidatorForAddress, errNoValidatorFound},
+	{slashingtypes.ErrMissingSelfDelegation, errMissingSelfDelegation},
+	{slashingtypes.ErrSelfDelegationTooLowToUnjail, errSelfDelegationTooLow},
+	{slashingtypes.ErrValidatorNotJailed, errValidatorNotJailed},
 }
 
 // pair runs every operation on the precompile and on x/staking, in wei on one
@@ -628,6 +648,12 @@ func (pr *pair) redelegate(delegator, src, dst common.Address, usei int64) error
 	return pr.apply("redelegate", fmt.Sprintf("%d usei of %s from %s to %s", usei, delegator, src, dst),
 		func() error { return pr.p.redelegate(delegator, src, dst, toWei(amount)) },
 		func() error { return pr.v2.redelegate(delegator, src, dst, amount) })
+}
+
+func (pr *pair) unjail(op common.Address) error {
+	return pr.apply("unjail", op.Hex(),
+		func() error { return pr.p.unjail(op) },
+		func() error { return pr.v2.unjail(op) })
 }
 
 // endBlock runs EndBlock on both sides, then starts the next block one second

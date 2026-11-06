@@ -141,6 +141,23 @@ func TestSelfUndelegationBelowTheMinimumJails(t *testing.T) {
 	h.requireInvariants()
 }
 
+func TestUnjailReturnsTheValidatorToThePowerIndex(t *testing.T) {
+	h := newHarness(t, testParams)
+	require.NoError(t, h.undelegate(val2, val2, sei(20)))
+	h.endBlock()
+	require.ErrorIs(t, h.unjail(val2), errMissingSelfDelegation)
+	require.NoError(t, h.delegate(val2, val2, sei(25)))
+	require.NoError(t, h.unjail(val2))
+	require.False(t, h.validator(val2).jailed)
+	require.Equal(t, []common.Address{val1, val2, val3}, h.powerIndex(), "val2 returns where its power ranks it")
+	h.requireInvariants()
+
+	h.endBlock()
+	require.Empty(t, h.failures)
+	require.Equal(t, []validatorPower{{val1, 30}, {val2, 25}}, h.lastValidators(), "val2 takes its place back")
+	h.requireInvariants()
+}
+
 func TestRedelegateMovesTheStakeAndQueuesTheEntry(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.delegate(alice, val1, sei(5)))

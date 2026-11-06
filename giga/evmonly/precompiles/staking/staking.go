@@ -2,11 +2,11 @@
 // and its state is docs/giga-storage/StakingStorage.sol, held as contract
 // storage at Address. Its params are the params precompile's staking subspace.
 //
-// It serves delegate, redelegate and undelegate, and its EndBlock updates the
-// bonded set and completes matured unbondings and redelegations. Unlike
-// x/staking, its queues are first-in first-out, so an entry never completes
-// before one queued ahead of it, and it does not slash unbonding or
-// redelegation entries.
+// It serves delegate, redelegate and undelegate, and Unjail serves the slashing
+// precompile. Its EndBlock updates the bonded set and completes matured
+// unbondings and redelegations. Unlike x/staking, its queues are first-in
+// first-out, so an entry never completes before one queued ahead of it, and it
+// does not slash unbonding or redelegation entries.
 package staking
 
 import (
