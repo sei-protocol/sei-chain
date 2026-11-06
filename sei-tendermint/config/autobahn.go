@@ -243,8 +243,9 @@ func (fc *AutobahnFileConfig) Validate() error {
 	return nil
 }
 
-// validateEVMGovernance checks that evm_governance's params are valid and that
-// every validator has a distinct nonzero evm_voter exactly when it is set.
+// validateEVMGovernance checks evm_governance's params and applied upgrade
+// names, and that every validator has a distinct nonzero evm_voter exactly when
+// evm_governance is set.
 func (fc *AutobahnFileConfig) validateEVMGovernance() error {
 	governance, enabled := fc.EVMGovernance.Get()
 	if !enabled {
