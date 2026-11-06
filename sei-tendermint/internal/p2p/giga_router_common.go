@@ -217,8 +217,7 @@ func (r *gigaRouterCommon) startExecuteBlock(
 ) (pendingExecution, error) {
 	app := r.app
 	var proposerAddress types.Address
-	vals := app.GetValidators()
-	if len(vals) > 0 {
+	if vals := app.GetValidators(); len(vals) > 0 {
 		// Deterministically select a proposer from the app's validator committee.
 		// We need it so that app does not emit error logs.
 		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
@@ -229,7 +228,7 @@ func (r *gigaRouterCommon) startExecuteBlock(
 		proposerAddress = key.Address()
 	}
 
-	req := &abci.RequestFinalizeBlock{
+	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
 		Txs: b.Txs,
 		// Empty DecidedLastCommit does not indicate missing votes.
 		DecidedLastCommit: abci.CommitInfo{},
@@ -245,8 +244,7 @@ func (r *gigaRouterCommon) startExecuteBlock(
 			// because reward is distributed with a delay. This is not our problem here though.
 			ProposerAddress: proposerAddress,
 		}).ToProto(),
-	}
-	resp, err := r.finalizeBlock(ctx, b.Height, req, vals)
+	})
 	if err != nil {
 		return pendingExecution{}, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
@@ -272,52 +270,6 @@ func (r *gigaRouterCommon) startExecuteBlock(
 		number:  b.Height,
 		weights: weights,
 	}, nil
-}
-
-// finalizeBlock finalizes block n on the app. An EVM app also commits consensus
-// state with n when n is the first road of an epoch.
-func (r *gigaRouterCommon) finalizeBlock(
-	ctx context.Context,
-	n atypes.RoadIndex,
-	req *abci.RequestFinalizeBlock,
-	vals []abci.ValidatorUpdate,
-) (*abci.ResponseFinalizeBlock, error) {
-	evm, ok := r.app.EVM().Get()
-	if !ok {
-		return r.app.FinalizeBlock(ctx, req)
-	}
-	state, err := r.openingConsensusState(n, vals)
-	if err != nil {
-		return nil, err
-	}
-	return evm.FinalizeBlockWithConsensusState(ctx, req, state)
-}
-
-// openingConsensusState returns the consensus state to commit with road n, derived
-// from vals, the validators after the previous road's Commit. It returns None
-// unless n is the first road after an epoch closes.
-func (r *gigaRouterCommon) openingConsensusState(
-	n atypes.RoadIndex,
-	vals []abci.ValidatorUpdate,
-) (utils.Option[proxy.ConsensusState], error) {
-	if n == 0 {
-		return utils.None[proxy.ConsensusState](), nil
-	}
-	registry := r.data.Registry()
-	endEpoch, ok := registry.ClosingEpoch(n - 1).Get()
-	if !ok {
-		return utils.None[proxy.ConsensusState](), nil
-	}
-	weights, err := committeeWeights(vals)
-	if err != nil {
-		return utils.None[proxy.ConsensusState](), err
-	}
-	next, err := registry.OpeningEpoch(endEpoch, weights)
-	if err != nil {
-		return utils.None[proxy.ConsensusState](), fmt.Errorf("consensus state for block %v: %w", n, err)
-	}
-	// The full registry snapshot is consensus-owned and populated in a later change.
-	return utils.Some(proxy.ConsensusState{NextEpoch: epoch.MarshalEpoch(next)}), nil
 }
 
 // finishExecuteBlock proposes pending's app hash to the data layer.

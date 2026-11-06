@@ -147,33 +147,6 @@ func (r *Registry) commit(state *utils.AtomicSend[*persistedRegistry], next *per
 	return nil
 }
 
-// OpeningEpoch stages and returns the next epoch to commit with the first block after endEpoch.
-func (r *Registry) OpeningEpoch(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) (*types.Epoch, error) {
-	for state := range r.state.Lock() {
-		s := state.Load()
-		next, err := s.stageEpoch(endEpoch, weights)
-		if err != nil {
-			return nil, err
-		}
-		if next != s {
-			if err := r.commit(state, next); err != nil {
-				return nil, err
-			}
-			s = next
-		}
-		target := endEpoch + 2
-		if epoch, ok := s.live[target]; ok {
-			return epoch, nil
-		}
-		pending, ok := s.pending.Get()
-		if !ok || pending.EpochIndex() != target {
-			return nil, fmt.Errorf("epoch %d is not staged", target)
-		}
-		return pending, nil
-	}
-	panic("unreachable")
-}
-
 // StageEpoch derives C_{endEpoch+2} from weights and persists it as pending.
 // A no-op if that epoch is already staged or live with the same committee.
 // An error if it conflicts, if the target is not live.Next, or if endEpoch+1
