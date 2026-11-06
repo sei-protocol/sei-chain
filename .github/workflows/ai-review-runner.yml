@@ -18,6 +18,10 @@ on:
         description: Cache key prefix for the state carried between reviews of one pull request.
         type: string
         default: ''
+      as-of:
+        description: Read the pull request description as it stood at this time, for replaying past reviews.
+        type: string
+        default: ''
 
 permissions: {}
 
@@ -43,11 +47,15 @@ jobs:
       PR: ${{ inputs.pr || github.event.pull_request.number }}
       HEAD_SHA: ${{ inputs.head-sha || github.event.pull_request.head.sha }}
       STATE_KEY: ${{ inputs.state-key || format('ai-review-runner-{0}', inputs.pr || github.event.pull_request.number) }}
-      INPUTS: ${{ github.workspace }}/../review-inputs
-      STATE: ${{ github.workspace }}/../review-state
+      AS_OF: ${{ inputs.as-of }}
     steps:
       - name: Start clock
-        run: echo "STARTED=$(date +%s)" >> "$GITHUB_ENV"
+        run: |
+          {
+            echo "STARTED=$(date +%s)"
+            echo "INPUTS=$RUNNER_TEMP/review-inputs"
+            echo "STATE=$RUNNER_TEMP/review-state"
+          } >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v5
         with:
@@ -73,6 +81,19 @@ jobs:
 
           gh api "repos/$REPO/pulls/$PR" > "$INPUTS/pr.json"
           base_ref=$(jq -r .base.ref "$INPUTS/pr.json")
+          if [ -n "$AS_OF" ]; then
+            # shellcheck disable=SC2016 # GraphQL variables, not shell ones
+            gh api graphql -F owner="${REPO%/*}" -F name="${REPO#*/}" -F number="$PR" -f query='
+              query($owner: String!, $name: String!, $number: Int!) {
+                repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+                  userContentEdits(first: 100) { nodes { editedAt diff } } } } }' |
+              jq --arg t "$AS_OF" '[.data.repository.pullRequest.userContentEdits.nodes[]
+                | select(.editedAt <= $t)] | first | .diff // empty' > "$INPUTS/body-as-of.json"
+            if [ -s "$INPUTS/body-as-of.json" ]; then
+              jq --slurpfile b "$INPUTS/body-as-of.json" '.body = $b[0]' "$INPUTS/pr.json" > "$INPUTS/pr-as-of.json"
+              mv "$INPUTS/pr-as-of.json" "$INPUTS/pr.json"
+            fi
+          fi
           jq -r '"# \(.title)\n\n\(.body // "")"' "$INPUTS/pr.json" > "$INPUTS/intent.md"
           git fetch -q --no-tags origin "$base_ref"
           git show "origin/$base_ref:REVIEW.md" > "$INPUTS/guidelines.md" 2>/dev/null || : > "$INPUTS/guidelines.md"
