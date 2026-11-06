@@ -57,7 +57,6 @@ type persistedRegistry struct {
 	live map[types.EpochIndex]*types.Epoch
 	// liveRange is the nonempty retained epoch range [First, Next) in live.
 	liveRange types.EpochRange
-	pending   utils.Option[*types.Epoch]
 }
 
 // newGenesisRegistry constructs the first two live epochs from the genesis committee.
@@ -72,69 +71,25 @@ func newGenesisRegistry(committee *types.Committee, firstRoad types.RoadIndex) *
 }
 
 // stageEpoch returns a registry with the committee derived from endEpoch's weights staged as pending.
-func (s *persistedRegistry) stageEpoch(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) (*persistedRegistry, error) {
-	target := endEpoch + 2
-	if target < s.liveRange.First {
-		return nil, fmt.Errorf("epoch %d: %w", target, types.ErrPruned)
+func (s *persistedRegistry) tryPushEpoch(n types.RoadIndex, weights map[types.PublicKey]uint64) (*persistedRegistry, error) {
+	next := s.liveRange.Next
+	last := s.live[next-1]
+	if n >= last.RoadRange().First {
+		return nil, fmt.Errorf("need weights at %v",last.RoadRange().First-1)
 	}
-	ep, registered := s.live[target]
-	if !registered && target != s.liveRange.Next {
-		return nil, fmt.Errorf("epoch %d cannot be staged, want %d", target, s.liveRange.Next)
+	if n+1 != last.RoadRange().First {
+		return s, nil
 	}
-	prev, ok := s.live[endEpoch+1]
-	if !ok {
-		return nil, fmt.Errorf("epoch %d not registered", endEpoch+1)
-	}
-	committee, err := prev.Committee().DeriveNext(weights, target)
+	committee, err := last.Committee().DeriveNext(weights, next)
 	if err != nil {
-		return nil, fmt.Errorf("DeriveNext(%d): %w", target, err)
+		return nil, fmt.Errorf("DeriveNext(%d): %w", next, err)
 	}
-	if registered {
-		if !ep.Committee().Equal(committee) {
-			return nil, fmt.Errorf("epoch %d already registered with a different committee", target)
-		}
-		return s, nil
-	}
-	if staged, ok := s.pending.Get(); ok {
-		if !staged.Committee().Equal(committee) {
-			return nil, fmt.Errorf("epoch %d already staged with a different committee", target)
-		}
-		return s, nil
-	}
-	first := prev.RoadRange().Next
-	pending := types.NewEpoch(target, types.RoadRange{First: first, Next: first + epochLength}, committee)
-	return &persistedRegistry{live: s.live, liveRange: s.liveRange, pending: utils.Some(pending)}, nil
-}
-
-// activate returns a registry with idx activated and no pending epoch, or the same registry if idx is live.
-func (s *persistedRegistry) activate(idx types.EpochIndex) (*persistedRegistry, error) {
-	if _, ok := s.live[idx]; ok {
-		return s, nil
-	}
-	if idx < s.liveRange.First {
-		return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrPruned)
-	}
-	pending, ok := s.pending.Get()
-	if !ok || pending.EpochIndex() != idx {
-		return nil, fmt.Errorf("epoch %d is not staged", idx)
-	}
-	if idx != s.liveRange.Next {
-		return nil, fmt.Errorf("epoch %d cannot be activated, want %d", idx, s.liveRange.Next)
-	}
-	prev := s.live[idx-1]
-	first := prev.RoadRange().Next
-	if got, want := pending.RoadRange(), (types.RoadRange{First: first, Next: first + epochLength}); got != want {
-		return nil, fmt.Errorf("epoch %d roads %v, want %v", idx, got, want)
-	}
-	if err := checkDerived(prev, pending); err != nil {
-		return nil, fmt.Errorf("epoch %d: %w", idx, err)
-	}
+	first := last.RoadRange().Next
 	live := maps.Clone(s.live)
-	live[idx] = pending
-	return &persistedRegistry{
-		live:      live,
-		liveRange: types.EpochRange{First: s.liveRange.First, Next: idx + 1},
-	}, nil
+	liveRange := s.liveRange
+	liveRange.Next = next+1
+	live[next] = types.NewEpoch(next, types.RoadRange{First: first, Next: first + epochLength}, committee)
+	return &persistedRegistry{live: live, liveRange: liveRange}, nil
 }
 
 // pruneBefore returns a registry retaining epochs from keep and at least the latest live epoch.
@@ -150,7 +105,6 @@ func (s *persistedRegistry) pruneBefore(keep types.EpochIndex) *persistedRegistr
 	return &persistedRegistry{
 		live:      live,
 		liveRange: types.EpochRange{First: keep, Next: s.liveRange.Next},
-		pending:   s.pending,
 	}
 }
 
@@ -163,7 +117,6 @@ var persistedRegistryConv = protoutils.Conv[*persistedRegistry, *pb.PersistedEpo
 		}
 		return &pb.PersistedEpochRegistry{
 			LiveV2:    types.EpochConv.EncodeSlice(live),
-			PendingV2: types.EpochConv.EncodeOpt(s.pending),
 		}
 	},
 	Decode: func(snapshot *pb.PersistedEpochRegistry) (*persistedRegistry, error) {
@@ -173,10 +126,6 @@ var persistedRegistryConv = protoutils.Conv[*persistedRegistry, *pb.PersistedEpo
 		live, err := types.EpochConv.DecodeSlice(snapshot.LiveV2)
 		if err != nil {
 			return nil, fmt.Errorf("live: %w", err)
-		}
-		pending, err := types.EpochConv.DecodeOpt(snapshot.PendingV2)
-		if err != nil {
-			return nil, fmt.Errorf("pending: %w", err)
 		}
 		if len(live) == 0 {
 			return nil, errors.New("persisted registry has no live epochs")
@@ -190,15 +139,6 @@ var persistedRegistryConv = protoutils.Conv[*persistedRegistry, *pb.PersistedEpo
 				return nil, fmt.Errorf("live record %d: noncontiguous roads", i)
 			}
 		}
-		if epoch, ok := pending.Get(); ok {
-			prev := live[len(live)-1]
-			if epoch.EpochIndex() <= prev.EpochIndex() || epoch.EpochIndex() != prev.EpochIndex()+1 {
-				return nil, fmt.Errorf("pending epoch %d does not follow %d", epoch.EpochIndex(), prev.EpochIndex())
-			}
-			if prev.RoadRange().Next != epoch.RoadRange().First {
-				return nil, errors.New("pending: noncontiguous roads")
-			}
-		}
 		next := live[len(live)-1].EpochIndex() + 1
 		if next == 0 {
 			return nil, errors.New("live epoch range overflows")
@@ -210,7 +150,6 @@ var persistedRegistryConv = protoutils.Conv[*persistedRegistry, *pb.PersistedEpo
 		return &persistedRegistry{
 			live:      epochs,
 			liveRange: types.EpochRange{First: live[0].EpochIndex(), Next: next},
-			pending:   pending,
 		}, nil
 	},
 }

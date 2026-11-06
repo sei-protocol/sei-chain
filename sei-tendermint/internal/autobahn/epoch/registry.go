@@ -62,19 +62,6 @@ func NewRegistry(
 				return nil, fmt.Errorf("restore epoch snapshot: epoch %d does not match genesis", idx)
 			}
 		}
-
-		// TODO: a missing pending is restaged on restart from GetValidators() at app
-		// tip, not stake(LastRoad(E)). Use the LastRoad validator set once it is
-		// persisted in app state.
-		if pending, ok := state.pending.Get(); ok {
-			idx := pending.EpochIndex()
-			if got, want := pending.RoadRange(), r.roadRange(idx); got != want {
-				return nil, fmt.Errorf("restore epoch snapshot: pending epoch %d roads %v, want %v", idx, got, want)
-			}
-			if err := checkDerived(state.live[idx-1], pending); err != nil {
-				return nil, fmt.Errorf("restore epoch snapshot: pending: %w", err)
-			}
-		}
 	}
 	stateSend := new(utils.NewAtomicSend(state))
 	r.state = utils.NewMutex(stateSend)
@@ -151,35 +138,16 @@ func (r *Registry) commit(state *utils.AtomicSend[*persistedRegistry], next *per
 // A no-op if that epoch is already staged or live with the same committee.
 // An error if it conflicts, if the target is not live.Next, or if endEpoch+1
 // is not live.
-func (r *Registry) StageEpoch(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) error {
+func (r *Registry) TryPushEpoch(n types.RoadIndex, weights map[types.PublicKey]uint64) error {
 	for state := range r.state.Lock() {
 		s := state.Load()
-		if next, err := s.stageEpoch(endEpoch, weights); err != nil {
+		if next, err := s.tryPushEpoch(n, weights); err != nil {
 			return err
 		} else if next != s {
 			return r.commit(state, next)
 		}
 	}
 	return nil
-}
-
-// Activate publishes the staged committee for idx.
-// A no-op if idx is already live. An error if idx is not the staged epoch.
-func (r *Registry) Activate(idx types.EpochIndex) error {
-	for state := range r.state.Lock() {
-		s := state.Load()
-		if next, err := s.activate(idx); err != nil || next == s {
-			return err
-		} else if next != s {
-			return r.commit(state, next)
-		}
-	}
-	return nil
-}
-
-// Pending returns the staged epoch, or None.
-func (r *Registry) Pending() utils.Option[*types.Epoch] {
-	return r.stateRecv.Load().pending
 }
 
 // PruneBefore drops persisted epochs below keep, retaining the latest live epoch.
