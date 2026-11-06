@@ -671,6 +671,10 @@ func init() {
 		}
 		return Ctx.WithIsTracing(true)
 	}
+	// The log path runs against contexts without ConsensusParams, as in production.
+	logCtxProvider := func(height int64) sdk.Context {
+		return ctxProvider(height).WithConsensusParams(nil)
+	}
 	// Start good http server
 	goodConfig := evmrpcconfig.DefaultConfig
 	goodConfig.HTTPPort = TestPort
@@ -679,7 +683,7 @@ func init() {
 	goodConfig.MaxLogNoBlock = 10
 	goodConfig.EnabledLegacySeiApis = evmrpc.SeiLegacyAllGatedMethodNames()
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
-	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, logCtxProvider, txConfigProvider, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -691,7 +695,7 @@ func init() {
 	badConfig := evmrpcconfig.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, logCtxProvider, txConfigProvider, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -713,6 +717,7 @@ func init() {
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		ctxProvider,
+		logCtxProvider,
 		txConfigProvider,
 		"",
 		nil,
@@ -737,6 +742,7 @@ func init() {
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		ctxProvider,
+		logCtxProvider,
 		txConfigProvider,
 		"",
 		nil,
@@ -749,7 +755,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, nil)
+	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, logCtxProvider, txConfigProvider, "", nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -763,7 +769,7 @@ func init() {
 	notifierConfig := goodConfig
 	notifierConfig.HTTPPort = TestNotifierWSPort - 1
 	notifierConfig.WSPort = TestNotifierWSPort
-	notifierWSServer, err := evmrpc.NewEVMWebSocketServer(notifierConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, NotifierForTest)
+	notifierWSServer, err := evmrpc.NewEVMWebSocketServer(notifierConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, logCtxProvider, txConfigProvider, "", nil, NotifierForTest)
 	if err != nil {
 		panic(err)
 	}
