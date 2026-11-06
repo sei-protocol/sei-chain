@@ -225,8 +225,8 @@ func TestRestore_BoundaryCatchUpSpecCoversWAL(t *testing.T) {
 		if err := avail.TestDriveAdvance(ctx, av, keys, registry, 1); err != nil {
 			return fmt.Errorf("TestDriveAdvance: %w", err)
 		}
-		if _, err := av.LastCommitQC().Wait(ctx, func(o utils.Option[*types.CommitQC]) bool {
-			c, ok := o.Get()
+		if _, err := av.SubscribeConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
+			c, ok := sp.CommitQC.Get()
 			return ok && c.Index() >= last
 		}); err != nil {
 			return fmt.Errorf("wait durable tip: %w", err)

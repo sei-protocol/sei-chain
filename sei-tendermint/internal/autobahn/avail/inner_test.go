@@ -210,7 +210,7 @@ func TestRestoreInner_Empty(t *testing.T) {
 
 	require.Equal(t, ep0.RoadRange().First, i.roads.first)
 	require.Equal(t, ep0.RoadRange().First, i.roads.next)
-	_, ok := i.persistedCommitQC.Load().Get()
+	_, ok := i.persistedCommitQC().Get()
 	require.False(t, ok)
 	require.NotNil(t, i.nextBlockToPersist)
 	for lane := range ep0.Committee().Lanes().All() {
@@ -475,7 +475,7 @@ func TestRestoreInner_LoadedCommitQCs(t *testing.T) {
 		for i, qc := range qcs {
 			require.NoError(t, utils.TestDiff(qc, inner.roads.q[ep0.RoadRange().First+types.RoadIndex(i)].commitQC))
 		}
-		require.NoError(t, utils.TestDiff(utils.Some(qcs[2]), inner.persistedCommitQC.Load()))
+		require.NoError(t, utils.TestDiff(utils.Some(qcs[2]), inner.persistedCommitQC()))
 		require.Equal(t, int64(qcs[2].Index()), gathered(t, "tendermint_internal_autobahn_avail_commit_road_index", nil))
 		spec := inner.consensusSpec.Load()
 		require.Equal(t, types.EpochIndex(0), spec.Epoch.EpochIndex())
@@ -531,13 +531,13 @@ func TestSetPersistedCommitQC_WithholdsTipUntilNextViewEpochApplied(t *testing.T
 	require.Equal(t, last, qcLast.Index())
 
 	i := &inner{
-		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
-		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep0}),
-		anchor:             data.Anchor{Epochs: [2]*types.Epoch{ep0, ep1}},
-		roads:              newQueue[types.RoadIndex, *road](),
-		blocks:             map[types.LaneID]*blockQueue{},
-		votes:              map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
-		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
+		nextCommitQCToPersist: last - 1,
+		consensusSpec:         utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep0}),
+		anchor:                data.Anchor{Epochs: [2]*types.Epoch{ep0, ep1}},
+		roads:                 newQueue[types.RoadIndex, *road](),
+		blocks:                map[types.LaneID]*blockQueue{},
+		votes:                 map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
+		nextBlockToPersist:    map[types.LaneID]types.BlockNumber{},
 	}
 	i.roads.first = last - 1
 	i.roads.next = last - 1
@@ -591,7 +591,7 @@ func TestPrune_WithoutFirst(t *testing.T) {
 	require.Equal(t, anchor, i.anchor)
 	require.Equal(t, anchor.Epochs[0].RoadRange().First, i.roads.first)
 	require.Equal(t, i.roads.first, i.roads.next)
-	require.False(t, i.persistedCommitQC.Load().IsPresent())
+	require.False(t, i.persistedCommitQC().IsPresent())
 	_, hasBlocks := i.blocks[closedLane]
 	_, hasVotes := i.votes[closedLane]
 	_, hasCursor := i.nextBlockToPersist[closedLane]
@@ -612,7 +612,7 @@ func TestRestoreInnerInitializesGenesis(t *testing.T) {
 	require.Equal(t, ep.RoadRange().First, i.roads.first)
 	require.Equal(t, ep.RoadRange().First, i.roads.next)
 	require.False(t, i.anchor.First.IsPresent())
-	require.False(t, i.persistedCommitQC.Load().IsPresent())
+	require.False(t, i.persistedCommitQC().IsPresent())
 	require.Equal(t, types.ConsensusSpec{Epoch: ep, GenesisTimestamp: timestamp}, i.consensusSpec.Load())
 	require.Equal(t, registry.MustEpoch(1), utils.OrPanic1(newInner(data.TestAnchor(registry.MustEpoch(1)), timestamp, &loadedState{})).applied())
 }
@@ -629,7 +629,7 @@ func TestRestoreInnerInitializesAnchor(t *testing.T) {
 			require.Equal(t, qc.Index()+1, i.roads.first)
 			require.Equal(t, qc.Index()+1, i.roads.next)
 			require.Equal(t, ep, i.anchor.Epochs[0])
-			require.Equal(t, utils.Some(qc), i.persistedCommitQC.Load())
+			require.Equal(t, utils.Some(qc), i.persistedCommitQC())
 			require.Equal(t, types.ConsensusSpec{Epoch: ep, CommitQC: utils.Some(qc), GenesisTimestamp: timestamp}, i.consensusSpec.Load())
 			for lane := range ep.Committee().Lanes().All() {
 				lr := qc.LaneRange(lane)
@@ -656,7 +656,7 @@ func TestRestoreInner_SealedSuccessorWaitsForAnchor(t *testing.T) {
 	qcSeal := types.BuildCommitQC(anchor.Epochs[1], keys, utils.Some(qcNext), nil)
 	i, err := newInner(anchor, time.Time{}, &loadedState{commitQCs: []*types.CommitQC{qcLast, qcNext, qcSeal}})
 	require.NoError(t, err)
-	require.Equal(t, utils.Some(qcSeal), i.persistedCommitQC.Load())
+	require.Equal(t, utils.Some(qcSeal), i.persistedCommitQC())
 	require.Equal(t, anchor.Epochs[1], i.applied())
 	require.Equal(t, utils.Some(qcNext), i.consensusSpec.Load().CommitQC)
 	require.False(t, i.advanceEpoch())

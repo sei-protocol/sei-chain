@@ -102,6 +102,7 @@ func seekRoads(s *State, idx types.RoadIndex) {
 	for inner, ctrl := range s.inner.Lock() {
 		inner.roads.first = idx
 		inner.roads.next = idx
+		inner.nextCommitQCToPersist = max(inner.nextCommitQCToPersist, idx)
 		ctrl.Updated()
 	}
 }

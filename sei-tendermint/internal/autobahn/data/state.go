@@ -705,6 +705,23 @@ type Anchor struct {
 	Epochs [2]*types.Epoch
 }
 
+// CommitQC returns the certified anchor's CommitQC, or None when First is absent.
+func (a Anchor) CommitQC() utils.Option[*types.CommitQC] {
+	if first, ok := a.First.Get(); ok {
+		return utils.Some(first.CommitQC)
+	}
+	return utils.None[*types.CommitQC]()
+}
+
+// FirstIndex returns the road after the certified anchor, or the first epoch's
+// starting road when First is absent.
+func (a Anchor) FirstIndex() types.RoadIndex {
+	if qc, ok := a.CommitQC().Get(); ok {
+		return qc.Index() + 1
+	}
+	return a.Epochs[0].RoadRange().First
+}
+
 // Anchor returns the retained certified road and its two epochs.
 func (s *State) Anchor() utils.AtomicRecv[Anchor] {
 	for inner := range s.inner.Lock() {
@@ -882,7 +899,7 @@ func (s *State) EpochAt(road types.RoadIndex) (*types.Epoch, error) {
 type nextCommitEpoch struct{ utils.AtomicRecv[Anchor] }
 
 func (a Anchor) nextCommitEpoch() *types.Epoch {
-	if first, ok := a.First.Get(); ok && first.CommitQC.Index()+1 >= a.Epochs[0].RoadRange().Next {
+	if a.FirstIndex() >= a.Epochs[0].RoadRange().Next {
 		return a.Epochs[1]
 	}
 	return a.Epochs[0]

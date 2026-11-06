@@ -126,8 +126,8 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 			return err
 		}
 		if _, err := ds.Anchor().Wait(ctx, func(anchor data.Anchor) bool {
-			got, ok := anchor.First.Get()
-			return ok && got.CommitQC.Index() == qc0.Index()
+			got, ok := anchor.CommitQC().Get()
+			return ok && got.Index() == qc0.Index()
 		}); err != nil {
 			return err
 		}
@@ -233,8 +233,8 @@ func TestAnchorResetsState(t *testing.T) {
 
 		t.Logf("wait for anchor to be updated")
 		if _, err := ds.Anchor().Wait(ctx, func(anchor data.Anchor) bool {
-			a, ok := anchor.First.Get()
-			return ok && a.CommitQC.Index() == qc.Index()
+			a, ok := anchor.CommitQC().Get()
+			return ok && a.Index() == qc.Index()
 		}); err != nil {
 			return err
 		}
@@ -244,7 +244,7 @@ func TestAnchorResetsState(t *testing.T) {
 		if err != nil {
 			return fmt.Errorf("NewState(): %w", err)
 		}
-		if err := utils.TestDiff(utils.Some(qc.QC()), state.LastCommitQC().Load()); err != nil {
+		if err := utils.TestDiff(utils.Some(qc.QC()), state.LastCommitQC()); err != nil {
 			return err
 		}
 		t.Logf("avail.Run()")
@@ -256,8 +256,8 @@ func TestAnchorResetsState(t *testing.T) {
 			return err
 		}
 		t.Logf("wait for this CommitQC to be persisted in avail")
-		_, err = state.LastCommitQC().Wait(ctx, func(got utils.Option[*types.CommitQC]) bool {
-			gotQC, ok := got.Get()
+		_, err = state.SubscribeConsensusSpec().Wait(ctx, func(spec types.ConsensusSpec) bool {
+			gotQC, ok := spec.CommitQC.Get()
 			return ok && gotQC.Index() == qc.Index()
 		})
 		return err
@@ -282,7 +282,7 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 
 		for i := range 3 {
 			t.Logf("iteration %v", i)
-			prev := state.LastCommitQC().Load()
+			prev := state.LastCommitQC()
 
 			t.Logf("Push some blocks.")
 			want := byLane[types.PayloadHash]{}
@@ -514,8 +514,8 @@ func TestStateRestartFromPersisted(t *testing.T) {
 		// all commitQCs in the batch are on disk. Block goroutines may still
 		// be in flight, but scope.Parallel in runPersist ensures they complete
 		// before the next batch, so the data is durable by scope exit.
-		if _, err := state.LastCommitQC().Wait(ctx, func(qc utils.Option[*types.CommitQC]) bool {
-			commitQC, ok := qc.Get()
+		if _, err := state.SubscribeConsensusSpec().Wait(ctx, func(spec types.ConsensusSpec) bool {
+			commitQC, ok := spec.CommitQC.Get()
 			return ok && commitQC.Index()+1 > wantAppQCIdx
 		}); err != nil {
 			return fmt.Errorf("waitForCommitQC: %w", err)
@@ -536,7 +536,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 	state2, err := NewState(keys[0], ds2, utils.Some(dir))
 	require.NoError(t, err)
 
-	_, ok := state2.LastCommitQC().Load().Get()
+	_, ok := state2.LastCommitQC().Get()
 	require.True(t, ok, "LastCommitQC should be set after restart")
 
 	for lane := range committee.Lanes().All() {
@@ -922,7 +922,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		// All 3 commitQCs should be loaded (no AppQC to skip past).
 		require.Equal(t, ep0.RoadRange().First, state.First())
 		// LastCommitQC should be set to the last loaded one.
-		require.NoError(t, utils.TestDiff(utils.Some(qcs[2]), state.LastCommitQC().Load()))
+		require.NoError(t, utils.TestDiff(utils.Some(qcs[2]), state.LastCommitQC()))
 	})
 
 	t.Run("non-contiguous commitQC files return error", func(t *testing.T) {
@@ -1195,7 +1195,7 @@ func pruneToAnchors(state *State, anchors []data.Anchor) *types.CommitQC {
 			ctrl.Updated()
 		}
 	}
-	return anchors[len(anchors)-1].First.OrPanic("anchor").CommitQC
+	return anchors[len(anchors)-1].CommitQC().OrPanic("anchor")
 }
 
 func requireSpec(t *testing.T, state *State, qc *types.CommitQC, idx types.EpochIndex) {
@@ -1362,14 +1362,14 @@ func TestMarkCommitQCsPersisted_DoesNotRewindPruneTip(t *testing.T) {
 
 	qc := pruneToAnchors(state, anchorWalk(t, registry, keys))
 	for inner := range state.inner.Lock() {
-		got, ok := inner.persistedCommitQC.Load().Get()
+		got, ok := inner.persistedCommitQC().Get()
 		require.True(t, ok)
 		require.Equal(t, qc.Index(), got.Index())
 	}
 
 	state.markCommitQCsPersisted(qc0)
 	for inner := range state.inner.Lock() {
-		got, ok := inner.persistedCommitQC.Load().Get()
+		got, ok := inner.persistedCommitQC().Get()
 		require.True(t, ok)
 		require.Equal(t, qc.Index(), got.Index())
 	}

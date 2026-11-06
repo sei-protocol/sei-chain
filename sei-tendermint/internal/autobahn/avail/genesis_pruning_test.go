@@ -59,7 +59,7 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = state.Close() })
 			require.Equal(t, types.EpochIndex(3), state.Epoch().Load().EpochIndex())
-			require.Equal(t, wantTip, state.LastCommitQC().Load().OrPanic("commitQC"))
+			require.Equal(t, wantTip, state.LastCommitQC().OrPanic("commitQC"))
 			require.Equal(t, registry.GenesisTimestamp(), state.SubscribeConsensusSpec().Load().GenesisTimestamp)
 		})
 	}

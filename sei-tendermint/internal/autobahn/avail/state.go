@@ -39,8 +39,7 @@ var (
 // to trigger internal pruning, which allows it to manage memory independently
 // of the main consensus loop.
 //
-// Lane maps and WALs outlive committee membership until the anchor's first
-// epoch closes that LaneID.
+// Lane maps and WALs are retained while either anchor epoch contains that LaneID.
 type State struct {
 	key   types.SecretKey
 	data  *data.State
@@ -184,10 +183,10 @@ func (s *State) Data() *data.State {
 	return s.data
 }
 
-// LastCommitQC returns receiver of the LastCommitQC.
-func (s *State) LastCommitQC() utils.AtomicRecv[utils.Option[*types.CommitQC]] {
+// LastCommitQC returns the latest durable CommitQC.
+func (s *State) LastCommitQC() utils.Option[*types.CommitQC] {
 	for inner := range s.inner.Lock() {
-		return inner.persistedCommitQC.Subscribe()
+		return inner.persistedCommitQC()
 	}
 	panic("unreachable")
 }
@@ -265,7 +264,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		metrics.ObserveCommitQC(qc)
 		leader := epoch.Committee().Leader(qc.View())
 		consMeters.Commits.WithLabelValues(leader.ED25519().Address().String()).Add(1)
-		// The persist goroutine publishes persistedCommitQC after writing to disk
+		// The persist goroutine advances nextCommitQCToPersist after writing to disk
 		// (or immediately for no-op persisters), so consensus won't advance
 		// until the CommitQC is durable.
 		ctrl.Updated()
@@ -316,10 +315,8 @@ func (s *State) NextBlock(lane types.LaneID) types.BlockNumber {
 	return 0
 }
 
-// Block returns block n of the given lane.
-// Waits until the block is available.
-// Returns ErrPruned if the block has already been pruned, or if the lane map is
-// missing (closed lane, or a LaneID never admitted — future lanes are not waited on).
+// Block waits for block n of the given lane. It returns ErrPruned for pruned
+// blocks and lanes absent from both anchor committees.
 func (s *State) Block(ctx context.Context, lane types.LaneID, n types.BlockNumber) (*types.Signed[*types.LaneProposal], error) {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
@@ -509,7 +506,7 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Ful
 }
 
 // WaitForCapacity waits until lane has room for toProduce.
-// Returns ErrLaneClosed if the lane map is missing. Does not wait for future lanes.
+// Returns ErrLaneClosed if the lane map is missing. Does not wait for unretained lanes.
 func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduce types.BlockNumber) error {
 	var blocked bool
 	var start time.Time
@@ -597,7 +594,7 @@ type LaneTip struct {
 // LaneTips returns how far each lane of the applied committee has reached on this node.
 func (s *State) LaneTips() map[types.LaneID]LaneTip {
 	for inner := range s.inner.Lock() {
-		committed := inner.persistedCommitQC.Load()
+		committed := inner.persistedCommitQC()
 		tips := map[types.LaneID]LaneTip{}
 		for lane := range inner.applied().Committee().Lanes().All() {
 			t := LaneTip{WithCommitQC: types.LaneRangeOpt(committed, lane).Next()}
@@ -704,7 +701,6 @@ func (s *State) runEvict(ctx context.Context) error {
 	})
 }
 
-
 // Run runs the background tasks of the state.
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
@@ -795,12 +791,12 @@ func (s *State) setNextBlockToPersist(lane types.LaneID, next types.BlockNumber)
 // the current tip, then refreshes ConsensusSpec.
 func (s *State) markCommitQCsPersisted(qc *types.CommitQC) {
 	for inner, ctrl := range s.inner.Lock() {
-		if cur, ok := inner.persistedCommitQC.Load().Get(); ok && qc.Index() < cur.Index() {
+		if qc.Index()+1 < inner.nextCommitQCToPersist {
 			// prune may have jumped the empty-queue tip to the Anchor while this
 			// persist batch was still on disk.
 			return
 		}
-		inner.persistedCommitQC.Store(utils.Some(qc))
+		inner.nextCommitQCToPersist = qc.Index() + 1
 		inner.advance()
 		ctrl.Updated()
 	}
@@ -810,19 +806,14 @@ func (s *State) markCommitQCsPersisted(qc *types.CommitQC) {
 // collects a persist batch.
 func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) {
 	for inner, ctrl := range s.inner.Lock() {
-		// Start after the durable tip, clamped to roads.first after prune has
-		// dropped the prefix (and possibly jumped the empty-queue tip to the Anchor).
-		next := inner.roads.first
-		if qc, ok := inner.persistedCommitQC.Load().Get(); ok {
-			next = qc.Index() + 1
-		}
+		// Pruning keeps the persistence cursor at or beyond roads.first.
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			for lane, q := range inner.blocks {
 				if inner.nextBlockToPersist[lane] < q.next {
 					return true
 				}
 			}
-			return next < inner.roads.next
+			return inner.nextCommitQCToPersist < inner.roads.next
 		}); err != nil {
 			return nil, err
 		}
@@ -830,7 +821,7 @@ func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) 
 			blocks:    map[types.LaneID]blocksBatch{},
 			commitQCs: commitQCsBatch{first: inner.roads.first},
 		}
-		for n := max(next, inner.roads.first); n < inner.roads.next; n++ {
+		for n := inner.nextCommitQCToPersist; n < inner.roads.next; n++ {
 			b.commitQCs.tail = append(b.commitQCs.tail, inner.roads.q[n].commitQC)
 		}
 		for lane, q := range inner.blocks {
