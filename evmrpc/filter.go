@@ -597,13 +597,9 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, startTime, err, recover())
 	}()
 
-	latest, err := a.logFetcher.latestHeight(ctx)
+	earliest, _, latest, err := a.logFetcher.watermarks.Watermarks(ctx)
 	if err != nil {
 		return nil, err
-	}
-	earliest, err := a.logFetcher.earliestHeight(ctx)
-	if err != nil {
-		earliest = 0
 	}
 
 	begin, end, err := ComputeBlockBounds(latest, earliest, 0, crit)
@@ -824,13 +820,9 @@ func (f *LogFetcher) storeCandidateBudget() *receipt.LogBudget {
 }
 
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
-	latest, err := f.latestHeight(ctx)
+	earliest, _, latest, err := f.watermarks.Watermarks(ctx)
 	if err != nil {
 		return nil, 0, err
-	}
-	earliest, err := f.earliestHeight(ctx)
-	if err != nil {
-		earliest = 0
 	}
 	begin, end, err := ComputeBlockBounds(latest, earliest, lastToHeight, crit)
 	if err != nil {
@@ -914,7 +906,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	// Batch process with fail-fast
 	blockBatch := make([]*coretypes.ResultBlock, 0, evmrpcconfig.WorkerBatchSize)
 	for block := range blocks {
-		if budget.Tripped() {
+		if budget.Tripped() || ctx.Err() != nil {
 			break
 		}
 		blockBatch = append(blockBatch, block)
@@ -937,7 +929,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}
 
 	// Process remaining blocks, unless the cap is already exceeded
-	if len(blockBatch) > 0 && !budget.Tripped() {
+	if len(blockBatch) > 0 && !budget.Tripped() && ctx.Err() == nil {
 		wg.Add(1)
 		if err := runner.SubmitWithMetrics(func() { processBatch(blockBatch) }); err != nil {
 			wg.Done()
@@ -961,6 +953,9 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	for range blocks {
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
 	if budget.Tripped() {
 		return nil, 0, budget.Err()
 	}
@@ -1354,15 +1349,12 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 
 	// Block range (including open-ended queries) is enforced by FilterAPI.GetLogs
 	// and GetLogsByFilters before this block-by-block fallback runs.
-	latest, err := f.watermarks.LatestHeight(ctx)
+	blockEarliest, _, latest, err := f.watermarks.Watermarks(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
-	earliest, err := f.watermarks.EarliestHeight(ctx)
-	if err != nil {
-		earliest = 0
-	}
-	begin, end, err := ComputeBlockBounds(latest, earliest, lastToHeight, crit)
+	available := blockWindow{earliest: blockEarliest, latest: latest}
+	begin, end, err := ComputeBlockBounds(latest, blockEarliest, lastToHeight, crit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1387,7 +1379,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 		if err := runner.SubmitWithMetrics(func(start, endHeight int64) func() {
 			return func() {
 				defer wg.Done()
-				f.processBatch(ctx, start, endHeight, crit, bloomIndexes, res, errChan)
+				f.processBatch(ctx, available, start, endHeight, crit, bloomIndexes, res, errChan)
 			}
 		}(batchStart, batchEnd)); err != nil {
 			wg.Done()
@@ -1412,13 +1404,16 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	if firstErr != nil {
 		return nil, 0, firstErr
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
 
 	return res, end, nil
 }
 
 // processBatch sends to res each block in [start, end] that crit can match, and reports on errChan
 // each block it cannot read. A panic is reported the same way and ends the batch.
-func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
+func (f *LogFetcher) processBatch(ctx context.Context, available blockWindow, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
 	var height int64
 	defer func() {
 		if r := recover(); r != nil {
@@ -1427,6 +1422,9 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 	}()
 
 	for height = start; height <= end; height++ {
+		if ctx.Err() != nil {
+			return
+		}
 		if height == 0 {
 			continue
 		}
@@ -1434,7 +1432,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		// check cache first, without holding the semaphore
 		if cachedEntry, found := f.globalBlockCache.Get(height); found {
 			if cachedEntry.Block != nil {
-				if err := f.watermarks.EnsureBlockHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
+				if err := available.ensureContains(cachedEntry.Block.Block.Height); err != nil {
 					continue
 				}
 			}
@@ -1443,7 +1441,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		}
 
 		// Block cache miss, read the block from the store
-		block, ok, err := f.readUncachedBlock(ctx, height, crit, bloomIndexes)
+		block, ok, err := f.readUncachedBlock(ctx, available, height, crit, bloomIndexes)
 		if err != nil {
 			reportBatchError(errChan, fmt.Errorf("failed to fetch block at height %d: %w", height, err))
 			continue
@@ -1474,14 +1472,14 @@ func reportBatchError(errChan chan<- error, err error) {
 // readUncachedBlock reads the block at height under a DB-read slot and adds it to the block cache.
 // It returns ok=false, with no error, when the block's bloom rules out crit or when a copy another
 // worker cached meanwhile is outside the available range.
-func (f *LogFetcher) readUncachedBlock(ctx context.Context, height int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes) (block *coretypes.ResultBlock, ok bool, err error) {
+func (f *LogFetcher) readUncachedBlock(ctx context.Context, available blockWindow, height int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes) (block *coretypes.ResultBlock, ok bool, err error) {
 	release := f.acquireDBReadSlot()
 	defer release()
 
 	// Re-check cache after acquiring semaphore, in case another worker cached it.
 	if cachedEntry, found := f.globalBlockCache.Get(height); found {
 		if cachedEntry.Block != nil {
-			if err := f.watermarks.EnsureBlockHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
+			if err := available.ensureContains(cachedEntry.Block.Block.Height); err != nil {
 				return nil, false, nil
 			}
 		}
@@ -1507,7 +1505,10 @@ func (f *LogFetcher) readUncachedBlock(ctx context.Context, height int64, crit f
 	}
 
 	// fetch block from network
-	block, err = blockByNumberRespectingWatermarks(ctx, f.tmClient, f.watermarks, &height, 1)
+	if err := available.ensureContains(height); err != nil {
+		return nil, false, err
+	}
+	block, err = blockByNumberWithRetry(ctx, f.tmClient, &height, 1)
 	if err != nil {
 		return nil, false, err
 	}

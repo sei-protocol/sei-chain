@@ -159,6 +159,7 @@ func setupTestServer(
 		a.BaseApp,
 		a.TracerAnteHandler,
 		ctxProvider,
+		func(height int64) sdk.Context { return ctxProvider(height).WithConsensusParams(nil) },
 		func(int64) client.TxConfig { return a.GetTxConfig() },
 		"",
 		a.GetStateStore(),
