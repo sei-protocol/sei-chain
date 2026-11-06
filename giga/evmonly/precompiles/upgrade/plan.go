@@ -117,7 +117,7 @@ func Schedule(state precompiles.State, block uint64, p Plan) error {
 
 // CheckCancel returns an error unless the scheduled plan is named name.
 func CheckCancel(state precompiles.State, name string) error {
-	plan, scheduled, err := CurrentPlan(state)
+	plan, scheduled, err := scheduledPlan(state)
 	switch {
 	case err != nil:
 		return err
@@ -140,6 +140,19 @@ func Cancel(state precompiles.State, name string) error {
 
 // CurrentPlan returns the scheduled plan, and false when none is scheduled.
 func CurrentPlan(state precompiles.State) (Plan, bool, error) {
+	plan, scheduled, err := scheduledPlan(state)
+	if err != nil || !scheduled {
+		return Plan{}, false, err
+	}
+	if plan.Info, err = planInfoOf(state); err != nil {
+		return Plan{}, false, err
+	}
+	return plan, true, nil
+}
+
+// scheduledPlan returns the scheduled plan's name and height, leaving Info
+// empty, and false when none is scheduled.
+func scheduledPlan(state precompiles.State) (Plan, bool, error) {
 	s := newStore(state)
 	height := s.Uint64(planSlot(planHeight), 0)
 	if height == 0 {
@@ -149,11 +162,16 @@ func CurrentPlan(state precompiles.State) (Plan, bool, error) {
 	if err != nil {
 		return Plan{}, false, fmt.Errorf("upgrade plan name: %w", err)
 	}
-	info, err := s.String(planSlot(planInfo))
+	return Plan{Name: name, Height: height}, true, nil
+}
+
+// planInfoOf returns the scheduled plan's Info.
+func planInfoOf(state precompiles.State) (string, error) {
+	info, err := newStore(state).String(planSlot(planInfo))
 	if err != nil {
-		return Plan{}, false, fmt.Errorf("upgrade plan info: %w", err)
+		return "", fmt.Errorf("upgrade plan info: %w", err)
 	}
-	return Plan{Name: name, Height: height, Info: info}, true, nil
+	return info, nil
 }
 
 // Applied returns the block the named upgrade was applied at, or 0 when it
