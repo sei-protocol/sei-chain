@@ -61,9 +61,6 @@ const (
 	FlagEVMSSSeparateDBs = "state-store.evm-ss-separate-dbs"
 )
 
-// ingressSSBlockCacheSize is the state store's Pebble block cache, in bytes, on an ingress node.
-const ingressSSBlockCacheSize = 128 << 20
-
 var GigaKeys = []string{"evm", "bank"}
 
 func SetupSeiDB(
@@ -239,11 +236,5 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.EVMDBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))
 	ssConfig.SeparateEVMSubDBs = cast.ToBool(appOpts.Get(FlagEVMSSSeparateDBs))
 	ssConfig.EVMSplit = cast.ToBool(appOpts.Get(FlagEVMSSSplit))
-
-	if cast.ToBool(appOpts.Get(server.FlagIngress)) {
-		// Reads re-fetch sstable index blocks from the filesystem whenever the cache cannot hold them,
-		// and the default cannot for a mainnet-sized state store.
-		ssConfig.BlockCacheSize = ingressSSBlockCacheSize
-	}
 	return ssConfig
 }

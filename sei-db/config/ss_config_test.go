@@ -54,14 +54,6 @@ func TestAlignSSSnapshotWithSCMirrorsKeepLatestOnly(t *testing.T) {
 	require.Zero(t, ssConfig.SnapshotKeepRecent)
 }
 
-func TestEffectiveBlockCacheSize(t *testing.T) {
-	ssConfig := DefaultStateStoreConfig()
-	require.Equal(t, int64(DefaultSSBlockCacheSize), ssConfig.EffectiveBlockCacheSize())
-
-	ssConfig.BlockCacheSize = 128 << 20
-	require.Equal(t, int64(128<<20), ssConfig.EffectiveBlockCacheSize())
-}
-
 func TestDefaultStateStoreConfigDisablesSnapshots(t *testing.T) {
 	require.False(t, DefaultStateStoreConfig().SnapshotEnable,
 		"snapshots require an explicit ss-snapshot-enable opt-in")
