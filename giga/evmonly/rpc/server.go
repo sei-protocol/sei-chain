@@ -79,6 +79,9 @@ type Backend interface {
 	EvmMinGasPrice() (*big.Int, error)
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 	EvmProxyEnabled() bool
+	// EvmMempoolThrottled reports whether the local mempool refuses new transactions because local
+	// execution lags too far behind.
+	EvmMempoolThrottled() bool
 	EvmStorage(common.Address, common.Hash) (common.Hash, error)
 	EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error)
 	// EvmStateAt returns the committed EVM state after height, or the latest committed state when

@@ -14,6 +14,7 @@ func init() {
 		Global.checkTxWaitLatency,
 		Global.capacityWaitLatency,
 		Global.Inserts,
+		Global.executionThrottled,
 	)
 }
 
@@ -39,6 +40,12 @@ func newMetrics() *metrics {
 			Name:      "inserts",
 			Help:      "Number of finished inserts by outcome.",
 		}, []string{"result"}),
+		executionThrottled: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "execution_throttled",
+			Help:      "1 while the mempool refuses new transactions because local execution lags too far behind.",
+		}, nil),
 	}
 }
 
@@ -52,4 +59,8 @@ func (m *metrics) capacityWaitLatencyAt() *tmprometheus.Histogram {
 
 func (m *metrics) InsertsAt(result string) *tmprometheus.CounterInt {
 	return m.Inserts.WithLabelValues(result)
+}
+
+func (m *metrics) executionThrottledAt() *tmprometheus.GaugeInt {
+	return m.executionThrottled.WithLabelValues()
 }

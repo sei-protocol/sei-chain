@@ -74,6 +74,10 @@ type ExecutionConfig struct {
 	// GCPercent is the Go GC target. 0 leaves the process default. A value above 100 trades memory
 	// for fewer collections; the process then caps the heap from the container limit when it has one.
 	GCPercent int `mapstructure:"gc_percent"`
+	// MaxExecutionLag is how many committed superblocks may stay unexecuted locally before the
+	// producer refuses new transactions. 0 disables the limit, and 100 or more never triggers
+	// because the node retains at most 100 superblocks.
+	MaxExecutionLag uint64 `mapstructure:"max_execution_lag"`
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
@@ -199,6 +203,7 @@ const (
 	FlagExecutionEvmRpcPort              = "giga.execution.evm_rpc_port"
 	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
 	FlagExecutionGCPercent               = "giga.execution.gc_percent"
+	FlagExecutionMaxExecutionLag         = "giga.execution.max_execution_lag"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsLogs          = "giga.rpc.max_subscriptions_logs"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
@@ -296,6 +301,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionGCPercent); v != nil {
 		if cfg.Execution.GCPercent, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionGCPercent, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionMaxExecutionLag); v != nil {
+		if cfg.Execution.MaxExecutionLag, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionMaxExecutionLag, err)
 		}
 	}
 	if v := opts.Get(FlagRPCMaxSubscriptionsNewHead); v != nil {
@@ -545,6 +555,11 @@ evm_ws_port = {{ .Giga.Execution.EvmWsPort }}
 
 # gc_percent is the Go GC target. 0 leaves the process default.
 gc_percent = {{ .Giga.Execution.GCPercent }}
+
+# max_execution_lag is how many committed superblocks may stay unexecuted locally before the
+# producer refuses new transactions. 0 disables the limit, and 100 or more never triggers
+# because the node retains at most 100 superblocks.
+max_execution_lag = {{ .Giga.Execution.MaxExecutionLag }}
 
 [giga.rpc]
 # Limits the EVM-only JSON-RPC server enforces. Zero disables a limit unless noted otherwise.

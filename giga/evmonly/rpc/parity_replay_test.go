@@ -309,6 +309,8 @@ func (*replayBackend) EvmProxyEnabled() bool {
 	return false
 }
 
+func (*replayBackend) EvmMempoolThrottled() bool { return false }
+
 func (*replayBackend) EvmStateAt(context.Context, int64) (vm.StateDB, func(), error) {
 	return nil, nil, errNotReplayed
 }
