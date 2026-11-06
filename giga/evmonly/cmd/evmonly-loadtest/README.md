@@ -116,6 +116,28 @@ go run ./giga/evmonly/cmd/evmonly-loadtest \
   --min-gas-price-wei=0
 ```
 
+Example CLOB run. `clob-place` sends `placeNext` calls to `CLOBv1`
+(`scenarios/clob`, the contract sei-load's `clob` scenario copies), a spot order
+book split into independent markets. A block's transaction `i` goes to market
+`i+1`, and an account trades only in that market, so no two transactions in a
+block share a book or a balance while each market's accounts fill one another's
+orders. Each market repeats four resting asks across both price levels, a taker
+that walks both levels with a partial fill, and a second taker that empties the
+book; an account is credited on its first call in a market. It needs
+`--accounts` set to a multiple of `--txs-per-block`:
+
+```bash
+go run ./giga/evmonly/cmd/evmonly-loadtest \
+  --metrics-addr= \
+  --report-interval=5s \
+  --workload=clob-place \
+  --blocks=400 \
+  --txs-per-block=5000 \
+  --accounts=20000 \
+  --gas-price-wei=0 \
+  --min-gas-price-wei=0
+```
+
 The command prebuilds every bounded run before starting the prepare/recover and
 executor workers, which isolates executor throughput from block generation:
 
@@ -183,8 +205,9 @@ Useful knobs:
   possible transactions.
 - `--same-sender`: use one sender per native-transfer block and assign
   transaction nonces in block order.
-- `--workload`: workload type, either `transfer`, `erc20-transfer`, or
-  `snapshot-revert`.
+- `--workload`: workload type, either `transfer`, `erc20-transfer`,
+  `snapshot-revert`, or `clob-place`.
+- `--clob-contract`: generated contract address used by `--workload=clob-place`.
 - `--snapshot-revert-contract`, `--snapshot-revert-helper`: generated contract
   addresses used by `--workload=snapshot-revert`.
 
