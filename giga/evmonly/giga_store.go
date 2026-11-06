@@ -69,7 +69,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		snapshot:     snapshot,
 		missingState: e.missingState,
 	}
-	source = newPendingOverlay(source, pending)
+	source = pending.overlay(source)
 
 	e.blockPhases.SetPhase(phaseExecute)
 	result, err := e.executePreparedBlock(ctx, req, source)
@@ -168,12 +168,12 @@ func (e *Executor) AwaitCommits() error {
 	return e.awaitPipelineCommit()
 }
 
-// pipelinePending returns the changes of a block whose commit has not been waited on yet, or nil
-// when the store is caught up.
-func (e *Executor) pipelinePending() *StateChangeSet {
+// pipelinePending returns the indexed changes of a block whose commit has not been waited on yet, or
+// nil when the store is caught up.
+func (e *Executor) pipelinePending() *pendingIndex {
 	e.pipelineMu.Lock()
 	defer e.pipelineMu.Unlock()
-	return e.pipelineChanges
+	return e.pipelineIndex
 }
 
 // awaitPipelineCommit blocks until the in-flight commit has landed, reporting the first commit that
@@ -201,7 +201,7 @@ func (e *Executor) awaitPipelineCommit() error {
 				e.pipelineFailure = fmt.Errorf("commit state changes: %w", e.pipelineErr)
 			}
 			e.pipelineDone = nil
-			e.pipelineChanges = nil
+			e.pipelineIndex = nil
 			e.pipelineErr = nil
 		}
 		e.pipelineMu.Unlock()
@@ -239,10 +239,12 @@ func (e *Executor) startPipelineCommit(blockNumber int64, misc []gigatypes.MiscC
 		e.pipelineMu.Unlock()
 		return failure
 	}
-	e.pipelineChanges = pending
+	index := newPendingIndex(pending)
+	e.pipelineIndex = index
 	e.pipelineDone = done
 	e.pipelineErr = nil
 	e.pipelineMu.Unlock()
+	e.recordExecutedChanges(uint64(blockNumber), index) //nolint:gosec // blockNumber is non-negative.
 
 	go func() {
 		err := e.stateStore.CommitStateChanges(blockNumber, pending)
