@@ -125,34 +125,74 @@ func TestRegistryStageActivateAndImmutableSnapshots(t *testing.T) {
 	}
 }
 
-func TestRegistryWindow(t *testing.T) {
+func TestRegistryOpeningEpoch(t *testing.T) {
 	rng := utils.TestRng()
 	genesis, keys, _ := genCommittee(rng, 3)
 	weights := map[types.PublicKey]uint64{keys[1].Public(): 7}
 	r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
 
-	window, err := r.Window(0, weights)
+	got, err := r.OpeningEpoch(0, weights)
 	require.NoError(t, err)
-	prev, ok := window.Prev().Get()
-	require.True(t, ok)
-	require.Equal(t, testEpoch(0, 0, genesis), prev)
-	require.Equal(t, testEpoch(1, 0, genesis), window.Current())
 	wantCommittee := utils.OrPanic1(genesis.DeriveNext(weights, 2))
 	wantNext := testEpoch(2, 0, wantCommittee)
-	require.True(t, epochEqual(wantNext, window.Next()))
+	require.Equal(t, wantNext, got)
+	require.Equal(t, utils.Some(wantNext), r.Pending())
 }
 
-func TestRegistryWindowAfterPrevPruned(t *testing.T) {
+func TestRegistryOpeningEpochAfterPrune(t *testing.T) {
 	rng := utils.TestRng()
 	genesis, keys, _ := genCommittee(rng, 3)
 	weights := map[types.PublicKey]uint64{keys[1].Public(): 7}
 	r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
 	require.NoError(t, r.PruneBefore(1))
 
-	window, err := r.Window(0, weights)
+	got, err := r.OpeningEpoch(0, weights)
 	require.NoError(t, err)
-	require.Equal(t, utils.None[*types.Epoch](), window.Prev())
-	require.Equal(t, testEpoch(1, 0, genesis), window.Current())
+	wantCommittee := utils.OrPanic1(genesis.DeriveNext(weights, 2))
+	require.Equal(t, testEpoch(2, 0, wantCommittee), got)
+}
+
+func TestRegistryOpeningEpochIsIdempotent(t *testing.T) {
+	rng := utils.TestRng()
+	genesis, keys, _ := genCommittee(rng, 3)
+	weights := map[types.PublicKey]uint64{keys[1].Public(): 7}
+	r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
+
+	first, err := r.OpeningEpoch(0, weights)
+	require.NoError(t, err)
+	before := r.stateRecv.Load()
+	second, err := r.OpeningEpoch(0, weights)
+	require.NoError(t, err)
+	require.True(t, before == r.stateRecv.Load())
+	require.Equal(t, first, second)
+}
+
+func TestRegistryOpeningEpochReturnsLiveEpoch(t *testing.T) {
+	rng := utils.TestRng()
+	genesis, keys, _ := genCommittee(rng, 3)
+	weights := map[types.PublicKey]uint64{keys[1].Public(): 7}
+	r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
+	require.NoError(t, r.StageEpoch(0, weights))
+	require.NoError(t, r.Activate(2))
+
+	got, err := r.OpeningEpoch(0, weights)
+	require.NoError(t, err)
+	wantCommittee := utils.OrPanic1(genesis.DeriveNext(weights, 2))
+	require.Equal(t, testEpoch(2, 0, wantCommittee), got)
+	require.Equal(t, utils.None[*types.Epoch](), r.Pending())
+}
+
+func TestRegistryOpeningEpochRejectsConflict(t *testing.T) {
+	rng := utils.TestRng()
+	genesis, keys, _ := genCommittee(rng, 3)
+	weights := map[types.PublicKey]uint64{keys[1].Public(): 7}
+	conflict := map[types.PublicKey]uint64{keys[0].Public(): 5}
+	r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
+	_, err := r.OpeningEpoch(0, weights)
+	require.NoError(t, err)
+
+	_, err = r.OpeningEpoch(0, conflict)
+	require.Error(t, err)
 }
 
 func TestRegistryWaitForEpoch(t *testing.T) {

@@ -12,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -40,10 +39,10 @@ var (
 	testMinGasPrice     = big.NewInt(1_000_000_000)
 )
 
-func (app *testEVMApp) FinalizeBlockWithEpochWindow(
+func (app *testEVMApp) FinalizeBlockWithConsensusState(
 	ctx context.Context,
 	req *abci.RequestFinalizeBlock,
-	_ utils.Option[epoch.Window],
+	_ utils.Option[proxy.ConsensusState],
 ) (*abci.ResponseFinalizeBlock, error) {
 	return app.FinalizeBlock(ctx, req)
 }

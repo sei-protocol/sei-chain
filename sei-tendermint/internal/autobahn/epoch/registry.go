@@ -2,7 +2,6 @@ package epoch
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -148,26 +147,31 @@ func (r *Registry) commit(state *utils.AtomicSend[*persistedRegistry], next *per
 	return nil
 }
 
-// Window returns the epoch state committed with the first block after endEpoch.
-// Its previous epoch is None when this node has pruned endEpoch.
-func (r *Registry) Window(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) (Window, error) {
-	prev := utils.None[*types.Epoch]()
-	if e, err := r.Epoch(endEpoch); err == nil {
-		prev = utils.Some(e)
-	} else if !errors.Is(err, types.ErrPruned) {
-		return Window{}, err
+// OpeningEpoch stages and returns the next epoch to commit with the first block after endEpoch.
+func (r *Registry) OpeningEpoch(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) (*types.Epoch, error) {
+	for state := range r.state.Lock() {
+		s := state.Load()
+		next, err := s.stageEpoch(endEpoch, weights)
+		if err != nil {
+			return nil, err
+		}
+		if next != s {
+			if err := r.commit(state, next); err != nil {
+				return nil, err
+			}
+			s = next
+		}
+		target := endEpoch + 2
+		if epoch, ok := s.live[target]; ok {
+			return epoch, nil
+		}
+		pending, ok := s.pending.Get()
+		if !ok || pending.EpochIndex() != target {
+			return nil, fmt.Errorf("epoch %d is not staged", target)
+		}
+		return pending, nil
 	}
-	current, err := r.Epoch(endEpoch + 1)
-	if err != nil {
-		return Window{}, err
-	}
-	// C_{endEpoch+2} may not be staged yet, so it is derived from weights here.
-	target := endEpoch + 2
-	committee, err := current.Committee().DeriveNext(weights, target)
-	if err != nil {
-		return Window{}, fmt.Errorf("DeriveNext(%d): %w", target, err)
-	}
-	return NewWindow(prev, current, types.NewEpoch(target, r.roadRange(target), committee))
+	panic("unreachable")
 }
 
 // StageEpoch derives C_{endEpoch+2} from weights and persists it as pending.

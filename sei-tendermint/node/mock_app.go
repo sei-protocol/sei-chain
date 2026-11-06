@@ -21,7 +21,6 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -154,10 +153,10 @@ func (app *MockApp) GetTxPriorityHint(context.Context, *abci.RequestGetTxPriorit
 	return &abci.ResponseGetTxPriorityHint{}, nil
 }
 
-func (app *MockApp) FinalizeBlockWithEpochWindow(
+func (app *MockApp) FinalizeBlockWithConsensusState(
 	ctx context.Context,
 	req *abci.RequestFinalizeBlock,
-	_ utils.Option[epoch.Window],
+	_ utils.Option[proxy.ConsensusState],
 ) (*abci.ResponseFinalizeBlock, error) {
 	return app.FinalizeBlock(ctx, req)
 }

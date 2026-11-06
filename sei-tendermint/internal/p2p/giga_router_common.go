@@ -274,8 +274,8 @@ func (r *gigaRouterCommon) startExecuteBlock(
 	}, nil
 }
 
-// finalizeBlock finalizes block n on the app. An EVM app also commits the
-// epoch window with n when n is the first road of an epoch.
+// finalizeBlock finalizes block n on the app. An EVM app also commits consensus
+// state with n when n is the first road of an epoch.
 func (r *gigaRouterCommon) finalizeBlock(
 	ctx context.Context,
 	n atypes.RoadIndex,
@@ -286,34 +286,38 @@ func (r *gigaRouterCommon) finalizeBlock(
 	if !ok {
 		return r.app.FinalizeBlock(ctx, req)
 	}
-	window, err := r.openingEpochWindow(n, vals)
+	state, err := r.openingConsensusState(n, vals)
 	if err != nil {
 		return nil, err
 	}
-	return evm.FinalizeBlockWithEpochWindow(ctx, req, window)
+	return evm.FinalizeBlockWithConsensusState(ctx, req, state)
 }
 
-// openingEpochWindow returns the epoch window to commit with road n, derived
+// openingConsensusState returns the consensus state to commit with road n, derived
 // from vals, the validators after the previous road's Commit. It returns None
 // unless n is the first road after an epoch closes.
-func (r *gigaRouterCommon) openingEpochWindow(n atypes.RoadIndex, vals []abci.ValidatorUpdate) (utils.Option[epoch.Window], error) {
+func (r *gigaRouterCommon) openingConsensusState(
+	n atypes.RoadIndex,
+	vals []abci.ValidatorUpdate,
+) (utils.Option[proxy.ConsensusState], error) {
 	if n == 0 {
-		return utils.None[epoch.Window](), nil
+		return utils.None[proxy.ConsensusState](), nil
 	}
 	registry := r.data.Registry()
 	endEpoch, ok := registry.ClosingEpoch(n - 1).Get()
 	if !ok {
-		return utils.None[epoch.Window](), nil
+		return utils.None[proxy.ConsensusState](), nil
 	}
 	weights, err := committeeWeights(vals)
 	if err != nil {
-		return utils.None[epoch.Window](), err
+		return utils.None[proxy.ConsensusState](), err
 	}
-	window, err := registry.Window(endEpoch, weights)
+	next, err := registry.OpeningEpoch(endEpoch, weights)
 	if err != nil {
-		return utils.None[epoch.Window](), fmt.Errorf("epoch window for block %v: %w", n, err)
+		return utils.None[proxy.ConsensusState](), fmt.Errorf("consensus state for block %v: %w", n, err)
 	}
-	return utils.Some(window), nil
+	// The full registry snapshot is consensus-owned and populated in a later change.
+	return utils.Some(proxy.ConsensusState{NextEpoch: epoch.MarshalEpoch(next)}), nil
 }
 
 // finishExecuteBlock proposes pending's app hash to the data layer.

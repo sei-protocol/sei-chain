@@ -20,77 +20,77 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
-// epochWindowTestApp is an EVM app over testApp that records the epoch window
+// consensusStateTestApp is an EVM app over testApp that records the consensus state
 // each block is finalized with. Its EVM read methods return errEVMNotServed.
-type epochWindowTestApp struct {
+type consensusStateTestApp struct {
 	*testApp
 	finalizeErr utils.Option[error]
-	windows     map[int64]utils.Option[epoch.Window]
+	states      map[int64]utils.Option[proxy.ConsensusState]
 }
 
-var _ proxy.EVMApplication = (*epochWindowTestApp)(nil)
+var _ proxy.EVMApplication = (*consensusStateTestApp)(nil)
 
-func newEpochWindowTestApp() *epochWindowTestApp {
-	return &epochWindowTestApp{testApp: newTestApp(), windows: map[int64]utils.Option[epoch.Window]{}}
+func newConsensusStateTestApp() *consensusStateTestApp {
+	return &consensusStateTestApp{testApp: newTestApp(), states: map[int64]utils.Option[proxy.ConsensusState]{}}
 }
 
-func (a *epochWindowTestApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
-	return a.FinalizeBlockWithEpochWindow(ctx, req, utils.None[epoch.Window]())
+func (a *consensusStateTestApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	return a.FinalizeBlockWithConsensusState(ctx, req, utils.None[proxy.ConsensusState]())
 }
 
-func (a *epochWindowTestApp) FinalizeBlockWithEpochWindow(
+func (a *consensusStateTestApp) FinalizeBlockWithConsensusState(
 	ctx context.Context,
 	req *abci.RequestFinalizeBlock,
-	window utils.Option[epoch.Window],
+	state utils.Option[proxy.ConsensusState],
 ) (*abci.ResponseFinalizeBlock, error) {
 	if err, ok := a.finalizeErr.Get(); ok {
 		return nil, err
 	}
-	a.windows[req.Header.Height] = window
+	a.states[req.Header.Height] = state
 	return a.testApp.FinalizeBlock(ctx, req)
 }
 
-var errEVMNotServed = errors.New("epochWindowTestApp does not serve EVM reads")
+var errEVMNotServed = errors.New("consensusStateTestApp does not serve EVM reads")
 
-func (*epochWindowTestApp) EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error) {
+func (*consensusStateTestApp) EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error) {
 	return nil, errEVMNotServed
 }
 
-func (*epochWindowTestApp) EvmEstimateGas(context.Context, *core.Message, uint64) (uint64, []byte, error) {
+func (*consensusStateTestApp) EvmEstimateGas(context.Context, *core.Message, uint64) (uint64, []byte, error) {
 	return 0, nil, errEVMNotServed
 }
 
-func (*epochWindowTestApp) EvmCallAt(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error) {
+func (*consensusStateTestApp) EvmCallAt(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error) {
 	return nil, errEVMNotServed
 }
 
-func (*epochWindowTestApp) EvmEstimateGasAt(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error) {
+func (*consensusStateTestApp) EvmEstimateGasAt(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error) {
 	return 0, nil, errEVMNotServed
 }
 
-func (*epochWindowTestApp) EvmEstimateGasAfterCalls(context.Context, []*core.Message, *core.Message, uint64) (uint64, []byte, error) {
+func (*consensusStateTestApp) EvmEstimateGasAfterCalls(context.Context, []*core.Message, *core.Message, uint64) (uint64, []byte, error) {
 	return 0, nil, errEVMNotServed
 }
 
-func (*epochWindowTestApp) EvmCreateAccessList(context.Context, *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
+func (*consensusStateTestApp) EvmCreateAccessList(context.Context, *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
 	return nil, nil, errEVMNotServed
 }
 
-func (*epochWindowTestApp) EvmChainID() uint64                  { return 0 }
-func (*epochWindowTestApp) EvmChainConfig() *params.ChainConfig { return params.TestChainConfig }
-func (*epochWindowTestApp) EvmBaseFee() *big.Int                { return new(big.Int) }
-func (*epochWindowTestApp) EvmGasLimit() uint64                 { return 0 }
-func (*epochWindowTestApp) EvmMinGasPrice() *big.Int            { return new(big.Int) }
+func (*consensusStateTestApp) EvmChainID() uint64                  { return 0 }
+func (*consensusStateTestApp) EvmChainConfig() *params.ChainConfig { return params.TestChainConfig }
+func (*consensusStateTestApp) EvmBaseFee() *big.Int                { return new(big.Int) }
+func (*consensusStateTestApp) EvmGasLimit() uint64                 { return 0 }
+func (*consensusStateTestApp) EvmMinGasPrice() *big.Int            { return new(big.Int) }
 
-func (*epochWindowTestApp) EvmBlockContext(*ethtypes.Header) (vm.BlockContext, error) {
+func (*consensusStateTestApp) EvmBlockContext(*ethtypes.Header) (vm.BlockContext, error) {
 	return vm.BlockContext{}, errEVMNotServed
 }
 
-func (*epochWindowTestApp) EvmStateAt(context.Context, int64) (vm.StateDB, func(), error) {
+func (*consensusStateTestApp) EvmStateAt(context.Context, int64) (vm.StateDB, func(), error) {
 	return nil, func() {}, errEVMNotServed
 }
 
-func (*epochWindowTestApp) EvmStateBeforeTx(context.Context, *ethtypes.Header, [][]byte) (vm.StateDB, func(), error) {
+func (*consensusStateTestApp) EvmStateBeforeTx(context.Context, *ethtypes.Header, [][]byte) (vm.StateDB, func(), error) {
 	return nil, func() {}, errEVMNotServed
 }
 
@@ -99,7 +99,7 @@ var errFinalizeFailed = errors.New("finalize failed")
 func TestStartExecuteBlockReturnsEVMFinalizeError(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
-	app := newEpochWindowTestApp()
+	app := newConsensusStateTestApp()
 	app.finalizeErr = utils.Some(errFinalizeFailed)
 	_, _, router := newAppHashTestRouterOver(t, rng, key, app, newAppHashTestBlockStore(t))
 
@@ -107,10 +107,10 @@ func TestStartExecuteBlockReturnsEVMFinalizeError(t *testing.T) {
 	require.ErrorIs(t, err, errFinalizeFailed)
 }
 
-func TestStartExecuteBlockCommitsEpochWindowWithFirstRoad(t *testing.T) {
+func TestStartExecuteBlockCommitsConsensusStateWithFirstRoad(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
-	app := newEpochWindowTestApp()
+	app := newConsensusStateTestApp()
 	_, state, router := newAppHashTestRouterOver(t, rng, key, app, newAppHashTestBlockStore(t))
 	_, err := app.InitChain(router.cfg.GenDoc.ToRequestInitChain())
 	require.NoError(t, err)
@@ -122,9 +122,14 @@ func TestStartExecuteBlockCommitsEpochWindowWithFirstRoad(t *testing.T) {
 	}
 
 	weights := utils.OrPanic1(committeeWeights(app.GetValidators()))
-	want := utils.OrPanic1(state.Registry().Window(0, weights))
-	require.Equal(t, utils.None[epoch.Window](), app.windows[int64(last)])
-	got, ok := app.windows[int64(last+1)].Get()
+	current := utils.OrPanic1(state.Registry().Epoch(1))
+	committee := utils.OrPanic1(current.Committee().DeriveNext(weights, 2))
+	roads := atypes.RoadRange{First: current.RoadRange().Next, Next: state.Registry().LastRoad(2) + 1}
+	want := atypes.NewEpoch(2, roads, committee)
+	require.Equal(t, utils.None[proxy.ConsensusState](), app.states[int64(last)])
+	got, ok := app.states[int64(last+1)].Get()
 	require.True(t, ok)
-	require.True(t, got.Equal(want))
+	require.Empty(t, got.EpochRegistry)
+	require.Equal(t, epoch.MarshalEpoch(want), got.NextEpoch)
+	require.Equal(t, utils.Some(want), state.Registry().Pending())
 }

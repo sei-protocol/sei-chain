@@ -13,7 +13,6 @@ import (
 	"github.com/holiman/uint256"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -221,10 +220,10 @@ var (
 	testMinGasPrice     = big.NewInt(1_000_000_000)
 )
 
-func (app *testEVMApp) FinalizeBlockWithEpochWindow(
+func (app *testEVMApp) FinalizeBlockWithConsensusState(
 	ctx context.Context,
 	req *types.RequestFinalizeBlock,
-	_ utils.Option[epoch.Window],
+	_ utils.Option[ConsensusState],
 ) (*types.ResponseFinalizeBlock, error) {
 	return app.FinalizeBlock(ctx, req)
 }
