@@ -143,8 +143,9 @@ const (
 type evmOnlyCursorState struct {
 	committed evmOnlyCursor
 	pending   utils.Option[evmOnlyCursor]
-	// consensusState is committed with the block being finalized.
-	consensusState utils.Option[abci.ConsensusState]
+	// epochState is committed with the block being finalized. It is set after
+	// beginBlock accepts that block and read when the block is encoded.
+	epochState utils.Option[abci.EpochState]
 	// lastBlockTime is the Time of the most recently committed block, used by
 	// EvmCall to reproduce that block's execution context for a read-only call.
 	lastBlockTime uint64
@@ -239,9 +240,9 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		if height != state.committed.height+1 {
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
 		}
-		var consensusChanges []gigatypes.MiscChange
-		if consensusState, ok := state.consensusState.Get(); ok {
-			consensusChanges = consensusStateMiscChanges(consensusState)
+		var epochChanges []gigatypes.MiscChange
+		if epochState, ok := state.epochState.Get(); ok {
+			epochChanges = epochStateMiscChanges(epochState)
 		}
 		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result)
 		if err != nil {
@@ -255,7 +256,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
-		return append([]gigatypes.MiscChange{next.miscChange()}, consensusChanges...), nil
+		return append([]gigatypes.MiscChange{next.miscChange()}, epochChanges...), nil
 	}
 	panic("unreachable")
 }
@@ -801,7 +802,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		if err != nil {
 			return nil, err
 		}
-		a.stageConsensusState(req.ConsensusState)
+		a.stageEpochState(req.EpochState)
 		// Closes the stage in flight, so the gap until the next block is charged to neither.
 		defer a.finalizePhases.Reset()
 		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
@@ -843,11 +844,11 @@ func (a *evmOnlyApplication) beginBlock(height int64) (evmOnlyCursor, error) {
 	panic("unreachable")
 }
 
-// stageConsensusState sets the consensus state committed with the block being
+// stageEpochState sets the epoch state committed with the block being
 // finalized, replacing that of the previous block.
-func (a *evmOnlyApplication) stageConsensusState(consensusState utils.Option[abci.ConsensusState]) {
+func (a *evmOnlyApplication) stageEpochState(epochState utils.Option[abci.EpochState]) {
 	for state := range a.cursor.Lock() {
-		state.consensusState = consensusState
+		state.epochState = epochState
 	}
 }
 

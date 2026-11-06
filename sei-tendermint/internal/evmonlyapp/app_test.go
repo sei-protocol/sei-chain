@@ -84,9 +84,9 @@ func evmOnlyTestBlock(height int64, txs ...[]byte) *abci.RequestFinalizeBlock {
 }
 
 // evmOnlyTestEpochBlock returns an empty block at height that carries state.
-func evmOnlyTestEpochBlock(height int64, state abci.ConsensusState) *abci.RequestFinalizeBlock {
+func evmOnlyTestEpochBlock(height int64, state abci.EpochState) *abci.RequestFinalizeBlock {
 	req := evmOnlyTestBlock(height)
-	req.ConsensusState = utils.Some(state)
+	req.EpochState = utils.Some(state)
 	return req
 }
 
@@ -144,41 +144,62 @@ func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 	return app
 }
 
-func TestEVMOnlyAppCommitsConsensusState(t *testing.T) {
+func TestEVMOnlyAppCommitsEpochState(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
-	state := abci.ConsensusState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
+	state := abci.EpochState{EpochRegistry: []byte("registry"), NextEpoch: []byte("next-epoch")}
 
 	require.NotEmpty(t, finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(1, state)))
 	require.NoError(t, app.AwaitCommits())
 
-	require.Empty(t, evmOnlyConsensusRow(t, app, consensusStateEpochRegistryKey))
-	require.Equal(t, state.NextEpoch, evmOnlyConsensusRow(t, app, consensusStateNextEpochKey))
+	require.Equal(t, state.EpochRegistry, evmOnlyEpochStateRow(t, app, epochStateEpochRegistryKey))
+	require.Equal(t, state.NextEpoch, evmOnlyEpochStateRow(t, app, epochStateNextEpochKey))
 }
 
-func TestEVMOnlyAppWithoutConsensusStateWritesNoConsensusRows(t *testing.T) {
+func TestEVMOnlyAppCommitsEmptyEpochRegistryAsEmptyRow(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	state := abci.EpochState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
+
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(1, state))
+	require.NoError(t, app.AwaitCommits())
+
+	require.Empty(t, evmOnlyEpochStateRow(t, app, epochStateEpochRegistryKey))
+}
+
+func TestEVMOnlyAppEpochStateRowsDoNotAliasTheRequest(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	state := abci.EpochState{NextEpoch: []byte("next-epoch")}
+
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(1, state))
+	copy(state.NextEpoch, "XXXXXXXXXX")
+	require.NoError(t, app.AwaitCommits())
+
+	require.Equal(t, []byte("next-epoch"), evmOnlyEpochStateRow(t, app, epochStateNextEpochKey))
+}
+
+func TestEVMOnlyAppWithoutEpochStateWritesNoEpochStateRows(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
 
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
 	require.NoError(t, app.AwaitCommits())
 
-	_, found := app.storage.SC().Get(consensusStateModule, []byte(consensusStateEpochRegistryKey))
+	_, found := app.storage.SC().Get(epochStateModule, []byte(epochStateEpochRegistryKey))
 	require.False(t, found)
-	_, found = app.storage.SC().Get(consensusStateModule, []byte(consensusStateNextEpochKey))
+	_, found = app.storage.SC().Get(epochStateModule, []byte(epochStateNextEpochKey))
 	require.False(t, found)
 }
 
-func TestEVMOnlyAppConsensusStateDoesNotCarryOver(t *testing.T) {
+func TestEVMOnlyAppEpochStateDoesNotCarryOver(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
 	encoded := installRecordingEVMExecutor(app)
-	state := abci.ConsensusState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
+	state := abci.EpochState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
 
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(1, state))
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2))
 	require.NoError(t, app.AwaitCommits())
 
 	for blocks := range encoded.Lock() {
-		require.Equal(t, 2, consensusStateRowCount(blocks[1]))
-		require.Equal(t, 0, consensusStateRowCount(blocks[2]))
+		require.Equal(t, 2, epochStateRowCount(blocks[1]))
+		require.Equal(t, 0, epochStateRowCount(blocks[2]))
 	}
 }
 
@@ -186,42 +207,32 @@ func TestEVMOnlyAppConsensusStateDoesNotCarryOver(t *testing.T) {
 // changes app encodes for each block, by block number.
 func installRecordingEVMExecutor(app *evmOnlyApplication) *utils.Mutex[map[uint64][]gigatypes.MiscChange] {
 	encoded := new(utils.NewMutex(map[uint64][]gigatypes.MiscChange{}))
-	for slot := range app.executor.Lock() {
-		if previous, ok := slot.Get(); ok {
-			previous.Close()
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
+		misc, err := app.encodeCursorChangeSet(block, result)
+		if err != nil {
+			return nil, err
 		}
-		executor := app.newExecutor()
-		evmonly.WithStoreIndependentBlockChangeSetEncoder(
-			func(block evmonly.BlockContext, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
-				misc, err := app.encodeCursorChangeSet(block, result)
-				if err != nil {
-					return nil, err
-				}
-				for blocks := range encoded.Lock() {
-					blocks[block.Number] = misc
-				}
-				return misc, nil
-			},
-		)(executor)
-		*slot = utils.Some(executor)
-		app.settler.Store(utils.Some(executor))
-	}
+		for blocks := range encoded.Lock() {
+			blocks[block.Number] = misc
+		}
+		return misc, nil
+	})
 	return encoded
 }
 
-func consensusStateRowCount(misc []gigatypes.MiscChange) int {
+func epochStateRowCount(misc []gigatypes.MiscChange) int {
 	count := 0
 	for _, change := range misc {
-		if change.Module == consensusStateModule {
+		if change.Module == epochStateModule {
 			count++
 		}
 	}
 	return count
 }
 
-func evmOnlyConsensusRow(t *testing.T, app *evmOnlyApplication, key string) []byte {
+func evmOnlyEpochStateRow(t *testing.T, app *evmOnlyApplication, key string) []byte {
 	t.Helper()
-	raw, found := app.storage.SC().Get(consensusStateModule, []byte(key))
+	raw, found := app.storage.SC().Get(epochStateModule, []byte(key))
 	require.True(t, found)
 	return raw
 }
@@ -1270,24 +1281,28 @@ func TestEVMOnlyApplicationReadsSettleBehindFinalizeBlock(t *testing.T) {
 // into the EVM module, which the state DB refuses to commit. Each block executes and encodes cleanly, and its commit
 // is the first thing that fails.
 func installUnwritableEVMExecutor(app *evmOnlyApplication) {
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
+		misc, err := app.encodeCursorChangeSet(block, result)
+		if err != nil {
+			return nil, fmt.Errorf("encode the cursor: %w", err)
+		}
+		return append(misc, gigatypes.MiscChange{
+			Module: keys.EVMStoreKey,
+			Key:    []byte{1},
+			Value:  []byte{1},
+		}), nil
+	})
+}
+
+// installEVMExecutorEncoder replaces app's executor with a new one that encodes each
+// block's changesets with encode.
+func installEVMExecutorEncoder(app *evmOnlyApplication, encode evmonly.BlockChangeSetEncoder) {
 	for slot := range app.executor.Lock() {
 		if previous, ok := slot.Get(); ok {
 			previous.Close()
 		}
 		executor := app.newExecutor()
-		evmonly.WithStoreIndependentBlockChangeSetEncoder(
-			func(block evmonly.BlockContext, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
-				misc, err := app.encodeCursorChangeSet(block, result)
-				if err != nil {
-					return nil, fmt.Errorf("encode the cursor: %w", err)
-				}
-				return append(misc, gigatypes.MiscChange{
-					Module: keys.EVMStoreKey,
-					Key:    []byte{1},
-					Value:  []byte{1},
-				}), nil
-			},
-		)(executor)
+		evmonly.WithStoreIndependentBlockChangeSetEncoder(encode)(executor)
 		*slot = utils.Some(executor)
 		app.settler.Store(utils.Some(executor))
 	}

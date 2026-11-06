@@ -223,13 +223,13 @@ type RequestFinalizeBlock struct {
 	Hash                []byte
 
 	Header *tmproto.Header
-	// ConsensusState is committed with this block. Only Autobahn EVM-only apps commit it.
-	ConsensusState utils.Option[ConsensusState]
+	// EpochState is committed with this block. Only Autobahn EVM-only apps commit it.
+	EpochState utils.Option[EpochState]
 }
 
-// ConsensusState is consensus-owned state committed with the first block of an epoch.
-// Storage writes both values unchanged.
-type ConsensusState struct {
+// EpochState is consensus-owned epoch data that the app commits unchanged with a block.
+// Both values are written as given; an empty value is committed as an empty row.
+type EpochState struct {
 	EpochRegistry []byte
 	NextEpoch     []byte
 }
