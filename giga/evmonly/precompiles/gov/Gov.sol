@@ -183,7 +183,7 @@ interface IGov {
 
     /// @notice Submits a proposal to schedule a software upgrade, depositing
     /// msg.value on it. plan needs a name of 1 to 128 ASCII letters, digits,
-    /// '.', '+' or '-', info of at most 8 KiB, and a height above 0 that fits
+    /// '.', '+' or '-', info of at most 4 KiB, and a height above 0 that fits
     /// an int64, or the call reverts. The call fails with no revert data when
     /// plan's height is below the current block or its name was already
     /// applied. When the proposal passes, plan replaces any scheduled plan; if
