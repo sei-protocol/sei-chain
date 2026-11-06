@@ -27,13 +27,14 @@ func newGovEVMOnlyTestApp(t *testing.T, params gov.Params, startingProposalID ui
 	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
 	require.NoError(t, err)
 	storage := openEVMOnlyTestStorage(t, storageConfig)
-	registry := NewGovRegistry(params, startingProposalID, gov.GenesisElectorate{common.HexToAddress("0xa1"): big.NewInt(1)}, testAppliedUpgrades)
+	registry := NewGovRegistry(params, startingProposalID, gov.GenesisElectorate{common.HexToAddress("0xa1"): big.NewInt(1)}, GovUpgrades{Applied: testAppliedUpgrades})
 	app, err := NewEVMOnlyApplication(
 		evmOnlyTestChainID,
 		nil,
 		storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.Some(registry),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })

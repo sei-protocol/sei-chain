@@ -191,13 +191,9 @@ func HasGenesis(state precompiles.State) bool {
 	return newStore(state).Word(solstorage.Slot(slotLastApplied)) != (common.Hash{})
 }
 
-// WriteGenesis records names, in order, as applied at height; the last becomes
-// LastApplied. It writes nothing when a name is empty, longer than
-// MaxNameLength or repeated, or applied upgrades are already recorded.
-func WriteGenesis(state precompiles.State, names []string, height uint64) error {
-	if HasGenesis(state) {
-		return errGenesisWritten
-	}
+// CheckGenesisNames returns an error if a name is empty, longer than
+// MaxNameLength, or repeated.
+func CheckGenesisNames(names []string) error {
 	for i, name := range names {
 		switch {
 		case name == "":
@@ -207,6 +203,20 @@ func WriteGenesis(state precompiles.State, names []string, height uint64) error 
 		case slices.Contains(names[:i], name):
 			return fmt.Errorf("%w: %q", errRepeatedGenesis, name)
 		}
+	}
+	return nil
+}
+
+// WriteGenesis records names, in order, as applied at height; the last becomes
+// LastApplied. An empty names writes nothing. It returns an error, writing
+// nothing, when CheckGenesisNames rejects names or applied upgrades are already
+// recorded.
+func WriteGenesis(state precompiles.State, names []string, height uint64) error {
+	if HasGenesis(state) {
+		return errGenesisWritten
+	}
+	if err := CheckGenesisNames(names); err != nil {
+		return err
 	}
 	if len(names) == 0 {
 		return nil

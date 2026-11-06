@@ -7,6 +7,8 @@ import (
 	"math/big"
 	"net/url"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
+
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
@@ -241,8 +243,9 @@ func (fc *AutobahnFileConfig) Validate() error {
 	return nil
 }
 
-// validateEVMGovernance checks that evm_governance's params are valid and that
-// every validator has a distinct nonzero evm_voter exactly when it is set.
+// validateEVMGovernance checks evm_governance's params and applied upgrade
+// names, and that every validator has a distinct nonzero evm_voter exactly when
+// evm_governance is set.
 func (fc *AutobahnFileConfig) validateEVMGovernance() error {
 	governance, enabled := fc.EVMGovernance.Get()
 	if !enabled {
@@ -255,6 +258,9 @@ func (fc *AutobahnFileConfig) validateEVMGovernance() error {
 	}
 	if _, err := governance.Params.Gov(); err != nil {
 		return err
+	}
+	if err := upgrade.CheckGenesisNames(governance.AppliedUpgrades); err != nil {
+		return fmt.Errorf("applied_upgrades: %w", err)
 	}
 	voters := make(map[common.Address]bool, len(fc.Validators))
 	for _, v := range fc.Validators {
