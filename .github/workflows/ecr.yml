@@ -141,7 +141,7 @@ jobs:
           platforms: linux/arm64
           push: true
           tags: |
-            ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ inputs.tag || inputs.ref || github.sha }}-arm64
-            ${{ steps.ordered.outputs.tag && format('{0}/sei/sei-chain:{1}-arm64', steps.login-ecr.outputs.registry, steps.ordered.outputs.tag) || '' }}
+            ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:arm64-${{ inputs.tag || inputs.ref || github.sha }}
+            ${{ steps.ordered.outputs.tag && format('{0}/sei/sei-chain:arm64-{1}', steps.login-ecr.outputs.registry, steps.ordered.outputs.tag) || '' }}
           build-args: |
             SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
