@@ -1252,7 +1252,8 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 }
 
 // Committed-state readers running alongside FinalizeBlock observe every block
-// in order and never see a block's state go backwards while its commit lands.
+// in order and never see a block's state go backwards while its commit lands,
+// and the committed nonce never runs ahead of the settled one.
 func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
 	const blocks = 16
 	app := newInitializedEVMOnlyTestApp(t)
@@ -1269,11 +1270,19 @@ func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
 	err = scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		var done atomic.Bool
 		s.Spawn(func() error {
-			var last uint64
+			var last, lastCommitted uint64
 			for !done.Load() {
+				committed := settler.EvmCommittedNonce(sender)
+				if committed < lastCommitted {
+					return fmt.Errorf("committed nonce went back from %d to %d", lastCommitted, committed)
+				}
+				lastCommitted = committed
 				nonce := app.EvmNonce(sender)
 				if nonce < last {
 					return fmt.Errorf("nonce went back from %d to %d", last, nonce)
+				}
+				if nonce < committed {
+					return fmt.Errorf("nonce %d is behind the committed nonce %d", nonce, committed)
 				}
 				last = nonce
 				// A call may be refused while a finalized block awaits Commit;
@@ -1296,4 +1305,5 @@ func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, settler.AwaitCommits())
 	require.Equal(t, uint64(blocks), app.EvmNonce(sender))
+	require.Equal(t, uint64(blocks), settler.EvmCommittedNonce(sender))
 }

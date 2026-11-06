@@ -153,6 +153,26 @@ func TestEvmStorage(t *testing.T) {
 	})
 }
 
+// testNonceApp answers EvmNonce with 7.
+type testNonceApp struct {
+	testApp
+}
+
+func (testNonceApp) EvmNonce(common.Address) uint64 { return 7 }
+
+// testCommittedNonceApp also answers EvmCommittedNonce, with 6.
+type testCommittedNonceApp struct {
+	testNonceApp
+}
+
+func (testCommittedNonceApp) EvmCommittedNonce(common.Address) uint64 { return 6 }
+
+func TestEvmCommittedNonce(t *testing.T) {
+	addr := common.Address{7}
+	require.Equal(t, uint64(6), New(testCommittedNonceApp{}).EvmCommittedNonce(addr))
+	require.Equal(t, uint64(7), New(testNonceApp{}).EvmCommittedNonce(addr), "falls back to EvmNonce")
+}
+
 // testEvmHistoryApp serves every height's state as values derived from that height.
 type testEvmHistoryApp struct {
 	testApp
