@@ -144,7 +144,7 @@ type evmOnlyCursorState struct {
 	committed evmOnlyCursor
 	pending   utils.Option[evmOnlyCursor]
 	// consensusState is committed with the block being finalized.
-	consensusState utils.Option[proxy.ConsensusState]
+	consensusState utils.Option[abci.ConsensusState]
 	// lastBlockTime is the Time of the most recently committed block, used by
 	// EvmCall to reproduce that block's execution context for a read-only call.
 	lastBlockTime uint64
@@ -779,14 +779,6 @@ func (a *evmOnlyApplication) EvmCreateAccessList(ctx context.Context, msg *ethco
 }
 
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
-	return a.FinalizeBlockWithConsensusState(ctx, req, utils.None[proxy.ConsensusState]())
-}
-
-func (a *evmOnlyApplication) FinalizeBlockWithConsensusState(
-	ctx context.Context,
-	req *abci.RequestFinalizeBlock,
-	consensusState utils.Option[proxy.ConsensusState],
-) (*abci.ResponseFinalizeBlock, error) {
 	height := req.Header.Height
 	if height <= 0 {
 		return nil, fmt.Errorf("EVM-only block height must be positive: %d", height)
@@ -805,7 +797,7 @@ func (a *evmOnlyApplication) FinalizeBlockWithConsensusState(
 		if !ok {
 			return nil, fmt.Errorf("EVM-only block finalized before InitChain")
 		}
-		parent, err := a.beginBlock(height, consensusState)
+		parent, err := a.beginBlock(height, req.ConsensusState)
 		if err != nil {
 			return nil, err
 		}
@@ -837,10 +829,7 @@ func (a *evmOnlyApplication) FinalizeBlockWithConsensusState(
 
 // beginBlock checks height is the next block to finalize, records consensusState
 // for it, and returns the committed cursor it builds on.
-func (a *evmOnlyApplication) beginBlock(
-	height int64,
-	consensusState utils.Option[proxy.ConsensusState],
-) (evmOnlyCursor, error) {
+func (a *evmOnlyApplication) beginBlock(height int64, consensusState utils.Option[abci.ConsensusState]) (evmOnlyCursor, error) {
 	for state := range a.cursor.Lock() {
 		if state.pending.IsPresent() {
 			return evmOnlyCursor{}, fmt.Errorf("EVM-only block %d finalized before committing the previous block", height)

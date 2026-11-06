@@ -153,14 +153,6 @@ func (app *MockApp) GetTxPriorityHint(context.Context, *abci.RequestGetTxPriorit
 	return &abci.ResponseGetTxPriorityHint{}, nil
 }
 
-func (app *MockApp) FinalizeBlockWithConsensusState(
-	ctx context.Context,
-	req *abci.RequestFinalizeBlock,
-	_ utils.Option[proxy.ConsensusState],
-) (*abci.ResponseFinalizeBlock, error) {
-	return app.FinalizeBlock(ctx, req)
-}
-
 func (app *MockApp) EvmNonce(addr common.Address) uint64 {
 	for state := range app.state.RLock() {
 		return state.nextNonce[addr]

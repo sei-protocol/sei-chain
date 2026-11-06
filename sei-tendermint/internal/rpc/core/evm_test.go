@@ -13,7 +13,6 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
@@ -38,14 +37,6 @@ var (
 	testBaseFee         = big.NewInt(7)
 	testMinGasPrice     = big.NewInt(1_000_000_000)
 )
-
-func (app *testEVMApp) FinalizeBlockWithConsensusState(
-	ctx context.Context,
-	req *abci.RequestFinalizeBlock,
-	_ utils.Option[proxy.ConsensusState],
-) (*abci.ResponseFinalizeBlock, error) {
-	return app.FinalizeBlock(ctx, req)
-}
 
 func (app *testEVMApp) EvmCall(_ context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
 	app.gotMsg = msg

@@ -10,23 +10,12 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
-
-// ConsensusState is committed with the first block of an epoch.
-// Storage writes both values unchanged.
-type ConsensusState struct {
-	EpochRegistry []byte
-	NextEpoch     []byte
-}
 
 // EVMApplication is an ABCI application that executes EVM transactions and
 // serves read-only EVM calls and its execution parameters.
 type EVMApplication interface {
 	types.Application
-
-	// FinalizeBlockWithConsensusState finalizes req and commits state with it when present.
-	FinalizeBlockWithConsensusState(context.Context, *types.RequestFinalizeBlock, utils.Option[ConsensusState]) (*types.ResponseFinalizeBlock, error)
 
 	// EvmCall executes msg as a read-only call against the current EVM state.
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
@@ -72,15 +61,6 @@ type EVMApplication interface {
 // EVMProxy wraps an EVMApplication and records EVM method timings.
 type EVMProxy struct {
 	app EVMApplication
-}
-
-func (app *EVMProxy) FinalizeBlockWithConsensusState(
-	ctx context.Context,
-	req *types.RequestFinalizeBlock,
-	state utils.Option[ConsensusState],
-) (*types.ResponseFinalizeBlock, error) {
-	defer addTimeSample(Global.MethodTimingAt("finalize_block", "sync"))()
-	return app.app.FinalizeBlockWithConsensusState(ctx, req, state)
 }
 
 func (app *EVMProxy) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {

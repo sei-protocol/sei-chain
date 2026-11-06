@@ -3,12 +3,12 @@ package evmonlyapp
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 func TestConsensusStateMiscChanges(t *testing.T) {
-	state := proxy.ConsensusState{
+	state := abci.ConsensusState{
 		EpochRegistry: nil,
 		NextEpoch:     []byte("next-epoch"),
 	}

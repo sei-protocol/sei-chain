@@ -2,7 +2,7 @@ package evmonlyapp
 
 import (
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
 const (
@@ -11,7 +11,7 @@ const (
 	consensusStateNextEpochKey     = "next_epoch"
 )
 
-func consensusStateMiscChanges(state proxy.ConsensusState) []gigatypes.MiscChange {
+func consensusStateMiscChanges(state abci.ConsensusState) []gigatypes.MiscChange {
 	return []gigatypes.MiscChange{
 		consensusStateMiscChange(consensusStateEpochRegistryKey, state.EpochRegistry),
 		consensusStateMiscChange(consensusStateNextEpochKey, state.NextEpoch),

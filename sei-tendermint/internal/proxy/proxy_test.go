@@ -13,7 +13,6 @@ import (
 	"github.com/holiman/uint256"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -219,14 +218,6 @@ var (
 	testBaseFee         = big.NewInt(7)
 	testMinGasPrice     = big.NewInt(1_000_000_000)
 )
-
-func (app *testEVMApp) FinalizeBlockWithConsensusState(
-	ctx context.Context,
-	req *types.RequestFinalizeBlock,
-	_ utils.Option[ConsensusState],
-) (*types.ResponseFinalizeBlock, error) {
-	return app.FinalizeBlock(ctx, req)
-}
 
 func (app *testEVMApp) EvmCall(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 	app.gotMsg = msg

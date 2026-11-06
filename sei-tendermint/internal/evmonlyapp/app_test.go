@@ -83,6 +83,13 @@ func evmOnlyTestBlock(height int64, txs ...[]byte) *abci.RequestFinalizeBlock {
 	}
 }
 
+// evmOnlyTestEpochBlock returns an empty block at height that carries state.
+func evmOnlyTestEpochBlock(height int64, state abci.ConsensusState) *abci.RequestFinalizeBlock {
+	req := evmOnlyTestBlock(height)
+	req.ConsensusState = utils.Some(state)
+	return req
+}
+
 func finalizeAndCommitEVMOnlyTestBlock(t *testing.T, app abci.Application, req *abci.RequestFinalizeBlock) []byte {
 	t.Helper()
 	response, err := app.FinalizeBlock(t.Context(), req)
@@ -139,13 +146,9 @@ func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 
 func TestEVMOnlyAppCommitsConsensusState(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
-	state := proxy.ConsensusState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
+	state := abci.ConsensusState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
 
-	response, err := app.FinalizeBlockWithConsensusState(t.Context(), evmOnlyTestBlock(1), utils.Some(state))
-	require.NoError(t, err)
-	require.NotEmpty(t, response.AppHash)
-	_, err = app.Commit(t.Context())
-	require.NoError(t, err)
+	require.NotEmpty(t, finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(1, state)))
 	require.NoError(t, app.AwaitCommits())
 
 	require.Empty(t, evmOnlyConsensusRow(t, app, consensusStateEpochRegistryKey))
@@ -155,10 +158,7 @@ func TestEVMOnlyAppCommitsConsensusState(t *testing.T) {
 func TestEVMOnlyAppWithoutConsensusStateWritesNoConsensusRows(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
 
-	_, err := app.FinalizeBlock(t.Context(), evmOnlyTestBlock(1))
-	require.NoError(t, err)
-	_, err = app.Commit(t.Context())
-	require.NoError(t, err)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
 	require.NoError(t, app.AwaitCommits())
 
 	_, found := app.storage.SC().Get(consensusStateModule, []byte(consensusStateEpochRegistryKey))
@@ -170,16 +170,10 @@ func TestEVMOnlyAppWithoutConsensusStateWritesNoConsensusRows(t *testing.T) {
 func TestEVMOnlyAppConsensusStateDoesNotCarryOver(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
 	encoded := installRecordingEVMExecutor(app)
-	state := proxy.ConsensusState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
+	state := abci.ConsensusState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
 
-	_, err := app.FinalizeBlockWithConsensusState(t.Context(), evmOnlyTestBlock(1), utils.Some(state))
-	require.NoError(t, err)
-	_, err = app.Commit(t.Context())
-	require.NoError(t, err)
-	_, err = app.FinalizeBlock(t.Context(), evmOnlyTestBlock(2))
-	require.NoError(t, err)
-	_, err = app.Commit(t.Context())
-	require.NoError(t, err)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(1, state))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2))
 	require.NoError(t, app.AwaitCommits())
 
 	for blocks := range encoded.Lock() {
