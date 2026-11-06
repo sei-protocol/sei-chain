@@ -62,11 +62,8 @@ jobs:
             echo "BASE_TREE=$RUNNER_TEMP/review-base"
           } >> "$GITHUB_ENV"
 
-      # Into a subdirectory, so the reviewed commit's CLAUDE.md and .claude/ do not
-      # configure the reviewer from the working directory.
       - uses: actions/checkout@v5
         with:
-          path: tree
           fetch-depth: 0
           persist-credentials: false
 
@@ -82,7 +79,6 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$INPUTS"
-          cd tree
           # The prompt comes from the revision this workflow runs at, not the one under review.
           templates="$RUNNER_TEMP/templates" && cp -r .github/ai-review-runner "$templates"
           git fetch -q --no-tags origin "$HEAD_SHA"
@@ -135,6 +131,11 @@ jobs:
             echo 'PROMPT_EOF'
           } >> "$GITHUB_OUTPUT"
           echo "DIFF_LINES=$DIFF_LINES" >> "$GITHUB_ENV"
+
+          # The reviewed commit is data: its agent instructions and settings must not
+          # configure the reviewer that runs in this checkout.
+          find . -path ./.git -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name .claude \) -print0 |
+            xargs -0 rm -rf
 
       - name: Review
         id: review
