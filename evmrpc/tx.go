@@ -543,6 +543,7 @@ func encodeReceiptAt(receipt *types.Receipt, block *coretypes.ResultBlock, posit
 		"transactionHash":   common.HexToHash(receipt.TxHashHex),
 		"transactionIndex":  hexutil.Uint64(evmTxIndex), //nolint:gosec
 		"from":              common.HexToAddress(receipt.From),
+		"to":                nil,
 		"gasUsed":           hexutil.Uint64(receipt.GasUsed),
 		"cumulativeGasUsed": hexutil.Uint64(receipt.CumulativeGasUsed),
 		"logs":              logs,

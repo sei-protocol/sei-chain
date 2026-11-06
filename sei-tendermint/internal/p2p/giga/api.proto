@@ -60,7 +60,9 @@ message StreamAppVotesReq {
 
 message GetBlockReq {
   option (wireguard.sized) = true;
-  uint64 global_number = 1;
+  reserved 1;
+  reserved "global_number";
+  optional autobahn.LaneBlockPos pos = 2; // required
 }
 
 message GetBlockResp {

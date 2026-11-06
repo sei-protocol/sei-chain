@@ -977,6 +977,37 @@ func TestRPCContextProviderPopulatesConsensusParams(t *testing.T) {
 	})
 }
 
+func TestRPCContextProviderWithoutConsensusParams(t *testing.T) {
+	valPub := cosmosed25519.GenPrivKey().PubKey()
+	accAddr := sdk.AccAddress(valPub.Address())
+	genAcc := authtypes.NewBaseAccount(accAddr, nil, 0, 0)
+	balance := banktypes.Balance{
+		Address: accAddr.String(),
+		Coins:   sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.DefaultPowerReduction)),
+	}
+	tmPub, err := cryptocodec.ToTmPubKeyInterface(valPub)
+	require.NoError(t, err)
+	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
+	testApp := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{genAcc}, balance)
+
+	for name, height := range map[string]int64{
+		"latest height":     evmrpc.LatestCtxHeight,
+		"historical height": testApp.LastBlockHeight(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			want := testApp.RPCContextProvider(height)
+			got := testApp.RPCContextProviderWithoutConsensusParams(height)
+			require.NotNil(t, want.ConsensusParams())
+			require.Nil(t, got.ConsensusParams())
+			require.Equal(t, want.BlockHeight(), got.BlockHeight())
+			require.Equal(t, want.ClosestUpgradeName(), got.ClosestUpgradeName())
+			require.Equal(t, want.IsEVM(), got.IsEVM())
+			require.Equal(t, want.IsTracing(), got.IsTracing())
+			require.Equal(t, want.IsCheckTx(), got.IsCheckTx())
+		})
+	}
+}
+
 func TestSnapshotAwareRPCContextProviderPopulatesConsensusParams(t *testing.T) {
 	valPub := cosmosed25519.GenPrivKey().PubKey()
 	accAddr := sdk.AccAddress(valPub.Address())

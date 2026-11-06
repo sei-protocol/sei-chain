@@ -44,13 +44,21 @@ func TestRPCDefaultsMatchTheV2EVMRPC(t *testing.T) {
 	v2 := evmrpcconfig.DefaultConfig
 	r := gigaconfig.DefaultConfig.RPC
 	require.Equal(t, v2.MaxSubscriptionsNewHead, r.MaxSubscriptionsNewHead)
+	require.Equal(t, v2.MaxSubscriptionsLogs, r.MaxSubscriptionsLogs)
 	require.Equal(t, v2.MaxRequestBodyBytes, int64(r.MaxRequestBodyBytes))
 	require.Equal(t, v2.MaxConcurrentRequestBytes, r.MaxConcurrentRequestBytes)
 	require.Equal(t, v2.WSAdmissionTimeout, r.WSAdmissionTimeout)
 	require.Equal(t, v2.BatchRequestLimit, r.BatchRequestLimit)
 	require.Equal(t, v2.BatchResponseMaxSize, r.BatchResponseMaxSize)
 	require.Equal(t, v2.MaxOpenConnections, r.MaxWSConnections)
+	require.Equal(t, v2.MaxConcurrentTraceCalls, uint64(r.MaxConcurrentTraceCalls))
+	require.Equal(t, v2.TraceTimeout, r.TraceTimeout)
+	require.Equal(t, v2.MaxTraceStructLogBytes, uint64(r.MaxTraceStructLogBytes))
 	require.Equal(t, uint64(100), r.MaxSubscriptionsPerConnection)
+	require.Equal(t, v2.MaxEstimateGasCalls, r.MaxEstimateGasCalls)
+	require.Equal(t, v2.FilterTimeout, r.FilterTimeout)
+	require.Equal(t, v2.MaxFilters, r.MaxFilters)
+	require.Equal(t, v2.MaxBlockFilterHashes, r.MaxBlockFilterHashes)
 }
 
 // TestConfigTemplateRendersTheDefaults holds the app.toml template to the section: the rendered
@@ -84,6 +92,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.execution.evm_rpc_port":               "8600",
 		"giga.execution.evm_ws_port":                "8601",
 		"giga.rpc.max_subscriptions_new_head":       "20",
+		"giga.rpc.max_subscriptions_logs":           "15",
 		"giga.rpc.max_subscriptions_per_connection": "5",
 		"giga.rpc.max_request_body_bytes":           "2048",
 		"giga.rpc.max_concurrent_request_bytes":     "4096",
@@ -91,6 +100,14 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.rpc.batch_request_limit":              "10",
 		"giga.rpc.batch_response_max_size":          "1000",
 		"giga.rpc.max_ws_connections":               "7",
+		"giga.rpc.max_estimate_gas_calls":           "9",
+		"giga.rpc.filter_timeout":                   "45s",
+		"giga.rpc.max_filters":                      "12",
+		"giga.rpc.max_block_filter_hashes":          "34",
+		"giga.rpc.max_concurrent_trace_calls":       "3",
+		"giga.rpc.max_concurrent_send_calls":        "7",
+		"giga.rpc.trace_timeout":                    "4s",
+		"giga.rpc.max_trace_struct_log_bytes":       "512",
 		"giga.state_sync.enabled":                   "true",
 	})
 	require.NoError(t, err)
@@ -115,6 +132,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		},
 		RPC: gigaconfig.RPCConfig{
 			MaxSubscriptionsNewHead:       20,
+			MaxSubscriptionsLogs:          15,
 			MaxSubscriptionsPerConnection: 5,
 			MaxRequestBodyBytes:           2048,
 			MaxConcurrentRequestBytes:     4096,
@@ -122,6 +140,14 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			BatchRequestLimit:             10,
 			BatchResponseMaxSize:          1000,
 			MaxWSConnections:              7,
+			MaxEstimateGasCalls:           9,
+			FilterTimeout:                 45 * time.Second,
+			MaxFilters:                    12,
+			MaxBlockFilterHashes:          34,
+			MaxConcurrentTraceCalls:       3,
+			MaxConcurrentSendCalls:        7,
+			TraceTimeout:                  4 * time.Second,
+			MaxTraceStructLogBytes:        512,
 		},
 		StateSync: gigaconfig.StateSyncConfig{
 			Enabled: true,
@@ -147,6 +173,7 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"evm ws port too high":            {"giga.execution.evm_ws_port": "65536"},
 		"evm ws port is rpc port":         {"giga.execution.evm_ws_port": "8545"},
 		"negative subscription cap":       {"giga.rpc.max_subscriptions_new_head": "-1"},
+		"non-numeric logs cap":            {"giga.rpc.max_subscriptions_logs": "lots"},
 		"non-numeric per-connection cap":  {"giga.rpc.max_subscriptions_per_connection": "many"},
 		"zero request body size":          {"giga.rpc.max_request_body_bytes": "0"},
 		"negative request body size":      {"giga.rpc.max_request_body_bytes": "-1"},
@@ -156,14 +183,35 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"negative batch limit":            {"giga.rpc.batch_request_limit": "-1"},
 		"negative batch response size":    {"giga.rpc.batch_response_max_size": "-1"},
 		"negative ws connections":         {"giga.rpc.max_ws_connections": "-1"},
+		"negative send calls":             {"giga.rpc.max_concurrent_send_calls": "-1"},
+		"non-numeric send calls":          {"giga.rpc.max_concurrent_send_calls": "many"},
+		"negative trace calls":            {"giga.rpc.max_concurrent_trace_calls": "-1"},
+		"negative trace timeout":          {"giga.rpc.trace_timeout": "-1s"},
+		"negative struct log bytes":       {"giga.rpc.max_trace_struct_log_bytes": "-1"},
+		"non-numeric trace calls":         {"giga.rpc.max_concurrent_trace_calls": "many"},
+		"non-duration trace timeout":      {"giga.rpc.trace_timeout": "later"},
+		"non-numeric struct log bytes":    {"giga.rpc.max_trace_struct_log_bytes": "big"},
 		"non-numeric request bytes":       {"giga.rpc.max_concurrent_request_bytes": "lots"},
 		"non-duration admission timeout":  {"giga.rpc.ws_admission_timeout": "soon"},
 		"non-numeric batch limit":         {"giga.rpc.batch_request_limit": "many"},
 		"non-numeric batch response size": {"giga.rpc.batch_response_max_size": "big"},
 		"non-numeric ws connections":      {"giga.rpc.max_ws_connections": "some"},
+		"negative estimate gas calls":     {"giga.rpc.max_estimate_gas_calls": "-1"},
+		"non-numeric estimate gas calls":  {"giga.rpc.max_estimate_gas_calls": "several"},
+		"negative filter timeout":         {"giga.rpc.filter_timeout": "-1s"},
+		"non-duration filter timeout":     {"giga.rpc.filter_timeout": "later"},
+		"negative filter cap":             {"giga.rpc.max_filters": "-1"},
+		"non-numeric block filter hashes": {"giga.rpc.max_block_filter_hashes": "plenty"},
 		"non-boolean state sync":          {"giga.state_sync.enabled": "maybe"},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)
 	}
+}
+
+func TestSendConcurrencyLimitDefaultAndZero(t *testing.T) {
+	require.Equal(t, 4096, gigaconfig.DefaultConfig.RPC.MaxConcurrentSendCalls)
+	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{"giga.rpc.max_concurrent_send_calls": "0"})
+	require.NoError(t, err)
+	require.Zero(t, cfg.RPC.MaxConcurrentSendCalls)
 }

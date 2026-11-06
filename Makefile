@@ -89,7 +89,6 @@ ldflags := $(strip $(ldflags))
 # BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)' -race
 BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)'
 BUILD_FLAGS_MOCK_BALANCES := -tags "$(build_tags) mock_balances" -ldflags '$(ldflags)'
-BUILD_FLAGS_BENCHMARK := -tags "$(build_tags) benchmark mock_balances" -ldflags '$(ldflags)'
 
 #### Command List ####
 
@@ -100,9 +99,6 @@ install: go.sum
 
 install-mock-balances: go.sum
 		go install $(BUILD_FLAGS_MOCK_BALANCES) ./cmd/seid
-
-install-bench: go.sum
-		go install $(BUILD_FLAGS_BENCHMARK) ./cmd/seid
 
 install-with-race-detector: go.sum
 		go install -race $(BUILD_FLAGS) ./cmd/seid
@@ -336,6 +332,7 @@ run-rpc-node: build-rpc-node
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
 	--env GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY} \
 	--env AUTOBAHN=${AUTOBAHN} \
+	--env EVM_GOVERNANCE_VOTING_PERIOD=${EVM_GOVERNANCE_VOTING_PERIOD} \
 	--env CLUSTER_SIZE=${CLUSTER_SIZE} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
@@ -359,6 +356,7 @@ define RUN_RPC_NODE_SKIPBUILD
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
 	--env GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY} \
 	--env AUTOBAHN=${AUTOBAHN} \
+	--env EVM_GOVERNANCE_VOTING_PERIOD=${EVM_GOVERNANCE_VOTING_PERIOD} \
 	--env CLUSTER_SIZE=${CLUSTER_SIZE} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
@@ -420,6 +418,7 @@ CLUSTER_ENV_VARS = DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROU
 	GIGA_OCC=$(GIGA_OCC) \
 	RECEIPT_BACKEND=$(RECEIPT_BACKEND) \
 	AUTOBAHN=$(AUTOBAHN) \
+	EVM_GOVERNANCE_VOTING_PERIOD=$(EVM_GOVERNANCE_VOTING_PERIOD) \
 	GIGA_STORAGE=$(GIGA_STORAGE) \
 	GIGA_MIGRATE_FROM_MEMIAVL=$(GIGA_MIGRATE_FROM_MEMIAVL) \
 	GIGA_FLATKV_ONLY=$(GIGA_FLATKV_ONLY)

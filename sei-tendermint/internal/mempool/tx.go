@@ -446,7 +446,9 @@ func (s *txStore) remove(inner *txStoreInner, wtx *WrappedTx, state *txStoreStat
 	}
 }
 
-func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, recordAdded bool) error {
+// insert adds wtx to every index. isNew marks wtx as a fresh admission rather than
+// a re-insertion during compaction.
+func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, isNew bool) error {
 	if _, ok := inner.byHash[wtx.Hash()]; ok {
 		return errDuplicateTx
 	}
@@ -460,7 +462,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, recordAdded bool) 
 			return errOldNonce
 		}
 		skipAccepted := utils.None[*WrappedTx]()
-		if recordAdded && evm.nonce == account.nextNonce {
+		if isNew && evm.nonce == account.nextNonce {
 			skipAccepted = utils.Some(wtx)
 		}
 		inner.cacheMetadata(wtx, &evm)
@@ -510,9 +512,6 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, recordAdded bool) 
 	}
 	inner.byHash[wtx.Hash()] = wtx
 	inner.state.Store(state)
-	if recordAdded && wtx.evm.IsPresent() {
-		recordPendingNonceAdded()
-	}
 	return nil
 }
 
@@ -584,6 +583,9 @@ func (s *txStore) Insert(wtx *WrappedTx) error {
 			if _, ok := inner.byHash[wtx.Hash()]; !ok {
 				return errMempoolFull
 			}
+		}
+		if wtx.evm.IsPresent() {
+			recordPendingNonceAdded()
 		}
 		Global.CacheSizeAt().Set(int64(inner.cache.Size()))
 	}
@@ -702,16 +704,17 @@ func (s *txStore) Update(spec updateSpec) {
 		state := inner.state.Load()
 		for txHash, wtx := range inner.byHash {
 			expired := isExpired(wtx)
-			if expired {
-				Global.ExpiredTxsAt().Add(1)
-			}
 			invalid := spec.InvalidTxs[wtx.Hash()] || wtx.check(spec.Constraints) != nil
 			_, executed := spec.TxResults[wtx.Hash()]
-			removedByExpiry := expired && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx))
+			// A tx removed for being executed or invalid is not attributed to expiry.
+			removedByExpiry := expired && !executed && !invalid && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx))
 			remove := invalid || executed || removedByExpiry
 			if remove {
-				if removedByExpiry && wtx.evm.IsPresent() {
-					recordPendingNonceExpired()
+				if removedByExpiry {
+					Global.ExpiredTxsAt().Add(1)
+					if wtx.evm.IsPresent() {
+						recordPendingNonceExpired()
+					}
 				}
 				// KeepInvalidTxsInCache decides whether we invalidate txs removed from mempool for any reason.
 				// Executed txs invalidation was handled earlier.

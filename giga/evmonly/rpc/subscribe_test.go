@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -133,4 +134,29 @@ func TestNewHeadsRejectedOverPlainHTTP(t *testing.T) {
 
 	_, err = client.EthSubscribe(t.Context(), make(chan map[string]any), "newHeads")
 	require.ErrorIs(t, err, ethrpc.ErrNotificationsUnsupported)
+}
+
+// A subscription context ends when the subscription does, and its watcher exits when the stream
+// ends first, so a stream that finishes before eth_unsubscribe leaves no goroutine behind.
+func TestSubscriptionContext(t *testing.T) {
+	const streams = 50
+	for _, tc := range []struct {
+		name string
+		end  func(subErr chan error, cancel context.CancelFunc)
+	}{
+		{name: "subscription ends", end: func(subErr chan error, _ context.CancelFunc) { close(subErr) }},
+		{name: "stream ends first", end: func(_ chan error, cancel context.CancelFunc) { cancel() }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := runtime.NumGoroutine()
+			for range streams {
+				subErr := make(chan error)
+				ctx, cancel := subscriptionContext(t.Context(), subErr)
+				tc.end(subErr, cancel)
+				<-ctx.Done()
+			}
+			require.Eventually(t, func() bool { return runtime.NumGoroutine() < before+streams/2 },
+				5*time.Second, 10*time.Millisecond, "watchers outlived their streams")
+		})
+	}
 }

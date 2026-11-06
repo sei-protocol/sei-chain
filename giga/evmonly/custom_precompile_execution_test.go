@@ -123,7 +123,7 @@ func TestRegisteredCustomPrecompileReportsGas(t *testing.T) {
 	var remaining uint64
 	contract := registeredCustomPrecompile{address: registeredPrecompileAddress, contract: gasRecorder{&remaining}}
 	stateDB := newNativeStateDB(NewMemoryState())
-	evm := vm.NewEVM(buildBlockContext(blockContext(big.NewInt(testChainID))), stateDB, params.AllDevChainProtocolChanges, vm.Config{}, nil)
+	evm := vm.NewEVM(EVMBlockContext(blockContext(big.NewInt(testChainID))), stateDB, params.AllDevChainProtocolChanges, vm.Config{}, nil)
 	stateDB.SetEVM(evm)
 	type change struct{ from, to uint64 }
 	var changes []change
@@ -134,6 +134,24 @@ func TestRegisteredCustomPrecompileReportsGas(t *testing.T) {
 	require.Equal(t, uint64(9_000), remaining, "Run sees the gas left after RequiredGas")
 	require.Equal(t, 9_000-params.ColdSloadCostEIP2929, left)
 	require.Equal(t, []change{{10_000, 9_000}, {9_000, left}}, changes, "tracers see the storage reads")
+}
+
+func TestRegisteredCustomPrecompileRejectsOversizedInput(t *testing.T) {
+	contract := registeredCustomPrecompile{address: registeredPrecompileAddress, contract: echoPrecompile{}}
+	stateDB := newNativeStateDB(NewMemoryState())
+	evm := vm.NewEVM(EVMBlockContext(blockContext(big.NewInt(testChainID))), stateDB, params.AllDevChainProtocolChanges, vm.Config{}, nil)
+	stateDB.SetEVM(evm)
+	input := make([]byte, maxPrecompileInput+1)
+	input[0] = 7
+
+	_, left, err := contract.RunAndCalculateGas(evm, common.Address{}, common.Address{}, input, 10_000_000, nil, nil, false, false)
+	require.ErrorIs(t, err, errPrecompileInputTooLarge)
+	require.Zero(t, left)
+	require.Equal(t, common.Hash{}, stateDB.GetState(registeredPrecompileAddress, common.Hash{}), "the contract never runs")
+
+	_, _, err = contract.RunAndCalculateGas(evm, common.Address{}, common.Address{}, input[:maxPrecompileInput], 10_000_000, nil, nil, false, false)
+	require.NoError(t, err)
+	require.Equal(t, common.BytesToHash([]byte{7}), stateDB.GetState(registeredPrecompileAddress, common.Hash{}))
 }
 
 // counterPrecompile adds one to its storage slot 0 on every call.

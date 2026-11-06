@@ -11,9 +11,8 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/require"
-
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 func callMessage(from common.Address, to *common.Address) *core.Message {
@@ -100,7 +99,7 @@ func TestExecutorCallReturnsViewFunctionResult(t *testing.T) {
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
 	store := NewMemoryStore(state)
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 	deployRead := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(readRuntime), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
@@ -130,7 +129,7 @@ func TestExecutorCallSurfacesRevertReason(t *testing.T) {
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
 	store := NewMemoryStore(state)
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
@@ -156,7 +155,7 @@ func TestExecutorCallToNonexistentContractSucceedsWithEmptyReturnData(t *testing
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
 	store := NewMemoryStore(state)
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 	result, err := executor.Call(t.Context(), blockContext(chainID), callMessage(sender, &target))
 
@@ -180,7 +179,7 @@ func TestExecutorCallDoesNotMutateCommittedState(t *testing.T) {
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
 	store := NewMemoryStore(state)
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
@@ -224,7 +223,7 @@ func TestExecutorCallTimesOutOnUnboundedExecution(t *testing.T) {
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
 	store := NewMemoryStore(state)
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(infiniteLoopCode()), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
@@ -239,6 +238,32 @@ func TestExecutorCallTimesOutOnUnboundedExecution(t *testing.T) {
 	_, err = executor.Call(t.Context(), blockContext(chainID), msg)
 
 	require.ErrorContains(t, err, "timeout")
+}
+
+// CallAt and EstimateGasAt read the view they are given rather than the store's current state.
+func TestExecutorExecutesAgainstTheGivenView(t *testing.T) {
+	contract := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	slot := testHash(0x01)
+	value := testHash(0x2a)
+	view := newMemoryGigaSnapshot(7)
+	view.code[contract] = sloadReturnCode(slot)
+	view.storage[gigaStorageKey{address: contract, key: slot}] = value
+	// The contract does not exist in the current state.
+	executor := NewExecutor(Config{}, withTestState(NewMemoryState()))
+	blockCtx := blockContext(big.NewInt(testChainID))
+	msg := callMessage(testAddress(0x01), &contract)
+
+	current, err := executor.Call(t.Context(), blockCtx, msg)
+	require.NoError(t, err)
+	require.Empty(t, current.Return())
+
+	result, err := executor.CallAt(t.Context(), view, blockCtx, msg)
+	require.NoError(t, err)
+	require.Equal(t, value.Bytes(), result.Return())
+
+	estimate, _, err := executor.EstimateGasAt(t.Context(), view, blockCtx, msg, 0)
+	require.NoError(t, err)
+	require.Greater(t, estimate, params.TxGas)
 }
 
 func TestExecutorCallRejectsMissingStateStore(t *testing.T) {
@@ -262,9 +287,7 @@ func TestExecutorCallHonorsCanceledContext(t *testing.T) {
 }
 
 func TestExecutorCallRejectsNilSnapshot(t *testing.T) {
-	executor := NewExecutor(Config{}, withTestStores(&recordingGigaStore{}, NewMemoryReceiptStore(), func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
-		return nil, nil
-	}))
+	executor := NewExecutor(Config{}, withTestStores(&recordingGigaStore{}, NewMemoryReceiptStore()))
 
 	// Test: the store's OpenView returns nil.
 	_, err := executor.Call(t.Context(), blockContext(big.NewInt(testChainID)), callMessage(testAddress(0x01), nil))

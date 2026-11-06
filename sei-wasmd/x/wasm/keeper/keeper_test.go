@@ -1629,7 +1629,7 @@ func TestNewDefaultWasmVMContractResponseHandler(t *testing.T) {
 		"submessage overwrites result when set": {
 			srcData: []byte("otherData"),
 			setup: func(m *wasmtesting.MockMsgDispatcher) {
-				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
+				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr sdk.AccAddress, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
 					return []byte("mySubMsgData"), nil
 				}
 			},
@@ -1640,7 +1640,7 @@ func TestNewDefaultWasmVMContractResponseHandler(t *testing.T) {
 		"submessage overwrites result when empty": {
 			srcData: []byte("otherData"),
 			setup: func(m *wasmtesting.MockMsgDispatcher) {
-				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
+				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr sdk.AccAddress, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
 					return []byte(""), nil
 				}
 			},
@@ -1651,7 +1651,7 @@ func TestNewDefaultWasmVMContractResponseHandler(t *testing.T) {
 		"submessage do not overwrite result when nil": {
 			srcData: []byte("otherData"),
 			setup: func(m *wasmtesting.MockMsgDispatcher) {
-				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
+				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr sdk.AccAddress, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
 					return nil, nil
 				}
 			},
@@ -1661,7 +1661,7 @@ func TestNewDefaultWasmVMContractResponseHandler(t *testing.T) {
 		},
 		"submessage error aborts process": {
 			setup: func(m *wasmtesting.MockMsgDispatcher) {
-				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
+				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr sdk.AccAddress, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
 					return nil, errors.New("test - ignore")
 				}
 			},
@@ -1669,7 +1669,7 @@ func TestNewDefaultWasmVMContractResponseHandler(t *testing.T) {
 		},
 		"message emit non message events": {
 			setup: func(m *wasmtesting.MockMsgDispatcher) {
-				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
+				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr sdk.AccAddress, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
 					ctx.EventManager().EmitEvent(sdk.NewEvent("myEvent"))
 					return nil, nil
 				}
@@ -1686,7 +1686,7 @@ func TestNewDefaultWasmVMContractResponseHandler(t *testing.T) {
 			em := sdk.NewEventManager()
 
 			// when
-			gotData, gotErr := d.Handle(sdk.Context{}.WithEventManager(em), RandomAccountAddress(t), "ibc-port", msgs, spec.srcData, wasmvmtypes.MessageInfo{}, types.CodeInfo{})
+			gotData, gotErr := d.Handle(sdk.Context{}.WithEventManager(em), RandomAccountAddress(t), msgs, spec.srcData, wasmvmtypes.MessageInfo{}, types.CodeInfo{})
 			if spec.expErr {
 				require.Error(t, gotErr)
 				return

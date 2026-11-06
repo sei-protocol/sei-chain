@@ -50,7 +50,7 @@ func TestEncodeMemoryStoreChangeSetUsesOwnedDirectPairs(t *testing.T) {
 	require.Equal(t, big.NewInt(42), new(big.Int).SetBytes(pairs[0].Value))
 
 	store := NewMemoryStore(NewMemoryState())
-	require.NoError(t, store.CommitStateChanges(1, changesets))
+	require.NoError(t, store.commitChangeSets(1, changesets))
 	snapshot := store.OpenView()
 	defer snapshot.Close()
 	for _, pair := range pairs {
@@ -72,7 +72,7 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 	store := NewMemoryStore(base)
 
 	initial := store.OpenView()
-	changesets, err := store.EncodeChangeSet(StateChangeSet{
+	require.NoError(t, store.CommitStateChanges(7, &StateChangeSet{
 		Accounts: []AccountChange{{
 			Address: address,
 			Account: AccountState{Balance: big.NewInt(20), Nonce: 2, Code: []byte{0x60, 0x01}},
@@ -83,9 +83,7 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 			Key:     newSlot,
 			Value:   common.HexToHash("0xbb"),
 		}},
-	})
-	require.NoError(t, err)
-	require.NoError(t, store.CommitStateChanges(7, changesets))
+	}))
 
 	current := store.OpenView()
 	historical, ok := store.OpenViewAt(7)
@@ -107,7 +105,7 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 		require.Equal(t, common.HexToHash("0xbb"), snapshot.GetStorage(address, newSlot))
 	}
 
-	deleteChanges, err := store.EncodeChangeSet(StateChangeSet{
+	require.NoError(t, store.CommitStateChanges(8, &StateChangeSet{
 		Accounts: []AccountChange{{
 			Address: address,
 			Account: AccountState{Balance: big.NewInt(20), Nonce: 2},
@@ -118,9 +116,7 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 			Key:     newSlot,
 			Delete:  true,
 		}},
-	})
-	require.NoError(t, err)
-	require.NoError(t, store.CommitStateChanges(8, deleteChanges))
+	}))
 	afterDelete := store.OpenView()
 	require.Empty(t, afterDelete.GetCode(address))
 	require.Equal(t, gigatypes.Hash{}, afterDelete.GetStorage(address, newSlot))
@@ -135,17 +131,19 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 
 func TestMemoryStoreRejectsInvalidCommits(t *testing.T) {
 	store := NewMemoryStore(NewMemoryState())
-	changesets, err := store.EncodeChangeSet(StateChangeSet{})
-	require.NoError(t, err)
-	require.NoError(t, store.CommitStateChanges(1, changesets))
-	require.ErrorContains(t, store.CommitStateChanges(1, changesets), "not after current height")
-	require.ErrorContains(t, store.CommitStateChanges(-1, changesets), "non-negative")
-	require.ErrorContains(t, store.CommitStateChanges(2, []*proto.NamedChangeSet{{Name: "other"}}), "unsupported name")
-	require.ErrorContains(t, store.CommitStateChanges(2, []*proto.NamedChangeSet{{
+	require.NoError(t, store.CommitStateChanges(1, &StateChangeSet{}))
+	require.ErrorContains(t, store.CommitStateChanges(1, &StateChangeSet{}), "not after current height")
+	require.ErrorContains(t, store.CommitStateChanges(-1, &StateChangeSet{}), "non-negative")
+	require.ErrorContains(t, store.CommitStateChanges(2, &StateChangeSet{
+		Misc: []gigatypes.MiscChange{{Module: "bank", Key: []byte("key"), Value: []byte("value")}},
+	}), "cannot hold the 1 non-EVM writes")
+	require.ErrorContains(t,
+		store.commitChangeSets(2, []*proto.NamedChangeSet{{Name: "other"}}), "unsupported name")
+	require.ErrorContains(t, store.commitChangeSets(2, []*proto.NamedChangeSet{{
 		Name:      MemoryStoreChangeSetName,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{nil}},
 	}}), "pair 0 is nil")
-	require.ErrorContains(t, store.CommitStateChanges(2, []*proto.NamedChangeSet{{
+	require.ErrorContains(t, store.commitChangeSets(2, []*proto.NamedChangeSet{{
 		Name: MemoryStoreChangeSetName,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{
 			Key: []byte{memoryStoreBalanceKey},
@@ -153,7 +151,9 @@ func TestMemoryStoreRejectsInvalidCommits(t *testing.T) {
 	}}), "balance key length")
 
 	overflow := new(big.Int).Lsh(big.NewInt(1), 256)
-	_, err = store.EncodeChangeSet(StateChangeSet{Accounts: []AccountChange{{Account: AccountState{Balance: overflow}}}})
+	_, err := store.EncodeChangeSet(StateChangeSet{
+		Accounts: []AccountChange{{Account: AccountState{Balance: overflow}}},
+	})
 	require.ErrorContains(t, err, "unsigned 256-bit")
 }
 
@@ -163,7 +163,7 @@ func TestMemoryStoreTracksZeroValueAndStorageOnlyAccounts(t *testing.T) {
 	store := NewMemoryStore(NewMemoryState())
 	before := store.OpenView()
 
-	changesets, err := store.EncodeChangeSet(StateChangeSet{
+	require.NoError(t, store.CommitStateChanges(5, &StateChangeSet{
 		// Only a changed balance is written, so the zero balance replaces a prior one.
 		Accounts: []AccountChange{{
 			Address: zeroValueAddress,
@@ -175,9 +175,7 @@ func TestMemoryStoreTracksZeroValueAndStorageOnlyAccounts(t *testing.T) {
 			Key:     common.HexToHash("0x01"),
 			Value:   common.HexToHash("0x02"),
 		}},
-	})
-	require.NoError(t, err)
-	require.NoError(t, store.CommitStateChanges(5, changesets))
+	}))
 	after := store.OpenView()
 	defer before.Close()
 	defer after.Close()
@@ -197,7 +195,7 @@ func TestExecutorCommitsConsecutiveBlocksThroughMemoryStore(t *testing.T) {
 	base := NewMemoryState()
 	base.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 	store := NewMemoryStore(base)
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 	for nonce := uint64(0); nonce < 2; nonce++ {
 		ctx := blockContext(chainID)

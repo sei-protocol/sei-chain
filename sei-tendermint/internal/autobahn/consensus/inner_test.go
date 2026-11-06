@@ -81,7 +81,7 @@ func loadInner(t *testing.T, dir string, registry *epoch.Registry, keys []types.
 	go func() { _ = utils.IgnoreCancel(av.Run(ctx)) }()
 
 	if p, ok := persisted.Get(); ok {
-		if idx := types.RoadIndex(p.GetIndex()); idx > registry.FirstRoad() {
+		if idx := types.RoadIndex(p.GetIndex()); idx > registry.MustEpoch(0).RoadRange().First {
 			if err := alignAvailToTip(ctx, t, av, registry, keys, idx-1); err != nil {
 				return inner{}, err
 			}
@@ -93,7 +93,7 @@ func loadInner(t *testing.T, dir string, registry *epoch.Registry, keys []types.
 // alignAvailToTip pushes CommitQCs from the genesis road through tipIndex
 // through avail and waits until ConsensusSpec covers that tip. The QCs are freshly built for the registry —
 // the tip CommitQC used at restore comes from ConsensusSpec, not the WAL.
-// Callers must keep tipIndex close to the genesis road — EpochLength boundaries are not replayed
+// Callers must keep tipIndex close to the genesis road — epoch boundaries are not replayed
 // in unit tests.
 func alignAvailToTip(
 	ctx context.Context,
@@ -104,10 +104,11 @@ func alignAvailToTip(
 	tipIndex types.RoadIndex,
 ) error {
 	t.Helper()
-	require.LessOrEqual(t, tipIndex, registry.FirstRoad()+64, "alignAvailToTip: tip too high for unit replay")
+	first := registry.MustEpoch(0).RoadRange().First
+	require.LessOrEqual(t, tipIndex, first+64, "alignAvailToTip: tip too high for unit replay")
 
 	var prev utils.Option[*types.CommitQC]
-	for idx := registry.FirstRoad(); idx <= tipIndex; idx++ {
+	for idx := first; idx <= tipIndex; idx++ {
 		ep, err := registry.EpochAt(idx)
 		if err != nil {
 			return err
@@ -145,7 +146,7 @@ func TestNewInnerEmpty(t *testing.T) {
 	require.False(t, i.CommitVote.IsPresent(), "commitVote should be None")
 	require.False(t, i.TimeoutVote.IsPresent(), "timeoutVote should be None")
 	require.Equal(t, types.EpochIndex(0), i.spec.Epoch.EpochIndex())
-	require.Equal(t, registry.FirstRoad(), i.Index)
+	require.Equal(t, registry.MustEpoch(0).RoadRange().First, i.Index)
 }
 
 // TestNewInner_RejectsWALAheadOfSpec: after avail catch-up, ConsensusSpec must
@@ -158,8 +159,9 @@ func TestNewInner_RejectsWALAheadOfSpec(t *testing.T) {
 	ep1 := registry.MustEpoch(1)
 
 	last := registry.LastRoad(0)
+	voteProposal := types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0})
 	prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0}, ep0.FirstBlock()))),
+		types.Sign(keys[0], types.NewCommitVote(types.BuildPrepareQC(keys, voteProposal))),
 	})
 	qcLast := types.BuildCommitQC(ep0, keys, utils.Some(prev), nil)
 	require.Equal(t, last, qcLast.Index())
@@ -181,14 +183,14 @@ func TestNewInner_SpecAheadDiscardsWAL(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 	ep0 := registry.MustEpoch(0)
 
-	proposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: registry.FirstRoad(), Number: 0})
+	proposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First, Number: 0})
 	wal := persistedInner{
-		Index:       registry.FirstRoad(),
+		Index:       ep0.RoadRange().First,
 		PrepareVote: utils.Some(types.Sign(keys[0], types.NewPrepareVote(proposal))),
 		PrepareQC:   utils.Some(makePrepareQC(keys, proposal)),
 	}
 	spec := advancingSpec(keys, registry)
-	require.Greater(t, spec.Index(), registry.FirstRoad())
+	require.Greater(t, spec.Index(), ep0.RoadRange().First)
 
 	i, err := newInner(utils.Some(encodeWal(utils.None[*types.CommitQC](), &wal)), spec, keys[0].Public())
 	require.NoError(t, err)
@@ -257,7 +259,7 @@ func TestRestore_BoundaryCatchUpSpecCoversWAL(t *testing.T) {
 	require.Equal(t, types.EpochIndex(1), i.spec.Epoch.EpochIndex())
 	got, ok := i.PrepareVote.Get()
 	require.True(t, ok, "equal-tip restore must keep anti-equivocation vote")
-	require.Equal(t, view, got.Msg().Proposal().View())
+	require.Equal(t, view, got.Msg().View())
 }
 
 func TestNewInnerPrepareVote(t *testing.T) {
@@ -266,12 +268,13 @@ func TestNewInnerPrepareVote(t *testing.T) {
 
 	// Create and persist a prepare vote at genesis view
 	registry, keys := epoch.GenRegistry(rng, 1)
+	ep0 := registry.MustEpoch(0)
 	key := keys[0]
-	genesisProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad(), Number: 0})
+	genesisProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First, Number: 0})
 	vote := types.Sign(key, types.NewPrepareVote(genesisProposal))
 
 	seedPersistedInner(dir, utils.None[*types.CommitQC](), &persistedInner{
-		Index:       registry.FirstRoad(),
+		Index:       ep0.RoadRange().First,
 		PrepareVote: utils.Some(vote),
 	})
 
@@ -289,13 +292,14 @@ func TestNewInnerCommitVote(t *testing.T) {
 
 	// Create and persist a commit vote at genesis view
 	registry, keys := epoch.GenRegistry(rng, 1)
+	ep0 := registry.MustEpoch(0)
 	key := keys[0]
-	genesisProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad(), Number: 0})
+	genesisProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First, Number: 0})
 	prepareQC := makePrepareQC([]types.SecretKey{key}, genesisProposal)
-	vote := types.Sign(key, types.NewCommitVote(genesisProposal))
+	vote := types.Sign(key, types.NewCommitVote(prepareQC))
 
 	seedPersistedInner(dir, utils.None[*types.CommitQC](), &persistedInner{
-		Index:      registry.FirstRoad(),
+		Index:      ep0.RoadRange().First,
 		PrepareQC:  utils.Some(prepareQC),
 		CommitVote: utils.Some(vote),
 	})
@@ -314,11 +318,12 @@ func TestNewInnerTimeoutVote(t *testing.T) {
 
 	// Create and persist a timeout vote at genesis view
 	registry, keys := epoch.GenRegistry(rng, 1)
+	ep0 := registry.MustEpoch(0)
 	key := keys[0]
-	vote := types.NewFullTimeoutVote(key, types.View{Index: registry.FirstRoad(), Number: 0}, utils.None[*types.PrepareQC]())
+	vote := types.NewFullTimeoutVote(key, types.View{Index: ep0.RoadRange().First, Number: 0}, utils.None[*types.PrepareQC]())
 
 	seedPersistedInner(dir, utils.None[*types.CommitQC](), &persistedInner{
-		Index:       registry.FirstRoad(),
+		Index:       ep0.RoadRange().First,
 		TimeoutVote: utils.Some(vote),
 	})
 
@@ -336,15 +341,16 @@ func TestNewInnerAllVotes(t *testing.T) {
 
 	// Create all vote types at genesis view
 	registry, keys := epoch.GenRegistry(rng, 1)
+	ep0 := registry.MustEpoch(0)
 	key := keys[0]
-	genesisProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad(), Number: 0})
+	genesisProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First, Number: 0})
 	prepareQC := makePrepareQC([]types.SecretKey{key}, genesisProposal)
 	prepareVote := types.Sign(key, types.NewPrepareVote(genesisProposal))
-	commitVote := types.Sign(key, types.NewCommitVote(genesisProposal))
-	timeoutVote := types.NewFullTimeoutVote(key, types.View{Index: registry.FirstRoad(), Number: 0}, utils.None[*types.PrepareQC]())
+	commitVote := types.Sign(key, types.NewCommitVote(prepareQC))
+	timeoutVote := types.NewFullTimeoutVote(key, types.View{Index: ep0.RoadRange().First, Number: 0}, utils.None[*types.PrepareQC]())
 
 	seedPersistedInner(dir, utils.None[*types.CommitQC](), &persistedInner{
-		Index:       registry.FirstRoad(),
+		Index:       ep0.RoadRange().First,
 		PrepareQC:   utils.Some(prepareQC),
 		PrepareVote: utils.Some(prepareVote),
 		CommitVote:  utils.Some(commitVote),
@@ -365,12 +371,13 @@ func TestNewInnerPartialState(t *testing.T) {
 
 	// Only persist prepareVote
 	registry, keys := epoch.GenRegistry(rng, 1)
+	ep0 := registry.MustEpoch(0)
 	key := keys[0]
-	genesisProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad(), Number: 0})
+	genesisProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First, Number: 0})
 	prepareVote := types.Sign(key, types.NewPrepareVote(genesisProposal))
 
 	seedPersistedInner(dir, utils.None[*types.CommitQC](), &persistedInner{
-		Index:       registry.FirstRoad(),
+		Index:       ep0.RoadRange().First,
 		PrepareVote: utils.Some(prepareVote),
 	})
 
@@ -386,10 +393,11 @@ func TestNewInnerCommitQC(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create a CommitQC at index firstRoad+5
-	proposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	vote := types.NewCommitVote(proposal)
+	proposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	vote := types.NewCommitVote(types.BuildPrepareQC(keys, proposal))
 	var votes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		votes = append(votes, types.Sign(k, vote))
@@ -404,19 +412,20 @@ func TestNewInnerCommitQC(t *testing.T) {
 	require.True(t, i.spec.CommitQC.IsPresent(), "CommitQC should be loaded")
 	loadedQC, ok := i.spec.CommitQC.Get()
 	require.True(t, ok)
-	require.Equal(t, registry.FirstRoad()+5, loadedQC.Proposal().Index())
+	require.Equal(t, ep0.RoadRange().First+5, loadedQC.Index())
 	// View should be (firstRoad+6, 0) since CommitQC at index firstRoad+5 advances to index firstRoad+6
-	require.Equal(t, types.View{Index: registry.FirstRoad() + 6, Number: 0}, i.View())
+	require.Equal(t, types.View{Index: ep0.RoadRange().First + 6, Number: 0}, i.View())
 }
 
 func TestNewInnerTimeoutQC(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create a CommitQC at index firstRoad+5 (required for TimeoutQC at index firstRoad+6)
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -426,7 +435,7 @@ func TestNewInnerTimeoutQC(t *testing.T) {
 	// Create TimeoutQC at (firstRoad+6, 2) - this advances view to (firstRoad+6, 3)
 	var timeoutVotes []*types.FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: registry.FirstRoad() + 6, Number: 2}, utils.None[*types.PrepareQC]()))
+		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: ep0.RoadRange().First + 6, Number: 2}, utils.None[*types.PrepareQC]()))
 	}
 	timeoutQC := types.NewTimeoutQC(timeoutVotes)
 
@@ -437,23 +446,24 @@ func TestNewInnerTimeoutQC(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, i.TimeoutQC.IsPresent(), "TimeoutQC should be loaded")
 	// View should be (firstRoad+6, 3) since TimeoutQC at (firstRoad+6, 2) advances to (firstRoad+6, 3)
-	require.Equal(t, types.View{Index: registry.FirstRoad() + 6, Number: 3}, i.View())
+	require.Equal(t, types.View{Index: ep0.RoadRange().First + 6, Number: 3}, i.View())
 }
 
 func TestNewInnerTimeoutQCOnlyGenesis(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create TimeoutQC at the genesis road, number 2 - no CommitQC needed
 	var timeoutVotes []*types.FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: registry.FirstRoad(), Number: 2}, utils.None[*types.PrepareQC]()))
+		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: ep0.RoadRange().First, Number: 2}, utils.None[*types.PrepareQC]()))
 	}
 	timeoutQC := types.NewTimeoutQC(timeoutVotes)
 
 	seedPersistedInner(dir, utils.None[*types.CommitQC](), &persistedInner{
-		Index:     registry.FirstRoad(),
+		Index:     ep0.RoadRange().First,
 		TimeoutQC: utils.Some(timeoutQC),
 	})
 
@@ -461,23 +471,24 @@ func TestNewInnerTimeoutQCOnlyGenesis(t *testing.T) {
 	i, err := loadInner(t, dir, registry, keys)
 	require.NoError(t, err)
 	require.True(t, i.TimeoutQC.IsPresent(), "TimeoutQC should be loaded")
-	require.Equal(t, types.View{Index: registry.FirstRoad(), Number: 3}, i.View())
+	require.Equal(t, types.View{Index: ep0.RoadRange().First, Number: 3}, i.View())
 }
 
 func TestNewInnerTimeoutQCWithoutCommitQCError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create TimeoutQC at index firstRoad+6 WITHOUT CommitQC at index firstRoad+5
 	var timeoutVotes []*types.FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: registry.FirstRoad() + 6, Number: 0}, utils.None[*types.PrepareQC]()))
+		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: ep0.RoadRange().First + 6, Number: 0}, utils.None[*types.PrepareQC]()))
 	}
 	timeoutQC := types.NewTimeoutQC(timeoutVotes)
 
 	seedPersistedInner(dir, utils.None[*types.CommitQC](), &persistedInner{
-		Index:     registry.FirstRoad(),
+		Index:     ep0.RoadRange().First,
 		TimeoutQC: utils.Some(timeoutQC),
 	})
 
@@ -491,10 +502,11 @@ func TestNewInnerTimeoutQCAheadOfCommitQCError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create CommitQC at index firstRoad+5
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -504,7 +516,7 @@ func TestNewInnerTimeoutQCAheadOfCommitQCError(t *testing.T) {
 	// Create TimeoutQC at index firstRoad+10 (way ahead of CommitQC)
 	var timeoutVotes []*types.FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: registry.FirstRoad() + 10, Number: 0}, utils.None[*types.PrepareQC]()))
+		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: ep0.RoadRange().First + 10, Number: 0}, utils.None[*types.PrepareQC]()))
 	}
 	timeoutQC := types.NewTimeoutQC(timeoutVotes)
 
@@ -520,10 +532,11 @@ func TestNewInnerViewSpecStaleTimeoutQC(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create CommitQC at index firstRoad+10
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 10, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 10, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -534,7 +547,7 @@ func TestNewInnerViewSpecStaleTimeoutQC(t *testing.T) {
 	// Since inner is persisted atomically, a mismatched index is always corrupt.
 	var timeoutVotes []*types.FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: registry.FirstRoad() + 5, Number: 2}, utils.None[*types.PrepareQC]()))
+		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: ep0.RoadRange().First + 5, Number: 2}, utils.None[*types.PrepareQC]()))
 	}
 	timeoutQC := types.NewTimeoutQC(timeoutVotes)
 
@@ -550,10 +563,11 @@ func TestNewInnerViewSpecValidBothQCs(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create CommitQC at index firstRoad+5
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -563,7 +577,7 @@ func TestNewInnerViewSpecValidBothQCs(t *testing.T) {
 	// Create TimeoutQC at index firstRoad+6, number 2 (valid - exactly CommitQC.Index + 1)
 	var timeoutVotes []*types.FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: registry.FirstRoad() + 6, Number: 2}, utils.None[*types.PrepareQC]()))
+		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: ep0.RoadRange().First + 6, Number: 2}, utils.None[*types.PrepareQC]()))
 	}
 	timeoutQC := types.NewTimeoutQC(timeoutVotes)
 
@@ -575,17 +589,18 @@ func TestNewInnerViewSpecValidBothQCs(t *testing.T) {
 	require.True(t, i.spec.CommitQC.IsPresent(), "CommitQC should be loaded")
 	require.True(t, i.TimeoutQC.IsPresent(), "TimeoutQC should be loaded")
 	// View should be (firstRoad+6, 3) - TimeoutQC at (firstRoad+6, 2) advances to (firstRoad+6, 3)
-	require.Equal(t, types.View{Index: registry.FirstRoad() + 6, Number: 3}, i.View())
+	require.Equal(t, types.View{Index: ep0.RoadRange().First + 6, Number: 3}, i.View())
 }
 
 func TestNewInnerStaleVoteError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create CommitQC at index firstRoad+5 -> current view is (firstRoad+6, 0)
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -594,7 +609,7 @@ func TestNewInnerStaleVoteError(t *testing.T) {
 
 	// Create stale vote at view (firstRoad+3, 0) - before current view (firstRoad+6, 0).
 	// Since inner is persisted atomically, a mismatched view is corrupt.
-	staleProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 3, Number: 0})
+	staleProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 3, Number: 0})
 	staleVote := types.Sign(keys[0], types.NewPrepareVote(staleProposal))
 
 	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{PrepareVote: utils.Some(staleVote)})
@@ -608,10 +623,11 @@ func TestNewInnerFuturePrepareVoteError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create CommitQC at index firstRoad+5 -> current view is (firstRoad+6, 0)
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -619,7 +635,7 @@ func TestNewInnerFuturePrepareVoteError(t *testing.T) {
 	commitQC := types.NewCommitQC(qcVotes)
 
 	// Create future vote at view (firstRoad+10, 0) - ahead of current view (firstRoad+6, 0)
-	futureProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 10, Number: 0})
+	futureProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 10, Number: 0})
 	futureVote := types.Sign(keys[0], types.NewPrepareVote(futureProposal))
 
 	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{PrepareVote: utils.Some(futureVote)})
@@ -634,10 +650,11 @@ func TestNewInnerFutureCommitVoteError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create CommitQC at index firstRoad+5 -> current view is (firstRoad+6, 0)
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -645,8 +662,8 @@ func TestNewInnerFutureCommitVoteError(t *testing.T) {
 	commitQC := types.NewCommitQC(qcVotes)
 
 	// Create future commit vote at view (firstRoad+10, 0)
-	futureProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 10, Number: 0})
-	futureVote := types.Sign(keys[0], types.NewCommitVote(futureProposal))
+	futureProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 10, Number: 0})
+	futureVote := types.Sign(keys[0], types.NewCommitVote(types.BuildPrepareQC(keys, futureProposal)))
 
 	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{CommitVote: utils.Some(futureVote)})
 
@@ -660,10 +677,11 @@ func TestNewInnerFutureTimeoutVoteError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create CommitQC at index firstRoad+5 -> current view is (firstRoad+6, 0)
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -671,7 +689,7 @@ func TestNewInnerFutureTimeoutVoteError(t *testing.T) {
 	commitQC := types.NewCommitQC(qcVotes)
 
 	// Create future timeout vote at view (firstRoad+10, 0)
-	futureVote := types.NewFullTimeoutVote(keys[0], types.View{Index: registry.FirstRoad() + 10, Number: 0}, utils.None[*types.PrepareQC]())
+	futureVote := types.NewFullTimeoutVote(keys[0], types.View{Index: ep0.RoadRange().First + 10, Number: 0}, utils.None[*types.PrepareQC]())
 
 	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{TimeoutVote: utils.Some(futureVote)})
 
@@ -685,10 +703,11 @@ func TestNewInnerCurrentViewVoteOk(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create CommitQC at index firstRoad+5 -> current view is (firstRoad+6, 0)
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -696,7 +715,7 @@ func TestNewInnerCurrentViewVoteOk(t *testing.T) {
 	commitQC := types.NewCommitQC(qcVotes)
 
 	// Create vote at exactly current view (firstRoad+6, 0)
-	currentProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 6, Number: 0})
+	currentProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 6, Number: 0})
 	currentVote := types.Sign(keys[0], types.NewPrepareVote(currentProposal))
 
 	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{PrepareVote: utils.Some(currentVote)})
@@ -711,10 +730,11 @@ func TestNewInnerTimeoutQCInvalidSignatureError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create valid CommitQC at index firstRoad+5
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -728,7 +748,7 @@ func TestNewInnerTimeoutQCInvalidSignatureError(t *testing.T) {
 	}
 	var timeoutVotes []*types.FullTimeoutVote
 	for _, k := range otherKeys {
-		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: registry.FirstRoad() + 6, Number: 0}, utils.None[*types.PrepareQC]()))
+		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: ep0.RoadRange().First + 6, Number: 0}, utils.None[*types.PrepareQC]()))
 	}
 	timeoutQC := types.NewTimeoutQC(timeoutVotes)
 
@@ -744,10 +764,11 @@ func TestNewInnerCurrentViewVoteInvalidSignatureError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create valid CommitQC at index firstRoad+5 -> current view is (firstRoad+6, 0)
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -756,7 +777,7 @@ func TestNewInnerCurrentViewVoteInvalidSignatureError(t *testing.T) {
 
 	// Create vote at current view (firstRoad+6, 0) but signed by key NOT in committee
 	otherKey := types.GenSecretKey(rng)
-	currentProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 6, Number: 0})
+	currentProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 6, Number: 0})
 	badVote := types.Sign(otherKey, types.NewPrepareVote(currentProposal))
 
 	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{PrepareVote: utils.Some(badVote)})
@@ -791,8 +812,8 @@ func TestNewInnerVoteFromOtherReplicaError(t *testing.T) {
 			dir := t.TempDir()
 			registry, keys := epoch.GenRegistry(rng, 3)
 			ep0 := registry.MustEpoch(0)
-			qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: registry.FirstRoad() + 5, Number: 0})
-			qcVote := types.NewCommitVote(qcProposal)
+			qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+			qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 			var qcVotes []*types.Signed[*types.CommitVote]
 			for _, k := range keys {
 				qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -809,10 +830,11 @@ func TestNewInnerStaleVoteInvalidSignatureError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create valid CommitQC at index firstRoad+5 -> current view is (firstRoad+6, 0)
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -822,7 +844,7 @@ func TestNewInnerStaleVoteInvalidSignatureError(t *testing.T) {
 	// Create stale vote at (firstRoad+3, 0) signed by key NOT in committee.
 	// Since inner is persisted atomically, a mismatched view is corrupt.
 	otherKey := types.GenSecretKey(rng)
-	staleProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 3, Number: 0})
+	staleProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 3, Number: 0})
 	badVote := types.Sign(otherKey, types.NewPrepareVote(staleProposal))
 
 	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{PrepareVote: utils.Some(badVote)})
@@ -836,13 +858,14 @@ func TestNewInnerPrepareQC(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create prepareQC at genesis view
-	proposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad(), Number: 0})
+	proposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First, Number: 0})
 	prepareQC := makePrepareQC(keys, proposal)
 
 	seedPersistedInner(dir, utils.None[*types.CommitQC](), &persistedInner{
-		Index:     registry.FirstRoad(),
+		Index:     ep0.RoadRange().First,
 		PrepareQC: utils.Some(prepareQC),
 	})
 
@@ -856,10 +879,11 @@ func TestNewInnerStalePrepareQCError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create CommitQC at index firstRoad+5 -> current view is (firstRoad+6, 0)
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -868,7 +892,7 @@ func TestNewInnerStalePrepareQCError(t *testing.T) {
 
 	// Create stale prepareQC at view (firstRoad+3, 0) - before current view (firstRoad+6, 0).
 	// Since inner is persisted atomically, a mismatched view is corrupt.
-	staleProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 3, Number: 0})
+	staleProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 3, Number: 0})
 	stalePrepareQC := makePrepareQC(keys, staleProposal)
 
 	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{PrepareQC: utils.Some(stalePrepareQC)})
@@ -882,14 +906,15 @@ func TestNewInnerCommitVoteWithoutPrepareQCError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Current view is (firstRoad, 0) (no CommitQC or TimeoutQC).
 	// CommitVote requires PrepareQC justification.
-	proposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad(), Number: 0})
-	commitVote := types.Sign(keys[0], types.NewCommitVote(proposal))
+	proposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First, Number: 0})
+	commitVote := types.Sign(keys[0], types.NewCommitVote(types.BuildPrepareQC(keys, proposal)))
 
 	seedPersistedInner(dir, utils.None[*types.CommitQC](), &persistedInner{
-		Index:      registry.FirstRoad(),
+		Index:      ep0.RoadRange().First,
 		CommitVote: utils.Some(commitVote),
 	})
 
@@ -902,10 +927,11 @@ func TestNewInnerFuturePrepareQCError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create CommitQC at index firstRoad+5 -> current view is (firstRoad+6, 0)
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -913,7 +939,7 @@ func TestNewInnerFuturePrepareQCError(t *testing.T) {
 	commitQC := types.NewCommitQC(qcVotes)
 
 	// Create future prepareQC at index firstRoad+10 (> current firstRoad+6)
-	futureProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 10, Number: 0})
+	futureProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 10, Number: 0})
 	prepareQC := makePrepareQC(keys, futureProposal)
 
 	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{PrepareQC: utils.Some(prepareQC)})
@@ -928,10 +954,11 @@ func TestNewInnerCurrentViewPrepareQCOk(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create CommitQC at index firstRoad+5 -> current view is (firstRoad+6, 0)
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -939,7 +966,7 @@ func TestNewInnerCurrentViewPrepareQCOk(t *testing.T) {
 	commitQC := types.NewCommitQC(qcVotes)
 
 	// Create prepareQC at current view (firstRoad+6, 0)
-	currentProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 6, Number: 0})
+	currentProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 6, Number: 0})
 	prepareQC := makePrepareQC(keys, currentProposal)
 
 	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{PrepareQC: utils.Some(prepareQC)})
@@ -954,10 +981,11 @@ func TestNewInnerCurrentViewPrepareQCInvalidSignatureError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
 	// Create CommitQC at index firstRoad+5 -> current view is (firstRoad+6, 0)
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -969,7 +997,7 @@ func TestNewInnerCurrentViewPrepareQCInvalidSignatureError(t *testing.T) {
 	for i := range otherKeys {
 		otherKeys[i] = types.GenSecretKey(rng)
 	}
-	currentProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 6, Number: 0})
+	currentProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 6, Number: 0})
 	prepareQC := makePrepareQC(otherKeys, currentProposal)
 
 	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{PrepareQC: utils.Some(prepareQC)})
@@ -984,11 +1012,12 @@ func TestNewInnerPrepareQCIncludedInTimeoutVote(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 	voteKey := keys[0]
 
 	// Create CommitQC at index firstRoad+5 -> current view is (firstRoad+6, 0)
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
+	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 5, Number: 0})
+	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
 	var qcVotes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
 		qcVotes = append(qcVotes, types.Sign(k, qcVote))
@@ -996,7 +1025,7 @@ func TestNewInnerPrepareQCIncludedInTimeoutVote(t *testing.T) {
 	commitQC := types.NewCommitQC(qcVotes)
 
 	// Create prepareQC at current view (firstRoad+6, 0)
-	currentProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: registry.FirstRoad() + 6, Number: 0})
+	currentProposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: ep0.RoadRange().First + 6, Number: 0})
 	prepareQC := makePrepareQC(keys, currentProposal)
 
 	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{PrepareQC: utils.Some(prepareQC)})
@@ -1011,13 +1040,13 @@ func TestNewInnerPrepareQCIncludedInTimeoutVote(t *testing.T) {
 	timeoutVote := types.NewFullTimeoutVote(voteKey, currentView, i.PrepareQC)
 
 	// The timeoutVote should pass verification (which checks prepareQC is correctly included)
-	err = timeoutVote.Verify(registry.MustEpoch(0))
+	err = timeoutVote.Verify(ep0)
 	require.NoError(t, err, "timeoutVote with loaded prepareQC should verify")
 
 	// Verify the loaded prepareQC matches what we persisted
 	loadedPrepareQC, ok := i.PrepareQC.Get()
 	require.True(t, ok)
-	require.Equal(t, currentProposal.View(), loadedPrepareQC.Proposal().View(),
+	require.Equal(t, currentProposal.View(), loadedPrepareQC.View(),
 		"loaded prepareQC should have the correct view")
 }
 
@@ -1068,11 +1097,12 @@ func newConsensusState(t *testing.T, registry *epoch.Registry, key types.SecretK
 }
 
 func commitQCAtRoad(ep *types.Epoch, keys []types.SecretKey, idx types.RoadIndex) *types.CommitQC {
+	voteProposal := types.ProposalAt(ep, types.View{Index: idx - 1, Number: 0})
 	parent := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep, types.View{Index: idx - 1, Number: 0}, ep.FirstBlock()))),
+		types.Sign(keys[0], types.NewCommitVote(types.BuildPrepareQC(keys, voteProposal))),
 	})
 	qc := types.BuildCommitQC(ep, keys, utils.Some(parent), nil)
-	if qc.Proposal().Index() != idx {
+	if qc.Index() != idx {
 		panic("commitQCAtRoad: BuildCommitQC landed on unexpected index")
 	}
 	return qc
@@ -1086,21 +1116,21 @@ func TestPushCommitQC_RotatesEpochAtBoundary(t *testing.T) {
 
 	ep0 := registry.MustEpoch(0)
 	qc := commitQCAtRoad(ep0, keys, registry.LastRoad(0))
-	require.Equal(t, registry.LastRoad(0), qc.Proposal().Index())
+	require.Equal(t, registry.LastRoad(0), qc.Index())
 	// Avail resolves the next-view epoch; pushSpec advances to it verbatim.
-	ep1, err := registry.EpochAt(registry.EpochFirstRoad(1))
+	ep1, err := registry.Epoch(1)
 	require.NoError(t, err)
 	require.NoError(t, s.pushSpec(types.ConsensusSpec{CommitQC: utils.Some(qc), Epoch: ep1}))
 	got := s.innerRecv.Load()
 	require.Equal(t, types.EpochIndex(1), got.spec.Epoch.EpochIndex())
-	require.Equal(t, registry.EpochFirstRoad(1), got.View().Index)
+	require.Equal(t, ep1.RoadRange().First, got.View().Index)
 }
 
 func TestTimeoutPhase(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	ep := registry.MustEpoch(0)
-	view := types.View{Index: registry.FirstRoad(), Number: 0}
+	view := types.View{Index: ep.RoadRange().First, Number: 0}
 	proposal := types.GenProposalForEpoch(rng, ep, view)
 	pqc := makePrepareQC(keys, proposal)
 

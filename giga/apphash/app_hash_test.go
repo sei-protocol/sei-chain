@@ -61,7 +61,7 @@ func TestConstructorAndGetters(t *testing.T) {
 	require.Equal(t, filledHash(0xa1), ahd.BlockHash())
 	require.Equal(t, filledHash(0xb2), ahd.StateHash())
 	require.Equal(t, BUDHash(filledHash(0xc3)), ahd.BUDHash())
-	require.Equal(t, filledHash(0xd4), ahd.ReceiptHash())
+	require.Equal(t, ReceiptHash(filledHash(0xd4)), ahd.ReceiptHash())
 	require.Equal(t, filledHash(0xe5), ahd.PreviousAppHash())
 }
 
@@ -177,7 +177,7 @@ func TestZeroAppHashData(t *testing.T) {
 	require.Equal(t, [32]byte{}, ahd.BlockHash())
 	require.Equal(t, [32]byte{}, ahd.StateHash())
 	require.Equal(t, BUDHash{}, ahd.BUDHash())
-	require.Equal(t, [32]byte{}, ahd.ReceiptHash())
+	require.Equal(t, ReceiptHash{}, ahd.ReceiptHash())
 	require.Equal(t, [32]byte{}, ahd.PreviousAppHash())
 	require.Equal(t, [32]byte{}, ahd.AppHash())
 

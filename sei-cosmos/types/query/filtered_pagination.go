@@ -211,50 +211,6 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	onResult func(key []byte, value T) (F, error),
 	constructor func() T,
 ) ([]F, *PageResponse, error) {
-	return genericFilteredPaginate(ctx, cdc, prefixStore, pageRequest, onResult, constructor, false)
-}
-
-// GenericFilteredPaginateForContext applies GenericFilteredPaginate on the ABCI query path
-// and GenericFilteredPaginateV66 during consensus execution.
-func GenericFilteredPaginateForContext[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
-	ctx sdk.Context,
-	cdc codec.BinaryCodec,
-	prefixStore types.KVStore,
-	pageRequest *PageRequest,
-	onResult func(key []byte, value T) (F, error),
-	constructor func() T,
-) ([]F, *PageResponse, error) {
-	if ctx.IsABCIQuery() {
-		return GenericFilteredPaginate(ctx, cdc, prefixStore, pageRequest, onResult, constructor)
-	}
-	return GenericFilteredPaginateV66(cdc, prefixStore, pageRequest, onResult, constructor)
-}
-
-// GenericFilteredPaginateV66 preserves release/v6.6 behavior for EVM
-// precompiles. Node-local LCD/gRPC queries must use GenericFilteredPaginate.
-func GenericFilteredPaginateV66[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
-	cdc codec.BinaryCodec,
-	prefixStore types.KVStore,
-	pageRequest *PageRequest,
-	onResult func(key []byte, value T) (F, error),
-	constructor func() T,
-) ([]F, *PageResponse, error) {
-	return genericFilteredPaginate(sdk.Context{}, cdc, prefixStore, pageRequest, onResult, constructor, true)
-}
-
-func genericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
-	ctx sdk.Context,
-	cdc codec.BinaryCodec,
-	prefixStore types.KVStore,
-	pageRequest *PageRequest,
-	onResult func(key []byte, value T) (F, error),
-	constructor func() T,
-	useV66 bool,
-) ([]F, *PageResponse, error) {
-	if useV66 {
-		return genericFilteredPaginateV66(cdc, prefixStore, pageRequest, onResult, constructor)
-	}
-
 	var results []F
 	pageRes, err := FilteredPaginate(ctx, prefixStore, pageRequest, func(key []byte, value []byte, accumulate bool) (bool, error) {
 		protoMsg := constructor()
@@ -282,6 +238,34 @@ func genericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	}
 
 	return results, pageRes, nil
+}
+
+// GenericFilteredPaginateForContext applies GenericFilteredPaginate on the ABCI query path
+// and GenericFilteredPaginateV66 during consensus execution.
+func GenericFilteredPaginateForContext[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
+	ctx sdk.Context,
+	cdc codec.BinaryCodec,
+	prefixStore types.KVStore,
+	pageRequest *PageRequest,
+	onResult func(key []byte, value T) (F, error),
+	constructor func() T,
+) ([]F, *PageResponse, error) {
+	if ctx.IsABCIQuery() {
+		return GenericFilteredPaginate(ctx, cdc, prefixStore, pageRequest, onResult, constructor)
+	}
+	return GenericFilteredPaginateV66(cdc, prefixStore, pageRequest, onResult, constructor)
+}
+
+// GenericFilteredPaginateV66 preserves release/v6.6 behavior for EVM
+// precompiles. Node-local LCD/gRPC queries must use GenericFilteredPaginate.
+func GenericFilteredPaginateV66[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
+	cdc codec.BinaryCodec,
+	prefixStore types.KVStore,
+	pageRequest *PageRequest,
+	onResult func(key []byte, value T) (F, error),
+	constructor func() T,
+) ([]F, *PageResponse, error) {
+	return genericFilteredPaginateV66(cdc, prefixStore, pageRequest, onResult, constructor)
 }
 
 func genericFilteredPaginateV66[T codec.ProtoMarshaler, F codec.ProtoMarshaler](

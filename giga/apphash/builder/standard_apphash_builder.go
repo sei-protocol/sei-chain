@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
+	"github.com/sei-protocol/sei-chain/sei-db/common/structures"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 )
 
@@ -59,6 +62,10 @@ type StandardAppHashBuilder struct {
 	// Tracks the builder goroutine, which Close() waits for.
 	wg sync.WaitGroup
 
+	// The block height of the newest published app hash, or 0 if none has been published. Sealed as the builder
+	// goroutine exits.
+	publishedHeight *threading.Counter
+
 	// The error from closing the vault iterators the builder goroutine holds. Set by the builder goroutine as it
 	// exits, and read by Close() once it has exited.
 	closeErr error
@@ -87,6 +94,19 @@ type StandardAppHashBuilder struct {
 	// The newest published app hash, or nil if none has been published.
 	newestPublished *apphash.AppHashData
 
+	// The newest published app hashes, in block order, at most recentAppHashCacheSize of them. Empty only if none
+	// has been published.
+	cache *structures.Deque[*apphash.AppHashData]
+
+	// The most app hashes cache holds.
+	recentAppHashCacheSize int
+
+	// The open read of stored app hashes older than cache, or nil if none is open.
+	readCursor *vaultReadCursor
+
+	// How long readCursor may go without serving a read before it is closed.
+	readCursorIdleTimeout time.Duration
+
 	// After setup, the stored records above headHeight. Each block built is checked against its stored record. Nil
 	// once no stored record is above headHeight.
 	storedAboveHeadIterator apphash.AppHashIterator
@@ -94,9 +114,6 @@ type StandardAppHashBuilder struct {
 	// The blocks above headHeight waiting for their inputs to be reported (i.e. passed to the Report*() methods),
 	// by block height.
 	pendingBlocks map[uint64]*pendingBlock
-
-	// Called with each published app hash, in registration order.
-	listeners []func(appHash *apphash.AppHashData)
 }
 
 // What the vault says about the builder's state at startup: its bounds, and the block the next block built chains
@@ -140,11 +157,16 @@ func NewStandardAppHashBuilder(
 		maxBatchSize:         config.MaxBatchSize,
 		ctx:                  ctx,
 		cancel:               cancel,
+		publishedHeight:      threading.NewCounter(0),
 		vaultLowest:          startup.vaultLowest,
 		vaultHighest:         startup.vaultHighest,
 		headHeight:           startup.headHeight,
 		headAppHash:          startup.headAppHash,
-		pendingBlocks:        make(map[uint64]*pendingBlock),
+		cache: structures.NewDequeWithCapacity[*apphash.AppHashData](
+			config.RecentAppHashCacheSize),
+		recentAppHashCacheSize: config.RecentAppHashCacheSize,
+		readCursorIdleTimeout:  config.ReadCursorIdleTimeout,
+		pendingBlocks:          make(map[uint64]*pendingBlock),
 	}
 	b.wg.Go(b.run)
 	return b, nil
@@ -187,7 +209,7 @@ func (b *StandardAppHashBuilder) ReportBUDHash(ctx context.Context, blockHeight 
 func (b *StandardAppHashBuilder) ReportReceiptHash(
 	ctx context.Context,
 	blockHeight uint64,
-	receiptHash [32]byte,
+	receiptHash apphash.ReceiptHash,
 ) error {
 	request := reportRequest{input: receiptHashInput, blockHeight: blockHeight, value: receiptHash}
 	if err := b.submit(ctx, request); err != nil {
@@ -201,43 +223,42 @@ func (b *StandardAppHashBuilder) SetupComplete(ctx context.Context, blockHeight 
 	if err := b.submit(ctx, setupCompleteRequest{blockHeight: blockHeight, reply: reply}); err != nil {
 		return fmt.Errorf("failed to complete app hash builder setup at block %d: %w", blockHeight, err)
 	}
-	if _, err := awaitReply(b, reply); err != nil {
+	if _, err := awaitReply(ctx, b, reply); err != nil {
 		return fmt.Errorf("failed to complete app hash builder setup at block %d: %w", blockHeight, err)
 	}
 	return nil
 }
 
-func (b *StandardAppHashBuilder) RegisterListener(
-	ctx context.Context,
-	listener func(appHash *apphash.AppHashData),
-) (*apphash.AppHashData, error) {
-	if listener == nil {
-		return nil, fmt.Errorf("app hash listener must not be nil")
+func (b *StandardAppHashBuilder) GetAppHash(ctx context.Context, blockHeight uint64) (*apphash.AppHashData, error) {
+	if blockHeight < b.gigaActivationHeight {
+		return nil, fmt.Errorf("block %d is below the giga activation height %d, so it has no app hash",
+			blockHeight, b.gigaActivationHeight)
 	}
-	reply := make(chan callResult[*apphash.AppHashData], 1)
-	if err := b.submit(ctx, registerListenerRequest{listener: listener, reply: reply}); err != nil {
-		return nil, fmt.Errorf("failed to register app hash listener: %w", err)
-	}
-	published, err := awaitReply(b, reply)
+	reached, _, err := b.publishedHeight.Await(ctx, blockHeight)
 	if err != nil {
-		return nil, fmt.Errorf("failed to register app hash listener: %w", err)
+		return nil, fmt.Errorf("abandoned waiting for the app hash of block %d: %w", blockHeight, err)
 	}
-	return published, nil
+	if !reached {
+		return nil, fmt.Errorf("the app hash of block %d was never published: %w",
+			blockHeight, b.stoppedError())
+	}
+	appHash, err := b.requestAppHash(ctx, blockHeight)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get the app hash of block %d: %w", blockHeight, err)
+	}
+	return appHash, nil
 }
 
-func (b *StandardAppHashBuilder) Iterator(
-	ctx context.Context,
-	startingBlockHeight uint64,
-) (apphash.AppHashIterator, error) {
-	reply := make(chan callResult[apphash.AppHashIterator], 1)
-	if err := b.submit(ctx, iteratorRequest{startingBlockHeight: startingBlockHeight, reply: reply}); err != nil {
-		return nil, fmt.Errorf("failed to create app hash iterator: %w", err)
+func (b *StandardAppHashBuilder) Bounds() (uint64, uint64, bool, error) {
+	reply := make(chan callResult[appHashBounds], 1)
+	if err := b.submit(context.Background(), boundsRequest{reply: reply}); err != nil {
+		return 0, 0, false, fmt.Errorf("failed to request the app hash bounds: %w", err)
 	}
-	it, err := awaitReply(b, reply)
+	bounds, err := awaitReply(context.Background(), b, reply)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create app hash iterator: %w", err)
+		return 0, 0, false, fmt.Errorf("failed to read the app hash bounds: %w", err)
 	}
-	return it, nil
+	return bounds.lowest, bounds.highest, bounds.ok, nil
 }
 
 func (b *StandardAppHashBuilder) Close() error {
@@ -245,7 +266,7 @@ func (b *StandardAppHashBuilder) Close() error {
 	reply := make(chan callResult[struct{}], 1)
 	// A builder already stopped refuses the request, and has nothing left to store.
 	if b.submit(context.Background(), closeRequest{reply: reply}) == nil {
-		if _, err := awaitReply(b, reply); err != nil {
+		if _, err := awaitReply(context.Background(), b, reply); err != nil {
 			sweepErr = fmt.Errorf("failed to store the queued app hashes: %w", err)
 		}
 	}
@@ -342,14 +363,18 @@ func (b *StandardAppHashBuilder) stoppedError() error {
 	return fmt.Errorf("app hash builder stopped: %w", context.Cause(b.ctx))
 }
 
-// Waits for the reply to a request already handed to the builder goroutine.
-func awaitReply[T any](b *StandardAppHashBuilder, reply <-chan callResult[T]) (T, error) {
+// Waits for the reply to a request already handed to the builder goroutine. Errors if ctx is cancelled first.
+func awaitReply[T any](ctx context.Context, b *StandardAppHashBuilder, reply <-chan callResult[T]) (T, error) {
 	select {
 	case result := <-reply:
 		return result.value, result.err
+	case <-ctx.Done():
+		// The reply is buffered, so the builder goroutine never blocks on the abandoned reply.
+		var zero T
+		return zero, fmt.Errorf("app hash builder call abandoned: %w", ctx.Err())
 	case <-b.ctx.Done():
-		// Once the builder goroutine exits, the reply is either buffered or never sent. A buffered result, such
-		// as an open iterator, must reach the caller.
+		// Once the builder goroutine exits, the reply is either buffered or never sent. A buffered reply is the
+		// request's result, so it reaches the caller.
 		b.wg.Wait()
 		select {
 		case result := <-reply:
@@ -361,10 +386,26 @@ func awaitReply[T any](b *StandardAppHashBuilder, reply <-chan callResult[T]) (T
 	}
 }
 
+// Asks the builder goroutine for the published app hash of blockHeight, or nil if it is not published yet.
+func (b *StandardAppHashBuilder) requestAppHash(ctx context.Context, blockHeight uint64) (*apphash.AppHashData, error) {
+	reply := make(chan callResult[*apphash.AppHashData], 1)
+	if err := b.submit(ctx, getAppHashRequest{blockHeight: blockHeight, reply: reply}); err != nil {
+		return nil, fmt.Errorf("failed to request the app hash: %w", err)
+	}
+	appHash, err := awaitReply(ctx, b, reply)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the app hash: %w", err)
+	}
+	return appHash, nil
+}
+
 // The builder goroutine. Runs requests until a closeRequest, Close() or a failed request, then closes its vault
-// iterators and the hash log.
+// iterators and the hash log, and seals publishedHeight.
 func (b *StandardAppHashBuilder) run() {
 	defer b.closeStores()
+	// Runs before closeStores(), so a GetAppHash() call woken by the seal finds the builder stopped with a
+	// cause.
+	defer b.cancel(fmt.Errorf("app hash builder is closed"))
 	for {
 		select {
 		case <-b.ctx.Done():
@@ -442,13 +483,13 @@ func (b *StandardAppHashBuilder) handleRequest(request any) error {
 			return fmt.Errorf("failed to complete setup at block %d: %w", r.blockHeight, err)
 		}
 		return nil
-	case registerListenerRequest:
-		published, err := b.registerListener(r.listener)
-		r.reply <- callResult[*apphash.AppHashData]{value: published, err: err}
+	case getAppHashRequest:
+		appHash, err := b.readAppHash(r.blockHeight)
+		r.reply <- callResult[*apphash.AppHashData]{value: appHash, err: err}
 		return nil
-	case iteratorRequest:
-		it, err := b.newIterator(r.startingBlockHeight)
-		r.reply <- callResult[apphash.AppHashIterator]{value: it, err: err}
+	case boundsRequest:
+		bounds, err := b.readBounds()
+		r.reply <- callResult[appHashBounds]{value: bounds, err: err}
 		return nil
 	default:
 		return fmt.Errorf("unknown app hash builder request %T", request)
@@ -531,32 +572,92 @@ func (b *StandardAppHashBuilder) compareStoredInput(
 	return nil
 }
 
-// Adds listener, returning the newest published app hash. Errors before setup.
-func (b *StandardAppHashBuilder) registerListener(
-	listener func(appHash *apphash.AppHashData),
-) (*apphash.AppHashData, error) {
+// Returns the published app hash of blockHeight, or nil if it is not published yet. Errors before setup, and if
+// blockHeight is pruned.
+func (b *StandardAppHashBuilder) readAppHash(blockHeight uint64) (*apphash.AppHashData, error) {
 	if !b.setupDone {
-		return nil, fmt.Errorf("cannot register an app hash listener before setup is complete")
+		return nil, fmt.Errorf("cannot read app hashes before setup is complete")
 	}
-	b.listeners = append(b.listeners, listener)
-	return b.newestPublished, nil
+	if err := b.maybeRetireReadCursor(blockHeight); err != nil {
+		return nil, fmt.Errorf("failed to retire the read cursor before reading block %d: %w", blockHeight, err)
+	}
+	if b.newestPublished == nil || blockHeight > b.newestPublished.BlockHeight() {
+		return nil, nil
+	}
+	oldestCached := b.cache.PeekFront().BlockHeight()
+	if blockHeight >= oldestCached {
+		//nolint:gosec // the offset is below recentAppHashCacheSize, an int
+		return b.cache.Get(int(blockHeight - oldestCached)), nil
+	}
+	appHash, err := b.readStoredAppHash(blockHeight)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the stored app hash of block %d: %w", blockHeight, err)
+	}
+	return appHash, nil
 }
 
-// Returns an iterator over the published app hashes from startingBlockHeight, or from the giga activation height if
-// that is higher. Errors before setup.
-func (b *StandardAppHashBuilder) newIterator(startingBlockHeight uint64) (apphash.AppHashIterator, error) {
+// Returns the range of available app hashes. Errors before setup.
+func (b *StandardAppHashBuilder) readBounds() (appHashBounds, error) {
 	if !b.setupDone {
-		return nil, fmt.Errorf("cannot iterate app hashes before setup is complete")
+		return appHashBounds{}, fmt.Errorf("cannot read app hash bounds before setup is complete")
 	}
-	startingBlockHeight = max(startingBlockHeight, b.gigaActivationHeight)
-	if b.newestPublished == nil || startingBlockHeight > b.newestPublished.BlockHeight() {
-		return emptyIterator{}, nil
+	if b.newestPublished == nil {
+		return appHashBounds{}, nil
 	}
-	it, err := b.vault.Iterator(startingBlockHeight, b.newestPublished.BlockHeight())
+	vaultLowest, _, err := b.vault.Bounds()
 	if err != nil {
-		return nil, fmt.Errorf("failed to iterate app hashes from block %d: %w", startingBlockHeight, err)
+		return appHashBounds{}, fmt.Errorf("failed to read the hash vault bounds: %w", err)
 	}
-	return it, nil
+	return appHashBounds{
+		lowest:  min(max(vaultLowest, b.gigaActivationHeight), b.cache.PeekFront().BlockHeight()),
+		highest: b.newestPublished.BlockHeight(),
+		ok:      true,
+	}, nil
+}
+
+// Close the cursor if it can't be used to serve this read request.
+func (b *StandardAppHashBuilder) maybeRetireReadCursor(blockHeight uint64) error {
+	if b.readCursor == nil || b.readCursor.CanRead(blockHeight) {
+		return nil
+	}
+	return b.closeReadCursor()
+}
+
+// Returns the stored app hash of blockHeight, a published block, from the open read cursor, opening one there if none
+// is open. A cursor is closed once it is exhausted.
+func (b *StandardAppHashBuilder) readStoredAppHash(blockHeight uint64) (*apphash.AppHashData, error) {
+	if b.readCursor == nil {
+		cursor, err := openVaultReadCursor(
+			b.vault, blockHeight, b.newestPublished.BlockHeight(), b.readCursorIdleTimeout)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open a read cursor at block %d: %w", blockHeight, err)
+		}
+		b.readCursor = cursor
+	}
+	appHash, err := b.readCursor.Read(blockHeight)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("failed to read block %d: %w", blockHeight, err),
+			b.closeReadCursor())
+	}
+	if b.readCursor.Exhausted() {
+		if err := b.closeReadCursor(); err != nil {
+			return nil, fmt.Errorf("failed to close the exhausted read cursor: %w", err)
+		}
+	}
+	return appHash, nil
+}
+
+// Closes the open read cursor, if any.
+func (b *StandardAppHashBuilder) closeReadCursor() error {
+	if b.readCursor == nil {
+		return nil
+	}
+	err := b.readCursor.Close()
+	b.readCursor = nil
+	if err != nil {
+		return fmt.Errorf("failed to close the read cursor: %w", err)
+	}
+	return nil
 }
 
 // Publishes the app hashes through blockHeight, building and storing any that are not stored yet.
@@ -582,6 +683,9 @@ func (b *StandardAppHashBuilder) completeSetup(blockHeight uint64) error {
 		b.reportTrackers[i].nextHeight = b.headHeight + 1
 	}
 	b.setupDone = true
+	if err := b.advancePublishedHeight(); err != nil {
+		return fmt.Errorf("failed to publish the app hashes through block %d: %w", blockHeight, err)
+	}
 	return nil
 }
 
@@ -607,7 +711,9 @@ func (b *StandardAppHashBuilder) storeSetupBlocks(
 	if err := b.appendToVault(records); err != nil {
 		return fmt.Errorf("failed to store app hashes through block %d: %w", blockHeight, err)
 	}
-	b.newestPublished = records[len(records)-1]
+	for _, record := range records {
+		b.publish(record)
+	}
 	return nil
 }
 
@@ -637,7 +743,7 @@ func (b *StandardAppHashBuilder) rewindHead(
 				errors.Join(err, iterator.Close()))
 		}
 		b.headAppHash = anchor.AppHash()
-		b.newestPublished = anchor
+		b.publish(anchor)
 	}
 	if b.headHeight == b.vaultHighest {
 		if err := iterator.Close(); err != nil {
@@ -650,8 +756,8 @@ func (b *StandardAppHashBuilder) rewindHead(
 }
 
 // Builds every block whose inputs are all reported (i.e. passed to the Report*() methods), stores the ones not
-// already stored, and passes them to the listeners in block order. Runs after each batch of requests, but does
-// nothing during setup, when storeSetupBlocks() builds the reported blocks instead.
+// already stored, and publishes them. Runs after each batch of requests, but does nothing during setup, when
+// storeSetupBlocks() builds the reported blocks instead.
 func (b *StandardAppHashBuilder) publishCompleteBlocks() error {
 	if !b.setupDone {
 		return nil
@@ -687,10 +793,33 @@ func (b *StandardAppHashBuilder) publishCompleteBlocks() error {
 		}
 	}
 	for _, record := range toPublish {
-		b.newestPublished = record
-		for _, listener := range b.listeners {
-			listener(record)
-		}
+		b.publish(record)
+	}
+	if err := b.advancePublishedHeight(); err != nil {
+		return fmt.Errorf("failed to publish app hashes through block %d: %w", b.headHeight, err)
+	}
+	return nil
+}
+
+// Makes record, the app hash of the block after the newest published one, the newest published app hash, and adds
+// it to the recent app hash cache. GetAppHash() callers learn of it once advancePublishedHeight() runs.
+func (b *StandardAppHashBuilder) publish(record *apphash.AppHashData) {
+	if b.cache.Len() == b.recentAppHashCacheSize {
+		b.cache.PopFront()
+	}
+	b.cache.PushBack(record)
+	b.newestPublished = record
+}
+
+// Raises publishedHeight to the block height of the newest published app hash, waking the GetAppHash() calls
+// waiting for it.
+func (b *StandardAppHashBuilder) advancePublishedHeight() error {
+	if b.newestPublished == nil {
+		return nil
+	}
+	height := b.newestPublished.BlockHeight()
+	if _, err := b.publishedHeight.IncrementN(height - b.publishedHeight.Get()); err != nil {
+		return fmt.Errorf("failed to advance the published height to block %d: %w", height, err)
 	}
 	return nil
 }
@@ -759,18 +888,23 @@ func hashBytes(hash [32]byte) []byte {
 }
 
 // Appends records to the hash vault, durably if HashVaultConfig.FsyncOnFlush is set, and updates the builder's
-// record of the vault's lowest and highest block heights to match.
+// record of the vault's lowest and highest block heights to match. Closes the read cursor if it is idle.
 func (b *StandardAppHashBuilder) appendToVault(records []*apphash.AppHashData) error {
 	last := records[len(records)-1].BlockHeight()
 	if err := b.vault.Append(records); err != nil {
 		return fmt.Errorf("failed to append app hashes through block %d to the hash vault: %w", last, err)
 	}
 	b.vaultHighest = last
+	if b.readCursor != nil && b.readCursor.ShouldBeRetired() {
+		if err := b.closeReadCursor(); err != nil {
+			return fmt.Errorf("failed to close the idle read cursor: %w", err)
+		}
+	}
 	return nil
 }
 
-// Closes the vault iterators the builder goroutine holds and the hash log, and records the error for Close(). A hash
-// log failure is logged rather than recorded, since the hash log is a debugging aid.
+// Closes the vault iterators the builder goroutine holds and the hash log, seals publishedHeight, and records the
+// error for Close(). A hash log failure is logged rather than recorded, since the hash log is a debugging aid.
 func (b *StandardAppHashBuilder) closeStores() {
 	if b.hashLog != nil {
 		if err := b.hashLog.Close(); err != nil {
@@ -778,12 +912,16 @@ func (b *StandardAppHashBuilder) closeStores() {
 		}
 		b.hashLog = nil
 	}
-	b.closeErr = b.closeIterators()
+	var sealErr error
+	if err := b.publishedHeight.Seal(); err != nil {
+		sealErr = fmt.Errorf("failed to seal the published height: %w", err)
+	}
+	b.closeErr = errors.Join(b.closeIterators(), sealErr)
 }
 
 // Closes every vault iterator the builder goroutine holds.
 func (b *StandardAppHashBuilder) closeIterators() error {
-	errs := make([]error, 0, hashInputCount+1)
+	errs := make([]error, 0, hashInputCount+2)
 	for i := range b.reportTrackers {
 		tracker := &b.reportTrackers[i]
 		if tracker.storedRecordIterator != nil {
@@ -795,6 +933,7 @@ func (b *StandardAppHashBuilder) closeIterators() error {
 		errs = append(errs, b.storedAboveHeadIterator.Close())
 		b.storedAboveHeadIterator = nil
 	}
+	errs = append(errs, b.closeReadCursor())
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("failed to close hash vault iterators: %w", err)
 	}
