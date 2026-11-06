@@ -13,7 +13,6 @@ func init() {
 	prometheus.MustRegister(
 		Global.latency,
 		Global.nextBlock,
-		Global.gasUsed,
 		Global.txSize,
 	)
 }
@@ -33,12 +32,6 @@ func newMetrics() *metrics {
 			Name:      "next_block",
 			Help:      "Next block to process in the given stage.",
 		}, []string{"stage"}),
-		gasUsed: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "gas_used",
-			Help:      "gas used by executed blocks",
-		}, nil),
 		txSize: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -54,10 +47,6 @@ func (m *metrics) latencyAt(resource string, stage string) *tmprometheus.Histogr
 
 func (m *metrics) nextBlockAt(stage string) *tmprometheus.GaugeInt {
 	return m.nextBlock.WithLabelValues(stage)
-}
-
-func (m *metrics) gasUsedAt() *tmprometheus.CounterInt {
-	return m.gasUsed.WithLabelValues()
 }
 
 func (m *metrics) txSizeAt() *tmprometheus.Histogram {

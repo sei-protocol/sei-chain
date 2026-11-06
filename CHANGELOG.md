@@ -32,6 +32,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## v6.8
 sei-chain
+* [#4731](https://github.com/sei-protocol/sei-chain/pull/4731) Backport `release/v6.8`: Return [] from eth_accounts on keyless node
+* [#4724](https://github.com/sei-protocol/sei-chain/pull/4724) Backport `release/v6.8`: perf(evm): key transientAccounts by address
+* [#4722](https://github.com/sei-protocol/sei-chain/pull/4722) Bump version to v6.8.0-rc1 in prep for release
+* [#4721](https://github.com/sei-protocol/sei-chain/pull/4721) Backport `release/v6.8`: Updated changelog for release v6.8
 * [#4717](https://github.com/sei-protocol/sei-chain/pull/4717) Backport `release/v6.8`: Reject empty and non-min-deposit-denom governance deposits
 * [#4714](https://github.com/sei-protocol/sei-chain/pull/4714) Backport `release/v6.8`: Settle finished proposal deposits over multiple blocks
 * [#4712](https://github.com/sei-protocol/sei-chain/pull/4712) Backport `release/v6.8`: Cap the size of stored FinalizeBlock responses
