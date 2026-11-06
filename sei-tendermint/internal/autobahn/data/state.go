@@ -705,10 +705,6 @@ func (s *State) stageClosingEpoch(n types.RoadIndex, weights map[types.PublicKey
 	return nil
 }
 
-func (s *State) PushGasUsed(gasUsed int64) {
-	s.metrics.GasUsed.Add(gasUsed)
-}
-
 // AppVote returns an appVote for a block >= n.
 // Vote is available ONLY once AppHash has been pushed AND persisted.
 // This prevents any possible equivocation and ensures that local node has the executed blocks persisted (since nextAppProposa <= nextFullBlock).

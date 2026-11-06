@@ -24,6 +24,7 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -43,6 +44,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -128,6 +130,7 @@ type nodeImpl struct {
 	// network
 	router               *p2p.Router
 	giga                 utils.Option[p2p.GigaRouter]
+	executor             utils.Option[*execution.Executor]
 	gigaStorageManager   utils.Option[*bootstrap.GigaStorageManager]
 	gigaStorageCloseOnce sync.Once
 	ServiceRestartCh     utils.Option[chan []string]
@@ -317,12 +320,20 @@ func makeNode(
 	node.router = router
 	node.giga = router.Giga()
 	// Giga storage is NOT closed in OnStop: BaseService runs OnStop before
-	// SpawnCritical (giga.Run) finishes, so closing there would race with
-	// still-running persist/execute. Close paths:
+	// SpawnCritical (giga.Run and the executor) finishes, so closing there would
+	// race with still-running persist/execute. Close paths:
 	//   - makeNode defer on construct failure
 	//   - OnStart defer if Start fails before giga is spawned
-	//   - SpawnCritical wrapper after giga.Run returns (happy path / cancel)
+	//   - SpawnCritical wrapper after giga.Run and the executor return (happy path / cancel)
 	node.rpcEnv.Router = router
+	if gigaEnabled {
+		manager, ok := gigaStorageManager.Get()
+		if !ok {
+			return nil, errors.New("autobahn requires a storage manager")
+		}
+		node.executor = utils.Some(buildExecutor(proxyApp, genDoc, manager))
+		node.rpcEnv.Executor = node.executor
+	}
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
 		stateStore, blockStore, node.router, eventBus)
@@ -476,7 +487,7 @@ func makeNode(
 		// its own data WAL and does not update the CometBFT block/state stores, so on
 		// restart the handshaker would observe storeHeight=0 < appHeight=N and fail with
 		// ErrAppBlockHeightTooHigh. We skip the handshaker in giga mode; instead the
-		// giga router's runExecute owns InitChain on fresh start (appHeight==0) and
+		// Autobahn executor owns InitChain on fresh start (appHeight==0) and
 		// relies on the app's committed CMS to rebuild deliverState on restart.
 		node.shouldHandshake = !stateSync
 		ssReactor, err := statesync.NewReactor(
@@ -684,10 +695,15 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	// via PushPartialBlock. Keep this after the genesis-time wait and EventBus/indexer
 	// init so Autobahn does not InitChain or produce ahead of genesis.
 	if giga, ok := n.giga.Get(); ok {
+		executor := n.executor.OrPanic("autobahn router without an executor")
 		gigaSpawned = true
 		n.SpawnCritical("giga", func(ctx context.Context) error {
 			defer func() { _ = n.closeGigaStorage() }()
-			return giga.Run(ctx)
+			return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+				s.SpawnNamed("router", func() error { return giga.Run(ctx) })
+				s.SpawnNamed("execution", func() error { return executor.Run(ctx) })
+				return nil
+			})
 		})
 	}
 

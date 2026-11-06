@@ -51,7 +51,7 @@ func (s *Store) GetRollbackFloor(rollbackWindow uint64) uint64 {
 // indistinguishable from an empty one.
 func (s *Store) GetLatestBlock() (uint64, error) {
 	for status := range s.status.Lock() {
-		if current, ok := status.Get(); ok && types.RoadIndex(s.db.GetPruneWatermark()) < current.NextBlock {
+		if current, ok := status.suffix.Get(); ok && types.RoadIndex(s.db.GetPruneWatermark()) < current.NextBlock {
 			return uint64(current.NextBlock - 1), nil
 		}
 		return 0, nil
