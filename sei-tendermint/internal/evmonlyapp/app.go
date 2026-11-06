@@ -797,10 +797,11 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		if !ok {
 			return nil, fmt.Errorf("EVM-only block finalized before InitChain")
 		}
-		parent, err := a.beginBlock(height, req.ConsensusState)
+		parent, err := a.beginBlock(height)
 		if err != nil {
 			return nil, err
 		}
+		a.stageConsensusState(req.ConsensusState)
 		// Closes the stage in flight, so the gap until the next block is charged to neither.
 		defer a.finalizePhases.Reset()
 		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
@@ -827,9 +828,9 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 	panic("unreachable")
 }
 
-// beginBlock checks height is the next block to finalize, records consensusState
-// for it, and returns the committed cursor it builds on.
-func (a *evmOnlyApplication) beginBlock(height int64, consensusState utils.Option[abci.ConsensusState]) (evmOnlyCursor, error) {
+// beginBlock checks height is the next block to finalize and returns the
+// committed cursor it builds on.
+func (a *evmOnlyApplication) beginBlock(height int64) (evmOnlyCursor, error) {
 	for state := range a.cursor.Lock() {
 		if state.pending.IsPresent() {
 			return evmOnlyCursor{}, fmt.Errorf("EVM-only block %d finalized before committing the previous block", height)
@@ -837,10 +838,17 @@ func (a *evmOnlyApplication) beginBlock(height int64, consensusState utils.Optio
 		if next := state.committed.height + 1; height != next {
 			return evmOnlyCursor{}, fmt.Errorf("EVM-only block height %d does not match next height %d", height, next)
 		}
-		state.consensusState = consensusState
 		return state.committed, nil
 	}
 	panic("unreachable")
+}
+
+// stageConsensusState sets the consensus state committed with the block being
+// finalized, replacing that of the previous block.
+func (a *evmOnlyApplication) stageConsensusState(consensusState utils.Option[abci.ConsensusState]) {
+	for state := range a.cursor.Lock() {
+		state.consensusState = consensusState
+	}
 }
 
 // abandonPending drops the cursor staged by a failed block unless the store
