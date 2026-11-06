@@ -307,6 +307,8 @@ func (*replayBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
 
 func (*replayBackend) RememberEvmSender(common.Hash, common.Address) {}
 
+func (*replayBackend) ForgetEvmSender(common.Hash) {}
+
 func (*replayBackend) EvmProxyEnabled() bool {
 	return false
 }

@@ -54,9 +54,9 @@ func evmOnlyAdmissionMinGasPrice(configured uint64) *big.Int {
 
 var evmOnlyBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
 
-// checkedSendersCap bounds the senders remembered from CheckTx per generation.
+// checkedSendersCap bounds the senders remembered per generation.
 // Entries are dropped as their transactions execute; the cap only guards against
-// admitted transactions that never reach a block.
+// remembered transactions that never reach a block.
 const checkedSendersCap = 1 << 22
 
 // senderCache remembers the sender recovered for each transaction hash. It keeps
@@ -75,13 +75,8 @@ func newSenderCache(capacity int) senderCache {
 
 func (c *senderCache) put(hash common.Hash, sender common.Address) {
 	if len(c.fresh) >= c.capacity {
-		// The forgotten generation's map is cleared and reused, so a rollover allocates nothing.
-		c.stale, c.fresh = c.fresh, c.stale
-		if c.fresh == nil {
-			c.fresh = map[common.Hash]common.Address{}
-		} else {
-			clear(c.fresh)
-		}
+		// No size hint: pre-sizing or clearing a generation costs O(capacity) under the lock.
+		c.stale, c.fresh = c.fresh, map[common.Hash]common.Address{}
 	}
 	c.fresh[hash] = sender
 }
@@ -133,8 +128,8 @@ type evmOnlyApplication struct {
 	// failed commit; the failure is latched, so it is logged once.
 	settleFailureLogged atomic.Bool
 	// checkedSenders maps the hash of every transaction this process admitted
-	// in CheckTx to the sender recovered there, so execution does not recover
-	// it again.
+	// in CheckTx, or the RPC submitted, to its recovered sender, so execution
+	// does not recover it again.
 	checkedSenders utils.Mutex[*senderCache]
 	// finalizePhases times FinalizeBlock's stages around the executor. It is a
 	// field so each application instance has its own last-phase clock.
@@ -378,12 +373,10 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx
 	// before accepting arbitrary traffic; this test app assumes executable load-test transactions.
 	tx, sender, err := a.parseTx(req.Tx)
 	if err != nil {
-		a.forgetSender(req.Tx)
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1, Log: err.Error()}}
 	}
 	gasWanted, ok := utils.SafeCast[int64](tx.Gas())
 	if !ok {
-		a.forgetSender(req.Tx)
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1, Log: "transaction gas limit exceeds int64"}}
 	}
 	a.rememberSender(tx.Hash(), sender)
@@ -407,10 +400,8 @@ func (a *evmOnlyApplication) RememberEvmSender(hash common.Hash, sender common.A
 	a.rememberSender(hash, sender)
 }
 
-// forgetSender drops any sender remembered for the transaction with these raw bytes, so a rejected
-// transaction does not hold a cache entry.
-func (a *evmOnlyApplication) forgetSender(raw []byte) {
-	hash := crypto.Keccak256Hash(raw)
+// ForgetEvmSender drops the sender remembered for the transaction with this hash, if any.
+func (a *evmOnlyApplication) ForgetEvmSender(hash common.Hash) {
 	for senders := range a.checkedSenders.Lock() {
 		senders.take(hash)
 	}

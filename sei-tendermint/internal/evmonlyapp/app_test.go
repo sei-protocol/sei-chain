@@ -533,15 +533,14 @@ func TestSenderCacheKeepsRecentEntriesAcrossRollover(t *testing.T) {
 	require.Equal(t, utils.None[common.Address](), cache.take(hashOf(2*capacity)))
 }
 
-// A transaction CheckTx rejects does not keep the sender the RPC remembered for it.
-func TestEVMOnlyApplicationForgetsTheSenderOfARejectedTx(t *testing.T) {
-	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID+1, 0)
+func TestEVMOnlyApplicationForgetsARememberedSender(t *testing.T) {
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	app, ok := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
 	require.True(t, ok)
 	hash := decodeEVMOnlyTestTx(t, raw).Hash()
 	app.RememberEvmSender(hash, common.HexToAddress("0x2000000000000000000000000000000000000002"))
+	app.ForgetEvmSender(hash)
 
-	require.NotEqual(t, abci.CodeTypeOK, app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw}).Code)
 	require.Equal(t, utils.None[common.Address](), app.checkedSender(hash))
 }
 

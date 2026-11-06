@@ -48,6 +48,8 @@ type testBackend struct {
 	minGasPrice      func() (*big.Int, error)
 	proxy            utils.Option[*ethrpc.Client]
 	proxyCalls       int
+	proxyEnabled     bool // reports proxies as enabled even when proxy is None.
+	senders          map[common.Hash]common.Address
 	storage          func(common.Address, common.Hash) (common.Hash, error)
 	executedBlocks   func() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	transactionCount func(common.Address) uint64
@@ -172,10 +174,19 @@ func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
 	return b.proxy
 }
 
-func (b *testBackend) RememberEvmSender(common.Hash, common.Address) {}
+func (b *testBackend) RememberEvmSender(hash common.Hash, sender common.Address) {
+	if b.senders == nil {
+		b.senders = map[common.Hash]common.Address{}
+	}
+	b.senders[hash] = sender
+}
+
+func (b *testBackend) ForgetEvmSender(hash common.Hash) {
+	delete(b.senders, hash)
+}
 
 func (b *testBackend) EvmProxyEnabled() bool {
-	return b.proxy.IsPresent()
+	return b.proxyEnabled || b.proxy.IsPresent()
 }
 
 func (b *testBackend) EvmStorage(address common.Address, key common.Hash) (common.Hash, error) {
