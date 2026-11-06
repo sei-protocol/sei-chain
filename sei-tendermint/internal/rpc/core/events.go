@@ -173,7 +173,9 @@ func (env *Environment) Events(ctx context.Context, req *coretypes.RequestEvents
 	}
 
 	query := tmquery.All
-	if req.Filter != nil && req.Filter.Query != "" {
+	if req.Filter != nil && len(req.Filter.Query) > maxQueryLength {
+		return nil, errors.New("maximum query length exceeded")
+	} else if req.Filter != nil && req.Filter.Query != "" {
 		q, err := tmquery.New(req.Filter.Query)
 		if err != nil {
 			return nil, fmt.Errorf("invalid filter query: %w", err)
@@ -192,6 +194,9 @@ func (env *Environment) Events(ctx context.Context, req *coretypes.RequestEvents
 	var info eventlog.Info
 	var items []*eventlog.Item
 	accept := func(itm *eventlog.Item) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		// N.B. We accept up to one item more than requested, so we can tell how
 		// to set the "more" flag in the response.
 		if len(items) > maxItems || itm.Cursor.Before(after) {
