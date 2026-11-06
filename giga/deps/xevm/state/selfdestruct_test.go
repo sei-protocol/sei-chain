@@ -29,9 +29,9 @@ func TestFinalizeSweepsDestructedAccounts(t *testing.T) {
 	statedb := state.NewDBImpl(ctx, k, false)
 	for i, acc := range accts {
 		statedb.CreateAccount(acc)
-		statedb.SetCode(acc, []byte("code"))
-		_, destructed := statedb.SelfDestruct6780(acc)
-		require.True(t, destructed)
+		statedb.SetCode(acc, []byte("code"), tracing.CodeChangeUnspecified)
+		require.True(t, statedb.IsNewContract(acc))
+		statedb.SelfDestruct(acc)
 		residual := uint256.NewInt(1)
 		if i%2 == 1 {
 			residual = uint256.NewInt(999_999_999_999)

@@ -165,7 +165,7 @@ func NewEVMOnlyApplication(
 	execution gigaconfig.ExecutionConfig,
 	customPrecompiles utils.Option[precompiles.Registry],
 ) (proxy.EVMApplication, error) {
-	chainConfig := *params.AllDevChainProtocolChanges
+	chainConfig := *evmonly.DefaultChainConfig()
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	a := &evmOnlyApplication{
 		chainID:           new(big.Int).SetUint64(chainID),

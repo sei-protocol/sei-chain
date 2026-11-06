@@ -43,6 +43,23 @@ var genesisBlockHash = common.HexToHash(genesisBlockHashHex)
 // genesisBlockTxCount is the transaction count for the synthetic genesis block (eth_getBlockTransactionCountByHash/ByNumber for genesis).
 var genesisBlockTxCount = func() *hexutil.Uint { u := hexutil.Uint(0); return &u }()
 
+// isGenesisBlockRequest reports whether number selects the synthetic genesis block:
+// 0x0, or "earliest" while this node still holds the chain's first block.
+func isGenesisBlockRequest(ctx context.Context, tmClient client.LocalClient, number rpc.BlockNumber) (bool, error) {
+	switch number {
+	case 0:
+		return true, nil
+	case rpc.EarliestBlockNumber:
+		earliest, err := earliestBlockHeight(ctx, tmClient)
+		if err != nil {
+			return false, err
+		}
+		return earliest == firstBlockHeight(tmClient), nil
+	default:
+		return false, nil
+	}
+}
+
 func encodeGenesisBlock() map[string]any {
 	return map[string]any{
 		"number":           (*hexutil.Big)(big.NewInt(0)),
@@ -100,7 +117,9 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockTransactionCountByNumber", a.namespace), a.connectionType, startTime, returnErr, recover())
 	}()
-	if number == 0 {
+	if genesis, err := isGenesisBlockRequest(ctx, a.tmClient, number); err != nil {
+		return nil, err
+	} else if genesis {
 		return genesisBlockTxCount, nil
 	}
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
@@ -197,12 +216,17 @@ func (a *BlockAPI) getBlockByNumber(
 	number rpc.BlockNumber,
 	fullTx bool,
 ) (result map[string]any, returnErr error) {
+	// synthetic genesis block, not the Tendermint block at height 0.
+	if genesis, err := isGenesisBlockRequest(ctx, a.tmClient, number); err != nil {
+		return nil, err
+	} else if genesis {
+		return encodeGenesisBlock(), nil
+	}
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
 	}
-	// synthetic genesis block, not the Tendermint block at height 0.
-	if number == 0 || (numberPtr == nil && a.ctxProvider(LatestCtxHeight).BlockHeight() == 0) {
+	if numberPtr == nil && a.ctxProvider(LatestCtxHeight).BlockHeight() == 0 {
 		return encodeGenesisBlock(), nil
 	}
 
@@ -244,8 +268,12 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	if blockNrOrHash.BlockHash != nil && *blockNrOrHash.BlockHash == genesisBlockHash {
 		return []map[string]any{}, nil
 	}
-	if blockNrOrHash.BlockNumber != nil && *blockNrOrHash.BlockNumber == 0 {
-		return []map[string]any{}, nil
+	if blockNrOrHash.BlockNumber != nil {
+		if genesis, err := isGenesisBlockRequest(ctx, a.tmClient, *blockNrOrHash.BlockNumber); err != nil {
+			return nil, err
+		} else if genesis {
+			return []map[string]any{}, nil
+		}
 	}
 	// Ethereum JSON-RPC: non-existent / above-watermark block => null, not an error.
 	// Dispatch on hash vs number directly so a nil heightPtr from getBlockNumber

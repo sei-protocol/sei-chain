@@ -40,7 +40,7 @@ func (api *callAPI) Call(ctx context.Context, args export.TransactionArgs, block
 	if err := args.CallDefaults(defaultCallGasCap, baseFee, chainID); err != nil {
 		return nil, err
 	}
-	msg := args.ToMessage(baseFee, true, true)
+	msg := args.ToMessage(baseFee, true)
 
 	result, err := api.execute(ctx, msg, height, latest)
 	if err != nil {

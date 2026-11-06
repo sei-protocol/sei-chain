@@ -82,13 +82,13 @@ type Keeper struct {
 	// used for both ETH replay and block tests. Not used in chain critical path.
 	Trie        ethstate.Trie
 	DB          ethstate.Database
-	CachingDB   *ethstate.CachingDB
+	CodeDB      *ethstate.CodeDB
 	Root        common.Hash
 	ReplayBlock *ethtypes.Block
 
 	receiptStore receipt.ReceiptStore
 
-	customPrecompiles map[common.Address]vm.PrecompiledContract
+	customPrecompiles map[common.Address]vm.CustomPrecompiledContract
 
 	// traceDB, when non-nil, serves cached debug_trace results and
 	// forwards EndBlock heights to the registered baker. nil-safe.
@@ -114,10 +114,34 @@ func (ctx *ReplayChainContext) Engine() consensus.Engine {
 
 func (ctx *ReplayChainContext) GetHeader(hash common.Hash, number uint64) *ethtypes.Header {
 	res, err := ctx.ethClient.BlockByNumber(context.Background(), big.NewInt(int64(number))) //nolint:gosec
-	if err != nil || res.Header_.Hash() != hash {
+	if err != nil || res.Header().Hash() != hash {
 		return nil
 	}
-	return res.Header_
+	return res.Header()
+}
+
+func (ctx *ReplayChainContext) CurrentHeader() *ethtypes.Header {
+	res, err := ctx.ethClient.HeaderByNumber(context.Background(), nil)
+	if err != nil {
+		return nil
+	}
+	return res
+}
+
+func (ctx *ReplayChainContext) GetHeaderByNumber(number uint64) *ethtypes.Header {
+	res, err := ctx.ethClient.HeaderByNumber(context.Background(), new(big.Int).SetUint64(number))
+	if err != nil {
+		return nil
+	}
+	return res
+}
+
+func (ctx *ReplayChainContext) GetHeaderByHash(hash common.Hash) *ethtypes.Header {
+	res, err := ctx.ethClient.HeaderByHash(context.Background(), hash)
+	if err != nil {
+		return nil
+	}
+	return res
 }
 
 func (ctx *ReplayChainContext) Config() *params.ChainConfig {
@@ -158,12 +182,12 @@ func (k *Keeper) SetTraceSnapshotCapture(f func() sctypes.Committer) {
 	k.traceSnapshotCapture = f
 }
 
-func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]vm.PrecompiledContract) {
+func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]vm.CustomPrecompiledContract) {
 	k.customPrecompiles = cp
 }
 
 // CustomPrecompiles returns the Sei custom precompiles keyed by address.
-func (k *Keeper) CustomPrecompiles() map[common.Address]vm.PrecompiledContract {
+func (k *Keeper) CustomPrecompiles() map[common.Address]vm.CustomPrecompiledContract {
 	return k.customPrecompiles
 }
 
@@ -218,7 +242,7 @@ func (k *Keeper) PurgePrefix(ctx sdk.Context, pref []byte) {
 	}
 }
 
-func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockContext, error) {
+func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp *core.GasPool) (*vm.BlockContext, error) {
 	if k.EthBlockTestConfig.Enabled {
 		return k.getBlockTestBlockCtx(ctx)
 	}
@@ -237,11 +261,11 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 	}
 	rh := crypto.Keccak256Hash(r)
 
-	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *uint256.Int) {
+	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *uint256.Int, rules *params.Rules) {
 		if IsPayablePrecompile(&recipient) {
 			state.TransferWithoutEvents(db, sender, recipient, amount)
 		} else {
-			core.Transfer(db, sender, recipient, amount)
+			core.Transfer(db, sender, recipient, amount, rules)
 		}
 	}
 	var baseFee *big.Int
@@ -351,7 +375,7 @@ func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
 	k.SetNonce(ctx, addr, a.Nonce)
 	if !bytes.Equal(a.CodeHash, ethtypes.EmptyCodeHash.Bytes()) {
 		k.PrefixStore(ctx, types.CodeHashKeyPrefix).Set(addr[:], a.CodeHash)
-		code := k.CachingDB.ContractCodeWithPrefix(addr, common.BytesToHash(a.CodeHash))
+		code := k.CodeDB.Reader().CodeWithPrefix(addr, common.BytesToHash(a.CodeHash))
 		if len(code) > 0 {
 			k.PrefixStore(ctx, types.CodeKeyPrefix).Set(addr[:], code)
 			length := make([]byte, 8)
@@ -363,15 +387,15 @@ func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
 
 func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
 	if k.EthReplayConfig.Enabled {
-		return k.ReplayBlock.Header_.BaseFee
+		return k.ReplayBlock.Header().BaseFee
 	}
 	if k.EthBlockTestConfig.Enabled {
-		bb := k.BlockTest.Json.Blocks[ctx.BlockHeight()-1]
+		bb := k.BlockTest.JSON().Blocks[ctx.BlockHeight()-1]
 		b, err := bb.Decode()
 		if err != nil {
 			panic(err)
 		}
-		return b.Header_.BaseFee
+		return b.Header().BaseFee
 	}
 	if ctx.ChainID() == Pacific1ChainID && ctx.BlockHeight() < k.upgradeKeeper.GetDoneHeight(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "6.2.0") {
 		return nil
@@ -412,17 +436,17 @@ func (k *Keeper) getInt64State(ctx sdk.Context, key []byte) int64 {
 }
 
 func (k *Keeper) getBlockTestBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
-	bb := k.BlockTest.Json.Blocks[ctx.BlockHeight()-1]
+	bb := k.BlockTest.JSON().Blocks[ctx.BlockHeight()-1]
 	b, err := bb.Decode()
 	if err != nil {
 		return nil, err
 	}
-	header := b.Header_
+	header := b.Header()
 	getHash := func(height uint64) common.Hash {
 		height = height + 1
-		for i := 0; i < len(k.BlockTest.Json.Blocks); i++ {
-			if k.BlockTest.Json.Blocks[i].BlockHeader.Number.Uint64() == height {
-				return k.BlockTest.Json.Blocks[i].BlockHeader.Hash
+		for i := 0; i < len(k.BlockTest.JSON().Blocks); i++ {
+			if k.BlockTest.JSON().Blocks[i].BlockHeader.Number.Uint64() == height {
+				return k.BlockTest.JSON().Blocks[i].BlockHeader.Hash
 			}
 		}
 		panic(fmt.Sprintf("block hash not found for height %d", height))
@@ -456,7 +480,7 @@ func (k *Keeper) getBlockTestBlockCtx(ctx sdk.Context) (*vm.BlockContext, error)
 }
 
 func (k *Keeper) getReplayBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
-	header := k.ReplayBlock.Header_
+	header := k.ReplayBlock.Header()
 	replayCtx := &ReplayChainContext{ethClient: k.EthClient, chainID: k.ChainID(ctx), params: k.GetParams(ctx)}
 	getHash := core.GetHashFn(header, replayCtx)
 	var (

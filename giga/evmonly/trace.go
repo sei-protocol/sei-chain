@@ -16,7 +16,7 @@ import (
 // applies them: a transaction the block rejected changes nothing. The result is in memory only,
 // reads through view, and belongs to the caller; it must not be used once view is closed. Its Error
 // reports the first read of view that failed, even after a reverted snapshot.
-func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView, req BlockRequest) (vm.StateDB, error) {
+func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView, req BlockRequest) (vm.SeiStateDB, error) {
 	reads := &failedRead{}
 	stateDB := newNativeStateDB(failedReadRecorder{
 		reader:  gigaSnapshotStateReader{snapshot: view, missingState: e.missingState},
@@ -31,12 +31,12 @@ func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView,
 		return nil, err
 	}
 	chainConfig := e.chainConfig(prepared.Context)
-	evm := vm.NewEVM(EVMBlockContext(prepared.Context), stateDB, chainConfig, vm.Config{}, e.customContracts)
+	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(prepared.Context), stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 	// executeTx does not watch ctx, so the EVM is stopped mid-transaction once ctx ends.
 	stop := context.AfterFunc(ctx, evm.Cancel)
 	defer stop()
-	gasPool := new(core.GasPool).AddGas(prepared.Context.GasLimit)
+	gasPool := core.NewGasPool(prepared.Context.GasLimit)
 	baseFee := cloneOptionalBig(prepared.Context.BaseFee)
 	for txIndex, p := range prepared.Txs {
 		if err := ctx.Err(); err != nil {

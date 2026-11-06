@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
@@ -29,7 +30,7 @@ type Executor struct {
 	resultPool      *blockResultPool
 	stateDBPool     sync.Pool
 	endBlockers     []endBlocker
-	customContracts map[common.Address]vm.PrecompiledContract
+	customContracts map[common.Address]vm.CustomPrecompiledContract
 	storeMu         sync.Mutex
 	stateStore      gigatypes.StateDB
 	receiptStore    receipt.ReceiptStore
@@ -303,10 +304,10 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
 	blockCtx := EVMBlockContext(req.Context)
-	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, e.customContracts)
+	evm := vm.NewEVMWithCustomPrecompiles(blockCtx, stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 
-	gasPool := new(core.GasPool).AddGas(req.Context.GasLimit)
+	gasPool := core.NewGasPool(req.Context.GasLimit)
 	baseFee := cloneOptionalBig(req.Context.BaseFee)
 
 	result, err := e.acquireBlockResult(ctx, len(req.Txs))
@@ -338,7 +339,7 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 		txIndexUint++
 	}
 	stateDB.clearSnapshots()
-	stateDB.Finalise(true)
+	stateDB.Finalise(evm.GetRules())
 	stateDB.ChangeSetInto(&result.ChangeSet)
 	ok = true
 	return result, nil
@@ -368,14 +369,19 @@ func (e *Executor) executeTx(
 		}
 	}
 
-	msg := transactionToPreparedMessage(p, baseFee)
-	msg.SkipNonceChecks = e.cfg.DisableNonceCheck
+	msg, err := transactionToPreparedMessage(p, baseFee)
+	if err != nil {
+		return e.unappliableTx(p, block, txIndexUint, baseFee, err)
+	}
+	if e.cfg.DisableNonceCheck {
+		msg.SkipNonceCheck()
+	}
 
 	stateDB.setTxContext(tx.Hash(), txIndex, txIndexUint)
 	logStart := len(stateDB.logs)
 	snapshot := stateDB.Snapshot()
 	// ApplyMessage debits the pool in buyGas before later pre-checks can fail.
-	poolGas := gasPool.Gas()
+	poolSnapshot := gasPool.Snapshot()
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 	execResult, err := core.ApplyMessage(evm, msg, gasPool)
 	// Read before any revert: RevertToSnapshot restores the recorded error too.
@@ -383,17 +389,15 @@ func (e *Executor) executeTx(
 		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: stateErr}, nil, stateErr
 	}
 	if err != nil {
-		if !e.cfg.RejectUnappliableTxs {
-			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
+		if e.cfg.RejectUnappliableTxs {
+			stateDB.RevertToSnapshot(snapshot)
+			stateDB.clearSnapshots()
+			gasPool.Set(poolSnapshot)
 		}
-		stateDB.RevertToSnapshot(snapshot)
-		stateDB.clearSnapshots()
-		gasPool.SetGas(poolGas)
-		txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
-		return txResult, receipt, nil
+		return e.unappliableTx(p, block, txIndexUint, baseFee, err)
 	}
 	stateDB.clearSnapshots()
-	stateDB.Finalise(true)
+	stateDB.Finalise(evm.GetRules())
 
 	txLogs := append([]*ethtypes.Log(nil), stateDB.logs[logStart:]...)
 	for _, log := range txLogs {
@@ -443,6 +447,22 @@ func (e *Executor) executeTx(
 	return txResult, receipt, nil
 }
 
+// unappliableTx returns the outcome for a transaction that cannot be applied: err, failing
+// the block, or a failed receipt when RejectUnappliableTxs is set.
+func (e *Executor) unappliableTx(
+	p PreparedTx,
+	block BlockContext,
+	txIndexUint uint,
+	baseFee *big.Int,
+	err error,
+) (TxResult, *ethtypes.Receipt, error) {
+	if !e.cfg.RejectUnappliableTxs {
+		return TxResult{Hash: p.Tx.Hash(), Sender: p.Sender, To: p.Tx.To(), Err: err}, nil, err
+	}
+	txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
+	return txResult, receipt, nil
+}
+
 // rejectedTx builds the failed, zero-gas receipt and result for a transaction the
 // executor did not run.
 func rejectedTx(
@@ -474,32 +494,47 @@ func rejectedTx(
 	}, receipt
 }
 
-func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) *core.Message {
+func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) (*core.Message, error) {
 	tx := p.Tx
+	gasPrice, overflow := uint256.FromBig(tx.GasPrice())
+	if overflow {
+		return nil, fmt.Errorf("%w: address %v, gasPrice bit length: %d", core.ErrFeeCapVeryHigh, p.Sender.Hex(), tx.GasPrice().BitLen())
+	}
+	gasFeeCap, overflow := uint256.FromBig(tx.GasFeeCap())
+	if overflow {
+		return nil, fmt.Errorf("%w: address %v, maxFeePerGas bit length: %d", core.ErrFeeCapVeryHigh, p.Sender.Hex(), tx.GasFeeCap().BitLen())
+	}
+	gasTipCap, overflow := uint256.FromBig(tx.GasTipCap())
+	if overflow {
+		return nil, fmt.Errorf("%w: address %v, maxPriorityFeePerGas bit length: %d", core.ErrTipVeryHigh, p.Sender.Hex(), tx.GasTipCap().BitLen())
+	}
+	value, overflow := uint256.FromBig(tx.Value())
+	if overflow {
+		return nil, fmt.Errorf("%w: address %v, value exceeds 256 bits", core.ErrInsufficientFunds, p.Sender.Hex())
+	}
+	blobGasFeeCap, overflow := uint256.FromBig(tx.BlobGasFeeCap())
+	if overflow {
+		return nil, fmt.Errorf("%w: address %v, blobGasFeeCap exceeds 256 bits", core.ErrFeeCapVeryHigh, p.Sender.Hex())
+	}
 	msg := &core.Message{
 		From:                  p.Sender,
 		Nonce:                 tx.Nonce(),
 		GasLimit:              tx.Gas(),
-		GasPrice:              new(big.Int).Set(tx.GasPrice()),
-		GasFeeCap:             new(big.Int).Set(tx.GasFeeCap()),
-		GasTipCap:             new(big.Int).Set(tx.GasTipCap()),
+		GasPrice:              gasPrice,
+		GasFeeCap:             gasFeeCap,
+		GasTipCap:             gasTipCap,
 		To:                    tx.To(),
-		Value:                 tx.Value(),
+		Value:                 value,
 		Data:                  tx.Data(),
 		AccessList:            tx.AccessList(),
 		SetCodeAuthorizations: tx.SetCodeAuthorizations(),
-		SkipNonceChecks:       false,
-		SkipFromEOACheck:      false,
 		BlobHashes:            tx.BlobHashes(),
-		BlobGasFeeCap:         tx.BlobGasFeeCap(),
+		BlobGasFeeCap:         blobGasFeeCap,
 	}
 	if baseFee != nil {
-		msg.GasPrice = msg.GasPrice.Add(msg.GasTipCap, baseFee)
-		if msg.GasPrice.Cmp(msg.GasFeeCap) > 0 {
-			msg.GasPrice = msg.GasFeeCap
-		}
+		msg.GasPrice = uint256.MustFromBig(EffectiveGasPrice(tx, baseFee))
 	}
-	return msg
+	return msg, nil
 }
 
 // EVMBlockContext returns the go-ethereum block context the executor runs a block with context ctx
@@ -538,7 +573,7 @@ func (unresolvedCustomPrecompile) Run(*vm.EVM, common.Address, common.Address, [
 	return nil, precompiles.ErrCustomPrecompilesOpen
 }
 
-func customPrecompileMap(registry precompiles.Registry) map[common.Address]vm.PrecompiledContract {
+func customPrecompileMap(registry precompiles.Registry) map[common.Address]vm.CustomPrecompiledContract {
 	if registry == nil {
 		return nil
 	}
@@ -546,7 +581,7 @@ func customPrecompileMap(registry precompiles.Registry) map[common.Address]vm.Pr
 	if len(addresses) == 0 {
 		return nil
 	}
-	contracts := make(map[common.Address]vm.PrecompiledContract, len(addresses))
+	contracts := make(map[common.Address]vm.CustomPrecompiledContract, len(addresses))
 	for _, addr := range addresses {
 		contract, ok := registry.Get(addr)
 		if !ok || contract == nil {
@@ -563,7 +598,7 @@ func (e *Executor) chainConfig(ctx BlockContext) *params.ChainConfig {
 	if e.cfg.ChainConfig != nil {
 		cfg = *e.cfg.ChainConfig
 	} else {
-		cfg = *params.AllDevChainProtocolChanges
+		cfg = *DefaultChainConfig()
 	}
 	if ctx.ChainID != nil {
 		cfg.ChainID = new(big.Int).Set(ctx.ChainID)
@@ -572,6 +607,8 @@ func (e *Executor) chainConfig(ctx BlockContext) *params.ChainConfig {
 	} else {
 		cfg.ChainID = big.NewInt(1)
 	}
+	// Sei pays the base fee to the coinbase instead of burning it.
+	cfg.SeiCoinbaseReceivesBaseFee = true
 	return &cfg
 }
 

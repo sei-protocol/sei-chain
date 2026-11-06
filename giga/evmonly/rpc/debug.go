@@ -105,7 +105,7 @@ func (api *debugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 		ctx = withLatestState(ctx)
 	}
 	return api.trace(ctx, &config.TraceConfig, func(ctx context.Context, _ *tracers.TraceConfig) (any, error) {
-		return api.calls.TraceCall(ctx, args, blockNrOrHash, config)
+		return api.calls.TraceCall(ctx, args, &blockNrOrHash, config)
 	})
 }
 

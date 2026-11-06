@@ -29,7 +29,7 @@ func (a *evmOnlyApplication) EvmBlockContext(header *ethtypes.Header) (vm.BlockC
 // EvmStateAt returns the committed EVM state after height, or the latest committed state when height
 // is rpc.LatestBlockNumber, held in memory, and the function that releases it. The state must not be
 // used once released.
-func (a *evmOnlyApplication) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error) {
+func (a *evmOnlyApplication) EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, func(), error) {
 	return a.replayState(ctx, height, evmonly.BlockRequest{})
 }
 
@@ -37,7 +37,7 @@ func (a *evmOnlyApplication) EvmStateAt(ctx context.Context, height int64) (vm.S
 // executed against, and the function that releases it: the committed state after the previous
 // block with txs, the block's transactions before it, applied. The state must not be used once
 // released.
-func (a *evmOnlyApplication) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
+func (a *evmOnlyApplication) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
 	number, err := headerNumber(header)
 	if err != nil {
 		return nil, nil, err
@@ -59,7 +59,7 @@ func (a *evmOnlyApplication) traceBlockContext(number uint64, header *ethtypes.H
 // replayState opens the committed EVM state after height, or the latest committed state when height
 // is rpc.LatestBlockNumber, and applies req's transactions to it. A read the state store can no
 // longer serve, such as one at a height pruned mid-replay, is returned as an error.
-func (a *evmOnlyApplication) replayState(ctx context.Context, height int64, req evmonly.BlockRequest) (_ vm.StateDB, _ func(), err error) {
+func (a *evmOnlyApplication) replayState(ctx context.Context, height int64, req evmonly.BlockRequest) (_ vm.SeiStateDB, _ func(), err error) {
 	executor, err := a.loadedExecutor("trace")
 	if err != nil {
 		return nil, nil, err
