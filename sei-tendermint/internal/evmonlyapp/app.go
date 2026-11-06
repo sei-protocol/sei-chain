@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
@@ -441,6 +442,20 @@ func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.
 	if tx.Type() == ethtypes.BlobTxType {
 		return nil, common.Address{}, fmt.Errorf("blob transactions are not supported")
 	}
+	// Gated on Osaka being scheduled rather than active: a tx admitted before
+	// the fork can land in a block after it, where the executor refuses it.
+	if a.chainConfig.OsakaTime != nil && tx.Gas() > params.MaxTxGas {
+		return nil, common.Address{}, fmt.Errorf("%w (cap: %d, tx: %d)", ethcore.ErrGasLimitTooHigh, params.MaxTxGas, tx.Gas())
+	}
+	// The committed block's rules, not the next block's: a limit a fork raises
+	// stays at its old value until a block past the fork commits, so an admitted
+	// transaction is valid in the next block on either side of it.
+	if tx.To() == nil {
+		rules := a.committedRules()
+		if err := vm.CheckMaxInitCodeSize(&rules, uint64(len(tx.Data()))); err != nil {
+			return nil, common.Address{}, err
+		}
+	}
 	// The predicate block validity uses, not tx.GasPrice(): on a dynamic-fee tx
 	// that is the fee cap, so admitting on it let through transactions the
 	// executor then refused — and an executor refusal is a node panic, not a
@@ -453,6 +468,14 @@ func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.
 		return nil, common.Address{}, err
 	}
 	return tx, sender, nil
+}
+
+// committedRules returns the fork rules of the most recently committed block.
+func (a *evmOnlyApplication) committedRules() params.Rules {
+	for state := range a.cursor.Lock() {
+		return a.chainConfig.Rules(big.NewInt(state.committed.height), true, state.lastBlockTime)
+	}
+	panic("unreachable")
 }
 
 func evmOnlyStoreAddress(address common.Address) gigatypes.Address {

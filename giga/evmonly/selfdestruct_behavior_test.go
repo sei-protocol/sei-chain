@@ -107,7 +107,7 @@ func TestEVMOnlySelfDestructSemantics_Behavior(t *testing.T) {
 		require.Empty(t, run.result.ChangeSet.StorageClears)
 	})
 
-	t.Run("same-tx created contract destructing to itself burns its balance", func(t *testing.T) {
+	t.Run("same-tx created contract destructing to itself keeps its balance", func(t *testing.T) {
 		state := NewMemoryState()
 		state.SetBalance(sender, big.NewInt(behaviorSenderFunds))
 		raw := signLegacyTxWithGasPrice(t, key, chainID, 0, nil, big.NewInt(1000),
@@ -120,10 +120,10 @@ func TestEVMOnlySelfDestructSemantics_Behavior(t *testing.T) {
 		requireAddressParity(t, state, run.geth.state, sender)
 		gasUsed := run.result.Txs[0].GasUsed
 		require.Equal(t, uint64(80_474), gasUsed)
-		require.Equal(t, big.NewInt(0), state.GetBalance(created))
+		require.Equal(t, big.NewInt(1000), state.GetBalance(created), "EIP-8246 keeps the balance")
 		require.Empty(t, state.GetCode(created))
 		require.Equal(t, uint64(0), state.GetNonce(created))
-		// Sender paid value + gas; the 1000 wei is burned.
+		// Sender paid value + gas.
 		require.Equal(t, big.NewInt(behaviorSenderFunds-1000-int64(gasUsed)), state.GetBalance(sender)) //nolint:gosec
 		require.Equal(t, big.NewInt(int64(gasUsed)), state.GetBalance(blockContext(chainID).Coinbase))  //nolint:gosec
 	})
@@ -187,9 +187,8 @@ func TestEVMOnlySelfDestructSemantics_Behavior(t *testing.T) {
 		require.Equal(t, big.NewInt(95), state.GetBalance(factory))
 		require.Empty(t, state.GetCode(child))
 		require.Equal(t, uint64(0), state.GetNonce(child))
-		// geth burns the 5 wei received after SELFDESTRUCT.
-		require.Equal(t, "0", run.geth.state.GetBalance(child).String())
-		// DIVERGENCE: evmonly keeps value sent after same-tx selfdestruct; geth burns it.
+		// EIP-8246: the 5 wei received after SELFDESTRUCT is kept, matching geth.
+		require.Equal(t, "5", run.geth.state.GetBalance(child).String())
 		require.Equal(t, big.NewInt(5), state.GetBalance(child))
 	})
 }

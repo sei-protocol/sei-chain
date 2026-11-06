@@ -322,8 +322,8 @@ func TestGigaVsV2_SelfDestructFallback_Behavior(t *testing.T) {
 			wantGasUsed:  80_210,
 			wantCodeSize: 0,
 			wantSlot0:    common.Hash{},
-			wantContract: big.NewInt(0),
-			wantBenef:    big.NewInt(0),
+			wantContract: prefund, // EIP-8246 keeps the balance
+			wantBenef:    prefund,
 		},
 	}
 
