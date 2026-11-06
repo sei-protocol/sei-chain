@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/big"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -102,4 +103,34 @@ func TestFetchBlocksByCritFailsWhenABlockReadPanics(t *testing.T) {
 	require.Empty(t, fetcher.dbReadSemaphore)
 	require.Equal(t, slotsHeldBefore, metrics.DBSemaphoreAcquired.Load())
 	require.Equal(t, panicsBefore+1, metrics.TasksPanicked.Load())
+}
+
+type blockCountingClient struct {
+	*heightTestClient
+	blockCalls atomic.Int64
+}
+
+func (c *blockCountingClient) Block(ctx context.Context, height *int64) (*coretypes.ResultBlock, error) {
+	c.blockCalls.Add(1)
+	return c.heightTestClient.Block(ctx, height)
+}
+
+func TestFetchBlocksByCritStopsReadingBlocksOnceCancelled(t *testing.T) {
+	const latest = 1000
+	client := &blockCountingClient{heightTestClient: newHeightTestClient(latest+10, 1, latest)}
+	fetcher := &LogFetcher{
+		tmClient:           client,
+		dbReadSemaphore:    make(chan struct{}, 1),
+		globalBlockCache:   NewBlockCache(latest),
+		cacheCreationMutex: &sync.Mutex{},
+		watermarks:         newHeightTestWatermarks(client, latest),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	crit := filters.FilterCriteria{FromBlock: big.NewInt(1), ToBlock: big.NewInt(3 * int64(evmrpcconfig.WorkerBatchSize))}
+
+	blocks, _, err := fetcher.fetchBlocksByCrit(ctx, crit, nil)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, blocks)
+	require.Zero(t, client.blockCalls.Load())
 }
