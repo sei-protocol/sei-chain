@@ -208,3 +208,30 @@ func TestBeginBlockClearsAPlanThatDoesNotDecode(t *testing.T) {
 	require.ErrorIs(t, failures[0], precompiles.ErrDegraded)
 	requireNoPlan(t, state)
 }
+
+func TestBeginBlockReadsAPlansInfoOnlyWhenItNeedsIt(t *testing.T) {
+	undecodableInfo := func() *memState {
+		state := scheduled(t, Plan{Name: "v7.0", Height: 10, Info: `{"upgradeType":"minor"}`})
+		state.SetState(Address, planSlot(planInfo), common.Hash{0: 0xff, 31: 0x01})
+		return state
+	}
+
+	state := undecodableInfo()
+	before := state.clone()
+	failures, err := Precompile{Handlers: map[string]Handler{"v6.8": nil}}.BeginBlock(block(9), state)
+	require.NoError(t, err)
+	require.Empty(t, failures, "a binary without the plan's handler does not read its info")
+	require.Equal(t, before, state)
+
+	failures, err = Precompile{Handlers: map[string]Handler{"v6.8": nil, "v7.0": nil}}.BeginBlock(block(9), state)
+	require.NoError(t, err, "info that does not decode does not halt the binary holding the handler")
+	require.Len(t, failures, 1)
+	require.ErrorIs(t, failures[0], precompiles.ErrDegraded)
+	require.Equal(t, before, state, "a plan not yet due is left for every binary to clear when it is due")
+
+	failures, err = Precompile{Handlers: map[string]Handler{"v6.8": nil}}.BeginBlock(block(10), state)
+	require.NoError(t, err)
+	require.Len(t, failures, 1)
+	require.ErrorIs(t, failures[0], precompiles.ErrDegraded)
+	requireNoPlan(t, state)
+}
