@@ -35,10 +35,13 @@ func TestTraceTransactionTimeoutReleasesSemaphore(t *testing.T) {
 
 	store := newSlowSkipStore()
 	backend := newSlowIterTraceBackend(store)
+	k := newTestKeeperWithReceiptStore()
+	ctxProvider := func(int64) sdk.Context { return sdk.Context{} }
 	api := &DebugAPI{
 		tracersAPI:         tracers.NewAPI(backend),
-		keeper:             newTestKeeperWithReceiptStore(),
-		ctxProvider:        func(int64) sdk.Context { return sdk.Context{} },
+		keeper:             k,
+		ctxProvider:        ctxProvider,
+		backend:            &Backend{keeper: k, ctxProvider: ctxProvider},
 		traceCallSemaphore: make(chan struct{}, 1),
 		traceTimeout:       50 * time.Millisecond,
 	}

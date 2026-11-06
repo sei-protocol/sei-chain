@@ -32,7 +32,7 @@ func TestEarliestResolvesToLowestAvailableBlock(t *testing.T) {
 	blocks, err := wm.EarliestHeight(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int64(500), blocks)
-	receipts, _, err := wm.ReceiptRange(context.Background())
+	receipts, err := wm.EarliestReceiptHeight(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int64(500), receipts)
 }

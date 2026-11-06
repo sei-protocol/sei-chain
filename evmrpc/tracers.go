@@ -392,6 +392,11 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	}
 	defer done()
 
+	// The tracer's lookup has no ctx and reports any failure as not found.
+	if _, _, _, _, _, err := api.backend.GetTransaction(ctx, hash); err != nil {
+		return nil, err
+	}
+
 	if config == nil {
 		config = &tracers.TraceConfig{}
 	}

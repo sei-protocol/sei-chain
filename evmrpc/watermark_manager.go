@@ -115,20 +115,6 @@ func (m *WatermarkManager) EarliestHeight(ctx context.Context) (int64, error) {
 	return blockEarliest, err
 }
 
-// ReceiptRange returns the inclusive range of heights with receipts available, never
-// starting below the genesis initial height.
-func (m *WatermarkManager) ReceiptRange(ctx context.Context) (earliest, latest int64, err error) {
-	blockEarliest, _, latest, err := m.Watermarks(ctx)
-	if err != nil {
-		return 0, 0, err
-	}
-	earliest = max(blockEarliest, m.genesisInitialHeight())
-	if m.receiptStore != nil {
-		earliest = max(earliest, m.receiptStore.EarliestVersion())
-	}
-	return earliest, latest, nil
-}
-
 // EarliestStateHeight returns the earliest height with state availability.
 func (m *WatermarkManager) EarliestStateHeight(ctx context.Context) (int64, error) {
 	_, stateEarliest, _, err := m.Watermarks(ctx)
