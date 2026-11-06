@@ -177,6 +177,13 @@ func compileCondition(cond syntax.Condition) (condition, error) {
 	switch argType {
 	case syntax.TString:
 		argValue = cond.Arg.Value()
+		if cond.Op == syntax.TMatches {
+			re, err := regexp.Compile(cond.Arg.Value())
+			if err != nil {
+				return condition{}, fmt.Errorf("invalid regular expression: %w", err)
+			}
+			argValue = re
+		}
 	case syntax.TNumber:
 		argValue = cond.Arg.Number()
 	case syntax.TTime, syntax.TDate:
@@ -218,10 +225,7 @@ var opTypeMap = map[syntax.Token]map[syntax.Token]func(interface{}) func(string)
 	},
 	syntax.TMatches: {
 		syntax.TString: func(v interface{}) func(string) bool {
-			return func(s string) bool {
-				match, _ := regexp.MatchString(v.(string), s)
-				return match
-			}
+			return v.(*regexp.Regexp).MatchString
 		},
 	},
 	syntax.TEq: {

@@ -222,6 +222,12 @@ func TestCompiledMatches(t *testing.T) {
 	}
 }
 
+func TestMatchesRejectsInvalidRegexp(t *testing.T) {
+	if q, err := query.New(`tm.event MATCHES '('`); err == nil {
+		t.Fatalf("New: got %v, want error", q)
+	}
+}
+
 func TestAllMatchesAll(t *testing.T) {
 	events := newTestEvents(
 		``,
