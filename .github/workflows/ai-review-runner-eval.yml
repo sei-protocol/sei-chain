@@ -3,14 +3,16 @@ name: AI review (runner) eval
 # Replays the runner review on pull requests seidroid already reviewed, at the commits it
 # reviewed, so the two verdicts can be compared. followup re-reviews a later commit of the
 # same pull request with the state the first pass left.
+# On pull_request because claude-code-action does not run on push.
 on:
-  push:
-    branches: ['masih/*-ai-review-runner']
+  pull_request:
+    types: [opened, synchronize]
 
 permissions: {}
 
 jobs:
   first:
+    if: endsWith(github.head_ref, '-ai-review-runner')
     strategy:
       fail-fast: false
       matrix:
@@ -39,7 +41,7 @@ jobs:
 
   followup:
     needs: first
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && endsWith(github.head_ref, '-ai-review-runner') }}
     strategy:
       fail-fast: false
       matrix:
