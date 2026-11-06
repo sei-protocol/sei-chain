@@ -66,6 +66,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$INPUTS"
+          # The prompt comes from the revision this workflow runs at, not the one under review.
+          templates="$RUNNER_TEMP/templates" && cp -r .github/ai-review-runner "$templates"
           git fetch -q --no-tags origin "$HEAD_SHA"
           git checkout -q --detach "$HEAD_SHA"
 
@@ -92,13 +94,13 @@ jobs:
               git diff "$prior_tree" HEAD > "$INPUTS/since-last.diff"
               SINCE_LINES=$(wc -l < "$INPUTS/since-last.diff")
             fi
-            PRIOR_STEP=$(envsubst "\${PRIOR_SHA} \${INPUTS} \${SINCE_LINES}" < .github/ai-review-runner/prior.md)
+            PRIOR_STEP=$(envsubst "\${PRIOR_SHA} \${INPUTS} \${SINCE_LINES}" < "$templates/prior.md")
           fi
 
           {
             echo 'prompt<<PROMPT_EOF'
             envsubst "\${REPO} \${PR} \${HEAD_SHA} \${BASE_SHA} \${INPUTS} \${DIFF_LINES} \${PRIOR_STEP}" \
-              < .github/ai-review-runner/prompt.md
+              < "$templates/prompt.md"
             echo 'PROMPT_EOF'
           } >> "$GITHUB_OUTPUT"
           echo "DIFF_LINES=$DIFF_LINES" >> "$GITHUB_ENV"
