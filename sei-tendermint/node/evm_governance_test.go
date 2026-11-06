@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -31,6 +32,7 @@ func TestEVMOnlyCustomPrecompiles(t *testing.T) {
 	_, ok = r.Get(gov.Address)
 	require.True(t, ok)
 	require.Equal(t, []common.Address{gov.Address}, r.EndBlockers())
+	require.Equal(t, []common.Address{upgrade.Address}, r.BeginBlockers())
 
 	fc.Validators[1].EVMVoter = utils.None[common.Address]()
 	_, err = evmOnlyCustomPrecompiles(fc, validators)
