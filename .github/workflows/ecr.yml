@@ -63,6 +63,7 @@ jobs:
           build-args: |
             SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
             GO_BUILD_TAGS=mock_balances
+            GO_EXPERIMENT=simd
       - name: Build and push seid with mock block validation
         uses: docker/build-push-action@v6
         with:
