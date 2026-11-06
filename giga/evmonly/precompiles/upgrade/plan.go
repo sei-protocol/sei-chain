@@ -17,7 +17,7 @@ import (
 // Limits on a plan's fields.
 const (
 	MaxNameLength = 128
-	MaxInfoLength = 8 << 10
+	MaxInfoLength = 4 << 10
 )
 
 // Plan is a scheduled software upgrade. Height is an EVM block number.
