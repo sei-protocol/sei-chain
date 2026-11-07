@@ -175,7 +175,7 @@ func NewEVMHTTPServer(
 				k,
 				logCtxProvider,
 				txConfigProvider,
-				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog, maxFilters: config.MaxFilters, maxBlockFilterHashes: config.MaxBlockFilterHashes},
+				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog, maxFilters: config.MaxFilters, maxBlockFilterHashes: config.MaxBlockFilterHashes, largeQueryRPS: config.LargeLogQueryRPS},
 				ConnectionTypeHTTP,
 				EthNamespace,
 				dbReadSemaphore,

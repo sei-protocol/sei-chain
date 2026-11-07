@@ -50,8 +50,6 @@ const (
 	DefaultMaxFilters           = 1000
 	DefaultMaxBlockFilterHashes = 1000
 
-	// global request rate limit, only applies to queries > RPSLimitThreshold
-	GlobalRPSLimit    = 30
 	RPSLimitThreshold = 100 // block range queries below this threshold bypass rate limiting
 
 	// rangeQueryWindowBlocks bounds how many blocks tryFilterLogsRange asks the
@@ -306,6 +304,7 @@ type FilterConfig struct {
 	maxBlock             int64
 	maxFilters           uint64
 	maxBlockFilterHashes uint64
+	largeQueryRPS        int
 }
 
 type EventItemDataWrapper struct {
@@ -369,7 +368,7 @@ func NewFilterAPI(
 		connectionType:      connectionType,
 		shutdownCtx:         shutdownCtx,
 		shutdownCancel:      shutdownCancel,
-		globalRPSLimiter:    rate.NewLimiter(rate.Limit(GlobalRPSLimit), GlobalRPSLimit),
+		globalRPSLimiter:    newLargeQueryLimiter(filterConfig.largeQueryRPS),
 		poolMetrics:         GetGlobalMetrics(),
 		blockHeaderNotifier: blockHeaderNotifier,
 	}
@@ -748,10 +747,14 @@ func checkLogQueryAdmission(blockRange, maxBlock int64, limiter *rate.Limiter, m
 	if err := checkBlockRange(blockRange, maxBlock); err != nil {
 		return err
 	}
+	// Before the limiter, so a query refused under load does not spend a token.
+	if err := checkLoad(m); err != nil {
+		return err
+	}
 	if blockRange > RPSLimitThreshold && !limiter.Allow() {
 		return &errLogQueryRefused{msg: "log query rate limit exceeded for large queries, please try again later"}
 	}
-	return checkLoad(m)
+	return nil
 }
 
 // checkPollAdmission returns how many of blockRange blocks a filter poll may scan: all of them
@@ -762,15 +765,24 @@ func checkPollAdmission(blockRange, maxBlock int64, limiter *rate.Limiter, m *Wo
 	if err := checkBlockRange(blockRange, maxBlock); err != nil {
 		return 0, err
 	}
+	if err := checkLoad(m); err != nil {
+		return 0, err
+	}
 	if blockRange > RPSLimitThreshold && !limiter.Allow() {
 		// Cut rather than refused, so a filter that has fallen behind keeps moving instead of
 		// waiting on tokens.
 		blockRange = RPSLimitThreshold
 	}
-	if err := checkLoad(m); err != nil {
-		return 0, err
-	}
 	return blockRange, nil
+}
+
+// newLargeQueryLimiter returns the limiter admitting log queries over RPSLimitThreshold blocks at
+// rps per second with a burst of rps. A non-positive rps admits every query.
+func newLargeQueryLimiter(rps int) *rate.Limiter {
+	if rps <= 0 {
+		return rate.NewLimiter(rate.Inf, 0)
+	}
+	return rate.NewLimiter(rate.Limit(rps), rps)
 }
 
 // checkLoad refuses any log query while the worker queue or the DB read semaphore in m is 80% used.
