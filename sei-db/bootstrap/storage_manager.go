@@ -63,7 +63,7 @@ type GigaStorageManager struct {
 //  1. Perform a config validation.
 //  2. Construct and open all DBs with the config.
 //  3. OpenDBWithRecovery: open the app hash builder, bring every store onto one height, then complete the
-//     builder's setup at that height.
+//     builder's setup at that height, unless DeferAppHashBuilderSetup leaves it to the caller.
 //  4. Start the garbage collector.
 func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (*GigaStorageManager, error) {
 	if err := cfg.Validate(); err != nil {
