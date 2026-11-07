@@ -79,10 +79,8 @@ type littReceiptStore struct {
 
 	latestVersion atomic.Int64
 	// stagedVersion is the head the next write follows: latestVersion, or above it by a block whose
-	// index commit is still in flight when commits are pipelined.
+	// index commit is still in flight when writes are queued.
 	stagedVersion atomic.Int64
-	// pipelinedCommits commits each block's index on its own goroutine; see PipelinedIndexCommits.
-	pipelinedCommits bool
 	// commitDone is closed once the index commit in flight lands. Guarded by writeMu.
 	commitDone      chan struct{}
 	earliestVersion atomic.Int64
@@ -261,7 +259,6 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	receiptMeter := otel.Meter("seidb_receipt")
 	s.writePhases = seidbmetrics.NewPhaseTimer(receiptMeter, "receipt_store_write")
 	if cfg.AsyncWriteBuffer > 0 {
-		s.pipelinedCommits = cfg.PipelinedIndexCommits
 		s.writes = make(chan receiptWrite, cfg.AsyncWriteBuffer)
 		s.writeQueue = seidbmetrics.NewQueueMeter(receiptMeter, "receipt_write")
 		s.startWriter()
@@ -482,7 +479,7 @@ func (s *littReceiptStore) writeReceipts(height int64, receipts []receipt.Receip
 	if err := s.awaitIndexCommit(); err != nil {
 		return err
 	}
-	if !s.pipelinedCommits {
+	if s.writes == nil {
 		if err := batch.Commit(dbtypes.WriteOptions{}); err != nil {
 			return err
 		}

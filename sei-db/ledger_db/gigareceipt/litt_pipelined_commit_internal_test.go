@@ -36,7 +36,6 @@ func (b *heldBatch) Commit(opts dbtypes.WriteOptions) error {
 func openPipelinedStore(t *testing.T, dir string) *littReceiptStore {
 	t.Helper()
 	cfg := littIdxCfg(dir)
-	cfg.PipelinedIndexCommits = true
 	_, storeKey := newTestContext()
 	store, err := NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)

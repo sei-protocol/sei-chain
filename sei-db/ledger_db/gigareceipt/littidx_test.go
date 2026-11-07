@@ -123,8 +123,9 @@ func TestLittIdxWriteBufferBoundsLag(t *testing.T) {
 		record := litReceipt(block, 0, addr, common.HexToHash("0xdead"))
 		height := int64(block) //nolint:gosec // small test heights
 		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(height), []receipt.ReceiptRecord{record}))
-		// One queued block plus the one in flight is as far as the store may trail.
-		require.GreaterOrEqual(t, store.LatestVersion(), int64(block)-2) //nolint:gosec // small test heights
+		// One queued block, the one being staged and the one whose index commit is in flight is as far
+		// as the store may trail.
+		require.GreaterOrEqual(t, store.LatestVersion(), int64(block)-3) //nolint:gosec // small test heights
 	}
 
 	require.Eventually(t, func() bool { return store.LatestVersion() == blocks },
@@ -141,7 +142,6 @@ func TestLittIdxPipelinedIndexCommitsKeepEveryBlock(t *testing.T) {
 	cfg.DBDirectory = t.TempDir()
 	cfg.KeepRecent = 0
 	cfg.AsyncWriteBuffer = 4
-	cfg.PipelinedIndexCommits = true
 
 	store, err := gigareceipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
