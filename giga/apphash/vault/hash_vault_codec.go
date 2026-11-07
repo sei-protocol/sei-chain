@@ -15,8 +15,13 @@ const recordVersion uint8 = 1
 // and the app hash.
 const restoreAnchorRecordVersion uint8 = 2
 
-// The length of a restore anchor's encoding, its version byte included.
-const restoreAnchorRecordSize = 1 + 8 + 8 + 32
+// The layout of a restore anchor's encoding, which starts with its version byte.
+const (
+	restoreAnchorChainIDOffset     = 1
+	restoreAnchorBlockHeightOffset = restoreAnchorChainIDOffset + 8
+	restoreAnchorAppHashOffset     = restoreAnchorBlockHeightOffset + 8
+	restoreAnchorRecordSize        = restoreAnchorAppHashOffset + 32
+)
 
 // Encodes a record as its record version followed by its fields: the canonical app hash serialization, or for a
 // restore anchor, the fields it holds. Errors if the record cannot be serialized.
@@ -33,12 +38,13 @@ func serializeRecord(record *apphash.AppHashData) ([]byte, error) {
 
 // Encodes a restore anchor as restoreAnchorRecordVersion followed by its chain ID, block height and app hash.
 func serializeRestoreAnchor(anchor *apphash.AppHashData) []byte {
-	data := make([]byte, 0, restoreAnchorRecordSize)
-	data = append(data, restoreAnchorRecordVersion)
-	data = binary.BigEndian.AppendUint64(data, anchor.ChainID())
-	data = binary.BigEndian.AppendUint64(data, anchor.BlockHeight())
+	data := make([]byte, restoreAnchorRecordSize)
+	data[0] = restoreAnchorRecordVersion
+	binary.BigEndian.PutUint64(data[restoreAnchorChainIDOffset:restoreAnchorBlockHeightOffset], anchor.ChainID())
+	binary.BigEndian.PutUint64(data[restoreAnchorBlockHeightOffset:restoreAnchorAppHashOffset], anchor.BlockHeight())
 	appHash := anchor.AppHash()
-	return append(data, appHash[:]...)
+	copy(data[restoreAnchorAppHashOffset:restoreAnchorRecordSize], appHash[:])
+	return data
 }
 
 // Decodes a record written by serializeRecord(). Errors on an unsupported record version or malformed data.
@@ -67,8 +73,8 @@ func deserializeRestoreAnchor(data []byte) (*apphash.AppHashData, error) {
 		return nil, fmt.Errorf("restore anchor record is %d bytes, want %d", len(data), restoreAnchorRecordSize)
 	}
 	return apphash.NewRestoreAnchorAppHashData(
-		binary.BigEndian.Uint64(data[1:9]),
-		binary.BigEndian.Uint64(data[9:17]),
-		[32]byte(data[17:]),
+		binary.BigEndian.Uint64(data[restoreAnchorChainIDOffset:restoreAnchorBlockHeightOffset]),
+		binary.BigEndian.Uint64(data[restoreAnchorBlockHeightOffset:restoreAnchorAppHashOffset]),
+		[32]byte(data[restoreAnchorAppHashOffset:restoreAnchorRecordSize]),
 	), nil
 }
