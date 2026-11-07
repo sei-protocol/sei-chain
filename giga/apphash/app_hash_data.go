@@ -46,6 +46,10 @@ type AppHashData struct {
 	// Whether this is the record of the block before the giga activation height, whose hashes are all zeros by
 	// definition. Such a record cannot be serialized.
 	zeroHash bool
+
+	// Whether this is a restore anchor: a record that holds only the app hash of its block, not the inputs it was
+	// computed from. Such a record cannot be serialized.
+	restoreAnchor bool
 }
 
 // BUDHash is the hash committing to the key-value changes produced by executing a block.
@@ -102,6 +106,30 @@ func NewZeroAppHashData(
 	}
 }
 
+// Construct a restore anchor: the record of a block whose app hash is known but whose inputs are not, as on a node
+// restored from a state snapshot. Its other hashes are all zeros. It cannot be serialized.
+func NewRestoreAnchorAppHashData(
+	// The EVM chain ID of the chain the block belongs to.
+	chainID uint64,
+	// The block height corresponding to this app hash.
+	blockHeight uint64,
+	// The app hash of the block.
+	appHash [32]byte,
+) *AppHashData {
+	return &AppHashData{
+		version:       appHashVersion,
+		chainID:       chainID,
+		blockHeight:   blockHeight,
+		appHash:       appHash,
+		restoreAnchor: true,
+	}
+}
+
+// IsRestoreAnchor reports whether the record was built by NewRestoreAnchorAppHashData().
+func (ahd *AppHashData) IsRestoreAnchor() bool {
+	return ahd.restoreAnchor
+}
+
 // Version returns the version of the app hash schema.
 func (ahd *AppHashData) Version() uint8 {
 	return ahd.version
@@ -143,8 +171,8 @@ func (ahd *AppHashData) PreviousAppHash() [32]byte {
 	return ahd.previousAppHash
 }
 
-// AppHash returns the app hash: the SHA-256 of appHashDomain followed by the canonical byte format, or all zeros for
-// a record built by NewZeroAppHashData().
+// AppHash returns the app hash: the SHA-256 of appHashDomain followed by the canonical byte format, all zeros for a
+// record built by NewZeroAppHashData(), or the given app hash for a record built by NewRestoreAnchorAppHashData().
 func (ahd *AppHashData) AppHash() [32]byte {
 	return ahd.appHash
 }
