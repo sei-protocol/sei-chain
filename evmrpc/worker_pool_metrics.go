@@ -140,6 +140,7 @@ var (
 		errRangeTooLarge        metric.Int64Gauge
 		errRateLimited          metric.Int64Gauge
 		errBackpressure         metric.Int64Gauge
+		errIOSaturated          metric.Int64Gauge
 		avgQueueWaitMs          metric.Float64Gauge
 		avgExecTimeMs           metric.Float64Gauge
 		avgDBWaitMs             metric.Float64Gauge
@@ -282,6 +283,11 @@ var (
 		errBackpressure: must(meter.Int64Gauge(
 			"evmrpc_getlogs_errors_backpressure",
 			metric.WithDescription("Errors due to backpressure"),
+			metric.WithUnit("{count}"),
+		)),
+		errIOSaturated: must(meter.Int64Gauge(
+			"evmrpc_getlogs_errors_io_saturated",
+			metric.WithDescription("Errors due to the DB read semaphore being saturated"),
 			metric.WithUnit("{count}"),
 		)),
 		avgQueueWaitMs: must(meter.Float64Gauge(
@@ -976,6 +982,7 @@ func (m *WorkerPoolMetrics) ExportPrometheusMetrics() {
 	otelMetrics.errRangeTooLarge.Record(ctx, m.ErrRangeTooLarge.Load())
 	otelMetrics.errRateLimited.Record(ctx, m.ErrRateLimited.Load())
 	otelMetrics.errBackpressure.Record(ctx, m.ErrBackpressure.Load())
+	otelMetrics.errIOSaturated.Record(ctx, m.ErrIOSaturated.Load())
 
 	// Average timings
 	otelMetrics.avgQueueWaitMs.Record(ctx, float64(m.GetAverageQueueWaitTime().Milliseconds()))

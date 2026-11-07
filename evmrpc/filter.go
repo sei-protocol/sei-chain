@@ -47,8 +47,6 @@ const (
 	DefaultMaxBlockRange = 2000
 	DefaultMaxLogLimit   = 10000
 
-	// global request rate limit, only applies to queries > RPSLimitThreshold
-	GlobalRPSLimit    = 30
 	RPSLimitThreshold = 100 // block range queries below this threshold bypass rate limiting
 
 	// rangeQueryWindowBlocks bounds how many blocks tryFilterLogsRange asks the
@@ -281,6 +279,8 @@ type FilterConfig struct {
 	maxLog      int64
 	maxLogBytes int64
 	maxBlock    int64
+	// largeQueryRPS is the node-wide rate of queries over RPSLimitThreshold blocks; 0 disables it.
+	largeQueryRPS int
 }
 
 type EventItemDataWrapper struct {
@@ -338,7 +338,7 @@ func NewFilterAPI(
 		connectionType:   connectionType,
 		shutdownCtx:      shutdownCtx,
 		shutdownCancel:   shutdownCancel,
-		globalRPSLimiter: rate.NewLimiter(rate.Limit(GlobalRPSLimit), GlobalRPSLimit),
+		globalRPSLimiter: newLargeQueryLimiter(filterConfig.largeQueryRPS),
 	}
 
 	go api.cleanupLoop(filterConfig.timeout)
@@ -624,26 +624,8 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 		return nil, fmt.Errorf("requested block range [%d, %d] includes pruned blocks, earliest available block is %d", begin, end, earliest)
 	}
 
-	// Only apply rate limiting for large queries (> RPSLimitThreshold blocks)
-	if blockRange > RPSLimitThreshold && !a.globalRPSLimiter.Allow() {
-		return nil, fmt.Errorf("log query rate limit exceeded for large queries, please try again later")
-	}
-
-	// Backpressure: early rejection based on system load
-	m := GetGlobalMetrics()
-
-	// Check 1: Too many pending tasks (queue backlog)
-	pending := m.TasksSubmitted.Load() - m.TasksCompleted.Load()
-	maxPending := int64(float64(m.QueueCapacity.Load()) * 0.8) // 80% threshold
-	if pending > maxPending {
-		return nil, fmt.Errorf("server too busy, rejecting new request (pending: %d, threshold: %d)", pending, maxPending)
-	}
-
-	// Check 2: I/O saturated (semaphore exhausted)
-	semInUse := m.DBSemaphoreAcquired.Load()
-	semCapacity := m.DBSemaphoreCapacity.Load()
-	if semCapacity > 0 && float64(semInUse)/float64(semCapacity) >= 0.8 {
-		return nil, fmt.Errorf("server I/O saturated, rejecting new request (semaphore: %d/%d in use)", semInUse, semCapacity)
+	if err := checkLogQueryAdmission(blockRange, a.globalRPSLimiter, GetGlobalMetrics()); err != nil {
+		return nil, err
 	}
 
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
@@ -1535,4 +1517,35 @@ func (f *LogFetcher) acquireDBReadSlot() (release func()) {
 		<-f.dbReadSemaphore
 		wpMetrics.RecordDBSemaphoreRelease()
 	}
+}
+
+// checkLogQueryAdmission reports whether a log query over blockRange blocks may run now, against
+// the worker-queue and DB-semaphore load in m and the large-query rate limiter.
+func checkLogQueryAdmission(blockRange int64, limiter *rate.Limiter, m *WorkerPoolMetrics) error {
+	// Before the limiter, so a query refused under load does not spend a token.
+	pending := m.TasksSubmitted.Load() - m.TasksCompleted.Load()
+	maxPending := int64(float64(m.QueueCapacity.Load()) * 0.8) // 80% threshold
+	if pending > maxPending {
+		return fmt.Errorf("server too busy, rejecting new request (pending: %d, threshold: %d)", pending, maxPending)
+	}
+
+	semInUse := m.DBSemaphoreAcquired.Load()
+	semCapacity := m.DBSemaphoreCapacity.Load()
+	if semCapacity > 0 && float64(semInUse)/float64(semCapacity) >= 0.8 {
+		return fmt.Errorf("server I/O saturated, rejecting new request (semaphore: %d/%d in use)", semInUse, semCapacity)
+	}
+
+	if blockRange > RPSLimitThreshold && !limiter.Allow() {
+		return fmt.Errorf("log query rate limit exceeded for large queries, please try again later")
+	}
+	return nil
+}
+
+// newLargeQueryLimiter returns the limiter admitting log queries over RPSLimitThreshold blocks at
+// rps per second with a burst of rps. A non-positive rps admits every query.
+func newLargeQueryLimiter(rps int) *rate.Limiter {
+	if rps <= 0 {
+		return rate.NewLimiter(rate.Inf, 0)
+	}
+	return rate.NewLimiter(rate.Limit(rps), rps)
 }

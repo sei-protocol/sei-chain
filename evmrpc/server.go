@@ -155,7 +155,7 @@ func NewEVMHTTPServer(
 				k,
 				logCtxProvider,
 				txConfigProvider,
-				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog},
+				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog, largeQueryRPS: config.LargeLogQueryRPS},
 				ConnectionTypeHTTP,
 				"eth",
 				dbReadSemaphore,
@@ -315,7 +315,7 @@ func NewEVMWebSocketServer(
 				cacheCreationMutex: cacheCreationMutex,
 				globalLogSlicePool: globalLogSlicePool,
 				watermarks:         watermarks,
-			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead, logLimit: config.MaxSubscriptionsLogs}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS, blockHeaderNotifier),
+			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead, logLimit: config.MaxSubscriptionsLogs}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog, largeQueryRPS: config.LargeLogQueryRPS}, ConnectionTypeWS, blockHeaderNotifier),
 		},
 		{
 			Namespace: "web3",
