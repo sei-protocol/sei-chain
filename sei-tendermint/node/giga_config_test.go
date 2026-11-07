@@ -8,6 +8,7 @@ import (
 	"time"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	sdkversion "github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -194,4 +195,5 @@ func TestBuildGigaStorageConfigWritesTheAppHashLogWhenAsked(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, got.AppHashBuilderConfig.HashLogEnabled)
 	require.Equal(t, filepath.Join(dir, "app_hash.log"), got.AppHashBuilderConfig.HashLogConfig.Path)
+	require.Equal(t, sdkversion.Version, got.AppHashBuilderConfig.HashLogConfig.Version)
 }

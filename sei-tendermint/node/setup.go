@@ -14,6 +14,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	sdkversion "github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -451,7 +452,7 @@ func buildGigaStorageConfig(
 	if storage.AppHashLog {
 		storageConfig.AppHashBuilderConfig.HashLogEnabled = true
 		storageConfig.AppHashBuilderConfig.HashLogConfig.Path = filepath.Join(directory, "app_hash.log")
-		storageConfig.AppHashBuilderConfig.HashLogConfig.Version = "autobahn"
+		storageConfig.AppHashBuilderConfig.HashLogConfig.Version = sdkversion.Version
 	}
 	return storageConfig, nil
 }
