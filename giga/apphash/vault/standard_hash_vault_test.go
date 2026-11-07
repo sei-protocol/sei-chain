@@ -414,6 +414,17 @@ func TestRestoreAnchorStartsAnEmptyVault(t *testing.T) {
 	requireSameRecords(t, testRecords(11, 12), records[1:])
 }
 
+func TestRestoreAnchorStartsAnEmptyVaultInABatch(t *testing.T) {
+	v := openTestVault(t, t.TempDir())
+	anchor := testRestoreAnchor(10)
+	require.NoError(t, v.Append(append([]*apphash.AppHashData{anchor}, testRecords(11, 11)...)))
+
+	records := readAll(t, v, 10, 11)
+	require.Len(t, records, 2)
+	requireRestoreAnchor(t, anchor, records[0])
+	requireSameRecords(t, testRecords(11, 11), records[1:])
+}
+
 func TestRestoreAnchorAtGigaActivationKnowsBlockBeforeIt(t *testing.T) {
 	v := openTestVaultAt(t, t.TempDir(), 5)
 	anchor := testRestoreAnchor(5)

@@ -107,7 +107,8 @@ func NewZeroAppHashData(
 }
 
 // Construct a restore anchor: the record of a block whose app hash is known but whose inputs are not, as on a node
-// restored from a state snapshot. Its other hashes are all zeros. It cannot be serialized.
+// restored from a state snapshot. Its other hashes are all zeros. It cannot be serialized. Its Version() is the
+// current app hash schema version, not the one the app hash was computed under.
 func NewRestoreAnchorAppHashData(
 	// The EVM chain ID of the chain the block belongs to.
 	chainID uint64,

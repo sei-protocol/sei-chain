@@ -579,8 +579,10 @@ func (b *StandardAppHashBuilder) compareStoredInput(
 		return fmt.Errorf("failed to read the stored record of block %d: %w", blockHeight, err)
 	}
 	// A restore anchor holds no inputs, so, as for a pruned record, there is nothing to compare against.
-	if storedValue := input.of(stored); !stored.IsRestoreAnchor() && storedValue != value {
-		b.panicOnMismatch(blockHeight, input.String(), storedValue, value)
+	if !stored.IsRestoreAnchor() {
+		if storedValue := input.of(stored); storedValue != value {
+			b.panicOnMismatch(blockHeight, input.String(), storedValue, value)
+		}
 	}
 	if blockHeight == b.vaultHighest {
 		err := tracker.storedRecordIterator.Close()
@@ -725,23 +727,23 @@ func (b *StandardAppHashBuilder) completeRestoredSetup(anchor *apphash.AppHashDa
 	return b.completeSetup(anchor.BlockHeight())
 }
 
-// Appends anchor to the vault if the vault is empty, and makes it the head. Errors if the vault holds any record
-// other than the same anchor.
+// Appends anchor to the vault if the vault is empty. Errors if the vault holds any record other than the same
+// anchor.
 func (b *StandardAppHashBuilder) storeRestoreAnchor(anchor *apphash.AppHashData) error {
-	if b.vaultHighest < b.gigaActivationHeight {
-		if err := b.appendToVault([]*apphash.AppHashData{anchor}); err != nil {
-			return err
-		}
-		lowest, _, err := b.vault.Bounds()
-		if err != nil {
-			return fmt.Errorf("failed to read hash vault bounds: %w", err)
-		}
-		b.vaultLowest = lowest
-	} else if err := b.requireStoredRestoreAnchor(anchor); err != nil {
+	if b.vaultHighest >= b.gigaActivationHeight {
+		return b.requireStoredRestoreAnchor(anchor)
+	}
+	if err := b.appendToVault([]*apphash.AppHashData{anchor}); err != nil {
 		return err
 	}
+	lowest, _, err := b.vault.Bounds()
+	if err != nil {
+		return fmt.Errorf("failed to read hash vault bounds: %w", err)
+	}
+	b.vaultLowest = lowest
+	// The head follows the vault's head, as loadStartupState() sets it, so that setup at the anchor's height takes
+	// the rewindHead() path, which reads the anchor back, rather than building blocks up to it.
 	b.headHeight = anchor.BlockHeight()
-	b.headAppHash = anchor.AppHash()
 	return nil
 }
 
