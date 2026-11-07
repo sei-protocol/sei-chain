@@ -453,6 +453,9 @@ func buildGigaStorageConfig(
 		storageConfig.AppHashBuilderConfig.HashLogEnabled = true
 		storageConfig.AppHashBuilderConfig.HashLogConfig.Path = filepath.Join(directory, "app_hash.log")
 		storageConfig.AppHashBuilderConfig.HashLogConfig.Version = sdkversion.Version
+		if sdkversion.Version == "" {
+			storageConfig.AppHashBuilderConfig.HashLogConfig.Version = "unknown"
+		}
 	}
 	return storageConfig, nil
 }
