@@ -5,11 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
-	"sync/atomic"
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -18,8 +16,8 @@ import (
 
 type gatedCheckTx struct {
 	open     bool
-	inflight int
-	maxSeen  int
+	inflight uint64
+	maxSeen  uint64
 }
 
 // gatedApp is a testApp whose CheckTx blocks until the gate is opened,
@@ -56,7 +54,7 @@ func (a *gatedApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abc
 }
 
 // waitInflight blocks until exactly n CheckTx calls are in flight.
-func (a *gatedApp) waitInflight(ctx context.Context, n int) error {
+func (a *gatedApp) waitInflight(ctx context.Context, n uint64) error {
 	for g, ctrl := range a.gate.Lock() {
 		return ctrl.WaitUntil(ctx, func() bool { return g.inflight == n })
 	}
@@ -70,7 +68,7 @@ func (a *gatedApp) openGate() {
 	}
 }
 
-func (a *gatedApp) maxInflight() int {
+func (a *gatedApp) maxInflight() uint64 {
 	for g := range a.gate.Lock() {
 		return g.maxSeen
 	}
@@ -80,39 +78,48 @@ func (a *gatedApp) maxInflight() int {
 // With limit N and M>N concurrent inserts, at most N CheckTx calls run at once
 // and every tx is still admitted.
 func TestInsertTx_BoundsConcurrentCheckTx(t *testing.T) {
-	for _, limit := range utils.Slice(1, 2, 3) {
-		t.Run(fmt.Sprint(limit), func(t *testing.T) {
-			ctx := t.Context()
-			rng := utils.TestRng()
-			app := newGatedApp()
-			cfg := app.Cfg()
-			cfg.MaxConcurrentCheckTx = utils.Some(uint64(limit)) //nolint:gosec // small test constant
-			env := newTestEnv(rng, cfg, app.Proxy())
-			env.alignLocalMempool()
+	limit := uint64(2)
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newGatedApp()
+	cfg := app.Cfg()
+	cfg.MaxConcurrentCheckTx = utils.Some(limit)
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		env := newTestEnv(rng, cfg, app.Proxy())
+		s.SpawnBg(func() error { return env.Run(ctx) })
+		if _, err := env.waitForMempool(ctx); err != nil {
+			return err
+		}
 
-			const m = 6
-			txs := make([][]byte, 0, m)
-			for range m {
-				addr, nonce := app.NewAccount(rng)
-				txs = append(txs, env.genTx(rng, addr, nonce).encode())
-			}
-			require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-				for _, tx := range txs {
-					s.Spawn(func() error {
-						_, err := env.state.InsertTx(ctx, tx)
-						return err
-					})
-				}
-				if err := app.waitInflight(ctx, limit); err != nil {
+		const m = 6
+		txs := make([][]byte, 0, m)
+		for range m {
+			addr, nonce := app.NewAccount(rng)
+			txs = append(txs, env.genTx(rng, addr, nonce).encode())
+		}
+		if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			for _, tx := range txs {
+				s.Spawn(func() error {
+					_, err := env.state.InsertTx(ctx, tx)
 					return err
-				}
-				app.openGate()
-				return nil
-			}))
-			require.Equal(t, limit, app.maxInflight())
-			require.Equal(t, m, len(env.state.UnconfirmedTxs()))
-		})
-	}
+				})
+			}
+			if err := app.waitInflight(ctx, limit); err != nil {
+				return err
+			}
+			app.openGate()
+			return nil
+		}); err != nil {
+			return err
+		}
+		if err := utils.TestDiff(limit, app.maxInflight()); err != nil {
+			return err
+		}
+		if err := utils.TestDiff(m, len(env.state.UnconfirmedTxs())); err != nil {
+			return err
+		}
+		return nil
+	}))
 }
 
 // Waiters cancelled while queued for a CheckTx permit return ctx error and
@@ -124,188 +131,92 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 	cfg := app.Cfg()
 	cfg.MaxConcurrentCheckTx = utils.Some[uint64](1)
 	env := newTestEnv(rng, cfg, app.Proxy())
-	env.alignLocalMempool()
-
-	newTx := func() []byte {
-		addr, nonce := app.NewAccount(rng)
-		return env.genTx(rng, addr, nonce).encode()
-	}
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		holder := newTx()
-		s.Spawn(func() error {
-			_, err := env.state.InsertTx(ctx, holder)
-			return err
-		})
-		// The single permit is now held by holder, blocked in CheckTx.
-		if err := app.waitInflight(ctx, 1); err != nil {
+		s.SpawnBg(func() error { return env.Run(ctx) })
+		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
 		}
-		waitCtx, cancel := context.WithCancel(ctx)
-		if err := scope.Run(waitCtx, func(ctx context.Context, s scope.Scope) error {
-			for range 4 {
-				tx := newTx()
-				s.Spawn(func() error {
-					_, err := env.state.InsertTx(ctx, tx)
-					if !errors.Is(err, context.Canceled) {
-						return fmt.Errorf("InsertTx() = %v, want context.Canceled", err)
-					}
-					return nil
-				})
+
+		newTx := func() []byte {
+			addr, nonce := app.NewAccount(rng)
+			return env.genTx(rng, addr, nonce).encode()
+		}
+		if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			holder := newTx()
+			s.Spawn(func() error {
+				_, err := env.state.InsertTx(ctx, holder)
+				return err
+			})
+			// The single permit is now held by holder, blocked in CheckTx.
+			if err := app.waitInflight(ctx, 1); err != nil {
+				return err
 			}
-			cancel()
-			return nil
+			waitCtx, cancel := context.WithCancel(ctx)
+			if err := scope.Run(waitCtx, func(ctx context.Context, s scope.Scope) error {
+				for range 4 {
+					tx := newTx()
+					s.Spawn(func() error {
+						_, err := env.state.InsertTx(ctx, tx)
+						if !errors.Is(err, context.Canceled) {
+							return fmt.Errorf("InsertTx() = %v, want context.Canceled", err)
+						}
+						return nil
+					})
+				}
+				cancel()
+				return nil
+			}); err != nil {
+				return err
+			}
+			app.openGate()
+			// Once holder finishes, a fresh insert must acquire the permit.
+			_, err := env.state.InsertTx(ctx, newTx())
+			return err
 		}); err != nil {
 			return err
 		}
-		app.openGate()
-		// Once holder finishes, a fresh insert must acquire the permit.
-		_, err := env.state.InsertTx(ctx, newTx())
-		return err
-	}))
-	require.Equal(t, 1, app.maxInflight())
-	require.Equal(t, 2, len(env.state.UnconfirmedTxs()))
-}
-
-// Once MaxPendingInserts TryInsertTx calls are in flight, further TryInsertTx calls fail
-// immediately with errMempoolFull instead of queueing for a CheckTx permit, and the bound
-// is released as they complete.
-func TestTryInsertTx_InFlightBounded(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	app := newGatedApp()
-	cfg := app.Cfg()
-	cfg.MaxConcurrentCheckTx = utils.Some[uint64](1)
-	cfg.MaxPendingInserts = 1
-	env := newTestEnv(rng, cfg, app.Proxy())
-	env.alignLocalMempool()
-
-	newTx := func() []byte {
-		addr, nonce := app.NewAccount(rng)
-		return env.genTx(rng, addr, nonce).encode()
-	}
-	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		holder := newTx()
-		s.Spawn(func() error {
-			_, err := env.state.TryInsertTx(ctx, holder)
-			return err
-		})
-		// holder occupies the only in-flight slot, blocked in CheckTx.
-		if err := app.waitInflight(ctx, 1); err != nil {
+		if err := utils.TestDiff(1, app.maxInflight()); err != nil {
 			return err
 		}
-		if _, err := env.state.TryInsertTx(ctx, newTx()); !errors.Is(err, errMempoolFull) {
-			return fmt.Errorf("TryInsertTx over the bound: got %v, want errMempoolFull", err)
+		if err := utils.TestDiff(2, len(env.state.UnconfirmedTxs())); err != nil {
+			return err
 		}
-		app.openGate()
 		return nil
 	}))
-	_, err := env.state.TryInsertTx(ctx, newTx())
-	require.NoError(t, err)
-	require.Equal(t, 2, len(env.state.UnconfirmedTxs()))
-}
-
-// countingApp is a testApp that counts its CheckTx calls.
-type countingApp struct {
-	*testApp
-	checkTxCalls atomic.Int64
-}
-
-func newCountingApp() *countingApp {
-	return &countingApp{testApp: newTestApp()}
-}
-
-func (a *countingApp) Proxy() *proxy.Proxy {
-	return proxy.New(a)
-}
-
-func (a *countingApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
-	a.checkTxCalls.Add(1)
-	return a.testApp.CheckTx(ctx, req)
 }
 
 // TryInsertTx on a full mempool fails with errMempoolFull without running CheckTx.
 func TestTryInsertTx_FullSkipsCheckTx(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	app := newCountingApp()
+	app := newTestApp()
 	env := newTestEnv(rng, app.Cfg(), app.Proxy())
-	_, err := env.fillMempool(ctx, rng, app.testApp)
-	require.NoError(t, err)
-
-	calls := app.checkTxCalls.Load()
-	_, err = env.state.TryInsertTx(ctx, env.fullTx(rng, app.testApp).encode())
-	require.Equal(t, metrics.ResultFull, insertResult(nil, err))
-	require.Equal(t, calls, app.checkTxCalls.Load())
-}
-
-// On a full mempool, the capacity error wins over the app's rejection: an invalid tx
-// gets the retryable errMempoolFull, not the CheckTx response it would get with room.
-func TestTryInsertTx_FullRejectsInvalidTxAsFull(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	app := newCountingApp()
-	env := newTestEnv(rng, app.Cfg(), app.Proxy())
-	_, err := env.fillMempool(ctx, rng, app.testApp)
-	require.NoError(t, err)
-	tx := utils.GenBytes(rng, 1)
-	_, err = decodeTxSpec(tx)
-	require.Error(t, err)
-
-	calls := app.checkTxCalls.Load()
-	resp, err := env.state.TryInsertTx(ctx, tx)
-	require.Nil(t, resp)
-	require.Equal(t, metrics.ResultFull, insertResult(nil, err))
-	require.Equal(t, calls, app.checkTxCalls.Load())
-}
-
-// InsertTx on a full mempool with MaxPendingInserts calls already queued fails with
-// errPendingFull without running CheckTx.
-func TestInsertTx_PendingFullSkipsCheckTx(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	app := newCountingApp()
-	cfg := app.Cfg()
-	cfg.MaxPendingInserts = 2
-	env := newTestEnv(rng, cfg, app.Proxy())
-	mp, err := env.fillMempool(ctx, rng, app.testApp)
-	require.NoError(t, err)
-
-	require.NoError(t, utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		if _, err := env.enqueueInserters(ctx, s, rng, app.testApp, mp, 2, context.Canceled); err != nil {
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return env.Run(ctx) })
+		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
 		}
-		calls := app.checkTxCalls.Load()
-		_, err := env.state.InsertTx(ctx, env.fullTx(rng, app.testApp).encode())
-		if insertResult(nil, err) != metrics.ResultPendingFull {
-			return fmt.Errorf("InsertTx over the bound: got %v, want errPendingFull", err)
+		if err := env.fillMempool(ctx, rng, app); err != nil {
+			return err
 		}
-		if got := app.checkTxCalls.Load(); got != calls {
-			return fmt.Errorf("CheckTx calls: got %d, want %d", got, calls)
+
+		// On a full mempool, the capacity error wins over the app's rejection: an invalid tx
+		// gets the retryable errMempoolFull, not the CheckTx response it would get with room.
+		for _, tx := range [][]byte{env.fullTx(rng, app).encode(), {1}} {
+			calls := app.checked.Load()
+			resp, err := env.state.TryInsertTx(ctx, tx)
+			if resp != nil {
+				return fmt.Errorf("expected nil response")
+			}
+			if !errors.Is(err, errMempoolFull) {
+				return fmt.Errorf("unexpected error: got %v, want %v", err, errMempoolFull)
+			}
+			if err := utils.TestDiff(calls, app.checked.Load()); err != nil {
+				return err
+			}
 		}
-		s.Cancel(context.Canceled)
 		return nil
-	})))
-}
-
-// Inserts into a closed session fail with ErrNotProducing without running CheckTx,
-// even when the mempool is also full.
-func TestInsertTx_ClosedSkipsCheckTx(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	app := newCountingApp()
-	env := newTestEnv(rng, app.Cfg(), app.Proxy())
-	mp, err := env.fillMempool(ctx, rng, app.testApp)
-	require.NoError(t, err)
-	for m, ctrl := range mp.inner.Lock() {
-		m.close(ctrl)
-	}
-
-	calls := app.checkTxCalls.Load()
-	_, err = env.state.TryInsertTx(ctx, env.fullTx(rng, app.testApp).encode())
-	require.ErrorIs(t, err, ErrNotProducing)
-	_, err = env.state.InsertTx(ctx, env.fullTx(rng, app.testApp).encode())
-	require.ErrorIs(t, err, ErrNotProducing)
-	require.Equal(t, calls, app.checkTxCalls.Load())
+	}))
 }
 
 // An absent or zero limit resolves to at least one permit so inserts proceed.

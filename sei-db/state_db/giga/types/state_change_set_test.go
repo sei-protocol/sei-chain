@@ -25,38 +25,6 @@ func fullChangeSet() *StateChangeSet {
 	}
 }
 
-// A clone must not change when the original is mutated or reset for reuse. Code is immutable, so it
-// is never mutated in place.
-func TestCloneSurvivesTheOriginalBeingReused(t *testing.T) {
-	original := fullChangeSet()
-	clone := original.Clone()
-
-	original.Accounts[0].Account.Balance.SetInt64(999)
-	original.Accounts[0].Prior.Balance.SetInt64(999)
-	original.Accounts[0].Account.Nonce = 999
-	original.Storage[0].Value = common.Hash{0xff}
-	original.Reset()
-
-	require.Equal(t, fullChangeSet(), clone)
-}
-
-// A clone of no set is no set, and a clone of an empty set is an empty set.
-func TestCloneKeepsNilAndEmptyApart(t *testing.T) {
-	var nilSet *StateChangeSet
-	require.Nil(t, nilSet.Clone())
-	clone := (&StateChangeSet{}).Clone()
-	require.NotNil(t, clone)
-	require.True(t, clone.IsEmpty())
-}
-
-func TestCloneTurnsNilBalancesIntoZero(t *testing.T) {
-	original := &StateChangeSet{Accounts: []AccountChange{{Address: common.HexToAddress("0x1")}}}
-	clone := original.Clone()
-
-	require.Equal(t, new(big.Int), clone.Accounts[0].Account.Balance)
-	require.Equal(t, new(big.Int), clone.Accounts[0].Prior.Balance)
-}
-
 func TestIsEmptyReportsAnyEntry(t *testing.T) {
 	require.True(t, (&StateChangeSet{}).IsEmpty())
 

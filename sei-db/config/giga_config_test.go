@@ -134,3 +134,12 @@ func TestAScheduleThatPicksNoHeightIsRefused(t *testing.T) {
 	cfg.CheckpointConfig = CheckpointConfig{TimeInterval: time.Minute}
 	require.NoError(t, cfg.Validate())
 }
+
+func TestDefaultGigaStorageConfigShardsTheFlatKVViews(t *testing.T) {
+	cfg, err := DefaultGigaStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	require.Equal(t, uint64(gigaFlatKVViewShards), cfg.FlatKVConfig.AccountStoreConfig.ShardCount)
+	require.Equal(t, uint64(gigaFlatKVViewShards), cfg.FlatKVConfig.StorageStoreConfig.ShardCount)
+	require.NoError(t, cfg.FlatKVConfig.AccountStoreConfig.Validate())
+	require.NoError(t, cfg.FlatKVConfig.StorageStoreConfig.Validate())
+}

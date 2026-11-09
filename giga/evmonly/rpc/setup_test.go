@@ -28,7 +28,10 @@ import (
 var testRequestBodyBytes = gigaconfig.DefaultConfig.RPC.MaxRequestBodyBytes
 
 // noRPCLimits disables every limit the handler can run without.
-var noRPCLimits = gigaconfig.RPCConfig{MaxRequestBodyBytes: testRequestBodyBytes}
+var noRPCLimits = gigaconfig.RPCConfig{
+	MaxRequestBodyBytes:    testRequestBodyBytes,
+	MaxConcurrentSendCalls: gigaconfig.DefaultConfig.RPC.MaxConcurrentSendCalls,
+}
 
 type testBackend struct {
 	balance          func(common.Address) uint256.Int

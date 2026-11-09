@@ -13,9 +13,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// TODO(gprusak): RoadBlock sizes can vary a lot,
-// switch back to limiting data state based on lane blocks, rather than RoadBlocks.
-const qcsCacheSize = 100
+const maxLaneBlock = 1000
+const maxRoadBlocks = 100
 
 // ErrOutOfOrder is returned when PushAppHash receives an app hash past the
 // next CommitQC range waiting for execution.
@@ -55,10 +54,11 @@ func (e *blockEntry) FullBlock() utils.Option[*types.RoadBlock] {
 }
 
 type inner struct {
-	blocks       map[types.RoadIndex]*blockEntry               // [first, nextPartialBlock)
-	appProposals map[types.RoadIndex]*types.AppProposal        // [first, nextAppProposal)
-	appQCs       map[types.RoadIndex]*types.AppQC              // [first, nextAppQC)
-	byHash       map[types.RoadBlockHeaderHash]types.RoadIndex // all blocks (including partial ones) by RoadBlockHeaderHash.
+	blocks         map[types.RoadIndex]*blockEntry               // [first, nextPartialBlock)
+	appProposals   map[types.RoadIndex]*types.AppProposal        // [first, nextAppProposal)
+	appQCs         map[types.RoadIndex]*types.AppQC              // [first, nextAppQC)
+	byHash         map[types.RoadBlockHeaderHash]types.RoadIndex // all blocks (including partial ones) by RoadBlockHeaderHash.
+	laneBlockCount uint64                                        // Total lane blocks (present and missing) of all partial and full blocks.
 
 	// first is the inclusive low end of retained in-memory state: maps keep [first, next*).
 	// Advanced by runPersist(). Durable copies below first live in BlockStore.
@@ -227,17 +227,23 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 	if err != nil {
 		return nil, fmt.Errorf("blockStore.ReadSuffix(): %w", err)
 	}
-	firstBlock := cfg.Registry.FirstRoad()
-	status := suffix.Status.Or(types.SuffixRange{
-		First:           firstBlock,
-		NextBlock:       firstBlock,
-		NextAppProposal: firstBlock,
-		NextAppQC:       firstBlock,
-	})
-	// Empty-chain default; loaded QCs publish the epoch of their successor.
-	genesis, err := cfg.Registry.EpochByIndex(0)
+	status, ok := suffix.Status.Get()
+	if !ok {
+		genesis, err := cfg.Registry.Epoch(0)
+		if err != nil {
+			return nil, fmt.Errorf("genesis epoch 0: %w", err)
+		}
+		first := genesis.RoadRange().First
+		status = types.SuffixRange{
+			First:           first,
+			NextBlock:       first,
+			NextAppProposal: first,
+			NextAppQC:       first,
+		}
+	}
+	initialEpoch, err := cfg.Registry.EpochAt(status.First)
 	if err != nil {
-		return nil, fmt.Errorf("missing genesis epoch: %w", err)
+		return nil, fmt.Errorf("epoch at retained suffix start: %w", err)
 	}
 	inner := &inner{
 		blocks:           map[types.RoadIndex]*blockEntry{},
@@ -251,10 +257,10 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		nextPartialBlock: status.First,
 		persisted:        status,
 		anchor:           utils.NewAtomicSend(utils.None[Anchor]()),
-		nextCommitEpoch:  utils.NewAtomicSend(genesis),
+		nextCommitEpoch:  utils.NewAtomicSend(initialEpoch),
 	}
 	for _, block := range suffix.Blocks {
-		epoch, err := cfg.Registry.EpochByIndex(block.QC().QC().View().EpochIndex)
+		epoch, err := cfg.Registry.Epoch(block.QC().QC().View().EpochIndex)
 		if err != nil {
 			return nil, fmt.Errorf("load block from BlockStore: %w", err)
 		}
@@ -271,6 +277,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		}
 		inner.byHash[block.Header().Hash()] = n
 		inner.blocks[n] = &blockEntry{qc: block.QC(), epoch: epoch, laneBlocks: laneBlocks}
+		inner.laneBlockCount += uint64(len(block.QC().Headers()))
 		inner.nextPartialBlock += 1
 		inner.nextFullBlock += 1
 	}
@@ -293,7 +300,13 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 }
 
 func (s *State) First() types.RoadIndex {
-	return max(s.blockStore.First(), s.cfg.Registry.FirstRoad())
+	if !s.blockStore.Status().IsPresent() {
+		for inner := range s.inner.Lock() {
+			return inner.first
+		}
+		panic("unreachable")
+	}
+	return s.blockStore.First()
 }
 
 // Registry returns the epoch registry.
@@ -302,10 +315,11 @@ func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
 // activateStagedEpoch publishes the staged committee when LastRoad of the
 // deriving epoch has a matching AppQC, or when that road is already below first.
 func (s *State) activateStagedEpoch() error {
-	idx, ok := s.cfg.Registry.Pending().Get()
+	pending, ok := s.cfg.Registry.Pending().Get()
 	if !ok {
 		return nil
 	}
+	idx := pending.EpochIndex()
 	for inner := range s.inner.Lock() {
 		endEpoch := idx - 2
 		if !inner.appQCCertifiesRoad(s.cfg.Registry.LastRoad(endEpoch)) {
@@ -313,7 +327,7 @@ func (s *State) activateStagedEpoch() error {
 		}
 		break
 	}
-	if err := s.cfg.Registry.ActivateEpoch(idx); err != nil {
+	if err := s.cfg.Registry.Activate(idx); err != nil {
 		return fmt.Errorf("activate epoch %d: %w", idx, err)
 	}
 	for inner := range s.inner.Lock() {
@@ -326,12 +340,19 @@ func (s *State) activateStagedEpoch() error {
 // PushPartialBlock pushes FullCommitQC and a subset of blocks that were finalized by it.
 // Pushing the qc and blocks is atomic, so that no unnecessary GetBlock RPCs are issued.
 // Even if the qc was already pushed earlier, the blocks are pushed anyway.
+// New QCs wait for lane-block and roadblock capacity, while always allowing two retained roadblocks.
 func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, blocks map[uint64]*types.Block) error {
 	n := qc.Index()
 	nextFullBlock, nextPartialBlock, err := func() (types.RoadIndex, types.RoadIndex, error) {
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return n <= min(inner.nextPartialBlock, inner.first+qcsCacheSize-1)
+				// Wait until either we already have the road block, or until this is the next road block AND we have capacity.
+				// We have capacity iff road/lane block limits allow another road block OR we have <2 road blocks.
+				// Count road blocks separately to account for empty road blocks.
+				// For liveness we need to be able to keep in data state at least 2 road blocks,
+				// because we always keep 1 executed block.
+				hasCapacity := len(inner.blocks) < 2 || (len(inner.blocks) < maxRoadBlocks && inner.laneBlockCount <= maxLaneBlock)
+				return n < inner.nextPartialBlock || (n == inner.nextPartialBlock && hasCapacity)
 			}); err != nil {
 				return 0, 0, err
 			}
@@ -347,7 +368,7 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 	}
 	var ep *types.Epoch
 	if n == nextPartialBlock {
-		ep, err = s.cfg.Registry.EpochByIndex(qc.QC().View().EpochIndex)
+		ep, err = s.cfg.Registry.Epoch(qc.QC().View().EpochIndex)
 		if err != nil {
 			return err
 		}
@@ -369,6 +390,7 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 		if inner.nextPartialBlock == n {
 			updated = true
 			inner.blocks[n] = &blockEntry{qc: qc, epoch: ep, laneBlocks: make(map[uint64]*types.Block, len(qc.Headers()))}
+			inner.laneBlockCount += uint64(len(qc.Headers()))
 			inner.byHash[qc.Header().Hash()] = n
 			inner.nextPartialBlock += 1
 			inner.publishNextCommitEpoch(s.cfg.Registry)
@@ -444,6 +466,14 @@ func (s *State) NextQC() types.RoadIndex {
 func (s *State) NextFullBlock() types.RoadIndex {
 	for inner := range s.inner.Lock() {
 		return inner.nextFullBlock
+	}
+	panic("unreachable")
+}
+
+// NextAppProposal returns the lowest block whose AppHash has not been pushed.
+func (s *State) NextAppProposal() types.RoadIndex {
+	for inner := range s.inner.Lock() {
+		return inner.nextAppProposal
 	}
 	panic("unreachable")
 }
@@ -613,19 +643,26 @@ func (s *State) appQCFromDB(n types.RoadIndex) (*types.AppQC, error) {
 // PushAppHash records the AppHash for executed blocks through n and stages
 // C_{E+2} when n closes LastRoad(E).
 func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.AppHash, weights map[types.PublicKey]uint64) error {
-	var endEpoch utils.Option[types.EpochIndex]
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextFullBlock }); err != nil {
 			return err
 		}
 		if n < inner.nextAppProposal {
+			// The proposal is already stored. Staging again rejects a different committee.
 			if n >= inner.first {
-				endEpoch = s.cfg.Registry.ClosingEpoch(n)
+				if err := s.stageClosingEpoch(n, weights); err != nil {
+					return err
+				}
 			}
 			break
 		}
 		if n != inner.nextAppProposal {
 			return fmt.Errorf("received appHash for %v: %w", n, ErrOutOfOrder)
+		}
+		// Durable before the cursor moves, so a crash cannot persist this proposal
+		// and leave the epoch it closes unstaged.
+		if err := s.stageClosingEpoch(n, weights); err != nil {
+			return err
 		}
 		e := inner.blocks[n]
 		proposal := types.NewAppProposal(e.qc.QC().View(), hash)
@@ -645,25 +682,27 @@ func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.A
 		inner.appProposals[n] = proposal
 		inner.nextAppProposal++
 		s.metrics.NextBlock.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
-		endEpoch = s.cfg.Registry.ClosingEpoch(n)
 		ctrl.Updated()
-		// CRITICAL: We need to persist AppHash before we return and start executing the next block,
-		// otherwise we lose the apphash on restart.
-		// TODO(gprusak): this is a temporary measure, until AppHashes are persisted outside of BlockStore.
+		// Durable before return. AppVote waits on the same cursor.
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.persisted.NextAppProposal }); err != nil {
 			return err
-		}
-	}
-	if e, ok := endEpoch.Get(); ok {
-		if err := s.cfg.Registry.StageEpoch(e, weights); err != nil {
-			return fmt.Errorf("StageEpoch(%d): %w", e, err)
 		}
 	}
 	return s.activateStagedEpoch()
 }
 
-func (s *State) PushGasUsed(gasUsed int64) {
-	s.metrics.GasUsed.Add(gasUsed)
+// stageClosingEpoch persists C_{E+2} when n is the last road of epoch E.
+// StageEpoch returns only after that committee is durable. A road that closes
+// no epoch is left unchanged.
+func (s *State) stageClosingEpoch(n types.RoadIndex, weights map[types.PublicKey]uint64) error {
+	e, ok := s.cfg.Registry.ClosingEpoch(n).Get()
+	if !ok {
+		return nil
+	}
+	if err := s.cfg.Registry.StageEpoch(e, weights); err != nil {
+		return fmt.Errorf("StageEpoch(%d): %w", e, err)
+	}
+	return nil
 }
 
 // AppVote returns an appVote for a block >= n.
@@ -864,6 +903,7 @@ func (s *State) runPersist(ctx context.Context) error {
 					s.metrics.TxLatency.Evict.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 				}
 				delete(inner.byHash, e.qc.Header().Hash())
+				inner.laneBlockCount -= uint64(len(e.qc.Headers()))
 				delete(inner.blocks, inner.first)
 				delete(inner.appQCs, inner.first)
 				delete(inner.appProposals, inner.first)

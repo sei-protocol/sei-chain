@@ -121,7 +121,7 @@ func newState(
 		return nil, fmt.Errorf("newInner: %w", err)
 	}
 
-	innerSend := utils.Alloc(utils.NewAtomicSend(initialInner))
+	innerSend := new(utils.NewAtomicSend(initialInner))
 	s := &State{
 		cfg: cfg,
 		// metrics: NewMetrics(),

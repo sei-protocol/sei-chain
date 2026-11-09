@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -35,7 +34,7 @@ func liveCommitQCs(loaded []*types.CommitQC, first types.RoadIndex) []*types.Com
 func makeSequentialCommitQCs(committee *types.Committee, keys []types.SecretKey, count int) []*types.CommitQC {
 	var qcs []*types.CommitQC
 	prev := utils.None[*types.CommitQC]()
-	ep := types.NewEpoch(0, types.OpenRoadRange(), time.Time{}, committee)
+	ep := types.NewEpoch(0, types.OpenRoadRange(), committee)
 	for range count {
 		qc := types.BuildCommitQC(ep, keys, prev, nil)
 		qcs = append(qcs, qc)

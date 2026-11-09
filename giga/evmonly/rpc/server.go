@@ -158,7 +158,7 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 	rpcServer.SetReadLimits(int64(limits.MaxRequestBodyBytes))
 	rpcServer.SetWSConcurrentRequestBytes(limits.MaxConcurrentRequestBytes)
 	rpcServer.SetWSAdmissionTimeout(limits.WSAdmissionTimeout)
-	if err := rpcServer.RegisterName("eth", &sendAPI{backend: backend}); err != nil {
+	if err := rpcServer.RegisterName("eth", newSendAPI(backend, limits.MaxConcurrentSendCalls)); err != nil {
 		return nil, fmt.Errorf("register EVM-only send RPC: %w", err)
 	}
 	if err := rpcServer.RegisterName("eth", &txAPI{backend: backend, store: receiptStore}); err != nil {

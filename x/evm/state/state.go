@@ -2,13 +2,13 @@ package state
 
 import (
 	"bytes"
+	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/holiman/uint256"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -105,8 +105,7 @@ func (s *DBImpl) SelfDestruct6780(acc common.Address) (uint256.Int, bool) {
 	return *uint256.NewInt(0), false
 }
 
-// the Ethereum semantics of HasSelfDestructed checks if the account is self destructed in the
-// **CURRENT** block
+// HasSelfDestructed reports whether acc was self-destructed in the current transaction.
 func (s *DBImpl) HasSelfDestructed(acc common.Address) bool {
 	val, found := s.getTransientAccount(acc)
 	if !found || val == nil {
@@ -174,13 +173,9 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 }
 
 func (s *DBImpl) handleResidualFundsInDestructedAccounts(st *TemporaryState) {
-	for a, status := range st.transientAccounts {
-		if !bytes.Equal(status, AccountDeleted) {
-			continue
-		}
-		acc := common.HexToAddress(a)
+	for _, acc := range st.destructedAccounts() {
 		residual := s.GetBalance(acc)
-		if residual.ToBig().Cmp(utils.Big0) == 0 {
+		if residual.IsZero() {
 			continue
 		}
 		s.SubBalance(acc, residual, tracing.BalanceDecreaseSelfdestructBurn)
@@ -191,12 +186,20 @@ func (s *DBImpl) handleResidualFundsInDestructedAccounts(st *TemporaryState) {
 }
 
 func (s *DBImpl) clearAccountStateIfDestructed(st *TemporaryState) {
-	for acc, status := range st.transientAccounts {
-		if !bytes.Equal(status, AccountDeleted) {
-			continue
-		}
-		s.clearAccountState(common.HexToAddress(acc))
+	for _, acc := range st.destructedAccounts() {
+		s.clearAccountState(acc)
 	}
+}
+
+func (st *TemporaryState) destructedAccounts() []common.Address {
+	accts := make([]common.Address, 0, len(st.transientAccounts))
+	for a, status := range st.transientAccounts {
+		if bytes.Equal(status, AccountDeleted) {
+			accts = append(accts, a)
+		}
+	}
+	slices.SortFunc(accts, common.Address.Cmp)
+	return accts
 }
 
 func (s *DBImpl) clearAccountState(acc common.Address) {
@@ -224,11 +227,8 @@ func (s *DBImpl) clearAccountCodeAndNonce(acc common.Address) {
 }
 
 func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {
-	prev, ok := s.tempState.transientAccounts[acc.Hex()]
-	if !ok {
-		prev = nil
-	}
-	s.tempState.transientAccounts[acc.Hex()] = status
+	prev := s.tempState.transientAccounts[acc]
+	s.tempState.transientAccounts[acc] = status
 	s.journal = append(s.journal, &accountStatusChange{account: acc, prev: prev})
 }
 
@@ -274,7 +274,7 @@ func (s *DBImpl) setOverrideState(ov *storageOverride, addr common.Address, key,
 }
 
 func (s *DBImpl) getTransientAccount(acc common.Address) ([]byte, bool) {
-	val, found := s.tempState.transientAccounts[acc.Hex()]
+	val, found := s.tempState.transientAccounts[acc]
 	return val, found
 }
 

@@ -127,7 +127,7 @@ func (f *LogFetcher) PollLogsForTest(
 	crit filters.FilterCriteria,
 	cursor int64,
 ) ([]*ethtypes.Log, int64, error) {
-	return f.pollLogs(ctx, crit, cursor)
+	return f.pollLogs(ctx, crit, cursor, nil)
 }
 
 // NewLogsSubscriptionAPIForTest returns a SubscriptionAPI that serves eth_subscribe("logs") from

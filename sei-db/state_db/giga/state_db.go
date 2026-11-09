@@ -10,12 +10,12 @@ import (
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
@@ -43,11 +43,17 @@ type StateDB struct {
 	// The state WAL a committed block is written to.
 	wal statewal.StateWAL
 
+	// The hasher a committed block's mutations are submitted to.
+	budHasher bud.BUDHasher
+
 	// The state commit store, which both receives writes and serves current-block reads.
 	sc *flatkv.CommitStore
 
 	// ss is nil when the EVM state store is disabled or keeps its history as an undo log.
 	ss *evm.EVMStateStore
+
+	// Hands committed blocks to ss. Nil exactly when ss is, and until the stores have caught up to the WAL.
+	ssFeeder *legacySSFeeder
 
 	// undo is the EVM state store when it keeps its history as an undo log, and nil otherwise. At
 	// most one of ss and undo is open.
@@ -84,10 +90,14 @@ func NewStateDB(
 	flatkvCfg *flatkvconfig.Config,
 	ssCfg config.StateStoreConfig,
 	checkpointCfg config.CheckpointConfig,
+	// The hasher each committed block's mutations are submitted to. Blocks replayed while opening are not
+	// submitted.
+	budHasher bud.BUDHasher,
 ) (db *StateDB, retErr error) {
 	s := &StateDB{
 		flatkvCfg: flatkvCfg,
 		ssCfg:     stateStoreConfigFor(ssCfg),
+		budHasher: budHasher,
 		commitPhases: metrics.NewPhaseTimerFactory(otel.Meter(gigaMeterName), commitPhaseTimerName).
 			RecordLatencies().Build(),
 	}
@@ -119,6 +129,10 @@ func NewStateDB(
 	if err := s.resumeUndoLogOverHeldState(); err != nil {
 		return nil, err
 	}
+	// After the catch-up, which feeds SS the blocks it missed directly.
+	if s.ss != nil {
+		s.ssFeeder = newLegacySSFeeder(s.ss)
+	}
 	return s, nil
 }
 
@@ -143,6 +157,9 @@ func NewStateDBWithRollback(
 	flatkvCfg *flatkvconfig.Config,
 	ssCfg config.StateStoreConfig,
 	checkpointCfg config.CheckpointConfig,
+	// The hasher each committed block's mutations are submitted to. Blocks replayed while opening are not
+	// submitted.
+	budHasher bud.BUDHasher,
 	target int64,
 ) (*StateDB, error) {
 	if target <= 0 {
@@ -157,7 +174,7 @@ func NewStateDBWithRollback(
 	if err := offline.rewindTo(target); err != nil {
 		return nil, err
 	}
-	db, err := NewStateDB(ctx, flatkvCfg, ssCfg, checkpointCfg)
+	db, err := NewStateDB(ctx, flatkvCfg, ssCfg, checkpointCfg, budHasher)
 	if err != nil {
 		return nil, err
 	}
@@ -347,6 +364,12 @@ func (s *StateDB) Close() error {
 	s.closed.Close(s)
 	var errs error
 	var timer utils.CloseTimer
+	// Before SS: it hands SS the blocks it still holds.
+	if s.ssFeeder != nil {
+		if err := timer.Close("ss_feeder", s.ssFeeder.Close); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("hand the last blocks to the EVM state store: %w", err))
+		}
+	}
 	if s.ss != nil {
 		if err := timer.Close("ss", s.ss.Close); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close EVM state store: %w", err))
@@ -406,33 +429,14 @@ func (s *StateDB) PrunableStores() []controllertypes.PrunableStore {
 	return stores
 }
 
-// CommitStateChanges is CommitStateChangesWithPrior without the block's change set. It fails when the
-// EVM state store is an undo log.
-func (s *StateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error {
-	return s.CommitStateChangesWithPrior(blockNum, changeset, nil)
-}
-
-// CommitStateChangesWithPrior writes a block to the state WAL, the state commit store and the EVM
-// state store, in that order. Callers must not run two commits at once. changes is the block's change
-// set, which an undo-log EVM state store keeps the replaced values from and requires: an empty set is
-// a block that changed no EVM state, and nil is no change set at all.
-//
-// The time each of the three takes is published under commitPhaseTimerName, split by phase, which is
-// what makes a slow store on the commit path attributable to that store.
-func (s *StateDB) CommitStateChangesWithPrior(
-	blockNum int64,
-	changeset []*proto.NamedChangeSet,
-	changes *gigatypes.StateChangeSet,
-) error {
-
+// CommitStateChanges writes a block's state changes to the state WAL, submits them to the BUD hasher, and
+// schedules them for the state commit store and the EVM state store. Commits must be made one at a time.
+// Returns an error if writing this block or an earlier one has failed.
+func (s *StateDB) CommitStateChanges(blockNum int64, changes *gigatypes.StateChangeSet) error {
 	if blockNum < 0 {
 		// The WAL numbers blocks with a uint64, so a negative height converts to a block far in the
 		// future that the WAL has no way to recognize as a mistake.
 		return fmt.Errorf("commit block %d: block number must not be negative", blockNum)
-	}
-	if s.undo != nil && changes == nil {
-		// The undo log would advance past the block with no record of what it replaced.
-		return fmt.Errorf("commit block %d: the undo-log EVM state store needs the block's change set", blockNum)
 	}
 	// Before SC moves past the block the log resumes on.
 	if err := s.resumeUndoLog(); err != nil {
@@ -444,7 +448,7 @@ func (s *StateDB) CommitStateChangesWithPrior(
 	s.commitPhases.SetPhase("convert_mutations")
 	// SC has not taken this block yet, so its view is of the block before.
 	prior := s.sc.OpenView()
-	mutations, err := flatkv.MutationsFromChangeSets(changeset, uint64(blockNum), prior)
+	mutations, err := flatkv.MutationsFromStateChangeSet(changes, uint64(blockNum), prior, s.flatkvCfg)
 	prior.Close()
 	if err != nil {
 		return fmt.Errorf("convert block %d to mutations: %w", blockNum, err)
@@ -456,6 +460,11 @@ func (s *StateDB) CommitStateChangesWithPrior(
 		return fmt.Errorf("write block %d to state WAL: %w", blockNum, err)
 	}
 
+	s.commitPhases.SetPhase("submit_bud_hash")
+	if err := s.budHasher.Submit(context.Background(), uint64(blockNum), mutations); err != nil {
+		return fmt.Errorf("submit block %d to the BUD hasher: %w", blockNum, err)
+	}
+
 	s.commitPhases.SetPhase("commit_sc")
 	if err := s.sc.CommitStateChanges(blockNum, mutations); err != nil {
 		return fmt.Errorf("commit block %d to live state DB: %w", blockNum, err)
@@ -463,10 +472,10 @@ func (s *StateDB) CommitStateChangesWithPrior(
 	// SS takes the block asynchronously and is not waited on: the WAL is written first, so a shutdown
 	// that loses the queue leaves SS behind the WAL, which is the gap catchUpTo replays on the next open.
 	// What is timed here is therefore the wait to hand the block over, not the write itself.
-	if s.ss != nil {
+	if s.ssFeeder != nil {
 		s.commitPhases.SetPhase("enqueue_ss")
-		if err := s.ss.CommitBlock(blockNum, changeset); err != nil {
-			return fmt.Errorf("commit block %d to the EVM state store: %w", blockNum, err)
+		if err := s.ssFeeder.Feed(blockNum, changes); err != nil {
+			return fmt.Errorf("commit block %d: %w", blockNum, err)
 		}
 	}
 	// The undo log takes SC's view along with the block. Opened before the next commit, it describes

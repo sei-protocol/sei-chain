@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -87,6 +88,8 @@ type Environment struct {
 	NodeInfo    types.NodeInfo
 
 	Router *p2p.Router
+	// Executor runs the Autobahn blocks. None when Autobahn is off.
+	Executor utils.Option[*execution.Executor]
 
 	// objects
 	PubKey           utils.Option[crypto.PubKey]

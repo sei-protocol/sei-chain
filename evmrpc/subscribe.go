@@ -283,7 +283,11 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 		cursor := start
 		for {
 			var logs []*ethtypes.Log
-			logs, cursor, err = a.logFetcher.pollLogs(subCtx, *filter, cursor)
+			// Not admitted: a refused poll would end the subscription (any error but an oversized
+			// block does, below), and the loop is paced by SleepInterval for at most
+			// max_subscriptions_logs subscriptions. A historical fromBlock still makes each poll
+			// scan up to max_blocks_for_log blocks until it catches up.
+			logs, cursor, err = a.logFetcher.pollLogs(subCtx, *filter, cursor, nil)
 			if err != nil {
 				if subCtx.Err() != nil {
 					return

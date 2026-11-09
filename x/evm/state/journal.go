@@ -182,8 +182,8 @@ func (e *codeCacheChange) revert(s *DBImpl) {
 func (e *accountStatusChange) revert(s *DBImpl) {
 	accts := s.tempState.transientAccounts
 	if e.prev == nil {
-		delete(accts, e.account.Hex())
+		delete(accts, e.account)
 	} else {
-		accts[e.account.Hex()] = e.prev
+		accts[e.account] = e.prev
 	}
 }

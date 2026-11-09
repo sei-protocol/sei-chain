@@ -5,7 +5,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/seilog"
@@ -31,7 +30,7 @@ func (g *GaugeInt) Add(val int64)          { g.value.Add(val) }
 func (g *GaugeInt) Desc() *prometheus.Desc { return g.desc }
 func (g *GaugeInt) Write(out *dto.Metric) error {
 	out.Label = g.labelPairs
-	out.Gauge = &dto.Gauge{Value: proto.Float64(float64(g.value.Load()))}
+	out.Gauge = &dto.Gauge{Value: new(float64(g.value.Load()))}
 	return nil
 }
 
@@ -53,7 +52,7 @@ func (c *CounterInt) Add(val int64) {
 }
 func (c *CounterInt) Write(out *dto.Metric) error {
 	out.Label = c.labelPairs
-	out.Counter = &dto.Counter{Value: proto.Float64(float64(c.value.Load()))}
+	out.Counter = &dto.Counter{Value: new(float64(c.value.Load()))}
 	return nil
 }
 

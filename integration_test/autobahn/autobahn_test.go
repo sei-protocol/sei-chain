@@ -904,12 +904,8 @@ func assertEVMOnlyReceipts(t *testing.T, ctx context.Context, clients []*ethrpc.
 			TransactionHash  common.Hash     `json:"transactionHash"`
 			TransactionIndex hexutil.Uint64  `json:"transactionIndex"`
 		}
-		if err := client.CallContext(ctx, &got, "eth_getTransactionReceipt", txHash); err != nil {
-			t.Fatalf("read EVM-only receipt %s from node %d: %v", txHash, nodeIndex, err)
-		}
-		if got == nil {
-			t.Fatalf("node %d returned null for finalized EVM-only receipt %s", nodeIndex, txHash)
-		}
+		raw := waitForEVMOnlyNodeResult(t, ctx, client, nodeIndex, "eth_getTransactionReceipt", txHash)
+		decodeEVMOnlyResult(t, nodeIndex, "eth_getTransactionReceipt", raw, &got)
 		if got.BlockHash == (common.Hash{}) {
 			t.Fatalf("node %d returned an empty block hash for receipt %s", nodeIndex, txHash)
 		}
@@ -1093,22 +1089,27 @@ func waitForEVMOnlyResult(t *testing.T, ctx context.Context, clients []*ethrpc.C
 	t.Helper()
 	var first json.RawMessage
 	for nodeIndex, client := range clients {
-		for {
-			raw := evmOnlyCall(t, ctx, client, nodeIndex, method, args...)
-			if string(raw) != "null" {
-				if nodeIndex == 0 {
-					first = raw
-				}
-				break
-			}
-			select {
-			case <-ctx.Done():
-				t.Fatalf("node %d %s%v stayed null: %v", nodeIndex, method, args, ctx.Err())
-			case <-time.After(evmOnlyRPCPoll):
-			}
+		raw := waitForEVMOnlyNodeResult(t, ctx, client, nodeIndex, method, args...)
+		if nodeIndex == 0 {
+			first = raw
 		}
 	}
 	return first
+}
+
+// waitForEVMOnlyNodeResult polls method on node nodeIndex until it answers
+// non-null, and returns that answer.
+func waitForEVMOnlyNodeResult(t *testing.T, ctx context.Context, client *ethrpc.Client, nodeIndex int, method string, args ...any) json.RawMessage {
+	t.Helper()
+	for ctx.Err() == nil {
+		raw := evmOnlyCall(t, ctx, client, nodeIndex, method, args...)
+		if string(raw) != "null" {
+			return raw
+		}
+		time.Sleep(evmOnlyRPCPoll)
+	}
+	t.Fatalf("node %d %s%v stayed null: %v", nodeIndex, method, args, ctx.Err())
+	return nil
 }
 
 // assertEVMOnlyBlockQueries checks every block-scoped method against the block

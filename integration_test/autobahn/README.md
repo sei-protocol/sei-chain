@@ -508,6 +508,7 @@ the row says otherwise:
 | `filter_timeout` | `120s` | how long a filter lives without being polled |
 | `max_filters` | 1000 | installed `eth_newFilter` and `eth_newBlockFilter` filters |
 | `max_block_filter_hashes` | 1000 | unpolled blocks a block filter may fall behind by before it is removed |
+| `max_concurrent_send_calls` | 4096 | `eth_sendRawTransaction` calls in flight across HTTP and WebSocket; excess calls are refused before decoding or proxying; `0` disables transaction submission |
 | `max_concurrent_trace_calls` | 10 | `debug_trace*` calls running at once; a call past it is refused |
 | `trace_timeout` | `30s` | how long one `debug_trace*` call may run |
 | `max_trace_struct_log_bytes` | 33554432 (32 MiB) | output of the default struct logger for each traced transaction |

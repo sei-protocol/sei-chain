@@ -10,10 +10,14 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
@@ -48,9 +52,11 @@ type testApp struct {
 }
 
 func newTestApp() *testApp {
-	return &testApp{state: utils.NewWatch(&testAppState{
-		Txs: map[shaHash]bool{},
-	})}
+	return &testApp{
+		state: utils.NewWatch(&testAppState{
+			Txs: map[shaHash]bool{},
+		}),
+	}
 }
 
 func (a *testApp) GetValidators() []abci.ValidatorUpdate {
@@ -92,8 +98,14 @@ func (a *testApp) LastBlockHeight() int64 {
 	panic("unreachable")
 }
 
-func (a *testApp) CheckTx(context.Context, *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+func (a *testApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+	hash := sha256.Sum256(req.Tx)
 	return &abci.ResponseCheckTxV2{
+		// Each mock transaction has its own sender and uses nonce zero.
+		IsEVM:            true,
+		EVMSenderAddress: common.Address(hash[:20]),
+		SeiSenderAddress: hash[:20],
+		EVMHash:          common.Hash(hash),
 		ResponseCheckTx: &abci.ResponseCheckTx{
 			Code:         abci.CodeTypeOK,
 			GasWanted:    1,
@@ -127,7 +139,7 @@ func (a *testApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain
 	panic("unreachable")
 }
 
-func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+func (a *testApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	for state, ctrl := range a.state.Lock() {
 		if !state.Committed {
 			return nil, fmt.Errorf("FinalizeBlock before Commit")
@@ -160,10 +172,19 @@ func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 		state.Committed = true
 		ctrl.Updated()
 	}
-	return &abci.ResponseCommit{
-		// Don't prune anything.
-		RetainHeight: 0,
-	}, nil
+	return &abci.ResponseCommit{}, nil
+}
+
+// WaitForBlocks waits until the app has finalized at least count blocks and
+// reports how many it had finalized at that moment.
+func (a *testApp) WaitForBlocks(ctx context.Context, count int) (int, error) {
+	for state, ctrl := range a.state.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return len(state.Blocks) >= count }); err != nil {
+			return 0, err
+		}
+		return len(state.Blocks), nil
+	}
+	panic("unreachable")
 }
 
 func (a *testApp) WaitForTx(ctx context.Context, tx []byte) error {
@@ -205,7 +226,7 @@ func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
 }
 
 // TestInitChainCommitThenFinalize is a contract test for testApp: it verifies
-// that testApp supports the autobahn block execution flow where runExecute
+// that testApp supports the autobahn block execution flow where the executor
 // calls InitChain (no Commit), then FinalizeBlock at InitialHeight using the
 // deliverState set up by InitChain, followed by Commit.
 func TestInitChainCommitThenFinalize(t *testing.T) {
@@ -249,4 +270,15 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 	info = app.Info()
 	require.Equal(t, initialHeight, info.LastBlockHeight,
 		"testApp should report InitialHeight after 1 block")
+}
+
+// newTestExecutor returns an executor of cfg's app over the blocks store makes
+// durable.
+func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store) *execution.Executor {
+	return execution.New(&execution.Config{
+		GenDoc:         cfg.GenDoc,
+		App:            cfg.App,
+		AppHashBuilder: cfg.AppHashBuilder,
+		BlockStore:     store,
+	})
 }

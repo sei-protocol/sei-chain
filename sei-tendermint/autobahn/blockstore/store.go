@@ -3,6 +3,7 @@
 package blockstore
 
 import (
+	"context"
 	"fmt"
 
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
@@ -19,22 +20,40 @@ var _ types.BlockStore = (*Store)(nil)
 type Store struct {
 	db blocktypes.BlockDB
 
-	// status is the explicit write-order/recovery suffix status (see the
+	status utils.Watch[*storeStatus]
+}
+
+// storeStatus is the store's write cursors and the road blocks they cover.
+type storeStatus struct {
+	// suffix is the explicit write-order/recovery suffix status (see the
 	// types.BlockStore contract). None means the store is empty.
-	status utils.Mutex[*utils.Option[types.SuffixRange]]
+	suffix utils.Option[types.SuffixRange]
+	// blocks holds the road blocks of roads [suffix.First, suffix.NextBlock).
+	blocks map[types.RoadIndex]*types.RoadBlock
+	// nextDurable is the lowest road whose block is not durable yet.
+	nextDurable types.RoadIndex
 }
 
 // New returns a block store backed by db, recovering its write cursors from the
 // records already in db. The store takes ownership of db: Close closes it. New
 // does not close db when it returns an error.
 func New(db blocktypes.BlockDB) (*Store, error) {
-	s := &Store{db: db, status: utils.NewMutex(new(utils.Option[types.SuffixRange]))}
+	s := &Store{
+		db:     db,
+		status: utils.NewWatch(&storeStatus{blocks: map[types.RoadIndex]*types.RoadBlock{}}),
+	}
 	suffix, err := s.ReadSuffix()
 	if err != nil {
 		return nil, fmt.Errorf("ReadSuffix(): %w", err)
 	}
 	for status := range s.status.Lock() {
-		*status = suffix.Status
+		status.suffix = suffix.Status
+		for _, block := range suffix.Blocks {
+			status.blocks[block.QC().Index()] = block
+		}
+		if current, ok := suffix.Status.Get(); ok {
+			status.nextDurable = current.NextBlock
+		}
 	}
 	Global.pruneWatermarkAt().Set(utils.Clamp[int64](db.GetPruneWatermark()))
 	return s, nil
@@ -46,7 +65,7 @@ func (s *Store) WriteBlock(block *types.RoadBlock) error {
 	record := encodeBlock(block)
 
 	for status := range s.status.Lock() {
-		current, ok := status.Get()
+		current, ok := status.suffix.Get()
 		if !ok {
 			current = types.SuffixRange{
 				First:           index,
@@ -66,7 +85,8 @@ func (s *Store) WriteBlock(block *types.RoadBlock) error {
 			s.setPruneWatermark(index)
 		}
 		current.NextBlock = index + 1
-		*status = utils.Some(current)
+		status.suffix = utils.Some(current)
+		status.blocks[index] = block
 		return nil
 	}
 	panic("unreachable")
@@ -75,7 +95,7 @@ func (s *Store) WriteBlock(block *types.RoadBlock) error {
 func (s *Store) WriteAppQC(appQC *types.AppQC) error {
 	index := appQC.Proposal().Index()
 	for status := range s.status.Lock() {
-		current, ok := status.Get()
+		current, ok := status.suffix.Get()
 		if !ok || current.NextAppProposal <= index {
 			return fmt.Errorf("AppQC %d: %w", index, types.ErrMissingAppProposal)
 		}
@@ -90,9 +110,14 @@ func (s *Store) WriteAppQC(appQC *types.AppQC) error {
 		}); err != nil {
 			return fmt.Errorf("failed to put AppQC %d: %w", index, err)
 		}
+		// An AppQC follows the local AppProposal, which follows local execution,
+		// so execution needs no block below it.
+		for n := current.First; n < index; n++ {
+			delete(status.blocks, n)
+		}
 		current.First = index
 		current.NextAppQC = index + 1
-		*status = utils.Some(current)
+		status.suffix = utils.Some(current)
 		return nil
 	}
 	panic("unreachable")
@@ -104,7 +129,7 @@ func (s *Store) WriteAppProposal(appProposal *types.AppProposal) error {
 		return fmt.Errorf("road index cannot advance: %w", types.ErrUnexpectedIndex)
 	}
 	for status := range s.status.Lock() {
-		current, ok := status.Get()
+		current, ok := status.suffix.Get()
 		if !ok || current.NextBlock <= index {
 			return fmt.Errorf("AppProposal %d: %w", index, types.ErrMissingQC)
 		}
@@ -120,7 +145,7 @@ func (s *Store) WriteAppProposal(appProposal *types.AppProposal) error {
 			return fmt.Errorf("failed to put AppProposal %d: %w", index, err)
 		}
 		current.NextAppProposal = index + 1
-		*status = utils.Some(current)
+		status.suffix = utils.Some(current)
 		return nil
 	}
 	panic("unreachable")
@@ -129,7 +154,7 @@ func (s *Store) WriteAppProposal(appProposal *types.AppProposal) error {
 func (s *Store) PruneBefore(blockHeight types.RoadIndex) error {
 	for status := range s.status.Lock() {
 
-		current, ok := status.Get()
+		current, ok := status.suffix.Get()
 		if !ok {
 			// Ignore prune requests if we've not got any data yet. Simplifies several edge cases
 			// and is technically a legal implementation of the contract in the godocs.
@@ -156,15 +181,51 @@ func (s *Store) First() types.RoadIndex {
 }
 
 func (s *Store) Flush() error {
+	// Every block below next was written before the flush, so the flush covers it.
+	next := s.nextBlock()
 	if err := s.db.Flush(); err != nil {
 		return fmt.Errorf("failed to flush block db: %w", err)
+	}
+	for status, ctrl := range s.status.Lock() {
+		status.nextDurable = max(status.nextDurable, next)
+		ctrl.Updated()
 	}
 	return nil
 }
 
+// nextBlock returns the road of the next block to write, or 0 when the store is empty.
+func (s *Store) nextBlock() types.RoadIndex {
+	if current, ok := s.Status().Get(); ok {
+		return current.NextBlock
+	}
+	return 0
+}
+
+// WaitForBlock returns the block of road n, waiting until a Flush has made it
+// durable. It returns ErrPruned when n is below First.
+func (s *Store) WaitForBlock(ctx context.Context, n types.RoadIndex) (*types.RoadBlock, error) {
+	for status, ctrl := range s.status.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < status.nextDurable }); err != nil {
+			return nil, err
+		}
+		if block, ok := status.blocks[n]; ok {
+			return block, nil
+		}
+	}
+	stored, err := s.ReadBlock(n)
+	if err != nil {
+		return nil, fmt.Errorf("ReadBlock(%d): %w", n, err)
+	}
+	block, ok := stored.Get()
+	if !ok {
+		return nil, fmt.Errorf("block %d: %w", n, types.ErrNotFound)
+	}
+	return block, nil
+}
+
 func (s *Store) Status() utils.Option[types.SuffixRange] {
 	for status := range s.status.Lock() {
-		return *status
+		return status.suffix
 	}
 	panic("unreachable")
 }

@@ -111,6 +111,9 @@ type RPCConfig struct {
 	// MaxBlockFilterHashes caps the unpolled blocks an eth_newBlockFilter filter may fall behind
 	// by before it is removed.
 	MaxBlockFilterHashes uint64 `mapstructure:"max_block_filter_hashes"`
+	// MaxConcurrentSendCalls caps eth_sendRawTransaction calls across HTTP and WebSocket.
+	// A call past the limit is refused immediately; zero disables transaction submission.
+	MaxConcurrentSendCalls int `mapstructure:"max_concurrent_send_calls"`
 	// MaxConcurrentTraceCalls caps debug_trace* calls running at once; a call past it is refused.
 	MaxConcurrentTraceCalls int `mapstructure:"max_concurrent_trace_calls"`
 	// TraceTimeout bounds how long one debug_trace* call may run.
@@ -159,6 +162,7 @@ var DefaultConfig = Config{
 		MaxFilters:                    1000,
 		MaxBlockFilterHashes:          1000,
 		MaxConcurrentTraceCalls:       10,
+		MaxConcurrentSendCalls:        4096,
 		TraceTimeout:                  30 * time.Second,
 		MaxTraceStructLogBytes:        32 * 1024 * 1024,
 		MaxStateOverrideAccounts:      100,
@@ -214,6 +218,7 @@ const (
 	FlagRPCFilterTimeout                 = "giga.rpc.filter_timeout"
 	FlagRPCMaxFilters                    = "giga.rpc.max_filters"
 	FlagRPCMaxBlockFilterHashes          = "giga.rpc.max_block_filter_hashes"
+	FlagRPCMaxConcurrentSendCalls        = "giga.rpc.max_concurrent_send_calls"
 	FlagRPCMaxConcurrentTraceCalls       = "giga.rpc.max_concurrent_trace_calls"
 	FlagRPCTraceTimeout                  = "giga.rpc.trace_timeout"
 	FlagRPCMaxTraceStructLogBytes        = "giga.rpc.max_trace_struct_log_bytes"
@@ -366,6 +371,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxBlockFilterHashes, err)
 		}
 	}
+	if v := opts.Get(FlagRPCMaxConcurrentSendCalls); v != nil {
+		if cfg.RPC.MaxConcurrentSendCalls, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxConcurrentSendCalls, err)
+		}
+	}
 	if v := opts.Get(FlagRPCMaxConcurrentTraceCalls); v != nil {
 		if cfg.RPC.MaxConcurrentTraceCalls, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxConcurrentTraceCalls, err)
@@ -475,6 +485,9 @@ func (c Config) Validate() error {
 	if c.RPC.FilterTimeout < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %s", FlagRPCFilterTimeout, c.RPC.FilterTimeout)
 	}
+	if c.RPC.MaxConcurrentSendCalls < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxConcurrentSendCalls, c.RPC.MaxConcurrentSendCalls)
+	}
 	if c.RPC.MaxConcurrentTraceCalls < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxConcurrentTraceCalls, c.RPC.MaxConcurrentTraceCalls)
 	}
@@ -558,7 +571,7 @@ evm_ws_port = {{ .Giga.Execution.EvmWsPort }}
 gc_percent = {{ .Giga.Execution.GCPercent }}
 
 [giga.rpc]
-# Limits the EVM-only JSON-RPC server enforces. 0 disables a limit.
+# Limits the EVM-only JSON-RPC server enforces. Zero disables a limit unless noted otherwise.
 
 # max_subscriptions_new_head caps open eth_subscribe("newHeads") subscriptions across all
 # connections.
@@ -604,6 +617,10 @@ max_filters = {{ .Giga.RPC.MaxFilters }}
 # max_block_filter_hashes caps the unpolled blocks an eth_newBlockFilter filter may fall behind
 # by before it is removed.
 max_block_filter_hashes = {{ .Giga.RPC.MaxBlockFilterHashes }}
+
+# Maximum concurrent eth_sendRawTransaction calls across HTTP and WebSocket.
+# Excess calls are refused immediately. Set to 0 to disable transaction submission.
+max_concurrent_send_calls = {{ .Giga.RPC.MaxConcurrentSendCalls }}
 
 # max_concurrent_trace_calls caps debug_trace* calls running at once; a call past it is refused.
 max_concurrent_trace_calls = {{ .Giga.RPC.MaxConcurrentTraceCalls }}

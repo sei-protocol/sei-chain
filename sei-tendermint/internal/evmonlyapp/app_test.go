@@ -20,13 +20,14 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -80,6 +81,13 @@ func evmOnlyTestBlock(height int64, txs ...[]byte) *abci.RequestFinalizeBlock {
 			Time:   time.Unix(1_700_000_000+height, 0),
 		},
 	}
+}
+
+// evmOnlyTestEpochBlock returns an empty block at height that carries state.
+func evmOnlyTestEpochBlock(height int64, state abci.EpochState) *abci.RequestFinalizeBlock {
+	req := evmOnlyTestBlock(height)
+	req.EpochState = utils.Some(state)
+	return req
 }
 
 func finalizeAndCommitEVMOnlyTestBlock(t *testing.T, app abci.Application, req *abci.RequestFinalizeBlock) []byte {
@@ -136,6 +144,99 @@ func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 	return app
 }
 
+func TestEVMOnlyAppCommitsEpochState(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	state := abci.EpochState{EpochRegistry: []byte("registry"), NextEpoch: []byte("next-epoch")}
+
+	require.NotEmpty(t, finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(1, state)))
+	require.NoError(t, app.AwaitCommits())
+
+	require.Equal(t, state.EpochRegistry, evmOnlyEpochStateRow(t, app, epochStateEpochRegistryKey))
+	require.Equal(t, state.NextEpoch, evmOnlyEpochStateRow(t, app, epochStateNextEpochKey))
+}
+
+func TestEVMOnlyAppCommitsEmptyEpochRegistryAsEmptyRow(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	state := abci.EpochState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
+
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(1, state))
+	require.NoError(t, app.AwaitCommits())
+
+	require.Empty(t, evmOnlyEpochStateRow(t, app, epochStateEpochRegistryKey))
+}
+
+func TestEVMOnlyAppEpochStateRowsDoNotAliasTheRequest(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	state := abci.EpochState{NextEpoch: []byte("next-epoch")}
+
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(1, state))
+	copy(state.NextEpoch, "XXXXXXXXXX")
+	require.NoError(t, app.AwaitCommits())
+
+	require.Equal(t, []byte("next-epoch"), evmOnlyEpochStateRow(t, app, epochStateNextEpochKey))
+}
+
+func TestEVMOnlyAppWithoutEpochStateWritesNoEpochStateRows(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	require.NoError(t, app.AwaitCommits())
+
+	_, found := app.storage.SC().Get(epochStateModule, []byte(epochStateEpochRegistryKey))
+	require.False(t, found)
+	_, found = app.storage.SC().Get(epochStateModule, []byte(epochStateNextEpochKey))
+	require.False(t, found)
+}
+
+func TestEVMOnlyAppEpochStateDoesNotCarryOver(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	encoded := installRecordingEVMExecutor(app)
+	state := abci.EpochState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
+
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(1, state))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2))
+	require.NoError(t, app.AwaitCommits())
+
+	for blocks := range encoded.Lock() {
+		require.Equal(t, 2, epochStateRowCount(blocks[1]))
+		require.Equal(t, 0, epochStateRowCount(blocks[2]))
+	}
+}
+
+// installRecordingEVMExecutor replaces app's executor with one that records the misc
+// changes app encodes for each block, by block number.
+func installRecordingEVMExecutor(app *evmOnlyApplication) *utils.Mutex[map[uint64][]gigatypes.MiscChange] {
+	encoded := new(utils.NewMutex(map[uint64][]gigatypes.MiscChange{}))
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
+		misc, err := app.encodeCursorChangeSet(block, result)
+		if err != nil {
+			return nil, err
+		}
+		for blocks := range encoded.Lock() {
+			blocks[block.Number] = misc
+		}
+		return misc, nil
+	})
+	return encoded
+}
+
+func epochStateRowCount(misc []gigatypes.MiscChange) int {
+	count := 0
+	for _, change := range misc {
+		if change.Module == epochStateModule {
+			count++
+		}
+	}
+	return count
+}
+
+func evmOnlyEpochStateRow(t *testing.T, app *evmOnlyApplication, key string) []byte {
+	t.Helper()
+	raw, found := app.storage.SC().Get(epochStateModule, []byte(key))
+	require.True(t, found)
+	return raw
+}
+
 // newUndoLogEVMOnlyTestApp returns an initialized application whose state store
 // keeps EVM history as an undo log.
 func newUndoLogEVMOnlyTestApp(t *testing.T) *evmOnlyApplication {
@@ -189,8 +290,8 @@ func newEVMOnlyTestAppWithStorage(
 		evmOnlyTestChainID,
 		validators,
 		storage,
-		evmonly.NewFlatKVChangeSetEncoder(),
 		execution,
+		utils.None[precompiles.Registry](),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
@@ -218,6 +319,49 @@ func openEVMOnlyTestStorageAt(t *testing.T, home string) *bootstrap.GigaStorageM
 	return openEVMOnlyTestStorage(t, storageConfig)
 }
 
+// reportMissingBlockHashes reports a block hash for each committed height the app hash vault does
+// not yet hold, then waits until the vault stores the state version's app hash. It returns nil when
+// the state version is 0.
+func reportMissingBlockHashes(manager *bootstrap.GigaStorageManager) error {
+	if manager.SC() == nil || manager.AppHashBuilder() == nil || manager.AppHashVault() == nil {
+		return fmt.Errorf("report missing block hashes: storage is not open")
+	}
+	version, err := manager.SC().GetLatestVersion()
+	if err != nil {
+		return fmt.Errorf("read state height: %w", err)
+	}
+	if version <= 0 {
+		return nil
+	}
+	//nolint:gosec // state heights are non-negative
+	height := uint64(version)
+	stored, err := manager.AppHashVault().GetLatestBlock()
+	if err != nil {
+		return fmt.Errorf("read app hash vault head: %w", err)
+	}
+	for n := stored + 1; n <= height; n++ {
+		var blockHash [32]byte
+		binary.BigEndian.PutUint64(blockHash[:8], n)
+		if err := manager.AppHashBuilder().ReportBlockHash(context.Background(), n, blockHash); err != nil {
+			return fmt.Errorf("report the block hash of block %d: %w", n, err)
+		}
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		head, err := manager.AppHashVault().GetLatestBlock()
+		if err != nil {
+			return fmt.Errorf("read app hash vault head: %w", err)
+		}
+		if head >= height {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the app hash of block %d was not stored within 10s", height)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 // closeEVMOnlyTestApp closes storage the way the node does: after the
 // application has landed every block commit it started.
 //
@@ -230,13 +374,7 @@ func closeEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap.
 	settler, ok := app.(*evmOnlyApplication)
 	require.True(t, ok)
 	require.NoError(t, settler.AwaitCommits())
-	height, err := storage.SC().GetLatestVersion()
-	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		head, err := storage.AppHashVault().GetLatestBlock()
-		require.NoError(t, err)
-		return head >= uint64(height) //nolint:gosec // G115: state heights are non-negative.
-	}, 10*time.Second, time.Millisecond, "app hash of block %d not stored", height)
+	require.NoError(t, reportMissingBlockHashes(storage))
 	require.NoError(t, storage.Close())
 }
 
@@ -247,8 +385,9 @@ func reopenEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap
 	closeEVMOnlyTestApp(t, app, storage)
 	reopened := openEVMOnlyTestStorageAt(t, home)
 	resumed, err := NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, reopened, evmonly.NewFlatKVChangeSetEncoder(),
+		evmOnlyTestChainID, nil, reopened,
 		gigaconfig.DefaultConfig.Execution,
+		utils.None[precompiles.Registry](),
 	)
 	require.NoError(t, err)
 	return resumed, reopened
@@ -492,8 +631,9 @@ func TestEVMOnlyApplicationInitLastHeaderSeedsBlockTime(t *testing.T) {
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorageAt(t, home)
 	app, err := NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(),
+		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
+		utils.None[precompiles.Registry](),
 	)
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
@@ -539,8 +679,9 @@ func TestEVMOnlyApplicationResumesFromStorageAfterRestart(t *testing.T) {
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorageAt(t, home)
 	app, err := NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(),
+		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
+		utils.None[precompiles.Registry](),
 	)
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
@@ -575,8 +716,9 @@ func TestEVMOnlyApplicationResumedAppSettlesItsCommits(t *testing.T) {
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorageAt(t, home)
 	app, err := NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(),
+		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
+		utils.None[precompiles.Registry](),
 	)
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
@@ -603,8 +745,9 @@ func TestEVMOnlyApplicationResumesFromBlockFinalizedButNotCommitted(t *testing.T
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorageAt(t, home)
 	app, err := NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(),
+		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
+		utils.None[precompiles.Registry](),
 	)
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
@@ -632,8 +775,9 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	storageConfig.AppHashBuilderConfig.GigaActivationHeight = 5
 	storage := openEVMOnlyTestStorage(t, storageConfig)
 	app, err := NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(),
+		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
+		utils.None[precompiles.Registry](),
 	)
 	require.NoError(t, err)
 	init := evmOnlyTestInitChain()
@@ -644,8 +788,8 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	closeEVMOnlyTestApp(t, app, storage)
 	storage = openEVMOnlyTestStorage(t, storageConfig)
 	app, err = NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(),
-		gigaconfig.DefaultConfig.Execution)
+		evmOnlyTestChainID, nil, storage,
+		gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry]())
 	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
 
@@ -1133,14 +1277,35 @@ func TestEVMOnlyApplicationReadsSettleBehindFinalizeBlock(t *testing.T) {
 	require.Equal(t, int64(4), latest)
 }
 
-// unwritableEVMChangeSetEncoder encodes every block with an EVM pair the store
-// refuses to apply, so the block executes and encodes cleanly and its commit is
-// the first thing that fails.
-func unwritableEVMChangeSetEncoder(evmonly.StateChangeSet) ([]*proto.NamedChangeSet, error) {
-	return []*proto.NamedChangeSet{{
-		Name:      keys.EVMStoreKey,
-		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: nil, Value: []byte{1}}}},
-	}}, nil
+// installUnwritableEVMExecutor replaces app's executor with one that also writes, with every block, a misc change
+// into the EVM module, which the state DB refuses to commit. Each block executes and encodes cleanly, and its commit
+// is the first thing that fails.
+func installUnwritableEVMExecutor(app *evmOnlyApplication) {
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
+		misc, err := app.encodeCursorChangeSet(block, result)
+		if err != nil {
+			return nil, fmt.Errorf("encode the cursor: %w", err)
+		}
+		return append(misc, gigatypes.MiscChange{
+			Module: keys.EVMStoreKey,
+			Key:    []byte{1},
+			Value:  []byte{1},
+		}), nil
+	})
+}
+
+// installEVMExecutorEncoder replaces app's executor with a new one that encodes each
+// block's changesets with encode.
+func installEVMExecutorEncoder(app *evmOnlyApplication, encode evmonly.BlockChangeSetEncoder) {
+	for slot := range app.executor.Lock() {
+		if previous, ok := slot.Get(); ok {
+			previous.Close()
+		}
+		executor := app.newExecutor()
+		evmonly.WithStoreIndependentBlockChangeSetEncoder(encode)(executor)
+		*slot = utils.Some(executor)
+		app.settler.Store(utils.Some(executor))
+	}
 }
 
 // A block's commit lands behind FinalizeBlock: the block whose commit fails is
@@ -1152,7 +1317,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	require.NoError(t, err)
 	storage := openEVMOnlyTestStorage(t, storageConfig)
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, unwritableEVMChangeSetEncoder, gigaconfig.DefaultConfig.Execution)
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry]())
 	require.NoError(t, err)
 	_, err = app.InitChain(&abci.RequestInitChain{
 		InitialHeight: 1,
@@ -1163,6 +1328,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	require.NoError(t, err)
 	settler, ok := app.(*evmOnlyApplication)
 	require.True(t, ok)
+	installUnwritableEVMExecutor(settler)
 
 	// Block 1 is unwritable, yet it finalizes and commits: the write has not
 	// been waited for.
@@ -1173,7 +1339,9 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	// The failed write is reported by the next block, and stays reported.
 	_, err = app.FinalizeBlock(t.Context(), evmOnlyTestBlock(2))
 	require.Error(t, err)
-	require.Error(t, settler.AwaitCommits())
+	err = settler.AwaitCommits()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "in the EVM module")
 	_, err = settler.EvmCall(t.Context(), &ethcore.Message{GasLimit: 21_000, GasPrice: new(big.Int), Value: new(big.Int)}, evmonly.CallOverrides{})
 	require.Error(t, err)
 

@@ -4,8 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"net/url"
 
+	"github.com/ethereum/go-ethereum/common"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
@@ -37,6 +41,88 @@ type AutobahnValidator struct {
 	// Upon receiving an EVM transaction, a node needs to proxy it
 	// to validator owning the shard.
 	EVMRPC URL `json:"evmrpc"`
+	// EVMVoter is the EVM address that votes for this validator in EVM
+	// governance, read at every start. Required for every validator when
+	// evm_governance is set, and forbidden otherwise.
+	EVMVoter utils.Option[common.Address] `json:"evm_voter,omitzero"`
+}
+
+// EVMGovernance enables the EVM-only gov precompile. The chain's first block
+// writes Params and StartingProposalID into state, so later edits to them have
+// no effect.
+type EVMGovernance struct {
+	Params EVMGovernanceParams `json:"params"`
+	// StartingProposalID is the id of the first proposal, so ids continue
+	// past another chain's. Zero means 1.
+	StartingProposalID uint64 `json:"starting_proposal_id,omitzero"`
+}
+
+// EVMGovernanceParams are gov's genesis params. Periods are duration strings
+// such as "48h", deposits are wei, and ratios are 1e18-scaled decimals.
+type EVMGovernanceParams struct {
+	VotingPeriod          utils.Duration `json:"voting_period"`
+	ExpeditedVotingPeriod utils.Duration `json:"expedited_voting_period"`
+	MinDeposit            *big.Int       `json:"min_deposit"`
+	MaxDepositPeriod      utils.Duration `json:"max_deposit_period"`
+	MinExpeditedDeposit   *big.Int       `json:"min_expedited_deposit"`
+	Quorum                uint64         `json:"quorum"`
+	Threshold             uint64         `json:"threshold"`
+	VetoThreshold         uint64         `json:"veto_threshold"`
+	ExpeditedQuorum       uint64         `json:"expedited_quorum"`
+	ExpeditedThreshold    uint64         `json:"expedited_threshold"`
+}
+
+// NewEVMGovernanceParams returns p as config params.
+func NewEVMGovernanceParams(p gov.Params) EVMGovernanceParams {
+	return EVMGovernanceParams{
+		VotingPeriod:          period(p.VotingPeriod),
+		ExpeditedVotingPeriod: period(p.ExpeditedVotingPeriod),
+		MinDeposit:            p.MinDeposit,
+		MaxDepositPeriod:      period(p.MaxDepositPeriod),
+		MinExpeditedDeposit:   p.MinExpeditedDeposit,
+		Quorum:                p.Quorum,
+		Threshold:             p.Threshold,
+		VetoThreshold:         p.VetoThreshold,
+		ExpeditedQuorum:       p.ExpeditedQuorum,
+		ExpeditedThreshold:    p.ExpeditedThreshold,
+	}
+}
+
+// period returns ns nanoseconds as a Duration, capped at the longest one.
+func period(ns uint64) utils.Duration {
+	return utils.Duration(min(ns, math.MaxInt64)) //nolint:gosec // capped at MaxInt64
+}
+
+// Gov returns p as gov's params, failing on a negative period or params gov
+// rejects.
+func (p EVMGovernanceParams) Gov() (gov.Params, error) {
+	params := gov.Params{
+		MinDeposit:          p.MinDeposit,
+		MinExpeditedDeposit: p.MinExpeditedDeposit,
+		Quorum:              p.Quorum,
+		Threshold:           p.Threshold,
+		VetoThreshold:       p.VetoThreshold,
+		ExpeditedQuorum:     p.ExpeditedQuorum,
+		ExpeditedThreshold:  p.ExpeditedThreshold,
+	}
+	for _, d := range []struct {
+		name string
+		v    utils.Duration
+		ns   *uint64
+	}{
+		{"voting_period", p.VotingPeriod, &params.VotingPeriod},
+		{"expedited_voting_period", p.ExpeditedVotingPeriod, &params.ExpeditedVotingPeriod},
+		{"max_deposit_period", p.MaxDepositPeriod, &params.MaxDepositPeriod},
+	} {
+		if d.v < 0 {
+			return gov.Params{}, fmt.Errorf("%s %s is negative", d.name, d.v.Duration())
+		}
+		*d.ns = uint64(d.v) //nolint:gosec // checked non-negative
+	}
+	if err := params.Validate(); err != nil {
+		return gov.Params{}, err
+	}
+	return params, nil
 }
 
 // AutobahnBlockDBConfig holds optional overrides for the LittDB-backed BlockDB
@@ -94,6 +180,11 @@ type AutobahnFileConfig struct {
 	// Zero value ⇒ littblock.DefaultConfig unchanged (see AutobahnBlockDBConfig
 	// for field semantics). Omitted from JSON when empty.
 	BlockDB AutobahnBlockDBConfig `json:"block_db,omitzero"`
+	// EVMGovernance enables the EVM-only gov precompile, voted on by the
+	// validators' evm_voter addresses. Voters are read from this file at every
+	// start and kept nowhere else, so this section and every evm_voter must be
+	// identical on every node; a node that differs forks at its next tally.
+	EVMGovernance utils.Option[EVMGovernance] `json:"evm_governance,omitzero"`
 }
 
 // AutobahnEVMOnlyChainID is the chain ID of the Autobahn EVM-only executor.
@@ -140,6 +231,41 @@ func (fc *AutobahnFileConfig) Validate() error {
 	}
 	if err := fc.BlockDB.Validate(); err != nil {
 		return fmt.Errorf("block_db: %w", err)
+	}
+	if err := fc.validateEVMGovernance(); err != nil {
+		return fmt.Errorf("evm_governance: %w", err)
+	}
+	return nil
+}
+
+// validateEVMGovernance checks that evm_governance's params are valid and that
+// every validator has a distinct nonzero evm_voter exactly when it is set.
+func (fc *AutobahnFileConfig) validateEVMGovernance() error {
+	governance, enabled := fc.EVMGovernance.Get()
+	if !enabled {
+		for _, v := range fc.Validators {
+			if v.EVMVoter.IsPresent() {
+				return fmt.Errorf("validator %s sets evm_voter without evm_governance", v.ValidatorKey)
+			}
+		}
+		return nil
+	}
+	if _, err := governance.Params.Gov(); err != nil {
+		return err
+	}
+	voters := make(map[common.Address]bool, len(fc.Validators))
+	for _, v := range fc.Validators {
+		voter, ok := v.EVMVoter.Get()
+		if !ok {
+			return fmt.Errorf("validator %s is missing evm_voter", v.ValidatorKey)
+		}
+		if voter == (common.Address{}) {
+			return fmt.Errorf("validator %s evm_voter is the zero address", v.ValidatorKey)
+		}
+		if voters[voter] {
+			return fmt.Errorf("validator %s evm_voter %s is shared with another validator", v.ValidatorKey, voter)
+		}
+		voters[voter] = true
 	}
 	return nil
 }

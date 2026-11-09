@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
@@ -22,10 +23,14 @@ type GigaStorageConfig struct {
 	CheckpointConfig     CheckpointConfig
 	AppHashBuilderConfig *builder.AppHashBuilderConfig    // required
 	ReceiptHasherConfig  *receipthash.ReceiptHasherConfig // required
+	BUDHasherConfig      *bud.BUDHasherConfig             // required
 }
 
 // gigaReceiptBackend is the receipt backend Giga opens (littidx).
 const gigaReceiptBackend = "littidx"
+
+// gigaFlatKVViewShards is the view shard count of the giga FlatKV account and storage databases.
+const gigaFlatKVViewShards = 64
 
 // DefaultGigaStorageConfig returns a config rooted at homePath:
 //
@@ -45,6 +50,8 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	flatKV := flatkvConfig.DefaultConfig()
 	flatKV.DataDir = utils.GetFlatKVPath(homePath)
 	flatKV.ExternalPruning = true
+	flatKV.AccountStoreConfig.ShardCount = gigaFlatKVViewShards
+	flatKV.StorageStoreConfig.ShardCount = gigaFlatKVViewShards
 
 	ssConfig := DefaultStateStoreConfig()
 	ssConfig.EVMDBDirectory = utils.GetEVMStateStorePath(homePath, ssConfig.Backend)
@@ -59,6 +66,7 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	appHashBuilderConfig := builder.DefaultAppHashBuilderConfig()
 	appHashBuilderConfig.HashVaultConfig.Path = utils.GetAppHashVaultPath(homePath)
 	receiptHasherConfig := receipthash.DefaultReceiptHasherConfig()
+	budHasherConfig := bud.DefaultBUDHasherConfig()
 
 	return &GigaStorageConfig{
 		HomePath:             homePath,
@@ -70,6 +78,7 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 		CheckpointConfig:     DefaultCheckpointConfig(),
 		AppHashBuilderConfig: &appHashBuilderConfig,
 		ReceiptHasherConfig:  &receiptHasherConfig,
+		BUDHasherConfig:      &budHasherConfig,
 	}, nil
 }
 
@@ -173,6 +182,12 @@ func (c *GigaStorageConfig) Validate() error {
 	}
 	if err := c.ReceiptHasherConfig.Validate(); err != nil {
 		return fmt.Errorf("receipt hasher config is invalid: %w", err)
+	}
+	if c.BUDHasherConfig == nil {
+		return fmt.Errorf("BUD hasher config is required")
+	}
+	if err := c.BUDHasherConfig.Validate(); err != nil {
+		return fmt.Errorf("BUD hasher config is invalid: %w", err)
 	}
 
 	if !c.CheckpointConfig.Enabled() {

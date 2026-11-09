@@ -327,7 +327,7 @@ func TestCommitteeConv_RejectsZeroWeight(t *testing.T) {
 	lane := GenLaneID(rng)
 	_, err := CommitteeConv.Decode(&pb.Committee{Members: []*pb.EpochMember{{
 		LaneId: LaneIDConv.Encode(lane),
-		Weight: utils.Alloc[uint64](0),
+		Weight: new(uint64(0)),
 	}}})
 	require.Error(t, err)
 }
@@ -337,7 +337,7 @@ func TestCommitteeConv_RejectsDuplicatePublicKey(t *testing.T) {
 	lane := GenLaneID(rng)
 	member := &pb.EpochMember{
 		LaneId: LaneIDConv.Encode(lane),
-		Weight: utils.Alloc[uint64](1),
+		Weight: new(uint64(1)),
 	}
 	_, err := CommitteeConv.Decode(&pb.Committee{Members: []*pb.EpochMember{member, member}})
 	require.Error(t, err)
