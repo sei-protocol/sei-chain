@@ -395,6 +395,15 @@ func (rs *Store) LastCommitID() types.CommitID {
 	return c.CommitID()
 }
 
+// LastCommitVersion implements CommitMultiStore.
+func (rs *Store) LastCommitVersion() int64 {
+	c := rs.LastCommitInfo()
+	if c == nil {
+		return GetLatestVersion(rs.db)
+	}
+	return c.Version
+}
+
 func (rs *Store) GetWorkingHash() ([]byte, error) {
 	var storeInfos []types.StoreInfo
 	for key, store := range rs.stores {
