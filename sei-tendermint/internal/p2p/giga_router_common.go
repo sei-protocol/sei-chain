@@ -36,10 +36,6 @@ const maxInboundFullnodePeers = 10000
 
 var errGigaMembershipChanged = errors.New("inbound giga peer changed committee membership")
 
-// errInboundFullnodeLimit is returned when a non-persistent fullnode is
-// refused because inboundFullnodeCap is already reached.
-var errInboundFullnodeLimit = errors.New("inbound fullnode peer limit reached")
-
 type gigaRouterCommon struct {
 	cfg             *GigaRouterCommonConfig
 	key             NodeSecretKey
@@ -559,32 +555,21 @@ func (r *gigaRouterCommon) runInboundFullnode(ctx context.Context, hConn *handsh
 	key := hConn.msg.NodeAuth.Key()
 	server := rpc.NewServer[giga.API]()
 	// Acquired before InsertAndRun, which evicts any live connection for this key.
-	release, err := r.acquireInboundFullnode(key)
-	if err != nil {
-		return err
+	// A persistent or block-sync peer does not consume the cap.
+	if _, skip := r.cfg.PersistentPeerIDs[key.NodeID()]; !skip {
+		// Optimistic acquire: Add(1), compare, Add(-1) on overflow.
+		// Over-rejects by one or two under contention but never over-accepts.
+		if r.inboundFullnodeCount.Add(1) > r.inboundFullnodeCap {
+			r.inboundFullnodeCount.Add(-1)
+			return fmt.Errorf("inbound fullnode peer limit (%d) reached", r.inboundFullnodeCap)
+		}
+		defer r.inboundFullnodeCount.Add(-1)
 	}
-	defer release()
 	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {
 		return r.runInboundMux(ctx, server, hConn, func(ctx context.Context) error {
 			return r.service.RunServer(ctx, server, false)
 		})
 	})
-}
-
-// acquireInboundFullnode reserves one inbound fullnode slot for key.
-// A p2p persistent peer reserves nothing. The returned function releases
-// the reservation; it is a no-op when key reserved nothing.
-func (r *gigaRouterCommon) acquireInboundFullnode(key NodePublicKey) (func(), error) {
-	if _, persistent := r.cfg.PersistentPeerIDs[key.NodeID()]; persistent {
-		return func() {}, nil
-	}
-	// Optimistic acquire: Add(1), compare, Add(-1) on overflow.
-	// Over-rejects by one or two under contention but never over-accepts.
-	if r.inboundFullnodeCount.Add(1) > r.inboundFullnodeCap {
-		r.inboundFullnodeCount.Add(-1)
-		return nil, fmt.Errorf("%w (%d)", errInboundFullnodeLimit, r.inboundFullnodeCap)
-	}
-	return func() { r.inboundFullnodeCount.Add(-1) }, nil
 }
 
 func (r *gigaRouterCommon) runInboundValidator(ctx context.Context, hConn *handshakedConn, member atypes.PublicKey) error {
