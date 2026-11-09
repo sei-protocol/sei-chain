@@ -8,27 +8,27 @@ import (
 
 var _ deleter = (*gappedDeleter)(nil)
 
-// gappedDeleter is the deleter of a store that allows gaps. Every deletion removes a single key, and a prune is one
-// deletion per key below its bound. A key's object is deleted once the put of that key is complete.
+// gappedDeleter is the deleter of a store that allows gaps. A prune is one deletion per key below its bound.
 type gappedDeleter struct {
+	// Performs the deletes.
+	writer objectDeleter
+
 	// The keys in the store, shared with the control loop. Prune() and Delete() remove the keys they schedule.
 	keys *structures.SortedMap[uint64, struct{}]
-
-	// The lowest key not scheduled for deletion.
-	scheduledDeletionWatermark uint64
 
 	// The deletion watermark of the metadata the store was recovered from.
 	deletionWatermark uint64
 
 	// Keys scheduled for deletion whose deletes have not started.
-	waiting *structures.SortedMap[uint64, struct{}]
+	pending *structures.SortedMap[uint64, struct{}]
 
-	// Deletes started and not yet collected, in the order they started.
+	// Deletes submitted and not yet finalized, in the order they were submitted.
 	inFlight *structures.Deque[*writeResult]
 }
 
 // newGappedDeleter returns the deleter of a store with gaps.
 func newGappedDeleter(
+	writer objectDeleter,
 	// The keys in the store, shared with the control loop.
 	keys *structures.SortedMap[uint64, struct{}],
 	// The metadata the store was recovered from.
@@ -37,22 +37,20 @@ func newGappedDeleter(
 	danglingKeys []uint64,
 ) *gappedDeleter {
 	d := &gappedDeleter{
-		keys:                       keys,
-		scheduledDeletionWatermark: metadata.ScheduledDeletionWatermark(),
-		deletionWatermark:          metadata.DeletionWatermark(),
-		waiting:                    structures.NewSortedMap[uint64, struct{}](),
-		inFlight:                   structures.NewDeque[*writeResult](),
+		writer:            writer,
+		keys:              keys,
+		deletionWatermark: metadata.DeletionWatermark(),
+		pending:           structures.NewSortedMap[uint64, struct{}](),
+		inFlight:          structures.NewDeque[*writeResult](),
 	}
 	for _, key := range danglingKeys {
-		d.waiting.Put(key, struct{}{})
+		d.pending.Put(key, struct{}{})
 	}
 	return d
 }
 
-// Start records the first key put into an empty store. See deleter.
-func (d *gappedDeleter) Start(firstKey uint64) {
-	d.scheduledDeletionWatermark = firstKey
-}
+// SetFirstKey does nothing: a store with gaps deletes only the keys it holds. See deleter.
+func (d *gappedDeleter) SetFirstKey(uint64) {}
 
 // Prune schedules the deletion of every key below bound, removing them from the store's keys. See deleter.
 func (d *gappedDeleter) Prune(bound uint64) {
@@ -62,20 +60,15 @@ func (d *gappedDeleter) Prune(bound uint64) {
 			break
 		}
 		d.keys.PopFront()
-		d.waiting.Put(key, struct{}{})
+		d.pending.Put(key, struct{}{})
 	}
-	d.scheduledDeletionWatermark = bound
 }
 
 // Delete schedules the deletion of key, removing it from the store's keys. See deleter.
-func (d *gappedDeleter) Delete(key uint64) {
+func (d *gappedDeleter) Delete(key uint64) error {
 	d.keys.Remove(key)
-	d.waiting.Put(key, struct{}{})
-}
-
-// ScheduledDeletionWatermark returns the lowest key not scheduled for deletion. See deleter.
-func (d *gappedDeleter) ScheduledDeletionWatermark() uint64 {
-	return d.scheduledDeletionWatermark
+	d.pending.Put(key, struct{}{})
+	return nil
 }
 
 // DeletionWatermark returns the deletion watermark of the metadata the store was recovered from. See deleter.
@@ -84,20 +77,20 @@ func (d *gappedDeleter) DeletionWatermark() uint64 {
 	return d.deletionWatermark
 }
 
-// Next returns the delete of the lowest waiting key, once the put of that key is complete. See deleter.
-func (d *gappedDeleter) Next(durableWatermark uint64) (*deleteWrite, bool) {
-	key, _, ok := d.waiting.PeekFront()
-	if !ok || key >= durableWatermark {
-		return nil, false
+// DoBackgroundWork starts the deletes of the lowest pending keys whose puts are complete. See deleter.
+func (d *gappedDeleter) DoBackgroundWork(durableWatermark uint64, maxDeletes int) {
+	for range maxDeletes {
+		key, _, ok := d.pending.PeekFront()
+		if !ok || key >= durableWatermark {
+			return
+		}
+		d.pending.PopFront()
+		d.inFlight.PushBack(d.writer.Delete(key))
 	}
-	d.waiting.PopFront()
-	write := &deleteWrite{key: key, result: newWriteResult(key)}
-	d.inFlight.PushBack(write.result)
-	return write, true
 }
 
-// Collect records every leading finished delete. See deleter.
-func (d *gappedDeleter) Collect() error {
+// FinalizeDeletes records every leading finished delete. See deleter.
+func (d *gappedDeleter) FinalizeDeletes() error {
 	for !d.inFlight.IsEmpty() {
 		result := d.inFlight.PeekFront()
 		err, done := result.Check()
@@ -110,12 +103,4 @@ func (d *gappedDeleter) Collect() error {
 		d.inFlight.PopFront()
 	}
 	return nil
-}
-
-// MetadataDurable does nothing: no delete in a store with gaps waits for the metadata. See deleter.
-func (d *gappedDeleter) MetadataDurable(storeMetadata) {}
-
-// Idle reports whether no deletion is waiting to start or in flight. See deleter.
-func (d *gappedDeleter) Idle() bool {
-	return d.waiting.Len() == 0 && d.inFlight.IsEmpty()
 }

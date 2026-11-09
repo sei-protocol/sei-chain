@@ -51,15 +51,18 @@ type cdkDataLake struct {
 	// Stops the control loop and the writer.
 	cancel context.CancelFunc
 
-	// The error that failed the store, or nil if it has not failed. Used only by the control loop.
+	// The error that stopped the control loop, or nil. Set before done is closed, and read only after.
 	failure error
 
 	// One above the highest key in the store. Never less than the scheduled deletion watermark. Used only by the
 	// control loop.
 	nextKey uint64
 
-	// In a store that allows gaps, its keys in ascending order. Empty in a store without gaps. The deleter removes
-	// the keys it schedules for deletion. Used only by the control loop.
+	// The store's scheduled deletion watermark: every key below it is deleted. Used only by the control loop.
+	scheduledDeletionWatermark uint64
+
+	// In a store that allows gaps, its keys in ascending order, along with deleted keys the deleter has not yet
+	// removed. Empty in a store without gaps. Used only by the control loop.
 	keys *structures.SortedMap[uint64, struct{}]
 
 	// Decides when the objects of deleted keys are deleted, and tracks those deletes. Used only by the control
@@ -134,41 +137,40 @@ func newCDKDataLake(
 		return nil, fmt.Errorf("open store %q: %w", storeName, err)
 	}
 
-	if state.hasMetadata {
-		metadata := state.topology.Metadata()
+	metadata := state.topology.Metadata()
+	if !metadata.IsNewStore() {
 		if err := recoveryWriter.WriteMetadata(metadata.Serialize()).Wait(); err != nil {
 			return nil, fmt.Errorf("write repaired metadata for store %q: %w", storeName, err)
 		}
 	}
-	metadata := state.topology.Metadata()
 	keys := structures.NewSortedMap[uint64, struct{}]()
 	for _, key := range state.topology.Keys() {
 		keys.Put(key, struct{}{})
 	}
-	var deleter deleter
-	if metadata.AllowGaps() {
-		deleter = newGappedDeleter(keys, metadata, state.danglingKeys)
-	} else {
-		deleter = newContiguousDeleter(metadata)
-	}
-
 	runCtx, cancel := context.WithCancel(context.Background())
 	writer := newBucketWriter(runCtx, storeBucket, config)
+	var deleter deleter
+	if metadata.AllowGaps() {
+		deleter = newGappedDeleter(writer, keys, metadata, state.danglingKeys)
+	} else {
+		deleter = newContiguousDeleter(writer, metadata)
+	}
 	lake = &cdkDataLake{
-		bucket:        bucket,
-		writer:        writer,
-		reader:        reader,
-		config:        config,
-		allowGaps:     metadata.AllowGaps(),
-		requests:      make(chan any, config.RequestBufferSize),
-		done:          make(chan struct{}),
-		cancel:        cancel,
-		nextKey:       metadata.DurableWatermark(),
-		keys:          keys,
-		deleter:       deleter,
-		putOperations: structures.NewDeque[*writeResult](),
+		bucket:                     bucket,
+		writer:                     writer,
+		reader:                     reader,
+		config:                     config,
+		allowGaps:                  metadata.AllowGaps(),
+		requests:                   make(chan any, config.RequestBufferSize),
+		done:                       make(chan struct{}),
+		cancel:                     cancel,
+		nextKey:                    metadata.DurableWatermark(),
+		scheduledDeletionWatermark: metadata.ScheduledDeletionWatermark(),
+		keys:                       keys,
+		deleter:                    deleter,
+		putOperations:              structures.NewDeque[*writeResult](),
 		metadataManager: newMetadataManager(
-			writer, deleter, config.MetadataWriteInterval, metadata, state.hasMetadata),
+			writer, deleter, config.MetadataWriteInterval, metadata),
 	}
 	go lake.run(runCtx)
 	return lake, nil
@@ -245,7 +247,7 @@ func (s *cdkDataLake) Delete(ctx context.Context, key uint64) error {
 		return fmt.Errorf("delete key %d: %w", key, err)
 	}
 	// A queued delete runs whatever ctx does, so the caller waits for its outcome.
-	outcome, err := awaitReply(context.Background(), s.done, request.reply)
+	outcome, err := awaitReply(context.Background(), s, request.reply)
 	if err != nil {
 		return fmt.Errorf("delete key %d: %w", key, err)
 	}
@@ -262,7 +264,7 @@ func (s *cdkDataLake) PruneBelow(ctx context.Context, key uint64) error {
 		return fmt.Errorf("prune below key %d: %w", key, err)
 	}
 	// A queued prune runs whatever ctx does, so the caller waits for its outcome.
-	outcome, err := awaitReply(context.Background(), s.done, request.reply)
+	outcome, err := awaitReply(context.Background(), s, request.reply)
 	if err != nil {
 		return fmt.Errorf("prune below key %d: %w", key, err)
 	}
@@ -286,16 +288,12 @@ func (s *cdkDataLake) GetFirstKey() (uint64, bool) {
 // Flush blocks until every write accepted before the call is crash durable and its changes to the backing store are
 // complete. See DataLake.
 func (s *cdkDataLake) Flush(ctx context.Context) error {
-	request := &flushRequest{reply: make(chan error, 1)}
+	request := &flushRequest{reply: make(chan struct{}, 1)}
 	if err := s.send(ctx, request); err != nil {
 		return fmt.Errorf("flush: %w", err)
 	}
-	outcome, err := awaitReply(ctx, s.done, request.reply)
-	if err != nil {
+	if _, err := awaitReply(ctx, s, request.reply); err != nil {
 		return fmt.Errorf("flush: %w", err)
-	}
-	if outcome != nil {
-		return fmt.Errorf("flush: %w", outcome)
 	}
 	return nil
 }
@@ -307,22 +305,19 @@ func (s *cdkDataLake) Iterator(
 	prefetchValues bool,
 	reverse bool,
 ) (DataLakeIterator, error) {
-	request := &iteratorRequest{reply: make(chan keyTopologyResult, 1)}
+	request := &iteratorRequest{reply: make(chan keyTopology, 1)}
 	if err := s.send(ctx, request); err != nil {
 		return nil, fmt.Errorf("create iterator: %w", err)
 	}
-	result, err := awaitReply(ctx, s.done, request.reply)
+	topology, err := awaitReply(ctx, s, request.reply)
 	if err != nil {
 		return nil, fmt.Errorf("create iterator: %w", err)
-	}
-	if result.err != nil {
-		return nil, fmt.Errorf("create iterator: %w", result.err)
 	}
 	prefetchDepth := 0
 	if prefetchValues {
 		prefetchDepth = s.config.PrefetchDepth
 	}
-	iterator, err := s.reader.Iterator(false, result.topology, startKey, reverse, prefetchDepth)
+	iterator, err := s.reader.Iterator(false, topology, startKey, reverse, prefetchDepth)
 	if err != nil {
 		return nil, fmt.Errorf("create iterator: %w", err)
 	}
@@ -351,7 +346,7 @@ func (s *cdkDataLake) submitPut(ctx context.Context, request *putRequest) error 
 		return fmt.Errorf("queue the put: %w", err)
 	}
 	// A queued put runs whatever ctx does, so the caller waits for its outcome.
-	outcome, err := awaitReply(context.Background(), s.done, request.reply)
+	outcome, err := awaitReply(context.Background(), s, request.reply)
 	if err != nil {
 		if request.stream != nil {
 			_ = request.stream.Close()
@@ -366,18 +361,15 @@ func (s *cdkDataLake) submitPut(ctx context.Context, request *putRequest) error 
 
 // lookup reports whether key has been accepted and not deleted.
 func (s *cdkDataLake) lookup(ctx context.Context, key uint64) (bool, error) {
-	request := &lookupRequest{key: key, reply: make(chan lookupResult, 1)}
+	request := &lookupRequest{key: key, reply: make(chan bool, 1)}
 	if err := s.send(ctx, request); err != nil {
 		return false, fmt.Errorf("look up key %d: %w", key, err)
 	}
-	result, err := awaitReply(ctx, s.done, request.reply)
+	present, err := awaitReply(ctx, s, request.reply)
 	if err != nil {
 		return false, fmt.Errorf("look up key %d: %w", key, err)
 	}
-	if result.err != nil {
-		return false, fmt.Errorf("data lake has failed: %w", result.err)
-	}
-	return result.present, nil
+	return present, nil
 }
 
 // bounds returns the durable watermark and the first key, or zero bounds once the control loop has exited.
@@ -386,31 +378,38 @@ func (s *cdkDataLake) bounds() storeBounds {
 	if err := s.send(context.Background(), request); err != nil {
 		return storeBounds{}
 	}
-	bounds, err := awaitReply(context.Background(), s.done, request.reply)
+	bounds, err := awaitReply(context.Background(), s, request.reply)
 	if err != nil {
 		return storeBounds{}
 	}
 	return bounds
 }
 
-// send queues request for the control loop. It returns an error if the loop has exited or ctx ends first.
+// send queues request for the control loop.
 func (s *cdkDataLake) send(ctx context.Context, request any) error {
 	select {
 	case s.requests <- request:
 		return nil
 	case <-s.done:
-		return errors.New("data lake is closed")
+		return s.stoppedError()
 	case <-ctx.Done():
 		return fmt.Errorf("wait for the control loop: %w", ctx.Err())
 	}
 }
 
-// awaitReply waits for the control loop's reply to a request it was sent. It returns an error if ctx ends first, or
-// if the loop exits without handling the request.
+// stoppedError describes why the control loop has exited. It may be called only once done is closed.
+func (s *cdkDataLake) stoppedError() error {
+	if s.failure != nil {
+		return fmt.Errorf("data lake has failed: %w", s.failure)
+	}
+	return errors.New("data lake is closed")
+}
+
+// awaitReply waits for the control loop's reply to a request it was sent.
 func awaitReply[T any](
 	ctx context.Context,
-	// Closed when the control loop exits.
-	done <-chan struct{},
+	// The data lake whose control loop was sent the request.
+	lake *cdkDataLake,
 	reply <-chan T,
 ) (T, error) {
 	var zero T
@@ -419,13 +418,13 @@ func awaitReply[T any](
 		return value, nil
 	case <-ctx.Done():
 		return zero, fmt.Errorf("wait for the control loop: %w", ctx.Err())
-	case <-done:
+	case <-lake.done:
 		select {
 		case value := <-reply:
-			// The control loop replies to every request it handles before it exits.
+			// The control loop may reply to a request and then exit.
 			return value, nil
 		default:
-			return zero, errors.New("data lake is closed")
+			return zero, lake.stoppedError()
 		}
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"sync"
 )
 
+var _ objectDeleter = (*bucketWriter)(nil)
+
 // bucketWriter writes and deletes objects in a store's part of the bucket, retrying transient failures. It is not
 // goroutine safe, but the results it returns are.
 type bucketWriter struct {
@@ -76,14 +78,9 @@ func (w *bucketWriter) PutStream(key uint64, stream DataLakeStream) *writeResult
 
 // Delete deletes key. Deleting an absent key succeeds.
 func (w *bucketWriter) Delete(key uint64) *writeResult {
-	write := &deleteWrite{key: key, result: newWriteResult(key)}
-	w.SubmitDelete(write)
-	return write.result
-}
-
-// SubmitDelete performs write, whose result the caller already holds. Deleting an absent key succeeds.
-func (w *bucketWriter) SubmitDelete(write *deleteWrite) {
-	w.submit(write)
+	result := newWriteResult(key)
+	w.submit(&deleteWrite{key: key, result: result})
+	return result
 }
 
 // WriteMetadata replaces the content of the store's metadata object with data.

@@ -8,32 +8,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// takeDeletes takes every delete d produces now.
-func takeDeletes(d deleter, durableWatermark uint64) []*deleteWrite {
-	var writes []*deleteWrite
-	for {
-		write, ok := d.Next(durableWatermark)
-		if !ok {
-			return writes
-		}
-		writes = append(writes, write)
-	}
+// recordingObjectDeleter records every delete it is handed and leaves each unfinished.
+type recordingObjectDeleter struct {
+	// The deletes handed to it and not yet taken by takeDeletes(), in the order they arrived.
+	submitted []*writeResult
 }
 
-// deleteKeys returns the keys writes delete.
-func deleteKeys(writes []*deleteWrite) []uint64 {
-	keys := make([]uint64, 0, len(writes))
-	for _, write := range writes {
-		keys = append(keys, write.key)
+// Delete records a delete of key and returns its unfinished result.
+func (r *recordingObjectDeleter) Delete(key uint64) *writeResult {
+	result := newWriteResult(key)
+	r.submitted = append(r.submitted, result)
+	return result
+}
+
+// takeDeletes has d start every delete that may start now, and returns them.
+func takeDeletes(d deleter, writer *recordingObjectDeleter, durableWatermark uint64) []*writeResult {
+	d.DoBackgroundWork(durableWatermark, math.MaxInt)
+	taken := writer.submitted
+	writer.submitted = nil
+	return taken
+}
+
+// deleteKeys returns the keys deletes delete.
+func deleteKeys(deletes []*writeResult) []uint64 {
+	keys := make([]uint64, 0, len(deletes))
+	for _, result := range deletes {
+		keys = append(keys, result.Key())
 	}
 	return keys
 }
 
-// finishDeletes completes writes successfully.
-func finishDeletes(writes ...*deleteWrite) {
-	for _, write := range writes {
-		write.result.complete(nil)
+// finishDeletes completes deletes successfully.
+func finishDeletes(deletes ...*writeResult) {
+	for _, result := range deletes {
+		result.complete(nil)
 	}
+}
+
+// newTestContiguousDeleter returns a contiguous deleter of a store whose durable metadata is metadata, and the
+// writer that records its deletes.
+func newTestContiguousDeleter(metadata storeMetadata) (*contiguousDeleter, *recordingObjectDeleter) {
+	writer := &recordingObjectDeleter{}
+	return newContiguousDeleter(writer, metadata), writer
 }
 
 // contiguousMetadata returns metadata of a store without gaps with the given watermarks.
@@ -48,90 +64,89 @@ func contiguousMetadata(
 	return *metadata
 }
 
-func TestContiguousDeleterWaitsForDurableMetadata(t *testing.T) {
-	d := newContiguousDeleter(*newStoreMetadata(false))
-	d.Start(10)
+func TestContiguousDeleterPruneSchedulesOnlyNewKeys(t *testing.T) {
+	d, writer := newTestContiguousDeleter(*newStoreMetadata(false))
+	d.SetFirstKey(10)
 
 	d.Prune(13)
-	require.Equal(t, uint64(13), d.ScheduledDeletionWatermark())
-	require.Empty(t, takeDeletes(d, math.MaxUint64), "the raised watermark is not durable")
+	require.Equal(t, []uint64{10, 11, 12}, deleteKeys(takeDeletes(d, writer, math.MaxUint64)))
 
-	d.MetadataDurable(contiguousMetadata(t, 12, 0, 12))
-	require.Equal(t, []uint64{10, 11}, deleteKeys(takeDeletes(d, math.MaxUint64)))
+	d.Prune(12)
+	require.Empty(t, takeDeletes(d, writer, math.MaxUint64))
 
-	d.MetadataDurable(contiguousMetadata(t, 13, 0, 13))
-	require.Equal(t, []uint64{12}, deleteKeys(takeDeletes(d, math.MaxUint64)))
+	d.Prune(15)
+	require.Equal(t, []uint64{13, 14}, deleteKeys(takeDeletes(d, writer, math.MaxUint64)))
 }
 
 func TestContiguousDeleterWaitsForPuts(t *testing.T) {
-	d := newContiguousDeleter(*newStoreMetadata(false))
-	d.Start(0)
+	d, writer := newTestContiguousDeleter(*newStoreMetadata(false))
+	d.SetFirstKey(0)
 	d.Prune(5)
-	d.MetadataDurable(contiguousMetadata(t, 5, 0, 5))
 
-	require.Equal(t, []uint64{0, 1}, deleteKeys(takeDeletes(d, 2)))
-	require.Equal(t, []uint64{2, 3, 4}, deleteKeys(takeDeletes(d, 10)))
+	require.Equal(t, []uint64{0, 1}, deleteKeys(takeDeletes(d, writer, 2)))
+	require.Equal(t, []uint64{2, 3, 4}, deleteKeys(takeDeletes(d, writer, 10)))
 }
 
-func TestContiguousDeleterWatermarkAndIdle(t *testing.T) {
-	d := newContiguousDeleter(*newStoreMetadata(false))
-	d.Start(0)
-	require.True(t, d.Idle())
-	d.Delete(0)
+func TestContiguousDeleterStartsAtMostLimit(t *testing.T) {
+	d, writer := newTestContiguousDeleter(*newStoreMetadata(false))
+	d.SetFirstKey(0)
+	d.Prune(5)
+
+	d.DoBackgroundWork(math.MaxUint64, 2)
+	require.Equal(t, []uint64{0, 1}, deleteKeys(writer.submitted))
+	d.DoBackgroundWork(math.MaxUint64, 2)
+	require.Equal(t, []uint64{0, 1, 2, 3}, deleteKeys(writer.submitted))
+}
+
+func TestContiguousDeleterWatermarkWaitsForEarliestDelete(t *testing.T) {
+	d, writer := newTestContiguousDeleter(*newStoreMetadata(false))
+	d.SetFirstKey(0)
+	d.Prune(1)
 	d.Prune(3)
-	require.False(t, d.Idle())
 	require.Equal(t, uint64(0), d.DeletionWatermark())
 
-	d.MetadataDurable(contiguousMetadata(t, 3, 0, 3))
-	writes := takeDeletes(d, math.MaxUint64)
-	require.Equal(t, []uint64{0, 1, 2}, deleteKeys(writes))
+	deletes := takeDeletes(d, writer, math.MaxUint64)
+	require.Equal(t, []uint64{0, 1, 2}, deleteKeys(deletes))
 
-	finishDeletes(writes[1], writes[2])
-	require.NoError(t, d.Collect())
+	finishDeletes(deletes[1], deletes[2])
+	require.NoError(t, d.FinalizeDeletes())
 	require.Equal(t, uint64(0), d.DeletionWatermark(), "the delete of key 0 is still running")
-	require.False(t, d.Idle())
 
-	finishDeletes(writes[0])
-	require.NoError(t, d.Collect())
+	finishDeletes(deletes[0])
+	require.NoError(t, d.FinalizeDeletes())
 	require.Equal(t, uint64(3), d.DeletionWatermark())
-	require.True(t, d.Idle())
+}
+
+func TestContiguousDeleterRejectsDelete(t *testing.T) {
+	d, writer := newTestContiguousDeleter(*newStoreMetadata(false))
+	d.SetFirstKey(0)
+
+	require.Error(t, d.Delete(0))
+	require.Empty(t, takeDeletes(d, writer, math.MaxUint64))
 }
 
 func TestContiguousDeleterReportsFailedDelete(t *testing.T) {
-	d := newContiguousDeleter(*newStoreMetadata(false))
-	d.Start(0)
+	d, writer := newTestContiguousDeleter(*newStoreMetadata(false))
+	d.SetFirstKey(0)
 	d.Prune(1)
-	d.MetadataDurable(contiguousMetadata(t, 1, 0, 1))
 
-	writes := takeDeletes(d, math.MaxUint64)
-	writes[0].result.complete(errors.New("boom"))
-	require.Error(t, d.Collect())
+	deletes := takeDeletes(d, writer, math.MaxUint64)
+	deletes[0].complete(errors.New("boom"))
+	require.Error(t, d.FinalizeDeletes())
 }
 
 func TestContiguousDeleterResumesRecoveredDeletes(t *testing.T) {
-	d := newContiguousDeleter(contiguousMetadata(t, 8, 5, 10))
+	d, writer := newTestContiguousDeleter(contiguousMetadata(t, 8, 5, 10))
 
-	require.Equal(t, uint64(8), d.ScheduledDeletionWatermark())
 	require.Equal(t, uint64(5), d.DeletionWatermark())
-	require.Equal(t, []uint64{5, 6, 7}, deleteKeys(takeDeletes(d, math.MaxUint64)))
+	require.Equal(t, []uint64{5, 6, 7}, deleteKeys(takeDeletes(d, writer, math.MaxUint64)))
 }
 
-func TestContiguousDeleterStartSkipsUnwrittenKeys(t *testing.T) {
-	d := newContiguousDeleter(contiguousMetadata(t, 4, 4, 4))
-	d.Start(100)
+func TestContiguousDeleterSetFirstKeySkipsUnwrittenKeys(t *testing.T) {
+	d, writer := newTestContiguousDeleter(contiguousMetadata(t, 4, 4, 4))
+	d.SetFirstKey(100)
+	d.Prune(100)
 
 	require.Equal(t, uint64(100), d.DeletionWatermark(), "no key from 4 up to 100 was ever written")
-	require.Empty(t, takeDeletes(d, math.MaxUint64))
-}
-
-func TestContiguousDeleterStartKeepsUndurableDeletesWaiting(t *testing.T) {
-	d := newContiguousDeleter(contiguousMetadata(t, 4, 4, 6))
-	d.Prune(6)
-	d.Start(100)
-
-	require.Equal(t, uint64(4), d.DeletionWatermark())
-	require.Empty(t, takeDeletes(d, math.MaxUint64), "keys 4 and 5 still wait for durable metadata")
-
-	d.MetadataDurable(contiguousMetadata(t, 100, 4, 100))
-	require.Equal(t, []uint64{4, 5}, deleteKeys(takeDeletes(d, math.MaxUint64)))
+	require.Empty(t, takeDeletes(d, writer, math.MaxUint64))
 }

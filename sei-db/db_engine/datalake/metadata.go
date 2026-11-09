@@ -33,14 +33,17 @@ type storeMetadata struct {
 	// While a rollback is in progress, the rollback keeps every key strictly less than this watermark and deletes
 	// the rest. Zero otherwise.
 	rollbackWatermark uint64
+
+	// True for the metadata of a new store until its watermarks are first set. Not serialized.
+	newStore bool
 }
 
 // newStoreMetadata returns the metadata of a new store, with every watermark at 0.
 func newStoreMetadata(allowGaps bool) *storeMetadata {
-	return &storeMetadata{allowGaps: allowGaps}
+	return &storeMetadata{allowGaps: allowGaps, newStore: true}
 }
 
-// loadStoreMetadata reads a store's metadata object. It returns an error if the object does not hold valid metadata.
+// loadStoreMetadata reads a store's metadata object.
 func loadStoreMetadata(
 	ctx context.Context,
 	reader *bucketReader,
@@ -90,6 +93,11 @@ func (m *storeMetadata) DurableWatermark() uint64 {
 	return m.durableWatermark
 }
 
+// IsNewStore reports whether this is the metadata of a new store, whose watermarks have never been set.
+func (m *storeMetadata) IsNewStore() bool {
+	return m.newStore
+}
+
 // AllowGaps reports whether the store allows gaps between its keys.
 func (m *storeMetadata) AllowGaps() bool {
 	return m.allowGaps
@@ -106,8 +114,7 @@ func (m *storeMetadata) RollbackWatermark() uint64 {
 	return m.rollbackWatermark
 }
 
-// StartRollback records a rollback that keeps every key strictly less than watermark. It returns an error if a
-// rollback is already in progress.
+// StartRollback records a rollback that keeps every key strictly less than watermark.
 func (m *storeMetadata) StartRollback(watermark uint64) error {
 	if m.rollbackInProgress {
 		return fmt.Errorf("a rollback to %d is already in progress", m.rollbackWatermark)
@@ -119,7 +126,6 @@ func (m *storeMetadata) StartRollback(watermark uint64) error {
 
 // FinishRollback records that the rollback is complete. It lowers the scheduled deletion and deletion watermarks
 // to the rollback watermark, and the durable watermark to just above the highest key left, if they are above those.
-// It returns an error if no rollback is in progress.
 func (m *storeMetadata) FinishRollback(
 	// One above the highest key left in the store's part of the bucket, or 0 if none is left.
 	remainingEnd uint64,
@@ -137,8 +143,7 @@ func (m *storeMetadata) FinishRollback(
 	return nil
 }
 
-// SetWatermarks replaces the three watermarks. It returns an error, leaving the metadata unchanged, if any watermark
-// would decrease, or if the deletion watermark would exceed the scheduled deletion or durable watermark.
+// SetWatermarks replaces the three watermarks. The metadata is no longer a new store's.
 func (m *storeMetadata) SetWatermarks(scheduledDeletion uint64, deletion uint64, durable uint64) error {
 	if scheduledDeletion < m.scheduledDeletionWatermark {
 		return fmt.Errorf("scheduled deletion watermark would decrease from %d to %d",
@@ -160,6 +165,7 @@ func (m *storeMetadata) SetWatermarks(scheduledDeletion uint64, deletion uint64,
 	m.scheduledDeletionWatermark = scheduledDeletion
 	m.deletionWatermark = deletion
 	m.durableWatermark = durable
+	m.newStore = false
 	return nil
 }
 
@@ -180,9 +186,7 @@ func (m *storeMetadata) Serialize() []byte {
 	return data
 }
 
-// deserializeStoreMetadata parses metadata written by Serialize(). It returns an error if the data has an
-// unknown version, the wrong length, a flag other than 0 or 1, a rollback watermark without a rollback in progress,
-// or watermarks SetWatermarks() would reject.
+// deserializeStoreMetadata parses metadata written by Serialize().
 func deserializeStoreMetadata(data []byte) (*storeMetadata, error) {
 	if len(data) < 4 {
 		return nil, fmt.Errorf("metadata is %d bytes, too short to hold a version", len(data))

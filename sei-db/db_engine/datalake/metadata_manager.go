@@ -11,17 +11,14 @@ type metadataManager struct {
 	// Performs the metadata writes.
 	writer *bucketWriter
 
-	// Supplies the deletion watermarks, and learns of each metadata write that becomes durable.
+	// Supplies the deletion watermark.
 	deleter deleter
 
-	// The minimum time between the starts of metadata writes made by WriteIfDue().
+	// The minimum time between the starts of unforced metadata writes.
 	writeInterval time.Duration
 
 	// The last metadata known to be crash durable.
 	durableMetadata storeMetadata
-
-	// True once the metadata object has been written.
-	written bool
 
 	// The metadata write in flight, or nil.
 	inFlightWrite *writeResult
@@ -37,39 +34,41 @@ type metadataManager struct {
 func newMetadataManager(
 	writer *bucketWriter,
 	deleter deleter,
-	// The minimum time between the starts of metadata writes made by WriteIfDue().
+	// The minimum time between the starts of unforced metadata writes.
 	writeInterval time.Duration,
 	// The store's metadata as recovered, or the metadata of a new store.
 	durableMetadata storeMetadata,
-	// True if the store's metadata object exists.
-	written bool,
 ) *metadataManager {
 	return &metadataManager{
 		writer:          writer,
 		deleter:         deleter,
 		writeInterval:   writeInterval,
 		durableMetadata: durableMetadata,
-		written:         written,
 	}
 }
 
-// Snapshot returns the store's metadata as of now. It returns an error if the watermarks break a metadata invariant.
-func (m *metadataManager) Snapshot(
+// CurrentMetadata returns the store's metadata as of now.
+func (m *metadataManager) CurrentMetadata(
+	// The lowest key not deleted.
+	scheduledDeletionWatermark uint64,
 	// The lowest key whose put may not be complete.
 	durableWatermark uint64,
 ) (storeMetadata, error) {
-	snapshot := m.durableMetadata
-	err := snapshot.SetWatermarks(
-		m.deleter.ScheduledDeletionWatermark(), m.deleter.DeletionWatermark(), durableWatermark)
+	metadata := m.durableMetadata
+	err := metadata.SetWatermarks(scheduledDeletionWatermark, m.deleter.DeletionWatermark(), durableWatermark)
 	if err != nil {
 		return storeMetadata{}, fmt.Errorf("update metadata: %w", err)
 	}
-	return snapshot, nil
+	return metadata, nil
 }
 
-// Collect records the metadata write in flight as durable if it has finished, and tells the deleter. It returns an
-// error if the write failed.
-func (m *metadataManager) Collect() error {
+// DurableMetadata returns the last metadata known to be crash durable.
+func (m *metadataManager) DurableMetadata() storeMetadata {
+	return m.durableMetadata
+}
+
+// FinalizeWrite records the metadata write in flight as durable if it has finished.
+func (m *metadataManager) FinalizeWrite() error {
 	if m.inFlightWrite == nil {
 		return nil
 	}
@@ -82,87 +81,60 @@ func (m *metadataManager) Collect() error {
 		return fmt.Errorf("write metadata: %w", err)
 	}
 	m.durableMetadata = m.inFlightMetadata
-	m.written = true
-	m.deleter.MetadataDurable(m.durableMetadata)
 	return nil
 }
 
-// WriteIfDue starts a metadata write if the metadata has changed since the last durable write, no write is in flight,
-// and the write interval has passed since the last write started.
-func (m *metadataManager) WriteIfDue(
+// Write starts a write of the store's current metadata unless a write is in flight, or the metadata matches the last
+// durable write and the metadata object exists. Unless force is true, it writes only once the write interval has
+// passed since the last write started.
+func (m *metadataManager) Write(
+	// The lowest key not deleted.
+	scheduledDeletionWatermark uint64,
 	// The lowest key whose put may not be complete.
 	durableWatermark uint64,
+	// True to write whatever the write interval.
+	force bool,
+	// True to first wait for the write in flight, and to return only once the metadata written is durable.
+	wait bool,
 ) error {
-	if m.inFlightWrite != nil || time.Since(m.lastWriteStart) < m.writeInterval {
-		return nil
-	}
-	snapshot, err := m.Snapshot(durableWatermark)
-	if err != nil {
-		return fmt.Errorf("start a due metadata write: %w", err)
-	}
-	if snapshot != m.durableMetadata {
-		m.start(snapshot)
-	}
-	return nil
-}
-
-// WriteIfChanged starts a metadata write, whatever the write interval, if the metadata has changed since the last
-// durable write and no write is in flight.
-func (m *metadataManager) WriteIfChanged(
-	// The lowest key whose put may not be complete.
-	durableWatermark uint64,
-) (
-	// True if no write is in flight and the durable metadata is current.
-	current bool,
-	err error,
-) {
-	if m.inFlightWrite != nil {
-		return false, nil
-	}
-	snapshot, err := m.Snapshot(durableWatermark)
-	if err != nil {
-		return false, fmt.Errorf("start a metadata write: %w", err)
-	}
-	if snapshot == m.durableMetadata {
-		return true, nil
-	}
-	m.start(snapshot)
-	return false, nil
-}
-
-// WriteAndWait writes the metadata once any write in flight has finished, and waits until it is durable.
-func (m *metadataManager) WriteAndWait(
-	// The lowest key whose put may not be complete.
-	durableWatermark uint64,
-) error {
-	if m.inFlightWrite != nil {
-		// Metadata writes must land in the order they start. Its outcome is collected below.
-		_ = m.inFlightWrite.Wait()
-		if err := m.Collect(); err != nil {
+	if wait {
+		if err := m.waitForInFlightWrite(); err != nil {
 			return fmt.Errorf("finish the metadata write in flight: %w", err)
 		}
 	}
-	snapshot, err := m.Snapshot(durableWatermark)
-	if err != nil {
-		return fmt.Errorf("write metadata: %w", err)
+	if m.inFlightWrite == nil && (force || time.Since(m.lastWriteStart) >= m.writeInterval) {
+		metadata, err := m.CurrentMetadata(scheduledDeletionWatermark, durableWatermark)
+		if err != nil {
+			return fmt.Errorf("start a metadata write: %w", err)
+		}
+		if metadata != m.durableMetadata {
+			m.start(metadata)
+		}
 	}
-	m.start(snapshot)
-	_ = m.inFlightWrite.Wait()
-	if err := m.Collect(); err != nil {
-		return fmt.Errorf("wait for the metadata write: %w", err)
+	if wait {
+		if err := m.waitForInFlightWrite(); err != nil {
+			return fmt.Errorf("finish the metadata write: %w", err)
+		}
 	}
 	return nil
 }
 
-// Written reports whether the store's metadata object has been written.
-func (m *metadataManager) Written() bool {
-	return m.written
+// start hands the writer a write of metadata, waiting while the writer's queue is full. No write may be in flight.
+func (m *metadataManager) start(metadata storeMetadata) {
+	m.inFlightMetadata = metadata
+	m.lastWriteStart = time.Now()
+	m.inFlightWrite = m.writer.WriteMetadata(metadata.Serialize())
 }
 
-// start hands the writer a metadata write of snapshot, waiting while the writer's queue is full. No write may be in
-// flight.
-func (m *metadataManager) start(snapshot storeMetadata) {
-	m.inFlightMetadata = snapshot
-	m.lastWriteStart = time.Now()
-	m.inFlightWrite = m.writer.WriteMetadata(snapshot.Serialize())
+// waitForInFlightWrite waits for the metadata write in flight, if any, and records it as durable.
+func (m *metadataManager) waitForInFlightWrite() error {
+	if m.inFlightWrite == nil {
+		return nil
+	}
+	// FinalizeWrite() reports the write's outcome.
+	_ = m.inFlightWrite.Wait()
+	if err := m.FinalizeWrite(); err != nil {
+		return fmt.Errorf("wait for the metadata write: %w", err)
+	}
+	return nil
 }

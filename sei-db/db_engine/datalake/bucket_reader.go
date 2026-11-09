@@ -53,7 +53,7 @@ func newBucketReader(ctx context.Context, storeBucket *storeBucket, config DataL
 	return r
 }
 
-// Get starts reading the value at key. The read fails if ctx ends before a reader goroutine is free to take it.
+// Get starts reading the value at key.
 func (r *bucketReader) Get(ctx context.Context, key uint64) *getResult {
 	result := newGetResult(key)
 	if err := r.submit(ctx, &getRead{key: key, result: result}); err != nil {
@@ -207,8 +207,7 @@ func (r *bucketReader) readKeyPage(
 	return keys, read.nextPageToken, nil
 }
 
-// submit hands read to a reader goroutine, waiting until one is idle. It returns an error if ctx ends or the reader
-// closes first.
+// submit hands read to a reader goroutine, waiting until one is idle.
 func (r *bucketReader) submit(ctx context.Context, read any) error {
 	select {
 	case r.queue <- read:

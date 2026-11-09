@@ -35,8 +35,8 @@ type pruneRequest struct {
 
 // flushRequest asks the loop to make every accepted write durable.
 type flushRequest struct {
-	// Receives the outcome once the flush completes.
-	reply chan error
+	// Receives a value once the flush completes.
+	reply chan struct{}
 }
 
 // lookupRequest asks the loop whether a key is in the store.
@@ -44,17 +44,8 @@ type lookupRequest struct {
 	// The key to look up.
 	key uint64
 
-	// Receives the answer.
-	reply chan lookupResult
-}
-
-// lookupResult answers a lookupRequest.
-type lookupResult struct {
-	// True if the key has been accepted and not deleted.
-	present bool
-
-	// Set if the store has failed.
-	err error
+	// Receives true if the key has been accepted and not deleted.
+	reply chan bool
 }
 
 // boundsRequest asks the loop for the durable watermark and the first key.
@@ -77,15 +68,6 @@ type storeBounds struct {
 
 // iteratorRequest asks the loop for the store's key topology.
 type iteratorRequest struct {
-	// Receives the answer.
-	reply chan keyTopologyResult
-}
-
-// keyTopologyResult answers an iteratorRequest.
-type keyTopologyResult struct {
-	// The store's key topology.
-	topology keyTopology
-
-	// Set if the store has failed.
-	err error
+	// Receives the store's key topology.
+	reply chan keyTopology
 }

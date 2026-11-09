@@ -57,7 +57,7 @@ func (result *getResult) Key() uint64 {
 	return result.key
 }
 
-// Value returns the value read. It returns an error if the read failed or ctx ends first.
+// Value returns the value read.
 func (result *getResult) Value(
 	ctx context.Context,
 ) (
@@ -139,7 +139,7 @@ type keyPageRead struct {
 	done chan struct{}
 }
 
-// waitForRead blocks until done is closed or ctx ends. It returns an error if ctx ends first.
+// waitForRead blocks until done is closed or ctx ends.
 func waitForRead(ctx context.Context, done <-chan struct{}) error {
 	select {
 	case <-done:

@@ -8,15 +8,13 @@ import (
 // DataLake is a durable store for the long-term or indefinite retention of values keyed by uint64. Reads may be
 // slow. Unless the store allows gaps, its keys form one contiguous range.
 //
-// All methods are safe to call concurrently. Once a background write fails, every later call returns an error.
-// Each ctx bounds how long its call may block. Byte slices passed to or returned by the methods of a DataLake or
-// its iterators are not safe to modify.
+// All methods are safe to call concurrently. Each ctx bounds how long its call may block. Byte slices passed to or
+// returned by the methods of a DataLake or its iterators are not safe to modify.
 type DataLake interface {
 	// Put writes value at key. It returns once the write is accepted, and the write becomes crash durable later.
-	// It returns an error if key is not above every key in the store and every key deleted from it, or, in a store
-	// that does not allow gaps and is not empty, if key is not one above the highest key. A completed rollback
-	// forgets every deletion above the highest key it leaves in the store, or, if it leaves none, every deletion at
-	// or above its watermark.
+	// key must be above every key in the store and every key deleted from it, and, in a store that does not allow
+	// gaps and is not empty, one above the highest key. A completed rollback forgets every deletion above the
+	// highest key it leaves in the store, or, if it leaves none, every deletion at or above its watermark.
 	Put(
 		ctx context.Context,
 		key uint64,
@@ -24,11 +22,10 @@ type DataLake interface {
 	) error
 
 	// PutStream writes the bytes read from value at key. It returns once the write is accepted, and the write
-	// becomes crash durable later. It returns an error if key is not above every key in the store and every key
-	// deleted from it, or, in a store that does not allow gaps and is not empty, if key is not one above the
-	// highest key. A completed rollback forgets every deletion above the highest key it leaves in the store,
-	// or, if it leaves none, every deletion at or above its watermark. A failure of value is a background write
-	// failure.
+	// becomes crash durable later. key must be above every key in the store and every key deleted from it, and, in
+	// a store that does not allow gaps and is not empty, one above the highest key. A completed rollback forgets
+	// every deletion above the highest key it leaves in the store, or, if it leaves none, every deletion at or
+	// above its watermark. A failure of value is a background write failure.
 	PutStream(
 		ctx context.Context,
 		key uint64,
@@ -77,8 +74,8 @@ type DataLake interface {
 		key uint64,
 	) error
 
-	// PruneBelow removes every key below key. It returns an error if that would remove the highest key. Until a
-	// later Flush() returns, a crash may restore the removed keys.
+	// PruneBelow removes every key below key. key may not exceed the highest key. Until a later Flush() returns, a
+	// crash may restore the removed keys.
 	PruneBelow(
 		ctx context.Context,
 		// The lowest key to keep.

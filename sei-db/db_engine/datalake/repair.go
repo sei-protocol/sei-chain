@@ -10,9 +10,6 @@ import (
 // recoveredState is a store's state as recovered from the store's part of the bucket, after the top of its key
 // range is repaired.
 type recoveredState struct {
-	// False if the store has no metadata object, meaning it has never been written.
-	hasMetadata bool
-
 	// The store's keys and its repaired metadata, or a new store's metadata. The durable watermark is one above the
 	// highest key, and never below the scheduled deletion watermark.
 	topology keyTopology
@@ -23,9 +20,7 @@ type recoveredState struct {
 }
 
 // recoverState reads a store's metadata, finishes an interrupted rollback, and repairs the top of its key range. In
-// a store that does not allow gaps, it deletes every object above the first gap past the durable watermark. It
-// returns an error if the store holds data objects but no metadata object, or if allowGaps differs from the setting
-// the store was created with.
+// a store that does not allow gaps, it deletes every object above the first gap past the durable watermark.
 func recoverState(
 	ctx context.Context,
 	reader *bucketReader,
@@ -53,8 +48,7 @@ func recoverState(
 	return recoverContiguousState(ctx, reader, writer, metadata)
 }
 
-// recoverNewState returns the state of a store without a metadata object. It returns an error if the store
-// holds any data object.
+// recoverNewState returns the state of a store without a metadata object.
 func recoverNewState(
 	ctx context.Context,
 	reader *bucketReader,
@@ -131,7 +125,7 @@ func recoverContiguousState(
 	if err != nil {
 		return nil, fmt.Errorf("record repaired durable watermark: %w", err)
 	}
-	return &recoveredState{hasMetadata: true, topology: metadata.KeyTopology()}, nil
+	return &recoveredState{topology: metadata.KeyTopology()}, nil
 }
 
 // recoverGappedState returns the recovered state of a store that allows gaps. Every object in the store's part of
@@ -177,7 +171,6 @@ func recoverGappedState(
 		return nil, fmt.Errorf("record repaired durable watermark: %w", err)
 	}
 	return &recoveredState{
-		hasMetadata:  true,
 		topology:     metadata.KeyTopology().WithKeys(readableKeys),
 		danglingKeys: keysScheduledForPruning,
 	}, nil
