@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"runtime/debug"
@@ -20,6 +21,7 @@ import (
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
@@ -613,4 +615,39 @@ func TestBlockStoreBaseAndHeightFollowWrites(t *testing.T) {
 	requireBounds(bs, 6, 7)
 
 	requireBounds(NewBlockStore(db), 6, 7)
+}
+
+func TestBlockStoreBoundsMatchDBAfterConcurrentBackfillAndPrune(t *testing.T) {
+	cfg, err := config.ResetTestRoot(t.TempDir(), "blockchain_reactor_test")
+	require.NoError(t, err)
+	state, err := sm.MakeGenesisStateFromFile(cfg.GenesisFile())
+	require.NoError(t, err)
+	bs, db := newInMemoryBlockStore()
+	for h := int64(50); h <= 60; h++ {
+		block := factory.MakeBlock(state, h, new(types.Commit))
+		bs.SaveBlock(block, makeValidMultiPartSet(t, block), makeTestCommit(h, tmtime.Now()))
+	}
+	var backfill []*types.Block
+	for h := int64(49); h >= 1; h-- {
+		backfill = append(backfill, factory.MakeBlock(state, h, new(types.Commit)))
+	}
+
+	err = scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error {
+			for _, block := range backfill {
+				sh := &types.SignedHeader{Header: &block.Header, Commit: makeTestCommit(block.Height, tmtime.Now())}
+				if err := bs.SaveSignedHeader(sh, types.BlockID{Hash: block.Hash()}); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		_, err := bs.PruneBlocks(55)
+		return err
+	})
+	require.NoError(t, err)
+
+	reopened := NewBlockStore(db)
+	require.Equal(t, reopened.Base(), bs.Base())
+	require.Equal(t, reopened.Height(), bs.Height())
 }
