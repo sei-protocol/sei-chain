@@ -214,6 +214,12 @@ Every validator opens the production-shaped Giga storage manager: FlatKV for
 EVM state, littidx for receipts, and littblock for blocks. GigaSS is disabled
 because EVM-only execution does not use it.
 
+The docker scripts set `[giga.storage] state_store_backend = "undolog"` on every
+node, so a node that keeps EVM state history keeps it in the undo-log state
+store. The RPC node keeps it as a full node. `GIGA_STORAGE_MODE=full` makes the
+validators keep it too; the integration rows that read past state or trace
+transactions through node 0 set it.
+
 Inspect the generated local inputs with:
 
 ```sh

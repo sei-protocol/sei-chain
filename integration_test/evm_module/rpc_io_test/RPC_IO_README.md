@@ -23,6 +23,8 @@ When the target is localhost, the script sends one EVM tx and deploys one contra
 
 Production `seid init` defaults remain the three-method allowlist (`sei_getSeiAddress`, `sei_getEVMAddress`, `sei_getCosmosTx`).
 
+**EVM-only chain:** When `eth_chainId` returns the Autobahn EVM-only chain ID (`713715`), the fixture directories in `evmOnlySkips` (`rpc_io_test.go`) are skipped, each with the reason the EVM-only RPC does not serve them.
+
 ### Comparing legacy vs giga (RPC parity)
 
 To check that **giga** behaves like **legacy** at the spec level (same methods return result vs error):

@@ -11,9 +11,25 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
 var evmRPCSpecResults struct{ passed, failed, skipped int }
+
+// evmOnlyChainID is the EVM chain ID of the Autobahn EVM-only chain (AutobahnEVMOnlyChainID in
+// sei-tendermint/config/autobahn.go).
+const evmOnlyChainID = 713715
+
+// evmOnlySkips maps a fixture directory to the reason the EVM-only chain does not serve it.
+var evmOnlySkips = map[string]string{
+	"echo_echo":              "the echo namespace is not ported to EVM-only (CON-454)",
+	"eth_accounts":           "EVM-only holds no server-side keys (CON-454)",
+	"eth_coinbase":           "EVM-only has no fee-collector module account (CON-454)",
+	"sei_getCosmosTx":        "EVM-only has no Cosmos transactions (CON-454)",
+	"sei_legacy_deprecation": "EVM-only serves no legacy sei_* methods to deprecate (CON-454)",
+	"txpool_content":         "EVM-only keeps no local mempool to list (CON-454)",
+}
 
 func TestEVMRPCSpec(t *testing.T) {
 	if os.Getenv("SEI_EVM_IO_RUN_INTEGRATION") != "1" {
@@ -56,6 +72,7 @@ func TestEVMRPCSpec(t *testing.T) {
 		t.Fatalf("EVM RPC node not reachable at %s (integration mode requires a running node)", url)
 	}
 
+	evmOnly := isEVMOnlyChain(t, client)
 	debug := os.Getenv("SEI_EVM_IO_DEBUG_FILES") != ""
 	seedBlock := os.Getenv("SEI_EVM_IO_SEED_BLOCK")
 	reverterAddr := os.Getenv("SEI_EVM_IO_REVERTER_ADDRESS")
@@ -75,6 +92,9 @@ func TestEVMRPCSpec(t *testing.T) {
 				}
 			}()
 
+			if reason, ok := evmOnlySkips[strings.Split(rel, "/")[0]]; evmOnly && ok {
+				t.Skip(reason)
+			}
 			if debug {
 				t.Logf("[DEBUG] SEI_EVM_IO_SEED_BLOCK=%q", seedBlock)
 			}
@@ -230,6 +250,22 @@ func nodeReachable(c *rpcClient) bool {
 	}
 	var m map[string]any
 	return json.Unmarshal(body, &m) == nil && (m["result"] != nil || m["error"] != nil)
+}
+
+// isEVMOnlyChain reports whether the node c talks to serves the Autobahn EVM-only chain.
+func isEVMOnlyChain(t *testing.T, c *rpcClient) bool {
+	t.Helper()
+	body, status, _, err := c.call([]byte(`{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}`))
+	if err != nil || status != http.StatusOK {
+		t.Fatalf("eth_chainId: status %d: %v", status, err)
+	}
+	var resp struct {
+		Result hexutil.Uint64 `json:"result"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("eth_chainId: decode %s: %v", body, err)
+	}
+	return resp.Result == evmOnlyChainID
 }
 
 func logActualResponse(t *testing.T, body []byte) {

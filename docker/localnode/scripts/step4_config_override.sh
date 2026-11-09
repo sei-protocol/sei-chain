@@ -8,6 +8,9 @@ GIGA_EXECUTOR=${GIGA_EXECUTOR:-true}
 GIGA_OCC=${GIGA_OCC:-true}
 AUTOBAHN=${AUTOBAHN:-false}
 GIGA_STORAGE=${GIGA_STORAGE:-false}
+# GIGA_STORAGE_MODE sets [giga.storage] mode on Autobahn nodes ("validator" or
+# "full"); unset follows each node's own mode.
+GIGA_STORAGE_MODE=${GIGA_STORAGE_MODE:-}
 # GIGA_FLATKV_ONLY=true boots the cluster directly in the terminal v3
 # steady state: all SC writes route to FlatKV and memiavl is not allocated.
 # This is intended for end-to-end state-sync coverage of the post-migration
@@ -160,6 +163,16 @@ set_evm_rate_limit() {
 set_evm_rate_limit ip_rate_limit_rps "${EVM_IP_RATE_LIMIT_RPS:-}"
 set_evm_rate_limit ip_rate_limit_burst "${EVM_IP_RATE_LIMIT_BURST:-}"
 
+# set_giga_storage KEY VALUE: set KEY = VALUE in the [giga.storage] table,
+# adding the table when app.toml has none.
+set_giga_storage() {
+  key=$1
+  value=$2
+  grep -q '^\[giga\.storage\]' ~/.sei/config/app.toml || printf '\n[giga.storage]\n' >> ~/.sei/config/app.toml
+  sed -i "/^\[giga\.storage\]/,/^\[/{/^$key[[:space:]]*=/d;}" ~/.sei/config/app.toml
+  sed -i "/^\[giga\.storage\]/a $key = $value" ~/.sei/config/app.toml
+}
+
 # Override receipt store backend if requested
 RECEIPT_BACKEND=${RECEIPT_BACKEND:-}
 if [ -n "$RECEIPT_BACKEND" ]; then
@@ -195,6 +208,13 @@ if [ "$AUTOBAHN" = "true" ]; then
   # query surfaces it does not serve.
   sed -i '/^\[rpc\]/,/^\[/ s|^laddr = .*|laddr = ""|' ~/.sei/config/config.toml
   sed -i '/^\[api\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
+  # A node that keeps EVM state history keeps it in the undo-log state store.
+  # GIGA_STORAGE_MODE=full makes the validators keep it too, for suites that
+  # read past state or trace transactions through node0.
+  set_giga_storage state_store_backend '"undolog"'
+  if [ -n "$GIGA_STORAGE_MODE" ]; then
+    set_giga_storage mode "\"$GIGA_STORAGE_MODE\""
+  fi
   echo "Enabled Autobahn for node $NODE_ID (EVM JSON-RPC only)"
   # Inject autobahn config file path into config.toml
   # Must be placed before any [section] header so TOML parser reads it as a top-level key.

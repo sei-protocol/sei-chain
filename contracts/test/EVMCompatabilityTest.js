@@ -4,7 +4,7 @@ const {uniq} = require("lodash");
 const hre = require('hardhat');
 const { ethers, upgrades } = hre;
 const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
-const { deployEvmContract, setupSigners, fundAddress, mineTransferBlock, waitForReceipt, waitForCondition } = require("./lib")
+const { deployEvmContract, setupSigners, fundAddress, mineTransferBlock, waitForReceipt, waitForCondition, isEvmOnlyChain } = require("./lib")
 const axios = require("axios");
 const { default: BigNumber } = require("bignumber.js");
 
@@ -374,7 +374,8 @@ describe("EVM Test", function () {
           blobVersionedHashes: [blobHash],
         }
 
-        await expect(signer.sendTransaction(tx)).to.be.rejectedWith("unsupported transaction type");
+        const message = await isEvmOnlyChain() ? "blob transactions are not supported" : "unsupported transaction type";
+        await expect(signer.sendTransaction(tx)).to.be.rejectedWith(message);
       })
 
       it("trace balance diff matches up with actual balance change", async function() {
@@ -393,7 +394,9 @@ describe("EVM Test", function () {
           }
         ];
 
-        for (const testCase of testCases) {
+        // EVM-only fixes the base fee at 0, so a zero tip pays nothing and is refused.
+        const cases = await isEvmOnlyChain() ? testCases.filter((c) => c.maxPriorityFeePerGas > 0n) : testCases;
+        for (const testCase of cases) {
           // send a tx with a gas to elevate the base fee
           const heavyTxResponse = await evmTester.useGas(9500000, { 
             maxPriorityFeePerGas: ethers.parseUnits('10', 'gwei'),
@@ -566,6 +569,10 @@ describe("EVM Test", function () {
       });
 
       it("Should work for BLOBBASEFEE opcode", async function () {
+        // EVM-only's blob base fee is 0, below Ethereum's minimum of 1 (CON-560).
+        if (await isEvmOnlyChain()) {
+          this.skip();
+        }
 
         const blobBaseFee = await evmTester.getBlobBaseFee();
         expect(blobBaseFee).to.deep.equal(BigInt(1));
@@ -626,12 +633,14 @@ describe("EVM Test", function () {
       it("Should fail if insufficient gas is provided", async function () {
         const zero = ethers.parseUnits('0', 'ether')
         // 1 wei << 1 gwei minimum, so pre-flight estimateGas rejects; the await is load-bearing.
+        // EVM-only has no base fee and refuses the price against its 1 gwei minimum instead.
+        const message = await isEvmOnlyChain() ? /effective gas price is below/ : /max fee per gas less than block base fee/;
         await expect(owner.sendTransaction({
           to: owner.address,
           gasPrice: 1,
           value: zero,
           type: 1,
-        })).to.be.rejectedWith(/max fee per gas less than block base fee/);
+        })).to.be.rejectedWith(message);
       });
 
       it("Should deduct correct amount even if higher gas price is used", async function () {
@@ -672,6 +681,10 @@ describe("EVM Test", function () {
         ];
 
         it("Check base fee on the right block", async function () {
+          // EVM-only fixes the base fee at 0; the dynamic base fee is not ported (CON-560).
+          if (await isEvmOnlyChain()) {
+            this.skip();
+          }
           await delay()
           // Drive real blocks until base fee decays back to 1 gwei.
           let iterations = 0
@@ -731,6 +744,10 @@ describe("EVM Test", function () {
         describe("Differing maxPriorityFeePerGas and maxFeePerGas", async function() {
           for (const [name, maxPriorityFeePerGas, maxFeePerGas] of testCases) {
             it(`EIP-1559 test: ${name}`, async function() {
+              // EVM-only fixes the base fee at 0, so a zero tip pays nothing and is refused.
+              if (maxPriorityFeePerGas === 0n && await isEvmOnlyChain()) {
+                this.skip();
+              }
               const balanceBefore = await ethers.provider.getBalance(owner);
               const zero = ethers.parseUnits('0', 'ether')
               const txResponse = await owner.sendTransaction({
@@ -1337,7 +1354,7 @@ describe("EVM Validations ", function() {
         id: 1,
         jsonrpc: "2.0"
       })
-      expect(response.data.error.message).to.include("invalid chain-id")
+      expect(response.data.error.message).to.include(await isEvmOnlyChain() ? "chain ID does not match" : "invalid chain-id")
     });
 
     it("should prevent wrong chainId for legacy txs", async function() {
@@ -1362,7 +1379,7 @@ describe("EVM Validations ", function() {
         jsonrpc: "2.0"
       })
 
-      expect(response.data.error.message).to.include("invalid chain-id")
+      expect(response.data.error.message).to.include(await isEvmOnlyChain() ? "chain ID does not match" : "invalid chain-id")
     });
 
     it("should not allow empty chainId for legacy txs", async function() {
@@ -1573,7 +1590,11 @@ describe("SSTORE Gas Discrepancy Test", function() {
 
   it("should reproduce mismatch by changing param between execution and trace", async function() {
     this.timeout(120000); // 2 minutes for governance proposals
-    
+    // The EVM-only chain serves no Cosmos governance, and the SSTORE gas cost is not a param it governs.
+    if (await isEvmOnlyChain()) {
+      this.skip();
+    }
+
     const { proposeParamChange, passProposal } = require("./lib.js");
     
     // 1. First, ensure param is set to a known high value (72000)

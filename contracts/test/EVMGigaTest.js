@@ -1,7 +1,7 @@
 const { expect } = require("chai");
 const hre = require('hardhat');
 const { ethers } = hre;
-const { setupSigners, fundAddress, delay } = require("./lib");
+const { setupSigners, fundAddress, delay, waitForCondition } = require("./lib");
 
 /**
  * EVMGigaTest - Integration tests for GIGA executor mode
@@ -32,11 +32,9 @@ describe("GIGA EVM Tests", function () {
       
       // Get initial balances
       const senderBalanceBefore = await ethers.provider.getBalance(owner.address);
+      // A fresh address starts at 0 on v2 but with a fixed funded balance on EVM-only.
       const recipientBalanceBefore = await ethers.provider.getBalance(recipientAddress);
-      
-      // Recipient should start with 0 balance
-      expect(recipientBalanceBefore).to.equal(0n);
-      
+
       // Send 1 SEI (1e18 wei)
       const transferAmount = ethers.parseEther("1");
       const tx = await owner.sendTransaction({
@@ -54,7 +52,7 @@ describe("GIGA EVM Tests", function () {
       const recipientBalanceAfter = await ethers.provider.getBalance(recipientAddress);
       
       // Recipient should have received exactly the transfer amount
-      expect(recipientBalanceAfter).to.equal(transferAmount);
+      expect(recipientBalanceAfter - recipientBalanceBefore).to.equal(transferAmount);
       
       // Sender should have decreased by transfer amount + gas
       const gasUsed = receipt.gasUsed;
@@ -70,7 +68,9 @@ describe("GIGA EVM Tests", function () {
       
       const amount1 = ethers.parseEther("0.5");
       const amount2 = ethers.parseEther("0.3");
-      
+      const before1 = await ethers.provider.getBalance(await recipient1.getAddress());
+      const before2 = await ethers.provider.getBalance(await recipient2.getAddress());
+
       // First transfer
       const tx1 = await owner.sendTransaction({
         to: await recipient1.getAddress(),
@@ -91,8 +91,8 @@ describe("GIGA EVM Tests", function () {
       const balance1 = await ethers.provider.getBalance(await recipient1.getAddress());
       const balance2 = await ethers.provider.getBalance(await recipient2.getAddress());
       
-      expect(balance1).to.equal(amount1);
-      expect(balance2).to.equal(amount2);
+      expect(balance1 - before1).to.equal(amount1);
+      expect(balance2 - before2).to.equal(amount2);
     });
   });
 
@@ -444,18 +444,25 @@ describe("GIGA EVM Tests", function () {
     it("should handle out-of-gas transaction", async function () {
       // Send a contract call with very little gas — it should fail with OOG.
       // Consensus-error txs (e.g., floor data gas check) are included in the block
-      // with code=1 but no EVM receipt is written, so tx.wait() would hang.
-      // We use a timeout race to avoid hanging.
+      // without an EVM receipt, and the EVM-only RPC does not return them by hash.
+      // The tx is sent raw because hardhat-ethers' sendTransaction waits for it by
+      // hash, and its receipt is polled with a timeout.
       try {
-        const tx = await evmTester.revertIfFalse(true, {
+        const wallet = new ethers.Wallet(hre.network.config.accounts[0], ethers.provider);
+        const signed = await wallet.signTransaction(await wallet.populateTransaction({
+          to: await evmTester.getAddress(),
+          data: evmTester.interface.encodeFunctionData("revertIfFalse", [true]),
           gasLimit: 21500, // Just barely above 21000 intrinsic, not enough for the call
           gasPrice: ethers.parseUnits('100', 'gwei')
-        });
-        // Race between tx.wait() and a timeout — receipt may never arrive for consensus errors
-        const receipt = await Promise.race([
-          tx.wait().catch(e => e.receipt || null),
-          new Promise(resolve => setTimeout(() => resolve(null), 3000))
-        ]);
+        }));
+        const hash = await ethers.provider.send("eth_sendRawTransaction", [signed]);
+        // The receipt may never arrive for consensus errors.
+        let receipt = null;
+        await waitForCondition(
+          async () => (receipt = await ethers.provider.getTransactionReceipt(hash)),
+          "out-of-gas receipt",
+          3000,
+        ).catch(() => {});
         if (receipt) expect(receipt.status).to.equal(0);
       } catch (e) {
         if (e.receipt) {
@@ -1066,6 +1073,9 @@ describe("GIGA EVM Tests", function () {
       // Deploy with seeded storage and a non-zero balance to sweep.
       const SelfDestructTester = await ethers.getContractFactory("SelfDestructTester");
       const seedValue = ethers.parseEther("1");
+      // A new contract keeps what its address already held: 0 on v2, the fixed
+      // funded balance of a fresh address on EVM-only.
+      const contractBalance = await ethers.provider.getBalance(ethers.Wallet.createRandom().address) + seedValue;
       const contract = await SelfDestructTester.deploy(NUM_KEYS, {
         value: seedValue,
         gasPrice: ethers.parseUnits('100', 'gwei'),
@@ -1076,7 +1086,7 @@ describe("GIGA EVM Tests", function () {
       // Constructor seeded storage: data[i] = i + 1, plus valueA/valueB/owner.
       const code = await ethers.provider.getCode(addr);
       expect(code.length).to.be.greaterThan(2);
-      expect(await ethers.provider.getBalance(addr)).to.equal(seedValue);
+      expect(await ethers.provider.getBalance(addr)).to.equal(contractBalance);
       expect(await contract.numKeys()).to.equal(BigInt(NUM_KEYS));
       expect(await contract.valueA()).to.equal(0xA11CEn);
       // sum of 1..NUM_KEYS
@@ -1086,6 +1096,7 @@ describe("GIGA EVM Tests", function () {
       // selfdestruct in a separate tx — under EIP-6780 only the balance moves.
       const recipient = ethers.Wallet.createRandom().connect(ethers.provider);
       const recipientAddress = await recipient.getAddress();
+      const recipientBalanceBefore = await ethers.provider.getBalance(recipientAddress);
       const tx = await contract.destroy(recipientAddress, {
         gasPrice: ethers.parseUnits('100', 'gwei'),
       });
@@ -1093,11 +1104,11 @@ describe("GIGA EVM Tests", function () {
       await delay();
 
       // Balance must have been swept to the recipient.
-      expect(await ethers.provider.getBalance(recipientAddress)).to.equal(seedValue);
+      expect(await ethers.provider.getBalance(recipientAddress) - recipientBalanceBefore).to.equal(contractBalance);
       expect(await ethers.provider.getBalance(addr)).to.equal(0n);
       // Post-EIP-6780: code and storage survive a later-tx selfdestruct.
       expect(await contract.sumKeys()).to.equal(expectedSum);
-      console.log(`        later-tx selfdestruct swept ${ethers.formatEther(seedValue)} SEI, storage retained`);
+      console.log(`        later-tx selfdestruct swept ${ethers.formatEther(contractBalance)} SEI, storage retained`);
     });
 
     it("should fully clean up storage when created and destroyed in the same tx", async function () {
@@ -1107,6 +1118,7 @@ describe("GIGA EVM Tests", function () {
 
       const recipient = ethers.Wallet.createRandom().connect(ethers.provider);
       const recipientAddress = await recipient.getAddress();
+      const recipientBalanceBefore = await ethers.provider.getBalance(recipientAddress);
       const seedValue = ethers.parseEther("0.5");
 
       // Predict the child address without mutating state, then run the real tx.
@@ -1123,10 +1135,13 @@ describe("GIGA EVM Tests", function () {
       await delay();
 
       // Same-tx create+destroy: child account fully removed (code + storage),
-      // and its balance swept to the recipient.
+      // and its balance swept to the recipient. A fresh address holds 0 on v2
+      // and a fixed funded balance on EVM-only: the child starts with it, and
+      // once removed reads it again.
+      const freshBalance = await ethers.provider.getBalance(ethers.Wallet.createRandom().address);
       expect(await ethers.provider.getCode(childAddr)).to.equal("0x");
-      expect(await ethers.provider.getBalance(childAddr)).to.equal(0n);
-      expect(await ethers.provider.getBalance(recipientAddress)).to.equal(seedValue);
+      expect(await ethers.provider.getBalance(childAddr)).to.equal(freshBalance);
+      expect(await ethers.provider.getBalance(recipientAddress) - recipientBalanceBefore).to.equal(freshBalance + seedValue);
       // Storage slot reads on a cleaned-up account return zero.
       const slot0 = await ethers.provider.getStorage(childAddr, 0);
       expect(BigInt(slot0)).to.equal(0n);
