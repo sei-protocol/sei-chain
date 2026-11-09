@@ -13,10 +13,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	dbm "github.com/tendermint/tm-db"
-	"golang.org/x/time/rate"
-
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
@@ -30,6 +26,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	dbm "github.com/tendermint/tm-db"
+	"golang.org/x/time/rate"
 )
 
 func TestGigaRouter_FinalizeBlocks(t *testing.T) {
@@ -76,16 +74,12 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			dir := t.TempDir()
 			// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
 			// (zero overrides); p2p can't import config (import cycle).
-			littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
+			littCfg, err := blockstore.DefaultConfig(filepath.Join(dir, "blockdb"))
 			if err != nil {
-				return fmt.Errorf("littblock.DefaultConfig[%v]: %w", i, err)
+				return fmt.Errorf("blockstore.DefaultConfig[%v]: %w", i, err)
 			}
 			littCfg.Litt.Fsync = true
-			db, err := littblock.NewBlockDB(littCfg)
-			if err != nil {
-				return fmt.Errorf("littblock.NewBlockDB[%v]: %w", i, err)
-			}
-			blockStore, err := blockstore.New(db)
+			blockStore, err := blockstore.New(littCfg)
 			if err != nil {
 				return fmt.Errorf("blockstore.New[%v]: %w", i, err)
 			}
@@ -325,12 +319,10 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	dir := t.TempDir()
 	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
 	// (zero overrides); p2p can't import config (import cycle).
-	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
+	littCfg, err := blockstore.DefaultConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
 	littCfg.Litt.Fsync = true
-	db, err := littblock.NewBlockDB(littCfg)
-	require.NoError(t, err)
-	blockStore, err := blockstore.New(db)
+	blockStore, err := blockstore.New(littCfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = blockStore.Close() })
 	app := newTestApp()

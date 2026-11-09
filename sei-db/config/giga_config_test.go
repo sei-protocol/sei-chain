@@ -10,9 +10,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 )
 
-// TestDefaultGigaStorageConfigDirectories pins Giga's EVM-only SS layout: the path
-// for evm.NewEVMStateStore lives on EVMDBDirectory. Giga does not use composite, so
-// DBDirectory stays empty and EVMSplit stays at its default.
+// TestDefaultGigaStorageConfigDirectories pins Giga's EVM-only SS layout: history is an
+// undo log under EVMDBDirectory. Giga does not use composite, so DBDirectory stays empty
+// and EVMSplit stays at its default.
 func TestDefaultGigaStorageConfigDirectories(t *testing.T) {
 	home := t.TempDir()
 	cfg, err := DefaultGigaStorageConfig(home)
@@ -29,7 +29,7 @@ func TestDefaultGigaStorageConfigDirectories(t *testing.T) {
 	require.Equal(t, []string{utils.GetBlockStorePath(home)}, cfg.BlockDBConfig.Litt.Paths)
 
 	require.Equal(t,
-		filepath.Join(home, "data", "state_store", "evm", cfg.SSConfig.Backend),
+		filepath.Join(home, "data", "state_store", "evm", "undolog"),
 		cfg.SSConfig.EVMDBDirectory,
 	)
 }
@@ -133,4 +133,13 @@ func TestAScheduleThatPicksNoHeightIsRefused(t *testing.T) {
 
 	cfg.CheckpointConfig = CheckpointConfig{TimeInterval: time.Minute}
 	require.NoError(t, cfg.Validate())
+}
+
+func TestDefaultGigaStorageConfigShardsTheFlatKVViews(t *testing.T) {
+	cfg, err := DefaultGigaStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	require.Equal(t, uint64(gigaFlatKVViewShards), cfg.FlatKVConfig.AccountStoreConfig.ShardCount)
+	require.Equal(t, uint64(gigaFlatKVViewShards), cfg.FlatKVConfig.StorageStoreConfig.ShardCount)
+	require.NoError(t, cfg.FlatKVConfig.AccountStoreConfig.Validate())
+	require.NoError(t, cfg.FlatKVConfig.StorageStoreConfig.Validate())
 }
