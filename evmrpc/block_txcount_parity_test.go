@@ -191,7 +191,7 @@ func TestGetBlockByNumberLoadsConsensusParamsOnce(t *testing.T) {
 	wm := evmrpc.NewWatermarkManager(tm, ctxProvider, nil, k.ReceiptStore())
 	api := evmrpc.NewBlockAPI(tm, k, ctxProvider, gasLimitCtxProvider, func(int64) client.TxConfig { return TxConfig }, evmrpc.ConnectionTypeHTTP, wm, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 
-	res, err := api.GetBlockByNumber(context.Background(), rpc.BlockNumber(parityTestHeight), false)
+	res, err := api.GetBlockByNumber(t.Context(), rpc.BlockNumber(parityTestHeight), false)
 	require.NoError(t, err)
 	require.Equal(t, hexutil.Uint64(12345), res["gasLimit"])
 	require.Equal(t, []int64{parityTestHeight}, gasLimitCtxHeights)
