@@ -243,7 +243,7 @@ func (s *KeeperTestSuite) TestLastCompletedUpgrade() {
 	require.Equal(int64(15), height)
 }
 
-func (s *KeeperTestSuite) TestGetClosestUpgrade() {
+func (s *KeeperTestSuite) TestDoneUpgradesClosest() {
 	// Set up some upgrades
 	upgrades := []struct {
 		name   string
@@ -276,7 +276,7 @@ func (s *KeeperTestSuite) TestGetClosestUpgrade() {
 
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			name, height := s.app.UpgradeKeeper.GetClosestUpgrade(s.ctx, tt.height)
+			name, height := s.app.UpgradeKeeper.GetDoneUpgrades(s.ctx).Closest(tt.height)
 			s.Require().Equal(tt.expName, name)
 			s.Require().Equal(tt.expHeight, height)
 		})

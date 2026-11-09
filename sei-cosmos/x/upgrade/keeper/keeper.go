@@ -249,11 +249,6 @@ func (k Keeper) IsUpgradeActiveAtHeight(ctx sdk.Context, name string, height int
 	return doneHeight > 0 && height >= doneHeight
 }
 
-// GetClosestUpgrade returns DoneUpgrades.Closest(height) over the upgrades completed in ctx's state.
-func (k Keeper) GetClosestUpgrade(ctx sdk.Context, height int64) (string, int64) {
-	return k.GetDoneUpgrades(ctx).Closest(height)
-}
-
 // DoneUpgrades is the set of completed upgrades, in reverse key order.
 type DoneUpgrades []upgrade
 
