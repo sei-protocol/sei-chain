@@ -51,18 +51,20 @@ func NewBlockStore(db dbm.DB) *BlockStore {
 
 // Base returns the first known contiguous block height, or 0 for empty block stores.
 func (bs *BlockStore) Base() int64 {
+	var base int64
 	for b := range bs.bounds.RLock() {
-		return b.base
+		base = b.base
 	}
-	panic("unreachable")
+	return base
 }
 
 // Height returns the last known contiguous block height, or 0 for empty block stores.
 func (bs *BlockStore) Height() int64 {
+	var height int64
 	for b := range bs.bounds.RLock() {
-		return b.height
+		height = b.height
 	}
-	panic("unreachable")
+	return height
 }
 
 // extendBounds records that a block meta at height has been written.
