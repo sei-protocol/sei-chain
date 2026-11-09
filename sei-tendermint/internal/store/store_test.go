@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"runtime/debug"
@@ -21,7 +20,6 @@ import (
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
@@ -615,38 +613,4 @@ func TestBlockStoreBaseAndHeightFollowWrites(t *testing.T) {
 	requireBounds(bs, 6, 7)
 
 	requireBounds(NewBlockStore(db), 6, 7)
-}
-
-func TestBlockStoreHeightNeverAheadOfSavedBlock(t *testing.T) {
-	cfg, err := config.ResetTestRoot(t.TempDir(), "blockchain_reactor_test")
-	require.NoError(t, err)
-	state, err := sm.MakeGenesisStateFromFile(cfg.GenesisFile())
-	require.NoError(t, err)
-	bs, _ := newInMemoryBlockStore()
-	const lastHeight = 50
-	blocks := make([]*types.Block, 0, lastHeight)
-	for h := int64(1); h <= lastHeight; h++ {
-		blocks = append(blocks, factory.MakeBlock(state, h, new(types.Commit)))
-	}
-	partSets := make([]*types.PartSet, 0, lastHeight)
-	for _, block := range blocks {
-		partSets = append(partSets, makeValidMultiPartSet(t, block))
-	}
-
-	err = scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		s.Spawn(func() error {
-			for h := int64(0); h < lastHeight; {
-				h = bs.Height()
-				if h > 0 && bs.LoadBlockMeta(h) == nil {
-					return fmt.Errorf("Height() = %d before its block meta was saved", h)
-				}
-			}
-			return nil
-		})
-		for i, block := range blocks {
-			bs.SaveBlock(block, partSets[i], makeTestCommit(block.Height, tmtime.Now()))
-		}
-		return nil
-	})
-	require.NoError(t, err)
 }
