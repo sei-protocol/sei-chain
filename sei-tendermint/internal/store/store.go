@@ -70,11 +70,15 @@ func (bs *BlockStore) Height() int64 {
 // extendBounds records that a block meta at height has been written.
 func (bs *BlockStore) extendBounds(height int64) {
 	for b := range bs.bounds.Lock() {
-		if b.base == 0 || height < b.base {
-			b.base = height
-		}
-		b.height = max(b.height, height)
+		b.extend(height)
 	}
+}
+
+func (b *blockBounds) extend(height int64) {
+	if b.base == 0 || height < b.base {
+		b.base = height
+	}
+	b.height = max(b.height, height)
 }
 
 // raiseBase stops reporting heights below base, ahead of their block metas being deleted.
@@ -631,10 +635,14 @@ func (bs *BlockStore) SaveSignedHeader(sh *types.SignedHeader, blockID types.Blo
 		return fmt.Errorf("unable to save commit: %w", err)
 	}
 
-	if err := batch.WriteSync(); err != nil {
-		return err
+	// Written under the lock so that a concurrent PruneBlocks cannot delete the header and reload the bounds
+	// between the write and the extend, which would leave the deleted height cached as the base.
+	for b := range bs.bounds.Lock() {
+		if err := batch.WriteSync(); err != nil {
+			return err
+		}
+		b.extend(sh.Height)
 	}
-	bs.extendBounds(sh.Height)
 
 	return batch.Close()
 }
