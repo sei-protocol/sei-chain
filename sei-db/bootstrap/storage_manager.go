@@ -17,7 +17,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/seilog"
@@ -147,14 +146,6 @@ func (m *GigaStorageManager) SC() *flatkv.CommitStore {
 		return nil
 	}
 	return m.stateDB.SC()
-}
-
-// SS returns the EVM state store, or nil when it is disabled or the StateDB is not open.
-func (m *GigaStorageManager) SS() *evm.EVMStateStore {
-	if m.stateDB == nil {
-		return nil
-	}
-	return m.stateDB.SS()
 }
 
 // Close shuts down the collector and then every store, reporting every failure rather than

@@ -17,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 const testAppHashChainID uint64 = 713715
@@ -149,7 +150,7 @@ func TestRestartWithStateAheadOfTheAppHashVault(t *testing.T) {
 
 	appHashHead, err := builder.GetLatestBlock(*manager.cfg.AppHashBuilderConfig)
 	require.NoError(t, err)
-	target, err := recoveryTarget(5, 5, 0, appHashHead)
+	target, err := recoveryTarget(5, 5, utils.None[uint64](), 0, appHashHead)
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), target)
 	restartAt(t, manager, int64(target)) //nolint:gosec // small test heights

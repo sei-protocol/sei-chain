@@ -13,111 +13,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
-// The number of committed blocks the feeder holds before a commit waits for it.
-const legacySSFeederQueueDepth = 4
-
 const (
 	legacyAddressKeyLen = 1 + common.AddressLength
 	legacyStorageKeyLen = 1 + common.AddressLength + common.HashLength
 )
 
-// legacySSFeeder hands each committed block to the EVM state store on a goroutine of its own, converting the block's
-// state change set into the legacy changesets the store takes. Blocks reach the store in the order they were fed.
-//
-// It is a temporary mitigation that moves the conversion off the commit path. Delete it, along with the encoder in
-// this file, once the EVM state store no longer requires []*proto.NamedChangeSet.
-type legacySSFeeder struct {
-	// The store blocks are handed to.
-	ss legacySSStore
-	// Blocks waiting to be handed over. Closed by Close().
-	blocks chan legacySSBlock
-	// Closed by the goroutine when it stops on a failure, after it sets err.
-	failed chan struct{}
-	// The failure the goroutine stopped on. Read only after failed is closed.
-	err error
-	// Closed by the goroutine when it exits.
-	done chan struct{}
-}
-
-// legacySSStore is the part of the EVM state store the feeder hands blocks to.
-type legacySSStore interface {
-	// CommitBlock records a committed block at version.
-	CommitBlock(version int64, changesets []*proto.NamedChangeSet) error
-}
-
-// legacySSBlock is one committed block waiting to be handed to the EVM state store.
-type legacySSBlock struct {
-	// The block's height.
-	blockNum int64
-	// The block's state changes. Never modified.
-	changes *gigatypes.StateChangeSet
-}
-
-// newLegacySSFeeder returns a feeder handing blocks to ss, with its goroutine running.
-func newLegacySSFeeder(ss legacySSStore) *legacySSFeeder {
-	f := &legacySSFeeder{
-		ss:     ss,
-		blocks: make(chan legacySSBlock, legacySSFeederQueueDepth),
-		failed: make(chan struct{}),
-		done:   make(chan struct{}),
-	}
-	go f.run()
-	return f
-}
-
-// Feed queues a committed block for the EVM state store, waiting while the queue is full. Returns an error once
-// handing over any earlier block has failed.
-func (f *legacySSFeeder) Feed(blockNum int64, changes *gigatypes.StateChangeSet) error {
-	select {
-	case <-f.failed:
-		return f.err
-	default:
-	}
-	select {
-	case f.blocks <- legacySSBlock{blockNum: blockNum, changes: changes}:
-		return nil
-	case <-f.failed:
-		return f.err
-	}
-}
-
-// Close hands every queued block to the EVM state store, then stops the goroutine. Returns the failure the goroutine
-// stopped on, if any. Must not be called concurrently with Feed().
-func (f *legacySSFeeder) Close() error {
-	close(f.blocks)
-	<-f.done
-	select {
-	case <-f.failed:
-		return f.err
-	default:
-		return nil
-	}
-}
-
-// run hands queued blocks to the EVM state store until the queue closes or a block fails.
-func (f *legacySSFeeder) run() {
-	defer close(f.done)
-	for block := range f.blocks {
-		if err := f.handOver(block); err != nil {
-			f.err = err
-			close(f.failed)
-			return
-		}
-	}
-}
-
-// handOver converts one block to legacy changesets and commits it to the EVM state store.
-func (f *legacySSFeeder) handOver(block legacySSBlock) error {
-	changesets := encodeLegacyChangeSets(block.changes)
-	if err := f.ss.CommitBlock(block.blockNum, changesets); err != nil {
-		return fmt.Errorf("commit block %d to the EVM state store: %w", block.blockNum, err)
-	}
-	return nil
-}
-
 // encodeLegacyChangeSets converts a state change set into legacy changesets: one over the EVM module holding each
 // changed account field, code and storage slot, then one per module the misc changes write. Balances must already be
-// known to fit in 256 bits.
+// known to fit in 256 bits. It is the independent reference the direct mutation conversion is checked against.
 func encodeLegacyChangeSets(changes *gigatypes.StateChangeSet) []*proto.NamedChangeSet {
 	b := newLegacyChangeSetBuilder(changes)
 

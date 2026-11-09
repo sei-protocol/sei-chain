@@ -7,6 +7,7 @@ import (
 	"maps"
 	"math/big"
 	"math/rand/v2"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -677,6 +678,40 @@ func TestDiscardStateAboveKeepsOnlyRecordsAtOrBelowTheTarget(t *testing.T) {
 	// A log at or below the target, or no log at all, is left alone.
 	require.NoError(t, DiscardStateAbove(dir, testConfig(), 100))
 	require.NoError(t, DiscardStateAbove(t.TempDir()+"/absent", testConfig(), 1))
+}
+
+// GetLatestBlock reads the head of a closed log, reports a log holding no block as having none, and
+// tells that apart from a log rolled back to block 0.
+func TestGetLatestBlockReadsAClosedLog(t *testing.T) {
+	absent := filepath.Join(t.TempDir(), "absent")
+	present, _, err := GetLatestBlock(absent)
+	require.NoError(t, err)
+	require.False(t, present)
+	require.NoDirExists(t, absent, "reading the head of no log must not create one")
+
+	dir := t.TempDir()
+	empty, err := OpenDB(dir, testConfig())
+	require.NoError(t, err)
+	require.NoError(t, empty.Close())
+	present, _, err = GetLatestBlock(dir)
+	require.NoError(t, err)
+	require.False(t, present, "a log that never took a block has no head")
+
+	c := newChain(t, dir, 10, 0)
+	for h := uint64(1); h <= 12; h++ {
+		c.apply(map[string][]byte{nonceKey(account(h)): nonce(1)}, false)
+	}
+	require.NoError(t, c.db.Close())
+	present, head, err := GetLatestBlock(dir)
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, uint64(12), head)
+
+	require.NoError(t, DiscardStateAbove(dir, testConfig(), 0))
+	present, head, err = GetLatestBlock(dir)
+	require.NoError(t, err)
+	require.True(t, present, "block 0 is a head like any other")
+	require.Zero(t, head)
 }
 
 func TestDiscardStateAboveClearsAHalfWrittenBlock(t *testing.T) {

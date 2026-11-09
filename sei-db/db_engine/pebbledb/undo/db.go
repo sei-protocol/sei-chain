@@ -256,6 +256,11 @@ func readMarker(storage *pebble.DB, key []byte) (uint64, error) {
 		return 0, fmt.Errorf("undo: read marker %q: %w", key, err)
 	}
 	defer func() { _ = closer.Close() }()
+	return decodeMarker(key, bz)
+}
+
+// decodeMarker returns the value bz, read from under key, holds.
+func decodeMarker(key []byte, bz []byte) (uint64, error) {
 	if len(bz) != 8 {
 		return 0, fmt.Errorf("undo: marker %q has %d bytes", key, len(bz))
 	}
@@ -844,6 +849,32 @@ func (db *Database) GetRollbackFloor(rollbackWindow uint64) uint64 {
 // GetLatestBlock returns the latest applied block, 0 when none is.
 func (db *Database) GetLatestBlock() (uint64, error) {
 	return db.latestHeight.Load(), nil
+}
+
+// GetLatestBlock returns the latest block the closed undo log in dataDir holds. present is false when the
+// log holds no block or dataDir does not exist. It creates and writes nothing.
+func GetLatestBlock(dataDir string) (present bool, head uint64, err error) {
+	if _, statErr := os.Stat(dataDir); errors.Is(statErr, os.ErrNotExist) {
+		return false, 0, nil
+	}
+	storage, err := pebble.Open(dataDir, &pebble.Options{Comparer: Comparer, ReadOnly: true})
+	if err != nil {
+		return false, 0, fmt.Errorf("undo: open pebble read-only: %w", err)
+	}
+	defer func() { err = errors.Join(err, storage.Close()) }()
+	bz, closer, err := storage.Get(latestVersionKey)
+	if errors.Is(err, pebble.ErrNotFound) {
+		return false, 0, nil
+	}
+	if err != nil {
+		return false, 0, fmt.Errorf("undo: read marker %q: %w", latestVersionKey, err)
+	}
+	defer func() { _ = closer.Close() }()
+	head, err = decodeMarker(latestVersionKey, bz)
+	if err != nil {
+		return false, 0, err
+	}
+	return true, head, nil
 }
 
 // DiscardStateAbove removes every record above target from the undo log in dataDir and leaves the log
