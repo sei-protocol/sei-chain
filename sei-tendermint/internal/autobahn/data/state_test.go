@@ -1600,3 +1600,22 @@ func TestRoadBlockCacheEmptyRoads(t *testing.T) {
 		}))
 	})
 }
+
+func TestAnchorEpochAt(t *testing.T) {
+	rng := utils.TestRng()
+	registry, _ := epoch.GenRegistry(rng, 1)
+	anchor := TestAnchor(types.NewEpoch(0, types.RoadRange{First: 10, Next: 12}, registry.MustEpoch(0).Committee()))
+	for _, tc := range []struct {
+		road types.RoadIndex
+		want utils.Option[*types.Epoch]
+	}{
+		{9, utils.None[*types.Epoch]()},
+		{10, utils.Some(anchor.Epochs[0])},
+		{11, utils.Some(anchor.Epochs[0])},
+		{12, utils.Some(anchor.Epochs[1])},
+		{13, utils.Some(anchor.Epochs[1])},
+		{14, utils.None[*types.Epoch]()},
+	} {
+		require.Equal(t, tc.want, anchor.EpochAt(tc.road))
+	}
+}
