@@ -6,6 +6,7 @@ import (
 	"math/big"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
 // Staking's flat keys.
@@ -95,7 +96,7 @@ func (s Staking) values() values {
 
 // MaxBondedValidators is the most validators MaxValidators may bond: the most
 // members an autobahn committee holds.
-const MaxBondedValidators uint32 = 100
+const MaxBondedValidators uint32 = atypes.MaxValidators
 
 // Validate checks s as x/staking checks its params, and also requires an
 // unbonding time of MinPeriod to MaxPeriod and at most MaxBondedValidators
