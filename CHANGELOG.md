@@ -30,7 +30,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## Unreleased
 sei-chain
-* [#4505](https://github.com/sei-protocol/sei-chain/pull/4505) Bump sei-protocol/go-ethereum to the Sei fork of v1.17.10. Ships only in the v6.9 minor-version upgrade, never a patch release; heights before the upgrade must be replayed on the previous binary.
+* [#4505](https://github.com/sei-protocol/sei-chain/pull/4505) Bump sei-protocol/go-ethereum to v1.17.10-sei-1 (Sei fork of v1.17.10). Ships only in the v6.9 minor-version upgrade, never a patch release; heights before the upgrade must be replayed on the previous binary.
   * App-hash breaking (results hash):
     * EVM error text (`vmError`) can differ: e.g. a CALL whose dynamic gas charge runs out reports `out of gas: out of gas` (plain out of gas is unchanged), and failed deploys may report a different error or a size suffix. Gas used and status are unchanged on the paths covered by Sei's behavior tests.
     * EIP-7702: an authorization that clears an account with no delegation no longer writes code keys, and re-delegating to the same target no longer rewrites them.

@@ -1276,8 +1276,8 @@ github.com/sagikazarmark/locafero v0.11.0 h1:1iurJgmM9G3PA/I+wWYIOw/5SyBtxapeHDc
 github.com/sagikazarmark/locafero v0.11.0/go.mod h1:nVIGvgyzw595SUSUE6tvCp3YYTeHs15MvlmU87WwIik=
 github.com/sasha-s/go-deadlock v0.3.5 h1:tNCOEEDG6tBqrNDOX35j/7hL5FcFViG6awUGROb2NsU=
 github.com/sasha-s/go-deadlock v0.3.5/go.mod h1:bugP6EGbdGYObIlx7pUZtWqlvo8k9H6vCBBsiChJQ5U=
-github.com/sei-protocol/go-ethereum v1.15.8-wip.0.20261105181439-c55ab53e7387 h1:I1v+LpwRsKpVqcm0QbNUBK2d7oKxzc/q9Oz6Bz/AkSI=
-github.com/sei-protocol/go-ethereum v1.15.8-wip.0.20261105181439-c55ab53e7387/go.mod h1:4YCggolpA86WilQcsASwJBQoVmA4t4+aKug5eGx0VNM=
+github.com/sei-protocol/go-ethereum v1.17.10-sei-1 h1:Wz4kUlt7i7BZPoLirJFjEpYflXCZsYk2jJyhVBzLegg=
+github.com/sei-protocol/go-ethereum v1.17.10-sei-1/go.mod h1:4YCggolpA86WilQcsASwJBQoVmA4t4+aKug5eGx0VNM=
 github.com/sei-protocol/goutils v0.0.2 h1:Bfa7Sv+4CVLNM20QcpvGb81B8C5HkQC/kW1CQpIbXDA=
 github.com/sei-protocol/goutils v0.0.2/go.mod h1:iYE2DuJfEnM+APPehr2gOUXfuLuPsVxorcDO+Tzq9q8=
 github.com/sei-protocol/sei-load v0.0.1 h1:sGlG1QRbc2pKCeeD4P0H2lkqFcljlup5l6JNi6HydyM=
