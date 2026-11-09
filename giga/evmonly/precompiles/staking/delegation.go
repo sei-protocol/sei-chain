@@ -164,9 +164,9 @@ func validateUnbondAmount(s store, delegator, op common.Address, amount *big.Int
 }
 
 // unbond takes shares from delegator's delegation to op and returns the tokens
-// they were worth, as x/staking's Unbond does. The tokens stay in op's escrow.
-// An operator whose self-delegation falls below its minimum is jailed, and an
-// unbonded validator left with no shares is removed.
+// they were worth, as x/staking's Unbond does, except that an operator whose
+// self-delegation falls below its minimum is not jailed. The tokens stay in
+// op's escrow. An unbonded validator left with no shares is removed.
 func (p Precompile) unbond(block precompiles.BlockContext, s store, delegator, op common.Address, shares *big.Int) (*big.Int, error) {
 	delegated, ok := s.delegation(delegator, op)
 	if !ok {
@@ -184,11 +184,6 @@ func (p Precompile) unbond(block precompiles.BlockContext, s store, delegator, o
 	}
 
 	remaining := new(big.Int).Sub(delegated, shares)
-	if delegator == op && !v.jailed && truncateDec(v.tokensFromShares(remaining)).Cmp(v.minSelfDelegation) < 0 {
-		if err := s.jail(op, &v); err != nil {
-			return nil, err
-		}
-	}
 	if remaining.Sign() == 0 {
 		if err := p.hooks().BeforeDelegationRemoved(block, s.State, delegator, op); err != nil {
 			return nil, err

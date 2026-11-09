@@ -4,8 +4,9 @@
 //
 // It serves delegate, redelegate and undelegate, and its EndBlock updates the
 // bonded set and completes matured unbondings and redelegations. Unlike
-// x/staking, its queues are first-in first-out, so an entry never completes
-// before one queued ahead of it, and it does not slash unbonding or
+// x/staking, it never jails a validator, so an operator may hold less than its
+// minimum self-delegation; its queues are first-in first-out, so an entry never
+// completes before one queued ahead of it; and it does not slash unbonding or
 // redelegation entries.
 package staking
 

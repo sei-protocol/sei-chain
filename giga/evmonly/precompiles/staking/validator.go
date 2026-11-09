@@ -180,16 +180,6 @@ func (s store) removeDelegationShares(op common.Address, v *validator, shares *b
 	return issued, s.setTokensAndShares(op, v, tokens, remaining)
 }
 
-// jail jails op's validator and takes it out of the power index.
-func (s store) jail(op common.Address, v *validator) error {
-	if err := s.powerIndex().remove(op, consensusPower(v.tokens)); err != nil {
-		return err
-	}
-	v.jailed = true
-	s.setValidator(op, *v)
-	return nil
-}
-
 // removeValidator deletes op's validator, which must be unbonded and hold no
 // tokens, and every index naming it, then runs AfterValidatorRemoved.
 func (p Precompile) removeValidator(block precompiles.BlockContext, s store, op common.Address, v validator) error {

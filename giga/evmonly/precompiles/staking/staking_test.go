@@ -124,21 +124,20 @@ func TestUndelegateStopsAtMaxEntries(t *testing.T) {
 	h.requireInvariants(alice)
 }
 
-func TestSelfUndelegationBelowTheMinimumJails(t *testing.T) {
+func TestSelfUndelegationBelowTheMinimumDoesNotJail(t *testing.T) {
 	h := newHarness(t, testParams)
+	require.NoError(t, h.delegate(alice, val2, sei(15)))
 	require.NoError(t, h.undelegate(val2, val2, sei(20)))
-	v, ok := h.store().validator(val2)
-	require.True(t, ok)
-	require.True(t, v.jailed)
-	require.Zero(t, v.tokens.Sign())
-	require.Equal(t, []common.Address{val1, val3}, h.powerIndex(), "a jailed validator leaves the power index")
-	h.requireInvariants()
+	v := h.validator(val2)
+	require.False(t, v.jailed)
+	require.Equal(t, sei(15).String(), v.tokens.String())
+	require.Equal(t, []common.Address{val1, val2, val3}, h.powerIndex(), "val2 keeps its place on alice's stake")
+	h.requireInvariants(alice)
 
 	h.endBlock()
 	require.Empty(t, h.failures)
-	require.Equal(t, []validatorPower{{val1, 30}, {val3, 10}}, h.lastValidators(), "val3 takes the jailed validator's place")
-	require.Equal(t, statusUnbonding, h.validator(val2).status)
-	h.requireInvariants()
+	require.Equal(t, []validatorPower{{val1, 30}, {val2, 15}}, h.lastValidators(), "val2 stays bonded with no self-delegation")
+	h.requireInvariants(alice)
 }
 
 func TestRedelegateMovesTheStakeAndQueuesTheEntry(t *testing.T) {
