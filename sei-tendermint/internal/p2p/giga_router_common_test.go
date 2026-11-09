@@ -1054,16 +1054,29 @@ func TestRunInboundFullnode_PersistentPeerDoesNotCount(t *testing.T) {
 	}
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		// poolIn updates its watch when a fullnode is admitted. RunForEach waits on that watch.
+		admitted := make(chan struct{}, 4)
+		s.SpawnBg(func() error {
+			return utils.IgnoreCancel(router.poolIn.RunForEach(ctx, func(ctx context.Context, _ rpc.Server[giga.API]) error {
+				return utils.Send(ctx, admitted, struct{}{})
+			}))
+		})
+		awaitAdmitted := func() error {
+			_, err := utils.Recv(ctx, admitted)
+			return err
+		}
+
 		strangerCtx, cancelStranger := context.WithCancel(ctx)
+		defer cancelStranger()
 		stranger, err := serve(strangerCtx, s, strangerKey)
 		if err != nil {
 			return err
 		}
-		if err := utils.WaitFor(ctx, time.Millisecond, func() bool {
-			return router.inboundFullnodeCount.Load() == 1
-		}); err != nil {
-			cancelStranger()
+		if err := awaitAdmitted(); err != nil {
 			return err
+		}
+		if got := router.inboundFullnodeCount.Load(); got != 1 {
+			return fmt.Errorf("inbound fullnode count = %d after stranger admitted, want 1", got)
 		}
 
 		otherPair, err := handshakePair(ctx, s,
@@ -1072,40 +1085,31 @@ func TestRunInboundFullnode_PersistentPeerDoesNotCount(t *testing.T) {
 			none,
 		)
 		if err != nil {
-			cancelStranger()
 			return err
 		}
 		if err := router.RunInboundConn(ctx, otherPair[0]); !errors.Is(err, errInboundFullnodeLimit) {
-			cancelStranger()
 			return fmt.Errorf("other RunInboundConn() = %v, want %v", err, errInboundFullnodeLimit)
 		}
 		if got := router.inboundFullnodeCount.Load(); got != 1 {
-			cancelStranger()
 			return fmt.Errorf("inbound fullnode count = %d after rejected peer, want 1", got)
 		}
 
 		persistentCtx, cancelPersistent := context.WithCancel(ctx)
 		persistent, err := serve(persistentCtx, s, persistentKey)
 		if err != nil {
-			cancelStranger()
+			cancelPersistent()
 			return err
 		}
-		if err := utils.WaitFor(ctx, time.Millisecond, func() bool {
-			_, ok := router.poolIn.Get(persistentKey.Public())
-			return ok
-		}); err != nil {
+		if err := awaitAdmitted(); err != nil {
 			cancelPersistent()
-			cancelStranger()
 			return err
 		}
 		if got := router.inboundFullnodeCount.Load(); got != 1 {
 			cancelPersistent()
-			cancelStranger()
 			return fmt.Errorf("inbound fullnode count = %d while persistent peer is served, want 1", got)
 		}
 		cancelPersistent()
 		if _, err := persistent.Join(ctx); err != nil {
-			cancelStranger()
 			return err
 		}
 
@@ -1132,12 +1136,10 @@ func TestRunInboundFullnode_PersistentPeerDoesNotCount(t *testing.T) {
 		zeroPersistentCtx, cancelZeroPersistent := context.WithCancel(ctx)
 		zeroPersistent, err := serve(zeroPersistentCtx, s, persistentKey)
 		if err != nil {
+			cancelZeroPersistent()
 			return err
 		}
-		if err := utils.WaitFor(ctx, time.Millisecond, func() bool {
-			_, ok := router.poolIn.Get(persistentKey.Public())
-			return ok
-		}); err != nil {
+		if err := awaitAdmitted(); err != nil {
 			cancelZeroPersistent()
 			return err
 		}
