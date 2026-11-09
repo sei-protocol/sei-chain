@@ -196,7 +196,7 @@ func (c *AutobahnFileConfig) GetEnableEvmProxy() bool {
 
 // DefaultMaxInboundFullnodePeers is the built-in cap used when
 // AutobahnFileConfig.MaxInboundFullnodePeers is absent. Peers in
-// p2p.persistent-peers do not consume it.
+// p2p.persistent-peers and p2p.blocksync-peers do not consume it.
 const DefaultMaxInboundFullnodePeers = 10
 
 // Validate performs basic validation of the autobahn file config.
