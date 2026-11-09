@@ -120,15 +120,19 @@ the wrapper wasm is no longer shipped. `AssociateContractAddress` still gives a 
 EVM address.
 
 **Pointer governance proposals** are decode-only. The eight `Add*Pointer*Proposal` types
-stay registered in the interface registry and keep the `evm` gov route, because gov never
-prunes a proposal after its vote ends: dropping the registration would fail the `Any`
-unpack inside `MustUnmarshalProposal`, and dropping the route would panic a proposal
-still in the voting queue. Submission and execution both refuse with
-`ErrPointerProposalDeprecated`.
+stay registered in the interface registry because gov never prunes a proposal after its
+vote ends, and dropping the registration would fail the `Any` unpack inside
+`MustUnmarshalProposal`. Submission refuses with `ErrPointerProposalDeprecated`. No gov
+route is registered for `evm`; the v6.9 upgrade handler refuses to run while a proposal
+routed to `evm` is still queued, because gov panics resolving the route of a proposal
+that passes.
 
 Pointers are versioned, and a reverse registry looks up the original token from its
 pointer address. Both still work; the version can no longer be advanced, since doing so
-required redeploying the pointer.
+required redeploying the pointer. A lookup returns the highest version stored under
+exactly the pointee's key. Registry keys append a two-byte version to a variable-length
+pointee, so a pointee whose name extends another's (`<denom>/vest` after `<denom>`)
+shares its prefix and must never match.
 
 ---
 
