@@ -451,5 +451,6 @@ func TestRunStopsOnAPrepareError(t *testing.T) {
 
 // The app's prepared queue holds every block execution prepares at once.
 func TestPrepareAheadFitsTheAppsPreparedQueue(t *testing.T) {
-	require.LessOrEqual(t, prepareAheadBlocks+2, evmonlyapp.MaxPreparedBlocks)
+	require.Equal(t, atypes.PrepareAheadBlocks+2, atypes.MaxPreparedBlocks)
+	require.Equal(t, atypes.MaxPreparedBlocks, evmonlyapp.MaxPreparedBlocks)
 }

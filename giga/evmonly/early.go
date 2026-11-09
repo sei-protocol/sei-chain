@@ -9,14 +9,18 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
+
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
-// earlyRecentBlocks is how many executed blocks' changes are kept for checking early results; a block
-// speculated against an older state is executed without its early results.
-const earlyRecentBlocks = 8
+// earlyRecentBlocks keeps change sets for every prepared block that may still execute.
+const earlyRecentBlocks = atypes.MaxPreparedBlocks
 
 // earlyChunk is how many transactions an early speculation worker claims at a time.
 const earlyChunk = 8
+
+// earlyReuseChunk is how many transactions one OCC-pool task checks when selecting early results to reuse.
+const earlyReuseChunk = earlyChunk * 8
 
 // earlySpeculation is a block's transactions speculated before the block executes.
 type earlySpeculation struct {
@@ -182,10 +186,10 @@ func (e *Executor) reuseEarlySpeculation(ctx context.Context, req PreparedBlock,
 
 	filled := make([]bool, len(results))
 	var reused, stale, unfinished atomic.Int64
-	chunks := (len(results) + earlyChunk*8 - 1) / (earlyChunk * 8)
+	chunks := (len(results) + earlyReuseChunk - 1) / earlyReuseChunk
 	err := e.occPool.Run(ctx, chunks, func(workerCtx context.Context, workerID int, workers int) error {
 		for c := workerID; c < chunks; c += workers {
-			for i := c * earlyChunk * 8; i < min((c+1)*earlyChunk*8, len(results)); i++ {
+			for i := c * earlyReuseChunk; i < min((c+1)*earlyReuseChunk, len(results)); i++ {
 				switch {
 				case !s.done[i].Load() || s.block.Txs[i].Tx.Hash() != req.Txs[i].Tx.Hash():
 					unfinished.Add(1)

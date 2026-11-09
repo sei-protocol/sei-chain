@@ -231,7 +231,7 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 		MinGasPrice:  big.NewInt(evmOnlyBlockMinGasPrice),
 		OCCWorkers:   workersOrGOMAXPROCS(a.execution.OCCWorkers),
 		ParseWorkers: workersOrGOMAXPROCS(a.execution.ParseWorkers),
-		// EarlySpeculationWorkers stays as configured: 0 turns early speculation off.
+		// 0 turns early speculation off; a positive value is used as-is (typically parse_workers).
 		EarlySpeculationWorkers: a.execution.EarlySpeculationWorkers,
 		// Autobahn orders transactions without validating them, so a block can hold one
 		// the executor cannot apply; failing the block would halt every validator.

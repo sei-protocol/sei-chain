@@ -53,11 +53,6 @@ func (e *Executor) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
 	return e.executed.Subscribe()
 }
 
-// prepareAheadBlocks is how many fetched blocks may wait for execution, each prepared or being
-// prepared, besides the one the fetcher is handing over. With that block and the one executing, at
-// most prepareAheadBlocks+2 are prepared at once, which the app's prepared queue must hold.
-const prepareAheadBlocks = 3
-
 // pendingBlock is a durable block with its FinalizeBlock request, whose preparation reports on
 // prepared once it is done.
 type pendingBlock struct {
@@ -68,14 +63,14 @@ type pendingBlock struct {
 
 // Run initializes the app, then executes the durable blocks after its tip in
 // road order until ctx is canceled or a block fails. Each block is prepared on
-// its own goroutine, up to prepareAheadBlocks ahead of the one executing.
+// its own goroutine, up to atypes.PrepareAheadBlocks ahead of the one executing.
 func (e *Executor) Run(ctx context.Context) error {
 	next, err := e.initApp(ctx)
 	if err != nil {
 		return err
 	}
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		blocks := make(chan pendingBlock, prepareAheadBlocks)
+		blocks := make(chan pendingBlock, atypes.PrepareAheadBlocks)
 		s.Spawn(func() error {
 			for n := next; ; n++ {
 				block, err := e.cfg.BlockStore.WaitForBlock(ctx, n)

@@ -21,7 +21,8 @@ type Config struct {
 	CustomPrecompiles precompiles.Registry
 	OCCWorkers        int
 	// EarlySpeculationWorkers, when positive, lets SpeculateEarly run up to this many transactions at
-	// once ahead of their block's execution. It needs a state store and OCC.
+	// once ahead of their block's execution. 0 leaves early speculation off. A typical value is
+	// ParseWorkers. It needs a state store and OCC.
 	EarlySpeculationWorkers int
 	// ParseWorkers controls parallel transaction decoding and sender recovery.
 	// Values <= 0 default to GOMAXPROCS.

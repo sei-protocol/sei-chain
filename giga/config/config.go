@@ -75,7 +75,7 @@ type ExecutionConfig struct {
 	// for fewer collections; the process then caps the heap from the container limit when it has one.
 	GCPercent int `mapstructure:"gc_percent"`
 	// EarlySpeculationWorkers, when positive, speculates each prepared block's transactions before the
-	// block executes, on up to this many at once. 0 disables it.
+	// block executes, on up to this many at once. 0 disables it. A typical value is parse_workers.
 	EarlySpeculationWorkers int `mapstructure:"early_speculation_workers"`
 }
 
@@ -559,7 +559,7 @@ evm_ws_port = {{ .Giga.Execution.EvmWsPort }}
 gc_percent = {{ .Giga.Execution.GCPercent }}
 
 # early_speculation_workers, when positive, speculates each prepared block's transactions before the
-# block executes, on up to this many at once. 0 disables it.
+# block executes, on up to this many at once. 0 disables it. A typical value is parse_workers.
 early_speculation_workers = {{ .Giga.Execution.EarlySpeculationWorkers }}
 
 [giga.rpc]

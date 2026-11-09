@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
 const (
@@ -28,7 +29,7 @@ const (
 
 // MaxPreparedBlocks is how many prepared blocks the app holds. A caller that prepares ahead must keep
 // no more than this many prepared blocks unexecuted, or the highest are dropped and decoded again.
-const MaxPreparedBlocks = 5
+const MaxPreparedBlocks = atypes.MaxPreparedBlocks
 
 // The prepared-blocks counter's attribute sets, built once.
 var (
