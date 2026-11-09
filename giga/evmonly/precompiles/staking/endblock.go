@@ -22,12 +22,15 @@ var (
 	errRedelegationCounted = errors.New("redelegation entry was not counted")
 )
 
-// endBlockBudget bounds the entries one EndBlock completes from each queue: one
-// unit per entry, plus one per unbonding entry of the delegation it pays.
-// Entries past the budget wait for the next EndBlock; an entry larger than the
-// whole budget runs when nothing has spent it, and uses it up. Queuing an
+// endBlockBudget bounds the work one EndBlock does on each queue: one unit per
+// entry, plus one per unbonding entry of the delegation an unbonding queue entry
+// pays. Entries past the budget wait for the next EndBlock; an entry larger than
+// the whole budget runs when nothing has spent it, and uses it up. Queuing an
 // unbonding or redelegation entry writes at least five new slots, over 100,000
-// gas, so one EndBlock completes more entries than 300M gas of calls can queue.
+// gas, so 300M gas of calls queue at most 3,000 a block. The redelegation queue
+// completes that many; the unbonding queue, whose entries cost at least two
+// units, completes at most 1,500, and a backlog waits for blocks with fewer
+// undelegations.
 const endBlockBudget = 3_000
 
 // EndBlock updates the bonded set, then completes the validators, unbonding
