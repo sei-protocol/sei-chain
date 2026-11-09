@@ -56,13 +56,25 @@ func TestDelegateRejectsBadCalls(t *testing.T) {
 	h.requireInvariants(alice)
 }
 
-func TestCallsWaitForParams(t *testing.T) {
+func TestCallsWaitForTheFirstBondedSet(t *testing.T) {
 	h := &harness{t: t, state: newMemState(), time: startTime}
 	require.ErrorIs(t, h.delegate(alice, val1, sei(1)), errNotStarted)
 	failures, err := Precompile{}.EndBlock(h.block(), h.state)
 	require.NoError(t, err)
 	require.Empty(t, failures)
 	require.Empty(t, h.state.storage, "EndBlock writes nothing before staking's params")
+
+	require.NoError(t, SetParams(h.state, testParams))
+	h.fund(val1, sei(10))
+	require.NoError(t, h.staking.AddGenesisValidator(h.block(), h.state, GenesisValidator{
+		Operator:          val1,
+		ConsensusPubkey:   common.BytesToHash(val1[:]),
+		SelfDelegation:    sei(10),
+		MinSelfDelegation: sei(1),
+	}))
+	require.ErrorIs(t, h.delegate(alice, val1, sei(1)), errNotStarted, "nothing is bonded before the first EndBlock")
+	h.endBlock()
+	require.NoError(t, h.delegate(alice, val1, sei(1)))
 }
 
 func TestUndelegateQueuesAnUnbondingEntry(t *testing.T) {

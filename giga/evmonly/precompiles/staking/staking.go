@@ -79,7 +79,7 @@ var (
 	errNonPayable    = errors.New("sending funds to a non-payable function")
 	errUnknownMethod = errors.New("unknown staking method")
 	errInvalidAmount = errors.New("amount must be a positive whole number of usei, in wei")
-	errNotStarted    = errors.New("staking starts once its params are written")
+	errNotStarted    = errors.New("staking starts once an EndBlock has bonded its first validators")
 )
 
 // Precompile is the staking precompile. Hooks are called as x/staking calls its
@@ -128,10 +128,13 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 			return precompiles.Revert(err.Error())
 		}
 	}
-	if !chainparams.HasStaking(ctx.State) {
+	s := newStore(ctx.State)
+	// x/staking bonds its genesis validators before the first block runs, and
+	// here the first EndBlock does. Until then the voting power ratio would be
+	// checked against no bonded power.
+	if !chainparams.HasStaking(ctx.State) || s.lastTotalPower().Sign() == 0 {
 		return nil, errNotStarted
 	}
-	s := newStore(ctx.State)
 
 	switch method.Name {
 	case DelegateMethod:

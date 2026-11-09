@@ -27,7 +27,8 @@ func seiWei(n int64) *big.Int {
 }
 
 // stakingGenesis returns a state with staking's params, unbonding over 100
-// seconds, and two genesis validators self-delegating 30 and 20 SEI.
+// seconds, and two genesis validators self-delegating 30 and 20 SEI, bonded by
+// a genesis block's EndBlock as x/staking's genesis bonds them.
 func stakingGenesis(t *testing.T) *MemoryState {
 	state := NewMemoryState()
 	params := staking.DefaultParams()
@@ -44,6 +45,12 @@ func stakingGenesis(t *testing.T) *MemoryState {
 			MinSelfDelegation: seiWei(1),
 		}))
 	}
+	genesis := blockContext(big.NewInt(testChainID))
+	genesis.Number, genesis.Time = 0, 0
+	result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: stakingRegistry()}, withTestState(state)).
+		ExecuteBlock(t.Context(), BlockRequest{Context: genesis})
+	require.NoError(t, err)
+	state.ApplyChangeSet(result.ChangeSet)
 	return state
 }
 
@@ -84,7 +91,7 @@ func TestStakingPrecompileThroughExecutor(t *testing.T) {
 
 	require.Equal(t, seiWei(90), state.GetBalance(sender))
 	require.Zero(t, state.GetBalance(staking.Address).Sign())
-	require.Equal(t, seiWei(56), state.GetBalance(staking.BondedEscrow), "the first EndBlock bonds both validators")
+	require.Equal(t, seiWei(56), state.GetBalance(staking.BondedEscrow), "both validators are bonded")
 	require.Equal(t, seiWei(4), state.GetBalance(staking.NotBondedEscrow), "the unbonding entry waits")
 
 	block.Number++
