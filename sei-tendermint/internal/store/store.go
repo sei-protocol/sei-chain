@@ -10,6 +10,7 @@ import (
 	"github.com/google/orderedcode"
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -32,18 +33,59 @@ The store can be assumed to contain all contiguous blocks between base and heigh
 // deserializing loaded data, indicating probable corruption on disk.
 */
 type BlockStore struct {
-	db dbm.DB
+	db     dbm.DB
+	bounds utils.RWMutex[*blockBounds]
+}
+
+// blockBounds is the lowest and highest height with a stored block meta, both 0 when there is none.
+type blockBounds struct {
+	base   int64
+	height int64
 }
 
 // NewBlockStore returns a new BlockStore with the given DB,
 // initialized to the last height that was committed to the DB.
 func NewBlockStore(db dbm.DB) *BlockStore {
-	return &BlockStore{db}
+	return &BlockStore{db: db, bounds: utils.NewRWMutex(&blockBounds{base: loadBase(db), height: loadHeight(db)})}
 }
 
 // Base returns the first known contiguous block height, or 0 for empty block stores.
 func (bs *BlockStore) Base() int64 {
-	iter, err := bs.db.Iterator(
+	for b := range bs.bounds.RLock() {
+		return b.base
+	}
+	panic("unreachable")
+}
+
+// Height returns the last known contiguous block height, or 0 for empty block stores.
+func (bs *BlockStore) Height() int64 {
+	for b := range bs.bounds.RLock() {
+		return b.height
+	}
+	panic("unreachable")
+}
+
+// extendBounds records that a block meta at height has been written.
+func (bs *BlockStore) extendBounds(height int64) {
+	for b := range bs.bounds.Lock() {
+		if b.base == 0 || height < b.base {
+			b.base = height
+		}
+		b.height = max(b.height, height)
+	}
+}
+
+// reloadBounds reads the block meta height range back from the DB after block metas are deleted.
+func (bs *BlockStore) reloadBounds() {
+	// The DB is read under the lock so that a concurrent extendBounds cannot be overwritten by a stale read.
+	for b := range bs.bounds.Lock() {
+		b.base, b.height = loadBase(bs.db), loadHeight(bs.db)
+	}
+}
+
+// loadBase reads the lowest stored block meta height from the DB, or 0 if there is none.
+func loadBase(db dbm.DB) int64 {
+	iter, err := db.Iterator(
 		blockMetaKey(1),
 		blockMetaKey(1<<63-1),
 	)
@@ -65,9 +107,9 @@ func (bs *BlockStore) Base() int64 {
 	return 0
 }
 
-// Height returns the last known contiguous block height, or 0 for empty block stores.
-func (bs *BlockStore) Height() int64 {
-	iter, err := bs.db.ReverseIterator(
+// loadHeight reads the highest stored block meta height from the DB, or 0 if there is none.
+func loadHeight(db dbm.DB) int64 {
+	iter, err := db.ReverseIterator(
 		blockMetaKey(1),
 		blockMetaKey(1<<63-1),
 	)
@@ -313,6 +355,7 @@ func (bs *BlockStore) PruneBlocks(height int64) (uint64, error) {
 	if height > bs.Height() {
 		return 0, fmt.Errorf("height must be equal to or less than the latest height %d", bs.Height())
 	}
+	defer bs.reloadBounds()
 
 	// when removing the block meta, use the hash to remove the hash key at the same time
 	removeBlockHash := func(key, value []byte, batch dbm.Batch) error {
@@ -460,6 +503,7 @@ func (bs *BlockStore) SaveBlock(block *types.Block, blockParts *types.PartSet, s
 	if err := batch.WriteSync(); err != nil {
 		panic(err)
 	}
+	bs.extendBounds(block.Height)
 
 	if err := batch.Close(); err != nil {
 		panic(err)
@@ -580,6 +624,7 @@ func (bs *BlockStore) SaveSignedHeader(sh *types.SignedHeader, blockID types.Blo
 	if err := batch.WriteSync(); err != nil {
 		return err
 	}
+	bs.extendBounds(sh.Height)
 
 	return batch.Close()
 }
@@ -691,6 +736,7 @@ func mustEncode(pb proto.Message) []byte {
 // lowering height by one.
 func (bs *BlockStore) DeleteLatestBlock() error {
 	targetHeight := bs.Height()
+	defer bs.reloadBounds()
 	batch := bs.db.NewBatch()
 	fmt.Printf("Permanently deleting target height=%d from block store\n", targetHeight)
 	// delete what we can, skipping what's already missing, to ensure partial
