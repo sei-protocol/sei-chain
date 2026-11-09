@@ -203,18 +203,11 @@ func TestExecutionRunsAheadOfAppHashPush(t *testing.T) {
 	key := atypes.GenSecretKey(rng)
 	app, hashBuilder, state, router, executor := newAppHashTestRouter(t, rng, key)
 
-<<<<<<< HEAD
 	qc, blocks := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
 	qc2, blocks2 := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.Some(qc.QC()))
 	qc3, blocks3 := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.Some(qc2.QC()))
 	require.Equal(t, state.Anchor().Load().Epochs[0].RoadRange().First, qc.Index())
-=======
-	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
-	qc2, blocks2 := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.Some(qc.QC()))
-	qc3, blocks3 := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.Some(qc2.QC()))
-	require.Equal(t, state.Registry().MustEpoch(0).RoadRange().First, qc.Index())
 	hashBuilder.publishOnReport = true
->>>>>>> origin/main
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
@@ -249,52 +242,17 @@ func TestPushAppHashesResumesAtNextAppProposal(t *testing.T) {
 	key := atypes.GenSecretKey(rng)
 	_, hashBuilder, state, router, _ := newAppHashTestRouter(t, rng, key)
 
-<<<<<<< HEAD
 	qc, blocks := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
-	require.Equal(t, state.Anchor().Load().Epochs[0].RoadRange().First, qc.Index())
-	hashBuilder.publishOnReport = true
-=======
-	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
-	qc2, blocks2 := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.Some(qc.QC()))
+	qc2, blocks2 := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.Some(qc.QC()))
 	last := qc2.Index()
-	require.Equal(t, state.Registry().MustEpoch(0).RoadRange().First, qc.Index())
->>>>>>> origin/main
+	require.Equal(t, state.Anchor().Load().Epochs[0].RoadRange().First, qc.Index())
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		if err := state.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
 			return fmt.Errorf("state.PushPartialBlock(): %w", err)
 		}
-<<<<<<< HEAD
-		s.SpawnBgNamed("execute", func() error {
-			return utils.IgnoreCancel(router.runExecute(ctx))
-		})
-		if _, err := state.AppVote(ctx, qc.Index()); err != nil {
-			return fmt.Errorf("AppVote(%v): %w", qc.Index(), err)
-		}
-		return nil
-	}))
-}
-
-// TestBackfillAppHashesReadsTheBuilder pins the restart path: every block the
-// app committed but did not get proposed is recovered from the app hash
-// builder, oldest first, so execution can resume at the block after the app
-// tip.
-func TestBackfillAppHashesReadsTheBuilder(t *testing.T) {
-	rng := utils.TestRng()
-	key := atypes.GenSecretKey(rng)
-	_, hashBuilder, state, router := newAppHashTestRouter(t, rng, key)
-
-	qc, blocks := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
-	last := qc.Index()
-	require.Equal(t, state.Anchor().Load().Epochs[0].RoadRange().First, last)
-
-	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		if err := state.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
-=======
 		if err := state.PushPartialBlock(ctx, qc2, data.TestBlockMap(blocks2)); err != nil {
->>>>>>> origin/main
 			return fmt.Errorf("state.PushPartialBlock(): %w", err)
 		}
 		for n := state.NextAppProposal(); n <= last; n++ {
@@ -480,7 +438,6 @@ func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAdd
 	for key := range addrs {
 		weights[key] = 1
 	}
-<<<<<<< HEAD
 	committee, err := atypes.NewCommittee(weights)
 	require.NoError(t, err)
 	state, registry := testDataState(t, committee)
@@ -491,12 +448,7 @@ func testDataState(t *testing.T, committee *atypes.Committee) (*data.State, *epo
 	t.Helper()
 	registry, err := epoch.NewRegistry(committee, 1, time.Now(), utils.None[string]())
 	require.NoError(t, err)
-	db, err := blockstore.New(memblock.NewBlockDB())
-	require.NoError(t, err)
-=======
-	require.NoError(t, genDoc.ValidateAndComplete())
 	db := blockstore.NewTestStore(t)
->>>>>>> origin/main
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	state, err := data.NewState(&data.Config{Registry: registry}, db)
 	require.NoError(t, err)

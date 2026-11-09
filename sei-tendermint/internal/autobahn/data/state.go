@@ -166,12 +166,8 @@ type State struct {
 	cfg        *Config
 	metrics    *metrics.Metrics
 	inner      utils.Watch[*inner]
-<<<<<<< HEAD
-	blockStore types.BlockStore
-	anchor     utils.AtomicRecv[Anchor]
-=======
 	blockStore *blockstore.Store
->>>>>>> origin/main
+	anchor     utils.AtomicRecv[Anchor]
 }
 
 // NewState constructs a data State, replaying persisted state from blockStore.

@@ -3,7 +3,6 @@ package avail
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -49,8 +48,7 @@ func TestConsensusSpecRestoredFromWALAndAnchor(t *testing.T) {
 func TestConsensusSpecAdvancesOnlyAfterPersistence(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
-	store, err := blockstore.New(memblock.NewBlockDB())
-	require.NoError(t, err)
+	store := blockstore.NewTestStore(t)
 	defer func() { require.NoError(t, store.Close()) }()
 	ds, err := data.NewState(&data.Config{Registry: registry}, store)
 	require.NoError(t, err)

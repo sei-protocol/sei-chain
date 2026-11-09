@@ -2,9 +2,10 @@
 package pb
 
 import (
+	reflect "reflect"
+
 	runtime "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	reflect "reflect"
 )
 
 func (*Timestamp) MaxSize() int {
@@ -439,7 +440,6 @@ func init() {
 	// Register the wireguard.Schema generated for autobahn.PersistedEpochRegistry.
 	runtime.MustRegister[*PersistedEpochRegistry](runtime.Schema{
 		3: {Nested: utils.Some(reflect.TypeFor[*Epoch]())},
-		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Epoch]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.EpochMember.

@@ -50,18 +50,6 @@ type gigaRouterCommon struct {
 	selfAddr        utils.Option[NodeAddress]
 	liveAddrs       utils.RWMutex[map[atypes.PublicKey]GigaNodeAddr]
 	liveAddrVersion utils.AtomicSend[uint64]
-<<<<<<< HEAD
-	// executed is the window of blocks executeBlock committed to the app, seeded
-	// with the app's height at construction.
-	executed utils.AtomicSend[atypes.ExecutedBlocks]
-=======
-	// nextCommitEpoch is data.NextCommitEpoch() cached at construction so
-	// EvmProxy can Load() without taking the data lock on every call.
-	nextCommitEpoch utils.AtomicRecv[*atypes.Epoch]
-	// anchor is data.Anchor() cached at construction: the AppQC/CommitQC covering
-	// the lowest row data.State still holds.
-	anchor utils.AtomicRecv[utils.Option[data.Anchor]]
->>>>>>> origin/main
 
 	// inboundFullnodeCount tracks inbound connections currently served the
 	// block-sync subset. Optimistic Add(1) + compare against cap;

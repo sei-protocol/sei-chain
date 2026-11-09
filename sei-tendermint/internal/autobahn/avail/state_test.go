@@ -8,11 +8,6 @@ import (
 	"testing/synctest"
 	"time"
 
-<<<<<<< HEAD
-=======
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
-
->>>>>>> origin/main
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -364,13 +359,8 @@ func TestRestoreInnerNextEpoch(t *testing.T) {
 	t.Run("genesis anchor survives registry pruning", func(t *testing.T) {
 		rng := utils.TestRng()
 		registry, _ := epoch.GenRegistry(rng, 3)
-<<<<<<< HEAD
-		ds := newTestDataState(&data.Config{Registry: registry})
-		i, err := newInner(ds.Anchor().Load(), ds.GenesisTimestamp(), &loadedState{})
-=======
 		ds := newTestDataState(t, &data.Config{Registry: registry})
-		i, err := restoreInner(ds, &loadedState{})
->>>>>>> origin/main
+		i, err := newInner(ds.Anchor().Load(), ds.GenesisTimestamp(), &loadedState{})
 		require.NoError(t, err)
 		require.Equal(t, registry.MustEpoch(0), i.applied())
 		require.NoError(t, registry.PruneBefore(1))
@@ -383,33 +373,8 @@ func TestRestoreInnerNextEpoch(t *testing.T) {
 			rng := utils.TestRng()
 			registry, keys := epoch.GenRegistryThrough(rng, 3, 2)
 			last := registry.LastRoad(idx)
-<<<<<<< HEAD
 			ds := newTestDataStateAtRoad(t, rng, registry, keys, last)
 			i, err := newInner(ds.Anchor().Load(), ds.GenesisTimestamp(), &loadedState{})
-=======
-			proposal, blocks := types.ProposalAtBlocks(ep, types.View{Index: last}, 1)
-			prepareQC := types.BuildPrepareQC(keys, proposal)
-			var votes []*types.Signed[*types.CommitVote]
-			for _, key := range keys {
-				votes = append(votes, types.Sign(key, types.NewCommitVote(prepareQC)))
-			}
-			qc := types.NewCommitQC(votes)
-			fullQC := types.NewFullCommitQC(qc, []*types.BlockHeader{blocks[0].Header()})
-			store := blockstore.NewTestStore(t)
-			t.Cleanup(func() { _ = store.Close() })
-			require.NoError(t, store.WriteBlock(types.NewRoadBlock(fullQC, blocks)))
-			app := types.NewAppProposal(qc.View(), types.GenAppHash(rng))
-			require.NoError(t, store.WriteAppProposal(app))
-			require.NoError(t, store.WriteAppQC(data.TestAppQC(keys, app)))
-			require.NoError(t, store.Flush())
-			ds, err := data.NewState(&data.Config{Registry: registry}, store)
-			require.NoError(t, err)
-			i, err := restoreInner(ds, &loadedState{})
-			if idx == 1 {
-				require.Error(t, err)
-				return
-			}
->>>>>>> origin/main
 			require.NoError(t, err)
 			spec := i.consensusSpec.Load()
 			cqc, ok := spec.CommitQC.Get()
@@ -1037,7 +1002,7 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 func TestPushCommitQC_MidEpochNoWait(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	state := utils.OrPanic1(NewState(keys[0], newTestDataState(&data.Config{Registry: registry}), utils.None[string]()))
+	state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
 	// Anchor: LastRoad(0). Spec: epoch 1's first road, already in epoch 1.
 	require.NoError(t, TestAdvanceToEpoch(t.Context(), state, keys, registry, 1))
 	ep := registry.MustEpoch(1)
@@ -1073,7 +1038,6 @@ func TestPushCommitQC_StaleAfterAdvanceSoftDrops(t *testing.T) {
 
 func TestAdvanceRequiresAnchorAndSeal(t *testing.T) {
 	rng := utils.TestRng()
-<<<<<<< HEAD
 	registry, keys := epoch.GenRegistry(rng, 3)
 	ep0 := types.NewEpoch(0, types.RoadRange{First: 1, Next: 3}, registry.MustEpoch(0).Committee())
 	ep1 := types.NewEpoch(1, types.RoadRange{First: 3, Next: 5}, registry.MustEpoch(1).Committee())
@@ -1085,11 +1049,6 @@ func TestAdvanceRequiresAnchorAndSeal(t *testing.T) {
 	qc3 := types.BuildCommitQC(ep1, keys, utils.Some(qc2), nil)
 	anchor := data.Anchor{Epochs: [2]*types.Epoch{ep0, ep1}}
 	i, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{commitQCs: []*types.CommitQC{qc0, qc1, qc2, qc3}})
-=======
-	registry, keys := epoch.GenRegistry(rng, 4)
-	ds := newTestDataState(t, &data.Config{Registry: registry})
-	state, err := NewState(keys[0], ds, utils.None[string]())
->>>>>>> origin/main
 	require.NoError(t, err)
 	// Road 4 seals epoch 1, but the spec cannot advance to 5 while epoch 2 is missing.
 	require.Equal(t, ep1, i.applied())
@@ -1151,87 +1110,13 @@ func TestPruneAdvancesConsensusSpec(t *testing.T) {
 	for _, withTip := range []bool{false, true} {
 		t.Run(fmt.Sprint(withTip), func(t *testing.T) {
 			rng := utils.TestRng()
-<<<<<<< HEAD
 			registry, keys := epoch.GenRegistryThrough(rng, 3, 3)
-			state := utils.OrPanic1(NewState(keys[0], newTestDataState(&data.Config{Registry: registry}), utils.None[string]()))
+			state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
 			if withTip {
 				qc := types.BuildCommitQC(registry.MustEpoch(0), keys, utils.None[*types.CommitQC](), nil)
 				require.NoError(t, state.PushCommitQC(t.Context(), qc))
 				state.markCommitQCsPersisted(qc)
 			}
-=======
-			registry, keys := epoch.GenRegistryThrough(rng, 2, 3)
-			ds := newTestDataState(t, &data.Config{Registry: registry})
-			state, err := NewState(keys[0], ds, utils.None[string]())
-			require.NoError(t, err)
-			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
-
-			qc := pruneToAnchors(state, anchorWalk(t, registry, keys))
-			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
-
-			var runErr error
-			go func() { runErr = state.runEpochAdvance(ctx) }()
-			synctest.Wait()
-			require.Equal(t, types.EpochIndex(3), state.Epoch().Load().EpochIndex())
-			require.Nil(t, runErr)
-			requireSpec(t, state, qc, 3)
-
-			cancel()
-			synctest.Wait()
-			require.ErrorIs(t, runErr, context.Canceled)
-		})
-	})
-
-	t.Run("unsealed tip parks until the Anchor moves it", func(t *testing.T) {
-		synctest.Test(t, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			rng := utils.TestRng()
-			registry, keys := epoch.GenRegistryThrough(rng, 2, 3)
-			ds := newTestDataState(t, &data.Config{Registry: registry})
-			state, err := NewState(keys[0], ds, utils.None[string]())
-			require.NoError(t, err)
-
-			anchors := anchorWalk(t, registry, keys)
-			ep0 := registry.MustEpoch(0)
-			qc0 := types.BuildCommitQC(ep0, keys, utils.None[*types.CommitQC](), nil)
-			require.Equal(t, ep0.RoadRange().First, qc0.Index())
-			for inner, ctrl := range state.inner.Lock() {
-				inner.persistedCommitQC.Store(utils.Some(qc0))
-				ctrl.Updated()
-			}
-
-			var runErr error
-			go func() { runErr = state.runEpochAdvance(ctx) }()
-			synctest.Wait()
-			require.Nil(t, runErr)
-			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
-
-			qc := pruneToAnchors(state, anchors)
-			synctest.Wait()
-			require.Nil(t, runErr)
-			require.Equal(t, types.EpochIndex(3), state.Epoch().Load().EpochIndex())
-			requireSpec(t, state, qc, 3)
-
-			cancel()
-			synctest.Wait()
-			require.ErrorIs(t, runErr, context.Canceled)
-		})
-	})
-
-	// The registry follows data's Anchor, so it can drop applied+1 before avail
-	// observes the Anchor that moves its own tip past that epoch.
-	t.Run("pruned target retries once the tip names another epoch", func(t *testing.T) {
-		synctest.Test(t, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			rng := utils.TestRng()
-			registry, keys := epoch.GenRegistryThrough(rng, 4, 4)
-			ds := newTestDataState(t, &data.Config{Registry: registry})
-			state, err := NewState(keys[0], ds, utils.None[string]())
-			require.NoError(t, err)
-
->>>>>>> origin/main
 			anchors := anchorWalk(t, registry, keys)
 			qc := pruneToAnchors(state, anchors[:2])
 			requireSpec(t, state, qc, 2)

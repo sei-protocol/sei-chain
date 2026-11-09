@@ -43,7 +43,7 @@ func TestPersistedRegistryConvRejectsInvalidSnapshots(t *testing.T) {
 	first := record(2, 20, 30)
 	var missing *pb.PersistedEpochRegistry
 	reject(missing)
-	reject(&pb.PersistedEpochRegistry{PendingV2: first})
+	reject(&pb.PersistedEpochRegistry{})
 	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{first, record(2, 30, 40)}})
 	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{first, record(1, 30, 40)}})
 	reject(&pb.PersistedEpochRegistry{LiveV2: []*pb.Epoch{first, record(4, 30, 40)}})

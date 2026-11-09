@@ -364,17 +364,11 @@ func TestPushAppHash_ReplayClosingRoadKeepsDerivedEpoch(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	keeper := keys[0].Public()
-<<<<<<< HEAD
 	hash := types.GenAppHash(rng)
-	store := newMemoryBlockStore(t)
+	store := newTestStore(t)
 	ep := registry.MustEpoch(0)
 	qc, blocks := commitQCAtRoad(ep, keys, registry.LastRoad(0))
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
-=======
-	appHash := types.GenAppHash(rng)
-	store := newTestStore(t)
-	n := writeExecutedTip(t, store, registry.MustEpoch(0), keys, registry.LastRoad(0), appHash)
->>>>>>> origin/main
 	state := newTestState(t, &Config{Registry: registry}, store)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(state.Run(ctx)) })
@@ -386,31 +380,9 @@ func TestPushAppHash_ReplayClosingRoadKeepsDerivedEpoch(t *testing.T) {
 	require.Equal(t, derived, registry.MustEpoch(2))
 }
 
-<<<<<<< HEAD
-// proposalWriteStore records registry.Epoch at each AppProposal write.
-type proposalWriteStore struct {
-	types.BlockStore
-	registry *epoch.Registry
-	derived  *utils.Option[types.EpochIndex]
-}
-
-func (s proposalWriteStore) WriteAppProposal(p *types.AppProposal) error {
-	if e, err := s.registry.Epoch(2); err == nil {
-		*s.derived = utils.Some(e.EpochIndex())
-	} else {
-		*s.derived = utils.None[types.EpochIndex]()
-	}
-	return s.BlockStore.WriteAppProposal(p)
-}
-
 // TestPushAppHash_DerivesClosingEpochBeforeProposalWrite verifies that C_{E+2}
 // is registered when the closing road's AppProposal is written.
 func TestPushAppHash_DerivesClosingEpochBeforeProposalWrite(t *testing.T) {
-=======
-// TestPushAppHash_StagesClosingEpochBeforeProposalWrite verifies that C_{E+2}
-// is pending when the closing road's AppProposal is written.
-func TestPushAppHash_StagesClosingEpochBeforeProposalWrite(t *testing.T) {
->>>>>>> origin/main
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -418,25 +390,16 @@ func TestPushAppHash_StagesClosingEpochBeforeProposalWrite(t *testing.T) {
 	qc, blocks := commitQCAtRoad(registry.MustEpoch(0), keys, registry.LastRoad(0))
 	base := newTestStore(t)
 	writeToBlockStore(t, base, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
-<<<<<<< HEAD
 	var epochAtWrite utils.Option[types.EpochIndex]
-	state := newTestState(t, &Config{Registry: registry}, proposalWriteStore{
-		BlockStore: base,
-		registry:   registry,
-		derived:    &epochAtWrite,
-	})
-=======
-	var pendingAtWrite utils.Option[types.EpochIndex]
 	state := newTestState(t, &Config{Registry: registry}, base)
 	writeAppProposal := func(p *types.AppProposal) error {
-		if e, ok := registry.Pending().Get(); ok {
-			pendingAtWrite = utils.Some(e.EpochIndex())
+		if e, err := registry.Epoch(2); err == nil {
+			epochAtWrite = utils.Some(e.EpochIndex())
 		} else {
-			pendingAtWrite = utils.None[types.EpochIndex]()
+			epochAtWrite = utils.None[types.EpochIndex]()
 		}
 		return base.WriteAppProposal(p)
 	}
->>>>>>> origin/main
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.runPersist(ctx, writeAppProposal)) })
@@ -546,14 +509,13 @@ func TestPushAppHash_ReplayMidEpochDoesNotStage(t *testing.T) {
 	require.Error(t, err)
 }
 
-<<<<<<< HEAD
 func TestNewState_PreservesExecutionDerivedEpoch(t *testing.T) {
 	for _, certified := range []bool{false, true} {
 		t.Run(fmt.Sprint(certified), func(t *testing.T) {
 			rng := utils.TestRng()
 			registry, keys := epoch.GenRegistry(rng, 3)
 			ep := registry.MustEpoch(0)
-			store := newMemoryBlockStore(t)
+			store := newTestStore(t)
 			qc, blocks := commitQCAtRoad(ep, keys, registry.LastRoad(0))
 			writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
 			require.NoError(t, registry.TryPushEpoch(qc.Index(), map[types.PublicKey]uint64{keys[0].Public(): 9}))
@@ -566,40 +528,6 @@ func TestNewState_PreservesExecutionDerivedEpoch(t *testing.T) {
 			require.Equal(t, certified, state.Anchor().Load().First.IsPresent())
 		})
 	}
-=======
-func TestNewState_ActivatesStagedEpochFromPersistedAppQC(t *testing.T) {
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	keeper := keys[0].Public()
-	ep := registry.MustEpoch(0)
-	store := newTestStore(t)
-	qc, blocks := commitQCAtRoad(ep, keys, registry.LastRoad(0))
-	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
-	writeAppDataToBlockStore(t, rng, store, keys, qc)
-
-	require.NoError(t, registry.StageEpoch(0, map[types.PublicKey]uint64{keeper: 9}))
-	_, err := registry.Epoch(2)
-	require.Error(t, err)
-
-	_ = newTestState(t, &Config{Registry: registry}, store)
-	require.Equal(t, uint64(9), registry.MustEpoch(2).Committee().Weight(keeper))
-	require.Equal(t, utils.None[*types.Epoch](), registry.Pending())
-}
-
-func TestNewState_LeavesStagedEpochWithoutAppQC(t *testing.T) {
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	keeper := keys[0].Public()
-	appHash := types.GenAppHash(rng)
-	store := newTestStore(t)
-	_ = writeExecutedTip(t, store, registry.MustEpoch(0), keys, registry.LastRoad(0), appHash)
-	require.NoError(t, registry.StageEpoch(0, map[types.PublicKey]uint64{keeper: 9}))
-
-	_ = newTestState(t, &Config{Registry: registry}, store)
-	require.Equal(t, types.EpochIndex(2), registry.Pending().OrPanic("pending epoch").EpochIndex())
-	_, err := registry.Epoch(2)
-	require.Error(t, err)
->>>>>>> origin/main
 }
 
 func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {

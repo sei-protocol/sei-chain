@@ -242,7 +242,7 @@ func TestBlock_WaitForFutureLane(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				rng := utils.TestRng()
-				state := utils.OrPanic1(NewState(joiner, newTestDataState(&data.Config{Registry: registry}), utils.None[string]()))
+				state := utils.OrPanic1(NewState(joiner, newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
 				defer func() { require.NoError(t, state.Close()) }()
 				want := types.Sign(joiner, types.NewLaneProposal(types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))))
 				require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
