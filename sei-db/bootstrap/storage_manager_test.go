@@ -6,14 +6,12 @@ import (
 	"testing"
 	"time"
 
-	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
-
-	"github.com/stretchr/testify/require"
-
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	"github.com/stretchr/testify/require"
 )
 
 // openManager opens a manager over a fresh home directory, applying tweak to the default config
@@ -307,12 +305,12 @@ func TestPrunableStoresOmitsDisabledReceipts(t *testing.T) {
 	}
 }
 
-// brokenBlockDBConfig returns a copy of cfg's block ledger config that NewBlockDB rejects,
+// brokenBlockDBConfig returns a copy of cfg's block ledger config that New rejects,
 // leaving the original untouched so the reopen afterwards uses a valid one.
-func brokenBlockDBConfig(cfg *config.GigaStorageConfig) *littblock.BlockDBConfig {
+func brokenBlockDBConfig(cfg *config.GigaStorageConfig) *blockstore.Config {
 	broken := *cfg.BlockDBConfig
 	litt := *broken.Litt
-	litt.Paths = nil // NewBlockDB refuses an empty path list
+	litt.Paths = nil // New refuses an empty path list
 	broken.Litt = &litt
 	return &broken
 }

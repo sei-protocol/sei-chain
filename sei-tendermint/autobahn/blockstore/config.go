@@ -1,4 +1,4 @@
-package littblock
+package blockstore
 
 import (
 	"fmt"
@@ -7,8 +7,8 @@ import (
 	littdb "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 )
 
-// BlockDBConfig configures a LittDB-backed blocktypes.BlockDB.
-type BlockDBConfig struct {
+// Config configures a LittDB-backed consensus block store.
+type Config struct {
 	// Litt is the underlying LittDB configuration, including the data directory
 	// paths. The block store builds its single table (see tableName, which holds
 	// blocks and QCs both) on top of this DB. Required; use DefaultConfig to obtain
@@ -27,21 +27,21 @@ type BlockDBConfig struct {
 	RetentionTime time.Duration
 }
 
-// DefaultConfig returns a BlockDBConfig preloaded with all defaults, rooted at
-// dir. Override fields as needed, then pass it to NewBlockDB (which validates).
-func DefaultConfig(dir string) (*BlockDBConfig, error) {
+// DefaultConfig returns a Config preloaded with all defaults, rooted at
+// dir. Override fields as needed, then pass it to New (which validates).
+func DefaultConfig(dir string) (*Config, error) {
 	littConfig, err := littdb.DefaultConfig(dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build litt config: %w", err)
+		return nil, fmt.Errorf("littdb.DefaultConfig(): %w", err)
 	}
-	return &BlockDBConfig{
+	return &Config{
 		Litt:          littConfig,
 		RetentionTime: time.Hour,
 	}, nil
 }
 
 // Validate performs a sanity check on the configuration.
-func (c *BlockDBConfig) Validate() error {
+func (c *Config) Validate() error {
 	if c == nil {
 		return fmt.Errorf("config is required")
 	}
