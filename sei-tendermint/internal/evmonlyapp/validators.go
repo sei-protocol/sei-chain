@@ -13,12 +13,13 @@ import (
 )
 
 // GetValidators returns staking's bonded set in the committed state, and the
-// configured validators until staking has bonded one. It returns none when the
-// stored set does not add up, which autobahn cannot stage as a committee.
+// configured validators until staking has bonded one. It returns none when a
+// finalized block failed to commit or the stored set does not add up, and
+// autobahn cannot stage an empty committee.
 func (a *evmOnlyApplication) GetValidators() []abci.ValidatorUpdate {
 	bonded, err := a.bondedValidators()
 	if err != nil {
-		logger.Error("EVM-only bonded validator set does not add up", "err", err)
+		logger.Error("EVM-only bonded validator set is unavailable", "err", err)
 		return nil
 	}
 	if len(bonded) == 0 {
@@ -27,9 +28,15 @@ func (a *evmOnlyApplication) GetValidators() []abci.ValidatorUpdate {
 	return bonded
 }
 
-// bondedValidators returns staking's bonded set in the committed state.
+// bondedValidators returns staking's bonded set once every finalized block is
+// committed. It fails when one failed to commit.
 func (a *evmOnlyApplication) bondedValidators() ([]abci.ValidatorUpdate, error) {
-	view := a.openSettledView()
+	// openSettledView only logs a failed commit, which would serve a set from
+	// before the failed block, and autobahn persists the committee it stages.
+	if err := a.AwaitCommits(); err != nil {
+		return nil, fmt.Errorf("block commit failed: %w", err)
+	}
+	view := a.storage.StateDB().OpenView()
 	defer view.Close()
 	bonded, err := staking.BondedValidators(evmonly.ReadOnlyState(view))
 	if err != nil {

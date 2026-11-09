@@ -104,6 +104,26 @@ func TestEVMOnlyApplicationServesStakingsBondedSet(t *testing.T) {
 	}, app.GetValidators())
 }
 
+func TestEVMOnlyApplicationServesNoValidatorsAfterAFailedCommit(t *testing.T) {
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	storage := openEVMOnlyTestStorage(t, storageConfig)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	configured := []abci.ValidatorUpdate{{PubKey: crypto.PubKeyToProto(ed25519.TestSecretKey([]byte("configured")).Public()), Power: 1}}
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, configured, storage, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[string]())
+	require.NoError(t, err)
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	settler, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	installUnwritableEVMExecutor(settler)
+	require.Equal(t, configured, app.GetValidators())
+
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1, raw))
+	require.Empty(t, app.GetValidators(), "block 1 failed to commit, so the committed state predates it")
+}
+
 func TestEVMOnlyApplicationServesNoValidatorsFromACorruptBondedSet(t *testing.T) {
 	app := newStakingEVMOnlyTestApp(t, []abci.ValidatorUpdate{{Power: 1}}, corruptBondedSet{})
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
