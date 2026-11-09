@@ -314,7 +314,7 @@ func (c *v2Chain) serve() parity.Caller {
 	cfg.HTTPPort = port
 	a := c.app
 	server, err := evmrpc.NewEVMHTTPServer(cfg, c.client, &a.EvmKeeper, a.BeginBlockKeepers, a.BaseApp, a.TracerAnteHandler,
-		a.RPCContextProvider, func(int64) client.TxConfig { return a.GetTxConfig() }, "", a.GetStateStore(), false, nil)
+		a.RPCContextProvider, a.RPCContextProviderWithoutConsensusParams, func(int64) client.TxConfig { return a.GetTxConfig() }, "", a.GetStateStore(), false, nil)
 	require.NoError(c.t, err)
 	c.settle()
 	require.NoError(c.t, server.Start())
