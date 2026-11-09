@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import "./Sets.sol";
-
 /// @notice Storage schema of the evmonly slashing precompile (0x1014), held as that
 /// address's contract storage. Each state variable is an x/slashing store prefix,
 /// named in its comment.
@@ -24,6 +22,5 @@ contract SlashingStorage {
     }
 
     mapping(address => ValidatorSigningInfo) internal validatorSigningInfo; // 0x01: operator =>
-    AddressSet internal signingInfoSet; // every operator in validatorSigningInfo
     mapping(address => ValidatorMissedBlockArray) internal validatorMissedBlocks; // 0x02: operator =>
 }
