@@ -95,11 +95,10 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 		ep := inner.applied()
 		require.Equal(t, epLeave.EpochIndex(), ep.EpochIndex())
 		require.True(t, ep.IsClosed(lane0))
-		n := inner.prune(data.Anchor{First: utils.Some(data.AnchorFirst{
+		inner.setAnchor(data.Anchor{First: utils.Some(data.AnchorFirst{
 			CommitQC: tip,
 			AppQC:    data.TestAppQC([]types.SecretKey{b}, types.NewAppProposal(tip.View(), types.AppHash{})),
 		}), Epochs: [2]*types.Epoch{ep, epJoin}})
-		require.Equal(t, 1, n)
 		ctrl.Updated()
 	}
 	_, err = sub.Recv(ctx)

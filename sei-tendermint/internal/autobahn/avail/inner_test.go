@@ -99,7 +99,7 @@ func TestInnerPruneViaQCRetainsLast(t *testing.T) {
 	blocks := contiguousBlocks(keys[0], lane, 3, rng)
 	i := utils.OrPanic1(newInner(data.TestAnchor(ep), time.Time{}, &loadedState{}))
 	for _, b := range blocks {
-		i.blocks[lane].pushBack(b.Proposal)
+		i.lanes[lane].blocks.pushBack(b.Proposal)
 	}
 
 	last := blocks[len(blocks)-1].Proposal.Msg().Block().Header()
@@ -110,17 +110,17 @@ func TestInnerPruneViaQCRetainsLast(t *testing.T) {
 	require.Equal(t, types.BlockNumber(3), lr.Next())
 	require.Equal(t, last.Hash(), lr.LastHash())
 
-	i.prune(data.Anchor{First: utils.Some(data.AnchorFirst{
+	i.setAnchor(data.Anchor{First: utils.Some(data.AnchorFirst{
 		CommitQC: qc,
 		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.View(), types.AppHash{})),
 	}), Epochs: data.TestAnchor(ep).Epochs})
-	q := i.blocks[lane]
+	q := i.lanes[lane].blocks
 	require.Equal(t, types.BlockNumber(3), q.first)
 	require.Equal(t, types.BlockNumber(3), q.next)
 	require.Equal(t, utils.Some(blocks[2].Proposal), q.localTip)
 	require.Equal(t, types.BlockNumber(2), q.retentionFloor())
-	require.Equal(t, types.BlockNumber(2), i.nextBlockToPersist[lane])
-	p, ok := q.unpersistedLocalTip(i.nextBlockToPersist[lane]).Get()
+	require.Equal(t, types.BlockNumber(2), i.lanes[lane].nextBlockToPersist)
+	p, ok := q.unpersistedLocalTip(i.lanes[lane].nextBlockToPersist).Get()
 	require.True(t, ok)
 	require.Equal(t, blocks[2].Proposal, p)
 }
@@ -133,7 +133,7 @@ func TestInnerPruneKeepsLastAheadOfQC(t *testing.T) {
 	blocks := contiguousBlocks(keys[0], lane, 3, rng)
 	i := utils.OrPanic1(newInner(data.TestAnchor(ep), time.Time{}, &loadedState{}))
 	for _, b := range blocks {
-		i.blocks[lane].pushBack(b.Proposal)
+		i.lanes[lane].blocks.pushBack(b.Proposal)
 	}
 
 	qc := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
@@ -141,11 +141,11 @@ func TestInnerPruneKeepsLastAheadOfQC(t *testing.T) {
 	})
 	require.Equal(t, types.BlockNumber(1), qc.LaneRange(lane).Next())
 
-	i.prune(data.Anchor{First: utils.Some(data.AnchorFirst{
+	i.setAnchor(data.Anchor{First: utils.Some(data.AnchorFirst{
 		CommitQC: qc,
 		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.View(), types.AppHash{})),
 	}), Epochs: data.TestAnchor(ep).Epochs})
-	q := i.blocks[lane]
+	q := i.lanes[lane].blocks
 	require.Equal(t, types.BlockNumber(1), q.first)
 	require.Equal(t, types.BlockNumber(3), q.next)
 	require.Equal(t, utils.Some(blocks[2].Proposal), q.localTip)
@@ -177,9 +177,9 @@ func TestBlockQueueLastSurvivesRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, persister.Close())
 	i := utils.OrPanic1(newInner(data.TestAnchor(ep0), time.Time{}, &loadedState{}))
-	i.blocks[lane].prune(1, blockHash(block))
+	i.lanes[lane].blocks.prune(1, blockHash(block))
 	require.NoError(t, i.restoreBlocks(loaded))
-	localTip, ok := i.blocks[lane].localTip.Get()
+	localTip, ok := i.lanes[lane].blocks.localTip.Get()
 	require.True(t, ok)
 	require.Equal(t, block.Proposal.Msg().Block().Header().Hash(), localTip.Msg().Block().Header().Hash())
 }
@@ -214,9 +214,9 @@ func TestBlockQueueUnflushedLocalTipSurvivesRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, persister.Close())
 	i := utils.OrPanic1(newInner(data.TestAnchor(ep0), time.Time{}, &loadedState{}))
-	i.blocks[lane].prune(1, blockHash(block))
+	i.lanes[lane].blocks.prune(1, blockHash(block))
 	require.NoError(t, i.restoreBlocks(loaded))
-	localTip, ok := i.blocks[lane].localTip.Get()
+	localTip, ok := i.lanes[lane].blocks.localTip.Get()
 	require.True(t, ok)
 	require.Equal(t, block.Proposal.Msg().Block().Header().Hash(), localTip.Msg().Block().Header().Hash())
 }
@@ -231,16 +231,16 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		bs := contiguousBlocks(keys[0], lane0, 3, rng)
 		i, err := newInner(ds.Anchor().Load(), ds.GenesisTimestamp(), &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{lane0: bs}})
 		require.NoError(t, err)
-		q := i.blocks[lane0]
+		q := i.lanes[lane0].blocks
 		require.Equal(t, types.BlockNumber(0), q.first)
 		require.Equal(t, types.BlockNumber(3), q.next)
 		for j, b := range bs {
 			require.Equal(t, b.Proposal, q.q[types.BlockNumber(j)])
 		}
-		require.Equal(t, types.BlockNumber(3), i.nextBlockToPersist[lane0])
+		require.Equal(t, types.BlockNumber(3), i.lanes[lane0].nextBlockToPersist)
 		for other := range ep0.Committee().Lanes().All() {
 			if other != lane0 {
-				require.Equal(t, types.BlockNumber(0), i.nextBlockToPersist[other])
+				require.Equal(t, types.BlockNumber(0), i.lanes[other].nextBlockToPersist)
 			}
 		}
 	})
@@ -253,7 +253,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 			blocks: map[types.LaneID][]persist.LoadedBlock{lane0: {}},
 		})
 		require.NoError(t, err)
-		q := i.blocks[lane0]
+		q := i.lanes[lane0].blocks
 		require.Equal(t, types.BlockNumber(0), q.first)
 		require.Equal(t, types.BlockNumber(0), q.next)
 	})
@@ -265,16 +265,16 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		lane := ep0.Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 		blocks := contiguousBlocks(keys[0], lane, 2, rng)
 		i := utils.OrPanic1(newInner(data.TestAnchor(ep0), time.Time{}, &loadedState{}))
-		i.blocks[lane].prune(2, blockHash(blocks[1]))
+		i.lanes[lane].blocks.prune(2, blockHash(blocks[1]))
 
 		err := i.restoreBlocks(map[types.LaneID][]persist.LoadedBlock{lane: blocks})
 		require.NoError(t, err)
-		q := i.blocks[lane]
+		q := i.lanes[lane].blocks
 		require.Equal(t, types.BlockNumber(2), q.first)
 		require.Equal(t, types.BlockNumber(2), q.next)
 		require.Equal(t, utils.Some(blocks[1].Proposal), q.localTip)
 		require.Equal(t, types.BlockNumber(1), q.retentionFloor())
-		require.Equal(t, types.BlockNumber(2), i.nextBlockToPersist[lane])
+		require.Equal(t, types.BlockNumber(2), i.lanes[lane].nextBlockToPersist)
 	})
 
 	t.Run("after prune the live block extends the certified tip", func(t *testing.T) {
@@ -288,14 +288,14 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		require.NotEqual(t, tip, old.Msg().Block().Header().Hash())
 		live := testSignedBlock(keys[0], lane, 1, tip, rng)
 		i := utils.OrPanic1(newInner(data.TestAnchor(ep0), time.Time{}, &loadedState{}))
-		i.blocks[lane].prune(1, tip)
+		i.lanes[lane].blocks.prune(1, tip)
 
 		err := i.restoreBlocks(map[types.LaneID][]persist.LoadedBlock{lane: {
 			{Number: 0, Proposal: old},
 			{Number: 1, Proposal: live},
 		}})
 		require.NoError(t, err)
-		q := i.blocks[lane]
+		q := i.lanes[lane].blocks
 		require.Equal(t, types.BlockNumber(1), q.first)
 		require.Equal(t, types.BlockNumber(2), q.next)
 		require.Equal(t, utils.Some(live), q.localTip)
@@ -311,14 +311,14 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		live := testSignedBlock(keys[0], lane, 1, types.GenBlockHeaderHash(rng), rng)
 		require.NotEqual(t, tip, live.Msg().Block().Header().ParentHash())
 		i := utils.OrPanic1(newInner(data.TestAnchor(ep0), time.Time{}, &loadedState{}))
-		i.blocks[lane].prune(1, tip)
+		i.lanes[lane].blocks.prune(1, tip)
 
 		err := i.restoreBlocks(map[types.LaneID][]persist.LoadedBlock{lane: {
 			{Number: 0, Proposal: old},
 			{Number: 1, Proposal: live},
 		}})
 		require.NoError(t, err)
-		q := i.blocks[lane]
+		q := i.lanes[lane].blocks
 		require.Equal(t, types.BlockNumber(1), q.first)
 		require.Equal(t, types.BlockNumber(2), q.next)
 		require.Equal(t, utils.Some(live), q.localTip)
@@ -334,14 +334,10 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 			blocks: map[types.LaneID][]persist.LoadedBlock{unknownLane: {{Number: 0, Proposal: b}}},
 		})
 		require.NoError(t, err)
-		_, ok := i.blocks[unknownLane]
-		require.False(t, ok)
-		_, ok = i.votes[unknownLane]
-		require.False(t, ok)
-		_, ok = i.nextBlockToPersist[unknownLane]
+		_, ok := i.lanes[unknownLane]
 		require.False(t, ok)
 		for lane := range registry.MustEpoch(0).Committee().Lanes().All() {
-			cq := i.blocks[lane]
+			cq := i.lanes[lane].blocks
 			require.Equal(t, types.BlockNumber(0), cq.first)
 			require.Equal(t, types.BlockNumber(0), cq.next)
 		}
@@ -359,10 +355,10 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 			blocks: map[types.LaneID][]persist.LoadedBlock{lane0: bs0, lane1: bs1},
 		})
 		require.NoError(t, err)
-		require.Equal(t, types.BlockNumber(2), i.blocks[lane0].next)
-		require.Equal(t, types.BlockNumber(3), i.blocks[lane1].next)
-		require.Equal(t, types.BlockNumber(2), i.nextBlockToPersist[lane0])
-		require.Equal(t, types.BlockNumber(3), i.nextBlockToPersist[lane1])
+		require.Equal(t, types.BlockNumber(2), i.lanes[lane0].blocks.next)
+		require.Equal(t, types.BlockNumber(3), i.lanes[lane1].blocks.next)
+		require.Equal(t, types.BlockNumber(2), i.lanes[lane0].nextBlockToPersist)
+		require.Equal(t, types.BlockNumber(3), i.lanes[lane1].nextBlockToPersist)
 	})
 
 	t.Run("gap", func(t *testing.T) {
@@ -430,7 +426,7 @@ func TestPruneKeepsAnchorTipAndLocalBlock(t *testing.T) {
 	require.Equal(t, tip.Hash(), qc2.LaneRange(lane).LastHash())
 
 	i := utils.OrPanic1(newInner(data.TestAnchor(ep), time.Time{}, &loadedState{}))
-	i.prune(data.Anchor{First: utils.Some(data.AnchorFirst{
+	i.setAnchor(data.Anchor{First: utils.Some(data.AnchorFirst{
 		CommitQC: qc2,
 		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc2.View(), types.AppHash{})),
 	}), Epochs: data.TestAnchor(ep).Epochs})
@@ -442,7 +438,7 @@ func TestPruneKeepsAnchorTipAndLocalBlock(t *testing.T) {
 	})
 	i.roads.pushBack(newRoad(qc3, ep))
 	require.NotEqual(t, tip.Hash(), qc3.LaneRange(lane).LastHash())
-	require.Equal(t, tip.Hash(), i.blocks[lane].parentHash())
+	require.Equal(t, tip.Hash(), i.lanes[lane].blocks.parentHash())
 
 	// The block already in the WAL is this lane's local block, even when its
 	// parent is not the certified tip. The suffix stays until AppQC prunes it.
@@ -452,7 +448,7 @@ func TestPruneKeepsAnchorTipAndLocalBlock(t *testing.T) {
 		Number:   local.Msg().Block().Header().BlockNumber(),
 		Proposal: local,
 	}}}))
-	q := i.blocks[lane]
+	q := i.lanes[lane].blocks
 	require.Equal(t, local, q.q[q.first])
 }
 
@@ -497,21 +493,6 @@ func TestRestoreInner_LoadedCommitQCs(t *testing.T) {
 	})
 }
 
-func TestAddLane_ReportsNewLaneForEachMembershipPeriod(t *testing.T) {
-	rng := utils.TestRng()
-	a := types.GenSecretKey(rng)
-
-	i := &inner{
-		blocks:             map[types.LaneID]*blockQueue{},
-		votes:              map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
-		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
-	}
-	lane := types.LaneID{Validator: a.Public(), Joined: 1}
-	require.True(t, i.addLane(lane))
-	require.False(t, i.addLane(lane))
-	require.True(t, i.addLane(types.LaneID{Validator: a.Public(), Joined: 3}))
-}
-
 func TestNewInnerAdvancesAtPersistedSeal(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
@@ -539,7 +520,7 @@ func TestPruneAdvancesAppliedEpoch(t *testing.T) {
 		types.Sign(keys[0], types.NewCommitVote(types.BuildPrepareQC(keys, voteProposal))),
 	})
 	qc := types.BuildCommitQC(ep2, keys, utils.Some(prev), nil)
-	i.prune(data.Anchor{First: utils.Some(data.AnchorFirst{
+	i.setAnchor(data.Anchor{First: utils.Some(data.AnchorFirst{
 		CommitQC: qc,
 		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.View(), types.AppHash{})),
 	}), Epochs: data.TestAnchor(ep2).Epochs})
@@ -558,17 +539,13 @@ func TestPrune_WithoutFirst(t *testing.T) {
 	closedLane := i.applied().Committee().Lane(keys[1].Public()).OrPanic("genesis lane")
 	anchor := data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(2), registry.MustEpoch(3)}}
 
-	require.Equal(t, 1, i.prune(anchor))
+	i.setAnchor(anchor)
 	require.Equal(t, anchor, i.anchor)
 	require.Equal(t, anchor.Epochs[0].RoadRange().First, i.roads.first)
 	require.Equal(t, i.roads.first, i.roads.next)
 	require.False(t, i.consensusSpec.Load().CommitQC.IsPresent())
-	_, hasBlocks := i.blocks[closedLane]
-	_, hasVotes := i.votes[closedLane]
-	_, hasCursor := i.nextBlockToPersist[closedLane]
-	require.False(t, hasBlocks)
-	require.False(t, hasVotes)
-	require.False(t, hasCursor)
+	_, ok := i.lanes[closedLane]
+	require.False(t, ok)
 }
 
 func TestNewInnerInitializesGenesis(t *testing.T) {
@@ -585,14 +562,11 @@ func TestNewInnerInitializesGenesis(t *testing.T) {
 	require.False(t, i.anchor.First.IsPresent())
 	require.False(t, i.consensusSpec.Load().CommitQC.IsPresent())
 	require.Equal(t, types.ConsensusSpec{Epoch: ep, GenesisTimestamp: timestamp}, i.consensusSpec.Load())
-	require.NotNil(t, i.nextBlockToPersist)
+	require.NotNil(t, i.lanes)
 	for lane := range ep.Committee().Lanes().All() {
-		blocks, hasBlocks := i.blocks[lane]
-		votes, hasVotes := i.votes[lane]
-		cursor, hasCursor := i.nextBlockToPersist[lane]
-		require.True(t, hasBlocks)
-		require.True(t, hasVotes)
-		require.True(t, hasCursor)
+		ls, ok := i.lanes[lane]
+		require.True(t, ok)
+		blocks, votes, cursor := ls.blocks, ls.votes, ls.nextBlockToPersist
 		require.Equal(t, types.BlockNumber(0), blocks.first)
 		require.Equal(t, types.BlockNumber(0), blocks.next)
 		require.Equal(t, types.BlockNumber(0), votes.first)
@@ -617,12 +591,12 @@ func TestRestoreInnerInitializesAnchor(t *testing.T) {
 			require.Equal(t, types.ConsensusSpec{Epoch: ep, CommitQC: utils.Some(qc), GenesisTimestamp: timestamp}, i.consensusSpec.Load())
 			for lane := range ep.Committee().Lanes().All() {
 				lr := qc.LaneRange(lane)
-				require.Equal(t, lr.Next(), i.blocks[lane].first)
-				require.Equal(t, lr.Next(), i.blocks[lane].next)
-				require.Equal(t, lr.LastHash(), i.blocks[lane].parentHash())
-				require.Equal(t, lr.Next(), i.votes[lane].first)
-				require.Equal(t, lr.Next(), i.votes[lane].next)
-				require.Equal(t, lr.Next(), i.nextBlockToPersist[lane])
+				require.Equal(t, lr.Next(), i.lanes[lane].blocks.first)
+				require.Equal(t, lr.Next(), i.lanes[lane].blocks.next)
+				require.Equal(t, lr.LastHash(), i.lanes[lane].blocks.parentHash())
+				require.Equal(t, lr.Next(), i.lanes[lane].votes.first)
+				require.Equal(t, lr.Next(), i.lanes[lane].votes.next)
+				require.Equal(t, lr.Next(), i.lanes[lane].nextBlockToPersist)
 			}
 		})
 	}

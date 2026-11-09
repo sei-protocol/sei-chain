@@ -21,13 +21,13 @@ func pushPeerLaneBlock(state *State, key types.SecretKey, payload *types.Payload
 	lane := state.data.Anchor().Load().Epochs[0].Committee().Lane(key.Public()).OrPanic("lane")
 	var b *types.Signed[*types.LaneProposal]
 	for inner, ctrl := range state.inner.Lock() {
-		q, ok := inner.blocks[lane]
+		ls, ok := inner.lanes[lane]
 		if !ok {
 			return nil, ErrLaneClosed
 		}
-		n := q.next
-		b = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, n, q.parentHash(), payload)))
-		q.pushBack(b)
+		n := ls.blocks.next
+		b = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, n, ls.blocks.parentHash(), payload)))
+		ls.blocks.pushBack(b)
 		ctrl.Updated()
 	}
 	return b, nil
@@ -65,7 +65,7 @@ func pruneToHeader(state *State, keys []types.SecretKey, h *types.BlockHeader) {
 		h.Lane(): types.NewLaneQC(makeLaneVotes(keys, h)),
 	})
 	for inner, ctrl := range state.inner.Lock() {
-		inner.prune(data.Anchor{First: utils.Some(data.AnchorFirst{
+		inner.setAnchor(data.Anchor{First: utils.Some(data.AnchorFirst{
 			CommitQC: qc,
 			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.View(), types.AppHash{})),
 		}), Epochs: data.TestAnchor(ep).Epochs})
@@ -148,7 +148,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 		}
 
 		for inner := range state.inner.Lock() {
-			if _, ok := inner.blocks[lane0]; !ok {
+			if _, ok := inner.lanes[lane0]; !ok {
 				return fmt.Errorf("epoch advance must not drop closing-lane maps")
 			}
 		}
@@ -166,14 +166,11 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 			if inner.roads.first < inner.roads.next {
 				return fmt.Errorf("roads should still be empty after the certified epoch seal")
 			}
-			if _, ok := inner.blocks[lane0]; !ok {
+			if _, ok := inner.lanes[lane0]; !ok {
 				return fmt.Errorf("closing lane maps should still be present before anchor prune")
 			}
-			n := inner.prune(anchor)
-			if n != 1 {
-				return fmt.Errorf("prune dropped %d lanes, want 1", n)
-			}
-			if _, ok := inner.blocks[lane0]; ok {
+			inner.setAnchor(anchor)
+			if _, ok := inner.lanes[lane0]; ok {
 				return fmt.Errorf("prune should have dropped closed lane0")
 			}
 			ctrl.Updated()
@@ -592,7 +589,7 @@ func TestSpliceSuffixReconstructs(t *testing.T) {
 		lane: types.NewLaneQC(makeLaneVotes(keys, tipHeader)),
 	})
 	for inner, ctrl := range state.inner.Lock() {
-		inner.prune(data.Anchor{First: utils.Some(data.AnchorFirst{
+		inner.setAnchor(data.Anchor{First: utils.Some(data.AnchorFirst{
 			CommitQC: qc0,
 			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc0.View(), types.AppHash{})),
 		}), Epochs: data.TestAnchor(ep).Epochs})
@@ -657,7 +654,7 @@ func TestPushBlockKeepsTipAcrossEmptyCommit(t *testing.T) {
 	require.Equal(t, uint64(0), qc2.LaneRange(lane).Len())
 	require.Equal(t, tip.Hash(), qc2.LaneRange(lane).LastHash())
 	for inner, ctrl := range state.inner.Lock() {
-		inner.prune(data.Anchor{First: utils.Some(data.AnchorFirst{
+		inner.setAnchor(data.Anchor{First: utils.Some(data.AnchorFirst{
 			CommitQC: qc2,
 			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc2.View(), types.AppHash{})),
 		}), Epochs: data.TestAnchor(ep).Epochs})
@@ -788,11 +785,11 @@ func TestSetNextBlockToPersistDoesNotRewind(t *testing.T) {
 	state.setNextBlockToPersist(lane, 5)
 	state.setNextBlockToPersist(lane, 3)
 	for inner := range state.inner.Lock() {
-		require.Equal(t, types.BlockNumber(5), inner.nextBlockToPersist[lane])
+		require.Equal(t, types.BlockNumber(5), inner.lanes[lane].nextBlockToPersist)
 	}
 	state.setNextBlockToPersist(lane, 6)
 	for inner := range state.inner.Lock() {
-		require.Equal(t, types.BlockNumber(6), inner.nextBlockToPersist[lane])
+		require.Equal(t, types.BlockNumber(6), inner.lanes[lane].nextBlockToPersist)
 	}
 }
 
@@ -1062,7 +1059,7 @@ func TestAdvanceRequiresAnchorAndSeal(t *testing.T) {
 	require.Equal(t, spec, i.consensusSpec.Load())
 	// Moving the anchor to road 3 exposes epoch 2; persisted qc3 now justifies spec 5.
 	anchor = data.Anchor{Epochs: [2]*types.Epoch{ep1, ep2}, First: utils.Some(data.AnchorFirst{CommitQC: qc2, AppQC: data.TestAppQC(keys, types.NewAppProposal(qc2.View(), nil))})}
-	i.prune(anchor)
+	i.setAnchor(anchor)
 	require.Equal(t, ep2, i.applied())
 	require.Equal(t, utils.Some(qc3), i.consensusSpec.Load().CommitQC)
 	// With the same anchor but no persisted qc3, the spec stays at road 4 in epoch 1.
@@ -1090,12 +1087,12 @@ func anchorWalk(t *testing.T, registry *epoch.Registry, keys []types.SecretKey) 
 	return anchors
 }
 
-// pruneToAnchors replays anchors through inner.prune the way runEvict does, and
+// pruneToAnchors replays anchors through inner.setAnchor the way runEvict does, and
 // returns the last CommitQC.
 func pruneToAnchors(state *State, anchors []data.Anchor) *types.CommitQC {
 	for _, a := range anchors {
 		for inner, ctrl := range state.inner.Lock() {
-			inner.prune(a)
+			inner.setAnchor(a)
 			ctrl.Updated()
 		}
 	}

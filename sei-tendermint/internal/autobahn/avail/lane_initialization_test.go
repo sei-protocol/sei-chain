@@ -40,13 +40,13 @@ func TestNewInnerInitializesBoundaryLanes(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	require.Equal(t, next, i.applied())
-	require.Equal(t, types.BlockNumber(6), i.blocks[stay].first)
-	require.Equal(t, types.BlockNumber(7), i.blocks[stay].next)
-	require.Equal(t, types.BlockNumber(6), i.votes[stay].first)
-	require.Equal(t, types.BlockNumber(7), i.nextBlockToPersist[stay])
-	require.Equal(t, stayProposal, i.blocks[stay].localTip.OrPanic("local tip"))
-	require.Equal(t, leaveProposal, i.blocks[leave].q[0])
-	require.Equal(t, joinProposal, i.blocks[join].q[0])
+	require.Equal(t, types.BlockNumber(6), i.lanes[stay].blocks.first)
+	require.Equal(t, types.BlockNumber(7), i.lanes[stay].blocks.next)
+	require.Equal(t, types.BlockNumber(6), i.lanes[stay].votes.first)
+	require.Equal(t, types.BlockNumber(7), i.lanes[stay].nextBlockToPersist)
+	require.Equal(t, stayProposal, i.lanes[stay].blocks.localTip.OrPanic("local tip"))
+	require.Equal(t, leaveProposal, i.lanes[leave].blocks.q[0])
+	require.Equal(t, joinProposal, i.lanes[join].blocks.q[0])
 }
 
 func TestPruneMaintainsBothAnchorCommittees(t *testing.T) {
@@ -67,28 +67,26 @@ func TestPruneMaintainsBothAnchorCommittees(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	require.Equal(t, ep1, i.applied())
-	require.Len(t, i.blocks, 3)
-	require.Equal(t, proposal, i.blocks[join].q[0])
-	stayBlocks, joinBlocks := i.blocks[stay], i.blocks[join]
-	_, hasRejoin := i.blocks[rejoin]
+	require.Len(t, i.lanes, 3)
+	require.Equal(t, proposal, i.lanes[join].blocks.q[0])
+	stayBlocks, joinBlocks := i.lanes[stay].blocks, i.lanes[join].blocks
+	_, hasRejoin := i.lanes[rejoin]
 	require.False(t, hasRejoin)
 
-	require.Equal(t, 0, i.prune(anchor))
-	require.True(t, i.blocks[stay] == stayBlocks)
-	require.True(t, i.blocks[join] == joinBlocks)
-	require.Equal(t, proposal, i.blocks[join].q[0])
+	i.setAnchor(anchor)
+	require.True(t, i.lanes[stay].blocks == stayBlocks)
+	require.True(t, i.lanes[join].blocks == joinBlocks)
+	require.Equal(t, proposal, i.lanes[join].blocks.q[0])
 
 	anchor = data.Anchor{Epochs: [2]*types.Epoch{ep2, ep3}}
-	require.Equal(t, 1, i.prune(anchor))
+	i.setAnchor(anchor)
 	require.Equal(t, ep2, i.applied())
-	require.Len(t, i.blocks, 3)
-	require.Len(t, i.votes, 3)
-	require.Len(t, i.nextBlockToPersist, 3)
-	require.True(t, i.blocks[stay] == stayBlocks)
-	require.True(t, i.blocks[join] == joinBlocks)
-	require.Equal(t, proposal, i.blocks[join].q[0])
-	_, hasLeave := i.blocks[leave]
-	_, hasRejoin = i.blocks[rejoin]
+	require.Len(t, i.lanes, 3)
+	require.True(t, i.lanes[stay].blocks == stayBlocks)
+	require.True(t, i.lanes[join].blocks == joinBlocks)
+	require.Equal(t, proposal, i.lanes[join].blocks.q[0])
+	_, hasLeave := i.lanes[leave]
+	_, hasRejoin = i.lanes[rejoin]
 	require.False(t, hasLeave)
 	require.True(t, hasRejoin)
 }

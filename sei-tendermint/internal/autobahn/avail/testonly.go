@@ -131,7 +131,7 @@ func TestAdvanceToEpoch(ctx context.Context, state *State, keys []types.SecretKe
 		}
 		anchor := testAnchorAt(cur, next, keys, cur.RoadRange().Next-1)
 		for inner, ctrl := range state.inner.Lock() {
-			inner.prune(anchor)
+			inner.setAnchor(anchor)
 			ctrl.Updated()
 		}
 		if _, err := state.ConsensusSpec().Wait(ctx, func(spec types.ConsensusSpec) bool { return spec.Epoch.EpochIndex() > cur.EpochIndex() }); err != nil {
