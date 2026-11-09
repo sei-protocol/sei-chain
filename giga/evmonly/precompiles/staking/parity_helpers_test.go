@@ -512,21 +512,27 @@ func (h v2LoggingHooks) BeforeValidatorSlashed(_ sdk.Context, v sdk.ValAddress, 
 }
 
 // v2Errors pairs each x/staking error a delegation can fail with to the
-// precompile's error for the same rule.
-var v2Errors = []struct{ v2, precompile error }{
-	{stakingtypes.ErrNoValidatorFound, errNoValidatorFound},
-	{stakingtypes.ErrNoDelegation, errNoDelegation},
-	{stakingtypes.ErrNotEnoughDelegationShares, errNotEnoughShares},
-	{stakingtypes.ErrDelegatorShareExRateInvalid, errExRateInvalid},
-	{stakingtypes.ErrExceedMaxVotingPowerRatio, errExceedMaxVotingPower},
-	{stakingtypes.ErrMaxUnbondingDelegationEntries, errMaxUnbondingEntries},
-	{stakingtypes.ErrMaxRedelegationEntries, errMaxRedelegationEntries},
-	{stakingtypes.ErrSelfRedelegation, errSelfRedelegation},
-	{stakingtypes.ErrBadRedelegationDst, errBadRedelegationValidator},
-	{stakingtypes.ErrTransitiveRedelegation, errTransitiveRedelegation},
-	{stakingtypes.ErrTinyRedelegationAmount, errTinyRedelegationAmount},
-	// ValidateUnbondAmount's "invalid shares amount", for more than the delegation holds.
-	{sdkerrors.ErrInvalidRequest, errInvalidShares},
+// precompile's error for the same rule. msg narrows a V2 error that several
+// rules share to the one whose message contains it.
+var v2Errors = []struct {
+	v2         error
+	msg        string
+	precompile error
+}{
+	{v2: stakingtypes.ErrNoValidatorFound, precompile: errNoValidatorFound},
+	{v2: stakingtypes.ErrNoDelegation, precompile: errNoDelegation},
+	{v2: stakingtypes.ErrNotEnoughDelegationShares, precompile: errNotEnoughShares},
+	{v2: stakingtypes.ErrDelegatorShareExRateInvalid, precompile: errExRateInvalid},
+	{v2: stakingtypes.ErrExceedMaxVotingPowerRatio, precompile: errExceedMaxVotingPower},
+	{v2: stakingtypes.ErrMaxUnbondingDelegationEntries, precompile: errMaxUnbondingEntries},
+	{v2: stakingtypes.ErrMaxRedelegationEntries, precompile: errMaxRedelegationEntries},
+	{v2: stakingtypes.ErrSelfRedelegation, precompile: errSelfRedelegation},
+	{v2: stakingtypes.ErrBadRedelegationDst, precompile: errBadRedelegationValidator},
+	{v2: stakingtypes.ErrTransitiveRedelegation, precompile: errTransitiveRedelegation},
+	{v2: stakingtypes.ErrTinyRedelegationAmount, precompile: errTinyRedelegationAmount},
+	// ValidateUnbondAmount's, for more than the delegation holds. Every
+	// ValidateBasic refusal is an ErrInvalidRequest too.
+	{v2: sdkerrors.ErrInvalidRequest, msg: "invalid shares amount", precompile: errInvalidShares},
 }
 
 // pair runs every operation on the precompile and on x/staking, in wei on one
@@ -599,7 +605,7 @@ func (pr *pair) requireSameOutcome(step string, v2Err, pErr error) string {
 	}
 	require.Error(t, pErr, "%s fails on V2 with %v", step, v2Err)
 	for _, e := range v2Errors {
-		if errors.Is(v2Err, e.v2) {
+		if errors.Is(v2Err, e.v2) && strings.Contains(v2Err.Error(), e.msg) {
 			require.ErrorIs(t, pErr, e.precompile, "%s fails on V2 with %v", step, v2Err)
 			return e.v2.Error()
 		}

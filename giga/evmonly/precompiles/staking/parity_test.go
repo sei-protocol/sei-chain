@@ -234,15 +234,22 @@ func TestValidatorLifecycleMatchesV2(t *testing.T) {
 // Redelegations the precompile's queue would complete later than x/staking are
 // left out, and x/staking's jailing is undone, since the precompile never jails.
 func TestRandomOperationsMatchV2(t *testing.T) {
-	outcomes := map[string]int{}
-	for seed := range int64(6) {
+	const seeds = 6
+	outcomes, ran := map[string]int{}, 0
+	for seed := range int64(seeds) {
 		t.Run(fmt.Sprintf("seed %d", seed), func(t *testing.T) {
+			ran++
 			pr := newParityPair(t)
 			randomOperations(pr, rand.New(rand.NewSource(seed)), 300) //nolint:gosec // deterministic test data
 			for k, n := range pr.outcomes {
 				outcomes[k] += n
 			}
 		})
+	}
+	// Only all the runs together reach every rule, and a failed run's mismatch
+	// is the failure to read, so a failed or partial run skips this check.
+	if t.Failed() || ran < seeds {
+		return
 	}
 	for _, want := range []string{
 		"delegate: ok",
