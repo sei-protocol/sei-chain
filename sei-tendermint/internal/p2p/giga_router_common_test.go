@@ -925,3 +925,45 @@ func TestGigaRouterCommon_OutboundHandshakeBoundedByTimeout(t *testing.T) {
 		t.Fatalf("dialAndRunConn() = %v, want context.DeadlineExceeded or io.EOF", err)
 	}
 }
+
+func TestAcquireInboundFullnode_PersistentPeerDoesNotCount(t *testing.T) {
+	rng := utils.TestRng()
+	persistent := makeKey(rng)
+	stranger := makeKey(rng)
+	other := makeKey(rng)
+	router := &gigaRouterCommon{
+		inboundFullnodeCap: 1,
+		cfg: &GigaRouterCommonConfig{
+			PersistentPeerIDs: map[tmtypes.NodeID]struct{}{
+				persistent.Public().NodeID(): {},
+			},
+		},
+	}
+
+	release, err := router.acquireInboundFullnode(stranger.Public())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), router.inboundFullnodeCount.Load())
+
+	releasePersistent, err := router.acquireInboundFullnode(persistent.Public())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), router.inboundFullnodeCount.Load())
+
+	_, err = router.acquireInboundFullnode(other.Public())
+	require.ErrorIs(t, err, errInboundFullnodeLimit)
+	require.Equal(t, int64(1), router.inboundFullnodeCount.Load())
+
+	releasePersistent()
+	require.Equal(t, int64(1), router.inboundFullnodeCount.Load())
+	release()
+	require.Equal(t, int64(0), router.inboundFullnodeCount.Load())
+
+	router.inboundFullnodeCap = 0
+	_, err = router.acquireInboundFullnode(stranger.Public())
+	require.ErrorIs(t, err, errInboundFullnodeLimit)
+	require.Equal(t, int64(0), router.inboundFullnodeCount.Load())
+	releasePersistent, err = router.acquireInboundFullnode(persistent.Public())
+	require.NoError(t, err)
+	require.Equal(t, int64(0), router.inboundFullnodeCount.Load())
+	releasePersistent()
+	require.Equal(t, int64(0), router.inboundFullnodeCount.Load())
+}
