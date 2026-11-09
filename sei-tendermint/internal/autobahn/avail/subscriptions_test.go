@@ -2,6 +2,7 @@ package avail
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"testing/synctest"
@@ -216,4 +217,56 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		require.Equal(t, 1, len(batch))
 		require.Equal(t, block2.Msg().Block().Header().Hash(), batch[0].Msg().Header().Hash())
 	})
+}
+
+func TestBlock_WaitForFutureLane(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 1)
+	joiner := types.GenSecretKey(rng)
+	allKeys := append(keys, joiner)
+	require.NoError(t, registry.TestPushEpoch(0, map[types.PublicKey]uint64{keys[0].Public(): 1, joiner.Public(): 1}))
+	require.NoError(t, registry.TestPushEpoch(1, map[types.PublicKey]uint64{keys[0].Public(): 1}))
+	require.NoError(t, registry.TestPushEpoch(2, map[types.PublicKey]uint64{keys[0].Public(): 1}))
+	ep1, ep2 := registry.MustEpoch(1), registry.MustEpoch(2)
+	ep3, ep4 := registry.MustEpoch(3), registry.MustEpoch(4)
+	lane := ep2.Committee().Lane(joiner.Public()).OrPanic("joining lane")
+	for _, tc := range []struct {
+		name    string
+		anchor  data.Anchor
+		errWant error
+	}{
+		{"block", testAnchorAt(ep1, ep2, allKeys, ep1.RoadRange().Next-1), nil},
+		// Skip beyond the lane's membership without ever admitting its block.
+		{"pruned", testAnchorAt(ep3, ep4, allKeys, ep3.RoadRange().First), types.ErrPruned},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				rng := utils.TestRng()
+				state := utils.OrPanic1(NewState(joiner, newTestDataState(&data.Config{Registry: registry}), utils.None[string]()))
+				defer func() { require.NoError(t, state.Close()) }()
+				want := types.Sign(joiner, types.NewLaneProposal(types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))))
+				require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+					// PushBlock should succeed in both cases.
+					sc.Spawn(func() error { return state.PushBlock(ctx, want) })
+					sc.Spawn(func() error {
+						// Block should fail if the epoch is jumped over.
+						got, err := state.Block(ctx, lane, 0)
+						if !errors.Is(err, tc.errWant) {
+							return fmt.Errorf("state.Block(): %v, want %v", err, tc.errWant)
+						}
+						if err != nil {
+							return nil
+						}
+						return utils.TestDiff(want, got)
+					})
+					synctest.Wait()
+					for inner, ctrl := range state.inner.Lock() {
+						inner.setAnchor(tc.anchor)
+						ctrl.Updated()
+					}
+					return nil
+				}))
+			})
+		})
+	}
 }

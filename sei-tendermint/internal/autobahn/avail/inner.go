@@ -155,11 +155,8 @@ type loadedState struct {
 
 // newInner restores WAL records under the anchor's epochs.
 func newInner(anchor data.Anchor, genesisTimestamp time.Time, loaded *loadedState) (*inner, error) {
-	epoch := anchor.Epochs[0]
 	first := anchor.FirstIndex()
-	if !epoch.RoadRange().Has(first) {
-		epoch = anchor.Epochs[1]
-	}
+	epoch := anchor.EpochAt(first).OrPanic("anchor first road epoch")
 	roads := newQueue[types.RoadIndex, *road]()
 	roads.prune(first)
 	i := &inner{
@@ -177,9 +174,9 @@ func newInner(anchor data.Anchor, genesisTimestamp time.Time, loaded *loadedStat
 		if want := i.roads.next; qc.Index() != want {
 			return nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", want, qc.Index())
 		}
-		ep := anchor.Epochs[0]
-		if !ep.RoadRange().Has(qc.Index()) {
-			ep = anchor.Epochs[1]
+		ep, ok := anchor.EpochAt(qc.Index()).Get()
+		if !ok {
+			return nil, fmt.Errorf("persisted commitQC %d is outside anchor epochs", qc.Index())
 		}
 		if err := qc.Verify(ep); err != nil {
 			return nil, fmt.Errorf("persisted commitQC %d verify: %w", qc.Index(), err)
@@ -270,13 +267,11 @@ func (i *inner) epochForVote(vote *types.Signed[*types.LaneVote]) utils.Option[*
 func (i *inner) advance() {
 	// Compute the index of new consensus spec.
 	next := i.nextCommitQCToPersist
-	epoch := i.anchor.Epochs[0]
-	if !epoch.RoadRange().Has(next) {
-		epoch = i.anchor.Epochs[1]
+	epoch, ok := i.anchor.EpochAt(next).Get()
+	if !ok {
 		// Do NOT advance past the next epoch.
-		if !epoch.RoadRange().Has(next) {
-			next -= 1
-		}
+		next -= 1
+		epoch = i.anchor.EpochAt(next).OrPanic("persisted road epoch")
 	}
 	spec := i.consensusSpec.Load()
 	if spec.Index() >= next {
@@ -342,7 +337,7 @@ func (i *inner) setAnchor(anchor data.Anchor) {
 		ls.blocks.prune(lr.Next(), lr.LastHash())
 		// A lagging cursor stops at retentionFloor so an unflushed localTip can still
 		// be written. The cursor is never rewound: already past localTip means it is on disk.
-		ls.nextBlockToPersist = max(ls.nextBlockToPersist,ls.blocks.retentionFloor())
+		ls.nextBlockToPersist = max(ls.nextBlockToPersist, ls.blocks.retentionFloor())
 	}
 	i.advance()
 }

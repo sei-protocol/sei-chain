@@ -96,17 +96,6 @@ func (i *inner) insertAppQC(appQC *types.AppQC) error {
 	return nil
 }
 
-// appQCCertifiesRoad reports whether road has an AppQC matching local execution.
-// Roads below first are already certified by a persisted matching AppQC.
-func (i *inner) appQCCertifiesRoad(road types.RoadIndex) bool {
-	if road < i.first {
-		return true
-	}
-	if road >= i.nextAppQC {
-		return false
-	}
-	return bytes.Equal(i.appProposals[road].AppHash(), i.appQCs[road].Proposal().AppHash())
-}
 
 func (i *inner) insertAppProposal(appProposal *types.AppProposal) error {
 	n := appProposal.Index()
@@ -178,6 +167,7 @@ type State struct {
 	metrics    *metrics.Metrics
 	inner      utils.Watch[*inner]
 	blockStore types.BlockStore
+	anchor     utils.AtomicRecv[Anchor]
 }
 
 // NewState constructs a data State, replaying persisted state from blockStore.
@@ -199,6 +189,7 @@ func NewState(cfg *Config, blockStore types.BlockStore) (*State, error) {
 		metrics:    m,
 		inner:      utils.NewWatch(inner),
 		blockStore: blockStore,
+		anchor:     inner.anchor.Subscribe(),
 	}, nil
 }
 
@@ -293,7 +284,15 @@ func (s *State) GenesisTimestamp() time.Time { return s.cfg.Registry.GenesisTime
 // New QCs wait for lane-block and roadblock capacity, while always allowing two retained roadblocks.
 func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, blocks map[uint64]*types.Block) error {
 	n := qc.Index()
-	nextFullBlock, nextPartialBlock, epoch, err := func() (types.RoadIndex, types.RoadIndex, *types.Epoch, error) {
+	anchor, err := s.anchor.Wait(ctx, func(a Anchor) bool { return n < a.Epochs[1].RoadRange().Next })
+	if err != nil {
+		return err
+	}
+	epoch, ok := anchor.EpochAt(n).Get()
+	if !ok {
+		return nil
+	}
+	nextFullBlock, nextPartialBlock, err := func() (types.RoadIndex, types.RoadIndex, error) {
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
 				// Wait until either we already have the road block, or until this is the next road block AND we have capacity.
@@ -302,16 +301,11 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 				// For liveness we need to be able to keep in data state at least 2 road blocks,
 				// because we always keep 1 executed block.
 				hasCapacity := len(inner.blocks) < 2 || (len(inner.blocks) < maxRoadBlocks && inner.laneBlockCount <= maxLaneBlock)
-				return n < inner.nextPartialBlock || (n == inner.nextPartialBlock && hasCapacity) && n < inner.anchor.Load().Epochs[1].RoadRange().Next
+				return n < inner.nextPartialBlock || (n == inner.nextPartialBlock && hasCapacity)
 			}); err != nil {
-				return 0, 0, nil, err
+				return 0, 0, err
 			}
-			a := inner.anchor.Load()
-			epoch := a.Epochs[0]
-			if !epoch.RoadRange().Has(n) {
-				epoch = a.Epochs[1]
-			}
-			return inner.nextFullBlock, inner.nextPartialBlock, epoch, nil
+			return inner.nextFullBlock, inner.nextPartialBlock, nil
 		}
 		panic("unreachable")
 	}()
@@ -705,6 +699,16 @@ type Anchor struct {
 	Epochs [2]*types.Epoch
 }
 
+// EpochAt returns the anchor epoch containing road, or None if neither contains it.
+func (a Anchor) EpochAt(road types.RoadIndex) utils.Option[*types.Epoch] {
+	for _, e := range a.Epochs {
+		if e.RoadRange().Has(road) {
+			return utils.Some(e)
+		}
+	}
+	return utils.None[*types.Epoch]()
+}
+
 // CommitQC returns the certified anchor's CommitQC, or None when First is absent.
 func (a Anchor) CommitQC() utils.Option[*types.CommitQC] {
 	if first, ok := a.First.Get(); ok {
@@ -723,12 +727,7 @@ func (a Anchor) FirstIndex() types.RoadIndex {
 }
 
 // Anchor returns the retained certified road and its two epochs.
-func (s *State) Anchor() utils.AtomicRecv[Anchor] {
-	for inner := range s.inner.Lock() {
-		return inner.anchor.Subscribe()
-	}
-	panic("unreachable")
-}
+func (s *State) Anchor() utils.AtomicRecv[Anchor] { return s.anchor }
 
 func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
 	if i.nextAppProposal < i.nextPartialBlock {
@@ -899,10 +898,7 @@ func (s *State) EpochAt(road types.RoadIndex) (*types.Epoch, error) {
 type nextCommitEpoch struct{ utils.AtomicRecv[Anchor] }
 
 func (a Anchor) nextCommitEpoch() *types.Epoch {
-	if a.FirstIndex() >= a.Epochs[0].RoadRange().Next {
-		return a.Epochs[1]
-	}
-	return a.Epochs[0]
+	return a.EpochAt(a.FirstIndex()).OrPanic("anchor next commit epoch")
 }
 
 func (r nextCommitEpoch) Load() *types.Epoch { return r.AtomicRecv.Load().nextCommitEpoch() }
