@@ -162,18 +162,39 @@ func (c *v2Chain) delegate(delegator, op common.Address, amount sdk.Int) error {
 
 func (c *v2Chain) undelegate(delegator, op common.Address, amount sdk.Int) error {
 	msg := stakingtypes.NewMsgUndelegate(sdk.AccAddress(delegator[:]), sdk.ValAddress(op[:]), sdk.NewCoin(bondDenom, amount))
-	return c.deliver(msg, func(ctx context.Context) error {
+	if err := c.deliver(msg, func(ctx context.Context) error {
 		_, err := c.msgs.Undelegate(ctx, msg)
 		return err
-	})
+	}); err != nil {
+		return err
+	}
+	c.unjail(op)
+	return nil
 }
 
 func (c *v2Chain) redelegate(delegator, src, dst common.Address, amount sdk.Int) error {
 	msg := stakingtypes.NewMsgBeginRedelegate(sdk.AccAddress(delegator[:]), sdk.ValAddress(src[:]), sdk.ValAddress(dst[:]), sdk.NewCoin(bondDenom, amount))
-	return c.deliver(msg, func(ctx context.Context) error {
+	if err := c.deliver(msg, func(ctx context.Context) error {
 		_, err := c.msgs.BeginRedelegate(ctx, msg)
 		return err
-	})
+	}); err != nil {
+		return err
+	}
+	c.unjail(src)
+	return nil
+}
+
+// unjail undoes x/staking's jailing of op's validator for a self-delegation
+// below its minimum, which the precompile never does. x/staking's jail and
+// unjail only take the validator out of its power index and put it back.
+func (c *v2Chain) unjail(op common.Address) {
+	v, ok := c.validator(op)
+	if !ok || !v.Jailed {
+		return
+	}
+	consAddr, err := v.GetConsAddr()
+	require.NoError(c.t, err)
+	c.keeper.Unjail(c.ctx, consAddr)
 }
 
 // delegatedTokens returns the usei delegator's delegation to op is worth, or

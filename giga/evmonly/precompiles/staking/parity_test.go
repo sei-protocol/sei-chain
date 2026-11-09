@@ -140,22 +140,20 @@ func TestDelegationMatchesV2(t *testing.T) {
 }
 
 // TestValidatorLifecycleMatchesV2 takes validators in and out of the bonded
-// set, through jailing, unbonding and removal, on the precompile and on
-// x/staking, checking after every step.
+// set, through unbonding and removal, on the precompile and on x/staking,
+// checking after every step.
 func TestValidatorLifecycleMatchesV2(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		run  func(t *testing.T, pr *pair)
 	}{
-		{"an operator below its minimum self-delegation is jailed, unbonds and is removed", func(t *testing.T, pr *pair) {
+		{"an operator below its minimum self-delegation is outranked, unbonds and is removed", func(t *testing.T, pr *pair) {
 			require.NoError(t, pr.delegate(alice, val3, seiInUsei))
 			require.NoError(t, pr.undelegate(val3, val3, 19*seiInUsei+1))
-			v, _ := pr.v2.validator(val3)
-			require.True(t, v.Jailed)
 			pr.endBlock()
 			require.Equal(t, stakingtypes.Unbonding, pr.v2Status(val3))
 			require.Equal(t, stakingtypes.Bonded, pr.v2Status(val4))
-			require.NoError(t, pr.delegate(bob, val3, seiInUsei), "a jailed validator takes delegations")
+			require.NoError(t, pr.delegate(bob, val3, seiInUsei), "an unbonding validator takes delegations")
 			pr.wait(parityParams.UnbondingTime)
 			pr.endBlock()
 			require.Equal(t, stakingtypes.Unbonded, pr.v2Status(val3))
@@ -168,13 +166,11 @@ func TestValidatorLifecycleMatchesV2(t *testing.T) {
 			pr.wait(parityParams.UnbondingTime)
 			pr.endBlock()
 		}},
-		{"an operator at exactly its minimum self-delegation stays unjailed", func(t *testing.T, pr *pair) {
-			require.NoError(t, pr.undelegate(val2, val2, 24*seiInUsei))
-			v, _ := pr.v2.validator(val2)
-			require.False(t, v.Jailed)
-			require.NoError(t, pr.undelegate(val2, val2, 1))
-			v, _ = pr.v2.validator(val2)
-			require.True(t, v.Jailed)
+		{"an operator with no self-delegation stays bonded on its delegators' stake", func(t *testing.T, pr *pair) {
+			require.NoError(t, pr.delegate(alice, val2, 20*seiInUsei))
+			require.NoError(t, pr.undelegate(val2, val2, 25*seiInUsei))
+			pr.endBlock()
+			require.Equal(t, stakingtypes.Bonded, pr.v2Status(val2))
 		}},
 		{"validators leaving the bonded set together unbond in address order", func(t *testing.T, pr *pair) {
 			require.NoError(t, pr.undelegate(val3, val3, 20*seiInUsei))
@@ -236,7 +232,7 @@ func TestValidatorLifecycleMatchesV2(t *testing.T) {
 // redelegations and EndBlocks on the precompile and on x/staking, checking
 // after every step, and requires the runs between them to reach each rule.
 // Redelegations the precompile's queue would complete later than x/staking are
-// left out.
+// left out, and x/staking's jailing is undone, since the precompile never jails.
 func TestRandomOperationsMatchV2(t *testing.T) {
 	outcomes := map[string]int{}
 	for seed := range int64(6) {
