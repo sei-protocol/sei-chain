@@ -708,7 +708,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 			return err
 		}
 		epLeave := registry.MustEpoch(2)
-		if err := avail.TestDriveAdvance(ctx, availState, keys, registry, epLeave.EpochIndex()); err != nil {
+		if err := avail.TestAdvanceToEpoch(ctx, availState, keys, registry, epLeave.EpochIndex()); err != nil {
 			return err
 		}
 		if err := availState.WaitUntilClosed(ctx, lane0); err != nil {
@@ -733,7 +733,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 			return err
 		}
 		epJoin := registry.MustEpoch(3)
-		if err := avail.TestDriveAdvance(ctx, availState, keys, registry, epJoin.EpochIndex()); err != nil {
+		if err := avail.TestAdvanceToEpoch(ctx, availState, keys, registry, epJoin.EpochIndex()); err != nil {
 			return err
 		}
 		got, err := availState.WaitForNextLane(ctx, a.Public(), utils.Some(lane0))

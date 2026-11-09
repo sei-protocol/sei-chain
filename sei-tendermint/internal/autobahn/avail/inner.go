@@ -105,8 +105,8 @@ type inner struct {
 	nextCommitQCToPersist types.RoadIndex // first road whose CommitQC is not persisted
 	// consensusSpec is the applied (next-CommitQC) epoch paired with a persisted
 	// CommitQC tip (None before the first tip). CommitQC never exceeds
-	// persistedCommitQC. advanceEpoch installs Epoch; construction and
-	// runEpochAdvance are the writers. blockVotes are always weighted under this Epoch.
+	// persistedCommitQC(). advance publishes the epoch and tip after construction,
+	// persistence, or pruning. blockVotes are always weighted under this Epoch.
 	consensusSpec utils.AtomicSend[types.ConsensusSpec]
 	roads         *queue[types.RoadIndex, *road]
 
@@ -146,7 +146,7 @@ type loadedState struct {
 func newInner(anchor data.Anchor, genesisTimestamp time.Time, loaded *loadedState) (*inner, error) {
 	epoch := anchor.Epochs[0]
 	first := anchor.FirstIndex()
-	if !epoch.RoadRange().Has(first + 1) {
+	if !epoch.RoadRange().Has(first) {
 		epoch = anchor.Epochs[1]
 	}
 	roads := newQueue[types.RoadIndex, *road]()

@@ -222,8 +222,8 @@ func TestRestore_BoundaryCatchUpSpecCoversWAL(t *testing.T) {
 		s.SpawnBgNamed("avail.Run", func() error {
 			return utils.IgnoreCancel(av.Run(ctx))
 		})
-		if err := avail.TestDriveAdvance(ctx, av, keys, registry, 1); err != nil {
-			return fmt.Errorf("TestDriveAdvance: %w", err)
+		if err := avail.TestAdvanceToEpoch(ctx, av, keys, registry, 1); err != nil {
+			return fmt.Errorf("TestAdvanceToEpoch: %w", err)
 		}
 		if _, err := av.SubscribeConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
 			c, ok := sp.CommitQC.Get()

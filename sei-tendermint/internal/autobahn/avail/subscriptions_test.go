@@ -53,15 +53,12 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	// Stay: epoch 1 is already seeded at genesis with the same committee.
 	var want1, got1 *types.Signed[*types.LaneProposal]
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
-		sc.SpawnBgNamed("runEpochAdvance", func() error {
-			return utils.IgnoreCancel(state.runEpochAdvance(ctx))
-		})
 		sc.Spawn(func() error {
 			var err error
 			got1, err = sub.Recv(ctx)
 			return err
 		})
-		if err := TestDriveAdvance(ctx, state, keys, registry, 1); err != nil {
+		if err := TestAdvanceToEpoch(ctx, state, keys, registry, 1); err != nil {
 			return err
 		}
 		if cur := state.LocalLane().OrPanic("stay"); cur != lane0 {
@@ -81,10 +78,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	require.NoError(t, registry.TestPushEpoch(0, map[types.PublicKey]uint64{b.Public(): 1}))
 	epLeave := registry.MustEpoch(2)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
-		sc.SpawnBgNamed("runEpochAdvance", func() error {
-			return utils.IgnoreCancel(state.runEpochAdvance(ctx))
-		})
-		return TestDriveAdvance(ctx, state, keys, registry, epLeave.EpochIndex())
+		return TestAdvanceToEpoch(ctx, state, keys, registry, epLeave.EpochIndex())
 	}))
 	require.False(t, state.LocalLane().IsPresent())
 
@@ -114,9 +108,6 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	// Rejoin: WaitForNextLane skips closed lane0 and observes the new LaneID.
 	var gotLane types.LaneID
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
-		sc.SpawnBgNamed("runEpochAdvance", func() error {
-			return utils.IgnoreCancel(state.runEpochAdvance(ctx))
-		})
 		sc.Spawn(func() error {
 			lane, err := state.WaitForNextLane(ctx, peer, utils.Some(lane0))
 			if err != nil {
@@ -125,7 +116,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 			gotLane = lane
 			return nil
 		})
-		return TestDriveAdvance(ctx, state, keys, registry, epJoin.EpochIndex())
+		return TestAdvanceToEpoch(ctx, state, keys, registry, epJoin.EpochIndex())
 	}))
 	lane1 := state.LocalLane().OrPanic("rejoin")
 	require.NotEqual(t, lane0, lane1)
@@ -168,10 +159,7 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		}
 		advance := func(want types.EpochIndex) {
 			require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
-				sc.SpawnBgNamed("runEpochAdvance", func() error {
-					return utils.IgnoreCancel(stateB.runEpochAdvance(ctx))
-				})
-				return TestDriveAdvance(ctx, stateB, allKeys, registry, want)
+				return TestAdvanceToEpoch(ctx, stateB, allKeys, registry, want)
 			}))
 		}
 		produce := func(n types.BlockNumber) *types.Signed[*types.LaneProposal] {

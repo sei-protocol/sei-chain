@@ -111,3 +111,30 @@ func TestPruneMaintainsBothAnchorCommittees(t *testing.T) {
 	require.False(t, hasLeave)
 	require.True(t, hasRejoin)
 }
+
+func TestRestartAcceptsFinalRoadCommitQC(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	// Anchor: LastRoad(0)-1. The restored spec must point to LastRoad(0), still in epoch 0.
+	ds := newTestDataStateAtRoad(t, rng, registry, keys, registry.LastRoad(0)-1)
+	state, err := NewState(keys[0], ds, utils.None[string]())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, state.Close()) })
+	require.Equal(t, ep, state.Epoch().Load())
+	require.Equal(t, registry.LastRoad(0), state.SubscribeConsensusSpec().Load().Index())
+	// Receiving the final CommitQC must not advance the spec before it is persisted.
+	last := types.BuildCommitQC(ep, keys, ds.Anchor().Load().CommitQC(), nil)
+	require.NoError(t, last.Verify(ep))
+	require.NoError(t, state.PushCommitQC(t.Context(), last))
+	require.Equal(t, last.Index()+1, nextRoad(state))
+	require.Equal(t, ep, state.Epoch().Load())
+	// Persistence moves the spec to LastRoad(0)+1 in the already available epoch 1.
+	state.markCommitQCsPersisted(last)
+	spec, err := state.SubscribeConsensusSpec().Wait(t.Context(), func(spec types.ConsensusSpec) bool {
+		return spec.Epoch.EpochIndex() == 1
+	})
+	require.NoError(t, err)
+	require.Equal(t, utils.Some(last), spec.CommitQC)
+	require.True(t, spec.Epoch.RoadRange().Has(spec.Index()))
+}

@@ -20,6 +20,27 @@ func newTestDataState(cfg *data.Config) *data.State {
 	return utils.OrPanic1(data.NewState(cfg, store))
 }
 
+func newTestDataStateAtRoad(t *testing.T, rng utils.Rng, registry *epoch.Registry, keys []types.SecretKey, road types.RoadIndex) *data.State {
+	t.Helper()
+	ep := utils.OrPanic1(registry.EpochAt(road))
+	proposal, blocks := types.ProposalAtBlocks(ep, types.View{Index: road}, 1)
+	prepare := types.BuildPrepareQC(keys, proposal)
+	votes := make([]*types.Signed[*types.CommitVote], len(keys))
+	for n, key := range keys {
+		votes[n] = types.Sign(key, types.NewCommitVote(prepare))
+	}
+	qc := types.NewCommitQC(votes)
+	full := types.NewFullCommitQC(qc, []*types.BlockHeader{blocks[0].Header()})
+	store := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	require.NoError(t, store.WriteBlock(types.NewRoadBlock(full, blocks)))
+	app := types.NewAppProposal(qc.View(), types.GenAppHash(rng))
+	require.NoError(t, store.WriteAppProposal(app))
+	require.NoError(t, store.WriteAppQC(data.TestAppQC(keys, app)))
+	require.NoError(t, store.Flush())
+	return utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, store))
+}
+
 func testSignedBlock(key types.SecretKey, lane types.LaneID, n types.BlockNumber, parent types.BlockHeaderHash, rng utils.Rng) *types.Signed[*types.LaneProposal] {
 	block := types.NewBlock(lane, n, parent, types.GenPayload(rng))
 	return types.Sign(key, types.NewLaneProposal(block))
@@ -513,48 +534,20 @@ func TestAddLane_ReportsNewLaneForEachMembershipPeriod(t *testing.T) {
 	require.True(t, i.addLane(types.LaneID{Validator: a.Public(), Joined: 3}))
 }
 
-// TestSetPersistedCommitQC_WithholdsTipUntilNextViewEpochApplied: the durable tip
-// sits on LastRoad(0) while applied is still epoch 0, and the tip's predecessor is
-// retained. The spec must be withheld rather than published at that predecessor —
-// a node that already entered epoch 1 holds the tip and must not be rolled back.
-func TestSetPersistedCommitQC_WithholdsTipUntilNextViewEpochApplied(t *testing.T) {
+func TestNewInnerAdvancesAtPersistedSeal(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-
-	ep0 := registry.MustEpoch(0)
-	ep1 := registry.MustEpoch(1)
-
-	last := registry.LastRoad(0)
-	qcPrev := types.BuildCommitQC(ep0, keys, utils.Some(tipLink(ep0, keys[0], last-2)), nil)
-	qcLast := types.BuildCommitQC(ep0, keys, utils.Some(qcPrev), nil)
-	require.Equal(t, last-1, qcPrev.Index())
-	require.Equal(t, last, qcLast.Index())
-
-	i := &inner{
-		nextCommitQCToPersist: last - 1,
-		consensusSpec:         utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep0}),
-		anchor:                data.Anchor{Epochs: [2]*types.Epoch{ep0, ep1}},
-		roads:                 newQueue[types.RoadIndex, *road](),
-		blocks:                map[types.LaneID]*blockQueue{},
-		votes:                 map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
-		nextBlockToPersist:    map[types.LaneID]types.BlockNumber{},
-	}
-	i.roads.first = last - 1
-	i.roads.next = last - 1
-	i.roads.pushBack(newRoad(qcPrev, ep0))
-	i.roads.pushBack(newRoad(qcLast, ep0))
-	i.setPersistedCommitQC(utils.Some(qcLast))
-	require.False(t, i.consensusSpec.Load().CommitQC.IsPresent(), "spec must be withheld, not published at the predecessor")
-
-	require.True(t, i.advanceEpoch())
+	ep0, ep1 := registry.MustEpoch(0), registry.MustEpoch(1)
+	anchor := testAnchorAt(ep0, ep1, keys, registry.LastRoad(0)-1)
+	qcLast := types.BuildCommitQC(ep0, keys, anchor.CommitQC(), nil)
+	i, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{commitQCs: []*types.CommitQC{qcLast}})
+	require.NoError(t, err)
 	spec := i.consensusSpec.Load()
-	cqc, ok := spec.CommitQC.Get()
-	require.True(t, ok)
-	require.Equal(t, last, cqc.Index())
-	require.Equal(t, types.EpochIndex(1), spec.Epoch.EpochIndex())
+	require.Equal(t, utils.Some(qcLast), spec.CommitQC)
+	require.Equal(t, ep1, spec.Epoch)
 }
 
-func TestPrune_LeavesAppliedToEpochAdvance(t *testing.T) {
+func TestPruneAdvancesAppliedEpoch(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistryThrough(rng, 4, 2)
 	ep0 := registry.MustEpoch(0)
@@ -572,7 +565,7 @@ func TestPrune_LeavesAppliedToEpochAdvance(t *testing.T) {
 		CommitQC: qc,
 		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.View(), types.AppHash{})),
 	}), Epochs: data.TestAnchor(ep2).Epochs})
-	require.Equal(t, types.EpochIndex(0), i.applied().EpochIndex())
+	require.Equal(t, types.EpochIndex(2), i.applied().EpochIndex())
 	ae := i.anchor.Epochs[0]
 	require.Equal(t, types.EpochIndex(2), ae.EpochIndex())
 }
@@ -647,17 +640,20 @@ func TestRestoreInnerInitializesAnchor(t *testing.T) {
 func TestRestoreInner_SealedSuccessorWaitsForAnchor(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	ep := types.NewEpoch(0, types.RoadRange{First: 1, Next: 3}, registry.MustEpoch(0).Committee())
-	anchor := data.TestAnchor(ep)
-	qcFirst := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), nil)
-	anchor.First = utils.Some(data.AnchorFirst{CommitQC: qcFirst, AppQC: data.TestAppQC(keys, types.NewAppProposal(qcFirst.View(), nil))})
-	qcLast := types.BuildCommitQC(ep, keys, utils.Some(qcFirst), nil)
-	qcNext := types.BuildCommitQC(anchor.Epochs[1], keys, utils.Some(qcLast), nil)
-	qcSeal := types.BuildCommitQC(anchor.Epochs[1], keys, utils.Some(qcNext), nil)
-	i, err := newInner(anchor, time.Time{}, &loadedState{commitQCs: []*types.CommitQC{qcLast, qcNext, qcSeal}})
-	require.NoError(t, err)
-	require.Equal(t, utils.Some(qcSeal), i.persistedCommitQC())
+	ep0 := types.NewEpoch(0, types.RoadRange{First: 1, Next: 3}, registry.MustEpoch(0).Committee())
+	// epochs: [1,3),[3,5)
+	anchor := data.TestAnchor(ep0)
+	qc1 := types.BuildCommitQC(anchor.Epochs[0], keys, utils.None[*types.CommitQC](), nil)
+	qc2 := types.BuildCommitQC(anchor.Epochs[0], keys, utils.Some(qc1), nil)
+	qc3 := types.BuildCommitQC(anchor.Epochs[1], keys, utils.Some(qc2), nil)
+	qc4 := types.BuildCommitQC(anchor.Epochs[1], keys, utils.Some(qc3), nil)
+	anchor.First = utils.Some(data.AnchorFirst{CommitQC: qc1, AppQC: data.TestAppQC(keys, types.NewAppProposal(qc1.View(), nil))})
+	i := utils.OrPanic1(newInner(anchor, time.Time{}, &loadedState{commitQCs: []*types.CommitQC{qc2, qc3, qc4}}))
+	require.Equal(t, utils.Some(qc4), i.persistedCommitQC())
 	require.Equal(t, anchor.Epochs[1], i.applied())
-	require.Equal(t, utils.Some(qcNext), i.consensusSpec.Load().CommitQC)
-	require.False(t, i.advanceEpoch())
+	// newInner cannot set spec to 5 because epoch is missing.
+	require.Equal(t, 4, i.consensusSpec.Load().Index())
+	// advance should be a noop while epoch is missing.
+	i.advance()
+	require.Equal(t, 4, i.consensusSpec.Load().Index())
 }
