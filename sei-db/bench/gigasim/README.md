@@ -50,9 +50,9 @@ needed:
 SEI_LTHASH_BACKEND=default ./sei-db/bench/gigasim/gigasim.sh ./sei-db/bench/gigasim/config/full-node.json
 ```
 
-Building through the Makefile directly rather than through `gigasim.sh` sets no experiment, and
-produces a binary that only has the portable kernel. `seid` is built that way too: production does not
-run the AVX-512 kernel.
+Building through the Makefile's default `build` / `install` targets sets no experiment, and the
+production `seid` image stays on the portable kernel. The Autobahn e2e mock image and
+`make install-mock-balances` set `GOEXPERIMENT=simd`.
 
 # How It Works
 

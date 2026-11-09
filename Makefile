@@ -98,7 +98,7 @@ install: go.sum
 		go install $(BUILD_FLAGS) ./cmd/seid
 
 install-mock-balances: go.sum
-		go install $(BUILD_FLAGS_MOCK_BALANCES) ./cmd/seid
+		GOEXPERIMENT=simd go install $(BUILD_FLAGS_MOCK_BALANCES) ./cmd/seid
 
 install-with-race-detector: go.sum
 		go install -race $(BUILD_FLAGS) ./cmd/seid

@@ -25,6 +25,8 @@ ENV CGO_ENABLED=1
 ARG SEI_CHAIN_REF=""
 ARG GO_BUILD_TAGS=""
 ARG GO_BUILD_ARGS=""
+# GO_EXPERIMENT sets GOEXPERIMENT for the seid build, e.g. simd for Autobahn e2e / mock images.
+ARG GO_EXPERIMENT=""
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     BUILD_TAGS="netgo ledger ${GO_BUILD_TAGS}" && \
@@ -35,7 +37,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -X ${VERSION_PKG}.Version=$(git describe --tags || echo "${SEI_CHAIN_REF}") \
       -X ${VERSION_PKG}.Commit=$(git log -1 --format='%H') \
       -X '${VERSION_PKG}.BuildTags=${BUILD_TAGS}'" && \
-    go build -tags "${BUILD_TAGS}" -ldflags "${LDFLAGS}" ${GO_BUILD_ARGS} -o /go/bin/seid ./cmd/seid
+    GOEXPERIMENT="${GO_EXPERIMENT}" go build -tags "${BUILD_TAGS}" -ldflags "${LDFLAGS}" ${GO_BUILD_ARGS} -o /go/bin/seid ./cmd/seid
 
 # seidb is pure Go, so it builds without cgo and does not link libwasmvm.
 RUN --mount=type=cache,target=/go/pkg/mod \
