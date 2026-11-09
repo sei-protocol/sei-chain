@@ -96,7 +96,6 @@ func (i *inner) insertAppQC(appQC *types.AppQC) error {
 	return nil
 }
 
-
 func (i *inner) insertAppProposal(appProposal *types.AppProposal) error {
 	n := appProposal.Index()
 	if n < i.nextAppProposal {
@@ -686,7 +685,8 @@ func (s *State) AppQC(ctx context.Context, n types.RoadIndex) (*types.AppQC, err
 	return s.appQCFromDB(n)
 }
 
-// AnchorFirst is the retained certified road.
+// AnchorFirst is the highest road index for which AppQC is persisted.
+// It it also the lowest (first) road index stored in-memory by data.State.
 type AnchorFirst struct {
 	CommitQC *types.CommitQC
 	AppQC    *types.AppQC
@@ -715,6 +715,11 @@ func (a Anchor) CommitQC() utils.Option[*types.CommitQC] {
 		return utils.Some(first.CommitQC)
 	}
 	return utils.None[*types.CommitQC]()
+}
+
+// FirstCommitEpoch returns the epoch containing the first road after the anchor.
+func (a Anchor) FirstCommitEpoch() *types.Epoch {
+	return a.EpochAt(a.FirstIndex()).OrPanic("anchor first commit epoch")
 }
 
 // FirstIndex returns the road after the certified anchor, or the first epoch's
@@ -888,28 +893,3 @@ func (i *inner) setAnchor(registry *epoch.Registry) error {
 func (s *State) Run(ctx context.Context) error {
 	return s.runPersist(ctx)
 }
-
-// EpochAt returns the retained epoch containing road.
-func (s *State) EpochAt(road types.RoadIndex) (*types.Epoch, error) {
-	return s.cfg.Registry.EpochAt(road)
-}
-
-// nextCommitEpoch receives the epoch following the anchor's certified road.
-type nextCommitEpoch struct{ utils.AtomicRecv[Anchor] }
-
-func (a Anchor) nextCommitEpoch() *types.Epoch {
-	return a.EpochAt(a.FirstIndex()).OrPanic("anchor next commit epoch")
-}
-
-func (r nextCommitEpoch) Load() *types.Epoch { return r.AtomicRecv.Load().nextCommitEpoch() }
-
-func (r nextCommitEpoch) Wait(ctx context.Context, pred func(*types.Epoch) bool) (*types.Epoch, error) {
-	a, err := r.AtomicRecv.Wait(ctx, func(a Anchor) bool { return pred(a.nextCommitEpoch()) })
-	if err != nil {
-		return nil, err
-	}
-	return a.nextCommitEpoch(), nil
-}
-
-// NextCommitEpoch returns the epoch following the anchor's certified road.
-func (s *State) NextCommitEpoch() nextCommitEpoch { return nextCommitEpoch{s.Anchor()} }

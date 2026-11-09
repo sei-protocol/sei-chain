@@ -167,7 +167,7 @@ func TestAnchorEpochs_CommitQCLeavesAnchorUnchanged(t *testing.T) {
 	store := newMemoryBlockStore(t)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qcMid}, [][]*types.Block{blocksMid})
 	state := newTestState(t, &Config{Registry: registry}, store)
-	require.Equal(t, ep1, state.NextCommitEpoch().Load())
+	require.Equal(t, ep1, state.Anchor().Load().FirstCommitEpoch())
 	require.NoError(t, pushAppHashesRunning(ctx, state, rng, qcMid.Index(), qcMid.Index()+1))
 	qcLast, blocksLast := commitQCAtRoad(ep1, keys, registry.LastRoad(1))
 	require.NoError(t, state.PushPartialBlock(ctx, qcLast, TestBlockMap(blocksLast)))
@@ -175,7 +175,7 @@ func TestAnchorEpochs_CommitQCLeavesAnchorUnchanged(t *testing.T) {
 	require.False(t, state.Anchor().Load().First.IsPresent())
 }
 
-func TestNextCommitEpoch_AfterAppQCActivation(t *testing.T) {
+func TestFirstCommitEpoch_AfterAppQCActivation(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -190,7 +190,7 @@ func TestNextCommitEpoch_AfterAppQCActivation(t *testing.T) {
 		}
 		return pushAppQCForBlock(ctx, state, keys, qc.Index())
 	}))
-	require.Equal(t, registry.MustEpoch(1), state.NextCommitEpoch().Load())
+	require.Equal(t, registry.MustEpoch(1), state.Anchor().Load().FirstCommitEpoch())
 	require.Equal(t, types.EpochIndex(2), registry.MustEpoch(2).EpochIndex())
 }
 

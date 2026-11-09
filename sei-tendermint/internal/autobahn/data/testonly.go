@@ -89,3 +89,11 @@ func TestAnchor(ep *types.Epoch) Anchor {
 	next := types.NewEpoch(ep.EpochIndex()+1, types.RoadRange{First: ep.RoadRange().Next, Next: ep.RoadRange().Next + (ep.RoadRange().Next - ep.RoadRange().First)}, ep.Committee())
 	return Anchor{Epochs: [2]*types.Epoch{ep, next}}
 }
+
+// TestSetAnchor publishes an anchor to data state.
+func TestSetAnchor(state *State, anchor Anchor) {
+	for inner, ctrl := range state.inner.Lock() {
+		inner.anchor.Store(anchor)
+		ctrl.Updated()
+	}
+}

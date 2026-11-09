@@ -66,8 +66,6 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			cfg:             &cfg.GigaRouterCommonConfig,
 			key:             key,
 			data:            dataState,
-			nextCommitEpoch: dataState.NextCommitEpoch(),
-			anchor:          dataState.Anchor(),
 			service:         giga.NewService(consensusState),
 			poolIn:          giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolInCommittee: giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
@@ -140,7 +138,7 @@ func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*ethr
 	if !r.EvmProxyEnabled() {
 		return utils.None[*ethrpc.Client]()
 	}
-	validator := r.nextCommitEpoch.Load().Committee().EvmShard(sender)
+	validator := r.data.Anchor().Load().FirstCommitEpoch().Committee().EvmShard(sender)
 	if r.validatorKey == validator {
 		return utils.None[*ethrpc.Client]()
 	}
