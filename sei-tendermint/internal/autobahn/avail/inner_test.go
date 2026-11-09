@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -15,8 +15,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
-func newTestDataState(cfg *data.Config) *data.State {
-	store := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
+func newTestDataState(t testing.TB, cfg *data.Config) *data.State {
+	store := blockstore.NewTestStore(t)
 	return utils.OrPanic1(data.NewState(cfg, store))
 }
 
@@ -227,7 +227,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		registry, keys := epoch.GenRegistry(rng, 4)
 		ep0 := registry.MustEpoch(0)
 		lane0 := ep0.Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
-		ds := newTestDataState(&data.Config{Registry: registry})
+		ds := newTestDataState(t, &data.Config{Registry: registry})
 		bs := contiguousBlocks(keys[0], lane0, 3, rng)
 		i, err := newInner(ds.Anchor().Load(), ds.GenesisTimestamp(), &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{lane0: bs}})
 		require.NoError(t, err)
@@ -249,7 +249,11 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 4)
 		lane0 := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
+<<<<<<< HEAD
 		i, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, registry.GenesisTimestamp(), &loadedState{
+=======
+		i, err := restoreInner(newTestDataState(t, &data.Config{Registry: registry}), &loadedState{
+>>>>>>> origin/main
 			blocks: map[types.LaneID][]persist.LoadedBlock{lane0: {}},
 		})
 		require.NoError(t, err)
@@ -330,7 +334,11 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		unknownKey := types.GenSecretKey(rng)
 		unknownLane := types.LaneID{Validator: unknownKey.Public(), Joined: 0}
 		b := testSignedBlock(unknownKey, unknownLane, 0, types.BlockHeaderHash{}, rng)
+<<<<<<< HEAD
 		i, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, registry.GenesisTimestamp(), &loadedState{
+=======
+		i, err := restoreInner(newTestDataState(t, &data.Config{Registry: registry}), &loadedState{
+>>>>>>> origin/main
 			blocks: map[types.LaneID][]persist.LoadedBlock{unknownLane: {{Number: 0, Proposal: b}}},
 		})
 		require.NoError(t, err)
@@ -351,7 +359,11 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		lane1 := ep0.Committee().Lane(keys[1].Public()).OrPanic("keys[1]")
 		bs0 := contiguousBlocks(keys[0], lane0, 2, rng)
 		bs1 := contiguousBlocks(keys[1], lane1, 3, rng)
+<<<<<<< HEAD
 		i, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, registry.GenesisTimestamp(), &loadedState{
+=======
+		i, err := restoreInner(newTestDataState(t, &data.Config{Registry: registry}), &loadedState{
+>>>>>>> origin/main
 			blocks: map[types.LaneID][]persist.LoadedBlock{lane0: bs0, lane1: bs1},
 		})
 		require.NoError(t, err)
@@ -369,7 +381,11 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		for _, n := range []types.BlockNumber{3, 4, 6, 7} {
 			bs = append(bs, persist.LoadedBlock{Number: n, Proposal: testSignedBlock(keys[0], lane0, n, types.BlockHeaderHash{}, rng)})
 		}
+<<<<<<< HEAD
 		_, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, registry.GenesisTimestamp(), &loadedState{
+=======
+		_, err := restoreInner(newTestDataState(t, &data.Config{Registry: registry}), &loadedState{
+>>>>>>> origin/main
 			blocks: map[types.LaneID][]persist.LoadedBlock{lane0: bs},
 		})
 		require.Error(t, err)
@@ -385,7 +401,11 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		parent = b0.Msg().Block().Header().Hash()
 		b1 := testSignedBlock(keys[0], lane0, 1, parent, rng)
 		b2 := testSignedBlock(keys[0], lane0, 2, types.GenBlockHeaderHash(rng), rng)
+<<<<<<< HEAD
 		_, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, registry.GenesisTimestamp(), &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{lane0: {
+=======
+		_, err := restoreInner(newTestDataState(t, &data.Config{Registry: registry}), &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{lane0: {
+>>>>>>> origin/main
 			{Number: 0, Proposal: b0},
 			{Number: 1, Proposal: b1},
 			{Number: 2, Proposal: b2},
@@ -399,7 +419,11 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		registry, keys := epoch.GenRegistry(rng, 4)
 		lane0 := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 		bs := contiguousBlocks(keys[0], lane0, BlocksPerLane+5, rng)
+<<<<<<< HEAD
 		_, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, registry.GenesisTimestamp(), &loadedState{
+=======
+		_, err := restoreInner(newTestDataState(t, &data.Config{Registry: registry}), &loadedState{
+>>>>>>> origin/main
 			blocks: map[types.LaneID][]persist.LoadedBlock{lane0: bs},
 		})
 		require.Error(t, err)
@@ -457,7 +481,7 @@ func TestRestoreInner_LoadedCommitQCs(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 4)
 		ep0 := registry.MustEpoch(0)
-		ds := newTestDataState(&data.Config{Registry: registry})
+		ds := newTestDataState(t, &data.Config{Registry: registry})
 		qcs := make([]*types.CommitQC, 3)
 		prev := utils.None[*types.CommitQC]()
 		for i := range qcs {
@@ -483,7 +507,7 @@ func TestRestoreInner_LoadedCommitQCs(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 4)
 		ep0 := registry.MustEpoch(0)
-		ds := newTestDataState(&data.Config{Registry: registry})
+		ds := newTestDataState(t, &data.Config{Registry: registry})
 		qc0 := types.BuildCommitQC(ep0, keys, utils.None[*types.CommitQC](), nil)
 		qc1 := types.BuildCommitQC(ep0, keys, utils.Some(qc0), nil)
 		qc2 := types.BuildCommitQC(ep0, keys, utils.Some(qc1), nil)

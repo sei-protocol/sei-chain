@@ -13,12 +13,9 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	dbm "github.com/tendermint/tm-db"
-	"golang.org/x/time/rate"
-
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
@@ -29,6 +26,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	dbm "github.com/tendermint/tm-db"
+	"golang.org/x/time/rate"
 )
 
 func TestGigaRouter_FinalizeBlocks(t *testing.T) {
@@ -61,6 +60,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		var apps []*testApp
 		var gigas []*gigaValidatorRouter
+		var executors []*execution.Executor
 		var allTxs [][]byte
 		for i, cfg := range cfgs {
 			nodeInfo := makeInfo(cfg.nodeKey)
@@ -69,21 +69,17 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp()
 			proxyApp := proxy.New(app)
-			// In giga mode the CometBFT handshaker is skipped; the router's
-			// runExecute calls InitChain itself on fresh start.
+			// In giga mode the CometBFT handshaker is skipped; the executor
+			// calls InitChain itself on fresh start.
 			dir := t.TempDir()
 			// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
 			// (zero overrides); p2p can't import config (import cycle).
-			littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
+			littCfg, err := blockstore.DefaultConfig(filepath.Join(dir, "blockdb"))
 			if err != nil {
-				return fmt.Errorf("littblock.DefaultConfig[%v]: %w", i, err)
+				return fmt.Errorf("blockstore.DefaultConfig[%v]: %w", i, err)
 			}
 			littCfg.Litt.Fsync = true
-			db, err := littblock.NewBlockDB(littCfg)
-			if err != nil {
-				return fmt.Errorf("littblock.NewBlockDB[%v]: %w", i, err)
-			}
-			blockStore, err := blockstore.New(db)
+			blockStore, err := blockstore.New(littCfg)
 			if err != nil {
 				return fmt.Errorf("blockstore.New[%v]: %w", i, err)
 			}
@@ -98,6 +94,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				GenDoc:             genDoc,
 				EnableEvmProxy:     true,
 			}
+			executor := newTestExecutor(&commonCfg, blockStore)
 			dataState, err := BuildDataState(&commonCfg, blockStore)
 			if err != nil {
 				return fmt.Errorf("BuildDataState[%v]: %w", i, err)
@@ -138,8 +135,10 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			}
 			s.SpawnBgNamed(fmt.Sprintf("router[%v]", i), func() error { return utils.IgnoreCancel(router.Run(ctx)) })
 			s.SpawnBgNamed(fmt.Sprintf("giga[%v]", i), func() error { return utils.IgnoreCancel(giga.Run(ctx)) })
+			s.SpawnBgNamed(fmt.Sprintf("execution[%v]", i), func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
 			apps = append(apps, app)
 			gigas = append(gigas, giga)
+			executors = append(executors, executor)
 			var txs [][]byte
 			for range maxTxsPerBlock * blocksPerLane {
 				tx := utils.GenBytes(rng, 100)
@@ -183,14 +182,14 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			if committed <= 0 {
 				return fmt.Errorf("router[%v].LastCommittedBlockNumber(): got %v, want positive", i, committed)
 			}
-			// Covers GigaRouter.ExecutedBlocks — the watch behind
+			// Covers Executor.ExecutedBlocks — the watch behind
 			// eth_subscribe("newHeads"). It must reach the committed height,
 			// and the block it names must be readable via BlockByNumber.
-			executed, err := giga.ExecutedBlocks().Wait(ctx, func(w atypes.ExecutedBlocks) bool {
+			executed, err := executors[i].ExecutedBlocks().Wait(ctx, func(w atypes.ExecutedBlocks) bool {
 				return int64(w.Latest().Number) >= committed
 			})
 			if err != nil {
-				return fmt.Errorf("router[%v].ExecutedBlocks().Wait(): %w", i, err)
+				return fmt.Errorf("executor[%v].ExecutedBlocks().Wait(): %w", i, err)
 			}
 			_, err = giga.BlockByNumber(ctx, executed.Latest().Number)
 			if err != nil {
@@ -320,12 +319,10 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	dir := t.TempDir()
 	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
 	// (zero overrides); p2p can't import config (import cycle).
-	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
+	littCfg, err := blockstore.DefaultConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
 	littCfg.Litt.Fsync = true
-	db, err := littblock.NewBlockDB(littCfg)
-	require.NoError(t, err)
-	blockStore, err := blockstore.New(db)
+	blockStore, err := blockstore.New(littCfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = blockStore.Close() })
 	app := newTestApp()

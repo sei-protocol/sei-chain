@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -69,7 +70,7 @@ type inner struct {
 	nextAppProposal  types.RoadIndex
 	nextFullBlock    types.RoadIndex
 	nextPartialBlock types.RoadIndex
-	persisted        types.SuffixRange
+	persisted        blockstore.SuffixRange
 
 	// Anchor represents the highest fully processed row:
 	// CommitQC, Blocks, AppProposal, AppQC present and persisted.
@@ -165,14 +166,18 @@ type State struct {
 	cfg        *Config
 	metrics    *metrics.Metrics
 	inner      utils.Watch[*inner]
+<<<<<<< HEAD
 	blockStore types.BlockStore
 	anchor     utils.AtomicRecv[Anchor]
+=======
+	blockStore *blockstore.Store
+>>>>>>> origin/main
 }
 
 // NewState constructs a data State, replaying persisted state from blockStore.
 // The caller owns blockStore and must close it after State.Run returns (nodeImpl
 // owns this in production); State never closes it.
-func NewState(cfg *Config, blockStore types.BlockStore) (*State, error) {
+func NewState(cfg *Config, blockStore *blockstore.Store) (*State, error) {
 	inner, err := loadFromBlockStore(cfg, blockStore)
 	if err != nil {
 		return nil, fmt.Errorf("loadFromBlockStore: %w", err)
@@ -194,7 +199,7 @@ func NewState(cfg *Config, blockStore types.BlockStore) (*State, error) {
 
 // loadFromBlockStore replays the persisted suffix from blockStore into s.inner.
 // Called from NewState before any goroutines are spawned.
-func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error) {
+func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, error) {
 	suffix, err := blockStore.ReadSuffix()
 	if err != nil {
 		return nil, fmt.Errorf("blockStore.ReadSuffix(): %w", err)
@@ -206,7 +211,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 			return nil, fmt.Errorf("genesis epoch 0: %w", err)
 		}
 		first := genesis.RoadRange().First
-		status = types.SuffixRange{
+		status = blockstore.SuffixRange{
 			First:           first,
 			NextBlock:       first,
 			NextAppProposal: first,
@@ -627,10 +632,6 @@ func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.A
 	return nil
 }
 
-func (s *State) PushGasUsed(gasUsed int64) {
-	s.metrics.GasUsed.Add(gasUsed)
-}
-
 // AppVote returns an appVote for a block >= n.
 // Vote is available ONLY once AppHash has been pushed AND persisted.
 // This prevents any possible equivocation and ensures that local node has the executed blocks persisted (since nextAppProposa <= nextFullBlock).
@@ -779,12 +780,12 @@ func (s *State) PruneBefore(retainFrom types.RoadIndex) error {
 // Cursors seed from BlockStore.Status() so data staged before Run is persisted.
 // In-memory block/QC/AppProposal/AppQC eviction is driven by persisted SuffixRange
 // changes. A QC is persisted only once all its blocks are available.
-func (s *State) runPersist(ctx context.Context) error {
+func (s *State) runPersist(ctx context.Context, writeAppProposal func(*types.AppProposal) error) error {
 	for {
 		var blocks []*types.RoadBlock
 		var appProposals []*types.AppProposal
 		var appQCs []*types.AppQC
-		var status types.SuffixRange
+		var status blockstore.SuffixRange
 		for inner, ctrl := range s.inner.Lock() {
 			status = inner.persisted
 			// Wait until there is anything to persist.
@@ -823,7 +824,7 @@ func (s *State) runPersist(ctx context.Context) error {
 			}
 		}
 		for _, appProposal := range appProposals {
-			if err := s.blockStore.WriteAppProposal(appProposal); err != nil {
+			if err := writeAppProposal(appProposal); err != nil {
 				return fmt.Errorf("write AppProposal %d: %w", appProposal.Index(), err)
 			}
 		}
@@ -891,5 +892,5 @@ func (i *inner) setAnchor(registry *epoch.Registry) error {
 
 // Run starts the background persistence loop.
 func (s *State) Run(ctx context.Context) error {
-	return s.runPersist(ctx)
+	return s.runPersist(ctx, s.blockStore.WriteAppProposal)
 }

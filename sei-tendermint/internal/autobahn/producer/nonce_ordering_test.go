@@ -60,7 +60,7 @@ func TestEVMNextPendingNonce_race(t *testing.T) {
 	cfg := app.Cfg()
 	cfg.BlockInterval = 0
 	cfg.MaxTxsPerBlock = 1
-	env := newTestEnv(rng, cfg, proxy.New(app))
+	env := newTestEnv(t, rng, cfg, proxy.New(app))
 	addr, nonce := app.NewAccount(rng)
 	tx1 := env.genTx(rng, addr, nonce)
 	tx2 := env.genTx(rng, addr, nonce+1)
