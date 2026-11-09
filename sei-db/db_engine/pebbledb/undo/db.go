@@ -27,6 +27,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/bloom"
 	"github.com/cockroachdb/pebble/v2/sstable"
+	"github.com/cockroachdb/pebble/v2/vfs"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel/metric"
@@ -134,8 +135,12 @@ type pendingBlock struct {
 	done    chan struct{}
 }
 
-// OpenDB opens the undo-log database in dataDir.
+// OpenDB opens the undo-log database in dataDir, creating it when there is none. A dataDir holding no
+// database is removed first.
 func OpenDB(dataDir string, cfg config.StateStoreConfig) (*Database, error) {
+	if err := removeIfUninitialized(dataDir); err != nil {
+		return nil, err
+	}
 	cache := pebble.NewCache(cacheSize)
 	defer cache.Unref()
 	storage, err := pebble.Open(dataDir, newPebbleOptions(cache))
@@ -852,8 +857,11 @@ func (db *Database) GetLatestBlock() (uint64, error) {
 }
 
 // GetLatestBlock returns the latest block the closed undo log in dataDir holds. present is false when the
-// log holds no block or dataDir does not exist. It creates and writes nothing.
+// log holds no block or dataDir does not exist. A dataDir holding no database is removed first.
 func GetLatestBlock(dataDir string) (present bool, head uint64, err error) {
+	if err := removeIfUninitialized(dataDir); err != nil {
+		return false, 0, err
+	}
 	if _, statErr := os.Stat(dataDir); errors.Is(statErr, os.ErrNotExist) {
 		return false, 0, nil
 	}
@@ -875,6 +883,25 @@ func GetLatestBlock(dataDir string) (present bool, head uint64, err error) {
 		return false, 0, err
 	}
 	return true, head, nil
+}
+
+// removeIfUninitialized removes dataDir when it exists but holds no undo log. Any other dataDir is left alone.
+func removeIfUninitialized(dataDir string) error {
+	if _, err := os.Stat(dataDir); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	desc, err := pebble.Peek(dataDir, vfs.Default)
+	if err != nil {
+		return fmt.Errorf("undo: inspect %s: %w", dataDir, err)
+	}
+	if desc.Exists {
+		return nil
+	}
+	logger.Warn("removing an undo log directory that holds no database", "dir", dataDir)
+	if err := os.RemoveAll(dataDir); err != nil {
+		return fmt.Errorf("undo: remove %s: %w", dataDir, err)
+	}
+	return nil
 }
 
 // DiscardStateAbove removes every record above target from the undo log in dataDir and leaves the log

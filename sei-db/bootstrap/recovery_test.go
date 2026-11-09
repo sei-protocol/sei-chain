@@ -733,6 +733,22 @@ func TestRecoverReceiptRewindsTheHead(t *testing.T) {
 	require.Equal(t, int64(3), manager.ReceiptDB().LatestVersion())
 }
 
+// A crash while the historical state DB was being created leaves its directory holding no database.
+// Startup removes it and opens the historical state DB as a new one.
+func TestStartupRemovesAHalfCreatedHistoricalStateDB(t *testing.T) {
+	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(cfg.SSConfig.EVMDBDirectory, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(cfg.SSConfig.EVMDBDirectory, "LOCK"), nil, 0o600))
+
+	manager, err := NewGigaStorageManager(t.Context(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+
+	require.NotNil(t, historicalStateDB(manager))
+	commitBlocks(t, manager, 1)
+}
+
 func TestOpenDBWithoutRecoveryOnAFreshHome(t *testing.T) {
 	manager, _ := openManager(t, nil)
 

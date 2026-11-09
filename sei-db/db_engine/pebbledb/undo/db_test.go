@@ -7,6 +7,7 @@ import (
 	"maps"
 	"math/big"
 	"math/rand/v2"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -689,6 +690,12 @@ func TestGetLatestBlockReadsAClosedLog(t *testing.T) {
 	require.False(t, present)
 	require.NoDirExists(t, absent, "reading the head of no log must not create one")
 
+	uninitialized := t.TempDir()
+	present, _, err = GetLatestBlock(uninitialized)
+	require.NoError(t, err)
+	require.False(t, present, "a directory holding no database holds no log")
+	require.NoDirExists(t, uninitialized, "a directory holding no database is removed")
+
 	dir := t.TempDir()
 	empty, err := OpenDB(dir, testConfig())
 	require.NoError(t, err)
@@ -712,6 +719,55 @@ func TestGetLatestBlockReadsAClosedLog(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, present, "block 0 is a head like any other")
 	require.Zero(t, head)
+}
+
+// removeIfUninitialized removes a directory a crash left without a database, and only that.
+func TestRemoveIfUninitialized(t *testing.T) {
+	absent := filepath.Join(t.TempDir(), "absent")
+	require.NoError(t, removeIfUninitialized(absent))
+	require.NoDirExists(t, absent)
+
+	empty := t.TempDir()
+	require.NoError(t, removeIfUninitialized(empty))
+	require.NoDirExists(t, empty)
+
+	stray := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(stray, "LOCK"), nil, 0o600))
+	require.NoError(t, removeIfUninitialized(stray))
+	require.NoDirExists(t, stray)
+
+	noBlocks := t.TempDir()
+	db, err := OpenDB(noBlocks, testConfig())
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	require.NoError(t, removeIfUninitialized(noBlocks))
+	require.DirExists(t, noBlocks, "a log that never took a block is still a log")
+
+	withBlocks := t.TempDir()
+	c := newChain(t, withBlocks, 10, 0)
+	c.apply(map[string][]byte{nonceKey(account(1)): nonce(1)}, false)
+	require.NoError(t, c.db.Close())
+	require.NoError(t, removeIfUninitialized(withBlocks))
+	present, head, err := GetLatestBlock(withBlocks)
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, uint64(1), head)
+}
+
+// OpenDB over a directory a crash left without a database starts a new log in a clean directory.
+func TestOpenDBReplacesAnUninitializedDirectory(t *testing.T) {
+	dir := t.TempDir()
+	stray := filepath.Join(dir, "stray")
+	require.NoError(t, os.WriteFile(stray, nil, 0o600))
+
+	db, err := OpenDB(dir, testConfig())
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	require.NoFileExists(t, stray)
+	present, _, err := GetLatestBlock(dir)
+	require.NoError(t, err)
+	require.False(t, present)
 }
 
 func TestDiscardStateAboveClearsAHalfWrittenBlock(t *testing.T) {
