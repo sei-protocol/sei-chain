@@ -865,7 +865,11 @@ func GetLatestBlock(dataDir string) (present bool, head uint64, err error) {
 	if _, statErr := os.Stat(dataDir); errors.Is(statErr, os.ErrNotExist) {
 		return false, 0, nil
 	}
-	storage, err := pebble.Open(dataDir, &pebble.Options{Comparer: Comparer, ReadOnly: true})
+	cache := pebble.NewCache(cacheSize)
+	defer cache.Unref()
+	opts := newPebbleOptions(cache)
+	opts.ReadOnly = true
+	storage, err := pebble.Open(dataDir, opts)
 	if err != nil {
 		return false, 0, fmt.Errorf("undo: open pebble read-only: %w", err)
 	}
