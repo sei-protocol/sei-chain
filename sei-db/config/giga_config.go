@@ -27,7 +27,8 @@ type GigaStorageConfig struct {
 
 	// DeferAppHashBuilderSetup leaves the app hash builder's setup to the caller, which completes it with
 	// SetupComplete() or CompleteRestoredSetup() after storage opens. Set on a home restored from a state
-	// snapshot.
+	// snapshot. The caller must not write the restored block to the block store until CompleteRestoredSetup()
+	// returns.
 	DeferAppHashBuilderSetup bool
 }
 

@@ -138,6 +138,8 @@ func TestRestoredSetupRefusesAVaultWithComputedAppHashes(t *testing.T) {
 		b := openTestBuilder(t, dir, testChainID, 1)
 		require.Error(t, b.CompleteRestoredSetup(context.Background(), height, stored.AppHash()),
 			"restored setup at block %d", height)
+		_, err := b.GetAppHash(context.Background(), 5)
+		require.Error(t, err, "the builder stops on the refusal")
 	}
 }
 
@@ -152,6 +154,8 @@ func TestRestoredSetupRefusesAnAnchorWithAppHashesAboveIt(t *testing.T) {
 
 	reopened := openTestBuilder(t, dir, testChainID, 1)
 	require.Error(t, reopened.CompleteRestoredSetup(context.Background(), 10, testRestoredAppHash))
+	_, err := reopened.GetAppHash(context.Background(), 10)
+	require.Error(t, err, "the builder stops on the refusal")
 }
 
 func TestRestoredSetupAfterSetupFails(t *testing.T) {

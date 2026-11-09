@@ -88,8 +88,8 @@ type AppHashBuilder interface {
 	// empty vault, then completes setup as SetupComplete(blockHeight) does.
 	//
 	// Called instead of SetupComplete(), with the same rules. A vault that holds the same anchor already is
-	// accepted, so a restore interrupted after the anchor was stored can call it again. Errors if blockHeight is
-	// below the giga activation height, or if the vault holds any other record; any error shuts the builder down.
+	// accepted. Errors if blockHeight is below the giga activation height, or if the vault holds any other record;
+	// any error shuts the builder down.
 	CompleteRestoredSetup(
 		ctx context.Context,
 		// The height the state snapshot was taken at, and the height of the storage layer.
