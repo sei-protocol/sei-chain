@@ -44,9 +44,6 @@ type StorageConfig struct {
 	RollbackWindow uint64 `mapstructure:"rollback_window"`
 	// LookbackWindow is how many queryable blocks are kept below the rollback window; -1 keeps all.
 	LookbackWindow int64 `mapstructure:"lookback_window"`
-	// StateStoreBackend is how the state store keeps its history: "pebbledb" stores every version of
-	// every key, "undolog" the value each block replaced, over the current state.
-	StateStoreBackend string `mapstructure:"state_store_backend"`
 	// PruneInterval is how often the storage garbage collector runs.
 	PruneInterval time.Duration `mapstructure:"prune_interval"`
 	// CheckpointTimeInterval is the wall-clock gap between state-commit checkpoints.
@@ -175,7 +172,6 @@ func defaultStorageConfig() StorageConfig {
 		Receipts:                true,
 		RollbackWindow:          gc.RollbackWindow,
 		LookbackWindow:          gc.LookbackWindow,
-		StateStoreBackend:       seidbconfig.DefaultSSBackend,
 		PruneInterval:           gc.PruneInterval,
 		CheckpointTimeInterval:  cp.TimeInterval,
 		CheckpointBlockInterval: cp.BlockInterval,
@@ -188,7 +184,6 @@ const (
 	FlagStorageReceipts                  = "giga.storage.receipts"
 	FlagStorageRollbackWindow            = "giga.storage.rollback_window"
 	FlagStorageLookbackWindow            = "giga.storage.lookback_window"
-	FlagStorageStateStoreBackend         = "giga.storage.state_store_backend"
 	FlagStoragePruneInterval             = "giga.storage.prune_interval"
 	FlagStorageCheckpointTimeInterval    = "giga.storage.checkpoint_time_interval"
 	FlagStorageCheckpointBlockInterval   = "giga.storage.checkpoint_block_interval"
@@ -241,11 +236,6 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagStorageLookbackWindow); v != nil {
 		if cfg.Storage.LookbackWindow, err = cast.ToInt64E(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStorageLookbackWindow, err)
-		}
-	}
-	if v := opts.Get(FlagStorageStateStoreBackend); v != nil {
-		if cfg.Storage.StateStoreBackend, err = cast.ToStringE(v); err != nil {
-			return cfg, fmt.Errorf("%s: %w", FlagStorageStateStoreBackend, err)
 		}
 	}
 	if v := opts.Get(FlagStoragePruneInterval); v != nil {
@@ -403,12 +393,6 @@ func (c Config) Validate() error {
 		return fmt.Errorf("%s: must be >= 0, or -1 to keep all history, got %d", FlagStorageLookbackWindow,
 			c.Storage.LookbackWindow)
 	}
-	switch c.Storage.StateStoreBackend {
-	case seidbconfig.PebbleDBBackend, seidbconfig.PebbleDBUndoBackend:
-	default:
-		return fmt.Errorf("%s: %q is not %q or %q", FlagStorageStateStoreBackend, c.Storage.StateStoreBackend,
-			seidbconfig.PebbleDBBackend, seidbconfig.PebbleDBUndoBackend)
-	}
 	if c.Storage.PruneInterval <= 0 {
 		return fmt.Errorf("%s: must be positive, got %s", FlagStoragePruneInterval, c.Storage.PruneInterval)
 	}
@@ -507,11 +491,6 @@ rollback_window = {{ .Giga.Storage.RollbackWindow }}
 # lookback_window is how many queryable blocks are kept below the rollback window.
 # -1 keeps all history.
 lookback_window = {{ .Giga.Storage.LookbackWindow }}
-
-# state_store_backend is how the state store keeps its history. "pebbledb" stores every version
-# of every key; "undolog" stores the value each block replaced, over the current state, and
-# drops expired history a bucket at a time.
-state_store_backend = "{{ .Giga.Storage.StateStoreBackend }}"
 
 # prune_interval is how often the storage garbage collector runs.
 prune_interval = "{{ .Giga.Storage.PruneInterval }}"
