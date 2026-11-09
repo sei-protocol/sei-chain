@@ -36,6 +36,10 @@ const maxInboundFullnodePeers = 10000
 
 var errGigaMembershipChanged = errors.New("inbound giga peer changed committee membership")
 
+// errInboundFullnodeLimit is returned when a non-persistent fullnode is
+// refused because inboundFullnodeCap is already reached.
+var errInboundFullnodeLimit = errors.New("inbound fullnode peer limit reached")
+
 type gigaRouterCommon struct {
 	cfg             *GigaRouterCommonConfig
 	key             NodeSecretKey
@@ -561,7 +565,7 @@ func (r *gigaRouterCommon) runInboundFullnode(ctx context.Context, hConn *handsh
 		// Over-rejects by one or two under contention but never over-accepts.
 		if r.inboundFullnodeCount.Add(1) > r.inboundFullnodeCap {
 			r.inboundFullnodeCount.Add(-1)
-			return fmt.Errorf("inbound fullnode peer limit (%d) reached", r.inboundFullnodeCap)
+			return fmt.Errorf("%w (%d)", errInboundFullnodeLimit, r.inboundFullnodeCap)
 		}
 		defer r.inboundFullnodeCount.Add(-1)
 	}
