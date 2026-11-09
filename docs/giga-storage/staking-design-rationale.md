@@ -314,6 +314,7 @@ V2's other walks have no on-chain reader in giga:
 | `0x33`, unbonding delegations by validator | slashing unbonding entries |
 | `0x35`, redelegations by source validator | slashing redelegation entries |
 | unbonding delegations and redelegations by delegator | queries |
+| slashing `0x01`, signing infos | queries; liveness reads each voter's by key |
 
 Queries would be served by an off-chain indexer reading the precompile's logs.
 Slashing unbonding and redelegation entries is deferred (see *Not yet covered*).
