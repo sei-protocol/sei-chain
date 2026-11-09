@@ -84,8 +84,8 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 
 	require.NoError(t, registry.TestPushEpoch(1, map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1}))
 	epJoin := registry.MustEpoch(3)
-	prev := state.LastCommitQC().OrPanic("epoch 1 seal")
-	firstLeave := types.BuildCommitQC(epLeave, []types.SecretKey{b}, utils.Some(prev), nil)
+	prev := testAnchorAt(registry.MustEpoch(1), epLeave, keys, registry.LastRoad(1)).CommitQC()
+	firstLeave := types.BuildCommitQC(epLeave, []types.SecretKey{b}, prev, nil)
 	require.NoError(t, state.PushCommitQC(ctx, firstLeave))
 	state.markCommitQCsPersisted(firstLeave)
 

@@ -55,32 +55,12 @@ func (s *State) PublicKey() types.PublicKey {
 	return s.key.Public()
 }
 
-// appliedEpoch is Load/Wait over consensusSpec.Epoch.
-type appliedEpoch struct {
-	spec utils.AtomicRecv[types.ConsensusSpec]
-}
-
-func (e appliedEpoch) Load() *types.Epoch { return e.spec.Load().Epoch }
-
-func (e appliedEpoch) Wait(ctx context.Context, pred func(*types.Epoch) bool) (*types.Epoch, error) {
-	sp, err := e.spec.Wait(ctx, func(sp types.ConsensusSpec) bool { return pred(sp.Epoch) })
-	if err != nil {
-		return nil, err
-	}
-	return sp.Epoch, nil
-}
-
-// Epoch returns the applied (next-CommitQC) epoch.
-func (s *State) Epoch() appliedEpoch {
-	return appliedEpoch{s.spec}
-}
-
 func (s *State) LocalLane() utils.Option[types.LaneID] {
 	return s.Lane(s.key.Public())
 }
 
 func (s *State) Lane(pk types.PublicKey) utils.Option[types.LaneID] {
-	return s.Epoch().Load().Committee().Lane(pk)
+	return s.ConsensusSpec().Load().Epoch.Committee().Lane(pk)
 }
 
 func (s *State) WaitForLocalLane(ctx context.Context) (types.LaneID, error) {
@@ -88,8 +68,8 @@ func (s *State) WaitForLocalLane(ctx context.Context) (types.LaneID, error) {
 }
 
 func (s *State) WaitUntilClosed(ctx context.Context, lane types.LaneID) error {
-	_, err := s.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
-		return ep.IsClosed(lane)
+	_, err := s.ConsensusSpec().Wait(ctx, func(spec types.ConsensusSpec) bool {
+		return spec.Epoch.IsClosed(lane)
 	})
 	return err
 }
@@ -183,18 +163,10 @@ func (s *State) Data() *data.State {
 	return s.data
 }
 
-// LastCommitQC returns the latest durable CommitQC.
-func (s *State) LastCommitQC() utils.Option[*types.CommitQC] {
-	for inner := range s.inner.Lock() {
-		return inner.persistedCommitQC()
-	}
-	panic("unreachable")
-}
-
-// SubscribeConsensusSpec returns a receiver of the durable CommitQC tip paired
+// ConsensusSpec returns a receiver of the durable CommitQC tip paired
 // with the epoch of the RoadIndex that follows it. CommitQC is None before
 // the first tip; until then Epoch is genesis epoch 0.
-func (s *State) SubscribeConsensusSpec() utils.AtomicRecv[types.ConsensusSpec] {
+func (s *State) ConsensusSpec() utils.AtomicRecv[types.ConsensusSpec] {
 	return s.spec
 }
 

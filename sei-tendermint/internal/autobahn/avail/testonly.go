@@ -120,8 +120,8 @@ func tipLink(ep *types.Epoch, key types.SecretKey, idx types.RoadIndex) *types.C
 // TestAdvanceToEpoch publishes certified epoch seals through want-1.
 // The registry must already contain each successor epoch.
 func TestAdvanceToEpoch(ctx context.Context, state *State, keys []types.SecretKey, registry *epoch.Registry, want types.EpochIndex) error {
-	for state.Epoch().Load().EpochIndex() < want {
-		cur := state.Epoch().Load()
+	for state.ConsensusSpec().Load().Epoch.EpochIndex() < want {
+		cur := state.ConsensusSpec().Load().Epoch
 		if cur.RoadRange().Next == utils.Max[types.RoadIndex]() {
 			return fmt.Errorf("TestAdvanceToEpoch: cannot seal open road range at epoch %d", cur.EpochIndex())
 		}
@@ -134,7 +134,7 @@ func TestAdvanceToEpoch(ctx context.Context, state *State, keys []types.SecretKe
 			inner.prune(anchor)
 			ctrl.Updated()
 		}
-		if _, err := state.Epoch().Wait(ctx, func(ep *types.Epoch) bool { return ep.EpochIndex() > cur.EpochIndex() }); err != nil {
+		if _, err := state.ConsensusSpec().Wait(ctx, func(spec types.ConsensusSpec) bool { return spec.Epoch.EpochIndex() > cur.EpochIndex() }); err != nil {
 			return err
 		}
 	}

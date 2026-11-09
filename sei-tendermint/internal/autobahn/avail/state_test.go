@@ -60,7 +60,7 @@ func makeLaneVotes(keys []types.SecretKey, h *types.BlockHeader) []*types.Signed
 }
 
 func pruneToHeader(state *State, keys []types.SecretKey, h *types.BlockHeader) {
-	ep := state.SubscribeConsensusSpec().Load().Epoch
+	ep := state.ConsensusSpec().Load().Epoch
 	qc := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
 		h.Lane(): types.NewLaneQC(makeLaneVotes(keys, h)),
 	})
@@ -223,7 +223,7 @@ func TestAnchorResetsState(t *testing.T) {
 		if err != nil {
 			return fmt.Errorf("NewState(): %w", err)
 		}
-		if err := utils.TestDiff(utils.Some(qc.QC()), state.LastCommitQC()); err != nil {
+		if err := utils.TestDiff(utils.Some(qc.QC()), state.ConsensusSpec().Load().CommitQC); err != nil {
 			return err
 		}
 		t.Logf("avail.Run()")
@@ -235,7 +235,7 @@ func TestAnchorResetsState(t *testing.T) {
 			return err
 		}
 		t.Logf("wait for this CommitQC to be persisted in avail")
-		_, err = state.SubscribeConsensusSpec().Wait(ctx, func(spec types.ConsensusSpec) bool {
+		_, err = state.ConsensusSpec().Wait(ctx, func(spec types.ConsensusSpec) bool {
 			gotQC, ok := spec.CommitQC.Get()
 			return ok && gotQC.Index() == qc.Index()
 		})
@@ -259,9 +259,9 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 		}
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 
+		prev := utils.None[*types.CommitQC]()
 		for i := range 3 {
 			t.Logf("iteration %v", i)
-			prev := state.LastCommitQC()
 
 			t.Logf("Push some blocks.")
 			want := byLane[types.PayloadHash]{}
@@ -304,6 +304,7 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 			if err := state.PushCommitQC(ctx, qc); err != nil {
 				return fmt.Errorf("state.PushCommitQC(): %w", err)
 			}
+			prev = utils.Some(qc)
 
 			t.Logf("Check that a CommitQC was successfully reconstructed.")
 			got, err := state.fullCommitQC(ctx, qc.Index())
@@ -475,7 +476,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 		// all commitQCs in the batch are on disk. Block goroutines may still
 		// be in flight, but scope.Parallel in runPersist ensures they complete
 		// before the next batch, so the data is durable by scope exit.
-		if _, err := state.SubscribeConsensusSpec().Wait(ctx, func(spec types.ConsensusSpec) bool {
+		if _, err := state.ConsensusSpec().Wait(ctx, func(spec types.ConsensusSpec) bool {
 			commitQC, ok := spec.CommitQC.Get()
 			return ok && commitQC.Index()+1 > wantAppQCIdx
 		}); err != nil {
@@ -497,8 +498,8 @@ func TestStateRestartFromPersisted(t *testing.T) {
 	state2, err := NewState(keys[0], ds2, utils.Some(dir))
 	require.NoError(t, err)
 
-	_, ok := state2.LastCommitQC().Get()
-	require.True(t, ok, "LastCommitQC should be set after restart")
+	_, ok := state2.ConsensusSpec().Load().CommitQC.Get()
+	require.True(t, ok, "ConsensusSpec should contain a CommitQC after restart")
 
 	for lane := range committee.Lanes().All() {
 		require.Equal(t, wantNextBlocks[lane], state2.NextBlock(lane),
@@ -882,8 +883,8 @@ func TestNewStateWithPersistence(t *testing.T) {
 
 		// All 3 commitQCs should be loaded (no AppQC to skip past).
 		require.Equal(t, ep0.RoadRange().First, state.First())
-		// LastCommitQC should be set to the last loaded one.
-		require.NoError(t, utils.TestDiff(utils.Some(qcs[2]), state.LastCommitQC()))
+		// ConsensusSpec should contain the last loaded CommitQC.
+		require.NoError(t, utils.TestDiff(utils.Some(qcs[2]), state.ConsensusSpec().Load().CommitQC))
 	})
 
 	t.Run("non-contiguous commitQC files return error", func(t *testing.T) {
@@ -1009,7 +1010,8 @@ func TestPushCommitQC_MidEpochNoWait(t *testing.T) {
 	require.NoError(t, TestAdvanceToEpoch(t.Context(), state, keys, registry, 1))
 	ep := registry.MustEpoch(1)
 	// Epoch 2 is missing, but accepting a CommitQC inside epoch 1 must not wait for it.
-	qc := types.BuildCommitQC(ep, keys, state.LastCommitQC(), nil)
+	prev := testAnchorAt(registry.MustEpoch(0), ep, keys, registry.LastRoad(0)).CommitQC()
+	qc := types.BuildCommitQC(ep, keys, prev, nil)
 	require.Equal(t, ep.RoadRange().First, qc.Index())
 	leader := ep.Committee().Leader(qc.View()).ED25519().Address().String()
 	commits := gathered(t, "tendermint_internal_autobahn_consensus_commits", map[string]string{"leader": leader})
@@ -1027,7 +1029,7 @@ func TestPushCommitQC_StaleAfterAdvanceSoftDrops(t *testing.T) {
 	require.NoError(t, err)
 
 	ep1 := registry.MustEpoch(1)
-	require.NoError(t, TestAdvanceToEpoch(ctx, state, keys, registry, ep1.EpochIndex()))
+	require.NoError(t, TestAdvanceToEpoch(t.Context(), state, keys, registry, ep1.EpochIndex()))
 
 	ep0 := registry.MustEpoch(0)
 	before := nextRoad(state)
@@ -1054,6 +1056,10 @@ func TestAdvanceRequiresAnchorAndSeal(t *testing.T) {
 	// Road 4 seals epoch 1, but the spec cannot advance to 5 while epoch 2 is missing.
 	require.Equal(t, ep1, i.applied())
 	require.Equal(t, utils.Some(qc2), i.consensusSpec.Load().CommitQC)
+	// advance should be a noop while epoch 2 is missing.
+	spec := i.consensusSpec.Load()
+	i.advance()
+	require.Equal(t, spec, i.consensusSpec.Load())
 	// Moving the anchor to road 3 exposes epoch 2; persisted qc3 now justifies spec 5.
 	anchor = data.Anchor{Epochs: [2]*types.Epoch{ep1, ep2}, First: utils.Some(data.AnchorFirst{CommitQC: qc2, AppQC: data.TestAppQC(keys, types.NewAppProposal(qc2.View(), nil))})}
 	i.prune(anchor)
@@ -1098,7 +1104,7 @@ func pruneToAnchors(state *State, anchors []data.Anchor) *types.CommitQC {
 
 func requireSpec(t *testing.T, state *State, qc *types.CommitQC, idx types.EpochIndex) {
 	t.Helper()
-	spec := state.SubscribeConsensusSpec().Load()
+	spec := state.ConsensusSpec().Load()
 	require.Equal(t, qc.Index()+1, spec.Index())
 	require.Equal(t, idx, spec.Epoch.EpochIndex())
 }
@@ -1124,49 +1130,18 @@ func TestPruneAdvancesConsensusSpec(t *testing.T) {
 	}
 }
 
-func TestMarkCommitQCsPersistedAdvances(t *testing.T) {
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	state := utils.OrPanic1(NewState(keys[0], newTestDataState(&data.Config{Registry: registry}), utils.None[string]()))
-	ep := registry.MustEpoch(0)
-	// Let f be epoch 0's first road. qcA, qcB, qcC certify f, f+1, f+2.
-	qcA := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), nil)
-	qcB := types.BuildCommitQC(ep, keys, utils.Some(qcA), nil)
-	qcC := types.BuildCommitQC(ep, keys, utils.Some(qcB), nil)
-	// Receiving all three QCs leaves the spec at f until persistence advances.
-	for _, qc := range []*types.CommitQC{qcA, qcB, qcC} {
-		require.NoError(t, state.PushCommitQC(t.Context(), qc))
-	}
-	// Persisting qcA then qcB moves the spec to f+1 then f+2, still in epoch 0.
-	// qcC is not persisted, so the spec must not advance to f+3.
-	for _, qc := range []*types.CommitQC{qcA, qcB} {
-		state.markCommitQCsPersisted(qc)
-		requireSpec(t, state, qc, 0)
-	}
-}
-
-func TestMarkCommitQCsPersisted_DoesNotRewindPruneTip(t *testing.T) {
+func TestMarkCommitQCsPersistedDoesNotRewindSpecAfterPrune(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistryThrough(rng, 2, 3)
 	ds := newTestDataState(&data.Config{Registry: registry})
 	state, err := NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)
-
 	qc0 := types.BuildCommitQC(registry.MustEpoch(0), keys, utils.None[*types.CommitQC](), nil)
 	require.NoError(t, state.PushCommitQC(t.Context(), qc0))
 	state.markCommitQCsPersisted(qc0)
-
 	qc := pruneToAnchors(state, anchorWalk(t, registry, keys))
-	for inner := range state.inner.Lock() {
-		got, ok := inner.persistedCommitQC().Get()
-		require.True(t, ok)
-		require.Equal(t, qc.Index(), got.Index())
-	}
-
+	spec := state.ConsensusSpec().Load()
+	require.Equal(t, utils.Some(qc), spec.CommitQC)
 	state.markCommitQCsPersisted(qc0)
-	for inner := range state.inner.Lock() {
-		got, ok := inner.persistedCommitQC().Get()
-		require.True(t, ok)
-		require.Equal(t, qc.Index(), got.Index())
-	}
+	require.Equal(t, spec, state.ConsensusSpec().Load())
 }

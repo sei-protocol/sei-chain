@@ -11,25 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
-func TestNewInnerInitializesGenesisLanes(t *testing.T) {
-	rng := utils.TestRng()
-	registry, _ := epoch.GenRegistry(rng, 3)
-	anchor := data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}
-	i, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{})
-	require.NoError(t, err)
-	for lane := range anchor.Epochs[0].Committee().Lanes().All() {
-		blocks, hasBlocks := i.blocks[lane]
-		votes, hasVotes := i.votes[lane]
-		cursor, hasCursor := i.nextBlockToPersist[lane]
-		require.True(t, hasBlocks)
-		require.True(t, hasVotes)
-		require.True(t, hasCursor)
-		require.Equal(t, types.BlockNumber(0), blocks.next)
-		require.Equal(t, types.BlockNumber(0), votes.next)
-		require.Equal(t, types.BlockNumber(0), cursor)
-	}
-}
-
 func TestNewInnerInitializesBoundaryLanes(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
@@ -121,17 +102,18 @@ func TestRestartAcceptsFinalRoadCommitQC(t *testing.T) {
 	state, err := NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, state.Close()) })
-	require.Equal(t, ep, state.Epoch().Load())
-	require.Equal(t, registry.LastRoad(0), state.SubscribeConsensusSpec().Load().Index())
+	spec := state.ConsensusSpec().Load()
+	require.Equal(t, ep, spec.Epoch)
+	require.Equal(t, registry.LastRoad(0), spec.Index())
 	// Receiving the final CommitQC must not advance the spec before it is persisted.
 	last := types.BuildCommitQC(ep, keys, ds.Anchor().Load().CommitQC(), nil)
 	require.NoError(t, last.Verify(ep))
 	require.NoError(t, state.PushCommitQC(t.Context(), last))
 	require.Equal(t, last.Index()+1, nextRoad(state))
-	require.Equal(t, ep, state.Epoch().Load())
+	require.Equal(t, ep, state.ConsensusSpec().Load().Epoch)
 	// Persistence moves the spec to LastRoad(0)+1 in the already available epoch 1.
 	state.markCommitQCsPersisted(last)
-	spec, err := state.SubscribeConsensusSpec().Wait(t.Context(), func(spec types.ConsensusSpec) bool {
+	spec, err = state.ConsensusSpec().Wait(t.Context(), func(spec types.ConsensusSpec) bool {
 		return spec.Epoch.EpochIndex() == 1
 	})
 	require.NoError(t, err)

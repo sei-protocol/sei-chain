@@ -971,7 +971,7 @@ func TestRun(t *testing.T) {
 					return err
 				}
 			}
-			_, err = e.s.Avail().SubscribeConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
+			_, err = e.s.Avail().ConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
 				return sp.Index() > e.vs.View().Index
 			})
 			return err
