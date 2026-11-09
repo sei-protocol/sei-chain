@@ -52,6 +52,8 @@ type Metrics struct {
 	gigaConns prometheus.GaugeIntVec `metrics_labels:"direction"`
 	// Counts established giga p2p connections.
 	gigaNewConns prometheus.CounterIntVec `metrics_labels:"direction"`
+	// Counts state sync proof export sweeps that failed and will be retried.
+	gigaStateSyncProofExportFailures prometheus.CounterIntVec
 }
 
 type metricsLabelCache struct {

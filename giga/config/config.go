@@ -122,8 +122,8 @@ type RPCConfig struct {
 
 // StateSyncConfig is the [giga.state_sync] sub-table: whether this node uses giga state sync.
 type StateSyncConfig struct {
-	// Enabled allows the state-sync-snapshot create and restore commands on this node, and the
-	// seed of a restored home on start.
+	// Enabled allows the state-sync-snapshot create and restore commands, the state sync proof export, and the seed of
+	// a restored home.
 	Enabled bool `mapstructure:"enabled"`
 }
 

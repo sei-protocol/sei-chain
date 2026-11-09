@@ -1210,6 +1210,62 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 	require.NoError(t, db2.Close())
 }
 
+// TestAnchorCoversOnlyPersistedAppQC pins the contract the state sync proof exporter relies on:
+// every published Anchor covers an AppQC below persisted.NextAppQC, which runPersist advances
+// only after BlockStore.Flush, and that AppQC is readable from BlockStore.
+func TestAnchorCoversOnlyPersistedAppQC(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
+
+	db := newTestBlockStore(t, t.TempDir())
+	state := newTestState(t, &Config{Registry: registry}, db)
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		s.SpawnBgNamed("checkAnchor", func() error {
+			return utils.IgnoreCancel(state.Anchor().Iter(ctx, func(_ context.Context, anchor utils.Option[Anchor]) error {
+				a, ok := anchor.Get()
+				if !ok {
+					return nil
+				}
+				for inner := range state.inner.Lock() {
+					if index := a.AppQC.Proposal().Index(); index >= inner.persisted.NextAppQC {
+						return fmt.Errorf("Anchor covers AppQC %d, persisted.NextAppQC = %d", index, inner.persisted.NextAppQC)
+					}
+				}
+				return nil
+			}))
+		})
+		for _, push := range []struct {
+			qc     *types.FullCommitQC
+			blocks []*types.Block
+		}{{qc1, blocks1}, {qc2, blocks2}} {
+			if err := state.PushPartialBlock(ctx, push.qc, TestBlockMap(push.blocks)); err != nil {
+				return fmt.Errorf("PushPartialBlock(%d): %w", push.qc.Index(), err)
+			}
+			if err := state.PushAppHash(ctx, push.qc.Index(), types.GenAppHash(rng), nil); err != nil {
+				return fmt.Errorf("PushAppHash(%d): %w", push.qc.Index(), err)
+			}
+			if err := pushAppQCForBlock(ctx, state, keys, push.qc.Index()); err != nil {
+				return fmt.Errorf("pushAppQCForBlock(%d): %w", push.qc.Index(), err)
+			}
+		}
+		if _, err := state.Anchor().Wait(ctx, func(anchor utils.Option[Anchor]) bool {
+			a, ok := anchor.Get()
+			return ok && a.AppQC.Proposal().Index() >= qc2.Index()
+		}); err != nil {
+			return fmt.Errorf("state.Anchor.Wait(): %w", err)
+		}
+		return nil
+	}))
+
+	stored, err := db.ReadAppQC(qc2.Index())
+	require.NoError(t, err)
+	require.True(t, stored.IsPresent())
+}
+
 // TestPruningKeepsLastQCRange verifies BlockDB's never-empty prune: asking to
 // prune past the tip still leaves the newest cohort readable, and a consistent
 // range recovers from the QC start.

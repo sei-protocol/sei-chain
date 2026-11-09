@@ -59,6 +59,11 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 		s.Spawn(func() error { return r.runFullnodeSubscriber(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("pushAppHashes", func() error { return r.runPushAppHashes(ctx) })
+		if cfg, ok := r.cfg.StateSyncProofExport.Get(); ok {
+			s.SpawnNamed("stateSyncProofExport", func() error {
+				return runStateSyncProofExport(ctx, cfg, r.data.Registry().ClosingEpoch)
+			})
+		}
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		s.SpawnNamed("committeeMembers", func() error {
 			return r.runPerCommitteeMember(ctx, r.runEvmProxy)

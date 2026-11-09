@@ -312,6 +312,7 @@ func makeNode(
 		genDoc,
 		dbProvider,
 		gigaStorageManager,
+		opts.giga.StateSync,
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {

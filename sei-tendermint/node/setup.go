@@ -15,11 +15,14 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
@@ -294,6 +297,7 @@ func buildGigaRouter(
 	genDoc *types.GenesisDoc,
 	blockStore *ablockstore.Store,
 	appHashBuilder builder.AppHashBuilder,
+	stateSync gigaconfig.StateSyncConfig,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
@@ -335,6 +339,7 @@ func buildGigaRouter(
 		if err != nil {
 			return nil, err
 		}
+		configureStateSyncProofExport(&valCfg.GigaRouterCommonConfig, stateSync, stateDir, blockStore, dataState.Anchor())
 		giga, err := p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey), dataState)
 		if err != nil {
 			return nil, err
@@ -357,11 +362,32 @@ func buildGigaRouter(
 	if err != nil {
 		return nil, err
 	}
+	configureStateSyncProofExport(fnCfg, stateSync, stateDir, blockStore, dataState.Anchor())
 	giga, err := p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey), dataState)
 	if err != nil {
 		return nil, err
 	}
 	return giga, nil
+}
+
+func configureStateSyncProofExport(
+	cfg *p2p.GigaRouterCommonConfig,
+	stateSync gigaconfig.StateSyncConfig,
+	psd string,
+	blockStore *ablockstore.Store,
+	anchor utils.AtomicRecv[utils.Option[data.Anchor]],
+) {
+	if !stateSync.Enabled {
+		return
+	}
+	cfg.StateSyncProofExport = utils.Some(p2p.StateSyncProofExportConfig{
+		Dir: dbutils.GetStateSyncProofPath(psd),
+		CheckpointHeights: func() ([]int64, error) {
+			return flatkv.SnapshotVersions(dbutils.GetFlatKVPath(psd))
+		},
+		BlockStore: blockStore,
+		Anchor:     anchor,
+	})
 }
 
 // buildExecutor returns the Autobahn executor that runs the blocks in manager's
@@ -580,6 +606,7 @@ func createRouter(
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 	storageManager utils.Option[*bootstrap.GigaStorageManager],
+	stateSync gigaconfig.StateSyncConfig,
 ) (*p2p.Router, closer, utils.Option[*ablockstore.Store], error) {
 	closer := func() error { return nil }
 	noneDB := utils.None[*ablockstore.Store]()
@@ -649,7 +676,7 @@ func createRouter(
 		}
 		giga, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
-			manager.BlockStore(), manager.AppHashBuilder(),
+			manager.BlockStore(), manager.AppHashBuilder(), stateSync,
 		)
 		if err != nil {
 			return nil, closer, noneDB, err

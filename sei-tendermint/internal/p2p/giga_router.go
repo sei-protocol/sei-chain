@@ -50,6 +50,9 @@ type GigaRouterCommonConfig struct {
 	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
 	// peers. 0 rejects all; positive caps at n, up to maxInboundFullnodePeers.
 	MaxInboundFullnodePeers int
+	// StateSyncProofExport exports a state sync proof, RoadBlock(H) and AppQC(H), for each
+	// retained FlatKV checkpoint H. None disables the export.
+	StateSyncProofExport utils.Option[StateSyncProofExportConfig]
 
 	// Whether validator should proxy txs which do not belong to the local node.
 	EnableEvmProxy bool

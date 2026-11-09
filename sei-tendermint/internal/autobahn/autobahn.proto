@@ -368,6 +368,16 @@ message Epoch {
   optional uint64 next_road = 4; // required
 }
 
+// StateSyncProof is the packed BlockDB row of the proof road: the three
+// records a restored node writes into its empty BlockDB. The fourth record,
+// AppProposal, is app_qc's proposal.
+message StateSyncProof {
+  option (wireguard.sized) = true;
+  optional FullCommitQC commit_qc = 1; // required
+  repeated Block lane_blocks = 2 [(wireguard.max_count) = 1000];
+  optional AppQC app_qc = 3; // required
+}
+
 // Persisted epoch registry state.
 message PersistedEpochRegistry {
   reserved 1, 2;

@@ -20,6 +20,7 @@ func init() {
 		Global.queueDroppedMsgs,
 		Global.gigaConns,
 		Global.gigaNewConns,
+		Global.gigaStateSyncProofExportFailures,
 	)
 }
 
@@ -80,6 +81,12 @@ func NewMetrics() *Metrics {
 			Name:      "giga_new_conns",
 			Help:      "Counts established giga p2p connections.",
 		}, []string{"direction"}),
+		gigaStateSyncProofExportFailures: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "giga_state_sync_proof_export_failures",
+			Help:      "Counts state sync proof export sweeps that failed and will be retried.",
+		}, nil),
 	}
 }
 
@@ -117,4 +124,8 @@ func (m *Metrics) gigaConnsAt(direction string) *tmprometheus.GaugeInt {
 
 func (m *Metrics) gigaNewConnsAt(direction string) *tmprometheus.CounterInt {
 	return m.gigaNewConns.WithLabelValues(direction)
+}
+
+func (m *Metrics) gigaStateSyncProofExportFailuresAt() *tmprometheus.CounterInt {
+	return m.gigaStateSyncProofExportFailures.WithLabelValues()
 }
