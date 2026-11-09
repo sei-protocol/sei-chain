@@ -39,7 +39,7 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 // CallAt it persists no state change; a revert's data is returned alongside
 // the error.
 func (e *Executor) EstimateGasAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, msg *core.Message, gasCap uint64, overrides CallOverrides) (uint64, []byte, error) {
-	return e.estimateGasAfterCallsAt(ctx, view, blockCtx, nil, msg, gasCap, overrides)
+	return e.EstimateGasAfterCallsAt(ctx, view, blockCtx, nil, msg, gasCap, overrides)
 }
 
 // EstimateGasAfterCalls returns what EstimateGas returns for msg against the current committed
@@ -50,13 +50,13 @@ func (e *Executor) EstimateGasAfterCalls(ctx context.Context, blockCtx BlockCont
 		return 0, nil, err
 	}
 	defer snapshot.Close()
-	return e.estimateGasAfterCallsAt(ctx, snapshot, blockCtx, calls, msg, gasCap, CallOverrides{})
+	return e.EstimateGasAfterCallsAt(ctx, snapshot, blockCtx, calls, msg, gasCap, CallOverrides{})
 }
 
-// estimateGasAfterCallsAt returns what EstimateGasAt returns for msg against the state view holds,
+// EstimateGasAfterCallsAt returns what EstimateGasAt returns for msg against the state view holds,
 // with overrides applied and then calls applied, in order. A call that fails in the EVM leaves the
 // state as a failed transaction would; one that cannot be applied at all fails the estimate.
-func (e *Executor) estimateGasAfterCallsAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, calls []*core.Message, msg *core.Message, gasCap uint64, overrides CallOverrides) (uint64, []byte, error) {
+func (e *Executor) EstimateGasAfterCallsAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, calls []*core.Message, msg *core.Message, gasCap uint64, overrides CallOverrides) (uint64, []byte, error) {
 	chainConfig := e.chainConfig(blockCtx)
 	if err := validateBlockContext(chainConfig, blockCtx); err != nil {
 		return 0, nil, err

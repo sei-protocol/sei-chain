@@ -66,13 +66,25 @@ func (app *testEVMApp) EvmEstimateGasAt(_ context.Context, msg *ethcore.Message,
 	return 22_000, []byte{0x02}, nil
 }
 
-func (app *testEVMApp) EvmEstimateGasAfterCalls(_ context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
+func (app *testEVMApp) EvmEstimateGasAfterCalls(_ context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+	app.gotOverrides = overrides
 	app.gotCalls, app.gotMsg, app.gotGasCap = calls, msg, gasCap
 	return 42_000, []byte{0x02}, nil
 }
 
+func (app *testEVMApp) EvmEstimateGasAfterCallsAt(_ context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+	app.gotOverrides = overrides
+	app.gotCalls, app.gotMsg, app.gotGasCap, app.gotHeader = calls, msg, gasCap, header
+	return 43_000, []byte{0x03}, nil
+}
+
 func (app *testEVMApp) EvmCreateAccessList(_ context.Context, msg *ethcore.Message) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
 	app.gotMsg = msg
+	return testAccessList, testExecutionResult, nil
+}
+
+func (app *testEVMApp) EvmCreateAccessListAt(_ context.Context, msg *ethcore.Message, header *ethtypes.Header) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
+	app.gotMsg, app.gotHeader = msg, header
 	return testAccessList, testExecutionResult, nil
 }
 
@@ -163,7 +175,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 	t.Run("estimate gas after calls", func(t *testing.T) {
 		// Test: EvmEstimateGasAfterCalls with one prior call and a gas cap.
 		calls := []*ethcore.Message{{GasLimit: 30_000}}
-		got, revert, err := env.EvmEstimateGasAfterCalls(t.Context(), calls, msg, 10_000_000)
+		got, revert, err := env.EvmEstimateGasAfterCalls(t.Context(), calls, msg, 10_000_000, testOverrides)
 
 		// Verify: the app's estimate and revert data are returned for the calls, message and cap.
 		require.NoError(t, err)
@@ -171,7 +183,26 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, []byte{0x02}, revert)
 		require.Equal(t, calls, app.gotCalls)
 		require.Equal(t, msg, app.gotMsg)
+		require.Equal(t, testOverrides, app.gotOverrides)
 		require.Equal(t, uint64(10_000_000), app.gotGasCap)
+	})
+
+	t.Run("past block estimate gas after calls", func(t *testing.T) {
+		header := &ethtypes.Header{Number: big.NewInt(7)}
+		calls := []*ethcore.Message{{GasLimit: 30_000}}
+
+		// Test: EvmEstimateGasAfterCallsAt with one prior call and a gas cap.
+		got, revert, err := env.EvmEstimateGasAfterCallsAt(t.Context(), calls, msg, 10_000_000, header, testOverrides)
+
+		// Verify: the app's estimate and revert data are returned for the calls, message, cap and block.
+		require.NoError(t, err)
+		require.Equal(t, uint64(43_000), got)
+		require.Equal(t, []byte{0x03}, revert)
+		require.Equal(t, calls, app.gotCalls)
+		require.Equal(t, msg, app.gotMsg)
+		require.Equal(t, testOverrides, app.gotOverrides)
+		require.Equal(t, uint64(10_000_000), app.gotGasCap)
+		require.Equal(t, header, app.gotHeader)
 	})
 
 	t.Run("create access list", func(t *testing.T) {
@@ -183,6 +214,20 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, testAccessList, accessList)
 		require.Equal(t, testExecutionResult, result)
 		require.Equal(t, msg, app.gotMsg)
+	})
+
+	t.Run("past block create access list", func(t *testing.T) {
+		header := &ethtypes.Header{Number: big.NewInt(8)}
+
+		// Test: EvmCreateAccessListAt.
+		accessList, result, err := env.EvmCreateAccessListAt(t.Context(), msg, header)
+
+		// Verify: the app's access list and result are returned for the message and block passed in.
+		require.NoError(t, err)
+		require.Equal(t, testAccessList, accessList)
+		require.Equal(t, testExecutionResult, result)
+		require.Equal(t, msg, app.gotMsg)
+		require.Equal(t, header, app.gotHeader)
 	})
 
 	t.Run("execution parameters", func(t *testing.T) {

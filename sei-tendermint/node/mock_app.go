@@ -192,12 +192,22 @@ func (app *MockApp) EvmEstimateGasAt(context.Context, *ethcore.Message, uint64, 
 }
 
 // EvmEstimateGasAfterCalls always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmEstimateGasAfterCalls(context.Context, []*ethcore.Message, *ethcore.Message, uint64) (uint64, []byte, error) {
+func (app *MockApp) EvmEstimateGasAfterCalls(context.Context, []*ethcore.Message, *ethcore.Message, uint64, evmonly.CallOverrides) (uint64, []byte, error) {
+	return 0, nil, errMockAppNoExecution
+}
+
+// EvmEstimateGasAfterCallsAt always errors: the mock app keeps no EVM state to execute against.
+func (app *MockApp) EvmEstimateGasAfterCallsAt(context.Context, []*ethcore.Message, *ethcore.Message, uint64, *ethtypes.Header, evmonly.CallOverrides) (uint64, []byte, error) {
 	return 0, nil, errMockAppNoExecution
 }
 
 // EvmCreateAccessList always errors: the mock app keeps no EVM state to execute against.
 func (app *MockApp) EvmCreateAccessList(context.Context, *ethcore.Message) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
+	return nil, nil, errMockAppNoExecution
+}
+
+// EvmCreateAccessListAt always errors: the mock app keeps no EVM state to execute against.
+func (app *MockApp) EvmCreateAccessListAt(context.Context, *ethcore.Message, *ethtypes.Header) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
 	return nil, nil, errMockAppNoExecution
 }
 
