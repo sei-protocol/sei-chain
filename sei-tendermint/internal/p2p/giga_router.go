@@ -51,7 +51,8 @@ type GigaRouterCommonConfig struct {
 	// peers outside PersistentPeerIDs. 0 rejects every such peer; a positive
 	// value caps at n, up to maxInboundFullnodePeers.
 	MaxInboundFullnodePeers int
-	// PersistentPeerIDs are p2p node IDs that do not consume MaxInboundFullnodePeers.
+	// PersistentPeerIDs are node IDs from p2p.persistent-peers and
+	// p2p.blocksync-peers. They do not consume MaxInboundFullnodePeers.
 	PersistentPeerIDs map[types.NodeID]struct{}
 
 	// Whether validator should proxy txs which do not belong to the local node.
