@@ -29,6 +29,9 @@ type GigaStorageConfig struct {
 // gigaReceiptBackend is the receipt backend Giga opens (littidx).
 const gigaReceiptBackend = "littidx"
 
+// gigaFlatKVViewShards is the view shard count of the giga FlatKV account and storage databases.
+const gigaFlatKVViewShards = 64
+
 // DefaultGigaStorageConfig returns a config rooted at homePath:
 //
 //	data/state_commit/flatkv
@@ -47,6 +50,8 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	flatKV := flatkvConfig.DefaultConfig()
 	flatKV.DataDir = utils.GetFlatKVPath(homePath)
 	flatKV.ExternalPruning = true
+	flatKV.AccountStoreConfig.ShardCount = gigaFlatKVViewShards
+	flatKV.StorageStoreConfig.ShardCount = gigaFlatKVViewShards
 
 	ssConfig := DefaultStateStoreConfig()
 	ssConfig.EVMDBDirectory = utils.GetEVMStateStorePath(homePath, ssConfig.Backend)

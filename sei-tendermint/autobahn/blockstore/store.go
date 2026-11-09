@@ -2,6 +2,7 @@
 package blockstore
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"slices"
@@ -34,10 +35,19 @@ const tableName = "blocks"
 // nothing. Reads below First return ErrPruned; absent records at or above First
 // return None. Hash lookups return None for unknown or pruned SuperBlocks.
 type Store struct {
-	status utils.Mutex[*utils.Option[SuffixRange]]
+	status utils.Watch[*storeStatus]
 	first  atomic.Uint64
 	db     littdb.DB
 	table  littdb.Table
+}
+
+// storeStatus is the store's write cursors and the road blocks they cover.
+type storeStatus struct {
+	suffix utils.Option[SuffixRange]
+	// blocks holds the road blocks of roads [suffix.First, suffix.NextBlock).
+	blocks map[types.RoadIndex]*types.RoadBlock
+	// nextDurable is the lowest road whose block is not durable yet.
+	nextDurable types.RoadIndex
 }
 
 // SuffixRange contains the road cursors restored by startup recovery.
@@ -74,7 +84,7 @@ func New(config *Config) (*Store, error) {
 		return nil, fmt.Errorf("littbuilder.NewDB(): %w", err)
 	}
 
-	s := &Store{db: db, status: utils.NewMutex(new(utils.Option[SuffixRange]))}
+	s := &Store{db: db, status: utils.NewWatch(&storeStatus{blocks: map[types.RoadIndex]*types.RoadBlock{}})}
 	Global.pruneWatermarkAt().Set(0)
 
 	// Every record kind lives in one table with a single write shard. The store
@@ -278,8 +288,14 @@ func (s *Store) readSuffix() (Suffix, error) {
 
 // Flush makes all previously returned writes durable.
 func (s *Store) Flush() error {
+	// Every block below next was written before the flush, so the flush covers it.
+	next := s.nextBlock()
 	if err := s.table.Flush(); err != nil {
 		return fmt.Errorf("s.table.Flush(): %w", err)
+	}
+	for status, ctrl := range s.status.Lock() {
+		status.nextDurable = max(status.nextDurable, next)
+		ctrl.Updated()
 	}
 	return nil
 }
@@ -296,7 +312,7 @@ func (s *Store) WriteBlock(block *types.RoadBlock) error {
 	index := block.QC().Index()
 
 	for status := range s.status.Lock() {
-		current, ok := status.Get()
+		current, ok := status.suffix.Get()
 		if !ok {
 			current = SuffixRange{
 				First:           index,
@@ -317,7 +333,8 @@ func (s *Store) WriteBlock(block *types.RoadBlock) error {
 			s.setPruneWatermark(index)
 		}
 		current.NextBlock = index + 1
-		*status = utils.Some(current)
+		status.suffix = utils.Some(current)
+		status.blocks[index] = block
 		return nil
 	}
 	panic("unreachable")
@@ -326,7 +343,7 @@ func (s *Store) WriteBlock(block *types.RoadBlock) error {
 func (s *Store) WriteAppQC(appQC *types.AppQC) error {
 	index := appQC.Proposal().Index()
 	for status := range s.status.Lock() {
-		current, ok := status.Get()
+		current, ok := status.suffix.Get()
 		if !ok || current.NextAppProposal <= index {
 			return fmt.Errorf("AppQC %d: %w", index, types.ErrMissingAppProposal)
 		}
@@ -339,9 +356,14 @@ func (s *Store) WriteAppQC(appQC *types.AppQC) error {
 		if err := s.table.Put(record.Key.bytes(), record.Value, record.Aliases...); err != nil {
 			return fmt.Errorf("s.table.Put(%x): %w", record.Key.bytes(), err)
 		}
+		// An AppQC follows the local AppProposal, which follows local execution,
+		// so execution needs no block below it.
+		for n := current.First; n < index; n++ {
+			delete(status.blocks, n)
+		}
 		current.First = index
 		current.NextAppQC = index + 1
-		*status = utils.Some(current)
+		status.suffix = utils.Some(current)
 		return nil
 	}
 	panic("unreachable")
@@ -353,7 +375,7 @@ func (s *Store) WriteAppProposal(appProposal *types.AppProposal) error {
 		return fmt.Errorf("road index cannot advance: %w", types.ErrUnexpectedIndex)
 	}
 	for status := range s.status.Lock() {
-		current, ok := status.Get()
+		current, ok := status.suffix.Get()
 		if !ok || current.NextBlock <= index {
 			return fmt.Errorf("AppProposal %d: %w", index, types.ErrMissingQC)
 		}
@@ -367,7 +389,7 @@ func (s *Store) WriteAppProposal(appProposal *types.AppProposal) error {
 			return fmt.Errorf("s.table.Put(%x): %w", record.Key.bytes(), err)
 		}
 		current.NextAppProposal = index + 1
-		*status = utils.Some(current)
+		status.suffix = utils.Some(current)
 		return nil
 	}
 	panic("unreachable")
@@ -502,9 +524,42 @@ func (s *Store) ReadAppQC(n types.RoadIndex) (utils.Option[*types.AppQC], error)
 	return utils.Some(appQC), nil
 }
 
+// nextBlock returns the road of the next block to write, or 0 when the store is empty.
+func (s *Store) nextBlock() types.RoadIndex {
+	if current, ok := s.Status().Get(); ok {
+		return current.NextBlock
+	}
+	return 0
+}
+
+// WaitForBlock returns the block of road n, waiting until a Flush has made it
+// durable. It returns ErrPruned when n is below First.
+func (s *Store) WaitForBlock(ctx context.Context, n types.RoadIndex) (*types.RoadBlock, error) {
+	for status, ctrl := range s.status.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < status.nextDurable }); err != nil {
+			return nil, err
+		}
+		if n < s.First() {
+			return nil, types.ErrPruned
+		}
+		if block, ok := status.blocks[n]; ok {
+			return block, nil
+		}
+	}
+	stored, err := s.ReadBlock(n)
+	if err != nil {
+		return nil, fmt.Errorf("ReadBlock(%d): %w", n, err)
+	}
+	block, ok := stored.Get()
+	if !ok {
+		return nil, fmt.Errorf("block %d: %w", n, types.ErrNotFound)
+	}
+	return block, nil
+}
+
 func (s *Store) Status() utils.Option[SuffixRange] {
 	for status := range s.status.Lock() {
-		return *status
+		return status.suffix
 	}
 	panic("unreachable")
 }
@@ -516,7 +571,13 @@ func (s *Store) restore(first types.RoadIndex, suffix Suffix) error {
 		return err
 	}
 	for status := range s.status.Lock() {
-		*status = suffix.Status
+		status.suffix = suffix.Status
+		for _, block := range suffix.Blocks {
+			status.blocks[block.QC().Index()] = block
+		}
+		if current, ok := suffix.Status.Get(); ok {
+			status.nextDurable = current.NextBlock
+		}
 		s.first.Store(uint64(first))
 		Global.pruneWatermarkAt().Set(utils.Clamp[int64](first))
 	}

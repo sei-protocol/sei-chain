@@ -12,8 +12,10 @@
 package query
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
+	resyntax "regexp/syntax"
 	"strconv"
 	"strings"
 	"time"
@@ -56,8 +58,9 @@ func MustCompile(query string) *Query {
 // Compile compiles the given query AST so it can be used to match events.
 func Compile(ast syntax.Query) (*Query, error) {
 	conds := make([]condition, len(ast))
+	regexpBudget := maxRegexpSize
 	for i, q := range ast {
-		cond, err := compileCondition(q)
+		cond, err := compileCondition(q, &regexpBudget)
 		if err != nil {
 			return nil, fmt.Errorf("compile %s: %w", q, err)
 		}
@@ -155,7 +158,7 @@ func (c condition) matchesEvent(event types.Event) bool {
 	return false
 }
 
-func compileCondition(cond syntax.Condition) (condition, error) {
+func compileCondition(cond syntax.Condition, regexpBudget *int) (condition, error) {
 	out := condition{tag: cond.Tag}
 
 	// Handle existence checks separately to simplify the logic below for
@@ -177,6 +180,13 @@ func compileCondition(cond syntax.Condition) (condition, error) {
 	switch argType {
 	case syntax.TString:
 		argValue = cond.Arg.Value()
+		if cond.Op == syntax.TMatches {
+			re, err := compileRegexp(cond.Arg.Value(), regexpBudget)
+			if err != nil {
+				return condition{}, fmt.Errorf("invalid regular expression: %w", err)
+			}
+			argValue = re
+		}
 	case syntax.TNumber:
 		argValue = cond.Arg.Number()
 	case syntax.TTime, syntax.TDate:
@@ -191,6 +201,43 @@ func compileCondition(cond syntax.Condition) (condition, error) {
 	}
 	out.match = mcons(argValue)
 	return out, nil
+}
+
+// maxRegexpSize is the maximum total estimated program size of the MATCHES
+// patterns in a query.
+const maxRegexpSize = 500
+
+// compileRegexp compiles pattern and deducts its estimated size from budget.
+func compileRegexp(pattern string, budget *int) (*regexp.Regexp, error) {
+	re, err := resyntax.Parse(pattern, resyntax.Perl)
+	if err != nil {
+		return nil, err
+	}
+	size := regexpSize(re)
+	if size > *budget {
+		return nil, errors.New("patterns are too large")
+	}
+	*budget -= size
+	return regexp.Compile(pattern)
+}
+
+// regexpSize estimates the size of the program re compiles to, counting its
+// instructions and character class ranges.
+func regexpSize(re *resyntax.Regexp) int {
+	var size int
+	switch re.Op {
+	case resyntax.OpLiteral:
+		size = len(re.Rune)
+	case resyntax.OpCharClass:
+		size = len(re.Rune) / 2
+	}
+	for _, sub := range re.Sub {
+		size += regexpSize(sub) + 1
+	}
+	if re.Op == resyntax.OpRepeat {
+		size *= max(re.Min, re.Max, 1)
+	}
+	return max(size, 1)
 }
 
 // TODO(creachadair): The existing implementation allows anything number shaped
@@ -218,10 +265,7 @@ var opTypeMap = map[syntax.Token]map[syntax.Token]func(interface{}) func(string)
 	},
 	syntax.TMatches: {
 		syntax.TString: func(v interface{}) func(string) bool {
-			return func(s string) bool {
-				match, _ := regexp.MatchString(v.(string), s)
-				return match
-			}
+			return v.(*regexp.Regexp).MatchString
 		},
 	},
 	syntax.TEq: {

@@ -14,9 +14,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// TODO(gprusak): RoadBlock sizes can vary a lot,
-// switch back to limiting data state based on lane blocks, rather than RoadBlocks.
-const qcsCacheSize = 100
+const maxLaneBlock = 1000
+const maxRoadBlocks = 100
 
 // ErrOutOfOrder is returned when PushAppHash receives an app hash past the
 // next CommitQC range waiting for execution.
@@ -56,10 +55,11 @@ func (e *blockEntry) FullBlock() utils.Option[*types.RoadBlock] {
 }
 
 type inner struct {
-	blocks       map[types.RoadIndex]*blockEntry               // [first, nextPartialBlock)
-	appProposals map[types.RoadIndex]*types.AppProposal        // [first, nextAppProposal)
-	appQCs       map[types.RoadIndex]*types.AppQC              // [first, nextAppQC)
-	byHash       map[types.RoadBlockHeaderHash]types.RoadIndex // all blocks (including partial ones) by RoadBlockHeaderHash.
+	blocks         map[types.RoadIndex]*blockEntry               // [first, nextPartialBlock)
+	appProposals   map[types.RoadIndex]*types.AppProposal        // [first, nextAppProposal)
+	appQCs         map[types.RoadIndex]*types.AppQC              // [first, nextAppQC)
+	byHash         map[types.RoadBlockHeaderHash]types.RoadIndex // all blocks (including partial ones) by RoadBlockHeaderHash.
+	laneBlockCount uint64                                        // Total lane blocks (present and missing) of all partial and full blocks.
 
 	// first is the inclusive low end of retained in-memory state: maps keep [first, next*).
 	// Advanced by runPersist(). Durable copies below first live in BlockStore.
@@ -278,6 +278,7 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 		}
 		inner.byHash[block.Header().Hash()] = n
 		inner.blocks[n] = &blockEntry{qc: block.QC(), epoch: epoch, laneBlocks: laneBlocks}
+		inner.laneBlockCount += uint64(len(block.QC().Headers()))
 		inner.nextPartialBlock += 1
 		inner.nextFullBlock += 1
 	}
@@ -340,12 +341,19 @@ func (s *State) activateStagedEpoch() error {
 // PushPartialBlock pushes FullCommitQC and a subset of blocks that were finalized by it.
 // Pushing the qc and blocks is atomic, so that no unnecessary GetBlock RPCs are issued.
 // Even if the qc was already pushed earlier, the blocks are pushed anyway.
+// New QCs wait for lane-block and roadblock capacity, while always allowing two retained roadblocks.
 func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, blocks map[uint64]*types.Block) error {
 	n := qc.Index()
 	nextFullBlock, nextPartialBlock, err := func() (types.RoadIndex, types.RoadIndex, error) {
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return n <= min(inner.nextPartialBlock, inner.first+qcsCacheSize-1)
+				// Wait until either we already have the road block, or until this is the next road block AND we have capacity.
+				// We have capacity iff road/lane block limits allow another road block OR we have <2 road blocks.
+				// Count road blocks separately to account for empty road blocks.
+				// For liveness we need to be able to keep in data state at least 2 road blocks,
+				// because we always keep 1 executed block.
+				hasCapacity := len(inner.blocks) < 2 || (len(inner.blocks) < maxRoadBlocks && inner.laneBlockCount <= maxLaneBlock)
+				return n < inner.nextPartialBlock || (n == inner.nextPartialBlock && hasCapacity)
 			}); err != nil {
 				return 0, 0, err
 			}
@@ -383,6 +391,7 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 		if inner.nextPartialBlock == n {
 			updated = true
 			inner.blocks[n] = &blockEntry{qc: qc, epoch: ep, laneBlocks: make(map[uint64]*types.Block, len(qc.Headers()))}
+			inner.laneBlockCount += uint64(len(qc.Headers()))
 			inner.byHash[qc.Header().Hash()] = n
 			inner.nextPartialBlock += 1
 			inner.publishNextCommitEpoch(s.cfg.Registry)
@@ -697,10 +706,6 @@ func (s *State) stageClosingEpoch(n types.RoadIndex, weights map[types.PublicKey
 	return nil
 }
 
-func (s *State) PushGasUsed(gasUsed int64) {
-	s.metrics.GasUsed.Add(gasUsed)
-}
-
 // AppVote returns an appVote for a block >= n.
 // Vote is available ONLY once AppHash has been pushed AND persisted.
 // This prevents any possible equivocation and ensures that local node has the executed blocks persisted (since nextAppProposa <= nextFullBlock).
@@ -899,6 +904,7 @@ func (s *State) runPersist(ctx context.Context, writeAppProposal func(*types.App
 					s.metrics.TxLatency.Evict.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 				}
 				delete(inner.byHash, e.qc.Header().Hash())
+				inner.laneBlockCount -= uint64(len(e.qc.Headers()))
 				delete(inner.blocks, inner.first)
 				delete(inner.appQCs, inner.first)
 				delete(inner.appProposals, inner.first)

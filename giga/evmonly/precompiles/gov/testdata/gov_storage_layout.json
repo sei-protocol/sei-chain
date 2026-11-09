@@ -1,99 +1,91 @@
 {
   "storage": [
     {
-      "astId": 96,
-      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+      "astId": 73,
+      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
       "label": "lastProposalId",
       "offset": 0,
       "slot": "0",
       "type": "t_uint64"
     },
     {
-      "astId": 98,
-      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+      "astId": 75,
+      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
       "label": "startingProposalId",
       "offset": 8,
       "slot": "0",
       "type": "t_uint64"
     },
     {
-      "astId": 101,
-      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
-      "label": "params",
-      "offset": 0,
-      "slot": "1",
-      "type": "t_struct(Params)94_storage"
-    },
-    {
-      "astId": 106,
-      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+      "astId": 80,
+      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
       "label": "proposals",
       "offset": 0,
-      "slot": "7",
-      "type": "t_mapping(t_uint64,t_struct(Proposal)41_storage)"
+      "slot": "1",
+      "type": "t_mapping(t_uint64,t_struct(Proposal)39_storage)"
     },
     {
-      "astId": 114,
-      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+      "astId": 88,
+      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
       "label": "votes",
       "offset": 0,
-      "slot": "8",
-      "type": "t_mapping(t_uint64,t_mapping(t_address,t_array(t_struct(WeightedVote)10_storage)dyn_storage))"
+      "slot": "2",
+      "type": "t_mapping(t_uint64,t_mapping(t_address,t_array(t_struct(WeightedVote)8_storage)dyn_storage))"
     },
     {
-      "astId": 120,
-      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+      "astId": 94,
+      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
       "label": "deposits",
       "offset": 0,
-      "slot": "9",
+      "slot": "3",
       "type": "t_mapping(t_uint64,t_mapping(t_address,t_uint256))"
     },
     {
-      "astId": 125,
-      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+      "astId": 99,
+      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
       "label": "depositors",
       "offset": 0,
-      "slot": "10",
-      "type": "t_mapping(t_uint64,t_struct(AddressSet)50_storage)"
+      "slot": "4",
+      "type": "t_mapping(t_uint64,t_struct(AddressSet)48_storage)"
     },
     {
-      "astId": 128,
-      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+      "astId": 102,
+      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
       "label": "votingQueue",
       "offset": 0,
-      "slot": "11",
-      "type": "t_struct(ProposalQueue)59_storage"
+      "slot": "5",
+      "type": "t_struct(ProposalQueue)57_storage"
     },
     {
-      "astId": 131,
-      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+      "astId": 105,
+      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
       "label": "depositQueue",
       "offset": 0,
-      "slot": "13",
-      "type": "t_struct(ProposalQueue)59_storage"
+      "slot": "7",
+      "type": "t_struct(ProposalQueue)57_storage"
     },
     {
-      "astId": 136,
-      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+      "astId": 110,
+      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
       "label": "votersByProposal",
       "offset": 0,
-      "slot": "15",
-      "type": "t_mapping(t_uint64,t_struct(AddressSet)50_storage)"
+      "slot": "9",
+      "type": "t_mapping(t_uint64,t_struct(AddressSet)48_storage)"
     },
     {
-      "astId": 141,
-      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+      "astId": 115,
+      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
       "label": "tallies",
       "offset": 0,
-      "slot": "16",
-      "type": "t_mapping(t_uint64,t_struct(Tally)73_storage)"
+      "slot": "10",
+      "type": "t_mapping(t_uint64,t_struct(Tally)71_storage)"
     },
     {
-      "astId": 147,
-      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+      "astId": 121,
+      "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
       "label": "tallyDeductions",
       "offset": 0,
-      "slot": "17",
+      "slot": "11",
       "type": "t_mapping(t_uint64,t_mapping(t_address,t_uint256))"
     }
   ],
@@ -109,11 +101,11 @@
       "numberOfBytes": "32",
       "base": "t_address"
     },
-    "t_array(t_struct(WeightedVote)10_storage)dyn_storage": {
+    "t_array(t_struct(WeightedVote)8_storage)dyn_storage": {
       "encoding": "dynamic_array",
       "label": "struct GovStorage.WeightedVote[]",
       "numberOfBytes": "32",
-      "base": "t_struct(WeightedVote)10_storage"
+      "base": "t_struct(WeightedVote)8_storage"
     },
     "t_array(t_uint256)4_storage": {
       "encoding": "inplace",
@@ -142,12 +134,12 @@
       "label": "int32",
       "numberOfBytes": "4"
     },
-    "t_mapping(t_address,t_array(t_struct(WeightedVote)10_storage)dyn_storage)": {
+    "t_mapping(t_address,t_array(t_struct(WeightedVote)8_storage)dyn_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct GovStorage.WeightedVote[])",
       "numberOfBytes": "32",
-      "value": "t_array(t_struct(WeightedVote)10_storage)dyn_storage"
+      "value": "t_array(t_struct(WeightedVote)8_storage)dyn_storage"
     },
     "t_mapping(t_address,t_uint256)": {
       "encoding": "mapping",
@@ -163,12 +155,12 @@
       "numberOfBytes": "32",
       "value": "t_uint256"
     },
-    "t_mapping(t_uint64,t_mapping(t_address,t_array(t_struct(WeightedVote)10_storage)dyn_storage))": {
+    "t_mapping(t_uint64,t_mapping(t_address,t_array(t_struct(WeightedVote)8_storage)dyn_storage))": {
       "encoding": "mapping",
       "key": "t_uint64",
       "label": "mapping(uint64 => mapping(address => struct GovStorage.WeightedVote[]))",
       "numberOfBytes": "32",
-      "value": "t_mapping(t_address,t_array(t_struct(WeightedVote)10_storage)dyn_storage)"
+      "value": "t_mapping(t_address,t_array(t_struct(WeightedVote)8_storage)dyn_storage)"
     },
     "t_mapping(t_uint64,t_mapping(t_address,t_uint256))": {
       "encoding": "mapping",
@@ -177,43 +169,43 @@
       "numberOfBytes": "32",
       "value": "t_mapping(t_address,t_uint256)"
     },
-    "t_mapping(t_uint64,t_struct(AddressSet)50_storage)": {
+    "t_mapping(t_uint64,t_struct(AddressSet)48_storage)": {
       "encoding": "mapping",
       "key": "t_uint64",
       "label": "mapping(uint64 => struct GovStorage.AddressSet)",
       "numberOfBytes": "32",
-      "value": "t_struct(AddressSet)50_storage"
+      "value": "t_struct(AddressSet)48_storage"
     },
-    "t_mapping(t_uint64,t_struct(Proposal)41_storage)": {
+    "t_mapping(t_uint64,t_struct(Proposal)39_storage)": {
       "encoding": "mapping",
       "key": "t_uint64",
       "label": "mapping(uint64 => struct GovStorage.Proposal)",
       "numberOfBytes": "32",
-      "value": "t_struct(Proposal)41_storage"
+      "value": "t_struct(Proposal)39_storage"
     },
-    "t_mapping(t_uint64,t_struct(Tally)73_storage)": {
+    "t_mapping(t_uint64,t_struct(Tally)71_storage)": {
       "encoding": "mapping",
       "key": "t_uint64",
       "label": "mapping(uint64 => struct GovStorage.Tally)",
       "numberOfBytes": "32",
-      "value": "t_struct(Tally)73_storage"
+      "value": "t_struct(Tally)71_storage"
     },
-    "t_struct(AddressSet)50_storage": {
+    "t_struct(AddressSet)48_storage": {
       "encoding": "inplace",
       "label": "struct GovStorage.AddressSet",
       "numberOfBytes": "64",
       "members": [
         {
-          "astId": 45,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 43,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "values",
           "offset": 0,
           "slot": "0",
           "type": "t_array(t_address)dyn_storage"
         },
         {
-          "astId": 49,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 47,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "positions",
           "offset": 0,
           "slot": "1",
@@ -221,205 +213,118 @@
         }
       ]
     },
-    "t_struct(Params)94_storage": {
-      "encoding": "inplace",
-      "label": "struct GovStorage.Params",
-      "numberOfBytes": "192",
-      "members": [
-        {
-          "astId": 75,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
-          "label": "votingPeriod",
-          "offset": 0,
-          "slot": "0",
-          "type": "t_uint64"
-        },
-        {
-          "astId": 77,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
-          "label": "expeditedVotingPeriod",
-          "offset": 8,
-          "slot": "0",
-          "type": "t_uint64"
-        },
-        {
-          "astId": 79,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
-          "label": "minDeposit",
-          "offset": 0,
-          "slot": "1",
-          "type": "t_uint256"
-        },
-        {
-          "astId": 81,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
-          "label": "maxDepositPeriod",
-          "offset": 0,
-          "slot": "2",
-          "type": "t_uint64"
-        },
-        {
-          "astId": 83,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
-          "label": "minExpeditedDeposit",
-          "offset": 0,
-          "slot": "3",
-          "type": "t_uint256"
-        },
-        {
-          "astId": 85,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
-          "label": "quorum",
-          "offset": 0,
-          "slot": "4",
-          "type": "t_uint64"
-        },
-        {
-          "astId": 87,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
-          "label": "threshold",
-          "offset": 8,
-          "slot": "4",
-          "type": "t_uint64"
-        },
-        {
-          "astId": 89,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
-          "label": "vetoThreshold",
-          "offset": 16,
-          "slot": "4",
-          "type": "t_uint64"
-        },
-        {
-          "astId": 91,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
-          "label": "expeditedQuorum",
-          "offset": 24,
-          "slot": "4",
-          "type": "t_uint64"
-        },
-        {
-          "astId": 93,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
-          "label": "expeditedThreshold",
-          "offset": 0,
-          "slot": "5",
-          "type": "t_uint64"
-        }
-      ]
-    },
-    "t_struct(Proposal)41_storage": {
+    "t_struct(Proposal)39_storage": {
       "encoding": "inplace",
       "label": "struct GovStorage.Proposal",
       "numberOfBytes": "384",
       "members": [
         {
-          "astId": 12,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 10,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "status",
           "offset": 0,
           "slot": "0",
           "type": "t_int32"
         },
         {
-          "astId": 14,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 12,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "isExpedited",
           "offset": 4,
           "slot": "0",
           "type": "t_bool"
         },
         {
-          "astId": 16,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 14,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "contentType",
           "offset": 5,
           "slot": "0",
           "type": "t_uint8"
         },
         {
-          "astId": 18,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 16,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "submitTime",
           "offset": 6,
           "slot": "0",
           "type": "t_uint64"
         },
         {
-          "astId": 20,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 18,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "depositEndTime",
           "offset": 14,
           "slot": "0",
           "type": "t_uint64"
         },
         {
-          "astId": 22,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 20,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "votingStartTime",
           "offset": 22,
           "slot": "0",
           "type": "t_uint64"
         },
         {
-          "astId": 24,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 22,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "votingEndTime",
           "offset": 0,
           "slot": "1",
           "type": "t_uint64"
         },
         {
-          "astId": 26,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 24,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "totalDeposit",
           "offset": 0,
           "slot": "2",
           "type": "t_uint256"
         },
         {
-          "astId": 28,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 26,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "tallyYes",
           "offset": 0,
           "slot": "3",
           "type": "t_uint256"
         },
         {
-          "astId": 30,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 28,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "tallyAbstain",
           "offset": 0,
           "slot": "4",
           "type": "t_uint256"
         },
         {
-          "astId": 32,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 30,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "tallyNo",
           "offset": 0,
           "slot": "5",
           "type": "t_uint256"
         },
         {
-          "astId": 34,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 32,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "tallyNoWithVeto",
           "offset": 0,
           "slot": "6",
           "type": "t_uint256"
         },
         {
-          "astId": 36,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 34,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "content",
           "offset": 0,
           "slot": "7",
           "type": "t_bytes_storage"
         },
         {
-          "astId": 40,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 38,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "__gap",
           "offset": 0,
           "slot": "8",
@@ -427,22 +332,22 @@
         }
       ]
     },
-    "t_struct(ProposalQueue)59_storage": {
+    "t_struct(ProposalQueue)57_storage": {
       "encoding": "inplace",
       "label": "struct GovStorage.ProposalQueue",
       "numberOfBytes": "64",
       "members": [
         {
-          "astId": 54,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 52,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "keys",
           "offset": 0,
           "slot": "0",
           "type": "t_array(t_uint256)dyn_storage"
         },
         {
-          "astId": 58,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 56,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "positions",
           "offset": 0,
           "slot": "1",
@@ -450,54 +355,54 @@
         }
       ]
     },
-    "t_struct(Tally)73_storage": {
+    "t_struct(Tally)71_storage": {
       "encoding": "inplace",
       "label": "struct GovStorage.Tally",
       "numberOfBytes": "192",
       "members": [
         {
-          "astId": 62,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 60,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "yes",
           "offset": 0,
           "slot": "0",
           "type": "t_uint256"
         },
         {
-          "astId": 64,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 62,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "abstain",
           "offset": 0,
           "slot": "1",
           "type": "t_uint256"
         },
         {
-          "astId": 66,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 64,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "no",
           "offset": 0,
           "slot": "2",
           "type": "t_uint256"
         },
         {
-          "astId": 68,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 66,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "noWithVeto",
           "offset": 0,
           "slot": "3",
           "type": "t_uint256"
         },
         {
-          "astId": 70,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 68,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "power",
           "offset": 0,
           "slot": "4",
           "type": "t_uint256"
         },
         {
-          "astId": 72,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 70,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "counting",
           "offset": 0,
           "slot": "5",
@@ -505,22 +410,22 @@
         }
       ]
     },
-    "t_struct(WeightedVote)10_storage": {
+    "t_struct(WeightedVote)8_storage": {
       "encoding": "inplace",
       "label": "struct GovStorage.WeightedVote",
       "numberOfBytes": "32",
       "members": [
         {
-          "astId": 7,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 5,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "option",
           "offset": 0,
           "slot": "0",
           "type": "t_int32"
         },
         {
-          "astId": 9,
-          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/evmonly-stack-merge/docs/giga-storage/GovStorage.sol:GovStorage",
+          "astId": 7,
+          "contract": "/Users/shemnon/git/sei-protocol/sei-chain/.claude/worktrees/giga-native-gov-precompile/docs/giga-storage/GovStorage.sol:GovStorage",
           "label": "weight",
           "offset": 4,
           "slot": "0",

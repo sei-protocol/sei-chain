@@ -68,7 +68,7 @@ func (s *Store) gcFilter(key []byte, _ bool) (bool, error) {
 func (s *Store) PruneBefore(blockHeight types.RoadIndex) error {
 	for status := range s.status.Lock() {
 
-		current, ok := status.Get()
+		current, ok := status.suffix.Get()
 		if !ok {
 			// Ignore prune requests if we've not got any data yet. Simplifies several edge cases
 			// and is technically a legal implementation of the contract in the godocs.
@@ -135,7 +135,7 @@ func (s *Store) GetRollbackFloor(rollbackWindow uint64) uint64 {
 // indistinguishable from an empty one.
 func (s *Store) GetLatestBlock() (uint64, error) {
 	for status := range s.status.Lock() {
-		if current, ok := status.Get(); ok && s.First() < current.NextBlock {
+		if current, ok := status.suffix.Get(); ok && s.First() < current.NextBlock {
 			return uint64(current.NextBlock - 1), nil
 		}
 	}

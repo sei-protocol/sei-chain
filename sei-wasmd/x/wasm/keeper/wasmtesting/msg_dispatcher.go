@@ -7,12 +7,12 @@ import (
 )
 
 type MockMsgDispatcher struct {
-	DispatchSubmessagesFn func(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]byte, error)
+	DispatchSubmessagesFn func(ctx sdk.Context, contractAddr sdk.AccAddress, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]byte, error)
 }
 
-func (m MockMsgDispatcher) DispatchSubmessages(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]byte, error) {
+func (m MockMsgDispatcher) DispatchSubmessages(ctx sdk.Context, contractAddr sdk.AccAddress, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]byte, error) {
 	if m.DispatchSubmessagesFn == nil {
 		panic("not expected to be called")
 	}
-	return m.DispatchSubmessagesFn(ctx, contractAddr, ibcPort, msgs, info, codeInfo)
+	return m.DispatchSubmessagesFn(ctx, contractAddr, msgs, info, codeInfo)
 }

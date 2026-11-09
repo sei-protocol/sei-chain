@@ -17,6 +17,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -432,6 +433,14 @@ type App struct {
 	GigaExecutorEnabled bool
 	// GigaOCCEnabled controls whether to use OCC with the Giga executor
 	GigaOCCEnabled bool
+
+	doneUpgradesCache atomic.Pointer[doneUpgradesAtHeight]
+}
+
+// doneUpgradesAtHeight is the set of completed upgrades read from the check state at height.
+type doneUpgradesAtHeight struct {
+	height   int64
+	upgrades upgradekeeper.DoneUpgrades
 }
 
 type AppOption func(*App)
@@ -2425,27 +2434,50 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 }
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
+	ctx := app.RPCContextProviderWithoutConsensusParams(i)
+	// Neither GetCheckCtx nor CreateQueryContext sets ConsensusParams (only
+	// the tx-execution path does, via getContextForTx), so without this,
+	// ctx.ConsensusParams() returns nil from any RPC handler. evmrpc/block.go's
+	// gasLimit and evmrpc/info.go's gas-used-ratio rely on it.
+	return ctx.WithConsensusParams(app.GetConsensusParams(ctx))
+}
+
+// RPCContextProviderWithoutConsensusParams returns the context RPCContextProvider
+// returns for height i, with ConsensusParams left nil.
+func (app *App) RPCContextProviderWithoutConsensusParams(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
 		ctx := app.GetCheckCtx()
-		// Populate ConsensusParams on the RPC ctx. Neither GetCheckCtx nor
-		// CreateQueryContext sets it (only the tx-execution path does, via
-		// getContextForTx), so without this, ctx.ConsensusParams() returns
-		// nil from any RPC handler. evmrpc/block.go's gasLimit and
-		// evmrpc/info.go's gas-used-ratio rely on it.
-		ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 		return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
 		panic(err)
 	}
-	ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
-	closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
-	if closestUpgrade == "" && upgradeHeight == 0 {
-		closestUpgrade = LatestUpgrade
-	}
-	ctx = ctx.WithClosestUpgradeName(closestUpgrade)
+	ctx = ctx.WithClosestUpgradeName(app.closestUpgradeName(app.GetCheckCtx(), i))
 	return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
+}
+
+// closestUpgradeName returns the name of the completed upgrade closest to height i in checkCtx's
+// state, or LatestUpgrade when no upgrade has completed.
+func (app *App) closestUpgradeName(checkCtx sdk.Context, i int64) string {
+	name, height := app.doneUpgrades(checkCtx).Closest(i)
+	if name == "" && height == 0 {
+		return LatestUpgrade
+	}
+	return name
+}
+
+// doneUpgrades returns the upgrades completed in checkCtx's state, reading them from the store only
+// when checkCtx is at a different height than the last read.
+func (app *App) doneUpgrades(checkCtx sdk.Context) upgradekeeper.DoneUpgrades {
+	// Upgrades complete only in committed blocks, so the set changes only with the check state's height.
+	height := checkCtx.BlockHeight()
+	if cached := app.doneUpgradesCache.Load(); cached != nil && cached.height == height {
+		return cached.upgrades
+	}
+	upgrades := app.UpgradeKeeper.GetDoneUpgrades(checkCtx)
+	app.doneUpgradesCache.Store(&doneUpgradesAtHeight{height: height, upgrades: upgrades})
+	return upgrades
 }
 
 // SnapshotAwareRPCContextProvider builds SDK contexts from in-memory memiavl
@@ -2477,14 +2509,10 @@ func (app *App) SnapshotAwareRPCContextProvider() evmrpc.TraceContextProvider {
 			return app.RPCContextProvider(i), func() {}
 		}
 		checkCtx := app.GetCheckCtx()
-		closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(checkCtx, i)
-		if closestUpgrade == "" && upgradeHeight == 0 {
-			closestUpgrade = LatestUpgrade
-		}
 		ctx := sdk.NewContext(cms, checkCtx.BlockHeader(), true).
 			WithMinGasPrices(checkCtx.MinGasPrices()).
 			WithBlockHeight(i).
-			WithClosestUpgradeName(closestUpgrade).
+			WithClosestUpgradeName(app.closestUpgradeName(checkCtx, i)).
 			WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
 		ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 		return ctx, release
@@ -2512,7 +2540,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	// Autobahn serves the node's EVM-only JSON-RPC. Cosmos evmrpc would bind
 	// the same 8545 once Initialized fires (mock-app forwards InitChain).
 	if app.evmRPCConfig.HTTPEnabled && !app.autobahnEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier, traceCtxProvider)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, app.RPCContextProviderWithoutConsensusParams, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier, traceCtxProvider)
 		if err != nil {
 			panic(err)
 		}
@@ -2525,7 +2553,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	}
 
 	if app.evmRPCConfig.WSEnabled && !app.autobahnEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, app.RPCContextProviderWithoutConsensusParams, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier)
 		if err != nil {
 			panic(err)
 		}
