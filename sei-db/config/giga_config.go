@@ -35,7 +35,7 @@ const gigaFlatKVViewShards = 64
 // DefaultGigaStorageConfig returns a config rooted at homePath:
 //
 //	data/state_commit/flatkv
-//	data/state_store/evm/{backend}
+//	data/state_store/evm/undolog
 //	data/ledger/receipt/{backend}
 //	data/ledger/block
 //	data/ledger/app_hash
@@ -54,6 +54,7 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	flatKV.StorageStoreConfig.ShardCount = gigaFlatKVViewShards
 
 	ssConfig := DefaultStateStoreConfig()
+	ssConfig.Backend = PebbleDBUndoBackend
 	ssConfig.EVMDBDirectory = utils.GetEVMStateStorePath(homePath, ssConfig.Backend)
 	ssConfig.ExternalPruning = true
 	ssConfig.DisableInternalWAL = true
@@ -104,14 +105,6 @@ func AutobahnStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	storageConfig.WithValidatorMode()
 	storageConfig.ReceiptDBConfig.Enable = true
 	return storageConfig, nil
-}
-
-// WithStateStoreBackend has the state store keep its history as backend, in that backend's
-// directory under the home path.
-func (c *GigaStorageConfig) WithStateStoreBackend(backend string) *GigaStorageConfig {
-	c.SSConfig.Backend = backend
-	c.SSConfig.EVMDBDirectory = utils.GetEVMStateStorePath(c.HomePath, backend)
-	return c
 }
 
 func (c *GigaStorageConfig) WithAccountDBCacheSize(sizeInBytes uint64) *GigaStorageConfig {
