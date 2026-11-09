@@ -988,3 +988,165 @@ func TestGigaRouterCommon_OutboundHandshakeBoundedByTimeout(t *testing.T) {
 		t.Fatalf("dialAndRunConn() = %v, want context.DeadlineExceeded or io.EOF", err)
 	}
 }
+
+func TestRunInboundFullnode_PersistentPeerDoesNotCount(t *testing.T) {
+	rng := utils.TestRng()
+	localKey := makeKey(rng)
+	persistentKey := makeKey(rng)
+	strangerKey := makeKey(rng)
+	otherKey := makeKey(rng)
+	validator := atypes.GenSecretKey(rng)
+	genDoc := &tmtypes.GenesisDoc{
+		ChainID:         "persistent-peer-cap",
+		InitialHeight:   1,
+		GenesisTime:     time.Now(),
+		ConsensusParams: tmtypes.DefaultConsensusParams(),
+	}
+	require.NoError(t, genDoc.ValidateAndComplete())
+	db := blockstore.NewTestStore(t)
+	cfg := &GigaRouterCommonConfig{
+		DialInterval: time.Second,
+		ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
+			validator.Public(): {Key: makeKey(rng).Public()},
+		},
+		PersistentStateDir:      t.TempDir(),
+		App:                     proxy.New(&fixedHeightApp{height: 1}),
+		AppHashBuilder:          newPublishingAppHashBuilder(),
+		GenDoc:                  genDoc,
+		MaxInboundFullnodePeers: 1,
+		PersistentPeerIDs: map[tmtypes.NodeID]struct{}{
+			persistentKey.Public().NodeID(): {},
+		},
+	}
+	state, err := BuildDataState(cfg, db)
+	require.NoError(t, err)
+	router, err := NewGigaFullnodeRouter(cfg, localKey, state)
+	require.NoError(t, err)
+
+	peerSpec := func(key NodeSecretKey) handshakeSpec {
+		return handshakeSpec{
+			SelfAddr: utils.Some(NodeAddress{
+				NodeID:   key.Public().NodeID(),
+				Hostname: "fullnode.example",
+				Port:     26656,
+			}),
+			SeiGigaConnection: true,
+		}
+	}
+	localSpec := handshakeSpec{SeiGigaConnection: true}
+	none := [2]utils.Option[handshakeOffer]{utils.None[handshakeOffer](), utils.None[handshakeOffer]()}
+	serve := func(ctx context.Context, s scope.Scope, peer NodeSecretKey) (scope.JoinHandle[struct{}], error) {
+		pair, err := handshakePair(ctx, s,
+			[2]NodeSecretKey{localKey, peer},
+			[2]handshakeSpec{localSpec, peerSpec(peer)},
+			none,
+		)
+		if err != nil {
+			return scope.JoinHandle[struct{}]{}, err
+		}
+		return scope.Spawn1(s, func() (struct{}, error) {
+			err := router.RunInboundConn(ctx, pair[0])
+			if errors.Is(err, context.Canceled) {
+				return struct{}{}, nil
+			}
+			return struct{}{}, err
+		}), nil
+	}
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		strangerCtx, cancelStranger := context.WithCancel(ctx)
+		stranger, err := serve(strangerCtx, s, strangerKey)
+		if err != nil {
+			return err
+		}
+		if err := utils.WaitFor(ctx, time.Millisecond, func() bool {
+			return router.inboundFullnodeCount.Load() == 1
+		}); err != nil {
+			cancelStranger()
+			return err
+		}
+
+		otherPair, err := handshakePair(ctx, s,
+			[2]NodeSecretKey{localKey, otherKey},
+			[2]handshakeSpec{localSpec, peerSpec(otherKey)},
+			none,
+		)
+		if err != nil {
+			cancelStranger()
+			return err
+		}
+		if err := router.RunInboundConn(ctx, otherPair[0]); !errors.Is(err, errInboundFullnodeLimit) {
+			cancelStranger()
+			return fmt.Errorf("other RunInboundConn() = %v, want %v", err, errInboundFullnodeLimit)
+		}
+		if got := router.inboundFullnodeCount.Load(); got != 1 {
+			cancelStranger()
+			return fmt.Errorf("inbound fullnode count = %d after rejected peer, want 1", got)
+		}
+
+		persistentCtx, cancelPersistent := context.WithCancel(ctx)
+		persistent, err := serve(persistentCtx, s, persistentKey)
+		if err != nil {
+			cancelStranger()
+			return err
+		}
+		if err := utils.WaitFor(ctx, time.Millisecond, func() bool {
+			_, ok := router.poolIn.Get(persistentKey.Public())
+			return ok
+		}); err != nil {
+			cancelPersistent()
+			cancelStranger()
+			return err
+		}
+		if got := router.inboundFullnodeCount.Load(); got != 1 {
+			cancelPersistent()
+			cancelStranger()
+			return fmt.Errorf("inbound fullnode count = %d while persistent peer is served, want 1", got)
+		}
+		cancelPersistent()
+		if _, err := persistent.Join(ctx); err != nil {
+			cancelStranger()
+			return err
+		}
+
+		cancelStranger()
+		if _, err := stranger.Join(ctx); err != nil {
+			return err
+		}
+		if got := router.inboundFullnodeCount.Load(); got != 0 {
+			return fmt.Errorf("inbound fullnode count = %d after stranger closed, want 0", got)
+		}
+
+		router.inboundFullnodeCap = 0
+		zeroPair, err := handshakePair(ctx, s,
+			[2]NodeSecretKey{localKey, otherKey},
+			[2]handshakeSpec{localSpec, peerSpec(otherKey)},
+			none,
+		)
+		if err != nil {
+			return err
+		}
+		if err := router.RunInboundConn(ctx, zeroPair[0]); !errors.Is(err, errInboundFullnodeLimit) {
+			return fmt.Errorf("cap-0 stranger RunInboundConn() = %v, want %v", err, errInboundFullnodeLimit)
+		}
+		zeroPersistentCtx, cancelZeroPersistent := context.WithCancel(ctx)
+		zeroPersistent, err := serve(zeroPersistentCtx, s, persistentKey)
+		if err != nil {
+			return err
+		}
+		if err := utils.WaitFor(ctx, time.Millisecond, func() bool {
+			_, ok := router.poolIn.Get(persistentKey.Public())
+			return ok
+		}); err != nil {
+			cancelZeroPersistent()
+			return err
+		}
+		if got := router.inboundFullnodeCount.Load(); got != 0 {
+			cancelZeroPersistent()
+			return fmt.Errorf("inbound fullnode count = %d with cap 0, want 0", got)
+		}
+		cancelZeroPersistent()
+		_, err = zeroPersistent.Join(ctx)
+		return err
+	}))
+}
