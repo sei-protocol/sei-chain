@@ -8,7 +8,6 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -142,9 +141,7 @@ func newTestEnv(t *testing.T, rng utils.Rng, count int) *testEnv {
 		blocks = append(blocks, atypes.NewRoadBlock(qc, laneBlocks))
 		prev = utils.Some(qc.QC())
 	}
-	store, err := blockstore.New(memblock.NewBlockDB())
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	store := blockstore.NewTestStore(t)
 	return &testEnv{
 		events: new(utils.NewMutex(&[]string{})),
 		store:  store,
