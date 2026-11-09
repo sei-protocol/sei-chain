@@ -361,6 +361,21 @@ func (rs *Store) LastCommitID() types.CommitID {
 	return rs.lastCommitInfo.CommitID()
 }
 
+// LastCommitVersion implements CommitMultiStore.
+func (rs *Store) LastCommitVersion() int64 {
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
+
+	if rs.lastCommitInfo == nil {
+		v, err := rs.scStore.GetLatestVersion()
+		if err != nil {
+			panic(fmt.Errorf("failed to get latest version: %w", err))
+		}
+		return v
+	}
+	return rs.lastCommitInfo.Version
+}
+
 // Implements interface Committer
 func (rs *Store) SetPruning(types.PruningOptions) {
 }
