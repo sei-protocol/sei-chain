@@ -160,8 +160,8 @@ block rate it produces is `MaxTps / (TransactionsPerBlock * LaneBlocksPerSuperbl
 
 `EnableSS` and `EnableReceiptStore` control whether those stores exist, not merely whether they
 are written: a disabled store is never opened, no receipts are built for it, and it leaves no directory
-behind. Turning both off is what `config/validator.json` does, and it is how to measure a validator's
-stack rather than a full node's.
+behind. An enabled historical state store is the undo log. Turning both off is what
+`config/validator.json` does, and it is how to measure a validator's stack rather than a full node's.
 
 # Data Persistence
 
@@ -203,10 +203,10 @@ covers the goroutine that executes and commits blocks;
 writes them to the block store. Each set sums to 100% of its own goroutine, so the two are shares of
 different denominators and do not add up to anything between them.
 
-Four more break a single phase down further, each summing to the phase it subdivides:
-`gigasim_transaction_` for execution, `gigasim_receipt_write_` for the receipt write,
-`gigasim_blockstore_write_` for the ledger write, and `ss_evm_commit_` for the EVM state store's share
-of the commit.
+Three more break a single phase down further, each summing to the phase it subdivides:
+`gigasim_transaction_` for execution, `gigasim_receipt_write_` for the receipt write, and
+`gigasim_blockstore_write_` for the ledger write. The historical state store's commit time is the
+`enqueue_ss` phase of `giga_state_commit_`.
 
 Read the waiting phase first. `wait_for_execution` on the producing loop and `wait_for_block` on the
 execution loop are each goroutine's idle time, so the one with almost none is the bottleneck and the

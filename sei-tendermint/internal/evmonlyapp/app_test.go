@@ -252,7 +252,7 @@ func newUndoLogEVMOnlyTestAppAt(t *testing.T, initialHeight int64) *evmOnlyAppli
 	require.NoError(t, err)
 	// The chain's first block is the first one with an app hash.
 	storageConfig.AppHashBuilderConfig.GigaActivationHeight = uint64(initialHeight) //nolint:gosec // G115: test heights are positive.
-	storageConfig.WithFullNodeMode().WithStateStoreBackend(seidbconfig.PebbleDBUndoBackend)
+	storageConfig.WithFullNodeMode()
 	app := newEVMOnlyTestAppWithStorage(t, nil, gigaconfig.DefaultConfig.Execution, storageConfig).(*evmOnlyApplication)
 	require.NotNil(t, app.storage.StateDB().UndoSS())
 	init := evmOnlyTestInitChain()

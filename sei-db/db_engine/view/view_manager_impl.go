@@ -918,6 +918,8 @@ func (c *viewManager) brickLocked(err error) {
 
 // Flushes and retires views. Continues running until there is no more work, then returns.
 func (c *viewManager) doLifecycleWork() error {
+	defer c.metrics.setLifecyclePhase("")
+
 	hasWork := true
 
 	for hasWork {
@@ -938,11 +940,13 @@ func (c *viewManager) doLifecycleWork() error {
 
 		c.versionLock.Unlock()
 
+		c.metrics.setLifecyclePhase("flush")
 		err = c.flushViews(firstFlushVersion, lastFlushVersion, versionWrites)
 		if err != nil {
 			return fmt.Errorf("unable to flush views: %w", err)
 		}
 
+		c.metrics.setLifecyclePhase("retire")
 		err = c.retireViews(firstRetireVersion, lastRetireVersion)
 		if err != nil {
 			return fmt.Errorf("unable to retire views: %w", err)
@@ -1169,10 +1173,20 @@ func (c *viewManager) retireViews(
 		return nil
 	}
 
+	var wg sync.WaitGroup
+	errs := make([]error, len(c.shards))
 	for i, shard := range c.shards {
-		err := shard.DropVersions(firstVersion, lastVersion)
-		if err != nil {
-			return fmt.Errorf("failed to drop versions from shard %d: %w", i, err)
+		wg.Add(1)
+		c.miscPool.Submit(func() {
+			defer wg.Done()
+			errs[i] = shard.DropVersions(firstVersion, lastVersion)
+		})
+	}
+	wg.Wait()
+
+	for i := range errs {
+		if errs[i] != nil {
+			return fmt.Errorf("failed to drop versions from shard %d: %w", i, errs[i])
 		}
 	}
 

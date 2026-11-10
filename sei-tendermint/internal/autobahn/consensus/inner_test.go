@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
@@ -24,22 +22,22 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-func newTestBlockStore(t *testing.T, dir string) types.BlockStore {
+func newTestBlockStore(t *testing.T, dir string) *blockstore.Store {
 	t.Helper()
-	cfg := utils.OrPanic1(littblock.DefaultConfig(dir))
-	store := utils.OrPanic1(blockstore.New(utils.OrPanic1(littblock.NewBlockDB(cfg))))
+	cfg := utils.OrPanic1(blockstore.DefaultConfig(dir))
+	store := utils.OrPanic1(blockstore.New(cfg))
 	t.Cleanup(func() { _ = store.Close() })
 	return store
 }
 
-func newTestDataState(registry *epoch.Registry) *data.State {
-	store := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
+func newTestDataState(t testing.TB, registry *epoch.Registry) *data.State {
+	store := blockstore.NewTestStore(t)
 	return utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, store))
 }
 
 func newTestAvail(t *testing.T, registry *epoch.Registry, key types.SecretKey) (*data.State, *avail.State) {
 	t.Helper()
-	ds := newTestDataState(registry)
+	ds := newTestDataState(t, registry)
 	av, err := avail.NewState(key, ds, utils.None[string]())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = av.Close() })
@@ -208,7 +206,7 @@ func TestRestore_BoundaryCatchUpSpecCoversWAL(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
 
-	ds := newTestDataState(registry)
+	ds := newTestDataState(t, registry)
 	av, err := avail.NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = av.Close() })
@@ -1091,7 +1089,7 @@ func newConsensusState(t *testing.T, registry *epoch.Registry, key types.SecretK
 		Key:             key,
 		ViewTimeout:     func(types.View) time.Duration { return time.Hour },
 		ProposalTimeout: time.Hour,
-	}, newTestDataState(registry))
+	}, newTestDataState(t, registry))
 	require.NoError(t, err)
 	return s
 }
