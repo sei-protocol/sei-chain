@@ -326,6 +326,36 @@ func TestCall(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(8)
 }
 
+// prevRandaoInitCode is creation code that returns the 32-byte PREVRANDAO value:
+// PREVRANDAO PUSH1 0 MSTORE PUSH1 32 PUSH1 0 RETURN.
+const prevRandaoInitCode = "0x4460005260206000f3"
+
+// mockBlockPrevRandao is the PREVRANDAO block execution uses for the mock block time,
+// keccak256(time.Unix(1696941649, 0).UTC().MarshalBinary()). The mock block carries that time in
+// time.Local, so matching it also requires the RPC side to hash the UTC form.
+var mockBlockPrevRandao = common.HexToHash("0xa712870f408ce37a9d885e4557b1e014a94aae512d2b2e08c7f0178c665e9b25")
+
+func TestCallPrevRandao(t *testing.T) {
+	_, from := testkeeper.MockAddressPair()
+	txArgs := map[string]any{
+		"from":  from.Hex(),
+		"input": prevRandaoInitCode,
+	}
+
+	resObj := sendRequestGood(t, "call", txArgs, "latest")
+	require.Equal(t, mockBlockPrevRandao.Hex(), resObj["result"])
+
+	override := common.HexToHash("0x01")
+	resObj = sendRequestGood(t, "call", txArgs, "latest", map[string]any{}, map[string]any{"prevRandao": override.Hex()})
+	require.Equal(t, override.Hex(), resObj["result"], "a prevRandao block override replaces the block's value")
+}
+
+func TestBlockMixHashIsPrevRandao(t *testing.T) {
+	resObj := sendRequestGood(t, "getBlockByNumber", "0x8", false)
+	block := resObj["result"].(map[string]any)
+	require.Equal(t, mockBlockPrevRandao.Hex(), block["mixHash"])
+}
+
 func TestCallStateOverrideTooManySlots(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(1)
 	_, from := testkeeper.MockAddressPair()
@@ -432,6 +462,7 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 	header, err := backend.HeaderByNumber(context.Background(), 1000)
 	require.NoError(t, err)
 	require.NotNil(t, header)
+	require.Equal(t, mockBlockPrevRandao, header.MixDigest)
 
 	// For pacific-1 chain before v6.2.0 upgrade, base fee should be nil
 	require.Nil(t, header.BaseFee, "Base fee should be nil for pacific-1 chain before v6.2.0 upgrade")
