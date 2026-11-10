@@ -84,6 +84,23 @@ func (app *Proxy) ForgetEvmSender(hash common.Hash) {
 	}
 }
 
+// evmCommittedNonceReader is implemented by applications that can read a nonce from their committed
+// state without waiting for a commit in flight.
+type evmCommittedNonceReader interface {
+	EvmCommittedNonce(common.Address) uint64
+}
+
+// EvmCommittedNonce returns addr's nonce in the wrapped application's committed EVM state, which may
+// not yet hold the most recently finalized block. It returns EvmNonce when the application has no
+// such read.
+func (app *Proxy) EvmCommittedNonce(addr common.Address) uint64 {
+	defer addTimeSample(Global.MethodTimingAt("evm_committed_nonce", "sync"))()
+	if reader, ok := app.app.(evmCommittedNonceReader); ok {
+		return reader.EvmCommittedNonce(addr)
+	}
+	return app.app.EvmNonce(addr)
+}
+
 func (app *Proxy) EvmBalance(addr common.Address, seiAddr []byte) uint256.Int {
 	defer addTimeSample(Global.MethodTimingAt("evm_balance", "sync"))()
 	return app.app.EvmBalance(addr, seiAddr)

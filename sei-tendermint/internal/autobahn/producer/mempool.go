@@ -127,7 +127,9 @@ func (s *State) evmNextPendingNonce(m *mempool, addr common.Address) uint64 {
 	// IMPORTANT: first snapshot the pending nonces THEN query app nonce.
 	// There would be a race condition otherwise.
 	pendingNonces, ok := m.pendingNonces(addr)
-	appNonce := s.app.EvmNonce(addr)
+	// The committed state may trail the last finalized block, but never a pruned one: a lane block
+	// is pruned only once its AppHash is pushed, which follows its commit.
+	appNonce := s.app.EvmCommittedNonce(addr)
 
 	if !ok {
 		// no pending txs.
