@@ -13,7 +13,8 @@ type HashVault interface {
 	// Stores records after the highest stored record.
 	//
 	// records must have consecutive, ascending block heights, starting one above the highest stored record. The
-	// first record stored in an empty vault may have any height. Durable when it returns if FsyncOnFlush is true.
+	// first record stored in an empty vault may have any height. A restore anchor may only be that first record.
+	// Durable when it returns if FsyncOnFlush is true.
 	// Not safe for concurrent use with any other method, except those of controllertypes.PrunableStore.
 	Append(records []*apphash.AppHashData) error
 

@@ -13,9 +13,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
@@ -224,7 +226,7 @@ func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
 }
 
 // TestInitChainCommitThenFinalize is a contract test for testApp: it verifies
-// that testApp supports the autobahn block execution flow where runExecute
+// that testApp supports the autobahn block execution flow where the executor
 // calls InitChain (no Commit), then FinalizeBlock at InitialHeight using the
 // deliverState set up by InitChain, followed by Commit.
 func TestInitChainCommitThenFinalize(t *testing.T) {
@@ -268,4 +270,15 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 	info = app.Info()
 	require.Equal(t, initialHeight, info.LastBlockHeight,
 		"testApp should report InitialHeight after 1 block")
+}
+
+// newTestExecutor returns an executor of cfg's app over the blocks store makes
+// durable.
+func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store) *execution.Executor {
+	return execution.New(&execution.Config{
+		GenDoc:         cfg.GenDoc,
+		App:            cfg.App,
+		AppHashBuilder: cfg.AppHashBuilder,
+		BlockStore:     store,
+	})
 }

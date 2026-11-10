@@ -16,7 +16,7 @@ func TestLaneTipsTrackHeldWithLaneQCAndCommittedBlocks(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 	state := utils.OrPanic1(NewState(
 		keys[0],
-		newTestDataState(&data.Config{Registry: registry}),
+		newTestDataState(t, &data.Config{Registry: registry}),
 		utils.None[string](),
 	))
 	lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("lane")

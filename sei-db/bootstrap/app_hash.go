@@ -42,7 +42,7 @@ func (m *GigaStorageManager) openAppHashBuilder(ctx context.Context) error {
 }
 
 // completeAppHashBuilderSetup connects the state DB's hashes to the app hash builder, and completes its setup at the
-// height recovery left the state on.
+// height recovery left the state on, unless DeferAppHashBuilderSetup leaves the setup to the caller.
 //
 // It must run after every other store has recovered, and before any block is executed.
 func (m *GigaStorageManager) completeAppHashBuilderSetup(ctx context.Context) error {
@@ -54,6 +54,10 @@ func (m *GigaStorageManager) completeAppHashBuilderSetup(ctx context.Context) er
 	height := uint64(stateHeight)
 	if err := m.reportStateHashesToAppHashBuilder(height); err != nil {
 		return err
+	}
+	if m.cfg.DeferAppHashBuilderSetup {
+		logger.Info("Leaving the app hash builder setup to the caller", "height", height)
+		return nil
 	}
 	if err := m.appHashBuilder.SetupComplete(ctx, height); err != nil {
 		return fmt.Errorf("complete app hash builder setup at block %d: %w", height, err)

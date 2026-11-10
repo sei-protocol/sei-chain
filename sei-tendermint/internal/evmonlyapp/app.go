@@ -147,6 +147,9 @@ const (
 type evmOnlyCursorState struct {
 	committed evmOnlyCursor
 	pending   utils.Option[evmOnlyCursor]
+	// epochState is committed with the block being finalized. It is set after
+	// beginBlock accepts that block and read when the block is encoded.
+	epochState utils.Option[abci.EpochState]
 	// lastBlockTime is the Time of the most recently committed block, used by
 	// EvmCall to reproduce that block's execution context for a read-only call.
 	lastBlockTime uint64
@@ -245,6 +248,10 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		if height != state.committed.height+1 {
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
 		}
+		var epochChanges []gigatypes.MiscChange
+		if epochState, ok := state.epochState.Get(); ok {
+			epochChanges = epochStateMiscChanges(epochState)
+		}
 		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result)
 		if err != nil {
 			return nil, err
@@ -257,7 +264,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
-		return []gigatypes.MiscChange{next.miscChange()}, nil
+		return append([]gigatypes.MiscChange{next.miscChange()}, epochChanges...), nil
 	}
 	panic("unreachable")
 }
@@ -812,6 +819,7 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *abci.Reques
 		if err != nil {
 			return nil, err
 		}
+		a.stageEpochState(req.EpochState)
 		// Closes the stage in flight, so the gap until the next block is charged to neither.
 		defer a.finalizePhases.Reset()
 		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
@@ -851,6 +859,14 @@ func (a *evmOnlyApplication) beginBlock(height int64) (evmOnlyCursor, error) {
 		return state.committed, nil
 	}
 	panic("unreachable")
+}
+
+// stageEpochState sets the epoch state committed with the block being
+// finalized, replacing that of the previous block.
+func (a *evmOnlyApplication) stageEpochState(epochState utils.Option[abci.EpochState]) {
+	for state := range a.cursor.Lock() {
+		state.epochState = epochState
+	}
 }
 
 // abandonPending drops the cursor staged by a failed block unless the store
