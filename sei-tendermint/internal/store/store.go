@@ -82,10 +82,15 @@ func (b *blockBounds) extend(height int64) {
 }
 
 // raiseBase stops reporting heights below base, ahead of their block metas being deleted.
-func (bs *BlockStore) raiseBase(base int64) {
+// It fails if base is above the stored height.
+func (bs *BlockStore) raiseBase(base int64) error {
 	for b := range bs.bounds.Lock() {
+		if base > b.height {
+			return fmt.Errorf("height must be equal to or less than the latest height %d", b.height)
+		}
 		b.base = max(b.base, base)
 	}
+	return nil
 }
 
 // reloadBounds reads the block meta height range back from the DB after block metas are deleted.
@@ -365,10 +370,11 @@ func (bs *BlockStore) PruneBlocks(height int64) (uint64, error) {
 		return 0, fmt.Errorf("height must be greater than 0")
 	}
 
-	if height > bs.Height() {
-		return 0, fmt.Errorf("height must be equal to or less than the latest height %d", bs.Height())
+	// Raising the base first stops readers from being served heights while they are deleted.
+	// Reloading afterwards reads back what the DB actually kept, including when pruning fails partway.
+	if err := bs.raiseBase(height); err != nil {
+		return 0, err
 	}
-	bs.raiseBase(height)
 	defer bs.reloadBounds()
 
 	// when removing the block meta, use the hash to remove the hash key at the same time
