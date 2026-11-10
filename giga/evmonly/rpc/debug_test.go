@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http/httptest"
@@ -594,4 +595,21 @@ func TestPrepareTraceConfigCapsTheStructLogger(t *testing.T) {
 	api := newDebugAPI(&testBackend{}, evmonly.NewMemoryReceiptStore(), gigaconfig.RPCConfig{MaxTraceStructLogBytes: capBytes})
 	require.NoError(t, api.prepareTraceConfig(config))
 	require.Nil(t, config.Config)
+}
+
+// A failed block read reaches the caller instead of "transaction not found".
+func TestDebugTraceTransactionSurfacesBlockReadError(t *testing.T) {
+	errBlockDown := errors.New("block store down")
+	hash := common.HexToHash("0x01")
+	store := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()).WithBlockHeight(9), []receipt.ReceiptRecord{
+		{TxHash: hash, Receipt: &evmtypes.Receipt{TxHashHex: hash.Hex(), BlockNumber: 9, GasUsed: 21_000, CumulativeGasUsed: 21_000}},
+	}))
+	backend := &testBackend{block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return nil, errBlockDown
+	}}
+	api := newDebugAPI(backend, store, gigaconfig.RPCConfig{})
+
+	_, err := api.TraceTransaction(t.Context(), hash, nil)
+	require.ErrorIs(t, err, errBlockDown)
 }
