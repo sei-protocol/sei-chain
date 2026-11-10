@@ -440,16 +440,18 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		// chain than we already have). We log it to aid debugging stalled
 		// lanes but do not return an error — the caller should not tear
 		// down the peer connection over an equivocating producer.
-		// parentHash is the in-queue predecessor, or parentOfFirstLaneBlock when the queue is empty.
-		// localTip retained below first is for WAL retention, not this check.
-		want := q.parentHash()
-		if h.ParentHash() != want {
-			logger.Error("parent hash mismatch (producer equivocation)",
-				"lane", lane,
-				slog.Uint64("block", uint64(n)),
-				"got", h.ParentHash(),
-				"want", want)
-			return nil
+		// Parent is checked only while the predecessor is still in [first, next).
+		// last retained below first is for local production, not this check.
+		if q.first < q.next {
+			prevHash := q.q[q.next-1].Msg().Block().Header().Hash()
+			if h.ParentHash() != prevHash {
+				logger.Error("parent hash mismatch (producer equivocation)",
+					"lane", lane,
+					slog.Uint64("block", uint64(n)),
+					"got", h.ParentHash(),
+					"want", prevHash)
+				return nil
+			}
 		}
 		q.pushBack(p)
 		ctrl.Updated()
@@ -696,7 +698,11 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 		if q.next != n {
 			return nil, fmt.Errorf("unexpected block number: got %v, want %v", n, q.next)
 		}
-		result = types.Sign(s.key, types.NewLaneProposal(types.NewBlock(lane, q.next, q.parentHash(), payload)))
+		parent := types.BlockHeaderHash{}
+		if prev, ok := q.last.Get(); ok {
+			parent = prev.Msg().Block().Header().Hash()
+		}
+		result = types.Sign(s.key, types.NewLaneProposal(types.NewBlock(lane, q.next, parent, payload)))
 		q.pushBack(result)
 		ctrl.Updated()
 	}
@@ -941,7 +947,7 @@ func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) 
 		for lane, q := range inner.blocks {
 			cursor := inner.nextBlockToPersist[lane]
 			bb := blocksBatch{first: q.retentionFloor()}
-			if p, ok := q.unpersistedLocalTip(cursor).Get(); ok {
+			if p, ok := q.unpersistedLast(cursor).Get(); ok {
 				bb.tail = append(bb.tail, p)
 			}
 			for n := max(cursor, q.first); n < q.next; n++ {

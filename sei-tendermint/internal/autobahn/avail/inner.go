@@ -2,7 +2,6 @@ package avail
 
 import (
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -15,11 +14,8 @@ import (
 // blockQueue is a per-lane block queue.
 type blockQueue struct {
 	queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
-	// localTip is None, or this node's latest pushed proposal, at a height of at least first-1.
-	localTip utils.Option[*types.Signed[*types.LaneProposal]]
-	// parentOfFirstLaneBlock is the parent hash of the lane block numbered first.
-	// Zero before any prune, which is the parent of block 0.
-	parentOfFirstLaneBlock types.BlockHeaderHash
+	// last is None, or this node's last pushed proposal at height >= first-1.
+	last utils.Option[*types.Signed[*types.LaneProposal]]
 }
 
 func newBlockQueue() *blockQueue {
@@ -28,57 +24,27 @@ func newBlockQueue() *blockQueue {
 
 func (q *blockQueue) pushBack(p *types.Signed[*types.LaneProposal]) {
 	q.queue.pushBack(p)
-	q.localTip = utils.Some(p)
-	if q.Len() == 1 {
-		q.logLocalBlock()
-	}
+	q.last = utils.Some(p)
 }
 
-// parentHash is the parent the block at q.next must name: the hash of the
-// predecessor while it is in the queue, else parentOfFirstLaneBlock (first == next).
-func (q *blockQueue) parentHash() types.BlockHeaderHash {
-	if q.first < q.next {
-		return q.q[q.next-1].Msg().Block().Header().Hash()
-	}
-	return q.parentOfFirstLaneBlock
-}
-
-// prune drops [first, newFirst) and records parent as the parent hash of block
-// newFirst. A stale newFirst changes nothing. localTip is kept when newFirst <= next
-// and cleared when newFirst > next. A block already in the queue at or after
-// newFirst stays; it is this lane's local block.
-func (q *blockQueue) prune(newFirst types.BlockNumber, parent types.BlockHeaderHash) {
+// prune drops [first, newFirst). last is kept when newFirst <= next and
+// cleared when newFirst > next.
+func (q *blockQueue) prune(newFirst types.BlockNumber) {
 	if newFirst <= q.first {
 		return
 	}
 	if newFirst > q.next {
-		q.localTip = utils.None[*types.Signed[*types.LaneProposal]]()
+		// TODO: seed last from a non-empty LaneRange LastHash at Next()-1.
+		// Empty ranges carry a zero LastHash, so they cannot replace a local last.
+		q.last = utils.None[*types.Signed[*types.LaneProposal]]()
 	}
 	q.queue.prune(newFirst)
-	q.parentOfFirstLaneBlock = parent
-	q.logLocalBlock()
 }
 
-// logLocalBlock logs when the block at first does not name parent.
-func (q *blockQueue) logLocalBlock() {
-	if q.first >= q.next {
-		return
-	}
-	h := q.q[q.first].Msg().Block().Header()
-	if h.ParentHash() == q.parentOfFirstLaneBlock {
-		return
-	}
-	logger.Error("local block does not extend certified tip",
-		"lane", h.Lane(),
-		slog.Uint64("block", uint64(h.BlockNumber())),
-		"got", h.ParentHash(),
-		"want", q.parentOfFirstLaneBlock)
-}
-
-// unpersistedLocalTip returns localTip once it has left the active range and
+// unpersistedLast returns the last block once it has left the active range and
 // block persistence has not reached it.
-func (q *blockQueue) unpersistedLocalTip(nextToPersist types.BlockNumber) utils.Option[*types.Signed[*types.LaneProposal]] {
-	if p, ok := q.localTip.Get(); ok {
+func (q *blockQueue) unpersistedLast(nextToPersist types.BlockNumber) utils.Option[*types.Signed[*types.LaneProposal]] {
+	if p, ok := q.last.Get(); ok {
 		if n := p.Msg().Block().Header().BlockNumber(); n < q.first && nextToPersist <= n {
 			return utils.Some(p)
 		}
@@ -88,7 +54,7 @@ func (q *blockQueue) unpersistedLocalTip(nextToPersist types.BlockNumber) utils.
 
 // retentionFloor returns the lowest block number the WAL must still hold.
 func (q *blockQueue) retentionFloor() types.BlockNumber {
-	if p, ok := q.localTip.Get(); ok {
+	if p, ok := q.last.Get(); ok {
 		return min(q.first, p.Msg().Block().Header().BlockNumber())
 	}
 	return q.first
@@ -179,18 +145,17 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 				return fmt.Errorf("lane %s: loaded %d blocks exceeds capacity %d", lane, len(blocks[lane]), BlocksPerLane)
 			}
 			if b.Number < q.next {
-				// Certified. Restore localTip from the proposal at first-1 when present.
+				// Certified. Restore last from the proposal at first-1 when present.
 				if b.Number+1 == q.first {
-					q.localTip = utils.Some(b.Proposal)
+					q.last = utils.Some(b.Proposal)
 				}
 				continue
 			}
 			if b.Number != q.next {
 				return fmt.Errorf("lane %s: non-contiguous persisted blocks: expected %d, got %d", lane, q.next, b.Number)
 			}
-			// Parent is checked only inside [first, next). The persisted block at
-			// first is this lane's local block. localTip restored from first-1 is
-			// for local production, not this check.
+			// Parent is checked only inside [first, next). last restored from
+			// first-1 is for local production, not this check.
 			if q.first < q.next {
 				ph := b.Proposal.Msg().Block().Header().ParentHash()
 				if q.q[q.next-1].Msg().Block().Header().Hash() != ph {
@@ -348,11 +313,9 @@ func (i *inner) pruneTo(anchorEpoch *types.Epoch, qc *types.CommitQC) int {
 		lr := qc.LaneRange(lane)
 		bq := i.blocks[lane]
 		vq.prune(lr.Next())
-		// LastHash is the parent of block Next(). An empty range carries the
-		// previous commit's LastHash, so it names the same parent for the same height.
-		bq.prune(lr.Next(), lr.LastHash())
-		// A lagging cursor stops at retentionFloor so an unflushed localTip can still
-		// be written. The cursor is never rewound: already past localTip means it is on disk.
+		bq.prune(lr.Next())
+		// A lagging cursor stops at retentionFloor so an unflushed last can still
+		// be written. The cursor is never rewound: already past last means it is on disk.
 		if floor := bq.retentionFloor(); i.nextBlockToPersist[lane] < floor {
 			i.nextBlockToPersist[lane] = floor
 		}
