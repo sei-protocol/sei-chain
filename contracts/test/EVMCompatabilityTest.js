@@ -4,7 +4,7 @@ const {uniq} = require("lodash");
 const hre = require('hardhat');
 const { ethers, upgrades } = hre;
 const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
-const { deployEvmContract, setupSigners, fundAddress, mineTransferBlock, waitForReceipt, waitForCondition, isEvmOnlyChain } = require("./lib")
+const { deployEvmContract, setupSigners, fundAddress, mineTransferBlock, waitForReceipt, waitForCondition, isEvmOnlyChain, EVM_RPC_URL } = require("./lib")
 const axios = require("axios");
 const { default: BigNumber } = require("bignumber.js");
 
@@ -569,7 +569,7 @@ describe("EVM Test", function () {
       });
 
       it("Should work for BLOBBASEFEE opcode", async function () {
-        // EVM-only's blob base fee is 0, below Ethereum's minimum of 1 (CON-560).
+        // EVM-only's blob base fee is 0, below Ethereum's minimum of 1 (CON-598).
         if (await isEvmOnlyChain()) {
           this.skip();
         }
@@ -681,7 +681,7 @@ describe("EVM Test", function () {
         ];
 
         it("Check base fee on the right block", async function () {
-          // EVM-only fixes the base fee at 0; the dynamic base fee is not ported (CON-560).
+          // EVM-only fixes the base fee at 0; the dynamic base fee is not ported (CON-598).
           if (await isEvmOnlyChain()) {
             this.skip();
           }
@@ -1347,7 +1347,7 @@ describe("EVM Validations ", function() {
         gasLimit: 21000,
         maxFeePerGas: 400000000000})
 
-      const nodeUrl = 'http://localhost:8545';
+      const nodeUrl = EVM_RPC_URL;
       const response = await axios.post(nodeUrl, {
         method: 'eth_sendRawTransaction',
         params: [signedTx],
@@ -1371,7 +1371,7 @@ describe("EVM Validations ", function() {
         gasPrice: 1000000000000,
         gasLimit: 21000})
 
-      const nodeUrl = 'http://localhost:8545';
+      const nodeUrl = EVM_RPC_URL;
       const response = await axios.post(nodeUrl, {
         method: 'eth_sendRawTransaction',
         params: [signedTx],
@@ -1394,7 +1394,7 @@ describe("EVM Validations ", function() {
         gasPrice: 1000000000000,
         gasLimit: 21000})
 
-      const nodeUrl = 'http://localhost:8545';
+      const nodeUrl = EVM_RPC_URL;
       const response = await axios.post(nodeUrl, {
         method: 'eth_sendRawTransaction',
         params: [signedTx],
