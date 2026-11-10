@@ -1,35 +1,47 @@
 package node
 
 import (
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// AutobahnLayout lists the paths under a node's Autobahn persistent state dir that state
-// sync reads and writes. The node creates every other store under PersistentStateDir on
-// start.
+// AutobahnLayout lists the on-disk paths of a node's Autobahn state that state
+// sync reads, writes or requires to be empty. It does not list the validator
+// consensus files under PersistentStateDir (inner_a.pb, inner_b.pb, blocks/
+// and commitqcs/).
 type AutobahnLayout struct {
 	PersistentStateDir string
 	FlatKVDir          string
+	BlockDBDirs        []string
+	ReceiptStoreDir    string
+	StateStoreDir      string
+	HashVaultDir       string
 	RestoreMarkerFile  string
 	StateSyncProofDir  string
 }
 
-// ResolveAutobahnLayout returns the Autobahn layout of the node that conf configures, with
-// the paths node startup opens. It creates the persistent state dir if it does not exist.
-func ResolveAutobahnLayout(conf *config.Config) (AutobahnLayout, error) {
+// ResolveAutobahnLayout returns the Autobahn layout of the node that conf, storage and
+// genDoc configure, with the paths node startup opens. It creates the persistent state dir
+// if it does not exist.
+func ResolveAutobahnLayout(conf *config.Config, storage gigaconfig.StorageConfig, genDoc *types.GenesisDoc) (AutobahnLayout, error) {
 	fc, _, err := loadAutobahnCommittee(conf.AutobahnConfigFile)
 	if err != nil {
 		return AutobahnLayout{}, err
 	}
-	psd, err := resolvePersistentStateDir(conf.RootDir, fc.PersistentStateDir)
+	psd, storageConfig, err := autobahnStorageConfig(conf.RootDir, conf.Mode, fc, storage, genDoc)
 	if err != nil {
 		return AutobahnLayout{}, err
 	}
 	return AutobahnLayout{
 		PersistentStateDir: psd,
-		FlatKVDir:          dbutils.GetFlatKVPath(psd),
+		FlatKVDir:          storageConfig.FlatKVConfig.DataDir,
+		BlockDBDirs:        storageConfig.BlockDBConfig.Litt.Paths,
+		ReceiptStoreDir:    storageConfig.ReceiptDBConfig.DBDirectory,
+		StateStoreDir:      storageConfig.SSConfig.EVMDBDirectory,
+		HashVaultDir:       storageConfig.AppHashBuilderConfig.HashVaultConfig.Path,
 		RestoreMarkerFile:  p2p.RestoreMarkerFile(psd),
 		StateSyncProofDir:  dbutils.GetStateSyncProofPath(psd),
 	}, nil
