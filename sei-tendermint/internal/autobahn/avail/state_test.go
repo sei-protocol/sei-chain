@@ -571,8 +571,8 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	fakeBlock := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
 	fakeProp := types.Sign(keys[0], types.NewLaneProposal(fakeBlock))
 
-	// Producer equivocation is logged but not returned as an error.
-	require.NoError(t, state.PushBlock(ctx, fakeProp))
+	// Producer equivocation is rejected with an error.
+	require.Error(t, state.PushBlock(ctx, fakeProp))
 	// Queue did not advance — the bad block was dropped.
 	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
 }

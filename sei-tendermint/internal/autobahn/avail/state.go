@@ -883,7 +883,7 @@ func (s *State) setNextBlockToPersist(lane types.LaneID, next types.BlockNumber)
 		if _, ok := inner.blocks[lane]; !ok {
 			return
 		}
-		if p := inner.nextBlockToPersist; p[lane] > next {
+		if p := inner.nextBlockToPersist; p[lane] < next {
 			p[lane] = next
 			ctrl.Updated()
 		}
