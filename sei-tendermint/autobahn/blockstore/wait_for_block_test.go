@@ -1,4 +1,4 @@
-package blockstore_test
+package blockstore
 
 import (
 	"context"
@@ -6,26 +6,22 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
-	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	littdb "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-// newTestStore returns an empty in-memory store and the batches to write to it.
-func newTestStore(t *testing.T) (*blockstore.Store, []batch) {
+// newWaitTestStore returns an empty LittDB store and the batches to write to it.
+func newWaitTestStore(t *testing.T) (*Store, []batch) {
 	t.Helper()
-	store, err := blockstore.New(memblock.NewBlockDB())
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	store := newTestStore(t)
 	committee, keys := buildCommittee()
 	return store, generateBatches(committee, keys)
 }
 
-func writeBatch(t *testing.T, store *blockstore.Store, b batch) {
+func writeBatch(t *testing.T, store *Store, b batch) {
 	t.Helper()
 	require.NoError(t, store.WriteBlock(types.NewRoadBlock(b.qc, b.blocks)))
 }
@@ -41,7 +37,7 @@ func canceledContext(t *testing.T) context.Context {
 // TestWaitForBlockServesABlockOnlyAfterFlush verifies that a written block reaches
 // WaitForBlock only once Flush has made it durable.
 func TestWaitForBlockServesABlockOnlyAfterFlush(t *testing.T) {
-	store, batches := newTestStore(t)
+	store, batches := newWaitTestStore(t)
 	writeBatch(t, store, batches[0])
 
 	_, err := store.WaitForBlock(canceledContext(t), batches[0].first)
@@ -55,33 +51,32 @@ func TestWaitForBlockServesABlockOnlyAfterFlush(t *testing.T) {
 
 var errFlushFailed = errors.New("flush failed")
 
-// failingFlushDB is a BlockDB whose Flush fails while fail is set.
-type failingFlushDB struct {
-	blocktypes.BlockDB
+// failingFlushTable is a LittDB table whose Flush fails while fail is set.
+type failingFlushTable struct {
+	littdb.Table
 	fail *atomic.Bool
 }
 
-func (d failingFlushDB) Flush() error {
+func (d failingFlushTable) Flush() error {
 	if d.fail.Load() {
 		return errFlushFailed
 	}
-	return d.BlockDB.Flush()
+	return d.Table.Flush()
 }
 
 // TestWaitForBlockKeepsBlocksAcrossAFailedFlush verifies that a failed Flush
 // leaves its blocks for the next Flush, even one with no new writes.
 func TestWaitForBlockKeepsBlocksAcrossAFailedFlush(t *testing.T) {
 	var fail atomic.Bool
-	store, err := blockstore.New(failingFlushDB{BlockDB: memblock.NewBlockDB(), fail: &fail})
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	store := newTestStore(t)
+	store.table = failingFlushTable{Table: store.table, fail: &fail}
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
 	writeBatch(t, store, batches[0])
 
 	fail.Store(true)
 	require.ErrorIs(t, store.Flush(), errFlushFailed)
-	_, err = store.WaitForBlock(canceledContext(t), batches[0].first)
+	_, err := store.WaitForBlock(canceledContext(t), batches[0].first)
 	require.ErrorIs(t, err, context.Canceled)
 
 	fail.Store(false)
@@ -91,15 +86,15 @@ func TestWaitForBlockKeepsBlocksAcrossAFailedFlush(t *testing.T) {
 	require.Equal(t, batches[0].qc.Header().Hash(), got.Header().Hash())
 }
 
-// countingReadsDB is a BlockDB that counts the blocks read from it by number.
-type countingReadsDB struct {
-	blocktypes.BlockDB
+// countingReadsTable is a LittDB table that counts reads.
+type countingReadsTable struct {
+	littdb.Table
 	reads *atomic.Int64
 }
 
-func (d countingReadsDB) GetBlockByNumber(n blocktypes.BlockNumber) (blocktypes.BlockRecord, bool, error) {
+func (d countingReadsTable) Get(key []byte) ([]byte, bool, error) {
 	d.reads.Add(1)
-	return d.BlockDB.GetBlockByNumber(n)
+	return d.Table.Get(key)
 }
 
 // TestWaitForBlockServesBlocksSinceTheLastAppQCFromMemory verifies that blocks
@@ -107,9 +102,8 @@ func (d countingReadsDB) GetBlockByNumber(n blocktypes.BlockNumber) (blocktypes.
 // below it are read back from it.
 func TestWaitForBlockServesBlocksSinceTheLastAppQCFromMemory(t *testing.T) {
 	var reads atomic.Int64
-	store, err := blockstore.New(countingReadsDB{BlockDB: memblock.NewBlockDB(), reads: &reads})
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	store := newTestStore(t)
+	store.table = countingReadsTable{Table: store.table, reads: &reads}
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
 	for _, b := range batches {
@@ -135,7 +129,7 @@ func TestWaitForBlockServesBlocksSinceTheLastAppQCFromMemory(t *testing.T) {
 // TestWaitForBlockWaitsForFlush verifies that a reader waiting on a block wakes
 // up once a Flush makes it durable.
 func TestWaitForBlockWaitsForFlush(t *testing.T) {
-	store, batches := newTestStore(t)
+	store, batches := newWaitTestStore(t)
 
 	var got *types.RoadBlock
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
@@ -159,8 +153,8 @@ func TestWaitForBlockWaitsForFlush(t *testing.T) {
 // recovery suffix it loaded rather than from the BlockDB.
 func TestWaitForBlockReadsStoredBlocksAfterReopen(t *testing.T) {
 	var reads atomic.Int64
-	db := countingReadsDB{BlockDB: memblock.NewBlockDB(), reads: &reads}
-	first, err := blockstore.New(db)
+	cfg := storeConfig(t, t.TempDir())
+	first, err := New(cfg)
 	require.NoError(t, err)
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
@@ -169,9 +163,11 @@ func TestWaitForBlockReadsStoredBlocksAfterReopen(t *testing.T) {
 	}
 	require.NoError(t, first.Flush())
 
-	reopened, err := blockstore.New(db)
+	require.NoError(t, first.Close())
+	reopened, err := New(cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	reopened.table = countingReadsTable{Table: reopened.table, reads: &reads}
 	reads.Store(0)
 	for _, b := range batches {
 		got, err := reopened.WaitForBlock(canceledContext(t), b.first)
@@ -184,7 +180,7 @@ func TestWaitForBlockReadsStoredBlocksAfterReopen(t *testing.T) {
 // TestWaitForBlockBelowFirstIsPruned verifies that WaitForBlock refuses a block
 // below the retention floor.
 func TestWaitForBlockBelowFirstIsPruned(t *testing.T) {
-	store, batches := newTestStore(t)
+	store, batches := newWaitTestStore(t)
 	_, keys := buildCommittee()
 	for _, b := range batches {
 		writeBatch(t, store, b)

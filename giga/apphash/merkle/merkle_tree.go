@@ -3,6 +3,8 @@ package merkle
 import (
 	"crypto/sha256"
 	"fmt"
+
+	"github.com/sei-protocol/sei-chain/giga/apphash/internal/parallel"
 )
 
 const (
@@ -144,12 +146,15 @@ func nextMerkleLevel(
 	// The hashes of one level of a tree, left to right. Must hold at least two.
 	level [][32]byte,
 ) [][32]byte {
-	next := make([][32]byte, 0, (len(level)+1)/2)
-	for i := 0; i+1 < len(level); i += 2 {
-		next = append(next, MerkleInnerHash(level[i], level[i+1]))
-	}
+	pairs := len(level) / 2
+	next := make([][32]byte, (len(level)+1)/2)
+	parallel.ForEachChunk(pairs, func(start int, end int) {
+		for pair := start; pair < end; pair++ {
+			next[pair] = MerkleInnerHash(level[2*pair], level[2*pair+1])
+		}
+	})
 	if len(level)%2 == 1 {
-		next = append(next, level[len(level)-1])
+		next[pairs] = level[len(level)-1]
 	}
 	return next
 }

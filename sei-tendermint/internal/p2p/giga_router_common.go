@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
-
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -77,7 +77,7 @@ func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) (handshakeSp
 //
 // Whoever opened blockStore must close it after giga.Run returns, or immediately
 // if construction of the GigaRouter fails. data.State never closes it.
-func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (*data.State, error) {
+func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) (*data.State, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
 	}

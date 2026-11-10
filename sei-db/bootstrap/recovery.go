@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -80,16 +79,9 @@ func (m *GigaStorageManager) recoverStores(ctx context.Context, target int64) er
 
 // openBlockStore opens the block ledger consensus reads and writes.
 func (m *GigaStorageManager) openBlockStore() error {
-	blockDB, err := littblock.NewBlockDB(m.cfg.BlockDBConfig)
+	blockStore, err := blockstore.New(m.cfg.BlockDBConfig)
 	if err != nil {
 		return fmt.Errorf("open block db: %w", err)
-	}
-	blockStore, err := blockstore.New(blockDB)
-	if err != nil {
-		if closeErr := blockDB.Close(); closeErr != nil {
-			logger.Error("failed to close the block db after the block store failed to open", "err", closeErr)
-		}
-		return fmt.Errorf("failed to open block store: %w", err)
 	}
 	m.blockStore = blockStore
 	return nil

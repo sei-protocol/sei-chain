@@ -10,9 +10,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -57,25 +54,25 @@ func snapshot(s *State) Snapshot {
 // newTestBlockStore opens (or creates) a LittDB-backed BlockStore at dir.
 // Retention is set to 1ns so ForceGC reclaims pruned data immediately in tests.
 // Errors panic so the helper is safe to call from non-main test goroutines.
-func newTestBlockStore(t *testing.T, dir string) types.BlockStore {
+func newTestBlockStore(t *testing.T, dir string) *blockstore.Store {
 	t.Helper()
-	cfg := utils.OrPanic1(littblock.DefaultConfig(dir))
+	cfg := utils.OrPanic1(blockstore.DefaultConfig(dir))
 	cfg.RetentionTime = time.Nanosecond
-	store := utils.OrPanic1(blockstore.New(utils.OrPanic1(littblock.NewBlockDB(cfg))))
+	store := utils.OrPanic1(blockstore.New(cfg))
 	t.Cleanup(func() { _ = store.Close() })
 	return store
 }
 
-func newMemoryBlockStore(t testing.TB) types.BlockStore {
+func newTestStore(t testing.TB) *blockstore.Store {
 	t.Helper()
-	store := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
+	store := blockstore.NewTestStore(t)
 	t.Cleanup(func() { _ = store.Close() })
 	return store
 }
 
 // newTestState constructs a State, replays store, and returns it ready to Run.
 // Errors panic so the helper is safe to call from non-main test goroutines.
-func newTestState(t testing.TB, cfg *Config, store types.BlockStore) *State {
+func newTestState(t testing.TB, cfg *Config, store *blockstore.Store) *State {
 	t.Helper()
 	return utils.OrPanic1(NewState(cfg, store))
 }
@@ -83,7 +80,7 @@ func newTestState(t testing.TB, cfg *Config, store types.BlockStore) *State {
 // writeToBlockStore writes QC+block pairs sequentially to store and flushes once.
 // qcs[i] and blockss[i] must correspond; QCs must be in ascending order.
 // Errors panic so the helper is safe to call from non-main test goroutines.
-func writeToBlockStore(t *testing.T, store types.BlockStore, qcs []*types.FullCommitQC, blockss [][]*types.Block) {
+func writeToBlockStore(t *testing.T, store *blockstore.Store, qcs []*types.FullCommitQC, blockss [][]*types.Block) {
 	t.Helper()
 	for i, qc := range qcs {
 		utils.OrPanic(store.WriteBlock(types.NewRoadBlock(qc, blockss[i])))
@@ -91,7 +88,7 @@ func writeToBlockStore(t *testing.T, store types.BlockStore, qcs []*types.FullCo
 	utils.OrPanic(store.Flush())
 }
 
-func writeAppDataToBlockStore(t testing.TB, rng utils.Rng, store types.BlockStore, keys []types.SecretKey, qcs ...*types.FullCommitQC) {
+func writeAppDataToBlockStore(t testing.TB, rng utils.Rng, store *blockstore.Store, keys []types.SecretKey, qcs ...*types.FullCommitQC) {
 	t.Helper()
 	for _, qc := range qcs {
 		appProposal := types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng))
@@ -164,7 +161,7 @@ func TestNextCommitEpoch_AdvancesAtIdleEpochBoundary(t *testing.T) {
 	registry, keys := epoch.GenRegistryThrough(rng, 3, 2)
 	ep1 := registry.MustEpoch(1)
 	qcMid, blocksMid := commitQCAtRoad(ep1, keys, registry.LastRoad(1)-1)
-	store := newMemoryBlockStore(t)
+	store := newTestStore(t)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qcMid}, [][]*types.Block{blocksMid})
 	state := newTestState(t, &Config{Registry: registry}, store)
 	require.Equal(t, ep1, state.NextCommitEpoch().Load())
@@ -179,7 +176,7 @@ func TestNextCommitEpoch_AfterAppQCActivation(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	qc, blocks := commitQCAtRoad(registry.MustEpoch(0), keys, registry.LastRoad(0))
-	store := newMemoryBlockStore(t)
+	store := newTestStore(t)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
 	state := newTestState(t, &Config{Registry: registry}, store)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -514,7 +511,7 @@ func TestCommitteeFill_GatedOnAppQC(t *testing.T) {
 	keeper := keys[0].Public()
 	ep := registry.MustEpoch(0)
 	qc, blocks := commitQCAtRoad(ep, keys, registry.LastRoad(0))
-	store := newMemoryBlockStore(t)
+	store := newTestStore(t)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
 	state := newTestState(t, &Config{Registry: registry}, store)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -561,7 +558,7 @@ func TestCommitteeFill_AppQCDivergenceLeavesStaged(t *testing.T) {
 	keeper := keys[0].Public()
 	ep := registry.MustEpoch(0)
 	qc, blocks := commitQCAtRoad(ep, keys, registry.LastRoad(0))
-	store := newMemoryBlockStore(t)
+	store := newTestStore(t)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
 	state := newTestState(t, &Config{Registry: registry}, store)
 	n := qc.Index()
@@ -590,7 +587,7 @@ func TestCommitteeFill_LaterMatchingAppQCDoesNotSkipDivergentLastRoad(t *testing
 	ep0 := registry.MustEpoch(0)
 	ep1 := registry.MustEpoch(1)
 	qc0, blocks0 := commitQCAtRoad(ep0, keys, registry.LastRoad(0))
-	store := newMemoryBlockStore(t)
+	store := newTestStore(t)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc0}, [][]*types.Block{blocks0})
 	state := newTestState(t, &Config{Registry: registry}, store)
 	qc1, blocks1 := commitQCAtRoad(ep1, keys, ep1.RoadRange().First)
@@ -642,7 +639,7 @@ func TestRunPersist_HaltsBeforePersistingDivergentAppQC(t *testing.T) {
 	divergent := types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng))
 	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, divergent)))
 
-	require.ErrorIs(t, state.runPersist(ctx), ErrAppHashDivergence)
+	require.ErrorIs(t, state.runPersist(ctx, state.blockStore.WriteAppProposal), ErrAppHashDivergence)
 	after := store.Status().OrPanic("status after divergence")
 	require.Equal(t, before.NextAppQC, after.NextAppQC, "divergent AppQC must not be persisted")
 	require.Equal(t, before.First, after.First, "eviction floor must not advance past it")
@@ -674,7 +671,7 @@ func TestPushBlockRejectsMismatchedHeader(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
+	state := newTestState(t, &Config{Registry: registry}, newTestStore(t))
 	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	require.NoError(t, state.PushPartialBlock(ctx, qc, nil))
 
@@ -714,7 +711,7 @@ func TestPushBlockRejectsMismatchedHeader(t *testing.T) {
 func TestInsertAppProposalRequiresCommitQC(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
+	state := newTestState(t, &Config{Registry: registry}, newTestStore(t))
 	previous := utils.None[*types.CommitQC]()
 
 	for range 2 {
@@ -759,7 +756,7 @@ func TestPushEmptyQC(t *testing.T) {
 		votes[i] = types.Sign(key, types.NewCommitVote(prepareQC))
 	}
 	qc := types.NewFullCommitQC(types.NewCommitQC(votes), nil)
-	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
+	state := newTestState(t, &Config{Registry: registry}, newTestStore(t))
 	require.NoError(t, state.PushPartialBlock(t.Context(), previous, TestBlockMap(blocks)))
 	require.NoError(t, state.PushPartialBlock(t.Context(), qc, nil))
 	want := types.NewRoadBlock(qc, nil).SuperBlock()
@@ -777,7 +774,7 @@ func TestSuperBlockByHashDoesNotServeGaps(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
+	state := newTestState(t, &Config{Registry: registry}, newTestStore(t))
 	ep := registry.MustEpoch(0)
 	qc1, blocks1 := TestCommitQC(rng, ep, keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, ep, keys, utils.Some(qc1.QC()))
@@ -1333,7 +1330,7 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 3)
 		ep0 := registry.MustEpoch(0)
-		state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
+		state := newTestState(t, &Config{Registry: registry}, newTestStore(t))
 		qc1, blocks1 := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
 		require.NoError(t, state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
 		qc2, blocks2 := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
@@ -1375,7 +1372,7 @@ func TestTryBlockServesPartialBlocks(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
+	state := newTestState(t, &Config{Registry: registry}, newTestStore(t))
 	require.NoError(t, state.PushPartialBlock(ctx, qc, nil))
 	require.Equal(t, qc.Index()+1, state.NextQC())
 	last := types.LaneBlockPos{Index: qc.Index(), Offset: uint64(len(blocks) - 1)}
@@ -1469,7 +1466,7 @@ func TestLaneBlockInvalidOffset(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	store := newMemoryBlockStore(t)
+	store := newTestStore(t)
 	state := newTestState(t, &Config{Registry: registry}, store)
 	require.NoError(t, state.PushPartialBlock(t.Context(), qc, TestBlockMap(blocks)))
 	pos := types.LaneBlockPos{Index: qc.Index(), Offset: uint64(len(blocks))}
@@ -1486,7 +1483,7 @@ func TestLaneBlockCacheBound(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 2)
 		ep := registry.MustEpoch(0)
-		store := newMemoryBlockStore(t)
+		store := newTestStore(t)
 		state := newTestState(t, &Config{Registry: registry}, store)
 		var qcs []*types.FullCommitQC
 		var blocks [][]*types.Block
@@ -1539,7 +1536,7 @@ func TestLaneBlockCacheAllowsOvershoot(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
 	ep := registry.MustEpoch(0)
-	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
+	state := newTestState(t, &Config{Registry: registry}, newTestStore(t))
 	prev := utils.None[*types.CommitQC]()
 	for count := 0; count < maxLaneBlock; {
 		qc, blocks := testCommitQCBlocks(rng, ep, keys, prev, 20)
@@ -1562,7 +1559,7 @@ func TestRoadBlockCacheManySmallRoads(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 1)
 	ep := registry.MustEpoch(0)
-	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
+	state := newTestState(t, &Config{Registry: registry}, newTestStore(t))
 	for i := range maxRoadBlocks {
 		qc, _ := commitQCAtRoad(ep, keys, ep.RoadRange().First+types.RoadIndex(i))
 		require.NoError(t, state.PushPartialBlock(t.Context(), qc, nil))
@@ -1578,7 +1575,7 @@ func TestRoadBlockCacheEmptyRoads(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 1)
 		ep := registry.MustEpoch(0)
-		state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
+		state := newTestState(t, &Config{Registry: registry}, newTestStore(t))
 		prev := utils.None[*types.CommitQC]()
 		var nextQC *types.FullCommitQC
 		for i := range maxRoadBlocks + 1 {

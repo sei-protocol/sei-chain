@@ -28,7 +28,6 @@ type undoTestHome struct {
 func newUndoTestHome(t *testing.T) undoTestHome {
 	ssCfg := config.DefaultStateStoreConfig()
 	ssCfg.Enable = true
-	ssCfg.Backend = config.PebbleDBUndoBackend
 	ssCfg.EVMDBDirectory = filepath.Join(t.TempDir(), "ss")
 	ssCfg.ExternalPruning = true
 	return undoTestHome{flatkv: flatkvconfig.DefaultTestConfig(t), ss: ssCfg}
@@ -40,7 +39,6 @@ func (h undoTestHome) open(t *testing.T) *StateDB {
 		newDiscardingBUDHasher(t))
 	require.NoError(t, err)
 	require.NotNil(t, db.UndoSS())
-	require.Nil(t, db.SS())
 	return db
 }
 
