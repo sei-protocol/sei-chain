@@ -3,6 +3,7 @@ package memiavl
 import (
 	"fmt"
 	"math"
+	"time"
 
 	ics23 "github.com/confio/ics23/go"
 	dbm "github.com/tendermint/tm-db"
@@ -224,6 +225,23 @@ func (cs *CommitStore) GetChildStoreByName(name string) types.CommitKVStore {
 // MayHoldStore reports whether the working state holds a tree named name.
 func (cs *CommitStore) MayHoldStore(name string) bool {
 	return cs.GetChildStoreByName(name) != nil
+}
+
+// PrefetchStore reads the snapshot files of the tree named name into the page cache. It does
+// nothing when no tree has that name.
+func (cs *CommitStore) PrefetchStore(name string) {
+	tree := cs.db.TreeByName(name)
+	if tree == nil {
+		return
+	}
+	logger.Info("prefetching tree into page cache", "tree", name)
+	started := time.Now()
+	size, err := tree.prefetch()
+	if err != nil {
+		logger.Warn("failed to release snapshot after prefetching tree", "tree", name, "err", err)
+	}
+	logger.Info("prefetched tree into page cache",
+		"tree", name, "size-mib", size>>20, "elapsed-sec", time.Since(started).Seconds())
 }
 
 // IsLoaded reports whether the underlying memiavl DB has been opened. It is

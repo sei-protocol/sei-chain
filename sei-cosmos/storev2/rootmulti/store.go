@@ -1089,6 +1089,11 @@ func (rs *Store) MayHoldStore(name string) bool {
 	return rs.scStore.MayHoldStore(name)
 }
 
+// PrefetchStore reads the state commitment files holding the named store into the page cache.
+func (rs *Store) PrefetchStore(name string) {
+	rs.scStore.PrefetchStore(name)
+}
+
 // getStoreByName performs a lookup of a StoreKey given a store name typically
 // provided in a path. The StoreKey is then used to perform a lookup and return
 // a Store. If the Store is wrapped in an inter-block cache, it will be unwrapped
