@@ -163,6 +163,10 @@ type Config struct {
 	// max number of blocks to query logs for
 	MaxBlocksForLog int64 `mapstructure:"max_blocks_for_log"`
 
+	// LargeLogQueryRPS is the node-wide rate, in queries per second, at which log
+	// queries over 100 blocks are admitted, shared by all clients. Zero disables the limit.
+	LargeLogQueryRPS int `mapstructure:"large_log_query_rps"`
+
 	// max number of calls allowed in an eth_estimateGasAfterCalls request
 	MaxEstimateGasCalls int `mapstructure:"max_estimate_gas_calls"`
 
@@ -370,6 +374,7 @@ var DefaultConfig = Config{
 	MaxLogNoBlock:                10000,
 	MaxLogBytes:                  receipt.DefaultMaxLogBytes,
 	MaxBlocksForLog:              2000,
+	LargeLogQueryRPS:             30,
 	MaxEstimateGasCalls:          100,
 	MaxStateOverrideAccounts:     100,
 	MaxStateOverrideSlots:        1000,
@@ -440,6 +445,7 @@ const (
 	flagMaxLogNoBlock                = "evm.max_log_no_block"
 	flagMaxLogBytes                  = "evm.max_log_bytes"
 	flagMaxBlocksForLog              = "evm.max_blocks_for_log"
+	flagLargeLogQueryRPS             = "evm.large_log_query_rps"
 	flagMaxEstimateGasCalls          = "evm.max_estimate_gas_calls"
 	flagMaxStateOverrideAccounts     = "evm.max_state_override_accounts"
 	flagMaxStateOverrideSlots        = "evm.max_state_override_slots"
@@ -602,6 +608,14 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	if v := opts.Get(flagMaxBlocksForLog); v != nil {
 		if cfg.MaxBlocksForLog, err = cast.ToInt64E(v); err != nil {
 			return cfg, err
+		}
+	}
+	if v := opts.Get(flagLargeLogQueryRPS); v != nil {
+		if cfg.LargeLogQueryRPS, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+		if cfg.LargeLogQueryRPS < 0 {
+			return cfg, fmt.Errorf("%s must be >= 0, got %d", flagLargeLogQueryRPS, cfg.LargeLogQueryRPS)
 		}
 	}
 	if v := opts.Get(flagMaxEstimateGasCalls); v != nil {
@@ -1051,6 +1065,11 @@ max_log_bytes = {{ .EVM.MaxLogBytes }}
 
 # max number of blocks to query logs for
 max_blocks_for_log = {{ .EVM.MaxBlocksForLog }}
+
+# Node-wide rate, in queries per second, at which eth_getLogs, eth_getFilterLogs
+# and filter polls over 100 blocks are admitted, shared by all clients.
+# 0 disables the limit.
+large_log_query_rps = {{ .EVM.LargeLogQueryRPS }}
 
 # max number of calls allowed in an eth_estimateGasAfterCalls request
 max_estimate_gas_calls = {{ .EVM.MaxEstimateGasCalls }}
