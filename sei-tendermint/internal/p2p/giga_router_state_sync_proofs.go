@@ -72,9 +72,10 @@ func runStateSyncProofExport(
 ) error {
 	exporter := newStateSyncProofExporter(cfg, closingEpoch)
 	// Anchor moves with every durable AppQC, so a live chain retries failed exports and picks up
-	// checkpoints that appear after their AppQC within one block. A halted chain has no new proof
-	// to write until the startup sweep after the restart. Iter delivers the current Anchor first,
-	// which runs the startup sweep.
+	// checkpoints that appear after their AppQC within one block. FlatKV writes checkpoints
+	// asynchronously, so on a halted chain a checkpoint published after the last Anchor update waits
+	// for the startup sweep after the restart. Iter delivers the current Anchor first, which runs the
+	// startup sweep.
 	wake := make(chan struct{}, 1)
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("watchAnchor", func() error {
@@ -111,16 +112,16 @@ func (e *stateSyncProofExporter) sweepAndHandleError() {
 }
 
 // sweepOnce exports every pending checkpoint whose AppQC is durable. An I/O error on one
-// checkpoint does not stop the others; the sweep returns all of them joined.
+// checkpoint or proof file does not stop the others; the sweep returns all of them joined.
 func (e *stateSyncProofExporter) sweepOnce() error {
 	checkpoints, err := e.retainedCheckpoints()
 	if err != nil {
 		return err
 	}
-	if err := e.syncCheckpoints(checkpoints); err != nil {
-		return err
-	}
 	var errs []error
+	if err := e.syncCheckpoints(checkpoints); err != nil {
+		errs = append(errs, err)
+	}
 	for _, index := range e.exportable(checkpoints) {
 		if err := e.exportCheckpoint(index); err != nil {
 			errs = append(errs, err)
@@ -132,56 +133,59 @@ func (e *stateSyncProofExporter) sweepOnce() error {
 // syncCheckpoints rescans the proof dir on the first sweep and whenever the retained checkpoint
 // set changes. The first scan keeps only the proof files that decode. Every scan forgets the
 // checkpoints that are no longer retained and the exported checkpoints whose file is gone, so the
-// next export writes them again.
+// next export writes them again. A file that cannot be read or removed does not stop the scan: it
+// is not counted as exported, and its error is returned with the others.
 func (e *stateSyncProofExporter) syncCheckpoints(checkpoints map[types.RoadIndex]struct{}) error {
 	last, scanned := e.checkpoints.Get()
 	if scanned && maps.Equal(last, checkpoints) {
 		return nil
 	}
-	present, err := e.removeOrphans(checkpoints)
-	if err != nil {
-		return err
+	entries, err := os.ReadDir(e.cfg.Dir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		// Without a listing the scan learns nothing, so the next sweep scans again.
+		return fmt.Errorf("read state sync proof dir %s: %w", e.cfg.Dir, err)
 	}
+	present, orphanErr := e.removeOrphans(entries, checkpoints)
+	var invalidErr error
 	if scanned {
 		maps.DeleteFunc(e.exported, func(index types.RoadIndex, _ struct{}) bool {
 			_, ok := present[index]
 			return !ok
 		})
 	} else {
-		valid, err := e.removeInvalidFiles(present)
-		if err != nil {
-			return err
-		}
-		e.exported = valid
+		e.exported, invalidErr = e.removeInvalidFiles(present)
 	}
 	maps.DeleteFunc(e.skipped, func(index types.RoadIndex, _ struct{}) bool {
 		_, retained := checkpoints[index]
 		return !retained
 	})
 	e.checkpoints = utils.Some(checkpoints)
-	return nil
+	return errors.Join(orphanErr, invalidErr)
 }
 
 // removeInvalidFiles removes the proof files in present that do not decode for the road in their
-// name, and returns the rest.
+// name, and returns the rest. A file it cannot read or remove is left out of the result, and its
+// error is returned joined with the others.
 func (e *stateSyncProofExporter) removeInvalidFiles(present map[types.RoadIndex]struct{}) (map[types.RoadIndex]struct{}, error) {
 	valid := make(map[types.RoadIndex]struct{}, len(present))
+	var errs []error
 	for index := range present {
 		path := filepath.Join(e.cfg.Dir, statesyncproof.FileName(index))
 		data, err := os.ReadFile(path) //nolint:gosec // path is derived from the configured state sync proof directory and a canonical file name.
 		if err != nil {
-			return nil, fmt.Errorf("read state sync proof file %s: %w", path, err)
+			errs = append(errs, fmt.Errorf("read state sync proof file %s: %w", path, err))
+			continue
 		}
 		if _, err := statesyncproof.Decode(data, index); err != nil {
 			logger.Warn("removing invalid state sync proof file", "path", path, "err", err)
 			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return nil, fmt.Errorf("remove invalid state sync proof file %s: %w", path, err)
+				errs = append(errs, fmt.Errorf("remove invalid state sync proof file %s: %w", path, err))
 			}
 			continue
 		}
 		valid[index] = struct{}{}
 	}
-	return valid, nil
+	return valid, errors.Join(errs...)
 }
 
 // exportable returns the checkpoints that are neither exported nor skipped and whose AppQC is
@@ -326,23 +330,21 @@ func (e *stateSyncProofExporter) readRecords(index types.RoadIndex) (utils.Optio
 	return utils.Some(r), nil
 }
 
-// removeOrphans removes the stale temp files and the proof files of checkpoints that are not
-// retained. It returns the retained checkpoints that have a proof file.
-func (e *stateSyncProofExporter) removeOrphans(checkpoints map[types.RoadIndex]struct{}) (map[types.RoadIndex]struct{}, error) {
+// removeOrphans removes, among the proof dir entries, the stale temp files and the proof files of
+// checkpoints that are not retained. It returns the retained checkpoints that have a proof file. A
+// file it cannot remove stays in place, and its error is returned joined with the others.
+func (e *stateSyncProofExporter) removeOrphans(
+	entries []os.DirEntry,
+	checkpoints map[types.RoadIndex]struct{},
+) (map[types.RoadIndex]struct{}, error) {
 	present := map[types.RoadIndex]struct{}{}
-	entries, err := os.ReadDir(e.cfg.Dir)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return present, nil
-		}
-		return nil, fmt.Errorf("read state sync proof dir %s: %w", e.cfg.Dir, err)
-	}
+	var errs []error
 	for _, entry := range entries {
 		name := entry.Name()
 		path := filepath.Join(e.cfg.Dir, name)
 		if filepath.Ext(name) == ".tmp" {
 			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return nil, fmt.Errorf("remove stale temp state sync proof %s: %w", path, err)
+				errs = append(errs, fmt.Errorf("remove stale temp state sync proof %s: %w", path, err))
 			}
 			continue
 		}
@@ -355,10 +357,10 @@ func (e *stateSyncProofExporter) removeOrphans(checkpoints map[types.RoadIndex]s
 			continue
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("remove orphan state sync proof %s: %w", path, err)
+			errs = append(errs, fmt.Errorf("remove orphan state sync proof %s: %w", path, err))
 		}
 	}
-	return present, nil
+	return present, errors.Join(errs...)
 }
 
 func writeStateSyncProofFile(path string, data []byte) error {

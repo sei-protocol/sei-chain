@@ -356,6 +356,33 @@ func TestStateSyncProofExporterReadErrorDoesNotBlockOtherCheckpoints(t *testing.
 	require.FileExists(t, env.stateSyncProofPath(env.index))
 }
 
+func TestStateSyncProofExporterStuckFileDoesNotBlockOtherCheckpoints(t *testing.T) {
+	cases := map[string]func(env *stateSyncProofExportEnv, nextIndex types.RoadIndex) types.RoadIndex{
+		"unreadable proof file": func(env *stateSyncProofExportEnv, _ types.RoadIndex) types.RoadIndex {
+			return env.index
+		},
+		"unremovable orphan": func(_ *stateSyncProofExportEnv, nextIndex types.RoadIndex) types.RoadIndex {
+			return nextIndex + 1
+		},
+	}
+	for name, stuckIndex := range cases {
+		t.Run(name, func(t *testing.T) {
+			rng := utils.TestRng()
+			env := newStateSyncProofExportEnv(t, rng)
+			next := env.addNextRoad(rng)
+			nextIndex := next.AppQC.Proposal().Index()
+			env.checkpoints = []int64{int64(env.index), int64(nextIndex)}
+			env.anchorSend.Store(utils.Some(next))
+			// A non-empty directory under a proof file name can be neither read nor removed.
+			stuck := env.stateSyncProofPath(stuckIndex(env, nextIndex))
+			require.NoError(t, os.MkdirAll(filepath.Join(stuck, "child"), 0o750))
+
+			require.Error(t, env.exporter.sweepOnce())
+			require.FileExists(t, env.stateSyncProofPath(nextIndex))
+		})
+	}
+}
+
 func TestStateSyncProofExporterForgetsDroppedCheckpoints(t *testing.T) {
 	rng := utils.TestRng()
 	env := newStateSyncProofExportEnv(t, rng)
