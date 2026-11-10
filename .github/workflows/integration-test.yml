@@ -336,9 +336,27 @@ jobs:
           esac
           go test -tags yaml_integration -v -timeout 5m ./integration_test/runner/... -run "$startup"
 
+      # Autobahn validators keep no EVM state history, so the suites send RPC calls to the RPC
+      # node, published on 8555 (HTTP) and 8556 (WebSocket).
+      - name: Wait for the Autobahn RPC node
+        if: ${{ contains(matrix.test.env, 'AUTOBAHN=true') }}
+        run: |
+          for _ in $(seq 1 60); do
+            if curl -sf -X POST -H 'Content-Type: application/json' \
+              -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' http://localhost:8555 | grep -q result; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::the Autobahn RPC node did not serve EVM RPC on 8555 within 5 minutes"
+          exit 1
+
       - name: ${{ matrix.test.name }}
         run: |
           scripts=$(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]')
+          case "${{ matrix.test.env }}" in
+            *AUTOBAHN=true*) export SEI_EVM_RPC_URL=http://localhost:8555 SEI_EVM_WS_URL=ws://localhost:8556 ;;
+          esac
           row_start=$SECONDS
           IFS=$'\n'   # change the internal field separator to newline
           for script in $scripts
