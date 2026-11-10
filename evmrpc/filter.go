@@ -47,8 +47,6 @@ const (
 	DefaultMaxBlockRange = 2000
 	DefaultMaxLogLimit   = 10000
 
-	// global request rate limit, only applies to queries > RPSLimitThreshold
-	GlobalRPSLimit    = 30
 	RPSLimitThreshold = 100 // block range queries below this threshold bypass rate limiting
 
 	// rangeQueryWindowBlocks bounds how many blocks tryFilterLogsRange asks the
@@ -281,6 +279,8 @@ type FilterConfig struct {
 	maxLog      int64
 	maxLogBytes int64
 	maxBlock    int64
+	// largeQueryRPS is the node-wide rate of queries over RPSLimitThreshold blocks; 0 disables it.
+	largeQueryRPS int
 }
 
 type EventItemDataWrapper struct {
@@ -338,7 +338,7 @@ func NewFilterAPI(
 		connectionType:   connectionType,
 		shutdownCtx:      shutdownCtx,
 		shutdownCancel:   shutdownCancel,
-		globalRPSLimiter: rate.NewLimiter(rate.Limit(GlobalRPSLimit), GlobalRPSLimit),
+		globalRPSLimiter: newLargeQueryLimiter(filterConfig.largeQueryRPS),
 	}
 
 	go api.cleanupLoop(filterConfig.timeout)
@@ -597,13 +597,9 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, startTime, err, recover())
 	}()
 
-	latest, err := a.logFetcher.latestHeight(ctx)
+	earliest, _, latest, err := a.logFetcher.watermarks.Watermarks(ctx)
 	if err != nil {
 		return nil, err
-	}
-	earliest, err := a.logFetcher.earliestHeight(ctx)
-	if err != nil {
-		earliest = 0
 	}
 
 	begin, end, err := ComputeBlockBounds(latest, earliest, 0, crit)
@@ -628,26 +624,8 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 		return nil, fmt.Errorf("requested block range [%d, %d] includes pruned blocks, earliest available block is %d", begin, end, earliest)
 	}
 
-	// Only apply rate limiting for large queries (> RPSLimitThreshold blocks)
-	if blockRange > RPSLimitThreshold && !a.globalRPSLimiter.Allow() {
-		return nil, fmt.Errorf("log query rate limit exceeded for large queries, please try again later")
-	}
-
-	// Backpressure: early rejection based on system load
-	m := GetGlobalMetrics()
-
-	// Check 1: Too many pending tasks (queue backlog)
-	pending := m.TasksSubmitted.Load() - m.TasksCompleted.Load()
-	maxPending := int64(float64(m.QueueCapacity.Load()) * 0.8) // 80% threshold
-	if pending > maxPending {
-		return nil, fmt.Errorf("server too busy, rejecting new request (pending: %d, threshold: %d)", pending, maxPending)
-	}
-
-	// Check 2: I/O saturated (semaphore exhausted)
-	semInUse := m.DBSemaphoreAcquired.Load()
-	semCapacity := m.DBSemaphoreCapacity.Load()
-	if semCapacity > 0 && float64(semInUse)/float64(semCapacity) >= 0.8 {
-		return nil, fmt.Errorf("server I/O saturated, rejecting new request (semaphore: %d/%d in use)", semInUse, semCapacity)
+	if err := checkLogQueryAdmission(blockRange, a.globalRPSLimiter, GetGlobalMetrics()); err != nil {
+		return nil, err
 	}
 
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
@@ -824,13 +802,9 @@ func (f *LogFetcher) storeCandidateBudget() *receipt.LogBudget {
 }
 
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
-	latest, err := f.latestHeight(ctx)
+	earliest, _, latest, err := f.watermarks.Watermarks(ctx)
 	if err != nil {
 		return nil, 0, err
-	}
-	earliest, err := f.earliestHeight(ctx)
-	if err != nil {
-		earliest = 0
 	}
 	begin, end, err := ComputeBlockBounds(latest, earliest, lastToHeight, crit)
 	if err != nil {
@@ -914,7 +888,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	// Batch process with fail-fast
 	blockBatch := make([]*coretypes.ResultBlock, 0, evmrpcconfig.WorkerBatchSize)
 	for block := range blocks {
-		if budget.Tripped() {
+		if budget.Tripped() || ctx.Err() != nil {
 			break
 		}
 		blockBatch = append(blockBatch, block)
@@ -937,7 +911,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}
 
 	// Process remaining blocks, unless the cap is already exceeded
-	if len(blockBatch) > 0 && !budget.Tripped() {
+	if len(blockBatch) > 0 && !budget.Tripped() && ctx.Err() == nil {
 		wg.Add(1)
 		if err := runner.SubmitWithMetrics(func() { processBatch(blockBatch) }); err != nil {
 			wg.Done()
@@ -961,6 +935,9 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	for range blocks {
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
 	if budget.Tripped() {
 		return nil, 0, budget.Err()
 	}
@@ -1354,15 +1331,12 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 
 	// Block range (including open-ended queries) is enforced by FilterAPI.GetLogs
 	// and GetLogsByFilters before this block-by-block fallback runs.
-	latest, err := f.watermarks.LatestHeight(ctx)
+	blockEarliest, _, latest, err := f.watermarks.Watermarks(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
-	earliest, err := f.watermarks.EarliestHeight(ctx)
-	if err != nil {
-		earliest = 0
-	}
-	begin, end, err := ComputeBlockBounds(latest, earliest, lastToHeight, crit)
+	available := blockWindow{earliest: blockEarliest, latest: latest}
+	begin, end, err := ComputeBlockBounds(latest, blockEarliest, lastToHeight, crit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1387,7 +1361,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 		if err := runner.SubmitWithMetrics(func(start, endHeight int64) func() {
 			return func() {
 				defer wg.Done()
-				f.processBatch(ctx, start, endHeight, crit, bloomIndexes, res, errChan)
+				f.processBatch(ctx, available, start, endHeight, crit, bloomIndexes, res, errChan)
 			}
 		}(batchStart, batchEnd)); err != nil {
 			wg.Done()
@@ -1412,13 +1386,16 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	if firstErr != nil {
 		return nil, 0, firstErr
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
 
 	return res, end, nil
 }
 
 // processBatch sends to res each block in [start, end] that crit can match, and reports on errChan
 // each block it cannot read. A panic is reported the same way and ends the batch.
-func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
+func (f *LogFetcher) processBatch(ctx context.Context, available blockWindow, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
 	var height int64
 	defer func() {
 		if r := recover(); r != nil {
@@ -1427,6 +1404,9 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 	}()
 
 	for height = start; height <= end; height++ {
+		if ctx.Err() != nil {
+			return
+		}
 		if height == 0 {
 			continue
 		}
@@ -1434,7 +1414,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		// check cache first, without holding the semaphore
 		if cachedEntry, found := f.globalBlockCache.Get(height); found {
 			if cachedEntry.Block != nil {
-				if err := f.watermarks.EnsureBlockHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
+				if err := available.ensureContains(cachedEntry.Block.Block.Height); err != nil {
 					continue
 				}
 			}
@@ -1443,7 +1423,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		}
 
 		// Block cache miss, read the block from the store
-		block, ok, err := f.readUncachedBlock(ctx, height, crit, bloomIndexes)
+		block, ok, err := f.readUncachedBlock(ctx, available, height, crit, bloomIndexes)
 		if err != nil {
 			reportBatchError(errChan, fmt.Errorf("failed to fetch block at height %d: %w", height, err))
 			continue
@@ -1474,14 +1454,14 @@ func reportBatchError(errChan chan<- error, err error) {
 // readUncachedBlock reads the block at height under a DB-read slot and adds it to the block cache.
 // It returns ok=false, with no error, when the block's bloom rules out crit or when a copy another
 // worker cached meanwhile is outside the available range.
-func (f *LogFetcher) readUncachedBlock(ctx context.Context, height int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes) (block *coretypes.ResultBlock, ok bool, err error) {
+func (f *LogFetcher) readUncachedBlock(ctx context.Context, available blockWindow, height int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes) (block *coretypes.ResultBlock, ok bool, err error) {
 	release := f.acquireDBReadSlot()
 	defer release()
 
 	// Re-check cache after acquiring semaphore, in case another worker cached it.
 	if cachedEntry, found := f.globalBlockCache.Get(height); found {
 		if cachedEntry.Block != nil {
-			if err := f.watermarks.EnsureBlockHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
+			if err := available.ensureContains(cachedEntry.Block.Block.Height); err != nil {
 				return nil, false, nil
 			}
 		}
@@ -1507,7 +1487,10 @@ func (f *LogFetcher) readUncachedBlock(ctx context.Context, height int64, crit f
 	}
 
 	// fetch block from network
-	block, err = blockByNumberRespectingWatermarks(ctx, f.tmClient, f.watermarks, &height, 1)
+	if err := available.ensureContains(height); err != nil {
+		return nil, false, err
+	}
+	block, err = blockByNumberWithRetry(ctx, f.tmClient, &height, 1)
 	if err != nil {
 		return nil, false, err
 	}
@@ -1534,4 +1517,35 @@ func (f *LogFetcher) acquireDBReadSlot() (release func()) {
 		<-f.dbReadSemaphore
 		wpMetrics.RecordDBSemaphoreRelease()
 	}
+}
+
+// checkLogQueryAdmission reports whether a log query over blockRange blocks may run now, against
+// the worker-queue and DB-semaphore load in m and the large-query rate limiter.
+func checkLogQueryAdmission(blockRange int64, limiter *rate.Limiter, m *WorkerPoolMetrics) error {
+	// Before the limiter, so a query refused under load does not spend a token.
+	pending := m.TasksSubmitted.Load() - m.TasksCompleted.Load()
+	maxPending := int64(float64(m.QueueCapacity.Load()) * 0.8) // 80% threshold
+	if pending > maxPending {
+		return fmt.Errorf("server too busy, rejecting new request (pending: %d, threshold: %d)", pending, maxPending)
+	}
+
+	semInUse := m.DBSemaphoreAcquired.Load()
+	semCapacity := m.DBSemaphoreCapacity.Load()
+	if semCapacity > 0 && float64(semInUse)/float64(semCapacity) >= 0.8 {
+		return fmt.Errorf("server I/O saturated, rejecting new request (semaphore: %d/%d in use)", semInUse, semCapacity)
+	}
+
+	if blockRange > RPSLimitThreshold && !limiter.Allow() {
+		return fmt.Errorf("log query rate limit exceeded for large queries, please try again later")
+	}
+	return nil
+}
+
+// newLargeQueryLimiter returns the limiter admitting log queries over RPSLimitThreshold blocks at
+// rps per second with a burst of rps. A non-positive rps admits every query.
+func newLargeQueryLimiter(rps int) *rate.Limiter {
+	if rps <= 0 {
+		return rate.NewLimiter(rate.Inf, 0)
+	}
+	return rate.NewLimiter(rate.Limit(rps), rps)
 }

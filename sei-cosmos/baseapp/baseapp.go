@@ -492,7 +492,7 @@ func (app *BaseApp) LastCommitID() sdk.CommitID {
 
 // LastBlockHeight returns the last committed block height.
 func (app *BaseApp) LastBlockHeight() int64 {
-	return app.cms.LastCommitID().Version
+	return app.cms.LastCommitVersion()
 }
 
 func (app *BaseApp) init() error {
