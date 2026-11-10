@@ -68,9 +68,9 @@ type ExecutionConfig struct {
 	EvmRpcPort int `mapstructure:"evm_rpc_port"`
 	// EvmWsPort is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
 	EvmWsPort int `mapstructure:"evm_ws_port"`
-	// GCPercent is the Go GC target. The default is 400. 0 leaves the process default. A value above
-	// 100 trades memory for fewer collections; the process then caps the heap from the container
-	// limit when it has one.
+	// GCPercent is the Go GC target for Autobahn/Giga nodes. The default is 400. 0 leaves the
+	// process default. A value above 100 trades memory for fewer collections; the process then
+	// caps the heap from the container limit when it has one. Non-Autobahn nodes never apply it.
 	GCPercent int `mapstructure:"gc_percent"`
 }
 
@@ -524,7 +524,8 @@ evm_rpc_port = {{ .Giga.Execution.EvmRpcPort }}
 # evm_ws_port is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
 evm_ws_port = {{ .Giga.Execution.EvmWsPort }}
 
-# gc_percent is the Go GC target. The default is 400; 0 leaves the process default.
+# gc_percent is the Go GC target for Autobahn/Giga nodes. The default is 400; 0 leaves the
+# process default. Non-Autobahn nodes ignore it.
 gc_percent = {{ .Giga.Execution.GCPercent }}
 
 [giga.rpc]

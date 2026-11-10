@@ -83,7 +83,9 @@ func New(
 	if err := opts.giga.Validate(); err != nil {
 		return nil, fmt.Errorf("giga config: %w", err)
 	}
-	applyExecutionRuntime(opts.giga.Execution)
+	if conf.AutobahnConfigFile != "" {
+		applyExecutionRuntime(opts.giga.Execution)
+	}
 	genDoc, err := genesisDocument(conf, gen)
 	if err != nil {
 		return nil, err
@@ -298,7 +300,7 @@ func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []abci.V
 }
 
 // applyExecutionRuntime applies GCPercent when set, and caps the heap at 80% of the container
-// memory limit when one is present.
+// memory limit when one is present. Call only for Autobahn/Giga nodes.
 func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
 	if cfg.GCPercent <= 0 {
 		return
