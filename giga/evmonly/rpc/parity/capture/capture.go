@@ -13,9 +13,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/parity"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // customPrecompiles is the address range of Sei's custom precompiles, which
@@ -121,7 +121,8 @@ func captureBlock(ctx context.Context, src Source, number hexutil.Uint64) (parit
 	if consensus.Txs != len(txs) {
 		return parity.Block{}, fmt.Errorf("block holds %d transactions of which %d are EVM", consensus.Txs, len(txs))
 	}
-	prevRandao, err := evmtypes.PrevRandao(consensus.Time)
+	// v2 derives PREVRANDAO from the binary encoding of the block time.
+	timeBinary, err := consensus.Time.MarshalBinary()
 	if err != nil {
 		return parity.Block{}, err
 	}
@@ -131,7 +132,7 @@ func captureBlock(ctx context.Context, src Source, number hexutil.Uint64) (parit
 		Header: header,
 		Execution: parity.Execution{
 			Coinbase:   src.Coinbase,
-			PrevRandao: prevRandao,
+			PrevRandao: crypto.Keccak256Hash(timeBinary),
 			GasLimit:   reported.GasLimit,
 			// v2 reports the base fee it executed the block at.
 			BaseFee:     reported.BaseFeePerGas,
