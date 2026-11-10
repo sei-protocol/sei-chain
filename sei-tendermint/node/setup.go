@@ -448,6 +448,11 @@ func buildGigaStorageConfig(
 		storageConfig.AppHashBuilderConfig.HashLogConfig.Path = filepath.Join(directory, "app_hash.log")
 		storageConfig.AppHashBuilderConfig.HashLogConfig.Version = "autobahn"
 	}
+	if storage.HashVaultFsyncDisabledUnsafe {
+		logger.Error("HASH VAULT FSYNC DISABLED (giga.storage.hash_vault_fsync_disabled_unsafe=true): " +
+			"a crash can lose recently stored app hashes; load tests only")
+		storageConfig.AppHashBuilderConfig.HashVaultConfig.FsyncOnFlush = false
+	}
 	return storageConfig, nil
 }
 
