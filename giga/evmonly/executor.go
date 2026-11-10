@@ -28,6 +28,7 @@ type Executor struct {
 	occPool         *occWorkerPool
 	resultPool      *blockResultPool
 	stateDBPool     sync.Pool
+	beginBlockers   []beginBlocker
 	endBlockers     []endBlocker
 	customContracts map[common.Address]vm.PrecompiledContract
 	storeMu         sync.Mutex
@@ -99,6 +100,7 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 		cfg:             cfg.WithDefaults(),
 		resultPool:      newBlockResultPool(cfg.BlockResultPoolSize),
 		blockPhases:     newBlockPhases(),
+		beginBlockers:   customBeginBlockers(cfg.CustomPrecompiles),
 		endBlockers:     customEndBlockers(cfg.CustomPrecompiles),
 		customContracts: customPrecompileMap(cfg.CustomPrecompiles),
 	}
@@ -231,10 +233,15 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 }
 
 func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
-	result, err := e.executeBlockTxs(ctx, req, source)
+	begin, err := e.runBeginBlockers(req.Context, source, false)
 	if err != nil {
 		return nil, err
 	}
+	result, err := e.executeBlockTxs(ctx, req, newPendingOverlay(source, &begin))
+	if err != nil {
+		return nil, err
+	}
+	mergeEarlierChangeSet(&result.ChangeSet, begin)
 	if err := e.runEndBlockers(req.Context, source, result); err != nil {
 		result.Release()
 		return nil, err
