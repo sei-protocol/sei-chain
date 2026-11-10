@@ -423,6 +423,8 @@ sei-chain
 
 ## v6.7
 sei-chain
+* [#4719](https://github.com/sei-protocol/sei-chain/pull/4719) Backport `release/v6.7`: Update v6.7 change log in prep to cut v6.7.3 patch
+* [#4716](https://github.com/sei-protocol/sei-chain/pull/4716) Bump version to v6.7.3 in prep for patch release
 * [#4702](https://github.com/sei-protocol/sei-chain/pull/4702) Backport deterministic simulation limiter test fix to v6.7
 * [#4690](https://github.com/sei-protocol/sei-chain/pull/4690) Backport `release/v6.7`: Hard-code the state sync trust period per chain
 * [#4559](https://github.com/sei-protocol/sei-chain/pull/4559) Backport `release/v6.7`: Update v6.7 change log in prep to cut v6.7.2 patch
