@@ -246,6 +246,7 @@ func (c *MConnection) recvPongSubscribe() utils.AtomicRecv[bool] {
 func (c *MConnection) pingRoutine(ctx context.Context) error {
 	for {
 		// Send ping.
+		start := time.Now()
 		for q, ctrl := range c.sendQueue.Lock() {
 			q.ping = true
 			ctrl.Updated()
@@ -260,6 +261,7 @@ func (c *MConnection) pingRoutine(ctx context.Context) error {
 			}
 			return errPongTimeout
 		}
+		Global.pingRTTAt().Observe(time.Since(start).Seconds())
 		for recvPong := range c.recvPong.Lock() {
 			recvPong.Store(false)
 		}
