@@ -697,12 +697,11 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 	if err != nil {
 		return sdk.Context{}, nil, emptyRelease, fmt.Errorf("cannot find block %d from tendermint", blockNumber)
 	}
-	res, err := b.tmClient.Validators(ctx, &prevBlockHeight, nil, nil) // todo: load all
+	validators, err := b.loadAllValidators(ctx, prevBlockHeight)
 	if err != nil {
-		return sdk.Context{}, nil, emptyRelease, fmt.Errorf("failed to load validators for block %d from tendermint", prevBlockHeight)
+		return sdk.Context{}, nil, emptyRelease, err
 	}
-	TraceTendermintIfApplicable(ctx, "Validators", []string{stringifyInt64Ptr(&prevBlockHeight)}, res)
-	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(res.Validators)
+	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(validators)
 	reqBeginBlock.Simulate = true
 	baseCtx, baseRelease := ctxProvider(prevBlockHeight)
 	var nextRelease func()
@@ -739,6 +738,40 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 		[]string{"oracle", "oracle_mem"},
 	)
 	return sdkCtx, tmBlock, release, nil
+}
+
+// loadAllValidators returns the validator set at height in canonical order.
+// The validators RPC returns one default-sized page per call.
+func (b *Backend) loadAllValidators(ctx context.Context, height int64) ([]*tmtypes.Validator, error) {
+	var all []*tmtypes.Validator
+	for page := 1; ; page++ {
+		if ctx != nil {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
+		res, err := b.tmClient.Validators(ctx, &height, &page, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load validators for block %d from tendermint: %w", height, err)
+		}
+		TraceTendermintIfApplicable(ctx, "Validators", []string{stringifyInt64Ptr(&height), fmt.Sprintf("%d", page)}, res)
+		if len(res.Validators) == 0 {
+			if res.Total > len(all) {
+				return nil, fmt.Errorf("validator set at block %d ended after %d of %d", height, len(all), res.Total)
+			}
+			return all, nil
+		}
+		all = append(all, res.Validators...)
+		if res.Total > 0 && len(all) > res.Total {
+			return nil, fmt.Errorf("validator pages at block %d exceeded total %d", height, res.Total)
+		}
+		if res.Total <= len(all) {
+			return all, nil
+		}
+		if page >= res.Total {
+			return nil, fmt.Errorf("validator set at block %d did not converge after %d pages (have %d, total %d)", height, page, len(all), res.Total)
+		}
+	}
 }
 
 // runTraceBeginBlock is the BeginBlock used when reconstructing historical
