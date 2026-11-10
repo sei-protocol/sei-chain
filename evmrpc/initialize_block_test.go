@@ -107,102 +107,87 @@ func newInitializeBlockTestBackend(t *testing.T) (*Backend, *ethtypes.Block) {
 	)
 }
 
-func TestInitializeBlockAppliesEveryValidator(t *testing.T) {
-	orig := runTraceBeginBlock
-	t.Cleanup(func() { runTraceBeginBlock = orig })
+// validatorPageSize is the CometBFT default page, used when per_page is omitted.
+const validatorPageSize = 30
 
-	// Counts straddle the default page of 30: one page, two pages, and three.
-	for _, tc := range []struct {
-		name   string
-		n      int
-		calls  int
-		absent int
-		pages  []int
-	}{
-		{name: "one page", n: 10, calls: 1, absent: -1, pages: []int{1}},
-		{name: "two pages", n: 40, calls: 2, absent: 31, pages: []int{1, 2}},
-		{name: "three pages", n: 61, calls: 3, absent: 60, pages: []int{1, 2, 3}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			vals, sigs := validatorSet(tc.n, tc.absent)
-			tm := newPagingValidatorsClient(t, vals, sigs)
-			var got []abci.VoteInfo
-			runTraceBeginBlock = func(_ sdk.Context, _ int64, votes []abci.VoteInfo, _ []abci.Misbehavior, _ legacyabci.BeginBlockKeepers) {
-				got = votes
+func TestInitializeBlockAppliesEveryValidator(t *testing.T) {
+	for _, n := range []int{validatorPageSize - 20, validatorPageSize + 10, validatorPageSize*2 + 1} {
+		t.Run(fmt.Sprintf("%d validators", n), func(t *testing.T) {
+			vals, sigs := validatorSet(n)
+			if n > validatorPageSize {
+				sigs[n-1].BlockIDFlag = tmtypes.BlockIDFlagAbsent
+				sigs[n-1].ValidatorAddress = nil
 			}
+			tm := newValidatorPageClient(t, sigs, validatorPages(vals, validatorPageSize))
+
+			var got []abci.VoteInfo
+			stubBeginBlock(t, func(votes []abci.VoteInfo) { got = votes })
 			backend, block := newInitializeBlockBackend(t, tm)
 			_, _, release, err := backend.initializeBlock(t.Context(), block, noopTraceCtx)
 			require.NoError(t, err)
 			release()
-			require.Equal(t, tc.calls, tm.calls)
-			require.Equal(t, tc.pages, tm.pages)
-			require.True(t, tm.perPageOmitted)
-			requireValidatorVotes(t, vals, got, tc.absent)
+
+			require.Equal(t, expectedPages(n), tm.pages)
+			require.False(t, tm.perPageSet)
+			requireBeginBlockVotes(t, vals, sigs, got)
 		})
 	}
 }
 
-func TestInitializeBlockRejectsShortValidatorPage(t *testing.T) {
-	vals, sigs := validatorSet(40, -1)
-	tm := newPagingValidatorsClient(t, vals, sigs)
-	tm.emptyFromPage = 2
+func TestInitializeBlockAbortsOnBadValidatorPages(t *testing.T) {
+	vals, sigs := validatorSet(validatorPageSize + 10)
+	pages := validatorPages(vals, validatorPageSize)
+	rpcErr := errors.New("rpc down")
 
-	called := false
-	orig := runTraceBeginBlock
-	t.Cleanup(func() { runTraceBeginBlock = orig })
-	runTraceBeginBlock = func(sdk.Context, int64, []abci.VoteInfo, []abci.Misbehavior, legacyabci.BeginBlockKeepers) {
-		called = true
+	tests := []struct {
+		name   string
+		source validatorPageFunc
+		want   string
+		is     error
+	}{
+		{
+			name: "later page is empty",
+			source: func(page int) (*coretypes.ResultValidators, error) {
+				if page > 1 {
+					return &coretypes.ResultValidators{Total: len(vals)}, nil
+				}
+				return pages(page)
+			},
+			want: fmt.Sprintf("ended after %d of %d", validatorPageSize, len(vals)),
+		},
+		{
+			name: "page repeats",
+			source: func(int) (*coretypes.ResultValidators, error) {
+				return pages(1)
+			},
+			want: fmt.Sprintf("exceeded total %d", len(vals)),
+		},
+		{
+			name: "later page fails",
+			source: func(page int) (*coretypes.ResultValidators, error) {
+				if page > 1 {
+					return nil, rpcErr
+				}
+				return pages(page)
+			},
+			want: "failed to load validators for block 7",
+			is:   rpcErr,
+		},
 	}
-
-	backend, block := newInitializeBlockBackend(t, tm)
-	_, _, _, err := backend.initializeBlock(t.Context(), block, noopTraceCtx)
-	require.ErrorContains(t, err, "validator set at block 7 ended after 30 of 40")
-	require.False(t, called)
-}
-
-func TestInitializeBlockRejectsOverlappingValidatorPages(t *testing.T) {
-	const n = 40
-	vals := make([]*tmtypes.Validator, n)
-	sigs := make([]tmtypes.CommitSig, n)
-	for i := range n {
-		pk := ed25519.GenerateSecretKey().Public()
-		vals[i] = tmtypes.NewValidator(pk, int64(n-i))
-		sigs[i] = tmtypes.CommitSig{BlockIDFlag: tmtypes.BlockIDFlagCommit, ValidatorAddress: vals[i].Address}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tm := newValidatorPageClient(t, sigs, tc.source)
+			called := false
+			stubBeginBlock(t, func([]abci.VoteInfo) { called = true })
+			backend, block := newInitializeBlockBackend(t, tm)
+			_, _, _, err := backend.initializeBlock(t.Context(), block, noopTraceCtx)
+			require.ErrorContains(t, err, tc.want)
+			if tc.is != nil {
+				require.ErrorIs(t, err, tc.is)
+			}
+			require.False(t, called)
+		})
 	}
-	tm := newPagingValidatorsClient(t, vals, sigs)
-	tm.repeatFirstPage = true
-
-	called := false
-	orig := runTraceBeginBlock
-	t.Cleanup(func() { runTraceBeginBlock = orig })
-	runTraceBeginBlock = func(sdk.Context, int64, []abci.VoteInfo, []abci.Misbehavior, legacyabci.BeginBlockKeepers) {
-		called = true
-	}
-
-	backend, block := newInitializeBlockBackend(t, tm)
-	_, _, _, err := backend.initializeBlock(t.Context(), block, noopTraceCtx)
-	require.ErrorContains(t, err, "validator pages at block 7 exceeded total 40")
-	require.False(t, called)
-}
-
-func TestInitializeBlockValidatorLoadError(t *testing.T) {
-	vals, sigs := validatorSet(40, -1)
-	tm := newPagingValidatorsClient(t, vals, sigs)
-	tm.failPage = 2
-	tm.failErr = errors.New("rpc down")
-
-	called := false
-	orig := runTraceBeginBlock
-	t.Cleanup(func() { runTraceBeginBlock = orig })
-	runTraceBeginBlock = func(sdk.Context, int64, []abci.VoteInfo, []abci.Misbehavior, legacyabci.BeginBlockKeepers) {
-		called = true
-	}
-
-	backend, block := newInitializeBlockBackend(t, tm)
-	_, _, _, err := backend.initializeBlock(t.Context(), block, noopTraceCtx)
-	require.ErrorContains(t, err, "failed to load validators for block 7")
-	require.ErrorIs(t, err, tm.failErr)
-	require.False(t, called)
 }
 
 func TestInitializeBlockStopsWhenValidatorContextIsCanceled(t *testing.T) {
@@ -210,19 +195,14 @@ func TestInitializeBlockStopsWhenValidatorContextIsCanceled(t *testing.T) {
 	cancel()
 
 	called := false
-	orig := runTraceBeginBlock
-	t.Cleanup(func() { runTraceBeginBlock = orig })
-	runTraceBeginBlock = func(sdk.Context, int64, []abci.VoteInfo, []abci.Misbehavior, legacyabci.BeginBlockKeepers) {
-		called = true
-	}
-
+	stubBeginBlock(t, func([]abci.VoteInfo) { called = true })
 	backend, block := newInitializeBlockTestBackend(t)
 	_, _, _, err := backend.initializeBlock(ctx, block, noopTraceCtx)
 	require.ErrorIs(t, err, context.Canceled)
 	require.False(t, called)
 }
 
-func validatorSet(n, absent int) ([]*tmtypes.Validator, []tmtypes.CommitSig) {
+func validatorSet(n int) ([]*tmtypes.Validator, []tmtypes.CommitSig) {
 	vals := make([]*tmtypes.Validator, n)
 	sigs := make([]tmtypes.CommitSig, n)
 	for i := range n {
@@ -233,20 +213,50 @@ func validatorSet(n, absent int) ([]*tmtypes.Validator, []tmtypes.CommitSig) {
 			ValidatorAddress: vals[i].Address,
 		}
 	}
-	if absent >= 0 {
-		sigs[absent].BlockIDFlag = tmtypes.BlockIDFlagAbsent
-		sigs[absent].ValidatorAddress = nil
-	}
 	return vals, sigs
 }
 
-func requireValidatorVotes(t *testing.T, vals []*tmtypes.Validator, votes []abci.VoteInfo, absent int) {
+func validatorPages(vals []*tmtypes.Validator, size int) validatorPageFunc {
+	return func(page int) (*coretypes.ResultValidators, error) {
+		start := (page - 1) * size
+		if page < 1 || start >= len(vals) {
+			return &coretypes.ResultValidators{Total: len(vals)}, nil
+		}
+		end := min(start+size, len(vals))
+		chunk := vals[start:end]
+		return &coretypes.ResultValidators{
+			Validators: chunk,
+			Count:      len(chunk),
+			Total:      len(vals),
+		}, nil
+	}
+}
+
+func expectedPages(n int) []int {
+	pages := (n + validatorPageSize - 1) / validatorPageSize
+	out := make([]int, pages)
+	for i := range out {
+		out[i] = i + 1
+	}
+	return out
+}
+
+func requireBeginBlockVotes(t *testing.T, vals []*tmtypes.Validator, sigs []tmtypes.CommitSig, votes []abci.VoteInfo) {
 	t.Helper()
 	require.Len(t, votes, len(vals))
 	for i, val := range vals {
 		require.Equal(t, val.VotingPower, votes[i].Validator.Power, "validator %d", i)
 		require.Equal(t, val.Address.Bytes(), []byte(votes[i].Validator.Address), "validator %d", i)
-		require.Equal(t, i != absent, votes[i].SignedLastBlock, "validator %d", i)
+		require.Equal(t, sigs[i].BlockIDFlag != tmtypes.BlockIDFlagAbsent, votes[i].SignedLastBlock, "validator %d", i)
+	}
+}
+
+func stubBeginBlock(t *testing.T, fn func(votes []abci.VoteInfo)) {
+	t.Helper()
+	orig := runTraceBeginBlock
+	t.Cleanup(func() { runTraceBeginBlock = orig })
+	runTraceBeginBlock = func(_ sdk.Context, _ int64, votes []abci.VoteInfo, _ []abci.Misbehavior, _ legacyabci.BeginBlockKeepers) {
+		fn(votes)
 	}
 }
 
@@ -254,7 +264,7 @@ func noopTraceCtx(int64) (sdk.Context, func()) {
 	return sdk.Context{}, func() {}
 }
 
-func newInitializeBlockBackend(t *testing.T, tm *pagingValidatorsClient) (*Backend, *ethtypes.Block) {
+func newInitializeBlockBackend(t *testing.T, tm *validatorPageClient) (*Backend, *ethtypes.Block) {
 	t.Helper()
 	return &Backend{
 		tmClient:   tm,
@@ -267,23 +277,20 @@ func newInitializeBlockBackend(t *testing.T, tm *pagingValidatorsClient) (*Backe
 	)
 }
 
-// pagingValidatorsClient serves validators the way CometBFT does: a nil per_page
-// is the default page of 30.
-type pagingValidatorsClient struct {
+// validatorPageFunc serves one CometBFT validators page. page is 1-based.
+type validatorPageFunc func(page int) (*coretypes.ResultValidators, error)
+
+// validatorPageClient records the pages a trace requests and serves them from source.
+type validatorPageClient struct {
 	*fakeTMClient
-	validators      []*tmtypes.Validator
-	calls           int
-	pages           []int
-	perPageOmitted  bool
-	failPage        int
-	failErr         error
-	repeatFirstPage bool
-	emptyFromPage   int
+	source     validatorPageFunc
+	pages      []int
+	perPageSet bool
 }
 
-func newPagingValidatorsClient(t *testing.T, vals []*tmtypes.Validator, sigs []tmtypes.CommitSig) *pagingValidatorsClient {
+func newValidatorPageClient(t *testing.T, sigs []tmtypes.CommitSig, source validatorPageFunc) *validatorPageClient {
 	t.Helper()
-	return &pagingValidatorsClient{
+	return &validatorPageClient{
 		fakeTMClient: &fakeTMClient{
 			status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 10, EarliestBlockHeight: 1}},
 			blocksByHeight: map[int64]*coretypes.ResultBlock{
@@ -295,47 +302,18 @@ func newPagingValidatorsClient(t *testing.T, vals []*tmtypes.Validator, sigs []t
 				},
 			},
 		},
-		validators: vals,
+		source: source,
 	}
 }
 
-func (c *pagingValidatorsClient) Validators(_ context.Context, _ *int64, page, perPage *int) (*coretypes.ResultValidators, error) {
-	c.calls++
-	if c.calls == 1 {
-		c.perPageOmitted = perPage == nil
-	} else {
-		c.perPageOmitted = c.perPageOmitted && perPage == nil
-	}
+func (c *validatorPageClient) Validators(_ context.Context, _ *int64, page, perPage *int) (*coretypes.ResultValidators, error) {
 	p := 1
 	if page != nil {
 		p = *page
 	}
 	c.pages = append(c.pages, p)
-	if c.failErr != nil && p >= c.failPage {
-		return nil, c.failErr
+	if perPage != nil {
+		c.perPageSet = true
 	}
-	if c.emptyFromPage > 0 && p >= c.emptyFromPage {
-		return &coretypes.ResultValidators{Total: len(c.validators)}, nil
-	}
-	n := 30
-	if perPage != nil && *perPage > 0 {
-		n = *perPage
-	}
-	if c.repeatFirstPage {
-		p = 1
-	}
-	start := (p - 1) * n
-	if start >= len(c.validators) {
-		return &coretypes.ResultValidators{Total: len(c.validators)}, nil
-	}
-	end := start + n
-	if end > len(c.validators) {
-		end = len(c.validators)
-	}
-	chunk := c.validators[start:end]
-	return &coretypes.ResultValidators{
-		Validators: chunk,
-		Count:      len(chunk),
-		Total:      len(c.validators),
-	}, nil
+	return c.source(p)
 }
