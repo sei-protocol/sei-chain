@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -435,24 +434,13 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		if q.next != n {
 			return nil
 		}
-		// Verify parent hash chain to prevent a malicious producer from
-		// breaking the block chain, which would deadlock header reconstruction.
-		// A mismatch means the producer equivocated (produced a different
-		// chain than we already have). We log it to aid debugging stalled
-		// lanes but do not return an error — the caller should not tear
-		// down the peer connection over an equivocating producer.
-		// NOTE: after pruning (q.first >= q.next), we cannot verify the parent
-		// hash because the previous block is gone. This is safe because
-		// headers() never follows the first block's parentHash in a LaneRange.
+		// Blocks above highest commit qc are required to be linked by a parent hash for autobahn safety.
+		// For simplicity we require them to be linked up to anchor.
+
 		if q.first < q.next {
 			prevHash := q.q[q.next-1].Msg().Block().Header().Hash()
 			if h.ParentHash() != prevHash {
-				logger.Error("parent hash mismatch (producer equivocation)",
-					"lane", lane,
-					slog.Uint64("block", uint64(n)),
-					"got", h.ParentHash(),
-					"want", prevHash)
-				return nil
+				return fmt.Errorf("parent hash mismatch (producer equivocation): lane %v, block %v, parent = %v, want %v", lane, n, h.ParentHash(), prevHash)
 			}
 		}
 		q.pushBack(p)
@@ -889,15 +877,16 @@ type persistBatch struct {
 
 // setNextBlockToPersist sets the per-lane block persistence cursor to next.
 // Called once per lane after that lane's batch has been flushed so that
-// RecvBatch (and therefore voting) can unblock. Safe for concurrent
-// callers (acquires s.inner lock internally).
+// RecvBatch (and therefore voting) can unblock. Thread-safe.
 func (s *State) setNextBlockToPersist(lane types.LaneID, next types.BlockNumber) {
 	for inner, ctrl := range s.inner.Lock() {
 		if _, ok := inner.blocks[lane]; !ok {
 			return
 		}
-		inner.nextBlockToPersist[lane] = next
-		ctrl.Updated()
+		if p := inner.nextBlockToPersist; p[lane] > next {
+			p[lane] = next
+			ctrl.Updated()
+		}
 	}
 }
 
