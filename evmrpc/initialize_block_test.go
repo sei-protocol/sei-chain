@@ -267,14 +267,14 @@ func noopTraceCtx(int64) (sdk.Context, func()) {
 func newInitializeBlockBackend(t *testing.T, tm *validatorPageClient) (*Backend, *ethtypes.Block) {
 	t.Helper()
 	return &Backend{
-		tmClient:   tm,
-		watermarks: newTestWatermarkManager(tm, 10, nil, 10),
-	}, ethtypes.NewBlock(
-		&ethtypes.Header{Number: big.NewInt(8), Time: 1, Difficulty: big.NewInt(0)},
-		&ethtypes.Body{},
-		nil,
-		trie.NewStackTrie(nil),
-	)
+			tmClient:   tm,
+			watermarks: newTestWatermarkManager(tm, 10, nil, 10),
+		}, ethtypes.NewBlock(
+			&ethtypes.Header{Number: big.NewInt(8), Time: 1, Difficulty: big.NewInt(0)},
+			&ethtypes.Body{},
+			nil,
+			trie.NewStackTrie(nil),
+		)
 }
 
 // validatorPageFunc serves one CometBFT validators page. page is 1-based.
