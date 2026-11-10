@@ -74,8 +74,8 @@ func defaultFileConfig(t testing.TB, validators []config.AutobahnValidator) *con
 // testGenesisMaxGas is the gas limit baked into the test genesis doc.
 const testGenesisMaxGas int64 = 50_000_000
 
-func makeTestGigaDeps() (*proxy.Proxy, *types.GenesisDoc) {
-	app := kvstore.NewProxy()
+func makeTestGigaDeps() (*proxy.EVMProxy, *types.GenesisDoc) {
+	app := proxy.NewTestEVMProxy(kvstore.NewApplication())
 	genDoc := &types.GenesisDoc{
 		ChainID: "test-chain",
 		// Nontrivial InitialHeight so any future code that assumes the

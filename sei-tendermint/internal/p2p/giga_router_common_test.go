@@ -186,7 +186,7 @@ func newAppHashTestRouter(
 		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
-		App:                proxy.New(app),
+		App:                proxy.NewTestEVMProxy(app),
 		AppHashBuilder:     hashBuilder,
 	}
 	state, err := BuildDataState(cfg, db)
@@ -343,7 +343,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		ValidatorAddrs:     validatorAddrs,
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
-		App:                proxy.New(&fixedHeightApp{height: int64(last)}),
+		App:                proxy.NewTestEVMProxy(&fixedHeightApp{height: int64(last)}),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
 	}
 	state, err := BuildDataState(cfg, db)
@@ -451,7 +451,7 @@ func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAdd
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
-		App:                proxy.New(&fixedHeightApp{height: 1}),
+		App:                proxy.NewTestEVMProxy(&fixedHeightApp{height: 1}),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
 	}, db)
 	require.NoError(t, err)

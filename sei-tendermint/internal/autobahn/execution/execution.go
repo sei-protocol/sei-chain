@@ -24,7 +24,7 @@ type Config struct {
 	// GenDoc is the genesis a fresh app is initialized from.
 	GenDoc *types.GenesisDoc
 	// App is the application blocks are executed on.
-	App *proxy.Proxy
+	App *proxy.EVMProxy
 	// AppHashBuilder receives each block's hash before the block runs.
 	AppHashBuilder builder.AppHashBuilder
 	// BlockStore holds the blocks to execute.

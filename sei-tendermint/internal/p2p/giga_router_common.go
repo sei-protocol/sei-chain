@@ -45,7 +45,7 @@ type gigaRouterCommon struct {
 	poolInCommittee *giga.Pool[atypes.PublicKey, rpc.Server[giga.API]]
 	poolOut         *giga.Pool[atypes.PublicKey, rpc.Client[giga.API]]
 	proxies         utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
-	app             *proxy.Proxy
+	app             *proxy.EVMProxy
 	offer           utils.Option[handshakeOffer]
 	selfAddr        utils.Option[NodeAddress]
 	liveAddrs       utils.RWMutex[map[atypes.PublicKey]GigaNodeAddr]

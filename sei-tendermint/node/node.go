@@ -308,7 +308,7 @@ func makeNode(
 		nodeKey,
 		gigaValidatorKey,
 		cfg,
-		utils.Some(proxyApp),
+		proxyApp.EVM(),
 		genDoc,
 		dbProvider,
 		gigaStorageManager,
@@ -331,7 +331,7 @@ func makeNode(
 		if !ok {
 			return nil, errors.New("autobahn requires a storage manager")
 		}
-		node.executor = utils.Some(buildExecutor(proxyApp, genDoc, manager))
+		node.executor = utils.Some(buildExecutor(proxyApp.EVM().OrPanic("Autobahn router requires an EVM application"), genDoc, manager))
 		node.rpcEnv.Executor = node.executor
 	}
 

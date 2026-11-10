@@ -75,7 +75,7 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: t.TempDir(),
-		App:                app,
+		App:                proxy.NewTestEVMProxy(&abci.BaseApplication{}),
 		AppHashBuilder:     stubAppHashBuilder{},
 		GenDoc:             genDoc,
 	}

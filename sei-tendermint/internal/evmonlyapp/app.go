@@ -155,6 +155,7 @@ type evmOnlyCursorState struct {
 }
 
 var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
+var _ abci.Application = (*evmOnlyApplication)(nil)
 
 // NewEVMOnlyApplication returns the raw-Ethereum application Autobahn runs.
 // Storage owns state, receipts and blocks; execution sizes the executor and
@@ -167,7 +168,7 @@ func NewEVMOnlyApplication(
 	storage *bootstrap.GigaStorageManager,
 	execution gigaconfig.ExecutionConfig,
 	customPrecompiles utils.Option[precompiles.Registry],
-) (proxy.EVMApplication, error) {
+) (abci.Application, error) {
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	a := &evmOnlyApplication{

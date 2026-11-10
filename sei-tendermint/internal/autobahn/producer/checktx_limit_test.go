@@ -34,8 +34,8 @@ func newGatedApp() *gatedApp {
 	}
 }
 
-func (a *gatedApp) Proxy() *proxy.Proxy {
-	return proxy.New(a)
+func (a *gatedApp) Proxy() *proxy.EVMProxy {
+	return proxy.NewTestEVMProxy(a)
 }
 
 func (a *gatedApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {

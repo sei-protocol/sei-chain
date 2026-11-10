@@ -170,7 +170,7 @@ func (env *testEnv) write(from, to int, flush bool) error {
 func (env *testEnv) executor(app *recordingApp) *Executor {
 	return New(&Config{
 		GenDoc:         env.genDoc,
-		App:            proxy.New(app),
+		App:            proxy.NewTestEVMProxy(app),
 		AppHashBuilder: recordingBuilder{events: env.events},
 		BlockStore:     env.store,
 	})

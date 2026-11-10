@@ -4,18 +4,31 @@ import (
 	"context"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
-// EVMApplication is an ABCI application that executes EVM transactions and
-// serves read-only EVM calls and its execution parameters.
+// EVMApplication executes EVM transactions for Autobahn and serves read-only
+// EVM calls and execution parameters.
 type EVMApplication interface {
-	types.Application
+	// Application state and initialization.
+	Info() *types.ResponseInfo
+	GetValidators() []types.ValidatorUpdate
+	LastBlockHeight() int64
+	InitChain(*types.RequestInitChain) (*types.ResponseInitChain, error)
+	InitLastHeader(*tmproto.Header)
+
+	// Transaction admission and block execution.
+	CheckTx(context.Context, *types.RequestCheckTxV2) *types.ResponseCheckTxV2
+	EvmNonce(common.Address) uint64
+	FinalizeBlock(context.Context, *types.RequestFinalizeBlock) (*types.ResponseFinalizeBlock, error)
+	Commit(context.Context) (*types.ResponseCommit, error)
 
 	// EvmCall executes msg as a read-only call against the current EVM state.
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
@@ -61,6 +74,52 @@ type EVMApplication interface {
 // EVMProxy wraps an EVMApplication and records EVM method timings.
 type EVMProxy struct {
 	app EVMApplication
+}
+
+// NewEVM wraps an EVM application and records its method timings.
+func NewEVM(app EVMApplication) *EVMProxy {
+	return &EVMProxy{app: app}
+}
+
+func (app *EVMProxy) Info() *types.ResponseInfo {
+	defer addTimeSample(Global.MethodTimingAt("info", "sync"))()
+	return app.app.Info()
+}
+
+func (app *EVMProxy) GetValidators() []types.ValidatorUpdate {
+	return app.app.GetValidators()
+}
+
+func (app *EVMProxy) LastBlockHeight() int64 {
+	return app.app.LastBlockHeight()
+}
+
+func (app *EVMProxy) InitChain(req *types.RequestInitChain) (*types.ResponseInitChain, error) {
+	defer addTimeSample(Global.MethodTimingAt("init_chain", "sync"))()
+	return app.app.InitChain(req)
+}
+
+func (app *EVMProxy) InitLastHeader(lastHeader *tmproto.Header) {
+	app.app.InitLastHeader(lastHeader)
+}
+
+func (app *EVMProxy) CheckTxSafe(ctx context.Context, req *types.RequestCheckTxV2) (*types.ResponseCheckTxV2, error) {
+	return checkTxSafe(ctx, req, app.app.CheckTx)
+}
+
+func (app *EVMProxy) EvmNonce(addr common.Address) uint64 {
+	defer addTimeSample(Global.MethodTimingAt("evm_nonce", "sync"))()
+	return app.app.EvmNonce(addr)
+}
+
+func (app *EVMProxy) FinalizeBlock(ctx context.Context, req *types.RequestFinalizeBlock) (*types.ResponseFinalizeBlock, error) {
+	defer addTimeSample(Global.MethodTimingAt("finalize_block", "sync"))()
+	return app.app.FinalizeBlock(ctx, req)
+}
+
+func (app *EVMProxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {
+	defer addTimeSample(Global.MethodTimingAt("commit", "sync"))()
+	return app.app.Commit(ctx)
 }
 
 func (app *EVMProxy) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {

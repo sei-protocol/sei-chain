@@ -27,7 +27,7 @@ func New(app types.Application) *Proxy {
 	p := &Proxy{app: app}
 	// Resolved once here so no EVM method needs a per-call type assertion.
 	if evmApp, ok := app.(EVMApplication); ok {
-		p.evm = utils.Some(&EVMProxy{app: evmApp})
+		p.evm = utils.Some(NewEVM(evmApp))
 	}
 	return p
 }
@@ -181,14 +181,18 @@ func (app *Proxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {
 	return app.app.Commit(ctx)
 }
 
-func (app *Proxy) CheckTxSafe(ctx context.Context, req *types.RequestCheckTxV2) (res *types.ResponseCheckTxV2, err error) {
+func (app *Proxy) CheckTxSafe(ctx context.Context, req *types.RequestCheckTxV2) (*types.ResponseCheckTxV2, error) {
+	return checkTxSafe(ctx, req, app.app.CheckTx)
+}
+
+func checkTxSafe(ctx context.Context, req *types.RequestCheckTxV2, checkTx func(context.Context, *types.RequestCheckTxV2) *types.ResponseCheckTxV2) (res *types.ResponseCheckTxV2, err error) {
 	defer addTimeSample(Global.MethodTimingAt("check_tx", "sync"))()
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic recovered in CheckTxSafe: %v\n%v", r, string(debug.Stack()))
 		}
 	}()
-	res = app.app.CheckTx(ctx, req)
+	res = checkTx(ctx, req)
 	if res == nil {
 		return nil, fmt.Errorf("nil response")
 	}

@@ -122,8 +122,8 @@ func (a *testApp) Cfg() *Config {
 	}
 }
 
-func (a *testApp) Proxy() *proxy.Proxy {
-	return proxy.New(a)
+func (a *testApp) Proxy() *proxy.EVMProxy {
+	return proxy.NewTestEVMProxy(a)
 }
 
 func (a *testApp) EvmNonce(addr common.Address) uint64 {
@@ -179,7 +179,7 @@ type testEnv struct {
 	state     *State
 	consensus *consensus.State
 	data      *data.State
-	app       *proxy.Proxy
+	app       *proxy.EVMProxy
 
 	inner           utils.Mutex[*testEnvInner]
 	executionPaused utils.Watch[*bool]
@@ -259,12 +259,12 @@ func (env *testEnv) Run(ctx context.Context) error {
 	}))
 }
 
-func newTestEnv(t testing.TB, rng utils.Rng, cfg *Config, app *proxy.Proxy) *testEnv {
+func newTestEnv(t testing.TB, rng utils.Rng, cfg *Config, app *proxy.EVMProxy) *testEnv {
 	env, _, _ := newTestEnvN(t, rng, 1, cfg, app)
 	return env
 }
 
-func newTestEnvN(t testing.TB, rng utils.Rng, n int, cfg *Config, app *proxy.Proxy) (*testEnv, *epoch.Registry, []types.SecretKey) {
+func newTestEnvN(t testing.TB, rng utils.Rng, n int, cfg *Config, app *proxy.EVMProxy) (*testEnv, *epoch.Registry, []types.SecretKey) {
 	registry, keys := epoch.GenRegistry(rng, n)
 	store := blockstore.NewTestStore(t)
 	dataState := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, store))
