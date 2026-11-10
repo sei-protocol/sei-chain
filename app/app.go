@@ -17,6 +17,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -432,6 +433,14 @@ type App struct {
 	GigaExecutorEnabled bool
 	// GigaOCCEnabled controls whether to use OCC with the Giga executor
 	GigaOCCEnabled bool
+
+	doneUpgradesCache atomic.Pointer[doneUpgradesAtHeight]
+}
+
+// doneUpgradesAtHeight is the set of completed upgrades read from the check state at height.
+type doneUpgradesAtHeight struct {
+	height   int64
+	upgrades upgradekeeper.DoneUpgrades
 }
 
 type AppOption func(*App)
@@ -2444,12 +2453,31 @@ func (app *App) RPCContextProviderWithoutConsensusParams(i int64) sdk.Context {
 	if err != nil {
 		panic(err)
 	}
-	closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
-	if closestUpgrade == "" && upgradeHeight == 0 {
-		closestUpgrade = LatestUpgrade
-	}
-	ctx = ctx.WithClosestUpgradeName(closestUpgrade)
+	ctx = ctx.WithClosestUpgradeName(app.closestUpgradeName(app.GetCheckCtx(), i))
 	return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
+}
+
+// closestUpgradeName returns the name of the completed upgrade closest to height i in checkCtx's
+// state, or LatestUpgrade when no upgrade has completed.
+func (app *App) closestUpgradeName(checkCtx sdk.Context, i int64) string {
+	name, height := app.doneUpgrades(checkCtx).Closest(i)
+	if name == "" && height == 0 {
+		return LatestUpgrade
+	}
+	return name
+}
+
+// doneUpgrades returns the upgrades completed in checkCtx's state, reading them from the store only
+// when checkCtx is at a different height than the last read.
+func (app *App) doneUpgrades(checkCtx sdk.Context) upgradekeeper.DoneUpgrades {
+	// Upgrades complete only in committed blocks, so the set changes only with the check state's height.
+	height := checkCtx.BlockHeight()
+	if cached := app.doneUpgradesCache.Load(); cached != nil && cached.height == height {
+		return cached.upgrades
+	}
+	upgrades := app.UpgradeKeeper.GetDoneUpgrades(checkCtx)
+	app.doneUpgradesCache.Store(&doneUpgradesAtHeight{height: height, upgrades: upgrades})
+	return upgrades
 }
 
 // SnapshotAwareRPCContextProvider builds SDK contexts from in-memory memiavl
@@ -2481,14 +2509,10 @@ func (app *App) SnapshotAwareRPCContextProvider() evmrpc.TraceContextProvider {
 			return app.RPCContextProvider(i), func() {}
 		}
 		checkCtx := app.GetCheckCtx()
-		closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(checkCtx, i)
-		if closestUpgrade == "" && upgradeHeight == 0 {
-			closestUpgrade = LatestUpgrade
-		}
 		ctx := sdk.NewContext(cms, checkCtx.BlockHeader(), true).
 			WithMinGasPrices(checkCtx.MinGasPrices()).
 			WithBlockHeight(i).
-			WithClosestUpgradeName(closestUpgrade).
+			WithClosestUpgradeName(app.closestUpgradeName(checkCtx, i)).
 			WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
 		ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 		return ctx, release

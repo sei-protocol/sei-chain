@@ -32,6 +32,21 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## v6.8
 sei-chain
+* [#4811](https://github.com/sei-protocol/sei-chain/pull/4811) Backport `release/v6.8`: Load the full validator set
+* [#4802](https://github.com/sei-protocol/sei-chain/pull/4802) Backport `release/v6.8`: Keep BlockStore base and height in memory
+* [#4800](https://github.com/sei-protocol/sei-chain/pull/4800) Backport `release/v6.8`: Make the large eth_getLogs rate limit configurable
+* [#4799](https://github.com/sei-protocol/sei-chain/pull/4799) Backport `release/v6.8`: Skip encoding Tendermint responses when tracing is off
+* [#4791](https://github.com/sei-protocol/sei-chain/pull/4791) Backport `release/v6.8`: Stop eth_getLogs block reads once the request is cancelled
+* [#4790](https://github.com/sei-protocol/sei-chain/pull/4790) Backport `release/v6.8`: Read eth_getLogs watermarks once per range instead of per block
+* [#4789](https://github.com/sei-protocol/sei-chain/pull/4789) Backport `release/v6.8`: Cache completed upgrades for RPC closest-upgrade lookups
+* [#4788](https://github.com/sei-protocol/sei-chain/pull/4788) Backport `release/v6.8`: Read the last block height without hashing the commit info
+* [#4779](https://github.com/sei-protocol/sei-chain/pull/4779) Backport `release/v6.8`: Update v6.8 changelog in prep to cut v6.8.0-rc2
+* [#4778](https://github.com/sei-protocol/sei-chain/pull/4778) Bump version to v6.8.0-rc2 in prep for release
+* [#4744](https://github.com/sei-protocol/sei-chain/pull/4744) Backport `release/v6.8`: Skip consensus params on eth_getLogs contexts
+* [#4731](https://github.com/sei-protocol/sei-chain/pull/4731) Backport `release/v6.8`: Return [] from eth_accounts on keyless node
+* [#4724](https://github.com/sei-protocol/sei-chain/pull/4724) Backport `release/v6.8`: perf(evm): key transientAccounts by address
+* [#4722](https://github.com/sei-protocol/sei-chain/pull/4722) Bump version to v6.8.0-rc1 in prep for release
+* [#4721](https://github.com/sei-protocol/sei-chain/pull/4721) Backport `release/v6.8`: Updated changelog for release v6.8
 * [#4717](https://github.com/sei-protocol/sei-chain/pull/4717) Backport `release/v6.8`: Reject empty and non-min-deposit-denom governance deposits
 * [#4714](https://github.com/sei-protocol/sei-chain/pull/4714) Backport `release/v6.8`: Settle finished proposal deposits over multiple blocks
 * [#4712](https://github.com/sei-protocol/sei-chain/pull/4712) Backport `release/v6.8`: Cap the size of stored FinalizeBlock responses
@@ -419,6 +434,9 @@ sei-chain
 
 ## v6.7
 sei-chain
+* [#4810](https://github.com/sei-protocol/sei-chain/pull/4810) Backport `release/v6.7`: Load the full validator set
+* [#4719](https://github.com/sei-protocol/sei-chain/pull/4719) Backport `release/v6.7`: Update v6.7 change log in prep to cut v6.7.3 patch
+* [#4716](https://github.com/sei-protocol/sei-chain/pull/4716) Bump version to v6.7.3 in prep for patch release
 * [#4702](https://github.com/sei-protocol/sei-chain/pull/4702) Backport deterministic simulation limiter test fix to v6.7
 * [#4690](https://github.com/sei-protocol/sei-chain/pull/4690) Backport `release/v6.7`: Hard-code the state sync trust period per chain
 * [#4559](https://github.com/sei-protocol/sei-chain/pull/4559) Backport `release/v6.7`: Update v6.7 change log in prep to cut v6.7.2 patch
