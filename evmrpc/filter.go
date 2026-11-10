@@ -1110,7 +1110,7 @@ func (f *LogFetcher) logsInRange(ctx context.Context, crit filters.FilterCriteri
 	// Batch process with fail-fast
 	blockBatch := make([]*coretypes.ResultBlock, 0, evmrpcconfig.WorkerBatchSize)
 	for block := range blocks {
-		if budget.Tripped() {
+		if budget.Tripped() || ctx.Err() != nil {
 			break
 		}
 		blockBatch = append(blockBatch, block)
@@ -1133,7 +1133,7 @@ func (f *LogFetcher) logsInRange(ctx context.Context, crit filters.FilterCriteri
 	}
 
 	// Process remaining blocks, unless the cap is already exceeded
-	if len(blockBatch) > 0 && !budget.Tripped() {
+	if len(blockBatch) > 0 && !budget.Tripped() && ctx.Err() == nil {
 		wg.Add(1)
 		if err := runner.SubmitWithMetrics(func() { processBatch(blockBatch) }); err != nil {
 			wg.Done()
@@ -1160,6 +1160,9 @@ func (f *LogFetcher) logsInRange(ctx context.Context, crit filters.FilterCriteri
 	for range blocks {
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
 	if budget.Tripped() {
 		return nil, 0, budget.Err()
 	}
@@ -1777,6 +1780,9 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	if firstErr != nil {
 		return nil, 0, firstErr
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
 
 	return res, end, nil
 }
@@ -1793,6 +1799,10 @@ func (f *LogFetcher) processBatch(ctx context.Context, available blockWindow, st
 	}()
 
 	for height = start; height <= end; height++ {
+		// Stop reading once the request is cancelled, e.g. by the RPC timeout.
+		if ctx.Err() != nil {
+			return
+		}
 		if height == 0 {
 			continue
 		}
