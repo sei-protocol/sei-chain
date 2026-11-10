@@ -297,8 +297,8 @@ func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []abci.V
 	return utils.Some(evmonlyapp.NewGovRegistry(params, governance.StartingProposalID, electorate)), nil
 }
 
-// applyExecutionRuntime raises the GC target for a load test. The heap is then capped at 80% of
-// the container limit, so a late collection is an ordinary GC rather than an OOM kill.
+// applyExecutionRuntime applies GCPercent when set, and caps the heap at 80% of the container
+// memory limit when one is present.
 func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
 	if cfg.GCPercent <= 0 {
 		return
