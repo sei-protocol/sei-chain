@@ -702,7 +702,7 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 	if err != nil {
 		return sdk.Context{}, nil, emptyRelease, fmt.Errorf("cannot find block %d from tendermint", blockNumber)
 	}
-	validators, err := b.loadValidators(ctx, prevBlockHeight)
+	validators, err := b.loadAllValidators(ctx, prevBlockHeight)
 	if err != nil {
 		return sdk.Context{}, nil, emptyRelease, err
 	}
@@ -749,9 +749,9 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 	return sdkCtx, tmBlock, release, nil
 }
 
-// loadValidators returns the validator set at height in canonical order.
+// loadAllValidators returns the validator set at height in canonical order.
 // The validators RPC returns one default-sized page per call.
-func (b *Backend) loadValidators(ctx context.Context, height int64) ([]*tmtypes.Validator, error) {
+func (b *Backend) loadAllValidators(ctx context.Context, height int64) ([]*tmtypes.Validator, error) {
 	var all []*tmtypes.Validator
 	for page := 1; ; page++ {
 		if ctx != nil {
