@@ -431,6 +431,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		if !ok {
 			return nil
 		}
+		// not needed any more
 		if q.next != n {
 			return nil
 		}
@@ -440,8 +441,9 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		// chain than we already have). We log it to aid debugging stalled
 		// lanes but do not return an error — the caller should not tear
 		// down the peer connection over an equivocating producer.
-		// Parent is checked only while the predecessor is still in [first, next).
-		// last retained below first is for local production, not this check.
+		// NOTE: after pruning (q.first >= q.next), we cannot verify the parent
+		// hash because the previous block is gone. This is safe because
+		// headers() never follows the first block's parentHash in a LaneRange.
 		if q.first < q.next {
 			prevHash := q.q[q.next-1].Msg().Block().Header().Hash()
 			if h.ParentHash() != prevHash {
@@ -698,9 +700,9 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 		if q.next != n {
 			return nil, fmt.Errorf("unexpected block number: got %v, want %v", n, q.next)
 		}
-		parent := types.BlockHeaderHash{}
-		if prev, ok := q.last.Get(); ok {
-			parent = prev.Msg().Block().Header().Hash()
+		var parent types.BlockHeaderHash
+		if q.first < q.next {
+			parent = q.q[q.next-1].Msg().Block().Header().Hash()
 		}
 		result = types.Sign(s.key, types.NewLaneProposal(types.NewBlock(lane, q.next, parent, payload)))
 		q.pushBack(result)
@@ -885,16 +887,13 @@ type persistBatch struct {
 	commitQCs commitQCsBatch
 }
 
-// setNextBlockToPersist advances the per-lane persistence cursor to next when
-// next is ahead of the current cursor. RecvBatch yields headers strictly below
-// this cursor, so a successful flush unblocks voting. Safe for concurrent callers.
+// setNextBlockToPersist sets the per-lane block persistence cursor to next.
+// Called once per lane after that lane's batch has been flushed so that
+// RecvBatch (and therefore voting) can unblock. Safe for concurrent
+// callers (acquires s.inner lock internally).
 func (s *State) setNextBlockToPersist(lane types.LaneID, next types.BlockNumber) {
 	for inner, ctrl := range s.inner.Lock() {
 		if _, ok := inner.blocks[lane]; !ok {
-			return
-		}
-		if inner.nextBlockToPersist[lane] >= next {
-			// prune may have already advanced the cursor while this batch was on disk.
 			return
 		}
 		inner.nextBlockToPersist[lane] = next
@@ -945,12 +944,8 @@ func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) 
 			b.commitQCs.tail = append(b.commitQCs.tail, inner.roads.q[n].commitQC)
 		}
 		for lane, q := range inner.blocks {
-			cursor := inner.nextBlockToPersist[lane]
-			bb := blocksBatch{first: q.retentionFloor()}
-			if p, ok := q.unpersistedLast(cursor).Get(); ok {
-				bb.tail = append(bb.tail, p)
-			}
-			for n := max(cursor, q.first); n < q.next; n++ {
+			bb := blocksBatch{first: q.first}
+			for n := max(inner.nextBlockToPersist[lane], q.first); n < q.next; n++ {
 				bb.tail = append(bb.tail, q.q[n])
 			}
 			b.blocks[lane] = bb
