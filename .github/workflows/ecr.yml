@@ -100,3 +100,48 @@ jobs:
             ${{ steps.ordered.outputs.tag && format('{0}/sei/sei-chain:{1}', steps.login-ecr.outputs.registry, steps.ordered.outputs.tag) || '' }}
           build-args: |
             SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
+
+  publisher-arm64:
+    name: Publish arm64 Container
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - name: AWS Login
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-2
+          role-to-assume: arn:aws:iam::189176372795:role/common/gha
+          role-duration-seconds: 900
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Compute the ordered main tag
+        id: ordered
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          TS=$(TZ=UTC0 git show -s --format=%cd --date=format-local:%Y%m%d%H%M%S HEAD)
+          echo "tag=main-${TS}-$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Set up Docker Buildx
+        # See: https://github.com/docker/setup-buildx-action/releases/tag/v4.1.0
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
+      - name: Build and push seid
+        uses: docker/build-push-action@v6
+        with:
+          context: '.'
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared-arm64
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared-arm64,mode=max
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:arm64-${{ inputs.tag || inputs.ref || github.sha }}
+            ${{ steps.ordered.outputs.tag && format('{0}/sei/sei-chain:arm64-{1}', steps.login-ecr.outputs.registry, steps.ordered.outputs.tag) || '' }}
+          build-args: |
+            SEI_CHAIN_REF=${{ inputs.ref || github.sha }}

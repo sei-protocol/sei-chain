@@ -112,6 +112,41 @@ func TestWriteFailureLatches(t *testing.T) {
 	require.ErrorIs(t, s.Close(), errIndexCommit, "Close must report it too")
 }
 
+// TestInlineWriteFailureRefusesTheNextBlock covers an inline write whose index commit fails: the next
+// block would skip the one that never landed, so it is refused.
+func TestInlineWriteFailureRefusesTheNextBlock(t *testing.T) {
+	cfg := littIdxCfg(t.TempDir())
+	cfg.AsyncWriteBuffer = 0
+	_, storeKey := newTestContext()
+	store, err := NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	s := store.(*littReceiptStore)
+
+	addr := common.HexToAddress("0xfa61")
+	topic := common.HexToHash("0xfa62")
+	index := &failingIndex{
+		KeyValueDB: s.index,
+		entered:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	s.index = index
+	close(index.release)
+
+	writeOneReceipt(t, s, 1, addr, topic)
+
+	index.failing.Store(true)
+	txHash, rcpt := littCtxTestReceipt(2, 0, addr, topic, 1)
+	require.ErrorIs(t, s.SetReceipts(newTestCtxAtHeight(2),
+		[]receipt.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}), errIndexCommit)
+
+	index.failing.Store(false)
+	txHash, rcpt = littCtxTestReceipt(3, 0, addr, topic, 1)
+	require.ErrorContains(t, s.SetReceipts(newTestCtxAtHeight(3),
+		[]receipt.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}), "skips block 2")
+	require.Equal(t, int64(1), s.LatestVersion())
+}
+
 // TestWriteAfterCloseIsRefused covers a commit arriving after shutdown, which the writer is no
 // longer there to apply.
 func TestWriteAfterCloseIsRefused(t *testing.T) {

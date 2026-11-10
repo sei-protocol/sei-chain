@@ -1,4 +1,4 @@
-package littblock
+package blockstore
 
 import "fmt"
 
