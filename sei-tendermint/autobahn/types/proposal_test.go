@@ -471,7 +471,7 @@ func TestProposalEmptyLaneAtHeightZeroHasNoHash(t *testing.T) {
 	require.NotEqual(t, LaneID{}, idle)
 
 	// A lane that has not started must not name a tip. There is no previous
-	// CommitQC to copy.
+	// CommitQC to copy, and a non-zero hash would become the required parent.
 	var ranges []*LaneRange
 	for _, r := range fp.Proposal().Msg().header.laneRanges {
 		if r.Lane() == idle {

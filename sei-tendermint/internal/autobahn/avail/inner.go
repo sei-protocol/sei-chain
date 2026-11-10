@@ -12,21 +12,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// blockQueue is one lane's candidate suffix [first, next).
-//
-// Blocks inside the suffix are parent-linked, so an honest LaneQC voter for its
-// tip has the ancestors back to first. The block at first may name any parent,
-// so a cut may splice onto a different branch. A CommitQC that chose another
-// hash does not rewrite the suffix: execution fetches the chosen body separately
-// and verifies it against the FullCommitQC. Prune, driven by the AppQC anchor,
-// drops only heights below the anchor's Next(); a later block stays until its
-// own height is pruned. parentOfFirstLaneBlock is the parent ProduceLocalBlock
-// uses when the suffix is empty. It does not constrain admission.
+// blockQueue is a per-lane block queue.
 type blockQueue struct {
 	queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	// localTip is None, or this node's latest pushed proposal, at a height of at least first-1.
 	localTip utils.Option[*types.Signed[*types.LaneProposal]]
-	// parentOfFirstLaneBlock is the certified tip at first-1. Zero before any prune.
+	// parentOfFirstLaneBlock is the parent hash of the lane block numbered first.
+	// Zero before any prune, which is the parent of block 0.
 	parentOfFirstLaneBlock types.BlockHeaderHash
 }
 
@@ -42,8 +34,8 @@ func (q *blockQueue) pushBack(p *types.Signed[*types.LaneProposal]) {
 	}
 }
 
-// parentHash is the parent ProduceLocalBlock uses for the block at q.next:
-// the in-queue predecessor while first < next, else parentOfFirstLaneBlock.
+// parentHash is the parent the block at q.next must name: the hash of the
+// predecessor while it is in the queue, else parentOfFirstLaneBlock (first == next).
 func (q *blockQueue) parentHash() types.BlockHeaderHash {
 	if q.first < q.next {
 		return q.q[q.next-1].Msg().Block().Header().Hash()
@@ -51,9 +43,10 @@ func (q *blockQueue) parentHash() types.BlockHeaderHash {
 	return q.parentOfFirstLaneBlock
 }
 
-// prune drops [first, newFirst) and records parent as parentOfFirstLaneBlock.
-// A stale newFirst changes nothing. localTip is kept when newFirst <= next and
-// cleared when newFirst > next. A block at or after newFirst stays.
+// prune drops [first, newFirst) and records parent as the parent hash of block
+// newFirst. A stale newFirst changes nothing. localTip is kept when newFirst <= next
+// and cleared when newFirst > next. A block already in the queue at or after
+// newFirst stays; it is this lane's local block.
 func (q *blockQueue) prune(newFirst types.BlockNumber, parent types.BlockHeaderHash) {
 	if newFirst <= q.first {
 		return
@@ -75,7 +68,7 @@ func (q *blockQueue) logLocalBlock() {
 	if h.ParentHash() == q.parentOfFirstLaneBlock {
 		return
 	}
-	logger.Info("local block does not extend certified tip",
+	logger.Error("local block does not extend certified tip",
 		"lane", h.Lane(),
 		slog.Uint64("block", uint64(h.BlockNumber())),
 		"got", h.ParentHash(),
@@ -355,6 +348,8 @@ func (i *inner) pruneTo(anchorEpoch *types.Epoch, qc *types.CommitQC) int {
 		lr := qc.LaneRange(lane)
 		bq := i.blocks[lane]
 		vq.prune(lr.Next())
+		// LastHash is the parent of block Next(). An empty range carries the
+		// previous commit's LastHash, so it names the same parent for the same height.
 		bq.prune(lr.Next(), lr.LastHash())
 		// A lagging cursor stops at retentionFloor so an unflushed localTip can still
 		// be written. The cursor is never rewound: already past localTip means it is on disk.

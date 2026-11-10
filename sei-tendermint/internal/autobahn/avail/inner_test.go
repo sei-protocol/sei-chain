@@ -285,7 +285,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		ep0 := registry.MustEpoch(0)
 		lane := ep0.Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 		tip := types.GenBlockHeaderHash(rng)
-		// The leftover sits below first. The live block names the certified tip.
+		// The leftover sits below first. Its hash is not the parent the live block must name.
 		old := testSignedBlock(keys[0], lane, 0, types.BlockHeaderHash{}, rng)
 		require.NotEqual(t, tip, old.Msg().Block().Header().Hash())
 		live := testSignedBlock(keys[0], lane, 1, tip, rng)
@@ -437,8 +437,8 @@ func TestPruneKeepsAnchorTipAndLocalBlock(t *testing.T) {
 		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc2.View(), types.AppHash{})),
 		Epoch:    ep,
 	})
-	// A newer road QC is ahead of this queue. ProduceLocalBlock still extends
-	// the anchor tip until a later AppQC prune advances parentOfFirstLaneBlock.
+	// A newer road QC is ahead of this queue. It must not replace the parent
+	// the next missing block has to name.
 	later := types.NewBlock(lane, qc2.LaneRange(lane).Next(), tip.Hash(), types.GenPayload(rng)).Header()
 	qc3 := types.BuildCommitQC(ep, keys, utils.Some(qc2), map[types.LaneID]*types.LaneQC{
 		lane: types.NewLaneQC(makeLaneVotes(keys, later)),
@@ -448,7 +448,7 @@ func TestPruneKeepsAnchorTipAndLocalBlock(t *testing.T) {
 	require.Equal(t, tip.Hash(), i.blocks[lane].parentHash())
 
 	// The block already in the WAL is this lane's local block, even when its
-	// parent is not the certified tip. The suffix stays until AppQC prunes it.
+	// parent is not the certified tip.
 	local := testSignedBlock(keys[0], lane, qc2.LaneRange(lane).Next(), types.GenBlockHeaderHash(rng), rng)
 	require.NotEqual(t, tip.Hash(), local.Msg().Block().Header().ParentHash())
 	require.NoError(t, i.restoreBlocks(map[types.LaneID][]persist.LoadedBlock{lane: {{
