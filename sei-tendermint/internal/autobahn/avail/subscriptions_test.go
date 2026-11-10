@@ -18,7 +18,7 @@ func TestSubscribeLaneProposals_WrongValidatorPanics(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
 	a, b := keys[0], keys[1]
-	ds := newTestDataState(&data.Config{Registry: registry})
+	ds := newTestDataState(t, &data.Config{Registry: registry})
 	state := utils.OrPanic1(NewState(a, ds, utils.None[string]()))
 
 	defer func() {
@@ -35,7 +35,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 2)
 	a, b := keys[0], keys[1]
 	peer := a.Public()
-	ds := newTestDataState(&data.Config{Registry: registry})
+	ds := newTestDataState(t, &data.Config{Registry: registry})
 	state := utils.OrPanic1(NewState(a, ds, utils.None[string]()))
 
 	lane0 := state.LocalLane().OrPanic("genesis")
@@ -155,7 +155,7 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		b := types.GenSecretKey(rng)
 		allKeys := append(keys, b)
 
-		ds := newTestDataState(&data.Config{Registry: registry})
+		ds := newTestDataState(t, &data.Config{Registry: registry})
 		stateA := utils.OrPanic1(NewState(a, ds, utils.None[string]()))
 		stateB := utils.OrPanic1(NewState(b, ds, utils.None[string]()))
 		laneA := stateA.LocalLane().OrPanic("genesis")

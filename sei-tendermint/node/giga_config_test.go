@@ -58,7 +58,6 @@ func TestBuildGigaStorageConfigAppliesSection(t *testing.T) {
 		Receipts:                true,
 		RollbackWindow:          42,
 		LookbackWindow:          7,
-		StateStoreBackend:       seidbconfig.PebbleDBUndoBackend,
 		PruneInterval:           time.Second,
 		CheckpointTimeInterval:  time.Minute,
 		CheckpointBlockInterval: 9,
@@ -69,7 +68,6 @@ func TestBuildGigaStorageConfigAppliesSection(t *testing.T) {
 	require.True(t, got.ReceiptDBConfig.Enable)
 	require.Equal(t, uint64(42), got.PruningConfig.RollbackWindow)
 	require.Equal(t, int64(7), got.PruningConfig.LookbackWindow)
-	require.Equal(t, seidbconfig.PebbleDBUndoBackend, got.SSConfig.Backend)
 	require.Equal(t, time.Second, got.PruningConfig.PruneInterval)
 	require.Equal(t, time.Minute, got.CheckpointConfig.TimeInterval)
 	require.Equal(t, int64(9), got.CheckpointConfig.BlockInterval)
