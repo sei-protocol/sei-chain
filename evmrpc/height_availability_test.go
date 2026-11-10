@@ -154,7 +154,7 @@ func TestBlockAPIAboveWatermarkReturnsNull(t *testing.T) {
 	highHeight := latest + 5
 	client := newHeightTestClient(highHeight, earliest, latest)
 	watermarks := newHeightTestWatermarks(client, latest)
-	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	api := NewBlockAPI(client, nil, testCtxProvider, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
 	result, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
 	require.NoError(t, err)
@@ -175,7 +175,7 @@ func TestGetBlockByHashNotFoundReturnsNull(t *testing.T) {
 		notFoundHash:     bytes.HexBytes(mustDecodeHex(notFoundHashHex[2:])),
 	}
 	watermarks := newHeightTestWatermarks(client, latest)
-	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	api := NewBlockAPI(client, nil, testCtxProvider, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 	ctx := context.Background()
 
 	// Empty hash: short-circuit, result null
@@ -203,7 +203,7 @@ func TestGetBlockReceiptsNotFoundReturnsNull(t *testing.T) {
 		notFoundHash:     bytes.HexBytes(mustDecodeHex(notFoundHashHex[2:])),
 	}
 	watermarks := newHeightTestWatermarks(client, latest)
-	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	api := NewBlockAPI(client, nil, testCtxProvider, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 	ctx := context.Background()
 
 	// Empty hash: short-circuit, result null
@@ -233,7 +233,7 @@ func TestBlockAPILatestTagResolves(t *testing.T) {
 	latest := int64(100)
 	client := newHeightTestClient(latest+5, earliest, latest)
 	watermarks := newHeightTestWatermarks(client, latest)
-	api := NewBlockAPI(client, newTestKeeperWithReceiptStore(), testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	api := NewBlockAPI(client, newTestKeeperWithReceiptStore(), testCtxProvider, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 	ctx := context.Background()
 
 	tags := []rpc.BlockNumber{
@@ -258,7 +258,7 @@ func TestBlockAPILatestTagResolves(t *testing.T) {
 func TestGetBlockTransactionCountByHashGenesis(t *testing.T) {
 	t.Parallel()
 
-	api := NewBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
+	api := NewBlockAPI(nil, nil, testCtxProvider, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
 	count, err := api.GetBlockTransactionCountByHash(context.Background(), genesisBlockHash)
 	require.NoError(t, err)
 	require.NotNil(t, count)
@@ -268,7 +268,7 @@ func TestGetBlockTransactionCountByHashGenesis(t *testing.T) {
 func TestGetBlockTransactionCountByNumberGenesis(t *testing.T) {
 	t.Parallel()
 
-	api := NewBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
+	api := NewBlockAPI(nil, nil, testCtxProvider, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
 	count, err := api.GetBlockTransactionCountByNumber(context.Background(), 0)
 	require.NoError(t, err)
 	require.NotNil(t, count)
@@ -278,7 +278,7 @@ func TestGetBlockTransactionCountByNumberGenesis(t *testing.T) {
 func TestGetBlockReceiptsGenesis(t *testing.T) {
 	t.Parallel()
 
-	api := NewBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
+	api := NewBlockAPI(nil, nil, testCtxProvider, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
 	receipts, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithHash(genesisBlockHash, true))
 	require.NoError(t, err)
 	require.NotNil(t, receipts)
@@ -288,7 +288,7 @@ func TestGetBlockReceiptsGenesis(t *testing.T) {
 func TestGetBlockReceiptsGenesisByNumber(t *testing.T) {
 	t.Parallel()
 
-	api := NewBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
+	api := NewBlockAPI(nil, nil, testCtxProvider, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
 	n := rpc.BlockNumber(0)
 	receipts, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(n))
 	require.NoError(t, err)
@@ -359,7 +359,7 @@ func TestGetBlockTransactionCountByNumberReceiptsPruned(t *testing.T) {
 	client := newHeightTestClient(100, 1, 200)
 	rs := &fakeReceiptStore{latest: 200, earliest: 150}
 	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
-	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	api := NewBlockAPI(client, nil, testCtxProvider, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
 	_, err := api.GetBlockTransactionCountByNumber(context.Background(), rpc.BlockNumber(100))
 	require.Error(t, err)
@@ -372,7 +372,7 @@ func TestGetBlockTransactionCountByHashReceiptsPruned(t *testing.T) {
 	client := newHeightTestClient(100, 1, 200)
 	rs := &fakeReceiptStore{latest: 200, earliest: 150}
 	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
-	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	api := NewBlockAPI(client, nil, testCtxProvider, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
 	_, err := api.GetBlockTransactionCountByHash(context.Background(), common.HexToHash(highBlockHashHex))
 	require.Error(t, err)
@@ -385,7 +385,7 @@ func TestGetBlockByNumberReceiptsPruned(t *testing.T) {
 	client := newHeightTestClient(100, 1, 200)
 	rs := &fakeReceiptStore{latest: 200, earliest: 150}
 	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
-	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	api := NewBlockAPI(client, nil, testCtxProvider, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
 	_, err := api.GetBlockByNumber(context.Background(), rpc.BlockNumber(100), false)
 	require.Error(t, err)
@@ -398,7 +398,7 @@ func TestGetBlockByHashReceiptsPruned(t *testing.T) {
 	client := newHeightTestClient(100, 1, 200)
 	rs := &fakeReceiptStore{latest: 200, earliest: 150}
 	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
-	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	api := NewBlockAPI(client, nil, testCtxProvider, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
 	_, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
 	require.Error(t, err)
@@ -411,7 +411,7 @@ func TestGetBlockReceiptsReceiptsPruned(t *testing.T) {
 	client := newHeightTestClient(100, 1, 200)
 	rs := &fakeReceiptStore{latest: 200, earliest: 150}
 	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
-	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	api := NewBlockAPI(client, nil, testCtxProvider, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
 	_, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(100)))
 	require.Error(t, err)

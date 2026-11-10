@@ -14,10 +14,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/seilog"
@@ -62,7 +62,7 @@ type GigaStorageManager struct {
 //  1. Perform a config validation.
 //  2. Construct and open all DBs with the config.
 //  3. OpenDBWithRecovery: open the app hash builder, bring every store onto one height, then complete the
-//     builder's setup at that height.
+//     builder's setup at that height, unless DeferAppHashBuilderSetup leaves it to the caller.
 //  4. Start the garbage collector.
 func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (*GigaStorageManager, error) {
 	if err := cfg.Validate(); err != nil {
@@ -150,11 +150,11 @@ func (m *GigaStorageManager) SC() *flatkv.CommitStore {
 }
 
 // SS returns the EVM state store, or nil when it is disabled or the StateDB is not open.
-func (m *GigaStorageManager) SS() *evm.EVMStateStore {
+func (m *GigaStorageManager) SS() *undo.Database {
 	if m.stateDB == nil {
 		return nil
 	}
-	return m.stateDB.SS()
+	return m.stateDB.UndoSS()
 }
 
 // Close shuts down the collector and then every store, reporting every failure rather than
