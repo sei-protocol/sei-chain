@@ -120,8 +120,8 @@ type GigasimConfig struct {
 	// Checkpoints are eligible only at heights that are multiples of this value. 0 accepts any height.
 	CheckpointBlockInterval int64
 
-	// If true, the historical EVM state store is opened and every committed block is written to it.
-	// When false the store is never opened and nothing is written to it.
+	// If true, the historical EVM state store is opened as an undo log and every committed block is
+	// written to it. When false the store is never opened and nothing is written to it.
 	EnableSS bool
 
 	// If true, the receipt store is opened and each block's receipts are written to it. When false no

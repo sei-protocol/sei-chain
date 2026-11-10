@@ -83,6 +83,21 @@ type AppHashBuilder interface {
 		blockHeight uint64,
 	) error
 
+	// Marks the end of startup on a node restored from a state snapshot at blockHeight, whose app hash is appHash
+	// and whose earlier history is absent. It stores a restore anchor of blockHeight as the first record of the
+	// empty vault, then completes setup as SetupComplete(blockHeight) does.
+	//
+	// Called instead of SetupComplete(), with the same rules. A vault that holds the same anchor already is
+	// accepted. Errors if blockHeight is below the giga activation height, or if the vault holds any other record;
+	// any error shuts the builder down.
+	CompleteRestoredSetup(
+		ctx context.Context,
+		// The height the state snapshot was taken at, and the height of the storage layer.
+		blockHeight uint64,
+		// The app hash of blockHeight.
+		appHash [32]byte,
+	) error
+
 	// Stores the app hash of every block whose inputs were all reported before the call, then stops the builder and
 	// returns once its resources are released. A report made concurrently with the call may or may not be stored. A
 	// builder stopped by an error stores nothing more.

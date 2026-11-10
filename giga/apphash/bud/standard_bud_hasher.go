@@ -1,7 +1,6 @@
 package bud
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
+	"github.com/sei-protocol/sei-chain/giga/apphash/internal/parallel"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
@@ -199,9 +199,7 @@ func (h *StandardBUDHasher) hashAndReport(request budHashRequest) error {
 // sortedByKey returns a copy of mutations sorted by key, leaving mutations in its original order.
 func sortedByKey(mutations []mutation.Mutation) []mutation.Mutation {
 	sorted := slices.Clone(mutations)
-	slices.SortFunc(sorted, func(a mutation.Mutation, b mutation.Mutation) int {
-		return bytes.Compare(a.Key, b.Key)
-	})
+	sortMutationsByKey(sorted)
 	return sorted
 }
 
@@ -212,12 +210,26 @@ func budHashFromMutations(
 	mutations []mutation.Mutation,
 ) (apphash.BUDHash, error) {
 	budlets := make([]*Budlet, len(mutations))
-	for i := range mutations {
-		budlet, err := budletFromMutation(&mutations[i])
-		if err != nil {
-			return apphash.BUDHash{}, fmt.Errorf("failed to convert mutation %d: %w", i, err)
+	// The lowest-indexed failure is reported, so the error matches a serial pass.
+	var mu sync.Mutex
+	failed := -1
+	var failure error
+	parallel.ForEachChunk(len(mutations), func(start int, end int) {
+		for i := start; i < end; i++ {
+			budlet, err := budletFromMutation(&mutations[i])
+			if err != nil {
+				mu.Lock()
+				if failed < 0 || i < failed {
+					failed, failure = i, err
+				}
+				mu.Unlock()
+				return
+			}
+			budlets[i] = budlet
 		}
-		budlets[i] = budlet
+	})
+	if failure != nil {
+		return apphash.BUDHash{}, fmt.Errorf("failed to convert mutation %d: %w", failed, failure)
 	}
 	treeHash, err := ComputeBUDTreeHash(budlets)
 	if err != nil {
