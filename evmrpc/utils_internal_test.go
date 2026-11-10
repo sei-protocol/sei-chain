@@ -92,7 +92,7 @@ func TestLogFetcherReturnsErrorWhenStateUnavailable(t *testing.T) {
 	require.ErrorIs(t, f.collectLogs(context.Background(), block, filters.FilterCriteria{}, nil), cause)
 
 	crit := filters.FilterCriteria{Addresses: []common.Address{{0x1}}}
-	_, ok, err := f.readUncachedBlock(context.Background(), 5, crit, EncodeFilters(crit.Addresses, crit.Topics))
+	_, ok, err := f.readUncachedBlock(context.Background(), blockWindow{earliest: 1, latest: 5}, 5, crit, EncodeFilters(crit.Addresses, crit.Topics))
 	require.ErrorIs(t, err, cause)
 	require.False(t, ok)
 }

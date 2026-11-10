@@ -16,9 +16,11 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
@@ -290,7 +292,7 @@ func buildGigaRouter(
 	validatorKey utils.Option[atypes.SecretKey],
 	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
-	blockStore atypes.BlockStore,
+	blockStore *ablockstore.Store,
 	appHashBuilder builder.AppHashBuilder,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
@@ -362,6 +364,17 @@ func buildGigaRouter(
 	return giga, nil
 }
 
+// buildExecutor returns the Autobahn executor that runs the blocks in manager's
+// BlockStore on app.
+func buildExecutor(app *proxy.Proxy, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager) *execution.Executor {
+	return execution.New(&execution.Config{
+		GenDoc:         genDoc,
+		App:            app,
+		AppHashBuilder: manager.AppHashBuilder(),
+		BlockStore:     manager.BlockStore(),
+	})
+}
+
 // resolvePersistentStateDir resolves a relative persistent state dir against the
 // node's --home dir (mirrors config.go's rootify) and creates it if absent. An
 // empty dir is an error: Autobahn has no in-memory storage mode.
@@ -431,7 +444,6 @@ func buildGigaStorageConfig(
 	storageConfig.PruningConfig.PruneInterval = storage.PruneInterval
 	storageConfig.CheckpointConfig.TimeInterval = storage.CheckpointTimeInterval
 	storageConfig.CheckpointConfig.BlockInterval = storage.CheckpointBlockInterval
-	storageConfig.WithStateStoreBackend(storage.StateStoreBackend)
 	if resolveGigaStorageMode(nodeMode, storage.Mode) == gigaconfig.StorageModeFull {
 		storageConfig.WithFullNodeMode()
 	}
@@ -568,9 +580,9 @@ func createRouter(
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 	storageManager utils.Option[*bootstrap.GigaStorageManager],
-) (*p2p.Router, closer, utils.Option[atypes.BlockStore], error) {
+) (*p2p.Router, closer, utils.Option[*ablockstore.Store], error) {
 	closer := func() error { return nil }
-	noneDB := utils.None[atypes.BlockStore]()
+	noneDB := utils.None[*ablockstore.Store]()
 	ep, err := p2p.ResolveEndpoint(nodeKey.ID().AddressString(cfg.P2P.ListenAddress))
 	if err != nil {
 		return nil, closer, noneDB, err
