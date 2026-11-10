@@ -12,6 +12,7 @@ import (
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
@@ -147,6 +148,7 @@ func (app *App) RegisterUpgradeHandlers() {
 				// Proposals must be readable before any module migration walks
 				// the gov store, so the retired IBC records are rewritten first.
 				app.rewriteRetiredIBCProposals(ctx)
+				app.prefetchAccountStore()
 				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
 				if err != nil {
 					return nil, err
@@ -258,6 +260,13 @@ func retiredProposalText(bz []byte) (title, description string) {
 		bz = bz[n:]
 	}
 	return title, description
+}
+
+// prefetchAccountStore reads the auth store's state commitment files into the page cache, so the
+// auth v3 to v4 migration's scan of every account reads them from memory rather than faulting them
+// in from disk one page at a time.
+func (app *App) prefetchAccountStore() {
+	app.rootStore.PrefetchStore(authtypes.StoreKey)
 }
 
 // pruneUpgradedIBCState removes any planned IBC client state the upgrade module recorded.
