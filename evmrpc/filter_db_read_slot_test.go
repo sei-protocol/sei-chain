@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/big"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
