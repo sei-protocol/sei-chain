@@ -20,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
@@ -49,14 +48,7 @@ type StateDB struct {
 	// The state commit store, which both receives writes and serves current-block reads.
 	sc *flatkv.CommitStore
 
-	// ss is nil when the EVM state store is disabled or keeps its history as an undo log.
-	ss *evm.EVMStateStore
-
-	// Hands committed blocks to ss. Nil exactly when ss is, and until the stores have caught up to the WAL.
-	ssFeeder *legacySSFeeder
-
-	// undo is the EVM state store when it keeps its history as an undo log, and nil otherwise. At
-	// most one of ss and undo is open.
+	// undo is the EVM state store, and nil when that store is disabled.
 	undo *undo.Database
 
 	// The checkpoint schedule SC and SS take their snapshot boundaries from.
@@ -128,10 +120,6 @@ func NewStateDB(
 	}
 	if err := s.resumeUndoLogOverHeldState(); err != nil {
 		return nil, err
-	}
-	// After the catch-up, which feeds SS the blocks it missed directly.
-	if s.ss != nil {
-		s.ssFeeder = newLegacySSFeeder(s.ss)
 	}
 	return s, nil
 }
@@ -226,28 +214,12 @@ func (s *StateDB) openSC(ctx context.Context) error {
 	return nil
 }
 
-// openSS opens the EVM state store and its snapshot manager, leaving it nil when the store is disabled.
+// openSS opens the EVM state store as an undo log, leaving it nil when the store is disabled.
 func (s *StateDB) openSS() error {
 	if !s.ssCfg.Enable {
 		return nil
 	}
-	if usesUndoLog(s.ssCfg) {
-		return s.openUndoLog()
-	}
-	ss, err := evm.NewEVMStateStore(s.ssCfg.EVMDBDirectory, s.ssCfg)
-	if err != nil {
-		return fmt.Errorf("open EVM state store: %w", err)
-	}
-	s.ss = ss
-	if err := s.ss.StartSnapshots(s.ssSnapshotRoot(), s.ssCfg, nil); err != nil {
-		return fmt.Errorf("start EVM state store snapshot manager: %w", err)
-	}
-	return nil
-}
-
-// usesUndoLog reports whether cfg opens the EVM state store as an undo log.
-func usesUndoLog(cfg config.StateStoreConfig) bool {
-	return cfg.Enable && cfg.Backend == config.PebbleDBUndoBackend
+	return s.openUndoLog()
 }
 
 // openUndoLog opens the EVM state store as an undo log. It takes no snapshots: every block its log
@@ -295,14 +267,6 @@ func (s *StateDB) resumeUndoLog() error {
 func (s *StateDB) startCheckpointSchedule(cfg config.CheckpointConfig) {
 	s.checkpointer = controller.NewCheckpointScheduler(cfg)
 	s.sc.SetCheckpointScheduler(s.checkpointer)
-	if s.ss != nil {
-		s.ss.SetCheckpointScheduler(s.checkpointer)
-	}
-}
-
-// ssSnapshotRoot returns the directory SS keeps its snapshots in.
-func (s *StateDB) ssSnapshotRoot() string {
-	return utils.GetStateStoreSnapshotsSiblingPath(s.ssCfg.EVMDBDirectory)
 }
 
 // storedWALRange is the block range a state WAL holds on disk: the lowest and highest blocks in it,
@@ -365,16 +329,6 @@ func (s *StateDB) Close() error {
 	var errs error
 	var timer utils.CloseTimer
 	// Before SS: it hands SS the blocks it still holds.
-	if s.ssFeeder != nil {
-		if err := timer.Close("ss_feeder", s.ssFeeder.Close); err != nil {
-			errs = errors.Join(errs, fmt.Errorf("hand the last blocks to the EVM state store: %w", err))
-		}
-	}
-	if s.ss != nil {
-		if err := timer.Close("ss", s.ss.Close); err != nil {
-			errs = errors.Join(errs, fmt.Errorf("close EVM state store: %w", err))
-		}
-	}
 	// Before SC: the undo log holds a view of SC's current block until it closes.
 	if s.undo != nil {
 		if err := timer.Close("ss", s.undo.Close); err != nil {
@@ -398,10 +352,7 @@ func (s *StateDB) Close() error {
 // SC returns the state commit store.
 func (s *StateDB) SC() *flatkv.CommitStore { return s.sc }
 
-// SS returns the EVM state store, or nil when it is disabled or kept as an undo log.
-func (s *StateDB) SS() *evm.EVMStateStore { return s.ss }
-
-// UndoSS returns the EVM state store when it is kept as an undo log, and nil otherwise.
+// UndoSS returns the EVM state store, and nil when it is disabled.
 func (s *StateDB) UndoSS() *undo.Database { return s.undo }
 
 // WAL returns the state WAL. It is the one this StateDB opened, and is not replaced for the StateDB's
@@ -419,9 +370,6 @@ func (s *StateDB) PrunableStores() []controllertypes.PrunableStore {
 	}
 	if s.wal != nil {
 		stores = append(stores, s.wal)
-	}
-	if s.ss != nil {
-		stores = append(stores, s.ss)
 	}
 	if s.undo != nil {
 		stores = append(stores, s.undo)
@@ -469,15 +417,6 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changes *gigatypes.StateCha
 	if err := s.sc.CommitStateChanges(blockNum, mutations); err != nil {
 		return fmt.Errorf("commit block %d to live state DB: %w", blockNum, err)
 	}
-	// SS takes the block asynchronously and is not waited on: the WAL is written first, so a shutdown
-	// that loses the queue leaves SS behind the WAL, which is the gap catchUpTo replays on the next open.
-	// What is timed here is therefore the wait to hand the block over, not the write itself.
-	if s.ssFeeder != nil {
-		s.commitPhases.SetPhase("enqueue_ss")
-		if err := s.ssFeeder.Feed(blockNum, changes); err != nil {
-			return fmt.Errorf("commit block %d: %w", blockNum, err)
-		}
-	}
 	// The undo log takes SC's view along with the block. Opened before the next commit, it describes
 	// exactly this block, which is what the log answers reads from until a later block replaces it.
 	if s.undo != nil {
@@ -495,32 +434,17 @@ func (s *StateDB) OpenView() gigatypes.StateView {
 // OpenViewAt returns a view of the state after blockNum served from the EVM state store's history,
 // and false when the store does not hold blockNum or no EVM state store is open.
 //
-// A view over the undo log pins SC's view of the log's head and the history it reads until it is
-// closed, holding back SC's flushes and pruning, so it must be closed promptly. A view over the
-// pebbledb state store pins nothing, and its reads fail once its height is pruned.
+// The view pins SC's view of the log's head and the history it reads until it is closed, holding
+// back SC's flushes and pruning, so it must be closed promptly.
 func (s *StateDB) OpenViewAt(blockNum int64) (gigatypes.StateView, bool) {
-	switch {
-	case s.undo != nil:
-		view, ok := s.undo.OpenView(blockNum)
-		if !ok {
-			return nil, false
-		}
-		return &historicalView{height: blockNum, read: view.Get, release: view.Close}, true
-	case s.ss != nil:
-		if blockNum < s.ss.GetEarliestVersion() || blockNum > s.ss.GetLatestVersion() {
-			return nil, false
-		}
-		read := func(key []byte) ([]byte, error) {
-			value, err := s.ss.Get(evm.EVMStoreKey, blockNum, key)
-			// The view pins nothing, and a read below the earliest version finds nothing rather than failing.
-			if err == nil && blockNum < s.ss.GetEarliestVersion() {
-				return nil, fmt.Errorf("height %d was pruned", blockNum)
-			}
-			return value, err
-		}
-		return &historicalView{height: blockNum, read: read, release: func() {}}, true
+	if s.undo == nil {
+		return nil, false
 	}
-	return nil, false
+	view, ok := s.undo.OpenView(blockNum)
+	if !ok {
+		return nil, false
+	}
+	return &historicalView{height: blockNum, read: view.Get, release: view.Close}, true
 }
 
 // RegisterHashListener forwards to the state commit store, which is the layer that hashes blocks and

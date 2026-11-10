@@ -6,14 +6,11 @@ import (
 	"testing"
 	"time"
 
-	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
-
-	"github.com/stretchr/testify/require"
-
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	"github.com/stretchr/testify/require"
 )
 
 // openManager opens a manager over a fresh home directory, applying tweak to the default config
@@ -64,15 +61,13 @@ func TestOpenLoadsTheCommitStore(t *testing.T) {
 	require.NotNil(t, manager.SC().Name(), "a loaded store answers as a prunable store")
 }
 
-// TestCheckpointScheduleCoversBothHalvesOfState pins that the schedule is started and that SS can act
-// on a height it picks. SC and SS restore from their own snapshots, so a rollback can only target a
-// height both of them hold — which is what one shared schedule delivers and two intervals do not.
+// TestCheckpointScheduleCoversBothHalvesOfState pins that the schedule is started for SC and that the
+// undo-log state store joins the same prune cycle.
 func TestCheckpointScheduleCoversBothHalvesOfState(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
 	require.NotNil(t, manager.StateDB().CheckpointScheduler())
-	require.NotNil(t, manager.SS().Snapshots(),
-		"SS takes no snapshot at all without a snapshot manager, so a height the schedule picks would be dropped")
+	require.True(t, manager.SS().ExternalPruning())
 }
 
 // TestReceiptsDisabled pins that Enable is what decides whether the receipt store is opened at
@@ -265,9 +260,10 @@ func TestStateDBCommitsEVMChangesToSS(t *testing.T) {
 	waitSSWrites(t, manager, 1)
 
 	require.Equal(t, int64(1), manager.SS().GetLatestVersion())
-	value, err := manager.SS().Get(evm.EVMStoreKey, 1, evmNonceKey(1))
-	require.NoError(t, err)
-	require.Equal(t, evmNonce(1), value)
+	view, ok := manager.StateDB().OpenViewAt(1)
+	require.True(t, ok)
+	defer view.Close()
+	require.Equal(t, uint64(1), view.GetNonce(gigatypes.Address{1}))
 }
 
 // TestEveryStoreJoinsThePruneCycle pins which stores the shared cut line covers.
@@ -290,7 +286,7 @@ func TestEveryStoreJoinsThePruneCycle(t *testing.T) {
 	// The three state stores arrive as one group, from the StateDB that owns them. Order carries no
 	// meaning to the collector: it fixes both cut lines as a minimum over every store before pruning
 	// any of them.
-	require.Equal(t, []string{"FlatKV", "StateWAL", "EVM SS", "ReceiptDB", "BlockDB", "AppHashVault"}, names)
+	require.Equal(t, []string{"FlatKV", "StateWAL", "EVM SS undo", "ReceiptDB", "BlockDB", "AppHashVault"}, names)
 }
 
 // TestPrunableStoresOmitsDisabledReceipts pins that a store that was never opened is not offered
@@ -307,12 +303,12 @@ func TestPrunableStoresOmitsDisabledReceipts(t *testing.T) {
 	}
 }
 
-// brokenBlockDBConfig returns a copy of cfg's block ledger config that NewBlockDB rejects,
+// brokenBlockDBConfig returns a copy of cfg's block ledger config that New rejects,
 // leaving the original untouched so the reopen afterwards uses a valid one.
-func brokenBlockDBConfig(cfg *config.GigaStorageConfig) *littblock.BlockDBConfig {
+func brokenBlockDBConfig(cfg *config.GigaStorageConfig) *blockstore.Config {
 	broken := *cfg.BlockDBConfig
 	litt := *broken.Litt
-	litt.Paths = nil // NewBlockDB refuses an empty path list
+	litt.Paths = nil // New refuses an empty path list
 	broken.Litt = &litt
 	return &broken
 }

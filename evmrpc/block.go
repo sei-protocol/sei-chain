@@ -70,28 +70,31 @@ func encodeGenesisBlock() map[string]any {
 }
 
 type BlockAPI struct {
-	tmClient           client.LocalClient
-	keeper             *keeper.Keeper
-	ctxProvider        func(int64) sdk.Context
-	txConfigProvider   func(int64) client.TxConfig
-	connectionType     ConnectionType
-	namespace          string
-	watermarks         *WatermarkManager
-	globalBlockCache   BlockCache
-	cacheCreationMutex *sync.Mutex
+	tmClient    client.LocalClient
+	keeper      *keeper.Keeper
+	ctxProvider func(int64) sdk.Context
+	// gasLimitCtxProvider also loads ConsensusParams, which only block.gasLimit reads.
+	gasLimitCtxProvider func(int64) sdk.Context
+	txConfigProvider    func(int64) client.TxConfig
+	connectionType      ConnectionType
+	namespace           string
+	watermarks          *WatermarkManager
+	globalBlockCache    BlockCache
+	cacheCreationMutex  *sync.Mutex
 }
 
-func NewBlockAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType, watermarks *WatermarkManager, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) *BlockAPI {
+func NewBlockAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, gasLimitCtxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType, watermarks *WatermarkManager, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) *BlockAPI {
 	return &BlockAPI{
-		tmClient:           tmClient,
-		keeper:             k,
-		ctxProvider:        ctxProvider,
-		txConfigProvider:   txConfigProvider,
-		connectionType:     connectionType,
-		namespace:          EthNamespace,
-		watermarks:         watermarks,
-		globalBlockCache:   globalBlockCache,
-		cacheCreationMutex: cacheCreationMutex,
+		tmClient:            tmClient,
+		keeper:              k,
+		ctxProvider:         ctxProvider,
+		gasLimitCtxProvider: gasLimitCtxProvider,
+		txConfigProvider:    txConfigProvider,
+		connectionType:      connectionType,
+		namespace:           EthNamespace,
+		watermarks:          watermarks,
+		globalBlockCache:    globalBlockCache,
+		cacheCreationMutex:  cacheCreationMutex,
 	}
 }
 
@@ -180,7 +183,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	}
 
 	return readStores(ctx, a.ctxProvider, func(ctxProvider func(int64) sdk.Context) (map[string]any, error) {
-		return EncodeTmBlock(ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, false, a.globalBlockCache, a.cacheCreationMutex)
+		return encodeTmBlock(ctxProvider, withRequestContext(ctx, a.gasLimitCtxProvider), a.txConfigProvider, block, a.keeper, fullTx, false, a.globalBlockCache, a.cacheCreationMutex)
 	})
 }
 
@@ -226,7 +229,7 @@ func (a *BlockAPI) getBlockByNumber(
 		return nil, err
 	}
 	return readStores(ctx, a.ctxProvider, func(ctxProvider func(int64) sdk.Context) (map[string]any, error) {
-		return EncodeTmBlock(ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, false, a.globalBlockCache, a.cacheCreationMutex)
+		return encodeTmBlock(ctxProvider, withRequestContext(ctx, a.gasLimitCtxProvider), a.txConfigProvider, block, a.keeper, fullTx, false, a.globalBlockCache, a.cacheCreationMutex)
 	})
 }
 
@@ -347,6 +350,22 @@ func EncodeTmBlock(
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 ) (map[string]any, error) {
+	return encodeTmBlock(ctxProvider, ctxProvider, txConfigProvider, block, k, fullTx, includeSyntheticTxs, globalBlockCache, cacheCreationMutex)
+}
+
+// encodeTmBlock is EncodeTmBlock, reading block.gasLimit from the ConsensusParams of
+// gasLimitCtxProvider's context at the block height and everything else from ctxProvider.
+func encodeTmBlock(
+	ctxProvider func(int64) sdk.Context,
+	gasLimitCtxProvider func(int64) sdk.Context,
+	txConfigProvider func(int64) client.TxConfig,
+	block *coretypes.ResultBlock,
+	k *keeper.Keeper,
+	fullTx bool,
+	includeSyntheticTxs bool,
+	globalBlockCache BlockCache,
+	cacheCreationMutex *sync.Mutex,
+) (map[string]any, error) {
 	number := big.NewInt(block.Block.Height)
 	blockhash := common.HexToHash(block.BlockID.Hash.String())
 	blockTime := block.Block.Time
@@ -442,8 +461,12 @@ func EncodeTmBlock(
 	// (x/evm/keeper/keeper.go's BlockContext.GasLimit), so
 	// eth_getBlockByNumber.gasLimit and the GASLIMIT opcode return the
 	// same number.
+	gasLimitCtx, err := ctxAtHeight(gasLimitCtxProvider, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
 	var gasLimit int64
-	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
+	if cp := gasLimitCtx.ConsensusParams(); cp != nil && cp.Block != nil {
 		gasLimit = cp.Block.MaxGas
 	}
 	// "timestamp" stays in whole seconds because every Ethereum client reads it

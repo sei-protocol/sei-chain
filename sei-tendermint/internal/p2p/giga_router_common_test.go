@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/giga/apphash"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -129,6 +129,10 @@ func (b *manualAppHashBuilder) Bounds() (uint64, uint64, bool, error) {
 
 func (b *manualAppHashBuilder) SetupComplete(context.Context, uint64) error { return nil }
 
+func (b *manualAppHashBuilder) CompleteRestoredSetup(context.Context, uint64, [32]byte) error {
+	return nil
+}
+
 func (b *manualAppHashBuilder) Close() error { return nil }
 
 // add makes appHash available.
@@ -174,8 +178,7 @@ func newAppHashTestRouter(
 
 	app := newTestApp()
 	hashBuilder := newManualAppHashBuilder()
-	db, err := blockstore.New(memblock.NewBlockDB())
-	require.NoError(t, err)
+	db := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	cfg := &GigaRouterCommonConfig{
@@ -328,8 +331,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	qc3, blocks3 := data.TestCommitQC(rng, ep0, keys, utils.Some(qc2.QC()))
 	last := qc2.Index()
 
-	db, err := blockstore.New(memblock.NewBlockDB())
-	require.NoError(t, err)
+	db := blockstore.NewTestStore(t)
 	require.NoError(t, db.WriteBlock(types.NewRoadBlock(qc, blocks)))
 	require.NoError(t, db.WriteBlock(types.NewRoadBlock(qc2, blocks2)))
 	require.NoError(t, db.WriteBlock(types.NewRoadBlock(qc3, blocks3)))
@@ -424,8 +426,7 @@ func testRouterAtRoad(t *testing.T, registry *epoch.Registry, keys []atypes.Secr
 		headers[i] = b.Header()
 	}
 	qc := atypes.NewFullCommitQC(atypes.NewCommitQC(votes), headers)
-	store, err := blockstore.New(memblock.NewBlockDB())
-	require.NoError(t, err)
+	store := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	require.NoError(t, store.WriteBlock(types.NewRoadBlock(qc, blocks)))
 	require.NoError(t, store.Flush())
@@ -443,8 +444,7 @@ func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAdd
 		ConsensusParams: tmtypes.DefaultConsensusParams(),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
-	db, err := blockstore.New(memblock.NewBlockDB())
-	require.NoError(t, err)
+	db := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	state, err := BuildDataState(&GigaRouterCommonConfig{
 		DialInterval:       time.Second,
