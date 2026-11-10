@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,12 +12,12 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/statesyncproof"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 func TestStateSyncProofExporterWritesPersistedCheckpoint(t *testing.T) {
@@ -139,14 +140,36 @@ func TestStateSyncProofExporterReturnsReadErrors(t *testing.T) {
 	}
 }
 
-func TestStateSyncProofExporterRefusesAppHashMismatch(t *testing.T) {
-	rng := utils.TestRng()
-	env := newStateSyncProofExportEnv(t, rng)
-	env.store.appProposals[env.index] = types.NewAppProposal(env.roadBlock.QC().QC().View(), []byte{9, 9, 9})
+func TestStateSyncProofExporterSkipsInconsistentRecords(t *testing.T) {
+	cases := map[string]func(*stateSyncProofExportEnv, utils.Rng){
+		"AppHash mismatch": func(env *stateSyncProofExportEnv, _ utils.Rng) {
+			env.store.appProposals[env.index] = types.NewAppProposal(env.roadBlock.QC().QC().View(), []byte{9, 9, 9})
+		},
+		"AppQC of another road": func(env *stateSyncProofExportEnv, rng utils.Rng) {
+			next := env.addNextRoad(rng)
+			nextIndex := next.AppQC.Proposal().Index()
+			env.store.appProposals[env.index] = env.store.appProposals[nextIndex]
+			env.store.appQCs[env.index] = next.AppQC
+			env.checkpoints = []int64{int64(env.index)}
+		},
+		"road block of another road": func(env *stateSyncProofExportEnv, rng utils.Rng) {
+			next := env.addNextRoad(rng)
+			env.store.blocks[env.index] = env.store.blocks[next.AppQC.Proposal().Index()]
+			env.checkpoints = []int64{int64(env.index)}
+		},
+	}
+	for name, corrupt := range cases {
+		t.Run(name, func(t *testing.T) {
+			rng := utils.TestRng()
+			env := newStateSyncProofExportEnv(t, rng)
+			corrupt(env, rng)
+			before := stateSyncProofExportFailures(t)
 
-	var invariant stateSyncProofInvariantError
-	require.True(t, errors.As(env.exporter.sweepOnce(), &invariant))
-	require.NoFileExists(t, env.stateSyncProofPath(env.index))
+			require.NoError(t, env.exporter.sweepOnce())
+			require.NoFileExists(t, env.stateSyncProofPath(env.index))
+			require.Equal(t, before+1, stateSyncProofExportFailures(t))
+		})
+	}
 }
 
 func TestStateSyncProofExporterSweepContinuesOnIOError(t *testing.T) {
@@ -155,26 +178,43 @@ func TestStateSyncProofExporterSweepContinuesOnIOError(t *testing.T) {
 	env.store.readBlockErr = errors.New("disk failed")
 	before := stateSyncProofExportFailures(t)
 
-	require.NoError(t, env.exporter.sweepAndHandleError())
-	require.NoError(t, env.exporter.sweepAndHandleError())
+	env.exporter.sweepAndHandleError()
+	env.exporter.sweepAndHandleError()
 	require.Equal(t, before+2, stateSyncProofExportFailures(t))
 	require.NotEqual(t, "", env.exporter.lastErr)
 
 	env.store.readBlockErr = nil
-	require.NoError(t, env.exporter.sweepAndHandleError())
+	env.exporter.sweepAndHandleError()
 	require.Equal(t, "", env.exporter.lastErr)
 	require.FileExists(t, env.stateSyncProofPath(env.index))
 }
 
-func TestStateSyncProofExporterSweepStopsOnInvariantError(t *testing.T) {
+func TestRunStateSyncProofExportSweepsOnAnchorUpdate(t *testing.T) {
 	rng := utils.TestRng()
 	env := newStateSyncProofExportEnv(t, rng)
-	env.store.appProposals[env.index] = types.NewAppProposal(env.roadBlock.QC().QC().View(), []byte{9, 9, 9})
-	before := stateSyncProofExportFailures(t)
+	store := &failFirstReadBlockStore{
+		fakeStateSyncProofBlockStore: env.store,
+		reads:                        utils.NewAtomicSend(0),
+	}
+	cfg := env.exporter.cfg
+	cfg.BlockStore = store
 
-	var invariant stateSyncProofInvariantError
-	require.True(t, errors.As(env.exporter.sweepAndHandleError(), &invariant))
-	require.Equal(t, before, stateSyncProofExportFailures(t))
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error {
+			return utils.IgnoreCancel(runStateSyncProofExport(ctx, cfg, env.exporter.closingEpoch))
+		})
+		reads := store.reads.Subscribe()
+		// The startup sweep fails to read the block; the loop must keep running.
+		if _, err := reads.Wait(ctx, func(n int) bool { return n >= 1 }); err != nil {
+			return err
+		}
+		env.anchorSend.Store(utils.Some(env.anchor))
+		_, err := reads.Wait(ctx, func(n int) bool { return n >= 2 })
+		return err
+	})
+
+	require.NoError(t, err)
+	require.FileExists(t, env.stateSyncProofPath(env.index))
 }
 
 func TestStateSyncProofExporterKeepsValidExistingStateSyncProof(t *testing.T) {
@@ -265,6 +305,12 @@ func TestStateSyncProofExporterSkipsSettledCheckpoints(t *testing.T) {
 		"pruned": func(env *stateSyncProofExportEnv) {
 			env.store.readBlockErr = types.ErrPruned
 		},
+		"missing": func(env *stateSyncProofExportEnv) {
+			delete(env.store.blocks, env.index)
+		},
+		"inconsistent": func(env *stateSyncProofExportEnv) {
+			env.store.appProposals[env.index] = types.NewAppProposal(env.roadBlock.QC().QC().View(), []byte{9, 9, 9})
+		},
 		"last road": func(env *stateSyncProofExportEnv) {
 			env.exporter.closingEpoch = func(types.RoadIndex) utils.Option[types.EpochIndex] {
 				return utils.Some(types.EpochIndex(1))
@@ -290,19 +336,6 @@ func TestStateSyncProofExporterSkipsSettledCheckpoints(t *testing.T) {
 			require.Equal(t, closingChecks, closingCalls)
 		})
 	}
-}
-
-func TestStateSyncProofExporterRetriesMissingRecords(t *testing.T) {
-	rng := utils.TestRng()
-	env := newStateSyncProofExportEnv(t, rng)
-	delete(env.store.blocks, env.index)
-
-	require.NoError(t, env.exporter.sweepOnce())
-	require.NoFileExists(t, env.stateSyncProofPath(env.index))
-
-	env.store.blocks[env.index] = env.roadBlock
-	require.NoError(t, env.exporter.sweepOnce())
-	require.FileExists(t, env.stateSyncProofPath(env.index))
 }
 
 func TestStateSyncProofExporterReadErrorDoesNotBlockOtherCheckpoints(t *testing.T) {
@@ -375,7 +408,6 @@ func newStateSyncProofExportEnv(t *testing.T, rng utils.Rng) *stateSyncProofExpo
 	anchor := data.Anchor{CommitQC: roadBlock.QC().QC(), AppQC: appQC, Epoch: epoch}
 	anchorSend := utils.NewAtomicSend(utils.Some(anchor))
 	store := &fakeStateSyncProofBlockStore{
-		status:       utils.Some(blockstore.SuffixRange{First: index, NextAppQC: index + 1}),
 		blocks:       map[types.RoadIndex]*types.RoadBlock{index: roadBlock},
 		appProposals: map[types.RoadIndex]*types.AppProposal{index: proposal},
 		appQCs:       map[types.RoadIndex]*types.AppQC{index: appQC},
@@ -419,7 +451,6 @@ func (e *stateSyncProofExportEnv) addNextRoad(rng utils.Rng) data.Anchor {
 	e.store.blocks[index] = roadBlock
 	e.store.appProposals[index] = proposal
 	e.store.appQCs[index] = appQC
-	e.store.status = utils.Some(blockstore.SuffixRange{First: e.index, NextAppQC: index + 1})
 	e.checkpoints = []int64{int64(index)}
 	return data.Anchor{CommitQC: roadBlock.QC().QC(), AppQC: appQC, Epoch: e.epoch}
 }
@@ -451,7 +482,6 @@ func (e *stateSyncProofExportEnv) readStateSyncProof(t *testing.T, index types.R
 }
 
 type fakeStateSyncProofBlockStore struct {
-	status          utils.Option[blockstore.SuffixRange]
 	blocks          map[types.RoadIndex]*types.RoadBlock
 	appProposals    map[types.RoadIndex]*types.AppProposal
 	appQCs          map[types.RoadIndex]*types.AppQC
@@ -460,10 +490,6 @@ type fakeStateSyncProofBlockStore struct {
 	readProposalErr error
 	readAppQCErr    error
 	blockReads      int
-}
-
-func (s *fakeStateSyncProofBlockStore) Status() utils.Option[blockstore.SuffixRange] {
-	return s.status
 }
 
 func (s *fakeStateSyncProofBlockStore) ReadBlock(index types.RoadIndex) (utils.Option[*types.RoadBlock], error) {
@@ -503,4 +529,22 @@ func (s *fakeStateSyncProofBlockStore) ReadAppQC(index types.RoadIndex) (utils.O
 	return utils.Some(appQC), nil
 }
 
-var _ stateSyncProofBlockStore = (*fakeStateSyncProofBlockStore)(nil)
+// failFirstReadBlockStore fails the first ReadBlock call and publishes the number of ReadBlock calls.
+type failFirstReadBlockStore struct {
+	*fakeStateSyncProofBlockStore
+	reads utils.AtomicSend[int]
+}
+
+func (s *failFirstReadBlockStore) ReadBlock(index types.RoadIndex) (utils.Option[*types.RoadBlock], error) {
+	n := s.reads.Load() + 1
+	s.reads.Store(n)
+	if n == 1 {
+		return utils.None[*types.RoadBlock](), errors.New("disk failed")
+	}
+	return s.fakeStateSyncProofBlockStore.ReadBlock(index)
+}
+
+var (
+	_ stateSyncProofBlockStore = (*fakeStateSyncProofBlockStore)(nil)
+	_ stateSyncProofBlockStore = (*failFirstReadBlockStore)(nil)
+)
