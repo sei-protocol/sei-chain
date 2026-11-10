@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -52,23 +53,78 @@ func (e *Executor) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
 	return e.executed.Subscribe()
 }
 
+// pendingBlock is a durable block with its FinalizeBlock request, whose preparation reports on
+// prepared once it is done.
+type pendingBlock struct {
+	block    *atypes.SuperBlock
+	req      *abci.RequestFinalizeBlock
+	prepared chan error
+}
+
 // Run initializes the app, then executes the durable blocks after its tip in
-// road order until ctx is canceled or a block fails.
+// road order until ctx is canceled or a block fails. Each block is prepared on
+// its own goroutine, up to atypes.PrepareAheadBlocks ahead of the one executing.
 func (e *Executor) Run(ctx context.Context) error {
 	next, err := e.initApp(ctx)
 	if err != nil {
 		return err
 	}
-	for n := next; ; n++ {
-		gigametrics.SetPhase(gigametrics.PhaseConsensus)
-		block, err := e.cfg.BlockStore.WaitForBlock(ctx, n)
-		if err != nil {
-			return fmt.Errorf("WaitForBlock(%v): %w", n, err)
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		blocks := make(chan pendingBlock, atypes.PrepareAheadBlocks)
+		s.Spawn(func() error {
+			for n := next; ; n++ {
+				block, err := e.cfg.BlockStore.WaitForBlock(ctx, n)
+				if err != nil {
+					return fmt.Errorf("WaitForBlock(%v): %w", n, err)
+				}
+				b := block.SuperBlock()
+				p := pendingBlock{block: b, req: e.finalizeRequest(b), prepared: make(chan error, 1)}
+				s.Spawn(func() error {
+					p.prepared <- e.cfg.App.PrepareBlock(ctx, p.req)
+					return nil
+				})
+				if err := utils.Send(ctx, blocks, p); err != nil {
+					return err
+				}
+			}
+		})
+		for {
+			gigametrics.SetPhase(gigametrics.PhaseConsensus)
+			p, err := utils.Recv(ctx, blocks)
+			if err != nil {
+				return err
+			}
+			prepareErr, err := utils.Recv(ctx, p.prepared)
+			if err != nil {
+				return err
+			}
+			if prepareErr != nil {
+				return fmt.Errorf("app.PrepareBlock(%v): %w", p.block.Height, prepareErr)
+			}
+			gigametrics.SetPhase(gigametrics.PhaseExecution)
+			if err := e.executeBlock(ctx, p.block, p.req); err != nil {
+				return fmt.Errorf("executeBlock(%v): %w", p.block.Height, err)
+			}
 		}
-		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		if err := e.executeBlock(ctx, block.SuperBlock()); err != nil {
-			return fmt.Errorf("executeBlock(%v): %w", n, err)
-		}
+	})
+}
+
+// finalizeRequest builds the FinalizeBlock request for a superblock, except for
+// the header's ProposerAddress, which depends on the committed state.
+func (e *Executor) finalizeRequest(b *atypes.SuperBlock) *abci.RequestFinalizeBlock {
+	return &abci.RequestFinalizeBlock{
+		Txs: b.Txs,
+		// Empty DecidedLastCommit does not indicate missing votes.
+		DecidedLastCommit: abci.CommitInfo{},
+		// The road block hash identifies the block before execution.
+		// It is used to identify block processed optimistically
+		// and is fed as block hash to EVM contracts.
+		Hash: b.Hash[:],
+		Header: (&types.Header{
+			ChainID: e.cfg.GenDoc.ChainID,
+			Height:  int64(b.Height), // nolint:gosec // different representations of the same value
+			Time:    b.Timestamp,
+		}).ToProto(),
 	}
 }
 
@@ -122,13 +178,15 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 }
 
 // executeBlock reports b's hash to the app hash builder, then finalizes and
-// commits b.
-func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error {
+// commits b through its prepared request.
+func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock, req *abci.RequestFinalizeBlock) error {
 	if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
 		return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 	}
 	app := e.cfg.App
-	var proposerAddress types.Address
+	// Read from the app's state on the execute loop, after the previous block's Commit.
+	// WARNING: the reward distribution has corner cases where it forgets the proposer,
+	// because reward is distributed with a delay. This is not our problem here though.
 	if vals := app.GetValidators(); len(vals) > 0 {
 		// Deterministically select a proposer from the app's validator committee.
 		// We need it so that app does not emit error logs.
@@ -137,26 +195,9 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error
 		if err != nil {
 			return fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
 		}
-		proposerAddress = key.Address()
+		req.Header.ProposerAddress = key.Address()
 	}
-
-	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
-		Txs: b.Txs,
-		// Empty DecidedLastCommit does not indicate missing votes.
-		DecidedLastCommit: abci.CommitInfo{},
-		// The road block hash identifies the block before execution.
-		// It is used to identify block processed optimistically
-		// and is fed as block hash to EVM contracts.
-		Hash: b.Hash[:],
-		Header: (&types.Header{
-			ChainID: e.cfg.GenDoc.ChainID,
-			Height:  int64(b.Height), // nolint:gosec // different representations of the same value
-			Time:    b.Timestamp,
-			// WARNING: the reward distribution has corner cases where it forgets the proposer,
-			// because reward is distributed with a delay. This is not our problem here though.
-			ProposerAddress: proposerAddress,
-		}).ToProto(),
-	})
+	resp, err := app.FinalizeBlock(ctx, req)
 	if err != nil {
 		return fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
