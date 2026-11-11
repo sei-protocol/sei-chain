@@ -1,10 +1,13 @@
 package keeper
 
 import (
+	"encoding/binary"
 	"encoding/json"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
@@ -154,6 +157,121 @@ func TestTraceDBPruneCoversBothKeyspaces(t *testing.T) {
 		_, ok, _ = c.GetBlock(h, "callTracer")
 		require.True(t, ok, "block row at height %d should remain", h)
 	}
+}
+
+// writeTraceRows stores a per-tx row, a per-block row and a last baked height at
+// height 7 in the trace DB under home.
+func writeTraceRows(t *testing.T, home string) {
+	t.Helper()
+	c, err := NewTraceDB(home)
+	require.NoError(t, err)
+	require.NoError(t, c.Put(7, "callTracer", common.HexToHash("0x07"), json.RawMessage(`{"calls":[]}`)))
+	require.NoError(t, c.PutBlock(7, "callTracer", json.RawMessage(`[{"txHash":"0x07"}]`)))
+	require.NoError(t, c.SetLastBakedHeight(7))
+	require.NoError(t, c.Close())
+}
+
+// setFormatStamp replaces the format stamp of the trace DB under home with stamp,
+// or removes it when stamp is nil, writing to pebble directly as another build would.
+func setFormatStamp(t *testing.T, home string, stamp []byte) {
+	t.Helper()
+	db, err := pebble.Open(filepath.Join(home, "data", "trace_db"), &pebble.Options{})
+	require.NoError(t, err)
+	if stamp == nil {
+		require.NoError(t, db.Delete([]byte(traceDBFormatVersionKey), pebble.Sync))
+	} else {
+		require.NoError(t, db.Set([]byte(traceDBFormatVersionKey), stamp, pebble.Sync))
+	}
+	require.NoError(t, db.Close())
+}
+
+func formatStamp(version uint64) []byte {
+	var b [8]byte
+	binary.BigEndian.PutUint64(b[:], version)
+	return b[:]
+}
+
+func TestTraceDBDiscardsRowsFromOtherFormatVersions(t *testing.T) {
+	cases := []struct {
+		name  string
+		stamp []byte
+	}{
+		{"no stamp", nil},
+		{"other version", formatStamp(traceDBFormatVersion + 1)},
+		{"malformed stamp", []byte{0x01}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			writeTraceRows(t, home)
+			setFormatStamp(t, home, tc.stamp)
+
+			c, err := NewTraceDB(home)
+			require.NoError(t, err)
+
+			_, ok, err := c.Get(7, "callTracer", common.HexToHash("0x07"))
+			require.NoError(t, err)
+			require.False(t, ok, "per-tx row stored under another format version must not be served")
+			_, ok, err = c.GetBlock(7, "callTracer")
+			require.NoError(t, err)
+			require.False(t, ok, "per-block row stored under another format version must not be served")
+			last, err := c.LastBakedHeight()
+			require.NoError(t, err)
+			require.Equal(t, int64(0), last, "last baked height must reset so the baker bakes again")
+			stored, err := c.storedFormatVersion()
+			require.NoError(t, err)
+			require.Equal(t, traceDBFormatVersion, stored)
+
+			// Rows baked after the reset are kept by the next open.
+			require.NoError(t, c.Put(8, "callTracer", common.HexToHash("0x08"), json.RawMessage(`{"calls":[1]}`)))
+			require.NoError(t, c.Close())
+			c, err = NewTraceDB(home)
+			require.NoError(t, err)
+			defer c.Close()
+			got, ok, err := c.Get(8, "callTracer", common.HexToHash("0x08"))
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.JSONEq(t, `{"calls":[1]}`, string(got))
+		})
+	}
+}
+
+func TestTraceDBKeepsRowsOfCurrentFormatVersion(t *testing.T) {
+	home := t.TempDir()
+	writeTraceRows(t, home)
+
+	c, err := NewTraceDB(home)
+	require.NoError(t, err)
+	defer c.Close()
+
+	got, ok, err := c.Get(7, "callTracer", common.HexToHash("0x07"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.JSONEq(t, `{"calls":[]}`, string(got))
+	got, ok, err = c.GetBlock(7, "callTracer")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.JSONEq(t, `[{"txHash":"0x07"}]`, string(got))
+	last, err := c.LastBakedHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(7), last)
+}
+
+func TestTraceDBPruneSparesFormatStamp(t *testing.T) {
+	home := t.TempDir()
+	c, err := NewTraceDB(home)
+	require.NoError(t, err)
+	require.NoError(t, c.Put(1, "callTracer", common.HexToHash("0x1"), json.RawMessage(`"x"`)))
+	require.NoError(t, c.Prune(1_000_000))
+	require.NoError(t, c.Put(2_000_000, "callTracer", common.HexToHash("0x2"), json.RawMessage(`"y"`)))
+	require.NoError(t, c.Close())
+
+	c, err = NewTraceDB(home)
+	require.NoError(t, err)
+	defer c.Close()
+	_, ok, err := c.Get(2_000_000, "callTracer", common.HexToHash("0x2"))
+	require.NoError(t, err)
+	require.True(t, ok, "a pruned DB must still carry the format stamp, or its next open would discard its rows")
 }
 
 type recordingEnqueuer struct{ heights atomic.Value }
