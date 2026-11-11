@@ -497,20 +497,26 @@ class Audit:
             row["events"].append({"precompile": precompile_name(log.get("address")), "event": EVENT_NAMES.get(topic0, topic0)})
         rows = list(by_tx.values())
         for row in rows:
-            row["to"], row["entry"] = self.entry_point(row["block"], row["index"])
+            row["to"], row["entry"] = self.entry_point(row)
         self.count("precompile_event_txs", len(rows))
         return rows
 
-    def entry_point(self, block, index):
+    def entry_point(self, row):
         """Returns the transaction's to address and whether it called the precompile directly."""
-        try:
-            tx = self.rpc.call_with_retry("eth_getTransactionByBlockNumberAndIndex", [hex(block), hex(index)])
-        except RPCError:
-            tx = None
-        if not tx:
-            return None, "unknown"
-        to = lower(tx.get("to"))
-        return to, "direct" if precompile_name(to) else "via_contract"
+        lookups = (
+            ("eth_getTransactionByBlockNumberAndIndex", [hex(row["block"]), hex(row["index"])]),
+            ("eth_getTransactionByHash", [row["hash"]]),
+        )
+        for method, params in lookups:
+            try:
+                tx = self.rpc.call_with_retry(method, params)
+            except RPCError:
+                continue
+            if tx and lower(tx.get("hash")) == row["hash"]:
+                to = lower(tx.get("to"))
+                return to, "direct" if precompile_name(to) else "via_contract"
+        self.count("entry_point_unknown")
+        return None, "unknown"
 
     def run_logs_chunk(self, pool, heights):
         rows = []
