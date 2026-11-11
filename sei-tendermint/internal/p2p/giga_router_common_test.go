@@ -22,7 +22,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
+	gigapb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -31,6 +33,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	dbm "github.com/tendermint/tm-db"
+	"golang.org/x/time/rate"
 )
 
 func registerEvmProxyForTest(t *testing.T, router *gigaRouterCommon, validator atypes.PublicKey, rpcURL url.URL) *ethrpc.Client {
@@ -561,6 +565,7 @@ func TestGigaRouterCommon_RunInboundConnLearnsMemberAndClosesOnLeave(t *testing.
 	router.liveAddrVersion = utils.NewAtomicSend(uint64(0))
 	router.poolIn = giga.NewPool[NodePublicKey, rpc.Server[giga.API]]()
 	router.poolInCommittee = giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]]()
+	router.inboundFullnodeCount = utils.NewMutex(new(int64))
 	router.inboundFullnodeCap = 10
 	router.service = giga.NewFullNodeService(router.data)
 	router.key = localKey
@@ -989,12 +994,10 @@ func TestGigaRouterCommon_OutboundHandshakeBoundedByTimeout(t *testing.T) {
 	}
 }
 
-func TestRunInboundFullnode_PersistentPeerDoesNotCount(t *testing.T) {
+func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 	rng := utils.TestRng()
 	localKey := makeKey(rng)
-	persistentKey := makeKey(rng)
-	strangerKey := makeKey(rng)
-	otherKey := makeKey(rng)
+	persistentKeys := []NodeSecretKey{makeKey(rng), makeKey(rng)}
 	validator := atypes.GenSecretKey(rng)
 	genDoc := &tmtypes.GenesisDoc{
 		ChainID:         "persistent-peer-cap",
@@ -1013,9 +1016,10 @@ func TestRunInboundFullnode_PersistentPeerDoesNotCount(t *testing.T) {
 		App:                     proxy.New(&fixedHeightApp{height: 1}),
 		AppHashBuilder:          newPublishingAppHashBuilder(),
 		GenDoc:                  genDoc,
-		MaxInboundFullnodePeers: 1,
+		MaxInboundFullnodePeers: 3,
 		PersistentPeerIDs: map[tmtypes.NodeID]struct{}{
-			persistentKey.Public().NodeID(): {},
+			persistentKeys[0].Public().NodeID(): {},
+			persistentKeys[1].Public().NodeID(): {},
 		},
 	}
 	state, err := BuildDataState(cfg, db)
@@ -1023,132 +1027,72 @@ func TestRunInboundFullnode_PersistentPeerDoesNotCount(t *testing.T) {
 	router, err := NewGigaFullnodeRouter(cfg, localKey, state)
 	require.NoError(t, err)
 
-	peerSpec := func(key NodeSecretKey) handshakeSpec {
-		return handshakeSpec{
-			SelfAddr: utils.Some(NodeAddress{
-				NodeID:   key.Public().NodeID(),
-				Hostname: "fullnode.example",
-				Port:     26656,
-			}),
-			SeiGigaConnection: true,
-		}
-	}
-	localSpec := handshakeSpec{SeiGigaConnection: true}
-	none := [2]utils.Option[handshakeOffer]{utils.None[handshakeOffer](), utils.None[handshakeOffer]()}
-	serve := func(ctx context.Context, s scope.Scope, peer NodeSecretKey) (scope.JoinHandle[struct{}], error) {
-		pair, err := handshakePair(ctx, s,
-			[2]NodeSecretKey{localKey, peer},
-			[2]handshakeSpec{localSpec, peerSpec(peer)},
-			none,
-		)
-		if err != nil {
-			return scope.JoinHandle[struct{}]{}, err
-		}
-		return scope.Spawn1(s, func() (struct{}, error) {
-			err := router.RunInboundConn(ctx, pair[0])
-			if errors.Is(err, context.Canceled) {
-				return struct{}{}, nil
-			}
-			return struct{}{}, err
-		}), nil
-	}
+	endpoint := Endpoint{AddrPort: tcp.TestReserveAddr()}
+	nodeInfo := makeInfo(localKey)
+	nodeInfo.ListenAddr = endpoint.AddrPort.String()
+	nodeInfo.Network = genDoc.ChainID
+	p2pRouter, err := NewRouter(localKey, func() *tmtypes.NodeInfo { return &nodeInfo }, dbm.NewMemDB(), &RouterOptions{
+		SelfAddress:              utils.Some(endpoint.NodeAddress(localKey.Public().NodeID())),
+		Endpoint:                 endpoint,
+		Connection:               conn.DefaultMConnConfig(),
+		IncomingConnectionWindow: utils.Some(time.Duration(0)),
+		MaxAcceptRate:            rate.Inf,
+		MaxDialRate:              rate.Inf,
+		Giga:                     utils.Some[GigaRouter](router),
+	})
+	require.NoError(t, err)
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		// poolIn updates its watch when a fullnode is admitted. RunForEach waits on that watch.
-		admitted := make(chan struct{}, 4)
-		s.SpawnBg(func() error {
-			return utils.IgnoreCancel(router.poolIn.RunForEach(ctx, func(ctx context.Context, _ rpc.Server[giga.API]) error {
-				return utils.Send(ctx, admitted, struct{}{})
-			}))
-		})
-		awaitAdmitted := func() error {
-			_, err := utils.Recv(ctx, admitted)
+		s.SpawnBg(func() error { return utils.IgnoreCancel(p2pRouter.Run(ctx)) })
+		s.SpawnBg(func() error { return utils.IgnoreCancel(router.Run(ctx)) })
+		if err := p2pRouter.WaitForStart(ctx); err != nil {
+			return err
+		}
+		connect := func(peer NodeSecretKey) error {
+			tcpConn, err := tcp.Dial(ctx, endpoint.AddrPort)
+			if err != nil {
+				return err
+			}
+			s.SpawnBg(func() error {
+				// Ignore transport errors, successful ping is the sole criterion.
+				_ = tcpConn.Run(ctx)
+				return nil
+			})
+			hConn, err := handshake(ctx, tcpConn, peer, handshakeSpec{SeiGigaConnection: true}, utils.None[handshakeOffer]())
+			if err != nil {
+				return err
+			}
+			client := rpc.NewClient[giga.API]()
+			s.SpawnBg(func() error {
+				// Ignore transport errors, successful ping is the sole criterion.
+				_ = client.Run(ctx, hConn.conn)
+				return nil
+			})
+			stream, err := giga.Ping.Call(ctx, client)
+			if err != nil {
+				return err
+			}
+			defer stream.Close()
+			if err := stream.Send(ctx, &gigapb.PingReq{}); err != nil {
+				return err
+			}
+			_, err = stream.Recv(ctx)
 			return err
 		}
 
-		strangerCtx, cancelStranger := context.WithCancel(ctx)
-		defer cancelStranger()
-		stranger, err := serve(strangerCtx, s, strangerKey)
-		if err != nil {
-			return err
+		for range cfg.MaxInboundFullnodePeers {
+			if err := connect(makeKey(rng)); err != nil {
+				return err
+			}
 		}
-		if err := awaitAdmitted(); err != nil {
-			return err
+		if err := connect(makeKey(rng)); err == nil {
+			return fmt.Errorf("excess peer ping succeeded")
 		}
-		if got := router.inboundFullnodeCount.Load(); got != 1 {
-			return fmt.Errorf("inbound fullnode count = %d after stranger admitted, want 1", got)
+		for _, peer := range persistentKeys {
+			if err := connect(peer); err != nil {
+				return err
+			}
 		}
-
-		otherPair, err := handshakePair(ctx, s,
-			[2]NodeSecretKey{localKey, otherKey},
-			[2]handshakeSpec{localSpec, peerSpec(otherKey)},
-			none,
-		)
-		if err != nil {
-			return err
-		}
-		if err := router.RunInboundConn(ctx, otherPair[0]); !errors.Is(err, errInboundFullnodeLimit) {
-			return fmt.Errorf("other RunInboundConn() = %v, want %v", err, errInboundFullnodeLimit)
-		}
-		if got := router.inboundFullnodeCount.Load(); got != 1 {
-			return fmt.Errorf("inbound fullnode count = %d after rejected peer, want 1", got)
-		}
-
-		persistentCtx, cancelPersistent := context.WithCancel(ctx)
-		persistent, err := serve(persistentCtx, s, persistentKey)
-		if err != nil {
-			cancelPersistent()
-			return err
-		}
-		if err := awaitAdmitted(); err != nil {
-			cancelPersistent()
-			return err
-		}
-		if got := router.inboundFullnodeCount.Load(); got != 1 {
-			cancelPersistent()
-			return fmt.Errorf("inbound fullnode count = %d while persistent peer is served, want 1", got)
-		}
-		cancelPersistent()
-		if _, err := persistent.Join(ctx); err != nil {
-			return err
-		}
-
-		cancelStranger()
-		if _, err := stranger.Join(ctx); err != nil {
-			return err
-		}
-		if got := router.inboundFullnodeCount.Load(); got != 0 {
-			return fmt.Errorf("inbound fullnode count = %d after stranger closed, want 0", got)
-		}
-
-		router.inboundFullnodeCap = 0
-		zeroPair, err := handshakePair(ctx, s,
-			[2]NodeSecretKey{localKey, otherKey},
-			[2]handshakeSpec{localSpec, peerSpec(otherKey)},
-			none,
-		)
-		if err != nil {
-			return err
-		}
-		if err := router.RunInboundConn(ctx, zeroPair[0]); !errors.Is(err, errInboundFullnodeLimit) {
-			return fmt.Errorf("cap-0 stranger RunInboundConn() = %v, want %v", err, errInboundFullnodeLimit)
-		}
-		zeroPersistentCtx, cancelZeroPersistent := context.WithCancel(ctx)
-		zeroPersistent, err := serve(zeroPersistentCtx, s, persistentKey)
-		if err != nil {
-			cancelZeroPersistent()
-			return err
-		}
-		if err := awaitAdmitted(); err != nil {
-			cancelZeroPersistent()
-			return err
-		}
-		if got := router.inboundFullnodeCount.Load(); got != 0 {
-			cancelZeroPersistent()
-			return fmt.Errorf("inbound fullnode count = %d with cap 0, want 0", got)
-		}
-		cancelZeroPersistent()
-		_, err = zeroPersistent.Join(ctx)
-		return err
+		return nil
 	}))
 }
