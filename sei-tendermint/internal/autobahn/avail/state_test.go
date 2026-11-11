@@ -537,6 +537,48 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
 }
 
+func TestPushBlockAcceptsNextBlockAfterProducerPrunes(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	producer := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+	t.Cleanup(func() { require.NoError(t, producer.Close()) })
+	peer := utils.OrPanic1(NewState(keys[1], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+	t.Cleanup(func() { require.NoError(t, peer.Close()) })
+	lane := producer.LocalLane().OrPanic("local lane")
+	for range 3 {
+		block, err := producer.ProduceLocalBlock(lane, producer.NextBlock(lane), types.GenPayload(rng))
+		require.NoError(t, err)
+		require.NoError(t, peer.PushBlock(ctx, block))
+	}
+	lastNumber := producer.NextBlock(lane) - 1
+	last, err := peer.Block(ctx, lane, lastNumber)
+	require.NoError(t, err)
+	lastHeader := last.Msg().Block().Header()
+
+	// Finalize the producer's entire lane and advance only its pruning anchor.
+	pruneToHeader(producer, keys, lastHeader)
+	qc := producer.ConsensusSpec().Load().CommitQC.OrPanic("finalized lane")
+	require.Equal(t, producer.NextBlock(lane), qc.LaneRange(lane).Next())
+	_, err = producer.Block(ctx, lane, lastNumber-1)
+	require.ErrorIs(t, err, types.ErrPruned)
+	retained, err := producer.Block(ctx, lane, lastNumber)
+	require.NoError(t, err)
+	require.Equal(t, lastHeader.Hash(), retained.Msg().Block().Header().Hash())
+	_, err = peer.Block(ctx, lane, 0)
+	require.NoError(t, err)
+	require.False(t, peer.ConsensusSpec().Load().CommitQC.IsPresent())
+
+	next, err := producer.ProduceLocalBlock(lane, producer.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	require.Equal(t, lastHeader.Hash(), next.Msg().Block().Header().ParentHash())
+	require.NoError(t, peer.PushBlock(ctx, next))
+	got, err := peer.Block(ctx, lane, lastNumber+1)
+	require.NoError(t, err)
+	require.Equal(t, next.Msg().Block().Header().Hash(), got.Msg().Block().Header().Hash())
+	require.Equal(t, producer.NextBlock(lane), peer.NextBlock(lane))
+}
+
 func TestSetNextBlockToPersistDoesNotRewind(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
