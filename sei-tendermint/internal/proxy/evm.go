@@ -87,10 +87,12 @@ func (app *EVMProxy) Info() *ResponseInfo {
 }
 
 func (app *EVMProxy) GetValidators() []ValidatorUpdate {
+	defer addTimeSample(Global.MethodTimingAt("get_validators", "sync"))()
 	return app.app.GetValidators()
 }
 
 func (app *EVMProxy) LastBlockHeight() int64 {
+	defer addTimeSample(Global.MethodTimingAt("last_block_height", "sync"))()
 	return app.app.LastBlockHeight()
 }
 
@@ -100,6 +102,7 @@ func (app *EVMProxy) InitChain(req *RequestInitChain) (*ResponseInitChain, error
 }
 
 func (app *EVMProxy) InitLastHeader(lastHeader *Header) {
+	defer addTimeSample(Global.MethodTimingAt("init_last_header", "sync"))()
 	app.app.InitLastHeader(lastHeader)
 }
 
