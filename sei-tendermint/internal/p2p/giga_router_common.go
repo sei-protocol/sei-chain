@@ -50,12 +50,6 @@ type gigaRouterCommon struct {
 	selfAddr        utils.Option[NodeAddress]
 	liveAddrs       utils.RWMutex[map[atypes.PublicKey]GigaNodeAddr]
 	liveAddrVersion utils.AtomicSend[uint64]
-	// nextCommitEpoch is data.NextCommitEpoch() cached at construction so
-	// EvmProxy can Load() without taking the data lock on every call.
-	nextCommitEpoch utils.AtomicRecv[*atypes.Epoch]
-	// anchor is data.Anchor() cached at construction: the AppQC/CommitQC covering
-	// the lowest row data.State still holds.
-	anchor utils.AtomicRecv[utils.Option[data.Anchor]]
 
 	// inboundFullnodeCount tracks inbound connections currently served the
 	// block-sync subset. Optimistic Add(1) + compare against cap;
@@ -344,16 +338,14 @@ type memberSession struct {
 	addr   GigaNodeAddr
 }
 
-// keepReplicas is commitEpoch's committee, plus the committee Anchor covers when present.
-func keepReplicas(anchor utils.Option[data.Anchor], commitEpoch *atypes.Epoch) map[atypes.PublicKey]struct{} {
+// keepReplicas is the union of the commit and anchor committees.
+func keepReplicas(anchor data.Anchor, commitEpoch *atypes.Epoch) map[atypes.PublicKey]struct{} {
 	keep := map[atypes.PublicKey]struct{}{}
 	for lane := range commitEpoch.Committee().Lanes().All() {
 		keep[lane.Validator] = struct{}{}
 	}
-	if a, ok := anchor.Get(); ok {
-		for lane := range a.Epoch.Committee().Lanes().All() {
-			keep[lane.Validator] = struct{}{}
-		}
+	for lane := range anchor.Epochs[0].Committee().Lanes().All() {
+		keep[lane.Validator] = struct{}{}
 	}
 	return keep
 }
@@ -385,7 +377,7 @@ func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[aty
 	if !ok {
 		return utils.None[atypes.PublicKey]()
 	}
-	if !r.nextCommitEpoch.Load().Committee().HasReplica(claim.Validator) {
+	if !r.data.Anchor().Load().FirstCommitEpoch().Committee().HasReplica(claim.Validator) {
 		return utils.None[atypes.PublicKey]()
 	}
 	selfAddr := hConn.msg.SelfAddr.OrPanic("verified giga claim has no SelfAddr")
@@ -419,14 +411,13 @@ func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[aty
 func (r *gigaRouterCommon) stopStaleSessions(
 	ctx context.Context,
 	live map[atypes.PublicKey]*memberSession,
-	anchor utils.Option[data.Anchor],
+	anchor data.Anchor,
 	commitEpoch *atypes.Epoch,
 ) error {
-	a, hasAnchor := anchor.Get()
 	// Until Anchor is within one epoch, validators of the epochs in between are
 	// in neither endpoint committee, and the AppQCs for those epochs cannot form
 	// without them.
-	settled := hasAnchor && commitEpoch.EpochIndex() <= a.Epoch.EpochIndex()+1
+	settled := commitEpoch.EpochIndex() <= anchor.Epochs[0].EpochIndex()+1
 	keep := keepReplicas(anchor, commitEpoch)
 	if settled {
 		for addrs := range r.liveAddrs.Lock() {
@@ -477,13 +468,12 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...c
 		}()
 		// Anchor is republished on every persist batch; only its epoch can
 		// change the keep set.
-		epochOf := func(opt utils.Option[data.Anchor]) utils.Option[atypes.EpochIndex] {
-			return utils.MapOpt(opt, func(a data.Anchor) atypes.EpochIndex { return a.Epoch.EpochIndex() })
-		}
+		epochOf := func(a data.Anchor) atypes.EpochIndex { return a.Epochs[0].EpochIndex() }
+
 		for ctx.Err() == nil {
 			addrVersion := addrUpdates.Load()
-			commitEpoch := r.nextCommitEpoch.Load()
-			anchor := r.anchor.Load()
+			anchor := r.data.Anchor().Load()
+			commitEpoch := anchor.FirstCommitEpoch()
 			if err := r.stopStaleSessions(ctx, live, anchor, commitEpoch); err != nil {
 				return err
 			}
@@ -510,10 +500,10 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...c
 				})
 			}
 			if err := utils.WaitAny(ctx, func() bool {
-				return r.nextCommitEpoch.Load().EpochIndex() != commitEpoch.EpochIndex() ||
-					epochOf(r.anchor.Load()) != epochOf(anchor) ||
+				return r.data.Anchor().Load().FirstCommitEpoch().EpochIndex() != commitEpoch.EpochIndex() ||
+					epochOf(r.data.Anchor().Load()) != epochOf(anchor) ||
 					addrUpdates.Load() != addrVersion
-			}, r.nextCommitEpoch, r.anchor, addrUpdates); err != nil {
+			}, r.data.Anchor(), addrUpdates); err != nil {
 				return err
 			}
 		}
@@ -530,8 +520,8 @@ func (r *gigaRouterCommon) runUntilMembershipChange(
 ) (changed bool, err error) {
 	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
-			_, err := r.nextCommitEpoch.Wait(ctx, func(epoch *atypes.Epoch) bool {
-				return !epoch.Committee().HasReplica(validator)
+			_, err := r.data.Anchor().Wait(ctx, func(anchor data.Anchor) bool {
+				return !anchor.FirstCommitEpoch().Committee().HasReplica(validator)
 			})
 			if err != nil {
 				return err
@@ -555,7 +545,7 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 	if member, ok := r.acceptInbound(hConn).Get(); ok {
 		return r.runInboundValidator(ctx, hConn, member)
 	}
-	// A member who inbounds before they appear in our nextCommitEpoch view is
+	// A member who inbounds before they appear in our anchor's first commit epoch is
 	// served as a fullnode for this socket's life; their own dialer redials
 	// after DialInterval and re-handshakes into the validator role.
 	return r.runInboundFullnode(ctx, hConn)
@@ -622,17 +612,18 @@ func (r *gigaRouterCommon) runInboundMux(
 // Before the first CommitQC, the genesis road resolves to the genesis committee.
 func (r *gigaRouterCommon) Validators(n atypes.RoadIndex) ([]*types.Validator, error) {
 	qc, err := r.data.TryQC(n)
+	anchor := r.data.Anchor().Load()
 	if err != nil {
 		if errors.Is(err, atypes.ErrNotFound) {
-			if genesis, epochErr := r.data.Registry().Epoch(0); epochErr == nil && n == genesis.RoadRange().First {
+			if genesis, ok := anchor.EpochAt(n).Get(); ok && genesis.EpochIndex() == 0 && n == genesis.RoadRange().First {
 				return committeeValidators(genesis.Committee())
 			}
 		}
 		return nil, heightLookupError(n, err)
 	}
-	ep, err := r.data.Registry().Epoch(qc.QC().View().EpochIndex)
-	if err != nil {
-		return nil, heightLookupError(n, err)
+	ep, ok := anchor.EpochAt(qc.Index()).Get()
+	if !ok {
+		return nil, heightLookupError(n, atypes.ErrPruned)
 	}
 	return committeeValidators(ep.Committee())
 }

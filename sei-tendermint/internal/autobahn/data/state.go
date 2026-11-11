@@ -74,21 +74,7 @@ type inner struct {
 
 	// Anchor represents the highest fully processed row:
 	// CommitQC, Blocks, AppProposal, AppQC present and persisted.
-	anchor utils.AtomicSend[utils.Option[Anchor]]
-	// nextCommitEpoch covers nextPartialBlock once that epoch is registered; otherwise
-	// the previous publish stands (genesis epoch 0 before any CommitQC).
-	nextCommitEpoch utils.AtomicSend[*types.Epoch]
-}
-
-func (i *inner) publishNextCommitEpoch(registry *epoch.Registry) {
-	ep, err := registry.EpochAt(i.nextPartialBlock)
-	if err != nil {
-		return
-	}
-	if ep.EpochIndex() == i.nextCommitEpoch.Load().EpochIndex() {
-		return
-	}
-	i.nextCommitEpoch.Store(ep)
+	anchor utils.AtomicSend[Anchor]
 }
 
 func (i *inner) insertAppQC(appQC *types.AppQC) error {
@@ -109,18 +95,6 @@ func (i *inner) insertAppQC(appQC *types.AppQC) error {
 	i.appQCs[n] = appQC
 	i.nextAppQC += 1
 	return nil
-}
-
-// appQCCertifiesRoad reports whether road has an AppQC matching local execution.
-// Roads below first are already certified by a persisted matching AppQC.
-func (i *inner) appQCCertifiesRoad(road types.RoadIndex) bool {
-	if road < i.first {
-		return true
-	}
-	if road >= i.nextAppQC {
-		return false
-	}
-	return bytes.Equal(i.appProposals[road].AppHash(), i.appQCs[road].Proposal().AppHash())
 }
 
 func (i *inner) insertAppProposal(appProposal *types.AppProposal) error {
@@ -193,6 +167,7 @@ type State struct {
 	metrics    *metrics.Metrics
 	inner      utils.Watch[*inner]
 	blockStore *blockstore.Store
+	anchor     utils.AtomicRecv[Anchor]
 }
 
 // NewState constructs a data State, replaying persisted state from blockStore.
@@ -209,16 +184,13 @@ func NewState(cfg *Config, blockStore *blockstore.Store) (*State, error) {
 	m.NextBlock.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
 	m.NextBlock.Certify.Set(utils.Clamp[int64](inner.nextAppQC))
 	m.NextBlock.Evict.Set(utils.Clamp[int64](inner.first))
-	s := &State{
+	return &State{
 		cfg:        cfg,
 		metrics:    m,
 		inner:      utils.NewWatch(inner),
 		blockStore: blockStore,
-	}
-	if err := s.activateStagedEpoch(); err != nil {
-		return nil, fmt.Errorf("activateStagedEpoch: %w", err)
-	}
-	return s, nil
+		anchor:     inner.anchor.Subscribe(),
+	}, nil
 }
 
 // loadFromBlockStore replays the persisted suffix from blockStore into s.inner.
@@ -242,10 +214,6 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 			NextAppQC:       first,
 		}
 	}
-	initialEpoch, err := cfg.Registry.EpochAt(status.First)
-	if err != nil {
-		return nil, fmt.Errorf("epoch at retained suffix start: %w", err)
-	}
 	inner := &inner{
 		blocks:           map[types.RoadIndex]*blockEntry{},
 		appQCs:           map[types.RoadIndex]*types.AppQC{},
@@ -257,8 +225,7 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 		nextFullBlock:    status.First,
 		nextPartialBlock: status.First,
 		persisted:        status,
-		anchor:           utils.NewAtomicSend(utils.None[Anchor]()),
-		nextCommitEpoch:  utils.NewAtomicSend(initialEpoch),
+		anchor:           utils.NewAtomicSend(Anchor{}),
 	}
 	for _, block := range suffix.Blocks {
 		epoch, err := cfg.Registry.Epoch(block.QC().QC().View().EpochIndex)
@@ -292,11 +259,9 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 			return nil, fmt.Errorf("load AppQC from BlockStore: %w", err)
 		}
 	}
-	if inner.first < inner.nextPartialBlock {
-		inner.nextCommitEpoch.Store(inner.blocks[inner.nextPartialBlock-1].epoch)
+	if err := inner.setAnchor(cfg.Registry); err != nil {
+		return nil, fmt.Errorf("set anchor: %w", err)
 	}
-	inner.publishNextCommitEpoch(cfg.Registry)
-	inner.setAnchor()
 	return inner, nil
 }
 
@@ -310,33 +275,8 @@ func (s *State) First() types.RoadIndex {
 	return s.blockStore.First()
 }
 
-// Registry returns the epoch registry.
-func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
-
-// activateStagedEpoch publishes the staged committee when LastRoad of the
-// deriving epoch has a matching AppQC, or when that road is already below first.
-func (s *State) activateStagedEpoch() error {
-	pending, ok := s.cfg.Registry.Pending().Get()
-	if !ok {
-		return nil
-	}
-	idx := pending.EpochIndex()
-	for inner := range s.inner.Lock() {
-		endEpoch := idx - 2
-		if !inner.appQCCertifiesRoad(s.cfg.Registry.LastRoad(endEpoch)) {
-			return nil
-		}
-		break
-	}
-	if err := s.cfg.Registry.Activate(idx); err != nil {
-		return fmt.Errorf("activate epoch %d: %w", idx, err)
-	}
-	for inner := range s.inner.Lock() {
-		inner.publishNextCommitEpoch(s.cfg.Registry)
-		return nil
-	}
-	panic("unreachable")
-}
+// GenesisTimestamp returns the genesis timestamp.
+func (s *State) GenesisTimestamp() time.Time { return s.cfg.Registry.GenesisTimestamp() }
 
 // PushPartialBlock pushes FullCommitQC and a subset of blocks that were finalized by it.
 // Pushing the qc and blocks is atomic, so that no unnecessary GetBlock RPCs are issued.
@@ -344,6 +284,14 @@ func (s *State) activateStagedEpoch() error {
 // New QCs wait for lane-block and roadblock capacity, while always allowing two retained roadblocks.
 func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, blocks map[uint64]*types.Block) error {
 	n := qc.Index()
+	anchor, err := s.anchor.Wait(ctx, func(a Anchor) bool { return n < a.Epochs[1].RoadRange().Next })
+	if err != nil {
+		return err
+	}
+	epoch, ok := anchor.EpochAt(n).Get()
+	if !ok {
+		return nil
+	}
 	nextFullBlock, nextPartialBlock, err := func() (types.RoadIndex, types.RoadIndex, error) {
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
@@ -364,16 +312,11 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 	if err != nil {
 		return err
 	}
-	if n < nextFullBlock || len(blocks) == 0 && n < nextPartialBlock {
+	if n < nextFullBlock || (len(blocks) == 0 && n < nextPartialBlock) {
 		return nil
 	}
-	var ep *types.Epoch
 	if n == nextPartialBlock {
-		ep, err = s.cfg.Registry.Epoch(qc.QC().View().EpochIndex)
-		if err != nil {
-			return err
-		}
-		if err := qc.Verify(ep); err != nil {
+		if err := qc.Verify(epoch); err != nil {
 			return fmt.Errorf("qc.Verify(): %w", err)
 		}
 	}
@@ -390,11 +333,10 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 		updated := false
 		if inner.nextPartialBlock == n {
 			updated = true
-			inner.blocks[n] = &blockEntry{qc: qc, epoch: ep, laneBlocks: make(map[uint64]*types.Block, len(qc.Headers()))}
+			inner.blocks[n] = &blockEntry{qc: qc, epoch: epoch, laneBlocks: make(map[uint64]*types.Block, len(qc.Headers()))}
 			inner.laneBlockCount += uint64(len(qc.Headers()))
 			inner.byHash[qc.Header().Hash()] = n
 			inner.nextPartialBlock += 1
-			inner.publishNextCommitEpoch(s.cfg.Registry)
 			s.metrics.NextBlock.QC.Set(utils.Clamp[int64](inner.nextPartialBlock))
 		}
 		e := inner.blocks[n]
@@ -641,29 +583,23 @@ func (s *State) appQCFromDB(n types.RoadIndex) (*types.AppQC, error) {
 	return nil, types.ErrPruned
 }
 
-// PushAppHash records the AppHash for executed blocks through n and stages
-// C_{E+2} when n closes LastRoad(E).
+// PushAppHash records the AppHash for road n and derives C_{E+2}
+// when n closes epoch E.
 func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.AppHash, weights map[types.PublicKey]uint64) error {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextFullBlock }); err != nil {
 			return err
 		}
 		if n < inner.nextAppProposal {
-			// The proposal is already stored. Staging again rejects a different committee.
-			if n >= inner.first {
-				if err := s.stageClosingEpoch(n, weights); err != nil {
-					return err
-				}
-			}
-			break
+			return nil
 		}
 		if n != inner.nextAppProposal {
 			return fmt.Errorf("received appHash for %v: %w", n, ErrOutOfOrder)
 		}
 		// Durable before the cursor moves, so a crash cannot persist this proposal
-		// and leave the epoch it closes unstaged.
-		if err := s.stageClosingEpoch(n, weights); err != nil {
-			return err
+		// and leave its derived epoch unregistered.
+		if err := s.cfg.Registry.TryPushEpoch(n, weights); err != nil {
+			return fmt.Errorf("TryPushEpoch(): %w", err)
 		}
 		e := inner.blocks[n]
 		proposal := types.NewAppProposal(e.qc.QC().View(), hash)
@@ -688,20 +624,6 @@ func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.A
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.persisted.NextAppProposal }); err != nil {
 			return err
 		}
-	}
-	return s.activateStagedEpoch()
-}
-
-// stageClosingEpoch persists C_{E+2} when n is the last road of epoch E.
-// StageEpoch returns only after that committee is durable. A road that closes
-// no epoch is left unchanged.
-func (s *State) stageClosingEpoch(n types.RoadIndex, weights map[types.PublicKey]uint64) error {
-	e, ok := s.cfg.Registry.ClosingEpoch(n).Get()
-	if !ok {
-		return nil
-	}
-	if err := s.cfg.Registry.StageEpoch(e, weights); err != nil {
-		return fmt.Errorf("StageEpoch(%d): %w", e, err)
 	}
 	return nil
 }
@@ -745,7 +667,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC) error {
 		ctrl.Updated()
 		break
 	}
-	return s.activateStagedEpoch()
+	return nil
 }
 
 func (s *State) AppQC(ctx context.Context, n types.RoadIndex) (*types.AppQC, error) {
@@ -760,33 +682,54 @@ func (s *State) AppQC(ctx context.Context, n types.RoadIndex) (*types.AppQC, err
 	return s.appQCFromDB(n)
 }
 
-type Anchor struct {
+// AnchorFirst is the highest road index for which AppQC is persisted.
+// It it also the lowest (first) road index stored in-memory by data.State.
+type AnchorFirst struct {
 	CommitQC *types.CommitQC
 	AppQC    *types.AppQC
-	// Epoch of CommitQC.
-	Epoch *types.Epoch
 }
 
-// Anchor is the AppQC/CommitQC covering inner.first.
-//
-// TODO: replace with AvailSpec = Option[Anchor] + nextEpoch (None + first
-// epoch initially) so avail does not consult the registry.
-func (s *State) Anchor() utils.AtomicRecv[utils.Option[Anchor]] {
-	for inner := range s.inner.Lock() {
-		return inner.anchor.Subscribe()
-	}
-	panic("unreachable")
+// Anchor contains the retained certified road and its epoch and successor.
+// First is absent before a certified road is retained.
+type Anchor struct {
+	First  utils.Option[AnchorFirst]
+	Epochs [2]*types.Epoch
 }
 
-// NextCommitEpoch returns the epoch covering the road after the latest CommitQC
-// in blocks, or genesis epoch 0 when blocks is empty. If that epoch is not registered
-// yet, the previous value stands. Used by giga EVM tx sharding.
-func (s *State) NextCommitEpoch() utils.AtomicRecv[*types.Epoch] {
-	for inner := range s.inner.Lock() {
-		return inner.nextCommitEpoch.Subscribe()
+// EpochAt returns the anchor epoch containing road, or None if neither contains it.
+func (a Anchor) EpochAt(road types.RoadIndex) utils.Option[*types.Epoch] {
+	for _, e := range a.Epochs {
+		if e.RoadRange().Has(road) {
+			return utils.Some(e)
+		}
 	}
-	panic("unreachable")
+	return utils.None[*types.Epoch]()
 }
+
+// CommitQC returns the certified anchor's CommitQC, or None when First is absent.
+func (a Anchor) CommitQC() utils.Option[*types.CommitQC] {
+	if first, ok := a.First.Get(); ok {
+		return utils.Some(first.CommitQC)
+	}
+	return utils.None[*types.CommitQC]()
+}
+
+// FirstCommitEpoch returns the epoch containing the first road after the anchor.
+func (a Anchor) FirstCommitEpoch() *types.Epoch {
+	return a.EpochAt(a.FirstIndex()).OrPanic("anchor first commit epoch")
+}
+
+// FirstIndex returns the road after the certified anchor, or the first epoch's
+// starting road when First is absent.
+func (a Anchor) FirstIndex() types.RoadIndex {
+	if qc, ok := a.CommitQC().Get(); ok {
+		return qc.Index() + 1
+	}
+	return a.Epochs[0].RoadRange().First
+}
+
+// Anchor returns the retained certified road and its two epochs.
+func (s *State) Anchor() utils.AtomicRecv[Anchor] { return s.anchor }
 
 func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
 	if i.nextAppProposal < i.nextPartialBlock {
@@ -890,12 +833,15 @@ func (s *State) runPersist(ctx context.Context, writeAppProposal func(*types.App
 		if err := s.blockStore.Flush(); err != nil {
 			return fmt.Errorf("flush BlockStore: %w", err)
 		}
-		// Prune the inner state.
-		var pruneEpoch utils.Option[types.EpochIndex]
 		for inner, ctrl := range s.inner.Lock() {
 			inner.persisted = status
 			t := time.Now()
-			from := inner.first
+			if inner.first < inner.persisted.First ||
+				(!inner.anchor.Load().First.IsPresent() && inner.persisted.First < inner.persisted.NextAppQC) {
+				if err := inner.setAnchor(s.cfg.Registry); err != nil {
+					return fmt.Errorf("inner.setAnchor(): %w", err)
+				}
+			}
 			for inner.first < inner.persisted.First {
 				e := inner.blocks[inner.first]
 				for _, b := range e.laneBlocks {
@@ -911,33 +857,33 @@ func (s *State) runPersist(ctx context.Context, writeAppProposal func(*types.App
 				inner.first += 1
 			}
 			s.metrics.NextBlock.Evict.Set(utils.Clamp[int64](inner.first))
-			inner.setAnchor()
-			if from < inner.first {
-				a, ok := inner.anchor.Load().Get()
-				if !ok {
-					return fmt.Errorf("evict advanced first but Anchor is None")
-				}
-				pruneEpoch = utils.Some(a.Epoch.EpochIndex())
-			}
 			ctrl.Updated()
 		}
-		if idx, ok := pruneEpoch.Get(); ok {
-			if err := s.cfg.Registry.PruneBefore(idx); err != nil {
-				return fmt.Errorf("prune epoch registry before %d: %w", idx, err)
-			}
+		ei := s.Anchor().Load().Epochs[0].EpochIndex()
+		if err := s.cfg.Registry.PruneBefore(ei); err != nil {
+			return fmt.Errorf("Registry.PruneBefore(%d): %w", ei, err)
 		}
 	}
 }
 
-func (i *inner) setAnchor() {
-	if i.first < i.persisted.NextAppQC {
-		entry := i.blocks[i.first]
-		i.anchor.Store(utils.Some(Anchor{
-			CommitQC: entry.qc.QC(),
-			AppQC:    i.appQCs[i.first],
-			Epoch:    entry.epoch,
-		}))
+func (i *inner) setAnchor(registry *epoch.Registry) error {
+	e0, err := registry.EpochAt(i.persisted.First)
+	if err != nil {
+		return err
 	}
+	e1, err := registry.Epoch(e0.EpochIndex() + 1)
+	if err != nil {
+		return err
+	}
+	a := Anchor{Epochs: [2]*types.Epoch{e0, e1}}
+	if i.persisted.First < i.persisted.NextAppQC {
+		a.First = utils.Some(AnchorFirst{
+			CommitQC: i.blocks[i.persisted.First].qc.QC(),
+			AppQC:    i.appQCs[i.persisted.First],
+		})
+	}
+	i.anchor.Store(a)
+	return nil
 }
 
 // Run starts the background persistence loop.

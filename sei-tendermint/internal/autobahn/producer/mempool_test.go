@@ -194,7 +194,7 @@ func (env *testEnv) Run(ctx context.Context) error {
 		// Process blocks.
 		stats := blockStats{}
 		laneBlocks := 0
-		firstBlock := env.data.Registry().MustEpoch(0).RoadRange().First
+		firstBlock := env.data.Anchor().Load().Epochs[0].RoadRange().First
 		for i := firstBlock; ; i += 1 {
 			// Wait for the next block to be finalized.
 			b, err := env.data.SuperBlock(ctx, i)
@@ -704,11 +704,11 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 			return err
 		}
 
-		if err := registry.StageAndActivate(0, map[types.PublicKey]uint64{b.Public(): 1}); err != nil {
+		if err := registry.TestPushEpoch(0, map[types.PublicKey]uint64{b.Public(): 1}); err != nil {
 			return err
 		}
 		epLeave := registry.MustEpoch(2)
-		if err := avail.TestDriveAdvance(ctx, availState, keys, epLeave.EpochIndex()); err != nil {
+		if err := avail.TestAdvanceToEpoch(ctx, availState, keys, registry, epLeave.EpochIndex()); err != nil {
 			return err
 		}
 		if err := availState.WaitUntilClosed(ctx, lane0); err != nil {
@@ -729,11 +729,11 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 			return fmt.Errorf("TryInsertTx after leave: got %v, want ErrNotProducing", err)
 		}
 
-		if err := registry.StageAndActivate(1, map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1}); err != nil {
+		if err := registry.TestPushEpoch(1, map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1}); err != nil {
 			return err
 		}
 		epJoin := registry.MustEpoch(3)
-		if err := avail.TestDriveAdvance(ctx, availState, keys, epJoin.EpochIndex()); err != nil {
+		if err := avail.TestAdvanceToEpoch(ctx, availState, keys, registry, epJoin.EpochIndex()); err != nil {
 			return err
 		}
 		got, err := availState.WaitForNextLane(ctx, a.Public(), utils.Some(lane0))
