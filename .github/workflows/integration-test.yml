@@ -58,6 +58,7 @@ jobs:
   #     not a matrix row.
   #   - A row with "disabled": true stays in the file but does not run. Its
   #     `_comment` says why and carries the TODO to re-enable it.
+  #   - A row with "foundry": true gets Foundry (cast) on the runner.
   set-matrix:
     name: Resolve integration test matrix
     runs-on: ubuntu-latest
@@ -273,6 +274,13 @@ jobs:
 
       - name: Install jq
         run: command -v jq >/dev/null || sudo apt-get install -y jq
+
+      - name: Install Foundry
+        if: ${{ matrix.test.foundry }}
+        # See: https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.2
+        uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf
+        with:
+          version: v1.8.6
 
       - name: Set up Go
         uses: actions/setup-go@v7
