@@ -21,6 +21,12 @@ with debug_* enabled, and reports every EVM transaction that
                        transaction reported above touched;
   receipt_missing      has no receipt on --rpc, so it could not be checked.
 
+same_block_followup follows only the EVM transactions reported in the block. A
+Cosmos reward withdrawal, delegation or undelegation earlier in the block, or a
+payout to a withdraw address outside the call tree, also shifts balances in the
+replay; a later transaction that only reads such a balance is reported only when
+its gas, status or logs differ.
+
 With --fixed-rpc, a node running v6.7.4+ that serves no trace cached by an earlier
 release, every reported transaction is traced there as well and its internal
 value transfers are diffed (phantom: only in the --rpc trace; missing: only in
@@ -32,14 +38,17 @@ exist only from v6.4.0 and read-only precompile calls emit none, so it is a lowe
 bound on the affected set, not the set.
 
 Output is one JSON object per reported transaction (JSON Lines), ordered by block
-and index. Progress and a final summary go to stderr.
+and index. Progress and a final summary go to stderr. The exit status is 1 when
+any block, window, trace or lookup could not be completed; --rescan retries those
+blocks. Write each rescan to a new file: rows are keyed by transaction hash, and a
+later file's row supersedes an earlier one.
 
 Examples:
   scripts/trace_replay_audit.py --rpc http://archive:8545 \\
       --tendermint-rpc http://archive:26657 --from 79123881 --to 242700000 \\
       --workers 16 --checkpoint audit.ckpt --out affected.jsonl
   scripts/trace_replay_audit.py --rpc http://archive:8545 --rescan affected.jsonl \\
-      --out affected.jsonl
+      --out affected.rescan1.jsonl
   scripts/trace_replay_audit.py --rpc http://archive-v673:8545 \\
       --fixed-rpc http://archive-v674:8545 --from 241565186 --to 241565189
   scripts/trace_replay_audit.py --mode logs --rpc https://evm-rpc.sei-apis.com \\
@@ -47,6 +56,7 @@ Examples:
 """
 
 import argparse
+import http.client
 import json
 import os
 import sys
@@ -103,6 +113,9 @@ EVENT_NAMES = {
 
 # Page size of the single validators page the faulty replay loaded.
 FAULTY_VALIDATOR_PAGE = 30
+
+# Summary counters that mean part of the range was not audited; any of them makes the exit status 1.
+INCOMPLETE_COUNTERS = ("blocks_failed", "windows_failed", "txs_trace_failed", "fixed_trace_failed", "entry_point_unknown")
 
 VALUE_FRAME_TYPES = {"CALL", "CALLCODE", "CREATE", "CREATE2", "SELFDESTRUCT"}
 CALL_TRACER = {"tracer": "callTracer", "tracerConfig": {"withLog": True}}
@@ -208,7 +221,9 @@ class Endpoint:
             if e.code in self.RETRYABLE_HTTP:
                 raise _Retry(f"HTTP {e.code} from {url}")
             raise RPCError(f"HTTP {e.code} from {url}")
-        except (urllib.error.URLError, TimeoutError, ConnectionError, json.JSONDecodeError) as e:
+        except (OSError, http.client.HTTPException, json.JSONDecodeError) as e:
+            # OSError covers URLError, timeouts, resets and TLS errors, including those
+            # raised while reading the body; HTTPException covers truncated bodies.
             raise _Retry(f"{type(e).__name__} from {url}: {e}")
 
     def _retry(self, fn):
@@ -236,10 +251,13 @@ def precompile_name(addr):
     return PRECOMPILE_NAMES.get(lower(addr))
 
 
-def walk(frame, depth=0):
-    yield depth, frame
+def walk(frame, depth=0, reverted=False):
+    """Yields (depth, frame, reverted) for every frame; reverted is set when the frame or an ancestor failed."""
+    # callTracer leaves a successful child of a reverted call without an error of its own.
+    reverted = reverted or bool(frame.get("error"))
+    yield depth, frame, reverted
     for child in frame.get("calls") or []:
-        yield from walk(child, depth + 1)
+        yield from walk(child, depth + 1, reverted)
 
 
 def hex_int(value):
@@ -251,13 +269,14 @@ def log_key(log):
 
 
 def trace_logs(frame):
-    return [log for _, f in walk(frame) for log in f.get("logs") or []]
+    """Logs of the frames whose effects were kept, as in the receipt."""
+    return [log for _, f, reverted in walk(frame) if not reverted for log in f.get("logs") or []]
 
 
 def internal_transfers(frame):
     """Value-carrying frames below the top call, i.e. what explorers list as internal transactions."""
     out = []
-    for depth, f in walk(frame):
+    for depth, f, reverted in walk(frame):
         value = hex_int(f.get("value"))
         if depth == 0 or not value or f.get("type") not in VALUE_FRAME_TYPES:
             continue
@@ -269,26 +288,27 @@ def internal_transfers(frame):
             "value_wei": str(value),
             "value_sei": str(Decimal(value) / WEI_PER_SEI),
             "error": f.get("error"),
+            "reverted": reverted,
         })
     return out
 
 
 def transfer_key(t):
-    return (t["type"], t["from"], t["to"], t["value_wei"], bool(t["error"]))
+    return (t["type"], t["from"], t["to"], t["value_wei"], t["reverted"])
 
 
 def call_tree(frame):
     return [
         (d, f.get("type"), lower(f.get("from")), lower(f.get("to")), hex_int(f.get("value")),
          lower(f.get("input")), lower(f.get("output")), bool(f.get("error")))
-        for d, f in walk(frame)
+        for d, f, _ in walk(frame)
     ]
 
 
 def touched(frame):
     """Returns (precompile names called, non-precompile addresses seen) for a call tree."""
     precompiles, addresses = set(), set()
-    for _, f in walk(frame):
+    for _, f, _ in walk(frame):
         for addr in (lower(f.get("from")), lower(f.get("to"))):
             if not addr or addr == ZERO_ADDRESS:
                 continue
@@ -537,16 +557,25 @@ def log_windows(heights, size):
 
 
 def failed_heights(path):
-    """Returns the blocks a previous run's output reported as failed, sorted."""
+    """Returns the blocks a previous run's output shows were not fully audited, sorted."""
     heights = set()
     with open(path) as f:
         for line in f:
             row = json.loads(line)
-            if "block_failed" in row["classes"]:
-                heights.add(row["block"])
-            elif "window_failed" in row["classes"]:
+            if "window_failed" in row["classes"]:
                 heights.update(range(row["block"], row["to_block"] + 1))
+            elif incomplete(row):
+                heights.add(row["block"])
     return sorted(heights)
+
+
+def incomplete(row):
+    return (
+        "block_failed" in row["classes"]
+        or "trace_failed" in row["classes"]
+        or bool((row.get("fixed") or {}).get("error"))
+        or row.get("entry") == "unknown"
+    )
 
 
 def read_checkpoint(path):
@@ -570,7 +599,7 @@ def parse_args(argv):
     p.add_argument("--rpc", required=True, help="EVM JSON-RPC URL (trace mode: archive with debug_* enabled)")
     p.add_argument("--from", dest="start", type=int, help="first block, inclusive")
     p.add_argument("--to", dest="end", type=int, help="last block, inclusive")
-    p.add_argument("--rescan", help="instead of --from/--to, scan the blocks a previous output file reports as failed")
+    p.add_argument("--rescan", help="instead of --from/--to, scan the blocks a previous output file shows were not fully audited")
     p.add_argument("--fixed-rpc", help="trace mode: EVM JSON-RPC of a v6.7.4+ node to diff reported transactions against")
     p.add_argument("--tendermint-rpc", help="trace mode: Tendermint RPC used to skip blocks whose parent set has <= 30 validators")
     p.add_argument("--include-wasm", action="store_true", help="trace mode: also report transactions that call the wasmd precompile")
@@ -586,6 +615,8 @@ def parse_args(argv):
     if args.rescan:
         if args.start is not None or args.end is not None or args.checkpoint:
             p.error("--rescan replaces --from, --to and --checkpoint")
+        if args.out and os.path.realpath(args.out) == os.path.realpath(args.rescan):
+            p.error("--out must be a different file from --rescan")
     elif args.start is None or args.end is None:
         p.error("--from and --to are required unless --rescan is given")
     elif args.end < args.start:
@@ -631,7 +662,7 @@ def main(argv):
             out.close()
     print(json.dumps({"mode": args.mode, "from": args.start, "to": args.end, "rescan": args.rescan,
                       "summary": dict(audit.summary)}, indent=2), file=sys.stderr)
-    return 1 if audit.summary["blocks_failed"] or audit.summary["windows_failed"] else 0
+    return 1 if any(audit.summary[k] for k in INCOMPLETE_COUNTERS) else 0
 
 
 if __name__ == "__main__":
