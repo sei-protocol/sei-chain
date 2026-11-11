@@ -142,14 +142,6 @@ func (b *manualAppHashBuilder) add(appHash *apphash.AppHashData) {
 	}
 }
 
-// clear makes every app hash unavailable.
-func (b *manualAppHashBuilder) clear() {
-	for state, ctrl := range b.state.Lock() {
-		clear(state.appHashes)
-		ctrl.Updated()
-	}
-}
-
 func testAppHashData(height atypes.RoadIndex) *apphash.AppHashData {
 	var blockHash [32]byte
 	blockHash[0] = byte(height)
@@ -206,10 +198,10 @@ func TestExecutionRunsAheadOfAppHashPush(t *testing.T) {
 	key := atypes.GenSecretKey(rng)
 	app, hashBuilder, state, router, executor := newAppHashTestRouter(t, rng, key)
 
-	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
-	qc2, blocks2 := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.Some(qc.QC()))
-	qc3, blocks3 := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.Some(qc2.QC()))
-	require.Equal(t, state.Registry().MustEpoch(0).RoadRange().First, qc.Index())
+	qc, blocks := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
+	qc2, blocks2 := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.Some(qc.QC()))
+	qc3, blocks3 := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.Some(qc2.QC()))
+	require.Equal(t, state.Anchor().Load().Epochs[0].RoadRange().First, qc.Index())
 	hashBuilder.publishOnReport = true
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
@@ -245,10 +237,10 @@ func TestPushAppHashesResumesAtNextAppProposal(t *testing.T) {
 	key := atypes.GenSecretKey(rng)
 	_, hashBuilder, state, router, _ := newAppHashTestRouter(t, rng, key)
 
-	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
-	qc2, blocks2 := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.Some(qc.QC()))
+	qc, blocks := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
+	qc2, blocks2 := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.Some(qc.QC()))
 	last := qc2.Index()
-	require.Equal(t, state.Registry().MustEpoch(0).RoadRange().First, qc.Index())
+	require.Equal(t, state.Anchor().Load().Epochs[0].RoadRange().First, qc.Index())
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
@@ -358,12 +350,12 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 	mid := atypes.GenSecretKey(rng)
 	high := atypes.GenSecretKey(rng)
 	keys := []atypes.SecretKey{low, mid, high}
-	router := testGigaRouterWithData(t, map[atypes.PublicKey]GigaNodeAddr{
+	router, registry := testGigaRouterWithData(t, map[atypes.PublicKey]GigaNodeAddr{
 		low.Public():  {},
 		mid.Public():  {},
 		high.Public(): {},
 	})
-	first := router.data.Registry().MustEpoch(0).RoadRange().First
+	first := router.data.Anchor().Load().Epochs[0].RoadRange().First
 
 	got, err := router.Validators(first)
 	require.NoError(t, err)
@@ -381,16 +373,15 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 		mid.Public():  5,
 		high.Public(): 10,
 	}
-	require.NoError(t, router.data.Registry().StageAndActivate(0, weights))
-	ep2 := router.data.Registry().MustEpoch(2)
-	fakeNext := utils.NewAtomicSend(ep2)
-	router.nextCommitEpoch = fakeNext.Subscribe()
+	require.NoError(t, registry.TestPushEpoch(0, weights))
+	ep2 := registry.MustEpoch(2)
 	got, err = router.Validators(first)
 	require.NoError(t, err)
 	require.Equal(t, []int64{1, 1, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
 
+	require.NoError(t, registry.TestPushEpoch(1, weights))
 	n := ep2.RoadRange().First
-	router = testRouterAtRoad(t, router.data.Registry(), keys, ep2, n)
+	router = testRouterAtRoad(t, registry, keys, ep2, n)
 	got, err = router.Validators(n)
 	require.NoError(t, err)
 	require.Equal(t, []int64{10, 5, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
@@ -398,16 +389,18 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 	require.Equal(t, mid.Public().Bytes(), got[1].PubKey.Bytes())
 	require.Equal(t, low.Public().Bytes(), got[2].PubKey.Bytes())
 
-	require.NoError(t, router.data.Registry().PruneBefore(2))
+	require.NoError(t, registry.PruneBefore(2))
 	got, err = router.Validators(n)
 	require.NoError(t, err)
 	require.Equal(t, []int64{10, 5, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
 	_, err = router.Validators(n + 1)
 	require.ErrorIs(t, err, coretypes.ErrHeightExceedsChainHead)
 
-	require.NoError(t, router.data.Registry().StageAndActivate(1, weights))
-	require.NoError(t, router.data.Registry().StageAndActivate(2, weights))
-	require.NoError(t, router.data.Registry().PruneBefore(4))
+	require.NoError(t, registry.TestPushEpoch(2, weights))
+	require.NoError(t, registry.TestPushEpoch(3, weights))
+	ep4 := registry.MustEpoch(4)
+	router = testRouterAtRoad(t, registry, keys, ep4, ep4.RoadRange().First)
+	require.NoError(t, registry.PruneBefore(4))
 	_, err = router.Validators(n)
 	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
 }
@@ -431,61 +424,69 @@ func testRouterAtRoad(t *testing.T, registry *epoch.Registry, keys []atypes.Secr
 	require.NoError(t, store.Flush())
 	state, err := data.NewState(&data.Config{Registry: registry}, store)
 	require.NoError(t, err)
-	return &gigaRouterCommon{data: state, nextCommitEpoch: state.NextCommitEpoch()}
+	return &gigaRouterCommon{data: state}
 }
 
-func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAddr) *gigaRouterCommon {
+func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAddr) (*gigaRouterCommon, *epoch.Registry) {
 	t.Helper()
-	genDoc := &tmtypes.GenesisDoc{
-		ChainID:         "validators-road-test",
-		InitialHeight:   1,
-		GenesisTime:     time.Now(),
-		ConsensusParams: tmtypes.DefaultConsensusParams(),
+	weights := make(map[atypes.PublicKey]uint64, len(addrs))
+	for key := range addrs {
+		weights[key] = 1
 	}
-	require.NoError(t, genDoc.ValidateAndComplete())
+	committee, err := atypes.NewCommittee(weights)
+	require.NoError(t, err)
+	state, registry := testDataState(t, committee)
+	return &gigaRouterCommon{data: state}, registry
+}
+
+func testDataState(t *testing.T, committee *atypes.Committee) (*data.State, *epoch.Registry) {
+	t.Helper()
+	registry, err := epoch.NewRegistry(committee, 1, time.Now(), utils.None[string]())
+	require.NoError(t, err)
 	db := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	state, err := BuildDataState(&GigaRouterCommonConfig{
-		DialInterval:       time.Second,
-		ValidatorAddrs:     addrs,
-		PersistentStateDir: t.TempDir(),
-		GenDoc:             genDoc,
-		App:                proxy.NewTestEVMProxy(&fixedHeightApp{height: 1}),
-		AppHashBuilder:     newPublishingAppHashBuilder(),
-	}, db)
+	state, err := data.NewState(&data.Config{Registry: registry}, db)
 	require.NoError(t, err)
-	return &gigaRouterCommon{
-		data:            state,
-		nextCommitEpoch: state.NextCommitEpoch(),
-	}
+	return state, registry
+}
+
+func testDataWithAnchor(t *testing.T, anchor data.Anchor) *data.State {
+	t.Helper()
+	state, _ := testDataState(t, anchor.Epochs[0].Committee())
+	data.TestSetAnchor(state, anchor)
+	return state
 }
 
 func testEpoch(index atypes.EpochIndex, weights map[atypes.PublicKey]uint64) *atypes.Epoch {
 	committee := utils.OrPanic1(atypes.NewCommittee(weights))
-	return atypes.NewEpoch(index, atypes.RoadRange{}, committee)
+	return atypes.NewEpoch(index, atypes.RoadRange{First: atypes.RoadIndex(index), Next: atypes.RoadIndex(index) + 1}, committee)
 }
 
-func testAnchor(ep *atypes.Epoch) utils.Option[data.Anchor] {
-	return utils.Some(data.Anchor{Epoch: ep})
-}
+func testAnchor(ep *atypes.Epoch) data.Anchor { return data.TestAnchor(ep) }
 
-// settledEpochs drives both keep-set inputs to the same epoch. A one-epoch lag
-// (commit ahead of Anchor) is sent to each watch separately.
-type settledEpochs struct {
-	commitEpoch utils.AtomicSend[*atypes.Epoch]
-	anchor      utils.AtomicSend[utils.Option[data.Anchor]]
-}
-
-func newSettledEpochs(ep *atypes.Epoch) *settledEpochs {
-	return &settledEpochs{
-		commitEpoch: utils.NewAtomicSend(ep),
-		anchor:      utils.NewAtomicSend(testAnchor(ep)),
+func testCertifiedAnchor(ep, next *atypes.Epoch, keys []atypes.SecretKey) data.Anchor {
+	qc := atypes.BuildCommitQC(ep, keys, utils.None[*atypes.CommitQC](), nil)
+	return data.Anchor{
+		First: utils.Some(data.AnchorFirst{
+			CommitQC: qc,
+			AppQC:    data.TestAppQC(keys, atypes.NewAppProposal(qc.View(), nil)),
+		}),
+		Epochs: [2]*atypes.Epoch{ep, next},
 	}
 }
 
+// settledEpochs publishes anchors with the supplied first commit epoch.
+type settledEpochs struct {
+	state *data.State
+}
+
+func newSettledEpochs(t *testing.T, ep *atypes.Epoch) *settledEpochs {
+	t.Helper()
+	return &settledEpochs{state: testDataWithAnchor(t, testAnchor(ep))}
+}
+
 func (e *settledEpochs) store(ep *atypes.Epoch) {
-	e.commitEpoch.Store(ep)
-	e.anchor.Store(testAnchor(ep))
+	data.TestSetAnchor(e.state, testAnchor(ep))
 }
 
 func TestGigaRouterCommon_ValidatorAddrPrefersConfiguredBook(t *testing.T) {
@@ -513,10 +514,10 @@ func TestGigaRouterCommon_AcceptInboundRefusesUnroutableEvmRPC(t *testing.T) {
 	rng := utils.TestRng()
 	validatorKey := atypes.GenSecretKey(rng)
 	peerKey := makeKey(rng)
-	epochs := newSettledEpochs(testEpoch(1, map[atypes.PublicKey]uint64{validatorKey.Public(): 1}))
+	epochs := newSettledEpochs(t, testEpoch(1, map[atypes.PublicKey]uint64{validatorKey.Public(): 1}))
 	router := &gigaRouterCommon{
 		cfg:             &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{}},
-		nextCommitEpoch: epochs.commitEpoch.Subscribe(),
+		data:            epochs.state,
 		liveAddrs:       utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
 		liveAddrVersion: utils.NewAtomicSend(uint64(0)),
 	}
@@ -555,11 +556,10 @@ func TestGigaRouterCommon_RunInboundConnLearnsMemberAndClosesOnLeave(t *testing.
 	selfAddr := NodeAddress{NodeID: peerKey.Public().NodeID(), Hostname: "validator.example", Port: 26656}
 	evmRPC := *utils.OrPanic1(url.Parse("ws://validator.example:8546"))
 	dummy := atypes.GenSecretKey(rng)
-	epochs := newSettledEpochs(testEpoch(1, map[atypes.PublicKey]uint64{validatorKey.Public(): 1}))
+	epochs := newSettledEpochs(t, testEpoch(1, map[atypes.PublicKey]uint64{validatorKey.Public(): 1}))
 	genesis := map[atypes.PublicKey]GigaNodeAddr{dummy.Public(): {Key: makeKey(rng).Public()}}
-	router := testGigaRouterWithData(t, genesis)
-	router.nextCommitEpoch = epochs.commitEpoch.Subscribe()
-	router.anchor = epochs.anchor.Subscribe()
+	router, _ := testGigaRouterWithData(t, genesis)
+	router.data = epochs.state
 	router.liveAddrs = utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{})
 	router.liveAddrVersion = utils.NewAtomicSend(uint64(0))
 	router.poolIn = giga.NewPool[NodePublicKey, rpc.Server[giga.API]]()
@@ -642,8 +642,8 @@ func TestGigaRouterCommon_RunInboundConnLearnsMemberAndClosesOnLeave(t *testing.
 		if err := router.stopStaleSessions(
 			ctx,
 			map[atypes.PublicKey]*memberSession{},
-			router.anchor.Load(),
-			router.nextCommitEpoch.Load(),
+			router.data.Anchor().Load(),
+			router.data.Anchor().Load().NextIndexEpoch(),
 		); err != nil {
 			return err
 		}
@@ -658,14 +658,14 @@ func TestGigaRouterCommon_RunPerCommitteeMemberFollowsCommittee(t *testing.T) {
 	rng := utils.TestRng()
 	a := atypes.GenSecretKey(rng).Public()
 	b := atypes.GenSecretKey(rng).Public()
-	epochs := newSettledEpochs(testEpoch(2, map[atypes.PublicKey]uint64{b: 1}))
+	epochs := newSettledEpochs(t, testEpoch(2, map[atypes.PublicKey]uint64{b: 1}))
 	router := &gigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
 			b: {Key: makeKey(rng).Public()},
 		}},
-		nextCommitEpoch: epochs.commitEpoch.Subscribe(),
-		anchor:          epochs.anchor.Subscribe(),
+
+		data:            epochs.state,
 		liveAddrs:       utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
 		liveAddrVersion: utils.NewAtomicSend(uint64(0)),
 	}
@@ -709,81 +709,15 @@ func TestGigaRouterCommon_RunPerCommitteeMemberFollowsCommittee(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestGigaRouterCommon_RunPerCommitteeMemberKeepsLeaversWhileAnchorLags(t *testing.T) {
-	for _, tc := range []struct {
-		name           string
-		hasStartAnchor bool
-	}{
-		{"no AppQC yet", false},
-		{"AppQC still in the prior epoch", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			rng := utils.TestRng()
-			a := atypes.GenSecretKey(rng).Public()
-			b := atypes.GenSecretKey(rng).Public()
-			c := atypes.GenSecretKey(rng).Public()
-			ep1 := testEpoch(1, map[atypes.PublicKey]uint64{a: 1, b: 1})
-			ep2 := testEpoch(2, map[atypes.PublicKey]uint64{a: 1, c: 1})
-			startAnchor := utils.None[data.Anchor]()
-			if tc.hasStartAnchor {
-				startAnchor = testAnchor(ep1)
-			}
-			nextEpoch := utils.NewAtomicSend(ep1)
-			anchor := utils.NewAtomicSend(startAnchor)
-			router := &gigaRouterCommon{
-				cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
-					a: {Key: makeKey(rng).Public()},
-					b: {Key: makeKey(rng).Public()},
-					c: {Key: makeKey(rng).Public()},
-				}},
-				nextCommitEpoch: nextEpoch.Subscribe(),
-				anchor:          anchor.Subscribe(),
-				liveAddrs:       utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
-				liveAddrVersion: utils.NewAtomicSend(uint64(0)),
-			}
-
-			started := make(chan atypes.PublicKey, 3)
-			stoppedB := make(chan struct{}, 1)
-			err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-				s.SpawnBg(func() error {
-					return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
-						started <- validator
-						<-ctx.Done()
-						if validator.Compare(b) == 0 {
-							stoppedB <- struct{}{}
-						}
-						return ctx.Err()
-					}))
-				})
-				for range 2 {
-					<-started
-				}
-				nextEpoch.Store(ep2)
-				<-started // c joined, so the prune for ep2 already ran
-				select {
-				case <-stoppedB:
-					return fmt.Errorf("b stopped while Anchor was still catching up")
-				default:
-				}
-				anchor.Store(testAnchor(ep2))
-				<-stoppedB
-				return nil
-			})
-			require.NoError(t, err)
-		})
-	}
-}
-
 func TestGigaRouterCommon_RunPerCommitteeMemberDialsBothCommitteesUntilStable(t *testing.T) {
 	rng := utils.TestRng()
-	a := atypes.GenSecretKey(rng).Public()
-	b := atypes.GenSecretKey(rng).Public()
-	c := atypes.GenSecretKey(rng).Public()
+	keys := []atypes.SecretKey{atypes.GenSecretKey(rng), atypes.GenSecretKey(rng), atypes.GenSecretKey(rng)}
+	a, b, c := keys[0].Public(), keys[1].Public(), keys[2].Public()
 	d := atypes.GenSecretKey(rng).Public()
-	nextEpoch := utils.NewAtomicSend(testEpoch(4, map[atypes.PublicKey]uint64{a: 1, c: 1}))
-	anchor := utils.NewAtomicSend(testAnchor(testEpoch(1, map[atypes.PublicKey]uint64{a: 1, b: 1})))
-	lagAnchor := testEpoch(2, map[atypes.PublicKey]uint64{a: 1, c: 1, d: 1})
-	dropAnchor := testEpoch(3, map[atypes.PublicKey]uint64{a: 1, c: 1})
+	ep1 := testEpoch(1, map[atypes.PublicKey]uint64{a: 1, b: 1})
+	ep2 := testEpoch(2, map[atypes.PublicKey]uint64{a: 1, b: 1, c: 1})
+	ep3 := testEpoch(3, map[atypes.PublicKey]uint64{a: 1, c: 1, d: 1})
+	state := testDataWithAnchor(t, testCertifiedAnchor(ep1, ep2, keys[:2]))
 	router := &gigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
@@ -791,8 +725,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsBothCommitteesUntilStable(t 
 			c: {Key: makeKey(rng).Public()},
 			d: {Key: makeKey(rng).Public()},
 		}},
-		nextCommitEpoch: nextEpoch.Subscribe(),
-		anchor:          anchor.Subscribe(),
+		data:            state,
 		liveAddrs:       utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
 		liveAddrVersion: utils.NewAtomicSend(uint64(0)),
 	}
@@ -814,14 +747,14 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsBothCommitteesUntilStable(t 
 		for range 3 {
 			onStart[<-started] = struct{}{}
 		}
-		anchor.Store(testAnchor(lagAnchor))
-		<-started // d joined, so the prune for lagAnchor already ran
+		data.TestSetAnchor(state, testCertifiedAnchor(ep2, ep3, keys))
+		<-started // d joined, so the anchor update already ran
 		select {
 		case <-stoppedB:
-			return fmt.Errorf("b stopped while Anchor was still more than one epoch behind")
+			return fmt.Errorf("b stopped while Anchor retained its membership epoch")
 		default:
 		}
-		anchor.Store(testAnchor(dropAnchor))
+		data.TestSetAnchor(state, testAnchor(ep3))
 		<-stoppedB
 		return nil
 	})
@@ -834,13 +767,13 @@ func TestGigaRouterCommon_RunPerCommitteeMemberRunsOneSessionPerMember(t *testin
 	a := atypes.GenSecretKey(rng).Public()
 	// b has no address-book entry, so an epoch containing only b starts nothing.
 	b := atypes.GenSecretKey(rng).Public()
-	epochs := newSettledEpochs(testEpoch(2, map[atypes.PublicKey]uint64{a: 1}))
+	epochs := newSettledEpochs(t, testEpoch(2, map[atypes.PublicKey]uint64{a: 1}))
 	router := &gigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
 		}},
-		nextCommitEpoch: epochs.commitEpoch.Subscribe(),
-		anchor:          epochs.anchor.Subscribe(),
+
+		data:            epochs.state,
 		liveAddrs:       utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
 		liveAddrVersion: utils.NewAtomicSend(uint64(0)),
 	}
@@ -880,14 +813,14 @@ func TestGigaRouterCommon_RunPerCommitteeMemberCancelsAllDepartingBeforeAwait(t 
 	a := atypes.GenSecretKey(rng).Public()
 	b := atypes.GenSecretKey(rng).Public()
 	c := atypes.GenSecretKey(rng).Public()
-	epochs := newSettledEpochs(testEpoch(2, map[atypes.PublicKey]uint64{a: 1, b: 1}))
+	epochs := newSettledEpochs(t, testEpoch(2, map[atypes.PublicKey]uint64{a: 1, b: 1}))
 	router := &gigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
 			b: {Key: makeKey(rng).Public()},
 		}},
-		nextCommitEpoch: epochs.commitEpoch.Subscribe(),
-		anchor:          epochs.anchor.Subscribe(),
+
+		data:            epochs.state,
 		liveAddrs:       utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
 		liveAddrVersion: utils.NewAtomicSend(uint64(0)),
 	}
@@ -921,8 +854,8 @@ func TestGigaRouterCommon_RunPerCommitteeMemberCancelsAllDepartingBeforeAwait(t 
 func TestGigaRouterCommon_CommitteeTasksReturnWhenWorkReturns(t *testing.T) {
 	rng := utils.TestRng()
 	a := atypes.GenSecretKey(rng).Public()
-	nextEpoch := utils.NewAtomicSend(testEpoch(2, map[atypes.PublicKey]uint64{a: 1}))
-	router := &gigaRouterCommon{nextCommitEpoch: nextEpoch.Subscribe()}
+	state := testDataWithAnchor(t, testAnchor(testEpoch(2, map[atypes.PublicKey]uint64{a: 1})))
+	router := &gigaRouterCommon{data: state}
 
 	changed, err := router.runUntilMembershipChange(t.Context(), a, func(context.Context) error {
 		return nil
@@ -935,8 +868,8 @@ func TestGigaRouterCommon_RunUntilMembershipChangeCancelsFWhenMembershipChanges(
 	rng := utils.TestRng()
 	a := atypes.GenSecretKey(rng).Public()
 	b := atypes.GenSecretKey(rng).Public()
-	nextEpoch := utils.NewAtomicSend(testEpoch(2, map[atypes.PublicKey]uint64{a: 1, b: 1}))
-	router := &gigaRouterCommon{nextCommitEpoch: nextEpoch.Subscribe()}
+	state := testDataWithAnchor(t, testAnchor(testEpoch(2, map[atypes.PublicKey]uint64{a: 1, b: 1})))
+	router := &gigaRouterCommon{data: state}
 	started := make(chan struct{})
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
@@ -954,7 +887,7 @@ func TestGigaRouterCommon_RunUntilMembershipChangeCancelsFWhenMembershipChanges(
 			return nil
 		})
 		<-started
-		nextEpoch.Store(testEpoch(3, map[atypes.PublicKey]uint64{b: 1}))
+		data.TestSetAnchor(state, testAnchor(testEpoch(3, map[atypes.PublicKey]uint64{b: 1})))
 		return nil
 	})
 	require.NoError(t, err)

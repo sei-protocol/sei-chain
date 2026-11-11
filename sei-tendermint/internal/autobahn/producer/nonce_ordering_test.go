@@ -75,7 +75,7 @@ func TestEVMNextPendingNonce_race(t *testing.T) {
 		if _, err := env.state.InsertTx(ctx, tx1.encode()); err != nil {
 			return err
 		}
-		index := env.data.Registry().MustEpoch(0).RoadRange().First
+		index := env.data.Anchor().Load().Epochs[0].RoadRange().First
 		firstBlock, err := env.data.SuperBlock(ctx, index)
 		if err != nil {
 			return err

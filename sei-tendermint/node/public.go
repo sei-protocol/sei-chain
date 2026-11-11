@@ -177,7 +177,7 @@ func makeEVMApplication(
 	if err != nil {
 		return nil, nil, fmt.Errorf("load EVM-only validator set: %w", err)
 	}
-	customPrecompiles, err := evmOnlyCustomPrecompiles(committee, validators)
+	customPrecompiles, err := evmOnlyCustomPrecompiles(committee, validators, giga.Execution.UnsafeSkipUpgrades)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load EVM-only governance: %w", err)
 	}
@@ -188,6 +188,7 @@ func makeEVMApplication(
 		storage,
 		giga.Execution,
 		customPrecompiles,
+		utils.Some(conf.RootDir),
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("restore EVM-only application: %w", err)
@@ -211,8 +212,8 @@ func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]proxy.ValidatorUp
 
 // evmOnlyCustomPrecompiles returns the gov precompile registry when the
 // committee sets evm_governance, with each validator's evm_voter voting at that
-// validator's power.
-func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []proxy.ValidatorUpdate) (utils.Option[precompiles.Registry], error) {
+// validator's power, skipping upgrade plans at skipUpgradeHeights.
+func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []proxy.ValidatorUpdate, skipUpgradeHeights []uint64) (utils.Option[precompiles.Registry], error) {
 	governance, ok := fc.EVMGovernance.Get()
 	if !ok {
 		return utils.None[precompiles.Registry](), nil
@@ -229,7 +230,10 @@ func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []proxy.
 	if err != nil {
 		return utils.None[precompiles.Registry](), err
 	}
-	return utils.Some(evmonlyapp.NewGovRegistry(params, governance.StartingProposalID, electorate)), nil
+	return utils.Some(evmonlyapp.NewGovRegistry(params, governance.StartingProposalID, electorate, evmonlyapp.GovUpgrades{
+		Applied:     governance.AppliedUpgrades,
+		SkipHeights: skipUpgradeHeights,
+	})), nil
 }
 
 // applyExecutionRuntime raises the GC target for a load test. The heap is then capped at 80% of
