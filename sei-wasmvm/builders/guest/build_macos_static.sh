@@ -20,6 +20,9 @@ export CC=o64-clang
 export CXX=o64-clang++
 cargo build --release --target x86_64-apple-darwin --example wasmvmstatic
 
+# Go 1.27.4+ refuses cgo archives that carry LLVM bitcode, which Rust's prebuilt std embeds. This image
+# has no Mach-O objcopy, so strip __LLVM,__bitcode and __LLVM,__cmdline from the result with a
+# llvm-objcopy matching rustc's LLVM (rustup component add llvm-tools) before committing it.
 # Create a universal library with both archs
 lipo -output artifacts/libwasmvmstatic_darwin.a -create \
   target/x86_64-apple-darwin/release/examples/libwasmvmstatic.a \
