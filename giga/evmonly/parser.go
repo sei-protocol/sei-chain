@@ -42,6 +42,8 @@ func decodeBlockTxs(ctx context.Context, txs [][]byte, workers int) ([]*ethtypes
 		if err != nil {
 			return err
 		}
+		// The transaction caches its hash, which execution reads several times per transaction.
+		tx.Hash()
 		decoded[i] = tx
 		return nil
 	})
