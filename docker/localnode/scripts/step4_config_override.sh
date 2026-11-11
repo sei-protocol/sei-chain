@@ -160,16 +160,6 @@ set_evm_rate_limit() {
 set_evm_rate_limit ip_rate_limit_rps "${EVM_IP_RATE_LIMIT_RPS:-}"
 set_evm_rate_limit ip_rate_limit_burst "${EVM_IP_RATE_LIMIT_BURST:-}"
 
-# set_giga_storage KEY VALUE: set KEY = VALUE in the [giga.storage] table,
-# adding the table when app.toml has none.
-set_giga_storage() {
-  key=$1
-  value=$2
-  grep -q '^\[giga\.storage\]' ~/.sei/config/app.toml || printf '\n[giga.storage]\n' >> ~/.sei/config/app.toml
-  sed -i "/^\[giga\.storage\]/,/^\[/{/^$key[[:space:]]*=/d;}" ~/.sei/config/app.toml
-  sed -i "/^\[giga\.storage\]/a $key = $value" ~/.sei/config/app.toml
-}
-
 # Override receipt store backend if requested
 RECEIPT_BACKEND=${RECEIPT_BACKEND:-}
 if [ -n "$RECEIPT_BACKEND" ]; then
@@ -205,8 +195,6 @@ if [ "$AUTOBAHN" = "true" ]; then
   # query surfaces it does not serve.
   sed -i '/^\[rpc\]/,/^\[/ s|^laddr = .*|laddr = ""|' ~/.sei/config/config.toml
   sed -i '/^\[api\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
-  # A node that keeps EVM state history keeps it in the undo-log state store.
-  set_giga_storage state_store_backend '"undolog"'
   echo "Enabled Autobahn for node $NODE_ID (EVM JSON-RPC only)"
   # Inject autobahn config file path into config.toml
   # Must be placed before any [section] header so TOML parser reads it as a top-level key.

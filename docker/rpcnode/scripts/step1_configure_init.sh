@@ -64,16 +64,6 @@ pin_sc_write_mode() {
   fi
 }
 
-# set_giga_storage KEY VALUE: set KEY = VALUE in the [giga.storage] table,
-# adding the table when app.toml has none.
-set_giga_storage() {
-  key=$1
-  value=$2
-  grep -q '^\[giga\.storage\]' ~/.sei/config/app.toml || printf '\n[giga.storage]\n' >> ~/.sei/config/app.toml
-  sed -i "/^\[giga\.storage\]/,/^\[/{/^$key[[:space:]]*=/d;}" ~/.sei/config/app.toml
-  sed -i "/^\[giga\.storage\]/a $key = $value" ~/.sei/config/app.toml
-}
-
 # Apply Giga Storage overrides so the RPC node's app hash matches the validators.
 GIGA_STORAGE=${GIGA_STORAGE:-false}
 GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY:-false}
@@ -158,8 +148,6 @@ if [ "$AUTOBAHN" = "true" ]; then
   else
     sed -i '1s|^|autobahn-config-file = "'"$AUTOBAHN_CONFIG"'"\n|' ~/.sei/config/config.toml
   fi
-  # Keep the EVM state history in the undo-log state store.
-  set_giga_storage state_store_backend '"undolog"'
   echo "Autobahn config written to $AUTOBAHN_CONFIG (fullnode via mode=full)"
 fi
 
