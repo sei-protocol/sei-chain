@@ -1,12 +1,14 @@
 - name: Test FlatKV EVM historical balance query
   inputs:
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_query_rpc_url.txt
+      env: QUERY_RPC_URL
     - cmd: tail -1 integration_test/contracts/flatkv_evm_recipient_addr.txt
       env: RECIPIENT_ADDR
     - cmd: tail -1 integration_test/contracts/flatkv_evm_balance_block_height.txt
       env: BALANCE_HEIGHT
     - cmd: tail -1 integration_test/contracts/flatkv_evm_balance_expected.txt
       env: EXPECTED_BALANCE
-    - cmd: cast to-hex $(cast balance $RECIPIENT_ADDR --block $BALANCE_HEIGHT --rpc-url http://localhost:8545)
+    - cmd: cast to-hex $(cast balance $RECIPIENT_ADDR --block $BALANCE_HEIGHT --rpc-url $QUERY_RPC_URL)
       env: ACTUAL_BALANCE
   verifiers:
     - type: eval
@@ -14,6 +16,8 @@
 
 - name: Test FlatKV EVM historical storage query
   inputs:
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_query_rpc_url.txt
+      env: QUERY_RPC_URL
     - cmd: tail -1 integration_test/contracts/flatkv_evm_contract_addr.txt
       env: CONTRACT_ADDR
     - cmd: tail -1 integration_test/contracts/flatkv_evm_storage_slot.txt
@@ -22,7 +26,7 @@
       env: CONTRACT_HEIGHT
     - cmd: tail -1 integration_test/contracts/flatkv_evm_storage_expected.txt
       env: EXPECTED_STORAGE
-    - cmd: cast storage $CONTRACT_ADDR $STORAGE_SLOT --block $CONTRACT_HEIGHT --rpc-url http://localhost:8545
+    - cmd: cast storage $CONTRACT_ADDR $STORAGE_SLOT --block $CONTRACT_HEIGHT --rpc-url $QUERY_RPC_URL
       env: ACTUAL_STORAGE
   verifiers:
     - type: eval
@@ -30,13 +34,15 @@
 
 - name: Test FlatKV EVM historical code query
   inputs:
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_query_rpc_url.txt
+      env: QUERY_RPC_URL
     - cmd: tail -1 integration_test/contracts/flatkv_evm_contract_addr.txt
       env: CONTRACT_ADDR
     - cmd: tail -1 integration_test/contracts/flatkv_evm_contract_block_height.txt
       env: CONTRACT_HEIGHT
     - cmd: tail -1 integration_test/contracts/flatkv_evm_code_expected.txt
       env: EXPECTED_CODE
-    - cmd: cast code $CONTRACT_ADDR --block $CONTRACT_HEIGHT --rpc-url http://localhost:8545
+    - cmd: cast code $CONTRACT_ADDR --block $CONTRACT_HEIGHT --rpc-url $QUERY_RPC_URL
       env: ACTUAL_CODE
   verifiers:
     - type: eval
@@ -44,6 +50,8 @@
 
 - name: Test FlatKV EVM missing account and storage queries
   inputs:
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_query_rpc_url.txt
+      env: QUERY_RPC_URL
     - cmd: tail -1 integration_test/contracts/flatkv_evm_missing_addr.txt
       env: MISSING_ADDR
     - cmd: tail -1 integration_test/contracts/flatkv_evm_storage_slot.txt
@@ -54,9 +62,9 @@
       env: EXPECTED_MISSING_BALANCE
     - cmd: tail -1 integration_test/contracts/flatkv_evm_missing_storage_expected.txt
       env: EXPECTED_MISSING_STORAGE
-    - cmd: cast to-hex $(cast balance $MISSING_ADDR --block $CONTRACT_HEIGHT --rpc-url http://localhost:8545)
+    - cmd: cast to-hex $(cast balance $MISSING_ADDR --block $CONTRACT_HEIGHT --rpc-url $QUERY_RPC_URL)
       env: ACTUAL_MISSING_BALANCE
-    - cmd: cast storage $MISSING_ADDR $STORAGE_SLOT --block $CONTRACT_HEIGHT --rpc-url http://localhost:8545
+    - cmd: cast storage $MISSING_ADDR $STORAGE_SLOT --block $CONTRACT_HEIGHT --rpc-url $QUERY_RPC_URL
       env: ACTUAL_MISSING_STORAGE
   verifiers:
     - type: eval
