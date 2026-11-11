@@ -222,6 +222,8 @@ func (b *StandardAppHashBuilder) ReportReceiptHash(
 }
 
 func (b *StandardAppHashBuilder) SetupComplete(ctx context.Context, blockHeight uint64) error {
+	start := time.Now()
+	logger.Info("Completing the app hash builder setup", "height", blockHeight)
 	reply := make(chan callResult[struct{}], 1)
 	if err := b.submit(ctx, setupCompleteRequest{blockHeight: blockHeight, reply: reply}); err != nil {
 		return fmt.Errorf("failed to complete app hash builder setup at block %d: %w", blockHeight, err)
@@ -229,18 +231,7 @@ func (b *StandardAppHashBuilder) SetupComplete(ctx context.Context, blockHeight 
 	if _, err := awaitReply(ctx, b, reply); err != nil {
 		return fmt.Errorf("failed to complete app hash builder setup at block %d: %w", blockHeight, err)
 	}
-	return nil
-}
-
-func (b *StandardAppHashBuilder) CompleteRestoredSetup(ctx context.Context, blockHeight uint64, appHash [32]byte) error {
-	anchor := apphash.NewRestoreAnchorAppHashData(b.chainID, blockHeight, appHash)
-	reply := make(chan callResult[struct{}], 1)
-	if err := b.submit(ctx, restoredSetupRequest{anchor: anchor, reply: reply}); err != nil {
-		return fmt.Errorf("failed to complete restored app hash builder setup at block %d: %w", blockHeight, err)
-	}
-	if _, err := awaitReply(ctx, b, reply); err != nil {
-		return fmt.Errorf("failed to complete restored app hash builder setup at block %d: %w", blockHeight, err)
-	}
+	logger.Info("Completed the app hash builder setup", "height", blockHeight, "elapsed", time.Since(start))
 	return nil
 }
 
@@ -498,13 +489,6 @@ func (b *StandardAppHashBuilder) handleRequest(request any) error {
 			return fmt.Errorf("failed to complete setup at block %d: %w", r.blockHeight, err)
 		}
 		return nil
-	case restoredSetupRequest:
-		err := b.completeRestoredSetup(r.anchor)
-		r.reply <- callResult[struct{}]{err: err}
-		if err != nil {
-			return fmt.Errorf("failed to complete restored setup at block %d: %w", r.anchor.BlockHeight(), err)
-		}
-		return nil
 	case getAppHashRequest:
 		appHash, err := b.readAppHash(r.blockHeight)
 		r.reply <- callResult[*apphash.AppHashData]{value: appHash, err: err}
@@ -710,63 +694,6 @@ func (b *StandardAppHashBuilder) completeSetup(blockHeight uint64) error {
 	b.setupDone = true
 	if err := b.advancePublishedHeight(); err != nil {
 		return fmt.Errorf("failed to publish the app hashes through block %d: %w", blockHeight, err)
-	}
-	return nil
-}
-
-// Stores anchor as the first record of the empty vault, or accepts the same anchor stored already, then completes
-// setup at its height.
-func (b *StandardAppHashBuilder) completeRestoredSetup(anchor *apphash.AppHashData) error {
-	if b.setupDone {
-		return fmt.Errorf("setup is already complete")
-	}
-	if anchor.BlockHeight() < b.gigaActivationHeight {
-		return fmt.Errorf("block %d is below the giga activation height %d, so it has no app hash",
-			anchor.BlockHeight(), b.gigaActivationHeight)
-	}
-	if err := b.storeRestoreAnchor(anchor); err != nil {
-		return fmt.Errorf("failed to store the restore anchor of block %d: %w", anchor.BlockHeight(), err)
-	}
-	return b.completeSetup(anchor.BlockHeight())
-}
-
-// Appends anchor to the vault if the vault is empty. Errors if the vault holds any record other than the same
-// anchor.
-func (b *StandardAppHashBuilder) storeRestoreAnchor(anchor *apphash.AppHashData) error {
-	if b.vaultHighest >= b.gigaActivationHeight {
-		return b.requireStoredRestoreAnchor(anchor)
-	}
-	if err := b.appendToVault([]*apphash.AppHashData{anchor}); err != nil {
-		return err
-	}
-	lowest, _, err := b.vault.Bounds()
-	if err != nil {
-		return fmt.Errorf("failed to read hash vault bounds: %w", err)
-	}
-	b.vaultLowest = lowest
-	// The head follows the vault's head, as loadStartupState() sets it, so that setup at the anchor's height takes
-	// the rewindHead() path, which reads the anchor back, rather than building blocks up to it.
-	b.headHeight = anchor.BlockHeight()
-	return nil
-}
-
-// Errors unless the vault holds only a restore anchor of the same block with the same app hash.
-func (b *StandardAppHashBuilder) requireStoredRestoreAnchor(anchor *apphash.AppHashData) error {
-	height := anchor.BlockHeight()
-	if b.vaultHighest != height {
-		return fmt.Errorf("the hash vault holds records through block %d, not only a restore anchor of block %d",
-			b.vaultHighest, height)
-	}
-	stored, err := readStoredRecord(b.vault, height)
-	if err != nil {
-		return err
-	}
-	if !stored.IsRestoreAnchor() {
-		return fmt.Errorf("the hash vault holds a computed app hash of block %d, not a restore anchor", height)
-	}
-	if stored.AppHash() != anchor.AppHash() {
-		return fmt.Errorf("the hash vault holds a restore anchor of block %d with app hash %x, not %x",
-			height, stored.AppHash(), anchor.AppHash())
 	}
 	return nil
 }

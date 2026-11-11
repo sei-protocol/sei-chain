@@ -129,10 +129,6 @@ func (b *manualAppHashBuilder) Bounds() (uint64, uint64, bool, error) {
 
 func (b *manualAppHashBuilder) SetupComplete(context.Context, uint64) error { return nil }
 
-func (b *manualAppHashBuilder) CompleteRestoredSetup(context.Context, uint64, [32]byte) error {
-	return nil
-}
-
 func (b *manualAppHashBuilder) Close() error { return nil }
 
 // add makes appHash available.

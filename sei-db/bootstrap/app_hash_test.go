@@ -14,7 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
-	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
@@ -160,27 +159,6 @@ func TestRecoveredStateThatDisagreesWithTheVaultStopsTheNode(t *testing.T) {
 		// The builder crashes the process while this waits for its setup to complete.
 		_, _ = NewGigaStorageManager(t.Context(), cfg)
 	})
-}
-
-// Registering the builder fails when the state hashes would not start right after the state height, rather than
-// leaving the builder to stop on its first report.
-func TestRegisteringBuilderFailsWhenStateHashesAreOutOfLine(t *testing.T) {
-	cfg := newHome(t, disableSS)
-	writeState(t, cfg, 3)
-	stateDB := openStandaloneStateDB(t, cfg)
-	defer func() { require.NoError(t, stateDB.Close()) }()
-	appHashConfig := cfg.AppHashBuilderConfig
-	hashVault, err := vault.NewStandardHashVault(
-		appHashConfig.HashVaultConfig, appHashConfig.ChainID, appHashConfig.GigaActivationHeight)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, hashVault.Close()) }()
-	appHashBuilder, err := builder.NewStandardAppHashBuilder(t.Context(), *appHashConfig, hashVault)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, appHashBuilder.Close()) }()
-
-	err = reportStateHashesToAppHashBuilder(t.Context(), stateDB, appHashBuilder, 2)
-
-	require.ErrorContains(t, err, "live state DB delivers state hashes")
 }
 
 // The receipt hash of each block is the hash of the receipts submitted to the manager's receipt hasher.

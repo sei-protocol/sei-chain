@@ -16,6 +16,8 @@ import (
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/seilog"
 )
@@ -55,9 +57,9 @@ type GigaStorageManager struct {
 // store on the lowest height they and the app hash vault hold (see alignStores()). It refuses to start when any
 // store is ahead of a non-empty block store.
 //
-// The app hash builder's setup is completed at the aligned height, unless DeferAppHashBuilderSetup leaves it to the
-// caller. The builder halts the node before setup completes if the aligned state disagrees with the app hash it
-// already stores for that height. A failed call closes every store it had opened.
+// The app hash builder's setup is completed at the aligned height. The builder halts the node before setup
+// completes if the aligned state disagrees with the app hash it already stores for that height. A failed call
+// closes every store it had opened.
 func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (_ *GigaStorageManager, retErr error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("cannot open storage with invalid configs: %w", err)
@@ -125,8 +127,12 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 		defer closeOnFailure(&retErr, "receipt store", receiptDB.Close)
 	}
 
-	if err := completeAppHashBuilderSetup(ctx, cfg.DeferAppHashBuilderSetup, stateDB, appHashBuilder); err != nil {
-		return nil, fmt.Errorf("complete the app hash builder setup: %w", err)
+	height, err := connectLiveStateDBToAppHashBuilder(ctx, stateDB, appHashBuilder)
+	if err != nil {
+		return nil, fmt.Errorf("connect the live state DB to the app hash builder: %w", err)
+	}
+	if err := appHashBuilder.SetupComplete(ctx, height); err != nil {
+		return nil, fmt.Errorf("complete the app hash builder setup at block %d: %w", height, err)
 	}
 
 	gc, err := controller.NewStorageGarbageCollector(
@@ -145,6 +151,35 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 		receiptHasher:  receiptHasher,
 		budHasher:      budHasher,
 	}, nil
+}
+
+// connectLiveStateDBToAppHashBuilder hands appHashBuilder the state hash of the block the live state DB stands at,
+// then of every block it commits after, and returns that first block's height. The builder checks the first hash
+// against the app hash it already stores for that block, and halts the node on a mismatch before its setup
+// completes.
+func connectLiveStateDBToAppHashBuilder(
+	ctx context.Context,
+	stateDB *giga.StateDB,
+	appHashBuilder builder.AppHashBuilder,
+) (uint64, error) {
+	reportStateHash := func(ctx context.Context, _ int64, hash *lthash.BlockHash) error {
+		height := uint64(hash.BlockNumber) //nolint:gosec // block heights are never negative
+		stateHash := hash.Global.Checksum()
+		componentHashes := hashlog.FlatKVComponentHashes(hash)
+		if err := appHashBuilder.ReportStateHash(ctx, height, stateHash, componentHashes); err != nil {
+			return fmt.Errorf("report the state hash of block %d: %w", height, err)
+		}
+		return nil
+	}
+	current, err := stateDB.RegisterHashListener(reportStateHash)
+	if err != nil {
+		return 0, fmt.Errorf("register the app hash builder for state hashes: %w", err)
+	}
+	// Nothing commits before the storage manager is returned, so no delivery can precede this one.
+	if err := reportStateHash(ctx, current.BlockNumber, &current); err != nil {
+		return 0, fmt.Errorf("report the first state hash: %w", err)
+	}
+	return uint64(current.BlockNumber), nil //nolint:gosec // block heights are never negative
 }
 
 // closeOnFailure closes a store when the function that opened it goes on to fail.
