@@ -423,13 +423,14 @@ returns JSON-RPC method-not-found, and `eth_subscribe` rejects any
 subscription other than `newHeads` and `logs`:
 
 - Not supported yet: the other `debug_*` methods, such as
-  `debug_traceStateAccess`.
+  `debug_traceTransactionProfile`.
 - Not planned, because they need something the EVM-only chain does not have
-  (Cosmos accounts, server-side keys, or a mempool view), duplicate another
-  method, or are development-only: `sei_getSeiAddress`, `sei_getEVMAddress`,
-  `sei_getCosmosTx`, `eth_sign`, `eth_signTransaction`, `eth_sendTransaction`,
-  `eth_accounts`, `eth_coinbase`, `eth_getNonce`, `txpool_content`, and the
-  `echo` and `test` namespaces.
+  (Cosmos accounts or stores, server-side keys, or a mempool view), duplicate
+  another method, or are development-only: `sei_getSeiAddress`,
+  `sei_getEVMAddress`, `sei_getCosmosTx`, `eth_sign`, `eth_signTransaction`,
+  `eth_sendTransaction`, `eth_accounts`, `eth_coinbase`, `eth_getNonce`,
+  `txpool_content`, `debug_traceStateAccess`, and the `echo` and `test`
+  namespaces.
 
 ### Known limitations
 
