@@ -181,11 +181,44 @@ func (a *SubscriptionAPI) readReceiptTotals(height int64) (totals receiptTotals,
 	if err != nil {
 		return receiptTotals{}, err
 	}
+	if err = requireReceiptsReadable(f, block); err != nil {
+		return receiptTotals{}, err
+	}
 	msgs, err := filterTransactions(f.k, f.ctxProvider, f.txConfigProvider, block, false, f.cacheCreationMutex, f.globalBlockCache)
 	if err != nil {
 		return receiptTotals{}, err
 	}
 	return listedReceiptTotals(f.k, f.ctxProvider(LatestCtxHeight), block, msgs, f.cacheCreationMutex, f.globalBlockCache), nil
+}
+
+// requireReceiptsReadable returns the error that reading the receipt of an EVM transaction in block fails
+// with, other than receipt.ErrNotFound.
+func requireReceiptsReadable(f *LogFetcher, block *coretypes.ResultBlock) error {
+	decode := f.txConfigProvider(block.Block.Height).TxDecoder()
+	latestCtx := f.ctxProvider(LatestCtxHeight)
+	for _, tx := range block.Block.Txs {
+		sdkTx, err := decode(tx)
+		if err != nil {
+			continue
+		}
+		for _, msg := range sdkTx.GetMsgs() {
+			evmMsg, ok := msg.(*evmtypes.MsgEVMTransaction)
+			if !ok || evmMsg.IsAssociateTx() {
+				continue
+			}
+			ethtx, _ := evmMsg.AsTransaction()
+			if ethtx == nil {
+				continue
+			}
+			// filterTransactions leaves out a transaction whose receipt read fails for any reason, which
+			// would drop its logs from a header that, unlike eth_getBlockByNumber, is never read again.
+			_, err := getOrSetCachedReceiptErr(f.cacheCreationMutex, f.globalBlockCache, latestCtx, f.k, block, ethtx.Hash())
+			if err != nil && !errors.Is(err, receipt.ErrNotFound) {
+				return fmt.Errorf("reading the receipt of %s: %w", ethtx.Hash().Hex(), err)
+			}
+		}
+	}
+	return nil
 }
 
 // awaitReceipts waits until store has written the receipts of height, and returns an error if it has not

@@ -3,7 +3,9 @@ package evmrpc_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"testing"
 	"time"
@@ -13,8 +15,13 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -413,4 +420,52 @@ func TestSubscriptionManager(t *testing.T) {
 	_, subCh, err = badManager.Subscribe(context.Background(), evmrpc.NewHeadQueryBuilder(), 10)
 	require.NotNil(t, err)
 	require.Nil(t, subCh)
+}
+
+// failingReceiptStore is a receipt store, caught up to every height, whose receipt reads fail with err.
+type failingReceiptStore struct {
+	receipt.ReceiptStore
+	err error
+}
+
+func (s *failingReceiptStore) LatestVersion() int64 { return math.MaxInt64 }
+
+func (s *failingReceiptStore) GetReceipt(sdk.Context, common.Hash) (*types.Receipt, error) {
+	return nil, s.err
+}
+
+func newHeadsAPIReadingReceiptsFrom(store receipt.ReceiptStore) *evmrpc.SubscriptionAPI {
+	k := &keeper.Keeper{}
+	k.SetReceiptStoreForTesting(store)
+	return evmrpc.NewLogsSubscriptionAPIForTest(evmrpc.NewLogFetcherForTest(evmrpc.LogFetcherTestDeps{
+		TmClient:         &MockClient{},
+		K:                k,
+		TxConfigProvider: func(int64) client.TxConfig { return TxConfig },
+		CtxProvider:      func(int64) sdk.Context { return Ctx },
+	}), 1)
+}
+
+// TestNewHeadReceiptTotalsFailOnReceiptReadError verifies that a receipt that
+// exists but cannot be read sends the newHeads header to its fallback rather
+// than leaving that transaction's logs out of its bloom.
+func TestNewHeadReceiptTotalsFailOnReceiptReadError(t *testing.T) {
+	cause := errors.New("pebble: I/O error")
+	api := newHeadsAPIReadingReceiptsFrom(&failingReceiptStore{err: cause})
+
+	_, _, err := api.ReadReceiptTotalsForTest(MockHeight2)
+
+	require.ErrorIs(t, err, cause)
+}
+
+// TestNewHeadReceiptTotalsSkipMissingReceipts verifies that a transaction
+// with no receipt is left out, as eth_getBlockByNumber leaves it out, and is
+// not taken for a failed read.
+func TestNewHeadReceiptTotalsSkipMissingReceipts(t *testing.T) {
+	api := newHeadsAPIReadingReceiptsFrom(&failingReceiptStore{err: receipt.ErrNotFound})
+
+	logsBloom, gasUsed, err := api.ReadReceiptTotalsForTest(MockHeight2)
+
+	require.NoError(t, err)
+	require.Equal(t, ethtypes.Bloom{}, logsBloom)
+	require.Zero(t, gasUsed)
 }
