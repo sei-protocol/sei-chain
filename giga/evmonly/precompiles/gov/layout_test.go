@@ -18,6 +18,7 @@ import (
 
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
 )
 
 // forgeLayout is `forge inspect GovStorage storage-layout --json`.
@@ -261,6 +262,9 @@ func TestContentEncodingMatchesSolc(t *testing.T) {
 	long := strings.Repeat("long enough to spill past a word ", 3)
 	for fn, c := range map[string]govContent{
 		"textContent": textContent{Title: "t", Description: long, IsExpedited: true},
+		"softwareUpgradeContent": softwareUpgradeContent{Title: "t", Description: long, IsExpedited: true,
+			Plan: upgrade.Plan{Name: "v7.0", Height: 1 << 40, Info: long}},
+		"cancelSoftwareUpgradeContent": cancelSoftwareUpgradeContent{Title: long, Description: "d", Name: "v7.0", IsExpedited: true},
 		"paramChangeContent": paramChangeContent{Title: long, Description: "d", IsExpedited: true, Changes: []chainparams.Change{
 			{Subspace: "gov", Key: "votingparams.voting_period", Value: common.BigToHash(big.NewInt(7)).Bytes()},
 			{Subspace: "gov", Key: long, Value: []byte(long)},

@@ -20,9 +20,9 @@ func TestConsensusClientServer(t *testing.T) {
 	// Run only a subset of replicas, to enforce timeouts.
 	var nodes []*testNode
 	for _, key := range types.TestKeysWithWeight(committee, keys, committee.CommitQuorum()) {
-		nodes = append(nodes, env.AddNode(key))
+		nodes = append(nodes, env.AddNode(t, key))
 	}
-	firstBlock := nodes[0].data.Registry().MustEpoch(0).RoadRange().First
+	firstBlock := nodes[0].data.Anchor().Load().Epochs[0].RoadRange().First
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		for offset := range types.RoadIndex(20) {

@@ -2793,6 +2793,10 @@ func (r staticPrecompileRegistry) Addresses() []common.Address {
 	return []common.Address{r.addr}
 }
 
+func (staticPrecompileRegistry) BeginBlockers() []common.Address {
+	return nil
+}
+
 func (staticPrecompileRegistry) EndBlockers() []common.Address {
 	return nil
 }

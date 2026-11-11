@@ -9,8 +9,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -63,12 +61,10 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	dir := t.TempDir()
 	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
 	// (zero overrides); p2p can't import config (import cycle).
-	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
+	littCfg, err := blockstore.DefaultConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
 	littCfg.Litt.Fsync = true
-	db, err := littblock.NewBlockDB(littCfg)
-	require.NoError(t, err)
-	blockStore, err := blockstore.New(db)
+	blockStore, err := blockstore.New(littCfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = blockStore.Close() })
 	cfg := &GigaRouterCommonConfig{
@@ -104,7 +100,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	returnedRemoteClients := map[*ethrpc.Client]struct{}{}
 	for range 200 {
 		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-		shardValidator := router.data.NextCommitEpoch().Load().Committee().EvmShard(sender)
+		shardValidator := router.data.Anchor().Load().NextIndexEpoch().Committee().EvmShard(sender)
 		expectedClient := clientByValidator[shardValidator]
 		proxyClient, ok := router.EvmProxy(sender).Get()
 		require.True(t, ok)

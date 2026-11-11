@@ -85,7 +85,7 @@ func TestInsertTx_BoundsConcurrentCheckTx(t *testing.T) {
 	cfg := app.Cfg()
 	cfg.MaxConcurrentCheckTx = utils.Some(limit)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		env := newTestEnv(rng, cfg, app.Proxy())
+		env := newTestEnv(t, rng, cfg, app.Proxy())
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
@@ -130,7 +130,7 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 	app := newGatedApp()
 	cfg := app.Cfg()
 	cfg.MaxConcurrentCheckTx = utils.Some[uint64](1)
-	env := newTestEnv(rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, app.Proxy())
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -190,7 +190,7 @@ func TestTryInsertTx_FullSkipsCheckTx(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {

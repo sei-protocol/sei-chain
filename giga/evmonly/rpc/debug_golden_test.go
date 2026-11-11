@@ -409,7 +409,11 @@ func (b *traceReplayBackend) EvmStateAt(ctx context.Context, height int64) (vm.S
 	if height == ethrpc.LatestBlockNumber.Int64() {
 		height = int64(b.EvmBlockNumber()) //nolint:gosec // G115: a replayed height fits in int64.
 	}
-	return b.replayState(ctx, height, evmonly.BlockRequest{})
+	view, err := b.stateAt(height)
+	if err != nil {
+		return nil, nil, err
+	}
+	return b.executor.ViewState(view), view.Close, nil
 }
 
 func (b *traceReplayBackend) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {

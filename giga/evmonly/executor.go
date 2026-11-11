@@ -29,6 +29,7 @@ type Executor struct {
 	occPool         *occWorkerPool
 	resultPool      *blockResultPool
 	stateDBPool     sync.Pool
+	beginBlockers   []beginBlocker
 	endBlockers     []endBlocker
 	customContracts map[common.Address]vm.CustomPrecompiledContract
 	storeMu         sync.Mutex
@@ -49,10 +50,10 @@ type Executor struct {
 
 	// The commit running behind the current block, and what it will write. A block reads the latter
 	// through an overlay so it need not wait for the former.
-	pipelineMu      sync.Mutex
-	pipelineDone    chan struct{}
-	pipelineErr     error
-	pipelineChanges *StateChangeSet
+	pipelineMu    sync.Mutex
+	pipelineDone  chan struct{}
+	pipelineErr   error
+	pipelineIndex *pendingIndex
 	// The first commit that failed, kept so no caller can miss it.
 	pipelineFailure error
 }
@@ -100,6 +101,7 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 		cfg:             cfg.WithDefaults(),
 		resultPool:      newBlockResultPool(cfg.BlockResultPoolSize),
 		blockPhases:     newBlockPhases(),
+		beginBlockers:   customBeginBlockers(cfg.CustomPrecompiles),
 		endBlockers:     customEndBlockers(cfg.CustomPrecompiles),
 		customContracts: customPrecompileMap(cfg.CustomPrecompiles),
 	}
@@ -232,10 +234,15 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 }
 
 func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
-	result, err := e.executeBlockTxs(ctx, req, source)
+	begin, err := e.runBeginBlockers(req.Context, source, false)
 	if err != nil {
 		return nil, err
 	}
+	result, err := e.executeBlockTxs(ctx, req, newPendingOverlay(source, &begin))
+	if err != nil {
+		return nil, err
+	}
+	mergeEarlierChangeSet(&result.ChangeSet, begin)
 	if err := e.runEndBlockers(req.Context, source, result); err != nil {
 		result.Release()
 		return nil, err

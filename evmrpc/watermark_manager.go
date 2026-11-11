@@ -128,10 +128,15 @@ func (m *WatermarkManager) EarliestReceiptHeight(ctx context.Context) (int64, er
 	if err != nil {
 		return 0, err
 	}
+	return m.receiptEarliest(blockEarliest), nil
+}
+
+// receiptEarliest returns the earliest height at or above blockEarliest whose receipts are available.
+func (m *WatermarkManager) receiptEarliest(blockEarliest int64) int64 {
 	if m.receiptStore == nil {
-		return blockEarliest, nil
+		return blockEarliest
 	}
-	return max(blockEarliest, m.receiptStore.EarliestVersion()), nil
+	return max(blockEarliest, m.receiptStore.EarliestVersion())
 }
 
 // ResolveHeight normalizes a requested block identifier into a concrete height.
@@ -217,6 +222,15 @@ func ensureWithinWatermarks(height, earliest, latest int64) error {
 		return fmt.Errorf("requested height %d has been pruned; earliest available is %d", height, earliest)
 	}
 	return nil
+}
+
+// blockWindow is the inclusive range of block heights Watermarks reported as available.
+type blockWindow struct {
+	earliest, latest int64
+}
+
+func (w blockWindow) ensureContains(height int64) error {
+	return ensureWithinWatermarks(height, w.earliest, w.latest)
 }
 
 func blockByNumberRespectingWatermarks(

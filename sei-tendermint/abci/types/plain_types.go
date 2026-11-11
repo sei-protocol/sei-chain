@@ -3,6 +3,7 @@ package types
 import (
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
@@ -222,6 +223,15 @@ type RequestFinalizeBlock struct {
 	Hash                []byte
 
 	Header *tmproto.Header
+	// EpochState is committed with this block. Only Autobahn EVM-only apps commit it.
+	EpochState utils.Option[EpochState]
+}
+
+// EpochState is consensus-owned epoch data that the app commits unchanged with a block.
+// Both values are written as given; an empty value is committed as an empty row.
+type EpochState struct {
+	EpochRegistry []byte
+	NextEpoch     []byte
 }
 
 type CommitInfo struct {
