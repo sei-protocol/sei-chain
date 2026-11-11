@@ -794,6 +794,44 @@ and index should expect these two cases.
 `sei-load` does not currently print every submitted hash. `cast` commands
 that depend on a method listed above as not supported cannot operate normally.
 
+## Run a software upgrade
+
+`evmonly_upgrade.sh` drives a software upgrade through EVM-only gov on the
+local Docker cluster. It needs `cast` and `jq`. Start the cluster with EVM
+governance, then run the script from the repository root:
+
+```sh
+AUTOBAHN=true EVM_GOVERNANCE_VOTING_PERIOD=30s DOCKER_DETACH=true make docker-cluster-start
+integration_test/autobahn/evmonly_upgrade.sh
+```
+
+The script prints `PASS` or `FAIL` for each check, ends with a count of each,
+and exits non-zero when any check fails. It builds the test binary inside
+`sei-node-0` as `build/seid-test-upgrade` and leaves the cluster running on it.
+
+It checks that:
+
+1. An expedited proposal schedules `vX.Y-test`, a name no release uses.
+2. A validator started on the `giga_test_upgrade` build before the plan's
+   height halts with `BINARY UPDATED BEFORE TRIGGER`, and rejoins on the old
+   binary.
+3. Every validator halts at the plan's height, logs
+   `UPGRADE "vX.Y-test" NEEDED` and writes `~/.sei/data/upgrade-info.json`
+   inside its container.
+4. Every validator restarted on the `giga_test_upgrade` build, whose
+   `vX.Y-test` handler sets gov's max deposit period to 72h, applies the plan
+   at the block it halted at, serves the new period and agrees on that block's
+   hash.
+5. A validator restarted on the old binary halts with `wrong binary`.
+6. A cancel naming another plan fails, a second plan is cancelled by name
+   before its height, and the chain runs past it.
+
+Plan heights are EVM block numbers. Because empty blocks are disabled, an idle
+chain does not reach a plan's height, and does not halt, until a transaction
+produces that block, so the halt can come later than the height suggests. The
+script sends a transaction for each block it needs, starting with the one that
+produces the first block, where gov writes its genesis state.
+
 ## Tear down
 
 Stop the local containers and remove their manager metadata:
