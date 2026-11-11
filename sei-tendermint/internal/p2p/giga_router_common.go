@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"path/filepath"
 	"sort"
-	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -62,9 +61,8 @@ type gigaRouterCommon struct {
 	anchor utils.AtomicRecv[utils.Option[data.Anchor]]
 
 	// inboundFullnodeCount tracks inbound connections currently served the
-	// block-sync subset. Optimistic Add(1) + compare against cap;
-	// over-rejects by one or two under contention but never over-accepts.
-	inboundFullnodeCount atomic.Int64
+	// block-sync subset, excluding persistent peers.
+	inboundFullnodeCount utils.Mutex[*int64]
 	inboundFullnodeCap   int64
 }
 
@@ -571,13 +569,17 @@ func (r *gigaRouterCommon) runInboundFullnode(ctx context.Context, hConn *handsh
 	// Acquired before InsertAndRun, which evicts any live connection for this key.
 	// A persistent or block-sync peer does not consume the cap.
 	if _, skip := r.cfg.PersistentPeerIDs[key.NodeID()]; !skip {
-		// Optimistic acquire: Add(1), compare, Add(-1) on overflow.
-		// Over-rejects by one or two under contention but never over-accepts.
-		if r.inboundFullnodeCount.Add(1) > r.inboundFullnodeCap {
-			r.inboundFullnodeCount.Add(-1)
-			return fmt.Errorf("%w (%d)", errInboundFullnodeLimit, r.inboundFullnodeCap)
+		for count := range r.inboundFullnodeCount.Lock() {
+			if *count >= r.inboundFullnodeCap {
+				return fmt.Errorf("%w (%d)", errInboundFullnodeLimit, r.inboundFullnodeCap)
+			}
+			*count++
 		}
-		defer r.inboundFullnodeCount.Add(-1)
+		defer func() {
+			for count := range r.inboundFullnodeCount.Lock() {
+				*count--
+			}
+		}()
 	}
 	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {
 		return r.runInboundMux(ctx, server, hConn, func(ctx context.Context) error {
