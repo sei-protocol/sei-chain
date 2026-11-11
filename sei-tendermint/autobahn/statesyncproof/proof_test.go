@@ -74,19 +74,22 @@ func TestDecodeRejectsTooManyLaneBlocks(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestDecodeRejectsIndexMismatch(t *testing.T) {
-	rng := utils.TestRng()
-	roadBlock, _ := testProof(t, rng)
-	otherProposal := types.NewAppProposal(types.View{Index: roadBlock.QC().Index() + 1}, []byte{1})
-	appQC := data.TestAppQC(testKeys(t, rng), otherProposal)
+func TestDecodeRejectsAppQCOfAnotherView(t *testing.T) {
+	for name, otherView := range mismatchedViews() {
+		t.Run(name, func(t *testing.T) {
+			rng := utils.TestRng()
+			roadBlock, _ := testProof(t, rng)
+			appQC := data.TestAppQC(testKeys(t, rng), types.NewAppProposal(otherView(roadBlock.QC().QC().View()), []byte{1}))
 
-	encoded := frame(&pb.StateSyncProof{
-		CommitQc:   types.FullCommitQCConv.Encode(roadBlock.QC()),
-		LaneBlocks: types.BlockConv.EncodeSlice(roadBlock.LaneBlocks()),
-		AppQc:      types.AppQCConv.Encode(appQC),
-	})
-	_, err := Decode(encoded, roadBlock.QC().Index())
-	require.Error(t, err)
+			encoded := frame(&pb.StateSyncProof{
+				CommitQc:   types.FullCommitQCConv.Encode(roadBlock.QC()),
+				LaneBlocks: types.BlockConv.EncodeSlice(roadBlock.LaneBlocks()),
+				AppQc:      types.AppQCConv.Encode(appQC),
+			})
+			_, err := Decode(encoded, roadBlock.QC().Index())
+			require.Error(t, err)
+		})
+	}
 }
 
 func TestDecodeRejectsUnexpectedIndex(t *testing.T) {
@@ -98,14 +101,32 @@ func TestDecodeRejectsUnexpectedIndex(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestEncodeRejectsIndexMismatch(t *testing.T) {
-	rng := utils.TestRng()
-	roadBlock, _ := testProof(t, rng)
-	otherProposal := types.NewAppProposal(types.View{Index: roadBlock.QC().Index() + 1}, []byte{1})
-	appQC := data.TestAppQC(testKeys(t, rng), otherProposal)
+func TestEncodeRejectsAppQCOfAnotherView(t *testing.T) {
+	for name, otherView := range mismatchedViews() {
+		t.Run(name, func(t *testing.T) {
+			rng := utils.TestRng()
+			roadBlock, _ := testProof(t, rng)
+			appQC := data.TestAppQC(testKeys(t, rng), types.NewAppProposal(otherView(roadBlock.QC().QC().View()), []byte{1}))
 
-	_, err := Encode(roadBlock, appQC)
-	require.Error(t, err)
+			_, err := Encode(roadBlock, appQC)
+			require.Error(t, err)
+		})
+	}
+}
+
+// mismatchedViews returns, by case name, functions that change a CommitQC view so an AppQC built
+// on it does not belong to that CommitQC.
+func mismatchedViews() map[string]func(types.View) types.View {
+	return map[string]func(types.View) types.View{
+		"another road": func(v types.View) types.View {
+			v.Index++
+			return v
+		},
+		"another epoch": func(v types.View) types.View {
+			v.EpochIndex++
+			return v
+		},
+	}
 }
 
 func TestFileNameRoundTrip(t *testing.T) {

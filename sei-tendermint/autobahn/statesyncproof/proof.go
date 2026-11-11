@@ -69,11 +69,15 @@ func ParseFileName(name string) (types.RoadIndex, error) {
 	return types.RoadIndex(index), nil
 }
 
-// Encode encodes roadBlock and appQC as a state sync proof file.
+// Encode encodes roadBlock and appQC as a state sync proof file. It fails when
+// appQC is not for the road and epoch of roadBlock.
 func Encode(roadBlock *types.RoadBlock, appQC *types.AppQC) ([]byte, error) {
 	if roadBlock.QC().Index() != appQC.Proposal().Index() {
 		return nil, fmt.Errorf("road block index %d does not match AppQC index %d",
 			roadBlock.QC().Index(), appQC.Proposal().Index())
+	}
+	if err := appQC.Proposal().Verify(roadBlock.QC().QC()); err != nil {
+		return nil, fmt.Errorf("AppQC does not match road block: %w", err)
 	}
 	return frame(&pb.StateSyncProof{
 		CommitQc:   types.FullCommitQCConv.Encode(roadBlock.QC()),
@@ -92,8 +96,9 @@ func frame(msg *pb.StateSyncProof) []byte {
 }
 
 // Decode decodes a state sync proof file for road wantIndex. It checks the
-// file layout and the road indexes, but not signatures: the caller must verify
-// the RoadBlock and the AppQC against the epoch before it trusts the proof.
+// file layout and that the AppQC is for the road and epoch of the CommitQC, but
+// not signatures: the caller must verify the RoadBlock and the AppQC against the
+// epoch before it trusts the proof.
 func Decode(data []byte, wantIndex types.RoadIndex) (*Proof, error) {
 	if len(data) < headerLen {
 		return nil, fmt.Errorf("truncated state sync proof file header")
@@ -122,6 +127,9 @@ func Decode(data []byte, wantIndex types.RoadIndex) (*Proof, error) {
 	}
 	if qc.Index() != appQC.Proposal().Index() {
 		return nil, fmt.Errorf("CommitQC index %d does not match AppQC index %d", qc.Index(), appQC.Proposal().Index())
+	}
+	if err := appQC.Proposal().Verify(qc.QC()); err != nil {
+		return nil, fmt.Errorf("AppQC does not match CommitQC: %w", err)
 	}
 	if qc.Index() != wantIndex {
 		return nil, fmt.Errorf("state sync proof index %d, want %d", qc.Index(), wantIndex)

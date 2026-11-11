@@ -152,6 +152,12 @@ func TestStateSyncProofExporterSkipsInconsistentRecords(t *testing.T) {
 			env.store.appQCs[env.index] = next.AppQC
 			env.checkpoints = []int64{int64(env.index)}
 		},
+		"AppQC of another epoch": func(env *stateSyncProofExportEnv, _ utils.Rng) {
+			view := env.roadBlock.QC().QC().View()
+			view.EpochIndex++
+			proposal := types.NewAppProposal(view, env.appQC.Proposal().AppHash())
+			env.store.appQCs[env.index] = data.TestAppQC(env.keys, proposal)
+		},
 		"road block of another road": func(env *stateSyncProofExportEnv, rng utils.Rng) {
 			next := env.addNextRoad(rng)
 			env.store.blocks[env.index] = env.store.blocks[next.AppQC.Proposal().Index()]
