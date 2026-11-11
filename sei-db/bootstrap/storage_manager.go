@@ -129,8 +129,8 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 		defer closeOnFailure(&retErr, "receipt store", receiptDB.Close)
 	}
 
-	height, err := connectLiveStateDBToAppHashBuilder(ctx, stateDB, appHashBuilder)
-	if err != nil {
+	height := uint64(stateDB.SC().Version()) //nolint:gosec // live state DB versions are never negative
+	if err := connectLiveStateDBToAppHashBuilder(ctx, stateDB, appHashBuilder, height); err != nil {
 		return nil, fmt.Errorf("connect the live state DB to the app hash builder: %w", err)
 	}
 	if err := appHashBuilder.SetupComplete(ctx, height); err != nil {
@@ -197,15 +197,16 @@ func openStateDB(
 	return stateDB, nil
 }
 
-// connectLiveStateDBToAppHashBuilder hands appHashBuilder the state hash of the block the live state DB stands at,
-// then of every block it commits after, and returns that first block's height. The builder checks the first hash
-// against the app hash it already stores for that block, and halts the node on a mismatch before its setup
-// completes.
+// connectLiveStateDBToAppHashBuilder hands appHashBuilder the state hash of block height, which the live state DB
+// stands at, then of every block it commits after. The app hash builder checks the first hash against the app hash
+// it already stores for that block, and halts the node on a mismatch before its setup completes.
 func connectLiveStateDBToAppHashBuilder(
 	ctx context.Context,
 	stateDB *giga.StateDB,
 	appHashBuilder builder.AppHashBuilder,
-) (uint64, error) {
+	// The block the live state DB stands at.
+	height uint64,
+) error {
 	reportStateHash := func(ctx context.Context, _ int64, hash *lthash.BlockHash) error {
 		height := uint64(hash.BlockNumber) //nolint:gosec // block heights are never negative
 		stateHash := hash.Global.Checksum()
@@ -215,15 +216,25 @@ func connectLiveStateDBToAppHashBuilder(
 		}
 		return nil
 	}
+	// The blocks the live state DB replayed at open are hashed in the background. Registering before their hashes
+	// are delivered would hand back an earlier block's hash than the one it stands at.
+	if err := stateDB.SC().FlushHashes(); err != nil {
+		return fmt.Errorf("wait for the live state DB's state hashes: %w", err)
+	}
 	current, err := stateDB.RegisterHashListener(reportStateHash)
 	if err != nil {
-		return 0, fmt.Errorf("register the app hash builder for state hashes: %w", err)
+		return fmt.Errorf("register the app hash builder for state hashes: %w", err)
+	}
+	//nolint:gosec // block heights are never negative
+	if currentHeight := uint64(current.BlockNumber); currentHeight != height {
+		return fmt.Errorf("the live state DB stands at block %d, but its newest state hash is of block %d",
+			height, currentHeight)
 	}
 	// Nothing commits before the storage manager is returned, so no delivery can precede this one.
 	if err := reportStateHash(ctx, current.BlockNumber, &current); err != nil {
-		return 0, fmt.Errorf("report the first state hash: %w", err)
+		return fmt.Errorf("report the state hash of block %d: %w", height, err)
 	}
-	return uint64(current.BlockNumber), nil //nolint:gosec // block heights are never negative
+	return nil
 }
 
 // closeOnFailure closes a store when the function that opened it goes on to fail.
