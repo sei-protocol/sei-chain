@@ -31,7 +31,7 @@ type laneState struct {
 	blocks *queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	votes  *queue[types.BlockNumber, *blockVotes]
 	// nextBlockToPersist tracks per-lane how far block persistence has progressed.
-	// RecvBatch only yields blocks below this cursor for voting.
+	// Proposal and vote subscriptions only yield blocks below this cursor.
 	// Always initialized (even when persistence is disabled — the no-op persist
 	// goroutine bumps it immediately). Not persisted to disk: on restart it is
 	// reconstructed from the blocks already on disk (see newInner).
@@ -40,7 +40,7 @@ type laneState struct {
 	// inner waiters (PushVote, PushCommitQC, etc.) on setNextBlockToPersist calls.
 	// Now that blocks are persisted concurrently by lane (one notification per
 	// lane per batch, not per block), the frequency is lower, but still not
-	// ideal. Only RecvBatch needs to be notified of cursor changes;
+	// ideal. Only proposal and vote subscriptions need cursor notifications;
 	// collectPersistBatch is in the same goroutine and reads it directly.
 	nextBlockToPersist types.BlockNumber
 }
@@ -133,6 +133,26 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 			q.pushBack(b.Proposal)
 		}
 		ls.nextBlockToPersist = q.next
+	}
+	return nil
+}
+
+// validateLocalLane checks that retained local lane
+// has blocks up to commitQC.LaneRange().Next and that last block
+// is available, so that ProduceLocalBlock can set parent hash.
+func (i *inner) validateLocalLane(key types.PublicKey) error {
+	for lane, ls := range i.lanes {
+		if lane.Validator != key {
+			continue
+		}
+		q := ls.blocks
+		if q.next > 0 && q.first >= q.next {
+			return fmt.Errorf("local lane %s: missing last block before restored next block %d (first %d)", lane, q.next, q.first)
+		}
+		committed := types.LaneRangeOpt(i.persistedCommitQC(), lane).Next()
+		if committed > q.next {
+			return fmt.Errorf("local lane %s: committed next block %d exceeds restored next block %d", lane, committed, q.next)
+		}
 	}
 	return nil
 }

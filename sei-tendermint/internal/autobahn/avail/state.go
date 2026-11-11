@@ -124,6 +124,10 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		_ = pers.close()
 		return nil, err
 	}
+	if err := inner.validateLocalLane(key.Public()); err != nil {
+		_ = pers.close()
+		return nil, err
+	}
 	// Remove orphaned lanes on disk
 	if err := persist.SyncLanes(pers.blocks, inner.lanes); err != nil {
 		_ = pers.close()

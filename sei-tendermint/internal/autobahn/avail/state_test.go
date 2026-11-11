@@ -8,6 +8,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -35,6 +36,19 @@ func pushPeerLaneBlock(state *State, key types.SecretKey, payload *types.Payload
 		ctrl.Updated()
 	}
 	return b, nil
+}
+
+func persistTestLocalBlocks(t testing.TB, dir string, key types.SecretKey, blocks []*types.Block) {
+	t.Helper()
+	bp, _, err := persist.NewBlockPersister(utils.Some(dir))
+	require.NoError(t, err)
+	for _, block := range blocks {
+		lane := block.Header().Lane()
+		if lane.Validator == key.Public() {
+			require.NoError(t, bp.PruneAndPersist(lane, 0, []*types.Signed[*types.LaneProposal]{types.Sign(key, types.NewLaneProposal(block))}))
+		}
+	}
+	require.NoError(t, bp.Close())
 }
 
 func nextRoad(s *State) types.RoadIndex {
@@ -116,6 +130,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 		sc.SpawnBgNamed("data.Run", func() error { return utils.IgnoreCancel(ds.Run(ctx)) })
 
 		ep0 := registry.MustEpoch(0)
+		dir := t.TempDir()
 		qc0, blocks0 := data.TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
 		if err := ds.PushPartialBlock(ctx, qc0, data.TestBlockMap(blocks0)); err != nil {
 			return err
@@ -134,10 +149,13 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 			return err
 		}
 
-		state, err := NewState(a, ds, utils.None[string]())
+		persistTestLocalBlocks(t, dir, a, blocks0)
+		state, err := NewState(a, ds, utils.Some(dir))
 		if err != nil {
 			return fmt.Errorf("NewState: %w", err)
 		}
+
+		defer func() { require.NoError(t, state.Close()) }()
 
 		lane0 := state.LocalLane().OrPanic("genesis")
 		sub := state.SubscribeLaneProposals(lane0, 0)
@@ -192,6 +210,7 @@ func TestAnchorResetsState(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	epoch := registry.MustEpoch(0)
+	var stateToClose *State
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		t.Logf("data.Run()")
 		ds := newTestDataState(t, &data.Config{Registry: registry})
@@ -220,10 +239,13 @@ func TestAnchorResetsState(t *testing.T) {
 		}
 
 		t.Logf("NewState() should load the anchor")
-		state, err := NewState(keys[0], ds, utils.None[string]())
+		dir := t.TempDir()
+		persistTestLocalBlocks(t, dir, keys[0], blocks)
+		state, err := NewState(keys[0], ds, utils.Some(dir))
 		if err != nil {
 			return fmt.Errorf("NewState(): %w", err)
 		}
+		stateToClose = state
 		if err := utils.TestDiff(utils.Some(qc.QC()), state.ConsensusSpec().Load().CommitQC); err != nil {
 			return err
 		}
@@ -242,6 +264,7 @@ func TestAnchorResetsState(t *testing.T) {
 		})
 		return err
 	}))
+	require.NoError(t, stateToClose.Close())
 }
 
 func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
@@ -615,6 +638,79 @@ func TestPushBlockRejectsWrongSigner(t *testing.T) {
 
 	err := state.PushBlock(ctx, prop)
 	require.Error(t, err)
+}
+
+func TestNewStateValidatesLocalLane(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		persisted int
+		local     bool
+		wantError bool
+	}{
+		{name: "missing local blocks", local: true, wantError: true},
+		{name: "truncated local blocks", persisted: 1, local: true, wantError: true},
+		{name: "local blocks cover commit", persisted: 2, local: true},
+		{name: "local blocks ahead of commit", persisted: 3, local: true},
+		{name: "missing remote blocks"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rng := utils.TestRng()
+			registry, keys := epoch.GenRegistry(rng, 2)
+			ep := registry.MustEpoch(0)
+			lane := ep.Committee().Lane(keys[0].Public()).OrPanic("lane")
+			loaded := contiguousBlocks(keys[0], lane, 3, rng)
+			blocks := make([]*types.Block, len(loaded))
+			for n, b := range loaded {
+				blocks[n] = b.Proposal.Msg().Block()
+			}
+			qc := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
+				lane: data.TestLaneQC(keys, blocks[1].Header()),
+			})
+			dir := t.TempDir()
+			persistTestLocalBlocks(t, dir, keys[0], blocks[:tc.persisted])
+			cp, _, err := persist.NewCommitQCPersister(utils.Some(dir))
+			require.NoError(t, err)
+			require.NoError(t, cp.PruneAndPersist(ep.RoadRange().First, []*types.CommitQC{qc}))
+			require.NoError(t, cp.Close())
+			key := keys[1]
+			if tc.local {
+				key = keys[0]
+			}
+			ds := newTestDataState(t, &data.Config{Registry: registry})
+			state, err := NewState(key, ds, utils.Some(dir))
+			if tc.wantError {
+				require.Error(t, err)
+				// A rejected restore must release the WAL locks.
+				persistTestLocalBlocks(t, dir, keys[0], blocks[tc.persisted:])
+				state, err = NewState(key, ds, utils.Some(dir))
+			}
+			require.NoError(t, err)
+			require.NoError(t, state.Close())
+		})
+	}
+}
+
+func TestNewStateRejectsMissingLocalParent(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 1)
+	qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
+	store := blockstore.NewTestStore(t)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	require.NoError(t, store.WriteBlock(types.NewRoadBlock(qc, blocks)))
+	app := types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng))
+	require.NoError(t, store.WriteAppProposal(app))
+	require.NoError(t, store.WriteAppQC(data.TestAppQC(keys, app)))
+	require.NoError(t, store.Flush())
+	ds, err := data.NewState(&data.Config{Registry: registry}, store)
+	require.NoError(t, err)
+	dir := t.TempDir()
+	_, err = NewState(keys[0], ds, utils.Some(dir))
+	require.Error(t, err)
+
+	persistTestLocalBlocks(t, dir, keys[0], blocks)
+	state, err := NewState(keys[0], ds, utils.Some(dir))
+	require.NoError(t, err)
+	require.NoError(t, state.Close())
 }
 
 func TestNewStateWithPersistence(t *testing.T) {
