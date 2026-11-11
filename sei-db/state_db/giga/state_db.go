@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
@@ -30,14 +28,9 @@ var _ gigatypes.StateDB = (*StateDB)(nil)
 
 // StateDB writes a committed block to the state WAL, the live state DB and the historical state DB, serves
 // current-block reads from the live state DB, and serves past heights from the historical state DB.
-//
-// It opens all three stores, brings them onto one height, and closes them.
 type StateDB struct {
-	// Where the state commit store and the state WAL live.
+	// Converts a committed block's changes into the mutations the live state DB and the state WAL take.
 	flatkvCfg *flatkvconfig.Config
-
-	// Where the EVM state store lives, and whether it is enabled at all.
-	ssCfg config.StateStoreConfig
 
 	// The state WAL a committed block is written to.
 	wal statewal.StateWAL
@@ -68,175 +61,86 @@ const commitPhaseTimerName = "giga_state_commit"
 // gigaMeterName is the OTel meter this package's instruments are created on.
 const gigaMeterName = "seidb_giga"
 
-// NewStateDB opens the live state DB, the historical state DB and the state WAL from their configs, and
-// puts the live state DB on its checkpoint schedule, so the returned StateDB commits the block after the WAL's
-// head. It errors when the live state DB does not stand at that head; flatkv.RollBackLiveStateDB() brings it there.
+// NewStateDB assembles a StateDB over stores that are already open, so that it commits the block after the WAL's
+// head. It errors unless the live state DB stands at that head, and attaches the historical state DB to the live
+// state DB's current block.
 //
-// The returned StateDB owns all three stores and closes them on Close. A failed call closes whatever it
-// had already opened.
+// The returned StateDB owns the three stores and closes them on Close. A failed call leaves them with the caller.
 func NewStateDB(
-	ctx context.Context,
+	// Converts a committed block's changes into mutations.
 	flatkvCfg *flatkvconfig.Config,
-	ssCfg config.StateStoreConfig,
-	checkpointCfg config.CheckpointConfig,
+	// Opened with no WAL of its own.
+	liveStateDB *flatkv.CommitStore,
+	// Nil when the historical state DB is disabled.
+	historicalStateDB *undo.Database,
+	wal statewal.StateWAL,
+	// The schedule liveStateDB takes its snapshot boundaries from, already set on it.
+	checkpointer *controller.CheckpointScheduler,
 	// The hasher each committed block's mutations are submitted to.
 	budHasher bud.BUDHasher,
-) (db *StateDB, retErr error) {
-	start := time.Now()
-	logger.Info("Opening the state DB")
+) (*StateDB, error) {
+	if err := requireLiveStateDBAtTheWALHead(liveStateDB, wal); err != nil {
+		return nil, err
+	}
+	if err := resumeUndoLogOverHeldState(liveStateDB, historicalStateDB); err != nil {
+		return nil, err
+	}
 	s := &StateDB{
-		flatkvCfg: flatkvCfg,
-		ssCfg:     ssCfg,
-		budHasher: budHasher,
+		flatkvCfg:    flatkvCfg,
+		wal:          wal,
+		budHasher:    budHasher,
+		sc:           liveStateDB,
+		undo:         historicalStateDB,
+		checkpointer: checkpointer,
 		commitPhases: metrics.NewPhaseTimerFactory(otel.Meter(gigaMeterName), commitPhaseTimerName).
 			RecordLatencies().Build(),
 	}
 	s.closed = utils.MustClose(s, "giga state DB")
-	defer s.closeOnFailure(&retErr)
-
-	if err := s.openSS(); err != nil {
-		return nil, err
-	}
-	liveStateDB, err := openLiveStateDB(ctx, flatkvCfg)
-	if err != nil {
-		return nil, err
-	}
-	s.sc = liveStateDB
-	if err := s.openWAL(); err != nil {
-		return nil, err
-	}
-	s.startCheckpointSchedule(checkpointCfg)
-
-	if err := s.requireLiveStateDBAtTheWALHead(); err != nil {
-		return nil, err
-	}
-	if err := s.resumeUndoLogOverHeldState(); err != nil {
-		return nil, err
-	}
-	logger.Info("Opened the state DB", "elapsed", time.Since(start))
 	return s, nil
 }
 
-// closeOnFailure closes the stores a failed open had reached, so a caller that gets an error holds no
-// store this StateDB left open. It is deferred against the constructor's named error.
-func (s *StateDB) closeOnFailure(retErr *error) {
-	if *retErr == nil {
-		return
-	}
-	if err := s.Close(); err != nil {
-		*retErr = errors.Join(*retErr, fmt.Errorf("close a partially opened state DB: %w", err))
-	}
-}
-
-// openWAL opens the state WAL this StateDB commits blocks to.
-func (s *StateDB) openWAL() error {
-	wal, err := flatkv.OpenStateWAL(s.flatkvCfg)
-	if err != nil {
-		return fmt.Errorf("open state WAL: %w", err)
-	}
-	s.wal = wal
-	return nil
-}
-
-// openLiveStateDB opens the live state DB with no WAL of its own, on the version its files hold. It replays
-// nothing.
-func openLiveStateDB(ctx context.Context, flatkvCfg *flatkvconfig.Config) (_ *flatkv.CommitStore, retErr error) {
-	liveStateDB, err := flatkv.NewCommitStore(ctx, flatkvCfg, nil)
-	if err != nil {
-		return nil, fmt.Errorf("open the live state DB: %w", err)
-	}
-	defer func() {
-		if retErr != nil {
-			retErr = errors.Join(retErr, closeLiveStateDB(liveStateDB))
-		}
-	}()
-	// Every readonly-* directory under the store is deleted, so this has to run before the process
-	// opens a read-only view of its own: after that, the ones a crashed process left are no longer
-	// the only ones there.
-	if err := liveStateDB.CleanupOrphanedReadOnlyDirs(); err != nil {
-		return nil, fmt.Errorf("clean up the live state DB's orphaned read-only dirs: %w", err)
-	}
-	if err := liveStateDB.LoadWorkingCopy(); err != nil {
-		return nil, fmt.Errorf("load the live state DB: %w", err)
-	}
-	return liveStateDB, nil
-}
-
-// closeLiveStateDB closes liveStateDB, naming it in the error.
-func closeLiveStateDB(liveStateDB *flatkv.CommitStore) error {
-	if err := liveStateDB.Close(); err != nil {
-		return fmt.Errorf("close the live state DB: %w", err)
-	}
-	return nil
-}
-
-// openSS opens the historical state DB, leaving it nil when it is disabled.
-func (s *StateDB) openSS() error {
-	if !s.ssCfg.Enable {
-		return nil
-	}
-	db, err := undo.OpenDB(s.ssCfg.EVMDBDirectory, s.ssCfg)
-	if err != nil {
-		return fmt.Errorf("open EVM undo-log state store: %w", err)
-	}
-	s.undo = db
-	return nil
-}
-
-// resumeUndoLogOverHeldState resumes the undo log when SC holds a block. Over an empty SC it refuses an
-// undo log that holds blocks, and otherwise leaves the log for the first commit to resume.
-//
-// An empty SC may still be seeded to a later height, and seeding waits for SC to flush, which a view
-// the undo log held over the empty store would block forever.
-func (s *StateDB) resumeUndoLogOverHeldState() error {
-	if s.sc.Version() != 0 {
-		return s.resumeUndoLog()
-	}
-	if s.undo != nil && s.undo.GetLatestVersion() > 0 {
-		return fmt.Errorf("resume the EVM undo-log state store: it holds blocks up to %d, but the state "+
-			"commit store is empty", s.undo.GetLatestVersion())
-	}
-	return nil
-}
-
-// resumeUndoLog binds the undo log to SC's current block, which answers every read the log holds no
-// later record for, unless it is already bound. A log behind SC stops serving the history below SC's
-// height.
-func (s *StateDB) resumeUndoLog() error {
-	if s.undo == nil || s.undo.Resumed() {
-		return nil
-	}
-	if err := s.undo.Resume(s.sc.Version(), s.sc.OpenView()); err != nil {
-		return fmt.Errorf("resume the EVM undo-log state store: %w", err)
-	}
-	return nil
-}
-
-// startCheckpointSchedule puts the live state DB on its snapshot cadence. It runs before the live state DB
-// is on a height, so the blocks it replays offer themselves to the schedule as live commits do.
-func (s *StateDB) startCheckpointSchedule(cfg config.CheckpointConfig) {
-	s.checkpointer = controller.NewCheckpointScheduler(cfg)
-	s.sc.SetCheckpointScheduler(s.checkpointer)
-}
-
-// requireLiveStateDBAtTheWALHead errors unless the live state DB stands at the WAL's head. An empty WAL is the
-// state a node starts from transplanted state in, with no head to check against, so it instead repairs a
-// working copy an interrupted commit left torn.
-func (s *StateDB) requireLiveStateDBAtTheWALHead() error {
-	stored, _, last, err := s.wal.GetStoredRange()
+// requireLiveStateDBAtTheWALHead errors unless liveStateDB stands at the head of a WAL that holds blocks.
+func requireLiveStateDBAtTheWALHead(liveStateDB *flatkv.CommitStore, wal statewal.StateWAL) error {
+	stored, _, last, err := wal.GetStoredRange()
 	if err != nil {
 		return fmt.Errorf("read state WAL range: %w", err)
 	}
 	if !stored {
-		if err := s.sc.RebuildIfTorn(); err != nil {
-			return fmt.Errorf("repair the live state DB's working copy: %w", err)
-		}
 		return nil
 	}
 	//nolint:gosec // live state DB versions are never negative
-	if version := uint64(s.sc.Version()); version != last {
+	if version := uint64(liveStateDB.Version()); version != last {
 		return fmt.Errorf("the live state DB is at %d but the state WAL ends at %d; roll the live state DB "+
 			"back to align them", version, last)
+	}
+	return nil
+}
+
+// resumeUndoLogOverHeldState resumes historicalStateDB when liveStateDB holds a block. Over an empty live state DB
+// it refuses an undo log that holds blocks, and otherwise leaves the log for the first commit to resume.
+//
+// An empty live state DB may still be seeded to a later height, and seeding waits for it to flush, which a view
+// the undo log held over the empty store would block forever.
+func resumeUndoLogOverHeldState(liveStateDB *flatkv.CommitStore, historicalStateDB *undo.Database) error {
+	if liveStateDB.Version() != 0 {
+		return resumeUndoLog(liveStateDB, historicalStateDB)
+	}
+	if historicalStateDB != nil && historicalStateDB.GetLatestVersion() > 0 {
+		return fmt.Errorf("resume the historical state DB: it holds blocks up to %d, but the live state DB is "+
+			"empty", historicalStateDB.GetLatestVersion())
+	}
+	return nil
+}
+
+// resumeUndoLog binds historicalStateDB to liveStateDB's current block, which answers every read the log holds no
+// later record for, unless it is already bound. A log behind the live state DB stops serving the history below
+// the live state DB's height.
+func resumeUndoLog(liveStateDB *flatkv.CommitStore, historicalStateDB *undo.Database) error {
+	if historicalStateDB == nil || historicalStateDB.Resumed() {
+		return nil
+	}
+	if err := historicalStateDB.Resume(liveStateDB.Version(), liveStateDB.OpenView()); err != nil {
+		return fmt.Errorf("resume the historical state DB: %w", err)
 	}
 	return nil
 }
@@ -308,7 +212,7 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changes *gigatypes.StateCha
 		return fmt.Errorf("commit block %d: block number must not be negative", blockNum)
 	}
 	// Before SC moves past the block the log resumes on.
-	if err := s.resumeUndoLog(); err != nil {
+	if err := resumeUndoLog(s.sc, s.undo); err != nil {
 		return fmt.Errorf("commit block %d: %w", blockNum, err)
 	}
 	// Ends the phase in flight, so the gap until the next commit is not charged to the last store.

@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
@@ -19,6 +21,36 @@ func commitNonceBlocks(t *testing.T, db *StateDB, from int64, through int64) {
 	for block := from; block <= through; block++ {
 		require.NoError(t, db.CommitStateChanges(block, nonceChanges(common.Address{byte(block)}, 0, 1)))
 	}
+}
+
+// assembleStateDB opens home's live state DB, state WAL and, when ssCfg enables it, historical state DB, catches the
+// live state DB up to the WAL when catchUp is set, and assembles a StateDB over them. When assembly fails it closes
+// the stores and returns the error.
+func assembleStateDB(t *testing.T, home undoTestHome, ssCfg config.StateStoreConfig, catchUp bool) (*StateDB, error) {
+	t.Helper()
+	liveStateDB, err := flatkv.OpenLiveStateDB(t.Context(), home.flatkv)
+	require.NoError(t, err)
+	wal, err := flatkv.OpenStateWAL(home.flatkv)
+	require.NoError(t, err)
+	checkpointer := controller.NewCheckpointScheduler(testCheckpointConfig)
+	liveStateDB.SetCheckpointScheduler(checkpointer)
+	if catchUp {
+		require.NoError(t, flatkv.CatchUpToStateWAL(t.Context(), liveStateDB, wal))
+	}
+	var historicalStateDB *undo.Database
+	if ssCfg.Enable {
+		historicalStateDB, err = undo.OpenDB(ssCfg.EVMDBDirectory, ssCfg)
+		require.NoError(t, err)
+	}
+	db, err := NewStateDB(home.flatkv, liveStateDB, historicalStateDB, wal, checkpointer, newDiscardingBUDHasher(t))
+	if err != nil {
+		if historicalStateDB != nil {
+			require.NoError(t, historicalStateDB.Close())
+		}
+		require.NoError(t, liveStateDB.Close())
+		require.NoError(t, wal.Close())
+	}
+	return db, err
 }
 
 // testCheckpointConfig is the snapshot schedule the stores in these tests open and roll back on.
@@ -61,8 +93,8 @@ func truncateWAL(t *testing.T, home undoTestHome, last uint64) {
 	require.NoError(t, statewal.PruneAfter(flatkv.StateWALConfig(home.flatkv.DataDir), last))
 }
 
-// An open refuses a live state DB behind the WAL's head rather than replaying it there, which is
-// flatkv.RollBackLiveStateDB()'s job.
+// Assembly refuses a live state DB behind the WAL's head rather than replaying it there, which is
+// flatkv.CatchUpToStateWAL()'s job.
 func TestOpenRefusesALiveStateDBBehindTheWALHead(t *testing.T) {
 	home := newUndoTestHome(t)
 	db := home.open(t)
@@ -70,12 +102,12 @@ func TestOpenRefusesALiveStateDBBehindTheWALHead(t *testing.T) {
 	writeWALOnly(t, db, 3, common.Address{3}, 1)
 	require.NoError(t, db.Close())
 
-	_, err := NewStateDB(t.Context(), home.flatkv, home.ss, testCheckpointConfig, newDiscardingBUDHasher(t))
+	_, err := assembleStateDB(t, home, home.ss, false)
 
 	require.ErrorContains(t, err, "the live state DB is at 2 but the state WAL ends at 3")
 }
 
-// An open refuses a live state DB above the WAL's head rather than discarding the state above it.
+// Assembly refuses a live state DB above the WAL's head rather than discarding the state above it.
 func TestOpenRefusesALiveStateDBAboveTheWALHead(t *testing.T) {
 	home := newUndoTestHome(t)
 	db := home.open(t)
@@ -83,7 +115,7 @@ func TestOpenRefusesALiveStateDBAboveTheWALHead(t *testing.T) {
 	require.NoError(t, db.Close())
 	truncateWAL(t, home, 2)
 
-	_, err := NewStateDB(t.Context(), home.flatkv, home.ss, testCheckpointConfig, newDiscardingBUDHasher(t))
+	_, err := assembleStateDB(t, home, home.ss, false)
 
 	require.ErrorContains(t, err, "the live state DB is at 3 but the state WAL ends at 2")
 }

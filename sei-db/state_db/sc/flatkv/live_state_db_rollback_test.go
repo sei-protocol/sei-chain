@@ -51,7 +51,7 @@ func openLiveStateDBOwningTheWAL(t *testing.T, cfg *config.Config) *CommitStore 
 // ends.
 func reopenWithoutWAL(t *testing.T, cfg *config.Config) *CommitStore {
 	t.Helper()
-	liveStateDB, err := openWithoutWAL(t.Context(), cfg)
+	liveStateDB, err := OpenLiveStateDB(t.Context(), cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, liveStateDB.Close()) })
 	return liveStateDB
@@ -113,7 +113,23 @@ func truncateWAL(t *testing.T, cfg *config.Config, last uint64) {
 // rollBack rolls cfg's live state DB back to target.
 func rollBack(t *testing.T, cfg *config.Config, target uint64) error {
 	t.Helper()
-	return RollBackLiveStateDB(t.Context(), cfg, rollbackTestCheckpointConfig, target)
+	return RollBackLiveStateDB(cfg, target)
+}
+
+// rollBackAndCatchUp rolls cfg's live state DB back to target and replays the state WAL into it up to target, as
+// startup does: the WAL is cut to target, and the live state DB is opened and caught up to it.
+func rollBackAndCatchUp(t *testing.T, cfg *config.Config, target uint64) {
+	t.Helper()
+	require.NoError(t, rollBack(t, cfg, target))
+	truncateWAL(t, cfg, target)
+	liveStateDB, err := OpenLiveStateDB(t.Context(), cfg)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, liveStateDB.Close()) }()
+	wal, err := OpenStateWAL(cfg)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, wal.Close()) }()
+	liveStateDB.SetCheckpointScheduler(controller.NewCheckpointScheduler(rollbackTestCheckpointConfig))
+	require.NoError(t, CatchUpToStateWAL(t.Context(), liveStateDB, wal))
 }
 
 // A target above the WAL's head is a target no replay reaches, and it is refused.
@@ -147,7 +163,7 @@ func TestRollBackLiveStateDBReplaysForwardFromItsOwnHeight(t *testing.T) {
 	require.NoError(t, liveStateDB.Close())
 	// Block 8 goes to the live state DB under an address the WAL's own block 8 does not carry. It marks the
 	// working copy: a rebuild from the snapshot replays the WAL's block 8 instead and the address is gone.
-	withoutWAL, err := openWithoutWAL(t.Context(), cfg)
+	withoutWAL, err := OpenLiveStateDB(t.Context(), cfg)
 	require.NoError(t, err)
 	prior := withoutWAL.OpenView()
 	marked := nonceMutations(t, 8, 108, prior)
@@ -156,7 +172,7 @@ func TestRollBackLiveStateDBReplaysForwardFromItsOwnHeight(t *testing.T) {
 	require.NoError(t, withoutWAL.Close())
 	writeWALOnly(t, cfg, 8, 10)
 
-	require.NoError(t, rollBack(t, cfg, 9))
+	rollBackAndCatchUp(t, cfg, 9)
 
 	rolledBack := reopenWithoutWAL(t, cfg)
 	require.Equal(t, int64(9), rolledBack.Version())
@@ -177,7 +193,7 @@ func TestRollBackLiveStateDBReplaysUpToTheWALHead(t *testing.T) {
 	require.NoError(t, liveStateDB.Close())
 	writeWALOnly(t, cfg, 3, 3)
 
-	require.NoError(t, rollBack(t, cfg, 3))
+	rollBackAndCatchUp(t, cfg, 3)
 
 	require.Equal(t, int64(3), reopenWithoutWAL(t, cfg).Version())
 }
@@ -191,7 +207,7 @@ func TestRollBackLiveStateDBRebuildsAWorkingCopyAboveTheWALHead(t *testing.T) {
 	require.NoError(t, liveStateDB.Close())
 	truncateWAL(t, cfg, 2)
 
-	require.NoError(t, rollBack(t, cfg, 2))
+	rollBackAndCatchUp(t, cfg, 2)
 
 	require.Equal(t, int64(2), reopenWithoutWAL(t, cfg).Version())
 }
@@ -208,7 +224,7 @@ func TestRollBackLiveStateDBRewindsFromASnapshotAboveTheTarget(t *testing.T) {
 	require.NoError(t, liveStateDB.Close())
 	truncateWAL(t, cfg, 3)
 
-	require.NoError(t, rollBack(t, cfg, 3))
+	rollBackAndCatchUp(t, cfg, 3)
 
 	require.Equal(t, int64(3), reopenWithoutWAL(t, cfg).Version())
 }
@@ -244,6 +260,6 @@ func TestCatchUpRefusesAWALMissingTheBlocksTheLiveStateDBNeeds(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	liveStateDB := reopenWithoutWAL(t, cfg)
 
-	require.ErrorContains(t, catchUpTo(t.Context(), liveStateDB, &gapWAL{first: 3, last: 4}, 4),
+	require.ErrorContains(t, CatchUpToStateWAL(t.Context(), liveStateDB, &gapWAL{first: 3, last: 4}),
 		"missing (data loss or corruption)")
 }

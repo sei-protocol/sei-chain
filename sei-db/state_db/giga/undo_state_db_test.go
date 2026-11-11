@@ -39,8 +39,7 @@ func newUndoTestHome(t *testing.T) undoTestHome {
 
 func (h undoTestHome) open(t *testing.T) *StateDB {
 	t.Helper()
-	db, err := NewStateDB(t.Context(), h.flatkv, h.ss, config.CheckpointConfig{BlockInterval: 1_000},
-		newDiscardingBUDHasher(t))
+	db, err := assembleStateDB(t, h, h.ss, true)
 	require.NoError(t, err)
 	require.NotNil(t, db.UndoSS())
 	return db
@@ -237,7 +236,7 @@ func TestUndoStateDBRollsBackByDiscardingLaterRecords(t *testing.T) {
 // manager's startup does.
 func (h undoTestHome) rollBack(t *testing.T, target uint64) error {
 	t.Helper()
-	if err := flatkv.RollBackLiveStateDB(t.Context(), h.flatkv, testCheckpointConfig, target); err != nil {
+	if err := flatkv.RollBackLiveStateDB(h.flatkv, target); err != nil {
 		return fmt.Errorf("roll back the live state DB: %w", err)
 	}
 	if err := undo.DiscardStateAbove(h.ss.EVMDBDirectory, h.ss, target); err != nil {
@@ -396,9 +395,8 @@ func TestUndoStateDBRefusesAnUndoLogOverAnEmptySC(t *testing.T) {
 	require.NoError(t, db.Close())
 	require.NoError(t, os.RemoveAll(home.flatkv.DataDir))
 
-	_, err := NewStateDB(t.Context(), home.flatkv, home.ss, config.CheckpointConfig{BlockInterval: 1_000},
-		newDiscardingBUDHasher(t))
-	require.ErrorContains(t, err, "the state commit store is empty")
+	_, err := assembleStateDB(t, home, home.ss, true)
+	require.ErrorContains(t, err, "the live state DB is empty")
 }
 
 // Closing with a historical view still open succeeds without waiting for it, and the view's reads

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
@@ -16,25 +14,16 @@ import (
 // replayLogInterval bounds how often a running replay reports how far it has got.
 const replayLogInterval = 30 * time.Second
 
-// RollBackLiveStateDB brings the live state DB under cfg onto target, and returns with it closed. It rewinds to
-// a snapshot at or below target and replays the state WAL up to target. The state WAL is read, not cut.
+// RollBackLiveStateDB discards the live state DB's state and snapshots above target, working on its files. It
+// leaves the live state DB at or below target, for CatchUpToStateWAL() to replay up to it.
 //
 // It errors when target is 0, or when the state WAL or the live state DB's snapshots cannot reach it. Rolling back
 // to the same target again is a no-op. One that failed or was interrupted completes when run again.
-func RollBackLiveStateDB(
-	ctx context.Context,
-	cfg *config.Config,
-	// The snapshot schedule the live state DB follows while blocks replay into it.
-	checkpointCfg seidbconfig.CheckpointConfig,
-	target uint64,
-) (retErr error) {
+func RollBackLiveStateDB(cfg *config.Config, target uint64) error {
 	if target == 0 {
 		return errors.New("rollback target 0 is invalid: version 0 means no state, so there is nothing to " +
 			"roll back to")
 	}
-	start := time.Now()
-	logger.Info("Rolling back the live state DB", "target", target)
-
 	_, first, last, err := statewal.GetRange(StateWALConfig(cfg.DataDir))
 	if err != nil {
 		return fmt.Errorf("read state WAL range: %w", err)
@@ -52,37 +41,13 @@ func RollBackLiveStateDB(
 		return fmt.Errorf("cannot roll back to %d: drop the live state DB's snapshots above it: %w",
 			target, err)
 	}
-
-	liveStateDB, err := openWithoutWAL(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("cannot roll back to %d: %w", target, err)
-	}
-	wal, err := OpenStateWAL(cfg)
-	if err != nil {
-		return errors.Join(fmt.Errorf("cannot roll back to %d: open state WAL: %w", target, err),
-			closeLiveStateDB(liveStateDB))
-	}
-	defer func() {
-		// The WAL closes last, since the live state DB replays through it.
-		retErr = errors.Join(retErr, closeLiveStateDB(liveStateDB))
-		if err := wal.Close(); err != nil {
-			retErr = errors.Join(retErr, fmt.Errorf("close state WAL: %w", err))
-		}
-	}()
-	liveStateDB.SetCheckpointScheduler(controller.NewCheckpointScheduler(checkpointCfg))
-
-	if err := catchUpTo(ctx, liveStateDB, wal, target); err != nil {
-		return fmt.Errorf("cannot roll back to %d: %w", target, err)
-	}
-	if got := blockHeight(liveStateDB.Version()); got != target {
-		return fmt.Errorf("cannot roll back to %d: the live state DB landed on %d", target, got)
-	}
-	logger.Info("Rolled back the live state DB", "target", target, "elapsed", time.Since(start))
+	logger.Info("Rolled back the live state DB", "target", target)
 	return nil
 }
 
-// openWithoutWAL opens the live state DB under cfg with no WAL of its own, on the version its files hold.
-func openWithoutWAL(ctx context.Context, cfg *config.Config) (_ *CommitStore, retErr error) {
+// OpenLiveStateDB opens the live state DB under cfg with no WAL of its own, on the version its files hold. It
+// replays nothing.
+func OpenLiveStateDB(ctx context.Context, cfg *config.Config) (_ *CommitStore, retErr error) {
 	liveStateDB, err := NewCommitStore(ctx, cfg, nil)
 	if err != nil {
 		return nil, fmt.Errorf("open the live state DB: %w", err)
@@ -92,6 +57,8 @@ func openWithoutWAL(ctx context.Context, cfg *config.Config) (_ *CommitStore, re
 			retErr = errors.Join(retErr, closeLiveStateDB(liveStateDB))
 		}
 	}()
+	// Every readonly-* directory under the store is deleted, so this has to run before the process opens a
+	// read-only view of its own: after that, the ones a crashed process left are no longer the only ones there.
 	if err := liveStateDB.CleanupOrphanedReadOnlyDirs(); err != nil {
 		return nil, fmt.Errorf("clean up the live state DB's orphaned read-only dirs: %w", err)
 	}
@@ -109,21 +76,38 @@ func closeLiveStateDB(liveStateDB *CommitStore) error {
 	return nil
 }
 
-// catchUpTo replays wal into liveStateDB up to target.
-func catchUpTo(ctx context.Context, liveStateDB *CommitStore, wal statewal.StateWAL, target uint64) error {
-	// Ahead of the pass, which is what erases the evidence it works from. The WAL is cut to target once this
-	// rollback returns, so target is the head it is checked against.
-	if err := liveStateDB.RebuildIfUnreachable(liveStateVersion(target)); err != nil {
+// CatchUpToStateWAL replays wal into liveStateDB up to the last block wal holds, and errors unless liveStateDB lands
+// there. Over an empty WAL it replays nothing, and repairs a working copy an interrupted commit left torn.
+//
+// liveStateDB must have no WAL of its own. Replayed blocks are offered to its checkpoint schedule as committed
+// blocks are.
+func CatchUpToStateWAL(ctx context.Context, liveStateDB *CommitStore, wal statewal.StateWAL) error {
+	stored, _, head, err := wal.GetStoredRange()
+	if err != nil {
+		return fmt.Errorf("read state WAL range: %w", err)
+	}
+	if !stored {
+		if err := liveStateDB.RebuildIfTorn(); err != nil {
+			return fmt.Errorf("repair the live state DB's working copy: %w", err)
+		}
+		return nil
+	}
+	// Ahead of the pass, which is what erases the evidence it works from.
+	if err := liveStateDB.RebuildIfUnreachable(liveStateVersion(head)); err != nil {
 		return fmt.Errorf("rebuild the live state DB's working copy: %w", err)
 	}
 	from := blockHeight(liveStateDB.Version())
-	logReplayPlan(from, target)
-
-	// The live state DB owns no WAL, so re-committing a block read from this one appends nothing. It does run
-	// the commit path, so the checkpoint schedule is asked at each block it takes.
-	return replay(ctx, wal, from, target, func(block uint64, mutations []mutation.Mutation) error {
+	logReplayPlan(from, head)
+	err = replay(ctx, wal, from, head, func(block uint64, mutations []mutation.Mutation) error {
 		return liveStateDB.CommitStateChanges(liveStateVersion(block), mutations)
 	})
+	if err != nil {
+		return fmt.Errorf("replay the state WAL up to %d: %w", head, err)
+	}
+	if got := blockHeight(liveStateDB.Version()); got != head {
+		return fmt.Errorf("the live state DB landed on %d, not the state WAL's head %d", got, head)
+	}
+	return nil
 }
 
 // logReplayPlan reports the height the live state DB resumes from and the blocks the pass about to run

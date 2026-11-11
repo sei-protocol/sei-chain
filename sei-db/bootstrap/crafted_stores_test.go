@@ -92,8 +92,7 @@ func writeBlockLedger(t *testing.T, cfg *config.GigaStorageConfig, through uint6
 // with a BUD hasher that discards what it is given.
 func openStandaloneStateDB(t *testing.T, cfg *config.GigaStorageConfig) *giga.StateDB {
 	t.Helper()
-	stateDB, err := giga.NewStateDB(
-		t.Context(), cfg.FlatKVConfig, cfg.SSConfig, cfg.CheckpointConfig, bud.NewNoOpBUDHasher())
+	stateDB, err := openStateDB(t.Context(), cfg, bud.NewNoOpBUDHasher())
 	require.NoError(t, err)
 	return stateDB
 }

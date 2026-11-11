@@ -244,7 +244,7 @@ func alignStores(ctx context.Context, cfg *config.GigaStorageConfig, target uint
 	}
 	logger.Info("Aligning the stores on the recovery target", "target", target)
 
-	if err := flatkv.RollBackLiveStateDB(ctx, cfg.FlatKVConfig, cfg.CheckpointConfig, target); err != nil {
+	if err := flatkv.RollBackLiveStateDB(cfg.FlatKVConfig, target); err != nil {
 		return fmt.Errorf("roll back the live state DB: %w", err)
 	}
 	if cfg.SSConfig.Enable {

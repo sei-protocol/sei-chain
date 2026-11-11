@@ -14,8 +14,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -113,7 +115,7 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 	}
 	defer closeOnFailure(&retErr, "BUD hasher", budHasher.Close)
 
-	stateDB, err := giga.NewStateDB(ctx, cfg.FlatKVConfig, cfg.SSConfig, cfg.CheckpointConfig, budHasher)
+	stateDB, err := openStateDB(ctx, cfg, budHasher)
 	if err != nil {
 		return nil, fmt.Errorf("open the state DB: %w", err)
 	}
@@ -151,6 +153,48 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 		receiptHasher:  receiptHasher,
 		budHasher:      budHasher,
 	}, nil
+}
+
+// openStateDB opens the live state DB, the state WAL and the historical state DB once each, replays the WAL into the
+// live state DB up to the WAL's head, and assembles them into a StateDB that owns them.
+func openStateDB(
+	ctx context.Context,
+	cfg *config.GigaStorageConfig,
+	// The hasher each block the state DB commits is submitted to.
+	budHasher bud.BUDHasher,
+) (_ *giga.StateDB, retErr error) {
+	liveStateDB, err := flatkv.OpenLiveStateDB(ctx, cfg.FlatKVConfig)
+	if err != nil {
+		return nil, fmt.Errorf("open the live state DB: %w", err)
+	}
+	defer closeOnFailure(&retErr, "live state DB", liveStateDB.Close)
+	wal, err := flatkv.OpenStateWAL(cfg.FlatKVConfig)
+	if err != nil {
+		return nil, fmt.Errorf("open the state WAL: %w", err)
+	}
+	defer closeOnFailure(&retErr, "state WAL", wal.Close)
+
+	// Before the replay, so the blocks it replays offer themselves to the schedule as committed blocks do.
+	checkpointer := controller.NewCheckpointScheduler(cfg.CheckpointConfig)
+	liveStateDB.SetCheckpointScheduler(checkpointer)
+	if err := flatkv.CatchUpToStateWAL(ctx, liveStateDB, wal); err != nil {
+		return nil, fmt.Errorf("catch the live state DB up to the state WAL: %w", err)
+	}
+
+	var historicalStateDB *undo.Database
+	if cfg.SSConfig.Enable {
+		historicalStateDB, err = undo.OpenDB(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig)
+		if err != nil {
+			return nil, fmt.Errorf("open the historical state DB: %w", err)
+		}
+		defer closeOnFailure(&retErr, "historical state DB", historicalStateDB.Close)
+	}
+
+	stateDB, err := giga.NewStateDB(cfg.FlatKVConfig, liveStateDB, historicalStateDB, wal, checkpointer, budHasher)
+	if err != nil {
+		return nil, fmt.Errorf("assemble the state DB: %w", err)
+	}
+	return stateDB, nil
 }
 
 // connectLiveStateDBToAppHashBuilder hands appHashBuilder the state hash of the block the live state DB stands at,
