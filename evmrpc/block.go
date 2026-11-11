@@ -388,7 +388,6 @@ func encodeTmBlock(
 	} else {
 		baseFeePerGas = types.DefaultMinFeePerGas.TruncateInt().BigInt()
 	}
-	var blockGasUsed int64
 	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	transactions := []any{}
 	latestCtx := ctxProvider(LatestCtxHeight)
@@ -397,8 +396,8 @@ func encodeTmBlock(
 	if err != nil {
 		return nil, err
 	}
+	totals := listedReceiptTotals(k, latestCtx, block, msgs, cacheCreationMutex, globalBlockCache)
 
-	blockBloom := make([]byte, ethtypes.BloomByteLength)
 	for _, msg := range msgs {
 		switch m := msg.msg.(type) {
 		case *types.MsgEVMTransaction:
@@ -416,12 +415,6 @@ func encodeTmBlock(
 				replaceFrom(newTx, receipt)
 				transactions = append(transactions, newTx)
 			}
-			var bloom ethtypes.Bloom
-			bloom.SetBytes(receipt.LogsBloom)
-			bitutil.ORBytes(blockBloom, blockBloom, bloom[:])
-			// derive gas used from receipt as TxResult.GasUsed may not be accurate
-			// for ante-failing EVM txs.
-			blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 		case *wasmtypes.MsgExecuteContract:
 			th := sha256.Sum256(block.Block.Txs[msg.index])
 			receipt, _ := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
@@ -446,10 +439,6 @@ func encodeTmBlock(
 					TransactionIndex: (*hexutil.Uint64)(&ti),
 				})
 			}
-			var bloom ethtypes.Bloom
-			bloom.SetBytes(receipt.LogsBloom)
-			bitutil.ORBytes(blockBloom, blockBloom, bloom[:])
-			blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 		}
 	}
 	if len(transactions) == 0 {
@@ -480,13 +469,13 @@ func encodeTmBlock(
 		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
 		"mixHash":          common.Hash{},           // inapplicable to Sei
 		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
-		"logsBloom":        ethtypes.BytesToBloom(blockBloom),
+		"logsBloom":        totals.logsBloom,
 		"stateRoot":        appHash,
 		"miner":            miner,
-		"difficulty":       (*hexutil.Big)(big.NewInt(0)),                // inapplicable to Sei
-		"extraData":        hexutil.Bytes{},                              // inapplicable to Sei
-		"gasLimit":         hexutil.Uint64(gasLimit),                     //nolint:gosec
-		"gasUsed":          hexutil.Uint64(blockGasUsed),                 //nolint:gosec
+		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
+		"extraData":        hexutil.Bytes{},               // inapplicable to Sei
+		"gasLimit":         hexutil.Uint64(gasLimit),      //nolint:gosec
+		"gasUsed":          hexutil.Uint64(totals.gasUsed),
 		"timestamp":        hexutil.Uint64(block.Block.Time.Unix()),      //nolint:gosec
 		"milliTimestamp":   hexutil.Uint64(block.Block.Time.UnixMilli()), //nolint:gosec
 		"transactionsRoot": txHash,
@@ -502,6 +491,40 @@ func encodeTmBlock(
 	return result, nil
 }
 
+// receiptTotals is the logsBloom and gasUsed of a block header.
+type receiptTotals struct {
+	logsBloom ethtypes.Bloom
+	gasUsed   uint64
+}
+
+// listedReceiptTotals returns the receiptTotals of block from the receipts of msgs, the transactions
+// eth_getBlockBy* lists for it: the union of their logs blooms and the sum of their gas used. A
+// transaction whose receipt cannot be read contributes nothing.
+func listedReceiptTotals(
+	k *keeper.Keeper,
+	latestCtx sdk.Context,
+	block *coretypes.ResultBlock,
+	msgs []indexedMsg,
+	cacheCreationMutex *sync.Mutex,
+	globalBlockCache BlockCache,
+) receiptTotals {
+	var totals receiptTotals
+	for _, tx := range typedTxHashesOf(block, msgs) {
+		receipt, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, tx.hash)
+		if !found {
+			continue
+		}
+		var bloom ethtypes.Bloom
+		bloom.SetBytes(receipt.LogsBloom)
+		bitutil.ORBytes(totals.logsBloom[:], totals.logsBloom[:], bloom[:])
+		// Not TxResult.GasUsed: it is wrong for an EVM transaction that fails its ante handler, and
+		// TxResults also cover Cosmos transactions, which a block header leaves out.
+		totals.gasUsed += receipt.GasUsed
+	}
+	return totals
+}
+
+// FullBloom returns a logs bloom with every bit set, which matches every log filter.
 func FullBloom() ethtypes.Bloom {
 	bz := []byte{}
 	for i := 0; i < ethtypes.BloomByteLength; i++ {

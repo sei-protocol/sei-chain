@@ -1,17 +1,22 @@
 package evmrpc
 
 import (
+	"errors"
 	"math/big"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -221,7 +226,10 @@ func TestEncodeCommittedBlock(t *testing.T) {
 		},
 	}
 
-	out := encodeCommittedBlock(evt, big.NewInt(42), 10_000_000)
+	logsBloom := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: []*ethtypes.Log{{
+		Address: common.HexToAddress("0x4444444444444444444444444444444444444444"),
+	}}})
+	out := encodeCommittedBlock(evt, big.NewInt(42), 10_000_000, receiptTotals{logsBloom: logsBloom, gasUsed: 21000})
 
 	require.Equal(t, common.BytesToHash(hash), out["hash"])
 	require.Equal(t, (*hexutil.Big)(big.NewInt(12345)), out["number"])
@@ -229,7 +237,9 @@ func TestEncodeCommittedBlock(t *testing.T) {
 	require.Equal(t, common.BytesToHash(appHash), out["stateRoot"])
 	require.Equal(t, hexutil.Uint64(ts.Unix()), out["timestamp"])
 	require.Equal(t, hexutil.Uint64(ts.UnixMilli()), out["milliTimestamp"])
-	require.Equal(t, hexutil.Uint64(121000), out["gasUsed"])
+	// gasUsed and logsBloom come from the receipts, not from TxResults, which also cover Cosmos transactions.
+	require.Equal(t, hexutil.Uint64(21000), out["gasUsed"])
+	require.Equal(t, logsBloom, out["logsBloom"])
 	require.Equal(t, hexutil.Uint64(10_000_000), out["gasLimit"])
 	require.Equal(t, (*hexutil.Big)(big.NewInt(42)), out["baseFeePerGas"])
 	// Fields not surfaced by the Autobahn path must be zero, but present.
@@ -244,7 +254,7 @@ func TestEncodeCommittedBlock_ZeroGasLimit(t *testing.T) {
 		header:   &tmproto.Header{Height: 1, Time: time.Unix(0, 0)},
 		response: &abci.ResponseFinalizeBlock{},
 	}
-	out := encodeCommittedBlock(evt, big.NewInt(0), 0)
+	out := encodeCommittedBlock(evt, big.NewInt(0), 0, receiptTotals{})
 	require.Equal(t, hexutil.Uint64(0), out["gasLimit"])
 	// Nil response.AppHash must serialize as the zero hash, not panic.
 	require.Equal(t, common.Hash{}, out["stateRoot"])
@@ -265,8 +275,9 @@ func TestPickHeadBaseFee_UsesParentCtx(t *testing.T) {
 		return sdk.NewDec(42)
 	}
 
-	got := pickHeadBaseFee(getNextBaseFee, ctxProvider, 5)
+	got, err := pickHeadBaseFee(getNextBaseFee, ctxProvider, 5)
 
+	require.NoError(t, err)
 	require.Equal(t, big.NewInt(42), got, "should forward getNextBaseFee result")
 	require.Equal(t, []int64{4}, captured, "ctxProvider must be called with parent height (height-1)")
 }
@@ -285,8 +296,101 @@ func TestPickHeadBaseFee_GenesisFallback(t *testing.T) {
 		return sdk.ZeroDec()
 	}
 
-	got := pickHeadBaseFee(getNextBaseFee, ctxProvider, 1)
+	got, err := pickHeadBaseFee(getNextBaseFee, ctxProvider, 1)
 
+	require.NoError(t, err)
 	require.Equal(t, evmtypes.DefaultMinFeePerGas.TruncateInt().BigInt(), got)
 	require.Empty(t, captured, "ctxProvider must not be called at height 1")
+}
+
+// TestPickHeadBaseFee_ParentStateUnavailable verifies that a parent height
+// the node holds no state for is an error rather than a panic, which would
+// end the goroutine serving every newHeads subscriber.
+func TestPickHeadBaseFee_ParentStateUnavailable(t *testing.T) {
+	ctxProvider := func(h int64) sdk.Context {
+		panic(errors.New("unable to load historical state"))
+	}
+	getNextBaseFee := func(sdk.Context) sdk.Dec {
+		t.Fatal("getNextBaseFee must not be called without the parent's state")
+		return sdk.ZeroDec()
+	}
+
+	_, err := pickHeadBaseFee(getNextBaseFee, ctxProvider, 5)
+
+	require.ErrorContains(t, err, "state at height 4 is unavailable")
+}
+
+// TestEncodeTmHeader_TakesTotalsFromReceipts verifies that the CometBFT
+// newHeads header reports gasUsed and logsBloom from the receipt totals, not
+// from the TxResults of the finalized block.
+func TestEncodeTmHeader_TakesTotalsFromReceipts(t *testing.T) {
+	logsBloom := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: []*ethtypes.Log{{
+		Address: common.HexToAddress("0x5555555555555555555555555555555555555555"),
+	}}})
+	header := tmtypes.EventDataNewBlockHeader{
+		Header: tmtypes.Header{Height: 7, Time: time.Unix(1_700_000_000, 0)},
+		ResultFinalizeBlock: abci.ResponseFinalizeBlock{
+			TxResults: []*abci.ExecTxResult{{GasUsed: 21000}, {GasUsed: 90000}},
+			ConsensusParamUpdates: &tmproto.ConsensusParams{
+				Block: &tmproto.BlockParams{MaxGas: 10_000_000},
+			},
+		},
+	}
+
+	out, err := encodeTmHeader(header, big.NewInt(42), receiptTotals{logsBloom: logsBloom, gasUsed: 21000})
+
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Uint64(21000), out["gasUsed"])
+	require.Equal(t, logsBloom, out["logsBloom"])
+	require.Equal(t, (*hexutil.Big)(big.NewInt(42)), out["baseFeePerGas"])
+}
+
+// TestUnreadReceiptTotals verifies the totals a newHeads header falls back
+// to without its block's receipts: a bloom that no log filter can rule out,
+// never an empty one, and the gas of every TxResult.
+func TestUnreadReceiptTotals(t *testing.T) {
+	totals := unreadReceiptTotals([]*abci.ExecTxResult{{GasUsed: 21000}, {GasUsed: 90000}})
+
+	require.Equal(t, FullBloom(), totals.logsBloom)
+	require.Equal(t, uint64(111000), totals.gasUsed)
+}
+
+// versionedReceiptStore is a receipt.ReceiptStore whose only working method
+// is LatestVersion.
+type versionedReceiptStore struct {
+	receipt.ReceiptStore
+	latest atomic.Int64
+}
+
+func (s *versionedReceiptStore) LatestVersion() int64 {
+	return s.latest.Load()
+}
+
+func TestAwaitReceipts(t *testing.T) {
+	t.Run("store already at height", func(t *testing.T) {
+		store := &versionedReceiptStore{}
+		store.latest.Store(10)
+		require.NoError(t, awaitReceipts(store, 10, time.Second))
+	})
+
+	t.Run("store reaches height while waiting", func(t *testing.T) {
+		store := &versionedReceiptStore{}
+		store.latest.Store(9)
+		go func() {
+			time.Sleep(20 * time.Millisecond)
+			store.latest.Store(10)
+		}()
+		require.NoError(t, awaitReceipts(store, 10, 5*time.Second))
+	})
+
+	t.Run("store stays behind height", func(t *testing.T) {
+		store := &versionedReceiptStore{}
+		store.latest.Store(9)
+		err := awaitReceipts(store, 10, 20*time.Millisecond)
+		require.ErrorContains(t, err, "receipts of height 10 not written")
+	})
+
+	t.Run("no receipt store", func(t *testing.T) {
+		require.ErrorIs(t, awaitReceipts(nil, 10, time.Second), receipt.ErrNotConfigured)
+	})
 }
