@@ -124,6 +124,16 @@ func TestAutobahnFileConfig_ValidateEVMGovernance(t *testing.T) {
 			g.Params.VotingPeriod = 0
 			fc.EVMGovernance = utils.Some(g)
 		},
+		"repeated applied upgrade": func(fc *AutobahnFileConfig) {
+			g, _ := fc.EVMGovernance.Get()
+			g.AppliedUpgrades = []string{"v6.7", "v6.8", "v6.7"}
+			fc.EVMGovernance = utils.Some(g)
+		},
+		"empty applied upgrade": func(fc *AutobahnFileConfig) {
+			g, _ := fc.EVMGovernance.Get()
+			g.AppliedUpgrades = []string{""}
+			fc.EVMGovernance = utils.Some(g)
+		},
 		"negative period": func(fc *AutobahnFileConfig) {
 			g, _ := fc.EVMGovernance.Get()
 			g.Params.MaxDepositPeriod = utils.Duration(-time.Hour)
