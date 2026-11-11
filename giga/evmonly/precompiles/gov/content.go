@@ -8,6 +8,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
 )
 
 // Size limits on submitted content. The title and description limits are x/gov's.
@@ -18,11 +19,12 @@ const (
 )
 
 // Content types, as GovStorage.Proposal.contentType numbers them. Each names
-// the Gov.sol struct its content is the ABI encoding of; 1 and 2 are reserved
-// for software upgrades (CON-573).
+// the Gov.sol struct its content is the ABI encoding of.
 const (
-	contentText            uint8 = 0 // TextContent
-	contentParameterChange uint8 = 3 // ParamChangeContent
+	contentText                  uint8 = 0 // TextContent
+	contentSoftwareUpgrade       uint8 = 1 // SoftwareUpgradeContent
+	contentCancelSoftwareUpgrade uint8 = 2 // CancelSoftwareUpgradeContent
+	contentParameterChange       uint8 = 3 // ParamChangeContent
 )
 
 var (
@@ -36,10 +38,12 @@ var (
 type govContent interface {
 	contentType() uint8
 	// validate checks the content against the current state at submission.
-	validate(s store) error
+	validate(block precompiles.BlockContext, s store) error
 	// execute carries out passed proposal id, writing nothing when it fails. Its
 	// work is at most one unit per word of the encoded content, which settleCost
-	// charges.
+	// charges. A software upgrade or cancel also clears the scheduled plan it
+	// replaces; settleCost does not charge that work, which upgrade.MaxNameLength
+	// and upgrade.MaxInfoLength bound.
 	execute(block precompiles.BlockContext, s store, id uint64) error
 }
 
@@ -48,6 +52,20 @@ type (
 	textContent struct {
 		Title       string
 		Description string
+		IsExpedited bool
+	}
+
+	softwareUpgradeContent struct {
+		Title       string
+		Description string
+		Plan        upgrade.Plan
+		IsExpedited bool
+	}
+
+	cancelSoftwareUpgradeContent struct {
+		Title       string
+		Description string
+		Name        string
 		IsExpedited bool
 	}
 
@@ -65,6 +83,15 @@ var stringArg = abi.ArgumentMarshaling{Type: "string"}
 var contentCodecs = map[uint8]contentCodec{
 	contentText: newCodec[textContent]("TextContent",
 		named("title", stringArg), named("description", stringArg), abi.ArgumentMarshaling{Name: "isExpedited", Type: "bool"}),
+	contentSoftwareUpgrade: newCodec[softwareUpgradeContent]("SoftwareUpgradeContent",
+		named("title", stringArg), named("description", stringArg), abi.ArgumentMarshaling{
+			Name: "plan", Type: "tuple", InternalType: "struct UpgradePlan", Components: []abi.ArgumentMarshaling{
+				named("name", stringArg), {Name: "height", Type: "uint64"}, named("info", stringArg),
+			},
+		}, abi.ArgumentMarshaling{Name: "isExpedited", Type: "bool"}),
+	contentCancelSoftwareUpgrade: newCodec[cancelSoftwareUpgradeContent]("CancelSoftwareUpgradeContent",
+		named("title", stringArg), named("description", stringArg), named("name", stringArg),
+		abi.ArgumentMarshaling{Name: "isExpedited", Type: "bool"}),
 	contentParameterChange: newCodec[paramChangeContent]("ParamChangeContent",
 		named("title", stringArg), named("description", stringArg), abi.ArgumentMarshaling{
 			Name: "changes", Type: "tuple[]", InternalType: "struct ParamChange[]", Components: []abi.ArgumentMarshaling{
@@ -144,13 +171,33 @@ func executeProposal(block precompiles.BlockContext, s store, id uint64) error {
 
 func (textContent) contentType() uint8 { return contentText }
 
-func (textContent) validate(store) error { return nil }
+func (textContent) validate(precompiles.BlockContext, store) error { return nil }
 
 func (textContent) execute(precompiles.BlockContext, store, uint64) error { return nil }
 
+func (softwareUpgradeContent) contentType() uint8 { return contentSoftwareUpgrade }
+
+func (c softwareUpgradeContent) validate(block precompiles.BlockContext, s store) error {
+	return upgrade.Check(s.State, block.Number, c.Plan)
+}
+
+func (c softwareUpgradeContent) execute(block precompiles.BlockContext, s store, _ uint64) error {
+	return upgrade.Schedule(s.State, block.Number, c.Plan)
+}
+
+func (cancelSoftwareUpgradeContent) contentType() uint8 { return contentCancelSoftwareUpgrade }
+
+func (c cancelSoftwareUpgradeContent) validate(_ precompiles.BlockContext, s store) error {
+	return upgrade.CheckCancel(s.State, c.Name)
+}
+
+func (c cancelSoftwareUpgradeContent) execute(_ precompiles.BlockContext, s store, _ uint64) error {
+	return upgrade.Cancel(s.State, c.Name)
+}
+
 func (paramChangeContent) contentType() uint8 { return contentParameterChange }
 
-func (c paramChangeContent) validate(s store) error {
+func (c paramChangeContent) validate(_ precompiles.BlockContext, s store) error {
 	return chainparams.Check(s.State, c.Changes)
 }
 

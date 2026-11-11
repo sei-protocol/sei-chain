@@ -53,7 +53,7 @@ func mockTendermintStateFromJson(tmStateRaw json.RawMessage, client *MockClient)
 	client.mockedBlockResults = map[int64]*coretypes.ResultBlock{}
 	client.mockedBlockByHashResults = map[string]*coretypes.ResultBlock{}
 	client.mockedBlockResultsResults = map[int64]*coretypes.ResultBlockResults{}
-	client.mockedValidators = map[int64]*coretypes.ResultValidators{}
+	client.mockedValidators = map[validatorPageKey]*coretypes.ResultValidators{}
 
 	typed := &evmrpc.TendermintTraces{}
 	err := json.Unmarshal(tmStateRaw, &typed)
@@ -76,9 +76,14 @@ func mockTendermintStateFromJson(tmStateRaw json.RawMessage, client *MockClient)
 			check(err)
 		case "Validators":
 			blockNum := parseInt64(trace.Arguments[0])
-			client.mockedValidators[blockNum] = &coretypes.ResultValidators{}
-			err = json.Unmarshal(trace.Response, client.mockedValidators[blockNum])
+			page := 1
+			if len(trace.Arguments) > 1 {
+				page = int(parseInt64(trace.Arguments[1]))
+			}
+			parsed := &coretypes.ResultValidators{}
+			err = json.Unmarshal(trace.Response, parsed)
 			check(err)
+			client.mockedValidators[validatorPageKey{blockNum, page}] = parsed
 		case "Genesis":
 			gen := &coretypes.ResultGenesis{}
 			err = json.Unmarshal(trace.Response, gen)
