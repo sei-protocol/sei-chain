@@ -182,7 +182,7 @@ func TestGetLogsBlockHashForm(t *testing.T) {
 
 	unknown := common.HexToHash("0xdead")
 	_, err = api.GetLogs(t.Context(), filters.FilterCriteria{BlockHash: &unknown})
-	require.ErrorContains(t, err, "not found")
+	require.ErrorIs(t, err, errUnknownBlock)
 }
 
 func TestGetLogsResolvesTagsAgainstIndexedRange(t *testing.T) {
