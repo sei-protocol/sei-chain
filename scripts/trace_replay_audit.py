@@ -370,18 +370,20 @@ class Audit:
 
     # trace mode
 
-    def nonempty_blocks(self, heights):
+    def nonempty_blocks(self, pool, heights):
         """Drops heights whose block holds no EVM transaction; keeps any it cannot count."""
-        params = [[hex(h)] for h in heights]
-        try:
-            counts = []
-            for i in range(0, len(params), 100):
-                counts += self.rpc.batch_with_retry("eth_getBlockTransactionCountByNumber", params[i:i + 100])
-        except RPCError:
-            counts = [self.tx_count(p) for p in params]
+        batches = [heights[i:i + 100] for i in range(0, len(heights), 100)]
+        counts = [c for batch in pool.map(self.tx_counts, batches) for c in batch]
         keep = [h for h, c in zip(heights, counts) if c is None or hex_int(c) > 0]
         self.count("blocks_without_evm_txs", len(heights) - len(keep))
         return keep
+
+    def tx_counts(self, heights):
+        params = [[hex(h)] for h in heights]
+        try:
+            return self.rpc.batch_with_retry("eth_getBlockTransactionCountByNumber", params)
+        except RPCError:
+            return [self.tx_count(p) for p in params]
 
     def tx_count(self, params):
         try:
@@ -486,7 +488,7 @@ class Audit:
         return out
 
     def run_trace_chunk(self, pool, heights):
-        heights = self.nonempty_blocks(heights)
+        heights = self.nonempty_blocks(pool, heights)
         rows = []
         for block_rows in pool.map(self.scan_block, heights):
             rows += block_rows
