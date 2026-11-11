@@ -130,11 +130,11 @@ func (e *stateSyncProofExporter) sweepOnce() error {
 	return errors.Join(errs...)
 }
 
-// syncCheckpoints rescans the proof dir on the first sweep and whenever the retained checkpoint
-// set changes. The first scan keeps only the proof files that decode. Every scan forgets the
-// checkpoints that are no longer retained and the exported checkpoints whose file is gone, so the
-// next export writes them again. A file that cannot be read or removed does not stop the scan: it
-// is not counted as exported, and its error is returned with the others.
+// syncCheckpoints rescans the proof dir on the first sweep, whenever the retained checkpoint set
+// changes, and after a scan that failed. The first scan keeps only the proof files that decode.
+// Every scan forgets the checkpoints that are no longer retained and the exported checkpoints whose
+// file is gone, so the next export writes them again. A file that cannot be read or removed does
+// not stop the scan: it is not counted as exported, and its error is returned with the others.
 func (e *stateSyncProofExporter) syncCheckpoints(checkpoints map[types.RoadIndex]struct{}) error {
 	last, scanned := e.checkpoints.Get()
 	if scanned && maps.Equal(last, checkpoints) {
@@ -159,8 +159,12 @@ func (e *stateSyncProofExporter) syncCheckpoints(checkpoints map[types.RoadIndex
 		_, retained := checkpoints[index]
 		return !retained
 	})
+	if err := errors.Join(orphanErr, invalidErr); err != nil {
+		// Leaving the set unrecorded makes the next sweep scan again and retry the failed files.
+		return err
+	}
 	e.checkpoints = utils.Some(checkpoints)
-	return errors.Join(orphanErr, invalidErr)
+	return nil
 }
 
 // removeInvalidFiles removes the proof files in present that do not decode for the road in their

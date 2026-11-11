@@ -383,6 +383,31 @@ func TestStateSyncProofExporterStuckFileDoesNotBlockOtherCheckpoints(t *testing.
 	}
 }
 
+func TestStateSyncProofExporterRetriesFailedCleanup(t *testing.T) {
+	for name, scannedBefore := range map[string]bool{"first scan": false, "later scan": true} {
+		t.Run(name, func(t *testing.T) {
+			rng := utils.TestRng()
+			env := newStateSyncProofExportEnv(t, rng)
+			if scannedBefore {
+				require.NoError(t, env.exporter.sweepOnce())
+				env.checkpoints = nil
+			}
+			// A non-empty directory under a proof file name cannot be removed until it is emptied.
+			orphan := env.stateSyncProofPath(env.index + 1)
+			require.NoError(t, os.MkdirAll(filepath.Join(orphan, "child"), 0o750))
+
+			require.Error(t, env.exporter.sweepOnce())
+			_, err := os.Stat(orphan)
+			require.NoError(t, err)
+
+			require.NoError(t, os.Remove(filepath.Join(orphan, "child")))
+			require.NoError(t, env.exporter.sweepOnce())
+			_, err = os.Stat(orphan)
+			require.ErrorIs(t, err, os.ErrNotExist)
+		})
+	}
+}
+
 func TestStateSyncProofExporterForgetsDroppedCheckpoints(t *testing.T) {
 	rng := utils.TestRng()
 	env := newStateSyncProofExportEnv(t, rng)
