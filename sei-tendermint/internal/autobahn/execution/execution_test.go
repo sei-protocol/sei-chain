@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	dto "github.com/prometheus/client_model/go"
+
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -349,8 +350,8 @@ func TestRunCountsGasOnlyAfterCommit(t *testing.T) {
 }
 
 func TestFinalizeBlockGasUsed(t *testing.T) {
-	resp := &abci.ResponseFinalizeBlock{
-		TxResults: []*abci.ExecTxResult{
+	resp := &proxy.ResponseFinalizeBlock{
+		TxResults: []*proxy.ExecTxResult{
 			{GasUsed: 10},
 			nil,
 			{GasUsed: -1},

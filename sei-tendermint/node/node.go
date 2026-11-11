@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	_ "github.com/grafana/pyroscope-go/godeltaprof/http/pprof"
+	_ "github.com/lib/pq" // provide the psql db driver
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	dto "github.com/prometheus/client_model/go"
@@ -21,6 +23,7 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	evmonlyrpc "github.com/sei-protocol/sei-chain/giga/evmonly/rpc"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -48,10 +51,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
-
-	_ "github.com/grafana/pyroscope-go/godeltaprof/http/pprof"
-
-	_ "github.com/lib/pq" // provide the psql db driver
 )
 
 type chainIDGatherer struct{ chainID string }
@@ -162,17 +161,41 @@ func makeNode(
 	ctx context.Context,
 	cfg *config.Config,
 	restartEvent func(),
-	filePrivval *privval.FilePV,
 	nodeKey types.NodeKey,
-	proxyApp *proxy.Proxy,
-	genesisDocProvider genesisDocProvider,
+	app abci.Application,
+	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 	tracerProviderOptions []trace.TracerProviderOption,
 	consensusPolicy types.ConsensusPolicy,
-	gigaStorageManager utils.Option[*bootstrap.GigaStorageManager],
 	nodeOptions ...Option,
 ) (_ local.NodeService, err error) {
+	filePrivval, err := privval.LoadOrGenFilePV(cfg.PrivValidator.KeyFile(), cfg.PrivValidator.StateFile())
+	if err != nil {
+		return nil, err
+	}
 	opts := resolveOptions(nodeOptions...)
+
+	if err = genDoc.ValidateAndComplete(); err != nil {
+		return nil, fmt.Errorf("error in genesis doc: %w", err)
+	}
+
+	var (
+		proxyApp           utils.Option[*proxy.Proxy]
+		evmApp             utils.Option[*proxy.EVMProxy]
+		gigaStorageManager utils.Option[*bootstrap.GigaStorageManager]
+	)
+	gigaEnabled := cfg.AutobahnConfigFile != ""
+	if gigaEnabled {
+		evm, storage, err := makeEVMApplication(ctx, cfg, opts.giga, genDoc)
+		if err != nil {
+			return nil, err
+		}
+		evmApp = utils.Some(proxy.NewEVM(evm))
+		gigaStorageManager = utils.Some(storage)
+	} else {
+		proxyApp = utils.Some(proxy.New(app))
+	}
+
 	var (
 		cancel context.CancelFunc
 		node   *nodeImpl
@@ -191,6 +214,7 @@ func makeNode(
 			err = combineCloseError(err, makeCloser(closers))
 		}
 	}()
+
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
 	closers = append(closers, dbCloser)
 	if err != nil {
@@ -199,24 +223,17 @@ func makeNode(
 
 	stateStore := sm.NewStore(stateDB)
 
-	genDoc, err := genesisDocProvider()
-	if err != nil {
-		return nil, fmt.Errorf("genesisDocProvider(): %w", err)
-	}
-
-	if err = genDoc.ValidateAndComplete(); err != nil {
-		return nil, fmt.Errorf("error in genesis doc: %w", err)
-	}
-
 	state, err := LoadStateFromDBOrGenesisDocProvider(stateStore, genDoc)
 	if err != nil {
 		return nil, fmt.Errorf("LoadStateFromDBOrGenesisDocProvider(): %w", err)
 	}
-	if err := validateFreezeHeight(opts.freezeHeight, genDoc.InitialHeight, state.LastBlockHeight, blockStore.Height(), proxyApp.Info().LastBlockHeight); err != nil {
-		return nil, err
-	}
-	if opts.freezeHeight > 0 && cfg.AutobahnConfigFile != "" {
-		return nil, errors.New("freeze height is not supported with Autobahn")
+	if opts.freezeHeight > 0 {
+		if cfg.AutobahnConfigFile != "" {
+			return nil, errors.New("freeze height is not supported with Autobahn")
+		}
+		if err := validateFreezeHeight(opts.freezeHeight, genDoc.InitialHeight, state.LastBlockHeight, blockStore.Height(), proxyApp.OrPanic("ABCI app required for freeze mode").Info().LastBlockHeight); err != nil {
+			return nil, err
+		}
 	}
 
 	eventBus := eventbus.NewDefault()
@@ -282,6 +299,7 @@ func makeNode(
 
 		rpcEnv: &rpccore.Environment{
 			App: proxyApp,
+			EVM: evmApp,
 
 			StateStore: stateStore,
 			BlockStore: blockStore,
@@ -295,7 +313,6 @@ func makeNode(
 		},
 	}
 
-	gigaEnabled := cfg.AutobahnConfigFile != ""
 	// Pass the local key when autobahn is on; setup.go's
 	// buildGigaRouter picks validator-vs-fullnode by cfg.Mode and
 	// uses the key to check that a validator-mode node is in the committee.
@@ -308,7 +325,7 @@ func makeNode(
 		nodeKey,
 		gigaValidatorKey,
 		cfg,
-		proxyApp.EVM(),
+		evmApp,
 		genDoc,
 		dbProvider,
 		gigaStorageManager,
@@ -331,7 +348,7 @@ func makeNode(
 		if !ok {
 			return nil, errors.New("autobahn requires a storage manager")
 		}
-		node.executor = utils.Some(buildExecutor(proxyApp.EVM().OrPanic("Autobahn router requires an EVM application"), genDoc, manager))
+		node.executor = utils.Some(buildExecutor(evmApp.OrPanic("Autobahn router requires an EVM application"), genDoc, manager))
 		node.rpcEnv.Executor = node.executor
 	}
 
@@ -357,7 +374,8 @@ func makeNode(
 	}
 
 	if !gigaEnabled {
-		mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, sm.TxConstraintsFetcherFromStore(stateStore))
+		abciApp := proxyApp.OrPanic("ABCI consensus requires an ABCI application")
+		mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), abciApp, sm.TxConstraintsFetcherFromStore(stateStore))
 		node.mempool = utils.Some(mp)
 		node.rpcEnv.Mempool = utils.Some(mp)
 		if opts.freezeHeight == 0 {
@@ -373,7 +391,7 @@ func makeNode(
 		// make block executor for consensus and blockchain reactors to execute blocks
 		blockExec := sm.NewBlockExecutor(
 			stateStore,
-			proxyApp,
+			abciApp,
 			mp,
 			evPool,
 			blockStore,
@@ -494,7 +512,7 @@ func makeNode(
 			genDoc.ChainID,
 			genDoc.InitialHeight,
 			*cfg.StateSync,
-			proxyApp,
+			abciApp,
 			node.router,
 			stateStore,
 			blockStore,
@@ -575,7 +593,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 		// and replays any blocks as necessary to sync tendermint with the app.
 		if err = consensus.NewHandshaker(
 			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc, n.consensusPolicy,
-		).Handshake(ctx, n.rpcEnv.App); err != nil {
+		).Handshake(ctx, n.rpcEnv.App.OrPanic("ABCI handshake requires an ABCI application")); err != nil {
 			return err
 		}
 	}
@@ -595,7 +613,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 		if meta == nil {
 			return fmt.Errorf("freeze mode: block %d is missing from the block store", state.LastBlockHeight)
 		}
-		n.rpcEnv.App.InitLastHeader(meta.Header.ToProto())
+		n.rpcEnv.App.OrPanic("ABCI replay requires an ABCI application").InitLastHeader(meta.Header.ToProto())
 	}
 
 	logNodeStartupInfo(state, n.rpcEnv.PubKey, n.config.Mode)
@@ -730,7 +748,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 		if !ok {
 			return errors.New("autobahn rpc requires giga storage")
 		}
-		evm, ok := n.rpcEnv.App.EVM().Get()
+		evm, ok := n.rpcEnv.EVM.Get()
 		if !ok {
 			return errors.New("autobahn rpc requires an EVM application")
 		}
@@ -813,7 +831,7 @@ func (n *nodeImpl) closeGigaStorage() error {
 	var err error
 	n.gigaStorageCloseOnce.Do(func() {
 		if manager, ok := n.gigaStorageManager.Get(); ok {
-			if settleErr := n.rpcEnv.App.AwaitCommits(); settleErr != nil {
+			if settleErr := n.rpcEnv.EVM.OrPanic("Giga storage requires an EVM application").AwaitCommits(); settleErr != nil {
 				logger.Error("failed to settle block commits before closing Giga storage", "err", settleErr)
 			}
 			if err = manager.Close(); err != nil {
@@ -947,22 +965,8 @@ func (n *nodeImpl) RPCEnvironment() *rpccore.Environment {
 
 //------------------------------------------------------------------------------
 
-// genesisDocProvider returns a GenesisDoc.
-// It allows the GenesisDoc to be pulled from sources other than the
-// filesystem, for instance from a distributed key-value store cluster.
-type genesisDocProvider func() (*types.GenesisDoc, error)
-
-// defaultGenesisDocProviderFunc returns a GenesisDocProvider that loads
-// the GenesisDoc from the config.GenesisFile() on the filesystem.
-func defaultGenesisDocProviderFunc(cfg *config.Config) genesisDocProvider {
-	return func() (*types.GenesisDoc, error) {
-		return types.GenesisDocFromFile(cfg.GenesisFile())
-	}
-}
-
-// LoadStateFromDBOrGenesisDocProvider attempts to load the state from the
-// database, or creates one using the given genesisDocProvider. On success this also
-// returns the genesis doc loaded through the given provider.
+// LoadStateFromDBOrGenesisDocProvider loads the persisted state or initializes it
+// from genDoc when the database is empty.
 func LoadStateFromDBOrGenesisDocProvider(stateStore sm.Store, genDoc *types.GenesisDoc) (sm.State, error) {
 
 	// 1. Attempt to load state form the database

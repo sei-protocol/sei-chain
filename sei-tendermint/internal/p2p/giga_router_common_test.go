@@ -10,14 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
-
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -277,8 +276,8 @@ func TestCommitteeWeights(t *testing.T) {
 	rng := utils.TestRng()
 	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
 	wantPK := utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes()))
-	got, err := committeeWeights([]abci.ValidatorUpdate{{
-		PubKey: crypto.PubKeyToProto(sk.Public()),
+	got, err := committeeWeights([]proxy.ValidatorUpdate{{
+		PubKey: utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes())),
 		Power:  42,
 	}})
 	require.NoError(t, err)
@@ -288,8 +287,8 @@ func TestCommitteeWeights(t *testing.T) {
 func TestCommitteeWeights_SkipsZeroPower(t *testing.T) {
 	rng := utils.TestRng()
 	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
-	got, err := committeeWeights([]abci.ValidatorUpdate{{
-		PubKey: crypto.PubKeyToProto(sk.Public()),
+	got, err := committeeWeights([]proxy.ValidatorUpdate{{
+		PubKey: utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes())),
 		Power:  0,
 	}})
 	require.NoError(t, err)
@@ -299,8 +298,8 @@ func TestCommitteeWeights_SkipsZeroPower(t *testing.T) {
 func TestCommitteeWeights_DuplicateKey(t *testing.T) {
 	rng := utils.TestRng()
 	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
-	pk := crypto.PubKeyToProto(sk.Public())
-	_, err := committeeWeights([]abci.ValidatorUpdate{
+	pk := utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes()))
+	_, err := committeeWeights([]proxy.ValidatorUpdate{
 		{PubKey: pk, Power: 1},
 		{PubKey: pk, Power: 2},
 	})

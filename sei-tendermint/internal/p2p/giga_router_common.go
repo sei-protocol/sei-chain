@@ -11,10 +11,9 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
@@ -214,20 +213,13 @@ func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context) error {
 }
 
 // committeeWeights maps a bonded validator set to Autobahn voting power.
-func committeeWeights(vals []abci.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
+func committeeWeights(vals []proxy.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
 	weights := make(map[atypes.PublicKey]uint64, len(vals))
 	for _, v := range vals {
 		if v.Power <= 0 {
 			continue
 		}
-		pk, err := crypto.PubKeyFromProto(v.PubKey)
-		if err != nil {
-			return nil, fmt.Errorf("PubKeyFromProto: %w", err)
-		}
-		apk, err := atypes.PublicKeyFromBytes(pk.Bytes())
-		if err != nil {
-			return nil, fmt.Errorf("PublicKeyFromBytes: %w", err)
-		}
+		apk := v.PubKey
 		if _, dup := weights[apk]; dup {
 			return nil, fmt.Errorf("duplicate public key %s", apk)
 		}
@@ -478,7 +470,7 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...c
 		// Anchor is republished on every persist batch; only its epoch can
 		// change the keep set.
 		epochOf := func(opt utils.Option[data.Anchor]) utils.Option[atypes.EpochIndex] {
-			return utils.MapOpt(opt, func(a data.Anchor) atypes.EpochIndex { return a.Epoch.EpochIndex() })
+			return opt.Map(func(a data.Anchor) atypes.EpochIndex { return a.Epoch.EpochIndex() })
 		}
 		for ctx.Err() == nil {
 			addrVersion := addrUpdates.Load()

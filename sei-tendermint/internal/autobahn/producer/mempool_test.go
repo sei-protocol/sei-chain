@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
+
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
@@ -248,7 +248,7 @@ func (env *testEnv) Run(ctx context.Context) error {
 			}
 
 			// Mark block as executed.
-			resp, err := env.app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{Txs: b.Txs, Hash: b.Hash[:]})
+			resp, err := env.app.FinalizeBlock(ctx, &proxy.RequestFinalizeBlock{Txs: b.Txs, Hash: b.Hash[:]})
 			if err != nil {
 				return fmt.Errorf("app.FinalizeBlock(): %w", err)
 			}
@@ -557,7 +557,7 @@ func TestMempool_HappyPath(t *testing.T) {
 							if err != nil {
 								return fmt.Errorf("env.state.InsertTx(): %w", err)
 							}
-							if err := utils.TestDiff(tx.asResponse().ResponseCheckTx, resp); err != nil {
+							if err := utils.TestDiff(&proxy.ResponseCheckTx{GasWanted: int64(tx.GasWanted), GasEstimated: int64(tx.GasEstimated)}, resp); err != nil {
 								return err
 							}
 						} else {
@@ -575,7 +575,7 @@ func TestMempool_HappyPath(t *testing.T) {
 							if err != nil {
 								return fmt.Errorf("env.state.InsertTx(): %w", err)
 							}
-							if err := utils.TestDiff(tx.asResponse().ResponseCheckTx, resp); err != nil {
+							if err := utils.TestDiff(&proxy.ResponseCheckTx{GasWanted: int64(tx.GasWanted), GasEstimated: int64(tx.GasEstimated)}, resp); err != nil {
 								return err
 							}
 						}

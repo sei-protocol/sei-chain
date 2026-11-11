@@ -8,6 +8,7 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -38,7 +39,7 @@ func TestBroadcastTxCommitWithoutAutobahnUsesMempool(t *testing.T) {
 
 func TestEnvironmentEvmRPCWrappers(t *testing.T) {
 	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	env := &Environment{App: proxy.New(abci.BaseApplication{})}
+	env := &Environment{App: utils.Some(proxy.New(abci.BaseApplication{}))}
 
 	// Test: the EVM RPC accessors Environment exposes to giga/evmonly/rpc.
 	nonce := env.EvmTransactionCount(address)

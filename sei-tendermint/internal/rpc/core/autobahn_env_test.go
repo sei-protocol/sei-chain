@@ -6,10 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	dbm "github.com/tendermint/tm-db"
+	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
@@ -23,8 +25,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	dbm "github.com/tendermint/tm-db"
-	"golang.org/x/time/rate"
 )
 
 type stubAppHashBuilder struct{}
@@ -70,12 +70,12 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	}
 	blockStore := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, blockStore.Close()) })
-	app := proxy.New(&abci.BaseApplication{})
+	app := proxy.NewTestEVMProxy(&abci.BaseApplication{})
 	commonCfg := p2p.GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: t.TempDir(),
-		App:                proxy.NewTestEVMProxy(&abci.BaseApplication{}),
+		App:                app,
 		AppHashBuilder:     stubAppHashBuilder{},
 		GenDoc:             genDoc,
 	}
@@ -118,7 +118,7 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	)
 	require.NoError(t, err)
 	return &Environment{
-		App:        app,
+		EVM:        utils.Some(app),
 		GenDoc:     genDoc,
 		Router:     router,
 		EventSinks: []indexer.EventSink{kvsink.NewEventSink(dbm.NewMemDB(), nil)},

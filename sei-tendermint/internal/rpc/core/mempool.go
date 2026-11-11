@@ -12,6 +12,7 @@ import (
 	"github.com/holiman/uint256"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -38,7 +39,10 @@ func (env *Environment) EvmProxyEnabled() bool {
 
 // EvmBalance returns the address balance from the current committed EVM state.
 func (env *Environment) EvmBalance(address common.Address) uint256.Int {
-	return env.App.EvmBalance(address, nil)
+	if evm, ok := env.EVM.Get(); ok {
+		return evm.EvmBalance(address, nil)
+	}
+	return env.abciApplication().EvmBalance(address, nil)
 }
 
 func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
@@ -315,52 +319,81 @@ func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.Resul
 // EvmTransactionCount returns the address transaction count (nonce) from the
 // current committed EVM state.
 func (env *Environment) EvmTransactionCount(address common.Address) uint64 {
-	return env.App.EvmNonce(address)
+	if evm, ok := env.EVM.Get(); ok {
+		return evm.EvmNonce(address)
+	}
+	return env.abciApplication().EvmNonce(address)
 }
 
 // EvmTransactionCountAt returns the address transaction count (nonce) in the
 // committed EVM state after height.
 func (env *Environment) EvmTransactionCountAt(address common.Address, height int64) (uint64, error) {
-	return env.App.EvmNonceAt(address, height)
+	if evm, ok := env.EVM.Get(); ok {
+		return evm.EvmNonceAt(address, height)
+	}
+	return env.abciApplication().EvmNonceAt(address, height)
 }
 
 // EvmBalanceAt returns the address balance in the committed EVM state after height.
 func (env *Environment) EvmBalanceAt(address common.Address, height int64) (uint256.Int, error) {
-	return env.App.EvmBalanceAt(address, height)
+	if evm, ok := env.EVM.Get(); ok {
+		return evm.EvmBalanceAt(address, height)
+	}
+	return env.abciApplication().EvmBalanceAt(address, height)
 }
 
 // EvmCodeAt returns the contract code at address in the committed EVM state after height.
 func (env *Environment) EvmCodeAt(address common.Address, height int64) ([]byte, error) {
-	return env.App.EvmCodeAt(address, height)
+	if evm, ok := env.EVM.Get(); ok {
+		return evm.EvmCodeAt(address, height)
+	}
+	return env.abciApplication().EvmCodeAt(address, height)
 }
 
 // EvmStorageAt returns the value at key in address's storage in the committed EVM state after height.
 func (env *Environment) EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error) {
-	return env.App.EvmStorageAt(address, key, height)
+	if evm, ok := env.EVM.Get(); ok {
+		return evm.EvmStorageAt(address, key, height)
+	}
+	return env.abciApplication().EvmStorageAt(address, key, height)
 }
 
 // EvmBlockNumber returns the height of the most recently committed block.
 func (env *Environment) EvmBlockNumber() uint64 {
-	return utils.Clamp[uint64](env.App.LastBlockHeight())
+	return utils.Clamp[uint64](env.lastBlockHeight())
 }
 
 // EvmCode returns the contract code at address in the current committed EVM
 // state.
 func (env *Environment) EvmCode(address common.Address) ([]byte, error) {
-	return env.App.EvmCode(address)
+	if evm, ok := env.EVM.Get(); ok {
+		return evm.EvmCode(address)
+	}
+	return env.abciApplication().EvmCode(address)
 }
 
 // EvmStorage returns the value at key in address's storage in the current
 // committed EVM state.
 func (env *Environment) EvmStorage(address common.Address, key common.Hash) (common.Hash, error) {
-	return env.App.EvmStorage(address, key)
+	if evm, ok := env.EVM.Get(); ok {
+		return evm.EvmStorage(address, key)
+	}
+	return env.abciApplication().EvmStorage(address, key)
 }
 
 // CheckTx checks the transaction without executing it. The transaction won't
 // be added to the mempool either.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/check_tx
 func (env *Environment) CheckTx(ctx context.Context, req *coretypes.RequestCheckTx) (*coretypes.ResultCheckTx, error) {
-	res, err := env.App.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: req.Tx})
+	if evm, ok := env.EVM.Get(); ok {
+		res, err := evm.CheckTxSafe(ctx, &proxy.RequestCheckTxV2{Tx: req.Tx})
+		if err != nil {
+			return nil, err
+		}
+		r := res.ResponseCheckTx
+		return &coretypes.ResultCheckTx{ResponseCheckTx: abci.ResponseCheckTx{Code: r.Code, Data: r.Data, Log: r.Log, GasWanted: r.GasWanted, Codespace: r.Codespace, Priority: r.Priority, GasEstimated: r.GasEstimated}}, nil
+	}
+	res, err := env.abciApplication().CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: req.Tx})
 	if err != nil {
 		return nil, err
 	}

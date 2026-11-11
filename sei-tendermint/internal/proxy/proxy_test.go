@@ -11,9 +11,10 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+	"github.com/stretchr/testify/require"
+
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/stretchr/testify/require"
 )
 
 type testApp struct {
@@ -200,7 +201,7 @@ func TestEvmHistoryReads(t *testing.T) {
 // testEVMApp answers every EVMApplication method with a fixed value and
 // records the arguments it was called with.
 type testEVMApp struct {
-	testApp
+	EVMApplication
 	gotMsg    *core.Message
 	gotCalls  []*core.Message
 	gotGasCap uint64
@@ -270,19 +271,10 @@ func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header *ethtypes.Head
 	return nil, func() {}, nil
 }
 
-func TestEVMIsAbsentForANonEVMApplication(t *testing.T) {
-	// Test: wrap an application that is not an EVMApplication.
-	proxyApp := New(testApp{})
-
-	// Verify: no EVM proxy is exposed.
-	require.False(t, proxyApp.EVM().IsPresent())
-}
-
 func TestEVMProxyDelegatesToTheApplication(t *testing.T) {
 	// Setup: an EVMApplication wrapped by the proxy.
-	app := &testEVMApp{}
-	evm, ok := New(app).EVM().Get()
-	require.True(t, ok)
+	app := &testEVMApp{EVMApplication: NewTestEVMApplication(types.BaseApplication{})}
+	evm := NewEVM(app)
 	msg := &core.Message{GasLimit: 21_000}
 
 	t.Run("call", func(t *testing.T) {

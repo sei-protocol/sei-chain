@@ -9,10 +9,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -93,7 +91,13 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 		// behaves as a fresh init. An app whose storage already holds
 		// blocks must report them here and refuse InitChain, since blocks
 		// may be durable before Commit acknowledged them.
-		if _, err := app.InitChain(e.cfg.GenDoc.ToRequestInitChain()); err != nil {
+		if _, err := app.InitChain(&proxy.RequestInitChain{
+			Time:          e.cfg.GenDoc.GenesisTime,
+			ChainID:       e.cfg.GenDoc.ChainID,
+			InitialHeight: e.cfg.GenDoc.InitialHeight,
+			MaxGas:        e.cfg.GenDoc.ConsensusParams.Block.MaxGas,
+			AppStateBytes: e.cfg.GenDoc.AppState,
+		}); err != nil {
 			return 0, fmt.Errorf("App.InitChain(): %w", err)
 		}
 		next, ok := utils.SafeCast[atypes.RoadIndex](e.cfg.GenDoc.InitialHeight)
@@ -111,13 +115,13 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 		}
 		return 0, fmt.Errorf("WaitForBlock(%v): %w", last, err)
 	}
-	app.InitLastHeader((&types.Header{
+	app.InitLastHeader(&proxy.Header{
 		ChainID: e.cfg.GenDoc.ChainID,
 		Height:  int64(last), // nolint:gosec // different representations of the same value
 		Time:    block.Header().Timestamp(),
 		// TODO: for consistency we should also set proposerAddress here,
 		// but this is a placeholder solution so maybe we don't care.
-	}).ToProto())
+	})
 	return last + 1, nil
 }
 
@@ -132,30 +136,25 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error
 	if vals := app.GetValidators(); len(vals) > 0 {
 		// Deterministically select a proposer from the app's validator committee.
 		// We need it so that app does not emit error logs.
-		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
-		key, err := crypto.PubKeyFromProto(proposer.PubKey)
-		if err != nil {
-			return fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
-		}
-		proposerAddress = key.Address()
+		proposer := slices.MinFunc(vals, func(a, b proxy.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
+		proposerAddress = proposer.PubKey.ED25519().Address()
 	}
 
-	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
+	resp, err := app.FinalizeBlock(ctx, &proxy.RequestFinalizeBlock{
 		Txs: b.Txs,
-		// Empty DecidedLastCommit does not indicate missing votes.
-		DecidedLastCommit: abci.CommitInfo{},
+
 		// The road block hash identifies the block before execution.
 		// It is used to identify block processed optimistically
 		// and is fed as block hash to EVM contracts.
 		Hash: b.Hash[:],
-		Header: (&types.Header{
+		Header: &proxy.Header{
 			ChainID: e.cfg.GenDoc.ChainID,
 			Height:  int64(b.Height), // nolint:gosec // different representations of the same value
 			Time:    b.Timestamp,
 			// WARNING: the reward distribution has corner cases where it forgets the proposer,
 			// because reward is distributed with a delay. This is not our problem here though.
 			ProposerAddress: proposerAddress,
-		}).ToProto(),
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("app.FinalizeBlock(): %w", err)
@@ -178,7 +177,7 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error
 }
 
 // finalizeBlockGasUsed returns the gas used, as reported by FinalizeBlock.
-func finalizeBlockGasUsed(resp *abci.ResponseFinalizeBlock) int64 {
+func finalizeBlockGasUsed(resp *proxy.ResponseFinalizeBlock) int64 {
 	var total int64
 	for _, result := range resp.TxResults {
 		if result != nil {

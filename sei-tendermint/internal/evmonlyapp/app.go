@@ -20,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"github.com/sei-protocol/seilog"
+	"go.opentelemetry.io/otel"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
@@ -27,12 +28,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-	"go.opentelemetry.io/otel"
 )
 
 var logger = seilog.NewLogger("tendermint", "internal", "evmonlyapp")
@@ -93,14 +91,12 @@ func (c *senderCache) take(hash common.Hash) utils.Option[common.Address] {
 const minTxsPerHashWorker = 64
 
 type evmOnlyApplication struct {
-	abci.BaseApplication
-
 	chainID     *big.Int
 	chainConfig *params.ChainConfig
 	execution   gigaconfig.ExecutionConfig
 	minGasPrice *big.Int
 	storage     *bootstrap.GigaStorageManager
-	validators  []abci.ValidatorUpdate
+	validators  []proxy.ValidatorUpdate
 	// customPrecompiles are the native contracts every executor runs.
 	customPrecompiles utils.Option[precompiles.Registry]
 	executor          utils.Mutex[*utils.Option[*evmonly.Executor]]
@@ -145,7 +141,7 @@ type evmOnlyCursorState struct {
 	pending   utils.Option[evmOnlyCursor]
 	// epochState is committed with the block being finalized. It is set after
 	// beginBlock accepts that block and read when the block is encoded.
-	epochState utils.Option[abci.EpochState]
+	epochState utils.Option[proxy.EpochState]
 	// lastBlockTime is the Time of the most recently committed block, used by
 	// EvmCall to reproduce that block's execution context for a read-only call.
 	lastBlockTime uint64
@@ -155,7 +151,6 @@ type evmOnlyCursorState struct {
 }
 
 var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
-var _ abci.Application = (*evmOnlyApplication)(nil)
 
 // NewEVMOnlyApplication returns the raw-Ethereum application Autobahn runs.
 // Storage owns state, receipts and blocks; execution sizes the executor and
@@ -164,11 +159,11 @@ var _ abci.Application = (*evmOnlyApplication)(nil)
 // cursor, so Info reports the stored height and InitChain is refused.
 func NewEVMOnlyApplication(
 	chainID uint64,
-	validators []abci.ValidatorUpdate,
+	validators []proxy.ValidatorUpdate,
 	storage *bootstrap.GigaStorageManager,
 	execution gigaconfig.ExecutionConfig,
 	customPrecompiles utils.Option[precompiles.Registry],
-) (abci.Application, error) {
+) (proxy.EVMApplication, error) {
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	a := &evmOnlyApplication{
@@ -262,7 +257,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 	panic("unreachable")
 }
 
-func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+func (a *evmOnlyApplication) InitChain(req *proxy.RequestInitChain) (*proxy.ResponseInitChain, error) {
 	if req.InitialHeight <= 0 {
 		return nil, fmt.Errorf("EVM-only initial height must be positive: %d", req.InitialHeight)
 	}
@@ -281,7 +276,7 @@ func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.Respon
 		for state := range a.cursor.Lock() {
 			state.committed = evmOnlyCursor{height: req.InitialHeight - 1, gasLimit: gasLimit}
 		}
-		return &abci.ResponseInitChain{}, nil
+		return &proxy.ResponseInitChain{}, nil
 	}
 	panic("unreachable")
 }
@@ -308,20 +303,20 @@ func (a *evmOnlyApplication) seedInitialStateVersion(initialHeight int64) error 
 	return nil
 }
 
-func evmOnlyGasLimit(req *abci.RequestInitChain) (uint64, error) {
-	if req.ConsensusParams == nil || req.ConsensusParams.Block == nil || req.ConsensusParams.Block.MaxGas <= 0 {
+func evmOnlyGasLimit(req *proxy.RequestInitChain) (uint64, error) {
+	if req.MaxGas <= 0 {
 		return 0, fmt.Errorf("EVM-only max gas must be positive")
 	}
-	gasLimit, ok := utils.SafeCast[uint64](req.ConsensusParams.Block.MaxGas)
+	gasLimit, ok := utils.SafeCast[uint64](req.MaxGas)
 	if !ok {
-		return 0, fmt.Errorf("EVM-only max gas exceeds uint64: %d", req.ConsensusParams.Block.MaxGas)
+		return 0, fmt.Errorf("EVM-only max gas exceeds uint64: %d", req.MaxGas)
 	}
 	return gasLimit, nil
 }
 
-func (a *evmOnlyApplication) Info() *abci.ResponseInfo {
+func (a *evmOnlyApplication) Info() *proxy.ResponseInfo {
 	for state := range a.cursor.Lock() {
-		return &abci.ResponseInfo{
+		return &proxy.ResponseInfo{
 			Data:             "evmonly",
 			LastBlockHeight:  state.committed.height,
 			LastBlockAppHash: append([]byte(nil), state.committed.appHash[:]...),
@@ -333,7 +328,7 @@ func (a *evmOnlyApplication) Info() *abci.ResponseInfo {
 // InitLastHeader seeds the committed block time on the router's restart path.
 // The cursor carries height, hashes and gas limit but not Time, so without this
 // EvmCall would answer with TIMESTAMP 0 until the next Commit.
-func (a *evmOnlyApplication) InitLastHeader(lastHeader *tmproto.Header) {
+func (a *evmOnlyApplication) InitLastHeader(lastHeader *proxy.Header) {
 	if lastHeader == nil || lastHeader.Time.Unix() < 0 {
 		return
 	}
@@ -359,25 +354,25 @@ func (a *evmOnlyApplication) EvmGasLimit() uint64 {
 	panic("unreachable")
 }
 
-func (a *evmOnlyApplication) GetValidators() []abci.ValidatorUpdate {
+func (a *evmOnlyApplication) GetValidators() []proxy.ValidatorUpdate {
 	return slices.Clone(a.validators)
 }
 
-func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+func (a *evmOnlyApplication) CheckTx(_ context.Context, req *proxy.RequestCheckTxV2) *proxy.ResponseCheckTxV2 {
 	// TODO(evmonly-production): close the gap between admission and block validity
 	// before accepting arbitrary traffic; this test app assumes executable load-test transactions.
 	tx, sender, err := a.parseTx(req.Tx)
 	if err != nil {
-		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1, Log: err.Error()}}
+		return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 1, Log: err.Error()}}
 	}
 	gasWanted, ok := utils.SafeCast[int64](tx.Gas())
 	if !ok {
-		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1, Log: "transaction gas limit exceeds int64"}}
+		return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 1, Log: "transaction gas limit exceeds int64"}}
 	}
 	a.rememberSender(tx.Hash(), sender)
-	return &abci.ResponseCheckTxV2{
-		ResponseCheckTx: &abci.ResponseCheckTx{
-			Code:         abci.CodeTypeOK,
+	return &proxy.ResponseCheckTxV2{
+		ResponseCheckTx: &proxy.ResponseCheckTx{
+			Code:         proxy.CodeTypeOK,
 			GasWanted:    gasWanted,
 			GasEstimated: gasWanted,
 		},
@@ -780,7 +775,7 @@ func (a *evmOnlyApplication) EvmCreateAccessList(ctx context.Context, msg *ethco
 	return executor.CreateAccessList(ctx, blockCtx, msg)
 }
 
-func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
 	height := req.Header.Height
 	if height <= 0 {
 		return nil, fmt.Errorf("EVM-only block height must be positive: %d", height)
@@ -822,9 +817,9 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 			return nil, err
 		}
 		a.finalizePhases.SetPhase(finalizePhaseTxResults)
-		return &abci.ResponseFinalizeBlock{
+		return &proxy.ResponseFinalizeBlock{
 			AppHash:   append([]byte(nil), pending.appHash[:]...),
-			TxResults: evmOnlyABCIResults(result),
+			TxResults: evmOnlyTxResults(result),
 		}, nil
 	}
 	panic("unreachable")
@@ -847,7 +842,7 @@ func (a *evmOnlyApplication) beginBlock(height int64) (evmOnlyCursor, error) {
 
 // stageEpochState sets the epoch state committed with the block being
 // finalized, replacing that of the previous block.
-func (a *evmOnlyApplication) stageEpochState(epochState utils.Option[abci.EpochState]) {
+func (a *evmOnlyApplication) stageEpochState(epochState utils.Option[proxy.EpochState]) {
 	for state := range a.cursor.Lock() {
 		state.epochState = epochState
 	}
@@ -905,7 +900,7 @@ func (a *evmOnlyApplication) executeBlockPipelined(ctx context.Context, executor
 // Commit acknowledges the finalized block as the one the chain builds on. The
 // block's state commit is not waited for; a commit that fails halts the node
 // through the next FinalizeBlock.
-func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, error) {
+func (a *evmOnlyApplication) Commit(context.Context) (*proxy.ResponseCommit, error) {
 	for state := range a.cursor.Lock() {
 		pending, ok := state.pending.Get()
 		if !ok {
@@ -914,24 +909,24 @@ func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, erro
 		state.committed = pending
 		state.lastBlockTime = state.pendingBlockTime
 		state.pending = utils.None[evmOnlyCursor]()
-		return &abci.ResponseCommit{}, nil
+		return &proxy.ResponseCommit{}, nil
 	}
 	panic("unreachable")
 }
 
-// evmOnlyABCIResults reports a block's executed transactions to consensus, each
+// evmOnlyTxResults reports a block's executed transactions to consensus, each
 // one an OK result carrying the EVM failure reason, if it had one, in its log.
 //
 // Every result is OK, including a reverted or rejected transaction: the hash is
 // recorded as executed rather than held in the mempool's failed set for a retry,
 // and the receipt status carries the failure. The log may vary with the failure
 // because the results hash covers only the code, data and gas.
-func evmOnlyABCIResults(result *evmonly.BlockResult) []*abci.ExecTxResult {
-	txResults := make([]*abci.ExecTxResult, len(result.Txs))
+func evmOnlyTxResults(result *evmonly.BlockResult) []*proxy.ExecTxResult {
+	txResults := make([]*proxy.ExecTxResult, len(result.Txs))
 	for i, tx := range result.Txs {
 		gasUsed := utils.Clamp[int64](tx.GasUsed)
-		txResults[i] = &abci.ExecTxResult{
-			Code:      abci.CodeTypeOK,
+		txResults[i] = &proxy.ExecTxResult{
+			Code:      proxy.CodeTypeOK,
 			Log:       evmOnlyTxFailureLog(tx),
 			GasWanted: gasUsed,
 			GasUsed:   gasUsed,

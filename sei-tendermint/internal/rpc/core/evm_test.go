@@ -13,13 +13,14 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 // testEVMApp answers every EVMApplication method with a fixed value and
 // records the arguments it was called with.
 type testEVMApp struct {
-	abci.BaseApplication
+	proxy.EVMApplication
 	gotMsg    *ethcore.Message
 	gotCalls  []*ethcore.Message
 	gotGasCap uint64
@@ -91,11 +92,9 @@ func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header *ethtypes.Head
 
 func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 	// Setup: an EVMEnvironment around a proxied EVMApplication, as node startup builds it.
-	app := &testEVMApp{}
-	proxyApp := proxy.New(app)
-	evm, ok := proxyApp.EVM().Get()
-	require.True(t, ok)
-	env := &EVMEnvironment{Environment: &Environment{App: proxyApp}, EVM: evm}
+	app := &testEVMApp{EVMApplication: proxy.NewTestEVMApplication(abci.BaseApplication{})}
+	evm := proxy.NewEVM(app)
+	env := &EVMEnvironment{Environment: &Environment{EVM: utils.Some(evm)}, EVM: evm}
 	msg := &ethcore.Message{GasLimit: 21_000}
 
 	t.Run("call", func(t *testing.T) {

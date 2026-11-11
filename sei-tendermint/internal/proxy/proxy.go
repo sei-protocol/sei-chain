@@ -12,30 +12,17 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 // Proxy wraps an ABCI application and records ABCI method timings.
 type Proxy struct {
 	app types.Application
-	evm utils.Option[*EVMProxy]
 }
 
 // New creates a proxied application interface around the provided ABCI application.
 func New(app types.Application) *Proxy {
-	p := &Proxy{app: app}
-	// Resolved once here so no EVM method needs a per-call type assertion.
-	if evmApp, ok := app.(EVMApplication); ok {
-		p.evm = utils.Some(NewEVM(evmApp))
-	}
-	return p
-}
-
-// EVM returns the proxy for the wrapped application's EVM methods, if it is an
-// EVMApplication.
-func (app *Proxy) EVM() utils.Option[*EVMProxy] {
-	return app.evm
+	return &Proxy{app: app}
 }
 
 func (app *Proxy) InitChain(req *types.RequestInitChain) (*types.ResponseInitChain, error) {
@@ -185,26 +172,41 @@ func (app *Proxy) CheckTxSafe(ctx context.Context, req *types.RequestCheckTxV2) 
 	return checkTxSafe(ctx, req, app.app.CheckTx)
 }
 
-func checkTxSafe(ctx context.Context, req *types.RequestCheckTxV2, checkTx func(context.Context, *types.RequestCheckTxV2) *types.ResponseCheckTxV2) (res *types.ResponseCheckTxV2, err error) {
+func checkTxSafe(ctx context.Context, req *types.RequestCheckTxV2, checkTx func(context.Context, *types.RequestCheckTxV2) *types.ResponseCheckTxV2) (*types.ResponseCheckTxV2, error) {
+	return runCheckTx(func() *types.ResponseCheckTxV2 { return checkTx(ctx, req) }, func(res *types.ResponseCheckTxV2) error {
+		return validateEVMMetadata(res.IsEVM, res.EVMHash, res.SeiSenderAddress)
+	})
+}
+
+// runCheckTx recovers application panics and validates admission responses.
+func runCheckTx[T any](check func() *T, validate func(*T) error) (res *T, err error) {
 	defer addTimeSample(Global.MethodTimingAt("check_tx", "sync"))()
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic recovered in CheckTxSafe: %v\n%v", r, string(debug.Stack()))
 		}
 	}()
-	res = checkTx(ctx, req)
+	res = check()
 	if res == nil {
 		return nil, fmt.Errorf("nil response")
 	}
-	if res.IsEVM {
-		if res.EVMHash == (common.Hash{}) {
-			return nil, fmt.Errorf("EVM response missing EVMHash")
-		}
-		if len(res.SeiSenderAddress) == 0 {
-			return nil, fmt.Errorf("EVM response missing SeiSenderAddress")
-		}
+	if err := validate(res); err != nil {
+		return nil, err
 	}
 	return res, nil
+}
+
+func validateEVMMetadata(isEVM bool, hash common.Hash, sender []byte) error {
+	if !isEVM {
+		return nil
+	}
+	if hash == (common.Hash{}) {
+		return fmt.Errorf("EVM response missing EVMHash")
+	}
+	if len(sender) == 0 {
+		return fmt.Errorf("EVM response missing SeiSenderAddress")
+	}
+	return nil
 }
 
 func (app *Proxy) InitLastHeader(lastHeader *tmproto.Header) {

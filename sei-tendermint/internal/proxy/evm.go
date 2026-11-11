@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -9,26 +10,25 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
-
-	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/holiman/uint256"
 )
 
 // EVMApplication executes EVM transactions for Autobahn and serves read-only
 // EVM calls and execution parameters.
 type EVMApplication interface {
 	// Application state and initialization.
-	Info() *types.ResponseInfo
-	GetValidators() []types.ValidatorUpdate
+	Info() *ResponseInfo
+	GetValidators() []ValidatorUpdate
 	LastBlockHeight() int64
-	InitChain(*types.RequestInitChain) (*types.ResponseInitChain, error)
-	InitLastHeader(*tmproto.Header)
+	InitChain(*RequestInitChain) (*ResponseInitChain, error)
+	InitLastHeader(*Header)
 
 	// Transaction admission and block execution.
-	CheckTx(context.Context, *types.RequestCheckTxV2) *types.ResponseCheckTxV2
+	CheckTx(context.Context, *RequestCheckTxV2) *ResponseCheckTxV2
+	EvmBalance(common.Address, []byte) uint256.Int
 	EvmNonce(common.Address) uint64
-	FinalizeBlock(context.Context, *types.RequestFinalizeBlock) (*types.ResponseFinalizeBlock, error)
-	Commit(context.Context) (*types.ResponseCommit, error)
+	FinalizeBlock(context.Context, *RequestFinalizeBlock) (*ResponseFinalizeBlock, error)
+	Commit(context.Context) (*ResponseCommit, error)
 
 	// EvmCall executes msg as a read-only call against the current EVM state.
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
@@ -81,12 +81,12 @@ func NewEVM(app EVMApplication) *EVMProxy {
 	return &EVMProxy{app: app}
 }
 
-func (app *EVMProxy) Info() *types.ResponseInfo {
+func (app *EVMProxy) Info() *ResponseInfo {
 	defer addTimeSample(Global.MethodTimingAt("info", "sync"))()
 	return app.app.Info()
 }
 
-func (app *EVMProxy) GetValidators() []types.ValidatorUpdate {
+func (app *EVMProxy) GetValidators() []ValidatorUpdate {
 	return app.app.GetValidators()
 }
 
@@ -94,17 +94,19 @@ func (app *EVMProxy) LastBlockHeight() int64 {
 	return app.app.LastBlockHeight()
 }
 
-func (app *EVMProxy) InitChain(req *types.RequestInitChain) (*types.ResponseInitChain, error) {
+func (app *EVMProxy) InitChain(req *RequestInitChain) (*ResponseInitChain, error) {
 	defer addTimeSample(Global.MethodTimingAt("init_chain", "sync"))()
 	return app.app.InitChain(req)
 }
 
-func (app *EVMProxy) InitLastHeader(lastHeader *tmproto.Header) {
+func (app *EVMProxy) InitLastHeader(lastHeader *Header) {
 	app.app.InitLastHeader(lastHeader)
 }
 
-func (app *EVMProxy) CheckTxSafe(ctx context.Context, req *types.RequestCheckTxV2) (*types.ResponseCheckTxV2, error) {
-	return checkTxSafe(ctx, req, app.app.CheckTx)
+func (app *EVMProxy) CheckTxSafe(ctx context.Context, req *RequestCheckTxV2) (*ResponseCheckTxV2, error) {
+	return runCheckTx(func() *ResponseCheckTxV2 { return app.app.CheckTx(ctx, req) }, func(res *ResponseCheckTxV2) error {
+		return validateEVMMetadata(res.IsEVM, res.EVMHash, res.SeiSenderAddress)
+	})
 }
 
 func (app *EVMProxy) EvmNonce(addr common.Address) uint64 {
@@ -112,12 +114,12 @@ func (app *EVMProxy) EvmNonce(addr common.Address) uint64 {
 	return app.app.EvmNonce(addr)
 }
 
-func (app *EVMProxy) FinalizeBlock(ctx context.Context, req *types.RequestFinalizeBlock) (*types.ResponseFinalizeBlock, error) {
+func (app *EVMProxy) FinalizeBlock(ctx context.Context, req *RequestFinalizeBlock) (*ResponseFinalizeBlock, error) {
 	defer addTimeSample(Global.MethodTimingAt("finalize_block", "sync"))()
 	return app.app.FinalizeBlock(ctx, req)
 }
 
-func (app *EVMProxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {
+func (app *EVMProxy) Commit(ctx context.Context) (*ResponseCommit, error) {
 	defer addTimeSample(Global.MethodTimingAt("commit", "sync"))()
 	return app.app.Commit(ctx)
 }
@@ -190,4 +192,72 @@ func (app *EVMProxy) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, 
 func (app *EVMProxy) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_state_before_tx", "sync"))()
 	return app.app.EvmStateBeforeTx(ctx, header, txs)
+}
+
+func (app *EVMProxy) AwaitCommits() error {
+	defer addTimeSample(Global.MethodTimingAt("await_commits", "sync"))()
+	settler, ok := app.app.(commitSettler)
+	if !ok {
+		return nil
+	}
+	return settler.AwaitCommits()
+}
+
+func (app *EVMProxy) EvmBalance(addr common.Address, seiAddr []byte) uint256.Int {
+	defer addTimeSample(Global.MethodTimingAt("evm_balance", "sync"))()
+	return app.app.EvmBalance(addr, seiAddr)
+}
+
+func (app *EVMProxy) EvmCode(addr common.Address) ([]byte, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_code", "sync"))()
+	reader, ok := app.app.(evmCodeReader)
+	if !ok {
+		return nil, fmt.Errorf("application does not expose EVM code")
+	}
+	return reader.EvmCode(addr), nil
+}
+
+func (app *EVMProxy) EvmStorage(addr common.Address, key common.Hash) (common.Hash, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_storage", "sync"))()
+	reader, ok := app.app.(evmStorageReader)
+	if !ok {
+		return common.Hash{}, fmt.Errorf("application does not expose EVM storage")
+	}
+	return reader.EvmStorage(addr, key), nil
+}
+
+func (app *EVMProxy) EvmBalanceAt(addr common.Address, height int64) (uint256.Int, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_balance_at", "sync"))()
+	reader, ok := app.app.(evmHistoryReader)
+	if !ok {
+		return uint256.Int{}, errNoEVMHistory
+	}
+	return reader.EvmBalanceAt(addr, height)
+}
+
+func (app *EVMProxy) EvmCodeAt(addr common.Address, height int64) ([]byte, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_code_at", "sync"))()
+	reader, ok := app.app.(evmHistoryReader)
+	if !ok {
+		return nil, errNoEVMHistory
+	}
+	return reader.EvmCodeAt(addr, height)
+}
+
+func (app *EVMProxy) EvmNonceAt(addr common.Address, height int64) (uint64, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_nonce_at", "sync"))()
+	reader, ok := app.app.(evmHistoryReader)
+	if !ok {
+		return 0, errNoEVMHistory
+	}
+	return reader.EvmNonceAt(addr, height)
+}
+
+func (app *EVMProxy) EvmStorageAt(addr common.Address, key common.Hash, height int64) (common.Hash, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_storage_at", "sync"))()
+	reader, ok := app.app.(evmHistoryReader)
+	if !ok {
+		return common.Hash{}, errNoEVMHistory
+	}
+	return reader.EvmStorageAt(addr, key, height)
 }
