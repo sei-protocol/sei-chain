@@ -110,7 +110,7 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 		return sdkerrors.ErrInvalidCoins
 	}
 
-	intrGas, err := evmtypes.IntrinsicGas(etx)
+	intrGas, err := evmtypes.IntrinsicGas(etx, evmtypes.EthereumRules(ctx.BlockTime().Unix()))
 	if err != nil {
 		return err
 	}

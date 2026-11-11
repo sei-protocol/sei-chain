@@ -65,6 +65,11 @@ func DefaultChainConfig() ChainConfig {
 	}
 }
 
+// EthereumRules returns the go-ethereum fork rules active at blockTime.
+func EthereumRules(blockTime int64) params.Rules {
+	return DefaultChainConfig().EthereumConfig(nil).Rules(utils.Big0, true, uint64(blockTime)) //nolint:gosec
+}
+
 func getUpgradeTimestamp(i int64) *uint64 {
 	if i < 0 {
 		return nil
