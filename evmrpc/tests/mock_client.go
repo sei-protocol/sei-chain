@@ -29,7 +29,7 @@ type MockClient struct {
 	mockedBlockResults        map[int64]*coretypes.ResultBlock
 	mockedBlockByHashResults  map[string]*coretypes.ResultBlock
 	mockedBlockResultsResults map[int64]*coretypes.ResultBlockResults
-	mockedValidators          map[int64]*coretypes.ResultValidators
+	mockedValidators          map[validatorPageKey]*coretypes.ResultValidators
 	mockedGenesis             *coretypes.ResultGenesis
 }
 
@@ -158,19 +158,39 @@ func (c *MockClient) recordBlockResult(txResults []*abci.ExecTxResult, consParam
 	c.events = append(c.events, events)
 }
 
-func (c *MockClient) Validators(ctx context.Context, height *int64, page, perPage *int) (*coretypes.ResultValidators, error) {
-	if c.mockedValidators != nil {
-		blockNum := int64(-1)
-		if height != nil {
-			blockNum = *height
-		}
-		res, ok := c.mockedValidators[blockNum]
-		if !ok {
-			return nil, errors.New("not found")
-		}
+// validatorPageKey is one recorded page of the validators RPC.
+type validatorPageKey struct {
+	height int64
+	page   int
+}
+
+// Validators returns the recorded page for height. A page the recording does not
+// contain is empty, and its total is the number of validators the recording has.
+func (c *MockClient) Validators(_ context.Context, height *int64, page, _ *int) (*coretypes.ResultValidators, error) {
+	if c.mockedValidators == nil {
+		return &coretypes.ResultValidators{}, nil
+	}
+	blockNum := int64(-1)
+	if height != nil {
+		blockNum = *height
+	}
+	p := 1
+	if page != nil && *page > 0 {
+		p = *page
+	}
+	if res, ok := c.mockedValidators[validatorPageKey{blockNum, p}]; ok {
 		return res, nil
 	}
-	return &coretypes.ResultValidators{}, nil
+	captured := 0
+	for key, res := range c.mockedValidators {
+		if key.height == blockNum {
+			captured += len(res.Validators)
+		}
+	}
+	if captured == 0 {
+		return nil, errors.New("not found")
+	}
+	return &coretypes.ResultValidators{BlockHeight: blockNum, Count: 0, Total: captured}, nil
 }
 
 func (c *MockClient) UnconfirmedTxs(context.Context, *int, *int) (*coretypes.ResultUnconfirmedTxs, error) {

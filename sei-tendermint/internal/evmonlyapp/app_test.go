@@ -292,6 +292,7 @@ func newEVMOnlyTestAppWithStorage(
 		storage,
 		execution,
 		utils.None[precompiles.Registry](),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
@@ -388,6 +389,7 @@ func reopenEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap
 		evmOnlyTestChainID, nil, reopened,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	return resumed, reopened
@@ -634,6 +636,7 @@ func TestEVMOnlyApplicationInitLastHeaderSeedsBlockTime(t *testing.T) {
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
@@ -682,6 +685,7 @@ func TestEVMOnlyApplicationResumesFromStorageAfterRestart(t *testing.T) {
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
@@ -719,6 +723,7 @@ func TestEVMOnlyApplicationResumedAppSettlesItsCommits(t *testing.T) {
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
@@ -748,6 +753,7 @@ func TestEVMOnlyApplicationResumesFromBlockFinalizedButNotCommitted(t *testing.T
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
@@ -778,6 +784,7 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	init := evmOnlyTestInitChain()
@@ -789,7 +796,7 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	storage = openEVMOnlyTestStorage(t, storageConfig)
 	app, err = NewEVMOnlyApplication(
 		evmOnlyTestChainID, nil, storage,
-		gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry]())
+		gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[string]())
 	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
 
@@ -1317,7 +1324,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	require.NoError(t, err)
 	storage := openEVMOnlyTestStorage(t, storageConfig)
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry]())
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[string]())
 	require.NoError(t, err)
 	_, err = app.InitChain(&abci.RequestInitChain{
 		InitialHeight: 1,
