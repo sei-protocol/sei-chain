@@ -121,7 +121,7 @@ func (r failedReadRecorder) GetState(addr common.Address, key common.Hash) commo
 }
 
 // ReadAccount satisfies baseAccountReader, as reader does.
-func (r failedReadRecorder) ReadAccount(addr common.Address) (AccountState, bool) {
+func (r failedReadRecorder) ReadAccount(addr common.Address) (AccountState, common.Hash, bool) {
 	defer r.record()
 	return r.reader.ReadAccount(addr)
 }
