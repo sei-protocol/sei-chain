@@ -3,101 +3,94 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"time"
 
-	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
-	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
-	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 )
 
-// openAppHashBuilder opens the hash vault, the app hash builder over it, and the receipt and BUD hashers reporting
-// into it. It must run before the state DB opens, since the state DB submits each committed block to the BUD hasher.
-func (m *GigaStorageManager) openAppHashBuilder(ctx context.Context) error {
-	appHashConfig := m.cfg.AppHashBuilderConfig
-	hashVault, err := vault.NewStandardHashVault(
-		appHashConfig.HashVaultConfig, appHashConfig.ChainID, appHashConfig.GigaActivationHeight)
-	if err != nil {
-		return fmt.Errorf("open hash vault: %w", err)
-	}
-	m.appHashVault = hashVault
-	appHashBuilder, err := builder.NewStandardAppHashBuilder(ctx, *m.cfg.AppHashBuilderConfig, hashVault)
-	if err != nil {
-		return fmt.Errorf("open app hash builder: %w", err)
-	}
-	m.appHashBuilder = appHashBuilder
-	receiptHasher, err := receipthash.NewReceiptHasher(
-		ctx, *m.cfg.ReceiptHasherConfig, appHashBuilder.ReportReceiptHash)
-	if err != nil {
-		return fmt.Errorf("open receipt hasher: %w", err)
-	}
-	m.receiptHasher = receiptHasher
-	budHasher, err := bud.NewStandardBUDHasher(ctx, *m.cfg.BUDHasherConfig, appHashBuilder.ReportBUDHash)
-	if err != nil {
-		return fmt.Errorf("open BUD hasher: %w", err)
-	}
-	m.budHasher = budHasher
-	return nil
-}
-
 // completeAppHashBuilderSetup connects the state DB's hashes to the app hash builder, and completes its setup at the
-// height recovery left the state on, unless DeferAppHashBuilderSetup leaves the setup to the caller.
+// height recovery left the state on, unless deferSetup leaves the setup to the caller.
 //
 // It must run after every other store has recovered, and before any block is executed.
-func (m *GigaStorageManager) completeAppHashBuilderSetup(ctx context.Context) error {
-	stateHeight, err := m.SC().GetLatestVersion()
+func completeAppHashBuilderSetup(
+	ctx context.Context,
+	// Leaves SetupComplete() to the caller.
+	deferSetup bool,
+	stateDB *giga.StateDB,
+	appHashBuilder builder.AppHashBuilder,
+) error {
+	start := time.Now()
+	logger.Info("Completing the app hash builder setup")
+	stateHeight, err := stateDB.SC().GetLatestVersion()
 	if err != nil {
 		return fmt.Errorf("read state height: %w", err)
 	}
 	//nolint:gosec // state heights are non-negative
 	height := uint64(stateHeight)
-	if err := m.reportStateHashesToAppHashBuilder(height); err != nil {
-		return err
+	if err := reportStateHashesToAppHashBuilder(ctx, stateDB, appHashBuilder, height); err != nil {
+		return fmt.Errorf("connect the app hash builder to the state DB: %w", err)
 	}
-	if m.cfg.DeferAppHashBuilderSetup {
-		logger.Info("Leaving the app hash builder setup to the caller", "height", height)
+	if deferSetup {
+		logger.Info("Leaving the app hash builder setup to the caller",
+			"height", height, "elapsed", time.Since(start))
 		return nil
 	}
-	if err := m.appHashBuilder.SetupComplete(ctx, height); err != nil {
-		return fmt.Errorf("complete app hash builder setup at block %d: %w", height, err)
+	if err := appHashBuilder.SetupComplete(ctx, height); err != nil {
+		return fmt.Errorf("set up at block %d: %w", height, err)
 	}
+	logger.Info("Completed the app hash builder setup", "height", height, "elapsed", time.Since(start))
 	return nil
 }
 
-// reportStateHashesToAppHashBuilder registers the app hash builder for the state hash of every block committed from
-// here on. Errors unless the first state hash delivered follows block height.
-func (m *GigaStorageManager) reportStateHashesToAppHashBuilder(
+// reportStateHashesToAppHashBuilder reports the state hash of block height to the app hash builder, and registers the
+// builder for the state hash of every block committed from here on. Errors unless the state stands at block height.
+//
+// The builder checks the reported hash against the app hash it already stores for block height, and halts the node
+// on a mismatch before its setup completes.
+func reportStateHashesToAppHashBuilder(
+	ctx context.Context,
+	stateDB *giga.StateDB,
+	appHashBuilder builder.AppHashBuilder,
 	// The block recovery left the state on.
 	height uint64,
 ) error {
 	// The blocks replayed during recovery are hashed asynchronously. Their hashes have to reach the listeners
-	// already registered before the builder registers, since the builder expects nothing at or below the
-	// recovered height.
-	if err := m.SC().FlushHashes(); err != nil {
+	// already registered before the builder registers, so that the builder's first delivery follows height.
+	if err := stateDB.SC().FlushHashes(); err != nil {
 		return fmt.Errorf("flush state hashes: %w", err)
 	}
-	stateHash, err := m.stateDB.RegisterHashListener(m.reportStateHash)
+	reportStateHash := stateHashReporter(appHashBuilder)
+	stateHash, err := stateDB.RegisterHashListener(reportStateHash)
 	if err != nil {
 		return fmt.Errorf("register app hash builder for state hashes: %w", err)
 	}
 	//nolint:gosec // state heights are non-negative
 	if stateHashHeight := uint64(stateHash.BlockNumber); stateHashHeight != height {
-		return fmt.Errorf("the state commit store delivers state hashes after block %d, but the state is at "+
+		return fmt.Errorf("the live state DB delivers state hashes after block %d, but the state is at "+
 			"block %d", stateHashHeight, height)
+	}
+	// Reported after registering, since only the registration hands over this hash. No block commits before
+	// the storage manager is returned, so nothing the listener delivers can precede it.
+	if err := reportStateHash(ctx, stateHash.BlockNumber, &stateHash); err != nil {
+		return fmt.Errorf("report the recovered state hash: %w", err)
 	}
 	return nil
 }
 
-// reportStateHash reports a committed block's state hash to the app hash builder.
-// Its signature is gigatypes.HashListener.
-func (m *GigaStorageManager) reportStateHash(ctx context.Context, blockNumber int64, hash *lthash.BlockHash) error {
-	//nolint:gosec // committed block numbers are non-negative
-	height := uint64(blockNumber)
-	stateHash := hash.Global.Checksum()
-	componentHashes := hashlog.FlatKVComponentHashes(hash)
-	if err := m.appHashBuilder.ReportStateHash(ctx, height, stateHash, componentHashes); err != nil {
-		return fmt.Errorf("report the state hash of block %d: %w", height, err)
+// stateHashReporter returns a listener that reports a committed block's state hash to appHashBuilder.
+func stateHashReporter(appHashBuilder builder.AppHashBuilder) gigatypes.HashListener {
+	return func(ctx context.Context, blockNumber int64, hash *lthash.BlockHash) error {
+		//nolint:gosec // committed block numbers are non-negative
+		height := uint64(blockNumber)
+		stateHash := hash.Global.Checksum()
+		componentHashes := hashlog.FlatKVComponentHashes(hash)
+		if err := appHashBuilder.ReportStateHash(ctx, height, stateHash, componentHashes); err != nil {
+			return fmt.Errorf("report the state hash of block %d: %w", height, err)
+		}
+		return nil
 	}
-	return nil
 }

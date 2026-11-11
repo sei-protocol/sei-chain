@@ -31,12 +31,13 @@ type producedSnapshot struct {
 // restoredHeight out before the next block is committed.
 func produceSnapshot(t *testing.T) producedSnapshot {
 	t.Helper()
-	producer, _ := openManager(t, disableSS)
+	producer, producerCfg := openManager(t, disableSS)
 	commitBlocks(t, producer, restoredHeight-1)
 	reportTestBlockHash(t, producer, restoredHeight)
-	snapshotSCAt(t, producer, restoredHeight)
+	snapshotLiveStateDBAt(t, producer.StateDB(), restoredHeight)
+	require.NoError(t, producer.ReceiptHasher().Submit(t.Context(), restoredHeight, nil))
 	snapshotDir := filepath.Join(t.TempDir(), "snapshot")
-	require.NoError(t, flatkv.HardLinkSnapshot(producer.cfg.FlatKVConfig.DataDir, restoredHeight, snapshotDir))
+	require.NoError(t, flatkv.HardLinkSnapshot(producerCfg.FlatKVConfig.DataDir, restoredHeight, snapshotDir))
 	require.NoError(t, flatkv.VerifySnapshotDir(snapshotDir, restoredHeight))
 	commitNextBlock(t, producer)
 	appHashes := publishedAppHashes(t, producer, restoredHeight, restoredHeight+1)
@@ -98,7 +99,7 @@ func TestRestoredHomeCompletesSetupFromTheAnchor(t *testing.T) {
 	produced := produceSnapshot(t)
 	manager := openRestoredHome(t, restoredHome(t, produced.snapshotDir))
 
-	version, err := manager.SC().GetLatestVersion()
+	version, err := manager.StateDB().SC().GetLatestVersion()
 	require.NoError(t, err)
 	require.Equal(t, int64(restoredHeight), version)
 	_, _, _, err = manager.AppHashBuilder().Bounds()

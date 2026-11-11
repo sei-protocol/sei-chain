@@ -140,6 +140,8 @@ func NewStandardAppHashBuilder(
 	config AppHashBuilderConfig,
 	hashVault vault.HashVault,
 ) (*StandardAppHashBuilder, error) {
+	start := time.Now()
+	logger.Info("Opening the app hash builder")
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid app hash builder config: %w", err)
 	}
@@ -169,6 +171,7 @@ func NewStandardAppHashBuilder(
 		pendingBlocks:          make(map[uint64]*pendingBlock),
 	}
 	b.wg.Go(b.run)
+	logger.Info("Opened the app hash builder", "elapsed", time.Since(start))
 	return b, nil
 }
 

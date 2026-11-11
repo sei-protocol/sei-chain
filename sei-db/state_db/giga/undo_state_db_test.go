@@ -2,6 +2,7 @@ package giga
 
 import (
 	"encoding/binary"
+	"fmt"
 	"maps"
 	"math/big"
 	"math/rand/v2"
@@ -17,7 +18,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
 // undoTestHome holds the configs a StateDB over an undo-log SS reopens from.
@@ -216,10 +219,8 @@ func TestUndoStateDBRollsBackByDiscardingLaterRecords(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	// The rollback to 9 discards every record above it.
-	db, err := NewStateDBWithRollback(
-		t.Context(), home.flatkv, home.ss, config.CheckpointConfig{BlockInterval: 1_000},
-		newDiscardingBUDHasher(t), 9)
-	require.NoError(t, err)
+	require.NoError(t, home.rollBack(t, 9))
+	db = home.open(t)
 	defer func() { require.NoError(t, db.Close()) }()
 	require.Equal(t, int64(9), db.UndoSS().GetLatestVersion())
 
@@ -232,11 +233,37 @@ func TestUndoStateDBRollsBackByDiscardingLaterRecords(t *testing.T) {
 	model.requireHistory(t, db, 0, 16, [][]byte{nonceKey(addr), nonceKey(other)})
 }
 
-// rollBackTo reopens home's stores rolled back to target.
-func (h undoTestHome) rollBackTo(t *testing.T, target int64) (*StateDB, error) {
+// rollBack rolls home's live state DB, historical state DB and state WAL back to target, in the order the storage
+// manager's startup does.
+func (h undoTestHome) rollBack(t *testing.T, target uint64) error {
 	t.Helper()
-	return NewStateDBWithRollback(t.Context(), h.flatkv, h.ss, config.CheckpointConfig{BlockInterval: 1_000},
-		newDiscardingBUDHasher(t), target)
+	if err := flatkv.RollBackLiveStateDB(t.Context(), h.flatkv, testCheckpointConfig, target); err != nil {
+		return fmt.Errorf("roll back the live state DB: %w", err)
+	}
+	if err := undo.DiscardStateAbove(h.ss.EVMDBDirectory, h.ss, target); err != nil {
+		return fmt.Errorf("roll back the historical state DB: %w", err)
+	}
+	if err := statewal.PruneAfter(flatkv.StateWALConfig(h.flatkv.DataDir), target); err != nil {
+		return fmt.Errorf("roll back the state WAL: %w", err)
+	}
+	return nil
+}
+
+// The historical state DB is cut back to the target along with the live state DB, its records of the
+// blocks above it going with them.
+func TestRollbackCutsTheHistoricalStateDBBackToTheWALHead(t *testing.T) {
+	home := newUndoTestHome(t)
+	db := home.open(t)
+	commitNonceBlocks(t, db, 1, 3)
+	require.NoError(t, db.Close())
+	truncateWAL(t, home, 2)
+
+	require.NoError(t, home.rollBack(t, 2))
+
+	db = home.open(t)
+	defer func() { require.NoError(t, db.Close()) }()
+	require.Equal(t, int64(2), db.UndoSS().GetLatestVersion())
+	commitNonceBlocks(t, db, 3, 3)
 }
 
 // A rollback above the undo log's head is legal. The log holds no records of the blocks between its head
@@ -252,8 +279,8 @@ func TestUndoStateDBRollbackAboveTheLogServesFromTheTarget(t *testing.T) {
 	require.NoError(t, db.Close())
 	require.NoError(t, undo.DiscardStateAbove(home.ss.EVMDBDirectory, home.ss, 5))
 
-	db, err := home.rollBackTo(t, 9)
-	require.NoError(t, err)
+	require.NoError(t, home.rollBack(t, 9))
+	db = home.open(t)
 	defer func() { require.NoError(t, db.Close()) }()
 	require.Equal(t, int64(9), db.SC().Version())
 	require.Equal(t, int64(9), db.UndoSS().GetLatestVersion())
@@ -279,8 +306,8 @@ func TestUndoStateDBRollbackTakesAnEmptyLog(t *testing.T) {
 	require.NoError(t, db.Close())
 	require.NoError(t, os.RemoveAll(home.ss.EVMDBDirectory))
 
-	db, err := home.rollBackTo(t, 9)
-	require.NoError(t, err)
+	require.NoError(t, home.rollBack(t, 9))
+	db = home.open(t)
 	defer func() { require.NoError(t, db.Close()) }()
 	require.Equal(t, int64(9), db.UndoSS().GetLatestVersion())
 	require.Equal(t, int64(9), db.UndoSS().GetEarliestVersion())

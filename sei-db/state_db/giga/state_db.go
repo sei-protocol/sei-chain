@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 
@@ -68,10 +69,8 @@ const commitPhaseTimerName = "giga_state_commit"
 const gigaMeterName = "seidb_giga"
 
 // NewStateDB opens the live state DB, the historical state DB and the state WAL from their configs, and
-// puts the live state DB on its checkpoint schedule.
-//
-// Both state DBs are put on the WAL's head, so the returned StateDB commits the block after it.
-// NewStateDBWithRollback opens them on an earlier height instead.
+// puts the live state DB on its checkpoint schedule, so the returned StateDB commits the block after the WAL's
+// head. It errors when the live state DB does not stand at that head; flatkv.RollBackLiveStateDB() brings it there.
 //
 // The returned StateDB owns all three stores and closes them on Close. A failed call closes whatever it
 // had already opened.
@@ -80,10 +79,11 @@ func NewStateDB(
 	flatkvCfg *flatkvconfig.Config,
 	ssCfg config.StateStoreConfig,
 	checkpointCfg config.CheckpointConfig,
-	// The hasher each committed block's mutations are submitted to. Blocks replayed while opening are not
-	// submitted.
+	// The hasher each committed block's mutations are submitted to.
 	budHasher bud.BUDHasher,
 ) (db *StateDB, retErr error) {
+	start := time.Now()
+	logger.Info("Opening the state DB")
 	s := &StateDB{
 		flatkvCfg: flatkvCfg,
 		ssCfg:     ssCfg,
@@ -94,70 +94,27 @@ func NewStateDB(
 	s.closed = utils.MustClose(s, "giga state DB")
 	defer s.closeOnFailure(&retErr)
 
-	wal, err := s.storedWALRange()
-	if err != nil {
-		return nil, err
-	}
-	// Before either store opens, the rewinds it may run needing their files closed.
-	if err := s.discardStateAboveTheWAL(wal); err != nil {
-		return nil, err
-	}
 	if err := s.openSS(); err != nil {
 		return nil, err
 	}
-	if err := s.openSC(ctx); err != nil {
+	liveStateDB, err := openLiveStateDB(ctx, flatkvCfg)
+	if err != nil {
 		return nil, err
 	}
+	s.sc = liveStateDB
 	if err := s.openWAL(); err != nil {
 		return nil, err
 	}
 	s.startCheckpointSchedule(checkpointCfg)
 
-	if err := s.catchUpToWAL(ctx); err != nil {
+	if err := s.requireLiveStateDBAtTheWALHead(); err != nil {
 		return nil, err
 	}
 	if err := s.resumeUndoLogOverHeldState(); err != nil {
 		return nil, err
 	}
+	logger.Info("Opened the state DB", "elapsed", time.Since(start))
 	return s, nil
-}
-
-// NewStateDBWithRollback rolls the live state DB, the historical state DB and the state WAL back to target
-// and opens them, so the returned StateDB commits target+1.
-//
-// target must be positive, and a target the WAL and the live state DB's snapshots cannot span is refused.
-// A refusal leaves the WAL uncut, so no target this one could reach is lost. A target outside the history
-// the historical state DB holds narrows the heights it serves to the target.
-func NewStateDBWithRollback(
-	ctx context.Context,
-	flatkvCfg *flatkvconfig.Config,
-	ssCfg config.StateStoreConfig,
-	checkpointCfg config.CheckpointConfig,
-	// The hasher each committed block's mutations are submitted to. Blocks replayed while opening are not
-	// submitted.
-	budHasher bud.BUDHasher,
-	target int64,
-) (*StateDB, error) {
-	if target <= 0 {
-		// An empty WAL has a head of 0, which rewindTo reads as nothing to rewind, so without this a
-		// caller asking for a rollback would get a plain open instead.
-		return nil, fmt.Errorf("rollback target %d is invalid: version 0 means no state, so there is "+
-			"nothing to roll back to", target)
-	}
-
-	// rewindTo only moves files, so it needs no store open, only where they live.
-	offline := &StateDB{flatkvCfg: flatkvCfg, ssCfg: ssCfg}
-	if err := offline.rewindTo(target); err != nil {
-		return nil, err
-	}
-	db, err := NewStateDB(ctx, flatkvCfg, ssCfg, checkpointCfg, budHasher)
-	if err != nil {
-		return nil, err
-	}
-	if err := db.matchHeight(target); err != nil {
-		return nil, errors.Join(fmt.Errorf("cannot roll back to %d: %w", target, err), db.Close())
-	}
-	return db, nil
 }
 
 // closeOnFailure closes the stores a failed open had reached, so a caller that gets an error holds no
@@ -181,23 +138,34 @@ func (s *StateDB) openWAL() error {
 	return nil
 }
 
-// openSC opens SC with no WAL of its own, on the version its files hold: the working copy, or the
-// snapshot a rollback has just repointed it at. It replays nothing, so it comes up at or below the
-// WAL's head and catchUpTo carries it forward from there.
-func (s *StateDB) openSC(ctx context.Context) error {
-	sc, err := flatkv.NewCommitStore(ctx, s.flatkvCfg, nil)
+// openLiveStateDB opens the live state DB with no WAL of its own, on the version its files hold. It replays
+// nothing.
+func openLiveStateDB(ctx context.Context, flatkvCfg *flatkvconfig.Config) (_ *flatkv.CommitStore, retErr error) {
+	liveStateDB, err := flatkv.NewCommitStore(ctx, flatkvCfg, nil)
 	if err != nil {
-		return fmt.Errorf("open state commit store: %w", err)
+		return nil, fmt.Errorf("open the live state DB: %w", err)
 	}
-	s.sc = sc
+	defer func() {
+		if retErr != nil {
+			retErr = errors.Join(retErr, closeLiveStateDB(liveStateDB))
+		}
+	}()
 	// Every readonly-* directory under the store is deleted, so this has to run before the process
 	// opens a read-only view of its own: after that, the ones a crashed process left are no longer
 	// the only ones there.
-	if err := s.sc.CleanupOrphanedReadOnlyDirs(); err != nil {
-		return fmt.Errorf("clean up orphaned state commit read-only dirs: %w", err)
+	if err := liveStateDB.CleanupOrphanedReadOnlyDirs(); err != nil {
+		return nil, fmt.Errorf("clean up the live state DB's orphaned read-only dirs: %w", err)
 	}
-	if err := s.sc.LoadWorkingCopy(); err != nil {
-		return fmt.Errorf("load the state commit store: %w", err)
+	if err := liveStateDB.LoadWorkingCopy(); err != nil {
+		return nil, fmt.Errorf("load the live state DB: %w", err)
+	}
+	return liveStateDB, nil
+}
+
+// closeLiveStateDB closes liveStateDB, naming it in the error.
+func closeLiveStateDB(liveStateDB *flatkv.CommitStore) error {
+	if err := liveStateDB.Close(); err != nil {
+		return fmt.Errorf("close the live state DB: %w", err)
 	}
 	return nil
 }
@@ -251,52 +219,24 @@ func (s *StateDB) startCheckpointSchedule(cfg config.CheckpointConfig) {
 	s.sc.SetCheckpointScheduler(s.checkpointer)
 }
 
-// storedWALRange is the block range a state WAL holds on disk: the lowest and highest blocks in it,
-// both 0 when it holds none.
-type storedWALRange struct {
-	first, last int64
-}
-
-// walConfig returns the config that locates the state WAL on disk.
-func (s *StateDB) walConfig() *statewal.Config {
-	return flatkv.StateWALConfig(s.flatkvCfg.DataDir)
-}
-
-// storedWALRange reads the state WAL's block range from its directory. It takes that directory's
-// exclusive lock, so it is only for the window before the WAL opens; GetStoredRange on the open handle
-// answers the same question afterwards.
-func (s *StateDB) storedWALRange() (storedWALRange, error) {
-	stored, first, last, err := statewal.GetRange(s.walConfig())
+// requireLiveStateDBAtTheWALHead errors unless the live state DB stands at the WAL's head. An empty WAL is the
+// state a node starts from transplanted state in, with no head to check against, so it instead repairs a
+// working copy an interrupted commit left torn.
+func (s *StateDB) requireLiveStateDBAtTheWALHead() error {
+	stored, _, last, err := s.wal.GetStoredRange()
 	if err != nil {
-		return storedWALRange{}, fmt.Errorf("read state WAL range: %w", err)
+		return fmt.Errorf("read state WAL range: %w", err)
 	}
 	if !stored {
-		return storedWALRange{}, nil
+		if err := s.sc.RebuildIfTorn(); err != nil {
+			return fmt.Errorf("repair the live state DB's working copy: %w", err)
+		}
+		return nil
 	}
-	//nolint:gosec // a block number never approaches the int64 ceiling
-	return storedWALRange{first: int64(first), last: int64(last)}, nil
-}
-
-// openWALRange reads the block range from the open WAL handle, which storedWALRange's directory lock
-// rules out reading once the WAL is open.
-func (s *StateDB) openWALRange() (storedWALRange, error) {
-	stored, first, last, err := s.wal.GetStoredRange()
-	if err != nil {
-		return storedWALRange{}, fmt.Errorf("read state WAL range: %w", err)
-	}
-	if !stored {
-		return storedWALRange{}, nil
-	}
-	//nolint:gosec // a block number never approaches the int64 ceiling
-	return storedWALRange{first: int64(first), last: int64(last)}, nil
-}
-
-// truncateWAL drops every WAL block above target so the next commit is target+1. A live WAL prunes only
-// from its start, so this cuts the tail through the directory, which requires that no WAL be open on it.
-func (s *StateDB) truncateWAL(target int64) error {
-	//nolint:gosec // target > 0 here, checked by NewStateDBWithRollback
-	if err := statewal.PruneAfter(s.walConfig(), uint64(target)); err != nil {
-		return fmt.Errorf("truncate state WAL to %d: %w", target, err)
+	//nolint:gosec // live state DB versions are never negative
+	if version := uint64(s.sc.Version()); version != last {
+		return fmt.Errorf("the live state DB is at %d but the state WAL ends at %d; roll the live state DB "+
+			"back to align them", version, last)
 	}
 	return nil
 }

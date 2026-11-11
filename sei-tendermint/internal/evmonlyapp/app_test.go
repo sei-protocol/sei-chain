@@ -182,9 +182,9 @@ func TestEVMOnlyAppWithoutEpochStateWritesNoEpochStateRows(t *testing.T) {
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
 	require.NoError(t, app.AwaitCommits())
 
-	_, found := app.storage.SC().Get(epochStateModule, []byte(epochStateEpochRegistryKey))
+	_, found := app.storage.StateDB().SC().Get(epochStateModule, []byte(epochStateEpochRegistryKey))
 	require.False(t, found)
-	_, found = app.storage.SC().Get(epochStateModule, []byte(epochStateNextEpochKey))
+	_, found = app.storage.StateDB().SC().Get(epochStateModule, []byte(epochStateNextEpochKey))
 	require.False(t, found)
 }
 
@@ -232,7 +232,7 @@ func epochStateRowCount(misc []gigatypes.MiscChange) int {
 
 func evmOnlyEpochStateRow(t *testing.T, app *evmOnlyApplication, key string) []byte {
 	t.Helper()
-	raw, found := app.storage.SC().Get(epochStateModule, []byte(key))
+	raw, found := app.storage.StateDB().SC().Get(epochStateModule, []byte(key))
 	require.True(t, found)
 	return raw
 }
@@ -320,56 +320,40 @@ func openEVMOnlyTestStorageAt(t *testing.T, home string) *bootstrap.GigaStorageM
 	return openEVMOnlyTestStorage(t, storageConfig)
 }
 
-// reportMissingBlockHashes reports a block hash for each committed height the app hash vault does
-// not yet hold, then waits until the vault stores the state version's app hash. It returns nil when
-// the state version is 0.
+// reportMissingBlockHashes reports a block hash for each committed height above the newest app hash the
+// builder has published, so the builder can build the app hash of every committed block.
 func reportMissingBlockHashes(manager *bootstrap.GigaStorageManager) error {
-	if manager.SC() == nil || manager.AppHashBuilder() == nil || manager.AppHashVault() == nil {
-		return fmt.Errorf("report missing block hashes: storage is not open")
-	}
-	version, err := manager.SC().GetLatestVersion()
+	version, err := manager.StateDB().SC().GetLatestVersion()
 	if err != nil {
 		return fmt.Errorf("read state height: %w", err)
 	}
-	if version <= 0 {
-		return nil
-	}
 	//nolint:gosec // state heights are non-negative
 	height := uint64(version)
-	stored, err := manager.AppHashVault().GetLatestBlock()
+	_, published, ok, err := manager.AppHashBuilder().Bounds()
 	if err != nil {
-		return fmt.Errorf("read app hash vault head: %w", err)
+		return fmt.Errorf("read the published app hash bounds: %w", err)
 	}
-	for n := stored + 1; n <= height; n++ {
+	if !ok {
+		published = 0
+	}
+	for n := published + 1; n <= height; n++ {
 		var blockHash [32]byte
 		binary.BigEndian.PutUint64(blockHash[:8], n)
 		if err := manager.AppHashBuilder().ReportBlockHash(context.Background(), n, blockHash); err != nil {
 			return fmt.Errorf("report the block hash of block %d: %w", n, err)
 		}
 	}
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		head, err := manager.AppHashVault().GetLatestBlock()
-		if err != nil {
-			return fmt.Errorf("read app hash vault head: %w", err)
-		}
-		if head >= height {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("the app hash of block %d was not stored within 10s", height)
-		}
-		time.Sleep(time.Millisecond)
-	}
+	return nil
 }
 
 // closeEVMOnlyTestApp closes storage the way the node does: after the
 // application has landed every block commit it started.
 //
-// It also waits for the app hash of every committed block. A test's block
-// store is empty, so a reopen skips recovery, and the app hash builder resumes
-// at the state's height only when it holds the app hashes up to it. A node
-// lowers its recovery target to the app hashes it holds instead.
+// It also reports the block hash of every committed block, so closing stores
+// each one's app hash. A test's block store is empty, so a reopen skips
+// recovery, and the app hash builder resumes at the state's height only when it
+// holds the app hashes up to it. A node lowers its recovery target to the app
+// hashes it holds instead.
 func closeEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap.GigaStorageManager) {
 	t.Helper()
 	settler, ok := app.(*evmOnlyApplication)
@@ -1279,7 +1263,7 @@ func TestEVMOnlyApplicationReadsSettleBehindFinalizeBlock(t *testing.T) {
 	settler, ok := app.(*evmOnlyApplication)
 	require.True(t, ok)
 	require.NoError(t, settler.AwaitCommits())
-	latest, err := settler.storage.SC().GetLatestVersion()
+	latest, err := settler.storage.StateDB().SC().GetLatestVersion()
 	require.NoError(t, err)
 	require.Equal(t, int64(4), latest)
 }
@@ -1357,7 +1341,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	_, err = app.Commit(t.Context())
 	require.Error(t, err)
 	require.Equal(t, int64(1), app.LastBlockHeight())
-	latest, err := storage.SC().GetLatestVersion()
+	latest, err := storage.StateDB().SC().GetLatestVersion()
 	require.NoError(t, err)
 	require.Equal(t, int64(0), latest)
 }
