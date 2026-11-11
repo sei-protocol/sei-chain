@@ -106,7 +106,7 @@ jobs:
 
       # The file describing the upgrade being shipped sits behind a build tag,
       # so the shards above compile none of it. The target derives the tag from
-      # app/tags rather than taking one from here, which is what stops this step
+      # app/upgradenames/tags rather than taking one from here, which is what stops this step
       # from going on running an upgrade that already shipped.
       - name: Minor upgrade test
         run: make upgrade-test

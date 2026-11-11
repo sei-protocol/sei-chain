@@ -76,6 +76,20 @@ func TestConfigTemplateRendersTheDefaults(t *testing.T) {
 	require.Equal(t, gigaconfig.DefaultConfig, cfg)
 }
 
+func TestConfigTemplateRendersSkipUpgrades(t *testing.T) {
+	tmpl := template.Must(template.New("giga").Parse(gigaconfig.ConfigTemplate))
+	want := gigaconfig.DefaultConfig
+	want.Execution.UnsafeSkipUpgrades = []uint64{100, 101}
+	var rendered bytes.Buffer
+	require.NoError(t, tmpl.Execute(&rendered, struct{ Giga gigaconfig.Config }{want}))
+	v := viper.New()
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadConfig(&rendered))
+	cfg, err := gigaconfig.ReadConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, want, cfg)
+}
+
 func TestReadConfigReadsEveryKey(t *testing.T) {
 	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{
 		"giga.storage.mode":                         "full",
@@ -91,6 +105,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.execution.block_result_pool_size":     "4",
 		"giga.execution.evm_rpc_port":               "8600",
 		"giga.execution.evm_ws_port":                "8601",
+		"giga.execution.unsafe_skip_upgrades":       []int{100, 101},
 		"giga.rpc.max_subscriptions_new_head":       "20",
 		"giga.rpc.max_subscriptions_logs":           "15",
 		"giga.rpc.max_subscriptions_per_connection": "5",
@@ -130,6 +145,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			BlockResultPoolSize: 4,
 			EvmRpcPort:          8600,
 			EvmWsPort:           8601,
+			UnsafeSkipUpgrades:  []uint64{100, 101},
 		},
 		RPC: gigaconfig.RPCConfig{
 			MaxSubscriptionsNewHead:       20,
@@ -174,6 +190,8 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"evm ws port zero":                {"giga.execution.evm_ws_port": "0"},
 		"evm ws port too high":            {"giga.execution.evm_ws_port": "65536"},
 		"evm ws port is rpc port":         {"giga.execution.evm_ws_port": "8545"},
+		"zero skip height":                {"giga.execution.unsafe_skip_upgrades": []int{0}},
+		"negative skip height":            {"giga.execution.unsafe_skip_upgrades": []int{-1}},
 		"negative subscription cap":       {"giga.rpc.max_subscriptions_new_head": "-1"},
 		"non-numeric logs cap":            {"giga.rpc.max_subscriptions_logs": "lots"},
 		"non-numeric per-connection cap":  {"giga.rpc.max_subscriptions_per_connection": "many"},

@@ -34,7 +34,7 @@ rather than skipping the row or widening the assertion until it passes.
 
 ## Upgrade names
 
-Appending a name to `app/tags` moves the upgrade boundary this build ships, and
+Appending a name to `app/upgradenames/tags` moves the upgrade boundary this build ships, and
 `upgradetest` derives from that list which test set CI runs. The move fails
 `TestCurrentBoundaryHasATestFile` until a file for the new boundary exists, and
 that failure is the review prompt: state what the upgrade changes and what it may
