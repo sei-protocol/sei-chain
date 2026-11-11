@@ -99,7 +99,7 @@ func TestEveryStoreAdvancesTogether(t *testing.T) {
 		"the state DB should be committed to the same height as the block store")
 
 	require.NotNil(t, manager.ReceiptDB(), "receipts were enabled, so the receipt store should be open")
-	require.NotNil(t, manager.SS(), "the state store was enabled, so it should be open")
+	require.NotNil(t, manager.StateDB().UndoSS(), "the state store was enabled, so it should be open")
 	require.True(t, dirHasContents(t, storageConfig.ReceiptDBConfig.DBDirectory),
 		"receipts were enabled, so the receipt store should hold data")
 }
@@ -253,7 +253,7 @@ func TestDisabledStoresAreNeverWritten(t *testing.T) {
 	defer func() { require.NoError(t, manager.Close()) }()
 
 	require.Nil(t, manager.ReceiptDB(), "receipts were disabled, so no receipt store should be open")
-	require.Nil(t, manager.SS(), "the state store was disabled, so it should not be open")
+	require.Nil(t, manager.StateDB().UndoSS(), "the state store was disabled, so it should not be open")
 }
 
 // TestGenerationRunsAheadOfExecution pins the shape of the pipeline: the generator writes a block to

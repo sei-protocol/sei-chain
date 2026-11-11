@@ -4,22 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// OpenDBWithRecovery opens every store and brings them onto one height after an unclean shutdown: the lowest
-// head among the block store, the state WAL, the receipt store and the app hash vault. After recovery:
-//  1. Every store is at or below the block store's height.
-//  2. Every store other than the block store is on that height, unless it holds no history at all, in which
-//     case it is left empty to fill forward from it.
-//
-// If the block store or the state WAL is empty, no store is moved.
+// OpenDBWithRecovery opens every store and, after an unclean shutdown, brings them onto the lowest height any
+// of them holds. Every store other than the block store ends on that height, except one holding no history,
+// which is left empty to fill forward. No store is moved when the block store or the state WAL is empty.
 func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	// Each stage is announced before it runs. Opening a store or reading its head loads that store's
 	// index, which on a large one is minutes of work, and a stage that reported only on completion
@@ -29,6 +28,9 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 		return err
 	}
 	if err := m.requireNoReceiptStoreWhileDisabled(); err != nil {
+		return err
+	}
+	if err := m.requireNoHistoricalStateDBWhileDisabled(); err != nil {
 		return err
 	}
 	targetHeight, err := m.findTargetRecoveryHeight()
@@ -113,6 +115,17 @@ func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	historicalStateHead := utils.None[uint64]()
+	if m.cfg.SSConfig.Enable {
+		logger.Info("Reading a store head", "store", "historical state DB")
+		present, head, err := undo.GetLatestBlock(m.cfg.SSConfig.EVMDBDirectory)
+		if err != nil {
+			return 0, fmt.Errorf("read historical state DB head: %w", err)
+		}
+		if present {
+			historicalStateHead = utils.Some(head)
+		}
+	}
 	var receiptHeight uint64
 	if m.cfg.ReceiptDBConfig.Enable {
 		logger.Info("Reading a store head", "store", "receipt store")
@@ -126,13 +139,18 @@ func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("read app hash vault head: %w", err)
 	}
-	target, err := recoveryTarget(blockHeight, stateHeight, receiptHeight, appHashHeight)
+	target, err := recoveryTarget(blockHeight, stateHeight, historicalStateHead, receiptHeight, appHashHeight)
 	if err != nil {
 		return 0, err
+	}
+	var historicalStateLogged any = "none"
+	if head, present := historicalStateHead.Get(); present {
+		historicalStateLogged = head
 	}
 	logger.Info("Read the store heads recovery converges on",
 		"block_store", blockHeight,
 		"state_wal", stateHeight,
+		"historical_state_db", historicalStateLogged,
 		"receipt_store", receiptHeight,
 		"app_hash_vault", appHashHeight,
 		"target", target)
@@ -161,6 +179,27 @@ func (m *GigaStorageManager) requireNoReceiptStoreWhileDisabled() error {
 		ErrReceiptStoreDisabledWithHistory, head, m.cfg.ReceiptDBConfig.DBDirectory)
 }
 
+// requireNoHistoricalStateDBWhileDisabled refuses to run with the historical state DB disabled while its
+// directory holds anything. Re-enabling it would converge every store on its stale head.
+func (m *GigaStorageManager) requireNoHistoricalStateDBWhileDisabled() error {
+	if m.cfg.SSConfig.Enable {
+		return nil
+	}
+	dir := m.cfg.SSConfig.EVMDBDirectory
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read disabled historical state DB directory: %w", err)
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	return fmt.Errorf("historical state DB is disabled but %s is not empty; move that directory away to run "+
+		"without it, or enable it again", dir)
+}
+
 // stateWALHead returns the last block the state WAL holds, or 0 when it holds none.
 //
 // It reads the WAL directory rather than an open WAL, which takes that directory's exclusive lock, so
@@ -177,8 +216,9 @@ func (m *GigaStorageManager) stateWALHead() (uint64, error) {
 }
 
 // recoveryTarget folds the store heads into the height they converge on: the lowest of them, with a
-// receipt store that holds nothing left out rather than dragging the target down to 0. Receipts newly
-// enabled on a node with history have nothing to disagree with, and start filling at the target.
+// historical state DB or receipt store that holds nothing left out rather than dragging the target down to
+// 0. A store newly enabled on a node with history has nothing to disagree with, and starts filling at the
+// target.
 //
 // An empty block store or state WAL instead yields 0, which skips recovery. Neither is unambiguous the
 // way an empty receipt store is: state whose WAL was pruned away behind a snapshot still exists with an
@@ -190,6 +230,8 @@ func (m *GigaStorageManager) stateWALHead() (uint64, error) {
 func recoveryTarget(
 	blockHeight uint64,
 	stateHeight uint64,
+	// The newest block the historical state DB holds, None when it holds none or is disabled.
+	historicalStateHead utils.Option[uint64],
 	receiptHeight uint64,
 	// The newest block whose app hash the vault holds, or the block before the giga activation height when
 	// it holds none.
@@ -199,6 +241,9 @@ func recoveryTarget(
 		return 0, nil
 	}
 	target := min(blockHeight, stateHeight)
+	if head, present := historicalStateHead.Get(); present {
+		target = min(target, head)
+	}
 	if receiptHeight > 0 {
 		target = min(target, receiptHeight)
 	}
