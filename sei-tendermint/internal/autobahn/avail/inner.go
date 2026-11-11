@@ -155,7 +155,7 @@ type loadedState struct {
 
 // newInner restores WAL records under the anchor's epochs.
 func newInner(anchor data.Anchor, genesisTimestamp time.Time, loaded *loadedState) (*inner, error) {
-	first := anchor.FirstIndex()
+	first := anchor.NextIndex()
 	epoch := anchor.EpochAt(first).OrPanic("anchor first road epoch")
 	roads := newQueue[types.RoadIndex, *road]()
 	roads.prune(first)
@@ -327,7 +327,7 @@ func (i *inner) setAnchor(anchor data.Anchor) {
 			delete(i.lanes, lane)
 		}
 	}
-	first := anchor.FirstIndex()
+	first := anchor.NextIndex()
 	i.roads.prune(first)
 	i.nextCommitQCToPersist = max(i.nextCommitQCToPersist, first)
 	qc := anchor.CommitQC()

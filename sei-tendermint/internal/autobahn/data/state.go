@@ -682,52 +682,6 @@ func (s *State) AppQC(ctx context.Context, n types.RoadIndex) (*types.AppQC, err
 	return s.appQCFromDB(n)
 }
 
-// AnchorFirst is the highest road index for which AppQC is persisted.
-// It it also the lowest (first) road index stored in-memory by data.State.
-type AnchorFirst struct {
-	CommitQC *types.CommitQC
-	AppQC    *types.AppQC
-}
-
-// Anchor contains the retained certified road and its epoch and successor.
-// First is absent before a certified road is retained.
-type Anchor struct {
-	First  utils.Option[AnchorFirst]
-	Epochs [2]*types.Epoch
-}
-
-// EpochAt returns the anchor epoch containing road, or None if neither contains it.
-func (a Anchor) EpochAt(road types.RoadIndex) utils.Option[*types.Epoch] {
-	for _, e := range a.Epochs {
-		if e.RoadRange().Has(road) {
-			return utils.Some(e)
-		}
-	}
-	return utils.None[*types.Epoch]()
-}
-
-// CommitQC returns the certified anchor's CommitQC, or None when First is absent.
-func (a Anchor) CommitQC() utils.Option[*types.CommitQC] {
-	if first, ok := a.First.Get(); ok {
-		return utils.Some(first.CommitQC)
-	}
-	return utils.None[*types.CommitQC]()
-}
-
-// FirstCommitEpoch returns the epoch containing the first road after the anchor.
-func (a Anchor) FirstCommitEpoch() *types.Epoch {
-	return a.EpochAt(a.FirstIndex()).OrPanic("anchor first commit epoch")
-}
-
-// FirstIndex returns the road after the certified anchor, or the first epoch's
-// starting road when First is absent.
-func (a Anchor) FirstIndex() types.RoadIndex {
-	if qc, ok := a.CommitQC().Get(); ok {
-		return qc.Index() + 1
-	}
-	return a.Epochs[0].RoadRange().First
-}
-
 // Anchor returns the retained certified road and its two epochs.
 func (s *State) Anchor() utils.AtomicRecv[Anchor] { return s.anchor }
 
