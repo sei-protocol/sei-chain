@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"errors"
 	"math/big"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -393,4 +395,52 @@ func TestAwaitReceipts(t *testing.T) {
 	t.Run("no receipt store", func(t *testing.T) {
 		require.ErrorIs(t, awaitReceipts(nil, 10, time.Second), receipt.ErrNotConfigured)
 	})
+}
+
+// panickingReceiptStore is a receipt.ReceiptStore whose LatestVersion panics with panicWith().
+type panickingReceiptStore struct {
+	receipt.ReceiptStore
+	panicWith func() any
+}
+
+func (s *panickingReceiptStore) LatestVersion() int64 {
+	panic(s.panicWith())
+}
+
+func subscriptionAPIWithReceiptStore(store receipt.ReceiptStore) *SubscriptionAPI {
+	k := &keeper.Keeper{}
+	k.SetReceiptStoreForTesting(store)
+	return &SubscriptionAPI{logFetcher: &LogFetcher{k: k}}
+}
+
+// TestReadReceiptTotalsReturnsUnavailableReadAsError verifies that a receipt
+// read that panics with an error yields that error, which newHeads answers
+// with its fallback totals instead of ending its goroutine.
+func TestReadReceiptTotalsReturnsUnavailableReadAsError(t *testing.T) {
+	cause := errors.New("pebble: closed")
+	a := subscriptionAPIWithReceiptStore(&panickingReceiptStore{panicWith: func() any { return cause }})
+
+	_, err := a.readReceiptTotals(5)
+
+	require.ErrorIs(t, err, cause)
+	require.ErrorContains(t, err, "receipts of height 5 are unreadable")
+}
+
+// TestReadReceiptTotalsRepanicsBugs verifies that a panic that marks a bug,
+// a runtime error or a non-error value, is raised again rather than passed
+// off as unreadable receipts.
+func TestReadReceiptTotalsRepanicsBugs(t *testing.T) {
+	var runtimeErr runtime.Error
+	func() {
+		defer func() {
+			r, ok := recover().(error)
+			require.True(t, ok && errors.As(r, &runtimeErr), "expected a runtime error panic")
+		}()
+		var heights []int64
+		a := subscriptionAPIWithReceiptStore(&panickingReceiptStore{panicWith: func() any { return heights[1] }})
+		_, _ = a.readReceiptTotals(5)
+	}()
+
+	a := subscriptionAPIWithReceiptStore(&panickingReceiptStore{panicWith: func() any { return "boom" }})
+	require.PanicsWithValue(t, "boom", func() { _, _ = a.readReceiptTotals(5) })
 }

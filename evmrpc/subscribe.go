@@ -162,13 +162,15 @@ func (a *SubscriptionAPI) newHeadReceiptTotals(height int64, txResults []*abci.E
 	return totals
 }
 
-// readReceiptTotals returns the receiptTotals of the block at height once its receipts are written, or an
-// error when they are not written within newHeadReceiptsTimeout or cannot be read.
+// readReceiptTotals returns the receiptTotals of the block at height once its receipts are written. It
+// returns an error when they are not written within newHeadReceiptsTimeout or cannot be read, and, like
+// ctxAtHeight, re-raises a panic that is not an error or is a runtime.Error.
 func (a *SubscriptionAPI) readReceiptTotals(height int64) (totals receiptTotals, err error) {
-	// This runs on the goroutine that serves every newHeads subscriber, which a panic would end.
+	// This runs on the goroutine that serves every newHeads subscriber, so a read that panics because its
+	// data is unavailable takes the fallback rather than ending that goroutine.
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic reading the receipts of height %d: %v", height, r)
+			err = fmt.Errorf("receipts of height %d are unreadable: %w", height, errorFromPanic(r))
 		}
 	}()
 	f := a.logFetcher
