@@ -16,7 +16,7 @@ import (
 
 func TestConfigureStateSyncProofExportDisabled(t *testing.T) {
 	cfg := &p2p.GigaRouterCommonConfig{}
-	anchor := utils.NewAtomicSend(utils.None[data.Anchor]())
+	anchor := utils.NewAtomicSend(data.Anchor{})
 
 	configureStateSyncProofExport(
 		cfg,
@@ -32,7 +32,7 @@ func TestConfigureStateSyncProofExportDisabled(t *testing.T) {
 func TestConfigureStateSyncProofExportEnabled(t *testing.T) {
 	cfg := &p2p.GigaRouterCommonConfig{}
 	psd := t.TempDir()
-	anchor := utils.NewAtomicSend(utils.None[data.Anchor]())
+	anchor := utils.NewAtomicSend(data.Anchor{})
 	checkpoint := filepath.Join(psd, "data", "state_commit", "flatkv", flatkv.SnapshotDirName(7))
 	require.NoError(t, os.MkdirAll(checkpoint, 0o750))
 

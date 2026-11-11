@@ -28,7 +28,7 @@ type StateSyncProofExportConfig struct {
 	BlockStore stateSyncProofBlockStore
 	// Anchor publishes the latest AppQC the data layer has flushed to BlockStore. Proofs are written
 	// only at or below it, so it must never cover an AppQC that a crash could lose.
-	Anchor utils.AtomicRecv[utils.Option[data.Anchor]]
+	Anchor utils.AtomicRecv[data.Anchor]
 }
 
 type stateSyncProofBlockStore interface {
@@ -79,7 +79,7 @@ func runStateSyncProofExport(
 	wake := make(chan struct{}, 1)
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("watchAnchor", func() error {
-			return cfg.Anchor.Iter(ctx, func(context.Context, utils.Option[data.Anchor]) error {
+			return cfg.Anchor.Iter(ctx, func(context.Context, data.Anchor) error {
 				return utils.SendOrDrop(wake, struct{}{})
 			})
 		})
@@ -221,11 +221,11 @@ func (e *stateSyncProofExporter) exportCheckpoint(index types.RoadIndex) error {
 }
 
 func (e *stateSyncProofExporter) durableAppQCIndex() (types.RoadIndex, bool) {
-	anchor, ok := e.cfg.Anchor.Load().Get()
+	first, ok := e.cfg.Anchor.Load().First.Get()
 	if !ok {
 		return 0, false
 	}
-	return anchor.AppQC.Proposal().Index(), true
+	return first.AppQC.Proposal().Index(), true
 }
 
 func (e *stateSyncProofExporter) retainedCheckpoints() (map[types.RoadIndex]struct{}, error) {

@@ -380,10 +380,9 @@ message StateSyncProof {
 
 // Persisted epoch registry state.
 message PersistedEpochRegistry {
-  reserved 1, 2;
-  reserved "live", "pending";
+  reserved 1, 2, 4;
+  reserved "live", "pending", "pending_v2";
   repeated Epoch live_v2 = 3;
-  optional Epoch pending_v2 = 4; // optional
 }
 
 message EpochMember {

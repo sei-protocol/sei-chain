@@ -66,8 +66,6 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			cfg:             &cfg.GigaRouterCommonConfig,
 			key:             key,
 			data:            dataState,
-			nextCommitEpoch: dataState.NextCommitEpoch(),
-			anchor:          dataState.Anchor(),
 			service:         giga.NewService(consensusState),
 			poolIn:          giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolInCommittee: giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
@@ -104,7 +102,7 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 		s.SpawnNamed("pushAppHashes", func() error { return r.runPushAppHashes(ctx) })
 		if cfg, ok := r.cfg.StateSyncProofExport.Get(); ok {
 			s.SpawnNamed("stateSyncProofExport", func() error {
-				return runStateSyncProofExport(ctx, cfg, r.data.Registry().ClosingEpoch)
+				return runStateSyncProofExport(ctx, cfg, r.data.ClosingEpoch)
 			})
 		}
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
@@ -144,7 +142,7 @@ func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*ethr
 	if !r.EvmProxyEnabled() {
 		return utils.None[*ethrpc.Client]()
 	}
-	validator := r.nextCommitEpoch.Load().Committee().EvmShard(sender)
+	validator := r.data.Anchor().Load().NextIndexEpoch().Committee().EvmShard(sender)
 	if r.validatorKey == validator {
 		return utils.None[*ethrpc.Client]()
 	}

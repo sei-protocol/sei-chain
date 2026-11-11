@@ -115,7 +115,7 @@ func newState(
 		return nil, fmt.Errorf("avail.NewState: %w", err)
 	}
 
-	initialInner, err := newInner(persistedData, availState.SubscribeConsensusSpec().Load(), cfg.Key.Public())
+	initialInner, err := newInner(persistedData, availState.ConsensusSpec().Load(), cfg.Key.Public())
 	if err != nil {
 		_ = availState.Close()
 		return nil, fmt.Errorf("newInner: %w", err)
@@ -392,7 +392,7 @@ func (s *State) Run(ctx context.Context) error {
 			// We pull the tip back from "avail" for dissemination. This ensures we
 			// only advance on CommitQCs that avail has verified, persisted, and paired
 			// with the epoch of the next RoadIndex — consensus resolves no epochs itself.
-			return s.avail.SubscribeConsensusSpec().Iter(ctx, func(ctx context.Context, spec types.ConsensusSpec) error {
+			return s.avail.ConsensusSpec().Iter(ctx, func(ctx context.Context, spec types.ConsensusSpec) error {
 				return s.pushSpec(spec)
 			})
 		})

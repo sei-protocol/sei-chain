@@ -35,12 +35,12 @@ func TestStateSyncProofExporterWritesPersistedCheckpoint(t *testing.T) {
 func TestStateSyncProofExporterWaitsForDurableAppQC(t *testing.T) {
 	rng := utils.TestRng()
 	env := newStateSyncProofExportEnv(t, rng)
-	env.anchorSend.Store(utils.None[data.Anchor]())
+	env.anchorSend.Store(data.TestAnchor(env.epoch))
 
 	require.NoError(t, env.exporter.sweepOnce())
 	require.NoFileExists(t, env.stateSyncProofPath(env.index))
 
-	env.anchorSend.Store(utils.Some(env.anchor))
+	env.anchorSend.Store(env.anchorAt(env.anchor))
 	require.NoError(t, env.exporter.sweepOnce())
 	require.FileExists(t, env.stateSyncProofPath(env.index))
 }
@@ -54,7 +54,7 @@ func TestStateSyncProofExporterWaitsForDurableAppQCAtCheckpoint(t *testing.T) {
 	require.NoError(t, env.exporter.sweepOnce())
 	require.NoFileExists(t, env.stateSyncProofPath(nextIndex))
 
-	env.anchorSend.Store(utils.Some(next))
+	env.anchorSend.Store(env.anchorAt(next))
 	require.NoError(t, env.exporter.sweepOnce())
 	require.FileExists(t, env.stateSyncProofPath(nextIndex))
 }
@@ -208,7 +208,7 @@ func TestRunStateSyncProofExportSweepsOnAnchorUpdate(t *testing.T) {
 		if _, err := reads.Wait(ctx, func(n int) bool { return n >= 1 }); err != nil {
 			return err
 		}
-		env.anchorSend.Store(utils.Some(env.anchor))
+		env.anchorSend.Store(env.anchorAt(env.anchor))
 		_, err := reads.Wait(ctx, func(n int) bool { return n >= 2 })
 		return err
 	})
@@ -344,7 +344,7 @@ func TestStateSyncProofExporterReadErrorDoesNotBlockOtherCheckpoints(t *testing.
 	next := env.addNextRoad(rng)
 	nextIndex := next.AppQC.Proposal().Index()
 	env.checkpoints = []int64{int64(env.index), int64(nextIndex)}
-	env.anchorSend.Store(utils.Some(next))
+	env.anchorSend.Store(env.anchorAt(next))
 	env.store.readBlockErrAt = map[types.RoadIndex]error{env.index: errors.New("disk failed")}
 
 	require.Error(t, env.exporter.sweepOnce())
@@ -372,7 +372,7 @@ func TestStateSyncProofExporterStuckFileDoesNotBlockOtherCheckpoints(t *testing.
 			next := env.addNextRoad(rng)
 			nextIndex := next.AppQC.Proposal().Index()
 			env.checkpoints = []int64{int64(env.index), int64(nextIndex)}
-			env.anchorSend.Store(utils.Some(next))
+			env.anchorSend.Store(env.anchorAt(next))
 			// A non-empty directory under a proof file name can be neither read nor removed.
 			stuck := env.stateSyncProofPath(stuckIndex(env, nextIndex))
 			require.NoError(t, os.MkdirAll(filepath.Join(stuck, "child"), 0o750))
@@ -417,8 +417,8 @@ type stateSyncProofExportEnv struct {
 	roadBlock   *types.RoadBlock
 	appQC       *types.AppQC
 	store       *fakeStateSyncProofBlockStore
-	anchor      data.Anchor
-	anchorSend  *utils.AtomicSend[utils.Option[data.Anchor]]
+	anchor      data.AnchorFirst
+	anchorSend  *utils.AtomicSend[data.Anchor]
 	checkpoints []int64
 	exporter    *stateSyncProofExporter
 }
@@ -432,8 +432,8 @@ func newStateSyncProofExportEnv(t *testing.T, rng utils.Rng) *stateSyncProofExpo
 	index := roadBlock.QC().Index()
 	proposal := types.NewAppProposal(roadBlock.QC().QC().View(), []byte{1, 2, 3})
 	appQC := data.TestAppQC(keys, proposal)
-	anchor := data.Anchor{CommitQC: roadBlock.QC().QC(), AppQC: appQC, Epoch: epoch}
-	anchorSend := utils.NewAtomicSend(utils.Some(anchor))
+	anchor := data.AnchorFirst{CommitQC: roadBlock.QC().QC(), AppQC: appQC}
+	anchorSend := utils.NewAtomicSend(data.TestAnchor(epoch))
 	store := &fakeStateSyncProofBlockStore{
 		blocks:       map[types.RoadIndex]*types.RoadBlock{index: roadBlock},
 		appProposals: map[types.RoadIndex]*types.AppProposal{index: proposal},
@@ -451,6 +451,7 @@ func newStateSyncProofExportEnv(t *testing.T, rng utils.Rng) *stateSyncProofExpo
 		store:       store,
 		checkpoints: []int64{int64(index)},
 	}
+	anchorSend.Store(env.anchorAt(anchor))
 	env.exporter = newStateSyncProofExporter(
 		StateSyncProofExportConfig{
 			Dir: env.dir,
@@ -468,8 +469,8 @@ func newStateSyncProofExportEnv(t *testing.T, rng utils.Rng) *stateSyncProofExpo
 }
 
 // addNextRoad stores the road after env.index with its AppProposal and AppQC, makes it the only
-// retained checkpoint, and returns its Anchor. The published Anchor does not change.
-func (e *stateSyncProofExportEnv) addNextRoad(rng utils.Rng) data.Anchor {
+// retained checkpoint, and returns its AnchorFirst. The published Anchor does not change.
+func (e *stateSyncProofExportEnv) addNextRoad(rng utils.Rng) data.AnchorFirst {
 	qc, blocks := data.TestCommitQC(rng, e.epoch, e.keys, utils.Some(e.roadBlock.QC().QC()))
 	roadBlock := types.NewRoadBlock(qc, blocks)
 	index := roadBlock.QC().Index()
@@ -479,7 +480,14 @@ func (e *stateSyncProofExportEnv) addNextRoad(rng utils.Rng) data.Anchor {
 	e.store.appProposals[index] = proposal
 	e.store.appQCs[index] = appQC
 	e.checkpoints = []int64{int64(index)}
-	return data.Anchor{CommitQC: roadBlock.QC().QC(), AppQC: appQC, Epoch: e.epoch}
+	return data.AnchorFirst{CommitQC: roadBlock.QC().QC(), AppQC: appQC}
+}
+
+// anchorAt returns an Anchor in env.epoch whose durable AppQC is first.AppQC.
+func (e *stateSyncProofExportEnv) anchorAt(first data.AnchorFirst) data.Anchor {
+	anchor := data.TestAnchor(e.epoch)
+	anchor.First = utils.Some(first)
+	return anchor
 }
 
 func stateSyncProofExportFailures(t *testing.T) float64 {

@@ -375,7 +375,7 @@ func configureStateSyncProofExport(
 	stateSync gigaconfig.StateSyncConfig,
 	psd string,
 	blockStore *ablockstore.Store,
-	anchor utils.AtomicRecv[utils.Option[data.Anchor]],
+	anchor utils.AtomicRecv[data.Anchor],
 ) {
 	if !stateSync.Enabled {
 		return
