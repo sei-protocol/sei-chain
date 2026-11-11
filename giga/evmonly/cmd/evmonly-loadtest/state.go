@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 )
 
@@ -195,6 +196,9 @@ func (s *generatedState) changeSet() evmonly.StateChangeSet {
 		code, hasCode := s.code[address]
 		if hasBalance || hasNonce || hasCode {
 			account := evmonly.AccountState{Nonce: nonce, Code: cloneBytes(code)}
+			if len(code) != 0 {
+				account.CodeHash = crypto.Keccak256Hash(code)
+			}
 			if hasBalance {
 				account.Balance = new(big.Int).Set(balance)
 			}
