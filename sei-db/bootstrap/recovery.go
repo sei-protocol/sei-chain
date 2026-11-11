@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
@@ -27,6 +28,9 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 		return err
 	}
 	if err := m.requireNoReceiptStoreWhileDisabled(); err != nil {
+		return err
+	}
+	if err := m.requireNoHistoricalStateDBWhileDisabled(); err != nil {
 		return err
 	}
 	targetHeight, err := m.findTargetRecoveryHeight()
@@ -173,6 +177,27 @@ func (m *GigaStorageManager) requireNoReceiptStoreWhileDisabled() error {
 	}
 	return fmt.Errorf("%w: head %d at %s; move that directory away to run without receipts, or enable them again",
 		ErrReceiptStoreDisabledWithHistory, head, m.cfg.ReceiptDBConfig.DBDirectory)
+}
+
+// requireNoHistoricalStateDBWhileDisabled refuses to run with the historical state DB disabled while its
+// directory holds anything. Re-enabling it would converge every store on its stale head.
+func (m *GigaStorageManager) requireNoHistoricalStateDBWhileDisabled() error {
+	if m.cfg.SSConfig.Enable {
+		return nil
+	}
+	dir := m.cfg.SSConfig.EVMDBDirectory
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read disabled historical state DB directory: %w", err)
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	return fmt.Errorf("historical state DB is disabled but %s is not empty; move that directory away to run "+
+		"without it, or enable it again", dir)
 }
 
 // stateWALHead returns the last block the state WAL holds, or 0 when it holds none.

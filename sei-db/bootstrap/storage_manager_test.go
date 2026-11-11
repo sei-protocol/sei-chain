@@ -99,6 +99,29 @@ func TestReceiptsDisabledRefusesAStoreWithHistory(t *testing.T) {
 	require.NoError(t, second.Close())
 }
 
+// TestHistoricalStateDBDisabledRefusesAStoreWithHistory pins that a node cannot run with the historical
+// state DB disabled while its directory holds anything. Re-enabling it later would converge every store on
+// that store's stale head, so the transition is refused up front for the operator to clear the directory.
+func TestHistoricalStateDBDisabledRefusesAStoreWithHistory(t *testing.T) {
+	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	first, err := NewGigaStorageManager(t.Context(), cfg)
+	require.NoError(t, err)
+	commitBlocks(t, first, 2)
+	require.NoError(t, first.Close())
+
+	cfg.SSConfig.Enable = false
+	_, err = NewGigaStorageManager(t.Context(), cfg)
+	require.ErrorContains(t, err, cfg.SSConfig.EVMDBDirectory)
+
+	// The refusal releases everything it opened: the same home opens once the store is enabled again.
+	cfg.SSConfig.Enable = true
+	second, err := NewGigaStorageManager(t.Context(), cfg)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), historicalStateDB(second).GetLatestVersion())
+	require.NoError(t, second.Close())
+}
+
 // TestReceiptsDisabledTakesAnEmptyStore pins that a receipt store that was opened but never written
 // does not block disabling receipts.
 func TestReceiptsDisabledTakesAnEmptyStore(t *testing.T) {
