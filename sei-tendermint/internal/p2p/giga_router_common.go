@@ -377,7 +377,7 @@ func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[aty
 	if !ok {
 		return utils.None[atypes.PublicKey]()
 	}
-	if !r.data.Anchor().Load().FirstCommitEpoch().Committee().HasReplica(claim.Validator) {
+	if !r.data.Anchor().Load().NextIndexEpoch().Committee().HasReplica(claim.Validator) {
 		return utils.None[atypes.PublicKey]()
 	}
 	selfAddr := hConn.msg.SelfAddr.OrPanic("verified giga claim has no SelfAddr")
@@ -473,7 +473,7 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...c
 		for ctx.Err() == nil {
 			addrVersion := addrUpdates.Load()
 			anchor := r.data.Anchor().Load()
-			commitEpoch := anchor.FirstCommitEpoch()
+			commitEpoch := anchor.NextIndexEpoch()
 			if err := r.stopStaleSessions(ctx, live, anchor, commitEpoch); err != nil {
 				return err
 			}
@@ -500,7 +500,7 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...c
 				})
 			}
 			if err := utils.WaitAny(ctx, func() bool {
-				return r.data.Anchor().Load().FirstCommitEpoch().EpochIndex() != commitEpoch.EpochIndex() ||
+				return r.data.Anchor().Load().NextIndexEpoch().EpochIndex() != commitEpoch.EpochIndex() ||
 					epochOf(r.data.Anchor().Load()) != epochOf(anchor) ||
 					addrUpdates.Load() != addrVersion
 			}, r.data.Anchor(), addrUpdates); err != nil {
@@ -521,7 +521,7 @@ func (r *gigaRouterCommon) runUntilMembershipChange(
 	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
 			_, err := r.data.Anchor().Wait(ctx, func(anchor data.Anchor) bool {
-				return !anchor.FirstCommitEpoch().Committee().HasReplica(validator)
+				return !anchor.NextIndexEpoch().Committee().HasReplica(validator)
 			})
 			if err != nil {
 				return err

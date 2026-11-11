@@ -11,7 +11,7 @@ import (
 
 const appDir = "../app"
 
-// Appending a minor version to app/tags without defining its version-specific
+// Appending a minor version to app/upgradenames/tags without defining its version-specific
 // test fails here. The ordinary Go test run cannot see a tagged test file.
 func TestCurrentBoundaryHasATestFile(t *testing.T) {
 	boundary, err := upgradetest.Current()

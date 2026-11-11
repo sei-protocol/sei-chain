@@ -327,7 +327,7 @@ func TestRecoveryBlockGap(t *testing.T) {
 	require.ErrorIs(t, err, types.ErrQCBlocksMismatch)
 }
 
-func TestNewState_FirstCommitEpochAtBoundaryTip(t *testing.T) {
+func TestNewState_NextIndexEpochAtBoundaryTip(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistryThrough(rng, 3, 2)
 	ep2 := registry.MustEpoch(2)
@@ -339,7 +339,7 @@ func TestNewState_FirstCommitEpochAtBoundaryTip(t *testing.T) {
 	writeAppDataToBlockStore(t, rng, db, keys, qc)
 
 	state := newTestState(t, &Config{Registry: registry}, db)
-	require.Equal(t, ep2, state.Anchor().Load().FirstCommitEpoch())
+	require.Equal(t, ep2, state.Anchor().Load().NextIndexEpoch())
 }
 
 // writeExecutedTip writes a one-block CommitQC and its AppProposal at road.
@@ -549,5 +549,5 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, qc.Index(), state.First())
 	require.Equal(t, qc.Index()+1, state.NextQC())
-	require.Equal(t, types.EpochIndex(2), state.Anchor().Load().FirstCommitEpoch().EpochIndex())
+	require.Equal(t, types.EpochIndex(2), state.Anchor().Load().NextIndexEpoch().EpochIndex())
 }
