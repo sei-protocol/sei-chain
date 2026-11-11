@@ -336,11 +336,15 @@ func TestRestoreInnerInitializesAnchor(t *testing.T) {
 			require.Equal(t, types.ConsensusSpec{Epoch: ep, CommitQC: utils.Some(qc), GenesisTimestamp: timestamp}, i.consensusSpec.Load())
 			for lane := range ep.Committee().Lanes().All() {
 				lr := qc.LaneRange(lane)
-				require.Equal(t, lr.Next(), i.lanes[lane].blocks.first)
-				require.Equal(t, lr.Next(), i.lanes[lane].blocks.next)
+				firstBlock := lr.Next()
+				if firstBlock > 0 {
+					firstBlock--
+				}
+				require.Equal(t, firstBlock, i.lanes[lane].blocks.first)
+				require.Equal(t, firstBlock, i.lanes[lane].blocks.next)
 				require.Equal(t, lr.Next(), i.lanes[lane].votes.first)
 				require.Equal(t, lr.Next(), i.lanes[lane].votes.next)
-				require.Equal(t, lr.Next(), i.lanes[lane].nextBlockToPersist)
+				require.Equal(t, firstBlock, i.lanes[lane].nextBlockToPersist)
 			}
 		})
 	}

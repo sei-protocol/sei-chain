@@ -335,11 +335,16 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 				}
 			}
 
-			t.Logf("Check that the executed local blocks have been pruned")
+			t.Logf("Check that pruning retains the last executed block of each lane")
 			for lane := range committee.Lanes().All() {
 				if lr := qc.LaneRange(lane); lr.Next() > 0 {
-					if _, err := state.Block(ctx, lane, lr.Next()-1); !errors.Is(err, types.ErrPruned) {
-						return fmt.Errorf("state.Block(): %w, want %v", err, types.ErrPruned)
+					if _, err := state.Block(ctx, lane, lr.Next()-1); err != nil {
+						return fmt.Errorf("retained state.Block(): %w", err)
+					}
+					if lr.Next() > 1 {
+						if _, err := state.Block(ctx, lane, lr.Next()-2); !errors.Is(err, types.ErrPruned) {
+							return fmt.Errorf("state.Block(): %w, want %v", err, types.ErrPruned)
+						}
 					}
 				}
 			}

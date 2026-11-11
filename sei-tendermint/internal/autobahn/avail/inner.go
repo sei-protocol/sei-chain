@@ -241,8 +241,10 @@ func (i *inner) setAnchor(anchor data.Anchor) {
 	for lane, ls := range i.lanes {
 		lr := types.LaneRangeOpt(qc, lane)
 		ls.votes.prune(lr.Next())
-		ls.blocks.prune(lr.Next())
-		ls.nextBlockToPersist = max(ls.nextBlockToPersist, lr.Next())
+		if lr.Next() > 0 {
+			ls.blocks.prune(lr.Next() - 1)
+		}
+		ls.nextBlockToPersist = max(ls.nextBlockToPersist, ls.blocks.first)
 	}
 	i.advance()
 }
