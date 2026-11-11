@@ -145,8 +145,8 @@ func resumeUndoLog(liveStateDB *flatkv.CommitStore, historicalStateDB *undo.Data
 	return nil
 }
 
-// Close closes SC, SS and the state WAL, reporting every failure rather than stopping at the first.
-// The WAL closes last, since SC replays through it.
+// Close closes the live state DB, the historical state DB and the state WAL, reporting every failure rather than
+// stopping at the first.
 //
 // How long each of the three took is logged, since each drains its own write queue and waits on the
 // compactions behind it, and those dominate the time a shutdown takes.
@@ -154,21 +154,17 @@ func (s *StateDB) Close() error {
 	s.closed.Close(s)
 	var errs error
 	var timer utils.CloseTimer
-	// Before SC: the undo log holds a view of SC's current block until it closes.
+	// Before the live state DB: the undo log holds a view of the live state DB's current block until it closes.
 	if s.undo != nil {
 		if err := timer.Close("ss", s.undo.Close); err != nil {
-			errs = errors.Join(errs, fmt.Errorf("close EVM undo-log state store: %w", err))
+			errs = errors.Join(errs, fmt.Errorf("close the historical state DB: %w", err))
 		}
 	}
-	if s.sc != nil {
-		if err := timer.Close("sc", s.sc.Close); err != nil {
-			errs = errors.Join(errs, fmt.Errorf("close state commit store: %w", err))
-		}
+	if err := timer.Close("sc", s.sc.Close); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("close the live state DB: %w", err))
 	}
-	if s.wal != nil {
-		if err := timer.Close("wal", s.wal.Close); err != nil {
-			errs = errors.Join(errs, fmt.Errorf("close state WAL: %w", err))
-		}
+	if err := timer.Close("wal", s.wal.Close); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("close state WAL: %w", err))
 	}
 	logger.Info("Closed the state DB", timer.Fields()...)
 	return errs
@@ -180,8 +176,7 @@ func (s *StateDB) SC() *flatkv.CommitStore { return s.sc }
 // UndoSS returns the historical state DB, or nil when it is disabled.
 func (s *StateDB) UndoSS() *undo.Database { return s.undo }
 
-// WAL returns the state WAL. It is the one this StateDB opened, and is not replaced for the StateDB's
-// lifetime.
+// WAL returns the state WAL. It is not replaced for the StateDB's lifetime.
 func (s *StateDB) WAL() statewal.StateWAL { return s.wal }
 
 // CheckpointScheduler returns the schedule the live state DB takes its snapshot boundaries from.
@@ -189,13 +184,7 @@ func (s *StateDB) CheckpointScheduler() *controller.CheckpointScheduler { return
 
 // PrunableStores returns the opened stores that can join a prune cycle.
 func (s *StateDB) PrunableStores() []controllertypes.PrunableStore {
-	stores := make([]controllertypes.PrunableStore, 0, 3)
-	if s.sc != nil {
-		stores = append(stores, s.sc)
-	}
-	if s.wal != nil {
-		stores = append(stores, s.wal)
-	}
+	stores := []controllertypes.PrunableStore{s.sc, s.wal}
 	if s.undo != nil {
 		stores = append(stores, s.undo)
 	}
