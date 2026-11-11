@@ -188,7 +188,7 @@ func NewEVMOnlyApplication(
 	customPrecompiles utils.Option[precompiles.Registry],
 	homeDir utils.Option[string],
 ) (proxy.EVMApplication, error) {
-	chainConfig := *params.AllDevChainProtocolChanges
+	chainConfig := *evmonly.DefaultChainConfig()
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	a := &evmOnlyApplication{
 		chainID:           new(big.Int).SetUint64(chainID),

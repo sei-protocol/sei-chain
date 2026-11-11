@@ -12,21 +12,20 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 )
 
 func callMessage(from common.Address, to *common.Address) *core.Message {
-	return &core.Message{
-		From:             from,
-		To:               to,
-		GasLimit:         200_000,
-		GasPrice:         new(big.Int),
-		GasFeeCap:        new(big.Int),
-		GasTipCap:        new(big.Int),
-		Value:            new(big.Int),
-		SkipNonceChecks:  true,
-		SkipFromEOACheck: true,
-	}
+	return (&core.Message{
+		From:      from,
+		To:        to,
+		GasLimit:  200_000,
+		GasPrice:  new(uint256.Int),
+		GasFeeCap: new(uint256.Int),
+		GasTipCap: new(uint256.Int),
+		Value:     new(uint256.Int),
+	}).SkipNonceCheck().SkipEOACheck().SkipGasLimitCapCheck()
 }
 
 // sloadReturnCode returns runtime bytecode that reads storage slot key and
