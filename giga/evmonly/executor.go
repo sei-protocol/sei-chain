@@ -49,10 +49,10 @@ type Executor struct {
 
 	// The commit running behind the current block, and what it will write. A block reads the latter
 	// through an overlay so it need not wait for the former.
-	pipelineMu      sync.Mutex
-	pipelineDone    chan struct{}
-	pipelineErr     error
-	pipelineChanges *StateChangeSet
+	pipelineMu    sync.Mutex
+	pipelineDone  chan struct{}
+	pipelineErr   error
+	pipelineIndex *pendingIndex
 	// The first commit that failed, kept so no caller can miss it.
 	pipelineFailure error
 }

@@ -29,22 +29,55 @@ func newPendingOverlay(base StateReader, changes *StateChangeSet) StateReader {
 	if changes == nil || changes.IsEmpty() {
 		return base
 	}
-	o := &pendingOverlay{
-		base:     base,
-		accounts: make(map[common.Address]AccountState, len(changes.Accounts)),
-		storage:  make(map[storageChangeKey]common.Hash, len(changes.Storage)),
-	}
+	accounts, storage := indexChanges(changes)
+	return &pendingOverlay{base: base, accounts: accounts, storage: storage}
+}
+
+// indexChanges maps changes' accounts by address and their storage by address and slot.
+func indexChanges(changes *StateChangeSet) (map[common.Address]AccountState, map[storageChangeKey]common.Hash) {
+	accounts := make(map[common.Address]AccountState, len(changes.Accounts))
+	storage := make(map[storageChangeKey]common.Hash, len(changes.Storage))
 	for _, change := range changes.Accounts {
-		o.accounts[change.Address] = change.Account
+		accounts[change.Address] = change.Account
 	}
 	for _, change := range changes.Storage {
 		if change.Delete {
-			o.storage[storageChangeKey{address: change.Address, key: change.Key}] = common.Hash{}
+			storage[storageChangeKey{address: change.Address, key: change.Key}] = common.Hash{}
 			continue
 		}
-		o.storage[storageChangeKey{address: change.Address, key: change.Key}] = change.Value
+		storage[storageChangeKey{address: change.Address, key: change.Key}] = change.Value
 	}
-	return o
+	return accounts, storage
+}
+
+// pendingIndex is a committing block's changes, indexed on a goroutine of its own for the overlay the
+// next block reads through. A nil pendingIndex overlays nothing.
+type pendingIndex struct {
+	changes *StateChangeSet
+	// ready is closed once accounts and storage are built.
+	ready    chan struct{}
+	accounts map[common.Address]AccountState
+	storage  map[storageChangeKey]common.Hash
+}
+
+// newPendingIndex starts indexing changes, which must not be modified afterwards.
+func newPendingIndex(changes *StateChangeSet) *pendingIndex {
+	idx := &pendingIndex{changes: changes, ready: make(chan struct{})}
+	go func() {
+		defer close(idx.ready)
+		idx.accounts, idx.storage = indexChanges(changes)
+	}()
+	return idx
+}
+
+// overlay returns base read through the indexed changes, waiting for the index if it is not built
+// yet, and base unchanged when there is nothing to overlay.
+func (idx *pendingIndex) overlay(base StateReader) StateReader {
+	if idx == nil || idx.changes.IsEmpty() {
+		return base
+	}
+	<-idx.ready
+	return &pendingOverlay{base: base, accounts: idx.accounts, storage: idx.storage}
 }
 
 func (o *pendingOverlay) GetBalance(addr common.Address) *big.Int {
