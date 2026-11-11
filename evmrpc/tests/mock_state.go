@@ -42,14 +42,15 @@ func mockStatesFromJsonFile(ctx sdk.Context, filepath string, a *app.App, client
 	response := &RpcResponse{}
 	err = json.Unmarshal(data, &response)
 	check(err)
-	blockNum := mockTendermintStateFromJson(response.Result.TendermintState, client)
+	mockTendermintStateFromJson(response.Result.TendermintState, client)
+	blockNum := recordedBlockHeight(response.Result.TendermintState)
 	ctx = ctx.WithBlockHeight(blockNum)
 	mockStateFromJson(ctx, a, response.Result.AppState)
 	mockReceipt(ctx, a, response.Result.Receipt)
 	return blockNum
 }
 
-func mockTendermintStateFromJson(tmStateRaw json.RawMessage, client *MockClient) int64 {
+func mockTendermintStateFromJson(tmStateRaw json.RawMessage, client *MockClient) {
 	client.mockedBlockResults = map[int64]*coretypes.ResultBlock{}
 	client.mockedBlockByHashResults = map[string]*coretypes.ResultBlock{}
 	client.mockedBlockResultsResults = map[int64]*coretypes.ResultBlockResults{}
@@ -93,9 +94,21 @@ func mockTendermintStateFromJson(tmStateRaw json.RawMessage, client *MockClient)
 			client.mockedGenesis = gen
 		}
 	}
-	blockNum, err := strconv.ParseInt(typed.Traces[0].Arguments[0], 10, 64)
-	check(err)
-	return blockNum
+}
+
+// recordedBlockHeight returns the height of the first Block trace in a recording's
+// tendermint traces.
+func recordedBlockHeight(tmStateRaw json.RawMessage) int64 {
+	typed := &evmrpc.TendermintTraces{}
+	check(json.Unmarshal(tmStateRaw, typed))
+	for _, trace := range typed.Traces {
+		if trace.Endpoint == "Block" {
+			height, err := strconv.ParseInt(trace.Arguments[0], 10, 64)
+			check(err)
+			return height
+		}
+	}
+	panic("recording has no Block trace")
 }
 
 func mockStateFromJson(ctx sdk.Context, a *app.App, stateRaw json.RawMessage) {
