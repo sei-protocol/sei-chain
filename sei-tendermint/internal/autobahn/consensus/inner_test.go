@@ -85,7 +85,7 @@ func loadInner(t *testing.T, dir string, registry *epoch.Registry, keys []types.
 			}
 		}
 	}
-	return newInner(persisted, av.SubscribeConsensusSpec().Load(), keys[0].Public())
+	return newInner(persisted, av.ConsensusSpec().Load(), keys[0].Public())
 }
 
 // alignAvailToTip pushes CommitQCs from the genesis road through tipIndex
@@ -117,9 +117,8 @@ func alignAvailToTip(
 		}
 		prev = utils.Some(qc)
 	}
-	// Wait on ConsensusSpec, not LastCommitQC: markCommitQCsPersisted stores the
-	// durable tip then refreshes spec, so LastCommitQC can become visible first.
-	_, err := av.SubscribeConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
+	// Wait until persistence advances the consensus spec past tipIndex.
+	_, err := av.ConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
 		return sp.Index() > tipIndex
 	})
 	return err
@@ -138,7 +137,7 @@ func TestNewInnerEmpty(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 1)
 	_, av := newTestAvail(t, registry, keys[0])
-	i, err := newInner(utils.None[*pb.PersistedInner](), av.SubscribeConsensusSpec().Load(), keys[0].Public())
+	i, err := newInner(utils.None[*pb.PersistedInner](), av.ConsensusSpec().Load(), keys[0].Public())
 	require.NoError(t, err)
 	require.False(t, i.PrepareVote.IsPresent(), "prepareVote should be None")
 	require.False(t, i.CommitVote.IsPresent(), "commitVote should be None")
@@ -220,16 +219,16 @@ func TestRestore_BoundaryCatchUpSpecCoversWAL(t *testing.T) {
 		s.SpawnBgNamed("avail.Run", func() error {
 			return utils.IgnoreCancel(av.Run(ctx))
 		})
-		if err := avail.TestDriveAdvance(ctx, av, keys, 1); err != nil {
-			return fmt.Errorf("TestDriveAdvance: %w", err)
+		if err := avail.TestAdvanceToEpoch(ctx, av, keys, registry, 1); err != nil {
+			return fmt.Errorf("TestAdvanceToEpoch: %w", err)
 		}
-		if _, err := av.LastCommitQC().Wait(ctx, func(o utils.Option[*types.CommitQC]) bool {
-			c, ok := o.Get()
+		if _, err := av.ConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
+			c, ok := sp.CommitQC.Get()
 			return ok && c.Index() >= last
 		}); err != nil {
 			return fmt.Errorf("wait durable tip: %w", err)
 		}
-		got, err := av.SubscribeConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
+		got, err := av.ConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
 			cqc, ok := sp.CommitQC.Get()
 			return ok && cqc.Index() >= last && sp.Epoch.EpochIndex() >= 1
 		})
