@@ -347,16 +347,14 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 			return nil
 		}
 		ls, ok := inner.lanes[lane]
-		if !ok {
+		if !ok || ls.blocks.next != n {
+			// not needed any more
 			return nil
 		}
-		// not needed any more
-		if ls.blocks.next != n {
-			return nil
-		}
-		// Blocks above highest commit qc are required to be linked by a parent hash for autobahn safety.
+		// Blocks above highest commit qc are required to be linked by a parent hash for autobahn safety:
+		// LaneVote attests for availability of chain of blocks not included in the last observed CommitQC,
+		// until they are sequenced and executed (AppQC is persisted).
 		// For simplicity we require them to be linked up to anchor.
-
 		if ls.blocks.first < ls.blocks.next {
 			prevHash := ls.blocks.q[ls.blocks.next-1].Msg().Block().Header().Hash()
 			if h.ParentHash() != prevHash {
@@ -604,7 +602,18 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 			return nil, fmt.Errorf("unexpected block number: got %v, want %v", n, ls.blocks.next)
 		}
 		var parent types.BlockHeaderHash
-		if ls.blocks.first < ls.blocks.next {
+		if 0 < ls.blocks.next {
+			// Each validator is the only node eligible for producing their own lane, therefore
+			// for any observed CommitQC, we have CommitQC.LaneRange(lane).Next <= ls.blocks.next
+			// (i.e. locally produced blocks of our lane are the only ones that can be sequenced by CommitQC).
+			// Given that we never prune the block CommitQC.LaneRange(lane).Next-1 (if available),
+			// producer can always set the parent hash for the next local lane block correctly.
+			// This is required for autobahn liveness, because validators check the parent hashes up to their anchor
+			// when attesting for availability (casting LaneVote) - parent hash needs to be always set correctly
+			// in case validator receiving the lane block has not pruned the parent block yet.
+			if ls.blocks.first >= ls.blocks.next {
+				return nil, fmt.Errorf("missing last block of the local lane, this should never happen")
+			}
 			parent = ls.blocks.q[ls.blocks.next-1].Msg().Block().Header().Hash()
 		}
 		result = types.Sign(s.key, types.NewLaneProposal(types.NewBlock(lane, ls.blocks.next, parent, payload)))
