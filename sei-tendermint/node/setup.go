@@ -250,6 +250,7 @@ func buildValidatorGigaConfig(
 	if _, err := genesisMaxGas(genDoc); err != nil {
 		return nil, err
 	}
+	params := genDoc.Autobahn.Or(types.DefaultAutobahnParams())
 	return &p2p.GigaValidatorConfig{
 		GigaRouterCommonConfig: p2p.GigaRouterCommonConfig{
 			DialInterval:            time.Duration(fc.DialInterval),
@@ -262,9 +263,9 @@ func buildValidatorGigaConfig(
 		},
 		ValidatorKey: validatorKey,
 		ViewTimeout: func(atypes.View) time.Duration {
-			return genDoc.Autobahn.ViewTimeout
+			return params.ViewTimeout
 		},
-		ProposalTimeout: genDoc.Autobahn.ViewTimeout,
+		ProposalTimeout: params.ViewTimeout,
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    genDoc.ConsensusParams.Block.MaxGasWantedUint64(),
 			MaxGasEstimatedPerBlock: genDoc.ConsensusParams.Block.MaxGasUint64(),
