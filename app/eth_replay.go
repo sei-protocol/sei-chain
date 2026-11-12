@@ -73,7 +73,7 @@ func Replay(a *App) {
 		hash := make([]byte, 8)
 		binary.BigEndian.PutUint64(hash, uint64(h)) //nolint:gosec
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-			Txs:               utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) }),
+			Txs:               utils.Map(b.Transactions(), func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) }),
 			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
 			Hash:              hash,
 			Header: &tmproto.Header{
@@ -93,7 +93,7 @@ func Replay(a *App) {
 			s.AddBalance(w.Address, uint256.MustFromBig(amount), tracing.BalanceIncreaseWithdrawal)
 		}
 		_, _ = s.Finalize()
-		for _, tx := range b.Txs {
+		for _, tx := range b.Transactions() {
 			logger.Info("verifying tx", "tx-hash", tx.Hash())
 			if tx.To() != nil {
 				a.EvmKeeper.VerifyBalance(ctx, *tx.To())
@@ -128,8 +128,8 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		panic(err)
 	}
 
-	ethblocks := make([]*ethtypes.Block, len(bt.Json.Blocks))
-	for i, btBlock := range bt.Json.Blocks {
+	ethblocks := make([]*ethtypes.Block, len(bt.JSON().Blocks))
+	for i, btBlock := range bt.JSON().Blocks {
 		b, err := btBlock.Decode()
 		if err != nil {
 			panic(err)
@@ -141,7 +141,7 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 	} else {
 		a.EvmKeeper.SetCurrBaseFeePerGas(a.GetContextForDeliverTx([]byte{}), sdk.ZeroDec())
 	}
-	for addr, genesisAccount := range a.EvmKeeper.BlockTest.Json.Pre {
+	for addr, genesisAccount := range a.EvmKeeper.BlockTest.JSON().Pre {
 		usei, wei := state.SplitUseiWeiAmount(genesisAccount.Balance)
 		seiAddr := a.EvmKeeper.GetSeiAddressOrDefault(a.GetContextForDeliverTx([]byte{}), addr)
 		err := a.EvmKeeper.BankKeeper().AddCoins(a.GetContextForDeliverTx([]byte{}), seiAddr, sdk.NewCoins(sdk.NewCoin("usei", usei)), true)
@@ -162,11 +162,11 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		a.EvmKeeper.SetParams(a.GetContextForDeliverTx([]byte{}), params)
 	}
 
-	if len(bt.Json.Blocks) == 0 {
+	if len(bt.JSON().Blocks) == 0 {
 		panic("no blocks found")
 	}
 
-	for i, btBlock := range bt.Json.Blocks {
+	for i, btBlock := range bt.JSON().Blocks {
 		h := int64(i + 1)
 		b, err := btBlock.Decode()
 		if err != nil {
@@ -174,7 +174,7 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		}
 		blockHash := b.Hash()
 		parentHash := b.ParentHash()
-		txs := utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) })
+		txs := utils.Map(b.Transactions(), func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) })
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 			Txs:               txs,
 			Hash:              blockHash[:],
@@ -205,7 +205,7 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 
 	// Check post-state after all blocks are run
 	ctx := a.GetCheckCtx()
-	for addr, accountData := range bt.Json.Post {
+	for addr, accountData := range bt.JSON().Post {
 		if IsWithdrawalAddress(addr, ethblocks) {
 			fmt.Println("Skipping withdrawal address: ", addr)
 			continue
