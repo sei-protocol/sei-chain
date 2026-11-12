@@ -4,10 +4,14 @@ import (
 	"fmt"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("giga", "apphash", "vault")
 
 var _ HashVault = (*StandardHashVault)(nil)
 
@@ -36,6 +40,8 @@ func NewStandardHashVault(
 	// all zeros, without storing it.
 	gigaActivationHeight uint64,
 ) (*StandardHashVault, error) {
+	start := time.Now()
+	logger.Info("Opening the hash vault")
 	if gigaActivationHeight == 0 {
 		return nil, fmt.Errorf("giga activation height must be at least 1")
 	}
@@ -55,6 +61,7 @@ func NewStandardHashVault(
 		return nil, fmt.Errorf("failed to read the hash vault head in %q: %w", config.Path, err)
 	}
 	v.head.Store(highest)
+	logger.Info("Opened the hash vault", "elapsed", time.Since(start))
 	return v, nil
 }
 

@@ -910,21 +910,21 @@ func removeIfUninitialized(dataDir string) error {
 
 // DiscardStateAbove removes every record above target from the undo log in dataDir and leaves the log
 // at target, served from target when its earliest height was above it. A log below target, or none
-// at all, is left alone. The database must not be open elsewhere.
-func DiscardStateAbove(dataDir string, cfg config.StateStoreConfig, target int64) (err error) {
+// at all, is left alone. The database must not be open elsewhere. Rolling back to the same target again
+// is a no-op. One that failed or was interrupted completes when run again.
+func DiscardStateAbove(dataDir string, cfg config.StateStoreConfig, target uint64) (err error) {
 	if _, statErr := os.Stat(dataDir); errors.Is(statErr, os.ErrNotExist) {
 		return nil
 	}
 	db, err := OpenDB(dataDir, cfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("undo: open %s: %w", dataDir, err)
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
-	height, err := heightOf(target)
-	if err != nil {
-		return err
+	if err := db.discardAbove(target); err != nil {
+		return fmt.Errorf("undo: discard records above %d: %w", target, err)
 	}
-	return db.discardAbove(height)
+	return nil
 }
 
 // discardAbove removes every record above target, then moves the latest-height marker to target and
