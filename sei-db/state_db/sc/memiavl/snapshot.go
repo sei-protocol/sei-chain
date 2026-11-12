@@ -138,6 +138,10 @@ type Snapshot struct {
 	root *PersistedNode
 
 	refCount atomic.Int32 // starts at 1; Close unmaps when it hits 0
+
+	// readAhead is the read-ahead the ascending iterators created on the snapshot use, and nil when none
+	// is armed.
+	readAhead atomic.Pointer[readAheadWindows]
 }
 
 func NewEmptySnapshot(version uint32) *Snapshot {
@@ -1170,25 +1174,29 @@ func shouldPreloadTree(treeName string) bool {
 }
 
 func SequentialReadAndFillPageCache(filePath string) error {
-	filePath = filepath.Clean(filePath)
-	startTime := time.Now()
-	f, err := os.Open(filePath)
+	f, err := os.Open(filepath.Clean(filePath))
 	if err != nil {
 		return err
 	}
 	defer func() {
 		_ = f.Close() // Ensure file handle is released for pruning
 	}()
-
 	fileInfo, err := f.Stat()
 	if err != nil {
 		return err
 	}
+	fillPageCache(f, 0, fileInfo.Size())
+	return nil
+}
 
-	totalSize := fileInfo.Size()
+// fillPageCache reads totalSize bytes of f from offset in parallel chunks, leaving their pages in the
+// page cache.
+func fillPageCache(f *os.File, offset, totalSize int64) {
+	filePath := f.Name()
+	startTime := time.Now()
 	if totalSize == 0 {
 		logger.Debug("skipping empty file for prefetch", "path", filePath)
-		return nil
+		return
 	}
 
 	sizeMiB := float64(totalSize) / (1024 * 1024)
@@ -1216,12 +1224,9 @@ func SequentialReadAndFillPageCache(filePath string) error {
 	}
 
 	// Enqueue chunks sequentially to retain locality
-	for offset := int64(0); offset < totalSize; offset += chunkSize {
-		end := offset + chunkSize
-		if end > totalSize {
-			end = totalSize
-		}
-		jobs <- [2]int64{offset, end - offset}
+	rangeEnd := offset + totalSize
+	for chunk := offset; chunk < rangeEnd; chunk += chunkSize {
+		jobs <- [2]int64{chunk, min(chunkSize, rangeEnd-chunk)}
 	}
 	close(jobs)
 	wg.Wait()
@@ -1234,7 +1239,6 @@ func SequentialReadAndFillPageCache(filePath string) error {
 		"size_mib", completedSizeMiB,
 		"elapsed_sec", elapsed,
 		"speed_mib_per_sec", avgSpeedMiBps)
-	return nil
 }
 
 // startPrefetchProgressReporter periodically logs progress until done is closed.

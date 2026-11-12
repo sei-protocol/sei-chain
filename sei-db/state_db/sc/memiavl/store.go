@@ -226,6 +226,17 @@ func (cs *CommitStore) MayHoldStore(name string) bool {
 	return cs.GetChildStoreByName(name) != nil
 }
 
+// ReadAheadStore makes ascending iterators over the tree named name read its snapshot files into the
+// page cache a window at a time, until the returned function is called. It does nothing when no tree
+// has that name.
+func (cs *CommitStore) ReadAheadStore(name string) (stop func()) {
+	tree := cs.db.TreeByName(name)
+	if tree == nil {
+		return func() {}
+	}
+	return tree.readAhead(name, readAheadWindowSize)
+}
+
 // IsLoaded reports whether the underlying memiavl DB has been opened. It is
 // safe to call on a nil receiver. Callers built on top of CommitStore use this
 // to distinguish "store has no committed data yet" (during state-sync, before

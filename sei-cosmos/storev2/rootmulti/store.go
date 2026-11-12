@@ -1082,6 +1082,12 @@ func (rs *Store) MayHoldStore(name string) bool {
 	return rs.scStore.MayHoldStore(name)
 }
 
+// ReadAheadStore makes ascending iterators over the named store read its state commitment files into
+// the page cache a window at a time, until the returned function is called.
+func (rs *Store) ReadAheadStore(name string) (stop func()) {
+	return rs.scStore.ReadAheadStore(name)
+}
+
 // getStoreByName performs a lookup of a StoreKey given a store name typically
 // provided in a path. The StoreKey is then used to perform a lookup and return
 // a Store. If the Store is wrapped in an inter-block cache, it will be unwrapped

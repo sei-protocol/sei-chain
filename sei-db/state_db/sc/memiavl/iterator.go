@@ -19,6 +19,12 @@ type Iterator struct {
 	// iterator's lifetime and released by Close. nil when no snapshot backs them.
 	snapshot *Snapshot
 
+	// windows reads the snapshot's files into the page cache ahead of an ascending iterator, and is nil
+	// when the snapshot had no read-ahead armed as the iterator was created.
+	windows *readAheadWindows
+	// windowEnd is the index of the first leaf past the last window the iterator reached.
+	windowEnd uint64
+
 	// cache the next key-value pair
 	key, value []byte
 
@@ -45,6 +51,9 @@ func NewIterator(start, end []byte, ascending bool, root Node, zeroCopy bool, sn
 		valid:     true,
 		zeroCopy:  zeroCopy,
 		snapshot:  snapshot,
+	}
+	if ascending && snapshot != nil {
+		iter.windows = snapshot.readAhead.Load()
 	}
 
 	if root != nil {
@@ -101,6 +110,7 @@ func (iter *Iterator) Next() {
 		if node.IsLeaf() {
 			startOrAfter := afterStart || startCmp == 0
 			if startOrAfter && beforeEnd {
+				iter.readAheadTo(node)
 				iter.key = key
 				iter.value = node.Value()
 				return
@@ -126,6 +136,18 @@ func (iter *Iterator) Next() {
 	}
 
 	iter.valid = false
+}
+
+// readAheadTo reads the window of the snapshot's files holding leaf into the page cache, when leaf lies
+// past the last window the iterator reached.
+func (iter *Iterator) readAheadTo(leaf Node) {
+	if iter.windows == nil {
+		return
+	}
+	persisted, ok := leaf.(PersistedNode)
+	if ok && uint64(persisted.index) >= iter.windowEnd {
+		iter.windowEnd = iter.windows.reach(persisted.index)
+	}
 }
 
 // Close implements dbm.Iterator

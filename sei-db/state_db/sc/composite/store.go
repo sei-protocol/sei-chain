@@ -1018,6 +1018,16 @@ func (cs *CompositeCommitStore) MayHoldStore(name string) bool {
 	return routesToFlatKV(cs.loadWriteMode(), name)
 }
 
+// ReadAheadStore makes ascending iterators over memIAVL's tree for the named store read its files into
+// the page cache a window at a time, until the returned function is called. Data the write mode placed
+// in flatKV is not read.
+func (cs *CompositeCommitStore) ReadAheadStore(name string) (stop func()) {
+	if cs.memIAVL == nil {
+		return func() {}
+	}
+	return cs.memIAVL.ReadAheadStore(name)
+}
+
 // Commit commits the current state to all active backends at version, the height the caller is
 // building.
 //
