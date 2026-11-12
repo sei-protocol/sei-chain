@@ -324,6 +324,21 @@ func TestAddGenesisValidatorRejectsReuse(t *testing.T) {
 	require.ErrorIs(t, Precompile{}.AddGenesisValidator(h.block(), newMemState(), g), errStakingNotWritten)
 }
 
+func TestGenesisValidatorsHoldConsensusPower(t *testing.T) {
+	h := newHarness(t, testParams)
+	h.fund(bob, sei(1))
+	g := GenesisValidator{
+		Operator:          bob,
+		ConsensusPubkey:   common.BytesToHash(bob[:]),
+		SelfDelegation:    new(big.Int).Sub(sei(1), weiPerUsei),
+		MinSelfDelegation: weiPerUsei,
+	}
+	require.ErrorIs(t, h.staking.AddGenesisValidator(h.block(), h.state, g), errInvalidGenesis,
+		"a genesis set below one SEI each would never bond, and staking would never start")
+	g.SelfDelegation = sei(1)
+	require.NoError(t, h.staking.AddGenesisValidator(h.block(), h.state, g))
+}
+
 func TestDefaultParamsAreValid(t *testing.T) {
 	require.NoError(t, DefaultParams().Validate())
 	state := newMemState()

@@ -89,7 +89,8 @@ func (p Precompile) AddGenesisValidator(block precompiles.BlockContext, state pr
 }
 
 // check requires an operator, a consensus key, a positive minimum
-// self-delegation, and a self-delegation of whole usei at least that minimum.
+// self-delegation, and a self-delegation of whole usei, at least that minimum,
+// worth at least one unit of consensus power.
 func (g GenesisValidator) check() error {
 	switch {
 	case g.Operator == (common.Address{}):
@@ -104,6 +105,11 @@ func (g GenesisValidator) check() error {
 	}
 	if g.SelfDelegation.Cmp(g.MinSelfDelegation) < 0 {
 		return fmt.Errorf("%w: self-delegation below its minimum", errInvalidGenesis)
+	}
+	// Run takes calls only once an EndBlock has bonded a set with power, and
+	// genesis validators are the only way into the first one.
+	if consensusPower(g.SelfDelegation).Sign() == 0 {
+		return fmt.Errorf("%w: self-delegation worth no consensus power", errInvalidGenesis)
 	}
 	return nil
 }
