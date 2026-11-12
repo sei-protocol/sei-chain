@@ -19,6 +19,7 @@ import (
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/statesyncproof"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -289,6 +290,7 @@ func buildValidatorGigaConfig(
 // operator misconfiguration is visible at startup.
 //
 // blockStore backs the returned router for its lifetime. The caller closes it.
+// The returned exporter is None unless [giga.state_sync] is enabled.
 func buildGigaRouter(
 	cfg *config.Config,
 	nodeKey types.NodeKey,
@@ -299,10 +301,11 @@ func buildGigaRouter(
 	appHashBuilder builder.AppHashBuilder,
 	persistentPeers []p2p.NodeAddress,
 	stateSync gigaconfig.StateSyncConfig,
-) (p2p.GigaRouter, error) {
+) (p2p.GigaRouter, utils.Option[*statesyncproof.Exporter], error) {
+	none := utils.None[*statesyncproof.Exporter]()
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
-		return nil, err
+		return nil, none, err
 	}
 	if valKey, ok := validatorKey.Get(); ok {
 		_, inAddressBook := validatorAddrs[valKey.Public()]
@@ -316,21 +319,21 @@ func buildGigaRouter(
 	if cfg.Mode == config.ModeValidator {
 		valKey, ok := validatorKey.Get()
 		if !ok {
-			return nil, fmt.Errorf("autobahn: mode = %q requires a local validator key", cfg.Mode)
+			return nil, none, fmt.Errorf("autobahn: mode = %q requires a local validator key", cfg.Mode)
 		}
 		// Remote signers aren't supported on the validator path —
 		// autobahn signs in-process. Fullnodes don't sign and aren't
 		// penalised for having priv-validator.laddr set.
 		if cfg.PrivValidator.ListenAddr != "" {
-			return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
+			return nil, none, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
 		}
 		valCfg, err := buildValidatorGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, app, genDoc)
 		if err != nil {
-			return nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
+			return nil, none, fmt.Errorf("buildValidatorGigaConfig: %w", err)
 		}
 		stateDir, err := resolvePersistentStateDir(cfg.RootDir, valCfg.PersistentStateDir)
 		if err != nil {
-			return nil, err
+			return nil, none, err
 		}
 		valCfg.PersistentStateDir = stateDir
 		valCfg.AppHashBuilder = appHashBuilder
@@ -339,22 +342,21 @@ func buildGigaRouter(
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
 		if err != nil {
-			return nil, err
+			return nil, none, err
 		}
-		configureStateSyncProofExport(&valCfg.GigaRouterCommonConfig, stateSync, stateDir, blockStore, dataState.Anchor())
 		giga, err := p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey), dataState)
 		if err != nil {
-			return nil, err
+			return nil, none, err
 		}
-		return giga, nil
+		return giga, newStateSyncProofExporter(stateSync, stateDir, blockStore, dataState.Anchor(), dataState.ClosingEpoch), nil
 	}
 	fnCfg, err := buildFullnodeGigaConfig(cfg.AutobahnConfigFile, app, genDoc)
 	if err != nil {
-		return nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
+		return nil, none, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
 	}
 	stateDir, err := resolvePersistentStateDir(cfg.RootDir, fnCfg.PersistentStateDir)
 	if err != nil {
-		return nil, err
+		return nil, none, err
 	}
 	fnCfg.PersistentStateDir = stateDir
 	fnCfg.AppHashBuilder = appHashBuilder
@@ -363,34 +365,72 @@ func buildGigaRouter(
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
 	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
 	if err != nil {
-		return nil, err
+		return nil, none, err
 	}
-	configureStateSyncProofExport(fnCfg, stateSync, stateDir, blockStore, dataState.Anchor())
 	giga, err := p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey), dataState)
 	if err != nil {
-		return nil, err
+		return nil, none, err
 	}
-	return giga, nil
+	return giga, newStateSyncProofExporter(stateSync, stateDir, blockStore, dataState.Anchor(), dataState.ClosingEpoch), nil
 }
 
-func configureStateSyncProofExport(
-	cfg *p2p.GigaRouterCommonConfig,
+// stateSyncProofSweepInterval is the time between two state sync proof export sweeps.
+const stateSyncProofSweepInterval = 10 * time.Second
+
+// newStateSyncProofExporter returns the state sync proof exporter of the node at psd, or None
+// when [giga.state_sync] is disabled.
+func newStateSyncProofExporter(
 	stateSync gigaconfig.StateSyncConfig,
 	psd string,
 	blockStore *ablockstore.Store,
 	anchor utils.AtomicRecv[data.Anchor],
-) {
+	closingEpoch func(atypes.RoadIndex) utils.Option[atypes.EpochIndex],
+) utils.Option[*statesyncproof.Exporter] {
 	if !stateSync.Enabled {
-		return
+		return utils.None[*statesyncproof.Exporter]()
 	}
-	cfg.StateSyncProofExport = utils.Some(p2p.StateSyncProofExportConfig{
+	return utils.Some(statesyncproof.NewExporter(stateSyncProofExportConfig(psd, blockStore, anchor, closingEpoch)))
+}
+
+// stateSyncProofExportConfig returns the export config of the node at psd: proof files go to its
+// state sync proof dir, and checkpoints come from its FlatKV dir.
+func stateSyncProofExportConfig(
+	psd string,
+	blockStore *ablockstore.Store,
+	anchor utils.AtomicRecv[data.Anchor],
+	closingEpoch func(atypes.RoadIndex) utils.Option[atypes.EpochIndex],
+) statesyncproof.ExportConfig {
+	return statesyncproof.ExportConfig{
 		Dir: dbutils.GetStateSyncProofPath(psd),
 		CheckpointHeights: func() ([]int64, error) {
 			return flatkv.SnapshotVersions(dbutils.GetFlatKVPath(psd))
 		},
 		BlockStore: blockStore,
 		Anchor:     anchor,
-	})
+		IsClosingRoad: func(road atypes.RoadIndex) bool {
+			return closingEpoch(road).IsPresent()
+		},
+	}
+}
+
+// runStateSyncProofExport sweeps at startup and then every interval. A failed sweep does not stop
+// the loop; it is logged when its error text differs from the last logged failure.
+func runStateSyncProofExport(ctx context.Context, exporter *statesyncproof.Exporter, interval time.Duration) error {
+	lastErr := ""
+	for {
+		msg := ""
+		if err := exporter.Sweep(); err != nil {
+			msg = err.Error()
+			// A permanent error, such as a full disk, would otherwise log once per sweep.
+			if msg != lastErr {
+				logger.Error("state sync proof export failed; retrying on next sweep", "err", err)
+			}
+		}
+		lastErr = msg
+		if err := utils.Sleep(ctx, interval); err != nil {
+			return err
+		}
+	}
 }
 
 // buildExecutor returns the Autobahn executor that runs the blocks in manager's
@@ -619,12 +659,13 @@ func createRouter(
 	dbProvider config.DBProvider,
 	storageManager utils.Option[*bootstrap.GigaStorageManager],
 	stateSync gigaconfig.StateSyncConfig,
-) (*p2p.Router, closer, utils.Option[*ablockstore.Store], error) {
+) (*p2p.Router, utils.Option[*statesyncproof.Exporter], closer, utils.Option[*ablockstore.Store], error) {
 	closer := func() error { return nil }
+	noExporter := utils.None[*statesyncproof.Exporter]()
 	noneDB := utils.None[*ablockstore.Store]()
 	ep, err := p2p.ResolveEndpoint(nodeKey.ID().AddressString(cfg.P2P.ListenAddress))
 	if err != nil {
-		return nil, closer, noneDB, err
+		return nil, noExporter, closer, noneDB, err
 	}
 	var privatePeerIDs []types.NodeID
 	for _, id := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PrivatePeerIDs, ",", " ") {
@@ -633,12 +674,12 @@ func createRouter(
 
 	options, err := p2pRouterOptions(cfg, ep, privatePeerIDs)
 	if err != nil {
-		return nil, closer, noneDB, err
+		return nil, noExporter, closer, noneDB, err
 	}
 	if addr := cfg.P2P.ExternalAddress; addr != "" {
 		nodeAddr, err := p2p.ParseNodeAddress(nodeKey.ID().AddressString(addr))
 		if err != nil {
-			return nil, closer, noneDB, fmt.Errorf("couldn't parse ExternalAddress %q: %w", cfg.P2P.ExternalAddress, err)
+			return nil, noExporter, closer, noneDB, fmt.Errorf("couldn't parse ExternalAddress %q: %w", cfg.P2P.ExternalAddress, err)
 		}
 		options.SelfAddress = utils.Some(nodeAddr)
 	}
@@ -646,7 +687,7 @@ func createRouter(
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PersistentPeers, ",", " ") {
 		address, err := p2p.ParseNodeAddress(p)
 		if err != nil {
-			return nil, closer, noneDB, fmt.Errorf("invalid peer address %q: %w", p, err)
+			return nil, noExporter, closer, noneDB, fmt.Errorf("invalid peer address %q: %w", p, err)
 		}
 		options.PersistentPeers = append(options.PersistentPeers, address)
 	}
@@ -654,7 +695,7 @@ func createRouter(
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.BootstrapPeers, ",", " ") {
 		address, err := p2p.ParseNodeAddress(p)
 		if err != nil {
-			return nil, closer, noneDB, fmt.Errorf("invalid peer address %q: %w", p, err)
+			return nil, noExporter, closer, noneDB, fmt.Errorf("invalid peer address %q: %w", p, err)
 		}
 		options.BootstrapPeers = append(options.BootstrapPeers, address)
 	}
@@ -662,7 +703,7 @@ func createRouter(
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.BlockSyncPeers, ",", " ") {
 		address, err := p2p.ParseNodeAddress(p)
 		if err != nil {
-			return nil, closer, noneDB, fmt.Errorf("invalid peer address %q: %w", p, err)
+			return nil, noExporter, closer, noneDB, fmt.Errorf("invalid peer address %q: %w", p, err)
 		}
 		options.PersistentPeers = append(options.PersistentPeers, address)
 		options.BlockSyncPeers = append(options.BlockSyncPeers, address.NodeID)
@@ -673,30 +714,32 @@ func createRouter(
 	}
 	// Wire up Autobahn if enabled. Role dispatch (validator vs fullnode)
 	// happens inside buildGigaRouter based on cfg.Mode.
+	exporter := noExporter
 	if cfg.AutobahnConfigFile != "" {
 		logger.Info("Autobahn config enabled", "config_file", cfg.AutobahnConfigFile, "mode", cfg.Mode)
 		proxyApp, ok := app.Get()
 		if !ok {
-			return nil, closer, noneDB, fmt.Errorf("autobahn requires app")
+			return nil, noExporter, closer, noneDB, fmt.Errorf("autobahn requires app")
 		}
 		manager, ok := storageManager.Get()
 		if !ok {
-			return nil, closer, noneDB, fmt.Errorf("autobahn requires a storage manager")
+			return nil, noExporter, closer, noneDB, fmt.Errorf("autobahn requires a storage manager")
 		}
-		giga, err := buildGigaRouter(
+		giga, gigaExporter, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
 			manager.BlockStore(), manager.AppHashBuilder(),
 			options.PersistentPeers, stateSync,
 		)
 		if err != nil {
-			return nil, closer, noneDB, err
+			return nil, noExporter, closer, noneDB, err
 		}
 		options.Giga = utils.Some(giga)
+		exporter = gigaExporter
 	}
 
 	peerDB, err := dbProvider(&config.DBContext{ID: "peerstore", Config: cfg})
 	if err != nil {
-		return nil, closer, noneDB, fmt.Errorf("unable to initialize peer store: %w", err)
+		return nil, noExporter, closer, noneDB, fmt.Errorf("unable to initialize peer store: %w", err)
 	}
 	closer = peerDB.Close
 	router, err := p2p.NewRouter(
@@ -706,9 +749,9 @@ func createRouter(
 		options,
 	)
 	if err != nil {
-		return nil, closer, noneDB, fmt.Errorf("p2p.NewRouter(): %w", err)
+		return nil, noExporter, closer, noneDB, fmt.Errorf("p2p.NewRouter(): %w", err)
 	}
-	return router, closer, noneDB, nil
+	return router, exporter, closer, noneDB, nil
 }
 
 func makeNodeInfo(

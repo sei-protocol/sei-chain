@@ -21,6 +21,7 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	evmonlyrpc "github.com/sei-protocol/sei-chain/giga/evmonly/rpc"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/statesyncproof"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -128,14 +129,16 @@ type nodeImpl struct {
 	freezeHeight    uint64
 
 	// network
-	router               *p2p.Router
-	giga                 utils.Option[p2p.GigaRouter]
-	executor             utils.Option[*execution.Executor]
-	gigaStorageManager   utils.Option[*bootstrap.GigaStorageManager]
-	gigaStorageCloseOnce sync.Once
-	ServiceRestartCh     utils.Option[chan []string]
-	nodeInfo             types.NodeInfo
-	nodeKey              types.NodeKey // our node privkey
+	router   *p2p.Router
+	giga     utils.Option[p2p.GigaRouter]
+	executor utils.Option[*execution.Executor]
+	// stateSyncProofExporter is Some when [giga.state_sync] is enabled on an Autobahn node.
+	stateSyncProofExporter utils.Option[*statesyncproof.Exporter]
+	gigaStorageManager     utils.Option[*bootstrap.GigaStorageManager]
+	gigaStorageCloseOnce   sync.Once
+	ServiceRestartCh       utils.Option[chan []string]
+	nodeInfo               types.NodeInfo
+	nodeKey                types.NodeKey // our node privkey
 
 	// services
 	eventSinks        []indexer.EventSink
@@ -303,7 +306,7 @@ func makeNode(
 	if gigaEnabled {
 		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
 	}
-	router, peerCloser, _, err := createRouter(
+	router, stateSyncProofExporter, peerCloser, _, err := createRouter(
 		node.NodeInfo,
 		nodeKey,
 		gigaValidatorKey,
@@ -320,6 +323,7 @@ func makeNode(
 	}
 	node.router = router
 	node.giga = router.Giga()
+	node.stateSyncProofExporter = stateSyncProofExporter
 	// Giga storage is NOT closed in OnStop: BaseService runs OnStop before
 	// SpawnCritical (giga.Run and the executor) finishes, so closing there would
 	// race with still-running persist/execute. Close paths:
@@ -703,6 +707,11 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 			return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 				s.SpawnNamed("router", func() error { return giga.Run(ctx) })
 				s.SpawnNamed("execution", func() error { return executor.Run(ctx) })
+				if exporter, ok := n.stateSyncProofExporter.Get(); ok {
+					s.SpawnNamed("stateSyncProofExport", func() error {
+						return runStateSyncProofExport(ctx, exporter, stateSyncProofSweepInterval)
+					})
+				}
 				return nil
 			})
 		})

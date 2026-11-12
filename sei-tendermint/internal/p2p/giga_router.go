@@ -54,9 +54,6 @@ type GigaRouterCommonConfig struct {
 	// PersistentPeerIDs are node IDs from p2p.persistent-peers and
 	// p2p.blocksync-peers. They do not consume MaxInboundFullnodePeers.
 	PersistentPeerIDs map[types.NodeID]struct{}
-	// StateSyncProofExport exports a state sync proof, RoadBlock(H) and AppQC(H), for each
-	// retained FlatKV checkpoint H. None disables the export.
-	StateSyncProofExport utils.Option[StateSyncProofExportConfig]
 
 	// Whether validator should proxy txs which do not belong to the local node.
 	EnableEvmProxy bool

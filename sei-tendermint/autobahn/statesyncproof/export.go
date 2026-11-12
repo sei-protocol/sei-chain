@@ -1,8 +1,7 @@
-package p2p
+package statesyncproof
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -10,38 +9,42 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/sei-protocol/seilog"
+
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/statesyncproof"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-// StateSyncProofExportConfig configures export of state sync proof files for retained checkpoints.
-type StateSyncProofExportConfig struct {
+var logger = seilog.NewLogger("tendermint", "autobahn", "statesyncproof")
+
+// ExportConfig configures export of state sync proof files for retained checkpoints.
+type ExportConfig struct {
 	// Dir is the directory where canonical state sync proof files are written.
 	Dir string
 	// CheckpointHeights returns the FlatKV checkpoint heights retained locally.
 	CheckpointHeights func() ([]int64, error)
 	// BlockStore provides the road blocks, AppProposals and AppQCs to export.
-	BlockStore stateSyncProofBlockStore
+	BlockStore BlockStore
 	// Anchor publishes the latest AppQC the data layer has flushed to BlockStore. Proofs are written
 	// only at or below it, so it must never cover an AppQC that a crash could lose.
 	Anchor utils.AtomicRecv[data.Anchor]
+	// IsClosingRoad reports whether road is the last road of an epoch.
+	IsClosingRoad func(road types.RoadIndex) bool
 }
 
-type stateSyncProofBlockStore interface {
+// BlockStore is the part of the Autobahn BlockStore that Exporter reads.
+type BlockStore interface {
 	ReadBlock(types.RoadIndex) (utils.Option[*types.RoadBlock], error)
 	ReadAppProposal(types.RoadIndex) (utils.Option[*types.AppProposal], error)
 	ReadAppQC(types.RoadIndex) (utils.Option[*types.AppQC], error)
 }
 
-type stateSyncProofExporter struct {
-	cfg          StateSyncProofExportConfig
-	closingEpoch func(types.RoadIndex) utils.Option[types.EpochIndex]
-	// lastErr is the text of the last logged sweep error, or empty after a successful sweep.
-	lastErr string
+// Exporter writes the state sync proof files of retained checkpoints. It is not safe for
+// concurrent use.
+type Exporter struct {
+	cfg ExportConfig
 	// checkpoints is the retained checkpoint set that the last proof dir scan ran against, or None
 	// before the first scan.
 	checkpoints utils.Option[map[types.RoadIndex]struct{}]
@@ -52,68 +55,27 @@ type stateSyncProofExporter struct {
 	skipped map[types.RoadIndex]struct{}
 }
 
-func newStateSyncProofExporter(
-	cfg StateSyncProofExportConfig,
-	closingEpoch func(types.RoadIndex) utils.Option[types.EpochIndex],
-) *stateSyncProofExporter {
-	return &stateSyncProofExporter{
-		cfg:          cfg,
-		closingEpoch: closingEpoch,
-		exported:     map[types.RoadIndex]struct{}{},
-		skipped:      map[types.RoadIndex]struct{}{},
+// NewExporter returns an Exporter that has not scanned the proof dir yet.
+func NewExporter(cfg ExportConfig) *Exporter {
+	return &Exporter{
+		cfg:      cfg,
+		exported: map[types.RoadIndex]struct{}{},
+		skipped:  map[types.RoadIndex]struct{}{},
 	}
 }
 
-// runStateSyncProofExport sweeps once at startup and then on every Anchor update.
-func runStateSyncProofExport(
-	ctx context.Context,
-	cfg StateSyncProofExportConfig,
-	closingEpoch func(types.RoadIndex) utils.Option[types.EpochIndex],
-) error {
-	exporter := newStateSyncProofExporter(cfg, closingEpoch)
-	// Anchor moves with every durable AppQC, so a live chain retries failed exports and picks up
-	// checkpoints that appear after their AppQC within one block. FlatKV writes checkpoints
-	// asynchronously, so on a halted chain a checkpoint published after the last Anchor update waits
-	// for the startup sweep after the restart. Iter delivers the current Anchor first, which runs the
-	// startup sweep.
-	wake := make(chan struct{}, 1)
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnNamed("watchAnchor", func() error {
-			return cfg.Anchor.Iter(ctx, func(context.Context, data.Anchor) error {
-				return utils.SendOrDrop(wake, struct{}{})
-			})
-		})
-		s.SpawnNamed("sweep", func() error {
-			for {
-				if _, err := utils.Recv(ctx, wake); err != nil {
-					return err
-				}
-				exporter.sweepAndHandleError()
-			}
-		})
-		return nil
-	})
+// Sweep exports every pending checkpoint whose AppQC is durable. An I/O error on one
+// checkpoint or proof file does not stop the others; Sweep returns all of them joined, and a
+// later Sweep retries them.
+func (e *Exporter) Sweep() error {
+	err := e.sweep()
+	if err != nil {
+		Global.exportFailuresAt().Add(1)
+	}
+	return err
 }
 
-// sweepAndHandleError runs one sweep. It counts a failed sweep and logs it when its text differs
-// from the last logged failure.
-func (e *stateSyncProofExporter) sweepAndHandleError() {
-	err := e.sweepOnce()
-	if err == nil {
-		e.lastErr = ""
-		return
-	}
-	Global.gigaStateSyncProofExportFailuresAt().Add(1)
-	// Every durable AppQC wakes a sweep, so a permanent error would otherwise log once per block.
-	if msg := err.Error(); msg != e.lastErr {
-		logger.Error("state sync proof export failed; retrying on next sweep", "err", err)
-		e.lastErr = msg
-	}
-}
-
-// sweepOnce exports every pending checkpoint whose AppQC is durable. An I/O error on one
-// checkpoint or proof file does not stop the others; the sweep returns all of them joined.
-func (e *stateSyncProofExporter) sweepOnce() error {
+func (e *Exporter) sweep() error {
 	checkpoints, err := e.retainedCheckpoints()
 	if err != nil {
 		return err
@@ -135,7 +97,7 @@ func (e *stateSyncProofExporter) sweepOnce() error {
 // Every scan forgets the checkpoints that are no longer retained and the exported checkpoints whose
 // file is gone, so the next export writes them again. A file that cannot be read or removed does
 // not stop the scan: it is not counted as exported, and its error is returned with the others.
-func (e *stateSyncProofExporter) syncCheckpoints(checkpoints map[types.RoadIndex]struct{}) error {
+func (e *Exporter) syncCheckpoints(checkpoints map[types.RoadIndex]struct{}) error {
 	last, scanned := e.checkpoints.Get()
 	if scanned && maps.Equal(last, checkpoints) {
 		return nil
@@ -170,17 +132,17 @@ func (e *stateSyncProofExporter) syncCheckpoints(checkpoints map[types.RoadIndex
 // removeInvalidFiles removes the proof files in present that do not decode for the road in their
 // name, and returns the rest. A file it cannot read or remove is left out of the result, and its
 // error is returned joined with the others.
-func (e *stateSyncProofExporter) removeInvalidFiles(present map[types.RoadIndex]struct{}) (map[types.RoadIndex]struct{}, error) {
+func (e *Exporter) removeInvalidFiles(present map[types.RoadIndex]struct{}) (map[types.RoadIndex]struct{}, error) {
 	valid := make(map[types.RoadIndex]struct{}, len(present))
 	var errs []error
 	for index := range present {
-		path := filepath.Join(e.cfg.Dir, statesyncproof.FileName(index))
+		path := filepath.Join(e.cfg.Dir, FileName(index))
 		data, err := os.ReadFile(path) //nolint:gosec // path is derived from the configured state sync proof directory and a canonical file name.
 		if err != nil {
 			errs = append(errs, fmt.Errorf("read state sync proof file %s: %w", path, err))
 			continue
 		}
-		if _, err := statesyncproof.Decode(data, index); err != nil {
+		if _, err := Decode(data, index); err != nil {
 			logger.Warn("removing invalid state sync proof file", "path", path, "err", err)
 			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 				errs = append(errs, fmt.Errorf("remove invalid state sync proof file %s: %w", path, err))
@@ -194,7 +156,7 @@ func (e *stateSyncProofExporter) removeInvalidFiles(present map[types.RoadIndex]
 
 // exportable returns the checkpoints that are neither exported nor skipped and whose AppQC is
 // durable, in ascending order.
-func (e *stateSyncProofExporter) exportable(checkpoints map[types.RoadIndex]struct{}) []types.RoadIndex {
+func (e *Exporter) exportable(checkpoints map[types.RoadIndex]struct{}) []types.RoadIndex {
 	durableAppQC, ok := e.durableAppQCIndex()
 	if !ok {
 		return nil
@@ -216,15 +178,15 @@ func (e *stateSyncProofExporter) exportable(checkpoints map[types.RoadIndex]stru
 }
 
 // exportCheckpoint writes the proof file of checkpoint index, or skips it when it is LastRoad(X).
-func (e *stateSyncProofExporter) exportCheckpoint(index types.RoadIndex) error {
-	if e.closingEpoch(index).IsPresent() {
+func (e *Exporter) exportCheckpoint(index types.RoadIndex) error {
+	if e.cfg.IsClosingRoad(index) {
 		e.skipped[index] = struct{}{}
 		return nil
 	}
-	return e.exportStateSyncProof(index)
+	return e.exportProof(index)
 }
 
-func (e *stateSyncProofExporter) durableAppQCIndex() (types.RoadIndex, bool) {
+func (e *Exporter) durableAppQCIndex() (types.RoadIndex, bool) {
 	first, ok := e.cfg.Anchor.Load().First.Get()
 	if !ok {
 		return 0, false
@@ -232,7 +194,7 @@ func (e *stateSyncProofExporter) durableAppQCIndex() (types.RoadIndex, bool) {
 	return first.AppQC.Proposal().Index(), true
 }
 
-func (e *stateSyncProofExporter) retainedCheckpoints() (map[types.RoadIndex]struct{}, error) {
+func (e *Exporter) retainedCheckpoints() (map[types.RoadIndex]struct{}, error) {
 	heights, err := e.cfg.CheckpointHeights()
 	if err != nil {
 		return nil, fmt.Errorf("list checkpoint heights: %w", err)
@@ -247,9 +209,9 @@ func (e *stateSyncProofExporter) retainedCheckpoints() (map[types.RoadIndex]stru
 	return checkpoints, nil
 }
 
-// exportStateSyncProof writes the proof file of road index and marks it exported. Records that are
+// exportProof writes the proof file of road index and marks it exported. Records that are
 // pruned, missing or inconsistent mark it skipped.
-func (e *stateSyncProofExporter) exportStateSyncProof(index types.RoadIndex) error {
+func (e *Exporter) exportProof(index types.RoadIndex) error {
 	records, err := e.readRecords(index)
 	if errors.Is(err, types.ErrPruned) {
 		e.skipped[index] = struct{}{}
@@ -271,20 +233,20 @@ func (e *stateSyncProofExporter) exportStateSyncProof(index types.RoadIndex) err
 	if err != nil {
 		// Skipping, not halting, keeps a corrupt local BlockStore from stopping the node through an
 		// optional export, and never publishes the bad proof.
-		Global.gigaStateSyncProofExportFailuresAt().Add(1)
+		Global.exportFailuresAt().Add(1)
 		logger.Error("skipping state sync proof: inconsistent BlockStore records", "index", index, "err", err)
 		e.skipped[index] = struct{}{}
 		return nil
 	}
-	if err := writeStateSyncProofFile(filepath.Join(e.cfg.Dir, statesyncproof.FileName(index)), encoded); err != nil {
+	if err := writeFile(filepath.Join(e.cfg.Dir, FileName(index)), encoded); err != nil {
 		return err
 	}
 	e.exported[index] = struct{}{}
 	return nil
 }
 
-// stateSyncProofRecords are the BlockStore records of one road that a proof file is built from.
-type stateSyncProofRecords struct {
+// records are the BlockStore records of one road that a proof file is built from.
+type records struct {
 	roadBlock   *types.RoadBlock
 	appProposal *types.AppProposal
 	appQC       *types.AppQC
@@ -292,7 +254,7 @@ type stateSyncProofRecords struct {
 
 // encode returns the proof file of road index. It fails when the records do not all belong to road
 // index or the local AppHash does not match the AppQC.
-func (r stateSyncProofRecords) encode(index types.RoadIndex) ([]byte, error) {
+func (r records) encode(index types.RoadIndex) ([]byte, error) {
 	// The data layer checks this before it publishes Anchor. Keep the check here as defense in depth against
 	// a future writer path or corrupted local records.
 	if !bytes.Equal(r.appProposal.AppHash(), r.appQC.Proposal().AppHash()) {
@@ -301,13 +263,13 @@ func (r stateSyncProofRecords) encode(index types.RoadIndex) ([]byte, error) {
 	if r.appQC.Proposal().Index() != index {
 		return nil, fmt.Errorf("AppQC index %d does not match checkpoint index %d", r.appQC.Proposal().Index(), index)
 	}
-	return statesyncproof.Encode(r.roadBlock, r.appQC)
+	return Encode(r.roadBlock, r.appQC)
 }
 
 // readRecords reads the records of road index. It returns None when any record is missing, and an
 // error wrapping types.ErrPruned when any record is pruned.
-func (e *stateSyncProofExporter) readRecords(index types.RoadIndex) (utils.Option[stateSyncProofRecords], error) {
-	none := utils.None[stateSyncProofRecords]()
+func (e *Exporter) readRecords(index types.RoadIndex) (utils.Option[records], error) {
+	none := utils.None[records]()
 	roadBlock, err := e.cfg.BlockStore.ReadBlock(index)
 	if err != nil {
 		return none, fmt.Errorf("read road block %d: %w", index, err)
@@ -320,7 +282,7 @@ func (e *stateSyncProofExporter) readRecords(index types.RoadIndex) (utils.Optio
 	if err != nil {
 		return none, fmt.Errorf("read AppQC %d: %w", index, err)
 	}
-	var r stateSyncProofRecords
+	var r records
 	var ok bool
 	if r.roadBlock, ok = roadBlock.Get(); !ok {
 		return none, nil
@@ -337,7 +299,7 @@ func (e *stateSyncProofExporter) readRecords(index types.RoadIndex) (utils.Optio
 // removeOrphans removes, among the proof dir entries, the stale temp files and the proof files of
 // checkpoints that are not retained. It returns the retained checkpoints that have a proof file. A
 // file it cannot remove stays in place, and its error is returned joined with the others.
-func (e *stateSyncProofExporter) removeOrphans(
+func (e *Exporter) removeOrphans(
 	entries []os.DirEntry,
 	checkpoints map[types.RoadIndex]struct{},
 ) (map[types.RoadIndex]struct{}, error) {
@@ -352,7 +314,7 @@ func (e *stateSyncProofExporter) removeOrphans(
 			}
 			continue
 		}
-		index, err := statesyncproof.ParseFileName(name)
+		index, err := ParseFileName(name)
 		if err != nil {
 			continue
 		}
@@ -367,7 +329,7 @@ func (e *stateSyncProofExporter) removeOrphans(
 	return present, errors.Join(errs...)
 }
 
-func writeStateSyncProofFile(path string, data []byte) error {
+func writeFile(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("create state sync proof dir: %w", err)
 	}

@@ -80,7 +80,7 @@ func makeSeedNode(
 		return nil, err
 	}
 
-	router, peerCloser, _, err := createRouter(
+	router, _, peerCloser, _, err := createRouter(
 		func() *types.NodeInfo { return &nodeInfo },
 		nodeKey,
 		utils.None[atypes.SecretKey](),

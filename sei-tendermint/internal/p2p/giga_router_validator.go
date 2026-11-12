@@ -101,11 +101,6 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("pushAppHashes", func() error { return r.runPushAppHashes(ctx) })
-		if cfg, ok := r.cfg.StateSyncProofExport.Get(); ok {
-			s.SpawnNamed("stateSyncProofExport", func() error {
-				return runStateSyncProofExport(ctx, cfg, r.data.ClosingEpoch)
-			})
-		}
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		return nil
 	})
