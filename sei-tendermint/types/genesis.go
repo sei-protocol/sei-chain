@@ -81,9 +81,9 @@ type GenesisDoc struct {
 // AutobahnParams is the Autobahn section of a genesis doc.
 type AutobahnParams struct {
 	ViewTimeout time.Duration `json:"view_timeout,string"`
-	// MinRoadBlockInverval is the minimum interval between this validator's
+	// MinRoadBlockInterval is the minimum interval between this validator's
 	// consensus instances. Zero means unlimited; it must be less than ViewTimeout.
-	MinRoadBlockInverval time.Duration `json:"min_road_block_inverval,string"`
+	MinRoadBlockInterval time.Duration `json:"min_road_block_interval,string"`
 }
 
 // DefaultAutobahnParams returns AutobahnParams with a 1500ms view timeout.
@@ -96,11 +96,11 @@ func (p AutobahnParams) Validate() error {
 	if p.ViewTimeout <= 0 {
 		return fmt.Errorf("view_timeout must be greater than 0, got %v", p.ViewTimeout)
 	}
-	if p.MinRoadBlockInverval < 0 {
-		return errors.New("min_road_block_inverval must not be negative")
+	if p.MinRoadBlockInterval < 0 {
+		return errors.New("min_road_block_interval must not be negative")
 	}
-	if p.MinRoadBlockInverval >= p.ViewTimeout {
-		return errors.New("min_road_block_inverval must be shorter than view_timeout")
+	if p.MinRoadBlockInterval >= p.ViewTimeout {
+		return errors.New("min_road_block_interval must be shorter than view_timeout")
 	}
 	return nil
 }

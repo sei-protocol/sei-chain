@@ -27,7 +27,7 @@ func TestAutobahnParamsValidate(t *testing.T) {
 		{"just too long", time.Second, time.Second + time.Nanosecond, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			params := AutobahnParams{ViewTimeout: tc.timeout, MinRoadBlockInverval: tc.interval}
+			params := AutobahnParams{ViewTimeout: tc.timeout, MinRoadBlockInterval: tc.interval}
 			doc := &GenesisDoc{ChainID: "test-chain", Autobahn: &params}
 			if !tc.valid {
 				require.Error(t, params.Validate())
@@ -46,14 +46,14 @@ func TestAutobahnParamsValidate(t *testing.T) {
 }
 
 func TestAutobahnParamsIntervalJSON(t *testing.T) {
-	raw := []byte(`{"chain_id":"test-chain","autobahn":{"view_timeout":"1500000000","min_road_block_inverval":"500000000"}}`)
+	raw := []byte(`{"chain_id":"test-chain","autobahn":{"view_timeout":"1500000000","min_road_block_interval":"500000000"}}`)
 	doc, err := GenesisDocFromJSON(raw)
 	require.NoError(t, err)
-	require.Equal(t, 500*time.Millisecond, doc.Autobahn.MinRoadBlockInverval)
+	require.Equal(t, 500*time.Millisecond, doc.Autobahn.MinRoadBlockInterval)
 
 	raw = []byte(`{"chain_id":"test-chain","autobahn":{"view_timeout":"1500000000"}}`)
 	doc, err = GenesisDocFromJSON(raw)
 	require.NoError(t, err)
-	require.Equal(t, time.Duration(0), doc.Autobahn.MinRoadBlockInverval)
+	require.Equal(t, time.Duration(0), doc.Autobahn.MinRoadBlockInterval)
 	require.NoError(t, DefaultAutobahnParams().Validate())
 }
