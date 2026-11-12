@@ -70,16 +70,30 @@ func (env *EVMEnvironment) EvmEstimateGasAt(ctx context.Context, msg *ethcore.Me
 	return env.EVM.EvmEstimateGasAt(ctx, msg, gasCap, header, overrides)
 }
 
-// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg with calls applied to the
-// current committed EVM state first, in order, persisting no state change.
-func (env *EVMEnvironment) EvmEstimateGasAfterCalls(ctx context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
-	return env.EVM.EvmEstimateGasAfterCalls(ctx, calls, msg, gasCap)
+// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg with overrides and then
+// calls applied to the current committed EVM state first, in order, persisting no state change.
+func (env *EVMEnvironment) EvmEstimateGasAfterCalls(ctx context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+	return env.EVM.EvmEstimateGasAfterCalls(ctx, calls, msg, gasCap, overrides)
+}
+
+// EvmEstimateGasAfterCallsAt returns what EvmEstimateGasAt returns for msg with overrides and then
+// calls applied to the committed EVM state after header's block first, in order, persisting no
+// state change.
+func (env *EVMEnvironment) EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+	return env.EVM.EvmEstimateGasAfterCallsAt(ctx, calls, msg, gasCap, header, overrides)
 }
 
 // EvmCreateAccessList returns the access list msg touches against the current committed EVM
 // state, and the result of executing msg with that list, persisting no state change.
 func (env *EVMEnvironment) EvmCreateAccessList(ctx context.Context, msg *ethcore.Message) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
 	return env.EVM.EvmCreateAccessList(ctx, msg)
+}
+
+// EvmCreateAccessListAt returns the access list msg touches against the committed EVM state after
+// header's block, in the context that block executed at, and the result of executing msg with
+// that list, persisting no state change.
+func (env *EVMEnvironment) EvmCreateAccessListAt(ctx context.Context, msg *ethcore.Message, header *ethtypes.Header) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
+	return env.EVM.EvmCreateAccessListAt(ctx, msg, header)
 }
 
 // EvmBlockContext returns the block context header's block executed at.
