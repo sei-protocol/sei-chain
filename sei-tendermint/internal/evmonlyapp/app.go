@@ -201,7 +201,7 @@ func NewEVMOnlyApplication(
 		checkedSenders:    utils.NewMutex(new(newSenderCache(checkedSendersCap))),
 		finalizePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
 	}
-	cursor, err := loadEVMOnlyCursor(storage.SC())
+	cursor, err := loadEVMOnlyCursor(storage.StateDB().SC())
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +307,7 @@ func (a *evmOnlyApplication) InitChain(req *proxy.RequestInitChain) (*proxy.Resp
 // between InitChain and the first block leaves it that way; a store holding
 // any block is refused.
 func (a *evmOnlyApplication) seedInitialStateVersion(initialHeight int64) error {
-	stateStore := a.storage.SC()
+	stateStore := a.storage.StateDB().SC()
 	latest, err := stateStore.GetLatestVersion()
 	if err != nil {
 		return fmt.Errorf("read EVM-only state version: %w", err)
@@ -950,7 +950,7 @@ func (a *evmOnlyApplication) stageEpochState(epochState utils.Option[proxy.Epoch
 // version is final; a commit that failed is reported alongside.
 func (a *evmOnlyApplication) abandonPending(executor *evmonly.Executor, height int64) error {
 	commitErr := executor.AwaitCommits()
-	latest, err := a.storage.SC().GetLatestVersion()
+	latest, err := a.storage.StateDB().SC().GetLatestVersion()
 	if err != nil {
 		return errors.Join(commitErr, fmt.Errorf("read EVM-only state version: %w", err))
 	}
