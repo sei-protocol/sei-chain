@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"runtime/debug"
 	"time"
@@ -50,138 +49,9 @@ func (app *Proxy) EvmNonce(addr common.Address) uint64 {
 	return app.app.EvmNonce(addr)
 }
 
-// evmSenderCache is implemented by applications that can reuse a sender recovered before CheckTx.
-type evmSenderCache interface {
-	RememberEvmSender(common.Hash, common.Address)
-	ForgetEvmSender(common.Hash)
-}
-
-// RememberEvmSender records the sender recovered for the transaction with this hash, when the wrapped
-// application can use it. It is a no-op otherwise.
-func (app *Proxy) RememberEvmSender(hash common.Hash, sender common.Address) {
-	if cache, ok := app.app.(evmSenderCache); ok {
-		cache.RememberEvmSender(hash, sender)
-	}
-}
-
-// ForgetEvmSender drops the sender recorded for the transaction with this hash, if any.
-func (app *Proxy) ForgetEvmSender(hash common.Hash) {
-	if cache, ok := app.app.(evmSenderCache); ok {
-		cache.ForgetEvmSender(hash)
-	}
-}
-
 func (app *Proxy) EvmBalance(addr common.Address, seiAddr []byte) uint256.Int {
 	defer addTimeSample(Global.MethodTimingAt("evm_balance", "sync"))()
 	return app.app.EvmBalance(addr, seiAddr)
-}
-
-// commitSettler is implemented by applications whose block state commits land
-// behind FinalizeBlock.
-type commitSettler interface {
-	AwaitCommits() error
-}
-
-// AwaitCommits blocks until every block the wrapped application has finalized
-// is in its store, and reports the first commit that failed. It returns nil for
-// an application that commits synchronously.
-func (app *Proxy) AwaitCommits() error {
-	defer addTimeSample(Global.MethodTimingAt("await_commits", "sync"))()
-	settler, ok := app.app.(commitSettler)
-	if !ok {
-		return nil
-	}
-	return settler.AwaitCommits()
-}
-
-// evmCodeReader is implemented by applications that can read contract code
-// from their current EVM state.
-type evmCodeReader interface {
-	EvmCode(common.Address) []byte
-}
-
-// EvmCode returns the contract code at addr in the wrapped application's
-// current EVM state. It errors if that application does not expose EVM code.
-func (app *Proxy) EvmCode(addr common.Address) ([]byte, error) {
-	defer addTimeSample(Global.MethodTimingAt("evm_code", "sync"))()
-	reader, ok := app.app.(evmCodeReader)
-	if !ok {
-		return nil, fmt.Errorf("application does not expose EVM code")
-	}
-	return reader.EvmCode(addr), nil
-}
-
-// evmStorageReader is implemented by applications that can read contract
-// storage from their current EVM state.
-type evmStorageReader interface {
-	EvmStorage(common.Address, common.Hash) common.Hash
-}
-
-// EvmStorage returns the value at key in addr's storage in the wrapped
-// application's current EVM state. It errors if that application does not
-// expose EVM storage.
-func (app *Proxy) EvmStorage(addr common.Address, key common.Hash) (common.Hash, error) {
-	defer addTimeSample(Global.MethodTimingAt("evm_storage", "sync"))()
-	reader, ok := app.app.(evmStorageReader)
-	if !ok {
-		return common.Hash{}, fmt.Errorf("application does not expose EVM storage")
-	}
-	return reader.EvmStorage(addr, key), nil
-}
-
-// evmHistoryReader is implemented by applications that serve their EVM state
-// after past heights.
-type evmHistoryReader interface {
-	EvmBalanceAt(common.Address, int64) (uint256.Int, error)
-	EvmCodeAt(common.Address, int64) ([]byte, error)
-	EvmNonceAt(common.Address, int64) (uint64, error)
-	EvmStorageAt(common.Address, common.Hash, int64) (common.Hash, error)
-}
-
-var errNoEVMHistory = errors.New("application does not serve historical EVM state")
-
-// EvmBalanceAt returns addr's balance in the wrapped application's EVM state
-// after height. It errors if that application serves no history.
-func (app *Proxy) EvmBalanceAt(addr common.Address, height int64) (uint256.Int, error) {
-	defer addTimeSample(Global.MethodTimingAt("evm_balance_at", "sync"))()
-	reader, ok := app.app.(evmHistoryReader)
-	if !ok {
-		return uint256.Int{}, errNoEVMHistory
-	}
-	return reader.EvmBalanceAt(addr, height)
-}
-
-// EvmCodeAt returns the contract code at addr in the wrapped application's EVM
-// state after height. It errors if that application serves no history.
-func (app *Proxy) EvmCodeAt(addr common.Address, height int64) ([]byte, error) {
-	defer addTimeSample(Global.MethodTimingAt("evm_code_at", "sync"))()
-	reader, ok := app.app.(evmHistoryReader)
-	if !ok {
-		return nil, errNoEVMHistory
-	}
-	return reader.EvmCodeAt(addr, height)
-}
-
-// EvmNonceAt returns addr's nonce in the wrapped application's EVM state after
-// height. It errors if that application serves no history.
-func (app *Proxy) EvmNonceAt(addr common.Address, height int64) (uint64, error) {
-	defer addTimeSample(Global.MethodTimingAt("evm_nonce_at", "sync"))()
-	reader, ok := app.app.(evmHistoryReader)
-	if !ok {
-		return 0, errNoEVMHistory
-	}
-	return reader.EvmNonceAt(addr, height)
-}
-
-// EvmStorageAt returns the value at key in addr's storage in the wrapped application's EVM state
-// after height. It errors if that application serves no history.
-func (app *Proxy) EvmStorageAt(addr common.Address, key common.Hash, height int64) (common.Hash, error) {
-	defer addTimeSample(Global.MethodTimingAt("evm_storage_at", "sync"))()
-	reader, ok := app.app.(evmHistoryReader)
-	if !ok {
-		return common.Hash{}, errNoEVMHistory
-	}
-	return reader.EvmStorageAt(addr, key, height)
 }
 
 func (app *Proxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {

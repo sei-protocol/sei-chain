@@ -31,6 +31,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
@@ -540,6 +541,66 @@ func TestSimulatePropagatesCallerContext(t *testing.T) {
 	_, _, err = app.Simulate(want, txBytes)
 	require.NoError(t, err)
 	require.Equal(t, "caller-context", gotCtx.Value(ctxKey{}))
+}
+
+type protoTxTest struct {
+	*txTest
+	protoTx *txtypes.Tx
+}
+
+func (tx protoTxTest) GetProtoTx() *txtypes.Tx { return tx.protoTx }
+
+func TestSimulateRejectsMultisigSignerModes(t *testing.T) {
+	single := &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Single_{Single: &txtypes.ModeInfo_Single{}}}
+	multi := &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{Multi: &txtypes.ModeInfo_Multi{ModeInfos: []*txtypes.ModeInfo{single}}}}
+
+	for _, tc := range []struct {
+		name      string
+		modeInfos []*txtypes.ModeInfo
+		wantErr   bool
+	}{
+		{name: "single", modeInfos: []*txtypes.ModeInfo{single}},
+		{name: "unset", modeInfos: []*txtypes.ModeInfo{nil}},
+		{name: "multisig", modeInfos: []*txtypes.ModeInfo{multi}, wantErr: true},
+		{name: "multisig after single", modeInfos: []*txtypes.ModeInfo{single, multi}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var anteCalls int
+			anteOpt := func(bapp *BaseApp) {
+				bapp.SetAnteHandler(func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+					anteCalls++
+					return ctx, nil
+				})
+			}
+			routerOpt := func(bapp *BaseApp) {
+				bapp.Router().AddRoute(sdk.NewRoute(routeMsgCounter, func(sdk.Context, sdk.Msg) (*sdk.Result, error) {
+					return &sdk.Result{}, nil
+				}))
+			}
+			app := setupBaseApp(t, anteOpt, routerOpt)
+			_, err := app.InitChain(&abci.RequestInitChain{})
+			require.NoError(t, err)
+
+			signerInfos := make([]*txtypes.SignerInfo, len(tc.modeInfos))
+			for i, modeInfo := range tc.modeInfos {
+				signerInfos[i] = &txtypes.SignerInfo{ModeInfo: modeInfo}
+			}
+			tx := protoTxTest{
+				txTest:  newTxCounter(0, 0),
+				protoTx: &txtypes.Tx{AuthInfo: &txtypes.AuthInfo{SignerInfos: signerInfos}},
+			}
+			app.txDecoder = func([]byte) (sdk.Tx, error) { return tx, nil }
+
+			_, _, err = app.Simulate(context.Background(), []byte("tx"))
+			if tc.wantErr {
+				require.ErrorIs(t, err, sdkerrors.ErrNotSupported)
+				require.Zero(t, anteCalls)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, 1, anteCalls)
+		})
+	}
 }
 
 func TestInitChainGenesisFlagDoesNotLeakToCheckOrSimulateBeforeFirstCommit(t *testing.T) {

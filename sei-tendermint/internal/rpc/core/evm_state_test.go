@@ -45,3 +45,31 @@ func TestEVMEnvironmentReadsStateWithoutABCI(t *testing.T) {
 	_, err = env.ABCIQuery(t.Context(), &coretypes.RequestABCIQuery{})
 	require.Error(t, err)
 }
+
+// senderCacheApp records senders provided before transaction admission.
+type senderCacheApp struct {
+	evmStateApp
+	senders map[common.Hash]common.Address
+}
+
+func (a *senderCacheApp) RememberEvmSender(hash common.Hash, sender common.Address) {
+	a.senders[hash] = sender
+}
+
+func (a *senderCacheApp) ForgetEvmSender(hash common.Hash) {
+	delete(a.senders, hash)
+}
+
+func TestEVMEnvironmentCachesSendersWithoutABCI(t *testing.T) {
+	app := &senderCacheApp{senders: make(map[common.Hash]common.Address)}
+	env := &EVMEnvironment{Environment: &Environment{}, EVM: proxy.NewEVM(app)}
+	hash := common.Hash{1}
+	sender := common.Address{2}
+
+	env.RememberEvmSender(hash, sender)
+	require.Equal(t, sender, app.senders[hash])
+
+	env.ForgetEvmSender(hash)
+	_, cached := app.senders[hash]
+	require.False(t, cached)
+}

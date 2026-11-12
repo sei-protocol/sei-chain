@@ -44,13 +44,8 @@ func TestEnvironmentEvmRPCWrappers(t *testing.T) {
 	// Test: the EVM RPC accessors Environment exposes to giga/evmonly/rpc.
 	nonce := env.EvmTransactionCount(address)
 	height := env.EvmBlockNumber()
-	_, codeErr := env.EvmCode(address)
-	_, storageErr := env.EvmStorage(address, common.Hash{})
 
-	// Verify: nonce/height hit Application; the rest error because
-	// BaseApplication implements none of those optional interfaces.
+	// Verify: nonce and height hit the ABCI application.
 	require.Equal(t, uint64(0), nonce)
 	require.Equal(t, uint64(0), height)
-	require.Error(t, codeErr)
-	require.Error(t, storageErr)
 }

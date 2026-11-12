@@ -74,7 +74,8 @@ func (e *Executor) traceAccessList(
 ) (*core.ExecutionResult, error) {
 	stateDB := e.acquireStateDB(reader)
 	defer e.releaseStateDB(stateDB)
-	result, cancelled, err := e.applyMessage(ctx, blockCtx, chainConfig, stateDB, msg, vm.Config{Tracer: tracer.Hooks(), NoBaseFee: true})
+	evm := e.newEVM(EVMBlockContext(blockCtx), stateDB, chainConfig, vm.Config{Tracer: tracer.Hooks(), NoBaseFee: true})
+	result, cancelled, err := applyMessage(ctx, evm, msg)
 	if cancelled {
 		return nil, fmt.Errorf("EVM-only access list exceeded %s execution timeout", callTimeout)
 	}

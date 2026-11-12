@@ -37,17 +37,6 @@ func (env *Environment) EvmProxyEnabled() bool {
 	return false
 }
 
-// RememberEvmSender records the sender recovered for the transaction with this hash in the
-// application, which then skips recovering it again.
-func (env *Environment) RememberEvmSender(hash common.Hash, sender common.Address) {
-	env.App.RememberEvmSender(hash, sender)
-}
-
-// ForgetEvmSender drops the sender recorded for the transaction with this hash, if any.
-func (env *Environment) ForgetEvmSender(hash common.Hash) {
-	env.App.ForgetEvmSender(hash)
-}
-
 // EvmBalance returns the address balance from the current committed EVM state.
 func (env *Environment) EvmBalance(address common.Address) uint256.Int {
 	if evm, ok := env.EVM.Get(); ok {
@@ -336,60 +325,9 @@ func (env *Environment) EvmTransactionCount(address common.Address) uint64 {
 	return env.abciApplication().EvmNonce(address)
 }
 
-// EvmTransactionCountAt returns the address transaction count (nonce) in the
-// committed EVM state after height.
-func (env *Environment) EvmTransactionCountAt(address common.Address, height int64) (uint64, error) {
-	if evm, ok := env.EVM.Get(); ok {
-		return evm.EvmNonceAt(address, height)
-	}
-	return env.abciApplication().EvmNonceAt(address, height)
-}
-
-// EvmBalanceAt returns the address balance in the committed EVM state after height.
-func (env *Environment) EvmBalanceAt(address common.Address, height int64) (uint256.Int, error) {
-	if evm, ok := env.EVM.Get(); ok {
-		return evm.EvmBalanceAt(address, height)
-	}
-	return env.abciApplication().EvmBalanceAt(address, height)
-}
-
-// EvmCodeAt returns the contract code at address in the committed EVM state after height.
-func (env *Environment) EvmCodeAt(address common.Address, height int64) ([]byte, error) {
-	if evm, ok := env.EVM.Get(); ok {
-		return evm.EvmCodeAt(address, height)
-	}
-	return env.abciApplication().EvmCodeAt(address, height)
-}
-
-// EvmStorageAt returns the value at key in address's storage in the committed EVM state after height.
-func (env *Environment) EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error) {
-	if evm, ok := env.EVM.Get(); ok {
-		return evm.EvmStorageAt(address, key, height)
-	}
-	return env.abciApplication().EvmStorageAt(address, key, height)
-}
-
 // EvmBlockNumber returns the height of the most recently committed block.
 func (env *Environment) EvmBlockNumber() uint64 {
 	return utils.Clamp[uint64](env.lastBlockHeight())
-}
-
-// EvmCode returns the contract code at address in the current committed EVM
-// state.
-func (env *Environment) EvmCode(address common.Address) ([]byte, error) {
-	if evm, ok := env.EVM.Get(); ok {
-		return evm.EvmCode(address)
-	}
-	return env.abciApplication().EvmCode(address)
-}
-
-// EvmStorage returns the value at key in address's storage in the current
-// committed EVM state.
-func (env *Environment) EvmStorage(address common.Address, key common.Hash) (common.Hash, error) {
-	if evm, ok := env.EVM.Get(); ok {
-		return evm.EvmStorage(address, key)
-	}
-	return env.abciApplication().EvmStorage(address, key)
 }
 
 // CheckTx checks the transaction without executing it. The transaction won't

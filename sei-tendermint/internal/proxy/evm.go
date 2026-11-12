@@ -10,6 +10,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 )
 
 // EVMApplication executes EVM transactions for Autobahn and serves read-only
@@ -26,6 +28,10 @@ type EVMApplication interface {
 	CheckTx(context.Context, *RequestCheckTxV2) *ResponseCheckTxV2
 	EvmBalance(common.Address, []byte) uint256.Int
 	EvmNonce(common.Address) uint64
+	// RememberEvmSender records the sender recovered for the transaction with hash.
+	RememberEvmSender(hash common.Hash, sender common.Address)
+	// ForgetEvmSender drops the sender recorded for hash, if any.
+	ForgetEvmSender(hash common.Hash)
 	FinalizeBlock(context.Context, *RequestFinalizeBlock) (*ResponseFinalizeBlock, error)
 	Commit(context.Context) (*ResponseCommit, error)
 	// AwaitCommits waits for finalized blocks to reach the store and returns any commit failure.
@@ -44,18 +50,20 @@ type EVMApplication interface {
 	// EvmStorageAt returns the value at key in address's committed EVM storage after height.
 	EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error)
 
-	// EvmCall executes msg as a read-only call against the current EVM state.
-	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
+	// EvmCall executes msg as a read-only call against the current EVM state,
+	// with overrides applied.
+	EvmCall(ctx context.Context, msg *core.Message, overrides evmonly.CallOverrides) (*core.ExecutionResult, error)
 	// EvmEstimateGas returns the lowest gas limit at or below gasCap that lets
-	// msg succeed, and any revert data.
-	EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error)
+	// msg succeed with overrides applied, and any revert data.
+	EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error)
 	// EvmCallAt executes msg as a read-only call against the committed EVM
-	// state after header's block, in the context that block executed at.
-	EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error)
+	// state after header's block, in the context that block executed at, with
+	// overrides applied.
+	EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (*core.ExecutionResult, error)
 	// EvmEstimateGasAt returns the lowest gas limit at or below gasCap that
 	// lets msg succeed against the committed EVM state after header's block,
-	// and any revert data.
-	EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error)
+	// with overrides applied, and any revert data.
+	EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error)
 	// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg with calls applied to
 	// the current EVM state first, in order.
 	EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error)
@@ -126,6 +134,16 @@ func (app *EVMProxy) CheckTxSafe(ctx context.Context, req *RequestCheckTxV2) (*R
 	})
 }
 
+// RememberEvmSender records the sender recovered for the transaction with hash.
+func (app *EVMProxy) RememberEvmSender(hash common.Hash, sender common.Address) {
+	app.app.RememberEvmSender(hash, sender)
+}
+
+// ForgetEvmSender drops the sender recorded for hash, if any.
+func (app *EVMProxy) ForgetEvmSender(hash common.Hash) {
+	app.app.ForgetEvmSender(hash)
+}
+
 func (app *EVMProxy) EvmNonce(addr common.Address) uint64 {
 	defer addTimeSample(Global.MethodTimingAt("evm_nonce", "sync"))()
 	return app.app.EvmNonce(addr)
@@ -141,24 +159,24 @@ func (app *EVMProxy) Commit(ctx context.Context) (*ResponseCommit, error) {
 	return app.app.Commit(ctx)
 }
 
-func (app *EVMProxy) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {
+func (app *EVMProxy) EvmCall(ctx context.Context, msg *core.Message, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_call", "sync"))()
-	return app.app.EvmCall(ctx, msg)
+	return app.app.EvmCall(ctx, msg, overrides)
 }
 
-func (app *EVMProxy) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+func (app *EVMProxy) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_estimate_gas", "sync"))()
-	return app.app.EvmEstimateGas(ctx, msg, gasCap)
+	return app.app.EvmEstimateGas(ctx, msg, gasCap, overrides)
 }
 
-func (app *EVMProxy) EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error) {
+func (app *EVMProxy) EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_call_at", "sync"))()
-	return app.app.EvmCallAt(ctx, msg, header)
+	return app.app.EvmCallAt(ctx, msg, header, overrides)
 }
 
-func (app *EVMProxy) EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error) {
+func (app *EVMProxy) EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_estimate_gas_at", "sync"))()
-	return app.app.EvmEstimateGasAt(ctx, msg, gasCap, header)
+	return app.app.EvmEstimateGasAt(ctx, msg, gasCap, header, overrides)
 }
 
 func (app *EVMProxy) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
