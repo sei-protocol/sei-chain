@@ -124,8 +124,8 @@ func mustUint(t *testing.T, s string) uint64 {
 
 // TestReadsCompilerWrites runs ParamsStorageHarness, which writes
 // ParamsStorage with solc's codegen, and reads the result back. Rebuild
-// testdata with `forge inspect ParamsStorageHarness deployedBytecode` and the
-// remapping giga-storage/=docs/giga-storage/.
+// testdata from the repository root with solc 0.8.30 and
+// `solc --bin-runtime giga-storage/=docs/giga-storage/ giga/evmonly/precompiles/params/testdata/ParamsStorageHarness.sol`.
 func TestReadsCompilerWrites(t *testing.T) {
 	code, err := os.ReadFile("testdata/ParamsStorageHarness.bin-runtime")
 	require.NoError(t, err)
