@@ -59,7 +59,7 @@ func TestCreateAccessListEndToEnd(t *testing.T) {
 			var gotMsg *core.Message
 			backend := &testBackend{
 				chainID: func() uint64 { return 713715 },
-				baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+				baseFee: func() *big.Int { return new(big.Int) },
 				createAccessList: func(_ context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
 					gotMsg = msg
 					return accessList, tc.result, tc.backErr
@@ -123,7 +123,7 @@ func TestEstimateGasAfterCalls(t *testing.T) {
 			}
 			backend := &testBackend{
 				chainID: func() uint64 { return 713715 },
-				baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+				baseFee: func() *big.Int { return new(big.Int) },
 				estimateGas: func(_ context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
 					return estimate(nil, msg, gasCap)
 				},
@@ -166,7 +166,7 @@ func TestEstimateGasAfterCalls(t *testing.T) {
 func TestEstimateGasAfterCallsCapComesFromConfig(t *testing.T) {
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 	}
 	limits := noRPCLimits
 	limits.MaxEstimateGasCalls = 1

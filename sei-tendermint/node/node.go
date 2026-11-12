@@ -753,7 +753,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 			return errors.New("autobahn rpc requires an EVM application")
 		}
 		if receipts := storage.ReceiptDB(); receipts != nil {
-			evmEnv := &rpccore.EVMEnvironment{Environment: n.rpcEnv, EVM: evm}
+			evmEnv := &rpccore.EVMEnvironment{Environment: n.rpcEnv, EVMProxy: evm}
 			n.evmOnlyRPC, err = evmonlyrpc.Start(evmEnv, receipts, n.evmOnlyRPCPort, n.evmOnlyWSPort, n.evmOnlyRPCLimits)
 			if err != nil {
 				return err

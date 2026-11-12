@@ -90,8 +90,8 @@ func TestSyncingEndToEnd(t *testing.T) {
 
 func testInfoBackend(gasLimit uint64, minGasPrice int64) *testBackend {
 	return &testBackend{
-		gasLimit:    func() (uint64, error) { return gasLimit, nil },
-		minGasPrice: func() (*big.Int, error) { return big.NewInt(minGasPrice), nil },
+		gasLimit:    func() uint64 { return gasLimit },
+		minGasPrice: func() *big.Int { return big.NewInt(minGasPrice) },
 	}
 }
 

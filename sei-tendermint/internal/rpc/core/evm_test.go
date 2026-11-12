@@ -101,7 +101,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 	// Setup: an EVMEnvironment around a proxied EVMApplication, as node startup builds it.
 	app := &testEVMApp{}
 	evm := proxy.NewEVM(app)
-	env := &EVMEnvironment{Environment: &Environment{EVM: utils.Some(evm)}, EVM: evm}
+	env := &EVMEnvironment{Environment: &Environment{EVM: utils.Some(evm)}, EVMProxy: evm}
 	msg := &ethcore.Message{GasLimit: 21_000}
 
 	t.Run("call", func(t *testing.T) {
@@ -186,20 +186,16 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 	t.Run("execution parameters", func(t *testing.T) {
 		// Test: the chain ID, chain config, base fee, gas limit and min gas price accessors.
 		chainID := env.EvmChainID()
-		chainConfig, chainConfigErr := env.EvmChainConfig()
-		baseFee, baseFeeErr := env.EvmBaseFee()
-		gasLimit, gasLimitErr := env.EvmGasLimit()
-		minGasPrice, minGasPriceErr := env.EvmMinGasPrice()
+		chainConfig := env.EvmChainConfig()
+		baseFee := env.EvmBaseFee()
+		gasLimit := env.EvmGasLimit()
+		minGasPrice := env.EvmMinGasPrice()
 
-		// Verify: each returns the app's value without error.
+		// Verify: each returns the app's value.
 		require.Equal(t, uint64(713715), chainID)
-		require.NoError(t, chainConfigErr)
 		require.Equal(t, testChainConfig, chainConfig)
-		require.NoError(t, baseFeeErr)
 		require.Equal(t, testBaseFee, baseFee)
-		require.NoError(t, gasLimitErr)
 		require.Equal(t, uint64(35_000_000), gasLimit)
-		require.NoError(t, minGasPriceErr)
 		require.Equal(t, testMinGasPrice, minGasPrice)
 	})
 

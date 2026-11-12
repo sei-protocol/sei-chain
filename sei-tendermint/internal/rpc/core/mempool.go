@@ -9,7 +9,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	"github.com/holiman/uint256"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -35,14 +34,6 @@ func (env *Environment) EvmProxyEnabled() bool {
 		return r.EvmProxyEnabled()
 	}
 	return false
-}
-
-// EvmBalance returns the address balance from the current committed EVM state.
-func (env *Environment) EvmBalance(address common.Address) uint256.Int {
-	if evm, ok := env.EVM.Get(); ok {
-		return evm.EvmBalance(address, nil)
-	}
-	return env.abciApplication().EvmBalance(address, nil)
 }
 
 func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {

@@ -137,9 +137,9 @@ func newTraceChain(t *testing.T) *traceChain {
 			return nil, nil
 		},
 		blockNumber: func() uint64 { return 2 },
-		gasLimit:    func() (uint64, error) { return traceGasLimit, nil },
-		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
-		chainConfig: func() (*params.ChainConfig, error) { return &chainConfig, nil },
+		gasLimit:    func() uint64 { return traceGasLimit },
+		baseFee:     func() *big.Int { return new(big.Int) },
+		chainConfig: func() *params.ChainConfig { return &chainConfig },
 		chainID:     func() uint64 { return traceChainID },
 		blockContext: func(header *ethtypes.Header) (vm.BlockContext, error) {
 			return evmonly.EVMBlockContext(blockContext(header)), nil

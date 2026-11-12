@@ -31,7 +31,7 @@ func TestEVMEnvironmentReadsStateWithoutABCI(t *testing.T) {
 	require.False(t, env.App.IsPresent())
 	require.Equal(t, uint64(17), env.EvmBlockNumber())
 	require.Equal(t, uint64(3), env.EvmTransactionCount(common.Address{1}))
-	require.Equal(t, *uint256.NewInt(99), env.EvmBalance(common.Address{1}))
+	require.Equal(t, *uint256.NewInt(99), app.EvmBalance(common.Address{1}, nil))
 	info, err := env.ABCIInfo(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, "native-evm", info.Response.Data)
@@ -62,7 +62,7 @@ func (a *senderCacheApp) ForgetEvmSender(hash common.Hash) {
 
 func TestEVMEnvironmentCachesSendersWithoutABCI(t *testing.T) {
 	app := &senderCacheApp{senders: make(map[common.Hash]common.Address)}
-	env := &EVMEnvironment{Environment: &Environment{}, EVM: proxy.NewEVM(app)}
+	env := &EVMEnvironment{Environment: &Environment{}, EVMProxy: proxy.NewEVM(app)}
 	hash := common.Hash{1}
 	sender := common.Address{2}
 
