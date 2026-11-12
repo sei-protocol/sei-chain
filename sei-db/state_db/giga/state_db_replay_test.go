@@ -10,14 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestStateStoreConfigForDisablesTheInternalWAL pins what the constructors apply, every path that
-// opens SS reading the config they settled rather than disabling the log for itself.
-func TestStateStoreConfigForDisablesTheInternalWAL(t *testing.T) {
-	handedIn := config.DefaultStateStoreConfig()
-	require.False(t, handedIn.DisableInternalWAL, "a caller is not expected to have set it")
-	require.True(t, stateStoreConfigFor(handedIn).DisableInternalWAL)
-}
-
 // A node that keeps no EVM state store never reaches it, so nothing probes a store it does not have.
 // The directory is one an earlier run with SS on could have left, and the WAL reaches block 1, so a
 // rollback that read it would come back with a rewind to run.
@@ -46,9 +38,10 @@ type gapWAL struct {
 
 func (w *gapWAL) GetStoredRange() (bool, uint64, uint64, error) { return true, w.first, w.last, nil }
 
-// A WAL pruned past SC has dropped blocks that store still needs. Applying only the blocks the WAL
-// happens to hold and then reporting the target as reached is silent divergence, so the replay refuses.
-func TestCatchUpRefusesAWALMissingTheBlocksSCNeeds(t *testing.T) {
+// A WAL pruned past the live state DB has dropped blocks it still needs. Applying only the blocks the WAL
+// happens to hold and then reporting the target as reached is silent divergence, so the replay refuses
+// instead.
+func TestCatchUpRefusesAWALMissingTheBlocksTheLiveStateDBNeeds(t *testing.T) {
 	_, _, sc := newTestStateDB(t)
 	s := &StateDB{wal: &gapWAL{first: 3, last: 4}, sc: sc}
 

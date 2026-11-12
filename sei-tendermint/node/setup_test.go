@@ -375,7 +375,7 @@ func TestMakeEVMApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	require.NotNil(t, manager.BlockStore())
 	require.NotNil(t, manager.StateDB())
 	require.NotNil(t, manager.SC())
-	require.Nil(t, manager.SS())
+	require.Nil(t, manager.StateDB().UndoSS())
 	require.NotNil(t, manager.ReceiptDB())
 	require.Equal(t, "evmonly", app.Info().Data)
 	validators := app.GetValidators()

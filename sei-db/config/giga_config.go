@@ -63,7 +63,6 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	ssConfig.Backend = PebbleDBUndoBackend
 	ssConfig.EVMDBDirectory = utils.GetEVMStateStorePath(homePath, ssConfig.Backend)
 	ssConfig.ExternalPruning = true
-	ssConfig.DisableInternalWAL = true
 
 	receiptConfig := DefaultReceiptStoreConfig()
 	receiptConfig.Backend = gigaReceiptBackend

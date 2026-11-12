@@ -50,6 +50,27 @@ func (app *Proxy) EvmNonce(addr common.Address) uint64 {
 	return app.app.EvmNonce(addr)
 }
 
+// evmSenderCache is implemented by applications that can reuse a sender recovered before CheckTx.
+type evmSenderCache interface {
+	RememberEvmSender(common.Hash, common.Address)
+	ForgetEvmSender(common.Hash)
+}
+
+// RememberEvmSender records the sender recovered for the transaction with this hash, when the wrapped
+// application can use it. It is a no-op otherwise.
+func (app *Proxy) RememberEvmSender(hash common.Hash, sender common.Address) {
+	if cache, ok := app.app.(evmSenderCache); ok {
+		cache.RememberEvmSender(hash, sender)
+	}
+}
+
+// ForgetEvmSender drops the sender recorded for the transaction with this hash, if any.
+func (app *Proxy) ForgetEvmSender(hash common.Hash) {
+	if cache, ok := app.app.(evmSenderCache); ok {
+		cache.ForgetEvmSender(hash)
+	}
+}
+
 func (app *Proxy) EvmBalance(addr common.Address, seiAddr []byte) uint256.Int {
 	defer addTimeSample(Global.MethodTimingAt("evm_balance", "sync"))()
 	return app.app.EvmBalance(addr, seiAddr)
