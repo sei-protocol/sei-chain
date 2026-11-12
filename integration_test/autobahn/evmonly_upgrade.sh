@@ -10,7 +10,10 @@
 #      72h, and the chain continues with one block hash;
 #   3. a validator restarted on the old binary halts as the wrong binary;
 #   4. a cancel naming another plan is refused, then a second plan is cancelled
-#      by name before its height and the chain runs past it.
+#      by name before its height and the chain runs past it;
+#   5. a minor plan for vX.Y-minor-test, whose handler every validator already
+#      runs, does not stop them before its height and applies there without a
+#      halt.
 #
 # Start the cluster first, from the repository root:
 #
@@ -38,6 +41,7 @@ UPGRADE=0x0000000000000000000000000000000000001015
 # gov.DefaultParams' minimum expedited deposit: 20,000,000 usei.
 EXPEDITED_DEPOSIT=20ether
 TEST_UPGRADE=vX.Y-test
+TEST_MINOR_UPGRADE=vX.Y-minor-test
 SUBMIT_PROPOSAL_TOPIC=$(cast keccak "SubmitProposal(uint64,address,uint8,bool)")
 # The 72h max deposit period, in nanoseconds, the test upgrade's handler sets.
 DEPOSIT_PERIOD_AFTER=259200000000000
@@ -251,6 +255,28 @@ tick_past $((cancelled + 1))
 for n in 0 1 2 3; do
   check "node $n runs past the cancelled height" "$(seid_running "$n")" yes
   check "node $n did not apply the cancelled plan" "$(applied "$n" never-applied)" 0
+done
+
+log "Applying minor upgrade $TEST_MINOR_UPGRADE"
+tick || fail "no block before the minor upgrade"
+minor=$(( $(height 0) + 40 ))
+id=$(gov_send "${VOTER_KEYS[0]}" "submitSoftwareUpgradeProposal(string,string,bool,(string,uint64,string))" \
+  "upgrade" "schedules $TEST_MINOR_UPGRADE" true "($TEST_MINOR_UPGRADE,$minor,{\"upgradeType\":\"minor\"})" \
+  --value "$EXPEDITED_DEPOSIT" | proposal_id)
+check "minor upgrade proposal passes" "$(pass_proposal "$id")" 3
+tick || true
+sleep 5
+for n in 0 1 2 3; do
+  check "node $n has the minor plan scheduled" "$(plan_name "$n")" "$TEST_MINOR_UPGRADE"
+  check "node $n runs its binary before the minor plan's height" "$(seid_running "$n")" yes
+done
+tick_past $((minor + 1))
+want_hash=$(block_hash 0 "$minor")
+for n in 0 1 2 3; do
+  check "node $n runs past the minor plan's height" "$(seid_running "$n")" yes
+  check "node $n applied $TEST_MINOR_UPGRADE at its height" "$(applied "$n" "$TEST_MINOR_UPGRADE")" "$minor"
+  check "node $n agrees on block $minor" "$(block_hash "$n" "$minor")" "$want_hash"
+  check "node $n has no plan after the minor upgrade" "$(plan_name "$n")" ""
 done
 
 log "$passes passed, $failures failed"
