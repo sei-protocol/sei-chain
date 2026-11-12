@@ -206,7 +206,17 @@ func (ak AccountKeeper) SetModuleAccount(ctx sdk.Context, macc types.ModuleAccou
 	ak.SetAccount(ctx, macc)
 }
 
-func (ak AccountKeeper) decodeAccount(bz []byte) types.AccountI {
+// decodeAccount returns the account stored as bz under address. An account stored under a type of
+// the removed vesting module decodes as the BaseAccount it embeds. It panics when bz does not decode,
+// or when it is a vesting account that embeds another address.
+func (ak AccountKeeper) decodeAccount(address, bz []byte) types.AccountI {
+	legacy, err := ak.legacyVestingAccountAt(address, bz)
+	if err != nil {
+		panic(err)
+	}
+	if legacy != nil {
+		return legacy
+	}
 	acc, err := ak.UnmarshalAccount(bz)
 	if err != nil {
 		panic(err)
@@ -220,16 +230,9 @@ func (ak AccountKeeper) MarshalAccount(accountI types.AccountI) ([]byte, error) 
 	return ak.cdc.MarshalInterface(accountI)
 }
 
-// UnmarshalAccount returns the account encoded in bz. An account stored under a type of the removed
-// vesting module decodes as the BaseAccount it embeds.
+// UnmarshalAccount returns an Account interface from raw encoded account
+// bytes of a Proto-based Account type
 func (ak AccountKeeper) UnmarshalAccount(bz []byte) (types.AccountI, error) {
-	if depth, ok := legacyVestingTypeDepth(bz); ok {
-		account, err := ak.embeddedBaseAccount(bz, depth)
-		if err != nil {
-			return nil, err
-		}
-		return account, nil
-	}
 	var acc types.AccountI
 	return acc, ak.cdc.UnmarshalInterface(bz, &acc)
 }

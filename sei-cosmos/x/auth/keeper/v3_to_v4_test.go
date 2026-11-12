@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"testing"
@@ -55,14 +56,21 @@ func accountStoreEntries(store sdk.KVStore) map[string][]byte {
 	return entries
 }
 
-// rewriteLegacyVestingAccounts runs the rewrite Migrate3to4 starts in batches of batchSize until it
-// is done, and returns the number of batches it took.
-func rewriteLegacyVestingAccounts(t *testing.T, ak keeper.AccountKeeper, ctx sdk.Context, batchSize int) int {
+// rewriteLegacyVestingAccounts runs the rewrite Migrate3to4 schedules in batches of batchSize until
+// it is done, and returns the number of batches it took and the accounts it skipped.
+func rewriteLegacyVestingAccounts(
+	t *testing.T,
+	ak keeper.AccountKeeper,
+	ctx sdk.Context,
+	batchSize int,
+) (batches int, skipped []error) {
 	t.Helper()
-	for batches := 1; ; batches++ {
+	for batches = 1; ; batches++ {
 		require.Less(t, batches, 1_000, "the rewrite did not finish")
-		if ak.RewriteLegacyVestingAccounts(ctx, batchSize) {
-			return batches
+		rewrite := ak.RewriteLegacyVestingAccounts(ctx, batchSize)
+		skipped = append(skipped, rewrite.Skipped...)
+		if rewrite.Done {
+			return batches, skipped
 		}
 	}
 }
@@ -85,7 +93,8 @@ func TestMigrate3to4RewritesLegacyVestingAccountsAsBaseAccounts(t *testing.T) {
 	m := keeper.NewMigrator(app.AccountKeeper, app.QueryServiceRouter())
 	require.NoError(t, m.Migrate3to4(ctx))
 	require.Equal(t, before, accountStoreEntries(store), "the migration rewrote an account before the first batch")
-	batches := rewriteLegacyVestingAccounts(t, app.AccountKeeper, ctx, 2)
+	batches, skipped := rewriteLegacyVestingAccounts(t, app.AccountKeeper, ctx, 2)
+	require.Empty(t, skipped)
 	require.Equal(t, (len(before)+1)/2, batches, "the rewrite did not scan two accounts per batch")
 	require.Nil(t, store.Get(types.LegacyVestingRewriteCursorKey), "the finished rewrite left its cursor behind")
 
@@ -124,7 +133,7 @@ func TestRewriteLegacyVestingAccountsResumesWhereTheLastBatchStopped(t *testing.
 
 	m := keeper.NewMigrator(app.AccountKeeper, app.QueryServiceRouter())
 	require.NoError(t, m.Migrate3to4(ctx))
-	require.False(t, app.AccountKeeper.RewriteLegacyVestingAccounts(ctx, batchSize))
+	require.False(t, app.AccountKeeper.RewriteLegacyVestingAccounts(ctx, batchSize).Done)
 	require.Equal(t, []byte(keys[batchSize]), store.Get(types.LegacyVestingRewriteCursorKey),
 		"the cursor is not the first account the batch left unscanned")
 	for i, key := range keys {
@@ -160,14 +169,15 @@ func TestRewriteLegacyVestingAccountsIsANoOpUntilStartedAndOnceDone(t *testing.T
 	setLegacyVestingAccount(t, store, legacyVestingAccount(t, authtestutil.LegacyDelayedVestingAccountTypeURL, 7))
 	unstarted := accountStoreEntries(store)
 
-	require.True(t, app.AccountKeeper.RewriteLegacyVestingAccounts(ctx, 1_000))
+	require.True(t, app.AccountKeeper.RewriteLegacyVestingAccounts(ctx, 1_000).Done)
 	require.Equal(t, unstarted, accountStoreEntries(store))
 
 	m := keeper.NewMigrator(app.AccountKeeper, app.QueryServiceRouter())
 	require.NoError(t, m.Migrate3to4(ctx))
-	rewriteLegacyVestingAccounts(t, app.AccountKeeper, ctx, 1_000)
+	_, skipped := rewriteLegacyVestingAccounts(t, app.AccountKeeper, ctx, 1_000)
+	require.Empty(t, skipped)
 	once := accountStoreEntries(store)
-	require.True(t, app.AccountKeeper.RewriteLegacyVestingAccounts(ctx, 1_000))
+	require.True(t, app.AccountKeeper.RewriteLegacyVestingAccounts(ctx, 1_000).Done)
 	require.Equal(t, once, accountStoreEntries(store))
 }
 
@@ -210,14 +220,16 @@ func TestLegacyVestingAccountsDecodeAsBaseAccountsBeforeTheRewrite(t *testing.T)
 	require.Equal(t, len(accounts), paged)
 }
 
-// The rewrite leaves a vesting account it cannot convert as it is, rather than halt the chain in the
-// block that reaches it, and still finishes.
+// The rewrite leaves a vesting account it cannot convert as it is and reports it, rather than halt
+// the chain in the block that reaches it, and still finishes. Reading that account panics rather than
+// return an account under another address.
 func TestRewriteLegacyVestingAccountsSkipsUnconvertibleAccounts(t *testing.T) {
 	delayed := authtestutil.LegacyDelayedVestingAccountTypeURL
 
 	for _, tc := range []struct {
 		name    string
 		account func(t *testing.T) (sdk.AccAddress, []byte)
+		err     string
 	}{
 		{
 			name: "vesting account without its base vesting account",
@@ -227,6 +239,7 @@ func TestRewriteLegacyVestingAccountsSkipsUnconvertibleAccounts(t *testing.T) {
 				require.NoError(t, err)
 				return sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()), encoded
 			},
+			err: "field 1 is missing",
 		},
 		{
 			name: "vesting account stored under another address",
@@ -235,6 +248,7 @@ func TestRewriteLegacyVestingAccountsSkipsUnconvertibleAccounts(t *testing.T) {
 				require.NoError(t, err)
 				return sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()), encoded
 			},
+			err: "embeds the base account of",
 		},
 		{
 			name: "truncated account encoding",
@@ -243,6 +257,7 @@ func TestRewriteLegacyVestingAccountsSkipsUnconvertibleAccounts(t *testing.T) {
 				require.NoError(t, err)
 				return sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()), encoded[:len(encoded)/2]
 			},
+			err: "unexpected EOF",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -257,14 +272,49 @@ func TestRewriteLegacyVestingAccountsSkipsUnconvertibleAccounts(t *testing.T) {
 
 			m := keeper.NewMigrator(app.AccountKeeper, app.QueryServiceRouter())
 			require.NoError(t, m.Migrate3to4(ctx))
-			rewriteLegacyVestingAccounts(t, app.AccountKeeper, ctx, 1_000)
+			_, skipped := rewriteLegacyVestingAccounts(t, app.AccountKeeper, ctx, 1_000)
 
+			require.Len(t, skipped, 1)
+			require.ErrorContains(t, skipped[0], tc.err)
 			after := accountStoreEntries(store)
 			require.Equal(t, before[unconvertibleKey], after[unconvertibleKey])
+			require.Panics(t, func() { app.AccountKeeper.GetAccount(ctx, address) },
+				"an account the rewrite skipped read back without an error")
 			_, ok := app.AccountKeeper.GetAccount(ctx, convertible.Base.GetAddress()).(*types.BaseAccount)
 			require.True(t, ok, "the unconvertible account stopped the rewrite of another account")
 			require.Equal(t, baseAccountTypeURL,
 				string(legacyTypeURL(t, after[string(types.AddressStoreKey(convertible.Base.GetAddress()))])))
 		})
+	}
+}
+
+// Reading a vesting account that embeds another address panics instead of returning that address,
+// so the next write of the account cannot land under it.
+func TestLegacyVestingAccountUnderAnotherAddressDoesNotRead(t *testing.T) {
+	app, ctx := createTestApp(false)
+	store := ctx.KVStore(app.GetKey(types.StoreKey))
+	stored := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	account := legacyVestingAccount(t, authtestutil.LegacyDelayedVestingAccountTypeURL, 1)
+	encoded, err := account.Encode()
+	require.NoError(t, err)
+	store.Set(types.AddressStoreKey(stored), encoded)
+
+	want := fmt.Sprintf("vesting account at %X embeds the base account of %q", stored.Bytes(), account.Base.Address)
+	require.PanicsWithError(t, want, func() { app.AccountKeeper.GetAccount(ctx, stored) })
+	require.PanicsWithError(t, want, func() {
+		app.AccountKeeper.IterateAccounts(ctx, func(types.AccountI) bool { return false })
+	})
+	require.Nil(t, app.AccountKeeper.GetAccount(ctx, account.Base.GetAddress()),
+		"the account was read under the address it embeds")
+}
+
+func TestRewriteLegacyVestingAccountsRefusesANonPositiveBatchSize(t *testing.T) {
+	app, ctx := createTestApp(false)
+	m := keeper.NewMigrator(app.AccountKeeper, app.QueryServiceRouter())
+	require.NoError(t, m.Migrate3to4(ctx))
+	for _, batchSize := range []int{0, -1} {
+		require.PanicsWithValue(t,
+			fmt.Sprintf("legacy vesting account rewrite batch size must be positive, got %d", batchSize),
+			func() { app.AccountKeeper.RewriteLegacyVestingAccounts(ctx, batchSize) })
 	}
 }

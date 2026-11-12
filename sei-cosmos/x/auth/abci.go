@@ -5,11 +5,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 )
 
-// MaxAccountsScannedPerBlock is the number of accounts the legacy vesting account rewrite scans per
-// block.
+// MaxAccountsScannedPerBlock is the number of accounts EndBlocker scans for the legacy vesting
+// account rewrite.
 const MaxAccountsScannedPerBlock = 1000
 
-// EndBlocker continues the rewrite of accounts stored under a type of the removed vesting module.
+// EndBlocker rewrites the next batch of accounts stored under a type of the removed vesting module.
 func EndBlocker(ctx sdk.Context, k keeper.AccountKeeper) {
 	k.RewriteLegacyVestingAccounts(ctx, MaxAccountsScannedPerBlock)
 }

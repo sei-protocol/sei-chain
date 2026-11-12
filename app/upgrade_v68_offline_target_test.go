@@ -34,6 +34,7 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 )
@@ -760,29 +761,37 @@ func testV68OfflineUpgradeTargetSnapshot(t *testing.T) {
 }
 
 // requireV68OfflineLegacyAccountsReadAsBase requires every address in legacy, still stored under a
-// vesting type, to read as a base account.
+// vesting type, to read as a base account. A failure does not stop the test, so the rewrite that
+// follows still reports every account it cannot convert.
 func requireV68OfflineLegacyAccountsReadAsBase(t *testing.T, testApp *App, ctx sdk.Context, legacy []sdk.AccAddress) {
 	t.Helper()
 	for _, address := range legacy {
-		_, ok := testApp.AccountKeeper.GetAccount(ctx, address).(*authtypes.BaseAccount)
-		require.True(t, ok, "%s does not read as a base account before it is rewritten", address)
+		assert.NotPanics(t, func() {
+			_, ok := testApp.AccountKeeper.GetAccount(ctx, address).(*authtypes.BaseAccount)
+			assert.True(t, ok, "%s does not read as a base account before it is rewritten", address)
+		}, "reading %s before it is rewritten", address)
 	}
 }
 
 // rewriteV68OfflineLegacyVestingAccounts runs, at the per-block rate, the rewrite the v6.8 auth
-// migration starts until it is done, and logs how many blocks it would span and its slowest batch.
+// migration schedules until it is done, and requires it to convert every vesting account. It logs
+// how many blocks the rewrite spans and its slowest block.
 func rewriteV68OfflineLegacyVestingAccounts(t *testing.T, testApp *App, ctx sdk.Context, vesting int) {
 	t.Helper()
 	started := time.Now()
 	var batches int
 	var slowest time.Duration
+	var skipped []error
 	for done := false; !done; batches++ {
 		batchStarted := time.Now()
-		done = testApp.AccountKeeper.RewriteLegacyVestingAccounts(ctx, auth.MaxAccountsScannedPerBlock)
+		rewrite := testApp.AccountKeeper.RewriteLegacyVestingAccounts(ctx, auth.MaxAccountsScannedPerBlock)
 		slowest = max(slowest, time.Since(batchStarted))
+		skipped = append(skipped, rewrite.Skipped...)
+		done = rewrite.Done
 	}
 	t.Logf("rewrote %d vesting accounts in %d blocks of %d accounts over %s; the slowest block took %s",
 		vesting, batches, auth.MaxAccountsScannedPerBlock, time.Since(started), slowest)
+	require.Empty(t, skipped, "v6.8 cannot rewrite %d vesting accounts; the rewrite would leave them unreadable", len(skipped))
 }
 
 // v68OfflineLegacyVestingAccounts returns the address of every account stored

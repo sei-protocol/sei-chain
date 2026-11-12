@@ -39,9 +39,9 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	return nil
 }
 
-// Migrate3to4 starts the rewrite of every account stored under a type of the removed vesting module
-// as the BaseAccount it embeds, which RewriteLegacyVestingAccounts carries out a batch per block from
-// the upgrade block on. Balances are not touched, so coins that were still locked become spendable.
+// Migrate3to4 schedules every account stored under a type of the removed vesting module for
+// RewriteLegacyVestingAccounts to rewrite as the BaseAccount it embeds. Balances are not touched, so
+// coins that were still locked become spendable.
 func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 	m.keeper.startLegacyVestingRewrite(ctx)
 	return nil
