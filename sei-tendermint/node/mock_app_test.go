@@ -67,9 +67,13 @@ func TestMockAppServesTheEVMOnlyChainWithoutExecution(t *testing.T) {
 	require.ErrorIs(t, err, errMockAppNoExecution)
 	_, _, err = app.EvmEstimateGas(t.Context(), &ethcore.Message{}, 0, evmonly.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
-	_, _, err = app.EvmEstimateGasAfterCalls(t.Context(), nil, &ethcore.Message{}, 0)
+	_, _, err = app.EvmEstimateGasAfterCalls(t.Context(), nil, &ethcore.Message{}, 0, evmonly.CallOverrides{})
+	require.ErrorIs(t, err, errMockAppNoExecution)
+	_, _, err = app.EvmEstimateGasAfterCallsAt(t.Context(), nil, &ethcore.Message{}, 0, &ethtypes.Header{Number: big.NewInt(1)}, evmonly.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
 	_, _, err = app.EvmCreateAccessList(t.Context(), &ethcore.Message{})
+	require.ErrorIs(t, err, errMockAppNoExecution)
+	_, _, err = app.EvmCreateAccessListAt(t.Context(), &ethcore.Message{}, &ethtypes.Header{Number: big.NewInt(1)})
 	require.ErrorIs(t, err, errMockAppNoExecution)
 }
 

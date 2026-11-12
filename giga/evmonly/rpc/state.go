@@ -21,10 +21,8 @@ var (
 	errBlockNotFound       = errors.New("block not found")
 	errBlockAboveHead      = errors.New("block is above the latest block")
 	errBlockTagUnsupported = errors.New("block tag is not supported by EVM-only RPC")
-	// errHistoricalStateUnsupported refuses a method that serves only the latest committed state.
-	errHistoricalStateUnsupported = errors.New("historical state is not supported by EVM-only RPC")
-	errStorageKeyInvalid          = errors.New("hex string invalid")
-	errStorageKeyTooLong          = errors.New("hex string too long, want at most 32 bytes")
+	errStorageKeyInvalid   = errors.New("hex string invalid")
+	errStorageKeyTooLong   = errors.New("hex string too long, want at most 32 bytes")
 )
 
 type stateAPI struct {
@@ -148,13 +146,4 @@ func decodeStorageKey(s string) (common.Hash, error) {
 		return common.Hash{}, errStorageKeyTooLong
 	}
 	return common.BytesToHash(b), nil
-}
-
-// requireCurrentState refuses any block but a latest tag, for a method that serves only the
-// latest committed state.
-func requireCurrentState(block ethrpc.BlockNumberOrHash) error {
-	if number, ok := block.Number(); !ok || !isLatestTag(number) {
-		return errHistoricalStateUnsupported
-	}
-	return nil
 }

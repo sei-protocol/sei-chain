@@ -812,13 +812,31 @@ func recoverPastExecution(view gigatypes.StateView, action string, err *error) {
 }
 
 // EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg against the most recently
-// committed EVM state with calls applied to it first, in order.
-func (a *evmOnlyApplication) EvmEstimateGasAfterCalls(ctx context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
+// committed EVM state with overrides and then calls applied to it first, in order.
+func (a *evmOnlyApplication) EvmEstimateGasAfterCalls(ctx context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
 	executor, blockCtx, err := a.currentExecutionContext("gas estimate")
 	if err != nil {
 		return 0, nil, err
 	}
-	return executor.EstimateGasAfterCalls(ctx, blockCtx, calls, msg, gasCap)
+	view, err := executor.OpenCurrentView(ctx, blockCtx)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer view.Close()
+	return executor.EstimateGasAfterCallsAt(ctx, view, blockCtx, calls, msg, gasCap, overrides)
+}
+
+// EvmEstimateGasAfterCallsAt returns what EvmEstimateGasAt returns for msg against the committed EVM
+// state after header's block with overrides and then calls applied to it first, in order. Only
+// header's number, time and parent hash are read.
+func (a *evmOnlyApplication) EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (_ uint64, _ []byte, err error) {
+	executor, view, blockCtx, err := a.pastExecutionContext("gas estimate", header)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer view.Close()
+	defer recoverPastExecution(view, "gas estimate", &err)
+	return executor.EstimateGasAfterCallsAt(ctx, view, blockCtx, calls, msg, gasCap, overrides)
 }
 
 // EvmCreateAccessList returns the access list msg touches when executed against the most recently
@@ -829,6 +847,19 @@ func (a *evmOnlyApplication) EvmCreateAccessList(ctx context.Context, msg *ethco
 		return nil, nil, err
 	}
 	return executor.CreateAccessList(ctx, blockCtx, msg)
+}
+
+// EvmCreateAccessListAt returns the access list msg touches when executed against the committed EVM
+// state after header's block, in the context that block executed at, and the result of executing
+// msg with that list. Only header's number, time and parent hash are read.
+func (a *evmOnlyApplication) EvmCreateAccessListAt(ctx context.Context, msg *ethcore.Message, header *ethtypes.Header) (_ ethtypes.AccessList, _ *ethcore.ExecutionResult, err error) {
+	executor, view, blockCtx, err := a.pastExecutionContext("access list", header)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer view.Close()
+	defer recoverPastExecution(view, "access list", &err)
+	return executor.CreateAccessListAt(ctx, view, blockCtx, msg)
 }
 
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
