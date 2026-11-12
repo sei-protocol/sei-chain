@@ -351,6 +351,19 @@ func (t *Tree) Iterator(start, end []byte, ascending bool) dbm.Iterator {
 	return NewIterator(start, end, ascending, t.root, t.zeroCopy, t.snapshot)
 }
 
+// readAhead makes the ascending iterators created on the tree until the returned function is called
+// read the files of the snapshot backing it into the page cache in windows of about windowSize bytes.
+func (t *Tree) readAhead(name string, windowSize uint64) (stop func()) {
+	// ReplaceWith and Close release t.snapshot under the write lock, so it is live while the read
+	// lock is held.
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
+	if t.snapshot == nil {
+		return func() {}
+	}
+	return t.snapshot.armReadAhead(name, windowSize)
+}
+
 // ScanPostOrder scans the tree in post-order, and call the callback function on each node.
 // If the callback function returns false, the scan will be stopped.
 func (t *Tree) ScanPostOrder(callback func(node Node) bool) {

@@ -50,6 +50,7 @@ func (f *fakeCommitter) Rollback(int64) error                             { pani
 func (f *fakeCommitter) SetInitialVersion(int64) error                    { panic("unused") }
 func (f *fakeCommitter) GetChildStoreByName(string) sctypes.CommitKVStore { panic("unused") }
 func (f *fakeCommitter) MayHoldStore(string) bool                         { panic("unused") }
+func (f *fakeCommitter) ReadAheadStore(string) func()                     { panic("unused") }
 func (f *fakeCommitter) Copy() sctypes.Committer {
 	atomic.AddInt32(&f.copies, 1)
 	return &fakeCommitter{id: f.id}

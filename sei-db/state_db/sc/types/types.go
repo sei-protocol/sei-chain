@@ -136,6 +136,11 @@ type Committer interface {
 	// true may be conservative for a backend that cannot answer precisely.
 	MayHoldStore(name string) bool
 
+	// ReadAheadStore makes ascending iterators over the named store read the files holding its state
+	// into the page cache a window at a time, as they reach each window, until the returned function
+	// is called. It changes no state.
+	ReadAheadStore(name string) (stop func())
+
 	// Copy returns an in-memory snapshot of the current committer state.
 	// O(1) for memiavl. Returns nil when the backend can't produce one
 	// (e.g. flatkv) — callers should treat nil as "snapshot unavailable"
