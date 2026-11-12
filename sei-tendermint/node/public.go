@@ -190,6 +190,7 @@ func makeEVMApplication(
 		storage,
 		giga.Execution,
 		customPrecompiles,
+		evmOnlyGenesisAlloc(committee, genDoc),
 		utils.Some(conf.RootDir),
 	)
 	if err != nil {
@@ -201,6 +202,16 @@ func makeEVMApplication(
 		return mockApp, storage, nil
 	}
 	return app, storage, nil
+}
+
+// evmOnlyGenesisAlloc returns the committee's evm_alloc at the genesis initial height, or None when it
+// sets none.
+func evmOnlyGenesisAlloc(fc *config.AutobahnFileConfig, genDoc *tmtypes.GenesisDoc) utils.Option[evmonlyapp.GenesisAlloc] {
+	balances, ok := fc.EVMGenesisAlloc().Get()
+	if !ok {
+		return utils.None[evmonlyapp.GenesisAlloc]()
+	}
+	return utils.Some(evmonlyapp.GenesisAlloc{InitialHeight: genDoc.InitialHeight, Balances: balances})
 }
 
 func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]proxy.ValidatorUpdate, error) {

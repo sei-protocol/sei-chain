@@ -113,6 +113,10 @@ type evmOnlyApplication struct {
 	validators  []proxy.ValidatorUpdate
 	// customPrecompiles are the native contracts every executor runs.
 	customPrecompiles utils.Option[precompiles.Registry]
+	// alloc, when set, funds the chain at its initial height, and every
+	// other account starts empty. Without it, every account the store holds
+	// nothing for has evmOnlyBaseBalance.
+	alloc utils.Option[GenesisAlloc]
 	// upgradeInfoPath is where a halt on a due upgrade plan writes
 	// UpgradeInfoFileName.
 	upgradeInfoPath utils.Option[string]
@@ -171,7 +175,8 @@ var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
 
 // NewEVMOnlyApplication returns the raw-Ethereum application Autobahn runs.
 // Storage owns state, receipts and blocks; execution sizes the executor and
-// prices admission; customPrecompiles are the native contracts the chain runs.
+// prices admission; customPrecompiles are the native contracts the chain runs;
+// alloc, when set, is the chain's genesis balances.
 // A block that halts on a due upgrade plan writes UpgradeInfoFileName under
 // homeDir's data directory, when homeDir is set, and prints the halt line to
 // stderr. A storage that already holds committed blocks resumes from its
@@ -182,8 +187,12 @@ func NewEVMOnlyApplication(
 	storage *bootstrap.GigaStorageManager,
 	execution gigaconfig.ExecutionConfig,
 	customPrecompiles utils.Option[precompiles.Registry],
+	alloc utils.Option[GenesisAlloc],
 	homeDir utils.Option[string],
 ) (proxy.EVMApplication, error) {
+	if alloc, ok := alloc.Get(); ok && alloc.InitialHeight <= 0 {
+		return nil, fmt.Errorf("EVM-only genesis alloc initial height must be positive: %d", alloc.InitialHeight)
+	}
 	chainConfig := *evmonly.DefaultChainConfig()
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	a := &evmOnlyApplication{
@@ -194,6 +203,7 @@ func NewEVMOnlyApplication(
 		storage:           storage,
 		validators:        slices.Clone(validators),
 		customPrecompiles: customPrecompiles,
+		alloc:             alloc,
 		upgradeInfoPath:   homeDir.Map(upgradeInfoPath),
 		executor:          utils.NewMutex(new(utils.Option[*evmonly.Executor])),
 		cursor:            utils.NewMutex(&evmOnlyCursorState{}),
@@ -225,6 +235,16 @@ func (a *evmOnlyApplication) installExecutor(slot *utils.Option[*evmonly.Executo
 }
 
 func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
+	opts := []evmonly.Option{
+		evmonly.WithStorageManager(a.storage),
+		evmonly.WithStoreIndependentBlockChangeSetEncoder(a.encodeCursorChangeSet),
+	}
+	if alloc, ok := a.alloc.Get(); ok {
+		// NewEVMOnlyApplication refuses a height that is not positive.
+		opts = append(opts, evmonly.WithGenesisAlloc(uint64(alloc.InitialHeight), alloc.Balances)) //nolint:gosec // G115: positive.
+	} else {
+		opts = append(opts, evmonly.WithMissingAccountState(evmOnlyFundedState{}))
+	}
 	return evmonly.NewExecutor(evmonly.Config{
 		ChainConfig:  a.chainConfig,
 		MinGasPrice:  big.NewInt(evmOnlyBlockMinGasPrice),
@@ -235,11 +255,7 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 		RejectUnappliableTxs: true,
 		BlockResultPoolSize:  a.execution.BlockResultPoolSize,
 		CustomPrecompiles:    a.customPrecompiles.Or(nil),
-	},
-		evmonly.WithStorageManager(a.storage),
-		evmonly.WithMissingAccountState(evmOnlyFundedState{}),
-		evmonly.WithStoreIndependentBlockChangeSetEncoder(a.encodeCursorChangeSet),
-	)
+	}, opts...)
 }
 
 // encodeCursorChangeSet chains the block into the app hash and stages the
@@ -285,6 +301,9 @@ func (a *evmOnlyApplication) InitChain(req *proxy.RequestInitChain) (*proxy.Resp
 	gasLimit, err := evmOnlyGasLimit(req)
 	if err != nil {
 		return nil, err
+	}
+	if alloc, ok := a.alloc.Get(); ok && alloc.InitialHeight != req.InitialHeight {
+		return nil, fmt.Errorf("EVM-only genesis alloc is for initial height %d, not %d", alloc.InitialHeight, req.InitialHeight)
 	}
 	for executor := range a.executor.Lock() {
 		if executor.IsPresent() {
@@ -555,13 +574,13 @@ func (a *evmOnlyApplication) EvmCommittedNonce(address common.Address) uint64 {
 func (a *evmOnlyApplication) EvmBalance(address common.Address, _ []byte) uint256.Int {
 	snapshot := a.openSettledView()
 	defer snapshot.Close()
-	return evmOnlyBalance(snapshot, address)
+	return a.balance(snapshot, address)
 }
 
-// evmOnlyBalance reads address's balance from view, the funded balance for an account view holds no
-// state for.
-func evmOnlyBalance(view gigatypes.StateView, address common.Address) uint256.Int {
-	if !view.AccountExists(evmOnlyStoreAddress(address)) {
+// balance reads address's balance from view. Without a genesis alloc, an account view holds no state
+// for has evmOnlyBaseBalance.
+func (a *evmOnlyApplication) balance(view gigatypes.StateView, address common.Address) uint256.Int {
+	if !a.alloc.IsPresent() && !view.AccountExists(evmOnlyStoreAddress(address)) {
 		return *uint256.MustFromBig(evmOnlyBaseBalance)
 	}
 	balance := view.GetBalance(evmOnlyStoreAddress(address))
@@ -601,7 +620,7 @@ func (a *evmOnlyApplication) EvmBalanceAt(address common.Address, height int64) 
 		return uint256.Int{}, err
 	}
 	defer view.Close()
-	return evmOnlyBalance(view, address), nil
+	return a.balance(view, address), nil
 }
 
 // EvmCodeAt returns the contract code at address in the committed EVM state after height, or nil when
@@ -1116,6 +1135,12 @@ func (w *evmOnlyHashWriter) writeSizedString(value string) {
 
 func (w *evmOnlyHashWriter) flush() error {
 	return w.buf.Flush()
+}
+
+// GenesisAlloc is the wei each funded account holds at the chain's initial height.
+type GenesisAlloc struct {
+	InitialHeight int64
+	Balances      map[common.Address]*uint256.Int
 }
 
 type evmOnlyFundedState struct{}
