@@ -1,6 +1,8 @@
 package evmonly
 
 import (
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/export"
 
@@ -23,6 +25,14 @@ func (o CallOverrides) blockContext(blockCtx BlockContext) (vm.BlockContext, err
 		}
 	}
 	return evmCtx, nil
+}
+
+// BaseFee returns the base fee the block overrides set, or base when they set none.
+func (o CallOverrides) BaseFee(base *big.Int) *big.Int {
+	if block, ok := o.Block.Get(); ok && block.BaseFeePerGas != nil {
+		return block.BaseFeePerGas.ToInt()
+	}
+	return base
 }
 
 // applyState applies the state overrides to stateDB, and has evm run a precompile an override moves

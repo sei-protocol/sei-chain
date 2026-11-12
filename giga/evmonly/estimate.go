@@ -71,8 +71,11 @@ func (e *Executor) EstimateGasAfterCallsAt(ctx context.Context, view gigatypes.E
 	// Unpooled: an estimate can hold this stateDB open far longer than a Call.
 	stateDB := newNativeStateDB(gigaSnapshotStateReader{snapshot: view, missingState: e.missingState})
 	if len(overrides.State) > 0 {
-		// As in go-ethereum, a precompile cannot be moved for an estimate.
-		if err := overrides.State.Apply(stateDB, nil); err != nil {
+		// As in go-ethereum's eth_estimateGas, a precompile move is validated against the active
+		// precompiles, but gasestimator runs its own EVM with the default precompiles, so the move
+		// does not take effect.
+		rules := chainConfig.Rules(evmCtx.BlockNumber, evmCtx.Random != nil, evmCtx.Time)
+		if err := overrides.State.Apply(stateDB, vm.ActivePrecompiledContracts(rules)); err != nil {
 			return 0, nil, err
 		}
 	}
