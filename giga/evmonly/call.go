@@ -51,7 +51,7 @@ func (e *Executor) CallAt(ctx context.Context, view gigatypes.EVMStateView, bloc
 
 	// NoBaseFee matches go-ethereum's eth_call: zero fee fields skip the fee-cap check.
 	evm := e.newEVM(evmCtx, stateDB, chainConfig, vm.Config{NoBaseFee: true})
-	if err := overrides.applyState(evm, stateDB, e.customContracts); err != nil {
+	if err := overrides.applyState(evm, stateDB); err != nil {
 		return nil, err
 	}
 	// Gas pricing alone cannot cap wall-clock cost (e.g. modexp with adversarial inputs).
@@ -89,7 +89,7 @@ func (e *Executor) OpenCurrentView(ctx context.Context, blockCtx BlockContext) (
 // newEVM returns an EVM that executes on stateDB in evmCtx under vmConfig, running the executor's
 // registered precompiles.
 func (e *Executor) newEVM(evmCtx vm.BlockContext, stateDB *nativeStateDB, chainConfig *params.ChainConfig, vmConfig vm.Config) *vm.EVM {
-	evm := vm.NewEVM(evmCtx, stateDB, chainConfig, vmConfig, e.customContracts)
+	evm := vm.NewEVMWithCustomPrecompiles(evmCtx, stateDB, chainConfig, vmConfig, e.customContracts)
 	stateDB.SetEVM(evm)
 	return evm
 }
@@ -107,6 +107,6 @@ func applyMessage(ctx context.Context, evm *vm.EVM, msg *core.Message) (*core.Ex
 		evm.Cancel()
 	}()
 
-	result, err := core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(msg.GasLimit))
+	result, err := core.ApplyMessage(evm, msg, core.NewGasPool(msg.GasLimit))
 	return result, evm.Cancelled(), err
 }

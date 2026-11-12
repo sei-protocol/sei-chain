@@ -16,3 +16,7 @@ cargo build --release --target x86_64-unknown-linux-musl --example wasmvmstatic
 
 cp target/aarch64-unknown-linux-musl/release/examples/libwasmvmstatic.a artifacts/libwasmvm_muslc.aarch64.a
 cp target/x86_64-unknown-linux-musl/release/examples/libwasmvmstatic.a artifacts/libwasmvm_muslc.a
+
+# Go 1.27.4+ refuses cgo archives that carry LLVM bitcode, which Rust's prebuilt std embeds.
+/opt/aarch64-linux-musl-cross/bin/aarch64-linux-musl-objcopy --remove-section=.llvmbc --remove-section=.llvmcmd artifacts/libwasmvm_muslc.aarch64.a
+objcopy --remove-section=.llvmbc --remove-section=.llvmcmd artifacts/libwasmvm_muslc.a

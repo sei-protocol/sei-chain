@@ -7,21 +7,23 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -129,15 +131,6 @@ func writeWALOnly(t *testing.T, wal statewal.StateWAL, block uint64, changes *gi
 	require.NoError(t, wal.Flush())
 }
 
-// waitSSWrites blocks until SS has applied every block through height. A commit hands SS its block on a
-// goroutine of the state DB's and does not wait, so a test reading SS straight after one waits here instead.
-func waitSSWrites(t *testing.T, manager *GigaStorageManager, height int64) {
-	t.Helper()
-	require.Eventually(t, func() bool { return manager.SS().GetLatestVersion() >= height },
-		10*time.Second, time.Millisecond, "SS never took block %d", height)
-	manager.SS().WaitForPendingWrites()
-}
-
 // reconverge re-runs what a restart does: it closes every store recovery touches, recovers them onto
 // target — which is what opens the state DB again — and reopens the receipt store on the far side.
 func reconverge(t *testing.T, manager *GigaStorageManager, target int64) {
@@ -200,6 +193,11 @@ func snapshotSCAt(t *testing.T, manager *GigaStorageManager, height byte) {
 	require.NoError(t, manager.SC().FlushSnapshots())
 }
 
+// historicalStateDB returns the manager's historical state DB.
+func historicalStateDB(manager *GigaStorageManager) *undo.Database {
+	return manager.StateDB().UndoSS()
+}
+
 // disableSS turns the EVM state store off.
 func disableSS(cfg *config.GigaStorageConfig) {
 	cfg.SSConfig.Enable = false
@@ -232,18 +230,29 @@ func replaceWALWithBlocks(t *testing.T, cfg *config.GigaStorageConfig, from, thr
 
 func TestRecoveryTarget(t *testing.T) {
 	for _, tc := range []struct {
-		name        string
-		blockHeight uint64
-		stateHeight uint64
-		receiptHead uint64
-		appHashHead uint64
-		want        uint64
-		wantErr     bool
+		name                string
+		blockHeight         uint64
+		stateHeight         uint64
+		historicalStateHead utils.Option[uint64]
+		receiptHead         uint64
+		appHashHead         uint64
+		want                uint64
+		wantErr             bool
 	}{
 		{name: "a fresh node has no height to converge on"},
 		{name: "the lowest head wins", blockHeight: 7, stateHeight: 5, receiptHead: 6, appHashHead: 9, want: 5},
 		{name: "receipts can be the lowest",
 			blockHeight: 7, stateHeight: 6, receiptHead: 4, appHashHead: 9, want: 4},
+		{name: "the historical state DB can be the lowest",
+			blockHeight: 7, stateHeight: 7, historicalStateHead: utils.Some[uint64](3), receiptHead: 6,
+			appHashHead: 9, want: 3},
+		{name: "a historical state DB at block 0 is the lowest",
+			blockHeight: 7, stateHeight: 7, historicalStateHead: utils.Some[uint64](0), receiptHead: 6,
+			appHashHead: 9, want: 0},
+		// A historical state DB newly enabled, or disabled, holds nothing to disagree with. Folding its 0 into
+		// the minimum would skip recovery for the stores that do have history.
+		{name: "an empty historical state DB does not collapse the target",
+			blockHeight: 7, stateHeight: 5, receiptHead: 6, appHashHead: 9, want: 5},
 		// The regression: receipts newly enabled, or a receipt directory recreated after corruption,
 		// leave a head of 0 alongside real block and state history. Folding that 0 into the minimum
 		// collapses the target and skips recovery for the stores that do have history.
@@ -261,7 +270,8 @@ func TestRecoveryTarget(t *testing.T) {
 			blockHeight: 7, stateHeight: 5, wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := recoveryTarget(tc.blockHeight, tc.stateHeight, tc.receiptHead, tc.appHashHead)
+			got, err := recoveryTarget(
+				tc.blockHeight, tc.stateHeight, tc.historicalStateHead, tc.receiptHead, tc.appHashHead)
 			if tc.wantErr {
 				require.Error(t, err)
 				return
@@ -365,6 +375,20 @@ func TestOpenRewindsSCFromASnapshotAboveTheWALHead(t *testing.T) {
 	commitBlock(t, manager, 4, evmBlock(4, 4))
 }
 
+// The historical state DB is cut back to the WAL's head along with the live state DB, its records of the
+// blocks above the head going with them.
+func TestOpenCutsTheHistoricalStateDBBackToTheWALHead(t *testing.T) {
+	manager, cfg := openManager(t, nil)
+	commitBlocks(t, manager, 3)
+	closeStateDB(t, manager)
+	require.NoError(t, statewal.PruneAfter(flatkv.StateWALConfig(cfg.FlatKVConfig.DataDir), 2))
+
+	require.NoError(t, manager.openStateDB(t.Context()))
+
+	require.Equal(t, int64(2), historicalStateDB(manager).GetLatestVersion())
+	commitBlock(t, manager, 3, evmBlock(3, 3))
+}
+
 // An SC above the WAL head with no snapshot at or below it cannot be rewound. Rebuilding the working
 // copy from an empty snapshot would delete the history it holds; refusing leaves that history in place.
 func TestOpenSCAboveTheWALHeadWithoutASnapshotIsRefused(t *testing.T) {
@@ -465,13 +489,13 @@ func TestRecoverReplaysForwardFromTheStoreOwnHeight(t *testing.T) {
 	require.DirExists(t, scSnapshotDir(cfg.FlatKVConfig.DataDir, 1))
 	view := manager.SC().OpenView()
 	defer view.Close()
-	marker, ok := view.Get(evm.EVMStoreKey, evmNonceKey(108))
+	marker, ok := view.Get(keys.EVMStoreKey, evmNonceKey(108))
 	require.True(t, ok, "SC replayed forward from 8, so the working copy it held there is still open")
 	require.Equal(t, evmNonce(108), marker)
 }
 
 func TestRecoverSCReplaysAMissedWALBlock(t *testing.T) {
-	manager, _ := openManager(t, nil)
+	manager, _ := openManager(t, disableSS)
 	commitBlocks(t, manager, 2)
 	writeWALOnly(t, manager.StateWAL(), 3, evmBlock(3, 3))
 	require.Equal(t, int64(2), manager.SC().Version())
@@ -506,7 +530,7 @@ func TestRecoverToATargetThatEmptiesTheWALLandsOnTheSnapshot(t *testing.T) {
 	reconverge(t, manager, 1)
 
 	require.Equal(t, int64(1), manager.SC().Version())
-	require.Equal(t, int64(1), manager.SS().GetLatestVersion())
+	require.Equal(t, int64(1), historicalStateDB(manager).GetLatestVersion())
 	requireWALTail(t, manager, 0)
 	commitBlock(t, manager, 2, evmBlock(2, 2))
 }
@@ -556,7 +580,7 @@ func TestOpenWithAnEmptyWALLeavesBothStoresAlone(t *testing.T) {
 	require.NoError(t, manager.openStateDB(t.Context()))
 
 	require.Equal(t, int64(3), manager.SC().Version())
-	require.Equal(t, int64(3), manager.SS().GetLatestVersion())
+	require.Equal(t, int64(3), historicalStateDB(manager).GetLatestVersion())
 	commitBlock(t, manager, 4, evmBlock(4, 4))
 }
 
@@ -579,6 +603,70 @@ func TestRecoverSCAboveTheWALHeadRewindsToASnapshotAndReplays(t *testing.T) {
 	commitBlock(t, manager, 3, evmBlock(3, 3))
 }
 
+// The historical state DB's records above the target are of blocks that run again, possibly differently,
+// so they go.
+func TestRecoverSSRollsBackToTheTarget(t *testing.T) {
+	manager, _ := openManager(t, nil)
+	commitBlocks(t, manager, 3)
+
+	reconverge(t, manager, 2)
+
+	require.Equal(t, int64(2), historicalStateDB(manager).GetLatestVersion())
+	_, ok := manager.StateDB().OpenViewAt(3)
+	require.False(t, ok, "a height above the target must not be served")
+	commitBlock(t, manager, 3, evmBlock(3, 3))
+}
+
+// A crash that loses the historical state DB's write queue leaves it behind the other stores, and its head
+// then sets the target: every store rolls back to it, keeping the history it holds, and the blocks above
+// are executed again.
+func TestRecoveryConvergesOnAHistoricalStateDBBehindTheOthers(t *testing.T) {
+	manager, cfg := openManager(t, nil)
+	commitBlocks(t, manager, 5)
+	stored := publishedAppHashes(t, manager, 1, 5)
+	stopForRestart(t, manager)
+	closeReceiptDB(t, manager)
+	require.NoError(t, undo.DiscardStateAbove(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig, 3))
+
+	present, historicalStateHead, err := undo.GetLatestBlock(cfg.SSConfig.EVMDBDirectory)
+	require.NoError(t, err)
+	require.True(t, present)
+	walHead, err := manager.stateWALHead()
+	require.NoError(t, err)
+	appHashHead, err := builder.GetLatestBlock(*cfg.AppHashBuilderConfig)
+	require.NoError(t, err)
+	target, err := recoveryTarget(5, walHead, utils.Some(historicalStateHead), 0, appHashHead)
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), target)
+	restartAt(t, manager, int64(target)) //nolint:gosec // small test heights
+
+	require.Equal(t, int64(3), manager.SC().Version())
+	require.Equal(t, int64(3), historicalStateDB(manager).GetLatestVersion())
+	requireWALTail(t, manager, 3)
+
+	for block := byte(4); block <= 5; block++ {
+		reportTestBlockHash(t, manager, uint64(block))
+		commitBlock(t, manager, int64(block), evmBlock(block, block))
+	}
+	rebuilt := publishedAppHashes(t, manager, 4, 5)
+	require.Equal(t, stored[3].AppHash(), rebuilt[0].AppHash())
+	require.Equal(t, stored[4].AppHash(), rebuilt[1].AppHash())
+	historicalStateDB(manager).WaitForPendingWrites()
+	require.Zero(t, historicalStateDB(manager).GetEarliestVersion(), "the history it held must survive")
+	for height := int64(0); height <= 5; height++ {
+		view, ok := manager.StateDB().OpenViewAt(height)
+		require.True(t, ok, "height %d", height)
+		for addr := byte(1); addr <= 5; addr++ {
+			want := uint64(0)
+			if int64(addr) <= height {
+				want = uint64(addr)
+			}
+			require.Equal(t, want, view.GetNonce(gigatypes.Address{addr}), "account %d at %d", addr, height)
+		}
+		view.Close()
+	}
+}
+
 // Opening at a target rewinds SC, SS and the WAL that feeds them, so the write head lands on the
 // target. Committing the block after the target is what proves the WAL was truncated rather than only
 // the stores rewound: a WAL still holding that block refuses to write it a second time.
@@ -589,7 +677,7 @@ func TestOpenAtATargetRewindsEveryStoreAndTheWAL(t *testing.T) {
 	reconverge(t, manager, 2)
 
 	require.Equal(t, int64(2), manager.SC().Version())
-	require.Equal(t, int64(2), manager.SS().GetLatestVersion())
+	require.Equal(t, int64(2), historicalStateDB(manager).GetLatestVersion())
 	requireWALTail(t, manager, 2)
 
 	commitBlock(t, manager, 3, evmBlock(3, 3))
@@ -645,10 +733,26 @@ func TestRecoverReceiptRewindsTheHead(t *testing.T) {
 	require.Equal(t, int64(3), manager.ReceiptDB().LatestVersion())
 }
 
+// A crash while the historical state DB was being created leaves its directory holding no database.
+// Startup removes it and opens the historical state DB as a new one.
+func TestStartupRemovesAHalfCreatedHistoricalStateDB(t *testing.T) {
+	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(cfg.SSConfig.EVMDBDirectory, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(cfg.SSConfig.EVMDBDirectory, "LOCK"), nil, 0o600))
+
+	manager, err := NewGigaStorageManager(t.Context(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+
+	require.NotNil(t, historicalStateDB(manager))
+	commitBlocks(t, manager, 1)
+}
+
 func TestOpenDBWithoutRecoveryOnAFreshHome(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
 	require.Zero(t, manager.SC().Version())
-	require.Zero(t, manager.SS().GetLatestVersion())
+	require.Zero(t, historicalStateDB(manager).GetLatestVersion())
 	require.Zero(t, manager.ReceiptDB().LatestVersion())
 }

@@ -36,7 +36,7 @@ type registeredCustomPrecompile struct {
 }
 
 var (
-	_ vm.PrecompiledContract           = registeredCustomPrecompile{}
+	_ vm.CustomPrecompiledContract     = registeredCustomPrecompile{}
 	_ vm.DynamicGasPrecompiledContract = registeredCustomPrecompile{}
 )
 
@@ -303,7 +303,7 @@ func (s *precompileState) chargeSstore(addr common.Address, key, value common.Ha
 	if _, warm := s.db.SlotInAccessList(addr, key); !warm {
 		cost = params.ColdSloadCostEIP2929
 	}
-	current, original := s.db.GetState(addr, key), s.db.GetCommittedState(addr, key)
+	current, original := s.db.GetStateAndCommittedState(addr, key)
 	var refund, unrefund uint64
 	switch {
 	case current == value:

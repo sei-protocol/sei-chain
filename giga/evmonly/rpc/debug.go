@@ -49,6 +49,8 @@ var (
 // at once, how long each may take, and what each may retain.
 type debugAPI struct {
 	tracers *tracers.API
+	// txs resolves transactions with the request ctx before tracing.
+	txs *traceBackend
 	// calls traces calls, which read a block's header and state but not its transactions.
 	calls *tracers.API
 	store receiptpkg.ReceiptStore
@@ -63,6 +65,7 @@ func newDebugAPI(backend Backend, store receiptpkg.ReceiptStore, limits gigaconf
 	traces := newTraceBackend(backend, &blockAPI{backend: backend, store: store}, &txAPI{backend: backend, store: store})
 	api := &debugAPI{
 		tracers:           tracers.NewAPI(traces),
+		txs:               traces,
 		calls:             tracers.NewAPI(traces.forCalls()),
 		store:             store,
 		timeout:           limits.TraceTimeout,
@@ -88,6 +91,10 @@ func (api *debugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	if !executed(stored) {
 		return nil, &invalidParamsError{error: errTraceTxNotExecuted}
 	}
+	// The tracer's lookup has no ctx and reports any failure as not found.
+	if _, _, _, _, _, err := api.txs.GetTransaction(ctx, hash); err != nil {
+		return nil, err
+	}
 	return api.trace(ctx, config, func(ctx context.Context, config *tracers.TraceConfig) (any, error) {
 		return api.tracers.TraceTransaction(ctx, hash, config)
 	})
@@ -106,7 +113,7 @@ func (api *debugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 		ctx = withLatestState(ctx)
 	}
 	return api.trace(ctx, &config.TraceConfig, func(ctx context.Context, _ *tracers.TraceConfig) (any, error) {
-		return api.calls.TraceCall(ctx, args, blockNrOrHash, config)
+		return api.calls.TraceCall(ctx, args, &blockNrOrHash, config)
 	})
 }
 
