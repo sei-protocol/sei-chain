@@ -350,18 +350,26 @@ func sameGigaNodeAddr(a, b GigaNodeAddr) bool {
 	return a.Key == b.Key && a.HostPort == b.HostPort && a.EVMRPC.String() == b.EVMRPC.String()
 }
 
+// inAnchorEpochs reports whether validator is a member of an epoch Anchor holds.
+func inAnchorEpochs(anchor data.Anchor, validator atypes.PublicKey) bool {
+	for _, ep := range anchor.Epochs {
+		if ep.Committee().HasReplica(validator) {
+			return true
+		}
+	}
+	return false
+}
+
 // acceptInbound returns the committee identity a verified inbound connection
 // proved, recording the giga address it advertised. None means the peer is
 // served the block-sync subset: it carried no claim, or it claimed a validator
-// outside both Anchor epochs.
+// outside the Anchor epochs.
 func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[atypes.PublicKey] {
 	claim, ok := hConn.msg.GigaClaim.Get()
 	if !ok {
 		return utils.None[atypes.PublicKey]()
 	}
-	anchor := r.data.Anchor().Load()
-	if !anchor.Epochs[0].Committee().HasReplica(claim.Validator) &&
-		!anchor.Epochs[1].Committee().HasReplica(claim.Validator) {
+	if !inAnchorEpochs(r.data.Anchor().Load(), claim.Validator) {
 		return utils.None[atypes.PublicKey]()
 	}
 	selfAddr := hConn.msg.SelfAddr.OrPanic("verified giga claim has no SelfAddr")
@@ -436,7 +444,7 @@ func (r *gigaRouterCommon) stopStaleSessions(
 	return nil
 }
 
-// runPerCommitteeMember runs tasks for each reachable member of both Anchor
+// runPerCommitteeMember runs tasks for each reachable member of the Anchor
 // epochs, or of the commit epoch when currentCommitteeOnly is set.
 func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCommitteeOnly bool, tasks ...committeeMemberTask) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -517,8 +525,7 @@ func (r *gigaRouterCommon) runUntilMembershipChange(
 				if currentCommitteeOnly {
 					return !anchor.NextIndexEpoch().Committee().HasReplica(validator)
 				}
-				return !anchor.Epochs[0].Committee().HasReplica(validator) &&
-					!anchor.Epochs[1].Committee().HasReplica(validator)
+				return !inAnchorEpochs(anchor, validator)
 			})
 			if err != nil {
 				return err
@@ -533,7 +540,7 @@ func (r *gigaRouterCommon) runUntilMembershipChange(
 }
 
 // RunInboundConn serves an inbound giga connection. A peer proving membership
-// of either Anchor epoch is served as a validator; every other peer is served
+// of an Anchor epoch is served as a validator; every other peer is served
 // as a fullnode for the life of this socket.
 func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshakedConn) error {
 	if !hConn.msg.SeiGigaConnection {
@@ -542,7 +549,7 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 	if member, ok := r.acceptInbound(hConn).Get(); ok {
 		return r.runInboundValidator(ctx, hConn, member)
 	}
-	// A member who inbounds before they appear in either of our Anchor epochs is
+	// A member who inbounds before they appear in an Anchor epoch is
 	// served as a fullnode for this socket's life; their own dialer redials
 	// after DialInterval and re-handshakes into the validator role.
 	return r.runInboundFullnode(ctx, hConn)

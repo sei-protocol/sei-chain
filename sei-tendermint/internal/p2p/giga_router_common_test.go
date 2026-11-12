@@ -1033,6 +1033,47 @@ func TestGigaRouterCommon_RunUntilMembershipChangeCancelsFWhenMembershipChanges(
 	require.NoError(t, err)
 }
 
+func TestGigaRouterCommon_RunUntilMembershipChangeCommitEpochOnly(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	a := key.Public()
+	b := atypes.GenSecretKey(rng).Public()
+	ep2 := testEpoch(2, map[atypes.PublicKey]uint64{a: 1})
+	ep3 := testEpoch(3, map[atypes.PublicKey]uint64{b: 1})
+	state := testDataWithAnchor(t, testAnchor(ep2))
+	router := &gigaRouterCommon{data: state}
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		started := make(chan struct{})
+		left := make(chan struct{})
+		s.SpawnBg(func() error {
+			changed, err := router.runUntilMembershipChange(ctx, a, true, func(ctx context.Context) error {
+				close(started)
+				<-ctx.Done()
+				return ctx.Err()
+			})
+			if err != nil {
+				return err
+			}
+			if !changed {
+				return fmt.Errorf("leaving the commit epoch must cancel f and report true")
+			}
+			close(left)
+			return nil
+		})
+		<-started
+		// a stays in Epochs[0]. The certified road is ep2's last, so the commit
+		// epoch is ep3, which does not contain a.
+		data.TestSetAnchor(state, testCertifiedAnchor(ep2, ep3, []atypes.SecretKey{key}))
+		select {
+		case <-left:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+	require.NoError(t, err)
+}
+
 // A peer that accepts and then says nothing must return from the handshake.
 func TestGigaRouterCommon_OutboundHandshakeBoundedByTimeout(t *testing.T) {
 	rng := utils.TestRng()
