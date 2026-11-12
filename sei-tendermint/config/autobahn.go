@@ -167,7 +167,7 @@ type AutobahnFileConfig struct {
 	// non-committee peers, applied on both validators and fullnodes (relay
 	// fullnodes serving downstream block-sync are subject to the same
 	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject every
-	// inbound fullnode that is not a p2p persistent peer.
+	// inbound fullnode that is neither in p2p.persistent-peers nor in p2p.blocksync-peers.
 	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers,omitzero"`
 	// MaxConcurrentCheckTx caps the number of CheckTx calls the local mempool
 	// runs concurrently for incoming broadcast_tx requests, so that ingest

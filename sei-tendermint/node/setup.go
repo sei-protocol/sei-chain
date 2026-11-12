@@ -476,7 +476,7 @@ func persistentPeerIDSet(peers []p2p.NodeAddress) map[types.NodeID]struct{} {
 }
 
 // resolveMaxInboundFullnodePeers: None ⇒ default, Some(0) ⇒ reject every
-// inbound fullnode that is not a persistent peer, Some(n) ⇒ n. The default
+// inbound fullnode that is neither a persistent nor a block-sync peer, Some(n) ⇒ n. The default
 // lives in the config package so giga_router doesn't carry an operator-facing knob.
 func resolveMaxInboundFullnodePeers(o utils.Option[uint64]) int {
 	if v, ok := o.Get(); ok {

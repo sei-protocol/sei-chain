@@ -35,8 +35,8 @@ const maxInboundFullnodePeers = 10000
 
 var errGigaMembershipChanged = errors.New("inbound giga peer changed committee membership")
 
-// errInboundFullnodeLimit is returned when a non-persistent fullnode is
-// refused because inboundFullnodeCap is already reached.
+// errInboundFullnodeLimit is returned when a fullnode outside PersistentPeerIDs
+// is refused because inboundFullnodeCap is already reached.
 var errInboundFullnodeLimit = errors.New("inbound fullnode peer limit reached")
 
 type gigaRouterCommon struct {
