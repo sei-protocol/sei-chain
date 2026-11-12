@@ -98,9 +98,9 @@ func newestOrOldestBlock(littConfig *litt.Config, newest bool) (block uint64, ok
 
 // PruneAfter rolls back the closed receipt store described by cfg so that litt and the index both end at
 // the lowest of highestBlockToKeep, the litt head and the index head. A store already ending there is
-// left unchanged.
+// left unchanged. One that failed or was interrupted completes when run again.
 //
-// It returns an error without changing anything when litt would be rolled back below the retention floor,
+// It returns an error when litt would be rolled back below the retention floor,
 // when that block is below the oldest receipt in litt while the index has a head, or when the index has a
 // head but litt holds no receipts.
 func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) (err error) {

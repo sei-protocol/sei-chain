@@ -683,9 +683,6 @@ func createRouter(
 		if !ok {
 			return nil, closer, noneDB, fmt.Errorf("autobahn requires a storage manager")
 		}
-		if manager.AppHashBuilder() == nil {
-			return nil, closer, noneDB, fmt.Errorf("autobahn storage manager requires an app hash builder")
-		}
 		giga, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
 			manager.BlockStore(), manager.AppHashBuilder(),
