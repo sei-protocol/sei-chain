@@ -69,12 +69,19 @@ type Backend interface {
 	// EVM state after header's block with overrides applied, and any revert data if it still
 	// fails at gasCap.
 	EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error)
-	// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg with calls applied
-	// to the committed state first, in order.
-	EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error)
+	// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg with overrides and then
+	// calls applied to the committed state first, in order.
+	EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error)
+	// EvmEstimateGasAfterCallsAt returns what EvmEstimateGasAt returns for msg with overrides and
+	// then calls applied to the committed state after header's block first, in order.
+	EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error)
 	// EvmCreateAccessList returns the access list msg touches against the committed state, and
 	// the result of executing msg with that list.
 	EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error)
+	// EvmCreateAccessListAt returns the access list msg touches against the committed state after
+	// header's block, in the context that block executed at, and the result of executing msg with
+	// that list.
+	EvmCreateAccessListAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (ethtypes.AccessList, *core.ExecutionResult, error)
 	EvmGasLimit() (uint64, error)
 	// EvmMinGasPrice returns the minimum effective gas price this application admits a
 	// transaction at.

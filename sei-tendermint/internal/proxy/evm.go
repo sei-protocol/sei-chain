@@ -32,12 +32,19 @@ type EVMApplication interface {
 	// lets msg succeed against the committed EVM state after header's block,
 	// with overrides applied, and any revert data.
 	EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error)
-	// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg with calls applied to
-	// the current EVM state first, in order.
-	EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error)
+	// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg with overrides and
+	// then calls applied to the current EVM state first, in order.
+	EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error)
+	// EvmEstimateGasAfterCallsAt returns what EvmEstimateGasAt returns for msg with overrides and
+	// then calls applied to the committed EVM state after header's block first, in order.
+	EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error)
 	// EvmCreateAccessList returns the access list msg touches against the current EVM state, and
 	// the result of executing msg with that list.
 	EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error)
+	// EvmCreateAccessListAt returns the access list msg touches against the committed EVM state
+	// after header's block, in the context that block executed at, and the result of executing
+	// msg with that list.
+	EvmCreateAccessListAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (ethtypes.AccessList, *core.ExecutionResult, error)
 	// EvmChainID returns the EVM chain ID transactions are signed for.
 	EvmChainID() uint64
 	// EvmChainConfig returns the EVM chain configuration transactions execute
@@ -86,14 +93,24 @@ func (app *EVMProxy) EvmEstimateGasAt(ctx context.Context, msg *core.Message, ga
 	return app.app.EvmEstimateGasAt(ctx, msg, gasCap, header, overrides)
 }
 
-func (app *EVMProxy) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+func (app *EVMProxy) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_estimate_gas_after_calls", "sync"))()
-	return app.app.EvmEstimateGasAfterCalls(ctx, calls, msg, gasCap)
+	return app.app.EvmEstimateGasAfterCalls(ctx, calls, msg, gasCap, overrides)
+}
+
+func (app *EVMProxy) EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_estimate_gas_after_calls_at", "sync"))()
+	return app.app.EvmEstimateGasAfterCallsAt(ctx, calls, msg, gasCap, header, overrides)
 }
 
 func (app *EVMProxy) EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_create_access_list", "sync"))()
 	return app.app.EvmCreateAccessList(ctx, msg)
+}
+
+func (app *EVMProxy) EvmCreateAccessListAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (ethtypes.AccessList, *core.ExecutionResult, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_create_access_list_at", "sync"))()
+	return app.app.EvmCreateAccessListAt(ctx, msg, header)
 }
 
 func (app *EVMProxy) EvmChainID() uint64 {
