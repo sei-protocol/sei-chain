@@ -27,8 +27,19 @@ type ViewTimeoutFunc = func(types.View) time.Duration
 type Config struct {
 	Key         types.SecretKey
 	ViewTimeout ViewTimeoutFunc
+	// Limits the number of consensus instances/s this validator should participate in.
+	// This effectively limits the rate of finalized RoadBlocks, which has following consequences:
+	// * >2/3 of nodes are required to produce a RoadBlock, so road block rate <= 3/2 * cfg.RateLimit.
+	// * expect avg e2e latency of tx finalization to be >= 1/cfg.RateLimit
+	// * avg RoadBlock size >= lane block rate / road block rate
+	// * make sure that 1/RateLimit < ViewTimeout
+	// Purpose of RateLimit is to throttle consensus which is TOO FAST, which is usually not the case.
+	// Set to rate.Inf unless you know what you are doing.
+	// TODO(gprusak): should be a consensus param.
+	RateLimit   rate.Limit
 	// ProposalTimeout bounds proposal timestamps and must be greater than 0.
 	// The accepted width is ProposalTimeout * (view number + 1).
+	// TODO(gprusak): should be a consensus param.
 	ProposalTimeout time.Duration
 	// PersistentStateDir is the directory where the consensus state is persisted.
 	// If None, persistence is disabled - DANGEROUS, may lead to SLASHING on restart.
@@ -46,7 +57,7 @@ type Config struct {
 type State struct {
 	cfg   *Config
 	avail *avail.State
-	// metrics *Metrics
+	specLimiter *rate.Limiter
 	inner     utils.Mutex[*utils.AtomicSend[inner]]
 	innerRecv utils.AtomicRecv[inner]
 
@@ -393,7 +404,7 @@ func (s *State) Run(ctx context.Context) error {
 			// only advance on CommitQCs that avail has verified, persisted, and paired
 			// with the epoch of the next RoadIndex — consensus resolves no epochs itself.
 			return s.avail.ConsensusSpec().Iter(ctx, func(ctx context.Context, spec types.ConsensusSpec) error {
-				return s.pushSpec(spec)
+				return s.pushSpec(ctx,spec)
 			})
 		})
 		scope.SpawnNamed("pushPrepareQC", func() error {

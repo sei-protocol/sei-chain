@@ -153,11 +153,16 @@ func newInner(
 // pushSpec advances consensus to avail's ConsensusSpec tip and clears per-view
 // state. Specs that do not advance the view are ignored, which covers the
 // tipless spec published before the first CommitQC.
-func (s *State) pushSpec(spec types.ConsensusSpec) error {
+func (s *State) pushSpec(ctx context.Context, spec types.ConsensusSpec) error {
+
 	specViewIdx := spec.Index()
 	if specViewIdx <= s.innerRecv.Load().spec.Index() {
 		return nil
 	}
+	if err:=s.specLimiter.Wait(ctx); err!= nil{
+		return err
+	}
+
 	for iSend := range s.inner.Lock() {
 		i := iSend.Load()
 		if specViewIdx <= i.spec.Index() {
