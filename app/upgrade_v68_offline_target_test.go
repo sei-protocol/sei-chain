@@ -20,6 +20,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth"
 	xauthsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -730,12 +731,15 @@ func testV68OfflineUpgradeTargetSnapshot(t *testing.T) {
 	require.True(t, testApp.UpgradeKeeper.HasHandler(v68OfflineUpgradeName),
 		"v6.8 upgrade handler is not registered; set UPGRADE_VERSION_LIST=v6.8")
 	upgradeHeight := sourceHeight + 1
+	upgradeCtx := offlineUpgradeContext(testApp, upgradeHeight, chainID)
 	started := time.Now()
-	testApp.UpgradeKeeper.ApplyUpgrade(offlineUpgradeContext(testApp, upgradeHeight, chainID), upgradetypes.Plan{
+	testApp.UpgradeKeeper.ApplyUpgrade(upgradeCtx, upgradetypes.Plan{
 		Name:   v68OfflineUpgradeName,
 		Height: upgradeHeight,
 	})
-	t.Logf("v6.8 rewrote %d vesting accounts of %s in %s", len(legacy), home, time.Since(started))
+	t.Logf("v6.8 upgrade handler ran on %s in %s", home, time.Since(started))
+	requireV68OfflineLegacyAccountsReadAsBase(t, testApp, upgradeCtx, legacy)
+	rewriteV68OfflineLegacyVestingAccounts(t, testApp, upgradeCtx, len(legacy))
 	testApp.CommitMultiStore().Commit(true)
 	closeOfflineUpgradeApp(t, testApp)
 
@@ -753,6 +757,32 @@ func testV68OfflineUpgradeTargetSnapshot(t *testing.T) {
 		require.Equal(t, balances[address.String()], reopened.BankKeeper.GetAllBalances(ctx, address),
 			"v6.8 changed the balance of %s", address)
 	}
+}
+
+// requireV68OfflineLegacyAccountsReadAsBase requires every address in legacy, still stored under a
+// vesting type, to read as a base account.
+func requireV68OfflineLegacyAccountsReadAsBase(t *testing.T, testApp *App, ctx sdk.Context, legacy []sdk.AccAddress) {
+	t.Helper()
+	for _, address := range legacy {
+		_, ok := testApp.AccountKeeper.GetAccount(ctx, address).(*authtypes.BaseAccount)
+		require.True(t, ok, "%s does not read as a base account before it is rewritten", address)
+	}
+}
+
+// rewriteV68OfflineLegacyVestingAccounts runs, at the per-block rate, the rewrite the v6.8 auth
+// migration starts until it is done, and logs how many blocks it would span and its slowest batch.
+func rewriteV68OfflineLegacyVestingAccounts(t *testing.T, testApp *App, ctx sdk.Context, vesting int) {
+	t.Helper()
+	started := time.Now()
+	var batches int
+	var slowest time.Duration
+	for done := false; !done; batches++ {
+		batchStarted := time.Now()
+		done = testApp.AccountKeeper.RewriteLegacyVestingAccounts(ctx, auth.MaxAccountsScannedPerBlock)
+		slowest = max(slowest, time.Since(batchStarted))
+	}
+	t.Logf("rewrote %d vesting accounts in %d blocks of %d accounts over %s; the slowest block took %s",
+		vesting, batches, auth.MaxAccountsScannedPerBlock, time.Since(started), slowest)
 }
 
 // v68OfflineLegacyVestingAccounts returns the address of every account stored

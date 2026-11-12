@@ -2,6 +2,8 @@ package legacyabci
 
 import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth"
+	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov"
 	govkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
@@ -11,6 +13,7 @@ import (
 )
 
 type EndBlockKeepers struct {
+	AccountKeeper authkeeper.AccountKeeper
 	GovKeeper     *govkeeper.Keeper
 	StakingKeeper *stakingkeeper.Keeper
 	EvmKeeper     *evmkeeper.Keeper
@@ -20,5 +23,6 @@ func EndBlock(ctx sdk.Context, height int64, blockGasUsed int64, keepers EndBloc
 	gov.EndBlocker(ctx, *keepers.GovKeeper)
 	vals := staking.EndBlocker(ctx, *keepers.StakingKeeper)
 	keepers.EvmKeeper.EndBlock(ctx, height, blockGasUsed)
+	auth.EndBlocker(ctx, keepers.AccountKeeper)
 	return vals
 }

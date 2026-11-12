@@ -220,9 +220,16 @@ func (ak AccountKeeper) MarshalAccount(accountI types.AccountI) ([]byte, error) 
 	return ak.cdc.MarshalInterface(accountI)
 }
 
-// UnmarshalAccount returns an Account interface from raw encoded account
-// bytes of a Proto-based Account type
+// UnmarshalAccount returns the account encoded in bz. An account stored under a type of the removed
+// vesting module decodes as the BaseAccount it embeds.
 func (ak AccountKeeper) UnmarshalAccount(bz []byte) (types.AccountI, error) {
+	if depth, ok := legacyVestingTypeDepth(bz); ok {
+		account, err := ak.embeddedBaseAccount(bz, depth)
+		if err != nil {
+			return nil, err
+		}
+		return account, nil
+	}
 	var acc types.AccountI
 	return acc, ak.cdc.UnmarshalInterface(bz, &acc)
 }
