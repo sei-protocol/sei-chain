@@ -39,7 +39,6 @@ type Config struct {
 	// * make sure that 1/MaxRate < ViewTimeout
 	// Purpose of MaxRate is to throttle consensus which is TOO FAST, which is usually not the case.
 	// Set to rate.Inf unless you know what you are doing.
-	// TODO(gprusak): should be a consensus param.
 	MaxRate rate.Limit
 	// ProposalTimeout bounds proposal timestamps and must be greater than 0.
 	// The accepted width is ProposalTimeout * (view number + 1).

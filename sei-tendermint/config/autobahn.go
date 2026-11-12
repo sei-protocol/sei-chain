@@ -156,9 +156,6 @@ type AutobahnFileConfig struct {
 	MaxTxsPerSecond  utils.Option[uint64] `json:"max_txs_per_second"`
 	AllowEmptyBlocks bool                 `json:"allow_empty_blocks"`
 	BlockInterval    utils.Duration       `json:"block_interval"`
-	// MaxRoadBlocksPerSecond limits this validator's participation in RoadBlock consensus.
-	// Absent means unlimited; when set, it must be positive and finite.
-	MaxRoadBlocksPerSecond utils.Option[float64] `json:"max_road_blocks_per_second,omitzero"`
 	// PersistentStateDir is the on-disk root for Autobahn's durable state
 	// (Giga storage, BlockDB, hashvault, epoch snapshots, and the validator's
 	// consensus persister, each in a subdirectory). A relative path is
@@ -226,9 +223,6 @@ func (fc *AutobahnFileConfig) Validate() error {
 	}
 	if fc.BlockInterval <= 0 {
 		return errors.New("block_interval must be > 0")
-	}
-	if v, ok := fc.MaxRoadBlocksPerSecond.Get(); ok && !(0 < v && v <= math.MaxFloat64) {
-		return errors.New("max_road_blocks_per_second must be positive and finite when set")
 	}
 	if fc.DialInterval <= 0 {
 		return errors.New("dial_interval must be > 0")

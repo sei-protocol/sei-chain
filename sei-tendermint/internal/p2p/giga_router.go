@@ -6,8 +6,6 @@ import (
 	"net/url"
 	"time"
 
-	"golang.org/x/time/rate"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
@@ -60,11 +58,10 @@ type GigaRouterCommonConfig struct {
 // GigaValidatorConfig configures a committee-member GigaRouter.
 type GigaValidatorConfig struct {
 	GigaRouterCommonConfig
-	ValidatorKey      atypes.SecretKey
-	ViewTimeout       func(atypes.View) time.Duration
-	ProposalTimeout   time.Duration
-	MaxRoadBlocksRate rate.Limit
-	Producer          *producer.Config
+	ValidatorKey    atypes.SecretKey
+	ViewTimeout     func(atypes.View) time.Duration
+	ProposalTimeout time.Duration
+	Producer        *producer.Config
 }
 
 // GigaRouter is the read-path / Run / EvmProxy surface. Implemented by

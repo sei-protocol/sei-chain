@@ -81,11 +81,28 @@ type GenesisDoc struct {
 // AutobahnParams is the Autobahn section of a genesis doc.
 type AutobahnParams struct {
 	ViewTimeout time.Duration `json:"view_timeout,string"`
+	// MinRoadBlockInverval is the minimum interval between this validator's
+	// consensus instances. Zero means unlimited; it must be less than ViewTimeout.
+	MinRoadBlockInverval time.Duration `json:"min_road_block_inverval,string"`
 }
 
 // DefaultAutobahnParams returns AutobahnParams with a 1500ms view timeout.
 func DefaultAutobahnParams() *AutobahnParams {
 	return &AutobahnParams{ViewTimeout: 1500 * time.Millisecond}
+}
+
+// Validate checks Autobahn consensus parameters and their timing constraints.
+func (p AutobahnParams) Validate() error {
+	if p.ViewTimeout <= 0 {
+		return fmt.Errorf("view_timeout must be greater than 0, got %v", p.ViewTimeout)
+	}
+	if p.MinRoadBlockInverval < 0 {
+		return errors.New("min_road_block_inverval must not be negative")
+	}
+	if p.MinRoadBlockInverval >= p.ViewTimeout {
+		return errors.New("min_road_block_inverval must be shorter than view_timeout")
+	}
+	return nil
 }
 
 func (genDoc *GenesisDoc) ToRequestInitChain() *abci.RequestInitChain {
@@ -152,8 +169,9 @@ func (genDoc *GenesisDoc) ValidateAndComplete() error {
 
 	if genDoc.Autobahn == nil {
 		genDoc.Autobahn = DefaultAutobahnParams()
-	} else if genDoc.Autobahn.ViewTimeout <= 0 {
-		return fmt.Errorf("autobahn.view_timeout must be greater than 0, got %v", genDoc.Autobahn.ViewTimeout)
+	}
+	if err := genDoc.Autobahn.Validate(); err != nil {
+		return fmt.Errorf("autobahn: %w", err)
 	}
 
 	if err := genDoc.ConsensusParams.ValidateConsensusParams(); err != nil {

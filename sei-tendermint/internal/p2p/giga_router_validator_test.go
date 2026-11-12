@@ -104,7 +104,6 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				ValidatorKey:           cfg.validatorKey,
 				ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
 				ProposalTimeout:        time.Hour,
-				MaxRoadBlocksRate:      rate.Inf,
 				Producer: &producer.Config{
 					MaxGasWantedPerBlock:    txGasUsed * maxTxsPerBlock,
 					MaxGasEstimatedPerBlock: txGasUsed * maxTxsPerBlock,
@@ -344,7 +343,6 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		ValidatorKey:           validatorKeys[0],
 		ViewTimeout:            func(atypes.View) time.Duration { return time.Second },
 		ProposalTimeout:        time.Hour,
-		MaxRoadBlocksRate:      rate.Inf,
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    1,
 			MaxGasEstimatedPerBlock: 1,
