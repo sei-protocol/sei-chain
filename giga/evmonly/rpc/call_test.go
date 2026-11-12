@@ -52,7 +52,7 @@ func TestCallHappyPath(t *testing.T) {
 	api := &callAPI{backend: backend}
 	args := export.TransactionArgs{From: &from, To: &to}
 
-	got, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	got, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, hexutil.Bytes{0x2a}, got)
@@ -78,7 +78,7 @@ func TestCallCapsExplicitGasAboveDefault(t *testing.T) {
 	requested := hexutil.Uint64(defaultCallGasCap * 10)
 	args := export.TransactionArgs{To: &to, Gas: &requested}
 
-	_, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	_, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, uint64(defaultCallGasCap), gotMsg.GasLimit)
@@ -99,7 +99,7 @@ func TestCallPreservesExplicitGasBelowDefault(t *testing.T) {
 	requested := hexutil.Uint64(21_000)
 	args := export.TransactionArgs{To: &to, Gas: &requested}
 
-	_, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	_, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, uint64(21_000), gotMsg.GasLimit)
@@ -117,7 +117,7 @@ func TestCallSurfacesRevertReason(t *testing.T) {
 	}
 	api := &callAPI{backend: backend}
 
-	got, err := api.Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	got, err := api.Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	require.Nil(t, got)
 	require.Error(t, err)
@@ -140,7 +140,7 @@ func TestCallPassesThroughNonRevertExecutionError(t *testing.T) {
 	}
 	api := &callAPI{backend: backend}
 
-	got, err := api.Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	got, err := api.Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	require.Nil(t, got)
 	require.ErrorIs(t, err, wantErr)
@@ -185,7 +185,7 @@ func TestCallRunsAgainstAPastBlock(t *testing.T) {
 				return &core.ExecutionResult{ReturnData: []byte{0x2a}}, nil
 			}
 
-			got, err := (&callAPI{backend: backend, blocks: &blockAPI{backend: backend}}).Call(t.Context(), export.TransactionArgs{To: &to}, tc.block)
+			got, err := (&callAPI{backend: backend, blocks: &blockAPI{backend: backend}}).Call(t.Context(), export.TransactionArgs{To: &to}, tc.block, nil, nil)
 
 			require.NoError(t, err)
 			require.Equal(t, hexutil.Bytes{0x2a}, got)
@@ -220,7 +220,7 @@ func TestCallRefusesAnUnresolvableBlock(t *testing.T) {
 				return nil, nil
 			}
 
-			got, err := (&callAPI{backend: backend, blocks: &blockAPI{backend: backend}}).Call(t.Context(), export.TransactionArgs{To: &to}, tc.block)
+			got, err := (&callAPI{backend: backend, blocks: &blockAPI{backend: backend}}).Call(t.Context(), export.TransactionArgs{To: &to}, tc.block, nil, nil)
 
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Nil(t, got)
@@ -264,7 +264,7 @@ func TestCallBaseFeeError(t *testing.T) {
 	}
 
 	// Test: EvmBaseFee fails before defaults are applied.
-	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	// Verify: that error is returned as-is.
 	require.Nil(t, got)
@@ -283,7 +283,7 @@ func TestCallBackendError(t *testing.T) {
 	}
 
 	// Test: EvmCall itself fails.
-	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	// Verify: that error is returned as-is.
 	require.Nil(t, got)
@@ -302,7 +302,7 @@ func TestCallUndecodableRevertKeepsGenericMessage(t *testing.T) {
 	}
 
 	// Test: revert payload is not ABI Error(string).
-	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	// Verify: generic revert message, raw data still in ErrorData.
 	require.Nil(t, got)

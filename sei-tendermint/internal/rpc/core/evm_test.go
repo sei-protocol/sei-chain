@@ -9,8 +9,10 @@ import (
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -20,12 +22,13 @@ import (
 // records the arguments it was called with.
 type testEVMApp struct {
 	abci.BaseApplication
-	gotMsg    *ethcore.Message
-	gotCalls  []*ethcore.Message
-	gotGasCap uint64
-	gotHeader *ethtypes.Header
-	gotHeight int64
-	gotTxs    [][]byte
+	gotMsg       *ethcore.Message
+	gotCalls     []*ethcore.Message
+	gotGasCap    uint64
+	gotHeader    *ethtypes.Header
+	gotHeight    int64
+	gotTxs       [][]byte
+	gotOverrides evmonly.CallOverrides
 }
 
 var _ proxy.EVMApplication = (*testEVMApp)(nil)
@@ -36,24 +39,29 @@ var (
 	testChainConfig     = &params.ChainConfig{ChainID: big.NewInt(713715)}
 	testBaseFee         = big.NewInt(7)
 	testMinGasPrice     = big.NewInt(1_000_000_000)
+	testOverrides       = evmonly.CallOverrides{State: export.StateOverride{common.Address{1}: {}}}
 )
 
-func (app *testEVMApp) EvmCall(_ context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
+func (app *testEVMApp) EvmCall(_ context.Context, msg *ethcore.Message, overrides evmonly.CallOverrides) (*ethcore.ExecutionResult, error) {
+	app.gotOverrides = overrides
 	app.gotMsg = msg
 	return testExecutionResult, nil
 }
 
-func (app *testEVMApp) EvmEstimateGas(_ context.Context, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
+func (app *testEVMApp) EvmEstimateGas(_ context.Context, msg *ethcore.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+	app.gotOverrides = overrides
 	app.gotMsg, app.gotGasCap = msg, gasCap
 	return 21_000, []byte{0x01}, nil
 }
 
-func (app *testEVMApp) EvmCallAt(_ context.Context, msg *ethcore.Message, header *ethtypes.Header) (*ethcore.ExecutionResult, error) {
+func (app *testEVMApp) EvmCallAt(_ context.Context, msg *ethcore.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (*ethcore.ExecutionResult, error) {
+	app.gotOverrides = overrides
 	app.gotMsg, app.gotHeader = msg, header
 	return testExecutionResult, nil
 }
 
-func (app *testEVMApp) EvmEstimateGasAt(_ context.Context, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error) {
+func (app *testEVMApp) EvmEstimateGasAt(_ context.Context, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+	app.gotOverrides = overrides
 	app.gotMsg, app.gotGasCap, app.gotHeader = msg, gasCap, header
 	return 22_000, []byte{0x02}, nil
 }
@@ -100,23 +108,25 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 
 	t.Run("call", func(t *testing.T) {
 		// Test: EvmCall.
-		got, err := env.EvmCall(t.Context(), msg)
+		got, err := env.EvmCall(t.Context(), msg, testOverrides)
 
 		// Verify: the app's result is returned for the message passed in.
 		require.NoError(t, err)
 		require.Equal(t, testExecutionResult, got)
 		require.Equal(t, msg, app.gotMsg)
+		require.Equal(t, testOverrides, app.gotOverrides)
 	})
 
 	t.Run("estimate gas", func(t *testing.T) {
 		// Test: EvmEstimateGas with a gas cap.
-		got, revert, err := env.EvmEstimateGas(t.Context(), msg, 10_000_000)
+		got, revert, err := env.EvmEstimateGas(t.Context(), msg, 10_000_000, testOverrides)
 
 		// Verify: the app's estimate and revert data are returned for the message and cap.
 		require.NoError(t, err)
 		require.Equal(t, uint64(21_000), got)
 		require.Equal(t, []byte{0x01}, revert)
 		require.Equal(t, msg, app.gotMsg)
+		require.Equal(t, testOverrides, app.gotOverrides)
 		require.Equal(t, uint64(10_000_000), app.gotGasCap)
 	})
 
@@ -124,12 +134,13 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		header := &ethtypes.Header{Number: big.NewInt(5)}
 
 		// Test: EvmCallAt.
-		got, err := env.EvmCallAt(t.Context(), msg, header)
+		got, err := env.EvmCallAt(t.Context(), msg, header, testOverrides)
 
 		// Verify: the app's result is returned for the message and block passed in.
 		require.NoError(t, err)
 		require.Equal(t, testExecutionResult, got)
 		require.Equal(t, msg, app.gotMsg)
+		require.Equal(t, testOverrides, app.gotOverrides)
 		require.Equal(t, header, app.gotHeader)
 	})
 
@@ -137,13 +148,14 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		header := &ethtypes.Header{Number: big.NewInt(6)}
 
 		// Test: EvmEstimateGasAt with a gas cap.
-		got, revert, err := env.EvmEstimateGasAt(t.Context(), msg, 9_000_000, header)
+		got, revert, err := env.EvmEstimateGasAt(t.Context(), msg, 9_000_000, header, testOverrides)
 
 		// Verify: the app's estimate and revert data are returned for the message, cap and block.
 		require.NoError(t, err)
 		require.Equal(t, uint64(22_000), got)
 		require.Equal(t, []byte{0x02}, revert)
 		require.Equal(t, msg, app.gotMsg)
+		require.Equal(t, testOverrides, app.gotOverrides)
 		require.Equal(t, uint64(9_000_000), app.gotGasCap)
 		require.Equal(t, header, app.gotHeader)
 	})
