@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/dec"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
@@ -129,7 +130,7 @@ var testParams = chainparams.Staking{
 	UnbondingTime:                      100 * second,
 	MaxValidators:                      2,
 	MaxEntries:                         7,
-	MaxVotingPowerRatio:                decOne,
+	MaxVotingPowerRatio:                dec.One(),
 	MaxVotingPowerEnforcementThreshold: new(big.Int),
 }
 

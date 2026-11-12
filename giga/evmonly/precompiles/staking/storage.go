@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/dec"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
@@ -68,7 +69,7 @@ func (v validator) tokensFromShares(shares *big.Int) *big.Int {
 	if v.delegatorShares.Sign() == 0 {
 		return new(big.Int)
 	}
-	return quoDec(new(big.Int).Mul(shares, v.tokens), v.delegatorShares)
+	return dec.Quo(new(big.Int).Mul(shares, v.tokens), v.delegatorShares)
 }
 
 // store is StakingStorage at the staking precompile's address.

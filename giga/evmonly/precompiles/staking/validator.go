@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/dec"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
@@ -149,7 +150,7 @@ func (s store) setTokensAndShares(op common.Address, v *validator, tokens, share
 // issues, as x/staking's AddValidatorTokensAndShares does: the first delegation
 // to a validator with no shares sets the exchange rate to one.
 func (s store) addTokensFromDelegation(op common.Address, v *validator, amount *big.Int) (*big.Int, error) {
-	issued := intToDec(amount)
+	issued := dec.FromInt(amount)
 	if v.delegatorShares.Sign() != 0 {
 		var err error
 		if issued, err = v.sharesFromTokens(amount); err != nil {
@@ -171,7 +172,7 @@ func (s store) removeDelegationShares(op common.Address, v *validator, shares *b
 	}
 	issued := new(big.Int).Set(v.tokens)
 	if remaining.Sign() != 0 {
-		issued = truncateDec(v.tokensFromShares(shares))
+		issued = dec.Truncate(v.tokensFromShares(shares))
 	}
 	tokens := new(big.Int).Sub(v.tokens, issued)
 	if tokens.Sign() < 0 {
