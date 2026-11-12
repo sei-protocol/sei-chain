@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/dec"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
@@ -29,7 +30,7 @@ var parityParams = chainparams.Staking{
 	UnbondingTime:                      30 * second,
 	MaxValidators:                      3,
 	MaxEntries:                         3,
-	MaxVotingPowerRatio:                new(big.Int).Div(decOne, big.NewInt(2)),
+	MaxVotingPowerRatio:                new(big.Int).Div(dec.One(), big.NewInt(2)),
 	MaxVotingPowerEnforcementThreshold: big.NewInt(1),
 }
 

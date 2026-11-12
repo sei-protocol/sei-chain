@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/dec"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 )
 
@@ -19,10 +20,10 @@ func TestDelegateIssuesSharesAndBondsTheTokens(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.delegate(alice, val1, sei(5)))
 
-	require.Equal(t, intToDec(sei(5)), h.shares(alice, val1), "a validator's first exchange rate is one share per token")
+	require.Equal(t, dec.FromInt(sei(5)), h.shares(alice, val1), "a validator's first exchange rate is one share per token")
 	v := h.validator(val1)
 	require.Equal(t, sei(35), v.tokens)
-	require.Equal(t, intToDec(sei(35)), v.delegatorShares)
+	require.Equal(t, dec.FromInt(sei(35)), v.delegatorShares)
 	require.Equal(t, sei(55), h.state.GetBalance(BondedEscrow))
 	require.Zero(t, h.state.GetBalance(Address).Sign(), "the call's value leaves the precompile")
 	require.True(t, h.store().delegatedValidators(alice).Contains(common.BytesToHash(val1[:])))
@@ -31,7 +32,7 @@ func TestDelegateIssuesSharesAndBondsTheTokens(t *testing.T) {
 	require.Equal(t, []common.Hash{ABI.Events[DelegateEvent].ID, addressTopic(alice), addressTopic(val1)}, log.Topics)
 	data, err := ABI.Events[DelegateEvent].Inputs.NonIndexed().Unpack(log.Data)
 	require.NoError(t, err)
-	require.Equal(t, []interface{}{sei(5), intToDec(sei(5))}, data)
+	require.Equal(t, []interface{}{sei(5), dec.FromInt(sei(5))}, data)
 	h.requireInvariants(alice)
 }
 
@@ -82,7 +83,7 @@ func TestUndelegateQueuesAnUnbondingEntry(t *testing.T) {
 	require.NoError(t, h.delegate(alice, val1, sei(5)))
 	require.NoError(t, h.undelegate(alice, val1, sei(2)))
 
-	require.Equal(t, intToDec(sei(3)), h.shares(alice, val1))
+	require.Equal(t, dec.FromInt(sei(3)), h.shares(alice, val1))
 	require.Equal(t, sei(33), h.validator(val1).tokens)
 	completion := h.time + testParams.UnbondingTime
 	require.Equal(t, []unbondingEntry{{creationHeight: h.number, completionTime: completion, initialBalance: sei(2), balance: sei(2)}},
@@ -157,8 +158,8 @@ func TestRedelegateMovesTheStakeAndQueuesTheEntry(t *testing.T) {
 	require.NoError(t, h.delegate(alice, val1, sei(5)))
 	require.NoError(t, h.redelegate(alice, val1, val2, sei(2)))
 
-	require.Equal(t, intToDec(sei(3)), h.shares(alice, val1))
-	require.Equal(t, intToDec(sei(2)), h.shares(alice, val2))
+	require.Equal(t, dec.FromInt(sei(3)), h.shares(alice, val1))
+	require.Equal(t, dec.FromInt(sei(2)), h.shares(alice, val2))
 	require.Equal(t, sei(33), h.validator(val1).tokens)
 	require.Equal(t, sei(22), h.validator(val2).tokens)
 	require.Equal(t, big.NewInt(1), h.store().redelegationEntryCount(alice, val1, val2))
@@ -174,7 +175,7 @@ func TestRedelegateMovesTheStakeAndQueuesTheEntry(t *testing.T) {
 	require.Equal(t, val1, s.AddressAt(at(e, redelegationQueueSrcValidator), redelegationQueueSrcValidator.offset))
 	require.Equal(t, val2, s.AddressAt(at(e, redelegationQueueDstValidator), redelegationQueueDstValidator.offset))
 	require.Equal(t, sei(2), s.Uint256(at(e, redelegationQueueInitialBalance)))
-	require.Equal(t, intToDec(sei(2)), s.Uint256(at(e, redelegationQueueSharesDst)))
+	require.Equal(t, dec.FromInt(sei(2)), s.Uint256(at(e, redelegationQueueSharesDst)))
 
 	log := h.state.logs[len(h.state.logs)-1]
 	require.Equal(t, []common.Hash{ABI.Events[RedelegateEvent].ID, addressTopic(alice), addressTopic(val1), addressTopic(val2)}, log.Topics)
@@ -228,7 +229,7 @@ func TestRedelegateRejectsBadCalls(t *testing.T) {
 
 func TestDelegateKeepsTheVotingPowerRatio(t *testing.T) {
 	params := testParams
-	params.MaxVotingPowerRatio = new(big.Int).Div(decOne, big.NewInt(2))
+	params.MaxVotingPowerRatio = new(big.Int).Div(dec.One(), big.NewInt(2))
 	params.MaxVotingPowerEnforcementThreshold = big.NewInt(1)
 	h := newHarness(t, params)
 	// val1 holds 30 of 50 bonded power; any more takes it past one half.

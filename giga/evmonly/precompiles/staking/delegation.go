@@ -10,6 +10,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/dec"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 )
 
@@ -134,7 +135,7 @@ func checkVotingPowerRatio(block precompiles.BlockContext, s store, params chain
 		return nil
 	}
 	validatorPower := consensusPower(new(big.Int).Add(v.tokens, amount))
-	ratio := quoDec(intToDec(validatorPower), intToDec(newTotalPower))
+	ratio := dec.Quo(dec.FromInt(validatorPower), dec.FromInt(newTotalPower))
 	if ratio.Cmp(params.MaxVotingPowerRatio) > 0 {
 		return fmt.Errorf("%w: %s, max %s", errExceedMaxVotingPower, ratio, params.MaxVotingPowerRatio)
 	}
