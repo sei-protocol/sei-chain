@@ -94,16 +94,16 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 			if len(opens) >= maxOpen {
 				releaseOldest()
 			}
-			view, err := manager.Commit()
+			view, err := manager.Commit(manager.NextBlockHeight())
 			require.NoError(t, err)
 			ver := model.Commit()
 			// Hash immediately while holding the reservation: this lets the background flusher race
 			// ahead of Release, exercising the flush-then-read (merge in-memory + DB) path.
-			require.NoError(t, view.Finalize(hashWrites(testHash)))
+			require.NoError(t, view.Finalize(view.BlockHeight(), hashWrites(testHash)))
 			opens = append(opens, openSnap{view: view, ver: ver})
 		}
 
-		// The live (mutable) version must agree on every operation.
+		// The live (mutable) block must agree on every operation.
 		liveLabel := fmt.Sprintf("live@i=%d", i)
 		compareReads(t, liveLabel,
 			func(k []byte) ([]byte, bool, error) { return manager.Get(k, true) },
@@ -138,7 +138,7 @@ func checkView(t *testing.T, view View, model *modelManager, ver uint64, keys []
 	require.Equal(t, model.DiffAt(ver), collectDiff(t, view), "%s diff mismatch", label)
 }
 
-// checkLiveIteration compares the manager's mutable-version iterator against the oracle. The iterator
+// checkLiveIteration compares the manager's mutable-block iterator against the oracle. The iterator
 // must be closed before the caller writes again, since the manager refuses writes while one is open.
 func checkLiveIteration(t *testing.T, label string, manager ViewManager, model *modelManager) {
 	it, err := manager.Iterator(nil)

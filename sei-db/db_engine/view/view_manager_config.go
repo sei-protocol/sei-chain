@@ -38,9 +38,9 @@ type ViewManagerConfig struct {
 	MaxUnflushedVersions uint64
 
 	// Target size, in bytes, of a write batch when flushing view data to the underlying DB.
-	// A batch is committed once it reaches this size at a version boundary; batches only ever
-	// split between versions (each committed batch must leave the DB at a consistent version with
-	// its hash), so a single version whose diff exceeds this produces one oversized batch.
+	// A batch is committed once it reaches this size at a block boundary; batches only ever
+	// split between blocks (each committed batch must leave the DB at a consistent block with
+	// its hash), so a single block whose diff exceeds this produces one oversized batch.
 	//
 	// Flush throughput plateaus above roughly 1 MB. Keep this well below half the underlying DB's
 	// memtable size: pebble diverts batches larger than that onto its flushable-batch slow path,
@@ -70,8 +70,8 @@ type ViewManagerConfig struct {
 	// the least recently used of a sample this size.
 	EvictionSampleSize uint64
 
-	// The number of versions a key's in-memory value list is sized for when the key is first written.
-	// A key written at more versions than this grows its list, at the cost of a copy.
+	// The number of blocks a key's in-memory value list is sized for when the key is first written.
+	// A key written at more blocks than this grows its list, at the cost of a copy.
 	InitialVersionsPerKey uint64
 }
 

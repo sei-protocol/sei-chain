@@ -39,13 +39,12 @@ type AppHashBuilderConfig struct {
 	// Whether the builder writes each app hash it builds to a hash log, as a debugging aid.
 	HashLogEnabled bool
 
-	// Configures the hash log. Read only if HashLogEnabled. Its Path and Version have no default and must be set,
-	// and its Path must not be shared with another hash logger. Only the fields a hashlog.HashLogWriter reads
-	// apply.
+	// Configures the hash log, read only if HashLogEnabled.
 	HashLogConfig hashlog.HashLoggerConfig
 }
 
-// Returns an AppHashBuilderConfig holding every default. HashVaultConfig.Path has no default and must be set.
+// Returns an AppHashBuilderConfig holding every default. HashVaultConfig.Path and HashLogConfig.Path have no default
+// and must be set.
 func DefaultAppHashBuilderConfig() AppHashBuilderConfig {
 	hashVault := seiwal.DefaultConfig("", "app_hash_vault")
 	hashVault.FsyncOnFlush = true
@@ -57,8 +56,8 @@ func DefaultAppHashBuilderConfig() AppHashBuilderConfig {
 		RecentAppHashCacheSize: 1024,
 		ReadCursorIdleTimeout:  60 * time.Second,
 		HashVaultConfig:        *hashVault,
-		HashLogEnabled:         false,
-		HashLogConfig:          *hashlog.DefaultHashLoggerConfig("", ""),
+		HashLogEnabled:         true,
+		HashLogConfig:          *hashlog.DefaultHashLoggerConfig("", "unknown"),
 	}
 }
 
@@ -81,6 +80,11 @@ func (c *AppHashBuilderConfig) Validate() error {
 	}
 	if err := c.HashVaultConfig.Validate(); err != nil {
 		return fmt.Errorf("invalid hash vault config: %w", err)
+	}
+	if c.HashLogEnabled {
+		if err := c.HashLogConfig.Validate(); err != nil {
+			return fmt.Errorf("invalid hash log config: %w", err)
+		}
 	}
 	return nil
 }

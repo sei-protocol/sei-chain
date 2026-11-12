@@ -10,7 +10,7 @@ import (
 
 var _ dbm.Iterator = (*viewIterator)(nil)
 
-// kvPair is a single in-memory override at a view version. A nil value
+// kvPair is a single in-memory override at a view's block. A nil value
 // signals a tombstone: it suppresses any DB-side value at the same key.
 type kvPair struct {
 	key   []byte
@@ -47,7 +47,7 @@ type kvPair struct {
 // Filtering:
 //   - Keys under the manager's reserved metadata prefix (reservedPrefix) are
 //     excluded from iteration output: the DB-side values there belong to the
-//     most recently flushed version and are generally stale relative to this
+//     most recently flushed block and are generally stale relative to this
 //     view. They are manager bookkeeping, not user data.
 //
 // Concurrency:

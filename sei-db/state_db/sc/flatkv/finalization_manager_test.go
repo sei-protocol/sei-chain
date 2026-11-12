@@ -21,7 +21,7 @@ func TestFinalizationFlushReturnsOnceTheManagerIsStopped(t *testing.T) {
 
 	// Queued directly rather than through Offer: a block's view is only touched once its hash arrives,
 	// which here it never does, so this block needs no store behind it.
-	require.NoError(t, fm.enqueue(&pendingFinalization{blockNumber: 1}))
+	require.NoError(t, fm.enqueue(&pendingFinalization{blockHeight: 1}))
 
 	flushed := make(chan error, 1)
 	go func() { flushed <- fm.Flush() }()

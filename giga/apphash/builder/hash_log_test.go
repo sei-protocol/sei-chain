@@ -95,18 +95,6 @@ func TestHashLogRecordsEachAppHashBuilt(t *testing.T) {
 	}
 }
 
-func TestHashLogThatFailsToOpenDoesNotStopBuilder(t *testing.T) {
-	config := hashLoggingConfig(t.TempDir())
-	config.HashLogConfig.Version = ""
-	b, err := openBuilderWithConfig(t.Context(), config)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = closeBuilder(b) })
-
-	require.NoError(t, b.SetupComplete(context.Background(), 0))
-	reportLoggedBlock(t, b, 1, 0)
-	requireSameAppHashes(t, expectedChain(1, 1, 1), awaitAppHashes(t, b, 1, 1))
-}
-
 func TestChangedAppHashIsFlushedToHashLogBeforeCrash(t *testing.T) {
 	dir := requireScenarioPanics(t, "stored-ahead-hash-log", func(t *testing.T, dir string) {
 		buildChain(t, filepath.Join(dir, "vault"), 5)

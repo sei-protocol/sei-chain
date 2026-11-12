@@ -58,18 +58,27 @@ func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedCh
 // returns them grouped by database for hashing, in dataDBDirs order. A database that already holds the block is
 // neither written nor given any mutations to hash. The caller holds mu, or has the store to itself.
 func (s *CommitStore) stageMutations(
-	version int64,
+	blockHeight uint64,
 	mutations []mutation.Mutation,
-	// The replay skip list. Nil outside a startup replay, which means every store needs every block.
-	alreadyHave map[string]int64,
 ) (staged []lthash.DatabaseMutations, err error) {
 	obs := s.observeOp("StageMutations", otelMetrics.ApplyChangesetsLatency, "mutations", len(mutations))
 	defer obs.done(&err, nil)
 
 	s.phaseTimer.SetPhase("stage_mutations_route")
-	routed, err := routeMutations(mutations, version, alreadyHave)
+	routed, err := routeMutations(mutations)
 	if err != nil {
 		return nil, fmt.Errorf("route mutations: %w", err)
+	}
+	// DBs may not start at the same height, don't double-insert data. A DB that already holds the block is
+	// possible only during a replay.
+	//
+	// TODO: currently, WAL replay may replay blocks already in some stores. In the future when WAL
+	// replay is external, we may be able to simplify this code since we will be able to assume that
+	// all stores start at the same block.
+	for i, dir := range dataDBDirs {
+		if s.viewManagerFor(dir).NextBlockHeight() > blockHeight {
+			routed[i] = nil
+		}
 	}
 
 	s.phaseTimer.SetPhase("stage_mutations_write")
@@ -83,7 +92,7 @@ func (s *CommitStore) stageMutations(
 	}
 
 	logger.Debug("FlatKV block staged",
-		"version", version,
+		"version", blockHeight,
 		"mutations", len(mutations),
 		"elapsed", obs.elapsed())
 	return staged, nil
@@ -91,12 +100,7 @@ func (s *CommitStore) stageMutations(
 
 // routeMutations splits mutations by the database each key belongs to, indexed in dataDBDirs order. Every key is
 // routed before anything is returned, so a malformed key fails the block before any store is written.
-func routeMutations(
-	mutations []mutation.Mutation,
-	version int64,
-	// The replay skip list. A database listed at or above version gets no mutations.
-	alreadyHave map[string]int64,
-) ([][]mutation.Mutation, error) {
+func routeMutations(mutations []mutation.Mutation) ([][]mutation.Mutation, error) {
 	routed := make([][]mutation.Mutation, len(dataDBDirs))
 	dbIndex := make(map[string]int, len(dataDBDirs))
 	for i, dir := range dataDBDirs {
@@ -108,15 +112,6 @@ func routeMutations(
 		dir, err := routePhysicalKey(m.Key)
 		if err != nil {
 			return nil, fmt.Errorf("route key %x: %w", m.Key, err)
-		}
-		if alreadyHave[dir] >= version {
-			// A store already holds the block only when a startup replay is catching the stores up to each
-			// other, where its hash already includes the block and writing it again would count it twice.
-			//
-			// TODO: currently, WAL replay may replay blocks already in some stores. In the future when WAL
-			// replay is external, we may be able to simplify this code since we will be able to assume that
-			// all stores start at the same block.
-			continue
 		}
 		i := dbIndex[dir]
 		routed[i] = append(routed[i], *m)

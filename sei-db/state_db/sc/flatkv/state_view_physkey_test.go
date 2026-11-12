@@ -47,7 +47,11 @@ func (v *recordingView) Abandon() {
 	panic("unexpected call")
 }
 
-func (v *recordingView) Finalize([]*proto.KVPair) error {
+func (v *recordingView) BlockHeight() uint64 {
+	panic("unexpected call")
+}
+
+func (v *recordingView) Finalize(uint64, []*proto.KVPair) error {
 	panic("unexpected call")
 }
 
