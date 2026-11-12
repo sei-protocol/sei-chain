@@ -280,12 +280,12 @@ func (app *testEVMApp) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext
 	return vm.BlockContext{BlockNumber: header.Number}, nil
 }
 
-func (app *testEVMApp) EvmStateAt(_ context.Context, height int64) (vm.StateDB, func(), error) {
+func (app *testEVMApp) EvmStateAt(_ context.Context, height int64) (vm.SeiStateDB, func(), error) {
 	app.gotHeight = height
 	return nil, func() {}, nil
 }
 
-func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
+func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
 	app.gotHeader, app.gotTxs = header, txs
 	return nil, func() {}, nil
 }

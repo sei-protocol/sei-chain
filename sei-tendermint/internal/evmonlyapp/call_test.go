@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -69,17 +70,15 @@ func signedEVMOnlyCreateTx(t *testing.T, chainID uint64, data []byte, gas uint64
 }
 
 func callMessage(from common.Address, to *common.Address) *ethcore.Message {
-	return &ethcore.Message{
-		From:             from,
-		To:               to,
-		GasLimit:         100_000,
-		GasPrice:         new(big.Int),
-		GasFeeCap:        new(big.Int),
-		GasTipCap:        new(big.Int),
-		Value:            new(big.Int),
-		SkipNonceChecks:  true,
-		SkipFromEOACheck: true,
-	}
+	return (&ethcore.Message{
+		From:      from,
+		To:        to,
+		GasLimit:  100_000,
+		GasPrice:  new(uint256.Int),
+		GasFeeCap: new(uint256.Int),
+		GasTipCap: new(uint256.Int),
+		Value:     new(uint256.Int),
+	}).SkipNonceCheck().SkipEOACheck().SkipGasLimitCapCheck()
 }
 
 func TestEVMOnlyApplicationEvmCallReadsCommittedContractCode(t *testing.T) {

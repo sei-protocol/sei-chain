@@ -8,7 +8,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -101,28 +100,31 @@ func (q *blockQueue) retentionFloor() types.BlockNumber {
 	return q.first
 }
 
-// inner holds roads and per-LaneID block/vote maps.
+// inner holds roads and lane states.
 type inner struct {
-	persistedCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]] // latest persisted CommitQC
+	nextCommitQCToPersist types.RoadIndex // first road whose CommitQC is not persisted
 	// consensusSpec is the applied (next-CommitQC) epoch paired with a persisted
 	// CommitQC tip (None before the first tip). CommitQC never exceeds
-	// persistedCommitQC. advanceEpoch installs Epoch; construction and
-	// runEpochAdvance are the writers. blockVotes are always weighted under this Epoch.
+	// persistedCommitQC(). advance publishes the epoch and tip after construction,
+	// persistence, or pruning. blockVotes are always weighted under this Epoch.
 	consensusSpec utils.AtomicSend[types.ConsensusSpec]
 	roads         *queue[types.RoadIndex, *road]
 
-	// anchorEpoch is the epoch of data's Anchor CommitQC when one exists.
-	// None until an Anchor is supplied at construction or by runEvict.
-	// When it lags applied, epochForVote falls back to this committee for
-	// departing-lane voters.
-	anchorEpoch utils.Option[*types.Epoch]
-	blocks      map[types.LaneID]*blockQueue
-	votes       map[types.LaneID]*queue[types.BlockNumber, *blockVotes]
+	// anchor contains data's retained certified road and its two epochs.
+	// Its first committee verifies departing-lane votes when applied is ahead.
+	anchor data.Anchor
+	// setAnchor retains lanes from both anchor committees.
+	lanes map[types.LaneID]*laneState
+}
+
+type laneState struct {
+	blocks *blockQueue
+	votes  *queue[types.BlockNumber, *blockVotes]
 	// nextBlockToPersist tracks per-lane how far block persistence has progressed.
 	// RecvBatch only yields blocks below this cursor for voting.
 	// Always initialized (even when persistence is disabled — the no-op persist
 	// goroutine bumps it immediately). Not persisted to disk: on restart it is
-	// reconstructed from the blocks already on disk (see restoreInner).
+	// reconstructed from the blocks already on disk (see newInner).
 	//
 	// TODO: consider giving this its own AtomicSend to avoid waking unrelated
 	// inner waiters (PushVote, PushCommitQC, etc.) on setNextBlockToPersist calls.
@@ -130,12 +132,19 @@ type inner struct {
 	// lane per batch, not per block), the frequency is lower, but still not
 	// ideal. Only RecvBatch needs to be notified of cursor changes;
 	// collectPersistBatch is in the same goroutine and reads it directly.
-	nextBlockToPersist map[types.LaneID]types.BlockNumber
+	nextBlockToPersist types.BlockNumber
+}
+
+func newLaneState() *laneState {
+	return &laneState{
+		blocks: newBlockQueue(),
+		votes:  newQueue[types.BlockNumber, *blockVotes](),
+	}
 }
 
 // loadedState holds data loaded from disk on restart.
 // commitQCs are sorted by road index; blocks are sorted by number per lane.
-// restoreInner requires both to be contiguous and returns an error on gaps. That
+// newInner requires both to be contiguous and returns an error on gaps. That
 // requirement is what makes persist.contiguousSuffix safe: it silently drops
 // everything before the last hole it finds, so this is the only thing that
 // distinguishes a lazily pruned record from genuinely lost data.
@@ -144,43 +153,53 @@ type loadedState struct {
 	blocks    map[types.LaneID][]persist.LoadedBlock
 }
 
-// newInner constructs state at the anchor QC in ep, or at epoch 0's start without an anchor.
-// It panics if the QC belongs to another epoch or is absent for a nonzero epoch.
-func newInner(ep *types.Epoch, anchorQC utils.Option[*types.CommitQC], genesisTimestamp time.Time) *inner {
-	first := ep.RoadRange().First
-	// TODO(gprusak): replace ep and anchorQC with a full proper anchor,
-	// so we don't need these panicking checks.
-	if qc, ok := anchorQC.Get(); ok {
-		if qc.View().EpochIndex != ep.EpochIndex() {
-			panic("anchor QC does not belong to epoch")
-		}
-		first = qc.Index() + 1
-	} else if ep.EpochIndex() != 0 {
-		panic("anchor QC is required outside epoch 0")
-	}
+// newInner restores WAL records under the anchor's epochs.
+func newInner(anchor data.Anchor, genesisTimestamp time.Time, loaded *loadedState) (*inner, error) {
+	first := anchor.NextIndex()
+	epoch := anchor.EpochAt(first).OrPanic("anchor first road epoch")
 	roads := newQueue[types.RoadIndex, *road]()
-	roads.first = first
-	roads.next = first
+	roads.prune(first)
 	i := &inner{
-		persistedCommitQC:  utils.NewAtomicSend(anchorQC),
-		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: anchorQC, Epoch: ep, GenesisTimestamp: genesisTimestamp}),
-		roads:              roads,
-		blocks:             map[types.LaneID]*blockQueue{},
-		votes:              map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
-		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
+		anchor:                anchor,
+		nextCommitQCToPersist: first,
+		consensusSpec:         utils.NewAtomicSend(types.ConsensusSpec{CommitQC: anchor.CommitQC(), Epoch: epoch, GenesisTimestamp: genesisTimestamp}),
+		roads:                 roads,
+		lanes:                 map[types.LaneID]*laneState{},
 	}
-	i.advanceEpoch(ep)
-	if qc, ok := anchorQC.Get(); ok {
-		i.pruneTo(ep, qc)
+	i.setAnchor(anchor)
+	for _, qc := range loaded.commitQCs {
+		if qc.Index() < i.roads.first {
+			continue
+		}
+		if want := i.roads.next; qc.Index() != want {
+			return nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", want, qc.Index())
+		}
+		ep, ok := anchor.EpochAt(qc.Index()).Get()
+		if !ok {
+			return nil, fmt.Errorf("persisted commitQC %d is outside anchor epochs", qc.Index())
+		}
+		if err := qc.Verify(ep); err != nil {
+			return nil, fmt.Errorf("persisted commitQC %d verify: %w", qc.Index(), err)
+		}
+		i.roads.pushBack(newRoad(qc, ep))
 	}
-	return i
+	i.nextCommitQCToPersist = i.roads.next
+	i.advance()
+	if err := i.restoreBlocks(loaded.blocks); err != nil {
+		return nil, err
+	}
+	if qc, ok := i.persistedCommitQC().Get(); ok {
+		meters.CommitRoadIndex.Set(int64(qc.Index())) // nolint: gosec
+	}
+	return i, nil
 }
 
 // restoreBlocks loads WAL proposals into lane queues. The anchor is persisted
 // first and blocks are written sequentially per lane, so gaps, parent-hash
 // mismatches, and over-capacity indicate corruption or a bug.
 func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) error {
-	for lane, q := range i.blocks {
+	for lane, ls := range i.lanes {
+		q := ls.blocks
 		for _, b := range blocks[lane] {
 			if q.Len() >= BlocksPerLane {
 				return fmt.Errorf("lane %s: loaded %d blocks exceeds capacity %d", lane, len(blocks[lane]), BlocksPerLane)
@@ -206,9 +225,17 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 			}
 			q.pushBack(b.Proposal)
 		}
-		i.nextBlockToPersist[lane] = q.next
+		ls.nextBlockToPersist = q.next
 	}
 	return nil
+}
+
+// persistedCommitQC returns the durable tip from the retained roads or anchor.
+func (i *inner) persistedCommitQC() utils.Option[*types.CommitQC] {
+	if i.nextCommitQCToPersist > i.roads.first {
+		return utils.Some(i.roads.q[i.nextCommitQCToPersist-1].commitQC)
+	}
+	return i.anchor.CommitQC()
 }
 
 func (i *inner) applied() *types.Epoch {
@@ -229,150 +256,88 @@ func (i *inner) epochForVote(vote *types.Signed[*types.LaneVote]) utils.Option[*
 	if belongs(applied) {
 		return utils.Some(applied)
 	}
-	ae, ok := i.anchorEpoch.Get()
-	if !ok || ae.EpochIndex() == applied.EpochIndex() || !belongs(ae) {
+	ae := i.anchor.Epochs[0]
+	if ae.EpochIndex() == applied.EpochIndex() || !belongs(ae) {
 		return utils.None[*types.Epoch]()
 	}
 	return utils.Some(ae)
 }
 
-// advanceEpoch makes ep the applied epoch: opens its lanes, reweights votes,
-// and publishes ConsensusSpec for the durable tip.
-func (i *inner) advanceEpoch(ep *types.Epoch) {
-	for lane := range ep.Committee().Lanes().All() {
-		i.addLane(lane)
-	}
-	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: i.persistedCommitQC.Load(), Epoch: ep, GenesisTimestamp: i.consensusSpec.Load().GenesisTimestamp})
-	i.reweightVotes()
-}
-
-// advanceTarget is the epoch to install next: the epoch of the road following
-// the durable tip, or applied+1 while that road is still inside the applied
-// epoch.
-func (i *inner) advanceTarget(registry *epoch.Registry) types.EpochIndex {
-	next := i.applied().EpochIndex() + 1
-	tip, ok := i.persistedCommitQC.Load().Get()
+// advance publishes the consensus spec supported by persisted QCs and anchor epochs.
+func (i *inner) advance() {
+	// Compute the index of new consensus spec.
+	next := i.nextCommitQCToPersist
+	epoch, ok := i.anchor.EpochAt(next).Get()
 	if !ok {
-		return next
+		// Do NOT advance past the next epoch.
+		next -= 1
+		epoch = i.anchor.EpochAt(next).OrPanic("persisted road epoch")
 	}
-	return max(next, registry.IndexForRoad(tip.Index()+1))
-}
-
-// canAdvanceEpoch reports whether the applied epoch is sealed and its prune leash is
-// met for a one-step advance to applied+1. Sealed means roads and persistedCommitQC
-// hold the epoch's last CommitQC. The prune leash is met when the Anchor epoch
-// covers the applied epoch. The execution leash is checked separately.
-func (i *inner) canAdvanceEpoch() bool {
-	ep := i.applied()
-	if i.roads.next < ep.RoadRange().Next {
-		return false
-	}
-	tip, ok := i.persistedCommitQC.Load().Get()
-	if !ok || tip.Index()+1 < ep.RoadRange().Next {
-		return false
-	}
-	ae, ok := i.anchorEpoch.Get()
-	return ok && ae.EpochIndex() >= ep.EpochIndex()
-}
-
-// refreshConsensusSpec publishes the durable tip when the following RoadIndex
-// sits in the applied epoch. Otherwise the previous spec stands (withhold at
-// LastRoad until advanceEpoch). It does not change Epoch; advanceEpoch does.
-func (i *inner) refreshConsensusSpec() {
-	tip := i.persistedCommitQC.Load()
-	cqc, ok := tip.Get()
-	if !ok {
+	spec := i.consensusSpec.Load()
+	if spec.Index() >= next {
 		return
 	}
-	next := cqc.Index() + 1
-	ep := i.applied()
-	if !ep.RoadRange().Has(next) {
-		return
+	newEpoch := spec.Epoch.EpochIndex() < epoch.EpochIndex()
+	spec.Epoch = epoch
+	if i.roads.first < next {
+		spec.CommitQC = utils.Some(i.roads.q[next-1].commitQC)
+	} else {
+		spec.CommitQC = i.anchor.CommitQC()
 	}
-	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: tip, Epoch: ep, GenesisTimestamp: i.consensusSpec.Load().GenesisTimestamp})
-}
-
-func (i *inner) addLane(lane types.LaneID) bool {
-	if _, ok := i.blocks[lane]; ok {
-		return false
-	}
-	i.blocks[lane] = newBlockQueue()
-	i.votes[lane] = newQueue[types.BlockNumber, *blockVotes]()
-	i.nextBlockToPersist[lane] = 0
-	return true
-}
-
-func (i *inner) dropLanes(lanes []types.LaneID) int {
-	n := 0
-	for _, lane := range lanes {
-		if _, ok := i.blocks[lane]; !ok {
-			continue
+	i.consensusSpec.Store(spec)
+	if newEpoch {
+		// Recount retained block votes under the applied epoch.
+		for _, ls := range i.lanes {
+			vq := ls.votes
+			for n := vq.first; n < vq.next; n++ {
+				vq.q[n].reweight(epoch)
+			}
 		}
-		delete(i.blocks, lane)
-		delete(i.votes, lane)
-		delete(i.nextBlockToPersist, lane)
-		n++
 	}
-	return n
 }
 
 // laneQC returns the LaneQC for (lane, n) under the applied epoch, if one has formed.
 func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) utils.Option[*types.LaneQC] {
-	votes, ok := i.votes[lane]
-	if !ok {
-		return utils.None[*types.LaneQC]()
-	}
-	entry, ok := votes.q[n]
-	if !ok {
-		return utils.None[*types.LaneQC]()
-	}
-	return entry.qc
-}
+	if ls, ok := i.lanes[lane]; ok {
+		if entry, ok := ls.votes.q[n]; ok {
+			return entry.qc
 
-// reweightVotes recounts retained block votes under the applied epoch.
-func (i *inner) reweightVotes() {
-	ep := i.applied()
-	for _, vq := range i.votes {
-		for n := vq.first; n < vq.next; n++ {
-			vq.q[n].reweight(ep)
 		}
 	}
+	return utils.None[*types.LaneQC]()
 }
 
-// prune advances the state up to the data Anchor and drops lanes closed as of
-// anchor.Epoch. It updates anchorEpoch and refreshes ConsensusSpec's tip.
-// Applied epoch changes belong to construction and runEpochAdvance.
-// Returns the number of lanes dropped.
-func (i *inner) prune(anchor data.Anchor) int {
-	return i.pruneTo(anchor.Epoch, anchor.CommitQC)
-}
-
-// pruneTo advances the queues and anchor epoch to qc.
-func (i *inner) pruneTo(anchorEpoch *types.Epoch, qc *types.CommitQC) int {
-	idx := qc.Index()
-	i.roads.prune(idx + 1)
-	for lane, vq := range i.votes {
-		lr := qc.LaneRange(lane)
-		bq := i.blocks[lane]
-		vq.prune(lr.Next())
-		bq.prune(lr.Next(), lr.LastHash())
+// setAnchor advances to the data anchor and retains lanes from both anchor epochs.
+// It refreshes the consensus spec.
+func (i *inner) setAnchor(anchor data.Anchor) {
+	i.anchor = anchor
+	for _, ep := range anchor.Epochs {
+		for lane := range ep.Committee().Lanes().All() {
+			if _, ok := i.lanes[lane]; !ok {
+				i.lanes[lane] = newLaneState()
+			}
+		}
+	}
+	for lane := range i.lanes {
+		ok := false
+		for _, e := range anchor.Epochs {
+			ok = ok || e.Committee().HasLane(lane)
+		}
+		if !ok {
+			delete(i.lanes, lane)
+		}
+	}
+	first := anchor.NextIndex()
+	i.roads.prune(first)
+	i.nextCommitQCToPersist = max(i.nextCommitQCToPersist, first)
+	qc := anchor.CommitQC()
+	for lane, ls := range i.lanes {
+		lr := types.LaneRangeOpt(qc, lane)
+		ls.votes.prune(lr.Next())
+		ls.blocks.prune(lr.Next(), lr.LastHash())
 		// A lagging cursor stops at retentionFloor so an unflushed localTip can still
 		// be written. The cursor is never rewound: already past localTip means it is on disk.
-		if floor := bq.retentionFloor(); i.nextBlockToPersist[lane] < floor {
-			i.nextBlockToPersist[lane] = floor
-		}
+		ls.nextBlockToPersist = max(ls.nextBlockToPersist, ls.blocks.retentionFloor())
 	}
-	if i.roads.Len() == 0 {
-		i.persistedCommitQC.Store(utils.Some(qc))
-	}
-	i.anchorEpoch = utils.Some(anchorEpoch)
-	var closed []types.LaneID
-	for lane := range i.blocks {
-		if anchorEpoch.IsClosed(lane) {
-			closed = append(closed, lane)
-		}
-	}
-	n := i.dropLanes(closed)
-	i.refreshConsensusSpec()
-	return n
+	i.advance()
 }

@@ -62,10 +62,10 @@ type EVMApplication interface {
 	// EvmStateAt returns the committed EVM state after height, or the latest
 	// committed state when height is rpc.LatestBlockNumber, and the function
 	// that releases it.
-	EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error)
+	EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, func(), error)
 	// EvmStateBeforeTx returns the EVM state the transaction at index len(txs)
 	// of header's block executed against, and the function that releases it.
-	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error)
+	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error)
 }
 
 // EVMProxy wraps an EVMApplication and records EVM method timings.
@@ -143,12 +143,12 @@ func (app *EVMProxy) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, 
 	return app.app.EvmBlockContext(header)
 }
 
-func (app *EVMProxy) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error) {
+func (app *EVMProxy) EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, func(), error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_state_at", "sync"))()
 	return app.app.EvmStateAt(ctx, height)
 }
 
-func (app *EVMProxy) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
+func (app *EVMProxy) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_state_before_tx", "sync"))()
 	return app.app.EvmStateBeforeTx(ctx, header, txs)
 }

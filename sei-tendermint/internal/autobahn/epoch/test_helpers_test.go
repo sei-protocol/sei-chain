@@ -19,12 +19,12 @@ func testEpoch(idx types.EpochIndex, firstRoad types.RoadIndex, committee *types
 	return types.NewEpoch(idx, types.RoadRange{First: first, Next: first + epochLength}, committee)
 }
 
-func testPersistedRegistry(live []*types.Epoch, pending utils.Option[*types.Epoch]) *persistedRegistry {
+func testPersistedRegistry(live []*types.Epoch) *persistedRegistry {
 	epochs := make(map[types.EpochIndex]*types.Epoch, len(live))
 	for _, epoch := range live {
 		epochs[epoch.EpochIndex()] = epoch
 	}
-	return &persistedRegistry{live: epochs, liveRange: types.EpochRange{First: live[0].EpochIndex(), Next: live[len(live)-1].EpochIndex() + 1}, pending: pending}
+	return &persistedRegistry{live: epochs, liveRange: types.EpochRange{First: live[0].EpochIndex(), Next: live[len(live)-1].EpochIndex() + 1}}
 }
 
 func testNewRegistry(t *testing.T, committee *types.Committee, firstRoad types.RoadIndex, snapshot *pb.PersistedEpochRegistry) (*Registry, error) {

@@ -39,7 +39,7 @@ func (api *callAPI) CreateAccessList(ctx context.Context, args export.Transactio
 	if err := args.CallDefaults(defaultCallGasCap, baseFee, chainID); err != nil {
 		return nil, err
 	}
-	accessList, result, err := api.createAccessList(ctx, args.ToMessage(baseFee, true, true), height, latest)
+	accessList, result, err := api.createAccessList(ctx, args.ToMessage(baseFee, true), height, latest)
 	if err != nil {
 		return nil, err
 	}

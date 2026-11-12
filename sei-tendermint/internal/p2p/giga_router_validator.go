@@ -60,14 +60,12 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
 	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App)
-	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
+	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers, "persistent_peers", len(cfg.PersistentPeerIDs))
 	return &gigaValidatorRouter{
 		gigaRouterCommon: &gigaRouterCommon{
 			cfg:             &cfg.GigaRouterCommonConfig,
 			key:             key,
 			data:            dataState,
-			nextCommitEpoch: dataState.NextCommitEpoch(),
-			anchor:          dataState.Anchor(),
 			service:         giga.NewService(consensusState),
 			poolIn:          giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolInCommittee: giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
@@ -78,10 +76,11 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 				ValidatorKey: cfg.ValidatorKey,
 				EVMRPC:       self.EVMRPC,
 			}),
-			selfAddr:           utils.Some(selfAddr),
-			liveAddrs:          utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
-			liveAddrVersion:    utils.NewAtomicSend(uint64(0)),
-			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
+			selfAddr:             utils.Some(selfAddr),
+			liveAddrs:            utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
+			liveAddrVersion:      utils.NewAtomicSend(uint64(0)),
+			inboundFullnodeCount: utils.NewMutex(new(int64)),
+			inboundFullnodeCap:   int64(cfg.MaxInboundFullnodePeers),
 		},
 		consensus:    consensusState,
 		producer:     producerState,
@@ -139,7 +138,7 @@ func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*ethr
 	if !r.EvmProxyEnabled() {
 		return utils.None[*ethrpc.Client]()
 	}
-	validator := r.nextCommitEpoch.Load().Committee().EvmShard(sender)
+	validator := r.data.Anchor().Load().NextIndexEpoch().Committee().EvmShard(sender)
 	if r.validatorKey == validator {
 		return utils.None[*ethrpc.Client]()
 	}

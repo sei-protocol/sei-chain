@@ -1,7 +1,6 @@
 package evmonly
 
 import (
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/export"
 
@@ -27,13 +26,13 @@ func (o CallOverrides) blockContext(blockCtx BlockContext) (vm.BlockContext, err
 }
 
 // applyState applies the state overrides to stateDB, and has evm run a precompile an override moves
-// at its new address. custom are the precompiles evm runs beside go-ethereum's.
-func (o CallOverrides) applyState(evm *vm.EVM, stateDB vm.StateDB, custom map[common.Address]vm.PrecompiledContract) error {
+// at its new address. As in go-ethereum, only go-ethereum's own precompiles can be moved.
+func (o CallOverrides) applyState(evm *vm.EVM, stateDB vm.SeiStateDB) error {
 	if len(o.State) == 0 {
 		return nil
 	}
 	rules := evm.ChainConfig().Rules(evm.Context.BlockNumber, evm.Context.Random != nil, evm.Context.Time)
-	precompiles := vm.ActivePrecompiledContracts(rules, custom)
+	precompiles := vm.ActivePrecompiledContracts(rules)
 	if err := o.State.Apply(stateDB, precompiles); err != nil {
 		return err
 	}
