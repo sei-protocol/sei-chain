@@ -38,12 +38,12 @@ func TestOpenFreshHome(t *testing.T) {
 	require.NotNil(t, manager.StateWAL())
 	require.NotNil(t, manager.SC())
 	require.NotNil(t, manager.StateDB())
-	require.NotNil(t, manager.SS())
+	require.NotNil(t, historicalStateDB(manager))
 
 	scVersion, err := manager.SC().GetLatestVersion()
 	require.NoError(t, err)
 	require.Zero(t, scVersion)
-	require.Zero(t, manager.SS().GetLatestVersion())
+	require.Zero(t, historicalStateDB(manager).GetLatestVersion())
 	require.Zero(t, manager.ReceiptDB().LatestVersion())
 }
 
@@ -61,15 +61,6 @@ func TestOpenLoadsTheCommitStore(t *testing.T) {
 	require.NotNil(t, manager.SC().Name(), "a loaded store answers as a prunable store")
 }
 
-// TestCheckpointScheduleCoversBothHalvesOfState pins that the schedule is started for SC and that the
-// undo-log state store joins the same prune cycle.
-func TestCheckpointScheduleCoversBothHalvesOfState(t *testing.T) {
-	manager, _ := openManager(t, nil)
-
-	require.NotNil(t, manager.StateDB().CheckpointScheduler())
-	require.True(t, manager.SS().ExternalPruning())
-}
-
 // TestReceiptsDisabled pins that Enable is what decides whether the receipt store is opened at
 // all, and that a manager without one still opens and closes.
 func TestReceiptsDisabled(t *testing.T) {
@@ -80,7 +71,7 @@ func TestReceiptsDisabled(t *testing.T) {
 	require.Nil(t, manager.ReceiptDB())
 	require.NotNil(t, manager.SC())
 	require.NotNil(t, manager.StateDB())
-	require.NotNil(t, manager.SS())
+	require.NotNil(t, historicalStateDB(manager))
 }
 
 // TestReceiptsDisabledRefusesAStoreWithHistory pins that a node cannot run with receipts disabled while
@@ -108,6 +99,29 @@ func TestReceiptsDisabledRefusesAStoreWithHistory(t *testing.T) {
 	require.NoError(t, second.Close())
 }
 
+// TestHistoricalStateDBDisabledRefusesAStoreWithHistory pins that a node cannot run with the historical
+// state DB disabled while its directory holds anything. Re-enabling it later would converge every store on
+// that store's stale head, so the transition is refused up front for the operator to clear the directory.
+func TestHistoricalStateDBDisabledRefusesAStoreWithHistory(t *testing.T) {
+	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	first, err := NewGigaStorageManager(t.Context(), cfg)
+	require.NoError(t, err)
+	commitBlocks(t, first, 2)
+	require.NoError(t, first.Close())
+
+	cfg.SSConfig.Enable = false
+	_, err = NewGigaStorageManager(t.Context(), cfg)
+	require.ErrorContains(t, err, cfg.SSConfig.EVMDBDirectory)
+
+	// The refusal releases everything it opened: the same home opens once the store is enabled again.
+	cfg.SSConfig.Enable = true
+	second, err := NewGigaStorageManager(t.Context(), cfg)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), historicalStateDB(second).GetLatestVersion())
+	require.NoError(t, second.Close())
+}
+
 // TestReceiptsDisabledTakesAnEmptyStore pins that a receipt store that was opened but never written
 // does not block disabling receipts.
 func TestReceiptsDisabledTakesAnEmptyStore(t *testing.T) {
@@ -131,7 +145,7 @@ func TestStateStoreDisabled(t *testing.T) {
 		cfg.SSConfig.Enable = false
 	})
 
-	require.Nil(t, manager.SS())
+	require.Nil(t, historicalStateDB(manager))
 	require.NotNil(t, manager.SC())
 	require.NotNil(t, manager.StateDB())
 	require.NotNil(t, manager.BlockStore())
@@ -157,7 +171,7 @@ func TestStateStoreDisabledNeedsNoEVMDirectory(t *testing.T) {
 		cfg.SSConfig.EVMDBDirectory = ""
 	})
 
-	require.Nil(t, manager.SS())
+	require.Nil(t, historicalStateDB(manager))
 }
 
 // TestReopenAfterClose proves Close releases what the next open needs. SC holds a file lock and
@@ -241,10 +255,10 @@ func TestStateDBCommitsToWALAndLiveSC(t *testing.T) {
 		Misc: []gigatypes.MiscChange{{Module: "bank", Key: []byte("k"), Value: []byte("v")}},
 	}
 	commitBlock(t, manager, 1, changes)
-	waitSSWrites(t, manager, 1)
+	historicalStateDB(manager).WaitForPendingWrites()
 
 	require.Equal(t, int64(1), manager.SC().Version())
-	require.Equal(t, int64(1), manager.SS().GetLatestVersion(),
+	require.Equal(t, int64(1), historicalStateDB(manager).GetLatestVersion(),
 		"a committed block must advance the EVM state store even when it carries no EVM keys")
 	ok, first, last, err := manager.StateWAL().GetStoredRange()
 	require.NoError(t, err)
@@ -257,9 +271,9 @@ func TestStateDBCommitsEVMChangesToSS(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
 	commitBlock(t, manager, 1, evmBlock(1, 1))
-	waitSSWrites(t, manager, 1)
+	historicalStateDB(manager).WaitForPendingWrites()
 
-	require.Equal(t, int64(1), manager.SS().GetLatestVersion())
+	require.Equal(t, int64(1), historicalStateDB(manager).GetLatestVersion())
 	view, ok := manager.StateDB().OpenViewAt(1)
 	require.True(t, ok)
 	defer view.Close()
@@ -277,7 +291,7 @@ func TestEveryStoreJoinsThePruneCycle(t *testing.T) {
 
 	require.NotNil(t, manager.gc)
 	require.True(t, manager.SC().ExternalPruning())
-	require.True(t, manager.SS().ExternalPruning())
+	require.True(t, historicalStateDB(manager).ExternalPruning())
 
 	names := make([]string, 0, 6)
 	for _, store := range manager.prunableStores() {

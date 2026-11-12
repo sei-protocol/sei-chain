@@ -79,14 +79,19 @@ type Backend interface {
 	EvmMinGasPrice() (*big.Int, error)
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 	EvmProxyEnabled() bool
+	// RememberEvmSender records the sender recovered for the transaction with this hash, for the
+	// application to use instead of recovering it again.
+	RememberEvmSender(hash common.Hash, sender common.Address)
+	// ForgetEvmSender drops the sender recorded for the transaction with this hash, if any.
+	ForgetEvmSender(hash common.Hash)
 	EvmStorage(common.Address, common.Hash) (common.Hash, error)
 	EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error)
 	// EvmStateAt returns the committed EVM state after height, or the latest committed state when
 	// height is ethrpc.LatestBlockNumber, and the function that releases it.
-	EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error)
+	EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, func(), error)
 	// EvmStateBeforeTx returns the EVM state the transaction at index len(txs) of header's block
 	// executed against, and the function that releases it.
-	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error)
+	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error)
 	EvmTransactionCount(common.Address) uint64
 	EvmTransactionCountAt(address common.Address, height int64) (uint64, error)
 }

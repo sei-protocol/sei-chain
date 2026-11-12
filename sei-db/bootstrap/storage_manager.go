@@ -14,7 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -147,14 +146,6 @@ func (m *GigaStorageManager) SC() *flatkv.CommitStore {
 		return nil
 	}
 	return m.stateDB.SC()
-}
-
-// SS returns the EVM state store, or nil when it is disabled or the StateDB is not open.
-func (m *GigaStorageManager) SS() *undo.Database {
-	if m.stateDB == nil {
-		return nil
-	}
-	return m.stateDB.UndoSS()
 }
 
 // Close shuts down the collector and then every store, reporting every failure rather than
