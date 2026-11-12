@@ -386,7 +386,7 @@ WebSocket (port 8546 by default):
   and `eth_estimateGasAfterCalls` (which applies up to
   `max_estimate_gas_calls` calls before estimating), at the latest block or a
   past one, named by number or hash, still within a full node's retention
-  window.
+  window. `eth_getProof` returns a not-supported error, as on the regular RPC.
 - Blocks: `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getBlockByHash`,
   `eth_getBlockTransactionCountByNumber` /
   `eth_getBlockTransactionCountByHash`, and `eth_getBlockReceipts`. Block
@@ -402,6 +402,7 @@ WebSocket (port 8546 by default):
   regular RPC does (see `evmrpc/AGENTS.md`). `eth_newPendingTransactionFilter`
   returns a not-supported error, as on the regular RPC.
 - Fees: `eth_gasPrice`, `eth_maxPriorityFeePerGas`, and `eth_feeHistory`.
+  `eth_blobBaseFee` returns a not-supported error, as on the regular RPC.
 - Node: `eth_chainId`, `net_version`, `web3_clientVersion`, which returns
   `Sei/<seid version>/<os>-<arch>/<go version>` (the regular RPC reports
   `Geth/...`), and `eth_syncing`, which returns a not-supported error, as on the
@@ -410,6 +411,9 @@ WebSocket (port 8546 by default):
   `debug_traceBlockByNumber`, and `debug_traceBlockByHash`, with
   go-ethereum's tracers (see
   [Trace transactions](#trace-transactions-with-debug_trace)).
+  `debug_getRawHeader`, `debug_getRawBlock`, `debug_getRawReceipts`, and
+  `debug_getRawTransaction` return a not-supported error, as on the regular
+  RPC.
 - Subscriptions, over WebSocket only: `eth_subscribe("newHeads")` and
   `eth_subscribe("logs")`, which polls through the same cursor as a log
   filter as blocks execute.
@@ -418,14 +422,15 @@ A lookup for a pending or unknown hash returns `null`. Every other method
 returns JSON-RPC method-not-found, and `eth_subscribe` rejects any
 subscription other than `newHeads` and `logs`:
 
-- Not supported yet: the other `debug_*` methods, such as the raw-data ones.
+- Not supported yet: the other `debug_*` methods, such as
+  `debug_traceTransactionProfile`.
 - Not planned, because they need something the EVM-only chain does not have
-  (Cosmos accounts, server-side keys, a mempool view, blobs, or state proofs),
-  duplicate another method, or are development-only: `sei_getSeiAddress`,
+  (Cosmos accounts or stores, server-side keys, or a mempool view), duplicate
+  another method, or are development-only: `sei_getSeiAddress`,
   `sei_getEVMAddress`, `sei_getCosmosTx`, `eth_sign`, `eth_signTransaction`,
   `eth_sendTransaction`, `eth_accounts`, `eth_coinbase`, `eth_getNonce`,
-  `txpool_content`, `eth_blobBaseFee`, `eth_getProof`, and the `echo` and
-  `test` namespaces.
+  `txpool_content`, `debug_traceStateAccess`, and the `echo` and `test`
+  namespaces.
 
 ### Known limitations
 

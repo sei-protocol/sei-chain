@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/tasks"
@@ -845,30 +844,6 @@ func checkSimulatedSignerModes(tx sdk.Tx) error {
 func handleQueryApp(app *BaseApp, ctx context.Context, path []string, req abci.RequestQuery) abci.ResponseQuery {
 	if len(path) >= 2 {
 		switch path[1] {
-		case "simulate":
-			txBytes := req.Data
-
-			gInfo, res, err := app.Simulate(ctx, txBytes)
-			if err != nil {
-				return sdkerrors.QueryResultWithDebug(sdkerrors.Wrap(err, "failed to simulate tx"), app.trace)
-			}
-
-			simRes := &sdk.SimulationResponse{
-				GasInfo: gInfo,
-				Result:  res,
-			}
-
-			bz, err := codec.ProtoMarshalJSON(simRes, app.interfaceRegistry)
-			if err != nil {
-				return sdkerrors.QueryResultWithDebug(sdkerrors.Wrap(err, "failed to JSON encode simulation response"), app.trace)
-			}
-
-			return abci.ResponseQuery{
-				Codespace: sdkerrors.RootCodespace,
-				Height:    req.Height,
-				Value:     bz,
-			}
-
 		case "version":
 			return abci.ResponseQuery{
 				Codespace: sdkerrors.RootCodespace,
