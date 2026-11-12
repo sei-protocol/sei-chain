@@ -39,10 +39,11 @@ func (api *callAPI) Call(ctx context.Context, args export.TransactionArgs, block
 	if err != nil {
 		return nil, err
 	}
-	baseFee, err := api.backend.EvmBaseFee()
+	chainBaseFee, err := api.backend.EvmBaseFee()
 	if err != nil {
 		return nil, err
 	}
+	baseFee := overrides.BaseFee(chainBaseFee)
 	chainID := new(big.Int).SetUint64(api.backend.EvmChainID())
 	if err := args.CallDefaults(defaultCallGasCap, baseFee, chainID); err != nil {
 		return nil, err

@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"math/big"
 	"net/http/httptest"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
@@ -98,6 +100,65 @@ func TestHandlerPassesCallOverrides(t *testing.T) {
 				require.ErrorAs(t, err, &rpcErr)
 				require.Equal(t, -32602, rpcErr.ErrorCode())
 			})
+		}
+	}
+}
+
+// eth_call and eth_estimateGas price the message at the base fee a block override sets, and at the
+// chain's base fee when none is set.
+func TestCallPricedAtOverriddenBaseFee(t *testing.T) {
+	const gwei = 1_000_000_000
+	backend := pastBlocksBackend(5)
+	backend.baseFee = func() (*big.Int, error) { return big.NewInt(1 * gwei), nil }
+	var gotGasPrice *uint256.Int
+	record := func(msg *core.Message) { gotGasPrice = msg.GasPrice }
+	backend.call = func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
+		record(msg)
+		return &core.ExecutionResult{}, nil
+	}
+	backend.callAt = func(_ context.Context, msg *core.Message, _ *ethtypes.Header) (*core.ExecutionResult, error) {
+		record(msg)
+		return &core.ExecutionResult{}, nil
+	}
+	backend.estimateGas = func(_ context.Context, msg *core.Message, _ uint64) (uint64, []byte, error) {
+		record(msg)
+		return 30_000, nil, nil
+	}
+	backend.estimateGasAt = func(_ context.Context, msg *core.Message, _ uint64, _ *ethtypes.Header) (uint64, []byte, error) {
+		record(msg)
+		return 30_000, nil, nil
+	}
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), gigaconfig.RPCConfig{MaxRequestBodyBytes: testRequestBodyBytes})
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+	call := map[string]any{
+		"to":                   common.HexToAddress("0x7000000000000000000000000000000000000007"),
+		"maxFeePerGas":         (*hexutil.Big)(big.NewInt(20 * gwei)),
+		"maxPriorityFeePerGas": (*hexutil.Big)(big.NewInt(1 * gwei)),
+	}
+
+	for _, tc := range []struct {
+		name     string
+		blockArg map[string]any
+		want     uint64
+	}{
+		{name: "base fee overridden", blockArg: map[string]any{"baseFeePerGas": (*hexutil.Big)(big.NewInt(10 * gwei))}, want: 11 * gwei},
+		{name: "base fee not overridden", blockArg: map[string]any{}, want: 2 * gwei},
+	} {
+		for _, method := range []string{"eth_call", "eth_estimateGas"} {
+			for _, block := range []string{"latest", "0x3"} {
+				t.Run(tc.name+"/"+method+" at "+block, func(t *testing.T) {
+					gotGasPrice = nil
+					var got json.RawMessage
+					require.NoError(t, client.CallContext(t.Context(), &got, method, call, block, nil, tc.blockArg))
+					require.Equal(t, uint256.NewInt(tc.want), gotGasPrice)
+				})
+			}
 		}
 	}
 }
