@@ -114,7 +114,8 @@ type evmOnlyApplication struct {
 	execution   gigaconfig.ExecutionConfig
 	minGasPrice *big.Int
 	storage     *bootstrap.GigaStorageManager
-	validators  []abci.ValidatorUpdate
+	// validators are the configured validators, served until staking bonds a set.
+	validators []abci.ValidatorUpdate
 	// customPrecompiles are the native contracts every executor runs.
 	customPrecompiles utils.Option[precompiles.Registry]
 	// upgradeInfoPath is where a halt on a due upgrade plan writes
@@ -377,10 +378,6 @@ func (a *evmOnlyApplication) EvmGasLimit() uint64 {
 		return state.committed.gasLimit
 	}
 	panic("unreachable")
-}
-
-func (a *evmOnlyApplication) GetValidators() []abci.ValidatorUpdate {
-	return slices.Clone(a.validators)
 }
 
 func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
