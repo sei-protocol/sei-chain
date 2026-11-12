@@ -105,7 +105,7 @@ func upgradeTestApp(t *testing.T, home string, withTestUpgrade bool) upgradeTest
 	params.ExpeditedVotingPeriod = uint64(2 * time.Second)
 	registry := newGovRegistry(params, 0, gov.GenesisElectorate{anvilAddress(t): big.NewInt(1)}, GovUpgrades{Applied: testAppliedUpgrades}, handlers)
 	storage := openEVMOnlyTestStorageAt(t, home)
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, gigaconfig.DefaultConfig.Execution, utils.Some(registry), utils.Some(home))
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, gigaconfig.DefaultConfig.Execution, utils.Some(registry), utils.None[GenesisAlloc](), utils.Some(home))
 	require.NoError(t, err)
 	return upgradeTestNode{app: app, storage: storage}
 }
