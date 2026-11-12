@@ -740,6 +740,7 @@ func testV68OfflineUpgradeTargetSnapshot(t *testing.T) {
 	})
 	t.Logf("v6.8 upgrade handler ran on %s in %s", home, time.Since(started))
 	requireV68OfflineLegacyAccountsReadAsBase(t, testApp, upgradeCtx, legacy)
+	requireV68OfflineAllAccountsReadable(t, testApp, upgradeCtx)
 	rewriteV68OfflineLegacyVestingAccounts(t, testApp, upgradeCtx, len(legacy))
 	testApp.CommitMultiStore().Commit(true)
 	closeOfflineUpgradeApp(t, testApp)
@@ -770,6 +771,42 @@ func requireV68OfflineLegacyAccountsReadAsBase(t *testing.T, testApp *App, ctx s
 			_, ok := testApp.AccountKeeper.GetAccount(ctx, address).(*authtypes.BaseAccount)
 			assert.True(t, ok, "%s does not read as a base account before it is rewritten", address)
 		}, "reading %s before it is rewritten", address)
+	}
+}
+
+// v68OfflineMaxReportedUnreadable is the number of unreadable accounts
+// requireV68OfflineAllAccountsReadable names in its failure message.
+const v68OfflineMaxReportedUnreadable = 20
+
+// requireV68OfflineAllAccountsReadable requires every account in the store to read through
+// GetAccount without panicking. A failure does not stop the scan, so the failure counts every
+// unreadable account.
+func requireV68OfflineAllAccountsReadable(t *testing.T, testApp *App, ctx sdk.Context) {
+	t.Helper()
+	store := prefix.NewStore(ctx.KVStore(testApp.GetKey(authtypes.StoreKey)), authtypes.AddressStoreKeyPrefix)
+	iterator := store.Iterator(nil, nil)
+	defer func() {
+		require.NoError(t, iterator.Close())
+	}()
+	var scanned int
+	var unreadable []string
+	for ; iterator.Valid(); iterator.Next() {
+		scanned++
+		address := sdk.AccAddress(append([]byte(nil), iterator.Key()...))
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					unreadable = append(unreadable, fmt.Sprintf("%s: %v", address, r))
+				}
+			}()
+			testApp.AccountKeeper.GetAccount(ctx, address)
+		}()
+	}
+	t.Logf("read %d accounts through GetAccount", scanned)
+	if len(unreadable) > 0 {
+		reported := unreadable[:min(len(unreadable), v68OfflineMaxReportedUnreadable)]
+		t.Errorf("%d of %d accounts panic when read; the first %d:\n%s",
+			len(unreadable), scanned, len(reported), strings.Join(reported, "\n"))
 	}
 }
 
