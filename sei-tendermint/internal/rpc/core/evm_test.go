@@ -68,6 +68,8 @@ func (app *testEVMApp) EvmCreateAccessList(_ context.Context, msg *ethcore.Messa
 	return testAccessList, testExecutionResult, nil
 }
 
+func (app *testEVMApp) EvmCommittedNonce(common.Address) uint64 { return 6 }
+
 func (app *testEVMApp) EvmChainID() uint64                  { return 713715 }
 func (app *testEVMApp) EvmChainConfig() *params.ChainConfig { return testChainConfig }
 func (app *testEVMApp) EvmBaseFee() *big.Int                { return testBaseFee }

@@ -249,6 +249,8 @@ func (app *testEVMApp) EvmCreateAccessList(_ context.Context, msg *core.Message)
 	return testAccessList, testExecutionResult, nil
 }
 
+func (app *testEVMApp) EvmCommittedNonce(common.Address) uint64 { return 6 }
+
 func (app *testEVMApp) EvmChainID() uint64                  { return 713715 }
 func (app *testEVMApp) EvmChainConfig() *params.ChainConfig { return testChainConfig }
 func (app *testEVMApp) EvmBaseFee() *big.Int                { return testBaseFee }
@@ -268,6 +270,16 @@ func (app *testEVMApp) EvmStateAt(_ context.Context, height int64) (vm.SeiStateD
 func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
 	app.gotHeader, app.gotTxs = header, txs
 	return nil, func() {}, nil
+}
+
+func TestEvmCommittedNonce(t *testing.T) {
+	addr := common.Address{7}
+	proxyApp := New(&testEVMApp{})
+	evm, ok := proxyApp.EVM().Get()
+	require.True(t, ok)
+	require.Equal(t, uint64(6), evm.EvmCommittedNonce(addr))
+	require.Equal(t, uint64(6), proxyApp.EvmCommittedNonce(addr))
+	require.Equal(t, uint64(0), New(testApp{}).EvmCommittedNonce(addr), "falls back to EvmNonce")
 }
 
 func TestEVMIsAbsentForANonEVMApplication(t *testing.T) {

@@ -63,6 +63,15 @@ func (app *Proxy) EvmNonce(addr common.Address) uint64 {
 	return app.app.EvmNonce(addr)
 }
 
+// EvmCommittedNonce returns addr's nonce from the EVM application without waiting for a commit in
+// flight, or EvmNonce when the wrapped application is not an EVMApplication.
+func (app *Proxy) EvmCommittedNonce(addr common.Address) uint64 {
+	if evm, ok := app.evm.Get(); ok {
+		return evm.EvmCommittedNonce(addr)
+	}
+	return app.EvmNonce(addr)
+}
+
 // evmSenderCache is implemented by applications that can reuse a sender recovered before CheckTx.
 type evmSenderCache interface {
 	RememberEvmSender(common.Hash, common.Address)

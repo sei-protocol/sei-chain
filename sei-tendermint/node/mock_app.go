@@ -160,6 +160,11 @@ func (app *MockApp) EvmNonce(addr common.Address) uint64 {
 	panic("unreachable")
 }
 
+// EvmCommittedNonce is the same as EvmNonce: the mock app commits synchronously.
+func (app *MockApp) EvmCommittedNonce(addr common.Address) uint64 {
+	return app.EvmNonce(addr)
+}
+
 func (app *MockApp) EvmBalance(common.Address, []byte) uint256.Int { return baseBalance }
 
 // EvmChainID returns the chain ID of the Autobahn EVM-only executor this app

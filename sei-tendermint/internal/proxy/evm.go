@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -17,6 +18,9 @@ import (
 type EVMApplication interface {
 	types.Application
 
+	// EvmCommittedNonce returns addr's nonce in the last committed EVM state without waiting for a
+	// commit in flight, so it can trail EvmNonce by the most recently finalized block.
+	EvmCommittedNonce(common.Address) uint64
 	// EvmCall executes msg as a read-only call against the current EVM state.
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
 	// EvmEstimateGas returns the lowest gas limit at or below gasCap that lets
@@ -61,6 +65,13 @@ type EVMApplication interface {
 // EVMProxy wraps an EVMApplication and records EVM method timings.
 type EVMProxy struct {
 	app EVMApplication
+}
+
+// EvmCommittedNonce returns addr's nonce in the wrapped application's committed EVM state without
+// waiting for a commit in flight.
+func (app *EVMProxy) EvmCommittedNonce(addr common.Address) uint64 {
+	defer addTimeSample(Global.MethodTimingAt("evm_committed_nonce", "sync"))()
+	return app.app.EvmCommittedNonce(addr)
 }
 
 func (app *EVMProxy) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {
