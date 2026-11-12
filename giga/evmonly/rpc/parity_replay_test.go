@@ -231,15 +231,15 @@ func (*replayBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks],
 	return utils.AtomicRecv[atypes.ExecutedBlocks]{}, errNotReplayed
 }
 
-func (b *replayBackend) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {
+func (b *replayBackend) EvmCall(ctx context.Context, msg *core.Message, _ evmonly.CallOverrides) (*core.ExecutionResult, error) {
 	return b.executor.Call(ctx, b.tip, msg)
 }
 
-func (*replayBackend) EvmCallAt(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error) {
+func (*replayBackend) EvmCallAt(context.Context, *core.Message, *ethtypes.Header, evmonly.CallOverrides) (*core.ExecutionResult, error) {
 	return nil, errNotReplayed
 }
 
-func (*replayBackend) EvmEstimateGasAt(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error) {
+func (*replayBackend) EvmEstimateGasAt(context.Context, *core.Message, uint64, *ethtypes.Header, evmonly.CallOverrides) (uint64, []byte, error) {
 	return 0, nil, errNotReplayed
 }
 
@@ -281,7 +281,7 @@ func (b *replayBackend) EvmStorage(address common.Address, key common.Hash) (com
 	return view.GetStorage(storeAddress(address), key), nil
 }
 
-func (b *replayBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+func (b *replayBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, _ evmonly.CallOverrides) (uint64, []byte, error) {
 	return b.executor.EstimateGas(ctx, b.tip, msg, gasCap)
 }
 
