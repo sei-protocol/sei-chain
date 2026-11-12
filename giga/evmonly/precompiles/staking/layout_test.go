@@ -175,8 +175,8 @@ func mustUint(t *testing.T, s string) uint64 {
 
 // TestStoreReadsCompilerWrites runs StakingStorageHarness, which writes
 // StakingStorage with solc's codegen, and reads the result back through store.
-// Rebuild testdata with `solc --bin-runtime` of the harness and the remapping
-// giga-storage/=docs/giga-storage/.
+// Rebuild testdata from the repository root with solc 0.8.30 and
+// `solc --bin-runtime giga-storage/=docs/giga-storage/ giga/evmonly/precompiles/staking/testdata/StakingStorageHarness.sol`.
 func TestStoreReadsCompilerWrites(t *testing.T) {
 	code, err := os.ReadFile("testdata/StakingStorageHarness.bin-runtime")
 	require.NoError(t, err)
