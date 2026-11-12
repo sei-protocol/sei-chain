@@ -53,7 +53,7 @@ func TestUpgradeHandlersCoverEveryReleaseName(t *testing.T) {
 	handlers := upgradeHandlers()
 	want := len(upgradenames.Release())
 	if testUpgradeHandler {
-		want++
+		want += 2
 	}
 	require.Equal(t, want, len(handlers))
 	for _, name := range upgradenames.Release() {
@@ -96,6 +96,7 @@ func upgradeTestApp(t *testing.T, home string, withTestUpgrade bool) upgradeTest
 	t.Helper()
 	handlers := upgradeHandlers()
 	delete(handlers, testUpgradeName)
+	delete(handlers, testMinorUpgradeName)
 	if withTestUpgrade {
 		handlers[testUpgradeName] = applyTestUpgrade
 	}
