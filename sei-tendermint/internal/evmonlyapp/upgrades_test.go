@@ -98,6 +98,7 @@ func upgradeTestApp(t *testing.T, home string, withTestUpgrade bool) upgradeTest
 	t.Helper()
 	handlers := upgradeHandlers()
 	delete(handlers, testUpgradeName)
+	delete(handlers, testMinorUpgradeName)
 	if withTestUpgrade {
 		handlers[testUpgradeName] = applyTestUpgrade
 	}

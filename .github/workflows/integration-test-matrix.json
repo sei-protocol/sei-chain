@@ -154,7 +154,7 @@
     "foundry": true,
     "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true EVM_GOVERNANCE_VOTING_PERIOD=30s",
     "scripts": [
-      "./integration_test/autobahn/evmonly_upgrade.sh"
+      "timeout \"$JOB_TIMEOUT\" ./integration_test/autobahn/evmonly_upgrade.sh"
     ]
   },
   {

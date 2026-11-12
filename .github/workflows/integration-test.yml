@@ -58,7 +58,7 @@ jobs:
   #     not a matrix row.
   #   - A row with "disabled": true stays in the file but does not run. Its
   #     `_comment` says why and carries the TODO to re-enable it.
-  #   - A row with "foundry": true gets Foundry (cast) on the runner.
+  #   - A row with "foundry": true gets Foundry's cast on the runner.
   set-matrix:
     name: Resolve integration test matrix
     runs-on: ubuntu-latest
@@ -277,10 +277,20 @@ jobs:
 
       - name: Install Foundry
         if: ${{ matrix.test.foundry }}
-        # See: https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.2
-        uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf
-        with:
-          version: v1.8.6
+        env:
+          FOUNDRY_VERSION: v1.8.6
+          # sha256 of foundry_v1.8.6_linux_amd64.tar.gz, from the release asset digest.
+          FOUNDRY_SHA256: 58850106984038f3a7200f38a4182c8cb423d3a4f4c7848eacbc2453e6bc35fc
+        run: |
+          set -euo pipefail
+          tarball="foundry_${FOUNDRY_VERSION}_linux_amd64.tar.gz"
+          curl -sSfL -o "${RUNNER_TEMP}/${tarball}" \
+            "https://github.com/foundry-rs/foundry/releases/download/${FOUNDRY_VERSION}/${tarball}"
+          echo "${FOUNDRY_SHA256}  ${RUNNER_TEMP}/${tarball}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/foundry/bin"
+          tar -xzf "${RUNNER_TEMP}/${tarball}" -C "${RUNNER_TEMP}/foundry/bin" cast
+          echo "${RUNNER_TEMP}/foundry/bin" >> "$GITHUB_PATH"
+          "${RUNNER_TEMP}/foundry/bin/cast" --version
 
       - name: Set up Go
         uses: actions/setup-go@v7
