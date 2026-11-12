@@ -690,9 +690,10 @@ As in go-ethereum, `eth_call` takes a state override (each account's `balance`,
 `nonce`, `code`, `state`, `stateDiff`, or `movePrecompileToAddress`) and a
 block override (`number`, `time`, `gasLimit`, `feeRecipient`, `prevRandao`,
 `baseFeePerGas`, `blobBaseFee`) after the block selector; `eth_estimateGas`
-takes both too, but cannot move a precompile. A state override naming more
-accounts, or setting more slots of one account, than `[giga.rpc]` allows is
-refused with an invalid-params error (`-32602`).
+takes both too, but, as in go-ethereum, a precompile move it accepts does not
+take effect in the estimate. A state override naming more accounts, or setting
+more slots of one account, than `[giga.rpc]` allows is refused with an
+invalid-params error (`-32602`).
 
 ### Estimate gas with `cast estimate`
 
