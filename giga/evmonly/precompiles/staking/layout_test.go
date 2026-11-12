@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm/runtime"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/dec"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
@@ -204,7 +205,7 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 		jailed:            true,
 		status:            statusUnbonding,
 		tokens:            sei(31),
-		delegatorShares:   intToDec(sei(32)),
+		delegatorShares:   dec.FromInt(sei(32)),
 		unbondingHeight:   33,
 		unbondingTime:     34,
 		minSelfDelegation: big.NewInt(37),
