@@ -68,7 +68,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			nodeInfo.Network = genDoc.ChainID
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp()
-			proxyApp := proxy.New(app)
+			proxyApp := proxy.NewEVM(app)
 			// In giga mode the CometBFT handshaker is skipped; the executor
 			// calls InitChain itself on fresh start.
 			dir := t.TempDir()
@@ -330,7 +330,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: dir,
-		App:                proxy.New(app),
+		App:                proxy.NewEVM(app),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,

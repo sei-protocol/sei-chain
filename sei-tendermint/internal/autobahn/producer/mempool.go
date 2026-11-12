@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer/metrics"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -210,7 +211,7 @@ func (s *State) WaitForMempool(ctx context.Context) error {
 }
 
 // TryInsertTx inserts tx to the mempool. Returns errMempoolFull if the mempool is full.
-func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
+func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (*proxy.ResponseCheckTx, error) {
 	return s.insertTx(ctx, tx, false)
 }
 
@@ -221,13 +222,13 @@ func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseC
 // After InsertTx returns, the sequence is already scheduled to be included in a lane.
 // TODO(gprusak): we might need some prioritization mechanism in case our node can handle more InsertTx calls/s
 // than the lane throughput.
-func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
+func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*proxy.ResponseCheckTx, error) {
 	return s.insertTx(ctx, tx, true)
 }
 
 // checkTx runs the app CheckTx for tx, holding one of cfg.MaxConcurrentCheckTx permits
 // for the duration of the call. Waiting for a permit is cancelled with ctx.
-func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTxV2, error) {
+func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (*proxy.ResponseCheckTxV2, error) {
 	start := time.Now()
 	release, err := s.checkTxSem.Acquire(ctx)
 	metrics.ObserveCheckTxWait(time.Since(start))
@@ -235,11 +236,11 @@ func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheck
 		return nil, err
 	}
 	defer release()
-	return s.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
+	return s.app.CheckTxSafe(ctx, &proxy.RequestCheckTxV2{Tx: tx})
 }
 
 // insertTx inserts a transaction and records its outcome.
-func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
+func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*proxy.ResponseCheckTx, error) {
 	resp, err := s.doInsertTx(ctx, tx, waitIfFull)
 	var result string
 	switch {
@@ -263,7 +264,7 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 }
 
 // Inserts transaction. Blocks until there is capacity in the mempool.
-func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
+func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*proxy.ResponseCheckTx, error) {
 	mp, ok := s.mempool.Load().Get()
 	if !ok {
 		return nil, ErrNotProducing

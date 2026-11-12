@@ -42,7 +42,7 @@ type GigaRouterCommonConfig struct {
 	// App is the application the blocks run on. The router reads its committed
 	// height and validator set, and NewGigaValidatorRouter passes it to the
 	// producer's mempool.
-	App *proxy.Proxy
+	App *proxy.EVMProxy
 	// AppHashBuilder is the source of every Autobahn application hash. The
 	// storage manager owns it. The router reads each executed block's app hash
 	// from it.

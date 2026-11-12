@@ -35,18 +35,18 @@ var noRPCLimits = gigaconfig.RPCConfig{
 
 type testBackend struct {
 	balance          func(common.Address) uint256.Int
-	baseFee          func() (*big.Int, error)
+	baseFee          func() *big.Int
 	block            func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	blockByHash      func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
 	blockNumber      func() uint64
 	broadcast        func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
 	call             func(context.Context, *core.Message) (*core.ExecutionResult, error)
-	chainConfig      func() (*params.ChainConfig, error)
+	chainConfig      func() *params.ChainConfig
 	chainID          func() uint64
 	code             func(common.Address) ([]byte, error)
 	estimateGas      func(context.Context, *core.Message, uint64) (uint64, []byte, error)
-	gasLimit         func() (uint64, error)
-	minGasPrice      func() (*big.Int, error)
+	gasLimit         func() uint64
+	minGasPrice      func() *big.Int
 	proxy            utils.Option[*ethrpc.Client]
 	proxyCalls       int
 	proxyEnabled     bool // reports proxies as enabled even when proxy is None.
@@ -103,7 +103,7 @@ func (b *testBackend) BlockByHash(ctx context.Context, req *coretypes.RequestBlo
 	return b.blockByHash(ctx, req)
 }
 
-func (b *testBackend) EvmBalance(address common.Address) uint256.Int {
+func (b *testBackend) EvmBalance(address common.Address, _ []byte) uint256.Int {
 	return b.balance(address)
 }
 
@@ -119,11 +119,11 @@ func (b *testBackend) EvmStorageAt(address common.Address, key common.Hash, heig
 	return b.storageAt(address, key, height)
 }
 
-func (b *testBackend) EvmTransactionCountAt(address common.Address, height int64) (uint64, error) {
+func (b *testBackend) EvmNonceAt(address common.Address, height int64) (uint64, error) {
 	return b.transactionCountAt(address, height)
 }
 
-func (b *testBackend) EvmBaseFee() (*big.Int, error) {
+func (b *testBackend) EvmBaseFee() *big.Int {
 	return b.baseFee()
 }
 
@@ -146,7 +146,7 @@ func (b *testBackend) EvmEstimateGasAt(ctx context.Context, msg *core.Message, g
 	return b.estimateGasAt(ctx, msg, gasCap, header)
 }
 
-func (b *testBackend) EvmChainConfig() (*params.ChainConfig, error) {
+func (b *testBackend) EvmChainConfig() *params.ChainConfig {
 	return b.chainConfig()
 }
 
@@ -181,11 +181,11 @@ func (b *testBackend) EvmCode(address common.Address) ([]byte, error) {
 	return b.code(address)
 }
 
-func (b *testBackend) EvmGasLimit() (uint64, error) {
+func (b *testBackend) EvmGasLimit() uint64 {
 	return b.gasLimit()
 }
 
-func (b *testBackend) EvmMinGasPrice() (*big.Int, error) {
+func (b *testBackend) EvmMinGasPrice() *big.Int {
 	return b.minGasPrice()
 }
 

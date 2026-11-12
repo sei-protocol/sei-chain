@@ -31,7 +31,7 @@ func TestEstimateGasHappyPath(t *testing.T) {
 	var gotGasCap uint64
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 		estimateGas: func(_ context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
 			gotMsg = msg
 			gotGasCap = gasCap
@@ -56,7 +56,7 @@ func TestEstimateGasOmittedGasUsesGasEstimatorDefault(t *testing.T) {
 	var gotMsg *core.Message
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 		estimateGas: func(_ context.Context, msg *core.Message, _ uint64) (uint64, []byte, error) {
 			gotMsg = msg
 			return 21_000, nil, nil
@@ -77,7 +77,7 @@ func TestEstimateGasPreservesExplicitGas(t *testing.T) {
 	var gotMsg *core.Message
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 		estimateGas: func(_ context.Context, msg *core.Message, _ uint64) (uint64, []byte, error) {
 			gotMsg = msg
 			return 21_000, nil, nil
@@ -97,7 +97,7 @@ func TestEstimateGasCapsExplicitGasAboveDefault(t *testing.T) {
 	var gotMsg *core.Message
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 		estimateGas: func(_ context.Context, msg *core.Message, _ uint64) (uint64, []byte, error) {
 			gotMsg = msg
 			return 21_000, nil, nil
@@ -117,7 +117,7 @@ func TestEstimateGasSurfacesRevertReason(t *testing.T) {
 	revert := revertData("insufficient balance")
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 		estimateGas: func(context.Context, *core.Message, uint64) (uint64, []byte, error) {
 			return 0, revert, vm.ErrExecutionReverted
 		},
@@ -140,7 +140,7 @@ func TestEstimateGasPassesThroughNonRevertError(t *testing.T) {
 	wantErr := errors.New("gas required exceeds allowance (40000)")
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 		estimateGas: func(context.Context, *core.Message, uint64) (uint64, []byte, error) {
 			return 0, nil, wantErr
 		},
@@ -205,7 +205,7 @@ func TestEstimateGasDefaultsBlockSelectorToLatest(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 		estimateGas: func(context.Context, *core.Message, uint64) (uint64, []byte, error) {
 			return 21_000, nil, nil
 		},
@@ -218,29 +218,11 @@ func TestEstimateGasDefaultsBlockSelectorToLatest(t *testing.T) {
 	require.Equal(t, hexutil.Uint64(21_000), got)
 }
 
-func TestEstimateGasBaseFeeError(t *testing.T) {
-	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	want := errors.New("no base fee")
-	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return nil, want },
-		estimateGas: func(context.Context, *core.Message, uint64) (uint64, []byte, error) {
-			t.Fatal("estimate reached the backend after a base-fee error")
-			return 0, nil, nil
-		},
-	}
-
-	got, err := (&estimateAPI{backend: backend}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latestBlockSelector(), nil, nil)
-
-	require.Zero(t, got)
-	require.ErrorIs(t, err, want)
-}
-
 func TestHandlerServesEstimateGas(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 		estimateGas: func(context.Context, *core.Message, uint64) (uint64, []byte, error) {
 			return 21_000, nil, nil
 		},

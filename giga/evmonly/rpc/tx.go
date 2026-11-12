@@ -34,7 +34,7 @@ func (api *txAPI) GetTransactionCount(ctx context.Context, address common.Addres
 	var nonce uint64
 	if latest {
 		nonce = api.backend.EvmTransactionCount(address)
-	} else if nonce, err = api.backend.EvmTransactionCountAt(address, height); err != nil {
+	} else if nonce, err = api.backend.EvmNonceAt(address, height); err != nil {
 		return nil, err
 	}
 	return (*hexutil.Uint64)(&nonce), nil
@@ -66,18 +66,12 @@ func (api *txAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*
 	if err != nil {
 		return nil, err
 	}
-	chainConfig, err := api.backend.EvmChainConfig()
-	if err != nil {
-		return nil, err
-	}
+	chainConfig := api.backend.EvmChainConfig()
 	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", stored.BlockNumber, block.Block.Time)
 	}
-	baseFee, err := api.backend.EvmBaseFee()
-	if err != nil {
-		return nil, err
-	}
+	baseFee := api.backend.EvmBaseFee()
 	// TODO: If the EVM-only base fee becomes dynamic, read the fee for
 	// stored.BlockNumber here or persist it with the receipt. Using the current
 	// fee would misreport a historical transaction's effective gas price.

@@ -10,14 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
-
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+
 	"github.com/sei-protocol/sei-chain/giga/apphash"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -49,14 +47,14 @@ func registerEvmProxyForTest(t *testing.T, router *gigaRouterCommon, validator a
 }
 
 type fixedHeightApp struct {
-	abci.BaseApplication
+	proxy.EVMApplication
 	height int64
 }
 
 func (a *fixedHeightApp) LastBlockHeight() int64 { return a.height }
 
-func (a *fixedHeightApp) Info() *abci.ResponseInfo {
-	return &abci.ResponseInfo{LastBlockHeight: a.height}
+func (a *fixedHeightApp) Info() *proxy.ResponseInfo {
+	return &proxy.ResponseInfo{LastBlockHeight: a.height}
 }
 
 // manualAppHashBuilder is an AppHashBuilder whose app hashes become available
@@ -178,7 +176,7 @@ func newAppHashTestRouter(
 		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
-		App:                proxy.New(app),
+		App:                proxy.NewEVM(app),
 		AppHashBuilder:     hashBuilder,
 	}
 	state, err := BuildDataState(cfg, db)
@@ -269,8 +267,8 @@ func TestCommitteeWeights(t *testing.T) {
 	rng := utils.TestRng()
 	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
 	wantPK := utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes()))
-	got, err := committeeWeights([]abci.ValidatorUpdate{{
-		PubKey: crypto.PubKeyToProto(sk.Public()),
+	got, err := committeeWeights([]proxy.ValidatorUpdate{{
+		PubKey: utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes())),
 		Power:  42,
 	}})
 	require.NoError(t, err)
@@ -280,8 +278,8 @@ func TestCommitteeWeights(t *testing.T) {
 func TestCommitteeWeights_SkipsZeroPower(t *testing.T) {
 	rng := utils.TestRng()
 	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
-	got, err := committeeWeights([]abci.ValidatorUpdate{{
-		PubKey: crypto.PubKeyToProto(sk.Public()),
+	got, err := committeeWeights([]proxy.ValidatorUpdate{{
+		PubKey: utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes())),
 		Power:  0,
 	}})
 	require.NoError(t, err)
@@ -291,8 +289,8 @@ func TestCommitteeWeights_SkipsZeroPower(t *testing.T) {
 func TestCommitteeWeights_DuplicateKey(t *testing.T) {
 	rng := utils.TestRng()
 	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
-	pk := crypto.PubKeyToProto(sk.Public())
-	_, err := committeeWeights([]abci.ValidatorUpdate{
+	pk := utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes()))
+	_, err := committeeWeights([]proxy.ValidatorUpdate{
 		{PubKey: pk, Power: 1},
 		{PubKey: pk, Power: 2},
 	})
@@ -335,7 +333,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		ValidatorAddrs:     validatorAddrs,
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
-		App:                proxy.New(&fixedHeightApp{height: int64(last)}),
+		App:                proxy.NewEVM(&fixedHeightApp{height: int64(last)}),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
 	}
 	state, err := BuildDataState(cfg, db)
@@ -1086,7 +1084,7 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 			validator.Public(): {Key: makeKey(rng).Public()},
 		},
 		PersistentStateDir:      t.TempDir(),
-		App:                     proxy.New(&fixedHeightApp{height: 1}),
+		App:                     proxy.NewEVM(&fixedHeightApp{height: 1}),
 		AppHashBuilder:          newPublishingAppHashBuilder(),
 		GenDoc:                  genDoc,
 		MaxInboundFullnodePeers: 3,
