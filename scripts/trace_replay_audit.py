@@ -32,6 +32,11 @@ release, every reported transaction is traced there as well and its internal
 value transfers are diffed (phantom: only in the --rpc trace; missing: only in
 the fixed trace).
 
+With --skip-feeless-parents, a block is not traced when its parent block left less
+than 1 usei in the fee collector. BeginBlock then distributes nothing, so the
+faulty replay's reward state equals the real one and no reward read can diverge.
+Slashing reads still can, so do not use it where the slashing precompile exists.
+
 logs mode lists transactions that emitted staking or distribution precompile
 events, using eth_getLogs only. It works against pruned nodes, but those events
 exist only from v6.4.0 and read-only precompile calls emit none, so it is a lower
@@ -56,6 +61,7 @@ Examples:
 """
 
 import argparse
+import hashlib
 import http.client
 import json
 import os
@@ -113,6 +119,10 @@ EVENT_NAMES = {
 
 # Page size of the single validators page the faulty replay loaded.
 FAULTY_VALIDATOR_PAGE = 30
+
+# EVM address of the fee_collector module account, and 1 usei in wei.
+FEE_COLLECTOR = "0x" + hashlib.sha256(b"fee_collector").digest()[:20].hex()
+USEI_IN_WEI = 10 ** 12
 
 # Summary counters that mean part of the range was not audited; any of them makes the exit status 1.
 INCOMPLETE_COUNTERS = ("blocks_failed", "windows_failed", "txs_trace_failed", "fixed_trace_failed", "entry_point_unknown")
@@ -397,11 +407,18 @@ class Audit:
             raise RPCError(f"validators at {height - 1}: no total in {str(result)[:200]}")
         return int(result["total"]) <= FAULTY_VALIDATOR_PAGE
 
+    def parent_distributed_no_fees(self, height):
+        """Reports whether the fee collector held under 1 usei after the parent block."""
+        return hex_int(self.rpc.call_with_retry("eth_getBalance", [FEE_COLLECTOR, hex(height - 1)])) < USEI_IN_WEI
+
     def scan_block(self, height):
         """Returns the report rows for one block, in transaction order."""
         try:
             if self.tendermint and self.parent_set_fits_one_page(height):
                 self.count("blocks_skipped_validator_set_fits_one_page")
+                return []
+            if self.args.skip_feeless_parents and self.parent_distributed_no_fees(height):
+                self.count("blocks_skipped_feeless_parent")
                 return []
             traces = self.rpc.call_with_retry("debug_traceBlockByNumber", [hex(height), CALL_TRACER]) or []
             receipts = []
@@ -605,6 +622,8 @@ def parse_args(argv):
     p.add_argument("--fixed-rpc", help="trace mode: EVM JSON-RPC of a v6.7.4+ node to diff reported transactions against")
     p.add_argument("--tendermint-rpc", help="trace mode: Tendermint RPC used to skip blocks whose parent set has <= 30 validators")
     p.add_argument("--include-wasm", action="store_true", help="trace mode: also report transactions that call the wasmd precompile")
+    p.add_argument("--skip-feeless-parents", action="store_true",
+                   help="trace mode: skip blocks whose parent block collected under 1 usei of fees")
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--rps", type=float, default=0, help="max requests per second per endpoint (0: unlimited)")
     p.add_argument("--timeout", type=float, default=180, help="seconds per request")
@@ -623,8 +642,8 @@ def parse_args(argv):
         p.error("--from and --to are required unless --rescan is given")
     elif args.end < args.start:
         p.error("--to is below --from")
-    if args.mode == "logs" and (args.fixed_rpc or args.tendermint_rpc or args.include_wasm):
-        p.error("--fixed-rpc, --tendermint-rpc and --include-wasm apply to trace mode only")
+    if args.mode == "logs" and (args.fixed_rpc or args.tendermint_rpc or args.include_wasm or args.skip_feeless_parents):
+        p.error("--fixed-rpc, --tendermint-rpc, --include-wasm and --skip-feeless-parents apply to trace mode only")
     return args
 
 
