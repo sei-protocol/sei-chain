@@ -165,6 +165,10 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 		bNrOrHash = *blockNrOrHash
 	}
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
+	// Overrides apply only through prior calls.
+	if len(calls) == 0 {
+		overrides = nil
+	}
 	estimate, err := export.DoEstimateGasAfterCalls(ctx, s.backend, args, calls, bNrOrHash, overrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
 	return estimate, err
 }
@@ -336,7 +340,11 @@ func (b *Backend) isLatest(ctx context.Context, x rpc.BlockNumberOrHash) (bool, 
 	return resolved == nil, err
 }
 
-func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
+func (b *Backend) StateAndHeaderByNumber(ctx context.Context, number rpc.BlockNumber) (vm.SeiStateDB, *ethtypes.Header, error) {
+	return b.StateAndHeaderByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(number))
+}
+
+func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.SeiStateDB, *ethtypes.Header, error) {
 	ctxProvider := withRequestContext(ctx, b.ctxProvider)
 	sdkCtx := ctxProvider(LatestCtxHeight)
 	zeroExcessBlobGas := uint64(0)
@@ -418,11 +426,36 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found
 	return true, tx, blockHash, uint64(txHeight), uint64(txIndex), nil //nolint:gosec
 }
 
+// GetCanonicalTransaction returns the transaction with txHash and its location; lookup
+// errors are reported as not found.
+func (b *Backend) GetCanonicalTransaction(txHash common.Hash) (bool, *ethtypes.Transaction, common.Hash, uint64, uint64) {
+	found, tx, blockHash, blockNumber, index, err := b.GetTransaction(context.Background(), txHash)
+	if err != nil || !found {
+		return false, nil, common.Hash{}, 0, 0
+	}
+	return true, tx, blockHash, blockNumber, index
+}
+
+// TxIndexDone reports true, so an unknown transaction hash reads as not found.
+func (b *Backend) TxIndexDone() bool {
+	return true
+}
+
 func (b *Backend) ChainDb() ethdb.Database {
 	panic("implement me")
 }
 
-func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
+func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, error) {
+	block, _, err := b.BlockWithTraceMetadataByNumber(ctx, bn)
+	return block, err
+}
+
+func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, error) {
+	block, _, err := b.BlockWithTraceMetadataByHash(ctx, hash)
+	return block, err
+}
+
+func (b Backend) BlockWithTraceMetadataByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
 	heightPtr, err := getBlockNumber(ctx, b.tmClient, bn)
 	if err != nil {
 		return nil, nil, err
@@ -498,10 +531,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 		}
 	}
 	header := b.getHeader(tmBlock)
-	block := &ethtypes.Block{
-		Header_: header,
-		Txs:     txs,
-	}
+	block := ethtypes.NewBlockWithHeader(header).WithBody(ethtypes.Body{Transactions: txs})
 	block.OverwriteHash(common.BytesToHash(tmBlock.BlockID.Hash))
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, nil, ctxErr
@@ -509,13 +539,13 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	return block, metadata, nil
 }
 
-func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
+func (b Backend) BlockWithTraceMetadataByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
 	tmBlock, err := blockByHashRespectingWatermarks(ctx, b.tmClient, b.watermarks, hash.Bytes(), 1)
 	if err != nil {
 		return nil, nil, err
 	}
 	blockNumber := rpc.BlockNumber(tmBlock.Block.Height)
-	return b.BlockByNumber(ctx, blockNumber)
+	return b.BlockWithTraceMetadataByNumber(ctx, blockNumber)
 }
 
 func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
@@ -580,7 +610,15 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 	return b.getHeader(tmBlock), nil
 }
 
-func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
+func (b *Backend) HeaderByHash(ctx context.Context, hash common.Hash) (*ethtypes.Header, error) {
+	tmBlock, _, err := b.getBlockByNumberOrHash(ctx, rpc.BlockNumberOrHashWithHash(hash, false))
+	if err != nil {
+		return nil, err
+	}
+	return b.getHeader(tmBlock), nil
+}
+
+func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int) (*ethtypes.Transaction, vm.BlockContext, vm.SeiStateDB, tracers.StateReleaseFunc, error) {
 	emptyRelease := func() {}
 	stateDB, txs, release, err := b.replayTransactionTillIndex(ctx, block, txIndex-1, b.traceCtxProvider)
 	if err != nil {
@@ -624,12 +662,12 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 	return ethTx, *blockContext, stateDB, release, nil
 }
 
-func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtypes.Block, txIndex int) (vm.StateDB, tmtypes.Txs, error) {
+func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtypes.Block, txIndex int) (vm.SeiStateDB, tmtypes.Txs, error) {
 	stateDB, txs, _, err := b.replayTransactionTillIndex(ctx, block, txIndex, defaultTraceContextProvider(b.ctxProvider))
 	return stateDB, txs, err
 }
 
-func (b *Backend) replayTransactionTillIndex(ctx context.Context, block *ethtypes.Block, txIndex int, ctxProvider TraceContextProvider) (vm.StateDB, tmtypes.Txs, tracers.StateReleaseFunc, error) {
+func (b *Backend) replayTransactionTillIndex(ctx context.Context, block *ethtypes.Block, txIndex int, ctxProvider TraceContextProvider) (vm.SeiStateDB, tmtypes.Txs, tracers.StateReleaseFunc, error) {
 	emptyRelease := func() {}
 	// Short circuit if it's genesis block.
 	if block.Number().Int64() == 0 {
@@ -681,7 +719,7 @@ func (b *Backend) replayTransactionTillIndex(ctx context.Context, block *ethtype
 	return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, release, nil
 }
 
-func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexec uint64, base vm.StateDB, readOnly bool, preferDisk bool) (vm.StateDB, tracers.StateReleaseFunc, error) {
+func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, base vm.SeiStateDB, readOnly bool, preferDisk bool) (vm.SeiStateDB, tracers.StateReleaseFunc, error) {
 	emptyRelease := func() {}
 	sdkCtx, _, release, err := b.initializeBlock(ctx, block, b.traceCtxProvider)
 	if err != nil {
@@ -702,12 +740,11 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 	if err != nil {
 		return sdk.Context{}, nil, emptyRelease, fmt.Errorf("cannot find block %d from tendermint", blockNumber)
 	}
-	res, err := b.tmClient.Validators(ctx, &prevBlockHeight, nil, nil) // todo: load all
+	validators, err := b.loadAllValidators(ctx, prevBlockHeight)
 	if err != nil {
-		return sdk.Context{}, nil, emptyRelease, fmt.Errorf("failed to load validators for block %d from tendermint", prevBlockHeight)
+		return sdk.Context{}, nil, emptyRelease, err
 	}
-	TraceTendermintIfApplicable(ctx, "Validators", []string{stringifyInt64Ptr(&prevBlockHeight)}, res)
-	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(res.Validators)
+	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(validators)
 	reqBeginBlock.Simulate = true
 	baseCtx, baseRelease := ctxProvider(prevBlockHeight)
 	var nextRelease func()
@@ -750,6 +787,40 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 	return sdkCtx, tmBlock, release, nil
 }
 
+// loadAllValidators returns the validator set at height in canonical order.
+// The validators RPC returns one default-sized page per call.
+func (b *Backend) loadAllValidators(ctx context.Context, height int64) ([]*tmtypes.Validator, error) {
+	var all []*tmtypes.Validator
+	for page := 1; ; page++ {
+		if ctx != nil {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
+		res, err := b.tmClient.Validators(ctx, &height, &page, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load validators for block %d from tendermint: %w", height, err)
+		}
+		TraceTendermintIfApplicable(ctx, "Validators", []string{stringifyInt64Ptr(&height), fmt.Sprintf("%d", page)}, res)
+		if len(res.Validators) == 0 {
+			if res.Total > len(all) {
+				return nil, fmt.Errorf("validator set at block %d ended after %d of %d", height, len(all), res.Total)
+			}
+			return all, nil
+		}
+		all = append(all, res.Validators...)
+		if res.Total > 0 && len(all) > res.Total {
+			return nil, fmt.Errorf("validator pages at block %d exceeded total %d", height, res.Total)
+		}
+		if res.Total <= len(all) {
+			return all, nil
+		}
+		if page >= res.Total {
+			return nil, fmt.Errorf("validator set at block %d did not converge after %d pages (have %d, total %d)", height, page, len(all), res.Total)
+		}
+	}
+}
+
 func (b *Backend) activateIncrementalTallyForTrace(ctx sdk.Context, height int64) error {
 	if b.keeper == nil || b.beginBlockKeepers.GovKeeper == nil {
 		return nil
@@ -787,7 +858,7 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 	}
 	height := h.Number.Int64()
 	chainCfg := b.chainConfigForHeight(height)
-	evm := vm.NewEVM(*blockCtx, stateDB, chainCfg, *vmConfig, b.keeper.CustomPrecompiles())
+	evm := vm.NewEVMWithCustomPrecompiles(*blockCtx, stateDB, chainCfg, *vmConfig, b.keeper.CustomPrecompiles())
 	evm.SetTxContext(txContext)
 	return evm
 }
@@ -874,7 +945,7 @@ func (b *Backend) getHeader(tmBlock *coretypes.ResultBlock) *ethtypes.Header {
 	return header
 }
 
-func (b *Backend) GetCustomPrecompiles(int64) map[common.Address]vm.PrecompiledContract {
+func (b *Backend) GetCustomPrecompiles(int64) map[common.Address]vm.CustomPrecompiledContract {
 	return b.keeper.CustomPrecompiles()
 }
 

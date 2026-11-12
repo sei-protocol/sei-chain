@@ -15,6 +15,7 @@ import (
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/holiman/uint256"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
@@ -292,6 +293,7 @@ func newEVMOnlyTestAppWithStorage(
 		storage,
 		execution,
 		utils.None[precompiles.Registry](),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
@@ -388,6 +390,7 @@ func reopenEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap
 		evmOnlyTestChainID, nil, reopened,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	return resumed, reopened
@@ -607,18 +610,41 @@ func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
 	require.Equal(t, uint64(1), checked.EvmNonce(sender))
 }
 
+// CheckTx uses the sender recorded for a transaction before it arrived, instead of recovering it.
+func TestEVMOnlyApplicationChecksATxByItsRememberedSender(t *testing.T) {
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	app, ok := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	require.True(t, ok)
+	remembered := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	app.RememberEvmSender(decodeEVMOnlyTestTx(t, raw).Hash(), remembered)
+
+	require.Equal(t, remembered, app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw}).EVMSenderAddress)
+}
+
 func TestSenderCacheKeepsRecentEntriesAcrossRollover(t *testing.T) {
 	hashOf := func(i int) common.Hash { return common.BigToHash(big.NewInt(int64(i))) }
 	addrOf := func(i int) common.Address { return common.BigToAddress(big.NewInt(int64(i))) }
-	cache := newSenderCache()
-	for i := range 2*checkedSendersCap + 1 {
+	const capacity = 4
+	cache := newSenderCache(capacity)
+	for i := range 3*capacity + 1 {
 		cache.put(hashOf(i), addrOf(i))
 	}
 
-	require.Equal(t, utils.None[common.Address](), cache.take(hashOf(0)))
-	require.Equal(t, utils.Some(addrOf(checkedSendersCap)), cache.take(hashOf(checkedSendersCap)))
-	require.Equal(t, utils.Some(addrOf(2*checkedSendersCap)), cache.take(hashOf(2*checkedSendersCap)))
-	require.Equal(t, utils.None[common.Address](), cache.take(hashOf(checkedSendersCap)))
+	require.Equal(t, utils.None[common.Address](), cache.take(hashOf(capacity)))
+	require.Equal(t, utils.Some(addrOf(2*capacity)), cache.take(hashOf(2*capacity)))
+	require.Equal(t, utils.Some(addrOf(3*capacity)), cache.take(hashOf(3*capacity)))
+	require.Equal(t, utils.None[common.Address](), cache.take(hashOf(2*capacity)))
+}
+
+func TestEVMOnlyApplicationForgetsARememberedSender(t *testing.T) {
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	app, ok := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	require.True(t, ok)
+	hash := decodeEVMOnlyTestTx(t, raw).Hash()
+	app.RememberEvmSender(hash, common.HexToAddress("0x2000000000000000000000000000000000000002"))
+	app.ForgetEvmSender(hash)
+
+	require.Equal(t, utils.None[common.Address](), app.checkedSender(hash))
 }
 
 // The cursor does not carry the block time, so a resumed app would answer
@@ -634,6 +660,7 @@ func TestEVMOnlyApplicationInitLastHeaderSeedsBlockTime(t *testing.T) {
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
@@ -682,6 +709,7 @@ func TestEVMOnlyApplicationResumesFromStorageAfterRestart(t *testing.T) {
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
@@ -719,6 +747,7 @@ func TestEVMOnlyApplicationResumedAppSettlesItsCommits(t *testing.T) {
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
@@ -748,6 +777,7 @@ func TestEVMOnlyApplicationResumesFromBlockFinalizedButNotCommitted(t *testing.T
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
@@ -778,6 +808,7 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	init := evmOnlyTestInitChain()
@@ -789,7 +820,7 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	storage = openEVMOnlyTestStorage(t, storageConfig)
 	app, err = NewEVMOnlyApplication(
 		evmOnlyTestChainID, nil, storage,
-		gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry]())
+		gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[string]())
 	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
 
@@ -1317,7 +1348,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	require.NoError(t, err)
 	storage := openEVMOnlyTestStorage(t, storageConfig)
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry]())
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[string]())
 	require.NoError(t, err)
 	_, err = app.InitChain(&abci.RequestInitChain{
 		InitialHeight: 1,
@@ -1342,7 +1373,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	err = settler.AwaitCommits()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "in the EVM module")
-	_, err = settler.EvmCall(t.Context(), &ethcore.Message{GasLimit: 21_000, GasPrice: new(big.Int), Value: new(big.Int)})
+	_, err = settler.EvmCall(t.Context(), &ethcore.Message{GasLimit: 21_000, GasPrice: new(uint256.Int), Value: new(uint256.Int)})
 	require.Error(t, err)
 
 	// The block that failed to finalize left nothing staged, and the store never

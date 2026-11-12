@@ -69,7 +69,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		snapshot:     snapshot,
 		missingState: e.missingState,
 	}
-	source = newPendingOverlay(source, pending)
+	source = pending.overlay(source)
 
 	e.blockPhases.SetPhase(phaseExecute)
 	result, err := e.executePreparedBlock(ctx, req, source)
@@ -168,12 +168,12 @@ func (e *Executor) AwaitCommits() error {
 	return e.awaitPipelineCommit()
 }
 
-// pipelinePending returns the changes of a block whose commit has not been waited on yet, or nil
-// when the store is caught up.
-func (e *Executor) pipelinePending() *StateChangeSet {
+// pipelinePending returns the indexed changes of a block whose commit has not been waited on yet, or
+// nil when the store is caught up.
+func (e *Executor) pipelinePending() *pendingIndex {
 	e.pipelineMu.Lock()
 	defer e.pipelineMu.Unlock()
-	return e.pipelineChanges
+	return e.pipelineIndex
 }
 
 // awaitPipelineCommit blocks until the in-flight commit has landed, reporting the first commit that
@@ -201,7 +201,7 @@ func (e *Executor) awaitPipelineCommit() error {
 				e.pipelineFailure = fmt.Errorf("commit state changes: %w", e.pipelineErr)
 			}
 			e.pipelineDone = nil
-			e.pipelineChanges = nil
+			e.pipelineIndex = nil
 			e.pipelineErr = nil
 		}
 		e.pipelineMu.Unlock()
@@ -239,7 +239,7 @@ func (e *Executor) startPipelineCommit(blockNumber int64, misc []gigatypes.MiscC
 		e.pipelineMu.Unlock()
 		return failure
 	}
-	e.pipelineChanges = pending
+	e.pipelineIndex = newPendingIndex(pending)
 	e.pipelineDone = done
 	e.pipelineErr = nil
 	e.pipelineMu.Unlock()
@@ -287,13 +287,13 @@ func (r gigaSnapshotStateReader) GetCode(addr common.Address) []byte {
 	return cloneBytes(code)
 }
 
-// ReadAccount returns addr's balance, nonce and code in one row read, and fetches code only for an
-// account that has some. It declines an account the snapshot lacks when missingState must answer
-// for it. Satisfies baseAccountReader.
-func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (AccountState, bool) {
+// ReadAccount returns addr's balance, nonce, code and stored code hash in one row read, and fetches
+// code only for an account that has some. It declines an account the snapshot lacks when
+// missingState must answer for it. Satisfies baseAccountReader.
+func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (AccountState, common.Hash, bool) {
 	row, exists := r.snapshot.ReadAccount(addr)
 	if !exists {
-		return AccountState{}, r.missingState == nil
+		return AccountState{}, common.Hash{}, r.missingState == nil
 	}
 	account := AccountState{
 		Balance: new(big.Int).SetBytes(row.Balance[:]),
@@ -303,7 +303,7 @@ func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (AccountState,
 	if row.CodeHash != gigatypes.EmptyCodeHash {
 		account.Code = cloneBytes(r.snapshot.GetCode(addr))
 	}
-	return account, true
+	return account, row.CodeHash, true
 }
 
 // GetState reads addr's slot from the snapshot, whether or not addr has an account there.

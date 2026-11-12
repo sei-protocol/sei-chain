@@ -15,8 +15,8 @@ import (
 // persisting a validator-period increment (see DelegationRewardsForQuery). It is
 // only consulted when re-tracing a historical block (ctx.IsTracing()), and only via
 // semver comparison against ctx.ClosestUpgradeName(), so it just needs to be
-// semver-equal to that release. It follows the app/tags convention (…, v6.5, v6.6),
-// hence "v6.7".
+// semver-equal to that release. It follows the app/upgradenames/tags convention
+// (…, v6.5, v6.6), hence "v6.7".
 const ReadOnlyRewardsUpgrade = "v6.7"
 
 var logger = seilog.NewLogger("cosmos", "x", "distribution", "keeper")

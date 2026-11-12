@@ -24,6 +24,7 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
@@ -54,10 +55,10 @@ func evmOnlyAdmissionMinGasPrice(configured uint64) *big.Int {
 
 var evmOnlyBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
 
-// checkedSendersCap bounds the senders remembered from CheckTx per generation.
+// checkedSendersCap bounds the senders remembered per generation.
 // Entries are dropped as their transactions execute; the cap only guards against
-// admitted transactions that never reach a block.
-const checkedSendersCap = 1 << 18
+// remembered transactions that never reach a block.
+const checkedSendersCap = 1 << 22
 
 // senderCache remembers the sender recovered for each transaction hash. It keeps
 // two generations: inserts go to fresh, and once fresh reaches the cap it
@@ -65,17 +66,30 @@ const checkedSendersCap = 1 << 18
 // recent entries always survive a rollover.
 type senderCache struct {
 	fresh, stale map[common.Hash]common.Address
+	// capacity is how many entries a generation holds before it rolls over.
+	capacity int
 }
 
-func newSenderCache() senderCache {
-	return senderCache{fresh: map[common.Hash]common.Address{}}
+func newSenderCache(capacity int) senderCache {
+	return senderCache{fresh: map[common.Hash]common.Address{}, capacity: capacity}
 }
 
 func (c *senderCache) put(hash common.Hash, sender common.Address) {
-	if len(c.fresh) >= checkedSendersCap {
-		c.stale, c.fresh = c.fresh, make(map[common.Hash]common.Address, len(c.fresh))
+	if len(c.fresh) >= c.capacity {
+		// No size hint: pre-sizing or clearing a generation costs O(capacity) under the lock.
+		c.stale, c.fresh = c.fresh, map[common.Hash]common.Address{}
 	}
 	c.fresh[hash] = sender
+}
+
+// peek returns the sender remembered for hash, if any, and keeps it.
+func (c *senderCache) peek(hash common.Hash) utils.Option[common.Address] {
+	for _, gen := range [...]map[common.Hash]common.Address{c.fresh, c.stale} {
+		if sender, ok := gen[hash]; ok {
+			return utils.Some(sender)
+		}
+	}
+	return utils.None[common.Address]()
 }
 
 // take returns the sender remembered for hash, if any, and forgets it.
@@ -103,7 +117,10 @@ type evmOnlyApplication struct {
 	validators  []abci.ValidatorUpdate
 	// customPrecompiles are the native contracts every executor runs.
 	customPrecompiles utils.Option[precompiles.Registry]
-	executor          utils.Mutex[*utils.Option[*evmonly.Executor]]
+	// upgradeInfoPath is where a halt on a due upgrade plan writes
+	// UpgradeInfoFileName.
+	upgradeInfoPath utils.Option[string]
+	executor        utils.Mutex[*utils.Option[*evmonly.Executor]]
 	// Lock order: executor before cursor. FinalizeBlock holds executor while
 	// the block's cursor encoder takes cursor.
 	cursor utils.Mutex[*evmOnlyCursorState]
@@ -115,8 +132,8 @@ type evmOnlyApplication struct {
 	// failed commit; the failure is latched, so it is logged once.
 	settleFailureLogged atomic.Bool
 	// checkedSenders maps the hash of every transaction this process admitted
-	// in CheckTx to the sender recovered there, so execution does not recover
-	// it again.
+	// in CheckTx, or the RPC submitted, to its recovered sender, so execution
+	// does not recover it again.
 	checkedSenders utils.Mutex[*senderCache]
 	// finalizePhases times FinalizeBlock's stages around the executor. It is a
 	// field so each application instance has its own last-phase clock.
@@ -159,16 +176,19 @@ var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
 // NewEVMOnlyApplication returns the raw-Ethereum application Autobahn runs.
 // Storage owns state, receipts and blocks; execution sizes the executor and
 // prices admission; customPrecompiles are the native contracts the chain runs.
-// A storage that already holds committed blocks resumes from its durable
-// cursor, so Info reports the stored height and InitChain is refused.
+// A block that halts on a due upgrade plan writes UpgradeInfoFileName under
+// homeDir's data directory, when homeDir is set, and prints the halt line to
+// stderr. A storage that already holds committed blocks resumes from its
+// durable cursor, so Info reports the stored height and InitChain is refused.
 func NewEVMOnlyApplication(
 	chainID uint64,
 	validators []abci.ValidatorUpdate,
 	storage *bootstrap.GigaStorageManager,
 	execution gigaconfig.ExecutionConfig,
 	customPrecompiles utils.Option[precompiles.Registry],
+	homeDir utils.Option[string],
 ) (proxy.EVMApplication, error) {
-	chainConfig := *params.AllDevChainProtocolChanges
+	chainConfig := *evmonly.DefaultChainConfig()
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	a := &evmOnlyApplication{
 		chainID:           new(big.Int).SetUint64(chainID),
@@ -178,10 +198,11 @@ func NewEVMOnlyApplication(
 		storage:           storage,
 		validators:        slices.Clone(validators),
 		customPrecompiles: customPrecompiles,
+		upgradeInfoPath:   utils.MapOpt(homeDir, upgradeInfoPath),
 		executor:          utils.NewMutex(new(utils.Option[*evmonly.Executor])),
 		cursor:            utils.NewMutex(&evmOnlyCursorState{}),
 		settler:           utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
-		checkedSenders:    utils.NewMutex(new(newSenderCache())),
+		checkedSenders:    utils.NewMutex(new(newSenderCache(checkedSendersCap))),
 		finalizePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
 	}
 	cursor, err := loadEVMOnlyCursor(storage.SC())
@@ -388,6 +409,19 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx
 	}
 }
 
+// RememberEvmSender records a sender recovered from the transaction with this hash before CheckTx, so
+// CheckTx and FinalizeBlock reuse it.
+func (a *evmOnlyApplication) RememberEvmSender(hash common.Hash, sender common.Address) {
+	a.rememberSender(hash, sender)
+}
+
+// ForgetEvmSender drops the sender remembered for the transaction with this hash, if any.
+func (a *evmOnlyApplication) ForgetEvmSender(hash common.Hash) {
+	for senders := range a.checkedSenders.Lock() {
+		senders.take(hash)
+	}
+}
+
 func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Address) {
 	for senders := range a.checkedSenders.Lock() {
 		senders.put(hash, sender)
@@ -463,11 +497,22 @@ func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.
 	if evmonly.EffectiveGasPrice(tx, evmOnlyBaseFee()).Cmp(a.minGasPrice) < 0 {
 		return nil, common.Address{}, fmt.Errorf("ethereum transaction effective gas price is below %s", a.minGasPrice)
 	}
+	if sender, ok := a.checkedSender(tx.Hash()).Get(); ok {
+		return tx, sender, nil
+	}
 	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(a.chainID), tx)
 	if err != nil {
 		return nil, common.Address{}, err
 	}
 	return tx, sender, nil
+}
+
+// checkedSender returns the sender recorded for this transaction hash, if any.
+func (a *evmOnlyApplication) checkedSender(hash common.Hash) utils.Option[common.Address] {
+	for senders := range a.checkedSenders.Lock() {
+		return senders.peek(hash)
+	}
+	panic("unreachable")
 }
 
 func evmOnlyStoreAddress(address common.Address) gigatypes.Address {
@@ -780,6 +825,15 @@ func (a *evmOnlyApplication) EvmCreateAccessList(ctx context.Context, msg *ethco
 }
 
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	response, err := a.finalizeBlock(ctx, req)
+	var needed *upgrade.NeededError
+	if errors.As(err, &needed) {
+		return nil, a.haltForUpgrade(needed, err)
+	}
+	return response, err
+}
+
+func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	height := req.Header.Height
 	if height <= 0 {
 		return nil, fmt.Errorf("EVM-only block height must be positive: %d", height)

@@ -21,7 +21,7 @@ func TestExist(t *testing.T) {
 
 	// has code
 	_, addr2 := testkeeper.MockAddressPair()
-	statedb.SetCode(addr2, []byte{3})
+	statedb.SetCode(addr2, []byte{3}, tracing.CodeChangeUnspecified)
 	require.True(t, statedb.Exist(addr2))
 
 	// has balance
@@ -54,6 +54,6 @@ func TestEmpty(t *testing.T) {
 
 	// has code
 	statedb.SetNonce(addr, 0, tracing.NonceChangeEoACall)
-	statedb.SetCode(addr, []byte{1})
+	statedb.SetCode(addr, []byte{1}, tracing.CodeChangeUnspecified)
 	require.False(t, statedb.Empty(addr))
 }
