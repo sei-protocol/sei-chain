@@ -198,7 +198,7 @@ func (*replayBackend) BroadcastTx(context.Context, *coretypes.RequestBroadcastTx
 	return nil, errNotReplayed
 }
 
-func (b *replayBackend) EvmBalance(address common.Address) uint256.Int {
+func (b *replayBackend) EvmBalance(address common.Address, _ []byte) uint256.Int {
 	view := b.store.OpenView()
 	defer view.Close()
 	balance := view.GetBalance(storeAddress(address))
@@ -215,8 +215,8 @@ func (b *replayBackend) EvmBalanceAt(address common.Address, height int64) (uint
 	return *new(uint256.Int).SetBytes(balance[:]), nil
 }
 
-func (b *replayBackend) EvmBaseFee() (*big.Int, error) {
-	return new(big.Int).Set(b.tip.BaseFee), nil
+func (b *replayBackend) EvmBaseFee() *big.Int {
+	return new(big.Int).Set(b.tip.BaseFee)
 }
 
 func (*replayBackend) EvmBlockContext(*ethtypes.Header) (vm.BlockContext, error) {
@@ -243,8 +243,8 @@ func (*replayBackend) EvmEstimateGasAt(context.Context, *core.Message, uint64, *
 	return 0, nil, errNotReplayed
 }
 
-func (b *replayBackend) EvmChainConfig() (*params.ChainConfig, error) {
-	return b.chainConfig, nil
+func (b *replayBackend) EvmChainConfig() *params.ChainConfig {
+	return b.chainConfig
 }
 
 func (b *replayBackend) EvmChainID() uint64 {
@@ -301,12 +301,12 @@ func (*replayBackend) EvmCreateAccessListAt(context.Context, *core.Message, *eth
 	return nil, nil, errNotReplayed
 }
 
-func (b *replayBackend) EvmGasLimit() (uint64, error) {
-	return b.tip.GasLimit, nil
+func (b *replayBackend) EvmGasLimit() uint64 {
+	return b.tip.GasLimit
 }
 
-func (*replayBackend) EvmMinGasPrice() (*big.Int, error) {
-	return new(big.Int), nil
+func (*replayBackend) EvmMinGasPrice() *big.Int {
+	return new(big.Int)
 }
 
 func (*replayBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
@@ -335,7 +335,7 @@ func (b *replayBackend) EvmTransactionCount(address common.Address) uint64 {
 	return view.GetNonce(storeAddress(address))
 }
 
-func (b *replayBackend) EvmTransactionCountAt(address common.Address, height int64) (uint64, error) {
+func (b *replayBackend) EvmNonceAt(address common.Address, height int64) (uint64, error) {
 	view, err := b.stateAt(height)
 	if err != nil {
 		return 0, err

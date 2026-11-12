@@ -12,9 +12,8 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 func TestEVMOnlyApplicationSimulatesAgainstCommittedState(t *testing.T) {
@@ -23,10 +22,10 @@ func TestEVMOnlyApplicationSimulatesAgainstCommittedState(t *testing.T) {
 	slot := common.BytesToHash([]byte{0x11})
 	runtime := storeCode(slot, common.BytesToHash([]byte{0x22}))
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
-	_, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+	_, err := app.FinalizeBlock(t.Context(), &proxy.RequestFinalizeBlock{
 		Txs:    [][]byte{deployRaw},
 		Hash:   crypto.Keccak256([]byte("block-1")),
-		Header: &tmproto.Header{Height: 1, Time: time.Unix(1_700_000_001, 0)},
+		Header: &proxy.Header{Height: 1, Time: time.Unix(1_700_000_001, 0)},
 	})
 	require.NoError(t, err)
 	_, err = app.Commit(t.Context())

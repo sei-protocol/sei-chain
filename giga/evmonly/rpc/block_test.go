@@ -55,9 +55,9 @@ func fixedGasLimitBackend(t *testing.T, gasLimit uint64, block func(context.Cont
 	t.Helper()
 	return &testBackend{
 		block:       block,
-		gasLimit:    func() (uint64, error) { return gasLimit, nil },
-		chainConfig: func() (*params.ChainConfig, error) { return testChainConfig(big.NewInt(713715)), nil },
-		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
+		gasLimit:    func() uint64 { return gasLimit },
+		chainConfig: func() *params.ChainConfig { return testChainConfig(big.NewInt(713715)) },
+		baseFee:     func() *big.Int { return new(big.Int) },
 	}
 }
 
@@ -407,61 +407,6 @@ func TestEncodeBlockRejectsNegativeTime(t *testing.T) {
 	// Verify: negative time is rejected.
 	require.Nil(t, got)
 	require.ErrorContains(t, err, "time is negative")
-}
-
-func TestEncodeBlockSurfacesGasLimitAndBaseFeeErrors(t *testing.T) {
-	block := func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{
-			BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
-			Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)}},
-		}, nil
-	}
-
-	t.Run("gas limit", func(t *testing.T) {
-		want := errors.New("no gas limit")
-		backend := fixedGasLimitBackend(t, 35_000_000, block)
-		backend.gasLimit = func() (uint64, error) { return 0, want }
-
-		// Test: EvmGasLimit fails.
-		got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
-
-		// Verify: that error is returned as-is.
-		require.Nil(t, got)
-		require.ErrorIs(t, err, want)
-	})
-
-	t.Run("base fee", func(t *testing.T) {
-		want := errors.New("no base fee")
-		backend := fixedGasLimitBackend(t, 35_000_000, block)
-		backend.baseFee = func() (*big.Int, error) { return nil, want }
-
-		// Test: EvmBaseFee fails after a valid gas limit.
-		got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
-
-		// Verify: that error is returned as-is.
-		require.Nil(t, got)
-		require.ErrorIs(t, err, want)
-	})
-}
-
-func TestEncodeBlockFullTxChainConfigError(t *testing.T) {
-	want := errors.New("no chain config")
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{
-			Block: &tmtypes.Block{
-				Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)},
-				Data:   tmtypes.Data{Txs: tmtypes.Txs{[]byte("tx")}},
-			},
-		}, nil
-	})
-	backend.chainConfig = func() (*params.ChainConfig, error) { return nil, want }
-
-	// Test: full-tx encoding needs a chain config.
-	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, true)
-
-	// Verify: that error is returned as-is.
-	require.Nil(t, got)
-	require.ErrorIs(t, err, want)
 }
 
 func TestEncodeBlockRejectsUndecodableTransactions(t *testing.T) {
@@ -935,8 +880,6 @@ func TestGetTransactionByBlockAndIndexSurfacesRenderErrors(t *testing.T) {
 		}
 	}
 	validTime := time.Unix(1_700_000_000, 0)
-	baseFeeErr := errors.New("no base fee")
-	chainConfigErr := errors.New("no chain config")
 	receiptErr := errors.New("receipt db closed")
 	failingReceipts := stubReceiptStore{
 		ReceiptStore: evmonly.NewMemoryReceiptStore(),
@@ -948,26 +891,11 @@ func TestGetTransactionByBlockAndIndexSurfacesRenderErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name            string
 		block           *coretypes.ResultBlock
-		configure       func(*testBackend)
 		store           receipt.ReceiptStore
 		wantErr         error
 		wantErrContains string
 	}{
 		{name: "negative block time", block: blockWith(tmtypes.Txs{raw}, time.Unix(-1, 0)), wantErrContains: "block 4 time is negative"},
-		{
-			name:      "base fee error",
-			block:     blockWith(tmtypes.Txs{raw}, validTime),
-			configure: func(b *testBackend) { b.baseFee = func() (*big.Int, error) { return nil, baseFeeErr } },
-			wantErr:   baseFeeErr,
-		},
-		{
-			name:  "chain config error",
-			block: blockWith(tmtypes.Txs{raw}, validTime),
-			configure: func(b *testBackend) {
-				b.chainConfig = func() (*params.ChainConfig, error) { return nil, chainConfigErr }
-			},
-			wantErr: chainConfigErr,
-		},
 		{name: "undecodable transaction", block: blockWith(tmtypes.Txs{[]byte("not-an-rlp-tx")}, validTime), wantErrContains: "decode transaction at block 4 index 0"},
 		{name: "receipt read error", block: blockWith(tmtypes.Txs{raw}, validTime), store: failingReceipts, wantErr: receiptErr, wantErrContains: "read transaction receipt at block 4 index 0"},
 	} {
@@ -975,9 +903,6 @@ func TestGetTransactionByBlockAndIndexSurfacesRenderErrors(t *testing.T) {
 			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 				return tc.block, nil
 			})
-			if tc.configure != nil {
-				tc.configure(backend)
-			}
 			store := tc.store
 			if store == nil {
 				store = evmonly.NewMemoryReceiptStore()
