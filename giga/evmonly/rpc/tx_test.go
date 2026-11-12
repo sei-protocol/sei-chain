@@ -260,8 +260,8 @@ func TestGetTransactionByHash(t *testing.T) {
 				},
 			}, nil
 		},
-		chainConfig: func() (*params.ChainConfig, error) { return chainConfig, nil },
-		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
+		chainConfig: func() *params.ChainConfig { return chainConfig },
+		baseFee:     func() *big.Int { return new(big.Int) },
 	}
 
 	got, err := (&txAPI{backend: backend, store: store}).GetTransactionByHash(t.Context(), tx.Hash())
@@ -327,8 +327,8 @@ func TestGetTransactionByHashPatchesFromWhenSenderDoesNotRecover(t *testing.T) {
 				},
 			}, nil
 		},
-		chainConfig: func() (*params.ChainConfig, error) { return chainConfig, nil },
-		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
+		chainConfig: func() *params.ChainConfig { return chainConfig },
+		baseFee:     func() *big.Int { return new(big.Int) },
 	}
 
 	got, err := (&txAPI{backend: backend, store: store}).GetTransactionByHash(t.Context(), tx.Hash())
@@ -398,8 +398,8 @@ func TestGetTransactionByHashEndToEnd(t *testing.T) {
 				},
 			}, nil
 		},
-		chainConfig: func() (*params.ChainConfig, error) { return chainConfig, nil },
-		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
+		chainConfig: func() *params.ChainConfig { return chainConfig },
+		baseFee:     func() *big.Int { return new(big.Int) },
 	}
 	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
@@ -613,33 +613,6 @@ func TestGetTransactionByHashSurfacesBackendErrors(t *testing.T) {
 			TransactionIndex: 0,
 		},
 	}}))
-	block := func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{
-			BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
-			Block: &tmtypes.Block{
-				Header: tmtypes.Header{Time: time.Unix(1_700_000_000, 0)},
-				Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
-			},
-		}, nil
-	}
-
-	t.Run("chain config", func(t *testing.T) {
-		want := errors.New("no chain config")
-		api := &txAPI{
-			backend: &testBackend{
-				block:       block,
-				chainConfig: func() (*params.ChainConfig, error) { return nil, want },
-			},
-			store: store,
-		}
-
-		// Test: EvmChainConfig fails after a successful decode.
-		got, err := api.GetTransactionByHash(t.Context(), tx.Hash())
-
-		// Verify: that error is returned as-is.
-		require.Nil(t, got)
-		require.ErrorIs(t, err, want)
-	})
 
 	t.Run("negative block time", func(t *testing.T) {
 		api := &txAPI{
@@ -652,7 +625,7 @@ func TestGetTransactionByHashSurfacesBackendErrors(t *testing.T) {
 						},
 					}, nil
 				},
-				chainConfig: func() (*params.ChainConfig, error) { return testChainConfig(big.NewInt(713715)), nil },
+				chainConfig: func() *params.ChainConfig { return testChainConfig(big.NewInt(713715)) },
 			},
 			store: store,
 		}
@@ -665,24 +638,6 @@ func TestGetTransactionByHashSurfacesBackendErrors(t *testing.T) {
 		require.ErrorContains(t, err, "time is negative")
 	})
 
-	t.Run("base fee", func(t *testing.T) {
-		want := errors.New("no base fee")
-		api := &txAPI{
-			backend: &testBackend{
-				block:       block,
-				chainConfig: func() (*params.ChainConfig, error) { return testChainConfig(big.NewInt(713715)), nil },
-				baseFee:     func() (*big.Int, error) { return nil, want },
-			},
-			store: store,
-		}
-
-		// Test: EvmBaseFee fails after a valid timestamp.
-		got, err := api.GetTransactionByHash(t.Context(), tx.Hash())
-
-		// Verify: that error is returned as-is.
-		require.Nil(t, got)
-		require.ErrorIs(t, err, want)
-	})
 }
 
 func TestGetTransactionReceiptIncludesContractAddressAndSkipsNilLogs(t *testing.T) {
