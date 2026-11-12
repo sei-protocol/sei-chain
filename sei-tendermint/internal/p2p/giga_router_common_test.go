@@ -948,7 +948,7 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 			validator.Public(): {Key: makeKey(rng).Public()},
 		},
 		PersistentStateDir:      t.TempDir(),
-		App:                     proxy.New(&fixedHeightApp{height: 1}),
+		App:                     proxy.NewEVM(&fixedHeightApp{height: 1}),
 		AppHashBuilder:          newPublishingAppHashBuilder(),
 		GenDoc:                  genDoc,
 		MaxInboundFullnodePeers: 3,
