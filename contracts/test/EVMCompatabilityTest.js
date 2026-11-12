@@ -374,8 +374,7 @@ describe("EVM Test", function () {
           blobVersionedHashes: [blobHash],
         }
 
-        const message = await isEvmOnlyChain() ? "blob transactions are not supported" : "unsupported transaction type";
-        await expect(signer.sendTransaction(tx)).to.be.rejectedWith(message);
+        await expect(signer.sendTransaction(tx)).to.be.rejectedWith("unsupported transaction type");
       })
 
       it("trace balance diff matches up with actual balance change", async function() {
@@ -632,9 +631,12 @@ describe("EVM Test", function () {
 
       it("Should fail if insufficient gas is provided", async function () {
         const zero = ethers.parseUnits('0', 'ether')
-        // 1 wei << 1 gwei minimum, so pre-flight estimateGas rejects; the await is load-bearing.
-        // EVM-only has no base fee and refuses the price against its 1 gwei minimum instead.
-        const message = await isEvmOnlyChain() ? /effective gas price is below/ : /max fee per gas less than block base fee/;
+        // 1 wei << 1 gwei minimum, so the transaction is refused; the await is load-bearing.
+        // The two chains refuse it at different steps. On v2 the base fee is above 1 wei, so the
+        // pre-flight estimateGas fails first. EVM-only has no base fee yet, so estimateGas passes
+        // and the transaction is refused when it is submitted, with v2's admission message.
+        // Once EVM-only has a base fee (CON-598), both fail in estimateGas and this can be one message.
+        const message = await isEvmOnlyChain() ? /insufficient fee/ : /max fee per gas less than block base fee/;
         await expect(owner.sendTransaction({
           to: owner.address,
           gasPrice: 1,
@@ -1354,7 +1356,7 @@ describe("EVM Validations ", function() {
         id: 1,
         jsonrpc: "2.0"
       })
-      expect(response.data.error.message).to.include(await isEvmOnlyChain() ? "chain ID does not match" : "invalid chain-id")
+      expect(response.data.error.message).to.include("invalid chain-id")
     });
 
     it("should prevent wrong chainId for legacy txs", async function() {
@@ -1379,7 +1381,7 @@ describe("EVM Validations ", function() {
         jsonrpc: "2.0"
       })
 
-      expect(response.data.error.message).to.include(await isEvmOnlyChain() ? "chain ID does not match" : "invalid chain-id")
+      expect(response.data.error.message).to.include("invalid chain-id")
     });
 
     it("should not allow empty chainId for legacy txs", async function() {

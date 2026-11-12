@@ -485,17 +485,17 @@ func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.
 		return nil, common.Address{}, fmt.Errorf("unprotected Ethereum transaction")
 	}
 	if tx.ChainId().Cmp(a.chainID) != 0 {
-		return nil, common.Address{}, fmt.Errorf("ethereum transaction chain ID does not match %s", a.chainID)
+		return nil, common.Address{}, fmt.Errorf("invalid chain-id: expected %s, got %s", a.chainID, tx.ChainId())
 	}
 	if tx.Type() == ethtypes.BlobTxType {
-		return nil, common.Address{}, fmt.Errorf("blob transactions are not supported")
+		return nil, common.Address{}, fmt.Errorf("unsupported transaction type")
 	}
 	// The predicate block validity uses, not tx.GasPrice(): on a dynamic-fee tx
 	// that is the fee cap, so admitting on it let through transactions the
 	// executor then refused — and an executor refusal is a node panic, not a
 	// failed receipt.
 	if evmonly.EffectiveGasPrice(tx, evmOnlyBaseFee()).Cmp(a.minGasPrice) < 0 {
-		return nil, common.Address{}, fmt.Errorf("ethereum transaction effective gas price is below %s", a.minGasPrice)
+		return nil, common.Address{}, fmt.Errorf("insufficient fee: effective gas price is below %s", a.minGasPrice)
 	}
 	if sender, ok := a.checkedSender(tx.Hash()).Get(); ok {
 		return tx, sender, nil
