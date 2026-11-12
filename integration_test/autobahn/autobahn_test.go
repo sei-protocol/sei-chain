@@ -1546,10 +1546,11 @@ func assertEVMOnlyTraces(t *testing.T, ctx context.Context, clients []*ethrpc.Cl
 	}
 }
 
-// assertEVMOnlyPastState reads the contract's code and slot, calls it, and estimates a call to it on
-// the fullnode, which keeps the state history, at the block before the deploy and at the deploy block
-// named by number and by hash. Before the deploy the contract has no code, so the call returns nothing
-// and costs a plain transfer. A validator, which keeps no history, refuses the call before the deploy.
+// assertEVMOnlyPastState reads the contract's code and slot, calls it, estimates a call to it alone and
+// after a first call to it, and builds the call's access list on the fullnode, which keeps the state
+// history, at the block before the deploy and at the deploy block named by number and by hash. Before
+// the deploy the contract has no code, so the call returns nothing, costs a plain transfer and touches
+// no storage. A validator, which keeps no history, refuses the call before the deploy.
 func assertEVMOnlyPastState(t *testing.T, ctx context.Context, clients []*ethrpc.Client, contract common.Address, deploy evmOnlyReceiptSummary) {
 	t.Helper()
 	before := hexutil.Uint64(deploy.BlockNumber - 1)
@@ -1572,15 +1573,26 @@ func assertEVMOnlyPastState(t *testing.T, ctx context.Context, clients []*ethrpc
 		decodeFullnodeResult(t, "eth_getCode", fullnodeResult(t, "eth_getCode", contract, tc.block), &code)
 		decodeFullnodeResult(t, "eth_getStorageAt", fullnodeResult(t, "eth_getStorageAt", contract, "0x0", tc.block), &value)
 		decodeFullnodeResult(t, "eth_call", fullnodeResult(t, "eth_call", call, tc.block), &result)
-		var estimate hexutil.Uint64
+		var estimate, afterCall hexutil.Uint64
 		decodeFullnodeResult(t, "eth_estimateGas", fullnodeResult(t, "eth_estimateGas", call, tc.block), &estimate)
+		// The call only reads, so running it first leaves the estimate unchanged.
+		decodeFullnodeResult(t, "eth_estimateGasAfterCalls", fullnodeResult(t, "eth_estimateGasAfterCalls", call, []any{call}, tc.block), &afterCall)
+		var accessList struct {
+			AccessList ethtypes.AccessList `json:"accessList"`
+			Error      string              `json:"error"`
+		}
+		decodeFullnodeResult(t, "eth_createAccessList", fullnodeResult(t, "eth_createAccessList", call, tc.block), &accessList)
 		wantResult := tc.slot[:]
+		wantAccessList := ethtypes.AccessList{{Address: contract, StorageKeys: []common.Hash{{}}}}
 		if tc.code == nil {
 			wantResult = nil
+			wantAccessList = ethtypes.AccessList{}
 		}
-		if !bytes.Equal(code, tc.code) || common.BytesToHash(value) != tc.slot || !bytes.Equal(result, wantResult) || !tc.estimate(estimate) {
-			t.Fatalf("%s at %s: code %s, slot 0 %s, eth_call %s, eth_estimateGas %d; want code %s and slot 0 %s",
-				fullnodeContainer, tc.name, code, value, result, estimate, hexutil.Bytes(tc.code), tc.slot)
+		if !bytes.Equal(code, tc.code) || common.BytesToHash(value) != tc.slot || !bytes.Equal(result, wantResult) || !tc.estimate(estimate) ||
+			afterCall != estimate || !reflect.DeepEqual(accessList.AccessList, wantAccessList) || accessList.Error != "" {
+			t.Fatalf("%s at %s: code %s, slot 0 %s, eth_call %s, eth_estimateGas %d, eth_estimateGasAfterCalls %d, eth_createAccessList %+v; "+
+				"want code %s, slot 0 %s and access list %v",
+				fullnodeContainer, tc.name, code, value, result, estimate, afterCall, accessList, hexutil.Bytes(tc.code), tc.slot, wantAccessList)
 		}
 	}
 

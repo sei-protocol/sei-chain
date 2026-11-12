@@ -73,6 +73,12 @@ func TestHandlerPassesCallOverrides(t *testing.T) {
 	backend.estimateGasAt = func(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error) {
 		return 30_000, nil, nil
 	}
+	backend.estimateGasAfterCalls = func(context.Context, []*core.Message, *core.Message, uint64) (uint64, []byte, error) {
+		return 30_000, nil, nil
+	}
+	backend.estimateGasAfterCallsAt = func(context.Context, []*core.Message, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error) {
+		return 30_000, nil, nil
+	}
 	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), gigaconfig.RPCConfig{
 		MaxRequestBodyBytes: testRequestBodyBytes, MaxStateOverrideAccounts: 1, MaxStateOverrideSlots: 1,
 	})
@@ -101,6 +107,23 @@ func TestHandlerPassesCallOverrides(t *testing.T) {
 				require.Equal(t, -32602, rpcErr.ErrorCode())
 			})
 		}
+	}
+
+	// eth_estimateGasAfterCalls takes a state override and no block override.
+	for _, block := range []string{"latest", "0x3"} {
+		t.Run("eth_estimateGasAfterCalls at "+block, func(t *testing.T) {
+			backend.gotOverrides = evmonly.CallOverrides{}
+			var got json.RawMessage
+			require.NoError(t, client.CallContext(t.Context(), &got, "eth_estimateGasAfterCalls", call, []any{call}, block, stateArg))
+			require.Equal(t, evmonly.CallOverrides{State: want.State}, backend.gotOverrides)
+
+			tooMany := map[string]any{address.Hex(): map[string]any{}, common.Address{1}.Hex(): map[string]any{}}
+			err := client.CallContext(t.Context(), &got, "eth_estimateGasAfterCalls", call, []any{call}, block, tooMany)
+			require.ErrorContains(t, err, errStateOverrideTooManyAccounts.Error())
+			var rpcErr ethrpc.Error
+			require.ErrorAs(t, err, &rpcErr)
+			require.Equal(t, -32602, rpcErr.ErrorCode())
+		})
 	}
 }
 

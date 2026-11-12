@@ -382,11 +382,11 @@ WebSocket (port 8546 by default):
   finalized transaction failed with, or `""` when it succeeded; for an unknown
   hash the first returns an error and the second `""`, as on the regular RPC.
 - State: `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`,
-  `eth_getStorageAt`, `eth_call`, and `eth_estimateGas`, at the latest block
-  or a past one, named by number or hash, still within a full node's
-  retention window; `eth_createAccessList` and `eth_estimateGasAfterCalls`
-  (which applies up to `max_estimate_gas_calls` calls before estimating),
-  against the latest state only.
+  `eth_getStorageAt`, `eth_call`, `eth_estimateGas`, `eth_createAccessList`,
+  and `eth_estimateGasAfterCalls` (which applies up to
+  `max_estimate_gas_calls` calls before estimating), at the latest block or a
+  past one, named by number or hash, still within a full node's retention
+  window.
 - Blocks: `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getBlockByHash`,
   `eth_getBlockTransactionCountByNumber` /
   `eth_getBlockTransactionCountByHash`, and `eth_getBlockReceipts`. Block
@@ -430,16 +430,14 @@ subscription other than `newHeads` and `logs`:
 ### Known limitations
 
 - Past state needs a full node. `eth_getBalance`, `eth_getTransactionCount`,
-  `eth_getCode`, `eth_getStorageAt`, `eth_call`, and `eth_estimateGas` answer
-  a past height, block hash, or `earliest` only on a node that keeps the EVM
-  state store (a full node, not a validator), and only within its retention
-  window. A validator answers only the latest block. `eth_createAccessList`
-  and `eth_estimateGasAfterCalls` serve the latest state only.
+  `eth_getCode`, `eth_getStorageAt`, `eth_call`, `eth_estimateGas`,
+  `eth_createAccessList`, and `eth_estimateGasAfterCalls` answer a past
+  height, block hash, or `earliest` only on a node that keeps the EVM state
+  store (a full node, not a validator), and only within its retention window.
+  A validator answers only the latest block.
 - Any address that has never been written reports `2^200` wei, including
   inside `eth_call` and `eth_estimateGas`. This is the test network's funding
   rule, in place of genesis allocations.
-- `eth_estimateGasAfterCalls` takes no state override argument, unlike the
-  regular RPC.
 - `pending` means the latest committed state, and there is no mempool view, so
   a submitted transaction is not returned by hash until it executes.
 - Block fields: `logsBloom` is always empty, `baseFeePerGas` is always zero,
@@ -478,9 +476,10 @@ checks every method above except the `debug_trace*` methods on all four
 validators, including that they return the same blocks and receipts. It traces
 the deploy and its block on the RPC node, which keeps the state history a past
 transaction replays on, and a call to the contract on every node. On the RPC
-node it also reads the contract's code and slot, calls it, and estimates a call
-to it, before and at the deploy block, by number and by hash, and checks that a
-validator refuses a call at a past block. On every node it runs `eth_call`,
+node it also reads the contract's code and slot, calls it, estimates a call to
+it alone and after a first call, and builds the call's access list, before and
+at the deploy block, by number and by hash, and checks that a validator refuses
+a call at a past block. On every node it runs `eth_call`,
 `eth_estimateGas`, and `debug_traceCall` with state and block overrides, and on
 the RPC node an `eth_call` before the deploy with the contract supplied by a
 state override.
@@ -512,7 +511,7 @@ the row says otherwise:
 | `max_concurrent_trace_calls` | 10 | `debug_trace*` calls running at once; a call past it is refused |
 | `trace_timeout` | `30s` | how long one `debug_trace*` call may run |
 | `max_trace_struct_log_bytes` | 33554432 (32 MiB) | output of the default struct logger for each traced transaction |
-| `max_state_override_accounts` | 100 | accounts one `eth_call`, `eth_estimateGas`, or `debug_traceCall` state override may name |
+| `max_state_override_accounts` | 100 | accounts one `eth_call`, `eth_estimateGas`, `eth_estimateGasAfterCalls`, or `debug_traceCall` state override may name |
 | `max_state_override_slots` | 1000 | storage slots such a state override may set for one account |
 
 A subscription refused by a cap returns an error, and its slot frees when
@@ -691,9 +690,11 @@ As in go-ethereum, `eth_call` takes a state override (each account's `balance`,
 block override (`number`, `time`, `gasLimit`, `feeRecipient`, `prevRandao`,
 `baseFeePerGas`, `blobBaseFee`) after the block selector; `eth_estimateGas`
 takes both too, but, as in go-ethereum, a precompile move it accepts does not
-take effect in the estimate. A state override naming more accounts, or setting
-more slots of one account, than `[giga.rpc]` allows is refused with an
-invalid-params error (`-32602`).
+take effect in the estimate. `eth_estimateGasAfterCalls` takes a state override
+after its block selector, as on the regular RPC, and applies it before its
+calls; a precompile move takes effect in neither the calls nor the estimate. A
+state override naming more accounts, or setting more slots of one account, than
+`[giga.rpc]` allows is refused with an invalid-params error (`-32602`).
 
 ### Estimate gas with `cast estimate`
 
