@@ -77,7 +77,7 @@ func (api *estimateAPI) estimateAfterCalls(
 		if err := calls[i].CallDefaults(defaultCallGasCap, baseFee, chainID); err != nil {
 			return 0, fmt.Errorf("call %d: %w", i, err)
 		}
-		callMsgs[i] = calls[i].ToMessage(baseFee, true, true)
+		callMsgs[i] = calls[i].ToMessage(baseFee, true)
 	}
 	// A zero (not nil) Gas leaves an omitted limit to default to the block gas
 	// limit downstream, rather than the fixed defaultCallGasCap.
@@ -87,7 +87,7 @@ func (api *estimateAPI) estimateAfterCalls(
 	if err := args.CallDefaults(defaultCallGasCap, baseFee, chainID); err != nil {
 		return 0, err
 	}
-	msg := args.ToMessage(baseFee, true, true)
+	msg := args.ToMessage(baseFee, true)
 
 	estimate, revert, err := api.estimate(ctx, callMsgs, msg, height, latest, overrides)
 	if err != nil {

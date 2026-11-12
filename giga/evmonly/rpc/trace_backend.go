@@ -53,7 +53,7 @@ func (b *traceBackend) forCalls() *traceBackend {
 }
 
 func (b *traceBackend) HeaderByHash(ctx context.Context, hash common.Hash) (*ethtypes.Header, error) {
-	block, _, err := b.BlockByHash(ctx, hash)
+	block, err := b.BlockByHash(ctx, hash)
 	if err != nil || block == nil {
 		return nil, err
 	}
@@ -61,15 +61,33 @@ func (b *traceBackend) HeaderByHash(ctx context.Context, hash common.Hash) (*eth
 }
 
 func (b *traceBackend) HeaderByNumber(ctx context.Context, number ethrpc.BlockNumber) (*ethtypes.Header, error) {
-	block, _, err := b.BlockByNumber(ctx, number)
+	block, err := b.BlockByNumber(ctx, number)
 	if err != nil || block == nil {
 		return nil, err
 	}
 	return block.Header(), nil
 }
 
+// CurrentHeader returns the header of the latest block BlockByNumber serves, or nil when there is none.
+func (b *traceBackend) CurrentHeader() *ethtypes.Header {
+	header, _ := b.HeaderByNumber(context.Background(), ethrpc.LatestBlockNumber)
+	return header
+}
+
 // BlockByHash returns the block with hash, or nil when hash is unknown.
-func (b *traceBackend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
+func (b *traceBackend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, error) {
+	block, _, err := b.BlockWithTraceMetadataByHash(ctx, hash)
+	return block, err
+}
+
+// BlockByNumber returns the block at number, or nil when there is none.
+func (b *traceBackend) BlockByNumber(ctx context.Context, number ethrpc.BlockNumber) (*ethtypes.Block, error) {
+	block, _, err := b.BlockWithTraceMetadataByNumber(ctx, number)
+	return block, err
+}
+
+// BlockWithTraceMetadataByHash returns the block with hash, or nil when hash is unknown.
+func (b *traceBackend) BlockWithTraceMetadataByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
 	block, err := b.blocks.resolveBlockByHash(ctx, hash)
 	if err != nil || block == nil {
 		return nil, nil, err
@@ -78,9 +96,9 @@ func (b *traceBackend) BlockByHash(ctx context.Context, hash common.Hash) (*etht
 	return eth, nil, err
 }
 
-// BlockByNumber returns the block at number, or nil when there is none. Current-state tags name the
-// latest block whose receipts are indexed, or for calls the latest committed block.
-func (b *traceBackend) BlockByNumber(ctx context.Context, number ethrpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
+// BlockWithTraceMetadataByNumber returns the block at number, or nil when there is none. Current-state
+// tags name the latest block whose receipts are indexed, or for calls the latest committed block.
+func (b *traceBackend) BlockWithTraceMetadataByNumber(ctx context.Context, number ethrpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
 	if number == 0 {
 		return genesisBlock(), nil, nil
 	}
@@ -169,9 +187,24 @@ func (b *traceBackend) GetTransaction(ctx context.Context, hash common.Hash) (bo
 	return true, tx, common.BytesToHash(block.BlockID.Hash), stored.BlockNumber, uint64(stored.TransactionIndex), nil
 }
 
+// GetCanonicalTransaction returns the finalized transaction with hash, its block hash and number,
+// and its index in the stored block.
+func (b *traceBackend) GetCanonicalTransaction(hash common.Hash) (bool, *ethtypes.Transaction, common.Hash, uint64, uint64) {
+	found, tx, blockHash, blockNumber, index, err := b.GetTransaction(context.Background(), hash)
+	if err != nil || !found {
+		return false, nil, common.Hash{}, 0, 0
+	}
+	return true, tx, blockHash, blockNumber, index
+}
+
+// TxIndexDone reports true, so an unknown transaction hash reads as not found.
+func (b *traceBackend) TxIndexDone() bool {
+	return true
+}
+
 // StateAtBlock returns the committed state after block, or the latest committed state when ctx is
 // marked by withLatestState.
-func (b *traceBackend) StateAtBlock(ctx context.Context, block *ethtypes.Block, _ uint64, _ vm.StateDB, _ bool, _ bool) (vm.StateDB, tracers.StateReleaseFunc, error) {
+func (b *traceBackend) StateAtBlock(ctx context.Context, block *ethtypes.Block, _ vm.SeiStateDB, _ bool, _ bool) (vm.SeiStateDB, tracers.StateReleaseFunc, error) {
 	height := block.Number().Int64()
 	if readsLatestState(ctx) {
 		// The height a latest tag resolved to can be passed by the time the state is read, and a node
@@ -186,7 +219,7 @@ func (b *traceBackend) StateAtBlock(ctx context.Context, block *ethtypes.Block, 
 // StateAtTransaction returns the transaction at txIndex of block's stored transactions, and the
 // block context and state it executed against. Index 0 of an empty block returns no transaction
 // and the state the block started from.
-func (b *traceBackend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, _ uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
+func (b *traceBackend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int) (*ethtypes.Transaction, vm.BlockContext, vm.SeiStateDB, tracers.StateReleaseFunc, error) {
 	stored, err := b.blocks.resolveBlockByNumber(ctx, ethrpc.BlockNumber(block.Number().Int64()))
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, nil, err
@@ -239,7 +272,7 @@ func (b *traceBackend) ChainConfigAtHeight(int64) *params.ChainConfig {
 }
 
 // GetCustomPrecompiles returns nil: the EVM-only chain registers no custom precompiles.
-func (b *traceBackend) GetCustomPrecompiles(int64) map[common.Address]vm.PrecompiledContract {
+func (b *traceBackend) GetCustomPrecompiles(int64) map[common.Address]vm.CustomPrecompiledContract {
 	return nil
 }
 
@@ -260,7 +293,7 @@ func (b *traceBackend) ChainDb() ethdb.Database {
 
 // tracedStates holds every state served to one trace.
 type tracedStates struct {
-	states []vm.StateDB
+	states []vm.SeiStateDB
 }
 
 type tracedStatesKey struct{}
@@ -273,7 +306,7 @@ func withTracedStates(ctx context.Context) (context.Context, *tracedStates) {
 }
 
 // trackState adds stateDB to the tracedStates ctx holds, if any.
-func trackState(ctx context.Context, stateDB vm.StateDB) {
+func trackState(ctx context.Context, stateDB vm.SeiStateDB) {
 	if states, ok := ctx.Value(tracedStatesKey{}).(*tracedStates); ok && stateDB != nil {
 		states.states = append(states.states, stateDB)
 	}

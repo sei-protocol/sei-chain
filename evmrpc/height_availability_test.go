@@ -608,7 +608,7 @@ func TestFeeHistoryFloorIsReceiptFloor(t *testing.T) {
 	client := newHeightTestClient(100, receiptFloorTestBlockEarliest, receiptFloorTestLatest)
 	api := &InfoAPI{tmClient: client, watermarks: newReceiptFloorTestWatermarks(client)}
 
-	earliest, err := api.earliestHeight(context.Background())
+	earliest, err := api.earliestBlockWatermark(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, receiptFloorTestReceiptEarliest, earliest)
 }
