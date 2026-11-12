@@ -1258,9 +1258,8 @@ func verifyMigrationMetadata(t *testing.T, cs *CompositeCommitStore, wantVersion
 	require.Equal(t, wantBoundary, boundaryPresent, "migration boundary key presence")
 }
 
-// verifyCommitInfo asserts the lattice StoreInfo is present (or absent) in
-// both LastCommitInfo and WorkingCommitInfo, matching whether flatkv
-// participates in the AppHash for this mode.
+// verifyCommitInfo asserts that LastCommitInfo and WorkingCommitInfo carry the lattice StoreInfo exactly when
+// expectLattice is set, under the name that matches whether memiavl's store infos are present.
 func verifyCommitInfo(t *testing.T, cs *CompositeCommitStore, expectLattice bool) {
 	t.Helper()
 	last := cs.LastCommitInfo()
@@ -1271,6 +1270,10 @@ func verifyCommitInfo(t *testing.T, cs *CompositeCommitStore, expectLattice bool
 	require.NotNil(t, working)
 	require.Equal(t, expectLattice, containsLatticeStoreInfo(working.StoreInfos),
 		"lattice presence in WorkingCommitInfo")
+	if expectLattice {
+		requireLatticeName(t, last.StoreInfos, "LastCommitInfo")
+		requireLatticeName(t, working.StoreInfos, "WorkingCommitInfo")
+	}
 }
 
 // assertCommitInfoEqual asserts two CommitInfos describe the same committed

@@ -1287,9 +1287,9 @@ const (
 // original. memiavlIncluded reports whether ci carries memiavl's per-store infos, and selects the name of
 // the appended entry.
 func appendLatticeHash(ci *proto.CommitInfo, latticeHash []byte, memiavlIncluded bool) *proto.CommitInfo {
-	// The name is part of the AppHash leaf, and heights committed before MigrateCosmos completed carry
-	// evm_lattice. Keying it on the memiavl gate switches it in the same block that drops memiavl, and
-	// lets restart, rollback and state sync to those heights reproduce it.
+	// The name is part of the AppHash leaf: evm_lattice while memiavl's infos are present, lattice_hash
+	// after. Stores committed as flatkv_only by a binary without this rule carry evm_lattice and do not
+	// reproduce under it.
 	name := latticeHashStoreInfoName
 	if memiavlIncluded {
 		name = evmLatticeStoreInfoName

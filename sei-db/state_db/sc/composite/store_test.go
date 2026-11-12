@@ -406,6 +406,26 @@ func isLatticeStoreInfoName(name string) bool {
 	return name == evmLatticeStoreInfoName || name == latticeHashStoreInfoName
 }
 
+// requireLatticeName asserts that infos carries exactly one lattice entry, named evm_lattice when infos also
+// carries memiavl's store infos and lattice_hash when it does not.
+func requireLatticeName(t *testing.T, infos []proto.StoreInfo, label string) {
+	t.Helper()
+	var latticeNames []string
+	memiavlIncluded := false
+	for _, si := range infos {
+		if isLatticeStoreInfoName(si.Name) {
+			latticeNames = append(latticeNames, si.Name)
+		} else {
+			memiavlIncluded = true
+		}
+	}
+	want := latticeHashStoreInfoName
+	if memiavlIncluded {
+		want = evmLatticeStoreInfoName
+	}
+	require.Equal(t, []string{want}, latticeNames, "%s: lattice entry name", label)
+}
+
 // cloneStoreInfos returns a deep copy of the given StoreInfos, suitable for
 // comparing values captured before and after a Close()/reopen() cycle where
 // the underlying memiavl buffers would otherwise be reused.

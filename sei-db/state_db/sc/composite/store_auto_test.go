@@ -101,9 +101,13 @@ func hasLatticeHash(cs *CompositeCommitStore) bool {
 
 // storeInfoNames returns the names in the last commit info, in order.
 func storeInfoNames(cs *CompositeCommitStore) []string {
-	infos := cs.LastCommitInfo().StoreInfos
-	names := make([]string, 0, len(infos))
-	for _, si := range infos {
+	return commitInfoNames(cs.LastCommitInfo())
+}
+
+// commitInfoNames returns the names in ci, in order.
+func commitInfoNames(ci *proto.CommitInfo) []string {
+	names := make([]string, 0, len(ci.StoreInfos))
+	for _, si := range ci.StoreInfos {
 		names = append(names, si.Name)
 	}
 	return names

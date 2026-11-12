@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"testing"
 
@@ -1282,18 +1283,11 @@ func TestComposite_MigrateCosmos_CompletionBlockWorkingInfoMatchesCommitted(t *t
 		require.NoError(t, err)
 	}
 
-	names := make([]string, 0, len(working.StoreInfos))
-	for _, si := range working.StoreInfos {
-		names = append(names, si.Name)
-	}
-	require.Equal(t, []string{latticeHashStoreInfoName}, names,
+	require.Equal(t, []string{latticeHashStoreInfoName}, commitInfoNames(working),
 		"the completion block's working commit info must already exclude memiavl")
 
 	require.NotNil(t, preceding, "sanity: the migration must span more than one block")
-	precedingNames := make([]string, 0, len(preceding.StoreInfos))
-	for _, si := range preceding.StoreInfos {
-		precedingNames = append(precedingNames, si.Name)
-	}
+	precedingNames := commitInfoNames(preceding)
 	require.Contains(t, precedingNames, keys.BankStoreKey,
 		"the block before completion must still carry memiavl's store infos")
 	require.Contains(t, precedingNames, evmLatticeStoreInfoName,
@@ -1317,9 +1311,9 @@ func TestComposite_MigrateCosmos_HistoricalReadOnlyLoadAcrossCompletion(t *testi
 	blocks := []recordedBlock{commitRecorded(t, cs, workload.generateBlock(0, 2, 1, 0, 2))}
 	blocks = append(blocks, commitUntilAtMigrationVersion(t, cs, workload, migration.Version2_FlatKVOnly, 800)...)
 	blocks = append(blocks, commitRecorded(t, cs, workload.generateBlock(0, 2, 1, 1, 1)))
-	require.True(t, hasStoreInfoName(blocks[0].info, evmLatticeStoreInfoName),
+	require.True(t, slices.Contains(commitInfoNames(blocks[0].info), evmLatticeStoreInfoName),
 		"sanity: an in-progress MigrateCosmos block names the lattice evm_lattice")
-	require.True(t, hasStoreInfoName(blocks[len(blocks)-1].info, latticeHashStoreInfoName),
+	require.True(t, slices.Contains(commitInfoNames(blocks[len(blocks)-1].info), latticeHashStoreInfoName),
 		"sanity: a block after completion names the lattice lattice_hash")
 
 	for _, block := range blocks {
@@ -1329,16 +1323,6 @@ func TestComposite_MigrateCosmos_HistoricalReadOnlyLoadAcrossCompletion(t *testi
 			fmt.Sprintf("read-only load of height %d", block.info.Version))
 		require.NoError(t, ro.Close())
 	}
-}
-
-// hasStoreInfoName reports whether ci carries a store info named name.
-func hasStoreInfoName(ci *proto.CommitInfo, name string) bool {
-	for _, si := range ci.StoreInfos {
-		if si.Name == name {
-			return true
-		}
-	}
-	return false
 }
 
 // TestComposite_Auto_RollbackAcrossMigrateCosmosCompletionAfterRestart rolls an Auto store that was reopened
