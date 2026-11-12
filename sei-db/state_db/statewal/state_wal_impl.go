@@ -88,7 +88,8 @@ func GetRange(config *Config) (bool, uint64, uint64, error) {
 // PruneAfter deletes all data for blocks after highestBlockToKeep from the state WAL directory configured by
 // config, without constructing a live StateWAL. It runs the recovery/sanity pass, applies the rollback, and
 // re-scans the result structurally (file names / sequence contiguity, not contents); blocks with a number
-// <= highestBlockToKeep are kept.
+// <= highestBlockToKeep are kept. Rolling back to the same block again is a no-op. One that failed or was
+// interrupted completes when run again.
 //
 // NOT SAFE FOR CONCURRENT USE with a live StateWAL, or with another GetRange/PruneAfter, on the same
 // directory: it seals, rewrites, and removes files a running WAL owns. Call it only while no StateWAL is open

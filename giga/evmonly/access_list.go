@@ -12,18 +12,28 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/eth/tracers/logger"
 	"github.com/ethereum/go-ethereum/params"
+
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
-// CreateAccessList returns the access list msg touches when executed against the current
-// committed state, leaving out its sender, its recipient, the precompiles and its authorities, and
-// the result of executing msg with that list. Like Call it persists no state change.
+// CreateAccessList returns what CreateAccessListAt returns for msg against the current committed
+// state.
 func (e *Executor) CreateAccessList(ctx context.Context, blockCtx BlockContext, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
+	snapshot, err := e.OpenCurrentView(ctx, blockCtx)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer snapshot.Close()
+	return e.CreateAccessListAt(ctx, snapshot, blockCtx, msg)
+}
+
+// CreateAccessListAt returns the access list msg touches when executed against the state view
+// holds, leaving out its sender, its recipient, the precompiles and its authorities, and the result
+// of executing msg with that list. Like CallAt it persists no state change.
+func (e *Executor) CreateAccessListAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
 	chainConfig := e.chainConfig(blockCtx)
 	if err := validateBlockContext(chainConfig, blockCtx); err != nil {
 		return nil, nil, err
-	}
-	if e.stateStore == nil {
-		return nil, nil, errMissingStateStore
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
@@ -31,13 +41,7 @@ func (e *Executor) CreateAccessList(ctx context.Context, blockCtx BlockContext, 
 	if uint64(len(msg.SetCodeAuthorizations)) > msg.GasLimit/params.CallNewAccountGas {
 		return nil, nil, errors.New("insufficient gas to process all authorizations")
 	}
-
-	snapshot := e.stateStore.OpenView()
-	if snapshot == nil {
-		return nil, nil, errors.New("giga store returned a nil snapshot")
-	}
-	defer snapshot.Close()
-	reader := gigaSnapshotStateReader{snapshot: snapshot, missingState: e.missingState}
+	reader := gigaSnapshotStateReader{snapshot: view, missingState: e.missingState}
 
 	listCtx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
@@ -74,7 +78,8 @@ func (e *Executor) traceAccessList(
 ) (*core.ExecutionResult, error) {
 	stateDB := e.acquireStateDB(reader)
 	defer e.releaseStateDB(stateDB)
-	result, cancelled, err := e.applyMessage(ctx, blockCtx, chainConfig, stateDB, msg, vm.Config{Tracer: tracer.Hooks(), NoBaseFee: true})
+	evm := e.newEVM(EVMBlockContext(blockCtx), stateDB, chainConfig, vm.Config{Tracer: tracer.Hooks(), NoBaseFee: true})
+	result, cancelled, err := applyMessage(ctx, evm, msg)
 	if cancelled {
 		return nil, fmt.Errorf("EVM-only access list exceeded %s execution timeout", callTimeout)
 	}

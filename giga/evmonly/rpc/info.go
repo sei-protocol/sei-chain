@@ -55,6 +55,11 @@ func (api *infoAPI) Syncing(_ context.Context) (any, error) {
 	return nil, &evmrpc.ErrEVMNotSupported{Msg: "eth_syncing is not supported on Sei EVM RPC"}
 }
 
+// BlobBaseFee implements eth_blobBaseFee, matching v2: Sei supports no blobs.
+func (*infoAPI) BlobBaseFee(context.Context) (*hexutil.Big, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "blobs not supported on this chain"}
+}
+
 // gasPriceCongestionThresholdPercent is the gasUsedRatio above which GasPrice escalates to the
 // congested-chain reward, matching v2's eth_gasPrice.
 const gasPriceCongestionThresholdPercent = 80

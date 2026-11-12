@@ -60,7 +60,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
 	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App)
-	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
+	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers, "persistent_peers", len(cfg.PersistentPeerIDs))
 	return &gigaValidatorRouter{
 		gigaRouterCommon: &gigaRouterCommon{
 			cfg:             &cfg.GigaRouterCommonConfig,
@@ -76,10 +76,11 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 				ValidatorKey: cfg.ValidatorKey,
 				EVMRPC:       self.EVMRPC,
 			}),
-			selfAddr:           utils.Some(selfAddr),
-			liveAddrs:          utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
-			liveAddrVersion:    utils.NewAtomicSend(uint64(0)),
-			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
+			selfAddr:             utils.Some(selfAddr),
+			liveAddrs:            utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
+			liveAddrVersion:      utils.NewAtomicSend(uint64(0)),
+			inboundFullnodeCount: utils.NewMutex(new(int64)),
+			inboundFullnodeCap:   int64(cfg.MaxInboundFullnodePeers),
 		},
 		consensus:    consensusState,
 		producer:     producerState,
