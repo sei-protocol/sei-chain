@@ -166,7 +166,8 @@ type AutobahnFileConfig struct {
 	// MaxInboundFullnodePeers caps concurrent inbound block-sync from
 	// non-committee peers, applied on both validators and fullnodes (relay
 	// fullnodes serving downstream block-sync are subject to the same
-	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject all.
+	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject every
+	// inbound fullnode that is neither in p2p.persistent-peers nor in p2p.blocksync-peers.
 	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers,omitzero"`
 	// MaxConcurrentCheckTx caps the number of CheckTx calls the local mempool
 	// runs concurrently for incoming broadcast_tx requests, so that ingest
@@ -199,10 +200,8 @@ func (c *AutobahnFileConfig) GetEnableEvmProxy() bool {
 }
 
 // DefaultMaxInboundFullnodePeers is the built-in cap used when
-// AutobahnFileConfig.MaxInboundFullnodePeers is absent.
-//
-// TODO(autobahn-trusted-fullnode-peers): add an optional trusted-peer
-// list whose keys bypass the cap.
+// AutobahnFileConfig.MaxInboundFullnodePeers is absent. Peers in
+// p2p.persistent-peers and p2p.blocksync-peers do not consume it.
 const DefaultMaxInboundFullnodePeers = 10
 
 // Validate performs basic validation of the autobahn file config.

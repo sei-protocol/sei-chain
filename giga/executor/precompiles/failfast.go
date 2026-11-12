@@ -101,7 +101,7 @@ var ErrSelfDestructUnsupported error = &SelfDestructAbortError{}
 
 type FailFastPrecompile struct{}
 
-var FailFastSingleton vm.PrecompiledContract = &FailFastPrecompile{}
+var FailFastSingleton vm.CustomPrecompiledContract = &FailFastPrecompile{}
 
 func (p *FailFastPrecompile) RequiredGas(input []byte) uint64 {
 	return 0
@@ -111,7 +111,7 @@ func (p *FailFastPrecompile) Run(evm *vm.EVM, caller common.Address, callingCont
 	return nil, ErrInvalidPrecompileCall
 }
 
-var AllCustomPrecompilesFailFast = map[common.Address]vm.PrecompiledContract{}
+var AllCustomPrecompilesFailFast = map[common.Address]vm.CustomPrecompiledContract{}
 
 func init() {
 	for _, addr := range FailFastPrecompileAddresses {

@@ -13,13 +13,11 @@ import (
 // replayLogInterval bounds how often a running replay reports how far it has got.
 const replayLogInterval = 30 * time.Second
 
-// rewindTo puts whichever of SC and SS holds state above target on its newest snapshot at or below it,
-// drops every snapshot of both above target, and cuts the WAL's tail to it. All three stores must be
-// closed, and a store holding nothing above target is left where it is, for the replay to carry forward.
+// rewindTo rolls the live state DB, the historical state DB and the WAL back to target, leaving a live
+// state DB below target for the replay to carry forward. All three must be closed.
 //
-// A target the surviving snapshots and the WAL cannot span is refused before the WAL is cut, so every
-// target this one could reach is still reachable on a retry. SS is asked once SC has moved, so a
-// refusal from SS leaves SC on its snapshot and a retry replays from there.
+// A target the WAL and the live state DB's snapshots cannot span is refused before the WAL is cut, so
+// every target this one could reach is still reachable on a retry.
 func (s *StateDB) rewindTo(target int64) error {
 	wal, err := s.storedWALRange()
 	if err != nil {
@@ -42,8 +40,8 @@ func (s *StateDB) rewindTo(target int64) error {
 	return s.truncateWAL(target)
 }
 
-// discardStateAboveTheWAL puts each store back on the WAL's head when it sits above it, onto its
-// newest snapshot at or below the head for the replay to carry forward. Every store must be closed.
+// discardStateAboveTheWAL rolls the live state DB and the historical state DB back to the WAL's head when
+// they hold state above it. Both must be closed.
 //
 // A commit writes the WAL unflushed, so a crash can lose its tail while the state committed above that
 // tail survives. Those blocks are re-executed from the block store, which a store still holding them
@@ -63,12 +61,9 @@ func (s *StateDB) discardStateAboveTheWAL(wal storedWALRange) error {
 	return nil
 }
 
-// discardStateAbove puts whichever of SC and SS holds state above target onto its newest snapshot at or
-// below it. Both stores must be closed, and a store holding nothing above target is left where it is,
-// for the replay to carry forward.
-//
-// Each store is handed the WAL's first block and refuses, without moving, a target this WAL cannot
-// replay it back up to. SC is put back first, so a refusal from SS can leave SC already rewound.
+// discardStateAbove rolls the live state DB and the historical state DB back to target when they hold
+// state above it. Both must be closed. A target the WAL cannot replay the live state DB back up to is
+// refused without moving it.
 func (s *StateDB) discardStateAbove(wal storedWALRange, target int64) error {
 	if _, err := flatkv.DiscardStateAbove(s.flatkvCfg.DataDir, target, wal.first); err != nil {
 		return fmt.Errorf("the state commit store cannot reach %d: %w", target, err)
@@ -76,18 +71,17 @@ func (s *StateDB) discardStateAbove(wal storedWALRange, target int64) error {
 	if !s.ssCfg.Enable {
 		return nil
 	}
-	// Records above target describe blocks that are executed again, possibly differently. The log
-	// needs no snapshot to drop them, and none to replay from: it holds no current state.
+	// Records above target describe blocks that are executed again, possibly differently.
 	if err := undo.DiscardStateAbove(s.ssCfg.EVMDBDirectory, s.ssCfg, target); err != nil {
-		return fmt.Errorf("the EVM undo-log state store cannot reach %d: %w", target, err)
+		return fmt.Errorf("the historical state DB cannot reach %d: %w", target, err)
 	}
 	return nil
 }
 
-// dropSnapshotsAbove removes the snapshots of SC and SS above target.
+// dropSnapshotsAbove removes the live state DB's snapshots above target.
 //
-// It runs whether or not either store is above target, because an interrupted rollback leaves exactly a
-// store that is not: it reads as the snapshot it was repointed at, with the branch above it still on
+// It runs whether or not the live state DB is above target, because an interrupted rollback leaves
+// exactly one that is not: it reads as the snapshot it was repointed at, with the branch above it still on
 // disk. Left there, a later rollback lands on a snapshot from the branch this one abandoned.
 func (s *StateDB) dropSnapshotsAbove(target int64) error {
 	if err := flatkv.DropSnapshotsAbove(s.flatkvCfg.DataDir, target); err != nil {
@@ -96,25 +90,21 @@ func (s *StateDB) dropSnapshotsAbove(target int64) error {
 	return nil
 }
 
-// catchUpToWAL replays the WAL into SC and SS up to the last block it holds, which is the height state
-// committed to. An empty WAL leaves both stores where they are.
+// catchUpToWAL replays the WAL into the live state DB up to the last block it holds, which is the height
+// state committed to. An empty WAL leaves the live state DB where it is.
 //
-// A commit writes the WAL before either store, so a crash between the two leaves one of them a block
-// behind. Committing from behind the WAL is rejected, so this is what makes an opened StateDB able to
-// commit.
+// A commit writes the WAL before the live state DB, so a crash between the two leaves it a block behind.
+// Committing from behind the WAL is rejected, so this is what makes an opened StateDB able to commit.
 func (s *StateDB) catchUpToWAL(ctx context.Context) error {
 	wal, err := s.openWALRange()
 	if err != nil {
 		return err
 	}
 	if wal.last == 0 {
-		// Neither store is carried forward, for the reason discardStateAboveTheWAL gives: with no head to
-		// measure against, a working copy above the current snapshot is the only record of the blocks it
-		// holds, and dropping it on one store alone would leave the two at different heights. A rollback
-		// that empties the WAL brings both down in rewindTo, where the target says where they belong.
-		//
-		// An interrupted commit is still repaired, since the disagreement it leaves needs no head to be
-		// recognised. Nothing below reaches the repair catchUpTo runs.
+		// The WAL is empty when a node starts from transplanted state. There is nothing to replay and no
+		// head to check the live state DB against, so its working copy is kept as it is (unless an
+		// interrupted commit left its data DBs disagreeing, which would be a terminal failure with no WAL
+		// present).
 		if err := s.sc.RebuildIfTorn(); err != nil {
 			return fmt.Errorf("repair the state commit store's working copy: %w", err)
 		}
@@ -133,47 +123,33 @@ func (s *StateDB) catchUpToWAL(ctx context.Context) error {
 	return nil
 }
 
-// catchUpTo replays the WAL into SC up to target. The undo log resumes against SC afterwards rather
-// than replaying the WAL itself.
+// catchUpTo replays the WAL into the live state DB up to target.
 func (s *StateDB) catchUpTo(ctx context.Context, target int64) error {
 	// Ahead of the pass, which is what erases the evidence it works from, and here rather than in the
 	// open because every replay of this WAL comes through this function.
 	if err := s.sc.RebuildIfUnreachable(target); err != nil {
 		return fmt.Errorf("rebuild the state commit store's working copy: %w", err)
 	}
-	scFrom := s.sc.Version()
-	s.logReplayPlan(scFrom, target)
+	from := s.sc.Version()
+	logReplayPlan(from, target)
 
-	if err := s.replay(ctx, scFrom, target, func(block int64, mutations []mutation.Mutation) error {
-		if block <= scFrom {
-			return nil
-		}
-		// SC owns no WAL, so re-committing a block read from this one appends nothing. It does run
-		// SC's commit path, so the checkpoint schedule is asked at each block SC takes.
-		return s.sc.CommitStateChanges(block, mutations)
-	}); err != nil {
-		return err
-	}
-	return nil
+	// The live state DB owns no WAL, so re-committing a block read from this one appends nothing. It does
+	// run the commit path, so the checkpoint schedule is asked at each block it takes.
+	return s.replay(ctx, from, target, s.sc.CommitStateChanges)
 }
 
-// logReplayPlan reports the height SC resumes from and the blocks the pass about to run will feed it.
+// logReplayPlan reports the height the live state DB resumes from and the blocks the pass about to run
+// will feed it.
 //
 // It is logged even when nothing is replayed, because an open that had no catching up to do is
 // otherwise indistinguishable from one still working through a long pass.
-func (s *StateDB) logReplayPlan(scFrom int64, target int64) {
-	fields := append([]any{"target", target}, replayPlanFields("sc", scFrom, target)...)
-	logger.Info("State DB replay plan", fields...)
-}
-
-// replayPlanFields describes one store's share of a replay: the version it holds, and the blocks it is
-// about to take. The range is omitted when there are none, so an empty plan reads as one.
-func replayPlanFields(store string, from int64, to int64) []any {
-	fields := []any{store + "_version", from, store + "_replay_blocks", to - from}
-	if to > from {
-		fields = append(fields, store+"_replay_from", from+1, store+"_replay_to", to)
+func logReplayPlan(from int64, target int64) {
+	fields := []any{"target", target, "sc_version", from, "sc_replay_blocks", target - from}
+	if target > from {
+		// Omitted when there are none, so an empty plan reads as one.
+		fields = append(fields, "sc_replay_from", from+1, "sc_replay_to", target)
 	}
-	return fields
+	logger.Info("State DB replay plan", fields...)
 }
 
 // replay feeds apply every WAL block in (from, target], in order.
@@ -287,8 +263,7 @@ func estimate(remaining int64, rate float64) time.Duration {
 	return (time.Duration(float64(remaining)/rate) * time.Second).Truncate(time.Second)
 }
 
-// matchHeight checks SC against blockNum. The undo log resumes against SC after this check, so it is
-// not held to the height here.
+// matchHeight reports the live state DB when it is not on blockNum.
 //
 // The error names no path, since both the open and a rollback converge here; each caller supplies the
 // height it asked for.

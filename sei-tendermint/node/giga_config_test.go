@@ -97,7 +97,7 @@ func TestPrepareApplicationFullModeOpensStateStore(t *testing.T) {
 	manager, ok := storage.Get()
 	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
-	require.NotNil(t, manager.SS())
+	require.NotNil(t, manager.StateDB().UndoSS())
 }
 
 func TestPrepareApplicationReceiptsOffOpensNoReceiptStore(t *testing.T) {
