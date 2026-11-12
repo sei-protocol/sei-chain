@@ -9,8 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/grpc/tmservice"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 
-	gogogrpc "github.com/gogo/protobuf/grpc"
-	"github.com/golang/protobuf/proto" // nolint: staticcheck
+	gogogrpc "github.com/gogo/protobuf/grpc" // nolint: staticcheck
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -106,18 +105,6 @@ func (s txServer) Simulate(ctx context.Context, req *txtypes.SimulateRequest) (*
 	}
 
 	txBytes := req.TxBytes
-	if txBytes == nil && req.Tx != nil {
-		// This block is for backwards-compatibility.
-		// We used to support passing a `Tx` in req. But if we do that, sig
-		// verification might not pass, because the .Marshal() below might not
-		// be the same marshaling done by the client.
-		var err error
-		txBytes, err = proto.Marshal(req.Tx)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid tx; %v", err)
-		}
-	}
-
 	if txBytes == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "empty txBytes is not allowed")
 	}

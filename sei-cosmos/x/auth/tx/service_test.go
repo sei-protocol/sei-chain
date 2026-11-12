@@ -3,8 +3,13 @@ package tx
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/gogo/gateway"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -42,4 +47,32 @@ func TestSimulate_OtherErrorsStayUnknown(t *testing.T) {
 	_, err := srv.Simulate(t.Context(), &txtypes.SimulateRequest{TxBytes: []byte("tx")})
 	require.Error(t, err)
 	require.Equal(t, codes.Unknown, status.Code(err))
+}
+
+func TestSimulateGatewayAcceptsOnlyTxBytes(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{name: "tx_bytes", body: `{"tx_bytes":"dHg="}`, wantStatus: http.StatusOK},
+		{name: "tx", body: `{"tx":{"body":{}}}`, wantStatus: http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var simulated int
+			srv := txServer{
+				simulate: func(context.Context, []byte) (sdk.GasInfo, *sdk.Result, error) {
+					simulated++
+					return sdk.GasInfo{}, &sdk.Result{}, nil
+				},
+			}
+			mux := runtime.NewServeMux(runtime.WithMarshalerOption(runtime.MIMEWildcard, &gateway.JSONPb{OrigName: true}))
+			require.NoError(t, txtypes.RegisterServiceHandlerServer(t.Context(), mux, srv))
+
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/cosmos/tx/v1beta1/simulate", strings.NewReader(tc.body)))
+			require.Equal(t, tc.wantStatus, rec.Code, rec.Body.String())
+			require.Equal(t, rec.Code == http.StatusOK, simulated == 1)
+		})
+	}
 }
