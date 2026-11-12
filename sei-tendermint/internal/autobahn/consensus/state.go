@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
@@ -27,8 +29,20 @@ type ViewTimeoutFunc = func(types.View) time.Duration
 type Config struct {
 	Key         types.SecretKey
 	ViewTimeout ViewTimeoutFunc
+	// Limits the number of consensus instances/s this validator should participate in.
+	// This effectively limits the rate of finalized RoadBlocks, which has following consequences:
+	// * expected avg e2e latency of tx finalization >= 1/cfg.MaxRate
+	// * n-2f of honest nodes are required to produce a roadblock, so
+	//   road block rate <= (n-f)/(n-2f) * cfg.MaxRate < 2 * cfg.MaxRate (if all honest validators have consistent rate limit)
+	// * If all validators are either honest or offline, you can expect road block rate <= cfg.MaxRate
+	// * avg RoadBlock size >= lane block rate / road block rate
+	// * make sure that 1/MaxRate < ViewTimeout
+	// Purpose of MaxRate is to throttle consensus which is TOO FAST, which is usually not the case.
+	// Set to rate.Inf unless you know what you are doing.
+	MaxRate rate.Limit
 	// ProposalTimeout bounds proposal timestamps and must be greater than 0.
 	// The accepted width is ProposalTimeout * (view number + 1).
+	// TODO(gprusak): should be a consensus param.
 	ProposalTimeout time.Duration
 	// PersistentStateDir is the directory where the consensus state is persisted.
 	// If None, persistence is disabled - DANGEROUS, may lead to SLASHING on restart.
@@ -44,11 +58,11 @@ type Config struct {
 // NOTE: While this is the "brain", it relies on the "avail" package as its
 // primary data store and synchronization sequencer.
 type State struct {
-	cfg   *Config
-	avail *avail.State
-	// metrics *Metrics
-	inner     utils.Mutex[*utils.AtomicSend[inner]]
-	innerRecv utils.AtomicRecv[inner]
+	cfg         *Config
+	avail       *avail.State
+	specLimiter *rate.Limiter
+	inner       utils.Mutex[*utils.AtomicSend[inner]]
+	innerRecv   utils.AtomicRecv[inner]
 
 	// persister writes inner's persistedInner to disk when PersistentStateDir is set; None when disabled.
 	persister utils.Option[persist.Persister[*pb.PersistedInner]]
@@ -107,6 +121,9 @@ func newState(
 	pers utils.Option[persist.Persister[*pb.PersistedInner]],
 	persistedData utils.Option[*pb.PersistedInner],
 ) (*State, error) {
+	if !(0 < cfg.MaxRate && cfg.MaxRate <= rate.Inf) {
+		return nil, fmt.Errorf("MaxRate must be positive and finite (or rate.Inf), got %v", cfg.MaxRate)
+	}
 	if cfg.ProposalTimeout <= 0 {
 		return nil, fmt.Errorf("ProposalTimeout must be greater than 0, got %v", cfg.ProposalTimeout)
 	}
@@ -125,10 +142,12 @@ func newState(
 	s := &State{
 		cfg: cfg,
 		// metrics: NewMetrics(),
-		avail:     availState,
-		inner:     utils.NewMutex(innerSend),
-		innerRecv: innerSend.Subscribe(),
-		persister: pers,
+		avail: availState,
+		// We set nontrivial burst to smoothen rate limiting across validators (who rate limit independently).
+		specLimiter: rate.NewLimiter(cfg.MaxRate, 5),
+		inner:       utils.NewMutex(innerSend),
+		innerRecv:   innerSend.Subscribe(),
+		persister:   pers,
 
 		timeoutVotes: utils.NewMutex(newTimeoutVotes()),
 		prepareVotes: utils.NewMutex(newPrepareVotes()),
@@ -393,7 +412,7 @@ func (s *State) Run(ctx context.Context) error {
 			// only advance on CommitQCs that avail has verified, persisted, and paired
 			// with the epoch of the next RoadIndex — consensus resolves no epochs itself.
 			return s.avail.ConsensusSpec().Iter(ctx, func(ctx context.Context, spec types.ConsensusSpec) error {
-				return s.pushSpec(spec)
+				return s.pushSpec(ctx, spec)
 			})
 		})
 		scope.SpawnNamed("pushPrepareQC", func() error {

@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -272,6 +274,7 @@ func newTestEnvN(t testing.TB, rng utils.Rng, n int, cfg *Config, app *proxy.Pro
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
 		ProposalTimeout:    time.Hour,
+		MaxRate:            rate.Inf,
 		PersistentStateDir: utils.None[string](),
 	}, dataState))
 	return &testEnv{

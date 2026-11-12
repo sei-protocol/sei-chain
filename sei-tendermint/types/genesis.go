@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 const (
@@ -68,24 +69,41 @@ func (g *GenesisValidator) UnmarshalJSON(data []byte) error {
 
 // GenesisDoc defines the initial conditions for a tendermint blockchain, in particular its validator set.
 type GenesisDoc struct {
-	GenesisTime     time.Time          `json:"genesis_time"`
-	ChainID         string             `json:"chain_id"`
-	InitialHeight   int64              `json:"initial_height,string"`
-	ConsensusParams *ConsensusParams   `json:"consensus_params,omitempty"`
-	Validators      []GenesisValidator `json:"validators,omitempty"`
-	AppHash         tmbytes.HexBytes   `json:"app_hash"`
-	AppState        json.RawMessage    `json:"app_state,omitempty"`
-	Autobahn        *AutobahnParams    `json:"autobahn,omitempty"`
+	GenesisTime     time.Time                    `json:"genesis_time"`
+	ChainID         string                       `json:"chain_id"`
+	InitialHeight   int64                        `json:"initial_height,string"`
+	ConsensusParams *ConsensusParams             `json:"consensus_params,omitempty"`
+	Validators      []GenesisValidator           `json:"validators,omitempty"`
+	AppHash         tmbytes.HexBytes             `json:"app_hash"`
+	AppState        json.RawMessage              `json:"app_state,omitempty"`
+	Autobahn        utils.Option[AutobahnParams] `json:"autobahn,omitzero"`
 }
 
 // AutobahnParams is the Autobahn section of a genesis doc.
 type AutobahnParams struct {
 	ViewTimeout time.Duration `json:"view_timeout,string"`
+	// MinRoadBlockInterval is the minimum interval between this validator's
+	// consensus instances. Zero means unlimited; it must be less than ViewTimeout.
+	MinRoadBlockInterval time.Duration `json:"min_road_block_interval,string"`
 }
 
 // DefaultAutobahnParams returns AutobahnParams with a 1500ms view timeout.
-func DefaultAutobahnParams() *AutobahnParams {
-	return &AutobahnParams{ViewTimeout: 1500 * time.Millisecond}
+func DefaultAutobahnParams() AutobahnParams {
+	return AutobahnParams{ViewTimeout: 1500 * time.Millisecond}
+}
+
+// Validate checks Autobahn consensus parameters and their timing constraints.
+func (p AutobahnParams) Validate() error {
+	if p.ViewTimeout <= 0 {
+		return fmt.Errorf("view_timeout must be greater than 0, got %v", p.ViewTimeout)
+	}
+	if p.MinRoadBlockInterval < 0 {
+		return errors.New("min_road_block_interval must not be negative")
+	}
+	if p.MinRoadBlockInterval >= p.ViewTimeout {
+		return errors.New("min_road_block_interval must be shorter than view_timeout")
+	}
+	return nil
 }
 
 func (genDoc *GenesisDoc) ToRequestInitChain() *abci.RequestInitChain {
@@ -150,10 +168,10 @@ func (genDoc *GenesisDoc) ValidateAndComplete() error {
 	}
 	genDoc.ConsensusParams.Complete()
 
-	if genDoc.Autobahn == nil {
-		genDoc.Autobahn = DefaultAutobahnParams()
-	} else if genDoc.Autobahn.ViewTimeout <= 0 {
-		return fmt.Errorf("autobahn.view_timeout must be greater than 0, got %v", genDoc.Autobahn.ViewTimeout)
+	if params, ok := genDoc.Autobahn.Get(); ok {
+		if err := params.Validate(); err != nil {
+			return fmt.Errorf("autobahn: %w", err)
+		}
 	}
 
 	if err := genDoc.ConsensusParams.ValidateConsensusParams(); err != nil {
