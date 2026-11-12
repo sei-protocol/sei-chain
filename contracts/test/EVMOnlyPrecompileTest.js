@@ -159,7 +159,7 @@ describe("EVM-only precompiles", function () {
     });
 
     it("refuses a vote on an unknown proposal", async function () {
-      await expect(gov.connect(voters[0]).vote(1_000_000n, YES, { gasPrice })).to.be.rejected;
+      await expect(gov.connect(voters[0]).vote(1_000_000n, YES, { gasPrice })).to.be.rejectedWith("unknown proposal");
     });
   });
 });
