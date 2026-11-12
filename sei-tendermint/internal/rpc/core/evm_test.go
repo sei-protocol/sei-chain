@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -92,7 +91,7 @@ func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header *ethtypes.Head
 
 func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 	// Setup: an EVMEnvironment around a proxied EVMApplication, as node startup builds it.
-	app := &testEVMApp{EVMApplication: proxy.NewTestEVMApplication(abci.BaseApplication{})}
+	app := &testEVMApp{}
 	evm := proxy.NewEVM(app)
 	env := &EVMEnvironment{Environment: &Environment{EVM: utils.Some(evm)}, EVM: evm}
 	msg := &ethcore.Message{GasLimit: 21_000}

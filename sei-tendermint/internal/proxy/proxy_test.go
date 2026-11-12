@@ -273,7 +273,7 @@ func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header *ethtypes.Head
 
 func TestEVMProxyDelegatesToTheApplication(t *testing.T) {
 	// Setup: an EVMApplication wrapped by the proxy.
-	app := &testEVMApp{EVMApplication: NewTestEVMApplication(types.BaseApplication{})}
+	app := &testEVMApp{}
 	evm := NewEVM(app)
 	msg := &core.Message{GasLimit: 21_000}
 

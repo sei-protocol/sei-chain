@@ -10,7 +10,6 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -48,6 +47,10 @@ func (stubAppHashBuilder) GetAppHash(ctx context.Context, _ uint64) (*apphash.Ap
 func (stubAppHashBuilder) Bounds() (uint64, uint64, bool, error) { return 0, 0, false, nil }
 func (stubAppHashBuilder) Close() error                          { return nil }
 
+type broadcastEVMApp struct{ proxy.EVMApplication }
+
+func (broadcastEVMApp) LastBlockHeight() int64 { return 0 }
+
 func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	t.Helper()
 	rng := utils.TestRng()
@@ -70,7 +73,7 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	}
 	blockStore := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, blockStore.Close()) })
-	app := proxy.NewTestEVMProxy(&abci.BaseApplication{})
+	app := proxy.NewEVM(broadcastEVMApp{})
 	commonCfg := p2p.GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,

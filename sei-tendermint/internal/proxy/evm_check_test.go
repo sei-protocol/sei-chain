@@ -6,7 +6,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
@@ -38,7 +37,7 @@ func TestEVMCheckTxSafe(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			app := NewEVM(&evmCheckApp{EVMApplication: NewTestEVMApplication(abci.BaseApplication{}), check: tc.check})
+			app := NewEVM(&evmCheckApp{check: tc.check})
 			res, err := app.CheckTxSafe(t.Context(), &RequestCheckTxV2{Tx: []byte{1}})
 			if tc.wantError {
 				require.Error(t, err)

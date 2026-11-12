@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -37,7 +36,7 @@ func (a *nonceOrderingApp) EvmNonce(addr common.Address) uint64 {
 	return nonce
 }
 
-func (a *nonceOrderingApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+func (a *nonceOrderingApp) FinalizeBlock(ctx context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
 	for gate, ctrl := range a.gate.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return !gate.pauseFinalizeBlock }); err != nil {
 			return nil, err
@@ -60,7 +59,7 @@ func TestEVMNextPendingNonce_race(t *testing.T) {
 	cfg := app.Cfg()
 	cfg.BlockInterval = 0
 	cfg.MaxTxsPerBlock = 1
-	env := newTestEnv(t, rng, cfg, proxy.NewTestEVMProxy(app))
+	env := newTestEnv(t, rng, cfg, proxy.NewEVM(app))
 	addr, nonce := app.NewAccount(rng)
 	tx1 := env.genTx(rng, addr, nonce)
 	tx2 := env.genTx(rng, addr, nonce+1)

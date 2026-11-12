@@ -17,7 +17,6 @@ import (
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -33,7 +32,7 @@ func TestMockAppFinalizeBlockBumpsNoncesAndUsesGasWanted(t *testing.T) {
 
 	tx1, _, addr := buildFastCheckTxBytesForKey(t, key, 0, 21_000)
 	tx2, ethTx2, _ := buildFastCheckTxBytesForKey(t, key, 1, 31_000)
-	app := NewMockApp(proxy.NewTestEVMApplication(abci.BaseApplication{}))
+	app := NewMockApp(mockAppFixture{})
 	_, err = app.InitChain(&proxy.RequestInitChain{InitialHeight: 3})
 	require.NoError(t, err)
 
@@ -56,7 +55,7 @@ func TestMockAppFinalizeBlockBumpsNoncesAndUsesGasWanted(t *testing.T) {
 }
 
 func TestMockAppServesTheEVMOnlyChainWithoutExecution(t *testing.T) {
-	app := NewMockApp(proxy.NewTestEVMApplication(abci.BaseApplication{}))
+	app := NewMockApp(mockAppFixture{})
 
 	require.Equal(t, config.AutobahnEVMOnlyChainID, app.EvmChainID())
 	require.Equal(t, new(big.Int).SetUint64(config.AutobahnEVMOnlyChainID), app.EvmChainConfig().ChainID)
@@ -80,7 +79,7 @@ func TestMockAppFinalizeBlockFailsNonceMismatch(t *testing.T) {
 	tx0, _, addr := buildFastCheckTxBytesForKey(t, key, 0, 21_000)
 	tx2, _, _ := buildFastCheckTxBytesForKey(t, key, 2, 31_000)
 	tx1, _, _ := buildFastCheckTxBytesForKey(t, key, 1, 41_000)
-	app := NewMockApp(proxy.NewTestEVMApplication(abci.BaseApplication{}))
+	app := NewMockApp(mockAppFixture{})
 	_, err = app.InitChain(&proxy.RequestInitChain{InitialHeight: 1})
 	require.NoError(t, err)
 
@@ -90,13 +89,13 @@ func TestMockAppFinalizeBlockFailsNonceMismatch(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, res.TxResults, 3)
-	require.Equal(t, abci.CodeTypeOK, res.TxResults[0].Code)
+	require.Equal(t, proxy.CodeTypeOK, res.TxResults[0].Code)
 	require.Equal(t, sdkerrors.ErrWrongSequence.ABCICode(), res.TxResults[1].Code)
 	require.Equal(t, sdkerrors.ErrWrongSequence.Codespace(), res.TxResults[1].Codespace)
 	require.Equal(t, sdkerrors.ErrWrongSequence.Error(), res.TxResults[1].Log)
 	require.Equal(t, int64(0), res.TxResults[1].GasWanted)
 	require.Equal(t, int64(0), res.TxResults[1].GasUsed)
-	require.Equal(t, abci.CodeTypeOK, res.TxResults[2].Code)
+	require.Equal(t, proxy.CodeTypeOK, res.TxResults[2].Code)
 	require.Equal(t, uint64(2), app.EvmNonce(addr))
 	_, err = app.Commit(t.Context())
 	require.NoError(t, err)
@@ -116,7 +115,7 @@ func TestMockAppFinalizeBlockRecordsParseFailurePerTx(t *testing.T) {
 
 	tx0, _, addr := buildFastCheckTxBytesForKey(t, key, 0, 21_000)
 	tx1, _, _ := buildFastCheckTxBytesForKey(t, key, 1, 31_000)
-	app := NewMockApp(proxy.NewTestEVMApplication(abci.BaseApplication{}))
+	app := NewMockApp(mockAppFixture{})
 	_, err = app.InitChain(&proxy.RequestInitChain{InitialHeight: 1})
 	require.NoError(t, err)
 
@@ -126,17 +125,17 @@ func TestMockAppFinalizeBlockRecordsParseFailurePerTx(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, res.TxResults, 3)
-	require.Equal(t, abci.CodeTypeOK, res.TxResults[0].Code)
-	require.NotEqual(t, abci.CodeTypeOK, res.TxResults[1].Code)
+	require.Equal(t, proxy.CodeTypeOK, res.TxResults[0].Code)
+	require.NotEqual(t, proxy.CodeTypeOK, res.TxResults[1].Code)
 	require.Equal(t, int64(0), res.TxResults[1].GasWanted)
 	require.Equal(t, int64(0), res.TxResults[1].GasUsed)
-	require.Equal(t, abci.CodeTypeOK, res.TxResults[2].Code)
+	require.Equal(t, proxy.CodeTypeOK, res.TxResults[2].Code)
 	require.Equal(t, uint64(2), app.EvmNonce(addr))
 	require.Equal(t, int64(1), app.LastBlockHeight())
 }
 
 func TestMockAppFinalizeBlockRequiresSequentialHeader(t *testing.T) {
-	app := NewMockApp(proxy.NewTestEVMApplication(abci.BaseApplication{}))
+	app := NewMockApp(mockAppFixture{})
 	_, err := app.InitChain(&proxy.RequestInitChain{InitialHeight: 4})
 	require.NoError(t, err)
 
@@ -157,7 +156,7 @@ func TestMockAppFinalizeBlockRequiresSequentialHeader(t *testing.T) {
 }
 
 func TestMockAppChecksTransitions(t *testing.T) {
-	app := NewMockApp(proxy.NewTestEVMApplication(abci.BaseApplication{}))
+	app := NewMockApp(mockAppFixture{})
 
 	_, err := app.Commit(t.Context())
 	require.Error(t, err)
@@ -191,7 +190,7 @@ func TestMockAppChecksTransitions(t *testing.T) {
 }
 
 func TestMockAppCommitSetsRetainHeight(t *testing.T) {
-	app := NewMockApp(proxy.NewTestEVMApplication(abci.BaseApplication{}))
+	app := NewMockApp(mockAppFixture{})
 	_, err := app.InitChain(&proxy.RequestInitChain{InitialHeight: 10_005})
 	require.NoError(t, err)
 
@@ -214,7 +213,7 @@ func TestMockAppCommitSetsRetainHeight(t *testing.T) {
 }
 
 func TestMockAppForwardsInitChainAndIgnoresInitLastHeader(t *testing.T) {
-	inner := &mockAppForwardTarget{EVMApplication: proxy.NewTestEVMApplication(abci.BaseApplication{})}
+	inner := &mockAppForwardTarget{}
 	app := NewMockApp(inner)
 	header := &proxy.Header{Height: 11}
 
@@ -233,7 +232,7 @@ func TestMockAppForwardsInitChainAndIgnoresInitLastHeader(t *testing.T) {
 }
 
 func TestMockAppAppHashRollsBlockHashes(t *testing.T) {
-	app := NewMockApp(proxy.NewTestEVMApplication(abci.BaseApplication{}))
+	app := NewMockApp(mockAppFixture{})
 	_, err := app.InitChain(&proxy.RequestInitChain{InitialHeight: 1})
 	require.NoError(t, err)
 	require.Empty(t, app.Info().LastBlockAppHash)
@@ -265,7 +264,7 @@ func TestMockAppAppHashRollsBlockHashes(t *testing.T) {
 }
 
 func TestMockAppInfoPreservesWrappedAppMetadata(t *testing.T) {
-	app := NewMockApp(mockAppInfoTarget{EVMApplication: proxy.NewTestEVMApplication(abci.BaseApplication{})})
+	app := NewMockApp(mockAppInfoTarget{})
 	_, err := app.InitChain(&proxy.RequestInitChain{InitialHeight: 9})
 	require.NoError(t, err)
 
@@ -281,7 +280,7 @@ func TestMockAppInfoPreservesWrappedAppMetadata(t *testing.T) {
 func TestMockAppGetValidatorsCachesWrappedAppValidators(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng).Public()
-	inner := &mockAppValidatorsTarget{EVMApplication: proxy.NewTestEVMApplication(abci.BaseApplication{}), validators: []proxy.ValidatorUpdate{{PubKey: key, Power: 7}}}
+	inner := &mockAppValidatorsTarget{validators: []proxy.ValidatorUpdate{{PubKey: key, Power: 7}}}
 	app := NewMockApp(inner)
 
 	require.Empty(t, app.GetValidators())
@@ -300,15 +299,25 @@ func TestMockAppGetValidatorsCachesWrappedAppValidators(t *testing.T) {
 }
 
 func TestMockAppEvmBalanceReturns100ETH(t *testing.T) {
-	app := NewMockApp(proxy.NewTestEVMApplication(abci.BaseApplication{}))
+	app := NewMockApp(mockAppFixture{})
 	want := new(big.Int).Mul(big.NewInt(100), big.NewInt(1_000_000_000_000_000_000))
 
 	got := app.EvmBalance(common.Address{}, nil)
 	require.Equal(t, want, got.ToBig())
 }
 
-type mockAppForwardTarget struct {
+type mockAppFixture struct {
 	proxy.EVMApplication
+}
+
+func (mockAppFixture) InitChain(*proxy.RequestInitChain) (*proxy.ResponseInitChain, error) {
+	return &proxy.ResponseInitChain{}, nil
+}
+func (mockAppFixture) GetValidators() []proxy.ValidatorUpdate { return nil }
+func (mockAppFixture) Info() *proxy.ResponseInfo              { return &proxy.ResponseInfo{} }
+
+type mockAppForwardTarget struct {
+	mockAppFixture
 	initChainCalled bool
 	lastHeader      utils.Option[*proxy.Header]
 }
@@ -323,7 +332,7 @@ func (app *mockAppForwardTarget) InitLastHeader(lastHeader *proxy.Header) {
 }
 
 type mockAppInfoTarget struct {
-	proxy.EVMApplication
+	mockAppFixture
 }
 
 func (mockAppInfoTarget) Info() *proxy.ResponseInfo {
@@ -338,7 +347,7 @@ func (mockAppInfoTarget) Info() *proxy.ResponseInfo {
 }
 
 type mockAppValidatorsTarget struct {
-	proxy.EVMApplication
+	mockAppFixture
 	validators []proxy.ValidatorUpdate
 	calls      int
 }
@@ -394,7 +403,7 @@ func TestParseFastCheckTxEVMTransaction(t *testing.T) {
 }
 
 func TestMockAppRejectsNonEVMTransaction(t *testing.T) {
-	wrapped := NewMockApp(proxy.NewTestEVMApplication(abci.BaseApplication{}))
+	wrapped := NewMockApp(mockAppFixture{})
 	nonEVMTx := buildTxRawBytes(t, []*codectypes.Any{{
 		TypeUrl: "/example.MsgNotEVM",
 		Value:   []byte{1},
@@ -402,11 +411,11 @@ func TestMockAppRejectsNonEVMTransaction(t *testing.T) {
 
 	res := wrapped.CheckTx(t.Context(), &proxy.RequestCheckTxV2{Tx: nonEVMTx})
 	require.NotNil(t, res.ResponseCheckTx)
-	require.NotEqual(t, abci.CodeTypeOK, res.Code)
+	require.NotEqual(t, proxy.CodeTypeOK, res.Code)
 }
 
 func TestMockAppChecksTransactionsWithoutCallingWrappedApp(t *testing.T) {
-	app := &checkTxCountingApp{EVMApplication: proxy.NewTestEVMApplication(abci.BaseApplication{})}
+	app := &checkTxCountingApp{}
 	txBytes, _ := buildFastCheckTxBytes(t)
 
 	wrapped := NewMockApp(app)
@@ -491,7 +500,7 @@ func (app *checkTxCountingApp) CheckTx(context.Context, *proxy.RequestCheckTxV2)
 	app.called = true
 	return &proxy.ResponseCheckTxV2{
 		ResponseCheckTx: &proxy.ResponseCheckTx{
-			Code:      abci.CodeTypeOK,
+			Code:      proxy.CodeTypeOK,
 			GasWanted: 77,
 		},
 	}

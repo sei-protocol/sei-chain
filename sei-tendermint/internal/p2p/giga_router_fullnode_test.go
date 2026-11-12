@@ -56,7 +56,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	require.NoError(t, genDoc.ValidateAndComplete())
 
 	app := newTestApp()
-	proxyApp := proxy.NewTestEVMProxy(app)
+	proxyApp := proxy.NewEVM(app)
 
 	dir := t.TempDir()
 	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig

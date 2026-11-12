@@ -13,7 +13,6 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -44,14 +43,14 @@ func registerEvmProxyForTest(t *testing.T, router *gigaRouterCommon, validator a
 }
 
 type fixedHeightApp struct {
-	abci.BaseApplication
+	proxy.EVMApplication
 	height int64
 }
 
 func (a *fixedHeightApp) LastBlockHeight() int64 { return a.height }
 
-func (a *fixedHeightApp) Info() *abci.ResponseInfo {
-	return &abci.ResponseInfo{LastBlockHeight: a.height}
+func (a *fixedHeightApp) Info() *proxy.ResponseInfo {
+	return &proxy.ResponseInfo{LastBlockHeight: a.height}
 }
 
 // manualAppHashBuilder is an AppHashBuilder whose app hashes become available
@@ -177,7 +176,7 @@ func newAppHashTestRouter(
 		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
-		App:                proxy.NewTestEVMProxy(app),
+		App:                proxy.NewEVM(app),
 		AppHashBuilder:     hashBuilder,
 	}
 	state, err := BuildDataState(cfg, db)
@@ -334,7 +333,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		ValidatorAddrs:     validatorAddrs,
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
-		App:                proxy.NewTestEVMProxy(&fixedHeightApp{height: int64(last)}),
+		App:                proxy.NewEVM(&fixedHeightApp{height: int64(last)}),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
 	}
 	state, err := BuildDataState(cfg, db)

@@ -13,7 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
@@ -53,10 +52,10 @@ func decodeTxSpec(data []byte) (*txSpec, error) {
 	return &tx, nil
 }
 
-func (tx *txSpec) asResponse() *abci.ResponseCheckTxV2 {
-	return &abci.ResponseCheckTxV2{
-		ResponseCheckTx: &abci.ResponseCheckTx{
-			Code:         abci.CodeTypeOK,
+func (tx *txSpec) asResponse() *proxy.ResponseCheckTxV2 {
+	return &proxy.ResponseCheckTxV2{
+		ResponseCheckTx: &proxy.ResponseCheckTx{
+			Code:         proxy.CodeTypeOK,
 			GasWanted:    int64(tx.GasWanted),
 			GasEstimated: int64(tx.GasEstimated),
 		},
@@ -90,7 +89,7 @@ type testAppInner struct {
 
 // Application tracking evm nonces.
 type testApp struct {
-	abci.BaseApplication
+	proxy.EVMApplication
 	inner   utils.Mutex[*testAppInner]
 	checked utils.AtomicSend[uint64]
 }
@@ -122,10 +121,6 @@ func (a *testApp) Cfg() *Config {
 	}
 }
 
-func (a *testApp) Proxy() *proxy.EVMProxy {
-	return proxy.NewTestEVMProxy(a)
-}
-
 func (a *testApp) EvmNonce(addr common.Address) uint64 {
 	for inner := range a.inner.Lock() {
 		return inner.nonces[addr]
@@ -133,7 +128,7 @@ func (a *testApp) EvmNonce(addr common.Address) uint64 {
 	panic("unreachable")
 }
 
-func (a *testApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+func (a *testApp) CheckTx(_ context.Context, req *proxy.RequestCheckTxV2) *proxy.ResponseCheckTxV2 {
 	defer func() {
 		for range a.inner.Lock() {
 			a.checked.Store(a.checked.Load() + 1)
@@ -141,8 +136,8 @@ func (a *testApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.R
 	}()
 	tx, err := decodeTxSpec(req.Tx)
 	if err != nil {
-		return &abci.ResponseCheckTxV2{
-			ResponseCheckTx: &abci.ResponseCheckTx{
+		return &proxy.ResponseCheckTxV2{
+			ResponseCheckTx: &proxy.ResponseCheckTx{
 				Code:      1,
 				Codespace: "some codespace",
 				Log:       err.Error(),
@@ -152,7 +147,7 @@ func (a *testApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.R
 	return tx.asResponse()
 }
 
-func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+func (a *testApp) FinalizeBlock(_ context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
 	for inner := range a.inner.Lock() {
 		for _, txRaw := range req.Txs {
 			tx, err := decodeTxSpec(txRaw)
@@ -165,7 +160,7 @@ func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBloc
 		}
 		h := sha256.Sum256(slices.Concat(req.Hash, inner.appHash[:]))
 		inner.appHash = h[:]
-		return &abci.ResponseFinalizeBlock{AppHash: inner.appHash}, nil
+		return &proxy.ResponseFinalizeBlock{AppHash: inner.appHash}, nil
 	}
 	panic("unreachable")
 }
@@ -299,7 +294,7 @@ func TestInsertTx_TooLargeTx(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), proxy.NewEVM(app))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -325,7 +320,7 @@ func TestInsertTx_GasWantedExceeded(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
 	cfg := app.Cfg()
-	env := newTestEnv(t, rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, proxy.NewEVM(app))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -355,7 +350,7 @@ func TestInsertTx_GasEstimatedExceeded(t *testing.T) {
 	cfg := app.Cfg()
 	cfg.MaxGasEstimatedPerBlock = 10000
 	cfg.MaxGasWantedPerBlock = cfg.MaxGasEstimatedPerBlock * 2
-	env := newTestEnv(t, rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, proxy.NewEVM(app))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -383,7 +378,7 @@ func TestInsertTx_AppRejectsTx(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), proxy.NewEVM(app))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -401,7 +396,7 @@ func TestInsertTx_AppRejectsTx(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if resp.Code == abci.CodeTypeOK {
+		if resp.Code == proxy.CodeTypeOK {
 			return fmt.Errorf("unexpected successful CheckTx response")
 		}
 		if len(env.state.UnconfirmedTxs()) != 0 {
@@ -415,7 +410,7 @@ func TestInsertTx_ConcurrentSequentialNonces(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), proxy.NewEVM(app))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -466,7 +461,7 @@ func TestInsertTx_BadNonceRejected(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), proxy.NewEVM(app))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -523,7 +518,7 @@ func TestMempool_HappyPath(t *testing.T) {
 	cfg.MaxTxsPerBlock = 20
 	cfg.MaxGasWantedPerBlock = 100
 	cfg.MaxGasEstimatedPerBlock = 100
-	env := newTestEnv(t, rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, proxy.NewEVM(app))
 	want := utils.NewMutex(map[common.Address][]*txSpec{})
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("env", func() error { return env.Run(ctx) })
@@ -611,7 +606,7 @@ func TestMempool_EvmTxByHash(t *testing.T) {
 	// single-tx blocks expected so env.Run's "sealed too early" check stays quiet.
 	cfg.BlockInterval = time.Millisecond
 	cfg.MaxTxsPerBlock = 1
-	env := newTestEnv(t, rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, proxy.NewEVM(app))
 	addr, nonce := app.NewAccount(rng)
 
 	txs := utils.Slice(
@@ -679,7 +674,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 	cfg := app.Cfg()
 	cfg.AllowEmptyBlocks = true
 	cfg.BlockInterval = 10 * time.Millisecond
-	env, registry, keys := newTestEnvN(t, rng, 2, cfg, app.Proxy())
+	env, registry, keys := newTestEnvN(t, rng, 2, cfg, proxy.NewEVM(app))
 	a, b := keys[0], keys[1]
 	availState := env.consensus.Avail()
 
@@ -754,7 +749,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 func TestInsertTx_WithoutSession(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), proxy.NewEVM(app))
 	tx := env.fullTx(rng, app).encode()
 	_, err := env.state.InsertTx(t.Context(), tx)
 	require.ErrorIs(t, err, ErrNotProducing)
@@ -822,7 +817,7 @@ func (env *testEnv) enqueueInserters(ctx context.Context, s scope.Scope, rng uti
 func TestInsertTx_AdmissionAfterExecution(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), proxy.NewEVM(app))
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -878,7 +873,7 @@ func TestInsertTx_AdmissionAfterExecution(t *testing.T) {
 func TestInsertTx_QueuesWithoutRPCAdmission(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), proxy.NewEVM(app))
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {

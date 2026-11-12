@@ -14,7 +14,6 @@ import (
 	"golang.org/x/time/rate"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
@@ -72,8 +71,10 @@ func defaultFileConfig(t testing.TB, validators []config.AutobahnValidator) *con
 // testGenesisMaxGas is the gas limit baked into the test genesis doc.
 const testGenesisMaxGas int64 = 50_000_000
 
+type setupEVMApp struct{ proxy.EVMApplication }
+
 func makeTestGigaDeps() (*proxy.EVMProxy, *types.GenesisDoc) {
-	app := proxy.NewTestEVMProxy(kvstore.NewApplication())
+	app := proxy.NewEVM(setupEVMApp{})
 	genDoc := &types.GenesisDoc{
 		ChainID: "test-chain",
 		// Nontrivial InitialHeight so any future code that assumes the

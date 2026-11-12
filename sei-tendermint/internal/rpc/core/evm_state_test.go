@@ -7,7 +7,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -27,7 +26,7 @@ func (a evmStateApp) CheckTx(context.Context, *proxy.RequestCheckTxV2) *proxy.Re
 }
 
 func TestEVMEnvironmentReadsStateWithoutABCI(t *testing.T) {
-	app := proxy.NewEVM(evmStateApp{EVMApplication: proxy.NewTestEVMApplication(abci.BaseApplication{})})
+	app := proxy.NewEVM(evmStateApp{})
 	env := &Environment{EVM: utils.Some(app)}
 	require.False(t, env.App.IsPresent())
 	require.Equal(t, uint64(17), env.EvmBlockNumber())

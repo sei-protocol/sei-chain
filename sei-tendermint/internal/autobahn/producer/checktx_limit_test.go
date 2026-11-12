@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"testing"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -34,11 +33,7 @@ func newGatedApp() *gatedApp {
 	}
 }
 
-func (a *gatedApp) Proxy() *proxy.EVMProxy {
-	return proxy.NewTestEVMProxy(a)
-}
-
-func (a *gatedApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+func (a *gatedApp) CheckTx(ctx context.Context, req *proxy.RequestCheckTxV2) *proxy.ResponseCheckTxV2 {
 	for g, ctrl := range a.gate.Lock() {
 		g.inflight += 1
 		g.maxSeen = max(g.maxSeen, g.inflight)
@@ -47,7 +42,7 @@ func (a *gatedApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abc
 		g.inflight -= 1
 		ctrl.Updated()
 		if err != nil {
-			return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1, Log: err.Error()}}
+			return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 1, Log: err.Error()}}
 		}
 	}
 	return a.testApp.CheckTx(ctx, req)
@@ -85,7 +80,7 @@ func TestInsertTx_BoundsConcurrentCheckTx(t *testing.T) {
 	cfg := app.Cfg()
 	cfg.MaxConcurrentCheckTx = utils.Some(limit)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		env := newTestEnv(t, rng, cfg, app.Proxy())
+		env := newTestEnv(t, rng, cfg, proxy.NewEVM(app))
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
@@ -130,7 +125,7 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 	app := newGatedApp()
 	cfg := app.Cfg()
 	cfg.MaxConcurrentCheckTx = utils.Some[uint64](1)
-	env := newTestEnv(t, rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, proxy.NewEVM(app))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -190,7 +185,7 @@ func TestTryInsertTx_FullSkipsCheckTx(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), proxy.NewEVM(app))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
