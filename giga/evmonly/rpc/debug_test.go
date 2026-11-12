@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http/httptest"
@@ -106,7 +107,7 @@ func newTraceChain(t *testing.T) *traceChain {
 			ParentHash:  header.ParentHash,
 		}
 	}
-	replay := func(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
+	replay := func(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
 		view := &failingReadView{StateView: evmonly.NewMemoryStore(base).OpenView()}
 		stateDB, err := executor.ReplayState(ctx, view, evmonly.BlockRequest{Context: blockContext(header), Txs: txs})
 		view.failing = chain.failReads
@@ -143,7 +144,7 @@ func newTraceChain(t *testing.T) *traceChain {
 		blockContext: func(header *ethtypes.Header) (vm.BlockContext, error) {
 			return evmonly.EVMBlockContext(blockContext(header)), nil
 		},
-		stateAt: func(ctx context.Context, height int64) (vm.StateDB, func(), error) {
+		stateAt: func(ctx context.Context, height int64) (vm.SeiStateDB, func(), error) {
 			header := chain.header(2)
 			if height == ethrpc.LatestBlockNumber.Int64() {
 				height = int64(chain.backend.blockNumber()) //nolint:gosec // G115: a test height fits in int64.
@@ -441,7 +442,7 @@ func TestDebugTraceCall(t *testing.T) {
 		chain.blocks[3] = traceResultBlock(3, nil)
 		chain.backend.blockNumber = func() uint64 { return 3 }
 		stateAt := chain.backend.stateAt
-		chain.backend.stateAt = func(ctx context.Context, height int64) (vm.StateDB, func(), error) {
+		chain.backend.stateAt = func(ctx context.Context, height int64) (vm.SeiStateDB, func(), error) {
 			if height != ethrpc.LatestBlockNumber.Int64() {
 				return nil, nil, fmt.Errorf("the EVM state after block %d is not held by this node", height)
 			}
@@ -594,4 +595,21 @@ func TestPrepareTraceConfigCapsTheStructLogger(t *testing.T) {
 	api := newDebugAPI(&testBackend{}, evmonly.NewMemoryReceiptStore(), gigaconfig.RPCConfig{MaxTraceStructLogBytes: capBytes})
 	require.NoError(t, api.prepareTraceConfig(config))
 	require.Nil(t, config.Config)
+}
+
+// A failed block read reaches the caller instead of "transaction not found".
+func TestDebugTraceTransactionSurfacesBlockReadError(t *testing.T) {
+	errBlockDown := errors.New("block store down")
+	hash := common.HexToHash("0x01")
+	store := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()).WithBlockHeight(9), []receipt.ReceiptRecord{
+		{TxHash: hash, Receipt: &evmtypes.Receipt{TxHashHex: hash.Hex(), BlockNumber: 9, GasUsed: 21_000, CumulativeGasUsed: 21_000}},
+	}))
+	backend := &testBackend{block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return nil, errBlockDown
+	}}
+	api := newDebugAPI(backend, store, gigaconfig.RPCConfig{})
+
+	_, err := api.TraceTransaction(t.Context(), hash, nil)
+	require.ErrorIs(t, err, errBlockDown)
 }
