@@ -12,6 +12,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -127,6 +128,11 @@ func (api *stateAPI) GetStorageAt(ctx context.Context, address common.Address, h
 		return nil, err
 	}
 	return value[:], nil
+}
+
+// GetProof implements eth_getProof, matching v2: Sei serves no state proofs.
+func (*stateAPI) GetProof(context.Context, common.Address, []string, ethrpc.BlockNumberOrHash) (any, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "eth_getProof is not supported yet; please reach out to the Sei Labs if you need this endpoint"}
 }
 
 // decodeStorageKey decodes a hex storage slot of at most 32 bytes, with or

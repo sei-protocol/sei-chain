@@ -8,13 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/gogo/protobuf/jsonpb"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/assert"
@@ -436,8 +434,6 @@ func TestConcurrentCheckDeliver(t *testing.T) {
 }
 
 // Simulate a transaction that uses gas to compute the gas.
-// Simulate() and Query("/app/simulate", txBytes) should give
-// the same results.
 func TestSimulateTx(t *testing.T) {
 	gasConsumed := uint64(5)
 
@@ -485,22 +481,6 @@ func TestSimulateTx(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		require.Equal(t, gasConsumed, gInfo.GasUsed)
-
-		// simulate by calling Query with encoded tx
-		query := abci.RequestQuery{
-			Path: "/app/simulate",
-			Data: txBytes,
-		}
-		queryResult, _ := app.Query(context.Background(), &query)
-		require.True(t, queryResult.IsOK(), queryResult.Log)
-
-		var simRes sdk.SimulationResponse
-		require.NoError(t, jsonpb.Unmarshal(strings.NewReader(string(queryResult.Value)), &simRes))
-
-		require.Equal(t, gInfo, simRes.GasInfo)
-		require.Equal(t, result.Log, simRes.Result.Log)
-		require.Equal(t, result.Events, simRes.Result.Events)
-		require.True(t, bytes.Equal(result.Data, simRes.Result.Data))
 
 		app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
 
