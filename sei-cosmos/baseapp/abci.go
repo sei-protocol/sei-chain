@@ -19,6 +19,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/legacytm"
+	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -819,8 +820,26 @@ func (app *BaseApp) Simulate(goCtx context.Context, txBytes []byte) (sdk.GasInfo
 	if err != nil {
 		return sdk.GasInfo{}, nil, err
 	}
+	if err := checkSimulatedSignerModes(tx); err != nil {
+		return sdk.GasInfo{}, nil, err
+	}
 	runTxRes, err := app.runTx(ctx, runTxModeSimulate, tx, sha256.Sum256(txBytes))
 	return runTxRes.gasInfo, runTxRes.result, err
+}
+
+// checkSimulatedSignerModes returns an error if any signer of tx uses a multisig
+// sign mode, which simulation does not support.
+func checkSimulatedSignerModes(tx sdk.Tx) error {
+	protoTx, ok := tx.(interface{ GetProtoTx() *txtypes.Tx })
+	if !ok {
+		return nil
+	}
+	for i, signerInfo := range protoTx.GetProtoTx().GetAuthInfo().GetSignerInfos() {
+		if _, ok := signerInfo.GetModeInfo().GetSum().(*txtypes.ModeInfo_Multi_); ok {
+			return sdkerrors.Wrapf(sdkerrors.ErrNotSupported, "simulation of multisig signer %d", i)
+		}
+	}
+	return nil
 }
 
 func handleQueryApp(app *BaseApp, ctx context.Context, path []string, req abci.RequestQuery) abci.ResponseQuery {
