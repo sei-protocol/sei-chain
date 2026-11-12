@@ -280,7 +280,9 @@ func TestEveryGovParamChangesThroughAProposal(t *testing.T) {
 	}
 	var changes []paramChange
 	for _, k := range chainparams.Keys() {
-		changes = append(changes, paramChange{k.Subspace, k.Key, wantValues[k.Key]})
+		if k.Subspace == "gov" {
+			changes = append(changes, paramChange{k.Subspace, k.Key, wantValues[k.Key]})
+		}
 	}
 	require.Len(t, changes, len(wantValues), "every declared gov param")
 	id, err := h.submitParamChange(false, changes...)

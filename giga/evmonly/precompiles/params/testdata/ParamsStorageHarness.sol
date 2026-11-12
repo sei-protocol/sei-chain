@@ -20,5 +20,13 @@ contract ParamsStorageHarness is ParamsStorage {
             expeditedThreshold: 0.667e18,
             __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0]
         });
+        staking = Staking({
+            unbondingTime: 1_814_400e9,
+            maxValidators: 35,
+            maxEntries: 7,
+            maxVotingPowerRatio: 0.2e18,
+            maxVotingPowerEnforcementThreshold: 1_000_001,
+            __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0]
+        });
     }
 }

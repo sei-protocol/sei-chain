@@ -8,6 +8,8 @@ pragma solidity 0.8.30;
 /// - Dec: uint256, fixed point with 18 decimal places (1e18 is 1).
 /// - Duration: uint64 nanoseconds.
 /// - Coins: uint256 wei, a whole number of usei; only the usei denom exists.
+/// - Int: uint256.
+/// - uint32: uint32.
 /// Other V2 types have no stored form until a param needs one.
 ///
 /// Once a public network runs this, the layout only grows: a new param takes
@@ -29,5 +31,16 @@ contract ParamsStorage {
         uint256[8] __gap;
     }
 
+    /// @dev x/staking's params. The enforcement threshold is consensus power.
+    struct Staking {
+        uint64 unbondingTime; // UnbondingTime
+        uint32 maxValidators; // MaxValidators
+        uint32 maxEntries; // MaxEntries
+        uint256 maxVotingPowerRatio; // MaxVotingPower
+        uint256 maxVotingPowerEnforcementThreshold; // MaxVotingPowerEnforcementThreshold
+        uint256[8] __gap;
+    }
+
     Gov internal gov; // subspace "gov"
+    Staking internal staking; // subspace "staking"
 }

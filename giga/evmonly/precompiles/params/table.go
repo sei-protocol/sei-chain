@@ -21,6 +21,8 @@ var (
 	decKind      = valueKind{solType: "uint256", bits: 256}
 	durationKind = valueKind{solType: "uint64", bits: 64}
 	coinsKind    = valueKind{solType: "uint256", bits: 256}
+	intKind      = valueKind{solType: "uint256", bits: 256}
+	uint32Kind   = valueKind{solType: "uint32", bits: 32}
 )
 
 // param is one declared param.
@@ -48,7 +50,7 @@ type subspace struct {
 }
 
 // subspaces are the declared subspaces, in ParamsStorage order.
-var subspaces = []*subspace{&govSubspace}
+var subspaces = []*subspace{&govSubspace, &stakingSubspace}
 
 // Key is a declared param: its subspace, flat key, and the Solidity type of its
 // value.
