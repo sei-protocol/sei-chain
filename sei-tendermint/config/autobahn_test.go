@@ -11,6 +11,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmrequire "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/stretchr/testify/require"
 )
 
@@ -177,4 +178,35 @@ func TestEVMGovernanceParams_PeriodsAreDurationStrings(t *testing.T) {
 	got, err := NewEVMGovernanceParams(want).Gov()
 	require.NoError(t, err)
 	require.Equal(t, want, got)
+}
+
+func TestAutobahnFileConfigMaxRoadBlocksPerSecond(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		limit utils.Option[float64]
+		valid bool
+	}{
+		{"absent", utils.None[float64](), true},
+		{"fractional", utils.Some(0.5), true},
+		{"unlimited", utils.Some(math.MaxFloat64), true},
+		{"zero", utils.Some(float64(0)), false},
+		{"negative", utils.Some(float64(-1)), false},
+		{"nan", utils.Some(math.NaN()), false},
+		{"infinite", utils.Some(math.Inf(1)), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validAutobahnFileConfig()
+			cfg.MaxRoadBlocksPerSecond = tc.limit
+			if !tc.valid {
+				tmrequire.Error(t, cfg.Validate())
+				return
+			}
+			tmrequire.NoError(t, cfg.Validate())
+			data, err := json.Marshal(cfg)
+			tmrequire.NoError(t, err)
+			var decoded AutobahnFileConfig
+			tmrequire.NoError(t, json.Unmarshal(data, &decoded))
+			tmrequire.Equal(t, tc.limit, decoded.MaxRoadBlocksPerSecond)
+		})
+	}
 }

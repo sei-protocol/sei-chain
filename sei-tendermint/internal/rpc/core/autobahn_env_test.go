@@ -86,6 +86,7 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 		ValidatorKey:           valKey,
 		ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
 		ProposalTimeout:        time.Hour,
+		MaxRoadBlocksRate:      rate.Inf,
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    1,
 			MaxGasEstimatedPerBlock: 1,

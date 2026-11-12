@@ -23,6 +23,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmrequire "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -479,6 +480,21 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 			require.Equal(t, utils.Some(tc.wantOutbound), opts.MaxOutbound)
 			// MaxConcurrentAccepts tracks the inbound pool, not max-connections.
 			require.Equal(t, utils.Some(tc.wantInbound), opts.MaxConcurrentAccepts)
+		})
+	}
+}
+
+func TestBuildGigaConfigMaxRoadBlocksPerSecond(t *testing.T) {
+	for _, limit := range []utils.Option[float64]{utils.None[float64](), utils.Some(2.5)} {
+		t.Run(fmt.Sprint(limit), func(t *testing.T) {
+			v := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost:26660")
+			fc := defaultFileConfig(t, []config.AutobahnValidator{v})
+			fc.MaxRoadBlocksPerSecond = limit
+			cfgFile := writeAutobahnConfig(t, fc)
+			app, genDoc := makeTestGigaDeps()
+			cfg, err := buildValidatorGigaConfig(cfgFile, makeTestNodeKey([]byte("node-seed")), makeTestValidatorKey([]byte("val-seed")), app, genDoc)
+			tmrequire.NoError(t, err)
+			tmrequire.Equal(t, rate.Limit(limit.Or(float64(rate.Inf))), cfg.MaxRoadBlocksRate)
 		})
 	}
 }

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
@@ -55,6 +57,7 @@ func TestAvailClientServer(t *testing.T) {
 			Key:             activeKeys[0],
 			ViewTimeout:     defaultViewTimeout,
 			ProposalTimeout: time.Hour,
+			MaxRate:         rate.Inf,
 		})
 		corruptAvail := corrupt.consensus.Avail()
 		a2 := nodes[2].consensus.Avail()

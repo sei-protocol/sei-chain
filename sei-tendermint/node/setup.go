@@ -264,7 +264,8 @@ func buildValidatorGigaConfig(
 		ViewTimeout: func(atypes.View) time.Duration {
 			return genDoc.Autobahn.ViewTimeout
 		},
-		ProposalTimeout: genDoc.Autobahn.ViewTimeout,
+		ProposalTimeout:   genDoc.Autobahn.ViewTimeout,
+		MaxRoadBlocksRate: rate.Limit(fc.MaxRoadBlocksPerSecond.Or(float64(rate.Inf))),
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    genDoc.ConsensusParams.Block.MaxGasWantedUint64(),
 			MaxGasEstimatedPerBlock: genDoc.ConsensusParams.Block.MaxGasUint64(),

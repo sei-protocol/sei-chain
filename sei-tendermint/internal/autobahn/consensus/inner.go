@@ -154,12 +154,11 @@ func newInner(
 // state. Specs that do not advance the view are ignored, which covers the
 // tipless spec published before the first CommitQC.
 func (s *State) pushSpec(ctx context.Context, spec types.ConsensusSpec) error {
-
 	specViewIdx := spec.Index()
 	if specViewIdx <= s.innerRecv.Load().spec.Index() {
 		return nil
 	}
-	if err:=s.specLimiter.Wait(ctx); err!= nil{
+	if err := s.specLimiter.Wait(ctx); err != nil {
 		return err
 	}
 

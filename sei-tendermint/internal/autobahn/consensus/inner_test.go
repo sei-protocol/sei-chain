@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
@@ -1070,6 +1072,7 @@ func TestRunOutputsPersistErrorPropagates(t *testing.T) {
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
 		ProposalTimeout:    time.Hour,
+		MaxRate:            rate.Inf,
 		PersistentStateDir: utils.Some(dir),
 	}, ds, pers, utils.None[*pb.PersistedInner]())
 	require.NoError(t, err)
@@ -1088,6 +1091,7 @@ func newConsensusState(t *testing.T, registry *epoch.Registry, key types.SecretK
 		Key:             key,
 		ViewTimeout:     func(types.View) time.Duration { return time.Hour },
 		ProposalTimeout: time.Hour,
+		MaxRate:         rate.Inf,
 	}, newTestDataState(t, registry))
 	require.NoError(t, err)
 	return s
@@ -1117,7 +1121,7 @@ func TestPushCommitQC_RotatesEpochAtBoundary(t *testing.T) {
 	// Avail resolves the next-view epoch; pushSpec advances to it verbatim.
 	ep1, err := registry.Epoch(1)
 	require.NoError(t, err)
-	require.NoError(t, s.pushSpec(types.ConsensusSpec{CommitQC: utils.Some(qc), Epoch: ep1}))
+	require.NoError(t, s.pushSpec(t.Context(), types.ConsensusSpec{CommitQC: utils.Some(qc), Epoch: ep1}))
 	got := s.innerRecv.Load()
 	require.Equal(t, types.EpochIndex(1), got.spec.Epoch.EpochIndex())
 	require.Equal(t, ep1.RoadRange().First, got.View().Index)
