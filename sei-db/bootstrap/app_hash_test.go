@@ -144,6 +144,31 @@ func TestRestartWithTheAppHashVaultAheadOfState(t *testing.T) {
 	require.Equal(t, uint64(5), head, "the app hashes above the recovered height are kept")
 }
 
+// A startup that replays WAL blocks into the live state DB hashes them in the background. The app hash builder is
+// still set up at the live state DB's height, and goes on to build the next block's app hash.
+func TestStartupThatReplaysBlocksSetsUpTheAppHashBuilderAtTheLiveStateDBHeight(t *testing.T) {
+	cfg := newHome(t, disableSS)
+	stateDB := openStandaloneStateDB(t, cfg)
+	commitStateBlocks(t, stateDB, 1, 2)
+	for block := uint64(3); block <= 10; block++ {
+		writeWALOnly(t, stateDB.WAL(), block, evmBlock(byte(block), byte(block)))
+	}
+	require.NoError(t, stateDB.Close())
+	writeBlockLedger(t, cfg, 10)
+	writeAppHashes(t, cfg, 10)
+
+	manager := startManager(t, cfg)
+
+	require.Equal(t, int64(10), manager.StateDB().SC().Version())
+	_, published, ok, err := manager.AppHashBuilder().Bounds()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(10), published)
+	reportTestBlockHash(t, manager, 11)
+	commitBlock(t, manager, 11, evmBlock(11, 11))
+	awaitAppHashes(t, manager, 11)
+}
+
 // A recovered state whose hash differs from the one the vault stores for its height is state the node never
 // committed to, and it stops the node before the app hash builder's setup completes.
 func TestRecoveredStateThatDisagreesWithTheVaultStopsTheNode(t *testing.T) {
