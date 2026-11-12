@@ -140,7 +140,7 @@ func (r occSpeculativeRunner) runRanges(
 	return pool.Run(ctx, len(ranges), func(workerCtx context.Context, _ int, _ int) error {
 		stateDB := r.executor.acquireStateDB(nil)
 		defer r.executor.releaseStateDB(stateDB)
-		evm := vm.NewEVM(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, r.executor.customContracts)
+		evm := vm.NewEVMWithCustomPrecompiles(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, r.executor.customContracts)
 		stateDB.SetEVM(evm)
 		for {
 			rangeIndex := int(claimed.Add(1) - 1)
@@ -180,7 +180,7 @@ func (r occSpeculativeRunner) runTasks(
 	return pool.Run(ctx, len(tasks), func(workerCtx context.Context, workerID int, workers int) error {
 		stateDB := r.executor.acquireStateDB(nil)
 		defer r.executor.releaseStateDB(stateDB)
-		evm := vm.NewEVM(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, r.executor.customContracts)
+		evm := vm.NewEVMWithCustomPrecompiles(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, r.executor.customContracts)
 		stateDB.SetEVM(evm)
 		for taskIndex := workerID; taskIndex < len(tasks); taskIndex += workers {
 			if err := workerCtx.Err(); err != nil {
@@ -260,9 +260,8 @@ func (e *Executor) executeTxSpeculative(
 	stateDB.reset(source)
 	stateDB.enableAccessTracking()
 	evm.StateDB = stateDB
-	evm.Depth = 0
 	stateDB.SetEVM(evm)
-	gasPool := new(core.GasPool).AddGas(blockGasLimit)
+	gasPool := core.NewGasPool(blockGasLimit)
 	txResult, receipt, err := e.executeTx(
 		evm,
 		stateDB,

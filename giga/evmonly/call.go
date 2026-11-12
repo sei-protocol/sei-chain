@@ -87,7 +87,7 @@ func (e *Executor) applyMessage(
 	msg *core.Message,
 	vmConfig vm.Config,
 ) (*core.ExecutionResult, bool, error) {
-	evm := vm.NewEVM(EVMBlockContext(blockCtx), stateDB, chainConfig, vmConfig, e.customContracts)
+	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(blockCtx), stateDB, chainConfig, vmConfig, e.customContracts)
 	stateDB.SetEVM(evm)
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 
@@ -99,6 +99,6 @@ func (e *Executor) applyMessage(
 		evm.Cancel()
 	}()
 
-	result, err := core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(msg.GasLimit))
+	result, err := core.ApplyMessage(evm, msg, core.NewGasPool(msg.GasLimit))
 	return result, evm.Cancelled(), err
 }

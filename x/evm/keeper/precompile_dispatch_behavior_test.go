@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"math/big"
+	"slices"
 	"strings"
 	"testing"
 
@@ -218,17 +219,32 @@ func TestPrecompileCallCodeDelegateCallBehavior(t *testing.T) {
 	// a failing Sei precompile consumes all forwarded gas, unlike a revert
 	require.Equal(t, uint64(386286), r.res.GasUsed)
 
+	// non-zero msg.value: DELEGATECALL sendNative is still rejected and moves no funds; a CALL with the same value succeeds
+	valueScript := common.BigToAddress(big.NewInt(0xc0de10))
+	e.k.SetCode(e.ctx, valueScript, buildScript([]scriptStep{
+		{op: vm.CALL, to: bankAddr, gas: 100_000, value: bigUsei(1), data: bankCalldata(t, "sendNative", recvBech32)},
+		{op: vm.DELEGATECALL, to: bankAddr, gas: 100_000, data: bankCalldata(t, "sendNative", recvBech32)},
+	}))
+	r = e.runTx(key, e.legacyTx(1, &valueScript, bigUsei(2), 1_000_000, bigGwei(1), nil), 1)
+	require.Empty(t, r.res.VmError)
+	require.Equal(t, uint64(1), e.slot(valueScript, 0).Uint64(), "CALL sendNative with value: allowed")
+	require.Equal(t, uint64(0), e.slot(valueScript, 3).Uint64(), "DELEGATECALL sendNative under non-zero msg.value: rejected")
+	require.Equal(t, bigUsei(1), e.balanceWei(valueScript), "only the CALL moved funds")
+	require.Equal(t, bigUsei(1), e.balanceWei(pcRecipient))
+	require.True(t, r.totalSurplus().IsZero())
+
 	// forwarding 50k more gas to a rejected call costs exactly 50k more
 	gasFor := func(nonce uint64, idx int, fwd uint64) uint64 {
 		addr := common.BigToAddress(big.NewInt(0xc0de10 + int64(idx)))
 		e.k.SetCode(e.ctx, addr, buildScript([]scriptStep{{op: vm.DELEGATECALL, to: bankAddr, gas: fwd, data: bankCalldata(t, "sendNative", recvBech32)}}))
-		rr := e.runTx(key, e.legacyTx(nonce, &addr, nil, 1_000_000, bigGwei(1), nil), idx)
+		rr := e.runTx(key, e.legacyTx(nonce, &addr, bigUsei(1), 1_000_000, bigGwei(1), nil), idx)
 		require.Empty(t, rr.res.VmError)
 		require.Equal(t, uint64(0), e.slot(addr, 0).Uint64())
+		require.Equal(t, bigUsei(1), e.balanceWei(addr), "rejected DELEGATECALL moved no funds")
 		return rr.res.GasUsed
 	}
-	g50 := gasFor(1, 1, 50_000)
-	g100 := gasFor(2, 2, 100_000)
+	g50 := gasFor(2, 2, 50_000)
+	g100 := gasFor(3, 3, 100_000)
 	require.Equal(t, uint64(50_000), g100-g50)
 }
 
@@ -301,13 +317,13 @@ func (e *behaviorEnv) traceCall(from, to common.Address, data []byte, value *big
 	}
 	sstore := e.k.GetSstoreSetGasEIP2200(ctx)
 	cfg := types.DefaultChainConfig().EthereumConfigWithSstore(e.k.ChainID(ctx), &sstore)
-	evm := vm.NewEVM(*blockCtx, db, cfg, vm.Config{Tracer: hooks}, e.k.CustomPrecompiles())
-	evm.SetTxContext(vm.TxContext{Origin: from, GasPrice: big.NewInt(0)})
+	evm := vm.NewEVMWithCustomPrecompiles(*blockCtx, db, cfg, vm.Config{Tracer: hooks}, e.k.CustomPrecompiles())
+	evm.SetTxContext(vm.TxContext{Origin: from, GasPrice: uint256.NewInt(0)})
 	v := uint256.NewInt(0)
 	if value != nil {
 		v = uint256.MustFromBig(value)
 	}
-	ret, _, err := evm.Call(from, to, data, 1_000_000, v)
+	ret, _, err := evm.Call(from, to, data, vm.NewGasBudget(1_000_000, 0), v)
 	if err != nil {
 		return ret, err
 	}
@@ -343,19 +359,19 @@ func TestBuiltinPrecompileWinsOnCollisionBehavior(t *testing.T) {
 	blockCtx, err := e.k.GetVMBlockContext(e.ctx, e.k.GetGasPool())
 	require.NoError(t, err)
 	cfg := types.DefaultChainConfig().EthereumConfig(e.k.ChainID(e.ctx))
-	custom := map[common.Address]vm.PrecompiledContract{
+	custom := map[common.Address]vm.CustomPrecompiledContract{
 		ecrecoverAddr:  fakePrecompile{calls: &calls},
 		unregisteredSA: fakePrecompile{calls: &calls},
 	}
-	evm := vm.NewEVM(*blockCtx, db, cfg, vm.Config{}, custom)
-	ret, left, err := evm.Call(signerAddr, ecrecoverAddr, input, 10_000, uint256.NewInt(0))
+	evm := vm.NewEVMWithCustomPrecompiles(*blockCtx, db, cfg, vm.Config{}, custom)
+	ret, left, err := evm.Call(signerAddr, ecrecoverAddr, input, vm.NewGasBudget(10_000, 0), uint256.NewInt(0))
 	require.NoError(t, err)
 	require.Equal(t, common.LeftPadBytes(signerAddr.Bytes(), 32), ret)
-	require.Equal(t, uint64(10_000-3000), left)
+	require.Equal(t, uint64(10_000-3000), left.ExecutionGas)
 	require.Equal(t, 0, calls, "custom precompile at builtin address never invoked")
 
 	// non-colliding custom address dispatches to custom contract
-	ret, _, err = evm.Call(signerAddr, unregisteredSA, nil, 10_000, uint256.NewInt(0))
+	ret, _, err = evm.Call(signerAddr, unregisteredSA, nil, vm.NewGasBudget(10_000, 0), uint256.NewInt(0))
 	require.NoError(t, err)
 	require.Equal(t, []byte("fake"), ret)
 	require.Equal(t, 1, calls)
@@ -374,7 +390,7 @@ func TestPreparePrecompileWarmingBehavior(t *testing.T) {
 	_, sender := keyAddrs(mustKey(t, anvilKey0Hex))
 	cfg := types.DefaultChainConfig().EthereumConfig(e.k.ChainID(e.ctx))
 	rules := cfg.Rules(big.NewInt(e.ctx.BlockHeight()), true, uint64(e.ctx.BlockTime().Unix()))
-	precompiles := append(vm.ActivePrecompiles(rules), bankAddr, soloAddr)
+	precompiles := append(slices.Clone(vm.ActivePrecompiles(rules)), bankAddr, soloAddr)
 	for _, tc := range []struct {
 		name       string
 		ctx        sdk.Context

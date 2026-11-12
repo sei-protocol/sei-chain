@@ -1,12 +1,12 @@
 package keeper_test
 
 import (
-	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/holiman/uint256"
 	testkeeper "github.com/sei-protocol/sei-chain/giga/deps/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
@@ -70,11 +70,11 @@ func TestWriteReceiptStoresMsgGasPriceAsEffectiveGasPrice(t *testing.T) {
 	msg := &core.Message{
 		Nonce:     0,
 		GasLimit:  gasUsed,
-		GasPrice:  new(big.Int).SetUint64(effectiveGasPrice),
-		GasFeeCap: new(big.Int).SetUint64(feeCap),
-		GasTipCap: new(big.Int).SetUint64(tipCap),
+		GasPrice:  uint256.NewInt(effectiveGasPrice),
+		GasFeeCap: uint256.NewInt(feeCap),
+		GasTipCap: uint256.NewInt(tipCap),
 		To:        nil,
-		Value:     big.NewInt(0),
+		Value:     uint256.NewInt(0),
 		From:      common.HexToAddress("0x000000000000000000000000000000000000beef"),
 	}
 

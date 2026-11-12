@@ -48,8 +48,12 @@ type GigaRouterCommonConfig struct {
 	// from it.
 	AppHashBuilder builder.AppHashBuilder
 	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
-	// peers. 0 rejects all; positive caps at n, up to maxInboundFullnodePeers.
+	// peers outside PersistentPeerIDs. 0 rejects every such peer; a positive
+	// value caps at n, up to maxInboundFullnodePeers.
 	MaxInboundFullnodePeers int
+	// PersistentPeerIDs are node IDs from p2p.persistent-peers and
+	// p2p.blocksync-peers. They do not consume MaxInboundFullnodePeers.
+	PersistentPeerIDs map[types.NodeID]struct{}
 	// StateSyncProofExport exports a state sync proof, RoadBlock(H) and AppQC(H), for each
 	// retained FlatKV checkpoint H. None disables the export.
 	StateSyncProofExport utils.Option[StateSyncProofExportConfig]

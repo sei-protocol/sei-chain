@@ -297,6 +297,7 @@ func buildGigaRouter(
 	genDoc *types.GenesisDoc,
 	blockStore *ablockstore.Store,
 	appHashBuilder builder.AppHashBuilder,
+	persistentPeers []p2p.NodeAddress,
 	stateSync gigaconfig.StateSyncConfig,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
@@ -334,6 +335,7 @@ func buildGigaRouter(
 		valCfg.PersistentStateDir = stateDir
 		valCfg.AppHashBuilder = appHashBuilder
 		valCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
+		valCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
 		if err != nil {
@@ -357,6 +359,7 @@ func buildGigaRouter(
 	fnCfg.PersistentStateDir = stateDir
 	fnCfg.AppHashBuilder = appHashBuilder
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
+	fnCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
 	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
 	if err != nil {
@@ -489,9 +492,18 @@ func resolveGigaStorageMode(nodeMode string, pinned string) string {
 	return gigaconfig.StorageModeValidator
 }
 
-// resolveMaxInboundFullnodePeers: None ⇒ default, Some(0) ⇒ reject all,
-// Some(n) ⇒ n. The default lives in the config package so giga_router
-// doesn't carry an operator-facing knob.
+// persistentPeerIDSet returns the node IDs in peers.
+func persistentPeerIDSet(peers []p2p.NodeAddress) map[types.NodeID]struct{} {
+	ids := make(map[types.NodeID]struct{}, len(peers))
+	for _, peer := range peers {
+		ids[peer.NodeID] = struct{}{}
+	}
+	return ids
+}
+
+// resolveMaxInboundFullnodePeers: None ⇒ default, Some(0) ⇒ reject every
+// inbound fullnode that is neither a persistent nor a block-sync peer, Some(n) ⇒ n. The default
+// lives in the config package so giga_router doesn't carry an operator-facing knob.
 func resolveMaxInboundFullnodePeers(o utils.Option[uint64]) int {
 	if v, ok := o.Get(); ok {
 		return int(v) //nolint:gosec // bounded by maxInboundFullnodePeers in giga_router_common
@@ -676,7 +688,8 @@ func createRouter(
 		}
 		giga, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
-			manager.BlockStore(), manager.AppHashBuilder(), stateSync,
+			manager.BlockStore(), manager.AppHashBuilder(),
+			options.PersistentPeers, stateSync,
 		)
 		if err != nil {
 			return nil, closer, noneDB, err

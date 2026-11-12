@@ -313,11 +313,11 @@ func (*replayBackend) EvmProxyEnabled() bool {
 	return false
 }
 
-func (*replayBackend) EvmStateAt(context.Context, int64) (vm.StateDB, func(), error) {
+func (*replayBackend) EvmStateAt(context.Context, int64) (vm.SeiStateDB, func(), error) {
 	return nil, nil, errNotReplayed
 }
 
-func (*replayBackend) EvmStateBeforeTx(context.Context, *ethtypes.Header, [][]byte) (vm.StateDB, func(), error) {
+func (*replayBackend) EvmStateBeforeTx(context.Context, *ethtypes.Header, [][]byte) (vm.SeiStateDB, func(), error) {
 	return nil, nil, errNotReplayed
 }
 

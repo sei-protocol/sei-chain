@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
@@ -82,7 +83,7 @@ func TestCreateAccessListEndToEnd(t *testing.T) {
 			require.Equal(t, from, gotMsg.From)
 			require.Equal(t, &to, gotMsg.To)
 			require.Equal(t, uint64(defaultCallGasCap), gotMsg.GasLimit)
-			require.True(t, gotMsg.SkipNonceChecks)
+			requireSimulationChecksSkipped(t, gotMsg)
 		})
 	}
 }
@@ -153,7 +154,7 @@ func TestEstimateGasAfterCalls(t *testing.T) {
 			require.Len(t, gotCalls, tc.calls)
 			for i, call := range gotCalls {
 				require.Equal(t, &callTarget, call.To)
-				require.Equal(t, big.NewInt(int64(i)), call.Value)
+				require.Equal(t, uint256.NewInt(uint64(i)), call.Value)
 				require.Equal(t, uint64(defaultCallGasCap), call.GasLimit)
 			}
 			require.Equal(t, &to, gotMsg.To)
