@@ -1373,7 +1373,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	err = settler.AwaitCommits()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "in the EVM module")
-	_, err = settler.EvmCall(t.Context(), &ethcore.Message{GasLimit: 21_000, GasPrice: new(uint256.Int), Value: new(uint256.Int)})
+	_, err = settler.EvmCall(t.Context(), &ethcore.Message{GasLimit: 21_000, GasPrice: new(uint256.Int), Value: new(uint256.Int)}, evmonly.CallOverrides{})
 	require.Error(t, err)
 
 	// The block that failed to finalize left nothing staged, and the store never
@@ -1413,7 +1413,7 @@ func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
 				last = nonce
 				// A call may be refused while a finalized block awaits Commit;
 				// what matters is that it never races the commit it settles.
-				_, _ = settler.EvmCall(ctx, callMessage(sender, nil))
+				_, _ = settler.EvmCall(ctx, callMessage(sender, nil), evmonly.CallOverrides{})
 			}
 			return nil
 		})
