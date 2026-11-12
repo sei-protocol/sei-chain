@@ -13,7 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/app/upgradenames"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
@@ -204,25 +203,6 @@ func TestEVMOnlyApplicationHaltsAnOldBinaryAfterAnUpgrade(t *testing.T) {
 	t.Cleanup(func() { old.close(t) })
 	_, err = old.app.FinalizeBlock(t.Context(), evmOnlyTestBlock(9))
 	require.ErrorIs(t, err, upgrade.ErrWrongBinary)
-}
-
-func TestEVMOnlyApplicationServesTheProxysOptionalMethods(t *testing.T) {
-	node := upgradeTestApp(t, t.TempDir(), false)
-	defer node.close(t)
-	_, ok := node.app.(interface{ AwaitCommits() error })
-	require.True(t, ok, "AwaitCommits")
-	_, ok = node.app.(interface {
-		EvmCode(common.Address) []byte
-		EvmStorage(common.Address, common.Hash) common.Hash
-	})
-	require.True(t, ok, "EvmCode and EvmStorage")
-	_, ok = node.app.(interface {
-		EvmBalanceAt(common.Address, int64) (uint256.Int, error)
-		EvmCodeAt(common.Address, int64) ([]byte, error)
-		EvmNonceAt(common.Address, int64) (uint64, error)
-		EvmStorageAt(common.Address, common.Hash, int64) (common.Hash, error)
-	})
-	require.True(t, ok, "the Evm*At history readers")
 }
 
 func TestHaltForUpgradeReportsAFailedWrite(t *testing.T) {

@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -29,6 +28,21 @@ type EVMApplication interface {
 	EvmNonce(common.Address) uint64
 	FinalizeBlock(context.Context, *RequestFinalizeBlock) (*ResponseFinalizeBlock, error)
 	Commit(context.Context) (*ResponseCommit, error)
+	// AwaitCommits waits for finalized blocks to reach the store and returns any commit failure.
+	AwaitCommits() error
+
+	// EvmCode returns the contract code at address in the current EVM state.
+	EvmCode(address common.Address) []byte
+	// EvmStorage returns the value at key in address's current EVM storage.
+	EvmStorage(address common.Address, key common.Hash) common.Hash
+	// EvmBalanceAt returns address's balance in the committed EVM state after height.
+	EvmBalanceAt(address common.Address, height int64) (uint256.Int, error)
+	// EvmCodeAt returns the contract code at address in the committed EVM state after height.
+	EvmCodeAt(address common.Address, height int64) ([]byte, error)
+	// EvmNonceAt returns address's nonce in the committed EVM state after height.
+	EvmNonceAt(address common.Address, height int64) (uint64, error)
+	// EvmStorageAt returns the value at key in address's committed EVM storage after height.
+	EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error)
 
 	// EvmCall executes msg as a read-only call against the current EVM state.
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
@@ -199,11 +213,7 @@ func (app *EVMProxy) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Head
 
 func (app *EVMProxy) AwaitCommits() error {
 	defer addTimeSample(Global.MethodTimingAt("await_commits", "sync"))()
-	settler, ok := app.app.(commitSettler)
-	if !ok {
-		return nil
-	}
-	return settler.AwaitCommits()
+	return app.app.AwaitCommits()
 }
 
 func (app *EVMProxy) EvmBalance(addr common.Address, seiAddr []byte) uint256.Int {
@@ -213,54 +223,30 @@ func (app *EVMProxy) EvmBalance(addr common.Address, seiAddr []byte) uint256.Int
 
 func (app *EVMProxy) EvmCode(addr common.Address) ([]byte, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_code", "sync"))()
-	reader, ok := app.app.(evmCodeReader)
-	if !ok {
-		return nil, fmt.Errorf("application does not expose EVM code")
-	}
-	return reader.EvmCode(addr), nil
+	return app.app.EvmCode(addr), nil
 }
 
 func (app *EVMProxy) EvmStorage(addr common.Address, key common.Hash) (common.Hash, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_storage", "sync"))()
-	reader, ok := app.app.(evmStorageReader)
-	if !ok {
-		return common.Hash{}, fmt.Errorf("application does not expose EVM storage")
-	}
-	return reader.EvmStorage(addr, key), nil
+	return app.app.EvmStorage(addr, key), nil
 }
 
 func (app *EVMProxy) EvmBalanceAt(addr common.Address, height int64) (uint256.Int, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_balance_at", "sync"))()
-	reader, ok := app.app.(evmHistoryReader)
-	if !ok {
-		return uint256.Int{}, errNoEVMHistory
-	}
-	return reader.EvmBalanceAt(addr, height)
+	return app.app.EvmBalanceAt(addr, height)
 }
 
 func (app *EVMProxy) EvmCodeAt(addr common.Address, height int64) ([]byte, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_code_at", "sync"))()
-	reader, ok := app.app.(evmHistoryReader)
-	if !ok {
-		return nil, errNoEVMHistory
-	}
-	return reader.EvmCodeAt(addr, height)
+	return app.app.EvmCodeAt(addr, height)
 }
 
 func (app *EVMProxy) EvmNonceAt(addr common.Address, height int64) (uint64, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_nonce_at", "sync"))()
-	reader, ok := app.app.(evmHistoryReader)
-	if !ok {
-		return 0, errNoEVMHistory
-	}
-	return reader.EvmNonceAt(addr, height)
+	return app.app.EvmNonceAt(addr, height)
 }
 
 func (app *EVMProxy) EvmStorageAt(addr common.Address, key common.Hash, height int64) (common.Hash, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_storage_at", "sync"))()
-	reader, ok := app.app.(evmHistoryReader)
-	if !ok {
-		return common.Hash{}, errNoEVMHistory
-	}
-	return reader.EvmStorageAt(addr, key, height)
+	return app.app.EvmStorageAt(addr, key, height)
 }

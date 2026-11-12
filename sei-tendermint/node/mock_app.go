@@ -156,6 +156,31 @@ func (app *MockApp) EvmNonce(addr common.Address) uint64 {
 
 func (app *MockApp) EvmBalance(common.Address, []byte) uint256.Int { return baseBalance }
 
+// AwaitCommits returns immediately.
+func (app *MockApp) AwaitCommits() error { return nil }
+
+// EvmCode returns no contract code.
+func (app *MockApp) EvmCode(common.Address) []byte { return nil }
+
+// EvmStorage returns zero for every storage slot.
+func (app *MockApp) EvmStorage(common.Address, common.Hash) common.Hash { return common.Hash{} }
+
+func (app *MockApp) EvmBalanceAt(common.Address, int64) (uint256.Int, error) {
+	return uint256.Int{}, errMockAppNoExecution
+}
+
+func (app *MockApp) EvmCodeAt(common.Address, int64) ([]byte, error) {
+	return nil, errMockAppNoExecution
+}
+
+func (app *MockApp) EvmNonceAt(common.Address, int64) (uint64, error) {
+	return 0, errMockAppNoExecution
+}
+
+func (app *MockApp) EvmStorageAt(common.Address, common.Hash, int64) (common.Hash, error) {
+	return common.Hash{}, errMockAppNoExecution
+}
+
 // EvmChainID returns the chain ID of the Autobahn EVM-only executor this app
 // stands in for.
 func (app *MockApp) EvmChainID() uint64 { return config.AutobahnEVMOnlyChainID }

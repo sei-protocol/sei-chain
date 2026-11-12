@@ -2,13 +2,8 @@ package proxy
 
 import (
 	"context"
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -23,64 +18,11 @@ func NewTestEVMProxy(app types.Application) *EVMProxy {
 }
 
 type testEVMApplication struct {
-	app types.Application
+	EVMApplication // Unimplemented EVM read methods panic through this nil interface.
+	app            types.Application
 }
 
-func (app *testEVMApplication) EvmCall(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
-	panic("EVM read methods are unavailable in this test fixture")
-}
-
-func (app *testEVMApplication) EvmEstimateGas(_ context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
-	panic("EVM read methods are unavailable in this test fixture")
-}
-
-func (app *testEVMApplication) EvmCallAt(_ context.Context, msg *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error) {
-	panic("EVM read methods are unavailable in this test fixture")
-}
-
-func (app *testEVMApplication) EvmEstimateGasAt(_ context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error) {
-	panic("EVM read methods are unavailable in this test fixture")
-}
-
-func (app *testEVMApplication) EvmEstimateGasAfterCalls(_ context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
-	panic("EVM read methods are unavailable in this test fixture")
-}
-
-func (app *testEVMApplication) EvmCreateAccessList(_ context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
-	panic("EVM read methods are unavailable in this test fixture")
-}
-
-func (app *testEVMApplication) EvmChainID() uint64 {
-	panic("EVM read methods are unavailable in this test fixture")
-}
-
-func (app *testEVMApplication) EvmChainConfig() *params.ChainConfig {
-	panic("EVM read methods are unavailable in this test fixture")
-}
-
-func (app *testEVMApplication) EvmBaseFee() *big.Int {
-	panic("EVM read methods are unavailable in this test fixture")
-}
-
-func (app *testEVMApplication) EvmGasLimit() uint64 {
-	panic("EVM read methods are unavailable in this test fixture")
-}
-
-func (app *testEVMApplication) EvmMinGasPrice() *big.Int {
-	panic("EVM read methods are unavailable in this test fixture")
-}
-
-func (app *testEVMApplication) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
-	panic("EVM read methods are unavailable in this test fixture")
-}
-
-func (app *testEVMApplication) EvmStateAt(_ context.Context, height int64) (vm.StateDB, func(), error) {
-	panic("EVM read methods are unavailable in this test fixture")
-}
-
-func (app *testEVMApplication) EvmStateBeforeTx(_ context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
-	panic("EVM read methods are unavailable in this test fixture")
-}
+func (app *testEVMApplication) AwaitCommits() error { return nil }
 
 func (a *testEVMApplication) Info() *ResponseInfo {
 	r := a.app.Info()
