@@ -69,8 +69,10 @@ type ExecutionConfig struct {
 	EvmRpcPort int `mapstructure:"evm_rpc_port"`
 	// EvmWsPort is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
 	EvmWsPort int `mapstructure:"evm_ws_port"`
-	// GCPercent is the Go GC target. 0 leaves the process default. A value above 100 trades memory
-	// for fewer collections; the process then caps the heap from the container limit when it has one.
+	// GCPercent is the Go GC target Autobahn/Giga seid applies on start. The default is 400.
+	// 0 leaves the process default. A value above 100 trades memory for fewer collections; the
+	// process then caps the heap from the container limit when it has one. Non-Autobahn nodes
+	// never apply it.
 	GCPercent int `mapstructure:"gc_percent"`
 	// UnsafeSkipUpgrades are the blocks at which this node clears a due upgrade plan instead of
 	// applying it or halting. Each must be positive.
@@ -146,6 +148,7 @@ var DefaultConfig = Config{
 		BlockResultPoolSize: 1,
 		EvmRpcPort:          8545,
 		EvmWsPort:           8546,
+		GCPercent:           400,
 	},
 	// The same limits the v2 EVM RPC defaults to.
 	RPC: RPCConfig{
@@ -559,7 +562,8 @@ evm_rpc_port = {{ .Giga.Execution.EvmRpcPort }}
 # evm_ws_port is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
 evm_ws_port = {{ .Giga.Execution.EvmWsPort }}
 
-# gc_percent is the Go GC target. 0 leaves the process default.
+# gc_percent is the Go GC target Autobahn/Giga seid applies on start. The default is 400 for
+# every Autobahn deploy; 0 leaves the process default. Non-Autobahn nodes ignore it.
 gc_percent = {{ .Giga.Execution.GCPercent }}
 
 # unsafe_skip_upgrades lists the blocks, each positive, at which this node clears a due upgrade
