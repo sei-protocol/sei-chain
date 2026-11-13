@@ -58,6 +58,7 @@ jobs:
   #     not a matrix row.
   #   - A row with "disabled": true stays in the file but does not run. Its
   #     `_comment` says why and carries the TODO to re-enable it.
+  #   - A row with "foundry": true gets Foundry's cast on the runner.
   set-matrix:
     name: Resolve integration test matrix
     runs-on: ubuntu-latest
@@ -151,7 +152,7 @@ jobs:
           cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}:cache,mode=max', env.GHCR_LOCALNODE) || '' }}
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
       - name: Build seid and frozen RPC router binaries in localnode container
         env:
           DOCKER_PLATFORM: linux/amd64
@@ -274,10 +275,27 @@ jobs:
       - name: Install jq
         run: command -v jq >/dev/null || sudo apt-get install -y jq
 
+      - name: Install Foundry
+        if: ${{ matrix.test.foundry }}
+        env:
+          FOUNDRY_VERSION: v1.8.6
+          # sha256 of foundry_v1.8.6_linux_amd64.tar.gz, from the release asset digest.
+          FOUNDRY_SHA256: 58850106984038f3a7200f38a4182c8cb423d3a4f4c7848eacbc2453e6bc35fc
+        run: |
+          set -euo pipefail
+          tarball="foundry_${FOUNDRY_VERSION}_linux_amd64.tar.gz"
+          curl -sSfL -o "${RUNNER_TEMP}/${tarball}" \
+            "https://github.com/foundry-rs/foundry/releases/download/${FOUNDRY_VERSION}/${tarball}"
+          echo "${FOUNDRY_SHA256}  ${RUNNER_TEMP}/${tarball}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/foundry/bin"
+          tar -xzf "${RUNNER_TEMP}/${tarball}" -C "${RUNNER_TEMP}/foundry/bin" cast
+          echo "${RUNNER_TEMP}/foundry/bin" >> "$GITHUB_PATH"
+          "${RUNNER_TEMP}/foundry/bin/cast" --version
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
       - name: Login to GitHub Container Registry
         # See: https://github.com/docker/login-action/releases/tag/v4.2.0
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
@@ -448,7 +466,7 @@ jobs:
         run: bash .github/scripts/ci-relocate-go-cache.sh
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
       - name: Install jq
         run: command -v jq >/dev/null || sudo apt-get install -y jq
       - name: Login to Docker Hub

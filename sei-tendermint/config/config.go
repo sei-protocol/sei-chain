@@ -237,11 +237,10 @@ type BaseConfig struct {
 	// A JSON file containing the private key to use for p2p authenticated encryption
 	NodeKey string `mapstructure:"node-key-file"`
 
-	// FastCheckTx bypasses application CheckTx with a stateless EVM transaction parser.
-	// TEST-ONLY
+	// Deprecated: this option has no effect.
 	FastCheckTx bool `mapstructure:"fast-check-tx"`
 
-	// MockApp replaces the provided ABCI application with an in-memory EVM nonce app.
+	// MockApp replaces EVM execution with in-memory nonce tracking for Autobahn.
 	// TEST-ONLY
 	MockApp bool `mapstructure:"mock-app"`
 

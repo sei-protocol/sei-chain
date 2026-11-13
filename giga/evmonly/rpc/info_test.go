@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
@@ -88,10 +89,43 @@ func TestSyncingEndToEnd(t *testing.T) {
 	require.Contains(t, err.Error(), "eth_syncing")
 }
 
+func TestBlobsAndProofsAreNotSupported(t *testing.T) {
+	handler, err := newHandler(&testBackend{}, evmonly.NewMemoryReceiptStore(), noRPCLimits)
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	for _, tc := range []struct {
+		method  string
+		params  []any
+		message string
+	}{
+		{method: "eth_blobBaseFee", message: "blobs not supported on this chain"},
+		{
+			method:  "eth_getProof",
+			params:  []any{common.Address{}, []string{}, "latest"},
+			message: "eth_getProof is not supported yet; please reach out to the Sei Labs if you need this endpoint",
+		},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			var got any
+			err := client.CallContext(t.Context(), &got, tc.method, tc.params...)
+			var rpcErr ethrpc.Error
+			require.ErrorAs(t, err, &rpcErr)
+			require.Equal(t, evmrpc.ErrCodeEVMNotSupported, rpcErr.ErrorCode())
+			require.Equal(t, tc.message, err.Error())
+		})
+	}
+}
+
 func testInfoBackend(gasLimit uint64, minGasPrice int64) *testBackend {
 	return &testBackend{
-		gasLimit:    func() (uint64, error) { return gasLimit, nil },
-		minGasPrice: func() (*big.Int, error) { return big.NewInt(minGasPrice), nil },
+		gasLimit:    func() uint64 { return gasLimit },
+		minGasPrice: func() *big.Int { return big.NewInt(minGasPrice) },
 	}
 }
 
@@ -348,6 +382,20 @@ func TestFeeHistoryEarliestRespectsThePruneFloor(t *testing.T) {
 
 	api := &infoAPI{backend: testInfoBackend(1000, 1), store: store}
 	result, err := api.FeeHistory(t.Context(), 1, ethrpc.EarliestBlockNumber, nil)
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(3), result.OldestBlock.ToInt())
+}
+
+// TestFeeHistoryZeroIsEarliest pins that 0x0 resolves like "earliest".
+func TestFeeHistoryZeroIsEarliest(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	for h := uint64(1); h <= 5; h++ {
+		setBlockReceipt(t, store, h, 10, 100)
+	}
+	require.NoError(t, store.PruneHistory(3))
+
+	api := &infoAPI{backend: testInfoBackend(1000, 1), store: store}
+	result, err := api.FeeHistory(t.Context(), 1, ethrpc.BlockNumber(0), nil)
 	require.NoError(t, err)
 	require.Equal(t, big.NewInt(3), result.OldestBlock.ToInt())
 }

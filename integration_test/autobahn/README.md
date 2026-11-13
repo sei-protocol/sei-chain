@@ -382,11 +382,11 @@ WebSocket (port 8546 by default):
   finalized transaction failed with, or `""` when it succeeded; for an unknown
   hash the first returns an error and the second `""`, as on the regular RPC.
 - State: `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`,
-  `eth_getStorageAt`, `eth_call`, and `eth_estimateGas`, at the latest block
-  or a past one, named by number or hash, still within a full node's
-  retention window; `eth_createAccessList` and `eth_estimateGasAfterCalls`
-  (which applies up to `max_estimate_gas_calls` calls before estimating),
-  against the latest state only.
+  `eth_getStorageAt`, `eth_call`, `eth_estimateGas`, `eth_createAccessList`,
+  and `eth_estimateGasAfterCalls` (which applies up to
+  `max_estimate_gas_calls` calls before estimating), at the latest block or a
+  past one, named by number or hash, still within a full node's retention
+  window. `eth_getProof` returns a not-supported error, as on the regular RPC.
 - Blocks: `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getBlockByHash`,
   `eth_getBlockTransactionCountByNumber` /
   `eth_getBlockTransactionCountByHash`, and `eth_getBlockReceipts`. Block
@@ -402,6 +402,7 @@ WebSocket (port 8546 by default):
   regular RPC does (see `evmrpc/AGENTS.md`). `eth_newPendingTransactionFilter`
   returns a not-supported error, as on the regular RPC.
 - Fees: `eth_gasPrice`, `eth_maxPriorityFeePerGas`, and `eth_feeHistory`.
+  `eth_blobBaseFee` returns a not-supported error, as on the regular RPC.
 - Node: `eth_chainId`, `net_version`, `web3_clientVersion`, which returns
   `Sei/<seid version>/<os>-<arch>/<go version>` (the regular RPC reports
   `Geth/...`), and `eth_syncing`, which returns a not-supported error, as on the
@@ -410,6 +411,9 @@ WebSocket (port 8546 by default):
   `debug_traceBlockByNumber`, and `debug_traceBlockByHash`, with
   go-ethereum's tracers (see
   [Trace transactions](#trace-transactions-with-debug_trace)).
+  `debug_getRawHeader`, `debug_getRawBlock`, `debug_getRawReceipts`, and
+  `debug_getRawTransaction` return a not-supported error, as on the regular
+  RPC.
 - Subscriptions, over WebSocket only: `eth_subscribe("newHeads")` and
   `eth_subscribe("logs")`, which polls through the same cursor as a log
   filter as blocks execute.
@@ -418,29 +422,27 @@ A lookup for a pending or unknown hash returns `null`. Every other method
 returns JSON-RPC method-not-found, and `eth_subscribe` rejects any
 subscription other than `newHeads` and `logs`:
 
-- Not supported yet: the other `debug_*` methods, such as the raw-data ones.
+- Not supported yet: the other `debug_*` methods, such as
+  `debug_traceTransactionProfile`.
 - Not planned, because they need something the EVM-only chain does not have
-  (Cosmos accounts, server-side keys, a mempool view, blobs, or state proofs),
-  duplicate another method, or are development-only: `sei_getSeiAddress`,
+  (Cosmos accounts or stores, server-side keys, or a mempool view), duplicate
+  another method, or are development-only: `sei_getSeiAddress`,
   `sei_getEVMAddress`, `sei_getCosmosTx`, `eth_sign`, `eth_signTransaction`,
   `eth_sendTransaction`, `eth_accounts`, `eth_coinbase`, `eth_getNonce`,
-  `txpool_content`, `eth_blobBaseFee`, `eth_getProof`, and the `echo` and
-  `test` namespaces.
+  `txpool_content`, `debug_traceStateAccess`, and the `echo` and `test`
+  namespaces.
 
 ### Known limitations
 
 - Past state needs a full node. `eth_getBalance`, `eth_getTransactionCount`,
-  `eth_getCode`, `eth_getStorageAt`, `eth_call`, and `eth_estimateGas` answer
-  a past height, block hash, or `earliest` only on a node that keeps the EVM
-  state store (a full node, not a validator), and only within its retention
-  window. A validator answers only the latest block. `eth_createAccessList`
-  and `eth_estimateGasAfterCalls` serve the latest state only.
+  `eth_getCode`, `eth_getStorageAt`, `eth_call`, `eth_estimateGas`,
+  `eth_createAccessList`, and `eth_estimateGasAfterCalls` answer a past
+  height, block hash, or `earliest` only on a node that keeps the EVM state
+  store (a full node, not a validator), and only within its retention window.
+  A validator answers only the latest block.
 - Any address that has never been written reports `2^200` wei, including
   inside `eth_call` and `eth_estimateGas`. This is the test network's funding
   rule, in place of genesis allocations.
-- `eth_call`, `eth_estimateGas`, `eth_estimateGasAfterCalls`, and
-  `debug_traceCall` take no state or block override arguments, unlike the
-  regular RPC.
 - `pending` means the latest committed state, and there is no mempool view, so
   a submitted transaction is not returned by hash until it executes.
 - Block fields: `logsBloom` is always empty, `baseFeePerGas` is always zero,
@@ -479,9 +481,13 @@ checks every method above except the `debug_trace*` methods on all four
 validators, including that they return the same blocks and receipts. It traces
 the deploy and its block on the RPC node, which keeps the state history a past
 transaction replays on, and a call to the contract on every node. On the RPC
-node it also reads the contract's code and slot, calls it, and estimates a call
-to it, before and at the deploy block, by number and by hash, and checks that a
-validator refuses a call at a past block.
+node it also reads the contract's code and slot, calls it, estimates a call to
+it alone and after a first call, and builds the call's access list, before and
+at the deploy block, by number and by hash, and checks that a validator refuses
+a call at a past block. On every node it runs `eth_call`,
+`eth_estimateGas`, and `debug_traceCall` with state and block overrides, and on
+the RPC node an `eth_call` before the deploy with the contract supplied by a
+state override.
 
 ### Request and WebSocket limits
 
@@ -510,6 +516,8 @@ the row says otherwise:
 | `max_concurrent_trace_calls` | 10 | `debug_trace*` calls running at once; a call past it is refused |
 | `trace_timeout` | `30s` | how long one `debug_trace*` call may run |
 | `max_trace_struct_log_bytes` | 33554432 (32 MiB) | output of the default struct logger for each traced transaction |
+| `max_state_override_accounts` | 100 | accounts one `eth_call`, `eth_estimateGas`, `eth_estimateGasAfterCalls`, or `debug_traceCall` state override may name |
+| `max_state_override_slots` | 1000 | storage slots such a state override may set for one account |
 
 A subscription refused by a cap returns an error, and its slot frees when
 the client unsubscribes, the connection closes, or a `logs` subscription's
@@ -537,8 +545,8 @@ against the latest block.
 - `debug_traceCall` traces a call against the state after the named block, by
   number, hash, or tag; a tag names the latest committed block, as for
   `eth_call`. `txIndex` traces it before that transaction of the block
-  instead. `pending` is refused, as are state and block overrides, which
-  `eth_call` does not take either.
+  instead. `pending` is refused. `stateOverrides` and `blockOverrides` apply as
+  they do for `eth_call`.
 - `debug_traceBlockByNumber` and `debug_traceBlockByHash` return one
   `{txHash, result}` entry per transaction that executed, in execution order.
   A transaction the block rejected changed nothing, so it is skipped. Tags
@@ -682,6 +690,16 @@ explicit limit above that cap is silently lowered to it. A reverted call
 returns a JSON-RPC error carrying the ABI-decoded revert reason, matching
 go-ethereum's own `eth_call` behavior.
 
+As in go-ethereum, `eth_call` takes a state override (each account's `balance`,
+`nonce`, `code`, `state`, `stateDiff`, or `movePrecompileToAddress`) and a
+block override (`number`, `time`, `gasLimit`, `feeRecipient`, `prevRandao`,
+`baseFeePerGas`, `blobBaseFee`) after the block selector; `eth_estimateGas`
+takes both too, but cannot move a precompile. `eth_estimateGasAfterCalls`
+takes a state override after its block selector, as on the regular RPC, and
+applies it before its calls; it cannot move a precompile either. A state
+override naming more accounts, or setting more slots of one account, than
+`[giga.rpc]` allows is refused with an invalid-params error (`-32602`).
+
 ### Estimate gas with `cast estimate`
 
 ```sh
@@ -781,6 +799,44 @@ and index should expect these two cases.
 
 `sei-load` does not currently print every submitted hash. `cast` commands
 that depend on a method listed above as not supported cannot operate normally.
+
+## Run a software upgrade
+
+`evmonly_upgrade.sh` drives a software upgrade through EVM-only gov on the
+local Docker cluster. It needs `cast` and `jq`. Start the cluster with EVM
+governance, then run the script from the repository root:
+
+```sh
+AUTOBAHN=true EVM_GOVERNANCE_VOTING_PERIOD=30s DOCKER_DETACH=true make docker-cluster-start
+integration_test/autobahn/evmonly_upgrade.sh
+```
+
+The script prints `PASS` or `FAIL` for each check, ends with a count of each,
+and exits non-zero when any check fails. It builds the test binary inside
+`sei-node-0` as `build/seid-test-upgrade` and leaves the cluster running on it.
+
+It checks that:
+
+1. An expedited proposal schedules `vX.Y-test`, a name no release uses.
+2. A validator started on the `giga_test_upgrade` build before the plan's
+   height halts with `BINARY UPDATED BEFORE TRIGGER`, and rejoins on the old
+   binary.
+3. Every validator halts at the plan's height, logs
+   `UPGRADE "vX.Y-test" NEEDED` and writes `~/.sei/data/upgrade-info.json`
+   inside its container.
+4. Every validator restarted on the `giga_test_upgrade` build, whose
+   `vX.Y-test` handler sets gov's max deposit period to 72h, applies the plan
+   at the block it halted at, serves the new period and agrees on that block's
+   hash.
+5. A validator restarted on the old binary halts with `wrong binary`.
+6. A cancel naming another plan fails, a second plan is cancelled by name
+   before its height, and the chain runs past it.
+
+Plan heights are EVM block numbers. Because empty blocks are disabled, an idle
+chain does not reach a plan's height, and does not halt, until a transaction
+produces that block, so the halt can come later than the height suggests. The
+script sends a transaction for each block it needs, starting with the one that
+produces the first block, where gov writes its genesis state.
 
 ## Tear down
 

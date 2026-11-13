@@ -223,10 +223,10 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	if filter == nil {
 		filter = &filters.FilterCriteria{}
 	}
-	// fromBlock 0 with a tag toBlock is how ethclient sends an open-ended query, so it subscribes
-	// to new logs as an omitted fromBlock does.
-	if filter.FromBlock != nil && filter.FromBlock.Int64() == 0 &&
-		filter.ToBlock != nil && filter.ToBlock.Int64() < 0 {
+	// An earliest fromBlock (0x0 or "earliest") with a head-tag toBlock is how ethclient sends an
+	// open-ended query, so it subscribes to new logs as an omitted fromBlock does.
+	if isEarliestBound(filter.FromBlock) &&
+		filter.ToBlock != nil && filter.ToBlock.Int64() < 0 && !isEarliestBound(filter.ToBlock) {
 		filter = &filters.FilterCriteria{
 			Addresses: filter.Addresses,
 			Topics:    filter.Topics,

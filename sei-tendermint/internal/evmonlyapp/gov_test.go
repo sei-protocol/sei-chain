@@ -11,10 +11,11 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -22,18 +23,19 @@ import (
 // anvilKey0 is anvil account 0 of the test mnemonic.
 const anvilKey0 = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
-func newGovEVMOnlyTestApp(t *testing.T, params gov.Params, startingProposalID uint64) abci.Application {
+func newGovEVMOnlyTestApp(t *testing.T, params gov.Params, startingProposalID uint64) proxy.EVMApplication {
 	t.Helper()
 	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
 	require.NoError(t, err)
 	storage := openEVMOnlyTestStorage(t, storageConfig)
-	registry := NewGovRegistry(params, startingProposalID, gov.GenesisElectorate{common.HexToAddress("0xa1"): big.NewInt(1)})
+	registry := NewGovRegistry(params, startingProposalID, gov.GenesisElectorate{common.HexToAddress("0xa1"): big.NewInt(1)}, GovUpgrades{Applied: testAppliedUpgrades})
 	app, err := NewEVMOnlyApplication(
 		evmOnlyTestChainID,
 		nil,
 		storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.Some(registry),
+		utils.None[string](),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
@@ -43,19 +45,19 @@ func newGovEVMOnlyTestApp(t *testing.T, params gov.Params, startingProposalID ui
 }
 
 // govCall runs a read-only gov call against the app's committed state.
-func govCall(t *testing.T, app abci.Application, method string, args ...interface{}) ([]interface{}, error) {
+func govCall(t *testing.T, app proxy.EVMApplication, method string, args ...interface{}) ([]interface{}, error) {
 	t.Helper()
 	return precompileCall(t, app, gov.Address, gov.ABI, method, args...)
 }
 
-func precompileCall(t *testing.T, app abci.Application, to common.Address, contract abi.ABI, method string, args ...interface{}) ([]interface{}, error) {
+func precompileCall(t *testing.T, app proxy.EVMApplication, to common.Address, contract abi.ABI, method string, args ...interface{}) ([]interface{}, error) {
 	t.Helper()
 	input, err := contract.Pack(method, args...)
 	require.NoError(t, err)
 	msg := callMessage(common.Address{}, &to)
 	msg.Data = input
 	msg.GasLimit = 1_000_000
-	result, err := app.(*evmOnlyApplication).EvmCall(t.Context(), msg)
+	result, err := app.(*evmOnlyApplication).EvmCall(t.Context(), msg, evmonly.CallOverrides{})
 	require.NoError(t, err)
 	if result.Err != nil {
 		return nil, result.Err

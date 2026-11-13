@@ -43,7 +43,7 @@ func TestCallHappyPath(t *testing.T) {
 	var gotMsg *core.Message
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 			gotMsg = msg
 			return &core.ExecutionResult{ReturnData: []byte{0x2a}}, nil
@@ -52,15 +52,14 @@ func TestCallHappyPath(t *testing.T) {
 	api := &callAPI{backend: backend}
 	args := export.TransactionArgs{From: &from, To: &to}
 
-	got, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	got, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, hexutil.Bytes{0x2a}, got)
 	require.NotNil(t, gotMsg)
 	require.Equal(t, from, gotMsg.From)
 	require.Equal(t, &to, gotMsg.To)
-	require.True(t, gotMsg.SkipNonceChecks)
-	require.True(t, gotMsg.SkipFromEOACheck)
+	requireSimulationChecksSkipped(t, gotMsg)
 	require.Equal(t, uint64(defaultCallGasCap), gotMsg.GasLimit)
 }
 
@@ -69,7 +68,7 @@ func TestCallCapsExplicitGasAboveDefault(t *testing.T) {
 	var gotMsg *core.Message
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 			gotMsg = msg
 			return &core.ExecutionResult{}, nil
@@ -79,7 +78,7 @@ func TestCallCapsExplicitGasAboveDefault(t *testing.T) {
 	requested := hexutil.Uint64(defaultCallGasCap * 10)
 	args := export.TransactionArgs{To: &to, Gas: &requested}
 
-	_, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	_, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, uint64(defaultCallGasCap), gotMsg.GasLimit)
@@ -90,7 +89,7 @@ func TestCallPreservesExplicitGasBelowDefault(t *testing.T) {
 	var gotMsg *core.Message
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 			gotMsg = msg
 			return &core.ExecutionResult{}, nil
@@ -100,7 +99,7 @@ func TestCallPreservesExplicitGasBelowDefault(t *testing.T) {
 	requested := hexutil.Uint64(21_000)
 	args := export.TransactionArgs{To: &to, Gas: &requested}
 
-	_, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	_, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, uint64(21_000), gotMsg.GasLimit)
@@ -111,14 +110,14 @@ func TestCallSurfacesRevertReason(t *testing.T) {
 	revert := revertData("insufficient balance")
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return &core.ExecutionResult{Err: vm.ErrExecutionReverted, ReturnData: revert}, nil
 		},
 	}
 	api := &callAPI{backend: backend}
 
-	got, err := api.Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	got, err := api.Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	require.Nil(t, got)
 	require.Error(t, err)
@@ -134,14 +133,14 @@ func TestCallPassesThroughNonRevertExecutionError(t *testing.T) {
 	wantErr := errors.New("out of gas")
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return &core.ExecutionResult{Err: wantErr}, nil
 		},
 	}
 	api := &callAPI{backend: backend}
 
-	got, err := api.Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	got, err := api.Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	require.Nil(t, got)
 	require.ErrorIs(t, err, wantErr)
@@ -186,7 +185,7 @@ func TestCallRunsAgainstAPastBlock(t *testing.T) {
 				return &core.ExecutionResult{ReturnData: []byte{0x2a}}, nil
 			}
 
-			got, err := (&callAPI{backend: backend, blocks: &blockAPI{backend: backend}}).Call(t.Context(), export.TransactionArgs{To: &to}, tc.block)
+			got, err := (&callAPI{backend: backend, blocks: &blockAPI{backend: backend}}).Call(t.Context(), export.TransactionArgs{To: &to}, tc.block, nil, nil)
 
 			require.NoError(t, err)
 			require.Equal(t, hexutil.Bytes{0x2a}, got)
@@ -221,7 +220,7 @@ func TestCallRefusesAnUnresolvableBlock(t *testing.T) {
 				return nil, nil
 			}
 
-			got, err := (&callAPI{backend: backend, blocks: &blockAPI{backend: backend}}).Call(t.Context(), export.TransactionArgs{To: &to}, tc.block)
+			got, err := (&callAPI{backend: backend, blocks: &blockAPI{backend: backend}}).Call(t.Context(), export.TransactionArgs{To: &to}, tc.block, nil, nil)
 
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Nil(t, got)
@@ -233,7 +232,7 @@ func TestHandlerServesCall(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return &core.ExecutionResult{ReturnData: []byte{0x01, 0x02}}, nil
 		},
@@ -252,39 +251,19 @@ func TestHandlerServesCall(t *testing.T) {
 	require.Equal(t, hexutil.Bytes{0x01, 0x02}, got)
 }
 
-func TestCallBaseFeeError(t *testing.T) {
-	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	want := errors.New("no base fee")
-	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return nil, want },
-		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
-			t.Fatal("call reached the backend after a base-fee error")
-			return nil, nil
-		},
-	}
-
-	// Test: EvmBaseFee fails before defaults are applied.
-	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
-
-	// Verify: that error is returned as-is.
-	require.Nil(t, got)
-	require.ErrorIs(t, err, want)
-}
-
 func TestCallBackendError(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	want := errors.New("executor unavailable")
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return nil, want
 		},
 	}
 
 	// Test: EvmCall itself fails.
-	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	// Verify: that error is returned as-is.
 	require.Nil(t, got)
@@ -296,14 +275,14 @@ func TestCallUndecodableRevertKeepsGenericMessage(t *testing.T) {
 	revert := []byte{0xff, 0xff, 0xff, 0xff}
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return &core.ExecutionResult{Err: vm.ErrExecutionReverted, ReturnData: revert}, nil
 		},
 	}
 
 	// Test: revert payload is not ABI Error(string).
-	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	// Verify: generic revert message, raw data still in ErrorData.
 	require.Nil(t, got)
@@ -312,4 +291,11 @@ func TestCallUndecodableRevertKeepsGenericMessage(t *testing.T) {
 	require.ErrorAs(t, err, &revertErr)
 	require.Equal(t, 3, revertErr.ErrorCode())
 	require.Equal(t, hexutil.Encode(revert), revertErr.ErrorData())
+}
+
+// requireSimulationChecksSkipped checks msg skips the nonce, EOA and gas limit cap checks.
+func requireSimulationChecksSkipped(t *testing.T, msg *core.Message) {
+	t.Helper()
+	want := *msg
+	require.Equal(t, want.SkipNonceCheck().SkipEOACheck().SkipGasLimitCapCheck(), msg)
 }

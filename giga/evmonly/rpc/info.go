@@ -22,8 +22,8 @@ import (
 // go-ethereum's own default block-count cap.
 const maxFeeHistoryBlockCount = 1024
 
-// earliestCommittedHeight is what "earliest" resolves to for eth_feeHistory: a fixed genesis of
-// 1, not a runtime read — wrong for an Autobahn-migrated shard (see autobahn/types.Epoch.FirstBlock).
+// earliestCommittedHeight is the lowest block height of an unpruned receipt store: a fixed 1, not a
+// runtime read — wrong for an Autobahn-migrated shard (see autobahn/types.Epoch.FirstBlock).
 const earliestCommittedHeight = int64(1)
 
 // gasPriceSuggestionNumerator and gasPriceSuggestionDenominator scale the admission floor up for
@@ -55,6 +55,11 @@ func (api *infoAPI) Syncing(_ context.Context) (any, error) {
 	return nil, &evmrpc.ErrEVMNotSupported{Msg: "eth_syncing is not supported on Sei EVM RPC"}
 }
 
+// BlobBaseFee implements eth_blobBaseFee, matching v2: Sei supports no blobs.
+func (*infoAPI) BlobBaseFee(context.Context) (*hexutil.Big, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "blobs not supported on this chain"}
+}
+
 // gasPriceCongestionThresholdPercent is the gasUsedRatio above which GasPrice escalates to the
 // congested-chain reward, matching v2's eth_gasPrice.
 const gasPriceCongestionThresholdPercent = 80
@@ -68,10 +73,7 @@ const defaultPriorityFeePerGas = 1_000_000_000
 // GasPrice returns a suggested gas price, matching v2's eth_gasPrice: a margin over the
 // admission floor, or the latest congested block's median reward when that's higher and available.
 func (api *infoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
-	floor, err := api.backend.EvmMinGasPrice()
-	if err != nil {
-		return nil, err
-	}
+	floor := api.backend.EvmMinGasPrice()
 	margin := suggestedGasPrice(floor)
 	if reward, ok := api.congestionReward(ctx); ok && reward.Cmp(margin) >= 0 {
 		return (*hexutil.Big)(reward), nil
@@ -86,8 +88,8 @@ func (api *infoAPI) congestionReward(ctx context.Context) (*big.Int, bool) {
 	if current <= 0 {
 		return nil, false
 	}
-	gasLimit, err := api.backend.EvmGasLimit()
-	if err != nil || gasLimit == 0 {
+	gasLimit := api.backend.EvmGasLimit()
+	if gasLimit == 0 {
 		return nil, false
 	}
 	stats, err := api.store.GetBlockStats(receiptContext(ctx), uint64(current)) //nolint:gosec // G115: current is positive here.
@@ -110,10 +112,7 @@ func (api *infoAPI) MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, err
 	if current <= 0 {
 		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
 	}
-	gasLimit, err := api.backend.EvmGasLimit()
-	if err != nil {
-		return nil, err
-	}
+	gasLimit := api.backend.EvmGasLimit()
 	if gasLimit == 0 {
 		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
 	}
@@ -169,27 +168,40 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 	}
 
 	// gasLimit is applied to every block in the range, not looked up per height.
-	gasLimit, err := api.backend.EvmGasLimit()
-	if err != nil {
-		return nil, err
-	}
+	gasLimit := api.backend.EvmGasLimit()
 
 	return api.walkFeeHistoryRange(ctx, end, int64(blockCount), gasLimit, rewardPercentiles)
+}
+
+// earliestRetainedHeight returns the lowest block height store retains.
+func earliestRetainedHeight(store receiptpkg.ReceiptStore) int64 {
+	if store == nil {
+		return earliestCommittedHeight
+	}
+	// EarliestVersion is 0 until something has pruned the store, in which case
+	// earliestCommittedHeight (this deployment's genesis) is the true earliest.
+	return max(earliestCommittedHeight, store.EarliestVersion())
+}
+
+// normalizeEarliest maps 0x0 to the "earliest" tag; Sei treats them alike.
+func normalizeEarliest(number ethrpc.BlockNumber) ethrpc.BlockNumber {
+	if number == 0 {
+		return ethrpc.EarliestBlockNumber
+	}
+	return number
 }
 
 // resolveEndHeight turns lastBlock's tag or explicit height into a concrete, committed height.
 func (api *infoAPI) resolveEndHeight(lastBlock ethrpc.BlockNumber) (int64, error) {
 	current := api.store.LatestVersion()
-	switch lastBlock {
+	switch normalizeEarliest(lastBlock) {
 	case ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.LatestBlockNumber, ethrpc.PendingBlockNumber:
 		if current <= 0 {
 			return 0, errors.New("no committed block available for fee history")
 		}
 		return current, nil
 	case ethrpc.EarliestBlockNumber:
-		// EarliestVersion is 0 until something has pruned the store, in which case
-		// earliestCommittedHeight (this deployment's genesis) is the true earliest.
-		return max(earliestCommittedHeight, api.store.EarliestVersion()), nil
+		return earliestRetainedHeight(api.store), nil
 	default:
 		if lastBlock < 0 {
 			return 0, fmt.Errorf("requested last block %d is not available", lastBlock)

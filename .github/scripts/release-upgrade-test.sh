@@ -64,8 +64,18 @@ validate_inputs() {
     die "main_ref contains characters Git cannot safely resolve"
 }
 
+# upgrade_tags_file prints the path of a checkout's upgrade name list, which
+# releases before app/upgradenames keep at app/tags.
+upgrade_tags_file() {
+  if [[ -f "$1/app/upgradenames/tags" ]]; then
+    printf '%s\n' "$1/app/upgradenames/tags"
+  else
+    printf '%s\n' "$1/app/tags"
+  fi
+}
+
 latest_upgrade_tag() {
-  python3 - "$1/app/tags" <<'PY'
+  python3 - "$(upgrade_tags_file "$1")" <<'PY'
 import re
 import sys
 
@@ -87,7 +97,7 @@ PY
 has_upgrade_tag() {
   local source_dir="$1"
   local upgrade_name="$2"
-  grep -Fxq "$upgrade_name" "$source_dir/app/tags"
+  grep -Fxq "$upgrade_name" "$(upgrade_tags_file "$source_dir")"
 }
 
 prepare_boundary() {
