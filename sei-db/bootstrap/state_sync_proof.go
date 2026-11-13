@@ -35,10 +35,11 @@ func stateSyncProofExportConfig(
 	blockStore *blockstore.Store,
 	isClosingRoad func(types.RoadIndex) bool,
 ) statesyncproof.ExportConfig {
+	flatKVDir := cfg.FlatKVConfig.DataDir
 	return statesyncproof.ExportConfig{
 		Dir: dbutils.GetStateSyncProofPath(cfg.HomePath),
 		CheckpointRoads: func() ([]types.RoadIndex, error) {
-			return checkpointRoads(cfg.FlatKVConfig.DataDir)
+			return checkpointRoads(flatKVDir)
 		},
 		BlockStore: blockStore,
 		// The AppQC may not be flushed yet. A crash can lose it, but the proof file stays valid,
