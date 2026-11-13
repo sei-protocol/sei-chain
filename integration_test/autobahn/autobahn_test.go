@@ -807,6 +807,7 @@ func testEVMOnlyLoad(t *testing.T) {
 	contract, deploy := assertEVMOnlyContractQueries(t, rpcCtx, clients)
 	assertEVMOnlyTraces(t, rpcCtx, clients, contract, deploy)
 	assertEVMOnlyPastState(t, rpcCtx, clients, contract, deploy)
+	assertEVMOnlyCallOverrides(t, rpcCtx, clients, contract, deploy)
 	assertEVMOnlyNewHeads(t, rpcCtx, clients)
 	assertEVMOnlySimulations(t, rpcCtx, clients)
 	assertEVMOnlyFilters(t, rpcCtx, clients)
@@ -1545,10 +1546,11 @@ func assertEVMOnlyTraces(t *testing.T, ctx context.Context, clients []*ethrpc.Cl
 	}
 }
 
-// assertEVMOnlyPastState reads the contract's code and slot, calls it, and estimates a call to it on
-// the fullnode, which keeps the state history, at the block before the deploy and at the deploy block
-// named by number and by hash. Before the deploy the contract has no code, so the call returns nothing
-// and costs a plain transfer. A validator, which keeps no history, refuses the call before the deploy.
+// assertEVMOnlyPastState reads the contract's code and slot, calls it, estimates a call to it alone and
+// after a first call to it, and builds the call's access list on the fullnode, which keeps the state
+// history, at the block before the deploy and at the deploy block named by number and by hash. Before
+// the deploy the contract has no code, so the call returns nothing, costs a plain transfer and touches
+// no storage. A validator, which keeps no history, refuses the call before the deploy.
 func assertEVMOnlyPastState(t *testing.T, ctx context.Context, clients []*ethrpc.Client, contract common.Address, deploy evmOnlyReceiptSummary) {
 	t.Helper()
 	before := hexutil.Uint64(deploy.BlockNumber - 1)
@@ -1571,21 +1573,75 @@ func assertEVMOnlyPastState(t *testing.T, ctx context.Context, clients []*ethrpc
 		decodeFullnodeResult(t, "eth_getCode", fullnodeResult(t, "eth_getCode", contract, tc.block), &code)
 		decodeFullnodeResult(t, "eth_getStorageAt", fullnodeResult(t, "eth_getStorageAt", contract, "0x0", tc.block), &value)
 		decodeFullnodeResult(t, "eth_call", fullnodeResult(t, "eth_call", call, tc.block), &result)
-		var estimate hexutil.Uint64
+		var estimate, afterCall hexutil.Uint64
 		decodeFullnodeResult(t, "eth_estimateGas", fullnodeResult(t, "eth_estimateGas", call, tc.block), &estimate)
+		// The call only reads, so running it first leaves the estimate unchanged.
+		decodeFullnodeResult(t, "eth_estimateGasAfterCalls", fullnodeResult(t, "eth_estimateGasAfterCalls", call, []any{call}, tc.block), &afterCall)
+		var accessList struct {
+			AccessList ethtypes.AccessList `json:"accessList"`
+			Error      string              `json:"error"`
+		}
+		decodeFullnodeResult(t, "eth_createAccessList", fullnodeResult(t, "eth_createAccessList", call, tc.block), &accessList)
 		wantResult := tc.slot[:]
+		wantAccessList := ethtypes.AccessList{{Address: contract, StorageKeys: []common.Hash{{}}}}
 		if tc.code == nil {
 			wantResult = nil
+			wantAccessList = ethtypes.AccessList{}
 		}
-		if !bytes.Equal(code, tc.code) || common.BytesToHash(value) != tc.slot || !bytes.Equal(result, wantResult) || !tc.estimate(estimate) {
-			t.Fatalf("%s at %s: code %s, slot 0 %s, eth_call %s, eth_estimateGas %d; want code %s and slot 0 %s",
-				fullnodeContainer, tc.name, code, value, result, estimate, hexutil.Bytes(tc.code), tc.slot)
+		if !bytes.Equal(code, tc.code) || common.BytesToHash(value) != tc.slot || !bytes.Equal(result, wantResult) || !tc.estimate(estimate) ||
+			afterCall != estimate || !reflect.DeepEqual(accessList.AccessList, wantAccessList) || accessList.Error != "" {
+			t.Fatalf("%s at %s: code %s, slot 0 %s, eth_call %s, eth_estimateGas %d, eth_estimateGasAfterCalls %d, eth_createAccessList %+v; "+
+				"want code %s, slot 0 %s and access list %v",
+				fullnodeContainer, tc.name, code, value, result, estimate, afterCall, accessList, hexutil.Bytes(tc.code), tc.slot, wantAccessList)
 		}
 	}
 
 	var refused json.RawMessage
 	if err := clients[0].CallContext(ctx, &refused, "eth_call", call, before); err == nil {
 		t.Fatalf("node 0 ran eth_call at block %d without the state history validators do not keep: %s", before, refused)
+	}
+}
+
+// assertEVMOnlyCallOverrides calls, estimates, and traces calls with state and block overrides. On
+// every node a stateDiff replaces the contract's slot 0, and code returning NUMBER runs at an address
+// without code under an overridden block number. On the fullnode, the block before the deploy runs the
+// contract's code and slot from the override alone.
+func assertEVMOnlyCallOverrides(t *testing.T, ctx context.Context, clients []*ethrpc.Client, contract common.Address, deploy evmOnlyReceiptSummary) {
+	t.Helper()
+	replaced := common.HexToHash("0x0b")
+	slotDiff := map[string]any{contract.Hex(): map[string]any{"stateDiff": map[string]any{common.Hash{}.Hex(): replaced}}}
+	numberCode := hexutil.Bytes{0x43, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3} // return NUMBER
+	empty := common.HexToAddress("0x00000000000000000000000000000000000c0de0")
+	codeAt := map[string]any{empty.Hex(): map[string]any{"code": numberCode}}
+	number := big.NewInt(0x1234)
+	blockOverride := map[string]any{"number": (*hexutil.Big)(number)}
+	callTracer := map[string]any{"tracer": "callTracer", "stateOverrides": slotDiff}
+
+	for nodeIndex, client := range clients {
+		call := func(method string, args ...any) json.RawMessage {
+			return evmOnlyCall(t, ctx, client, nodeIndex, method, args...)
+		}
+		var slot, numbered hexutil.Bytes
+		decodeEVMOnlyResult(t, nodeIndex, "eth_call", call("eth_call", map[string]any{"to": contract}, "latest", slotDiff), &slot)
+		decodeEVMOnlyResult(t, nodeIndex, "eth_call", call("eth_call", map[string]any{"to": empty}, "latest", codeAt, blockOverride), &numbered)
+		var estimate hexutil.Uint64
+		decodeEVMOnlyResult(t, nodeIndex, "eth_estimateGas", call("eth_estimateGas", map[string]any{"to": empty}, "latest", codeAt), &estimate)
+		var frame evmOnlyTraceFrame
+		decodeEVMOnlyResult(t, nodeIndex, "debug_traceCall", call("debug_traceCall", map[string]any{"to": contract}, "latest", callTracer), &frame)
+		if common.BytesToHash(slot) != replaced || common.BytesToHash(numbered) != common.BigToHash(number) ||
+			estimate <= evmOnlyTransferGas || common.BytesToHash(frame.Output) != replaced {
+			t.Fatalf("node %d with overrides: eth_call of slot 0 %s, of NUMBER %s, eth_estimateGas %d, debug_traceCall output %s; want %s, %s, above %d, and %s",
+				nodeIndex, slot, numbered, estimate, frame.Output, replaced, common.BigToHash(number), evmOnlyTransferGas, replaced)
+		}
+	}
+
+	runtime := hexutil.Bytes(evmOnlyContractRuntime)
+	before := hexutil.Uint64(deploy.BlockNumber - 1)
+	deployed := map[string]any{contract.Hex(): map[string]any{"code": runtime, "state": map[string]any{common.Hash{}.Hex(): replaced}}}
+	var result hexutil.Bytes
+	decodeFullnodeResult(t, "eth_call", fullnodeResult(t, "eth_call", map[string]any{"to": contract}, before, deployed), &result)
+	if common.BytesToHash(result) != replaced {
+		t.Fatalf("%s eth_call at block %d with the contract overridden in = %s, want %s", fullnodeContainer, before, result, replaced)
 	}
 }
 

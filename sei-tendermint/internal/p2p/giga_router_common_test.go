@@ -10,19 +10,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
-
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+
 	"github.com/sei-protocol/sei-chain/giga/apphash"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
+	gigapb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -31,6 +31,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	dbm "github.com/tendermint/tm-db"
+	"golang.org/x/time/rate"
 )
 
 func registerEvmProxyForTest(t *testing.T, router *gigaRouterCommon, validator atypes.PublicKey, rpcURL url.URL) *ethrpc.Client {
@@ -45,14 +47,14 @@ func registerEvmProxyForTest(t *testing.T, router *gigaRouterCommon, validator a
 }
 
 type fixedHeightApp struct {
-	abci.BaseApplication
+	proxy.EVMApplication
 	height int64
 }
 
 func (a *fixedHeightApp) LastBlockHeight() int64 { return a.height }
 
-func (a *fixedHeightApp) Info() *abci.ResponseInfo {
-	return &abci.ResponseInfo{LastBlockHeight: a.height}
+func (a *fixedHeightApp) Info() *proxy.ResponseInfo {
+	return &proxy.ResponseInfo{LastBlockHeight: a.height}
 }
 
 // manualAppHashBuilder is an AppHashBuilder whose app hashes become available
@@ -129,10 +131,6 @@ func (b *manualAppHashBuilder) Bounds() (uint64, uint64, bool, error) {
 
 func (b *manualAppHashBuilder) SetupComplete(context.Context, uint64) error { return nil }
 
-func (b *manualAppHashBuilder) CompleteRestoredSetup(context.Context, uint64, [32]byte) error {
-	return nil
-}
-
 func (b *manualAppHashBuilder) Close() error { return nil }
 
 // add makes appHash available.
@@ -178,7 +176,7 @@ func newAppHashTestRouter(
 		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
-		App:                proxy.New(app),
+		App:                proxy.NewEVM(app),
 		AppHashBuilder:     hashBuilder,
 	}
 	state, err := BuildDataState(cfg, db)
@@ -269,8 +267,8 @@ func TestCommitteeWeights(t *testing.T) {
 	rng := utils.TestRng()
 	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
 	wantPK := utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes()))
-	got, err := committeeWeights([]abci.ValidatorUpdate{{
-		PubKey: crypto.PubKeyToProto(sk.Public()),
+	got, err := committeeWeights([]proxy.ValidatorUpdate{{
+		PubKey: utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes())),
 		Power:  42,
 	}})
 	require.NoError(t, err)
@@ -280,8 +278,8 @@ func TestCommitteeWeights(t *testing.T) {
 func TestCommitteeWeights_SkipsZeroPower(t *testing.T) {
 	rng := utils.TestRng()
 	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
-	got, err := committeeWeights([]abci.ValidatorUpdate{{
-		PubKey: crypto.PubKeyToProto(sk.Public()),
+	got, err := committeeWeights([]proxy.ValidatorUpdate{{
+		PubKey: utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes())),
 		Power:  0,
 	}})
 	require.NoError(t, err)
@@ -291,8 +289,8 @@ func TestCommitteeWeights_SkipsZeroPower(t *testing.T) {
 func TestCommitteeWeights_DuplicateKey(t *testing.T) {
 	rng := utils.TestRng()
 	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
-	pk := crypto.PubKeyToProto(sk.Public())
-	_, err := committeeWeights([]abci.ValidatorUpdate{
+	pk := utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes()))
+	_, err := committeeWeights([]proxy.ValidatorUpdate{
 		{PubKey: pk, Power: 1},
 		{PubKey: pk, Power: 2},
 	})
@@ -335,7 +333,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		ValidatorAddrs:     validatorAddrs,
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
-		App:                proxy.New(&fixedHeightApp{height: int64(last)}),
+		App:                proxy.NewEVM(&fixedHeightApp{height: int64(last)}),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
 	}
 	state, err := BuildDataState(cfg, db)
@@ -565,6 +563,7 @@ func TestGigaRouterCommon_RunInboundConnLearnsMemberAndClosesOnLeave(t *testing.
 	router.liveAddrVersion = utils.NewAtomicSend(uint64(0))
 	router.poolIn = giga.NewPool[NodePublicKey, rpc.Server[giga.API]]()
 	router.poolInCommittee = giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]]()
+	router.inboundFullnodeCount = utils.NewMutex(new(int64))
 	router.inboundFullnodeCap = 10
 	router.service = giga.NewFullNodeService(router.data)
 	router.key = localKey
@@ -924,4 +923,121 @@ func TestGigaRouterCommon_OutboundHandshakeBoundedByTimeout(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, io.EOF) {
 		t.Fatalf("dialAndRunConn() = %v, want context.DeadlineExceeded or io.EOF", err)
 	}
+}
+
+func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
+	rng := utils.TestRng()
+	localKey := makeKey(rng)
+	persistentKeys := []NodeSecretKey{makeKey(rng), makeKey(rng)}
+	validator := atypes.GenSecretKey(rng)
+	genDoc := &tmtypes.GenesisDoc{
+		ChainID:         "persistent-peer-cap",
+		InitialHeight:   1,
+		GenesisTime:     time.Now(),
+		ConsensusParams: tmtypes.DefaultConsensusParams(),
+	}
+	require.NoError(t, genDoc.ValidateAndComplete())
+	db := blockstore.NewTestStore(t)
+	cfg := &GigaRouterCommonConfig{
+		DialInterval: time.Second,
+		ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
+			validator.Public(): {Key: makeKey(rng).Public()},
+		},
+		PersistentStateDir:      t.TempDir(),
+		App:                     proxy.NewEVM(&fixedHeightApp{height: 1}),
+		AppHashBuilder:          newPublishingAppHashBuilder(),
+		GenDoc:                  genDoc,
+		MaxInboundFullnodePeers: 3,
+		PersistentPeerIDs: map[tmtypes.NodeID]struct{}{
+			persistentKeys[0].Public().NodeID(): {},
+			persistentKeys[1].Public().NodeID(): {},
+		},
+	}
+	state, err := BuildDataState(cfg, db)
+	require.NoError(t, err)
+	router, err := NewGigaFullnodeRouter(cfg, localKey, state)
+	require.NoError(t, err)
+
+	endpoint := Endpoint{AddrPort: tcp.TestReserveAddr()}
+	nodeInfo := makeInfo(localKey)
+	nodeInfo.ListenAddr = endpoint.AddrPort.String()
+	nodeInfo.Network = genDoc.ChainID
+	p2pRouter, err := NewRouter(localKey, func() *tmtypes.NodeInfo { return &nodeInfo }, dbm.NewMemDB(), &RouterOptions{
+		SelfAddress:              utils.Some(endpoint.NodeAddress(localKey.Public().NodeID())),
+		Endpoint:                 endpoint,
+		Connection:               conn.DefaultMConnConfig(),
+		IncomingConnectionWindow: utils.Some(time.Duration(0)),
+		MaxAcceptRate:            rate.Inf,
+		MaxDialRate:              rate.Inf,
+		Giga:                     utils.Some[GigaRouter](router),
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(p2pRouter.Run(ctx)) })
+		s.SpawnBg(func() error { return utils.IgnoreCancel(router.Run(ctx)) })
+		if err := p2pRouter.WaitForStart(ctx); err != nil {
+			return err
+		}
+		connect := func(peer NodeSecretKey) error {
+			// A refused peer completes the handshake and then closes the socket
+			// without opening a ping stream. Ping.Call waits until this context
+			// ends, so a dead mux has to cancel it. Admitted peers keep connCtx
+			// alive and therefore keep their cap slot.
+			connCtx, cancel := context.WithCancel(ctx)
+			tcpConn, err := tcp.Dial(ctx, endpoint.AddrPort)
+			if err != nil {
+				cancel()
+				return err
+			}
+			// A failed socket read blocks until its context ends. Cancel here so
+			// the mux and Ping.Call observe the refused peer's closed socket.
+			s.SpawnBg(func() error {
+				_ = tcpConn.Run(connCtx)
+				cancel()
+				return nil
+			})
+			hConn, err := handshake(connCtx, tcpConn, peer, handshakeSpec{SeiGigaConnection: true}, utils.None[handshakeOffer]())
+			if err != nil {
+				cancel()
+				return err
+			}
+			client := rpc.NewClient[giga.API]()
+			s.SpawnBg(func() error {
+				_ = client.Run(connCtx, hConn.conn)
+				cancel()
+				return nil
+			})
+			stream, err := giga.Ping.Call(connCtx, client)
+			if err != nil {
+				cancel()
+				return err
+			}
+			defer stream.Close()
+			if err := stream.Send(connCtx, &gigapb.PingReq{}); err != nil {
+				cancel()
+				return err
+			}
+			if _, err := stream.Recv(connCtx); err != nil {
+				cancel()
+				return err
+			}
+			return nil
+		}
+
+		for range cfg.MaxInboundFullnodePeers {
+			if err := connect(makeKey(rng)); err != nil {
+				return err
+			}
+		}
+		if err := connect(makeKey(rng)); err == nil {
+			return fmt.Errorf("excess peer ping succeeded")
+		}
+		for _, peer := range persistentKeys {
+			if err := connect(peer); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
 }

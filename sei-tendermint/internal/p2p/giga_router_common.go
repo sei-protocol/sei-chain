@@ -7,14 +7,12 @@ import (
 	"net/url"
 	"path/filepath"
 	"sort"
-	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
@@ -36,6 +34,10 @@ const maxInboundFullnodePeers = 10000
 
 var errGigaMembershipChanged = errors.New("inbound giga peer changed committee membership")
 
+// errInboundFullnodeLimit is returned when a fullnode outside PersistentPeerIDs
+// is refused because inboundFullnodeCap is already reached.
+var errInboundFullnodeLimit = errors.New("inbound fullnode peer limit reached")
+
 type gigaRouterCommon struct {
 	cfg             *GigaRouterCommonConfig
 	key             NodeSecretKey
@@ -45,16 +47,15 @@ type gigaRouterCommon struct {
 	poolInCommittee *giga.Pool[atypes.PublicKey, rpc.Server[giga.API]]
 	poolOut         *giga.Pool[atypes.PublicKey, rpc.Client[giga.API]]
 	proxies         utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
-	app             *proxy.Proxy
+	app             *proxy.EVMProxy
 	offer           utils.Option[handshakeOffer]
 	selfAddr        utils.Option[NodeAddress]
 	liveAddrs       utils.RWMutex[map[atypes.PublicKey]GigaNodeAddr]
 	liveAddrVersion utils.AtomicSend[uint64]
 
 	// inboundFullnodeCount tracks inbound connections currently served the
-	// block-sync subset. Optimistic Add(1) + compare against cap;
-	// over-rejects by one or two under contention but never over-accepts.
-	inboundFullnodeCount atomic.Int64
+	// block-sync subset. Persistent and block-sync peers do not consume it.
+	inboundFullnodeCount utils.Mutex[*int64]
 	inboundFullnodeCap   int64
 }
 
@@ -208,20 +209,13 @@ func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context) error {
 }
 
 // committeeWeights maps a bonded validator set to Autobahn voting power.
-func committeeWeights(vals []abci.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
+func committeeWeights(vals []proxy.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
 	weights := make(map[atypes.PublicKey]uint64, len(vals))
 	for _, v := range vals {
 		if v.Power <= 0 {
 			continue
 		}
-		pk, err := crypto.PubKeyFromProto(v.PubKey)
-		if err != nil {
-			return nil, fmt.Errorf("PubKeyFromProto: %w", err)
-		}
-		apk, err := atypes.PublicKeyFromBytes(pk.Bytes())
-		if err != nil {
-			return nil, fmt.Errorf("PublicKeyFromBytes: %w", err)
-		}
+		apk := v.PubKey
 		if _, dup := weights[apk]; dup {
 			return nil, fmt.Errorf("duplicate public key %s", apk)
 		}
@@ -554,13 +548,21 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 func (r *gigaRouterCommon) runInboundFullnode(ctx context.Context, hConn *handshakedConn) error {
 	key := hConn.msg.NodeAuth.Key()
 	server := rpc.NewServer[giga.API]()
-	// Optimistic acquire: Add(1), compare, Add(-1) on overflow. Acquired
-	// before InsertAndRun, which evicts any live connection for this key.
-	if r.inboundFullnodeCount.Add(1) > r.inboundFullnodeCap {
-		r.inboundFullnodeCount.Add(-1)
-		return fmt.Errorf("inbound fullnode peer limit (%d) reached", r.inboundFullnodeCap)
+	// Acquired before InsertAndRun, which evicts any live connection for this key.
+	// A persistent or block-sync peer does not consume the cap.
+	if _, skip := r.cfg.PersistentPeerIDs[key.NodeID()]; !skip {
+		for count := range r.inboundFullnodeCount.Lock() {
+			if *count >= r.inboundFullnodeCap {
+				return fmt.Errorf("%w (%d)", errInboundFullnodeLimit, r.inboundFullnodeCap)
+			}
+			*count++
+		}
+		defer func() {
+			for count := range r.inboundFullnodeCount.Lock() {
+				*count--
+			}
+		}()
 	}
-	defer r.inboundFullnodeCount.Add(-1)
 	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {
 		return r.runInboundMux(ctx, server, hConn, func(ctx context.Context) error {
 			return r.service.RunServer(ctx, server, false)
