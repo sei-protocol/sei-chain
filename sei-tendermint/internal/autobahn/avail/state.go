@@ -124,10 +124,6 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		_ = pers.close()
 		return nil, err
 	}
-	if err := inner.validateLocalLane(key.Public()); err != nil {
-		_ = pers.close()
-		return nil, err
-	}
 	// Remove orphaned lanes on disk
 	if err := persist.SyncLanes(pers.blocks, inner.lanes); err != nil {
 		_ = pers.close()
@@ -344,12 +340,16 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			ls, ok := inner.lanes[lane]
 			// Block not needed any more.
-			if !ok || n < ls.blocks.next { return true }
+			if !ok || n < ls.blocks.next {
+				return true
+			}
 			// No capacity, or not needed yet.
-			if n > ls.blocks.next || n >= ls.blocks.first+BlocksPerLane { return false }
+			if n > ls.blocks.next || n >= ls.blocks.first+BlocksPerLane {
+				return false
+			}
 			// Extends the persisted chain. We tolerate equivocating lane producer,
 			// we just cannot accept their blocks until the mismatching parent is finalized.
-			return ls.blocks.Len()==0 || ls.blocks.q[n-1].Msg().Block().Header().Hash() == h.ParentHash()
+			return ls.blocks.Len() == 0 || ls.blocks.q[n-1].Msg().Block().Header().Hash() == h.ParentHash()
 		}); err != nil {
 			return err
 		}
@@ -599,18 +599,7 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 			return nil, fmt.Errorf("unexpected block number: got %v, want %v", n, ls.blocks.next)
 		}
 		var parent types.BlockHeaderHash
-		if 0 < ls.blocks.next {
-			// Each validator is the only node eligible for producing their own lane, therefore
-			// for any observed CommitQC, we have CommitQC.LaneRange(lane).Next <= ls.blocks.next
-			// (i.e. locally produced blocks of our lane are the only ones that can be sequenced by CommitQC).
-			// Given that we never prune the block CommitQC.LaneRange(lane).Next-1 (if available),
-			// producer can always set the parent hash for the next local lane block correctly.
-			// This is required for autobahn liveness, because validators check the parent hashes up to their anchor
-			// when attesting for availability (casting LaneVote) - parent hash needs to be always set correctly
-			// in case validator receiving the lane block has not pruned the parent block yet.
-			if ls.blocks.first >= ls.blocks.next {
-				return nil, fmt.Errorf("missing last block of the local lane, this should never happen")
-			}
+		if ls.blocks.first < ls.blocks.next {
 			parent = ls.blocks.q[ls.blocks.next-1].Msg().Block().Header().Hash()
 		}
 		result = types.Sign(s.key, types.NewLaneProposal(types.NewBlock(lane, ls.blocks.next, parent, payload)))

@@ -137,26 +137,6 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 	return nil
 }
 
-// validateLocalLane checks that retained local lane
-// has blocks up to commitQC.LaneRange().Next and that last block
-// is available, so that ProduceLocalBlock can set parent hash.
-func (i *inner) validateLocalLane(key types.PublicKey) error {
-	for lane, ls := range i.lanes {
-		if lane.Validator != key {
-			continue
-		}
-		q := ls.blocks
-		if q.next > 0 && q.first >= q.next {
-			return fmt.Errorf("local lane %s: missing last block before restored next block %d (first %d)", lane, q.next, q.first)
-		}
-		committed := types.LaneRangeOpt(i.persistedCommitQC(), lane).Next()
-		if committed > q.next {
-			return fmt.Errorf("local lane %s: committed next block %d exceeds restored next block %d", lane, committed, q.next)
-		}
-	}
-	return nil
-}
-
 // persistedCommitQC returns the durable tip from the retained roads or anchor.
 func (i *inner) persistedCommitQC() utils.Option[*types.CommitQC] {
 	if i.nextCommitQCToPersist > i.roads.first {
@@ -261,9 +241,7 @@ func (i *inner) setAnchor(anchor data.Anchor) {
 	for lane, ls := range i.lanes {
 		lr := types.LaneRangeOpt(qc, lane)
 		ls.votes.prune(lr.Next())
-		if lr.Next() > 0 {
-			ls.blocks.prune(lr.Next() - 1)
-		}
+		ls.blocks.prune(lr.Next())
 		ls.nextBlockToPersist = max(ls.nextBlockToPersist, ls.blocks.first)
 	}
 	i.advance()

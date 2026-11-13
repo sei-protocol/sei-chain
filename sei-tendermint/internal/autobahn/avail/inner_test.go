@@ -337,9 +337,6 @@ func TestRestoreInnerInitializesAnchor(t *testing.T) {
 			for lane := range ep.Committee().Lanes().All() {
 				lr := qc.LaneRange(lane)
 				firstBlock := lr.Next()
-				if firstBlock > 0 {
-					firstBlock--
-				}
 				require.Equal(t, firstBlock, i.lanes[lane].blocks.first)
 				require.Equal(t, firstBlock, i.lanes[lane].blocks.next)
 				require.Equal(t, lr.Next(), i.lanes[lane].votes.first)

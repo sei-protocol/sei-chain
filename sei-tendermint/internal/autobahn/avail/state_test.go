@@ -358,16 +358,11 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 				}
 			}
 
-			t.Logf("Check that pruning retains the last executed block of each lane")
+			t.Logf("Check that the executed local blocks have been pruned")
 			for lane := range committee.Lanes().All() {
 				if lr := qc.LaneRange(lane); lr.Next() > 0 {
-					if _, err := state.Block(ctx, lane, lr.Next()-1); err != nil {
-						return fmt.Errorf("retained state.Block(): %w", err)
-					}
-					if lr.Next() > 1 {
-						if _, err := state.Block(ctx, lane, lr.Next()-2); !errors.Is(err, types.ErrPruned) {
-							return fmt.Errorf("state.Block(): %w, want %v", err, types.ErrPruned)
-						}
+					if _, err := state.Block(ctx, lane, lr.Next()-1); !errors.Is(err, types.ErrPruned) {
+						return fmt.Errorf("state.Block(): %w, want %v", err, types.ErrPruned)
 					}
 				}
 			}
@@ -560,46 +555,36 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
 }
 
-func TestPushBlockAcceptsNextBlockAfterProducerPrunes(t *testing.T) {
+func TestProduceLocalBlockAfterPruningUsesZeroParentHash(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	producer := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
 	t.Cleanup(func() { require.NoError(t, producer.Close()) })
-	peer := utils.OrPanic1(NewState(keys[1], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
-	t.Cleanup(func() { require.NoError(t, peer.Close()) })
 	lane := producer.LocalLane().OrPanic("local lane")
 	for range 3 {
-		block, err := producer.ProduceLocalBlock(lane, producer.NextBlock(lane), types.GenPayload(rng))
+		_, err := producer.ProduceLocalBlock(lane, producer.NextBlock(lane), types.GenPayload(rng))
 		require.NoError(t, err)
-		require.NoError(t, peer.PushBlock(ctx, block))
 	}
 	lastNumber := producer.NextBlock(lane) - 1
-	last, err := peer.Block(ctx, lane, lastNumber)
+	last, err := producer.Block(ctx, lane, lastNumber)
 	require.NoError(t, err)
-	lastHeader := last.Msg().Block().Header()
 
-	// Finalize the producer's entire lane and advance only its pruning anchor.
-	pruneToHeader(producer, keys, lastHeader)
+	pruneToHeader(producer, keys, last.Msg().Block().Header())
 	qc := producer.ConsensusSpec().Load().CommitQC.OrPanic("finalized lane")
 	require.Equal(t, producer.NextBlock(lane), qc.LaneRange(lane).Next())
-	_, err = producer.Block(ctx, lane, lastNumber-1)
-	require.ErrorIs(t, err, types.ErrPruned)
-	retained, err := producer.Block(ctx, lane, lastNumber)
-	require.NoError(t, err)
-	require.Equal(t, lastHeader.Hash(), retained.Msg().Block().Header().Hash())
-	_, err = peer.Block(ctx, lane, 0)
-	require.NoError(t, err)
-	require.False(t, peer.ConsensusSpec().Load().CommitQC.IsPresent())
+	for n := range lastNumber + 1 {
+		_, err := producer.Block(ctx, lane, n)
+		require.ErrorIs(t, err, types.ErrPruned)
+	}
 
 	next, err := producer.ProduceLocalBlock(lane, producer.NextBlock(lane), types.GenPayload(rng))
 	require.NoError(t, err)
-	require.Equal(t, lastHeader.Hash(), next.Msg().Block().Header().ParentHash())
-	require.NoError(t, peer.PushBlock(ctx, next))
-	got, err := peer.Block(ctx, lane, lastNumber+1)
+	require.Equal(t, lastNumber+1, next.Msg().Block().Header().BlockNumber())
+	require.Equal(t, types.BlockHeaderHash{}, next.Msg().Block().Header().ParentHash())
+	child, err := producer.ProduceLocalBlock(lane, producer.NextBlock(lane), types.GenPayload(rng))
 	require.NoError(t, err)
-	require.Equal(t, next.Msg().Block().Header().Hash(), got.Msg().Block().Header().Hash())
-	require.Equal(t, producer.NextBlock(lane), peer.NextBlock(lane))
+	require.Equal(t, next.Msg().Block().Header().Hash(), child.Msg().Block().Header().ParentHash())
 }
 
 func TestSetNextBlockToPersistDoesNotRewind(t *testing.T) {
@@ -640,15 +625,14 @@ func TestPushBlockRejectsWrongSigner(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestNewStateValidatesLocalLane(t *testing.T) {
+func TestNewStateRestoresLaneBehindCommit(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		persisted int
 		local     bool
-		wantError bool
 	}{
-		{name: "missing local blocks", local: true, wantError: true},
-		{name: "truncated local blocks", persisted: 1, local: true, wantError: true},
+		{name: "missing local blocks", local: true},
+		{name: "truncated local blocks", persisted: 1, local: true},
 		{name: "local blocks cover commit", persisted: 2, local: true},
 		{name: "local blocks ahead of commit", persisted: 3, local: true},
 		{name: "missing remote blocks"},
@@ -678,19 +662,15 @@ func TestNewStateValidatesLocalLane(t *testing.T) {
 			}
 			ds := newTestDataState(t, &data.Config{Registry: registry})
 			state, err := NewState(key, ds, utils.Some(dir))
-			if tc.wantError {
-				require.Error(t, err)
-				// A rejected restore must release the WAL locks.
-				persistTestLocalBlocks(t, dir, keys[0], blocks[tc.persisted:])
-				state, err = NewState(key, ds, utils.Some(dir))
-			}
 			require.NoError(t, err)
+			require.Equal(t, types.BlockNumber(tc.persisted), state.NextBlock(lane))
+			require.Equal(t, utils.Some(qc), state.ConsensusSpec().Load().CommitQC)
 			require.NoError(t, state.Close())
 		})
 	}
 }
 
-func TestNewStateRejectsMissingLocalParent(t *testing.T) {
+func TestNewStateAcceptsMissingLocalParent(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 1)
 	qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
@@ -704,13 +684,14 @@ func TestNewStateRejectsMissingLocalParent(t *testing.T) {
 	ds, err := data.NewState(&data.Config{Registry: registry}, store)
 	require.NoError(t, err)
 	dir := t.TempDir()
-	_, err = NewState(keys[0], ds, utils.Some(dir))
-	require.Error(t, err)
-
-	persistTestLocalBlocks(t, dir, keys[0], blocks)
 	state, err := NewState(keys[0], ds, utils.Some(dir))
 	require.NoError(t, err)
-	require.NoError(t, state.Close())
+	t.Cleanup(func() { require.NoError(t, state.Close()) })
+	lane := state.LocalLane().OrPanic("local lane")
+	require.Equal(t, qc.QC().LaneRange(lane).Next(), state.NextBlock(lane))
+	proposal, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	require.Equal(t, types.BlockHeaderHash{}, proposal.Msg().Block().Header().ParentHash())
 }
 
 func TestNewStateWithPersistence(t *testing.T) {

@@ -40,13 +40,19 @@ func TestNewInnerInitializesBoundaryLanes(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	require.Equal(t, next, i.applied())
-	require.Equal(t, types.BlockNumber(5), i.lanes[stay].blocks.first)
+	require.Equal(t, types.BlockNumber(6), i.lanes[stay].blocks.first)
 	require.Equal(t, types.BlockNumber(7), i.lanes[stay].blocks.next)
 	require.Equal(t, types.BlockNumber(6), i.lanes[stay].votes.first)
 	require.Equal(t, types.BlockNumber(7), i.lanes[stay].nextBlockToPersist)
 	require.Equal(t, stayProposal, i.lanes[stay].blocks.q[6])
 	require.Equal(t, leaveProposal, i.lanes[leave].blocks.q[0])
 	require.Equal(t, joinProposal, i.lanes[join].blocks.q[0])
+
+	restored, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{})
+	require.NoError(t, err)
+	require.Equal(t, types.BlockNumber(6), restored.lanes[stay].blocks.first)
+	require.Equal(t, types.BlockNumber(6), restored.lanes[stay].blocks.next)
+	require.Equal(t, types.BlockNumber(6), restored.lanes[stay].nextBlockToPersist)
 }
 
 func TestPruneMaintainsBothAnchorCommittees(t *testing.T) {
