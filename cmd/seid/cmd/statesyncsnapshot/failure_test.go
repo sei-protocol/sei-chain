@@ -152,7 +152,6 @@ func TestRestoreFailureGoals(t *testing.T) {
 			newHome: func(t *testing.T) target {
 				tg := freshHome(t)
 				require.NoError(t, runRestore(t.Context(), tg, earlier, nil, &bytes.Buffer{}))
-				writeAnchor(t, tg)
 				return tg
 			},
 			marker: utils.Some(earlierHeight),
@@ -160,7 +159,8 @@ func TestRestoreFailureGoals(t *testing.T) {
 	}
 	steps := []string{
 		restoreStepChecked, restoreStepVaultCleared, restoreStepFlatKVCleared, restoreStepImported,
-		restoreStepMarked, restoreStepProofInstalled, restoreStepEpochSeeded, restoreStepInstalled,
+		restoreStepMarked, restoreStepProofInstalled, restoreStepEpochSeeded, restoreStepAnchorStored,
+		restoreStepInstalled,
 	}
 	for homeName, hm := range homes {
 		for _, step := range steps {
@@ -189,7 +189,7 @@ func TestRestoreFailureGoals(t *testing.T) {
 // marker for marker when the restore started. Before restore writes its marker, the home keeps its
 // marker, and keeps its files until restore clears an earlier restore. Once restore writes its
 // marker, FlatKV reaches h only at the last step, so a node never finds FlatKV at the marker height
-// without the state sync proof file and the epoch registry of that height.
+// without the state sync proof file, the epoch registry and the restore anchor of that height.
 func requireSafeStop(
 	t *testing.T,
 	tg target,
@@ -217,12 +217,18 @@ func requireSafeStop(
 		}
 	case restoreStepMarked, restoreStepEpochSeeded:
 		requireMarker(t, tg, utils.Some(h))
+		require.NoDirExists(t, tg.layout.AppHashVaultDir)
 		require.Zero(t, flatKVHeight(t, tg))
 	case restoreStepProofInstalled:
 		requireMarker(t, tg, utils.Some(h))
 		got, err := os.ReadFile(tg.layout.RestoreProofFile)
 		require.NoError(t, err)
 		require.Equal(t, proof, got)
+		require.NoDirExists(t, tg.layout.AppHashVaultDir)
+		require.Zero(t, flatKVHeight(t, tg))
+	case restoreStepAnchorStored:
+		requireMarker(t, tg, utils.Some(h))
+		requireAnchor(t, tg, h)
 		require.Zero(t, flatKVHeight(t, tg))
 	case restoreStepInstalled:
 		requireMarker(t, tg, utils.Some(h))

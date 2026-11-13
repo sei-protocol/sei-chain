@@ -442,6 +442,20 @@ func autobahnStorageConfig(
 	return directory, storageConfig, nil
 }
 
+// gigaActivationHeight returns the first block with an app hash on the chain of genDoc, its
+// initial height.
+func gigaActivationHeight(genDoc *types.GenesisDoc) (uint64, error) {
+	initialHeight := int64(0)
+	if genDoc != nil {
+		initialHeight = genDoc.InitialHeight
+	}
+	if initialHeight < 1 {
+		return 0, fmt.Errorf("initial height = %d, want >= 1", initialHeight)
+	}
+	//nolint:gosec // G115: InitialHeight is at least 1.
+	return uint64(initialHeight), nil
+}
+
 // buildGigaStorageConfig returns the store configs for directory with the [giga.storage]
 // settings applied over the Autobahn defaults. The builder's first block is
 // genDoc.InitialHeight.
@@ -455,15 +469,11 @@ func buildGigaStorageConfig(
 	if err != nil {
 		return nil, err
 	}
-	initialHeight := int64(0)
-	if genDoc != nil {
-		initialHeight = genDoc.InitialHeight
+	activationHeight, err := gigaActivationHeight(genDoc)
+	if err != nil {
+		return nil, err
 	}
-	if initialHeight < 1 {
-		return nil, fmt.Errorf("initial height = %d, want >= 1", initialHeight)
-	}
-	//nolint:gosec // G115: InitialHeight is at least 1.
-	storageConfig.AppHashBuilderConfig.GigaActivationHeight = uint64(initialHeight)
+	storageConfig.AppHashBuilderConfig.GigaActivationHeight = activationHeight
 	storageConfig.PruningConfig.RollbackWindow = storage.RollbackWindow
 	storageConfig.PruningConfig.LookbackWindow = storage.LookbackWindow
 	storageConfig.PruningConfig.PruneInterval = storage.PruneInterval

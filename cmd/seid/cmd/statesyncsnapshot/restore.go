@@ -37,6 +37,7 @@ const (
 	restoreStepMarked         = "restore: marker written"
 	restoreStepProofInstalled = "restore: state sync proof installed"
 	restoreStepEpochSeeded    = "restore: epoch registry seeded"
+	restoreStepAnchorStored   = "restore: restore anchor stored"
 	restoreStepInstalled      = "restore: checkpoint installed"
 )
 
@@ -82,8 +83,8 @@ func restoreWith(ctx context.Context, t target, from string, stdin io.Reader, st
 		return err
 	}
 	if resume {
-		// Both clears come before the install: a restore anchor at the earlier height left under
-		// FlatKV at the new height passes the app-height check of the seed, which then refuses it.
+		// The vault accepts the restore anchor only as the first record of an empty vault, so the
+		// anchor of the earlier restore goes before the new one is stored.
 		if err := clearEarlierRestore(t.layout, lock, stop); err != nil {
 			return err
 		}
@@ -119,6 +120,12 @@ func restoreWith(ctx context.Context, t target, from string, stdin io.Reader, st
 		return err
 	}
 	if err := stop(restoreStepEpochSeeded); err != nil {
+		return err
+	}
+	if err := node.StoreRestoreAnchor(t.layout, t.epochGenesis, m.CheckpointHeight, staged.appHash); err != nil {
+		return err
+	}
+	if err := stop(restoreStepAnchorStored); err != nil {
 		return err
 	}
 	if err := installArchive(lock, staging, m); err != nil {
@@ -172,10 +179,9 @@ func checkHome(layout node.AutobahnLayout, lock *flatkv.RootLock) (resume bool, 
 		return false, fmt.Errorf("restore needs a home without block, receipt or state data; remove %s", strings.Join(nonEmpty, ", "))
 	}
 
-	// Only restore writes the marker, before it replaces the epoch registry and FlatKV, and the seed
-	// deletes it only after it writes block data. With an empty block store the marker means both
-	// are restore's own, or restore stopped before it installed them and may retry, and the vault
-	// holds at most the restore anchor of a seed that did not finish.
+	// Only restore writes the marker, before it replaces the epoch registry, the vault and FlatKV,
+	// and the seed deletes it only after it writes block data. With an empty block store the marker
+	// means all three are restore's own, or restore stopped before it installed them and may retry.
 	if _, err := os.Stat(layout.RestoreMarkerFile); err == nil {
 		return true, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -289,10 +295,12 @@ type stagedArchive struct {
 	proof []byte
 	// epochDir is the dir the epoch registry of the checkpoint is prepared in.
 	epochDir string
+	// appHash is the app hash of the checkpoint that the AppQC in proof signs.
+	appHash [32]byte
 }
 
-// stageArchive imports the archive into staging, checks its state sync proof file, and prepares the
-// epoch registry of that checkpoint.
+// stageArchive imports the archive into staging, prepares the epoch registry of that checkpoint,
+// and verifies the state sync proof file of the checkpoint against that registry.
 func stageArchive(
 	ctx context.Context,
 	archive *archiveReader,
@@ -322,7 +330,11 @@ func stageArchive(
 	if err := node.PrepareEpochRegistry(genesis, checkpoint, m.CheckpointHeight, epochDir); err != nil {
 		return stagedArchive{}, fmt.Errorf("prepare the epoch registry: %w", err)
 	}
-	return stagedArchive{proof: proof, epochDir: epochDir}, nil
+	appHash, err := node.VerifyStateSyncProof(genesis, epochDir, m.CheckpointHeight, proof)
+	if err != nil {
+		return stagedArchive{}, fmt.Errorf("verify the archived state sync proof file: %w", err)
+	}
+	return stagedArchive{proof: proof, epochDir: epochDir, appHash: appHash}, nil
 }
 
 // requireImportedStats returns an error unless the metadata of the imported checkpoint records the

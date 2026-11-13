@@ -8,7 +8,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 )
 
@@ -138,10 +140,8 @@ func TestRestoreReplacesAnEarlierRestoreThatHasNotSeeded(t *testing.T) {
 	dst := freshHome(t)
 	require.NoError(t, runRestore(t.Context(), dst, first, nil, &bytes.Buffer{}))
 	requireRestored(t, dst, p, h1)
-	writeAnchor(t, dst)
 	require.NoError(t, runRestore(t.Context(), dst, second, nil, &bytes.Buffer{}))
 	requireRestored(t, dst, p, h2)
-	require.NoDirExists(t, dst.layout.AppHashVaultDir)
 	require.NoError(t, runRestore(t.Context(), dst, second, nil, &bytes.Buffer{}), "a rerun of a finished restore")
 	requireRestored(t, dst, p, h2)
 }
@@ -162,6 +162,14 @@ func TestRestoreRefusesAnArchiveThatFailsItsChecks(t *testing.T) {
 				require.True(t, replaceEntry(*entries, proofArchivePath(h), stateSyncProofAt(t, h+1)))
 			},
 			wantMsg: "decode the archived state sync proof file",
+		},
+		{
+			name: "a state sync proof signed by another validator",
+			change: func(t *testing.T, _ *manifest, entries *[]tarEntry) {
+				other := atypes.SecretKeyFromED25519(ed25519.TestSecretKey([]byte("another validator")))
+				require.True(t, replaceEntry(*entries, proofArchivePath(h), stateSyncProofSignedBy(t, other, h)))
+			},
+			wantMsg: "verify the archived state sync proof file",
 		},
 		{
 			name: "a state sync proof that does not decode",
@@ -231,12 +239,4 @@ func TestRestoreRefusesAnArchiveThatFailsItsChecks(t *testing.T) {
 		require.Contains(t, stderr.String(), "FlatKV import complete")
 		requireRestored(t, tg, p, h)
 	})
-}
-
-// writeAnchor writes a file into the app-hash vault of tg, as the seed of a restore does when it
-// stores the restore anchor.
-func writeAnchor(t *testing.T, tg target) {
-	t.Helper()
-	require.NoError(t, os.MkdirAll(tg.layout.AppHashVaultDir, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(tg.layout.AppHashVaultDir, "anchor"), []byte("anchor"), 0o600))
 }

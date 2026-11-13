@@ -16,13 +16,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/statesyncproof"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
@@ -62,23 +63,30 @@ func testEpochGenesis() node.EpochGenesis {
 	}
 }
 
-// stateSyncProofAt returns a state sync proof file for road height, signed by the genesis validator.
+// stateSyncProofAt returns a state sync proof file for road height, signed by the genesis validator,
+// whose AppQC signs appHashAt(height).
 func stateSyncProofAt(t *testing.T, height int64) []byte {
 	t.Helper()
-	key := validatorKey()
-	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
-	require.NoError(t, err)
-	road := atypes.RoadIndex(height) //nolint:gosec // test heights are positive.
-	ep := atypes.NewEpoch(0, atypes.RoadRange{First: road, Next: road + 1}, committee)
-	proposal, blocks := atypes.ProposalAtBlocks(ep, atypes.View{Index: road}, 1)
-	prepareQC := atypes.BuildPrepareQC([]atypes.SecretKey{key}, proposal)
-	commitQC := atypes.NewCommitQC([]*atypes.Signed[*atypes.CommitVote]{atypes.Sign(key, atypes.NewCommitVote(prepareQC))})
-	roadBlock := atypes.NewRoadBlock(atypes.NewFullCommitQC(commitQC, []*atypes.BlockHeader{blocks[0].Header()}), blocks)
-	appProposal := atypes.NewAppProposal(commitQC.View(), atypes.AppHash{1, 2, 3})
-	appQC := atypes.NewAppQC([]*atypes.Signed[*atypes.AppVote]{atypes.Sign(key, atypes.NewAppVote(appProposal))})
-	data, err := statesyncproof.Encode(roadBlock, appQC)
+	return stateSyncProofSignedBy(t, validatorKey(), height)
+}
+
+// stateSyncProofSignedBy returns a state sync proof file for road height, signed by key as the one
+// validator of a chain with the genesis of the test chain otherwise.
+func stateSyncProofSignedBy(t *testing.T, key atypes.SecretKey, height int64) []byte {
+	t.Helper()
+	genesis := testEpochGenesis()
+	genesis.Validators = []atypes.PublicKey{key.Public()}
+	appHash := appHashAt(height)
+	data, err := node.StateSyncProofForTesting(genesis, []atypes.SecretKey{key}, height, appHash[:], t.TempDir())
 	require.NoError(t, err)
 	return data
+}
+
+// appHashAt returns the app hash that the state sync proof file of height signs.
+func appHashAt(height int64) [32]byte {
+	var appHash [32]byte
+	binary.BigEndian.PutUint64(appHash[:], uint64(height)) //nolint:gosec // test heights are positive.
+	return appHash
 }
 
 func targetAt(psd string) target {
@@ -258,8 +266,8 @@ func openStore(t *testing.T, dir string, keepRecent uint32) *flatkv.CommitStore 
 }
 
 // requireRestored asserts that the home of tg loads at height with the producer's rows, holds the
-// epoch registry and the state sync proof file of the producer's checkpoint at height, and holds
-// the marker for height.
+// epoch registry, the state sync proof file and the restore anchor of the producer's checkpoint at
+// height, and holds the marker for height.
 func requireRestored(t *testing.T, tg target, p *producer, height int64) {
 	t.Helper()
 	requireMarker(t, tg, utils.Some(height))
@@ -267,6 +275,7 @@ func requireRestored(t *testing.T, tg target, p *producer, height int64) {
 	proof, err := os.ReadFile(tg.layout.RestoreProofFile)
 	require.NoError(t, err)
 	require.Equal(t, p.proofs[height], proof)
+	requireAnchor(t, tg, height)
 
 	prepared := filepath.Join(t.TempDir(), "prepared")
 	checkpoint := filepath.Join(p.layout.FlatKVDir, flatkv.SnapshotDirName(height))
@@ -282,6 +291,28 @@ func requireRestored(t *testing.T, tg target, p *producer, height int64) {
 		require.True(t, ok, "row %q", k)
 		require.Equal(t, want, got, "row %q", k)
 	}
+}
+
+// requireAnchor asserts that the app-hash vault of tg ends at the restore anchor of height, with the
+// app hash that the state sync proof file of height signs.
+func requireAnchor(t *testing.T, tg target, height int64) {
+	t.Helper()
+	cfg := builder.DefaultAppHashBuilderConfig()
+	cfg.HashVaultConfig.Path = tg.layout.AppHashVaultDir
+	hashVault, err := vault.NewStandardHashVault(cfg.HashVaultConfig, cfg.ChainID, cfg.GigaActivationHeight)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, hashVault.Close()) }()
+	_, highest, err := hashVault.Bounds()
+	require.NoError(t, err)
+	require.Equal(t, uint64(height), highest) //nolint:gosec // test heights are positive.
+	records, err := hashVault.Iterator(highest, highest)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, records.Close()) }()
+	ok, err := records.Next()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.True(t, records.Entry().IsRestoreAnchor())
+	require.Equal(t, appHashAt(height), records.Entry().AppHash())
 }
 
 // requireMarker asserts that the home of tg holds the restore marker for height, or no marker when
