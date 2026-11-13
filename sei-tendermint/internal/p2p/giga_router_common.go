@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -88,24 +90,41 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) 
 	if cfg.AppHashBuilder == nil {
 		return nil, errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
 	}
-	firstRoad := atypes.RoadIndex(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
-	genesisWeights := map[atypes.PublicKey]uint64{}
-	for k := range cfg.ValidatorAddrs {
-		genesisWeights[k] = 1
-	}
-	genesisCommittee, err := atypes.NewCommittee(genesisWeights)
+	registry, err := OpenEpochRegistry(cfg.GenDoc, slices.Collect(maps.Keys(cfg.ValidatorAddrs)), cfg.PersistentStateDir)
 	if err != nil {
-		return nil, fmt.Errorf("genesis committee: %w", err)
-	}
-	registry, err := epoch.NewRegistry(genesisCommittee, firstRoad, cfg.GenDoc.GenesisTime, utils.Some(cfg.PersistentStateDir))
-	if err != nil {
-		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
+		return nil, err
 	}
 	ds, err := data.NewState(&data.Config{Registry: registry}, blockStore)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
 	}
 	return ds, nil
+}
+
+// OpenEpochRegistry opens the epoch registry under persistentStateDir, with the genesis
+// validators and the road origin and timestamp of genDoc.
+func OpenEpochRegistry(
+	genDoc *types.GenesisDoc,
+	validators []atypes.PublicKey,
+	persistentStateDir string,
+) (*epoch.Registry, error) {
+	if genDoc.InitialHeight < 1 {
+		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", genDoc.InitialHeight)
+	}
+	firstRoad := atypes.RoadIndex(genDoc.InitialHeight) // nolint:gosec // verified to be positive.
+	genesisWeights := map[atypes.PublicKey]uint64{}
+	for _, k := range validators {
+		genesisWeights[k] = 1
+	}
+	genesisCommittee, err := atypes.NewCommittee(genesisWeights)
+	if err != nil {
+		return nil, fmt.Errorf("genesis committee: %w", err)
+	}
+	registry, err := epoch.NewRegistry(genesisCommittee, firstRoad, genDoc.GenesisTime, utils.Some(persistentStateDir))
+	if err != nil {
+		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
+	}
+	return registry, nil
 }
 
 func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {
@@ -257,6 +276,12 @@ func (r *gigaRouterCommon) runEvmProxy(ctx context.Context, validator atypes.Pub
 // writes in the persistent state dir psd.
 func RestoreMarkerFile(psd string) string {
 	return filepath.Join(psd, "state-sync-restored")
+}
+
+// RestoreStateSyncProofFile returns the path of the state sync proof file that a state
+// sync restore installs in the persistent state dir psd.
+func RestoreStateSyncProofFile(psd string) string {
+	return filepath.Join(psd, "state-sync-proof")
 }
 
 // dialAndRunConn dials a peer, handshakes as a SeiGiga connection,

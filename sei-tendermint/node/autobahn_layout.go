@@ -4,6 +4,7 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -18,9 +19,14 @@ type AutobahnLayout struct {
 	BlockDBDirs        []string
 	ReceiptStoreDir    string
 	StateStoreDir      string
-	HashVaultDir       string
+	AppHashVaultDir    string
 	RestoreMarkerFile  string
-	StateSyncProofDir  string
+	// RestoreProofFile is the state sync proof that restore installs for the seed to read.
+	RestoreProofFile string
+	// StateSyncProofDir holds the state sync proof files that a running node writes next to its
+	// FlatKV checkpoints.
+	StateSyncProofDir string
+	EpochRegistryDir  string
 }
 
 // ResolveAutobahnLayout returns the Autobahn layout of the node that conf, storage and
@@ -41,8 +47,10 @@ func ResolveAutobahnLayout(conf *config.Config, storage gigaconfig.StorageConfig
 		BlockDBDirs:        storageConfig.BlockDBConfig.Litt.Paths,
 		ReceiptStoreDir:    storageConfig.ReceiptDBConfig.DBDirectory,
 		StateStoreDir:      storageConfig.SSConfig.EVMDBDirectory,
-		HashVaultDir:       storageConfig.AppHashBuilderConfig.HashVaultConfig.Path,
+		AppHashVaultDir:    storageConfig.AppHashBuilderConfig.HashVaultConfig.Path,
 		RestoreMarkerFile:  p2p.RestoreMarkerFile(psd),
+		RestoreProofFile:   p2p.RestoreStateSyncProofFile(psd),
 		StateSyncProofDir:  dbutils.GetStateSyncProofPath(psd),
+		EpochRegistryDir:   epoch.SnapshotDir(psd),
 	}, nil
 }

@@ -11,6 +11,7 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -47,9 +48,11 @@ func TestResolveAutobahnLayout(t *testing.T) {
 	require.Equal(t, []string{filepath.Join(psd, "blockdb")}, layout.BlockDBDirs)
 	require.Equal(t, want.ReceiptDBConfig.DBDirectory, layout.ReceiptStoreDir)
 	require.Equal(t, want.SSConfig.EVMDBDirectory, layout.StateStoreDir)
-	require.Equal(t, want.AppHashBuilderConfig.HashVaultConfig.Path, layout.HashVaultDir)
+	require.Equal(t, want.AppHashBuilderConfig.HashVaultConfig.Path, layout.AppHashVaultDir)
 	require.Equal(t, filepath.Join(psd, "state-sync-restored"), layout.RestoreMarkerFile)
+	require.Equal(t, filepath.Join(psd, "state-sync-proof"), layout.RestoreProofFile)
 	require.Equal(t, filepath.Join(psd, "data", "state_commit", "state_sync_proofs"), layout.StateSyncProofDir)
+	require.Equal(t, filepath.Join(psd, "epochs"), layout.EpochRegistryDir)
 }
 
 func TestResolveAutobahnLayoutAbsolutePersistentStateDir(t *testing.T) {
@@ -74,8 +77,8 @@ func TestResolveAutobahnLayoutRequiresAutobahnConfig(t *testing.T) {
 }
 
 // TestAutobahnLayoutCoversWhatAFullnodeStoresOpen requires every entry that a fullnode's storage
-// manager creates under the persistent state dir to be a layout path, inside one, or a parent of
-// one. A new store under that dir fails here until state sync decides whether restore must require
+// manager and epoch registry create under the persistent state dir to be a layout path, inside one,
+// or a parent of one. A new store under that dir fails here until state sync decides whether restore must require
 // it empty or create must pack it.
 func TestAutobahnLayoutCoversWhatAFullnodeStoresOpen(t *testing.T) {
 	conf := layoutConfig(t, filepath.Join("data", "autobahn"))
@@ -89,15 +92,19 @@ func TestAutobahnLayoutCoversWhatAFullnodeStoresOpen(t *testing.T) {
 	manager, err := openAutobahnStorageManager(t.Context(), conf.RootDir, conf.Mode, fc, storage, genesisAt(1))
 	require.NoError(t, err)
 	require.NoError(t, manager.Close())
+	genesis, err := ResolveEpochGenesis(conf, genesisAt(1))
+	require.NoError(t, err)
+	_, err = p2p.OpenEpochRegistry(genesis.GenDoc, genesis.Validators, layout.PersistentStateDir)
+	require.NoError(t, err)
 
-	storeDirs := append([]string{layout.FlatKVDir, layout.ReceiptStoreDir, layout.StateStoreDir}, layout.BlockDBDirs...)
+	storeDirs := append([]string{layout.FlatKVDir, layout.ReceiptStoreDir, layout.StateStoreDir, layout.AppHashVaultDir, layout.EpochRegistryDir}, layout.BlockDBDirs...)
 	for _, dir := range storeDirs {
 		info, err := os.Stat(dir)
-		require.NoError(t, err, "the storage manager did not create %s", dir)
+		require.NoError(t, err, "the node did not create %s", dir)
 		require.True(t, info.IsDir())
 	}
-	dirs := append(storeDirs, layout.HashVaultDir, layout.StateSyncProofDir)
-	files := []string{layout.RestoreMarkerFile}
+	dirs := append(storeDirs, layout.StateSyncProofDir)
+	files := []string{layout.RestoreMarkerFile, layout.RestoreProofFile}
 	isParent := func(path string) bool {
 		for _, p := range append(slices.Clone(dirs), files...) {
 			if strings.HasPrefix(p, path+string(filepath.Separator)) {
