@@ -11,6 +11,7 @@ import (
 
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
@@ -60,6 +61,28 @@ func TestRPCDefaultsMatchTheV2EVMRPC(t *testing.T) {
 	require.Equal(t, v2.FilterTimeout, r.FilterTimeout)
 	require.Equal(t, v2.MaxFilters, r.MaxFilters)
 	require.Equal(t, v2.MaxBlockFilterHashes, r.MaxBlockFilterHashes)
+}
+
+// TestRPCMethodDeadlinesMatchTheV2EVMRPC holds the default [giga.rpc] method deadlines to the ones
+// the v2 EVM RPC applies out of the box.
+func TestRPCMethodDeadlinesMatchTheV2EVMRPC(t *testing.T) {
+	v2Cfg, err := evmrpcconfig.DefaultConfig.DeadlineEnforcerConfig()
+	require.NoError(t, err)
+	gigaCfg, err := gigaconfig.DefaultConfig.RPC.DeadlineConfig()
+	require.NoError(t, err)
+	v2, giga := ratelimiter.NewDeadlineEnforcer(v2Cfg), ratelimiter.NewDeadlineEnforcer(gigaCfg)
+	for _, method := range []string{
+		"eth_getBalance",
+		"eth_getLogs",
+		"eth_call",
+		"eth_estimateGas",
+		"eth_estimateGasAfterCalls",
+		"eth_createAccessList",
+		"debug_traceTransaction",
+		"debug_traceBlockByNumber",
+	} {
+		require.Equal(t, v2.Deadline(method), giga.Deadline(method), method)
+	}
 }
 
 // TestConfigTemplateRendersTheDefaults holds the app.toml template to the section: the rendered
@@ -126,6 +149,8 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.rpc.max_trace_struct_log_bytes":       "512",
 		"giga.rpc.max_state_override_accounts":      "5",
 		"giga.rpc.max_state_override_slots":         "6",
+		"giga.rpc.default_timeout":                  "8s",
+		"giga.rpc.method_timeouts":                  []string{"eth_call=2m", "debug_trace*=0"},
 		"giga.state_sync.enabled":                   "true",
 	})
 	require.NoError(t, err)
@@ -169,6 +194,8 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			MaxTraceStructLogBytes:        512,
 			MaxStateOverrideAccounts:      5,
 			MaxStateOverrideSlots:         6,
+			DefaultTimeout:                8 * time.Second,
+			MethodTimeouts:                []string{"eth_call=2m", "debug_trace*=0"},
 		},
 		StateSync: gigaconfig.StateSyncConfig{
 			Enabled: true,
@@ -229,6 +256,12 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"non-duration filter timeout":     {"giga.rpc.filter_timeout": "later"},
 		"negative filter cap":             {"giga.rpc.max_filters": "-1"},
 		"non-numeric block filter hashes": {"giga.rpc.max_block_filter_hashes": "plenty"},
+		"negative default timeout":        {"giga.rpc.default_timeout": "-1s"},
+		"non-duration default timeout":    {"giga.rpc.default_timeout": "eventually"},
+		"method timeout without duration": {"giga.rpc.method_timeouts": []string{"eth_call"}},
+		"non-duration method timeout":     {"giga.rpc.method_timeouts": []string{"eth_call=soon"}},
+		"negative method timeout":         {"giga.rpc.method_timeouts": []string{"eth_call=-1s"}},
+		"bare wildcard method timeout":    {"giga.rpc.method_timeouts": []string{"*=1s"}},
 		"non-boolean state sync":          {"giga.state_sync.enabled": "maybe"},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)

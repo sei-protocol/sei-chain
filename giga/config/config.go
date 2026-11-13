@@ -7,8 +7,10 @@ import (
 	"slices"
 	"time"
 
-	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/spf13/cast"
+
+	"github.com/sei-protocol/sei-chain/ratelimiter"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
 // AppOptions is the flat key-value view a section reader consumes. servertypes.AppOptions
@@ -128,6 +130,29 @@ type RPCConfig struct {
 	MaxStateOverrideAccounts int `mapstructure:"max_state_override_accounts"`
 	// MaxStateOverrideSlots caps the storage slots one call's state override may set for an account.
 	MaxStateOverrideSlots int `mapstructure:"max_state_override_slots"`
+	// DefaultTimeout is the deadline applied to a method with no entry in MethodTimeouts.
+	DefaultTimeout time.Duration `mapstructure:"default_timeout"`
+	// MethodTimeouts overrides DefaultTimeout for individual methods. Each entry is
+	// "method=duration", for example "eth_call=60s"; a method name ending in "*" matches every
+	// method with that prefix, and the longest matching prefix wins. A duration of 0 applies no
+	// deadline to that method.
+	MethodTimeouts []string `mapstructure:"method_timeouts"`
+}
+
+// DeadlineConfig returns the per-method deadlines DefaultTimeout and MethodTimeouts describe.
+func (c RPCConfig) DeadlineConfig() (ratelimiter.DeadlineConfig, error) {
+	if c.DefaultTimeout < 0 {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s: must be >= 0, got %s", FlagRPCDefaultTimeout, c.DefaultTimeout)
+	}
+	exact, prefixes, err := ratelimiter.ParseMethodTimeouts(c.MethodTimeouts)
+	if err != nil {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s: %w", FlagRPCMethodTimeouts, err)
+	}
+	return ratelimiter.DeadlineConfig{
+		Default:         c.DefaultTimeout,
+		Overrides:       exact,
+		PrefixOverrides: prefixes,
+	}, nil
 }
 
 // StateSyncConfig is the [giga.state_sync] sub-table: whether this node uses giga state sync.
@@ -171,6 +196,14 @@ var DefaultConfig = Config{
 		MaxTraceStructLogBytes:        32 * 1024 * 1024,
 		MaxStateOverrideAccounts:      100,
 		MaxStateOverrideSlots:         1000,
+		DefaultTimeout:                30 * time.Second,
+		MethodTimeouts: []string{
+			"eth_call=60s",
+			"eth_estimateGas=60s",
+			"eth_createAccessList=60s",
+			"eth_estimateGasAfterCalls=5m",
+			"debug_trace*=0",
+		},
 	},
 	StateSync: StateSyncConfig{
 		Enabled: false,
@@ -227,6 +260,8 @@ const (
 	FlagRPCMaxTraceStructLogBytes        = "giga.rpc.max_trace_struct_log_bytes"
 	FlagRPCMaxStateOverrideAccounts      = "giga.rpc.max_state_override_accounts"
 	FlagRPCMaxStateOverrideSlots         = "giga.rpc.max_state_override_slots"
+	FlagRPCDefaultTimeout                = "giga.rpc.default_timeout"
+	FlagRPCMethodTimeouts                = "giga.rpc.method_timeouts"
 	FlagStateSyncEnabled                 = "giga.state_sync.enabled"
 )
 
@@ -404,6 +439,16 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxStateOverrideSlots, err)
 		}
 	}
+	if v := opts.Get(FlagRPCDefaultTimeout); v != nil {
+		if cfg.RPC.DefaultTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCDefaultTimeout, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMethodTimeouts); v != nil {
+		if cfg.RPC.MethodTimeouts, err = cast.ToStringSliceE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMethodTimeouts, err)
+		}
+	}
 	if v := opts.Get(FlagStateSyncEnabled); v != nil {
 		if cfg.StateSync.Enabled, err = cast.ToBoolE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStateSyncEnabled, err)
@@ -502,6 +547,9 @@ func (c Config) Validate() error {
 	}
 	if c.RPC.MaxStateOverrideSlots < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxStateOverrideSlots, c.RPC.MaxStateOverrideSlots)
+	}
+	if _, err := c.RPC.DeadlineConfig(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -641,6 +689,16 @@ max_state_override_accounts = {{ .Giga.RPC.MaxStateOverrideAccounts }}
 
 # max_state_override_slots caps the storage slots one call's state override may set for an account.
 max_state_override_slots = {{ .Giga.RPC.MaxStateOverrideSlots }}
+
+# default_timeout is the deadline applied, on both HTTP and WebSocket, to a method with no entry
+# in method_timeouts. Set to 0 to disable.
+default_timeout = "{{ .Giga.RPC.DefaultTimeout }}"
+
+# method_timeouts overrides default_timeout for individual methods. Each entry is
+# "method=duration", e.g. "eth_call=60s". A method name ending in "*" (e.g. "debug_trace*=0")
+# matches every method with that prefix; the longest matching prefix wins. A duration of 0
+# applies no deadline to that method. debug_trace* methods are also bounded by trace_timeout.
+method_timeouts = [{{ range $i, $e := .Giga.RPC.MethodTimeouts }}{{ if $i }}, {{ end }}"{{ $e }}"{{ end }}]
 
 [giga.state_sync]
 # enabled allows the state-sync-snapshot create and restore commands on this node, and the
