@@ -60,6 +60,18 @@ seid_q() {
   docker exec "sei-node-$n" seid "$@" --evm-rpc "$EVM_RPC"
 }
 
+# seid_q_or_none runs a seid query in node $1 and prints its output. A query
+# failing with message $2 prints nothing and succeeds; any other failure
+# prints its error to stderr and fails.
+seid_q_or_none() {
+  local n=$1 none=$2 err
+  shift 2
+  { err=$(seid_q "$n" "$@" 2>&1 >&3 3>&-); } 3>&1 && return 0
+  case "$err" in *"$none"*) return 0 ;; esac
+  echo "$err" | head -1 >&2
+  return 1
+}
+
 # seid_tx runs a seid transaction in node 0, signed by key $1 of KEY_HOME.
 seid_tx() {
   local key=$1
@@ -130,11 +142,37 @@ pass_proposal() {
   echo timeout
 }
 
-plan_name() { seid_q "$1" q upgrade plan -o json 2>/dev/null | jq -r .name || true; }
+# plan_name prints the name of the plan node $1 has scheduled, nothing when it
+# has none, and "query failed" when the query fails.
+plan_name() {
+  local out
+  out=$(seid_q_or_none "$1" "no upgrade scheduled" q upgrade plan -o json) || { echo "query failed"; return; }
+  [ -z "$out" ] || echo "$out" | jq -r .name
+}
+
+# applied prints the height node $1 applied plan $2 at, 0 when it never applied
+# it, and "query failed" when the query fails.
 applied() {
-  local h
-  h=$(seid_q "$1" q upgrade applied "$2" 2>/dev/null | jq -r .number) || h=
-  case "$h" in 0x*) echo $((h)) ;; *) echo 0 ;; esac
+  local out h
+  out=$(seid_q_or_none "$1" "no upgrade found" q upgrade applied "$2") || { echo "query failed"; return; }
+  [ -n "$out" ] || { echo 0; return; }
+  h=$(echo "$out" | jq -r .number 2>/dev/null)
+  case "$h" in 0x*) echo $((h)) ;; *) echo "unparsed: $h" ;; esac
+}
+
+# cancel_outcome submits a cancel of plan $1 and prints refused when the gov
+# precompile refuses it during gas estimation, sent when it is sent, and the
+# error otherwise.
+cancel_outcome() {
+  local err
+  if err=$(submit_cancel "$1" 2>&1 >/dev/null); then
+    echo sent
+    return
+  fi
+  case "$err" in
+    *"estimate gas: upgrade is not scheduled"*) echo refused ;;
+    *) echo "$err" | head -1 ;;
+  esac
 }
 max_deposit_period() { seid_q "$1" q gov params -o json | jq -r .deposit_params.max_deposit_period; }
 block_hash() { seid_q "$1" q block "$2" | jq -r .hash; }
@@ -174,12 +212,7 @@ tick_past() {
 
 # serving reports whether node $1 answers over its EVM JSON-RPC, which it does
 # from genesis, before it has a block.
-serving() {
-  local out
-  if out=$(seid_q "$1" q upgrade plan 2>&1); then return 0; fi
-  case "$out" in *"no upgrade scheduled"*) return 0 ;; esac
-  return 1
-}
+serving() { seid_q_or_none "$1" "no upgrade scheduled" q upgrade plan >/dev/null 2>&1; }
 
 # wait_ready waits for node $1 to serve RPC, polling every 2s up to $2 times
 # (default 60).
@@ -297,7 +330,7 @@ check "second upgrade proposal passes" "$(pass_proposal "$id")" PROPOSAL_STATUS_
 check "the second plan is scheduled" "$(plan_name 0)" never-applied
 # seid estimates gas before sending, so the gov precompile's refusal stops the
 # cancel before any transaction is sent.
-check "a cancel naming another plan fails" "$(submit_cancel not-scheduled >/dev/null 2>&1 && echo sent || echo refused)" refused
+check "a cancel naming another plan is refused" "$(cancel_outcome not-scheduled)" refused
 id=$(submit_cancel never-applied | proposal_id)
 check "cancel proposal passes" "$(pass_proposal "$id")" PROPOSAL_STATUS_PASSED
 for n in 0 1 2 3; do check "node $n has no plan after the cancel" "$(plan_name "$n")" ""; done
