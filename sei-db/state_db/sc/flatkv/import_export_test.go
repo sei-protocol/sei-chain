@@ -1,10 +1,14 @@
 package flatkv
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -300,6 +304,130 @@ func TestExporterEOAAccountOmitsCodeHash(t *testing.T) {
 	require.Equal(t, &balanceVal, acct.GetBalance())
 	var zeroHash vtype.CodeHash
 	require.Equal(t, &zeroHash, acct.GetCodeHash())
+}
+
+// withImportByteBudget makes importers built during the test use budget.
+func withImportByteBudget(t *testing.T, budget int64) {
+	t.Helper()
+	importByteBudgetForTest.Store(budget)
+	t.Cleanup(func() { importByteBudgetForTest.Store(0) })
+}
+
+// budgetRow returns the misc row i of an import, with a key and value of keyLen+valueLen bytes in total.
+func budgetRow(i int, valueLen int) *types.SnapshotNode {
+	return &types.SnapshotNode{
+		Key:     []byte(fmt.Sprintf("bank/k%05d", i)),
+		Value:   bytes.Repeat([]byte{'v'}, valueLen),
+		Version: 1,
+	}
+}
+
+func (imp *KVImporter) budgetInUse() int64 {
+	imp.budgetMu.Lock()
+	defer imp.budgetMu.Unlock()
+	return imp.budgetUsed
+}
+
+func TestImporterRefusesNodeAboveHalfTheByteBudget(t *testing.T) {
+	withImportByteBudget(t, 8)
+	s, imp := newKVImporterForTest(t, 1)
+	defer s.Close()
+
+	err := imp.AddNode(&types.SnapshotNode{Key: []byte("bank/a"), Value: []byte("v"), Version: 1})
+	require.ErrorContains(t, err, "more than the 4-byte node limit")
+	require.Error(t, imp.Close())
+}
+
+// TestImporterFlushesOnBytesBeforeTheBudgetFills sends one worker far more bytes than the budget in far
+// fewer rows than importBatchSize. A worker that flushed only on its pair count would hold the whole
+// budget unflushed, and AddNode would wait forever.
+func TestImporterFlushesOnBytesBeforeTheBudgetFills(t *testing.T) {
+	withImportByteBudget(t, 4096)
+	s, imp := newKVImporterForTest(t, 1)
+	defer s.Close()
+
+	const rows = 1000
+	added := make(chan error, 1)
+	go func() {
+		for i := range rows {
+			if err := imp.AddNode(budgetRow(i, 100)); err != nil {
+				added <- err
+				return
+			}
+		}
+		added <- nil
+	}()
+	select {
+	case err := <-added:
+		require.NoError(t, err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("AddNode did not return: no worker flushed while the budget was full")
+	}
+	require.NoError(t, imp.Close())
+	flushes, pairs := imp.importStats()
+	require.Equal(t, int64(rows), pairs)
+	require.Greater(t, flushes, int64(1))
+}
+
+// TestImporterByteBudgetBlocksWhileFlushesAreHeld holds every flush, so no bytes return to the budget. The
+// producer then cannot add more rows than the budget holds, whatever the scheduling.
+func TestImporterByteBudgetBlocksWhileFlushesAreHeld(t *testing.T) {
+	const budget, rowBytes = 1024, 32
+	release := make(chan struct{})
+	hook := func(string) { <-release }
+	flushHookForTest.Store(&hook)
+	t.Cleanup(func() { flushHookForTest.Store(nil) })
+	withImportByteBudget(t, budget)
+	s, imp := newKVImporterForTest(t, 1)
+	defer s.Close()
+	releaseFlushes := sync.OnceFunc(func() { close(release) })
+	// Runs before s.Close, which waits forever on a worker held in the flush hook.
+	defer releaseFlushes()
+
+	const rows = 3 * budget / rowBytes
+	added := make(chan error, 1)
+	go func() {
+		for i := range rows {
+			if err := imp.AddNode(budgetRow(i, rowBytes-len("bank/k00000"))); err != nil {
+				added <- err
+				return
+			}
+		}
+		added <- nil
+	}()
+
+	require.Eventually(t, func() bool { return imp.budgetInUse()+rowBytes > budget }, 10*time.Second, time.Millisecond)
+	select {
+	case err := <-added:
+		t.Fatalf("the producer added %d rows of %d bytes into a %d-byte budget with no flush done (err %v)",
+			rows, rowBytes, budget, err)
+	default:
+	}
+
+	releaseFlushes()
+	select {
+	case err := <-added:
+		require.NoError(t, err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("AddNode did not return after the flushes were released")
+	}
+	require.NoError(t, imp.Close())
+	_, pairs := imp.importStats()
+	require.Equal(t, int64(rows), pairs)
+}
+
+// TestImportWorkerFlushesAtMostAQuarterOfTheDefaultMemTable keeps a worker's batch below the size at which
+// Pebble holds the batch itself in its flush queue, which is half a memtable.
+func TestImportWorkerFlushesAtMostAQuarterOfTheDefaultMemTable(t *testing.T) {
+	require.LessOrEqual(t, 4*uint64(workerFlushBytes(importByteBudget)), pebbledb.DefaultConfig().MemTableSize)
+}
+
+func TestImporterFailsWhenItReleasesMoreBytesThanItHolds(t *testing.T) {
+	s, imp := newKVImporterForTest(t, 1)
+	defer s.Close()
+
+	imp.releaseBytes(1)
+	require.ErrorContains(t, imp.Close(), "after a release of 1 bytes")
 }
 
 func TestImportSurvivesReopen(t *testing.T) {
