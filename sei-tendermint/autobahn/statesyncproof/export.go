@@ -181,6 +181,8 @@ func (e *Exporter) exportable(checkpoints map[types.RoadIndex]struct{}) []types.
 func (e *Exporter) exportCheckpoint(index types.RoadIndex) error {
 	// The committee of epoch X+2 is computed when a node executes LastRoad(X). A node restored at
 	// H never executes H, so a checkpoint at LastRoad(X) cannot be restored.
+	// TODO: remove this skip when the restore from a state sync snapshot sets up the committee of
+	// epoch X+2 itself, so that a node can restore from any road.
 	if e.cfg.IsClosingRoad(index) {
 		e.skipped[index] = struct{}{}
 		return nil
