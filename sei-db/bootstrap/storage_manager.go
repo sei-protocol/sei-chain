@@ -29,6 +29,9 @@ var logger = seilog.NewLogger("db", "giga")
 // GigaStorageManager owns every database a Giga node reads and writes, plus the
 // checkpoint schedule and prune cycle that run above them.
 type GigaStorageManager struct {
+	// cfg is the config the stores were opened with.
+	cfg *config.GigaStorageConfig
+
 	// blockStore.Close closes the block database it was built over.
 	blockStore *blockstore.Store
 
@@ -53,6 +56,9 @@ type GigaStorageManager struct {
 
 	// budHasher reports the BUD hash of each block the state DB commits to appHashBuilder.
 	budHasher bud.BUDHasher
+
+	// stateSyncProofExport writes state sync proof files once StartStateSyncProofExport starts it.
+	stateSyncProofExport stateSyncProofExport
 }
 
 // NewGigaStorageManager opens every store a Giga node runs on, first aligning the state stores and the receipt
@@ -144,6 +150,7 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 	}
 
 	return &GigaStorageManager{
+		cfg:            cfg,
 		blockStore:     blockStore,
 		receiptDB:      receiptDB,
 		stateDB:        stateDB,
@@ -286,10 +293,16 @@ func (m *GigaStorageManager) AppHashBuilder() builder.AppHashBuilder { return m.
 // ReceiptHasher returns the hasher that reports the receipt hash of each executed block to the app hash builder.
 func (m *GigaStorageManager) ReceiptHasher() *receipthash.ReceiptHasher { return m.receiptHasher }
 
-// Close stops the garbage collector and closes every store.
+// Close stops the state sync proof export and the garbage collector, and closes every store. It
+// waits for an active state sync proof sweep to end before it closes the block store.
 func (m *GigaStorageManager) Close() error {
 	var errs error
 	var timer utils.CloseTimer
+	// Before the block store, which the export reads.
+	_ = timer.Close("state_sync_proof_export", func() error {
+		m.stateSyncProofExport.stop()
+		return nil
+	})
 	if err := timer.Close("gc", m.gc.Close); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("close storage garbage collector: %w", err))
 	}

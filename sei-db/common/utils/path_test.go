@@ -63,6 +63,22 @@ func TestGetFlatKVPath_LegacyExists(t *testing.T) {
 	assert.Equal(t, legacy, got)
 }
 
+// --- GetStateSyncProofPath ---
+
+func TestGetStateSyncProofPath_NewNode(t *testing.T) {
+	home := t.TempDir()
+	got := GetStateSyncProofPath(home)
+	assert.Equal(t, filepath.Join(home, "data", "state_commit", "state_sync_proofs"), got)
+}
+
+func TestGetStateSyncProofPath_LegacyFlatKVExists(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "data", "flatkv"), 0755))
+
+	got := GetStateSyncProofPath(home)
+	assert.Equal(t, filepath.Join(home, "data", "state_commit", "state_sync_proofs"), got)
+}
+
 // --- GetStateStorePath ---
 
 func TestGetStateStorePath_NewNode_Pebble(t *testing.T) {

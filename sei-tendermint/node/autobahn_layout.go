@@ -13,6 +13,7 @@ type AutobahnLayout struct {
 	PersistentStateDir string
 	FlatKVDir          string
 	RestoreMarkerFile  string
+	StateSyncProofDir  string
 }
 
 // ResolveAutobahnLayout returns the Autobahn layout of the node that conf configures, with
@@ -30,5 +31,6 @@ func ResolveAutobahnLayout(conf *config.Config) (AutobahnLayout, error) {
 		PersistentStateDir: psd,
 		FlatKVDir:          dbutils.GetFlatKVPath(psd),
 		RestoreMarkerFile:  p2p.RestoreMarkerFile(psd),
+		StateSyncProofDir:  dbutils.GetStateSyncProofPath(psd),
 	}, nil
 }
