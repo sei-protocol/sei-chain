@@ -424,6 +424,9 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *proxy.RequestCheckT
 	if !ok {
 		return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 1, Log: "transaction gas limit exceeds int64"}}
 	}
+	if err := a.checkSenderCanPay(tx, sender); err != nil {
+		return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 1, Log: err.Error()}}
+	}
 	a.rememberSender(tx.Hash(), sender)
 	return &proxy.ResponseCheckTxV2{
 		ResponseCheckTx: &proxy.ResponseCheckTx{
@@ -437,6 +440,34 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *proxy.RequestCheckT
 		EVMSenderAddress: sender,
 		SeiSenderAddress: append([]byte(nil), sender[:]...),
 	}
+}
+
+// checkSenderCanPay refuses tx when sender's committed balance does not cover its gas limit at its fee
+// cap plus its value. Before the alloc's block commits, a sender holds its alloc.
+func (a *evmOnlyApplication) checkSenderCanPay(tx *ethtypes.Transaction, sender common.Address) error {
+	cost, overflow := uint256.FromBig(tx.Cost())
+	if overflow {
+		return errors.New("ethereum transaction cost exceeds 256 bits")
+	}
+	balance := a.admissionBalance(sender)
+	if balance.Lt(cost) {
+		return fmt.Errorf("insufficient funds for gas * price + value: address %s have %s want %s", sender, balance.Dec(), cost.Dec())
+	}
+	return nil
+}
+
+// admissionBalance returns sender's balance in the latest committed state, which is its alloc until
+// that state holds the alloc's block.
+func (a *evmOnlyApplication) admissionBalance(sender common.Address) uint256.Int {
+	view := a.storage.StateDB().OpenView()
+	defer view.Close()
+	if alloc, ok := a.alloc.Get(); ok && view.GetBlockHeight() < alloc.InitialHeight {
+		if balance, ok := alloc.Balances[sender]; ok {
+			return *balance
+		}
+		return uint256.Int{}
+	}
+	return a.balance(view, sender)
 }
 
 // RememberEvmSender records a sender recovered from the transaction with this hash before CheckTx, so
