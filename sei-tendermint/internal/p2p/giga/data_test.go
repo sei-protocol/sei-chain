@@ -172,8 +172,8 @@ func TestDataClientServer(t *testing.T) {
 }
 
 // runFullCommitQCClient runs the FullCommitQC stream client of node against a server that passes the request to onReq,
-// unless onReq is nil, then sends qcs in order and closes the stream. It returns the error that ends the client.
-func runFullCommitQCClient(ctx context.Context, node *testNode, onReq func(context.Context, *StreamFullCommitQCsReq) error, qcs []*types.FullCommitQC) error {
+// when set, then sends qcs in order and closes the stream. It returns the error that ends the client.
+func runFullCommitQCClient(ctx context.Context, node *testNode, onReq utils.Option[func(context.Context, *StreamFullCommitQCsReq) error], qcs []*types.FullCommitQC) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		serverConn, clientConn := conn.NewTestConn()
 		server := rpc.NewServer[API]()
@@ -190,7 +190,7 @@ func runFullCommitQCClient(ctx context.Context, node *testNode, onReq func(conte
 				if err != nil {
 					return fmt.Errorf("StreamFullCommitQCsReqConv.Decode(): %w", err)
 				}
-				if onReq != nil {
+				if onReq, ok := onReq.Get(); ok {
 					if err := onReq(ctx, req); err != nil {
 						return err
 					}
@@ -239,7 +239,7 @@ func TestFullCommitQCStreamAcceptsIncreasingIndexesWithGaps(t *testing.T) {
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Another peer fills the gap that the stream skips.
 		s.Spawn(func() error { return node.data.PushPartialBlock(ctx, qcs[2], nil) })
-		return runFullCommitQCClient(ctx, node, pushRequested, []*types.FullCommitQC{qcs[1], qcs[3]})
+		return runFullCommitQCClient(ctx, node, utils.Some(pushRequested), []*types.FullCommitQC{qcs[1], qcs[3]})
 	})
 	require.ErrorIs(t, err, mux.ErrRemoteClosed)
 	require.Equal(t, ok+2, fetchCount(resFullCommitQC, "ok"))
@@ -280,7 +280,7 @@ func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
 			}
 			ok := fetchCount(resFullCommitQC, "ok")
 			outOfOrder := fetchCount(resFullCommitQC, "out_of_order")
-			require.ErrorIs(t, runFullCommitQCClient(ctx, node, nil, sent), types.ErrUnexpectedIndex)
+			require.ErrorIs(t, runFullCommitQCClient(ctx, node, utils.None[func(context.Context, *StreamFullCommitQCsReq) error](), sent), types.ErrUnexpectedIndex)
 			require.Equal(t, ok+tc.accepted, fetchCount(resFullCommitQC, "ok"))
 			require.Equal(t, outOfOrder+1, fetchCount(resFullCommitQC, "out_of_order"))
 		})
