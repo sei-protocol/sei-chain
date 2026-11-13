@@ -51,7 +51,7 @@ func TestStaleReceiptRPCsKeepStoredPositions(t *testing.T) {
 	backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		return block, nil
 	})
-	backend.minGasPrice = func() (*big.Int, error) { return big.NewInt(1_000_000_000), nil }
+	backend.minGasPrice = func() *big.Int { return big.NewInt(1_000_000_000) }
 	txs := &txAPI{backend: backend, store: store}
 	gotReceipt, err := txs.GetTransactionReceipt(t.Context(), tx.Hash())
 	require.NoError(t, err)
@@ -115,7 +115,7 @@ func TestFeeHistoryRecomputeSkipsReceiptsKeptFromOtherBlocks(t *testing.T) {
 	backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		return block, nil
 	})
-	backend.minGasPrice = func() (*big.Int, error) { return big.NewInt(1), nil }
+	backend.minGasPrice = func() *big.Int { return big.NewInt(1) }
 
 	history, err := (&infoAPI{backend: backend, store: store}).FeeHistory(t.Context(), 1, 10, []float64{50})
 	require.NoError(t, err)

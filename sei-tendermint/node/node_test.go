@@ -225,7 +225,7 @@ func TestNodeSetPrivValTCP(t *testing.T) {
 	}()
 	defer signerServer.Stop()
 
-	genDoc, err := defaultGenesisDocProviderFunc(cfg)()
+	genDoc, err := types.GenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
 
 	pval, err := createPrivval(ctx, cfg, genDoc, nil)
@@ -283,7 +283,7 @@ func TestNodeSetPrivValIPC(t *testing.T) {
 		require.NoError(t, err)
 	}()
 	defer pvsc.Stop()
-	genDoc, err := defaultGenesisDocProviderFunc(cfg)()
+	genDoc, err := types.GenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
 
 	pval, err := createPrivval(ctx, cfg, genDoc, nil)
@@ -597,11 +597,14 @@ func TestNodeNewSeedNode(t *testing.T) {
 	nodeKey, err := types.LoadOrGenNodeKey(cfg.NodeKeyFile())
 	require.NoError(t, err)
 
+	genDoc, err := types.GenesisDocFromFile(cfg.GenesisFile())
+	require.NoError(t, err)
+
 	ns, err := makeSeedNode(
 		cfg,
 		config.DefaultDBProvider,
 		nodeKey,
-		defaultGenesisDocProviderFunc(cfg),
+		genDoc,
 	)
 	t.Cleanup(ns.Wait)
 	t.Cleanup(leaktest.CheckTimeout(t, time.Second))
@@ -644,7 +647,10 @@ func TestNodeNewSeedNode_ServesPrometheusMetrics(t *testing.T) {
 	nodeKey, err := types.LoadOrGenNodeKey(cfg.NodeKeyFile())
 	require.NoError(t, err)
 
-	ns, err := makeSeedNode(cfg, config.DefaultDBProvider, nodeKey, defaultGenesisDocProviderFunc(cfg))
+	genDoc, err := types.GenesisDocFromFile(cfg.GenesisFile())
+	require.NoError(t, err)
+
+	ns, err := makeSeedNode(cfg, config.DefaultDBProvider, nodeKey, genDoc)
 	require.NoError(t, err)
 	t.Cleanup(ns.Wait)
 	t.Cleanup(leaktest.CheckTimeout(t, time.Second))
@@ -704,7 +710,10 @@ func TestNodeSeedNodeStopCompletes(t *testing.T) {
 		nodeKey, err := types.LoadOrGenNodeKey(cfg.NodeKeyFile())
 		require.NoError(t, err)
 
-		ns, err := makeSeedNode(cfg, config.DefaultDBProvider, nodeKey, defaultGenesisDocProviderFunc(cfg))
+		genDoc, err := types.GenesisDocFromFile(cfg.GenesisFile())
+		require.NoError(t, err)
+
+		ns, err := makeSeedNode(cfg, config.DefaultDBProvider, nodeKey, genDoc)
 		require.NoError(t, err)
 		n, ok := ns.(*seedNodeImpl)
 		require.True(t, ok)

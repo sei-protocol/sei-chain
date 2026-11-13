@@ -53,6 +53,8 @@ func TestRPCDefaultsMatchTheV2EVMRPC(t *testing.T) {
 	require.Equal(t, v2.MaxConcurrentTraceCalls, uint64(r.MaxConcurrentTraceCalls))
 	require.Equal(t, v2.TraceTimeout, r.TraceTimeout)
 	require.Equal(t, v2.MaxTraceStructLogBytes, uint64(r.MaxTraceStructLogBytes))
+	require.Equal(t, v2.MaxStateOverrideAccounts, r.MaxStateOverrideAccounts)
+	require.Equal(t, v2.MaxStateOverrideSlots, r.MaxStateOverrideSlots)
 	require.Equal(t, uint64(100), r.MaxSubscriptionsPerConnection)
 	require.Equal(t, v2.MaxEstimateGasCalls, r.MaxEstimateGasCalls)
 	require.Equal(t, v2.FilterTimeout, r.FilterTimeout)
@@ -74,6 +76,20 @@ func TestConfigTemplateRendersTheDefaults(t *testing.T) {
 	require.Equal(t, gigaconfig.DefaultConfig, cfg)
 }
 
+func TestConfigTemplateRendersSkipUpgrades(t *testing.T) {
+	tmpl := template.Must(template.New("giga").Parse(gigaconfig.ConfigTemplate))
+	want := gigaconfig.DefaultConfig
+	want.Execution.UnsafeSkipUpgrades = []uint64{100, 101}
+	var rendered bytes.Buffer
+	require.NoError(t, tmpl.Execute(&rendered, struct{ Giga gigaconfig.Config }{want}))
+	v := viper.New()
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadConfig(&rendered))
+	cfg, err := gigaconfig.ReadConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, want, cfg)
+}
+
 func TestReadConfigReadsEveryKey(t *testing.T) {
 	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{
 		"giga.storage.mode":                         "full",
@@ -89,6 +105,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.execution.block_result_pool_size":     "4",
 		"giga.execution.evm_rpc_port":               "8600",
 		"giga.execution.evm_ws_port":                "8601",
+		"giga.execution.unsafe_skip_upgrades":       []int{100, 101},
 		"giga.rpc.max_subscriptions_new_head":       "20",
 		"giga.rpc.max_subscriptions_logs":           "15",
 		"giga.rpc.max_subscriptions_per_connection": "5",
@@ -106,6 +123,8 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.rpc.max_concurrent_send_calls":        "7",
 		"giga.rpc.trace_timeout":                    "4s",
 		"giga.rpc.max_trace_struct_log_bytes":       "512",
+		"giga.rpc.max_state_override_accounts":      "5",
+		"giga.rpc.max_state_override_slots":         "6",
 		"giga.state_sync.enabled":                   "true",
 	})
 	require.NoError(t, err)
@@ -126,6 +145,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			BlockResultPoolSize: 4,
 			EvmRpcPort:          8600,
 			EvmWsPort:           8601,
+			UnsafeSkipUpgrades:  []uint64{100, 101},
 		},
 		RPC: gigaconfig.RPCConfig{
 			MaxSubscriptionsNewHead:       20,
@@ -145,6 +165,8 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			MaxConcurrentSendCalls:        7,
 			TraceTimeout:                  4 * time.Second,
 			MaxTraceStructLogBytes:        512,
+			MaxStateOverrideAccounts:      5,
+			MaxStateOverrideSlots:         6,
 		},
 		StateSync: gigaconfig.StateSyncConfig{
 			Enabled: true,
@@ -168,6 +190,8 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"evm ws port zero":                {"giga.execution.evm_ws_port": "0"},
 		"evm ws port too high":            {"giga.execution.evm_ws_port": "65536"},
 		"evm ws port is rpc port":         {"giga.execution.evm_ws_port": "8545"},
+		"zero skip height":                {"giga.execution.unsafe_skip_upgrades": []int{0}},
+		"negative skip height":            {"giga.execution.unsafe_skip_upgrades": []int{-1}},
 		"negative subscription cap":       {"giga.rpc.max_subscriptions_new_head": "-1"},
 		"non-numeric logs cap":            {"giga.rpc.max_subscriptions_logs": "lots"},
 		"non-numeric per-connection cap":  {"giga.rpc.max_subscriptions_per_connection": "many"},
@@ -187,6 +211,10 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"non-numeric trace calls":         {"giga.rpc.max_concurrent_trace_calls": "many"},
 		"non-duration trace timeout":      {"giga.rpc.trace_timeout": "later"},
 		"non-numeric struct log bytes":    {"giga.rpc.max_trace_struct_log_bytes": "big"},
+		"negative override accounts":      {"giga.rpc.max_state_override_accounts": "-1"},
+		"negative override slots":         {"giga.rpc.max_state_override_slots": "-1"},
+		"non-numeric override accounts":   {"giga.rpc.max_state_override_accounts": "all"},
+		"non-numeric override slots":      {"giga.rpc.max_state_override_slots": "all"},
 		"non-numeric request bytes":       {"giga.rpc.max_concurrent_request_bytes": "lots"},
 		"non-duration admission timeout":  {"giga.rpc.ws_admission_timeout": "soon"},
 		"non-numeric batch limit":         {"giga.rpc.batch_request_limit": "many"},

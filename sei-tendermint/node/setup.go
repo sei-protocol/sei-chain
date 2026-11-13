@@ -230,7 +230,7 @@ func buildValidatorGigaConfig(
 	autobahnConfigFile string,
 	nodeKey types.NodeKey,
 	validatorKey atypes.SecretKey,
-	app *proxy.Proxy,
+	app *proxy.EVMProxy,
 	genDoc *types.GenesisDoc,
 ) (*p2p.GigaValidatorConfig, error) {
 	fc, validatorAddrs, err := loadAutobahnCommittee(autobahnConfigFile)
@@ -290,10 +290,11 @@ func buildGigaRouter(
 	cfg *config.Config,
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
-	app *proxy.Proxy,
+	app *proxy.EVMProxy,
 	genDoc *types.GenesisDoc,
 	blockStore *ablockstore.Store,
 	appHashBuilder builder.AppHashBuilder,
+	persistentPeers []p2p.NodeAddress,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
@@ -330,6 +331,7 @@ func buildGigaRouter(
 		valCfg.PersistentStateDir = stateDir
 		valCfg.AppHashBuilder = appHashBuilder
 		valCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
+		valCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
 		if err != nil {
@@ -352,6 +354,7 @@ func buildGigaRouter(
 	fnCfg.PersistentStateDir = stateDir
 	fnCfg.AppHashBuilder = appHashBuilder
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
+	fnCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
 	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
 	if err != nil {
@@ -366,7 +369,7 @@ func buildGigaRouter(
 
 // buildExecutor returns the Autobahn executor that runs the blocks in manager's
 // BlockStore on app.
-func buildExecutor(app *proxy.Proxy, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager) *execution.Executor {
+func buildExecutor(app *proxy.EVMProxy, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager) *execution.Executor {
 	return execution.New(&execution.Config{
 		GenDoc:         genDoc,
 		App:            app,
@@ -463,9 +466,18 @@ func resolveGigaStorageMode(nodeMode string, pinned string) string {
 	return gigaconfig.StorageModeValidator
 }
 
-// resolveMaxInboundFullnodePeers: None ⇒ default, Some(0) ⇒ reject all,
-// Some(n) ⇒ n. The default lives in the config package so giga_router
-// doesn't carry an operator-facing knob.
+// persistentPeerIDSet returns the node IDs in peers.
+func persistentPeerIDSet(peers []p2p.NodeAddress) map[types.NodeID]struct{} {
+	ids := make(map[types.NodeID]struct{}, len(peers))
+	for _, peer := range peers {
+		ids[peer.NodeID] = struct{}{}
+	}
+	return ids
+}
+
+// resolveMaxInboundFullnodePeers: None ⇒ default, Some(0) ⇒ reject every
+// inbound fullnode that is neither a persistent nor a block-sync peer, Some(n) ⇒ n. The default
+// lives in the config package so giga_router doesn't carry an operator-facing knob.
 func resolveMaxInboundFullnodePeers(o utils.Option[uint64]) int {
 	if v, ok := o.Get(); ok {
 		return int(v) //nolint:gosec // bounded by maxInboundFullnodePeers in giga_router_common
@@ -488,7 +500,7 @@ func genesisMaxGas(genDoc *types.GenesisDoc) (uint64, error) {
 // than producing them and forward every EVM tx to the shard owner.
 func buildFullnodeGigaConfig(
 	autobahnConfigFile string,
-	app *proxy.Proxy,
+	app *proxy.EVMProxy,
 	genDoc *types.GenesisDoc,
 ) (*p2p.GigaRouterCommonConfig, error) {
 	fc, validatorAddrs, err := loadAutobahnCommittee(autobahnConfigFile)
@@ -576,7 +588,7 @@ func createRouter(
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
 	cfg *config.Config,
-	app utils.Option[*proxy.Proxy],
+	app utils.Option[*proxy.EVMProxy],
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 	storageManager utils.Option[*bootstrap.GigaStorageManager],
@@ -638,18 +650,16 @@ func createRouter(
 		logger.Info("Autobahn config enabled", "config_file", cfg.AutobahnConfigFile, "mode", cfg.Mode)
 		proxyApp, ok := app.Get()
 		if !ok {
-			return nil, closer, noneDB, fmt.Errorf("autobahn requires app")
+			return nil, closer, noneDB, fmt.Errorf("autobahn requires an EVM application")
 		}
 		manager, ok := storageManager.Get()
 		if !ok {
 			return nil, closer, noneDB, fmt.Errorf("autobahn requires a storage manager")
 		}
-		if manager.AppHashBuilder() == nil {
-			return nil, closer, noneDB, fmt.Errorf("autobahn storage manager requires an app hash builder")
-		}
 		giga, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
 			manager.BlockStore(), manager.AppHashBuilder(),
+			options.PersistentPeers,
 		)
 		if err != nil {
 			return nil, closer, noneDB, err

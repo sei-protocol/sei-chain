@@ -1632,6 +1632,18 @@ func TestStateDBSelfDestructMarksBalanceWrite(t *testing.T) {
 	require.Contains(t, writes, stateAccessKey{kind: stateAccessBalance, address: contract})
 }
 
+func TestStateDBSelfDestructKeepsBalance(t *testing.T) {
+	contract := testAddress(0xc4)
+	stateDB := newNativeStateDB(NewMemoryState())
+	stateDB.AddBalance(contract, uint256.NewInt(7), tracing.BalanceChangeUnspecified)
+
+	stateDB.SelfDestruct(contract)
+	require.Equal(t, uint256.NewInt(7), stateDB.GetBalance(contract))
+
+	stateDB.Finalise(params.Rules{IsEIP158: true})
+	require.Equal(t, uint256.NewInt(7), stateDB.GetBalance(contract))
+}
+
 // Executing a block reports, for every balance, nonce, code and storage change, the value its key held
 // before the block: for a slot written twice, a slot deleted, a contract created and a fresh account.
 func TestExecuteBlockChangeSetCarriesPriorValues(t *testing.T) {
@@ -1780,7 +1792,7 @@ func TestStateDBGetCommittedStateAdvancesAtFinalise(t *testing.T) {
 	require.Equal(t, first, stateDB.GetCommittedState(addr, key))
 	require.Equal(t, first, stateDB.SetState(addr, key, second))
 	require.Equal(t, first, stateDB.GetCommittedState(addr, key))
-	stateDB.Finalise(true)
+	stateDB.Finalise(params.Rules{IsEIP158: true})
 	require.Equal(t, second, stateDB.GetCommittedState(addr, key))
 	require.Equal(t, second, stateDB.SetState(addr, key, third))
 	require.Equal(t, second, stateDB.GetCommittedState(addr, key))
@@ -1876,7 +1888,7 @@ func TestStateDBChangeSetOmitsACreditThatNetsOut(t *testing.T) {
 
 	stateDB.AddBalance(addr, uint256.NewInt(5), tracing.BalanceIncreaseRewardTransactionFee)
 	stateDB.SubBalance(addr, uint256.NewInt(5), tracing.BalanceChangeTransfer)
-	stateDB.Finalise(true)
+	stateDB.Finalise(params.Rules{IsEIP158: true})
 
 	require.Empty(t, stateDB.ChangeSet().Accounts)
 }
@@ -2146,9 +2158,9 @@ func TestStateDBCreatedAndDestroyedAccountKeepsStoredStorage(t *testing.T) {
 	stateDB.CreateAccount(addr)
 	stateDB.CreateContract(addr)
 	stateDB.SetState(addr, written, testHash(0x05))
-	_, destroyed := stateDB.SelfDestruct6780(addr)
-	require.True(t, destroyed)
-	stateDB.Finalise(true)
+	require.True(t, stateDB.IsNewContract(addr))
+	stateDB.SelfDestruct(addr)
+	stateDB.Finalise(params.Rules{IsEIP158: true})
 
 	require.Equal(t, writtenStored, stateDB.GetState(addr, written))
 	require.Equal(t, untouchedStored, stateDB.GetState(addr, untouched))
@@ -2556,7 +2568,7 @@ func TestFinaliseClearsRefund(t *testing.T) {
 	stateDB := newNativeStateDB(NewMemoryState())
 	stateDB.AddRefund(12)
 
-	stateDB.Finalise(true)
+	stateDB.Finalise(params.Rules{IsEIP158: true})
 
 	require.Zero(t, stateDB.GetRefund())
 }
@@ -2779,6 +2791,10 @@ func (r staticPrecompileRegistry) Get(addr common.Address) (precompiles.Contract
 
 func (r staticPrecompileRegistry) Addresses() []common.Address {
 	return []common.Address{r.addr}
+}
+
+func (staticPrecompileRegistry) BeginBlockers() []common.Address {
+	return nil
 }
 
 func (staticPrecompileRegistry) EndBlockers() []common.Address {

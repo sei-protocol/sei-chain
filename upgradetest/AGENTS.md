@@ -29,7 +29,7 @@ source worktree's `app` package before compiling it. It also has a reopen TODO
 so the runner's third phase has a test to select. Its TODOs fail in the layer
 that reaches them until real assertions replace them.
 
-Appending `v6.7` to `app/tags` makes that pair the current boundary.
+Appending `v6.7` to `app/upgradenames/tags` makes that pair the current boundary.
 `make upgrade-test` derives the build tag from the embedded list and runs the
 app package with the file enabled. The workflow must not name a version.
 
