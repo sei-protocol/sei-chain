@@ -4,6 +4,9 @@ const axios = require("axios");
 const crypto = require("crypto");
 
 const adminKeyName = "admin"
+// The Tendermint RPC of seid's gov, params and block commands, which use the
+// EVM JSON-RPC without --node.
+const v2Node = "--node tcp://localhost:26657"
 
 const ABI = {
     ERC20: [
@@ -268,7 +271,7 @@ async function waitForProposalStatus(
     targetStatus,
     { kickKeyName = adminKeyName, pollIntervalMs = 1000 } = {},
 ) {
-    const readProposal = async () => JSON.parse(await execute(`seid q gov proposal ${proposalId} -o json`))
+    const readProposal = async () => JSON.parse(await execute(`seid q gov proposal ${proposalId} -o json ${v2Node}`))
     const ensureNotFailed = (status) => {
         if (
             (status === "PROPOSAL_STATUS_REJECTED" || status === "PROPOSAL_STATUS_FAILED") &&
@@ -475,7 +478,7 @@ async function proposeParamChange(title, description, changes, deposit="20000000
     await execute(`echo ${base64Json} | base64 -d > ${tempFile}`);
 
     const maxIdBefore = await maxProposalId();
-    const command = `seid tx gov submit-proposal param-change ${tempFile} --from ${from} --fees ${fees} -y -o json -b sync`;
+    const command = `seid tx gov submit-proposal param-change ${tempFile} --from ${from} --fees ${fees} -y -o json -b sync ${v2Node}`;
     const output = await execute(command);
     await execute(`rm ${tempFile}`);
     const response = JSON.parse(output);
@@ -497,7 +500,7 @@ async function findProposalByTitle(title, maxIdBefore, txHashForError) {
         for (let id = maxIdBefore + 1; id <= cur; id++) {
             let detail;
             try {
-                detail = JSON.parse(await execute(`seid q gov proposal ${id} -o json`));
+                detail = JSON.parse(await execute(`seid q gov proposal ${id} -o json ${v2Node}`));
             } catch (e) {
                 // Transient query failure (RPC blip, indexer lag, parse
                 // error mid-flight). Leave this id for re-scan next
@@ -530,7 +533,7 @@ async function maxProposalId() {
     try {
         // seid exits non-zero ("Error: no proposals found") on an empty
         // gov set; the try/catch treats that as id=0.
-        out = await execute(`seid q gov proposals --reverse --limit 1 -o json 2>/dev/null`);
+        out = await execute(`seid q gov proposals --reverse --limit 1 -o json ${v2Node} 2>/dev/null`);
     } catch (e) {
         return 0;
     }
@@ -585,8 +588,8 @@ async function enableWasm(from=adminKeyName) {
 }
 
 async function getWasmParams() {
-    const uploadAccess = await execute(`seid query params subspace wasm uploadAccess -o json`);
-    const instantiateAccess = await execute(`seid query params subspace wasm instantiateAccess -o json`);
+    const uploadAccess = await execute(`seid query params subspace wasm uploadAccess -o json ${v2Node}`);
+    const instantiateAccess = await execute(`seid query params subspace wasm instantiateAccess -o json ${v2Node}`);
     return {
         uploadAccess: JSON.parse(uploadAccess),
         instantiateAccess: JSON.parse(instantiateAccess)
@@ -621,9 +624,9 @@ async function ensureWasmDisabled(from=adminKeyName) {
 
 async function passProposal(proposalId,  desposit="200000000usei", fees="200000usei", from=adminKeyName) {
     if(await isDocker()) {
-        await executeOnAllNodes(`seid tx gov vote ${proposalId} yes --from node_admin -b sync -y --fees ${fees}`)
+        await executeOnAllNodes(`seid tx gov vote ${proposalId} yes --from node_admin -b sync -y --fees ${fees} ${v2Node}`)
     } else {
-        await execute(`seid tx gov vote ${proposalId} yes --from ${from} -b sync -y --fees ${fees}`)
+        await execute(`seid tx gov vote ${proposalId} yes --from ${from} -b sync -y --fees ${fees} ${v2Node}`)
     }
     await waitForProposalStatus(proposalId, "PROPOSAL_STATUS_PASSED")
     return proposalId
@@ -751,7 +754,7 @@ async function findInclusionBlock(txhashHex, fromHeight, toHeight) {
     const target = txhashHex.toUpperCase()
     for (let h = fromHeight; h <= toHeight; h++) {
         try {
-            const block = JSON.parse(await execute(`seid query block ${h}`))
+            const block = JSON.parse(await execute(`seid query block ${h} ${v2Node}`))
             const txs = block.block?.data?.txs || []
             for (const t of txs) {
                 const buf = Buffer.from(t, 'base64')

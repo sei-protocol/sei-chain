@@ -38,7 +38,7 @@ export async function isWasmEnabled(): Promise<boolean> {
     try {
         const query = (key: string) =>
             exec(
-                `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && seid query params subspace wasm ${key} -o json'`,
+                `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && seid query params subspace wasm ${key} -o json --node tcp://localhost:26657'`,
             );
         const [upload, instantiate] = await Promise.all([
             query('uploadAccess'),

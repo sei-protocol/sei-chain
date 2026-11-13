@@ -20,7 +20,7 @@ fi
 
 # Loop until the proposal status is PROPOSAL_STATUS_PASSED or we timeout
 for ((i=1; i<=TRIES; i++)); do
-    STATUS=$(seid query gov proposal $PROPOSAL_ID --output json | jq -r ".status")
+    STATUS=$(seid query gov proposal $PROPOSAL_ID --output json --node tcp://localhost:26657 | jq -r ".status")
 
     if [ "$STATUS" == "PROPOSAL_STATUS_PASSED" ]; then
         echo "Proposal $PROPOSAL_ID has passed!"

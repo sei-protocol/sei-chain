@@ -117,7 +117,7 @@ func TestSubmitOtherTypeFails(t *testing.T) {
 	r := newTestRoot(t)
 	stub := newRPCStub(t)
 	err := r.run("", args("tx gov submit-proposal --type CommunityPoolSpend --title T --description D", txArgs(stub)...)...)
-	require.ErrorContains(t, err, "not supported with --evm-rpc")
+	require.ErrorContains(t, err, `proposal type "CommunityPoolSpend" is not supported on an EVM-only chain; use Text or a submit-proposal subcommand, or --node`)
 	require.Zero(t, stub.requests)
 }
 
@@ -142,7 +142,7 @@ func TestFeeFlagsAreRefused(t *testing.T) {
 	for _, flag := range []string{"--fees=10usei", "--gas-prices=0.1usei"} {
 		r := newTestRoot(t)
 		stub := newRPCStub(t)
-		require.ErrorContains(t, r.run("", args("tx gov vote 1 yes "+flag, txArgs(stub)...)...), "use --gas-fee-cap")
+		require.ErrorContains(t, r.run("", args("tx gov vote 1 yes "+flag, txArgs(stub)...)...), "use --gas-fee-cap to set the gas price in wei, or --node")
 		require.Zero(t, stub.requests)
 	}
 }
@@ -266,4 +266,13 @@ func TestSubmitParamChangeRejectsUndeclaredParams(t *testing.T) {
 	require.ErrorContains(t, err, "baseapp/ABCIParams is not a param of this chain")
 	require.ErrorContains(t, err, "gov/tallyparams.quorum")
 	require.Zero(t, stub.requests)
+}
+
+func TestOfflineModesAreRefused(t *testing.T) {
+	for _, flag := range []string{"--generate-only", "--dry-run", "--offline"} {
+		r := newTestRoot(t)
+		stub := newRPCStub(t)
+		require.ErrorContains(t, r.run("", args("tx gov vote 1 yes "+flag, txArgs(stub)...)...), flag+" is not supported on an EVM-only chain; use --node")
+		require.Zero(t, stub.requests)
+	}
 }

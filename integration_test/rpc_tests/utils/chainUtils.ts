@@ -206,12 +206,12 @@ export async function queryEip1559Params(): Promise<Eip1559Params | null> {
     try {
         const param = async (key: string): Promise<string> => {
             const { stdout } = await exec(
-                `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && seid query params subspace evm ${key} --output json'`,
+                `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && seid query params subspace evm ${key} --output json --node tcp://localhost:26657'`,
             );
             return JSON.parse(stdout).value.replace(/"/g, '');
         };
         const { stdout: blockParams } = await exec(
-            `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && seid query params blockparams --output json'`,
+            `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && seid query params blockparams --output json --node tcp://localhost:26657'`,
         );
         const [minFee, maxFee, upward, downward, target] = await Promise.all([
             param('KeyMinFeePerGas'),
