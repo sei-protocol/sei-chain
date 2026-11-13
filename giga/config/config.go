@@ -63,6 +63,9 @@ type ExecutionConfig struct {
 	OCCWorkers int `mapstructure:"occ_workers"`
 	// ParseWorkers is the number of parallel transaction decoding workers; 0 uses GOMAXPROCS.
 	ParseWorkers int `mapstructure:"parse_workers"`
+	// EarlySpeculationWorkers, when positive, speculates a block's transactions before the block
+	// executes. Zero disables early speculation.
+	EarlySpeculationWorkers int `mapstructure:"early_speculation_workers"`
 	// BlockResultPoolSize is the number of block results kept pooled between executions.
 	BlockResultPoolSize int `mapstructure:"block_result_pool_size"`
 	// EvmRpcPort is the TCP port the EVM-only JSON-RPC listens on, on all interfaces.
@@ -202,6 +205,7 @@ const (
 	FlagStorageCheckpointBlockInterval   = "giga.storage.checkpoint_block_interval"
 	FlagExecutionMinGasPrice             = "giga.execution.min_gas_price"
 	FlagExecutionOCCWorkers              = "giga.execution.occ_workers"
+	FlagExecutionEarlySpeculationWorkers = "giga.execution.early_speculation_workers"
 	FlagExecutionParseWorkers            = "giga.execution.parse_workers"
 	FlagExecutionBlockResultPoolSize     = "giga.execution.block_result_pool_size"
 	FlagExecutionEvmRpcPort              = "giga.execution.evm_rpc_port"
@@ -282,6 +286,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionParseWorkers); v != nil {
 		if cfg.Execution.ParseWorkers, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionParseWorkers, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionEarlySpeculationWorkers); v != nil {
+		if cfg.Execution.EarlySpeculationWorkers, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionEarlySpeculationWorkers, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionBlockResultPoolSize); v != nil {
@@ -440,6 +449,9 @@ func (c Config) Validate() error {
 	}
 	if c.Execution.ParseWorkers < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionParseWorkers, c.Execution.ParseWorkers)
+	}
+	if c.Execution.EarlySpeculationWorkers < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionEarlySpeculationWorkers, c.Execution.EarlySpeculationWorkers)
 	}
 	if c.Execution.GCPercent < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionGCPercent, c.Execution.GCPercent)

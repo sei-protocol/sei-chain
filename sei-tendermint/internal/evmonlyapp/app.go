@@ -131,9 +131,13 @@ type evmOnlyApplication struct {
 	// in CheckTx, or the RPC submitted, to its recovered sender, so execution
 	// does not recover it again.
 	checkedSenders utils.Mutex[*senderCache]
-	// finalizePhases times FinalizeBlock's stages around the executor. It is a
-	// field so each application instance has its own last-phase clock.
-	// FinalizeBlock is serialized by executor, so one timer is enough per app.
+	// blockHashes is the hash of each block whose FinalizeBlock has started.
+	// A later block reads its parent from here before that block has committed.
+	blockHashes utils.Mutex[map[int64]common.Hash]
+	// turn wakes a FinalizeBlock waiting until the previous block is committed.
+	turn proxy.Turn
+	// finalizePhases times the serialized part of FinalizeBlock. Decoding the
+	// next block runs before that, on another goroutine, and is not timed here.
 	finalizePhases *seidbmetrics.PhaseTimer
 }
 
@@ -143,11 +147,8 @@ const (
 	finalizeMeterName = "evmonly_app"
 	finalizeTimerName = "evmonly_finalize"
 
-	finalizePhaseTakeSenders    = "take_senders"
-	finalizePhaseDecodeTxs      = "decode_txs"
-	finalizePhaseRecoverSenders = "recover_senders"
-	finalizePhaseExecute        = "execute"
-	finalizePhaseTxResults      = "tx_results"
+	finalizePhaseExecute   = "execute"
+	finalizePhaseTxResults = "tx_results"
 )
 
 // evmOnlyCursorState is the execution position: the block whose state is
@@ -199,6 +200,7 @@ func NewEVMOnlyApplication(
 		cursor:            utils.NewMutex(&evmOnlyCursorState{}),
 		settler:           utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		checkedSenders:    utils.NewMutex(new(newSenderCache(checkedSendersCap))),
+		blockHashes:       utils.NewMutex(map[int64]common.Hash{}),
 		finalizePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
 	}
 	cursor, err := loadEVMOnlyCursor(storage.StateDB().SC())
@@ -230,6 +232,8 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 		MinGasPrice:  big.NewInt(evmOnlyBlockMinGasPrice),
 		OCCWorkers:   workersOrGOMAXPROCS(a.execution.OCCWorkers),
 		ParseWorkers: workersOrGOMAXPROCS(a.execution.ParseWorkers),
+		// 0 turns early speculation off; a positive value is used as-is (typically parse_workers).
+		EarlySpeculationWorkers: a.execution.EarlySpeculationWorkers,
 		// Autobahn orders transactions without validating them, so a block can hold one
 		// the executor cannot apply; failing the block would halt every validator.
 		RejectUnappliableTxs: true,
@@ -870,6 +874,35 @@ func (a *evmOnlyApplication) EvmCreateAccessListAt(ctx context.Context, msg *eth
 	return executor.CreateAccessListAt(ctx, view, blockCtx, msg)
 }
 
+// finalizeRequest is the block identity FinalizeBlock derives from a request.
+type finalizeRequest struct {
+	height    int64
+	number    uint64
+	timestamp uint64
+	blockHash common.Hash
+}
+
+func parseFinalizeRequest(req *proxy.RequestFinalizeBlock) (finalizeRequest, error) {
+	height := req.Header.Height
+	if height <= 0 {
+		return finalizeRequest{}, fmt.Errorf("EVM-only block height must be positive: %d", height)
+	}
+	number, ok := utils.SafeCast[uint64](height)
+	if !ok {
+		return finalizeRequest{}, fmt.Errorf("EVM-only block height exceeds uint64: %d", height)
+	}
+	timestamp, ok := utils.SafeCast[uint64](req.Header.Time.Unix())
+	if !ok {
+		return finalizeRequest{}, fmt.Errorf("EVM-only block timestamp is negative: %s", req.Header.Time)
+	}
+	return finalizeRequest{
+		height:    height,
+		number:    number,
+		timestamp: timestamp,
+		blockHash: common.BytesToHash(req.Hash),
+	}, nil
+}
+
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
 	response, err := a.finalizeBlock(ctx, req)
 	var needed *upgrade.NeededError
@@ -880,19 +913,33 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *proxy.Reque
 }
 
 func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
-	height := req.Header.Height
-	if height <= 0 {
-		return nil, fmt.Errorf("EVM-only block height must be positive: %d", height)
+	block, err := parseFinalizeRequest(req)
+	if err != nil {
+		return nil, err
 	}
-	number, ok := utils.SafeCast[uint64](height)
+	executor, ok := a.settler.Load().Get()
 	if !ok {
-		return nil, fmt.Errorf("EVM-only block height exceeds uint64: %d", height)
+		return nil, fmt.Errorf("EVM-only block finalized before InitChain")
 	}
-	timestamp, ok := utils.SafeCast[uint64](req.Header.Time.Unix())
-	if !ok {
-		return nil, fmt.Errorf("EVM-only block timestamp is negative: %s", req.Header.Time)
+	a.recordBlockHash(block.height, block.blockHash)
+	// Decode before this block's turn, so it overlaps the previous block's execution.
+	parentHash, parentKnown := a.blockHashAt(block.height - 1)
+	prepared, err := executor.PrepareBlock(ctx, evmonly.BlockRequest{
+		Context: a.blockContext(block.number, block.timestamp, a.EvmGasLimit(), parentHash, block.blockHash),
+		Txs:     req.Txs,
+		Senders: a.takeSenders(req.Txs),
+	})
+	if err != nil {
+		return nil, err
 	}
-	blockHash := common.BytesToHash(req.Hash)
+	executor.WarmAccounts(ctx, prepared)
+	if parentKnown {
+		executor.SpeculateEarly(prepared)
+	}
+	if _, err := a.waitTurn(ctx, block.height); err != nil {
+		return nil, err
+	}
+	height := block.height
 	for executor := range a.executor.Lock() {
 		executor, ok := executor.Get()
 		if !ok {
@@ -905,13 +952,9 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *proxy.Reque
 		a.stageEpochState(req.EpochState)
 		// Closes the stage in flight, so the gap until the next block is charged to neither.
 		defer a.finalizePhases.Reset()
-		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
-		senders := a.takeSenders(req.Txs)
-		result, err := a.executeBlockPipelined(ctx, executor, evmonly.BlockRequest{
-			Context: a.blockContext(number, timestamp, parent.gasLimit, parent.blockHash, blockHash),
-			Txs:     req.Txs,
-			Senders: senders,
-		})
+		a.finalizePhases.SetPhase(finalizePhaseExecute)
+		prepared.Context = a.blockContext(block.number, block.timestamp, parent.gasLimit, parent.blockHash, block.blockHash)
+		result, err := executor.ExecutePreparedBlock(ctx, prepared)
 		if err != nil {
 			return nil, errors.Join(err, a.abandonPending(executor, height))
 		}
@@ -927,6 +970,61 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *proxy.Reque
 		}, nil
 	}
 	panic("unreachable")
+}
+
+// waitTurn returns the committed cursor height builds on, once the previous block is committed.
+func (a *evmOnlyApplication) waitTurn(ctx context.Context, height int64) (evmOnlyCursor, error) {
+	for {
+		ch := a.turn.Chan()
+		for state := range a.cursor.Lock() {
+			if !state.pending.IsPresent() && state.committed.height+1 == height {
+				return state.committed, nil
+			}
+			if next := state.committed.height + 1; next > height {
+				return evmOnlyCursor{}, fmt.Errorf("EVM-only block height %d does not match next height %d", height, next)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return evmOnlyCursor{}, ctx.Err()
+		case <-ch:
+		}
+	}
+}
+
+// recordBlockHash records hash as the block at height, for a later block's parent.
+func (a *evmOnlyApplication) recordBlockHash(height int64, hash common.Hash) {
+	for hashes := range a.blockHashes.Lock() {
+		hashes[height] = hash
+	}
+}
+
+// blockHashAt returns the hash of the block at height when it is committed, awaiting Commit, or noted.
+func (a *evmOnlyApplication) blockHashAt(height int64) (common.Hash, bool) {
+	for state := range a.cursor.Lock() {
+		if state.committed.height == height {
+			return state.committed.blockHash, true
+		}
+		if pending, ok := state.pending.Get(); ok && pending.height == height {
+			return pending.blockHash, true
+		}
+	}
+	for hashes := range a.blockHashes.Lock() {
+		hash, ok := hashes[height]
+		return hash, ok
+	}
+	panic("unreachable")
+}
+
+// pruneBlockHashes drops hashes of blocks that are already committed.
+func (a *evmOnlyApplication) pruneBlockHashes(committed int64) {
+	for hashes := range a.blockHashes.Lock() {
+		for height := range hashes {
+			if height <= committed {
+				delete(hashes, height)
+			}
+		}
+	}
 }
 
 // beginBlock checks height is the next block to finalize and returns the
@@ -968,6 +1066,7 @@ func (a *evmOnlyApplication) abandonPending(executor *evmonly.Executor, height i
 	for state := range a.cursor.Lock() {
 		state.pending = utils.None[evmOnlyCursor]()
 	}
+	a.turn.Broadcast()
 	return commitErr
 }
 
@@ -982,29 +1081,11 @@ func (a *evmOnlyApplication) pendingCursor(height int64) (evmOnlyCursor, error) 
 	panic("unreachable")
 }
 
-// executeBlockPipelined executes the block and returns once its state commit
-// has started, leaving the commit to land while the next block executes.
-// Readers of committed state settle it through AwaitCommits.
-func (a *evmOnlyApplication) executeBlockPipelined(ctx context.Context, executor *evmonly.Executor, req evmonly.BlockRequest) (*evmonly.BlockResult, error) {
-	a.finalizePhases.SetPhase(finalizePhaseDecodeTxs)
-	decoded, err := executor.DecodeBlock(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	a.finalizePhases.SetPhase(finalizePhaseRecoverSenders)
-	prepared, err := executor.RecoverSenders(ctx, decoded)
-	if err != nil {
-		return nil, err
-	}
-	// The executor's own timer breaks execution down further.
-	a.finalizePhases.SetPhase(finalizePhaseExecute)
-	return executor.ExecutePreparedBlock(ctx, prepared)
-}
-
 // Commit acknowledges the finalized block as the one the chain builds on. The
 // block's state commit is not waited for; a commit that fails halts the node
 // through the next FinalizeBlock.
 func (a *evmOnlyApplication) Commit(context.Context) (*proxy.ResponseCommit, error) {
+	var committed int64
 	for state := range a.cursor.Lock() {
 		pending, ok := state.pending.Get()
 		if !ok {
@@ -1013,9 +1094,11 @@ func (a *evmOnlyApplication) Commit(context.Context) (*proxy.ResponseCommit, err
 		state.committed = pending
 		state.lastBlockTime = state.pendingBlockTime
 		state.pending = utils.None[evmOnlyCursor]()
-		return &proxy.ResponseCommit{}, nil
+		committed = state.committed.height
 	}
-	panic("unreachable")
+	a.pruneBlockHashes(committed)
+	a.turn.Broadcast()
+	return &proxy.ResponseCommit{}, nil
 }
 
 // evmOnlyTxResults reports a block's executed transactions to consensus, each

@@ -1232,7 +1232,7 @@ func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{finalizePhaseTakeSenders, finalizePhaseDecodeTxs, finalizePhaseRecoverSenders, finalizePhaseExecute, finalizePhaseTxResults} {
+	for _, want := range []string{finalizePhaseExecute, finalizePhaseTxResults} {
 		_, ok := phases[want]
 		require.True(t, ok, "phase %q not recorded", want)
 	}
@@ -1416,4 +1416,57 @@ func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
 	require.NoError(t, settler.AwaitCommits())
 	require.Equal(t, uint64(blocks), app.EvmNonce(sender))
 	require.Equal(t, uint64(blocks), settler.EvmCommittedNonce(sender))
+}
+
+// A later block's FinalizeBlock runs while the earlier one has not been committed,
+// and both blocks match a run that finalized them one at a time.
+func TestEVMOnlyApplicationFinalizesTheNextBlockWhileTheCurrentOneRuns(t *testing.T) {
+	pipelined := newInitializedEVMOnlyTestApp(t)
+	sequential := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	blocks := []*proxy.RequestFinalizeBlock{
+		evmOnlyTestBlock(1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)),
+		evmOnlyTestBlock(2, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1)),
+	}
+
+	var first, second []byte
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		type outcome struct {
+			hash []byte
+			err  error
+		}
+		done := make(chan outcome, 1)
+		s.Spawn(func() error {
+			resp, err := pipelined.FinalizeBlock(ctx, blocks[1])
+			if err != nil {
+				done <- outcome{err: err}
+				return nil
+			}
+			done <- outcome{hash: resp.AppHash}
+			return nil
+		})
+		resp, err := pipelined.FinalizeBlock(ctx, blocks[0])
+		if err != nil {
+			return err
+		}
+		first = resp.AppHash
+		if _, err := pipelined.Commit(ctx); err != nil {
+			return err
+		}
+		select {
+		case out := <-done:
+			if out.err != nil {
+				return out.err
+			}
+			second = out.hash
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}))
+	_, err = pipelined.Commit(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, finalizeAndCommitEVMOnlyTestBlock(t, sequential, blocks[0]), first)
+	require.Equal(t, finalizeAndCommitEVMOnlyTestBlock(t, sequential, blocks[1]), second)
 }
