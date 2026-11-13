@@ -544,6 +544,14 @@ func (a *evmOnlyApplication) EvmNonce(address common.Address) uint64 {
 	return snapshot.GetNonce(evmOnlyStoreAddress(address))
 }
 
+// EvmCommittedNonce returns address's nonce in the last committed state, without waiting for the
+// commit in flight, so it can trail EvmNonce by the most recently finalized block.
+func (a *evmOnlyApplication) EvmCommittedNonce(address common.Address) uint64 {
+	snapshot := a.storage.StateDB().OpenView()
+	defer snapshot.Close()
+	return snapshot.GetNonce(evmOnlyStoreAddress(address))
+}
+
 func (a *evmOnlyApplication) EvmBalance(address common.Address, _ []byte) uint256.Int {
 	snapshot := a.openSettledView()
 	defer snapshot.Close()

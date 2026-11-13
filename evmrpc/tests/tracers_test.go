@@ -3,6 +3,7 @@ package tests
 import (
 	"encoding/json"
 	"math"
+	"math/big"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/app"
@@ -11,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
@@ -81,6 +83,93 @@ func TestTraceHistoricalPrecompiles(t *testing.T) {
 			require.NotContains(t, resultMap, "error")
 		},
 	)
+}
+
+func TestTraceCallRunsOnStateAfterBlock(t *testing.T) {
+	// Setup: blocks 2 and 3 each fund the recipient.
+	recipient := common.HexToAddress("0x00000000000000000000000000000000000a0002")
+	fund := func(nonce uint64, wei int64) []byte {
+		return signAndEncodeTx(&ethtypes.DynamicFeeTx{
+			Nonce:     nonce,
+			GasFeeCap: big.NewInt(1000000000),
+			Gas:       21000,
+			To:        &recipient,
+			Value:     big.NewInt(wei),
+			ChainID:   chainId,
+		}, mnemonic1)
+	}
+	ts := SetupTestServer(t, [][][]byte{{fund(0, 1_000_000_000_000)}, {fund(1, 2_000_000_000_000)}}, mnemonicInitializer(mnemonic1))
+	ts.Run(func(port int) {
+		ts.RequireTxSucceeded(t, 2, 0)
+		ts.RequireTxSucceeded(t, 3, 0)
+		for _, height := range []string{"0x2", "0x3"} {
+			var balance string
+			require.NoError(t, json.Unmarshal(requireRPCResult(t, port, "eth_getBalance", recipient.Hex(), height), &balance))
+			var prestate map[common.Address]struct {
+				Balance string `json:"balance"`
+			}
+			require.NoError(t, json.Unmarshal(requireRPCResult(t, port, "debug_traceCall",
+				map[string]any{"from": mnemonic1Addr.Hex(), "to": recipient.Hex()}, height,
+				map[string]any{"tracer": "prestateTracer"}), &prestate))
+
+			// Verify: the call sees the state the block leaves behind, as eth_call does.
+			require.Equal(t, balance, prestate[recipient].Balance, "block %s", height)
+		}
+	})
+}
+
+func TestTraceCallUsesBlockBaseFee(t *testing.T) {
+	// Setup: blocks 2 and 3 each carry a transfer; a stub contract returns BASEFEE.
+	recipient := common.HexToAddress("0x00000000000000000000000000000000000a0003")
+	baseFeeReader := common.HexToAddress("0x00000000000000000000000000000000000a0004")
+	fund := func(nonce uint64) []byte {
+		return signAndEncodeTx(&ethtypes.DynamicFeeTx{
+			Nonce:     nonce,
+			GasFeeCap: big.NewInt(100000000000),
+			Gas:       21000,
+			To:        &recipient,
+			Value:     big.NewInt(1),
+			ChainID:   chainId,
+		}, mnemonic1)
+	}
+	seedBaseFee := func(ctx sdk.Context, a *app.App) {
+		a.EvmKeeper.SetNextBaseFeePerGas(ctx, sdk.NewDec(50000000000))
+	}
+	ts := SetupTestServer(t, [][][]byte{{fund(0)}, {fund(1)}}, mnemonicInitializer(mnemonic1), seedBaseFee)
+	ts.Run(func(port int) {
+		ts.RequireTxSucceeded(t, 2, 0)
+		blockBaseFee := func(height string) *big.Int {
+			var blk struct {
+				BaseFeePerGas *hexutil.Big `json:"baseFeePerGas"`
+			}
+			require.NoError(t, json.Unmarshal(requireRPCResult(t, port, "eth_getBlockByNumber", height, false), &blk))
+			require.NotNil(t, blk.BaseFeePerGas, "block %s", height)
+			return blk.BaseFeePerGas.ToInt()
+		}
+		want := blockBaseFee("0x2")
+		require.NotEqual(t, want, blockBaseFee("0x3"), "base fee must change between blocks for this test to discriminate")
+
+		args := map[string]any{
+			"from":     mnemonic1Addr.Hex(),
+			"to":       baseFeeReader.Hex(),
+			"gasPrice": hexutil.EncodeBig(new(big.Int).Mul(want, big.NewInt(10))),
+		}
+		// BASEFEE PUSH1 0 MSTORE PUSH1 32 PUSH1 0 RETURN
+		overrides := map[string]any{baseFeeReader.Hex(): map[string]any{"code": "0x4860005260206000f3"}}
+		for name, txIndex := range map[string]any{"after block": nil, "txIndex 0": "0x0"} {
+			config := map[string]any{"tracer": "callTracer", "stateOverrides": overrides}
+			if txIndex != nil {
+				config["txIndex"] = txIndex
+			}
+			var res struct {
+				Output hexutil.Bytes `json:"output"`
+			}
+			require.NoError(t, json.Unmarshal(requireRPCResult(t, port, "debug_traceCall", args, "0x2", config), &res))
+
+			// Verify: the call sees the traced block's own base fee on both state paths.
+			require.Equal(t, want, new(big.Int).SetBytes(res.Output), name)
+		}
+	})
 }
 
 func TestTraceMultipleTransactionsShouldNotHang(t *testing.T) {
