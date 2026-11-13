@@ -242,6 +242,7 @@ func TestFullCommitQCStreamAcceptsIncreasingIndexesWithGaps(t *testing.T) {
 	})
 	require.ErrorIs(t, err, mux.ErrRemoteClosed)
 	require.Equal(t, ok+2, fetchCount(resFullCommitQC, "ok"))
+	require.Equal(t, qcs[3].Index()+1, node.data.NextQC())
 	for _, want := range qcs {
 		got, err := node.data.QC(ctx, want.Index())
 		require.NoError(t, err)
