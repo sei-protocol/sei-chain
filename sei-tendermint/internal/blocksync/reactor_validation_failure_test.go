@@ -19,7 +19,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
-	sf "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	utilsrequire "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -49,35 +48,6 @@ func makeValidationFailurePair(
 	block2 := makeCommittedBlock(ctx, t, initialState, privVals, 2, block1.commit)
 
 	return initialState, block1.block, withBadLastSignature(t, block2.block, tmproto.BlockIDFlagCommit)
-}
-
-// committedBlock is a block with its ID, its part set, and a commit for it.
-type committedBlock struct {
-	block  *types.Block
-	id     types.BlockID
-	parts  *types.PartSet
-	commit *types.Commit
-}
-
-// makeCommittedBlock returns the block at height on top of state, with lastCommit as its last
-// commit, and a commit for it signed by every validator in privVals.
-func makeCommittedBlock(
-	ctx context.Context,
-	t *testing.T,
-	state sm.State,
-	privVals []types.PrivValidator,
-	height int64,
-	lastCommit *types.Commit,
-) committedBlock {
-	t.Helper()
-	block := sf.MakeBlock(state, height, lastCommit)
-	parts, err := block.MakePartSet(types.BlockPartSizeBytes)
-	utilsrequire.NoError(t, err)
-	id := types.BlockID{Hash: block.Hash(), PartSetHeader: parts.Header()}
-	voteSet := types.NewVoteSet(state.ChainID, height, 0, tmproto.PrecommitType, state.Validators)
-	commit, err := factory.MakeCommit(ctx, id, height, 0, voteSet, privVals, time.Now())
-	utilsrequire.NoError(t, err)
-	return committedBlock{block: block, id: id, parts: parts, commit: commit}
 }
 
 // withBadLastSignature returns a copy of block whose last commit has a last signature that
