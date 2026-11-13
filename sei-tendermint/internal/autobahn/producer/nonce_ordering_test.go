@@ -24,6 +24,15 @@ type nonceOrderingApp struct {
 }
 
 func (a *nonceOrderingApp) EvmNonce(addr common.Address) uint64 {
+	return a.evmNonce(addr)
+}
+
+// EvmCommittedNonce is what evmNextPendingNonce reads; gate it the same way as EvmNonce.
+func (a *nonceOrderingApp) EvmCommittedNonce(addr common.Address) uint64 {
+	return a.evmNonce(addr)
+}
+
+func (a *nonceOrderingApp) evmNonce(addr common.Address) uint64 {
 	nonce := a.testApp.EvmNonce(addr)
 	for gate, ctrl := range a.gate.Lock() {
 		if gate.pauseEVMNonce {
