@@ -1,5 +1,5 @@
 # seidroid review v2, in shadow beside seidroid.yml: it reviews the same pull
-# requests and reports only on its own "seidroid review v2" check, so the two can
+# requests and reports only on its own "Seidroid Review" check, so the two can
 # be compared before either is retired.
 name: seidroid review v2
 
@@ -17,7 +17,7 @@ permissions: {}
 
 jobs:
   seidroid:
-    uses: sei-protocol/seidroid/.github/workflows/review.yml@02fff58591ef6879100077c0909dc168947e677e # v0.1.0
+    uses: sei-protocol/seidroid/.github/workflows/review.yml@24024e8599bf4a49999cb1a11e20aed15acae9c4 # v0.2.3
     permissions:
       contents: read
       pull-requests: read
