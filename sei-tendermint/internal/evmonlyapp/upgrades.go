@@ -18,9 +18,9 @@ import (
 var releaseMigrations = map[string]upgrade.Handler{}
 
 // upgradeHandlers returns a handler for every upgrade name this build ships,
-// and for testUpgradeName in a build with the giga_test_upgrade tag. A name
-// without a releaseMigrations entry gets a nil handler, which changes no
-// EVM-only state.
+// and for testUpgradeName and testMinorUpgradeName in a build with the
+// giga_test_upgrade tag. A name without a releaseMigrations entry gets a nil
+// handler, which changes no EVM-only state.
 func upgradeHandlers() map[string]upgrade.Handler {
 	handlers := map[string]upgrade.Handler{}
 	for _, name := range upgradenames.Release() {
@@ -29,6 +29,7 @@ func upgradeHandlers() map[string]upgrade.Handler {
 	maps.Copy(handlers, releaseMigrations)
 	if testUpgradeHandler {
 		handlers[testUpgradeName] = applyTestUpgrade
+		handlers[testMinorUpgradeName] = nil
 	}
 	return handlers
 }
@@ -36,6 +37,10 @@ func upgradeHandlers() map[string]upgrade.Handler {
 // testUpgradeName is the upgrade a giga_test_upgrade build can apply. It is
 // not a release name.
 const testUpgradeName = "vX.Y-test"
+
+// testMinorUpgradeName is a second upgrade a giga_test_upgrade build can
+// apply, scheduled as a minor release. It is not a release name.
+const testMinorUpgradeName = "vX.Y-minor-test"
 
 // testUpgradeMaxDepositPeriod is gov's max deposit period once the test
 // upgrade has applied.

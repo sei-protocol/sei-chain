@@ -256,14 +256,9 @@ func (b *traceBackend) RPCGasCap() uint64 {
 	return defaultCallGasCap
 }
 
-// ChainConfig returns the chain configuration blocks execute against, or nil when the backend
-// exposes none.
+// ChainConfig returns the chain configuration blocks execute against.
 func (b *traceBackend) ChainConfig() *params.ChainConfig {
-	cfg, err := b.backend.EvmChainConfig()
-	if err != nil {
-		return nil
-	}
-	return cfg
+	return b.backend.EvmChainConfig()
 }
 
 // ChainConfigAtHeight returns ChainConfig: the configuration never changes with height.

@@ -53,6 +53,8 @@ func TestRPCDefaultsMatchTheV2EVMRPC(t *testing.T) {
 	require.Equal(t, v2.MaxConcurrentTraceCalls, uint64(r.MaxConcurrentTraceCalls))
 	require.Equal(t, v2.TraceTimeout, r.TraceTimeout)
 	require.Equal(t, v2.MaxTraceStructLogBytes, uint64(r.MaxTraceStructLogBytes))
+	require.Equal(t, v2.MaxStateOverrideAccounts, r.MaxStateOverrideAccounts)
+	require.Equal(t, v2.MaxStateOverrideSlots, r.MaxStateOverrideSlots)
 	require.Equal(t, uint64(100), r.MaxSubscriptionsPerConnection)
 	require.Equal(t, v2.MaxEstimateGasCalls, r.MaxEstimateGasCalls)
 	require.Equal(t, v2.FilterTimeout, r.FilterTimeout)
@@ -103,6 +105,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.execution.block_result_pool_size":     "4",
 		"giga.execution.evm_rpc_port":               "8600",
 		"giga.execution.evm_ws_port":                "8601",
+		"giga.execution.gc_percent":                 "200",
 		"giga.execution.unsafe_skip_upgrades":       []int{100, 101},
 		"giga.rpc.max_subscriptions_new_head":       "20",
 		"giga.rpc.max_subscriptions_logs":           "15",
@@ -121,6 +124,8 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.rpc.max_concurrent_send_calls":        "7",
 		"giga.rpc.trace_timeout":                    "4s",
 		"giga.rpc.max_trace_struct_log_bytes":       "512",
+		"giga.rpc.max_state_override_accounts":      "5",
+		"giga.rpc.max_state_override_slots":         "6",
 		"giga.state_sync.enabled":                   "true",
 	})
 	require.NoError(t, err)
@@ -141,6 +146,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			BlockResultPoolSize: 4,
 			EvmRpcPort:          8600,
 			EvmWsPort:           8601,
+			GCPercent:           200,
 			UnsafeSkipUpgrades:  []uint64{100, 101},
 		},
 		RPC: gigaconfig.RPCConfig{
@@ -161,6 +167,8 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			MaxConcurrentSendCalls:        7,
 			TraceTimeout:                  4 * time.Second,
 			MaxTraceStructLogBytes:        512,
+			MaxStateOverrideAccounts:      5,
+			MaxStateOverrideSlots:         6,
 		},
 		StateSync: gigaconfig.StateSyncConfig{
 			Enabled: true,
@@ -176,6 +184,7 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"lookback below -1":               {"giga.storage.lookback_window": "-2"},
 		"zero prune interval":             {"giga.storage.prune_interval": "0s"},
 		"negative occ workers":            {"giga.execution.occ_workers": "-1"},
+		"negative gc percent":             {"giga.execution.gc_percent": "-1"},
 		"empty result pool":               {"giga.execution.block_result_pool_size": "0"},
 		"non-numeric gas price":           {"giga.execution.min_gas_price": "cheap"},
 		"negative block interval":         {"giga.storage.checkpoint_block_interval": "-1"},
@@ -205,6 +214,10 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"non-numeric trace calls":         {"giga.rpc.max_concurrent_trace_calls": "many"},
 		"non-duration trace timeout":      {"giga.rpc.trace_timeout": "later"},
 		"non-numeric struct log bytes":    {"giga.rpc.max_trace_struct_log_bytes": "big"},
+		"negative override accounts":      {"giga.rpc.max_state_override_accounts": "-1"},
+		"negative override slots":         {"giga.rpc.max_state_override_slots": "-1"},
+		"non-numeric override accounts":   {"giga.rpc.max_state_override_accounts": "all"},
+		"non-numeric override slots":      {"giga.rpc.max_state_override_slots": "all"},
 		"non-numeric request bytes":       {"giga.rpc.max_concurrent_request_bytes": "lots"},
 		"non-duration admission timeout":  {"giga.rpc.ws_admission_timeout": "soon"},
 		"non-numeric batch limit":         {"giga.rpc.batch_request_limit": "many"},
@@ -228,4 +241,16 @@ func TestSendConcurrencyLimitDefaultAndZero(t *testing.T) {
 	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{"giga.rpc.max_concurrent_send_calls": "0"})
 	require.NoError(t, err)
 	require.Zero(t, cfg.RPC.MaxConcurrentSendCalls)
+}
+
+// TestGCPercentDefaultAndZero pins Autobahn's binary default at 400 (seid init / unset key) and
+// keeps explicit 0 as the opt-out that leaves Go's process default.
+func TestGCPercentDefaultAndZero(t *testing.T) {
+	require.Equal(t, 400, gigaconfig.DefaultConfig.Execution.GCPercent)
+	absent, err := gigaconfig.ReadConfig(configtest.AppOpts{})
+	require.NoError(t, err)
+	require.Equal(t, 400, absent.Execution.GCPercent)
+	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{"giga.execution.gc_percent": "0"})
+	require.NoError(t, err)
+	require.Zero(t, cfg.Execution.GCPercent)
 }

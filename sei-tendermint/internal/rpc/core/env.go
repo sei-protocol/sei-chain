@@ -73,7 +73,8 @@ type ConsensusState interface {
 // to be setup once during startup.
 type Environment struct {
 	// external, thread safe interfaces
-	App *proxy.Proxy
+	App utils.Option[*proxy.Proxy]
+	EVM utils.Option[*proxy.EVMProxy]
 
 	// interfaces defined in types and above
 	StateStore       sm.Store
@@ -434,4 +435,15 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 
 	return listeners, nil
 
+}
+
+func (env *Environment) abciApplication() *proxy.Proxy {
+	return env.App.OrPanic("ABCI application is unavailable in this RPC environment")
+}
+
+func (env *Environment) lastBlockHeight() int64 {
+	if evm, ok := env.EVM.Get(); ok {
+		return evm.LastBlockHeight()
+	}
+	return env.abciApplication().LastBlockHeight()
 }

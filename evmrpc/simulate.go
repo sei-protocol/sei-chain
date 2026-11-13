@@ -787,21 +787,25 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 	return sdkCtx, tmBlock, release, nil
 }
 
-// loadAllValidators returns the validator set at height in canonical order.
-// The validators RPC returns one default-sized page per call.
+// validatorsPerPage is the page size loadAllValidators requests from the validators RPC.
+const validatorsPerPage = 100
+
+// loadAllValidators returns the validator set at height in canonical order, reading it
+// from the validators RPC validatorsPerPage at a time.
 func (b *Backend) loadAllValidators(ctx context.Context, height int64) ([]*tmtypes.Validator, error) {
 	var all []*tmtypes.Validator
+	perPage := validatorsPerPage
 	for page := 1; ; page++ {
 		if ctx != nil {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
 		}
-		res, err := b.tmClient.Validators(ctx, &height, &page, nil)
+		res, err := b.tmClient.Validators(ctx, &height, &page, &perPage)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load validators for block %d from tendermint: %w", height, err)
 		}
-		TraceTendermintIfApplicable(ctx, "Validators", []string{stringifyInt64Ptr(&height), fmt.Sprintf("%d", page)}, res)
+		TraceTendermintIfApplicable(ctx, "Validators", []string{stringifyInt64Ptr(&height), fmt.Sprintf("%d", page), fmt.Sprintf("%d", perPage)}, res)
 		if len(res.Validators) == 0 {
 			if res.Total > len(all) {
 				return nil, fmt.Errorf("validator set at block %d ended after %d of %d", height, len(all), res.Total)

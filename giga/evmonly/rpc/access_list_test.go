@@ -53,13 +53,14 @@ func TestCreateAccessListEndToEnd(t *testing.T) {
 			},
 		},
 		{name: "backend failure", backErr: errors.New("boom"), wantErr: "boom"},
-		{name: "past block", block: "0x1", wantErr: errHistoricalStateUnsupported.Error()},
+		{name: "block above the head", block: "0x1", wantErr: errBlockAboveHead.Error()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var gotMsg *core.Message
 			backend := &testBackend{
-				chainID: func() uint64 { return 713715 },
-				baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+				chainID:     func() uint64 { return 713715 },
+				baseFee:     func() *big.Int { return new(big.Int) },
+				blockNumber: func() uint64 { return 0 },
 				createAccessList: func(_ context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
 					gotMsg = msg
 					return accessList, tc.result, tc.backErr
@@ -105,10 +106,10 @@ func TestEstimateGasAfterCalls(t *testing.T) {
 		{name: "calls at the cap", calls: 3, maxCalls: 3},
 		{name: "calls over the cap", calls: 4, maxCalls: 3, wantErr: "too many calls (4 > 3)"},
 		{name: "revert", calls: 1, revert: true, wantErr: "execution reverted"},
-		{name: "past block", calls: 1, block: func() *ethrpc.BlockNumberOrHash {
+		{name: "block above the head", calls: 1, block: func() *ethrpc.BlockNumberOrHash {
 			block := ethrpc.BlockNumberOrHashWithNumber(1)
 			return &block
-		}(), wantErr: errHistoricalStateUnsupported.Error()},
+		}(), wantErr: errBlockAboveHead.Error()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var gotCalls []*core.Message
@@ -122,8 +123,9 @@ func TestEstimateGasAfterCalls(t *testing.T) {
 				return 42_000, nil, nil
 			}
 			backend := &testBackend{
-				chainID: func() uint64 { return 713715 },
-				baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+				chainID:     func() uint64 { return 713715 },
+				baseFee:     func() *big.Int { return new(big.Int) },
+				blockNumber: func() uint64 { return 0 },
 				estimateGas: func(_ context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
 					return estimate(nil, msg, gasCap)
 				},
@@ -143,7 +145,7 @@ func TestEstimateGasAfterCalls(t *testing.T) {
 				block = tc.block
 			}
 
-			got, err := api.EstimateGasAfterCalls(t.Context(), export.TransactionArgs{From: &from, To: &to}, calls, block)
+			got, err := api.EstimateGasAfterCalls(t.Context(), export.TransactionArgs{From: &from, To: &to}, calls, block, nil)
 
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
@@ -163,10 +165,64 @@ func TestEstimateGasAfterCalls(t *testing.T) {
 	}
 }
 
+// A past block's access list is built against the state after that block, in the context it
+// executed at.
+func TestCreateAccessListRunsAgainstAPastBlock(t *testing.T) {
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	accessList := ethtypes.AccessList{{Address: common.Address{0x03}}}
+	for _, tc := range pastBlockSelectors {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := pastBlocksBackend(5)
+			backend.createAccessList = func(context.Context, *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
+				t.Fatal("a past block's access list was built against the latest state")
+				return nil, nil, nil
+			}
+			backend.createAccessListAt = func(_ context.Context, msg *core.Message, header *ethtypes.Header) (ethtypes.AccessList, *core.ExecutionResult, error) {
+				require.Equal(t, &to, msg.To)
+				requirePastHeader(t, tc.wantNumber, header)
+				return accessList, &core.ExecutionResult{UsedGas: 30_000}, nil
+			}
+
+			got, err := (&callAPI{backend: backend, blocks: &blockAPI{backend: backend}}).CreateAccessList(t.Context(), export.TransactionArgs{To: &to}, &tc.block)
+
+			require.NoError(t, err)
+			require.Equal(t, &accessListResult{AccessList: &accessList, GasUsed: 30_000}, got)
+		})
+	}
+}
+
+// A past block's estimate after calls runs against the state after that block, in the context it
+// executed at.
+func TestEstimateGasAfterCallsRunsAgainstAPastBlock(t *testing.T) {
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	for _, tc := range pastBlockSelectors {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := pastBlocksBackend(5)
+			backend.estimateGasAfterCalls = func(context.Context, []*core.Message, *core.Message, uint64) (uint64, []byte, error) {
+				t.Fatal("a past block's estimate ran against the latest state")
+				return 0, nil, nil
+			}
+			backend.estimateGasAfterCallsAt = func(_ context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error) {
+				require.Len(t, calls, 1)
+				require.Equal(t, &to, msg.To)
+				require.Equal(t, uint64(defaultCallGasCap), gasCap)
+				requirePastHeader(t, tc.wantNumber, header)
+				return 30_000, nil, nil
+			}
+			api := &estimateAPI{backend: backend, blocks: &blockAPI{backend: backend}}
+
+			got, err := api.EstimateGasAfterCalls(t.Context(), export.TransactionArgs{To: &to}, []export.TransactionArgs{{To: &to}}, &tc.block, nil)
+
+			require.NoError(t, err)
+			require.Equal(t, hexutil.Uint64(30_000), got)
+		})
+	}
+}
+
 func TestEstimateGasAfterCallsCapComesFromConfig(t *testing.T) {
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		baseFee: func() *big.Int { return new(big.Int) },
 	}
 	limits := noRPCLimits
 	limits.MaxEstimateGasCalls = 1

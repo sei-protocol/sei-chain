@@ -5,6 +5,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -17,26 +18,25 @@ type accessListResult struct {
 	GasUsed    hexutil.Uint64       `json:"gasUsed"`
 }
 
-// CreateAccessList returns the access list args touches against the current committed state,
-// the gas it uses with that list, and the error its execution ends with, if any. It creates no
-// transaction and persists no state change.
+// CreateAccessList returns the access list args touches against the committed state after block,
+// the latest by default, in the context that block executed at, the gas it uses with that list,
+// and the error its execution ends with, if any. It creates no transaction and persists no state
+// change.
 func (api *callAPI) CreateAccessList(ctx context.Context, args export.TransactionArgs, block *ethrpc.BlockNumberOrHash) (*accessListResult, error) {
 	selector := ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber)
 	if block != nil {
 		selector = *block
 	}
-	if err := requireCurrentState(selector); err != nil {
-		return nil, err
-	}
-	baseFee, err := api.backend.EvmBaseFee()
+	height, latest, err := stateHeight(ctx, api.backend, selector)
 	if err != nil {
 		return nil, err
 	}
+	baseFee := api.backend.EvmBaseFee()
 	chainID := new(big.Int).SetUint64(api.backend.EvmChainID())
 	if err := args.CallDefaults(defaultCallGasCap, baseFee, chainID); err != nil {
 		return nil, err
 	}
-	accessList, result, err := api.backend.EvmCreateAccessList(ctx, args.ToMessage(baseFee, true))
+	accessList, result, err := api.createAccessList(ctx, args.ToMessage(baseFee, true), height, latest)
 	if err != nil {
 		return nil, err
 	}
@@ -45,4 +45,17 @@ func (api *callAPI) CreateAccessList(ctx context.Context, args export.Transactio
 		response.Error = result.Err.Error()
 	}
 	return response, nil
+}
+
+// createAccessList builds msg's access list against the latest committed state, or else against
+// the state after the block at height.
+func (api *callAPI) createAccessList(ctx context.Context, msg *core.Message, height int64, latest bool) (ethtypes.AccessList, *core.ExecutionResult, error) {
+	if latest {
+		return api.backend.EvmCreateAccessList(ctx, msg)
+	}
+	header, err := api.blocks.executionHeaderAt(ctx, height)
+	if err != nil {
+		return nil, nil, err
+	}
+	return api.backend.EvmCreateAccessListAt(ctx, msg, header)
 }
