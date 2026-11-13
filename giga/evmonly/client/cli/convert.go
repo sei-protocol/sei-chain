@@ -203,6 +203,19 @@ func v2Content(contentType uint8, bz []byte) (govtypes.Content, error) {
 }
 
 // v2Proposal returns p as V2's Proposal.
+// cancelPlanName returns the plan a cancel-software-upgrade proposal cancels,
+// and false for any other proposal.
+func cancelPlanName(p proposalData) (string, bool, error) {
+	if p.ContentType != contentCancelSoftwareUpgrade {
+		return "", false, nil
+	}
+	c, err := decodeContentAs[cancelSoftwareUpgradeContent](cancelUpgradeArgs, p.Content)
+	if err != nil {
+		return "", false, fmt.Errorf("proposal %d: %w", p.Id, err)
+	}
+	return c.Name, true, nil
+}
+
 func v2Proposal(p proposalData) (govtypes.Proposal, error) {
 	content, err := v2Content(p.ContentType, p.Content)
 	if err != nil {

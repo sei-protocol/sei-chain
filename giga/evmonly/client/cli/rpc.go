@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -11,8 +12,8 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/spf13/cobra"
 
@@ -97,51 +98,74 @@ type txOpts struct {
 	gasPrice      *big.Int
 }
 
-// send signs and sends a legacy transaction calling to with data and value, and
-// waits for its receipt.
-func (c *evmClient) send(ctx context.Context, key *ecdsa.PrivateKey, to common.Address, value *big.Int, data []byte, o txOpts) (*ethtypes.Transaction, *ethtypes.Receipt, error) {
-	from := crypto.PubkeyToAddress(key.PublicKey)
+// unsignedTx is a legacy transaction ready to sign, with its sender and chain.
+type unsignedTx struct {
+	from    common.Address
+	chainID *big.Int
+	tx      *ethtypes.LegacyTx
+}
+
+// prepare returns an unsigned legacy transaction from from calling to with data
+// and value, with its nonce, gas and gas price filled from the node where o
+// leaves them unset.
+func (c *evmClient) prepare(ctx context.Context, from, to common.Address, value *big.Int, data []byte, o txOpts) (unsignedTx, error) {
 	chainID, err := c.ec.ChainID(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("chain id: %w", err)
+		return unsignedTx{}, fmt.Errorf("chain id: %w", err)
 	}
 	nonce, err := c.ec.PendingNonceAt(ctx, from)
 	if err != nil {
-		return nil, nil, fmt.Errorf("nonce: %w", err)
+		return unsignedTx{}, fmt.Errorf("nonce: %w", err)
 	}
 	gasPrice := o.gasPrice
 	if gasPrice == nil || gasPrice.Sign() == 0 {
 		if gasPrice, err = c.ec.SuggestGasPrice(ctx); err != nil {
-			return nil, nil, fmt.Errorf("gas price: %w", err)
+			return unsignedTx{}, fmt.Errorf("gas price: %w", err)
 		}
 	}
 	gas := o.gas
 	if gas == 0 {
 		estimate, err := c.ec.EstimateGas(ctx, ethereum.CallMsg{From: from, To: &to, Value: value, Data: data})
 		if err != nil {
-			return nil, nil, fmt.Errorf("estimate gas: %w", err)
+			return unsignedTx{}, fmt.Errorf("estimate gas: %w", err)
 		}
 		gas = adjustGas(estimate, o.gasAdjustment)
 	}
-	tx, err := ethtypes.SignNewTx(key, ethtypes.LatestSignerForChainID(chainID), &ethtypes.LegacyTx{
+	return unsignedTx{from: from, chainID: chainID, tx: &ethtypes.LegacyTx{
 		Nonce:    nonce,
 		GasPrice: gasPrice,
 		Gas:      gas,
 		To:       &to,
 		Value:    value,
 		Data:     data,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
+	}}, nil
+}
+
+// MarshalJSON returns u's fields as the confirmation prompt shows them.
+func (u unsignedTx) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		From     common.Address `json:"from"`
+		To       common.Address `json:"to"`
+		ChainID  *hexutil.Big   `json:"chainId"`
+		Nonce    hexutil.Uint64 `json:"nonce"`
+		Gas      hexutil.Uint64 `json:"gas"`
+		GasPrice *hexutil.Big   `json:"gasPrice"`
+		Value    *hexutil.Big   `json:"value"`
+		Input    hexutil.Bytes  `json:"input"`
+	}{u.from, *u.tx.To, (*hexutil.Big)(u.chainID), hexutil.Uint64(u.tx.Nonce), hexutil.Uint64(u.tx.Gas), (*hexutil.Big)(u.tx.GasPrice), (*hexutil.Big)(u.tx.Value), u.tx.Data})
+}
+
+// sign signs u with key.
+func (u unsignedTx) sign(key *ecdsa.PrivateKey) (*ethtypes.Transaction, error) {
+	return ethtypes.SignNewTx(key, ethtypes.LatestSignerForChainID(u.chainID), u.tx)
+}
+
+// broadcast sends tx and waits for its receipt.
+func (c *evmClient) broadcast(ctx context.Context, tx *ethtypes.Transaction) (*ethtypes.Receipt, error) {
 	if err := c.ec.SendTransaction(ctx, tx); err != nil {
-		return nil, nil, fmt.Errorf("send: %w", err)
+		return nil, fmt.Errorf("send: %w", err)
 	}
-	receipt, err := c.waitReceipt(ctx, tx.Hash())
-	if err != nil {
-		return tx, nil, err
-	}
-	return tx, receipt, nil
+	return c.waitReceipt(ctx, tx.Hash())
 }
 
 func adjustGas(estimate uint64, adjustment float64) uint64 {

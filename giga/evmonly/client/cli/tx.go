@@ -111,7 +111,7 @@ func submitCancelSoftwareUpgrade(cmd *cobra.Command, _ []string) error {
 	name, _ := cmd.Flags().GetString(FlagName)
 	if name == "" {
 		var err error
-		if name, err = confirmScheduledPlan(cmd); err != nil {
+		if name, err = scheduledPlanName(cmd); err != nil {
 			return err
 		}
 	}
@@ -122,9 +122,9 @@ func submitCancelSoftwareUpgrade(cmd *cobra.Command, _ []string) error {
 	return sendGov(cmd, value, govprecompile.SubmitCancelUpgradeMethod, title, description, isExpedited, name)
 }
 
-// confirmScheduledPlan returns the scheduled plan's name once the user confirms
-// cancelling it, or without asking when --yes is set.
-func confirmScheduledPlan(cmd *cobra.Command) (string, error) {
+// scheduledPlanName returns the name of the scheduled plan and prints which
+// plan the proposal cancels, for the transaction's confirmation.
+func scheduledPlanName(cmd *cobra.Command) (string, error) {
 	c, err := dial(cmd)
 	if err != nil {
 		return "", err
@@ -136,17 +136,7 @@ func confirmScheduledPlan(cmd *cobra.Command) (string, error) {
 	if plan.Name == "" {
 		return "", errors.New("no upgrade scheduled")
 	}
-	if skip, _ := cmd.Flags().GetBool(flags.FlagSkipConfirmation); skip {
-		return plan.Name, nil
-	}
-	prompt := fmt.Sprintf("Cancel the upgrade %q scheduled at height %d?", plan.Name, plan.Height)
-	ok, err := input.GetConfirmation(prompt, bufio.NewReader(cmd.InOrStdin()), cmd.ErrOrStderr())
-	if err != nil {
-		return "", err
-	}
-	if !ok {
-		return "", errors.New("cancelled")
-	}
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "This proposal cancels the upgrade %q scheduled at height %d.\n", plan.Name, plan.Height)
 	return plan.Name, nil
 }
 
@@ -286,11 +276,20 @@ func sendGov(cmd *cobra.Command, value *big.Int, method string, args ...any) err
 	if value == nil {
 		value = new(big.Int)
 	}
-	tx, receipt, err := c.send(cmdContext(cmd), key, govprecompile.Address, value, append(m.ID, input...), opts)
+	unsigned, err := c.prepare(cmdContext(cmd), crypto.PubkeyToAddress(key.PublicKey), govprecompile.Address, value, append(m.ID, input...), opts)
 	if err != nil {
-		if tx != nil {
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "txhash: %s\n", tx.Hash())
-		}
+		return err
+	}
+	if err := confirmTx(cmd, clientCtx, unsigned); err != nil {
+		return err
+	}
+	tx, err := unsigned.sign(key)
+	if err != nil {
+		return err
+	}
+	receipt, err := c.broadcast(cmdContext(cmd), tx)
+	if err != nil {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "txhash: %s\n", tx.Hash())
 		return err
 	}
 	if err := clientCtx.PrintProto(txResponse(tx, receipt)); err != nil {
@@ -302,12 +301,38 @@ func sendGov(cmd *cobra.Command, value *big.Int, method string, args ...any) err
 	return nil
 }
 
+// confirmTx prints tx, before it is signed, and asks to sign and broadcast it,
+// unless --yes is set.
+func confirmTx(cmd *cobra.Command, clientCtx client.Context, tx unsignedTx) error {
+	if clientCtx.SkipConfirm {
+		return nil
+	}
+	bz, err := json.MarshalIndent(tx, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s\n\n", bz)
+	ok, err := input.GetConfirmation("confirm transaction before signing and broadcasting", bufio.NewReader(cmd.InOrStdin()), cmd.ErrOrStderr())
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("cancelled transaction")
+	}
+	return nil
+}
+
 // refuseOfflineModes rejects the V2 flags that build a transaction without
-// broadcasting it.
+// broadcasting it, and the fee flags, which an EVM transaction does not use.
 func refuseOfflineModes(cmd *cobra.Command) error {
 	for _, name := range []string{flags.FlagGenerateOnly, flags.FlagDryRun, flags.FlagOffline} {
 		if v, _ := cmd.Flags().GetBool(name); v {
 			return fmt.Errorf("--%s is not supported with --%s", name, FlagEVMRPC)
+		}
+	}
+	for _, name := range []string{flags.FlagFees, flags.FlagGasPrices} {
+		if flagChanged(cmd, name) {
+			return fmt.Errorf("--%s is not supported with --%s; use --%s to set the gas price in wei", name, FlagEVMRPC, FlagGasFeeCap)
 		}
 	}
 	return nil

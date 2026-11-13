@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -208,6 +209,9 @@ func parseCoinsValue(raw json.RawMessage) (*big.Int, error) {
 	s, err := jsonScalar(raw)
 	if err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(s) == "" {
+		return nil, errors.New("want a coin amount such as \"10usei\"")
 	}
 	return depositWei(s)
 }

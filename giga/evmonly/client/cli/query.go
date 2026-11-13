@@ -3,16 +3,20 @@ package cli
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"strconv"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/gogo/protobuf/proto"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v2"
 
 	govprecompile "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
@@ -69,7 +73,7 @@ func queryProposal(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return clientCtx.PrintProto(&v2)
+	return printProposals(clientCtx, &v2, []proposalData{p})
 }
 
 func queryProposals(cmd *cobra.Command, _ []string) error {
@@ -93,29 +97,28 @@ func queryProposals(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	var out []govtypes.Proposal
-	next, err := collectPages(cmd, func(key []byte) (int, []byte, error) {
+	page, next, err := collectPages(cmd, func(key []byte) ([]proposalData, []byte, error) {
 		vals, err := c.call(cmdContext(cmd), govprecompile.Address, govprecompile.ABI, govprecompile.ProposalsMethod, status, voter, depositor, key)
 		if err != nil {
-			return 0, nil, err
+			return nil, nil, err
 		}
-		page := *abi.ConvertType(vals[0], new([]proposalData)).(*[]proposalData)
-		for _, p := range page {
-			v2, err := v2Proposal(p)
-			if err != nil {
-				return 0, nil, err
-			}
-			out = append(out, v2)
-		}
-		return len(page), vals[1].([]byte), nil
+		return *abi.ConvertType(vals[0], new([]proposalData)).(*[]proposalData), vals[1].([]byte), nil
 	})
 	if err != nil {
 		return err
 	}
+	out := make([]govtypes.Proposal, 0, len(page))
+	for _, p := range page {
+		v2, err := v2Proposal(p)
+		if err != nil {
+			return err
+		}
+		out = append(out, v2)
+	}
 	if len(out) == 0 {
 		return errors.New("no proposals found")
 	}
-	return clientCtx.PrintProto(&govtypes.QueryProposalsResponse{Proposals: out, Pagination: &query.PageResponse{NextKey: next}})
+	return printProposals(clientCtx, &govtypes.QueryProposalsResponse{Proposals: out, Pagination: &query.PageResponse{NextKey: next}}, page)
 }
 
 func queryVote(cmd *cobra.Command, args []string) error {
@@ -148,20 +151,19 @@ func queryVotes(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	var out []govtypes.Vote
-	next, err := collectPages(cmd, func(key []byte) (int, []byte, error) {
+	page, next, err := collectPages(cmd, func(key []byte) ([]voteData, []byte, error) {
 		vals, err := c.call(cmdContext(cmd), govprecompile.Address, govprecompile.ABI, govprecompile.VotesMethod, id, key)
 		if err != nil {
-			return 0, nil, err
+			return nil, nil, err
 		}
-		page := *abi.ConvertType(vals[0], new([]voteData)).(*[]voteData)
-		for _, v := range page {
-			out = append(out, v2Vote(v))
-		}
-		return len(page), vals[1].([]byte), nil
+		return *abi.ConvertType(vals[0], new([]voteData)).(*[]voteData), vals[1].([]byte), nil
 	})
 	if err != nil {
 		return err
+	}
+	out := make([]govtypes.Vote, 0, len(page))
+	for _, v := range page {
+		out = append(out, v2Vote(v))
 	}
 	return clientCtx.PrintProto(&govtypes.QueryVotesResponse{Votes: out, Pagination: &query.PageResponse{NextKey: next}})
 }
@@ -196,20 +198,19 @@ func queryDeposits(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	var out []govtypes.Deposit
-	next, err := collectPages(cmd, func(key []byte) (int, []byte, error) {
+	page, next, err := collectPages(cmd, func(key []byte) ([]depositData, []byte, error) {
 		vals, err := c.call(cmdContext(cmd), govprecompile.Address, govprecompile.ABI, govprecompile.DepositsMethod, id, key)
 		if err != nil {
-			return 0, nil, err
+			return nil, nil, err
 		}
-		page := *abi.ConvertType(vals[0], new([]depositData)).(*[]depositData)
-		for _, d := range page {
-			out = append(out, v2Deposit(d))
-		}
-		return len(page), vals[1].([]byte), nil
+		return *abi.ConvertType(vals[0], new([]depositData)).(*[]depositData), vals[1].([]byte), nil
 	})
 	if err != nil {
 		return err
+	}
+	out := make([]govtypes.Deposit, 0, len(page))
+	for _, d := range page {
+		out = append(out, v2Deposit(d))
 	}
 	return clientCtx.PrintProto(&govtypes.QueryDepositsResponse{Deposits: out, Pagination: &query.PageResponse{NextKey: next}})
 }
@@ -405,51 +406,140 @@ func querySubspace(cmd *cobra.Command, args []string) error {
 	return clientCtx.PrintProto(&paramproposal.ParamChange{Subspace: subspace, Key: key, Value: string(value)})
 }
 
-// collectPages calls fetch from --page-key, following next keys until at least
-// --limit results are collected or the last page is read, and returns the next
-// key.
-func collectPages(cmd *cobra.Command, fetch func(key []byte) (n int, next []byte, err error)) ([]byte, error) {
-	key, err := pageKeyFlag(cmd)
+// cancelTypeField opens the JSON of a cancel-software-upgrade proposal's
+// content.
+var cancelTypeField = []byte(`"@type":"/cosmos.upgrade.v1beta1.CancelSoftwareUpgradeProposal"`)
+
+// printProposals prints msg, which holds the proposals ps in order, as PrintProto
+// does, with each cancel-software-upgrade proposal's plan name added to its
+// content as "name".
+func printProposals(clientCtx client.Context, msg proto.Message, ps []proposalData) error {
+	out, err := clientCtx.Codec.MarshalAsJSON(msg)
 	if err != nil {
-		return nil, err
+		return err
+	}
+	pos := 0
+	for _, p := range ps {
+		name, ok, err := cancelPlanName(p)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		// V2's CancelSoftwareUpgradeProposal has no name, so it is inserted
+		// after the @type of this proposal's content.
+		i := bytes.Index(out[pos:], cancelTypeField)
+		if i < 0 {
+			return fmt.Errorf("proposal %d: no cancel content in its JSON", p.Id)
+		}
+		at := pos + i + len(cancelTypeField)
+		field, err := json.Marshal(name)
+		if err != nil {
+			return err
+		}
+		field = append([]byte(`,"name":`), field...)
+		out = append(out[:at], append(field, out[at:]...)...)
+		pos = at + len(field)
+	}
+	return printJSON(clientCtx, out)
+}
+
+// printJSON prints out, a JSON document, as YAML for --output text and as is
+// otherwise, as PrintProto does.
+func printJSON(clientCtx client.Context, out []byte) error {
+	if clientCtx.OutputFormat == "text" {
+		var v any
+		if err := json.Unmarshal(out, &v); err != nil {
+			return err
+		}
+		bz, err := yaml.Marshal(v)
+		if err != nil {
+			return err
+		}
+		return clientCtx.PrintBytes(bz)
+	}
+	return clientCtx.PrintBytes(append(out, '\n'))
+}
+
+// collectPages returns up to --limit results from --page-key onward, calling
+// fetch for each precompile page, and the next_key that resumes after them, or
+// nil after the last page.
+func collectPages[T any](cmd *cobra.Command, fetch func(key []byte) (page []T, next []byte, err error)) ([]T, []byte, error) {
+	if err := refuseOffsetPaging(cmd); err != nil {
+		return nil, nil, err
+	}
+	cur, err := pageKeyFlag(cmd)
+	if err != nil {
+		return nil, nil, err
 	}
 	limit := defaultPageLimit
-	if flagChanged(cmd, flags.FlagLimit) {
-		if l, _ := cmd.Flags().GetUint64(flags.FlagLimit); l > 0 {
-			limit = int(l) //nolint:gosec // a page limit fits int
-		}
+	if l, _ := cmd.Flags().GetUint64(flags.FlagLimit); flagChanged(cmd, flags.FlagLimit) && l > 0 {
+		limit = int(l) //nolint:gosec // a page limit fits int
 	}
-	total := 0
+	var out []T
 	for {
-		n, next, err := fetch(key)
+		page, next, err := fetch(cur.key)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		total += n
+		rest := page[min(cur.skip, len(page)):]
+		if room := limit - len(out); len(rest) > room {
+			out = append(out, rest[:room]...)
+			return out, pageCursor{key: cur.key, skip: cur.skip + room}.encode(), nil
+		}
+		out = append(out, rest...)
 		if len(next) == 0 {
-			return nil, nil
+			return out, nil, nil
 		}
-		if total >= limit {
-			return next, nil
+		if len(out) == limit {
+			return out, pageCursor{key: next}.encode(), nil
 		}
-		if bytes.Equal(next, key) {
-			return nil, fmt.Errorf("page key %x did not advance", key)
+		if bytes.Equal(next, cur.key) {
+			return nil, nil, fmt.Errorf("page key %x did not advance", cur.key)
 		}
-		key = next
+		cur = pageCursor{key: next}
 	}
 }
 
-// pageKeyFlag reads --page-key as the base64 next_key a paged query prints.
-func pageKeyFlag(cmd *cobra.Command) ([]byte, error) {
+// refuseOffsetPaging rejects the V2 paging flags a precompile page key cannot
+// serve.
+func refuseOffsetPaging(cmd *cobra.Command) error {
+	for _, name := range []string{flags.FlagPage, flags.FlagOffset, flags.FlagReverse, flags.FlagCountTotal} {
+		if flagChanged(cmd, name) {
+			return fmt.Errorf("--%s is not supported with --%s; use --%s and --%s", name, FlagEVMRPC, flags.FlagPageKey, flags.FlagLimit)
+		}
+	}
+	return nil
+}
+
+// pageCursor is a position in a paged query: the precompile page key, and how
+// many results of that page were already returned.
+type pageCursor struct {
+	key  []byte
+	skip int
+}
+
+// encode returns c as a next_key: skip as a uvarint, then the page key.
+func (c pageCursor) encode() []byte {
+	return append(binary.AppendUvarint(nil, uint64(c.skip)), c.key...) //nolint:gosec // skip is never negative
+}
+
+// pageKeyFlag reads --page-key, the base64 next_key a paged query prints.
+func pageKeyFlag(cmd *cobra.Command) (pageCursor, error) {
 	s, _ := cmd.Flags().GetString(flags.FlagPageKey)
 	if s == "" {
-		return []byte{}, nil
+		return pageCursor{key: []byte{}}, nil
 	}
-	key, err := base64.StdEncoding.DecodeString(s)
+	bz, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
-		return nil, fmt.Errorf("--%s: want the base64 next_key of a previous page: %w", flags.FlagPageKey, err)
+		return pageCursor{}, fmt.Errorf("--%s: want the base64 next_key of a previous page: %w", flags.FlagPageKey, err)
 	}
-	return key, nil
+	skip, n := binary.Uvarint(bz)
+	if n <= 0 || skip > math.MaxInt32 {
+		return pageCursor{}, fmt.Errorf("--%s: not a next_key printed by a previous page", flags.FlagPageKey)
+	}
+	return pageCursor{key: bz[n:], skip: int(skip)}, nil
 }
 
 // addressFlag reads an optional 0x address flag, returning the zero address

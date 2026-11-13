@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"math/big"
 	"testing"
 
@@ -86,14 +87,81 @@ func TestQueryProposalsFollowsPages(t *testing.T) {
 	})
 	// An empty page is followed until --limit proposals are collected.
 	require.NoError(t, r.run("", args("q gov proposals --status passed --limit 1 -o json --voter", testVoter.Hex(), "--evm-rpc", stub.url)...))
-	require.Contains(t, r.out.String(), `"next_key":"cDM="`)
+	require.Contains(t, r.out.String(), `"next_key":"AHAz"`)
 	require.Contains(t, r.out.String(), `"proposal_id":"1"`)
 
 	// --page-key resumes from a printed next_key.
-	require.NoError(t, r.run("", args("q gov proposals --status passed --page-key cDM= -o json --voter", testVoter.Hex(), "--evm-rpc", stub.url)...))
+	require.NoError(t, r.run("", args("q gov proposals --status passed --page-key AHAz -o json --voter", testVoter.Hex(), "--evm-rpc", stub.url)...))
 	require.Contains(t, r.out.String(), `"next_key":null`)
 
 	require.ErrorContains(t, r.run("", args("q gov proposals --voter sei1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq --evm-rpc", stub.url)...), "not a 0x address")
+	require.ErrorContains(t, newTestRoot(t).run("", args("q gov proposals --page 2 --evm-rpc", stub.url)...), "--page is not supported")
+}
+
+func TestQueryVotesLimitCapsWithinAPage(t *testing.T) {
+	r := newTestRoot(t)
+	stub := newRPCStub(t)
+	voters := []common.Address{{1}, {2}, {3}}
+	stub.on("votes(uint64,bytes)", func(a []any) ([]any, error) {
+		assert.Empty(t, a[1].([]byte))
+		page := make([]voteData, len(voters))
+		for i, v := range voters {
+			page[i] = voteData{ProposalId: 3, Voter: v, Options: []weightedOption{{Option: 1, Weight: e18(1, 1)}}}
+		}
+		return []any{page, []byte{}}, nil
+	})
+	voted := func() []string {
+		var resp struct {
+			Votes []struct {
+				Voter string `json:"voter"`
+			} `json:"votes"`
+			Pagination struct {
+				NextKey *string `json:"next_key"`
+			} `json:"pagination"`
+		}
+		require.NoError(t, json.Unmarshal(r.out.Bytes(), &resp))
+		var out []string
+		for _, v := range resp.Votes {
+			out = append(out, v.Voter)
+		}
+		if resp.Pagination.NextKey != nil {
+			out = append(out, "next="+*resp.Pagination.NextKey)
+		}
+		return out
+	}
+
+	require.NoError(t, r.run("", args("q gov votes 3 --limit 2 -o json --evm-rpc", stub.url)...))
+	got := voted()
+	require.Equal(t, []string{voters[0].Hex(), voters[1].Hex()}, got[:2])
+	require.Len(t, got, 3)
+
+	// The next_key resumes inside the page, after the votes already printed.
+	require.NoError(t, r.run("", args("q gov votes 3 -o json --page-key", got[2][len("next="):], "--evm-rpc", stub.url)...))
+	require.Equal(t, []string{voters[2].Hex()}, voted())
+}
+
+func TestQueryProposalNamesTheCancelledPlan(t *testing.T) {
+	r := newTestRoot(t)
+	stub := newRPCStub(t)
+	p := testProposal(t, 4)
+	p.ContentType = contentCancelSoftwareUpgrade
+	p.Content = mustPack(t, cancelUpgradeArgs, cancelSoftwareUpgradeContent{Title: "T", Description: "D", Name: "v2.0"})
+	stub.on("proposal(uint64)", func([]any) ([]any, error) { return []any{p}, nil })
+
+	require.NoError(t, r.run("", args("q gov proposal 4 -o json --evm-rpc", stub.url)...))
+	var resp struct {
+		Content map[string]any `json:"content"`
+	}
+	require.NoError(t, json.Unmarshal(r.out.Bytes(), &resp))
+	require.Equal(t, map[string]any{
+		"@type":       "/cosmos.upgrade.v1beta1.CancelSoftwareUpgradeProposal",
+		"name":        "v2.0",
+		"title":       "T",
+		"description": "D",
+	}, resp.Content)
+
+	require.NoError(t, r.run("", args("q gov proposal 4 -o text --evm-rpc", stub.url)...))
+	require.Contains(t, r.out.String(), "name: v2.0")
 }
 
 func TestQueryVotePrintsV2(t *testing.T) {
