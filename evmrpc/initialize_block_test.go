@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"testing"
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -111,14 +112,23 @@ func newInitializeBlockTestBackend(t *testing.T) (*Backend, *ethtypes.Block) {
 const validatorPageSize = 30
 
 func TestInitializeBlockAppliesEveryValidator(t *testing.T) {
-	for _, n := range []int{validatorPageSize - 20, validatorPageSize + 10, validatorPageSize*2 + 1} {
-		t.Run(fmt.Sprintf("%d validators", n), func(t *testing.T) {
-			vals, sigs := validatorSet(n)
-			if n > validatorPageSize {
-				sigs[n-1].BlockIDFlag = tmtypes.BlockIDFlagAbsent
-				sigs[n-1].ValidatorAddress = nil
-			}
-			tm := newValidatorPageClient(t, sigs, validatorPages(vals, validatorPageSize))
+	tests := []struct {
+		validators int
+		pages      []int
+	}{
+		{validators: 10, pages: []int{1}},
+		{validators: 40, pages: []int{1}},
+		{validators: validatorsPerPage, pages: []int{1}},
+		{validators: validatorsPerPage + 1, pages: []int{1, 2}},
+		{validators: 150, pages: []int{1, 2}},
+		{validators: validatorsPerPage*2 + 1, pages: []int{1, 2, 3}},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("%d validators", tc.validators), func(t *testing.T) {
+			vals, sigs := validatorSet(tc.validators)
+			sigs[tc.validators-1].BlockIDFlag = tmtypes.BlockIDFlagAbsent
+			sigs[tc.validators-1].ValidatorAddress = nil
+			tm := newValidatorPageClient(t, sigs, validatorPages(vals, validatorsPerPage))
 
 			var got []abci.VoteInfo
 			stubBeginBlock(t, func(votes []abci.VoteInfo) { got = votes })
@@ -127,11 +137,27 @@ func TestInitializeBlockAppliesEveryValidator(t *testing.T) {
 			require.NoError(t, err)
 			release()
 
-			require.Equal(t, expectedPages(n), tm.pages)
-			require.False(t, tm.perPageSet)
+			require.Equal(t, tc.pages, tm.pages)
+			require.Equal(t, slices.Repeat([]int{validatorsPerPage}, len(tc.pages)), tm.perPages)
 			requireBeginBlockVotes(t, vals, sigs, got)
 		})
 	}
+}
+
+func TestLoadAllValidatorsRecordsPageSize(t *testing.T) {
+	vals, sigs := validatorSet(validatorsPerPage + 1)
+	tm := newValidatorPageClient(t, sigs, validatorPages(vals, validatorsPerPage))
+	backend, _ := newInitializeBlockBackend(t, tm)
+	traces := &TendermintTraces{}
+
+	got, err := backend.loadAllValidators(WithTendermintTraces(t.Context(), traces), 7)
+	require.NoError(t, err)
+	require.Len(t, got, len(vals))
+
+	perPage := fmt.Sprintf("%d", validatorsPerPage)
+	require.Len(t, traces.Traces, 2)
+	require.Equal(t, []string{"7", "1", perPage}, traces.Traces[0].Arguments)
+	require.Equal(t, []string{"7", "2", perPage}, traces.Traces[1].Arguments)
 }
 
 func TestInitializeBlockAbortsOnBadValidatorPages(t *testing.T) {
@@ -232,15 +258,6 @@ func validatorPages(vals []*tmtypes.Validator, size int) validatorPageFunc {
 	}
 }
 
-func expectedPages(n int) []int {
-	pages := (n + validatorPageSize - 1) / validatorPageSize
-	out := make([]int, pages)
-	for i := range out {
-		out[i] = i + 1
-	}
-	return out
-}
-
 func requireBeginBlockVotes(t *testing.T, vals []*tmtypes.Validator, sigs []tmtypes.CommitSig, votes []abci.VoteInfo) {
 	t.Helper()
 	require.Len(t, votes, len(vals))
@@ -280,12 +297,13 @@ func newInitializeBlockBackend(t *testing.T, tm *validatorPageClient) (*Backend,
 // validatorPageFunc serves one CometBFT validators page. page is 1-based.
 type validatorPageFunc func(page int) (*coretypes.ResultValidators, error)
 
-// validatorPageClient records the pages a trace requests and serves them from source.
+// validatorPageClient records the pages and page sizes a trace requests, 0 for an omitted
+// page size, and serves the pages from source.
 type validatorPageClient struct {
 	*fakeTMClient
-	source     validatorPageFunc
-	pages      []int
-	perPageSet bool
+	source   validatorPageFunc
+	pages    []int
+	perPages []int
 }
 
 func newValidatorPageClient(t *testing.T, sigs []tmtypes.CommitSig, source validatorPageFunc) *validatorPageClient {
@@ -311,9 +329,11 @@ func (c *validatorPageClient) Validators(_ context.Context, _ *int64, page, perP
 	if page != nil {
 		p = *page
 	}
-	c.pages = append(c.pages, p)
+	pp := 0
 	if perPage != nil {
-		c.perPageSet = true
+		pp = *perPage
 	}
+	c.pages = append(c.pages, p)
+	c.perPages = append(c.perPages, pp)
 	return c.source(p)
 }
