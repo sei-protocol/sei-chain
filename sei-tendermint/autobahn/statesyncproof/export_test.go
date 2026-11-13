@@ -164,11 +164,12 @@ func TestExporterSkipsInconsistentRecords(t *testing.T) {
 			rng := utils.TestRng()
 			env := newExportEnv(t, rng)
 			corrupt(env, rng)
-			before := exportFailureCount(t)
+			failures, inconsistent := exportFailureCount(t), inconsistentRecordCount(t)
 
 			require.NoError(t, env.exporter.Sweep())
 			require.NoFileExists(t, env.proofPath(env.index))
-			require.Equal(t, before+1, exportFailureCount(t))
+			require.Equal(t, failures, exportFailureCount(t))
+			require.Equal(t, inconsistent+1, inconsistentRecordCount(t))
 		})
 	}
 }
@@ -347,6 +348,26 @@ func TestExporterStuckFileDoesNotBlockOtherCheckpoints(t *testing.T) {
 	}
 }
 
+func TestExporterRepeatsTheSameErrorForTheSameFailure(t *testing.T) {
+	rng := utils.TestRng()
+	env := newExportEnv(t, rng)
+	next := env.addNextRoad(rng)
+	nextIndex := next.AppQC.Proposal().Index()
+	env.checkpoints = []int64{int64(env.index), int64(nextIndex)}
+	// A non-empty directory under a proof file name cannot be read, so every startup scan fails on both.
+	for _, index := range []types.RoadIndex{env.index, nextIndex} {
+		require.NoError(t, os.MkdirAll(filepath.Join(env.proofPath(index), "child"), 0o750))
+	}
+
+	first := env.exporter.Sweep()
+	require.Error(t, first)
+	for range 20 {
+		err := env.exporter.Sweep()
+		require.Error(t, err)
+		require.Equal(t, first.Error(), err.Error())
+	}
+}
+
 func TestExporterRetriesFailedCleanup(t *testing.T) {
 	for name, scannedBefore := range map[string]bool{"first scan": false, "later scan": true} {
 		t.Run(name, func(t *testing.T) {
@@ -486,6 +507,13 @@ func exportFailureCount(t *testing.T) float64 {
 	t.Helper()
 	var m dto.Metric
 	require.NoError(t, Global.exportFailuresAt().Write(&m))
+	return m.GetCounter().GetValue()
+}
+
+func inconsistentRecordCount(t *testing.T) float64 {
+	t.Helper()
+	var m dto.Metric
+	require.NoError(t, Global.inconsistentRecordsAt().Write(&m))
 	return m.GetCounter().GetValue()
 }
 

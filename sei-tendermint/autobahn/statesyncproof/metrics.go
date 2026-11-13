@@ -11,4 +11,6 @@ const MetricsSubsystem = "autobahn_statesyncproof"
 type metrics struct {
 	// Counts state sync proof export sweeps that failed and will be retried.
 	exportFailures prometheus.CounterIntVec
+	// Counts checkpoints that get no state sync proof because their local BlockStore records are inconsistent.
+	inconsistentRecords prometheus.CounterIntVec
 }

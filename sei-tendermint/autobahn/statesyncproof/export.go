@@ -131,11 +131,12 @@ func (e *Exporter) syncCheckpoints(checkpoints map[types.RoadIndex]struct{}) err
 
 // removeInvalidFiles removes the proof files in present that do not decode for the road in their
 // name, and returns the rest. A file it cannot read or remove is left out of the result, and its
-// error is returned joined with the others.
+// error is returned joined with the others in ascending road order.
 func (e *Exporter) removeInvalidFiles(present map[types.RoadIndex]struct{}) (map[types.RoadIndex]struct{}, error) {
 	valid := make(map[types.RoadIndex]struct{}, len(present))
 	var errs []error
-	for index := range present {
+	// A stable error text lets the caller suppress repeated logs of the same failure.
+	for _, index := range slices.Sorted(maps.Keys(present)) {
 		path := filepath.Join(e.cfg.Dir, FileName(index))
 		data, err := os.ReadFile(path) //nolint:gosec // path is derived from the configured state sync proof directory and a canonical file name.
 		if err != nil {
@@ -233,7 +234,7 @@ func (e *Exporter) exportProof(index types.RoadIndex) error {
 	if err != nil {
 		// Skipping, not halting, keeps a corrupt local BlockStore from stopping the node through an
 		// optional export, and never publishes the bad proof.
-		Global.exportFailuresAt().Add(1)
+		Global.inconsistentRecordsAt().Add(1)
 		logger.Error("skipping state sync proof: inconsistent BlockStore records", "index", index, "err", err)
 		e.skipped[index] = struct{}{}
 		return nil

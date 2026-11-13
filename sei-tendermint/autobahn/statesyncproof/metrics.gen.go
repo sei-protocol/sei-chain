@@ -12,6 +12,7 @@ var Global = newMetrics()
 func init() {
 	prometheus.MustRegister(
 		Global.exportFailures,
+		Global.inconsistentRecords,
 	)
 }
 
@@ -23,9 +24,19 @@ func newMetrics() *metrics {
 			Name:      "export_failures",
 			Help:      "Counts state sync proof export sweeps that failed and will be retried.",
 		}, nil),
+		inconsistentRecords: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "inconsistent_records",
+			Help:      "Counts checkpoints that get no state sync proof because their local BlockStore records are inconsistent.",
+		}, nil),
 	}
 }
 
 func (m *metrics) exportFailuresAt() *tmprometheus.CounterInt {
 	return m.exportFailures.WithLabelValues()
+}
+
+func (m *metrics) inconsistentRecordsAt() *tmprometheus.CounterInt {
+	return m.inconsistentRecords.WithLabelValues()
 }
