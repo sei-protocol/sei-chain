@@ -20,6 +20,7 @@ func (a evmStateApp) Info() *proxy.ResponseInfo {
 }
 func (a evmStateApp) LastBlockHeight() int64                        { return 17 }
 func (a evmStateApp) EvmNonce(common.Address) uint64                { return 3 }
+func (a evmStateApp) EvmCommittedNonce(addr common.Address) uint64  { return a.EvmNonce(addr) }
 func (a evmStateApp) EvmBalance(common.Address, []byte) uint256.Int { return *uint256.NewInt(99) }
 func (a evmStateApp) CheckTx(context.Context, *proxy.RequestCheckTxV2) *proxy.ResponseCheckTxV2 {
 	return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 7, Log: "rejected", GasWanted: 21000}}
