@@ -173,9 +173,9 @@ func TestDataClientServer(t *testing.T) {
 	}
 }
 
-// runFullCommitQCClient runs the FullCommitQC stream client of node against a server that sends qcs in order and then closes the stream.
-// It returns the error that ends the client.
-func runFullCommitQCClient(ctx context.Context, node *testNode, qcs []*types.FullCommitQC) error {
+// runFullCommitQCClient runs the FullCommitQC stream client of node against a server that passes the request to onReq,
+// unless onReq is nil, then sends qcs in order and closes the stream. It returns the error that ends the client.
+func runFullCommitQCClient(ctx context.Context, node *testNode, onReq func(context.Context, *StreamFullCommitQCsReq) error, qcs []*types.FullCommitQC) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		serverConn, clientConn := conn.NewTestConn()
 		server := rpc.NewServer[API]()
@@ -184,8 +184,18 @@ func runFullCommitQCClient(ctx context.Context, node *testNode, qcs []*types.Ful
 		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, client.Run(ctx, clientConn)) })
 		s.SpawnBg(func() error {
 			return utils.IgnoreAfterCancel(ctx, StreamFullCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.FullCommitQC, *pb.StreamFullCommitQCsReq]) error {
-				if _, err := stream.Recv(ctx); err != nil {
+				rawReq, err := stream.Recv(ctx)
+				if err != nil {
 					return fmt.Errorf("stream.Recv(): %w", err)
+				}
+				req, err := StreamFullCommitQCsReqConv.Decode(rawReq)
+				if err != nil {
+					return fmt.Errorf("StreamFullCommitQCsReqConv.Decode(): %w", err)
+				}
+				if onReq != nil {
+					if err := onReq(ctx, req); err != nil {
+						return err
+					}
 				}
 				for _, qc := range qcs {
 					if err := stream.Send(ctx, types.FullCommitQCConv.Encode(qc)); err != nil {
@@ -215,24 +225,23 @@ func TestFullCommitQCStreamAcceptsIncreasingIndexesWithGaps(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
-	ep0 := registry.MustEpoch(0)
 	node := newTestEnv(registry).AddNode(t, keys[0])
-	qcs := testQCChain(rng, ep0, keys, 5)
+	qcs := testQCChain(rng, registry.MustEpoch(0), keys, 4)
+	// Another peer pushes qcs[0] after the client requests it, so the stream starts above the requested index.
+	pushRequested := func(ctx context.Context, req *StreamFullCommitQCsReq) error {
+		if got, want := req.NextBlock, qcs[0].Index(); got != want {
+			return fmt.Errorf("req.NextBlock = %v, want %v", got, want)
+		}
+		return node.data.PushPartialBlock(ctx, qcs[0], nil)
+	}
 	ok := fetchCount(resFullCommitQC, "ok")
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		// Another peer fills the gaps that the stream skips.
-		s.Spawn(func() error {
-			for _, qc := range []*types.FullCommitQC{qcs[1], qcs[3]} {
-				if err := node.data.PushPartialBlock(ctx, qc, nil); err != nil {
-					return fmt.Errorf("PushPartialBlock(): %w", err)
-				}
-			}
-			return nil
-		})
-		return runFullCommitQCClient(ctx, node, []*types.FullCommitQC{qcs[0], qcs[2], qcs[4]})
+		// Another peer fills the gap that the stream skips.
+		s.Spawn(func() error { return node.data.PushPartialBlock(ctx, qcs[2], nil) })
+		return runFullCommitQCClient(ctx, node, pushRequested, []*types.FullCommitQC{qcs[1], qcs[3]})
 	})
 	require.ErrorIs(t, err, mux.ErrRemoteClosed)
-	require.Equal(t, ok+3, fetchCount(resFullCommitQC, "ok"))
+	require.Equal(t, ok+2, fetchCount(resFullCommitQC, "ok"))
 	for _, want := range qcs {
 		got, err := node.data.QC(ctx, want.Index())
 		require.NoError(t, err)
@@ -269,7 +278,7 @@ func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
 			}
 			ok := fetchCount(resFullCommitQC, "ok")
 			outOfOrder := fetchCount(resFullCommitQC, "out_of_order")
-			require.ErrorIs(t, runFullCommitQCClient(ctx, node, sent), types.ErrUnexpectedIndex)
+			require.ErrorIs(t, runFullCommitQCClient(ctx, node, nil, sent), types.ErrUnexpectedIndex)
 			require.Equal(t, ok+tc.accepted, fetchCount(resFullCommitQC, "ok"))
 			require.Equal(t, outOfOrder+1, fetchCount(resFullCommitQC, "out_of_order"))
 		})
