@@ -194,8 +194,9 @@ type AutobahnFileConfig struct {
 	EVMGovernance utils.Option[EVMGovernance] `json:"evm_governance,omitzero"`
 	// EVMAlloc, when set, is the wei each EVM account holds at the chain's
 	// initial height, and every other account starts empty. Absent ⇒ every
-	// account the state holds nothing for has 2^200 wei. It must be identical
-	// on every node.
+	// account the state holds nothing for has 2^200 wei. Set it only in a new
+	// chain's genesis and identically on every node; a node refuses to resume
+	// a chain that started with any other alloc, or without one.
 	EVMAlloc utils.Option[map[common.Address]hexutil.U256] `json:"evm_alloc,omitzero"`
 }
 

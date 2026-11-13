@@ -2,12 +2,14 @@ package evmonlyapp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash"
+	"maps"
 	"math/big"
 	"runtime"
 	"slices"
@@ -29,6 +31,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -190,8 +193,13 @@ func NewEVMOnlyApplication(
 	alloc utils.Option[GenesisAlloc],
 	homeDir utils.Option[string],
 ) (proxy.EVMApplication, error) {
-	if alloc, ok := alloc.Get(); ok && alloc.InitialHeight <= 0 {
-		return nil, fmt.Errorf("EVM-only genesis alloc initial height must be positive: %d", alloc.InitialHeight)
+	if alloc, ok := alloc.Get(); ok {
+		if alloc.InitialHeight <= 0 {
+			return nil, fmt.Errorf("EVM-only genesis alloc initial height must be positive: %d", alloc.InitialHeight)
+		}
+		if len(alloc.Balances) == 0 {
+			return nil, errors.New("EVM-only genesis alloc funds no account")
+		}
 	}
 	chainConfig := *evmonly.DefaultChainConfig()
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
@@ -216,6 +224,9 @@ func NewEVMOnlyApplication(
 		return nil, err
 	}
 	if cursor, ok := cursor.Get(); ok {
+		if err := a.checkStartedWithAlloc(storage.StateDB().SC()); err != nil {
+			return nil, err
+		}
 		for executor := range a.executor.Lock() {
 			a.installExecutor(executor)
 		}
@@ -289,7 +300,11 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
-		return append([]gigatypes.MiscChange{next.miscChange()}, epochChanges...), nil
+		changes := append([]gigatypes.MiscChange{next.miscChange()}, epochChanges...)
+		if alloc, ok := a.alloc.Get(); ok && height == alloc.InitialHeight {
+			changes = append(changes, alloc.miscChange())
+		}
+		return changes, nil
 	}
 	panic("unreachable")
 }
@@ -1141,6 +1156,46 @@ func (w *evmOnlyHashWriter) flush() error {
 type GenesisAlloc struct {
 	InitialHeight int64
 	Balances      map[common.Address]*uint256.Int
+}
+
+// evmOnlyGenesisAllocKey holds the digest of the alloc a chain started with. Like the cursor it is
+// written outside the EVM state hash, with the initial height's block.
+const evmOnlyGenesisAllocKey = "genesis_alloc"
+
+func (g GenesisAlloc) digest() common.Hash {
+	buf := make([]byte, 0, 8+len(g.Balances)*(common.AddressLength+32))
+	buf = binary.BigEndian.AppendUint64(buf, uint64(g.InitialHeight)) //nolint:gosec // G115: NewEVMOnlyApplication refuses a height that is not positive.
+	for _, addr := range slices.SortedFunc(maps.Keys(g.Balances), common.Address.Cmp) {
+		balance := g.Balances[addr].Bytes32()
+		buf = append(append(buf, addr[:]...), balance[:]...)
+	}
+	return crypto.Keccak256Hash(buf)
+}
+
+func (g GenesisAlloc) miscChange() gigatypes.MiscChange {
+	digest := g.digest()
+	return gigatypes.MiscChange{
+		Module: evmOnlyCursorModule,
+		Key:    []byte(evmOnlyGenesisAllocKey),
+		Value:  digest[:],
+	}
+}
+
+// checkStartedWithAlloc refuses to resume a chain with an alloc other than the one it started with:
+// adding one would empty every account the chain has not written, and dropping one would give each
+// 2^200 wei.
+func (a *evmOnlyApplication) checkStartedWithAlloc(store *flatkv.CommitStore) error {
+	started, found := store.Get(evmOnlyCursorModule, []byte(evmOnlyGenesisAllocKey))
+	alloc, ok := a.alloc.Get()
+	switch {
+	case !ok && found:
+		return errors.New("EVM-only chain started with a genesis alloc, but none is set")
+	case ok && !found:
+		return errors.New("EVM-only chain started without a genesis alloc, but one is set")
+	case ok && !bytes.Equal(started, alloc.digest().Bytes()):
+		return errors.New("EVM-only genesis alloc differs from the one the chain started with")
+	}
+	return nil
 }
 
 type evmOnlyFundedState struct{}

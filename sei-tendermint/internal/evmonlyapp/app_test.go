@@ -1480,7 +1480,72 @@ func TestEVMOnlyApplicationAllocFundsOnlyListedAccounts(t *testing.T) {
 }
 
 func TestEVMOnlyApplicationAllocRefusesAnotherInitialHeight(t *testing.T) {
-	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 5})
+	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 5, Balances: map[common.Address]*uint256.Int{{1}: uint256.NewInt(1)}})
 	_, err := app.InitChain(evmOnlyTestInitChain())
 	require.Error(t, err)
+}
+
+func TestEVMOnlyApplicationRefusesAnEmptyAlloc(t *testing.T) {
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	storage := openEVMOnlyTestStorage(t, storageConfig)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	_, err = NewEVMOnlyApplication(
+		evmOnlyTestChainID, nil, storage,
+		gigaconfig.DefaultConfig.Execution,
+		utils.None[precompiles.Registry](),
+		utils.Some(GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{}}),
+		utils.None[string](),
+	)
+	require.Error(t, err)
+}
+
+func TestEVMOnlyApplicationResumesOnlyWithTheAllocItStartedWith(t *testing.T) {
+	alloc := func(balance uint64) utils.Option[GenesisAlloc] {
+		return utils.Some(GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{
+			{1}: uint256.NewInt(balance),
+			{2}: uint256.NewInt(7),
+		}})
+	}
+	none := utils.None[GenesisAlloc]()
+	for _, tc := range []struct {
+		name            string
+		started, resume utils.Option[GenesisAlloc]
+		ok              bool
+	}{
+		{"without alloc", none, none, true},
+		{"same alloc", alloc(5), alloc(5), true},
+		{"alloc added", none, alloc(5), false},
+		{"alloc dropped", alloc(5), none, false},
+		{"alloc changed", alloc(5), alloc(6), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			open := func(storage *bootstrap.GigaStorageManager, alloc utils.Option[GenesisAlloc]) (proxy.EVMApplication, error) {
+				return NewEVMOnlyApplication(
+					evmOnlyTestChainID, nil, storage,
+					gigaconfig.DefaultConfig.Execution,
+					utils.None[precompiles.Registry](),
+					alloc,
+					utils.None[string](),
+				)
+			}
+			home := t.TempDir()
+			storage := openEVMOnlyTestStorageAt(t, home)
+			app, err := open(storage, tc.started)
+			require.NoError(t, err)
+			_, err = app.InitChain(evmOnlyTestInitChain())
+			require.NoError(t, err)
+			finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+			closeEVMOnlyTestApp(t, app, storage)
+
+			storage = openEVMOnlyTestStorageAt(t, home)
+			app, err = open(storage, tc.resume)
+			if err == nil {
+				closeEVMOnlyTestApp(t, app, storage)
+			} else {
+				require.NoError(t, storage.Close())
+			}
+			require.Equal(t, tc.ok, err == nil, "resume error: %v", err)
+		})
+	}
 }
