@@ -538,25 +538,25 @@ func TestPushBlockWaitsForPruningOnBadParentHash(t *testing.T) {
 		registry, keys := epoch.GenRegistry(rng, 3)
 		state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
 		t.Cleanup(func() { require.NoError(t, state.Close()) })
+		// Push first block.
 		lane := state.LocalLane().OrPanic("local lane")
 		first, err := state.ProduceLocalBlock(lane, 0, types.GenPayload(rng))
 		require.NoError(t, err)
+		// Generate mismatching 2nd block.
 		fakeBlock := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
 		fakeProp := types.Sign(keys[0], types.NewLaneProposal(fakeBlock))
 
 		require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
+			// Push 2nd block asynchronously. It should wait.
 			sc.Spawn(func() error { return state.PushBlock(ctx, fakeProp) })
 			synctest.Wait()
-			if state.NextBlock(lane) != 1 {
+			if state.NextBlock(lane) != fakeProp.Msg().Block().Header().BlockNumber() {
 				return fmt.Errorf("mismatching parent accepted before pruning")
 			}
+			// Finalize and prune 1st block. It should let 2nd block through.
 			pruneToHeader(state, keys, first.Msg().Block().Header())
-			return nil
+			return utils.TestDiff(fakeProp, utils.OrPanic1(state.Block(ctx, lane, 1)))
 		}))
-		require.Equal(t, types.BlockNumber(2), state.NextBlock(lane))
-		got, err := state.Block(ctx, lane, 1)
-		require.NoError(t, err)
-		require.Equal(t, fakeProp, got)
 	})
 }
 
