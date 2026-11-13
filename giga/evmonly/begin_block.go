@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
@@ -74,7 +75,7 @@ func (e *Executor) runBeginBlockers(block BlockContext, source StateReader, repl
 		}
 		beginBlockLogger.Debug("custom precompile begin block", "height", block.Number, "address", blocker.address, "storage_gas", state.spent)
 	}
-	stateDB.Finalise(true)
+	stateDB.Finalise(params.Rules{IsEIP158: true})
 	var changes StateChangeSet
 	stateDB.ChangeSetInto(&changes)
 	return changes, nil

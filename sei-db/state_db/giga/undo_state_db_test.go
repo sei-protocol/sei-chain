@@ -15,6 +15,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
@@ -229,6 +230,60 @@ func TestUndoStateDBRollsBackByDiscardingLaterRecords(t *testing.T) {
 		model.commitBlock(t, db, map[string][]byte{string(nonceKey(addr)): nonceValue(uint64(100 + block))})
 	}
 	model.requireHistory(t, db, 0, 16, [][]byte{nonceKey(addr), nonceKey(other)})
+}
+
+// rollBackTo reopens home's stores rolled back to target.
+func (h undoTestHome) rollBackTo(t *testing.T, target int64) (*StateDB, error) {
+	t.Helper()
+	return NewStateDBWithRollback(t.Context(), h.flatkv, h.ss, config.CheckpointConfig{BlockInterval: 1_000},
+		newDiscardingBUDHasher(t), target)
+}
+
+// A rollback above the undo log's head is legal. The log holds no records of the blocks between its head
+// and the target, so it serves the target from the live state DB and nothing below it.
+func TestUndoStateDBRollbackAboveTheLogServesFromTheTarget(t *testing.T) {
+	home := newUndoTestHome(t)
+	db := home.open(t)
+	addr := common.Address{11}
+	for block := int64(1); block <= 14; block++ {
+		nonce := uint64(block) //nolint:gosec // positive
+		require.NoError(t, db.CommitStateChanges(block, nonceChanges(addr, nonce-1, nonce)))
+	}
+	require.NoError(t, db.Close())
+	require.NoError(t, undo.DiscardStateAbove(home.ss.EVMDBDirectory, home.ss, 5))
+
+	db, err := home.rollBackTo(t, 9)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, db.Close()) }()
+	require.Equal(t, int64(9), db.SC().Version())
+	require.Equal(t, int64(9), db.UndoSS().GetLatestVersion())
+	require.Equal(t, int64(9), db.UndoSS().GetEarliestVersion())
+	_, ok := db.OpenViewAt(8)
+	require.False(t, ok, "no records cover the blocks between the log's head and the target")
+	view, ok := db.OpenViewAt(9)
+	require.True(t, ok)
+	defer view.Close()
+	require.Equal(t, uint64(9), view.GetNonce(addr))
+}
+
+// An empty undo log holds nothing to disagree with the target, so a rollback leaves it to fill forward
+// from the target.
+func TestUndoStateDBRollbackTakesAnEmptyLog(t *testing.T) {
+	home := newUndoTestHome(t)
+	db := home.open(t)
+	addr := common.Address{12}
+	for block := int64(1); block <= 14; block++ {
+		nonce := uint64(block) //nolint:gosec // positive
+		require.NoError(t, db.CommitStateChanges(block, nonceChanges(addr, nonce-1, nonce)))
+	}
+	require.NoError(t, db.Close())
+	require.NoError(t, os.RemoveAll(home.ss.EVMDBDirectory))
+
+	db, err := home.rollBackTo(t, 9)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, db.Close()) }()
+	require.Equal(t, int64(9), db.UndoSS().GetLatestVersion())
+	require.Equal(t, int64(9), db.UndoSS().GetEarliestVersion())
 }
 
 // A block's change set carries each balance and code it replaced, which a read below the block serves.
