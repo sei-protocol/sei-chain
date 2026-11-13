@@ -359,6 +359,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 			return nil
 		}
 		ls.blocks.pushBack(p)
+		ls.lastHash = utils.Some(h.Hash())
 		ctrl.Updated()
 	}
 	meters.LaneBlockReceive.Observe(time.Since(p.Msg().Block().Payload().CreatedAt()).Seconds())
@@ -598,12 +599,10 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 		if ls.blocks.next != n {
 			return nil, fmt.Errorf("unexpected block number: got %v, want %v", n, ls.blocks.next)
 		}
-		var parent types.BlockHeaderHash
-		if ls.blocks.first < ls.blocks.next {
-			parent = ls.blocks.q[ls.blocks.next-1].Msg().Block().Header().Hash()
-		}
+		parent := ls.lastHash.Or(types.BlockHeaderHash{})
 		result = types.Sign(s.key, types.NewLaneProposal(types.NewBlock(lane, ls.blocks.next, parent, payload)))
 		ls.blocks.pushBack(result)
+		ls.lastHash = utils.Some(result.Msg().Block().Header().Hash())
 		ctrl.Updated()
 	}
 	metrics.ObserveProducedTxs(len(payload.Txs()))

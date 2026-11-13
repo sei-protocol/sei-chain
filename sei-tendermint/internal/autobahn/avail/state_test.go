@@ -555,7 +555,7 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
 }
 
-func TestProduceLocalBlockAfterPruningUsesZeroParentHash(t *testing.T) {
+func TestProduceLocalBlockAfterPruningPreservesParentHash(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -581,10 +581,86 @@ func TestProduceLocalBlockAfterPruningUsesZeroParentHash(t *testing.T) {
 	next, err := producer.ProduceLocalBlock(lane, producer.NextBlock(lane), types.GenPayload(rng))
 	require.NoError(t, err)
 	require.Equal(t, lastNumber+1, next.Msg().Block().Header().BlockNumber())
-	require.Equal(t, types.BlockHeaderHash{}, next.Msg().Block().Header().ParentHash())
+	require.Equal(t, last.Msg().Block().Header().Hash(), next.Msg().Block().Header().ParentHash())
 	child, err := producer.ProduceLocalBlock(lane, producer.NextBlock(lane), types.GenPayload(rng))
 	require.NoError(t, err)
 	require.Equal(t, next.Msg().Block().Header().Hash(), child.Msg().Block().Header().ParentHash())
+}
+
+// Test checking that when producer is restarted, it can still produce blocks.
+func TestProductionAfterRestart(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	
+	var stores [2]*blockstore.Store
+	for i := range stores {
+		cfg := utils.OrPanic1(blockstore.DefaultConfig(t.TempDir()))
+		stores[i] = utils.OrPanic1(blockstore.New(cfg))
+		t.Cleanup(func(){ _ = stores[i].Close() })
+	}
+	var availDirs [2]string
+	for i := range availDirs {
+		availDirs[i] = t.TempDir()
+	}
+	makeAvail := func(i int) *State {
+		data := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, stores[i]))
+		return utils.OrPanic1(NewState(keys[i], data, utils.Some(availDirs[i])))
+	}
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
+		peer := makeAvail(1)
+		defer peer.Close()
+		sc.SpawnBg(func() error { return utils.IgnoreCancel(peer.Data().Run(ctx)) })
+		sc.SpawnBg(func() error { return utils.IgnoreCancel(peer.Run(ctx)) })
+
+		var app *types.AppProposal
+		// The first producer run executes and prunes while the peer retains its blocks.
+		utils.OrPanic(scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
+			producer := makeAvail(0)
+			defer producer.Close()
+			sc.SpawnBg(func() error { return utils.IgnoreCancel(producer.Data().Run(ctx)) })
+			sc.SpawnBg(func() error { return utils.IgnoreCancel(producer.Run(ctx)) })
+			lane := producer.LocalLane().OrPanic("LocalLane")
+			// Produce blocks and push them to peer.
+			for range 3 {
+				proposal := utils.OrPanic1(producer.ProduceLocalBlock(lane, producer.NextBlock(lane), types.GenPayload(rng)))
+				utils.OrPanic(peer.PushBlock(ctx, proposal))
+				for _,v := range makeLaneVotes(keys, proposal.Msg().Block().Header()) {
+					utils.OrPanic(producer.PushVote(ctx,v))
+				}
+			}
+			// Finalize blocks.
+			prev := utils.None[*types.CommitQC]()
+			laneQCs := utils.OrPanic1(producer.WaitForLaneQCs(ctx,ep,prev))
+			commitQC := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), laneQCs)
+			app = types.NewAppProposal(commitQC.View(), types.GenAppHash(rng))
+			for _,node := range utils.Slice(producer,peer) {
+				utils.OrPanic(node.PushCommitQC(ctx, commitQC))
+				utils.OrPanic(node.Data().PushAppHash(ctx, app.Index(), app.AppHash(),nil))
+				for _, v := range makeAppVotes(keys, app) {
+					utils.OrPanic(node.PushAppVote(ctx, v))
+				}
+			}
+			// Ensure producer moved the anchor, so that it restarts with empty local lane.	
+			utils.OrPanic1(producer.Data().Anchor().Wait(ctx,func(a data.Anchor) bool { return a.NextIndex()>commitQC.Index() }))
+			return nil
+		}))
+		// Restart producer.
+		producer := makeAvail(0)
+		defer producer.Close()
+		sc.SpawnBg(func() error { return utils.IgnoreCancel(producer.Data().Run(ctx)) })
+		sc.SpawnBg(func() error { return utils.IgnoreCancel(producer.Run(ctx)) })
+
+		// Produce more blocks and push them to peer.
+		lane := producer.LocalLane().OrPanic("LocalLane")
+		for range 3 {
+			proposal := utils.OrPanic1(producer.ProduceLocalBlock(lane, producer.NextBlock(lane), types.GenPayload(rng)))
+			utils.OrPanic(peer.PushBlock(ctx, proposal))
+		}
+		// Assert that lane advanced on peer.
+		return utils.TestDiff(producer.NextBlock(lane),peer.NextBlock(lane))
+	}))
 }
 
 func TestSetNextBlockToPersistDoesNotRewind(t *testing.T) {
@@ -665,33 +741,14 @@ func TestNewStateRestoresLaneBehindCommit(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, types.BlockNumber(tc.persisted), state.NextBlock(lane))
 			require.Equal(t, utils.Some(qc), state.ConsensusSpec().Load().CommitQC)
+			if tc.local {
+				proposal, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+				require.NoError(t, err)
+				require.Equal(t, types.BlockHeaderHash{}, proposal.Msg().Block().Header().ParentHash())
+			}
 			require.NoError(t, state.Close())
 		})
 	}
-}
-
-func TestNewStateAcceptsMissingLocalParent(t *testing.T) {
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 1)
-	qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	store := blockstore.NewTestStore(t)
-	t.Cleanup(func() { require.NoError(t, store.Close()) })
-	require.NoError(t, store.WriteBlock(types.NewRoadBlock(qc, blocks)))
-	app := types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng))
-	require.NoError(t, store.WriteAppProposal(app))
-	require.NoError(t, store.WriteAppQC(data.TestAppQC(keys, app)))
-	require.NoError(t, store.Flush())
-	ds, err := data.NewState(&data.Config{Registry: registry}, store)
-	require.NoError(t, err)
-	dir := t.TempDir()
-	state, err := NewState(keys[0], ds, utils.Some(dir))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, state.Close()) })
-	lane := state.LocalLane().OrPanic("local lane")
-	require.Equal(t, qc.QC().LaneRange(lane).Next(), state.NextBlock(lane))
-	proposal, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
-	require.NoError(t, err)
-	require.Equal(t, types.BlockHeaderHash{}, proposal.Msg().Block().Header().ParentHash())
 }
 
 func TestNewStateWithPersistence(t *testing.T) {

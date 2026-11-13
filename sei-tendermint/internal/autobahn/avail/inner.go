@@ -30,6 +30,12 @@ type inner struct {
 type laneState struct {
 	blocks *queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	votes  *queue[types.BlockNumber, *blockVotes]
+	// hash of the last lane block, used as parent hash ONLY for local lane production, NEVER for validation.
+	// Resetting the parent hash is a valid producer behavior, but makes other validators
+	// wait for previous blocks to be pruned before accepting, slowing lane production.
+	// None on startup (even if last block is not pruned), so that parent hash reset is
+	// exercised on every restart (instead of being an obscure corner case).
+	lastHash utils.Option[types.BlockHeaderHash]
 	// nextBlockToPersist tracks per-lane how far block persistence has progressed.
 	// Proposal and vote subscriptions only yield blocks below this cursor.
 	// Always initialized (even when persistence is disabled — the no-op persist
