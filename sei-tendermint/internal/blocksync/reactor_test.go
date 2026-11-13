@@ -79,11 +79,18 @@ func setup(
 	return rts
 }
 
+// newMemBlockStore returns a block store backed by a fresh in-memory database.
+func newMemBlockStore() sm.BlockStore {
+	return store.NewBlockStore(dbm.NewMemDB())
+}
+
+// makeReactor returns a reactor serving genDoc on router, backed by blockStore.
 func makeReactor(
 	ctx context.Context,
 	t *testing.T,
 	genDoc *types.GenesisDoc,
 	router *p2p.Router,
+	blockStore sm.BlockStore,
 	blockSync bool,
 	restartEvent func(),
 	selfRemediationConfig *config.SelfRemediationConfig,
@@ -91,10 +98,8 @@ func makeReactor(
 
 	app := abci.BaseApplication{}
 
-	blockDB := dbm.NewMemDB()
 	stateDB := dbm.NewMemDB()
 	stateStore := sm.NewStore(stateDB)
-	blockStore := store.NewBlockStore(blockDB)
 	proxyApp := proxy.New(app)
 
 	state, err := sm.MakeGenesisState(genDoc)
@@ -148,11 +153,13 @@ func (rts *reactorTestSuite) addNode(
 	remediationConfig := config.DefaultSelfRemediationConfig()
 	remediationConfig.BlocksBehindThreshold = 1000
 
+	blockStore := newMemBlockStore()
 	reactor := makeReactor(
 		ctx,
 		t,
 		genDoc,
 		rts.network.Node(nodeID).Router,
+		blockStore,
 		true,
 		func() {},
 		remediationConfig,
@@ -168,7 +175,7 @@ func (rts *reactorTestSuite) addNode(
 		state, err = syncer.blockExec.ApplyBlock(ctx, state, blockID, block, nil)
 		require.NoError(t, err)
 
-		reactor.store.SaveBlock(block, partSet, seenCommit)
+		blockStore.SaveBlock(block, partSet, seenCommit)
 		lastCommit = seenCommit
 	}
 
@@ -493,11 +500,13 @@ func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 2})
 	nodeIDs := network.NodeIDs()
 
+	blockStore := newMemBlockStore()
 	server := makeReactor(
 		ctx,
 		t,
 		genDoc,
 		network.Node(nodeIDs[0]).Router,
+		blockStore,
 		false,
 		func() {},
 		config.DefaultSelfRemediationConfig(),
@@ -509,7 +518,7 @@ func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {
 		block, blockID, partSet, seenCommit := makeNextBlock(ctx, t, state, privVals[0], height, lastCommit)
 		state, err = server.syncer.OrPanic("syncer should be configured in tests").blockExec.ApplyBlock(ctx, state, blockID, block, nil)
 		require.NoError(t, err)
-		server.store.SaveBlock(block, partSet, seenCommit)
+		blockStore.SaveBlock(block, partSet, seenCommit)
 		lastCommit = seenCommit
 	}
 	require.NoError(t, server.Start(ctx))
@@ -563,11 +572,13 @@ func TestQueryResponder_ServesStatusRequestsWhenBlockSyncDisabled(t *testing.T) 
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 2})
 	nodeIDs := network.NodeIDs()
 
+	blockStore := newMemBlockStore()
 	server := makeReactor(
 		ctx,
 		t,
 		genDoc,
 		network.Node(nodeIDs[0]).Router,
+		blockStore,
 		false,
 		func() {},
 		config.DefaultSelfRemediationConfig(),
@@ -584,7 +595,7 @@ func TestQueryResponder_ServesStatusRequestsWhenBlockSyncDisabled(t *testing.T) 
 
 	statusResponse, ok := msg.Message.Sum.(*pb.Message_StatusResponse)
 	require.True(t, ok)
-	require.Equal(t, server.store.Base(), statusResponse.StatusResponse.GetBase())
-	require.Equal(t, server.store.Height(), statusResponse.StatusResponse.GetHeight())
+	require.Equal(t, blockStore.Base(), statusResponse.StatusResponse.GetBase())
+	require.Equal(t, blockStore.Height(), statusResponse.StatusResponse.GetHeight())
 	require.Equal(t, nodeIDs[0], msg.From)
 }
