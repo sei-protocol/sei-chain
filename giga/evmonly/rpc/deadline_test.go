@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
@@ -111,4 +112,68 @@ func TestZeroMethodDeadlineLeavesCallUnbounded(t *testing.T) {
 func TestNewHandlerRejectsMalformedMethodTimeouts(t *testing.T) {
 	_, err := newHandler(&testBackend{}, evmonly.NewMemoryReceiptStore(), limitsWithDeadlines(0, "eth_call"))
 	require.ErrorContains(t, err, gigaconfig.FlagRPCMethodTimeouts)
+}
+
+func TestStateReadPastDeadlineReportsTimeout(t *testing.T) {
+	const deadline = 20 * time.Millisecond
+	// slow stands in for a point read that takes no ctx and outlives the request deadline.
+	slow := func() { time.Sleep(5 * deadline) }
+	backend := &testBackend{
+		blockNumber: func() uint64 { return 10 },
+		balance: func(common.Address) uint256.Int {
+			slow()
+			return *uint256.NewInt(1)
+		},
+		balanceAt: func(common.Address, int64) (uint256.Int, error) {
+			slow()
+			return *uint256.NewInt(1), nil
+		},
+		code: func(common.Address) ([]byte, error) {
+			slow()
+			return []byte{0x01}, nil
+		},
+		codeAt: func(common.Address, int64) ([]byte, error) {
+			slow()
+			return []byte{0x01}, nil
+		},
+		storage: func(common.Address, common.Hash) (common.Hash, error) {
+			slow()
+			return common.Hash{0x01}, nil
+		},
+		storageAt: func(common.Address, common.Hash, int64) (common.Hash, error) {
+			slow()
+			return common.Hash{0x01}, nil
+		},
+		transactionCount: func(common.Address) uint64 {
+			slow()
+			return 1
+		},
+		transactionCountAt: func(common.Address, int64) (uint64, error) {
+			slow()
+			return 1, nil
+		},
+	}
+	clients := dialTransports(t, backend, limitsWithDeadlines(deadline))
+	for _, block := range []string{"latest", "0x1"} {
+		for _, tc := range []struct {
+			method string
+			params []any
+		}{
+			{"eth_getBalance", []any{deadlineTestTo, block}},
+			{"eth_getCode", []any{deadlineTestTo, block}},
+			{"eth_getStorageAt", []any{deadlineTestTo, "0x0", block}},
+			{"eth_getTransactionCount", []any{deadlineTestTo, block}},
+		} {
+			for name, client := range clients {
+				t.Run(tc.method+"/"+block+"/"+name, func(t *testing.T) {
+					var got any
+					err := client.CallContext(t.Context(), &got, tc.method, tc.params...)
+
+					var rpcErr ethrpc.Error
+					require.ErrorAs(t, err, &rpcErr)
+					require.Equal(t, errcodeRequestTimeout, rpcErr.ErrorCode())
+				})
+			}
+		}
+	}
 }

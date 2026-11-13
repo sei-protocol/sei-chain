@@ -31,10 +31,13 @@ func (api *txAPI) GetTransactionCount(ctx context.Context, address common.Addres
 	if err != nil {
 		return nil, err
 	}
-	var nonce uint64
-	if latest {
-		nonce = api.backend.EvmTransactionCount(address)
-	} else if nonce, err = api.backend.EvmNonceAt(address, height); err != nil {
+	nonce, err := readState(ctx, func() (uint64, error) {
+		if latest {
+			return api.backend.EvmTransactionCount(address), nil
+		}
+		return api.backend.EvmNonceAt(address, height)
+	})
+	if err != nil {
 		return nil, err
 	}
 	return (*hexutil.Uint64)(&nonce), nil

@@ -36,10 +36,13 @@ func (api *stateAPI) GetBalance(ctx context.Context, address common.Address, blo
 	if err != nil {
 		return nil, err
 	}
-	var balance uint256.Int
-	if latest {
-		balance = api.backend.EvmBalance(address, nil)
-	} else if balance, err = api.backend.EvmBalanceAt(address, height); err != nil {
+	balance, err := readState(ctx, func() (uint256.Int, error) {
+		if latest {
+			return api.backend.EvmBalance(address, nil), nil
+		}
+		return api.backend.EvmBalanceAt(address, height)
+	})
+	if err != nil {
 		return nil, err
 	}
 	return (*hexutil.Big)(balance.ToBig()), nil
@@ -52,10 +55,31 @@ func (api *stateAPI) GetCode(ctx context.Context, address common.Address, block 
 	if err != nil {
 		return nil, err
 	}
-	if latest {
-		return api.backend.EvmCode(address)
+	return readState(ctx, func() (hexutil.Bytes, error) {
+		if latest {
+			return api.backend.EvmCode(address)
+		}
+		return api.backend.EvmCodeAt(address, height)
+	})
+}
+
+// readState returns read's result, or ctx's error when ctx has ended before read starts or by the
+// time it returns.
+func readState[T any](ctx context.Context, read func() (T, error)) (T, error) {
+	var zero T
+	if err := ctx.Err(); err != nil {
+		return zero, err
 	}
-	return api.backend.EvmCodeAt(address, height)
+	value, err := read()
+	if err != nil {
+		return zero, err
+	}
+	// Backend point reads take no ctx and run to completion, so a read that outlived the request
+	// deadline is reported as that deadline rather than as a late success.
+	if err := ctx.Err(); err != nil {
+		return zero, err
+	}
+	return value, nil
 }
 
 // stateHeight returns the block a state query reads: the latest committed state for a latest tag,
@@ -118,12 +142,12 @@ func (api *stateAPI) GetStorageAt(ctx context.Context, address common.Address, h
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode storage key: %w", err)
 	}
-	var value common.Hash
-	if latest {
-		value, err = api.backend.EvmStorage(address, key)
-	} else {
-		value, err = api.backend.EvmStorageAt(address, key, height)
-	}
+	value, err := readState(ctx, func() (common.Hash, error) {
+		if latest {
+			return api.backend.EvmStorage(address, key)
+		}
+		return api.backend.EvmStorageAt(address, key, height)
+	})
 	if err != nil {
 		return nil, err
 	}
