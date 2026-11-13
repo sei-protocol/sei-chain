@@ -317,6 +317,11 @@ func (r *testRoot) run(in string, args ...string) error {
 
 // txArgs are the flags a gov tx needs against stub.
 func txArgs(stub *rpcStub) []string {
+	return append(askingTxArgs(stub), "--yes")
+}
+
+// askingTxArgs are the flags of a transaction that asks before broadcasting.
+func askingTxArgs(stub *rpcStub) []string {
 	return []string{"--from", testKey, "--evm-rpc", stub.url}
 }
 

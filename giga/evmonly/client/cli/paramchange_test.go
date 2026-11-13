@@ -36,6 +36,8 @@ func TestFlatChangesRejects(t *testing.T) {
 		"negative dec":      {[]v2ParamChange{{Subspace: "gov", Key: "tallyparams.quorum", Value: json.RawMessage(`"-0.4"`)}}, "out of range"},
 		"bad duration":      {[]v2ParamChange{{Subspace: "gov", Key: "votingparams.voting_period", Value: json.RawMessage(`"soon"`)}}, "want nanoseconds"},
 		"other denom":       {[]v2ParamChange{{Subspace: "gov", Key: "depositparams.min_deposit", Value: json.RawMessage(`"10uatom"`)}}, "only usei"},
+		"blank coins":       {[]v2ParamChange{{Subspace: "gov", Key: "depositparams.min_deposit", Value: json.RawMessage(`""`)}}, "want a coin amount"},
+		"null coins":        {[]v2ParamChange{{Subspace: "gov", Key: "depositparams.min_deposit", Value: json.RawMessage(`null`)}}, "want a coin amount"},
 		"none":              {nil, "no param changes"},
 	} {
 		_, err := flatChanges(c.changes)

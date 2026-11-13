@@ -97,33 +97,34 @@ type txOpts struct {
 	gasPrice      *big.Int
 }
 
-// send signs and sends a legacy transaction calling to with data and value, and
-// waits for its receipt.
-func (c *evmClient) send(ctx context.Context, key *ecdsa.PrivateKey, to common.Address, value *big.Int, data []byte, o txOpts) (*ethtypes.Transaction, *ethtypes.Receipt, error) {
+// sign returns a signed legacy transaction from key calling to with data and
+// value, with its nonce, gas and gas price filled from the node where o leaves
+// them unset.
+func (c *evmClient) sign(ctx context.Context, key *ecdsa.PrivateKey, to common.Address, value *big.Int, data []byte, o txOpts) (*ethtypes.Transaction, error) {
 	from := crypto.PubkeyToAddress(key.PublicKey)
 	chainID, err := c.ec.ChainID(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("chain id: %w", err)
+		return nil, fmt.Errorf("chain id: %w", err)
 	}
 	nonce, err := c.ec.PendingNonceAt(ctx, from)
 	if err != nil {
-		return nil, nil, fmt.Errorf("nonce: %w", err)
+		return nil, fmt.Errorf("nonce: %w", err)
 	}
 	gasPrice := o.gasPrice
 	if gasPrice == nil || gasPrice.Sign() == 0 {
 		if gasPrice, err = c.ec.SuggestGasPrice(ctx); err != nil {
-			return nil, nil, fmt.Errorf("gas price: %w", err)
+			return nil, fmt.Errorf("gas price: %w", err)
 		}
 	}
 	gas := o.gas
 	if gas == 0 {
 		estimate, err := c.ec.EstimateGas(ctx, ethereum.CallMsg{From: from, To: &to, Value: value, Data: data})
 		if err != nil {
-			return nil, nil, fmt.Errorf("estimate gas: %w", err)
+			return nil, fmt.Errorf("estimate gas: %w", err)
 		}
 		gas = adjustGas(estimate, o.gasAdjustment)
 	}
-	tx, err := ethtypes.SignNewTx(key, ethtypes.LatestSignerForChainID(chainID), &ethtypes.LegacyTx{
+	return ethtypes.SignNewTx(key, ethtypes.LatestSignerForChainID(chainID), &ethtypes.LegacyTx{
 		Nonce:    nonce,
 		GasPrice: gasPrice,
 		Gas:      gas,
@@ -131,17 +132,14 @@ func (c *evmClient) send(ctx context.Context, key *ecdsa.PrivateKey, to common.A
 		Value:    value,
 		Data:     data,
 	})
-	if err != nil {
-		return nil, nil, err
-	}
+}
+
+// broadcast sends tx and waits for its receipt.
+func (c *evmClient) broadcast(ctx context.Context, tx *ethtypes.Transaction) (*ethtypes.Receipt, error) {
 	if err := c.ec.SendTransaction(ctx, tx); err != nil {
-		return nil, nil, fmt.Errorf("send: %w", err)
+		return nil, fmt.Errorf("send: %w", err)
 	}
-	receipt, err := c.waitReceipt(ctx, tx.Hash())
-	if err != nil {
-		return tx, nil, err
-	}
-	return tx, receipt, nil
+	return c.waitReceipt(ctx, tx.Hash())
 }
 
 func adjustGas(estimate uint64, adjustment float64) uint64 {

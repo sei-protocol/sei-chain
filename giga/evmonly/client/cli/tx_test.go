@@ -120,6 +120,26 @@ func TestSubmitOtherTypeFails(t *testing.T) {
 	require.Zero(t, stub.requests)
 }
 
+func TestTransactionAsksBeforeBroadcasting(t *testing.T) {
+	r := newTestRoot(t)
+	stub := newRPCStub(t)
+	require.ErrorContains(t, r.run("n\n", args("tx gov deposit 3 10usei", askingTxArgs(stub)...)...), "cancelled transaction")
+	require.Contains(t, r.errOut.String(), `"to": "`+govprecompile.Address.Hex()+`"`)
+	require.Empty(t, stub.sent)
+
+	require.NoError(t, r.run("y\n", args("tx gov deposit 3 10usei", askingTxArgs(stub)...)...))
+	require.Len(t, stub.sent, 1)
+}
+
+func TestFeeFlagsAreRefused(t *testing.T) {
+	for _, flag := range []string{"--fees=10usei", "--gas-prices=0.1usei"} {
+		r := newTestRoot(t)
+		stub := newRPCStub(t)
+		require.ErrorContains(t, r.run("", args("tx gov vote 1 yes "+flag, txArgs(stub)...)...), "use --gas-fee-cap")
+		require.Zero(t, stub.requests)
+	}
+}
+
 func TestFailedTransactionFails(t *testing.T) {
 	r := newTestRoot(t)
 	stub := newRPCStub(t)
@@ -158,7 +178,7 @@ func TestCancelSoftwareUpgrade(t *testing.T) {
 		})
 	}
 	cancelArgs := func(stub *rpcStub, extra ...string) []string {
-		return args("tx gov submit-proposal cancel-software-upgrade --title T --description D", append(txArgs(stub), extra...)...)
+		return args("tx gov submit-proposal cancel-software-upgrade --title T --description D", append(askingTxArgs(stub), extra...)...)
 	}
 	cancelled := func(t *testing.T, stub *rpcStub) string {
 		sig, callArgs := govCall(t, stub.sentTx().Data())
@@ -168,7 +188,7 @@ func TestCancelSoftwareUpgrade(t *testing.T) {
 
 	t.Run("name flag", func(t *testing.T) {
 		r, stub := newTestRoot(t), newRPCStub(t)
-		require.NoError(t, r.run("", cancelArgs(stub, "--name", "v3.0")...))
+		require.NoError(t, r.run("", cancelArgs(stub, "--name", "v3.0", "--yes")...))
 		require.Equal(t, "v3.0", cancelled(t, stub))
 	})
 	t.Run("scheduled plan with yes", func(t *testing.T) {
@@ -181,12 +201,13 @@ func TestCancelSoftwareUpgrade(t *testing.T) {
 		r, stub := newTestRoot(t), newRPCStub(t)
 		scheduled(stub)
 		require.NoError(t, r.run("y\n", cancelArgs(stub)...))
+		require.Contains(t, r.errOut.String(), `cancels the upgrade "v2.0" scheduled at height 100`)
 		require.Equal(t, "v2.0", cancelled(t, stub))
 	})
 	t.Run("scheduled plan declined", func(t *testing.T) {
 		r, stub := newTestRoot(t), newRPCStub(t)
 		scheduled(stub)
-		require.ErrorContains(t, r.run("n\n", cancelArgs(stub)...), "cancelled")
+		require.ErrorContains(t, r.run("n\n", cancelArgs(stub)...), "cancelled transaction")
 		require.Empty(t, stub.sent)
 	})
 	t.Run("nothing scheduled", func(t *testing.T) {
