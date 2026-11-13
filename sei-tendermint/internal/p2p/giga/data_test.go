@@ -16,6 +16,7 @@ import (
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/mux"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
@@ -172,7 +173,7 @@ func TestDataClientServer(t *testing.T) {
 	}
 }
 
-// runFullCommitQCClient runs the FullCommitQC stream client of node against a server that answers with qcs in order.
+// runFullCommitQCClient runs the FullCommitQC stream client of node against a server that sends qcs in order and then closes the stream.
 // It returns the error that ends the client.
 func runFullCommitQCClient(ctx context.Context, node *testNode, qcs []*types.FullCommitQC) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -191,7 +192,6 @@ func runFullCommitQCClient(ctx context.Context, node *testNode, qcs []*types.Ful
 						return fmt.Errorf("stream.Send(): %w", err)
 					}
 				}
-				<-ctx.Done()
 				return nil
 			}))
 		})
@@ -218,28 +218,26 @@ func TestFullCommitQCStreamAcceptsIncreasingIndexesWithGaps(t *testing.T) {
 	ep0 := registry.MustEpoch(0)
 	node := newTestEnv(registry).AddNode(t, keys[0])
 	qcs := testQCChain(rng, ep0, keys, 5)
+	ok := fetchCount(resFullCommitQC, "ok")
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBg(func() error {
-			return utils.IgnoreAfterCancel(ctx, runFullCommitQCClient(ctx, node, []*types.FullCommitQC{qcs[0], qcs[2], qcs[4]}))
-		})
 		// Another peer fills the gaps that the stream skips.
-		for _, qc := range []*types.FullCommitQC{qcs[1], qcs[3]} {
-			if err := node.data.PushPartialBlock(ctx, qc, nil); err != nil {
-				return fmt.Errorf("PushPartialBlock(): %w", err)
+		s.Spawn(func() error {
+			for _, qc := range []*types.FullCommitQC{qcs[1], qcs[3]} {
+				if err := node.data.PushPartialBlock(ctx, qc, nil); err != nil {
+					return fmt.Errorf("PushPartialBlock(): %w", err)
+				}
 			}
-		}
-		for _, want := range qcs {
-			got, err := node.data.QC(ctx, want.Index())
-			if err != nil {
-				return fmt.Errorf("QC(%v): %w", want.Index(), err)
-			}
-			if err := utils.TestDiff(want, got); err != nil {
-				return fmt.Errorf("QC mismatch at %v: %w", want.Index(), err)
-			}
-		}
-		return nil
+			return nil
+		})
+		return runFullCommitQCClient(ctx, node, []*types.FullCommitQC{qcs[0], qcs[2], qcs[4]})
 	})
-	require.NoError(t, err)
+	require.ErrorIs(t, err, mux.ErrRemoteClosed)
+	require.Equal(t, ok+3, fetchCount(resFullCommitQC, "ok"))
+	for _, want := range qcs {
+		got, err := node.data.QC(ctx, want.Index())
+		require.NoError(t, err)
+		require.NoError(t, utils.TestDiff(want, got))
+	}
 }
 
 func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
