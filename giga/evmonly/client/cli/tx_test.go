@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -124,7 +125,13 @@ func TestTransactionAsksBeforeBroadcasting(t *testing.T) {
 	r := newTestRoot(t)
 	stub := newRPCStub(t)
 	require.ErrorContains(t, r.run("n\n", args("tx gov deposit 3 10usei", askingTxArgs(stub)...)...), "cancelled transaction")
-	require.Contains(t, r.errOut.String(), `"to": "`+govprecompile.Address.Hex()+`"`)
+	shown := r.errOut.String()
+	require.Contains(t, shown, `"to": "`+govprecompile.Address.Hex()+`"`)
+	require.Contains(t, shown, `"from": "`+strings.ToLower(testSender.Hex())+`"`)
+	// The prompt shows the transaction before it is signed.
+	for _, sigField := range []string{`"v"`, `"r"`, `"s"`, `"hash"`} {
+		require.NotContains(t, shown, sigField)
+	}
 	require.Empty(t, stub.sent)
 
 	require.NoError(t, r.run("y\n", args("tx gov deposit 3 10usei", askingTxArgs(stub)...)...))

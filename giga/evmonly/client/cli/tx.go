@@ -276,11 +276,15 @@ func sendGov(cmd *cobra.Command, value *big.Int, method string, args ...any) err
 	if value == nil {
 		value = new(big.Int)
 	}
-	tx, err := c.sign(cmdContext(cmd), key, govprecompile.Address, value, append(m.ID, input...), opts)
+	unsigned, err := c.prepare(cmdContext(cmd), crypto.PubkeyToAddress(key.PublicKey), govprecompile.Address, value, append(m.ID, input...), opts)
 	if err != nil {
 		return err
 	}
-	if err := confirmTx(cmd, clientCtx, tx); err != nil {
+	if err := confirmTx(cmd, clientCtx, unsigned); err != nil {
+		return err
+	}
+	tx, err := unsigned.sign(key)
+	if err != nil {
 		return err
 	}
 	receipt, err := c.broadcast(cmdContext(cmd), tx)
@@ -297,8 +301,9 @@ func sendGov(cmd *cobra.Command, value *big.Int, method string, args ...any) err
 	return nil
 }
 
-// confirmTx prints tx and asks to broadcast it, unless --yes is set.
-func confirmTx(cmd *cobra.Command, clientCtx client.Context, tx *ethtypes.Transaction) error {
+// confirmTx prints tx, before it is signed, and asks to sign and broadcast it,
+// unless --yes is set.
+func confirmTx(cmd *cobra.Command, clientCtx client.Context, tx unsignedTx) error {
 	if clientCtx.SkipConfirm {
 		return nil
 	}
@@ -307,7 +312,7 @@ func confirmTx(cmd *cobra.Command, clientCtx client.Context, tx *ethtypes.Transa
 		return err
 	}
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s\n\n", bz)
-	ok, err := input.GetConfirmation("confirm transaction before broadcasting", bufio.NewReader(cmd.InOrStdin()), cmd.ErrOrStderr())
+	ok, err := input.GetConfirmation("confirm transaction before signing and broadcasting", bufio.NewReader(cmd.InOrStdin()), cmd.ErrOrStderr())
 	if err != nil {
 		return err
 	}
