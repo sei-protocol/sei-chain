@@ -12,6 +12,9 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -443,4 +446,57 @@ func TestReadReceiptTotalsRepanicsBugs(t *testing.T) {
 
 	a := subscriptionAPIWithReceiptStore(&panickingReceiptStore{panicWith: func() any { return "boom" }})
 	require.PanicsWithValue(t, "boom", func() { _, _ = a.readReceiptTotals(5) })
+}
+
+func TestMissedNewHeads(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		prev, height int64
+		want         int64
+	}{
+		{name: "first event", prev: 0, height: 100, want: 0},
+		{name: "next block", prev: 100, height: 101, want: 0},
+		{name: "same block", prev: 100, height: 100, want: 0},
+		{name: "earlier block", prev: 100, height: 90, want: 0},
+		{name: "blocks skipped", prev: 100, height: 104, want: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, missedNewHeads(tc.prev, tc.height))
+		})
+	}
+}
+
+// TestNewHeadsDroppedBlocksAreCounted verifies that blocks newHeads sent no
+// header for reach evmrpc_newheads_dropped_blocks_total, by reason.
+func TestNewHeadsDroppedBlocksAreCounted(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	previous := metrics.newHeadsDroppedBlockCount
+	metrics.newHeadsDroppedBlockCount = must(provider.Meter("evmrpc").Int64Counter("evmrpc_newheads_dropped_blocks_total"))
+	t.Cleanup(func() {
+		metrics.newHeadsDroppedBlockCount = previous
+		require.NoError(t, provider.Shutdown(t.Context()))
+	})
+
+	a := &SubscriptionAPI{}
+	for _, height := range []int64{10, 11, 15, 16} {
+		a.noteNewHeadEvent(height)
+	}
+	dropNewHeadWithoutBaseFee(17, errors.New("state at height 16 is unavailable"))
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	byReason := map[string]int64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "evmrpc_newheads_dropped_blocks_total" {
+				continue
+			}
+			for _, dp := range m.Data.(metricdata.Sum[int64]).DataPoints {
+				reason, _ := dp.Attributes.Value(attribute.Key(rejectReasonKey))
+				byReason[reason.AsString()] += dp.Value
+			}
+		}
+	}
+	require.Equal(t, map[string]int64{newHeadsDropMissed: 3, newHeadsDropBaseFeeUnavailable: 1}, byReason)
 }

@@ -46,6 +46,9 @@ type SubscriptionAPI struct {
 
 	// logSubsCount bounds the number of concurrent logs subscriptions
 	logSubsCount atomic.Uint64
+
+	// lastNewHeadHeight is the height of the last newHeads event received. Only the newHeads goroutine uses it.
+	lastNewHeadHeight int64
 }
 
 type SubscriptionConfig struct {
@@ -88,9 +91,10 @@ func NewSubscriptionAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvid
 				res := <-subCh
 				eventHeader := res.Data.(tmtypes.EventDataNewBlockHeader)
 				height := eventHeader.Header.Height
+				api.noteNewHeadEvent(height)
 				baseFeePerGas, err := pickHeadBaseFee(k.GetNextBaseFeePerGas, ctxProvider, height)
 				if err != nil {
-					logger.Error("dropping newHeads event: base fee unavailable", "height", height, "err", err)
+					dropNewHeadWithoutBaseFee(height, err)
 					continue
 				}
 				totals := api.newHeadReceiptTotals(height, eventHeader.ResultFinalizeBlock.TxResults)
@@ -116,10 +120,11 @@ func (a *SubscriptionAPI) runNewHeadsFromNotifier(notifier *BlockHeaderNotifier,
 			fmt.Printf("dropping malformed newHeads event: header=%v response=%v\n", evt.header, evt.response)
 			continue
 		}
+		a.noteNewHeadEvent(evt.header.Height)
 		ctx := ctxProvider(evt.header.Height)
 		baseFeePerGas, err := pickHeadBaseFee(k.GetNextBaseFeePerGas, ctxProvider, evt.header.Height)
 		if err != nil {
-			logger.Error("dropping newHeads event: base fee unavailable", "height", evt.header.Height, "err", err)
+			dropNewHeadWithoutBaseFee(evt.header.Height, err)
 			continue
 		}
 		// Source gasLimit from the active SDK ConsensusParams rather than
@@ -134,6 +139,36 @@ func (a *SubscriptionAPI) runNewHeadsFromNotifier(notifier *BlockHeaderNotifier,
 		ethHeader := encodeCommittedBlock(evt, baseFeePerGas, gasLimit, totals)
 		a.broadcastNewHead(ethHeader)
 	}
+}
+
+// noteNewHeadEvent records that the newHeads event for height arrived, and logs and counts the blocks
+// between it and the previous event, whose events were dropped before they reached this goroutine.
+func (a *SubscriptionAPI) noteNewHeadEvent(height int64) {
+	missed := missedNewHeads(a.lastNewHeadHeight, height)
+	a.lastNewHeadHeight = height
+	if missed == 0 {
+		return
+	}
+	// The CometBFT event bus evicts a subscriber more than subscriptionCapacity events behind, and the
+	// Autobahn notifier overwrites its oldest event when full, so falling behind loses blocks silently.
+	logger.Error("newHeads fell behind: no header sent for blocks", "first", height-missed, "last", height-1, "count", missed)
+	recordNewHeadsDroppedBlocks(context.Background(), missed, newHeadsDropMissed)
+}
+
+// missedNewHeads returns the number of blocks strictly between prev and height, the heights of two
+// consecutive newHeads events. It returns 0 for the first event, when prev is 0.
+func missedNewHeads(prev, height int64) int64 {
+	if prev == 0 || height <= prev+1 {
+		return 0
+	}
+	return height - prev - 1
+}
+
+// dropNewHeadWithoutBaseFee logs and counts the newHeads header not sent for height because its parent's
+// state, which holds its base fee, could not be read.
+func dropNewHeadWithoutBaseFee(height int64, err error) {
+	logger.Error("dropping newHeads event: base fee unavailable", "height", height, "err", err)
+	recordNewHeadsDroppedBlocks(context.Background(), 1, newHeadsDropBaseFeeUnavailable)
 }
 
 // pickHeadBaseFee returns the baseFeePerGas eth_getBlockByNumber reports for the block at height: the base
