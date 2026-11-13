@@ -42,8 +42,8 @@ func stateSyncProofExportConfig(
 			return checkpointRoads(flatKVDir)
 		},
 		BlockStore: blockStore,
-		// The AppQC may not be flushed yet. A crash can lose it, but the proof file stays valid,
-		// because the file holds the AppQC and the importer verifies it.
+		// The AppQC may not be flushed yet. A crash can then lose it from BlockStore, but a proof file
+		// written before the crash stays valid, because the file holds a verifiable AppQC.
 		LastAppQC:     func() utils.Option[types.RoadIndex] { return lastAppQC(blockStore.Status()) },
 		IsClosingRoad: isClosingRoad,
 	}
