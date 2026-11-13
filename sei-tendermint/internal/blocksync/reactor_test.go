@@ -28,6 +28,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	utilsrequire "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/blocksync"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -169,14 +170,14 @@ func (rts *reactorTestSuite) addNode(
 	state, err := reactor.stateStore.Load()
 	require.NoError(t, err)
 	for blockHeight := int64(1); blockHeight <= maxBlockHeight; blockHeight++ {
-		block, blockID, partSet, seenCommit := makeNextBlock(ctx, t, state, privVal, blockHeight, lastCommit)
+		b := makeCommittedBlock(ctx, t, state, utils.Slice(privVal), blockHeight, lastCommit)
 
 		syncer := reactor.syncer.OrPanic("syncer should be configured in tests")
-		state, err = syncer.blockExec.ApplyBlock(ctx, state, blockID, block, nil)
+		state, err = syncer.blockExec.ApplyBlock(ctx, state, b.id, b.block, nil)
 		require.NoError(t, err)
 
-		blockStore.SaveBlock(block, partSet, seenCommit)
-		lastCommit = seenCommit
+		blockStore.SaveBlock(b.block, b.parts, b.commit)
+		lastCommit = b.commit
 	}
 
 	rts.reactors[nodeID] = reactor
@@ -184,37 +185,33 @@ func (rts *reactorTestSuite) addNode(
 	require.True(t, reactor.IsRunning())
 }
 
-func makeNextBlock(ctx context.Context,
+// committedBlock is a block with its ID, its part set, and a commit for it.
+type committedBlock struct {
+	block  *types.Block
+	id     types.BlockID
+	parts  *types.PartSet
+	commit *types.Commit
+}
+
+// makeCommittedBlock returns the block at height on top of state, with lastCommit as its last
+// commit, and a commit for it signed by every validator in privVals.
+func makeCommittedBlock(
+	ctx context.Context,
 	t *testing.T,
 	state sm.State,
-	signer types.PrivValidator,
+	privVals []types.PrivValidator,
 	height int64,
-	lc *types.Commit) (*types.Block, types.BlockID, *types.PartSet, *types.Commit) {
-	block := sf.MakeBlock(state, height, lc)
-	partSet, err := block.MakePartSet(types.BlockPartSizeBytes)
-	require.NoError(t, err)
-	blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: partSet.Header()}
-
-	// Simulate a commit for the current height
-	vote, err := factory.MakeVote(
-		ctx,
-		signer,
-		block.Header.ChainID,
-		0,
-		block.Header.Height,
-		0,
-		2,
-		blockID,
-		time.Now(),
-	)
-	require.NoError(t, err)
-	seenCommit := &types.Commit{
-		Height:     vote.Height,
-		Round:      vote.Round,
-		BlockID:    blockID,
-		Signatures: []types.CommitSig{vote.CommitSig()},
-	}
-	return block, blockID, partSet, seenCommit
+	lastCommit *types.Commit,
+) committedBlock {
+	t.Helper()
+	block := sf.MakeBlock(state, height, lastCommit)
+	parts, err := block.MakePartSet(types.BlockPartSizeBytes)
+	utilsrequire.NoError(t, err)
+	id := types.BlockID{Hash: block.Hash(), PartSetHeader: parts.Header()}
+	voteSet := types.NewVoteSet(state.ChainID, height, 0, tmproto.PrecommitType, state.Validators)
+	commit, err := factory.MakeCommit(ctx, id, height, 0, voteSet, privVals, time.Now())
+	utilsrequire.NoError(t, err)
+	return committedBlock{block: block, id: id, parts: parts, commit: commit}
 }
 
 func (rts *reactorTestSuite) start(t *testing.T) {
@@ -515,11 +512,11 @@ func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {
 	state, err := server.stateStore.Load()
 	require.NoError(t, err)
 	for height := int64(1); height <= 3; height++ {
-		block, blockID, partSet, seenCommit := makeNextBlock(ctx, t, state, privVals[0], height, lastCommit)
-		state, err = server.syncer.OrPanic("syncer should be configured in tests").blockExec.ApplyBlock(ctx, state, blockID, block, nil)
+		b := makeCommittedBlock(ctx, t, state, privVals, height, lastCommit)
+		state, err = server.syncer.OrPanic("syncer should be configured in tests").blockExec.ApplyBlock(ctx, state, b.id, b.block, nil)
 		require.NoError(t, err)
-		blockStore.SaveBlock(block, partSet, seenCommit)
-		lastCommit = seenCommit
+		blockStore.SaveBlock(b.block, b.parts, b.commit)
+		lastCommit = b.commit
 	}
 	require.NoError(t, server.Start(ctx))
 	t.Cleanup(server.Wait)
