@@ -311,6 +311,11 @@ func (r gigaSnapshotStateReader) GetState(addr common.Address, key common.Hash) 
 	return r.snapshot.GetStorage(addr, key)
 }
 
+// HasAccount reports whether the snapshot stores an account row for addr.
+func (r gigaSnapshotStateReader) HasAccount(addr common.Address) bool {
+	return r.snapshot.AccountExists(addr)
+}
+
 // useMissingState reports whether addr's balance, nonce and code must be served
 // from missingState: a fallback is configured and the snapshot holds no account
 // for addr.
