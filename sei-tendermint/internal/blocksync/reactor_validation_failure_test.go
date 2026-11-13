@@ -289,7 +289,8 @@ func (o syncObserver) expectDisconnected(ctx context.Context) error {
 }
 
 // waitForDisconnect waits until conn is no longer a connection of node. It returns the
-// context error when ctx is done first.
+// context error when ctx is done first. It watches this one connection rather than any
+// connection to the same node, because the router may redial an evicted peer at once.
 func waitForDisconnect(ctx context.Context, node *p2p.TestNode, conn *p2p.ConnV2) (err error) {
 	// WaitForDisconnect panics with the context error.
 	defer func() {
@@ -329,8 +330,16 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 			nodeIDs := network.NodeIDs()
 			badID, syncID := nodeIDs[0], nodeIDs[1]
 			syncNode := network.Node(syncID)
-			badReactor := makeReactor(ctx, t, genDoc, network.Node(badID).Router, false, func() {}, config.DefaultSelfRemediationConfig())
-			syncReactor := makeReactor(ctx, t, genDoc, syncNode.Router, true, func() {}, config.DefaultSelfRemediationConfig())
+
+			// The syncing node reports every block it saves. The events channel has room for 3
+			// saves and 1 disconnection.
+			events := make(chan syncEvent, 4)
+			observer := syncObserver{events: events}
+			syncStore := saveRecordingStore{BlockStore: newMemBlockStore(), events: events}
+
+			badStore, goodStore := newMemBlockStore(), newMemBlockStore()
+			badReactor := makeReactor(ctx, t, genDoc, network.Node(badID).Router, badStore, false, func() {}, config.DefaultSelfRemediationConfig())
+			syncReactor := makeReactor(ctx, t, genDoc, syncNode.Router, syncStore, true, func() {}, config.DefaultSelfRemediationConfig())
 
 			// Connect the bad node and the syncing node.
 			network.Start(t)
@@ -338,7 +347,7 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 
 			// The good node is not connected to anyone yet.
 			goodNode := network.MakeNode(t, p2p.TestNodeOptions{})
-			goodReactor := makeReactor(ctx, t, genDoc, goodNode.Router, false, func() {}, config.DefaultSelfRemediationConfig())
+			goodReactor := makeReactor(ctx, t, genDoc, goodNode.Router, goodStore, false, func() {}, config.DefaultSelfRemediationConfig())
 
 			// The good node applies and stores honest blocks 1 to 4.
 			goodExec := goodReactor.syncer.OrPanic("syncer should be configured in tests").blockExec
@@ -350,7 +359,7 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 				b := makeCommittedBlock(ctx, t, state, privVals, height, lastCommit)
 				state, err = goodExec.ApplyBlock(ctx, state, b.id, b.block, nil)
 				utilsrequire.NoError(t, err)
-				goodReactor.store.SaveBlock(b.block, b.parts, b.commit)
+				goodStore.SaveBlock(b.block, b.parts, b.commit)
 				honest = append(honest, b)
 				lastCommit = b.commit
 			}
@@ -359,20 +368,12 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 			// whose commit for block 3 is invalid.
 			utilsrequire.NoError(t, badReactor.stateStore.Save(state))
 			for _, b := range honest[:3] {
-				badReactor.store.SaveBlock(b.block, b.parts, b.commit)
+				badStore.SaveBlock(b.block, b.parts, b.commit)
 			}
 			badBlock4 := withBadLastSignature(t, honest[3].block, tc.flag)
 			badParts4, err := badBlock4.MakePartSet(types.BlockPartSizeBytes)
 			utilsrequire.NoError(t, err)
-			badReactor.store.SaveBlock(badBlock4, badParts4, honest[3].commit)
-
-			// The syncing node reports every block it saves. The events channel has room for 3
-			// saves and 1 disconnection. NewReactor takes a concrete block store, so the recording
-			// store goes on the sync controller.
-			events := make(chan syncEvent, 4)
-			syncer := syncReactor.syncer.OrPanic("syncer should be configured in tests")
-			syncer.store = saveRecordingStore{BlockStore: syncer.store, events: events}
-			observer := syncObserver{events: events}
+			badStore.SaveBlock(badBlock4, badParts4, honest[3].commit)
 
 			// Start the reactors.
 			for _, r := range []*Reactor{goodReactor, badReactor, syncReactor} {

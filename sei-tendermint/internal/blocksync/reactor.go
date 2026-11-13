@@ -13,7 +13,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -165,7 +164,7 @@ type syncController struct {
 // NewReactor returns new reactor instance.
 func NewReactor(
 	stateStore sm.Store,
-	store *store.BlockStore,
+	store sm.BlockStore,
 	router *p2p.Router,
 	syncerConfig utils.Option[SyncerConfig],
 ) (*Reactor, error) {
