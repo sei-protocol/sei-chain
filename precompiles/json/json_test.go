@@ -125,6 +125,28 @@ func TestExtractAsUint256(t *testing.T) {
 	}
 }
 
+func TestExtractAsUint256RejectsNegative(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	stateDB := state.NewDBImpl(ctx, k, false)
+	evm := &vm.EVM{StateDB: stateDB}
+	p, err := json.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+	method, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsUint256ID)
+	require.Nil(t, err)
+	for _, body := range [][]byte{
+		[]byte("{\"key\":\"-5\"}"),
+		[]byte("{\"key\":-5}"),
+	} {
+		args, err := method.Inputs.Pack(body, "key")
+		require.Nil(t, err)
+		input := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsUint256ID, args...)
+		res, _, err := p.RunAndCalculateGas(evm, common.Address{}, common.Address{}, input, math.MaxUint64, nil, nil, true, false)
+		require.Error(t, err)
+		require.Nil(t, res)
+	}
+}
+
 func TestPrecompileExecutor_extractAsBytesFromArray(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})

@@ -196,6 +196,13 @@ func (p PrecompileExecutor) ExtractAsUint256(_ sdk.Context, _ *abi.Method, args 
 		return nil, fmt.Errorf("failed to convert %s to big.Int", strValue)
 	}
 
+	// SetString accepts a leading minus sign, so a negative value parses without
+	// error. The caller packs the result as a uint256 and FillBytes would store
+	// its magnitude, so a negative input would come back as its absolute value.
+	if value.Sign() < 0 {
+		return nil, fmt.Errorf("value %s is negative", strValue)
+	}
+
 	return value, nil
 }
 
