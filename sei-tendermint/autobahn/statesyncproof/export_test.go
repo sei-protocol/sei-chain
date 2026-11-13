@@ -29,20 +29,20 @@ func TestExporterWritesPersistedCheckpoint(t *testing.T) {
 	require.Equal(t, env.appQC.Proposal().Index(), decoded.AppQC().Proposal().Index())
 }
 
-func TestExporterWaitsForDurableAppQC(t *testing.T) {
+func TestExporterWaitsForAppQC(t *testing.T) {
 	rng := utils.TestRng()
 	env := newExportEnv(t, rng)
-	env.durable = utils.None[types.RoadIndex]()
+	env.lastAppQC = utils.None[types.RoadIndex]()
 
 	require.NoError(t, env.exporter.Sweep())
 	require.NoFileExists(t, env.proofPath(env.index))
 
-	env.durable = utils.Some(env.index)
+	env.lastAppQC = utils.Some(env.index)
 	require.NoError(t, env.exporter.Sweep())
 	require.FileExists(t, env.proofPath(env.index))
 }
 
-func TestExporterWaitsForDurableAppQCAtCheckpoint(t *testing.T) {
+func TestExporterWaitsForAppQCAtCheckpoint(t *testing.T) {
 	rng := utils.TestRng()
 	env := newExportEnv(t, rng)
 	next := env.addNextRoad(rng)
@@ -51,7 +51,7 @@ func TestExporterWaitsForDurableAppQCAtCheckpoint(t *testing.T) {
 	require.NoError(t, env.exporter.Sweep())
 	require.NoFileExists(t, env.proofPath(nextIndex))
 
-	env.durable = utils.Some(nextIndex)
+	env.lastAppQC = utils.Some(nextIndex)
 	require.NoError(t, env.exporter.Sweep())
 	require.FileExists(t, env.proofPath(nextIndex))
 }
@@ -64,7 +64,7 @@ func TestExporterCatchesCheckpointAfterAppQC(t *testing.T) {
 	require.NoError(t, env.exporter.Sweep())
 	require.NoFileExists(t, env.proofPath(env.index))
 
-	env.checkpoints = []int64{int64(env.index)}
+	env.checkpoints = []types.RoadIndex{env.index}
 	require.NoError(t, env.exporter.Sweep())
 	require.FileExists(t, env.proofPath(env.index))
 }
@@ -145,7 +145,7 @@ func TestExporterSkipsInconsistentRecords(t *testing.T) {
 			nextIndex := next.Proposal().Index()
 			env.store.appProposals[env.index] = env.store.appProposals[nextIndex]
 			env.store.appQCs[env.index] = next
-			env.checkpoints = []int64{int64(env.index)}
+			env.checkpoints = []types.RoadIndex{env.index}
 		},
 		"AppQC of another epoch": func(env *exportEnv, _ utils.Rng) {
 			view := env.roadBlock.QC().QC().View()
@@ -156,7 +156,7 @@ func TestExporterSkipsInconsistentRecords(t *testing.T) {
 		"road block of another road": func(env *exportEnv, rng utils.Rng) {
 			next := env.addNextRoad(rng)
 			env.store.blocks[env.index] = env.store.blocks[next.Proposal().Index()]
-			env.checkpoints = []int64{int64(env.index)}
+			env.checkpoints = []types.RoadIndex{env.index}
 		},
 	}
 	for name, corrupt := range cases {
@@ -207,6 +207,34 @@ func TestExporterKeepsValidExistingProof(t *testing.T) {
 	require.True(t, bytes.Equal(old, got))
 }
 
+func TestExporterProofSurvivesLossOfUnflushedRecords(t *testing.T) {
+	rng := utils.TestRng()
+	env := newExportEnv(t, rng)
+	require.NoError(t, env.exporter.Sweep())
+	written, err := os.ReadFile(env.proofPath(env.index))
+	require.NoError(t, err)
+
+	// A crash before BlockStore.Flush loses the records of the road, and LastAppQC moves back.
+	delete(env.store.blocks, env.index)
+	delete(env.store.appProposals, env.index)
+	delete(env.store.appQCs, env.index)
+	env.lastAppQC = utils.None[types.RoadIndex]()
+	failures, inconsistent := exportFailureCount(t), inconsistentRecordCount(t)
+	env.exporter = env.newExporter()
+
+	require.NoError(t, env.exporter.Sweep())
+
+	got, err := os.ReadFile(env.proofPath(env.index))
+	require.NoError(t, err)
+	require.True(t, bytes.Equal(written, got))
+	proof, err := Decode(got, env.index)
+	require.NoError(t, err)
+	require.NoError(t, proof.RoadBlock().Verify(env.epoch))
+	require.NoError(t, proof.AppQC().Verify(env.epoch.Committee()))
+	require.Equal(t, failures, exportFailureCount(t))
+	require.Equal(t, inconsistent, inconsistentRecordCount(t))
+}
+
 func TestExporterReplacesInvalidProofAtStartup(t *testing.T) {
 	cases := map[string]func(*exportEnv, utils.Rng) []byte{
 		"garbage": func(*exportEnv, utils.Rng) []byte {
@@ -217,7 +245,7 @@ func TestExporterReplacesInvalidProofAtStartup(t *testing.T) {
 			roadBlock := env.store.blocks[next.Proposal().Index()]
 			encoded, err := Encode(roadBlock, next)
 			require.NoError(t, err)
-			env.checkpoints = []int64{int64(env.index)}
+			env.checkpoints = []types.RoadIndex{env.index}
 			return encoded
 		},
 	}
@@ -251,7 +279,7 @@ func TestExporterRewritesDeletedProofOnNextCheckpoint(t *testing.T) {
 	require.NoError(t, env.exporter.Sweep())
 	require.NoError(t, os.Remove(env.proofPath(env.index)))
 
-	env.checkpoints = append(env.checkpoints, int64(env.index)+1)
+	env.checkpoints = append(env.checkpoints, env.index+1)
 	require.NoError(t, env.exporter.Sweep())
 	require.FileExists(t, env.proofPath(env.index))
 }
@@ -308,8 +336,8 @@ func TestExporterReadErrorDoesNotBlockOtherCheckpoints(t *testing.T) {
 	env := newExportEnv(t, rng)
 	next := env.addNextRoad(rng)
 	nextIndex := next.Proposal().Index()
-	env.checkpoints = []int64{int64(env.index), int64(nextIndex)}
-	env.durable = utils.Some(nextIndex)
+	env.checkpoints = []types.RoadIndex{env.index, nextIndex}
+	env.lastAppQC = utils.Some(nextIndex)
 	env.store.readBlockErrAt = map[types.RoadIndex]error{env.index: errors.New("disk failed")}
 
 	require.Error(t, env.exporter.Sweep())
@@ -336,8 +364,8 @@ func TestExporterStuckFileDoesNotBlockOtherCheckpoints(t *testing.T) {
 			env := newExportEnv(t, rng)
 			next := env.addNextRoad(rng)
 			nextIndex := next.Proposal().Index()
-			env.checkpoints = []int64{int64(env.index), int64(nextIndex)}
-			env.durable = utils.Some(nextIndex)
+			env.checkpoints = []types.RoadIndex{env.index, nextIndex}
+			env.lastAppQC = utils.Some(nextIndex)
 			// A non-empty directory under a proof file name can be neither read nor removed.
 			stuck := env.proofPath(stuckIndex(env, nextIndex))
 			require.NoError(t, os.MkdirAll(filepath.Join(stuck, "child"), 0o750))
@@ -353,7 +381,7 @@ func TestExporterRepeatsTheSameErrorForTheSameFailure(t *testing.T) {
 	env := newExportEnv(t, rng)
 	next := env.addNextRoad(rng)
 	nextIndex := next.Proposal().Index()
-	env.checkpoints = []int64{int64(env.index), int64(nextIndex)}
+	env.checkpoints = []types.RoadIndex{env.index, nextIndex}
 	// A non-empty directory under a proof file name cannot be read, so every startup scan fails on both.
 	for _, index := range []types.RoadIndex{env.index, nextIndex} {
 		require.NoError(t, os.MkdirAll(filepath.Join(env.proofPath(index), "child"), 0o750))
@@ -404,7 +432,7 @@ func TestExporterForgetsDroppedCheckpoints(t *testing.T) {
 	require.NoError(t, env.exporter.Sweep())
 	require.NoFileExists(t, env.proofPath(env.index))
 
-	env.checkpoints = []int64{int64(env.index)}
+	env.checkpoints = []types.RoadIndex{env.index}
 	require.NoError(t, env.exporter.Sweep())
 	require.FileExists(t, env.proofPath(env.index))
 }
@@ -427,9 +455,9 @@ type exportEnv struct {
 	roadBlock *types.RoadBlock
 	appQC     *types.AppQC
 	store     *fakeBlockStore
-	// durable is what DurableAppQC reports.
-	durable     utils.Option[types.RoadIndex]
-	checkpoints []int64
+	// lastAppQC is what LastAppQC reports.
+	lastAppQC   utils.Option[types.RoadIndex]
+	checkpoints []types.RoadIndex
 	// closingRoad is what IsClosingRoad reports for every road.
 	closingRoad bool
 	// closingChecks counts the IsClosingRoad calls.
@@ -459,28 +487,34 @@ func newExportEnv(t *testing.T, rng utils.Rng) *exportEnv {
 		roadBlock:   roadBlock,
 		appQC:       appQC,
 		store:       store,
-		durable:     utils.Some(index),
-		checkpoints: []int64{int64(index)},
+		lastAppQC:   utils.Some(index),
+		checkpoints: []types.RoadIndex{index},
 	}
-	env.exporter = NewExporter(ExportConfig{
-		Dir: env.dir,
-		CheckpointHeights: func() ([]int64, error) {
-			return slices.Clone(env.checkpoints), nil
-		},
-		BlockStore: store,
-		DurableAppQC: func() (types.RoadIndex, bool) {
-			return env.durable.Get()
-		},
-		IsClosingRoad: func(types.RoadIndex) bool {
-			env.closingChecks++
-			return env.closingRoad
-		},
-	})
+	env.exporter = env.newExporter()
 	return env
 }
 
+// newExporter returns an Exporter over env's dir, checkpoints and BlockStore, as a node creates
+// one at startup.
+func (e *exportEnv) newExporter() *Exporter {
+	return NewExporter(ExportConfig{
+		Dir: e.dir,
+		CheckpointRoads: func() ([]types.RoadIndex, error) {
+			return slices.Clone(e.checkpoints), nil
+		},
+		BlockStore: e.store,
+		LastAppQC: func() utils.Option[types.RoadIndex] {
+			return e.lastAppQC
+		},
+		IsClosingRoad: func(types.RoadIndex) bool {
+			e.closingChecks++
+			return e.closingRoad
+		},
+	})
+}
+
 // addNextRoad stores the road after env.index with its AppProposal and AppQC, makes it the only
-// retained checkpoint, and returns its AppQC. The durable AppQC does not change.
+// retained checkpoint, and returns its AppQC. LastAppQC does not change.
 func (e *exportEnv) addNextRoad(rng utils.Rng) *types.AppQC {
 	qc, blocks := data.TestCommitQC(rng, e.epoch, e.keys, utils.Some(e.roadBlock.QC().QC()))
 	roadBlock := types.NewRoadBlock(qc, blocks)
@@ -490,7 +524,7 @@ func (e *exportEnv) addNextRoad(rng utils.Rng) *types.AppQC {
 	e.store.blocks[index] = roadBlock
 	e.store.appProposals[index] = proposal
 	e.store.appQCs[index] = appQC
-	e.checkpoints = []int64{int64(index)}
+	e.checkpoints = []types.RoadIndex{index}
 	return appQC
 }
 

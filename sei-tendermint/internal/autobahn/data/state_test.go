@@ -1208,9 +1208,9 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 	require.NoError(t, db2.Close())
 }
 
-// TestAnchorCoversOnlyPersistedAppQC pins the contract the state sync proof exporter relies on:
-// every published Anchor covers an AppQC below persisted.NextAppQC, which runPersist advances
-// only after BlockStore.Flush, and that AppQC is readable from BlockStore.
+// TestAnchorCoversOnlyPersistedAppQC pins the AnchorFirst contract: every published Anchor covers
+// an AppQC below persisted.NextAppQC, which runPersist advances only after BlockStore.Flush, and
+// that AppQC is readable from BlockStore.
 func TestAnchorCoversOnlyPersistedAppQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()

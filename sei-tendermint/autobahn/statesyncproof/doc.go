@@ -14,7 +14,7 @@
 // epoch; it does not prove the FlatKV state.
 //
 // NewExporter returns the writer. Each call to Sweep writes the file of each
-// retained checkpoint whose AppQC is durable and removes the files of
+// retained checkpoint whose AppQC is in BlockStore and removes the files of
 // checkpoints that are no longer retained. It writes no file for the last road
 // of an epoch. A file appears complete or not at all.
 //

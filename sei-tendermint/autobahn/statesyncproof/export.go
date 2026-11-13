@@ -22,14 +22,13 @@ var logger = seilog.NewLogger("tendermint", "autobahn", "statesyncproof")
 type ExportConfig struct {
 	// Dir is the directory where canonical state sync proof files are written.
 	Dir string
-	// CheckpointHeights returns the FlatKV checkpoint heights retained locally.
-	CheckpointHeights func() ([]int64, error)
+	// CheckpointRoads returns the road indices of the FlatKV checkpoints retained locally.
+	CheckpointRoads func() ([]types.RoadIndex, error)
 	// BlockStore provides the road blocks, AppProposals and AppQCs to export.
 	BlockStore BlockStore
-	// DurableAppQC returns the road index of the latest AppQC the data layer has flushed to
-	// BlockStore, or false when there is none. Proofs are written only at or below it, so it must
-	// never cover an AppQC that a crash could lose.
-	DurableAppQC func() (types.RoadIndex, bool)
+	// LastAppQC returns the road of the latest AppQC in BlockStore, or None when it holds none.
+	// Proofs are written only at or below it.
+	LastAppQC func() utils.Option[types.RoadIndex]
 	// IsClosingRoad reports whether road is the last road of an epoch.
 	IsClosingRoad func(road types.RoadIndex) bool
 }
@@ -64,7 +63,7 @@ func NewExporter(cfg ExportConfig) *Exporter {
 	}
 }
 
-// Sweep exports every pending checkpoint whose AppQC is durable. An I/O error on one
+// Sweep exports every pending checkpoint at or below LastAppQC. An I/O error on one
 // checkpoint or proof file does not stop the others; Sweep returns all of them joined, and a
 // later Sweep retries them.
 func (e *Exporter) Sweep() error {
@@ -155,10 +154,10 @@ func (e *Exporter) removeInvalidFiles(present map[types.RoadIndex]struct{}) (map
 	return valid, errors.Join(errs...)
 }
 
-// exportable returns the checkpoints that are neither exported nor skipped and whose AppQC is
-// durable, in ascending order.
+// exportable returns the checkpoints that are neither exported nor skipped and are at or below
+// LastAppQC, in ascending order.
 func (e *Exporter) exportable(checkpoints map[types.RoadIndex]struct{}) []types.RoadIndex {
-	durableAppQC, ok := e.cfg.DurableAppQC()
+	lastAppQC, ok := e.cfg.LastAppQC().Get()
 	if !ok {
 		return nil
 	}
@@ -170,7 +169,7 @@ func (e *Exporter) exportable(checkpoints map[types.RoadIndex]struct{}) []types.
 		if _, ok := e.skipped[index]; ok {
 			continue
 		}
-		if index > durableAppQC {
+		if index > lastAppQC {
 			continue
 		}
 		out = append(out, index)
@@ -180,6 +179,8 @@ func (e *Exporter) exportable(checkpoints map[types.RoadIndex]struct{}) []types.
 
 // exportCheckpoint writes the proof file of checkpoint index, or skips it when it is LastRoad(X).
 func (e *Exporter) exportCheckpoint(index types.RoadIndex) error {
+	// The committee of epoch X+2 is computed when a node executes LastRoad(X). A node restored at
+	// H never executes H, so a checkpoint at LastRoad(X) cannot be restored.
 	if e.cfg.IsClosingRoad(index) {
 		e.skipped[index] = struct{}{}
 		return nil
@@ -188,16 +189,13 @@ func (e *Exporter) exportCheckpoint(index types.RoadIndex) error {
 }
 
 func (e *Exporter) retainedCheckpoints() (map[types.RoadIndex]struct{}, error) {
-	heights, err := e.cfg.CheckpointHeights()
+	roads, err := e.cfg.CheckpointRoads()
 	if err != nil {
-		return nil, fmt.Errorf("list checkpoint heights: %w", err)
+		return nil, fmt.Errorf("list checkpoint roads: %w", err)
 	}
-	checkpoints := make(map[types.RoadIndex]struct{}, len(heights))
-	for _, height := range heights {
-		if height < 0 {
-			return nil, fmt.Errorf("checkpoint height %d is negative", height)
-		}
-		checkpoints[types.RoadIndex(height)] = struct{}{} //nolint:gosec // checked above.
+	checkpoints := make(map[types.RoadIndex]struct{}, len(roads))
+	for _, road := range roads {
+		checkpoints[road] = struct{}{}
 	}
 	return checkpoints, nil
 }
@@ -215,8 +213,8 @@ func (e *Exporter) exportProof(index types.RoadIndex) error {
 	}
 	r, ok := records.Get()
 	if !ok {
-		// The data layer flushes the block, AppProposal and AppQC of a road together before
-		// DurableAppQC covers it, so a record missing at or below DurableAppQC never appears later. A checkpoint from
+		// BlockStore writes the block, AppProposal and AppQC of a road before its AppQC cursor covers
+		// the road, so a record missing at or below LastAppQC never appears later. A checkpoint from
 		// before the BlockStore held any road is one such case.
 		logger.Info("skipping state sync proof: BlockStore has no records for checkpoint", "index", index)
 		e.skipped[index] = struct{}{}
@@ -248,7 +246,7 @@ type records struct {
 // encode returns the proof file of road index. It fails when the records do not all belong to road
 // index or the local AppHash does not match the AppQC.
 func (r records) encode(index types.RoadIndex) ([]byte, error) {
-	// The data layer checks this before it publishes Anchor. Keep the check here as defense in depth against
+	// The data layer checks this before it writes the AppQC. Keep the check here as defense in depth against
 	// a future writer path or corrupted local records.
 	if !bytes.Equal(r.appProposal.AppHash(), r.appQC.Proposal().AppHash()) {
 		return nil, fmt.Errorf("AppProposal(%d) app hash does not match AppQC", index)
