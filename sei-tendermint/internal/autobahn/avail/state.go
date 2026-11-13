@@ -343,27 +343,20 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			ls, ok := inner.lanes[lane]
-			return !ok || n <= min(ls.blocks.next, ls.blocks.first+BlocksPerLane-1)
+			// Block not needed any more.
+			if !ok || n < ls.blocks.next { return true }
+			// No capacity, or not needed yet.
+			if n > ls.blocks.next || n >= ls.blocks.first+BlocksPerLane { return false }
+			// Extends the persisted chain. We tolerate equivocating lane producer,
+			// we just cannot accept their blocks until the mismatching parent is finalized.
+			return ls.blocks.Len()==0 || ls.blocks.q[n-1].Msg().Block().Header().Hash() == h.ParentHash()
 		}); err != nil {
 			return err
 		}
-		if !inner.applied().Committee().HasLane(lane) {
-			return nil
-		}
 		ls, ok := inner.lanes[lane]
-		if !ok || ls.blocks.next != n {
+		if !ok || ls.blocks.next < n {
 			// not needed any more
 			return nil
-		}
-		// Blocks above highest commit qc are required to be linked by a parent hash for autobahn safety:
-		// LaneVote attests for availability of chain of blocks not included in the last observed CommitQC,
-		// until they are sequenced and executed (AppQC is persisted).
-		// For simplicity we require them to be linked up to anchor.
-		if ls.blocks.first < ls.blocks.next {
-			prevHash := ls.blocks.q[ls.blocks.next-1].Msg().Block().Header().Hash()
-			if h.ParentHash() != prevHash {
-				return fmt.Errorf("parent hash mismatch (producer equivocation): lane %v, block %v, parent = %v, want %v", lane, n, h.ParentHash(), prevHash)
-			}
 		}
 		ls.blocks.pushBack(p)
 		ctrl.Updated()
