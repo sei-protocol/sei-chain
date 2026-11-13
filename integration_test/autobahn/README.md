@@ -519,7 +519,7 @@ the row says otherwise:
 | `max_state_override_accounts` | 100 | accounts one `eth_call`, `eth_estimateGas`, `eth_estimateGasAfterCalls`, or `debug_traceCall` state override may name |
 | `max_state_override_slots` | 1000 | storage slots such a state override may set for one account |
 | `default_timeout` | `30s` | how long a method with no `method_timeouts` entry may run, over HTTP and WebSocket, before it fails with error `-32002` |
-| `method_timeouts` | `["eth_call=60s", "eth_estimateGas=60s", "eth_createAccessList=60s", "eth_estimateGasAfterCalls=5m", "debug_trace*=0"]` | per-method overrides of `default_timeout`, each `"method=duration"`; a name ending in `*` matches every method with that prefix, and the longest prefix wins; `0` applies no deadline, so `debug_trace*` stays bounded by `trace_timeout` alone |
+| `method_timeouts` | `["eth_call=60s", "eth_estimateGas=60s", "eth_createAccessList=60s", "eth_estimateGasAfterCalls=5m", "debug_trace*=0"]` | per-method overrides of `default_timeout`, each `"method=duration"`; a name ending in `*` matches every method with that prefix, and the longest prefix wins; `0` applies no deadline, so `debug_trace*` stays bounded by `trace_timeout` alone; `eth_call`, `eth_estimateGas`, `eth_estimateGasAfterCalls` and `eth_createAccessList` must end up with a positive deadline or the node refuses to start |
 
 A subscription refused by a cap returns an error, and its slot frees when
 the client unsubscribes, the connection closes, or a `logs` subscription's

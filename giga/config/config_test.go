@@ -262,7 +262,13 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"non-duration method timeout":     {"giga.rpc.method_timeouts": []string{"eth_call=soon"}},
 		"negative method timeout":         {"giga.rpc.method_timeouts": []string{"eth_call=-1s"}},
 		"bare wildcard method timeout":    {"giga.rpc.method_timeouts": []string{"*=1s"}},
-		"non-boolean state sync":          {"giga.state_sync.enabled": "maybe"},
+		"unbounded eth_call":              {"giga.rpc.method_timeouts": []string{"eth_call=0"}},
+		"unbounded eth_* simulation":      {"giga.rpc.method_timeouts": []string{"eth_*=0"}},
+		"no default and simulation unlisted": {
+			"giga.rpc.default_timeout": "0s",
+			"giga.rpc.method_timeouts": []string{"eth_call=60s", "eth_estimateGas=60s", "eth_createAccessList=60s"},
+		},
+		"non-boolean state sync": {"giga.state_sync.enabled": "maybe"},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)

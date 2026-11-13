@@ -135,8 +135,18 @@ type RPCConfig struct {
 	// MethodTimeouts overrides DefaultTimeout for individual methods. Each entry is
 	// "method=duration", for example "eth_call=60s"; a method name ending in "*" matches every
 	// method with that prefix, and the longest matching prefix wins. A duration of 0 applies no
-	// deadline to that method.
+	// deadline to that method; eth_call, eth_estimateGas, eth_estimateGasAfterCalls and
+	// eth_createAccessList must keep a positive one.
 	MethodTimeouts []string `mapstructure:"method_timeouts"`
+}
+
+// simulationMethods are the methods that execute EVM code against a state view for the caller.
+// Gas does not bound their wall-clock cost, so their method deadline must be positive.
+var simulationMethods = []string{
+	"eth_call",
+	"eth_estimateGas",
+	"eth_estimateGasAfterCalls",
+	"eth_createAccessList",
 }
 
 // DeadlineConfig returns the per-method deadlines DefaultTimeout and MethodTimeouts describe.
@@ -548,10 +558,11 @@ func (c Config) Validate() error {
 	if c.RPC.MaxStateOverrideSlots < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxStateOverrideSlots, c.RPC.MaxStateOverrideSlots)
 	}
-	if _, err := c.RPC.DeadlineConfig(); err != nil {
+	deadlines, err := c.RPC.DeadlineConfig()
+	if err != nil {
 		return err
 	}
-	return nil
+	return requireSimulationDeadlines(deadlines)
 }
 
 // ConfigTemplate is the TOML template for the [giga] section of app.toml.
@@ -698,6 +709,8 @@ default_timeout = "{{ .Giga.RPC.DefaultTimeout }}"
 # "method=duration", e.g. "eth_call=60s". A method name ending in "*" (e.g. "debug_trace*=0")
 # matches every method with that prefix; the longest matching prefix wins. A duration of 0
 # applies no deadline to that method. debug_trace* methods are also bounded by trace_timeout.
+# eth_call, eth_estimateGas, eth_estimateGasAfterCalls and eth_createAccessList must end up with
+# a positive deadline, from default_timeout or an entry here.
 method_timeouts = [{{ range $i, $e := .Giga.RPC.MethodTimeouts }}{{ if $i }}, {{ end }}"{{ $e }}"{{ end }}]
 
 [giga.state_sync]
@@ -705,6 +718,18 @@ method_timeouts = [{{ range $i, $e := .Giga.RPC.MethodTimeouts }}{{ if $i }}, {{
 # seed of a restored home on start.
 enabled = {{ .Giga.StateSync.Enabled }}
 `
+
+// requireSimulationDeadlines reports the first of simulationMethods that deadlines leave unbounded.
+func requireSimulationDeadlines(deadlines ratelimiter.DeadlineConfig) error {
+	enforcer := ratelimiter.NewDeadlineEnforcer(deadlines)
+	for _, method := range simulationMethods {
+		if enforcer.Deadline(method) == 0 {
+			return fmt.Errorf("%s: %s must have a positive deadline, from %s or an entry here",
+				FlagRPCMethodTimeouts, method, FlagRPCDefaultTimeout)
+		}
+	}
+	return nil
+}
 
 // skipUpgradeHeights casts v to a list of heights, rejecting a negative one.
 func skipUpgradeHeights(v interface{}) ([]uint64, error) {
