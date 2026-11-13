@@ -41,6 +41,7 @@ func TestResolveAutobahnLayout(t *testing.T) {
 	require.Equal(t, want.FlatKVConfig.DataDir, layout.FlatKVDir)
 	require.Equal(t, filepath.Join(psd, "data", "state_commit", "flatkv"), layout.FlatKVDir)
 	require.Equal(t, filepath.Join(psd, "state-sync-restored"), layout.RestoreMarkerFile)
+	require.Equal(t, filepath.Join(psd, "data", "state_commit", "state_sync_proofs"), layout.StateSyncProofDir)
 }
 
 func TestResolveAutobahnLayoutAbsolutePersistentStateDir(t *testing.T) {

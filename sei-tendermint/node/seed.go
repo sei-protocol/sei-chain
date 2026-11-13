@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -83,6 +84,7 @@ func makeSeedNode(
 		genDoc,
 		dbProvider,
 		utils.None[*bootstrap.GigaStorageManager](),
+		gigaconfig.StateSyncConfig{},
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {
