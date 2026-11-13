@@ -118,6 +118,60 @@ func TestTraceCallRunsOnStateAfterBlock(t *testing.T) {
 	})
 }
 
+func TestTraceCallUsesBlockBaseFee(t *testing.T) {
+	// Setup: blocks 2 and 3 each carry a transfer; a stub contract returns BASEFEE.
+	recipient := common.HexToAddress("0x00000000000000000000000000000000000a0003")
+	baseFeeReader := common.HexToAddress("0x00000000000000000000000000000000000a0004")
+	fund := func(nonce uint64) []byte {
+		return signAndEncodeTx(&ethtypes.DynamicFeeTx{
+			Nonce:     nonce,
+			GasFeeCap: big.NewInt(100000000000),
+			Gas:       21000,
+			To:        &recipient,
+			Value:     big.NewInt(1),
+			ChainID:   chainId,
+		}, mnemonic1)
+	}
+	seedBaseFee := func(ctx sdk.Context, a *app.App) {
+		a.EvmKeeper.SetNextBaseFeePerGas(ctx, sdk.NewDec(50000000000))
+	}
+	ts := SetupTestServer(t, [][][]byte{{fund(0)}, {fund(1)}}, mnemonicInitializer(mnemonic1), seedBaseFee)
+	ts.Run(func(port int) {
+		ts.RequireTxSucceeded(t, 2, 0)
+		blockBaseFee := func(height string) *big.Int {
+			var blk struct {
+				BaseFeePerGas *hexutil.Big `json:"baseFeePerGas"`
+			}
+			require.NoError(t, json.Unmarshal(requireRPCResult(t, port, "eth_getBlockByNumber", height, false), &blk))
+			require.NotNil(t, blk.BaseFeePerGas, "block %s", height)
+			return blk.BaseFeePerGas.ToInt()
+		}
+		want := blockBaseFee("0x2")
+		require.NotEqual(t, want, blockBaseFee("0x3"), "base fee must change between blocks for this test to discriminate")
+
+		args := map[string]any{
+			"from":     mnemonic1Addr.Hex(),
+			"to":       baseFeeReader.Hex(),
+			"gasPrice": hexutil.EncodeBig(new(big.Int).Mul(want, big.NewInt(10))),
+		}
+		// BASEFEE PUSH1 0 MSTORE PUSH1 32 PUSH1 0 RETURN
+		overrides := map[string]any{baseFeeReader.Hex(): map[string]any{"code": "0x4860005260206000f3"}}
+		for name, txIndex := range map[string]any{"after block": nil, "txIndex 0": "0x0"} {
+			config := map[string]any{"tracer": "callTracer", "stateOverrides": overrides}
+			if txIndex != nil {
+				config["txIndex"] = txIndex
+			}
+			var res struct {
+				Output hexutil.Bytes `json:"output"`
+			}
+			require.NoError(t, json.Unmarshal(requireRPCResult(t, port, "debug_traceCall", args, "0x2", config), &res))
+
+			// Verify: the call sees the traced block's own base fee on both state paths.
+			require.Equal(t, want, new(big.Int).SetBytes(res.Output), name)
+		}
+	})
+}
+
 func TestTraceMultipleTransactionsShouldNotHang(t *testing.T) {
 	cwIter := "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m" // hardcoded
 	txBzList := make([][]byte, 100)

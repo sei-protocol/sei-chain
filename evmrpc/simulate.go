@@ -749,6 +749,20 @@ func (b traceCallBackend) StateAtBlock(ctx context.Context, block *ethtypes.Bloc
 	return state.NewDBImpl(sdkCtx, b.keeper, true), release, nil
 }
 
+// GetBlockContext returns the EVM block context for block, carrying block's own base fee.
+func (b traceCallBackend) GetBlockContext(ctx context.Context, block *ethtypes.Block, statedb vm.StateDB, backend export.ChainContextBackend) (vm.BlockContext, error) {
+	blockCtx, err := b.Backend.GetBlockContext(ctx, block, statedb, backend)
+	if err != nil {
+		return vm.BlockContext{}, err
+	}
+	// The state is post-block, so the keeper's next base fee belongs to the following block;
+	// the header carries the traced block's own.
+	if baseFee := block.BaseFee(); baseFee != nil {
+		blockCtx.BaseFee = new(big.Int).Set(baseFee)
+	}
+	return blockCtx, nil
+}
+
 func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ctxProvider TraceContextProvider) (sdkCtx sdk.Context, tmBlock *coretypes.ResultBlock, release tracers.StateReleaseFunc, err error) {
 	emptyRelease := func() {}
 	release = emptyRelease
