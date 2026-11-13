@@ -552,7 +552,10 @@ func (s *syncController) poolRoutine(ctx context.Context, pool *BlockPool, initi
 
 			firstID := types.BlockID{Hash: first.Hash(), PartSetHeader: firstParts.Header()}
 
-			err = state.Validators.VerifyCommitLight(chainID, firstID, first.Height, second.LastCommit)
+			// Use the full check, not the light one, because second.LastCommit is
+			// saved as the seen commit of first. A seen commit with an invalid
+			// signature must never be saved.
+			err = state.Validators.VerifyCommit(chainID, firstID, first.Height, second.LastCommit)
 			if err != nil {
 				err = types.DefaultConsensusPolicy().HandleError(fmt.Errorf("%w: %w", types.ErrLastCommitVerify, err))
 			}
