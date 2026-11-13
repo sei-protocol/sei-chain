@@ -95,7 +95,7 @@ func TestQueryProposalsFollowsPages(t *testing.T) {
 	require.Contains(t, r.out.String(), `"next_key":null`)
 
 	require.ErrorContains(t, r.run("", args("q gov proposals --voter sei1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq --evm-rpc", stub.url)...), "not a 0x address")
-	require.ErrorContains(t, newTestRoot(t).run("", args("q gov proposals --page 2 --evm-rpc", stub.url)...), "--page is not supported")
+	require.ErrorContains(t, newTestRoot(t).run("", args("q gov proposals --page 2 --evm-rpc", stub.url)...), "--page is not supported on an EVM-only chain; use --page-key and --limit, or --node")
 }
 
 func TestQueryVotesLimitCapsWithinAPage(t *testing.T) {

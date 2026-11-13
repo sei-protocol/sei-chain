@@ -507,7 +507,7 @@ func collectPages[T any](cmd *cobra.Command, fetch func(key []byte) (page []T, n
 func refuseOffsetPaging(cmd *cobra.Command) error {
 	for _, name := range []string{flags.FlagPage, flags.FlagOffset, flags.FlagReverse, flags.FlagCountTotal} {
 		if flagChanged(cmd, name) {
-			return fmt.Errorf("--%s is not supported with --%s; use --%s and --%s", name, FlagEVMRPC, flags.FlagPageKey, flags.FlagLimit)
+			return errNotOnEVMOnly("--"+name, fmt.Sprintf("--%s and --%s", flags.FlagPageKey, flags.FlagLimit))
 		}
 	}
 	return nil
@@ -555,7 +555,7 @@ func addressFlag(cmd *cobra.Command, name string) (common.Address, error) {
 // parseAddress parses a 0x address.
 func parseAddress(s string) (common.Address, error) {
 	if !common.IsHexAddress(s) {
-		return common.Address{}, fmt.Errorf("%q is not a 0x address; --%s takes EVM addresses", s, FlagEVMRPC)
+		return common.Address{}, fmt.Errorf("%q is not a 0x address; an EVM-only chain takes EVM addresses", s)
 	}
 	return common.HexToAddress(s), nil
 }

@@ -125,9 +125,19 @@ func dispatch(cmd *cobra.Command, args []string, v2, evm handler) error {
 		return v2(cmd, args)
 	}
 	if evm == nil {
-		return fmt.Errorf("%q is not supported on an EVM-only chain; use --%s for a chain with a Tendermint RPC", commandKey(cmd), flags.FlagNode)
+		return errNotOnEVMOnly(fmt.Sprintf("%q", commandKey(cmd)), "")
 	}
 	return evm(cmd, args)
+}
+
+// errNotOnEVMOnly reports that what is not supported on an EVM-only chain,
+// pointing to alt, when given, and to --node.
+func errNotOnEVMOnly(what, alt string) error {
+	use := fmt.Sprintf("--%s for a chain with a Tendermint RPC", flags.FlagNode)
+	if alt != "" {
+		use = alt + ", or " + use
+	}
+	return fmt.Errorf("%s is not supported on an EVM-only chain; use %s", what, use)
 }
 
 // commandKey is c's path below the root, e.g. "tx gov vote".
