@@ -7,13 +7,14 @@
 package pb
 
 import (
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
+
 	_ "github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable/pb"
 	_ "github.com/sei-protocol/sei-chain/sei-tendermint/proto/wireguard"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
 )
 
 const (
@@ -715,9 +716,61 @@ func (x *Block) GetPayload() *Payload {
 	return nil
 }
 
+type LaneVote struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EpochIndex    *uint64                `protobuf:"varint,1,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"` // epoch this vote belongs to; required
+	Header        *BlockHeader           `protobuf:"bytes,2,opt,name=header,proto3,oneof" json:"header,omitempty"`                            // required
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LaneVote) Reset() {
+	*x = LaneVote{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LaneVote) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LaneVote) ProtoMessage() {}
+
+func (x *LaneVote) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LaneVote.ProtoReflect.Descriptor instead.
+func (*LaneVote) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *LaneVote) GetEpochIndex() uint64 {
+	if x != nil && x.EpochIndex != nil {
+		return *x.EpochIndex
+	}
+	return 0
+}
+
+func (x *LaneVote) GetHeader() *BlockHeader {
+	if x != nil {
+		return x.Header
+	}
+	return nil
+}
+
 type LaneQC struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Vote          *BlockHeader           `protobuf:"bytes,1,opt,name=vote,proto3" json:"vote,omitempty"`
+	VoteV2        *LaneVote              `protobuf:"bytes,3,opt,name=vote_v2,json=voteV2,proto3" json:"vote_v2,omitempty"`
 	Sigs          []*Signature           `protobuf:"bytes,2,rep,name=sigs,proto3" json:"sigs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -725,7 +778,7 @@ type LaneQC struct {
 
 func (x *LaneQC) Reset() {
 	*x = LaneQC{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[12]
+	mi := &file_autobahn_autobahn_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -737,7 +790,7 @@ func (x *LaneQC) String() string {
 func (*LaneQC) ProtoMessage() {}
 
 func (x *LaneQC) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[12]
+	mi := &file_autobahn_autobahn_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -750,12 +803,12 @@ func (x *LaneQC) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LaneQC.ProtoReflect.Descriptor instead.
 func (*LaneQC) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{12}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{13}
 }
 
-func (x *LaneQC) GetVote() *BlockHeader {
+func (x *LaneQC) GetVoteV2() *LaneVote {
 	if x != nil {
-		return x.Vote
+		return x.VoteV2
 	}
 	return nil
 }
@@ -779,7 +832,7 @@ type LaneRange struct {
 
 func (x *LaneRange) Reset() {
 	*x = LaneRange{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[13]
+	mi := &file_autobahn_autobahn_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -791,7 +844,7 @@ func (x *LaneRange) String() string {
 func (*LaneRange) ProtoMessage() {}
 
 func (x *LaneRange) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[13]
+	mi := &file_autobahn_autobahn_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -804,7 +857,7 @@ func (x *LaneRange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LaneRange.ProtoReflect.Descriptor instead.
 func (*LaneRange) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{13}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *LaneRange) GetLaneId() *LaneID {
@@ -846,7 +899,7 @@ type View struct {
 
 func (x *View) Reset() {
 	*x = View{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[14]
+	mi := &file_autobahn_autobahn_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -858,7 +911,7 @@ func (x *View) String() string {
 func (*View) ProtoMessage() {}
 
 func (x *View) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[14]
+	mi := &file_autobahn_autobahn_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -871,7 +924,7 @@ func (x *View) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use View.ProtoReflect.Descriptor instead.
 func (*View) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{14}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *View) GetIndex() uint64 {
@@ -907,7 +960,7 @@ type RoadBlockHeader struct {
 
 func (x *RoadBlockHeader) Reset() {
 	*x = RoadBlockHeader{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[15]
+	mi := &file_autobahn_autobahn_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -919,7 +972,7 @@ func (x *RoadBlockHeader) String() string {
 func (*RoadBlockHeader) ProtoMessage() {}
 
 func (x *RoadBlockHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[15]
+	mi := &file_autobahn_autobahn_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -932,7 +985,7 @@ func (x *RoadBlockHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoadBlockHeader.ProtoReflect.Descriptor instead.
 func (*RoadBlockHeader) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{15}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *RoadBlockHeader) GetEpochIndex() uint64 {
@@ -973,7 +1026,7 @@ type Proposal struct {
 
 func (x *Proposal) Reset() {
 	*x = Proposal{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[16]
+	mi := &file_autobahn_autobahn_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -985,7 +1038,7 @@ func (x *Proposal) String() string {
 func (*Proposal) ProtoMessage() {}
 
 func (x *Proposal) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[16]
+	mi := &file_autobahn_autobahn_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -998,7 +1051,7 @@ func (x *Proposal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Proposal.ProtoReflect.Descriptor instead.
 func (*Proposal) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{16}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *Proposal) GetViewNumber() uint64 {
@@ -1025,7 +1078,7 @@ type PrepareVote struct {
 
 func (x *PrepareVote) Reset() {
 	*x = PrepareVote{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[17]
+	mi := &file_autobahn_autobahn_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1037,7 +1090,7 @@ func (x *PrepareVote) String() string {
 func (*PrepareVote) ProtoMessage() {}
 
 func (x *PrepareVote) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[17]
+	mi := &file_autobahn_autobahn_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1050,7 +1103,7 @@ func (x *PrepareVote) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareVote.ProtoReflect.Descriptor instead.
 func (*PrepareVote) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{17}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *PrepareVote) GetViewNumber() uint64 {
@@ -1077,7 +1130,7 @@ type CommitVote struct {
 
 func (x *CommitVote) Reset() {
 	*x = CommitVote{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[18]
+	mi := &file_autobahn_autobahn_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1089,7 +1142,7 @@ func (x *CommitVote) String() string {
 func (*CommitVote) ProtoMessage() {}
 
 func (x *CommitVote) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[18]
+	mi := &file_autobahn_autobahn_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1102,7 +1155,7 @@ func (x *CommitVote) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommitVote.ProtoReflect.Descriptor instead.
 func (*CommitVote) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{18}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *CommitVote) GetViewNumber() uint64 {
@@ -1131,7 +1184,7 @@ type FullProposal struct {
 
 func (x *FullProposal) Reset() {
 	*x = FullProposal{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[19]
+	mi := &file_autobahn_autobahn_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1143,7 +1196,7 @@ func (x *FullProposal) String() string {
 func (*FullProposal) ProtoMessage() {}
 
 func (x *FullProposal) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[19]
+	mi := &file_autobahn_autobahn_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1156,7 +1209,7 @@ func (x *FullProposal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FullProposal.ProtoReflect.Descriptor instead.
 func (*FullProposal) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{19}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *FullProposal) GetProposalV2() *SignedProposal {
@@ -1197,7 +1250,7 @@ type PrepareQC struct {
 
 func (x *PrepareQC) Reset() {
 	*x = PrepareQC{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[20]
+	mi := &file_autobahn_autobahn_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1209,7 +1262,7 @@ func (x *PrepareQC) String() string {
 func (*PrepareQC) ProtoMessage() {}
 
 func (x *PrepareQC) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[20]
+	mi := &file_autobahn_autobahn_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1222,7 +1275,7 @@ func (x *PrepareQC) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareQC.ProtoReflect.Descriptor instead.
 func (*PrepareQC) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{20}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *PrepareQC) GetVoteV2() *PrepareVote {
@@ -1249,7 +1302,7 @@ type CommitQC struct {
 
 func (x *CommitQC) Reset() {
 	*x = CommitQC{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[21]
+	mi := &file_autobahn_autobahn_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1261,7 +1314,7 @@ func (x *CommitQC) String() string {
 func (*CommitQC) ProtoMessage() {}
 
 func (x *CommitQC) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[21]
+	mi := &file_autobahn_autobahn_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1274,7 +1327,7 @@ func (x *CommitQC) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommitQC.ProtoReflect.Descriptor instead.
 func (*CommitQC) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{21}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *CommitQC) GetVoteV2() *CommitVote {
@@ -1301,7 +1354,7 @@ type FullCommitQC struct {
 
 func (x *FullCommitQC) Reset() {
 	*x = FullCommitQC{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[22]
+	mi := &file_autobahn_autobahn_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1313,7 +1366,7 @@ func (x *FullCommitQC) String() string {
 func (*FullCommitQC) ProtoMessage() {}
 
 func (x *FullCommitQC) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[22]
+	mi := &file_autobahn_autobahn_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1326,7 +1379,7 @@ func (x *FullCommitQC) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FullCommitQC.ProtoReflect.Descriptor instead.
 func (*FullCommitQC) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{22}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *FullCommitQC) GetQc() *CommitQC {
@@ -1353,7 +1406,7 @@ type TimeoutVote struct {
 
 func (x *TimeoutVote) Reset() {
 	*x = TimeoutVote{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[23]
+	mi := &file_autobahn_autobahn_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1365,7 +1418,7 @@ func (x *TimeoutVote) String() string {
 func (*TimeoutVote) ProtoMessage() {}
 
 func (x *TimeoutVote) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[23]
+	mi := &file_autobahn_autobahn_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1378,7 +1431,7 @@ func (x *TimeoutVote) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeoutVote.ProtoReflect.Descriptor instead.
 func (*TimeoutVote) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{23}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *TimeoutVote) GetView() *View {
@@ -1405,7 +1458,7 @@ type TimeoutQC struct {
 
 func (x *TimeoutQC) Reset() {
 	*x = TimeoutQC{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[24]
+	mi := &file_autobahn_autobahn_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1417,7 +1470,7 @@ func (x *TimeoutQC) String() string {
 func (*TimeoutQC) ProtoMessage() {}
 
 func (x *TimeoutQC) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[24]
+	mi := &file_autobahn_autobahn_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1430,7 +1483,7 @@ func (x *TimeoutQC) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeoutQC.ProtoReflect.Descriptor instead.
 func (*TimeoutQC) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{24}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *TimeoutQC) GetVotesV2() []*SignedTimeoutVote {
@@ -1457,7 +1510,7 @@ type FullTimeoutVote struct {
 
 func (x *FullTimeoutVote) Reset() {
 	*x = FullTimeoutVote{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[25]
+	mi := &file_autobahn_autobahn_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1469,7 +1522,7 @@ func (x *FullTimeoutVote) String() string {
 func (*FullTimeoutVote) ProtoMessage() {}
 
 func (x *FullTimeoutVote) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[25]
+	mi := &file_autobahn_autobahn_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1482,7 +1535,7 @@ func (x *FullTimeoutVote) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FullTimeoutVote.ProtoReflect.Descriptor instead.
 func (*FullTimeoutVote) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{25}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *FullTimeoutVote) GetVoteV2() *SignedTimeoutVote {
@@ -1518,7 +1571,7 @@ type PersistedInner struct {
 
 func (x *PersistedInner) Reset() {
 	*x = PersistedInner{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[26]
+	mi := &file_autobahn_autobahn_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1530,7 +1583,7 @@ func (x *PersistedInner) String() string {
 func (*PersistedInner) ProtoMessage() {}
 
 func (x *PersistedInner) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[26]
+	mi := &file_autobahn_autobahn_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1543,7 +1596,7 @@ func (x *PersistedInner) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PersistedInner.ProtoReflect.Descriptor instead.
 func (*PersistedInner) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{26}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *PersistedInner) GetIndex() uint64 {
@@ -1600,7 +1653,7 @@ type PersistedAvailPruneAnchor struct {
 
 func (x *PersistedAvailPruneAnchor) Reset() {
 	*x = PersistedAvailPruneAnchor{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[27]
+	mi := &file_autobahn_autobahn_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1612,7 +1665,7 @@ func (x *PersistedAvailPruneAnchor) String() string {
 func (*PersistedAvailPruneAnchor) ProtoMessage() {}
 
 func (x *PersistedAvailPruneAnchor) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[27]
+	mi := &file_autobahn_autobahn_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1625,7 +1678,7 @@ func (x *PersistedAvailPruneAnchor) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PersistedAvailPruneAnchor.ProtoReflect.Descriptor instead.
 func (*PersistedAvailPruneAnchor) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{27}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *PersistedAvailPruneAnchor) GetAppQc() *AppQC {
@@ -1652,7 +1705,7 @@ type AppQC struct {
 
 func (x *AppQC) Reset() {
 	*x = AppQC{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[28]
+	mi := &file_autobahn_autobahn_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1664,7 +1717,7 @@ func (x *AppQC) String() string {
 func (*AppQC) ProtoMessage() {}
 
 func (x *AppQC) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[28]
+	mi := &file_autobahn_autobahn_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1677,7 +1730,7 @@ func (x *AppQC) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppQC.ProtoReflect.Descriptor instead.
 func (*AppQC) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{28}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *AppQC) GetVote() *AppProposal {
@@ -1708,7 +1761,7 @@ type AppProposal struct {
 
 func (x *AppProposal) Reset() {
 	*x = AppProposal{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[29]
+	mi := &file_autobahn_autobahn_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1720,7 +1773,7 @@ func (x *AppProposal) String() string {
 func (*AppProposal) ProtoMessage() {}
 
 func (x *AppProposal) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[29]
+	mi := &file_autobahn_autobahn_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1733,7 +1786,7 @@ func (x *AppProposal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppProposal.ProtoReflect.Descriptor instead.
 func (*AppProposal) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{29}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *AppProposal) GetEpochIndex() uint64 {
@@ -1764,7 +1817,7 @@ type Msg struct {
 	// Types that are valid to be assigned to T:
 	//
 	//	*Msg_LaneProposal
-	//	*Msg_LaneVote
+	//	*Msg_LaneVoteV2
 	//	*Msg_Proposal
 	//	*Msg_PrepareVoteV2
 	//	*Msg_CommitVoteV2
@@ -1777,7 +1830,7 @@ type Msg struct {
 
 func (x *Msg) Reset() {
 	*x = Msg{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[30]
+	mi := &file_autobahn_autobahn_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1789,7 +1842,7 @@ func (x *Msg) String() string {
 func (*Msg) ProtoMessage() {}
 
 func (x *Msg) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[30]
+	mi := &file_autobahn_autobahn_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1802,7 +1855,7 @@ func (x *Msg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Msg.ProtoReflect.Descriptor instead.
 func (*Msg) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{30}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *Msg) GetT() isMsg_T {
@@ -1821,10 +1874,10 @@ func (x *Msg) GetLaneProposal() *Block {
 	return nil
 }
 
-func (x *Msg) GetLaneVote() *BlockHeader {
+func (x *Msg) GetLaneVoteV2() *LaneVote {
 	if x != nil {
-		if x, ok := x.T.(*Msg_LaneVote); ok {
-			return x.LaneVote
+		if x, ok := x.T.(*Msg_LaneVoteV2); ok {
+			return x.LaneVoteV2
 		}
 	}
 	return nil
@@ -1884,8 +1937,8 @@ type Msg_LaneProposal struct {
 	LaneProposal *Block `protobuf:"bytes,1,opt,name=lane_proposal,json=laneProposal,proto3,oneof"`
 }
 
-type Msg_LaneVote struct {
-	LaneVote *BlockHeader `protobuf:"bytes,2,opt,name=lane_vote,json=laneVote,proto3,oneof"`
+type Msg_LaneVoteV2 struct {
+	LaneVoteV2 *LaneVote `protobuf:"bytes,10,opt,name=lane_vote_v2,json=laneVoteV2,proto3,oneof"`
 }
 
 type Msg_Proposal struct {
@@ -1912,7 +1965,7 @@ type Msg_AppVote struct {
 
 func (*Msg_LaneProposal) isMsg_T() {}
 
-func (*Msg_LaneVote) isMsg_T() {}
+func (*Msg_LaneVoteV2) isMsg_T() {}
 
 func (*Msg_Proposal) isMsg_T() {}
 
@@ -1934,7 +1987,7 @@ type SignedProposal struct {
 
 func (x *SignedProposal) Reset() {
 	*x = SignedProposal{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[31]
+	mi := &file_autobahn_autobahn_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1946,7 +1999,7 @@ func (x *SignedProposal) String() string {
 func (*SignedProposal) ProtoMessage() {}
 
 func (x *SignedProposal) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[31]
+	mi := &file_autobahn_autobahn_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1959,7 +2012,7 @@ func (x *SignedProposal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedProposal.ProtoReflect.Descriptor instead.
 func (*SignedProposal) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{31}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *SignedProposal) GetMsg() *Proposal {
@@ -1986,7 +2039,7 @@ type SignedPrepareVote struct {
 
 func (x *SignedPrepareVote) Reset() {
 	*x = SignedPrepareVote{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[32]
+	mi := &file_autobahn_autobahn_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1998,7 +2051,7 @@ func (x *SignedPrepareVote) String() string {
 func (*SignedPrepareVote) ProtoMessage() {}
 
 func (x *SignedPrepareVote) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[32]
+	mi := &file_autobahn_autobahn_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2011,7 +2064,7 @@ func (x *SignedPrepareVote) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedPrepareVote.ProtoReflect.Descriptor instead.
 func (*SignedPrepareVote) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{32}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *SignedPrepareVote) GetMsg() *PrepareVote {
@@ -2038,7 +2091,7 @@ type SignedCommitVote struct {
 
 func (x *SignedCommitVote) Reset() {
 	*x = SignedCommitVote{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[33]
+	mi := &file_autobahn_autobahn_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2050,7 +2103,7 @@ func (x *SignedCommitVote) String() string {
 func (*SignedCommitVote) ProtoMessage() {}
 
 func (x *SignedCommitVote) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[33]
+	mi := &file_autobahn_autobahn_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2063,7 +2116,7 @@ func (x *SignedCommitVote) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedCommitVote.ProtoReflect.Descriptor instead.
 func (*SignedCommitVote) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{33}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *SignedCommitVote) GetMsg() *CommitVote {
@@ -2090,7 +2143,7 @@ type SignedTimeoutVote struct {
 
 func (x *SignedTimeoutVote) Reset() {
 	*x = SignedTimeoutVote{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[34]
+	mi := &file_autobahn_autobahn_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2102,7 +2155,7 @@ func (x *SignedTimeoutVote) String() string {
 func (*SignedTimeoutVote) ProtoMessage() {}
 
 func (x *SignedTimeoutVote) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[34]
+	mi := &file_autobahn_autobahn_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2115,7 +2168,7 @@ func (x *SignedTimeoutVote) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedTimeoutVote.ProtoReflect.Descriptor instead.
 func (*SignedTimeoutVote) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{34}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *SignedTimeoutVote) GetMsg() *TimeoutVote {
@@ -2142,7 +2195,7 @@ type SignedAppVote struct {
 
 func (x *SignedAppVote) Reset() {
 	*x = SignedAppVote{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[35]
+	mi := &file_autobahn_autobahn_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2154,7 +2207,7 @@ func (x *SignedAppVote) String() string {
 func (*SignedAppVote) ProtoMessage() {}
 
 func (x *SignedAppVote) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[35]
+	mi := &file_autobahn_autobahn_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2167,7 +2220,7 @@ func (x *SignedAppVote) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedAppVote.ProtoReflect.Descriptor instead.
 func (*SignedAppVote) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{35}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *SignedAppVote) GetMsg() *AppProposal {
@@ -2194,7 +2247,7 @@ type SignedBlock struct {
 
 func (x *SignedBlock) Reset() {
 	*x = SignedBlock{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[36]
+	mi := &file_autobahn_autobahn_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2206,7 +2259,7 @@ func (x *SignedBlock) String() string {
 func (*SignedBlock) ProtoMessage() {}
 
 func (x *SignedBlock) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[36]
+	mi := &file_autobahn_autobahn_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2219,7 +2272,7 @@ func (x *SignedBlock) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedBlock.ProtoReflect.Descriptor instead.
 func (*SignedBlock) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{36}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *SignedBlock) GetMsg() *Block {
@@ -2236,29 +2289,29 @@ func (x *SignedBlock) GetSig() *Signature {
 	return nil
 }
 
-type SignedBlockHeader struct {
+type SignedLaneVote struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Msg           *BlockHeader           `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
+	Msg           *LaneVote              `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
 	Sig           *Signature             `protobuf:"bytes,2,opt,name=sig,proto3" json:"sig,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *SignedBlockHeader) Reset() {
-	*x = SignedBlockHeader{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[37]
+func (x *SignedLaneVote) Reset() {
+	*x = SignedLaneVote{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SignedBlockHeader) String() string {
+func (x *SignedLaneVote) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SignedBlockHeader) ProtoMessage() {}
+func (*SignedLaneVote) ProtoMessage() {}
 
-func (x *SignedBlockHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[37]
+func (x *SignedLaneVote) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2269,19 +2322,19 @@ func (x *SignedBlockHeader) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SignedBlockHeader.ProtoReflect.Descriptor instead.
-func (*SignedBlockHeader) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{37}
+// Deprecated: Use SignedLaneVote.ProtoReflect.Descriptor instead.
+func (*SignedLaneVote) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{38}
 }
 
-func (x *SignedBlockHeader) GetMsg() *BlockHeader {
+func (x *SignedLaneVote) GetMsg() *LaneVote {
 	if x != nil {
 		return x.Msg
 	}
 	return nil
 }
 
-func (x *SignedBlockHeader) GetSig() *Signature {
+func (x *SignedLaneVote) GetSig() *Signature {
 	if x != nil {
 		return x.Sig
 	}
@@ -2298,7 +2351,7 @@ type SignedAppProposal struct {
 
 func (x *SignedAppProposal) Reset() {
 	*x = SignedAppProposal{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[38]
+	mi := &file_autobahn_autobahn_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2310,7 +2363,7 @@ func (x *SignedAppProposal) String() string {
 func (*SignedAppProposal) ProtoMessage() {}
 
 func (x *SignedAppProposal) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[38]
+	mi := &file_autobahn_autobahn_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2323,7 +2376,7 @@ func (x *SignedAppProposal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedAppProposal.ProtoReflect.Descriptor instead.
 func (*SignedAppProposal) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{38}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *SignedAppProposal) GetMsg() *AppProposal {
@@ -2356,7 +2409,7 @@ type ConsensusMsg struct {
 
 func (x *ConsensusMsg) Reset() {
 	*x = ConsensusMsg{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[39]
+	mi := &file_autobahn_autobahn_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2368,7 +2421,7 @@ func (x *ConsensusMsg) String() string {
 func (*ConsensusMsg) ProtoMessage() {}
 
 func (x *ConsensusMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[39]
+	mi := &file_autobahn_autobahn_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2381,7 +2434,7 @@ func (x *ConsensusMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsensusMsg.ProtoReflect.Descriptor instead.
 func (*ConsensusMsg) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{39}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ConsensusMsg) GetT() isConsensusMsg_T {
@@ -2479,7 +2532,7 @@ type Committee struct {
 
 func (x *Committee) Reset() {
 	*x = Committee{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[40]
+	mi := &file_autobahn_autobahn_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2491,7 +2544,7 @@ func (x *Committee) String() string {
 func (*Committee) ProtoMessage() {}
 
 func (x *Committee) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[40]
+	mi := &file_autobahn_autobahn_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2504,7 +2557,7 @@ func (x *Committee) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Committee.ProtoReflect.Descriptor instead.
 func (*Committee) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{40}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *Committee) GetMembers() []*EpochMember {
@@ -2527,7 +2580,7 @@ type Epoch struct {
 
 func (x *Epoch) Reset() {
 	*x = Epoch{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[41]
+	mi := &file_autobahn_autobahn_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2539,7 +2592,7 @@ func (x *Epoch) String() string {
 func (*Epoch) ProtoMessage() {}
 
 func (x *Epoch) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[41]
+	mi := &file_autobahn_autobahn_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2552,7 +2605,7 @@ func (x *Epoch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Epoch.ProtoReflect.Descriptor instead.
 func (*Epoch) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{41}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *Epoch) GetIndex() uint64 {
@@ -2593,7 +2646,7 @@ type PersistedEpochRegistry struct {
 
 func (x *PersistedEpochRegistry) Reset() {
 	*x = PersistedEpochRegistry{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[42]
+	mi := &file_autobahn_autobahn_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2605,7 +2658,7 @@ func (x *PersistedEpochRegistry) String() string {
 func (*PersistedEpochRegistry) ProtoMessage() {}
 
 func (x *PersistedEpochRegistry) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[42]
+	mi := &file_autobahn_autobahn_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2618,7 +2671,7 @@ func (x *PersistedEpochRegistry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PersistedEpochRegistry.ProtoReflect.Descriptor instead.
 func (*PersistedEpochRegistry) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{42}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *PersistedEpochRegistry) GetLiveV2() []*Epoch {
@@ -2638,7 +2691,7 @@ type EpochMember struct {
 
 func (x *EpochMember) Reset() {
 	*x = EpochMember{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[43]
+	mi := &file_autobahn_autobahn_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2650,7 +2703,7 @@ func (x *EpochMember) String() string {
 func (*EpochMember) ProtoMessage() {}
 
 func (x *EpochMember) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[43]
+	mi := &file_autobahn_autobahn_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2663,7 +2716,7 @@ func (x *EpochMember) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EpochMember.ProtoReflect.Descriptor instead.
 func (*EpochMember) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{43}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *EpochMember) GetLaneId() *LaneID {
@@ -2691,7 +2744,7 @@ type LaneBlockPos struct {
 
 func (x *LaneBlockPos) Reset() {
 	*x = LaneBlockPos{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[44]
+	mi := &file_autobahn_autobahn_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2703,7 +2756,7 @@ func (x *LaneBlockPos) String() string {
 func (*LaneBlockPos) ProtoMessage() {}
 
 func (x *LaneBlockPos) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[44]
+	mi := &file_autobahn_autobahn_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2716,7 +2769,7 @@ func (x *LaneBlockPos) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LaneBlockPos.ProtoReflect.Descriptor instead.
 func (*LaneBlockPos) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{44}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *LaneBlockPos) GetIndex() uint64 {
@@ -2816,10 +2869,16 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\apayload\x18\x02 \x01(\v2\x11.autobahn.PayloadH\x01R\apayload\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\t\n" +
 	"\a_headerB\n" +
 	"\n" +
-	"\b_payload\"l\n" +
-	"\x06LaneQC\x12)\n" +
-	"\x04vote\x18\x01 \x01(\v2\x15.autobahn.BlockHeaderR\x04vote\x12/\n" +
-	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureB\x06Ј\xe2\xab\fdR\x04sigs:\x06\xe8\x88\xe2\xab\f\x01\"\xe0\x01\n" +
+	"\b_payload\"\x8d\x01\n" +
+	"\bLaneVote\x12$\n" +
+	"\vepoch_index\x18\x01 \x01(\x04H\x00R\n" +
+	"epochIndex\x88\x01\x01\x122\n" +
+	"\x06header\x18\x02 \x01(\v2\x15.autobahn.BlockHeaderH\x01R\x06header\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x0e\n" +
+	"\f_epoch_indexB\t\n" +
+	"\a_header\"z\n" +
+	"\x06LaneQC\x12+\n" +
+	"\avote_v2\x18\x03 \x01(\v2\x12.autobahn.LaneVoteR\x06voteV2\x12/\n" +
+	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureB\x06Ј\xe2\xab\fdR\x04sigs:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x01\x10\x02R\x04vote\"\xe0\x01\n" +
 	"\tLaneRange\x12.\n" +
 	"\alane_id\x18\x05 \x01(\v2\x10.autobahn.LaneIDH\x00R\x06laneId\x88\x01\x01\x12\x19\n" +
 	"\x05first\x18\x02 \x01(\x04H\x01R\x05first\x88\x01\x01\x12\x17\n" +
@@ -2934,16 +2993,18 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\bapp_hash\x18\x03 \x01(\fB\x06؈\xe2\xab\f H\x02R\aappHash\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x0e\n" +
 	"\f_epoch_indexB\r\n" +
 	"\v_road_indexB\v\n" +
-	"\t_app_hashJ\x04\b\x01\x10\x02J\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\rglobal_numberR\fglobal_firstR\vglobal_next\"\xce\x03\n" +
+	"\t_app_hashJ\x04\b\x01\x10\x02J\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\rglobal_numberR\fglobal_firstR\vglobal_next\"\xe1\x03\n" +
 	"\x03Msg\x126\n" +
-	"\rlane_proposal\x18\x01 \x01(\v2\x0f.autobahn.BlockH\x00R\flaneProposal\x124\n" +
-	"\tlane_vote\x18\x02 \x01(\v2\x15.autobahn.BlockHeaderH\x00R\blaneVote\x120\n" +
+	"\rlane_proposal\x18\x01 \x01(\v2\x0f.autobahn.BlockH\x00R\flaneProposal\x126\n" +
+	"\flane_vote_v2\x18\n" +
+	" \x01(\v2\x12.autobahn.LaneVoteH\x00R\n" +
+	"laneVoteV2\x120\n" +
 	"\bproposal\x18\x03 \x01(\v2\x12.autobahn.ProposalH\x00R\bproposal\x12?\n" +
 	"\x0fprepare_vote_v2\x18\b \x01(\v2\x15.autobahn.PrepareVoteH\x00R\rprepareVoteV2\x12<\n" +
 	"\x0ecommit_vote_v2\x18\t \x01(\v2\x14.autobahn.CommitVoteH\x00R\fcommitVoteV2\x12:\n" +
 	"\ftimeout_vote\x18\x06 \x01(\v2\x15.autobahn.TimeoutVoteH\x00R\vtimeoutVote\x122\n" +
 	"\bapp_vote\x18\a \x01(\v2\x15.autobahn.AppProposalH\x00R\aappVote:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x03\n" +
-	"\x01tJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\fprepare_voteR\vcommit_vote\"e\n" +
+	"\x01tJ\x04\b\x02\x10\x03J\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\fprepare_voteR\vcommit_voteR\tlane_vote\"e\n" +
 	"\x0eSignedProposal\x12$\n" +
 	"\x03msg\x18\x01 \x01(\v2\x12.autobahn.ProposalR\x03msg\x12%\n" +
 	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureR\x03sig:\x06\xe8\x88\xe2\xab\f\x01\"k\n" +
@@ -2961,9 +3022,9 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureR\x03sig:\x06\xe8\x88\xe2\xab\f\x01\"_\n" +
 	"\vSignedBlock\x12!\n" +
 	"\x03msg\x18\x01 \x01(\v2\x0f.autobahn.BlockR\x03msg\x12%\n" +
-	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureR\x03sig:\x06\xe8\x88\xe2\xab\f\x01\"k\n" +
-	"\x11SignedBlockHeader\x12'\n" +
-	"\x03msg\x18\x01 \x01(\v2\x15.autobahn.BlockHeaderR\x03msg\x12%\n" +
+	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureR\x03sig:\x06\xe8\x88\xe2\xab\f\x01\"e\n" +
+	"\x0eSignedLaneVote\x12$\n" +
+	"\x03msg\x18\x01 \x01(\v2\x12.autobahn.LaneVoteR\x03msg\x12%\n" +
 	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureR\x03sig:\x06\xe8\x88\xe2\xab\f\x01\"k\n" +
 	"\x11SignedAppProposal\x12'\n" +
 	"\x03msg\x18\x01 \x01(\v2\x15.autobahn.AppProposalR\x03msg\x12%\n" +
@@ -3017,7 +3078,7 @@ func file_autobahn_autobahn_proto_rawDescGZIP() []byte {
 	return file_autobahn_autobahn_proto_rawDescData
 }
 
-var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 46)
+var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 47)
 var file_autobahn_autobahn_proto_goTypes = []any{
 	(*Timestamp)(nil),                 // 0: autobahn.Timestamp
 	(*Duration)(nil),                  // 1: autobahn.Duration
@@ -3031,43 +3092,44 @@ var file_autobahn_autobahn_proto_goTypes = []any{
 	(*BlockHeader)(nil),               // 9: autobahn.BlockHeader
 	(*Payload)(nil),                   // 10: autobahn.Payload
 	(*Block)(nil),                     // 11: autobahn.Block
-	(*LaneQC)(nil),                    // 12: autobahn.LaneQC
-	(*LaneRange)(nil),                 // 13: autobahn.LaneRange
-	(*View)(nil),                      // 14: autobahn.View
-	(*RoadBlockHeader)(nil),           // 15: autobahn.RoadBlockHeader
-	(*Proposal)(nil),                  // 16: autobahn.Proposal
-	(*PrepareVote)(nil),               // 17: autobahn.PrepareVote
-	(*CommitVote)(nil),                // 18: autobahn.CommitVote
-	(*FullProposal)(nil),              // 19: autobahn.FullProposal
-	(*PrepareQC)(nil),                 // 20: autobahn.PrepareQC
-	(*CommitQC)(nil),                  // 21: autobahn.CommitQC
-	(*FullCommitQC)(nil),              // 22: autobahn.FullCommitQC
-	(*TimeoutVote)(nil),               // 23: autobahn.TimeoutVote
-	(*TimeoutQC)(nil),                 // 24: autobahn.TimeoutQC
-	(*FullTimeoutVote)(nil),           // 25: autobahn.FullTimeoutVote
-	(*PersistedInner)(nil),            // 26: autobahn.PersistedInner
-	(*PersistedAvailPruneAnchor)(nil), // 27: autobahn.PersistedAvailPruneAnchor
-	(*AppQC)(nil),                     // 28: autobahn.AppQC
-	(*AppProposal)(nil),               // 29: autobahn.AppProposal
-	(*Msg)(nil),                       // 30: autobahn.Msg
-	(*SignedProposal)(nil),            // 31: autobahn.SignedProposal
-	(*SignedPrepareVote)(nil),         // 32: autobahn.SignedPrepareVote
-	(*SignedCommitVote)(nil),          // 33: autobahn.SignedCommitVote
-	(*SignedTimeoutVote)(nil),         // 34: autobahn.SignedTimeoutVote
-	(*SignedAppVote)(nil),             // 35: autobahn.SignedAppVote
-	(*SignedBlock)(nil),               // 36: autobahn.SignedBlock
-	(*SignedBlockHeader)(nil),         // 37: autobahn.SignedBlockHeader
-	(*SignedAppProposal)(nil),         // 38: autobahn.SignedAppProposal
-	(*ConsensusMsg)(nil),              // 39: autobahn.ConsensusMsg
-	(*Committee)(nil),                 // 40: autobahn.Committee
-	(*Epoch)(nil),                     // 41: autobahn.Epoch
-	(*PersistedEpochRegistry)(nil),    // 42: autobahn.PersistedEpochRegistry
-	(*EpochMember)(nil),               // 43: autobahn.EpochMember
-	(*LaneBlockPos)(nil),              // 44: autobahn.LaneBlockPos
-	nil,                               // 45: autobahn.TransactionHeader.PropertiesEntry
+	(*LaneVote)(nil),                  // 12: autobahn.LaneVote
+	(*LaneQC)(nil),                    // 13: autobahn.LaneQC
+	(*LaneRange)(nil),                 // 14: autobahn.LaneRange
+	(*View)(nil),                      // 15: autobahn.View
+	(*RoadBlockHeader)(nil),           // 16: autobahn.RoadBlockHeader
+	(*Proposal)(nil),                  // 17: autobahn.Proposal
+	(*PrepareVote)(nil),               // 18: autobahn.PrepareVote
+	(*CommitVote)(nil),                // 19: autobahn.CommitVote
+	(*FullProposal)(nil),              // 20: autobahn.FullProposal
+	(*PrepareQC)(nil),                 // 21: autobahn.PrepareQC
+	(*CommitQC)(nil),                  // 22: autobahn.CommitQC
+	(*FullCommitQC)(nil),              // 23: autobahn.FullCommitQC
+	(*TimeoutVote)(nil),               // 24: autobahn.TimeoutVote
+	(*TimeoutQC)(nil),                 // 25: autobahn.TimeoutQC
+	(*FullTimeoutVote)(nil),           // 26: autobahn.FullTimeoutVote
+	(*PersistedInner)(nil),            // 27: autobahn.PersistedInner
+	(*PersistedAvailPruneAnchor)(nil), // 28: autobahn.PersistedAvailPruneAnchor
+	(*AppQC)(nil),                     // 29: autobahn.AppQC
+	(*AppProposal)(nil),               // 30: autobahn.AppProposal
+	(*Msg)(nil),                       // 31: autobahn.Msg
+	(*SignedProposal)(nil),            // 32: autobahn.SignedProposal
+	(*SignedPrepareVote)(nil),         // 33: autobahn.SignedPrepareVote
+	(*SignedCommitVote)(nil),          // 34: autobahn.SignedCommitVote
+	(*SignedTimeoutVote)(nil),         // 35: autobahn.SignedTimeoutVote
+	(*SignedAppVote)(nil),             // 36: autobahn.SignedAppVote
+	(*SignedBlock)(nil),               // 37: autobahn.SignedBlock
+	(*SignedLaneVote)(nil),            // 38: autobahn.SignedLaneVote
+	(*SignedAppProposal)(nil),         // 39: autobahn.SignedAppProposal
+	(*ConsensusMsg)(nil),              // 40: autobahn.ConsensusMsg
+	(*Committee)(nil),                 // 41: autobahn.Committee
+	(*Epoch)(nil),                     // 42: autobahn.Epoch
+	(*PersistedEpochRegistry)(nil),    // 43: autobahn.PersistedEpochRegistry
+	(*EpochMember)(nil),               // 44: autobahn.EpochMember
+	(*LaneBlockPos)(nil),              // 45: autobahn.LaneBlockPos
+	nil,                               // 46: autobahn.TransactionHeader.PropertiesEntry
 }
 var file_autobahn_autobahn_proto_depIdxs = []int32{
-	45, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
+	46, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
 	2,  // 1: autobahn.TransactionHeader.timestamps:type_name -> autobahn.TransactionTimestamps
 	3,  // 2: autobahn.Transaction.header:type_name -> autobahn.TransactionHeader
 	6,  // 3: autobahn.LaneID.validator:type_name -> autobahn.PublicKey
@@ -3076,75 +3138,76 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	0,  // 6: autobahn.Payload.created_at:type_name -> autobahn.Timestamp
 	9,  // 7: autobahn.Block.header:type_name -> autobahn.BlockHeader
 	10, // 8: autobahn.Block.payload:type_name -> autobahn.Payload
-	9,  // 9: autobahn.LaneQC.vote:type_name -> autobahn.BlockHeader
-	8,  // 10: autobahn.LaneQC.sigs:type_name -> autobahn.Signature
-	7,  // 11: autobahn.LaneRange.lane_id:type_name -> autobahn.LaneID
-	0,  // 12: autobahn.RoadBlockHeader.timestamp:type_name -> autobahn.Timestamp
-	13, // 13: autobahn.RoadBlockHeader.lane_ranges:type_name -> autobahn.LaneRange
-	15, // 14: autobahn.Proposal.header:type_name -> autobahn.RoadBlockHeader
-	15, // 15: autobahn.PrepareVote.header:type_name -> autobahn.RoadBlockHeader
-	15, // 16: autobahn.CommitVote.header:type_name -> autobahn.RoadBlockHeader
-	31, // 17: autobahn.FullProposal.proposal_v2:type_name -> autobahn.SignedProposal
-	12, // 18: autobahn.FullProposal.lane_qcs:type_name -> autobahn.LaneQC
-	28, // 19: autobahn.FullProposal.app_qc:type_name -> autobahn.AppQC
-	24, // 20: autobahn.FullProposal.timeout_qc:type_name -> autobahn.TimeoutQC
-	17, // 21: autobahn.PrepareQC.vote_v2:type_name -> autobahn.PrepareVote
-	8,  // 22: autobahn.PrepareQC.sigs:type_name -> autobahn.Signature
-	18, // 23: autobahn.CommitQC.vote_v2:type_name -> autobahn.CommitVote
-	8,  // 24: autobahn.CommitQC.sigs:type_name -> autobahn.Signature
-	21, // 25: autobahn.FullCommitQC.qc:type_name -> autobahn.CommitQC
-	9,  // 26: autobahn.FullCommitQC.headers:type_name -> autobahn.BlockHeader
-	14, // 27: autobahn.TimeoutVote.view:type_name -> autobahn.View
-	34, // 28: autobahn.TimeoutQC.votes_v2:type_name -> autobahn.SignedTimeoutVote
-	20, // 29: autobahn.TimeoutQC.latest_prepare_qc:type_name -> autobahn.PrepareQC
-	34, // 30: autobahn.FullTimeoutVote.vote_v2:type_name -> autobahn.SignedTimeoutVote
-	20, // 31: autobahn.FullTimeoutVote.latest_prepare_qc:type_name -> autobahn.PrepareQC
-	20, // 32: autobahn.PersistedInner.prepare_qc:type_name -> autobahn.PrepareQC
-	24, // 33: autobahn.PersistedInner.timeout_qc:type_name -> autobahn.TimeoutQC
-	33, // 34: autobahn.PersistedInner.commit_vote_v3:type_name -> autobahn.SignedCommitVote
-	32, // 35: autobahn.PersistedInner.prepare_vote_v3:type_name -> autobahn.SignedPrepareVote
-	25, // 36: autobahn.PersistedInner.timeout_vote:type_name -> autobahn.FullTimeoutVote
-	28, // 37: autobahn.PersistedAvailPruneAnchor.app_qc:type_name -> autobahn.AppQC
-	21, // 38: autobahn.PersistedAvailPruneAnchor.commit_qc:type_name -> autobahn.CommitQC
-	29, // 39: autobahn.AppQC.vote:type_name -> autobahn.AppProposal
-	8,  // 40: autobahn.AppQC.sigs:type_name -> autobahn.Signature
-	11, // 41: autobahn.Msg.lane_proposal:type_name -> autobahn.Block
-	9,  // 42: autobahn.Msg.lane_vote:type_name -> autobahn.BlockHeader
-	16, // 43: autobahn.Msg.proposal:type_name -> autobahn.Proposal
-	17, // 44: autobahn.Msg.prepare_vote_v2:type_name -> autobahn.PrepareVote
-	18, // 45: autobahn.Msg.commit_vote_v2:type_name -> autobahn.CommitVote
-	23, // 46: autobahn.Msg.timeout_vote:type_name -> autobahn.TimeoutVote
-	29, // 47: autobahn.Msg.app_vote:type_name -> autobahn.AppProposal
-	16, // 48: autobahn.SignedProposal.msg:type_name -> autobahn.Proposal
-	8,  // 49: autobahn.SignedProposal.sig:type_name -> autobahn.Signature
-	17, // 50: autobahn.SignedPrepareVote.msg:type_name -> autobahn.PrepareVote
-	8,  // 51: autobahn.SignedPrepareVote.sig:type_name -> autobahn.Signature
-	18, // 52: autobahn.SignedCommitVote.msg:type_name -> autobahn.CommitVote
-	8,  // 53: autobahn.SignedCommitVote.sig:type_name -> autobahn.Signature
-	23, // 54: autobahn.SignedTimeoutVote.msg:type_name -> autobahn.TimeoutVote
-	8,  // 55: autobahn.SignedTimeoutVote.sig:type_name -> autobahn.Signature
-	29, // 56: autobahn.SignedAppVote.msg:type_name -> autobahn.AppProposal
-	8,  // 57: autobahn.SignedAppVote.sig:type_name -> autobahn.Signature
-	11, // 58: autobahn.SignedBlock.msg:type_name -> autobahn.Block
-	8,  // 59: autobahn.SignedBlock.sig:type_name -> autobahn.Signature
-	9,  // 60: autobahn.SignedBlockHeader.msg:type_name -> autobahn.BlockHeader
-	8,  // 61: autobahn.SignedBlockHeader.sig:type_name -> autobahn.Signature
-	29, // 62: autobahn.SignedAppProposal.msg:type_name -> autobahn.AppProposal
-	8,  // 63: autobahn.SignedAppProposal.sig:type_name -> autobahn.Signature
-	19, // 64: autobahn.ConsensusMsg.proposal:type_name -> autobahn.FullProposal
-	32, // 65: autobahn.ConsensusMsg.prepare_vote_v3:type_name -> autobahn.SignedPrepareVote
-	33, // 66: autobahn.ConsensusMsg.commit_vote_v3:type_name -> autobahn.SignedCommitVote
-	25, // 67: autobahn.ConsensusMsg.timeout_vote:type_name -> autobahn.FullTimeoutVote
-	24, // 68: autobahn.ConsensusMsg.timeout_qc:type_name -> autobahn.TimeoutQC
-	43, // 69: autobahn.Committee.members:type_name -> autobahn.EpochMember
-	40, // 70: autobahn.Epoch.committee:type_name -> autobahn.Committee
-	41, // 71: autobahn.PersistedEpochRegistry.live_v2:type_name -> autobahn.Epoch
-	7,  // 72: autobahn.EpochMember.lane_id:type_name -> autobahn.LaneID
-	73, // [73:73] is the sub-list for method output_type
-	73, // [73:73] is the sub-list for method input_type
-	73, // [73:73] is the sub-list for extension type_name
-	73, // [73:73] is the sub-list for extension extendee
-	0,  // [0:73] is the sub-list for field type_name
+	9,  // 9: autobahn.LaneVote.header:type_name -> autobahn.BlockHeader
+	12, // 10: autobahn.LaneQC.vote_v2:type_name -> autobahn.LaneVote
+	8,  // 11: autobahn.LaneQC.sigs:type_name -> autobahn.Signature
+	7,  // 12: autobahn.LaneRange.lane_id:type_name -> autobahn.LaneID
+	0,  // 13: autobahn.RoadBlockHeader.timestamp:type_name -> autobahn.Timestamp
+	14, // 14: autobahn.RoadBlockHeader.lane_ranges:type_name -> autobahn.LaneRange
+	16, // 15: autobahn.Proposal.header:type_name -> autobahn.RoadBlockHeader
+	16, // 16: autobahn.PrepareVote.header:type_name -> autobahn.RoadBlockHeader
+	16, // 17: autobahn.CommitVote.header:type_name -> autobahn.RoadBlockHeader
+	32, // 18: autobahn.FullProposal.proposal_v2:type_name -> autobahn.SignedProposal
+	13, // 19: autobahn.FullProposal.lane_qcs:type_name -> autobahn.LaneQC
+	29, // 20: autobahn.FullProposal.app_qc:type_name -> autobahn.AppQC
+	25, // 21: autobahn.FullProposal.timeout_qc:type_name -> autobahn.TimeoutQC
+	18, // 22: autobahn.PrepareQC.vote_v2:type_name -> autobahn.PrepareVote
+	8,  // 23: autobahn.PrepareQC.sigs:type_name -> autobahn.Signature
+	19, // 24: autobahn.CommitQC.vote_v2:type_name -> autobahn.CommitVote
+	8,  // 25: autobahn.CommitQC.sigs:type_name -> autobahn.Signature
+	22, // 26: autobahn.FullCommitQC.qc:type_name -> autobahn.CommitQC
+	9,  // 27: autobahn.FullCommitQC.headers:type_name -> autobahn.BlockHeader
+	15, // 28: autobahn.TimeoutVote.view:type_name -> autobahn.View
+	35, // 29: autobahn.TimeoutQC.votes_v2:type_name -> autobahn.SignedTimeoutVote
+	21, // 30: autobahn.TimeoutQC.latest_prepare_qc:type_name -> autobahn.PrepareQC
+	35, // 31: autobahn.FullTimeoutVote.vote_v2:type_name -> autobahn.SignedTimeoutVote
+	21, // 32: autobahn.FullTimeoutVote.latest_prepare_qc:type_name -> autobahn.PrepareQC
+	21, // 33: autobahn.PersistedInner.prepare_qc:type_name -> autobahn.PrepareQC
+	25, // 34: autobahn.PersistedInner.timeout_qc:type_name -> autobahn.TimeoutQC
+	34, // 35: autobahn.PersistedInner.commit_vote_v3:type_name -> autobahn.SignedCommitVote
+	33, // 36: autobahn.PersistedInner.prepare_vote_v3:type_name -> autobahn.SignedPrepareVote
+	26, // 37: autobahn.PersistedInner.timeout_vote:type_name -> autobahn.FullTimeoutVote
+	29, // 38: autobahn.PersistedAvailPruneAnchor.app_qc:type_name -> autobahn.AppQC
+	22, // 39: autobahn.PersistedAvailPruneAnchor.commit_qc:type_name -> autobahn.CommitQC
+	30, // 40: autobahn.AppQC.vote:type_name -> autobahn.AppProposal
+	8,  // 41: autobahn.AppQC.sigs:type_name -> autobahn.Signature
+	11, // 42: autobahn.Msg.lane_proposal:type_name -> autobahn.Block
+	12, // 43: autobahn.Msg.lane_vote_v2:type_name -> autobahn.LaneVote
+	17, // 44: autobahn.Msg.proposal:type_name -> autobahn.Proposal
+	18, // 45: autobahn.Msg.prepare_vote_v2:type_name -> autobahn.PrepareVote
+	19, // 46: autobahn.Msg.commit_vote_v2:type_name -> autobahn.CommitVote
+	24, // 47: autobahn.Msg.timeout_vote:type_name -> autobahn.TimeoutVote
+	30, // 48: autobahn.Msg.app_vote:type_name -> autobahn.AppProposal
+	17, // 49: autobahn.SignedProposal.msg:type_name -> autobahn.Proposal
+	8,  // 50: autobahn.SignedProposal.sig:type_name -> autobahn.Signature
+	18, // 51: autobahn.SignedPrepareVote.msg:type_name -> autobahn.PrepareVote
+	8,  // 52: autobahn.SignedPrepareVote.sig:type_name -> autobahn.Signature
+	19, // 53: autobahn.SignedCommitVote.msg:type_name -> autobahn.CommitVote
+	8,  // 54: autobahn.SignedCommitVote.sig:type_name -> autobahn.Signature
+	24, // 55: autobahn.SignedTimeoutVote.msg:type_name -> autobahn.TimeoutVote
+	8,  // 56: autobahn.SignedTimeoutVote.sig:type_name -> autobahn.Signature
+	30, // 57: autobahn.SignedAppVote.msg:type_name -> autobahn.AppProposal
+	8,  // 58: autobahn.SignedAppVote.sig:type_name -> autobahn.Signature
+	11, // 59: autobahn.SignedBlock.msg:type_name -> autobahn.Block
+	8,  // 60: autobahn.SignedBlock.sig:type_name -> autobahn.Signature
+	12, // 61: autobahn.SignedLaneVote.msg:type_name -> autobahn.LaneVote
+	8,  // 62: autobahn.SignedLaneVote.sig:type_name -> autobahn.Signature
+	30, // 63: autobahn.SignedAppProposal.msg:type_name -> autobahn.AppProposal
+	8,  // 64: autobahn.SignedAppProposal.sig:type_name -> autobahn.Signature
+	20, // 65: autobahn.ConsensusMsg.proposal:type_name -> autobahn.FullProposal
+	33, // 66: autobahn.ConsensusMsg.prepare_vote_v3:type_name -> autobahn.SignedPrepareVote
+	34, // 67: autobahn.ConsensusMsg.commit_vote_v3:type_name -> autobahn.SignedCommitVote
+	26, // 68: autobahn.ConsensusMsg.timeout_vote:type_name -> autobahn.FullTimeoutVote
+	25, // 69: autobahn.ConsensusMsg.timeout_qc:type_name -> autobahn.TimeoutQC
+	44, // 70: autobahn.Committee.members:type_name -> autobahn.EpochMember
+	41, // 71: autobahn.Epoch.committee:type_name -> autobahn.Committee
+	42, // 72: autobahn.PersistedEpochRegistry.live_v2:type_name -> autobahn.Epoch
+	7,  // 73: autobahn.EpochMember.lane_id:type_name -> autobahn.LaneID
+	74, // [74:74] is the sub-list for method output_type
+	74, // [74:74] is the sub-list for method input_type
+	74, // [74:74] is the sub-list for extension type_name
+	74, // [74:74] is the sub-list for extension extendee
+	0,  // [0:74] is the sub-list for field type_name
 }
 
 func init() { file_autobahn_autobahn_proto_init() }
@@ -3160,45 +3223,46 @@ func file_autobahn_autobahn_proto_init() {
 	file_autobahn_autobahn_proto_msgTypes[9].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[10].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[11].OneofWrappers = []any{}
-	file_autobahn_autobahn_proto_msgTypes[13].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[12].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[14].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[15].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[16].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[17].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[18].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[19].OneofWrappers = []any{}
-	file_autobahn_autobahn_proto_msgTypes[23].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[20].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[24].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[25].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[26].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[27].OneofWrappers = []any{}
-	file_autobahn_autobahn_proto_msgTypes[29].OneofWrappers = []any{}
-	file_autobahn_autobahn_proto_msgTypes[30].OneofWrappers = []any{
+	file_autobahn_autobahn_proto_msgTypes[28].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[30].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[31].OneofWrappers = []any{
 		(*Msg_LaneProposal)(nil),
-		(*Msg_LaneVote)(nil),
+		(*Msg_LaneVoteV2)(nil),
 		(*Msg_Proposal)(nil),
 		(*Msg_PrepareVoteV2)(nil),
 		(*Msg_CommitVoteV2)(nil),
 		(*Msg_TimeoutVote)(nil),
 		(*Msg_AppVote)(nil),
 	}
-	file_autobahn_autobahn_proto_msgTypes[39].OneofWrappers = []any{
+	file_autobahn_autobahn_proto_msgTypes[40].OneofWrappers = []any{
 		(*ConsensusMsg_Proposal)(nil),
 		(*ConsensusMsg_PrepareVoteV3)(nil),
 		(*ConsensusMsg_CommitVoteV3)(nil),
 		(*ConsensusMsg_TimeoutVote)(nil),
 		(*ConsensusMsg_TimeoutQc)(nil),
 	}
-	file_autobahn_autobahn_proto_msgTypes[41].OneofWrappers = []any{}
-	file_autobahn_autobahn_proto_msgTypes[43].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[42].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[44].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[45].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_autobahn_autobahn_proto_rawDesc), len(file_autobahn_autobahn_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   46,
+			NumMessages:   47,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

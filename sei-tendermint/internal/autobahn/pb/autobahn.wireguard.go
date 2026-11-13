@@ -2,9 +2,10 @@
 package pb
 
 import (
+	reflect "reflect"
+
 	runtime "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	reflect "reflect"
 )
 
 func (*Timestamp) MaxSize() int {
@@ -35,8 +36,12 @@ func (*Block) MaxSize() int {
 	return 2056181
 }
 
+func (*LaneVote) MaxSize() int {
+	return 142
+}
+
 func (*LaneQC) MaxSize() int {
-	return 10531
+	return 10545
 }
 
 func (*LaneRange) MaxSize() int {
@@ -64,7 +69,7 @@ func (*CommitVote) MaxSize() int {
 }
 
 func (*FullProposal) MaxSize() int {
-	return 1111402
+	return 1112802
 }
 
 func (*PrepareQC) MaxSize() int {
@@ -127,8 +132,8 @@ func (*SignedBlock) MaxSize() int {
 	return 2056289
 }
 
-func (*SignedBlockHeader) MaxSize() int {
-	return 235
+func (*SignedLaneVote) MaxSize() int {
+	return 249
 }
 
 func (*SignedAppProposal) MaxSize() int {
@@ -136,7 +141,7 @@ func (*SignedAppProposal) MaxSize() int {
 }
 
 func (*ConsensusMsg) MaxSize() int {
-	return 1111406
+	return 1112806
 }
 
 func (*Committee) MaxSize() int {
@@ -235,9 +240,15 @@ func init() {
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Payload]())},
 	})
 
+	// Register the wireguard.Schema generated for autobahn.LaneVote.
+	runtime.MustRegister[*LaneVote](runtime.Schema{
+		1: {MaxCount: 1},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*BlockHeader]())},
+	})
+
 	// Register the wireguard.Schema generated for autobahn.LaneQC.
 	runtime.MustRegister[*LaneQC](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*BlockHeader]())},
+		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*LaneVote]())},
 		2: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*Signature]())},
 	})
 
@@ -357,13 +368,13 @@ func init() {
 
 	// Register the wireguard.Schema generated for autobahn.Msg.
 	runtime.MustRegister[*Msg](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Block]())},
-		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*BlockHeader]())},
-		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Proposal]())},
-		8: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PrepareVote]())},
-		9: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*CommitVote]())},
-		6: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutVote]())},
-		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
+		1:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Block]())},
+		10: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*LaneVote]())},
+		3:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Proposal]())},
+		8:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PrepareVote]())},
+		9:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*CommitVote]())},
+		6:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutVote]())},
+		7:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.SignedProposal.
@@ -402,9 +413,9 @@ func init() {
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Signature]())},
 	})
 
-	// Register the wireguard.Schema generated for autobahn.SignedBlockHeader.
-	runtime.MustRegister[*SignedBlockHeader](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*BlockHeader]())},
+	// Register the wireguard.Schema generated for autobahn.SignedLaneVote.
+	runtime.MustRegister[*SignedLaneVote](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*LaneVote]())},
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Signature]())},
 	})
 

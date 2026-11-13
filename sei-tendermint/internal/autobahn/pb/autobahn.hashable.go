@@ -9,6 +9,7 @@ func (*Signature) IsHashable()       {}
 func (*BlockHeader) IsHashable()     {}
 func (*Payload) IsHashable()         {}
 func (*Block) IsHashable()           {}
+func (*LaneVote) IsHashable()        {}
 func (*LaneRange) IsHashable()       {}
 func (*View) IsHashable()            {}
 func (*RoadBlockHeader) IsHashable() {}

@@ -21,9 +21,9 @@ message PingResp {
 
 message LaneVote {
   option (wireguard.sized) = true;
-  reserved "lane_vote";
-  reserved 1;
-  autobahn.SignedBlockHeader lane_vote_v2 = 2;
+  reserved "lane_vote", "lane_vote_v2";
+  reserved 1, 2;
+  autobahn.SignedLaneVote lane_vote_v3 = 3;
 }
 
 message LaneProposal {

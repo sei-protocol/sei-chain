@@ -110,9 +110,18 @@ message Block {
   optional Payload payload = 2; // required
 }
 
-message LaneQC {
+message LaneVote {
+  option (hashable.hashable) = true;
   option (wireguard.sized) = true;
-  BlockHeader vote = 1;
+  optional uint64 epoch_index = 1; // epoch this vote belongs to; required
+  optional BlockHeader header = 2; // required
+}
+
+message LaneQC {
+  reserved 1;
+  reserved "vote";
+  option (wireguard.sized) = true;
+  LaneVote vote_v2 = 3;
   repeated Signature sigs = 2 [(wireguard.max_count) = 100];
 }
 
@@ -273,14 +282,14 @@ message AppProposal {
 // This is the signable message.
 // To sign ConsensusMsg/BlockMsg, you need to embed it in Msg first.
 message Msg {
-  reserved 4, 5;
-  reserved "prepare_vote", "commit_vote";
+  reserved 2, 4, 5;
+  reserved "prepare_vote", "commit_vote", "lane_vote";
   option (hashable.hashable) = true;
   option (wireguard.sized) = true;
   oneof t { // required
     // Lane
     Block lane_proposal = 1;
-    BlockHeader lane_vote = 2;
+    LaneVote lane_vote_v2 = 10;
 
     // Consensus
     Proposal proposal = 3;
@@ -329,9 +338,9 @@ message SignedBlock {
   Signature sig = 2;
 }
 
-message SignedBlockHeader {
+message SignedLaneVote {
   option (wireguard.sized) = true;
-  BlockHeader msg = 1;
+  LaneVote msg = 1;
   Signature sig = 2;
 }
 

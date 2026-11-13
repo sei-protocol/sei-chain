@@ -7,13 +7,14 @@
 package pb
 
 import (
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
+
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	_ "github.com/sei-protocol/sei-chain/sei-tendermint/proto/wireguard"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
 )
 
 const (
@@ -133,7 +134,7 @@ func (*PingResp) Descriptor() ([]byte, []int) {
 
 type LaneVote struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	LaneVoteV2    *pb.SignedBlockHeader  `protobuf:"bytes,2,opt,name=lane_vote_v2,json=laneVoteV2,proto3" json:"lane_vote_v2,omitempty"`
+	LaneVoteV3    *pb.SignedLaneVote     `protobuf:"bytes,3,opt,name=lane_vote_v3,json=laneVoteV3,proto3" json:"lane_vote_v3,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -168,9 +169,9 @@ func (*LaneVote) Descriptor() ([]byte, []int) {
 	return file_p2p_giga_api_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *LaneVote) GetLaneVoteV2() *pb.SignedBlockHeader {
+func (x *LaneVote) GetLaneVoteV3() *pb.SignedLaneVote {
 	if x != nil {
-		return x.LaneVoteV2
+		return x.LaneVoteV3
 	}
 	return nil
 }
@@ -606,10 +607,10 @@ const file_p2p_giga_api_proto_rawDesc = "" +
 	"\x12p2p/giga/api.proto\x12\bp2p.giga\x1a\x17autobahn/autobahn.proto\x1a\x19wireguard/wireguard.proto\"\x17\n" +
 	"\rConsensusResp:\x06\xe8\x88\xe2\xab\f\x01\"\x11\n" +
 	"\aPingReq:\x06\xe8\x88\xe2\xab\f\x01\"\x12\n" +
-	"\bPingResp:\x06\xe8\x88\xe2\xab\f\x01\"b\n" +
-	"\bLaneVote\x12=\n" +
-	"\flane_vote_v2\x18\x02 \x01(\v2\x1b.autobahn.SignedBlockHeaderR\n" +
-	"laneVoteV2:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x01\x10\x02R\tlane_vote\"l\n" +
+	"\bPingResp:\x06\xe8\x88\xe2\xab\f\x01\"s\n" +
+	"\bLaneVote\x12:\n" +
+	"\flane_vote_v3\x18\x03 \x01(\v2\x18.autobahn.SignedLaneVoteR\n" +
+	"laneVoteV3:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\tlane_voteR\flane_vote_v2\"l\n" +
 	"\fLaneProposal\x12?\n" +
 	"\x10lane_proposal_v2\x18\x02 \x01(\v2\x15.autobahn.SignedBlockR\x0elaneProposalV2:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x01\x10\x02R\rlane_proposal\"Z\n" +
 	"\aAppVote\x127\n" +
@@ -663,7 +664,7 @@ var file_p2p_giga_api_proto_goTypes = []any{
 	(*GetBlockResp)(nil),           // 11: p2p.giga.GetBlockResp
 	(*StreamFullCommitQCsReq)(nil), // 12: p2p.giga.StreamFullCommitQCsReq
 	(*StreamAppQCsReq)(nil),        // 13: p2p.giga.StreamAppQCsReq
-	(*pb.SignedBlockHeader)(nil),   // 14: autobahn.SignedBlockHeader
+	(*pb.SignedLaneVote)(nil),      // 14: autobahn.SignedLaneVote
 	(*pb.SignedBlock)(nil),         // 15: autobahn.SignedBlock
 	(*pb.SignedAppVote)(nil),       // 16: autobahn.SignedAppVote
 	(*pb.LaneID)(nil),              // 17: autobahn.LaneID
@@ -671,7 +672,7 @@ var file_p2p_giga_api_proto_goTypes = []any{
 	(*pb.Block)(nil),               // 19: autobahn.Block
 }
 var file_p2p_giga_api_proto_depIdxs = []int32{
-	14, // 0: p2p.giga.LaneVote.lane_vote_v2:type_name -> autobahn.SignedBlockHeader
+	14, // 0: p2p.giga.LaneVote.lane_vote_v3:type_name -> autobahn.SignedLaneVote
 	15, // 1: p2p.giga.LaneProposal.lane_proposal_v2:type_name -> autobahn.SignedBlock
 	16, // 2: p2p.giga.AppVote.app_vote_v2:type_name -> autobahn.SignedAppVote
 	17, // 3: p2p.giga.StreamLaneProposalsReq.lane_id:type_name -> autobahn.LaneID
