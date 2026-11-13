@@ -39,7 +39,7 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 			recordFetch(ctx, resFullCommitQC, "decode")
 			return fmt.Errorf("types.CommitQCConv.Decode(): %w", err)
 		}
-		// The server starts at the requested index and sends strictly increasing indexes (gaps allowed).
+		// The server sends strictly increasing indexes, starting at or above the requested one (gaps allowed).
 		// Rejecting a replayed QC here stops a peer from making us process old QCs in a loop.
 		if qc.Index() < next {
 			recordFetch(ctx, resFullCommitQC, "out_of_order")
