@@ -1549,3 +1549,40 @@ func TestEVMOnlyApplicationResumesOnlyWithTheAllocItStartedWith(t *testing.T) {
 		})
 	}
 }
+
+func TestEVMOnlyApplicationAdmitsOnlyTxsTheSenderCanPayFor(t *testing.T) {
+	funder, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	funderAddr := crypto.PubkeyToAddress(funder.PublicKey)
+	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{
+		funderAddr: new(uint256.Int).Lsh(uint256.NewInt(1), 70),
+	}})
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
+	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	transfer := func(nonce uint64, value *big.Int) []byte {
+		signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{
+			Nonce: nonce, GasPrice: big.NewInt(evmOnlyMinGasPrice), Gas: 21_000, To: &recipient, Value: value,
+		}), ethtypes.LatestSignerForChainID(chainID), funder)
+		require.NoError(t, err)
+		raw, err := signed.MarshalBinary()
+		require.NoError(t, err)
+		return raw
+	}
+	unfunded, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	tooMuch := new(big.Int).Lsh(big.NewInt(1), 70)
+
+	check := func(when string) {
+		require.True(t, app.CheckTx(t.Context(), &proxy.RequestCheckTxV2{Tx: transfer(0, big.NewInt(1))}).IsOK(), "funded %s", when)
+		require.True(t, app.CheckTx(t.Context(), &proxy.RequestCheckTxV2{Tx: transfer(0, tooMuch)}).IsErr(), "over balance %s", when)
+		require.True(t, app.CheckTx(t.Context(), &proxy.RequestCheckTxV2{Tx: unfunded}).IsErr(), "unfunded %s", when)
+	}
+	check("before block 1")
+	for height := int64(1); height <= 2; height++ {
+		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(height))
+		check(fmt.Sprintf("after Commit of block %d", height))
+		require.NoError(t, app.(*evmOnlyApplication).AwaitCommits())
+		check(fmt.Sprintf("after block %d's state commit", height))
+	}
+}
