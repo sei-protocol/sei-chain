@@ -283,7 +283,11 @@ func TestQuerySubspace(t *testing.T) {
 	}
 	stub.on("param(string,string)", func(a []any) ([]any, error) {
 		assert.Equal(t, "gov", a[0])
-		return []any{common.BigToHash(values[a[1].(string)]).Bytes()}, nil
+		v, ok := values[a[1].(string)]
+		if !ok {
+			v = new(big.Int)
+		}
+		return []any{common.BigToHash(v).Bytes()}, nil
 	})
 	require.NoError(t, r.run("", args("q params subspace gov tallyparams -o json --evm-rpc", stub.url)...))
 	require.JSONEq(t, `{

@@ -74,6 +74,7 @@ func newRPCStub(t *testing.T) *rpcStub {
 	srv := httptest.NewServer(http.HandlerFunc(s.serve))
 	t.Cleanup(srv.Close)
 	s.url = srv.URL
+	s.on("param(string,string)", func([]any) ([]any, error) { return []any{make([]byte, 32)}, nil })
 	return s
 }
 

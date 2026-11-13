@@ -15,13 +15,18 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/spf13/cobra"
 
+	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 )
 
 // defaultGasAdjustment scales a gas estimate when --gas-adjustment is not set.
 const defaultGasAdjustment = 1.2
+
+// errUnpack is the error of a call whose output does not decode.
+var errUnpack = errors.New("unpack")
 
 // receiptTimeout is how long a transaction may take to be included.
 var receiptTimeout = time.Minute
@@ -36,7 +41,8 @@ type evmClient struct {
 	block *big.Int
 }
 
-// dial connects to the --evm-rpc endpoint, reading at --height when it is set.
+// dial connects to the --evm-rpc endpoint of an EVM-only chain, reading at
+// --height when it is set.
 func dial(cmd *cobra.Command) (*evmClient, error) {
 	url, err := cmd.Flags().GetString(FlagEVMRPC)
 	if err != nil {
@@ -50,6 +56,9 @@ func dial(cmd *cobra.Command) (*evmClient, error) {
 		return nil, fmt.Errorf("dial %s: %w", url, err)
 	}
 	c := &evmClient{ec: ec}
+	if err := c.requireEVMOnly(cmdContext(cmd), url); err != nil {
+		return nil, err
+	}
 	if flagChanged(cmd, flags.FlagHeight) {
 		h, err := cmd.Flags().GetInt64(flags.FlagHeight)
 		if err != nil {
@@ -60,6 +69,22 @@ func dial(cmd *cobra.Command) (*evmClient, error) {
 		}
 	}
 	return c, nil
+}
+
+// requireEVMOnly returns an error naming --node unless the chain at url serves
+// the EVM-only params precompile.
+func (c *evmClient) requireEVMOnly(ctx context.Context, url string) error {
+	probe := chainparams.Keys()[0]
+	_, err := c.call(ctx, chainparams.Address, chainparams.ABI, chainparams.ParamMethod, probe.Subspace, probe.Key)
+	var rpcErr rpc.Error
+	switch {
+	case err == nil:
+		return nil
+	case errors.As(err, &rpcErr), errors.Is(err, errUnpack):
+		return fmt.Errorf("%s is not an EVM-only chain; use --%s for a chain with a Tendermint RPC", url, flags.FlagNode)
+	default:
+		return fmt.Errorf("%s: %w", url, err)
+	}
 }
 
 func cmdContext(cmd *cobra.Command) context.Context {
@@ -85,7 +110,7 @@ func (c *evmClient) call(ctx context.Context, to common.Address, contract abi.AB
 	}
 	vals, err := m.Outputs.Unpack(out)
 	if err != nil {
-		return nil, fmt.Errorf("unpack %s: %w", m.Name, err)
+		return nil, fmt.Errorf("%w %s: %w", errUnpack, m.Name, err)
 	}
 	return vals, nil
 }
