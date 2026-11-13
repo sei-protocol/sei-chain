@@ -3,6 +3,7 @@ package tests
 import (
 	"encoding/json"
 	"math"
+	"math/big"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/app"
@@ -11,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
@@ -81,6 +83,39 @@ func TestTraceHistoricalPrecompiles(t *testing.T) {
 			require.NotContains(t, resultMap, "error")
 		},
 	)
+}
+
+func TestTraceCallRunsOnStateAfterBlock(t *testing.T) {
+	// Setup: blocks 2 and 3 each fund the recipient.
+	recipient := common.HexToAddress("0x00000000000000000000000000000000000a0002")
+	fund := func(nonce uint64, wei int64) []byte {
+		return signAndEncodeTx(&ethtypes.DynamicFeeTx{
+			Nonce:     nonce,
+			GasFeeCap: big.NewInt(1000000000),
+			Gas:       21000,
+			To:        &recipient,
+			Value:     big.NewInt(wei),
+			ChainID:   chainId,
+		}, mnemonic1)
+	}
+	ts := SetupTestServer(t, [][][]byte{{fund(0, 1_000_000_000_000)}, {fund(1, 2_000_000_000_000)}}, mnemonicInitializer(mnemonic1))
+	ts.Run(func(port int) {
+		ts.RequireTxSucceeded(t, 2, 0)
+		ts.RequireTxSucceeded(t, 3, 0)
+		for _, height := range []string{"0x2", "0x3"} {
+			var balance string
+			require.NoError(t, json.Unmarshal(requireRPCResult(t, port, "eth_getBalance", recipient.Hex(), height), &balance))
+			var prestate map[common.Address]struct {
+				Balance string `json:"balance"`
+			}
+			require.NoError(t, json.Unmarshal(requireRPCResult(t, port, "debug_traceCall",
+				map[string]any{"from": mnemonic1Addr.Hex(), "to": recipient.Hex()}, height,
+				map[string]any{"tracer": "prestateTracer"}), &prestate))
+
+			// Verify: the call sees the state the block leaves behind, as eth_call does.
+			require.Equal(t, balance, prestate[recipient].Balance, "block %s", height)
+		}
+	})
 }
 
 func TestTraceMultipleTransactionsShouldNotHang(t *testing.T) {
