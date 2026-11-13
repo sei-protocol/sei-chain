@@ -13,10 +13,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
@@ -166,6 +169,112 @@ func TestDataClientServer(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// runFullCommitQCClient runs the FullCommitQC stream client of node against a server that answers with qcs in order.
+// It returns the error that ends the client.
+func runFullCommitQCClient(ctx context.Context, node *testNode, qcs []*types.FullCommitQC) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		serverConn, clientConn := conn.NewTestConn()
+		server := rpc.NewServer[API]()
+		client := rpc.NewClient[API]()
+		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, server.Run(ctx, serverConn)) })
+		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, client.Run(ctx, clientConn)) })
+		s.SpawnBg(func() error {
+			return utils.IgnoreAfterCancel(ctx, StreamFullCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.FullCommitQC, *pb.StreamFullCommitQCsReq]) error {
+				if _, err := stream.Recv(ctx); err != nil {
+					return fmt.Errorf("stream.Recv(): %w", err)
+				}
+				for _, qc := range qcs {
+					if err := stream.Send(ctx, types.FullCommitQCConv.Encode(qc)); err != nil {
+						return fmt.Errorf("stream.Send(): %w", err)
+					}
+				}
+				<-ctx.Done()
+				return nil
+			}))
+		})
+		return node.service.clientStreamFullCommitQCs(ctx, client)
+	})
+}
+
+// testQCChain returns n consecutive FullCommitQCs of ep, starting at its first road index.
+func testQCChain(rng utils.Rng, ep *types.Epoch, keys []types.SecretKey, n int) []*types.FullCommitQC {
+	qcs := make([]*types.FullCommitQC, 0, n)
+	prev := utils.None[*types.CommitQC]()
+	for range n {
+		qc, _ := data.TestCommitQC(rng, ep, keys, prev)
+		qcs = append(qcs, qc)
+		prev = utils.Some(qc.QC())
+	}
+	return qcs
+}
+
+func TestFullCommitQCStreamAcceptsIncreasingIndexesWithGaps(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 2)
+	ep0 := registry.MustEpoch(0)
+	node := newTestEnv(registry).AddNode(t, keys[0])
+	qcs := testQCChain(rng, ep0, keys, 5)
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error {
+			return utils.IgnoreAfterCancel(ctx, runFullCommitQCClient(ctx, node, []*types.FullCommitQC{qcs[0], qcs[2], qcs[4]}))
+		})
+		// Another peer fills the gaps that the stream skips.
+		for _, qc := range []*types.FullCommitQC{qcs[1], qcs[3]} {
+			if err := node.data.PushPartialBlock(ctx, qc, nil); err != nil {
+				return fmt.Errorf("PushPartialBlock(): %w", err)
+			}
+		}
+		for _, want := range qcs {
+			got, err := node.data.QC(ctx, want.Index())
+			if err != nil {
+				return fmt.Errorf("QC(%v): %w", want.Index(), err)
+			}
+			if err := utils.TestDiff(want, got); err != nil {
+				return fmt.Errorf("QC mismatch at %v: %w", want.Index(), err)
+			}
+		}
+		return nil
+	})
+	require.NoError(t, err)
+}
+
+func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// pushed are the chain positions the client holds before it opens the stream.
+		pushed []int
+		// sent are the chain positions the server sends, in order.
+		sent []int
+		// accepted is the number of sent QCs the client processes before it rejects one.
+		accepted int64
+	}{
+		{name: "first below requested", pushed: []int{0, 1}, sent: []int{1}, accepted: 0},
+		{name: "repeated", sent: []int{0, 0}, accepted: 1},
+		{name: "decreasing", sent: []int{0, 1, 0}, accepted: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			rng := utils.TestRng()
+			registry, keys := epoch.GenRegistry(rng, 2)
+			node := newTestEnv(registry).AddNode(t, keys[0])
+			qcs := testQCChain(rng, registry.MustEpoch(0), keys, 3)
+			for _, i := range tc.pushed {
+				require.NoError(t, node.data.PushPartialBlock(ctx, qcs[i], nil))
+			}
+			var sent []*types.FullCommitQC
+			for _, i := range tc.sent {
+				sent = append(sent, qcs[i])
+			}
+			ok := fetchCount(resFullCommitQC, "ok")
+			outOfOrder := fetchCount(resFullCommitQC, "out_of_order")
+			require.ErrorIs(t, runFullCommitQCClient(ctx, node, sent), types.ErrUnexpectedIndex)
+			require.Equal(t, ok+tc.accepted, fetchCount(resFullCommitQC, "ok"))
+			require.Equal(t, outOfOrder+1, fetchCount(resFullCommitQC, "out_of_order"))
+		})
 	}
 }
 
