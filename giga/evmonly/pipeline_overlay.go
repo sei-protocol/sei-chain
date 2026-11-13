@@ -19,8 +19,21 @@ import (
 type pendingOverlay struct {
 	base StateReader
 
-	accounts map[common.Address]AccountState
+	accounts map[common.Address]overlayAccount
 	storage  map[storageChangeKey]common.Hash
+}
+
+// overlayAccount is one account the pending block changed. balanceChanged reports
+// whether that block wrote the balance; an unchanged balance is not in the commit.
+type overlayAccount struct {
+	state          AccountState
+	balanceChanged bool
+}
+
+// accountRow reports whether an account row is stored. A missing-account fallback
+// is not a row.
+type accountRow interface {
+	HasAccount(common.Address) bool
 }
 
 // newPendingOverlay indexes changes for lookup. It returns base unchanged when there is nothing to
@@ -34,11 +47,11 @@ func newPendingOverlay(base StateReader, changes *StateChangeSet) StateReader {
 }
 
 // indexChanges maps changes' accounts by address and their storage by address and slot.
-func indexChanges(changes *StateChangeSet) (map[common.Address]AccountState, map[storageChangeKey]common.Hash) {
-	accounts := make(map[common.Address]AccountState, len(changes.Accounts))
+func indexChanges(changes *StateChangeSet) (map[common.Address]overlayAccount, map[storageChangeKey]common.Hash) {
+	accounts := make(map[common.Address]overlayAccount, len(changes.Accounts))
 	storage := make(map[storageChangeKey]common.Hash, len(changes.Storage))
 	for _, change := range changes.Accounts {
-		accounts[change.Address] = change.Account
+		accounts[change.Address] = overlayAccount{state: change.Account, balanceChanged: change.BalanceChanged()}
 	}
 	for _, change := range changes.Storage {
 		if change.Delete {
@@ -56,7 +69,7 @@ type pendingIndex struct {
 	changes *StateChangeSet
 	// ready is closed once accounts and storage are built.
 	ready    chan struct{}
-	accounts map[common.Address]AccountState
+	accounts map[common.Address]overlayAccount
 	storage  map[storageChangeKey]common.Hash
 }
 
@@ -82,21 +95,37 @@ func (idx *pendingIndex) overlay(base StateReader) StateReader {
 
 func (o *pendingOverlay) GetBalance(addr common.Address) *big.Int {
 	if account, ok := o.accounts[addr]; ok {
-		return cloneBig(account.Balance)
+		return cloneBig(o.accountBalance(addr, account))
 	}
 	return o.base.GetBalance(addr)
 }
 
+// accountBalance returns the balance a later block reads. It is 0 when the pending
+// block left the balance unchanged and the view has no account row.
+func (o *pendingOverlay) accountBalance(addr common.Address, account overlayAccount) *big.Int {
+	if account.balanceChanged || o.baseHasAccount(addr) {
+		return account.state.Balance
+	}
+	return new(big.Int)
+}
+
+// baseHasAccount reports whether the view already stores addr. A reader that cannot
+// say is treated as storing it.
+func (o *pendingOverlay) baseHasAccount(addr common.Address) bool {
+	row, ok := o.base.(accountRow)
+	return !ok || row.HasAccount(addr)
+}
+
 func (o *pendingOverlay) GetNonce(addr common.Address) uint64 {
 	if account, ok := o.accounts[addr]; ok {
-		return account.Nonce
+		return account.state.Nonce
 	}
 	return o.base.GetNonce(addr)
 }
 
 func (o *pendingOverlay) GetCode(addr common.Address) []byte {
 	if account, ok := o.accounts[addr]; ok {
-		return cloneBytes(account.Code)
+		return cloneBytes(account.state.Code)
 	}
 	return o.base.GetCode(addr)
 }
@@ -112,7 +141,11 @@ func (o *pendingOverlay) GetState(addr common.Address, key common.Hash) common.H
 // single-row read the view beneath it offers.
 func (o *pendingOverlay) ReadAccount(addr common.Address) (AccountState, common.Hash, bool) {
 	if account, ok := o.accounts[addr]; ok {
-		return AccountState{Balance: cloneBig(account.Balance), Nonce: account.Nonce, Code: cloneBytes(account.Code)}, common.Hash{}, true
+		return AccountState{
+			Balance: cloneBig(o.accountBalance(addr, account)),
+			Nonce:   account.state.Nonce,
+			Code:    cloneBytes(account.state.Code),
+		}, common.Hash{}, true
 	}
 	if reader, ok := o.base.(baseAccountReader); ok {
 		return reader.ReadAccount(addr)
