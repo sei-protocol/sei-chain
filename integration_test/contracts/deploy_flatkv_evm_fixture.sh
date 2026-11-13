@@ -5,6 +5,8 @@ set -euo pipefail
 export PATH="$PATH:/root/.foundry/bin:/root/go/bin"
 
 RPC_URL=${EVM_RPC_URL:-http://localhost:8545}
+# The historical checks read past state here; a node that keeps no state history cannot serve them.
+QUERY_RPC_URL=${FLATKV_EVM_QUERY_RPC_URL:-$RPC_URL}
 FROM=${FLATKV_EVM_FIXTURE_FROM:-admin}
 PASSWORD=${FLATKV_EVM_FIXTURE_PASSWORD:-12345678}
 CHAIN_ID=${FLATKV_EVM_FIXTURE_CHAIN_ID:-sei}
@@ -149,6 +151,7 @@ write_fixture "flatkv_evm_initial_block_height.txt" "$initial_height"
 write_fixture "flatkv_evm_recipient_addr.txt" "$RECIPIENT_ADDR"
 write_fixture "flatkv_evm_missing_addr.txt" "$MISSING_ADDR"
 write_fixture "flatkv_evm_storage_slot.txt" "$STORAGE_SLOT_ZERO"
+write_fixture "flatkv_evm_query_rpc_url.txt" "$QUERY_RPC_URL"
 
 run_seid tx evm native-associate integration-test \
   --from "$FROM" \
