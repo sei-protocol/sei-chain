@@ -9,8 +9,10 @@ import (
 	"runtime/debug"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -31,6 +33,8 @@ var logger = seilog.NewLogger("tendermint", "node")
 type options struct {
 	freezeHeight uint64
 	giga         gigaconfig.Config
+	// archive is the history archive exporter, which the node closes on stop.
+	archive utils.Option[*archive.Exporter]
 }
 
 var errAutobahnSeed = errors.New("autobahn is not supported in seed mode")
@@ -88,8 +92,13 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	app, storageManager, err := prepareApplication(ctx, conf, app, opts.giga, genDoc)
+	archiveExporter, err := openArchive(ctx, conf, opts.giga.Archive)
 	if err != nil {
+		return nil, err
+	}
+	app, storageManager, err := prepareApplication(ctx, conf, app, opts.giga, genDoc, archiveExecutorOptions(archiveExporter)...)
+	if err != nil {
+		closeArchive(archiveExporter)
 		return nil, err
 	}
 	storageManagerTransferred := false
@@ -97,10 +106,12 @@ func New(
 		if err == nil || storageManagerTransferred {
 			return
 		}
+		closeArchive(archiveExporter)
 		if manager, ok := storageManager.Get(); ok {
 			err = errors.Join(err, manager.Close())
 		}
 	}()
+	nodeOptions = append(nodeOptions, withArchive(archiveExporter))
 	proxyApp := proxy.New(app)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
@@ -186,6 +197,7 @@ func prepareApplication(
 	app abci.Application,
 	giga gigaconfig.Config,
 	genDoc *tmtypes.GenesisDoc,
+	executorOptions ...evmonly.Option,
 ) (abci.Application, utils.Option[*bootstrap.GigaStorageManager], error) {
 	noStorage := utils.None[*bootstrap.GigaStorageManager]()
 	storage := noStorage
@@ -202,7 +214,7 @@ func prepareApplication(
 		storage = utils.Some(manager)
 		committee = fc
 	}
-	app, err := wrapApplication(conf, app, storage, committee, giga.Execution)
+	app, err := wrapApplication(conf, app, storage, committee, giga.Execution, executorOptions...)
 	if err != nil {
 		if manager, ok := storage.Get(); ok {
 			err = errors.Join(err, manager.Close())
@@ -221,6 +233,7 @@ func wrapApplication(
 	storage utils.Option[*bootstrap.GigaStorageManager],
 	committee *config.AutobahnFileConfig,
 	execution gigaconfig.ExecutionConfig,
+	executorOptions ...evmonly.Option,
 ) (abci.Application, error) {
 	if conf.MockApp {
 		mock := NewMockApp(app)
@@ -250,6 +263,7 @@ func wrapApplication(
 			execution,
 			customPrecompiles,
 			utils.Some(conf.RootDir),
+			executorOptions...,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("restore EVM-only application: %w", err)

@@ -36,8 +36,8 @@ func newResultSinks(cfg config, metrics *loadMetrics) (*resultSinks, error) {
 	}
 }
 
-func (s *resultSinks) StoreBlockResult(ctx context.Context, height uint64, result *evmonly.BlockResult, release func()) error {
-	return s.sink.StoreBlockResult(ctx, height, result, release)
+func (s *resultSinks) StoreBlockResult(ctx context.Context, block evmonly.PreparedBlock, result *evmonly.BlockResult, release func()) error {
+	return s.sink.StoreBlockResult(ctx, block, result, release)
 }
 
 func (s *resultSinks) Close() error {
@@ -59,7 +59,7 @@ func (s *resultSinks) Cleanup() error {
 
 type discardResultSink struct{}
 
-func (discardResultSink) StoreBlockResult(_ context.Context, _ uint64, _ *evmonly.BlockResult, release func()) error {
+func (discardResultSink) StoreBlockResult(_ context.Context, _ evmonly.PreparedBlock, _ *evmonly.BlockResult, release func()) error {
 	defer release()
 	return nil
 }
@@ -181,9 +181,9 @@ func newAsyncFileResultSinks(files *fileResultSinks, queueSize int, metrics *loa
 	return s
 }
 
-func (s *asyncFileResultSinks) StoreBlockResult(ctx context.Context, height uint64, result *evmonly.BlockResult, release func()) error {
+func (s *asyncFileResultSinks) StoreBlockResult(ctx context.Context, block evmonly.PreparedBlock, result *evmonly.BlockResult, release func()) error {
 	return s.enqueue(ctx, resultSinkRecord{
-		height:  height,
+		height:  block.Context.Number,
 		result:  result,
 		release: release,
 	})

@@ -35,9 +35,10 @@ type PreparedBlockExecutor interface {
 // the fact, and a sink error does not roll back the state commit.
 // The sink must invoke release exactly once after it no longer references
 // result. If StoreBlockResult returns an error, the executor releases that sink
-// reference.
+// reference. block is the block result was executed from; the executor does not
+// modify it, so the sink may keep it.
 type ResultSink interface {
-	StoreBlockResult(ctx context.Context, height uint64, result *BlockResult, release func()) error
+	StoreBlockResult(ctx context.Context, block PreparedBlock, result *BlockResult, release func()) error
 }
 
 // BlockRequest contains all consensus/runtime inputs needed to execute a block.

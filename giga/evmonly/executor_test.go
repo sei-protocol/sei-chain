@@ -50,8 +50,8 @@ func (s *failingReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rec
 	return s.MemoryReceiptStore.SetReceipts(ctx, records)
 }
 
-func (s *recordingResultSink) StoreBlockResult(_ context.Context, height uint64, result *BlockResult, release func()) error {
-	s.heights = append(s.heights, height)
+func (s *recordingResultSink) StoreBlockResult(_ context.Context, block PreparedBlock, result *BlockResult, release func()) error {
+	s.heights = append(s.heights, block.Context.Number)
 	s.results = append(s.results, result)
 	s.releases = append(s.releases, release)
 	return nil

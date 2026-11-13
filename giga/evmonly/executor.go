@@ -225,7 +225,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 	}
 	recordOCCStats(ctx, len(req.Txs), result.OCCStats)
 	recordTxExecutionStats(ctx, result.Txs)
-	if err := e.sinkBlockResult(ctx, req.Context.Number, result); err != nil {
+	if err := e.sinkBlockResult(ctx, req, result); err != nil {
 		result.Release()
 		return nil, err
 	}
@@ -268,14 +268,14 @@ func (e *Executor) acquireBlockResult(ctx context.Context, txCapacity int) (*Blo
 	return e.resultPool.acquire(ctx, txCapacity)
 }
 
-func (e *Executor) sinkBlockResult(ctx context.Context, height uint64, result *BlockResult) error {
+func (e *Executor) sinkBlockResult(ctx context.Context, block PreparedBlock, result *BlockResult) error {
 	if e.resultSink == nil || result == nil {
 		return nil
 	}
 	release := result.retain()
-	if err := e.resultSink.StoreBlockResult(ctx, height, result, release); err != nil {
+	if err := e.resultSink.StoreBlockResult(ctx, block, result, release); err != nil {
 		release()
-		return fmt.Errorf("store block result for block %d: %w", height, err)
+		return fmt.Errorf("store block result for block %d: %w", block.Context.Number, err)
 	}
 	return nil
 }

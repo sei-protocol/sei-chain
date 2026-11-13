@@ -126,6 +126,8 @@ type evmOnlyApplication struct {
 	// field so each application instance has its own last-phase clock.
 	// FinalizeBlock is serialized by executor, so one timer is enough per app.
 	finalizePhases *seidbmetrics.PhaseTimer
+	// executorOptions are added to every executor the application creates.
+	executorOptions []evmonly.Option
 }
 
 const (
@@ -167,6 +169,7 @@ var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
 // homeDir's data directory, when homeDir is set, and prints the halt line to
 // stderr. A storage that already holds committed blocks resumes from its
 // durable cursor, so Info reports the stored height and InitChain is refused.
+// executorOptions are added to the executor's own, for example a result sink.
 func NewEVMOnlyApplication(
 	chainID uint64,
 	validators []abci.ValidatorUpdate,
@@ -174,6 +177,7 @@ func NewEVMOnlyApplication(
 	execution gigaconfig.ExecutionConfig,
 	customPrecompiles utils.Option[precompiles.Registry],
 	homeDir utils.Option[string],
+	executorOptions ...evmonly.Option,
 ) (proxy.EVMApplication, error) {
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
@@ -191,6 +195,7 @@ func NewEVMOnlyApplication(
 		settler:           utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		checkedSenders:    utils.NewMutex(new(newSenderCache())),
 		finalizePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
+		executorOptions:   executorOptions,
 	}
 	cursor, err := loadEVMOnlyCursor(storage.SC())
 	if err != nil {
@@ -226,11 +231,11 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 		RejectUnappliableTxs: true,
 		BlockResultPoolSize:  a.execution.BlockResultPoolSize,
 		CustomPrecompiles:    a.customPrecompiles.Or(nil),
-	},
+	}, append([]evmonly.Option{
 		evmonly.WithStorageManager(a.storage),
 		evmonly.WithMissingAccountState(evmOnlyFundedState{}),
 		evmonly.WithStoreIndependentBlockChangeSetEncoder(a.encodeCursorChangeSet),
-	)
+	}, a.executorOptions...)...)
 }
 
 // encodeCursorChangeSet chains the block into the app hash and stages the

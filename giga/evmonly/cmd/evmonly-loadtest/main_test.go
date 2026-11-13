@@ -79,7 +79,7 @@ func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	}
 
 	var released atomic.Bool
-	require.NoError(t, discardResultSink{}.StoreBlockResult(t.Context(), request.Context.Number, result, func() {
+	require.NoError(t, discardResultSink{}.StoreBlockResult(t.Context(), evmonly.PreparedBlock{Context: request.Context}, result, func() {
 		released.Store(true)
 	}))
 	require.True(t, released.Load())
@@ -687,7 +687,7 @@ func TestFileResultSinkWritesRLPRecordsAndCleansUpOnCancel(t *testing.T) {
 		TxHash: common.HexToHash("0x01"),
 	}}
 	var released atomic.Bool
-	require.NoError(t, sinks.StoreBlockResult(t.Context(), 1, &evmonly.BlockResult{
+	require.NoError(t, sinks.StoreBlockResult(t.Context(), testBlockAt(1), &evmonly.BlockResult{
 		ChangeSet: writtenChangeSet,
 		Receipts:  writtenReceipts,
 	}, func() {
@@ -736,7 +736,7 @@ func TestAsyncFileResultSinkReportsMetrics(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	require.NoError(t, sinks.StoreBlockResult(ctx, 1, &evmonly.BlockResult{}, func() {}))
+	require.NoError(t, sinks.StoreBlockResult(ctx, testBlockAt(1), &evmonly.BlockResult{}, func() {}))
 	require.NoError(t, sinks.Close())
 
 	snapshot := metrics.snapshot()
@@ -774,7 +774,7 @@ func TestAsyncFileResultSinkStoresBlockResultAndReleases(t *testing.T) {
 		}},
 	}
 	var released atomic.Bool
-	require.NoError(t, sinks.StoreBlockResult(t.Context(), 1, result, func() {
+	require.NoError(t, sinks.StoreBlockResult(t.Context(), testBlockAt(1), result, func() {
 		released.Store(true)
 	}))
 	require.Eventually(t, func() bool {
@@ -992,4 +992,9 @@ func BenchmarkExecuteTransferBlock(b *testing.B) {
 			executor.Close()
 		})
 	}
+}
+
+// testBlockAt returns an empty block numbered number.
+func testBlockAt(number uint64) evmonly.PreparedBlock {
+	return evmonly.PreparedBlock{Context: evmonly.BlockContext{Number: number}}
 }

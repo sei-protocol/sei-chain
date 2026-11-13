@@ -88,6 +88,21 @@ func TestConfigTemplateRendersSkipUpgrades(t *testing.T) {
 	require.Equal(t, want, cfg)
 }
 
+func TestConfigTemplateRendersArchivePassword(t *testing.T) {
+	tmpl := template.Must(template.New("giga").Parse(gigaconfig.ConfigTemplate))
+	want := gigaconfig.DefaultConfig
+	want.Archive.ClickHouseAddr = "ch:9000"
+	want.Archive.Password = `p"a\ss#word`
+	var rendered bytes.Buffer
+	require.NoError(t, tmpl.Execute(&rendered, struct{ Giga gigaconfig.Config }{want}))
+	v := viper.New()
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadConfig(&rendered))
+	cfg, err := gigaconfig.ReadConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, want, cfg)
+}
+
 func TestReadConfigReadsEveryKey(t *testing.T) {
 	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{
 		"giga.storage.mode":                         "full",
@@ -122,6 +137,10 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.rpc.trace_timeout":                    "4s",
 		"giga.rpc.max_trace_struct_log_bytes":       "512",
 		"giga.state_sync.enabled":                   "true",
+		"giga.archive.clickhouse_addr":              "ch:9000",
+		"giga.archive.database":                     "arch",
+		"giga.archive.user":                         "writer",
+		"giga.archive.password":                     "secret",
 	})
 	require.NoError(t, err)
 	want := gigaconfig.Config{
@@ -164,6 +183,12 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		},
 		StateSync: gigaconfig.StateSyncConfig{
 			Enabled: true,
+		},
+		Archive: gigaconfig.ArchiveConfig{
+			ClickHouseAddr: "ch:9000",
+			Database:       "arch",
+			User:           "writer",
+			Password:       "secret",
 		},
 	}
 	require.Equal(t, want, cfg)
@@ -217,6 +242,7 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"negative filter cap":             {"giga.rpc.max_filters": "-1"},
 		"non-numeric block filter hashes": {"giga.rpc.max_block_filter_hashes": "plenty"},
 		"non-boolean state sync":          {"giga.state_sync.enabled": "maybe"},
+		"archive without database":        {"giga.archive.clickhouse_addr": "ch:9000", "giga.archive.database": ""},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)

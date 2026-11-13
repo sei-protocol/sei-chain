@@ -20,6 +20,7 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	evmonlyrpc "github.com/sei-protocol/sei-chain/giga/evmonly/rpc"
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -133,6 +134,7 @@ type nodeImpl struct {
 	executor             utils.Option[*execution.Executor]
 	gigaStorageManager   utils.Option[*bootstrap.GigaStorageManager]
 	gigaStorageCloseOnce sync.Once
+	archive              utils.Option[*archive.Exporter] // history archive exporter, closed with Giga storage
 	ServiceRestartCh     utils.Option[chan []string]
 	nodeInfo             types.NodeInfo
 	nodeKey              types.NodeKey // our node privkey
@@ -188,6 +190,7 @@ func makeNode(
 			} else if manager, ok := gigaStorageManager.Get(); ok {
 				_ = manager.Close()
 			}
+			closeArchive(opts.archive)
 			err = combineCloseError(err, makeCloser(closers))
 		}
 	}()
@@ -266,6 +269,7 @@ func makeNode(
 		consensusPolicy:    consensusPolicy,
 		freezeHeight:       opts.freezeHeight,
 		gigaStorageManager: gigaStorageManager,
+		archive:            opts.archive,
 		evmOnlyRPCPort:     opts.giga.Execution.EvmRpcPort,
 		evmOnlyWSPort:      opts.giga.Execution.EvmWsPort,
 		evmOnlyRPCLimits:   opts.giga.RPC,
@@ -807,8 +811,8 @@ func (n *nodeImpl) OnStop() {
 	}
 }
 
-// closeGigaStorage closes the manager-owned storage at most once, after the
-// application's in-flight block commits have landed.
+// closeGigaStorage closes the manager-owned storage and then the history archive, at most once,
+// after the application's in-flight block commits have landed.
 func (n *nodeImpl) closeGigaStorage() error {
 	var err error
 	n.gigaStorageCloseOnce.Do(func() {
@@ -820,6 +824,7 @@ func (n *nodeImpl) closeGigaStorage() error {
 				logger.Error("failed to close Giga storage manager", "err", err)
 			}
 		}
+		closeArchive(n.archive)
 	})
 	return err
 }
