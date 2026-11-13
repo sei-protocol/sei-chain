@@ -74,6 +74,7 @@ type MockApp struct {
 	app         proxy.EVMApplication
 	chainConfig *params.ChainConfig
 	state       utils.RWMutex[*mockAppState]
+	turn        proxy.Turn
 	// hashes receives each committed block's state, BUD, and receipt hashes.
 	// None means Commit does not report them.
 	hashes utils.Option[builder.AppHashBuilder]
@@ -263,9 +264,7 @@ func (app *MockApp) EvmStateBeforeTx(context.Context, *ethtypes.Header, [][]byte
 	return nil, nil, errMockAppNoExecution
 }
 
-func (app *MockApp) PrepareBlock(context.Context, *proxy.RequestFinalizeBlock) error { return nil }
-
-func (app *MockApp) FinalizeBlock(_ context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
+func (app *MockApp) FinalizeBlock(ctx context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
 	if req.Header == nil {
 		return nil, errMockAppMissingHeader
 	}
@@ -273,10 +272,22 @@ func (app *MockApp) FinalizeBlock(_ context.Context, req *proxy.RequestFinalizeB
 	if err != nil {
 		return nil, err
 	}
-	for state := range app.state.Lock() {
-		return state.finalizeBlock(req, txs)
+	for {
+		ch := app.turn.Chan()
+		for state := range app.state.Lock() {
+			if state.nextTransition == mockAppTransitionFinalize && req.Header.Height == state.lastBlockHeight+1 {
+				return state.finalizeBlock(req, txs)
+			}
+			if req.Header.Height <= state.lastBlockHeight {
+				return nil, fmt.Errorf("mock app FinalizeBlock non-sequential height: got %d, want %d", req.Header.Height, state.lastBlockHeight+1)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ch:
+		}
 	}
-	panic("unreachable")
 }
 
 func (app *MockApp) Commit(ctx context.Context) (*proxy.ResponseCommit, error) {
@@ -293,6 +304,7 @@ func (app *MockApp) Commit(ctx context.Context) (*proxy.ResponseCommit, error) {
 	}
 	for state := range app.state.Lock() {
 		state.nextTransition = mockAppTransitionFinalize
+		app.turn.Broadcast()
 		return &proxy.ResponseCommit{RetainHeight: max(state.lastBlockHeight-blocksToRetain, 0)}, nil
 	}
 	panic("unreachable")

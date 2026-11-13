@@ -126,11 +126,10 @@ const standardTxBytes uint64 = 1024
 // Maximum number of transactions in a block.
 const MaxTxsPerBlock uint64 = 2000
 
-// PrepareAheadBlocks is how many durable blocks Autobahn prepares while one executes.
+// PrepareAheadBlocks is how many blocks execution may be inside FinalizeBlock for at once.
 const PrepareAheadBlocks = 3
 
-// MaxPreparedBlocks is how many prepared blocks the app holds: the prepare-ahead depth,
-// the block being handed to execute, and the one executing.
+// MaxPreparedBlocks is how many blocks of early-speculation state the executor retains.
 const MaxPreparedBlocks = PrepareAheadBlocks + 2
 
 // Maximum total size of all the transactions.

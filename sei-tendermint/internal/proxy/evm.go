@@ -35,8 +35,6 @@ type EVMApplication interface {
 	RememberEvmSender(hash common.Hash, sender common.Address)
 	// ForgetEvmSender drops the sender recorded for hash, if any.
 	ForgetEvmSender(hash common.Hash)
-	// PrepareBlock decodes a block's transactions ahead of FinalizeBlock.
-	PrepareBlock(context.Context, *RequestFinalizeBlock) error
 	FinalizeBlock(context.Context, *RequestFinalizeBlock) (*ResponseFinalizeBlock, error)
 	Commit(context.Context) (*ResponseCommit, error)
 	// AwaitCommits waits for finalized blocks to reach the store and returns any commit failure.
@@ -166,11 +164,6 @@ func (app *EVMProxy) EvmNonce(addr common.Address) uint64 {
 func (app *EVMProxy) EvmCommittedNonce(addr common.Address) uint64 {
 	defer addTimeSample(Global.MethodTimingAt("evm_committed_nonce", "sync"))()
 	return app.app.EvmCommittedNonce(addr)
-}
-
-func (app *EVMProxy) PrepareBlock(ctx context.Context, req *RequestFinalizeBlock) error {
-	defer addTimeSample(Global.MethodTimingAt("prepare_block", "sync"))()
-	return app.app.PrepareBlock(ctx, req)
 }
 
 func (app *EVMProxy) FinalizeBlock(ctx context.Context, req *RequestFinalizeBlock) (*ResponseFinalizeBlock, error) {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	dto "github.com/prometheus/client_model/go"
@@ -14,7 +16,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution/metrics"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -36,8 +37,10 @@ func logEvent(events *eventLog, format string, args ...any) {
 // recordingApp is an application that records each call execution makes.
 type recordingApp struct {
 	proxy.EVMApplication
-	events *eventLog
-	state  utils.Mutex[*recordingAppState]
+	events  *eventLog
+	state   utils.Mutex[*recordingAppState]
+	turn    proxy.Turn
+	onEnter func(int64)
 }
 
 type recordingAppState struct {
@@ -72,10 +75,14 @@ func (a *recordingApp) LastBlockHeight() int64 {
 	panic("unreachable")
 }
 
-func (a *recordingApp) InitChain(*proxy.RequestInitChain) (*proxy.ResponseInitChain, error) {
+func (a *recordingApp) InitChain(req *proxy.RequestInitChain) (*proxy.ResponseInitChain, error) {
 	for state := range a.state.Lock() {
 		state.inited = true
+		if state.last == 0 {
+			state.last = req.InitialHeight - 1
+		}
 	}
+	a.turn.Broadcast()
 	return &proxy.ResponseInitChain{}, nil
 }
 
@@ -85,9 +92,13 @@ func (a *recordingApp) InitLastHeader(header *proxy.Header) {
 	}
 }
 
-func (a *recordingApp) PrepareBlock(context.Context, *proxy.RequestFinalizeBlock) error { return nil }
-
-func (a *recordingApp) FinalizeBlock(_ context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
+func (a *recordingApp) FinalizeBlock(ctx context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
+	if a.onEnter != nil {
+		a.onEnter(req.Header.Height)
+	}
+	if err := a.waitTurn(ctx, req.Header.Height); err != nil {
+		return nil, err
+	}
 	logEvent(a.events, "finalize %d", req.Header.Height)
 	for state := range a.state.Lock() {
 		state.pending = req.Header.Height
@@ -96,13 +107,35 @@ func (a *recordingApp) FinalizeBlock(_ context.Context, req *proxy.RequestFinali
 	return &proxy.ResponseFinalizeBlock{TxResults: []*proxy.ExecTxResult{{GasUsed: testGasPerBlock}}}, nil
 }
 
+// waitTurn returns once height is the next block to finalize.
+func (a *recordingApp) waitTurn(ctx context.Context, height int64) error {
+	for {
+		ch := a.turn.Chan()
+		for state := range a.state.Lock() {
+			if state.pending == 0 && state.last+1 == height {
+				return nil
+			}
+			if height <= state.last {
+				return fmt.Errorf("recording app block height %d does not follow %d", height, state.last)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ch:
+		}
+	}
+}
+
 func (a *recordingApp) Commit(context.Context) (*proxy.ResponseCommit, error) {
 	for state := range a.state.Lock() {
 		if fail, ok := state.failCommitAt.Get(); ok && fail == state.pending {
 			return nil, errCommitFailed
 		}
 		state.last = state.pending
+		state.pending = 0
 	}
+	a.turn.Broadcast()
 	return &proxy.ResponseCommit{}, nil
 }
 
@@ -283,10 +316,16 @@ func TestRunReportsEachBlockHashBeforeExecutingIt(t *testing.T) {
 	}))
 
 	for log := range env.events.Lock() {
-		require.Equal(t, []string{
-			fmt.Sprintf("report %d", env.road(0)), fmt.Sprintf("finalize %d", env.road(0)),
-			fmt.Sprintf("report %d", env.road(1)), fmt.Sprintf("finalize %d", env.road(1)),
-		}, *log)
+		at := map[string]int{}
+		for i, event := range *log {
+			at[event] = i
+		}
+		report := func(i int) string { return fmt.Sprintf("report %d", env.road(i)) }
+		finalize := func(i int) string { return fmt.Sprintf("finalize %d", env.road(i)) }
+		require.Equal(t, 4, len(*log))
+		require.True(t, at[report(0)] < at[finalize(0)])
+		require.True(t, at[report(1)] < at[finalize(1)])
+		require.True(t, at[finalize(0)] < at[finalize(1)])
 	}
 	for i, req := range app.finalized() {
 		want := env.blocks[i].SuperBlock()
@@ -364,93 +403,30 @@ func TestFinalizeBlockGasUsed(t *testing.T) {
 	require.Equal(t, int64(30), finalizeBlockGasUsed(resp))
 }
 
-// preparingApp is a recordingApp that also prepares blocks, and records whether
-// each finalized block was prepared first.
-type preparingApp struct {
-	*recordingApp
-	prepareErr func(height int64) error
-	prep       utils.Mutex[*preparingAppState]
-}
-
-type preparingAppState struct {
-	prepared map[int64]bool
-	misses   int
-}
-
-func newPreparingApp(events *eventLog) *preparingApp {
-	return &preparingApp{
-		recordingApp: newRecordingApp(events, 0),
-		prep:         utils.NewMutex(&preparingAppState{prepared: map[int64]bool{}}),
-	}
-}
-
-func (a *preparingApp) PrepareBlock(_ context.Context, req *proxy.RequestFinalizeBlock) error {
-	if a.prepareErr != nil {
-		if err := a.prepareErr(req.Header.Height); err != nil {
-			return err
-		}
-	}
-	for state := range a.prep.Lock() {
-		state.prepared[req.Header.Height] = true
-	}
-	return nil
-}
-
-func (a *preparingApp) FinalizeBlock(ctx context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
-	for state := range a.prep.Lock() {
-		if !state.prepared[req.Header.Height] {
-			state.misses++
-		}
-	}
-	return a.recordingApp.FinalizeBlock(ctx, req)
-}
-
-func (env *testEnv) preparingExecutor(app *preparingApp) *Executor {
-	return New(&Config{
-		GenDoc:         env.genDoc,
-		App:            proxy.NewEVM(app),
-		AppHashBuilder: recordingBuilder{events: env.events},
-		BlockStore:     env.store,
-	})
-}
-
-// Every block is handed to PrepareBlock before FinalizeBlock runs it.
-func TestRunPreparesEveryBlockBeforeFinalizingIt(t *testing.T) {
+// The next block's FinalizeBlock is entered while the current one is still inside it.
+func TestRunEntersTheNextBlockBeforeTheCurrentOneReturns(t *testing.T) {
 	rng := utils.TestRng()
-	env := newTestEnv(t, rng, 6)
-	require.NoError(t, env.write(0, 6, true))
-	app := newPreparingApp(env.events)
-	executor := env.preparingExecutor(app)
+	env := newTestEnv(t, rng, 4)
+	require.NoError(t, env.write(0, 4, true))
+	app := newRecordingApp(env.events, 0)
+	release := make(chan struct{})
+	var entered atomic.Int32
+	var once sync.Once
+	first := int64(env.road(0))
+	app.onEnter = func(height int64) {
+		if entered.Add(1) >= 2 {
+			once.Do(func() { close(release) })
+		}
+		if height == first {
+			<-release
+		}
+	}
+	executor := env.executor(app)
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
-		return waitExecuted(ctx, executor, env.road(5))
+		return waitExecuted(ctx, executor, env.road(3))
 	}))
-	require.Equal(t, 6, len(app.finalized()))
-	for state := range app.prep.Lock() {
-		require.Equal(t, 0, state.misses)
-	}
-}
-
-// A PrepareBlock error stops execution with that error.
-func TestRunStopsOnAPrepareError(t *testing.T) {
-	rng := utils.TestRng()
-	env := newTestEnv(t, rng, 3)
-	require.NoError(t, env.write(0, 3, true))
-	errPrepare := errors.New("prepare failed")
-	failAt := int64(env.road(1))
-	app := newPreparingApp(env.events)
-	app.prepareErr = func(height int64) error {
-		if height == failAt {
-			return errPrepare
-		}
-		return nil
-	}
-	require.ErrorIs(t, env.preparingExecutor(app).Run(t.Context()), errPrepare)
-}
-
-// The app's prepared queue holds every block execution prepares at once.
-func TestPrepareAheadFitsTheAppsPreparedQueue(t *testing.T) {
-	require.Equal(t, atypes.PrepareAheadBlocks+2, atypes.MaxPreparedBlocks)
-	require.Equal(t, atypes.MaxPreparedBlocks, evmonlyapp.MaxPreparedBlocks)
+	require.GreaterOrEqual(t, entered.Load(), int32(2))
+	require.Equal(t, 4, len(app.finalized()))
 }

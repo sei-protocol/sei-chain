@@ -58,40 +58,36 @@ type pendingExec struct {
 }
 
 // Run initializes the app, then executes the durable blocks after its tip in
-// road order until ctx is canceled or a block fails. executeBlock calls run
-// concurrently up to atypes.PrepareAheadBlocks ahead of the one whose
-// FinalizeBlock+Commit is in progress, so each block's PrepareBlock overlaps
-// the previous block's finalize and commit.
+// road order until ctx is canceled or a block fails. Up to
+// atypes.PrepareAheadBlocks calls to FinalizeBlock are in flight at once; the
+// app decodes a later block before the earlier one's turn to execute.
 func (e *Executor) Run(ctx context.Context) error {
 	next, err := e.initApp(ctx)
 	if err != nil {
 		return err
 	}
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		slots := make(chan struct{}, atypes.PrepareAheadBlocks)
 		results := make(chan pendingExec, atypes.PrepareAheadBlocks)
 		s.Spawn(func() error {
-			// priorDone carries the previous executeBlock's result to the next one;
-			// collected carries the same result to the ordered collector. Each has one receiver.
-			priorDone := make(chan error, 1)
-			priorDone <- nil
 			for n := next; ; n++ {
+				if err := utils.Send(ctx, slots, struct{}{}); err != nil {
+					return err
+				}
 				block, err := e.cfg.BlockStore.WaitForBlock(ctx, n)
 				if err != nil {
+					<-slots
 					return fmt.Errorf("WaitForBlock(%v): %w", n, err)
 				}
 				b := block.SuperBlock()
 				req := e.finalizeRequest(b)
-				nextPrior := make(chan error, 1)
-				collected := make(chan error, 1)
-				prior := priorDone
+				done := make(chan error, 1)
 				s.Spawn(func() error {
-					err := e.executeBlock(ctx, b, req, prior)
-					nextPrior <- err
-					collected <- err
+					defer func() { <-slots }()
+					done <- e.executeBlock(ctx, b, req)
 					return nil
 				})
-				priorDone = nextPrior
-				if err := utils.Send(ctx, results, pendingExec{height: b.Height, done: collected}); err != nil {
+				if err := utils.Send(ctx, results, pendingExec{height: b.Height, done: done}); err != nil {
 					return err
 				}
 			}
@@ -186,25 +182,13 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 	return last + 1, nil
 }
 
-// executeBlock prepares req (overlapping the previous block's finalize and commit),
-// waits for that previous executeBlock to finish, then reports b's hash, finalizes,
-// and commits.
-func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock, req *proxy.RequestFinalizeBlock, priorDone <-chan error) error {
-	if err := e.cfg.App.PrepareBlock(ctx, req); err != nil {
-		return fmt.Errorf("app.PrepareBlock(): %w", err)
-	}
-	priorErr, err := utils.Recv(ctx, priorDone)
-	if err != nil {
-		return err
-	}
-	if priorErr != nil {
-		return priorErr
-	}
+// executeBlock reports b's hash, finalizes it, and commits it. FinalizeBlock may
+// already be running for later blocks; the app executes them in height order.
+func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock, req *proxy.RequestFinalizeBlock) error {
 	if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
 		return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 	}
 	app := e.cfg.App
-	// Read from the app's state after the previous block's Commit.
 	// WARNING: the reward distribution has corner cases where it forgets the proposer,
 	// because reward is distributed with a delay. This is not our problem here though.
 	if vals := app.GetValidators(); len(vals) > 0 {
