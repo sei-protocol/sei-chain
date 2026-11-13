@@ -104,7 +104,7 @@ func TestInnerPruneViaQCRetainsLast(t *testing.T) {
 
 	last := blocks[len(blocks)-1].Proposal.Msg().Block().Header()
 	qc := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
-		lane: types.NewLaneQC(makeLaneVotes(keys, last)),
+		lane: types.NewLaneQC(makeLaneVotes(ep.EpochIndex(), keys, last)),
 	})
 	lr := qc.LaneRange(lane)
 	require.Equal(t, types.BlockNumber(3), lr.Next())
@@ -137,7 +137,7 @@ func TestInnerPruneKeepsLastAheadOfQC(t *testing.T) {
 	}
 
 	qc := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
-		lane: types.NewLaneQC(makeLaneVotes(keys, blocks[0].Proposal.Msg().Block().Header())),
+		lane: types.NewLaneQC(makeLaneVotes(ep.EpochIndex(), keys, blocks[0].Proposal.Msg().Block().Header())),
 	})
 	require.Equal(t, types.BlockNumber(1), qc.LaneRange(lane).Next())
 
@@ -416,11 +416,11 @@ func TestPruneKeepsAnchorTipAndLocalBlock(t *testing.T) {
 	other := committee.Lane(keys[1].Public()).OrPanic("other")
 	tip := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
 	qc1 := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
-		lane: types.NewLaneQC(makeLaneVotes(keys, tip)),
+		lane: types.NewLaneQC(makeLaneVotes(ep.EpochIndex(), keys, tip)),
 	})
 	otherHeader := types.NewBlock(other, 0, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
 	qc2 := types.BuildCommitQC(ep, keys, utils.Some(qc1), map[types.LaneID]*types.LaneQC{
-		other: types.NewLaneQC(makeLaneVotes(keys, otherHeader)),
+		other: types.NewLaneQC(makeLaneVotes(ep.EpochIndex(), keys, otherHeader)),
 	})
 	require.Equal(t, uint64(0), qc2.LaneRange(lane).Len())
 	require.Equal(t, tip.Hash(), qc2.LaneRange(lane).LastHash())
@@ -434,7 +434,7 @@ func TestPruneKeepsAnchorTipAndLocalBlock(t *testing.T) {
 	// the anchor tip until a later AppQC prune advances parentOfFirstLaneBlock.
 	later := types.NewBlock(lane, qc2.LaneRange(lane).Next(), tip.Hash(), types.GenPayload(rng)).Header()
 	qc3 := types.BuildCommitQC(ep, keys, utils.Some(qc2), map[types.LaneID]*types.LaneQC{
-		lane: types.NewLaneQC(makeLaneVotes(keys, later)),
+		lane: types.NewLaneQC(makeLaneVotes(ep.EpochIndex(), keys, later)),
 	})
 	i.roads.pushBack(newRoad(qc3, ep))
 	require.NotEqual(t, tip.Hash(), qc3.LaneRange(lane).LastHash())

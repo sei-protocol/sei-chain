@@ -304,7 +304,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 		if len(bs) == 0 {
 			continue
 		}
-		laneQCs[lane] = TestLaneQC(badKeys, bs[len(bs)-1].Header())
+		laneQCs[lane] = TestLaneQC(ep0.EpochIndex(), badKeys, bs[len(bs)-1].Header())
 		for _, b := range bs {
 			headers = append(headers, b.Header())
 			malBlocks = append(malBlocks, b)

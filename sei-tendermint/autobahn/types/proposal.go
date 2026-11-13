@@ -344,7 +344,7 @@ func (m *FullProposal) Verify(vs ViewSpec, viewTimeout time.Duration) error {
 					return fmt.Errorf("qc[%v].Header().Hash() = %v, want %v", r.Lane(), got, want)
 				}
 				s.Spawn(func() error {
-					if err := qc.Verify(c); err != nil {
+					if err := qc.Verify(vs.Epoch); err != nil {
 						return fmt.Errorf("qc[%v]: %w", r.Lane(), err)
 					}
 					return nil

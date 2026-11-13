@@ -25,7 +25,7 @@ func TestLaneBlockStagesFollowTheCurrentProposal(t *testing.T) {
 	}
 	var votes []*types.Signed[*types.LaneVote]
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewLaneVote(tip)))
+		votes = append(votes, types.Sign(k, types.NewLaneVote(ep.EpochIndex(), tip)))
 	}
 	vs := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{Epoch: ep}}
 	proposal := utils.OrPanic1(types.NewProposalForTesting(ep.Committee(), vs, vs.NextTimestamp(), map[types.LaneID]*types.LaneQC{
@@ -66,7 +66,7 @@ func TestLaneBlockStagesPartitionThePositionsPastTheCommittedTip(t *testing.T) {
 	}
 	var votes []*types.Signed[*types.LaneVote]
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewLaneVote(tip)))
+		votes = append(votes, types.Sign(k, types.NewLaneVote(ep.EpochIndex(), tip)))
 	}
 	vs := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{Epoch: ep}}
 	proposal := utils.OrPanic1(types.NewProposalForTesting(ep.Committee(), vs, vs.NextTimestamp(), map[types.LaneID]*types.LaneQC{

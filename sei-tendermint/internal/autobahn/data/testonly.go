@@ -16,8 +16,8 @@ func TestAppQC(keys []types.SecretKey, proposal *types.AppProposal) *types.AppQC
 	return types.NewAppQC(votes)
 }
 
-func TestLaneQC(keys []types.SecretKey, header *types.BlockHeader) *types.LaneQC {
-	vote := types.NewLaneVote(header)
+func TestLaneQC(epochIndex types.EpochIndex, keys []types.SecretKey, header *types.BlockHeader) *types.LaneQC {
+	vote := types.NewLaneVote(epochIndex, header)
 	votes := make([]*types.Signed[*types.LaneVote], 0, len(keys))
 	for _, k := range keys {
 		votes = append(votes, types.Sign(k, vote))
@@ -64,7 +64,7 @@ func testCommitQCBlocks(
 	var blockList []*types.Block
 	for lane := range committee.Lanes().All() {
 		if bs := blocks[lane]; len(bs) > 0 {
-			laneQCs[lane] = TestLaneQC(keys, bs[len(bs)-1].Header())
+			laneQCs[lane] = TestLaneQC(ep.EpochIndex(), keys, bs[len(bs)-1].Header())
 			for _, b := range bs {
 				headers = append(headers, b.Header())
 				blockList = append(blockList, b)

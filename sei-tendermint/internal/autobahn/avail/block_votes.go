@@ -5,12 +5,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// LaneVotes have two jobs: byKey keeps headers for FullCommitQC; byHash
-// accumulates applied-epoch weight for LaneQC. byKey is retained even after the
-// latest CommitQC moves into a new epoch, since a FullCommitQC in the previous
-// epoch may still need those headers — so we can't clear it on epoch change.
-// qc is set once weight reaches quorum under the applied committee and cleared
-// on reweight.
+// blockVotes holds lane votes, their headers, and their QC for the applied epoch.
 type blockVotes struct {
 	byKey  map[types.PublicKey]*types.Signed[*types.LaneVote]
 	byHash map[types.BlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]
@@ -26,33 +21,24 @@ func newBlockVotes() *blockVotes {
 	}
 }
 
-// return true iff the vote is newly stored in byKey.
-func (bv *blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) bool {
+// pushVote stores a vote verified against c and reports whether the signer is new.
+func (bv *blockVotes) pushVote(c *types.Committee, vote *types.Signed[*types.LaneVote]) bool {
 	k := vote.Key()
 	if _, ok := bv.byKey[k]; ok {
 		return false
 	}
 	bv.byKey[k] = vote
 	meters.LaneVotesIngested.Add(1)
-	bv.credit(ep, vote)
+	bv.credit(c, vote)
 	return true
-}
-
-func (bv *blockVotes) reweight(ep *types.Epoch) {
-	bv.qc = utils.None[*types.LaneQC]()
-	clear(bv.byHash)
-	for _, vote := range bv.byKey {
-		bv.credit(ep, vote)
-	}
 }
 
 // credit adds the vote's weight to its header bucket and, on reaching quorum,
 // forms the LaneQC. A block is counted as a LaneQC only the first time it forms one.
-func (bv *blockVotes) credit(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) {
+func (bv *blockVotes) credit(c *types.Committee, vote *types.Signed[*types.LaneVote]) {
 	if bv.qc.IsPresent() {
 		return
 	}
-	c := ep.Committee()
 	k := vote.Key()
 	w := c.Weight(k)
 	if w == 0 {

@@ -30,11 +30,18 @@ func NewLaneQC(votes []*Signed[*LaneVote]) *LaneQC {
 // Header .
 func (m *LaneQC) Header() *BlockHeader { return m.vote.Msg().header }
 
+// EpochIndex returns the epoch this certificate belongs to.
+func (m *LaneQC) EpochIndex() EpochIndex { return m.vote.Msg().EpochIndex() }
+
 // Next is the number of the first block not known to be available.
 func (m *LaneQC) Next() BlockNumber { return m.Header().Next() }
 
-// Verify verifies LaneQC against the committee.
-func (m *LaneQC) Verify(c *Committee) error {
+// Verify verifies LaneQC against the epoch.
+func (m *LaneQC) Verify(epoch *Epoch) error {
+	if err := m.vote.Msg().Verify(epoch); err != nil {
+		return err
+	}
+	c := epoch.Committee()
 	return m.vote.verifyQC(c, c.LaneQuorum(), m.sigs)
 }
 
@@ -42,12 +49,12 @@ func (m *LaneQC) Verify(c *Committee) error {
 var LaneQCConv = protoutils.Conv[*LaneQC, *pb.LaneQC]{
 	Encode: func(m *LaneQC) *pb.LaneQC {
 		return &pb.LaneQC{
-			Vote: LaneVoteConv.Encode(m.vote.Msg()),
-			Sigs: SignatureConv.EncodeSlice(m.sigs),
+			VoteV2: LaneVoteConv.Encode(m.vote.Msg()),
+			Sigs:   SignatureConv.EncodeSlice(m.sigs),
 		}
 	},
 	Decode: func(m *pb.LaneQC) (*LaneQC, error) {
-		vote, err := LaneVoteConv.DecodeReq(m.Vote)
+		vote, err := LaneVoteConv.DecodeReq(m.VoteV2)
 		if err != nil {
 			return nil, fmt.Errorf("vote: %w", err)
 		}

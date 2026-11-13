@@ -23,7 +23,7 @@ func TestNewInnerInitializesBoundaryLanes(t *testing.T) {
 	join := next.Committee().Lane(joiner.Public()).OrPanic("joining lane")
 	committed := types.NewBlock(stay, 5, types.BlockHeaderHash{}, &types.Payload{})
 	qc := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
-		stay: data.TestLaneQC(keys, committed.Header()),
+		stay: data.TestLaneQC(0, keys, committed.Header()),
 	})
 	anchor := data.Anchor{
 		First:  utils.Some(data.AnchorFirst{CommitQC: qc, AppQC: data.TestAppQC(keys, types.NewAppProposal(qc.View(), nil))}),

@@ -213,25 +213,20 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 // PushCommitQC admits a CommitQC once its epoch is applied and it is the next
 // road. Stale QCs are a no-op.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
-	idx := qc.Index()
-	want := qc.View().EpochIndex
-	var epoch *types.Epoch
-	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool {
-			return inner.applied().EpochIndex() >= want && idx <= inner.roads.next
-		}); err != nil {
-			return err
-		}
-		if inner.applied().EpochIndex() != want || inner.roads.next > idx {
-			return nil
-		}
-		epoch = inner.applied()
+	ei := qc.View().EpochIndex
+	epoch, err := s.waitForEpoch(ctx, ei)
+	if err != nil || epoch.EpochIndex() != ei {
+		return err
 	}
 	if err := qc.Verify(epoch); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		if idx != inner.roads.next || inner.applied().EpochIndex() != want {
+		idx := qc.Index()
+		if err := ctrl.WaitUntil(ctx, func() bool { return idx <= inner.roads.next }); err != nil {
+			return err
+		}
+		if idx != inner.roads.next {
 			return nil
 		}
 		inner.roads.pushBack(newRoad(qc, epoch))
@@ -242,7 +237,6 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		// (or immediately for no-op persisters), so consensus won't advance
 		// until the CommitQC is durable.
 		ctrl.Updated()
-		return nil
 	}
 	return nil
 }
@@ -313,8 +307,9 @@ func (s *State) Block(ctx context.Context, lane types.LaneID, n types.BlockNumbe
 	panic("unreachable")
 }
 
-// PushBlock pushes a block to the state once its lane is in the applied committee
-// and all previous blocks are available. Blocks for past lanes are silently dropped.
+// PushBlock pushes a block to the lanes registered in the state.
+// If block is from future lane, PushBlock waits for epoch to progress.
+// Blocks for past lanes are silently dropped.
 func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LaneProposal]) error {
 	h := p.Msg().Block().Header()
 	if p.Key() != h.Lane().Validator {
@@ -325,27 +320,24 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	if err := p.Msg().Verify(); err != nil {
 		return fmt.Errorf("Verify(): %w", err)
 	}
-	spec, err := s.spec.Wait(ctx, func(spec types.ConsensusSpec) bool {
-		return lane.Joined <= spec.Epoch.EpochIndex()
-	})
+	epoch, err := s.waitForEpoch(ctx, lane.Joined)
 	if err != nil {
 		return err
 	}
-	if !spec.Epoch.Committee().HasLane(lane) {
+	if !epoch.Committee().HasLane(lane) {
 		return nil
 	}
 	if err := p.VerifySig(); err != nil {
 		return fmt.Errorf("VerifySig(): %w", err)
 	}
+	// From here we don't care if block belongs to the applied epoch.
+	// This is a valid simplification: we need to keep around lanes for both epochs anyway.
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			ls, ok := inner.lanes[lane]
 			return !ok || n <= min(ls.blocks.next, ls.blocks.first+BlocksPerLane-1)
 		}); err != nil {
 			return err
-		}
-		if !inner.applied().Committee().HasLane(lane) {
-			return nil
 		}
 		ls, ok := inner.lanes[lane]
 		if !ok || ls.blocks.next != n {
@@ -371,44 +363,55 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	return nil
 }
 
-// PushVote pushes a LaneVote to the state.
-// Waits until the lane has enough capacity for the new vote.
-// It does NOT wait for the previous votes.
-// Accepts a vote valid under the applied or Anchor epoch (header evidence may
-// come from either); LaneQC weight uses only the applied epoch.
+// Waits for state to advance to epoch idx or later.
+func (s *State) waitForEpoch(ctx context.Context, idx types.EpochIndex) (*types.Epoch, error) {
+	spec, err := s.spec.Wait(ctx, func(spec types.ConsensusSpec) bool { return idx <= spec.Epoch.EpochIndex() })
+	if err != nil {
+		return nil, err
+	}
+	return spec.Epoch, nil
+}
+
+// PushVote pushes a lane vote for the applied epoch, waiting for epoch progress
+// and lane capacity. Votes for past epochs are ignored.
 func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote]) error {
-	h := vote.Msg().Header()
-	lane := h.Lane()
-	n := h.BlockNumber()
+	ei := vote.Msg().EpochIndex()
+	epoch, err := s.waitForEpoch(ctx, ei)
+	if err != nil || epoch.EpochIndex() != ei {
+		return err
+	}
+	if !epoch.Committee().HasReplica(vote.Key()) {
+		return fmt.Errorf("non-committee vote")
+	}
+	if err := vote.Msg().Verify(epoch); err != nil {
+		return fmt.Errorf("Verify(): %w", err)
+	}
 	if err := vote.VerifySig(); err != nil {
 		return fmt.Errorf("VerifySig(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
+		h := vote.Msg().Header()
+		lane := h.Lane()
+		n := h.BlockNumber()
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			ls, ok := inner.lanes[lane]
-			if !ok {
+			if inner.applied().EpochIndex() != ei {
 				return true
 			}
-			return n < ls.votes.first+BlocksPerLane
+			return n < inner.lanes[lane].votes.first+BlocksPerLane
 		}); err != nil {
 			return err
 		}
-		ls, ok := inner.lanes[lane]
-		if !ok {
+		if inner.applied().EpochIndex() != ei {
 			return nil
 		}
+		ls := inner.lanes[lane]
 		if n < ls.votes.first {
 			return nil
 		}
-		// TODO: PushVote should block on votes for future-lanes from future-voters
-		if !inner.epochForVote(vote).IsPresent() {
-			return nil
-		}
-		applied := inner.applied()
 		for ls.votes.next <= n {
 			ls.votes.pushBack(newBlockVotes())
 		}
-		if ls.votes.q[n].pushVote(applied, vote) {
+		if ls.votes.q[n].pushVote(epoch.Committee(), vote) {
 			ctrl.Updated()
 		}
 	}
@@ -509,11 +512,9 @@ func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduc
 	return nil
 }
 
-// WaitForLaneQCs waits until there is at least 1 LaneQC (for the given epoch)
-// with a block not finalized by prev.
-func (s *State) WaitForLaneQCs(
-	ctx context.Context, ep *types.Epoch, prev utils.Option[*types.CommitQC],
-) (map[types.LaneID]*types.LaneQC, error) {
+// WaitForLaneQCs waits until there is at least 1 LaneQC that can be included in proposal at idx.
+// NOTE: waits indefinitely, even if State progressed past idx.
+func (s *State) WaitForLaneQCs(ctx context.Context, idx types.RoadIndex) (map[types.LaneID]*types.LaneQC, error) {
 	var blocked bool
 	var start time.Time
 	defer func() {
@@ -524,12 +525,18 @@ func (s *State) WaitForLaneQCs(
 	for inner, ctrl := range s.inner.Lock() {
 		laneQCs := map[types.LaneID]*types.LaneQC{}
 		for {
-			for lane := range ep.Committee().Lanes().All() {
-				first := types.LaneRangeOpt(prev, lane).Next()
-				for i := range types.BlockNumber(types.MaxLaneRangeInProposal) {
-					if qc, ok := inner.laneQC(lane, first+i).Get(); ok {
-						laneQCs[lane] = qc
-					} else {
+			spec := inner.consensusSpec.Load()
+			if spec.Index() == idx {
+				for lane := range spec.Epoch.Committee().Lanes().All() {
+					first := types.LaneRangeOpt(spec.CommitQC, lane).Next()
+					votes := inner.lanes[lane].votes
+					for i := range types.BlockNumber(types.MaxLaneRangeInProposal) {
+						if entry, ok := votes.q[first+i]; ok {
+							if qc, ok := entry.qc.Get(); ok {
+								laneQCs[lane] = qc
+								continue
+							}
+						}
 						break
 					}
 				}

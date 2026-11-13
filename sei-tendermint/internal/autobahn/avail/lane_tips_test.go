@@ -30,7 +30,7 @@ func TestLaneTipsTrackHeldWithLaneQCAndCommittedBlocks(t *testing.T) {
 	require.Equal(t, LaneTip{WithCommitQC: 0, WithLaneQC: 0, Held: 3}, state.LaneTips()[lane])
 
 	for _, h := range headers[:2] {
-		for _, vote := range makeLaneVotes(keys, h) {
+		for _, vote := range makeLaneVotes(0, keys, h) {
 			require.NoError(t, state.PushVote(ctx, vote))
 		}
 	}

@@ -242,27 +242,6 @@ func (i *inner) applied() *types.Epoch {
 	return i.consensusSpec.Load().Epoch
 }
 
-// epochForVote returns the applied or Anchor epoch the vote belongs to
-// (lane + signer in that committee). Prefers applied; falls back to Anchor
-// when that is a different EpochIndex.
-func (i *inner) epochForVote(vote *types.Signed[*types.LaneVote]) utils.Option[*types.Epoch] {
-	lane := vote.Msg().Header().Lane()
-	key := vote.Key()
-	belongs := func(ep *types.Epoch) bool {
-		c := ep.Committee()
-		return c.HasLane(lane) && c.HasReplica(key)
-	}
-	applied := i.applied()
-	if belongs(applied) {
-		return utils.Some(applied)
-	}
-	ae := i.anchor.Epochs[0]
-	if ae.EpochIndex() == applied.EpochIndex() || !belongs(ae) {
-		return utils.None[*types.Epoch]()
-	}
-	return utils.Some(ae)
-}
-
 // advance publishes the consensus spec supported by persisted QCs and anchor epochs.
 func (i *inner) advance() {
 	// Compute the index of new consensus spec.
@@ -286,25 +265,11 @@ func (i *inner) advance() {
 	}
 	i.consensusSpec.Store(spec)
 	if newEpoch {
-		// Recount retained block votes under the applied epoch.
+		// Clear block votes for the new epoch.
 		for _, ls := range i.lanes {
-			vq := ls.votes
-			for n := vq.first; n < vq.next; n++ {
-				vq.q[n].reweight(epoch)
-			}
+			ls.votes.clear()
 		}
 	}
-}
-
-// laneQC returns the LaneQC for (lane, n) under the applied epoch, if one has formed.
-func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) utils.Option[*types.LaneQC] {
-	if ls, ok := i.lanes[lane]; ok {
-		if entry, ok := ls.votes.q[n]; ok {
-			return entry.qc
-
-		}
-	}
-	return utils.None[*types.LaneQC]()
 }
 
 // setAnchor advances to the data anchor and retains lanes from both anchor epochs.

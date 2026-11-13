@@ -183,6 +183,9 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		require.Equal(t, 1, len(batch))
 		require.Equal(t, block0.Msg().Block().Header().Hash(), batch[0].Msg().Header().Hash())
 		require.Equal(t, b.Public(), batch[0].Key())
+		require.Equal(t, epJoin.EpochIndex(), batch[0].Msg().EpochIndex())
+		require.NoError(t, batch[0].Msg().Verify(epJoin))
+		require.NoError(t, batch[0].VerifySig())
 
 		epLeave := register(1, onlyA)
 		advance(epLeave.EpochIndex())
@@ -197,6 +200,8 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		require.Equal(t, 1, len(batch))
 		require.Equal(t, block1.Msg().Block().Header().Hash(), batch[0].Msg().Header().Hash(),
 			"missed-while-out block is voted once; block0 must not be re-emitted")
+		require.Equal(t, epRejoin.EpochIndex(), batch[0].Msg().EpochIndex())
+		require.NoError(t, batch[0].Msg().Verify(epRejoin))
 
 		ctx2, cancel := context.WithCancel(ctx)
 		defer cancel()

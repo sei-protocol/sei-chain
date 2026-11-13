@@ -71,3 +71,20 @@ func TestQueuePrunePastNext(t *testing.T) {
 	require.Equal(t, uint64(0), q.Len())
 	require.Empty(t, q.q)
 }
+
+func TestQueueClearPreservesFirst(t *testing.T) {
+	q := newQueue[uint64, string]()
+	q.prune(7)
+	q.pushBack("old")
+	q.pushBack("votes")
+	q.clear()
+
+	require.Equal(t, uint64(7), q.first)
+	require.Equal(t, q.first, q.next)
+	require.Equal(t, uint64(0), q.Len())
+	require.Empty(t, q.q)
+
+	q.pushBack("new")
+	require.Equal(t, "new", q.q[7])
+	require.Equal(t, uint64(8), q.next)
+}

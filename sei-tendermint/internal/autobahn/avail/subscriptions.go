@@ -75,9 +75,14 @@ type LaneVotesRecv struct {
 
 func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.LaneVote], error) {
 	var batch []*types.BlockHeader
+	var epochIndex types.EpochIndex
 	for inner, ctrl := range r.state.inner.Lock() {
 		for {
+			ep := inner.applied()
 			for lane, ls := range inner.lanes {
+				if !ep.Committee().HasLane(lane) {
+					continue
+				}
 				bq := ls.blocks
 				upperBound := min(bq.next, ls.nextBlockToPersist)
 				for i := max(bq.first, r.next[lane]); i < upperBound; i++ {
@@ -86,6 +91,7 @@ func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.L
 				r.next[lane] = upperBound
 			}
 			if len(batch) > 0 {
+				epochIndex = ep.EpochIndex()
 				break
 			}
 			if err := ctrl.Wait(ctx); err != nil {
@@ -97,7 +103,7 @@ func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.L
 	// We should sign votes as soon as blocks arrive and cache them (in PushBlock and ProduceBlock).
 	votes := make([]*types.Signed[*types.LaneVote], len(batch))
 	for i, h := range batch {
-		votes[i] = types.Sign(r.state.key, types.NewLaneVote(h))
+		votes[i] = types.Sign(r.state.key, types.NewLaneVote(epochIndex, h))
 	}
 	return votes, nil
 }

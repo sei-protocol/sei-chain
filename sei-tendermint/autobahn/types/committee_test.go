@@ -120,17 +120,17 @@ func TestLaneQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
 	lane := ep.Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
-	vote := NewLaneVote(NewBlock(lane, 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
+	vote := NewLaneVote(ep.EpochIndex(), NewBlock(lane, 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
 
 	heavyOnly := NewLaneQC([]*Signed[*LaneVote]{
 		Sign(keys[0], vote),
 	})
-	require.NoError(t, heavyOnly.Verify(ep.Committee()))
+	require.NoError(t, heavyOnly.Verify(ep))
 	lightMajority := NewLaneQC([]*Signed[*LaneVote]{
 		Sign(keys[1], vote),
 		Sign(keys[2], vote),
 	})
-	require.Error(t, lightMajority.Verify(ep.Committee()))
+	require.Error(t, lightMajority.Verify(ep))
 }
 
 func TestPrepareQCVerifyChecksWeight(t *testing.T) {
