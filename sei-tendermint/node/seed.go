@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -50,6 +49,7 @@ type seedNodeImpl struct {
 
 // makeSeedNode returns a new seed node, containing only p2p, pex reactor
 func makeSeedNode(
+	ctx context.Context,
 	cfg *config.Config,
 	dbProvider config.DBProvider,
 	nodeKey types.NodeKey,
@@ -76,6 +76,7 @@ func makeSeedNode(
 	}
 
 	router, peerCloser, _, err := createRouter(
+		ctx,
 		func() *types.NodeInfo { return &nodeInfo },
 		nodeKey,
 		utils.None[atypes.SecretKey](),
@@ -84,7 +85,7 @@ func makeSeedNode(
 		genDoc,
 		dbProvider,
 		utils.None[*bootstrap.GigaStorageManager](),
-		gigaconfig.StateSyncConfig{},
+		p2p.StateSyncStart{},
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {
