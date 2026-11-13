@@ -126,11 +126,11 @@ const standardTxBytes uint64 = 1024
 // Maximum number of transactions in a block.
 const MaxTxsPerBlock uint64 = 2000
 
-// PrepareAheadBlocks is how many blocks execution may be inside FinalizeBlock for at once.
-const PrepareAheadBlocks = 3
+// FinalizeAheadBlocks is how many blocks execution may be inside FinalizeBlock for at once.
+const FinalizeAheadBlocks = 3
 
-// MaxPreparedBlocks is how many blocks of early-speculation state the executor retains.
-const MaxPreparedBlocks = PrepareAheadBlocks + 2
+// EarlySpeculationBlocks is how many blocks of early-speculation state the executor retains.
+const EarlySpeculationBlocks = FinalizeAheadBlocks + 2
 
 // Maximum total size of all the transactions.
 // It can be split arbitrarily across transactions (1 large, 2000 small ones, etc.)

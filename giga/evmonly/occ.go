@@ -76,7 +76,7 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, sourc
 	executionPool := e.occPool
 
 	results := make([]occTxExecution, len(req.Txs))
-	e.blockPhases.SetPhase(phaseOCCEarly)
+	e.blockPhases.SetPhase(phaseEarlySpeculation)
 	early := e.reuseEarlySpeculation(ctx, req, results)
 	e.blockPhases.SetPhase(phaseOCCSpeculate)
 	if err := runner.speculate(ctx, executionPool, workers, source, results, early); err != nil {

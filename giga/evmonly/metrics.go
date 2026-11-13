@@ -30,12 +30,12 @@ var (
 	}
 
 	occMetrics = struct {
-		blocks     metric.Int64Counter
-		fallbacks  metric.Int64Counter
-		reruns     metric.Int64Counter
-		conflicts  metric.Int64Counter
-		rerunDepth metric.Int64Histogram
-		earlyTxs   metric.Int64Counter
+		blocks              metric.Int64Counter
+		fallbacks           metric.Int64Counter
+		reruns              metric.Int64Counter
+		conflicts           metric.Int64Counter
+		rerunDepth          metric.Int64Histogram
+		earlySpeculationTxs metric.Int64Counter
 	}{
 		blocks: must(occMeter.Int64Counter(
 			"giga_occ_blocks_total",
@@ -63,9 +63,9 @@ var (
 			metric.WithUnit("{incarnation}"),
 			metric.WithExplicitBucketBoundaries(occRerunDepthBuckets()...),
 		)),
-		earlyTxs: must(occMeter.Int64Counter(
-			"giga_occ_early_txs_total",
-			metric.WithDescription("Transactions of blocks speculated early, by what execution did with the early result (reused, stale, unfinished, discarded)"),
+		earlySpeculationTxs: must(occMeter.Int64Counter(
+			"giga_occ_early_speculation_txs_total",
+			metric.WithDescription("Transactions speculated before their block executed, by what execution did with the result (reused, stale, unfinished, discarded)"),
 			metric.WithUnit("{transaction}"),
 		)),
 	}
@@ -349,6 +349,6 @@ const (
 // recordEarlyOutcome counts n transactions of an early-speculated block under outcome.
 func recordEarlyOutcome(ctx context.Context, outcome string, n int) {
 	if n > 0 {
-		occMetrics.earlyTxs.Add(ctx, int64(n), metric.WithAttributes(attribute.String("outcome", outcome)))
+		occMetrics.earlySpeculationTxs.Add(ctx, int64(n), metric.WithAttributes(attribute.String("outcome", outcome)))
 	}
 }

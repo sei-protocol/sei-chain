@@ -44,12 +44,12 @@ type Executor struct {
 	missingState           StateReader
 	closed                 atomic.Bool
 
-	// earlySlots bounds the transactions early speculation runs at once, across blocks; nil when early
-	// speculation is off.
-	earlySlots chan struct{}
-	earlyMu    sync.Mutex
-	// early holds the blocks being or already speculated ahead of execution, by block number.
-	early map[uint64]*earlySpeculation
+	// speculationSlots bounds how many early-speculation transactions run at once, across blocks.
+	// Nil when early speculation is off.
+	speculationSlots chan struct{}
+	speculationMu    sync.Mutex
+	// speculations holds each block being speculated ahead of execution, by block number.
+	speculations map[uint64]*earlySpeculation
 	// recentChanges indexes the changes of the last blocks executed, by block number.
 	recentChanges map[uint64]*pendingIndex
 	// lastExecuted is the number of the last block whose commit has started.
@@ -123,8 +123,8 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 		opt(e)
 	}
 	if e.cfg.EarlySpeculationWorkers > 0 && e.stateStore != nil && e.occPool != nil {
-		e.earlySlots = make(chan struct{}, e.cfg.EarlySpeculationWorkers)
-		e.early = map[uint64]*earlySpeculation{}
+		e.speculationSlots = make(chan struct{}, e.cfg.EarlySpeculationWorkers)
+		e.speculations = map[uint64]*earlySpeculation{}
 		e.recentChanges = map[uint64]*pendingIndex{}
 	}
 	return e

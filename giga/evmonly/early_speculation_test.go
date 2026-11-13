@@ -14,9 +14,9 @@ import (
 
 // waitEarlySpeculation blocks until the early speculation of block number, if any, has finished.
 func waitEarlySpeculation(e *Executor, number uint64) {
-	e.earlyMu.Lock()
-	s := e.early[number]
-	e.earlyMu.Unlock()
+	e.speculationMu.Lock()
+	s := e.speculations[number]
+	e.speculationMu.Unlock()
 	if s != nil {
 		s.wg.Wait()
 	}
@@ -188,8 +188,8 @@ func TestEarlySpeculationStopsWorkersWaitingForASlot(t *testing.T) {
 	scenario := newPipelineScenario(t)
 	executor := newEarlyExecutor(NewMemoryStore(scenario.genesis()))
 	defer executor.Close()
-	for range cap(executor.earlySlots) {
-		executor.earlySlots <- struct{}{}
+	for range cap(executor.speculationSlots) {
+		executor.speculationSlots <- struct{}{}
 	}
 
 	blockCtx := blockContext(scenario.chainID)
@@ -197,9 +197,9 @@ func TestEarlySpeculationStopsWorkersWaitingForASlot(t *testing.T) {
 	block, err := executor.PrepareBlock(t.Context(), BlockRequest{Context: blockCtx, Txs: scenario.block(t, 1)})
 	require.NoError(t, err)
 	executor.SpeculateEarly(block)
-	executor.earlyMu.Lock()
-	s := executor.early[1]
-	executor.earlyMu.Unlock()
+	executor.speculationMu.Lock()
+	s := executor.speculations[1]
+	executor.speculationMu.Unlock()
 	// Once every chunk is claimed, the workers holding one are waiting for a slot.
 	require.Eventually(t, func() bool { return s.claimed.Load() >= int64(len(block.Txs)) }, time.Second, time.Millisecond)
 
@@ -229,7 +229,7 @@ func TestEarlySpeculationTreatsAWriteToChangedStateAsStale(t *testing.T) {
 		s.results[i].writeSet = map[stateAccessKey]struct{}{{kind: stateAccessNonce, address: addr}: {}}
 		s.done[i].Store(true)
 	}
-	executor.early[2] = s
+	executor.speculations[2] = s
 	executor.recentChanges[1] = newPendingIndex(&StateChangeSet{
 		Accounts: []AccountChange{{Address: changed, Account: AccountState{Balance: big.NewInt(1), Nonce: 1}}},
 	})

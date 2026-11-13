@@ -59,7 +59,7 @@ type pendingExec struct {
 
 // Run initializes the app, then executes the durable blocks after its tip in
 // road order until ctx is canceled or a block fails. Up to
-// atypes.PrepareAheadBlocks calls to FinalizeBlock are in flight at once; the
+// atypes.FinalizeAheadBlocks calls to FinalizeBlock are in flight at once; the
 // app decodes a later block before the earlier one's turn to execute.
 func (e *Executor) Run(ctx context.Context) error {
 	next, err := e.initApp(ctx)
@@ -67,8 +67,8 @@ func (e *Executor) Run(ctx context.Context) error {
 		return err
 	}
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		slots := make(chan struct{}, atypes.PrepareAheadBlocks)
-		results := make(chan pendingExec, atypes.PrepareAheadBlocks)
+		slots := make(chan struct{}, atypes.FinalizeAheadBlocks)
+		results := make(chan pendingExec, atypes.FinalizeAheadBlocks)
 		s.Spawn(func() error {
 			for n := next; ; n++ {
 				if err := utils.Send(ctx, slots, struct{}{}); err != nil {

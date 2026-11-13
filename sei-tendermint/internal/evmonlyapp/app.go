@@ -131,9 +131,9 @@ type evmOnlyApplication struct {
 	// in CheckTx, or the RPC submitted, to its recovered sender, so execution
 	// does not recover it again.
 	checkedSenders utils.Mutex[*senderCache]
-	// seenHashes is the hash of each block whose FinalizeBlock has started.
+	// blockHashes is the hash of each block whose FinalizeBlock has started.
 	// A later block reads its parent from here before that block has committed.
-	seenHashes utils.Mutex[map[int64]common.Hash]
+	blockHashes utils.Mutex[map[int64]common.Hash]
 	// turn wakes a FinalizeBlock waiting until the previous block is committed.
 	turn proxy.Turn
 	// finalizePhases times the serialized part of FinalizeBlock. Decoding the
@@ -200,7 +200,7 @@ func NewEVMOnlyApplication(
 		cursor:            utils.NewMutex(&evmOnlyCursorState{}),
 		settler:           utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		checkedSenders:    utils.NewMutex(new(newSenderCache(checkedSendersCap))),
-		seenHashes:        utils.NewMutex(map[int64]common.Hash{}),
+		blockHashes:       utils.NewMutex(map[int64]common.Hash{}),
 		finalizePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
 	}
 	cursor, err := loadEVMOnlyCursor(storage.StateDB().SC())
@@ -921,7 +921,7 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *proxy.Reque
 	if !ok {
 		return nil, fmt.Errorf("EVM-only block finalized before InitChain")
 	}
-	a.noteBlockHash(block.height, block.blockHash)
+	a.recordBlockHash(block.height, block.blockHash)
 	// Decode before this block's turn, so it overlaps the previous block's execution.
 	parentHash, parentKnown := a.blockHashAt(block.height - 1)
 	prepared, err := executor.PrepareBlock(ctx, evmonly.BlockRequest{
@@ -992,10 +992,10 @@ func (a *evmOnlyApplication) waitTurn(ctx context.Context, height int64) (evmOnl
 	}
 }
 
-// noteBlockHash records hash as the block at height, for a later block's parent.
-func (a *evmOnlyApplication) noteBlockHash(height int64, hash common.Hash) {
-	for seen := range a.seenHashes.Lock() {
-		seen[height] = hash
+// recordBlockHash records hash as the block at height, for a later block's parent.
+func (a *evmOnlyApplication) recordBlockHash(height int64, hash common.Hash) {
+	for hashes := range a.blockHashes.Lock() {
+		hashes[height] = hash
 	}
 }
 
@@ -1009,8 +1009,8 @@ func (a *evmOnlyApplication) blockHashAt(height int64) (common.Hash, bool) {
 			return pending.blockHash, true
 		}
 	}
-	for seen := range a.seenHashes.Lock() {
-		hash, ok := seen[height]
+	for hashes := range a.blockHashes.Lock() {
+		hash, ok := hashes[height]
 		return hash, ok
 	}
 	panic("unreachable")
@@ -1018,10 +1018,10 @@ func (a *evmOnlyApplication) blockHashAt(height int64) (common.Hash, bool) {
 
 // pruneBlockHashes drops hashes of blocks that are already committed.
 func (a *evmOnlyApplication) pruneBlockHashes(committed int64) {
-	for seen := range a.seenHashes.Lock() {
-		for height := range seen {
+	for hashes := range a.blockHashes.Lock() {
+		for height := range hashes {
 			if height <= committed {
-				delete(seen, height)
+				delete(hashes, height)
 			}
 		}
 	}

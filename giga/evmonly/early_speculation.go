@@ -13,14 +13,14 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
-// earlyRecentBlocks keeps change sets for every prepared block that may still execute.
-const earlyRecentBlocks = atypes.MaxPreparedBlocks
+// speculationChangeBlocks is how many executed blocks' changes early speculation still checks.
+const speculationChangeBlocks = atypes.EarlySpeculationBlocks
 
-// earlyChunk is how many transactions an early speculation worker claims at a time.
-const earlyChunk = 8
+// speculationBatch is how many transactions one early-speculation worker claims at a time.
+const speculationBatch = 8
 
-// earlyReuseChunk is how many transactions one OCC-pool task checks when selecting early results to reuse.
-const earlyReuseChunk = earlyChunk * 8
+// speculationReuseBatch is how many transactions one OCC task checks when choosing results to reuse.
+const speculationReuseBatch = speculationBatch * 8
 
 // earlySpeculation is a block's transactions speculated before the block executes.
 type earlySpeculation struct {
@@ -40,7 +40,7 @@ type earlySpeculation struct {
 // left, so that executing b reuses every result no block executed in between invalidated. It returns
 // without waiting, and does nothing unless early speculation is configured.
 func (e *Executor) SpeculateEarly(b PreparedBlock) {
-	if e.earlySlots == nil || !e.useOCC(len(b.Txs)) {
+	if e.speculationSlots == nil || !e.useOCC(len(b.Txs)) {
 		return
 	}
 	number := b.Context.Number
@@ -64,16 +64,16 @@ func (e *Executor) SpeculateEarly(b PreparedBlock) {
 		done:    make([]atomic.Bool, len(b.Txs)),
 		stop:    make(chan struct{}),
 	}
-	workers := cap(e.earlySlots)
-	e.earlyMu.Lock()
-	if e.closed.Load() || e.early[number] != nil {
-		e.earlyMu.Unlock()
+	workers := cap(e.speculationSlots)
+	e.speculationMu.Lock()
+	if e.closed.Load() || e.speculations[number] != nil {
+		e.speculationMu.Unlock()
 		view.Close()
 		return
 	}
-	e.early[number] = s
+	e.speculations[number] = s
 	s.wg.Add(workers)
-	e.earlyMu.Unlock()
+	e.speculationMu.Unlock()
 
 	for range workers {
 		go s.run(e, source)
@@ -96,16 +96,16 @@ func (s *earlySpeculation) run(e *Executor, source StateReader) {
 	ctx := context.Background()
 	n := len(s.block.Txs)
 	for {
-		start := int(s.claimed.Add(earlyChunk)) - earlyChunk
+		start := int(s.claimed.Add(speculationBatch)) - speculationBatch
 		if start >= n || s.stopped() {
 			return
 		}
 		select {
-		case e.earlySlots <- struct{}{}:
+		case e.speculationSlots <- struct{}{}:
 		case <-s.stop:
 			return
 		}
-		for i := start; i < min(start+earlyChunk, n) && !s.stopped(); i++ {
+		for i := start; i < min(start+speculationBatch, n) && !s.stopped(); i++ {
 			task := occExecutionTask{
 				txIndex:     i,
 				txIndexUint: uint(i), //nolint:gosec // i is a non-negative transaction index.
@@ -117,7 +117,7 @@ func (s *earlySpeculation) run(e *Executor, source StateReader) {
 			}
 			s.done[i].Store(true)
 		}
-		<-e.earlySlots
+		<-e.speculationSlots
 	}
 }
 
@@ -134,17 +134,17 @@ func (s *earlySpeculation) stopped() bool {
 // recordExecutedChanges keeps the changes of the block whose commit just started, for checking early
 // results against, and marks it the last block executed.
 func (e *Executor) recordExecutedChanges(blockNumber uint64, changes *pendingIndex) {
-	if e.earlySlots == nil {
+	if e.speculationSlots == nil {
 		return
 	}
-	e.earlyMu.Lock()
+	e.speculationMu.Lock()
 	e.recentChanges[blockNumber] = changes
 	for number := range e.recentChanges {
-		if number+earlyRecentBlocks <= blockNumber {
+		if number+speculationChangeBlocks <= blockNumber {
 			delete(e.recentChanges, number)
 		}
 	}
-	e.earlyMu.Unlock()
+	e.speculationMu.Unlock()
 	e.lastExecuted.Store(blockNumber)
 }
 
@@ -152,16 +152,16 @@ func (e *Executor) recordExecutedChanges(blockNumber uint64, changes *pendingInd
 // since invalidated, and reports which results it filled. It returns nil when the block was not
 // speculated early, or was speculated for another context or against state too old to check.
 func (e *Executor) reuseEarlySpeculation(ctx context.Context, req PreparedBlock, results []occTxExecution) []bool {
-	if e.earlySlots == nil {
+	if e.speculationSlots == nil {
 		return nil
 	}
 	number := req.Context.Number
-	e.earlyMu.Lock()
-	s := e.early[number]
-	for other, speculation := range e.early {
+	e.speculationMu.Lock()
+	s := e.speculations[number]
+	for other, speculation := range e.speculations {
 		if other <= number {
 			close(speculation.stop)
-			delete(e.early, other)
+			delete(e.speculations, other)
 		}
 	}
 	var between []*pendingIndex
@@ -171,7 +171,7 @@ func (e *Executor) reuseEarlySpeculation(ctx context.Context, req PreparedBlock,
 		checkable = changes != nil
 		between = append(between, changes)
 	}
-	e.earlyMu.Unlock()
+	e.speculationMu.Unlock()
 	if s == nil {
 		return nil
 	}
@@ -186,10 +186,10 @@ func (e *Executor) reuseEarlySpeculation(ctx context.Context, req PreparedBlock,
 
 	filled := make([]bool, len(results))
 	var reused, stale, unfinished atomic.Int64
-	chunks := (len(results) + earlyReuseChunk - 1) / earlyReuseChunk
+	chunks := (len(results) + speculationReuseBatch - 1) / speculationReuseBatch
 	err := e.occPool.Run(ctx, chunks, func(workerCtx context.Context, workerID int, workers int) error {
 		for c := workerID; c < chunks; c += workers {
-			for i := c * earlyReuseChunk; i < min((c+1)*earlyReuseChunk, len(results)); i++ {
+			for i := c * speculationReuseBatch; i < min((c+1)*speculationReuseBatch, len(results)); i++ {
 				switch {
 				case !s.done[i].Load() || s.block.Txs[i].Tx.Hash() != req.Txs[i].Tx.Hash():
 					unfinished.Add(1)
@@ -224,17 +224,17 @@ func (s *earlySpeculation) baseOrZero() uint64 {
 
 // stopEarlySpeculation stops every early speculation and waits for its workers.
 func (e *Executor) stopEarlySpeculation() {
-	if e.earlySlots == nil {
+	if e.speculationSlots == nil {
 		return
 	}
-	e.earlyMu.Lock()
-	stopped := make([]*earlySpeculation, 0, len(e.early))
-	for number, s := range e.early {
+	e.speculationMu.Lock()
+	stopped := make([]*earlySpeculation, 0, len(e.speculations))
+	for number, s := range e.speculations {
 		close(s.stop)
 		stopped = append(stopped, s)
-		delete(e.early, number)
+		delete(e.speculations, number)
 	}
-	e.earlyMu.Unlock()
+	e.speculationMu.Unlock()
 	for _, s := range stopped {
 		s.wg.Wait()
 	}

@@ -63,8 +63,8 @@ type ExecutionConfig struct {
 	OCCWorkers int `mapstructure:"occ_workers"`
 	// ParseWorkers is the number of parallel transaction decoding workers; 0 uses GOMAXPROCS.
 	ParseWorkers int `mapstructure:"parse_workers"`
-	// EarlySpeculationWorkers, when positive, speculates each prepared block's transactions before the
-	// block executes. Zero disables early speculation.
+	// EarlySpeculationWorkers, when positive, speculates a block's transactions before the block
+	// executes. Zero disables early speculation.
 	EarlySpeculationWorkers int `mapstructure:"early_speculation_workers"`
 	// BlockResultPoolSize is the number of block results kept pooled between executions.
 	BlockResultPoolSize int `mapstructure:"block_result_pool_size"`
