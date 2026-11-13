@@ -225,7 +225,7 @@ func testQCChain(rng utils.Rng, ep *types.Epoch, keys []types.SecretKey, n int) 
 func TestFullCommitQCStreamAcceptsIncreasingIndexesWithGaps(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 2)
+	registry, keys := epoch.GenRegistry(rng, 1)
 	node := newTestEnv(registry).AddNode(t, keys[0])
 	qcs, _ := testQCChain(rng, registry.MustEpoch(0), keys, 4)
 	// Another peer pushes qcs[0] after the client requests it, so the stream starts above the requested index.
@@ -268,7 +268,7 @@ func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
 			rng := utils.TestRng()
-			registry, keys := epoch.GenRegistry(rng, 2)
+			registry, keys := epoch.GenRegistry(rng, 1)
 			node := newTestEnv(registry).AddNode(t, keys[0])
 			qcs, _ := testQCChain(rng, registry.MustEpoch(0), keys, 3)
 			for _, i := range tc.pushed {
