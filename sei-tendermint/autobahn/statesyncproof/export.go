@@ -13,7 +13,6 @@ import (
 
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -27,9 +26,10 @@ type ExportConfig struct {
 	CheckpointHeights func() ([]int64, error)
 	// BlockStore provides the road blocks, AppProposals and AppQCs to export.
 	BlockStore BlockStore
-	// Anchor publishes the latest AppQC the data layer has flushed to BlockStore. Proofs are written
-	// only at or below it, so it must never cover an AppQC that a crash could lose.
-	Anchor utils.AtomicRecv[data.Anchor]
+	// DurableAppQC returns the road index of the latest AppQC the data layer has flushed to
+	// BlockStore, or false when there is none. Proofs are written only at or below it, so it must
+	// never cover an AppQC that a crash could lose.
+	DurableAppQC func() (types.RoadIndex, bool)
 	// IsClosingRoad reports whether road is the last road of an epoch.
 	IsClosingRoad func(road types.RoadIndex) bool
 }
@@ -158,7 +158,7 @@ func (e *Exporter) removeInvalidFiles(present map[types.RoadIndex]struct{}) (map
 // exportable returns the checkpoints that are neither exported nor skipped and whose AppQC is
 // durable, in ascending order.
 func (e *Exporter) exportable(checkpoints map[types.RoadIndex]struct{}) []types.RoadIndex {
-	durableAppQC, ok := e.durableAppQCIndex()
+	durableAppQC, ok := e.cfg.DurableAppQC()
 	if !ok {
 		return nil
 	}
@@ -185,14 +185,6 @@ func (e *Exporter) exportCheckpoint(index types.RoadIndex) error {
 		return nil
 	}
 	return e.exportProof(index)
-}
-
-func (e *Exporter) durableAppQCIndex() (types.RoadIndex, bool) {
-	first, ok := e.cfg.Anchor.Load().First.Get()
-	if !ok {
-		return 0, false
-	}
-	return first.AppQC.Proposal().Index(), true
 }
 
 func (e *Exporter) retainedCheckpoints() (map[types.RoadIndex]struct{}, error) {
@@ -223,8 +215,8 @@ func (e *Exporter) exportProof(index types.RoadIndex) error {
 	}
 	r, ok := records.Get()
 	if !ok {
-		// The data layer flushes the block, AppProposal and AppQC of a road together before Anchor
-		// covers it, so a record missing at or below Anchor never appears later. A checkpoint from
+		// The data layer flushes the block, AppProposal and AppQC of a road together before
+		// DurableAppQC covers it, so a record missing at or below DurableAppQC never appears later. A checkpoint from
 		// before the BlockStore held any road is one such case.
 		logger.Info("skipping state sync proof: BlockStore has no records for checkpoint", "index", index)
 		e.skipped[index] = struct{}{}

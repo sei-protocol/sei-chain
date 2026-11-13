@@ -62,11 +62,25 @@ func TestStateSyncProofExportConfig(t *testing.T) {
 	require.Equal(t, []int64{7}, heights)
 	require.True(t, cfg.IsClosingRoad(closingRoad))
 	require.False(t, cfg.IsClosingRoad(closingRoad-1))
+
+	_, ok := cfg.DurableAppQC()
+	require.False(t, ok)
+	rng := utils.TestRng()
+	committee, keys := atypes.GenCommittee(rng, 4)
+	epoch := atypes.GenEpochWithCommittee(rng, committee)
+	fullQC, _ := data.TestCommitQC(rng, epoch, keys, utils.None[*atypes.CommitQC]())
+	qc := fullQC.QC()
+	appQC := data.TestAppQC(keys, atypes.NewAppProposal(qc.View(), []byte{1}))
+	durable := data.TestAnchor(epoch)
+	durable.First = utils.Some(data.AnchorFirst{CommitQC: qc, AppQC: appQC})
+	anchor.Store(durable)
+	index, ok := cfg.DurableAppQC()
+	require.True(t, ok)
+	require.Equal(t, appQC.Proposal().Index(), index)
 }
 
 func TestRunStateSyncProofExportKeepsSweepingAfterFailure(t *testing.T) {
-	// The Anchor never moves, as on a halted chain, so only the timer can start a sweep.
-	anchor := utils.NewAtomicSend(data.Anchor{})
+	// Nothing changes between sweeps, as on a halted chain, so only the timer can start a sweep.
 	sweeps := utils.NewAtomicSend(0)
 	exporter := statesyncproof.NewExporter(statesyncproof.ExportConfig{
 		Dir: t.TempDir(),
@@ -79,7 +93,7 @@ func TestRunStateSyncProofExportKeepsSweepingAfterFailure(t *testing.T) {
 			return nil, nil
 		},
 		BlockStore:    ablockstore.NewTestStore(t),
-		Anchor:        anchor.Subscribe(),
+		DurableAppQC:  func() (atypes.RoadIndex, bool) { return 0, false },
 		IsClosingRoad: func(atypes.RoadIndex) bool { return false },
 	})
 

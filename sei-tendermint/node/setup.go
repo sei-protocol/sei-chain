@@ -406,7 +406,13 @@ func stateSyncProofExportConfig(
 			return flatkv.SnapshotVersions(dbutils.GetFlatKVPath(psd))
 		},
 		BlockStore: blockStore,
-		Anchor:     anchor,
+		DurableAppQC: func() (atypes.RoadIndex, bool) {
+			first, ok := anchor.Load().First.Get()
+			if !ok {
+				return 0, false
+			}
+			return first.AppQC.Proposal().Index(), true
+		},
 		IsClosingRoad: func(road atypes.RoadIndex) bool {
 			return closingEpoch(road).IsPresent()
 		},
