@@ -19,30 +19,23 @@
 #
 #   AUTOBAHN=true EVM_GOVERNANCE_VOTING_PERIOD=30s DOCKER_DETACH=true make docker-cluster-start
 #
-# then run this script from the repository root. It needs cast and jq.
+# then run this script from the repository root. It drives the chain with each
+# node's own seid over its EVM JSON-RPC, and needs only docker and jq.
 set -euo pipefail
 
-GAS_PRICE=${GAS_PRICE:-1gwei}
 NODES=4
-PORTS=(8545 8547 8549 8551)
-# The validators' evm_voter keys: anvil accounts 0 to 3 of the test mnemonic.
-VOTER_KEYS=(
-  0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
-  0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
-  0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a
-  0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6
-)
-# Anvil account 9 sends the transfers that produce blocks; Autobahn makes no
-# empty blocks.
-TICK_KEY=0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6
-GOV=0x0000000000000000000000000000000000001006
-PARAMS=0x0000000000000000000000000000000000001013
-UPGRADE=0x0000000000000000000000000000000000001015
-# gov.DefaultParams' minimum expedited deposit: 20,000,000 usei.
-EXPEDITED_DEPOSIT=20ether
+# The test mnemonic. Anvil accounts 0 to 3 are the validators' evm_voter keys;
+# account 9 sends the transfers that produce blocks, as Autobahn makes no empty
+# blocks.
+MNEMONIC="test test test test test test test test test test test junk"
+KEY_INDEXES="0 1 2 3 9"
+# The keyring, in sei-node-0, that signs every transaction.
+KEY_HOME=/tmp/evmonly-upgrade-keys
+EVM_RPC=http://127.0.0.1:8545
+# gov.DefaultParams' minimum expedited deposit.
+EXPEDITED_DEPOSIT=20000000usei
 TEST_UPGRADE=vX.Y-test
 TEST_MINOR_UPGRADE=vX.Y-minor-test
-SUBMIT_PROPOSAL_TOPIC=$(cast keccak "SubmitProposal(uint64,address,uint8,bool)")
 # The 72h max deposit period, in nanoseconds, the test upgrade's handler sets.
 DEPOSIT_PERIOD_AFTER=259200000000000
 TEST_BINARY=build/seid-test-upgrade
@@ -58,40 +51,77 @@ check() {
   if [ "$got" = "$want" ]; then pass "$what"; else fail "$what: got '$got', want '$want'"; fi
 }
 
-rpc() { echo "http://127.0.0.1:${PORTS[$1]}"; }
-height() { cast block-number --rpc-url "$(rpc "$1")" 2>/dev/null || echo unreachable; }
+node_sh() { docker exec "sei-node-$1" sh -c "$2"; }
+
+# seid_q runs a seid query in node $1 against that node's EVM JSON-RPC.
+seid_q() {
+  local n=$1
+  shift
+  docker exec "sei-node-$n" seid "$@" --evm-rpc "$EVM_RPC"
+}
+
+# seid_tx runs a seid transaction in node 0, signed by key $1 of KEY_HOME.
+seid_tx() {
+  local key=$1
+  shift
+  docker exec sei-node-0 seid "$@" --from "$key" --keyring-backend test --home "$KEY_HOME" --evm-rpc "$EVM_RPC"
+}
+
+# gov_tx sends a seid tx gov command from key $1 and prints its result as JSON.
+gov_tx() {
+  local key=$1
+  shift
+  seid_tx "$key" tx gov "$@" -y -o json
+}
+
+height() {
+  local h
+  h=$(seid_q "$1" q block 2>/dev/null | jq -r .number 2>/dev/null) || h=
+  case "$h" in 0x*) echo $((h)) ;; *) echo unreachable ;; esac
+}
 
 # tick sends one transfer, which seals a block, and waits up to 20s for it.
 tick() {
-  cast send --rpc-url "$(rpc 0)" --private-key "$TICK_KEY" --legacy --gas-price "$GAS_PRICE" \
-    --timeout 20 0x0000000000000000000000000000000000000001 --value 1 >/dev/null 2>&1
+  local before i
+  before=$(height 0)
+  [ "$before" != unreachable ] || return 1
+  seid_tx key9 tx evm send 0x0000000000000000000000000000000000000001 1 >/dev/null 2>&1 || return 1
+  for i in $(seq 1 20); do
+    [ "$(height 0)" != unreachable ] && [ "$(height 0)" -gt "$before" ] && return 0
+    sleep 1
+  done
+  return 1
 }
 
-# gov_send sends a gov call from voter key $1 and prints its receipt as JSON.
-gov_send() {
-  local key=$1
-  shift
-  cast send --json --rpc-url "$(rpc 0)" --private-key "$key" --legacy --gas-price "$GAS_PRICE" \
-    --gas-limit 2000000 "$GOV" "$@"
-}
-
-# proposal_id prints the id a submit receipt's SubmitProposal event carries.
+# proposal_id prints the id in a submit-proposal result.
 proposal_id() {
-  jq -r --arg topic "$SUBMIT_PROPOSAL_TOPIC" '.logs[] | select(.topics[0] == $topic) | .topics[1]' | cast to-dec
+  jq -r '.logs[0].events[] | select(.type == "submit_proposal") | .attributes[] | select(.key == "proposal_id") | .value'
+}
+
+# submit_upgrade submits an expedited software upgrade of plan $1 at height $2
+# with info $3, and prints its proposal id.
+submit_upgrade() {
+  gov_tx key0 submit-proposal software-upgrade "$1" --upgrade-height "$2" --upgrade-info "$3" \
+    --title upgrade --description "schedules $1" --is-expedited --deposit "$EXPEDITED_DEPOSIT" | proposal_id
+}
+
+# submit_cancel submits an expedited cancel of plan $1 and prints its result.
+submit_cancel() {
+  gov_tx key0 submit-proposal cancel-software-upgrade --name "$1" \
+    --title cancel --description "cancels $1" --is-expedited --deposit "$EXPEDITED_DEPOSIT"
 }
 
 # pass_proposal has every voter vote yes on proposal $1 and ticks until it
-# leaves the voting period.
+# leaves the voting period, printing its final status.
 pass_proposal() {
   local id=$1 i status
   for i in 0 1 2 3; do
-    gov_send "${VOTER_KEYS[$i]}" "vote(uint64,int32)" "$id" 1 >/dev/null
+    gov_tx "key$i" vote "$id" yes >/dev/null
   done
   for i in $(seq 1 60); do
     tick || true
-    status=$(cast call --rpc-url "$(rpc 0)" "$GOV" "proposal(uint64)((uint64,int32,(uint256,uint256,uint256,uint256),uint64,uint64,uint256,uint64,uint64,bool,uint8,bytes))" "$id" |
-      sed -n 's/^(\([0-9]*\), \([0-9]*\),.*/\2/p')
-    if [ "$status" != 2 ]; then
+    status=$(seid_q 0 q gov proposal "$id" -o json | jq -r .status)
+    if [ "$status" != PROPOSAL_STATUS_VOTING_PERIOD ]; then
       echo "$status"
       return
     fi
@@ -100,14 +130,14 @@ pass_proposal() {
   echo timeout
 }
 
-plan_name() { cast call --rpc-url "$(rpc "$1")" "$UPGRADE" "currentPlan()((string,uint64,string))" | sed -n 's/^("\([^"]*\)", .*/\1/p'; }
-applied() { cast call --rpc-url "$(rpc "$1")" "$UPGRADE" "appliedPlan(string)(uint64)" "$2"; }
-max_deposit_period() {
-  cast call --rpc-url "$(rpc "$1")" "$PARAMS" "param(string,string)(bytes)" gov depositparams.max_deposit_period | cast to-dec
+plan_name() { seid_q "$1" q upgrade plan -o json 2>/dev/null | jq -r .name || true; }
+applied() {
+  local h
+  h=$(seid_q "$1" q upgrade applied "$2" 2>/dev/null | jq -r .number) || h=
+  case "$h" in 0x*) echo $((h)) ;; *) echo 0 ;; esac
 }
-block_hash() { cast block "$2" --field hash --rpc-url "$(rpc "$1")"; }
-
-node_sh() { docker exec "sei-node-$1" sh -c "$2"; }
+max_deposit_period() { seid_q "$1" q gov params -o json | jq -r .deposit_params.max_deposit_period; }
+block_hash() { seid_q "$1" q block "$2" | jq -r .hash; }
 
 # restart_node stops seid on node $1, waiting up to 30s for it to exit, then
 # starts it from binary $2 as step5_start_sei.sh does.
@@ -142,12 +172,21 @@ tick_past() {
   done
 }
 
+# serving reports whether node $1 answers over its EVM JSON-RPC, which it does
+# from genesis, before it has a block.
+serving() {
+  local out
+  if out=$(seid_q "$1" q upgrade plan 2>&1); then return 0; fi
+  case "$out" in *"no upgrade scheduled"*) return 0 ;; esac
+  return 1
+}
+
 # wait_ready waits for node $1 to serve RPC, polling every 2s up to $2 times
 # (default 60).
 wait_ready() {
   local i
   for i in $(seq 1 "${2:-60}"); do
-    if cast chain-id --rpc-url "$(rpc "$1")" >/dev/null 2>&1; then return 0; fi
+    if serving "$1"; then return 0; fi
     sleep 2
   done
   return 1
@@ -165,21 +204,34 @@ for n in $(seq 0 $((NODES - 1))); do
   fi
 done
 
+log "Importing the test keys into $KEY_HOME in sei-node-0"
+node_sh 0 "rm -rf $KEY_HOME"
+for i in $KEY_INDEXES; do
+  echo "$MNEMONIC" | docker exec -i sei-node-0 seid keys add "key$i" --recover \
+    --hd-path "m/44'/60'/0'/0/$i" --keyring-backend test --home "$KEY_HOME" >/dev/null
+done
+
+log "Sending a teaser transfer so the chain leaves genesis"
+# Autobahn makes no empty blocks, and a node reports no latest block before
+# the first one, so a transfer produces block 1 before anything reads a block.
+seid_tx key9 tx evm send 0x0000000000000000000000000000000000000001 1 >/dev/null
+for i in $(seq 1 20); do
+  [ "$(height 0)" != unreachable ] && break
+  sleep 1
+done
+[ "$(height 0)" != unreachable ] || { echo "the chain produced no first block" >&2; exit 1; }
+
 log "Building the giga_test_upgrade binary in sei-node-0"
 node_sh 0 "cd /sei-protocol/sei-chain && export PATH=\$PATH:/usr/local/go/bin && \
   LEDGER_ENABLED=false go build -tags 'netgo giga_test_upgrade' -o $TEST_BINARY ./cmd/seid"
 node_sh 0 "cp \$HOME/go/bin/seid /sei-protocol/sei-chain/build/seid-old"
 
 log "Scheduling $TEST_UPGRADE"
-# Gov writes its genesis state at the chain's first block and refuses calls
-# until then, so a transaction must produce that block first.
-tick || fail "the chain produced no first block"
 start=$(height 0)
 target=$((start + 40))
-id=$(gov_send "${VOTER_KEYS[0]}" "submitSoftwareUpgradeProposal(string,string,bool,(string,uint64,string))" \
-  "upgrade" "schedules $TEST_UPGRADE" true "($TEST_UPGRADE,$target,docker-run)" --value "$EXPEDITED_DEPOSIT" | proposal_id)
+id=$(submit_upgrade "$TEST_UPGRADE" "$target" docker-run)
 echo "proposal $id plans $TEST_UPGRADE at block $target"
-check "upgrade proposal passes" "$(pass_proposal "$id")" 3
+check "upgrade proposal passes" "$(pass_proposal "$id")" PROPOSAL_STATUS_PASSED
 deposit_period_before=$(max_deposit_period 0)
 check "the max deposit period is not yet the handler's" "$([ "$deposit_period_before" != "$DEPOSIT_PERIOD_AFTER" ] && echo yes || echo no)" yes
 for n in 0 1 2 3; do
@@ -239,17 +291,15 @@ wait_ready 3 || fail "node 3 did not come back"
 
 log "Cancelling a plan before its height"
 tick || fail "no block before the cancel"
-cancelled=$(( $(height 0) + 40 ))
-id=$(gov_send "${VOTER_KEYS[0]}" "submitSoftwareUpgradeProposal(string,string,bool,(string,uint64,string))" \
-  "upgrade" "schedules never-applied" true "(never-applied,$cancelled,none)" --value "$EXPEDITED_DEPOSIT" | proposal_id)
-check "second upgrade proposal passes" "$(pass_proposal "$id")" 3
+cancelled=$(($(height 0) + 40))
+id=$(submit_upgrade never-applied "$cancelled" none)
+check "second upgrade proposal passes" "$(pass_proposal "$id")" PROPOSAL_STATUS_PASSED
 check "the second plan is scheduled" "$(plan_name 0)" never-applied
-status=$(gov_send "${VOTER_KEYS[0]}" "submitCancelSoftwareUpgradeProposal(string,string,bool,string)" \
-  "cancel" "cancels another plan" true not-scheduled --value "$EXPEDITED_DEPOSIT" 2>/dev/null | jq -r '.status // empty' 2>/dev/null || true)
-check "a cancel naming another plan fails" "$status" 0x0
-id=$(gov_send "${VOTER_KEYS[0]}" "submitCancelSoftwareUpgradeProposal(string,string,bool,string)" \
-  "cancel" "cancels never-applied" true never-applied --value "$EXPEDITED_DEPOSIT" | proposal_id)
-check "cancel proposal passes" "$(pass_proposal "$id")" 3
+# seid estimates gas before sending, so the gov precompile's refusal stops the
+# cancel before any transaction is sent.
+check "a cancel naming another plan fails" "$(submit_cancel not-scheduled >/dev/null 2>&1 && echo sent || echo refused)" refused
+id=$(submit_cancel never-applied | proposal_id)
+check "cancel proposal passes" "$(pass_proposal "$id")" PROPOSAL_STATUS_PASSED
 for n in 0 1 2 3; do check "node $n has no plan after the cancel" "$(plan_name "$n")" ""; done
 tick_past $((cancelled + 1))
 for n in 0 1 2 3; do
@@ -259,11 +309,9 @@ done
 
 log "Applying minor upgrade $TEST_MINOR_UPGRADE"
 tick || fail "no block before the minor upgrade"
-minor=$(( $(height 0) + 40 ))
-id=$(gov_send "${VOTER_KEYS[0]}" "submitSoftwareUpgradeProposal(string,string,bool,(string,uint64,string))" \
-  "upgrade" "schedules $TEST_MINOR_UPGRADE" true "($TEST_MINOR_UPGRADE,$minor,{\"upgradeType\":\"minor\"})" \
-  --value "$EXPEDITED_DEPOSIT" | proposal_id)
-check "minor upgrade proposal passes" "$(pass_proposal "$id")" 3
+minor=$(($(height 0) + 40))
+id=$(submit_upgrade "$TEST_MINOR_UPGRADE" "$minor" '{"upgradeType":"minor"}')
+check "minor upgrade proposal passes" "$(pass_proposal "$id")" PROPOSAL_STATUS_PASSED
 tick || true
 sleep 5
 for n in 0 1 2 3; do
