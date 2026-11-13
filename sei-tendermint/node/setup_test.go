@@ -14,9 +14,6 @@ import (
 	"golang.org/x/time/rate"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
-	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
@@ -74,8 +71,10 @@ func defaultFileConfig(t testing.TB, validators []config.AutobahnValidator) *con
 // testGenesisMaxGas is the gas limit baked into the test genesis doc.
 const testGenesisMaxGas int64 = 50_000_000
 
-func makeTestGigaDeps() (*proxy.Proxy, *types.GenesisDoc) {
-	app := kvstore.NewProxy()
+type setupEVMApp struct{ proxy.EVMApplication }
+
+func makeTestGigaDeps() (*proxy.EVMProxy, *types.GenesisDoc) {
+	app := proxy.NewEVM(setupEVMApp{})
 	genDoc := &types.GenesisDoc{
 		ChainID: "test-chain",
 		// Nontrivial InitialHeight so any future code that assumes the
@@ -364,53 +363,24 @@ func TestValidateNodeSetupConfigRejectsAutobahnSeed(t *testing.T) {
 	require.ErrorIs(t, err, errAutobahnSeed)
 }
 
-func TestPrepareApplicationAutobahnUsesEVMOnly(t *testing.T) {
-	app := abci.BaseApplication{}
+func TestMakeEVMApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	validator := makeValidator([]byte("autobahn-validator"), []byte("autobahn-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
-		BaseConfig:         config.BaseConfig{FastCheckTx: true},
+	app, manager, err := makeEVMApplication(t.Context(), &config.Config{
 		AutobahnConfigFile: autobahnConfigFile,
-	}, app, gigaconfig.DefaultConfig, genesisAt(1))
+	}, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
-	manager, ok := storage.Get()
-	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 	require.NotNil(t, manager.BlockStore())
 	require.NotNil(t, manager.StateDB())
-	require.NotNil(t, manager.SC())
 	require.Nil(t, manager.StateDB().UndoSS())
 	require.NotNil(t, manager.ReceiptDB())
-	require.Equal(t, "evmonly", prepared.Info().Data)
-	require.True(t, proxy.New(prepared).EVM().IsPresent())
-	validators := prepared.GetValidators()
+	require.Equal(t, "evmonly", app.Info().Data)
+	validators := app.GetValidators()
 	require.Len(t, validators, 1)
 	require.Equal(t, int64(1), validators[0].Power)
-	require.Equal(t, validator.ValidatorKey.Bytes(), validators[0].PubKey.GetEd25519())
-}
-
-func TestWrapApplicationAutobahnWithoutStorageErrors(t *testing.T) {
-	_, err := wrapApplication(
-		&config.Config{
-			BaseConfig:         config.BaseConfig{FastCheckTx: true},
-			AutobahnConfigFile: "/tmp/autobahn.json",
-		},
-		abci.BaseApplication{},
-		utils.None[*bootstrap.GigaStorageManager](),
-		nil,
-		gigaconfig.DefaultConfig.Execution,
-	)
-	require.Error(t, err)
-}
-
-func TestPrepareApplicationWithoutAutobahnLeavesAppUnchanged(t *testing.T) {
-	app := abci.BaseApplication{}
-	prepared, storage, err := prepareApplication(t.Context(), &config.Config{}, app, gigaconfig.DefaultConfig, genesisAt(1))
-	require.NoError(t, err)
-	_, ok := storage.Get()
-	require.False(t, ok)
-	require.Equal(t, app, prepared)
+	require.Equal(t, validator.ValidatorKey.Bytes(), validators[0].PubKey.Bytes())
 }
 
 // Every other RouterOptions construction site substitutes rate.Inf, so this

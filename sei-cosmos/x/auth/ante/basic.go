@@ -2,7 +2,6 @@ package ante
 
 import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/legacy"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/multisig"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
@@ -127,12 +126,6 @@ func (cgts ConsumeTxSizeGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, sim
 			sigBz := legacy.Cdc.MustMarshal(simSig)
 			cost := sdk.Gas(len(sigBz) + 6) //nolint:gosec // len() + 6 is always non-negative and small
 
-			// If the pubkey is a multi-signature pubkey, then we estimate for the maximum
-			// number of signers.
-			if _, ok := pubkey.(*multisig.LegacyAminoPubKey); ok {
-				cost *= params.TxSigLimit
-			}
-
 			ctx.GasMeter().ConsumeGas(params.TxSizeCostPerByte*cost, "txSize")
 		}
 	}
@@ -146,21 +139,8 @@ func isIncompleteSignature(data signing.SignatureData) bool {
 		return true
 	}
 
-	switch data := data.(type) {
-	case *signing.SingleSignatureData:
-		return len(data.Signature) == 0
-	case *signing.MultiSignatureData:
-		if len(data.Signatures) == 0 {
-			return true
-		}
-		for _, s := range data.Signatures {
-			if isIncompleteSignature(s) {
-				return true
-			}
-		}
-	}
-
-	return false
+	single, ok := data.(*signing.SingleSignatureData)
+	return ok && len(single.Signature) == 0
 }
 
 type (

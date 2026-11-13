@@ -8,13 +8,13 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 func TestEVMOnlyCustomPrecompiles(t *testing.T) {
-	validators := []abci.ValidatorUpdate{{Power: 1}, {Power: 1}}
+	validators := []proxy.ValidatorUpdate{{Power: 1}, {Power: 1}}
 	fc := &config.AutobahnFileConfig{Validators: []config.AutobahnValidator{
 		{EVMVoter: utils.Some(common.HexToAddress("0xa1"))},
 		{EVMVoter: utils.Some(common.HexToAddress("0xa2"))},

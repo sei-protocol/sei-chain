@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
@@ -13,19 +12,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// openManager opens a manager over a fresh home directory, applying tweak to the default config
-// first. It registers the Close, so a leaked file lock fails the test that took it.
-func openManager(t *testing.T, tweak func(*config.GigaStorageConfig)) (*GigaStorageManager, *config.GigaStorageConfig) {
+// newHome returns the default config of a fresh home directory, with tweak applied to it.
+func newHome(t *testing.T, tweak func(*config.GigaStorageConfig)) *config.GigaStorageConfig {
 	t.Helper()
 	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
 	require.NoError(t, err)
 	if tweak != nil {
 		tweak(cfg)
 	}
+	return cfg
+}
+
+// startManager opens a manager over cfg. It registers the Close, so a leaked file lock fails the test that took it.
+func startManager(t *testing.T, cfg *config.GigaStorageConfig) *GigaStorageManager {
+	t.Helper()
 	manager, err := NewGigaStorageManager(context.Background(), cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
-	return manager, cfg
+	return manager
+}
+
+// openManager opens a manager over a fresh home directory, applying tweak to the default config first.
+func openManager(t *testing.T, tweak func(*config.GigaStorageConfig)) (*GigaStorageManager, *config.GigaStorageConfig) {
+	t.Helper()
+	cfg := newHome(t, tweak)
+	return startManager(t, cfg), cfg
 }
 
 // TestOpenFreshHome covers the shape a node boots into on a new home directory: every store
@@ -33,14 +44,10 @@ func openManager(t *testing.T, tweak func(*config.GigaStorageConfig)) (*GigaStor
 func TestOpenFreshHome(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
-	require.NotNil(t, manager.BlockStore())
 	require.NotNil(t, manager.ReceiptDB())
-	require.NotNil(t, manager.StateWAL())
-	require.NotNil(t, manager.SC())
-	require.NotNil(t, manager.StateDB())
 	require.NotNil(t, historicalStateDB(manager))
 
-	scVersion, err := manager.SC().GetLatestVersion()
+	scVersion, err := manager.StateDB().SC().GetLatestVersion()
 	require.NoError(t, err)
 	require.Zero(t, scVersion)
 	require.Zero(t, historicalStateDB(manager).GetLatestVersion())
@@ -55,10 +62,10 @@ func TestOpenFreshHome(t *testing.T) {
 func TestOpenLoadsTheCommitStore(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
-	version, err := manager.SC().GetLatestVersion()
+	version, err := manager.StateDB().SC().GetLatestVersion()
 	require.NoError(t, err)
 	require.Zero(t, version, "a fresh home is at genesis, but the version must be readable")
-	require.NotNil(t, manager.SC().Name(), "a loaded store answers as a prunable store")
+	require.NotNil(t, manager.StateDB().SC().Name(), "a loaded store answers as a prunable store")
 }
 
 // TestReceiptsDisabled pins that Enable is what decides whether the receipt store is opened at
@@ -69,8 +76,6 @@ func TestReceiptsDisabled(t *testing.T) {
 	})
 
 	require.Nil(t, manager.ReceiptDB())
-	require.NotNil(t, manager.SC())
-	require.NotNil(t, manager.StateDB())
 	require.NotNil(t, historicalStateDB(manager))
 }
 
@@ -78,17 +83,11 @@ func TestReceiptsDisabled(t *testing.T) {
 // its receipt store still holds receipts. Re-enabling them later would converge every store on that
 // store's stale head, so the transition is refused up front for the operator to clear the directory.
 func TestReceiptsDisabledRefusesAStoreWithHistory(t *testing.T) {
-	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
-	require.NoError(t, err)
-	first, err := NewGigaStorageManager(t.Context(), cfg)
-	require.NoError(t, err)
-	writeReceipts(t, first, 2)
-	require.Eventually(t, func() bool { return first.ReceiptDB().LatestVersion() == 2 },
-		5*time.Second, 10*time.Millisecond)
-	require.NoError(t, first.Close())
+	cfg := newHome(t, nil)
+	writeReceipts(t, cfg, 2)
 
 	cfg.ReceiptDBConfig.Enable = false
-	_, err = NewGigaStorageManager(t.Context(), cfg)
+	_, err := NewGigaStorageManager(t.Context(), cfg)
 	require.ErrorIs(t, err, ErrReceiptStoreDisabledWithHistory)
 
 	// The refusal releases everything it opened: the same home opens once receipts are enabled again.
@@ -103,15 +102,12 @@ func TestReceiptsDisabledRefusesAStoreWithHistory(t *testing.T) {
 // state DB disabled while its directory holds anything. Re-enabling it later would converge every store on
 // that store's stale head, so the transition is refused up front for the operator to clear the directory.
 func TestHistoricalStateDBDisabledRefusesAStoreWithHistory(t *testing.T) {
-	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
-	require.NoError(t, err)
-	first, err := NewGigaStorageManager(t.Context(), cfg)
-	require.NoError(t, err)
-	commitBlocks(t, first, 2)
-	require.NoError(t, first.Close())
+	cfg := newHome(t, nil)
+	writeState(t, cfg, 2)
+	writeAppHashes(t, cfg, 2)
 
 	cfg.SSConfig.Enable = false
-	_, err = NewGigaStorageManager(t.Context(), cfg)
+	_, err := NewGigaStorageManager(t.Context(), cfg)
 	require.ErrorContains(t, err, cfg.SSConfig.EVMDBDirectory)
 
 	// The refusal releases everything it opened: the same home opens once the store is enabled again.
@@ -146,17 +142,14 @@ func TestStateStoreDisabled(t *testing.T) {
 	})
 
 	require.Nil(t, historicalStateDB(manager))
-	require.NotNil(t, manager.SC())
-	require.NotNil(t, manager.StateDB())
-	require.NotNil(t, manager.BlockStore())
 	require.NotNil(t, manager.ReceiptDB())
 
 	require.NotNil(t, manager.StateDB().CheckpointScheduler(),
 		"SC still needs the schedule that replaces its own interval")
-	require.True(t, manager.SC().ExternalPruning())
+	require.True(t, manager.StateDB().SC().ExternalPruning())
 
 	names := make([]string, 0, 5)
-	for _, store := range manager.prunableStores() {
+	for _, store := range managerPrunableStores(manager) {
 		names = append(names, store.Name())
 	}
 	require.Equal(t, []string{"FlatKV", "StateWAL", "ReceiptDB", "BlockDB", "AppHashVault"}, names,
@@ -194,9 +187,9 @@ func TestReopenAfterClose(t *testing.T) {
 // leave nothing holding the home directory, which the successful reopen afterwards is the proof
 // of.
 //
-// The receipt store is opened second, so a broken one fails with the block ledger already open and
-// nothing else. That is the case worth pinning: a store opened before the failure is one Close has to
-// reach, where a failure on the first store leaves nothing to clean up.
+// The receipt store is opened last, so a broken one fails with every other store already open. That is
+// the case worth pinning: each store opened before the failure is one the cleanup has to reach, where a
+// failure on the first store leaves nothing to clean up.
 func TestCloseOnAPartialOpen(t *testing.T) {
 	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
 	require.NoError(t, err)
@@ -257,10 +250,10 @@ func TestStateDBCommitsToWALAndLiveSC(t *testing.T) {
 	commitBlock(t, manager, 1, changes)
 	historicalStateDB(manager).WaitForPendingWrites()
 
-	require.Equal(t, int64(1), manager.SC().Version())
+	require.Equal(t, int64(1), manager.StateDB().SC().Version())
 	require.Equal(t, int64(1), historicalStateDB(manager).GetLatestVersion(),
 		"a committed block must advance the EVM state store even when it carries no EVM keys")
-	ok, first, last, err := manager.StateWAL().GetStoredRange()
+	ok, first, last, err := manager.StateDB().WAL().GetStoredRange()
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, uint64(1), first)
@@ -289,12 +282,11 @@ func TestStateDBCommitsEVMChangesToSS(t *testing.T) {
 func TestEveryStoreJoinsThePruneCycle(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
-	require.NotNil(t, manager.gc)
-	require.True(t, manager.SC().ExternalPruning())
+	require.True(t, manager.StateDB().SC().ExternalPruning())
 	require.True(t, historicalStateDB(manager).ExternalPruning())
 
 	names := make([]string, 0, 6)
-	for _, store := range manager.prunableStores() {
+	for _, store := range managerPrunableStores(manager) {
 		names = append(names, store.Name())
 	}
 	// The three state stores arrive as one group, from the StateDB that owns them. Order carries no
@@ -311,10 +303,15 @@ func TestPrunableStoresOmitsDisabledReceipts(t *testing.T) {
 	})
 
 	var stores []controllertypes.PrunableStore
-	stores = append(stores, manager.prunableStores()...)
+	stores = append(stores, managerPrunableStores(manager)...)
 	for _, store := range stores {
 		require.NotEqual(t, "ReceiptDB", store.Name())
 	}
+}
+
+// managerPrunableStores returns the stores manager's prune cycle covers.
+func managerPrunableStores(manager *GigaStorageManager) []controllertypes.PrunableStore {
+	return prunableStores(manager.stateDB, manager.receiptDB, manager.blockStore, manager.appHashVault)
 }
 
 // brokenBlockDBConfig returns a copy of cfg's block ledger config that New rejects,

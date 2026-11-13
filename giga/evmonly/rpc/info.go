@@ -55,6 +55,11 @@ func (api *infoAPI) Syncing(_ context.Context) (any, error) {
 	return nil, &evmrpc.ErrEVMNotSupported{Msg: "eth_syncing is not supported on Sei EVM RPC"}
 }
 
+// BlobBaseFee implements eth_blobBaseFee, matching v2: Sei supports no blobs.
+func (*infoAPI) BlobBaseFee(context.Context) (*hexutil.Big, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "blobs not supported on this chain"}
+}
+
 // gasPriceCongestionThresholdPercent is the gasUsedRatio above which GasPrice escalates to the
 // congested-chain reward, matching v2's eth_gasPrice.
 const gasPriceCongestionThresholdPercent = 80
@@ -68,10 +73,7 @@ const defaultPriorityFeePerGas = 1_000_000_000
 // GasPrice returns a suggested gas price, matching v2's eth_gasPrice: a margin over the
 // admission floor, or the latest congested block's median reward when that's higher and available.
 func (api *infoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
-	floor, err := api.backend.EvmMinGasPrice()
-	if err != nil {
-		return nil, err
-	}
+	floor := api.backend.EvmMinGasPrice()
 	margin := suggestedGasPrice(floor)
 	if reward, ok := api.congestionReward(ctx); ok && reward.Cmp(margin) >= 0 {
 		return (*hexutil.Big)(reward), nil
@@ -86,8 +88,8 @@ func (api *infoAPI) congestionReward(ctx context.Context) (*big.Int, bool) {
 	if current <= 0 {
 		return nil, false
 	}
-	gasLimit, err := api.backend.EvmGasLimit()
-	if err != nil || gasLimit == 0 {
+	gasLimit := api.backend.EvmGasLimit()
+	if gasLimit == 0 {
 		return nil, false
 	}
 	stats, err := api.store.GetBlockStats(receiptContext(ctx), uint64(current)) //nolint:gosec // G115: current is positive here.
@@ -110,10 +112,7 @@ func (api *infoAPI) MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, err
 	if current <= 0 {
 		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
 	}
-	gasLimit, err := api.backend.EvmGasLimit()
-	if err != nil {
-		return nil, err
-	}
+	gasLimit := api.backend.EvmGasLimit()
 	if gasLimit == 0 {
 		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
 	}
@@ -169,10 +168,7 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 	}
 
 	// gasLimit is applied to every block in the range, not looked up per height.
-	gasLimit, err := api.backend.EvmGasLimit()
-	if err != nil {
-		return nil, err
-	}
+	gasLimit := api.backend.EvmGasLimit()
 
 	return api.walkFeeHistoryRange(ctx, end, int64(blockCount), gasLimit, rewardPercentiles)
 }

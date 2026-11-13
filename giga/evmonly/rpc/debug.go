@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	tracerlogger "github.com/ethereum/go-ethereum/eth/tracers/logger"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // registers the native tracers
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 )
@@ -39,7 +41,6 @@ var (
 	errTraceBusy           = errors.New("trace request rejected due to concurrency limit: server busy")
 	errTraceTxNotFound     = errors.New("transaction not found")
 	errTraceTxNotExecuted  = errors.New("transaction was rejected by its block and never executed")
-	errTraceOverrides      = errors.New("state and block overrides are not supported by EVM-only RPC")
 	errTracerNameEmpty     = errors.New("debug tracer name must not be empty")
 	errTracerNotAllowed    = errors.New("debug tracer is not allowed; only go-ethereum's native tracers may be used")
 	errMuxTracerTooDeep    = fmt.Errorf("muxTracer nesting depth exceeds maximum of %d", maxMuxTracerNestingDepth)
@@ -59,6 +60,7 @@ type debugAPI struct {
 	slots             chan struct{}
 	timeout           time.Duration
 	maxStructLogBytes int
+	overrides         overrideLimits
 }
 
 func newDebugAPI(backend Backend, store receiptpkg.ReceiptStore, limits gigaconfig.RPCConfig) *debugAPI {
@@ -70,6 +72,7 @@ func newDebugAPI(backend Backend, store receiptpkg.ReceiptStore, limits gigaconf
 		store:             store,
 		timeout:           limits.TraceTimeout,
 		maxStructLogBytes: limits.MaxTraceStructLogBytes,
+		overrides:         newOverrideLimits(limits),
 	}
 	if limits.MaxConcurrentTraceCalls > 0 {
 		api.slots = make(chan struct{}, limits.MaxConcurrentTraceCalls)
@@ -100,13 +103,13 @@ func (api *debugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 }
 
 // TraceCall traces args as a call against the committed state after the block blockNrOrHash names,
-// or for a latest tag, the latest committed state.
+// or for a latest tag, the latest committed state, with config's state and block overrides applied.
 func (api *debugAPI) TraceCall(ctx context.Context, args export.TransactionArgs, blockNrOrHash ethrpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (any, error) {
 	if config == nil {
 		config = &tracers.TraceCallConfig{}
 	}
-	if config.StateOverrides != nil || config.BlockOverrides != nil {
-		return nil, &invalidParamsError{error: errTraceOverrides}
+	if err := api.overrides.check(config.StateOverrides); err != nil {
+		return nil, err
 	}
 	if number, ok := blockNrOrHash.Number(); ok && isLatestTag(number) {
 		ctx = withLatestState(ctx)
@@ -128,6 +131,26 @@ func (api *debugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	return api.trace(ctx, config, func(ctx context.Context, config *tracers.TraceConfig) (any, error) {
 		return api.tracers.TraceBlockByHash(ctx, hash, config)
 	})
+}
+
+// GetRawHeader implements debug_getRawHeader, matching v2: Sei serves no raw header.
+func (*debugAPI) GetRawHeader(context.Context, ethrpc.BlockNumberOrHash) (hexutil.Bytes, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "debug_getRawHeader is not supported on Sei EVM RPC"}
+}
+
+// GetRawBlock implements debug_getRawBlock, matching v2: Sei serves no raw block.
+func (*debugAPI) GetRawBlock(context.Context, ethrpc.BlockNumberOrHash) (hexutil.Bytes, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "debug_getRawBlock is not supported on Sei EVM RPC"}
+}
+
+// GetRawReceipts implements debug_getRawReceipts, matching v2: Sei serves no raw receipts.
+func (*debugAPI) GetRawReceipts(context.Context, ethrpc.BlockNumberOrHash) ([]hexutil.Bytes, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "debug_getRawReceipts is not supported on Sei EVM RPC"}
+}
+
+// GetRawTransaction implements debug_getRawTransaction, matching v2: Sei serves no raw transaction.
+func (*debugAPI) GetRawTransaction(context.Context, common.Hash) (hexutil.Bytes, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "debug_getRawTransaction is not supported on Sei EVM RPC"}
 }
 
 // trace runs one trace under config, once the config is accepted and a trace slot is free, bounded

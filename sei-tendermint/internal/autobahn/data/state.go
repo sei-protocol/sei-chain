@@ -444,7 +444,7 @@ func (s *State) SuperBlockByHash(hash types.RoadBlockHeaderHash) (utils.Option[*
 	if err != nil {
 		return utils.None[*types.SuperBlock](), err
 	}
-	return utils.MapOpt(block, func(b *types.RoadBlock) *types.SuperBlock {
+	return block.Map(func(b *types.RoadBlock) *types.SuperBlock {
 		return b.SuperBlock()
 	}), nil
 }

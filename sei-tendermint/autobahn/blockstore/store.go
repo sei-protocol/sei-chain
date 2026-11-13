@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"slices"
 	"sync/atomic"
+	"time"
 
 	littdb "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/seilog"
 )
 
 // tableName is the single table holding every record kind, despite the name.
@@ -20,6 +22,8 @@ import (
 // <root>/<tableName>/segments, so changing it makes New open a fresh empty table and leaves
 // data under the old name unreachable.
 const tableName = "blocks"
+
+var logger = seilog.NewLogger("tendermint", "autobahn", "blockstore")
 
 // Store is the durable backing store for the consensus state machine. It persists complete
 // CommitQC groups, indexed by RoadIndex and road block header hash, and execution records.
@@ -76,6 +80,8 @@ type Suffix struct {
 
 // New opens a consensus block store and restores its retention floor and write cursors.
 func New(config *Config) (*Store, error) {
+	start := time.Now()
+	logger.Info("Opening the block store")
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("config.Validate(): %w", err)
 	}
@@ -118,6 +124,7 @@ func New(config *Config) (*Store, error) {
 		_ = s.Close()
 		return nil, fmt.Errorf("s.restore(%v): %w", first, err)
 	}
+	logger.Info("Opened the block store", "elapsed", time.Since(start))
 	return s, nil
 }
 

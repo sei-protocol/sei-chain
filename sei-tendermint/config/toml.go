@@ -140,11 +140,7 @@ genesis-file = "{{ js .BaseConfig.Genesis }}"
 # A JSON file containing the private key to use for p2p authenticated encryption
 node-key-file = "{{ js .BaseConfig.NodeKey }}"
 
-# FastCheckTx bypasses application CheckTx with a stateless EVM transaction parser.
-# TEST-ONLY
-fast-check-tx = {{ .BaseConfig.FastCheckTx }}
-
-# MockApp replaces the provided ABCI application with an in-memory EVM nonce app.
+# MockApp replaces EVM execution with in-memory nonce tracking for Autobahn.
 # TEST-ONLY
 mock-app = {{ .BaseConfig.MockApp }}
 
