@@ -19,7 +19,7 @@ FROM=node_admin
 FROM_ADDR=$(printf "12345678\n" | seid keys show "$FROM" -a 2>/dev/null)
 SEQ_BEFORE=$(_get_account_sequence "$FROM_ADDR")
 RESPONSE=$(printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from $FROM \
-    --chain-id sei --fees 2000usei -b sync -y --output json)
+    --chain-id sei --fees 2000usei -b sync -y --output json --node "$v2_node")
 CODE=$(echo "$RESPONSE" | jq -r '.code // 0')
 if [ "$CODE" != "0" ]; then
     echo "proposal_vote CheckTx rejected: $(echo "$RESPONSE" | jq -r '.raw_log')" >&2

@@ -23,8 +23,10 @@ func TestUnroutedCommandFailsByName(t *testing.T) {
 		"q params feesparams",
 		"tx gov submit-proposal community-pool-spend proposal.json",
 	} {
-		err := r.run("", args(words, "--evm-rpc", stub.url)...)
-		require.ErrorContains(t, err, "is not supported with --evm-rpc", words)
+		for _, extra := range [][]string{nil, {"--evm-rpc", stub.url}} {
+			err := r.run("", args(words, extra...)...)
+			require.ErrorContains(t, err, "is not supported on an EVM-only chain; use --node", words)
+		}
 	}
 	require.Zero(t, stub.requests)
 }
@@ -38,13 +40,33 @@ func TestEveryHandlerIsACommand(t *testing.T) {
 	}
 }
 
-func TestNameNeedsEVMRPC(t *testing.T) {
+func TestNameWithNodeFails(t *testing.T) {
 	r := newTestRoot(t)
-	err := r.run("", args("tx gov submit-proposal cancel-software-upgrade --title t --description d --from", testKey, "--name", "v2")...)
-	require.ErrorContains(t, err, "--name needs --evm-rpc")
+	err := r.run("", args("tx gov submit-proposal cancel-software-upgrade --title t --description d --from", testKey, "--name", "v2", "--node", "tcp://127.0.0.1:1")...)
+	require.ErrorContains(t, err, "--name cannot be used with --node")
 }
 
-func TestWithoutEVMRPCRunsV2(t *testing.T) {
+func TestWithoutFlagsUsesDefaultEVMRPC(t *testing.T) {
+	r := newTestRoot(t)
+	stub := newRPCStub(t)
+	block, _, err := r.cmd.Find(args("query block"))
+	require.NoError(t, err)
+	endpoint := block.PersistentFlags().Lookup(FlagEVMRPC)
+	require.Equal(t, DefaultEVMRPC, endpoint.DefValue)
+	require.NoError(t, endpoint.Value.Set(stub.url))
+	require.NoError(t, r.run("", args("q block 7")...))
+	require.Contains(t, r.out.String(), `"number": "0x7"`)
+}
+
+func TestCommandGroupPrintsHelp(t *testing.T) {
+	r := newTestRoot(t)
+	for _, words := range []string{"q gov", "q upgrade", "tx gov"} {
+		require.NoError(t, r.run("", args(words)...), words)
+		require.Contains(t, r.out.String(), "Available Commands", words)
+	}
+}
+
+func TestNodeRunsV2(t *testing.T) {
 	r := newTestRoot(t)
 	stub := newRPCStub(t)
 	err := r.run("", args("q gov proposal 1 --node tcp://127.0.0.1:1")...)

@@ -16,6 +16,8 @@ import (
 const (
 	// FlagEVMRPC is the EVM JSON-RPC endpoint of an EVM-only (giga) chain.
 	FlagEVMRPC = "evm-rpc"
+	// DefaultEVMRPC is the --evm-rpc endpoint when the flag is not given.
+	DefaultEVMRPC = "http://localhost:8545"
 	// FlagGasFeeCap is the gas price, in wei, of a transaction sent with
 	// --evm-rpc.
 	FlagGasFeeCap = "gas-fee-cap"
@@ -38,8 +40,8 @@ var routedTrees = [][]string{
 	{"query", "block"},
 }
 
-// handlers are the commands served with --evm-rpc, by path below the root.
-// Every other command in a routed tree fails with --evm-rpc.
+// handlers are the commands served over the EVM JSON-RPC, by path below the
+// root. Every other runnable command in a routed tree needs --node.
 var handlers = map[string]handler{
 	"tx gov submit-proposal":                         submitTextProposal,
 	"tx gov submit-proposal software-upgrade":        submitSoftwareUpgrade,
@@ -67,31 +69,34 @@ var handlers = map[string]handler{
 	"query block": queryBlock,
 }
 
-// Route adds --evm-rpc to seid's gov, upgrade, params and block commands. A
-// command given --evm-rpc runs against that EVM-only chain.
+// Route serves seid's gov, upgrade, params and block commands over the EVM
+// JSON-RPC at --evm-rpc. A command given --node runs against the Tendermint RPC
+// instead.
 func Route(root *cobra.Command) {
 	for _, path := range routedTrees {
 		tree, _, err := root.Find(path)
 		if err != nil || tree.CommandPath() != root.Name()+" "+strings.Join(path, " ") {
 			continue
 		}
-		tree.PersistentFlags().String(FlagEVMRPC, "", "EVM JSON-RPC endpoint of an EVM-only (giga) chain, used instead of --node")
+		tree.PersistentFlags().String(FlagEVMRPC, DefaultEVMRPC, "EVM JSON-RPC endpoint of an EVM-only (giga) chain; --node uses the Tendermint RPC instead")
 		if path[0] == "tx" {
-			tree.PersistentFlags().Uint64(FlagGasFeeCap, 0, "Gas price in wei with --evm-rpc; 0 uses the node's suggested price")
+			tree.PersistentFlags().Uint64(FlagGasFeeCap, 0, "Gas price in wei of an EVM transaction; 0 uses the node's suggested price")
 		}
 		wrapTree(tree)
 	}
 	if cancel, _, err := root.Find([]string{"tx", "gov", "submit-proposal", "cancel-software-upgrade"}); err == nil && cancel.Name() == "cancel-software-upgrade" {
-		cancel.Flags().String(FlagName, "", "Name of the plan to cancel, with --evm-rpc; defaults to the scheduled plan after confirmation")
+		cancel.Flags().String(FlagName, "", "Name of the plan to cancel; defaults to the scheduled plan after confirmation")
 	}
 }
 
-// wrapTree wraps every runnable command at or below c.
+// wrapTree wraps every runnable command at or below c, except command groups
+// with no EVM handler, which keep printing their help.
 func wrapTree(c *cobra.Command) {
 	for _, sub := range c.Commands() {
 		wrapTree(sub)
 	}
-	if c.RunE == nil && c.Run == nil {
+	evm := handlers[commandKey(c)]
+	if (c.RunE == nil && c.Run == nil) || (evm == nil && c.HasSubCommands()) {
 		return
 	}
 	v2 := c.RunE
@@ -103,25 +108,24 @@ func wrapTree(c *cobra.Command) {
 		}
 		c.Run = nil
 	}
-	evm := handlers[commandKey(c)]
 	c.RunE = func(cmd *cobra.Command, args []string) error {
 		return dispatch(cmd, args, v2, evm)
 	}
 }
 
-// dispatch runs evm when --evm-rpc is set and v2 otherwise.
+// dispatch runs v2 when --node is set and evm otherwise.
 func dispatch(cmd *cobra.Command, args []string, v2, evm handler) error {
-	if !flagChanged(cmd, FlagEVMRPC) {
+	if flagChanged(cmd, flags.FlagNode) {
+		if flagChanged(cmd, FlagEVMRPC) {
+			return errBothEndpoints
+		}
 		if flagChanged(cmd, FlagName) {
-			return fmt.Errorf("--%s needs --%s", FlagName, FlagEVMRPC)
+			return fmt.Errorf("--%s cannot be used with --%s", FlagName, flags.FlagNode)
 		}
 		return v2(cmd, args)
 	}
-	if flagChanged(cmd, flags.FlagNode) {
-		return errBothEndpoints
-	}
 	if evm == nil {
-		return fmt.Errorf("%q is not supported with --%s", commandKey(cmd), FlagEVMRPC)
+		return fmt.Errorf("%q is not supported on an EVM-only chain; use --%s for a chain with a Tendermint RPC", commandKey(cmd), flags.FlagNode)
 	}
 	return evm(cmd, args)
 }

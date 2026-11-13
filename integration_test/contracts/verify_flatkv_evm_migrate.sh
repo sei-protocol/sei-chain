@@ -772,7 +772,7 @@ EOF"
 
   # Confirm the param actually took the requested value on chain.
   local on_chain
-  on_chain=$(docker exec "sei-node-0" build/seid q params subspace migration NumKeysToMigratePerBlock --output json 2>/dev/null \
+  on_chain=$(docker exec "sei-node-0" build/seid q params subspace migration NumKeysToMigratePerBlock --output json --node tcp://localhost:26657 2>/dev/null \
     | jq -r '.value' 2>/dev/null | tr -d '"' || true)
   if [ "$on_chain" != "$rate" ]; then
     echo "ERROR: migration.NumKeysToMigratePerBlock='$on_chain' after proposal $proposal_id passed; expected '$rate'" >&2
