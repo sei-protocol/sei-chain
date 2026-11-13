@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/stretchr/testify/require"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
@@ -304,6 +305,138 @@ func TestExporterEOAAccountOmitsCodeHash(t *testing.T) {
 	require.Equal(t, &balanceVal, acct.GetBalance())
 	var zeroHash vtype.CodeHash
 	require.Equal(t, &zeroHash, acct.GetCodeHash())
+}
+
+func TestExportSnapshotDirMatchesKVExporter(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	codeAddr := addrN(0x02)
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("balance/alice"), Value: []byte("100")},
+			{Key: []byte("supply"), Value: []byte("100")},
+		}}},
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))), Value: padLeft32(0x11)},
+			{Key: keys.BuildEVMKey(keys.EVMKeyCode, codeAddr[:]), Value: []byte{0x60, 0x80}},
+		}}},
+	}))
+	commitAndCheck(t, s)
+	require.NoError(t, s.outOfBandSnapshot())
+
+	exp, err := s.Exporter(1)
+	require.NoError(t, err)
+	want := drainExporter(t, exp)
+	require.NoError(t, exp.Close())
+
+	var got []*types.SnapshotNode
+	stats, err := ExportSnapshotDir(t.Context(), filepath.Join(s.flatkvDir(), snapshotName(1)), 1, func(key, value []byte) error {
+		got = append(got, &types.SnapshotNode{
+			Key:     bytes.Clone(key),
+			Value:   bytes.Clone(value),
+			Version: 1,
+			Height:  0,
+		})
+		return nil
+	})
+	require.NoError(t, err)
+	var wantBytes int64
+	for _, n := range want {
+		wantBytes += int64(len(n.Key)) + int64(len(n.Value))
+	}
+	require.Equal(t, SnapshotStats{
+		RowCount:  int64(len(want)),
+		Bytes:     wantBytes,
+		StateHash: s.maintainedHashes().Global.Checksum(),
+	}, stats)
+	require.Equal(t, want, got)
+}
+
+func TestImportedSnapshotRecordsTheStateHashOfItsRows(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("balance/alice"), Value: []byte("100")},
+			{Key: []byte("supply"), Value: []byte("100")},
+		}}},
+	}))
+	commitAndCheck(t, s)
+	require.NoError(t, s.outOfBandSnapshot())
+	src := filepath.Join(s.flatkvDir(), snapshotName(1))
+	exported, err := SnapshotDirStats(src, 1)
+	require.NoError(t, err)
+
+	reimport := func(t *testing.T, change func(key, value []byte)) SnapshotStats {
+		t.Helper()
+		dst := setupTestStore(t)
+		imp, err := dst.Importer(1)
+		require.NoError(t, err)
+		_, err = ExportSnapshotDir(t.Context(), src, 1, func(key, value []byte) error {
+			key, value = bytes.Clone(key), bytes.Clone(value)
+			change(key, value)
+			return imp.AddNode(&types.SnapshotNode{Key: key, Value: value, Version: 1})
+		})
+		require.NoError(t, err)
+		require.NoError(t, imp.Close())
+		require.NoError(t, dst.Close())
+		stats, err := SnapshotDirStats(filepath.Join(dst.flatkvDir(), snapshotName(1)), 1)
+		require.NoError(t, err)
+		return stats
+	}
+
+	require.Equal(t, exported, reimport(t, func(_, _ []byte) {}))
+
+	changed := reimport(t, func(key, value []byte) {
+		if bytes.HasSuffix(key, []byte("balance/alice")) {
+			value[len(value)-1] ^= 1
+		}
+	})
+	require.Equal(t, exported.RowCount, changed.RowCount)
+	require.Equal(t, exported.Bytes, changed.Bytes)
+	require.NotEqual(t, exported.StateHash, changed.StateHash)
+}
+
+func TestExportSnapshotDirRefusesRowsThatDisagreeWithMetadata(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("balance/alice"), Value: []byte("100")},
+		}}},
+	}))
+	commitAndCheck(t, s)
+	require.NoError(t, s.outOfBandSnapshot())
+
+	dir := filepath.Join(s.flatkvDir(), snapshotName(1))
+	db, err := pebble.Open(filepath.Join(dir, miscDBDir), &pebble.Options{FormatMajorVersion: pebble.FormatVirtualSSTables})
+	require.NoError(t, err)
+	require.NoError(t, db.Set([]byte("bank/unrecorded"), []byte("1"), pebble.Sync))
+	require.NoError(t, db.Close())
+
+	_, err = ExportSnapshotDir(t.Context(), dir, 1, func(_, _ []byte) error { return nil })
+	require.ErrorContains(t, err, "its metadata records")
+}
+
+func TestExportSnapshotDirRefusesVersionMismatch(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("balance/alice"), Value: []byte("100")},
+		}}},
+	}))
+	commitAndCheck(t, s)
+	require.NoError(t, s.outOfBandSnapshot())
+
+	_, err := ExportSnapshotDir(t.Context(), filepath.Join(s.flatkvDir(), snapshotName(1)), 2, func(_, _ []byte) error {
+		return nil
+	})
+	require.ErrorContains(t, err, "records version 1, want 2")
 }
 
 // withImportByteBudget makes importers built during the test use budget.
