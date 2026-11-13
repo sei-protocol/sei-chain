@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"golang.org/x/time/rate"
+
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -14,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type gigaValidatorRouter struct {
@@ -50,10 +53,15 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	if err := selfAddr.Validate(); err != nil {
 		return nil, fmt.Errorf("local validator %v address: %w", validatorKey, err)
 	}
+	params := cfg.GenDoc.Autobahn
+	if params == nil {
+		params = types.DefaultAutobahnParams()
+	}
 	consensusState, err := consensus.NewState(&consensus.Config{
 		Key:                cfg.ValidatorKey,
 		ViewTimeout:        cfg.ViewTimeout,
 		ProposalTimeout:    cfg.ProposalTimeout,
+		MaxRate:            rate.Every(params.MinRoadBlockInterval),
 		PersistentStateDir: utils.Some(cfg.PersistentStateDir),
 	}, dataState)
 	if err != nil {

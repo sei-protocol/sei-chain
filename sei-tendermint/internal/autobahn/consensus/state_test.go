@@ -3,9 +3,12 @@ package consensus
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"testing"
 	"time"
+
+	"golang.org/x/time/rate"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -51,6 +54,7 @@ func newTestStateWith(
 		Key:                key,
 		ViewTimeout:        timeout.Or(hourTimeout),
 		ProposalTimeout:    time.Hour,
+		MaxRate:            rate.Inf,
 		PersistentStateDir: utils.None[string](),
 	}, newTestDataState(registry)))
 	return s, keys, registry
@@ -220,7 +224,7 @@ func (e liveEnv) enterEpoch1(ctx context.Context) error {
 	for i, k := range e.keys {
 		votes[i] = types.Sign(k, types.NewCommitVote(proposal))
 	}
-	if err := e.s.pushSpec(types.ConsensusSpec{
+	if err := e.s.pushSpec(ctx, types.ConsensusSpec{
 		CommitQC: utils.Some(types.NewCommitQC(votes)),
 		Epoch:    e.reg.MustEpoch(1),
 	}); err != nil {
@@ -240,6 +244,7 @@ func TestNewStateRejectsNonPositiveProposalTimeout(t *testing.T) {
 			Key:                keys[0],
 			ViewTimeout:        hourTimeout,
 			ProposalTimeout:    timeout,
+			MaxRate:            rate.Inf,
 			PersistentStateDir: utils.None[string](),
 		}, newTestDataState(registry))
 		require.Error(t, err)
@@ -453,7 +458,7 @@ func TestOccupiedInner(t *testing.T) {
 		e := newLiveEnv(t, utils.TestRng())
 		e.occupyBusy()
 		spec := advancingSpec(e.keys, e.reg)
-		require.NoError(t, e.s.pushSpec(spec))
+		require.NoError(t, e.s.pushSpec(t.Context(), spec))
 
 		i := e.inner()
 		require.Equal(t, spec.Index(), i.Index)
@@ -467,7 +472,7 @@ func TestOccupiedInner(t *testing.T) {
 		before, ok := e.inner().PrepareVote.Get()
 		require.True(t, ok)
 
-		require.NoError(t, e.s.pushSpec(e.inner().spec))
+		require.NoError(t, e.s.pushSpec(t.Context(), e.inner().spec))
 		got, ok := e.inner().PrepareVote.Get()
 		require.True(t, ok)
 		require.Equal(t, before, got)
@@ -1204,6 +1209,7 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 			Key:                keys[0],
 			ViewTimeout:        func(types.View) time.Duration { return time.Hour },
 			ProposalTimeout:    time.Hour,
+			MaxRate:            rate.Inf,
 			PersistentStateDir: utils.Some(dir),
 		}
 	}
@@ -1369,4 +1375,17 @@ func gathered(t *testing.T, name string, labels map[string]string) int64 {
 		return 0
 	}
 	return 0
+}
+
+func TestNewStateRejectsInvalidMaxRate(t *testing.T) {
+	for _, limit := range []rate.Limit{0, -1, rate.Limit(math.NaN()), rate.Limit(math.Inf(1))} {
+		t.Run(fmt.Sprint(limit), func(t *testing.T) {
+			rng := utils.TestRng()
+			registry, keys := epoch.GenRegistry(rng, 3)
+			_, err := NewState(&Config{
+				Key: keys[0], ViewTimeout: hourTimeout, ProposalTimeout: time.Hour, MaxRate: limit,
+			}, newTestDataState(registry))
+			require.Error(t, err)
+		})
+	}
 }

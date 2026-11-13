@@ -9,7 +9,10 @@ import (
 	"slices"
 	"sync/atomic"
 	"testing"
+
 	"time"
+
+	"golang.org/x/time/rate"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
@@ -265,6 +268,7 @@ func newTestEnvN(rng utils.Rng, n int, cfg *Config, app *proxy.Proxy) (*testEnv,
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
 		ProposalTimeout:    time.Hour,
+		MaxRate:            rate.Inf,
 		PersistentStateDir: utils.None[string](),
 	}, dataState))
 	return &testEnv{

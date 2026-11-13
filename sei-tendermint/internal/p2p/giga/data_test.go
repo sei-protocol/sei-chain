@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	dto "github.com/prometheus/client_model/go"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
@@ -80,6 +82,7 @@ func (e *testEnv) AddNode(key types.SecretKey) *testNode {
 			return 0
 		},
 		ProposalTimeout: time.Hour,
+		MaxRate:         rate.Inf,
 	})
 	e.nodes[key.Public()] = n
 	return n
