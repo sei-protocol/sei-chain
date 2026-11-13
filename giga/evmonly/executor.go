@@ -44,6 +44,17 @@ type Executor struct {
 	missingState           StateReader
 	closed                 atomic.Bool
 
+	// earlySlots bounds the transactions early speculation runs at once, across blocks; nil when early
+	// speculation is off.
+	earlySlots chan struct{}
+	earlyMu    sync.Mutex
+	// early holds the blocks being or already speculated ahead of execution, by block number.
+	early map[uint64]*earlySpeculation
+	// recentChanges indexes the changes of the last blocks executed, by block number.
+	recentChanges map[uint64]*pendingIndex
+	// lastExecuted is the number of the last block whose commit has started.
+	lastExecuted atomic.Uint64
+
 	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
 	// serves the executor.
 	blockPhases *seidbmetrics.PhaseTimer
@@ -111,6 +122,11 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 	for _, opt := range opts {
 		opt(e)
 	}
+	if e.cfg.EarlySpeculationWorkers > 0 && e.stateStore != nil && e.occPool != nil {
+		e.earlySlots = make(chan struct{}, e.cfg.EarlySpeculationWorkers)
+		e.early = map[uint64]*earlySpeculation{}
+		e.recentChanges = map[uint64]*pendingIndex{}
+	}
 	return e
 }
 
@@ -121,6 +137,7 @@ func (e *Executor) Close() {
 		return
 	}
 	e.closed.Store(true)
+	e.stopEarlySpeculation()
 	// A block holding storeMu may still start a background commit, so wait it out before awaiting.
 	// A commit failure is kept for the next AwaitCommits rather than reported here.
 	e.storeMu.Lock()
@@ -156,6 +173,36 @@ func (e *Executor) MarkWaitingForBlock() {
 		return
 	}
 	e.blockPhases.SetPhase(phaseWaitingForBlock)
+}
+
+// WarmAccounts reads the account of every sender and recipient in b from the committed state, so that
+// executing b finds them cached rather than waiting on the database.
+func (e *Executor) WarmAccounts(ctx context.Context, b PreparedBlock) {
+	if e.stateStore == nil || len(b.Txs) == 0 {
+		return
+	}
+	view := e.stateStore.OpenView()
+	if view == nil {
+		return
+	}
+	defer view.Close()
+	workers := min(len(b.Txs), max(1, e.cfg.ParseWorkers))
+	chunk := (len(b.Txs) + workers - 1) / workers
+	var wg sync.WaitGroup
+	for start := 0; start < len(b.Txs); start += chunk {
+		wg.Go(func() {
+			for _, tx := range b.Txs[start:min(start+chunk, len(b.Txs))] {
+				if ctx.Err() != nil {
+					return
+				}
+				view.ReadAccount(tx.Sender)
+				if to := tx.Tx.To(); to != nil {
+					view.ReadAccount(*to)
+				}
+			}
+		})
+	}
+	wg.Wait()
 }
 
 // ExecuteBlock prepares and executes a block, and returns once its state is committed.

@@ -263,6 +263,8 @@ func (app *MockApp) EvmStateBeforeTx(context.Context, *ethtypes.Header, [][]byte
 	return nil, nil, errMockAppNoExecution
 }
 
+func (app *MockApp) PrepareBlock(context.Context, *proxy.RequestFinalizeBlock) error { return nil }
+
 func (app *MockApp) FinalizeBlock(_ context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
 	if req.Header == nil {
 		return nil, errMockAppMissingHeader

@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution/metrics"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -83,6 +84,8 @@ func (a *recordingApp) InitLastHeader(header *proxy.Header) {
 		state.lastHeader = utils.Some(header)
 	}
 }
+
+func (a *recordingApp) PrepareBlock(context.Context, *proxy.RequestFinalizeBlock) error { return nil }
 
 func (a *recordingApp) FinalizeBlock(_ context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
 	logEvent(a.events, "finalize %d", req.Header.Height)
@@ -359,4 +362,95 @@ func TestFinalizeBlockGasUsed(t *testing.T) {
 		},
 	}
 	require.Equal(t, int64(30), finalizeBlockGasUsed(resp))
+}
+
+// preparingApp is a recordingApp that also prepares blocks, and records whether
+// each finalized block was prepared first.
+type preparingApp struct {
+	*recordingApp
+	prepareErr func(height int64) error
+	prep       utils.Mutex[*preparingAppState]
+}
+
+type preparingAppState struct {
+	prepared map[int64]bool
+	misses   int
+}
+
+func newPreparingApp(events *eventLog) *preparingApp {
+	return &preparingApp{
+		recordingApp: newRecordingApp(events, 0),
+		prep:         utils.NewMutex(&preparingAppState{prepared: map[int64]bool{}}),
+	}
+}
+
+func (a *preparingApp) PrepareBlock(_ context.Context, req *proxy.RequestFinalizeBlock) error {
+	if a.prepareErr != nil {
+		if err := a.prepareErr(req.Header.Height); err != nil {
+			return err
+		}
+	}
+	for state := range a.prep.Lock() {
+		state.prepared[req.Header.Height] = true
+	}
+	return nil
+}
+
+func (a *preparingApp) FinalizeBlock(ctx context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
+	for state := range a.prep.Lock() {
+		if !state.prepared[req.Header.Height] {
+			state.misses++
+		}
+	}
+	return a.recordingApp.FinalizeBlock(ctx, req)
+}
+
+func (env *testEnv) preparingExecutor(app *preparingApp) *Executor {
+	return New(&Config{
+		GenDoc:         env.genDoc,
+		App:            proxy.NewEVM(app),
+		AppHashBuilder: recordingBuilder{events: env.events},
+		BlockStore:     env.store,
+	})
+}
+
+// Every block is handed to PrepareBlock before FinalizeBlock runs it.
+func TestRunPreparesEveryBlockBeforeFinalizingIt(t *testing.T) {
+	rng := utils.TestRng()
+	env := newTestEnv(t, rng, 6)
+	require.NoError(t, env.write(0, 6, true))
+	app := newPreparingApp(env.events)
+	executor := env.preparingExecutor(app)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
+		return waitExecuted(ctx, executor, env.road(5))
+	}))
+	require.Equal(t, 6, len(app.finalized()))
+	for state := range app.prep.Lock() {
+		require.Equal(t, 0, state.misses)
+	}
+}
+
+// A PrepareBlock error stops execution with that error.
+func TestRunStopsOnAPrepareError(t *testing.T) {
+	rng := utils.TestRng()
+	env := newTestEnv(t, rng, 3)
+	require.NoError(t, env.write(0, 3, true))
+	errPrepare := errors.New("prepare failed")
+	failAt := int64(env.road(1))
+	app := newPreparingApp(env.events)
+	app.prepareErr = func(height int64) error {
+		if height == failAt {
+			return errPrepare
+		}
+		return nil
+	}
+	require.ErrorIs(t, env.preparingExecutor(app).Run(t.Context()), errPrepare)
+}
+
+// The app's prepared queue holds every block execution prepares at once.
+func TestPrepareAheadFitsTheAppsPreparedQueue(t *testing.T) {
+	require.Equal(t, atypes.PrepareAheadBlocks+2, atypes.MaxPreparedBlocks)
+	require.Equal(t, atypes.MaxPreparedBlocks, evmonlyapp.MaxPreparedBlocks)
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -50,23 +51,83 @@ func (e *Executor) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
 	return e.executed.Subscribe()
 }
 
+// pendingExec is one in-flight executeBlock, whose result is reported on done.
+type pendingExec struct {
+	height atypes.RoadIndex
+	done   chan error
+}
+
 // Run initializes the app, then executes the durable blocks after its tip in
-// road order until ctx is canceled or a block fails.
+// road order until ctx is canceled or a block fails. executeBlock calls run
+// concurrently up to atypes.PrepareAheadBlocks ahead of the one whose
+// FinalizeBlock+Commit is in progress, so each block's PrepareBlock overlaps
+// the previous block's finalize and commit.
 func (e *Executor) Run(ctx context.Context) error {
 	next, err := e.initApp(ctx)
 	if err != nil {
 		return err
 	}
-	for n := next; ; n++ {
-		gigametrics.SetPhase(gigametrics.PhaseConsensus)
-		block, err := e.cfg.BlockStore.WaitForBlock(ctx, n)
-		if err != nil {
-			return fmt.Errorf("WaitForBlock(%v): %w", n, err)
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		results := make(chan pendingExec, atypes.PrepareAheadBlocks)
+		s.Spawn(func() error {
+			// priorDone carries the previous executeBlock's result to the next one;
+			// collected carries the same result to the ordered collector. Each has one receiver.
+			priorDone := make(chan error, 1)
+			priorDone <- nil
+			for n := next; ; n++ {
+				block, err := e.cfg.BlockStore.WaitForBlock(ctx, n)
+				if err != nil {
+					return fmt.Errorf("WaitForBlock(%v): %w", n, err)
+				}
+				b := block.SuperBlock()
+				req := e.finalizeRequest(b)
+				nextPrior := make(chan error, 1)
+				collected := make(chan error, 1)
+				prior := priorDone
+				s.Spawn(func() error {
+					err := e.executeBlock(ctx, b, req, prior)
+					nextPrior <- err
+					collected <- err
+					return nil
+				})
+				priorDone = nextPrior
+				if err := utils.Send(ctx, results, pendingExec{height: b.Height, done: collected}); err != nil {
+					return err
+				}
+			}
+		})
+		for {
+			gigametrics.SetPhase(gigametrics.PhaseConsensus)
+			p, err := utils.Recv(ctx, results)
+			if err != nil {
+				return err
+			}
+			gigametrics.SetPhase(gigametrics.PhaseExecution)
+			execErr, err := utils.Recv(ctx, p.done)
+			if err != nil {
+				return err
+			}
+			if execErr != nil {
+				return fmt.Errorf("executeBlock(%v): %w", p.height, execErr)
+			}
 		}
-		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		if err := e.executeBlock(ctx, block.SuperBlock()); err != nil {
-			return fmt.Errorf("executeBlock(%v): %w", n, err)
-		}
+	})
+}
+
+// finalizeRequest builds the FinalizeBlock request for a superblock, except for
+// the header's ProposerAddress, which depends on the committed state.
+func (e *Executor) finalizeRequest(b *atypes.SuperBlock) *proxy.RequestFinalizeBlock {
+	return &proxy.RequestFinalizeBlock{
+		Txs: b.Txs,
+		// The road block hash identifies the block before execution.
+		// It is used to identify block processed optimistically
+		// and is fed as block hash to EVM contracts.
+		Hash: b.Hash[:],
+		Header: &proxy.Header{
+			ChainID: e.cfg.GenDoc.ChainID,
+			Height:  int64(b.Height), // nolint:gosec // different representations of the same value
+			Time:    b.Timestamp,
+		},
 	}
 }
 
@@ -125,37 +186,34 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 	return last + 1, nil
 }
 
-// executeBlock reports b's hash to the app hash builder, then finalizes and
-// commits b.
-func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error {
+// executeBlock prepares req (overlapping the previous block's finalize and commit),
+// waits for that previous executeBlock to finish, then reports b's hash, finalizes,
+// and commits.
+func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock, req *proxy.RequestFinalizeBlock, priorDone <-chan error) error {
+	if err := e.cfg.App.PrepareBlock(ctx, req); err != nil {
+		return fmt.Errorf("app.PrepareBlock(): %w", err)
+	}
+	priorErr, err := utils.Recv(ctx, priorDone)
+	if err != nil {
+		return err
+	}
+	if priorErr != nil {
+		return priorErr
+	}
 	if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
 		return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 	}
 	app := e.cfg.App
-	var proposerAddress types.Address
+	// Read from the app's state after the previous block's Commit.
+	// WARNING: the reward distribution has corner cases where it forgets the proposer,
+	// because reward is distributed with a delay. This is not our problem here though.
 	if vals := app.GetValidators(); len(vals) > 0 {
 		// Deterministically select a proposer from the app's validator committee.
 		// We need it so that app does not emit error logs.
 		proposer := slices.MinFunc(vals, func(a, b proxy.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
-		proposerAddress = proposer.PubKey.ED25519().Address()
+		req.Header.ProposerAddress = proposer.PubKey.ED25519().Address()
 	}
-
-	resp, err := app.FinalizeBlock(ctx, &proxy.RequestFinalizeBlock{
-		Txs: b.Txs,
-
-		// The road block hash identifies the block before execution.
-		// It is used to identify block processed optimistically
-		// and is fed as block hash to EVM contracts.
-		Hash: b.Hash[:],
-		Header: &proxy.Header{
-			ChainID: e.cfg.GenDoc.ChainID,
-			Height:  int64(b.Height), // nolint:gosec // different representations of the same value
-			Time:    b.Timestamp,
-			// WARNING: the reward distribution has corner cases where it forgets the proposer,
-			// because reward is distributed with a delay. This is not our problem here though.
-			ProposerAddress: proposerAddress,
-		},
-	})
+	resp, err := app.FinalizeBlock(ctx, req)
 	if err != nil {
 		return fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
