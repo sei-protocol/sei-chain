@@ -214,6 +214,12 @@ Every validator opens the production-shaped Giga storage manager: FlatKV for
 EVM state, littidx for receipts, and littblock for blocks. GigaSS is disabled
 because EVM-only execution does not use it.
 
+Only the RPC node (`make run-rpc-node`), a full node, keeps EVM state history,
+in the Giga undo-log state store. It publishes its EVM RPC on host ports 8555
+(HTTP) and 8556 (WebSocket), and the Autobahn integration suites call it there
+through `SEI_EVM_RPC_URL` and `SEI_EVM_WS_URL`. Node 0's EVM RPC stays on 8545,
+and `seid` sends the suites' funding and seed transactions through it.
+
 Inspect the generated local inputs with:
 
 ```sh

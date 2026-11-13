@@ -354,9 +354,40 @@ jobs:
           esac
           go test -tags yaml_integration -v -timeout 5m ./integration_test/runner/... -run "$startup"
 
+      # Autobahn validators keep no EVM state history, so the suites send RPC calls to the RPC
+      # node, published on 8555 (HTTP) and 8556 (WebSocket). The suites fund accounts through node 0
+      # and wait for the receipts on the RPC node, so the RPC node must first catch up with node 0.
+      - name: Wait for the Autobahn RPC node
+        if: ${{ contains(matrix.test.env, 'AUTOBAHN=true') }}
+        run: |
+          # block_number prints the latest block number the EVM RPC at $1 serves, or nothing when it
+          # does not answer.
+          block_number() {
+            local hex
+            hex=$(curl -sf --max-time 5 -X POST -H 'Content-Type: application/json' \
+              -d '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' "$1" | jq -r '.result // empty') || true
+            if [ -n "$hex" ]; then echo $((hex)); fi
+          }
+          target="" height=""
+          deadline=$((SECONDS + 300))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            [ -n "$target" ] || target=$(block_number http://localhost:8545)
+            height=$(block_number http://localhost:8555)
+            if [ -n "$target" ] && [ -n "$height" ] && [ "$height" -ge "$target" ]; then
+              echo "the RPC node is at block $height, node 0 was at block $target"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::the Autobahn RPC node on 8555 did not reach node 0's block ${target:-(node 0 did not answer)} within 5 minutes (last seen: ${height:-no answer})"
+          exit 1
+
       - name: ${{ matrix.test.name }}
         run: |
           scripts=$(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]')
+          case "${{ matrix.test.env }}" in
+            *AUTOBAHN=true*) export SEI_EVM_RPC_URL=http://localhost:8555 SEI_EVM_WS_URL=ws://localhost:8556 ;;
+          esac
           row_start=$SECONDS
           IFS=$'\n'   # change the internal field separator to newline
           for script in $scripts

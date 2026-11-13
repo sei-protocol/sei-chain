@@ -328,6 +328,7 @@ run-rpc-node: build-rpc-node
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
+	-p 8555-8556:8545-8546 \
 	--platform $(DOCKER_PLATFORM) \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
 	--env GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY} \
@@ -351,6 +352,7 @@ define RUN_RPC_NODE_SKIPBUILD
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
+	-p 8555-8556:8545-8546 \
 	--platform $(DOCKER_PLATFORM) \
 	--env SKIP_BUILD=true \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
@@ -377,7 +379,12 @@ run-rpc-node-skipbuild-ci: ensure-integration-ci-rpcnode-image
 # Wait for the localnode cluster to produce block 100 (the first snapshot-interval) before
 # starting the rpc node. Without this, SKIP_BUILD=true causes step1_configure_init.sh to
 # read a trust-height of ~10-20, find no snapshot during discovery-time, and crash.
+# An Autobahn RPC node serves no Tendermint RPC to wait on; it joins as an Autobahn full node and
+# syncs from genesis.
 run-rpc-node-integration-ci: kill-rpc-node ensure-integration-ci-images
+ifeq ($(AUTOBAHN),true)
+	$(RUN_RPC_NODE_SKIPBUILD)
+else
 	@echo "Waiting for cluster to reach block 100 (first snapshot)..."
 	@# 192.168.10.10 is the node0 address defined in docker/localnet/; timeout after 15 × 20s = 5 min.
 	@n=0; until [ "$$(curl -sf http://192.168.10.10:26657/block | jq -r '.block.header.height // 0')" -ge 100 ] 2>/dev/null; do \
@@ -395,12 +402,14 @@ run-rpc-node-integration-ci: kill-rpc-node ensure-integration-ci-images
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
+	-p 8555-8556:8545-8546 \
 	--platform $(DOCKER_PLATFORM) \
 	--env SKIP_BUILD=true \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
 	--env GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
+endif
 .PHONY: run-rpc-node-integration-ci
 
 kill-sei-node:

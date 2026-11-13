@@ -11,6 +11,9 @@ RECIPIENT="${SEI_EVM_IO_TX_RECIPIENT:-0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52
 PROJECT_ROOT="${SEI_EVM_IO_PROJECT_ROOT:-/sei-protocol/sei-chain}"
 CONTRACT_HEX="${PROJECT_ROOT}/integration_test/evm_module/scripts/contracts/minimal_contract.hex"
 REVERTER_HEX="${PROJECT_ROOT}/integration_test/evm_module/scripts/contracts/reverter_contract.hex"
+# The EVM RPC, inside CONTAINER, that seeds the fixtures' blocks and transactions.
+VALIDATOR_RPC_URL="${SEI_EVM_IO_TX_RPC_URL:-http://localhost:8545}"
+# The EVM RPC the fixtures run against, from this host.
 EVM_RPC_URL="${SEI_EVM_RPC_URL:-http://localhost:8545}"
 KEYRING_ARGS=()
 if [[ -n "${SEI_EVM_IO_KEYRING_BACKEND:-}" ]]; then
@@ -48,7 +51,7 @@ wait_for_receipt_field() {
   local deadline=$(($(date +%s) + 30))
   while [ "$(date +%s)" -lt "$deadline" ]; do
     local resp
-    resp=$(docker exec "$CONTAINER" curl -s -X POST -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getTransactionReceipt\",\"params\":[\"$tx_hash\"]}" "$EVM_RPC_URL" 2>/dev/null) || true
+    resp=$(docker exec "$CONTAINER" curl -s -X POST -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getTransactionReceipt\",\"params\":[\"$tx_hash\"]}" "$VALIDATOR_RPC_URL" 2>/dev/null) || true
     local value
     value=$(echo "$resp" | jq -r --arg field "$field" '.result[$field] // empty' 2>/dev/null) || true
     if [[ -n "$value" && "$value" != "null" ]]; then
@@ -81,7 +84,7 @@ bump_chain_to_height() {
     fi
     # Progress-only EVM send: these fixtures need real historical blocks first.
     local tx_hash
-    tx_hash=$(run seid tx evm send "$RECIPIENT" 1 --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y | grep -oE '0x[a-fA-F0-9]{64}' | head -1)
+    tx_hash=$(run seid tx evm send "$RECIPIENT" 1 --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$VALIDATOR_RPC_URL" -b sync -y | grep -oE '0x[a-fA-F0-9]{64}' | head -1)
     if [[ -z "$tx_hash" ]]; then
       echo "failed to extract progress tx hash while preseeding historical blocks" >&2
       return 1
@@ -110,7 +113,7 @@ docker exec "$CONTAINER" /bin/bash -c "tr -d '[:space:]' < \"$CONTRACT_HEX\" > /
 #
 # These are EVM transactions, so receipt polling is the reliable
 # inclusion signal. Cosmos account sequence waits are not appropriate here.
-SEND_OUT=$(run seid tx evm send "$RECIPIENT" 1 --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y 2>&1)
+SEND_OUT=$(run seid tx evm send "$RECIPIENT" 1 --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$VALIDATOR_RPC_URL" -b sync -y 2>&1)
 SEND_TX=$(echo "$SEND_OUT" | grep -oE '0x[a-fA-F0-9]{64}' | head -1)
 if [[ -z "$SEND_TX" ]]; then
   echo "Failed to extract seed transfer tx hash:" >&2
@@ -118,7 +121,7 @@ if [[ -z "$SEND_TX" ]]; then
   exit 1
 fi
 wait_for_receipt_field "$SEND_TX" blockNumber >/dev/null
-DEPLOY_OUT=$(run seid tx evm deploy /tmp/minimal_contract.hex --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y 2>&1) || true
+DEPLOY_OUT=$(run seid tx evm deploy /tmp/minimal_contract.hex --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$VALIDATOR_RPC_URL" -b sync -y 2>&1) || true
 DEPLOY_TX=$(echo "$DEPLOY_OUT" | grep -oE '0x[a-fA-F0-9]{64}' | head -1)
 if [[ -n "$DEPLOY_TX" ]]; then
   SEED=$(wait_for_receipt_field "$DEPLOY_TX" blockNumber) || true
@@ -130,7 +133,7 @@ fi
 
 # Deploy reverter contract (reverts with Error("user error")); export SEI_EVM_IO_REVERTER_ADDRESS for .iox __REVERTER__ tag.
 docker exec "$CONTAINER" /bin/bash -c "tr -d '[:space:]' < \"$REVERTER_HEX\" > /tmp/reverter_contract.hex"
-REVERTER_OUT=$(run seid tx evm deploy /tmp/reverter_contract.hex --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y 2>&1) || true
+REVERTER_OUT=$(run seid tx evm deploy /tmp/reverter_contract.hex --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$VALIDATOR_RPC_URL" -b sync -y 2>&1) || true
 REVERTER_TX=$(echo "$REVERTER_OUT" | grep -oE '0x[a-fA-F0-9]{64}' | head -1)
 if [[ -n "$REVERTER_TX" ]]; then
   REVERTER_ADDR=$(wait_for_receipt_field "$REVERTER_TX" contractAddress) || true
@@ -142,6 +145,31 @@ if [[ -z "${SEI_EVM_IO_REVERTER_ADDRESS:-}" ]]; then
   echo "WARNING: Reverter contract not deployed (deploy or receipt lookup failed). Tests using __REVERTER__ will be skipped." >&2
 fi
 
+# wait_for_rpc_to_reach_validator waits until EVM_RPC_URL serves the block the validator is at, so
+# the fixtures see every seeded transaction.
+wait_for_rpc_to_reach_validator() {
+  local body='{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}'
+  local target
+  target=$(docker exec "$CONTAINER" curl -s -X POST -H "Content-Type: application/json" -d "$body" "$VALIDATOR_RPC_URL" | jq -r '.result // empty')
+  if [[ -z "$target" ]]; then
+    echo "failed to read the validator's block number" >&2
+    return 1
+  fi
+  local deadline=$(($(date +%s) + 60))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    local cur
+    cur=$(curl -s -X POST -H "Content-Type: application/json" -d "$body" "$EVM_RPC_URL" | jq -r '.result // empty') || true
+    if [[ -n "$cur" ]] && [ $((cur)) -ge $((target)) ]; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "timed out waiting for ${EVM_RPC_URL} to reach block $((target))" >&2
+  return 1
+}
+wait_for_rpc_to_reach_validator
+
+export SEI_EVM_RPC_URL="$EVM_RPC_URL"
 export SEI_EVM_IO_RUN_INTEGRATION=1
 go test ./integration_test/evm_module/rpc_io_test/ -v -count=1
 
