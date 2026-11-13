@@ -215,6 +215,11 @@ func buildProposal(
 			}
 			laneRanges = append(laneRanges, laneRange)
 		} else {
+			// Empty ranges carry NO last hash. This is intentional:
+			// Sole purpose of last hash is to identify the lane blocks in the proposal.
+			// Sequencing mismatching lane ranges is the core property of autobahn, i.e.
+			// we do NOT require last hash of range in previous proposal to be parent of the first block
+			// of the range in next proposal.
 			laneRanges = append(laneRanges, NewLaneRange(lane, first, utils.None[*BlockHeader]()))
 		}
 	}
