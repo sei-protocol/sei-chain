@@ -120,14 +120,12 @@ func TestDataClientServer(t *testing.T) {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 
 		t.Logf("push data")
-		prev := utils.None[*types.CommitQC]()
-		for i := range 3 {
+		qcs, blocks := testQCChain(rng, ep0, keys, 3)
+		for i, qc := range qcs {
 			t.Logf("iteration %v", i)
-			qc, blocks := data.TestCommitQC(rng, ep0, keys, prev)
-			if err := server.data.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
+			if err := server.data.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks[i])); err != nil {
 				return fmt.Errorf("serverState.PushPartialBlock(): %w", err)
 			}
-			prev = utils.Some(qc.QC())
 		}
 		t.Logf("wait for replication")
 		for n := firstBlock; n < server.data.NextQC(); n++ {
@@ -209,16 +207,19 @@ func runFullCommitQCClient(ctx context.Context, node *testNode, onReq func(conte
 	})
 }
 
-// testQCChain returns n consecutive FullCommitQCs of ep, starting at its first road index.
-func testQCChain(rng utils.Rng, ep *types.Epoch, keys []types.SecretKey, n int) []*types.FullCommitQC {
+// testQCChain returns n consecutive FullCommitQCs of ep, starting at its first road index,
+// and the lane blocks that each QC finalizes.
+func testQCChain(rng utils.Rng, ep *types.Epoch, keys []types.SecretKey, n int) ([]*types.FullCommitQC, [][]*types.Block) {
 	qcs := make([]*types.FullCommitQC, 0, n)
+	blocks := make([][]*types.Block, 0, n)
 	prev := utils.None[*types.CommitQC]()
 	for range n {
-		qc, _ := data.TestCommitQC(rng, ep, keys, prev)
+		qc, bs := data.TestCommitQC(rng, ep, keys, prev)
 		qcs = append(qcs, qc)
+		blocks = append(blocks, bs)
 		prev = utils.Some(qc.QC())
 	}
-	return qcs
+	return qcs, blocks
 }
 
 func TestFullCommitQCStreamAcceptsIncreasingIndexesWithGaps(t *testing.T) {
@@ -226,7 +227,7 @@ func TestFullCommitQCStreamAcceptsIncreasingIndexesWithGaps(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
 	node := newTestEnv(registry).AddNode(t, keys[0])
-	qcs := testQCChain(rng, registry.MustEpoch(0), keys, 4)
+	qcs, _ := testQCChain(rng, registry.MustEpoch(0), keys, 4)
 	// Another peer pushes qcs[0] after the client requests it, so the stream starts above the requested index.
 	pushRequested := func(ctx context.Context, req *StreamFullCommitQCsReq) error {
 		if got, want := req.NextBlock, qcs[0].Index(); got != want {
@@ -269,7 +270,7 @@ func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
 			rng := utils.TestRng()
 			registry, keys := epoch.GenRegistry(rng, 2)
 			node := newTestEnv(registry).AddNode(t, keys[0])
-			qcs := testQCChain(rng, registry.MustEpoch(0), keys, 3)
+			qcs, _ := testQCChain(rng, registry.MustEpoch(0), keys, 3)
 			for _, i := range tc.pushed {
 				require.NoError(t, node.data.PushPartialBlock(ctx, qcs[i], nil))
 			}
