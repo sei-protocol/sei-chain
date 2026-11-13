@@ -77,7 +77,9 @@ func WithMissingAccountState(state StateReader) Option {
 }
 
 // WithGenesisAlloc credits each account its balance in alloc at the start of
-// block height, before any begin blocker runs.
+// block height, before any begin blocker runs. NewExecutor panics if it is
+// combined with WithMissingAccountState, whose balances the alloc would be
+// credited on top of.
 func WithGenesisAlloc(height uint64, alloc map[common.Address]*uint256.Int) Option {
 	return func(e *Executor) {
 		e.genesis = newGenesisAlloc(height, alloc)
@@ -119,6 +121,9 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 	}
 	for _, opt := range opts {
 		opt(e)
+	}
+	if len(e.genesis.accounts) > 0 && e.missingState != nil {
+		panic("a genesis alloc cannot be combined with a missing account state")
 	}
 	return e
 }

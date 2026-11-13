@@ -17,7 +17,7 @@ func TestGenesisAllocCreditsOnlyItsHeight(t *testing.T) {
 	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(state),
 		WithGenesisAlloc(1, map[common.Address]*uint256.Int{a: uint256.NewInt(5), b: uint256.NewInt(7)}))
 
-	for number, want := range map[uint64]map[common.Address]int64{1: {a: 5, b: 9}, 2: {a: 5, b: 9}} {
+	for number := uint64(1); number <= 2; number++ {
 		ctx := blockContext(big.NewInt(testChainID))
 		ctx.Number = number
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: ctx})
@@ -28,10 +28,16 @@ func TestGenesisAllocCreditsOnlyItsHeight(t *testing.T) {
 			require.Empty(t, result.ChangeSet.Accounts, "block %d credits nothing", number)
 		}
 		state.ApplyChangeSet(result.ChangeSet)
-		for addr, balance := range want {
-			require.Equal(t, big.NewInt(balance), state.GetBalance(addr), "%s after block %d", addr, number)
-		}
+		require.Equal(t, big.NewInt(5), state.GetBalance(a), "a after block %d", number)
+		require.Equal(t, big.NewInt(9), state.GetBalance(b), "b after block %d", number)
 	}
+}
+
+func TestGenesisAllocRefusesMissingAccountState(t *testing.T) {
+	alloc := WithGenesisAlloc(1, map[common.Address]*uint256.Int{{1}: uint256.NewInt(5)})
+	require.Panics(t, func() {
+		NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(NewMemoryState()), WithMissingAccountState(NewMemoryState()), alloc)
+	})
 }
 
 func TestGenesisAllocFundsItsBlocksTransactions(t *testing.T) {
