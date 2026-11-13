@@ -28,6 +28,9 @@ type EVMApplication interface {
 	CheckTx(context.Context, *RequestCheckTxV2) *ResponseCheckTxV2
 	EvmBalance(common.Address, []byte) uint256.Int
 	EvmNonce(common.Address) uint64
+	// EvmCommittedNonce returns addr's nonce in the last committed EVM state without waiting for a
+	// commit in flight, so it can trail EvmNonce by the most recently finalized block.
+	EvmCommittedNonce(common.Address) uint64
 	// RememberEvmSender records the sender recovered for the transaction with hash.
 	RememberEvmSender(hash common.Hash, sender common.Address)
 	// ForgetEvmSender drops the sender recorded for hash, if any.
@@ -154,6 +157,13 @@ func (app *EVMProxy) ForgetEvmSender(hash common.Hash) {
 func (app *EVMProxy) EvmNonce(addr common.Address) uint64 {
 	defer addTimeSample(Global.MethodTimingAt("evm_nonce", "sync"))()
 	return app.app.EvmNonce(addr)
+}
+
+// EvmCommittedNonce returns addr's nonce in the wrapped application's committed EVM state without
+// waiting for a commit in flight.
+func (app *EVMProxy) EvmCommittedNonce(addr common.Address) uint64 {
+	defer addTimeSample(Global.MethodTimingAt("evm_committed_nonce", "sync"))()
+	return app.app.EvmCommittedNonce(addr)
 }
 
 func (app *EVMProxy) FinalizeBlock(ctx context.Context, req *RequestFinalizeBlock) (*ResponseFinalizeBlock, error) {

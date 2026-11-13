@@ -152,6 +152,8 @@ func (app *testEVMApp) EvmCreateAccessListAt(_ context.Context, msg *core.Messag
 	return testAccessList, testExecutionResult, nil
 }
 
+func (app *testEVMApp) EvmCommittedNonce(common.Address) uint64 { return 6 }
+
 func (app *testEVMApp) EvmChainID() uint64                  { return 713715 }
 func (app *testEVMApp) EvmChainConfig() *params.ChainConfig { return testChainConfig }
 func (app *testEVMApp) EvmBaseFee() *big.Int                { return testBaseFee }
@@ -171,6 +173,12 @@ func (app *testEVMApp) EvmStateAt(_ context.Context, height int64) (vm.SeiStateD
 func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
 	app.gotHeader, app.gotTxs = header, txs
 	return nil, func() {}, nil
+}
+
+func TestEvmCommittedNonce(t *testing.T) {
+	addr := common.Address{7}
+	evm := NewEVM(&testEVMApp{})
+	require.Equal(t, uint64(6), evm.EvmCommittedNonce(addr))
 }
 
 func TestEVMProxyDelegatesToTheApplication(t *testing.T) {

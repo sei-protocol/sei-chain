@@ -128,6 +128,11 @@ func (a *testApp) EvmNonce(addr common.Address) uint64 {
 	panic("unreachable")
 }
 
+// EvmCommittedNonce matches EvmNonce: the test app has no commit in flight.
+func (a *testApp) EvmCommittedNonce(addr common.Address) uint64 {
+	return a.EvmNonce(addr)
+}
+
 func (a *testApp) CheckTx(_ context.Context, req *proxy.RequestCheckTxV2) *proxy.ResponseCheckTxV2 {
 	defer func() {
 		for range a.inner.Lock() {

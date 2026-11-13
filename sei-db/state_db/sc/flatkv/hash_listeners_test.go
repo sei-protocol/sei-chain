@@ -76,6 +76,29 @@ func TestAListenerSeesEveryBlockInOrder(t *testing.T) {
 	require.Equal(t, []int64{1, 2, 3, 4, 5, 6, 7, 8}, *seen)
 }
 
+// A block's hash is dispatched only once OpenView can read the block, so a caller acting on the hash
+// never finds that block's state missing.
+func TestAListenerIsHandedABlockOnlyOnceItIsReadable(t *testing.T) {
+	s := setupTestStoreWithConfig(t, tightHashPipelineConfig(t))
+	defer func() { require.NoError(t, s.Close()) }()
+
+	var unreadable []int64
+	_, err := s.RegisterHashListener(func(_ context.Context, blockNumber int64, _ *lthash.BlockHash) error {
+		view := s.OpenView()
+		defer view.Close()
+		if view.GetBlockHeight() < blockNumber {
+			unreadable = append(unreadable, blockNumber)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+
+	commitBlocks(t, s, 8)
+	require.NoError(t, s.FlushHashes())
+
+	require.Empty(t, unreadable, "blocks whose hash was dispatched before OpenView could read them")
+}
+
 // FlushHashes is how a caller waits for hashing to catch up, and a hash that has been computed but
 // not handed on has not caught up as far as a listener is concerned.
 func TestFlushHashesWaitsForEveryBlockToBeDispatched(t *testing.T) {
