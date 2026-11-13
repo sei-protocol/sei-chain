@@ -153,11 +153,7 @@ func TestExecutorEstimateGasHonorsGasCap(t *testing.T) {
 	require.ErrorContains(t, err, "gas required exceeds allowance")
 }
 
-func TestExecutorEstimateGasTimesOutOnUnboundedExecution(t *testing.T) {
-	original := callTimeout
-	callTimeout = 20 * time.Millisecond
-	defer func() { callTimeout = original }()
-
+func TestExecutorEstimateGasStopsAtContextDeadline(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -177,11 +173,13 @@ func TestExecutorEstimateGasTimesOutOnUnboundedExecution(t *testing.T) {
 	require.NoError(t, err)
 
 	msg := callMessage(sender, &contractAddr)
-	msg.GasLimit = 1_000_000_000_000 // far more gas than the shrunk timeout allows spending
+	msg.GasLimit = 1_000_000_000_000 // far more gas than the deadline allows spending
 
-	_, _, err = executor.EstimateGas(t.Context(), blockContext(chainID), msg, 0)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	_, _, err = executor.EstimateGas(ctx, blockContext(chainID), msg, 0)
 
-	require.ErrorContains(t, err, "timeout")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestExecutorEstimateGasReportsCancellationDistinctFromTimeout(t *testing.T) {

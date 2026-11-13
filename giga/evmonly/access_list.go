@@ -43,8 +43,6 @@ func (e *Executor) CreateAccessListAt(ctx context.Context, view gigatypes.EVMSta
 	}
 	reader := gigaSnapshotStateReader{snapshot: view, missingState: e.missingState}
 
-	listCtx, cancel := context.WithTimeout(ctx, callTimeout)
-	defer cancel()
 	excluded := e.accessListExclusions(chainConfig, blockCtx, reader, msg)
 	// Each run may touch what the previous list warmed differently, so rerun until the list is stable.
 	prev := logger.NewAccessListTracer(msg.AccessList, excluded)
@@ -53,7 +51,7 @@ func (e *Executor) CreateAccessListAt(ctx context.Context, view gigatypes.EVMSta
 		run := *msg
 		run.AccessList = accessList
 		tracer := logger.NewAccessListTracer(accessList, excluded)
-		result, err := e.traceAccessList(listCtx, blockCtx, chainConfig, reader, &run, tracer)
+		result, err := e.traceAccessList(ctx, blockCtx, chainConfig, reader, &run, tracer)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, nil, ctxErr
 		}
@@ -81,7 +79,7 @@ func (e *Executor) traceAccessList(
 	evm := e.newEVM(EVMBlockContext(blockCtx), stateDB, chainConfig, vm.Config{Tracer: tracer.Hooks(), NoBaseFee: true})
 	result, cancelled, err := applyMessage(ctx, evm, msg)
 	if cancelled {
-		return nil, fmt.Errorf("EVM-only access list exceeded %s execution timeout", callTimeout)
+		return nil, fmt.Errorf("EVM-only access list cancelled: %w", ctx.Err())
 	}
 	if stateErr := stateDB.Error(); stateErr != nil {
 		return nil, stateErr
