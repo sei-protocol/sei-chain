@@ -69,16 +69,16 @@ func requireReverts(t *testing.T, err error, want error) {
 // and in the V2 struct's field order; a new param goes in its place in that order.
 func TestKeys(t *testing.T) {
 	require.Equal(t, []Key{
-		{"gov", "depositparams.min_deposit", "uint256"},
-		{"gov", "depositparams.max_deposit_period", "uint64"},
-		{"gov", "depositparams.min_expedited_deposit", "uint256"},
-		{"gov", "votingparams.voting_period", "uint64"},
-		{"gov", "votingparams.expedited_voting_period", "uint64"},
-		{"gov", "tallyparams.quorum", "uint256"},
-		{"gov", "tallyparams.threshold", "uint256"},
-		{"gov", "tallyparams.veto_threshold", "uint256"},
-		{"gov", "tallyparams.expedited_quorum", "uint256"},
-		{"gov", "tallyparams.expedited_threshold", "uint256"},
+		{"gov", "depositparams.min_deposit", KindCoins, "uint256"},
+		{"gov", "depositparams.max_deposit_period", KindDuration, "uint64"},
+		{"gov", "depositparams.min_expedited_deposit", KindCoins, "uint256"},
+		{"gov", "votingparams.voting_period", KindDuration, "uint64"},
+		{"gov", "votingparams.expedited_voting_period", KindDuration, "uint64"},
+		{"gov", "tallyparams.quorum", KindDec, "uint256"},
+		{"gov", "tallyparams.threshold", KindDec, "uint256"},
+		{"gov", "tallyparams.veto_threshold", KindDec, "uint256"},
+		{"gov", "tallyparams.expedited_quorum", KindDec, "uint256"},
+		{"gov", "tallyparams.expedited_threshold", KindDec, "uint256"},
 	}, Keys())
 }
 

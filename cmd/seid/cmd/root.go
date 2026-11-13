@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	evmonlycli "github.com/sei-protocol/sei-chain/giga/evmonly/client/cli"
+
 	"github.com/sei-protocol/sei-chain/admin"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
@@ -160,6 +162,7 @@ func initRootCmd(
 		ReplayCmd(app.DefaultNodeHome),
 		BlocktestCmd(app.DefaultNodeHome),
 	)
+	evmonlycli.Route(rootCmd)
 }
 
 // queryCommand returns the sub-command to send queries to the app
