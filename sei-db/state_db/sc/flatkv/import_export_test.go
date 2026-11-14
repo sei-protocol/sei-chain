@@ -1,11 +1,16 @@
 package flatkv
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/stretchr/testify/require"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
@@ -300,6 +305,262 @@ func TestExporterEOAAccountOmitsCodeHash(t *testing.T) {
 	require.Equal(t, &balanceVal, acct.GetBalance())
 	var zeroHash vtype.CodeHash
 	require.Equal(t, &zeroHash, acct.GetCodeHash())
+}
+
+func TestExportSnapshotDirMatchesKVExporter(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	codeAddr := addrN(0x02)
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("balance/alice"), Value: []byte("100")},
+			{Key: []byte("supply"), Value: []byte("100")},
+		}}},
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))), Value: padLeft32(0x11)},
+			{Key: keys.BuildEVMKey(keys.EVMKeyCode, codeAddr[:]), Value: []byte{0x60, 0x80}},
+		}}},
+	}))
+	commitAndCheck(t, s)
+	require.NoError(t, s.outOfBandSnapshot())
+
+	exp, err := s.Exporter(1)
+	require.NoError(t, err)
+	want := drainExporter(t, exp)
+	require.NoError(t, exp.Close())
+
+	var got []*types.SnapshotNode
+	stats, err := ExportSnapshotDir(t.Context(), filepath.Join(s.flatkvDir(), snapshotName(1)), 1, func(key, value []byte) error {
+		got = append(got, &types.SnapshotNode{
+			Key:     bytes.Clone(key),
+			Value:   bytes.Clone(value),
+			Version: 1,
+			Height:  0,
+		})
+		return nil
+	})
+	require.NoError(t, err)
+	var wantBytes int64
+	for _, n := range want {
+		wantBytes += int64(len(n.Key)) + int64(len(n.Value))
+	}
+	require.Equal(t, SnapshotStats{
+		RowCount:  int64(len(want)),
+		Bytes:     wantBytes,
+		StateHash: s.maintainedHashes().Global.Checksum(),
+	}, stats)
+	require.Equal(t, want, got)
+}
+
+func TestImportedSnapshotRecordsTheStateHashOfItsRows(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("balance/alice"), Value: []byte("100")},
+			{Key: []byte("supply"), Value: []byte("100")},
+		}}},
+	}))
+	commitAndCheck(t, s)
+	require.NoError(t, s.outOfBandSnapshot())
+	src := filepath.Join(s.flatkvDir(), snapshotName(1))
+	exported, err := SnapshotDirStats(src, 1)
+	require.NoError(t, err)
+
+	reimport := func(t *testing.T, change func(key, value []byte)) SnapshotStats {
+		t.Helper()
+		dst := setupTestStore(t)
+		imp, err := dst.Importer(1)
+		require.NoError(t, err)
+		_, err = ExportSnapshotDir(t.Context(), src, 1, func(key, value []byte) error {
+			key, value = bytes.Clone(key), bytes.Clone(value)
+			change(key, value)
+			return imp.AddNode(&types.SnapshotNode{Key: key, Value: value, Version: 1})
+		})
+		require.NoError(t, err)
+		require.NoError(t, imp.Close())
+		require.NoError(t, dst.Close())
+		stats, err := SnapshotDirStats(filepath.Join(dst.flatkvDir(), snapshotName(1)), 1)
+		require.NoError(t, err)
+		return stats
+	}
+
+	require.Equal(t, exported, reimport(t, func(_, _ []byte) {}))
+
+	changed := reimport(t, func(key, value []byte) {
+		if bytes.HasSuffix(key, []byte("balance/alice")) {
+			value[len(value)-1] ^= 1
+		}
+	})
+	require.Equal(t, exported.RowCount, changed.RowCount)
+	require.Equal(t, exported.Bytes, changed.Bytes)
+	require.NotEqual(t, exported.StateHash, changed.StateHash)
+}
+
+func TestExportSnapshotDirRefusesRowsThatDisagreeWithMetadata(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("balance/alice"), Value: []byte("100")},
+		}}},
+	}))
+	commitAndCheck(t, s)
+	require.NoError(t, s.outOfBandSnapshot())
+
+	dir := filepath.Join(s.flatkvDir(), snapshotName(1))
+	db, err := pebble.Open(filepath.Join(dir, miscDBDir), &pebble.Options{FormatMajorVersion: pebble.FormatVirtualSSTables})
+	require.NoError(t, err)
+	require.NoError(t, db.Set([]byte("bank/unrecorded"), []byte("1"), pebble.Sync))
+	require.NoError(t, db.Close())
+
+	_, err = ExportSnapshotDir(t.Context(), dir, 1, func(_, _ []byte) error { return nil })
+	require.ErrorContains(t, err, "its metadata records")
+}
+
+func TestExportSnapshotDirRefusesVersionMismatch(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("balance/alice"), Value: []byte("100")},
+		}}},
+	}))
+	commitAndCheck(t, s)
+	require.NoError(t, s.outOfBandSnapshot())
+
+	_, err := ExportSnapshotDir(t.Context(), filepath.Join(s.flatkvDir(), snapshotName(1)), 2, func(_, _ []byte) error {
+		return nil
+	})
+	require.ErrorContains(t, err, "records version 1, want 2")
+}
+
+// withImportByteBudget makes importers built during the test use budget.
+func withImportByteBudget(t *testing.T, budget int64) {
+	t.Helper()
+	importByteBudgetForTest.Store(budget)
+	t.Cleanup(func() { importByteBudgetForTest.Store(0) })
+}
+
+// budgetRow returns the misc row i of an import, with a key and value of keyLen+valueLen bytes in total.
+func budgetRow(i int, valueLen int) *types.SnapshotNode {
+	return &types.SnapshotNode{
+		Key:     []byte(fmt.Sprintf("bank/k%05d", i)),
+		Value:   bytes.Repeat([]byte{'v'}, valueLen),
+		Version: 1,
+	}
+}
+
+func (imp *KVImporter) budgetInUse() int64 {
+	imp.budgetMu.Lock()
+	defer imp.budgetMu.Unlock()
+	return imp.budgetUsed
+}
+
+func TestImporterRefusesNodeAboveHalfTheByteBudget(t *testing.T) {
+	withImportByteBudget(t, 8)
+	s, imp := newKVImporterForTest(t, 1)
+	defer s.Close()
+
+	err := imp.AddNode(&types.SnapshotNode{Key: []byte("bank/a"), Value: []byte("v"), Version: 1})
+	require.ErrorContains(t, err, "more than the 4-byte node limit")
+	require.Error(t, imp.Close())
+}
+
+// TestImporterFlushesOnBytesBeforeTheBudgetFills sends one worker far more bytes than the budget in far
+// fewer rows than importBatchSize. A worker that flushed only on its pair count would hold the whole
+// budget unflushed, and AddNode would wait forever.
+func TestImporterFlushesOnBytesBeforeTheBudgetFills(t *testing.T) {
+	withImportByteBudget(t, 4096)
+	s, imp := newKVImporterForTest(t, 1)
+	defer s.Close()
+
+	const rows = 1000
+	added := make(chan error, 1)
+	go func() {
+		for i := range rows {
+			if err := imp.AddNode(budgetRow(i, 100)); err != nil {
+				added <- err
+				return
+			}
+		}
+		added <- nil
+	}()
+	select {
+	case err := <-added:
+		require.NoError(t, err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("AddNode did not return: no worker flushed while the budget was full")
+	}
+	require.NoError(t, imp.Close())
+	flushes, pairs := imp.importStats()
+	require.Equal(t, int64(rows), pairs)
+	require.Greater(t, flushes, int64(1))
+}
+
+// TestImporterByteBudgetBlocksWhileFlushesAreHeld holds every flush, so no bytes return to the budget. The
+// producer then cannot add more rows than the budget holds, whatever the scheduling.
+func TestImporterByteBudgetBlocksWhileFlushesAreHeld(t *testing.T) {
+	const budget, rowBytes = 1024, 32
+	release := make(chan struct{})
+	hook := func(string) { <-release }
+	flushHookForTest.Store(&hook)
+	t.Cleanup(func() { flushHookForTest.Store(nil) })
+	withImportByteBudget(t, budget)
+	s, imp := newKVImporterForTest(t, 1)
+	defer s.Close()
+	releaseFlushes := sync.OnceFunc(func() { close(release) })
+	// Runs before s.Close, which waits forever on a worker held in the flush hook.
+	defer releaseFlushes()
+
+	const rows = 3 * budget / rowBytes
+	added := make(chan error, 1)
+	go func() {
+		for i := range rows {
+			if err := imp.AddNode(budgetRow(i, rowBytes-len("bank/k00000"))); err != nil {
+				added <- err
+				return
+			}
+		}
+		added <- nil
+	}()
+
+	require.Eventually(t, func() bool { return imp.budgetInUse()+rowBytes > budget }, 10*time.Second, time.Millisecond)
+	select {
+	case err := <-added:
+		t.Fatalf("the producer added %d rows of %d bytes into a %d-byte budget with no flush done (err %v)",
+			rows, rowBytes, budget, err)
+	default:
+	}
+
+	releaseFlushes()
+	select {
+	case err := <-added:
+		require.NoError(t, err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("AddNode did not return after the flushes were released")
+	}
+	require.NoError(t, imp.Close())
+	_, pairs := imp.importStats()
+	require.Equal(t, int64(rows), pairs)
+}
+
+// TestImportWorkerFlushesAtMostAQuarterOfTheDefaultMemTable keeps a worker's batch below the size at which
+// Pebble holds the batch itself in its flush queue, which is half a memtable.
+func TestImportWorkerFlushesAtMostAQuarterOfTheDefaultMemTable(t *testing.T) {
+	require.LessOrEqual(t, 4*uint64(workerFlushBytes(importByteBudget)), pebbledb.DefaultConfig().MemTableSize)
+}
+
+func TestImporterFailsWhenItReleasesMoreBytesThanItHolds(t *testing.T) {
+	s, imp := newKVImporterForTest(t, 1)
+	defer s.Close()
+
+	imp.releaseBytes(1)
+	require.ErrorContains(t, imp.Close(), "after a release of 1 bytes")
 }
 
 func TestImportSurvivesReopen(t *testing.T) {

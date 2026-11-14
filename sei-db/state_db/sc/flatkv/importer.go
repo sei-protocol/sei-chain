@@ -21,9 +21,29 @@ const (
 	importBatchSize = 20000
 	ingestChanSize  = 1 << 16 // 64K buffered main channel
 	workerChanSize  = 1024    // per-DB worker channel
+	// importByteBudget limits the key and value bytes that an import holds in memory before they are flushed.
+	importByteBudget = 256 << 20
 )
 
 var _ types.Importer = (*KVImporter)(nil)
+
+// importByteBudgetForTest, when non-zero, replaces importByteBudget for importers built after it is set.
+var importByteBudgetForTest atomic.Int64
+
+// workerFlushBytes returns the unflushed byte count at which a worker flushes its batch.
+func workerFlushBytes(budget int64) int64 {
+	// Pebble keeps a batch of half a memtable or more on the Go heap until it is written to disk, which is
+	// after the commit that returns its bytes to the budget. A sixteenth of the default budget is a quarter
+	// of the default memtable, so a batch is copied into a memtable instead.
+	return max(1, budget/(4*int64(len(dataDBDirs))))
+}
+
+// maxNodeBytes returns the largest node an import with budget accepts.
+func maxNodeBytes(budget int64) int64 {
+	// The workers together hold less than budget/4 unflushed, so a node of at most budget/2 that waits for
+	// budget always waits on bytes that some worker will flush.
+	return budget / 2
+}
 
 // flushHookForTest, when set by tests in this package, is invoked at the
 // start of every dbWorker flush. It exists solely for whitebox tests of
@@ -65,6 +85,10 @@ type dbWorker struct {
 	chunkSize uint32
 	flushes   int64
 	pairs     int64
+	bytes     int64
+	// flushBytes is the unflushed byte count at which the worker flushes, whatever its pair count.
+	flushBytes int64
+	release    func(int64)
 }
 
 func newDBWorker(
@@ -77,6 +101,8 @@ func newDBWorker(
 	moduleLtHash map[string]*lthash.LtHash,
 	moduleStats map[string]lthash.ModuleStats,
 	chunkSize uint32,
+	flushBytes int64,
+	release func(int64),
 ) *dbWorker {
 	return &dbWorker{
 		ctx:          ctx,
@@ -91,12 +117,14 @@ func newDBWorker(
 		pool:         pool,
 		moduleOf:     moduleOf,
 		chunkSize:    chunkSize,
+		flushBytes:   flushBytes,
+		release:      release,
 	}
 }
 
 // run drains the worker channel until closed, flushing whenever the
-// buffer reaches importBatchSize. If done fires, the worker abandons
-// remaining work and exits immediately.
+// buffer reaches importBatchSize pairs or flushBytes bytes. If done fires,
+// the worker abandons remaining work and exits immediately.
 func (w *dbWorker) run(done <-chan struct{}) error {
 	defer func() {
 		if w.batch != nil {
@@ -112,11 +140,12 @@ func (w *dbWorker) run(done <-chan struct{}) error {
 			if err := w.batch.Set(kv.Key, kv.Value); err != nil {
 				return fmt.Errorf("%s set: %w", w.dir, err)
 			}
+			w.bytes += int64(len(kv.Key)) + int64(len(kv.Value))
 			w.ltMutations = append(w.ltMutations, mutation.Mutation{
 				Key:      kv.Key,
 				NewValue: kv.Value,
 			})
-			if len(w.ltMutations) >= importBatchSize {
+			if len(w.ltMutations) >= importBatchSize || w.bytes >= w.flushBytes {
 				if err := w.flush(); err != nil {
 					return err
 				}
@@ -132,6 +161,11 @@ func (w *dbWorker) flush() (err error) {
 	if len(w.ltMutations) == 0 {
 		return nil
 	}
+	defer func(n int64) {
+		if w.release != nil {
+			w.release(n)
+		}
+	}(w.bytes)
 	if hook := flushHookForTest.Load(); hook != nil {
 		(*hook)(w.dir)
 	}
@@ -183,6 +217,7 @@ func (w *dbWorker) flush() (err error) {
 	}
 	w.batch = w.db.NewBatch()
 	w.ltMutations = w.ltMutations[:0]
+	w.bytes = 0
 	return nil
 }
 
@@ -209,6 +244,11 @@ type KVImporter struct {
 	firstErr   atomic.Pointer[error]
 	finishOnce sync.Once
 	finishErr  error
+
+	budgetMu   sync.Mutex
+	budgetCond *sync.Cond
+	budgetUsed int64
+	budget     int64
 }
 
 // NewKVImporter builds the import pipeline over dbs, the raw databases the import writes into. The handles
@@ -216,6 +256,10 @@ type KVImporter struct {
 // must be handed the databases explicitly by whoever opened them. When requireAscendingKeys is set, the
 // import fails unless every physical key is strictly greater than the one before it.
 func NewKVImporter(store *CommitStore, version int64, dbs rawDBs, requireAscendingKeys bool) types.Importer {
+	budget := int64(importByteBudget)
+	if b := importByteBudgetForTest.Load(); b > 0 {
+		budget = b
+	}
 	imp := &KVImporter{
 		store:                store,
 		version:              version,
@@ -223,7 +267,9 @@ func NewKVImporter(store *CommitStore, version int64, dbs rawDBs, requireAscendi
 		ingestCh:             make(chan rawKVPair, ingestChanSize),
 		workers:              make(map[string]*dbWorker, len(dataDBDirs)),
 		done:                 make(chan struct{}),
+		budget:               budget,
 	}
+	imp.budgetCond = sync.NewCond(&imp.budgetMu)
 
 	for _, dir := range dataDBDirs {
 		w := newDBWorker(
@@ -236,6 +282,8 @@ func NewKVImporter(store *CommitStore, version int64, dbs rawDBs, requireAscendi
 			cloneModuleHashes(store.loadedHashes.PerModule[dir]),
 			cloneModuleStats(store.loadedHashes.PerModuleStats[dir]),
 			store.config.HashEngineConfig.ChunkSize,
+			workerFlushBytes(budget),
+			imp.releaseBytes,
 		)
 		imp.workers[dir] = w
 	}
@@ -278,6 +326,7 @@ func (imp *KVImporter) dispatch() {
 			}
 			if imp.requireAscendingKeys {
 				if err := checkAscending(prevKey, kv.Key); err != nil {
+					imp.releaseBytes(int64(len(kv.Key)) + int64(len(kv.Value)))
 					imp.setErr(err)
 					return
 				}
@@ -285,12 +334,14 @@ func (imp *KVImporter) dispatch() {
 			}
 			dir, err := routePhysicalKey(kv.Key)
 			if err != nil {
+				imp.releaseBytes(int64(len(kv.Key)) + int64(len(kv.Value)))
 				imp.setErr(fmt.Errorf("route key: %w", err))
 				return
 			}
 			select {
 			case imp.workers[dir].ch <- kv:
 			case <-imp.done:
+				imp.releaseBytes(int64(len(kv.Key)) + int64(len(kv.Value)))
 				return
 			}
 		case <-imp.done:
@@ -319,6 +370,11 @@ func checkAscending(prevKey []byte, key []byte) error {
 func (imp *KVImporter) setErr(err error) {
 	if imp.firstErr.CompareAndSwap(nil, &err) {
 		imp.closeOnce.Do(func() { close(imp.done) })
+		// Broadcast under the lock, so a waiter in acquireBytes either sees the error before it waits or
+		// is already waiting.
+		imp.budgetMu.Lock()
+		imp.budgetCond.Broadcast()
+		imp.budgetMu.Unlock()
 	}
 }
 
@@ -348,13 +404,50 @@ func (imp *KVImporter) AddNode(node *types.SnapshotNode) error {
 		imp.setErr(err)
 		return err
 	}
+	size := int64(len(node.Key)) + int64(len(node.Value))
+	if err := imp.acquireBytes(size); err != nil {
+		imp.setErr(err)
+		return err
+	}
+	sent := false
 	select {
 	case imp.ingestCh <- rawKVPair{Key: node.Key, Value: node.Value}:
+		sent = true
 	case <-imp.done:
+	}
+	if !sent {
+		imp.releaseBytes(size)
 	}
 	// A worker can fail while the send is pending, and select may still pick the send, so the failure is
 	// read again here rather than reporting the node as accepted.
 	return imp.getErr()
+}
+
+func (imp *KVImporter) acquireBytes(n int64) error {
+	if limit := maxNodeBytes(imp.budget); n > limit {
+		return fmt.Errorf("flatkv import: node is %d bytes, more than the %d-byte node limit", n, limit)
+	}
+	imp.budgetMu.Lock()
+	defer imp.budgetMu.Unlock()
+	for imp.budgetUsed+n > imp.budget {
+		if err := imp.getErr(); err != nil {
+			return err
+		}
+		imp.budgetCond.Wait()
+	}
+	imp.budgetUsed += n
+	return nil
+}
+
+func (imp *KVImporter) releaseBytes(n int64) {
+	imp.budgetMu.Lock()
+	imp.budgetUsed -= n
+	used := imp.budgetUsed
+	imp.budgetMu.Unlock()
+	imp.budgetCond.Broadcast()
+	if used < 0 {
+		imp.setErr(fmt.Errorf("flatkv import: %d bytes of the byte budget in use after a release of %d bytes", used, n))
+	}
 }
 
 // checkNode returns an error unless node is a row this import can store.

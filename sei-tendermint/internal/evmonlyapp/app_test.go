@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,6 +30,7 @@ import (
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -184,6 +186,34 @@ func TestEVMOnlyAppWithoutEpochStateWritesNoEpochStateRows(t *testing.T) {
 	require.False(t, found)
 	_, found = app.storage.StateDB().SC().Get(epochStateModule, []byte(epochStateNextEpochKey))
 	require.False(t, found)
+}
+
+func TestReadCheckpointEpochRegistryRowReadsTheCheckpointRow(t *testing.T) {
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	storageConfig.CheckpointConfig = seidbconfig.CheckpointConfig{BlockInterval: 1}
+	app := newEVMOnlyTestAppWithStorage(t, nil, gigaconfig.DefaultConfig.Execution, storageConfig).(*evmOnlyApplication)
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	checkpointAt := func(height int64) string {
+		t.Helper()
+		require.NoError(t, app.AwaitCommits())
+		require.NoError(t, app.storage.StateDB().SC().FlushSnapshots())
+		dir := filepath.Join(t.TempDir(), "checkpoint")
+		require.NoError(t, flatkv.HardLinkSnapshot(storageConfig.FlatKVConfig.DataDir, height, dir))
+		return dir
+	}
+
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	row, err := ReadCheckpointEpochRegistryRow(checkpointAt(1))
+	require.NoError(t, err)
+	require.False(t, row.IsPresent())
+
+	state := proxy.EpochState{EpochRegistry: []byte("registry"), NextEpoch: []byte("next-epoch")}
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(2, state))
+	row, err = ReadCheckpointEpochRegistryRow(checkpointAt(2))
+	require.NoError(t, err)
+	require.Equal(t, state.EpochRegistry, row.OrPanic("epoch_registry row"))
 }
 
 func TestEVMOnlyAppEpochStateDoesNotCarryOver(t *testing.T) {

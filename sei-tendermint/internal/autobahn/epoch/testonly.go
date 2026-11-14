@@ -5,6 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"google.golang.org/protobuf/proto"
 )
 
 // GenRegistry generates a random Registry of the given committee size.
@@ -46,6 +47,17 @@ func genCommittee(rng utils.Rng, size int) (*types.Committee, []types.SecretKey,
 // TestPushEpoch derives C_{endEpoch+2} from weights and publishes it.
 func (r *Registry) TestPushEpoch(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) error {
 	return r.TryPushEpoch(r.LastRoad(endEpoch), weights)
+}
+
+// MarshalSnapshot returns the protobuf encoding of the registry's persisted snapshot, the
+// value that the epoch_registry state row holds.
+func (r *Registry) MarshalSnapshot() []byte {
+	return utils.OrPanic1(proto.Marshal(persistedRegistryConv.Encode(r.stateRecv.Load())))
+}
+
+// EpochEqual reports whether a and b have the same index, roads and committee.
+func EpochEqual(a, b *types.Epoch) bool {
+	return a.EpochIndex() == b.EpochIndex() && a.RoadRange() == b.RoadRange() && a.Committee().Equal(b.Committee())
 }
 
 // MustEpoch returns the registered epoch at i. Panics if it is missing.

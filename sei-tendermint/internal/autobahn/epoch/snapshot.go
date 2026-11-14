@@ -12,12 +12,45 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
 	epochSnapshotDir    = "epochs"
 	epochSnapshotPrefix = "registry"
 )
+
+// SnapshotDir returns the dir under stateDir that holds the epoch registry snapshot.
+func SnapshotDir(stateDir string) string {
+	return filepath.Join(stateDir, epochSnapshotDir)
+}
+
+// RestoreSnapshot replaces the epoch registry snapshot under stateDir with raw, the protobuf
+// encoding of a PersistedEpochRegistry. With no raw it removes the snapshot, so the registry
+// opens with the genesis epochs.
+func RestoreSnapshot(stateDir string, raw utils.Option[[]byte]) error {
+	dir := SnapshotDir(stateDir)
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("remove epoch snapshot dir %s: %w", dir, err)
+	}
+	encoded, ok := raw.Get()
+	if !ok {
+		return nil
+	}
+	var snapshot pb.PersistedEpochRegistry
+	if err := proto.Unmarshal(encoded, &snapshot); err != nil {
+		return fmt.Errorf("decode epoch registry: %w", err)
+	}
+	state, err := persistedRegistryConv.DecodeReq(&snapshot)
+	if err != nil {
+		return fmt.Errorf("decode epoch registry: %w", err)
+	}
+	persister, _, err := openEpochSnapshot(utils.Some(stateDir))
+	if err != nil {
+		return err
+	}
+	return persister.Persist(persistedRegistryConv.Encode(state))
+}
 
 func openEpochSnapshot(
 	stateDir utils.Option[string],
@@ -26,7 +59,7 @@ func openEpochSnapshot(
 	if !ok {
 		return persist.NewPersister[*pb.PersistedEpochRegistry](utils.None[string](), epochSnapshotPrefix)
 	}
-	dir := filepath.Join(root, epochSnapshotDir)
+	dir := SnapshotDir(root)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, utils.None[*pb.PersistedEpochRegistry](), fmt.Errorf("create epoch snapshot dir %s: %w", dir, err)
 	}
