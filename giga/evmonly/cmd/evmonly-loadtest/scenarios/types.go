@@ -13,6 +13,7 @@ const (
 	WorkloadTransfer       = "transfer"
 	WorkloadERC20Transfer  = "erc20-transfer"
 	WorkloadSnapshotRevert = "snapshot-revert"
+	WorkloadCLOBPlace      = "clob-place"
 
 	DefaultGenesisTimestamp = uint64(1_700_000_000)
 )
@@ -29,6 +30,7 @@ type Config struct {
 	ERC20Contract          common.Address
 	SnapshotRevertContract common.Address
 	SnapshotRevertHelper   common.Address
+	CLOBContract           common.Address
 	FixedRecipient         *common.Address
 	RecipientConflictRate  float64
 	SameSender             bool
@@ -89,6 +91,8 @@ func NewWorkload(kind string, cfg Config, state State) (Workload, error) {
 		return NewERC20TransferWorkload(cfg, state)
 	case WorkloadSnapshotRevert:
 		return NewSnapshotRevertWorkload(cfg, state), nil
+	case WorkloadCLOBPlace:
+		return NewCLOBPlaceWorkload(cfg, state)
 	default:
 		return nil, fmt.Errorf("unsupported workload %q", kind)
 	}
