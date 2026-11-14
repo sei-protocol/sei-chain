@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
@@ -17,6 +18,25 @@ import (
 
 type gigaFullnodeRouter struct {
 	*gigaRouterCommon
+}
+
+// BuildFullnodeDataState is BuildDataState for a fullnode. Before it opens data.State, it seeds
+// blockStore with the restored road of a home that start names as restored, from the state sync
+// proof file of that home.
+func BuildFullnodeDataState(
+	ctx context.Context,
+	cfg *GigaRouterCommonConfig,
+	blockStore *ablockstore.Store,
+	start StateSyncStart,
+) (*data.State, error) {
+	registry, err := openDataStateRegistry(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := seedBlockStore(ctx, cfg, registry, blockStore, start); err != nil {
+		return nil, err
+	}
+	return newDataState(registry, blockStore)
 }
 
 // NewGigaFullnodeRouter constructs a fullnode GigaRouter over an already-built

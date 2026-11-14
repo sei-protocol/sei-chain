@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -56,9 +57,13 @@ func validatorKey() atypes.SecretKey {
 	return atypes.SecretKeyFromED25519(ed25519.TestSecretKey([]byte("validator")))
 }
 
+// testGenesisTime is the genesis time of the test chain. A genesis file needs one that is not
+// zero, and the epoch registry of the chain starts at it.
+var testGenesisTime = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
 func testEpochGenesis() node.EpochGenesis {
 	return node.EpochGenesis{
-		GenDoc:     &tmtypes.GenesisDoc{ChainID: testChainID, InitialHeight: 1},
+		GenDoc:     &tmtypes.GenesisDoc{ChainID: testChainID, InitialHeight: 1, GenesisTime: testGenesisTime},
 		Validators: []atypes.PublicKey{validatorKey().Public()},
 	}
 }
@@ -143,9 +148,9 @@ func (p *producer) closeStore(t *testing.T) {
 	p.store = nil
 }
 
-// commit commits one block that writes to all four data databases, to the bank module and the
-// epoch_registry row, waits for its checkpoint to become current, and writes the state sync proof
-// file of that checkpoint as a running node does.
+// commit commits one block that writes to all four data databases, to the bank module, the
+// epoch_registry row and the EVM-only cursor row, waits for its checkpoint to become current, and
+// writes the state sync proof file of that checkpoint as a running node does.
 func (p *producer) commit(t *testing.T, n byte) int64 {
 	t.Helper()
 	var addr ktype.Address
@@ -166,10 +171,12 @@ func (p *producer) commit(t *testing.T, n byte) int64 {
 	}
 	bankPairs := []*proto.KVPair{{Key: []byte{'b', n}, Value: []byte{n}}}
 	epochPairs := []*proto.KVPair{{Key: []byte("epoch_registry"), Value: p.epochRow}}
+	cursorModule, cursorKey, cursorValue := node.EVMOnlyCursorRowForTesting(p.store.Version() + 1)
 	require.NoError(t, p.store.ApplyChangeSets(p.store.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: evmPairs}},
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: bankPairs}},
 		{Name: "autobahn", Changeset: proto.ChangeSet{Pairs: epochPairs}},
+		{Name: cursorModule, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: cursorKey, Value: cursorValue}}}},
 	}))
 	v, err := p.store.Commit(p.store.Version() + 1)
 	require.NoError(t, err)
@@ -184,6 +191,7 @@ func (p *producer) commit(t *testing.T, n byte) int64 {
 	}
 	p.rows["bank/"+string(bankPairs[0].Key)] = bankPairs[0].Value
 	p.rows["autobahn/epoch_registry"] = p.epochRow
+	p.rows[cursorModule+"/"+string(cursorKey)] = cursorValue
 	p.rowsAt[v] = maps.Clone(p.rows)
 	p.proofs[v] = stateSyncProofAt(t, v)
 	require.NoError(t, os.MkdirAll(p.layout.StateSyncProofDir, 0o750))

@@ -183,9 +183,14 @@ func makeNode(
 		proxyApp           utils.Option[*proxy.Proxy]
 		evmApp             utils.Option[*proxy.EVMProxy]
 		gigaStorageManager utils.Option[*bootstrap.GigaStorageManager]
+		stateSyncStart     p2p.StateSyncStart
 	)
 	gigaEnabled := cfg.AutobahnConfigFile != ""
 	if gigaEnabled {
+		stateSyncStart, err = readStateSyncStart(cfg, opts.giga, genDoc)
+		if err != nil {
+			return nil, err
+		}
 		evm, storage, err := makeEVMApplication(ctx, cfg, opts.giga, genDoc)
 		if err != nil {
 			return nil, err
@@ -321,6 +326,7 @@ func makeNode(
 		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
 	}
 	router, peerCloser, _, err := createRouter(
+		ctx,
 		node.NodeInfo,
 		nodeKey,
 		gigaValidatorKey,
@@ -329,7 +335,7 @@ func makeNode(
 		genDoc,
 		dbProvider,
 		gigaStorageManager,
-		opts.giga.StateSync,
+		stateSyncStart,
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {

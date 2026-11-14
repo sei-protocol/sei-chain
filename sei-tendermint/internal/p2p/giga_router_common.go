@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -75,6 +78,16 @@ func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) (handshakeSp
 // Whoever opened blockStore must close it after giga.Run returns, or immediately
 // if construction of the GigaRouter fails. data.State never closes it.
 func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) (*data.State, error) {
+	registry, err := openDataStateRegistry(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return newDataState(registry, blockStore)
+}
+
+// openDataStateRegistry validates the common config and opens the epoch registry under its
+// persistent state dir.
+func openDataStateRegistry(cfg *GigaRouterCommonConfig) (*epoch.Registry, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
 	}
@@ -90,10 +103,11 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) 
 	if cfg.AppHashBuilder == nil {
 		return nil, errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
 	}
-	registry, err := OpenEpochRegistry(cfg.GenDoc, slices.Collect(maps.Keys(cfg.ValidatorAddrs)), cfg.PersistentStateDir)
-	if err != nil {
-		return nil, err
-	}
+	return OpenEpochRegistry(cfg.GenDoc, slices.Collect(maps.Keys(cfg.ValidatorAddrs)), cfg.PersistentStateDir)
+}
+
+// newDataState returns a data.State on registry, backed by blockStore.
+func newDataState(registry *epoch.Registry, blockStore *ablockstore.Store) (*data.State, error) {
 	ds, err := data.NewState(&data.Config{Registry: registry}, blockStore)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
@@ -282,6 +296,24 @@ func RestoreMarkerFile(psd string) string {
 // sync restore installs in the persistent state dir psd.
 func RestoreStateSyncProofFile(psd string) string {
 	return filepath.Join(psd, "state-sync-proof")
+}
+
+// ReadRestoreMarker returns the road that the restore marker in the persistent state dir psd
+// names, or None when psd holds no marker.
+func ReadRestoreMarker(psd string) (utils.Option[atypes.RoadIndex], error) {
+	path := RestoreMarkerFile(psd)
+	raw, err := os.ReadFile(path) //nolint:gosec // path is the marker under the node's own state dir.
+	if errors.Is(err, os.ErrNotExist) {
+		return utils.None[atypes.RoadIndex](), nil
+	}
+	if err != nil {
+		return utils.None[atypes.RoadIndex](), fmt.Errorf("read the restore marker %s: %w", path, err)
+	}
+	road, err := strconv.ParseUint(strings.TrimSuffix(string(raw), "\n"), 10, 64)
+	if err != nil || road == 0 {
+		return utils.None[atypes.RoadIndex](), fmt.Errorf("the restore marker %s holds %q, want one positive decimal height", path, raw)
+	}
+	return utils.Some(atypes.RoadIndex(road)), nil
 }
 
 // dialAndRunConn dials a peer, handshakes as a SeiGiga connection,

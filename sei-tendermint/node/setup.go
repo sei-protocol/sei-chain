@@ -287,8 +287,10 @@ func buildValidatorGigaConfig(
 // operator misconfiguration is visible at startup.
 //
 // blockStore backs the returned router for its lifetime. The caller closes it.
+// A fullnode seeds blockStore first when stateSync names a restored road.
 // The returned function reports whether a road is the last road of an epoch.
 func buildGigaRouter(
+	ctx context.Context,
 	cfg *config.Config,
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
@@ -297,6 +299,7 @@ func buildGigaRouter(
 	blockStore *ablockstore.Store,
 	appHashBuilder builder.AppHashBuilder,
 	persistentPeers []p2p.NodeAddress,
+	stateSync p2p.StateSyncStart,
 ) (p2p.GigaRouter, func(atypes.RoadIndex) bool, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
@@ -358,7 +361,7 @@ func buildGigaRouter(
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	fnCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
-	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
+	dataState, err := p2p.BuildFullnodeDataState(ctx, fnCfg, blockStore, stateSync)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -616,6 +619,7 @@ func p2pRouterOptions(cfg *config.Config, ep p2p.Endpoint, privatePeerIDs []type
 }
 
 func createRouter(
+	ctx context.Context,
 	nodeInfoProducer func() *types.NodeInfo,
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
@@ -624,7 +628,7 @@ func createRouter(
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 	storageManager utils.Option[*bootstrap.GigaStorageManager],
-	stateSync gigaconfig.StateSyncConfig,
+	stateSync p2p.StateSyncStart,
 ) (*p2p.Router, closer, utils.Option[*ablockstore.Store], error) {
 	closer := func() error { return nil }
 	noneDB := utils.None[*ablockstore.Store]()
@@ -692,9 +696,9 @@ func createRouter(
 			return nil, closer, noneDB, fmt.Errorf("autobahn requires a storage manager")
 		}
 		giga, closingRoad, err := buildGigaRouter(
-			cfg, nodeKey, validatorKey, proxyApp, genDoc,
+			ctx, cfg, nodeKey, validatorKey, proxyApp, genDoc,
 			manager.BlockStore(), manager.AppHashBuilder(),
-			options.PersistentPeers,
+			options.PersistentPeers, stateSync,
 		)
 		if err != nil {
 			return nil, closer, noneDB, err
