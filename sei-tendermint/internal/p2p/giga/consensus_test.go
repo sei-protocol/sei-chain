@@ -25,15 +25,20 @@ func TestConsensusClientServer(t *testing.T) {
 	firstBlock := nodes[0].data.Anchor().Load().Epochs[0].RoadRange().First
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
-		for offset := range types.RoadIndex(20) {
+		for offset := range types.RoadIndex(21) {
 			idx := firstBlock + offset
-			t.Logf("[%v] Push a block.", idx)
-			node := nodes[rng.Intn(len(env.nodes))]
-			a := node.consensus.Avail()
-			lane := a.LocalLane().OrPanic("local")
-			b, err := a.ProduceLocalBlock(lane, a.NextBlock(lane), types.GenPayload(rng))
-			if err != nil {
-				return fmt.Errorf("ds.ProduceLocalBlock(): %w", err)
+			// The first road block is finalized empty, without waiting for a lane block.
+			var blocks []*types.Block
+			if offset > 0 {
+				t.Logf("[%v] Push a block.", idx)
+				node := nodes[rng.Intn(len(env.nodes))]
+				a := node.consensus.Avail()
+				lane := a.LocalLane().OrPanic("local")
+				b, err := a.ProduceLocalBlock(lane, a.NextBlock(lane), types.GenPayload(rng))
+				if err != nil {
+					return fmt.Errorf("ds.ProduceLocalBlock(): %w", err)
+				}
+				blocks = []*types.Block{b.Msg().Block()}
 			}
 
 			wantAppProposal := utils.None[*types.AppProposal]()
@@ -47,7 +52,7 @@ func TestConsensusClientServer(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("ds.QC(): %w", err)
 				}
-				want := types.NewRoadBlock(qc, []*types.Block{b.Msg().Block()}).SuperBlock()
+				want := types.NewRoadBlock(qc, blocks).SuperBlock()
 				if err := utils.TestDiff(want, got); err != nil {
 					return err
 				}

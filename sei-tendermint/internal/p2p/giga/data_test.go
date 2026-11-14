@@ -115,8 +115,14 @@ func TestDataClientServer(t *testing.T) {
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 
+		// Consensus finalizes the empty first road block on its own; push data after it.
+		t.Logf("wait for the first road block")
+		first, err := server.data.QC(ctx, firstBlock)
+		if err != nil {
+			return fmt.Errorf("serverState.QC(): %w", err)
+		}
 		t.Logf("push data")
-		prev := utils.None[*types.CommitQC]()
+		prev := utils.Some(first.QC())
 		for i := range 3 {
 			t.Logf("iteration %v", i)
 			qc, blocks := data.TestCommitQC(rng, ep0, keys, prev)

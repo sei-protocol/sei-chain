@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -1141,4 +1142,38 @@ func TestMarkCommitQCsPersistedDoesNotRewindSpecAfterPrune(t *testing.T) {
 	require.Equal(t, utils.Some(qc), spec.CommitQC)
 	state.markCommitQCsPersisted(qc0)
 	require.Equal(t, spec, state.ConsensusSpec().Load())
+}
+
+// TestWaitForLaneQCsAllowsEmptyFirstRoadBlock checks that the chain's first road
+// block needs no LaneQC, and that the empty CommitQC built from it verifies.
+func TestWaitForLaneQCsAllowsEmptyFirstRoadBlock(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := utils.OrPanic1(NewState(
+		keys[0],
+		newTestDataState(&data.Config{Registry: registry}),
+		utils.None[string](),
+	))
+	ep := registry.MustEpoch(0)
+
+	laneQCs, err := state.WaitForLaneQCs(ctx, ep, utils.None[*types.CommitQC]())
+	require.NoError(t, err)
+	require.Equal(t, 0, len(laneQCs))
+	// BuildCommitQC fills in a lane block when given no LaneQCs, so sign the empty proposal here.
+	vs := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{Epoch: ep}}
+	leader := ep.Committee().Leader(vs.View())
+	i := slices.IndexFunc(keys, func(k types.SecretKey) bool { return k.Public() == leader })
+	proposal, err := types.NewProposal(keys[i], vs, vs.ClampTimestamp(time.Now(), time.Second), laneQCs)
+	require.NoError(t, err)
+	prepareQC := types.BuildPrepareQC(keys, proposal.Proposal().Msg())
+	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
+	for _, k := range keys {
+		votes = append(votes, types.Sign(k, types.NewCommitVote(prepareQC)))
+	}
+	qc := types.NewCommitQC(votes)
+	require.NoError(t, state.PushCommitQC(ctx, qc))
+	full, err := state.fullCommitQC(ctx, qc.Index())
+	require.NoError(t, err)
+	require.NoError(t, full.Verify(ep))
 }
