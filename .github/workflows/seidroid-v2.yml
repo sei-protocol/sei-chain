@@ -1,0 +1,29 @@
+# seidroid review v2, in shadow beside seidroid.yml: it reviews the same pull
+# requests and reports only on its own "Seidroid Review" check, so the two can
+# be compared before either is retired.
+name: seidroid review v2
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+
+permissions: {}
+
+jobs:
+  seidroid:
+    uses: sei-protocol/seidroid/.github/workflows/review.yml@24024e8599bf4a49999cb1a11e20aed15acae9c4 # v0.2.3
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    secrets:
+      openai-api-key: ${{ secrets.PLATFORM_CODE_AGENT_OPENAI_API_KEY }}
+    with:
+      shadow: true
+      allowed-bots: seidroid[bot]
