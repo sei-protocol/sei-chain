@@ -21,7 +21,7 @@ fi
 cp build/seid "$GOBIN"/
 
 # Run init to set up state sync configurations
-/usr/bin/configure_init.sh
+/usr/bin/configure_init.sh || exit 1
 
 # Start the chain
 /usr/bin/start_sei.sh
