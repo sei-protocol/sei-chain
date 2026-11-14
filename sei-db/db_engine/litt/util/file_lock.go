@@ -6,12 +6,12 @@ import (
 	"log/slog"
 	"os"
 	"path"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"golang.org/x/sys/unix"
 )
 
 // FileLock represents a file-based lock
@@ -57,31 +57,68 @@ func IsProcessAlive(pid int) bool {
 	return true
 }
 
-// parseLockFile parses a lock file and returns the PID if valid
-func parseLockFile(path string) (int, error) {
-	content, err := os.ReadFile(path) //nolint:gosec // caller-supplied lock file path
-	if err != nil {
-		return 0, fmt.Errorf("failed to read lock file: %w", err)
-	}
-
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "PID: ") {
-			pidStr := strings.TrimPrefix(line, "PID: ")
-			pid, err := strconv.Atoi(pidStr)
-			if err != nil {
-				return 0, fmt.Errorf("invalid PID in lock file: %s", pidStr)
-			}
-			return pid, nil
+// lockOpenFile opens the file at path, creating it if needed, and takes an exclusive flock on it without waiting.
+// It fails if another open file holds the flock. A file that no running process holds is taken, whatever it
+// contains.
+func lockOpenFile(path string) (*os.File, error) {
+	for {
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600) //nolint:gosec // caller-supplied lock file path
+		if err != nil {
+			return nil, fmt.Errorf("failed to create lock file %s: %w", path, err)
 		}
-	}
 
-	return 0, fmt.Errorf("no PID found in lock file")
+		err = unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB) //nolint:gosec // file descriptors fit in an int
+		if err != nil {
+			_ = file.Close()
+			if errors.Is(err, unix.EWOULDBLOCK) {
+				return nil, fmt.Errorf("lock file already exists and another process holds it: %s%s",
+					path, describeLockFile(path))
+			}
+			return nil, fmt.Errorf("failed to lock file %s: %w", path, err)
+		}
+
+		// A holder that released between our open and our flock removed the file, so the flock we hold
+		// is on a file that the next process cannot find. Lock the file now at path instead.
+		atPath, err := isFileAtPath(file, path)
+		if err != nil {
+			_ = file.Close()
+			return nil, err
+		}
+		if atPath {
+			return file, nil
+		}
+		_ = file.Close()
+	}
 }
 
-// NewFileLock attempts to create a lock file at the specified path. Fails if another process has already created a
-// lock file. Useful for situations where a process wants to hold a mutual exclusion lock on a resource.
+// isFileAtPath reports whether file is the file that path names now.
+func isFileAtPath(file *os.File, path string) (bool, error) {
+	openInfo, err := file.Stat()
+	if err != nil {
+		return false, fmt.Errorf("failed to stat lock file %s: %w", path, err)
+	}
+	pathInfo, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to stat lock file %s: %w", path, err)
+	}
+	return os.SameFile(openInfo, pathInfo), nil
+}
+
+// describeLockFile returns the content of the lock file at path for an error message.
+func describeLockFile(path string) string {
+	content, err := os.ReadFile(path) //nolint:gosec // caller-supplied lock file path
+	if err != nil {
+		return fmt.Sprintf(" (failed to read existing lock file: %v)", err)
+	}
+	return fmt.Sprintf(" (existing lock info: %s)", strings.TrimSpace(string(content)))
+}
+
+// NewFileLock acquires an exclusive lock on the file at path, creating the file if needed, and writes the process
+// ID and a timestamp into it. It fails if another FileLock, in this or another process, holds the file. A lock
+// file left by a process that stopped without Release does not block it.
 // The caller is responsible for calling Release() to release the lock.
 func NewFileLock(logger *slog.Logger, path string, fsync bool) (*FileLock, error) {
 	path, err := SanitizePath(path)
@@ -89,77 +126,26 @@ func NewFileLock(logger *slog.Logger, path string, fsync bool) (*FileLock, error
 		return nil, fmt.Errorf("sanitize path failed: %v", err)
 	}
 
-	// Try to create the lock file exclusively (O_EXCL ensures it fails if file exists)
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600) //nolint:gosec // caller-supplied lock file path
+	file, err := lockOpenFile(path)
 	if err != nil {
-		if os.IsExist(err) {
-			// Lock file exists, check if it's stale
-			if pid, parseErr := parseLockFile(path); parseErr == nil {
-				if !IsProcessAlive(pid) {
-					// Process is dead, remove stale lock file and try again
-					if removeErr := os.Remove(path); removeErr != nil {
-						return nil, fmt.Errorf("failed to remove stale lock file %s: %w", path, removeErr)
-					}
-
-					// Try to create the lock file again
-					file, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600) //nolint:gosec // caller-supplied lock file path
-					if err != nil {
-						return nil, fmt.Errorf("failed to create lock file after removing stale lock %s: %w",
-							path, err)
-					}
-				} else {
-					// Process is still alive, cannot acquire lock
-					debugInfo := ""
-					content, readErr := os.ReadFile(path) //nolint:gosec // caller-supplied lock file path
-					if readErr == nil {
-						debugInfo = fmt.Sprintf(" (existing lock info: %s)", strings.TrimSpace(string(content)))
-					} else {
-						debugInfo = fmt.Sprintf(" (failed to read existing lock file: %v)", readErr)
-					}
-					return nil, fmt.Errorf("lock file already exists and process %d is still running: %s%s",
-						pid, path, debugInfo)
-				}
-			} else {
-				// Cannot parse lock file, treat as existing lock with debug info
-				debugInfo := ""
-				if content, readErr := os.ReadFile(path); readErr == nil { //nolint:gosec // caller-supplied lock file path
-					debugInfo = fmt.Sprintf(" (existing lock info: %s)", strings.TrimSpace(string(content)))
-				}
-				return nil, fmt.Errorf("lock file already exists: %s%s", path, debugInfo)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to create lock file %s: %w", path, err)
-		}
+		return nil, err
 	}
 
 	// Write process ID and timestamp to the lock file for debugging
 	lockInfo := fmt.Sprintf("PID: %d\nTimestamp: %s\n", os.Getpid(), time.Now().Format(time.RFC3339))
-	_, err = file.WriteString(lockInfo)
+	err = file.Truncate(0)
+	if err == nil {
+		_, err = file.WriteString(lockInfo)
+	}
 	if err != nil {
-		// Close and remove the file if we can't write to it
-		secondaryErr := file.Close()
-		if secondaryErr != nil {
-			logger.Error("failed to close lock file after write error", "path", path, "error", secondaryErr)
-		}
-		secondaryErr = os.Remove(path)
-		if secondaryErr != nil {
-			logger.Error("failed to remove lock file after write error", "path", path, "error", secondaryErr)
-		}
+		removeAndClose(logger, file, path, " after write error")
 		return nil, fmt.Errorf("failed to write to lock file %s: %w", path, err)
 	}
 
 	if fsync {
 		err = file.Sync()
 		if err != nil {
-			// Close and remove the file if we can't sync it
-			secondaryErr := file.Close()
-			if secondaryErr != nil {
-				logger.Error("failed to close lock file after sync error", "path", path, "error", secondaryErr)
-			}
-			secondaryErr = os.Remove(path)
-			if secondaryErr != nil {
-				logger.Error("failed to remove lock file after sync error", "path", path, "error", secondaryErr)
-			}
+			removeAndClose(logger, file, path, " after sync error")
 			return nil, fmt.Errorf("failed to sync lock file %s: %w", path, err)
 		}
 	}
@@ -173,7 +159,20 @@ func NewFileLock(logger *slog.Logger, path string, fsync bool) (*FileLock, error
 	return lock, nil
 }
 
-// Release releases the file lock by closing and removing the lock file.
+// removeAndClose removes the lock file at path and then closes file, which releases its flock. It logs each
+// failure, with when appended to the message.
+func removeAndClose(logger *slog.Logger, file *os.File, path string, when string) {
+	// Removing first means that a process that takes the flock after the close finds no file at path and
+	// locks a new one, so no two processes hold a lock on the file that path names.
+	if err := os.Remove(path); err != nil {
+		logger.Error("failed to remove lock file"+when, "path", path, "error", err)
+	}
+	if err := file.Close(); err != nil {
+		logger.Error("failed to close lock file"+when, "path", path, "error", err)
+	}
+}
+
+// Release releases the file lock by removing and closing the lock file.
 // This is a no-op if the lock is already released.
 func (fl *FileLock) Release() {
 	if fl.file == nil {
@@ -181,21 +180,8 @@ func (fl *FileLock) Release() {
 	}
 	fl.closed.Close(fl)
 
-	// Close the file first
-	err := fl.file.Close()
+	removeAndClose(fl.logger, fl.file, fl.path, "")
 	fl.file = nil
-
-	if err != nil {
-		fl.logger.Error("failed to close lock file", "path", fl.path, "error", err)
-		return
-	}
-
-	// Remove the lock file
-	err = os.Remove(fl.path)
-	if err != nil {
-		fl.logger.Error("failed to remove lock file", "path", fl.path, "error", err)
-		return
-	}
 }
 
 // Path returns the path of the lock file
