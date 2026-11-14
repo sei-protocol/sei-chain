@@ -53,7 +53,7 @@ func TestNewViewManagerRejectsInvalidConfig(t *testing.T) {
 	c.ShardCount = 3 // invalid: not a power of two
 	pool := threading.NewAdHocPool()
 	defer pool.Close()
-	_, err := NewViewManager(c, newTestDB(nil), pool, pool, pool)
+	_, err := NewViewManager(c, 1, newTestDB(nil), pool, pool, pool)
 	require.Error(t, err)
 }
 
@@ -136,9 +136,9 @@ func TestFlushSyncTrueStillRoundTrips(t *testing.T) {
 	manager := newTestManagerWithConfig(t, cfg, db)
 
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
-	view, err := manager.Commit()
+	view, err := manager.Commit(manager.NextBlockHeight())
 	require.NoError(t, err)
-	require.NoError(t, view.Finalize(hashWrites(testHash)))
+	require.NoError(t, view.Finalize(view.BlockHeight(), hashWrites(testHash)))
 	awaitFlushed(t, view, time.Second)
 	require.NoError(t, view.Release())
 

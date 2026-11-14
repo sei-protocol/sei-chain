@@ -20,12 +20,12 @@ func TestFlushFailureBricksManagerCleanly(t *testing.T) {
 	e := manager.(*viewManager)
 
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
-	view1, err := manager.Commit()
+	view1, err := manager.Commit(manager.NextBlockHeight())
 	require.NoError(t, err)
 
 	// A second view that is never finalized, so it can never flush; its AwaitFlush waiter must be
 	// released by the brick rather than hang.
-	view2, err := manager.Commit()
+	view2, err := manager.Commit(manager.NextBlockHeight())
 	require.NoError(t, err)
 	stalledFlushErr := make(chan error, 1)
 	go func() {
@@ -33,7 +33,7 @@ func TestFlushFailureBricksManagerCleanly(t *testing.T) {
 	}()
 
 	// Make view1 flush-eligible; the flush attempt fails and bricks the manager.
-	require.NoError(t, view1.Finalize(hashWrites(testHash)))
+	require.NoError(t, view1.Finalize(view1.BlockHeight(), hashWrites(testHash)))
 	require.NoError(t, view1.Release())
 
 	select {
@@ -42,7 +42,7 @@ func TestFlushFailureBricksManagerCleanly(t *testing.T) {
 		t.Fatal("manager context was not cancelled after the flush failure")
 	}
 
-	_, err = manager.Commit()
+	_, err = manager.Commit(manager.NextBlockHeight())
 	require.ErrorContains(t, err, "disk full", "View must report the underlying flush error")
 
 	err = view1.AwaitFlush(context.Background())
@@ -98,7 +98,7 @@ func TestBackpressureWaiterUnblocksOnBrick(t *testing.T) {
 
 	blockedErr := make(chan error, 1)
 	go func() {
-		_, err := manager.Commit()
+		_, err := manager.Commit(manager.NextBlockHeight())
 		blockedErr <- err
 	}()
 
@@ -124,8 +124,8 @@ func TestBackpressureWaiterUnblocksOnBrick(t *testing.T) {
 }
 
 // Releasing the final reservation without finalizing is a contract violation the manager cannot
-// recover from: the view can never be flushed (flush skips unfinalized versions) and so never
-// retired, and the caller has spent its Release, so every later version would stall behind it forever
+// recover from: the view can never be flushed (flush skips unfinalized blocks) and so never
+// retired, and the caller has spent its Release, so every later block would stall behind it forever
 // with its in-memory data accumulating. It must brick rather than return an error and wedge quietly.
 func TestFinalReleaseWithoutFinalizeBricks(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k": []byte("v")})
@@ -138,7 +138,7 @@ func TestFinalReleaseWithoutFinalizeBricks(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, []byte("v"), v)
 
-	view, err := manager.Commit()
+	view, err := manager.Commit(manager.NextBlockHeight())
 	require.NoError(t, err)
 
 	// Release the reservation Commit handed us, without ever finalizing.
@@ -148,7 +148,7 @@ func TestFinalReleaseWithoutFinalizeBricks(t *testing.T) {
 	// read failure there is nothing to wait for.
 	require.Error(t, e.ctx.Err(), "the unfinalized release must cancel the manager context")
 
-	_, err = manager.Commit()
+	_, err = manager.Commit(manager.NextBlockHeight())
 	require.ErrorContains(t, err, "without first being finalized", "Commit must report the latched cause")
 
 	_, _, err = manager.Get([]byte("k"), true)
@@ -160,9 +160,9 @@ func TestFinalReleaseWithoutFinalizeBricks(t *testing.T) {
 	require.ErrorContains(t, manager.Close(), "without first being finalized")
 }
 
-// The counterpart to the above: a reference-count call naming a bogus version leaves manager state
+// The counterpart to the above: a reference-count call naming a bogus block leaves manager state
 // untouched, so it must report a plain error and leave the manager usable — that caller can retry
-// with the right version.
+// with the right block.
 func TestBadVersionReferenceCountErrorsDoNotBrick(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k": []byte("v")})
 	manager := newTestManagerWithDB(t, db, 1, 1<<20)
@@ -171,7 +171,7 @@ func TestBadVersionReferenceCountErrorsDoNotBrick(t *testing.T) {
 	require.Error(t, e.IncrementReferenceCount(9999))
 	_, err := e.DecrementReferenceCount(9999)
 	require.Error(t, err)
-	require.NoError(t, e.ctx.Err(), "a bogus version must not brick the manager")
+	require.NoError(t, e.ctx.Err(), "a bogus block must not brick the manager")
 
 	// Still fully usable: reads serve, and a view completes its whole lifecycle.
 	v, found, err := manager.Get([]byte("k"), true)

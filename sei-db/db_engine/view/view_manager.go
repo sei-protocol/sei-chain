@@ -43,14 +43,14 @@ type ViewManager interface {
 	// manager's lifetime.
 	Name() string
 
-	// Get returns the value for the given key at the manager's current (mutable) version, or
+	// Get returns the value for the given key at the manager's current (mutable) block, or
 	// (nil, false, nil) if not found. On a miss the value is read through from the backing store.
 	//
 	// The key is read only for the duration of the call; the caller may reuse the slice once Get
 	// returns. The returned value slice must not be mutated.
 	Get(key []byte, updateLru bool) ([]byte, bool, error)
 
-	// BatchGet reads the given keys against the current (mutable) version and returns a map, keyed by
+	// BatchGet reads the given keys against the current (mutable) block and returns a map, keyed by
 	// string(key), of the keys that were found to their values. Not-found keys are absent from the
 	// map; a present entry is always a found value (an empty value is a non-nil zero-length slice).
 	//
@@ -58,24 +58,27 @@ type ViewManager interface {
 	// recoverable. It is not safe to mutate the returned key or value slices.
 	BatchGet(keys [][]byte) (map[string][]byte, error)
 
-	// Set writes the value for the given key into the current (mutable) version. Not visible to
+	// Set writes the value for the given key into the current (mutable) block. Not visible to
 	// iterators created earlier (see Iterator).
 	Set(key []byte, value []byte) error
 
-	// Delete removes the given key from the current (mutable) version. Not visible to iterators
+	// Delete removes the given key from the current (mutable) block. Not visible to iterators
 	// created earlier (see Iterator).
 	Delete(key []byte) error
 
-	// BatchSet applies the given writes to the current (mutable) version. A nil Value deletes the
+	// BatchSet applies the given writes to the current (mutable) block. A nil Value deletes the
 	// key; an empty, non-nil Value is a zero-length value, distinct from a delete. Not visible to
 	// iterators created earlier (see Iterator).
 	BatchSet(writes []Write) error
 
-	// Commit seals the current version as an immutable, point-in-time View and advances the
-	// manager to a fresh mutable version. The returned View is safe to read for as long as the
-	// caller holds a reservation on it; see View for the full lifecycle contract.
+	// Commit seals the current block as an immutable, point-in-time View of blockHeight and advances
+	// the manager to the next block. The returned View is safe to read for as long as the caller holds
+	// a reservation on it; see View for the full lifecycle contract.
 	//
-	// Commit must not be called concurrently with operations on the current (mutable) version: Get,
+	// Returns an error if blockHeight is not the block after the last one sealed, or the height the
+	// manager was opened at when nothing has been sealed yet.
+	//
+	// Commit must not be called concurrently with operations on the current (mutable) block: Get,
 	// BatchGet, Set, Delete, BatchSet, or the construction of an Iterator. Reads of sealed views may
 	// proceed concurrently with it, and so may reads through an already-constructed Iterator: an
 	// iterator is fixed at its creation instant, so a seal cannot disturb it.
@@ -84,9 +87,16 @@ type ViewManager interface {
 	// (see ViewManagerConfig.MaxUnflushedVersions). The manager imposes no bound on unfinalized
 	// or unreleased views, each of which is retained in memory; the caller is responsible
 	// for pausing execution when finalization or release falls behind.
-	Commit() (View, error)
+	Commit(blockHeight uint64) (View, error)
 
-	// Iterator returns an iterator over the manager's current (mutable) version, restricted to
+	// NextBlockHeight returns the block height the next Commit seals.
+	NextBlockHeight() uint64
+
+	// LatestView returns the view Commit most recently sealed, with a reservation the caller must release. It must
+	// not be called concurrently with Commit.
+	LatestView() (View, error)
+
+	// Iterator returns an iterator over the manager's current (mutable) block, restricted to
 	// opts.LowerBound (inclusive) and opts.UpperBound (exclusive) and walking keys in descending
 	// lexicographical order when opts.Reverse is set, ascending otherwise. A nil opts means the whole
 	// keyspace, ascending. Keys under the manager's reserved metadata prefix are excluded (see
@@ -150,7 +160,7 @@ type ViewManager interface {
 //     the last reservation on an unfinalized view is a fatal error.
 //
 // Independently of consumer activity, the manager asynchronously performs two cleanup steps in
-// version order:
+// block order:
 //   - Flushing (writing the view's diff to disk) is possible as soon as Finalize has returned.
 //     The manager may flush a view while reservations are still outstanding, as long as it
 //     is the oldest unflushed view — that is, flushing can race ahead of the final
@@ -172,6 +182,9 @@ type ViewManager interface {
 type View interface {
 	// Name returns the name of the manager this view was taken from.
 	Name() string
+
+	// BlockHeight returns the block height this view holds.
+	BlockHeight() uint64
 
 	// Get returns the value for the given key, or (nil, false, nil) if not found. The key is read only
 	// for the duration of the call; the caller may reuse the slice once Get returns. The returned value
@@ -217,7 +230,7 @@ type View interface {
 	Release() error
 
 	// Abandon gives up on this view without releasing its reservations, so the view is not reported as
-	// leaked. The reservations stay held and the version stays pinned. It is for failure paths on which
+	// leaked. The reservations stay held and the block stays pinned. It is for failure paths on which
 	// the node is going down. Idempotent.
 	Abandon()
 
@@ -233,7 +246,14 @@ type View interface {
 	//
 	// An empty write set is legal: a consumer with nothing to record still has to finalize, because
 	// finalization is what makes the view flushable.
-	Finalize(writes []*proto.KVPair) error
+	//
+	// Returns an error if blockHeight is not the height this view holds.
+	Finalize(
+		// The block height of the view.
+		blockHeight uint64,
+		// The metadata pairs to write alongside the view's diff.
+		writes []*proto.KVPair,
+	) error
 
 	// AwaitFlush blocks until the view's data has been written to disk, returning nil once
 	// the flush has completed. Returns an error if ctx is cancelled or the manager shuts down

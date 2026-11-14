@@ -263,3 +263,68 @@ func TestCatchUpRefusesAWALMissingTheBlocksTheLiveStateDBNeeds(t *testing.T) {
 	require.ErrorContains(t, CatchUpToStateWAL(t.Context(), liveStateDB, &gapWAL{first: 3, last: 4}),
 		"missing (data loss or corruption)")
 }
+
+// commitFlushedNonceBlocks commits blocks from through through to liveStateDB and waits until every DB has
+// written the last of them to disk, so closing it leaves all four DBs at through.
+func commitFlushedNonceBlocks(t *testing.T, liveStateDB *CommitStore, from uint64, through uint64) {
+	t.Helper()
+	commitNonceBlocks(t, liveStateDB, from, through)
+	require.NoError(t, liveStateDB.flushLatestVersion())
+}
+
+// leaveCodeDBABlockBehind commits blocks 1-3 to a live state DB under cfg and closes it with its code DB put back
+// to block 2 and its account DB at block 3, as a crash between the two DBs' flushes leaves them. It returns the
+// state hash of block 3.
+func leaveCodeDBABlockBehind(t *testing.T, cfg *config.Config) []byte {
+	t.Helper()
+	liveStateDB := openLiveStateDBOwningTheWAL(t, cfg)
+	commitFlushedNonceBlocks(t, liveStateDB, 1, 2)
+	require.NoError(t, liveStateDB.Close())
+	codeAtBlock2 := copyDataDB(t, cfg, codeDBDir)
+
+	liveStateDB = openLiveStateDBOwningTheWAL(t, cfg)
+	// Block 3 changes an account, so only the account DB's rows and hash move.
+	commitFlushedNonceBlocks(t, liveStateDB, 3, 3)
+	hash := rootHash(liveStateDB)
+	require.NoError(t, liveStateDB.Close())
+	restoreDataDB(t, cfg, codeDBDir, codeAtBlock2)
+	accountVersion, err := readCommittedVersion(filepath.Join(cfg.DataDir, workingDirName, accountDBDir))
+	require.NoError(t, err)
+	require.Equal(t, int64(3), accountVersion)
+	codeVersion, err := readCommittedVersion(filepath.Join(cfg.DataDir, workingDirName, codeDBDir))
+	require.NoError(t, err)
+	require.Equal(t, int64(2), codeVersion)
+	return hash
+}
+
+// Catching up replays a block into the DBs missing it and leaves the one already holding it alone, so the state
+// hash comes out as it was before the crash.
+func TestCatchUpSkipsADataDBAlreadyHoldingTheBlock(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	wantHash := leaveCodeDBABlockBehind(t, cfg)
+
+	caughtUp := reopenWithoutWAL(t, cfg)
+	wal, err := OpenStateWAL(cfg)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, wal.Close()) }()
+	caughtUp.SetCheckpointScheduler(controller.NewCheckpointScheduler(rollbackTestCheckpointConfig))
+	require.NoError(t, CatchUpToStateWAL(t.Context(), caughtUp, wal))
+
+	gotHash, gotVersion := rootHashAndVersion(caughtUp)
+	require.Equal(t, int64(3), gotVersion)
+	require.Equal(t, wantHash, gotHash)
+}
+
+// Outside replay, a block committed to a DB that already holds it is an error.
+func TestCommittingABlockADataDBAlreadyHoldsIsRejected(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	leaveCodeDBABlockBehind(t, cfg)
+
+	liveStateDB := reopenWithoutWAL(t, cfg)
+	require.Equal(t, int64(2), liveStateDB.Version())
+	prior := liveStateDB.OpenView()
+	mutations := nonceMutations(t, 3, 3, prior)
+	prior.Close()
+	require.ErrorContains(t, liveStateDB.CommitStateChanges(3, mutations),
+		"cannot commit block 3: the account DB's next block is 4")
+}

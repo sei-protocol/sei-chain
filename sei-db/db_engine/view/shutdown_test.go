@@ -24,11 +24,11 @@ func TestCloseWaitsForLifecycleMidCommit(t *testing.T) {
 	manager := newTestManagerWithDB(t, db, 1, 4096)
 
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
-	view, err := manager.Commit()
+	view, err := manager.Commit(manager.NextBlockHeight())
 	require.NoError(t, err)
 
 	db.commitBlock = make(chan struct{})
-	require.NoError(t, view.Finalize(hashWrites(testHash)))
+	require.NoError(t, view.Finalize(view.BlockHeight(), hashWrites(testHash)))
 
 	// Wait until the flusher is stalled inside Commit.
 	require.Eventually(t, func() bool { return db.commitEntered.Load() > 0 },
@@ -62,11 +62,11 @@ func TestCloseUnblocksFlushWaiters(t *testing.T) {
 
 	// v1 is never finalized, so it can never flush; the flush frontier stops there, which strands v2
 	// as well even though v2 is finalized.
-	unfinalized, err := manager.Commit()
+	unfinalized, err := manager.Commit(manager.NextBlockHeight())
 	require.NoError(t, err)
-	finalized, err := manager.Commit()
+	finalized, err := manager.Commit(manager.NextBlockHeight())
 	require.NoError(t, err)
-	require.NoError(t, finalized.Finalize(hashWrites(testHash)))
+	require.NoError(t, finalized.Finalize(finalized.BlockHeight(), hashWrites(testHash)))
 
 	unfinalizedErr := make(chan error, 1)
 	strandedErr := make(chan error, 1)
@@ -119,7 +119,7 @@ func TestCloseUnblocksBackpressuredCommit(t *testing.T) {
 
 	blockedDone := make(chan error, 1)
 	go func() {
-		view, err := manager.Commit()
+		view, err := manager.Commit(manager.NextBlockHeight())
 		if view != nil {
 			// A view the drain let through outlives its manager, so it is given up rather than released.
 			view.Abandon()
@@ -193,11 +193,11 @@ func TestBlockedReadResolvesDuringClose(t *testing.T) {
 // Methods called after a clean Close must report ErrViewManagerClosed.
 func TestMethodsAfterCloseReportManagerClosed(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 1, 4096)
-	view, err := manager.Commit()
+	view, err := manager.Commit(manager.NextBlockHeight())
 	require.NoError(t, err)
 	require.NoError(t, manager.Close())
 
-	_, err = manager.Commit()
+	_, err = manager.Commit(manager.NextBlockHeight())
 	require.ErrorIs(t, err, ErrViewManagerClosed)
 
 	err = view.AwaitFlush(context.Background())
@@ -227,7 +227,7 @@ func TestCloseLeavesNoManagerGoroutines(t *testing.T) {
 		cfg.MetricsScrapeIntervalSeconds = 0.001
 		db := newTestDB(map[string][]byte{"seeded": []byte("v")})
 		pool := threading.NewAdHocPool()
-		manager, err := NewViewManager(cfg, db, pool, pool, pool)
+		manager, err := NewViewManager(cfg, 1, db, pool, pool, pool)
 		require.NoError(t, err)
 
 		require.NoError(t, manager.Set([]byte("k"), []byte("v")))
@@ -235,7 +235,7 @@ func TestCloseLeavesNoManagerGoroutines(t *testing.T) {
 		require.NoError(t, err)
 		_, err = manager.BatchGet([][]byte{[]byte("seeded"), []byte("k")})
 		require.NoError(t, err)
-		view, err := manager.Commit()
+		view, err := manager.Commit(manager.NextBlockHeight())
 		require.NoError(t, err)
 		finalizeAndRelease(t, view)
 

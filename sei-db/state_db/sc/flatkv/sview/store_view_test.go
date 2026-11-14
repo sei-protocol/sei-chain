@@ -54,7 +54,11 @@ func (s *stubView) Reserve() error {
 	return nil
 }
 
-func (s *stubView) Finalize(writes []*proto.KVPair) error {
+func (s *stubView) BlockHeight() uint64 {
+	panic("stubView: unexpected BlockHeight")
+}
+
+func (s *stubView) Finalize(blockHeight uint64, writes []*proto.KVPair) error {
 	panic("stubView: unexpected Finalize")
 }
 

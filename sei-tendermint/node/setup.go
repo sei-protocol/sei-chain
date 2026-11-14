@@ -14,6 +14,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	seiversion "github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -459,6 +460,9 @@ func buildGigaStorageConfig(
 		storageConfig.WithFullNodeMode()
 	}
 	storageConfig.ReceiptDBConfig.Enable = storage.Receipts
+	if seidVersion := seiversion.Version; seidVersion != "" {
+		storageConfig.AppHashBuilderConfig.HashLogConfig.Version = seidVersion
+	}
 	return storageConfig, nil
 }
 

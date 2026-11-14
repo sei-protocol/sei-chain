@@ -115,6 +115,12 @@ func GetAppHashVaultPath(homePath string) string {
 	return filepath.Join(homePath, "data", "ledger", "app_hash")
 }
 
+// GetAppHashLogPath returns the path for the giga app hash builder's hash log, which sits alongside the app hash
+// vault under data/ledger.
+func GetAppHashLogPath(homePath string) string {
+	return filepath.Join(homePath, "data", "ledger", "app_hash_log")
+}
+
 func GetChangelogPath(dbPath string) string {
 	return filepath.Join(dbPath, "changelog")
 }
