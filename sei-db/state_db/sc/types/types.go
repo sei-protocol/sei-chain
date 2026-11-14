@@ -136,6 +136,10 @@ type Committer interface {
 	// true may be conservative for a backend that cannot answer precisely.
 	MayHoldStore(name string) bool
 
+	// PrefetchStore reads the files holding the named store's state into the page cache. It
+	// changes no state.
+	PrefetchStore(name string)
+
 	// Copy returns an in-memory snapshot of the current committer state.
 	// O(1) for memiavl. Returns nil when the backend can't produce one
 	// (e.g. flatkv) — callers should treat nil as "snapshot unavailable"

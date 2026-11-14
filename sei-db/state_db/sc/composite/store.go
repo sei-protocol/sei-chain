@@ -1018,6 +1018,14 @@ func (cs *CompositeCommitStore) MayHoldStore(name string) bool {
 	return routesToFlatKV(cs.loadWriteMode(), name)
 }
 
+// PrefetchStore reads memIAVL's tree for the named store into the page cache. Data the write mode
+// placed in flatKV is not read.
+func (cs *CompositeCommitStore) PrefetchStore(name string) {
+	if cs.memIAVL != nil {
+		cs.memIAVL.PrefetchStore(name)
+	}
+}
+
 // Commit commits the current state to all active backends at version, the height the caller is
 // building.
 //

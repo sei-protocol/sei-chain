@@ -351,6 +351,24 @@ func (t *Tree) Iterator(start, end []byte, ascending bool) dbm.Iterator {
 	return NewIterator(start, end, ascending, t.root, t.zeroCopy, t.snapshot)
 }
 
+// prefetch reads the files of the snapshot backing the tree into the page cache, and returns their
+// combined size in bytes. It fails only if releasing its reference on the snapshot fails.
+func (t *Tree) prefetch() (int64, error) {
+	// ReplaceWith and Close release t.snapshot under the write lock, so it is live while the read
+	// lock is held.
+	t.mtx.RLock()
+	snapshot := t.snapshot
+	if snapshot != nil {
+		snapshot.Acquire()
+	}
+	t.mtx.RUnlock()
+	if snapshot == nil {
+		return 0, nil
+	}
+	size := snapshot.prefetchFiles()
+	return size, snapshot.Close()
+}
+
 // ScanPostOrder scans the tree in post-order, and call the callback function on each node.
 // If the callback function returns false, the scan will be stopped.
 func (t *Tree) ScanPostOrder(callback func(node Node) bool) {

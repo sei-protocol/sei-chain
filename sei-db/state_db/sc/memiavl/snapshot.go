@@ -1169,17 +1169,35 @@ func shouldPreloadTree(treeName string) bool {
 	return activeTrees[treeName]
 }
 
+// prefetchFiles reads the snapshot's nodes, leaves and kvs files into the page cache, and returns
+// their combined size in bytes.
+func (snapshot *Snapshot) prefetchFiles() int64 {
+	var size int64
+	for _, file := range []*MmapFile{snapshot.nodesMap, snapshot.leavesMap, snapshot.kvsMap} {
+		if file == nil {
+			continue
+		}
+		_ = fillPageCache(file.file)
+		size += int64(len(file.data))
+	}
+	return size
+}
+
 func SequentialReadAndFillPageCache(filePath string) error {
-	filePath = filepath.Clean(filePath)
-	startTime := time.Now()
-	f, err := os.Open(filePath)
+	f, err := os.Open(filepath.Clean(filePath))
 	if err != nil {
 		return err
 	}
 	defer func() {
 		_ = f.Close() // Ensure file handle is released for pruning
 	}()
+	return fillPageCache(f)
+}
 
+// fillPageCache reads the whole of f in parallel chunks, leaving its pages in the page cache.
+func fillPageCache(f *os.File) error {
+	filePath := f.Name()
+	startTime := time.Now()
 	fileInfo, err := f.Stat()
 	if err != nil {
 		return err
