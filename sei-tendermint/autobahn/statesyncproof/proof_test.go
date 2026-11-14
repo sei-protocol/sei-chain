@@ -2,6 +2,7 @@ package statesyncproof
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"google.golang.org/protobuf/encoding/protowire"
@@ -154,14 +155,72 @@ func TestParseFileNameRejectsNonCanonicalNames(t *testing.T) {
 	}
 }
 
+func TestVerifyAcceptsTheEpochThatSignedIt(t *testing.T) {
+	epoch, roadBlock, appQC := testSignedProof(t, utils.TestRng())
+	proof := decodeProof(t, roadBlock, appQC)
+
+	require.NoError(t, proof.Verify(epoch))
+}
+
+func TestVerifyRejectsAnotherCommittee(t *testing.T) {
+	rng := utils.TestRng()
+	epoch, roadBlock, appQC := testSignedProof(t, rng)
+	proof := decodeProof(t, roadBlock, appQC)
+	other, _ := types.GenCommittee(rng, 4)
+
+	require.Error(t, proof.Verify(types.NewEpoch(epoch.EpochIndex(), epoch.RoadRange(), other)))
+}
+
+func TestVerifyRejectsAnAppQCOfAnotherCommittee(t *testing.T) {
+	rng := utils.TestRng()
+	epoch, roadBlock, appQC := testSignedProof(t, rng)
+	proof := decodeProof(t, roadBlock, data.TestAppQC(testKeys(t, rng), appQC.Proposal()))
+
+	require.Error(t, proof.Verify(epoch))
+}
+
+func TestVerifyRejectsLaneBlocksThatDoNotMatchTheQC(t *testing.T) {
+	rng := utils.TestRng()
+	epoch, roadBlock, appQC := testSignedProof(t, rng)
+	laneBlocks := slices.Clone(roadBlock.LaneBlocks())
+	laneBlocks[0] = types.GenBlock(rng)
+	encoded := frame(&pb.StateSyncProof{
+		CommitQc:   types.FullCommitQCConv.Encode(roadBlock.QC()),
+		LaneBlocks: types.BlockConv.EncodeSlice(laneBlocks),
+		AppQc:      types.AppQCConv.Encode(appQC),
+	})
+	proof, err := Decode(encoded, roadBlock.QC().Index())
+	require.NoError(t, err)
+
+	require.Error(t, proof.Verify(epoch))
+}
+
+// decodeProof encodes roadBlock and appQC as a state sync proof file and decodes it.
+func decodeProof(t *testing.T, roadBlock *types.RoadBlock, appQC *types.AppQC) *Proof {
+	t.Helper()
+	encoded, err := Encode(roadBlock, appQC)
+	require.NoError(t, err)
+	proof, err := Decode(encoded, roadBlock.QC().Index())
+	require.NoError(t, err)
+	return proof
+}
+
 func testProof(t *testing.T, rng utils.Rng) (*types.RoadBlock, *types.AppQC) {
+	t.Helper()
+	_, roadBlock, appQC := testSignedProof(t, rng)
+	return roadBlock, appQC
+}
+
+// testSignedProof returns a road block and an AppQC of it, both signed by the committee of the
+// returned epoch.
+func testSignedProof(t *testing.T, rng utils.Rng) (*types.Epoch, *types.RoadBlock, *types.AppQC) {
 	t.Helper()
 	committee, keys := types.GenCommittee(rng, 4)
 	epoch := types.GenEpochWithCommittee(rng, committee)
 	qc, blocks := data.TestCommitQC(rng, epoch, keys, utils.None[*types.CommitQC]())
 	roadBlock := types.NewRoadBlock(qc, blocks)
 	proposal := types.NewAppProposal(qc.QC().View(), []byte{1, 2, 3})
-	return roadBlock, data.TestAppQC(keys, proposal)
+	return epoch, roadBlock, data.TestAppQC(keys, proposal)
 }
 
 func testKeys(t *testing.T, rng utils.Rng) []types.SecretKey {
