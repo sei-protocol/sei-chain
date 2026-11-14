@@ -1,0 +1,514 @@
+{
+  "description": "Canonical transaction ordering of one ordering batch. `tip` is the effective tip in wei as a decimal string.",
+  "source": "vectors/check.py canonical_order, from the SIP-6 text; cross-checked with seth-ordering",
+  "proves": "03 \u00a73.2",
+  "sip": "Giga",
+  "cases": [
+    {
+      "name": "sip-6-example",
+      "input": {
+        "txs": [
+          {
+            "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0,
+            "tip": "5"
+          },
+          {
+            "hash": "0x0202020202020202020202020202020202020202020202020202020202020202",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 1,
+            "tip": "1"
+          },
+          {
+            "hash": "0x0303030303030303030303030303030303030303030303030303030303030303",
+            "sender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "nonce": 0,
+            "tip": "4"
+          },
+          {
+            "hash": "0x0404040404040404040404040404040404040404040404040404040404040404",
+            "sender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "nonce": 1,
+            "tip": "10"
+          }
+        ],
+        "next_nonces": [
+          {
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0
+          },
+          {
+            "sender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "nonce": 0
+          }
+        ]
+      },
+      "output": {
+        "valid": true,
+        "order": [
+          "0x0101010101010101010101010101010101010101010101010101010101010101",
+          "0x0303030303030303030303030303030303030303030303030303030303030303",
+          "0x0404040404040404040404040404040404040404040404040404040404040404",
+          "0x0202020202020202020202020202020202020202020202020202020202020202"
+        ]
+      }
+    },
+    {
+      "name": "sip-6-example-permuted",
+      "input": {
+        "txs": [
+          {
+            "hash": "0x0404040404040404040404040404040404040404040404040404040404040404",
+            "sender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "nonce": 1,
+            "tip": "10"
+          },
+          {
+            "hash": "0x0202020202020202020202020202020202020202020202020202020202020202",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 1,
+            "tip": "1"
+          },
+          {
+            "hash": "0x0303030303030303030303030303030303030303030303030303030303030303",
+            "sender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "nonce": 0,
+            "tip": "4"
+          },
+          {
+            "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0,
+            "tip": "5"
+          }
+        ],
+        "next_nonces": [
+          {
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0
+          },
+          {
+            "sender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "nonce": 0
+          }
+        ]
+      },
+      "output": {
+        "valid": true,
+        "order": [
+          "0x0101010101010101010101010101010101010101010101010101010101010101",
+          "0x0303030303030303030303030303030303030303030303030303030303030303",
+          "0x0404040404040404040404040404040404040404040404040404040404040404",
+          "0x0202020202020202020202020202020202020202020202020202020202020202"
+        ]
+      }
+    },
+    {
+      "name": "exact-duplicate",
+      "input": {
+        "txs": [
+          {
+            "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0,
+            "tip": "5"
+          },
+          {
+            "hash": "0x0202020202020202020202020202020202020202020202020202020202020202",
+            "sender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "nonce": 0,
+            "tip": "3"
+          },
+          {
+            "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0,
+            "tip": "5"
+          }
+        ],
+        "next_nonces": [
+          {
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0
+          },
+          {
+            "sender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "nonce": 0
+          }
+        ]
+      },
+      "output": {
+        "valid": true,
+        "order": [
+          "0x0101010101010101010101010101010101010101010101010101010101010101",
+          "0x0202020202020202020202020202020202020202020202020202020202020202"
+        ]
+      }
+    },
+    {
+      "name": "nonce-conflict-higher-tip",
+      "input": {
+        "txs": [
+          {
+            "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0,
+            "tip": "5"
+          },
+          {
+            "hash": "0x0202020202020202020202020202020202020202020202020202020202020202",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0,
+            "tip": "9"
+          }
+        ],
+        "next_nonces": [
+          {
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0
+          }
+        ]
+      },
+      "output": {
+        "valid": true,
+        "order": [
+          "0x0202020202020202020202020202020202020202020202020202020202020202"
+        ]
+      }
+    },
+    {
+      "name": "nonce-conflict-equal-tip-lower-hash",
+      "input": {
+        "txs": [
+          {
+            "hash": "0x0909090909090909090909090909090909090909090909090909090909090909",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0,
+            "tip": "5"
+          },
+          {
+            "hash": "0x0303030303030303030303030303030303030303030303030303030303030303",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0,
+            "tip": "5"
+          }
+        ],
+        "next_nonces": [
+          {
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0
+          }
+        ]
+      },
+      "output": {
+        "valid": true,
+        "order": [
+          "0x0303030303030303030303030303030303030303030303030303030303030303"
+        ]
+      }
+    },
+    {
+      "name": "equal-tip-lower-hash-first",
+      "input": {
+        "txs": [
+          {
+            "hash": "0x0808080808080808080808080808080808080808080808080808080808080808",
+            "sender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "nonce": 0,
+            "tip": "7"
+          },
+          {
+            "hash": "0x0606060606060606060606060606060606060606060606060606060606060606",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0,
+            "tip": "7"
+          },
+          {
+            "hash": "0x0707070707070707070707070707070707070707070707070707070707070707",
+            "sender": "0xcccccccccccccccccccccccccccccccccccccccc",
+            "nonce": 0,
+            "tip": "7"
+          }
+        ],
+        "next_nonces": [
+          {
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0
+          },
+          {
+            "sender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "nonce": 0
+          },
+          {
+            "sender": "0xcccccccccccccccccccccccccccccccccccccccc",
+            "nonce": 0
+          }
+        ]
+      },
+      "output": {
+        "valid": true,
+        "order": [
+          "0x0606060606060606060606060606060606060606060606060606060606060606",
+          "0x0707070707070707070707070707070707070707070707070707070707070707",
+          "0x0808080808080808080808080808080808080808080808080808080808080808"
+        ]
+      }
+    },
+    {
+      "name": "stale-nonce",
+      "input": {
+        "txs": [
+          {
+            "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 4,
+            "tip": "9"
+          },
+          {
+            "hash": "0x0202020202020202020202020202020202020202020202020202020202020202",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 5,
+            "tip": "1"
+          }
+        ],
+        "next_nonces": [
+          {
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 5
+          }
+        ]
+      },
+      "output": {
+        "valid": true,
+        "order": [
+          "0x0202020202020202020202020202020202020202020202020202020202020202"
+        ]
+      }
+    },
+    {
+      "name": "nonce-gap",
+      "input": {
+        "txs": [
+          {
+            "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0,
+            "tip": "1"
+          },
+          {
+            "hash": "0x0202020202020202020202020202020202020202020202020202020202020202",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 2,
+            "tip": "9"
+          },
+          {
+            "hash": "0x0303030303030303030303030303030303030303030303030303030303030303",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 3,
+            "tip": "9"
+          }
+        ],
+        "next_nonces": [
+          {
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0
+          }
+        ]
+      },
+      "output": {
+        "valid": true,
+        "order": [
+          "0x0101010101010101010101010101010101010101010101010101010101010101"
+        ]
+      }
+    },
+    {
+      "name": "no-executable-nonce",
+      "input": {
+        "txs": [
+          {
+            "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 1,
+            "tip": "9"
+          }
+        ],
+        "next_nonces": [
+          {
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0
+          }
+        ]
+      },
+      "output": {
+        "valid": true,
+        "order": []
+      }
+    },
+    {
+      "name": "max-nonce",
+      "input": {
+        "txs": [
+          {
+            "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": "18446744073709551615",
+            "tip": "1"
+          }
+        ],
+        "next_nonces": [
+          {
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": "18446744073709551615"
+          }
+        ]
+      },
+      "output": {
+        "valid": true,
+        "order": [
+          "0x0101010101010101010101010101010101010101010101010101010101010101"
+        ]
+      }
+    },
+    {
+      "name": "large-tip",
+      "input": {
+        "txs": [
+          {
+            "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0,
+            "tip": "340282366920938463463374607431768211455"
+          },
+          {
+            "hash": "0x0202020202020202020202020202020202020202020202020202020202020202",
+            "sender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "nonce": 0,
+            "tip": "340282366920938463463374607431768211454"
+          }
+        ],
+        "next_nonces": [
+          {
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0
+          },
+          {
+            "sender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "nonce": 0
+          }
+        ]
+      },
+      "output": {
+        "valid": true,
+        "order": [
+          "0x0101010101010101010101010101010101010101010101010101010101010101",
+          "0x0202020202020202020202020202020202020202020202020202020202020202"
+        ]
+      }
+    },
+    {
+      "name": "tip-above-128-bits",
+      "input": {
+        "txs": [
+          {
+            "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0,
+            "tip": "340282366920938463463374607431768211455"
+          },
+          {
+            "hash": "0x0202020202020202020202020202020202020202020202020202020202020202",
+            "sender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "nonce": 0,
+            "tip": "340282366920938463463374607431768211456"
+          },
+          {
+            "hash": "0x0303030303030303030303030303030303030303030303030303030303030303",
+            "sender": "0xcccccccccccccccccccccccccccccccccccccccc",
+            "nonce": 0,
+            "tip": "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+          }
+        ],
+        "next_nonces": [
+          {
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0
+          },
+          {
+            "sender": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "nonce": 0
+          },
+          {
+            "sender": "0xcccccccccccccccccccccccccccccccccccccccc",
+            "nonce": 0
+          }
+        ]
+      },
+      "output": {
+        "valid": true,
+        "order": [
+          "0x0303030303030303030303030303030303030303030303030303030303030303",
+          "0x0202020202020202020202020202020202020202020202020202020202020202",
+          "0x0101010101010101010101010101010101010101010101010101010101010101"
+        ]
+      }
+    },
+    {
+      "name": "empty",
+      "input": {
+        "txs": [],
+        "next_nonces": []
+      },
+      "output": {
+        "valid": true,
+        "order": []
+      }
+    },
+    {
+      "name": "inconsistent-duplicate",
+      "input": {
+        "txs": [
+          {
+            "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0,
+            "tip": "5"
+          },
+          {
+            "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0,
+            "tip": "6"
+          }
+        ],
+        "next_nonces": [
+          {
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0
+          }
+        ]
+      },
+      "output": {
+        "valid": false
+      }
+    },
+    {
+      "name": "missing-nonce",
+      "input": {
+        "txs": [
+          {
+            "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+            "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nonce": 0,
+            "tip": "5"
+          }
+        ],
+        "next_nonces": []
+      },
+      "output": {
+        "valid": false
+      }
+    }
+  ]
+}
