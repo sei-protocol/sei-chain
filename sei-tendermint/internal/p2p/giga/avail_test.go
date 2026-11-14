@@ -72,10 +72,9 @@ func TestAvailClientServer(t *testing.T) {
 				if err != nil {
 					return utils.IgnoreCancel(fmt.Errorf("corrupt.ProduceLocalBlock(%d): %w", n, err))
 				}
-				// PushBlock may drop (stale / parent-hash mismatch); that is fine.
-				if err := a2.PushBlock(ctx, b); err != nil {
-					return utils.IgnoreCancel(fmt.Errorf("a2.PushBlock(%d): %w", n, err))
-				}
+				// These proposals are deliberately corrupt. Stale blocks may be
+				// dropped and parent mismatches may return an error.
+				_ = a2.PushBlock(ctx, b)
 			}
 			return nil
 		})

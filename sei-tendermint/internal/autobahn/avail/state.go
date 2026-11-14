@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -340,31 +339,27 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			ls, ok := inner.lanes[lane]
-			return !ok || n <= min(ls.blocks.next, ls.blocks.first+BlocksPerLane-1)
+			// Block not needed any more.
+			if !ok || n < ls.blocks.next {
+				return true
+			}
+			// No capacity, or not needed yet.
+			if n > ls.blocks.next || n >= ls.blocks.first+BlocksPerLane {
+				return false
+			}
+			// Extends the persisted chain. We tolerate equivocating lane producer,
+			// we just cannot accept their blocks until the mismatching parent is finalized.
+			return ls.blocks.Len() == 0 || ls.blocks.q[n-1].Msg().Block().Header().Hash() == h.ParentHash()
 		}); err != nil {
 			return err
 		}
-		if !inner.applied().Committee().HasLane(lane) {
-			return nil
-		}
 		ls, ok := inner.lanes[lane]
-		if !ok || ls.blocks.next != n {
+		if !ok || ls.blocks.next < n {
+			// not needed any more
 			return nil
-		}
-		// Parent is checked only while the predecessor is in the suffix.
-		// See blockQueue. A mismatch is logged and dropped; the peer stays up.
-		if ls.blocks.first < ls.blocks.next {
-			want := ls.blocks.q[ls.blocks.next-1].Msg().Block().Header().Hash()
-			if h.ParentHash() != want {
-				logger.Error("parent hash mismatch (producer equivocation)",
-					"lane", lane,
-					slog.Uint64("block", uint64(n)),
-					"got", h.ParentHash(),
-					"want", want)
-				return nil
-			}
 		}
 		ls.blocks.pushBack(p)
+		ls.lastHash = utils.Some(h.Hash())
 		ctrl.Updated()
 	}
 	meters.LaneBlockReceive.Observe(time.Since(p.Msg().Block().Payload().CreatedAt()).Seconds())
@@ -604,8 +599,10 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 		if ls.blocks.next != n {
 			return nil, fmt.Errorf("unexpected block number: got %v, want %v", n, ls.blocks.next)
 		}
-		result = types.Sign(s.key, types.NewLaneProposal(types.NewBlock(lane, ls.blocks.next, ls.blocks.parentHash(), payload)))
+		parent := ls.lastHash.Or(types.BlockHeaderHash{})
+		result = types.Sign(s.key, types.NewLaneProposal(types.NewBlock(lane, ls.blocks.next, parent, payload)))
 		ls.blocks.pushBack(result)
+		ls.lastHash = utils.Some(result.Msg().Block().Header().Hash())
 		ctrl.Updated()
 	}
 	metrics.ObserveProducedTxs(len(payload.Txs()))
@@ -738,9 +735,9 @@ type persistBatch struct {
 	commitQCs commitQCsBatch
 }
 
-// setNextBlockToPersist advances the per-lane persistence cursor to next when
-// next is ahead of the current cursor. RecvBatch yields headers strictly below
-// this cursor, so a successful flush unblocks voting. Safe for concurrent callers.
+// setNextBlockToPersist sets the per-lane block persistence cursor to next.
+// Called once per lane after that lane's batch has been flushed so that
+// RecvBatch (and therefore voting) can unblock. Thread-safe.
 func (s *State) setNextBlockToPersist(lane types.LaneID, next types.BlockNumber) {
 	for inner, ctrl := range s.inner.Lock() {
 		ls, ok := inner.lanes[lane]
@@ -786,10 +783,7 @@ func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) 
 			nonEmpty := len(b.commitQCs.tail) > 0
 			for lane, ls := range inner.lanes {
 				cursor := ls.nextBlockToPersist
-				bb := blocksBatch{first: ls.blocks.retentionFloor()}
-				if p, ok := ls.blocks.unpersistedLocalTip(cursor).Get(); ok {
-					bb.tail = append(bb.tail, p)
-				}
+				bb := blocksBatch{first: ls.blocks.first}
 				for n := max(cursor, ls.blocks.first); n < ls.blocks.next; n++ {
 					bb.tail = append(bb.tail, ls.blocks.q[n])
 				}

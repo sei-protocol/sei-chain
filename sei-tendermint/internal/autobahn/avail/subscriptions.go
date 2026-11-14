@@ -10,7 +10,8 @@ import (
 )
 
 // SubscribeLaneProposals binds lane for this node's validator key.
-// Recv returns ErrLaneClosed after that lane's maps are dropped.
+// Recv yields proposals only after persistence and returns ErrLaneClosed after
+// that lane's maps are dropped.
 func (s *State) SubscribeLaneProposals(lane types.LaneID, first types.BlockNumber) *LaneProposalsRecv {
 	if lane.Validator != s.key.Public() {
 		panic(fmt.Sprintf("SubscribeLaneProposals: lane validator %v != local %v", lane.Validator, s.key.Public()))
@@ -25,23 +26,27 @@ type LaneProposalsRecv struct {
 }
 
 func (r *LaneProposalsRecv) Recv(ctx context.Context) (*types.Signed[*types.LaneProposal], error) {
-	for {
-		b, err := r.state.Block(ctx, r.lane, r.next)
-		if err != nil {
-			if errors.Is(err, types.ErrPruned) {
-				for inner := range r.state.inner.Lock() {
-					if _, ok := inner.lanes[r.lane]; !ok {
-						return nil, ErrLaneClosed
-					}
+	for inner, ctrl := range r.state.inner.Lock() {
+		for {
+			ls, ok := inner.lanes[r.lane]
+			if !ok {
+				if inner.anchor.Epochs[1].IsClosed(r.lane) {
+					return nil, ErrLaneClosed
 				}
-				r.next += 1
-				continue
+			} else {
+				r.next = max(r.next, ls.blocks.first)
+				if r.next < min(ls.blocks.next, ls.nextBlockToPersist) {
+					b := ls.blocks.q[r.next]
+					r.next++
+					return b, nil
+				}
 			}
-			return nil, fmt.Errorf("x.avail.Block(): %w", err)
+			if err := ctrl.Wait(ctx); err != nil {
+				return nil, err
+			}
 		}
-		r.next += 1
-		return b, nil
 	}
+	panic("unreachable")
 }
 
 // WaitForNextLane waits until the applied committee has a LaneID for pk.
