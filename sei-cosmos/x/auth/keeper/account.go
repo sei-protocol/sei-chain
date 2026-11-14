@@ -39,7 +39,7 @@ func (ak AccountKeeper) GetAccount(ctx sdk.Context, addr sdk.AccAddress) types.A
 		return nil
 	}
 
-	return ak.decodeAccount(bz)
+	return ak.decodeAccount(addr, bz)
 }
 
 // GetAllAccounts returns all accounts in the accountKeeper.
@@ -81,7 +81,7 @@ func (ak AccountKeeper) IterateAccounts(ctx sdk.Context, cb func(account types.A
 
 	defer func() { _ = iterator.Close() }()
 	for ; iterator.Valid(); iterator.Next() {
-		account := ak.decodeAccount(iterator.Value())
+		account := ak.decodeAccount(iterator.Key()[len(types.AddressStoreKeyPrefix):], iterator.Value())
 
 		if cb(account) {
 			break

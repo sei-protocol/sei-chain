@@ -6,7 +6,6 @@ import (
 
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 )
@@ -30,36 +29,100 @@ var legacyVestingAccountDepths = map[string]int{
 	"/cosmos.vesting.v1beta1.PermanentLockedAccount":   2,
 }
 
-// legacyVestingAccounts returns, in store order, the BaseAccount embedded in
-// every account stored under a type of the removed vesting module.
-func (ak AccountKeeper) legacyVestingAccounts(ctx sdk.Context) ([]*types.BaseAccount, error) {
-	store := prefix.NewStore(ctx.KVStore(ak.key), types.AddressStoreKeyPrefix)
-	iterator := store.Iterator(nil, nil)
+// LegacyVestingRewrite is the outcome of one RewriteLegacyVestingAccounts call. Done reports that
+// no account is left to scan, and Skipped holds one error for each account left in place because it
+// could not be rewritten.
+type LegacyVestingRewrite struct {
+	Done    bool
+	Skipped []error
+}
+
+// RewriteLegacyVestingAccounts scans up to maxAccounts of the accounts Migrate3to4 scheduled and not
+// yet scanned, and stores each one held under a type of the removed vesting module as the BaseAccount
+// it embeds. It panics when maxAccounts is not positive.
+func (ak AccountKeeper) RewriteLegacyVestingAccounts(ctx sdk.Context, maxAccounts int) LegacyVestingRewrite {
+	if maxAccounts <= 0 {
+		panic(fmt.Sprintf("legacy vesting account rewrite batch size must be positive, got %d", maxAccounts))
+	}
+	store := ctx.KVStore(ak.key)
+	start := store.Get(types.LegacyVestingRewriteCursorKey)
+	if start == nil {
+		return LegacyVestingRewrite{Done: true}
+	}
+	accounts, skipped, next := ak.nextLegacyVestingAccounts(ctx, start, maxAccounts)
+	for _, account := range accounts {
+		ak.SetAccount(ctx, account)
+		logger.Info("rewrote legacy vesting account as a base account", "address", account.Address)
+	}
+	if next == nil {
+		store.Delete(types.LegacyVestingRewriteCursorKey)
+		logger.Info("finished rewriting legacy vesting accounts")
+		return LegacyVestingRewrite{Done: true, Skipped: skipped}
+	}
+	store.Set(types.LegacyVestingRewriteCursorKey, next)
+	return LegacyVestingRewrite{Skipped: skipped}
+}
+
+// startLegacyVestingRewrite schedules every account for RewriteLegacyVestingAccounts to scan.
+func (ak AccountKeeper) startLegacyVestingRewrite(ctx sdk.Context) {
+	ctx.KVStore(ak.key).Set(types.LegacyVestingRewriteCursorKey, types.AddressStoreKeyPrefix)
+}
+
+// nextLegacyVestingAccounts scans at most maxAccounts accounts from the store key start. It returns
+// the BaseAccount embedded in each one stored under a vesting module type, an error for each such
+// account it cannot convert, and the key of the first account left unscanned, or nil when the scan
+// reached the last account.
+func (ak AccountKeeper) nextLegacyVestingAccounts(
+	ctx sdk.Context,
+	start []byte,
+	maxAccounts int,
+) (accounts []*types.BaseAccount, skipped []error, next []byte) {
+	iterator := ctx.KVStore(ak.key).Iterator(start, sdk.PrefixEndBytes(types.AddressStoreKeyPrefix))
 	defer func() { _ = iterator.Close() }()
 
-	var accounts []*types.BaseAccount
-	for ; iterator.Valid(); iterator.Next() {
-		address, encoded := iterator.Key(), iterator.Value()
-		typeURL, _, err := lengthDelimitedField(encoded, anyTypeURLField)
-		if err != nil {
-			return nil, fmt.Errorf("account %X: %w", address, err)
+	for scanned := 0; iterator.Valid(); iterator.Next() {
+		if scanned == maxAccounts {
+			return accounts, skipped, append([]byte(nil), iterator.Key()...)
 		}
-		depth, ok := legacyVestingAccountDepths[string(typeURL)]
-		if !ok {
+		scanned++
+		address := iterator.Key()[len(types.AddressStoreKeyPrefix):]
+		account, err := ak.legacyVestingAccountAt(address, iterator.Value())
+		if err != nil {
+			// Halting the chain mid-rewrite would be worse than leaving the account as it is.
+			logger.Error("left an account that cannot be rewritten under its vesting type",
+				"address", fmt.Sprintf("%X", address), "err", err)
+			skipped = append(skipped, err)
 			continue
 		}
-		account, err := ak.embeddedBaseAccount(encoded, depth)
-		if err != nil {
-			return nil, fmt.Errorf("%s at %X: %w", typeURL, address, err)
+		if account != nil {
+			accounts = append(accounts, account)
 		}
-		// SetAccount keys the rewrite by the embedded address, so a mismatch
-		// would write a second account rather than replace this one.
-		if !bytes.Equal(account.GetAddress(), address) {
-			return nil, fmt.Errorf("%s at %X embeds the base account of %q", typeURL, address, account.Address)
-		}
-		accounts = append(accounts, account)
 	}
-	return accounts, nil
+	return accounts, skipped, nil
+}
+
+// legacyVestingAccountAt returns the BaseAccount embedded in the account stored as bz under address,
+// or nil when bz is not stored under a type of the removed vesting module. It fails when the type of
+// bz cannot be read, or when bz is a vesting account that does not decode or embeds another address.
+func (ak AccountKeeper) legacyVestingAccountAt(address, bz []byte) (*types.BaseAccount, error) {
+	typeURL, _, err := lengthDelimitedField(bz, anyTypeURLField)
+	if err != nil {
+		return nil, fmt.Errorf("account at %X: %w", address, err)
+	}
+	depth, ok := legacyVestingAccountDepths[string(typeURL)]
+	if !ok {
+		return nil, nil
+	}
+	account, err := ak.embeddedBaseAccount(bz, depth)
+	if err != nil {
+		return nil, fmt.Errorf("vesting account at %X: %w", address, err)
+	}
+	// SetAccount keys a write by the embedded address, so reading this account as another would
+	// move its next write to that other address.
+	if !bytes.Equal(account.GetAddress(), address) {
+		return nil, fmt.Errorf("vesting account at %X embeds the base account of %q", address, account.Address)
+	}
+	return account, nil
 }
 
 // embeddedBaseAccount decodes the BaseAccount that the vesting account encoded

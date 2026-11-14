@@ -24,6 +24,10 @@ var (
 
 	// param key for global account number
 	GlobalAccountNumberKey = []byte("globalAccountNumber")
+
+	// LegacyVestingRewriteCursorKey holds the account store key the legacy vesting account rewrite
+	// scans from next. It is absent when no rewrite is pending.
+	LegacyVestingRewriteCursorKey = []byte("legacyVestingRewriteCursor")
 )
 
 // AddressStoreKey turn an address to key used to get it from the account store

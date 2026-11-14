@@ -807,6 +807,7 @@ func New(
 		EvmKeeper:      &app.EvmKeeper,
 	}
 	app.EndBlockKeepers = legacyabci.EndBlockKeepers{
+		AccountKeeper: app.AccountKeeper,
 		GovKeeper:     &app.GovKeeper,
 		StakingKeeper: &app.StakingKeeper,
 		EvmKeeper:     &app.EvmKeeper,

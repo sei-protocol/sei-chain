@@ -248,6 +248,8 @@ func TestV68RewritesVestingAccountsAsBaseAccounts(t *testing.T) {
 	versionsBefore := a.UpgradeKeeper.GetModuleVersionMap(a.Ctx())
 
 	applyV68ToCommitStore(t, a)
+	// The first block commits the handler's writes, so the rewrite it starts runs in the second.
+	a.RunBlock([]signing.Tx{})
 	a.RunBlock([]signing.Tx{})
 
 	after := v68CommittedAccountEntries(t, a)

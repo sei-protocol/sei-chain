@@ -206,7 +206,17 @@ func (ak AccountKeeper) SetModuleAccount(ctx sdk.Context, macc types.ModuleAccou
 	ak.SetAccount(ctx, macc)
 }
 
-func (ak AccountKeeper) decodeAccount(bz []byte) types.AccountI {
+// decodeAccount returns the account stored as bz under address. An account stored under a type of
+// the removed vesting module decodes as the BaseAccount it embeds. It panics when bz does not decode,
+// or when it is a vesting account that embeds another address.
+func (ak AccountKeeper) decodeAccount(address, bz []byte) types.AccountI {
+	legacy, err := ak.legacyVestingAccountAt(address, bz)
+	if err != nil {
+		panic(err)
+	}
+	if legacy != nil {
+		return legacy
+	}
 	acc, err := ak.UnmarshalAccount(bz)
 	if err != nil {
 		panic(err)

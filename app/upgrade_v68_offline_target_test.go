@@ -20,6 +20,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth"
 	xauthsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -33,6 +34,7 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 )
@@ -730,12 +732,24 @@ func testV68OfflineUpgradeTargetSnapshot(t *testing.T) {
 	require.True(t, testApp.UpgradeKeeper.HasHandler(v68OfflineUpgradeName),
 		"v6.8 upgrade handler is not registered; set UPGRADE_VERSION_LIST=v6.8")
 	upgradeHeight := sourceHeight + 1
+	// The commitment store reads only committed state, so the handler and the rewrite each run on a
+	// cache over it, as they do inside a block, and are committed like the blocks they run in.
+	upgradeCtx, writeUpgrade := offlineUpgradeContext(testApp, upgradeHeight, chainID).CacheContext()
 	started := time.Now()
-	testApp.UpgradeKeeper.ApplyUpgrade(offlineUpgradeContext(testApp, upgradeHeight, chainID), upgradetypes.Plan{
+	testApp.UpgradeKeeper.ApplyUpgrade(upgradeCtx, upgradetypes.Plan{
 		Name:   v68OfflineUpgradeName,
 		Height: upgradeHeight,
 	})
-	t.Logf("v6.8 rewrote %d vesting accounts of %s in %s", len(legacy), home, time.Since(started))
+	t.Logf("v6.8 upgrade handler ran on %s in %s", home, time.Since(started))
+	writeUpgrade()
+	testApp.CommitMultiStore().Commit(true)
+
+	rewriteHeight := upgradeHeight + 1
+	requireV68OfflineLegacyAccountsReadAsBase(t, testApp, offlineUpgradeContext(testApp, rewriteHeight, chainID), legacy)
+	accounts := requireV68OfflineAllAccountsReadable(t, testApp, offlineUpgradeContext(testApp, rewriteHeight, chainID))
+	rewriteCtx, writeRewrite := offlineUpgradeContext(testApp, rewriteHeight, chainID).CacheContext()
+	rewriteV68OfflineLegacyVestingAccounts(t, testApp, rewriteCtx, len(legacy), accounts)
+	writeRewrite()
 	testApp.CommitMultiStore().Commit(true)
 	closeOfflineUpgradeApp(t, testApp)
 
@@ -753,6 +767,80 @@ func testV68OfflineUpgradeTargetSnapshot(t *testing.T) {
 		require.Equal(t, balances[address.String()], reopened.BankKeeper.GetAllBalances(ctx, address),
 			"v6.8 changed the balance of %s", address)
 	}
+}
+
+// requireV68OfflineLegacyAccountsReadAsBase requires every address in legacy, still stored under a
+// vesting type, to read as a base account. A failure does not stop the test, so the rewrite that
+// follows still reports every account it cannot convert.
+func requireV68OfflineLegacyAccountsReadAsBase(t *testing.T, testApp *App, ctx sdk.Context, legacy []sdk.AccAddress) {
+	t.Helper()
+	for _, address := range legacy {
+		assert.NotPanics(t, func() {
+			_, ok := testApp.AccountKeeper.GetAccount(ctx, address).(*authtypes.BaseAccount)
+			assert.True(t, ok, "%s does not read as a base account before it is rewritten", address)
+		}, "reading %s before it is rewritten", address)
+	}
+}
+
+// v68OfflineMaxReportedUnreadable is the number of unreadable accounts
+// requireV68OfflineAllAccountsReadable names in its failure message.
+const v68OfflineMaxReportedUnreadable = 20
+
+// requireV68OfflineAllAccountsReadable requires every account in the store to read through
+// GetAccount without panicking, and returns how many accounts it read. A failure does not stop the
+// scan, so the failure counts every unreadable account.
+func requireV68OfflineAllAccountsReadable(t *testing.T, testApp *App, ctx sdk.Context) int {
+	t.Helper()
+	store := prefix.NewStore(ctx.KVStore(testApp.GetKey(authtypes.StoreKey)), authtypes.AddressStoreKeyPrefix)
+	iterator := store.Iterator(nil, nil)
+	defer func() {
+		require.NoError(t, iterator.Close())
+	}()
+	var scanned int
+	var unreadable []string
+	for ; iterator.Valid(); iterator.Next() {
+		scanned++
+		address := sdk.AccAddress(append([]byte(nil), iterator.Key()...))
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					unreadable = append(unreadable, fmt.Sprintf("%s: %v", address, r))
+				}
+			}()
+			testApp.AccountKeeper.GetAccount(ctx, address)
+		}()
+	}
+	t.Logf("read %d accounts through GetAccount", scanned)
+	if len(unreadable) > 0 {
+		reported := unreadable[:min(len(unreadable), v68OfflineMaxReportedUnreadable)]
+		t.Errorf("%d of %d accounts panic when read; the first %d:\n%s",
+			len(unreadable), scanned, len(reported), strings.Join(reported, "\n"))
+	}
+	return scanned
+}
+
+// rewriteV68OfflineLegacyVestingAccounts runs, at the per-block rate, the rewrite the v6.8 auth
+// migration schedules until it is done, and requires it to scan all accounts and convert every
+// vesting account. It logs how many blocks the rewrite spans and its slowest block.
+func rewriteV68OfflineLegacyVestingAccounts(t *testing.T, testApp *App, ctx sdk.Context, vesting, accounts int) {
+	t.Helper()
+	started := time.Now()
+	var batches int
+	var slowest time.Duration
+	var skipped []error
+	for done := false; !done; batches++ {
+		batchStarted := time.Now()
+		rewrite := testApp.AccountKeeper.RewriteLegacyVestingAccounts(ctx, auth.MaxAccountsScannedPerBlock)
+		slowest = max(slowest, time.Since(batchStarted))
+		skipped = append(skipped, rewrite.Skipped...)
+		done = rewrite.Done
+	}
+	t.Logf("rewrote %d vesting accounts in %d blocks of %d accounts over %s; the slowest block took %s",
+		vesting, batches, auth.MaxAccountsScannedPerBlock, time.Since(started), slowest)
+	wantBatches := max(1, (accounts+auth.MaxAccountsScannedPerBlock-1)/auth.MaxAccountsScannedPerBlock)
+	require.Equal(t, wantBatches, batches,
+		"the rewrite of %d accounts ended after %d blocks of %d accounts", accounts, batches, auth.MaxAccountsScannedPerBlock)
+	require.Empty(t, skipped, "v6.8 cannot rewrite %d vesting accounts; the rewrite would leave them unreadable", len(skipped))
 }
 
 // v68OfflineLegacyVestingAccounts returns the address of every account stored

@@ -39,18 +39,10 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	return nil
 }
 
-// Migrate3to4 rewrites every account stored under a type of the removed
-// vesting module as the BaseAccount it embeds, keeping its address, public
-// key, account number and sequence. Balances are not touched, so coins that
-// were still locked become spendable.
+// Migrate3to4 schedules every account stored under a type of the removed vesting module for
+// RewriteLegacyVestingAccounts to rewrite as the BaseAccount it embeds. Balances are not touched, so
+// coins that were still locked become spendable.
 func (m Migrator) Migrate3to4(ctx sdk.Context) error {
-	accounts, err := m.keeper.legacyVestingAccounts(ctx)
-	if err != nil {
-		return err
-	}
-	for _, account := range accounts {
-		m.keeper.SetAccount(ctx, account)
-		logger.Info("rewrote legacy vesting account as a base account", "address", account.Address)
-	}
+	m.keeper.startLegacyVestingRewrite(ctx)
 	return nil
 }
