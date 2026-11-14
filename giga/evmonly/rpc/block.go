@@ -211,7 +211,7 @@ func (api *blockAPI) parentHash(ctx context.Context, height int64) (common.Hash,
 
 // encodeBlock renders block as an eth_getBlockBy* response. nonce, mixHash,
 // sha3Uncles, difficulty, extraData, uncles, and totalDifficulty are always
-// their Ethereum-inapplicable zero value, matching evmrpc's v2 encoder.
+// their zero value; unlike evmrpc's v2 encoder, mixHash does not report PREVRANDAO.
 // logsBloom is always zero; receipt blooms are not aggregated here.
 func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlock, fullTx bool) (map[string]any, error) {
 	number := block.Block.Height

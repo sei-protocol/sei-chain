@@ -149,13 +149,13 @@ export function assertNewHeadSchema(head: any): void {
     expect(head.logsBloom, 'newHead.logsBloom').to.match(BLOOM256);
     expect(head.nonce, 'newHead.nonce').to.match(NONCE8);
     expect(head.extraData, 'newHead.extraData').to.match(HEX_DATA);
+    expect(head.mixHash, 'newHead.mixHash carries PREVRANDAO, not the zero hash').to.not.equal(ZERO_HASH);
 }
 
 /** The PoW/PoS-only header fields Sei cannot populate must be their canonical zero values. */
 export function assertNewHeadInapplicableZeros(head: any): void {
     expect(BigInt(head.difficulty), 'difficulty is 0 (inapplicable)').to.equal(0n);
     expect(head.sha3Uncles, 'sha3Uncles is the zero hash').to.equal(ZERO_HASH);
-    expect(head.mixHash, 'mixHash is the zero hash').to.equal(ZERO_HASH);
     expect(head.nonce, 'nonce is the zero block nonce').to.equal(ZERO_NONCE);
     expect(head.extraData, 'extraData is empty').to.equal('0x');
 }
@@ -180,6 +180,7 @@ export function assertNewHeadMatchesBlock(head: any, block: any): void {
     expect(BigInt(head.gasLimit), 'gasLimit matches the canonical block').to.equal(
         BigInt(block.gasLimit),
     );
+    expect(head.mixHash, 'mixHash (PREVRANDAO) matches the canonical block').to.equal(block.mixHash);
 }
 
 /**

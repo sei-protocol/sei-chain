@@ -16,7 +16,6 @@ import (
 	ethstate "github.com/ethereum/go-ethereum/core/state"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/params"
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -35,6 +34,7 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const Pacific1ChainID = "pacific-1"
@@ -227,12 +227,10 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp *core.GasPool) (*vm.Block
 		return nil, err
 	}
 
-	// Use hash of block timestamp as info for PREVRANDAO
-	r, err := ctx.BlockHeader().Time.MarshalBinary()
+	rh, err := evmtypes.PrevRandao(ctx.BlockHeader().Time)
 	if err != nil {
 		return nil, err
 	}
-	rh := crypto.Keccak256Hash(r)
 
 	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *uint256.Int, rules *params.Rules) {
 		if IsPayablePrecompile(&recipient) {

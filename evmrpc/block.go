@@ -43,6 +43,15 @@ var genesisBlockHash = common.HexToHash(genesisBlockHashHex)
 // genesisBlockTxCount is the transaction count for the synthetic genesis block (eth_getBlockTransactionCountByHash/ByNumber for genesis).
 var genesisBlockTxCount = func() *hexutil.Uint { u := hexutil.Uint(0); return &u }()
 
+// blockPrevRandao returns the PREVRANDAO value the EVM used in the block with the given time.
+// It is the value of the block's mixHash.
+func blockPrevRandao(blockTime time.Time) (common.Hash, error) {
+	// Block execution hashes the time as sdk.Context holds it, which WithBlockHeader puts in
+	// time.UTC. MarshalBinary encodes the location, so a block time from the Tendermint RPC or
+	// an event must be converted the same way before hashing.
+	return types.PrevRandao(blockTime.UTC())
+}
+
 // isGenesisBlockRequest reports whether number selects the synthetic genesis block:
 // 0x0, or "earliest" while this node still holds the chain's first block.
 func isGenesisBlockRequest(ctx context.Context, tmClient client.LocalClient, number rpc.BlockNumber) (bool, error) {
@@ -497,6 +506,10 @@ func encodeTmBlock(
 	if cp := gasLimitCtx.ConsensusParams(); cp != nil && cp.Block != nil {
 		gasLimit = cp.Block.MaxGas
 	}
+	mixHash, err := blockPrevRandao(blockTime)
+	if err != nil {
+		return nil, err
+	}
 	// "timestamp" stays in whole seconds because every Ethereum client reads it
 	// that way, and Sei block intervals are shorter than a second, so it repeats
 	// across consecutive blocks. "milliTimestamp" is the BEP-520-compatible
@@ -506,7 +519,7 @@ func encodeTmBlock(
 		"hash":             blockhash,
 		"parentHash":       lastHash,
 		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
-		"mixHash":          common.Hash{},           // inapplicable to Sei
+		"mixHash":          mixHash,                 // PREVRANDAO: a hash of the proposer-chosen block time, not randomness
 		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
 		"logsBloom":        ethtypes.BytesToBloom(blockBloom),
 		"stateRoot":        appHash,
