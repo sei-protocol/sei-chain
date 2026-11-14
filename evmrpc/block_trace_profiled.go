@@ -11,7 +11,6 @@ import (
 	"time"
 
 	gethcommon "github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	gethstate "github.com/ethereum/go-ethereum/core/state"
 	gethtracing "github.com/ethereum/go-ethereum/core/tracing"
@@ -236,7 +235,10 @@ func (api *DebugAPI) profiledTraceBlockParallel(
 			return err
 		}
 		if _, err := core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(msg.GasLimit)); err != nil {
-			return err
+			txctx := &tracers.Context{BlockHash: blockHash, BlockNumber: block.Number(), TxIndex: i, TxHash: tx.Hash()}
+			if _, ended := tracers.EndFailedTx(nil, statedb, tx, msg, txctx, err); !ended {
+				return err
+			}
 		}
 		statedb.Finalise(evm.ChainConfig().IsEIP158(block.Number()))
 		return nil
@@ -376,7 +378,7 @@ func (api *DebugAPI) profiledTraceTx(
 	tracingStateDB := gethstate.NewHookedState(statedb, tracer.Hooks)
 	tracerMtx = &sync.Mutex{}
 	txContext := core.NewEVMTxContext(message)
-	evm := vm.NewEVM(vmctx, tracingStateDB, api.backend.ChainConfigAtHeight(vmctx.BlockNumber.Int64()), vm.Config{Tracer: tracer.Hooks, NoBaseFee: true}, api.backend.GetCustomPrecompiles(vmctx.BlockNumber.Int64()))
+	evm := vm.NewEVM(vmctx, tracingStateDB, api.backend.ChainConfigAtHeight(vmctx.BlockNumber.Int64()), vm.Config{Tracer: tracers.WithoutFailedTxEnd(tracer.Hooks), NoBaseFee: true}, api.backend.GetCustomPrecompiles(vmctx.BlockNumber.Int64()))
 	if precompiles != nil {
 		evm.SetPrecompiles(precompiles)
 	}
@@ -419,7 +421,13 @@ func (api *DebugAPI) profiledTraceTx(
 		phaseDurations.ExecutionNanos = time.Since(executionStart).Nanoseconds()
 	}
 	if err != nil {
-		return profiledErrorTrace(err, tx, message, txctx, vmctx, config)
+		gasUsed, ended := tracers.EndFailedTx(tracer.Hooks, tracingStateDB, tx, message, txctx, err)
+		if !ended {
+			return profiledErrorTrace(err, tx, message, txctx, vmctx, config)
+		}
+		if frame, frameErr := tracers.ErrorFrame(err, tx, message, txctx, config, gasUsed); frame != nil || frameErr != nil {
+			return frame, frameErr
+		}
 	}
 	resultStart := time.Now()
 	tracerMtx.Lock()
@@ -435,69 +443,8 @@ func (api *DebugAPI) profiledTraceTx(
 }
 
 func profiledErrorTrace(err error, tx *gethtypes.Transaction, message *core.Message, txctx *tracers.Context, vmctx vm.BlockContext, config *tracers.TraceConfig) (value interface{}, returnErr error) {
-	if config != nil && config.Tracer != nil {
-		switch *config.Tracer {
-		case "callTracer":
-			errTrace := map[string]interface{}{
-				"from":    message.From.Hex(),
-				"gas":     hexutil.Uint64(message.GasLimit),
-				"gasUsed": "0x0",
-				"input":   "0x",
-				"error":   err.Error(),
-				"type":    "CALL",
-			}
-			if message.Value != nil {
-				errTrace["value"] = hexutil.Big(*message.Value)
-			}
-			if message.To != nil {
-				errTrace["to"] = message.To.Hex()
-			} else {
-				errTrace["type"] = "CREATE"
-			}
-			if message.Data != nil {
-				errTrace["input"] = hexutil.Encode(message.Data)
-			}
-			bz, marshalErr := json.Marshal(errTrace)
-			if marshalErr != nil {
-				return nil, fmt.Errorf("tracing failed: %w", marshalErr)
-			}
-			return json.RawMessage(bz), nil
-		case "flatCallTracer":
-			action := map[string]interface{}{
-				"callType": "call",
-				"from":     message.From.Hex(),
-				"gas":      hexutil.Uint64(message.GasLimit),
-				"input":    "0x",
-			}
-			if message.Value != nil {
-				action["value"] = hexutil.Big(*message.Value)
-			}
-			if message.To != nil {
-				action["to"] = message.To.Hex()
-			}
-			if message.Data != nil {
-				action["input"] = hexutil.Encode(message.Data)
-			}
-			errTrace := map[string]interface{}{
-				"action":      action,
-				"blockHash":   txctx.BlockHash,
-				"blockNumber": txctx.BlockNumber,
-				"result": map[string]interface{}{
-					"gasUsed": "0x0",
-					"output":  "0x",
-				},
-				"subtraces":           0,
-				"traceAddress":        []string{},
-				"transactionHash":     tx.Hash(),
-				"transactionPosition": txctx.TxIndex,
-				"error":               err.Error(),
-			}
-			bz, marshalErr := json.Marshal([]map[string]interface{}{errTrace})
-			if marshalErr != nil {
-				return nil, fmt.Errorf("tracing failed: %w", marshalErr)
-			}
-			return json.RawMessage(bz), nil
-		}
+	if frame, frameErr := tracers.ErrorFrame(err, tx, message, txctx, config, 0); frame != nil || frameErr != nil {
+		return frame, frameErr
 	}
 	if strings.Contains(err.Error(), core.ErrInsufficientFunds.Error()) {
 		return json.RawMessage(`{}`), nil

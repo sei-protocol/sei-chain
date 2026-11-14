@@ -105,6 +105,17 @@ func SetupTestServer(
 	blocks [][][]byte,
 	initializer ...func(sdk.Context, *app.App),
 ) TestServer {
+	return SetupTestServerWithConfig(t, nil, blocks, initializer...)
+}
+
+// SetupTestServerWithConfig is SetupTestServer with configure applied to the EVM RPC
+// config of the server.
+func SetupTestServerWithConfig(
+	t *testing.T,
+	configure func(*evmrpcconfig.Config),
+	blocks [][][]byte,
+	initializer ...func(sdk.Context, *app.App),
+) TestServer {
 	a, res := initializeApp(t, "sei-test", initializer...)
 	mockClient := &MockClient{blocks: append([][][]byte{{}}, blocks...)}
 	mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
@@ -129,7 +140,7 @@ func SetupTestServer(
 		_, _ = a.Commit(context.Background())
 		mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	}
-	return setupTestServer(a, a.RPCContextProvider, mockClient)
+	return setupTestServer(a, a.RPCContextProvider, mockClient, configure)
 }
 
 func SetupMockPacificTestServer(t *testing.T, initializer func(*app.App, *MockClient) sdk.Context) TestServer {
@@ -138,19 +149,23 @@ func SetupMockPacificTestServer(t *testing.T, initializer func(*app.App, *MockCl
 	// seed mock client with genesis block results so latest height queries work
 	mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	ctx := initializer(a, mockClient)
-	return setupTestServer(a, func(int64) sdk.Context { return ctx }, mockClient)
+	return setupTestServer(a, func(int64) sdk.Context { return ctx }, mockClient, nil)
 }
 
 func setupTestServer(
 	a *app.App,
 	ctxProvider func(int64) sdk.Context,
 	mockClient *MockClient,
+	configure func(*evmrpcconfig.Config),
 ) TestServer {
 	port := int(portProvider.Add(1))
 	cfg := evmrpcconfig.DefaultConfig
 	cfg.HTTPEnabled = true
 	cfg.HTTPPort = port
 	cfg.EnabledLegacySeiApis = evmrpc.SeiLegacyAllGatedMethodNames()
+	if configure != nil {
+		configure(&cfg)
+	}
 	s, err := evmrpc.NewEVMHTTPServer(
 		cfg,
 		mockClient,
