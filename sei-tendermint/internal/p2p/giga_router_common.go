@@ -456,8 +456,8 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 				session.cancel()
 			}
 		}()
-		// Anchor is republished on every persist batch; only its epoch can
-		// change the keep set.
+		// Anchor is republished on every persist batch, so the wait compares
+		// the epoch indices it depends on rather than the Anchor value.
 		epochOf := func(a data.Anchor) atypes.EpochIndex { return a.Epochs[0].EpochIndex() }
 
 		for ctx.Err() == nil {

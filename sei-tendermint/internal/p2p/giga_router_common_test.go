@@ -676,14 +676,14 @@ func TestGigaRouterCommon_RunPerCommitteeMemberFollowsCommittee(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
 			return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, false, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
-				switch {
-				case validator.Compare(a) == 0:
+				switch validator {
+				case a:
 					startedA <- struct{}{}
-				case validator.Compare(b) == 0:
+				case b:
 					startedB <- struct{}{}
 				}
 				<-ctx.Done()
-				if validator.Compare(b) == 0 {
+				if validator == b {
 					stoppedB <- struct{}{}
 				}
 				return ctx.Err()
@@ -738,7 +738,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsBothCommitteesUntilStable(t 
 			return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, false, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
 				started <- validator
 				<-ctx.Done()
-				if validator.Compare(b) == 0 {
+				if validator == b {
 					stoppedB <- struct{}{}
 				}
 				return ctx.Err()
@@ -788,34 +788,51 @@ func TestGigaRouterCommon_RunPerCommitteeMemberLimitsToCommitEpoch(t *testing.T)
 		liveAddrVersion: utils.NewAtomicSend(uint64(0)),
 	}
 
-	started := make(chan atypes.PublicKey, 2)
-	stopped := make(chan atypes.PublicKey, 2)
+	startedA := utils.NewAtomicSend(false)
+	startedB := utils.NewAtomicSend(false)
+	bCommitEpoch := utils.NewAtomicSend(atypes.EpochIndex(0))
+	stoppedA := utils.NewAtomicSend(false)
+	stoppedB := utils.NewAtomicSend(false)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		s.SpawnBg(func() error {
 			return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, true, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
-				started <- validator
+				switch validator {
+				case a:
+					startedA.Store(true)
+				case b:
+					bCommitEpoch.Store(state.Anchor().Load().NextIndexEpoch().EpochIndex())
+					startedB.Store(true)
+				}
 				<-ctx.Done()
-				stopped <- validator
+				switch validator {
+				case a:
+					stoppedA.Store(true)
+				case b:
+					stoppedB.Store(true)
+				}
 				return ctx.Err()
 			}))
 		})
-		if got := <-started; got != a {
-			return fmt.Errorf("first dial = %v, want the commit epoch member a", got)
-		}
-		select {
-		case <-started:
-			return fmt.Errorf("b was dialed while outside the commit epoch")
-		default:
+		if _, err := startedA.Wait(ctx, func(started bool) bool { return started }); err != nil {
+			return err
 		}
 		if err := testCertifyRoad(ctx, state, rng, []atypes.SecretKey{keyA}, qc, blocks); err != nil {
 			return err
 		}
-		if got := <-stopped; got != a {
-			return fmt.Errorf("stopped %v, want a after it left the commit epoch", got)
+		// b is dialed only after the commit epoch is ep3. Dialing it under ep2 means
+		// the dial set ignored currentCommitteeOnly.
+		if _, err := startedB.Wait(ctx, func(started bool) bool { return started }); err != nil {
+			return err
 		}
-		if got := <-started; got != b {
-			return fmt.Errorf("dialed %v after the commit moved, want b", got)
+		if got := bCommitEpoch.Load(); got != atypes.EpochIndex(3) {
+			return fmt.Errorf("b dialed under commit epoch %d, want 3", got)
+		}
+		if _, err := stoppedA.Wait(ctx, func(stopped bool) bool { return stopped }); err != nil {
+			return err
+		}
+		if stoppedB.Load() {
+			return fmt.Errorf("b stopped after the commit moved")
 		}
 		return nil
 	})
@@ -850,46 +867,55 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsNextEpoch(t *testing.T) {
 		liveAddrVersion: utils.NewAtomicSend(uint64(0)),
 	}
 
-	started := make(chan atypes.PublicKey, 4)
-	stopped := make(chan atypes.PublicKey, 4)
-	onStart := map[atypes.PublicKey]struct{}{}
+	started := map[atypes.PublicKey]*utils.AtomicSend[bool]{}
+	stopped := map[atypes.PublicKey]*utils.AtomicSend[bool]{}
+	var watches []utils.AtomicUpdate
+	for _, k := range []atypes.PublicKey{a, b, c, d} {
+		up, down := utils.NewAtomicSend(false), utils.NewAtomicSend(false)
+		started[k], stopped[k] = &up, &down
+		watches = append(watches, up.Subscribe(), down.Subscribe())
+	}
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		s.SpawnBg(func() error {
 			return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, false, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
-				started <- validator
+				started[validator].Store(true)
 				<-ctx.Done()
-				stopped <- validator
+				stopped[validator].Store(true)
 				return ctx.Err()
 			}))
 		})
-		for range 3 {
-			onStart[<-started] = struct{}{}
+		if err := utils.WaitAny(ctx, func() bool {
+			return started[a].Load() && started[b].Load() && started[c].Load()
+		}, watches...); err != nil {
+			return err
+		}
+		if started[d].Load() {
+			return fmt.Errorf("d was dialed before the anchor moved to ep4")
 		}
 		// Certifying LastRoad(2) moves the commit epoch to ep3. Epochs[0] is still ep2, so b stays.
 		if err := testCertifyRoad(ctx, state, rng, []atypes.SecretKey{keyA, keyB}, qc2, blocks2); err != nil {
 			return err
 		}
-		select {
-		case got := <-stopped:
-			return fmt.Errorf("%v stopped while still in Epochs[0]", got)
-		default:
+		for _, k := range []atypes.PublicKey{a, b, c, d} {
+			if stopped[k].Load() {
+				return fmt.Errorf("%v stopped while still in Epochs[0]", k)
+			}
 		}
 		// The first road of ep3 moves Anchor to (ep3, ep4): b leaves, d joins.
 		qc3, blocks3 := testRoadQC(registry.MustEpoch(3), []atypes.SecretKey{keyA, keyC}, registry.MustEpoch(3).RoadRange().First)
 		if err := testCertifyRoad(ctx, state, rng, []atypes.SecretKey{keyA, keyC}, qc3, blocks3); err != nil {
 			return err
 		}
-		if got := <-stopped; got != b {
-			return fmt.Errorf("stopped %v, want b once it left both Anchor epochs", got)
+		if _, err := stopped[b].Wait(ctx, func(stopped bool) bool { return stopped }); err != nil {
+			return err
 		}
-		if got := <-started; got != d {
-			return fmt.Errorf("dialed %v, want the next-epoch member d", got)
+		if _, err := started[d].Wait(ctx, func(started bool) bool { return started }); err != nil {
+			return err
 		}
 		return nil
 	})
 	require.NoError(t, err)
-	require.Equal(t, map[atypes.PublicKey]struct{}{a: {}, b: {}, c: {}}, onStart)
 }
 
 // testRegistryThrough returns a registry whose genesis epochs use genesis and whose
