@@ -67,6 +67,55 @@ func TestRemovedGRPCStartFlags(t *testing.T) {
 	require.Error(t, cmd.ParseFlags([]string{"--grpc-only"}))
 }
 
+func TestConfigureIngressProfile(t *testing.T) {
+	ctx := NewDefaultContext()
+	ctx.Viper.Set(FlagIngress, true)
+
+	require.NoError(t, configureIngressProfile(ctx))
+	require.Equal(t, []string{"null"}, ctx.Config.TxIndex.Indexer)
+	require.False(t, ctx.Viper.GetBool("api.enable"))
+	require.True(t, ctx.Viper.GetBool("state-store.ss-enable"))
+	require.Equal(t, 1000, ctx.Viper.GetInt("state-store.ss-keep-recent"))
+	require.False(t, ctx.Viper.GetBool("state-store.ss-snapshot-enable"))
+	require.False(t, ctx.Viper.GetBool("state-commit.sc-enable-state-proof"))
+	require.Equal(t, uint(1000), ctx.Viper.GetUint("state-commit.sc-hash-logger-blocks-to-retain"))
+	require.Equal(t, 1, ctx.Viper.GetInt("state-commit.sc-snapshot-writer-limit"))
+	require.Equal(t, uint64(1000), ctx.Viper.GetUint64(FlagMinRetainBlocks))
+	require.Zero(t, ctx.Viper.GetUint64(FlagStateSyncSnapshotInterval))
+	require.True(t, ctx.Viper.GetBool("evm.http_enabled"))
+	require.True(t, ctx.Viper.GetBool("evm.ws_enabled"))
+	require.False(t, ctx.Viper.GetBool("evm.enable_simulation"))
+	require.False(t, ctx.Viper.GetBool("evm.trace_bake_enabled"))
+	require.Equal(t, uint32(16), ctx.Viper.GetUint32("wasm.memory_cache_size"))
+	require.False(t, ctx.Viper.GetBool("light_invariance.supply_enabled"))
+}
+
+func TestConfigureIngressProfileLeavesOtherNodesAlone(t *testing.T) {
+	ctx := NewDefaultContext()
+	indexer := ctx.Config.TxIndex.Indexer
+
+	require.NoError(t, configureIngressProfile(ctx))
+	require.Equal(t, indexer, ctx.Config.TxIndex.Indexer)
+	require.False(t, ctx.Viper.IsSet(FlagMinRetainBlocks))
+	require.False(t, ctx.Viper.IsSet("state-store.ss-enable"))
+}
+
+func TestConfigureIngressProfileRefusesOtherNodeShapes(t *testing.T) {
+	for name, shape := range map[string]func(*Context){
+		"validator": func(ctx *Context) { ctx.Config.Mode = tmcfg.ModeValidator },
+		"seed":      func(ctx *Context) { ctx.Config.Mode = tmcfg.ModeSeed },
+		"autobahn":  func(ctx *Context) { ctx.Config.AutobahnConfigFile = "autobahn.json" },
+		"frozen":    func(ctx *Context) { ctx.Viper.Set(FlagFreezeHeight, uint64(100)) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := NewDefaultContext()
+			ctx.Viper.Set(FlagIngress, true)
+			shape(ctx)
+			require.ErrorContains(t, configureIngressProfile(ctx), "--"+FlagIngress)
+		})
+	}
+}
+
 func TestWarnIgnoredStateSyncTrustPeriod(t *testing.T) {
 	for name, tc := range map[string]struct {
 		chainID     string

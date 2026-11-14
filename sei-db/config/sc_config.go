@@ -32,11 +32,7 @@ func EffectiveMemIAVLSnapshotCadence(cfg memiavl.Config) (interval, keepRecent u
 	if interval == 0 {
 		interval = memiavl.DefaultSnapshotInterval
 	}
-	keepRecent = cfg.SnapshotKeepRecent
-	if keepRecent == 0 {
-		keepRecent = memiavl.DefaultSnapshotKeepRecent
-	}
-	return interval, keepRecent
+	return interval, cfg.EffectiveSnapshotKeepRecent()
 }
 
 // EffectiveMemIAVLSnapshotMinTimeInterval resolves the minimum wall-clock

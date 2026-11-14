@@ -164,6 +164,39 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 	// stopCh is closed by defer above
 }
 
+func TestRewriteSnapshotBackgroundKeepLatestOnly(t *testing.T) {
+	db, err := OpenDB(0, Options{
+		Config:          Config{SnapshotKeepLatestOnly: true},
+		Dir:             t.TempDir(),
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	for _, changes := range ChangeSets {
+		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{Name: "test", Changeset: changes}}))
+		_, err := db.Commit()
+		require.NoError(t, err)
+		_ = db.RewriteSnapshotBackground()
+	}
+	require.Eventually(t, func() bool {
+		db.mtx.Lock()
+		defer db.mtx.Unlock()
+		_ = db.checkAsyncTasks()
+		return db.snapshotRewriteChan == nil
+	}, 3*time.Second, 50*time.Millisecond, "all snapshot rewrites should complete")
+
+	require.Eventually(t, func() bool {
+		snapshots := 0
+		err := traverseSnapshots(db.dir, true, func(int64) (bool, error) {
+			snapshots++
+			return false, nil
+		})
+		return err == nil && snapshots == 1
+	}, 3*time.Second, 50*time.Millisecond, "prune should leave only the latest snapshot")
+}
+
 // helper to commit one change to bump height
 func RequireCommitWithNoError(t *testing.T, db *DB, key, val string) int64 {
 	pairs := []*proto.KVPair{{Key: []byte(key), Value: []byte(val)}}
