@@ -17,13 +17,11 @@ permissions: {}
 
 jobs:
   seidroid:
-    uses: sei-protocol/seidroid/.github/workflows/review.yml@24024e8599bf4a49999cb1a11e20aed15acae9c4 # v0.2.3
+    uses: sei-protocol/seidroid/.github/workflows/review.yml@5d334471bb132a49195364a011b67185484b6333 # main with OpenAI workload identity
     permissions:
       contents: read
       pull-requests: read
       id-token: write
-    secrets:
-      openai-api-key: ${{ secrets.PLATFORM_CODE_AGENT_OPENAI_API_KEY }}
     with:
       shadow: true
       allowed-bots: seidroid[bot]
