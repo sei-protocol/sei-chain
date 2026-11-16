@@ -2,10 +2,13 @@ package rpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -37,12 +40,85 @@ func TestGetTransactionCountCurrentState(t *testing.T) {
 		ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber),
 		ethrpc.BlockNumberOrHashWithNumber(ethrpc.SafeBlockNumber),
 		ethrpc.BlockNumberOrHashWithNumber(ethrpc.FinalizedBlockNumber),
-		ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber),
 	} {
 		got, err := api.GetTransactionCount(t.Context(), address, tag)
 		require.NoError(t, err)
 		require.Equal(t, hexutil.Uint64(7), *got)
 	}
+}
+
+func TestGetTransactionCountPending(t *testing.T) {
+	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	pending := ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber)
+
+	t.Run("local mempool", func(t *testing.T) {
+		api := &txAPI{backend: &testBackend{
+			transactionCount: func(common.Address) uint64 { return 1 },
+			pendingNonce: func(got common.Address) utils.Option[uint64] {
+				require.Equal(t, address, got)
+				return utils.Some[uint64](5)
+			},
+		}}
+		got, err := api.GetTransactionCount(t.Context(), address, pending)
+		require.NoError(t, err)
+		require.Equal(t, hexutil.Uint64(5), *got)
+	})
+
+	t.Run("forwarded to the sender's lane", func(t *testing.T) {
+		lane := dialHandler(t, &testBackend{
+			pendingNonce: func(got common.Address) utils.Option[uint64] {
+				require.Equal(t, address, got)
+				return utils.Some[uint64](9)
+			},
+		}, noRPCLimits)
+		api := &txAPI{backend: &testBackend{
+			proxy: utils.Some(lane),
+			pendingNonce: func(common.Address) utils.Option[uint64] {
+				t.Error("a forwarded sender read the local mempool")
+				return utils.None[uint64]()
+			},
+		}}
+		got, err := api.GetTransactionCount(t.Context(), address, pending)
+		require.NoError(t, err)
+		require.Equal(t, hexutil.Uint64(9), *got)
+	})
+
+	t.Run("lane error is returned", func(t *testing.T) {
+		lane := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			var req struct {
+				ID json.RawMessage `json:"id"`
+			}
+			if err := json.Unmarshal(body, &req); err != nil || len(req.ID) == 0 {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"error":{"code":-32000,"message":"lane refused"}}`, req.ID)
+		}))
+		t.Cleanup(lane.Close)
+		client, err := ethrpc.DialHTTP(lane.URL)
+		require.NoError(t, err)
+		t.Cleanup(client.Close)
+		api := &txAPI{backend: &testBackend{
+			proxy: utils.Some(client),
+			pendingNonce: func(common.Address) utils.Option[uint64] {
+				return utils.Some[uint64](3)
+			},
+		}}
+		_, err = api.GetTransactionCount(t.Context(), address, pending)
+		require.ErrorContains(t, err, "lane refused")
+	})
+
+	t.Run("fullnode without a lane fails", func(t *testing.T) {
+		api := &txAPI{backend: &testBackend{}}
+		_, err := api.GetTransactionCount(t.Context(), address, pending)
+		require.ErrorIs(t, err, errPendingNonceUnavailable)
+	})
 }
 
 func TestGetTransactionCountReadsNumberedBlocksFromHistory(t *testing.T) {

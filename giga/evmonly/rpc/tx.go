@@ -25,8 +25,16 @@ type txAPI struct {
 	store   receiptpkg.ReceiptStore
 }
 
-// GetTransactionCount returns the address nonce in the committed EVM state after block.
+// errPendingNonceUnavailable is returned for the pending tag when this node has no local mempool
+// and the lane its transactions are forwarded to is not connected.
+var errPendingNonceUnavailable = errors.New("pending nonce unavailable: no local mempool and the sender's lane is not connected")
+
+// GetTransactionCount returns the address nonce in the committed EVM state after block. The pending
+// tag returns the next nonce the sender's transactions are admitted at instead.
 func (api *txAPI) GetTransactionCount(ctx context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
+	if number, ok := block.Number(); ok && number == ethrpc.PendingBlockNumber {
+		return api.pendingTransactionCount(ctx, address)
+	}
 	height, latest, err := stateHeight(ctx, api.backend, block)
 	if err != nil {
 		return nil, err
@@ -36,6 +44,24 @@ func (api *txAPI) GetTransactionCount(ctx context.Context, address common.Addres
 		nonce = api.backend.EvmTransactionCount(address)
 	} else if nonce, err = api.backend.EvmNonceAt(address, height); err != nil {
 		return nil, err
+	}
+	return (*hexutil.Uint64)(&nonce), nil
+}
+
+// pendingTransactionCount returns the nonce at the lane the sender's transactions go to. When this
+// node forwards the sender, the lane answers, as it does for eth_sendRawTransaction; otherwise the
+// local mempool does.
+func (api *txAPI) pendingTransactionCount(ctx context.Context, address common.Address) (*hexutil.Uint64, error) {
+	if client, ok := api.backend.EvmProxy(address).Get(); ok {
+		var nonce hexutil.Uint64
+		if err := client.CallContext(ctx, &nonce, "eth_getTransactionCount", address, ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber)); err != nil {
+			return nil, err
+		}
+		return &nonce, nil
+	}
+	nonce, ok := api.backend.EvmPendingNonce(address).Get()
+	if !ok {
+		return nil, errPendingNonceUnavailable
 	}
 	return (*hexutil.Uint64)(&nonce), nil
 }
