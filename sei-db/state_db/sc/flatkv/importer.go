@@ -216,6 +216,9 @@ func (w *dbWorker) flush() (err error) {
 		return fmt.Errorf("%s close batch: %w", w.dir, closeErr)
 	}
 	w.batch = w.db.NewBatch()
+	// The deferred release returns these rows' bytes to the budget, so the reused backing array must not keep
+	// them reachable: a later, shorter batch would not overwrite every slot.
+	clear(w.ltMutations)
 	w.ltMutations = w.ltMutations[:0]
 	w.bytes = 0
 	return nil
