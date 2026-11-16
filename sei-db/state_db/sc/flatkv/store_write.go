@@ -38,7 +38,8 @@ func (s *CommitStore) CommitStateChanges(blockNum int64, mutations []mutation.Mu
 }
 
 // commitReplayedStateChanges commits a block read back from the state WAL at blockHeight, as CommitStateChanges
-// does, except that a DB which already holds the block is left as it is.
+// does, except that a DB which already holds the block is left as it is and the block is not offered for a
+// snapshot.
 func (s *CommitStore) commitReplayedStateChanges(blockHeight uint64, mutations []mutation.Mutation) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -169,8 +170,8 @@ func (s *CommitStore) commitMutations(
 
 	// Step 6: Offer the block to the snapshot writer, which decides whether it becomes a snapshot and,
 	// if so, writes it on its own goroutine. Periodic snapshots are what keep the WAL bounded and
-	// restarts fast.
-	if s.snapshotWriter != nil {
+	// restarts fast. A replayed block is not offered: no snapshot is taken until recovery has finished.
+	if s.snapshotWriter != nil && !replay {
 		s.phaseTimer.SetPhase("commit_offer_snapshot")
 		if err := s.offerToSnapshotWriter(); err != nil {
 			return fmt.Errorf("auto snapshot at block %d: %w", blockHeight, err)

@@ -76,8 +76,7 @@ func closeLiveStateDB(liveStateDB *CommitStore) error {
 	return nil
 }
 
-// CatchUpToStateWAL brings liveStateDB to the last block wal holds. Set liveStateDB's checkpoint schedule first:
-// the blocks it replays are offered to it as committed blocks are.
+// CatchUpToStateWAL brings liveStateDB to the last block wal holds. It takes no snapshots.
 func CatchUpToStateWAL(ctx context.Context, liveStateDB *CommitStore, wal statewal.StateWAL) error {
 	stored, _, head, err := wal.GetStoredRange()
 	if err != nil {

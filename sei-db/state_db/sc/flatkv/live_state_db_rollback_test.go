@@ -344,3 +344,29 @@ func TestOpenViewPanicsWhileDataDBsDisagree(t *testing.T) {
 	require.NoError(t, CatchUpToStateWAL(t.Context(), liveStateDB, wal))
 	liveStateDB.OpenView().Close()
 }
+
+// Catching up takes no snapshot, whatever the schedule picks; the first block committed after it can.
+func TestCatchUpTakesNoSnapshots(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	writeWALOnly(t, cfg, 1, 3)
+	liveStateDB := reopenWithoutWAL(t, cfg)
+	before, err := SnapshotVersions(cfg.DataDir)
+	require.NoError(t, err)
+
+	wal, err := OpenStateWAL(cfg)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, wal.Close()) }()
+	liveStateDB.SetCheckpointScheduler(controller.NewCheckpointScheduler(
+		seidbconfig.CheckpointConfig{BlockInterval: 1}))
+	require.NoError(t, CatchUpToStateWAL(t.Context(), liveStateDB, wal))
+	require.NoError(t, liveStateDB.FlushSnapshots())
+	afterCatchUp, err := SnapshotVersions(cfg.DataDir)
+	require.NoError(t, err)
+	require.Equal(t, before, afterCatchUp)
+
+	commitNonceBlocks(t, liveStateDB, 4, 4)
+	require.NoError(t, liveStateDB.FlushSnapshots())
+	afterCommit, err := SnapshotVersions(cfg.DataDir)
+	require.NoError(t, err)
+	require.Contains(t, afterCommit, int64(4))
+}
