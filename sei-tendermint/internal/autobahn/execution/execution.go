@@ -54,16 +54,11 @@ func (e *Executor) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
 	return e.executed.Subscribe()
 }
 
-// pendingExec is one in-flight executeBlock, whose outcome is reported on done.
+// pendingExec is one in-flight executeBlock. done receives the gas the block used once it is
+// committed.
 type pendingExec struct {
 	height atypes.RoadIndex
-	done   chan execResult
-}
-
-// execResult is the gas a committed block used, or the error that stopped it.
-type execResult struct {
-	gasUsed int64
-	err     error
+	done   chan int64
 }
 
 // Run initializes the app, then executes the durable blocks after its tip in
@@ -96,11 +91,14 @@ func (e *Executor) Run(ctx context.Context) error {
 					return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 				}
 				req := e.makeFinalizeRequest(b)
-				done := make(chan execResult, 1)
+				done := make(chan int64, 1)
 				s.Spawn(func() error {
 					defer release()
 					gasUsed, err := e.executeBlock(ctx, b, req)
-					done <- execResult{gasUsed: gasUsed, err: err}
+					if err != nil {
+						return fmt.Errorf("executeBlock(%v): %w", b.Height, err)
+					}
+					done <- gasUsed
 					return nil
 				})
 				if err := utils.Send(ctx, results, pendingExec{height: b.Height, done: done}); err != nil {
@@ -115,14 +113,11 @@ func (e *Executor) Run(ctx context.Context) error {
 				return err
 			}
 			gigametrics.SetPhase(gigametrics.PhaseExecution)
-			result, err := utils.Recv(ctx, p.done)
+			gasUsed, err := utils.Recv(ctx, p.done)
 			if err != nil {
 				return err
 			}
-			if result.err != nil {
-				return fmt.Errorf("executeBlock(%v): %w", p.height, result.err)
-			}
-			e.publishExecuted(p.height, result.gasUsed)
+			e.publishExecuted(p.height, gasUsed)
 		}
 	})
 }
