@@ -43,6 +43,7 @@ var errTraceConcurrencyLimit = errors.New("trace request rejected due to concurr
 
 type DebugAPI struct {
 	tracersAPI         *tracers.API
+	traceCallAPI       *tracers.API
 	tmClient           client.LocalClient
 	keeper             *keeper.Keeper
 	ctxProvider        func(int64) sdk.Context
@@ -240,6 +241,7 @@ func NewDebugAPI(
 ) *DebugAPI {
 	backend := NewBackend(ctxProvider, k, beginBlockKeepers, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex, watermarks)
 	tracersAPI := tracers.NewAPI(backend)
+	traceCallAPI := tracers.NewAPI(traceCallBackend{backend})
 
 	var sem chan struct{}
 	if debugCfg.MaxConcurrentTraceCalls > 0 {
@@ -248,6 +250,7 @@ func NewDebugAPI(
 
 	return &DebugAPI{
 		tracersAPI:         tracersAPI,
+		traceCallAPI:       traceCallAPI,
 		tmClient:           tmClient,
 		keeper:             k,
 		ctxProvider:        ctxProvider,
@@ -641,7 +644,7 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 		return nil, returnErr
 	}
 	api.clampDefaultStructLogLimit(&config.TraceConfig)
-	result, returnErr = api.tracersAPI.TraceCall(ctx, args, &blockNrOrHash, config)
+	result, returnErr = api.traceCallAPI.TraceCall(ctx, args, &blockNrOrHash, config)
 	result, returnErr = resultUnlessExpired(ctx, result, returnErr)
 	return
 }

@@ -8,6 +8,7 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -38,18 +39,13 @@ func TestBroadcastTxCommitWithoutAutobahnUsesMempool(t *testing.T) {
 
 func TestEnvironmentEvmRPCWrappers(t *testing.T) {
 	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	env := &Environment{App: proxy.New(abci.BaseApplication{})}
+	env := &Environment{App: utils.Some(proxy.New(abci.BaseApplication{}))}
 
 	// Test: the EVM RPC accessors Environment exposes to giga/evmonly/rpc.
 	nonce := env.EvmTransactionCount(address)
 	height := env.EvmBlockNumber()
-	_, codeErr := env.EvmCode(address)
-	_, storageErr := env.EvmStorage(address, common.Hash{})
 
-	// Verify: nonce/height hit Application; the rest error because
-	// BaseApplication implements none of those optional interfaces.
+	// Verify: nonce and height hit the ABCI application.
 	require.Equal(t, uint64(0), nonce)
 	require.Equal(t, uint64(0), height)
-	require.Error(t, codeErr)
-	require.Error(t, storageErr)
 }

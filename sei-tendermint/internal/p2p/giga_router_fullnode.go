@@ -22,21 +22,22 @@ type gigaFullnodeRouter struct {
 // NewGigaFullnodeRouter constructs a fullnode GigaRouter over an already-built
 // data.State. The caller owns the BlockDB that backs dataState (see BuildDataState).
 func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataState *data.State) (*gigaFullnodeRouter, error) {
-	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
+	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers, "persistent_peers", len(cfg.PersistentPeerIDs))
 	return &gigaFullnodeRouter{
 		gigaRouterCommon: &gigaRouterCommon{
-			cfg:                cfg,
-			key:                key,
-			data:               dataState,
-			service:            giga.NewFullNodeService(dataState),
-			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
-			poolInCommittee:    giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
-			poolOut:            giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
-			proxies:            utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
-			app:                cfg.App,
-			liveAddrs:          utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
-			liveAddrVersion:    utils.NewAtomicSend(uint64(0)),
-			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
+			cfg:                  cfg,
+			key:                  key,
+			data:                 dataState,
+			service:              giga.NewFullNodeService(dataState),
+			poolIn:               giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
+			poolInCommittee:      giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
+			poolOut:              giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
+			proxies:              utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
+			app:                  cfg.App,
+			liveAddrs:            utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
+			liveAddrVersion:      utils.NewAtomicSend(uint64(0)),
+			inboundFullnodeCount: utils.NewMutex(new(int64)),
+			inboundFullnodeCap:   int64(cfg.MaxInboundFullnodePeers),
 		},
 	}, nil
 }
@@ -59,7 +60,7 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 		s.SpawnNamed("pushAppHashes", func() error { return r.runPushAppHashes(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		s.SpawnNamed("committeeMembers", func() error {
-			return r.runPerCommitteeMember(ctx, r.runEvmProxy)
+			return r.runPerCommitteeMember(ctx, true, r.runEvmProxy)
 		})
 		return nil
 	})
@@ -112,7 +113,7 @@ func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 				break
 			}
 			addr := r.cfg.ValidatorAddrs[validator]
-			left, err := r.runUntilMembershipChange(ctx, validator, func(ctx context.Context) error {
+			left, err := r.runUntilMembershipChange(ctx, validator, true, func(ctx context.Context) error {
 				return r.dialAndRunConn(ctx, validator, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
 					// Consensus PublicKey (committee member), not GigaNodeAddr.Key (p2p NodePublicKey).
 					return r.service.RunClient(ctx, client, validator, true)
