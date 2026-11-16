@@ -207,7 +207,7 @@ Staking:
 | `0x22` | validator by consensus address | `validatorsByConsensusPubkey`, keyed by the key itself |
 | `0x23` | validators by power | `validatorsByPower` (sorted array) |
 | `0x31` | delegations | `delegations` (+ set per delegator) |
-| `0x37` | delegations by validator | not carried over (queries only) |
+| `0x37` | delegations by validator | `delegationsByValidator` (set per validator) |
 | `0x32`, `0x33` | unbonding delegations and their index | `unbondingDelegations`; the index is not carried over |
 | `0x34`–`0x36` | redelegations and their indexes | `redelegationEntryCounts` and `redelegationsByValDst`; entries live in the redelegation queue, and `0x35` is not carried over |
 | `0x41`–`0x43` | unbonding, redelegation, validator queues | three queues |
@@ -299,9 +299,13 @@ forces a change from V2. The first is the hardest.
 Anywhere V2 walks every key under a prefix ("all delegations of this delegator",
 "all delegators of this validator", "all validators"), slot storage needs an
 explicit enumeration set, and each set adds two or three slot writes whenever a
-member joins or leaves. The draft keeps two:
+member joins or leaves. The draft keeps three:
 
 - `delegationsByDelegator`, which gov's tally walks for each voter.
+- `delegationsByValidator`, which V2's staking precompile serves to contracts
+  as `validatorDelegations`. Its members are found only through the delegations
+  themselves, so it could not be filled after launch, and it is kept from the
+  start for a later method to page through.
 - `validatorSet`, every validator record. Nothing on chain walks it while
   `validatorsByPower` holds the unjailed validators, so whether it stays is
   open.
@@ -310,7 +314,6 @@ V2's other walks have no on-chain reader in giga:
 
 | V2 walk | Read by |
 |---|---|
-| `0x37`, delegations by validator | queries |
 | `0x33`, unbonding delegations by validator | slashing unbonding entries |
 | `0x35`, redelegations by source validator | slashing redelegation entries |
 | unbonding delegations and redelegations by delegator | queries |
@@ -444,7 +447,7 @@ was backfilled with a cursor key and a ready marker.
 **How long it might take.** Roughly V2 keys × writes per key ÷ the per-block
 budget. V2 holds about three or four keys per delegation, and each takes at
 most three or four slot writes; the index keys giga does not carry over
-(`0x33`, `0x35`, `0x37`) take none. At a million delegations and 10,000 keys per
+(`0x33`, `0x35`) take none. At a million delegations and 10,000 keys per
 block, that is about 1,500 blocks, or ten minutes at 400 ms blocks; at 100,000
 delegations, about a minute. The real delegation count is not known yet.
 
@@ -597,7 +600,7 @@ Known gaps that need an owner or a decision.
 
 1. Power index: what cap on validator records, and what minimum to create
    one? And is gas per place moved the right charge for a reorder?
-2. Prefix walks: does `validatorSet` stay? And do the remaining set and the
+2. Prefix walks: does `validatorSet` stay? And do the remaining sets and the
    power index stay in slots, or move to ordered flatkv keys?
 3. Reward and pool amounts: whole wei, or 1e18-scaled wei?
 4. Is the clamped queue behaviour acceptable: a redelegation from an unbonding
