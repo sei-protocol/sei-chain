@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -11,13 +12,17 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
-// OpenView returns a read-only view of the most recently committed block. It is the Giga StateDB entry
-// point for reads served out of SC. The caller must Close the view, which is what releases the
-// reservation holding the block readable.
+// OpenView returns a read-only view of the most recently committed block, which the caller must Close. It
+// panics while the data DBs hold different blocks, which they may from opening until CatchUpToStateWAL()
+// returns.
 func (s *CommitStore) OpenView() gigatypes.StateView {
 	blockView, err := s.lastSealed.Get()
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: OpenView: %v", err))
+	}
+	if err := blockView.RequireAligned(); err != nil {
+		// The views themselves are healthy, so the reservation goes back rather than pinning the block.
+		panic(fmt.Sprintf("flatkv: OpenView: %v", errors.Join(err, blockView.Release())))
 	}
 	v := &flatKVStateView{blockView: blockView}
 	v.closed = utils.MustClose(v, "flatkv state view")

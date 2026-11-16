@@ -41,6 +41,10 @@ Output is written to the file specified by --output.`,
 			if output == "" {
 				return fmt.Errorf("--output flag is required")
 			}
+			evmChainID, _ := cmd.Flags().GetUint64("evm-chain-id")
+			if evmChainID == 0 {
+				return fmt.Errorf("--evm-chain-id flag is required")
+			}
 			persistentStateDir, _ := cmd.Flags().GetString("persistent-state-dir")
 			if persistentStateDir == "" {
 				return fmt.Errorf("persistent-state-dir is required")
@@ -119,6 +123,7 @@ Output is written to the file specified by --output.`,
 				// node/setup.go rootifies a relative path against cfg.RootDir at load time.
 				PersistentStateDir: persistentStateDir,
 				DialInterval:       utils.Duration(10 * time.Second),
+				EVMChainID:         evmChainID,
 			}
 			blockDB, err := buildGenBlockDBConfig(blockDBRetention, blockDBGCPeriod)
 			if err != nil {
@@ -142,6 +147,7 @@ Output is written to the file specified by --output.`,
 		},
 	}
 	cmd.Flags().StringP("output", "o", "", "output file path for the autobahn config")
+	cmd.Flags().Uint64("evm-chain-id", 0, "EIP-155 chain ID of the EVM-only chain (required)")
 	cmd.Flags().String("persistent-state-dir", "data/autobahn", "directory to persist autobahn consensus state and BlockDB across restarts; relative paths are resolved against the node's --home dir")
 	// Default 30s: this helper is used by docker/local clusters, not production
 	// node bring-up. Pass --blockdb-retention= (empty) to omit block_db and keep

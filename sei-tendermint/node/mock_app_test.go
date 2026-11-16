@@ -368,7 +368,7 @@ func (app *mockAppValidatorsTarget) GetValidators() []proxy.ValidatorUpdate {
 func buildFastCheckTxBytesForKey(t *testing.T, key *ecdsa.PrivateKey, nonce uint64, gas uint64) ([]byte, *ethtypes.Transaction, common.Address) {
 	t.Helper()
 
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(713700)
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	ethTx := ethtypes.NewTx(&ethtypes.DynamicFeeTx{
 		ChainID:   chainID,
@@ -521,7 +521,7 @@ func buildFastCheckTxBytes(t *testing.T) ([]byte, *ethtypes.Transaction) {
 
 	key, err := ethcrypto.GenerateKey()
 	require.NoError(t, err)
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(713700)
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	ethTx := ethtypes.NewTx(&ethtypes.DynamicFeeTx{
 		ChainID:   chainID,
