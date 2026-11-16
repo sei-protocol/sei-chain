@@ -30,8 +30,8 @@ type Config struct {
 	Key         types.SecretKey
 	ViewTimeout ViewTimeoutFunc
 	// Limits the number of consensus instances/s this validator should participate in.
-	// This effectively limits the rate of finalized RoadBlocks, which has following consequences:
-	// * expected avg e2e latency of tx finalization >= 1/cfg.MaxRate
+	// This effectively limits the rate of finalized RoadBlocks, which has following consequences (under uniform traffic):
+	// * expected avg e2e latency of tx finalization increased by up to 1/(2*cfg.MaxRate)
 	// * n-2f of honest nodes are required to produce a roadblock, so
 	//   road block rate <= (n-f)/(n-2f) * cfg.MaxRate < 2 * cfg.MaxRate (if all honest validators have consistent rate limit)
 	// * If all validators are either honest or offline, you can expect road block rate <= cfg.MaxRate
@@ -39,10 +39,11 @@ type Config struct {
 	// * make sure that 1/MaxRate < ViewTimeout
 	// Purpose of MaxRate is to throttle consensus which is TOO FAST, which is usually not the case.
 	// Set to rate.Inf unless you know what you are doing.
+	// TODO(gprusak): should be a consensus param in Epoch.
 	MaxRate rate.Limit
 	// ProposalTimeout bounds proposal timestamps and must be greater than 0.
 	// The accepted width is ProposalTimeout * (view number + 1).
-	// TODO(gprusak): should be a consensus param.
+	// TODO(gprusak): should be a consensus param in Epoch.
 	ProposalTimeout time.Duration
 	// PersistentStateDir is the directory where the consensus state is persisted.
 	// If None, persistence is disabled - DANGEROUS, may lead to SLASHING on restart.
