@@ -90,6 +90,11 @@ func (e *Executor) Run(ctx context.Context) error {
 					return fmt.Errorf("WaitForBlock(%v): %w", n, err)
 				}
 				b := block.SuperBlock()
+				// Reported here, in road order: the builder requires each height to follow the last.
+				if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
+					release()
+					return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
+				}
 				req := e.makeFinalizeRequest(b)
 				done := make(chan execResult, 1)
 				s.Spawn(func() error {
@@ -206,12 +211,9 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 	return last + 1, nil
 }
 
-// executeBlock reports b's hash, finalizes it, and commits it, and returns the gas it used.
-// FinalizeBlock may already be running for later blocks; the app executes them in height order.
+// executeBlock finalizes and commits b, and returns the gas it used. FinalizeBlock may already be
+// running for later blocks; the app executes them in height order.
 func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock, req *proxy.RequestFinalizeBlock) (int64, error) {
-	if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
-		return 0, fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
-	}
 	app := e.cfg.App
 	// WARNING: the reward distribution has corner cases where it forgets the proposer,
 	// because reward is distributed with a delay. This is not our problem here though.
