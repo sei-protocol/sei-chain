@@ -105,6 +105,7 @@ contract StakingStorage {
 
     mapping(address => mapping(address => Delegation)) internal delegations; // 0x31: delegator => validator =>
     mapping(address => AddressSet) internal delegationsByDelegator; // delegator => validators
+    mapping(address => AddressSet) internal delegationsByValidator; // 0x37: validator => delegators
 
     mapping(address => mapping(address => UnbondingDelegationEntry[])) internal unbondingDelegations; // 0x32: delegator => validator => entries, at most maxEntries
 

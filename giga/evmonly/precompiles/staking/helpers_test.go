@@ -317,10 +317,15 @@ func (h *harness) requireInvariants(delegators ...common.Address) {
 		op := solstorage.MemberAddress(set.At(i))
 		v := h.validator(op)
 		shares := new(big.Int)
+		var delegating []common.Address
 		for _, d := range delegators {
 			shares.Add(shares, h.shares(d, op))
+			if _, ok := s.delegation(d, op); ok {
+				delegating = append(delegating, d)
+			}
 		}
 		require.Equal(t, v.delegatorShares.String(), shares.String(), "%s's shares are its delegations'", op)
+		require.ElementsMatch(t, delegating, addresses(s.delegators(op)), "%s's delegators are the accounts delegating to it", op)
 		if v.bonded() {
 			bonded.Add(bonded, v.tokens)
 		} else {
@@ -355,4 +360,13 @@ func must[T any](v T, err error) T {
 		panic(err)
 	}
 	return v
+}
+
+// addresses returns the members of an address set, in set order.
+func addresses(set solstorage.Set) []common.Address {
+	out := make([]common.Address, set.Len())
+	for i := range out {
+		out[i] = solstorage.MemberAddress(set.At(uint64(i)))
+	}
+	return out
 }
