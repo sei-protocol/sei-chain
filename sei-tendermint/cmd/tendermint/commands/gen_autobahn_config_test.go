@@ -47,7 +47,7 @@ func runGenAutobahnConfig(t *testing.T, args ...string) (config.AutobahnFileConf
 	t.Helper()
 	output := filepath.Join(t.TempDir(), "autobahn.json")
 	cmd := MakeGenAutobahnConfigCommand()
-	cmd.SetArgs(append([]string{"--output", output, "--evm-chain-id", "4242"}, args...))
+	cmd.SetArgs(append([]string{"--output", output, "--evm-chain-id", "713700"}, args...))
 	if err := cmd.Execute(); err != nil {
 		return config.AutobahnFileConfig{}, err
 	}
@@ -84,7 +84,7 @@ func TestGenAutobahnConfigWithEVMGovernance(t *testing.T) {
 func TestGenAutobahnConfigWithoutEVMGovernance(t *testing.T) {
 	cfg, err := runGenAutobahnConfig(t, genNodeDir(t, "node0", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"))
 	require.NoError(t, err)
-	require.Equal(t, uint64(4242), cfg.EVMChainID)
+	require.Equal(t, uint64(713700), cfg.EVMChainID)
 	require.False(t, cfg.EVMGovernance.IsPresent())
 	require.False(t, cfg.Validators[0].EVMVoter.IsPresent(), "evm_voter.txt is ignored without governance")
 }

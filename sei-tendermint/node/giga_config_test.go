@@ -130,7 +130,7 @@ func TestMakeEVMApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {
 func TestMakeEVMApplicationEVMOnlyUsesConfiguredChainID(t *testing.T) {
 	validator := makeValidator([]byte("chain-id-validator"), []byte("chain-id-node"), "localhost:26660")
 	fc := defaultFileConfig(t, []config.AutobahnValidator{validator})
-	fc.EVMChainID = 1330
+	fc.EVMChainID = 713701
 
 	app, manager, err := makeEVMApplication(t.Context(), &config.Config{
 		AutobahnConfigFile: writeAutobahnConfig(t, fc),
@@ -138,7 +138,7 @@ func TestMakeEVMApplicationEVMOnlyUsesConfiguredChainID(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
-	require.Equal(t, uint64(1330), app.EvmChainID())
+	require.Equal(t, uint64(713701), app.EvmChainID())
 }
 
 // The builder's first block is the genesis height. A chain that starts above 1
