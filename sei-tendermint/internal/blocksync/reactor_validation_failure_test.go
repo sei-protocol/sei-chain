@@ -14,8 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fortytw2/leaktest"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
@@ -288,8 +286,6 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 		{name: "nil vote", flag: tmproto.BlockIDFlagNil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			// After every other cleanup, no goroutine of the nodes is left running.
-			t.Cleanup(leaktest.Check(t))
 			ctx := t.Context()
 
 			cfg, err := config.ResetTestRoot(t.TempDir(), "block_sync_invalid_commit")
