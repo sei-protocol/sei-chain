@@ -148,7 +148,7 @@ func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockIn
 // wired into block execution: switch this and BlockByNumber to read from
 // BlockDB, and source `base` from BlockDB.GetLowestBlockHeight.
 func (env *Environment) autobahnCheckAndGetHeight(heightPtr *int64) (int64, error) {
-	return env.getHeight(env.App.Info().LastBlockHeight, heightPtr)
+	return env.getHeight(env.lastBlockHeight(), heightPtr)
 }
 
 // BlockByHash gets block by hash.
