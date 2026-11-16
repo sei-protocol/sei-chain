@@ -84,6 +84,8 @@ func TestKeys(t *testing.T) {
 		{"staking", "MaxEntries", KindInt, "uint32"},
 		{"staking", "MaxVotingPower", KindDec, "uint256"},
 		{"staking", "MaxVotingPowerEnforcementThreshold", KindInt, "uint256"},
+		{"distribution", "withdrawaddrenabled", KindBool, "bool"},
+		{"distribution", "daoaddress", KindAddress, "address"},
 	}, Keys())
 }
 
@@ -417,4 +419,62 @@ func TestApplyChangesAStakingParam(t *testing.T) {
 	require.Equal(t, want, ReadStaking(state))
 	require.ErrorIs(t, Apply(state, []Change{{"staking", "MaxValidators", word(uint64(MaxBondedValidators) + 1)}}), errInvalidValue)
 	require.Equal(t, want, ReadStaking(state), "a change failing the whole-struct check writes nothing")
+}
+
+// testDistribution is x/distribution's default withdrawaddrenabled, with a DAO
+// address.
+var testDistribution = Distribution{
+	WithdrawAddrEnabled: true,
+	DAOAddress:          common.HexToAddress("0x00000000000000000000000000000000000da0da"),
+}
+
+func TestDistributionValuesRoundTrip(t *testing.T) {
+	v := testDistribution.values()
+	require.Len(t, v, len(distributionSubspace.params), "values() has one entry per declared distribution param")
+	for _, p := range distributionSubspace.params {
+		require.Contains(t, v, p.key)
+	}
+	require.Equal(t, testDistribution, distributionFrom(v), "Distribution, the table, distributionFrom and values() agree")
+}
+
+func TestWriteDistributionRefusesOnceWritten(t *testing.T) {
+	state := newMemState()
+	require.False(t, HasDistribution(state))
+	require.NoError(t, WriteDistribution(state, testDistribution))
+	require.True(t, HasDistribution(state))
+	require.Equal(t, testDistribution, ReadDistribution(state))
+	require.ErrorIs(t, WriteDistribution(state, testDistribution), errDistributionWritten)
+}
+
+func TestDistributionRequiresADAOAddress(t *testing.T) {
+	d := testDistribution
+	d.DAOAddress = common.Address{}
+	require.Error(t, d.Validate())
+	state := newMemState()
+	require.Error(t, WriteDistribution(state, d))
+	require.False(t, HasDistribution(state), "nothing is written")
+
+	d = testDistribution
+	d.WithdrawAddrEnabled = false
+	require.NoError(t, d.Validate())
+}
+
+func TestApplyChangesDistributionParams(t *testing.T) {
+	state := newMemState()
+	require.NoError(t, WriteDistribution(state, testDistribution))
+	dao := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	require.NoError(t, Apply(state, []Change{
+		{"distribution", "withdrawaddrenabled", word(0)},
+		{"distribution", "daoaddress", common.BytesToHash(dao.Bytes()).Bytes()},
+	}))
+	want := testDistribution
+	want.WithdrawAddrEnabled = false
+	want.DAOAddress = dao
+	require.Equal(t, want, ReadDistribution(state), "the bool and the address share a slot and keep each other")
+
+	require.ErrorIs(t, Apply(state, []Change{{"distribution", "daoaddress", word(0)}}), errInvalidValue)
+	require.ErrorIs(t, Apply(state, []Change{{"distribution", "withdrawaddrenabled", word(2)}}), errInvalidValue)
+	tooWide := common.BigToHash(new(big.Int).Lsh(big.NewInt(1), 160)).Bytes()
+	require.ErrorIs(t, Apply(state, []Change{{"distribution", "daoaddress", tooWide}}), errInvalidValue)
+	require.Equal(t, want, ReadDistribution(state), "a rejected change writes nothing")
 }

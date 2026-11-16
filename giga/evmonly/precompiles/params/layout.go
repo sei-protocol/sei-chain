@@ -9,8 +9,9 @@ var Address = common.HexToAddress("0x0000000000000000000000000000000000001013")
 
 // Top-level slots of docs/giga-storage/ParamsStorage.sol.
 const (
-	slotGov     = 0
-	slotStaking = 16
+	slotGov          = 0
+	slotStaking      = 16
+	slotDistribution = 27
 )
 
 // member is a struct member's position relative to the struct's base slot.
@@ -40,4 +41,10 @@ var (
 	stakingMaxEntries                         = member{0, 12}
 	stakingMaxVotingPowerRatio                = member{1, 0}
 	stakingMaxVotingPowerEnforcementThreshold = member{2, 0}
+)
+
+// ParamsStorage.Distribution members.
+var (
+	distributionWithdrawAddrEnabled = member{0, 0}
+	distributionDAOAddress          = member{0, 1}
 )
