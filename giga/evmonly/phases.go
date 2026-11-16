@@ -19,6 +19,9 @@ const (
 	phaseExecute = "execute"
 	// phaseOCCSpeculate covers speculative execution across the OCC workers.
 	phaseOCCSpeculate = "occ_speculate"
+	// phaseEarlySpeculation covers taking over a block's early speculation and checking it against
+	// the blocks executed since.
+	phaseEarlySpeculation = "early_speculation"
 	// phaseOCCValidate covers validating speculative results and re-running conflicts.
 	phaseOCCValidate = "occ_validate"
 	// phaseOCCMerge covers merging OCC results into the block's result.

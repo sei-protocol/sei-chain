@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
@@ -147,10 +148,13 @@ func TestMockAppFinalizeBlockRequiresSequentialHeader(t *testing.T) {
 	_, err = app.FinalizeBlock(t.Context(), &proxy.RequestFinalizeBlock{})
 	require.Error(t, err)
 
-	_, err = app.FinalizeBlock(t.Context(), &proxy.RequestFinalizeBlock{
+	// A later height waits for its turn rather than failing.
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	_, err = app.FinalizeBlock(ctx, &proxy.RequestFinalizeBlock{
 		Header: &proxy.Header{Height: 5},
 	})
-	require.Error(t, err)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 
 	res, err := app.FinalizeBlock(t.Context(), &proxy.RequestFinalizeBlock{
 		Header: &proxy.Header{Height: 4},
@@ -158,6 +162,11 @@ func TestMockAppFinalizeBlockRequiresSequentialHeader(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, res.TxResults)
 	require.Equal(t, int64(4), app.LastBlockHeight())
+
+	_, err = app.FinalizeBlock(t.Context(), &proxy.RequestFinalizeBlock{
+		Header: &proxy.Header{Height: 4},
+	})
+	require.Error(t, err)
 }
 
 func TestMockAppChecksTransitions(t *testing.T) {
@@ -181,10 +190,13 @@ func TestMockAppChecksTransitions(t *testing.T) {
 		Header: &proxy.Header{Height: 1},
 	})
 	require.NoError(t, err)
-	_, err = app.FinalizeBlock(t.Context(), &proxy.RequestFinalizeBlock{
+	// The next block waits for the previous one's Commit.
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	_, err = app.FinalizeBlock(ctx, &proxy.RequestFinalizeBlock{
 		Header: &proxy.Header{Height: 2},
 	})
-	require.Error(t, err)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 
 	_, err = app.Commit(t.Context())
 	require.NoError(t, err)

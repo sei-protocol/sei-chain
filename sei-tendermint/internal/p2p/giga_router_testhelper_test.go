@@ -143,12 +143,18 @@ func (a *testApp) InitChain(req *proxy.RequestInitChain) (*proxy.ResponseInitCha
 
 func (a *testApp) FinalizeBlock(ctx context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
 	for state, ctrl := range a.state.Lock() {
-		if !state.Committed {
-			return nil, fmt.Errorf("FinalizeBlock before Commit")
-		}
 		init, ok := state.Init.Get()
 		if !ok {
 			return nil, fmt.Errorf("app not initialized")
+		}
+		// Execution may call FinalizeBlock for later blocks ahead; each waits for the previous Commit.
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			return state.Committed && req.Header.Height <= init.InitialHeight+int64(len(state.Blocks))
+		}); err != nil {
+			return nil, err
+		}
+		if want := init.InitialHeight + int64(len(state.Blocks)); req.Header.Height != want {
+			return nil, fmt.Errorf("FinalizeBlock height %d, want %d", req.Header.Height, want)
 		}
 		state.Blocks = append(state.Blocks, req)
 		state.AppHash = sha256.Sum256(slices.Concat(req.Hash, state.AppHash[:]))
