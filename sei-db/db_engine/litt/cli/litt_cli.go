@@ -292,9 +292,8 @@ func buildCLIParser(logger *slog.Logger) *cli.App {
 				Action: syncCommand,
 			},
 			{
-				Name: "unlock",
-				Usage: "Manually delete LittDB lock files. A lock file that no running process holds does not block " +
-					"this version, so only older binaries need this. Never run it while a process has the database open.",
+				Name:      "unlock",
+				Usage:     "Manually delete LittDB lock files. Dangerous if used improperly, use with caution.",
 				ArgsUsage: "--src <path1> ... --src <pathN> [--force]",
 				Flags: []cli.Flag{
 					srcFlag,
