@@ -95,8 +95,8 @@ func pastBlocksBackend(head int64) *testBackend {
 			return nil, nil
 		},
 		blockNumber: func() uint64 { return uint64(head) }, //nolint:gosec // G115: test heights are positive.
-		gasLimit:    func() (uint64, error) { return traceGasLimit, nil },
-		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
+		gasLimit:    func() uint64 { return traceGasLimit },
+		baseFee:     func() *big.Int { return new(big.Int) },
 		chainID:     func() uint64 { return traceChainID },
 	}
 }
