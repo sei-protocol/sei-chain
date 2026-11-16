@@ -33,6 +33,7 @@ func main() {
 		operations.ReplayChangelogCmd(),
 		operations.TraceProfileReportCmd(),
 		operations.MigrateEvmStatusCmd(),
+		operations.MergeReceiptStoreCmd(),
 		evmlogical.EvmLogicalDigestCmd(),
 		evmlogical.KVRepairExportCmd(),
 		operations.HashLogCmd())
