@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	traceChainID  = 713715
+	traceChainID  = 713700
 	traceGasLimit = 30_000_000
 	// traceTransfer is the gas a plain value transfer uses.
 	traceTransfer = 21_000

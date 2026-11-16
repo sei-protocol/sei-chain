@@ -181,12 +181,11 @@ func openStateDB(
 	}
 	defer closeOnFailure(&retErr, "state WAL", wal.Close)
 
-	// Before the replay, so the blocks it replays offer themselves to the schedule as committed blocks do.
-	checkpointer := controller.NewCheckpointScheduler(cfg.CheckpointConfig)
-	liveStateDB.SetCheckpointScheduler(checkpointer)
 	if err := flatkv.CatchUpToStateWAL(ctx, liveStateDB, wal); err != nil {
 		return nil, fmt.Errorf("catch the live state DB up to the state WAL: %w", err)
 	}
+	checkpointer := controller.NewCheckpointScheduler(cfg.CheckpointConfig)
+	liveStateDB.SetCheckpointScheduler(checkpointer)
 
 	var historicalStateDB *undo.Database
 	if cfg.SSConfig.Enable {

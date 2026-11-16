@@ -22,6 +22,21 @@ func TestParamChangesRoundTrip(t *testing.T) {
 	require.JSONEq(t, `{"max_deposit_period":"172800000000000","min_deposit":[{"denom":"usei","amount":"10"}]}`, v2[1].Value)
 }
 
+func TestStakingParamChangesRoundTrip(t *testing.T) {
+	changes, err := flatChanges([]v2ParamChange{
+		{Subspace: "staking", Key: "MaxValidators", Value: json.RawMessage(`40`)},
+		{Subspace: "staking", Key: "MaxVotingPowerEnforcementThreshold", Value: json.RawMessage(`"2000000"`)},
+		{Subspace: "staking", Key: "MaxVotingPower", Value: json.RawMessage(`"0.25"`)},
+	})
+	require.NoError(t, err)
+	v2, err := v2ParamChanges(changes)
+	require.NoError(t, err)
+	require.Len(t, v2, 3)
+	require.JSONEq(t, `40`, v2[0].Value)
+	require.JSONEq(t, `"2000000"`, v2[1].Value)
+	require.JSONEq(t, `"0.250000000000000000"`, v2[2].Value)
+}
+
 func TestFlatChangesRejects(t *testing.T) {
 	for name, c := range map[string]struct {
 		changes []v2ParamChange
@@ -38,6 +53,8 @@ func TestFlatChangesRejects(t *testing.T) {
 		"other denom":       {[]v2ParamChange{{Subspace: "gov", Key: "depositparams.min_deposit", Value: json.RawMessage(`"10uatom"`)}}, "only usei"},
 		"blank coins":       {[]v2ParamChange{{Subspace: "gov", Key: "depositparams.min_deposit", Value: json.RawMessage(`""`)}}, "want a coin amount"},
 		"null coins":        {[]v2ParamChange{{Subspace: "gov", Key: "depositparams.min_deposit", Value: json.RawMessage(`null`)}}, "want a coin amount"},
+		"fractional int":    {[]v2ParamChange{{Subspace: "staking", Key: "MaxValidators", Value: json.RawMessage(`"1.5"`)}}, "want a whole number"},
+		"negative int":      {[]v2ParamChange{{Subspace: "staking", Key: "MaxEntries", Value: json.RawMessage(`-1`)}}, "out of range"},
 		"none":              {nil, "no param changes"},
 	} {
 		_, err := flatChanges(c.changes)

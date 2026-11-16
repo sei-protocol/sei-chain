@@ -178,7 +178,7 @@ The operational EVM-only configuration is:
 | --- | --- |
 | Autobahn validators | 4 |
 | Validator voting power used by the EVM-only app | 1 each |
-| EVM chain ID | `713715` |
+| EVM chain ID | `713700` |
 | Initial EVM nonce | `0` |
 | Initial balance of an address absent from FlatKV | `2^200` wei |
 | Consensus block gas limit | `35,000,000` |
@@ -616,7 +616,7 @@ RAW_TX=$(cast mktx \
   --private-key "$TEST_KEY" \
   --legacy \
   --nonce 0 \
-  --chain 713715 \
+  --chain 713700 \
   --gas-limit 21000 \
   --gas-price 1gwei \
   --value 1)

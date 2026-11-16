@@ -508,7 +508,7 @@ func (c *readCache) entryOrCreateWLocked(key []byte) *cacheEntry {
 	return entry
 }
 
-// PutRetiredWLocked installs the diffs retired out of the shard's MVCC layer, oldest version first, so
+// PutRetiredWLocked installs the diffs retired out of the shard's MVCC layer, oldest block first, so
 // that a key several of them wrote is left holding the newest value. A nil value marks the key as
 // known-deleted (the manager-wide tombstone convention); any other value is cached as available.
 // Inserts everything, then evicts overflow once at the end.

@@ -70,6 +70,20 @@ func (sv *StoreView) BlockHeight() int64 {
 	return sv.blockHeight
 }
 
+// RequireAligned() returns an error unless every store's view holds the block this view is targeted on.
+// During startup recovery, the StoreView can briefly be out of alignment, and this function serves as
+// a defensive check against external use before consistency is properly restored.
+func (sv *StoreView) RequireAligned() error {
+	for _, dbView := range sv.viewSlice {
+		//nolint:gosec // block heights are non-negative
+		if dbView.BlockHeight() != uint64(sv.blockHeight) {
+			return fmt.Errorf("%s view holds block %d, not block %d",
+				dbView.Name(), dbView.BlockHeight(), sv.blockHeight)
+		}
+	}
+	return nil
+}
+
 // AccountView() returns the account store's view.
 func (sv *StoreView) AccountView() view.View {
 	return sv.accountStoreView
