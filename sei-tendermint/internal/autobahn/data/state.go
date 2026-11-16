@@ -278,6 +278,11 @@ func (s *State) First() types.RoadIndex {
 // GenesisTimestamp returns the genesis timestamp.
 func (s *State) GenesisTimestamp() time.Time { return s.cfg.Registry.GenesisTimestamp() }
 
+// ClosingEpoch returns the epoch that road ends, if road is that epoch's last road.
+func (s *State) ClosingEpoch(road types.RoadIndex) utils.Option[types.EpochIndex] {
+	return s.cfg.Registry.ClosingEpoch(road)
+}
+
 // PushPartialBlock pushes FullCommitQC and a subset of blocks that were finalized by it.
 // Pushing the qc and blocks is atomic, so that no unnecessary GetBlock RPCs are issued.
 // Even if the qc was already pushed earlier, the blocks are pushed anyway.
@@ -444,7 +449,7 @@ func (s *State) SuperBlockByHash(hash types.RoadBlockHeaderHash) (utils.Option[*
 	if err != nil {
 		return utils.None[*types.SuperBlock](), err
 	}
-	return utils.MapOpt(block, func(b *types.RoadBlock) *types.SuperBlock {
+	return block.Map(func(b *types.RoadBlock) *types.SuperBlock {
 		return b.SuperBlock()
 	}), nil
 }

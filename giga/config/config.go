@@ -69,8 +69,10 @@ type ExecutionConfig struct {
 	EvmRpcPort int `mapstructure:"evm_rpc_port"`
 	// EvmWsPort is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
 	EvmWsPort int `mapstructure:"evm_ws_port"`
-	// GCPercent is the Go GC target. 0 leaves the process default. A value above 100 trades memory
-	// for fewer collections; the process then caps the heap from the container limit when it has one.
+	// GCPercent is the Go GC target Autobahn/Giga seid applies on start. The default is 400.
+	// 0 leaves the process default. A value above 100 trades memory for fewer collections; the
+	// process then caps the heap from the container limit when it has one. Non-Autobahn nodes
+	// never apply it.
 	GCPercent int `mapstructure:"gc_percent"`
 	// UnsafeSkipUpgrades are the blocks at which this node clears a due upgrade plan instead of
 	// applying it or halting. Each must be positive.
@@ -130,8 +132,9 @@ type RPCConfig struct {
 
 // StateSyncConfig is the [giga.state_sync] sub-table: whether this node uses giga state sync.
 type StateSyncConfig struct {
-	// Enabled allows the state-sync-snapshot create and restore commands on this node, and the
-	// seed of a restored home on start.
+	// Enabled allows the state-sync-snapshot create and restore commands and the seed of a restored
+	// home on start. It also runs a background task that writes a state sync proof file for each
+	// retained FlatKV checkpoint; it does not create checkpoints or snapshots.
 	Enabled bool `mapstructure:"enabled"`
 }
 
@@ -146,6 +149,7 @@ var DefaultConfig = Config{
 		BlockResultPoolSize: 1,
 		EvmRpcPort:          8545,
 		EvmWsPort:           8546,
+		GCPercent:           400,
 	},
 	// The same limits the v2 EVM RPC defaults to.
 	RPC: RPCConfig{
@@ -559,7 +563,8 @@ evm_rpc_port = {{ .Giga.Execution.EvmRpcPort }}
 # evm_ws_port is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
 evm_ws_port = {{ .Giga.Execution.EvmWsPort }}
 
-# gc_percent is the Go GC target. 0 leaves the process default.
+# gc_percent is the Go GC target Autobahn/Giga seid applies on start. The default is 400 for
+# every Autobahn deploy; 0 leaves the process default. Non-Autobahn nodes ignore it.
 gc_percent = {{ .Giga.Execution.GCPercent }}
 
 # unsafe_skip_upgrades lists the blocks, each positive, at which this node clears a due upgrade
@@ -639,8 +644,9 @@ max_state_override_accounts = {{ .Giga.RPC.MaxStateOverrideAccounts }}
 max_state_override_slots = {{ .Giga.RPC.MaxStateOverrideSlots }}
 
 [giga.state_sync]
-# enabled allows the state-sync-snapshot create and restore commands on this node, and the
-# seed of a restored home on start.
+# enabled allows the state-sync-snapshot create and restore commands and the seed of a restored
+# home on start. It also runs a background task that writes a state sync proof file for each
+# retained FlatKV checkpoint. It does not create checkpoints or snapshots.
 enabled = {{ .Giga.StateSync.Enabled }}
 `
 

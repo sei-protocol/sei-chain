@@ -8,10 +8,9 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -85,56 +84,47 @@ func TestBuildGigaStorageConfigAppliesSection(t *testing.T) {
 	require.NoError(t, got.Validate())
 }
 
-func TestPrepareApplicationFullModeOpensStateStore(t *testing.T) {
+func TestMakeEVMApplicationFullModeOpensStateStore(t *testing.T) {
 	validator := makeValidator([]byte("full-validator"), []byte("full-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	_, storage, err := prepareApplication(t.Context(), &config.Config{
+	_, manager, err := makeEVMApplication(t.Context(), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeFull},
 		AutobahnConfigFile: autobahnConfigFile,
-	}, abci.BaseApplication{}, gigaconfig.DefaultConfig, genesisAt(1))
+	}, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
-	manager, ok := storage.Get()
-	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 	require.NotNil(t, manager.StateDB().UndoSS())
 }
 
-func TestPrepareApplicationReceiptsOffOpensNoReceiptStore(t *testing.T) {
+func TestMakeEVMApplicationReceiptsOffOpensNoReceiptStore(t *testing.T) {
 	validator := makeValidator([]byte("receipts-validator"), []byte("receipts-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 	giga := gigaconfig.DefaultConfig
 	giga.Storage.Receipts = false
 
-	_, storage, err := prepareApplication(t.Context(), &config.Config{
+	_, manager, err := makeEVMApplication(t.Context(), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeValidator},
 		AutobahnConfigFile: autobahnConfigFile,
-	}, abci.BaseApplication{}, giga, genesisAt(1))
+	}, giga, genesisAt(1))
 	require.NoError(t, err)
-	manager, ok := storage.Get()
-	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 	require.Nil(t, manager.ReceiptDB())
 }
 
-func TestPrepareApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {
+func TestMakeEVMApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {
 	validator := makeValidator([]byte("exec-validator"), []byte("exec-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 	giga := gigaconfig.DefaultConfig
 	giga.Execution.MinGasPrice = 2_000_000_000
 
-	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
-		BaseConfig:         config.BaseConfig{FastCheckTx: true},
+	app, manager, err := makeEVMApplication(t.Context(), &config.Config{
 		AutobahnConfigFile: autobahnConfigFile,
-	}, abci.BaseApplication{}, giga, genesisAt(1))
+	}, giga, genesisAt(1))
 	require.NoError(t, err)
-	manager, ok := storage.Get()
-	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
-	provider, ok := prepared.(interface{ EvmMinGasPrice() *big.Int })
-	require.True(t, ok)
-	require.Equal(t, 0, provider.EvmMinGasPrice().Cmp(big.NewInt(2_000_000_000)))
+	require.Equal(t, 0, app.EvmMinGasPrice().Cmp(big.NewInt(2_000_000_000)))
 }
 
 // The builder's first block is the genesis height. A chain that starts above 1
@@ -144,29 +134,25 @@ func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
 	validator := makeValidator([]byte("activation-validator"), []byte("activation-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	app, storage, err := prepareApplication(t.Context(), &config.Config{
+	app, manager, err := makeEVMApplication(t.Context(), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeValidator},
 		AutobahnConfigFile: autobahnConfigFile,
-	}, abci.BaseApplication{}, gigaconfig.DefaultConfig, genesisAt(initialHeight))
+	}, gigaconfig.DefaultConfig, genesisAt(initialHeight))
 	require.NoError(t, err)
-	manager, ok := storage.Get()
-	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
-	_, err = app.InitChain(&abci.RequestInitChain{
+	_, err = app.InitChain(&proxy.RequestInitChain{
 		InitialHeight: initialHeight,
-		ConsensusParams: &tmproto.ConsensusParams{
-			Block: &tmproto.BlockParams{MaxGas: 30_000_000},
-		},
+		MaxGas:        30_000_000,
 	})
 	require.NoError(t, err)
 
 	var blockHash [32]byte
 	binary.BigEndian.PutUint64(blockHash[:], uint64(initialHeight))
 	require.NoError(t, manager.AppHashBuilder().ReportBlockHash(t.Context(), uint64(initialHeight), blockHash))
-	_, err = app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+	_, err = app.FinalizeBlock(t.Context(), &proxy.RequestFinalizeBlock{
 		Hash: blockHash[:],
-		Header: &tmproto.Header{
+		Header: &proxy.Header{
 			Height: initialHeight,
 			Time:   time.Unix(1_700_000_000+initialHeight, 0),
 		},
