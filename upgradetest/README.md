@@ -27,7 +27,7 @@ Replace the TODO with ordinary Go tests in that file. Keep generic upgrade
 tests, such as orphaned module-version checks, in the existing untagged
 `app/upgrade_test.go` and `app/upgrade_orphan_test.go`.
 
-When `v6.7` is appended to `app/tags`, CI derives `upgrade_v67` automatically.
+When `v6.7` is appended to `app/upgradenames/tags`, CI derives `upgrade_v67` automatically.
 No version string is hard-coded in the Makefile or workflow.
 
 ## Run it
@@ -37,7 +37,7 @@ make upgrade-test
 make upgrade-test-vet
 ```
 
-`upgrade-test` reads the last two minor versions from `app/tags`, derives the
+`upgrade-test` reads the last two minor versions from `app/upgradenames/tags`, derives the
 current build tag, and runs the app tests with that file enabled.
 
 `upgrade-test-vet` type-checks every `app/upgrade_v*_test.go`, including tests

@@ -1,7 +1,6 @@
 package app
 
 import (
-	"embed"
 	"fmt"
 	"os"
 	"slices"
@@ -9,6 +8,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
+	"github.com/sei-protocol/sei-chain/app/upgradenames"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
@@ -16,7 +16,6 @@ import (
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	"golang.org/x/mod/semver"
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
@@ -51,9 +50,6 @@ const RetiredPrefixDeleteLimit = 1000
 // upgrade module recorded planned IBC client state before IBC was retired.
 const upgradedIBCStateKeyPrefix = "upgradedIBCState/"
 
-//go:embed tags
-var f embed.FS
-
 // NOTE: When performing upgrades, make sure to keep / register the handlers
 // for both the current (n) and the previous (n-1) upgrade name. There is a bug
 // in a missing value in a log statement for which the fix is not released
@@ -68,11 +64,7 @@ var releaseUpgrades []string
 var LatestUpgrade string
 
 func init() {
-	content, err := f.ReadFile("tags")
-	if err != nil {
-		panic(err)
-	}
-	releaseUpgrades = parseUpgradesList(string(content))
+	releaseUpgrades = upgradenames.Release()
 	upgradesList = slices.Clone(releaseUpgrades)
 	LatestUpgrade = releaseUpgrades[len(releaseUpgrades)-1]
 }
@@ -84,13 +76,7 @@ func ReleaseUpgrades() []string {
 }
 
 func parseUpgradesList(list string) []string {
-	upgrades := strings.FieldsFunc(list, func(r rune) bool {
-		return r == '\n' || r == ','
-	})
-	// Upgrades names must be in alphabetical order
-	// https://github.com/cosmos/cosmos-sdk/issues/11707
-	semver.Sort(upgrades)
-	return upgrades
+	return upgradenames.Parse(list)
 }
 
 // if there is an override list, use that instead, for integration tests

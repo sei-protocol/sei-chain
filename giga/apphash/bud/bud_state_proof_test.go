@@ -91,6 +91,15 @@ func mustSerializeAppHashData(t testing.TB, appHashData *apphash.AppHashData) []
 	return data
 }
 
+func TestBUDStateProofOfARestoreAnchorIsRefused(t *testing.T) {
+	budlet := newTestBudlet(t, testStateKey, []byte("value"), []byte("previous value"), testNotModifiedSince)
+	appHashData, budProof := newTestWrite(t, rand.New(rand.NewSource(6)), budlet, testWriteHeight)
+	anchor := apphash.NewRestoreAnchorAppHashData(testChainID, testWriteHeight, appHashData.AppHash())
+
+	_, err := NewBUDStateProof(anchor, budProof)
+	require.Error(t, err)
+}
+
 func TestBUDStateProofAccessors(t *testing.T) {
 	budlet := newTestBudlet(t, testStateKey, []byte("value"), []byte("previous value"), testNotModifiedSince)
 	appHashData, budProof := newTestWrite(t, rand.New(rand.NewSource(6)), budlet, testWriteHeight)

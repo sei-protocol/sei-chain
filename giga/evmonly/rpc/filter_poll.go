@@ -78,8 +78,8 @@ func (api *filterAPI) UninstallFilter(_ context.Context, id ethrpc.ID) bool {
 	return api.filters.remove(id)
 }
 
-// pollStart returns the first block a log filter for crit polls: 0 for a blockHash filter, a
-// numeric fromBlock as given, and otherwise the block after the latest indexed one. It rejects a
+// pollStart returns the first block a log filter for crit polls: 0 for a blockHash filter or an
+// earliest fromBlock, a numeric fromBlock as given, and otherwise the block after the latest indexed one. It rejects a
 // numeric fromBlock above 0 below the earliest indexed block, and a numeric toBlock below the
 // start.
 func (api *filterAPI) pollStart(crit filters.FilterCriteria) (uint64, error) {
@@ -93,7 +93,9 @@ func (api *filterAPI) pollStart(crit filters.FilterCriteria) (uint64, error) {
 	}
 	earliest, latest := indexedRange(api.backend, api.store)
 	start := latest + 1
-	if from, ok := numericBound(crit.FromBlock); ok {
+	if crit.FromBlock != nil && normalizeEarliest(ethrpc.BlockNumber(crit.FromBlock.Int64())) == ethrpc.EarliestBlockNumber {
+		start = 0
+	} else if from, ok := numericBound(crit.FromBlock); ok {
 		if from > 0 && from < earliest {
 			return 0, fmt.Errorf("%w: fromBlock %d; earliest available block is %d", errLogRangePruned, from, earliest)
 		}

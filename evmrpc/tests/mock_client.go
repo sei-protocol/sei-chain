@@ -29,7 +29,7 @@ type MockClient struct {
 	mockedBlockResults        map[int64]*coretypes.ResultBlock
 	mockedBlockByHashResults  map[string]*coretypes.ResultBlock
 	mockedBlockResultsResults map[int64]*coretypes.ResultBlockResults
-	mockedValidators          map[int64]*coretypes.ResultValidators
+	mockedValidators          map[validatorPageKey]*coretypes.ResultValidators
 	mockedGenesis             *coretypes.ResultGenesis
 }
 
@@ -158,19 +158,63 @@ func (c *MockClient) recordBlockResult(txResults []*abci.ExecTxResult, consParam
 	c.events = append(c.events, events)
 }
 
-func (c *MockClient) Validators(ctx context.Context, height *int64, page, perPage *int) (*coretypes.ResultValidators, error) {
-	if c.mockedValidators != nil {
-		blockNum := int64(-1)
-		if height != nil {
-			blockNum = *height
-		}
-		res, ok := c.mockedValidators[blockNum]
-		if !ok {
-			return nil, errors.New("not found")
-		}
+// defaultValidatorsPerPage is the page size the validators RPC uses when none is requested.
+const defaultValidatorsPerPage = 30
+
+// validatorPageKey is one recorded page of the validators RPC. perPage is 0 for a
+// recording that does not carry its page size.
+type validatorPageKey struct {
+	height  int64
+	page    int
+	perPage int
+}
+
+// Validators returns the page recorded for height, page and perPage. A height recorded
+// without a page size is served as though the validators it captured were its whole set.
+func (c *MockClient) Validators(_ context.Context, height *int64, page, perPage *int) (*coretypes.ResultValidators, error) {
+	if c.mockedValidators == nil {
+		return &coretypes.ResultValidators{}, nil
+	}
+	blockNum := int64(-1)
+	if height != nil {
+		blockNum = *height
+	}
+	p := 1
+	if page != nil && *page > 0 {
+		p = *page
+	}
+	pp := defaultValidatorsPerPage
+	if perPage != nil && *perPage > 0 {
+		pp = *perPage
+	}
+	if res, ok := c.mockedValidators[validatorPageKey{blockNum, p, pp}]; ok {
 		return res, nil
 	}
-	return &coretypes.ResultValidators{}, nil
+	captured, ok := c.unsizedValidators(blockNum)
+	if !ok {
+		return nil, errors.New("not found")
+	}
+	start := min((p-1)*pp, len(captured))
+	end := min(start+pp, len(captured))
+	return &coretypes.ResultValidators{
+		BlockHeight: blockNum,
+		Validators:  captured[start:end],
+		Count:       end - start,
+		Total:       len(captured),
+	}, nil
+}
+
+// unsizedValidators returns, in page order, the validators recorded at height without a
+// page size. It reports false when height has no such recording.
+func (c *MockClient) unsizedValidators(height int64) ([]*tmtypes.Validator, bool) {
+	var captured []*tmtypes.Validator
+	for page := 1; ; page++ {
+		res, ok := c.mockedValidators[validatorPageKey{height: height, page: page}]
+		if !ok {
+			return captured, page > 1
+		}
+		captured = append(captured, res.Validators...)
+	}
 }
 
 func (c *MockClient) UnconfirmedTxs(context.Context, *int, *int) (*coretypes.ResultUnconfirmedTxs, error) {

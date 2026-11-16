@@ -88,3 +88,37 @@ func TestOverlayReportsDeletedCodeAsAbsent(t *testing.T) {
 	})
 	require.Nil(t, overlay.GetCode(addr))
 }
+
+func TestPendingIndexOverlaysNothingWhenThereIsNothingPending(t *testing.T) {
+	base := fixedStateReader{}
+	var none *pendingIndex
+	require.Equal(t, StateReader(base), none.overlay(base))
+	require.Equal(t, StateReader(base), newPendingIndex(&StateChangeSet{}).overlay(base))
+}
+
+func TestPendingIndexServesTheSameStateAsADirectOverlay(t *testing.T) {
+	addr := common.HexToAddress("0x1")
+	slot := common.HexToHash("0xaa")
+	deleted := common.HexToHash("0xbb")
+	base := fixedStateReader{
+		balances: map[common.Address]*big.Int{addr: big.NewInt(1)},
+		storage: map[storageChangeKey]common.Hash{
+			{address: addr, key: slot}:    common.HexToHash("0x1"),
+			{address: addr, key: deleted}: common.HexToHash("0x2"),
+		},
+	}
+	changes := &StateChangeSet{
+		Accounts: []AccountChange{{Address: addr, Account: AccountState{Balance: big.NewInt(99), Nonce: 5}}},
+		Storage: []StorageChange{
+			{Address: addr, Key: slot, Value: common.HexToHash("0x99")},
+			{Address: addr, Key: deleted, Delete: true},
+		},
+	}
+
+	direct := newPendingOverlay(base, changes)
+	indexed := newPendingIndex(changes).overlay(base)
+	require.Equal(t, direct.GetBalance(addr), indexed.GetBalance(addr))
+	require.Equal(t, direct.GetNonce(addr), indexed.GetNonce(addr))
+	require.Equal(t, direct.GetState(addr, slot), indexed.GetState(addr, slot))
+	require.Equal(t, direct.GetState(addr, deleted), indexed.GetState(addr, deleted))
+}

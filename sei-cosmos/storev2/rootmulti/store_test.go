@@ -764,3 +764,21 @@ func TestUnmountedStoreKeepsItsTreeUntilDeleted(t *testing.T) {
 	require.False(t, store.MayHoldStore("oracle"))
 	require.True(t, store.MayHoldStore("bank"))
 }
+
+func TestLastCommitVersionMatchesLastCommitID(t *testing.T) {
+	dir := t.TempDir()
+	store, _ := newTestRootMulti(t, dir, memiavlOnlyConfig())
+	require.Equal(t, store.LastCommitID().Version, store.LastCommitVersion())
+
+	const blocks = 3
+	for range blocks {
+		finalizeBlock(t, store)
+		require.Equal(t, store.LastCommitID().Version, store.LastCommitVersion())
+	}
+
+	require.NoError(t, store.Close())
+	reopened, _ := newTestRootMulti(t, dir, memiavlOnlyConfig())
+	defer func() { require.NoError(t, reopened.Close()) }()
+	require.Equal(t, int64(blocks), reopened.LastCommitVersion())
+	require.Equal(t, reopened.LastCommitID().Version, reopened.LastCommitVersion())
+}

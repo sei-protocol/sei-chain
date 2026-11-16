@@ -4,6 +4,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -44,9 +45,6 @@ type StorageConfig struct {
 	RollbackWindow uint64 `mapstructure:"rollback_window"`
 	// LookbackWindow is how many queryable blocks are kept below the rollback window; -1 keeps all.
 	LookbackWindow int64 `mapstructure:"lookback_window"`
-	// StateStoreBackend is how the state store keeps its history: "pebbledb" stores every version of
-	// every key, "undolog" the value each block replaced, over the current state.
-	StateStoreBackend string `mapstructure:"state_store_backend"`
 	// PruneInterval is how often the storage garbage collector runs.
 	PruneInterval time.Duration `mapstructure:"prune_interval"`
 	// CheckpointTimeInterval is the wall-clock gap between state-commit checkpoints.
@@ -71,9 +69,14 @@ type ExecutionConfig struct {
 	EvmRpcPort int `mapstructure:"evm_rpc_port"`
 	// EvmWsPort is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
 	EvmWsPort int `mapstructure:"evm_ws_port"`
-	// GCPercent is the Go GC target. 0 leaves the process default. A value above 100 trades memory
-	// for fewer collections; the process then caps the heap from the container limit when it has one.
+	// GCPercent is the Go GC target Autobahn/Giga seid applies on start. The default is 400.
+	// 0 leaves the process default. A value above 100 trades memory for fewer collections; the
+	// process then caps the heap from the container limit when it has one. Non-Autobahn nodes
+	// never apply it.
 	GCPercent int `mapstructure:"gc_percent"`
+	// UnsafeSkipUpgrades are the blocks at which this node clears a due upgrade plan instead of
+	// applying it or halting. Each must be positive.
+	UnsafeSkipUpgrades []uint64 `mapstructure:"unsafe_skip_upgrades"`
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
@@ -121,12 +124,17 @@ type RPCConfig struct {
 	// MaxTraceStructLogBytes caps the default struct logger's output, in bytes, for each traced
 	// transaction.
 	MaxTraceStructLogBytes int `mapstructure:"max_trace_struct_log_bytes"`
+	// MaxStateOverrideAccounts caps the accounts one call's state override may name.
+	MaxStateOverrideAccounts int `mapstructure:"max_state_override_accounts"`
+	// MaxStateOverrideSlots caps the storage slots one call's state override may set for an account.
+	MaxStateOverrideSlots int `mapstructure:"max_state_override_slots"`
 }
 
 // StateSyncConfig is the [giga.state_sync] sub-table: whether this node uses giga state sync.
 type StateSyncConfig struct {
-	// Enabled allows the state-sync-snapshot create and restore commands on this node, and the
-	// seed of a restored home on start.
+	// Enabled allows the state-sync-snapshot create and restore commands and the seed of a restored
+	// home on start. It also runs a background task that writes a state sync proof file for each
+	// retained FlatKV checkpoint; it does not create checkpoints or snapshots.
 	Enabled bool `mapstructure:"enabled"`
 }
 
@@ -141,6 +149,7 @@ var DefaultConfig = Config{
 		BlockResultPoolSize: 1,
 		EvmRpcPort:          8545,
 		EvmWsPort:           8546,
+		GCPercent:           400,
 	},
 	// The same limits the v2 EVM RPC defaults to.
 	RPC: RPCConfig{
@@ -161,6 +170,8 @@ var DefaultConfig = Config{
 		MaxConcurrentSendCalls:        4096,
 		TraceTimeout:                  30 * time.Second,
 		MaxTraceStructLogBytes:        32 * 1024 * 1024,
+		MaxStateOverrideAccounts:      100,
+		MaxStateOverrideSlots:         1000,
 	},
 	StateSync: StateSyncConfig{
 		Enabled: false,
@@ -175,7 +186,6 @@ func defaultStorageConfig() StorageConfig {
 		Receipts:                true,
 		RollbackWindow:          gc.RollbackWindow,
 		LookbackWindow:          gc.LookbackWindow,
-		StateStoreBackend:       seidbconfig.DefaultSSBackend,
 		PruneInterval:           gc.PruneInterval,
 		CheckpointTimeInterval:  cp.TimeInterval,
 		CheckpointBlockInterval: cp.BlockInterval,
@@ -188,7 +198,6 @@ const (
 	FlagStorageReceipts                  = "giga.storage.receipts"
 	FlagStorageRollbackWindow            = "giga.storage.rollback_window"
 	FlagStorageLookbackWindow            = "giga.storage.lookback_window"
-	FlagStorageStateStoreBackend         = "giga.storage.state_store_backend"
 	FlagStoragePruneInterval             = "giga.storage.prune_interval"
 	FlagStorageCheckpointTimeInterval    = "giga.storage.checkpoint_time_interval"
 	FlagStorageCheckpointBlockInterval   = "giga.storage.checkpoint_block_interval"
@@ -199,6 +208,7 @@ const (
 	FlagExecutionEvmRpcPort              = "giga.execution.evm_rpc_port"
 	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
 	FlagExecutionGCPercent               = "giga.execution.gc_percent"
+	FlagExecutionUnsafeSkipUpgrades      = "giga.execution.unsafe_skip_upgrades"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsLogs          = "giga.rpc.max_subscriptions_logs"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
@@ -216,6 +226,8 @@ const (
 	FlagRPCMaxConcurrentTraceCalls       = "giga.rpc.max_concurrent_trace_calls"
 	FlagRPCTraceTimeout                  = "giga.rpc.trace_timeout"
 	FlagRPCMaxTraceStructLogBytes        = "giga.rpc.max_trace_struct_log_bytes"
+	FlagRPCMaxStateOverrideAccounts      = "giga.rpc.max_state_override_accounts"
+	FlagRPCMaxStateOverrideSlots         = "giga.rpc.max_state_override_slots"
 	FlagStateSyncEnabled                 = "giga.state_sync.enabled"
 )
 
@@ -241,11 +253,6 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagStorageLookbackWindow); v != nil {
 		if cfg.Storage.LookbackWindow, err = cast.ToInt64E(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStorageLookbackWindow, err)
-		}
-	}
-	if v := opts.Get(FlagStorageStateStoreBackend); v != nil {
-		if cfg.Storage.StateStoreBackend, err = cast.ToStringE(v); err != nil {
-			return cfg, fmt.Errorf("%s: %w", FlagStorageStateStoreBackend, err)
 		}
 	}
 	if v := opts.Get(FlagStoragePruneInterval); v != nil {
@@ -296,6 +303,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionGCPercent); v != nil {
 		if cfg.Execution.GCPercent, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionGCPercent, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionUnsafeSkipUpgrades); v != nil {
+		if cfg.Execution.UnsafeSkipUpgrades, err = skipUpgradeHeights(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionUnsafeSkipUpgrades, err)
 		}
 	}
 	if v := opts.Get(FlagRPCMaxSubscriptionsNewHead); v != nil {
@@ -383,6 +395,16 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxTraceStructLogBytes, err)
 		}
 	}
+	if v := opts.Get(FlagRPCMaxStateOverrideAccounts); v != nil {
+		if cfg.RPC.MaxStateOverrideAccounts, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxStateOverrideAccounts, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxStateOverrideSlots); v != nil {
+		if cfg.RPC.MaxStateOverrideSlots, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxStateOverrideSlots, err)
+		}
+	}
 	if v := opts.Get(FlagStateSyncEnabled); v != nil {
 		if cfg.StateSync.Enabled, err = cast.ToBoolE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStateSyncEnabled, err)
@@ -403,12 +425,6 @@ func (c Config) Validate() error {
 		return fmt.Errorf("%s: must be >= 0, or -1 to keep all history, got %d", FlagStorageLookbackWindow,
 			c.Storage.LookbackWindow)
 	}
-	switch c.Storage.StateStoreBackend {
-	case seidbconfig.PebbleDBBackend, seidbconfig.PebbleDBUndoBackend:
-	default:
-		return fmt.Errorf("%s: %q is not %q or %q", FlagStorageStateStoreBackend, c.Storage.StateStoreBackend,
-			seidbconfig.PebbleDBBackend, seidbconfig.PebbleDBUndoBackend)
-	}
 	if c.Storage.PruneInterval <= 0 {
 		return fmt.Errorf("%s: must be positive, got %s", FlagStoragePruneInterval, c.Storage.PruneInterval)
 	}
@@ -428,6 +444,9 @@ func (c Config) Validate() error {
 	}
 	if c.Execution.GCPercent < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionGCPercent, c.Execution.GCPercent)
+	}
+	if slices.Contains(c.Execution.UnsafeSkipUpgrades, 0) {
+		return fmt.Errorf("%s: heights must be positive, got 0", FlagExecutionUnsafeSkipUpgrades)
 	}
 	if c.Execution.BlockResultPoolSize < 1 {
 		return fmt.Errorf("%s: must be >= 1, got %d", FlagExecutionBlockResultPoolSize,
@@ -479,6 +498,12 @@ func (c Config) Validate() error {
 	if c.RPC.MaxTraceStructLogBytes < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxTraceStructLogBytes, c.RPC.MaxTraceStructLogBytes)
 	}
+	if c.RPC.MaxStateOverrideAccounts < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxStateOverrideAccounts, c.RPC.MaxStateOverrideAccounts)
+	}
+	if c.RPC.MaxStateOverrideSlots < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxStateOverrideSlots, c.RPC.MaxStateOverrideSlots)
+	}
 	return nil
 }
 
@@ -507,11 +532,6 @@ rollback_window = {{ .Giga.Storage.RollbackWindow }}
 # lookback_window is how many queryable blocks are kept below the rollback window.
 # -1 keeps all history.
 lookback_window = {{ .Giga.Storage.LookbackWindow }}
-
-# state_store_backend is how the state store keeps its history. "pebbledb" stores every version
-# of every key; "undolog" stores the value each block replaced, over the current state, and
-# drops expired history a bucket at a time.
-state_store_backend = "{{ .Giga.Storage.StateStoreBackend }}"
 
 # prune_interval is how often the storage garbage collector runs.
 prune_interval = "{{ .Giga.Storage.PruneInterval }}"
@@ -543,8 +563,17 @@ evm_rpc_port = {{ .Giga.Execution.EvmRpcPort }}
 # evm_ws_port is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
 evm_ws_port = {{ .Giga.Execution.EvmWsPort }}
 
-# gc_percent is the Go GC target. 0 leaves the process default.
+# gc_percent is the Go GC target Autobahn/Giga seid applies on start. The default is 400 for
+# every Autobahn deploy; 0 leaves the process default. Non-Autobahn nodes ignore it.
 gc_percent = {{ .Giga.Execution.GCPercent }}
+
+# unsafe_skip_upgrades lists the blocks, each positive, at which this node clears a due upgrade
+# plan instead of applying it or halting. To get past a halt, list the height in
+# data/upgrade-info.json, the block the node halted at. V2's --unsafe-skip-upgrades flag has no
+# effect on this node. Skipping is this node's choice and changes its state: the chain gets past
+# the block only when validators with 2/3 of the voting power skip it, and a node replaying
+# through a skipped block needs the same entry.
+unsafe_skip_upgrades = [{{ range $i, $h := .Giga.Execution.UnsafeSkipUpgrades }}{{ if $i }}, {{ end }}{{ $h }}{{ end }}]
 
 [giga.rpc]
 # Limits the EVM-only JSON-RPC server enforces. Zero disables a limit unless noted otherwise.
@@ -608,8 +637,34 @@ trace_timeout = "{{ .Giga.RPC.TraceTimeout }}"
 # transaction.
 max_trace_struct_log_bytes = {{ .Giga.RPC.MaxTraceStructLogBytes }}
 
+# max_state_override_accounts caps the accounts one call's state override may name.
+max_state_override_accounts = {{ .Giga.RPC.MaxStateOverrideAccounts }}
+
+# max_state_override_slots caps the storage slots one call's state override may set for an account.
+max_state_override_slots = {{ .Giga.RPC.MaxStateOverrideSlots }}
+
 [giga.state_sync]
-# enabled allows the state-sync-snapshot create and restore commands on this node, and the
-# seed of a restored home on start.
+# enabled allows the state-sync-snapshot create and restore commands and the seed of a restored
+# home on start. It also runs a background task that writes a state sync proof file for each
+# retained FlatKV checkpoint. It does not create checkpoints or snapshots.
 enabled = {{ .Giga.StateSync.Enabled }}
 `
+
+// skipUpgradeHeights casts v to a list of heights, rejecting a negative one.
+func skipUpgradeHeights(v interface{}) ([]uint64, error) {
+	ints, err := cast.ToIntSliceE(v)
+	if err != nil {
+		return nil, err
+	}
+	if len(ints) == 0 {
+		return nil, nil
+	}
+	heights := make([]uint64, len(ints))
+	for i, h := range ints {
+		if h < 0 {
+			return nil, fmt.Errorf("height %d is negative", h)
+		}
+		heights[i] = uint64(h)
+	}
+	return heights, nil
+}

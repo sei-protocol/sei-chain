@@ -78,6 +78,36 @@ func TestCheckLogQueryAdmission(t *testing.T) {
 	}
 }
 
+// TestLoadRefusalKeepsLargeQueryToken pins that a large query or poll refused under load leaves the
+// large-query token for the next one.
+func TestLoadRefusalKeepsLargeQueryToken(t *testing.T) {
+	t.Parallel()
+	limiter := limiterWithTokens(1)
+
+	require.ErrorContains(t, checkLogQueryAdmission(RPSLimitThreshold+1, admissionMaxBlock, limiter, busyMetrics()), tooBusyMsg)
+	_, err := checkPollAdmission(RPSLimitThreshold+1, admissionMaxBlock, limiter, busyMetrics())
+	require.ErrorContains(t, err, tooBusyMsg)
+
+	require.NoError(t, checkLogQueryAdmission(RPSLimitThreshold+1, admissionMaxBlock, limiter, idleMetrics()))
+}
+
+// TestNewLargeQueryLimiter pins the configured burst and that a zero rate disables the limit.
+func TestNewLargeQueryLimiter(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		rps, admitted int
+	}{{rps: 0, admitted: 1000}, {rps: 3, admitted: 3}} {
+		limiter := newLargeQueryLimiter(tc.rps)
+		var admitted int
+		for range 1000 {
+			if checkLogQueryAdmission(RPSLimitThreshold+1, admissionMaxBlock, limiter, idleMetrics()) == nil {
+				admitted++
+			}
+		}
+		require.Equal(t, tc.admitted, admitted, "rps %d", tc.rps)
+	}
+}
+
 // TestCheckPollAdmission pins that a poll is cut to RPSLimitThreshold blocks rather than refused
 // when no large-query token is left, keeps its whole range with one, and is refused only for its
 // range or for load.

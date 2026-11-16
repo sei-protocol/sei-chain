@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/app/upgradenames"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/spf13/cobra"
 
@@ -192,5 +194,9 @@ func buildGenEVMGovernance(votingPeriod time.Duration, startingProposalID uint64
 	params.VotingPeriod = uint64(votingPeriod)
 	params.MaxDepositPeriod = params.VotingPeriod
 	params.ExpeditedVotingPeriod = params.VotingPeriod / 2
-	return utils.Some(config.EVMGovernance{Params: config.NewEVMGovernanceParams(params), StartingProposalID: startingProposalID}), nil
+	return utils.Some(config.EVMGovernance{
+		Params:             config.NewEVMGovernanceParams(params),
+		StartingProposalID: startingProposalID,
+		AppliedUpgrades:    upgradenames.Release(),
+	}), nil
 }

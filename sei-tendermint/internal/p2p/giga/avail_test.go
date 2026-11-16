@@ -31,11 +31,11 @@ func TestAvailClientServer(t *testing.T) {
 	require.True(t, totalWeight >= committee.CommitQuorum())
 	t.Logf("Committee with %d nodes, running %d", len(keys), len(activeKeys))
 	for _, key := range activeKeys {
-		nodes = append(nodes, env.AddNode(key))
+		nodes = append(nodes, env.AddNode(t, key))
 	}
 
 	totalBlocks := 3 * avail.BlocksPerLane
-	firstBlock := nodes[0].data.Registry().MustEpoch(0).RoadRange().First
+	firstBlock := nodes[0].data.Anchor().Load().Epochs[0].RoadRange().First
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		t.Log("Spawn network.")
 		s.SpawnBg(func() error { return env.Run(ctx) })
@@ -51,7 +51,7 @@ func TestAvailClientServer(t *testing.T) {
 		// checks a corrupt genesis tip strands the lane (PushBlock drops forever).
 		// After an honest tip, corrupt PushBlocks are stale or parent-mismatch drops.
 		t.Log("Spawn task sending corrupted data of node 0 to node 2.")
-		corrupt := newTestNode(registry, &consensus.Config{
+		corrupt := newTestNode(t, registry, &consensus.Config{
 			Key:             activeKeys[0],
 			ViewTimeout:     defaultViewTimeout,
 			ProposalTimeout: time.Hour,

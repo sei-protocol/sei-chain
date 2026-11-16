@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/app/upgradenames"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
@@ -70,6 +72,7 @@ func TestGenAutobahnConfigWithEVMGovernance(t *testing.T) {
 	require.Equal(t, 40*time.Second, governance.Params.MaxDepositPeriod.Duration())
 	require.Equal(t, 20*time.Second, governance.Params.ExpeditedVotingPeriod.Duration())
 	require.Equal(t, uint64(500), governance.StartingProposalID)
+	require.Equal(t, upgradenames.Release(), governance.AppliedUpgrades)
 	for i, v := range cfg.Validators {
 		voter, ok := v.EVMVoter.Get()
 		require.True(t, ok)

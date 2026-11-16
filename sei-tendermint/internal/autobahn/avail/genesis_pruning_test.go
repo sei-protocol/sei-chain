@@ -3,8 +3,8 @@ package avail
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -30,8 +30,7 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 			}
 			qc := types.NewCommitQC(votes)
 			full := types.NewFullCommitQC(qc, []*types.BlockHeader{blocks[0].Header()})
-			store, err := blockstore.New(memblock.NewBlockDB())
-			require.NoError(t, err)
+			store := blockstore.NewTestStore(t)
 			t.Cleanup(func() { _ = store.Close() })
 			require.NoError(t, store.WriteBlock(types.NewRoadBlock(full, blocks)))
 			app := types.NewAppProposal(qc.View(), types.GenAppHash(rng))
@@ -58,9 +57,10 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 			state, err := NewState(keys[0], ds, stateDir)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = state.Close() })
-			require.Equal(t, types.EpochIndex(3), state.Epoch().Load().EpochIndex())
-			require.Equal(t, wantTip, state.LastCommitQC().Load().OrPanic("commitQC"))
-			require.Equal(t, registry.GenesisTimestamp(), state.SubscribeConsensusSpec().Load().GenesisTimestamp)
+			spec := state.ConsensusSpec().Load()
+			require.Equal(t, types.EpochIndex(3), spec.Epoch.EpochIndex())
+			require.Equal(t, utils.Some(wantTip), spec.CommitQC)
+			require.Equal(t, registry.GenesisTimestamp(), spec.GenesisTimestamp)
 		})
 	}
 }

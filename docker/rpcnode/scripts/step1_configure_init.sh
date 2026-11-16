@@ -141,6 +141,11 @@ if [ "$AUTOBAHN" = "true" ]; then
     GOVERNANCE_FLAGS="--evm-governance-voting-period $EVM_GOVERNANCE_VOTING_PERIOD"
   fi
   seid tendermint gen-autobahn-config $NODE_DIRS $GOVERNANCE_FLAGS --output "$AUTOBAHN_CONFIG"
+  if [ -n "$EVM_ALLOC" ]; then
+    jq --argjson alloc "$EVM_ALLOC" '.evm_alloc = $alloc' "$AUTOBAHN_CONFIG" > "$AUTOBAHN_CONFIG.tmp" ||
+      { echo "ERROR: EVM_ALLOC is not valid JSON" >&2; exit 1; }
+    mv "$AUTOBAHN_CONFIG.tmp" "$AUTOBAHN_CONFIG"
+  fi
   # Inject autobahn-config-file as a top-level key in config.toml. It must
   # precede any [section] header so the TOML parser sees it at root scope.
   if grep -q "autobahn-config-file" ~/.sei/config/config.toml; then

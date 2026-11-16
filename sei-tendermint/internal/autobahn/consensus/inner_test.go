@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
@@ -24,22 +22,22 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-func newTestBlockStore(t *testing.T, dir string) types.BlockStore {
+func newTestBlockStore(t *testing.T, dir string) *blockstore.Store {
 	t.Helper()
-	cfg := utils.OrPanic1(littblock.DefaultConfig(dir))
-	store := utils.OrPanic1(blockstore.New(utils.OrPanic1(littblock.NewBlockDB(cfg))))
+	cfg := utils.OrPanic1(blockstore.DefaultConfig(dir))
+	store := utils.OrPanic1(blockstore.New(cfg))
 	t.Cleanup(func() { _ = store.Close() })
 	return store
 }
 
-func newTestDataState(registry *epoch.Registry) *data.State {
-	store := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
+func newTestDataState(t testing.TB, registry *epoch.Registry) *data.State {
+	store := blockstore.NewTestStore(t)
 	return utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, store))
 }
 
 func newTestAvail(t *testing.T, registry *epoch.Registry, key types.SecretKey) (*data.State, *avail.State) {
 	t.Helper()
-	ds := newTestDataState(registry)
+	ds := newTestDataState(t, registry)
 	av, err := avail.NewState(key, ds, utils.None[string]())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = av.Close() })
@@ -87,7 +85,7 @@ func loadInner(t *testing.T, dir string, registry *epoch.Registry, keys []types.
 			}
 		}
 	}
-	return newInner(persisted, av.SubscribeConsensusSpec().Load(), keys[0].Public())
+	return newInner(persisted, av.ConsensusSpec().Load(), keys[0].Public())
 }
 
 // alignAvailToTip pushes CommitQCs from the genesis road through tipIndex
@@ -119,9 +117,8 @@ func alignAvailToTip(
 		}
 		prev = utils.Some(qc)
 	}
-	// Wait on ConsensusSpec, not LastCommitQC: markCommitQCsPersisted stores the
-	// durable tip then refreshes spec, so LastCommitQC can become visible first.
-	_, err := av.SubscribeConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
+	// Wait until persistence advances the consensus spec past tipIndex.
+	_, err := av.ConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
 		return sp.Index() > tipIndex
 	})
 	return err
@@ -140,7 +137,7 @@ func TestNewInnerEmpty(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 1)
 	_, av := newTestAvail(t, registry, keys[0])
-	i, err := newInner(utils.None[*pb.PersistedInner](), av.SubscribeConsensusSpec().Load(), keys[0].Public())
+	i, err := newInner(utils.None[*pb.PersistedInner](), av.ConsensusSpec().Load(), keys[0].Public())
 	require.NoError(t, err)
 	require.False(t, i.PrepareVote.IsPresent(), "prepareVote should be None")
 	require.False(t, i.CommitVote.IsPresent(), "commitVote should be None")
@@ -208,7 +205,7 @@ func TestRestore_BoundaryCatchUpSpecCoversWAL(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
 
-	ds := newTestDataState(registry)
+	ds := newTestDataState(t, registry)
 	av, err := avail.NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = av.Close() })
@@ -222,16 +219,16 @@ func TestRestore_BoundaryCatchUpSpecCoversWAL(t *testing.T) {
 		s.SpawnBgNamed("avail.Run", func() error {
 			return utils.IgnoreCancel(av.Run(ctx))
 		})
-		if err := avail.TestDriveAdvance(ctx, av, keys, 1); err != nil {
-			return fmt.Errorf("TestDriveAdvance: %w", err)
+		if err := avail.TestAdvanceToEpoch(ctx, av, keys, registry, 1); err != nil {
+			return fmt.Errorf("TestAdvanceToEpoch: %w", err)
 		}
-		if _, err := av.LastCommitQC().Wait(ctx, func(o utils.Option[*types.CommitQC]) bool {
-			c, ok := o.Get()
+		if _, err := av.ConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
+			c, ok := sp.CommitQC.Get()
 			return ok && c.Index() >= last
 		}); err != nil {
 			return fmt.Errorf("wait durable tip: %w", err)
 		}
-		got, err := av.SubscribeConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
+		got, err := av.ConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
 			cqc, ok := sp.CommitQC.Get()
 			return ok && cqc.Index() >= last && sp.Epoch.EpochIndex() >= 1
 		})
@@ -1091,7 +1088,7 @@ func newConsensusState(t *testing.T, registry *epoch.Registry, key types.SecretK
 		Key:             key,
 		ViewTimeout:     func(types.View) time.Duration { return time.Hour },
 		ProposalTimeout: time.Hour,
-	}, newTestDataState(registry))
+	}, newTestDataState(t, registry))
 	require.NoError(t, err)
 	return s
 }

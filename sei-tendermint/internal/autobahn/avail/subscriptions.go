@@ -30,7 +30,7 @@ func (r *LaneProposalsRecv) Recv(ctx context.Context) (*types.Signed[*types.Lane
 		if err != nil {
 			if errors.Is(err, types.ErrPruned) {
 				for inner := range r.state.inner.Lock() {
-					if _, ok := inner.blocks[r.lane]; !ok {
+					if _, ok := inner.lanes[r.lane]; !ok {
 						return nil, ErrLaneClosed
 					}
 				}
@@ -48,8 +48,8 @@ func (r *LaneProposalsRecv) Recv(ctx context.Context) (*types.Signed[*types.Lane
 // If exclude is Some, also requires the LaneID to differ (e.g. after the
 // previous identity was closed and a new LaneID allocated).
 func (s *State) WaitForNextLane(ctx context.Context, pk types.PublicKey, exclude utils.Option[types.LaneID]) (types.LaneID, error) {
-	ep, err := s.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
-		got, ok := ep.Committee().Lane(pk).Get()
+	spec, err := s.ConsensusSpec().Wait(ctx, func(spec types.ConsensusSpec) bool {
+		got, ok := spec.Epoch.Committee().Lane(pk).Get()
 		if !ok {
 			return false
 		}
@@ -61,7 +61,7 @@ func (s *State) WaitForNextLane(ctx context.Context, pk types.PublicKey, exclude
 	if err != nil {
 		return types.LaneID{}, err
 	}
-	return ep.Committee().Lane(pk).OrPanic("WaitForNextLane"), nil
+	return spec.Epoch.Committee().Lane(pk).OrPanic("WaitForNextLane"), nil
 }
 
 func (s *State) SubscribeLaneVotes() *LaneVotesRecv {
@@ -77,8 +77,9 @@ func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.L
 	var batch []*types.BlockHeader
 	for inner, ctrl := range r.state.inner.Lock() {
 		for {
-			for lane, bq := range inner.blocks {
-				upperBound := min(bq.next, inner.nextBlockToPersist[lane])
+			for lane, ls := range inner.lanes {
+				bq := ls.blocks
+				upperBound := min(bq.next, ls.nextBlockToPersist)
 				for i := max(bq.first, r.next[lane]); i < upperBound; i++ {
 					batch = append(batch, bq.q[i].Msg().Block().Header())
 				}

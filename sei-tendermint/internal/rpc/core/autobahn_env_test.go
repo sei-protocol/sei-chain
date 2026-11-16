@@ -10,8 +10,6 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -46,6 +44,10 @@ func (stubAppHashBuilder) GetAppHash(ctx context.Context, _ uint64) (*apphash.Ap
 func (stubAppHashBuilder) Bounds() (uint64, uint64, bool, error) { return 0, 0, false, nil }
 func (stubAppHashBuilder) Close() error                          { return nil }
 
+type broadcastEVMApp struct{ proxy.EVMApplication }
+
+func (broadcastEVMApp) LastBlockHeight() int64 { return 0 }
+
 func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	t.Helper()
 	rng := utils.TestRng()
@@ -66,10 +68,9 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 			EVMRPC:   *utils.OrPanic1(url.Parse("ws://127.0.0.1:8546")),
 		},
 	}
-	blockStore, err := blockstore.New(memblock.NewBlockDB())
-	require.NoError(t, err)
+	blockStore := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, blockStore.Close()) })
-	app := proxy.New(&abci.BaseApplication{})
+	app := proxy.NewEVM(broadcastEVMApp{})
 	commonCfg := p2p.GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
@@ -117,7 +118,7 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	)
 	require.NoError(t, err)
 	return &Environment{
-		App:        app,
+		EVM:        utils.Some(app),
 		GenDoc:     genDoc,
 		Router:     router,
 		EventSinks: []indexer.EventSink{kvsink.NewEventSink(dbm.NewMemDB(), nil)},

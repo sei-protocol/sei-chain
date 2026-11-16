@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -46,9 +47,9 @@ func TestSendRawTransaction(t *testing.T) {
 	require.Equal(t, tx.Hash(), got)
 	require.Equal(t, raw, broadcastRaw)
 
-	var proofResult any
-	err = client.CallContext(t.Context(), &proofResult, "eth_getProof")
-	require.ErrorContains(t, err, "method eth_getProof does not exist")
+	var accounts any
+	err = client.CallContext(t.Context(), &accounts, "eth_accounts")
+	require.ErrorContains(t, err, "method eth_accounts does not exist")
 	err = client.CallContext(t.Context(), nil, "status")
 	require.ErrorContains(t, err, "method status does not exist")
 }
@@ -124,6 +125,31 @@ func TestSendRawTransactionRejectedWithoutLog(t *testing.T) {
 
 	// Verify: the numeric code is used as the message.
 	require.EqualError(t, err, "transaction rejected with code 7")
+}
+
+// The sender recovered for a locally handled transaction stays remembered only if the
+// transaction is admitted.
+func TestSendRawTransactionKeepsTheSenderOfAnAdmittedTxOnly(t *testing.T) {
+	tx, raw := testSignedTransaction(t)
+	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx)
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		code uint32
+		want map[common.Hash]common.Address
+	}{
+		{code: abci.CodeTypeOK, want: map[common.Hash]common.Address{tx.Hash(): sender}},
+		{code: 1, want: map[common.Hash]common.Address{}},
+	} {
+		backend := &testBackend{
+			broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+				return &coretypes.ResultBroadcastTx{Code: tc.code}, nil
+			},
+			proxy:        utils.None[*ethrpc.Client](),
+			proxyEnabled: true,
+		}
+		_, _ = newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
+		require.Equal(t, tc.want, backend.senders, "code %d", tc.code)
+	}
 }
 
 func TestSendRawTransactionSurfacesProxyError(t *testing.T) {

@@ -7,14 +7,12 @@ import (
 	"net/url"
 	"path/filepath"
 	"sort"
-	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
-
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+
+	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
@@ -36,6 +34,10 @@ const maxInboundFullnodePeers = 10000
 
 var errGigaMembershipChanged = errors.New("inbound giga peer changed committee membership")
 
+// errInboundFullnodeLimit is returned when a fullnode outside PersistentPeerIDs
+// is refused because inboundFullnodeCap is already reached.
+var errInboundFullnodeLimit = errors.New("inbound fullnode peer limit reached")
+
 type gigaRouterCommon struct {
 	cfg             *GigaRouterCommonConfig
 	key             NodeSecretKey
@@ -45,22 +47,15 @@ type gigaRouterCommon struct {
 	poolInCommittee *giga.Pool[atypes.PublicKey, rpc.Server[giga.API]]
 	poolOut         *giga.Pool[atypes.PublicKey, rpc.Client[giga.API]]
 	proxies         utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
-	app             *proxy.Proxy
+	app             *proxy.EVMProxy
 	offer           utils.Option[handshakeOffer]
 	selfAddr        utils.Option[NodeAddress]
 	liveAddrs       utils.RWMutex[map[atypes.PublicKey]GigaNodeAddr]
 	liveAddrVersion utils.AtomicSend[uint64]
-	// nextCommitEpoch is data.NextCommitEpoch() cached at construction so
-	// EvmProxy can Load() without taking the data lock on every call.
-	nextCommitEpoch utils.AtomicRecv[*atypes.Epoch]
-	// anchor is data.Anchor() cached at construction: the AppQC/CommitQC covering
-	// the lowest row data.State still holds.
-	anchor utils.AtomicRecv[utils.Option[data.Anchor]]
 
 	// inboundFullnodeCount tracks inbound connections currently served the
-	// block-sync subset. Optimistic Add(1) + compare against cap;
-	// over-rejects by one or two under contention but never over-accepts.
-	inboundFullnodeCount atomic.Int64
+	// block-sync subset. Persistent and block-sync peers do not consume it.
+	inboundFullnodeCount utils.Mutex[*int64]
 	inboundFullnodeCap   int64
 }
 
@@ -77,7 +72,7 @@ func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) (handshakeSp
 //
 // Whoever opened blockStore must close it after giga.Run returns, or immediately
 // if construction of the GigaRouter fails. data.State never closes it.
-func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (*data.State, error) {
+func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) (*data.State, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
 	}
@@ -214,20 +209,13 @@ func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context) error {
 }
 
 // committeeWeights maps a bonded validator set to Autobahn voting power.
-func committeeWeights(vals []abci.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
+func committeeWeights(vals []proxy.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
 	weights := make(map[atypes.PublicKey]uint64, len(vals))
 	for _, v := range vals {
 		if v.Power <= 0 {
 			continue
 		}
-		pk, err := crypto.PubKeyFromProto(v.PubKey)
-		if err != nil {
-			return nil, fmt.Errorf("PubKeyFromProto: %w", err)
-		}
-		apk, err := atypes.PublicKeyFromBytes(pk.Bytes())
-		if err != nil {
-			return nil, fmt.Errorf("PublicKeyFromBytes: %w", err)
-		}
+		apk := v.PubKey
 		if _, dup := weights[apk]; dup {
 			return nil, fmt.Errorf("duplicate public key %s", apk)
 		}
@@ -344,20 +332,6 @@ type memberSession struct {
 	addr   GigaNodeAddr
 }
 
-// keepReplicas is commitEpoch's committee, plus the committee Anchor covers when present.
-func keepReplicas(anchor utils.Option[data.Anchor], commitEpoch *atypes.Epoch) map[atypes.PublicKey]struct{} {
-	keep := map[atypes.PublicKey]struct{}{}
-	for lane := range commitEpoch.Committee().Lanes().All() {
-		keep[lane.Validator] = struct{}{}
-	}
-	if a, ok := anchor.Get(); ok {
-		for lane := range a.Epoch.Committee().Lanes().All() {
-			keep[lane.Validator] = struct{}{}
-		}
-	}
-	return keep
-}
-
 // validatorAddr returns the address to dial validator at. The configured
 // committee book wins; the live overlay only covers members it omits.
 func (r *gigaRouterCommon) validatorAddr(validator atypes.PublicKey) (GigaNodeAddr, bool) {
@@ -376,16 +350,26 @@ func sameGigaNodeAddr(a, b GigaNodeAddr) bool {
 	return a.Key == b.Key && a.HostPort == b.HostPort && a.EVMRPC.String() == b.EVMRPC.String()
 }
 
+// inAnchorEpochs reports whether validator is a member of an epoch Anchor holds.
+func inAnchorEpochs(anchor data.Anchor, validator atypes.PublicKey) bool {
+	for _, ep := range anchor.Epochs {
+		if ep.Committee().HasReplica(validator) {
+			return true
+		}
+	}
+	return false
+}
+
 // acceptInbound returns the committee identity a verified inbound connection
 // proved, recording the giga address it advertised. None means the peer is
 // served the block-sync subset: it carried no claim, or it claimed a validator
-// outside the current commit committee.
+// outside the Anchor epochs.
 func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[atypes.PublicKey] {
 	claim, ok := hConn.msg.GigaClaim.Get()
 	if !ok {
 		return utils.None[atypes.PublicKey]()
 	}
-	if !r.nextCommitEpoch.Load().Committee().HasReplica(claim.Validator) {
+	if !inAnchorEpochs(r.data.Anchor().Load(), claim.Validator) {
 		return utils.None[atypes.PublicKey]()
 	}
 	selfAddr := hConn.msg.SelfAddr.OrPanic("verified giga claim has no SelfAddr")
@@ -412,45 +396,41 @@ func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[aty
 	return utils.Some(claim.Validator)
 }
 
-// stopStaleSessions stops sessions for validators outside keepReplicas or
-// dialing an address that is no longer current, and drops the overlay addresses
-// of the departed. Departures are only acted on once Anchor is at most one
-// epoch behind commitEpoch.
+// stopStaleSessions stops sessions for validators outside epochs or dialing an
+// address that is no longer current, and drops the overlay addresses of the
+// departed.
 func (r *gigaRouterCommon) stopStaleSessions(
 	ctx context.Context,
 	live map[atypes.PublicKey]*memberSession,
-	anchor utils.Option[data.Anchor],
-	commitEpoch *atypes.Epoch,
+	epochs []*atypes.Epoch,
 ) error {
-	a, hasAnchor := anchor.Get()
-	// Until Anchor is within one epoch, validators of the epochs in between are
-	// in neither endpoint committee, and the AppQCs for those epochs cannot form
-	// without them.
-	settled := hasAnchor && commitEpoch.EpochIndex() <= a.Epoch.EpochIndex()+1
-	keep := keepReplicas(anchor, commitEpoch)
-	if settled {
-		for addrs := range r.liveAddrs.Lock() {
-			dropped := false
-			for validator := range addrs {
-				if _, ok := keep[validator]; !ok {
-					delete(addrs, validator)
-					dropped = true
-				}
+	kept := func(validator atypes.PublicKey) bool {
+		for _, ep := range epochs {
+			if ep.Committee().HasReplica(validator) {
+				return true
 			}
-			if dropped {
-				r.liveAddrVersion.Store(r.liveAddrVersion.Load() + 1)
+		}
+		return false
+	}
+	for addrs := range r.liveAddrs.Lock() {
+		dropped := false
+		for validator := range addrs {
+			if !kept(validator) {
+				delete(addrs, validator)
+				dropped = true
 			}
+		}
+		if dropped {
+			r.liveAddrVersion.Store(r.liveAddrVersion.Load() + 1)
 		}
 	}
 	var stale []*memberSession
 	// Cancel every stale session before waiting for any of them.
 	for validator, session := range live {
-		if _, kept := keep[validator]; !kept {
-			if !settled {
+		if kept(validator) {
+			if addr, ok := r.validatorAddr(validator); ok && sameGigaNodeAddr(session.addr, addr) {
 				continue
 			}
-		} else if addr, ok := r.validatorAddr(validator); ok && sameGigaNodeAddr(session.addr, addr) {
-			continue
 		}
 		session.cancel()
 		stale = append(stale, session)
@@ -464,8 +444,9 @@ func (r *gigaRouterCommon) stopStaleSessions(
 	return nil
 }
 
-// runPerCommitteeMember runs tasks for each reachable member needed by the commit epoch or Anchor.
-func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...committeeMemberTask) error {
+// runPerCommitteeMember runs tasks for each reachable member of the Anchor
+// epochs, or of the commit epoch when currentCommitteeOnly is set.
+func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCommitteeOnly bool, tasks ...committeeMemberTask) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		live := map[atypes.PublicKey]*memberSession{}
 		addrUpdates := r.liveAddrVersion.Subscribe()
@@ -475,45 +456,54 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...c
 				session.cancel()
 			}
 		}()
-		// Anchor is republished on every persist batch; only its epoch can
-		// change the keep set.
-		epochOf := func(opt utils.Option[data.Anchor]) utils.Option[atypes.EpochIndex] {
-			return utils.MapOpt(opt, func(a data.Anchor) atypes.EpochIndex { return a.Epoch.EpochIndex() })
-		}
+		// Anchor is republished on every persist batch, so the wait compares
+		// the epoch indices it depends on rather than the Anchor value.
+		epochOf := func(a data.Anchor) atypes.EpochIndex { return a.Epochs[0].EpochIndex() }
+
 		for ctx.Err() == nil {
 			addrVersion := addrUpdates.Load()
-			commitEpoch := r.nextCommitEpoch.Load()
-			anchor := r.anchor.Load()
-			if err := r.stopStaleSessions(ctx, live, anchor, commitEpoch); err != nil {
+			anchor := r.data.Anchor().Load()
+			commitEpoch := anchor.NextIndexEpoch()
+			// A member of Epochs[0] may hold the only copy of a lane block, or of
+			// the headers a CommitQC needs. Epochs[1] is the next committee while
+			// the commit epoch is Epochs[0].
+			epochs := anchor.Epochs[:]
+			if currentCommitteeOnly {
+				epochs = []*atypes.Epoch{commitEpoch}
+			}
+			if err := r.stopStaleSessions(ctx, live, epochs); err != nil {
 				return err
 			}
-			for validator := range keepReplicas(anchor, commitEpoch) {
-				if _, ok := live[validator]; ok {
-					continue
+			for _, ep := range epochs {
+				for lane := range ep.Committee().Lanes().All() {
+					validator := lane.Validator
+					if _, ok := live[validator]; ok {
+						continue
+					}
+					addr, ok := r.validatorAddr(validator)
+					if !ok {
+						logger.Error("committee member has no configured address; not dialing", "validator", validator)
+						continue
+					}
+					taskCtx, cancel := context.WithCancel(ctx)
+					done := make(chan struct{})
+					live[validator] = &memberSession{cancel: cancel, done: done, addr: addr}
+					s.SpawnNamed(addr.String(), func() error {
+						defer close(done)
+						return utils.IgnoreCancel(scope.Run(taskCtx, func(ctx context.Context, ms scope.Scope) error {
+							for _, task := range tasks {
+								ms.Spawn(func() error { return task(ctx, validator, addr) })
+							}
+							return nil
+						}))
+					})
 				}
-				addr, ok := r.validatorAddr(validator)
-				if !ok {
-					logger.Error("committee member has no configured address; not dialing", "validator", validator)
-					continue
-				}
-				taskCtx, cancel := context.WithCancel(ctx)
-				done := make(chan struct{})
-				live[validator] = &memberSession{cancel: cancel, done: done, addr: addr}
-				s.SpawnNamed(addr.String(), func() error {
-					defer close(done)
-					return utils.IgnoreCancel(scope.Run(taskCtx, func(ctx context.Context, ms scope.Scope) error {
-						for _, task := range tasks {
-							ms.Spawn(func() error { return task(ctx, validator, addr) })
-						}
-						return nil
-					}))
-				})
 			}
 			if err := utils.WaitAny(ctx, func() bool {
-				return r.nextCommitEpoch.Load().EpochIndex() != commitEpoch.EpochIndex() ||
-					epochOf(r.anchor.Load()) != epochOf(anchor) ||
+				return r.data.Anchor().Load().NextIndexEpoch().EpochIndex() != commitEpoch.EpochIndex() ||
+					epochOf(r.data.Anchor().Load()) != epochOf(anchor) ||
 					addrUpdates.Load() != addrVersion
-			}, r.nextCommitEpoch, r.anchor, addrUpdates); err != nil {
+			}, r.data.Anchor(), addrUpdates); err != nil {
 				return err
 			}
 		}
@@ -521,17 +511,21 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...c
 	})
 }
 
-// runUntilMembershipChange runs f until validator leaves the current commit
-// committee. It reports whether a leave ended f.
+// runUntilMembershipChange runs f until validator leaves the set that
+// runPerCommitteeMember dials, and reports whether a leave ended f.
 func (r *gigaRouterCommon) runUntilMembershipChange(
 	ctx context.Context,
 	validator atypes.PublicKey,
+	currentCommitteeOnly bool,
 	f func(ctx context.Context) error,
 ) (changed bool, err error) {
 	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
-			_, err := r.nextCommitEpoch.Wait(ctx, func(epoch *atypes.Epoch) bool {
-				return !epoch.Committee().HasReplica(validator)
+			_, err := r.data.Anchor().Wait(ctx, func(anchor data.Anchor) bool {
+				if currentCommitteeOnly {
+					return !anchor.NextIndexEpoch().Committee().HasReplica(validator)
+				}
+				return !inAnchorEpochs(anchor, validator)
 			})
 			if err != nil {
 				return err
@@ -545,9 +539,9 @@ func (r *gigaRouterCommon) runUntilMembershipChange(
 	return changed, utils.IgnoreCancel(err)
 }
 
-// RunInboundConn serves an inbound giga connection. A peer proving current
-// commit-committee membership is served as a validator; every other peer is
-// served as a fullnode for the life of this socket.
+// RunInboundConn serves an inbound giga connection. A peer proving membership
+// of an Anchor epoch is served as a validator; every other peer is served
+// as a fullnode for the life of this socket.
 func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshakedConn) error {
 	if !hConn.msg.SeiGigaConnection {
 		return fmt.Errorf("not a SeiGiga connection")
@@ -555,7 +549,7 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 	if member, ok := r.acceptInbound(hConn).Get(); ok {
 		return r.runInboundValidator(ctx, hConn, member)
 	}
-	// A member who inbounds before they appear in our nextCommitEpoch view is
+	// A member who inbounds before they appear in an Anchor epoch is
 	// served as a fullnode for this socket's life; their own dialer redials
 	// after DialInterval and re-handshakes into the validator role.
 	return r.runInboundFullnode(ctx, hConn)
@@ -564,13 +558,21 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 func (r *gigaRouterCommon) runInboundFullnode(ctx context.Context, hConn *handshakedConn) error {
 	key := hConn.msg.NodeAuth.Key()
 	server := rpc.NewServer[giga.API]()
-	// Optimistic acquire: Add(1), compare, Add(-1) on overflow. Acquired
-	// before InsertAndRun, which evicts any live connection for this key.
-	if r.inboundFullnodeCount.Add(1) > r.inboundFullnodeCap {
-		r.inboundFullnodeCount.Add(-1)
-		return fmt.Errorf("inbound fullnode peer limit (%d) reached", r.inboundFullnodeCap)
+	// Acquired before InsertAndRun, which evicts any live connection for this key.
+	// A persistent or block-sync peer does not consume the cap.
+	if _, skip := r.cfg.PersistentPeerIDs[key.NodeID()]; !skip {
+		for count := range r.inboundFullnodeCount.Lock() {
+			if *count >= r.inboundFullnodeCap {
+				return fmt.Errorf("%w (%d)", errInboundFullnodeLimit, r.inboundFullnodeCap)
+			}
+			*count++
+		}
+		defer func() {
+			for count := range r.inboundFullnodeCount.Lock() {
+				*count--
+			}
+		}()
 	}
-	defer r.inboundFullnodeCount.Add(-1)
 	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {
 		return r.runInboundMux(ctx, server, hConn, func(ctx context.Context) error {
 			return r.service.RunServer(ctx, server, false)
@@ -583,7 +585,7 @@ func (r *gigaRouterCommon) runInboundValidator(ctx context.Context, hConn *hands
 	server := rpc.NewServer[giga.API]()
 	return r.poolInCommittee.InsertAndRun(ctx, member, server, func(ctx context.Context) error {
 		return r.runInboundMux(ctx, server, hConn, func(ctx context.Context) error {
-			changed, err := r.runUntilMembershipChange(ctx, member, func(ctx context.Context) error {
+			changed, err := r.runUntilMembershipChange(ctx, member, false, func(ctx context.Context) error {
 				return r.service.RunServer(ctx, server, true)
 			})
 			if err != nil {
@@ -622,17 +624,18 @@ func (r *gigaRouterCommon) runInboundMux(
 // Before the first CommitQC, the genesis road resolves to the genesis committee.
 func (r *gigaRouterCommon) Validators(n atypes.RoadIndex) ([]*types.Validator, error) {
 	qc, err := r.data.TryQC(n)
+	anchor := r.data.Anchor().Load()
 	if err != nil {
 		if errors.Is(err, atypes.ErrNotFound) {
-			if genesis, epochErr := r.data.Registry().Epoch(0); epochErr == nil && n == genesis.RoadRange().First {
+			if genesis, ok := anchor.EpochAt(n).Get(); ok && genesis.EpochIndex() == 0 && n == genesis.RoadRange().First {
 				return committeeValidators(genesis.Committee())
 			}
 		}
 		return nil, heightLookupError(n, err)
 	}
-	ep, err := r.data.Registry().Epoch(qc.QC().View().EpochIndex)
-	if err != nil {
-		return nil, heightLookupError(n, err)
+	ep, ok := anchor.EpochAt(qc.Index()).Get()
+	if !ok {
+		return nil, heightLookupError(n, atypes.ErrPruned)
 	}
 	return committeeValidators(ep.Committee())
 }
