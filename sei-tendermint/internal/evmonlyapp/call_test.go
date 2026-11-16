@@ -16,10 +16,9 @@ import (
 	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 // storeCode returns runtime bytecode that unconditionally SSTOREs value at
@@ -89,10 +88,10 @@ func TestEVMOnlyApplicationEvmCallReadsCommittedContractCode(t *testing.T) {
 	runtime := storeCode(slot, value)
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 
-	_, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+	_, err := app.FinalizeBlock(t.Context(), &proxy.RequestFinalizeBlock{
 		Txs:  [][]byte{deployRaw},
 		Hash: crypto.Keccak256([]byte("block-1")),
-		Header: &tmproto.Header{
+		Header: &proxy.Header{
 			Height: 1,
 			Time:   time.Unix(1_700_000_001, 0),
 		},
@@ -117,10 +116,10 @@ func TestEVMOnlyApplicationEvmCallDoesNotMutateCommittedState(t *testing.T) {
 	runtime := storeCode(slot, writtenValue)
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 
-	_, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+	_, err := app.FinalizeBlock(t.Context(), &proxy.RequestFinalizeBlock{
 		Txs:  [][]byte{deployRaw},
 		Hash: crypto.Keccak256([]byte("block-1")),
-		Header: &tmproto.Header{
+		Header: &proxy.Header{
 			Height: 1,
 			Time:   time.Unix(1_700_000_001, 0),
 		},
@@ -147,9 +146,9 @@ func TestEVMOnlyApplicationEvmCallRefusesDuringPendingCommit(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	evmApp := app.(*evmOnlyApplication)
 
-	_, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+	_, err := app.FinalizeBlock(t.Context(), &proxy.RequestFinalizeBlock{
 		Hash: crypto.Keccak256([]byte("block-1")),
-		Header: &tmproto.Header{
+		Header: &proxy.Header{
 			Height: 1,
 			Time:   time.Unix(1_700_000_001, 0),
 		},

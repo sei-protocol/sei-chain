@@ -60,7 +60,7 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 		s.SpawnNamed("pushAppHashes", func() error { return r.runPushAppHashes(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		s.SpawnNamed("committeeMembers", func() error {
-			return r.runPerCommitteeMember(ctx, r.runEvmProxy)
+			return r.runPerCommitteeMember(ctx, true, r.runEvmProxy)
 		})
 		return nil
 	})
@@ -113,7 +113,7 @@ func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 				break
 			}
 			addr := r.cfg.ValidatorAddrs[validator]
-			left, err := r.runUntilMembershipChange(ctx, validator, func(ctx context.Context) error {
+			left, err := r.runUntilMembershipChange(ctx, validator, true, func(ctx context.Context) error {
 				return r.dialAndRunConn(ctx, validator, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
 					// Consensus PublicKey (committee member), not GigaNodeAddr.Key (p2p NodePublicKey).
 					return r.service.RunClient(ctx, client, validator, true)

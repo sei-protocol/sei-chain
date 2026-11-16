@@ -70,7 +70,7 @@ func TestBlockGasRPCsCountReceiptsAtMatchingHeight(t *testing.T) {
 			backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
 				return block, nil
 			}
-			backend.minGasPrice = func() (*big.Int, error) { return big.NewInt(1_000_000_000), nil }
+			backend.minGasPrice = func() *big.Int { return big.NewInt(1_000_000_000) }
 			// Stored block stats and the by-hash recompute fallback must agree.
 			for _, gasStore := range []receipt.ReceiptStore{store, hashOnlyReceiptStore{ReceiptStore: store}} {
 				blocks := &blockAPI{backend: backend, store: gasStore}
@@ -117,7 +117,7 @@ func TestBlockGasRPCsPropagateReceiptReadErrors(t *testing.T) {
 	backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		return block, nil
 	})
-	backend.minGasPrice = func() (*big.Int, error) { return big.NewInt(1_000_000_000), nil }
+	backend.minGasPrice = func() *big.Int { return big.NewInt(1_000_000_000) }
 	for _, fullTx := range []bool{false, true} {
 		_, err := (&blockAPI{backend: backend, store: store}).GetBlockByNumber(t.Context(), 9, fullTx)
 		require.ErrorIs(t, err, readErr)
@@ -149,7 +149,7 @@ func TestBlockGasRPCsSkipUnavailableReceiptHeights(t *testing.T) {
 			backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 				return block, nil
 			})
-			backend.minGasPrice = func() (*big.Int, error) { return big.NewInt(1_000_000_000), nil }
+			backend.minGasPrice = func() *big.Int { return big.NewInt(1_000_000_000) }
 			got, err := (&blockAPI{backend: backend, store: store}).GetBlockByNumber(t.Context(), 9, false)
 			require.NoError(t, err)
 			require.Equal(t, hexutil.Uint64(0), got["gasUsed"])
