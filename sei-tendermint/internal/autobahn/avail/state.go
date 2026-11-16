@@ -373,7 +373,7 @@ func (s *State) waitForEpoch(ctx context.Context, idx types.EpochIndex) (*types.
 func (s *State) waitForEpochInAnchor(ctx context.Context, ei types.EpochIndex) (utils.Option[*types.Epoch], error) {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return ei <= inner.anchor.Epochs[1].EpochIndex() }); err != nil {
-			return utils.None[*types.Epoch](),err
+			return utils.None[*types.Epoch](), err
 		}
 		return inner.anchor.Epoch(ei), nil
 	}
@@ -384,10 +384,14 @@ func (s *State) waitForEpochInAnchor(ctx context.Context, ei types.EpochIndex) (
 // and lane capacity. Votes for pruned epochs are ignored.
 func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote]) error {
 	ei := vote.Msg().EpochIndex()
-	mEpoch,err := s.waitForEpochInAnchor(ctx,ei)	
-	if err!=nil { return err }
-	epoch,ok := mEpoch.Get()
-	if !ok { return nil }
+	mEpoch, err := s.waitForEpochInAnchor(ctx, ei)
+	if err != nil {
+		return err
+	}
+	epoch, ok := mEpoch.Get()
+	if !ok {
+		return nil
+	}
 
 	if !epoch.Committee().HasReplica(vote.Key()) {
 		return fmt.Errorf("non-committee vote")
@@ -397,12 +401,11 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 	}
 	if err := vote.VerifySig(); err != nil {
 		return fmt.Errorf("VerifySig(): %w", err)
-	}	
+	}
 	for inner, ctrl := range s.inner.Lock() {
 		h := vote.Msg().Header()
 		lane := h.Lane()
 		n := h.BlockNumber()
-		if !ok { return nil }
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			return !inner.anchor.Epoch(ei).IsPresent() || n < inner.lanes[lane].votes[ei].first+BlocksPerLane
 		}); err != nil {
@@ -425,9 +428,8 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 	return nil
 }
 
-// headers collects headers for the given range under ep (the CommitQC's road epoch).
-// Returns ErrPruned if the lane is closed under ep or the range is unavailable.
-// Does not wait for future lanes.
+// headers collects headers for a lane range in epoch ei.
+// It returns ErrPruned if the epoch, lane, or range is not retained, and does not wait for future lanes.
 func (s *State) headers(ctx context.Context, ei types.EpochIndex, lr *types.LaneRange) ([]*types.BlockHeader, error) {
 	// Empty range is always available.
 	if lr.First() == lr.Next() {
@@ -435,7 +437,11 @@ func (s *State) headers(ctx context.Context, ei types.EpochIndex, lr *types.Lane
 	}
 	want := lr.LastHash()
 	headers := make([]*types.BlockHeader, lr.Next()-lr.First())
-	for inner, ctrl := range s.inner.Lock() {	
+	for inner, ctrl := range s.inner.Lock() {
+		ep, ok := inner.anchor.Epoch(ei).Get()
+		if !ok || !ep.Committee().HasLane(lr.Lane()) {
+			return nil, types.ErrPruned
+		}
 		for i := range headers {
 			n := lr.Next() - types.BlockNumber(i) - 1 //nolint:gosec // i is bounded by len(headers) which is a small block range; no overflow risk
 			for {

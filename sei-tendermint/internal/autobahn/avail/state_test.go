@@ -1224,7 +1224,7 @@ func TestEpochPruningUnblocksVoteAndHeaderWaits(t *testing.T) {
 				return nil
 			})
 			sc.Spawn(func() error {
-				_, err := state.headers(ctx, ep, types.NewLaneRange(lane, 0, utils.Some(first)))
+				_, err := state.headers(ctx, ep.EpochIndex(), types.NewLaneRange(lane, 0, utils.Some(first)))
 				if !errors.Is(err, types.ErrPruned) {
 					return fmt.Errorf("headers(): got %v, want %v", err, types.ErrPruned)
 				}
@@ -1246,4 +1246,16 @@ func TestEpochPruningUnblocksVoteAndHeaderWaits(t *testing.T) {
 		}))
 		require.Empty(t, oldVotes.q)
 	})
+}
+
+func TestHeadersRejectsUnretainedLane(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 1)
+	ep := registry.MustEpoch(0)
+	state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+	defer func() { require.NoError(t, state.Close()) }()
+	lane := types.GenLaneID(rng)
+	header := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
+	_, err := state.headers(t.Context(), ep.EpochIndex(), types.NewLaneRange(lane, 0, utils.Some(header)))
+	require.ErrorIs(t, err, types.ErrPruned)
 }

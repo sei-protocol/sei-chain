@@ -19,7 +19,7 @@ type Anchor struct {
 	Epochs [2]*types.Epoch
 }
 
-// Epoch returns the retained epoch with index, or nil and false if it is absent.
+// Epoch returns the retained epoch with index, or None if it is absent.
 func (a Anchor) Epoch(index types.EpochIndex) utils.Option[*types.Epoch] {
 	for _, epoch := range a.Epochs {
 		if epoch.EpochIndex() == index {
