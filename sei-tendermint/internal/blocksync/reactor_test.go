@@ -154,13 +154,12 @@ func (rts *reactorTestSuite) addNode(
 	remediationConfig := config.DefaultSelfRemediationConfig()
 	remediationConfig.BlocksBehindThreshold = 1000
 
-	blockStore := newMemBlockStore()
 	reactor := makeReactor(
 		ctx,
 		t,
 		genDoc,
 		rts.network.Node(nodeID).Router,
-		blockStore,
+		newMemBlockStore(),
 		true,
 		func() {},
 		remediationConfig,
@@ -176,7 +175,7 @@ func (rts *reactorTestSuite) addNode(
 		state, err = syncer.blockExec.ApplyBlock(ctx, state, b.id, b.block, nil)
 		require.NoError(t, err)
 
-		blockStore.SaveBlock(b.block, b.parts, b.commit)
+		reactor.store.SaveBlock(b.block, b.parts, b.commit)
 		lastCommit = b.commit
 	}
 
@@ -497,13 +496,12 @@ func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 2})
 	nodeIDs := network.NodeIDs()
 
-	blockStore := newMemBlockStore()
 	server := makeReactor(
 		ctx,
 		t,
 		genDoc,
 		network.Node(nodeIDs[0]).Router,
-		blockStore,
+		newMemBlockStore(),
 		false,
 		func() {},
 		config.DefaultSelfRemediationConfig(),
@@ -515,7 +513,7 @@ func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {
 		b := makeCommittedBlock(ctx, t, state, privVals, height, lastCommit)
 		state, err = server.syncer.OrPanic("syncer should be configured in tests").blockExec.ApplyBlock(ctx, state, b.id, b.block, nil)
 		require.NoError(t, err)
-		blockStore.SaveBlock(b.block, b.parts, b.commit)
+		server.store.SaveBlock(b.block, b.parts, b.commit)
 		lastCommit = b.commit
 	}
 	require.NoError(t, server.Start(ctx))
@@ -569,13 +567,12 @@ func TestQueryResponder_ServesStatusRequestsWhenBlockSyncDisabled(t *testing.T) 
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 2})
 	nodeIDs := network.NodeIDs()
 
-	blockStore := newMemBlockStore()
 	server := makeReactor(
 		ctx,
 		t,
 		genDoc,
 		network.Node(nodeIDs[0]).Router,
-		blockStore,
+		newMemBlockStore(),
 		false,
 		func() {},
 		config.DefaultSelfRemediationConfig(),
@@ -592,7 +589,7 @@ func TestQueryResponder_ServesStatusRequestsWhenBlockSyncDisabled(t *testing.T) 
 
 	statusResponse, ok := msg.Message.Sum.(*pb.Message_StatusResponse)
 	require.True(t, ok)
-	require.Equal(t, blockStore.Base(), statusResponse.StatusResponse.GetBase())
-	require.Equal(t, blockStore.Height(), statusResponse.StatusResponse.GetHeight())
+	require.Equal(t, server.store.Base(), statusResponse.StatusResponse.GetBase())
+	require.Equal(t, server.store.Height(), statusResponse.StatusResponse.GetHeight())
 	require.Equal(t, nodeIDs[0], msg.From)
 }
