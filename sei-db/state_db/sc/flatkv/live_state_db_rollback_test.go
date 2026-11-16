@@ -322,9 +322,25 @@ func TestCommittingABlockADataDBAlreadyHoldsIsRejected(t *testing.T) {
 
 	liveStateDB := reopenWithoutWAL(t, cfg)
 	require.Equal(t, int64(2), liveStateDB.Version())
-	prior := liveStateDB.OpenView()
-	mutations := nonceMutations(t, 3, 3, prior)
-	prior.Close()
-	require.ErrorContains(t, liveStateDB.CommitStateChanges(3, mutations),
+	require.ErrorContains(t, liveStateDB.CommitStateChanges(3, nil),
 		"cannot commit block 3: the account DB's next block is 4")
+}
+
+// A view of a store whose data DBs hold different blocks describes no real state, so OpenView refuses one until
+// catching up has aligned them.
+func TestOpenViewPanicsWhileDataDBsDisagree(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	leaveCodeDBABlockBehind(t, cfg)
+
+	liveStateDB := reopenWithoutWAL(t, cfg)
+	require.PanicsWithValue(t,
+		"flatkv: OpenView: account view holds block 3, not block 2",
+		func() { liveStateDB.OpenView() })
+
+	wal, err := OpenStateWAL(cfg)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, wal.Close()) }()
+	liveStateDB.SetCheckpointScheduler(controller.NewCheckpointScheduler(rollbackTestCheckpointConfig))
+	require.NoError(t, CatchUpToStateWAL(t.Context(), liveStateDB, wal))
+	liveStateDB.OpenView().Close()
 }
