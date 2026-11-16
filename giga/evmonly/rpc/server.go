@@ -102,6 +102,9 @@ type Backend interface {
 	// executed against, and the function that releases it.
 	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error)
 	EvmTransactionCount(common.Address) uint64
+	// EvmNextPendingNonce returns the nonce the address's next transaction must carry on this
+	// node's producer, or the committed nonce when the node has no producer.
+	EvmNextPendingNonce(common.Address) uint64
 	EvmNonceAt(address common.Address, height int64) (uint64, error)
 }
 

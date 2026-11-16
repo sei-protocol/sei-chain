@@ -335,6 +335,10 @@ func (b *replayBackend) EvmTransactionCount(address common.Address) uint64 {
 	return view.GetNonce(storeAddress(address))
 }
 
+func (b *replayBackend) EvmNextPendingNonce(address common.Address) uint64 {
+	return b.EvmTransactionCount(address)
+}
+
 func (b *replayBackend) EvmNonceAt(address common.Address, height int64) (uint64, error) {
 	view, err := b.stateAt(height)
 	if err != nil {
