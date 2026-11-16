@@ -1249,7 +1249,7 @@ func (a *evmOnlyApplication) chainIDMiscChange() gigatypes.MiscChange {
 func (a *evmOnlyApplication) checkStartedWithChainID(store *flatkv.CommitStore) error {
 	raw, found := store.Get(evmOnlyCursorModule, []byte(evmOnlyChainIDKey))
 	if !found {
-		return errors.New("EVM-only chain has no recorded chain ID")
+		return errors.New("EVM-only chain has no recorded chain ID; reset it onto a new evm_chain_id")
 	}
 	if len(raw) != 8 {
 		return fmt.Errorf("EVM-only chain ID record has %d bytes, want 8", len(raw))
