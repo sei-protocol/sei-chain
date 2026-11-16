@@ -7,6 +7,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/dec"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
@@ -129,4 +131,101 @@ func (p powerIndex) move(op common.Address, from, to *big.Int) error {
 		p.set(i, op)
 	}
 	return nil
+}
+
+// setTokensAndShares stores v as op's validator with tokens and shares,
+// reordering it in the power index unless it is jailed.
+func (s store) setTokensAndShares(op common.Address, v *validator, tokens, shares *big.Int) error {
+	if !v.jailed {
+		if err := s.powerIndex().move(op, consensusPower(v.tokens), consensusPower(tokens)); err != nil {
+			return err
+		}
+	}
+	v.tokens, v.delegatorShares = tokens, shares
+	s.setValidator(op, *v)
+	return nil
+}
+
+// addTokensFromDelegation adds amount to v's tokens and returns the shares it
+// issues, as x/staking's AddValidatorTokensAndShares does: the first delegation
+// to a validator with no shares sets the exchange rate to one.
+func (s store) addTokensFromDelegation(op common.Address, v *validator, amount *big.Int) (*big.Int, error) {
+	issued := dec.FromInt(amount)
+	if v.delegatorShares.Sign() != 0 {
+		var err error
+		if issued, err = v.sharesFromTokens(amount); err != nil {
+			return nil, err
+		}
+	}
+	tokens := new(big.Int).Add(v.tokens, amount)
+	shares := new(big.Int).Add(v.delegatorShares, issued)
+	return issued, s.setTokensAndShares(op, v, tokens, shares)
+}
+
+// removeDelegationShares takes shares from v and returns the tokens they are
+// worth, truncated, as x/staking's RemoveValidatorTokensAndShares does: the last
+// shares out take every token left.
+func (s store) removeDelegationShares(op common.Address, v *validator, shares *big.Int) (*big.Int, error) {
+	remaining := new(big.Int).Sub(v.delegatorShares, shares)
+	if remaining.Sign() < 0 {
+		return nil, fmt.Errorf("%w: removing %s of %s", errInsufficientShares, shares, v.delegatorShares)
+	}
+	issued := new(big.Int).Set(v.tokens)
+	if remaining.Sign() != 0 {
+		issued = dec.Truncate(v.tokensFromShares(shares))
+	}
+	tokens := new(big.Int).Sub(v.tokens, issued)
+	if tokens.Sign() < 0 {
+		return nil, fmt.Errorf("%w: removing %s tokens of %s", errInsufficientShares, issued, v.tokens)
+	}
+	return issued, s.setTokensAndShares(op, v, tokens, remaining)
+}
+
+// removeValidator deletes op's validator, which must be unbonded and hold no
+// tokens, and every index naming it, then runs AfterValidatorRemoved.
+func (p Precompile) removeValidator(block precompiles.BlockContext, s store, op common.Address, v validator) error {
+	if v.status != statusUnbonded || v.tokens.Sign() != 0 {
+		return fmt.Errorf("%w: removing %s with status %d and %s tokens", errInvalidTransition, op, v.status, v.tokens)
+	}
+	if !v.jailed {
+		if err := s.powerIndex().remove(op, consensusPower(v.tokens)); err != nil {
+			return err
+		}
+	}
+	s.setValidatorByPubkey(v.consensusPubkey, common.Address{})
+	s.validatorSet().Remove(solstorage.AddressKey(op))
+	if err := s.deleteValidator(op); err != nil {
+		return err
+	}
+	return p.hooks().AfterValidatorRemoved(block, s.State, op)
+}
+
+// bond makes op's validator bonded, as x/staking's bondValidator does.
+func (p Precompile) bond(block precompiles.BlockContext, s store, op common.Address, v *validator) error {
+	if v.status != statusUnbonded && v.status != statusUnbonding {
+		return fmt.Errorf("%w: bonding %s with status %d", errInvalidTransition, op, v.status)
+	}
+	v.status = statusBonded
+	s.setValidator(op, *v)
+	return p.hooks().AfterValidatorBonded(block, s.State, op)
+}
+
+// beginUnbonding makes op's validator unbonding until one unbonding period from
+// now, as x/staking's beginUnbondingValidator does, and queues its completion.
+func (p Precompile) beginUnbonding(block precompiles.BlockContext, s store, op common.Address, v *validator, unbondingTime uint64) error {
+	if v.status != statusBonded {
+		return fmt.Errorf("%w: unbonding %s with status %d", errInvalidTransition, op, v.status)
+	}
+	q := s.validatorQueue()
+	v.status = statusUnbonding
+	v.unbondingTime = q.clamp(block.UnixNano + unbondingTime)
+	v.unbondingHeight = block.Number
+	s.setValidator(op, *v)
+	e, err := q.push(v.unbondingTime)
+	if err != nil {
+		return err
+	}
+	s.SetUint64(at(e, validatorQueueUnbondingHeight), validatorQueueUnbondingHeight.offset, v.unbondingHeight)
+	s.SetAddressAt(at(e, validatorQueueOperator), validatorQueueOperator.offset, op)
+	return p.hooks().AfterValidatorBeginUnbonding(block, s.State, op)
 }
