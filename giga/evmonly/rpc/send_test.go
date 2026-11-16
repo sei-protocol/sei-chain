@@ -239,7 +239,7 @@ func testSignedTransactionWithNonce(t *testing.T, nonce uint64) (*ethtypes.Trans
 		To:       &to,
 		Value:    big.NewInt(1),
 	})
-	tx, err = ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(big.NewInt(713715)), key)
+	tx, err = ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(big.NewInt(713700)), key)
 	require.NoError(t, err)
 	raw, err := tx.MarshalBinary()
 	require.NoError(t, err)

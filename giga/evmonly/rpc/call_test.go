@@ -42,7 +42,7 @@ func TestCallHappyPath(t *testing.T) {
 	from := common.HexToAddress("0x2000000000000000000000000000000000000002")
 	var gotMsg *core.Message
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 			gotMsg = msg
@@ -67,7 +67,7 @@ func TestCallCapsExplicitGasAboveDefault(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	var gotMsg *core.Message
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 			gotMsg = msg
@@ -88,7 +88,7 @@ func TestCallPreservesExplicitGasBelowDefault(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	var gotMsg *core.Message
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 			gotMsg = msg
@@ -109,7 +109,7 @@ func TestCallSurfacesRevertReason(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	revert := revertData("insufficient balance")
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return &core.ExecutionResult{Err: vm.ErrExecutionReverted, ReturnData: revert}, nil
@@ -132,7 +132,7 @@ func TestCallPassesThroughNonRevertExecutionError(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	wantErr := errors.New("out of gas")
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return &core.ExecutionResult{Err: wantErr}, nil
@@ -231,7 +231,7 @@ func TestCallRefusesAnUnresolvableBlock(t *testing.T) {
 func TestHandlerServesCall(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return &core.ExecutionResult{ReturnData: []byte{0x01, 0x02}}, nil
@@ -255,7 +255,7 @@ func TestCallBackendError(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	want := errors.New("executor unavailable")
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return nil, want
@@ -274,7 +274,7 @@ func TestCallUndecodableRevertKeepsGenericMessage(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	revert := []byte{0xff, 0xff, 0xff, 0xff}
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return &core.ExecutionResult{Err: vm.ErrExecutionReverted, ReturnData: revert}, nil
