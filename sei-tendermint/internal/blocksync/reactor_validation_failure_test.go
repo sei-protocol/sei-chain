@@ -276,7 +276,7 @@ func waitForDisconnect(ctx context.Context, node *p2p.TestNode, conn *p2p.ConnV2
 	return nil
 }
 
-// TestReactor_RejectsInvalidCommitFromPeer checks that a syncing node saves the blocks an invalid-commit
+// TestReactor_RejectsInvalidCommitFromPeer checks that a syncing  node saves the blocks an invalid-commit
 // peer serves up to the first block whose commit fails verification, evicts that peer, and then
 // still makes progress by saving that block from a correct peer.
 func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
