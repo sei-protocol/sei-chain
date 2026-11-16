@@ -563,6 +563,34 @@ func TestImporterFailsWhenItReleasesMoreBytesThanItHolds(t *testing.T) {
 	require.ErrorContains(t, imp.Close(), "after a release of 1 bytes")
 }
 
+// TestImportWorkerFlushKeepsNoFlushedRows makes a worker flush a long batch and then a shorter one. The bytes of
+// a flushed row return to the budget, so a row that the worker still references afterwards is memory that the
+// budget does not count.
+func TestImportWorkerFlushKeepsNoFlushedRows(t *testing.T) {
+	withImportByteBudget(t, 4096)
+	s, imp := newKVImporterForTest(t, 1)
+	defer s.Close()
+
+	big := int(workerFlushBytes(4096))
+	row := 0
+	for _, smallRows := range []int{10, 3} {
+		for range smallRows {
+			require.NoError(t, imp.AddNode(budgetRow(row, 1)))
+			row++
+		}
+		require.NoError(t, imp.AddNode(budgetRow(row, big)))
+		row++
+	}
+	require.NoError(t, imp.Close())
+
+	w := imp.workers[miscDBDir]
+	require.Equal(t, int64(2), w.flushes)
+	for i, m := range w.ltMutations[:cap(w.ltMutations)] {
+		require.Nil(t, m.Key, "slot %d still holds a flushed key", i)
+		require.Nil(t, m.NewValue, "slot %d still holds a flushed value", i)
+	}
+}
+
 func TestImportSurvivesReopen(t *testing.T) {
 	src := setupTestStore(t)
 	defer src.Close()
