@@ -13,8 +13,8 @@ import (
 )
 
 // TestViewIsolationUnderConcurrentMutation holds a view while many goroutines mutate the
-// live version, asserting the view's frozen values never change. Run under -race, it also
-// exercises concurrent reads of a single view against concurrent writes to the live version.
+// live block, asserting the view's frozen values never change. Run under -race, it also
+// exercises concurrent reads of a single view against concurrent writes to the live block.
 func TestViewIsolationUnderConcurrentMutation(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 8, 1<<20)
 
@@ -26,11 +26,11 @@ func TestViewIsolationUnderConcurrentMutation(t *testing.T) {
 		}
 	}
 
-	view, err := manager.Commit()
+	view, err := manager.Commit(manager.NextBlockHeight())
 	if err != nil {
 		t.Fatalf("view: %v", err)
 	}
-	if err := view.Finalize(hashWrites(testHash)); err != nil {
+	if err := view.Finalize(view.BlockHeight(), hashWrites(testHash)); err != nil {
 		t.Fatalf("set hash: %v", err)
 	}
 
@@ -57,7 +57,7 @@ func TestViewIsolationUnderConcurrentMutation(t *testing.T) {
 		}()
 	}
 
-	// Writers: mutate the live version concurrently.
+	// Writers: mutate the live block concurrently.
 	for w := 0; w < 4; w++ {
 		wg.Add(1)
 		go func() {
@@ -102,8 +102,8 @@ func TestConcurrentDifferential(t *testing.T) {
 		// view is a sealed view to validate against ver.
 		view View
 		// ver is the immutable oracle for view.
-		ver *modelVersion
-		// iter is a live-version iterator to validate against oracle.
+		ver *modelBlock
+		// iter is a live-block iterator to validate against oracle.
 		iter dbm.Iterator
 		// oracle is the model's live state at the instant iter was created.
 		oracle []kvPair
@@ -167,12 +167,12 @@ func TestConcurrentDifferential(t *testing.T) {
 			}
 			model.BatchSet(muts)
 		case opView:
-			view, err := manager.Commit()
+			view, err := manager.Commit(manager.NextBlockHeight())
 			if err != nil {
 				t.Fatalf("view: %v", err)
 			}
 			ver := model.Commit()
-			if err := view.Finalize(hashWrites(testHash)); err != nil {
+			if err := view.Finalize(view.BlockHeight(), hashWrites(testHash)); err != nil {
 				t.Fatalf("set hash: %v", err)
 			}
 			// Hand off with an extra reservation so the reader owns teardown; drop the writer's
@@ -221,12 +221,12 @@ func checkConcurrentIterator(t *testing.T, it dbm.Iterator, oracle []kvPair) {
 	}
 }
 
-// checkConcurrentView validates a view's reads against its immutable oracle version.
+// checkConcurrentView validates a view's reads against its immutable oracle block.
 // Goroutine-safe: reports via t.Errorf rather than asserting.
 //
 // Iteration is validated separately by checkConcurrentIterator, since an iterator covers the mutable
-// version rather than a sealed one and so needs a different oracle.
-func checkConcurrentView(t *testing.T, view View, ver *modelVersion, keys [][]byte) {
+// block rather than a sealed one and so needs a different oracle.
+func checkConcurrentView(t *testing.T, view View, ver *modelBlock, keys [][]byte) {
 	for _, k := range keys {
 		v, found, err := view.Get(k, false)
 		if err != nil {

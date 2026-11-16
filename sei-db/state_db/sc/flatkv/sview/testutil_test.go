@@ -32,6 +32,9 @@ type fakeView struct {
 	// Reported by Name.
 	name string
 
+	// Returned by BlockHeight.
+	blockHeight uint64
+
 	// Returned by AwaitFlush.
 	awaitFlushErr error
 
@@ -76,17 +79,20 @@ func (v *fakeView) ForEachDiff(func(key string, value []byte) error) error {
 	panic("fakeView: unexpected ForEachDiff")
 }
 
-func (v *fakeView) Finalize([]*proto.KVPair) error {
+func (v *fakeView) BlockHeight() uint64 { return v.blockHeight }
+
+func (v *fakeView) Finalize(uint64, []*proto.KVPair) error {
 	panic("fakeView: unexpected Finalize")
 }
 
-// fakeViews returns a store view at version backed by one stub per database, alongside the stubs so a
-// test can inspect what was done to them.
+// fakeViews returns a store view at version backed by one stub per database, each also at version,
+// alongside the stubs so a test can inspect what was done to them.
 func fakeViews(t *testing.T, version int64) (*StoreView, map[string]*fakeView) {
 	t.Helper()
+	height := uint64(version) //nolint:gosec // test versions are non-negative
 	stubs := make(map[string]*fakeView, len(dataDBDirs))
 	for _, name := range dataDBDirs {
-		stubs[name] = &fakeView{name: name}
+		stubs[name] = &fakeView{name: name, blockHeight: height}
 	}
 	blockView, err := NewStoreView(version,
 		stubs[accountDBDir], stubs[codeDBDir], stubs[storageDBDir], stubs[miscDBDir])
