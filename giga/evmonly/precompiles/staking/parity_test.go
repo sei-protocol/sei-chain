@@ -209,6 +209,16 @@ func TestValidatorLifecycleMatchesV2(t *testing.T) {
 			require.NoError(t, pr.redelegate(alice, val1, val3, seiInUsei), "into an unbonded validator")
 			pr.endBlock()
 		}},
+		{"the last shares out of an unbonded validator remove it and redelegate as from a bonded one", func(t *testing.T, pr *pair) {
+			require.Equal(t, stakingtypes.Unbonded, pr.v2Status(val4))
+			require.NoError(t, pr.redelegate(val4, val4, val3, 15*seiInUsei))
+			_, ok := pr.v2.validator(val4)
+			require.False(t, ok)
+			require.Len(t, pr.v2Redelegations(val4), 1, "x/staking finds no source and waits a full unbonding period")
+			pr.wait(parityParams.UnbondingTime)
+			pr.endBlock()
+			require.Empty(t, pr.v2Redelegations(val4))
+		}},
 		{"a validator bonded again while unbonding stays bonded when that unbonding would end", func(t *testing.T, pr *pair) {
 			require.NoError(t, pr.delegate(alice, val4, 10*seiInUsei))
 			pr.endBlock()
