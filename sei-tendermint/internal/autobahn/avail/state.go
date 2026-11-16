@@ -370,14 +370,25 @@ func (s *State) waitForEpoch(ctx context.Context, idx types.EpochIndex) (*types.
 	return spec.Epoch, nil
 }
 
-// PushVote pushes a lane vote for the applied epoch, waiting for epoch progress
-// and lane capacity. Votes for past epochs are ignored.
+func (s *State) waitForEpochInAnchor(ctx context.Context, ei types.EpochIndex) (utils.Option[*types.Epoch], error) {
+	for inner, ctrl := range s.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return ei <= inner.anchor.Epochs[1].EpochIndex() }); err != nil {
+			return utils.None[*types.Epoch](),err
+		}
+		return inner.anchor.Epoch(ei), nil
+	}
+	panic("unreachable")
+}
+
+// PushVote pushes a lane vote for a retained epoch, waiting for anchor coverage
+// and lane capacity. Votes for pruned epochs are ignored.
 func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote]) error {
 	ei := vote.Msg().EpochIndex()
-	epoch, err := s.waitForEpoch(ctx, ei)
-	if err != nil || epoch.EpochIndex() != ei {
-		return err
-	}
+	mEpoch,err := s.waitForEpochInAnchor(ctx,ei)	
+	if err!=nil { return err }
+	epoch,ok := mEpoch.Get()
+	if !ok { return nil }
+
 	if !epoch.Committee().HasReplica(vote.Key()) {
 		return fmt.Errorf("non-committee vote")
 	}
@@ -386,30 +397,28 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 	}
 	if err := vote.VerifySig(); err != nil {
 		return fmt.Errorf("VerifySig(): %w", err)
-	}
+	}	
 	for inner, ctrl := range s.inner.Lock() {
 		h := vote.Msg().Header()
 		lane := h.Lane()
 		n := h.BlockNumber()
+		if !ok { return nil }
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			if inner.applied().EpochIndex() != ei {
-				return true
-			}
-			return n < inner.lanes[lane].votes.first+BlocksPerLane
+			return !inner.anchor.Epoch(ei).IsPresent() || n < inner.lanes[lane].votes[ei].first+BlocksPerLane
 		}); err != nil {
 			return err
 		}
-		if inner.applied().EpochIndex() != ei {
+		if !inner.anchor.Epoch(ei).IsPresent() {
 			return nil
 		}
-		ls := inner.lanes[lane]
-		if n < ls.votes.first {
+		votes := inner.lanes[lane].votes[ei]
+		if n < votes.first {
 			return nil
 		}
-		for ls.votes.next <= n {
-			ls.votes.pushBack(newBlockVotes())
+		for votes.next <= n {
+			votes.pushBack(newBlockVotes())
 		}
-		if ls.votes.q[n].pushVote(epoch.Committee(), vote) {
+		if votes.q[n].pushVote(epoch.Committee(), vote) {
 			ctrl.Updated()
 		}
 	}
@@ -419,30 +428,27 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 // headers collects headers for the given range under ep (the CommitQC's road epoch).
 // Returns ErrPruned if the lane is closed under ep or the range is unavailable.
 // Does not wait for future lanes.
-func (s *State) headers(ctx context.Context, ep *types.Epoch, lr *types.LaneRange) ([]*types.BlockHeader, error) {
+func (s *State) headers(ctx context.Context, ei types.EpochIndex, lr *types.LaneRange) ([]*types.BlockHeader, error) {
 	// Empty range is always available.
 	if lr.First() == lr.Next() {
 		return nil, nil
 	}
 	want := lr.LastHash()
 	headers := make([]*types.BlockHeader, lr.Next()-lr.First())
-	for inner, ctrl := range s.inner.Lock() {
-		if ep.IsClosed(lr.Lane()) {
-			return nil, types.ErrPruned
-		}
+	for inner, ctrl := range s.inner.Lock() {	
 		for i := range headers {
 			n := lr.Next() - types.BlockNumber(i) - 1 //nolint:gosec // i is bounded by len(headers) which is a small block range; no overflow risk
 			for {
-				ls, ok := inner.lanes[lr.Lane()]
-				if !ok {
+				// If pruned, then give up.
+				if !inner.anchor.Epoch(ei).IsPresent() {
 					return nil, types.ErrPruned
 				}
-				// If pruned, then give up.
-				if ls.votes.first > lr.First() {
+				votes := inner.lanes[lr.Lane()].votes[ei]
+				if votes.first > lr.First() {
 					return nil, types.ErrPruned
 				}
 				// Check if we have the header.
-				if bv, ok := ls.votes.q[n]; ok {
+				if bv, ok := votes.q[n]; ok {
 					if h, ok := bv.header(want).Get(); ok {
 						want = h.ParentHash()
 						headers[len(headers)-i-1] = h
@@ -470,7 +476,7 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Ful
 	// Collect the headers from the votes.
 	var commitHeaders []*types.BlockHeader
 	for lane := range epoch.Committee().Lanes().All() {
-		headers, err := s.headers(ctx, epoch, qc.LaneRange(lane))
+		headers, err := s.headers(ctx, epoch.EpochIndex(), qc.LaneRange(lane))
 		if err != nil {
 			return nil, err
 		}
@@ -527,7 +533,7 @@ func (s *State) WaitForLaneQCs(ctx context.Context, idx types.RoadIndex) (map[ty
 			if spec.Index() == idx {
 				for lane := range spec.Epoch.Committee().Lanes().All() {
 					first := types.LaneRangeOpt(spec.CommitQC, lane).Next()
-					votes := inner.lanes[lane].votes
+					votes := inner.lanes[lane].votes[spec.Epoch.EpochIndex()]
 					for i := range types.BlockNumber(types.MaxLaneRangeInProposal) {
 						if entry, ok := votes.q[first+i]; ok {
 							if qc, ok := entry.qc.Get(); ok {
@@ -576,8 +582,9 @@ func (s *State) LaneTips() map[types.LaneID]LaneTip {
 			t.WithLaneQC = t.WithCommitQC
 			t.Held = t.WithLaneQC
 			if ls, ok := inner.lanes[lane]; ok {
-				for n := ls.votes.next; n > max(ls.votes.first, t.WithCommitQC); n-- {
-					if ls.votes.q[n-1].qc.IsPresent() {
+				votes := ls.votes[inner.applied().EpochIndex()]
+				for n := votes.next; n > max(votes.first, t.WithCommitQC); n-- {
+					if votes.q[n-1].qc.IsPresent() {
 						t.WithLaneQC = n
 						break
 					}

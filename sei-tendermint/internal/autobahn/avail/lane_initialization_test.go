@@ -42,7 +42,7 @@ func TestNewInnerInitializesBoundaryLanes(t *testing.T) {
 	require.Equal(t, next, i.applied())
 	require.Equal(t, types.BlockNumber(6), i.lanes[stay].blocks.first)
 	require.Equal(t, types.BlockNumber(7), i.lanes[stay].blocks.next)
-	require.Equal(t, types.BlockNumber(6), i.lanes[stay].votes.first)
+	require.Equal(t, types.BlockNumber(6), i.lanes[stay].votes[next.EpochIndex()].first)
 	require.Equal(t, types.BlockNumber(7), i.lanes[stay].nextBlockToPersist)
 	require.Equal(t, stayProposal, i.lanes[stay].blocks.q[6])
 	require.Equal(t, leaveProposal, i.lanes[leave].blocks.q[0])

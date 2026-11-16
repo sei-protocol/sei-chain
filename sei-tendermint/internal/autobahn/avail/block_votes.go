@@ -5,7 +5,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// blockVotes holds lane votes, their headers, and their QC for the applied epoch.
+// blockVotes holds lane votes, their headers, and their QC for one epoch.
 type blockVotes struct {
 	byKey  map[types.PublicKey]*types.Signed[*types.LaneVote]
 	byHash map[types.BlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]

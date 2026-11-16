@@ -16,7 +16,7 @@ type inner struct {
 	// consensusSpec is the applied (next-CommitQC) epoch paired with a persisted
 	// CommitQC tip (None before the first tip). CommitQC never exceeds
 	// persistedCommitQC(). advance publishes the epoch and tip after construction,
-	// persistence, or pruning. blockVotes are always weighted under this Epoch.
+	// persistence, or pruning.
 	consensusSpec utils.AtomicSend[types.ConsensusSpec]
 	roads         *queue[types.RoadIndex, *road]
 
@@ -29,7 +29,12 @@ type inner struct {
 
 type laneState struct {
 	blocks *queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
-	votes  *queue[types.BlockNumber, *blockVotes]
+	// votes contains separate collections for the retained anchor epochs.
+	// LaneVotes have two jobs: byKey keeps headers for FullCommitQC; byHash
+	// accumulates epoch weight for LaneQC. Both collections are retained until
+	// pruned by the anchor, even after the latest CommitQC moves into a new epoch,
+	// since a FullCommitQC in the previous epoch may still need those headers.
+	votes map[types.EpochIndex]*queue[types.BlockNumber, *blockVotes]
 	// hash of the last lane block, used as parent hash ONLY for local lane production, NEVER for validation.
 	// Resetting the parent hash is a valid producer behavior, but makes other validators
 	// wait for previous blocks to be pruned before accepting, slowing lane production.
@@ -54,7 +59,7 @@ type laneState struct {
 func newLaneState() *laneState {
 	return &laneState{
 		blocks: newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]](),
-		votes:  newQueue[types.BlockNumber, *blockVotes](),
+		votes:  map[types.EpochIndex]*queue[types.BlockNumber, *blockVotes]{},
 	}
 }
 
@@ -169,7 +174,6 @@ func (i *inner) advance() {
 	if spec.Index() >= next {
 		return
 	}
-	newEpoch := spec.Epoch.EpochIndex() < epoch.EpochIndex()
 	spec.Epoch = epoch
 	if i.roads.first < next {
 		spec.CommitQC = utils.Some(i.roads.q[next-1].commitQC)
@@ -177,12 +181,6 @@ func (i *inner) advance() {
 		spec.CommitQC = i.anchor.CommitQC()
 	}
 	i.consensusSpec.Store(spec)
-	if newEpoch {
-		// Clear block votes for the new epoch.
-		for _, ls := range i.lanes {
-			ls.votes.clear()
-		}
-	}
 }
 
 // setAnchor advances to the data anchor and retains lanes from both anchor epochs.
@@ -193,6 +191,9 @@ func (i *inner) setAnchor(anchor data.Anchor) {
 		for lane := range ep.Committee().Lanes().All() {
 			if _, ok := i.lanes[lane]; !ok {
 				i.lanes[lane] = newLaneState()
+			}
+			if _, ok := i.lanes[lane].votes[ep.EpochIndex()]; !ok {
+				i.lanes[lane].votes[ep.EpochIndex()] = newQueue[types.BlockNumber, *blockVotes]()
 			}
 		}
 	}
@@ -211,7 +212,13 @@ func (i *inner) setAnchor(anchor data.Anchor) {
 	qc := anchor.CommitQC()
 	for lane, ls := range i.lanes {
 		lr := types.LaneRangeOpt(qc, lane)
-		ls.votes.prune(lr.Next())
+		for epochIndex, votes := range ls.votes {
+			if epochIndex < anchor.Epochs[0].EpochIndex() {
+				delete(ls.votes, epochIndex)
+				continue
+			}
+			votes.prune(lr.Next())
+		}
 		ls.blocks.prune(lr.Next())
 		ls.nextBlockToPersist = max(ls.nextBlockToPersist, ls.blocks.first)
 	}

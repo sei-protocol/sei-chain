@@ -19,6 +19,16 @@ type Anchor struct {
 	Epochs [2]*types.Epoch
 }
 
+// Epoch returns the retained epoch with index, or nil and false if it is absent.
+func (a Anchor) Epoch(index types.EpochIndex) utils.Option[*types.Epoch] {
+	for _, epoch := range a.Epochs {
+		if epoch.EpochIndex() == index {
+			return utils.Some(epoch)
+		}
+	}
+	return utils.None[*types.Epoch]()
+}
+
 // EpochAt returns the anchor epoch containing road, or None if neither contains it.
 func (a Anchor) EpochAt(road types.RoadIndex) utils.Option[*types.Epoch] {
 	for _, e := range a.Epochs {
