@@ -360,6 +360,7 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 		header.Number = big.NewInt(tmBlock.Block.Height)
 		header.Time = toUint64(tmBlock.Block.Time.Unix())
 		header.ParentHash = common.BytesToHash(tmBlock.BlockID.Hash)
+		header.MixDigest = types.PrevRandao(tmBlock.Block.Time)
 		sdkCtx = ctxProvider(tmBlock.Block.Height)
 		if !isLatest {
 			if err := CheckVersion(sdkCtx, b.keeper); err != nil {
@@ -903,6 +904,7 @@ func (b *Backend) getHeader(tmBlock *coretypes.ResultBlock) *ethtypes.Header {
 		Time:          toUint64(tmBlock.Block.Time.Unix()), //nolint:gosec
 		ExcessBlobGas: &zeroExcessBlobGas,
 		ParentHash:    common.BytesToHash(tmBlock.BlockID.Hash),
+		MixDigest:     types.PrevRandao(tmBlock.Block.Time),
 	}
 	return header
 }
