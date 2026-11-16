@@ -7,14 +7,13 @@
 package pb
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	_ "github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable/pb"
 	_ "github.com/sei-protocol/sei-chain/sei-tendermint/proto/wireguard"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -2636,6 +2635,69 @@ func (x *Epoch) GetNextRoad() uint64 {
 	return 0
 }
 
+// StateSyncProof is the packed BlockDB row of the proof road: the three
+// records a restored node writes into its empty BlockDB. The fourth record,
+// AppProposal, is app_qc's proposal.
+type StateSyncProof struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CommitQc      *FullCommitQC          `protobuf:"bytes,1,opt,name=commit_qc,json=commitQc,proto3,oneof" json:"commit_qc,omitempty"` // required
+	LaneBlocks    []*Block               `protobuf:"bytes,2,rep,name=lane_blocks,json=laneBlocks,proto3" json:"lane_blocks,omitempty"`
+	AppQc         *AppQC                 `protobuf:"bytes,3,opt,name=app_qc,json=appQc,proto3,oneof" json:"app_qc,omitempty"` // required
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StateSyncProof) Reset() {
+	*x = StateSyncProof{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StateSyncProof) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StateSyncProof) ProtoMessage() {}
+
+func (x *StateSyncProof) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StateSyncProof.ProtoReflect.Descriptor instead.
+func (*StateSyncProof) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *StateSyncProof) GetCommitQc() *FullCommitQC {
+	if x != nil {
+		return x.CommitQc
+	}
+	return nil
+}
+
+func (x *StateSyncProof) GetLaneBlocks() []*Block {
+	if x != nil {
+		return x.LaneBlocks
+	}
+	return nil
+}
+
+func (x *StateSyncProof) GetAppQc() *AppQC {
+	if x != nil {
+		return x.AppQc
+	}
+	return nil
+}
+
 // Persisted epoch registry state.
 type PersistedEpochRegistry struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2646,7 +2708,7 @@ type PersistedEpochRegistry struct {
 
 func (x *PersistedEpochRegistry) Reset() {
 	*x = PersistedEpochRegistry{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[43]
+	mi := &file_autobahn_autobahn_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2658,7 +2720,7 @@ func (x *PersistedEpochRegistry) String() string {
 func (*PersistedEpochRegistry) ProtoMessage() {}
 
 func (x *PersistedEpochRegistry) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[43]
+	mi := &file_autobahn_autobahn_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2671,7 +2733,7 @@ func (x *PersistedEpochRegistry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PersistedEpochRegistry.ProtoReflect.Descriptor instead.
 func (*PersistedEpochRegistry) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{43}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *PersistedEpochRegistry) GetLiveV2() []*Epoch {
@@ -2691,7 +2753,7 @@ type EpochMember struct {
 
 func (x *EpochMember) Reset() {
 	*x = EpochMember{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[44]
+	mi := &file_autobahn_autobahn_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2703,7 +2765,7 @@ func (x *EpochMember) String() string {
 func (*EpochMember) ProtoMessage() {}
 
 func (x *EpochMember) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[44]
+	mi := &file_autobahn_autobahn_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2716,7 +2778,7 @@ func (x *EpochMember) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EpochMember.ProtoReflect.Descriptor instead.
 func (*EpochMember) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{44}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *EpochMember) GetLaneId() *LaneID {
@@ -2744,7 +2806,7 @@ type LaneBlockPos struct {
 
 func (x *LaneBlockPos) Reset() {
 	*x = LaneBlockPos{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[45]
+	mi := &file_autobahn_autobahn_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2756,7 +2818,7 @@ func (x *LaneBlockPos) String() string {
 func (*LaneBlockPos) ProtoMessage() {}
 
 func (x *LaneBlockPos) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[45]
+	mi := &file_autobahn_autobahn_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2769,7 +2831,7 @@ func (x *LaneBlockPos) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LaneBlockPos.ProtoReflect.Descriptor instead.
 func (*LaneBlockPos) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{45}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *LaneBlockPos) GetIndex() uint64 {
@@ -3050,7 +3112,15 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"_committeeB\r\n" +
 	"\v_first_roadB\f\n" +
 	"\n" +
-	"_next_road\"o\n" +
+	"_next_road\"\xd3\x01\n" +
+	"\x0eStateSyncProof\x128\n" +
+	"\tcommit_qc\x18\x01 \x01(\v2\x16.autobahn.FullCommitQCH\x00R\bcommitQc\x88\x01\x01\x129\n" +
+	"\vlane_blocks\x18\x02 \x03(\v2\x0f.autobahn.BlockB\aЈ\xe2\xab\f\xe8\aR\n" +
+	"laneBlocks\x12+\n" +
+	"\x06app_qc\x18\x03 \x01(\v2\x0f.autobahn.AppQCH\x01R\x05appQc\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\f\n" +
+	"\n" +
+	"_commit_qcB\t\n" +
+	"\a_app_qc\"o\n" +
 	"\x16PersistedEpochRegistry\x12(\n" +
 	"\alive_v2\x18\x03 \x03(\v2\x0f.autobahn.EpochR\x06liveV2J\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x04\x10\x05R\x04liveR\apendingR\n" +
 	"pending_v2\"y\n" +
@@ -3078,7 +3148,7 @@ func file_autobahn_autobahn_proto_rawDescGZIP() []byte {
 	return file_autobahn_autobahn_proto_rawDescData
 }
 
-var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 47)
+var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
 var file_autobahn_autobahn_proto_goTypes = []any{
 	(*Timestamp)(nil),                 // 0: autobahn.Timestamp
 	(*Duration)(nil),                  // 1: autobahn.Duration
@@ -3123,13 +3193,14 @@ var file_autobahn_autobahn_proto_goTypes = []any{
 	(*ConsensusMsg)(nil),              // 40: autobahn.ConsensusMsg
 	(*Committee)(nil),                 // 41: autobahn.Committee
 	(*Epoch)(nil),                     // 42: autobahn.Epoch
-	(*PersistedEpochRegistry)(nil),    // 43: autobahn.PersistedEpochRegistry
-	(*EpochMember)(nil),               // 44: autobahn.EpochMember
-	(*LaneBlockPos)(nil),              // 45: autobahn.LaneBlockPos
-	nil,                               // 46: autobahn.TransactionHeader.PropertiesEntry
+	(*StateSyncProof)(nil),            // 43: autobahn.StateSyncProof
+	(*PersistedEpochRegistry)(nil),    // 44: autobahn.PersistedEpochRegistry
+	(*EpochMember)(nil),               // 45: autobahn.EpochMember
+	(*LaneBlockPos)(nil),              // 46: autobahn.LaneBlockPos
+	nil,                               // 47: autobahn.TransactionHeader.PropertiesEntry
 }
 var file_autobahn_autobahn_proto_depIdxs = []int32{
-	46, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
+	47, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
 	2,  // 1: autobahn.TransactionHeader.timestamps:type_name -> autobahn.TransactionTimestamps
 	3,  // 2: autobahn.Transaction.header:type_name -> autobahn.TransactionHeader
 	6,  // 3: autobahn.LaneID.validator:type_name -> autobahn.PublicKey
@@ -3199,15 +3270,18 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	34, // 67: autobahn.ConsensusMsg.commit_vote_v3:type_name -> autobahn.SignedCommitVote
 	26, // 68: autobahn.ConsensusMsg.timeout_vote:type_name -> autobahn.FullTimeoutVote
 	25, // 69: autobahn.ConsensusMsg.timeout_qc:type_name -> autobahn.TimeoutQC
-	44, // 70: autobahn.Committee.members:type_name -> autobahn.EpochMember
+	45, // 70: autobahn.Committee.members:type_name -> autobahn.EpochMember
 	41, // 71: autobahn.Epoch.committee:type_name -> autobahn.Committee
-	42, // 72: autobahn.PersistedEpochRegistry.live_v2:type_name -> autobahn.Epoch
-	7,  // 73: autobahn.EpochMember.lane_id:type_name -> autobahn.LaneID
-	74, // [74:74] is the sub-list for method output_type
-	74, // [74:74] is the sub-list for method input_type
-	74, // [74:74] is the sub-list for extension type_name
-	74, // [74:74] is the sub-list for extension extendee
-	0,  // [0:74] is the sub-list for field type_name
+	23, // 72: autobahn.StateSyncProof.commit_qc:type_name -> autobahn.FullCommitQC
+	11, // 73: autobahn.StateSyncProof.lane_blocks:type_name -> autobahn.Block
+	29, // 74: autobahn.StateSyncProof.app_qc:type_name -> autobahn.AppQC
+	42, // 75: autobahn.PersistedEpochRegistry.live_v2:type_name -> autobahn.Epoch
+	7,  // 76: autobahn.EpochMember.lane_id:type_name -> autobahn.LaneID
+	77, // [77:77] is the sub-list for method output_type
+	77, // [77:77] is the sub-list for method input_type
+	77, // [77:77] is the sub-list for extension type_name
+	77, // [77:77] is the sub-list for extension extendee
+	0,  // [0:77] is the sub-list for field type_name
 }
 
 func init() { file_autobahn_autobahn_proto_init() }
@@ -3254,15 +3328,16 @@ func file_autobahn_autobahn_proto_init() {
 		(*ConsensusMsg_TimeoutQc)(nil),
 	}
 	file_autobahn_autobahn_proto_msgTypes[42].OneofWrappers = []any{}
-	file_autobahn_autobahn_proto_msgTypes[44].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[43].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[45].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[46].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_autobahn_autobahn_proto_rawDesc), len(file_autobahn_autobahn_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   47,
+			NumMessages:   48,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

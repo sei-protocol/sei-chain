@@ -149,9 +149,8 @@
     ]
   },
   {
-    "_comment": "Destructive: halts, restarts and upgrades every validator. Schedules major and minor upgrades through the gov and upgrade precompiles with cast.",
+    "_comment": "Destructive: halts, restarts and upgrades every validator. Schedules major and minor upgrades through the gov and upgrade precompiles with seid.",
     "name": "Autobahn Upgrade Module",
-    "foundry": true,
     "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true EVM_GOVERNANCE_VOTING_PERIOD=30s",
     "scripts": [
       "timeout \"$JOB_TIMEOUT\" ./integration_test/autobahn/evmonly_upgrade.sh"

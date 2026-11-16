@@ -368,6 +368,7 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 		header.Number = big.NewInt(tmBlock.Block.Height)
 		header.Time = toUint64(tmBlock.Block.Time.Unix())
 		header.ParentHash = common.BytesToHash(tmBlock.BlockID.Hash)
+		header.MixDigest = types.PrevRandao(tmBlock.Block.Time)
 		sdkCtx = ctxProvider(tmBlock.Block.Height)
 		if !isLatest {
 			if err := CheckVersion(sdkCtx, b.keeper); err != nil {
@@ -729,6 +730,40 @@ func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, base 
 	return statedb, release, nil
 }
 
+// traceCallBackend serves debug_traceCall, which runs on the committed state after a block, as
+// eth_call does. Backend.StateAtBlock returns the state a block starts from: block tracing passes it
+// the traced block itself, as Sei headers carry a block's own hash as their ParentHash.
+type traceCallBackend struct{ *Backend }
+
+func (b traceCallBackend) StateAtBlock(ctx context.Context, block *ethtypes.Block, _ vm.SeiStateDB, _ bool, _ bool) (vm.SeiStateDB, tracers.StateReleaseFunc, error) {
+	height := block.Number().Int64()
+	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &height, 1)
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("cannot find block %d from tendermint", height)
+	}
+	sdkCtx, release := b.traceCtxProvider(height)
+	// A snapshot trace context carries the latest block's header.
+	sdkCtx = sdkCtx.WithBlockHeight(height).WithBlockTime(tmBlock.Block.Time).WithIsEVM(true)
+	if ctx != nil {
+		sdkCtx = sdkCtx.WithContext(ctx)
+	}
+	return state.NewDBImpl(sdkCtx, b.keeper, true), release, nil
+}
+
+// GetBlockContext returns the EVM block context for block, carrying block's own base fee.
+func (b traceCallBackend) GetBlockContext(ctx context.Context, block *ethtypes.Block, statedb vm.StateDB, backend export.ChainContextBackend) (vm.BlockContext, error) {
+	blockCtx, err := b.Backend.GetBlockContext(ctx, block, statedb, backend)
+	if err != nil {
+		return vm.BlockContext{}, err
+	}
+	// The state is post-block, so the keeper's next base fee belongs to the following block;
+	// the header carries the traced block's own.
+	if baseFee := block.BaseFee(); baseFee != nil {
+		blockCtx.BaseFee = new(big.Int).Set(baseFee)
+	}
+	return blockCtx, nil
+}
+
 func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ctxProvider TraceContextProvider) (sdkCtx sdk.Context, tmBlock *coretypes.ResultBlock, release tracers.StateReleaseFunc, err error) {
 	emptyRelease := func() {}
 	release = emptyRelease
@@ -945,6 +980,7 @@ func (b *Backend) getHeader(tmBlock *coretypes.ResultBlock) *ethtypes.Header {
 		Time:          toUint64(tmBlock.Block.Time.Unix()), //nolint:gosec
 		ExcessBlobGas: &zeroExcessBlobGas,
 		ParentHash:    common.BytesToHash(tmBlock.BlockID.Hash),
+		MixDigest:     types.PrevRandao(tmBlock.Block.Time),
 	}
 	return header
 }

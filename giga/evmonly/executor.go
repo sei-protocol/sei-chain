@@ -42,6 +42,7 @@ type Executor struct {
 	// store-independent, which lets encoding overlap the previous commit.
 	blockEncoderReadsStore bool
 	missingState           StateReader
+	genesis                genesisAlloc
 	closed                 atomic.Bool
 
 	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
@@ -72,6 +73,16 @@ func WithResultSink(sink ResultSink) Option {
 func WithMissingAccountState(state StateReader) Option {
 	return func(e *Executor) {
 		e.missingState = state
+	}
+}
+
+// WithGenesisAlloc credits each account its balance in alloc at the start of
+// block height, before any begin blocker runs. NewExecutor panics if it is
+// combined with WithMissingAccountState, whose balances the alloc would be
+// credited on top of.
+func WithGenesisAlloc(height uint64, alloc map[common.Address]*uint256.Int) Option {
+	return func(e *Executor) {
+		e.genesis = newGenesisAlloc(height, alloc)
 	}
 }
 
@@ -110,6 +121,9 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 	}
 	for _, opt := range opts {
 		opt(e)
+	}
+	if len(e.genesis.accounts) > 0 && e.missingState != nil {
+		panic("a genesis alloc cannot be combined with a missing account state")
 	}
 	return e
 }
