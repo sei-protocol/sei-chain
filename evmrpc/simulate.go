@@ -368,11 +368,7 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 		header.Number = big.NewInt(tmBlock.Block.Height)
 		header.Time = toUint64(tmBlock.Block.Time.Unix())
 		header.ParentHash = common.BytesToHash(tmBlock.BlockID.Hash)
-		mixDigest, err := blockPrevRandao(tmBlock.Block.Time)
-		if err != nil {
-			return nil, nil, err
-		}
-		header.MixDigest = mixDigest
+		header.MixDigest = types.PrevRandao(tmBlock.Block.Time)
 		sdkCtx = ctxProvider(tmBlock.Block.Height)
 		if !isLatest {
 			if err := CheckVersion(sdkCtx, b.keeper); err != nil {
@@ -535,10 +531,7 @@ func (b Backend) BlockWithTraceMetadataByNumber(ctx context.Context, bn rpc.Bloc
 			})
 		}
 	}
-	header, err := b.getHeader(tmBlock)
-	if err != nil {
-		return nil, nil, err
-	}
+	header := b.getHeader(tmBlock)
 	block := ethtypes.NewBlockWithHeader(header).WithBody(ethtypes.Body{Transactions: txs})
 	block.OverwriteHash(common.BytesToHash(tmBlock.BlockID.Hash))
 	if ctxErr := ctx.Err(); ctxErr != nil {
@@ -615,7 +608,7 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 	if err != nil {
 		return nil, err
 	}
-	return b.getHeader(tmBlock)
+	return b.getHeader(tmBlock), nil
 }
 
 func (b *Backend) HeaderByHash(ctx context.Context, hash common.Hash) (*ethtypes.Header, error) {
@@ -623,7 +616,7 @@ func (b *Backend) HeaderByHash(ctx context.Context, hash common.Hash) (*ethtypes
 	if err != nil {
 		return nil, err
 	}
-	return b.getHeader(tmBlock)
+	return b.getHeader(tmBlock), nil
 }
 
 func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int) (*ethtypes.Transaction, vm.BlockContext, vm.SeiStateDB, tracers.StateReleaseFunc, error) {
@@ -914,10 +907,8 @@ func (b *Backend) CurrentHeader() *ethtypes.Header {
 	ctx := context.Background()
 	var header *ethtypes.Header
 	if tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &height, 1); err == nil {
-		// getHeader fails only if the block time cannot be hashed; that header is unusable too.
-		header, _ = b.getHeader(tmBlock)
-	}
-	if header == nil {
+		header = b.getHeader(tmBlock)
+	} else {
 		header = b.fallbackToEthHeaderOnly(height)
 	}
 	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
@@ -966,12 +957,8 @@ func (b *Backend) fallbackToEthHeaderOnly(height int64) *ethtypes.Header {
 	}
 }
 
-func (b *Backend) getHeader(tmBlock *coretypes.ResultBlock) (*ethtypes.Header, error) {
+func (b *Backend) getHeader(tmBlock *coretypes.ResultBlock) *ethtypes.Header {
 	height := tmBlock.Block.Height
-	mixDigest, err := blockPrevRandao(tmBlock.Block.Time)
-	if err != nil {
-		return nil, err
-	}
 	zeroExcessBlobGas := uint64(0)
 	baseFee := b.keeper.GetNextBaseFeePerGas(b.ctxProvider(height - 1)).TruncateInt().BigInt()
 	sdkCtx := b.ctxProvider(height)
@@ -993,9 +980,9 @@ func (b *Backend) getHeader(tmBlock *coretypes.ResultBlock) (*ethtypes.Header, e
 		Time:          toUint64(tmBlock.Block.Time.Unix()), //nolint:gosec
 		ExcessBlobGas: &zeroExcessBlobGas,
 		ParentHash:    common.BytesToHash(tmBlock.BlockID.Hash),
-		MixDigest:     mixDigest,
+		MixDigest:     types.PrevRandao(tmBlock.Block.Time),
 	}
-	return header, nil
+	return header
 }
 
 func (b *Backend) GetCustomPrecompiles(int64) map[common.Address]vm.CustomPrecompiledContract {

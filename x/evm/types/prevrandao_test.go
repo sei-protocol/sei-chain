@@ -9,18 +9,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// prevRandaoFixture is the PREVRANDAO of prevRandaoFixtureTime. The literal pins the derivation:
+// changing it changes block execution and forks the chain.
+var prevRandaoFixture = common.HexToHash("0x753efd32f4a9d19b90b63f109cd4674b3104591ac57d57627625d92751ed8a50")
+
+var prevRandaoFixtureTime = time.Date(2026, 1, 2, 14, 28, 1, 540537286, time.UTC)
+
 func TestPrevRandao(t *testing.T) {
-	blockTime := time.Date(2026, 1, 2, 14, 28, 1, 540537286, time.UTC)
-	got, err := types.PrevRandao(blockTime)
-	require.NoError(t, err)
-	require.Equal(t, common.HexToHash("0x753efd32f4a9d19b90b63f109cd4674b3104591ac57d57627625d92751ed8a50"), got)
+	require.Equal(t, prevRandaoFixture, types.PrevRandao(prevRandaoFixtureTime))
 }
 
-// TestPrevRandaoHashesLocation pins that the same instant in a zero-offset zone other than
-// time.UTC hashes differently, which is why callers must pass a time.UTC time.
-func TestPrevRandaoHashesLocation(t *testing.T) {
-	blockTime := time.Date(2026, 1, 2, 14, 28, 1, 540537286, time.UTC)
-	got, err := types.PrevRandao(blockTime.In(time.FixedZone("UTC", 0)))
-	require.NoError(t, err)
-	require.Equal(t, common.HexToHash("0x0d178cbdc5ed1576a13c61f2b8a10242200048b6f89577b5d2532489e7312434"), got)
+// TestPrevRandaoIgnoresLocation pins that one instant has one PREVRANDAO whatever zone it is
+// expressed in, including a zero-offset zone that is not time.UTC.
+func TestPrevRandaoIgnoresLocation(t *testing.T) {
+	for name, loc := range map[string]*time.Location{
+		"zero-offset zone": time.FixedZone("UTC", 0),
+		"positive offset":  time.FixedZone("CEST", 2*60*60),
+		"negative offset":  time.FixedZone("PST", -8*60*60),
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, prevRandaoFixture, types.PrevRandao(prevRandaoFixtureTime.In(loc)))
+		})
+	}
 }

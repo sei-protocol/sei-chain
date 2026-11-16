@@ -65,8 +65,7 @@ func TestGetVMBlockContext(t *testing.T) {
 
 // TestGetVMBlockContextPrevRandao pins the PREVRANDAO value block execution uses for a block
 // time. The expected hash is a literal so that a change to the derivation, which would fork the
-// chain, fails here. The time is passed in a non-UTC zone because WithBlockTime normalises it,
-// and evmrpc relies on block execution always hashing the UTC form.
+// chain, fails here.
 func TestGetVMBlockContextPrevRandao(t *testing.T) {
 	k, ctx := keeper.MockEVMKeeper(t)
 	blockTime := time.Date(2026, 1, 2, 14, 28, 1, 540537286, time.UTC)

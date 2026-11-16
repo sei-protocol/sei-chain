@@ -136,11 +136,7 @@ func (a *SubscriptionAPI) runNewHeadsFromNotifier(notifier *BlockHeaderNotifier,
 			gasLimit = cp.Block.MaxGas
 		}
 		totals := a.newHeadReceiptTotals(evt.header.Height, evt.response.TxResults)
-		ethHeader, err := encodeCommittedBlock(evt, baseFeePerGas, gasLimit, totals)
-		if err != nil {
-			fmt.Printf("error encoding new head event at height %d due to %s\n", evt.header.Height, err)
-			continue
-		}
+		ethHeader := encodeCommittedBlock(evt, baseFeePerGas, gasLimit, totals)
 		a.broadcastNewHead(ethHeader)
 	}
 }
@@ -609,11 +605,7 @@ func (s *SubscriptionManager) Unsubscribe(ctx context.Context, id SubscriberID) 
 // gasLimit is read by the caller from the active SDK ConsensusParams
 // (see runNewHeadsFromNotifier); ConsensusParamUpdates on the response
 // would be nil for the vast majority of blocks.
-func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int, gasLimit int64, totals receiptTotals) (map[string]interface{}, error) {
-	mixHash, err := blockPrevRandao(evt.header.Time)
-	if err != nil {
-		return nil, err
-	}
+func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int, gasLimit int64, totals receiptTotals) map[string]interface{} {
 	blockHash := common.BytesToHash(evt.hash)
 	number := big.NewInt(evt.header.Height)
 	miner := common.BytesToAddress(evt.header.ProposerAddress)
@@ -634,14 +626,14 @@ func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int, gasLimit int64
 		"timestamp":             hexutil.Uint64(evt.header.Time.Unix()),      //nolint:gosec
 		"milliTimestamp":        hexutil.Uint64(evt.header.Time.UnixMilli()), //nolint:gosec
 		"transactionsRoot":      common.Hash{},                               // see function doc
-		"mixHash":               mixHash,                                     // PREVRANDAO: a hash of the proposer-chosen block time, not randomness
+		"mixHash":               evmtypes.PrevRandao(evt.header.Time),        // PREVRANDAO: a hash of the proposer-chosen block time, not randomness
 		"excessBlobGas":         hexutil.Uint64(0),                           // inapplicable to Sei
 		"parentBeaconBlockRoot": common.Hash{},                               // inapplicable to Sei
 		"hash":                  blockHash,
 		"baseFeePerGas":         (*hexutil.Big)(baseFee),
 		"withdrawalsRoot":       common.Hash{},     // inapplicable to Sei
 		"blobGasUsed":           hexutil.Uint64(0), // inapplicable to Sei
-	}, nil
+	}
 }
 
 func encodeTmHeader(
@@ -657,10 +649,6 @@ func encodeTmHeader(
 	appHash := common.HexToHash(header.Header.AppHash.String())
 	txHash := common.HexToHash(header.Header.DataHash.String())
 	gasLimit := uint64(header.ResultFinalizeBlock.ConsensusParamUpdates.Block.MaxGas) //nolint:gosec
-	mixHash, err := blockPrevRandao(header.Header.Time)
-	if err != nil {
-		return nil, err
-	}
 	result := map[string]interface{}{
 		"difficulty":            (*hexutil.Big)(utils.Big0), // inapplicable to Sei
 		"extraData":             hexutil.Bytes{},            // inapplicable to Sei
@@ -677,9 +665,9 @@ func encodeTmHeader(
 		"timestamp":             hexutil.Uint64(header.Header.Time.Unix()),      //nolint:gosec
 		"milliTimestamp":        hexutil.Uint64(header.Header.Time.UnixMilli()), //nolint:gosec
 		"transactionsRoot":      txHash,
-		"mixHash":               mixHash,           // PREVRANDAO: a hash of the proposer-chosen block time, not randomness
-		"excessBlobGas":         hexutil.Uint64(0), // inapplicable to Sei
-		"parentBeaconBlockRoot": common.Hash{},     // inapplicable to Sei
+		"mixHash":               evmtypes.PrevRandao(header.Header.Time), // PREVRANDAO: a hash of the proposer-chosen block time, not randomness
+		"excessBlobGas":         hexutil.Uint64(0),                       // inapplicable to Sei
+		"parentBeaconBlockRoot": common.Hash{},                           // inapplicable to Sei
 		"hash":                  blockHash,
 		"withdrawlsRoot":        common.Hash{}, // inapplicable to Sei
 		"baseFeePerGas":         (*hexutil.Big)(baseFee),

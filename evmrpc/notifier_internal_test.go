@@ -234,8 +234,7 @@ func TestEncodeCommittedBlock(t *testing.T) {
 	logsBloom := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: []*ethtypes.Log{{
 		Address: common.HexToAddress("0x4444444444444444444444444444444444444444"),
 	}}})
-	out, err := encodeCommittedBlock(evt, big.NewInt(42), 10_000_000, receiptTotals{logsBloom: logsBloom, gasUsed: 21000})
-	require.NoError(t, err)
+	out := encodeCommittedBlock(evt, big.NewInt(42), 10_000_000, receiptTotals{logsBloom: logsBloom, gasUsed: 21000})
 
 	require.Equal(t, common.BytesToHash(hash), out["hash"])
 	require.Equal(t, (*hexutil.Big)(big.NewInt(12345)), out["number"])
@@ -262,8 +261,7 @@ func TestEncodeCommittedBlock_ZeroGasLimit(t *testing.T) {
 		header:   &tmproto.Header{Height: 1, Time: time.Unix(0, 0)},
 		response: &abci.ResponseFinalizeBlock{},
 	}
-	out, err := encodeCommittedBlock(evt, big.NewInt(0), 0, receiptTotals{})
-	require.NoError(t, err)
+	out := encodeCommittedBlock(evt, big.NewInt(0), 0, receiptTotals{})
 	require.Equal(t, hexutil.Uint64(0), out["gasLimit"])
 	// Nil response.AppHash must serialize as the zero hash, not panic.
 	require.Equal(t, common.Hash{}, out["stateRoot"])
@@ -282,8 +280,7 @@ func TestEncodeCommittedBlockMixHashUsesUTC(t *testing.T) {
 		header:   &tmproto.Header{Height: 1, Time: mixHashFixtureTime},
 		response: &abci.ResponseFinalizeBlock{},
 	}
-	out, err := encodeCommittedBlock(evt, big.NewInt(0), 0, receiptTotals{})
-	require.NoError(t, err)
+	out := encodeCommittedBlock(evt, big.NewInt(0), 0, receiptTotals{})
 	require.Equal(t, mixHashFixturePrevRandao, out["mixHash"])
 }
 

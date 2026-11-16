@@ -227,10 +227,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp *core.GasPool) (*vm.Block
 		return nil, err
 	}
 
-	rh, err := evmtypes.PrevRandao(ctx.BlockHeader().Time)
-	if err != nil {
-		return nil, err
-	}
+	rh := evmtypes.PrevRandao(ctx.BlockHeader().Time)
 
 	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *uint256.Int, rules *params.Rules) {
 		if IsPayablePrecompile(&recipient) {

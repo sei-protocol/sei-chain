@@ -97,6 +97,7 @@ type reportedBlock struct {
 	parity.Header
 	GasLimit      hexutil.Uint64    `json:"gasLimit"`
 	BaseFeePerGas *hexutil.Big      `json:"baseFeePerGas"`
+	MixHash       *common.Hash      `json:"mixHash"`
 	Transactions  []json.RawMessage `json:"transactions"`
 }
 
@@ -121,9 +122,9 @@ func captureBlock(ctx context.Context, src Source, number hexutil.Uint64) (parit
 	if consensus.Txs != len(txs) {
 		return parity.Block{}, fmt.Errorf("block holds %d transactions of which %d are EVM", consensus.Txs, len(txs))
 	}
-	prevRandao, err := evmtypes.PrevRandao(consensus.Time)
-	if err != nil {
-		return parity.Block{}, err
+	prevRandao := evmtypes.PrevRandao(consensus.Time)
+	if err := checkReportedPrevRandao(reported.MixHash, prevRandao); err != nil {
+		return parity.Block{}, fmt.Errorf("block %d: %w", uint64(number), err)
 	}
 	header := reported.Header
 	header.Time = consensus.Time
@@ -139,6 +140,16 @@ func captureBlock(ctx context.Context, src Source, number hexutil.Uint64) (parit
 		},
 		Txs: txs,
 	}, nil
+}
+
+// checkReportedPrevRandao fails when v2 reports a non-zero mixHash that differs from prevRandao,
+// the value derived from the consensus block time. An absent or zero mixHash passes, because a v2
+// node that does not report PREVRANDAO there is not disagreeing with it.
+func checkReportedPrevRandao(reported *common.Hash, prevRandao common.Hash) error {
+	if reported == nil || *reported == (common.Hash{}) || *reported == prevRandao {
+		return nil
+	}
+	return fmt.Errorf("v2 reports mixHash %s, but the block time gives PREVRANDAO %s", reported, prevRandao)
 }
 
 // rawTransaction re-encodes an RPC transaction object as raw RLP, checking
