@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -45,10 +46,15 @@ func (api *txAPI) GetTransactionCount(ctx context.Context, address common.Addres
 	return (*hexutil.Uint64)(&nonce), nil
 }
 
+// shardOwnerNonceTimeout bounds a pending nonce read forwarded to the validator that owns the shard.
+const shardOwnerNonceTimeout = 5 * time.Second
+
 // pendingTransactionCount returns the nonce address's next transaction must carry, asking the
 // validator that owns address's shard when that is not this node.
 func (api *txAPI) pendingTransactionCount(ctx context.Context, address common.Address) (*hexutil.Uint64, error) {
 	if client, ok := api.backend.EvmProxy(address).Get(); ok {
+		ctx, cancel := context.WithTimeout(ctx, shardOwnerNonceTimeout)
+		defer cancel()
 		var nonce hexutil.Uint64
 		pending := ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber)
 		if err := client.CallContext(ctx, &nonce, "eth_getTransactionCount", address, pending); err != nil {
