@@ -47,6 +47,8 @@ type Header struct {
 	Height          int64
 	Time            time.Time
 	ProposerAddress []byte
+	// ClosingEpoch is the epoch this block is the last block of, if it is one.
+	ClosingEpoch utils.Option[types.EpochIndex]
 }
 
 // RequestCheckTxV2 is a transaction submitted for admission.

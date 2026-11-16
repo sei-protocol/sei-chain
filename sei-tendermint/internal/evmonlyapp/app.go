@@ -969,8 +969,12 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *proxy.Reque
 		defer a.finalizePhases.Reset()
 		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
 		senders := a.takeSenders(req.Txs)
+		block := a.blockContext(number, timestamp, parent.gasLimit, parent.blockHash, blockHash)
+		if epoch, ok := req.Header.ClosingEpoch.Get(); ok {
+			block.ClosingEpoch = utils.Some(uint64(epoch))
+		}
 		result, err := a.executeBlockPipelined(ctx, executor, evmonly.BlockRequest{
-			Context: a.blockContext(number, timestamp, parent.gasLimit, parent.blockHash, blockHash),
+			Context: block,
 			Txs:     req.Txs,
 			Senders: senders,
 		})

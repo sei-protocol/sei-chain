@@ -88,14 +88,16 @@ func (r *Registry) IndexForRoad(road types.RoadIndex) types.EpochIndex {
 // ClosingEpoch returns the epoch that road ends, if road is that epoch's last
 // road. Otherwise None.
 func (r *Registry) ClosingEpoch(road types.RoadIndex) utils.Option[types.EpochIndex] {
-	if road < r.firstRoad {
+	return ClosingEpoch(r.firstRoad, road)
+}
+
+// ClosingEpoch returns the epoch that road ends, for epochs counted from
+// firstRoad, if road is that epoch's last road. Otherwise None.
+func ClosingEpoch(firstRoad, road types.RoadIndex) utils.Option[types.EpochIndex] {
+	if road < firstRoad || (road-firstRoad+1)%epochLength != 0 {
 		return utils.None[types.EpochIndex]()
 	}
-	idx := r.IndexForRoad(road)
-	if road != r.LastRoad(idx) {
-		return utils.None[types.EpochIndex]()
-	}
-	return utils.Some(idx)
+	return utils.Some(types.EpochIndex((road - firstRoad) / epochLength))
 }
 
 // GenesisTimestamp returns the genesis epoch timestamp.

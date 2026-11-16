@@ -15,6 +15,16 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
+func TestClosingEpochIsTheLastRoadOfEachEpoch(t *testing.T) {
+	for _, first := range []types.RoadIndex{0, 1, 2*epochLength + 7} {
+		require.Equal(t, utils.None[types.EpochIndex](), ClosingEpoch(first, first))
+		require.Equal(t, utils.Some(types.EpochIndex(0)), ClosingEpoch(first, first+epochLength-1))
+		require.Equal(t, utils.None[types.EpochIndex](), ClosingEpoch(first, first+epochLength))
+		require.Equal(t, utils.Some(types.EpochIndex(2)), ClosingEpoch(first, first+3*epochLength-1))
+	}
+	require.Equal(t, utils.None[types.EpochIndex](), ClosingEpoch(epochLength, epochLength-1), "a road before the first")
+}
+
 func TestRegistryGenesisAndLookups(t *testing.T) {
 	for _, first := range []types.RoadIndex{0, 2*epochLength + 7} {
 		t.Run(fmt.Sprint(first), func(t *testing.T) {

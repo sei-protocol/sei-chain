@@ -11,6 +11,7 @@ import (
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -154,6 +155,8 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error
 			// WARNING: the reward distribution has corner cases where it forgets the proposer,
 			// because reward is distributed with a delay. This is not our problem here though.
 			ProposerAddress: proposerAddress,
+			// Epochs count from the genesis initial height, as the epoch registry's do.
+			ClosingEpoch: epoch.ClosingEpoch(atypes.RoadIndex(e.cfg.GenDoc.InitialHeight), b.Height), // nolint:gosec // verified to be positive.
 		},
 	})
 	if err != nil {

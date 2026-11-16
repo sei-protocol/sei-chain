@@ -6,6 +6,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 var ErrCustomPrecompilesOpen = errors.New("evm-only custom precompiles are not implemented")
@@ -82,6 +84,9 @@ type BlockContext struct {
 	// Replay is set when the block runs only to rebuild its state, as for a
 	// trace, rather than to execute it.
 	Replay bool
+	// ClosingEpoch is the consensus epoch this block is the last block of, if
+	// it is one.
+	ClosingEpoch utils.Option[uint64]
 }
 
 // State is the precompile-facing state API. Implementations must make these
