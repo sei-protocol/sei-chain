@@ -33,6 +33,7 @@ contract StakingStorageHarness is StakingStorage {
 
         delegations[delegator][op].shares = 41;
         add(delegationsByDelegator[delegator], op);
+        add(delegationsByValidator[op], delegator);
 
         unbondingDelegations[delegator][op].push(
             UnbondingDelegationEntry({creationHeight: 51, completionTime: 52, initialBalance: 53, balance: 54})

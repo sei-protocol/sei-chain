@@ -18,15 +18,16 @@ const (
 	slotValidatorsByPower           = 6
 	slotDelegations                 = 7
 	slotDelegationsByDelegator      = 8
-	slotUnbondingDelegations        = 9
-	slotRedelegationEntryCounts     = 10
-	slotRedelegationsByValDst       = 11
-	slotUnbondingQueueBounds        = 12
-	slotUnbondingQueue              = 13
-	slotRedelegationQueueBounds     = 14
-	slotRedelegationQueue           = 15
-	slotValidatorQueueBounds        = 16
-	slotValidatorQueue              = 17
+	slotDelegationsByValidator      = 9
+	slotUnbondingDelegations        = 10
+	slotRedelegationEntryCounts     = 11
+	slotRedelegationsByValDst       = 12
+	slotUnbondingQueueBounds        = 13
+	slotUnbondingQueue              = 14
+	slotRedelegationQueueBounds     = 15
+	slotRedelegationQueue           = 16
+	slotValidatorQueueBounds        = 17
+	slotValidatorQueue              = 18
 )
 
 // member is a struct member's position relative to the struct's base slot.

@@ -10,6 +10,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
 // memState is a map-backed precompiles.State and LogSink.
@@ -122,4 +123,13 @@ func must[T any](v T, err error) T {
 		panic(err)
 	}
 	return v
+}
+
+// addresses returns the members of an address set, in set order.
+func addresses(set solstorage.Set) []common.Address {
+	out := make([]common.Address, set.Len())
+	for i := range out {
+		out[i] = solstorage.MemberAddress(set.At(uint64(i)))
+	}
+	return out
 }

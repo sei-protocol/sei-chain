@@ -58,6 +58,7 @@ func TestLayoutMatchesSolc(t *testing.T) {
 		"validatorsByPower":           slotValidatorsByPower,
 		"delegations":                 slotDelegations,
 		"delegationsByDelegator":      slotDelegationsByDelegator,
+		"delegationsByValidator":      slotDelegationsByValidator,
 		"unbondingDelegations":        slotUnbondingDelegations,
 		"redelegationEntryCounts":     slotRedelegationEntryCounts,
 		"redelegationsByValDst":       slotRedelegationsByValDst,
@@ -67,9 +68,9 @@ func TestLayoutMatchesSolc(t *testing.T) {
 		"redelegationQueue":           slotRedelegationQueue,
 		"validatorQueueBounds":        slotValidatorQueueBounds,
 		"validatorQueue":              slotValidatorQueue,
-		"migrating":                   18,
-		"migrationCursor":             19,
-		"migrationFailures":           20,
+		"migrating":                   19,
+		"migrationCursor":             20,
+		"migrationFailures":           21,
 	}, got)
 
 	// Each struct's Go members, and how many slots it takes. Description and
@@ -231,6 +232,7 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, big.NewInt(41), shares)
 	require.True(t, s.delegatedValidators(delegator).Contains(solstorage.AddressKey(op)))
+	require.True(t, s.delegators(op).Contains(solstorage.AddressKey(delegator)))
 	require.Equal(t, []unbondingEntry{
 		{creationHeight: 51, completionTime: 52, initialBalance: big.NewInt(53), balance: big.NewInt(54)},
 		{creationHeight: 55, completionTime: 56, initialBalance: big.NewInt(57), balance: big.NewInt(58)},

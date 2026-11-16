@@ -36,6 +36,21 @@ func TestQueueClampsToItsLastEntry(t *testing.T) {
 	require.Equal(t, common.Hash{}, q.s.Word(q.entry(0)), "pop zeroes the entry")
 }
 
+func TestDelegationsAreIndexedByDelegatorAndValidator(t *testing.T) {
+	s := newStore(newMemState())
+	s.setDelegation(alice, val1, big.NewInt(1))
+	s.setDelegation(alice, val1, big.NewInt(2))
+	s.setDelegation(bob, val1, big.NewInt(3))
+	s.setDelegation(alice, val2, big.NewInt(4))
+	require.Equal(t, []common.Address{alice, bob}, addresses(s.delegators(val1)), "a top-up does not list its delegator twice")
+	require.Equal(t, []common.Address{alice}, addresses(s.delegators(val2)))
+
+	s.removeDelegation(alice, val1)
+	require.Equal(t, []common.Address{bob}, addresses(s.delegators(val1)))
+	require.Equal(t, []common.Address{alice}, addresses(s.delegators(val2)))
+	require.False(t, s.delegatedValidators(alice).Contains(solstorage.AddressKey(val1)))
+}
+
 // TestShareMathMatchesSDK pins the exchange between tokens and shares to
 // x/staking's Validator, rounding included.
 func TestShareMathMatchesSDK(t *testing.T) {
