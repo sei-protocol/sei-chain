@@ -178,7 +178,38 @@ type validatorPower struct {
 // lastValidators returns the bonded set as last stored, failing on a set longer
 // than any MaxValidators allows.
 func (s store) lastValidators() ([]validatorPower, error) {
-	base := solstorage.Slot(slotLastValidators)
+	return s.validatorPowers(solstorage.Slot(slotLastValidators))
+}
+
+// setLastValidators replaces the bonded set.
+func (s store) setLastValidators(set []validatorPower) {
+	s.setValidatorPowers(solstorage.Slot(slotLastValidators), set)
+}
+
+// epochValidators returns the bonded set snapshotted at the end of epoch, or
+// none when that epoch has no snapshot.
+func (s store) epochValidators(epoch uint64) ([]validatorPower, error) {
+	return s.validatorPowers(solstorage.MapUint64(solstorage.Slot(slotEpochValidators), epoch))
+}
+
+func (s store) setEpochValidators(epoch uint64, set []validatorPower) {
+	s.setValidatorPowers(solstorage.MapUint64(solstorage.Slot(slotEpochValidators), epoch), set)
+}
+
+// latestSnapshotEpoch returns the latest epoch with a snapshot, and false
+// before any.
+func (s store) latestSnapshotEpoch() (uint64, bool) {
+	next := s.Uint64(solstorage.Slot(slotNextSnapshotEpoch), 0)
+	return next - 1, next > 0
+}
+
+func (s store) setLatestSnapshotEpoch(epoch uint64) {
+	s.SetUint64(solstorage.Slot(slotNextSnapshotEpoch), 0, epoch+1)
+}
+
+// validatorPowers returns the ValidatorPower[] at base, failing on one longer
+// than any MaxValidators allows.
+func (s store) validatorPowers(base common.Hash) ([]validatorPower, error) {
 	n := s.Uint64(base, 0)
 	if n > uint64(chainparams.MaxBondedValidators) {
 		return nil, fmt.Errorf("%w: %d validators", errInvalidStoredSet, n)
@@ -195,10 +226,9 @@ func (s store) lastValidators() ([]validatorPower, error) {
 	return out, nil
 }
 
-// setLastValidators replaces the bonded set, zeroing elements the new set no
-// longer covers.
-func (s store) setLastValidators(set []validatorPower) {
-	base := solstorage.Slot(slotLastValidators)
+// setValidatorPowers replaces the ValidatorPower[] at base, zeroing elements
+// the new one no longer covers.
+func (s store) setValidatorPowers(base common.Hash, set []validatorPower) {
 	old := min(s.Uint64(base, 0), uint64(chainparams.MaxBondedValidators))
 	data := solstorage.ArrayData(base)
 	for i, v := range set {

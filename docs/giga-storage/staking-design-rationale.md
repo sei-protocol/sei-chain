@@ -203,6 +203,7 @@ Staking:
 |---|---|---|
 | `0x11` | last validator power | `lastValidators` (array, one slot per bonded validator) |
 | `0x12` | last total power | `lastTotalPower` |
+| none | the bonded set at each epoch end | `epochValidators` (see *The epoch snapshot*) |
 | `0x21` | validators | `validators` (+ set) |
 | `0x22` | validator by consensus address | `validatorsByConsensusPubkey`, keyed by the key itself |
 | `0x23` | validators by power | `validatorsByPower` (sorted array) |
@@ -288,6 +289,25 @@ that cost is small.
   The reorder is not gas-metered, and the cache must be rebuilt identically on
   every node, follow tx reverts and snapshots, and be rebuilt after state sync.
 - **Ordered flatkv keys**, V2's approach exactly. See *Prefix walks*.
+
+### The epoch snapshot
+
+V2 hands CometBFT a new validator set every block. Autobahn changes its
+committee once per epoch, and derives epoch E+2's committee from the set it
+reads at the end of epoch E's last block. The node reads the set outside block
+execution, at whatever height the app has reached by then, so the set it gets
+could differ from node to node.
+
+So at the end of an epoch's last block, EndBlock copies `lastValidators` into
+`epochValidators[epoch]`, and the app serves consensus the latest snapshot. The
+snapshot is committed state, so every node serves the same one for an epoch,
+and a node that state-syncs gets it too. Consensus marks the block that closes
+an epoch, so the app never repeats the epoch length.
+
+The snapshot is also what rewards read: the committee that served a block in
+epoch E is the snapshot of epoch E−2. Three are kept, E−2 to E, and EndBlock
+deletes the one before them when it takes a new one: about 100 slot writes once
+an epoch.
 
 ### Where the structures don't carry over
 
@@ -501,7 +521,8 @@ of a million state writes per epoch.
 - The fee pot is for the rewards design to define. Giga's coinbase and base fee
   are zero today.
 - Minting belongs to the rewards design. pacific-1's release schedule is empty.
-- Power and the bonded set are read from staking, not copied.
+- Power and the bonded set are read from staking, not copied: the committee
+  that served a block from staking's epoch snapshot.
 - `communityTax` and the proposer reward params stay in distribution's params
   (all zero on pacific-1).
 

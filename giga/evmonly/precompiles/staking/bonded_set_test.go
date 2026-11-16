@@ -9,37 +9,56 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
-func TestBondedValidatorsAreTheSetTheLastEndBlockStored(t *testing.T) {
+func TestEpochValidatorsAreTheSetAtTheLatestEpochEnd(t *testing.T) {
 	h := newHarness(t, testParams)
+	require.Empty(t, must(EpochValidators(h.state)), "no epoch has ended")
+
+	h.endEpoch(0)
 	want := []BondedValidator{
 		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 30},
 		{Operator: val2, ConsensusPubkey: common.BytesToHash(val2[:]), Power: 20},
 	}
-	require.Equal(t, want, must(BondedValidators(h.state)))
+	require.Equal(t, want, must(EpochValidators(h.state)))
 
 	require.NoError(t, h.delegate(alice, val3, sei(15)))
-	require.Equal(t, want, must(BondedValidators(h.state)), "a delegation moves the set only at EndBlock")
 	h.endBlock()
+	require.Equal(t, want, must(EpochValidators(h.state)), "the bonded set moves within an epoch, its snapshot only at the epoch's end")
+	h.endEpoch(1)
 	require.Equal(t, []BondedValidator{
 		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 30},
 		{Operator: val3, ConsensusPubkey: common.BytesToHash(val3[:]), Power: 25},
-	}, must(BondedValidators(h.state)))
+	}, must(EpochValidators(h.state)))
 }
 
-func TestNoValidatorsAreBondedBeforeStakingBondsASet(t *testing.T) {
+func TestEpochSnapshotsKeepTheLatestThree(t *testing.T) {
+	h := newHarness(t, testParams)
+	for epoch := range uint64(5) {
+		h.endEpoch(epoch)
+	}
+	s := h.store()
+	for epoch, kept := range []bool{false, false, true, true, true} {
+		require.Equal(t, kept, len(must(s.epochValidators(uint64(epoch)))) > 0, "epoch %d", epoch)
+	}
+	latest, ok := s.latestSnapshotEpoch()
+	require.True(t, ok)
+	require.Equal(t, uint64(4), latest)
+}
+
+func TestNoEpochValidatorsBeforeStakingStarts(t *testing.T) {
 	state := newMemState()
-	require.Empty(t, must(BondedValidators(state)))
+	require.Empty(t, must(EpochValidators(state)))
 	require.NoError(t, SetParams(state, testParams))
-	require.Empty(t, must(BondedValidators(state)))
+	require.Empty(t, must(EpochValidators(state)))
 }
 
-func TestBondedValidatorsFailOnAStoredSetThatDoesNotAddUp(t *testing.T) {
+func TestEpochValidatorsFailOnAStoredSetThatDoesNotAddUp(t *testing.T) {
 	h := newHarness(t, testParams)
 	h.store().setLastValidators([]validatorPower{{val1, 30}, {alice, 20}})
-	_, err := BondedValidators(h.state)
+	h.endEpoch(0)
+	_, err := EpochValidators(h.state)
 	require.ErrorIs(t, err, errUnknownValidator, "a member with no validator")
 
-	h.store().SetUint64(solstorage.Slot(slotLastValidators), 0, 101)
-	_, err = BondedValidators(h.state)
+	h.store().SetUint64(solstorage.MapUint64(solstorage.Slot(slotEpochValidators), 0), 0, 101)
+	_, err = EpochValidators(h.state)
 	require.ErrorIs(t, err, errInvalidStoredSet, "a set longer than any MaxValidators allows")
 }
