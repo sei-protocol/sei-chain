@@ -298,16 +298,19 @@ reads at the end of epoch E's last block. The node reads the set outside block
 execution, at whatever height the app has reached by then, so the set it gets
 could differ from node to node.
 
-So at the end of an epoch's last block, EndBlock copies `lastValidators` into
-`epochValidators[epoch]`, and the app serves consensus the latest snapshot. The
-snapshot is committed state, so every node serves the same one for an epoch,
-and a node that state-syncs gets it too. Consensus marks the block that closes
-an epoch, so the app never repeats the epoch length.
+So at the end of an epoch's last block, EndBlock copies `lastValidators`, with
+each member's consensus key, into `epochValidators[epoch]`, and the app serves
+consensus the latest snapshot. The snapshot is committed state, so every node
+serves the same one for an epoch, and a node that state-syncs gets it too.
+Consensus marks the block that closes an epoch, so the app never repeats the
+epoch length. The keys are copied because a member can leave the bonded set,
+finish unbonding with no shares and be removed while its snapshot is still
+served.
 
 The snapshot is also what rewards read: the committee that served a block in
 epoch E is the snapshot of epoch E−2. Three are kept, E−2 to E, and EndBlock
-deletes the one before them when it takes a new one: about 100 slot writes once
-an epoch.
+deletes the one before them when it takes a new one: about 150 slot writes once
+an epoch at 35 validators.
 
 ### Where the structures don't carry over
 

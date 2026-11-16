@@ -1,6 +1,7 @@
 package staking
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -51,14 +52,35 @@ func TestNoEpochValidatorsBeforeStakingStarts(t *testing.T) {
 	require.Empty(t, must(EpochValidators(state)))
 }
 
+func TestEpochValidatorsOutliveTheirValidators(t *testing.T) {
+	h := newHarness(t, testParams)
+	h.endEpoch(0)
+	want := must(EpochValidators(h.state))
+
+	require.NoError(t, h.delegate(alice, val3, sei(15)))
+	h.endBlock()
+	require.NoError(t, h.undelegate(val2, val2, sei(20)))
+	h.advance(testParams.UnbondingTime)
+	require.Empty(t, h.failures)
+	_, ok := h.store().validator(val2)
+	require.False(t, ok, "val2 left the bonded set and was removed once it unbonded with no shares")
+	require.Equal(t, want, must(EpochValidators(h.state)))
+}
+
+func TestAnEpochWhoseSetDoesNotAddUpIsNotSnapshotted(t *testing.T) {
+	h := newHarness(t, testParams)
+	h.endEpoch(0)
+	want := must(EpochValidators(h.state))
+	h.store().setLastValidators([]validatorPower{{val1, 30}, {alice, 20}})
+	h.endEpoch(1)
+	require.ErrorIs(t, errors.Join(h.failures...), errUnknownValidator, "a member with no validator")
+	require.Equal(t, want, must(EpochValidators(h.state)), "epoch 0's snapshot stays the latest")
+}
+
 func TestEpochValidatorsFailOnAStoredSetThatDoesNotAddUp(t *testing.T) {
 	h := newHarness(t, testParams)
-	h.store().setLastValidators([]validatorPower{{val1, 30}, {alice, 20}})
 	h.endEpoch(0)
-	_, err := EpochValidators(h.state)
-	require.ErrorIs(t, err, errUnknownValidator, "a member with no validator")
-
 	h.store().SetUint64(solstorage.MapUint64(solstorage.Slot(slotEpochValidators), 0), 0, 101)
-	_, err = EpochValidators(h.state)
+	_, err := EpochValidators(h.state)
 	require.ErrorIs(t, err, errInvalidStoredSet, "a set longer than any MaxValidators allows")
 }

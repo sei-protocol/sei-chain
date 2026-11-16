@@ -113,6 +113,11 @@ func TestLayoutMatchesSolc(t *testing.T) {
 			"operator": validatorPowerOperator,
 			"power":    validatorPowerPower,
 		}, 1},
+		"struct StakingStorage.EpochValidator": {map[string]member{
+			"operator":        epochValidatorOperator,
+			"power":           epochValidatorPower,
+			"consensusPubkey": epochValidatorConsensusPubkey,
+		}, epochValidatorSlots},
 		"struct StakingStorage.Delegation": {map[string]member{"shares": {0, 0}}, 1},
 		"struct StakingStorage.UnbondingDelegationEntry": {map[string]member{
 			"creationHeight": unbondingEntryCreationHeight,
@@ -200,7 +205,7 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []validatorPower{{op, 30}, {other, 20}}, set)
 	require.Equal(t, big.NewInt(50), s.lastTotalPower())
-	require.Equal(t, []validatorPower{{other, 21}}, must(s.epochValidators(7)))
+	require.Equal(t, []BondedValidator{{Operator: other, ConsensusPubkey: pubkey, Power: 21}}, must(s.epochValidators(7)))
 	latest, ok := s.latestSnapshotEpoch()
 	require.True(t, ok)
 	require.Equal(t, uint64(7), latest)

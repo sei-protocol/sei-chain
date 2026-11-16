@@ -10,7 +10,7 @@ contract StakingStorageHarness is StakingStorage {
         lastValidators.push(ValidatorPower({operator: op, power: 30}));
         lastValidators.push(ValidatorPower({operator: other, power: 20}));
         lastTotalPower = 50;
-        epochValidators[7].push(ValidatorPower({operator: other, power: 21}));
+        epochValidators[7].push(EpochValidator({operator: other, power: 21, consensusPubkey: pubkey}));
         nextSnapshotEpoch = 8;
 
         Validator storage v = validators[op];

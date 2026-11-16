@@ -1,8 +1,6 @@
 package staking
 
 import (
-	"fmt"
-
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
@@ -24,17 +22,5 @@ func EpochValidators(state precompiles.State) ([]BondedValidator, error) {
 	if !ok {
 		return nil, nil
 	}
-	set, err := s.epochValidators(epoch)
-	if err != nil {
-		return nil, err
-	}
-	bonded := make([]BondedValidator, len(set))
-	for i, v := range set {
-		pubkey := s.consensusPubkey(v.operator)
-		if pubkey == (common.Hash{}) {
-			return nil, fmt.Errorf("%w: %s", errUnknownValidator, v.operator)
-		}
-		bonded[i] = BondedValidator{Operator: v.operator, ConsensusPubkey: pubkey, Power: v.power}
-	}
-	return bonded, nil
+	return s.epochValidators(epoch)
 }

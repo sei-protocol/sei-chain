@@ -68,6 +68,16 @@ var (
 	validatorPowerPower    = member{0, 20}
 )
 
+// StakingStorage.EpochValidator members.
+var (
+	epochValidatorOperator        = member{0, 0}
+	epochValidatorPower           = member{0, 20}
+	epochValidatorConsensusPubkey = member{1, 0}
+)
+
+// epochValidatorSlots is how many slots a StakingStorage.EpochValidator takes.
+const epochValidatorSlots = 2
+
 // StakingStorage.UnbondingDelegationEntry members.
 var (
 	unbondingEntryCreationHeight = member{0, 0}
