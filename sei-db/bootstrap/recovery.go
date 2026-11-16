@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
@@ -291,4 +292,12 @@ func openReceiptStore(cfg *config.GigaStorageConfig) (receiptdb.ReceiptStore, er
 			cfg.ReceiptDBConfig.DBDirectory, err)
 	}
 	return receiptDB, nil
+}
+
+// openArchive starts the history archive exporter, returning nil when no archive is configured.
+func openArchive(ctx context.Context, cfg *config.GigaStorageConfig) (*archive.Exporter, error) {
+	if cfg.ArchiveConfig == nil {
+		return nil, nil
+	}
+	return archive.StartExporter(ctx, *cfg.ArchiveConfig)
 }

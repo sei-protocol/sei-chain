@@ -18,6 +18,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
@@ -38,6 +39,7 @@ type Executor struct {
 	stateStore      gigatypes.StateDB
 	receiptStore    receiptdb.ReceiptStore
 	receiptHasher   *receipthash.ReceiptHasher
+	archive         *archive.Exporter
 	// Optional: nil commits only the block's EVM state changes.
 	blockChangeSetEncoder BlockChangeSetEncoder
 	// blockEncoderReadsStore is false only for an encoder registered as
