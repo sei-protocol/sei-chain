@@ -58,8 +58,8 @@ func TestMockAppFinalizeBlockBumpsNoncesAndUsesGasWanted(t *testing.T) {
 func TestMockAppServesTheEVMOnlyChainWithoutExecution(t *testing.T) {
 	app := NewMockApp(mockAppFixture{})
 
-	require.Equal(t, config.AutobahnEVMOnlyChainID, app.EvmChainID())
-	require.Equal(t, new(big.Int).SetUint64(config.AutobahnEVMOnlyChainID), app.EvmChainConfig().ChainID)
+	require.Equal(t, mockAppFixtureEVMChainID, app.EvmChainID())
+	require.Equal(t, new(big.Int).SetUint64(mockAppFixtureEVMChainID), app.EvmChainConfig().ChainID)
 	require.Equal(t, 0, app.EvmBaseFee().Sign())
 	require.Equal(t, 0, app.EvmMinGasPrice().Sign())
 	require.Equal(t, uint64(0), app.EvmGasLimit())
@@ -311,6 +311,8 @@ func TestMockAppEvmBalanceReturns100ETH(t *testing.T) {
 	require.Equal(t, want, got.ToBig())
 }
 
+const mockAppFixtureEVMChainID uint64 = 4242
+
 type mockAppFixture struct {
 	proxy.EVMApplication
 }
@@ -318,6 +320,7 @@ type mockAppFixture struct {
 func (mockAppFixture) InitChain(*proxy.RequestInitChain) (*proxy.ResponseInitChain, error) {
 	return &proxy.ResponseInitChain{}, nil
 }
+func (mockAppFixture) EvmChainID() uint64                     { return mockAppFixtureEVMChainID }
 func (mockAppFixture) GetValidators() []proxy.ValidatorUpdate { return nil }
 func (mockAppFixture) Info() *proxy.ResponseInfo              { return &proxy.ResponseInfo{} }
 
@@ -500,6 +503,8 @@ type checkTxCountingApp struct {
 	proxy.EVMApplication
 	called bool
 }
+
+func (*checkTxCountingApp) EvmChainID() uint64 { return mockAppFixtureEVMChainID }
 
 func (app *checkTxCountingApp) CheckTx(context.Context, *proxy.RequestCheckTxV2) *proxy.ResponseCheckTxV2 {
 	app.called = true

@@ -198,6 +198,11 @@ type AutobahnFileConfig struct {
 	// chain's genesis and identically on every node; a node refuses to resume
 	// a chain that started with any other alloc, or without one.
 	EVMAlloc utils.Option[map[common.Address]hexutil.U256] `json:"evm_alloc,omitzero"`
+	// EVMChainID is the EIP-155 chain ID the EVM-only executor signs and
+	// serves. Absent ⇒ AutobahnEVMOnlyChainID. Set it only in a new chain's
+	// genesis and identically on every node; a node refuses to resume a chain
+	// that ran on any other ID.
+	EVMChainID utils.Option[uint64] `json:"evm_chain_id,omitzero"`
 }
 
 // EVMGenesisAlloc returns the balances EVMAlloc sets, or None when it is absent.
@@ -213,8 +218,13 @@ func (fc *AutobahnFileConfig) EVMGenesisAlloc() utils.Option[map[common.Address]
 	return utils.Some(balances)
 }
 
-// AutobahnEVMOnlyChainID is the chain ID of the Autobahn EVM-only executor.
+// AutobahnEVMOnlyChainID is the default chain ID of the Autobahn EVM-only executor.
 const AutobahnEVMOnlyChainID uint64 = 713715
+
+// GetEVMChainID returns EVMChainID, or AutobahnEVMOnlyChainID when it is absent.
+func (fc *AutobahnFileConfig) GetEVMChainID() uint64 {
+	return fc.EVMChainID.Or(AutobahnEVMOnlyChainID)
+}
 
 func (c *AutobahnFileConfig) GetEnableEvmProxy() bool {
 	return c.EnableEvmProxy.Or(true)
@@ -252,6 +262,9 @@ func (fc *AutobahnFileConfig) Validate() error {
 	}
 	if fc.PersistentStateDir == "" {
 		return errors.New("persistent_state_dir must not be empty")
+	}
+	if fc.GetEVMChainID() == 0 {
+		return errors.New("evm_chain_id must be > 0 when set")
 	}
 	if err := fc.BlockDB.Validate(); err != nil {
 		return fmt.Errorf("block_db: %w", err)
