@@ -77,6 +77,11 @@ type ExecutionConfig struct {
 	// UnsafeSkipUpgrades are the blocks at which this node clears a due upgrade plan instead of
 	// applying it or halting. Each must be positive.
 	UnsafeSkipUpgrades []uint64 `mapstructure:"unsafe_skip_upgrades"`
+	// MinProposalLaneBlocks is how many new certified lane blocks a leader waits for before
+	// proposing. 0 keeps 1.
+	MinProposalLaneBlocks int `mapstructure:"min_proposal_lane_blocks"`
+	// MaxProposalWaitMs bounds in milliseconds how long a leader waits for MinProposalLaneBlocks.
+	MaxProposalWaitMs int `mapstructure:"max_proposal_wait_ms"`
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
@@ -208,6 +213,8 @@ const (
 	FlagExecutionEvmRpcPort              = "giga.execution.evm_rpc_port"
 	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
 	FlagExecutionGCPercent               = "giga.execution.gc_percent"
+	FlagExecutionMinProposalLaneBlocks   = "giga.execution.min_proposal_lane_blocks"
+	FlagExecutionMaxProposalWaitMs       = "giga.execution.max_proposal_wait_ms"
 	FlagExecutionUnsafeSkipUpgrades      = "giga.execution.unsafe_skip_upgrades"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsLogs          = "giga.rpc.max_subscriptions_logs"
@@ -298,6 +305,16 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionEvmWsPort); v != nil {
 		if cfg.Execution.EvmWsPort, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionEvmWsPort, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionMinProposalLaneBlocks); v != nil {
+		if cfg.Execution.MinProposalLaneBlocks, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionMinProposalLaneBlocks, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionMaxProposalWaitMs); v != nil {
+		if cfg.Execution.MaxProposalWaitMs, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionMaxProposalWaitMs, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionGCPercent); v != nil {
