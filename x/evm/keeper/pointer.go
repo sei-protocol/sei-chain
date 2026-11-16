@@ -75,11 +75,7 @@ func (k *Keeper) SetERC20CW20PointerWithVersion(ctx sdk.Context, cw20Address str
 
 // ERC20 -> CW20
 func (k *Keeper) GetERC20CW20Pointer(ctx sdk.Context, cw20Address string) (addr common.Address, version uint16, exists bool) {
-<<<<<<< HEAD
-	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerERC20CW20Key(cw20Address), cw20.CurrentVersion(ctx))
-=======
 	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerERC20CW20Key(cw20Address))
->>>>>>> 9ded6ae (Look up pointers in RPC contexts the way blocks do (#4868))
 	if exists {
 		addr = common.BytesToAddress(addrBz)
 	}
@@ -271,7 +267,6 @@ func (k *Keeper) GetCW1155ERC1155Pointer(ctx sdk.Context, erc1155Address common.
 	return
 }
 
-<<<<<<< HEAD
 // CW1155 -> ERC1155
 func (k *Keeper) DeleteCW1155ERC1155Pointer(ctx sdk.Context, erc1155Address common.Address, version uint16) {
 	addr, _, exists := k.GetCW1155ERC1155Pointer(ctx, erc1155Address)
@@ -281,13 +276,10 @@ func (k *Keeper) DeleteCW1155ERC1155Pointer(ctx sdk.Context, erc1155Address comm
 	}
 }
 
-func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte, maxVersion uint16) (addr []byte, version uint16, exists bool) {
-=======
 // GetPointerInfo returns the value and version of the last entry under pref, in key order.
 // That entry can belong to a pointee whose name extends the one pref ends with, such as
 // <denom>/vest for <denom>.
 func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte) (addr []byte, version uint16, exists bool) {
->>>>>>> 9ded6ae (Look up pointers in RPC contexts the way blocks do (#4868))
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
 	// Every context must resolve and charge this lookup the way block execution always has.
 	iter := store.ReverseIterator(nil, nil)
@@ -322,7 +314,6 @@ func (k *Keeper) setPointerInfo(ctx sdk.Context, pref []byte, addr []byte, versi
 	return nil
 }
 
-<<<<<<< HEAD
 func (k *Keeper) deletePointerInfo(ctx sdk.Context, pref []byte, version uint16) {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
 	versionBz := make([]byte, 2)
@@ -330,25 +321,6 @@ func (k *Keeper) deletePointerInfo(ctx sdk.Context, pref []byte, version uint16)
 	store.Delete(versionBz)
 }
 
-func maxCurrentPointerVersion(ctx sdk.Context) uint16 {
-	v := native.CurrentVersion
-	for _, candidate := range []uint16{
-		cw20.CurrentVersion(ctx),
-		cw721.CurrentVersion,
-		cw1155.CurrentVersion,
-		erc20.CurrentVersion,
-		erc721.CurrentVersion,
-		erc1155.CurrentVersion,
-	} {
-		if candidate > v {
-			v = candidate
-		}
-	}
-	return v
-}
-
-=======
->>>>>>> 9ded6ae (Look up pointers in RPC contexts the way blocks do (#4868))
 // GetStoredPointerCodeID returns the CosmWasm code ID the wrappers of the given ERC type
 // were instantiated from, or 0 when no code is stored for the current wrapper version.
 func (k *Keeper) GetStoredPointerCodeID(ctx sdk.Context, pointerType types.PointerType) uint64 {
