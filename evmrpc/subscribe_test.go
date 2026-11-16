@@ -3,17 +3,25 @@ package evmrpc_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,7 +42,7 @@ func TestSubscribeNewHeads(t *testing.T) {
 	}
 	inapplicableKeys := make(map[string]struct{})
 	for _, key := range []string{
-		"difficulty", "extraData", "logsBloom", "nonce", "sha3Uncles", "mixHash",
+		"difficulty", "extraData", "nonce", "sha3Uncles", "mixHash",
 		"excessBlobGas", "parentBeaconBlockRoot", "withdrawlsRoot",
 		"withdrawalsRoot", "blobGasUsed",
 	} {
@@ -42,7 +50,8 @@ func TestSubscribeNewHeads(t *testing.T) {
 	}
 	var subscriptionId string
 	allZerosRE := regexp.MustCompile(`^0+$`)
-	for t.Context().Err() == nil {
+	var numbers []string
+	for len(numbers) < len(NewHeadsMockHeights) {
 		select {
 		case resObj := <-recvCh:
 			_, ok := resObj["error"]
@@ -86,19 +95,38 @@ func TestSubscribeNewHeads(t *testing.T) {
 			millis, err := hexutil.DecodeUint64(resultMap["milliTimestamp"].(string))
 			require.NoError(t, err)
 			require.Equal(t, secs, millis/1000, "milliTimestamp and timestamp describe the same instant")
-			// Event validated successfully, no need to wait further
-			return
+			requireNewHeadMatchesBlock(t, resultMap)
+			numbers = append(numbers, resultMap["number"].(string))
 		case <-timer.C:
-			t.Fatal("No event received within 5 seconds")
+			t.Fatalf("received %d of %d newHeads events within 5 seconds", len(numbers), len(NewHeadsMockHeights))
 		}
+	}
+	require.Equal(t, []string{fmt.Sprintf("0x%x", MockHeight8), fmt.Sprintf("0x%x", MockHeight2)}, numbers)
+}
+
+// requireNewHeadMatchesBlock asserts that a newHeads header reports the logsBloom, gasUsed and
+// baseFeePerGas that eth_getBlockByNumber reports for the same block.
+func requireNewHeadMatchesBlock(t *testing.T, header map[string]interface{}) {
+	t.Helper()
+	number := header["number"].(string)
+	resObj := sendRequestGood(t, "getBlockByNumber", number, false)
+	require.Nil(t, resObj["error"])
+	block := resObj["result"].(map[string]interface{})
+	for _, key := range []string{"logsBloom", "gasUsed", "baseFeePerGas"} {
+		require.Equalf(t, block[key], header[key], "newHeads %s of block %s", key, number)
+	}
+	if number == fmt.Sprintf("0x%x", MockHeight2) {
+		// Block 2 has receipts with logs, so the comparison above is not between two empty headers.
+		require.NotEqual(t, hexutil.Encode(ethtypes.Bloom{}.Bytes()), header["logsBloom"])
+		require.NotEqual(t, "0x0", header["gasUsed"])
 	}
 }
 
 // TestSubscribeNewHeadsAutobahn exercises the in-process notifier path
 // (used under Autobahn) end-to-end: a WS client subscribes to newHeads
-// against the notifier-backed server, the test pushes an event via
+// against the notifier-backed server, the test pushes events via
 // NotifierForTest.OnBlockCommitted, and the WS subscriber must receive an
-// eth_subscription notification carrying the encoded header.
+// eth_subscription notification carrying each encoded header.
 func TestSubscribeNewHeadsAutobahn(t *testing.T) {
 	t.Parallel()
 	recvCh, done := sendWSRequestAndListen(t, TestNotifierWSPort, "subscribe", "newHeads")
@@ -109,6 +137,15 @@ func TestSubscribeNewHeadsAutobahn(t *testing.T) {
 	proposer := common.HexToAddress("0x9999999999999999999999999999999999999999").Bytes()
 	// Fractional second on purpose; see TestEncodeCommittedBlock.
 	ts := time.Unix(1_700_000_500, 250_000_000).UTC()
+	// TxResults also carry the gas of Cosmos transactions and of EVM transactions that failed their ante
+	// handler, neither of which a header's gasUsed counts.
+	committed := []struct {
+		height    int64
+		txResults []*abci.ExecTxResult
+	}{
+		{height: MockHeight8, txResults: []*abci.ExecTxResult{{GasUsed: 21000}, {GasUsed: 50000}}},
+		{height: MockHeight2, txResults: []*abci.ExecTxResult{{GasUsed: 40000}, {GasUsed: 21000}, {GasUsed: 40000}, {GasUsed: 30000}}},
+	}
 
 	expectedKeys := []string{
 		"parentHash", "sha3Uncles", "miner", "stateRoot", "transactionsRoot",
@@ -122,7 +159,8 @@ func TestSubscribeNewHeadsAutobahn(t *testing.T) {
 	defer timer.Stop()
 
 	var subscriptionId string
-	for t.Context().Err() == nil {
+	var numbers []string
+	for len(numbers) < len(committed) {
 		select {
 		case resObj := <-recvCh:
 			if errVal, ok := resObj["error"]; ok {
@@ -131,20 +169,19 @@ func TestSubscribeNewHeadsAutobahn(t *testing.T) {
 			if subscriptionId == "" {
 				subscriptionId = resObj["result"].(string)
 				timer.Reset(5 * time.Second)
-				NotifierForTest.OnBlockCommitted(hash, &tmproto.Header{
-					Height:          MockHeight8,
-					Time:            ts,
-					ProposerAddress: proposer,
-				}, &abci.ResponseFinalizeBlock{
-					AppHash: appHash,
-					TxResults: []*abci.ExecTxResult{
-						{GasUsed: 21000},
-						{GasUsed: 50000},
-					},
-					// gasLimit is sourced from the SDK ConsensusParams in
-					// the consumer goroutine, not from the response, so
-					// ConsensusParamUpdates is intentionally omitted here.
-				})
+				for _, c := range committed {
+					NotifierForTest.OnBlockCommitted(hash, &tmproto.Header{
+						Height:          c.height,
+						Time:            ts,
+						ProposerAddress: proposer,
+					}, &abci.ResponseFinalizeBlock{
+						AppHash:   appHash,
+						TxResults: c.txResults,
+						// gasLimit is sourced from the SDK ConsensusParams in
+						// the consumer goroutine, not from the response, so
+						// ConsensusParamUpdates is intentionally omitted here.
+					})
+				}
 				continue
 			}
 			require.Equal(t, "eth_subscription", resObj["method"])
@@ -156,12 +193,10 @@ func TestSubscribeNewHeadsAutobahn(t *testing.T) {
 				require.Truef(t, ok, "missing key %q in header", k)
 			}
 			require.Equal(t, common.BytesToHash(hash).Hex(), resultMap["hash"])
-			require.Equal(t, fmt.Sprintf("0x%x", MockHeight8), resultMap["number"])
 			require.Equal(t, common.BytesToAddress(proposer).Hex(), resultMap["miner"])
 			require.Equal(t, common.BytesToHash(appHash).Hex(), resultMap["stateRoot"])
 			require.Equal(t, fmt.Sprintf("0x%x", ts.Unix()), resultMap["timestamp"])
 			require.Equal(t, fmt.Sprintf("0x%x", ts.UnixMilli()), resultMap["milliTimestamp"])
-			require.Equal(t, fmt.Sprintf("0x%x", 21000+50000), resultMap["gasUsed"])
 			// gasLimit comes from the SDK ConsensusParams that the test
 			// runtime sets; just assert it's a non-zero hex string.
 			gasLimitStr, _ := resultMap["gasLimit"].(string)
@@ -173,11 +208,13 @@ func TestSubscribeNewHeadsAutobahn(t *testing.T) {
 			require.Equal(t, zeroHash, resultMap["parentHash"])
 			require.Equal(t, zeroHash, resultMap["receiptsRoot"])
 			require.Equal(t, zeroHash, resultMap["transactionsRoot"])
-			return
+			requireNewHeadMatchesBlock(t, resultMap)
+			numbers = append(numbers, resultMap["number"].(string))
 		case <-timer.C:
-			t.Fatal("No event received within 5 seconds")
+			t.Fatalf("received %d of %d newHeads events within 5 seconds", len(numbers), len(committed))
 		}
 	}
+	require.Equal(t, []string{fmt.Sprintf("0x%x", MockHeight8), fmt.Sprintf("0x%x", MockHeight2)}, numbers)
 }
 
 func TestSubscribeEmptyLogs(t *testing.T) {
@@ -383,4 +420,52 @@ func TestSubscriptionManager(t *testing.T) {
 	_, subCh, err = badManager.Subscribe(context.Background(), evmrpc.NewHeadQueryBuilder(), 10)
 	require.NotNil(t, err)
 	require.Nil(t, subCh)
+}
+
+// failingReceiptStore is a receipt store, caught up to every height, whose receipt reads fail with err.
+type failingReceiptStore struct {
+	receipt.ReceiptStore
+	err error
+}
+
+func (s *failingReceiptStore) LatestVersion() int64 { return math.MaxInt64 }
+
+func (s *failingReceiptStore) GetReceipt(sdk.Context, common.Hash) (*types.Receipt, error) {
+	return nil, s.err
+}
+
+func newHeadsAPIReadingReceiptsFrom(store receipt.ReceiptStore) *evmrpc.SubscriptionAPI {
+	k := &keeper.Keeper{}
+	k.SetReceiptStoreForTesting(store)
+	return evmrpc.NewLogsSubscriptionAPIForTest(evmrpc.NewLogFetcherForTest(evmrpc.LogFetcherTestDeps{
+		TmClient:         &MockClient{},
+		K:                k,
+		TxConfigProvider: func(int64) client.TxConfig { return TxConfig },
+		CtxProvider:      func(int64) sdk.Context { return Ctx },
+	}), 1)
+}
+
+// TestNewHeadReceiptTotalsFailOnReceiptReadError verifies that a receipt that
+// exists but cannot be read sends the newHeads header to its fallback rather
+// than leaving that transaction's logs out of its bloom.
+func TestNewHeadReceiptTotalsFailOnReceiptReadError(t *testing.T) {
+	cause := errors.New("pebble: I/O error")
+	api := newHeadsAPIReadingReceiptsFrom(&failingReceiptStore{err: cause})
+
+	_, _, err := api.ReadReceiptTotalsForTest(MockHeight2)
+
+	require.ErrorIs(t, err, cause)
+}
+
+// TestNewHeadReceiptTotalsSkipMissingReceipts verifies that a transaction
+// with no receipt is left out, as eth_getBlockByNumber leaves it out, and is
+// not taken for a failed read.
+func TestNewHeadReceiptTotalsSkipMissingReceipts(t *testing.T) {
+	api := newHeadsAPIReadingReceiptsFrom(&failingReceiptStore{err: receipt.ErrNotFound})
+
+	logsBloom, gasUsed, err := api.ReadReceiptTotalsForTest(MockHeight2)
+
+	require.NoError(t, err)
+	require.Equal(t, ethtypes.Bloom{}, logsBloom)
+	require.Zero(t, gasUsed)
 }

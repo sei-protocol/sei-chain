@@ -16,6 +16,8 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -25,6 +27,12 @@ import (
 
 const SleepInterval = 5 * time.Second
 const NewHeadsListenerBuffer = 10
+
+// newHeadReceiptsTimeout bounds how long a newHeads header waits for its block's receipts to be written.
+const newHeadReceiptsTimeout = time.Second
+
+// newHeadReceiptsPollInterval is how often a newHeads header checks whether its block's receipts are written.
+const newHeadReceiptsPollInterval = 5 * time.Millisecond
 
 type SubscriptionAPI struct {
 	tmClient            client.LocalClient
@@ -38,6 +46,9 @@ type SubscriptionAPI struct {
 
 	// logSubsCount bounds the number of concurrent logs subscriptions
 	logSubsCount atomic.Uint64
+
+	// lastNewHeadHeight is the height of the last newHeads event received. Only the newHeads goroutine uses it.
+	lastNewHeadHeight int64
 }
 
 type SubscriptionConfig struct {
@@ -79,9 +90,15 @@ func NewSubscriptionAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvid
 			for {
 				res := <-subCh
 				eventHeader := res.Data.(tmtypes.EventDataNewBlockHeader)
-				ctx := ctxProvider(eventHeader.Header.Height)
-				baseFeePerGas := k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
-				ethHeader, err := encodeTmHeader(eventHeader, baseFeePerGas)
+				height := eventHeader.Header.Height
+				api.noteNewHeadEvent(height)
+				baseFeePerGas, err := pickHeadBaseFee(k.GetNextBaseFeePerGas, ctxProvider, height)
+				if err != nil {
+					dropNewHeadWithoutBaseFee(height, err)
+					continue
+				}
+				totals := api.newHeadReceiptTotals(height, eventHeader.ResultFinalizeBlock.TxResults)
+				ethHeader, err := encodeTmHeader(eventHeader, baseFeePerGas, totals)
 				if err != nil {
 					fmt.Printf("error encoding new head event %#v due to %s\n", res.Data, err)
 					continue
@@ -103,8 +120,13 @@ func (a *SubscriptionAPI) runNewHeadsFromNotifier(notifier *BlockHeaderNotifier,
 			fmt.Printf("dropping malformed newHeads event: header=%v response=%v\n", evt.header, evt.response)
 			continue
 		}
+		a.noteNewHeadEvent(evt.header.Height)
 		ctx := ctxProvider(evt.header.Height)
-		baseFeePerGas := pickHeadBaseFee(k.GetNextBaseFeePerGas, ctxProvider, evt.header.Height)
+		baseFeePerGas, err := pickHeadBaseFee(k.GetNextBaseFeePerGas, ctxProvider, evt.header.Height)
+		if err != nil {
+			dropNewHeadWithoutBaseFee(evt.header.Height, err)
+			continue
+		}
 		// Source gasLimit from the active SDK ConsensusParams rather than
 		// evt.response.ConsensusParamUpdates: the latter is only populated
 		// on actual updates (nil for nearly every block). See block.go's
@@ -113,24 +135,153 @@ func (a *SubscriptionAPI) runNewHeadsFromNotifier(notifier *BlockHeaderNotifier,
 		if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
 			gasLimit = cp.Block.MaxGas
 		}
-		ethHeader := encodeCommittedBlock(evt, baseFeePerGas, gasLimit)
+		totals := a.newHeadReceiptTotals(evt.header.Height, evt.response.TxResults)
+		ethHeader := encodeCommittedBlock(evt, baseFeePerGas, gasLimit, totals)
 		a.broadcastNewHead(ethHeader)
 	}
 }
 
-// pickHeadBaseFee returns the baseFeePerGas to attach to the eth_newHeads
-// notification for the block at `height`. Mirrors block.go's
-// GetBlockByNumber: GetNextBaseFeePerGas(ctx_at_N) is the fee for N+1, so
-// we call it on the *parent* ctx (height-1). Genesis (height 1) has no
-// parent; return the configured default min fee instead.
-//
-// `getNextBaseFee` is a function pointer rather than a *keeper.Keeper
-// method so tests can inject a fake without needing a full keeper.
-func pickHeadBaseFee(getNextBaseFee func(sdk.Context) sdk.Dec, ctxProvider func(int64) sdk.Context, height int64) *big.Int {
-	if height > 1 {
-		return getNextBaseFee(ctxProvider(height - 1)).TruncateInt().BigInt()
+// noteNewHeadEvent records that the newHeads event for height arrived, and logs and counts the blocks
+// between it and the previous event, whose events were dropped before they reached this goroutine.
+func (a *SubscriptionAPI) noteNewHeadEvent(height int64) {
+	missed := missedNewHeads(a.lastNewHeadHeight, height)
+	a.lastNewHeadHeight = height
+	if missed == 0 {
+		return
 	}
-	return evmtypes.DefaultMinFeePerGas.TruncateInt().BigInt()
+	// The CometBFT event bus evicts a subscriber more than subscriptionCapacity events behind, and the
+	// Autobahn notifier overwrites its oldest event when full, so falling behind loses blocks silently.
+	logger.Error("newHeads fell behind: no header sent for blocks", "first", height-missed, "last", height-1, "count", missed)
+	recordNewHeadsDroppedBlocks(context.Background(), missed, newHeadsDropMissed)
+}
+
+// missedNewHeads returns the number of blocks strictly between prev and height, the heights of two
+// consecutive newHeads events. It returns 0 for the first event, when prev is 0.
+func missedNewHeads(prev, height int64) int64 {
+	if prev == 0 || height <= prev+1 {
+		return 0
+	}
+	return height - prev - 1
+}
+
+// dropNewHeadWithoutBaseFee logs and counts the newHeads header not sent for height because its parent's
+// state, which holds its base fee, could not be read.
+func dropNewHeadWithoutBaseFee(height int64, err error) {
+	logger.Error("dropping newHeads event: base fee unavailable", "height", height, "err", err)
+	recordNewHeadsDroppedBlocks(context.Background(), 1, newHeadsDropBaseFeeUnavailable)
+}
+
+// pickHeadBaseFee returns the baseFeePerGas eth_getBlockByNumber reports for the block at height: the base
+// fee that block executed with, or the default minimum fee at height 1. It returns an error when the
+// parent's state is unavailable.
+func pickHeadBaseFee(getNextBaseFee func(sdk.Context) sdk.Dec, ctxProvider func(int64) sdk.Context, height int64) (*big.Int, error) {
+	if height <= 1 {
+		return evmtypes.DefaultMinFeePerGas.TruncateInt().BigInt(), nil
+	}
+	// The state committed at N holds the base fee for N+1, so a block's own fee is in its parent's state.
+	parentCtx, err := ctxAtHeight(ctxProvider, height-1)
+	if err != nil {
+		return nil, err
+	}
+	return getNextBaseFee(parentCtx).TruncateInt().BigInt(), nil
+}
+
+// newHeadReceiptTotals returns the logsBloom and gasUsed eth_getBlockByNumber reports for the block at
+// height. When that block's receipts cannot be read, it returns unreadReceiptTotals(txResults) instead.
+func (a *SubscriptionAPI) newHeadReceiptTotals(height int64, txResults []*abci.ExecTxResult) receiptTotals {
+	totals, err := a.readReceiptTotals(height)
+	if err != nil {
+		logger.Warn("newHeads header reports a full logs bloom: receipts unreadable", "height", height, "err", err)
+		return unreadReceiptTotals(txResults)
+	}
+	return totals
+}
+
+// readReceiptTotals returns the receiptTotals of the block at height once its receipts are written. It
+// returns an error when they are not written within newHeadReceiptsTimeout or cannot be read, and, like
+// ctxAtHeight, re-raises a panic that is not an error or is a runtime.Error.
+func (a *SubscriptionAPI) readReceiptTotals(height int64) (totals receiptTotals, err error) {
+	// This runs on the goroutine that serves every newHeads subscriber, so a read that panics because its
+	// data is unavailable takes the fallback rather than ending that goroutine.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("receipts of height %d are unreadable: %w", height, errorFromPanic(r))
+		}
+	}()
+	f := a.logFetcher
+	if err = awaitReceipts(f.k.ReceiptStore(), height, newHeadReceiptsTimeout); err != nil {
+		return receiptTotals{}, err
+	}
+	block, err := blockByNumberWithRetry(context.Background(), f.tmClient, &height, 0)
+	if err != nil {
+		return receiptTotals{}, err
+	}
+	if err = requireReceiptsReadable(f, block); err != nil {
+		return receiptTotals{}, err
+	}
+	msgs, err := filterTransactions(f.k, f.ctxProvider, f.txConfigProvider, block, false, f.cacheCreationMutex, f.globalBlockCache)
+	if err != nil {
+		return receiptTotals{}, err
+	}
+	return listedReceiptTotals(f.k, f.ctxProvider(LatestCtxHeight), block, msgs, f.cacheCreationMutex, f.globalBlockCache), nil
+}
+
+// requireReceiptsReadable returns the error that reading the receipt of an EVM transaction in block fails
+// with, other than receipt.ErrNotFound.
+func requireReceiptsReadable(f *LogFetcher, block *coretypes.ResultBlock) error {
+	decode := f.txConfigProvider(block.Block.Height).TxDecoder()
+	latestCtx := f.ctxProvider(LatestCtxHeight)
+	for _, tx := range block.Block.Txs {
+		sdkTx, err := decode(tx)
+		if err != nil {
+			continue
+		}
+		for _, msg := range sdkTx.GetMsgs() {
+			evmMsg, ok := msg.(*evmtypes.MsgEVMTransaction)
+			if !ok || evmMsg.IsAssociateTx() {
+				continue
+			}
+			ethtx, _ := evmMsg.AsTransaction()
+			if ethtx == nil {
+				continue
+			}
+			// filterTransactions leaves out a transaction whose receipt read fails for any reason, which
+			// would drop its logs from a header that, unlike eth_getBlockByNumber, is never read again.
+			_, err := getOrSetCachedReceiptErr(f.cacheCreationMutex, f.globalBlockCache, latestCtx, f.k, block, ethtx.Hash())
+			if err != nil && !errors.Is(err, receipt.ErrNotFound) {
+				return fmt.Errorf("reading the receipt of %s: %w", ethtx.Hash().Hex(), err)
+			}
+		}
+	}
+	return nil
+}
+
+// awaitReceipts waits until store has written the receipts of height, and returns an error if it has not
+// within timeout.
+func awaitReceipts(store receipt.ReceiptStore, height int64, timeout time.Duration) error {
+	if store == nil {
+		return receipt.ErrNotConfigured
+	}
+	deadline := time.Now().Add(timeout)
+	// Commit queues a block's receipts for an asynchronous write and blocks while that queue is full, so the
+	// store trails the committed head by at most the queue's depth and this wait is normally milliseconds.
+	for store.LatestVersion() < height {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("receipts of height %d not written within %s (receipt store is at %d)", height, timeout, store.LatestVersion())
+		}
+		time.Sleep(newHeadReceiptsPollInterval)
+	}
+	return nil
+}
+
+// unreadReceiptTotals returns the receiptTotals a newHeads header reports for a block whose receipts cannot
+// be read: a logs bloom that matches every filter, and the gas used summed over txResults.
+func unreadReceiptTotals(txResults []*abci.ExecTxResult) receiptTotals {
+	var gasUsed uint64
+	for _, txRes := range txResults {
+		gasUsed += uint64(txRes.GasUsed) //nolint:gosec
+	}
+	return receiptTotals{logsBloom: FullBloom(), gasUsed: gasUsed}
 }
 
 func (a *SubscriptionAPI) broadcastNewHead(ethHeader map[string]interface{}) {
@@ -454,25 +605,17 @@ func (s *SubscriptionManager) Unsubscribe(ctx context.Context, id SubscriberID) 
 // gasLimit is read by the caller from the active SDK ConsensusParams
 // (see runNewHeadsFromNotifier); ConsensusParamUpdates on the response
 // would be nil for the vast majority of blocks.
-func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int, gasLimit int64) map[string]interface{} {
+func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int, gasLimit int64, totals receiptTotals) map[string]interface{} {
 	blockHash := common.BytesToHash(evt.hash)
 	number := big.NewInt(evt.header.Height)
 	miner := common.BytesToAddress(evt.header.ProposerAddress)
 	appHash := common.BytesToHash(evt.response.AppHash)
-	// TODO(autobahn): TxResult.GasUsed can be wrong for ante-failing EVM
-	// txs; block.go (GetBlockByNumber) sums receipt.GasUsed for that
-	// reason. We approximate here to keep newHeads cheap; subscribers
-	// needing exact gas should call eth_getBlockByNumber.
-	var totalGasUsed int64
-	for _, txRes := range evt.response.TxResults {
-		totalGasUsed += txRes.GasUsed
-	}
 	return map[string]interface{}{
-		"difficulty":            (*hexutil.Big)(utils.Big0),   // inapplicable to Sei
-		"extraData":             hexutil.Bytes{},              // inapplicable to Sei
-		"gasLimit":              hexutil.Uint64(gasLimit),     //nolint:gosec
-		"gasUsed":               hexutil.Uint64(totalGasUsed), //nolint:gosec
-		"logsBloom":             ethtypes.Bloom{},             // TODO(autobahn): derive from receipts so newHeads subscribers can pre-filter logs
+		"difficulty":            (*hexutil.Big)(utils.Big0), // inapplicable to Sei
+		"extraData":             hexutil.Bytes{},            // inapplicable to Sei
+		"gasLimit":              hexutil.Uint64(gasLimit),   //nolint:gosec
+		"gasUsed":               hexutil.Uint64(totals.gasUsed),
+		"logsBloom":             totals.logsBloom,
 		"miner":                 miner,
 		"nonce":                 ethtypes.BlockNonce{}, // inapplicable to Sei
 		"number":                (*hexutil.Big)(number),
@@ -496,25 +639,22 @@ func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int, gasLimit int64
 func encodeTmHeader(
 	header tmtypes.EventDataNewBlockHeader,
 	baseFee *big.Int,
+	totals receiptTotals,
 ) (map[string]interface{}, error) {
 	blockHash := common.HexToHash(header.Header.Hash().String())
 	number := big.NewInt(header.Header.Height)
 	miner := common.HexToAddress(header.Header.ProposerAddress.String())
-	gasWanted := int64(0)
 	lastHash := common.HexToHash(header.Header.LastBlockID.Hash.String())
 	resultHash := common.HexToHash(header.Header.LastResultsHash.String())
 	appHash := common.HexToHash(header.Header.AppHash.String())
 	txHash := common.HexToHash(header.Header.DataHash.String())
-	for _, txRes := range header.ResultFinalizeBlock.TxResults {
-		gasWanted += txRes.GasUsed
-	}
 	gasLimit := uint64(header.ResultFinalizeBlock.ConsensusParamUpdates.Block.MaxGas) //nolint:gosec
 	result := map[string]interface{}{
 		"difficulty":            (*hexutil.Big)(utils.Big0), // inapplicable to Sei
 		"extraData":             hexutil.Bytes{},            // inapplicable to Sei
 		"gasLimit":              hexutil.Uint64(gasLimit),
-		"gasUsed":               hexutil.Uint64(gasWanted), //nolint:gosec
-		"logsBloom":             ethtypes.Bloom{},          // inapplicable to Sei
+		"gasUsed":               hexutil.Uint64(totals.gasUsed),
+		"logsBloom":             totals.logsBloom,
 		"miner":                 miner,
 		"nonce":                 ethtypes.BlockNonce{}, // inapplicable to Sei
 		"number":                (*hexutil.Big)(number),
