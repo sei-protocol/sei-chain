@@ -185,7 +185,7 @@ func makeEVMApplication(
 	}
 	logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
 	app, err := evmonlyapp.NewEVMOnlyApplication(
-		config.AutobahnEVMOnlyChainID,
+		committee.GetEVMChainID(),
 		validators,
 		storage,
 		giga.Execution,

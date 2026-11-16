@@ -134,7 +134,7 @@ func (m *Proposal) View() View { return m.header.view(m.viewNumber) }
 func (m *Proposal) Header() *RoadBlockHeader { return m.header }
 
 // Verify checks epoch binding and lane-range bounds, lengths, committee membership,
-// and empty height-0 hashes. FullProposal.Verify additionally checks QC-chain continuity.
+// and empty-range hashes. FullProposal.Verify additionally checks QC-chain continuity.
 func (m *Proposal) Verify(ep *Epoch) error {
 	return m.header.Verify(ep)
 }
@@ -204,8 +204,7 @@ func buildProposal(
 ) (*Proposal, error) {
 	var laneRanges []*LaneRange
 	for lane := range committee.Lanes().All() {
-		prev := LaneRangeOpt(viewSpec.CommitQC, lane)
-		first := prev.Next()
+		first := LaneRangeOpt(viewSpec.CommitQC, lane).Next()
 		if lQC, ok := laneQCs[lane]; ok {
 			if lQC.Header().Lane() != lane {
 				return nil, fmt.Errorf("laneQC %v for lane %v", lQC.Header().Lane(), lane)
@@ -216,7 +215,12 @@ func buildProposal(
 			}
 			laneRanges = append(laneRanges, laneRange)
 		} else {
-			laneRanges = append(laneRanges, &LaneRange{lane: lane, first: first, next: first, lastHash: prev.LastHash()})
+			// Empty ranges carry NO last hash. This is intentional:
+			// Sole purpose of last hash is to identify the lane blocks in the proposal.
+			// Sequencing mismatching lane ranges is the core property of autobahn, i.e.
+			// we do NOT require last hash of range in previous proposal to be parent of the first block
+			// of the range in next proposal.
+			laneRanges = append(laneRanges, NewLaneRange(lane, first, utils.None[*BlockHeader]()))
 		}
 	}
 	return &Proposal{viewNumber: viewSpec.View().Number, header: newRoadBlockHeader(viewSpec.View().EpochIndex, viewSpec.View().Index, timestamp, laneRanges)}, nil
@@ -320,16 +324,9 @@ func (m *FullProposal) Verify(vs ViewSpec, viewTimeout time.Duration) error {
 		// Verify each lane range against the previous commitQC and its laneQC justification.
 		for lane := range c.Lanes().All() {
 			r := proposal.Header().LaneRange(lane)
-			prev := LaneRangeOpt(vs.CommitQC, r.Lane())
 			// Verify that range matches previous commitQC.
-			if got, want := r.First(), prev.Next(); got != want {
+			if got, want := r.First(), LaneRangeOpt(vs.CommitQC, r.Lane()).Next(); got != want {
 				return fmt.Errorf("laneRange[%v].First() = %v, want %v", r.Lane(), got, want)
-			}
-			// An empty range carries the previous commit's LastHash.
-			if r.Len() == 0 {
-				if got, want := r.LastHash(), prev.LastHash(); got != want {
-					return fmt.Errorf("laneRange[%v].LastHash() = %v, want %v", r.Lane(), got, want)
-				}
 			}
 			// Verify that the necessary laneQC is present and valid.
 			if r.First() < r.Next() {

@@ -10,6 +10,7 @@ import (
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -125,6 +126,31 @@ func TestMakeEVMApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
 	require.Equal(t, 0, app.EvmMinGasPrice().Cmp(big.NewInt(2_000_000_000)))
+}
+
+func TestMakeEVMApplicationEVMOnlyUsesConfiguredChainID(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		configured utils.Option[uint64]
+		want       uint64
+	}{
+		{"absent", utils.None[uint64](), config.AutobahnEVMOnlyChainID},
+		{"set", utils.Some(uint64(1330)), 1330},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			validator := makeValidator([]byte("chain-id-validator"), []byte("chain-id-node"), "localhost:26660")
+			fc := defaultFileConfig(t, []config.AutobahnValidator{validator})
+			fc.EVMChainID = tc.configured
+
+			app, manager, err := makeEVMApplication(t.Context(), &config.Config{
+				AutobahnConfigFile: writeAutobahnConfig(t, fc),
+			}, gigaconfig.DefaultConfig, genesisAt(1))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, manager.Close()) })
+
+			require.Equal(t, tc.want, app.EvmChainID())
+		})
+	}
 }
 
 // The builder's first block is the genesis height. A chain that starts above 1

@@ -32,6 +32,7 @@ import (
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -227,6 +228,9 @@ func NewEVMOnlyApplication(
 		if err := a.checkStartedWithAlloc(storage.StateDB().SC()); err != nil {
 			return nil, err
 		}
+		if err := a.checkStartedWithChainID(storage.StateDB().SC()); err != nil {
+			return nil, err
+		}
 		for executor := range a.executor.Lock() {
 			a.installExecutor(executor)
 		}
@@ -300,7 +304,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
-		changes := append([]gigatypes.MiscChange{next.miscChange()}, epochChanges...)
+		changes := append([]gigatypes.MiscChange{next.miscChange(), a.chainIDMiscChange()}, epochChanges...)
 		if alloc, ok := a.alloc.Get(); ok && height == alloc.InitialHeight {
 			changes = append(changes, alloc.miscChange())
 		}
@@ -1225,6 +1229,35 @@ func (a *evmOnlyApplication) checkStartedWithAlloc(store *flatkv.CommitStore) er
 		return errors.New("EVM-only chain started without a genesis alloc, but one is set")
 	case ok && !bytes.Equal(started, alloc.digest().Bytes()):
 		return errors.New("EVM-only genesis alloc differs from the one the chain started with")
+	}
+	return nil
+}
+
+// evmOnlyChainIDKey holds the chain ID the chain runs on, written outside the EVM state hash with
+// every block.
+const evmOnlyChainIDKey = "chain_id"
+
+func (a *evmOnlyApplication) chainIDMiscChange() gigatypes.MiscChange {
+	return gigatypes.MiscChange{
+		Module: evmOnlyCursorModule,
+		Key:    []byte(evmOnlyChainIDKey),
+		Value:  binary.BigEndian.AppendUint64(nil, a.chainID.Uint64()),
+	}
+}
+
+// checkStartedWithChainID refuses to resume a chain on a chain ID other than the one it ran on, which
+// would reject its transactions and change what CHAINID returns. A chain with no recorded ID predates
+// the record and ran on config.AutobahnEVMOnlyChainID.
+func (a *evmOnlyApplication) checkStartedWithChainID(store *flatkv.CommitStore) error {
+	started := config.AutobahnEVMOnlyChainID
+	if raw, found := store.Get(evmOnlyCursorModule, []byte(evmOnlyChainIDKey)); found {
+		if len(raw) != 8 {
+			return fmt.Errorf("EVM-only chain ID record has %d bytes, want 8", len(raw))
+		}
+		started = binary.BigEndian.Uint64(raw)
+	}
+	if got := a.chainID.Uint64(); got != started {
+		return fmt.Errorf("EVM-only chain ID %d differs from %d, the one the chain ran on", got, started)
 	}
 	return nil
 }
