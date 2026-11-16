@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -216,8 +217,10 @@ func (c *v2Chain) validator(op common.Address) (stakingtypes.Validator, bool) {
 // precompile's units. Unbonding and redelegation entries are keyed by the
 // accounts and validators they name.
 type stakingState struct {
-	validators         map[common.Address]validatorState
-	delegations        map[delegationKey]string
+	validators  map[common.Address]validatorState
+	delegations map[delegationKey]string
+	// delegators lists each validator's delegators, sorted.
+	delegators         map[common.Address][]common.Address
 	unbonding          map[delegationKey][]unbondingEntryState
 	redelegations      map[redelegationKey][]redelegationEntryState
 	redelegationCounts map[redelegationKey]uint64
@@ -259,6 +262,7 @@ func newStakingState() stakingState {
 	return stakingState{
 		validators:         map[common.Address]validatorState{},
 		delegations:        map[delegationKey]string{},
+		delegators:         map[common.Address][]common.Address{},
 		unbonding:          map[delegationKey][]unbondingEntryState{},
 		redelegations:      map[redelegationKey][]redelegationEntryState{},
 		redelegationCounts: map[redelegationKey]uint64{},
@@ -289,7 +293,9 @@ func (c *v2Chain) state(accounts []common.Address) stakingState {
 	for _, d := range c.keeper.GetAllDelegations(c.ctx) {
 		key := delegationKey{common.BytesToAddress(d.GetDelegatorAddr()), common.BytesToAddress(d.GetValidatorAddr())}
 		st.delegations[key] = sharesToWei(d.Shares).String()
+		st.delegators[key.validator] = append(st.delegators[key.validator], key.delegator)
 	}
+	sortDelegators(st.delegators)
 	for _, a := range accounts {
 		for _, ubd := range c.keeper.GetAllUnbondingDelegations(c.ctx, sdk.AccAddress(a[:])) {
 			op, err := sdk.ValAddressFromBech32(ubd.ValidatorAddress)
@@ -356,7 +362,11 @@ func (h *harness) parityState(validators, accounts []common.Address) stakingStat
 			unbondingHeight:   v.unbondingHeight,
 			unbondingTime:     v.unbondingTime,
 		}
+		if delegators := addresses(s.delegators(op)); len(delegators) > 0 {
+			st.delegators[op] = delegators
+		}
 	}
+	sortDelegators(st.delegators)
 	for _, a := range accounts {
 		delegated := s.delegatedValidators(a)
 		for i := uint64(0); i < delegated.Len(); i++ {
@@ -687,4 +697,11 @@ func (pr *pair) clampsRedelegation(src common.Address) bool {
 	}
 	t := uint64(v.UnbondingTime.UnixNano()) //nolint:gosec // a block time
 	return pr.p.store().redelegationQueue().clamp(t) != t
+}
+
+// sortDelegators orders each validator's delegators by address.
+func sortDelegators(delegators map[common.Address][]common.Address) {
+	for _, list := range delegators {
+		slices.SortFunc(list, common.Address.Cmp)
+	}
 }

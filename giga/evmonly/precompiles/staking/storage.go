@@ -231,6 +231,11 @@ func (s store) delegatedValidators(delegator common.Address) solstorage.Set {
 	return solstorage.Set{Store: s.Store, Base: solstorage.MapAddress(solstorage.Slot(slotDelegationsByDelegator), delegator)}
 }
 
+// delegators is the delegators of op.
+func (s store) delegators(op common.Address) solstorage.Set {
+	return solstorage.Set{Store: s.Store, Base: solstorage.MapAddress(solstorage.Slot(slotDelegationsByValidator), op)}
+}
+
 // delegation returns delegator's shares in op and whether delegator delegates
 // to op; a delegation can exist with no shares, as x/staking's can.
 func (s store) delegation(delegator, op common.Address) (*big.Int, bool) {
@@ -244,11 +249,13 @@ func (s store) delegation(delegator, op common.Address) (*big.Int, bool) {
 func (s store) setDelegation(delegator, op common.Address, shares *big.Int) {
 	s.SetUint256(delegationSlot(delegator, op), shares)
 	s.delegatedValidators(delegator).Add(solstorage.AddressKey(op))
+	s.delegators(op).Add(solstorage.AddressKey(delegator))
 }
 
 func (s store) removeDelegation(delegator, op common.Address) {
 	s.SetUint256(delegationSlot(delegator, op), nil)
 	s.delegatedValidators(delegator).Remove(solstorage.AddressKey(op))
+	s.delegators(op).Remove(solstorage.AddressKey(delegator))
 }
 
 // unbondingEntry is StakingStorage.UnbondingDelegationEntry.
