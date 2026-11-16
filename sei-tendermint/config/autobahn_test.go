@@ -62,6 +62,21 @@ func validAutobahnFileConfig() AutobahnFileConfig {
 	}
 }
 
+func TestAutobahnFileConfig_EVMChainID(t *testing.T) {
+	fc := validAutobahnFileConfig()
+	require.Equal(t, AutobahnEVMOnlyChainID, fc.GetEVMChainID())
+	encoded, err := json.Marshal(fc)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "evm_chain_id")
+
+	require.NoError(t, json.Unmarshal([]byte(`{"evm_chain_id":1330}`), &fc))
+	require.Equal(t, uint64(1330), fc.GetEVMChainID())
+	require.NoError(t, fc.Validate())
+
+	fc.EVMChainID = utils.Some[uint64](0)
+	require.Error(t, fc.Validate())
+}
+
 func TestAutobahnFileConfig_ValidateMaxConcurrentCheckTx(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
