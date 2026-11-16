@@ -49,7 +49,7 @@ func (c *Config) maxTxsPerBlock() uint64 {
 // State is the block producer state.
 type State struct {
 	cfg             *Config
-	app             *proxy.Proxy
+	app             *proxy.EVMProxy
 	mempool         utils.AtomicSend[utils.Option[*mempool]] // None when not producing
 	consensus       *consensus.State
 	checkTxSem      *utils.Semaphore // bounds CheckTx calls.
@@ -59,7 +59,7 @@ type State struct {
 
 // NewState constructs a new block producer state.
 // Mempool starts None; alignMempool creates it for each produce session.
-func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State {
+func NewState(cfg *Config, consensus *consensus.State, app *proxy.EVMProxy) *State {
 	limit := rate.Inf
 	burst := 1
 	if l, ok := cfg.MaxTxsPerSecond.Get(); ok {

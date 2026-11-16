@@ -47,9 +47,9 @@ type Backend interface {
 	Block(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	BlockByHash(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
 	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
-	EvmBalance(common.Address) uint256.Int
+	EvmBalance(common.Address, []byte) uint256.Int
 	EvmBalanceAt(address common.Address, height int64) (uint256.Int, error)
-	EvmBaseFee() (*big.Int, error)
+	EvmBaseFee() *big.Int
 	// EvmBlockContext returns the block context header's block executed at.
 	EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error)
 	EvmBlockNumber() uint64
@@ -58,7 +58,7 @@ type Backend interface {
 	// EvmCallAt executes msg as a read-only call against the committed EVM state after header's
 	// block, in the context that block executed at, with overrides applied.
 	EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (*core.ExecutionResult, error)
-	EvmChainConfig() (*params.ChainConfig, error)
+	EvmChainConfig() *params.ChainConfig
 	EvmChainID() uint64
 	EvmCode(common.Address) ([]byte, error)
 	EvmCodeAt(address common.Address, height int64) ([]byte, error)
@@ -82,10 +82,10 @@ type Backend interface {
 	// header's block, in the context that block executed at, and the result of executing msg with
 	// that list.
 	EvmCreateAccessListAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (ethtypes.AccessList, *core.ExecutionResult, error)
-	EvmGasLimit() (uint64, error)
+	EvmGasLimit() uint64
 	// EvmMinGasPrice returns the minimum effective gas price this application admits a
 	// transaction at.
-	EvmMinGasPrice() (*big.Int, error)
+	EvmMinGasPrice() *big.Int
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 	EvmProxyEnabled() bool
 	// RememberEvmSender records the sender recovered for the transaction with this hash, for the
@@ -102,7 +102,7 @@ type Backend interface {
 	// executed against, and the function that releases it.
 	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error)
 	EvmTransactionCount(common.Address) uint64
-	EvmTransactionCountAt(address common.Address, height int64) (uint64, error)
+	EvmNonceAt(address common.Address, height int64) (uint64, error)
 }
 
 // Server serves the EVM-only JSON-RPC API over HTTP and over WebSocket.

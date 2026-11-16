@@ -13,15 +13,15 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 // testEVMApp answers every EVMApplication method with a fixed value and
 // records the arguments it was called with.
 type testEVMApp struct {
-	abci.BaseApplication
+	proxy.EVMApplication
 	gotMsg       *ethcore.Message
 	gotCalls     []*ethcore.Message
 	gotGasCap    uint64
@@ -88,6 +88,8 @@ func (app *testEVMApp) EvmCreateAccessListAt(_ context.Context, msg *ethcore.Mes
 	return testAccessList, testExecutionResult, nil
 }
 
+func (app *testEVMApp) EvmCommittedNonce(common.Address) uint64 { return 6 }
+
 func (app *testEVMApp) EvmChainID() uint64                  { return 713715 }
 func (app *testEVMApp) EvmChainConfig() *params.ChainConfig { return testChainConfig }
 func (app *testEVMApp) EvmBaseFee() *big.Int                { return testBaseFee }
@@ -112,10 +114,8 @@ func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header *ethtypes.Head
 func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 	// Setup: an EVMEnvironment around a proxied EVMApplication, as node startup builds it.
 	app := &testEVMApp{}
-	proxyApp := proxy.New(app)
-	evm, ok := proxyApp.EVM().Get()
-	require.True(t, ok)
-	env := &EVMEnvironment{Environment: &Environment{App: proxyApp}, EVM: evm}
+	evm := proxy.NewEVM(app)
+	env := &EVMEnvironment{Environment: &Environment{EVM: utils.Some(evm)}, EVMProxy: evm}
 	msg := &ethcore.Message{GasLimit: 21_000}
 
 	t.Run("call", func(t *testing.T) {
@@ -233,20 +233,16 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 	t.Run("execution parameters", func(t *testing.T) {
 		// Test: the chain ID, chain config, base fee, gas limit and min gas price accessors.
 		chainID := env.EvmChainID()
-		chainConfig, chainConfigErr := env.EvmChainConfig()
-		baseFee, baseFeeErr := env.EvmBaseFee()
-		gasLimit, gasLimitErr := env.EvmGasLimit()
-		minGasPrice, minGasPriceErr := env.EvmMinGasPrice()
+		chainConfig := env.EvmChainConfig()
+		baseFee := env.EvmBaseFee()
+		gasLimit := env.EvmGasLimit()
+		minGasPrice := env.EvmMinGasPrice()
 
-		// Verify: each returns the app's value without error.
+		// Verify: each returns the app's value.
 		require.Equal(t, uint64(713715), chainID)
-		require.NoError(t, chainConfigErr)
 		require.Equal(t, testChainConfig, chainConfig)
-		require.NoError(t, baseFeeErr)
 		require.Equal(t, testBaseFee, baseFee)
-		require.NoError(t, gasLimitErr)
 		require.Equal(t, uint64(35_000_000), gasLimit)
-		require.NoError(t, minGasPriceErr)
 		require.Equal(t, testMinGasPrice, minGasPrice)
 	})
 

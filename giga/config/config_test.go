@@ -105,6 +105,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.execution.block_result_pool_size":     "4",
 		"giga.execution.evm_rpc_port":               "8600",
 		"giga.execution.evm_ws_port":                "8601",
+		"giga.execution.gc_percent":                 "200",
 		"giga.execution.unsafe_skip_upgrades":       []int{100, 101},
 		"giga.rpc.max_subscriptions_new_head":       "20",
 		"giga.rpc.max_subscriptions_logs":           "15",
@@ -145,6 +146,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			BlockResultPoolSize: 4,
 			EvmRpcPort:          8600,
 			EvmWsPort:           8601,
+			GCPercent:           200,
 			UnsafeSkipUpgrades:  []uint64{100, 101},
 		},
 		RPC: gigaconfig.RPCConfig{
@@ -182,6 +184,7 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"lookback below -1":               {"giga.storage.lookback_window": "-2"},
 		"zero prune interval":             {"giga.storage.prune_interval": "0s"},
 		"negative occ workers":            {"giga.execution.occ_workers": "-1"},
+		"negative gc percent":             {"giga.execution.gc_percent": "-1"},
 		"empty result pool":               {"giga.execution.block_result_pool_size": "0"},
 		"non-numeric gas price":           {"giga.execution.min_gas_price": "cheap"},
 		"negative block interval":         {"giga.storage.checkpoint_block_interval": "-1"},
@@ -238,4 +241,16 @@ func TestSendConcurrencyLimitDefaultAndZero(t *testing.T) {
 	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{"giga.rpc.max_concurrent_send_calls": "0"})
 	require.NoError(t, err)
 	require.Zero(t, cfg.RPC.MaxConcurrentSendCalls)
+}
+
+// TestGCPercentDefaultAndZero pins Autobahn's binary default at 400 (seid init / unset key) and
+// keeps explicit 0 as the opt-out that leaves Go's process default.
+func TestGCPercentDefaultAndZero(t *testing.T) {
+	require.Equal(t, 400, gigaconfig.DefaultConfig.Execution.GCPercent)
+	absent, err := gigaconfig.ReadConfig(configtest.AppOpts{})
+	require.NoError(t, err)
+	require.Equal(t, 400, absent.Execution.GCPercent)
+	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{"giga.execution.gc_percent": "0"})
+	require.NoError(t, err)
+	require.Zero(t, cfg.Execution.GCPercent)
 }

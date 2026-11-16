@@ -132,7 +132,7 @@ func TestHandlerPassesCallOverrides(t *testing.T) {
 func TestCallPricedAtOverriddenBaseFee(t *testing.T) {
 	const gwei = 1_000_000_000
 	backend := pastBlocksBackend(5)
-	backend.baseFee = func() (*big.Int, error) { return big.NewInt(1 * gwei), nil }
+	backend.baseFee = func() *big.Int { return big.NewInt(1 * gwei) }
 	var gotGasPrice *uint256.Int
 	record := func(msg *core.Message) { gotGasPrice = msg.GasPrice }
 	backend.call = func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
