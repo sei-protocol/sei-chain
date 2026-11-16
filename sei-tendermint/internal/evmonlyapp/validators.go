@@ -5,16 +5,17 @@ import (
 	"slices"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/staking"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// GetValidators returns staking's bonded set in the committed state, and the
-// configured validators until staking has bonded one. It returns none when a
-// finalized block failed to commit or the stored set does not add up, and
-// autobahn cannot stage an empty committee.
+// GetValidators returns staking's bonded set after the latest finalized block,
+// and the configured validators until staking has bonded one. It returns none
+// once a block is known to have failed to commit or the stored set does not add
+// up, and autobahn cannot stage an empty committee.
 func (a *evmOnlyApplication) GetValidators() []proxy.ValidatorUpdate {
 	bonded, err := a.bondedValidators()
 	if err != nil {
@@ -27,22 +28,30 @@ func (a *evmOnlyApplication) GetValidators() []proxy.ValidatorUpdate {
 	return bonded
 }
 
-// bondedValidators returns staking's bonded set once every finalized block is
-// committed. It fails when one failed to commit.
+// bondedValidators returns staking's bonded set after the latest finalized
+// block, without waiting for that block's commit.
 func (a *evmOnlyApplication) bondedValidators() ([]proxy.ValidatorUpdate, error) {
-	// openSettledView only logs a failed commit, which would serve a set from
-	// before the failed block, and autobahn persists the committee it stages.
-	if err := a.AwaitCommits(); err != nil {
-		return nil, fmt.Errorf("block commit failed: %w", err)
+	var bonded []staking.BondedValidator
+	read := func(state precompiles.State) (err error) {
+		bonded, err = staking.BondedValidators(state)
+		return err
 	}
-	view := a.storage.StateDB().OpenView()
-	defer view.Close()
-	bonded, err := staking.BondedValidators(evmonly.ReadOnlyState(view))
-	if err != nil {
-		return nil, err
+	// Autobahn calls this before every block, so it must not hold execution
+	// behind the previous block's commit.
+	if executor, ok := a.settler.Load().Get(); ok {
+		if err := executor.ReadLatest(read); err != nil {
+			return nil, err
+		}
+	} else {
+		view := a.storage.StateDB().OpenView()
+		defer view.Close()
+		if err := read(evmonly.ReadOnlyState(view)); err != nil {
+			return nil, err
+		}
 	}
 	updates := make([]proxy.ValidatorUpdate, len(bonded))
 	for i, v := range bonded {
+		var err error
 		if updates[i], err = validatorUpdate(v); err != nil {
 			return nil, err
 		}

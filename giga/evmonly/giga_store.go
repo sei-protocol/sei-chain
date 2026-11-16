@@ -9,6 +9,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
@@ -166,6 +167,52 @@ func (e *Executor) AwaitCommits() error {
 		return nil
 	}
 	return e.awaitPipelineCommit()
+}
+
+// ReadLatest calls read with read-only state holding every block this executor has run, without
+// waiting for the commit in flight. It fails once a commit is known to have failed.
+func (e *Executor) ReadLatest(read func(precompiles.State) error) error {
+	if e.stateStore == nil {
+		return errMissingStateStore
+	}
+	// Held so that no block starts its commit between taking the overlay and opening the view,
+	// which would pair the view with an overlay older than it.
+	e.storeMu.Lock()
+	defer e.storeMu.Unlock()
+	// Taken before the view, never after, as in executePreparedBlockWithStore.
+	pending := e.pipelinePending()
+	snapshot := e.stateStore.OpenView()
+	if snapshot == nil {
+		return errors.New("giga store returned a nil snapshot")
+	}
+	defer snapshot.Close()
+	source := pending.overlay(gigaSnapshotStateReader{snapshot: snapshot, missingState: e.missingState})
+	if err := read(&precompileState{db: newNativeStateDB(source), readOnly: true}); err != nil {
+		return err
+	}
+	// Checked after the read: a failed commit retired before the overlay was taken leaves the view
+	// short of that block and nothing to supply it.
+	return e.commitFailure()
+}
+
+// commitFailure reports a commit known to have failed, without waiting for the one in flight.
+func (e *Executor) commitFailure() error {
+	e.pipelineMu.Lock()
+	defer e.pipelineMu.Unlock()
+	if e.pipelineFailure != nil {
+		return e.pipelineFailure
+	}
+	if e.pipelineDone == nil {
+		return nil
+	}
+	select {
+	case <-e.pipelineDone:
+		if e.pipelineErr != nil {
+			return fmt.Errorf("commit state changes: %w", e.pipelineErr)
+		}
+	default:
+	}
+	return nil
 }
 
 // pipelinePending returns the indexed changes of a block whose commit has not been waited on yet, or

@@ -122,6 +122,7 @@ func TestEVMOnlyApplicationServesNoValidatorsAfterAFailedCommit(t *testing.T) {
 
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1, raw))
+	require.Error(t, settler.AwaitCommits())
 	require.Empty(t, app.GetValidators(), "block 1 failed to commit, so the committed state predates it")
 }
 
