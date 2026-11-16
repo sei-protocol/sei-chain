@@ -22,8 +22,10 @@ interface IStaking {
 
     /// @notice The caller moved amount from srcValidator to dstValidator. The
     /// stake moved at once; completionTime is when the move stops counting toward
-    /// maxEntries and stops blocking a redelegation out of dstValidator, or 0 when
-    /// it never did, because srcValidator was unbonded.
+    /// maxEntries and stops blocking a redelegation out of dstValidator. It is 0
+    /// when srcValidator was unbonded, unless the move took its last shares: that
+    /// removes srcValidator, and the move then counts for a full unbonding period,
+    /// as in x/staking.
     event Redelegate(
         address indexed delegator,
         address indexed srcValidator,

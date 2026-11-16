@@ -251,8 +251,8 @@ func (p Precompile) undelegate(
 
 // redelegate moves shares of delegator's delegation to src into a delegation
 // to dst, as x/staking's BeginRedelegation does, and queues the redelegation
-// entry unless src is unbonded. It returns the tokens moved and the entry's
-// completion time, or 0 for no entry.
+// entry unless src is unbonded and still exists once the shares leave it. It
+// returns the tokens moved and the entry's completion time, or 0 for no entry.
 func (p Precompile) redelegate(
 	block precompiles.BlockContext, s store, params chainparams.Staking, delegator, src, dst common.Address, shares *big.Int,
 ) (*big.Int, uint64, error) {
@@ -287,6 +287,8 @@ func (p Precompile) redelegate(
 		return nil, 0, err
 	}
 
+	// Read after unbond, as x/staking does: taking the last shares out of an
+	// unbonded src removes it, and a missing src waits a full unbonding period.
 	completionTime, creationHeight, completeNow := redelegationBeginInfo(block, s, params, src)
 	if completeNow {
 		return amount, 0, nil
