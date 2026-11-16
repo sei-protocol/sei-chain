@@ -316,6 +316,18 @@ func (env *Environment) EvmTransactionCount(address common.Address) uint64 {
 	return env.abciApplication().EvmNonce(address)
 }
 
+// EvmNextPendingNonce returns the nonce address's next transaction must carry on this node's
+// producer, counting the transactions it holds but has not committed. Without a producer it is
+// the committed nonce.
+func (env *Environment) EvmNextPendingNonce(address common.Address) uint64 {
+	if giga, ok := env.gigaRouter().Get(); ok {
+		if mp, ok := giga.Mempool().Get(); ok {
+			return mp.EvmNextPendingNonce(address)
+		}
+	}
+	return env.EvmTransactionCount(address)
+}
+
 // EvmBlockNumber returns the height of the most recently committed block.
 func (env *Environment) EvmBlockNumber() uint64 {
 	return utils.Clamp[uint64](env.lastBlockHeight())
