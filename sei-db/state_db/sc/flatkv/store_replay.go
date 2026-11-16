@@ -18,9 +18,12 @@ import (
 // It runs at startup (open/openTo) and during Rollback, never concurrently with live commits.
 func (s *CommitStore) replayIntoMutableStore(targetVersion int64) error {
 	if err := s.catchUpFromWAL(targetVersion); err != nil {
-		return err
+		return fmt.Errorf("catch up from the WAL: %w", err)
 	}
-	return s.requireAlignedDataDBs()
+	if err := s.requireAlignedDBs(); err != nil {
+		return fmt.Errorf("check the data DBs after catching up: %w", err)
+	}
+	return nil
 }
 
 // catchUpFromWAL replays this store's own WAL up to targetVersion, or to the end of the WAL when
@@ -48,11 +51,6 @@ func (s *CommitStore) catchUpFromWAL(targetVersion int64) (err error) {
 		return nil
 	}
 
-	// The stores flush independently, so some may be ahead of the committed version — which is the
-	// lowest height any of them reached. Blocks between it and a store's own height are re-read from
-	// the WAL and applied only to the stores that are missing them.
-	alreadyHave := s.computeStoreHeights()
-
 	start, end, ok, err := resolveReplayRange(s.wal, s.committedVersion, targetVersion)
 	if err != nil {
 		return fmt.Errorf("catchup: %w", err)
@@ -69,7 +67,7 @@ func (s *CommitStore) catchUpFromWAL(targetVersion int64) (err error) {
 	if err != nil {
 		return fmt.Errorf("catchup: WAL iterator [%d,%d]: %w", start, end, err)
 	}
-	if replayed, err = replayBlocks(s, it, alreadyHave); err != nil {
+	if replayed, err = replayBlocks(s, it); err != nil {
 		return fmt.Errorf("catchup: %w", err)
 	}
 
@@ -90,7 +88,7 @@ func (s *CommitStore) replayIntoReadOnlyCopy(clone *CommitStore, targetVersion i
 	if err := s.feedWALToReadOnlyCopy(clone, targetVersion); err != nil {
 		return err
 	}
-	return clone.requireAlignedDataDBs()
+	return clone.requireAlignedDBs()
 }
 
 // feedWALToReadOnlyCopy replays this store's WAL into clone up to targetVersion, or to the latest WAL block
@@ -111,7 +109,7 @@ func (s *CommitStore) feedWALToReadOnlyCopy(clone *CommitStore, targetVersion in
 	if !ok {
 		return nil
 	}
-	if _, err := replayBlocks(clone, it, nil); err != nil {
+	if _, err := replayBlocks(clone, it); err != nil {
 		return fmt.Errorf("readonly: %w", err)
 	}
 	return nil
@@ -191,7 +189,6 @@ func resolveReplayRange(
 func replayBlocks(
 	dest *CommitStore,
 	it seiwal.Iterator[[]mutation.Mutation],
-	alreadyHave map[string]int64,
 ) (replayed int, err error) {
 	defer func() {
 		if cerr := it.Close(); cerr != nil && err == nil {
@@ -208,8 +205,7 @@ func replayBlocks(
 			break
 		}
 		block, mutations := it.Entry()
-		//nolint:gosec // block <= end
-		if err := dest.applyAndCommit(int64(block), mutations, alreadyHave); err != nil {
+		if err := dest.applyAndCommit(block, mutations); err != nil {
 			return 0, fmt.Errorf("replay block %d: %w", block, err)
 		}
 		replayed++
@@ -225,33 +221,21 @@ func replayBlocks(
 // every store, advances the committed version and clones the working LtHash to committed. It never
 // touches the WAL — the data being applied was itself read from a WAL, so re-writing it would
 // double-append.
-func (s *CommitStore) applyAndCommit(
-	version int64,
-	mutations []mutation.Mutation,
-	alreadyHave map[string]int64,
-) error {
-	// Replay re-reads blocks the recorded version already covers, so committedVersion may be ahead of the
-	// block being applied. Rewind it for the duration: replay requires the block to be exactly
-	// committedVersion+1, and the stores that already hold this block are skipped individually via
-	// alreadyHave rather than by refusing the whole block.
-	if len(alreadyHave) > 0 && version <= s.committedVersion {
-		s.committedVersion = version - 1
-	}
-	if version != s.committedVersion+1 {
-		return fmt.Errorf("flatkv: replay version %d must be committed version %d plus one",
-			version, s.committedVersion)
+func (s *CommitStore) applyAndCommit(blockHeight uint64, mutations []mutation.Mutation) error {
+	if err := s.requireExpectedBlockNumber(blockHeight, true); err != nil {
+		return fmt.Errorf("replay block %d: %w", blockHeight, err)
 	}
 	// Staged under mu, as Commit stages, which is what keeps a concurrent read from interleaving with the writes.
 	s.mu.Lock()
-	staged, err := s.stageMutations(version, mutations, alreadyHave)
+	staged, err := s.stageMutations(blockHeight, mutations)
 	s.mu.Unlock()
 	if err != nil {
-		return fmt.Errorf("apply v%d: %w", version, err)
+		return fmt.Errorf("apply block %d: %w", blockHeight, err)
 	}
-	if err := s.sealBlock(version, staged, alreadyHave); err != nil {
-		return fmt.Errorf("commit v%d: %w", version, err)
+	if err := s.sealBlock(blockHeight, staged, true); err != nil {
+		return fmt.Errorf("commit block %d: %w", blockHeight, err)
 	}
-	s.committedVersion = version
+	s.committedVersion = int64(blockHeight) //nolint:gosec // never near the int64 ceiling
 	s.clearPendingBlock()
 	return nil
 }
