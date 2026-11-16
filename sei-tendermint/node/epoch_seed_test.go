@@ -1,6 +1,7 @@
 package node
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -101,6 +102,20 @@ func TestSeedEpochRegistryFromEpochRegistryRow(t *testing.T) {
 	for idx := atypes.EpochIndex(0); idx <= 3; idx++ {
 		require.True(t, epoch.EpochEqual(chain.registry.MustEpoch(idx), registry.MustEpoch(idx)))
 	}
+}
+
+func TestInstallEpochRegistryRefusesASecondInstallFromTheSameStaging(t *testing.T) {
+	rng := utils.TestRng()
+	chain := newTestEpochChain(t, rng)
+	checkpoint := committedCheckpoint(t, utils.Some(chain.registry.MarshalSnapshot()))
+	psd := t.TempDir()
+	layout := AutobahnLayout{PersistentStateDir: psd, EpochRegistryDir: epoch.SnapshotDir(psd)}
+	staging := filepath.Join(t.TempDir(), "staging")
+	require.NoError(t, PrepareEpochRegistry(chain.genesis, checkpoint, chain.firstHeightOf(2), staging))
+	require.NoError(t, InstallEpochRegistry(layout, staging))
+
+	require.ErrorIs(t, InstallEpochRegistry(layout, staging), os.ErrNotExist)
+	require.True(t, epoch.EpochEqual(chain.registry.MustEpoch(3), openLayoutRegistry(t, chain.genesis, layout).MustEpoch(3)))
 }
 
 func TestInstallEpochRegistryWithoutRowReplacesTheOldSnapshotWithGenesis(t *testing.T) {

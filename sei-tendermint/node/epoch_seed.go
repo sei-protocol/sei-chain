@@ -86,15 +86,20 @@ func requireEpochsForRoad(registry *epoch.Registry, road atypes.RoadIndex) error
 	return nil
 }
 
-// InstallEpochRegistry replaces the epoch registry snapshot of layout with the one that
-// PrepareEpochRegistry wrote under stagingDir. stagingDir must be on the filesystem of the
-// persistent state dir. It is not atomic: after a crash, the caller must run it again before
-// the node starts.
+// InstallEpochRegistry moves the epoch registry snapshot that PrepareEpochRegistry wrote under
+// stagingDir into layout, replacing the one there. stagingDir must be on the filesystem of the
+// persistent state dir. It returns an error, and keeps the installed snapshot, when stagingDir
+// holds no prepared snapshot. It is not atomic: after a crash, the caller must run
+// PrepareEpochRegistry and InstallEpochRegistry again before the node starts.
 func InstallEpochRegistry(layout AutobahnLayout, stagingDir string) error {
+	staged := epoch.SnapshotDir(stagingDir)
+	if _, err := os.Stat(staged); err != nil {
+		return fmt.Errorf("find the prepared epoch registry snapshot: %w", err)
+	}
 	if err := os.RemoveAll(layout.EpochRegistryDir); err != nil {
 		return fmt.Errorf("remove the epoch registry snapshot: %w", err)
 	}
-	if err := os.Rename(epoch.SnapshotDir(stagingDir), layout.EpochRegistryDir); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Rename(staged, layout.EpochRegistryDir); err != nil {
 		return fmt.Errorf("install the epoch registry snapshot: %w", err)
 	}
 	return dbutils.SyncDir(filepath.Dir(layout.EpochRegistryDir))
