@@ -1558,7 +1558,7 @@ func TestEVMOnlyApplicationResumesOnlyOnTheChainIDItRanOn(t *testing.T) {
 	}{
 		{"same chain ID", 1330, 1330, true},
 		{"chain ID changed", evmOnlyTestChainID, 1330, false},
-		{"chain ID reverted to default", 1330, evmOnlyTestChainID, false},
+		{"chain ID changed back", 1330, evmOnlyTestChainID, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			open := func(storage *bootstrap.GigaStorageManager, chainID uint64) (proxy.EVMApplication, error) {

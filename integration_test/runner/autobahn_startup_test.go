@@ -17,8 +17,10 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
 	"github.com/sei-protocol/sei-chain/integration_test/runner"
-	tmconfig "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 )
+
+// clusterEVMChainID is the EVM chain ID docker/localnode passes to gen-autobahn-config.
+const clusterEVMChainID uint64 = 713715
 
 const (
 	autobahnStartupContainer = "sei-node-0"
@@ -79,7 +81,7 @@ func buildStartupTransfer(t *testing.T) (*ethtypes.Transaction, []byte) {
 		t.Fatalf("derive startup sender key: %v", err)
 	}
 	sender := crypto.PubkeyToAddress(key.PublicKey)
-	signer := ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID))
+	signer := ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(clusterEVMChainID))
 	tx, err := ethtypes.SignNewTx(key, signer, &ethtypes.LegacyTx{
 		Nonce:    committedNonce(t, sender),
 		GasPrice: big.NewInt(1_000_000_000),

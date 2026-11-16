@@ -32,7 +32,6 @@ import (
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -1246,16 +1245,16 @@ func (a *evmOnlyApplication) chainIDMiscChange() gigatypes.MiscChange {
 }
 
 // checkStartedWithChainID refuses to resume a chain on a chain ID other than the one it ran on, which
-// would reject its transactions and change what CHAINID returns. A chain with no recorded ID predates
-// the record and ran on config.AutobahnEVMOnlyChainID.
+// would reject its transactions and change what CHAINID returns.
 func (a *evmOnlyApplication) checkStartedWithChainID(store *flatkv.CommitStore) error {
-	started := config.AutobahnEVMOnlyChainID
-	if raw, found := store.Get(evmOnlyCursorModule, []byte(evmOnlyChainIDKey)); found {
-		if len(raw) != 8 {
-			return fmt.Errorf("EVM-only chain ID record has %d bytes, want 8", len(raw))
-		}
-		started = binary.BigEndian.Uint64(raw)
+	raw, found := store.Get(evmOnlyCursorModule, []byte(evmOnlyChainIDKey))
+	if !found {
+		return errors.New("EVM-only chain has no recorded chain ID")
 	}
+	if len(raw) != 8 {
+		return fmt.Errorf("EVM-only chain ID record has %d bytes, want 8", len(raw))
+	}
+	started := binary.BigEndian.Uint64(raw)
 	if got := a.chainID.Uint64(); got != started {
 		return fmt.Errorf("EVM-only chain ID %d differs from %d, the one the chain ran on", got, started)
 	}

@@ -65,6 +65,7 @@ func defaultFileConfig(t testing.TB, validators []config.AutobahnValidator) *con
 		BlockInterval:      utils.Duration(400 * time.Millisecond),
 		PersistentStateDir: t.TempDir(),
 		DialInterval:       utils.Duration(10 * time.Second),
+		EVMChainID:         713714,
 	}
 }
 
@@ -168,6 +169,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 		BlockInterval:      utils.Duration(200 * time.Millisecond),
 		PersistentStateDir: "/tmp/autobahn-state",
 		DialInterval:       utils.Duration(5 * time.Second),
+		EVMChainID:         713714,
 	}
 	cfgFile := writeAutobahnConfig(t, fc)
 

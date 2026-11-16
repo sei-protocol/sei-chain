@@ -38,8 +38,10 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
-	tmconfig "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 )
+
+// clusterEVMChainID is the EVM chain ID docker/localnode passes to gen-autobahn-config.
+const clusterEVMChainID uint64 = 713715
 
 const (
 	// setupTimeout bounds TestMain's setup, which runs outside the go test timeout.
@@ -587,7 +589,7 @@ func restartNode(t *testing.T, i int) {
 func evmOnlyTransferConfig(txs int) scenarios.Config {
 	return scenarios.Config{
 		TxsPerBlock:   txs,
-		ChainID:       new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID),
+		ChainID:       new(big.Int).SetUint64(clusterEVMChainID),
 		GasPrice:      big.NewInt(1_000_000_000),
 		SenderBalance: new(big.Int).Lsh(big.NewInt(1), 200),
 		TransferValue: big.NewInt(1),
@@ -837,7 +839,7 @@ func assertEVMOnlyBalances(t *testing.T, ctx context.Context, clients []*ethrpc.
 // transaction, so its committed nonce should now be 1.
 func assertEVMOnlyTransactionCount(t *testing.T, ctx context.Context, clients []*ethrpc.Client, txs [][]byte) {
 	t.Helper()
-	signer := ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID))
+	signer := ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(clusterEVMChainID))
 	for nodeIndex, client := range clients {
 		tx := new(ethtypes.Transaction)
 		if err := tx.UnmarshalBinary(txs[nodeIndex]); err != nil {
@@ -860,7 +862,7 @@ func assertEVMOnlyTransactionCount(t *testing.T, ctx context.Context, clients []
 // assertEVMOnlyChainID checks eth_chainId against every node.
 func assertEVMOnlyChainID(t *testing.T, ctx context.Context, clients []*ethrpc.Client) {
 	t.Helper()
-	wantChainID := new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID)
+	wantChainID := new(big.Int).SetUint64(clusterEVMChainID)
 	for nodeIndex, client := range clients {
 		var chainID hexutil.Big
 		if err := client.CallContext(ctx, &chainID, "eth_chainId"); err != nil {
@@ -1125,7 +1127,7 @@ func assertEVMOnlyBlockQueries(t *testing.T, ctx context.Context, clients []*eth
 		t.Fatalf("decode EVM-only transaction: %v", err)
 	}
 	txHash := tx.Hash()
-	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID)), tx)
+	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(clusterEVMChainID)), tx)
 	if err != nil {
 		t.Fatalf("recover EVM-only sender: %v", err)
 	}
@@ -1289,7 +1291,7 @@ func assertEVMOnlyBlockQueries(t *testing.T, ctx context.Context, clients []*eth
 // the suggested prices clear the price the load paid.
 func assertEVMOnlyNodeInfo(t *testing.T, ctx context.Context, clients []*ethrpc.Client) {
 	t.Helper()
-	wantVersion := strconv.FormatUint(tmconfig.AutobahnEVMOnlyChainID, 10)
+	wantVersion := strconv.FormatUint(clusterEVMChainID, 10)
 	gasPrice := evmOnlyTransferConfig(1).GasPrice
 	for nodeIndex, client := range clients {
 		var version string
@@ -1345,7 +1347,7 @@ func assertEVMOnlyContractQueries(t *testing.T, ctx context.Context, clients []*
 		GasPrice: evmOnlyTransferConfig(1).GasPrice,
 		Gas:      evmOnlyContractGasLimit,
 		Data:     evmOnlyContractInitCode,
-	}), ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID)), key)
+	}), ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(clusterEVMChainID)), key)
 	if err != nil {
 		t.Fatalf("sign contract deploy: %v", err)
 	}
@@ -1919,7 +1921,7 @@ func assertEVMOnlyTransactionErrors(t *testing.T, ctx context.Context, clients [
 		GasPrice: evmOnlyTransferConfig(1).GasPrice,
 		Gas:      evmOnlyContractGasLimit,
 		Data:     []byte{0xfe},
-	}), ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID)), key)
+	}), ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(clusterEVMChainID)), key)
 	if err != nil {
 		t.Fatalf("sign failing deploy: %v", err)
 	}
