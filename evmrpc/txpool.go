@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -9,9 +10,15 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
+
+// txPoolPageSize is the number of mempool txs requested per page, the most the
+// Tendermint RPC returns in one page outside unsafe mode.
+const txPoolPageSize = 100
 
 type TxPoolAPI struct {
 	tmClient         client.LocalClient
@@ -47,24 +54,25 @@ func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]m
 		"queued":  make(map[string]map[string]*export.RPCTransaction),
 	}
 
-	total := t.txPoolConfig.maxNumTxs
-	resUnconfirmedTxs, err := t.tmClient.UnconfirmedTxs(ctx, nil, &total)
+	txs, err := t.loadUnconfirmedTxs(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
-	for _, tx := range resUnconfirmedTxs.Txs {
-		ethTx := getEthTxForTxBz(tx, t.txConfigProvider(LatestCtxHeight).TxDecoder())
+	decoder := t.txConfigProvider(LatestCtxHeight).TxDecoder()
+	chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx))
+	for _, tx := range txs {
+		ethTx := getEthTxForTxBz(tx, decoder)
 		if ethTx == nil { // not an evm tx
 			continue
 		}
 		fromAddr, err := rpcutils.RecoverEVMSenderWithContext(sdkCtx, ethTx)
 		if err != nil {
-			return nil, err
+			logger.Warn("txpool_content: skipping tx whose sender cannot be recovered", "hash", ethTx.Hash().Hex(), "err", err)
+			continue
 		}
 		nonce := ethTx.Nonce()
-		chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx))
 		res := export.NewRPCPendingTransaction(ethTx, nil, chainConfig)
 		nonceStr := strconv.FormatUint(nonce, 10)
 		if content["pending"][fromAddr.String()] == nil {
@@ -76,4 +84,48 @@ func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]m
 		}
 	}
 	return content, nil
+}
+
+// loadUnconfirmedTxs returns up to maxNumTxs distinct mempool txs, Cosmos txs
+// included, in the order the mempool lists them. A block landing between pages
+// can shift or remove txs, so the result is a best-effort view of the pool.
+func (t *TxPoolAPI) loadUnconfirmedTxs(ctx context.Context) (tmtypes.Txs, error) {
+	limit := t.txPoolConfig.maxNumTxs
+	if limit <= 0 {
+		return nil, nil
+	}
+	perPage := min(limit, txPoolPageSize)
+	var txs tmtypes.Txs
+	seen := make(map[tmtypes.TxHash]struct{})
+	listed := 0
+	for page := 1; len(txs) < limit; page++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		res, err := t.tmClient.UnconfirmedTxs(ctx, &page, &perPage)
+		if page > 1 && errors.Is(err, coretypes.ErrPageOutOfRange) {
+			// The pool shrank below this page since the previous one was read.
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, tx := range res.Txs {
+			if len(txs) == limit {
+				break
+			}
+			// A tx moved across a page boundary between reads is listed twice.
+			hash := tx.Hash()
+			if _, ok := seen[hash]; ok {
+				continue
+			}
+			seen[hash] = struct{}{}
+			txs = append(txs, tx)
+		}
+		listed += len(res.Txs)
+		if len(res.Txs) == 0 || listed >= res.Total {
+			break
+		}
+	}
+	return txs, nil
 }
