@@ -999,10 +999,8 @@ func TestNewStateWithPersistence(t *testing.T) {
 	})
 }
 
-// TestHeaders_WaitsForPrevEpochLaneVote checks that after the applied epoch
-// advances, a LaneVote that only verifies under the Anchor (prev) committee is
-// still ingested into byKey and unblocks headers() for a prior-epoch LaneRange.
-func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
+// TestHeaders_WaitsForCurrentEpochLaneVote checks header availability for a prior-epoch range.
+func TestHeaders_WaitsForCurrentEpochLaneVote(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := t.Context()
 		rng := utils.TestRng()
@@ -1068,6 +1066,13 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 			}
 
 			if err := state.PushVote(ctx, leaverVote); err != nil {
+				return err
+			}
+			synctest.Wait()
+			if done {
+				return fmt.Errorf("prior-epoch vote must not unblock headers")
+			}
+			if err := state.PushVote(ctx, types.Sign(stay, types.NewLaneVote(epLeave.EpochIndex(), header))); err != nil {
 				return err
 			}
 			synctest.Wait()
@@ -1230,4 +1235,49 @@ func TestMarkCommitQCsPersistedDoesNotRewindSpecAfterPrune(t *testing.T) {
 	require.Equal(t, utils.Some(qc), spec.CommitQC)
 	state.markCommitQCsPersisted(qc0)
 	require.Equal(t, spec, state.ConsensusSpec().Load())
+}
+
+func TestBlockVotes_EpochAdvance(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 4)
+	newKeys := []types.SecretKey{keys[0], keys[1], keys[2], types.GenSecretKey(rng)}
+	weights := map[types.PublicKey]uint64{}
+	for _, key := range newKeys {
+		weights[key.Public()] = 1
+	}
+	require.NoError(t, registry.TestPushEpoch(0, weights))
+	state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+	defer func() { require.NoError(t, state.Close()) }()
+	lane := state.LocalLane().OrPanic("lane")
+	header := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
+
+	// Send all old votes and check the QC.
+	oldVotes := makeLaneVotes(0, keys, header)
+	for _, vote := range oldVotes {
+		require.NoError(t, state.PushVote(ctx, vote))
+	}
+	qcs, err := state.WaitForLaneQCs(ctx, state.ConsensusSpec().Load().Index())
+	require.NoError(t, err)
+	require.Equal(t, header, qcs[lane].Header())
+	require.NoError(t, qcs[lane].Verify(registry.MustEpoch(0)))
+
+	// Advance epoch. Old votes should get discarded and ignored on reinsert.
+	require.NoError(t, TestAdvanceToEpoch(ctx, state, keys, registry, 2))
+	for _, vote := range oldVotes {
+		require.NoError(t, state.PushVote(ctx, vote))
+	}
+	for inner := range state.inner.Lock() {
+		require.Equal(t, 0, inner.lanes[lane].votes.Len())
+		require.Empty(t, inner.lanes[lane].votes.q)
+	}
+
+	// Send all new votes and check the QC.
+	for _, vote := range makeLaneVotes(2, newKeys, header) {
+		require.NoError(t, state.PushVote(ctx, vote))
+	}
+	qcs, err = state.WaitForLaneQCs(ctx, state.ConsensusSpec().Load().Index())
+	require.NoError(t, err)
+	require.Equal(t, header, qcs[lane].Header())
+	require.NoError(t, qcs[lane].Verify(registry.MustEpoch(2)))
 }
