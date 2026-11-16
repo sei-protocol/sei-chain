@@ -17,7 +17,7 @@ permissions: {}
 
 jobs:
   seidroid:
-    uses: sei-protocol/seidroid/.github/workflows/review.yml@5d334471bb132a49195364a011b67185484b6333 # main with OpenAI workload identity
+    uses: sei-protocol/seidroid/.github/workflows/review.yml@42d2eedb177c8fe4bfd8ba3c4f53dc2e2f805d66 # v0.3.1
     permissions:
       contents: read
       pull-requests: read
