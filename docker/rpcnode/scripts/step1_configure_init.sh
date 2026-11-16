@@ -141,7 +141,7 @@ if [ "$AUTOBAHN" = "true" ]; then
     GOVERNANCE_FLAGS="--evm-governance-voting-period $EVM_GOVERNANCE_VOTING_PERIOD"
   fi
   # contracts/test/lib.js and integration_test/autobahn sign for this EVM chain ID.
-  seid tendermint gen-autobahn-config $NODE_DIRS $GOVERNANCE_FLAGS --evm-chain-id 713715 --output "$AUTOBAHN_CONFIG"
+  seid tendermint gen-autobahn-config $NODE_DIRS $GOVERNANCE_FLAGS --evm-chain-id 713700 --output "$AUTOBAHN_CONFIG"
   if [ -n "$EVM_ALLOC" ]; then
     jq --argjson alloc "$EVM_ALLOC" '.evm_alloc = $alloc' "$AUTOBAHN_CONFIG" > "$AUTOBAHN_CONFIG.tmp" ||
       { echo "ERROR: EVM_ALLOC is not valid JSON" >&2; exit 1; }

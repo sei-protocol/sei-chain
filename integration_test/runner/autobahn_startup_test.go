@@ -20,7 +20,7 @@ import (
 )
 
 // clusterEVMChainID is the EVM chain ID docker/localnode passes to gen-autobahn-config.
-const clusterEVMChainID uint64 = 713715
+const clusterEVMChainID uint64 = 713700
 
 const (
 	autobahnStartupContainer = "sei-node-0"

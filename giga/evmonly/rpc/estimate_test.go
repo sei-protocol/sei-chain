@@ -30,7 +30,7 @@ func TestEstimateGasHappyPath(t *testing.T) {
 	var gotMsg *core.Message
 	var gotGasCap uint64
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 		estimateGas: func(_ context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
 			gotMsg = msg
@@ -55,7 +55,7 @@ func TestEstimateGasOmittedGasUsesGasEstimatorDefault(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	var gotMsg *core.Message
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 		estimateGas: func(_ context.Context, msg *core.Message, _ uint64) (uint64, []byte, error) {
 			gotMsg = msg
@@ -76,7 +76,7 @@ func TestEstimateGasPreservesExplicitGas(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	var gotMsg *core.Message
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 		estimateGas: func(_ context.Context, msg *core.Message, _ uint64) (uint64, []byte, error) {
 			gotMsg = msg
@@ -96,7 +96,7 @@ func TestEstimateGasCapsExplicitGasAboveDefault(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	var gotMsg *core.Message
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 		estimateGas: func(_ context.Context, msg *core.Message, _ uint64) (uint64, []byte, error) {
 			gotMsg = msg
@@ -116,7 +116,7 @@ func TestEstimateGasSurfacesRevertReason(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	revert := revertData("insufficient balance")
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 		estimateGas: func(context.Context, *core.Message, uint64) (uint64, []byte, error) {
 			return 0, revert, vm.ErrExecutionReverted
@@ -139,7 +139,7 @@ func TestEstimateGasPassesThroughNonRevertError(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	wantErr := errors.New("gas required exceeds allowance (40000)")
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 		estimateGas: func(context.Context, *core.Message, uint64) (uint64, []byte, error) {
 			return 0, nil, wantErr
@@ -204,7 +204,7 @@ func TestEstimateGasRunsAgainstAPastBlock(t *testing.T) {
 func TestEstimateGasDefaultsBlockSelectorToLatest(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 		estimateGas: func(context.Context, *core.Message, uint64) (uint64, []byte, error) {
 			return 21_000, nil, nil
@@ -221,7 +221,7 @@ func TestEstimateGasDefaultsBlockSelectorToLatest(t *testing.T) {
 func TestHandlerServesEstimateGas(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 		estimateGas: func(context.Context, *core.Message, uint64) (uint64, []byte, error) {
 			return 21_000, nil, nil

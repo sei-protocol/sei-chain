@@ -690,7 +690,7 @@ function _wrapSignerWithNonceRetry(signer) {
 // EVM chain ID docker/localnode gives the Autobahn EVM-only executor (the
 // --evm-chain-id of gen-autobahn-config). That chain has no Cosmos accounts, so an
 // EVM address has no Sei address to look up.
-const EVM_ONLY_CHAIN_ID = 713715
+const EVM_ONLY_CHAIN_ID = 713700
 
 // isEvmOnlyChain reports whether the network under test is the Autobahn
 // EVM-only chain.

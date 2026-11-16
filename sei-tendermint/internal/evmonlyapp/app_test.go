@@ -36,7 +36,7 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
-const evmOnlyTestChainID uint64 = 713715
+const evmOnlyTestChainID uint64 = 713700
 
 // evmOnlyMinGasPrice is the admission price the default execution config runs at.
 const evmOnlyMinGasPrice = 1_000_000_000
