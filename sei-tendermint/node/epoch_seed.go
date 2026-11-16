@@ -31,13 +31,14 @@ type EpochGenesis struct {
 	Validators []atypes.PublicKey
 }
 
-// ResolveEpochGenesis returns the epoch genesis of the node that conf and genDoc configure.
+// ResolveEpochGenesis returns the epoch genesis of the node that conf and genDoc configure, with
+// the genesis validators in key order.
 func ResolveEpochGenesis(conf *config.Config, genDoc *types.GenesisDoc) (EpochGenesis, error) {
 	_, validators, err := loadAutobahnCommittee(conf.AutobahnConfigFile)
 	if err != nil {
 		return EpochGenesis{}, err
 	}
-	return EpochGenesis{GenDoc: genDoc, Validators: slices.Collect(maps.Keys(validators))}, nil
+	return EpochGenesis{GenDoc: genDoc, Validators: slices.SortedFunc(maps.Keys(validators), atypes.PublicKey.Compare)}, nil
 }
 
 // PrepareEpochRegistry writes under stagingDir the epoch registry snapshot of the epoch_registry
@@ -87,7 +88,8 @@ func requireEpochsForRoad(registry *epoch.Registry, road atypes.RoadIndex) error
 
 // InstallEpochRegistry replaces the epoch registry snapshot of layout with the one that
 // PrepareEpochRegistry wrote under stagingDir. stagingDir must be on the filesystem of the
-// persistent state dir.
+// persistent state dir. It is not atomic: after a crash, the caller must run it again before
+// the node starts.
 func InstallEpochRegistry(layout AutobahnLayout, stagingDir string) error {
 	if err := os.RemoveAll(layout.EpochRegistryDir); err != nil {
 		return fmt.Errorf("remove the epoch registry snapshot: %w", err)

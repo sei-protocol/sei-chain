@@ -103,7 +103,7 @@ func TestAutobahnLayoutCoversWhatAFullnodeStoresOpen(t *testing.T) {
 		require.NoError(t, err, "the node did not create %s", dir)
 		require.True(t, info.IsDir())
 	}
-	dirs := append(storeDirs, layout.StateSyncProofDir)
+	dirs := slices.Concat(storeDirs, []string{layout.StateSyncProofDir})
 	files := []string{layout.RestoreMarkerFile, layout.RestoreProofFile}
 	isParent := func(path string) bool {
 		for _, p := range append(slices.Clone(dirs), files...) {

@@ -166,7 +166,8 @@ func TestPrepareEpochRegistryRefusesARowWithTheGenesisEpochsOfAnotherChain(t *te
 	require.Error(t, err)
 }
 
-func TestPrepareEpochRegistryAcceptsARowOfAnotherChainPrunedPastGenesis(t *testing.T) {
+// A row pruned past genesis is not bound to this chain here; AppQC(H+1) catches it.
+func TestPrepareEpochRegistryCannotBindARowPrunedPastGenesis(t *testing.T) {
 	rng := utils.TestRng()
 	chain := newTestEpochChain(t, rng)
 	other := newTestEpochChain(t, rng)
