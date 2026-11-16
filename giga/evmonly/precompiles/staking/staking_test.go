@@ -199,6 +199,22 @@ func TestRedelegatingFromAnUnbondedValidatorCompletesAtOnce(t *testing.T) {
 	h.requireInvariants(alice)
 }
 
+func TestRedelegatingTheLastSharesOutOfAnUnbondedValidatorWaits(t *testing.T) {
+	h := newHarness(t, testParams)
+	require.NoError(t, h.redelegate(val3, val3, val1, sei(10)))
+	_, ok := h.store().validator(val3)
+	require.False(t, ok, "the last shares out remove an unbonded validator")
+	require.Equal(t, int64(1), h.store().redelegationEntryCount(val3, val3, val1).Int64(), "a missing source waits as a bonded one does")
+	data, err := ABI.Events[RedelegateEvent].Inputs.NonIndexed().Unpack(h.state.logs[len(h.state.logs)-1].Data)
+	require.NoError(t, err)
+	require.Equal(t, []interface{}{sei(10), h.time + testParams.UnbondingTime}, data)
+
+	h.advance(testParams.UnbondingTime)
+	require.Empty(t, h.failures)
+	require.Zero(t, h.store().redelegationEntryCount(val3, val3, val1).Sign())
+	h.requireInvariants()
+}
+
 func TestRedelegatingOutOfAnOpenRedelegationWaits(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.delegate(alice, val1, sei(5)))
