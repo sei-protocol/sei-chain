@@ -143,13 +143,25 @@ func (a *recordingApp) finalized() []*proxy.RequestFinalizeBlock {
 }
 
 // recordingBuilder is an app hash builder that records each block hash reported
-// to it. Execution calls nothing else on it.
+// to it. Like the real builder, it refuses a height that does not follow the
+// previous one. Execution calls nothing else on it.
 type recordingBuilder struct {
 	builder.AppHashBuilder
 	events *eventLog
+	last   utils.Mutex[*utils.Option[uint64]]
 }
 
-func (b recordingBuilder) ReportBlockHash(_ context.Context, blockHeight uint64, _ [32]byte) error {
+func newRecordingBuilder(events *eventLog) *recordingBuilder {
+	return &recordingBuilder{events: events, last: utils.NewMutex(new(utils.Option[uint64]))}
+}
+
+func (b *recordingBuilder) ReportBlockHash(_ context.Context, blockHeight uint64, _ [32]byte) error {
+	for last := range b.last.Lock() {
+		if prev, ok := last.Get(); ok && blockHeight != prev+1 {
+			return fmt.Errorf("block hash reported for block %d, expected block %d", blockHeight, prev+1)
+		}
+		*last = utils.Some(blockHeight)
+	}
 	logEvent(b.events, "report %d", blockHeight)
 	return nil
 }
@@ -204,7 +216,7 @@ func (env *testEnv) executor(app *recordingApp) *Executor {
 	return New(&Config{
 		GenDoc:         env.genDoc,
 		App:            proxy.NewEVM(app),
-		AppHashBuilder: recordingBuilder{events: env.events},
+		AppHashBuilder: newRecordingBuilder(env.events),
 		BlockStore:     env.store,
 	})
 }
@@ -416,6 +428,23 @@ func TestRunEntersTheNextBlockBeforeTheCurrentOneReturns(t *testing.T) {
 		return waitExecuted(ctx, executor, env.road(3))
 	}))
 	require.Equal(t, 4, len(app.finalized()))
+}
+
+// Catching up over blocks that are all durable, with several in FinalizeBlock at once, still reports
+// their hashes in road order.
+func TestRunReportsBlockHashesInRoadOrderDuringCatchUp(t *testing.T) {
+	rng := utils.TestRng()
+	const blocks = 16
+	env := newTestEnv(t, rng, blocks)
+	require.NoError(t, env.write(0, blocks, true))
+	app := newRecordingApp(env.events, 0)
+	executor := env.executor(app)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
+		return waitExecuted(ctx, executor, env.road(blocks-1))
+	}))
+	require.Equal(t, blocks, len(app.finalized()))
 }
 
 // A block that commits while the previous block's executeBlock has not yet returned is still
