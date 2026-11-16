@@ -136,9 +136,8 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	require.Equal(t, lane1, gotBlk.Msg().Block().Header().Lane())
 }
 
-// Joiner catchup: a first-time joiner votes retained outstanding blocks; after
-// leave/rejoin the cursor stays tip-aligned (no re-vote of already emitted
-// headers; blocks produced while out are still voted once).
+// Joiners vote retained outstanding blocks, including blocks already voted
+// before leaving and rejoining in a later epoch.
 func TestJoinerCatchup_LaneVotes(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := t.Context()
@@ -178,50 +177,87 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		require.Equal(t, types.EpochIndex(2), stateB.LocalLane().OrPanic("joiner").Joined)
 
 		sub := stateB.SubscribeLaneVotes()
-		batch, err := sub.RecvBatch(ctx)
-		require.NoError(t, err)
-		require.Equal(t, 1, len(batch))
-		require.Equal(t, block0.Msg().Block().Header().Hash(), batch[0].Msg().Header().Hash())
-		require.Equal(t, b.Public(), batch[0].Key())
-		require.Equal(t, epJoin.EpochIndex(), batch[0].Msg().EpochIndex())
-		require.NoError(t, batch[0].Msg().Verify(epJoin))
-		require.NoError(t, batch[0].VerifySig())
+		requireLaneVotes(t, ctx, sub,
+			types.Sign(b, types.NewLaneVote(epJoin.EpochIndex(), block0.Msg().Block().Header())),
+		)
 
 		epLeave := register(1, onlyA)
 		advance(epLeave.EpochIndex())
-		block1 := produce(1) // while out; skip RecvBatch so the cursor stays behind block1
+		block1 := produce(1) // Retained alongside block0 while the voter is out.
 
 		epRejoin := register(2, both)
 		advance(epRejoin.EpochIndex())
 		require.Equal(t, types.EpochIndex(4), stateB.LocalLane().OrPanic("rejoiner").Joined)
 
-		batch, err = sub.RecvBatch(ctx)
-		require.NoError(t, err)
-		require.Equal(t, 1, len(batch))
-		require.Equal(t, block1.Msg().Block().Header().Hash(), batch[0].Msg().Header().Hash(),
-			"missed-while-out block is voted once; block0 must not be re-emitted")
-		require.Equal(t, epRejoin.EpochIndex(), batch[0].Msg().EpochIndex())
-		require.NoError(t, batch[0].Msg().Verify(epRejoin))
+		requireLaneVotes(t, ctx, sub,
+			types.Sign(b, types.NewLaneVote(epRejoin.EpochIndex(), block0.Msg().Block().Header())),
+			types.Sign(b, types.NewLaneVote(epRejoin.EpochIndex(), block1.Msg().Block().Header())),
+		)
 
-		ctx2, cancel := context.WithCancel(ctx)
-		defer cancel()
-		done := false
-		go func() {
-			_, _ = sub.RecvBatch(ctx2)
-			done = true
-		}()
-		synctest.Wait()
-		require.False(t, done, "cursor must not rewind onto already-emitted headers")
-		cancel()
-		synctest.Wait()
-		require.True(t, done)
+		require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			s.SpawnBg(func() error {
+				_, _ = sub.RecvBatch(ctx)
+				if ctx.Err() == nil {
+					return fmt.Errorf("votes must not be re-emitted within the same epoch")
+				}
+				return nil
+			})
+			synctest.Wait()
+			return nil
+		}))
 
 		block2 := produce(2)
-		batch, err = sub.RecvBatch(ctx)
-		require.NoError(t, err)
-		require.Equal(t, 1, len(batch))
-		require.Equal(t, block2.Msg().Block().Header().Hash(), batch[0].Msg().Header().Hash())
+		requireLaneVotes(t, ctx, sub,
+			types.Sign(b, types.NewLaneVote(epRejoin.EpochIndex(), block2.Msg().Block().Header())),
+		)
 	})
+}
+
+func TestLaneRevoteOnEpochAdvance(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 1)
+	state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+	defer func() { _ = state.Close() }()
+	lane := state.LocalLane().OrPanic("lane")
+	var headers []*types.BlockHeader
+	// Produce 3 blocks.
+	for n := range types.BlockNumber(3) {
+		block := utils.OrPanic1(state.ProduceLocalBlock(lane, n, types.GenPayload(rng)))
+		headers = append(headers, block.Msg().Block().Header())
+	}
+	// Persist 2.
+	state.setNextBlockToPersist(lane, 2)
+	// Receive 2 blocks.
+	sub := state.SubscribeLaneVotes()
+	requireLaneVotes(t, ctx, sub,
+		types.Sign(keys[0], types.NewLaneVote(0, headers[0])),
+		types.Sign(keys[0], types.NewLaneVote(0, headers[1])),
+	)
+
+	// Prune 1st, advance epoch, receive 2nd again.
+	pruneToHeader(state, keys, headers[0])
+	utils.OrPanic(TestAdvanceToEpoch(ctx, state, keys, registry, 1))
+	requireLaneVotes(t, ctx, sub,
+		types.Sign(keys[0], types.NewLaneVote(1, headers[1])),
+	)
+
+	// Persist 3rd and receive it.
+	state.setNextBlockToPersist(lane, 3)
+	requireLaneVotes(t, ctx, sub,
+		types.Sign(keys[0], types.NewLaneVote(1, headers[2])),
+	)
+}
+
+func requireLaneVotes(t *testing.T, ctx context.Context, sub *LaneVotesRecv, want ...*types.Signed[*types.LaneVote]) {
+	t.Helper()
+	var got []*types.Signed[*types.LaneVote]
+	for len(got) < len(want) {
+		batch, err := sub.RecvBatch(ctx)
+		require.NoError(t, err)
+		got = append(got, batch...)
+	}
+	require.Equal(t, want, got)
 }
 
 func TestBlock_WaitForFutureLane(t *testing.T) {

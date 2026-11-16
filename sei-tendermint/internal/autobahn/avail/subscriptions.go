@@ -65,12 +65,13 @@ func (s *State) WaitForNextLane(ctx context.Context, pk types.PublicKey, exclude
 }
 
 func (s *State) SubscribeLaneVotes() *LaneVotesRecv {
-	return &LaneVotesRecv{s, map[types.LaneID]types.BlockNumber{}}
+	return &LaneVotesRecv{state: s, next: map[types.LaneID]types.BlockNumber{}}
 }
 
 type LaneVotesRecv struct {
-	state *State
-	next  map[types.LaneID]types.BlockNumber
+	state      *State
+	epochIndex types.EpochIndex
+	next       map[types.LaneID]types.BlockNumber
 }
 
 func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.LaneVote], error) {
@@ -79,6 +80,10 @@ func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.L
 	for inner, ctrl := range r.state.inner.Lock() {
 		for {
 			ep := inner.applied()
+			if r.epochIndex != ep.EpochIndex() {
+				clear(r.next)
+				r.epochIndex = ep.EpochIndex()
+			}
 			for lane, ls := range inner.lanes {
 				if !ep.Committee().HasLane(lane) {
 					continue
