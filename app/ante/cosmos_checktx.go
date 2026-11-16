@@ -77,9 +77,6 @@ func CosmosCheckTxAnte(
 	if err := CosmosStatelessChecks(tx, ctx.BlockHeight(), ctx.ConsensusParams(), authParams); err != nil {
 		return SetGasMeter(ctx, 0, pk), err
 	}
-	if err := CheckSignerModeInfos(tx); err != nil {
-		return SetGasMeter(ctx, 0, pk), err
-	}
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -200,6 +197,9 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 			return err
 		}
 	}
+	if err := checkSignerModeInfos(tx); err != nil {
+		return err
+	}
 
 	signers := sigTx.GetSigners()
 	for i, pk := range pubkeys {
@@ -231,9 +231,9 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 	return nil
 }
 
-// CheckSignerModeInfos returns an error if any signer's multisig mode info nests
+// checkSignerModeInfos returns an error if any signer's multisig mode info nests
 // deeper than the multisig public key nesting limit.
-func CheckSignerModeInfos(tx sdk.Tx) error {
+func checkSignerModeInfos(tx sdk.Tx) error {
 	protoTx, ok := tx.(interface{ GetProtoTx() *txtypes.Tx })
 	if !ok {
 		return nil
