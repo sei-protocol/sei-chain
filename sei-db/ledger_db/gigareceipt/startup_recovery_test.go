@@ -48,14 +48,11 @@ func writeBlockLedger(t *testing.T, manager *bootstrap.GigaStorageManager, throu
 	}
 }
 
-// reportMissingBlockHashes reports a block hash for each committed height the app hash vault does
-// not yet hold, then waits until the vault stores the state version's app hash. It returns nil when
+// reportMissingBlockHashes reports a block hash for each committed height above the newest app hash the
+// builder has published, then waits until it publishes the state version's app hash. It returns nil when
 // the state version is 0.
 func reportMissingBlockHashes(manager *bootstrap.GigaStorageManager) error {
-	if manager.SC() == nil || manager.AppHashBuilder() == nil || manager.AppHashVault() == nil {
-		return fmt.Errorf("report missing block hashes: storage is not open")
-	}
-	version, err := manager.SC().GetLatestVersion()
+	version, err := manager.StateDB().SC().GetLatestVersion()
 	if err != nil {
 		return fmt.Errorf("read state height: %w", err)
 	}
@@ -64,31 +61,26 @@ func reportMissingBlockHashes(manager *bootstrap.GigaStorageManager) error {
 	}
 	//nolint:gosec // state heights are non-negative
 	height := uint64(version)
-	stored, err := manager.AppHashVault().GetLatestBlock()
+	_, published, ok, err := manager.AppHashBuilder().Bounds()
 	if err != nil {
-		return fmt.Errorf("read app hash vault head: %w", err)
+		return fmt.Errorf("read the published app hash bounds: %w", err)
 	}
-	for n := stored + 1; n <= height; n++ {
+	if !ok {
+		published = 0
+	}
+	for n := published + 1; n <= height; n++ {
 		var blockHash [32]byte
 		binary.BigEndian.PutUint64(blockHash[:8], n)
 		if err := manager.AppHashBuilder().ReportBlockHash(context.Background(), n, blockHash); err != nil {
 			return fmt.Errorf("report the block hash of block %d: %w", n, err)
 		}
 	}
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		head, err := manager.AppHashVault().GetLatestBlock()
-		if err != nil {
-			return fmt.Errorf("read app hash vault head: %w", err)
-		}
-		if head >= height {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("the app hash of block %d was not stored within 10s", height)
-		}
-		time.Sleep(time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := manager.AppHashBuilder().GetAppHash(ctx, height); err != nil {
+		return fmt.Errorf("await the app hash of block %d: %w", height, err)
 	}
+	return nil
 }
 
 // executeBlocks commits state and receipts for blocks [from, through], submits an empty receipt list
@@ -179,7 +171,8 @@ func TestStartupRecoveryRollsBackToTheLowerReceiptHead(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, uint64(6), blockHead, "recovery never cuts the block store")
 			require.Equal(t, int64(4), manager.ReceiptDB().LatestVersion())
-			require.Equal(t, int64(4), manager.SC().Version(), "state must follow the receipt store back")
+			require.Equal(t, int64(4), manager.StateDB().SC().Version(),
+				"state must follow the receipt store back")
 
 			executeBlocks(t, manager, ctx, 5, 6)
 			requireEveryReceiptOnce(t, manager.ReceiptDB(), ctx, 6)

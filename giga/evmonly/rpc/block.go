@@ -101,14 +101,8 @@ func (api *blockAPI) transactionAtIndex(ctx context.Context, block *coretypes.Re
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
 	}
-	baseFee, err := api.backend.EvmBaseFee()
-	if err != nil {
-		return nil, err
-	}
-	chainConfig, err := api.backend.EvmChainConfig()
-	if err != nil {
-		return nil, err
-	}
+	baseFee := api.backend.EvmBaseFee()
+	chainConfig := api.backend.EvmChainConfig()
 	return api.rpcTransaction(ctx, block, i, blockUnix, baseFee, chainConfig)
 }
 
@@ -189,14 +183,8 @@ func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.Resul
 	if err != nil {
 		return nil, err
 	}
-	gasLimit, err := api.backend.EvmGasLimit()
-	if err != nil {
-		return nil, err
-	}
-	baseFee, err := api.backend.EvmBaseFee()
-	if err != nil {
-		return nil, err
-	}
+	gasLimit := api.backend.EvmGasLimit()
+	baseFee := api.backend.EvmBaseFee()
 	return &ethtypes.Header{
 		ParentHash: parentHash,
 		Number:     big.NewInt(block.Block.Height),
@@ -231,22 +219,13 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", number, block.Block.Time)
 	}
-	gasLimit, err := api.backend.EvmGasLimit()
-	if err != nil {
-		return nil, err
-	}
-	baseFee, err := api.backend.EvmBaseFee()
-	if err != nil {
-		return nil, err
-	}
+	gasLimit := api.backend.EvmGasLimit()
+	baseFee := api.backend.EvmBaseFee()
 
 	txs := block.Block.Txs
 	transactions := make([]any, len(txs))
 	if fullTx {
-		chainConfig, err := api.backend.EvmChainConfig()
-		if err != nil {
-			return nil, err
-		}
+		chainConfig := api.backend.EvmChainConfig()
 		// One receipt read per transaction here, not just for the last one:
 		// deferred pending a bulk receipt-load API on the receipt store.
 		for i := range txs {
@@ -308,14 +287,8 @@ func encodeHeader(backend Backend, block *coretypes.ResultBlock, gasUsed uint64)
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
 	}
-	gasLimit, err := backend.EvmGasLimit()
-	if err != nil {
-		return nil, err
-	}
-	baseFee, err := backend.EvmBaseFee()
-	if err != nil {
-		return nil, err
-	}
+	gasLimit := backend.EvmGasLimit()
+	baseFee := backend.EvmBaseFee()
 	return headerFields(block, blockUnix, gasLimit, baseFee, gasUsed), nil
 }
 

@@ -21,6 +21,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -137,9 +138,9 @@ func newTraceChain(t *testing.T) *traceChain {
 			return nil, nil
 		},
 		blockNumber: func() uint64 { return 2 },
-		gasLimit:    func() (uint64, error) { return traceGasLimit, nil },
-		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
-		chainConfig: func() (*params.ChainConfig, error) { return &chainConfig, nil },
+		gasLimit:    func() uint64 { return traceGasLimit },
+		baseFee:     func() *big.Int { return new(big.Int) },
+		chainConfig: func() *params.ChainConfig { return &chainConfig },
 		chainID:     func() uint64 { return traceChainID },
 		blockContext: func(header *ethtypes.Header) (vm.BlockContext, error) {
 			return evmonly.EVMBlockContext(blockContext(header)), nil
@@ -463,10 +464,25 @@ func TestDebugTraceCall(t *testing.T) {
 		require.Error(t, client.CallContext(t.Context(), &got, "debug_traceCall", transfer, "0x3", config))
 	})
 
-	t.Run("overrides are refused", func(t *testing.T) {
-		config := map[string]any{"stateOverrides": map[string]any{chain.sender.Hex(): map[string]any{"nonce": "0x9"}}}
+	t.Run("overrides apply", func(t *testing.T) {
+		config := map[string]any{
+			"tracer":         "prestateTracer",
+			"stateOverrides": map[string]any{chain.sender.Hex(): map[string]any{"nonce": "0x9"}},
+			"blockOverrides": map[string]any{"number": "0x7"},
+		}
+		var got map[common.Address]prestateAccount
+		require.NoError(t, client.CallContext(t.Context(), &got, "debug_traceCall", transfer, "0x2", config))
+		require.Equal(t, uint64(9), got[chain.sender].Nonce)
+	})
+
+	t.Run("an override above the limits is refused", func(t *testing.T) {
+		limited := chain.client(t, gigaconfig.RPCConfig{MaxRequestBodyBytes: testRequestBodyBytes, MaxStateOverrideAccounts: 1})
+		config := map[string]any{"stateOverrides": map[string]any{
+			chain.sender.Hex(): map[string]any{"nonce": "0x9"}, traceRecipient.Hex(): map[string]any{"nonce": "0x9"},
+		}}
 		var got json.RawMessage
-		err := client.CallContext(t.Context(), &got, "debug_traceCall", transfer, "latest", config)
+		err := limited.CallContext(t.Context(), &got, "debug_traceCall", transfer, "latest", config)
+		require.ErrorContains(t, err, errStateOverrideTooManyAccounts.Error())
 		var rpcErr ethrpc.Error
 		require.ErrorAs(t, err, &rpcErr)
 		require.Equal(t, -32602, rpcErr.ErrorCode())
@@ -595,6 +611,36 @@ func TestPrepareTraceConfigCapsTheStructLogger(t *testing.T) {
 	api := newDebugAPI(&testBackend{}, evmonly.NewMemoryReceiptStore(), gigaconfig.RPCConfig{MaxTraceStructLogBytes: capBytes})
 	require.NoError(t, api.prepareTraceConfig(config))
 	require.Nil(t, config.Config)
+}
+
+func TestDebugRawDataIsNotSupported(t *testing.T) {
+	handler, err := newHandler(&testBackend{}, evmonly.NewMemoryReceiptStore(), noRPCLimits)
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	for _, tc := range []struct {
+		method string
+		param  any
+	}{
+		{method: "debug_getRawHeader", param: "latest"},
+		{method: "debug_getRawBlock", param: "0x1"},
+		{method: "debug_getRawReceipts", param: "latest"},
+		{method: "debug_getRawTransaction", param: common.Hash{}},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			var got any
+			err := client.CallContext(t.Context(), &got, tc.method, tc.param)
+			var rpcErr ethrpc.Error
+			require.ErrorAs(t, err, &rpcErr)
+			require.Equal(t, evmrpc.ErrCodeEVMNotSupported, rpcErr.ErrorCode())
+			require.Equal(t, tc.method+" is not supported on Sei EVM RPC", err.Error())
+		})
+	}
 }
 
 // A failed block read reaches the caller instead of "transaction not found".

@@ -24,12 +24,6 @@ type GigaStorageConfig struct {
 	AppHashBuilderConfig *builder.AppHashBuilderConfig    // required
 	ReceiptHasherConfig  *receipthash.ReceiptHasherConfig // required
 	BUDHasherConfig      *bud.BUDHasherConfig             // required
-
-	// DeferAppHashBuilderSetup leaves the app hash builder's setup to the caller, which completes it with
-	// SetupComplete() or CompleteRestoredSetup() after storage opens. Set on a home restored from a state
-	// snapshot. The caller must not write the restored block to the block store until CompleteRestoredSetup()
-	// returns.
-	DeferAppHashBuilderSetup bool
 }
 
 // gigaReceiptBackend is the receipt backend Giga opens (littidx).
