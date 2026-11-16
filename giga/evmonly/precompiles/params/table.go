@@ -20,6 +20,8 @@ const (
 	KindDuration
 	// KindCoins is an amount of wei.
 	KindCoins
+	// KindInt is an integer.
+	KindInt
 )
 
 // valueKind is how a param's value is stored and ABI-encoded: its unit,
@@ -34,6 +36,8 @@ var (
 	decKind      = valueKind{kind: KindDec, solType: "uint256", bits: 256}
 	durationKind = valueKind{kind: KindDuration, solType: "uint64", bits: 64}
 	coinsKind    = valueKind{kind: KindCoins, solType: "uint256", bits: 256}
+	intKind      = valueKind{kind: KindInt, solType: "uint256", bits: 256}
+	uint32Kind   = valueKind{kind: KindInt, solType: "uint32", bits: 32}
 )
 
 // param is one declared param.
@@ -61,7 +65,7 @@ type subspace struct {
 }
 
 // subspaces are the declared subspaces, in ParamsStorage order.
-var subspaces = []*subspace{&govSubspace}
+var subspaces = []*subspace{&govSubspace, &stakingSubspace}
 
 // Key is a declared param: its subspace, flat key, and the unit and Solidity
 // type of its value.

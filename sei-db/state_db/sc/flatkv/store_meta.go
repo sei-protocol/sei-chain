@@ -277,33 +277,8 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 		}
 	}
 
-	if err := s.sealSeededVersion(seededVersion); err != nil {
-		return fmt.Errorf("flatkv: SetInitialVersion: seal seeded version: %w", err)
-	}
-
-	for _, dir := range dataDBDirs {
-		s.localMeta[dir] = &LocalMeta{
-			CommittedVersion: seededVersion,
-			LtHash:           s.loadedHashes.PerDB[dir].Clone(),
-			ModuleLtHashes:   cloneModuleHashes(s.loadedHashes.PerModule[dir]),
-			ModuleStats:      cloneModuleStats(s.loadedHashes.PerModuleStats[dir]),
-		}
-	}
-
-	s.committedVersion = seededVersion
-	s.loadedHashes.BlockNumber = seededVersion
-
-	// The engine must carry back what this established, or the first real block would be measured
-	// against different state than was persisted.
-	if err := s.restartHashing(); err != nil {
-		return fmt.Errorf("flatkv: SetInitialVersion: %w", err)
-	}
-
-	// The seal only stages the records; the view managers flush asynchronously. Wait for them so the seed is
-	// durable across a restart, as this method promises. For a non-genesis seed the snapshot below supplies
-	// the same barrier, but it does not run at genesis.
-	if err := s.flushLatestVersion(); err != nil {
-		return fmt.Errorf("flatkv: SetInitialVersion: flush seeded version: %w", err)
+	if err := s.persistLocalMetaAndReopen(uint64(seededVersion)); err != nil { //nolint:gosec // non-negative
+		return fmt.Errorf("flatkv: SetInitialVersion: seed version %d: %w", seededVersion, err)
 	}
 
 	if seededVersion > 0 {
