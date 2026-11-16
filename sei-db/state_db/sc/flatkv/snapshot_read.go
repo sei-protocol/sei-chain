@@ -94,7 +94,7 @@ type snapshotDataDB struct {
 func openSnapshotDataDBs(dir string) ([]snapshotDataDB, error) {
 	dbs := make([]snapshotDataDB, 0, len(dataDBDirs))
 	for _, name := range dataDBDirs {
-		db, err := openSnapshotPebble(filepath.Join(dir, name))
+		db, err := openPebbleReadOnly(filepath.Join(dir, name))
 		if err != nil {
 			closeSnapshotDataDBs(dbs)
 			return nil, fmt.Errorf("open %s database: %w", name, err)
@@ -232,7 +232,7 @@ func ReadSnapshotMiscValue(dir, moduleName string, key []byte) ([]byte, bool, er
 		return nil, false, fmt.Errorf("module %q is not a misc module", moduleName)
 	}
 	dbDir := filepath.Join(dir, miscDBDir)
-	db, err := openSnapshotPebble(dbDir)
+	db, err := openPebbleReadOnly(dbDir)
 	if err != nil {
 		return nil, false, fmt.Errorf("open %q read-only: %w", dbDir, err)
 	}
@@ -256,7 +256,9 @@ func ReadSnapshotMiscValue(dir, moduleName string, key []byte) ([]byte, bool, er
 	return row.GetValue(), true, nil
 }
 
-func openSnapshotPebble(dbDir string) (*pebble.DB, error) {
+// openPebbleReadOnly opens the Pebble DB at dbDir read-only and returns the Pebble error unchanged. It
+// modifies none of the database's files, and creates only a LOCK file when there is none.
+func openPebbleReadOnly(dbDir string) (*pebble.DB, error) {
 	return pebble.Open(dbDir, &pebble.Options{
 		ReadOnly:           true,
 		FormatMajorVersion: pebble.FormatVirtualSSTables,
