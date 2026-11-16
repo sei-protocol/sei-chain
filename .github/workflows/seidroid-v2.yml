@@ -23,5 +23,9 @@ jobs:
       pull-requests: read
       id-token: write
     with:
+      # Runs the full v2 review (scouts, main review, sandboxed shell) on the same
+      # triggers as seidroid.yml, but publishes only its Seidroid Review check: no
+      # review, inline comments, approval, reactions or replies. v1 keeps the
+      # conversation, and the service pairs this check with v1's on each commit.
       shadow: true
       allowed-bots: seidroid[bot]
