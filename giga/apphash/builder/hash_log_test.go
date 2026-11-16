@@ -116,3 +116,22 @@ func TestChangedAppHashIsFlushedToHashLogBeforeCrash(t *testing.T) {
 	)
 	requireLoggedRow(t, dir, changed)
 }
+
+// Flush() stores every block reported before it and leaves their hash log rows on disk while the builder stays open.
+func TestFlushWritesTheHashLogWithoutClosing(t *testing.T) {
+	dir := t.TempDir()
+	b := openHashLoggingBuilder(t, dir)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	for height := uint64(1); height <= 3; height++ {
+		reportLoggedBlock(t, b, height, 0)
+	}
+	require.NoError(t, b.Flush(t.Context()))
+	_, highest, ok, err := b.Bounds()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(3), highest)
+
+	for _, record := range expectedChain(1, 1, 3) {
+		requireLoggedRow(t, dir, record)
+	}
+}

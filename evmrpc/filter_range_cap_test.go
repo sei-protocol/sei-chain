@@ -90,6 +90,8 @@ func (s *rangeCapReceiptStore) GetReceiptFromStore(ctx sdk.Context, txHash commo
 	return s.GetReceipt(ctx, txHash)
 }
 
+func (s *rangeCapReceiptStore) Flush() error { return nil }
+
 func (s *rangeCapReceiptStore) SetReceipts(_ sdk.Context, records []receipt.ReceiptRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

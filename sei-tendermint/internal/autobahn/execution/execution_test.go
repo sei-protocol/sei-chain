@@ -168,7 +168,7 @@ func (env *testEnv) write(from, to int, flush bool) error {
 	return nil
 }
 
-func (env *testEnv) executor(app *recordingApp) *Executor {
+func (env *testEnv) executor(app proxy.EVMApplication) *Executor {
 	return New(&Config{
 		GenDoc:         env.genDoc,
 		App:            proxy.NewEVM(app),
@@ -322,6 +322,88 @@ func TestRunReplaysStoredBlocksAfterRestart(t *testing.T) {
 	require.Equal(t, 2, len(finalized))
 	require.Equal(t, int64(env.road(1)), finalized[0].Header.Height)
 	require.Equal(t, int64(env.road(2)), finalized[1].Header.Height)
+}
+
+// pausingApp is a recordingApp whose first FinalizeBlock() signals started, then
+// waits on its context for finish.
+type pausingApp struct {
+	*recordingApp
+	started  chan struct{}
+	finish   chan struct{}
+	pausedOn utils.Mutex[*bool]
+}
+
+func newPausingApp(events *eventLog) *pausingApp {
+	return &pausingApp{
+		recordingApp: newRecordingApp(events, 0),
+		started:      make(chan struct{}, 1),
+		finish:       make(chan struct{}),
+		pausedOn:     utils.NewMutex(new(bool)),
+	}
+}
+
+func (a *pausingApp) FinalizeBlock(
+	ctx context.Context,
+	req *proxy.RequestFinalizeBlock,
+) (*proxy.ResponseFinalizeBlock, error) {
+	for paused := range a.pausedOn.Lock() {
+		if *paused {
+			return a.recordingApp.FinalizeBlock(ctx, req)
+		}
+		*paused = true
+	}
+	a.started <- struct{}{}
+	if _, err := utils.Recv(ctx, a.finish); err != nil {
+		return nil, err
+	}
+	return a.recordingApp.FinalizeBlock(ctx, req)
+}
+
+// TestRunCompletesTheBlockInFlightWhenCanceled verifies that a cancel arriving
+// while a block executes lets that block commit, and starts no block after it.
+func TestRunCompletesTheBlockInFlightWhenCanceled(t *testing.T) {
+	rng := utils.TestRng()
+	env := newTestEnv(t, rng, 2)
+	require.NoError(t, env.write(0, 2, true))
+	app := newPausingApp(env.events)
+	executor := env.executor(app)
+
+	runCtx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var runErr error
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error {
+			runErr = executor.Run(runCtx)
+			return nil
+		})
+		if _, err := utils.Recv(ctx, app.started); err != nil {
+			return err
+		}
+		cancel()
+		return utils.Send(ctx, app.finish, struct{}{})
+	}))
+
+	require.ErrorIs(t, runErr, context.Canceled)
+	require.Equal(t, env.road(0), executor.ExecutedBlocks().Load().Latest().Number)
+	require.Equal(t, 1, len(app.finalized()))
+}
+
+// TestRunStartsNoBlockOnceCanceled verifies that execution starts no block
+// after a cancel, even one that is already durable.
+func TestRunStartsNoBlockOnceCanceled(t *testing.T) {
+	rng := utils.TestRng()
+	env := newTestEnv(t, rng, 2)
+	require.NoError(t, env.write(0, 2, true))
+	app := newRecordingApp(env.events, 0)
+	executor := env.executor(app)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, executor.Run(ctx), context.Canceled)
+	require.Equal(t, 0, len(app.finalized()))
+	for log := range env.events.Lock() {
+		require.Equal(t, 0, len(*log), "no block hash is reported")
+	}
 }
 
 func gasUsedTotal(t *testing.T) float64 {

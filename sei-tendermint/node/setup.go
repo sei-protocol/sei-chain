@@ -426,6 +426,7 @@ func openAutobahnStorageManager(
 		return nil, fmt.Errorf("build Autobahn block DB config: %w", err)
 	}
 	storageConfig.BlockDBConfig = &blockConfig
+	storageConfig.RunningMarkerPath = filepath.Join(directory, "node_running")
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
 }
 
