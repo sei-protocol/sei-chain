@@ -18,6 +18,9 @@ import (
 // a returned balance or code in place would corrupt the pending state for every other reader.
 type pendingOverlay struct {
 	base StateReader
+	// store answers an unchanged balance for an overlay that stands in for a commit. It is nil for an
+	// overlay of the block's own changes, which serves recorded balances as they are.
+	store storedBalanceReader
 
 	accounts map[common.Address]overlayAccount
 	storage  map[storageChangeKey]common.Hash
@@ -30,10 +33,10 @@ type overlayAccount struct {
 	balanceChanged bool
 }
 
-// accountRow reports whether an account row is stored. A missing-account fallback
-// is not a row.
-type accountRow interface {
-	HasAccount(common.Address) bool
+// storedBalanceReader returns the balance the store holds for an address, without a
+// missing-account fallback.
+type storedBalanceReader interface {
+	StoredBalance(common.Address) *big.Int
 }
 
 // newPendingOverlay indexes changes for lookup. It returns base unchanged when there is nothing to
@@ -90,7 +93,8 @@ func (idx *pendingIndex) overlay(base StateReader) StateReader {
 		return base
 	}
 	<-idx.ready
-	return &pendingOverlay{base: base, accounts: idx.accounts, storage: idx.storage}
+	store, _ := base.(storedBalanceReader)
+	return &pendingOverlay{base: base, store: store, accounts: idx.accounts, storage: idx.storage}
 }
 
 func (o *pendingOverlay) GetBalance(addr common.Address) *big.Int {
@@ -100,20 +104,13 @@ func (o *pendingOverlay) GetBalance(addr common.Address) *big.Int {
 	return o.base.GetBalance(addr)
 }
 
-// accountBalance returns the balance a later block reads. It is 0 when the pending
-// block left the balance unchanged and the view has no account row.
+// accountBalance returns the balance a later block reads. A balance the pending block
+// left unchanged is read from the store, which the commit does not write it to.
 func (o *pendingOverlay) accountBalance(addr common.Address, account overlayAccount) *big.Int {
-	if account.balanceChanged || o.baseHasAccount(addr) {
+	if account.balanceChanged || o.store == nil {
 		return account.state.Balance
 	}
-	return new(big.Int)
-}
-
-// baseHasAccount reports whether the view already stores addr. A reader that cannot
-// say is treated as storing it.
-func (o *pendingOverlay) baseHasAccount(addr common.Address) bool {
-	row, ok := o.base.(accountRow)
-	return !ok || row.HasAccount(addr)
+	return o.store.StoredBalance(addr)
 }
 
 func (o *pendingOverlay) GetNonce(addr common.Address) uint64 {
