@@ -803,8 +803,9 @@ that depend on a method listed above as not supported cannot operate normally.
 ## Run a software upgrade
 
 `evmonly_upgrade.sh` drives a software upgrade through EVM-only gov on the
-local Docker cluster. It needs `cast` and `jq`. Start the cluster with EVM
-governance, then run the script from the repository root:
+local Docker cluster, with each node's own `seid` and its `--evm-rpc` flag. It
+needs only `docker` and `jq`. Start the cluster with EVM governance, then run
+the script from the repository root:
 
 ```sh
 AUTOBAHN=true EVM_GOVERNANCE_VOTING_PERIOD=30s DOCKER_DETACH=true make docker-cluster-start

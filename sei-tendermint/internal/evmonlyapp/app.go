@@ -2,12 +2,14 @@ package evmonlyapp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash"
+	"maps"
 	"math/big"
 	"runtime"
 	"slices"
@@ -20,6 +22,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"github.com/sei-protocol/seilog"
+	"go.opentelemetry.io/otel"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
@@ -28,12 +31,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-	"go.opentelemetry.io/otel"
 )
 
 var logger = seilog.NewLogger("tendermint", "internal", "evmonlyapp")
@@ -107,16 +109,18 @@ func (c *senderCache) take(hash common.Hash) utils.Option[common.Address] {
 const minTxsPerHashWorker = 64
 
 type evmOnlyApplication struct {
-	abci.BaseApplication
-
 	chainID     *big.Int
 	chainConfig *params.ChainConfig
 	execution   gigaconfig.ExecutionConfig
 	minGasPrice *big.Int
 	storage     *bootstrap.GigaStorageManager
-	validators  []abci.ValidatorUpdate
+	validators  []proxy.ValidatorUpdate
 	// customPrecompiles are the native contracts every executor runs.
 	customPrecompiles utils.Option[precompiles.Registry]
+	// alloc, when set, funds the chain at its initial height, and every
+	// other account starts empty. Without it, every account the store holds
+	// nothing for has evmOnlyBaseBalance.
+	alloc utils.Option[GenesisAlloc]
 	// upgradeInfoPath is where a halt on a due upgrade plan writes
 	// UpgradeInfoFileName.
 	upgradeInfoPath utils.Option[string]
@@ -162,7 +166,7 @@ type evmOnlyCursorState struct {
 	pending   utils.Option[evmOnlyCursor]
 	// epochState is committed with the block being finalized. It is set after
 	// beginBlock accepts that block and read when the block is encoded.
-	epochState utils.Option[abci.EpochState]
+	epochState utils.Option[proxy.EpochState]
 	// lastBlockTime is the Time of the most recently committed block, used by
 	// EvmCall to reproduce that block's execution context for a read-only call.
 	lastBlockTime uint64
@@ -175,19 +179,29 @@ var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
 
 // NewEVMOnlyApplication returns the raw-Ethereum application Autobahn runs.
 // Storage owns state, receipts and blocks; execution sizes the executor and
-// prices admission; customPrecompiles are the native contracts the chain runs.
+// prices admission; customPrecompiles are the native contracts the chain runs;
+// alloc, when set, is the chain's genesis balances.
 // A block that halts on a due upgrade plan writes UpgradeInfoFileName under
 // homeDir's data directory, when homeDir is set, and prints the halt line to
 // stderr. A storage that already holds committed blocks resumes from its
 // durable cursor, so Info reports the stored height and InitChain is refused.
 func NewEVMOnlyApplication(
 	chainID uint64,
-	validators []abci.ValidatorUpdate,
+	validators []proxy.ValidatorUpdate,
 	storage *bootstrap.GigaStorageManager,
 	execution gigaconfig.ExecutionConfig,
 	customPrecompiles utils.Option[precompiles.Registry],
+	alloc utils.Option[GenesisAlloc],
 	homeDir utils.Option[string],
 ) (proxy.EVMApplication, error) {
+	if alloc, ok := alloc.Get(); ok {
+		if alloc.InitialHeight <= 0 {
+			return nil, fmt.Errorf("EVM-only genesis alloc initial height must be positive: %d", alloc.InitialHeight)
+		}
+		if len(alloc.Balances) == 0 {
+			return nil, errors.New("EVM-only genesis alloc funds no account")
+		}
+	}
 	chainConfig := *evmonly.DefaultChainConfig()
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	a := &evmOnlyApplication{
@@ -198,7 +212,8 @@ func NewEVMOnlyApplication(
 		storage:           storage,
 		validators:        slices.Clone(validators),
 		customPrecompiles: customPrecompiles,
-		upgradeInfoPath:   utils.MapOpt(homeDir, upgradeInfoPath),
+		alloc:             alloc,
+		upgradeInfoPath:   homeDir.Map(upgradeInfoPath),
 		executor:          utils.NewMutex(new(utils.Option[*evmonly.Executor])),
 		cursor:            utils.NewMutex(&evmOnlyCursorState{}),
 		settler:           utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
@@ -210,6 +225,12 @@ func NewEVMOnlyApplication(
 		return nil, err
 	}
 	if cursor, ok := cursor.Get(); ok {
+		if err := a.checkStartedWithAlloc(storage.StateDB().SC()); err != nil {
+			return nil, err
+		}
+		if err := a.checkStartedWithChainID(storage.StateDB().SC()); err != nil {
+			return nil, err
+		}
 		for executor := range a.executor.Lock() {
 			a.installExecutor(executor)
 		}
@@ -229,6 +250,16 @@ func (a *evmOnlyApplication) installExecutor(slot *utils.Option[*evmonly.Executo
 }
 
 func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
+	opts := []evmonly.Option{
+		evmonly.WithStorageManager(a.storage),
+		evmonly.WithStoreIndependentBlockChangeSetEncoder(a.encodeCursorChangeSet),
+	}
+	if alloc, ok := a.alloc.Get(); ok {
+		// NewEVMOnlyApplication refuses a height that is not positive.
+		opts = append(opts, evmonly.WithGenesisAlloc(uint64(alloc.InitialHeight), alloc.Balances)) //nolint:gosec // G115: positive.
+	} else {
+		opts = append(opts, evmonly.WithMissingAccountState(evmOnlyFundedState{}))
+	}
 	return evmonly.NewExecutor(evmonly.Config{
 		ChainConfig:  a.chainConfig,
 		MinGasPrice:  big.NewInt(evmOnlyBlockMinGasPrice),
@@ -239,11 +270,7 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 		RejectUnappliableTxs: true,
 		BlockResultPoolSize:  a.execution.BlockResultPoolSize,
 		CustomPrecompiles:    a.customPrecompiles.Or(nil),
-	},
-		evmonly.WithStorageManager(a.storage),
-		evmonly.WithMissingAccountState(evmOnlyFundedState{}),
-		evmonly.WithStoreIndependentBlockChangeSetEncoder(a.encodeCursorChangeSet),
-	)
+	}, opts...)
 }
 
 // encodeCursorChangeSet chains the block into the app hash and stages the
@@ -277,18 +304,25 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
-		return append([]gigatypes.MiscChange{next.miscChange()}, epochChanges...), nil
+		changes := append([]gigatypes.MiscChange{next.miscChange(), a.chainIDMiscChange()}, epochChanges...)
+		if alloc, ok := a.alloc.Get(); ok && height == alloc.InitialHeight {
+			changes = append(changes, alloc.miscChange())
+		}
+		return changes, nil
 	}
 	panic("unreachable")
 }
 
-func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+func (a *evmOnlyApplication) InitChain(req *proxy.RequestInitChain) (*proxy.ResponseInitChain, error) {
 	if req.InitialHeight <= 0 {
 		return nil, fmt.Errorf("EVM-only initial height must be positive: %d", req.InitialHeight)
 	}
 	gasLimit, err := evmOnlyGasLimit(req)
 	if err != nil {
 		return nil, err
+	}
+	if alloc, ok := a.alloc.Get(); ok && alloc.InitialHeight != req.InitialHeight {
+		return nil, fmt.Errorf("EVM-only genesis alloc is for initial height %d, not %d", alloc.InitialHeight, req.InitialHeight)
 	}
 	for executor := range a.executor.Lock() {
 		if executor.IsPresent() {
@@ -301,7 +335,7 @@ func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.Respon
 		for state := range a.cursor.Lock() {
 			state.committed = evmOnlyCursor{height: req.InitialHeight - 1, gasLimit: gasLimit}
 		}
-		return &abci.ResponseInitChain{}, nil
+		return &proxy.ResponseInitChain{}, nil
 	}
 	panic("unreachable")
 }
@@ -328,20 +362,20 @@ func (a *evmOnlyApplication) seedInitialStateVersion(initialHeight int64) error 
 	return nil
 }
 
-func evmOnlyGasLimit(req *abci.RequestInitChain) (uint64, error) {
-	if req.ConsensusParams == nil || req.ConsensusParams.Block == nil || req.ConsensusParams.Block.MaxGas <= 0 {
+func evmOnlyGasLimit(req *proxy.RequestInitChain) (uint64, error) {
+	if req.MaxGas <= 0 {
 		return 0, fmt.Errorf("EVM-only max gas must be positive")
 	}
-	gasLimit, ok := utils.SafeCast[uint64](req.ConsensusParams.Block.MaxGas)
+	gasLimit, ok := utils.SafeCast[uint64](req.MaxGas)
 	if !ok {
-		return 0, fmt.Errorf("EVM-only max gas exceeds uint64: %d", req.ConsensusParams.Block.MaxGas)
+		return 0, fmt.Errorf("EVM-only max gas exceeds uint64: %d", req.MaxGas)
 	}
 	return gasLimit, nil
 }
 
-func (a *evmOnlyApplication) Info() *abci.ResponseInfo {
+func (a *evmOnlyApplication) Info() *proxy.ResponseInfo {
 	for state := range a.cursor.Lock() {
-		return &abci.ResponseInfo{
+		return &proxy.ResponseInfo{
 			Data:             "evmonly",
 			LastBlockHeight:  state.committed.height,
 			LastBlockAppHash: append([]byte(nil), state.committed.appHash[:]...),
@@ -353,7 +387,7 @@ func (a *evmOnlyApplication) Info() *abci.ResponseInfo {
 // InitLastHeader seeds the committed block time on the router's restart path.
 // The cursor carries height, hashes and gas limit but not Time, so without this
 // EvmCall would answer with TIMESTAMP 0 until the next Commit.
-func (a *evmOnlyApplication) InitLastHeader(lastHeader *tmproto.Header) {
+func (a *evmOnlyApplication) InitLastHeader(lastHeader *proxy.Header) {
 	if lastHeader == nil || lastHeader.Time.Unix() < 0 {
 		return
 	}
@@ -379,25 +413,28 @@ func (a *evmOnlyApplication) EvmGasLimit() uint64 {
 	panic("unreachable")
 }
 
-func (a *evmOnlyApplication) GetValidators() []abci.ValidatorUpdate {
+func (a *evmOnlyApplication) GetValidators() []proxy.ValidatorUpdate {
 	return slices.Clone(a.validators)
 }
 
-func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+func (a *evmOnlyApplication) CheckTx(_ context.Context, req *proxy.RequestCheckTxV2) *proxy.ResponseCheckTxV2 {
 	// TODO(evmonly-production): close the gap between admission and block validity
 	// before accepting arbitrary traffic; this test app assumes executable load-test transactions.
 	tx, sender, err := a.parseTx(req.Tx)
 	if err != nil {
-		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1, Log: err.Error()}}
+		return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 1, Log: err.Error()}}
 	}
 	gasWanted, ok := utils.SafeCast[int64](tx.Gas())
 	if !ok {
-		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1, Log: "transaction gas limit exceeds int64"}}
+		return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 1, Log: "transaction gas limit exceeds int64"}}
+	}
+	if err := a.checkSenderCanPay(tx, sender); err != nil {
+		return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 1, Log: err.Error()}}
 	}
 	a.rememberSender(tx.Hash(), sender)
-	return &abci.ResponseCheckTxV2{
-		ResponseCheckTx: &abci.ResponseCheckTx{
-			Code:         abci.CodeTypeOK,
+	return &proxy.ResponseCheckTxV2{
+		ResponseCheckTx: &proxy.ResponseCheckTx{
+			Code:         proxy.CodeTypeOK,
 			GasWanted:    gasWanted,
 			GasEstimated: gasWanted,
 		},
@@ -407,6 +444,34 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx
 		EVMSenderAddress: sender,
 		SeiSenderAddress: append([]byte(nil), sender[:]...),
 	}
+}
+
+// checkSenderCanPay refuses tx when sender's committed balance does not cover its gas limit at its fee
+// cap plus its value. Before the alloc's block commits, a sender holds its alloc.
+func (a *evmOnlyApplication) checkSenderCanPay(tx *ethtypes.Transaction, sender common.Address) error {
+	cost, overflow := uint256.FromBig(tx.Cost())
+	if overflow {
+		return errors.New("ethereum transaction cost exceeds 256 bits")
+	}
+	balance := a.admissionBalance(sender)
+	if balance.Lt(cost) {
+		return fmt.Errorf("insufficient funds for gas * price + value: address %s have %s want %s", sender, balance.Dec(), cost.Dec())
+	}
+	return nil
+}
+
+// admissionBalance returns sender's balance in the latest committed state, which is its alloc until
+// that state holds the alloc's block.
+func (a *evmOnlyApplication) admissionBalance(sender common.Address) uint256.Int {
+	view := a.storage.StateDB().OpenView()
+	defer view.Close()
+	if alloc, ok := a.alloc.Get(); ok && view.GetBlockHeight() < alloc.InitialHeight {
+		if balance, ok := alloc.Balances[sender]; ok {
+			return *balance
+		}
+		return uint256.Int{}
+	}
+	return a.balance(view, sender)
 }
 
 // RememberEvmSender records a sender recovered from the transaction with this hash before CheckTx, so
@@ -548,16 +613,24 @@ func (a *evmOnlyApplication) EvmNonce(address common.Address) uint64 {
 	return snapshot.GetNonce(evmOnlyStoreAddress(address))
 }
 
+// EvmCommittedNonce returns address's nonce in the last committed state, without waiting for the
+// commit in flight, so it can trail EvmNonce by the most recently finalized block.
+func (a *evmOnlyApplication) EvmCommittedNonce(address common.Address) uint64 {
+	snapshot := a.storage.StateDB().OpenView()
+	defer snapshot.Close()
+	return snapshot.GetNonce(evmOnlyStoreAddress(address))
+}
+
 func (a *evmOnlyApplication) EvmBalance(address common.Address, _ []byte) uint256.Int {
 	snapshot := a.openSettledView()
 	defer snapshot.Close()
-	return evmOnlyBalance(snapshot, address)
+	return a.balance(snapshot, address)
 }
 
-// evmOnlyBalance reads address's balance from view, the funded balance for an account view holds no
-// state for.
-func evmOnlyBalance(view gigatypes.StateView, address common.Address) uint256.Int {
-	if !view.AccountExists(evmOnlyStoreAddress(address)) {
+// balance reads address's balance from view. Without a genesis alloc, an account view holds no state
+// for has evmOnlyBaseBalance.
+func (a *evmOnlyApplication) balance(view gigatypes.StateView, address common.Address) uint256.Int {
+	if !a.alloc.IsPresent() && !view.AccountExists(evmOnlyStoreAddress(address)) {
 		return *uint256.MustFromBig(evmOnlyBaseBalance)
 	}
 	balance := view.GetBalance(evmOnlyStoreAddress(address))
@@ -597,7 +670,7 @@ func (a *evmOnlyApplication) EvmBalanceAt(address common.Address, height int64) 
 		return uint256.Int{}, err
 	}
 	defer view.Close()
-	return evmOnlyBalance(view, address), nil
+	return a.balance(view, address), nil
 }
 
 // EvmCodeAt returns the contract code at address in the committed EVM state after height, or nil when
@@ -866,7 +939,7 @@ func (a *evmOnlyApplication) EvmCreateAccessListAt(ctx context.Context, msg *eth
 	return executor.CreateAccessListAt(ctx, view, blockCtx, msg)
 }
 
-func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
 	response, err := a.finalizeBlock(ctx, req)
 	var needed *upgrade.NeededError
 	if errors.As(err, &needed) {
@@ -875,7 +948,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 	return response, err
 }
 
-func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
 	height := req.Header.Height
 	if height <= 0 {
 		return nil, fmt.Errorf("EVM-only block height must be positive: %d", height)
@@ -917,9 +990,9 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *abci.Reques
 			return nil, err
 		}
 		a.finalizePhases.SetPhase(finalizePhaseTxResults)
-		return &abci.ResponseFinalizeBlock{
+		return &proxy.ResponseFinalizeBlock{
 			AppHash:   append([]byte(nil), pending.appHash[:]...),
-			TxResults: evmOnlyABCIResults(result),
+			TxResults: evmOnlyTxResults(result),
 		}, nil
 	}
 	panic("unreachable")
@@ -942,7 +1015,7 @@ func (a *evmOnlyApplication) beginBlock(height int64) (evmOnlyCursor, error) {
 
 // stageEpochState sets the epoch state committed with the block being
 // finalized, replacing that of the previous block.
-func (a *evmOnlyApplication) stageEpochState(epochState utils.Option[abci.EpochState]) {
+func (a *evmOnlyApplication) stageEpochState(epochState utils.Option[proxy.EpochState]) {
 	for state := range a.cursor.Lock() {
 		state.epochState = epochState
 	}
@@ -1000,7 +1073,7 @@ func (a *evmOnlyApplication) executeBlockPipelined(ctx context.Context, executor
 // Commit acknowledges the finalized block as the one the chain builds on. The
 // block's state commit is not waited for; a commit that fails halts the node
 // through the next FinalizeBlock.
-func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, error) {
+func (a *evmOnlyApplication) Commit(context.Context) (*proxy.ResponseCommit, error) {
 	for state := range a.cursor.Lock() {
 		pending, ok := state.pending.Get()
 		if !ok {
@@ -1009,24 +1082,24 @@ func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, erro
 		state.committed = pending
 		state.lastBlockTime = state.pendingBlockTime
 		state.pending = utils.None[evmOnlyCursor]()
-		return &abci.ResponseCommit{}, nil
+		return &proxy.ResponseCommit{}, nil
 	}
 	panic("unreachable")
 }
 
-// evmOnlyABCIResults reports a block's executed transactions to consensus, each
+// evmOnlyTxResults reports a block's executed transactions to consensus, each
 // one an OK result carrying the EVM failure reason, if it had one, in its log.
 //
 // Every result is OK, including a reverted or rejected transaction: the hash is
 // recorded as executed rather than held in the mempool's failed set for a retry,
 // and the receipt status carries the failure. The log may vary with the failure
 // because the results hash covers only the code, data and gas.
-func evmOnlyABCIResults(result *evmonly.BlockResult) []*abci.ExecTxResult {
-	txResults := make([]*abci.ExecTxResult, len(result.Txs))
+func evmOnlyTxResults(result *evmonly.BlockResult) []*proxy.ExecTxResult {
+	txResults := make([]*proxy.ExecTxResult, len(result.Txs))
 	for i, tx := range result.Txs {
 		gasUsed := utils.Clamp[int64](tx.GasUsed)
-		txResults[i] = &abci.ExecTxResult{
-			Code:      abci.CodeTypeOK,
+		txResults[i] = &proxy.ExecTxResult{
+			Code:      proxy.CodeTypeOK,
 			Log:       evmOnlyTxFailureLog(tx),
 			GasWanted: gasUsed,
 			GasUsed:   gasUsed,
@@ -1112,6 +1185,81 @@ func (w *evmOnlyHashWriter) writeSizedString(value string) {
 
 func (w *evmOnlyHashWriter) flush() error {
 	return w.buf.Flush()
+}
+
+// GenesisAlloc is the wei each funded account holds at the chain's initial height.
+type GenesisAlloc struct {
+	InitialHeight int64
+	Balances      map[common.Address]*uint256.Int
+}
+
+// evmOnlyGenesisAllocKey holds the digest of the alloc a chain started with. Like the cursor it is
+// written outside the EVM state hash, with the initial height's block.
+const evmOnlyGenesisAllocKey = "genesis_alloc"
+
+func (g GenesisAlloc) digest() common.Hash {
+	buf := make([]byte, 0, 8+len(g.Balances)*(common.AddressLength+32))
+	buf = binary.BigEndian.AppendUint64(buf, uint64(g.InitialHeight)) //nolint:gosec // G115: NewEVMOnlyApplication refuses a height that is not positive.
+	for _, addr := range slices.SortedFunc(maps.Keys(g.Balances), common.Address.Cmp) {
+		balance := g.Balances[addr].Bytes32()
+		buf = append(append(buf, addr[:]...), balance[:]...)
+	}
+	return crypto.Keccak256Hash(buf)
+}
+
+func (g GenesisAlloc) miscChange() gigatypes.MiscChange {
+	digest := g.digest()
+	return gigatypes.MiscChange{
+		Module: evmOnlyCursorModule,
+		Key:    []byte(evmOnlyGenesisAllocKey),
+		Value:  digest[:],
+	}
+}
+
+// checkStartedWithAlloc refuses to resume a chain with an alloc other than the one it started with:
+// adding one would empty every account the chain has not written, and dropping one would give each
+// 2^200 wei.
+func (a *evmOnlyApplication) checkStartedWithAlloc(store *flatkv.CommitStore) error {
+	started, found := store.Get(evmOnlyCursorModule, []byte(evmOnlyGenesisAllocKey))
+	alloc, ok := a.alloc.Get()
+	switch {
+	case !ok && found:
+		return errors.New("EVM-only chain started with a genesis alloc, but none is set")
+	case ok && !found:
+		return errors.New("EVM-only chain started without a genesis alloc, but one is set")
+	case ok && !bytes.Equal(started, alloc.digest().Bytes()):
+		return errors.New("EVM-only genesis alloc differs from the one the chain started with")
+	}
+	return nil
+}
+
+// evmOnlyChainIDKey holds the chain ID the chain runs on, written outside the EVM state hash with
+// every block.
+const evmOnlyChainIDKey = "chain_id"
+
+func (a *evmOnlyApplication) chainIDMiscChange() gigatypes.MiscChange {
+	return gigatypes.MiscChange{
+		Module: evmOnlyCursorModule,
+		Key:    []byte(evmOnlyChainIDKey),
+		Value:  binary.BigEndian.AppendUint64(nil, a.chainID.Uint64()),
+	}
+}
+
+// checkStartedWithChainID refuses to resume a chain on a chain ID other than the one it ran on, which
+// would reject its transactions and change what CHAINID returns. A chain with no recorded ID predates
+// the record and ran on config.AutobahnEVMOnlyChainID.
+func (a *evmOnlyApplication) checkStartedWithChainID(store *flatkv.CommitStore) error {
+	started := config.AutobahnEVMOnlyChainID
+	if raw, found := store.Get(evmOnlyCursorModule, []byte(evmOnlyChainIDKey)); found {
+		if len(raw) != 8 {
+			return fmt.Errorf("EVM-only chain ID record has %d bytes, want 8", len(raw))
+		}
+		started = binary.BigEndian.Uint64(raw)
+	}
+	if got := a.chainID.Uint64(); got != started {
+		return fmt.Errorf("EVM-only chain ID %d differs from %d, the one the chain ran on", got, started)
+	}
+	return nil
 }
 
 type evmOnlyFundedState struct{}

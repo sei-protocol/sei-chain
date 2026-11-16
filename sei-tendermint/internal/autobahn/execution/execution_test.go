@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	dto "github.com/prometheus/client_model/go"
+
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -18,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -35,7 +34,7 @@ func logEvent(events *eventLog, format string, args ...any) {
 
 // recordingApp is an application that records each call execution makes.
 type recordingApp struct {
-	abci.BaseApplication
+	proxy.EVMApplication
 	events *eventLog
 	state  utils.Mutex[*recordingAppState]
 }
@@ -44,8 +43,8 @@ type recordingAppState struct {
 	last       int64
 	pending    int64
 	inited     bool
-	lastHeader utils.Option[*tmproto.Header]
-	finalized  []*abci.RequestFinalizeBlock
+	lastHeader utils.Option[*proxy.Header]
+	finalized  []*proxy.RequestFinalizeBlock
 	// failCommitAt makes Commit fail for the block of this height.
 	failCommitAt utils.Option[int64]
 }
@@ -59,8 +58,10 @@ func newRecordingApp(events *eventLog, last int64) *recordingApp {
 	return &recordingApp{events: events, state: utils.NewMutex(&recordingAppState{last: last})}
 }
 
-func (a *recordingApp) Info() *abci.ResponseInfo {
-	return &abci.ResponseInfo{LastBlockHeight: a.LastBlockHeight()}
+func (a *recordingApp) GetValidators() []proxy.ValidatorUpdate { return nil }
+
+func (a *recordingApp) Info() *proxy.ResponseInfo {
+	return &proxy.ResponseInfo{LastBlockHeight: a.LastBlockHeight()}
 }
 
 func (a *recordingApp) LastBlockHeight() int64 {
@@ -70,39 +71,39 @@ func (a *recordingApp) LastBlockHeight() int64 {
 	panic("unreachable")
 }
 
-func (a *recordingApp) InitChain(*abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+func (a *recordingApp) InitChain(*proxy.RequestInitChain) (*proxy.ResponseInitChain, error) {
 	for state := range a.state.Lock() {
 		state.inited = true
 	}
-	return &abci.ResponseInitChain{}, nil
+	return &proxy.ResponseInitChain{}, nil
 }
 
-func (a *recordingApp) InitLastHeader(header *tmproto.Header) {
+func (a *recordingApp) InitLastHeader(header *proxy.Header) {
 	for state := range a.state.Lock() {
 		state.lastHeader = utils.Some(header)
 	}
 }
 
-func (a *recordingApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+func (a *recordingApp) FinalizeBlock(_ context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
 	logEvent(a.events, "finalize %d", req.Header.Height)
 	for state := range a.state.Lock() {
 		state.pending = req.Header.Height
 		state.finalized = append(state.finalized, req)
 	}
-	return &abci.ResponseFinalizeBlock{TxResults: []*abci.ExecTxResult{{GasUsed: testGasPerBlock}}}, nil
+	return &proxy.ResponseFinalizeBlock{TxResults: []*proxy.ExecTxResult{{GasUsed: testGasPerBlock}}}, nil
 }
 
-func (a *recordingApp) Commit(context.Context) (*abci.ResponseCommit, error) {
+func (a *recordingApp) Commit(context.Context) (*proxy.ResponseCommit, error) {
 	for state := range a.state.Lock() {
 		if fail, ok := state.failCommitAt.Get(); ok && fail == state.pending {
 			return nil, errCommitFailed
 		}
 		state.last = state.pending
 	}
-	return &abci.ResponseCommit{}, nil
+	return &proxy.ResponseCommit{}, nil
 }
 
-func (a *recordingApp) finalized() []*abci.RequestFinalizeBlock {
+func (a *recordingApp) finalized() []*proxy.RequestFinalizeBlock {
 	for state := range a.state.Lock() {
 		return state.finalized
 	}
@@ -170,7 +171,7 @@ func (env *testEnv) write(from, to int, flush bool) error {
 func (env *testEnv) executor(app *recordingApp) *Executor {
 	return New(&Config{
 		GenDoc:         env.genDoc,
-		App:            proxy.New(app),
+		App:            proxy.NewEVM(app),
 		AppHashBuilder: recordingBuilder{events: env.events},
 		BlockStore:     env.store,
 	})
@@ -349,8 +350,8 @@ func TestRunCountsGasOnlyAfterCommit(t *testing.T) {
 }
 
 func TestFinalizeBlockGasUsed(t *testing.T) {
-	resp := &abci.ResponseFinalizeBlock{
-		TxResults: []*abci.ExecTxResult{
+	resp := &proxy.ResponseFinalizeBlock{
+		TxResults: []*proxy.ExecTxResult{
 			{GasUsed: 10},
 			nil,
 			{GasUsed: -1},

@@ -38,7 +38,7 @@ func (api *stateAPI) GetBalance(ctx context.Context, address common.Address, blo
 	}
 	var balance uint256.Int
 	if latest {
-		balance = api.backend.EvmBalance(address)
+		balance = api.backend.EvmBalance(address, nil)
 	} else if balance, err = api.backend.EvmBalanceAt(address, height); err != nil {
 		return nil, err
 	}

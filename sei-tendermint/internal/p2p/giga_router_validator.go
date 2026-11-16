@@ -95,7 +95,7 @@ func (r *gigaValidatorRouter) Mempool() utils.Option[*producer.State] {
 func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("committeeMembers", func() error {
-			return r.runPerCommitteeMember(ctx, r.runCommitteePeer, r.runEvmProxy)
+			return r.runPerCommitteeMember(ctx, false, r.runCommitteePeer, r.runEvmProxy)
 		})
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
 		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
