@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"runtime/debug"
+	"time"
 
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel/sdk/trace"
@@ -17,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -252,6 +254,10 @@ func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []proxy.
 // applyExecutionRuntime applies GCPercent when set, and caps the heap at 80% of the container
 // memory limit when one is present. Call only for Autobahn/Giga nodes.
 func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
+	if cfg.MinProposalLaneBlocks > 0 {
+		avail.MinProposalLaneBlocks = cfg.MinProposalLaneBlocks
+		avail.MaxProposalWait = time.Duration(cfg.MaxProposalWaitMs) * time.Millisecond
+	}
 	if cfg.GCPercent <= 0 {
 		return
 	}
