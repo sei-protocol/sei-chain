@@ -20,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	utilsrequire "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -191,12 +190,6 @@ func TestPoolRoutine_RetriesAfterValidationFailure(t *testing.T) {
 	}
 }
 
-// syncEvent is a block save on the syncing node, or the close of its connection to the invalid-commit
-// node when saved is empty.
-type syncEvent struct {
-	saved utils.Option[savedBlock]
-}
-
 // savedBlock is a block and the seen commit saved with it.
 type savedBlock struct {
 	block      *types.Block
@@ -206,33 +199,29 @@ type savedBlock struct {
 // saveRecordingStore is a block store that reports every saved block on events.
 type saveRecordingStore struct {
 	sm.BlockStore
-	events chan<- syncEvent
+	events chan<- savedBlock
 }
 
 func (s saveRecordingStore) SaveBlock(block *types.Block, blockParts *types.PartSet, seenCommit *types.Commit) {
 	s.BlockStore.SaveBlock(block, blockParts, seenCommit)
 	select {
-	case s.events <- syncEvent{saved: utils.Some(savedBlock{block: block, seenCommit: seenCommit})}:
+	case s.events <- savedBlock{block: block, seenCommit: seenCommit}:
 	default:
 		panic("events channel full")
 	}
 }
 
-// syncObserver reads the events of a syncing node in order and checks each one.
+// syncObserver reads the saves of a syncing node in order and checks each one.
 type syncObserver struct {
-	events <-chan syncEvent
+	events <-chan savedBlock
 }
 
-// expectSaved receives the next event and returns an error unless it is a save of want with
+// expectSaved receives the next save and returns an error unless it is a save of want with
 // wantSeenCommit.
 func (o syncObserver) expectSaved(ctx context.Context, want *types.Block, wantSeenCommit *types.Commit) error {
-	event, err := utils.Recv(ctx, o.events)
+	saved, err := utils.Recv(ctx, o.events)
 	if err != nil {
 		return err
-	}
-	saved, ok := event.saved.Get()
-	if !ok {
-		return fmt.Errorf("got disconnection of the invalid-commit node, want save of block %d", want.Height)
 	}
 	if err := utils.TestDiff(want.Hash(), saved.block.Hash()); err != nil {
 		return fmt.Errorf("saved block %d: %w", want.Height, err)
@@ -240,33 +229,6 @@ func (o syncObserver) expectSaved(ctx context.Context, want *types.Block, wantSe
 	if err := utils.TestDiff(wantSeenCommit.ToProto(), saved.seenCommit.ToProto()); err != nil {
 		return fmt.Errorf("seen commit of block %d: %w", want.Height, err)
 	}
-	return nil
-}
-
-// expectDisconnected receives the next event and returns an error unless it is the close of the
-// connection to the invalid-commit node.
-func (o syncObserver) expectDisconnected(ctx context.Context) error {
-	event, err := utils.Recv(ctx, o.events)
-	if err != nil {
-		return err
-	}
-	if saved, ok := event.saved.Get(); ok {
-		return fmt.Errorf("got save of block %d, want disconnection of the invalid-commit node", saved.block.Height)
-	}
-	return nil
-}
-
-// waitForDisconnect waits until conn is no longer a connection of node. It returns the
-// context error when ctx is done first. It watches this one connection rather than any
-// connection to the same node, because the router may redial an evicted peer at once.
-func waitForDisconnect(ctx context.Context, node *p2p.TestNode, conn *p2p.ConnV2) (err error) {
-	// WaitForDisconnect panics with the context error.
-	defer func() {
-		if r := recover(); r != nil {
-			err = r.(error)
-		}
-	}()
-	node.WaitForDisconnect(ctx, conn)
 	return nil
 }
 
@@ -293,9 +255,9 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 			invalidCommitID, syncID := nodeIDs[0], nodeIDs[1]
 			syncNode := network.Node(syncID)
 
-			// The syncing node reports every block it saves. The events channel has room for 3
-			// saves and 1 disconnection.
-			events := make(chan syncEvent, 4)
+			// The syncing node reports every block it saves. The events channel has room for
+			// blocks 1 to 3, the most the syncing node can save in this test.
+			events := make(chan savedBlock, 3)
 			observer := syncObserver{events: events}
 			syncStore := saveRecordingStore{BlockStore: newMemBlockStore(), events: events}
 
@@ -343,27 +305,12 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 				t.Cleanup(r.Wait)
 			}
 
-			err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-				// Report the end of the first connection to the invalid-commit node.
-				s.SpawnBgNamed("wait for disconnection", func() error {
-					if err := waitForDisconnect(ctx, syncNode, invalidCommitConn); err != nil {
-						return utils.IgnoreCancel(err)
-					}
-					return utils.IgnoreCancel(utils.Send(ctx, events, syncEvent{}))
-				})
-
-				// Block 1 is saved with its correct seen commit.
-				if err := observer.expectSaved(ctx, correct[0].block, correct[0].commit); err != nil {
-					return err
-				}
-				// Block 2 is saved with its correct seen commit.
-				if err := observer.expectSaved(ctx, correct[1].block, correct[1].commit); err != nil {
-					return err
-				}
-				// The connection to the invalid-commit node closes, and block 3 is not saved.
-				return observer.expectDisconnected(ctx)
-			})
-			utilsrequire.NoError(t, err)
+			// The syncing node saves blocks 1 and 2 with their correct seen commits, rejects block 3,
+			// and closes its connection to the invalid-commit node.
+			syncNode.WaitForDisconnect(ctx, invalidCommitConn)
+			utilsrequire.NoError(t, observer.expectSaved(ctx, correct[0].block, correct[0].commit))
+			utilsrequire.NoError(t, observer.expectSaved(ctx, correct[1].block, correct[1].commit))
+			utilsrequire.Equal(t, 0, len(events))
 
 			// Stop the invalid-commit node and remove it from the network.
 			invalidCommitReactor.Stop()
