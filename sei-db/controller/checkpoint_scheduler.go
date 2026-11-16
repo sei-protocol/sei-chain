@@ -17,9 +17,9 @@ var checkpointLogger = seilog.NewLogger("db", "checkpoint")
 // CheckpointScheduler picks the heights every store on a node checkpoints at.
 //
 // Stores ask ShouldCheckpoint from their own commit path and call MarkCheckpointComplete when that
-// checkpoint finishes, success or failure. A WAL catch-up driving that commit path asks like any other
-// block; the paths that apply blocks around it — a store's internal replay, an import, a state-sync
-// forward-fill — do not ask. ShouldCheckpoint will register the store.
+// checkpoint finishes, success or failure. The paths that apply blocks around it — a WAL catch-up, a
+// store's internal replay, an import, a state-sync forward-fill — do not ask. ShouldCheckpoint will
+// register the store.
 //
 // The goal is that every registered store either checkpoints on the exact same height, or none of them do.
 // That is achieved by holding a yes until every registered store has taken the checkpoint on the same height.

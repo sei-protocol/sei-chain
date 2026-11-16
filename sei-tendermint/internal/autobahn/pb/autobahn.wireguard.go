@@ -147,6 +147,10 @@ func (*Epoch) MaxSize() int {
 	return 6236
 }
 
+func (*StateSyncProof) MaxSize() int {
+	return 2056347632
+}
+
 func (*EpochMember) MaxSize() int {
 	return 60
 }
@@ -434,6 +438,13 @@ func init() {
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Committee]())},
 		3: {MaxCount: 1},
 		4: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.StateSyncProof.
+	runtime.MustRegister[*StateSyncProof](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*FullCommitQC]())},
+		2: {MaxCount: 1000, Nested: utils.Some(reflect.TypeFor[*Block]())},
+		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppQC]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.PersistedEpochRegistry.

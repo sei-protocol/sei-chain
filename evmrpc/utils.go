@@ -489,15 +489,22 @@ func recoverAndLog() {
 func ctxAtHeight(ctxProvider func(int64) sdk.Context, height int64) (ctx sdk.Context, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			e, ok := r.(error)
-			var runtimeErr runtime.Error
-			if !ok || errors.As(e, &runtimeErr) {
-				panic(r)
-			}
-			err = fmt.Errorf("state at height %d is unavailable: %w", height, e)
+			err = fmt.Errorf("state at height %d is unavailable: %w", height, errorFromPanic(r))
 		}
 	}()
 	return ctxProvider(height), nil
+}
+
+// errorFromPanic returns the recovered panic value r as an error when a read panicked with one because
+// its data is unavailable. It panics with r again when r is not an error or is a runtime.Error.
+func errorFromPanic(r any) error {
+	e, ok := r.(error)
+	var runtimeErr runtime.Error
+	// A non-error value or a runtime error is a bug, which must not pass for missing data.
+	if !ok || errors.As(e, &runtimeErr) {
+		panic(r)
+	}
+	return e
 }
 
 func must[V any](v V, err error) V {

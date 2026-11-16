@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -177,6 +178,11 @@ func mockLogCapBlock() *coretypes.ResultBlock {
 
 var NewHeadsCalled = make(chan struct{}, 1)
 
+// NewHeadsMockHeights are the heights of the NewBlockHeader events MockClient publishes, in order, each
+// time NewHeadsCalled fires: a block whose EVM transaction failed its ante handler beside a Cosmos transaction,
+// then a block with EVM transactions that log between Cosmos transactions.
+var NewHeadsMockHeights = []int64{MockHeight8, MockHeight2}
+
 // NotifierForTest backs the Autobahn-style WS server started on
 // TestNotifierWSPort. Tests publish to it via OnBlockCommitted to drive
 // eth_subscribe("newHeads") through the in-process notifier path.
@@ -251,7 +257,12 @@ func mockBlockHeader(height int64) tmtypes.Header {
 	}
 }
 
+// mockBlockMu serializes mockBlock, since encoding a fixture tx caches its bytes on the shared tx.
+var mockBlockMu sync.Mutex
+
 func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
+	mockBlockMu.Lock()
+	defer mockBlockMu.Unlock()
 	if height == MockHeight2 {
 		return &coretypes.ResultBlock{
 			BlockID: MockBlockIDMultiTx,
@@ -527,17 +538,18 @@ func (c *MockClient) Status(context.Context) (*coretypes.ResultStatus, error) {
 
 func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query string, outCapacity ...int) (<-chan coretypes.ResultEvent, error) {
 	if query == "tm.event = 'NewBlockHeader'" {
-		resCh := make(chan coretypes.ResultEvent, 5)
+		resCh := make(chan coretypes.ResultEvent, len(NewHeadsMockHeights))
 		go func() {
-			<-NewHeadsCalled
-			for i := uint64(0); i < 5; i++ {
-				resCh <- coretypes.ResultEvent{
-					SubscriptionID: subscriber,
-					Query:          query,
-					Data:           *c.mockEventDataNewBlockHeader(i + 1),
-					Events:         c.mockEventDataNewBlockHeader(i + 1).ABCIEvents(),
+			for range NewHeadsCalled {
+				for _, height := range NewHeadsMockHeights {
+					resCh <- coretypes.ResultEvent{
+						SubscriptionID: subscriber,
+						Query:          query,
+						Data:           *c.mockEventDataNewBlockHeader(uint64(height)),
+						Events:         c.mockEventDataNewBlockHeader(uint64(height)).ABCIEvents(),
+					}
+					time.Sleep(20 * time.Millisecond) // sleep a little to simulate real events
 				}
-				time.Sleep(20 * time.Millisecond) // sleep a little to simulate real events
 			}
 		}()
 		return resCh, nil
