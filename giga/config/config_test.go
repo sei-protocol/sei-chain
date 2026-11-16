@@ -287,6 +287,11 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"negative method timeout":         {"giga.rpc.method_timeouts": []string{"eth_call=-1s"}},
 		"bare wildcard method timeout":    {"giga.rpc.method_timeouts": []string{"*=1s"}},
 		"unbounded eth_call":              {"giga.rpc.method_timeouts": []string{"eth_call=0"}},
+		"unbounded debug_traceCall":       {"giga.rpc.trace_timeout": "0s"},
+		"unbounded debug_traceCall by wildcard": {
+			"giga.rpc.trace_timeout":   "0s",
+			"giga.rpc.method_timeouts": []string{"debug_trace*=0"},
+		},
 		"unbounded eth_estimateGasAfterCalls": {
 			"giga.rpc.default_timeout": "0s",
 			"giga.rpc.method_timeouts": []string{"eth_estimateGasAfterCalls=0"},
@@ -295,6 +300,22 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 	} {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)
+	}
+}
+
+// TestTraceTimeoutZeroNeedsATraceCallDeadline holds a zero [giga.rpc] trace_timeout to being
+// accepted only when method_timeouts bounds debug_traceCall.
+func TestTraceTimeoutZeroNeedsATraceCallDeadline(t *testing.T) {
+	for name, entries := range map[string][]string{
+		"exact entry":    {"debug_traceCall=30s"},
+		"wildcard entry": {"debug_traceC*=30s"},
+	} {
+		cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{
+			"giga.rpc.trace_timeout":   "0s",
+			"giga.rpc.method_timeouts": entries,
+		})
+		require.NoError(t, err, name)
+		require.Zero(t, cfg.RPC.TraceTimeout, name)
 	}
 }
 

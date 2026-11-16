@@ -122,7 +122,8 @@ type RPCConfig struct {
 	MaxConcurrentSendCalls int `mapstructure:"max_concurrent_send_calls"`
 	// MaxConcurrentTraceCalls caps debug_trace* calls running at once; a call past it is refused.
 	MaxConcurrentTraceCalls int `mapstructure:"max_concurrent_trace_calls"`
-	// TraceTimeout bounds how long one debug_trace* call may run.
+	// TraceTimeout bounds how long one debug_trace* call may run. 0 leaves it unbounded, and is
+	// accepted only when MethodTimeouts gives debug_traceCall a positive deadline.
 	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
 	// MaxTraceStructLogBytes caps the default struct logger's output, in bytes, for each traced
 	// transaction.
@@ -576,7 +577,7 @@ func (c Config) Validate() error {
 	if err != nil {
 		return err
 	}
-	return requireSimulationDeadlines(deadlines)
+	return requireSimulationDeadlines(deadlines, c.RPC.TraceTimeout)
 }
 
 // ConfigTemplate is the TOML template for the [giga] section of app.toml.
@@ -702,7 +703,8 @@ max_concurrent_send_calls = {{ .Giga.RPC.MaxConcurrentSendCalls }}
 # max_concurrent_trace_calls caps debug_trace* calls running at once; a call past it is refused.
 max_concurrent_trace_calls = {{ .Giga.RPC.MaxConcurrentTraceCalls }}
 
-# trace_timeout bounds how long one debug_trace* call may run.
+# trace_timeout bounds how long one debug_trace* call may run. 0 leaves it unbounded, and is
+# accepted only when method_timeouts gives debug_traceCall a positive deadline.
 trace_timeout = "{{ .Giga.RPC.TraceTimeout }}"
 
 # max_trace_struct_log_bytes caps the default struct logger's output, in bytes, for each traced
@@ -736,14 +738,20 @@ method_timeouts = [{{ range $i, $e := .Giga.RPC.MethodTimeouts }}{{ if $i }}, {{
 enabled = {{ .Giga.StateSync.Enabled }}
 `
 
-// requireSimulationDeadlines reports the first of simulationMethods that deadlines leave unbounded.
-func requireSimulationDeadlines(deadlines ratelimiter.DeadlineConfig) error {
+// requireSimulationDeadlines reports the first simulation method left unbounded: one of
+// simulationMethods without a positive deadline in deadlines, or debug_traceCall with neither a
+// positive deadline in deadlines nor a positive traceTimeout.
+func requireSimulationDeadlines(deadlines ratelimiter.DeadlineConfig, traceTimeout time.Duration) error {
 	enforcer := ratelimiter.NewDeadlineEnforcer(deadlines)
 	for _, method := range simulationMethods {
 		if enforcer.Deadline(method) == 0 {
 			return fmt.Errorf("%s: %s must have a positive deadline, from %s or an entry here",
 				FlagRPCMethodTimeouts, method, FlagRPCDefaultTimeout)
 		}
+	}
+	if traceTimeout <= 0 && enforcer.Deadline("debug_traceCall") == 0 {
+		return fmt.Errorf("%s: must be positive unless %s gives debug_traceCall a positive deadline",
+			FlagRPCTraceTimeout, FlagRPCMethodTimeouts)
 	}
 	return nil
 }
