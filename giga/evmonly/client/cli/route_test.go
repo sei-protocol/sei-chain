@@ -77,17 +77,33 @@ func TestNodeRunsV2(t *testing.T) {
 }
 
 func TestNonEVMOnlyChainIsRefused(t *testing.T) {
-	stub := newRPCStub(t)
-	stub.on("param(string,string)", func([]any) ([]any, error) { return nil, errors.New("execution reverted") })
-	for _, words := range []string{"q gov proposal 1", "q upgrade plan", "tx gov vote 1 yes --from " + testKey} {
-		err := newTestRoot(t).run("", args(words, "--evm-rpc", stub.url)...)
-		require.ErrorContains(t, err, stub.url+" is not an EVM-only chain; use --node", words)
+	for _, revert := range []string{"execution reverted", "execution reverted: unknown method"} {
+		stub := newRPCStub(t)
+		stub.on("param(string,string)", func([]any) ([]any, error) { return nil, errors.New(revert) })
+		for _, words := range []string{"q gov proposal 1", "q upgrade plan", "tx gov vote 1 yes --from " + testKey} {
+			err := newTestRoot(t).run("", args(words, "--evm-rpc", stub.url)...)
+			require.ErrorContains(t, err, stub.url+" is not an EVM-only chain; use --node", words)
+		}
+		require.Empty(t, stub.sent)
 	}
-	require.Empty(t, stub.sent)
 }
 
 func TestUnreachableEndpointIsNotReportedAsV2(t *testing.T) {
 	err := newTestRoot(t).run("", args("q gov proposal 1", "--evm-rpc", "http://127.0.0.1:1")...)
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "not an EVM-only chain")
+}
+
+func TestProbeRPCErrorIsNotReportedAsV2(t *testing.T) {
+	for _, msg := range []string{
+		"rate limit exceeded",
+		"height is not available (requested height: 0)",
+		"internal error",
+	} {
+		stub := newRPCStub(t)
+		stub.on("param(string,string)", func([]any) ([]any, error) { return nil, errors.New(msg) })
+		err := newTestRoot(t).run("", args("q gov proposal 1", "--evm-rpc", stub.url)...)
+		require.ErrorContains(t, err, msg)
+		require.NotContains(t, err.Error(), "not an EVM-only chain", msg)
+	}
 }

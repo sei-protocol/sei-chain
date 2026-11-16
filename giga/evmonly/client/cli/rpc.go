@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -76,15 +77,21 @@ func dial(cmd *cobra.Command) (*evmClient, error) {
 func (c *evmClient) requireEVMOnly(ctx context.Context, url string) error {
 	probe := chainparams.Keys()[0]
 	_, err := c.call(ctx, chainparams.Address, chainparams.ABI, chainparams.ParamMethod, probe.Subspace, probe.Key)
-	var rpcErr rpc.Error
 	switch {
 	case err == nil:
 		return nil
-	case errors.As(err, &rpcErr), errors.Is(err, errUnpack):
+	case isRevert(err), errors.Is(err, errUnpack):
 		return fmt.Errorf("%s is not an EVM-only chain; use --%s for a chain with a Tendermint RPC", url, flags.FlagNode)
 	default:
 		return fmt.Errorf("%s: %w", url, err)
 	}
+}
+
+// isRevert reports whether err is an eth_call that reverted, with or without
+// revert data.
+func isRevert(err error) bool {
+	var rpcErr rpc.Error
+	return errors.As(err, &rpcErr) && strings.HasPrefix(rpcErr.Error(), "execution reverted")
 }
 
 func cmdContext(cmd *cobra.Command) context.Context {
