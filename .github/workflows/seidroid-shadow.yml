@@ -17,6 +17,10 @@ permissions: {}
 
 jobs:
   seidroid:
+    # A pull_request run from a fork gets no OIDC token, which the review needs.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     uses: sei-protocol/seidroid/.github/workflows/review.yml@42d2eedb177c8fe4bfd8ba3c4f53dc2e2f805d66 # v0.3.1
     permissions:
       contents: read
