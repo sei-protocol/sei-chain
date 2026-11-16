@@ -626,7 +626,7 @@ func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int, gasLimit int64
 		"timestamp":             hexutil.Uint64(evt.header.Time.Unix()),      //nolint:gosec
 		"milliTimestamp":        hexutil.Uint64(evt.header.Time.UnixMilli()), //nolint:gosec
 		"transactionsRoot":      common.Hash{},                               // see function doc
-		"mixHash":               common.Hash{},                               // inapplicable to Sei
+		"mixHash":               evmtypes.PrevRandao(evt.header.Time),        // PREVRANDAO: a hash of the proposer-chosen block time, not randomness
 		"excessBlobGas":         hexutil.Uint64(0),                           // inapplicable to Sei
 		"parentBeaconBlockRoot": common.Hash{},                               // inapplicable to Sei
 		"hash":                  blockHash,
@@ -665,9 +665,9 @@ func encodeTmHeader(
 		"timestamp":             hexutil.Uint64(header.Header.Time.Unix()),      //nolint:gosec
 		"milliTimestamp":        hexutil.Uint64(header.Header.Time.UnixMilli()), //nolint:gosec
 		"transactionsRoot":      txHash,
-		"mixHash":               common.Hash{},     // inapplicable to Sei
-		"excessBlobGas":         hexutil.Uint64(0), // inapplicable to Sei
-		"parentBeaconBlockRoot": common.Hash{},     // inapplicable to Sei
+		"mixHash":               evmtypes.PrevRandao(header.Header.Time), // PREVRANDAO: a hash of the proposer-chosen block time, not randomness
+		"excessBlobGas":         hexutil.Uint64(0),                       // inapplicable to Sei
+		"parentBeaconBlockRoot": common.Hash{},                           // inapplicable to Sei
 		"hash":                  blockHash,
 		"withdrawlsRoot":        common.Hash{}, // inapplicable to Sei
 		"baseFeePerGas":         (*hexutil.Big)(baseFee),

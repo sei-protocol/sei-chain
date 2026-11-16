@@ -247,6 +247,8 @@ func TestEncodeCommittedBlock(t *testing.T) {
 	require.Equal(t, logsBloom, out["logsBloom"])
 	require.Equal(t, hexutil.Uint64(10_000_000), out["gasLimit"])
 	require.Equal(t, (*hexutil.Big)(big.NewInt(42)), out["baseFeePerGas"])
+	// keccak256(ts.MarshalBinary()), the PREVRANDAO block execution used for this block time.
+	require.Equal(t, common.HexToHash("0x8dd05429e1158fb323f79df4a02d79bcc698ebf2033088e19611bf50c47dada6"), out["mixHash"])
 	// Fields not surfaced by the Autobahn path must be zero, but present.
 	require.Equal(t, common.Hash{}, out["parentHash"])
 	require.Equal(t, common.Hash{}, out["receiptsRoot"])
@@ -263,6 +265,35 @@ func TestEncodeCommittedBlock_ZeroGasLimit(t *testing.T) {
 	require.Equal(t, hexutil.Uint64(0), out["gasLimit"])
 	// Nil response.AppHash must serialize as the zero hash, not panic.
 	require.Equal(t, common.Hash{}, out["stateRoot"])
+}
+
+// mixHashFixtureTime is a block time in a zero-offset zone that is not time.UTC. Hashing it
+// without converting to time.UTC gives a different value from the one block execution uses.
+var mixHashFixtureTime = time.Unix(1_700_000_000, 750_000_000).In(time.FixedZone("UTC", 0))
+
+// mixHashFixturePrevRandao is keccak256(mixHashFixtureTime.UTC().MarshalBinary()).
+var mixHashFixturePrevRandao = common.HexToHash("0x8dd05429e1158fb323f79df4a02d79bcc698ebf2033088e19611bf50c47dada6")
+
+func TestEncodeCommittedBlockMixHashUsesUTC(t *testing.T) {
+	evt := blockHeaderEvent{
+		hash:     []byte{0x01},
+		header:   &tmproto.Header{Height: 1, Time: mixHashFixtureTime},
+		response: &abci.ResponseFinalizeBlock{},
+	}
+	out := encodeCommittedBlock(evt, big.NewInt(0), 0, receiptTotals{})
+	require.Equal(t, mixHashFixturePrevRandao, out["mixHash"])
+}
+
+func TestEncodeTmHeaderMixHashUsesUTC(t *testing.T) {
+	header := tmtypes.EventDataNewBlockHeader{
+		Header: tmtypes.Header{Height: 1, Time: mixHashFixtureTime},
+		ResultFinalizeBlock: abci.ResponseFinalizeBlock{
+			ConsensusParamUpdates: &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: 1}},
+		},
+	}
+	out, err := encodeTmHeader(header, big.NewInt(0), receiptTotals{})
+	require.NoError(t, err)
+	require.Equal(t, mixHashFixturePrevRandao, out["mixHash"])
 }
 
 // TestPickHeadBaseFee_UsesParentCtx pins down the off-by-one fix:
