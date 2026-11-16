@@ -42,14 +42,18 @@ type GigaRouterCommonConfig struct {
 	// App is the application the blocks run on. The router reads its committed
 	// height and validator set, and NewGigaValidatorRouter passes it to the
 	// producer's mempool.
-	App *proxy.Proxy
+	App *proxy.EVMProxy
 	// AppHashBuilder is the source of every Autobahn application hash. The
 	// storage manager owns it. The router reads each executed block's app hash
 	// from it.
 	AppHashBuilder builder.AppHashBuilder
 	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
-	// peers. 0 rejects all; positive caps at n, up to maxInboundFullnodePeers.
+	// peers outside PersistentPeerIDs. 0 rejects every such peer; a positive
+	// value caps at n, up to maxInboundFullnodePeers.
 	MaxInboundFullnodePeers int
+	// PersistentPeerIDs are node IDs from p2p.persistent-peers and
+	// p2p.blocksync-peers. They do not consume MaxInboundFullnodePeers.
+	PersistentPeerIDs map[types.NodeID]struct{}
 
 	// Whether validator should proxy txs which do not belong to the local node.
 	EnableEvmProxy bool

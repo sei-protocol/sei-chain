@@ -39,7 +39,7 @@ func (m *TimeoutVote) Verify(ep *Epoch) error {
 
 // latestPrepareQCView is the highest view number for which a PrepareQC was observed by the node.
 func (m *TimeoutVote) latestPrepareQCView() utils.Option[View] {
-	return utils.MapOpt(m.latestPrepareQC, func(n ViewNumber) View {
+	return m.latestPrepareQC.Map(func(n ViewNumber) View {
 		return View{Index: m.view.Index, Number: n, EpochIndex: m.view.EpochIndex}
 	})
 }
@@ -55,7 +55,7 @@ type FullTimeoutVote struct {
 func NewFullTimeoutVote(key SecretKey, view View, latestPrepareQC utils.Option[*PrepareQC]) *FullTimeoutVote {
 	vote := &TimeoutVote{
 		view:            view,
-		latestPrepareQC: utils.MapOpt(latestPrepareQC, func(qc *PrepareQC) ViewNumber { return qc.View().Number }),
+		latestPrepareQC: latestPrepareQC.Map(func(qc *PrepareQC) ViewNumber { return qc.View().Number }),
 	}
 	return &FullTimeoutVote{
 		vote:            Sign(key, vote),
