@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 )
@@ -89,6 +90,29 @@ func (k Keeper) GetCosmosGasParams(ctx sdk.Context) types.CosmosGasParams {
 		panic(fmt.Errorf("marshalling cosmosGasParams: %w", err))
 	}
 	return cosmosGasParams
+}
+
+// SetDisabledMsgTypeURLs stores the type URLs of the messages a Cosmos transaction may not carry.
+func (k Keeper) SetDisabledMsgTypeURLs(ctx sdk.Context, typeURLs []string) {
+	if err := types.ValidateDisabledMsgTypeURLs(typeURLs); err != nil {
+		panic(fmt.Errorf("validating disabled message type URLs: %w", err))
+	}
+	subspace, exist := k.GetSubspace(types.ModuleName)
+	if !exist {
+		panic("subspace params should exist")
+	}
+	subspace.Set(ctx, types.ParamStoreKeyDisabledMsgTypeURLs, typeURLs)
+}
+
+// GetDisabledMsgTypeURLs returns the type URLs of the messages a Cosmos transaction may not
+// carry. It charges no gas and returns nil when the parameter is not stored.
+func (k Keeper) GetDisabledMsgTypeURLs(ctx sdk.Context) []string {
+	subspace, _ := k.GetSubspace(types.ModuleName)
+	var typeURLs []string
+	// The Cosmos ante handler reads this for every transaction before it installs the
+	// transaction's gas meter, so a charge would land on the block's meter.
+	subspace.GetIfExists(ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter()), types.ParamStoreKeyDisabledMsgTypeURLs, &typeURLs)
+	return typeURLs
 }
 
 // Allocate subspace used for keepers
