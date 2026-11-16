@@ -10,9 +10,9 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/staking"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -52,7 +52,7 @@ func (corruptBondedSet) EndBlock(_ precompiles.BlockContext, state precompiles.S
 
 // newStakingEVMOnlyTestApp returns an initialized application serving the
 // configured validators and running staking as contract.
-func newStakingEVMOnlyTestApp(t *testing.T, configured []abci.ValidatorUpdate, contract precompiles.Contract) abci.Application {
+func newStakingEVMOnlyTestApp(t *testing.T, configured []proxy.ValidatorUpdate, contract precompiles.Contract) proxy.EVMApplication {
 	t.Helper()
 	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
 	require.NoError(t, err)
@@ -64,6 +64,7 @@ func newStakingEVMOnlyTestApp(t *testing.T, configured []abci.ValidatorUpdate, c
 		storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.Some[precompiles.Registry](registry),
+		utils.None[GenesisAlloc](),
 		utils.None[string](),
 	)
 	require.NoError(t, err)
@@ -88,7 +89,7 @@ func testGenesisValidator(operator common.Address, key ed25519.PublicKey, self i
 }
 
 func TestEVMOnlyApplicationServesStakingsBondedSet(t *testing.T) {
-	configured := []abci.ValidatorUpdate{{PubKey: crypto.PubKeyToProto(ed25519.TestSecretKey([]byte("configured")).Public()), Power: 1}}
+	configured := []proxy.ValidatorUpdate{{PubKey: autobahnKey(ed25519.TestSecretKey([]byte("configured")).Public()), Power: 1}}
 	key1 := ed25519.TestSecretKey([]byte("validator-1")).Public()
 	key2 := ed25519.TestSecretKey([]byte("validator-2")).Public()
 	app := newStakingEVMOnlyTestApp(t, configured, stakingGenesis{validators: []staking.GenesisValidator{
@@ -98,9 +99,9 @@ func TestEVMOnlyApplicationServesStakingsBondedSet(t *testing.T) {
 	require.Equal(t, configured, app.GetValidators(), "the configured validators serve until staking bonds a set")
 
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
-	require.Equal(t, []abci.ValidatorUpdate{
-		{PubKey: crypto.PubKeyToProto(key1), Power: 30},
-		{PubKey: crypto.PubKeyToProto(key2), Power: 20},
+	require.Equal(t, []proxy.ValidatorUpdate{
+		{PubKey: autobahnKey(key1), Power: 30},
+		{PubKey: autobahnKey(key2), Power: 20},
 	}, app.GetValidators())
 }
 
@@ -109,8 +110,8 @@ func TestEVMOnlyApplicationServesNoValidatorsAfterAFailedCommit(t *testing.T) {
 	require.NoError(t, err)
 	storage := openEVMOnlyTestStorage(t, storageConfig)
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
-	configured := []abci.ValidatorUpdate{{PubKey: crypto.PubKeyToProto(ed25519.TestSecretKey([]byte("configured")).Public()), Power: 1}}
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, configured, storage, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[string]())
+	configured := []proxy.ValidatorUpdate{{PubKey: autobahnKey(ed25519.TestSecretKey([]byte("configured")).Public()), Power: 1}}
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, configured, storage, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[GenesisAlloc](), utils.None[string]())
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
@@ -125,7 +126,12 @@ func TestEVMOnlyApplicationServesNoValidatorsAfterAFailedCommit(t *testing.T) {
 }
 
 func TestEVMOnlyApplicationServesNoValidatorsFromACorruptBondedSet(t *testing.T) {
-	app := newStakingEVMOnlyTestApp(t, []abci.ValidatorUpdate{{Power: 1}}, corruptBondedSet{})
+	app := newStakingEVMOnlyTestApp(t, []proxy.ValidatorUpdate{{Power: 1}}, corruptBondedSet{})
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
 	require.Empty(t, app.GetValidators())
+}
+
+// autobahnKey returns key as consensus reads it.
+func autobahnKey(key ed25519.PublicKey) types.PublicKey {
+	return utils.OrPanic1(types.PublicKeyFromBytes(key.Bytes()))
 }

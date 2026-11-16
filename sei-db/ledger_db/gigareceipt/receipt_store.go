@@ -2,6 +2,8 @@ package gigareceipt
 
 import (
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -18,10 +20,17 @@ var logger = seilog.NewLogger("db", "ledger-db", "gigareceipt")
 // NewReceiptStore opens the receipt store in config.DBDirectory. storeKey names the legacy KV store
 // a receipt lookup falls back to, or is nil when there is none.
 func NewReceiptStore(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (receipt.ReceiptStore, error) {
+	start := time.Now()
+	logger.Info("Opening the receipt store")
 	if config.DBDirectory == "" {
 		return nil, errors.New("receipt store db directory not configured")
 	}
-	return newLittReceiptStore(config, storeKey)
+	store, err := newLittReceiptStore(config, storeKey)
+	if err != nil {
+		return nil, fmt.Errorf("open the litt receipt store: %w", err)
+	}
+	logger.Info("Opened the receipt store", "elapsed", time.Since(start))
+	return store, nil
 }
 
 func convertLog(l *types.Log, stored *types.Receipt, logStartIndex uint) *ethtypes.Log {

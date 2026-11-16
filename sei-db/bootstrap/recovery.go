@@ -7,168 +7,128 @@ import (
 	"os"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
-
-// OpenDBWithRecovery opens every store and, after an unclean shutdown, brings them onto the lowest height any
-// of them holds. Every store other than the block store ends on that height, except one holding no history,
-// which is left empty to fill forward. No store is moved when the block store or the state WAL is empty.
-func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
-	// Each stage is announced before it runs. Opening a store or reading its head loads that store's
-	// index, which on a large one is minutes of work, and a stage that reported only on completion
-	// would leave the longest part of a startup with nothing logged at all.
-	logger.Info("Opening the block store")
-	if err := m.openBlockStore(); err != nil {
-		return err
-	}
-	if err := m.requireNoReceiptStoreWhileDisabled(); err != nil {
-		return err
-	}
-	if err := m.requireNoHistoricalStateDBWhileDisabled(); err != nil {
-		return err
-	}
-	targetHeight, err := m.findTargetRecoveryHeight()
-	if err != nil {
-		return err
-	}
-	// After the vault head is read, which needs the vault closed, and before the state DB opens, which submits
-	// to the BUD hasher.
-	logger.Info("Opening the app hash builder")
-	if err := m.openAppHashBuilder(ctx); err != nil {
-		return err
-	}
-	if err := m.recoverStores(ctx, targetHeight); err != nil {
-		return err
-	}
-	// The receipt store opens last because its rollback runs against its files: it is the one store
-	// recovery reaches without opening, so opening it earlier would only be to close it again.
-	logger.Info("Opening the receipt store")
-	if err := m.openReceiptStore(); err != nil {
-		return err
-	}
-	logger.Info("Completing the app hash builder setup")
-	return m.completeAppHashBuilderSetup(ctx)
-}
-
-// recoverStores puts the receipt store, the state commit store and the EVM state store (when enabled)
-// on target, cutting the state WAL back to it as well. The state stores are rolled back as they open,
-// so this is what leaves the manager holding them.
-//
-// A target of 0 is no height to converge on, and every store is left as it was found: rolling back to
-// it would drop every receipt the node holds along with every block in its WAL. This is the single
-// guard for that, which is why the rollbacks below it carry none of their own.
-//
-// State goes first because it is the rollback that refuses: a target its snapshots and WAL cannot span
-// leaves the node down for an operator to retry at a higher one, and receipts cut to the lower target
-// would no longer be there to reach.
-func (m *GigaStorageManager) recoverStores(ctx context.Context, target int64) error {
-	if target == 0 {
-		logger.Info("No height to converge on, opening the state DB where its files sit")
-		return m.openStateDB(ctx)
-	}
-	logger.Info("Opening the state DB on the recovery target", "target", target)
-	if err := m.openStateDBAt(ctx, target); err != nil {
-		return err
-	}
-	return m.recoverReceipt(target)
-}
-
-// openBlockStore opens the block ledger consensus reads and writes.
-func (m *GigaStorageManager) openBlockStore() error {
-	blockStore, err := blockstore.New(m.cfg.BlockDBConfig)
-	if err != nil {
-		return fmt.Errorf("open block db: %w", err)
-	}
-	m.blockStore = blockStore
-	return nil
-}
-
-// openReceiptStore opens the receipt store, leaving it nil when receipts are disabled.
-func (m *GigaStorageManager) openReceiptStore() error {
-	if m.cfg.ReceiptDBConfig.Enable {
-		// Giga has no legacy receipt KVStore.
-		receiptDB, err := gigareceipt.NewReceiptStore(m.cfg.ReceiptDBConfig, nil)
-		if err != nil {
-			return fmt.Errorf("open receipt store: %w", err)
-		}
-		m.receiptDB = receiptDB
-	}
-	return nil
-}
-
-// findTargetRecoveryHeight returns the height recovery brings the stores onto, or 0 if no store is to be moved.
-// It must run before the state DB, the receipt store and the app hash builder open.
-func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
-	logger.Info("Reading a store head", "store", "block store")
-	blockHeight, err := m.blockStore.GetLatestBlock()
-	if err != nil {
-		return 0, fmt.Errorf("read block store head: %w", err)
-	}
-	logger.Info("Reading a store head", "store", "state WAL")
-	stateHeight, err := m.stateWALHead()
-	if err != nil {
-		return 0, err
-	}
-	historicalStateHead := utils.None[uint64]()
-	if m.cfg.SSConfig.Enable {
-		logger.Info("Reading a store head", "store", "historical state DB")
-		present, head, err := undo.GetLatestBlock(m.cfg.SSConfig.EVMDBDirectory)
-		if err != nil {
-			return 0, fmt.Errorf("read historical state DB head: %w", err)
-		}
-		if present {
-			historicalStateHead = utils.Some(head)
-		}
-	}
-	var receiptHeight uint64
-	if m.cfg.ReceiptDBConfig.Enable {
-		logger.Info("Reading a store head", "store", "receipt store")
-		receiptHeight, err = gigareceipt.GetLatestBlock(m.cfg.ReceiptDBConfig)
-		if err != nil {
-			return 0, fmt.Errorf("read receipt store head: %w", err)
-		}
-	}
-	logger.Info("Reading a store head", "store", "app hash vault")
-	appHashHeight, err := builder.GetLatestBlock(*m.cfg.AppHashBuilderConfig)
-	if err != nil {
-		return 0, fmt.Errorf("read app hash vault head: %w", err)
-	}
-	target, err := recoveryTarget(blockHeight, stateHeight, historicalStateHead, receiptHeight, appHashHeight)
-	if err != nil {
-		return 0, err
-	}
-	var historicalStateLogged any = "none"
-	if head, present := historicalStateHead.Get(); present {
-		historicalStateLogged = head
-	}
-	logger.Info("Read the store heads recovery converges on",
-		"block_store", blockHeight,
-		"state_wal", stateHeight,
-		"historical_state_db", historicalStateLogged,
-		"receipt_store", receiptHeight,
-		"app_hash_vault", appHashHeight,
-		"target", target)
-	return int64(target), nil //nolint:gosec // heights fit within int64
-}
 
 // ErrReceiptStoreDisabledWithHistory is returned when the receipt store is disabled while its
 // directory still holds receipts.
 var ErrReceiptStoreDisabledWithHistory = errors.New("receipt store is disabled but holds receipts")
 
+// storeHeads holds the newest block each store that recovery aligns holds, read from their files before they open.
+type storeHeads struct {
+	// The newest block the state WAL holds, or 0 when it holds none.
+	stateWAL uint64
+
+	// The newest block the historical state DB holds, None when it holds none or is disabled.
+	historicalStateDB utils.Option[uint64]
+
+	// The newest block the receipt store holds, or 0 when it holds none or is disabled.
+	receiptStore uint64
+
+	// The newest block whose app hash the vault holds, or the block before the giga activation height when it
+	// holds none.
+	appHashVault uint64
+}
+
+// readStoreHeads reads the head of every store recovery aligns. It reads their files, so it must run before they
+// open.
+func readStoreHeads(cfg *config.GigaStorageConfig) (storeHeads, error) {
+	var heads storeHeads
+	var err error
+	logger.Info("Reading a store head", "store", "state WAL")
+	heads.stateWAL, err = stateWALHead(cfg)
+	if err != nil {
+		return storeHeads{}, fmt.Errorf("read state WAL head: %w", err)
+	}
+	heads.historicalStateDB = utils.None[uint64]()
+	if cfg.SSConfig.Enable {
+		logger.Info("Reading a store head", "store", "historical state DB")
+		present, head, err := undo.GetLatestBlock(cfg.SSConfig.EVMDBDirectory)
+		if err != nil {
+			return storeHeads{}, fmt.Errorf("read historical state DB head: %w", err)
+		}
+		if present {
+			heads.historicalStateDB = utils.Some(head)
+		}
+	}
+	if cfg.ReceiptDBConfig.Enable {
+		logger.Info("Reading a store head", "store", "receipt store")
+		heads.receiptStore, err = gigareceipt.GetLatestBlock(cfg.ReceiptDBConfig)
+		if err != nil {
+			return storeHeads{}, fmt.Errorf("read receipt store head: %w", err)
+		}
+	}
+	logger.Info("Reading a store head", "store", "app hash vault")
+	heads.appHashVault, err = builder.GetLatestBlock(*cfg.AppHashBuilderConfig)
+	if err != nil {
+		return storeHeads{}, fmt.Errorf("read app hash vault head: %w", err)
+	}
+	var historicalStateLogged any = "none"
+	if head, present := heads.historicalStateDB.Get(); present {
+		historicalStateLogged = head
+	}
+	logger.Info("Read the store heads",
+		"state_wal", heads.stateWAL,
+		"historical_state_db", historicalStateLogged,
+		"receipt_store", heads.receiptStore,
+		"app_hash_vault", heads.appHashVault)
+	return heads, nil
+}
+
+// stateWALHead returns the last block the state WAL holds, or 0 when it holds none.
+//
+// It reads the WAL directory rather than an open WAL, which takes that directory's exclusive lock, so
+// it must run before the StateDB opens it.
+func stateWALHead(cfg *config.GigaStorageConfig) (uint64, error) {
+	stored, _, last, err := statewal.GetRange(flatkv.StateWALConfig(cfg.FlatKVConfig.DataDir))
+	if err != nil {
+		return 0, fmt.Errorf("read the state WAL's stored range: %w", err)
+	}
+	if !stored {
+		return 0, nil
+	}
+	return last, nil
+}
+
+// assertInvariants errors when the stores on disk break an invariant startup relies on: a disabled receipt store or
+// historical state DB that still holds data, a store ahead of the block store, or state holding blocks beside a
+// vault holding no app hash.
+func assertInvariants(
+	cfg *config.GigaStorageConfig,
+	// The newest block the block store holds, or 0 when it holds none.
+	blockStoreHead uint64,
+	heads storeHeads,
+) error {
+	if err := requireNoReceiptStoreWhileDisabled(cfg); err != nil {
+		return fmt.Errorf("check the disabled receipt store: %w", err)
+	}
+	if err := requireNoHistoricalStateDBWhileDisabled(cfg); err != nil {
+		return fmt.Errorf("check the disabled historical state DB: %w", err)
+	}
+	err := requireNoStoreAheadOfTheBlockStore(blockStoreHead, heads, cfg.AppHashBuilderConfig.GigaActivationHeight)
+	if err != nil {
+		return fmt.Errorf("check the stores against the block store: %w", err)
+	}
+	if err := requireAppHashesForStateBlocks(heads); err != nil {
+		return fmt.Errorf("check the app hash vault against the state: %w", err)
+	}
+	return nil
+}
+
 // requireNoReceiptStoreWhileDisabled refuses to run with receipts disabled while a receipt store with
 // history sits on disk. Blocks finalized meanwhile would leave a hole the store refuses to write across,
 // and re-enabling it would then converge every store on its stale head.
-func (m *GigaStorageManager) requireNoReceiptStoreWhileDisabled() error {
-	if m.cfg.ReceiptDBConfig.Enable {
+func requireNoReceiptStoreWhileDisabled(cfg *config.GigaStorageConfig) error {
+	if cfg.ReceiptDBConfig.Enable {
 		return nil
 	}
-	head, err := gigareceipt.GetLatestBlock(m.cfg.ReceiptDBConfig)
+	head, err := gigareceipt.GetLatestBlock(cfg.ReceiptDBConfig)
 	if err != nil {
 		return fmt.Errorf("read disabled receipt store head: %w", err)
 	}
@@ -176,16 +136,16 @@ func (m *GigaStorageManager) requireNoReceiptStoreWhileDisabled() error {
 		return nil
 	}
 	return fmt.Errorf("%w: head %d at %s; move that directory away to run without receipts, or enable them again",
-		ErrReceiptStoreDisabledWithHistory, head, m.cfg.ReceiptDBConfig.DBDirectory)
+		ErrReceiptStoreDisabledWithHistory, head, cfg.ReceiptDBConfig.DBDirectory)
 }
 
 // requireNoHistoricalStateDBWhileDisabled refuses to run with the historical state DB disabled while its
 // directory holds anything. Re-enabling it would converge every store on its stale head.
-func (m *GigaStorageManager) requireNoHistoricalStateDBWhileDisabled() error {
-	if m.cfg.SSConfig.Enable {
+func requireNoHistoricalStateDBWhileDisabled(cfg *config.GigaStorageConfig) error {
+	if cfg.SSConfig.Enable {
 		return nil
 	}
-	dir := m.cfg.SSConfig.EVMDBDirectory
+	dir := cfg.SSConfig.EVMDBDirectory
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -200,96 +160,119 @@ func (m *GigaStorageManager) requireNoHistoricalStateDBWhileDisabled() error {
 		"without it, or enable it again", dir)
 }
 
-// stateWALHead returns the last block the state WAL holds, or 0 when it holds none.
+// requireNoStoreAheadOfTheBlockStore errors if any store holds a block the block store does not. An empty block
+// store passes, since a home bootstrapped from copied state or restored from a snapshot starts with one.
 //
-// It reads the WAL directory rather than an open WAL, which takes that directory's exclusive lock, so
-// it must run before the StateDB opens it.
-func (m *GigaStorageManager) stateWALHead() (uint64, error) {
-	stored, _, last, err := statewal.GetRange(flatkv.StateWALConfig(m.cfg.FlatKVConfig.DataDir))
-	if err != nil {
-		return 0, fmt.Errorf("read state WAL head: %w", err)
+// The block store is fsynced, and every other store is written asynchronously behind it, so a store ahead of it
+// means that guarantee broke. Startup refuses rather than act on it.
+func requireNoStoreAheadOfTheBlockStore(
+	// The newest block the block store holds, or 0 when it holds none.
+	blockStoreHead uint64,
+	heads storeHeads,
+	// The first block whose app hash the vault stores.
+	gigaActivationHeight uint64,
+) error {
+	if blockStoreHead == 0 {
+		return nil
 	}
-	if !stored {
-		return 0, nil
+	ahead := func(store string, head uint64) error {
+		return fmt.Errorf("the %s holds block %d, but the block store ends at block %d. No store can be ahead "+
+			"of the block store, which is durable before any other store is written; investigate before "+
+			"restarting", store, head, blockStoreHead)
 	}
-	return last, nil
+	if heads.stateWAL > blockStoreHead {
+		return ahead("state WAL", heads.stateWAL)
+	}
+	if head, present := heads.historicalStateDB.Get(); present && head > blockStoreHead {
+		return ahead("historical state DB", head)
+	}
+	if heads.receiptStore > blockStoreHead {
+		return ahead("receipt store", heads.receiptStore)
+	}
+	// An empty vault reports the block before the giga activation height, which is not a record it holds.
+	if heads.appHashVault >= gigaActivationHeight && heads.appHashVault > blockStoreHead {
+		return ahead("app hash vault", heads.appHashVault)
+	}
+	return nil
 }
 
-// recoveryTarget folds the store heads into the height they converge on: the lowest of them, with a
+// requireAppHashesForStateBlocks errors when the state WAL holds blocks while the app hash vault holds no app hash.
+// The stores would then align on block 0, which no rollback reaches.
+func requireAppHashesForStateBlocks(heads storeHeads) error {
+	if heads.stateWAL == 0 || heads.appHashVault > 0 {
+		return nil
+	}
+	return fmt.Errorf("the app hash vault holds no app hash, but the state WAL holds blocks through %d, and "+
+		"recovery cannot roll back to before block 1", heads.stateWAL)
+}
+
+// recoveryTarget folds the store heads into the height the stores align on: the lowest of them, with a
 // historical state DB or receipt store that holds nothing left out rather than dragging the target down to
 // 0. A store newly enabled on a node with history has nothing to disagree with, and starts filling at the
 // target.
 //
-// An empty block store or state WAL instead yields 0, which skips recovery. Neither is unambiguous the
-// way an empty receipt store is: state whose WAL was pruned away behind a snapshot still exists with an
-// empty WAL, and converging on a target derived from the other stores would discard it with no WAL left
-// to replay it from.
-//
-// It errors when the app hash vault's head is 0 while the other stores converge above it, since no
-// rollback reaches below block 1.
-func recoveryTarget(
-	blockHeight uint64,
-	stateHeight uint64,
-	// The newest block the historical state DB holds, None when it holds none or is disabled.
-	historicalStateHead utils.Option[uint64],
-	receiptHeight uint64,
-	// The newest block whose app hash the vault holds, or the block before the giga activation height when
-	// it holds none.
-	appHashHeight uint64,
-) (uint64, error) {
-	if blockHeight == 0 || stateHeight == 0 {
-		return 0, nil
+// An empty state WAL instead yields 0, which leaves every store where it is. It is not unambiguous the way an
+// empty receipt store is: state whose WAL was pruned away behind a snapshot still exists with an empty WAL, and
+// aligning on a target derived from the other stores would discard it with no WAL left to replay it from.
+func recoveryTarget(heads storeHeads) uint64 {
+	if heads.stateWAL == 0 {
+		return 0
 	}
-	target := min(blockHeight, stateHeight)
-	if head, present := historicalStateHead.Get(); present {
+	target := heads.stateWAL
+	if head, present := heads.historicalStateDB.Get(); present {
 		target = min(target, head)
 	}
-	if receiptHeight > 0 {
-		target = min(target, receiptHeight)
+	if heads.receiptStore > 0 {
+		target = min(target, heads.receiptStore)
 	}
-	if appHashHeight == 0 {
-		return 0, fmt.Errorf("the app hash vault holds no app hash, but the other stores converge on "+
-			"block %d, and recovery cannot roll back to before block 1", target)
-	}
-	return min(target, appHashHeight), nil
+	return min(target, heads.appHashVault)
 }
 
-// openStateDB opens the state commit store, the EVM state store (when enabled) and the state WAL,
-// leaving them on the height the WAL holds.
-func (m *GigaStorageManager) openStateDB(ctx context.Context) error {
-	stateDB, err := giga.NewStateDB(ctx, m.cfg.FlatKVConfig, m.cfg.SSConfig, m.cfg.CheckpointConfig, m.budHasher)
-	if err != nil {
-		return err
-	}
-	m.stateDB = stateDB
-	return nil
-}
-
-// openStateDBAt opens the same three stores on target, rolling them back to it first.
+// alignStores brings the state WAL, the live state DB, the historical state DB and the receipt store onto target,
+// and returns with every store closed. Some roll back to target and others replay up to it. A target of 0 leaves
+// every store where it is.
 //
-// The rollback is part of the open because cutting the state WAL's tail needs the WAL closed, so an
-// already-open state DB would have to close and reopen it.
-func (m *GigaStorageManager) openStateDBAt(ctx context.Context, target int64) error {
-	stateDB, err := giga.NewStateDBWithRollback(
-		ctx, m.cfg.FlatKVConfig, m.cfg.SSConfig, m.cfg.CheckpointConfig, m.budHasher, target)
-	if err != nil {
-		return err
-	}
-	m.stateDB = stateDB
-	return nil
-}
-
-// recoverReceipt drops every receipt above target, working on the store's files rather than through an
-// open store. A store already at or below target is left alone.
-//
-// It takes the locks an open receipt store holds, so it must run before openReceiptStore.
-func (m *GigaStorageManager) recoverReceipt(target int64) error {
-	if !m.cfg.ReceiptDBConfig.Enable {
+// The block store and the app hash vault are not touched: the vault keeps its app hashes above target for
+// auditing. An empty receipt store or historical state DB stays empty. Running it again with the same target is a
+// no-op, and alignment that failed or was interrupted completes when run again.
+func alignStores(ctx context.Context, cfg *config.GigaStorageConfig, target uint64) error {
+	if target == 0 {
+		// Rolling back to 0 would drop every receipt the node holds along with every block in its WAL. This is
+		// the single guard for that, which is why the rollbacks below carry none of their own.
+		logger.Info("No height to align the stores on, leaving them where their files sit")
 		return nil
 	}
-	//nolint:gosec // recoverStores guards target > 0
-	if err := gigareceipt.PruneAfter(m.cfg.ReceiptDBConfig, uint64(target)); err != nil {
-		return fmt.Errorf("roll the receipt store back to %d: %w", target, err)
+	logger.Info("Aligning the stores on the recovery target", "target", target)
+
+	if err := flatkv.RollBackLiveStateDB(cfg.FlatKVConfig, target); err != nil {
+		return fmt.Errorf("roll back the live state DB: %w", err)
+	}
+	if cfg.SSConfig.Enable {
+		if err := undo.DiscardStateAbove(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig, target); err != nil {
+			return fmt.Errorf("roll back the historical state DB: %w", err)
+		}
+	}
+	if err := statewal.PruneAfter(flatkv.StateWALConfig(cfg.FlatKVConfig.DataDir), target); err != nil {
+		return fmt.Errorf("roll back the state WAL: %w", err)
+	}
+	if cfg.ReceiptDBConfig.Enable {
+		if err := gigareceipt.PruneAfter(cfg.ReceiptDBConfig, target); err != nil {
+			return fmt.Errorf("roll back the receipt store: %w", err)
+		}
 	}
 	return nil
+}
+
+// openReceiptStore opens the receipt store, returning nil when receipts are disabled.
+func openReceiptStore(cfg *config.GigaStorageConfig) (receipt.ReceiptStore, error) {
+	if !cfg.ReceiptDBConfig.Enable {
+		return nil, nil
+	}
+	// Giga has no legacy receipt KVStore.
+	receiptDB, err := gigareceipt.NewReceiptStore(cfg.ReceiptDBConfig, nil)
+	if err != nil {
+		return nil, fmt.Errorf("open the receipt store's files under %s: %w",
+			cfg.ReceiptDBConfig.DBDirectory, err)
+	}
+	return receiptDB, nil
 }

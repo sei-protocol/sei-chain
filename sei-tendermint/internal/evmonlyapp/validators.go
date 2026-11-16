@@ -6,9 +6,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/staking"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -16,7 +15,7 @@ import (
 // configured validators until staking has bonded one. It returns none when a
 // finalized block failed to commit or the stored set does not add up, and
 // autobahn cannot stage an empty committee.
-func (a *evmOnlyApplication) GetValidators() []abci.ValidatorUpdate {
+func (a *evmOnlyApplication) GetValidators() []proxy.ValidatorUpdate {
 	bonded, err := a.bondedValidators()
 	if err != nil {
 		logger.Error("EVM-only bonded validator set is unavailable", "err", err)
@@ -30,7 +29,7 @@ func (a *evmOnlyApplication) GetValidators() []abci.ValidatorUpdate {
 
 // bondedValidators returns staking's bonded set once every finalized block is
 // committed. It fails when one failed to commit.
-func (a *evmOnlyApplication) bondedValidators() ([]abci.ValidatorUpdate, error) {
+func (a *evmOnlyApplication) bondedValidators() ([]proxy.ValidatorUpdate, error) {
 	// openSettledView only logs a failed commit, which would serve a set from
 	// before the failed block, and autobahn persists the committee it stages.
 	if err := a.AwaitCommits(); err != nil {
@@ -42,7 +41,7 @@ func (a *evmOnlyApplication) bondedValidators() ([]abci.ValidatorUpdate, error) 
 	if err != nil {
 		return nil, err
 	}
-	updates := make([]abci.ValidatorUpdate, len(bonded))
+	updates := make([]proxy.ValidatorUpdate, len(bonded))
 	for i, v := range bonded {
 		if updates[i], err = validatorUpdate(v); err != nil {
 			return nil, err
@@ -52,12 +51,12 @@ func (a *evmOnlyApplication) bondedValidators() ([]abci.ValidatorUpdate, error) 
 }
 
 // validatorUpdate returns bonded validator v as consensus reads it.
-func validatorUpdate(v staking.BondedValidator) (abci.ValidatorUpdate, error) {
+func validatorUpdate(v staking.BondedValidator) (proxy.ValidatorUpdate, error) {
 	power, ok := utils.SafeCast[int64](v.Power)
 	if !ok {
-		return abci.ValidatorUpdate{}, fmt.Errorf("validator %s power %d does not fit int64", v.Operator, v.Power)
+		return proxy.ValidatorUpdate{}, fmt.Errorf("validator %s power %d does not fit int64", v.Operator, v.Power)
 	}
 	// PublicKeyFromBytes checks only the length, and a common.Hash is always 32 bytes.
-	key := utils.OrPanic1(ed25519.PublicKeyFromBytes(v.ConsensusPubkey[:]))
-	return abci.ValidatorUpdate{PubKey: crypto.PubKeyToProto(key), Power: power}, nil
+	key := utils.OrPanic1(types.PublicKeyFromBytes(v.ConsensusPubkey[:]))
+	return proxy.ValidatorUpdate{PubKey: key, Power: power}, nil
 }
