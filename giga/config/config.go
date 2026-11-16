@@ -4,6 +4,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -130,14 +131,26 @@ type RPCConfig struct {
 	MaxStateOverrideAccounts int `mapstructure:"max_state_override_accounts"`
 	// MaxStateOverrideSlots caps the storage slots one call's state override may set for an account.
 	MaxStateOverrideSlots int `mapstructure:"max_state_override_slots"`
-	// DefaultTimeout is the deadline applied to a method with no entry in MethodTimeouts.
+	// DefaultTimeout is the deadline applied to a method with no built-in deadline and no entry in
+	// MethodTimeouts.
 	DefaultTimeout time.Duration `mapstructure:"default_timeout"`
-	// MethodTimeouts overrides DefaultTimeout for individual methods. Each entry is
-	// "method=duration", for example "eth_call=60s"; a method name ending in "*" matches every
-	// method with that prefix, and the longest matching prefix wins. A duration of 0 applies no
-	// deadline to that method; eth_call, eth_estimateGas, eth_estimateGasAfterCalls and
-	// eth_createAccessList must keep a positive one.
+	// MethodTimeouts sets deadlines for individual methods, over the built-in ones in
+	// defaultMethodTimeouts. Each entry is "method=duration", for example "eth_call=60s"; a method
+	// name ending in "*" matches every method with that prefix, and an exact name or the longest
+	// matching prefix wins, so only an entry with a built-in one's name or prefix replaces it. A
+	// duration of 0 applies no deadline to that method; eth_call, eth_estimateGas,
+	// eth_estimateGasAfterCalls and eth_createAccessList must keep a positive one.
 	MethodTimeouts []string `mapstructure:"method_timeouts"`
+}
+
+// defaultMethodTimeouts are the per-method deadlines a node applies to methods MethodTimeouts
+// does not name, in MethodTimeouts' format.
+var defaultMethodTimeouts = []string{
+	"eth_call=60s",
+	"eth_estimateGas=60s",
+	"eth_createAccessList=60s",
+	"eth_estimateGasAfterCalls=5m",
+	"debug_trace*=0",
 }
 
 // simulationMethods are the methods that execute EVM code against a state view for the caller.
@@ -149,15 +162,22 @@ var simulationMethods = []string{
 	"eth_createAccessList",
 }
 
-// DeadlineConfig returns the per-method deadlines DefaultTimeout and MethodTimeouts describe.
+// DeadlineConfig returns the per-method deadlines DefaultTimeout and MethodTimeouts describe, with
+// MethodTimeouts applied over the built-in deadlines.
 func (c RPCConfig) DeadlineConfig() (ratelimiter.DeadlineConfig, error) {
 	if c.DefaultTimeout < 0 {
 		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s: must be >= 0, got %s", FlagRPCDefaultTimeout, c.DefaultTimeout)
 	}
-	exact, prefixes, err := ratelimiter.ParseMethodTimeouts(c.MethodTimeouts)
+	exact, prefixes, err := ratelimiter.ParseMethodTimeouts(defaultMethodTimeouts)
+	if err != nil {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("built-in method timeouts: %w", err)
+	}
+	configuredExact, configuredPrefixes, err := ratelimiter.ParseMethodTimeouts(c.MethodTimeouts)
 	if err != nil {
 		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s: %w", FlagRPCMethodTimeouts, err)
 	}
+	maps.Copy(exact, configuredExact)
+	maps.Copy(prefixes, configuredPrefixes)
 	return ratelimiter.DeadlineConfig{
 		Default:         c.DefaultTimeout,
 		Overrides:       exact,
@@ -207,13 +227,7 @@ var DefaultConfig = Config{
 		MaxStateOverrideAccounts:      100,
 		MaxStateOverrideSlots:         1000,
 		DefaultTimeout:                30 * time.Second,
-		MethodTimeouts: []string{
-			"eth_call=60s",
-			"eth_estimateGas=60s",
-			"eth_createAccessList=60s",
-			"eth_estimateGasAfterCalls=5m",
-			"debug_trace*=0",
-		},
+		MethodTimeouts:                slices.Clone(defaultMethodTimeouts),
 	},
 	StateSync: StateSyncConfig{
 		Enabled: false,
@@ -701,16 +715,19 @@ max_state_override_accounts = {{ .Giga.RPC.MaxStateOverrideAccounts }}
 # max_state_override_slots caps the storage slots one call's state override may set for an account.
 max_state_override_slots = {{ .Giga.RPC.MaxStateOverrideSlots }}
 
-# default_timeout is the deadline applied, on both HTTP and WebSocket, to a method with no entry
-# in method_timeouts. Set to 0 to disable.
+# default_timeout is the deadline applied, on both HTTP and WebSocket, to a method with no
+# built-in deadline and no entry in method_timeouts. Set to 0 to disable.
 default_timeout = "{{ .Giga.RPC.DefaultTimeout }}"
 
-# method_timeouts overrides default_timeout for individual methods. Each entry is
-# "method=duration", e.g. "eth_call=60s". A method name ending in "*" (e.g. "debug_trace*=0")
-# matches every method with that prefix; the longest matching prefix wins. A duration of 0
-# applies no deadline to that method. debug_trace* methods are also bounded by trace_timeout.
-# eth_call, eth_estimateGas, eth_estimateGasAfterCalls and eth_createAccessList must end up with
-# a positive deadline, from default_timeout or an entry here.
+# method_timeouts sets deadlines for individual methods. Each entry is "method=duration",
+# e.g. "eth_call=60s". A method name ending in "*" (e.g. "debug_trace*=0") matches every method
+# with that prefix; an exact name or the longest matching prefix wins. A duration of 0 applies
+# no deadline to that method. debug_trace* methods are also bounded by trace_timeout.
+# The default entries are built in, so removing one from this list does not remove it. To change
+# one, give an entry with the same method name or prefix, e.g. "eth_call=1s"; a broader wildcard
+# such as "eth_*=1s" does not change it.
+# eth_call, eth_estimateGas, eth_estimateGasAfterCalls and eth_createAccessList must keep a
+# positive deadline.
 method_timeouts = [{{ range $i, $e := .Giga.RPC.MethodTimeouts }}{{ if $i }}, {{ end }}"{{ $e }}"{{ end }}]
 
 [giga.state_sync]

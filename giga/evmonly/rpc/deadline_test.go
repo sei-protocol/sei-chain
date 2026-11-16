@@ -16,6 +16,7 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 // errcodeRequestTimeout is the JSON-RPC error code go-ethereum reports for a method that failed
@@ -77,14 +78,16 @@ func TestMethodDeadlineEndsBlockedCall(t *testing.T) {
 }
 
 func TestDefaultDeadlineBoundsUnlistedMethod(t *testing.T) {
-	backend := callBackend(func(ctx context.Context, _ *core.Message) (*core.ExecutionResult, error) {
-		<-ctx.Done()
-		return nil, ctx.Err()
-	})
-	for name, client := range dialTransports(t, backend, limitsWithDeadlines(50*time.Millisecond, "eth_estimateGas=1h")) {
+	backend := &testBackend{
+		block: func(ctx context.Context, _ *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
+	for name, client := range dialTransports(t, backend, limitsWithDeadlines(50*time.Millisecond, "eth_getLogs=1h")) {
 		t.Run(name, func(t *testing.T) {
-			var got hexutil.Bytes
-			err := client.CallContext(t.Context(), &got, "eth_call", map[string]any{"to": deadlineTestTo}, "latest")
+			var got map[string]any
+			err := client.CallContext(t.Context(), &got, "eth_getBlockByNumber", "0x1", false)
 
 			var rpcErr ethrpc.Error
 			require.ErrorAs(t, err, &rpcErr)

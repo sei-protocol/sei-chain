@@ -85,6 +85,30 @@ func TestRPCMethodDeadlinesMatchTheV2EVMRPC(t *testing.T) {
 	}
 }
 
+// TestMethodTimeoutsApplyOverTheBuiltInDeadlines holds [giga.rpc] method_timeouts to changing only
+// the deadlines its entries name.
+func TestMethodTimeoutsApplyOverTheBuiltInDeadlines(t *testing.T) {
+	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{
+		"giga.rpc.default_timeout": "0s",
+		"giga.rpc.method_timeouts": []string{"eth_getLogs=10s", "eth_call=2m", "eth_*=0"},
+	})
+	require.NoError(t, err)
+	deadlines, err := cfg.RPC.DeadlineConfig()
+	require.NoError(t, err)
+	enforcer := ratelimiter.NewDeadlineEnforcer(deadlines)
+	for method, want := range map[string]time.Duration{
+		"eth_getLogs":               10 * time.Second,
+		"eth_call":                  2 * time.Minute,
+		"eth_estimateGas":           time.Minute,
+		"eth_createAccessList":      time.Minute,
+		"eth_estimateGasAfterCalls": 5 * time.Minute,
+		"eth_getBalance":            0,
+		"debug_traceTransaction":    0,
+	} {
+		require.Equal(t, want, enforcer.Deadline(method), method)
+	}
+}
+
 // TestConfigTemplateRendersTheDefaults holds the app.toml template to the section: the rendered
 // defaults read back as DefaultConfig.
 func TestConfigTemplateRendersTheDefaults(t *testing.T) {
@@ -263,10 +287,9 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"negative method timeout":         {"giga.rpc.method_timeouts": []string{"eth_call=-1s"}},
 		"bare wildcard method timeout":    {"giga.rpc.method_timeouts": []string{"*=1s"}},
 		"unbounded eth_call":              {"giga.rpc.method_timeouts": []string{"eth_call=0"}},
-		"unbounded eth_* simulation":      {"giga.rpc.method_timeouts": []string{"eth_*=0"}},
-		"no default and simulation unlisted": {
+		"unbounded eth_estimateGasAfterCalls": {
 			"giga.rpc.default_timeout": "0s",
-			"giga.rpc.method_timeouts": []string{"eth_call=60s", "eth_estimateGas=60s", "eth_createAccessList=60s"},
+			"giga.rpc.method_timeouts": []string{"eth_estimateGasAfterCalls=0"},
 		},
 		"non-boolean state sync": {"giga.state_sync.enabled": "maybe"},
 	} {
