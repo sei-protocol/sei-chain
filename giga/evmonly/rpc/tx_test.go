@@ -218,7 +218,7 @@ func TestGetTransactionByHash(t *testing.T) {
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	to := common.HexToAddress("0x2000000000000000000000000000000000000002")
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(713700)
 	unsigned := ethtypes.NewTx(&ethtypes.DynamicFeeTx{
 		ChainID:   chainID,
 		Nonce:     5,
@@ -316,7 +316,7 @@ func TestGetTransactionByHashPatchesFromWhenSenderDoesNotRecover(t *testing.T) {
 			From:             sender.Hex(),
 		},
 	}}))
-	chainConfig := testChainConfig(big.NewInt(713715))
+	chainConfig := testChainConfig(big.NewInt(713700))
 	backend := &testBackend{
 		block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 			return &coretypes.ResultBlock{
@@ -374,7 +374,7 @@ func TestGetTransactionByHashReturnsNullBeforeBlockCommit(t *testing.T) {
 
 func TestGetTransactionByHashEndToEnd(t *testing.T) {
 	tx, raw := testSignedTransaction(t)
-	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713715)), tx)
+	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713700)), tx)
 	require.NoError(t, err)
 	blockHash := common.HexToHash("0xabcd")
 	store := evmonly.NewMemoryReceiptStore()
@@ -387,7 +387,7 @@ func TestGetTransactionByHashEndToEnd(t *testing.T) {
 			From:             sender.Hex(),
 		},
 	}}))
-	chainConfig := testChainConfig(big.NewInt(713715))
+	chainConfig := testChainConfig(big.NewInt(713700))
 	backend := &testBackend{
 		block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 			return &coretypes.ResultBlock{
@@ -625,7 +625,7 @@ func TestGetTransactionByHashSurfacesBackendErrors(t *testing.T) {
 						},
 					}, nil
 				},
-				chainConfig: func() *params.ChainConfig { return testChainConfig(big.NewInt(713715)) },
+				chainConfig: func() *params.ChainConfig { return testChainConfig(big.NewInt(713700)) },
 			},
 			store: store,
 		}

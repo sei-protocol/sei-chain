@@ -30,6 +30,41 @@ func TestSubscribeLaneProposals_WrongValidatorPanics(t *testing.T) {
 	state.SubscribeLaneProposals(types.LaneID{Validator: b.Public(), Joined: 0}, 0)
 }
 
+func TestSubscribeLaneProposals_WaitsForPersistence(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistry(rng, 1)
+		state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+		defer func() { require.NoError(t, state.Close()) }()
+		lane := state.LocalLane().OrPanic("genesis")
+		var blocks []*types.Signed[*types.LaneProposal]
+		for n := range types.BlockNumber(10) {
+			b, err := state.ProduceLocalBlock(lane, n, types.GenPayload(rng))
+			require.NoError(t, err)
+			blocks = append(blocks, b)
+		}
+		for _, persisted := range []types.BlockNumber{0, 3, 7} {
+			sub := state.SubscribeLaneProposals(lane, 0)
+			received := make([]*types.Signed[*types.LaneProposal], 0, len(blocks))
+			require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+				sc.SpawnBg(func() error {
+					for {
+						b, err := sub.Recv(ctx)
+						if err != nil {
+							return utils.IgnoreCancel(err)
+						}
+						received = append(received, b)
+					}
+				})
+				state.setNextBlockToPersist(lane, persisted)
+				synctest.Wait()
+				return nil
+			}))
+			require.NoError(t, utils.TestDiff(blocks[:persisted], received))
+		}
+	})
+}
+
 func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -47,6 +82,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	sub := state.SubscribeLaneProposals(lane0, 0)
 	want0, err := state.ProduceLocalBlock(lane0, 0, types.GenPayload(rng))
 	require.NoError(t, err)
+	state.setNextBlockToPersist(lane0, 1)
 	got0, err := sub.Recv(ctx)
 	require.NoError(t, err)
 	require.Equal(t, want0.Msg().Block().Header().Hash(), got0.Msg().Block().Header().Hash())
@@ -66,6 +102,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 			return fmt.Errorf("stay LocalLane = %v, want %v", cur, lane0)
 		}
 		want1, err = state.ProduceLocalBlock(lane0, 1, types.GenPayload(rng))
+		state.setNextBlockToPersist(lane0, 2)
 		return err
 	}))
 	require.Equal(t, want1.Msg().Block().Header().Hash(), got1.Msg().Block().Header().Hash())
@@ -130,6 +167,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	sub1 := state.SubscribeLaneProposals(lane1, 0)
 	want, err := state.ProduceLocalBlock(lane1, 0, types.GenPayload(rng))
 	require.NoError(t, err)
+	state.setNextBlockToPersist(lane1, 1)
 	gotBlk, err := sub1.Recv(ctx)
 	require.NoError(t, err)
 	require.Equal(t, want.Msg().Block().Header().Hash(), gotBlk.Msg().Block().Header().Hash())

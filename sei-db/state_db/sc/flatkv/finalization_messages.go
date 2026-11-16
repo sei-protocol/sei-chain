@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 )
 
@@ -9,23 +10,21 @@ import (
 
 // pendingFinalization is one sealed block awaiting its hash.
 type pendingFinalization struct {
-	// blockNumber is the height being finalized. Checked against the hash that arrives for it, since the
+	// blockHeight is the height being finalized. Checked against the hash that arrives for it, since the
 	// two streams are independent and a mismatch means one of them has slipped.
-	blockNumber int64
+	blockHeight uint64
 
-	// blockView is the block's sealed view, with a reservation this manager owns. Held until the block's
-	// hashes have been written onto it, because a view's last release must follow its finalization.
-	blockView *sview.StoreView
+	// storeView is the block's view of every store, with a reservation this manager owns. Held until the
+	// block's hashes have been written onto it, because a view's last release must follow its finalization.
+	storeView *sview.StoreView
 
-	// alreadyHave is the replay skip list: the height each database had already reached when replay
-	// started, or nil outside replay. It travels with the block because finalization consults it per
-	// database, and by the time this is finalized the store has moved on.
-	alreadyHave map[string]int64
+	// viewsToFinalize is the views this block's hashes are recorded onto.
+	viewsToFinalize []view.View
 }
 
 // Releases the reservation this block holds, so its databases can resume flushing.
 func (p *pendingFinalization) release() error {
-	return p.blockView.Release()
+	return p.storeView.Release()
 }
 
 // finalizationFlushRequest asks the manager to report once it has dealt with everything queued ahead of

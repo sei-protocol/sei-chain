@@ -54,7 +54,11 @@ func (s *stubView) Reserve() error {
 	return nil
 }
 
-func (s *stubView) Finalize(writes []*proto.KVPair) error {
+func (s *stubView) BlockHeight() uint64 {
+	panic("stubView: unexpected BlockHeight")
+}
+
+func (s *stubView) Finalize(blockHeight uint64, writes []*proto.KVPair) error {
 	panic("stubView: unexpected Finalize")
 }
 
@@ -142,4 +146,19 @@ func TestStoreViewReleaseStopsAtFirstFailure(t *testing.T) {
 		attempted += stub.releaseCalls
 	}
 	require.Equal(t, 1, attempted, "release must stop at the first failure rather than attempt the rest")
+}
+
+// A view is aligned only when every store holds the block the view is targeted on, whichever side a stray
+// store falls on.
+func TestStoreViewRequireAligned(t *testing.T) {
+	blockView, _ := fakeViews(t, 5)
+	require.NoError(t, blockView.RequireAligned())
+
+	blockView, stubs := fakeViews(t, 5)
+	stubs[accountDBDir].blockHeight = 6
+	require.ErrorContains(t, blockView.RequireAligned(), "account view holds block 6, not block 5")
+
+	blockView, stubs = fakeViews(t, 5)
+	stubs[miscDBDir].blockHeight = 4
+	require.ErrorContains(t, blockView.RequireAligned(), "misc view holds block 4, not block 5")
 }

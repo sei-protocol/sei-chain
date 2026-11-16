@@ -208,15 +208,15 @@ func TestSuperBlockMergesTransactionsInHeaderOrder(t *testing.T) {
 	require.Equal(t, [][]byte{{0, 0}, {0, 1}, {1, 0}, {1, 1}, {2, 0}, {2, 1}}, block.Txs)
 }
 
-func TestLaneRangeVerifyRejectsHashAtHeightZero(t *testing.T) {
+func TestLaneRangeVerifyRejectsHashOnEmptyRange(t *testing.T) {
 	rng := utils.TestRng()
 	committee, _ := GenCommittee(rng, 4)
 	lane := committee.Lanes().At(0)
 
 	require.Error(t, (&LaneRange{lane: lane, first: 0, next: 0, lastHash: GenBlockHeaderHash(rng)}).Verify(committee))
 	require.NoError(t, (&LaneRange{lane: lane, first: 0, next: 0}).Verify(committee))
-	// Past height 0 an empty range may carry a tip. FullProposal.Verify checks that it matches.
-	require.NoError(t, (&LaneRange{
+	// Empty ranges have a zero hash at every height.
+	require.Error(t, (&LaneRange{
 		lane: lane, first: 1, next: 1, lastHash: GenBlockHeaderHash(rng),
 	}).Verify(committee))
 }

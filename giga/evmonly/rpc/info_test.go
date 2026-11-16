@@ -43,13 +43,13 @@ func TestBlockNumberEndToEnd(t *testing.T) {
 }
 
 func TestChainId(t *testing.T) {
-	backend := &testBackend{chainID: func() uint64 { return 713715 }}
+	backend := &testBackend{chainID: func() uint64 { return 713700 }}
 	api := &infoAPI{backend: backend}
-	require.Equal(t, (*hexutil.Big)(big.NewInt(713715)), api.ChainId(t.Context()))
+	require.Equal(t, (*hexutil.Big)(big.NewInt(713700)), api.ChainId(t.Context()))
 }
 
 func TestChainIdEndToEnd(t *testing.T) {
-	backend := &testBackend{chainID: func() uint64 { return 713715 }}
+	backend := &testBackend{chainID: func() uint64 { return 713700 }}
 	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
@@ -61,7 +61,7 @@ func TestChainIdEndToEnd(t *testing.T) {
 
 	var got hexutil.Big
 	require.NoError(t, client.CallContext(t.Context(), &got, "eth_chainId"))
-	require.Equal(t, *big.NewInt(713715), big.Int(got))
+	require.Equal(t, *big.NewInt(713700), big.Int(got))
 }
 
 func TestSyncing(t *testing.T) {
