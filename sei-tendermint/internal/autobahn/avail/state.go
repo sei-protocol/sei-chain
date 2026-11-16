@@ -354,7 +354,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 			return err
 		}
 		ls, ok := inner.lanes[lane]
-		if !ok || ls.blocks.next < n {
+		if !ok || n < ls.blocks.next {
 			// not needed any more
 			return nil
 		}
