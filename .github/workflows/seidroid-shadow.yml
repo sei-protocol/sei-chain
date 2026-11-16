@@ -1,7 +1,7 @@
-# seidroid review v2, in shadow beside seidroid.yml: it reviews the same pull
-# requests and reports only on its own "Seidroid Review" check, so the two can
-# be compared before either is retired.
-name: seidroid review v2
+# Seidroid Shadow, the next generation of seidroid review, running beside
+# seidroid.yml: it reviews the same pull requests and reports only on its own
+# "Seidroid Review" check, so the two can be compared before either is retired.
+name: Seidroid Shadow
 
 on:
   pull_request:
