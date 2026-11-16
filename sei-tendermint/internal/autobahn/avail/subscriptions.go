@@ -82,6 +82,7 @@ func (s *State) SubscribeLaneVotes() *LaneVotesRecv {
 	panic("unreachable")
 }
 
+// Iterates over all valid LaneVotes of the local validator.
 type LaneVotesRecv struct {
 	state *State
 	epoch *types.Epoch
@@ -92,25 +93,30 @@ func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.L
 	var batch []*types.LaneVote
 	for inner, ctrl := range r.state.inner.Lock() {
 		for {
-			if r.epoch.Committee().HasReplica(r.state.key.Public()) {
+			applied := inner.applied()
+			for _, epoch := range inner.anchor.Epochs {
+				ei := epoch.EpochIndex()
+				if ei > applied.EpochIndex() {
+					break
+				}
+				if ei < r.epoch.EpochIndex() {
+					continue
+				}
+				if ei > r.epoch.EpochIndex() {
+					r.epoch = epoch
+					clear(r.next)
+				}
+				if !r.epoch.Committee().HasReplica(r.state.key.Public()) {
+					continue
+				}
 				for lane := range r.epoch.Committee().Lanes().All() {
-					ls, ok := inner.lanes[lane]
-					if !ok {
-						continue
-					}
-					bq := ls.blocks
-					upperBound := min(bq.next, ls.nextBlockToPersist)
-					for i := max(bq.first, r.next[lane]); i < upperBound; i++ {
-						batch = append(batch, types.NewLaneVote(r.epoch.EpochIndex(), bq.q[i].Msg().Block().Header()))
+					ls := inner.lanes[lane]
+					upperBound := min(ls.blocks.next, ls.nextBlockToPersist)
+					for i := max(ls.blocks.first, r.next[lane]); i < upperBound; i++ {
+						batch = append(batch, types.NewLaneVote(r.epoch.EpochIndex(), ls.blocks.q[i].Msg().Block().Header()))
 					}
 					r.next[lane] = upperBound
 				}
-			}
-			applied := inner.applied()
-			if r.epoch.EpochIndex() != applied.EpochIndex() {
-				r.epoch = applied
-				clear(r.next)
-				continue
 			}
 			if len(batch) > 0 {
 				break
