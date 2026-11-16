@@ -263,11 +263,7 @@ func waitForDisconnect(ctx context.Context, node *p2p.TestNode, conn *p2p.ConnV2
 	// WaitForDisconnect panics with the context error.
 	defer func() {
 		if r := recover(); r != nil {
-			ctxErr, ok := r.(error)
-			if !ok {
-				panic(r)
-			}
-			err = ctxErr
+			err = r.(error)
 		}
 	}()
 	node.WaitForDisconnect(ctx, conn)
