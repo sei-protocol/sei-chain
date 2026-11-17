@@ -9,7 +9,6 @@ package blocksync
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -190,46 +189,15 @@ func TestPoolRoutine_RetriesAfterValidationFailure(t *testing.T) {
 	}
 }
 
-// savedBlock is a block and the seen commit saved with it.
-type savedBlock struct {
-	block      *types.Block
-	seenCommit *types.Commit
-}
-
-// saveRecordingStore is a block store that reports every saved block on events.
-type saveRecordingStore struct {
+// heightWatchStore is a block store that publishes the height of every block it saves.
+type heightWatchStore struct {
 	sm.BlockStore
-	events chan<- savedBlock
+	savedHeight *utils.AtomicSend[int64]
 }
 
-func (s saveRecordingStore) SaveBlock(block *types.Block, blockParts *types.PartSet, seenCommit *types.Commit) {
+func (s heightWatchStore) SaveBlock(block *types.Block, blockParts *types.PartSet, seenCommit *types.Commit) {
 	s.BlockStore.SaveBlock(block, blockParts, seenCommit)
-	select {
-	case s.events <- savedBlock{block: block, seenCommit: seenCommit}:
-	default:
-		panic("events channel full")
-	}
-}
-
-// syncObserver reads the saves of a syncing node in order and checks each one.
-type syncObserver struct {
-	events <-chan savedBlock
-}
-
-// expectSaved receives the next save and returns an error unless it is a save of want with
-// wantSeenCommit.
-func (o syncObserver) expectSaved(ctx context.Context, want *types.Block, wantSeenCommit *types.Commit) error {
-	saved, err := utils.Recv(ctx, o.events)
-	if err != nil {
-		return err
-	}
-	if err := utils.TestDiff(want.Hash(), saved.block.Hash()); err != nil {
-		return fmt.Errorf("saved block %d: %w", want.Height, err)
-	}
-	if err := utils.TestDiff(wantSeenCommit.ToProto(), saved.seenCommit.ToProto()); err != nil {
-		return fmt.Errorf("seen commit of block %d: %w", want.Height, err)
-	}
-	return nil
+	s.savedHeight.Store(block.Height)
 }
 
 // TestReactor_RejectsInvalidCommitFromPeer checks that a syncing  node saves the blocks an invalid-commit
@@ -255,15 +223,13 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 			invalidCommitID, syncID := nodeIDs[0], nodeIDs[1]
 			syncNode := network.Node(syncID)
 
-			// The syncing node reports every block it saves. The events channel has room for
-			// blocks 1 to 3, the most the syncing node can save in this test.
-			events := make(chan savedBlock, 3)
-			observer := syncObserver{events: events}
-			syncStore := saveRecordingStore{BlockStore: newMemBlockStore(), events: events}
+			// The syncing node publishes the height of every block it saves.
+			savedHeight := utils.NewAtomicSend(int64(0))
 
 			invalidCommitStore, correctStore := newMemBlockStore(), newMemBlockStore()
 			invalidCommitReactor := makeReactor(ctx, t, genDoc, network.Node(invalidCommitID).Router, invalidCommitStore, false, func() {}, config.DefaultSelfRemediationConfig())
-			syncReactor := makeReactor(ctx, t, genDoc, syncNode.Router, syncStore, true, func() {}, config.DefaultSelfRemediationConfig())
+			syncReactor := makeReactor(ctx, t, genDoc, syncNode.Router,
+				heightWatchStore{BlockStore: newMemBlockStore(), savedHeight: &savedHeight}, true, func() {}, config.DefaultSelfRemediationConfig())
 
 			// Connect the invalid-commit node and the syncing node.
 			network.Start(t)
@@ -305,20 +271,24 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 				t.Cleanup(r.Wait)
 			}
 
-			// The syncing node saves blocks 1 and 2 with their correct seen commits, rejects block 3,
-			// and closes its connection to the invalid-commit node.
+			// The syncing node saves blocks 1 and 2, rejects block 3, and closes its connection to the
+			// invalid-commit node. Its store then ends at block 2, with the correct seen commit of block 2.
 			syncNode.WaitForDisconnect(ctx, invalidCommitConn)
-			utilsrequire.NoError(t, observer.expectSaved(ctx, correct[0].block, correct[0].commit))
-			utilsrequire.NoError(t, observer.expectSaved(ctx, correct[1].block, correct[1].commit))
-			utilsrequire.Equal(t, 0, len(events))
+			utilsrequire.Equal(t, int64(2), syncReactor.store.Height())
+			utilsrequire.NoError(t, utils.TestDiff(correct[1].block.Hash(), syncReactor.store.LoadBlock(2).Hash()))
+			utilsrequire.NoError(t, utils.TestDiff(correct[1].commit.Hash(), syncReactor.store.LoadSeenCommit().Hash()))
 
 			// Stop the invalid-commit node and remove it from the network.
 			invalidCommitReactor.Stop()
 			network.Remove(t, invalidCommitID)
 
-			// The correct node connects, and block 3 is saved with its correct seen commit.
+			// The correct node connects, and the syncing node saves block 3 with its correct seen commit.
 			utilsrequire.NoError(t, correctNode.Connect(ctx, syncNode))
-			utilsrequire.NoError(t, observer.expectSaved(ctx, correct[2].block, correct[2].commit))
+			_, err = savedHeight.Wait(ctx, func(h int64) bool { return h >= 3 })
+			utilsrequire.NoError(t, err)
+			utilsrequire.Equal(t, int64(3), syncReactor.store.Height())
+			utilsrequire.NoError(t, utils.TestDiff(correct[2].block.Hash(), syncReactor.store.LoadBlock(3).Hash()))
+			utilsrequire.NoError(t, utils.TestDiff(correct[2].commit.Hash(), syncReactor.store.LoadSeenCommit().Hash()))
 		})
 	}
 }
