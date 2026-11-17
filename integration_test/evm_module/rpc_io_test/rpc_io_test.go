@@ -17,9 +17,9 @@ import (
 
 var evmRPCSpecResults struct{ passed, failed, skipped int }
 
-// evmOnlyChainID is the EVM chain ID of the Autobahn EVM-only chain (AutobahnEVMOnlyChainID in
-// sei-tendermint/config/autobahn.go).
-const evmOnlyChainID = 713715
+// evmOnlyChainID is the EVM chain ID docker/localnode gives the Autobahn EVM-only chain (the
+// --evm-chain-id of gen-autobahn-config), as contracts/test/lib.js detects it.
+const evmOnlyChainID = 713700
 
 // evmOnlySkips maps a fixture directory, or one fixture file, to the reason the EVM-only chain
 // does not run it.
