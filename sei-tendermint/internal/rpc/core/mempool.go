@@ -316,6 +316,20 @@ func (env *Environment) EvmTransactionCount(address common.Address) uint64 {
 	return env.abciApplication().EvmNonce(address)
 }
 
+// EvmPendingNonce returns the nonce the local mempool admits next for address. It returns None
+// when this node has no local mempool, as a fullnode does not.
+func (env *Environment) EvmPendingNonce(address common.Address) utils.Option[uint64] {
+	giga, ok := env.gigaRouter().Get()
+	if !ok {
+		return utils.None[uint64]()
+	}
+	mp, ok := giga.Mempool().Get()
+	if !ok {
+		return utils.None[uint64]()
+	}
+	return utils.Some(mp.EvmNextPendingNonce(address))
+}
+
 // EvmBlockNumber returns the height of the most recently committed block.
 func (env *Environment) EvmBlockNumber() uint64 {
 	return utils.Clamp[uint64](env.lastBlockHeight())

@@ -23,6 +23,7 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -30,6 +31,9 @@ import (
 )
 
 const shutdownWait = 5 * time.Second
+
+// deadlinePlane is the plane label this server's exceeded method deadlines are recorded under.
+const deadlinePlane = "evmonly"
 
 // wsAllowedOrigins accepts WebSocket upgrades from any Origin header. WebSocket
 // is exempt from the browser same-origin policy, so this is the only origin
@@ -103,6 +107,9 @@ type Backend interface {
 	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error)
 	EvmTransactionCount(common.Address) uint64
 	EvmNonceAt(address common.Address, height int64) (uint64, error)
+	// EvmPendingNonce returns the nonce the local mempool admits next for address, or None when
+	// this node has no local mempool.
+	EvmPendingNonce(common.Address) utils.Option[uint64]
 }
 
 // Server serves the EVM-only JSON-RPC API over HTTP and over WebSocket.
@@ -164,7 +171,12 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 	if receiptStore == nil {
 		return nil, errors.New("EVM-only RPC requires a receipt store")
 	}
+	deadlines, err := limits.DeadlineConfig()
+	if err != nil {
+		return nil, err
+	}
 	rpcServer := ethrpc.NewServer()
+	rpcServer.SetDeadlineHook(deadlineHook(ratelimiter.NewDeadlineEnforcer(deadlines)))
 	rpcServer.SetBatchLimits(limits.BatchRequestLimit, limits.BatchResponseMaxSize)
 	rpcServer.SetHTTPBodyLimit(limits.MaxRequestBodyBytes)
 	rpcServer.SetReadLimits(int64(limits.MaxRequestBodyBytes))
@@ -216,6 +228,14 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 		return nil, fmt.Errorf("register EVM-only subscription RPC: %w", err)
 	}
 	return rpcServer, nil
+}
+
+// deadlineHook bounds each method dispatch by enforcer's deadline for that method, and records
+// the dispatches that exceed it.
+func deadlineHook(enforcer *ratelimiter.DeadlineEnforcer) ethrpc.DeadlineHook {
+	return func(ctx context.Context, method string) (context.Context, context.CancelFunc) {
+		return enforcer.WithDeadlineAndRecord(ctx, deadlinePlane, method)
+	}
 }
 
 // Serve handles HTTP and WebSocket requests until either listener stops or
