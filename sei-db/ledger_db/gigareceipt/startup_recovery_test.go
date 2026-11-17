@@ -165,7 +165,7 @@ func TestStartupRecoveryRollsBackToTheLowerReceiptHead(t *testing.T) {
 
 			manager, err = bootstrap.NewGigaStorageManager(t.Context(), cfg)
 			require.NoError(t, err)
-			t.Cleanup(func() { require.NoError(t, manager.Close()) })
+			defer func() { require.NoError(t, manager.Close()) }()
 
 			blockHead, err := manager.BlockStore().GetLatestBlock()
 			require.NoError(t, err)
