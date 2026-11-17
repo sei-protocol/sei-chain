@@ -15,8 +15,9 @@ func InterruptiblePush[T any](ctx context.Context, ch chan T, value T) error {
 	}
 }
 
-// Pull from a channel, returning an error if the context is cancelled before a value is available. A value
-// already waiting on the channel is returned even when the context has been cancelled.
+// Pull from a channel, returning an error if the context is cancelled before a value is available or the channel
+// is closed. A value already waiting is returned even after cancellation, so it suits one-shot reply channels
+// rather than consumer loops, which would never observe the cancellation.
 func InterruptiblePull[T any](ctx context.Context, ch <-chan T) (T, error) {
 	var zero T
 	select {
