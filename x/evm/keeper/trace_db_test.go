@@ -197,6 +197,7 @@ func TestTraceDBDiscardsRowsFromOtherFormatVersions(t *testing.T) {
 		stamp []byte
 	}{
 		{"no stamp", nil},
+		{"version 1", formatStamp(1)},
 		{"other version", formatStamp(traceDBFormatVersion + 1)},
 		{"malformed stamp", []byte{0x01}},
 	}

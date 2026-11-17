@@ -36,7 +36,7 @@ const (
 // rows; NewTraceDB discards rows stored under any other version, and a DB without
 // a stamp reads as version 0. Increment it in any change that alters the trace a
 // replay of an already committed block produces.
-const traceDBFormatVersion uint64 = 1
+const traceDBFormatVersion uint64 = 2
 
 // NewTraceDB opens the trace DB at <homeDir>/data/trace_db. When the DB is stamped
 // with a format version other than traceDBFormatVersion, it deletes every row,
