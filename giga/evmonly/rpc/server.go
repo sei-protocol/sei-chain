@@ -107,6 +107,9 @@ type Backend interface {
 	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error)
 	EvmTransactionCount(common.Address) uint64
 	EvmNonceAt(address common.Address, height int64) (uint64, error)
+	// EvmPendingNonce returns the nonce the local mempool admits next for address, or None when
+	// this node has no local mempool.
+	EvmPendingNonce(common.Address) utils.Option[uint64]
 }
 
 // Server serves the EVM-only JSON-RPC API over HTTP and over WebSocket.

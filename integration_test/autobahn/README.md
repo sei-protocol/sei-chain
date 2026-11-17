@@ -449,8 +449,9 @@ subscription other than `newHeads` and `logs`:
 - Any address that has never been written reports `2^200` wei, including
   inside `eth_call` and `eth_estimateGas`. This is the test network's funding
   rule, in place of genesis allocations.
-- `pending` means the latest committed state, and there is no mempool view, so
-  a submitted transaction is not returned by hash until it executes.
+- `pending` in other methods means the latest committed state, and there is no
+  mempool view, so a submitted transaction is not returned by hash until it
+  executes. Only `eth_getTransactionCount` reads the pending nonce.
 - Block fields: `logsBloom` is always empty, `baseFeePerGas` is always zero,
   `gasLimit` is the current limit even for old blocks, and `gasUsed` covers
   one Autobahn lane. `stateRoot` is the app hash and `receiptsRoot` the
@@ -661,16 +662,15 @@ cast block-number --rpc-url http://127.0.0.1:8545
 cast chain-id --rpc-url http://127.0.0.1:8545
 ```
 
-`eth_getTransactionCount` accepts the `latest`, `safe`, `finalized`, and
-`pending` block tags, but all four resolve to the current committed nonce.
-`pending` is accepted so standard tooling that requests it (`cast send`,
-ethers, viem) keeps working, not because instant finality makes committed and
-pending equivalent: instant finality removes reorg risk, not the
-broadcast-to-commit window `pending` exists to cover. Two transactions sent
-back-to-back from the same key before the first commits are therefore
-assigned the same nonce, and the second is rejected; callers issuing rapid
-sequential sends must track the next nonce themselves rather than relying on
-`pending`. An explicit height or `earliest` reads the nonce after that block,
+`eth_getTransactionCount` accepts the `latest`, `safe`, and `finalized` block
+tags, which resolve to the current committed nonce. The `pending` tag returns
+the nonce the sender's next transaction is admitted at. A node that forwards the
+sender answers from the lane it forwards to, as `eth_sendRawTransaction` does;
+a node with its own mempool answers from that mempool. A fullnode with no
+connected lane for the sender returns an error rather than a committed nonce.
+A client reads `pending` and submits that nonce. A second transaction that
+reuses a nonce is rejected. Sends through a different node use that node's
+mempool, so they need their own nonce tracking. An explicit height or `earliest` reads the nonce after that block,
 the same way as `eth_getBalance`. `eth_blockNumber` and `eth_chainId` take no
 block selector and always return the current height and
 the network's configured EVM chain ID.
