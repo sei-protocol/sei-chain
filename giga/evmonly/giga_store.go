@@ -313,6 +313,12 @@ func (r gigaSnapshotStateReader) GetState(addr common.Address, key common.Hash) 
 	return r.snapshot.GetStorage(addr, key)
 }
 
+// StoredBalance returns addr's balance in the snapshot, 0 when it has no account row.
+func (r gigaSnapshotStateReader) StoredBalance(addr common.Address) *big.Int {
+	balance := r.snapshot.GetBalance(addr)
+	return new(big.Int).SetBytes(balance[:])
+}
+
 // useMissingState reports whether addr's balance, nonce and code must be served
 // from missingState: a fallback is configured and the snapshot holds no account
 // for addr.
