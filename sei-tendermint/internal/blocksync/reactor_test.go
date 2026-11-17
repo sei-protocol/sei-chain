@@ -11,9 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 
 	"github.com/fortytw2/leaktest"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -26,7 +24,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	utilsrequire "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/blocksync"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -205,11 +203,11 @@ func makeCommittedBlock(
 	t.Helper()
 	block := sf.MakeBlock(state, height, lastCommit)
 	parts, err := block.MakePartSet(types.BlockPartSizeBytes)
-	utilsrequire.NoError(t, err)
+	require.NoError(t, err)
 	id := types.BlockID{Hash: block.Hash(), PartSetHeader: parts.Header()}
 	voteSet := types.NewVoteSet(state.ChainID, height, 0, tmproto.PrecommitType, state.Validators)
 	commit, err := factory.MakeCommit(ctx, id, height, 0, voteSet, privVals, time.Now())
-	utilsrequire.NoError(t, err)
+	require.NoError(t, err)
 	return committedBlock{block: block, id: id, parts: parts, commit: commit}
 }
 
@@ -450,12 +448,12 @@ func TestAutoRestartIfBehind(t *testing.T) {
 			ctx := t.Context()
 			if tt.restartExpected {
 				r.syncer.OrPanic("syncer").autoRestartIfBehind(ctx, blockPool)
-				assert.True(t, restart.Load(), "Expected restart but did not occur")
+				require.True(t, restart.Load(), "Expected restart but did not occur")
 			} else {
 				ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 				defer cancel()
 				r.syncer.OrPanic("syncer").autoRestartIfBehind(ctx, blockPool)
-				assert.False(t, restart.Load(), "Unexpected restart")
+				require.False(t, restart.Load(), "Unexpected restart")
 			}
 		})
 	}
@@ -481,7 +479,7 @@ func TestAutoRestartStopsAtFreezeBoundary(t *testing.T) {
 		}
 
 		syncer.autoRestartIfBehind(t.Context(), blockPool)
-		utilsrequire.False(t, restart.Load())
+		require.False(t, restart.Load())
 	})
 }
 
