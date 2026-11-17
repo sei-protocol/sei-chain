@@ -214,6 +214,12 @@ Every validator opens the production-shaped Giga storage manager: FlatKV for
 EVM state, littidx for receipts, and littblock for blocks. GigaSS is disabled
 because EVM-only execution does not use it.
 
+Only the RPC node (`make run-rpc-node`), a full node, keeps EVM state history,
+in the Giga undo-log state store. It publishes its EVM RPC on host ports 8555
+(HTTP) and 8556 (WebSocket), and the Autobahn integration suites call it there
+through `SEI_EVM_RPC_URL` and `SEI_EVM_WS_URL`. Node 0's EVM RPC stays on 8545,
+and `seid` sends the suites' funding and seed transactions through it.
+
 Inspect the generated local inputs with:
 
 ```sh
@@ -518,6 +524,8 @@ the row says otherwise:
 | `max_trace_struct_log_bytes` | 33554432 (32 MiB) | output of the default struct logger for each traced transaction |
 | `max_state_override_accounts` | 100 | accounts one `eth_call`, `eth_estimateGas`, `eth_estimateGasAfterCalls`, or `debug_traceCall` state override may name |
 | `max_state_override_slots` | 1000 | storage slots such a state override may set for one account |
+| `default_timeout` | `30s` | how long a method with no `method_timeouts` entry may run, over HTTP and WebSocket, before it fails with error `-32002` |
+| `method_timeouts` | `["eth_call=60s", "eth_estimateGas=60s", "eth_createAccessList=60s", "eth_estimateGasAfterCalls=5m", "debug_trace*=0"]` | per-method overrides of `default_timeout`, each `"method=duration"`; a name ending in `*` matches every method with that prefix, and the longest prefix wins; `0` applies no deadline, so `debug_trace*` stays bounded by `trace_timeout` alone; `eth_call`, `eth_estimateGas`, `eth_estimateGasAfterCalls` and `eth_createAccessList` must end up with a positive deadline or the node refuses to start |
 
 A subscription refused by a cap returns an error, and its slot frees when
 the client unsubscribes, the connection closes, or a `logs` subscription's

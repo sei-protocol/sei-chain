@@ -4,11 +4,14 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
-	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/spf13/cast"
+
+	"github.com/sei-protocol/sei-chain/ratelimiter"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
 // AppOptions is the flat key-value view a section reader consumes. servertypes.AppOptions
@@ -119,7 +122,8 @@ type RPCConfig struct {
 	MaxConcurrentSendCalls int `mapstructure:"max_concurrent_send_calls"`
 	// MaxConcurrentTraceCalls caps debug_trace* calls running at once; a call past it is refused.
 	MaxConcurrentTraceCalls int `mapstructure:"max_concurrent_trace_calls"`
-	// TraceTimeout bounds how long one debug_trace* call may run.
+	// TraceTimeout bounds how long one debug_trace* call may run. 0 leaves it unbounded, and is
+	// accepted only when MethodTimeouts gives debug_traceCall a positive deadline.
 	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
 	// MaxTraceStructLogBytes caps the default struct logger's output, in bytes, for each traced
 	// transaction.
@@ -128,6 +132,58 @@ type RPCConfig struct {
 	MaxStateOverrideAccounts int `mapstructure:"max_state_override_accounts"`
 	// MaxStateOverrideSlots caps the storage slots one call's state override may set for an account.
 	MaxStateOverrideSlots int `mapstructure:"max_state_override_slots"`
+	// DefaultTimeout is the deadline applied to a method with no built-in deadline and no entry in
+	// MethodTimeouts.
+	DefaultTimeout time.Duration `mapstructure:"default_timeout"`
+	// MethodTimeouts sets deadlines for individual methods, over the built-in ones in
+	// defaultMethodTimeouts. Each entry is "method=duration", for example "eth_call=60s"; a method
+	// name ending in "*" matches every method with that prefix, and an exact name or the longest
+	// matching prefix wins, so only an entry with a built-in one's name or prefix replaces it. A
+	// duration of 0 applies no deadline to that method; eth_call, eth_estimateGas,
+	// eth_estimateGasAfterCalls and eth_createAccessList must keep a positive one.
+	MethodTimeouts []string `mapstructure:"method_timeouts"`
+}
+
+// defaultMethodTimeouts are the per-method deadlines a node applies to methods MethodTimeouts
+// does not name, in MethodTimeouts' format.
+var defaultMethodTimeouts = []string{
+	"eth_call=60s",
+	"eth_estimateGas=60s",
+	"eth_createAccessList=60s",
+	"eth_estimateGasAfterCalls=5m",
+	"debug_trace*=0",
+}
+
+// simulationMethods are the methods that execute EVM code against a state view for the caller.
+// Gas does not bound their wall-clock cost, so their method deadline must be positive.
+var simulationMethods = []string{
+	"eth_call",
+	"eth_estimateGas",
+	"eth_estimateGasAfterCalls",
+	"eth_createAccessList",
+}
+
+// DeadlineConfig returns the per-method deadlines DefaultTimeout and MethodTimeouts describe, with
+// MethodTimeouts applied over the built-in deadlines.
+func (c RPCConfig) DeadlineConfig() (ratelimiter.DeadlineConfig, error) {
+	if c.DefaultTimeout < 0 {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s: must be >= 0, got %s", FlagRPCDefaultTimeout, c.DefaultTimeout)
+	}
+	exact, prefixes, err := ratelimiter.ParseMethodTimeouts(defaultMethodTimeouts)
+	if err != nil {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("built-in method timeouts: %w", err)
+	}
+	configuredExact, configuredPrefixes, err := ratelimiter.ParseMethodTimeouts(c.MethodTimeouts)
+	if err != nil {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s: %w", FlagRPCMethodTimeouts, err)
+	}
+	maps.Copy(exact, configuredExact)
+	maps.Copy(prefixes, configuredPrefixes)
+	return ratelimiter.DeadlineConfig{
+		Default:         c.DefaultTimeout,
+		Overrides:       exact,
+		PrefixOverrides: prefixes,
+	}, nil
 }
 
 // StateSyncConfig is the [giga.state_sync] sub-table: whether this node uses giga state sync.
@@ -172,6 +228,8 @@ var DefaultConfig = Config{
 		MaxTraceStructLogBytes:        32 * 1024 * 1024,
 		MaxStateOverrideAccounts:      100,
 		MaxStateOverrideSlots:         1000,
+		DefaultTimeout:                30 * time.Second,
+		MethodTimeouts:                slices.Clone(defaultMethodTimeouts),
 	},
 	StateSync: StateSyncConfig{
 		Enabled: false,
@@ -228,6 +286,8 @@ const (
 	FlagRPCMaxTraceStructLogBytes        = "giga.rpc.max_trace_struct_log_bytes"
 	FlagRPCMaxStateOverrideAccounts      = "giga.rpc.max_state_override_accounts"
 	FlagRPCMaxStateOverrideSlots         = "giga.rpc.max_state_override_slots"
+	FlagRPCDefaultTimeout                = "giga.rpc.default_timeout"
+	FlagRPCMethodTimeouts                = "giga.rpc.method_timeouts"
 	FlagStateSyncEnabled                 = "giga.state_sync.enabled"
 )
 
@@ -405,6 +465,16 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxStateOverrideSlots, err)
 		}
 	}
+	if v := opts.Get(FlagRPCDefaultTimeout); v != nil {
+		if cfg.RPC.DefaultTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCDefaultTimeout, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMethodTimeouts); v != nil {
+		if cfg.RPC.MethodTimeouts, err = cast.ToStringSliceE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMethodTimeouts, err)
+		}
+	}
 	if v := opts.Get(FlagStateSyncEnabled); v != nil {
 		if cfg.StateSync.Enabled, err = cast.ToBoolE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStateSyncEnabled, err)
@@ -504,7 +574,11 @@ func (c Config) Validate() error {
 	if c.RPC.MaxStateOverrideSlots < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxStateOverrideSlots, c.RPC.MaxStateOverrideSlots)
 	}
-	return nil
+	deadlines, err := c.RPC.DeadlineConfig()
+	if err != nil {
+		return err
+	}
+	return requireSimulationDeadlines(deadlines, c.RPC.TraceTimeout)
 }
 
 // ConfigTemplate is the TOML template for the [giga] section of app.toml.
@@ -630,7 +704,8 @@ max_concurrent_send_calls = {{ .Giga.RPC.MaxConcurrentSendCalls }}
 # max_concurrent_trace_calls caps debug_trace* calls running at once; a call past it is refused.
 max_concurrent_trace_calls = {{ .Giga.RPC.MaxConcurrentTraceCalls }}
 
-# trace_timeout bounds how long one debug_trace* call may run.
+# trace_timeout bounds how long one debug_trace* call may run. 0 leaves it unbounded, and is
+# accepted only when method_timeouts gives debug_traceCall a positive deadline.
 trace_timeout = "{{ .Giga.RPC.TraceTimeout }}"
 
 # max_trace_struct_log_bytes caps the default struct logger's output, in bytes, for each traced
@@ -643,12 +718,45 @@ max_state_override_accounts = {{ .Giga.RPC.MaxStateOverrideAccounts }}
 # max_state_override_slots caps the storage slots one call's state override may set for an account.
 max_state_override_slots = {{ .Giga.RPC.MaxStateOverrideSlots }}
 
+# default_timeout is the deadline applied, on both HTTP and WebSocket, to a method with no
+# built-in deadline and no entry in method_timeouts. Set to 0 to disable.
+default_timeout = "{{ .Giga.RPC.DefaultTimeout }}"
+
+# method_timeouts sets deadlines for individual methods. Each entry is "method=duration",
+# e.g. "eth_call=60s". A method name ending in "*" (e.g. "debug_trace*=0") matches every method
+# with that prefix; an exact name or the longest matching prefix wins. A duration of 0 applies
+# no deadline to that method. debug_trace* methods are also bounded by trace_timeout.
+# The default entries are built in, so removing one from this list does not remove it. To change
+# one, give an entry with the same method name or prefix, e.g. "eth_call=1s"; a broader wildcard
+# such as "eth_*=1s" does not change it.
+# eth_call, eth_estimateGas, eth_estimateGasAfterCalls and eth_createAccessList must keep a
+# positive deadline.
+method_timeouts = [{{ range $i, $e := .Giga.RPC.MethodTimeouts }}{{ if $i }}, {{ end }}"{{ $e }}"{{ end }}]
+
 [giga.state_sync]
 # enabled allows the state-sync-snapshot create and restore commands and the seed of a restored
 # home on start. It also runs a background task that writes a state sync proof file for each
 # retained FlatKV checkpoint. It does not create checkpoints or snapshots.
 enabled = {{ .Giga.StateSync.Enabled }}
 `
+
+// requireSimulationDeadlines reports the first simulation method left unbounded: one of
+// simulationMethods without a positive deadline in deadlines, or debug_traceCall with neither a
+// positive deadline in deadlines nor a positive traceTimeout.
+func requireSimulationDeadlines(deadlines ratelimiter.DeadlineConfig, traceTimeout time.Duration) error {
+	enforcer := ratelimiter.NewDeadlineEnforcer(deadlines)
+	for _, method := range simulationMethods {
+		if enforcer.Deadline(method) == 0 {
+			return fmt.Errorf("%s: %s must have a positive deadline, from %s or an entry here",
+				FlagRPCMethodTimeouts, method, FlagRPCDefaultTimeout)
+		}
+	}
+	if traceTimeout <= 0 && enforcer.Deadline("debug_traceCall") == 0 {
+		return fmt.Errorf("%s: must be positive unless %s gives debug_traceCall a positive deadline",
+			FlagRPCTraceTimeout, FlagRPCMethodTimeouts)
+	}
+	return nil
+}
 
 // skipUpgradeHeights casts v to a list of heights, rejecting a negative one.
 func skipUpgradeHeights(v interface{}) ([]uint64, error) {
