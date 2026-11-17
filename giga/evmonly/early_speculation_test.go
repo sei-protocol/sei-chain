@@ -285,3 +285,30 @@ func TestEarlySpeculationTreatsABeginBlockerWriteAsAChange(t *testing.T) {
 	results := make([]occTxExecution, 2)
 	require.Equal(t, []bool{false, true}, executor.reuseEarlySpeculation(t.Context(), block, begin, results))
 }
+
+// A block that touched an account without writing its balance records whatever balance it read,
+// which can be the missing-account fallback, so a credit is rebased onto the balance the last
+// balance-writing block left, or onto the one the speculation read.
+func TestNewestAccountStateTakesTheBalanceFromTheLastBlockThatWroteIt(t *testing.T) {
+	addr := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	fallback := new(big.Int).Lsh(big.NewInt(1), 200)
+	block := func(account overlayAccount) *pendingIndex {
+		return &pendingIndex{accounts: map[common.Address]overlayAccount{addr: account}}
+	}
+	wroteBalance := block(overlayAccount{state: AccountState{Balance: big.NewInt(50), Nonce: 1}, balanceChanged: true})
+	nonceOnly := block(overlayAccount{state: AccountState{Balance: fallback, Nonce: 2}})
+	prior := big.NewInt(10)
+
+	got, ok := newestAccountState([]*pendingIndex{wroteBalance, nonceOnly}, addr, prior)
+	require.True(t, ok)
+	require.Equal(t, big.NewInt(50), got.Balance)
+	require.Equal(t, uint64(2), got.Nonce)
+
+	got, ok = newestAccountState([]*pendingIndex{nonceOnly}, addr, prior)
+	require.True(t, ok)
+	require.Equal(t, prior, got.Balance)
+	require.Equal(t, uint64(2), got.Nonce)
+
+	_, ok = newestAccountState([]*pendingIndex{block(overlayAccount{})}, common.HexToAddress("0x2"), prior)
+	require.False(t, ok)
+}

@@ -272,7 +272,7 @@ func rebaseCredits(result occTxExecution, blocks []*pendingIndex) occTxExecution
 		if _, ok := result.writeSet[stateAccessKey{kind: stateAccessBalance, address: change.Address}]; ok {
 			continue
 		}
-		latest, ok := newestAccountState(blocks, change.Address)
+		latest, ok := newestAccountState(blocks, change.Address, change.Prior.Balance)
 		if !ok {
 			continue
 		}
@@ -292,14 +292,26 @@ func rebaseCredits(result occTxExecution, blocks []*pendingIndex) occTxExecution
 	return result
 }
 
-// newestAccountState returns addr's state after the last of blocks that changed it.
-func newestAccountState(blocks []*pendingIndex, addr common.Address) (AccountState, bool) {
+// newestAccountState returns addr's state after the last of blocks that changed it, and false when
+// none did. Its balance is the one the last block that wrote the balance left, or prior when none did.
+func newestAccountState(blocks []*pendingIndex, addr common.Address, prior *big.Int) (AccountState, bool) {
+	var state AccountState
+	found := false
 	for i := len(blocks) - 1; i >= 0; i-- {
-		if state, ok := blocks[i].accounts[addr]; ok {
+		account, ok := blocks[i].accounts[addr]
+		if !ok {
+			continue
+		}
+		if !found {
+			state, found = account.state, true
+		}
+		if account.balanceChanged {
+			state.Balance = account.state.Balance
 			return state, true
 		}
 	}
-	return AccountState{}, false
+	state.Balance = prior
+	return state, found
 }
 
 // sameBlockContext reports whether a and b give execution the same block constants.
