@@ -43,12 +43,12 @@ func makeValidationFailurePair(
 	block1 := makeCommittedBlock(ctx, t, initialState, privVals, 1, &types.Commit{})
 	block2 := makeCommittedBlock(ctx, t, initialState, privVals, 2, block1.commit)
 
-	return initialState, block1.block, withBadLastSignature(t, block2.block, tmproto.BlockIDFlagCommit)
+	return initialState, block1.block, withInvalidLastSignature(t, block2.block, tmproto.BlockIDFlagCommit)
 }
 
-// withBadLastSignature returns a copy of block whose last commit has a last signature that
+// withInvalidLastSignature returns a copy of block whose last commit has a last signature that
 // does not verify, with flag as the block ID flag of that signature.
-func withBadLastSignature(t *testing.T, block *types.Block, flag tmproto.BlockIDFlag) *types.Block {
+func withInvalidLastSignature(t *testing.T, block *types.Block, flag tmproto.BlockIDFlag) *types.Block {
 	t.Helper()
 	blockProto, err := block.ToProto()
 	require.NoError(t, err)
@@ -56,18 +56,18 @@ func withBadLastSignature(t *testing.T, block *types.Block, flag tmproto.BlockID
 	lastSig := &sigs[len(sigs)-1]
 	lastSig.Signature[0] ^= 0xFF
 	lastSig.BlockIdFlag = flag
-	badCommit, err := types.CommitFromProto(blockProto.LastCommit)
+	invalidCommit, err := types.CommitFromProto(blockProto.LastCommit)
 	require.NoError(t, err)
-	blockProto.Header.LastCommitHash = badCommit.Hash()
-	badBlock, err := types.BlockFromProto(blockProto)
+	blockProto.Header.LastCommitHash = invalidCommit.Hash()
+	invalidCommitBlock, err := types.BlockFromProto(blockProto)
 	require.NoError(t, err)
-	return badBlock
+	return invalidCommitBlock
 }
 
 func TestPoolRoutine_DoesNotReturnOnValidationFailure(t *testing.T) {
 	ctx := t.Context()
 
-	initialState, block1, badBlock2 := makeValidationFailurePair(ctx, t, "block_sync_validation_failure_does_not_return")
+	initialState, block1, invalidCommitBlock2 := makeValidationFailurePair(ctx, t, "block_sync_validation_failure_does_not_return")
 
 	invalidCommitPeer := types.NodeID(strings.Repeat("a", 40))
 	correctPeer := types.NodeID(strings.Repeat("b", 40))
@@ -114,7 +114,7 @@ func TestPoolRoutine_DoesNotReturnOnValidationFailure(t *testing.T) {
 			case 1:
 				_ = pool.AddBlock(request.PeerID, block1, block1.Size())
 			case 2:
-				_ = pool.AddBlock(request.PeerID, badBlock2, badBlock2.Size())
+				_ = pool.AddBlock(request.PeerID, invalidCommitBlock2, invalidCommitBlock2.Size())
 				if !introducedCorrectPeer {
 					introducedCorrectPeer = true
 					pool.SetPeerRange(correctPeer, 1, 2)
@@ -127,7 +127,7 @@ func TestPoolRoutine_DoesNotReturnOnValidationFailure(t *testing.T) {
 func TestPoolRoutine_RetriesAfterValidationFailure(t *testing.T) {
 	ctx := t.Context()
 
-	initialState, block1, badBlock2 := makeValidationFailurePair(ctx, t, "block_sync_retry_after_validation_failure")
+	initialState, block1, invalidCommitBlock2 := makeValidationFailurePair(ctx, t, "block_sync_retry_after_validation_failure")
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 1})
 
 	invalidCommitPeer := types.NodeID(strings.Repeat("a", 40))
@@ -182,7 +182,7 @@ func TestPoolRoutine_RetriesAfterValidationFailure(t *testing.T) {
 				case 1:
 					_ = pool.AddBlock(request.PeerID, block1, block1.Size())
 				case 2:
-					_ = pool.AddBlock(request.PeerID, badBlock2, badBlock2.Size())
+					_ = pool.AddBlock(request.PeerID, invalidCommitBlock2, invalidCommitBlock2.Size())
 				}
 			}
 		}
@@ -260,10 +260,10 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 			for _, b := range correct[:3] {
 				invalidCommitStore.SaveBlock(b.block, b.parts, b.commit)
 			}
-			badBlock4 := withBadLastSignature(t, correct[3].block, tc.flag)
-			badParts4, err := badBlock4.MakePartSet(types.BlockPartSizeBytes)
+			invalidCommitBlock4 := withInvalidLastSignature(t, correct[3].block, tc.flag)
+			invalidCommitParts4, err := invalidCommitBlock4.MakePartSet(types.BlockPartSizeBytes)
 			require.NoError(t, err)
-			invalidCommitStore.SaveBlock(badBlock4, badParts4, correct[3].commit)
+			invalidCommitStore.SaveBlock(invalidCommitBlock4, invalidCommitParts4, correct[3].commit)
 
 			// Start the reactors.
 			for _, r := range []*Reactor{correctReactor, invalidCommitReactor, syncReactor} {
