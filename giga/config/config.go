@@ -172,6 +172,12 @@ var traceMethods = []string{
 	"debug_traceBlockByHash",
 }
 
+// TraceMethods returns the debug_trace* methods the node serves, which trace_timeout or a positive
+// method deadline must bound.
+func TraceMethods() []string {
+	return slices.Clone(traceMethods)
+}
+
 // DeadlineConfig returns the per-method deadlines DefaultTimeout and MethodTimeouts describe, with
 // MethodTimeouts applied over the built-in deadlines.
 func (c RPCConfig) DeadlineConfig() (ratelimiter.DeadlineConfig, error) {
