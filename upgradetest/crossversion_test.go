@@ -210,3 +210,19 @@ func TestSeidLogPaths(t *testing.T) {
 	require.NotEqual(t, seidNodeLogPath("sei-node-3"), seidObservedLogPath("sei-node-3"))
 	require.Equal(t, "build/generated/logs/seid-3-observed.log", seidObservedLogPath("sei-node-3"))
 }
+
+func TestWithTendermintNode(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"q", "upgrade", "applied", "v6.8"}, []string{"q", "upgrade", "applied", "v6.8", "--node", validatorNode}},
+		{[]string{"query", "gov", "proposals"}, []string{"query", "gov", "proposals", "--node", validatorNode}},
+		{[]string{"tx", "bank", "send"}, []string{"tx", "bank", "send", "--node", validatorNode}},
+		{[]string{"keys", "show", "admin", "-a"}, []string{"keys", "show", "admin", "-a"}},
+		{[]string{"status"}, []string{"status"}},
+		{nil, nil},
+	} {
+		require.Equal(t, tc.want, withTendermintNode(tc.args))
+	}
+}
