@@ -200,7 +200,7 @@ func (s heightWatchStore) SaveBlock(block *types.Block, blockParts *types.PartSe
 	s.savedHeight.Store(block.Height)
 }
 
-// TestReactor_RejectsInvalidCommitFromPeer checks that a syncing  node saves the blocks an invalid-commit
+// TestReactor_RejectsInvalidCommitFromPeer checks that a syncing node saves the blocks an invalid-commit
 // peer serves up to the first block whose commit fails verification, evicts that peer, and then
 // still makes progress by saving that block from a correct peer.
 func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
