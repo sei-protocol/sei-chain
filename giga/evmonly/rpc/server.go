@@ -46,6 +46,9 @@ var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 type Backend interface {
 	Block(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	BlockByHash(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
+	// BlockHash returns the hash Block reports for the block at height, with the height errors
+	// Block returns.
+	BlockHash(ctx context.Context, height int64) (common.Hash, error)
 	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
 	EvmBalance(common.Address, []byte) uint256.Int
 	EvmBalanceAt(address common.Address, height int64) (uint256.Int, error)

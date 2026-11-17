@@ -170,19 +170,24 @@ func (api *blockAPI) executionHeaderAt(ctx context.Context, height int64) (*etht
 	if block == nil {
 		return nil, fmt.Errorf("%w: %d", errBlockNotFound, height)
 	}
-	return api.executionHeader(block)
+	return api.executionHeader(ctx, block)
 }
 
 // executionHeader returns block's header with the fields its execution context reads.
-func (api *blockAPI) executionHeader(block *coretypes.ResultBlock) (*ethtypes.Header, error) {
+func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.ResultBlock) (*ethtypes.Header, error) {
 	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
 	}
+	// A pruned parent is an error here: execution would answer BLOCKHASH with a hash it never saw.
+	parent, err := parentHash(ctx, api.backend, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
 	gasLimit := api.backend.EvmGasLimit()
 	baseFee := api.backend.EvmBaseFee()
 	return &ethtypes.Header{
-		ParentHash: common.BytesToHash(block.Block.LastBlockID.Hash),
+		ParentHash: parent,
 		Number:     big.NewInt(block.Block.Height),
 		GasLimit:   gasLimit,
 		Time:       blockUnix,
@@ -190,6 +195,28 @@ func (api *blockAPI) executionHeader(block *coretypes.ResultBlock) (*ethtypes.He
 		// Zero rather than nil, so a dynamic-fee transaction is priced at its tip as it executed.
 		BaseFee: baseFee,
 	}, nil
+}
+
+// parentHash returns the hash of the block before height. It is zero before the first block.
+func parentHash(ctx context.Context, backend Backend, height int64) (common.Hash, error) {
+	hash, err := backend.BlockHash(ctx, height-1)
+	if errors.Is(err, coretypes.ErrZeroOrNegativeHeight) {
+		return common.Hash{}, nil
+	}
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("read the parent of block %d: %w", height, err)
+	}
+	return hash, nil
+}
+
+// headerParentHash returns the parentHash a header reports for the block at height: the parent's
+// hash, or zero when the parent is before the first block or pruned.
+func headerParentHash(ctx context.Context, backend Backend, height int64) (common.Hash, error) {
+	hash, err := parentHash(ctx, backend, height)
+	if errors.Is(err, coretypes.ErrHeightNotAvailable) {
+		return common.Hash{}, nil
+	}
+	return hash, err
 }
 
 // encodeBlock renders block as an eth_getBlockBy* response. nonce, mixHash,
@@ -232,7 +259,11 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 		return nil, err
 	}
 
-	result := headerFields(block, blockUnix, gasLimit, baseFee, gasUsed)
+	parent, err := headerParentHash(ctx, api.backend, number)
+	if err != nil {
+		return nil, err
+	}
+	result := headerFields(block, parent, blockUnix, gasLimit, baseFee, gasUsed)
 	result["size"] = hexutil.Uint64(block.Block.Size()) //nolint:gosec // G115: block size is positive.
 	result["uncles"] = []common.Hash{}                  // inapplicable to Sei
 	result["transactions"] = transactions
@@ -265,22 +296,26 @@ func (api *blockAPI) rpcTransaction(ctx context.Context, block *coretypes.Result
 
 // encodeHeader renders block's header in the shape go-ethereum's types.Header
 // decodes.
-func encodeHeader(backend Backend, block *coretypes.ResultBlock, gasUsed uint64) (map[string]any, error) {
+func encodeHeader(ctx context.Context, backend Backend, block *coretypes.ResultBlock, gasUsed uint64) (map[string]any, error) {
 	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
 	}
+	parent, err := headerParentHash(ctx, backend, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
 	gasLimit := backend.EvmGasLimit()
 	baseFee := backend.EvmBaseFee()
-	return headerFields(block, blockUnix, gasLimit, baseFee, gasUsed), nil
+	return headerFields(block, parent, blockUnix, gasLimit, baseFee, gasUsed), nil
 }
 
 // headerFields returns the Ethereum JSON header fields of block.
-func headerFields(block *coretypes.ResultBlock, blockUnix, gasLimit uint64, baseFee *big.Int, gasUsed uint64) map[string]any {
+func headerFields(block *coretypes.ResultBlock, parentHash common.Hash, blockUnix, gasLimit uint64, baseFee *big.Int, gasUsed uint64) map[string]any {
 	return map[string]any{
 		"number":           (*hexutil.Big)(big.NewInt(block.Block.Height)),
 		"hash":             common.BytesToHash(block.BlockID.Hash),
-		"parentHash":       common.BytesToHash(block.Block.LastBlockID.Hash),
+		"parentHash":       parentHash,
 		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
 		"mixHash":          common.Hash{},           // inapplicable to Sei
 		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei

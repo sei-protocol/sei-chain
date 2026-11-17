@@ -190,12 +190,8 @@ func traceResultBlock(height int64, txs tmtypes.Txs) *coretypes.ResultBlock {
 	return &coretypes.ResultBlock{
 		BlockID: tmtypes.BlockID{Hash: traceBlockHash(height).Bytes()},
 		Block: &tmtypes.Block{
-			Header: tmtypes.Header{
-				Height:      height,
-				Time:        traceBlockTime.Add(time.Duration(height) * time.Second),
-				LastBlockID: tmtypes.BlockID{Hash: traceBlockHash(height - 1).Bytes()},
-			},
-			Data: tmtypes.Data{Txs: txs},
+			Header: tmtypes.Header{Height: height, Time: traceBlockTime.Add(time.Duration(height) * time.Second)},
+			Data:   tmtypes.Data{Txs: txs},
 		},
 	}
 }

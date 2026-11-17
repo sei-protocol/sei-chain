@@ -135,7 +135,7 @@ func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.RoadIndex
 		}
 		return nil, fmt.Errorf("data.SuperBlock(%v): %w", n, err)
 	}
-	return r.translateSuperBlock(ctx, gb)
+	return r.translateSuperBlock(gb), nil
 }
 
 // BlockByHash returns a finalized SuperBlock as a CometBFT ResultBlock.
@@ -149,32 +149,25 @@ func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash common.Hash) (*
 	if !ok {
 		return &coretypes.ResultBlock{}, nil
 	}
-	return r.translateSuperBlock(ctx, gb)
+	return r.translateSuperBlock(gb), nil
 }
 
-// parentHash returns the hash of the SuperBlock before gb, the parent hash gb executed with. It is
-// zero when that SuperBlock precedes the chain or is pruned.
-func (r *gigaRouterCommon) parentHash(ctx context.Context, gb *atypes.SuperBlock) (common.Hash, error) {
-	if gb.Height == 0 {
-		return common.Hash{}, nil
-	}
-	h, err := r.data.SuperBlockHash(ctx, gb.Height-1)
-	if errors.Is(err, atypes.ErrPruned) {
-		return common.Hash{}, nil
-	}
+// BlockHash returns the hash of the finalized SuperBlock at road n, the hash BlockByNumber reports
+// for it, without reading its transactions.
+func (r *gigaRouterCommon) BlockHash(ctx context.Context, n atypes.RoadIndex) (common.Hash, error) {
+	h, err := r.data.SuperBlockHash(ctx, n)
 	if err != nil {
-		return common.Hash{}, fmt.Errorf("data.SuperBlockHash(%v): %w", gb.Height-1, err)
+		if errors.Is(err, atypes.ErrPruned) {
+			return common.Hash{}, coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
+		}
+		return common.Hash{}, fmt.Errorf("data.SuperBlockHash(%v): %w", n, err)
 	}
 	return common.Hash(h), nil
 }
 
 // translateSuperBlock converts a SuperBlock to the CometBFT result used by block RPCs.
 // LastCommit has empty Signatures, matching executeBlock's empty CommitInfo.
-func (r *gigaRouterCommon) translateSuperBlock(ctx context.Context, gb *atypes.SuperBlock) (*coretypes.ResultBlock, error) {
-	parent, err := r.parentHash(ctx, gb)
-	if err != nil {
-		return nil, err
-	}
+func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes.ResultBlock {
 	srcTxs := gb.Txs
 	tmTxs := make(types.Txs, len(srcTxs))
 	for i, tx := range srcTxs {
@@ -189,9 +182,8 @@ func (r *gigaRouterCommon) translateSuperBlock(ctx context.Context, gb *atypes.S
 				// Clamp accepts any constraints.Integer for From, so
 				// gb.Height (a typed uint64) goes in directly — no
 				// intermediate uint64() conversion needed.
-				Height:      utils.Clamp[int64](gb.Height),
-				Time:        gb.Timestamp,
-				LastBlockID: types.BlockID{Hash: tmbytes.HexBytes(parent.Bytes())},
+				Height: utils.Clamp[int64](gb.Height),
+				Time:   gb.Timestamp,
 			},
 			Data: types.Data{Txs: tmTxs},
 			// Autobahn does not feed per-validator votes into the app. Filling N
@@ -201,7 +193,7 @@ func (r *gigaRouterCommon) translateSuperBlock(ctx context.Context, gb *atypes.S
 			// Votes flow into distribution/slashing on both paths.
 			LastCommit: &types.Commit{},
 		},
-	}, nil
+	}
 }
 
 // runPushAppHashes pushes the app hash of each executed block to the data layer,

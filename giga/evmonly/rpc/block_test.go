@@ -49,9 +49,6 @@ func secondSignedTransaction(t *testing.T) (*ethtypes.Transaction, []byte) {
 	return tx, raw
 }
 
-// testParentHash is the parent hash test blocks carry in LastBlockID.
-var testParentHash = common.HexToHash("0x1234")
-
 // fixedGasLimitBackend returns a testBackend with a fixed EvmGasLimit and
 // EvmChainConfig, wired with block as its Block lookup.
 func fixedGasLimitBackend(t *testing.T, gasLimit uint64, block func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)) *testBackend {
@@ -64,19 +61,36 @@ func fixedGasLimitBackend(t *testing.T, gasLimit uint64, block func(context.Cont
 	}
 }
 
+// testParentHash is the hash of the parent block withParent serves.
+var testParentHash = common.HexToHash("0x1234")
+
+// withParent returns a Block lookup that serves a block hashed testParentHash at parentHeight and
+// passes every other request to lookup.
+func withParent(parentHeight int64, lookup func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)) func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	return func(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		if req.Height != nil && int64(*req.Height) == parentHeight {
+			return &coretypes.ResultBlock{
+				BlockID: tmtypes.BlockID{Hash: testParentHash.Bytes()},
+				Block:   &tmtypes.Block{Header: tmtypes.Header{Height: parentHeight}},
+			}, nil
+		}
+		return lookup(ctx, req)
+	}
+}
+
 func TestGetBlockByNumberCurrentStateTagsPassNilHeight(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	blockTime := time.Unix(1_700_000_000, 0)
 	for _, tag := range []ethrpc.BlockNumber{
 		ethrpc.LatestBlockNumber, ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.PendingBlockNumber,
 	} {
-		backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		backend := fixedGasLimitBackend(t, 35_000_000, withParent(8, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 			require.Nil(t, req.Height)
 			return &coretypes.ResultBlock{
 				BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
 				Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 9, Time: blockTime}},
 			}, nil
-		})
+		}))
 		got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), tag, false)
 		require.NoError(t, err)
 		require.NotNil(t, got)
@@ -86,14 +100,14 @@ func TestGetBlockByNumberCurrentStateTagsPassNilHeight(t *testing.T) {
 
 func TestGetBlockByNumberAcceptsAnExplicitHistoricalHeight(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
-	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, withParent(2, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		require.NotNil(t, req.Height)
 		require.Equal(t, coretypes.Int64(3), *req.Height)
 		return &coretypes.ResultBlock{
 			BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
 			Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 3, Time: time.Unix(1_700_000_000, 0)}},
 		}, nil
-	})
+	}))
 
 	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.BlockNumber(3), false)
 
@@ -153,16 +167,12 @@ func TestGetBlockByHashReturnsNullForUnknownHash(t *testing.T) {
 func TestGetBlockByHashReturnsTheMatchingBlock(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	var gotHash []byte
-	backend := fixedGasLimitBackend(t, 35_000_000, nil)
+	backend := fixedGasLimitBackend(t, 35_000_000, withParent(4, nil))
 	backend.blockByHash = func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
 		gotHash = req.Hash
 		return &coretypes.ResultBlock{
 			BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-			Block: &tmtypes.Block{Header: tmtypes.Header{
-				Height:      5,
-				Time:        time.Unix(1_700_000_000, 0),
-				LastBlockID: tmtypes.BlockID{Hash: testParentHash.Bytes()},
-			}},
+			Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 5, Time: time.Unix(1_700_000_000, 0)}},
 		}, nil
 	}
 
@@ -245,11 +255,11 @@ func TestEncodeBlockHashOnlyListMatchesGetTransactionByHash(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	blockTime := time.Unix(1_700_000_000, 0)
 	block, tx1, tx2, store := multiTxBlock(t, 9, blockHash, blockTime)
-	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, withParent(8, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		require.NotNil(t, req.Height)
 		require.Equal(t, coretypes.Int64(9), *req.Height)
 		return block, nil
-	})
+	}))
 
 	got, err := (&blockAPI{backend: backend, store: store}).GetBlockByNumber(t.Context(), ethrpc.BlockNumber(9), false)
 	require.NoError(t, err)
@@ -299,7 +309,7 @@ func TestEncodeBlockFullTxIncludesDecodedTransactionsInOrder(t *testing.T) {
 // that translation rather than assumed.
 func TestEncodeBlockDocumentedHeaderGaps(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, withParent(3, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		return &coretypes.ResultBlock{
 			BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
 			Block: &tmtypes.Block{
@@ -307,7 +317,7 @@ func TestEncodeBlockDocumentedHeaderGaps(t *testing.T) {
 				LastCommit: &tmtypes.Commit{},
 			},
 		}, nil
-	})
+	}))
 
 	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
 
@@ -321,22 +331,35 @@ func TestEncodeBlockDocumentedHeaderGaps(t *testing.T) {
 
 func TestEncodeBlockParentHash(t *testing.T) {
 	for name, tc := range map[string]struct {
-		lastBlockID common.Hash
-		want        common.Hash
+		height int64
+		parent func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
+		want   common.Hash
 	}{
-		"stored parent":          {lastBlockID: testParentHash, want: testParentHash},
-		"first or pruned parent": {want: common.Hash{}},
+		"stored parent": {height: 4, want: testParentHash},
+		"first block":   {height: 1, want: common.Hash{}},
+		"pruned parent": {
+			height: 4,
+			parent: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				return nil, coretypes.WrapErrHeightNotAvailable(int64(*req.Height), utils.Some[int64](4))
+			},
+			want: common.Hash{},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-				return &coretypes.ResultBlock{
-					BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
-					Block: &tmtypes.Block{Header: tmtypes.Header{
-						Height:      4,
-						Time:        time.Unix(1_700_000_000, 0),
-						LastBlockID: tmtypes.BlockID{Hash: tc.lastBlockID.Bytes()},
-					}},
-				}, nil
+			block := &coretypes.ResultBlock{
+				BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
+				Block:   &tmtypes.Block{Header: tmtypes.Header{Height: tc.height, Time: time.Unix(1_700_000_000, 0)}},
+			}
+			backend := fixedGasLimitBackend(t, 35_000_000, func(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				switch {
+				case req.Height == nil:
+					return block, nil
+				case int64(*req.Height) <= 0:
+					return nil, coretypes.ErrZeroOrNegativeHeight
+				case tc.parent != nil:
+					return tc.parent(ctx, req)
+				}
+				return withParent(tc.height-1, nil)(ctx, req)
 			})
 
 			got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)

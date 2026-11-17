@@ -11,7 +11,6 @@ import (
 	"time"
 
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -29,13 +28,12 @@ import (
 func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	block, _, _, _ := multiTxBlock(t, 7, blockHash, time.Unix(1_700_000_000, 0))
-	block.Block.LastBlockID = tmtypes.BlockID{Hash: testParentHash.Bytes()}
 	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: 6}))
 	subscribed := make(chan struct{}, 1)
-	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, withParent(6, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		require.Equal(t, coretypes.Int64(7), *req.Height)
 		return block, nil
-	})
+	}))
 	backend.executedBlocks = func() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
 		subscribed <- struct{}{}
 		return executed.Subscribe(), nil
@@ -76,11 +74,9 @@ func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 func TestNewHeadsCatchesUpFromExecutedWindow(t *testing.T) {
 	block7, _, _, _ := multiTxBlock(t, 7, common.HexToHash("0xabcd"), time.Unix(1_700_000_000, 0))
 	block8, _, _, _ := multiTxBlock(t, 8, common.HexToHash("0xabce"), time.Unix(1_700_000_001, 0))
-	block7.Block.LastBlockID = tmtypes.BlockID{Hash: testParentHash.Bytes()}
-	block8.Block.LastBlockID = block7.BlockID
 	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: 6}))
 	subscribed := make(chan struct{}, 1)
-	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, withParent(6, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		switch *req.Height {
 		case 7:
 			return block7, nil
@@ -88,7 +84,7 @@ func TestNewHeadsCatchesUpFromExecutedWindow(t *testing.T) {
 			return block8, nil
 		}
 		return nil, fmt.Errorf("unexpected height %d", *req.Height)
-	})
+	}))
 	backend.executedBlocks = func() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
 		subscribed <- struct{}{}
 		return executed.Subscribe(), nil

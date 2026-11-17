@@ -103,6 +103,24 @@ func (b *testBackend) BlockByHash(ctx context.Context, req *coretypes.RequestBlo
 	return b.blockByHash(ctx, req)
 }
 
+func (b *testBackend) BlockHash(ctx context.Context, height int64) (common.Hash, error) {
+	return blockHashFromBlock(ctx, b.Block, height)
+}
+
+// blockHashFromBlock answers BlockHash from a Block lookup, as a backend without a hash-only read
+// would. A height the lookup holds no block for is reported as not available.
+func blockHashFromBlock(ctx context.Context, lookup func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error), height int64) (common.Hash, error) {
+	h := coretypes.Int64(height)
+	block, err := lookup(ctx, &coretypes.RequestBlockInfo{Height: &h})
+	if err != nil {
+		return common.Hash{}, err
+	}
+	if block == nil || block.Block == nil {
+		return common.Hash{}, coretypes.WrapErrHeightNotAvailable(height, utils.None[int64]())
+	}
+	return common.BytesToHash(block.BlockID.Hash), nil
+}
+
 func (b *testBackend) EvmBalance(address common.Address, _ []byte) uint256.Int {
 	return b.balance(address)
 }
