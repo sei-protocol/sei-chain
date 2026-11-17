@@ -58,7 +58,7 @@ func TestReconstructRoadBlocksAcrossEpochs(t *testing.T) {
 		}
 		for _, state := range states {
 			s.SpawnBg(func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		}	
+		}
 		byzantine := states[3]
 		if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			// Run all consensus connections.
@@ -72,9 +72,11 @@ func TestReconstructRoadBlocksAcrossEpochs(t *testing.T) {
 				s.SpawnBg(func() error { return utils.IgnoreCancel(avail.RunTestConn(ctx, from.Avail(), byzantine.Avail())) })
 			}
 			// D finalizes one block from A,B,C in each of two epochs.
-			for _,epoch := range anchor.Epochs {
+			for _, epoch := range anchor.Epochs {
 				rr := epoch.RoadRange()
 				for road := rr.First; road < rr.Next; road += 1 {
+					// WARNING: here we utilize the fact that nodes need a loopback avail connection to receive their own vote.
+					// A test case which exercises the same scenario BUT with loopback connections would be way more involved.
 					producer := states[road%3]
 					av := producer.Avail()
 					lane := av.LocalLane().OrPanic("producer lane")
@@ -83,12 +85,12 @@ func TestReconstructRoadBlocksAcrossEpochs(t *testing.T) {
 					}
 					// Byzantine node is guaranteed to get CommitQC.
 					qc, err := byzantine.Avail().CommitQC(ctx, road)
-					if err!=nil {
+					if err != nil {
 						return err
 					}
 					// Push CommitQC to other nodes - they might not receive it, because of restricted avail channels.
-					for _,state := range states[:3] {
-						if err:=state.Avail().PushCommitQC(ctx,qc); err!=nil {
+					for _, state := range states[:3] {
+						if err := state.Avail().PushCommitQC(ctx, qc); err != nil {
 							return err
 						}
 					}
@@ -107,7 +109,7 @@ func TestReconstructRoadBlocksAcrossEpochs(t *testing.T) {
 				}
 			}
 		}
-		
+
 		// Run full network of honest nodes.
 		s.SpawnBg(func() error { return utils.IgnoreCancel(RunTestNetwork(ctx, states[:3])) })
 		// FullCommitQCs should get reconstructed.
