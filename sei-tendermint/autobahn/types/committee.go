@@ -91,7 +91,7 @@ func (c *Committee) EvmShard(addr common.Address) PublicKey {
 // Leader for the consensus round with the given index.
 func (c *Committee) Leader(view View) PublicKey {
 	// TODO(gprusak): this needs domain separation.
-	d := binary.BigEndian.AppendUint64(nil, uint64(view.Index))
+	d := binary.BigEndian.AppendUint64(nil, uint64(view.Height))
 	d = binary.BigEndian.AppendUint64(d, uint64(view.Number))
 	return c.randomReplica(d)
 }

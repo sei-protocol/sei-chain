@@ -59,18 +59,18 @@ type persistedRegistry struct {
 }
 
 // newGenesisRegistry constructs the first two live epochs from the genesis committee.
-func newGenesisRegistry(committee *types.Committee, firstRoad types.RoadIndex) *persistedRegistry {
+func newGenesisRegistry(committee *types.Committee, firstHeight types.RoadHeight) *persistedRegistry {
 	return &persistedRegistry{
 		live: map[types.EpochIndex]*types.Epoch{
-			0: types.NewEpoch(0, types.RoadRange{First: firstRoad, Next: firstRoad + epochLength}, committee),
-			1: types.NewEpoch(1, types.RoadRange{First: firstRoad + epochLength, Next: firstRoad + 2*epochLength}, committee),
+			0: types.NewEpoch(0, types.RoadRange{First: firstHeight, Next: firstHeight + epochLength}, committee),
+			1: types.NewEpoch(1, types.RoadRange{First: firstHeight + epochLength, Next: firstHeight + 2*epochLength}, committee),
 		},
 		liveRange: types.EpochRange{First: 0, Next: 2},
 	}
 }
 
 // tryPushEpoch returns a registry with the next execution-derived epoch.
-func (s *persistedRegistry) tryPushEpoch(n types.RoadIndex, weights map[types.PublicKey]uint64) (*persistedRegistry, error) {
+func (s *persistedRegistry) tryPushEpoch(n types.RoadHeight, weights map[types.PublicKey]uint64) (*persistedRegistry, error) {
 	next := s.liveRange.Next
 	last := s.live[next-1]
 	if n >= last.RoadRange().First {

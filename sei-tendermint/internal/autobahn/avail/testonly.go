@@ -69,7 +69,7 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 							}
 							return err
 						}
-						next = qc.Index() + 1
+						next = qc.Height() + 1
 						if err := to.PushCommitQC(ctx, qc); err != nil {
 							return err
 						}
@@ -81,14 +81,14 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 	})
 }
 
-func testAnchorAt(ep, next *types.Epoch, keys []types.SecretKey, index types.RoadIndex) data.Anchor {
+func testAnchorAt(ep, next *types.Epoch, keys []types.SecretKey, height types.RoadHeight) data.Anchor {
 	cks := make([]types.SecretKey, 0, len(keys))
 	for _, key := range keys {
 		if ep.Committee().HasReplica(key.Public()) {
 			cks = append(cks, key)
 		}
 	}
-	at := types.NewEpoch(ep.EpochIndex(), types.RoadRange{First: index, Next: ep.RoadRange().Next}, ep.Committee())
+	at := types.NewEpoch(ep.EpochIndex(), types.RoadRange{First: height, Next: ep.RoadRange().Next}, ep.Committee())
 	view := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{Epoch: at}}
 	leader := ep.Committee().Leader(view.View())
 	leaderKey := cks[0]
@@ -110,8 +110,8 @@ func testAnchorAt(ep, next *types.Epoch, keys []types.SecretKey, index types.Roa
 	})}
 }
 
-func tipLink(ep *types.Epoch, key types.SecretKey, idx types.RoadIndex) *types.CommitQC {
-	voteProposal := types.ProposalAt(ep, types.View{Index: idx, Number: 0})
+func tipLink(ep *types.Epoch, key types.SecretKey, height types.RoadHeight) *types.CommitQC {
+	voteProposal := types.ProposalAt(ep, types.View{Height: height, Number: 0})
 	return types.NewCommitQC([]*types.Signed[*types.CommitVote]{
 		types.Sign(key, types.NewCommitVote(types.BuildPrepareQC([]types.SecretKey{key}, voteProposal))),
 	})
@@ -122,7 +122,7 @@ func tipLink(ep *types.Epoch, key types.SecretKey, idx types.RoadIndex) *types.C
 func TestAdvanceToEpoch(ctx context.Context, state *State, keys []types.SecretKey, registry *epoch.Registry, want types.EpochIndex) error {
 	for state.ConsensusSpec().Load().Epoch.EpochIndex() < want {
 		cur := state.ConsensusSpec().Load().Epoch
-		if cur.RoadRange().Next == utils.Max[types.RoadIndex]() {
+		if cur.RoadRange().Next == utils.Max[types.RoadHeight]() {
 			return fmt.Errorf("TestAdvanceToEpoch: cannot seal open road range at epoch %d", cur.EpochIndex())
 		}
 		next, err := registry.Epoch(cur.EpochIndex() + 1)

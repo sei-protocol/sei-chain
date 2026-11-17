@@ -56,7 +56,7 @@ func TestBlockVotes_CountsLaneQCOncePerBlock(t *testing.T) {
 	}
 	ep := types.NewEpoch(0, types.RoadRange{First: 0, Next: 10}, utils.OrPanic1(types.NewCommittee(weights)))
 	lane := ep.Committee().Lane(keys[0].Public()).OrPanic("lane")
-	h := types.NewBlock(lane, 0, types.BlockHeaderHash{}, &types.Payload{}).Header()
+	h := types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, &types.Payload{}).Header()
 
 	bv := newBlockVotes()
 	beforeQC := gathered(t, "tendermint_internal_autobahn_avail_lane_qcs", nil)
@@ -81,7 +81,7 @@ func TestBlockVotes_CountsLaneQCOncePerBlock(t *testing.T) {
 func TestBlockVotes_CountsLaneQCAcrossReweight(t *testing.T) {
 	rng := utils.TestRng()
 	keys := utils.GenSliceN(rng, 4, types.GenSecretKey)
-	epochAt := func(idx types.EpochIndex, first types.RoadIndex, weights map[types.PublicKey]uint64) *types.Epoch {
+	epochAt := func(idx types.EpochIndex, first types.RoadHeight, weights map[types.PublicKey]uint64) *types.Epoch {
 		return types.NewEpoch(idx, types.RoadRange{First: first, Next: first + 10}, utils.OrPanic1(types.NewCommittee(weights)))
 	}
 	light := map[types.PublicKey]uint64{
@@ -92,7 +92,7 @@ func TestBlockVotes_CountsLaneQCAcrossReweight(t *testing.T) {
 	}
 	ep0 := epochAt(0, 0, light)
 	lane := ep0.Committee().Lane(keys[0].Public()).OrPanic("lane")
-	h := types.NewBlock(lane, 0, types.BlockHeaderHash{}, &types.Payload{}).Header()
+	h := types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, &types.Payload{}).Header()
 	vote := func(k types.SecretKey) *types.Signed[*types.LaneVote] {
 		return types.Sign(k, types.NewLaneVote(h))
 	}
@@ -121,12 +121,12 @@ func TestBlockVotes_Reweight(t *testing.T) {
 	b := types.GenSecretKey(rng)
 	c := types.GenSecretKey(rng)
 	d := types.GenSecretKey(rng)
-	mk := func(weights map[types.PublicKey]uint64, idx types.EpochIndex, first, next types.RoadIndex) *types.Epoch {
+	mk := func(weights map[types.PublicKey]uint64, idx types.EpochIndex, first, next types.RoadHeight) *types.Epoch {
 		return types.NewEpoch(idx, types.RoadRange{First: first, Next: next}, utils.OrPanic1(types.NewCommittee(weights)))
 	}
-	headerOn := func(ep *types.Epoch, sk types.SecretKey) *types.BlockHeader {
+	headerOn := func(ep *types.Epoch, sk types.SecretKey) *types.LaneBlockHeader {
 		lane := ep.Committee().Lane(sk.Public()).OrPanic("lane")
-		return types.NewBlock(lane, 0, types.BlockHeaderHash{}, &types.Payload{}).Header()
+		return types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, &types.Payload{}).Header()
 	}
 
 	t.Run("stay still has quorum", func(t *testing.T) {

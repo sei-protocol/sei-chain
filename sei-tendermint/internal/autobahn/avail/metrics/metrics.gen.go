@@ -11,7 +11,7 @@ var Global = newMetrics()
 
 func init() {
 	prometheus.MustRegister(
-		Global.commitRoadIndex,
+		Global.commitRoadHeight,
 		Global.proposalToCommitLatency,
 		Global.commitToCommitLatency,
 		Global.producedTxs,
@@ -26,11 +26,11 @@ func init() {
 
 func newMetrics() *metrics {
 	return &metrics{
-		commitRoadIndex: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+		commitRoadHeight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "commit_road_index",
-			Help:      "Road index of the highest observed commitQC.",
+			Help:      "Road height of the highest observed commitQC.",
 		}, nil),
 		proposalToCommitLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
@@ -93,8 +93,8 @@ func newMetrics() *metrics {
 	}
 }
 
-func (m *metrics) commitRoadIndexAt() *tmprometheus.GaugeInt {
-	return m.commitRoadIndex.WithLabelValues()
+func (m *metrics) commitRoadHeightAt() *tmprometheus.GaugeInt {
+	return m.commitRoadHeight.WithLabelValues()
 }
 
 func (m *metrics) proposalToCommitLatencyAt() *tmprometheus.Histogram {

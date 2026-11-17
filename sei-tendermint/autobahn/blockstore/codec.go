@@ -20,20 +20,20 @@ type record struct {
 // encodeBlock encodes a complete road block with QC, hash, and lane-block aliases.
 // It panics if the encoded record exceeds the uint32 size limit.
 func encodeBlock(block *types.RoadBlock) record {
-	index, hash := block.QC().Index(), block.Header().Hash()
+	height, hash := block.QC().Height(), block.Header().Hash()
 	qc := types.FullCommitQCConv.Marshal(block.QC())
 	lanes := make([][]byte, len(block.LaneBlocks()))
 	size := uint64(12) + uint64(len(hash)) + uint64(len(qc))
 	for i, lane := range block.LaneBlocks() {
-		lanes[i] = types.BlockConv.Marshal(lane)
+		lanes[i] = types.LaneBlockConv.Marshal(lane)
 		size += 4 + uint64(len(lanes[i]))
 	}
-	r := record{Key: (blockKey{Index: index}).encode(), Value: make([]byte, 0, checkedSize(size))}
-	r.appendUint64(uint64(index))
+	r := record{Key: (blockKey{Height: height}).encode(), Value: make([]byte, 0, checkedSize(size))}
+	r.appendUint64(uint64(height))
 	r.appendBlockHash(hash)
-	r.appendBytes(qc, (qcKey{Index: index}).encode())
+	r.appendBytes(qc, (qcKey{Height: height}).encode())
 	for i, lane := range lanes {
-		r.appendBytes(lane, (laneBlockKey{Index: index, Offset: uint64(i)}).encode())
+		r.appendBytes(lane, (laneBlockKey{Height: height, Offset: uint64(i)}).encode())
 	}
 	r.addAlias((blockHashKey{Hash: hash}).encode())
 	return r
@@ -74,14 +74,14 @@ func (r *record) appendBytes(value []byte, aliases ...ledgerKey) {
 
 // encodeAppQC encodes an application QC at its road index.
 func encodeAppQC(qc *types.AppQC) record {
-	r := record{Key: (appQCKey{Index: qc.Proposal().Index()}).encode()}
+	r := record{Key: (appQCKey{Height: qc.Proposal().Height()}).encode()}
 	r.appendRawBytes(types.AppQCConv.Marshal(qc))
 	return r
 }
 
 // encodeAppProposal encodes an application proposal at its road index.
 func encodeAppProposal(proposal *types.AppProposal) record {
-	r := record{Key: (appProposalKey{Index: proposal.Index()}).encode()}
+	r := record{Key: (appProposalKey{Height: proposal.Height()}).encode()}
 	r.appendRawBytes(types.AppProposalConv.Marshal(proposal))
 	return r
 }
@@ -105,7 +105,7 @@ func decodeBlock(value []byte) (*types.RoadBlock, error) {
 	if len(value) < 8 {
 		return nil, fmt.Errorf("truncated road index")
 	}
-	index := types.RoadIndex(binary.BigEndian.Uint64(value))
+	height := types.RoadHeight(binary.BigEndian.Uint64(value))
 	value = value[8:]
 	var hash types.RoadBlockHeaderHash
 	if len(value) < len(hash) {
@@ -121,19 +121,19 @@ func decodeBlock(value []byte) (*types.RoadBlock, error) {
 	if err != nil {
 		return nil, fmt.Errorf("types.FullCommitQCConv.Unmarshal(): %w", err)
 	}
-	if qc.Index() != index {
+	if qc.Height() != height {
 		return nil, types.ErrQCBlocksMismatch
 	}
-	var lanes []*types.Block
+	var lanes []*types.LaneBlock
 	for len(value) > 0 {
 		var laneBytes []byte
 		laneBytes, value, err = consumeValue(value)
 		if err != nil {
 			return nil, fmt.Errorf("consumeValue(): %w", err)
 		}
-		lane, err := types.BlockConv.Unmarshal(laneBytes)
+		lane, err := types.LaneBlockConv.Unmarshal(laneBytes)
 		if err != nil {
-			return nil, fmt.Errorf("types.BlockConv.Unmarshal(): %w", err)
+			return nil, fmt.Errorf("types.LaneBlockConv.Unmarshal(): %w", err)
 		}
 		lanes = append(lanes, lane)
 	}

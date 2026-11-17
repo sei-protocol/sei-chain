@@ -152,7 +152,7 @@ func (s *State) Close() error {
 	return s.persisters.close()
 }
 
-func (s *State) First() types.RoadIndex {
+func (s *State) First() types.RoadHeight {
 	for inner := range s.inner.Lock() {
 		return inner.roads.first
 	}
@@ -165,20 +165,20 @@ func (s *State) Data() *data.State {
 }
 
 // ConsensusSpec returns a receiver of the durable CommitQC tip paired
-// with the epoch of the RoadIndex that follows it. CommitQC is None before
+// with the epoch of the RoadHeight that follows it. CommitQC is None before
 // the first tip; until then Epoch is genesis epoch 0.
 func (s *State) ConsensusSpec() utils.AtomicRecv[types.ConsensusSpec] {
 	return s.spec
 }
 
-func (s *State) appQC(ctx context.Context, idx types.RoadIndex) (*types.AppQC, error) {
+func (s *State) appQC(ctx context.Context, height types.RoadHeight) (*types.AppQC, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		for {
-			if idx < inner.roads.first {
+			if height < inner.roads.first {
 				return nil, types.ErrPruned
 			}
-			if idx < inner.roads.next {
-				if appQC, ok := inner.roads.q[idx].appQC.Get(); ok {
+			if height < inner.roads.next {
+				if appQC, ok := inner.roads.q[height].appQC.Get(); ok {
 					return appQC, nil
 				}
 			}
@@ -190,38 +190,38 @@ func (s *State) appQC(ctx context.Context, idx types.RoadIndex) (*types.AppQC, e
 	panic("unreachable")
 }
 
-func (s *State) commitQC(ctx context.Context, idx types.RoadIndex) (*types.Epoch, *types.CommitQC, error) {
+func (s *State) commitQC(ctx context.Context, height types.RoadHeight) (*types.Epoch, *types.CommitQC, error) {
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return idx < inner.roads.next }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return height < inner.roads.next }); err != nil {
 			return nil, nil, err
 		}
-		if idx < inner.roads.first {
+		if height < inner.roads.first {
 			return nil, nil, types.ErrPruned
 		}
-		r := inner.roads.q[idx]
+		r := inner.roads.q[height]
 		return r.epoch, r.commitQC, nil
 	}
 	panic("unreachable")
 }
 
-func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.CommitQC, error) {
-	_, qc, err := s.commitQC(ctx, idx)
+func (s *State) CommitQC(ctx context.Context, height types.RoadHeight) (*types.CommitQC, error) {
+	_, qc, err := s.commitQC(ctx, height)
 	return qc, err
 }
 
 // PushCommitQC admits a CommitQC once its epoch is applied and it is the next
 // road. Stale QCs are a no-op.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
-	idx := qc.Index()
+	height := qc.Height()
 	want := qc.View().EpochIndex
 	var epoch *types.Epoch
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			return inner.applied().EpochIndex() >= want && idx <= inner.roads.next
+			return inner.applied().EpochIndex() >= want && height <= inner.roads.next
 		}); err != nil {
 			return err
 		}
-		if inner.applied().EpochIndex() != want || inner.roads.next > idx {
+		if inner.applied().EpochIndex() != want || inner.roads.next > height {
 			return nil
 		}
 		epoch = inner.applied()
@@ -230,7 +230,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		if idx != inner.roads.next || inner.applied().EpochIndex() != want {
+		if height != inner.roads.next || inner.applied().EpochIndex() != want {
 			return nil
 		}
 		inner.roads.pushBack(newRoad(qc, epoch))
@@ -249,8 +249,8 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 // PushAppVote pushes an AppVote to the state.
 func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]) error {
 	// Wait for the corresponding commitQC.
-	idx := v.Msg().Proposal().Index()
-	epoch, commitQC, err := s.commitQC(ctx, idx)
+	height := v.Msg().Proposal().Height()
+	epoch, commitQC, err := s.commitQC(ctx, height)
 	if err != nil {
 		if errors.Is(err, types.ErrPruned) {
 			return nil
@@ -268,10 +268,10 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		return fmt.Errorf("v.VerifySig(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		if idx < inner.roads.first || inner.roads.next <= idx {
+		if height < inner.roads.first || inner.roads.next <= height {
 			return nil
 		}
-		if inner.roads.q[idx].pushAppVote(v) {
+		if inner.roads.q[height].pushAppVote(v) {
 			ctrl.Updated()
 		}
 	}
@@ -279,7 +279,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 }
 
 // NextBlock returns the index of the next missing block in local storage for the given lane.
-func (s *State) NextBlock(lane types.LaneID) types.BlockNumber {
+func (s *State) NextBlock(lane types.LaneID) types.LaneHeight {
 	for inner := range s.inner.Lock() {
 		if ls, ok := inner.lanes[lane]; ok {
 			return ls.blocks.next
@@ -290,7 +290,7 @@ func (s *State) NextBlock(lane types.LaneID) types.BlockNumber {
 
 // Block waits for block n of the given lane. It returns ErrPruned for pruned
 // blocks and past lanes. It waits for future lanes to become available.
-func (s *State) Block(ctx context.Context, lane types.LaneID, n types.BlockNumber) (*types.Signed[*types.LaneProposal], error) {
+func (s *State) Block(ctx context.Context, lane types.LaneID, n types.LaneHeight) (*types.Signed[*types.LaneProposal], error) {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			if ls, ok := inner.lanes[lane]; ok {
@@ -320,7 +320,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		return fmt.Errorf("signer %v does not match lane %v", p.Key(), h.Lane())
 	}
 	lane := h.Lane()
-	n := h.BlockNumber()
+	n := h.Height()
 	if err := p.Msg().Verify(); err != nil {
 		return fmt.Errorf("Verify(): %w", err)
 	}
@@ -374,7 +374,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote]) error {
 	h := vote.Msg().Header()
 	lane := h.Lane()
-	n := h.BlockNumber()
+	n := h.Height()
 	if err := vote.VerifySig(); err != nil {
 		return fmt.Errorf("VerifySig(): %w", err)
 	}
@@ -413,19 +413,19 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 // headers collects headers for the given range under ep (the CommitQC's road epoch).
 // Returns ErrPruned if the lane is closed under ep or the range is unavailable.
 // Does not wait for future lanes.
-func (s *State) headers(ctx context.Context, ep *types.Epoch, lr *types.LaneRange) ([]*types.BlockHeader, error) {
+func (s *State) headers(ctx context.Context, ep *types.Epoch, lr *types.LaneRange) ([]*types.LaneBlockHeader, error) {
 	// Empty range is always available.
 	if lr.First() == lr.Next() {
 		return nil, nil
 	}
 	want := lr.LastHash()
-	headers := make([]*types.BlockHeader, lr.Next()-lr.First())
+	headers := make([]*types.LaneBlockHeader, lr.Next()-lr.First())
 	for inner, ctrl := range s.inner.Lock() {
 		if ep.IsClosed(lr.Lane()) {
 			return nil, types.ErrPruned
 		}
 		for i := range headers {
-			n := lr.Next() - types.BlockNumber(i) - 1 //nolint:gosec // i is bounded by len(headers) which is a small block range; no overflow risk
+			n := lr.Next() - types.LaneHeight(i) - 1 //nolint:gosec // i is bounded by len(headers) which is a small block range; no overflow risk
 			for {
 				ls, ok := inner.lanes[lr.Lane()]
 				if !ok {
@@ -455,14 +455,14 @@ func (s *State) headers(ctx context.Context, ep *types.Epoch, lr *types.LaneRang
 
 // fullCommitQC builds a FullCommitQC for road index n.
 // Headers are collected from votes; this does not wait for future lanes.
-func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.FullCommitQC, error) {
+func (s *State) fullCommitQC(ctx context.Context, n types.RoadHeight) (*types.FullCommitQC, error) {
 	// Collect the CommitQC.
 	epoch, qc, err := s.commitQC(ctx, n)
 	if err != nil {
 		return nil, err
 	}
 	// Collect the headers from the votes.
-	var commitHeaders []*types.BlockHeader
+	var commitHeaders []*types.LaneBlockHeader
 	for lane := range epoch.Committee().Lanes().All() {
 		headers, err := s.headers(ctx, epoch, qc.LaneRange(lane))
 		if err != nil {
@@ -475,7 +475,7 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Ful
 
 // WaitForCapacity waits until lane has room for toProduce.
 // Returns ErrLaneClosed if the lane map is missing. Does not wait for unretained lanes.
-func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduce types.BlockNumber) error {
+func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduce types.LaneHeight) error {
 	var blocked bool
 	var start time.Time
 	defer func() {
@@ -521,7 +521,7 @@ func (s *State) WaitForLaneQCs(
 		for {
 			for lane := range ep.Committee().Lanes().All() {
 				first := types.LaneRangeOpt(prev, lane).Next()
-				for i := range types.BlockNumber(types.MaxLaneRangeInProposal) {
+				for i := range types.LaneHeight(types.MaxLaneRangeInProposal) {
 					if qc, ok := inner.laneQC(lane, first+i).Get(); ok {
 						laneQCs[lane] = qc
 					} else {
@@ -549,11 +549,11 @@ func (s *State) WaitForLaneQCs(
 // LaneTip is how far one lane's blocks have reached on this node.
 type LaneTip struct {
 	// WithCommitQC is one past the highest block finalized by the latest persisted CommitQC.
-	WithCommitQC types.BlockNumber
+	WithCommitQC types.LaneHeight
 	// WithLaneQC is one past the highest block with a LaneQC, and at least WithCommitQC.
-	WithLaneQC types.BlockNumber
+	WithLaneQC types.LaneHeight
 	// Held is one past the highest block this node holds, and at least WithLaneQC.
-	Held types.BlockNumber
+	Held types.LaneHeight
 }
 
 // LaneTips returns how far each lane of the applied committee has reached on this node.
@@ -583,7 +583,7 @@ func (s *State) LaneTips() map[types.LaneID]LaneTip {
 
 // ProduceLocalBlock appends a new block to the producers lane.
 // Fails in case there is not enough capacity in the lane, or it is not the next block expected.
-func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
+func (s *State) ProduceLocalBlock(lane types.LaneID, n types.LaneHeight, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
 	if lane.Validator != s.key.Public() {
 		return nil, fmt.Errorf("ProduceLocalBlock: lane validator %v != local %v", lane.Validator, s.key.Public())
 	}
@@ -599,8 +599,8 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 		if ls.blocks.next != n {
 			return nil, fmt.Errorf("unexpected block number: got %v, want %v", n, ls.blocks.next)
 		}
-		parent := ls.lastHash.Or(types.BlockHeaderHash{})
-		result = types.Sign(s.key, types.NewLaneProposal(types.NewBlock(lane, ls.blocks.next, parent, payload)))
+		parent := ls.lastHash.Or(types.LaneBlockHeaderHash{})
+		result = types.Sign(s.key, types.NewLaneProposal(types.NewLaneBlock(lane, ls.blocks.next, parent, payload)))
 		ls.blocks.pushBack(result)
 		ls.lastHash = utils.Some(result.Msg().Block().Header().Hash())
 		ctrl.Updated()
@@ -621,12 +621,12 @@ func (s *State) runPushPartialBlock(ctx context.Context) error {
 		}
 
 		// Collect the blocks we have locally.
-		blocks := make(map[uint64]*types.Block, len(qc.Headers()))
+		blocks := make(map[uint64]*types.LaneBlock, len(qc.Headers()))
 		for inner := range s.inner.Lock() {
 			for i, h := range qc.Headers() {
 				if ls, ok := inner.lanes[h.Lane()]; ok {
 					// We are not expected to have all the blocks locally - only the available ones.
-					if b, ok := ls.blocks.q[h.BlockNumber()]; ok {
+					if b, ok := ls.blocks.q[h.Height()]; ok {
 						// We don't need to check the blocks against the headers,
 						// as bad blocks will be filtered out by PushPartialBlock anyway.
 						blocks[uint64(i)] = b.Msg().Block()
@@ -707,7 +707,7 @@ func (s *State) runPersist(ctx context.Context) error {
 						return err
 					}
 					if t := batch.tail; len(t) > 0 {
-						s.setNextBlockToPersist(lane, t[len(t)-1].Msg().Block().Header().BlockNumber()+1)
+						s.setNextBlockToPersist(lane, t[len(t)-1].Msg().Block().Header().Height()+1)
 					}
 					return nil
 				})
@@ -725,8 +725,8 @@ type batch[I any, T any] struct {
 	tail  []T
 }
 
-type blocksBatch = batch[types.BlockNumber, *types.Signed[*types.LaneProposal]]
-type commitQCsBatch = batch[types.RoadIndex, *types.CommitQC]
+type blocksBatch = batch[types.LaneHeight, *types.Signed[*types.LaneProposal]]
+type commitQCsBatch = batch[types.RoadHeight, *types.CommitQC]
 
 // persistBatch holds the data collected under lock for one persist iteration.
 type persistBatch struct {
@@ -738,7 +738,7 @@ type persistBatch struct {
 // setNextBlockToPersist sets the per-lane block persistence cursor to next.
 // Called once per lane after that lane's batch has been flushed so that
 // RecvBatch (and therefore voting) can unblock. Thread-safe.
-func (s *State) setNextBlockToPersist(lane types.LaneID, next types.BlockNumber) {
+func (s *State) setNextBlockToPersist(lane types.LaneID, next types.LaneHeight) {
 	for inner, ctrl := range s.inner.Lock() {
 		ls, ok := inner.lanes[lane]
 		if !ok {
@@ -757,12 +757,12 @@ func (s *State) setNextBlockToPersist(lane types.LaneID, next types.BlockNumber)
 // the current tip, then refreshes ConsensusSpec.
 func (s *State) markCommitQCsPersisted(qc *types.CommitQC) {
 	for inner, ctrl := range s.inner.Lock() {
-		if qc.Index()+1 < inner.nextCommitQCToPersist {
+		if qc.Height()+1 < inner.nextCommitQCToPersist {
 			// setAnchor may have jumped the empty-queue tip to the Anchor while this
 			// persist batch was still on disk.
 			return
 		}
-		inner.nextCommitQCToPersist = qc.Index() + 1
+		inner.nextCommitQCToPersist = qc.Height() + 1
 		inner.advance()
 		ctrl.Updated()
 	}

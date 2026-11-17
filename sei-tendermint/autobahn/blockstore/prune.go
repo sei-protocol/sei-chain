@@ -14,46 +14,46 @@ var _ controllertypes.PrunableStore = (*Store)(nil)
 
 // reclaimable reports whether a key is eligible for reclamation below watermark.
 // Hash aliases are always eligible; their primary record and numbered aliases govern retention.
-func (k ledgerKey) reclaimable(watermark types.RoadIndex) (bool, error) {
-	var index types.RoadIndex
+func (k ledgerKey) reclaimable(watermark types.RoadHeight) (bool, error) {
+	var height types.RoadHeight
 	switch k.kind {
 	case kindBlock:
 		key, err := k.decodeBlock()
 		if err != nil {
 			return false, err
 		}
-		index = key.Index
+		height = key.Height
 	case kindQC:
 		key, err := k.decodeQC()
 		if err != nil {
 			return false, err
 		}
-		index = key.Index
+		height = key.Height
 	case kindAppQC:
 		key, err := k.decodeAppQC()
 		if err != nil {
 			return false, err
 		}
-		index = key.Index
+		height = key.Height
 	case kindAppProp:
 		key, err := k.decodeAppProposal()
 		if err != nil {
 			return false, err
 		}
-		index = key.Index
+		height = key.Height
 	case kindLaneBlock:
 		key, err := k.decodeLaneBlock()
 		if err != nil {
 			return false, err
 		}
-		index = key.Index
+		height = key.Height
 	case kindBlockHash:
 		_, err := k.decodeBlockHash()
 		return err == nil, err
 	default:
 		return false, fmt.Errorf("unknown ledger key kind %d", k.kind)
 	}
-	return index < watermark, nil
+	return height < watermark, nil
 }
 
 // gcFilter reports whether a ledger key is below the reclamation floor.
@@ -65,7 +65,7 @@ func (s *Store) gcFilter(key []byte, _ bool) (bool, error) {
 	return parsed.reclaimable(s.First())
 }
 
-func (s *Store) PruneBefore(blockHeight types.RoadIndex) error {
+func (s *Store) PruneBefore(blockHeight types.RoadHeight) error {
 	for status := range s.status.Lock() {
 
 		current, ok := status.suffix.Get()
@@ -85,7 +85,7 @@ func (s *Store) PruneBefore(blockHeight types.RoadIndex) error {
 
 // setPruneWatermark raises the floor below which reads return ErrPruned to n, and
 // leaves it unchanged when it already sits at or above n.
-func (s *Store) setPruneWatermark(n types.RoadIndex) {
+func (s *Store) setPruneWatermark(n types.RoadHeight) {
 	for {
 		current := s.first.Load()
 		if uint64(n) <= current {
@@ -98,8 +98,8 @@ func (s *Store) setPruneWatermark(n types.RoadIndex) {
 	}
 }
 
-func (s *Store) First() types.RoadIndex {
-	return types.RoadIndex(s.first.Load())
+func (s *Store) First() types.RoadHeight {
+	return types.RoadHeight(s.first.Load())
 }
 
 // Name identifies the store in the garbage collector's logs and errors.
@@ -108,10 +108,10 @@ func (s *Store) Name() string { return "BlockDB" }
 // ExternalPruning is unconditionally true: this store has no pruner of its own.
 func (s *Store) ExternalPruning() bool { return true }
 
-// PruneHistory advances the retention watermark to blockNumber, capping it at the newest retained
+// PruneHistory advances the retention watermark to height, capping it at the newest retained
 // (block, QC) pair. Reclaiming the data happens later, on the block database's own schedule.
-func (s *Store) PruneHistory(blockNumber uint64) error {
-	return s.PruneBefore(types.RoadIndex(blockNumber))
+func (s *Store) PruneHistory(height uint64) error {
+	return s.PruneBefore(types.RoadHeight(height))
 }
 
 // PruneSnapshots does nothing: the block store keeps no snapshots.

@@ -28,10 +28,10 @@ func NewLaneQC(votes []*Signed[*LaneVote]) *LaneQC {
 }
 
 // Header .
-func (m *LaneQC) Header() *BlockHeader { return m.vote.Msg().header }
+func (m *LaneQC) Header() *LaneBlockHeader { return m.vote.Msg().header }
 
 // Next is the number of the first block not known to be available.
-func (m *LaneQC) Next() BlockNumber { return m.Header().Next() }
+func (m *LaneQC) Next() LaneHeight { return m.Header().Next() }
 
 // Verify verifies LaneQC against the committee.
 func (m *LaneQC) Verify(c *Committee) error {
@@ -42,12 +42,12 @@ func (m *LaneQC) Verify(c *Committee) error {
 var LaneQCConv = protoutils.Conv[*LaneQC, *pb.LaneQC]{
 	Encode: func(m *LaneQC) *pb.LaneQC {
 		return &pb.LaneQC{
-			Vote: LaneVoteConv.Encode(m.vote.Msg()),
-			Sigs: SignatureConv.EncodeSlice(m.sigs),
+			VoteV2: LaneVoteConv.Encode(m.vote.Msg()),
+			Sigs:   SignatureConv.EncodeSlice(m.sigs),
 		}
 	},
 	Decode: func(m *pb.LaneQC) (*LaneQC, error) {
-		vote, err := LaneVoteConv.DecodeReq(m.Vote)
+		vote, err := LaneVoteConv.DecodeReq(m.VoteV2)
 		if err != nil {
 			return nil, fmt.Errorf("vote: %w", err)
 		}

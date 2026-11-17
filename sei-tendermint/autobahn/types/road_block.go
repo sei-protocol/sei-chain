@@ -20,34 +20,34 @@ const MaxLaneRangeInProposal = 10
 type LaneRange struct {
 	utils.ReadOnly
 	lane     LaneID
-	first    BlockNumber
-	next     BlockNumber
-	lastHash BlockHeaderHash
+	first    LaneHeight
+	next     LaneHeight
+	lastHash LaneBlockHeaderHash
 }
 
 // NewLaneRange constructs a LaneRange.
-func NewLaneRange(lane LaneID, first BlockNumber, h utils.Option[*BlockHeader]) *LaneRange {
+func NewLaneRange(lane LaneID, first LaneHeight, h utils.Option[*LaneBlockHeader]) *LaneRange {
 	if h, ok := h.Get(); ok {
-		return &LaneRange{lane: lane, first: first, next: h.BlockNumber() + 1, lastHash: h.Hash()}
+		return &LaneRange{lane: lane, first: first, next: h.Height() + 1, lastHash: h.Hash()}
 	}
-	return &LaneRange{lane: lane, first: first, next: first, lastHash: BlockHeaderHash{}}
+	return &LaneRange{lane: lane, first: first, next: first, lastHash: LaneBlockHeaderHash{}}
 }
 
 // Lane of this block range.
 func (m *LaneRange) Lane() LaneID { return m.lane }
 
 // First block of the range.
-func (m *LaneRange) First() BlockNumber { return m.first }
+func (m *LaneRange) First() LaneHeight { return m.first }
 
 // Next is the block after the last block of the range.
-func (m *LaneRange) Next() BlockNumber { return m.next }
+func (m *LaneRange) Next() LaneHeight { return m.next }
 
 // Len returns the number of blocks in the range.
 func (m *LaneRange) Len() uint64 { return uint64(m.next - m.first) }
 
 // LastHash is the hash of the last block of the range.
 // Returns a zero hash for an empty range.
-func (m *LaneRange) LastHash() BlockHeaderHash { return m.lastHash }
+func (m *LaneRange) LastHash() LaneBlockHeaderHash { return m.lastHash }
 
 // Verify verifies the LaneRange against the committee.
 func (m *LaneRange) Verify(c *Committee) error {
@@ -57,14 +57,14 @@ func (m *LaneRange) Verify(c *Committee) error {
 	if m.first > m.next {
 		return fmt.Errorf("invalid range [%v,%v)", m.first, m.next)
 	}
-	if m.first == m.next && m.lastHash != (BlockHeaderHash{}) {
+	if m.first == m.next && m.lastHash != (LaneBlockHeaderHash{}) {
 		return errors.New("non-zero hash for an empty range")
 	}
 	return nil
 }
 
-// RoadIndex is the index of the consensus instance.
-type RoadIndex uint64
+// RoadHeight is the height of a road block.
+type RoadHeight uint64
 
 // RoadBlockHeaderHash is the hash of a RoadBlockHeader.
 type RoadBlockHeaderHash hashable.Hash[*pb.RoadBlockHeader]
@@ -83,28 +83,28 @@ func ParseRoadBlockHeaderHash(bytes []byte) (RoadBlockHeaderHash, error) {
 type RoadBlockHeader struct {
 	utils.ReadOnly
 	epochIndex EpochIndex
-	index      RoadIndex
+	height     RoadHeight
 	timestamp  time.Time
 	laneRanges map[LaneID]*LaneRange
 }
 
-func newRoadBlockHeader(epochIndex EpochIndex, index RoadIndex, timestamp time.Time, laneRanges []*LaneRange) *RoadBlockHeader {
+func newRoadBlockHeader(epochIndex EpochIndex, height RoadHeight, timestamp time.Time, laneRanges []*LaneRange) *RoadBlockHeader {
 	laneRangesM := map[LaneID]*LaneRange{}
 	for _, r := range laneRanges {
 		laneRangesM[r.Lane()] = r
 	}
-	return &RoadBlockHeader{epochIndex: epochIndex, index: index, timestamp: timestamp, laneRanges: laneRangesM}
+	return &RoadBlockHeader{epochIndex: epochIndex, height: height, timestamp: timestamp, laneRanges: laneRangesM}
 }
 
 // EpochIndex returns the epoch containing this road block.
 func (m *RoadBlockHeader) EpochIndex() EpochIndex { return m.epochIndex }
 
-// Index returns the road block index.
-func (m *RoadBlockHeader) Index() RoadIndex { return m.index }
+// Height returns the height of the road block.
+func (m *RoadBlockHeader) Height() RoadHeight { return m.height }
 
 // view returns the consensus view for this header and view number.
 func (m *RoadBlockHeader) view(number ViewNumber) View {
-	return View{Index: m.index, Number: number, EpochIndex: m.epochIndex}
+	return View{Height: m.height, Number: number, EpochIndex: m.epochIndex}
 }
 
 // Timestamp of the road block.
@@ -152,19 +152,19 @@ func (m *RoadBlockHeader) LaneRange(lane LaneID) *LaneRange {
 	if r, ok := m.laneRanges[lane]; ok {
 		return r
 	}
-	return NewLaneRange(lane, 0, utils.None[*BlockHeader]())
+	return NewLaneRange(lane, 0, utils.None[*LaneBlockHeader]())
 }
 
 // RoadBlock is a committed QC and all its blocks in header order.
 type RoadBlock struct {
 	utils.ReadOnly
-	qc         *FullCommitQC
-	laneBlocks []*Block
+	qc     *FullCommitQC
+	blocks []*LaneBlock
 }
 
 // NewRoadBlock constructs a road block with lane blocks in header order.
-func NewRoadBlock(qc *FullCommitQC, laneBlocks []*Block) *RoadBlock {
-	return &RoadBlock{qc: qc, laneBlocks: laneBlocks}
+func NewRoadBlock(qc *FullCommitQC, blocks []*LaneBlock) *RoadBlock {
+	return &RoadBlock{qc: qc, blocks: blocks}
 }
 
 // Header returns the road block header.
@@ -174,16 +174,16 @@ func (b *RoadBlock) Header() *RoadBlockHeader { return b.qc.Header() }
 func (b *RoadBlock) QC() *FullCommitQC { return b.qc }
 
 // LaneBlocks returns the lane blocks in header order.
-func (b *RoadBlock) LaneBlocks() []*Block { return b.laneBlocks }
+func (b *RoadBlock) LaneBlocks() []*LaneBlock { return b.blocks }
 
 // SuperBlock returns the merged transactions and execution metadata for the road.
 func (b *RoadBlock) SuperBlock() *SuperBlock {
 	superBlock := &SuperBlock{
 		Hash:      b.Header().Hash(),
-		Height:    b.qc.Index(),
+		Height:    b.qc.Height(),
 		Timestamp: b.Header().Timestamp(),
 	}
-	for _, block := range b.laneBlocks {
+	for _, block := range b.blocks {
 		superBlock.GasWanted += block.Payload().TotalGasWanted()
 		superBlock.Txs = append(superBlock.Txs, block.Payload().Txs()...)
 	}
@@ -195,10 +195,10 @@ func (b *RoadBlock) Verify(ep *Epoch) error {
 	if err := b.qc.Verify(ep); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
-	if len(b.laneBlocks) != len(b.qc.Headers()) {
+	if len(b.blocks) != len(b.qc.Headers()) {
 		return ErrQCBlocksMismatch
 	}
-	for i, block := range b.laneBlocks {
+	for i, block := range b.blocks {
 		if err := block.Verify(); err != nil {
 			return fmt.Errorf("block %d: %w: %w", i, ErrQCBlocksMismatch, err)
 		}
@@ -212,7 +212,7 @@ func (b *RoadBlock) Verify(ep *Epoch) error {
 // SuperBlock contains all transactions finalized by one CommitQC in header order.
 type SuperBlock struct {
 	Hash   RoadBlockHeaderHash
-	Height RoadIndex
+	Height RoadHeight
 	// Timestamp extracted from CommitQC.
 	Timestamp time.Time
 	// Sum of GasWanted of the CommitQC's lane blocks.
@@ -242,14 +242,14 @@ var LaneRangeConv = protoutils.Conv[*LaneRange, *pb.LaneRange]{
 		if m.Next == nil {
 			return nil, fmt.Errorf("Next: missing")
 		}
-		lastHash, err := ParseBlockHeaderHash(m.LastHash)
+		lastHash, err := ParseLaneBlockHeaderHash(m.LastHash)
 		if err != nil {
 			return nil, fmt.Errorf("LastHash: %w", err)
 		}
 		return &LaneRange{
 			lane:     lane,
-			first:    BlockNumber(*m.First),
-			next:     BlockNumber(*m.Next),
+			first:    LaneHeight(*m.First),
+			next:     LaneHeight(*m.Next),
 			lastHash: lastHash,
 		}, nil
 	},
@@ -265,7 +265,7 @@ var RoadBlockHeaderConv = protoutils.Conv[*RoadBlockHeader, *pb.RoadBlockHeader]
 		sort.Slice(laneRanges, func(i, j int) bool { return laneRanges[i].Lane().Compare(laneRanges[j].Lane()) < 0 })
 		return &pb.RoadBlockHeader{
 			EpochIndex: new(uint64(m.epochIndex)),
-			Index:      new(uint64(m.index)),
+			Height:     new(uint64(m.height)),
 			Timestamp:  TimeConv.Encode(m.timestamp),
 			LaneRanges: LaneRangeConv.EncodeSlice(laneRanges),
 		}
@@ -274,7 +274,7 @@ var RoadBlockHeaderConv = protoutils.Conv[*RoadBlockHeader, *pb.RoadBlockHeader]
 		if m.EpochIndex == nil {
 			return nil, fmt.Errorf("epoch_index: missing")
 		}
-		if m.Index == nil {
+		if m.Height == nil {
 			return nil, fmt.Errorf("index: missing")
 		}
 		timestamp, err := TimeConv.DecodeReq(m.Timestamp)
@@ -285,7 +285,7 @@ var RoadBlockHeaderConv = protoutils.Conv[*RoadBlockHeader, *pb.RoadBlockHeader]
 		if err != nil {
 			return nil, fmt.Errorf("laneRanges: %w", err)
 		}
-		header := newRoadBlockHeader(EpochIndex(*m.EpochIndex), RoadIndex(*m.Index), timestamp, laneRanges)
+		header := newRoadBlockHeader(EpochIndex(*m.EpochIndex), RoadHeight(*m.Height), timestamp, laneRanges)
 		if len(header.laneRanges) != len(laneRanges) {
 			return nil, fmt.Errorf("laneRanges: duplicate ranges")
 		}

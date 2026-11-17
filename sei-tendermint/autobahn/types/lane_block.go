@@ -17,19 +17,19 @@ const ExecutedBlocksWindow = 128
 // NodeID represents a unique identifier for a node in the network.
 type NodeID string
 
-// BlockNumber is the number of a block in a lane.
-type BlockNumber uint64
+// LaneHeight is the height of a block in a lane.
+type LaneHeight uint64
 
 // LaneBlockPos identifies a lane block by its CommitQC road index and header offset.
 type LaneBlockPos struct {
-	Index  RoadIndex
+	Height RoadHeight
 	Offset uint64
 }
 
 // ExecutedBlock is a block committed to the app together with the gas its
 // transactions used.
 type ExecutedBlock struct {
-	Number  RoadIndex
+	Height  RoadHeight
 	GasUsed uint64
 }
 
@@ -66,55 +66,55 @@ func (w ExecutedBlocks) Latest() ExecutedBlock {
 }
 
 // Get returns the block numbered n if the window still holds it.
-func (w ExecutedBlocks) Get(n RoadIndex) (ExecutedBlock, bool) {
+func (w ExecutedBlocks) Get(n RoadHeight) (ExecutedBlock, bool) {
 	if len(w.blocks) == 0 {
 		return ExecutedBlock{}, false
 	}
-	first := w.blocks[0].Number
-	if n < first || n > w.Latest().Number {
+	first := w.blocks[0].Height
+	if n < first || n > w.Latest().Height {
 		return ExecutedBlock{}, false
 	}
 	return w.blocks[n-first], true
 }
 
-// BlockHeaderHash is the hash of a BlockHeader.
-type BlockHeaderHash hashable.Hash[*pb.BlockHeader]
+// LaneBlockHeaderHash is the hash of a LaneBlockHeader.
+type LaneBlockHeaderHash hashable.Hash[*pb.LaneBlockHeader]
 
-// Bytes converts the BlockHeaderHash to a byte slice.
-func (h BlockHeaderHash) Bytes() []byte  { return h[:] }
-func (h BlockHeaderHash) String() string { return hex.EncodeToString(h.Bytes()) }
+// Bytes converts the LaneBlockHeaderHash to a byte slice.
+func (h LaneBlockHeaderHash) Bytes() []byte  { return h[:] }
+func (h LaneBlockHeaderHash) String() string { return hex.EncodeToString(h.Bytes()) }
 
-func ParseBlockHeaderHash(bytes []byte) (BlockHeaderHash, error) {
-	h, err := hashable.ParseHash[*pb.BlockHeader](bytes)
-	return BlockHeaderHash(h), err
+func ParseLaneBlockHeaderHash(bytes []byte) (LaneBlockHeaderHash, error) {
+	h, err := hashable.ParseHash[*pb.LaneBlockHeader](bytes)
+	return LaneBlockHeaderHash(h), err
 }
 
-// BlockHeader .
-type BlockHeader struct {
+// LaneBlockHeader identifies a lane block and its parent and payload hashes.
+type LaneBlockHeader struct {
 	utils.ReadOnly
 	lane        LaneID
-	blockNumber BlockNumber
-	parentHash  BlockHeaderHash
+	height      LaneHeight
+	parentHash  LaneBlockHeaderHash
 	payloadHash PayloadHash
 }
 
 // Lane .
-func (h *BlockHeader) Lane() LaneID { return h.lane }
+func (h *LaneBlockHeader) Lane() LaneID { return h.lane }
 
-// BlockNumber .
-func (h *BlockHeader) BlockNumber() BlockNumber { return h.blockNumber }
+// Height returns the height of the lane block.
+func (h *LaneBlockHeader) Height() LaneHeight { return h.height }
 
 // ParentHash .
-func (h *BlockHeader) ParentHash() BlockHeaderHash { return h.parentHash }
+func (h *LaneBlockHeader) ParentHash() LaneBlockHeaderHash { return h.parentHash }
 
 // PayloadHash .
-func (h *BlockHeader) PayloadHash() PayloadHash { return h.payloadHash }
+func (h *LaneBlockHeader) PayloadHash() PayloadHash { return h.payloadHash }
 
-// Next return the block number of the next header.
-func (h *BlockHeader) Next() BlockNumber { return h.blockNumber + 1 }
+// Next returns the height of the next lane block.
+func (h *LaneBlockHeader) Next() LaneHeight { return h.height + 1 }
 
-// Verify verifies the BlockHeader against the committee.
-func (h *BlockHeader) Verify(c *Committee) error {
+// Verify verifies the LaneBlockHeader against the committee.
+func (h *LaneBlockHeader) Verify(c *Committee) error {
 	if !c.HasLane(h.lane) {
 		return fmt.Errorf("%q is not a lane", h.lane)
 	}
@@ -124,45 +124,45 @@ func (h *BlockHeader) Verify(c *Committee) error {
 const standardTxBytes uint64 = 1024
 
 // Maximum number of transactions in a block.
-const MaxTxsPerBlock uint64 = 2000
+const MaxTxsPerLaneBlock uint64 = 2000
 
 // Maximum total size of all the transactions.
 // It can be split arbitrarily across transactions (1 large, 2000 small ones, etc.)
-// up to MaxTxsPerBlock limit.
-const MaxTxsBytesPerBlock = MaxTxsPerBlock * standardTxBytes
+// up to MaxTxsPerLaneBlock limit.
+const MaxTxsBytesPerLaneBlock = MaxTxsPerLaneBlock * standardTxBytes
 
 // Upper bound on the block proto encoding.
-var MaxBlockProtoSize = func() uint64 {
-	// Payload.Txs represents the variable part of the Block size.
+var MaxLaneBlockProtoSize = func() uint64 {
+	// Payload.Txs represents the variable part of the LaneBlock size.
 	// Proto size is maximized if we distribute data evenly across transactions.
 	tx := make([]byte, standardTxBytes)
-	txs := make([][]byte, MaxTxsPerBlock)
+	txs := make([][]byte, MaxTxsPerLaneBlock)
 	for i := range txs {
 		txs[i] = tx
 	}
 	// Crude estimate of all other fields.
 	const otherFields = 100 * 1024
-	return otherFields + uint64(protoutils.Size(&pb.Block{Payload: &pb.Payload{Txs: txs}}))
+	return otherFields + uint64(protoutils.Size(&pb.LaneBlock{Payload: &pb.Payload{Txs: txs}}))
 }()
 
-// Block .
-type Block struct {
+// LaneBlock contains a lane block header and payload.
+type LaneBlock struct {
 	utils.ReadOnly
-	header  *BlockHeader
+	header  *LaneBlockHeader
 	payload *Payload
 }
 
-// NewBlock creates a new Block.
-func NewBlock(
+// NewLaneBlock creates a new LaneBlock.
+func NewLaneBlock(
 	lane LaneID,
-	blockNumber BlockNumber,
-	parentHash BlockHeaderHash,
+	height LaneHeight,
+	parentHash LaneBlockHeaderHash,
 	payload *Payload,
-) *Block {
-	return &Block{
-		header: &BlockHeader{
+) *LaneBlock {
+	return &LaneBlock{
+		header: &LaneBlockHeader{
 			lane:        lane,
-			blockNumber: blockNumber,
+			height:      height,
 			parentHash:  parentHash,
 			payloadHash: payload.Hash(),
 		},
@@ -171,22 +171,22 @@ func NewBlock(
 }
 
 // Header .
-func (b *Block) Header() *BlockHeader { return b.header }
+func (b *LaneBlock) Header() *LaneBlockHeader { return b.header }
 
 // Payload .
-func (b *Block) Payload() *Payload { return b.payload }
+func (b *LaneBlock) Payload() *Payload { return b.payload }
 
 // Verify checks the block's internal integrity.
-func (b *Block) Verify() error {
+func (b *LaneBlock) Verify() error {
 	if got, want := b.payload.Hash(), b.header.payloadHash; got != want {
 		return fmt.Errorf("payload.Hash() = %v, want %v", got, want)
 	}
 	return nil
 }
 
-// Hash of the BlockHeader.
-func (h *BlockHeader) Hash() BlockHeaderHash {
-	return BlockHeaderHash(hashable.ToHash(BlockHeaderConv.Encode(h)))
+// Hash of the LaneBlockHeader.
+func (h *LaneBlockHeader) Hash() LaneBlockHeaderHash {
+	return LaneBlockHeaderHash(hashable.ToHash(LaneBlockHeaderConv.Encode(h)))
 }
 
 // PayloadHash is the hash of a Payload.
@@ -214,14 +214,14 @@ type Payload struct {
 
 // Build builds the Payload.
 func (b PayloadBuilder) Build() (*Payload, error) {
-	if uint64(len(b.Txs)) > MaxTxsPerBlock {
+	if uint64(len(b.Txs)) > MaxTxsPerLaneBlock {
 		return nil, fmt.Errorf("too many transactions")
 	}
 	total := uint64(0)
 	for _, tx := range b.Txs {
 		total += uint64(len(tx))
 	}
-	if total > MaxTxsBytesPerBlock {
+	if total > MaxTxsBytesPerLaneBlock {
 		return nil, fmt.Errorf("total txs bytes too large")
 	}
 	return &Payload{p: b}, nil
@@ -247,22 +247,22 @@ func (p *Payload) Hash() PayloadHash {
 	return PayloadHash(hashable.ToHash(PayloadConv.Encode(p)))
 }
 
-// BlockHeaderConv is a protobuf converter for BlockHeader.
-var BlockHeaderConv = protoutils.Conv[*BlockHeader, *pb.BlockHeader]{
-	Encode: func(h *BlockHeader) *pb.BlockHeader {
-		return &pb.BlockHeader{
+// LaneBlockHeaderConv is a protobuf converter for LaneBlockHeader.
+var LaneBlockHeaderConv = protoutils.Conv[*LaneBlockHeader, *pb.LaneBlockHeader]{
+	Encode: func(h *LaneBlockHeader) *pb.LaneBlockHeader {
+		return &pb.LaneBlockHeader{
 			LaneId:      LaneIDConv.Encode(h.lane),
-			BlockNumber: new(uint64(h.blockNumber)),
+			Height:      new(uint64(h.height)),
 			ParentHash:  h.parentHash[:],
 			PayloadHash: h.payloadHash[:],
 		}
 	},
-	Decode: func(h *pb.BlockHeader) (*BlockHeader, error) {
+	Decode: func(h *pb.LaneBlockHeader) (*LaneBlockHeader, error) {
 		payloadHash, err := hashable.ParseHash[*pb.Payload](h.PayloadHash)
 		if err != nil {
 			return nil, fmt.Errorf("PayloadHash: %w", err)
 		}
-		parentHash, err := hashable.ParseHash[*pb.BlockHeader](h.ParentHash)
+		parentHash, err := hashable.ParseHash[*pb.LaneBlockHeader](h.ParentHash)
 		if err != nil {
 			return nil, fmt.Errorf("ParentHash: %w", err)
 		}
@@ -270,13 +270,13 @@ var BlockHeaderConv = protoutils.Conv[*BlockHeader, *pb.BlockHeader]{
 		if err != nil {
 			return nil, fmt.Errorf("lane: %w", err)
 		}
-		if h.BlockNumber == nil {
-			return nil, fmt.Errorf("BlockNumber: missing")
+		if h.Height == nil {
+			return nil, fmt.Errorf("height: missing")
 		}
-		return &BlockHeader{
+		return &LaneBlockHeader{
 			lane:        lane,
-			blockNumber: BlockNumber(*h.BlockNumber),
-			parentHash:  BlockHeaderHash(parentHash),
+			height:      LaneHeight(*h.Height),
+			parentHash:  LaneBlockHeaderHash(parentHash),
 			payloadHash: PayloadHash(payloadHash),
 		}, nil
 	},
@@ -312,16 +312,16 @@ var PayloadConv = protoutils.Conv[*Payload, *pb.Payload]{
 	},
 }
 
-// BlockConv is a protobuf converter for Block.
-var BlockConv = protoutils.Conv[*Block, *pb.Block]{
-	Encode: func(b *Block) *pb.Block {
-		return &pb.Block{
-			Header:  BlockHeaderConv.Encode(b.header),
+// LaneBlockConv is a protobuf converter for LaneBlock.
+var LaneBlockConv = protoutils.Conv[*LaneBlock, *pb.LaneBlock]{
+	Encode: func(b *LaneBlock) *pb.LaneBlock {
+		return &pb.LaneBlock{
+			Header:  LaneBlockHeaderConv.Encode(b.header),
 			Payload: PayloadConv.Encode(b.payload),
 		}
 	},
-	Decode: func(b *pb.Block) (*Block, error) {
-		header, err := BlockHeaderConv.DecodeReq(b.Header)
+	Decode: func(b *pb.LaneBlock) (*LaneBlock, error) {
+		header, err := LaneBlockHeaderConv.DecodeReq(b.Header)
 		if err != nil {
 			return nil, err
 		}
@@ -329,19 +329,19 @@ var BlockConv = protoutils.Conv[*Block, *pb.Block]{
 		if err != nil {
 			return nil, err
 		}
-		return &Block{header: header, payload: payload}, nil
+		return &LaneBlock{header: header, payload: payload}, nil
 	},
 }
 
 // LaneBlockPosConv is the protobuf converter for LaneBlockPos.
 var LaneBlockPosConv = protoutils.Conv[LaneBlockPos, *pb.LaneBlockPos]{
 	Encode: func(p LaneBlockPos) *pb.LaneBlockPos {
-		return &pb.LaneBlockPos{Index: new(uint64(p.Index)), Offset: new(p.Offset)}
+		return &pb.LaneBlockPos{Height: new(uint64(p.Height)), Offset: new(p.Offset)}
 	},
 	Decode: func(p *pb.LaneBlockPos) (LaneBlockPos, error) {
-		if p.Index == nil || p.Offset == nil {
+		if p.Height == nil || p.Offset == nil {
 			return LaneBlockPos{}, fmt.Errorf("missing lane block position")
 		}
-		return LaneBlockPos{Index: RoadIndex(*p.Index), Offset: *p.Offset}, nil
+		return LaneBlockPos{Height: RoadHeight(*p.Height), Offset: *p.Offset}, nil
 	},
 }

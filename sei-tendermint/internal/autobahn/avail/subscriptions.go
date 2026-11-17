@@ -12,7 +12,7 @@ import (
 // SubscribeLaneProposals binds lane for this node's validator key.
 // Recv yields proposals only after persistence and returns ErrLaneClosed after
 // that lane's maps are dropped.
-func (s *State) SubscribeLaneProposals(lane types.LaneID, first types.BlockNumber) *LaneProposalsRecv {
+func (s *State) SubscribeLaneProposals(lane types.LaneID, first types.LaneHeight) *LaneProposalsRecv {
 	if lane.Validator != s.key.Public() {
 		panic(fmt.Sprintf("SubscribeLaneProposals: lane validator %v != local %v", lane.Validator, s.key.Public()))
 	}
@@ -22,7 +22,7 @@ func (s *State) SubscribeLaneProposals(lane types.LaneID, first types.BlockNumbe
 type LaneProposalsRecv struct {
 	state *State
 	lane  types.LaneID
-	next  types.BlockNumber
+	next  types.LaneHeight
 }
 
 func (r *LaneProposalsRecv) Recv(ctx context.Context) (*types.Signed[*types.LaneProposal], error) {
@@ -70,16 +70,16 @@ func (s *State) WaitForNextLane(ctx context.Context, pk types.PublicKey, exclude
 }
 
 func (s *State) SubscribeLaneVotes() *LaneVotesRecv {
-	return &LaneVotesRecv{s, map[types.LaneID]types.BlockNumber{}}
+	return &LaneVotesRecv{s, map[types.LaneID]types.LaneHeight{}}
 }
 
 type LaneVotesRecv struct {
 	state *State
-	next  map[types.LaneID]types.BlockNumber
+	next  map[types.LaneID]types.LaneHeight
 }
 
 func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.LaneVote], error) {
-	var batch []*types.BlockHeader
+	var batch []*types.LaneBlockHeader
 	for inner, ctrl := range r.state.inner.Lock() {
 		for {
 			for lane, ls := range inner.lanes {
@@ -109,7 +109,7 @@ func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.L
 
 type AppVotesRecv struct {
 	state *State
-	next  types.RoadIndex
+	next  types.RoadHeight
 }
 
 func (s *State) SubscribeAppVotes() *AppVotesRecv {
@@ -126,7 +126,7 @@ func (r *AppVotesRecv) Recv(ctx context.Context) (*types.Signed[*types.AppVote],
 			}
 			return nil, err
 		}
-		r.next = vote.Proposal().Index() + 1
+		r.next = vote.Proposal().Height() + 1
 		return types.Sign(r.state.key, vote), nil
 	}
 }

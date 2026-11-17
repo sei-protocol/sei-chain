@@ -21,7 +21,7 @@ func TestLaneTipsTrackHeldWithLaneQCAndCommittedBlocks(t *testing.T) {
 	))
 	lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("lane")
 
-	var headers []*types.BlockHeader
+	var headers []*types.LaneBlockHeader
 	for range 3 {
 		p, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
 		require.NoError(t, err)

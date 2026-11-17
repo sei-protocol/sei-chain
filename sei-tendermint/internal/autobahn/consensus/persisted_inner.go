@@ -15,7 +15,7 @@ import (
 // # What We Persist
 //
 // All fields are persisted atomically in a single A/B file pair (inner_a.pb/inner_b.pb):
-//   - Index: current view RoadIndex used to validate the WAL against ConsensusSpec
+//   - Height: current view RoadHeight used to validate the WAL against ConsensusSpec
 //   - PrepareQC: needed for timeoutVote on restart
 //   - TimeoutQC: justified entering the current view number
 //   - CommitVote, PrepareVote, TimeoutVote: this node's votes for the current view
@@ -59,9 +59,9 @@ import (
 //   - TimeoutQC: YES — rebroadcast via myTimeoutQC watch
 //   - CommitQC: NO — used locally for view justification but not rebroadcast.
 //     The tip comes from avail's ConsensusSpec, and avail serves CommitQCs on
-//     StreamCommitQCs. The WAL stores only Index.
+//     StreamCommitQCs. The WAL stores only Height.
 type persistedInner struct {
-	Index     types.RoadIndex
+	Height    types.RoadHeight
 	PrepareQC utils.Option[*types.PrepareQC]
 	TimeoutQC utils.Option[*types.TimeoutQC]
 
@@ -76,13 +76,13 @@ type persistedInner struct {
 // PrepareVote, and TimeoutVote must be this node's.
 func (p *persistedInner) Verify(spec types.ConsensusSpec, self types.PublicKey) error {
 	ep := spec.Epoch
-	// TimeoutQC index must equal ConsensusSpec.Index().
+	// TimeoutQC index must equal ConsensusSpec.Height().
 	// Since we persist the entire inner state atomically, a mismatched index is always corrupt.
 	if tqc, ok := p.TimeoutQC.Get(); ok {
-		tqcIndex := tqc.View().Index
-		expectedIndex := spec.Index()
-		if tqcIndex != expectedIndex {
-			return fmt.Errorf("corrupt persisted state: TimeoutQC has index %d but expected %d", tqcIndex, expectedIndex)
+		tqcHeight := tqc.View().Height
+		expectedHeight := spec.Height()
+		if tqcHeight != expectedHeight {
+			return fmt.Errorf("corrupt persisted state: TimeoutQC has index %d but expected %d", tqcHeight, expectedHeight)
 		}
 		if err := tqc.Verify(ep, spec.CommitQC); err != nil {
 			return fmt.Errorf("corrupt persisted state: TimeoutQC failed verification: %w", err)
@@ -148,9 +148,9 @@ func verifyLocalTimeoutVote(self types.PublicKey, v *types.FullTimeoutVote, ep *
 var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 	Encode: func(m *persistedInner) *pb.PersistedInner {
 		p := &pb.PersistedInner{}
-		if m.Index != 0 {
-			v := uint64(m.Index)
-			p.Index = &v
+		if m.Height != 0 {
+			v := uint64(m.Height)
+			p.Height = &v
 		}
 		if v, ok := m.PrepareQC.Get(); ok {
 			p.PrepareQc = types.PrepareQCConv.Encode(v)
@@ -171,8 +171,8 @@ var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 	},
 	Decode: func(p *pb.PersistedInner) (*persistedInner, error) {
 		m := &persistedInner{}
-		if p.Index != nil {
-			m.Index = types.RoadIndex(*p.Index)
+		if p.Height != nil {
+			m.Height = types.RoadHeight(*p.Height)
 		}
 		if p.PrepareQc != nil {
 			v, err := types.PrepareQCConv.Decode(p.PrepareQc)

@@ -40,7 +40,7 @@ func New(cfg *Config) *Executor {
 	return &Executor{
 		cfg: cfg,
 		executed: utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{
-			Number: utils.Clamp[atypes.RoadIndex](cfg.App.LastBlockHeight()),
+			Height: utils.Clamp[atypes.RoadHeight](cfg.App.LastBlockHeight()),
 		})),
 	}
 }
@@ -73,10 +73,10 @@ func (e *Executor) Run(ctx context.Context) error {
 // initApp brings the app to a state execution can extend: InitChain on a fresh
 // app, or the committed tip's header on restart. It returns the first road to
 // execute.
-func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
+func (e *Executor) initApp(ctx context.Context) (atypes.RoadHeight, error) {
 	app := e.cfg.App
 	info := app.Info()
-	last, ok := utils.SafeCast[atypes.RoadIndex](info.LastBlockHeight)
+	last, ok := utils.SafeCast[atypes.RoadHeight](info.LastBlockHeight)
 	if !ok {
 		return 0, fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
 	}
@@ -100,7 +100,7 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 		}); err != nil {
 			return 0, fmt.Errorf("App.InitChain(): %w", err)
 		}
-		next, ok := utils.SafeCast[atypes.RoadIndex](e.cfg.GenDoc.InitialHeight)
+		next, ok := utils.SafeCast[atypes.RoadHeight](e.cfg.GenDoc.InitialHeight)
 		if !ok {
 			return 0, fmt.Errorf("invalid GenDoc.InitialHeight = %v", e.cfg.GenDoc.InitialHeight)
 		}
@@ -169,7 +169,7 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
 	metrics.GasUsed.Add(gasUsed)
 	e.executed.Store(e.executed.Load().Push(atypes.ExecutedBlock{
-		Number:  b.Height,
+		Height:  b.Height,
 		GasUsed: utils.Clamp[uint64](gasUsed),
 	}))
 	gigametrics.EndStoragePhase()

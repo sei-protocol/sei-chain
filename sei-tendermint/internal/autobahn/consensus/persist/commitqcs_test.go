@@ -22,9 +22,9 @@ func genTestCommittee(rng utils.Rng, size int) (*types.Committee, []types.Secret
 // liveCommitQCs drops QCs the prune anchor has moved past, mirroring the filter loadPersistedState
 // applies in the avail package. Pruning reclaims whole WAL files, so a pruned QC can still be on disk
 // when the persister reloads; only what the anchor considers live is asserted on here.
-func liveCommitQCs(loaded []*types.CommitQC, first types.RoadIndex) []*types.CommitQC {
+func liveCommitQCs(loaded []*types.CommitQC, first types.RoadHeight) []*types.CommitQC {
 	for i, lqc := range loaded {
-		if lqc.Index() >= first {
+		if lqc.Height() >= first {
 			return loaded[i:]
 		}
 	}
@@ -58,7 +58,7 @@ func TestNewCommitQCPersisterEmptyDir(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, cp)
 	require.Equal(t, 0, len(loaded))
-	require.Equal(t, types.RoadIndex(0), cp.Next())
+	require.Equal(t, types.RoadHeight(0), cp.Next())
 
 	fi, err := os.Stat(filepath.Join(dir, commitqcsDir))
 	require.NoError(t, err)
@@ -77,7 +77,7 @@ func TestPersistCommitQCAndLoad(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, cp.PruneAndPersist(0, qcs))
-	require.Equal(t, types.RoadIndex(3), cp.Next())
+	require.Equal(t, types.RoadHeight(3), cp.Next())
 	require.NoError(t, cp.Close())
 
 	cp2, loaded, err := NewCommitQCPersister(utils.Some(dir))
@@ -85,10 +85,10 @@ func TestPersistCommitQCAndLoad(t *testing.T) {
 	require.NotNil(t, cp2)
 	require.Equal(t, 3, len(loaded))
 	for i, lqc := range loaded {
-		require.Equal(t, types.RoadIndex(i), lqc.Index())
+		require.Equal(t, types.RoadHeight(i), lqc.Height())
 		require.NoError(t, utils.TestDiff(qcs[i], lqc))
 	}
-	require.Equal(t, types.RoadIndex(3), cp2.Next())
+	require.Equal(t, types.RoadHeight(3), cp2.Next())
 	require.NoError(t, cp2.Close())
 }
 
@@ -102,15 +102,15 @@ func TestCommitQCDeleteBeforeRemovesOldKeepsNew(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, cp.PruneAndPersist(0, qcs))
 
-	require.NoError(t, cp.PruneAndPersist(qcs[3].Index(), nil))
+	require.NoError(t, cp.PruneAndPersist(qcs[3].Height(), nil))
 	require.NoError(t, cp.Close())
 
 	_, loaded, err := NewCommitQCPersister(utils.Some(dir))
 	require.NoError(t, err)
 	live := liveCommitQCs(loaded, 3)
 	require.Equal(t, 2, len(live), "should have indices 3 and 4")
-	require.Equal(t, types.RoadIndex(3), live[0].Index())
-	require.Equal(t, types.RoadIndex(4), live[1].Index())
+	require.Equal(t, types.RoadHeight(3), live[0].Height())
+	require.Equal(t, types.RoadHeight(4), live[1].Height())
 }
 
 func TestCommitQCDeleteBeforeZero(t *testing.T) {
@@ -125,7 +125,7 @@ func TestCommitQCDeleteBeforeZero(t *testing.T) {
 	require.NoError(t, cp.PruneAndPersist(0, qcs[:2]))
 
 	// deleteBefore with index 0 should leave everything intact.
-	require.NoError(t, cp.PruneAndPersist(qcs[0].Index(), nil))
+	require.NoError(t, cp.PruneAndPersist(qcs[0].Height(), nil))
 	require.NoError(t, cp.Close())
 
 	cp2, loaded, err := NewCommitQCPersister(utils.Some(dir))
@@ -133,7 +133,7 @@ func TestCommitQCDeleteBeforeZero(t *testing.T) {
 	require.Equal(t, 2, len(loaded))
 
 	require.NoError(t, cp2.PruneAndPersist(0, []*types.CommitQC{qcs[2]}))
-	require.Equal(t, types.RoadIndex(3), cp2.Next())
+	require.Equal(t, types.RoadHeight(3), cp2.Next())
 	require.NoError(t, cp2.Close())
 }
 
@@ -150,7 +150,7 @@ func TestCommitQCPersistDuplicateIsNoOp(t *testing.T) {
 	require.NoError(t, cp.PruneAndPersist(0, []*types.CommitQC{qcs[1]}))
 	// Persisting qcs[0] again is a no-op (idx < next).
 	require.NoError(t, cp.PruneAndPersist(0, []*types.CommitQC{qcs[0]}))
-	require.Equal(t, types.RoadIndex(2), cp.Next())
+	require.Equal(t, types.RoadHeight(2), cp.Next())
 	require.NoError(t, cp.Close())
 }
 
@@ -196,7 +196,7 @@ func TestLoadAllDropsCommitQCsBehindGap(t *testing.T) {
 	_, loaded, err := NewCommitQCPersister(utils.Some(dir))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(loaded), "index 0 sits behind the gap and is dropped")
-	require.Equal(t, types.RoadIndex(2), loaded[0].Index())
+	require.Equal(t, types.RoadHeight(2), loaded[0].Height())
 }
 
 func TestNoOpCommitQCPersister(t *testing.T) {
@@ -210,12 +210,12 @@ func TestNoOpCommitQCPersister(t *testing.T) {
 	require.NotNil(t, cp)
 	require.Equal(t, 0, len(loaded))
 	require.NoError(t, cp.PruneAndPersist(0, qcs[:5]))
-	require.Equal(t, types.RoadIndex(5), cp.Next())
+	require.Equal(t, types.RoadHeight(5), cp.Next())
 
 	// Prune with a future index. deleteBefore advances persisted.Next,
 	// so the remaining QCs follow the new bound.
 	require.NoError(t, cp.PruneAndPersist(8, qcs[8:]))
-	require.Equal(t, types.RoadIndex(11), cp.Next())
+	require.Equal(t, types.RoadHeight(11), cp.Next())
 	require.NoError(t, cp.Close())
 }
 
@@ -230,8 +230,8 @@ func TestCommitQCDeleteBeforePastAll(t *testing.T) {
 	require.NoError(t, cp.PruneAndPersist(0, qcs[:3]))
 	// next is 3; deleteBefore at 10 truncates the WAL and advances the
 	// cursor to 10.
-	require.NoError(t, cp.PruneAndPersist(qcs[10].Index(), nil))
-	require.Equal(t, types.RoadIndex(10), cp.Next())
+	require.NoError(t, cp.PruneAndPersist(qcs[10].Height(), nil))
+	require.Equal(t, types.RoadHeight(10), cp.Next())
 
 	// New writes starting from 10 should work.
 	require.NoError(t, cp.PruneAndPersist(0, []*types.CommitQC{qcs[10]}))
@@ -242,8 +242,8 @@ func TestCommitQCDeleteBeforePastAll(t *testing.T) {
 	_, loaded, err := NewCommitQCPersister(utils.Some(dir))
 	require.NoError(t, err)
 	require.Equal(t, 2, len(loaded))
-	require.Equal(t, types.RoadIndex(10), loaded[0].Index())
-	require.Equal(t, types.RoadIndex(11), loaded[1].Index())
+	require.Equal(t, types.RoadHeight(10), loaded[0].Height())
+	require.Equal(t, types.RoadHeight(11), loaded[1].Height())
 }
 
 // TestCommitQCDeleteBeforePastAllCrashRecovery simulates a crash between WAL
@@ -268,19 +268,19 @@ func TestCommitQCDeleteBeforePastAllCrashRecovery(t *testing.T) {
 	cp2, loaded, err := NewCommitQCPersister(utils.Some(dir))
 	require.NoError(t, err)
 	require.Empty(t, loaded)
-	require.Equal(t, types.RoadIndex(0), cp2.Next())
+	require.Equal(t, types.RoadHeight(0), cp2.Next())
 
 	// Persist with anchor at 10 re-establishes the cursor
 	// and appends new QCs.
-	require.NoError(t, cp2.PruneAndPersist(qcs[10].Index(), []*types.CommitQC{qcs[10], qcs[11]}))
-	require.Equal(t, types.RoadIndex(12), cp2.Next())
+	require.NoError(t, cp2.PruneAndPersist(qcs[10].Height(), []*types.CommitQC{qcs[10], qcs[11]}))
+	require.Equal(t, types.RoadHeight(12), cp2.Next())
 	require.NoError(t, cp2.Close())
 
 	_, loaded, err = NewCommitQCPersister(utils.Some(dir))
 	require.NoError(t, err)
 	require.Equal(t, 2, len(loaded))
-	require.Equal(t, types.RoadIndex(10), loaded[0].Index())
-	require.Equal(t, types.RoadIndex(11), loaded[1].Index())
+	require.Equal(t, types.RoadHeight(10), loaded[0].Height())
+	require.Equal(t, types.RoadHeight(11), loaded[1].Height())
 }
 
 // TestCommitQCDeleteBeforeWithAnchorRecovers verifies that after a crash
@@ -299,12 +299,12 @@ func TestCommitQCDeleteBeforeWithAnchorRecovers(t *testing.T) {
 	require.Empty(t, loaded)
 
 	// deleteBefore advances cursor to 4.
-	require.NoError(t, cp.PruneAndPersist(qcs[4].Index(), utils.Slice(qcs[4])))
-	require.Equal(t, types.RoadIndex(5), cp.Next())
+	require.NoError(t, cp.PruneAndPersist(qcs[4].Height(), utils.Slice(qcs[4])))
+	require.Equal(t, types.RoadHeight(5), cp.Next())
 
 	// Continue writing from 5.
 	require.NoError(t, cp.PruneAndPersist(0, utils.Slice(qcs[4]))) // duplicate — no-op
-	require.Equal(t, types.RoadIndex(5), cp.Next())
+	require.Equal(t, types.RoadHeight(5), cp.Next())
 	require.NoError(t, cp.Close())
 
 	// Reopen — anchor QC should be on disk.
@@ -325,7 +325,7 @@ func TestCommitQCDeleteBeforeThenPersistMore(t *testing.T) {
 
 	// Persist 0..4, delete before 3, then persist 5.
 	require.NoError(t, cp.PruneAndPersist(0, qcs[:5]))
-	require.NoError(t, cp.PruneAndPersist(qcs[3].Index(), nil))
+	require.NoError(t, cp.PruneAndPersist(qcs[3].Height(), nil))
 	require.NoError(t, cp.PruneAndPersist(0, []*types.CommitQC{qcs[5]}))
 	require.NoError(t, cp.Close())
 
@@ -333,9 +333,9 @@ func TestCommitQCDeleteBeforeThenPersistMore(t *testing.T) {
 	require.NoError(t, err)
 	live := liveCommitQCs(loaded, 3)
 	require.Equal(t, 3, len(live), "should have indices 3, 4, 5")
-	require.Equal(t, types.RoadIndex(3), live[0].Index())
-	require.Equal(t, types.RoadIndex(4), live[1].Index())
-	require.Equal(t, types.RoadIndex(5), live[2].Index())
+	require.Equal(t, types.RoadHeight(3), live[0].Height())
+	require.Equal(t, types.RoadHeight(4), live[1].Height())
+	require.Equal(t, types.RoadHeight(5), live[2].Height())
 }
 
 func TestCommitQCDeleteBeforeAlreadyPruned(t *testing.T) {
@@ -349,11 +349,11 @@ func TestCommitQCDeleteBeforeAlreadyPruned(t *testing.T) {
 	require.NoError(t, cp.PruneAndPersist(0, qcs))
 
 	// Prune up to index 3.
-	require.NoError(t, cp.PruneAndPersist(qcs[3].Index(), nil))
+	require.NoError(t, cp.PruneAndPersist(qcs[3].Height(), nil))
 
 	// Pruning at or below the current first should be a no-op.
-	require.NoError(t, cp.PruneAndPersist(qcs[2].Index(), nil))
-	require.NoError(t, cp.PruneAndPersist(qcs[3].Index(), nil))
+	require.NoError(t, cp.PruneAndPersist(qcs[2].Height(), nil))
+	require.NoError(t, cp.PruneAndPersist(qcs[3].Height(), nil))
 	require.NoError(t, cp.Close())
 
 	// Verify nothing extra was pruned.
@@ -361,8 +361,8 @@ func TestCommitQCDeleteBeforeAlreadyPruned(t *testing.T) {
 	require.NoError(t, err)
 	live := liveCommitQCs(loaded, 3)
 	require.Equal(t, 2, len(live), "should still have indices 3 and 4")
-	require.Equal(t, types.RoadIndex(3), live[0].Index())
-	require.Equal(t, types.RoadIndex(4), live[1].Index())
+	require.Equal(t, types.RoadHeight(3), live[0].Height())
+	require.Equal(t, types.RoadHeight(4), live[1].Height())
 }
 
 func TestCommitQCProgressiveDeleteBefore(t *testing.T) {
@@ -376,11 +376,11 @@ func TestCommitQCProgressiveDeleteBefore(t *testing.T) {
 	require.NoError(t, cp.PruneAndPersist(0, qcs))
 
 	// First prune: remove 0, 1.
-	require.NoError(t, cp.PruneAndPersist(qcs[2].Index(), nil))
-	require.Equal(t, types.RoadIndex(8), cp.Next())
+	require.NoError(t, cp.PruneAndPersist(qcs[2].Height(), nil))
+	require.Equal(t, types.RoadHeight(8), cp.Next())
 
 	// Second prune: remove 2, 3, 4.
-	require.NoError(t, cp.PruneAndPersist(qcs[5].Index(), nil))
+	require.NoError(t, cp.PruneAndPersist(qcs[5].Height(), nil))
 	require.NoError(t, cp.Close())
 
 	// Verify indices 5, 6, 7 survive.
@@ -388,7 +388,7 @@ func TestCommitQCProgressiveDeleteBefore(t *testing.T) {
 	require.NoError(t, err)
 	live := liveCommitQCs(loaded, 5)
 	require.Equal(t, 3, len(live))
-	require.Equal(t, types.RoadIndex(5), live[0].Index())
-	require.Equal(t, types.RoadIndex(6), live[1].Index())
-	require.Equal(t, types.RoadIndex(7), live[2].Index())
+	require.Equal(t, types.RoadHeight(5), live[0].Height())
+	require.Equal(t, types.RoadHeight(6), live[1].Height())
+	require.Equal(t, types.RoadHeight(7), live[2].Height())
 }
