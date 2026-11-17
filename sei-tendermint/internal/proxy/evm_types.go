@@ -47,6 +47,9 @@ type Header struct {
 	Height          int64
 	Time            time.Time
 	ProposerAddress []byte
+	// LastBlockHash is the hash of the block before this one. It is empty for the chain's first
+	// block and when that block is no longer stored.
+	LastBlockHash []byte
 }
 
 // RequestCheckTxV2 is a transaction submitted for admission.

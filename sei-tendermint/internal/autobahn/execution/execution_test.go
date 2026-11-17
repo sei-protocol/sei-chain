@@ -219,6 +219,8 @@ func TestInitAppRestoresTheTipHeaderFromTheBlockStore(t *testing.T) {
 		require.Equal(t, int64(tip), header.Height)
 		require.Equal(t, testChainID, header.ChainID)
 		require.True(t, env.blocks[1].Header().Timestamp().Equal(header.Time))
+		parent := env.blocks[0].Header().Hash()
+		require.Equal(t, parent[:], header.LastBlockHash)
 	}
 }
 
@@ -292,6 +294,12 @@ func TestRunReportsEachBlockHashBeforeExecutingIt(t *testing.T) {
 		require.True(t, want.Timestamp.Equal(req.Header.Time))
 		require.Equal(t, want.Hash[:], req.Hash)
 		require.Equal(t, len(want.Txs), len(req.Txs))
+		if i == 0 {
+			require.Empty(t, req.Header.LastBlockHash, "the chain's first block has no parent")
+		} else {
+			parent := env.blocks[i-1].Header().Hash()
+			require.Equal(t, parent[:], req.Header.LastBlockHash)
+		}
 	}
 }
 
@@ -322,6 +330,9 @@ func TestRunReplaysStoredBlocksAfterRestart(t *testing.T) {
 	require.Equal(t, 2, len(finalized))
 	require.Equal(t, int64(env.road(1)), finalized[0].Header.Height)
 	require.Equal(t, int64(env.road(2)), finalized[1].Header.Height)
+	// The first block after a restart takes its parent from the BlockStore.
+	parent := env.blocks[0].Header().Hash()
+	require.Equal(t, parent[:], finalized[0].Header.LastBlockHash)
 }
 
 func gasUsedTotal(t *testing.T) float64 {

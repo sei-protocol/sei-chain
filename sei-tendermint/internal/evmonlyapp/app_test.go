@@ -629,10 +629,10 @@ func TestEVMOnlyApplicationForgetsARememberedSender(t *testing.T) {
 	require.Equal(t, utils.None[common.Address](), app.checkedSender(hash))
 }
 
-// The cursor does not carry the block time, so a resumed app would answer
-// EvmCall with TIMESTAMP 0 until the next Commit. The router seeds it through
-// InitLastHeader on its restart path.
-func TestEVMOnlyApplicationInitLastHeaderSeedsBlockTime(t *testing.T) {
+// The cursor carries neither the block time nor its parent hash, so a resumed app would answer
+// EvmCall with TIMESTAMP 0 and a zero BLOCKHASH until the next Commit. The executor seeds both
+// through InitLastHeader on its restart path.
+func TestEVMOnlyApplicationInitLastHeaderSeedsBlockTimeAndParentHash(t *testing.T) {
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	const blocks = 3
@@ -650,8 +650,12 @@ func TestEVMOnlyApplicationInitLastHeaderSeedsBlockTime(t *testing.T) {
 	require.NoError(t, err)
 	var last *proxy.RequestFinalizeBlock
 	for height := range int64(blocks) {
-		last = evmOnlyTestBlock(height+1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, uint64(height))) //nolint:gosec // G115: test heights are positive.
-		finalizeAndCommitEVMOnlyTestBlock(t, app, last)
+		next := evmOnlyTestBlock(height+1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, uint64(height))) //nolint:gosec // G115: test heights are positive.
+		if last != nil {
+			next.Header.LastBlockHash = last.Hash
+		}
+		finalizeAndCommitEVMOnlyTestBlock(t, app, next)
+		last = next
 	}
 
 	app, storage = reopenEVMOnlyTestApp(t, app, storage, home)
@@ -661,10 +665,13 @@ func TestEVMOnlyApplicationInitLastHeaderSeedsBlockTime(t *testing.T) {
 	require.True(t, ok)
 	for state := range resumed.cursor.Lock() {
 		require.Zero(t, state.lastBlockTime, "a resumed app has no block time before InitLastHeader")
+		require.Zero(t, state.lastParentHash, "a resumed app has no parent hash before InitLastHeader")
 	}
 	resumed.InitLastHeader(last.Header)
 	for state := range resumed.cursor.Lock() {
 		require.Equal(t, uint64(last.Header.Time.Unix()), state.lastBlockTime) //nolint:gosec // G115: test times are positive.
+		require.Equal(t, common.BytesToHash(last.Header.LastBlockHash), state.lastParentHash)
+		require.NotZero(t, state.lastParentHash)
 	}
 }
 

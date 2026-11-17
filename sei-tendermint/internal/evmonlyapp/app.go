@@ -172,6 +172,12 @@ type evmOnlyCursorState struct {
 	// pendingBlockTime is the Time of the block staged in pending; Commit
 	// promotes it to lastBlockTime.
 	pendingBlockTime uint64
+	// lastParentHash is the parent hash the most recently committed block executed with, used by
+	// EvmCall to answer BLOCKHASH for that block's parent.
+	lastParentHash common.Hash
+	// pendingParentHash is the parent hash of the block staged in pending; Commit promotes it to
+	// lastParentHash.
+	pendingParentHash common.Hash
 }
 
 var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
@@ -303,6 +309,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
+		state.pendingParentHash = block.ParentHash
 		changes := append([]gigatypes.MiscChange{next.miscChange(), a.chainIDMiscChange()}, epochChanges...)
 		if alloc, ok := a.alloc.Get(); ok && height == alloc.InitialHeight {
 			changes = append(changes, alloc.miscChange())
@@ -383,15 +390,17 @@ func (a *evmOnlyApplication) Info() *proxy.ResponseInfo {
 	panic("unreachable")
 }
 
-// InitLastHeader seeds the committed block time on the router's restart path.
-// The cursor carries height, hashes and gas limit but not Time, so without this
-// EvmCall would answer with TIMESTAMP 0 until the next Commit.
+// InitLastHeader seeds the committed block's time and parent hash, which the stored cursor does
+// not carry, on the restart path.
 func (a *evmOnlyApplication) InitLastHeader(lastHeader *proxy.Header) {
-	if lastHeader == nil || lastHeader.Time.Unix() < 0 {
+	if lastHeader == nil {
 		return
 	}
 	for state := range a.cursor.Lock() {
-		state.lastBlockTime = uint64(lastHeader.Time.Unix()) // nolint:gosec // guarded non-negative above
+		state.lastParentHash = common.BytesToHash(lastHeader.LastBlockHash)
+		if blockTime, ok := utils.SafeCast[uint64](lastHeader.Time.Unix()); ok {
+			state.lastBlockTime = blockTime
+		}
 	}
 }
 
@@ -838,8 +847,7 @@ func (a *evmOnlyApplication) committedBlockContext(action string) (evmonly.Block
 		if !ok {
 			return evmonly.BlockContext{}, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committed.height)
 		}
-		// ParentHash is left zero.
-		return a.blockContext(number, state.lastBlockTime, state.committed.gasLimit, common.Hash{}, state.committed.blockHash), nil
+		return a.blockContext(number, state.lastBlockTime, state.committed.gasLimit, state.lastParentHash, state.committed.blockHash), nil
 	}
 	panic("unreachable")
 }
@@ -1121,6 +1129,7 @@ func (a *evmOnlyApplication) Commit(context.Context) (*proxy.ResponseCommit, err
 		}
 		state.committed = pending
 		state.lastBlockTime = state.pendingBlockTime
+		state.lastParentHash = state.pendingParentHash
 		state.pending = utils.None[evmOnlyCursor]()
 		return &proxy.ResponseCommit{}, nil
 	}
