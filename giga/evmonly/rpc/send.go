@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 
 	"golang.org/x/sync/semaphore"
 
@@ -36,6 +37,9 @@ func newSendAPI(backend Backend, maxConcurrentSendCalls int) *sendAPI {
 	}
 }
 
+// errUnprotectedTx rejects a transaction that is not replay-protected (EIP-155).
+var errUnprotectedTx = errors.New("only replay-protected (EIP-155) transactions allowed over RPC")
+
 // SendRawTransaction submits a signed raw Ethereum transaction to Autobahn and
 // returns its Ethereum transaction hash.
 func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (common.Hash, error) {
@@ -46,6 +50,9 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 	tx := new(ethtypes.Transaction)
 	if err := tx.UnmarshalBinary(input); err != nil {
 		return common.Hash{}, err
+	}
+	if !tx.Protected() {
+		return common.Hash{}, errUnprotectedTx
 	}
 	hash := tx.Hash()
 
@@ -93,7 +100,8 @@ func (api *sendAPI) shardProxy(tx *ethtypes.Transaction) utils.Option[*ethrpc.Cl
 	if !api.backend.EvmProxyEnabled() {
 		return utils.None[*ethrpc.Client]()
 	}
-	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx)
+	chainID := new(big.Int).SetUint64(api.backend.EvmChainID())
+	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(chainID), tx)
 	if err != nil {
 		return utils.None[*ethrpc.Client]()
 	}
