@@ -45,10 +45,8 @@ func (m *LaneRange) Next() BlockNumber { return m.next }
 // Len returns the number of blocks in the range.
 func (m *LaneRange) Len() uint64 { return uint64(m.next - m.first) }
 
-// LastHash is the certified tip of this range.
-// For a non-empty range it is the hash of block Next()-1.
-// For an empty range it is the previous commit's LastHash for this lane,
-// or zero when the lane has never been extended.
+// LastHash is the hash of the last block of the range.
+// Returns a zero hash for an empty range.
 func (m *LaneRange) LastHash() BlockHeaderHash { return m.lastHash }
 
 // Verify verifies the LaneRange against the committee.
@@ -59,8 +57,8 @@ func (m *LaneRange) Verify(c *Committee) error {
 	if m.first > m.next {
 		return fmt.Errorf("invalid range [%v,%v)", m.first, m.next)
 	}
-	if m.next == 0 && m.lastHash != (BlockHeaderHash{}) {
-		return errors.New("non-zero hash for height 0")
+	if m.first == m.next && m.lastHash != (BlockHeaderHash{}) {
+		return errors.New("non-zero hash for an empty range")
 	}
 	return nil
 }

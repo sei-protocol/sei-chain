@@ -10,35 +10,35 @@ import (
 // full deep copy of the keyspace on every Commit(), so there is no clever versioning to get wrong.
 //
 // Conventions (matching the real manager):
-//   - versions start at 1; Commit() seals the current version, then advances.
+//   - blocks start at 1; Commit() seals the current block, then advances.
 //   - a nil value passed to Set is a delete; tombstones remove the key from the materialized state
-//     and are recorded as a nil value in that version's diff.
+//     and are recorded as a nil value in that block's diff.
 //   - reads return (value, found); a found key always has a non-nil (possibly empty) value.
 type modelManager struct {
-	// current is the materialized state of the live (mutable) version: key -> value. Deleted keys are
+	// current is the materialized state of the live (mutable) block: key -> value. Deleted keys are
 	// absent. Seeded from the backing DB's initial contents.
 	current map[string][]byte
-	// pending is the set of mutations applied to the live version since the last Commit(). A nil
+	// pending is the set of mutations applied to the live block since the last Commit(). A nil
 	// value records a delete.
 	pending map[string][]byte
-	// versions holds sealed views by version number.
-	versions       map[uint64]*modelVersion
-	currentVersion uint64
+	// blocks holds sealed views by block height.
+	versions           map[uint64]*modelBlock
+	currentBlockHeight uint64
 }
 
-type modelVersion struct {
-	// full is a complete deep copy of the materialized state as of this version.
+type modelBlock struct {
+	// full is a complete deep copy of the materialized state as of this block.
 	full map[string][]byte
-	// diff is the set of mutations applied in this version only (nil value == delete).
+	// diff is the set of mutations applied in this block only (nil value == delete).
 	diff map[string][]byte
 }
 
 func newModelManager(seed map[string][]byte) *modelManager {
 	return &modelManager{
-		current:        cloneMap(seed),
-		pending:        make(map[string][]byte),
-		versions:       make(map[uint64]*modelVersion),
-		currentVersion: 1,
+		current:            cloneMap(seed),
+		pending:            make(map[string][]byte),
+		versions:           make(map[uint64]*modelBlock),
+		currentBlockHeight: 1,
 	}
 }
 
@@ -68,37 +68,37 @@ func (m *modelManager) BatchSet(muts []Write) {
 	}
 }
 
-// View seals the current version and advances, returning the sealed version number.
+// View seals the current block and advances, returning the sealed block height.
 func (m *modelManager) Commit() uint64 {
-	v := m.currentVersion
-	m.versions[v] = &modelVersion{
+	v := m.currentBlockHeight
+	m.versions[v] = &modelBlock{
 		full: cloneMap(m.current),
 		diff: m.pending,
 	}
 	m.pending = make(map[string][]byte)
-	m.currentVersion++
+	m.currentBlockHeight++
 	return v
 }
 
-// GetLive returns the value for key in the live (mutable) version.
+// GetLive returns the value for key in the live (mutable) block.
 func (m *modelManager) GetLive(key []byte) ([]byte, bool) {
 	v, ok := m.current[string(key)]
 	return v, ok
 }
 
-// GetAt returns the value for key as of the given sealed version.
-func (m *modelManager) GetAt(version uint64, key []byte) ([]byte, bool) {
-	mv := m.versions[version]
+// GetAt returns the value for key as of the given sealed block.
+func (m *modelManager) GetAt(blockHeight uint64, key []byte) ([]byte, bool) {
+	mv := m.versions[blockHeight]
 	v, ok := mv.full[string(key)]
 	return v, ok
 }
 
-// DiffAt returns the mutations applied in the given sealed version (nil value == delete).
-func (m *modelManager) DiffAt(version uint64) map[string][]byte {
-	return m.versions[version].diff
+// DiffAt returns the mutations applied in the given sealed block (nil value == delete).
+func (m *modelManager) DiffAt(blockHeight uint64) map[string][]byte {
+	return m.versions[blockHeight].diff
 }
 
-// IterateLive returns the ascending, tombstone-free key/value pairs of the live (mutable) version.
+// IterateLive returns the ascending, tombstone-free key/value pairs of the live (mutable) block.
 func (m *modelManager) IterateLive() []kvPair {
 	return sortedEntries(m.current)
 }

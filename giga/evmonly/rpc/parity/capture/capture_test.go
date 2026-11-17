@@ -47,3 +47,18 @@ func TestIsCustomPrecompile(t *testing.T) {
 	require.True(t, isCustomPrecompile(common.HexToAddress("0x00000000000000000000000000000000000010ff")))
 	require.False(t, isCustomPrecompile(common.HexToAddress("0x0000000000000000000000000000000000011001")))
 }
+
+func TestCheckReportedPrevRandao(t *testing.T) {
+	derived := common.Hash{0x01}
+	other := common.Hash{0x02}
+	zero := common.Hash{}
+
+	require.NoError(t, checkReportedPrevRandao(&derived, derived), "a matching mixHash passes")
+	require.NoError(t, checkReportedPrevRandao(nil, derived), "an absent mixHash is not a disagreement")
+	require.NoError(t, checkReportedPrevRandao(&zero, derived), "a zero mixHash means the node does not report PREVRANDAO there")
+
+	err := checkReportedPrevRandao(&other, derived)
+	require.Error(t, err, "a non-zero mixHash that differs from the derived value fails the capture")
+	require.Contains(t, err.Error(), other.Hex())
+	require.Contains(t, err.Error(), derived.Hex())
+}

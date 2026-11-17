@@ -138,7 +138,8 @@ type Config struct {
 	// checkTx timeout for sig verify
 	CheckTxTimeout time.Duration `mapstructure:"checktx_timeout"`
 
-	// max number of txs to pull from mempool
+	// maximum number of mempool txs, Cosmos txs included, that txpool_content reads; it
+	// returns only the EVM txs among them
 	MaxTxPoolTxs uint64 `mapstructure:"max_tx_pool_txs"`
 
 	// controls whether to have txns go through one by one

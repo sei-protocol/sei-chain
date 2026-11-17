@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	testChainID          = 713715
+	testChainID          = 713700
 	testFundedBalanceWei = 200_000_000_000_000
 	testGasPriceWei      = 1_000_000_000
 )

@@ -35,6 +35,7 @@ func newGovEVMOnlyTestApp(t *testing.T, params gov.Params, startingProposalID ui
 		storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.Some(registry),
+		utils.None[GenesisAlloc](),
 		utils.None[string](),
 	)
 	require.NoError(t, err)

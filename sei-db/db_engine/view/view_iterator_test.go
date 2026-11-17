@@ -14,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// iterateUserData collects the full iteration of the manager's mutable version, which the manager
+// iterateUserData collects the full iteration of the manager's mutable block, which the manager
 // guarantees is exactly the user data — the metadata hash key is filtered internally. Returns the
 // pairs in iteration order.
 func iterateUserData(t *testing.T, manager ViewManager) []kvPair {
@@ -84,7 +84,7 @@ func TestIteratorMergesAcrossShards(t *testing.T) {
 
 // The reserved metadata keyspace is manager-internal and must never appear in iteration, even once a
 // flush has written it to the underlying DB. (The DB-side values belong to the most recently flushed
-// version and are generally stale relative to this view; exposing them would pair data-at-V with
+// block and are generally stale relative to this view; exposing them would pair data-at-V with
 // metadata-at-W.) The whole prefix is filtered, not just one key.
 func TestIteratorExcludesReservedPrefix(t *testing.T) {
 	db := newTestDB(nil)
@@ -92,15 +92,15 @@ func TestIteratorExcludesReservedPrefix(t *testing.T) {
 	reservedPrefix := manager.(*viewManager).config.ReservedPrefix
 
 	// Flush view1 so several reserved-prefix keys land in the DB.
-	metaKeys := []string{"_meta/hash", "_meta/version", "_meta/x:evm/hash"}
+	metaKeys := []string{"_meta/hash", "_meta/block", "_meta/x:evm/hash"}
 	writes := make([]*proto.KVPair, 0, len(metaKeys))
 	for _, key := range metaKeys {
 		writes = append(writes, &proto.KVPair{Key: []byte(key), Value: []byte("meta")})
 	}
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
-	view1, err := manager.Commit()
+	view1, err := manager.Commit(manager.NextBlockHeight())
 	require.NoError(t, err)
-	require.NoError(t, view1.Finalize(writes))
+	require.NoError(t, view1.Finalize(view1.BlockHeight(), writes))
 	awaitFlushed(t, view1, time.Second)
 	require.NoError(t, view1.Release())
 	for _, key := range metaKeys {
