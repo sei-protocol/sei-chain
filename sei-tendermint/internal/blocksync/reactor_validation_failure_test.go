@@ -213,9 +213,8 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 			invalidCommitID, syncID := nodeIDs[0], nodeIDs[1]
 			syncNode := network.Node(syncID)
 
-			invalidCommitStore, correctStore := newMemBlockStore(), newMemBlockStore()
-			invalidCommitReactor, _ := makeReactor(ctx, t, genDoc, network.Node(invalidCommitID).Router, invalidCommitStore, false, func() {}, config.DefaultSelfRemediationConfig())
-			syncReactor, syncBus := makeReactor(ctx, t, genDoc, syncNode.Router, newMemBlockStore(), true, func() {}, config.DefaultSelfRemediationConfig())
+			invalidCommitReactor, _ := makeReactor(ctx, t, genDoc, network.Node(invalidCommitID).Router, false, func() {}, config.DefaultSelfRemediationConfig())
+			syncReactor, syncBus := makeReactor(ctx, t, genDoc, syncNode.Router, true, func() {}, config.DefaultSelfRemediationConfig())
 
 			// Connect the invalid-commit node and the syncing node.
 			network.Start(t)
@@ -223,7 +222,7 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 
 			// The correct node is not connected to anyone yet.
 			correctNode := network.MakeNode(t, p2p.TestNodeOptions{})
-			correctReactor, _ := makeReactor(ctx, t, genDoc, correctNode.Router, correctStore, false, func() {}, config.DefaultSelfRemediationConfig())
+			correctReactor, _ := makeReactor(ctx, t, genDoc, correctNode.Router, false, func() {}, config.DefaultSelfRemediationConfig())
 
 			// The correct node applies and stores correct blocks 1 to 4.
 			correctExec := correctReactor.syncer.OrPanic("syncer should be configured in tests").blockExec
@@ -235,7 +234,7 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 				b := makeCommittedBlock(ctx, t, state, privVals, height, lastCommit)
 				state, err = correctExec.ApplyBlock(ctx, state, b.id, b.block, nil)
 				require.NoError(t, err)
-				correctStore.SaveBlock(b.block, b.parts, b.commit)
+				correctReactor.store.SaveBlock(b.block, b.parts, b.commit)
 				correct = append(correct, b)
 				lastCommit = b.commit
 			}
@@ -244,14 +243,16 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 			// whose commit for block 3 is invalid.
 			require.NoError(t, invalidCommitReactor.stateStore.Save(state))
 			for _, b := range correct[:3] {
-				invalidCommitStore.SaveBlock(b.block, b.parts, b.commit)
+				invalidCommitReactor.store.SaveBlock(b.block, b.parts, b.commit)
 			}
 			invalidCommitBlock4 := withInvalidLastSignature(t, correct[3].block, tc.flag)
 			invalidCommitParts4, err := invalidCommitBlock4.MakePartSet(types.BlockPartSizeBytes)
 			require.NoError(t, err)
-			invalidCommitStore.SaveBlock(invalidCommitBlock4, invalidCommitParts4, correct[3].commit)
+			invalidCommitReactor.store.SaveBlock(invalidCommitBlock4, invalidCommitParts4, correct[3].commit)
 
-			// Subscribe to the blocks that the syncing node applies.
+			// Subscribe to the blocks that the syncing node applies, before the reactors start, so that no
+			// event is missed. The limit leaves room for blocks 1 to 3, the most the syncing node can apply in
+			// this test.
 			newBlocks, err := syncBus.SubscribeWithArgs(ctx, tmpubsub.SubscribeArgs{ClientID: "test", Query: types.EventQueryNewBlock, Limit: 3})
 			require.NoError(t, err)
 
@@ -261,8 +262,15 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 				t.Cleanup(r.Wait)
 			}
 
-			// The syncing node saves blocks 1 and 2, rejects block 3, and closes its connection to the
-			// invalid-commit node. Its store then ends at block 2, with the correct seen commit of block 2.
+			// Check that the syncing node applies blocks 1 and 2, in this order.
+			for _, height := range []int64{1, 2} {
+				msg, err := newBlocks.Next(ctx)
+				require.NoError(t, err)
+				require.Equal(t, height, msg.Data().(types.EventDataNewBlock).Block.Height)
+			}
+
+			// The syncing node rejects block 3 and closes its connection to the invalid-commit node. Its store
+			// then ends at block 2, with the correct seen commit of block 2.
 			syncNode.WaitForDisconnect(ctx, invalidCommitConn)
 			require.Equal(t, int64(2), syncReactor.store.Height())
 			require.NoError(t, utils.TestDiff(correct[1].block.Hash(), syncReactor.store.LoadBlock(2).Hash()))
@@ -272,14 +280,12 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 			invalidCommitReactor.Stop()
 			network.Remove(t, invalidCommitID)
 
-			// The correct node connects, and the syncing node saves block 3 with its correct seen commit.
-			// The syncing node applies blocks 1, 2 and 3, in this order.
+			// Connect the correct node. Check that the syncing node then saves and applies block 3, with its
+			// correct seen commit.
 			require.NoError(t, correctNode.Connect(ctx, syncNode))
-			for _, height := range []int64{1, 2, 3} {
-				msg, err := newBlocks.Next(ctx)
-				require.NoError(t, err)
-				require.Equal(t, height, msg.Data().(types.EventDataNewBlock).Block.Height)
-			}
+			msg, err := newBlocks.Next(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(3), msg.Data().(types.EventDataNewBlock).Block.Height)
 			require.Equal(t, int64(3), syncReactor.store.Height())
 			require.NoError(t, utils.TestDiff(correct[2].block.Hash(), syncReactor.store.LoadBlock(3).Hash()))
 			require.NoError(t, utils.TestDiff(correct[2].commit.Hash(), syncReactor.store.LoadSeenCommit().Hash()))
