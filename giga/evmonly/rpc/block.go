@@ -170,23 +170,19 @@ func (api *blockAPI) executionHeaderAt(ctx context.Context, height int64) (*etht
 	if block == nil {
 		return nil, fmt.Errorf("%w: %d", errBlockNotFound, height)
 	}
-	return api.executionHeader(ctx, block)
+	return api.executionHeader(block)
 }
 
 // executionHeader returns block's header with the fields its execution context reads.
-func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.ResultBlock) (*ethtypes.Header, error) {
+func (api *blockAPI) executionHeader(block *coretypes.ResultBlock) (*ethtypes.Header, error) {
 	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
 	}
-	parentHash, err := api.parentHash(ctx, block.Block.Height)
-	if err != nil {
-		return nil, err
-	}
 	gasLimit := api.backend.EvmGasLimit()
 	baseFee := api.backend.EvmBaseFee()
 	return &ethtypes.Header{
-		ParentHash: parentHash,
+		ParentHash: common.BytesToHash(block.Block.LastBlockID.Hash),
 		Number:     big.NewInt(block.Block.Height),
 		GasLimit:   gasLimit,
 		Time:       blockUnix,
@@ -194,19 +190,6 @@ func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.Resul
 		// Zero rather than nil, so a dynamic-fee transaction is priced at its tip as it executed.
 		BaseFee: baseFee,
 	}, nil
-}
-
-// parentHash returns the hash of the block before height, which a stored block does not carry. It is
-// zero before the first block.
-func (api *blockAPI) parentHash(ctx context.Context, height int64) (common.Hash, error) {
-	parent, err := api.resolveBlockByNumber(ctx, ethrpc.BlockNumber(height-1))
-	if err != nil {
-		return common.Hash{}, fmt.Errorf("read the parent of block %d: %w", height, err)
-	}
-	if parent == nil {
-		return common.Hash{}, nil
-	}
-	return common.BytesToHash(parent.BlockID.Hash), nil
 }
 
 // encodeBlock renders block as an eth_getBlockBy* response. nonce, mixHash,

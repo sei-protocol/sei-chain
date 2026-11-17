@@ -135,7 +135,7 @@ func (b *traceBackend) ethBlock(ctx context.Context, block *coretypes.ResultBloc
 			return nil, err
 		}
 	}
-	header, err := b.blocks.executionHeader(ctx, block)
+	header, err := b.blocks.executionHeader(block)
 	if err != nil {
 		return nil, err
 	}

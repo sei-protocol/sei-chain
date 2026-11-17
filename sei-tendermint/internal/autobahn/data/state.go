@@ -550,6 +550,28 @@ func (s *State) SuperBlock(ctx context.Context, n types.RoadIndex) (*types.Super
 	return nil, types.ErrPruned
 }
 
+// SuperBlockHash waits for road n to be full and returns the hash of its SuperBlock. Pruned roads
+// return ErrPruned.
+func (s *State) SuperBlockHash(ctx context.Context, n types.RoadIndex) (types.RoadBlockHeaderHash, error) {
+	for inner, ctrl := range s.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextFullBlock }); err != nil {
+			return types.RoadBlockHeaderHash{}, err
+		}
+		if inner.first <= n {
+			return inner.blocks[n].qc.Header().Hash(), nil
+		}
+	}
+	// The QC carries the road header, so the parent's lane blocks are never decoded.
+	opt, err := s.blockStore.ReadQC(n)
+	if err != nil {
+		return types.RoadBlockHeaderHash{}, err
+	}
+	if qc, ok := opt.Get(); ok {
+		return qc.Header().Hash(), nil
+	}
+	return types.RoadBlockHeaderHash{}, types.ErrPruned
+}
+
 func (s *State) blockFromDB(n types.LaneBlockPos) (*types.Block, error) {
 	opt, err := s.blockStore.ReadLaneBlock(n)
 	if err != nil {

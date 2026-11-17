@@ -49,6 +49,9 @@ func secondSignedTransaction(t *testing.T) (*ethtypes.Transaction, []byte) {
 	return tx, raw
 }
 
+// testParentHash is the parent hash test blocks carry in LastBlockID.
+var testParentHash = common.HexToHash("0x1234")
+
 // fixedGasLimitBackend returns a testBackend with a fixed EvmGasLimit and
 // EvmChainConfig, wired with block as its Block lookup.
 func fixedGasLimitBackend(t *testing.T, gasLimit uint64, block func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)) *testBackend {
@@ -155,7 +158,11 @@ func TestGetBlockByHashReturnsTheMatchingBlock(t *testing.T) {
 		gotHash = req.Hash
 		return &coretypes.ResultBlock{
 			BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-			Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 5, Time: time.Unix(1_700_000_000, 0)}},
+			Block: &tmtypes.Block{Header: tmtypes.Header{
+				Height:      5,
+				Time:        time.Unix(1_700_000_000, 0),
+				LastBlockID: tmtypes.BlockID{Hash: testParentHash.Bytes()},
+			}},
 		}, nil
 	}
 
@@ -165,6 +172,7 @@ func TestGetBlockByHashReturnsTheMatchingBlock(t *testing.T) {
 	require.NotNil(t, got)
 	require.Equal(t, blockHash.Bytes(), gotHash)
 	require.Equal(t, blockHash, got["hash"])
+	require.Equal(t, testParentHash, got["parentHash"])
 	require.Equal(t, (*hexutil.Big)(big.NewInt(5)), got["number"])
 }
 
@@ -304,12 +312,39 @@ func TestEncodeBlockDocumentedHeaderGaps(t *testing.T) {
 	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
 
 	require.NoError(t, err)
-	require.Equal(t, common.Hash{}, got["parentHash"])
 	require.Equal(t, common.Hash{}, got["stateRoot"])
 	require.Equal(t, common.Hash{}, got["transactionsRoot"])
 	require.Equal(t, common.Hash{}, got["receiptsRoot"])
 	require.Equal(t, common.Address{}, got["miner"])
 	require.Equal(t, ethtypes.Bloom{}, got["logsBloom"])
+}
+
+func TestEncodeBlockParentHash(t *testing.T) {
+	for name, tc := range map[string]struct {
+		lastBlockID common.Hash
+		want        common.Hash
+	}{
+		"stored parent":          {lastBlockID: testParentHash, want: testParentHash},
+		"first or pruned parent": {want: common.Hash{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				return &coretypes.ResultBlock{
+					BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
+					Block: &tmtypes.Block{Header: tmtypes.Header{
+						Height:      4,
+						Time:        time.Unix(1_700_000_000, 0),
+						LastBlockID: tmtypes.BlockID{Hash: tc.lastBlockID.Bytes()},
+					}},
+				}, nil
+			})
+
+			got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got["parentHash"])
+		})
+	}
 }
 
 func TestGetBlockByNumberEndToEnd(t *testing.T) {
