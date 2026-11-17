@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"google.golang.org/protobuf/proto"
 )
 
 // epochLength is the number of road indices per epoch.
@@ -46,27 +47,75 @@ func NewRegistry(
 		if state, err = persistedRegistryConv.DecodeReq(raw); err != nil {
 			return nil, fmt.Errorf("restore epoch snapshot: %w", err)
 		}
-		for idx := state.liveRange.First; idx < state.liveRange.Next; idx++ {
-			epoch := state.live[idx]
-			if got, want := epoch.RoadRange(), r.roadRange(idx); got != want {
-				return nil, fmt.Errorf("restore epoch snapshot: epoch %d roads %v, want %v", idx, got, want)
-			}
-			if state.liveRange.First < idx {
-				if err := checkDerived(state.live[idx-1], epoch); err != nil {
-					return nil, fmt.Errorf("restore epoch snapshot: epoch %d: %w", idx, err)
-				}
-			}
+		if err := r.checkRestored(state, committee); err != nil {
+			return nil, fmt.Errorf("restore epoch snapshot: %w", err)
 		}
-		for idx := range types.EpochIndex(2) {
-			if epoch, ok := state.live[idx]; ok && !epoch.Committee().Equal(committee) {
-				return nil, fmt.Errorf("restore epoch snapshot: epoch %d does not match genesis", idx)
+	}
+	r.publish(state)
+	return r, nil
+}
+
+// NewRegistryFromSnapshot opens a registry whose state is raw, the protobuf encoding of the
+// PersistedEpochRegistry that an app state holds as its epoch_registry value. It checks raw as
+// NewRegistry checks a persisted snapshot. With stateDir set, it persists raw there as the newest
+// snapshot; stateDir None disables persistence.
+func NewRegistryFromSnapshot(
+	committee *types.Committee,
+	firstRoad types.RoadIndex,
+	genesisTimestamp time.Time,
+	raw []byte,
+	stateDir utils.Option[string],
+) (*Registry, error) {
+	var snapshot pb.PersistedEpochRegistry
+	if err := proto.Unmarshal(raw, &snapshot); err != nil {
+		return nil, fmt.Errorf("decode epoch registry: %w", err)
+	}
+	state, err := persistedRegistryConv.DecodeReq(&snapshot)
+	if err != nil {
+		return nil, fmt.Errorf("decode epoch registry: %w", err)
+	}
+	r := &Registry{firstRoad: firstRoad, genesisTimestamp: genesisTimestamp}
+	if err := r.checkRestored(state, committee); err != nil {
+		return nil, fmt.Errorf("epoch registry: %w", err)
+	}
+	if r.persister, _, err = openEpochSnapshot(stateDir); err != nil {
+		return nil, err
+	}
+	if err := r.persister.Persist(persistedRegistryConv.Encode(state)); err != nil {
+		return nil, fmt.Errorf("persist epoch registry: %w", err)
+	}
+	r.publish(state)
+	return r, nil
+}
+
+// checkRestored returns an error unless the live epochs of state have the roads of r, each
+// committee derives from the one before, and the epochs 0 and 1 that state holds have the genesis
+// committee.
+func (r *Registry) checkRestored(state *persistedRegistry, committee *types.Committee) error {
+	for idx := state.liveRange.First; idx < state.liveRange.Next; idx++ {
+		epoch := state.live[idx]
+		if got, want := epoch.RoadRange(), r.roadRange(idx); got != want {
+			return fmt.Errorf("epoch %d roads %v, want %v", idx, got, want)
+		}
+		if state.liveRange.First < idx {
+			if err := checkDerived(state.live[idx-1], epoch); err != nil {
+				return fmt.Errorf("epoch %d: %w", idx, err)
 			}
 		}
 	}
+	for idx := range types.EpochIndex(2) {
+		if epoch, ok := state.live[idx]; ok && !epoch.Committee().Equal(committee) {
+			return fmt.Errorf("epoch %d does not match genesis", idx)
+		}
+	}
+	return nil
+}
+
+// publish makes state the current state of r.
+func (r *Registry) publish(state *persistedRegistry) {
 	stateSend := new(utils.NewAtomicSend(state))
 	r.state = utils.NewMutex(stateSend)
 	r.stateRecv = stateSend.Subscribe()
-	return r, nil
 }
 
 func (r *Registry) roadRange(idx types.EpochIndex) types.RoadRange {

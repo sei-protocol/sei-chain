@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -41,33 +42,40 @@ func ResolveEpochGenesis(conf *config.Config, genDoc *types.GenesisDoc) (EpochGe
 	return EpochGenesis{GenDoc: genDoc, Validators: slices.SortedFunc(maps.Keys(validators), atypes.PublicKey.Compare)}, nil
 }
 
-// PrepareEpochRegistry writes under stagingDir the epoch registry snapshot of the epoch_registry
-// row in the FlatKV checkpoint in checkpointDir, the state after road height. With no row the
-// snapshot holds only the genesis epochs. It returns an error if the row is empty or does not
-// decode, if the registry does not open from genesis with the snapshot, if the registry does not
-// hold the epoch of height and the epoch after it, or if height is the last road of an epoch.
+// CheckpointEpochs is the epoch registry of a FlatKV checkpoint, open in memory.
+type CheckpointEpochs struct {
+	genesis  EpochGenesis
+	row      utils.Option[[]byte]
+	registry *epoch.Registry
+}
+
+// OpenCheckpointEpochs opens in memory the epoch registry of the epoch_registry row in the FlatKV
+// checkpoint in checkpointDir, the state after road height. With no row the registry holds only
+// the genesis epochs. It returns an error if the row is empty or does not decode, if the registry
+// does not open from genesis with the row, if the registry does not hold the epoch of height and
+// the epoch after it, or if height is the last road of an epoch.
 //
 // The registry check binds the row to this chain only while it holds epoch 0 or 1. A row whose
 // epochs all follow epoch 1 opens on any chain with the same initial height.
-func PrepareEpochRegistry(genesis EpochGenesis, checkpointDir string, height int64, stagingDir string) error {
+func OpenCheckpointEpochs(genesis EpochGenesis, checkpointDir string, height int64) (CheckpointEpochs, error) {
 	if height < 1 {
-		return fmt.Errorf("checkpoint height %d is not positive", height)
+		return CheckpointEpochs{}, fmt.Errorf("checkpoint height %d is not positive", height)
 	}
 	row, err := evmonlyapp.ReadCheckpointEpochRegistryRow(checkpointDir)
 	if err != nil {
-		return err
+		return CheckpointEpochs{}, err
 	}
 	if raw, ok := row.Get(); ok && len(raw) == 0 {
-		return ErrEmptyEpochRegistryRow
+		return CheckpointEpochs{}, ErrEmptyEpochRegistryRow
 	}
-	if err := epoch.RestoreSnapshot(stagingDir, row); err != nil {
-		return fmt.Errorf("seed epoch snapshot: %w", err)
-	}
-	registry, err := p2p.OpenEpochRegistry(genesis.GenDoc, genesis.Validators, stagingDir)
+	registry, err := p2p.RestoreEpochRegistry(genesis.GenDoc, genesis.Validators, row, utils.None[string]())
 	if err != nil {
-		return fmt.Errorf("open the seeded epoch registry: %w", err)
+		return CheckpointEpochs{}, fmt.Errorf("open the checkpoint epoch registry: %w", err)
 	}
-	return requireEpochsForRoad(registry, atypes.RoadIndex(height))
+	if err := requireEpochsForRoad(registry, atypes.RoadIndex(height)); err != nil {
+		return CheckpointEpochs{}, err
+	}
+	return CheckpointEpochs{genesis: genesis, row: row, registry: registry}, nil
 }
 
 // requireEpochsForRoad returns an error unless registry holds the epoch of road and the epoch
@@ -86,21 +94,16 @@ func requireEpochsForRoad(registry *epoch.Registry, road atypes.RoadIndex) error
 	return nil
 }
 
-// InstallEpochRegistry moves the epoch registry snapshot that PrepareEpochRegistry wrote under
-// stagingDir into layout, replacing the one there. stagingDir must be on the filesystem of the
-// persistent state dir. It returns an error, and keeps the installed snapshot, when stagingDir
-// holds no prepared snapshot. It is not atomic: after a crash, the caller must run
-// PrepareEpochRegistry and InstallEpochRegistry again before the node starts.
-func InstallEpochRegistry(layout AutobahnLayout, stagingDir string) error {
-	staged := epoch.SnapshotDir(stagingDir)
-	if _, err := os.Stat(staged); err != nil {
-		return fmt.Errorf("find the prepared epoch registry snapshot: %w", err)
-	}
+// InstallEpochRegistry replaces the epoch registry in layout with the one that epochs holds. It
+// is not atomic: after a crash, the caller must run it again before the node starts. It may run
+// any number of times with the same epochs.
+func InstallEpochRegistry(layout AutobahnLayout, epochs CheckpointEpochs) error {
 	if err := os.RemoveAll(layout.EpochRegistryDir); err != nil {
 		return fmt.Errorf("remove the epoch registry snapshot: %w", err)
 	}
-	if err := os.Rename(staged, layout.EpochRegistryDir); err != nil {
-		return fmt.Errorf("install the epoch registry snapshot: %w", err)
+	genesis := epochs.genesis
+	if _, err := p2p.RestoreEpochRegistry(genesis.GenDoc, genesis.Validators, epochs.row, utils.Some(layout.PersistentStateDir)); err != nil {
+		return fmt.Errorf("install the epoch registry: %w", err)
 	}
 	return dbutils.SyncDir(filepath.Dir(layout.EpochRegistryDir))
 }

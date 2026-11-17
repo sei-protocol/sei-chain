@@ -10,12 +10,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
-// restoredRegistry opens a registry with the genesis of source from a snapshot restored from
+// restoredRegistry opens a registry with the genesis of source from a state dir restored from
 // source's epoch_registry row, as a state sync restore leaves it.
 func restoredRegistry(t *testing.T, source *epoch.Registry, genesis *types.Epoch) *epoch.Registry {
 	t.Helper()
 	dir := t.TempDir()
-	require.NoError(t, epoch.RestoreSnapshot(dir, utils.Some(source.MarshalSnapshot())))
+	_, err := epoch.NewRegistryFromSnapshot(genesis.Committee(), genesis.RoadRange().First, time.Time{}, source.MarshalSnapshot(), utils.Some(dir))
+	require.NoError(t, err)
 	return utils.OrPanic1(epoch.NewRegistry(genesis.Committee(), genesis.RoadRange().First, time.Time{}, utils.Some(dir)))
 }
 

@@ -1,7 +1,6 @@
 package node
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -76,11 +75,11 @@ func seedLayout(t *testing.T, genesis EpochGenesis, checkpoint string, height in
 	t.Helper()
 	psd := t.TempDir()
 	layout := AutobahnLayout{PersistentStateDir: psd, EpochRegistryDir: epoch.SnapshotDir(psd)}
-	staging := filepath.Join(t.TempDir(), "staging")
-	if err := PrepareEpochRegistry(genesis, checkpoint, height, staging); err != nil {
+	epochs, err := OpenCheckpointEpochs(genesis, checkpoint, height)
+	if err != nil {
 		return layout, err
 	}
-	return layout, InstallEpochRegistry(layout, staging)
+	return layout, InstallEpochRegistry(layout, epochs)
 }
 
 func openLayoutRegistry(t *testing.T, genesis EpochGenesis, layout AutobahnLayout) *epoch.Registry {
@@ -104,18 +103,21 @@ func TestSeedEpochRegistryFromEpochRegistryRow(t *testing.T) {
 	}
 }
 
-func TestInstallEpochRegistryRefusesASecondInstallFromTheSameStaging(t *testing.T) {
+func TestInstallEpochRegistryTwiceKeepsTheRegistry(t *testing.T) {
 	rng := utils.TestRng()
 	chain := newTestEpochChain(t, rng)
 	checkpoint := committedCheckpoint(t, utils.Some(chain.registry.MarshalSnapshot()))
 	psd := t.TempDir()
 	layout := AutobahnLayout{PersistentStateDir: psd, EpochRegistryDir: epoch.SnapshotDir(psd)}
-	staging := filepath.Join(t.TempDir(), "staging")
-	require.NoError(t, PrepareEpochRegistry(chain.genesis, checkpoint, chain.firstHeightOf(2), staging))
-	require.NoError(t, InstallEpochRegistry(layout, staging))
+	epochs, err := OpenCheckpointEpochs(chain.genesis, checkpoint, chain.firstHeightOf(2))
+	require.NoError(t, err)
+	require.NoError(t, InstallEpochRegistry(layout, epochs))
 
-	require.ErrorIs(t, InstallEpochRegistry(layout, staging), os.ErrNotExist)
-	require.True(t, epoch.EpochEqual(chain.registry.MustEpoch(3), openLayoutRegistry(t, chain.genesis, layout).MustEpoch(3)))
+	require.NoError(t, InstallEpochRegistry(layout, epochs))
+	registry := openLayoutRegistry(t, chain.genesis, layout)
+	for idx := atypes.EpochIndex(0); idx <= 3; idx++ {
+		require.True(t, epoch.EpochEqual(chain.registry.MustEpoch(idx), registry.MustEpoch(idx)))
+	}
 }
 
 func TestInstallEpochRegistryWithoutRowReplacesTheOldSnapshotWithGenesis(t *testing.T) {
@@ -123,20 +125,21 @@ func TestInstallEpochRegistryWithoutRowReplacesTheOldSnapshotWithGenesis(t *test
 	chain := newTestEpochChain(t, rng)
 	psd := t.TempDir()
 	layout := AutobahnLayout{PersistentStateDir: psd, EpochRegistryDir: epoch.SnapshotDir(psd)}
-	require.NoError(t, epoch.RestoreSnapshot(psd, utils.Some(chain.registry.MarshalSnapshot())))
-	staging := filepath.Join(t.TempDir(), "staging")
+	_, err := p2p.RestoreEpochRegistry(chain.genesis.GenDoc, chain.genesis.Validators, utils.Some(chain.registry.MarshalSnapshot()), utils.Some(psd))
+	require.NoError(t, err)
 
-	require.NoError(t, PrepareEpochRegistry(chain.genesis, committedCheckpoint(t, utils.None[[]byte]()), chain.firstHeightOf(0), staging))
+	epochs, err := OpenCheckpointEpochs(chain.genesis, committedCheckpoint(t, utils.None[[]byte]()), chain.firstHeightOf(0))
+	require.NoError(t, err)
 	require.True(t, epoch.EpochEqual(chain.registry.MustEpoch(3), openLayoutRegistry(t, chain.genesis, layout).MustEpoch(3)))
-	require.NoError(t, InstallEpochRegistry(layout, staging))
+	require.NoError(t, InstallEpochRegistry(layout, epochs))
 
 	registry := openLayoutRegistry(t, chain.genesis, layout)
 	require.True(t, epoch.EpochEqual(chain.registry.MustEpoch(1), registry.MustEpoch(1)))
-	_, err := registry.Epoch(2)
+	_, err = registry.Epoch(2)
 	require.ErrorIs(t, err, atypes.ErrNotFound)
 }
 
-func TestPrepareEpochRegistryRefusesAHeightWithoutTheNextEpoch(t *testing.T) {
+func TestOpenCheckpointEpochsRefusesAHeightWithoutTheNextEpoch(t *testing.T) {
 	rng := utils.TestRng()
 	chain := newTestEpochChain(t, rng)
 	for name, tc := range map[string]struct {
@@ -153,7 +156,7 @@ func TestPrepareEpochRegistryRefusesAHeightWithoutTheNextEpoch(t *testing.T) {
 	}
 }
 
-func TestPrepareEpochRegistryRefusesAHeightInAPrunedEpoch(t *testing.T) {
+func TestOpenCheckpointEpochsRefusesAHeightInAPrunedEpoch(t *testing.T) {
 	rng := utils.TestRng()
 	chain := newTestEpochChain(t, rng)
 	height := chain.firstHeightOf(1)
@@ -163,7 +166,7 @@ func TestPrepareEpochRegistryRefusesAHeightInAPrunedEpoch(t *testing.T) {
 	require.ErrorIs(t, err, atypes.ErrPruned)
 }
 
-func TestPrepareEpochRegistryRefusesTheLastRoadOfAnEpoch(t *testing.T) {
+func TestOpenCheckpointEpochsRefusesTheLastRoadOfAnEpoch(t *testing.T) {
 	rng := utils.TestRng()
 	chain := newTestEpochChain(t, rng)
 	checkpoint := committedCheckpoint(t, utils.Some(chain.registry.MarshalSnapshot()))
@@ -172,7 +175,7 @@ func TestPrepareEpochRegistryRefusesTheLastRoadOfAnEpoch(t *testing.T) {
 	require.ErrorIs(t, err, ErrClosingRoad)
 }
 
-func TestPrepareEpochRegistryRefusesARowWithTheGenesisEpochsOfAnotherChain(t *testing.T) {
+func TestOpenCheckpointEpochsRefusesARowWithTheGenesisEpochsOfAnotherChain(t *testing.T) {
 	rng := utils.TestRng()
 	chain := newTestEpochChain(t, rng)
 	other := newTestEpochChain(t, rng)
@@ -182,7 +185,7 @@ func TestPrepareEpochRegistryRefusesARowWithTheGenesisEpochsOfAnotherChain(t *te
 }
 
 // A row pruned past genesis is not bound to this chain here; AppQC(H+1) catches it.
-func TestPrepareEpochRegistryCannotBindARowPrunedPastGenesis(t *testing.T) {
+func TestOpenCheckpointEpochsCannotBindARowPrunedPastGenesis(t *testing.T) {
 	rng := utils.TestRng()
 	chain := newTestEpochChain(t, rng)
 	other := newTestEpochChain(t, rng)
@@ -194,7 +197,7 @@ func TestPrepareEpochRegistryCannotBindARowPrunedPastGenesis(t *testing.T) {
 	require.True(t, epoch.EpochEqual(other.registry.MustEpoch(3), openLayoutRegistry(t, chain.genesis, layout).MustEpoch(3)))
 }
 
-func TestPrepareEpochRegistryRejectsMalformedRow(t *testing.T) {
+func TestOpenCheckpointEpochsRejectsMalformedRow(t *testing.T) {
 	rng := utils.TestRng()
 	chain := newTestEpochChain(t, rng)
 
@@ -202,7 +205,7 @@ func TestPrepareEpochRegistryRejectsMalformedRow(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestPrepareEpochRegistryRejectsEmptyRow(t *testing.T) {
+func TestOpenCheckpointEpochsRejectsEmptyRow(t *testing.T) {
 	rng := utils.TestRng()
 	chain := newTestEpochChain(t, rng)
 

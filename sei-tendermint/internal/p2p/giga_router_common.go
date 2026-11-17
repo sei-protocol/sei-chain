@@ -108,23 +108,62 @@ func OpenEpochRegistry(
 	validators []atypes.PublicKey,
 	persistentStateDir string,
 ) (*epoch.Registry, error) {
+	committee, firstRoad, err := genesisEpochs(genDoc, validators)
+	if err != nil {
+		return nil, err
+	}
+	registry, err := epoch.NewRegistry(committee, firstRoad, genDoc.GenesisTime, utils.Some(persistentStateDir))
+	if err != nil {
+		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
+	}
+	return registry, nil
+}
+
+// RestoreEpochRegistry opens the epoch registry from row, the epoch_registry value of an app
+// state, with the genesis validators and the road origin and timestamp of genDoc. With
+// persistentStateDir set, it persists row under that dir. With no row, it opens the registry
+// that persistentStateDir holds, or the genesis epochs.
+func RestoreEpochRegistry(
+	genDoc *types.GenesisDoc,
+	validators []atypes.PublicKey,
+	row utils.Option[[]byte],
+	persistentStateDir utils.Option[string],
+) (*epoch.Registry, error) {
+	committee, firstRoad, err := genesisEpochs(genDoc, validators)
+	if err != nil {
+		return nil, err
+	}
+	raw, ok := row.Get()
+	if !ok {
+		registry, err := epoch.NewRegistry(committee, firstRoad, genDoc.GenesisTime, persistentStateDir)
+		if err != nil {
+			return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
+		}
+		return registry, nil
+	}
+	registry, err := epoch.NewRegistryFromSnapshot(committee, firstRoad, genDoc.GenesisTime, raw, persistentStateDir)
+	if err != nil {
+		return nil, fmt.Errorf("epoch.NewRegistryFromSnapshot(): %w", err)
+	}
+	return registry, nil
+}
+
+// genesisEpochs returns the genesis committee, with weight 1 for each of validators, and the
+// first road of genDoc.
+func genesisEpochs(genDoc *types.GenesisDoc, validators []atypes.PublicKey) (*atypes.Committee, atypes.RoadIndex, error) {
 	if genDoc.InitialHeight < 1 {
-		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", genDoc.InitialHeight)
+		return nil, 0, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", genDoc.InitialHeight)
 	}
 	firstRoad := atypes.RoadIndex(genDoc.InitialHeight) // nolint:gosec // verified to be positive.
 	genesisWeights := map[atypes.PublicKey]uint64{}
 	for _, k := range validators {
 		genesisWeights[k] = 1
 	}
-	genesisCommittee, err := atypes.NewCommittee(genesisWeights)
+	committee, err := atypes.NewCommittee(genesisWeights)
 	if err != nil {
-		return nil, fmt.Errorf("genesis committee: %w", err)
+		return nil, 0, fmt.Errorf("genesis committee: %w", err)
 	}
-	registry, err := epoch.NewRegistry(genesisCommittee, firstRoad, genDoc.GenesisTime, utils.Some(persistentStateDir))
-	if err != nil {
-		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
-	}
-	return registry, nil
+	return committee, firstRoad, nil
 }
 
 func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {
