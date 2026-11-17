@@ -32,6 +32,11 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## v6.8
 sei-chain
+* [#4886](https://github.com/sei-protocol/sei-chain/pull/4886) Backport `release/v6.8`: Drop the GHCR visibility step from the Docker publish workflow
+* [#4876](https://github.com/sei-protocol/sei-chain/pull/4876) Backport `release/v6.8`: fix(evm): discard cached traces written under another format version
+* [#4869](https://github.com/sei-protocol/sei-chain/pull/4869) Backport `release/v6.8`: Rewrite pacific-1's vesting accounts by address in the v6.8 auth migration
+* [#4817](https://github.com/sei-protocol/sei-chain/pull/4817) Bump version to v6.8.0-rc3 in prep for release
+* [#4815](https://github.com/sei-protocol/sei-chain/pull/4815) Backport `release/v6.8`: Update v6.8 changelog from release/v6.8
 * [#4811](https://github.com/sei-protocol/sei-chain/pull/4811) Backport `release/v6.8`: Load the full validator set
 * [#4802](https://github.com/sei-protocol/sei-chain/pull/4802) Backport `release/v6.8`: Keep BlockStore base and height in memory
 * [#4800](https://github.com/sei-protocol/sei-chain/pull/4800) Backport `release/v6.8`: Make the large eth_getLogs rate limit configurable
