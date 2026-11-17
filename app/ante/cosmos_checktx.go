@@ -16,6 +16,7 @@ import (
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	authante "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
@@ -196,6 +197,9 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 			return err
 		}
 	}
+	if err := checkSignerModeInfos(tx); err != nil {
+		return err
+	}
 
 	signers := sigTx.GetSigners()
 	for i, pk := range pubkeys {
@@ -222,6 +226,37 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 			}
 		default:
 			continue
+		}
+	}
+	return nil
+}
+
+// checkSignerModeInfos returns an error if any signer's multisig mode info nests
+// deeper than the multisig public key nesting limit.
+func checkSignerModeInfos(tx sdk.Tx) error {
+	protoTx, ok := tx.(interface{ GetProtoTx() *txtypes.Tx })
+	if !ok {
+		return nil
+	}
+	for i, signerInfo := range protoTx.GetProtoTx().GetAuthInfo().GetSignerInfos() {
+		if err := validateModeInfo(signerInfo.GetModeInfo(), 0); err != nil {
+			return sdkerrors.Wrapf(err, "invalid mode info for signer %d", i)
+		}
+	}
+	return nil
+}
+
+func validateModeInfo(modeInfo *txtypes.ModeInfo, depth int) error {
+	multi, ok := modeInfo.GetSum().(*txtypes.ModeInfo_Multi_)
+	if !ok {
+		return nil
+	}
+	if depth >= maxNestedPubKeys {
+		return sdkerrors.Wrapf(sdkerrors.ErrTxDecode, "multisig mode info nesting exceeds limit %d", maxNestedPubKeys)
+	}
+	for _, child := range multi.Multi.GetModeInfos() {
+		if err := validateModeInfo(child, depth+1); err != nil {
+			return err
 		}
 	}
 	return nil

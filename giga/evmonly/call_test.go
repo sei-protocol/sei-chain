@@ -374,6 +374,13 @@ func TestExecutorAppliesCallOverrides(t *testing.T) {
 		require.Greater(t, withCode, params.TxGas)
 
 		_, _, err = executor.EstimateGasAt(t.Context(), newMemoryGigaSnapshot(7), blockCtx, msg, 0,
+			CallOverrides{State: export.StateOverride{identity: {MovePrecompileTo: &moved}}})
+		require.NoError(t, err)
+		_, _, err = executor.EstimateGasAt(t.Context(), newMemoryGigaSnapshot(7), blockCtx, msg, 0,
+			CallOverrides{State: export.StateOverride{contract: {MovePrecompileTo: &moved}}})
+		require.ErrorContains(t, err, "is not a precompile")
+
+		_, _, err = executor.EstimateGasAt(t.Context(), newMemoryGigaSnapshot(7), blockCtx, msg, 0,
 			CallOverrides{Block: utils.Some(export.BlockOverrides{BeaconRoot: &common.Hash{}})})
 		require.Error(t, err)
 	})

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 
 	dto "github.com/prometheus/client_model/go"
@@ -76,6 +78,7 @@ func (e *testEnv) AddNode(t testing.TB, key types.SecretKey) *testNode {
 			return 0
 		},
 		ProposalTimeout: time.Hour,
+		MaxRate:         rate.Inf,
 	})
 	e.nodes[key.Public()] = n
 	return n
