@@ -300,8 +300,9 @@ func TestCommitteeWeights_DuplicateKey(t *testing.T) {
 func TestBuildDataStateGenesisEpochLength(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
-	genesis := &tmtypes.GenesisDoc{ChainID: "epoch-length", Autobahn: tmtypes.DefaultAutobahnParams()}
-	genesis.Autobahn.EpochLength = 3
+	params := tmtypes.DefaultAutobahnParams()
+	params.EpochLength = 3
+	genesis := &tmtypes.GenesisDoc{ChainID: "epoch-length", Autobahn: utils.Some(params)}
 	require.NoError(t, genesis.ValidateAndComplete())
 	db := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })

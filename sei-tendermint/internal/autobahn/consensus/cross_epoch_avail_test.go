@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -44,7 +46,7 @@ func TestReconstructRoadBlocksAcrossEpochs(t *testing.T) {
 			ds = isolated
 		}
 		state := utils.OrPanic1(NewState(&Config{
-			Key: key, ViewTimeout: viewTimeout, ProposalTimeout: time.Hour,
+			Key: key, ViewTimeout: viewTimeout, ProposalTimeout: time.Hour, MaxRate: rate.Inf,
 			PersistentStateDir: utils.None[string](),
 		}, ds))
 		t.Cleanup(func() { require.NoError(t, state.Close()) })

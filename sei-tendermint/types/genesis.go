@@ -84,23 +84,16 @@ type GenesisDoc struct {
 // AutobahnParams is the Autobahn section of a genesis doc.
 type AutobahnParams struct {
 	ViewTimeout time.Duration `json:"view_timeout,string"`
-<<<<<<< HEAD
+	// MinRoadBlockInterval is the minimum interval between this validator's
+	// consensus instances. Zero means unlimited; it must be less than ViewTimeout.
+	MinRoadBlockInterval time.Duration `json:"min_road_block_interval,string"`
 	// EpochLength is the number of road blocks per epoch; zero selects the default.
 	EpochLength atypes.RoadIndex `json:"epoch_length,string"`
 }
 
 // DefaultAutobahnParams returns the default Autobahn genesis parameters.
-func DefaultAutobahnParams() *AutobahnParams {
-	return &AutobahnParams{ViewTimeout: 1500 * time.Millisecond, EpochLength: epoch.DefaultEpochLength}
-=======
-	// MinRoadBlockInterval is the minimum interval between this validator's
-	// consensus instances. Zero means unlimited; it must be less than ViewTimeout.
-	MinRoadBlockInterval time.Duration `json:"min_road_block_interval,string"`
-}
-
-// DefaultAutobahnParams returns AutobahnParams with a 1500ms view timeout.
 func DefaultAutobahnParams() AutobahnParams {
-	return AutobahnParams{ViewTimeout: 1500 * time.Millisecond}
+	return AutobahnParams{ViewTimeout: 1500 * time.Millisecond, EpochLength: epoch.DefaultEpochLength}
 }
 
 // Validate checks Autobahn consensus parameters and their timing constraints.
@@ -115,7 +108,6 @@ func (p AutobahnParams) Validate() error {
 		return errors.New("min_road_block_interval must be shorter than view_timeout")
 	}
 	return nil
->>>>>>> origin/main
 }
 
 func (genDoc *GenesisDoc) ToRequestInitChain() *abci.RequestInitChain {
@@ -181,13 +173,13 @@ func (genDoc *GenesisDoc) ValidateAndComplete() error {
 	genDoc.ConsensusParams.Complete()
 
 	if params, ok := genDoc.Autobahn.Get(); ok {
+		if params.EpochLength == 0 {
+			params.EpochLength = epoch.DefaultEpochLength
+		}
+		genDoc.Autobahn = utils.Some(params)
 		if err := params.Validate(); err != nil {
 			return fmt.Errorf("autobahn: %w", err)
 		}
-	}
-
-	if genDoc.Autobahn.EpochLength == 0 {
-		genDoc.Autobahn.EpochLength = epoch.DefaultEpochLength
 	}
 
 	if err := genDoc.ConsensusParams.ValidateConsensusParams(); err != nil {
