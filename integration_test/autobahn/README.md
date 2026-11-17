@@ -214,6 +214,12 @@ Every validator opens the production-shaped Giga storage manager: FlatKV for
 EVM state, littidx for receipts, and littblock for blocks. GigaSS is disabled
 because EVM-only execution does not use it.
 
+Only the RPC node (`make run-rpc-node`), a full node, keeps EVM state history,
+in the Giga undo-log state store. It publishes its EVM RPC on host ports 8555
+(HTTP) and 8556 (WebSocket), and the Autobahn integration suites call it there
+through `SEI_EVM_RPC_URL` and `SEI_EVM_WS_URL`. Node 0's EVM RPC stays on 8545,
+and `seid` sends the suites' funding and seed transactions through it.
+
 Inspect the generated local inputs with:
 
 ```sh
@@ -694,10 +700,11 @@ As in go-ethereum, `eth_call` takes a state override (each account's `balance`,
 `nonce`, `code`, `state`, `stateDiff`, or `movePrecompileToAddress`) and a
 block override (`number`, `time`, `gasLimit`, `feeRecipient`, `prevRandao`,
 `baseFeePerGas`, `blobBaseFee`) after the block selector; `eth_estimateGas`
-takes both too, but cannot move a precompile. `eth_estimateGasAfterCalls`
-takes a state override after its block selector, as on the regular RPC, and
-applies it before its calls; it cannot move a precompile either. A state
-override naming more accounts, or setting more slots of one account, than
+takes both too, but, as in go-ethereum, a precompile move it accepts does not
+take effect in the estimate. `eth_estimateGasAfterCalls` takes a state override
+after its block selector, as on the regular RPC, and applies it before its
+calls; a precompile move takes effect in neither the calls nor the estimate. A
+state override naming more accounts, or setting more slots of one account, than
 `[giga.rpc]` allows is refused with an invalid-params error (`-32602`).
 
 ### Estimate gas with `cast estimate`
