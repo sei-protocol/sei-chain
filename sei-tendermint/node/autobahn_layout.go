@@ -21,7 +21,8 @@ type AutobahnLayout struct {
 	StateStoreDir      string
 	AppHashVaultDir    string
 	RestoreMarkerFile  string
-	// RestoreProofFile is the state sync proof that restore installs for the seed to read.
+	// RestoreProofFile is the state sync proof that `seid statesync import` installs for the seed
+	// to read.
 	RestoreProofFile string
 	// StateSyncProofDir holds the state sync proof files that a running node writes next to its
 	// FlatKV checkpoints.

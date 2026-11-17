@@ -78,8 +78,8 @@ func TestResolveAutobahnLayoutRequiresAutobahnConfig(t *testing.T) {
 
 // TestAutobahnLayoutCoversWhatAFullnodeStoresOpen requires every entry that a fullnode's storage
 // manager and epoch registry create under the persistent state dir to be a layout path, inside one,
-// or a parent of one. A new store under that dir fails here until state sync decides whether restore must require
-// it empty or create must pack it.
+// or a parent of one. A new store under that dir fails here until state sync decides whether import must require
+// it empty or export must pack it.
 func TestAutobahnLayoutCoversWhatAFullnodeStoresOpen(t *testing.T) {
 	conf := layoutConfig(t, filepath.Join("data", "autobahn"))
 	storage := gigaconfig.DefaultConfig.Storage
