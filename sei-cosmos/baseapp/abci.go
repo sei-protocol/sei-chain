@@ -474,8 +474,16 @@ func (app *BaseApp) GetValidators() []abci.ValidatorUpdate {
 	return nil
 }
 
-// ListSnapshots implements the ABCI interface. It delegates to app.snapshotManager if set.
+// ListSnapshots implements the ABCI interface. It logs listing failures without returning an error.
 func (app *BaseApp) ListSnapshots(context context.Context, req *abci.RequestListSnapshots) (*abci.ResponseListSnapshots, error) {
+	resp, err := app.listSnapshots()
+	if err != nil {
+		logger.Error("failed to list snapshots", "err", err)
+	}
+	return resp, nil
+}
+
+func (app *BaseApp) listSnapshots() (*abci.ResponseListSnapshots, error) {
 	resp := &abci.ResponseListSnapshots{Snapshots: []*abci.Snapshot{}}
 	if app.snapshotManager == nil {
 		return resp, nil
@@ -483,15 +491,13 @@ func (app *BaseApp) ListSnapshots(context context.Context, req *abci.RequestList
 
 	snapshots, err := app.snapshotManager.List()
 	if err != nil {
-		logger.Error("failed to list snapshots", "err", err)
-		return resp, nil
+		return resp, err
 	}
 
 	for _, snapshot := range snapshots {
 		abciSnapshot, err := snapshot.ToABCI()
 		if err != nil {
-			logger.Error("failed to list snapshots", "err", err)
-			return resp, nil
+			return resp, err
 		}
 		resp.Snapshots = append(resp.Snapshots, &abciSnapshot)
 	}
@@ -854,7 +860,7 @@ func handleQueryApp(app *BaseApp, ctx context.Context, path []string, req abci.R
 		case "snapshots":
 			var responseValue []byte
 
-			response, err := app.ListSnapshots(context.Background(), &abci.RequestListSnapshots{})
+			response, err := app.listSnapshots()
 			if err != nil {
 				return sdkerrors.QueryResult(sdkerrors.Wrap(err, "list snapshots error"))
 			}
