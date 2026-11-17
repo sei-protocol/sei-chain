@@ -1672,3 +1672,37 @@ func TestAnchorEpochAt(t *testing.T) {
 		require.Equal(t, tc.want, anchor.EpochAt(tc.road))
 	}
 }
+
+// B,C and B',C' finalize the same lane blocks, split differently across the two roads, so C and C'
+// end every lane at the same block. D, certified after C, is not admitted after C'.
+func TestPushPartialBlockRejectsARoadFromAnotherHistory(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	lane0, lane1 := ep.Committee().Lanes().At(0), ep.Committee().Lanes().At(1)
+	none := utils.None[*types.CommitQC]()
+	push := func(state *State, qc *types.FullCommitQC, block *types.Block) error {
+		return state.PushPartialBlock(ctx, qc, TestBlockMap([]*types.Block{block}))
+	}
+
+	b, bBlock := TestCommitQCOnLane(ep, keys, none, lane0)
+	c, cBlock := TestCommitQCOnLane(ep, keys, utils.Some(b.QC()), lane1)
+	bFork, bForkBlock := TestCommitQCOnLane(ep, keys, none, lane1)
+	cFork, cForkBlock := TestCommitQCOnLane(ep, keys, utils.Some(bFork.QC()), lane0)
+	d, dBlock := TestCommitQCOnLane(ep, keys, utils.Some(c.QC()), lane0)
+	for lane := range ep.Committee().Lanes().All() {
+		require.Equal(t, c.Header().LaneRange(lane).Next(), cFork.Header().LaneRange(lane).Next())
+	}
+
+	honest := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	require.NoError(t, push(honest, b, bBlock))
+	require.NoError(t, push(honest, c, cBlock))
+	require.NoError(t, push(honest, d, dBlock))
+
+	fork := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	require.NoError(t, push(fork, bFork, bForkBlock))
+	require.NoError(t, push(fork, cFork, cForkBlock))
+	require.Error(t, push(fork, d, dBlock))
+	require.Equal(t, cFork.Index()+1, fork.NextQC())
+}

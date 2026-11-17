@@ -25,6 +25,19 @@ func TestLaneQC(keys []types.SecretKey, header *types.BlockHeader) *types.LaneQC
 	return types.NewLaneQC(votes)
 }
 
+// TestCommitQCOnLane builds the commit QC of the road after prev, finalizing one empty block on lane,
+// and returns it with that block.
+func TestCommitQCOnLane(
+	ep *types.Epoch,
+	keys []types.SecretKey,
+	prev utils.Option[*types.CommitQC],
+	lane types.LaneID,
+) (*types.FullCommitQC, *types.Block) {
+	block := types.NewBlock(lane, types.LaneRangeOpt(prev, lane).Next(), types.BlockHeaderHash{}, &types.Payload{})
+	qc := types.BuildCommitQC(ep, keys, prev, map[types.LaneID]*types.LaneQC{lane: TestLaneQC(keys, block.Header())})
+	return types.NewFullCommitQC(qc, []*types.BlockHeader{block.Header()}), block
+}
+
 func TestCommitQC(
 	rng utils.Rng,
 	ep *types.Epoch,
