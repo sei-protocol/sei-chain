@@ -18,7 +18,7 @@ import (
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	utilsrequire "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -33,12 +33,12 @@ func makeValidationFailurePair(
 	t.Helper()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), testRootName)
-	utilsrequire.NoError(t, err)
+	require.NoError(t, err)
 
 	valSet, privVals := factory.ValidatorSet(ctx, 1, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
 	initialState, err := sm.MakeGenesisState(genDoc)
-	utilsrequire.NoError(t, err)
+	require.NoError(t, err)
 
 	block1 := makeCommittedBlock(ctx, t, initialState, privVals, 1, &types.Commit{})
 	block2 := makeCommittedBlock(ctx, t, initialState, privVals, 2, block1.commit)
@@ -51,16 +51,16 @@ func makeValidationFailurePair(
 func withBadLastSignature(t *testing.T, block *types.Block, flag tmproto.BlockIDFlag) *types.Block {
 	t.Helper()
 	blockProto, err := block.ToProto()
-	utilsrequire.NoError(t, err)
+	require.NoError(t, err)
 	sigs := blockProto.LastCommit.Signatures
 	lastSig := &sigs[len(sigs)-1]
 	lastSig.Signature[0] ^= 0xFF
 	lastSig.BlockIdFlag = flag
 	badCommit, err := types.CommitFromProto(blockProto.LastCommit)
-	utilsrequire.NoError(t, err)
+	require.NoError(t, err)
 	blockProto.Header.LastCommitHash = badCommit.Hash()
 	badBlock, err := types.BlockFromProto(blockProto)
-	utilsrequire.NoError(t, err)
+	require.NoError(t, err)
 	return badBlock
 }
 
@@ -97,7 +97,7 @@ func TestPoolRoutine_DoesNotReturnOnValidationFailure(t *testing.T) {
 	}()
 	t.Cleanup(func() {
 		err := <-results
-		utilsrequire.ErrorIs(t, err, context.Canceled)
+		require.ErrorIs(t, err, context.Canceled)
 	})
 
 	introducedCorrectPeer := false
@@ -153,7 +153,7 @@ func TestPoolRoutine_RetriesAfterValidationFailure(t *testing.T) {
 	}()
 	t.Cleanup(func() {
 		err := <-results
-		utilsrequire.ErrorIs(t, err, context.Canceled)
+		require.ErrorIs(t, err, context.Canceled)
 	})
 
 	introducedCorrectPeers := false
@@ -215,7 +215,7 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 			ctx := t.Context()
 
 			cfg, err := config.ResetTestRoot(t.TempDir(), "block_sync_invalid_commit")
-			utilsrequire.NoError(t, err)
+			require.NoError(t, err)
 			valSet, privVals := factory.ValidatorSet(ctx, 4, 30)
 			genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
 			network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 2})
@@ -242,13 +242,13 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 			// The correct node applies and stores correct blocks 1 to 4.
 			correctExec := correctReactor.syncer.OrPanic("syncer should be configured in tests").blockExec
 			state, err := correctReactor.stateStore.Load()
-			utilsrequire.NoError(t, err)
+			require.NoError(t, err)
 			var correct []committedBlock
 			lastCommit := &types.Commit{}
 			for height := int64(1); height <= 4; height++ {
 				b := makeCommittedBlock(ctx, t, state, privVals, height, lastCommit)
 				state, err = correctExec.ApplyBlock(ctx, state, b.id, b.block, nil)
-				utilsrequire.NoError(t, err)
+				require.NoError(t, err)
 				correctStore.SaveBlock(b.block, b.parts, b.commit)
 				correct = append(correct, b)
 				lastCommit = b.commit
@@ -256,39 +256,39 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 
 			// The invalid-commit node has the state of the correct node. It stores blocks 1 to 3, and a block 4
 			// whose commit for block 3 is invalid.
-			utilsrequire.NoError(t, invalidCommitReactor.stateStore.Save(state))
+			require.NoError(t, invalidCommitReactor.stateStore.Save(state))
 			for _, b := range correct[:3] {
 				invalidCommitStore.SaveBlock(b.block, b.parts, b.commit)
 			}
 			badBlock4 := withBadLastSignature(t, correct[3].block, tc.flag)
 			badParts4, err := badBlock4.MakePartSet(types.BlockPartSizeBytes)
-			utilsrequire.NoError(t, err)
+			require.NoError(t, err)
 			invalidCommitStore.SaveBlock(badBlock4, badParts4, correct[3].commit)
 
 			// Start the reactors.
 			for _, r := range []*Reactor{correctReactor, invalidCommitReactor, syncReactor} {
-				utilsrequire.NoError(t, r.Start(ctx))
+				require.NoError(t, r.Start(ctx))
 				t.Cleanup(r.Wait)
 			}
 
 			// The syncing node saves blocks 1 and 2, rejects block 3, and closes its connection to the
 			// invalid-commit node. Its store then ends at block 2, with the correct seen commit of block 2.
 			syncNode.WaitForDisconnect(ctx, invalidCommitConn)
-			utilsrequire.Equal(t, int64(2), syncReactor.store.Height())
-			utilsrequire.NoError(t, utils.TestDiff(correct[1].block.Hash(), syncReactor.store.LoadBlock(2).Hash()))
-			utilsrequire.NoError(t, utils.TestDiff(correct[1].commit.Hash(), syncReactor.store.LoadSeenCommit().Hash()))
+			require.Equal(t, int64(2), syncReactor.store.Height())
+			require.NoError(t, utils.TestDiff(correct[1].block.Hash(), syncReactor.store.LoadBlock(2).Hash()))
+			require.NoError(t, utils.TestDiff(correct[1].commit.Hash(), syncReactor.store.LoadSeenCommit().Hash()))
 
 			// Stop the invalid-commit node and remove it from the network.
 			invalidCommitReactor.Stop()
 			network.Remove(t, invalidCommitID)
 
 			// The correct node connects, and the syncing node saves block 3 with its correct seen commit.
-			utilsrequire.NoError(t, correctNode.Connect(ctx, syncNode))
+			require.NoError(t, correctNode.Connect(ctx, syncNode))
 			_, err = savedHeight.Wait(ctx, func(h int64) bool { return h >= 3 })
-			utilsrequire.NoError(t, err)
-			utilsrequire.Equal(t, int64(3), syncReactor.store.Height())
-			utilsrequire.NoError(t, utils.TestDiff(correct[2].block.Hash(), syncReactor.store.LoadBlock(3).Hash()))
-			utilsrequire.NoError(t, utils.TestDiff(correct[2].commit.Hash(), syncReactor.store.LoadSeenCommit().Hash()))
+			require.NoError(t, err)
+			require.Equal(t, int64(3), syncReactor.store.Height())
+			require.NoError(t, utils.TestDiff(correct[2].block.Hash(), syncReactor.store.LoadBlock(3).Hash()))
+			require.NoError(t, utils.TestDiff(correct[2].commit.Hash(), syncReactor.store.LoadSeenCommit().Hash()))
 		})
 	}
 }
