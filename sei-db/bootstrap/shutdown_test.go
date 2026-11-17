@@ -2,21 +2,15 @@ package bootstrap
 
 import (
 	"context"
-	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
-	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // withRunningMarker places the running marker in its own temporary directory.
@@ -24,23 +18,6 @@ func withRunningMarker(t *testing.T) func(*config.GigaStorageConfig) {
 	markerPath := filepath.Join(t.TempDir(), "node_running")
 	return func(cfg *config.GigaStorageConfig) {
 		cfg.RunningMarkerPath = markerPath
-	}
-}
-
-// commitNodeBlocks feeds blocks 1 through through to every store, as execution does.
-func commitNodeBlocks(t *testing.T, manager *GigaStorageManager, through byte) {
-	t.Helper()
-	storeKey := storetypes.NewKVStoreKey("evm")
-	ctx := testutil.DefaultContext(storeKey, storetypes.NewTransientStoreKey("evm_transient"))
-	for block := byte(1); block <= through; block++ {
-		reportTestBlockHash(t, manager, uint64(block))
-		txHash := common.BigToHash(new(big.Int).SetUint64(uint64(block)))
-		records := []receipt.ReceiptRecord{{
-			TxHash:  txHash,
-			Receipt: &evmtypes.Receipt{TxHashHex: txHash.Hex(), BlockNumber: uint64(block), GasUsed: 21000},
-		}}
-		require.NoError(t, manager.ReceiptDB().SetReceipts(ctx.WithBlockHeight(int64(block)), records))
-		commitBlock(t, manager, int64(block), evmBlock(block, block))
 	}
 }
 
@@ -60,7 +37,7 @@ func TestCloseLeavesEveryStoreAtTheLastBlock(t *testing.T) {
 	cfg := newHome(t, nil)
 	manager, err := NewGigaStorageManager(context.Background(), cfg)
 	require.NoError(t, err)
-	commitNodeBlocks(t, manager, 5)
+	commitBlocks(t, manager, 5)
 
 	require.NoError(t, manager.Close())
 
@@ -86,12 +63,27 @@ func TestCloseRemovesTheRunningMarker(t *testing.T) {
 	manager, err := NewGigaStorageManager(context.Background(), cfg)
 	require.NoError(t, err)
 	requireRunningMarker(t, cfg, true)
-	commitNodeBlocks(t, manager, 2)
+	commitBlocks(t, manager, 2)
 	require.NoError(t, manager.Close())
 	requireRunningMarker(t, cfg, false)
 
 	// A crash leaves the marker behind.
 	require.NoError(t, os.WriteFile(cfg.RunningMarkerPath, nil, 0o600))
 	_ = startManager(t, cfg)
+	requireRunningMarker(t, cfg, true)
+}
+
+// A shutdown that cannot bring every store to the same block fails Close and leaves the running marker in place.
+func TestCloseKeepsTheRunningMarkerWhenTheStoresDisagree(t *testing.T) {
+	cfg := newHome(t, withRunningMarker(t))
+	manager, err := NewGigaStorageManager(context.Background(), cfg)
+	require.NoError(t, err)
+
+	// Every store but the receipt store takes block 1.
+	reportTestBlockHash(t, manager, 1)
+	require.NoError(t, manager.StateDB().CommitStateChanges(1, evmBlock(1, 1)))
+	require.NoError(t, manager.ReceiptHasher().Submit(t.Context(), 1, nil))
+
+	require.ErrorContains(t, manager.Close(), "the receipt store stands at block 0")
 	requireRunningMarker(t, cfg, true)
 }

@@ -32,10 +32,6 @@ func (m *GigaStorageManager) flushStores() error {
 	if err := m.stateDB.SC().FlushHashes(); err != nil {
 		return fmt.Errorf("flush the live state DB's hashes: %w", err)
 	}
-	timer.SetPhase("snapshot_writer")
-	if err := m.stateDB.SC().FlushSnapshots(); err != nil {
-		return fmt.Errorf("flush the live state DB's snapshot writer: %w", err)
-	}
 	if m.receiptDB != nil {
 		timer.SetPhase("receipt_store")
 		if err := m.receiptDB.Flush(); err != nil {

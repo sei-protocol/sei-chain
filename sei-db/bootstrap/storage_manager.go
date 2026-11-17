@@ -321,13 +321,11 @@ func (m *GigaStorageManager) ReceiptHasher() *receipthash.ReceiptHasher { return
 // Close brings every store to the same block, closes them, and records a clean shutdown if both succeed. No block
 // may be committed during or after the call.
 func (m *GigaStorageManager) Close() error {
-	flushErr := m.flushStores()
-	if flushErr != nil {
-		logger.Error("Failed to bring the stores to the same block; the shutdown is recorded as unclean",
-			"err", flushErr)
+	var errs error
+	if err := m.flushStores(); err != nil {
+		errs = fmt.Errorf("bring the stores to the same block: %w", err)
 	}
 
-	var errs error
 	timer := utils.NewLoggingPhaseTimer(logger)
 	timer.SetPhase("state_sync_proof_export")
 	// Before the block store, which the export reads.
@@ -373,7 +371,7 @@ func (m *GigaStorageManager) Close() error {
 		errs = errors.Join(errs, fmt.Errorf("close app hash vault: %w", err))
 	}
 	timer.Log("Closed storage")
-	if flushErr == nil && errs == nil {
+	if errs == nil {
 		if err := m.removeRunningMarker(); err != nil {
 			errs = fmt.Errorf("record a clean shutdown: %w", err)
 		}
