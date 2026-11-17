@@ -160,7 +160,7 @@ func ProfiledTraceBlockParallelForTest(
 	block *ethtypes.Block,
 	metadata []tracersutils.TraceBlockMetadata,
 	config *tracers.TraceConfig,
-	statedb vm.StateDB,
+	statedb vm.SeiStateDB,
 	signer ethtypes.Signer,
 	blockHash gethcommon.Hash,
 	results []*tracers.TxTraceResult,
@@ -194,4 +194,11 @@ func (i *InfoAPI) CalculateGasUsedRatioForTest(ctx context.Context, blockHeight 
 // compare eth_getBlockReceipts bodies against it.
 func EncodeReceiptForTest(ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) cosmoclient.TxConfig, receipt *evmtypes.Receipt, k *keeper.Keeper, block *coretypes.ResultBlock, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) (map[string]any, error) {
 	return encodeReceipt(ctxProvider, txConfigProvider, receipt, k, block, false, globalBlockCache, cacheCreationMutex)
+}
+
+// ReadReceiptTotalsForTest exposes the logsBloom and gasUsed a newHeads header reads from the receipts of
+// the block at height, or the error that makes it fall back instead.
+func (a *SubscriptionAPI) ReadReceiptTotalsForTest(height int64) (ethtypes.Bloom, uint64, error) {
+	totals, err := a.readReceiptTotals(height)
+	return totals.logsBloom, totals.gasUsed, err
 }

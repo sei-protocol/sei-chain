@@ -19,6 +19,7 @@ services:
       - GIGA_OCC
       - RECEIPT_BACKEND
       - AUTOBAHN
+      - EVM_ALLOC
       - EVM_GOVERNANCE_VOTING_PERIOD
       - GIGA_STORAGE
       - GIGA_MIGRATE_FROM_MEMIAVL
@@ -56,6 +57,7 @@ services:
       - GIGA_OCC
       - RECEIPT_BACKEND
       - AUTOBAHN
+      - EVM_ALLOC
       - EVM_GOVERNANCE_VOTING_PERIOD
       - GIGA_STORAGE
       - GIGA_MIGRATE_FROM_MEMIAVL
@@ -90,6 +92,7 @@ services:
       - GIGA_OCC
       - RECEIPT_BACKEND
       - AUTOBAHN
+      - EVM_ALLOC
       - EVM_GOVERNANCE_VOTING_PERIOD
       - GIGA_STORAGE
       - GIGA_MIGRATE_FROM_MEMIAVL
@@ -127,6 +130,7 @@ services:
       - GIGA_OCC
       - RECEIPT_BACKEND
       - AUTOBAHN
+      - EVM_ALLOC
       - EVM_GOVERNANCE_VOTING_PERIOD
       - GIGA_STORAGE
       - GIGA_MIGRATE_FROM_MEMIAVL

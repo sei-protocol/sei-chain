@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"errors"
+
 	"github.com/ethereum/go-ethereum/core/vm"
 )
 
@@ -42,14 +44,9 @@ func (e *ExecutionFailedAbortError) IsAbortError() bool {
 
 var ErrExecutionFailed error = &ExecutionFailedAbortError{}
 
-// ShouldExecutionAbort checks if the given error is an AbortError that should
-// cause Giga execution to abort and fall back to standard execution.
+// ShouldExecutionAbort reports whether err, or any error it wraps, is an AbortError that
+// should cause Giga execution to abort and fall back to standard execution.
 func ShouldExecutionAbort(err error) bool {
-	if err == nil {
-		return false
-	}
-	if abortErr, ok := err.(vm.AbortError); ok {
-		return abortErr.IsAbortError()
-	}
-	return false
+	var abortErr vm.AbortError
+	return errors.As(err, &abortErr) && abortErr.IsAbortError()
 }

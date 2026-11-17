@@ -44,15 +44,15 @@ func storedInfoChangeset(value byte) []*proto.NamedChangeSet {
 	}
 }
 
-// latticeEntry returns the evm_lattice store info, which carries flatkv's contribution.
+// latticeEntry returns the lattice store info, which carries flatkv's contribution.
 func latticeEntry(t *testing.T, ci *proto.CommitInfo) proto.StoreInfo {
 	t.Helper()
 	for _, si := range ci.StoreInfos {
-		if si.Name == "evm_lattice" {
+		if isLatticeStoreInfoName(si.Name) {
 			return si
 		}
 	}
-	t.Fatalf("commit info has no evm_lattice entry: %+v", ci.StoreInfos)
+	t.Fatalf("commit info has no lattice entry: %+v", ci.StoreInfos)
 	return proto.StoreInfo{}
 }
 

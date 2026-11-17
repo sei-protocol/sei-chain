@@ -405,7 +405,7 @@ func (b *traceReplayBackend) EvmBlockContext(header *ethtypes.Header) (vm.BlockC
 	return evmonly.EVMBlockContext(blockCtx), nil
 }
 
-func (b *traceReplayBackend) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error) {
+func (b *traceReplayBackend) EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, func(), error) {
 	if height == ethrpc.LatestBlockNumber.Int64() {
 		height = int64(b.EvmBlockNumber()) //nolint:gosec // G115: a replayed height fits in int64.
 	}
@@ -416,7 +416,7 @@ func (b *traceReplayBackend) EvmStateAt(ctx context.Context, height int64) (vm.S
 	return b.executor.ViewState(view), view.Close, nil
 }
 
-func (b *traceReplayBackend) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
+func (b *traceReplayBackend) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
 	blockCtx, err := b.contextFor(header)
 	if err != nil {
 		return nil, nil, err
@@ -439,7 +439,7 @@ func (b *traceReplayBackend) contextFor(header *ethtypes.Header) (evmonly.BlockC
 }
 
 // replayState opens the replayed state after height and applies req's transactions to it.
-func (b *traceReplayBackend) replayState(ctx context.Context, height int64, req evmonly.BlockRequest) (vm.StateDB, func(), error) {
+func (b *traceReplayBackend) replayState(ctx context.Context, height int64, req evmonly.BlockRequest) (vm.SeiStateDB, func(), error) {
 	view, err := b.stateAt(height)
 	if err != nil {
 		return nil, nil, err

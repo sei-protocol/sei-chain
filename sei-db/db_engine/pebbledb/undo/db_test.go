@@ -784,7 +784,8 @@ func TestDiscardStateAboveClearsAHalfWrittenBlock(t *testing.T) {
 			require.NoError(t, c.db.writeRecords(changes, recordCount(changes), 1, 10))
 			require.NoError(t, c.db.Close())
 
-			require.NoError(t, DiscardStateAbove(dir, testConfig(), target))
+			//nolint:gosec // small test heights
+			require.NoError(t, DiscardStateAbove(dir, testConfig(), uint64(target)))
 			c.db = openTestDB(t, dir, 10)
 			defer func() { require.NoError(t, c.db.Close()) }()
 			for _, r := range records(t, c.db) {

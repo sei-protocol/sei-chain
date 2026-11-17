@@ -29,8 +29,8 @@ func (a *evmOnlyApplication) EvmBlockContext(header *ethtypes.Header) (vm.BlockC
 // EvmStateAt returns the committed EVM state after height, or the latest committed state when height
 // is rpc.LatestBlockNumber, held in memory, and the function that releases it. The state must not be
 // used once released.
-func (a *evmOnlyApplication) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error) {
-	return a.openTraceState(height, func(executor *evmonly.Executor, view gigatypes.StateView) (vm.StateDB, error) {
+func (a *evmOnlyApplication) EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, func(), error) {
+	return a.openTraceState(height, func(executor *evmonly.Executor, view gigatypes.StateView) (vm.SeiStateDB, error) {
 		return executor.ViewState(view), nil
 	})
 }
@@ -39,7 +39,7 @@ func (a *evmOnlyApplication) EvmStateAt(ctx context.Context, height int64) (vm.S
 // executed against, and the function that releases it: the committed state after the previous
 // block with txs, the block's transactions before it, applied. The state must not be used once
 // released.
-func (a *evmOnlyApplication) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
+func (a *evmOnlyApplication) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
 	number, err := headerNumber(header)
 	if err != nil {
 		return nil, nil, err
@@ -49,7 +49,7 @@ func (a *evmOnlyApplication) EvmStateBeforeTx(ctx context.Context, header *ethty
 	}
 	parent := int64(number - 1) //nolint:gosec // G115: headerNumber bounds number to int64.
 	req := evmonly.BlockRequest{Context: a.traceBlockContext(number, header), Txs: txs}
-	return a.openTraceState(parent, func(executor *evmonly.Executor, view gigatypes.StateView) (vm.StateDB, error) {
+	return a.openTraceState(parent, func(executor *evmonly.Executor, view gigatypes.StateView) (vm.SeiStateDB, error) {
 		return executor.ReplayState(ctx, view, req)
 	})
 }
@@ -64,7 +64,7 @@ func (a *evmOnlyApplication) traceBlockContext(number uint64, header *ethtypes.H
 // openTraceState opens the committed EVM state after height, or the latest committed state when
 // height is rpc.LatestBlockNumber, and returns the state build makes of it. A read the state store
 // can no longer serve, such as one at a height pruned mid-replay, is returned as an error.
-func (a *evmOnlyApplication) openTraceState(height int64, build func(*evmonly.Executor, gigatypes.StateView) (vm.StateDB, error)) (_ vm.StateDB, _ func(), err error) {
+func (a *evmOnlyApplication) openTraceState(height int64, build func(*evmonly.Executor, gigatypes.StateView) (vm.SeiStateDB, error)) (_ vm.SeiStateDB, _ func(), err error) {
 	executor, err := a.loadedExecutor("trace")
 	if err != nil {
 		return nil, nil, err

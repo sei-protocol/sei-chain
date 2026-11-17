@@ -15,6 +15,7 @@ import (
 	"github.com/holiman/uint256"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -34,20 +35,22 @@ var noRPCLimits = gigaconfig.RPCConfig{
 
 type testBackend struct {
 	balance          func(common.Address) uint256.Int
-	baseFee          func() (*big.Int, error)
+	baseFee          func() *big.Int
 	block            func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	blockByHash      func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
 	blockNumber      func() uint64
 	broadcast        func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
 	call             func(context.Context, *core.Message) (*core.ExecutionResult, error)
-	chainConfig      func() (*params.ChainConfig, error)
+	chainConfig      func() *params.ChainConfig
 	chainID          func() uint64
 	code             func(common.Address) ([]byte, error)
 	estimateGas      func(context.Context, *core.Message, uint64) (uint64, []byte, error)
-	gasLimit         func() (uint64, error)
-	minGasPrice      func() (*big.Int, error)
+	gasLimit         func() uint64
+	minGasPrice      func() *big.Int
 	proxy            utils.Option[*ethrpc.Client]
 	proxyCalls       int
+	proxyEnabled     bool // reports proxies as enabled even when proxy is None.
+	senders          map[common.Hash]common.Address
 	storage          func(common.Address, common.Hash) (common.Hash, error)
 	executedBlocks   func() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	transactionCount func(common.Address) uint64
@@ -57,25 +60,30 @@ type testBackend struct {
 	storageAt          func(common.Address, common.Hash, int64) (common.Hash, error)
 	transactionCountAt func(common.Address, int64) (uint64, error)
 
-	callAt                func(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error)
-	estimateGasAt         func(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error)
-	estimateGasAfterCalls func(context.Context, []*core.Message, *core.Message, uint64) (uint64, []byte, error)
-	createAccessList      func(context.Context, *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error)
+	// gotOverrides is the overrides the last call or estimate ran with.
+	gotOverrides evmonly.CallOverrides
+
+	callAt                  func(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error)
+	estimateGasAt           func(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error)
+	estimateGasAfterCalls   func(context.Context, []*core.Message, *core.Message, uint64) (uint64, []byte, error)
+	estimateGasAfterCallsAt func(context.Context, []*core.Message, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error)
+	createAccessList        func(context.Context, *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error)
+	createAccessListAt      func(context.Context, *core.Message, *ethtypes.Header) (ethtypes.AccessList, *core.ExecutionResult, error)
 
 	blockContext  func(*ethtypes.Header) (vm.BlockContext, error)
-	stateAt       func(context.Context, int64) (vm.StateDB, func(), error)
-	stateBeforeTx func(context.Context, *ethtypes.Header, [][]byte) (vm.StateDB, func(), error)
+	stateAt       func(context.Context, int64) (vm.SeiStateDB, func(), error)
+	stateBeforeTx func(context.Context, *ethtypes.Header, [][]byte) (vm.SeiStateDB, func(), error)
 }
 
 func (b *testBackend) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
 	return b.blockContext(header)
 }
 
-func (b *testBackend) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error) {
+func (b *testBackend) EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, func(), error) {
 	return b.stateAt(ctx, height)
 }
 
-func (b *testBackend) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
+func (b *testBackend) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
 	return b.stateBeforeTx(ctx, header, txs)
 }
 
@@ -95,7 +103,7 @@ func (b *testBackend) BlockByHash(ctx context.Context, req *coretypes.RequestBlo
 	return b.blockByHash(ctx, req)
 }
 
-func (b *testBackend) EvmBalance(address common.Address) uint256.Int {
+func (b *testBackend) EvmBalance(address common.Address, _ []byte) uint256.Int {
 	return b.balance(address)
 }
 
@@ -111,11 +119,11 @@ func (b *testBackend) EvmStorageAt(address common.Address, key common.Hash, heig
 	return b.storageAt(address, key, height)
 }
 
-func (b *testBackend) EvmTransactionCountAt(address common.Address, height int64) (uint64, error) {
+func (b *testBackend) EvmNonceAt(address common.Address, height int64) (uint64, error) {
 	return b.transactionCountAt(address, height)
 }
 
-func (b *testBackend) EvmBaseFee() (*big.Int, error) {
+func (b *testBackend) EvmBaseFee() *big.Int {
 	return b.baseFee()
 }
 
@@ -123,19 +131,22 @@ func (b *testBackend) EvmBlockNumber() uint64 {
 	return b.blockNumber()
 }
 
-func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {
+func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
+	b.gotOverrides = overrides
 	return b.call(ctx, msg)
 }
 
-func (b *testBackend) EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error) {
+func (b *testBackend) EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
+	b.gotOverrides = overrides
 	return b.callAt(ctx, msg, header)
 }
 
-func (b *testBackend) EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error) {
+func (b *testBackend) EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+	b.gotOverrides = overrides
 	return b.estimateGasAt(ctx, msg, gasCap, header)
 }
 
-func (b *testBackend) EvmChainConfig() (*params.ChainConfig, error) {
+func (b *testBackend) EvmChainConfig() *params.ChainConfig {
 	return b.chainConfig()
 }
 
@@ -143,27 +154,38 @@ func (b *testBackend) EvmChainID() uint64 {
 	return b.chainID()
 }
 
-func (b *testBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+func (b *testBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+	b.gotOverrides = overrides
 	return b.estimateGas(ctx, msg, gasCap)
 }
 
-func (b *testBackend) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+func (b *testBackend) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+	b.gotOverrides = overrides
 	return b.estimateGasAfterCalls(ctx, calls, msg, gasCap)
+}
+
+func (b *testBackend) EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+	b.gotOverrides = overrides
+	return b.estimateGasAfterCallsAt(ctx, calls, msg, gasCap, header)
 }
 
 func (b *testBackend) EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
 	return b.createAccessList(ctx, msg)
 }
 
+func (b *testBackend) EvmCreateAccessListAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (ethtypes.AccessList, *core.ExecutionResult, error) {
+	return b.createAccessListAt(ctx, msg, header)
+}
+
 func (b *testBackend) EvmCode(address common.Address) ([]byte, error) {
 	return b.code(address)
 }
 
-func (b *testBackend) EvmGasLimit() (uint64, error) {
+func (b *testBackend) EvmGasLimit() uint64 {
 	return b.gasLimit()
 }
 
-func (b *testBackend) EvmMinGasPrice() (*big.Int, error) {
+func (b *testBackend) EvmMinGasPrice() *big.Int {
 	return b.minGasPrice()
 }
 
@@ -172,8 +194,19 @@ func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
 	return b.proxy
 }
 
+func (b *testBackend) RememberEvmSender(hash common.Hash, sender common.Address) {
+	if b.senders == nil {
+		b.senders = map[common.Hash]common.Address{}
+	}
+	b.senders[hash] = sender
+}
+
+func (b *testBackend) ForgetEvmSender(hash common.Hash) {
+	delete(b.senders, hash)
+}
+
 func (b *testBackend) EvmProxyEnabled() bool {
-	return b.proxy.IsPresent()
+	return b.proxyEnabled || b.proxy.IsPresent()
 }
 
 func (b *testBackend) EvmStorage(address common.Address, key common.Hash) (common.Hash, error) {

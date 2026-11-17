@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,7 +68,7 @@ func TestExecutorCreateAccessList(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			msg := callMessage(sender, &tc.to)
 			if tc.value != nil {
-				msg.Value = tc.value
+				msg.Value = uint256.MustFromBig(tc.value)
 			}
 
 			accessList, result, err := executor.CreateAccessList(t.Context(), blockContext(chainID), msg)
@@ -118,7 +119,7 @@ func TestExecutorCreateAccessListRefusals(t *testing.T) {
 		{name: "unappliable message", executor: NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore())),
 			msg: func() *core.Message {
 				msg := callMessage(sender, &target)
-				msg.Value = big.NewInt(1) // the sender holds nothing
+				msg.Value = uint256.NewInt(1) // the sender holds nothing
 				return msg
 			}, wantErr: "failed to apply transaction"},
 		{name: "more authorizations than gas", executor: NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore())),
@@ -166,7 +167,7 @@ func TestExecutorEstimateGasAfterCalls(t *testing.T) {
 		{name: "a reverting call does not stop the estimate", calls: []*core.Message{callMessage(sender, &reverter)}},
 		{name: "an unappliable call fails the estimate", calls: []*core.Message{func() *core.Message {
 			msg := callMessage(testAddress(0xee), &writer)
-			msg.Value = big.NewInt(1)
+			msg.Value = uint256.NewInt(1)
 			return msg
 		}()}, wantErr: "call 0"},
 	} {

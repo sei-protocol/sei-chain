@@ -15,7 +15,7 @@ import (
 // ViewState returns the state view holds, with no block applied. The result is in memory only,
 // reads through view, and belongs to the caller; it must not be used once view is closed. Its Error
 // reports the first read of view that failed, even after a reverted snapshot.
-func (e *Executor) ViewState(view gigatypes.EVMStateView) vm.StateDB {
+func (e *Executor) ViewState(view gigatypes.EVMStateView) vm.SeiStateDB {
 	source, reads := e.recordingReader(view)
 	return &replayedStateDB{nativeStateDB: newNativeStateDB(source), reads: reads}
 }
@@ -25,7 +25,7 @@ func (e *Executor) ViewState(view gigatypes.EVMStateView) vm.StateDB {
 // nothing. The result is in memory only, reads through view, and belongs to the caller; it must not
 // be used once view is closed. Its Error reports the first read of view that failed, even after a
 // reverted snapshot.
-func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView, req BlockRequest) (vm.StateDB, error) {
+func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView, req BlockRequest) (vm.SeiStateDB, error) {
 	source, reads := e.recordingReader(view)
 	begin, err := e.runBeginBlockers(req.Context, source, true)
 	if err != nil {
@@ -41,12 +41,12 @@ func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView,
 		return nil, err
 	}
 	chainConfig := e.chainConfig(prepared.Context)
-	evm := vm.NewEVM(EVMBlockContext(prepared.Context), stateDB, chainConfig, vm.Config{}, e.customContracts)
+	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(prepared.Context), stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 	// executeTx does not watch ctx, so the EVM is stopped mid-transaction once ctx ends.
 	stop := context.AfterFunc(ctx, evm.Cancel)
 	defer stop()
-	gasPool := new(core.GasPool).AddGas(prepared.Context.GasLimit)
+	gasPool := core.NewGasPool(prepared.Context.GasLimit)
 	baseFee := cloneOptionalBig(prepared.Context.BaseFee)
 	for txIndex, p := range prepared.Txs {
 		if err := ctx.Err(); err != nil {

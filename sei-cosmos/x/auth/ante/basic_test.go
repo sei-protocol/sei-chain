@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types/multisig"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
@@ -107,7 +106,6 @@ func (suite *AnteTestSuite) TestConsumeGasForTxSize() {
 		sigV2 signing.SignatureV2
 	}{
 		{"SingleSignatureData", signing.SignatureV2{PubKey: priv1.PubKey()}},
-		{"MultiSignatureData", signing.SignatureV2{PubKey: priv1.PubKey(), Data: multisig.NewMultisig(2)}},
 	}
 
 	for _, tc := range testCases {

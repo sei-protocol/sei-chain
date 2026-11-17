@@ -10,17 +10,34 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
-// valueKind is how a param's value is stored and ABI-encoded: its Solidity
-// type and width.
+// Kind is the unit a param's value is denominated in.
+type Kind uint8
+
+const (
+	// KindDec is a decimal with 18 decimal places.
+	KindDec Kind = iota + 1
+	// KindDuration is a duration in nanoseconds.
+	KindDuration
+	// KindCoins is an amount of wei.
+	KindCoins
+	// KindInt is an integer.
+	KindInt
+)
+
+// valueKind is how a param's value is stored and ABI-encoded: its unit,
+// Solidity type and width.
 type valueKind struct {
+	kind    Kind
 	solType string
 	bits    int
 }
 
 var (
-	decKind      = valueKind{solType: "uint256", bits: 256}
-	durationKind = valueKind{solType: "uint64", bits: 64}
-	coinsKind    = valueKind{solType: "uint256", bits: 256}
+	decKind      = valueKind{kind: KindDec, solType: "uint256", bits: 256}
+	durationKind = valueKind{kind: KindDuration, solType: "uint64", bits: 64}
+	coinsKind    = valueKind{kind: KindCoins, solType: "uint256", bits: 256}
+	intKind      = valueKind{kind: KindInt, solType: "uint256", bits: 256}
+	uint32Kind   = valueKind{kind: KindInt, solType: "uint32", bits: 32}
 )
 
 // param is one declared param.
@@ -48,13 +65,14 @@ type subspace struct {
 }
 
 // subspaces are the declared subspaces, in ParamsStorage order.
-var subspaces = []*subspace{&govSubspace}
+var subspaces = []*subspace{&govSubspace, &stakingSubspace}
 
-// Key is a declared param: its subspace, flat key, and the Solidity type of its
-// value.
+// Key is a declared param: its subspace, flat key, and the unit and Solidity
+// type of its value.
 type Key struct {
 	Subspace string
 	Key      string
+	Kind     Kind
 	SolType  string
 }
 
@@ -63,7 +81,7 @@ func Keys() []Key {
 	var out []Key
 	for _, ss := range subspaces {
 		for _, p := range ss.params {
-			out = append(out, Key{Subspace: ss.name, Key: p.key, SolType: p.kind.solType})
+			out = append(out, Key{Subspace: ss.name, Key: p.key, Kind: p.kind.kind, SolType: p.kind.solType})
 		}
 	}
 	return out

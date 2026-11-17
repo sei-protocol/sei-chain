@@ -950,17 +950,17 @@ type LogFetcher struct {
 }
 
 // ComputeBlockBounds returns the block range crit requests, with tags such as latest
-// resolved to the height latest. It returns an error rather than a truncated range when
-// the range is inverted or reaches outside [earliest, latest].
+// resolved to the height latest and "earliest" or 0x0 to earliest. It returns an error
+// rather than a truncated range when the range is inverted or reaches outside [earliest, latest].
 func ComputeBlockBounds(latest, earliest int64, crit filters.FilterCriteria) (int64, int64, error) {
 	begin := latest
 	end := latest
 
 	if crit.FromBlock != nil {
-		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
+		begin = getHeightFromBigIntBlockNumber(latest, earliest, crit.FromBlock)
 	}
 	if crit.ToBlock != nil {
-		end = getHeightFromBigIntBlockNumber(latest, crit.ToBlock)
+		end = getHeightFromBigIntBlockNumber(latest, earliest, crit.ToBlock)
 		if crit.FromBlock == nil && begin > end {
 			begin = end
 		}
@@ -1202,7 +1202,9 @@ func (f *LogFetcher) pollStart(ctx context.Context, crit filters.FilterCriteria)
 		return 0, err
 	}
 	start := head + 1
-	if crit.FromBlock != nil && crit.FromBlock.Sign() >= 0 {
+	if isEarliestBound(crit.FromBlock) {
+		start = 0
+	} else if crit.FromBlock != nil && crit.FromBlock.Sign() >= 0 {
 		start = crit.FromBlock.Int64()
 		if err := f.ensureStartRetained(ctx, start); err != nil {
 			return 0, err

@@ -10,6 +10,8 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -166,7 +168,8 @@ type AutobahnFileConfig struct {
 	// MaxInboundFullnodePeers caps concurrent inbound block-sync from
 	// non-committee peers, applied on both validators and fullnodes (relay
 	// fullnodes serving downstream block-sync are subject to the same
-	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject all.
+	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject every
+	// inbound fullnode that is neither in p2p.persistent-peers nor in p2p.blocksync-peers.
 	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers,omitzero"`
 	// MaxConcurrentCheckTx caps the number of CheckTx calls the local mempool
 	// runs concurrently for incoming broadcast_tx requests, so that ingest
@@ -189,20 +192,38 @@ type AutobahnFileConfig struct {
 	// start and kept nowhere else, so this section and every evm_voter must be
 	// identical on every node; a node that differs forks at its next tally.
 	EVMGovernance utils.Option[EVMGovernance] `json:"evm_governance,omitzero"`
+	// EVMAlloc, when set, is the wei each EVM account holds at the chain's
+	// initial height, and every other account starts empty. Absent ⇒ every
+	// account the state holds nothing for has 2^200 wei. Set it only in a new
+	// chain's genesis and identically on every node; a node refuses to resume
+	// a chain that started with any other alloc, or without one.
+	EVMAlloc utils.Option[map[common.Address]hexutil.U256] `json:"evm_alloc,omitzero"`
+	// EVMChainID is the EIP-155 chain ID the EVM-only executor signs and
+	// serves. Required, and identical on every node; a node refuses to resume
+	// a chain that ran on any other ID.
+	EVMChainID uint64 `json:"evm_chain_id"`
 }
 
-// AutobahnEVMOnlyChainID is the chain ID of the Autobahn EVM-only executor.
-const AutobahnEVMOnlyChainID uint64 = 713715
+// EVMGenesisAlloc returns the balances EVMAlloc sets, or None when it is absent.
+func (fc *AutobahnFileConfig) EVMGenesisAlloc() utils.Option[map[common.Address]*uint256.Int] {
+	alloc, ok := fc.EVMAlloc.Get()
+	if !ok {
+		return utils.None[map[common.Address]*uint256.Int]()
+	}
+	balances := make(map[common.Address]*uint256.Int, len(alloc))
+	for addr, balance := range alloc {
+		balances[addr] = new(uint256.Int).Set((*uint256.Int)(&balance))
+	}
+	return utils.Some(balances)
+}
 
 func (c *AutobahnFileConfig) GetEnableEvmProxy() bool {
 	return c.EnableEvmProxy.Or(true)
 }
 
 // DefaultMaxInboundFullnodePeers is the built-in cap used when
-// AutobahnFileConfig.MaxInboundFullnodePeers is absent.
-//
-// TODO(autobahn-trusted-fullnode-peers): add an optional trusted-peer
-// list whose keys bypass the cap.
+// AutobahnFileConfig.MaxInboundFullnodePeers is absent. Peers in
+// p2p.persistent-peers and p2p.blocksync-peers do not consume it.
 const DefaultMaxInboundFullnodePeers = 10
 
 // Validate performs basic validation of the autobahn file config.
@@ -232,6 +253,9 @@ func (fc *AutobahnFileConfig) Validate() error {
 	}
 	if fc.PersistentStateDir == "" {
 		return errors.New("persistent_state_dir must not be empty")
+	}
+	if fc.EVMChainID == 0 {
+		return errors.New("evm_chain_id must be set")
 	}
 	if err := fc.BlockDB.Validate(); err != nil {
 		return fmt.Errorf("block_db: %w", err)
