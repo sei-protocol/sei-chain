@@ -259,16 +259,23 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		// directly — internal same-package access.
 		giga0 := gigas[0]
 		latest := giga0.LastCommittedBlockNumber()
+		// Each block's LastBlockID names the block before it; the first block has none.
+		var prevHash common.Hash
 		for h := int64(1); h <= latest; h++ {
 			gbn := atypes.RoadIndex(h) //nolint:gosec // h is positive
 			gb, err := giga0.data.SuperBlock(ctx, gbn)
 			if err != nil {
+				prevHash = common.Hash{}
 				continue // pruned out of the retain window
 			}
 			rb, err := giga0.BlockByNumber(ctx, gbn)
 			if err != nil {
 				return fmt.Errorf("router[0].BlockByNumber(%v): %w", h, err)
 			}
+			if err := utils.TestDiff(prevHash, common.BytesToHash(rb.Block.LastBlockID.Hash)); err != nil {
+				return fmt.Errorf("router[0].BlockByNumber(%v).Block.LastBlockID: %w", h, err)
+			}
+			prevHash = common.BytesToHash(rb.BlockID.Hash)
 			// Convert rb.Block.Data.Txs ([]types.Tx) back to [][]byte
 			// to compare against gb.Txs directly.
 			rbBytes := make([][]byte, len(rb.Block.Data.Txs))

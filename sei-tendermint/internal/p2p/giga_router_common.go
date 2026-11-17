@@ -161,11 +161,16 @@ func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes
 		tmTxs[i] = tx
 	}
 	h := common.Hash(gb.Hash)
+	var lastBlockID types.BlockID
+	if gb.ParentHash != (atypes.RoadBlockHeaderHash{}) {
+		lastBlockID.Hash = tmbytes.HexBytes(gb.ParentHash.Bytes())
+	}
 	return &coretypes.ResultBlock{
 		BlockID: types.BlockID{Hash: tmbytes.HexBytes(h.Bytes())},
 		Block: &types.Block{
 			Header: types.Header{
-				ChainID: r.cfg.GenDoc.ChainID,
+				LastBlockID: lastBlockID,
+				ChainID:     r.cfg.GenDoc.ChainID,
 				// Clamp accepts any constraints.Integer for From, so
 				// gb.Height (a typed uint64) goes in directly — no
 				// intermediate uint64() conversion needed.

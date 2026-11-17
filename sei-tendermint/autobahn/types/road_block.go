@@ -79,21 +79,22 @@ func ParseRoadBlockHeaderHash(bytes []byte) (RoadBlockHeaderHash, error) {
 	return RoadBlockHeaderHash(h), err
 }
 
-// RoadBlockHeader identifies a road block and contains its timestamp and lane ranges.
+// RoadBlockHeader identifies a road block and contains its parent's hash, timestamp and lane ranges.
 type RoadBlockHeader struct {
 	utils.ReadOnly
 	epochIndex EpochIndex
 	index      RoadIndex
+	prevHash   utils.Option[RoadBlockHeaderHash]
 	timestamp  time.Time
 	laneRanges map[LaneID]*LaneRange
 }
 
-func newRoadBlockHeader(epochIndex EpochIndex, index RoadIndex, timestamp time.Time, laneRanges []*LaneRange) *RoadBlockHeader {
+func newRoadBlockHeader(epochIndex EpochIndex, index RoadIndex, prevHash utils.Option[RoadBlockHeaderHash], timestamp time.Time, laneRanges []*LaneRange) *RoadBlockHeader {
 	laneRangesM := map[LaneID]*LaneRange{}
 	for _, r := range laneRanges {
 		laneRangesM[r.Lane()] = r
 	}
-	return &RoadBlockHeader{epochIndex: epochIndex, index: index, timestamp: timestamp, laneRanges: laneRangesM}
+	return &RoadBlockHeader{epochIndex: epochIndex, index: index, prevHash: prevHash, timestamp: timestamp, laneRanges: laneRangesM}
 }
 
 // EpochIndex returns the epoch containing this road block.
@@ -101,6 +102,19 @@ func (m *RoadBlockHeader) EpochIndex() EpochIndex { return m.epochIndex }
 
 // Index returns the road block index.
 func (m *RoadBlockHeader) Index() RoadIndex { return m.index }
+
+// PrevHash returns the hash of the previous road's header. It is None only for the chain's first road.
+func (m *RoadBlockHeader) PrevHash() utils.Option[RoadBlockHeaderHash] { return m.prevHash }
+
+// VerifyPrev checks that the header names prev, the header of the road before it, as its parent. A
+// header with no previous road must name none.
+func (m *RoadBlockHeader) VerifyPrev(prev utils.Option[*RoadBlockHeader]) error {
+	want := prev.Map(func(h *RoadBlockHeader) RoadBlockHeaderHash { return h.Hash() })
+	if m.prevHash != want {
+		return fmt.Errorf("prevHash = %v, want %v", m.prevHash, want)
+	}
+	return nil
+}
 
 // view returns the consensus view for this header and view number.
 func (m *RoadBlockHeader) view(number ViewNumber) View {
@@ -179,9 +193,10 @@ func (b *RoadBlock) LaneBlocks() []*Block { return b.laneBlocks }
 // SuperBlock returns the merged transactions and execution metadata for the road.
 func (b *RoadBlock) SuperBlock() *SuperBlock {
 	superBlock := &SuperBlock{
-		Hash:      b.Header().Hash(),
-		Height:    b.qc.Index(),
-		Timestamp: b.Header().Timestamp(),
+		Hash:       b.Header().Hash(),
+		ParentHash: b.Header().PrevHash().Or(RoadBlockHeaderHash{}),
+		Height:     b.qc.Index(),
+		Timestamp:  b.Header().Timestamp(),
 	}
 	for _, block := range b.laneBlocks {
 		superBlock.GasWanted += block.Payload().TotalGasWanted()
@@ -211,8 +226,10 @@ func (b *RoadBlock) Verify(ep *Epoch) error {
 
 // SuperBlock contains all transactions finalized by one CommitQC in header order.
 type SuperBlock struct {
-	Hash   RoadBlockHeaderHash
-	Height RoadIndex
+	Hash RoadBlockHeaderHash
+	// ParentHash is the previous SuperBlock's Hash, zero for the chain's first.
+	ParentHash RoadBlockHeaderHash
+	Height     RoadIndex
 	// Timestamp extracted from CommitQC.
 	Timestamp time.Time
 	// Sum of GasWanted of the CommitQC's lane blocks.
@@ -263,9 +280,14 @@ var RoadBlockHeaderConv = protoutils.Conv[*RoadBlockHeader, *pb.RoadBlockHeader]
 			laneRanges = append(laneRanges, r)
 		}
 		sort.Slice(laneRanges, func(i, j int) bool { return laneRanges[i].Lane().Compare(laneRanges[j].Lane()) < 0 })
+		var prevHash []byte
+		if h, ok := m.prevHash.Get(); ok {
+			prevHash = h.Bytes()
+		}
 		return &pb.RoadBlockHeader{
 			EpochIndex: new(uint64(m.epochIndex)),
 			Index:      new(uint64(m.index)),
+			PrevHash:   prevHash,
 			Timestamp:  TimeConv.Encode(m.timestamp),
 			LaneRanges: LaneRangeConv.EncodeSlice(laneRanges),
 		}
@@ -285,7 +307,15 @@ var RoadBlockHeaderConv = protoutils.Conv[*RoadBlockHeader, *pb.RoadBlockHeader]
 		if err != nil {
 			return nil, fmt.Errorf("laneRanges: %w", err)
 		}
-		header := newRoadBlockHeader(EpochIndex(*m.EpochIndex), RoadIndex(*m.Index), timestamp, laneRanges)
+		prevHash := utils.None[RoadBlockHeaderHash]()
+		if m.PrevHash != nil {
+			h, err := ParseRoadBlockHeaderHash(m.PrevHash)
+			if err != nil {
+				return nil, fmt.Errorf("prevHash: %w", err)
+			}
+			prevHash = utils.Some(h)
+		}
+		header := newRoadBlockHeader(EpochIndex(*m.EpochIndex), RoadIndex(*m.Index), prevHash, timestamp, laneRanges)
 		if len(header.laneRanges) != len(laneRanges) {
 			return nil, fmt.Errorf("laneRanges: duplicate ranges")
 		}

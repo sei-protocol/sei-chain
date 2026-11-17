@@ -1129,6 +1129,8 @@ func TestPushCommitQC_RejectsARoadFromAnotherHistory(t *testing.T) {
 	fork := newState()
 	require.NoError(t, fork.PushCommitQC(t.Context(), bFork.QC()))
 	require.NoError(t, fork.PushCommitQC(t.Context(), cFork.QC()))
-	require.Error(t, fork.PushCommitQC(t.Context(), d.QC()))
+	err := fork.PushCommitQC(t.Context(), d.QC())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "prevHash")
 	require.Equal(t, cFork.Index()+1, nextRoad(fork))
 }

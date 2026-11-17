@@ -77,6 +77,18 @@ type inner struct {
 	anchor utils.AtomicSend[Anchor]
 }
 
+// commitQCAt returns the CommitQC of road n from the retained blocks or anchor, or None if neither
+// holds it.
+func (i *inner) commitQCAt(n types.RoadIndex) utils.Option[*types.CommitQC] {
+	if e, ok := i.blocks[n]; ok {
+		return utils.Some(e.qc.QC())
+	}
+	if qc, ok := i.anchor.Load().CommitQC().Get(); ok && qc.Index() == n {
+		return utils.Some(qc)
+	}
+	return utils.None[*types.CommitQC]()
+}
+
 func (i *inner) insertAppQC(appQC *types.AppQC) error {
 	n := appQC.Proposal().Index()
 	if n < i.nextAppQC {
@@ -337,6 +349,13 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 		}
 		updated := false
 		if inner.nextPartialBlock == n {
+			if n > 0 {
+				if prev, ok := inner.commitQCAt(n - 1).Get(); ok {
+					if err := qc.Header().VerifyPrev(utils.Some(prev.Header())); err != nil {
+						return fmt.Errorf("qc: %w", err)
+					}
+				}
+			}
 			updated = true
 			inner.blocks[n] = &blockEntry{qc: qc, epoch: epoch, laneBlocks: make(map[uint64]*types.Block, len(qc.Headers()))}
 			inner.laneBlockCount += uint64(len(qc.Headers()))

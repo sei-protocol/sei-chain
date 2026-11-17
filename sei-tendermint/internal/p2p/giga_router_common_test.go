@@ -903,7 +903,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsNextEpoch(t *testing.T) {
 			}
 		}
 		// The first road of ep3 moves Anchor to (ep3, ep4): b leaves, d joins.
-		qc3, blocks3 := testRoadQC(registry.MustEpoch(3), []atypes.SecretKey{keyA, keyC}, registry.MustEpoch(3).RoadRange().First)
+		qc3, blocks3 := testRoadQCAfter(registry.MustEpoch(3), []atypes.SecretKey{keyA, keyC}, qc2)
 		if err := testCertifyRoad(ctx, state, rng, []atypes.SecretKey{keyA, keyC}, qc3, blocks3); err != nil {
 			return err
 		}
@@ -935,7 +935,16 @@ func testRegistryThrough(t *testing.T, genesis map[atypes.PublicKey]uint64, late
 
 // testRoadQC returns a commit QC for road of ep, signed by keys, with its road block.
 func testRoadQC(ep *atypes.Epoch, keys []atypes.SecretKey, road atypes.RoadIndex) (*atypes.FullCommitQC, []*atypes.Block) {
-	proposal := atypes.ProposalAt(ep, atypes.View{Index: road, Number: 0})
+	return testCertifyProposal(ep, keys, atypes.ProposalAt(ep, atypes.View{Index: road, Number: 0}))
+}
+
+// testRoadQCAfter is testRoadQC for the road after prev, naming prev as its parent.
+func testRoadQCAfter(ep *atypes.Epoch, keys []atypes.SecretKey, prev *atypes.FullCommitQC) (*atypes.FullCommitQC, []*atypes.Block) {
+	return testCertifyProposal(ep, keys, atypes.ProposalAfter(ep, atypes.View{Index: prev.Index() + 1, Number: 0}, prev.Header()))
+}
+
+// testCertifyProposal certifies a one-block proposal from atypes.ProposalAt or atypes.ProposalAfter.
+func testCertifyProposal(ep *atypes.Epoch, keys []atypes.SecretKey, proposal *atypes.Proposal) (*atypes.FullCommitQC, []*atypes.Block) {
 	block := atypes.NewBlock(ep.Committee().Lanes().At(0), 0, atypes.BlockHeaderHash{}, &atypes.Payload{})
 	votes := make([]*atypes.Signed[*atypes.CommitVote], 0, len(keys))
 	prepareQC := atypes.BuildPrepareQC(keys, proposal)
