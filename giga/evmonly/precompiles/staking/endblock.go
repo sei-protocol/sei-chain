@@ -162,28 +162,20 @@ func (p Precompile) applyBondedSet(block precompiles.BlockContext, s store, para
 	return nil
 }
 
-// epochSnapshotsKept is how many epoch snapshots are kept, as an epoch's
-// committee is derived from the snapshot two epochs before it.
+// epochSnapshotsKept is how many epoch snapshots are kept, as the committee
+// serving an epoch is the bonded set at the end of the epoch two before it.
 const epochSnapshotsKept = 3
 
 // snapshotEpoch copies the bonded set, with each member's consensus key, into
 // epoch's snapshot and deletes the one that no longer falls among the latest
 // epochSnapshotsKept.
 func snapshotEpoch(s store, epoch uint64) error {
-	last, err := s.lastValidators()
+	set, err := bondedValidators(s)
 	if err != nil {
 		return err
 	}
-	set := make([]BondedValidator, len(last))
-	for i, v := range last {
-		// The key is copied rather than looked up when the snapshot is read,
-		// because a member can be removed before its snapshot is retired.
-		pubkey := s.consensusPubkey(v.operator)
-		if pubkey == (common.Hash{}) {
-			return fmt.Errorf("%w: %s", errUnknownValidator, v.operator)
-		}
-		set[i] = BondedValidator{Operator: v.operator, ConsensusPubkey: pubkey, Power: v.power}
-	}
+	// The keys are copied rather than looked up when the snapshot is read,
+	// because a member can be removed before its snapshot is retired.
 	s.setEpochValidators(epoch, set)
 	if epoch >= epochSnapshotsKept {
 		s.setEpochValidators(epoch-epochSnapshotsKept, nil)

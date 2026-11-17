@@ -194,9 +194,9 @@ func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context) error {
 		}
 		// PushAppHash needs the validator set from right after block n, and uses it
 		// only when n closes an epoch. GetValidators() reads the app tip, which can
-		// be past n. The EVM-only app serves the set it snapshotted when the latest
-		// epoch closed, which is block n's until the tip closes the next one, and
-		// the mock app's set never changes.
+		// be past n, so the set is block n's only while no later block has changed
+		// it. The mock app's set never changes; the EVM-only app's can change at
+		// any block.
 		// TODO: ask the app for the set as of block n, to drop that bound.
 		weights, err := committeeWeights(r.app.GetValidators())
 		if err != nil {

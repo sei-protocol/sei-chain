@@ -8,7 +8,6 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
-	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/staking"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -39,25 +38,16 @@ func (g stakingGenesis) EndBlock(block precompiles.BlockContext, state precompil
 	return g.Precompile.EndBlock(block, state)
 }
 
-// corruptEpochSnapshot stores an epoch snapshot longer than staking allows at
-// every EndBlock.
-type corruptEpochSnapshot struct {
+// corruptBondedSet stores a bonded set longer than staking allows at every
+// EndBlock.
+type corruptBondedSet struct {
 	staking.Precompile
 }
 
-func (corruptEpochSnapshot) EndBlock(_ precompiles.BlockContext, state precompiles.State) ([]error, error) {
-	// Slot 2 of StakingStorage maps each epoch to its snapshot, and slot 3 holds
-	// the epoch after the latest.
-	state.SetState(staking.Address, solstorage.MapUint64(solstorage.Slot(2), 0), common.BigToHash(big.NewInt(101)))
-	state.SetState(staking.Address, solstorage.Slot(3), common.BigToHash(big.NewInt(1)))
+func (corruptBondedSet) EndBlock(_ precompiles.BlockContext, state precompiles.State) ([]error, error) {
+	// Slot 0 of StakingStorage holds the bonded set's length.
+	state.SetState(staking.Address, common.Hash{}, common.BigToHash(big.NewInt(101)))
 	return nil, nil
-}
-
-// evmOnlyTestClosingBlock returns an empty block at height that closes epoch.
-func evmOnlyTestClosingBlock(height int64, epoch types.EpochIndex) *proxy.RequestFinalizeBlock {
-	req := evmOnlyTestBlock(height)
-	req.Header.ClosingEpoch = utils.Some(epoch)
-	return req
 }
 
 // newStakingEVMOnlyTestApp returns an initialized application serving the
@@ -98,7 +88,7 @@ func testGenesisValidator(operator common.Address, key ed25519.PublicKey, self i
 	}
 }
 
-func TestEVMOnlyApplicationServesStakingsSetAtEachEpochEnd(t *testing.T) {
+func TestEVMOnlyApplicationServesStakingsBondedSet(t *testing.T) {
 	configured := []proxy.ValidatorUpdate{{PubKey: autobahnKey(ed25519.TestSecretKey([]byte("configured")).Public()), Power: 1}}
 	key1 := ed25519.TestSecretKey([]byte("validator-1")).Public()
 	key2 := ed25519.TestSecretKey([]byte("validator-2")).Public()
@@ -106,12 +96,9 @@ func TestEVMOnlyApplicationServesStakingsSetAtEachEpochEnd(t *testing.T) {
 		testGenesisValidator(common.HexToAddress("0xa2"), key2, 20),
 		testGenesisValidator(common.HexToAddress("0xa1"), key1, 30),
 	}})
-	require.Equal(t, configured, app.GetValidators(), "the configured validators serve until staking snapshots a set")
+	require.Equal(t, configured, app.GetValidators(), "the configured validators serve until staking bonds a set")
 
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
-	require.Equal(t, configured, app.GetValidators(), "staking bonded a set, but no epoch has ended")
-
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestClosingBlock(2, 0))
 	require.Equal(t, []proxy.ValidatorUpdate{
 		{PubKey: autobahnKey(key1), Power: 30},
 		{PubKey: autobahnKey(key2), Power: 20},
@@ -139,8 +126,8 @@ func TestEVMOnlyApplicationServesNoValidatorsAfterAFailedCommit(t *testing.T) {
 	require.Empty(t, app.GetValidators(), "block 1 failed to commit, so the committed state predates it")
 }
 
-func TestEVMOnlyApplicationServesNoValidatorsFromACorruptEpochSnapshot(t *testing.T) {
-	app := newStakingEVMOnlyTestApp(t, []proxy.ValidatorUpdate{{Power: 1}}, corruptEpochSnapshot{})
+func TestEVMOnlyApplicationServesNoValidatorsFromACorruptBondedSet(t *testing.T) {
+	app := newStakingEVMOnlyTestApp(t, []proxy.ValidatorUpdate{{Power: 1}}, corruptBondedSet{})
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
 	require.Empty(t, app.GetValidators())
 }

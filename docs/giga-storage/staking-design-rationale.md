@@ -293,24 +293,22 @@ that cost is small.
 ### The epoch snapshot
 
 V2 hands CometBFT a new validator set every block. Autobahn changes its
-committee once per epoch, and derives epoch E+2's committee from the set it
-reads at the end of epoch E's last block. The node reads the set outside block
-execution, at whatever height the app has reached by then, so the set it gets
-could differ from node to node.
+committee once per epoch: it reads the bonded set after an epoch's last block,
+derives the committee two epochs ahead from it, and keeps that committee in
+consensus-owned state the precompiles do not read. Rewards need the committee
+that served a block.
 
 So at the end of an epoch's last block, EndBlock copies `lastValidators`, with
-each member's consensus key, into `epochValidators[epoch]`, and the app serves
-consensus the latest snapshot. The snapshot is committed state, so every node
-serves the same one for an epoch, and a node that state-syncs gets it too.
-Consensus marks the block that closes an epoch, so the app never repeats the
-epoch length. The keys are copied because a member can leave the bonded set,
-finish unbonding with no shares and be removed while its snapshot is still
-served.
+each member's consensus key, into `epochValidators[epoch]`, and the committee
+that served a block in epoch E is the snapshot of epoch E−2. The snapshot is
+committed state, so every node reads the same one, and a node that state-syncs
+gets it too. Consensus marks the block that closes an epoch, so the app never
+repeats the epoch length. The keys are copied because a member can leave the
+bonded set, finish unbonding with no shares and be removed while its snapshot
+is still read.
 
-The snapshot is also what rewards read: the committee that served a block in
-epoch E is the snapshot of epoch E−2. Three are kept, E−2 to E, and EndBlock
-deletes the one before them when it takes a new one: about 150 slot writes once
-an epoch at 35 validators.
+Three are kept, E−2 to E, and EndBlock deletes the one before them when it
+takes a new one: about 150 slot writes once an epoch at 35 validators.
 
 ### Where the structures don't carry over
 

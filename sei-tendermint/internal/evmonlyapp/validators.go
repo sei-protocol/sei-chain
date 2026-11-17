@@ -12,14 +12,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// GetValidators returns the bonded set staking snapshotted at the end of the
-// latest epoch, and the configured validators until it has snapshotted one. It
-// returns none once a block is known to have failed to commit or the stored set
-// does not add up, and autobahn cannot stage an empty committee.
+// GetValidators returns staking's bonded set after the latest finalized block,
+// and the configured validators until staking has bonded one. It returns none
+// once a block is known to have failed to commit or the stored set does not add
+// up, and autobahn cannot stage an empty committee.
 func (a *evmOnlyApplication) GetValidators() []proxy.ValidatorUpdate {
-	bonded, err := a.epochValidators()
+	bonded, err := a.bondedValidators()
 	if err != nil {
-		logger.Error("EVM-only epoch validator set is unavailable", "err", err)
+		logger.Error("EVM-only bonded validator set is unavailable", "err", err)
 		return nil
 	}
 	if len(bonded) == 0 {
@@ -28,13 +28,12 @@ func (a *evmOnlyApplication) GetValidators() []proxy.ValidatorUpdate {
 	return bonded
 }
 
-// epochValidators returns the bonded set staking snapshotted at the end of the
-// latest epoch, after the latest finalized block, without waiting for that
-// block's commit.
-func (a *evmOnlyApplication) epochValidators() ([]proxy.ValidatorUpdate, error) {
+// bondedValidators returns staking's bonded set after the latest finalized
+// block, without waiting for that block's commit.
+func (a *evmOnlyApplication) bondedValidators() ([]proxy.ValidatorUpdate, error) {
 	var bonded []staking.BondedValidator
 	read := func(state precompiles.State) (err error) {
-		bonded, err = staking.EpochValidators(state)
+		bonded, err = staking.BondedValidators(state)
 		return err
 	}
 	// Autobahn calls this before every block, so it must not hold execution
