@@ -26,7 +26,8 @@ type Config struct {
 	// drives, then providing multiple permits that. The number of provided paths should be a small number, perhaps
 	// a few dozen paths at most. Providing an excessive number of paths may lead to degraded performance.
 	//
-	// Providing zero paths will cause the DB to return an error at startup.
+	// Providing zero paths will cause the DB to return an error at startup. Each path must be on a filesystem that
+	// supports file locks.
 	Paths []string
 
 	// The type of the keymap. Choices are keymap.MemKeymapType and keymap.PebbleDBKeymapType.

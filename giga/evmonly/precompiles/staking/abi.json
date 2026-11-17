@@ -1,0 +1,385 @@
+[
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "delegator",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "validator",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "shares",
+        "type": "uint256"
+      }
+    ],
+    "name": "Delegate",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "delegator",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "srcValidator",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "dstValidator",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "completionTime",
+        "type": "uint64"
+      }
+    ],
+    "name": "Redelegate",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "delegator",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "validator",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "completionTime",
+        "type": "uint64"
+      }
+    ],
+    "name": "Undelegate",
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "validator",
+        "type": "address"
+      }
+    ],
+    "name": "delegate",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "valAddress",
+        "type": "string"
+      }
+    ],
+    "name": "delegate",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "delegator",
+        "type": "address"
+      },
+      {
+        "internalType": "string",
+        "name": "valAddress",
+        "type": "string"
+      }
+    ],
+    "name": "delegateWithAuthorization",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "grantee",
+        "type": "address"
+      },
+      {
+        "internalType": "string[]",
+        "name": "allowedValidators",
+        "type": "string[]"
+      },
+      {
+        "internalType": "uint256",
+        "name": "maxTokens",
+        "type": "uint256"
+      },
+      {
+        "internalType": "int64",
+        "name": "expiration",
+        "type": "int64"
+      }
+    ],
+    "name": "grantStakingAuthorization",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "srcValidator",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "dstValidator",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "redelegate",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "srcAddress",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "dstAddress",
+        "type": "string"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "redelegate",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "delegator",
+        "type": "address"
+      },
+      {
+        "internalType": "string",
+        "name": "srcAddress",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "dstAddress",
+        "type": "string"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "redelegateWithAuthorization",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "grantee",
+        "type": "address"
+      }
+    ],
+    "name": "revokeStakingAuthorization",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "validator",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "undelegate",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "valAddress",
+        "type": "string"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "undelegate",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "delegator",
+        "type": "address"
+      },
+      {
+        "internalType": "string",
+        "name": "valAddress",
+        "type": "string"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "undelegateWithAuthorization",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]
