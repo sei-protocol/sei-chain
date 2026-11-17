@@ -78,19 +78,13 @@ func setup(
 	return rts
 }
 
-// newMemBlockStore returns a block store backed by a fresh in-memory database.
-func newMemBlockStore() *store.BlockStore {
-	return store.NewBlockStore(dbm.NewMemDB())
-}
-
-// makeReactor returns a reactor serving genDoc on router, backed by blockStore, and the event bus
-// that its block executor publishes to.
+// makeReactor returns a reactor on router that starts from the genesis state of genDoc, and the
+// event bus that its block executor publishes to.
 func makeReactor(
 	ctx context.Context,
 	t *testing.T,
 	genDoc *types.GenesisDoc,
 	router *p2p.Router,
-	blockStore *store.BlockStore,
 	blockSync bool,
 	restartEvent func(),
 	selfRemediationConfig *config.SelfRemediationConfig,
@@ -98,8 +92,10 @@ func makeReactor(
 
 	app := abci.BaseApplication{}
 
+	blockDB := dbm.NewMemDB()
 	stateDB := dbm.NewMemDB()
 	stateStore := sm.NewStore(stateDB)
+	blockStore := store.NewBlockStore(blockDB)
 	proxyApp := proxy.New(app)
 
 	state, err := sm.MakeGenesisState(genDoc)
@@ -158,7 +154,6 @@ func (rts *reactorTestSuite) addNode(
 		t,
 		genDoc,
 		rts.network.Node(nodeID).Router,
-		newMemBlockStore(),
 		true,
 		func() {},
 		remediationConfig,
@@ -500,7 +495,6 @@ func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {
 		t,
 		genDoc,
 		network.Node(nodeIDs[0]).Router,
-		newMemBlockStore(),
 		false,
 		func() {},
 		config.DefaultSelfRemediationConfig(),
@@ -571,7 +565,6 @@ func TestQueryResponder_ServesStatusRequestsWhenBlockSyncDisabled(t *testing.T) 
 		t,
 		genDoc,
 		network.Node(nodeIDs[0]).Router,
-		newMemBlockStore(),
 		false,
 		func() {},
 		config.DefaultSelfRemediationConfig(),
