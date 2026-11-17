@@ -88,34 +88,6 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 	})
 }
 
-// TestWaitForLaneQCs waits for LaneQCs for all headers in the given epoch.
-func TestWaitForLaneQCs(ctx context.Context, state *State, epoch types.EpochIndex, headers []*types.BlockHeader) error {
-	for inner, ctrl := range state.inner.Lock() {
-		return ctrl.WaitUntil(ctx, func() bool {
-			for _, header := range headers {
-				lane, ok := inner.lanes[header.Lane()]
-				if !ok {
-					return false
-				}
-				votes, ok := lane.votes[epoch]
-				if !ok {
-					return false
-				}
-				entry, ok := votes.q[header.BlockNumber()]
-				if !ok {
-					return false
-				}
-				qc, ok := entry.qc.Get()
-				if !ok || qc.Header().Hash() != header.Hash() {
-					return false
-				}
-			}
-			return true
-		})
-	}
-	panic("unreachable")
-}
-
 func testAnchorAt(ep, next *types.Epoch, keys []types.SecretKey, index types.RoadIndex) data.Anchor {
 	cks := make([]types.SecretKey, 0, len(keys))
 	for _, key := range keys {
