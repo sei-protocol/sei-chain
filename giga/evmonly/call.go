@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -12,11 +11,6 @@ import (
 
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
-
-// callTimeout bounds how long a Call may run before its EVM is cancelled,
-// matching evmrpc's simulation_evm_timeout default. A var, not a const, so
-// tests can shrink it rather than run for the full timeout.
-var callTimeout = 60 * time.Second
 
 // Call executes msg as a read-only EVM message call against the current
 // committed state and returns the execution result. It persists no state
@@ -54,12 +48,9 @@ func (e *Executor) CallAt(ctx context.Context, view gigatypes.EVMStateView, bloc
 	if err := overrides.applyState(evm, stateDB); err != nil {
 		return nil, err
 	}
-	// Gas pricing alone cannot cap wall-clock cost (e.g. modexp with adversarial inputs).
-	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
-	defer cancel()
-	result, cancelled, err := applyMessage(callCtx, evm, msg)
+	result, cancelled, err := applyMessage(ctx, evm, msg)
 	if cancelled {
-		return nil, fmt.Errorf("EVM-only call exceeded %s execution timeout", callTimeout)
+		return nil, fmt.Errorf("EVM-only call cancelled: %w", ctx.Err())
 	}
 	if stateErr := stateDB.Error(); stateErr != nil {
 		return nil, stateErr
