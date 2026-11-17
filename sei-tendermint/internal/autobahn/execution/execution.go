@@ -54,11 +54,11 @@ func (e *Executor) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
 	return e.executed.Subscribe()
 }
 
-// pendingExec is one in-flight executeBlock. done receives the gas the block used once it is
-// committed.
+// pendingExec is one in-flight executeBlock. gasUsed resolves to the gas the block used once it
+// is committed.
 type pendingExec struct {
-	height atypes.RoadIndex
-	done   chan int64
+	height  atypes.RoadIndex
+	gasUsed scope.JoinHandle[int64]
 }
 
 // Run initializes the app, then executes the durable blocks after its tip in
@@ -91,29 +91,25 @@ func (e *Executor) Run(ctx context.Context) error {
 					return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 				}
 				req := e.makeFinalizeRequest(b)
-				done := make(chan int64, 1)
-				s.Spawn(func() error {
+				gasUsed := scope.Spawn1(s, func() (int64, error) {
 					defer release()
 					gasUsed, err := e.executeBlock(ctx, b, req)
 					if err != nil {
-						return fmt.Errorf("executeBlock(%v): %w", b.Height, err)
+						return 0, fmt.Errorf("executeBlock(%v): %w", b.Height, err)
 					}
-					done <- gasUsed
-					return nil
+					return gasUsed, nil
 				})
-				if err := utils.Send(ctx, results, pendingExec{height: b.Height, done: done}); err != nil {
+				if err := utils.Send(ctx, results, pendingExec{height: b.Height, gasUsed: gasUsed}); err != nil {
 					return err
 				}
 			}
 		})
 		for {
-			gigametrics.SetPhase(gigametrics.PhaseConsensus)
 			p, err := utils.Recv(ctx, results)
 			if err != nil {
 				return err
 			}
-			gigametrics.SetPhase(gigametrics.PhaseExecution)
-			gasUsed, err := utils.Recv(ctx, p.done)
+			gasUsed, err := p.gasUsed.Join(ctx)
 			if err != nil {
 				return err
 			}
@@ -125,13 +121,11 @@ func (e *Executor) Run(ctx context.Context) error {
 // publishExecuted records a committed block in the executed-block window and the gas metric.
 // It must be called in road order: the window indexes blocks by their offset from the oldest.
 func (e *Executor) publishExecuted(height atypes.RoadIndex, gasUsed int64) {
-	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
 	metrics.GasUsed.Add(gasUsed)
 	e.executed.Store(e.executed.Load().Push(atypes.ExecutedBlock{
 		Number:  height,
 		GasUsed: utils.Clamp[uint64](gasUsed),
 	}))
-	gigametrics.EndStoragePhase()
 }
 
 // makeFinalizeRequest builds the FinalizeBlock request for a superblock, except for
@@ -222,6 +216,8 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock, req *
 	if err != nil {
 		return 0, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
+	// Still inside the block's turn: the next block executes only after this Commit, so these
+	// phases cannot interleave with another block's.
 	gigametrics.SetPhase(gigametrics.PhaseStorage)
 	gasUsed := finalizeBlockGasUsed(resp)
 

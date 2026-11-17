@@ -16,7 +16,7 @@ const (
 	timerName        = "autobahn_main_loop"
 	storageTimerName = "autobahn_storage_tail"
 
-	// PhaseConsensus is time spent waiting for the next committed Autobahn block.
+	// PhaseConsensus is time between one block's commit and the next block's execution.
 	PhaseConsensus = "consensus"
 	// PhaseExecution is time spent executing that block's transactions.
 	PhaseExecution = "execution"
@@ -25,18 +25,16 @@ const (
 
 	// StoragePhaseAppCommit is the app's Commit call.
 	StoragePhaseAppCommit = "app_commit"
-	// StoragePhaseBookkeeping is the loop's own work after Commit: the gas counter and the
-	// executed-block window.
-	StoragePhaseBookkeeping = "bookkeeping"
 )
 
 var (
 	setupOnce sync.Once
 	setupErr  error
 
-	loopOnce sync.Once
-	loop     *seidbmetrics.PhaseTimer
-	loopMu   sync.Mutex
+	loopOnce  sync.Once
+	loop      *seidbmetrics.PhaseTimer
+	loopMu    sync.Mutex
+	loopPhase string
 
 	storageOnce sync.Once
 	storage     *seidbmetrics.PhaseTimer
@@ -69,10 +67,17 @@ func MainLoop() *seidbmetrics.PhaseTimer {
 	return loop
 }
 
-// SetPhase records a transition on Autobahn's execute-loop timer.
+// SetPhase records a transition on Autobahn's execute-loop timer. Leaving PhaseStorage closes the
+// storage tail's current phase.
 func SetPhase(phase string) {
 	loopMu.Lock()
 	defer loopMu.Unlock()
+	if loopPhase == PhaseStorage && phase != PhaseStorage {
+		storageMu.Lock()
+		StorageTail().Reset()
+		storageMu.Unlock()
+	}
+	loopPhase = phase
 	MainLoop().SetPhase(phase)
 }
 
@@ -90,12 +95,4 @@ func SetStoragePhase(phase string) {
 	storageMu.Lock()
 	defer storageMu.Unlock()
 	StorageTail().SetPhase(phase)
-}
-
-// EndStoragePhase closes the storage tail's current phase, so the time until
-// the next block's tail is charged to none of them.
-func EndStoragePhase() {
-	storageMu.Lock()
-	defer storageMu.Unlock()
-	StorageTail().Reset()
 }
