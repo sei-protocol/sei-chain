@@ -43,8 +43,10 @@ type replayBackend struct {
 	store       *evmonly.MemoryStore
 	receipts    *evmonly.MemoryReceiptStore
 	blocks      []*coretypes.ResultBlock
-	byHash      map[common.Hash]*coretypes.ResultBlock
-	tip         evmonly.BlockContext
+	// parentOfFirst is the block before blocks[0], carrying only its hash.
+	parentOfFirst *coretypes.ResultBlock
+	byHash        map[common.Hash]*coretypes.ResultBlock
+	tip           evmonly.BlockContext
 }
 
 // serveFixture replays fixture and returns a Caller for an EVM-only RPC
@@ -86,6 +88,13 @@ func replayFixture(t *testing.T, fixture *parity.Fixture) *replayBackend {
 		store:       store,
 		receipts:    receipts,
 		byHash:      map[common.Hash]*coretypes.ResultBlock{},
+	}
+	if len(fixture.Blocks) > 0 {
+		first := fixture.Blocks[0].Header
+		backend.parentOfFirst = &coretypes.ResultBlock{
+			BlockID: tmtypes.BlockID{Hash: first.ParentHash.Bytes()},
+			Block:   &tmtypes.Block{Header: tmtypes.Header{Height: int64(first.Number) - 1}}, //nolint:gosec // fixture heights fit int64.
+		}
 	}
 	for _, block := range fixture.Blocks {
 		blockCtx := replayBlockContext(chainID, block)
@@ -158,7 +167,6 @@ func consensusBlock(block parity.Block) *coretypes.ResultBlock {
 			Header: tmtypes.Header{
 				Height:          int64(header.Number), //nolint:gosec // fixture heights fit int64.
 				Time:            header.Time,
-				LastBlockID:     tmtypes.BlockID{Hash: header.ParentHash.Bytes()},
 				AppHash:         header.StateRoot.Bytes(),
 				ProposerAddress: header.Miner.Bytes(),
 				DataHash:        header.TransactionsRoot.Bytes(),
@@ -177,6 +185,8 @@ func (b *replayBackend) Block(_ context.Context, req *coretypes.RequestBlockInfo
 	height := int64(*req.Height)
 	first, tip := b.blocks[0].Block.Height, b.blocks[len(b.blocks)-1].Block.Height
 	switch {
+	case height == first-1 && b.parentOfFirst != nil:
+		return b.parentOfFirst, nil
 	case height <= 0:
 		return nil, coretypes.ErrZeroOrNegativeHeight
 	case height > tip:

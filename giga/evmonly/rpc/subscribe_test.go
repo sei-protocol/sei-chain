@@ -30,10 +30,10 @@ func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 	block, _, _, _ := multiTxBlock(t, 7, blockHash, time.Unix(1_700_000_000, 0))
 	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: 6}))
 	subscribed := make(chan struct{}, 1)
-	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, withParent(6, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		require.Equal(t, coretypes.Int64(7), *req.Height)
 		return block, nil
-	})
+	}))
 	backend.executedBlocks = func() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
 		subscribed <- struct{}{}
 		return executed.Subscribe(), nil
@@ -57,6 +57,7 @@ func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 	select {
 	case header := <-headers:
 		require.Equal(t, big.NewInt(7), header.Number)
+		require.Equal(t, testParentHash, header.ParentHash)
 		require.Equal(t, uint64(43_500), header.GasUsed)
 		require.Equal(t, uint64(35_000_000), header.GasLimit)
 		require.Equal(t, uint64(1_700_000_000), header.Time)
@@ -75,7 +76,7 @@ func TestNewHeadsCatchesUpFromExecutedWindow(t *testing.T) {
 	block8, _, _, _ := multiTxBlock(t, 8, common.HexToHash("0xabce"), time.Unix(1_700_000_001, 0))
 	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: 6}))
 	subscribed := make(chan struct{}, 1)
-	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, withParent(6, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		switch *req.Height {
 		case 7:
 			return block7, nil
@@ -83,7 +84,7 @@ func TestNewHeadsCatchesUpFromExecutedWindow(t *testing.T) {
 			return block8, nil
 		}
 		return nil, fmt.Errorf("unexpected height %d", *req.Height)
-	})
+	}))
 	backend.executedBlocks = func() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
 		subscribed <- struct{}{}
 		return executed.Subscribe(), nil
@@ -105,13 +106,15 @@ func TestNewHeadsCatchesUpFromExecutedWindow(t *testing.T) {
 	executed.Store(executed.Load().Push(atypes.ExecutedBlock{Number: 7, GasUsed: 43_500}).Push(atypes.ExecutedBlock{Number: 8, GasUsed: 21_000}))
 
 	want := []struct {
-		number  int64
-		gasUsed uint64
-	}{{7, 43_500}, {8, 21_000}}
+		number     int64
+		parentHash common.Hash
+		gasUsed    uint64
+	}{{7, testParentHash, 43_500}, {8, common.HexToHash("0xabcd"), 21_000}}
 	for _, w := range want {
 		select {
 		case header := <-headers:
 			require.Equal(t, big.NewInt(w.number), header.Number)
+			require.Equal(t, w.parentHash, header.ParentHash)
 			require.Equal(t, w.gasUsed, header.GasUsed)
 		case err := <-sub.Err():
 			t.Fatalf("subscription failed: %v", err)

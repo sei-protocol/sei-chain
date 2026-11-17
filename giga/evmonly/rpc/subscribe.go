@@ -238,5 +238,5 @@ func (api *subscribeAPI) header(ctx context.Context, height atypes.RoadIndex, wi
 		}
 		committed.GasUsed = gasUsed
 	}
-	return encodeHeader(api.backend, block, committed.GasUsed)
+	return (&blockAPI{backend: api.backend, store: api.store}).encodeHeader(ctx, block, committed.GasUsed)
 }
