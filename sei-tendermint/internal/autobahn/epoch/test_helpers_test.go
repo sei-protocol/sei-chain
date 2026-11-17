@@ -15,8 +15,8 @@ type errPersister struct{ err error }
 func (e errPersister) Persist(*pb.PersistedEpochRegistry) error { return e.err }
 
 func testEpoch(idx types.EpochIndex, firstRoad types.RoadIndex, committee *types.Committee) *types.Epoch {
-	first := firstRoad + types.RoadIndex(idx)*epochLength
-	return types.NewEpoch(idx, types.RoadRange{First: first, Next: first + epochLength}, committee)
+	first := firstRoad + types.RoadIndex(idx)*DefaultEpochLength
+	return types.NewEpoch(idx, types.RoadRange{First: first, Next: first + DefaultEpochLength}, committee)
 }
 
 func testPersistedRegistry(live []*types.Epoch) *persistedRegistry {
@@ -33,5 +33,5 @@ func testNewRegistry(t *testing.T, committee *types.Committee, firstRoad types.R
 	persister, _, err := openEpochSnapshot(dir)
 	require.NoError(t, err)
 	require.NoError(t, persister.Persist(snapshot))
-	return NewRegistry(committee, firstRoad, time.Time{}, dir)
+	return NewRegistry(committee, firstRoad, time.Time{}, DefaultEpochLength, dir)
 }

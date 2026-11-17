@@ -426,6 +426,7 @@ func TestPushAppHash_RestartAtEpoch1KeepsLastRoadStake(t *testing.T) {
 		baseEpoch0.Committee(),
 		baseEpoch0.RoadRange().First,
 		base.GenesisTimestamp(),
+		epoch.DefaultEpochLength,
 		regDir))
 	storeDir := t.TempDir()
 	store := newTestBlockStore(t, storeDir)
@@ -459,6 +460,7 @@ func TestPushAppHash_RestartAtEpoch1KeepsLastRoadStake(t *testing.T) {
 		baseEpoch0.Committee(),
 		baseEpoch0.RoadRange().First,
 		base.GenesisTimestamp(),
+		epoch.DefaultEpochLength,
 		regDir))
 	store2 := newTestBlockStore(t, storeDir)
 	state2 := newTestState(t, &Config{Registry: registry2}, store2)

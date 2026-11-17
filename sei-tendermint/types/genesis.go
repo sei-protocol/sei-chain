@@ -10,7 +10,9 @@ import (
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
@@ -81,11 +83,13 @@ type GenesisDoc struct {
 // AutobahnParams is the Autobahn section of a genesis doc.
 type AutobahnParams struct {
 	ViewTimeout time.Duration `json:"view_timeout,string"`
+	// EpochLength is the number of road blocks per epoch; zero selects the default.
+	EpochLength atypes.RoadIndex `json:"epoch_length,string"`
 }
 
-// DefaultAutobahnParams returns AutobahnParams with a 1500ms view timeout.
+// DefaultAutobahnParams returns the default Autobahn genesis parameters.
 func DefaultAutobahnParams() *AutobahnParams {
-	return &AutobahnParams{ViewTimeout: 1500 * time.Millisecond}
+	return &AutobahnParams{ViewTimeout: 1500 * time.Millisecond, EpochLength: epoch.DefaultEpochLength}
 }
 
 func (genDoc *GenesisDoc) ToRequestInitChain() *abci.RequestInitChain {
@@ -154,6 +158,10 @@ func (genDoc *GenesisDoc) ValidateAndComplete() error {
 		genDoc.Autobahn = DefaultAutobahnParams()
 	} else if genDoc.Autobahn.ViewTimeout <= 0 {
 		return fmt.Errorf("autobahn.view_timeout must be greater than 0, got %v", genDoc.Autobahn.ViewTimeout)
+	}
+
+	if genDoc.Autobahn.EpochLength == 0 {
+		genDoc.Autobahn.EpochLength = epoch.DefaultEpochLength
 	}
 
 	if err := genDoc.ConsensusParams.ValidateConsensusParams(); err != nil {

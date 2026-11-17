@@ -174,7 +174,6 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	require.Equal(t, lane1, gotBlk.Msg().Block().Header().Lane())
 }
 
-
 func TestLaneRevoteOnEpochAdvance(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()

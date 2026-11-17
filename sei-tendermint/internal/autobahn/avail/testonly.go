@@ -81,7 +81,7 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for _, from := range states {
 			for _, to := range states {
-				s.Spawn(func() error { return RunTestConn(ctx, from,to) })
+				s.Spawn(func() error { return RunTestConn(ctx, from, to) })
 			}
 		}
 		return nil
