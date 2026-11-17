@@ -406,7 +406,7 @@ func resolvePersistentStateDir(rootDir, dir string) (string, error) {
 
 // openAutobahnStorageManager opens the Giga storage set in Autobahn's
 // persistent-state directory, laid out for nodeMode unless storage pins a mode,
-// with the history archive when archiveConfig enables one.
+// with the history archive exporter when archiveConfig enables export.
 func openAutobahnStorageManager(
 	ctx context.Context,
 	rootDir string,
@@ -429,15 +429,37 @@ func openAutobahnStorageManager(
 		return nil, fmt.Errorf("build Autobahn block DB config: %w", err)
 	}
 	storageConfig.BlockDBConfig = &blockConfig
-	if archiveConfig.Enabled() {
-		storageConfig.ArchiveConfig = &archive.Config{
-			Addr:     archiveConfig.ClickHouseAddr,
-			Database: archiveConfig.Database,
-			User:     archiveConfig.User,
-			Password: archiveConfig.Password,
-		}
+	if archiveConfig.Export {
+		clientConfig := archiveClientConfig(archiveConfig)
+		storageConfig.ArchiveConfig = &clientConfig
 	}
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
+}
+
+// openArchiveReader returns a reader of the history archive for the EVM RPC, or None when
+// archiveConfig does not enable serve_rpc.
+func openArchiveReader(archiveConfig gigaconfig.ArchiveConfig) (utils.Option[*archive.Reader], error) {
+	if !archiveConfig.ServeRPC {
+		return utils.None[*archive.Reader](), nil
+	}
+	reader, err := archive.OpenReader(archiveClientConfig(archiveConfig), archive.ReaderOptions{
+		MaxConns:     archiveConfig.RPCMaxConns,
+		QueryTimeout: archiveConfig.RPCQueryTimeout,
+	})
+	if err != nil {
+		return utils.None[*archive.Reader](), fmt.Errorf("open history archive reader: %w", err)
+	}
+	return utils.Some(reader), nil
+}
+
+// archiveClientConfig returns where and as whom archiveConfig connects to ClickHouse.
+func archiveClientConfig(archiveConfig gigaconfig.ArchiveConfig) archive.Config {
+	return archive.Config{
+		Addr:     archiveConfig.ClickHouseAddr,
+		Database: archiveConfig.Database,
+		User:     archiveConfig.User,
+		Password: archiveConfig.Password,
+	}
 }
 
 // buildGigaStorageConfig returns the store configs for directory with the [giga.storage]

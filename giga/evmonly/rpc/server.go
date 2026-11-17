@@ -114,10 +114,25 @@ type Server struct {
 	rpc        *ethrpc.Server
 }
 
+// Option configures the EVM-only JSON-RPC API.
+type Option func(*handlerOptions)
+
+// handlerOptions is what the Options passed to Start configure.
+type handlerOptions struct {
+	history utils.Option[History]
+}
+
+// WithHistory answers reads of finalized chain data the node's own stores do not hold from history.
+func WithHistory(history History) Option {
+	return func(o *handlerOptions) {
+		o.history = utils.Some(history)
+	}
+}
+
 // Start binds the EVM-only JSON-RPC HTTP listener on port and WebSocket listener on wsPort, on
 // all interfaces, and returns their server enforcing limits.
-func Start(backend Backend, receiptStore receipt.ReceiptStore, port int, wsPort int, limits gigaconfig.RPCConfig) (*Server, error) {
-	rpcServer, err := newHandler(backend, receiptStore, limits)
+func Start(backend Backend, receiptStore receipt.ReceiptStore, port int, wsPort int, limits gigaconfig.RPCConfig, opts ...Option) (*Server, error) {
+	rpcServer, err := newHandler(backend, receiptStore, limits, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -160,9 +175,13 @@ func websocketHandler(rpcServer *ethrpc.Server) http.Handler {
 	return rpcServer.WebsocketHandler(wsAllowedOrigins)
 }
 
-func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigaconfig.RPCConfig) (*ethrpc.Server, error) {
+func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigaconfig.RPCConfig, opts ...Option) (*ethrpc.Server, error) {
 	if receiptStore == nil {
 		return nil, errors.New("EVM-only RPC requires a receipt store")
+	}
+	var options handlerOptions
+	for _, opt := range opts {
+		opt(&options)
 	}
 	rpcServer := ethrpc.NewServer()
 	rpcServer.SetBatchLimits(limits.BatchRequestLimit, limits.BatchResponseMaxSize)
@@ -173,7 +192,7 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 	if err := rpcServer.RegisterName("eth", newSendAPI(backend, limits.MaxConcurrentSendCalls)); err != nil {
 		return nil, fmt.Errorf("register EVM-only send RPC: %w", err)
 	}
-	if err := rpcServer.RegisterName("eth", &txAPI{backend: backend, store: receiptStore}); err != nil {
+	if err := rpcServer.RegisterName("eth", &txAPI{backend: backend, store: receiptStore, history: options.history}); err != nil {
 		return nil, fmt.Errorf("register EVM-only transaction RPC: %w", err)
 	}
 	if err := rpcServer.RegisterName("eth", &stateAPI{backend: backend}); err != nil {

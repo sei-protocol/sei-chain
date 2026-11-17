@@ -22,6 +22,7 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	evmonlyrpc "github.com/sei-protocol/sei-chain/giga/evmonly/rpc"
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -151,6 +152,8 @@ type nodeImpl struct {
 	evmOnlyRPCPort    int
 	evmOnlyWSPort     int
 	evmOnlyRPCLimits  gigaconfig.RPCConfig
+	archiveConfig     gigaconfig.ArchiveConfig
+	archiveReader     utils.Option[*archive.Reader]
 	shutdownOps       closer
 	rpcEnv            *rpccore.Environment
 	prometheusSrv     utils.Option[*http.Server]
@@ -286,6 +289,7 @@ func makeNode(
 		evmOnlyRPCPort:     opts.giga.Execution.EvmRpcPort,
 		evmOnlyWSPort:      opts.giga.Execution.EvmWsPort,
 		evmOnlyRPCLimits:   opts.giga.RPC,
+		archiveConfig:      opts.giga.Archive,
 
 		nodeKey: nodeKey,
 
@@ -755,8 +759,16 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 		}
 		if receipts := storage.ReceiptDB(); receipts != nil {
 			evmEnv := &rpccore.EVMEnvironment{Environment: n.rpcEnv, EVMProxy: evm}
-			n.evmOnlyRPC, err = evmonlyrpc.Start(evmEnv, receipts, n.evmOnlyRPCPort, n.evmOnlyWSPort, n.evmOnlyRPCLimits)
+			if n.archiveReader, err = openArchiveReader(n.archiveConfig); err != nil {
+				return err
+			}
+			var rpcOptions []evmonlyrpc.Option
+			if reader, ok := n.archiveReader.Get(); ok {
+				rpcOptions = append(rpcOptions, evmonlyrpc.WithHistory(reader))
+			}
+			n.evmOnlyRPC, err = evmonlyrpc.Start(evmEnv, receipts, n.evmOnlyRPCPort, n.evmOnlyWSPort, n.evmOnlyRPCLimits, rpcOptions...)
 			if err != nil {
+				n.closeArchiveReader()
 				return err
 			}
 			n.SpawnCritical("evm-only-rpc", n.evmOnlyRPC.Serve)
@@ -780,6 +792,8 @@ func (n *nodeImpl) OnStop() {
 	if n.evmOnlyRPC != nil {
 		n.evmOnlyRPC.Stop()
 	}
+	// After the RPC, which reads from it until it stops.
+	n.closeArchiveReader()
 	for _, l := range n.rpcListeners {
 		logger.Info("Closing rpc listener", "listener", l.Addr())
 		if err := l.Close(); err != nil {
@@ -823,6 +837,14 @@ func (n *nodeImpl) OnStop() {
 		if err := n.stateStore.Close(); err != nil {
 			logger.Error("problem closing statestore", "err", err)
 		}
+	}
+}
+
+// closeArchiveReader closes the history archive reader, if one is open.
+func (n *nodeImpl) closeArchiveReader() {
+	if reader, ok := n.archiveReader.Get(); ok {
+		reader.Close()
+		n.archiveReader = utils.None[*archive.Reader]()
 	}
 }
 

@@ -140,20 +140,24 @@ type StateSyncConfig struct {
 }
 
 // ArchiveConfig is the [giga.archive] sub-table: the ClickHouse history archive this node writes
-// its blocks to.
+// its blocks to, serves RPC reads from, or both.
 type ArchiveConfig struct {
-	// ClickHouseAddr is the archive's ClickHouse native-protocol address, host:port. Empty
-	// disables the archive.
+	// ClickHouseAddr is the archive's ClickHouse native-protocol address, host:port.
 	ClickHouseAddr string `mapstructure:"clickhouse_addr"`
 	// Database is the ClickHouse database holding this chain's archive.
 	Database string `mapstructure:"database"`
 	// User and Password authenticate to ClickHouse.
 	User     string `mapstructure:"user"`
 	Password string `mapstructure:"password"`
+	// Export writes every block this node executes to the archive.
+	Export bool `mapstructure:"export"`
+	// ServeRPC answers EVM RPC reads of data this node no longer holds from the archive.
+	ServeRPC bool `mapstructure:"serve_rpc"`
+	// RPCMaxConns is how many archive queries the EVM RPC runs at once.
+	RPCMaxConns int32 `mapstructure:"rpc_max_conns"`
+	// RPCQueryTimeout bounds each archive query the EVM RPC runs.
+	RPCQueryTimeout time.Duration `mapstructure:"rpc_query_timeout"`
 }
-
-// Enabled reports whether an archive is configured.
-func (c ArchiveConfig) Enabled() bool { return c.ClickHouseAddr != "" }
 
 // DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
 // sei-db ones, so there is a single place they are defined.
@@ -194,8 +198,10 @@ var DefaultConfig = Config{
 		Enabled: false,
 	},
 	Archive: ArchiveConfig{
-		Database: "sei_archive",
-		User:     "default",
+		Database:        "sei_archive",
+		User:            "default",
+		RPCMaxConns:     16,
+		RPCQueryTimeout: 2 * time.Second,
 	},
 }
 
@@ -254,6 +260,10 @@ const (
 	FlagArchiveDatabase                  = "giga.archive.database"
 	FlagArchiveUser                      = "giga.archive.user"
 	FlagArchivePassword                  = "giga.archive.password" //nolint:gosec // a config key, not a credential
+	FlagArchiveExport                    = "giga.archive.export"
+	FlagArchiveServeRPC                  = "giga.archive.serve_rpc"
+	FlagArchiveRPCMaxConns               = "giga.archive.rpc_max_conns"
+	FlagArchiveRPCQueryTimeout           = "giga.archive.rpc_query_timeout"
 )
 
 // ReadConfig reads the [giga] section from app options. An absent key keeps its default.
@@ -455,6 +465,26 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagArchivePassword, err)
 		}
 	}
+	if v := opts.Get(FlagArchiveExport); v != nil {
+		if cfg.Archive.Export, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagArchiveExport, err)
+		}
+	}
+	if v := opts.Get(FlagArchiveServeRPC); v != nil {
+		if cfg.Archive.ServeRPC, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagArchiveServeRPC, err)
+		}
+	}
+	if v := opts.Get(FlagArchiveRPCMaxConns); v != nil {
+		if cfg.Archive.RPCMaxConns, err = cast.ToInt32E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagArchiveRPCMaxConns, err)
+		}
+	}
+	if v := opts.Get(FlagArchiveRPCQueryTimeout); v != nil {
+		if cfg.Archive.RPCQueryTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagArchiveRPCQueryTimeout, err)
+		}
+	}
 	return cfg, cfg.Validate()
 }
 
@@ -549,8 +579,19 @@ func (c Config) Validate() error {
 	if c.RPC.MaxStateOverrideSlots < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxStateOverrideSlots, c.RPC.MaxStateOverrideSlots)
 	}
-	if c.Archive.Enabled() && c.Archive.Database == "" {
-		return fmt.Errorf("%s: must be set when %s is", FlagArchiveDatabase, FlagArchiveClickHouseAddr)
+	if c.Archive.Export || c.Archive.ServeRPC {
+		if c.Archive.ClickHouseAddr == "" {
+			return fmt.Errorf("%s: must be set when %s or %s is", FlagArchiveClickHouseAddr, FlagArchiveExport, FlagArchiveServeRPC)
+		}
+		if c.Archive.Database == "" {
+			return fmt.Errorf("%s: must be set when %s or %s is", FlagArchiveDatabase, FlagArchiveExport, FlagArchiveServeRPC)
+		}
+	}
+	if c.Archive.RPCMaxConns <= 0 {
+		return fmt.Errorf("%s: must be > 0, got %d", FlagArchiveRPCMaxConns, c.Archive.RPCMaxConns)
+	}
+	if c.Archive.RPCQueryTimeout <= 0 {
+		return fmt.Errorf("%s: must be > 0, got %s", FlagArchiveRPCQueryTimeout, c.Archive.RPCQueryTimeout)
 	}
 	return nil
 }
@@ -698,18 +739,30 @@ max_state_override_slots = {{ .Giga.RPC.MaxStateOverrideSlots }}
 enabled = {{ .Giga.StateSync.Enabled }}
 
 [giga.archive]
-# clickhouse_addr is the ClickHouse native-protocol address (host:port) of the history archive
-# this node writes its blocks to. Empty disables the archive. Block execution waits for an
-# archive that falls behind, so do not enable it on a validator.
+# clickhouse_addr is the ClickHouse native-protocol address (host:port) of the history archive.
 clickhouse_addr = "{{ .Giga.Archive.ClickHouseAddr }}"
 
 # database is the ClickHouse database holding this chain's archive: letters, digits and
 # underscores.
 database = "{{ .Giga.Archive.Database }}"
 
-# user and password authenticate to ClickHouse.
+# user and password authenticate to ClickHouse. A node that only sets serve_rpc should use a
+# read-only user.
 user = "{{ .Giga.Archive.User }}"
 password = {{ printf "%q" .Giga.Archive.Password }}
+
+# export writes every block this node executes to the archive. Block execution waits for an
+# archive that falls behind, so do not enable it on a validator.
+export = {{ .Giga.Archive.Export }}
+
+# serve_rpc answers EVM RPC reads of transactions this node no longer holds from the archive.
+serve_rpc = {{ .Giga.Archive.ServeRPC }}
+
+# rpc_max_conns is how many archive queries the EVM RPC runs at once.
+rpc_max_conns = {{ .Giga.Archive.RPCMaxConns }}
+
+# rpc_query_timeout bounds each archive query the EVM RPC runs.
+rpc_query_timeout = "{{ .Giga.Archive.RPCQueryTimeout }}"
 `
 
 // skipUpgradeHeights casts v to a list of heights, rejecting a negative one.
