@@ -223,7 +223,7 @@ func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
 			invalidCommitID, syncID := nodeIDs[0], nodeIDs[1]
 			syncNode := network.Node(syncID)
 
-			// The syncing node publishes the height of every block it saves.
+			// The block store of the syncing node publishes the height of every block it saves.
 			savedHeight := utils.NewAtomicSend(int64(0))
 
 			invalidCommitStore, correctStore := newMemBlockStore(), newMemBlockStore()
