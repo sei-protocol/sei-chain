@@ -1,13 +1,18 @@
 package util
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -29,16 +34,27 @@ func TestNewFileLock(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "lock already exists with live process",
+			name: "lock held by another FileLock",
 			setup: func() string {
 				lockPath := filepath.Join(tempDir, "existing.lock")
-				// Create an existing lock file with current process PID (which is alive)
+				holder, err := NewFileLock(logger, lockPath, false)
+				require.NoError(t, err)
+				t.Cleanup(holder.Release)
+				return lockPath
+			},
+			expectError: true,
+		},
+		{
+			name: "lock file with this process's PID that no lock holds",
+			setup: func() string {
+				// A restarted container process often has the PID that its stopped predecessor recorded.
+				lockPath := filepath.Join(tempDir, "own-pid.lock")
 				content := fmt.Sprintf("PID: %d\nTimestamp: 2023-01-01T00:00:00Z\n", os.Getpid())
 				err := os.WriteFile(lockPath, []byte(content), 0644)
 				require.NoError(t, err)
 				return lockPath
 			},
-			expectError: true,
+			expectError: false,
 		},
 		{
 			name: "stale lock file gets overridden",
@@ -55,7 +71,7 @@ func TestNewFileLock(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "malformed lock file gets treated as existing",
+			name: "malformed lock file that no lock holds gets overridden",
 			setup: func() string {
 				lockPath := filepath.Join(tempDir, "malformed.lock")
 				// Create a lock file without proper PID format
@@ -63,7 +79,7 @@ func TestNewFileLock(t *testing.T) {
 				require.NoError(t, err)
 				return lockPath
 			},
-			expectError: true,
+			expectError: false,
 		},
 		{
 			name: "invalid directory",
@@ -288,63 +304,92 @@ func TestIsProcessAlive(t *testing.T) {
 	}
 }
 
-func TestParseLockFile(t *testing.T) {
-	tempDir := t.TempDir()
+// lockHolderEnv names the lock file that TestFileLockReleasedWhenHolderProcessDies asks its child process to hold.
+const lockHolderEnv = "LITT_FILE_LOCK_HOLDER_PATH"
 
-	tests := []struct {
-		name        string
-		content     string
-		expectedPID int
-		expectError bool
-	}{
-		{
-			name:        "valid lock file",
-			content:     "PID: 12345\nTimestamp: 2023-01-01T00:00:00Z\n",
-			expectedPID: 12345,
-			expectError: false,
-		},
-		{
-			name:        "lock file with extra whitespace",
-			content:     "  PID: 67890  \n  Timestamp: 2023-01-01T00:00:00Z  \n",
-			expectedPID: 67890,
-			expectError: false,
-		},
-		{
-			name:        "lock file missing PID",
-			content:     "Timestamp: 2023-01-01T00:00:00Z\n",
-			expectedPID: 0,
-			expectError: true,
-		},
-		{
-			name:        "lock file with invalid PID",
-			content:     "PID: not-a-number\nTimestamp: 2023-01-01T00:00:00Z\n",
-			expectedPID: 0,
-			expectError: true,
-		},
-		{
-			name:        "empty lock file",
-			content:     "",
-			expectedPID: 0,
-			expectError: true,
-		},
+func TestFileLockReleasedWhenHolderProcessDies(t *testing.T) {
+	if lockPath := os.Getenv(lockHolderEnv); lockPath != "" {
+		holdLockUntilKilled(lockPath)
+		return
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			lockPath := filepath.Join(tempDir, fmt.Sprintf("test-%s.lock", tc.name))
-			err := os.WriteFile(lockPath, []byte(tc.content), 0644)
-			require.NoError(t, err)
+	lockPath := filepath.Join(t.TempDir(), "holder.lock")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestFileLockReleasedWhenHolderProcessDies$") //nolint:gosec // re-runs this test binary
+	cmd.Env = append(os.Environ(), lockHolderEnv+"="+lockPath)
+	stdout, err := cmd.StdoutPipe()
+	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	waitForHolder(t, stdout)
 
-			pid, err := parseLockFile(lockPath)
+	_, err = NewFileLock(slog.Default(), lockPath, false)
+	require.ErrorContains(t, err, "another process holds it")
 
-			if tc.expectError {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				require.Equal(t, tc.expectedPID, pid)
+	require.NoError(t, cmd.Process.Kill())
+	_ = cmd.Wait()
+	content, err := os.ReadFile(lockPath)
+	require.NoError(t, err)
+	require.Contains(t, string(content), fmt.Sprintf("PID: %d", cmd.Process.Pid), "the killed holder leaves its lock file")
+
+	lock, err := NewFileLock(slog.Default(), lockPath, false)
+	require.NoError(t, err)
+	lock.Release()
+}
+
+// holdLockUntilKilled takes the lock at lockPath, reports it on stdout, and never returns.
+func holdLockUntilKilled(lockPath string) {
+	if _, err := NewFileLock(slog.Default(), lockPath, false); err != nil {
+		fmt.Println("error:", err)
+		os.Exit(1)
+	}
+	fmt.Println("locked")
+	time.Sleep(time.Hour)
+	os.Exit(1)
+}
+
+// waitForHolder reads the child's stdout until it reports that it holds the lock.
+func waitForHolder(t *testing.T, stdout io.Reader) {
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		require.False(t, strings.HasPrefix(line, "error:"), line)
+		if line == "locked" {
+			return
+		}
+	}
+	t.Fatalf("holder process exited without taking the lock: %v", scanner.Err())
+}
+
+func TestFileLockExclusionUnderChurn(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "churn.lock")
+	logger := slog.Default()
+
+	var holders, acquisitions atomic.Int32
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 500 {
+				lock, err := NewFileLock(logger, lockPath, false)
+				if err != nil {
+					continue
+				}
+				acquisitions.Add(1)
+				if n := holders.Add(1); n != 1 {
+					t.Errorf("%d FileLocks hold %s at once", n, lockPath)
+				}
+				time.Sleep(10 * time.Microsecond)
+				holders.Add(-1)
+				lock.Release()
 			}
-		})
+		}()
 	}
+	wg.Wait()
+	require.Positive(t, acquisitions.Load())
 }
 
 func TestStaleLockRecovery(t *testing.T) {
@@ -446,10 +491,8 @@ func TestLockDirectoriesFailureWhenLockExists(t *testing.T) {
 
 	lockFileName := "test.lock"
 
-	// Create an existing lock in dir2
-	existingLockPath := filepath.Join(dir2, lockFileName)
-	content := fmt.Sprintf("PID: %d\nTimestamp: 2023-01-01T00:00:00Z\n", os.Getpid())
-	err = os.WriteFile(existingLockPath, []byte(content), 0644)
+	// Hold an existing lock in dir2
+	existingLock, err := NewFileLock(logger, filepath.Join(dir2, lockFileName), false)
 	require.NoError(t, err)
 
 	directories := []string{dir1, dir2, dir3}
@@ -471,8 +514,7 @@ func TestLockDirectoriesFailureWhenLockExists(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "lock file should not exist in %s after failure", dir3)
 
 	// Clean up the existing lock
-	err = os.Remove(existingLockPath)
-	require.NoError(t, err)
+	existingLock.Release()
 }
 
 func TestLockDirectoriesFailureWhenDirectoryDoesNotExist(t *testing.T) {

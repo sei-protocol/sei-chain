@@ -358,6 +358,42 @@ func TestFilterRegistryLifecycle(t *testing.T) {
 	}
 }
 
+func TestUnknownBlockHashEndToEnd(t *testing.T) {
+	fx := newPollFixture(t)
+	limits := noRPCLimits
+	limits.MaxFilters = 1
+	handler, err := newHandler(fx.api.backend, fx.store, limits)
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	crit := map[string]any{"blockHash": common.HexToHash("0xdead")}
+	var filter string
+	require.NoError(t, client.CallContext(t.Context(), &filter, "eth_newFilter", crit))
+
+	for _, tc := range []struct {
+		method string
+		param  any
+	}{
+		{method: "eth_getLogs", param: crit},
+		{method: "eth_getFilterLogs", param: filter},
+		{method: "eth_getFilterChanges", param: filter},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			var logs []*ethtypes.Log
+			err := client.CallContext(t.Context(), &logs, tc.method, tc.param)
+			var rpcErr ethrpc.Error
+			require.ErrorAs(t, err, &rpcErr)
+			require.Equal(t, -32000, rpcErr.ErrorCode())
+			require.Equal(t, "unknown block", err.Error())
+		})
+	}
+}
+
 func TestFilterMethodsEndToEnd(t *testing.T) {
 	fx := newPollFixture(t)
 	limits := noRPCLimits
