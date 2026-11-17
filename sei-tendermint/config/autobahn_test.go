@@ -57,9 +57,20 @@ func validAutobahnFileConfig() AutobahnFileConfig {
 		MaxTxsPerBlock: 1,
 		BlockInterval:  utils.Duration(time.Second),
 		DialInterval:   utils.Duration(time.Second),
+		EVMChainID:     713700,
 
 		PersistentStateDir: "autobahn",
 	}
+}
+
+func TestAutobahnFileConfig_EVMChainID(t *testing.T) {
+	fc := validAutobahnFileConfig()
+	require.NoError(t, json.Unmarshal([]byte(`{"evm_chain_id":713701}`), &fc))
+	require.Equal(t, uint64(713701), fc.EVMChainID)
+	require.NoError(t, fc.Validate())
+
+	fc.EVMChainID = 0
+	require.Error(t, fc.Validate())
 }
 
 func TestAutobahnFileConfig_ValidateMaxConcurrentCheckTx(t *testing.T) {

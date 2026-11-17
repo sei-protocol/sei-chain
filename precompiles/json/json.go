@@ -192,8 +192,8 @@ func (p PrecompileExecutor) ExtractAsUint256(_ sdk.Context, _ *abi.Method, args 
 
 	// Convert the string to big.Int
 	value, success := new(big.Int).SetString(strValue, 10)
-	if !success {
-		return nil, fmt.Errorf("failed to convert %s to big.Int", strValue)
+	if !success || strings.TrimLeft(strValue, "0123456789") != "" {
+		return nil, fmt.Errorf("failed to parse %s as an unsigned decimal integer", strValue)
 	}
 
 	return value, nil

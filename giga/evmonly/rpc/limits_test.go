@@ -134,7 +134,7 @@ func TestWebsocketAdmissionTimeout(t *testing.T) {
 				chainID: func() uint64 {
 					close(entered)
 					<-unblock
-					return 713715
+					return 713700
 				},
 			}
 			conn, resp, err := websocket.DefaultDialer.DialContext(t.Context(), serveWebsocket(t, backend, tc.limits), nil)

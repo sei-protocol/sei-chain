@@ -8,6 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/app"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
@@ -401,4 +402,53 @@ func TestGetAnyPointeeInfo(t *testing.T) {
 	require.Equal(t, evmAddress, addr)
 	require.Equal(t, cw20.CurrentVersion, version)
 	require.True(t, exists)
+}
+
+func TestPointerLookupsIgnoreUpgradeName(t *testing.T) {
+	blockCtx, _ := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).CacheContext()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	pamp := common.HexToAddress("0x00000000000000000000000000000000000000c1")
+	pampVest := common.HexToAddress("0x00000000000000000000000000000000000000c2")
+	ufoo := common.HexToAddress("0x00000000000000000000000000000000000000c3")
+	require.NoError(t, k.SetERC20NativePointer(blockCtx, "factory/creator/pamp", pamp))
+	require.NoError(t, k.SetERC20NativePointer(blockCtx, "factory/creator/pamp/vest", pampVest))
+	require.NoError(t, k.SetERC20NativePointerWithVersion(blockCtx, "ufoo", ufoo, 1000))
+	rpcCtx := blockCtx.WithClosestUpgradeName(app.LatestUpgrade)
+
+	pointer := func(denom string) func(types.Context) []any {
+		return func(ctx types.Context) []any {
+			addr, version, exists := k.GetERC20NativePointer(ctx, denom)
+			return []any{addr, version, exists}
+		}
+	}
+	pointee := func(addr common.Address) func(types.Context) []any {
+		return func(ctx types.Context) []any {
+			denom, version, exists := k.GetNativePointee(ctx, addr.Hex())
+			return []any{denom, version, exists}
+		}
+	}
+	for _, tc := range []struct {
+		name   string
+		lookup func(types.Context) []any
+	}{
+		{"pointer of a denom", pointer("factory/creator/pamp/vest")},
+		{"pointer of a denom without one", pointer("ubar")},
+		{"pointer of a denom another denom extends", pointer("factory/creator/pamp")},
+		{"pointer stored above the current version", pointer("ufoo")},
+		{"pointee of a pointer", pointee(pampVest)},
+		{"pointee of an address that is not a pointer", pointee(common.HexToAddress("0x00000000000000000000000000000000000000c4"))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			blockResult, blockGas := lookupWithGas(blockCtx, tc.lookup)
+			rpcResult, rpcGas := lookupWithGas(rpcCtx, tc.lookup)
+			require.Equal(t, blockResult, rpcResult)
+			require.Equal(t, blockGas, rpcGas)
+		})
+	}
+}
+
+func lookupWithGas(ctx types.Context, lookup func(types.Context) []any) ([]any, uint64) {
+	ctx = ctx.WithGasMeter(types.NewInfiniteGasMeter(1, 1))
+	result := lookup(ctx)
+	return result, ctx.GasMeter().GasConsumed()
 }

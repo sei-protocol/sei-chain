@@ -227,6 +227,9 @@ func NewEVMOnlyApplication(
 		if err := a.checkStartedWithAlloc(storage.StateDB().SC()); err != nil {
 			return nil, err
 		}
+		if err := a.checkStartedWithChainID(storage.StateDB().SC()); err != nil {
+			return nil, err
+		}
 		for executor := range a.executor.Lock() {
 			a.installExecutor(executor)
 		}
@@ -300,7 +303,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
-		changes := append([]gigatypes.MiscChange{next.miscChange()}, epochChanges...)
+		changes := append([]gigatypes.MiscChange{next.miscChange(), a.chainIDMiscChange()}, epochChanges...)
 		if alloc, ok := a.alloc.Get(); ok && height == alloc.InitialHeight {
 			changes = append(changes, alloc.miscChange())
 		}
@@ -424,6 +427,9 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *proxy.RequestCheckT
 	if !ok {
 		return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 1, Log: "transaction gas limit exceeds int64"}}
 	}
+	if err := a.checkGasCoversIntrinsic(tx, sender); err != nil {
+		return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 1, Log: err.Error()}}
+	}
 	if err := a.checkSenderCanPay(tx, sender); err != nil {
 		return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 1, Log: err.Error()}}
 	}
@@ -440,6 +446,44 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *proxy.RequestCheckT
 		EVMSenderAddress: sender,
 		SeiSenderAddress: append([]byte(nil), sender[:]...),
 	}
+}
+
+// checkGasCoversIntrinsic refuses tx when its gas limit is below the intrinsic gas, or the EIP-7623
+// calldata floor, that the next block charges it before execution.
+func (a *evmOnlyApplication) checkGasCoversIntrinsic(tx *ethtypes.Transaction, sender common.Address) error {
+	value, overflow := uint256.FromBig(tx.Value())
+	if overflow {
+		return errors.New("ethereum transaction value exceeds 256 bits")
+	}
+	rules := a.nextBlockRules()
+	intrinsic, err := ethcore.IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), sender, tx.To(), value, rules)
+	if err != nil {
+		return err
+	}
+	if tx.Gas() < intrinsic {
+		return fmt.Errorf("%w: have %d, want %d", ethcore.ErrIntrinsicGas, tx.Gas(), intrinsic)
+	}
+	if !rules.IsPrague {
+		return nil
+	}
+	floor, err := ethcore.FloorDataGas(rules, sender, tx.To(), value, tx.Data(), tx.AccessList())
+	if err != nil {
+		return err
+	}
+	if tx.Gas() < floor {
+		return fmt.Errorf("%w: have %d, want %d", ethcore.ErrFloorDataGas, tx.Gas(), floor)
+	}
+	return nil
+}
+
+// nextBlockRules returns the fork rules of the block after the committed one, at the committed
+// block's time.
+func (a *evmOnlyApplication) nextBlockRules() params.Rules {
+	for state := range a.cursor.Lock() {
+		// Every block's context sets PrevRandao, so the executor always runs post-merge rules.
+		return a.chainConfig.Rules(big.NewInt(state.committed.height+1), true, state.lastBlockTime)
+	}
+	panic("unreachable")
 }
 
 // checkSenderCanPay refuses tx when sender's committed balance does not cover its gas limit at its fee
@@ -1225,6 +1269,35 @@ func (a *evmOnlyApplication) checkStartedWithAlloc(store *flatkv.CommitStore) er
 		return errors.New("EVM-only chain started without a genesis alloc, but one is set")
 	case ok && !bytes.Equal(started, alloc.digest().Bytes()):
 		return errors.New("EVM-only genesis alloc differs from the one the chain started with")
+	}
+	return nil
+}
+
+// evmOnlyChainIDKey holds the chain ID the chain runs on, written outside the EVM state hash with
+// every block.
+const evmOnlyChainIDKey = "chain_id"
+
+func (a *evmOnlyApplication) chainIDMiscChange() gigatypes.MiscChange {
+	return gigatypes.MiscChange{
+		Module: evmOnlyCursorModule,
+		Key:    []byte(evmOnlyChainIDKey),
+		Value:  binary.BigEndian.AppendUint64(nil, a.chainID.Uint64()),
+	}
+}
+
+// checkStartedWithChainID refuses to resume a chain on a chain ID other than the one it ran on, which
+// would reject its transactions and change what CHAINID returns.
+func (a *evmOnlyApplication) checkStartedWithChainID(store *flatkv.CommitStore) error {
+	raw, found := store.Get(evmOnlyCursorModule, []byte(evmOnlyChainIDKey))
+	if !found {
+		return errors.New("EVM-only chain has no recorded chain ID; reset it onto a new evm_chain_id")
+	}
+	if len(raw) != 8 {
+		return fmt.Errorf("EVM-only chain ID record has %d bytes, want 8", len(raw))
+	}
+	started := binary.BigEndian.Uint64(raw)
+	if got := a.chainID.Uint64(); got != started {
+		return fmt.Errorf("EVM-only chain ID %d differs from %d, the one the chain ran on", got, started)
 	}
 	return nil
 }

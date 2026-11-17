@@ -34,6 +34,8 @@ var (
 	errLogRangeInverted   = errors.New("eth_getLogs fromBlock is after toBlock")
 	errLogRangePruned     = errors.New("eth_getLogs block is pruned")
 	errLogRangeNotIndexed = errors.New("eth_getLogs block is not yet indexed")
+	// errUnknownBlock is go-ethereum's error for a blockHash filter naming a block it does not have.
+	errUnknownBlock = errors.New("unknown block")
 )
 
 // invalidParamsError is a JSON-RPC error reporting that the request's
@@ -106,7 +108,7 @@ func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCr
 			return 0, 0, err
 		}
 		if block == nil || block.Block == nil {
-			return 0, 0, fmt.Errorf("block %s not found", crit.BlockHash)
+			return 0, 0, errUnknownBlock
 		}
 		height := uint64(block.Block.Height) //nolint:gosec // block heights are positive
 		earliest, latest := indexedRange(api.backend, api.store)

@@ -47,7 +47,7 @@ func runGenAutobahnConfig(t *testing.T, args ...string) (config.AutobahnFileConf
 	t.Helper()
 	output := filepath.Join(t.TempDir(), "autobahn.json")
 	cmd := MakeGenAutobahnConfigCommand()
-	cmd.SetArgs(append([]string{"--output", output}, args...))
+	cmd.SetArgs(append([]string{"--output", output, "--evm-chain-id", "713700"}, args...))
 	if err := cmd.Execute(); err != nil {
 		return config.AutobahnFileConfig{}, err
 	}
@@ -84,11 +84,12 @@ func TestGenAutobahnConfigWithEVMGovernance(t *testing.T) {
 func TestGenAutobahnConfigWithoutEVMGovernance(t *testing.T) {
 	cfg, err := runGenAutobahnConfig(t, genNodeDir(t, "node0", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"))
 	require.NoError(t, err)
+	require.Equal(t, uint64(713700), cfg.EVMChainID)
 	require.False(t, cfg.EVMGovernance.IsPresent())
 	require.False(t, cfg.Validators[0].EVMVoter.IsPresent(), "evm_voter.txt is ignored without governance")
 }
 
-func TestGenAutobahnConfigRejectsBadEVMGovernance(t *testing.T) {
+func TestGenAutobahnConfigRejectsBadFlags(t *testing.T) {
 	for name, args := range map[string][]string{
 		"missing voter file": {"--evm-governance-voting-period", "40s", genNodeDir(t, "node0", "")},
 		"bad voter":          {"--evm-governance-voting-period", "40s", genNodeDir(t, "node0", "not-an-address")},
@@ -97,6 +98,7 @@ func TestGenAutobahnConfigRejectsBadEVMGovernance(t *testing.T) {
 			genNodeDir(t, "node1", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")},
 		"period below two":      {"--evm-governance-voting-period", "1s", genNodeDir(t, "node0", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")},
 		"start without enabled": {"--evm-governance-starting-proposal-id", "5", genNodeDir(t, "node0", "")},
+		"zero evm chain id":     {"--evm-chain-id", "0", genNodeDir(t, "node0", "")},
 	} {
 		_, err := runGenAutobahnConfig(t, args...)
 		require.Error(t, err, name)
