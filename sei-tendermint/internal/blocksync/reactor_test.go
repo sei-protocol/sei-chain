@@ -79,21 +79,22 @@ func setup(
 }
 
 // newMemBlockStore returns a block store backed by a fresh in-memory database.
-func newMemBlockStore() sm.BlockStore {
+func newMemBlockStore() *store.BlockStore {
 	return store.NewBlockStore(dbm.NewMemDB())
 }
 
-// makeReactor returns a reactor serving genDoc on router, backed by blockStore.
+// makeReactor returns a reactor serving genDoc on router, backed by blockStore, and the event bus
+// that its block executor publishes to.
 func makeReactor(
 	ctx context.Context,
 	t *testing.T,
 	genDoc *types.GenesisDoc,
 	router *p2p.Router,
-	blockStore sm.BlockStore,
+	blockStore *store.BlockStore,
 	blockSync bool,
 	restartEvent func(),
 	selfRemediationConfig *config.SelfRemediationConfig,
-) *Reactor {
+) (*Reactor, *eventbus.EventBus) {
 
 	app := abci.BaseApplication{}
 
@@ -134,7 +135,7 @@ func makeReactor(
 	if err != nil {
 		t.Fatalf("NewReactor(): %v", err)
 	}
-	return r
+	return r, bus
 }
 
 func (rts *reactorTestSuite) addNode(
@@ -152,7 +153,7 @@ func (rts *reactorTestSuite) addNode(
 	remediationConfig := config.DefaultSelfRemediationConfig()
 	remediationConfig.BlocksBehindThreshold = 1000
 
-	reactor := makeReactor(
+	reactor, _ := makeReactor(
 		ctx,
 		t,
 		genDoc,
@@ -494,7 +495,7 @@ func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 2})
 	nodeIDs := network.NodeIDs()
 
-	server := makeReactor(
+	server, _ := makeReactor(
 		ctx,
 		t,
 		genDoc,
@@ -565,7 +566,7 @@ func TestQueryResponder_ServesStatusRequestsWhenBlockSyncDisabled(t *testing.T) 
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 2})
 	nodeIDs := network.NodeIDs()
 
-	server := makeReactor(
+	server, _ := makeReactor(
 		ctx,
 		t,
 		genDoc,
