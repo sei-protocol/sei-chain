@@ -32,7 +32,6 @@ import (
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -428,6 +427,9 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *proxy.RequestCheckT
 	if !ok {
 		return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 1, Log: "transaction gas limit exceeds int64"}}
 	}
+	if err := a.checkGasCoversIntrinsic(tx, sender); err != nil {
+		return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 1, Log: err.Error()}}
+	}
 	if err := a.checkSenderCanPay(tx, sender); err != nil {
 		return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 1, Log: err.Error()}}
 	}
@@ -444,6 +446,44 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *proxy.RequestCheckT
 		EVMSenderAddress: sender,
 		SeiSenderAddress: append([]byte(nil), sender[:]...),
 	}
+}
+
+// checkGasCoversIntrinsic refuses tx when its gas limit is below the intrinsic gas, or the EIP-7623
+// calldata floor, that the next block charges it before execution.
+func (a *evmOnlyApplication) checkGasCoversIntrinsic(tx *ethtypes.Transaction, sender common.Address) error {
+	value, overflow := uint256.FromBig(tx.Value())
+	if overflow {
+		return errors.New("ethereum transaction value exceeds 256 bits")
+	}
+	rules := a.nextBlockRules()
+	intrinsic, err := ethcore.IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), sender, tx.To(), value, rules)
+	if err != nil {
+		return err
+	}
+	if tx.Gas() < intrinsic {
+		return fmt.Errorf("%w: have %d, want %d", ethcore.ErrIntrinsicGas, tx.Gas(), intrinsic)
+	}
+	if !rules.IsPrague {
+		return nil
+	}
+	floor, err := ethcore.FloorDataGas(rules, sender, tx.To(), value, tx.Data(), tx.AccessList())
+	if err != nil {
+		return err
+	}
+	if tx.Gas() < floor {
+		return fmt.Errorf("%w: have %d, want %d", ethcore.ErrFloorDataGas, tx.Gas(), floor)
+	}
+	return nil
+}
+
+// nextBlockRules returns the fork rules of the block after the committed one, at the committed
+// block's time.
+func (a *evmOnlyApplication) nextBlockRules() params.Rules {
+	for state := range a.cursor.Lock() {
+		// Every block's context sets PrevRandao, so the executor always runs post-merge rules.
+		return a.chainConfig.Rules(big.NewInt(state.committed.height+1), true, state.lastBlockTime)
+	}
+	panic("unreachable")
 }
 
 // checkSenderCanPay refuses tx when sender's committed balance does not cover its gas limit at its fee
@@ -1246,16 +1286,16 @@ func (a *evmOnlyApplication) chainIDMiscChange() gigatypes.MiscChange {
 }
 
 // checkStartedWithChainID refuses to resume a chain on a chain ID other than the one it ran on, which
-// would reject its transactions and change what CHAINID returns. A chain with no recorded ID predates
-// the record and ran on config.AutobahnEVMOnlyChainID.
+// would reject its transactions and change what CHAINID returns.
 func (a *evmOnlyApplication) checkStartedWithChainID(store *flatkv.CommitStore) error {
-	started := config.AutobahnEVMOnlyChainID
-	if raw, found := store.Get(evmOnlyCursorModule, []byte(evmOnlyChainIDKey)); found {
-		if len(raw) != 8 {
-			return fmt.Errorf("EVM-only chain ID record has %d bytes, want 8", len(raw))
-		}
-		started = binary.BigEndian.Uint64(raw)
+	raw, found := store.Get(evmOnlyCursorModule, []byte(evmOnlyChainIDKey))
+	if !found {
+		return errors.New("EVM-only chain has no recorded chain ID; reset it onto a new evm_chain_id")
 	}
+	if len(raw) != 8 {
+		return fmt.Errorf("EVM-only chain ID record has %d bytes, want 8", len(raw))
+	}
+	started := binary.BigEndian.Uint64(raw)
 	if got := a.chainID.Uint64(); got != started {
 		return fmt.Errorf("EVM-only chain ID %d differs from %d, the one the chain ran on", got, started)
 	}

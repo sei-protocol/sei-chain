@@ -17,7 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
-const testAppHashChainID uint64 = 713715
+const testAppHashChainID uint64 = 713700
 
 // How long a test waits for the app hash builder to publish an app hash.
 const appHashPublishTimeout = 10 * time.Second

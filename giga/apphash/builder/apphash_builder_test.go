@@ -17,7 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
 )
 
-const testChainID uint64 = 713715
+const testChainID uint64 = 713700
 
 // How long a test waits for the builder to publish an app hash.
 const publishTimeout = 10 * time.Second
