@@ -46,6 +46,7 @@ sei-chain
 
 ## v6.8
 sei-chain
+* [#4886](https://github.com/sei-protocol/sei-chain/pull/4886) Backport `release/v6.8`: Drop the GHCR visibility step from the Docker publish workflow
 * [#4876](https://github.com/sei-protocol/sei-chain/pull/4876) Backport `release/v6.8`: fix(evm): discard cached traces written under another format version
 * [#4869](https://github.com/sei-protocol/sei-chain/pull/4869) Backport `release/v6.8`: Rewrite pacific-1's vesting accounts by address in the v6.8 auth migration
 * [#4817](https://github.com/sei-protocol/sei-chain/pull/4817) Bump version to v6.8.0-rc3 in prep for release
