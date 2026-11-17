@@ -236,7 +236,7 @@ func seiLoadAWSConfig(privateIPs []string) (string, error) {
 		endpoints[i] = fmt.Sprintf("http://%s:%d", ip, awsEVMPort)
 	}
 	cfg := map[string]any{
-		"chainId":    713715,
+		"chainId":    713700,
 		"seiChainID": "autobahn-evmonly",
 		"endpoints":  endpoints,
 		"accounts": map[string]any{

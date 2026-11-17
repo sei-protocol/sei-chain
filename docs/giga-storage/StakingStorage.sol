@@ -81,9 +81,11 @@ contract StakingStorage {
         uint256 sharesDst;
     }
 
+    /// @dev completionTime and unbondingHeight are the operator's validator's
+    /// unbondingTime and unbondingHeight when it began unbonding.
     struct ValidatorQueueEntry {
         uint64 completionTime;
-        uint64 completionHeight;
+        uint64 unbondingHeight;
         address operator;
     }
 

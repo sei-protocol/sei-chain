@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
-const evmOnlyTestChainID uint64 = 713715
+const evmOnlyTestChainID uint64 = 713700
 
 // evmOnlyMinGasPrice is the admission price the default execution config runs at.
 const evmOnlyMinGasPrice = 1_000_000_000
@@ -1548,6 +1549,72 @@ func TestEVMOnlyApplicationResumesOnlyWithTheAllocItStartedWith(t *testing.T) {
 			require.Equal(t, tc.ok, err == nil, "resume error: %v", err)
 		})
 	}
+}
+
+func TestEVMOnlyApplicationResumesOnlyOnTheChainIDItRanOn(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		started, resume uint64
+		ok              bool
+	}{
+		{"same chain ID", 1330, 1330, true},
+		{"chain ID changed", evmOnlyTestChainID, 1330, false},
+		{"chain ID changed back", 1330, evmOnlyTestChainID, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			storage := openEVMOnlyTestStorageAt(t, home)
+			app, err := newEVMOnlyTestAppOnChain(storage, tc.started)
+			require.NoError(t, err)
+			_, err = app.InitChain(evmOnlyTestInitChain())
+			require.NoError(t, err)
+			finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+			closeEVMOnlyTestApp(t, app, storage)
+
+			storage = openEVMOnlyTestStorageAt(t, home)
+			app, err = newEVMOnlyTestAppOnChain(storage, tc.resume)
+			if err == nil {
+				closeEVMOnlyTestApp(t, app, storage)
+			} else {
+				require.NoError(t, storage.Close())
+			}
+			require.Equal(t, tc.ok, err == nil, "resume error: %v", err)
+		})
+	}
+}
+
+// newEVMOnlyTestAppOnChain constructs an application on chainID over storage.
+func newEVMOnlyTestAppOnChain(storage *bootstrap.GigaStorageManager, chainID uint64) (proxy.EVMApplication, error) {
+	return NewEVMOnlyApplication(
+		chainID, nil, storage,
+		gigaconfig.DefaultConfig.Execution,
+		utils.None[precompiles.Registry](),
+		utils.None[GenesisAlloc](),
+		utils.None[string](),
+	)
+}
+
+func TestEVMOnlyApplicationRefusesToResumeWithoutARecordedChainID(t *testing.T) {
+	home := t.TempDir()
+	storage := openEVMOnlyTestStorageAt(t, home)
+	started, err := newEVMOnlyTestAppOnChain(storage, evmOnlyTestChainID)
+	require.NoError(t, err)
+	_, err = started.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	app := started.(*evmOnlyApplication)
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
+		misc, err := app.encodeCursorChangeSet(block, result)
+		return slices.DeleteFunc(misc, func(change gigatypes.MiscChange) bool {
+			return change.Module == evmOnlyCursorModule && string(change.Key) == evmOnlyChainIDKey
+		}), err
+	})
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	closeEVMOnlyTestApp(t, app, storage)
+
+	storage = openEVMOnlyTestStorageAt(t, home)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	_, err = newEVMOnlyTestAppOnChain(storage, evmOnlyTestChainID)
+	require.Error(t, err)
 }
 
 func TestEVMOnlyApplicationAdmitsOnlyTxsTheSenderCanPayFor(t *testing.T) {

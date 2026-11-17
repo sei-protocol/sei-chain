@@ -65,6 +65,7 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 
 	appHashBuilderConfig := builder.DefaultAppHashBuilderConfig()
 	appHashBuilderConfig.HashVaultConfig.Path = utils.GetAppHashVaultPath(homePath)
+	appHashBuilderConfig.HashLogConfig.Path = utils.GetAppHashLogPath(homePath)
 	receiptHasherConfig := receipthash.DefaultReceiptHasherConfig()
 	budHasherConfig := bud.DefaultBUDHasherConfig()
 
