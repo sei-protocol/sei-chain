@@ -178,7 +178,7 @@ The operational EVM-only configuration is:
 | --- | --- |
 | Autobahn validators | 4 |
 | Validator voting power used by the EVM-only app | 1 each |
-| EVM chain ID | `713715` |
+| EVM chain ID | `713700` |
 | Initial EVM nonce | `0` |
 | Initial balance of an address absent from FlatKV | `2^200` wei |
 | Consensus block gas limit | `35,000,000` |
@@ -610,7 +610,7 @@ RAW_TX=$(cast mktx \
   --private-key "$TEST_KEY" \
   --legacy \
   --nonce 0 \
-  --chain 713715 \
+  --chain 713700 \
   --gas-limit 21000 \
   --gas-price 1gwei \
   --value 1)
@@ -694,10 +694,11 @@ As in go-ethereum, `eth_call` takes a state override (each account's `balance`,
 `nonce`, `code`, `state`, `stateDiff`, or `movePrecompileToAddress`) and a
 block override (`number`, `time`, `gasLimit`, `feeRecipient`, `prevRandao`,
 `baseFeePerGas`, `blobBaseFee`) after the block selector; `eth_estimateGas`
-takes both too, but cannot move a precompile. `eth_estimateGasAfterCalls`
-takes a state override after its block selector, as on the regular RPC, and
-applies it before its calls; it cannot move a precompile either. A state
-override naming more accounts, or setting more slots of one account, than
+takes both too, but, as in go-ethereum, a precompile move it accepts does not
+take effect in the estimate. `eth_estimateGasAfterCalls` takes a state override
+after its block selector, as on the regular RPC, and applies it before its
+calls; a precompile move takes effect in neither the calls nor the estimate. A
+state override naming more accounts, or setting more slots of one account, than
 `[giga.rpc]` allows is refused with an invalid-params error (`-32602`).
 
 ### Estimate gas with `cast estimate`

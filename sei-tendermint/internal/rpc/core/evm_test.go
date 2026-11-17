@@ -36,7 +36,7 @@ var _ proxy.EVMApplication = (*testEVMApp)(nil)
 var (
 	testExecutionResult = &ethcore.ExecutionResult{ReturnData: []byte{0x2a}}
 	testAccessList      = ethtypes.AccessList{{Address: common.Address{0x01}, StorageKeys: []common.Hash{{0x02}}}}
-	testChainConfig     = &params.ChainConfig{ChainID: big.NewInt(713715)}
+	testChainConfig     = &params.ChainConfig{ChainID: big.NewInt(713700)}
 	testBaseFee         = big.NewInt(7)
 	testMinGasPrice     = big.NewInt(1_000_000_000)
 	testOverrides       = evmonly.CallOverrides{State: export.StateOverride{common.Address{1}: {}}}
@@ -90,7 +90,7 @@ func (app *testEVMApp) EvmCreateAccessListAt(_ context.Context, msg *ethcore.Mes
 
 func (app *testEVMApp) EvmCommittedNonce(common.Address) uint64 { return 6 }
 
-func (app *testEVMApp) EvmChainID() uint64                  { return 713715 }
+func (app *testEVMApp) EvmChainID() uint64                  { return 713700 }
 func (app *testEVMApp) EvmChainConfig() *params.ChainConfig { return testChainConfig }
 func (app *testEVMApp) EvmBaseFee() *big.Int                { return testBaseFee }
 func (app *testEVMApp) EvmGasLimit() uint64                 { return 35_000_000 }
@@ -239,7 +239,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		minGasPrice := env.EvmMinGasPrice()
 
 		// Verify: each returns the app's value.
-		require.Equal(t, uint64(713715), chainID)
+		require.Equal(t, uint64(713700), chainID)
 		require.Equal(t, testChainConfig, chainConfig)
 		require.Equal(t, testBaseFee, baseFee)
 		require.Equal(t, uint64(35_000_000), gasLimit)

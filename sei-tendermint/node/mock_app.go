@@ -22,7 +22,6 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -81,7 +80,7 @@ type MockApp struct {
 
 func NewMockApp(app proxy.EVMApplication) *MockApp {
 	chainConfig := *params.AllDevChainProtocolChanges
-	chainConfig.ChainID = new(big.Int).SetUint64(config.AutobahnEVMOnlyChainID)
+	chainConfig.ChainID = new(big.Int).SetUint64(app.EvmChainID())
 	return &MockApp{
 		app:         app,
 		chainConfig: &chainConfig,
@@ -193,9 +192,8 @@ func (app *MockApp) EvmStorageAt(common.Address, common.Hash, int64) (common.Has
 	return common.Hash{}, errMockAppNoExecution
 }
 
-// EvmChainID returns the chain ID of the Autobahn EVM-only executor this app
-// stands in for.
-func (app *MockApp) EvmChainID() uint64 { return config.AutobahnEVMOnlyChainID }
+// EvmChainID returns the chain ID of the EVM-only app this app wraps.
+func (app *MockApp) EvmChainID() uint64 { return app.app.EvmChainID() }
 
 // EvmChainConfig returns the dev chain configuration with the Autobahn EVM-only
 // chain ID.

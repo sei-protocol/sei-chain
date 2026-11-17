@@ -58,7 +58,7 @@ func TestCreateAccessListEndToEnd(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var gotMsg *core.Message
 			backend := &testBackend{
-				chainID:     func() uint64 { return 713715 },
+				chainID:     func() uint64 { return 713700 },
 				baseFee:     func() *big.Int { return new(big.Int) },
 				blockNumber: func() uint64 { return 0 },
 				createAccessList: func(_ context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
@@ -123,7 +123,7 @@ func TestEstimateGasAfterCalls(t *testing.T) {
 				return 42_000, nil, nil
 			}
 			backend := &testBackend{
-				chainID:     func() uint64 { return 713715 },
+				chainID:     func() uint64 { return 713700 },
 				baseFee:     func() *big.Int { return new(big.Int) },
 				blockNumber: func() uint64 { return 0 },
 				estimateGas: func(_ context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
@@ -221,7 +221,7 @@ func TestEstimateGasAfterCallsRunsAgainstAPastBlock(t *testing.T) {
 
 func TestEstimateGasAfterCallsCapComesFromConfig(t *testing.T) {
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
+		chainID: func() uint64 { return 713700 },
 		baseFee: func() *big.Int { return new(big.Int) },
 	}
 	limits := noRPCLimits

@@ -29,3 +29,11 @@ func TestFillDefaultsSnapshotKeepRecent(t *testing.T) {
 		})
 	}
 }
+
+func TestFillDefaultsSnapshotKeepLatestOnly(t *testing.T) {
+	for _, keepRecent := range []uint32{0, 1, 100} {
+		opts := Options{Config: Config{SnapshotKeepRecent: keepRecent, SnapshotKeepLatestOnly: true}}
+		opts.FillDefaults()
+		require.Zero(t, opts.SnapshotKeepRecent, keepRecent)
+	}
+}
