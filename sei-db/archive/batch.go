@@ -318,10 +318,14 @@ type locatorColumns struct {
 	kind             proto.ColUInt8
 }
 
-// append adds the location of the object with hash h; the key is the hash's big-endian first
-// eight bytes.
+// hashPrefix returns the hash_locator key of h: its big-endian first eight bytes.
+func hashPrefix(h common.Hash) uint64 {
+	return binary.BigEndian.Uint64(h[:8])
+}
+
+// append adds the location of the object with hash h.
 func (c *locatorColumns) append(h common.Hash, kind uint8, location uint64) {
-	c.prefix.Append(binary.BigEndian.Uint64(h[:8]))
+	c.prefix.Append(hashPrefix(h))
 	c.kind.Append(kind)
 	c.location.Append(location)
 }

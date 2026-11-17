@@ -23,6 +23,8 @@ import (
 type txAPI struct {
 	backend Backend
 	store   receiptpkg.ReceiptStore
+	// history answers for transactions the node's stores no longer hold.
+	history utils.Option[History]
 }
 
 // GetTransactionCount returns the address nonce in the committed EVM state after block.
@@ -50,13 +52,16 @@ func (api *txAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (
 }
 
 // GetTransactionByHash returns hash's transaction as committed in a finalized
-// block, decoded from the block's raw transaction bytes, or nil if hash is
-// unknown or its block is not yet finalized. This server tracks no local
-// mempool, so unlike a full Ethereum node it never returns a pending result.
+// block, from the node's own stores or, when they do not hold it, from history.
+// It returns nil when neither holds it. This server tracks no local mempool, so
+// unlike a full Ethereum node it never returns a pending result.
 func (api *txAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*export.RPCTransaction, error) {
 	stored, block, err := api.lookupFinalizedTx(ctx, hash)
-	if err != nil || stored == nil {
+	if err != nil {
 		return nil, err
+	}
+	if stored == nil {
+		return api.historyTransactionByHash(ctx, hash)
 	}
 	if int(stored.TransactionIndex) >= len(block.Block.Txs) {
 		return nil, fmt.Errorf("receipt transaction index %d exceeds block %d transaction count %d",

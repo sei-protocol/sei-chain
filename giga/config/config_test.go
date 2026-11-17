@@ -90,11 +90,15 @@ func TestConfigTemplateRendersSkipUpgrades(t *testing.T) {
 	require.Equal(t, want, cfg)
 }
 
-func TestConfigTemplateRendersArchivePassword(t *testing.T) {
+func TestConfigTemplateRendersArchive(t *testing.T) {
 	tmpl := template.Must(template.New("giga").Parse(gigaconfig.ConfigTemplate))
 	want := gigaconfig.DefaultConfig
 	want.Archive.ClickHouseAddr = "ch:9000"
 	want.Archive.Password = `p"a\ss#word`
+	want.Archive.Export = true
+	want.Archive.ServeRPC = true
+	want.Archive.RPCMaxConns = 8
+	want.Archive.RPCQueryTimeout = 3 * time.Second
 	var rendered bytes.Buffer
 	require.NoError(t, tmpl.Execute(&rendered, struct{ Giga gigaconfig.Config }{want}))
 	v := viper.New()
@@ -146,6 +150,10 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.archive.database":                     "arch",
 		"giga.archive.user":                         "writer",
 		"giga.archive.password":                     "secret",
+		"giga.archive.export":                       "true",
+		"giga.archive.serve_rpc":                    "true",
+		"giga.archive.rpc_max_conns":                "8",
+		"giga.archive.rpc_query_timeout":            "3s",
 	})
 	require.NoError(t, err)
 	want := gigaconfig.Config{
@@ -193,10 +201,14 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			Enabled: true,
 		},
 		Archive: gigaconfig.ArchiveConfig{
-			ClickHouseAddr: "ch:9000",
-			Database:       "arch",
-			User:           "writer",
-			Password:       "secret",
+			ClickHouseAddr:  "ch:9000",
+			Database:        "arch",
+			User:            "writer",
+			Password:        "secret",
+			Export:          true,
+			ServeRPC:        true,
+			RPCMaxConns:     8,
+			RPCQueryTimeout: 3 * time.Second,
 		},
 	}
 	require.Equal(t, want, cfg)
@@ -255,7 +267,13 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"negative filter cap":             {"giga.rpc.max_filters": "-1"},
 		"non-numeric block filter hashes": {"giga.rpc.max_block_filter_hashes": "plenty"},
 		"non-boolean state sync":          {"giga.state_sync.enabled": "maybe"},
-		"archive without database":        {"giga.archive.clickhouse_addr": "ch:9000", "giga.archive.database": ""},
+		"archive without database":        {"giga.archive.export": "true", "giga.archive.clickhouse_addr": "ch:9000", "giga.archive.database": ""},
+		"archive export without address":  {"giga.archive.export": "true"},
+		"archive rpc without address":     {"giga.archive.serve_rpc": "true"},
+		"non-boolean archive export":      {"giga.archive.export": "maybe"},
+		"zero archive rpc connections":    {"giga.archive.rpc_max_conns": "0"},
+		"non-numeric archive rpc conns":   {"giga.archive.rpc_max_conns": "many"},
+		"zero archive rpc query timeout":  {"giga.archive.rpc_query_timeout": "0s"},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)
