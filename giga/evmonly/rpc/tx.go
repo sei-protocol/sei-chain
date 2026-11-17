@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -25,8 +26,13 @@ type txAPI struct {
 	store   receiptpkg.ReceiptStore
 }
 
-// GetTransactionCount returns the address nonce in the committed EVM state after block.
+// GetTransactionCount returns the address nonce in the committed EVM state after block. For the
+// pending tag it returns the nonce the address's next transaction must carry, counting those its
+// shard owner holds but has not committed.
 func (api *txAPI) GetTransactionCount(ctx context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
+	if number, ok := block.Number(); ok && number == ethrpc.PendingBlockNumber {
+		return api.pendingTransactionCount(ctx, address)
+	}
 	height, latest, err := stateHeight(ctx, api.backend, block)
 	if err != nil {
 		return nil, err
@@ -37,6 +43,26 @@ func (api *txAPI) GetTransactionCount(ctx context.Context, address common.Addres
 	} else if nonce, err = api.backend.EvmNonceAt(address, height); err != nil {
 		return nil, err
 	}
+	return (*hexutil.Uint64)(&nonce), nil
+}
+
+// shardOwnerNonceTimeout bounds a pending nonce read forwarded to the validator that owns the shard.
+const shardOwnerNonceTimeout = 5 * time.Second
+
+// pendingTransactionCount returns the nonce address's next transaction must carry, asking the
+// validator that owns address's shard when that is not this node.
+func (api *txAPI) pendingTransactionCount(ctx context.Context, address common.Address) (*hexutil.Uint64, error) {
+	if client, ok := api.backend.EvmProxy(address).Get(); ok {
+		ctx, cancel := context.WithTimeout(ctx, shardOwnerNonceTimeout)
+		defer cancel()
+		var nonce hexutil.Uint64
+		pending := ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber)
+		if err := client.CallContext(ctx, &nonce, "eth_getTransactionCount", address, pending); err != nil {
+			return nil, err
+		}
+		return &nonce, nil
+	}
+	nonce := api.backend.EvmNextPendingNonce(address)
 	return (*hexutil.Uint64)(&nonce), nil
 }
 

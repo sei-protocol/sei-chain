@@ -37,12 +37,58 @@ func TestGetTransactionCountCurrentState(t *testing.T) {
 		ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber),
 		ethrpc.BlockNumberOrHashWithNumber(ethrpc.SafeBlockNumber),
 		ethrpc.BlockNumberOrHashWithNumber(ethrpc.FinalizedBlockNumber),
-		ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber),
 	} {
 		got, err := api.GetTransactionCount(t.Context(), address, tag)
 		require.NoError(t, err)
 		require.Equal(t, hexutil.Uint64(7), *got)
 	}
+}
+
+func TestGetTransactionCountPendingCountsProducerTransactions(t *testing.T) {
+	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	backend := &testBackend{
+		proxy:            utils.None[*ethrpc.Client](),
+		transactionCount: func(common.Address) uint64 { return 7 },
+		pendingNonce: func(got common.Address) uint64 {
+			require.Equal(t, address, got)
+			return 12
+		},
+	}
+
+	got, err := (&txAPI{backend: backend}).GetTransactionCount(
+		t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber))
+
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Uint64(12), *got)
+}
+
+func TestGetTransactionCountPendingAsksShardOwner(t *testing.T) {
+	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	owner := &testBackend{
+		proxy:        utils.None[*ethrpc.Client](),
+		pendingNonce: func(common.Address) uint64 { return 12 },
+	}
+	ownerHandler, err := newHandler(owner, evmonly.NewMemoryReceiptStore(), noRPCLimits)
+	require.NoError(t, err)
+	t.Cleanup(ownerHandler.Stop)
+	ownerServer := httptest.NewServer(ownerHandler)
+	t.Cleanup(ownerServer.Close)
+	ownerClient, err := ethrpc.DialHTTP(ownerServer.URL)
+	require.NoError(t, err)
+	t.Cleanup(ownerClient.Close)
+	backend := &testBackend{
+		proxy: utils.Some(ownerClient),
+		pendingNonce: func(common.Address) uint64 {
+			t.Fatal("a proxied pending nonce read the local producer")
+			return 0
+		},
+	}
+
+	got, err := (&txAPI{backend: backend}).GetTransactionCount(
+		t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber))
+
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Uint64(12), *got)
 }
 
 func TestGetTransactionCountReadsNumberedBlocksFromHistory(t *testing.T) {
