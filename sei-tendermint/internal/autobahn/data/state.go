@@ -31,9 +31,10 @@ type Config struct {
 	Registry *epoch.Registry
 }
 
-// blockEntry contains a FullCommitQC, its lane blocks, and its verifying epoch.
+// blockEntry contains a FullCommitQC, its road header hash, its lane blocks, and its verifying epoch.
 type blockEntry struct {
 	qc         *types.FullCommitQC
+	hash       types.RoadBlockHeaderHash
 	epoch      *types.Epoch
 	laneBlocks map[uint64]*types.Block
 }
@@ -243,8 +244,9 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 		for offset, laneBlock := range block.LaneBlocks() {
 			laneBlocks[uint64(offset)] = laneBlock //nolint:gosec // non-negative slice index
 		}
-		inner.byHash[block.Header().Hash()] = n
-		inner.blocks[n] = &blockEntry{qc: block.QC(), epoch: epoch, laneBlocks: laneBlocks}
+		hash := block.Header().Hash()
+		inner.byHash[hash] = n
+		inner.blocks[n] = &blockEntry{qc: block.QC(), hash: hash, epoch: epoch, laneBlocks: laneBlocks}
 		inner.laneBlockCount += uint64(len(block.QC().Headers()))
 		inner.nextPartialBlock += 1
 		inner.nextFullBlock += 1
@@ -338,9 +340,10 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 		updated := false
 		if inner.nextPartialBlock == n {
 			updated = true
-			inner.blocks[n] = &blockEntry{qc: qc, epoch: epoch, laneBlocks: make(map[uint64]*types.Block, len(qc.Headers()))}
+			hash := qc.Header().Hash()
+			inner.blocks[n] = &blockEntry{qc: qc, hash: hash, epoch: epoch, laneBlocks: make(map[uint64]*types.Block, len(qc.Headers()))}
 			inner.laneBlockCount += uint64(len(qc.Headers()))
-			inner.byHash[qc.Header().Hash()] = n
+			inner.byHash[hash] = n
 			inner.nextPartialBlock += 1
 			s.metrics.NextBlock.QC.Set(utils.Clamp[int64](inner.nextPartialBlock))
 		}
@@ -548,6 +551,28 @@ func (s *State) SuperBlock(ctx context.Context, n types.RoadIndex) (*types.Super
 		return b.SuperBlock(), nil
 	}
 	return nil, types.ErrPruned
+}
+
+// SuperBlockHash waits for road n to be full and returns the hash of its SuperBlock. Pruned roads
+// return ErrPruned.
+func (s *State) SuperBlockHash(ctx context.Context, n types.RoadIndex) (types.RoadBlockHeaderHash, error) {
+	for inner, ctrl := range s.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextFullBlock }); err != nil {
+			return types.RoadBlockHeaderHash{}, err
+		}
+		if inner.first <= n {
+			return inner.blocks[n].hash, nil
+		}
+	}
+	// The QC carries the road header, so the road's lane blocks are never decoded.
+	opt, err := s.blockStore.ReadQC(n)
+	if err != nil {
+		return types.RoadBlockHeaderHash{}, err
+	}
+	if qc, ok := opt.Get(); ok {
+		return qc.Header().Hash(), nil
+	}
+	return types.RoadBlockHeaderHash{}, types.ErrPruned
 }
 
 func (s *State) blockFromDB(n types.LaneBlockPos) (*types.Block, error) {

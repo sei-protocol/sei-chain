@@ -269,6 +269,13 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			if err != nil {
 				return fmt.Errorf("router[0].BlockByNumber(%v): %w", h, err)
 			}
+			hash, err := giga0.BlockHash(ctx, gbn)
+			if err != nil {
+				return fmt.Errorf("router[0].BlockHash(%v): %w", h, err)
+			}
+			if err := utils.TestDiff(common.BytesToHash(rb.BlockID.Hash), hash); err != nil {
+				return fmt.Errorf("router[0].BlockHash(%v) ≠ BlockByNumber(%v).BlockID: %w", h, h, err)
+			}
 			// Convert rb.Block.Data.Txs ([]types.Tx) back to [][]byte
 			// to compare against gb.Txs directly.
 			rbBytes := make([][]byte, len(rb.Block.Data.Txs))

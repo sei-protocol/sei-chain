@@ -57,6 +57,10 @@ func (e *Executor) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	parent, err := e.parentHash(next)
+	if err != nil {
+		return err
+	}
 	for n := next; ; n++ {
 		gigametrics.SetPhase(gigametrics.PhaseConsensus)
 		block, err := e.cfg.BlockStore.WaitForBlock(ctx, n)
@@ -64,10 +68,33 @@ func (e *Executor) Run(ctx context.Context) error {
 			return fmt.Errorf("WaitForBlock(%v): %w", n, err)
 		}
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		if err := e.executeBlock(ctx, block.SuperBlock()); err != nil {
+		b := block.SuperBlock()
+		if err := e.executeBlock(ctx, b, parent); err != nil {
 			return fmt.Errorf("executeBlock(%v): %w", n, err)
 		}
+		parent = b.Hash[:]
 	}
+}
+
+// parentHash returns the hash of the block before road n, or nil when the BlockStore does not hold
+// it: n is the chain's first road, or its parent is pruned.
+func (e *Executor) parentHash(n atypes.RoadIndex) ([]byte, error) {
+	if n == 0 {
+		return nil, nil
+	}
+	// The QC carries the road header, so the parent's lane blocks are never decoded.
+	qc, err := e.cfg.BlockStore.ReadQC(n - 1)
+	if errors.Is(err, atypes.ErrPruned) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("ReadQC(%v): %w", n-1, err)
+	}
+	if qc, ok := qc.Get(); ok {
+		hash := qc.Header().Hash()
+		return hash[:], nil
+	}
+	return nil, nil
 }
 
 // initApp brings the app to a state execution can extend: InitChain on a fresh
@@ -115,10 +142,15 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 		}
 		return 0, fmt.Errorf("WaitForBlock(%v): %w", last, err)
 	}
+	parent, err := e.parentHash(last)
+	if err != nil {
+		return 0, err
+	}
 	app.InitLastHeader(&proxy.Header{
-		ChainID: e.cfg.GenDoc.ChainID,
-		Height:  int64(last), // nolint:gosec // different representations of the same value
-		Time:    block.Header().Timestamp(),
+		ChainID:       e.cfg.GenDoc.ChainID,
+		Height:        int64(last), // nolint:gosec // different representations of the same value
+		Time:          block.Header().Timestamp(),
+		LastBlockHash: parent,
 		// TODO: for consistency we should also set proposerAddress here,
 		// but this is a placeholder solution so maybe we don't care.
 	})
@@ -126,8 +158,8 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 }
 
 // executeBlock reports b's hash to the app hash builder, then finalizes and
-// commits b.
-func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error {
+// commits b, whose parent block has hash parent.
+func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock, parent []byte) error {
 	if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
 		return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 	}
@@ -148,9 +180,10 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error
 		// and is fed as block hash to EVM contracts.
 		Hash: b.Hash[:],
 		Header: &proxy.Header{
-			ChainID: e.cfg.GenDoc.ChainID,
-			Height:  int64(b.Height), // nolint:gosec // different representations of the same value
-			Time:    b.Timestamp,
+			ChainID:       e.cfg.GenDoc.ChainID,
+			Height:        int64(b.Height), // nolint:gosec // different representations of the same value
+			Time:          b.Timestamp,
+			LastBlockHash: parent,
 			// WARNING: the reward distribution has corner cases where it forgets the proposer,
 			// because reward is distributed with a delay. This is not our problem here though.
 			ProposerAddress: proposerAddress,

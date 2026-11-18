@@ -215,15 +215,11 @@ func (api *filterAPI) blockHash(ctx context.Context, blockNumber uint64) (common
 	if blockNumber > math.MaxInt64 {
 		return common.Hash{}, fmt.Errorf("log block number %d exceeds int64", blockNumber)
 	}
-	height := coretypes.Int64(blockNumber)
-	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: &height})
+	hash, err := api.backend.BlockHash(ctx, int64(blockNumber)) //nolint:gosec // G115: bounded by the check above.
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("read log block %d: %w", blockNumber, err)
 	}
-	if block == nil || block.Block == nil {
-		return common.Hash{}, fmt.Errorf("log block %d is not finalized", blockNumber)
-	}
-	return common.BytesToHash(block.BlockID.Hash), nil
+	return hash, nil
 }
 
 // firstLogIndex returns the block-wide index of txHash's first log. Stored

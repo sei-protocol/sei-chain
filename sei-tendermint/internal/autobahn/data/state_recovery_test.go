@@ -127,6 +127,13 @@ func TestRecoveryLeavesAppTipBelowPruneFloorUnreadable(t *testing.T) {
 	require.NoError(t, err)
 	_, err = state.SuperBlock(t.Context(), qc1.Index())
 	require.ErrorIs(t, err, types.ErrPruned)
+	_, err = state.SuperBlockHash(t.Context(), qc1.Index())
+	require.ErrorIs(t, err, types.ErrPruned)
+	tip, err := state.SuperBlock(t.Context(), qc2.Index())
+	require.NoError(t, err)
+	tipHash, err := state.SuperBlockHash(t.Context(), qc2.Index())
+	require.NoError(t, err)
+	require.Equal(t, tip.Hash, tipHash)
 }
 
 // TestPruningDiscards verifies that PruneBefore advances BlockDB's watermark but

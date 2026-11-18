@@ -312,6 +312,30 @@ func TestEVMOnlyApplicationValidatorExecutesOnlyAgainstTheLatestBlock(t *testing
 	require.Error(t, err)
 }
 
+// parentBlockHashCode is runtime bytecode that returns BLOCKHASH(NUMBER-1) as one 32-byte word.
+var parentBlockHashCode = []byte{
+	0x43, 0x60, 0x01, 0x90, 0x03, 0x40, // NUMBER, PUSH1 1, SWAP1, SUB, BLOCKHASH
+	0x60, 0x00, 0x52, // PUSH1 0, MSTORE
+	0x60, 0x20, 0x60, 0x00, 0xf3, // PUSH1 32, PUSH1 0, RETURN
+}
+
+// A call against the latest committed state answers BLOCKHASH for the committed block's parent,
+// as that block executed.
+func TestEVMOnlyApplicationEvmCallSeesTheCommittedBlocksParentHash(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmApp := app.(*evmOnlyApplication)
+	deployRaw, sender, contract := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(parentBlockHashCode), 300_000)
+	first := evmOnlyTestBlock(1, deployRaw)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, first)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2))
+
+	result, err := evmApp.EvmCall(t.Context(), callMessage(sender, &contract), evmonly.CallOverrides{})
+
+	require.NoError(t, err)
+	require.NoError(t, result.Err)
+	require.Equal(t, first.Hash, result.Return())
+}
+
 func TestEVMOnlyApplicationEvmCallRequiresInitChain(t *testing.T) {
 	app := newEVMOnlyTestApp(t, nil)
 	evmApp := app.(*evmOnlyApplication)

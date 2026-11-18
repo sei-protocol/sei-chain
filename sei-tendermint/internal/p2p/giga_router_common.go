@@ -152,6 +152,19 @@ func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash common.Hash) (*
 	return r.translateSuperBlock(gb), nil
 }
 
+// BlockHash returns the hash of the finalized SuperBlock at road n, the hash BlockByNumber reports
+// for it, without reading its transactions.
+func (r *gigaRouterCommon) BlockHash(ctx context.Context, n atypes.RoadIndex) (common.Hash, error) {
+	h, err := r.data.SuperBlockHash(ctx, n)
+	if err != nil {
+		if errors.Is(err, atypes.ErrPruned) {
+			return common.Hash{}, coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
+		}
+		return common.Hash{}, fmt.Errorf("data.SuperBlockHash(%v): %w", n, err)
+	}
+	return common.Hash(h), nil
+}
+
 // translateSuperBlock converts a SuperBlock to the CometBFT result used by block RPCs.
 // LastCommit has empty Signatures, matching executeBlock's empty CommitInfo.
 func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes.ResultBlock {

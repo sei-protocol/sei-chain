@@ -80,6 +80,7 @@ type GigaRouter interface {
 	MaxGasEstimatedPerBlock() uint64
 	BlockByNumber(ctx context.Context, n atypes.RoadIndex) (*coretypes.ResultBlock, error)
 	BlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error)
+	BlockHash(ctx context.Context, n atypes.RoadIndex) (common.Hash, error)
 	EvmProxy(sender common.Address) utils.Option[*rpc.Client]
 	// EvmProxyEnabled reports whether EvmProxy can return Some for any sender.
 	EvmProxyEnabled() bool

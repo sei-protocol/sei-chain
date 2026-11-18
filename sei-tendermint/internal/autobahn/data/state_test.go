@@ -1362,6 +1362,9 @@ func TestPruningPreservesRAMAndRecoveryAnchor(t *testing.T) {
 		gb, ok := byHash.Get()
 		require.True(t, ok, "SuperBlockByHash must serve RAM-cached height %d after BlockDB prune", n)
 		require.Equal(t, n, gb.Height)
+		hash, err := state1.SuperBlockHash(ctx, n)
+		require.NoError(t, err)
+		require.Equal(t, gb.Hash, hash)
 	}
 
 	// Consistent retained range: full qc2.
