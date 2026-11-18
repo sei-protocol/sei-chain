@@ -42,7 +42,7 @@ func secondSignedTransaction(t *testing.T) (*ethtypes.Transaction, []byte) {
 		To:       &to,
 		Value:    big.NewInt(2),
 	})
-	tx, err = ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(big.NewInt(713715)), key)
+	tx, err = ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(big.NewInt(713700)), key)
 	require.NoError(t, err)
 	raw, err := tx.MarshalBinary()
 	require.NoError(t, err)
@@ -56,7 +56,7 @@ func fixedGasLimitBackend(t *testing.T, gasLimit uint64, block func(context.Cont
 	return &testBackend{
 		block:       block,
 		gasLimit:    func() uint64 { return gasLimit },
-		chainConfig: func() *params.ChainConfig { return testChainConfig(big.NewInt(713715)) },
+		chainConfig: func() *params.ChainConfig { return testChainConfig(big.NewInt(713700)) },
 		baseFee:     func() *big.Int { return new(big.Int) },
 	}
 }
@@ -191,10 +191,10 @@ func TestEncodeBlockEmptyBlockHasZeroGasUsedAndNoTransactions(t *testing.T) {
 func multiTxBlock(t *testing.T, height int64, blockHash common.Hash, blockTime time.Time) (*coretypes.ResultBlock, *ethtypes.Transaction, *ethtypes.Transaction, receipt.ReceiptStore) {
 	t.Helper()
 	tx1, raw1 := testSignedTransaction(t)
-	sender1, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713715)), tx1)
+	sender1, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713700)), tx1)
 	require.NoError(t, err)
 	tx2, raw2 := secondSignedTransaction(t)
-	sender2, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713715)), tx2)
+	sender2, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713700)), tx2)
 	require.NoError(t, err)
 
 	store := evmonly.NewMemoryReceiptStore()
@@ -814,7 +814,7 @@ func TestGetTransactionByBlockAndIndexMatchesGetBlockFullTransactions(t *testing
 	blockTime := time.Unix(1_700_000_000, 0)
 	twoTxBlock, _, _, twoTxStore := multiTxBlock(t, 9, blockHash, blockTime)
 	tx, raw := testSignedTransaction(t)
-	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713715)), tx)
+	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713700)), tx)
 	require.NoError(t, err)
 	oneTxBlock := &coretypes.ResultBlock{
 		BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},

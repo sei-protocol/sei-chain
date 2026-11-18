@@ -17,7 +17,7 @@ func opKeys(ops []testBatchOp) []string {
 	return keys
 }
 
-// A version's writes must reach the batch ordered by key: that ascending order is the whole point of
+// A block's writes must reach the batch ordered by key: that ascending order is the whole point of
 // sorting the diff ahead of the flush, and map iteration order would destroy it.
 func TestFlushWritesEachVersionsKeysInAscendingOrder(t *testing.T) {
 	manager, db := newTestManager(t, nil, 4, 1<<20)
@@ -29,44 +29,44 @@ func TestFlushWritesEachVersionsKeysInAscendingOrder(t *testing.T) {
 		require.NoError(t, manager.Set([]byte(key), []byte("v")))
 	}
 
-	view, err := manager.Commit()
+	view, err := manager.Commit(manager.NextBlockHeight())
 	require.NoError(t, err)
-	require.NoError(t, view.Finalize(hashWrites(testHash)))
+	require.NoError(t, view.Finalize(view.BlockHeight(), hashWrites(testHash)))
 	awaitFlushed(t, view, time.Second)
 	require.NoError(t, view.Release())
 
 	batches := db.committedBatches()
-	require.Len(t, batches, 1, "one version at this size must flush in a single batch")
+	require.Len(t, batches, 1, "one block at this size must flush in a single batch")
 	keys := opKeys(batches[0])
 
-	// The finalization write is appended after the version's own data, even though its reserved
+	// The finalization write is appended after the block's own data, even though its reserved
 	// prefix sorts ahead of every data key.
 	require.Equal(t, testHashKey, keys[len(keys)-1], "finalization writes must come last")
 
 	dataKeys := keys[:len(keys)-1]
 	require.Equal(t, len(written), len(dataKeys))
-	require.True(t, slices.IsSorted(dataKeys), "a version's keys must reach the batch ascending, got %v",
+	require.True(t, slices.IsSorted(dataKeys), "a block's keys must reach the batch ascending, got %v",
 		dataKeys)
 }
 
-// Sorting is per version and never across the versions sharing a flush: pebble resolves two writes to
-// one key by the sequence number it assigns in batch order, so an older version's writes have to reach
-// the batch before a newer version's even when they sort later.
+// Sorting is per block and never across the blocks sharing a flush: pebble resolves two writes to
+// one key by the sequence number it assigns in batch order, so an older block's writes have to reach
+// the batch before a newer block's even when they sort later.
 func TestFlushOrdersWithinEachVersionNotAcrossThem(t *testing.T) {
 	manager, db := newTestManager(t, nil, 1, 1<<20)
 
 	require.NoError(t, manager.Set([]byte("shared"), []byte("from-v1")))
 	require.NoError(t, manager.Set([]byte("zebra"), []byte("from-v1")))
-	view1, err := manager.Commit()
+	view1, err := manager.Commit(manager.NextBlockHeight())
 	require.NoError(t, err)
 
 	require.NoError(t, manager.Set([]byte("aardvark"), []byte("from-v2")))
 	require.NoError(t, manager.Set([]byte("shared"), []byte("from-v2")))
-	view2, err := manager.Commit()
+	view2, err := manager.Commit(manager.NextBlockHeight())
 	require.NoError(t, err)
 
-	// The newer version is finalized and released first so that nothing is flush eligible until the
-	// oldest is finalized, which then covers both versions (see
+	// The newer block is finalized and released first so that nothing is flush eligible until the
+	// oldest is finalized, which then covers both blocks (see
 	// TestTargetBytesPerFlushSplitsIntoMultipleCommits).
 	finalizeAndRelease(t, view2)
 	finalizeAndRelease(t, view1)
@@ -79,9 +79,9 @@ func TestFlushOrdersWithinEachVersionNotAcrossThem(t *testing.T) {
 		keys = append(keys, opKeys(batch)...)
 	}
 	require.Equal(t, []string{"shared", "zebra", testHashKey, "aardvark", "shared", testHashKey}, keys,
-		"each version's own keys ascend, and the older version's writes all precede the newer's")
+		"each block's own keys ascend, and the older block's writes all precede the newer's")
 
 	value, ok := db.get("shared")
 	require.True(t, ok)
-	require.Equal(t, "from-v2", string(value), "the newer version's write must win")
+	require.Equal(t, "from-v2", string(value), "the newer block's write must win")
 }

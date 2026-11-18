@@ -21,9 +21,8 @@
     ]
   },
   {
-    "_comment": "Disabled: Autobahn serves the EVM-only JSON-RPC (send, receipt, balance). This suite needs eth_estimateGas and the Cosmos GIGA executor. TODO(autobahn): re-enable once that surface exists on EVM-only.",
+    "_comment": "Compat skips the tests that need a moving base fee, which EVM-only does not have (CON-598).",
     "name": "Autobahn EVM Module (Compat) & GIGA",
-    "disabled": true,
     "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
     "scripts": [
       "./integration_test/evm_module/scripts/evm_compat_tests.sh",
@@ -31,15 +30,14 @@
     ]
   },
   {
-    "_comment": "Disabled: EVMPrecompileTest needs Sei precompiles, AssociateTest and the FlatKV fixture need Cosmos address association, and RPC to access state at past blocks, which EVM-only Autobahn does not serve. TODO(autobahn): re-enable with the other Autobahn EVM rows.",
+    "_comment": "The gov and params precompiles EVM-only runs, through EVM transactions. EVM_GOVERNANCE_VOTING_PERIOD turns on EVM governance, which registers both. The V2 precompile and association suites need Cosmos features EVM-only does not have (CON-563). The FlatKV checks read past state from the RPC node, since validators keep no state history, skip the Cosmos bank query, and dump the Giga FlatKV store.",
     "name": "Autobahn EVM Module (Precompile & Endpoints)",
-    "disabled": true,
-    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true EVM_GOVERNANCE_VOTING_PERIOD=20s",
     "scripts": [
-      "./integration_test/evm_module/scripts/evm_precompile_tests.sh",
-      "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
-      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBFlatKV",
-      "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh"
+      "./integration_test/evm_module/scripts/evm_only_precompile_tests.sh",
+      "docker exec -e FLATKV_EVM_QUERY_RPC_URL=http://sei-rpc-node:8545 sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBFlatKV/FlatKV",
+      "docker exec -e FLATKV_DIR=/root/.sei/data/autobahn/data/state_commit/flatkv sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh"
     ]
   },
   {
@@ -74,10 +72,10 @@
     ]
   },
   {
-    "_comment": "Suites: Gov & Oracle & Authz, Wasm Module. Gov runs first: it changes chain params (quorum, unbonding time, recheck_tx, NumKeysToMigratePerBlock) that the Wasm suite does not depend on; Wasm's undelegate/redelegate cases assert only tx code 0.",
-    "name": "Cosmos Modules (Gov & Oracle & Authz, Wasm)",
+    "_comment": "Suites: Gov & Oracle, Wasm Module. Gov runs first: it changes chain params (quorum, unbonding time, recheck_tx, NumKeysToMigratePerBlock) that the Wasm suite does not depend on; Wasm's undelegate/redelegate cases assert only tx code 0.",
+    "name": "Cosmos Modules (Gov & Oracle, Wasm)",
     "scripts": [
-      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestGovModule|TestOracleModule|TestAuthzModule\"",
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestGovModule|TestOracleModule\"",
       "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestWasmModuleCore",
       "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
@@ -171,9 +169,7 @@
     ]
   },
   {
-    "_comment": "Disabled: the spec fixtures call the full evmrpc surface (eth_getLogs, debug_trace*, sei_*, ...), which EVM-only Autobahn does not serve. TODO(autobahn): re-enable with the other Autobahn EVM rows.",
     "name": "Autobahn RPC .io/.iox (spec fixtures)",
-    "disabled": true,
     "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_OCC=false GIGA_STORAGE=true",
     "scripts": [
       "./integration_test/evm_module/scripts/evm_rpc_tests.sh"

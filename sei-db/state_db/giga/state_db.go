@@ -153,20 +153,23 @@ func resumeUndoLog(liveStateDB *flatkv.CommitStore, historicalStateDB *undo.Data
 func (s *StateDB) Close() error {
 	s.closed.Close(s)
 	var errs error
-	var timer utils.CloseTimer
+	timer := utils.NewLoggingPhaseTimer(logger)
 	// Before the live state DB: the undo log holds a view of the live state DB's current block until it closes.
 	if s.undo != nil {
-		if err := timer.Close("ss", s.undo.Close); err != nil {
+		timer.SetPhase("ss")
+		if err := s.undo.Close(); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close the historical state DB: %w", err))
 		}
 	}
-	if err := timer.Close("sc", s.sc.Close); err != nil {
+	timer.SetPhase("sc")
+	if err := s.sc.Close(); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("close the live state DB: %w", err))
 	}
-	if err := timer.Close("wal", s.wal.Close); err != nil {
+	timer.SetPhase("wal")
+	if err := s.wal.Close(); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("close state WAL: %w", err))
 	}
-	logger.Info("Closed the state DB", timer.Fields()...)
+	timer.Log("Closed the state DB")
 	return errs
 }
 

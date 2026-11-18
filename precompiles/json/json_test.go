@@ -104,19 +104,25 @@ func TestExtractAsUint256(t *testing.T) {
 	for _, test := range []struct {
 		body           []byte
 		expectedOutput *big.Int
+		wantErr        bool
 	}{
-		{
-			[]byte("{\"key\":\"12345678901234567890\"}"),
-			n,
-		}, {
-			[]byte("{\"key\":\"0\"}"),
-			big.NewInt(0),
-		},
+		{body: []byte(`{"key":"12345678901234567890"}`), expectedOutput: n},
+		{body: []byte(`{"key":"0"}`), expectedOutput: big.NewInt(0)},
+		{body: []byte(`{"key":5}`), expectedOutput: big.NewInt(5)},
+		{body: []byte(`{"key":"-1"}`), wantErr: true},
+		{body: []byte(`{"key":-5}`), wantErr: true},
+		{body: []byte(`{"key":"+5"}`), wantErr: true},
+		{body: []byte(`{"key":"-0"}`), wantErr: true},
 	} {
 		args, err := method.Inputs.Pack(test.body, "key")
 		require.Nil(t, err)
 		input := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsUint256ID, args...)
 		res, _, err := p.RunAndCalculateGas(evm, common.Address{}, common.Address{}, input, math.MaxUint64, nil, nil, true, false)
+		if test.wantErr {
+			require.Error(t, err, string(test.body))
+			require.Nil(t, res)
+			continue
+		}
 		require.Nil(t, err)
 		output, err := method.Outputs.Unpack(res)
 		require.Nil(t, err)

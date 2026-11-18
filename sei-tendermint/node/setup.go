@@ -14,6 +14,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	seiversion "github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -251,6 +252,7 @@ func buildValidatorGigaConfig(
 	if _, err := genesisMaxGas(genDoc); err != nil {
 		return nil, err
 	}
+	params := genDoc.Autobahn.Or(types.DefaultAutobahnParams())
 	return &p2p.GigaValidatorConfig{
 		GigaRouterCommonConfig: p2p.GigaRouterCommonConfig{
 			DialInterval:            time.Duration(fc.DialInterval),
@@ -263,9 +265,9 @@ func buildValidatorGigaConfig(
 		},
 		ValidatorKey: validatorKey,
 		ViewTimeout: func(atypes.View) time.Duration {
-			return genDoc.Autobahn.ViewTimeout
+			return params.ViewTimeout
 		},
-		ProposalTimeout: genDoc.Autobahn.ViewTimeout,
+		ProposalTimeout: params.ViewTimeout,
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    genDoc.ConsensusParams.Block.MaxGasWantedUint64(),
 			MaxGasEstimatedPerBlock: genDoc.ConsensusParams.Block.MaxGasUint64(),
@@ -425,6 +427,7 @@ func openAutobahnStorageManager(
 		return nil, fmt.Errorf("build Autobahn block DB config: %w", err)
 	}
 	storageConfig.BlockDBConfig = &blockConfig
+	storageConfig.RunningMarkerPath = filepath.Join(directory, "node_running")
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
 }
 
@@ -459,6 +462,9 @@ func buildGigaStorageConfig(
 		storageConfig.WithFullNodeMode()
 	}
 	storageConfig.ReceiptDBConfig.Enable = storage.Receipts
+	if seidVersion := seiversion.Version; seidVersion != "" {
+		storageConfig.AppHashBuilderConfig.HashLogConfig.Version = seidVersion
+	}
 	return storageConfig, nil
 }
 

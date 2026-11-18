@@ -2,9 +2,8 @@
  * slashing precompile (0x…1014) — end-to-end semantics against a live Sei chain.
  *
  * Query methods are checked against the slashing module itself. Write methods
- * that would jail a validator are out of scope: grant/revoke of unjail
- * authorization are exercised from a pool account, and unjail is only asserted
- * to revert when the caller is not a jailed validator.
+ * that would jail a validator are out of scope: unjail is only asserted to
+ * revert when the caller is not a jailed validator.
  */
 import { ethers } from 'ethers';
 import { expect } from 'chai';
@@ -91,23 +90,6 @@ describe('slashing precompile (0x1014)', function () {
             });
             expect(asSigningInfo(viaOne)).to.deep.equal(asSigningInfo(first));
         });
-
-        it('grantUnjailAuthorization then revokeUnjailAuthorization succeed from an associated pool account', async () => {
-            const expiration = BigInt(Math.floor(Date.now() / 1000) + 86_400);
-            const grantTx = await (
-                slashing.connect(associated.wallet) as ethers.Contract
-            ).grantUnjailAuthorization(admin.address, expiration, { gasLimit: 1_000_000 });
-            expect((await grantTx.wait())!.status, 'grantUnjailAuthorization tx must succeed').to.equal(
-                1,
-            );
-
-            const revokeTx = await (
-                slashing.connect(associated.wallet) as ethers.Contract
-            ).revokeUnjailAuthorization(admin.address, { gasLimit: 1_000_000 });
-            expect((await revokeTx.wait())!.status, 'revokeUnjailAuthorization tx must succeed').to.equal(
-                1,
-            );
-        });
     });
 
     describe('error handling', () => {
@@ -127,16 +109,6 @@ describe('slashing precompile (0x1014)', function () {
             await expectExecutionReverted(
                 slashing.signingInfo('notanaddress'),
                 'slashing.signingInfo with a garbage cons address',
-            );
-        });
-
-        it('unjailWithAuthorization without a grant reverts', async () => {
-            await expectVmError(
-                (slashing.connect(associated.wallet) as ethers.Contract).unjailWithAuthorization(
-                    admin.address,
-                    { gasLimit: 1_000_000 },
-                ),
-                'authorization not found',
             );
         });
 

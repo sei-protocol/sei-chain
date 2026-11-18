@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
-const evmOnlyTestChainID uint64 = 713715
+const evmOnlyTestChainID uint64 = 713700
 
 // evmOnlyMinGasPrice is the admission price the default execution config runs at.
 const evmOnlyMinGasPrice = 1_000_000_000
@@ -290,6 +291,7 @@ func newEVMOnlyTestAppWithStorage(
 		storage,
 		execution,
 		utils.None[precompiles.Registry](),
+		utils.None[GenesisAlloc](),
 		utils.None[string](),
 	)
 	require.NoError(t, err)
@@ -371,6 +373,7 @@ func reopenEVMOnlyTestApp(t *testing.T, app proxy.EVMApplication, storage *boots
 		evmOnlyTestChainID, nil, reopened,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[GenesisAlloc](),
 		utils.None[string](),
 	)
 	require.NoError(t, err)
@@ -639,6 +642,7 @@ func TestEVMOnlyApplicationInitLastHeaderSeedsBlockTime(t *testing.T) {
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[GenesisAlloc](),
 		utils.None[string](),
 	)
 	require.NoError(t, err)
@@ -688,6 +692,7 @@ func TestEVMOnlyApplicationResumesFromStorageAfterRestart(t *testing.T) {
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[GenesisAlloc](),
 		utils.None[string](),
 	)
 	require.NoError(t, err)
@@ -726,6 +731,7 @@ func TestEVMOnlyApplicationResumedAppSettlesItsCommits(t *testing.T) {
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[GenesisAlloc](),
 		utils.None[string](),
 	)
 	require.NoError(t, err)
@@ -756,6 +762,7 @@ func TestEVMOnlyApplicationResumesFromBlockFinalizedButNotCommitted(t *testing.T
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[GenesisAlloc](),
 		utils.None[string](),
 	)
 	require.NoError(t, err)
@@ -787,6 +794,7 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
+		utils.None[GenesisAlloc](),
 		utils.None[string](),
 	)
 	require.NoError(t, err)
@@ -795,11 +803,12 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	_, err = app.InitChain(init)
 	require.NoError(t, err)
 
-	closeEVMOnlyTestApp(t, app, storage)
+	// Seeding writes only the live state DB, so a shutdown before the first block is not clean.
+	require.Error(t, storage.Close())
 	storage = openEVMOnlyTestStorage(t, storageConfig)
 	app, err = NewEVMOnlyApplication(
 		evmOnlyTestChainID, nil, storage,
-		gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[string]())
+		gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[GenesisAlloc](), utils.None[string]())
 	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
 
@@ -1324,8 +1333,9 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
 	require.NoError(t, err)
 	storage := openEVMOnlyTestStorage(t, storageConfig)
-	t.Cleanup(func() { require.NoError(t, storage.Close()) })
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[string]())
+	// The failed commits leave the receipt store ahead of the state, so the shutdown is not clean.
+	t.Cleanup(func() { require.Error(t, storage.Close()) })
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[GenesisAlloc](), utils.None[string]())
 	require.NoError(t, err)
 	_, err = app.InitChain(&proxy.RequestInitChain{
 		InitialHeight: 1,
@@ -1416,4 +1426,277 @@ func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
 	require.NoError(t, settler.AwaitCommits())
 	require.Equal(t, uint64(blocks), app.EvmNonce(sender))
 	require.Equal(t, uint64(blocks), settler.EvmCommittedNonce(sender))
+}
+
+func newEVMOnlyTestAppWithAlloc(t *testing.T, alloc GenesisAlloc) proxy.EVMApplication {
+	t.Helper()
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	storage := openEVMOnlyTestStorage(t, storageConfig)
+	app, err := NewEVMOnlyApplication(
+		evmOnlyTestChainID, nil, storage,
+		gigaconfig.DefaultConfig.Execution,
+		utils.None[precompiles.Registry](),
+		utils.Some(alloc),
+		utils.None[string](),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
+	return app
+}
+
+func TestEVMOnlyApplicationAllocFundsOnlyListedAccounts(t *testing.T) {
+	funder, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	funderAddr := crypto.PubkeyToAddress(funder.PublicKey)
+	allocBalance := new(uint256.Int).Lsh(uint256.NewInt(1), 70)
+	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{funderAddr: allocBalance}})
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+
+	raw := signedEVMOnlyTestTxFrom(t, funder, evmOnlyTestChainID, 0)
+	unfunded, unfundedAddr := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	response, err := app.FinalizeBlock(t.Context(), evmOnlyTestBlock(1, raw, unfunded))
+	require.NoError(t, err)
+	require.Len(t, response.TxResults, 2)
+	require.Zero(t, response.TxResults[0].Code)
+	require.Contains(t, response.TxResults[1].Log, "insufficient funds")
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+	_, err = app.FinalizeBlock(t.Context(), evmOnlyTestBlock(2))
+	require.NoError(t, err)
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+
+	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	gotBalance := app.EvmBalance(recipient, nil)
+	require.Equal(t, big.NewInt(1), gotBalance.ToBig())
+	wantBalance := new(big.Int).Sub(
+		new(big.Int).Sub(allocBalance.ToBig(), big.NewInt(1)),
+		new(big.Int).Mul(big.NewInt(evmOnlyMinGasPrice), big.NewInt(response.TxResults[0].GasUsed)),
+	)
+	gotBalance = app.EvmBalance(funderAddr, nil)
+	require.Equal(t, wantBalance, gotBalance.ToBig(), "only the initial height credits the alloc")
+	gotBalance = app.EvmBalance(unfundedAddr, nil)
+	require.Zero(t, gotBalance.Sign())
+	require.Zero(t, app.EvmNonce(unfundedAddr))
+}
+
+func TestEVMOnlyApplicationAllocRefusesAnotherInitialHeight(t *testing.T) {
+	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 5, Balances: map[common.Address]*uint256.Int{{1}: uint256.NewInt(1)}})
+	_, err := app.InitChain(evmOnlyTestInitChain())
+	require.Error(t, err)
+}
+
+func TestEVMOnlyApplicationRefusesAnEmptyAlloc(t *testing.T) {
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	storage := openEVMOnlyTestStorage(t, storageConfig)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	_, err = NewEVMOnlyApplication(
+		evmOnlyTestChainID, nil, storage,
+		gigaconfig.DefaultConfig.Execution,
+		utils.None[precompiles.Registry](),
+		utils.Some(GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{}}),
+		utils.None[string](),
+	)
+	require.Error(t, err)
+}
+
+func TestEVMOnlyApplicationResumesOnlyWithTheAllocItStartedWith(t *testing.T) {
+	alloc := func(balance uint64) utils.Option[GenesisAlloc] {
+		return utils.Some(GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{
+			{1}: uint256.NewInt(balance),
+			{2}: uint256.NewInt(7),
+		}})
+	}
+	none := utils.None[GenesisAlloc]()
+	for _, tc := range []struct {
+		name            string
+		started, resume utils.Option[GenesisAlloc]
+		ok              bool
+	}{
+		{"without alloc", none, none, true},
+		{"same alloc", alloc(5), alloc(5), true},
+		{"alloc added", none, alloc(5), false},
+		{"alloc dropped", alloc(5), none, false},
+		{"alloc changed", alloc(5), alloc(6), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			open := func(storage *bootstrap.GigaStorageManager, alloc utils.Option[GenesisAlloc]) (proxy.EVMApplication, error) {
+				return NewEVMOnlyApplication(
+					evmOnlyTestChainID, nil, storage,
+					gigaconfig.DefaultConfig.Execution,
+					utils.None[precompiles.Registry](),
+					alloc,
+					utils.None[string](),
+				)
+			}
+			home := t.TempDir()
+			storage := openEVMOnlyTestStorageAt(t, home)
+			app, err := open(storage, tc.started)
+			require.NoError(t, err)
+			_, err = app.InitChain(evmOnlyTestInitChain())
+			require.NoError(t, err)
+			finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+			closeEVMOnlyTestApp(t, app, storage)
+
+			storage = openEVMOnlyTestStorageAt(t, home)
+			app, err = open(storage, tc.resume)
+			if err == nil {
+				closeEVMOnlyTestApp(t, app, storage)
+			} else {
+				require.NoError(t, storage.Close())
+			}
+			require.Equal(t, tc.ok, err == nil, "resume error: %v", err)
+		})
+	}
+}
+
+func TestEVMOnlyApplicationResumesOnlyOnTheChainIDItRanOn(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		started, resume uint64
+		ok              bool
+	}{
+		{"same chain ID", 1330, 1330, true},
+		{"chain ID changed", evmOnlyTestChainID, 1330, false},
+		{"chain ID changed back", 1330, evmOnlyTestChainID, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			storage := openEVMOnlyTestStorageAt(t, home)
+			app, err := newEVMOnlyTestAppOnChain(storage, tc.started)
+			require.NoError(t, err)
+			_, err = app.InitChain(evmOnlyTestInitChain())
+			require.NoError(t, err)
+			finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+			closeEVMOnlyTestApp(t, app, storage)
+
+			storage = openEVMOnlyTestStorageAt(t, home)
+			app, err = newEVMOnlyTestAppOnChain(storage, tc.resume)
+			if err == nil {
+				closeEVMOnlyTestApp(t, app, storage)
+			} else {
+				require.NoError(t, storage.Close())
+			}
+			require.Equal(t, tc.ok, err == nil, "resume error: %v", err)
+		})
+	}
+}
+
+// newEVMOnlyTestAppOnChain constructs an application on chainID over storage.
+func newEVMOnlyTestAppOnChain(storage *bootstrap.GigaStorageManager, chainID uint64) (proxy.EVMApplication, error) {
+	return NewEVMOnlyApplication(
+		chainID, nil, storage,
+		gigaconfig.DefaultConfig.Execution,
+		utils.None[precompiles.Registry](),
+		utils.None[GenesisAlloc](),
+		utils.None[string](),
+	)
+}
+
+func TestEVMOnlyApplicationRefusesToResumeWithoutARecordedChainID(t *testing.T) {
+	home := t.TempDir()
+	storage := openEVMOnlyTestStorageAt(t, home)
+	started, err := newEVMOnlyTestAppOnChain(storage, evmOnlyTestChainID)
+	require.NoError(t, err)
+	_, err = started.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	app := started.(*evmOnlyApplication)
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
+		misc, err := app.encodeCursorChangeSet(block, result)
+		return slices.DeleteFunc(misc, func(change gigatypes.MiscChange) bool {
+			return change.Module == evmOnlyCursorModule && string(change.Key) == evmOnlyChainIDKey
+		}), err
+	})
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	closeEVMOnlyTestApp(t, app, storage)
+
+	storage = openEVMOnlyTestStorageAt(t, home)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	_, err = newEVMOnlyTestAppOnChain(storage, evmOnlyTestChainID)
+	require.Error(t, err)
+}
+
+func TestEVMOnlyApplicationAdmitsOnlyTxsTheSenderCanPayFor(t *testing.T) {
+	funder, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	funderAddr := crypto.PubkeyToAddress(funder.PublicKey)
+	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{
+		funderAddr: new(uint256.Int).Lsh(uint256.NewInt(1), 70),
+	}})
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
+	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	transfer := func(nonce uint64, value *big.Int) []byte {
+		signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{
+			Nonce: nonce, GasPrice: big.NewInt(evmOnlyMinGasPrice), Gas: 21_000, To: &recipient, Value: value,
+		}), ethtypes.LatestSignerForChainID(chainID), funder)
+		require.NoError(t, err)
+		raw, err := signed.MarshalBinary()
+		require.NoError(t, err)
+		return raw
+	}
+	unfunded, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	tooMuch := new(big.Int).Lsh(big.NewInt(1), 70)
+
+	check := func(when string) {
+		require.True(t, app.CheckTx(t.Context(), &proxy.RequestCheckTxV2{Tx: transfer(0, big.NewInt(1))}).IsOK(), "funded %s", when)
+		require.True(t, app.CheckTx(t.Context(), &proxy.RequestCheckTxV2{Tx: transfer(0, tooMuch)}).IsErr(), "over balance %s", when)
+		require.True(t, app.CheckTx(t.Context(), &proxy.RequestCheckTxV2{Tx: unfunded}).IsErr(), "unfunded %s", when)
+	}
+	check("before block 1")
+	for height := int64(1); height <= 2; height++ {
+		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(height))
+		check(fmt.Sprintf("after Commit of block %d", height))
+		require.NoError(t, app.(*evmOnlyApplication).AwaitCommits())
+		check(fmt.Sprintf("after block %d's state commit", height))
+	}
+}
+
+func TestEVMOnlyApplicationAdmitsOnlyTxsWhoseGasCoversIntrinsicGas(t *testing.T) {
+	funder, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	unfunded, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{
+		crypto.PubkeyToAddress(funder.PublicKey): new(uint256.Int).Lsh(uint256.NewInt(1), 70),
+	}})
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	calldata := slices.Repeat([]byte{0xff}, 100)
+	// 100 non-zero bytes cost 21_000+16*100 intrinsic gas and a 21_000+10*4*100 calldata floor.
+	const calldataFloor = 25_000
+
+	for _, tc := range []struct {
+		name  string
+		key   *ecdsa.PrivateKey
+		to    *common.Address
+		gas   uint64
+		data  []byte
+		value int64
+		ok    bool
+	}{
+		{name: "zero gas from an unfunded sender", key: unfunded, to: &recipient},
+		{name: "zero gas", key: funder, to: &recipient},
+		{name: "below transfer intrinsic gas", key: funder, to: &recipient, gas: 20_999, value: 1},
+		{name: "transfer intrinsic gas", key: funder, to: &recipient, gas: 21_000, value: 1, ok: true},
+		{name: "below create intrinsic gas", key: funder, gas: 52_999},
+		{name: "create intrinsic gas", key: funder, gas: 53_000, ok: true},
+		{name: "below calldata floor", key: funder, to: &recipient, gas: calldataFloor - 1, data: calldata},
+		{name: "calldata floor", key: funder, to: &recipient, gas: calldataFloor, data: calldata, ok: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{
+				GasPrice: big.NewInt(evmOnlyMinGasPrice), Gas: tc.gas, To: tc.to, Data: tc.data, Value: big.NewInt(tc.value),
+			}), ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(evmOnlyTestChainID)), tc.key)
+			require.NoError(t, err)
+			raw, err := signed.MarshalBinary()
+			require.NoError(t, err)
+			require.Equal(t, tc.ok, app.CheckTx(t.Context(), &proxy.RequestCheckTxV2{Tx: raw}).IsOK())
+		})
+	}
 }
