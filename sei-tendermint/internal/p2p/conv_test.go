@@ -5,6 +5,7 @@ import (
 
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -20,14 +21,14 @@ func TestHandshakeMsgConv(t *testing.T) {
 		msg := &handshakeMsg{
 			NodeAuth: key.SignChallenge(challenge),
 			handshakeSpec: handshakeSpec{
-				SelfAddr:          utils.Some(makeAddrFor(rng, key.Public().NodeID())),
-				PexAddrs:          rng.GenSlice(makeAddr),
-				SeiGigaConnection: utils.GenBool(rng),
+				SelfAddr: utils.Some(makeAddrFor(rng, key.Public().NodeID())),
+				PexAddrs: rng.GenSlice(makeAddr),
 			},
 		}
 		require.NoError(t, handshakeMsgConv.Test(msg))
-		msg.SeiGigaConnection = true
-		msg.ValidatorAuth = utils.Some(atypes.GenSigned(rng, challenge))
+		msg.Giga = utils.Some(gigaHandshake{})
+		require.NoError(t, handshakeMsgConv.Test(msg))
+		msg.Giga = utils.Some(gigaHandshake{Validator: utils.Some(validatorHandshake{auth: atypes.GenSigned(rng, challenge), EVMRPC: testEVMRPCURL()})})
 		require.NoError(t, handshakeMsgConv.Test(msg))
 	}
 }
@@ -37,9 +38,10 @@ func TestHandshakeMsgConvRejectsMalformedValidatorAuth(t *testing.T) {
 	key := makeKey(rng)
 	challenge := atypes.Challenge{}
 	msg := &handshakeMsg{
-		NodeAuth:      key.SignChallenge(challenge),
-		handshakeSpec: handshakeSpec{SeiGigaConnection: true},
-		ValidatorAuth: utils.Some(atypes.GenSigned(rng, challenge)),
+		NodeAuth: key.SignChallenge(challenge),
+		handshakeSpec: handshakeSpec{Giga: utils.Some(gigaHandshake{
+			Validator: utils.Some(validatorHandshake{auth: atypes.GenSigned(rng, challenge), EVMRPC: testEVMRPCURL()}),
+		})},
 	}
 	for _, malform := range []func(*apb.SignedChallenge){
 		func(p *apb.SignedChallenge) { p.Msg = nil },
@@ -50,7 +52,18 @@ func TestHandshakeMsgConvRejectsMalformedValidatorAuth(t *testing.T) {
 		func(p *apb.SignedChallenge) { p.Sig.Sig = nil },
 	} {
 		p := handshakeMsgConv.Encode(msg)
-		malform(p.ValidatorAuth)
+		malform(p.Giga.Validator.Auth)
+		_, err := handshakeMsgConv.Decode(p)
+		require.Error(t, err)
+	}
+	for _, malform := range []func(*pb.ValidatorHandshake){
+		func(p *pb.ValidatorHandshake) { p.EvmRpcUrl = nil },
+		func(p *pb.ValidatorHandshake) { p.Auth = nil },
+		func(p *pb.ValidatorHandshake) { p.EvmRpcUrl = new("http://peer.example:8545") },
+		func(p *pb.ValidatorHandshake) { p.EvmRpcUrl = new("ws://") },
+	} {
+		p := handshakeMsgConv.Encode(msg)
+		malform(p.Giga.Validator)
 		_, err := handshakeMsgConv.Decode(p)
 		require.Error(t, err)
 	}

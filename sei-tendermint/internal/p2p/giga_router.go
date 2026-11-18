@@ -21,7 +21,6 @@ import (
 type GigaNodeAddr struct {
 	Key      NodePublicKey
 	HostPort tcp.HostPort
-	EVMRPC   url.URL
 }
 
 func (a GigaNodeAddr) String() string {
@@ -63,6 +62,7 @@ type GigaRouterCommonConfig struct {
 type GigaValidatorConfig struct {
 	GigaRouterCommonConfig
 	ValidatorKey    atypes.SecretKey
+	EVMRPC          url.URL
 	ViewTimeout     func(atypes.View) time.Duration
 	ProposalTimeout time.Duration
 	Producer        *producer.Config

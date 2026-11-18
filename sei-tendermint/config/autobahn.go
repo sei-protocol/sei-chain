@@ -40,10 +40,6 @@ type AutobahnValidator struct {
 	ValidatorKey atypes.PublicKey  `json:"validator_key"`
 	NodeKey      p2p.NodePublicKey `json:"node_key"`
 	Address      tcp.HostPort      `json:"address"`
-	// Each validator is assigned a shard of EVM address space.
-	// Upon receiving an EVM transaction, a node needs to proxy it
-	// to validator owning the shard.
-	EVMRPC URL `json:"evmrpc"`
 	// EVMVoter is the EVM address that votes for this validator in EVM
 	// governance, read at every start. Required for every validator when
 	// evm_governance is set, and forbidden otherwise.
@@ -153,6 +149,8 @@ type AutobahnBlockDBConfig struct {
 
 // AutobahnFileConfig is the JSON structure of the autobahn config file.
 type AutobahnFileConfig struct {
+	// EVMRPC is this validator's advertised WebSocket RPC endpoint. Fullnodes omit it.
+	EVMRPC           utils.Option[URL]    `json:"evmrpc,omitzero"`
 	Validators       []AutobahnValidator  `json:"validators"`
 	MaxTxsPerBlock   uint64               `json:"max_txs_per_block"`
 	MaxTxsPerSecond  utils.Option[uint64] `json:"max_txs_per_second"`
@@ -231,12 +229,12 @@ func (fc *AutobahnFileConfig) Validate() error {
 	if len(fc.Validators) == 0 {
 		return errors.New("validators must not be empty")
 	}
-	for _, v := range fc.Validators {
-		if v.EVMRPC.URL == nil {
-			return fmt.Errorf("validator %s is missing evmrpc URL", v.ValidatorKey)
+	if endpoint, ok := fc.EVMRPC.Get(); ok {
+		if endpoint.URL == nil {
+			return errors.New("evmrpc URL is missing")
 		}
-		if err := utils.CheckRPCURL(*v.EVMRPC.URL); err != nil {
-			return fmt.Errorf("validator %s evmrpc: %w", v.ValidatorKey, err)
+		if err := utils.CheckRPCURL(*endpoint.URL); err != nil {
+			return fmt.Errorf("evmrpc: %w", err)
 		}
 	}
 	if fc.MaxTxsPerBlock == 0 {

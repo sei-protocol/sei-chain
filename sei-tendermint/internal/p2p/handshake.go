@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 
 	gogoproto "github.com/gogo/protobuf/proto"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -33,6 +34,7 @@ func init() {
 // handshakeOffer is the Autobahn committee identity this node claims on a giga handshake.
 type handshakeOffer struct {
 	ValidatorKey atypes.SecretKey
+	EVMRPC       url.URL
 }
 
 type handshakedConn struct {
@@ -48,6 +50,14 @@ func handshake(
 	offer utils.Option[handshakeOffer],
 ) (*handshakedConn, error) {
 	o, offering := offer.Get()
+	if offering {
+		if !spec.Giga.IsPresent() {
+			return nil, errValidatorAuthOnNonGiga
+		}
+		if err := utils.CheckRPCURL(o.EVMRPC); err != nil {
+			return nil, fmt.Errorf("local EVM RPC URL: %w", err)
+		}
+	}
 	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*handshakedConn, error) {
 		sc, err := conn.MakeSecretConnection(ctx, c)
 		if err != nil {
@@ -59,7 +69,12 @@ func handshake(
 				handshakeSpec: spec,
 			}
 			if offering {
-				msg.ValidatorAuth = utils.Some(o.ValidatorKey.Sign(sc.Challenge()))
+				giga := msg.Giga.OrPanic("missing giga handshake")
+				giga.Validator = utils.Some(validatorHandshake{
+					auth:   o.ValidatorKey.Sign(sc.Challenge()),
+					EVMRPC: o.EVMRPC,
+				})
+				msg.Giga = utils.Some(giga)
 			}
 			if err := conn.WriteSizedMsg(ctx, sc, handshakeMsgConv.Marshal(msg)); err != nil {
 				return fmt.Errorf("conn.WriteSizedMsg(): %w", err)
@@ -85,15 +100,14 @@ func handshake(
 				return nil, fmt.Errorf("handshakeMsg.SelfAddr.NodeID = %v, want %v", got, want)
 			}
 		}
-		if claim, ok := msg.ValidatorAuth.Get(); ok {
-			if !msg.SeiGigaConnection {
-				return nil, errValidatorAuthOnNonGiga
-			}
-			if claim.Msg() != sc.Challenge() {
-				return nil, fmt.Errorf("handshakeMsg.ValidatorAuth: challenge mismatch")
-			}
-			if err := claim.VerifySig(); err != nil {
-				return nil, fmt.Errorf("handshakeMsg.ValidatorAuth: %w", err)
+		if giga, ok := msg.Giga.Get(); ok {
+			if validator, ok := giga.Validator.Get(); ok {
+				if validator.auth.Msg() != sc.Challenge() {
+					return nil, fmt.Errorf("handshakeMsg.auth: challenge mismatch")
+				}
+				if err := validator.auth.VerifySig(); err != nil {
+					return nil, fmt.Errorf("handshakeMsg.auth: %w", err)
+				}
 			}
 		}
 		if len(msg.PexAddrs) > MaxPexAddrs {

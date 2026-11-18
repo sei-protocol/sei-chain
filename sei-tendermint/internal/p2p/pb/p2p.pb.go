@@ -7,13 +7,14 @@
 package pb
 
 import (
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
+
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	_ "github.com/sei-protocol/sei-chain/sei-tendermint/proto/wireguard"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
 )
 
 const (
@@ -355,10 +356,8 @@ type Handshake struct {
 	// Initial peer exchange.
 	// It allows to receive peer addresses from a node which doesn't accept any new inbound connections
 	// (it is at full capacity).
-	PexAddrs          []string `protobuf:"bytes,5,rep,name=pex_addrs,json=pexAddrs,proto3" json:"pex_addrs,omitempty"`
-	SeiGigaConnection bool     `protobuf:"varint,3,opt,name=sei_giga_connection,json=seiGigaConnection,proto3" json:"sei_giga_connection,omitempty"`
-	// Validator signature on the connection challenge; optional.
-	ValidatorAuth *pb.SignedChallenge `protobuf:"bytes,9,opt,name=validator_auth,json=validatorAuth,proto3,oneof" json:"validator_auth,omitempty"`
+	PexAddrs      []string       `protobuf:"bytes,5,rep,name=pex_addrs,json=pexAddrs,proto3" json:"pex_addrs,omitempty"`
+	Giga          *GigaHandshake `protobuf:"bytes,12,opt,name=giga,proto3,oneof" json:"giga,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -421,18 +420,107 @@ func (x *Handshake) GetPexAddrs() []string {
 	return nil
 }
 
-func (x *Handshake) GetSeiGigaConnection() bool {
+func (x *Handshake) GetGiga() *GigaHandshake {
 	if x != nil {
-		return x.SeiGigaConnection
-	}
-	return false
-}
-
-func (x *Handshake) GetValidatorAuth() *pb.SignedChallenge {
-	if x != nil {
-		return x.ValidatorAuth
+		return x.Giga
 	}
 	return nil
+}
+
+type GigaHandshake struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Validator     *ValidatorHandshake    `protobuf:"bytes,1,opt,name=validator,proto3,oneof" json:"validator,omitempty"` // optional
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GigaHandshake) Reset() {
+	*x = GigaHandshake{}
+	mi := &file_p2p_p2p_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GigaHandshake) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GigaHandshake) ProtoMessage() {}
+
+func (x *GigaHandshake) ProtoReflect() protoreflect.Message {
+	mi := &file_p2p_p2p_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GigaHandshake.ProtoReflect.Descriptor instead.
+func (*GigaHandshake) Descriptor() ([]byte, []int) {
+	return file_p2p_p2p_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *GigaHandshake) GetValidator() *ValidatorHandshake {
+	if x != nil {
+		return x.Validator
+	}
+	return nil
+}
+
+type ValidatorHandshake struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Auth          *pb.SignedChallenge    `protobuf:"bytes,1,opt,name=auth,proto3,oneof" json:"auth,omitempty"`                              // required
+	EvmRpcUrl     *string                `protobuf:"bytes,2,opt,name=evm_rpc_url,json=evmRpcUrl,proto3,oneof" json:"evm_rpc_url,omitempty"` // required
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ValidatorHandshake) Reset() {
+	*x = ValidatorHandshake{}
+	mi := &file_p2p_p2p_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ValidatorHandshake) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ValidatorHandshake) ProtoMessage() {}
+
+func (x *ValidatorHandshake) ProtoReflect() protoreflect.Message {
+	mi := &file_p2p_p2p_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ValidatorHandshake.ProtoReflect.Descriptor instead.
+func (*ValidatorHandshake) Descriptor() ([]byte, []int) {
+	return file_p2p_p2p_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ValidatorHandshake) GetAuth() *pb.SignedChallenge {
+	if x != nil {
+		return x.Auth
+	}
+	return nil
+}
+
+func (x *ValidatorHandshake) GetEvmRpcUrl() string {
+	if x != nil && x.EvmRpcUrl != nil {
+		return *x.EvmRpcUrl
+	}
+	return ""
 }
 
 var File_p2p_p2p_proto protoreflect.FileDescriptor
@@ -460,17 +548,27 @@ const file_p2p_p2p_proto_rawDesc = "" +
 	"\rNodePublicKey\x12 \n" +
 	"\aed25519\x18\x01 \x01(\fB\x06؈\xe2\xab\f R\aed25519:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04R\tsecp256k1R\asr25519\"/\n" +
 	"\aPreface\x12$\n" +
-	"\x0ests_public_key\x18\x01 \x01(\fR\fstsPublicKey\"\xa9\x03\n" +
+	"\x0ests_public_key\x18\x01 \x01(\fR\fstsPublicKey\"\xaa\x03\n" +
 	"\tHandshake\x126\n" +
 	"\rnode_auth_key\x18\x01 \x01(\v2\x12.p2p.NodePublicKeyR\vnodeAuthKey\x12*\n" +
 	"\rnode_auth_sig\x18\x02 \x01(\fB\x06؈\xe2\xab\f@R\vnodeAuthSig\x12)\n" +
 	"\tself_addr\x18\x04 \x01(\tB\a؈\xe2\xab\f\xc0\x02H\x00R\bselfAddr\x88\x01\x01\x12*\n" +
-	"\tpex_addrs\x18\x05 \x03(\tB\rЈ\xe2\xab\fd؈\xe2\xab\f\xc0\x02R\bpexAddrs\x12.\n" +
-	"\x13sei_giga_connection\x18\x03 \x01(\bR\x11seiGigaConnection\x12E\n" +
-	"\x0evalidator_auth\x18\t \x01(\v2\x19.autobahn.SignedChallengeH\x01R\rvalidatorAuth\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\f\n" +
+	"\tpex_addrs\x18\x05 \x03(\tB\rЈ\xe2\xab\fd؈\xe2\xab\f\xc0\x02R\bpexAddrs\x12+\n" +
+	"\x04giga\x18\f \x01(\v2\x12.p2p.GigaHandshakeH\x01R\x04giga\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\f\n" +
 	"\n" +
-	"_self_addrB\x11\n" +
-	"\x0f_validator_authJ\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\b\x10\tR\x12validator_auth_keyR\x12validator_auth_sigR\aevm_rpcBBZ@github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pbb\x06proto3"
+	"_self_addrB\a\n" +
+	"\x05_gigaJ\x04\b\x03\x10\x04J\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
+	"J\x04\b\n" +
+	"\x10\vJ\x04\b\v\x10\fR\x13sei_giga_connectionR\tvalidatorR\x12validator_auth_keyR\x12validator_auth_sigR\aevm_rpcR\x0evalidator_authR\vevm_rpc_url\"a\n" +
+	"\rGigaHandshake\x12:\n" +
+	"\tvalidator\x18\x01 \x01(\v2\x17.p2p.ValidatorHandshakeH\x00R\tvalidator\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\f\n" +
+	"\n" +
+	"_validator\"\x97\x01\n" +
+	"\x12ValidatorHandshake\x122\n" +
+	"\x04auth\x18\x01 \x01(\v2\x19.autobahn.SignedChallengeH\x00R\x04auth\x88\x01\x01\x12,\n" +
+	"\vevm_rpc_url\x18\x02 \x01(\tB\a؈\xe2\xab\f\x80\x10H\x01R\tevmRpcUrl\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\a\n" +
+	"\x05_authB\x0e\n" +
+	"\f_evm_rpc_urlBBZ@github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pbb\x06proto3"
 
 var (
 	file_p2p_p2p_proto_rawDescOnce sync.Once
@@ -484,7 +582,7 @@ func file_p2p_p2p_proto_rawDescGZIP() []byte {
 	return file_p2p_p2p_proto_rawDescData
 }
 
-var file_p2p_p2p_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_p2p_p2p_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_p2p_p2p_proto_goTypes = []any{
 	(*PacketPing)(nil),         // 0: p2p.PacketPing
 	(*PacketPong)(nil),         // 1: p2p.PacketPong
@@ -493,19 +591,23 @@ var file_p2p_p2p_proto_goTypes = []any{
 	(*NodePublicKey)(nil),      // 4: p2p.NodePublicKey
 	(*Preface)(nil),            // 5: p2p.Preface
 	(*Handshake)(nil),          // 6: p2p.Handshake
-	(*pb.SignedChallenge)(nil), // 7: autobahn.SignedChallenge
+	(*GigaHandshake)(nil),      // 7: p2p.GigaHandshake
+	(*ValidatorHandshake)(nil), // 8: p2p.ValidatorHandshake
+	(*pb.SignedChallenge)(nil), // 9: autobahn.SignedChallenge
 }
 var file_p2p_p2p_proto_depIdxs = []int32{
 	0, // 0: p2p.Packet.packet_ping:type_name -> p2p.PacketPing
 	1, // 1: p2p.Packet.packet_pong:type_name -> p2p.PacketPong
 	2, // 2: p2p.Packet.packet_msg:type_name -> p2p.PacketMsg
 	4, // 3: p2p.Handshake.node_auth_key:type_name -> p2p.NodePublicKey
-	7, // 4: p2p.Handshake.validator_auth:type_name -> autobahn.SignedChallenge
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	7, // 4: p2p.Handshake.giga:type_name -> p2p.GigaHandshake
+	8, // 5: p2p.GigaHandshake.validator:type_name -> p2p.ValidatorHandshake
+	9, // 6: p2p.ValidatorHandshake.auth:type_name -> autobahn.SignedChallenge
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_p2p_p2p_proto_init() }
@@ -519,13 +621,15 @@ func file_p2p_p2p_proto_init() {
 		(*Packet_PacketMsg)(nil),
 	}
 	file_p2p_p2p_proto_msgTypes[6].OneofWrappers = []any{}
+	file_p2p_p2p_proto_msgTypes[7].OneofWrappers = []any{}
+	file_p2p_p2p_proto_msgTypes[8].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_p2p_p2p_proto_rawDesc), len(file_p2p_p2p_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -249,7 +249,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					if err != nil {
 						return fmt.Errorf("handshake(): %w", err)
 					}
-					if hasGiga && hConn.msg.SeiGigaConnection {
+					if hasGiga && hConn.msg.Giga.IsPresent() {
 						release()
 						return giga.RunInboundConn(ctx, hConn)
 					}
@@ -306,8 +306,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 					err = utils.WithOptTimeout(ctx, r.options.HandshakeTimeout, func(ctx context.Context) error {
 						var err error
 						hConn, err = handshake(ctx, tcpConn, r.privKey, handshakeSpec{
-							SelfAddr:          r.options.SelfAddress,
-							SeiGigaConnection: false,
+							SelfAddr: r.options.SelfAddress,
 						}, utils.None[handshakeOffer]())
 						if err != nil {
 							return fmt.Errorf("handshake(): %w", err)

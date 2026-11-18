@@ -100,6 +100,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				return fmt.Errorf("BuildDataState[%v]: %w", i, err)
 			}
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
+				EVMRPC:                 testEVMRPCURL(),
 				GigaRouterCommonConfig: commonCfg,
 				ValidatorKey:           cfg.validatorKey,
 				ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
@@ -297,15 +298,12 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	httpSrv := httptest.NewServer(rpcSrv.WebsocketHandler([]string{"*"}))
 	t.Cleanup(httpSrv.Close)
 	rpcURL := *utils.OrPanic1(url.Parse("ws" + strings.TrimPrefix(httpSrv.URL, "http")))
-	// NewGigaRouter requires EVMRPC on every committee member in both
-	// validator and fullnode modes.
 	for _, validatorKey := range validatorKeys {
 		nodeKey := makeKey(rng)
 		nodeKeys = append(nodeKeys, nodeKey)
 		addrs[validatorKey.Public()] = GigaNodeAddr{
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
-			EVMRPC:   rpcURL,
 		}
 		urlByValidator[validatorKey.Public()] = rpcURL
 	}
@@ -339,6 +337,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	require.NoError(t, err)
 
 	router, err := NewGigaValidatorRouter(&GigaValidatorConfig{
+		EVMRPC:                 testEVMRPCURL(),
 		GigaRouterCommonConfig: commonCfg,
 		ValidatorKey:           validatorKeys[0],
 		ViewTimeout:            func(atypes.View) time.Duration { return time.Second },
@@ -357,14 +356,14 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 
 	connectedRemote := map[atypes.PublicKey]*ethrpc.Client{}
 	expectedRemoteClients := map[*ethrpc.Client]struct{}{}
-	for validator, addr := range addrs {
+	for validator := range addrs {
 		if validator == localValidator {
 			continue
 		}
 		if len(connectedRemote) >= 3 {
 			break
 		}
-		client := registerEvmProxyForTest(t, router.gigaRouterCommon, validator, addr.EVMRPC)
+		client := registerEvmProxyForTest(t, router.gigaRouterCommon, validator, urlByValidator[validator])
 		connectedRemote[validator] = client
 		expectedRemoteClients[client] = struct{}{}
 	}
@@ -436,6 +435,7 @@ func TestGigaRouter_RejectsInvalidSelfAddr(t *testing.T) {
 			addr := self.GigaNodeAddr()
 			addr.HostPort = tc.hostPort
 			_, err := NewGigaValidatorRouter(&GigaValidatorConfig{
+				EVMRPC: testEVMRPCURL(),
 				GigaRouterCommonConfig: GigaRouterCommonConfig{
 					ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 						self.validatorKey.Public(): addr,

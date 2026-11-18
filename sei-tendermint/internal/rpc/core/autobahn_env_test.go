@@ -79,7 +79,6 @@ func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 		valKey.Public(): {
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
-			EVMRPC:   *utils.OrPanic1(url.Parse("ws://127.0.0.1:8546")),
 		},
 	}
 	blockStore := blockstore.NewTestStore(t)
@@ -98,6 +97,7 @@ func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 	var giga p2p.GigaRouter
 	if validator {
 		router, err := p2p.NewGigaValidatorRouter(&p2p.GigaValidatorConfig{
+			EVMRPC:                 url.URL{Scheme: "ws", Host: "127.0.0.1:8546"},
 			GigaRouterCommonConfig: commonCfg,
 			ValidatorKey:           valKey,
 			ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },

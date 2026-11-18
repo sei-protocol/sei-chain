@@ -72,16 +72,16 @@ func TestHandshakeAuthenticatesValidatorAuth(t *testing.T) {
 		{NodeID: nodeKeys[1].Public().NodeID(), Hostname: "validator-b.example", Port: 26656},
 	}
 	got := handshakePairIn(t, nodeKeys, [2]handshakeSpec{
-		{SelfAddr: utils.Some(selfAddrs[0]), SeiGigaConnection: true},
-		{SelfAddr: utils.Some(selfAddrs[1]), SeiGigaConnection: true},
+		{SelfAddr: utils.Some(selfAddrs[0]), Giga: utils.Some(gigaHandshake{})},
+		{SelfAddr: utils.Some(selfAddrs[1]), Giga: utils.Some(gigaHandshake{})},
 	}, [2]utils.Option[handshakeOffer]{
-		utils.Some(handshakeOffer{ValidatorKey: validatorKeys[0]}),
-		utils.Some(handshakeOffer{ValidatorKey: validatorKeys[1]}),
+		utils.Some(handshakeOffer{ValidatorKey: validatorKeys[0], EVMRPC: testEVMRPCURL()}),
+		utils.Some(handshakeOffer{ValidatorKey: validatorKeys[1], EVMRPC: testEVMRPCURL()}),
 	})
 	for i := range got {
 		peer := 1 - i
-		claim := got[i].msg.ValidatorAuth.OrPanic("missing peer giga claim")
-		require.Equal(t, validatorKeys[peer].Public(), claim.Key())
+		claim := got[i].msg.Giga.OrPanic("missing giga handshake").Validator.OrPanic("missing peer giga claim")
+		require.Equal(t, validatorKeys[peer].Public(), claim.auth.Key())
 		require.Equal(t, selfAddrs[peer], got[i].msg.SelfAddr.OrPanic("missing peer SelfAddr"))
 
 	}
@@ -101,36 +101,26 @@ func TestHandshakeAcceptsFullnodeWithoutClaim(t *testing.T) {
 	got := handshakePairIn(t,
 		[2]NodeSecretKey{validatorNode, fullnodeNode},
 		[2]handshakeSpec{
-			{SelfAddr: utils.Some(selfAddr), SeiGigaConnection: true},
-			{SeiGigaConnection: true},
+			{SelfAddr: utils.Some(selfAddr), Giga: utils.Some(gigaHandshake{})},
+			{Giga: utils.Some(gigaHandshake{})},
 		},
 		[2]utils.Option[handshakeOffer]{
-			utils.Some(handshakeOffer{ValidatorKey: validatorKey}),
+			utils.Some(handshakeOffer{ValidatorKey: validatorKey, EVMRPC: testEVMRPCURL()}),
 			utils.None[handshakeOffer](),
 		},
 	)
-	require.False(t, got[0].msg.ValidatorAuth.IsPresent())
+	require.False(t, got[0].msg.Giga.OrPanic("missing giga handshake").Validator.IsPresent())
 	require.Equal(t, fullnodeNode.Public(), got[0].msg.NodeAuth.Key())
-	require.Equal(t, validatorKey.Public(), got[1].msg.ValidatorAuth.OrPanic("validator omitted giga claim").Key())
+	require.Equal(t, validatorKey.Public(), got[1].msg.Giga.OrPanic("missing giga handshake").Validator.OrPanic("validator omitted giga claim").auth.Key())
 }
 
 func TestHandshakeRejectsClaimOnNonGiga(t *testing.T) {
 	rng := utils.TestRng()
 	nodeKey := makeKey(rng)
 	validatorKey := atypes.GenSecretKey(rng)
-	selfAddr := NodeAddress{NodeID: nodeKey.Public().NodeID(), Hostname: "validator.example", Port: 26656}
-
-	err := handshakeAgainst(t, nodeKey, handshakeSpec{
-		SelfAddr:          utils.Some(selfAddr),
-		SeiGigaConnection: true,
-	}, utils.Some(handshakeOffer{ValidatorKey: validatorKey}),
-		func(ctx context.Context, sc *conn.SecretConnection) error {
-			return writeHandshake(ctx, sc, nodeKey, handshakeSpec{
-				SelfAddr:          utils.Some(selfAddr),
-				SeiGigaConnection: false,
-			}, utils.Some(validatorKey.Sign(sc.Challenge())))
-		},
-	)
+	err := handshakeAgainst(t, nodeKey, handshakeSpec{},
+		utils.Some(handshakeOffer{ValidatorKey: validatorKey, EVMRPC: testEVMRPCURL()}),
+		func(context.Context, *conn.SecretConnection) error { return nil })
 	require.ErrorIs(t, err, errValidatorAuthOnNonGiga)
 }
 
@@ -141,8 +131,8 @@ func TestHandshakeRejectsBadValidatorAuthSig(t *testing.T) {
 	selfAddr := NodeAddress{NodeID: nodeKey.Public().NodeID(), Hostname: "validator.example", Port: 26656}
 
 	err := handshakeAgainst(t, nodeKey, handshakeSpec{
-		SelfAddr:          utils.Some(selfAddr),
-		SeiGigaConnection: true,
+		SelfAddr: utils.Some(selfAddr),
+		Giga:     utils.Some(gigaHandshake{}),
 	}, utils.None[handshakeOffer](),
 		func(ctx context.Context, sc *conn.SecretConnection) error {
 			claim := validatorKey.Sign(sc.Challenge())
@@ -150,8 +140,8 @@ func TestHandshakeRejectsBadValidatorAuthSig(t *testing.T) {
 			encoded.Sig.Sig[0] ^= 1
 			claim = utils.OrPanic1(atypes.SignedChallengeConv.Decode(encoded))
 			return writeHandshake(ctx, sc, nodeKey, handshakeSpec{
-				SelfAddr:          utils.Some(selfAddr),
-				SeiGigaConnection: true,
+				SelfAddr: utils.Some(selfAddr),
+				Giga:     utils.Some(gigaHandshake{}),
 			}, utils.Some(claim))
 		},
 	)
@@ -162,11 +152,11 @@ func TestHandshakeRejectsDifferentChallenge(t *testing.T) {
 	rng := utils.TestRng()
 	nodeKey := makeKey(rng)
 	validatorKey := atypes.GenSecretKey(rng)
-	err := handshakeAgainst(t, nodeKey, handshakeSpec{SeiGigaConnection: true}, utils.None[handshakeOffer](),
+	err := handshakeAgainst(t, nodeKey, handshakeSpec{Giga: utils.Some(gigaHandshake{})}, utils.None[handshakeOffer](),
 		func(ctx context.Context, sc *conn.SecretConnection) error {
 			challenge := sc.Challenge()
 			challenge[0] ^= 1
-			return writeHandshake(ctx, sc, nodeKey, handshakeSpec{SeiGigaConnection: true},
+			return writeHandshake(ctx, sc, nodeKey, handshakeSpec{Giga: utils.Some(gigaHandshake{})},
 				utils.Some(validatorKey.Sign(challenge)))
 		},
 	)
@@ -178,13 +168,13 @@ func TestHandshakeAcceptsClaimWithoutSelfAddr(t *testing.T) {
 	nodeKeys := [2]NodeSecretKey{makeKey(rng), makeKey(rng)}
 	validatorKey := atypes.GenSecretKey(rng)
 	got := handshakePairIn(t, nodeKeys, [2]handshakeSpec{
-		{SeiGigaConnection: true},
-		{SeiGigaConnection: true},
+		{Giga: utils.Some(gigaHandshake{})},
+		{Giga: utils.Some(gigaHandshake{})},
 	}, [2]utils.Option[handshakeOffer]{
-		utils.Some(handshakeOffer{ValidatorKey: validatorKey}),
+		utils.Some(handshakeOffer{ValidatorKey: validatorKey, EVMRPC: testEVMRPCURL()}),
 		utils.None[handshakeOffer](),
 	})
-	require.Equal(t, validatorKey.Public(), got[1].msg.ValidatorAuth.OrPanic("missing claim").Key())
+	require.Equal(t, validatorKey.Public(), got[1].msg.Giga.OrPanic("missing giga handshake").Validator.OrPanic("missing claim").auth.Key())
 }
 
 func handshakeAgainst(
@@ -230,7 +220,9 @@ func writeHandshake(
 ) error {
 	msg := &handshakeMsg{NodeAuth: key.SignChallenge(sc.Challenge()), handshakeSpec: spec}
 	if c, ok := claim.Get(); ok {
-		msg.ValidatorAuth = utils.Some(c)
+		giga := msg.Giga.OrPanic("missing giga handshake")
+		giga.Validator = utils.Some(validatorHandshake{auth: c, EVMRPC: testEVMRPCURL()})
+		msg.Giga = utils.Some(giga)
 	}
 	if err := conn.WriteSizedMsg(ctx, sc, handshakeMsgConv.Marshal(msg)); err != nil {
 		return err

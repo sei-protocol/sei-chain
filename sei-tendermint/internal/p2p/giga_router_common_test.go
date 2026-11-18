@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -494,7 +497,6 @@ func TestGigaRouterCommon_ValidatorAddrUsesConfiguredBook(t *testing.T) {
 	configured := GigaNodeAddr{
 		Key:      makeKey(rng).Public(),
 		HostPort: tcp.HostPort{Hostname: "configured.example", Port: 26656},
-		EVMRPC:   *utils.OrPanic1(url.Parse("http://configured.example:8545")),
 	}
 	router := &gigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{validator: configured}},
@@ -524,20 +526,18 @@ func TestGigaRouterCommon_RunInboundConnAuthenticatesMemberAndClosesOnLeave(t *t
 	router.cfg = &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{}}
 	gigaAddr := NodeAddress{NodeID: localKey.Public().NodeID(), Hostname: "giga.example", Port: 26656}
 	router.selfAddr = utils.Some(gigaAddr)
-	localSpec := handshakeSpec{SelfAddr: router.selfAddr, SeiGigaConnection: true}
+	localSpec := handshakeSpec{SelfAddr: router.selfAddr, Giga: utils.Some(gigaHandshake{})}
 	joinerKey := makeKey(rng)
-	require.False(t, router.acceptInbound(&handshakedConn{msg: &handshakeMsg{
-		NodeAuth: NodeChallengeSig{key: joinerKey.Public()},
-		handshakeSpec: handshakeSpec{
-			SelfAddr: utils.Some(NodeAddress{
-				NodeID:   joinerKey.Public().NodeID(),
-				Hostname: "joiner.example",
-				Port:     26656,
-			}),
-			SeiGigaConnection: true,
-		},
-		ValidatorAuth: utils.Some(dummy.Sign(atypes.Challenge{})),
-	}}).IsPresent())
+	outsider := handshakePairIn(t, [2]NodeSecretKey{localKey, joinerKey}, [2]handshakeSpec{
+		{Giga: utils.Some(gigaHandshake{})},
+		{Giga: utils.Some(gigaHandshake{})},
+	}, [2]utils.Option[handshakeOffer]{
+		utils.None[handshakeOffer](),
+		utils.Some(handshakeOffer{ValidatorKey: dummy, EVMRPC: testEVMRPCURL()}),
+	})
+	router.inboundFullnodeCap = 0
+	require.ErrorIs(t, router.RunInboundConn(t.Context(), outsider[0]), errInboundFullnodeLimit)
+	router.inboundFullnodeCap = 10
 	_, ok := router.validatorAddr(dummy.Public())
 	require.False(t, ok)
 
@@ -546,11 +546,11 @@ func TestGigaRouterCommon_RunInboundConnAuthenticatesMemberAndClosesOnLeave(t *t
 			[2]NodeSecretKey{localKey, peerKey},
 			[2]handshakeSpec{
 				localSpec,
-				{SelfAddr: utils.Some(selfAddr), SeiGigaConnection: true},
+				{SelfAddr: utils.Some(selfAddr), Giga: utils.Some(gigaHandshake{})},
 			},
 			[2]utils.Option[handshakeOffer]{
 				router.offer,
-				utils.Some(handshakeOffer{ValidatorKey: validatorKey}),
+				utils.Some(handshakeOffer{ValidatorKey: validatorKey, EVMRPC: testEVMRPCURL()}),
 			},
 		)
 		if err != nil {
@@ -905,36 +905,17 @@ func testCertifyRoad(ctx context.Context, state *data.State, rng utils.Rng, keys
 	return state.PushAppQC(ctx, data.TestAppQC(keys, vote.Proposal()))
 }
 
-func TestGigaRouterCommon_AcceptInboundAdmitsNextEpoch(t *testing.T) {
+func TestInAnchorEpochsIncludesNextEpoch(t *testing.T) {
 	rng := utils.TestRng()
 	commitKey := atypes.GenSecretKey(rng)
 	nextKey := atypes.GenSecretKey(rng)
 	outsiderKey := atypes.GenSecretKey(rng)
 	ep2 := testEpoch(2, map[atypes.PublicKey]uint64{commitKey.Public(): 1})
 	ep3 := testEpoch(3, map[atypes.PublicKey]uint64{nextKey.Public(): 1})
-	router := &gigaRouterCommon{
-		cfg:  &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{}},
-		data: testDataWithAnchor(t, data.Anchor{Epochs: [2]*atypes.Epoch{ep2, ep3}}),
-	}
-	accept := func(validator atypes.SecretKey) utils.Option[atypes.PublicKey] {
-		peerKey := makeKey(rng)
-		return router.acceptInbound(&handshakedConn{msg: &handshakeMsg{
-			NodeAuth: NodeChallengeSig{key: peerKey.Public()},
-			handshakeSpec: handshakeSpec{
-				SelfAddr: utils.Some(NodeAddress{
-					NodeID:   peerKey.Public().NodeID(),
-					Hostname: "validator.example",
-					Port:     26656,
-				}),
-				SeiGigaConnection: true,
-			},
-			ValidatorAuth: utils.Some(validator.Sign(atypes.Challenge{})),
-		}})
-	}
-	require.Equal(t, utils.Some(nextKey.Public()), accept(nextKey))
-	_, ok := router.validatorAddr(nextKey.Public())
-	require.False(t, ok)
-	require.False(t, accept(outsiderKey).IsPresent())
+	anchor := data.Anchor{Epochs: [2]*atypes.Epoch{ep2, ep3}}
+	require.True(t, inAnchorEpochs(anchor, commitKey.Public()))
+	require.True(t, inAnchorEpochs(anchor, nextKey.Public()))
+	require.False(t, inAnchorEpochs(anchor, outsiderKey.Public()))
 }
 
 func TestGigaRouterCommon_RunPerCommitteeMemberRunsOneSessionPerMember(t *testing.T) {
@@ -1028,11 +1009,10 @@ func TestGigaRouterCommon_CommitteeTasksReturnWhenWorkReturns(t *testing.T) {
 	state := testDataWithAnchor(t, testAnchor(testEpoch(2, map[atypes.PublicKey]uint64{a: 1})))
 	router := &gigaRouterCommon{data: state}
 
-	changed, err := router.runUntilMembershipChange(t.Context(), a, false, func(context.Context) error {
+	err := router.runUntilMembershipChange(t.Context(), a, func(context.Context) error {
 		return nil
 	})
 	require.NoError(t, err)
-	require.False(t, changed)
 }
 
 func TestGigaRouterCommon_RunUntilMembershipChangeCancelsFWhenMembershipChanges(t *testing.T) {
@@ -1043,66 +1023,18 @@ func TestGigaRouterCommon_RunUntilMembershipChangeCancelsFWhenMembershipChanges(
 	router := &gigaRouterCommon{data: state}
 	started := make(chan struct{})
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBg(func() error {
-			changed, err := router.runUntilMembershipChange(ctx, a, false, func(ctx context.Context) error {
+		s.Spawn(func() error {
+			return router.runUntilMembershipChange(ctx, a, func(ctx context.Context) error {
 				close(started)
 				<-ctx.Done()
 				return ctx.Err()
 			})
-			if err != nil {
-				return err
-			}
-			if !changed {
-				return fmt.Errorf("membership change must cancel f and report true")
-			}
-			return nil
 		})
 		<-started
 		data.TestSetAnchor(state, testAnchor(testEpoch(3, map[atypes.PublicKey]uint64{b: 1})))
 		return nil
 	})
-	require.NoError(t, err)
-}
-
-func TestGigaRouterCommon_RunUntilMembershipChangeCommitEpochOnly(t *testing.T) {
-	rng := utils.TestRng()
-	key := atypes.GenSecretKey(rng)
-	a := key.Public()
-	b := atypes.GenSecretKey(rng).Public()
-	ep2 := testEpoch(2, map[atypes.PublicKey]uint64{a: 1})
-	ep3 := testEpoch(3, map[atypes.PublicKey]uint64{b: 1})
-	state := testDataWithAnchor(t, testAnchor(ep2))
-	router := &gigaRouterCommon{data: state}
-	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		started := make(chan struct{})
-		left := make(chan struct{})
-		s.SpawnBg(func() error {
-			changed, err := router.runUntilMembershipChange(ctx, a, true, func(ctx context.Context) error {
-				close(started)
-				<-ctx.Done()
-				return ctx.Err()
-			})
-			if err != nil {
-				return err
-			}
-			if !changed {
-				return fmt.Errorf("leaving the commit epoch must cancel f and report true")
-			}
-			close(left)
-			return nil
-		})
-		<-started
-		// a stays in Epochs[0]. The certified road is ep2's last, so the commit
-		// epoch is ep3, which does not contain a.
-		data.TestSetAnchor(state, testCertifiedAnchor(ep2, ep3, []atypes.SecretKey{key}))
-		select {
-		case <-left:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	})
-	require.NoError(t, err)
+	require.ErrorIs(t, err, errGigaMembershipChanged)
 }
 
 // A peer that accepts and then says nothing must return from the handshake.
@@ -1209,7 +1141,7 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 				cancel()
 				return nil
 			})
-			hConn, err := handshake(connCtx, tcpConn, peer, handshakeSpec{SeiGigaConnection: true}, utils.None[handshakeOffer]())
+			hConn, err := handshake(connCtx, tcpConn, peer, handshakeSpec{Giga: utils.Some(gigaHandshake{})}, utils.None[handshakeOffer]())
 			if err != nil {
 				cancel()
 				return err
@@ -1252,4 +1184,77 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 		}
 		return nil
 	}))
+}
+
+func TestGigaRouterCommon_EvmProxyClosesWithGigaConnection(t *testing.T) {
+	rng := utils.TestRng()
+	validatorKey := atypes.GenSecretKey(rng)
+	peerKey := makeKey(rng)
+	localKey := makeKey(rng)
+	rpcServer := ethrpc.NewServer()
+	t.Cleanup(rpcServer.Stop)
+	opened := make(chan struct{})
+	closed := make(chan struct{})
+	wsHandler := rpcServer.WebsocketHandler([]string{"*"})
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(opened)
+		defer close(closed)
+		wsHandler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(httpServer.Close)
+	endpoint := *utils.OrPanic1(url.Parse("ws" + strings.TrimPrefix(httpServer.URL, "http")))
+
+	addr := tcp.TestReserveAddr()
+	listener, err := tcp.Listen(addr)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, listener.Close()) })
+	router := &gigaRouterCommon{
+		cfg:     &GigaRouterCommonConfig{DialInterval: time.Second},
+		key:     localKey,
+		poolOut: giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
+		proxies: utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
+	}
+	disconnect := make(chan struct{})
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error {
+			c, err := listener.AcceptOrClose(ctx)
+			if err != nil {
+				return err
+			}
+			return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, serverScope scope.Scope) error {
+				serverScope.SpawnBg(func() error { return c.Run(ctx) })
+				hConn, err := handshake(ctx, c, peerKey, handshakeSpec{Giga: utils.Some(gigaHandshake{})},
+					utils.Some(handshakeOffer{ValidatorKey: validatorKey, EVMRPC: endpoint}))
+				if err != nil {
+					return err
+				}
+				server := rpc.NewServer[giga.API]()
+				serverScope.SpawnBg(func() error { return server.Run(ctx, hConn.conn) })
+				_, _, err = utils.RecvOrClosed(ctx, disconnect)
+				return err
+			}))
+		})
+		finished := s.Spawn1(func() (struct{}, error) {
+			err := router.dialAndRunConn(ctx, validatorKey.Public(), peerKey.Public(),
+				tcp.HostPort{Hostname: addr.Addr().String(), Port: addr.Port()},
+				func(ctx context.Context, _ rpc.Client[giga.API]) error {
+					<-ctx.Done()
+					return ctx.Err()
+				})
+			if err == nil {
+				return struct{}{}, fmt.Errorf("giga connection ended without a disconnect error")
+			}
+			return struct{}{}, nil
+		})
+		if _, _, err := utils.RecvOrClosed(ctx, opened); err != nil {
+			return err
+		}
+		close(disconnect)
+		if _, err := finished.Join(ctx); err != nil {
+			return err
+		}
+		_, _, err := utils.RecvOrClosed(ctx, closed)
+		return err
+	}))
+	require.False(t, router.evmProxy(validatorKey.Public()).IsPresent())
 }
