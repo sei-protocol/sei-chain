@@ -335,6 +335,11 @@ func (b *replayBackend) EvmTransactionCount(address common.Address) uint64 {
 	return view.GetNonce(storeAddress(address))
 }
 
+// EvmPendingNonce reports no local mempool: the replay runs only executed blocks.
+func (*replayBackend) EvmPendingNonce(common.Address) utils.Option[uint64] {
+	return utils.None[uint64]()
+}
+
 func (b *replayBackend) EvmNonceAt(address common.Address, height int64) (uint64, error) {
 	view, err := b.stateAt(height)
 	if err != nil {

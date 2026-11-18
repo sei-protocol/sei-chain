@@ -30,15 +30,14 @@
     ]
   },
   {
-    "_comment": "Disabled: EVMPrecompileTest needs the v2 Sei precompiles (bank, addr, staking, ...), and AssociateTest and the FlatKV fixture need Cosmos address association and seid queries, which EVM-only Autobahn does not serve (CON-563). TODO(autobahn): re-enable once the row's scope under EVM-only is decided.",
+    "_comment": "The gov and params precompiles EVM-only runs, through EVM transactions. EVM_GOVERNANCE_VOTING_PERIOD turns on EVM governance, which registers both. The V2 precompile and association suites need Cosmos features EVM-only does not have (CON-563). The FlatKV checks read past state from the RPC node, since validators keep no state history, skip the Cosmos bank query, and dump the Giga FlatKV store.",
     "name": "Autobahn EVM Module (Precompile & Endpoints)",
-    "disabled": true,
-    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true EVM_GOVERNANCE_VOTING_PERIOD=20s",
     "scripts": [
-      "./integration_test/evm_module/scripts/evm_precompile_tests.sh",
-      "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
-      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBFlatKV",
-      "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh"
+      "./integration_test/evm_module/scripts/evm_only_precompile_tests.sh",
+      "docker exec -e FLATKV_EVM_QUERY_RPC_URL=http://sei-rpc-node:8545 sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBFlatKV/FlatKV",
+      "docker exec -e FLATKV_DIR=/root/.sei/data/autobahn/data/state_commit/flatkv sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh"
     ]
   },
   {
