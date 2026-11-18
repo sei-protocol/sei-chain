@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
@@ -25,18 +27,32 @@ func reportTestBlockHash(t *testing.T, manager *GigaStorageManager, height uint6
 func commitBlocks(t *testing.T, manager *GigaStorageManager, through byte) {
 	t.Helper()
 	for block := byte(1); block <= through; block++ {
-		reportTestBlockHash(t, manager, uint64(block))
 		commitBlock(t, manager, int64(block), evmBlock(block, block))
 	}
 	awaitAppHashes(t, manager, uint64(through))
 }
 
-// commitBlock commits changes as block height and submits an empty receipt list for the block.
+// commitBlock feeds block height to every store as execution does: it reports the block's hash, commits changes,
+// writes an empty receipt list, and submits that list to the receipt hasher.
 func commitBlock(t *testing.T, manager *GigaStorageManager, height int64, changes *gigatypes.StateChangeSet) {
 	t.Helper()
-	require.NoError(t, manager.StateDB().CommitStateChanges(height, changes))
 	blockHeight := uint64(height) //nolint:gosec // small test heights
+	reportTestBlockHash(t, manager, blockHeight)
+	require.NoError(t, manager.StateDB().CommitStateChanges(height, changes))
+	writeBlockReceipts(t, manager, height)
 	require.NoError(t, manager.ReceiptHasher().Submit(t.Context(), blockHeight, nil))
+}
+
+// writeBlockReceipts writes an empty receipt list for block height to the manager's receipt store, if it has one.
+func writeBlockReceipts(t *testing.T, manager *GigaStorageManager, height int64) {
+	t.Helper()
+	receiptDB := manager.ReceiptDB()
+	if receiptDB == nil {
+		return
+	}
+	storeKey := storetypes.NewKVStoreKey("evm")
+	ctx := testutil.DefaultContext(storeKey, storetypes.NewTransientStoreKey("evm_transient"))
+	require.NoError(t, receiptDB.SetReceipts(ctx.WithBlockHeight(height), nil))
 }
 
 // historicalStateDB returns the manager's historical state DB.
@@ -216,10 +232,13 @@ func TestAnEmptyWALLeavesReceiptsAlone(t *testing.T) {
 	writeReceipts(t, cfg, 5)
 	writeAppHashes(t, cfg, 3)
 
-	manager := startManager(t, cfg)
+	manager, err := NewGigaStorageManager(t.Context(), cfg)
+	require.NoError(t, err)
 
 	require.Equal(t, int64(5), manager.ReceiptDB().LatestVersion(),
 		"a zero target must leave the receipt store where it was found")
+	require.ErrorContains(t, manager.Close(), "the state WAL stands at block 0",
+		"the stores were left unaligned, so the shutdown is not clean")
 }
 
 // Recovering to a target below the WAL head drops every block above it, so the write head resumes at

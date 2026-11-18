@@ -73,6 +73,10 @@ type ReceiptStore interface {
 	// refuse a write that skips a block.
 	SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error
 
+	// Flush returns once every write made by a SetReceipts() call that returned before it has landed
+	// and is reflected in LatestVersion().
+	Flush() error
+
 	// GetBlockStats returns the aggregate stats recorded when the block's receipts were written.
 	// See ErrNotFound and ErrBlockStatsNotSupported.
 	GetBlockStats(ctx sdk.Context, blockNumber uint64) (BlockStats, error)
@@ -420,6 +424,13 @@ func (s *receiptStore) GetBlockStats(_ sdk.Context, _ uint64) (BlockStats, error
 // there is no block-ordered walk to offer. Returns ErrRangeQueryNotSupported.
 func (s *receiptStore) IterateReceipts(_ uint64) (ReceiptIterator, error) {
 	return nil, ErrRangeQueryNotSupported
+}
+
+func (s *receiptStore) Flush() error {
+	if waiter, ok := s.db.(seidbtypes.PendingWriteWaiter); ok {
+		waiter.WaitForPendingWrites()
+	}
+	return nil
 }
 
 func (s *receiptStore) Close() error {

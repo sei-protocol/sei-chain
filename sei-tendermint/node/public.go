@@ -198,7 +198,7 @@ func makeEVMApplication(
 	}
 	if conf.MockApp {
 		mockApp := NewMockApp(app)
-		mockApp.hashes = utils.Some(storage.AppHashBuilder())
+		mockApp.storage = utils.Some(storage)
 		return mockApp, storage, nil
 	}
 	return app, storage, nil

@@ -803,7 +803,8 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	_, err = app.InitChain(init)
 	require.NoError(t, err)
 
-	closeEVMOnlyTestApp(t, app, storage)
+	// Seeding writes only the live state DB, so a shutdown before the first block is not clean.
+	require.Error(t, storage.Close())
 	storage = openEVMOnlyTestStorage(t, storageConfig)
 	app, err = NewEVMOnlyApplication(
 		evmOnlyTestChainID, nil, storage,
@@ -1332,7 +1333,8 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
 	require.NoError(t, err)
 	storage := openEVMOnlyTestStorage(t, storageConfig)
-	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	// The failed commits leave the receipt store ahead of the state, so the shutdown is not clean.
+	t.Cleanup(func() { require.Error(t, storage.Close()) })
 	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[GenesisAlloc](), utils.None[string]())
 	require.NoError(t, err)
 	_, err = app.InitChain(&proxy.RequestInitChain{
