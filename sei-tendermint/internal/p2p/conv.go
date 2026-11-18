@@ -3,7 +3,6 @@ package p2p
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -85,15 +84,6 @@ var nodePublicKeyConv = protoutils.Conv[NodePublicKey, *pb.NodePublicKey]{
 	},
 }
 
-// gigaHandshakeClaim is the Autobahn committee identity a validator advertises
-// on the giga handshake.
-type gigaHandshakeClaim struct {
-	utils.ReadOnly
-	Validator atypes.PublicKey
-	sig       atypes.HandshakeSig
-	evmRPC    string
-}
-
 type handshakeSpec struct {
 	SelfAddr          utils.Option[NodeAddress]
 	PexAddrs          []NodeAddress
@@ -103,7 +93,7 @@ type handshakeSpec struct {
 type handshakeMsg struct {
 	NodeAuth NodeChallengeSig
 	handshakeSpec
-	GigaClaim utils.Option[gigaHandshakeClaim]
+	GigaClaim utils.Option[atypes.ChallengeSig]
 }
 
 var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
@@ -124,9 +114,8 @@ var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 			SeiGigaConnection: m.SeiGigaConnection,
 		}
 		if claim, ok := m.GigaClaim.Get(); ok {
-			out.ValidatorAuthKey = claim.Validator.Bytes()
-			out.ValidatorAuthSig = claim.sig.Bytes()
-			out.EvmRpc = new(claim.evmRPC)
+			out.ValidatorAuthKey = claim.Key().Bytes()
+			out.ValidatorAuthSig = claim.Bytes()
 		}
 		return out
 	},
@@ -171,32 +160,21 @@ var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 	},
 }
 
-func decodeGigaClaim(p *pb.Handshake) (utils.Option[gigaHandshakeClaim], error) {
-	isValidator := p.ValidatorAuthKey != nil || p.ValidatorAuthSig != nil || p.EvmRpc != nil
+func decodeGigaClaim(p *pb.Handshake) (utils.Option[atypes.ChallengeSig], error) {
+	isValidator := p.ValidatorAuthKey != nil || p.ValidatorAuthSig != nil
 	if !isValidator {
-		return utils.None[gigaHandshakeClaim](), nil
+		return utils.None[atypes.ChallengeSig](), nil
 	}
-	if p.ValidatorAuthKey == nil || p.ValidatorAuthSig == nil || p.EvmRpc == nil {
-		return utils.None[gigaHandshakeClaim](), fmt.Errorf("giga claim requires validator_auth_key, validator_auth_sig, and evm_rpc")
+	if p.ValidatorAuthKey == nil || p.ValidatorAuthSig == nil {
+		return utils.None[atypes.ChallengeSig](), fmt.Errorf("giga claim requires validator_auth_key and validator_auth_sig")
 	}
 	valKey, err := atypes.PublicKeyFromBytes(p.ValidatorAuthKey)
 	if err != nil {
-		return utils.None[gigaHandshakeClaim](), fmt.Errorf("ValidatorAuthKey: %w", err)
+		return utils.None[atypes.ChallengeSig](), fmt.Errorf("ValidatorAuthKey: %w", err)
 	}
-	valSig, err := atypes.HandshakeSigFromBytes(p.ValidatorAuthSig)
+	valSig, err := atypes.ChallengeSigFromBytes(valKey, p.ValidatorAuthSig)
 	if err != nil {
-		return utils.None[gigaHandshakeClaim](), fmt.Errorf("ValidatorAuthSig: %w", err)
+		return utils.None[atypes.ChallengeSig](), fmt.Errorf("ValidatorAuthSig: %w", err)
 	}
-	u, err := url.Parse(*p.EvmRpc)
-	if err != nil {
-		return utils.None[gigaHandshakeClaim](), fmt.Errorf("EvmRpc: %w", err)
-	}
-	if err := utils.CheckRPCURL(*u); err != nil {
-		return utils.None[gigaHandshakeClaim](), fmt.Errorf("EvmRpc: %w", err)
-	}
-	return utils.Some(gigaHandshakeClaim{
-		Validator: valKey,
-		sig:       valSig,
-		evmRPC:    *p.EvmRpc,
-	}), nil
+	return utils.Some(valSig), nil
 }

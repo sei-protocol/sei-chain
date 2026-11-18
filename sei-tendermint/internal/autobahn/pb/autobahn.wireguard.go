@@ -465,12 +465,4 @@ func init() {
 		2: {MaxCount: 1},
 	})
 
-	// Register the wireguard.Schema generated for autobahn.Handshake.
-	runtime.MustRegister[*Handshake](runtime.Schema{
-		1: {MaxCount: 1},
-		2: {MaxCount: 1},
-		3: {MaxCount: 1},
-		4: {MaxCount: 1},
-	})
-
 }

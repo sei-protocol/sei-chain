@@ -2,9 +2,10 @@
 package pb
 
 import (
+	reflect "reflect"
+
 	runtime "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	reflect "reflect"
 )
 
 func (*NodePublicKey) MaxSize() int {
@@ -12,7 +13,7 @@ func (*NodePublicKey) MaxSize() int {
 }
 
 func (*Handshake) MaxSize() int {
-	return 34878
+	return 32827
 }
 
 func init() {
@@ -55,7 +56,6 @@ func init() {
 		3: {MaxCount: 1},
 		6: {MaxCount: 1, MaxSize: 32},
 		7: {MaxCount: 1, MaxSize: 64},
-		8: {MaxCount: 1, MaxSize: 2048},
 	})
 
 }

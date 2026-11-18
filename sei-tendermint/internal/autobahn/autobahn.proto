@@ -397,12 +397,3 @@ message LaneBlockPos {
   optional uint64 index = 1; // required
   optional uint64 offset = 2; // required
 }
-
-// Handshake authenticates a validator's P2P identity and advertised endpoints.
-message Handshake {
-  option (hashable.hashable) = true;
-  optional bytes challenge = 1; // required
-  optional bytes node_key = 2; // required
-  optional string self_addr = 3; // required
-  optional string evm_rpc = 4; // required
-}

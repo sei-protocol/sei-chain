@@ -56,8 +56,9 @@ message Handshake {
 
   bool sei_giga_connection = 3;
 
-  // Committee claim; all three or none.
+  // Committee claim; both or none.
   optional bytes validator_auth_key = 6 [(wireguard.max_size) = 32];
   optional bytes validator_auth_sig = 7 [(wireguard.max_size) = 64];
-  optional string evm_rpc = 8 [(wireguard.max_size) = 2048];
+  reserved 8;
+  reserved "evm_rpc";
 }

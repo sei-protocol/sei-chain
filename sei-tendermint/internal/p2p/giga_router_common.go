@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"path/filepath"
 	"sort"
 
@@ -50,8 +49,6 @@ type gigaRouterCommon struct {
 	app             *proxy.EVMProxy
 	offer           utils.Option[handshakeOffer]
 	selfAddr        utils.Option[NodeAddress]
-	liveAddrs       utils.RWMutex[map[atypes.PublicKey]GigaNodeAddr]
-	liveAddrVersion utils.AtomicSend[uint64]
 
 	// inboundFullnodeCount tracks inbound connections currently served the
 	// block-sync subset. Persistent and block-sync peers do not consume it.
@@ -304,8 +301,8 @@ func (r *gigaRouterCommon) dialAndRunConn(
 		if !ok {
 			return fmt.Errorf("committee member %v: %w", expectedValidatorKey, errMissingGigaClaim)
 		}
-		if claim.Validator != expectedValidatorKey {
-			return fmt.Errorf("peer validator key = %v, want %v", claim.Validator, expectedValidatorKey)
+		if claim.Key() != expectedValidatorKey {
+			return fmt.Errorf("peer validator key = %v, want %v", claim.Key(), expectedValidatorKey)
 		}
 		client := rpc.NewClient[giga.API]()
 		return r.poolOut.InsertAndRun(ctx, expectedValidatorKey, client, func(ctx context.Context) error {
@@ -332,18 +329,10 @@ type memberSession struct {
 	addr   GigaNodeAddr
 }
 
-// validatorAddr returns the address to dial validator at. The configured
-// committee book wins; the live overlay only covers members it omits.
+// validatorAddr returns the configured address for a validator.
 func (r *gigaRouterCommon) validatorAddr(validator atypes.PublicKey) (GigaNodeAddr, bool) {
-	if addr, ok := r.cfg.ValidatorAddrs[validator]; ok {
-		return addr, true
-	}
-	for addrs := range r.liveAddrs.RLock() {
-		if addr, ok := addrs[validator]; ok {
-			return addr, true
-		}
-	}
-	return GigaNodeAddr{}, false
+	addr, ok := r.cfg.ValidatorAddrs[validator]
+	return addr, ok
 }
 
 func sameGigaNodeAddr(a, b GigaNodeAddr) bool {
@@ -360,45 +349,21 @@ func inAnchorEpochs(anchor data.Anchor, validator atypes.PublicKey) bool {
 	return false
 }
 
-// acceptInbound returns the committee identity a verified inbound connection
-// proved, recording the giga address it advertised. None means the peer is
-// served the block-sync subset: it carried no claim, or it claimed a validator
-// outside the Anchor epochs.
+// acceptInbound returns the committee identity proved by a verified inbound connection.
+// It returns None for peers without a claim or outside the Anchor epochs.
 func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[atypes.PublicKey] {
 	claim, ok := hConn.msg.GigaClaim.Get()
 	if !ok {
 		return utils.None[atypes.PublicKey]()
 	}
-	if !inAnchorEpochs(r.data.Anchor().Load(), claim.Validator) {
+	if !inAnchorEpochs(r.data.Anchor().Load(), claim.Key()) {
 		return utils.None[atypes.PublicKey]()
 	}
-	selfAddr := hConn.msg.SelfAddr.OrPanic("verified giga claim has no SelfAddr")
-	evmRPC := *utils.OrPanic1(url.Parse(claim.evmRPC))
-	// If we will not use its EVMRPC, we learn none of the advertisement.
-	if utils.IsLoopbackOrLinkLocalURL(evmRPC) {
-		logger.Error("committee member advertised an unroutable EVM RPC; not learning its address",
-			"validator", claim.Validator, "evmRPC", evmRPC.String())
-		return utils.Some(claim.Validator)
-	}
-	addr := GigaNodeAddr{
-		Key:      hConn.msg.NodeAuth.Key(),
-		HostPort: tcp.HostPort{Hostname: selfAddr.Hostname, Port: selfAddr.Port},
-		EVMRPC:   evmRPC,
-	}
-	for addrs := range r.liveAddrs.Lock() {
-		if old, ok := addrs[claim.Validator]; ok && sameGigaNodeAddr(old, addr) {
-			return utils.Some(claim.Validator)
-		}
-		addrs[claim.Validator] = addr
-		r.liveAddrVersion.Store(r.liveAddrVersion.Load() + 1)
-	}
-	logger.Info("learned validator giga address", "validator", claim.Validator, "addr", addr)
-	return utils.Some(claim.Validator)
+	return utils.Some(claim.Key())
 }
 
 // stopStaleSessions stops sessions for validators outside epochs or dialing an
-// address that is no longer current, and drops the overlay addresses of the
-// departed.
+// address that is no longer current.
 func (r *gigaRouterCommon) stopStaleSessions(
 	ctx context.Context,
 	live map[atypes.PublicKey]*memberSession,
@@ -411,18 +376,6 @@ func (r *gigaRouterCommon) stopStaleSessions(
 			}
 		}
 		return false
-	}
-	for addrs := range r.liveAddrs.Lock() {
-		dropped := false
-		for validator := range addrs {
-			if !kept(validator) {
-				delete(addrs, validator)
-				dropped = true
-			}
-		}
-		if dropped {
-			r.liveAddrVersion.Store(r.liveAddrVersion.Load() + 1)
-		}
 	}
 	var stale []*memberSession
 	// Cancel every stale session before waiting for any of them.
@@ -449,7 +402,6 @@ func (r *gigaRouterCommon) stopStaleSessions(
 func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCommitteeOnly bool, tasks ...committeeMemberTask) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		live := map[atypes.PublicKey]*memberSession{}
-		addrUpdates := r.liveAddrVersion.Subscribe()
 		// End all sessions before the scope waits for them.
 		defer func() {
 			for _, session := range live {
@@ -461,7 +413,6 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 		epochOf := func(a data.Anchor) atypes.EpochIndex { return a.Epochs[0].EpochIndex() }
 
 		for ctx.Err() == nil {
-			addrVersion := addrUpdates.Load()
 			anchor := r.data.Anchor().Load()
 			commitEpoch := anchor.NextIndexEpoch()
 			// A member of Epochs[0] may hold the only copy of a lane block, or of
@@ -501,9 +452,8 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 			}
 			if err := utils.WaitAny(ctx, func() bool {
 				return r.data.Anchor().Load().NextIndexEpoch().EpochIndex() != commitEpoch.EpochIndex() ||
-					epochOf(r.data.Anchor().Load()) != epochOf(anchor) ||
-					addrUpdates.Load() != addrVersion
-			}, r.data.Anchor(), addrUpdates); err != nil {
+					epochOf(r.data.Anchor().Load()) != epochOf(anchor)
+			}, r.data.Anchor()); err != nil {
 				return err
 			}
 		}

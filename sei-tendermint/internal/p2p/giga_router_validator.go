@@ -78,11 +78,9 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			app:             cfg.App,
 			offer: utils.Some(handshakeOffer{
 				ValidatorKey: cfg.ValidatorKey,
-				EVMRPC:       self.EVMRPC,
 			}),
-			selfAddr:             utils.Some(selfAddr),
-			liveAddrs:            utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
-			liveAddrVersion:      utils.NewAtomicSend(uint64(0)),
+			selfAddr: utils.Some(selfAddr),
+
 			inboundFullnodeCount: utils.NewMutex(new(int64)),
 			inboundFullnodeCap:   int64(cfg.MaxInboundFullnodePeers),
 		},

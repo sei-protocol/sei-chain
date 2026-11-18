@@ -7,12 +7,13 @@
 package pb
 
 import (
-	_ "github.com/sei-protocol/sei-chain/sei-tendermint/proto/wireguard"
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	_ "github.com/sei-protocol/sei-chain/sei-tendermint/proto/wireguard"
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -356,10 +357,9 @@ type Handshake struct {
 	// (it is at full capacity).
 	PexAddrs          []string `protobuf:"bytes,5,rep,name=pex_addrs,json=pexAddrs,proto3" json:"pex_addrs,omitempty"`
 	SeiGigaConnection bool     `protobuf:"varint,3,opt,name=sei_giga_connection,json=seiGigaConnection,proto3" json:"sei_giga_connection,omitempty"`
-	// Committee claim; all three or none.
-	ValidatorAuthKey []byte  `protobuf:"bytes,6,opt,name=validator_auth_key,json=validatorAuthKey,proto3,oneof" json:"validator_auth_key,omitempty"`
-	ValidatorAuthSig []byte  `protobuf:"bytes,7,opt,name=validator_auth_sig,json=validatorAuthSig,proto3,oneof" json:"validator_auth_sig,omitempty"`
-	EvmRpc           *string `protobuf:"bytes,8,opt,name=evm_rpc,json=evmRpc,proto3,oneof" json:"evm_rpc,omitempty"`
+	// Committee claim; both or none.
+	ValidatorAuthKey []byte `protobuf:"bytes,6,opt,name=validator_auth_key,json=validatorAuthKey,proto3,oneof" json:"validator_auth_key,omitempty"`
+	ValidatorAuthSig []byte `protobuf:"bytes,7,opt,name=validator_auth_sig,json=validatorAuthSig,proto3,oneof" json:"validator_auth_sig,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -443,13 +443,6 @@ func (x *Handshake) GetValidatorAuthSig() []byte {
 	return nil
 }
 
-func (x *Handshake) GetEvmRpc() string {
-	if x != nil && x.EvmRpc != nil {
-		return *x.EvmRpc
-	}
-	return ""
-}
-
 var File_p2p_p2p_proto protoreflect.FileDescriptor
 
 const file_p2p_p2p_proto_rawDesc = "" +
@@ -475,7 +468,7 @@ const file_p2p_p2p_proto_rawDesc = "" +
 	"\rNodePublicKey\x12 \n" +
 	"\aed25519\x18\x01 \x01(\fB\x06؈\xe2\xab\f R\aed25519:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04R\tsecp256k1R\asr25519\"/\n" +
 	"\aPreface\x12$\n" +
-	"\x0ests_public_key\x18\x01 \x01(\fR\fstsPublicKey\"\xe3\x03\n" +
+	"\x0ests_public_key\x18\x01 \x01(\fR\fstsPublicKey\"\xbf\x03\n" +
 	"\tHandshake\x126\n" +
 	"\rnode_auth_key\x18\x01 \x01(\v2\x12.p2p.NodePublicKeyR\vnodeAuthKey\x12*\n" +
 	"\rnode_auth_sig\x18\x02 \x01(\fB\x06؈\xe2\xab\f@R\vnodeAuthSig\x12)\n" +
@@ -483,14 +476,11 @@ const file_p2p_p2p_proto_rawDesc = "" +
 	"\tpex_addrs\x18\x05 \x03(\tB\rЈ\xe2\xab\fd؈\xe2\xab\f\xc0\x02R\bpexAddrs\x12.\n" +
 	"\x13sei_giga_connection\x18\x03 \x01(\bR\x11seiGigaConnection\x129\n" +
 	"\x12validator_auth_key\x18\x06 \x01(\fB\x06؈\xe2\xab\f H\x01R\x10validatorAuthKey\x88\x01\x01\x129\n" +
-	"\x12validator_auth_sig\x18\a \x01(\fB\x06؈\xe2\xab\f@H\x02R\x10validatorAuthSig\x88\x01\x01\x12%\n" +
-	"\aevm_rpc\x18\b \x01(\tB\a؈\xe2\xab\f\x80\x10H\x03R\x06evmRpc\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\f\n" +
+	"\x12validator_auth_sig\x18\a \x01(\fB\x06؈\xe2\xab\f@H\x02R\x10validatorAuthSig\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\f\n" +
 	"\n" +
 	"_self_addrB\x15\n" +
 	"\x13_validator_auth_keyB\x15\n" +
-	"\x13_validator_auth_sigB\n" +
-	"\n" +
-	"\b_evm_rpcBBZ@github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pbb\x06proto3"
+	"\x13_validator_auth_sigJ\x04\b\b\x10\tR\aevm_rpcBBZ@github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pbb\x06proto3"
 
 var (
 	file_p2p_p2p_proto_rawDescOnce sync.Once

@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 
 	gogoproto "github.com/gogo/protobuf/proto"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -22,9 +20,8 @@ import (
 const handshakeMsgMaxSize = 1024 * 1024
 
 var (
-	errMissingGigaClaim      = errors.New("missing validator_auth_key, validator_auth_sig, and evm_rpc")
-	errGigaClaimRequiresAddr = errors.New("validator giga handshake requires SelfAddr")
-	errGigaClaimOnNonGiga    = errors.New("validator giga claim on non-giga connection")
+	errMissingGigaClaim   = errors.New("missing validator_auth_key and validator_auth_sig")
+	errGigaClaimOnNonGiga = errors.New("validator giga claim on non-giga connection")
 )
 
 func init() {
@@ -36,7 +33,6 @@ func init() {
 // handshakeOffer is the Autobahn committee identity this node claims on a giga handshake.
 type handshakeOffer struct {
 	ValidatorKey atypes.SecretKey
-	EVMRPC       url.URL
 }
 
 type handshakedConn struct {
@@ -51,18 +47,7 @@ func handshake(
 	spec handshakeSpec,
 	offer utils.Option[handshakeOffer],
 ) (*handshakedConn, error) {
-	// Checked before the connection so a local misconfiguration is reported as
-	// itself, rather than as whichever handshake step the abort trips first.
 	o, offering := offer.Get()
-	selfAddr, hasSelfAddr := spec.SelfAddr.Get()
-	if offering && !hasSelfAddr {
-		return nil, errGigaClaimRequiresAddr
-	}
-	if offering {
-		if err := utils.CheckRPCURL(o.EVMRPC); err != nil {
-			return nil, fmt.Errorf("EvmRpc: %w", err)
-		}
-	}
 	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*handshakedConn, error) {
 		sc, err := conn.MakeSecretConnection(ctx, c)
 		if err != nil {
@@ -74,16 +59,7 @@ func handshake(
 				handshakeSpec: spec,
 			}
 			if offering {
-				msg.GigaClaim = utils.Some(gigaHandshakeClaim{
-					Validator: o.ValidatorKey.Public(),
-					sig: o.ValidatorKey.SignHandshake(atypes.Handshake{
-						Challenge: sc.Challenge(),
-						NodeKey:   ed25519.PublicKey(key.Public()),
-						SelfAddr:  selfAddr.String(),
-						EVMRPC:    o.EVMRPC.String(),
-					}),
-					evmRPC: o.EVMRPC.String(),
-				})
+				msg.GigaClaim = utils.Some(o.ValidatorKey.SignChallenge(sc.Challenge()))
 			}
 			if err := conn.WriteSizedMsg(ctx, sc, handshakeMsgConv.Marshal(msg)); err != nil {
 				return fmt.Errorf("conn.WriteSizedMsg(): %w", err)
@@ -113,16 +89,7 @@ func handshake(
 			if !msg.SeiGigaConnection {
 				return nil, errGigaClaimOnNonGiga
 			}
-			selfAddr, ok := msg.SelfAddr.Get()
-			if !ok {
-				return nil, errGigaClaimRequiresAddr
-			}
-			if err := claim.Validator.VerifyHandshake(atypes.Handshake{
-				Challenge: sc.Challenge(),
-				NodeKey:   ed25519.PublicKey(msg.NodeAuth.Key()),
-				SelfAddr:  selfAddr.String(),
-				EVMRPC:    claim.evmRPC,
-			}, claim.sig); err != nil {
+			if err := claim.Verify(sc.Challenge()); err != nil {
 				return nil, fmt.Errorf("handshakeMsg.GigaClaim: %w", err)
 			}
 		}
