@@ -73,6 +73,9 @@ type MockApp struct {
 	app         proxy.EVMApplication
 	chainConfig *params.ChainConfig
 	state       utils.RWMutex[*mockAppState]
+	// committed is the height up to which every block is committed. A FinalizeBlock for a later
+	// block waits on it for the previous block's Commit.
+	committed utils.AtomicSend[int64]
 	// hashes receives each committed block's state, BUD, and receipt hashes.
 	// None means Commit does not report them.
 	hashes utils.Option[builder.AppHashBuilder]
@@ -88,6 +91,7 @@ func NewMockApp(app proxy.EVMApplication) *MockApp {
 			nextNonce:      map[common.Address]uint64{},
 			nextTransition: mockAppTransitionInitialize,
 		}),
+		committed: utils.NewAtomicSend[int64](0),
 	}
 }
 
@@ -108,6 +112,7 @@ func (app *MockApp) InitChain(req *proxy.RequestInitChain) (*proxy.ResponseInitC
 		state.lastBlockAppHash = nil
 		state.validators = slices.Clone(validators)
 		state.nextTransition = mockAppTransitionFinalize
+		app.committed.Store(state.lastBlockHeight)
 		return &proxy.ResponseInitChain{Validators: slices.Clone(res.Validators)}, nil
 	}
 	panic("unreachable")
@@ -261,12 +266,20 @@ func (app *MockApp) EvmStateBeforeTx(context.Context, *ethtypes.Header, [][]byte
 	return nil, nil, errMockAppNoExecution
 }
 
-func (app *MockApp) FinalizeBlock(_ context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
+func (app *MockApp) FinalizeBlock(ctx context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
 	if req.Header == nil {
 		return nil, errMockAppMissingHeader
 	}
 	txs, err := parseMockAppTxs(req.Txs)
 	if err != nil {
+		return nil, err
+	}
+	for state := range app.state.RLock() {
+		if state.nextTransition == mockAppTransitionInitialize {
+			return nil, state.checkTransition(mockAppTransitionFinalize)
+		}
+	}
+	if _, err := app.committed.Wait(ctx, func(h int64) bool { return h >= req.Header.Height-1 }); err != nil {
 		return nil, err
 	}
 	for state := range app.state.Lock() {
@@ -289,6 +302,7 @@ func (app *MockApp) Commit(ctx context.Context) (*proxy.ResponseCommit, error) {
 	}
 	for state := range app.state.Lock() {
 		state.nextTransition = mockAppTransitionFinalize
+		app.committed.Store(state.lastBlockHeight)
 		return &proxy.ResponseCommit{RetainHeight: max(state.lastBlockHeight-blocksToRetain, 0)}, nil
 	}
 	panic("unreachable")

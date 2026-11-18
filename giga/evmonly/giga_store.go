@@ -239,10 +239,12 @@ func (e *Executor) startPipelineCommit(blockNumber int64, misc []gigatypes.MiscC
 		e.pipelineMu.Unlock()
 		return failure
 	}
-	e.pipelineIndex = newPendingIndex(pending)
+	index := newPendingIndex(pending)
+	e.pipelineIndex = index
 	e.pipelineDone = done
 	e.pipelineErr = nil
 	e.pipelineMu.Unlock()
+	e.recordExecutedChanges(uint64(blockNumber), index) //nolint:gosec // blockNumber is non-negative.
 
 	go func() {
 		err := e.stateStore.CommitStateChanges(blockNumber, pending)

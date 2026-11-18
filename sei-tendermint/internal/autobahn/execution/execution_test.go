@@ -36,7 +36,7 @@ func logEvent(events *eventLog, format string, args ...any) {
 type recordingApp struct {
 	proxy.EVMApplication
 	events *eventLog
-	state  utils.Mutex[*recordingAppState]
+	state  utils.Watch[*recordingAppState]
 }
 
 type recordingAppState struct {
@@ -45,8 +45,14 @@ type recordingAppState struct {
 	inited     bool
 	lastHeader utils.Option[*proxy.Header]
 	finalized  []*proxy.RequestFinalizeBlock
+	// entered counts the FinalizeBlock calls that have started.
+	entered int
 	// failCommitAt makes Commit fail for the block of this height.
 	failCommitAt utils.Option[int64]
+	// holdFinalizeAt makes FinalizeBlock for this height wait until another FinalizeBlock has started.
+	holdFinalizeAt utils.Option[int64]
+	// holdCommitAt makes Commit for this height return only once the next block has committed.
+	holdCommitAt utils.Option[int64]
 }
 
 // testGasPerBlock is the gas FinalizeBlock reports for every block.
@@ -55,7 +61,7 @@ const testGasPerBlock = 7
 var errCommitFailed = errors.New("commit failed")
 
 func newRecordingApp(events *eventLog, last int64) *recordingApp {
-	return &recordingApp{events: events, state: utils.NewMutex(&recordingAppState{last: last})}
+	return &recordingApp{events: events, state: utils.NewWatch(&recordingAppState{last: last})}
 }
 
 func (a *recordingApp) GetValidators() []proxy.ValidatorUpdate { return nil }
@@ -71,9 +77,13 @@ func (a *recordingApp) LastBlockHeight() int64 {
 	panic("unreachable")
 }
 
-func (a *recordingApp) InitChain(*proxy.RequestInitChain) (*proxy.ResponseInitChain, error) {
-	for state := range a.state.Lock() {
+func (a *recordingApp) InitChain(req *proxy.RequestInitChain) (*proxy.ResponseInitChain, error) {
+	for state, ctrl := range a.state.Lock() {
 		state.inited = true
+		if state.last == 0 {
+			state.last = req.InitialHeight - 1
+		}
+		ctrl.Updated()
 	}
 	return &proxy.ResponseInitChain{}, nil
 }
@@ -84,21 +94,43 @@ func (a *recordingApp) InitLastHeader(header *proxy.Header) {
 	}
 }
 
-func (a *recordingApp) FinalizeBlock(_ context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
-	logEvent(a.events, "finalize %d", req.Header.Height)
-	for state := range a.state.Lock() {
-		state.pending = req.Header.Height
+// FinalizeBlock waits until req's block is the next to finalize, as execution may call it ahead.
+func (a *recordingApp) FinalizeBlock(ctx context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
+	height := req.Header.Height
+	for state, ctrl := range a.state.Lock() {
+		state.entered++
+		ctrl.Updated()
+		if hold, ok := state.holdFinalizeAt.Get(); ok && hold == height {
+			if err := ctrl.WaitUntil(ctx, func() bool { return state.entered >= 2 }); err != nil {
+				return nil, err
+			}
+		}
+		if err := ctrl.WaitUntil(ctx, func() bool { return state.pending == 0 && height <= state.last+1 }); err != nil {
+			return nil, err
+		}
+		if height != state.last+1 {
+			return nil, fmt.Errorf("recording app block height %d does not follow %d", height, state.last)
+		}
+		logEvent(a.events, "finalize %d", height)
+		state.pending = height
 		state.finalized = append(state.finalized, req)
 	}
 	return &proxy.ResponseFinalizeBlock{TxResults: []*proxy.ExecTxResult{{GasUsed: testGasPerBlock}}}, nil
 }
 
-func (a *recordingApp) Commit(context.Context) (*proxy.ResponseCommit, error) {
-	for state := range a.state.Lock() {
+func (a *recordingApp) Commit(ctx context.Context) (*proxy.ResponseCommit, error) {
+	for state, ctrl := range a.state.Lock() {
 		if fail, ok := state.failCommitAt.Get(); ok && fail == state.pending {
 			return nil, errCommitFailed
 		}
 		state.last = state.pending
+		state.pending = 0
+		ctrl.Updated()
+		if hold, ok := state.holdCommitAt.Get(); ok && hold == state.last {
+			if err := ctrl.WaitUntil(ctx, func() bool { return state.last > hold }); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return &proxy.ResponseCommit{}, nil
 }
@@ -111,13 +143,25 @@ func (a *recordingApp) finalized() []*proxy.RequestFinalizeBlock {
 }
 
 // recordingBuilder is an app hash builder that records each block hash reported
-// to it. Execution calls nothing else on it.
+// to it. Like the real builder, it refuses a height that does not follow the
+// previous one. Execution calls nothing else on it.
 type recordingBuilder struct {
 	builder.AppHashBuilder
 	events *eventLog
+	last   utils.Mutex[*utils.Option[uint64]]
 }
 
-func (b recordingBuilder) ReportBlockHash(_ context.Context, blockHeight uint64, _ [32]byte) error {
+func newRecordingBuilder(events *eventLog) *recordingBuilder {
+	return &recordingBuilder{events: events, last: utils.NewMutex(new(utils.Option[uint64]))}
+}
+
+func (b *recordingBuilder) ReportBlockHash(_ context.Context, blockHeight uint64, _ [32]byte) error {
+	for last := range b.last.Lock() {
+		if prev, ok := last.Get(); ok && blockHeight != prev+1 {
+			return fmt.Errorf("block hash reported for block %d, expected block %d", blockHeight, prev+1)
+		}
+		*last = utils.Some(blockHeight)
+	}
 	logEvent(b.events, "report %d", blockHeight)
 	return nil
 }
@@ -172,7 +216,7 @@ func (env *testEnv) executor(app *recordingApp) *Executor {
 	return New(&Config{
 		GenDoc:         env.genDoc,
 		App:            proxy.NewEVM(app),
-		AppHashBuilder: recordingBuilder{events: env.events},
+		AppHashBuilder: newRecordingBuilder(env.events),
 		BlockStore:     env.store,
 	})
 }
@@ -280,10 +324,16 @@ func TestRunReportsEachBlockHashBeforeExecutingIt(t *testing.T) {
 	}))
 
 	for log := range env.events.Lock() {
-		require.Equal(t, []string{
-			fmt.Sprintf("report %d", env.road(0)), fmt.Sprintf("finalize %d", env.road(0)),
-			fmt.Sprintf("report %d", env.road(1)), fmt.Sprintf("finalize %d", env.road(1)),
-		}, *log)
+		at := map[string]int{}
+		for i, event := range *log {
+			at[event] = i
+		}
+		report := func(i int) string { return fmt.Sprintf("report %d", env.road(i)) }
+		finalize := func(i int) string { return fmt.Sprintf("finalize %d", env.road(i)) }
+		require.Equal(t, 4, len(*log))
+		require.True(t, at[report(0)] < at[finalize(0)])
+		require.True(t, at[report(1)] < at[finalize(1)])
+		require.True(t, at[finalize(0)] < at[finalize(1)])
 	}
 	for i, req := range app.finalized() {
 		want := env.blocks[i].SuperBlock()
@@ -331,8 +381,9 @@ func gasUsedTotal(t *testing.T) float64 {
 	return m.GetCounter().GetValue()
 }
 
-// TestRunCountsGasOnlyAfterCommit verifies that a block's gas is counted only
-// once the app has committed it.
+// TestRunCountsGasOnlyAfterCommit verifies that a block whose Commit fails is never
+// counted. A block committed just before the failure may not be counted either,
+// since the failure stops Run.
 func TestRunCountsGasOnlyAfterCommit(t *testing.T) {
 	rng := utils.TestRng()
 	env := newTestEnv(t, rng, 2)
@@ -345,8 +396,8 @@ func TestRunCountsGasOnlyAfterCommit(t *testing.T) {
 	before := gasUsedTotal(t)
 
 	require.ErrorIs(t, executor.Run(t.Context()), errCommitFailed)
-	require.Equal(t, before+testGasPerBlock, gasUsedTotal(t), "only the committed block is counted")
-	require.Equal(t, env.road(0), executor.ExecutedBlocks().Load().Latest().Number)
+	require.True(t, gasUsedTotal(t) <= before+testGasPerBlock, "the failed block is not counted")
+	require.True(t, executor.ExecutedBlocks().Load().Latest().Number < env.road(1), "the failed block is not published")
 }
 
 func TestFinalizeBlockGasUsed(t *testing.T) {
@@ -359,4 +410,66 @@ func TestFinalizeBlockGasUsed(t *testing.T) {
 		},
 	}
 	require.Equal(t, int64(30), finalizeBlockGasUsed(resp))
+}
+
+// The next block's FinalizeBlock is entered while the current one is still inside it.
+func TestRunEntersTheNextBlockBeforeTheCurrentOneReturns(t *testing.T) {
+	rng := utils.TestRng()
+	env := newTestEnv(t, rng, 4)
+	require.NoError(t, env.write(0, 4, true))
+	app := newRecordingApp(env.events, 0)
+	// The first block finalizes only once the next one has entered FinalizeBlock.
+	for state := range app.state.Lock() {
+		state.holdFinalizeAt = utils.Some(int64(env.road(0)))
+	}
+	executor := env.executor(app)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
+		return waitExecuted(ctx, executor, env.road(3))
+	}))
+	require.Equal(t, 4, len(app.finalized()))
+}
+
+// Catching up over blocks that are all durable, with several in FinalizeBlock at once, still reports
+// their hashes in road order.
+func TestRunReportsBlockHashesInRoadOrderDuringCatchUp(t *testing.T) {
+	rng := utils.TestRng()
+	const blocks = 16
+	env := newTestEnv(t, rng, blocks)
+	require.NoError(t, env.write(0, blocks, true))
+	app := newRecordingApp(env.events, 0)
+	executor := env.executor(app)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
+		return waitExecuted(ctx, executor, env.road(blocks-1))
+	}))
+	require.Equal(t, blocks, len(app.finalized()))
+}
+
+// A block that commits while the previous block's executeBlock has not yet returned is still
+// published after it, so the executed-block window stays in road order.
+func TestRunPublishesExecutedBlocksInRoadOrder(t *testing.T) {
+	rng := utils.TestRng()
+	env := newTestEnv(t, rng, 4)
+	require.NoError(t, env.write(0, 4, true))
+	// Starting from a committed tip makes the window contiguous from its first block.
+	app := newRecordingApp(env.events, int64(env.road(0)))
+	for state := range app.state.Lock() {
+		state.holdCommitAt = utils.Some(int64(env.road(1)))
+	}
+	executor := env.executor(app)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
+		return waitExecuted(ctx, executor, env.road(3))
+	}))
+	executed := executor.ExecutedBlocks().Load()
+	for i := range 4 {
+		block, ok := executed.Get(env.road(i))
+		require.True(t, ok)
+		require.Equal(t, env.road(i), block.Number)
+	}
+	require.Equal(t, env.road(3), executed.Latest().Number)
 }
