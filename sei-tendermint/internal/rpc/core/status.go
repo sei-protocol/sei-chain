@@ -109,6 +109,8 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 		applicationInfo.Version = fmt.Sprint(abciInfo.Response.AppVersion)
 	}
 
+	freezeHeight, frozen := env.freezeState(latestHeight)
+
 	result := &coretypes.ResultStatus{
 		NodeInfo:        env.NodeInfo,
 		ApplicationInfo: applicationInfo,
@@ -122,6 +124,8 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 			EarliestAppHash:          earliestAppHash,
 			EarliestBlockHeight:      earliestBlockHeight,
 			EarliestBlockTime:        time.Unix(0, earliestBlockTimeNano),
+			FreezeHeight:             freezeHeight,
+			Frozen:                   frozen,
 			// this should start as true, if consensus
 			// hasn't started yet, and then flip to false
 			// (or true,) depending on what's actually
@@ -152,6 +156,17 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 	}
 
 	return result, nil
+}
+
+// freezeState returns the configured freeze height and whether a node whose latest
+// block is latestHeight has stopped at it. It returns (0, false) when freeze mode is off.
+func (env *Environment) freezeState(latestHeight int64) (int64, bool) {
+	if env.FreezeHeight == 0 {
+		return 0, false
+	}
+	freezeHeight := int64(env.FreezeHeight) //nolint:gosec // freeze-height is validated to fit in int64 at startup.
+	// The freeze height itself is never executed, so a frozen node's last block is the one before it.
+	return freezeHeight, latestHeight >= freezeHeight-1
 }
 
 func (env *Environment) validatorAtHeight(h int64) utils.Option[*types.Validator] {
