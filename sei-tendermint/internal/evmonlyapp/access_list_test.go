@@ -13,6 +13,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
@@ -22,13 +23,12 @@ func TestEVMOnlyApplicationSimulatesAgainstCommittedState(t *testing.T) {
 	slot := common.BytesToHash([]byte{0x11})
 	runtime := storeCode(slot, common.BytesToHash([]byte{0x22}))
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
-	_, err := app.FinalizeBlock(t.Context(), &proxy.RequestFinalizeBlock{
-		Txs:    [][]byte{deployRaw},
-		Hash:   crypto.Keccak256([]byte("block-1")),
-		Header: &proxy.Header{Height: 1, Time: time.Unix(1_700_000_001, 0)},
-	})
+	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(proxy.DecodeTxs([][]byte{deployRaw}, 0)),
+		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
+		Height: 1, Time: time.Unix(1_700_000_001, 0)})
 	require.NoError(t, err)
-	_, err = app.Commit(t.Context())
+	err = app.Commit(t.Context())
 	require.NoError(t, err)
 
 	t.Run("access list", func(t *testing.T) {
@@ -76,13 +76,13 @@ func TestEVMOnlyApplicationSimulatesAgainstAPastBlock(t *testing.T) {
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(3))
 	// The undo log applies blocks behind the commit; until it has, their history is not held.
 	app.storage.StateDB().UndoSS().WaitForPendingWrites()
-	beforeDeploy, deployed := traceTestHeader(1, nil), traceTestHeader(2, first.Hash)
+	beforeDeploy, deployed := traceTestHeader(1, common.Hash{}), traceTestHeader(2, first.Hash)
 	msg := func() *ethcore.Message { return callMessage(sender, &contract) }
 
 	t.Run("access list", func(t *testing.T) {
 		for _, tc := range []struct {
 			name   string
-			header *ethtypes.Header
+			header proxy.BlockRef
 			want   ethtypes.AccessList
 		}{
 			{name: "before the deploy", header: beforeDeploy, want: ethtypes.AccessList{}},
@@ -102,7 +102,7 @@ func TestEVMOnlyApplicationSimulatesAgainstAPastBlock(t *testing.T) {
 	withCode := evmonly.CallOverrides{State: export.StateOverride{contract: {Code: &code}}}
 	for _, tc := range []struct {
 		name      string
-		header    *ethtypes.Header
+		header    proxy.BlockRef
 		overrides evmonly.CallOverrides
 	}{
 		{name: "estimate gas after calls", header: deployed},
@@ -123,9 +123,9 @@ func TestEVMOnlyApplicationSimulatesAgainstAPastBlock(t *testing.T) {
 	}
 
 	t.Run("a state the node does not hold", func(t *testing.T) {
-		_, _, err := app.EvmCreateAccessListAt(t.Context(), msg(), traceTestHeader(9, nil))
+		_, _, err := app.EvmCreateAccessListAt(t.Context(), msg(), traceTestHeader(9, common.Hash{}))
 		require.Error(t, err)
-		_, _, err = app.EvmEstimateGasAfterCallsAt(t.Context(), []*ethcore.Message{msg()}, msg(), 0, traceTestHeader(9, nil), evmonly.CallOverrides{})
+		_, _, err = app.EvmEstimateGasAfterCallsAt(t.Context(), []*ethcore.Message{msg()}, msg(), 0, traceTestHeader(9, common.Hash{}), evmonly.CallOverrides{})
 		require.Error(t, err)
 	})
 }

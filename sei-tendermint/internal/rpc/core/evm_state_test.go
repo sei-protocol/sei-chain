@@ -2,9 +2,15 @@ package core
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"math"
+	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -18,12 +24,21 @@ type evmStateApp struct{ proxy.EVMApplication }
 func (a evmStateApp) Info() *proxy.ResponseInfo {
 	return &proxy.ResponseInfo{Data: "native-evm", LastBlockHeight: 17, LastBlockAppHash: []byte{42}}
 }
-func (a evmStateApp) LastBlockHeight() int64                        { return 17 }
-func (a evmStateApp) EvmNonce(common.Address) uint64                { return 3 }
-func (a evmStateApp) EvmCommittedNonce(addr common.Address) uint64  { return a.EvmNonce(addr) }
-func (a evmStateApp) EvmBalance(common.Address, []byte) uint256.Int { return *uint256.NewInt(99) }
-func (a evmStateApp) CheckTx(context.Context, *proxy.RequestCheckTxV2) *proxy.ResponseCheckTxV2 {
-	return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 7, Log: "rejected", GasWanted: 21000}}
+func (a evmStateApp) LastBlockHeight() int64                       { return 17 }
+func (a evmStateApp) EvmNonce(common.Address) uint64               { return 3 }
+func (a evmStateApp) EvmCommittedNonce(addr common.Address) uint64 { return a.EvmNonce(addr) }
+func (a evmStateApp) EvmBalance(common.Address) uint256.Int        { return *uint256.NewInt(99) }
+func (a evmStateApp) CheckTx(proxy.EvmTx) (proxy.AdmittedTx, error) {
+	return proxy.AdmittedTx{}, errors.New("rejected")
+}
+
+func signedEVMStateTestTx(t *testing.T) proxy.EvmTx {
+	t.Helper()
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{}), ethtypes.LatestSignerForChainID(big.NewInt(1)), key)
+	require.NoError(t, err)
+	return proxy.EvmTx{Transaction: tx, Sender: crypto.PubkeyToAddress(key.PublicKey)}
 }
 
 func TestEVMEnvironmentReadsStateWithoutABCI(t *testing.T) {
@@ -32,45 +47,74 @@ func TestEVMEnvironmentReadsStateWithoutABCI(t *testing.T) {
 	require.False(t, env.App.IsPresent())
 	require.Equal(t, uint64(17), env.EvmBlockNumber())
 	require.Equal(t, uint64(3), env.EvmTransactionCount(common.Address{1}))
-	require.Equal(t, *uint256.NewInt(99), app.EvmBalance(common.Address{1}, nil))
+	require.Equal(t, *uint256.NewInt(99), app.EvmBalance(common.Address{1}))
 	info, err := env.ABCIInfo(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, "native-evm", info.Response.Data)
 	require.Equal(t, int64(17), info.Response.LastBlockHeight)
 	require.Equal(t, []byte{42}, info.Response.LastBlockAppHash)
-	res, err := env.CheckTx(t.Context(), &coretypes.RequestCheckTx{Tx: []byte{1}})
+	res, err := env.CheckTx(t.Context(), &coretypes.RequestCheckTx{Tx: utils.OrPanic1(signedEVMStateTestTx(t).MarshalBinary())})
 	require.NoError(t, err)
-	require.Equal(t, uint32(7), res.Code)
-	require.Equal(t, "rejected", res.Log)
-	require.Equal(t, int64(21000), res.GasWanted)
+	require.Equal(t, uint32(1), res.Code)
+	require.NotEmpty(t, res.Log)
+	require.Equal(t, int64(0), res.GasWanted)
 	_, err = env.ABCIQuery(t.Context(), &coretypes.RequestABCIQuery{})
 	require.Error(t, err)
 }
 
-// senderCacheApp records senders provided before transaction admission.
+// senderCacheApp records the cached sender delivered to admission.
 type senderCacheApp struct {
 	evmStateApp
-	senders map[common.Hash]common.Address
+	sender utils.Option[common.Address]
 }
 
-func (a *senderCacheApp) RememberEvmSender(hash common.Hash, sender common.Address) {
-	a.senders[hash] = sender
-}
-
-func (a *senderCacheApp) ForgetEvmSender(hash common.Hash) {
-	delete(a.senders, hash)
+func (a *senderCacheApp) CheckTx(tx proxy.EvmTx) (proxy.AdmittedTx, error) {
+	a.sender = utils.Some(tx.Sender)
+	return proxy.AdmittedTx{}, nil
 }
 
 func TestEVMEnvironmentCachesSendersWithoutABCI(t *testing.T) {
-	app := &senderCacheApp{senders: make(map[common.Hash]common.Address)}
+	app := &senderCacheApp{}
 	env := &EVMEnvironment{Environment: &Environment{}, EVMProxy: proxy.NewEVM(app)}
-	hash := common.Hash{1}
+	tx := signedEVMStateTestTx(t)
 	sender := common.Address{2}
+	env.RememberEvmSender(tx.Hash(), sender)
+	raw := utils.OrPanic1(tx.MarshalBinary())
+	decoded := utils.OrPanic1(env.EVMProxy.DecodeTx(raw))
+	_, err := env.EVMProxy.CheckTx(decoded)
+	require.NoError(t, err)
+	require.Equal(t, utils.Some(sender), app.sender)
+	env.ForgetEvmSender(tx.Hash())
+	decoded, err = env.EVMProxy.DecodeTx(raw)
+	require.NoError(t, err)
+	_, err = env.EVMProxy.CheckTx(decoded)
+	require.NoError(t, err)
+	require.Equal(t, utils.Some(tx.Sender), app.sender)
+}
 
-	env.RememberEvmSender(hash, sender)
-	require.Equal(t, sender, app.senders[hash])
+func TestEVMEnvironmentRejectsInvalidSignatureBeforeAdmission(t *testing.T) {
+	app := &senderCacheApp{}
+	env := &Environment{EVM: utils.Some(proxy.NewEVM(app))}
+	raw := utils.OrPanic1(ethtypes.NewTx(&ethtypes.LegacyTx{}).MarshalBinary())
+	response, err := env.CheckTx(t.Context(), &coretypes.RequestCheckTx{Tx: raw})
+	require.NoError(t, err)
+	require.Equal(t, uint32(1), response.Code)
+	require.False(t, app.sender.IsPresent())
+}
 
-	env.ForgetEvmSender(hash)
-	_, cached := app.senders[hash]
-	require.False(t, cached)
+func TestEVMAdmissionResponse(t *testing.T) {
+	response, err := evmAdmissionResponse(proxy.EvmTx{Transaction: ethtypes.NewTx(&ethtypes.LegacyTx{Gas: 30_000})}, proxy.AdmittedTx{GasEstimated: 21_000}, nil)
+	require.NoError(t, err)
+	require.Equal(t, uint32(0), response.Code)
+	require.Equal(t, int64(30_000), response.GasWanted)
+	require.Equal(t, int64(21_000), response.GasEstimated)
+	response, err = evmAdmissionResponse(proxy.EvmTx{}, proxy.AdmittedTx{}, fmt.Errorf("%w: invalid tx", proxy.ErrTxRejected))
+	require.NoError(t, err)
+	require.Equal(t, uint32(1), response.Code)
+	_, err = evmAdmissionResponse(proxy.EvmTx{}, proxy.AdmittedTx{}, context.Canceled)
+	require.ErrorIs(t, err, context.Canceled)
+	_, err = evmAdmissionResponse(proxy.EvmTx{Transaction: ethtypes.NewTx(&ethtypes.LegacyTx{Gas: math.MaxUint64})}, proxy.AdmittedTx{}, nil)
+	require.Error(t, err)
+	_, err = evmAdmissionResponse(proxy.EvmTx{Transaction: ethtypes.NewTx(&ethtypes.LegacyTx{Gas: 30_000})}, proxy.AdmittedTx{GasEstimated: math.MaxUint64}, nil)
+	require.Error(t, err)
 }

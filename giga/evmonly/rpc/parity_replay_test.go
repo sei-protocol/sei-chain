@@ -8,8 +8,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -22,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/parity"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -198,7 +197,7 @@ func (*replayBackend) BroadcastTx(context.Context, *coretypes.RequestBroadcastTx
 	return nil, errNotReplayed
 }
 
-func (b *replayBackend) EvmBalance(address common.Address, _ []byte) uint256.Int {
+func (b *replayBackend) EvmBalance(address common.Address) uint256.Int {
 	view := b.store.OpenView()
 	defer view.Close()
 	balance := view.GetBalance(storeAddress(address))

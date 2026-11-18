@@ -11,6 +11,8 @@ import (
 	"time"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	dbm "github.com/tendermint/tm-db"
+	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -31,8 +33,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	dbm "github.com/tendermint/tm-db"
-	"golang.org/x/time/rate"
 )
 
 func registerEvmProxyForTest(t *testing.T, router *gigaRouterCommon, validator atypes.PublicKey, rpcURL url.URL) *ethrpc.Client {
@@ -162,11 +162,11 @@ func newAppHashTestRouter(
 		InitialHeight:   1,
 		GenesisTime:     time.Now(),
 		AppState:        testAppStateJSON(rng),
-		ConsensusParams: tmtypes.DefaultConsensusParams(),
+		ConsensusParams: testGigaConsensusParams(),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
-	app := newTestApp()
+	app := newTestApp(genDoc.AppState)
 	hashBuilder := newManualAppHashBuilder()
 	db := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -307,7 +307,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		ChainID:         "restart-tip-test",
 		InitialHeight:   1,
 		GenesisTime:     time.Now(),
-		ConsensusParams: tmtypes.DefaultConsensusParams(),
+		ConsensusParams: testGigaConsensusParams(),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
@@ -1222,7 +1222,7 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 		ChainID:         "persistent-peer-cap",
 		InitialHeight:   1,
 		GenesisTime:     time.Now(),
-		ConsensusParams: tmtypes.DefaultConsensusParams(),
+		ConsensusParams: testGigaConsensusParams(),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 	db := blockstore.NewTestStore(t)

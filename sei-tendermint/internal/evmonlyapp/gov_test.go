@@ -40,7 +40,7 @@ func newGovEVMOnlyTestApp(t *testing.T, params gov.Params, startingProposalID ui
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
-	_, err = app.InitChain(evmOnlyTestInitChain())
+	err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 	return app
 }

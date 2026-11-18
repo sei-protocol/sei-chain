@@ -4,8 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"testing"
+	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
+
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	dto "github.com/prometheus/client_model/go"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
@@ -43,8 +49,8 @@ type recordingAppState struct {
 	last       int64
 	pending    int64
 	inited     bool
-	lastHeader utils.Option[*proxy.Header]
-	finalized  []*proxy.RequestFinalizeBlock
+	lastHeader utils.Option[time.Time]
+	finalized  []proxy.FinalizeBlockReq
 	// failCommitAt makes Commit fail for the block of this height.
 	failCommitAt utils.Option[int64]
 }
@@ -71,39 +77,39 @@ func (a *recordingApp) LastBlockHeight() int64 {
 	panic("unreachable")
 }
 
-func (a *recordingApp) InitChain(*proxy.RequestInitChain) (*proxy.ResponseInitChain, error) {
+func (a *recordingApp) InitChain(proxy.InitConfig) error {
 	for state := range a.state.Lock() {
 		state.inited = true
 	}
-	return &proxy.ResponseInitChain{}, nil
+	return nil
 }
 
-func (a *recordingApp) InitLastHeader(header *proxy.Header) {
+func (a *recordingApp) RestoreBlockTime(blockTime time.Time) {
 	for state := range a.state.Lock() {
-		state.lastHeader = utils.Some(header)
+		state.lastHeader = utils.Some(blockTime)
 	}
 }
 
-func (a *recordingApp) FinalizeBlock(_ context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
-	logEvent(a.events, "finalize %d", req.Header.Height)
+func (a *recordingApp) FinalizeBlock(_ context.Context, req proxy.FinalizeBlockReq) (proxy.FinalizeBlockResp, error) {
+	logEvent(a.events, "finalize %d", req.Height)
 	for state := range a.state.Lock() {
-		state.pending = req.Header.Height
+		state.pending = int64(req.Height)
 		state.finalized = append(state.finalized, req)
 	}
-	return &proxy.ResponseFinalizeBlock{TxResults: []*proxy.ExecTxResult{{GasUsed: testGasPerBlock}}}, nil
+	return proxy.FinalizeBlockResp{GasUsed: testGasPerBlock}, nil
 }
 
-func (a *recordingApp) Commit(context.Context) (*proxy.ResponseCommit, error) {
+func (a *recordingApp) Commit(context.Context) error {
 	for state := range a.state.Lock() {
 		if fail, ok := state.failCommitAt.Get(); ok && fail == state.pending {
-			return nil, errCommitFailed
+			return errCommitFailed
 		}
 		state.last = state.pending
 	}
-	return &proxy.ResponseCommit{}, nil
+	return nil
 }
 
-func (a *recordingApp) finalized() []*proxy.RequestFinalizeBlock {
+func (a *recordingApp) finalized() []proxy.FinalizeBlockReq {
 	for state := range a.state.Lock() {
 		return state.finalized
 	}
@@ -138,10 +144,19 @@ func newTestEnv(t *testing.T, rng utils.Rng, count int) *testEnv {
 	blocks := make([]*atypes.RoadBlock, 0, count)
 	prev := utils.None[*atypes.CommitQC]()
 	for range count {
-		qc, laneBlocks := data.TestCommitQC(rng, ep, keys, prev)
+		qc, laneBlocks := data.TestCommitQCWithPayload(rng, ep, keys, prev, func() *atypes.Payload {
+			payload := atypes.GenPayload(rng).ToBuilder()
+			for i, raw := range payload.Txs {
+				tx := utils.OrPanic1(ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{Data: raw}), ethtypes.LatestSignerForChainID(big.NewInt(1)), utils.OrPanic1(crypto.ToECDSA(utils.GenBytes(rng, 32)))))
+				payload.Txs[i] = utils.OrPanic1(tx.MarshalBinary())
+			}
+			return utils.OrPanic1(payload.Build())
+		})
 		blocks = append(blocks, atypes.NewRoadBlock(qc, laneBlocks))
 		prev = utils.Some(qc.QC())
 	}
+	params := types.DefaultConsensusParams()
+	params.Block.MaxGas = 30_000_000
 	store := blockstore.NewTestStore(t)
 	return &testEnv{
 		events: new(utils.NewMutex(&[]string{})),
@@ -150,7 +165,7 @@ func newTestEnv(t *testing.T, rng utils.Rng, count int) *testEnv {
 		genDoc: &types.GenesisDoc{
 			ChainID:         testChainID,
 			InitialHeight:   int64(ep.RoadRange().First),
-			ConsensusParams: types.DefaultConsensusParams(),
+			ConsensusParams: params,
 		},
 	}
 }
@@ -216,9 +231,7 @@ func TestInitAppRestoresTheTipHeaderFromTheBlockStore(t *testing.T) {
 	for state := range app.state.Lock() {
 		require.False(t, state.inited)
 		header := state.lastHeader.OrPanic("InitLastHeader was not called")
-		require.Equal(t, int64(tip), header.Height)
-		require.Equal(t, testChainID, header.ChainID)
-		require.True(t, env.blocks[1].Header().Timestamp().Equal(header.Time))
+		require.True(t, env.blocks[1].Header().Timestamp().Equal(header))
 	}
 }
 
@@ -287,10 +300,9 @@ func TestRunReportsEachBlockHashBeforeExecutingIt(t *testing.T) {
 	}
 	for i, req := range app.finalized() {
 		want := env.blocks[i].SuperBlock()
-		require.Equal(t, int64(want.Height), req.Header.Height)
-		require.Equal(t, testChainID, req.Header.ChainID)
-		require.True(t, want.Timestamp.Equal(req.Header.Time))
-		require.Equal(t, want.Hash[:], req.Hash)
+		require.Equal(t, want.Height, req.Height)
+		require.True(t, want.Timestamp.Equal(req.Time))
+		require.Equal(t, common.Hash(want.Hash), req.Hash)
 		require.Equal(t, len(want.Txs), len(req.Txs))
 	}
 }
@@ -320,8 +332,8 @@ func TestRunReplaysStoredBlocksAfterRestart(t *testing.T) {
 	}))
 	finalized := app.finalized()
 	require.Equal(t, 2, len(finalized))
-	require.Equal(t, int64(env.road(1)), finalized[0].Header.Height)
-	require.Equal(t, int64(env.road(2)), finalized[1].Header.Height)
+	require.Equal(t, int64(env.road(1)), int64(finalized[0].Height))
+	require.Equal(t, int64(env.road(2)), int64(finalized[1].Height))
 }
 
 func gasUsedTotal(t *testing.T) float64 {
@@ -347,16 +359,4 @@ func TestRunCountsGasOnlyAfterCommit(t *testing.T) {
 	require.ErrorIs(t, executor.Run(t.Context()), errCommitFailed)
 	require.Equal(t, before+testGasPerBlock, gasUsedTotal(t), "only the committed block is counted")
 	require.Equal(t, env.road(0), executor.ExecutedBlocks().Load().Latest().Number)
-}
-
-func TestFinalizeBlockGasUsed(t *testing.T) {
-	resp := &proxy.ResponseFinalizeBlock{
-		TxResults: []*proxy.ExecTxResult{
-			{GasUsed: 10},
-			nil,
-			{GasUsed: -1},
-			{GasUsed: 20},
-		},
-	}
-	require.Equal(t, int64(30), finalizeBlockGasUsed(resp))
 }

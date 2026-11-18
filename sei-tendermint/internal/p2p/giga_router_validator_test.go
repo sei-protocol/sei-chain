@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"math/big"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
@@ -11,8 +12,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	dbm "github.com/tendermint/tm-db"
+	"golang.org/x/time/rate"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
@@ -26,8 +33,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	dbm "github.com/tendermint/tm-db"
-	"golang.org/x/time/rate"
 )
 
 func TestGigaRouter_FinalizeBlocks(t *testing.T) {
@@ -51,9 +56,10 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		addrs[cfg.validatorKey.Public()] = cfg.GigaNodeAddr()
 	}
 	genDoc := &types.GenesisDoc{
-		ChainID:       "giga-router-test",
-		InitialHeight: rng.Int63n(100000) + 1,
-		AppState:      testAppStateJSON(rng),
+		ChainID:         "giga-router-test",
+		InitialHeight:   rng.Int63n(100000) + 1,
+		AppState:        testAppStateJSON(rng),
+		ConsensusParams: testGigaConsensusParams(),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
@@ -67,7 +73,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			nodeInfo.ListenAddr = cfg.addr.String()
 			nodeInfo.Network = genDoc.ChainID
 			e := Endpoint{AddrPort: cfg.addr}
-			app := newTestApp()
+			app := newTestApp(genDoc.AppState)
 			proxyApp := proxy.NewEVM(app)
 			// In giga mode the CometBFT handshaker is skipped; the executor
 			// calls InitChain itself on fresh start.
@@ -141,7 +147,8 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			executors = append(executors, executor)
 			var txs [][]byte
 			for range maxTxsPerBlock * blocksPerLane {
-				tx := utils.GenBytes(rng, 100)
+				signed := utils.OrPanic1(ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{Gas: 1, Data: utils.GenBytes(rng, 100)}), ethtypes.LatestSignerForChainID(big.NewInt(1)), utils.OrPanic1(crypto.ToECDSA(utils.GenBytes(rng, 32)))))
+				tx := utils.OrPanic1(signed.MarshalBinary())
 				txs = append(txs, tx)
 				allTxs = append(allTxs, tx)
 			}
@@ -310,9 +317,10 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		urlByValidator[validatorKey.Public()] = rpcURL
 	}
 	genDoc := &types.GenesisDoc{
-		ChainID:       "giga-router-proxy-test",
-		InitialHeight: 1,
-		AppState:      testAppStateJSON(rng),
+		ChainID:         "giga-router-proxy-test",
+		InitialHeight:   1,
+		AppState:        testAppStateJSON(rng),
+		ConsensusParams: testGigaConsensusParams(),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
@@ -325,7 +333,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	blockStore, err := blockstore.New(littCfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = blockStore.Close() })
-	app := newTestApp()
+	app := newTestApp(genDoc.AppState)
 	commonCfg := GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,

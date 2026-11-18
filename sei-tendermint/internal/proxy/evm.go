@@ -2,7 +2,11 @@ package proxy
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math/big"
+	"runtime"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -12,7 +16,13 @@ import (
 	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
+
+// ErrTxRejected identifies a transaction rejected during decoding or admission.
+var ErrTxRejected = errors.New("transaction rejected")
 
 // EVMApplication executes EVM transactions for Autobahn and serves read-only
 // EVM calls and execution parameters.
@@ -21,22 +31,19 @@ type EVMApplication interface {
 	Info() *ResponseInfo
 	GetValidators() []ValidatorUpdate
 	LastBlockHeight() int64
-	InitChain(*RequestInitChain) (*ResponseInitChain, error)
-	InitLastHeader(*Header)
+	InitChain(InitConfig) error
+	RestoreBlockTime(time.Time)
 
 	// Transaction admission and block execution.
-	CheckTx(context.Context, *RequestCheckTxV2) *ResponseCheckTxV2
-	EvmBalance(common.Address, []byte) uint256.Int
+	// CheckTx returns admission metadata or an error rejecting the transaction.
+	CheckTx(EvmTx) (AdmittedTx, error)
+	EvmBalance(common.Address) uint256.Int
 	EvmNonce(common.Address) uint64
 	// EvmCommittedNonce returns addr's nonce in the last committed EVM state without waiting for a
 	// commit in flight, so it can trail EvmNonce by the most recently finalized block.
 	EvmCommittedNonce(common.Address) uint64
-	// RememberEvmSender records the sender recovered for the transaction with hash.
-	RememberEvmSender(hash common.Hash, sender common.Address)
-	// ForgetEvmSender drops the sender recorded for hash, if any.
-	ForgetEvmSender(hash common.Hash)
-	FinalizeBlock(context.Context, *RequestFinalizeBlock) (*ResponseFinalizeBlock, error)
-	Commit(context.Context) (*ResponseCommit, error)
+	FinalizeBlock(context.Context, FinalizeBlockReq) (FinalizeBlockResp, error)
+	Commit(context.Context) error
 	// AwaitCommits waits for finalized blocks to reach the store and returns any commit failure.
 	AwaitCommits() error
 
@@ -60,26 +67,26 @@ type EVMApplication interface {
 	// msg succeed with overrides applied, and any revert data.
 	EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error)
 	// EvmCallAt executes msg as a read-only call against the committed EVM
-	// state after header's block, in the context that block executed at, with
+	// state after block, in the context that block executed at, with
 	// overrides applied.
-	EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (*core.ExecutionResult, error)
+	EvmCallAt(ctx context.Context, msg *core.Message, block BlockRef, overrides evmonly.CallOverrides) (*core.ExecutionResult, error)
 	// EvmEstimateGasAt returns the lowest gas limit at or below gasCap that
-	// lets msg succeed against the committed EVM state after header's block,
+	// lets msg succeed against the committed EVM state after block,
 	// with overrides applied, and any revert data.
-	EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error)
+	EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, block BlockRef, overrides evmonly.CallOverrides) (uint64, []byte, error)
 	// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg with overrides and
 	// then calls applied to the current EVM state first, in order.
 	EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error)
 	// EvmEstimateGasAfterCallsAt returns what EvmEstimateGasAt returns for msg with overrides and
-	// then calls applied to the committed EVM state after header's block first, in order.
-	EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error)
+	// then calls applied to the committed EVM state after block first, in order.
+	EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, block BlockRef, overrides evmonly.CallOverrides) (uint64, []byte, error)
 	// EvmCreateAccessList returns the access list msg touches against the current EVM state, and
 	// the result of executing msg with that list.
 	EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error)
 	// EvmCreateAccessListAt returns the access list msg touches against the committed EVM state
-	// after header's block, in the context that block executed at, and the result of executing
+	// after block, in the context that block executed at, and the result of executing
 	// msg with that list.
-	EvmCreateAccessListAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (ethtypes.AccessList, *core.ExecutionResult, error)
+	EvmCreateAccessListAt(ctx context.Context, msg *core.Message, block BlockRef) (ethtypes.AccessList, *core.ExecutionResult, error)
 	// EvmChainID returns the EVM chain ID transactions are signed for.
 	EvmChainID() uint64
 	// EvmChainConfig returns the EVM chain configuration transactions execute
@@ -92,25 +99,25 @@ type EVMApplication interface {
 	// EvmMinGasPrice returns the minimum effective gas price a transaction is
 	// admitted at.
 	EvmMinGasPrice() *big.Int
-	// EvmBlockContext returns the block context header's block executed at.
-	EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error)
+	// EvmBlockContext returns the block context block executed at.
+	EvmBlockContext(block BlockRef) (vm.BlockContext, error)
 	// EvmStateAt returns the committed EVM state after height, or the latest
-	// committed state when height is rpc.LatestBlockNumber, and the function
-	// that releases it.
-	EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, func(), error)
+	// committed state when height is rpc.LatestBlockNumber, held until the returned handle is closed.
+	EvmStateAt(ctx context.Context, height int64) (*evmonly.StateHandle, error)
 	// EvmStateBeforeTx returns the EVM state the transaction at index len(txs)
-	// of header's block executed against, and the function that releases it.
-	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error)
+	// of block executed against, held until the returned handle is closed.
+	EvmStateBeforeTx(ctx context.Context, block BlockRef, txs [][]byte) (*evmonly.StateHandle, error)
 }
 
-// EVMProxy wraps an EVMApplication and records EVM method timings.
+// EVMProxy records application method timings and adapts EVM RPC inputs and results.
 type EVMProxy struct {
-	app EVMApplication
+	app            EVMApplication
+	checkedSenders utils.Mutex[*senderCache]
 }
 
 // NewEVM wraps an EVM application and records its method timings.
 func NewEVM(app EVMApplication) *EVMProxy {
-	return &EVMProxy{app: app}
+	return &EVMProxy{app: app, checkedSenders: utils.NewMutex(new(newSenderCache(checkedSendersCap)))}
 }
 
 func (app *EVMProxy) Info() *ResponseInfo {
@@ -128,30 +135,39 @@ func (app *EVMProxy) LastBlockHeight() int64 {
 	return app.app.LastBlockHeight()
 }
 
-func (app *EVMProxy) InitChain(req *RequestInitChain) (*ResponseInitChain, error) {
+func (app *EVMProxy) InitChain(req InitConfig) error {
 	defer addTimeSample(Global.MethodTimingAt("init_chain", "sync"))()
 	return app.app.InitChain(req)
 }
 
-func (app *EVMProxy) InitLastHeader(lastHeader *Header) {
+func (app *EVMProxy) RestoreBlockTime(blockTime time.Time) {
 	defer addTimeSample(Global.MethodTimingAt("init_last_header", "sync"))()
-	app.app.InitLastHeader(lastHeader)
+	app.app.RestoreBlockTime(blockTime)
 }
 
-func (app *EVMProxy) CheckTxSafe(ctx context.Context, req *RequestCheckTxV2) (*ResponseCheckTxV2, error) {
-	return runCheckTx(func() *ResponseCheckTxV2 { return app.app.CheckTx(ctx, req) }, func(res *ResponseCheckTxV2) error {
-		return validateEVMMetadata(res.IsEVM, res.EVMHash, res.SeiSenderAddress)
-	})
+// CheckTx checks a transaction with a verified sender for admission and marks rejection errors with ErrTxRejected.
+func (app *EVMProxy) CheckTx(tx EvmTx) (AdmittedTx, error) {
+	defer addTimeSample(Global.MethodTimingAt("check_tx", "sync"))()
+	res, err := app.app.CheckTx(tx)
+	if err != nil {
+		return AdmittedTx{}, fmt.Errorf("%w: %w", ErrTxRejected, err)
+	}
+	app.RememberEvmSender(tx.Hash(), tx.Sender)
+	return res, nil
 }
 
 // RememberEvmSender records the sender recovered for the transaction with hash.
 func (app *EVMProxy) RememberEvmSender(hash common.Hash, sender common.Address) {
-	app.app.RememberEvmSender(hash, sender)
+	for senders := range app.checkedSenders.Lock() {
+		senders.put(hash, sender)
+	}
 }
 
 // ForgetEvmSender drops the sender recorded for hash, if any.
 func (app *EVMProxy) ForgetEvmSender(hash common.Hash) {
-	app.app.ForgetEvmSender(hash)
+	for senders := range app.checkedSenders.Lock() {
+		senders.take(hash)
+	}
 }
 
 func (app *EVMProxy) EvmNonce(addr common.Address) uint64 {
@@ -166,12 +182,17 @@ func (app *EVMProxy) EvmCommittedNonce(addr common.Address) uint64 {
 	return app.app.EvmCommittedNonce(addr)
 }
 
-func (app *EVMProxy) FinalizeBlock(ctx context.Context, req *RequestFinalizeBlock) (*ResponseFinalizeBlock, error) {
+func (app *EVMProxy) FinalizeBlock(ctx context.Context, req FinalizeBlockReq) (FinalizeBlockResp, error) {
 	defer addTimeSample(Global.MethodTimingAt("finalize_block", "sync"))()
+	for senders := range app.checkedSenders.Lock() {
+		for _, tx := range req.Txs {
+			senders.take(tx.Hash())
+		}
+	}
 	return app.app.FinalizeBlock(ctx, req)
 }
 
-func (app *EVMProxy) Commit(ctx context.Context) (*ResponseCommit, error) {
+func (app *EVMProxy) Commit(ctx context.Context) error {
 	defer addTimeSample(Global.MethodTimingAt("commit", "sync"))()
 	return app.app.Commit(ctx)
 }
@@ -188,12 +209,20 @@ func (app *EVMProxy) EvmEstimateGas(ctx context.Context, msg *core.Message, gasC
 
 func (app *EVMProxy) EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_call_at", "sync"))()
-	return app.app.EvmCallAt(ctx, msg, header, overrides)
+	block, err := executionBlockRef(header)
+	if err != nil {
+		return nil, err
+	}
+	return app.app.EvmCallAt(ctx, msg, block, overrides)
 }
 
 func (app *EVMProxy) EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_estimate_gas_at", "sync"))()
-	return app.app.EvmEstimateGasAt(ctx, msg, gasCap, header, overrides)
+	block, err := executionBlockRef(header)
+	if err != nil {
+		return 0, nil, err
+	}
+	return app.app.EvmEstimateGasAt(ctx, msg, gasCap, block, overrides)
 }
 
 func (app *EVMProxy) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
@@ -203,7 +232,11 @@ func (app *EVMProxy) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core
 
 func (app *EVMProxy) EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_estimate_gas_after_calls_at", "sync"))()
-	return app.app.EvmEstimateGasAfterCallsAt(ctx, calls, msg, gasCap, header, overrides)
+	block, err := executionBlockRef(header)
+	if err != nil {
+		return 0, nil, err
+	}
+	return app.app.EvmEstimateGasAfterCallsAt(ctx, calls, msg, gasCap, block, overrides)
 }
 
 func (app *EVMProxy) EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
@@ -213,7 +246,11 @@ func (app *EVMProxy) EvmCreateAccessList(ctx context.Context, msg *core.Message)
 
 func (app *EVMProxy) EvmCreateAccessListAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (ethtypes.AccessList, *core.ExecutionResult, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_create_access_list_at", "sync"))()
-	return app.app.EvmCreateAccessListAt(ctx, msg, header)
+	block, err := executionBlockRef(header)
+	if err != nil {
+		return nil, nil, err
+	}
+	return app.app.EvmCreateAccessListAt(ctx, msg, block)
 }
 
 func (app *EVMProxy) EvmChainID() uint64 {
@@ -243,17 +280,33 @@ func (app *EVMProxy) EvmMinGasPrice() *big.Int {
 
 func (app *EVMProxy) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_block_context", "sync"))()
-	return app.app.EvmBlockContext(header)
+	block, err := executionBlockRef(header)
+	if err != nil {
+		return vm.BlockContext{}, err
+	}
+	return app.app.EvmBlockContext(block)
 }
 
 func (app *EVMProxy) EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, func(), error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_state_at", "sync"))()
-	return app.app.EvmStateAt(ctx, height)
+	state, err := app.app.EvmStateAt(ctx, height)
+	if err != nil {
+		return nil, nil, err
+	}
+	return state, state.Close, nil
 }
 
 func (app *EVMProxy) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_state_before_tx", "sync"))()
-	return app.app.EvmStateBeforeTx(ctx, header, txs)
+	block, err := executionBlockRef(header)
+	if err != nil {
+		return nil, nil, err
+	}
+	state, err := app.app.EvmStateBeforeTx(ctx, block, txs)
+	if err != nil {
+		return nil, nil, err
+	}
+	return state, state.Close, nil
 }
 
 func (app *EVMProxy) AwaitCommits() error {
@@ -261,9 +314,9 @@ func (app *EVMProxy) AwaitCommits() error {
 	return app.app.AwaitCommits()
 }
 
-func (app *EVMProxy) EvmBalance(addr common.Address, seiAddr []byte) uint256.Int {
+func (app *EVMProxy) EvmBalance(addr common.Address) uint256.Int {
 	defer addTimeSample(Global.MethodTimingAt("evm_balance", "sync"))()
-	return app.app.EvmBalance(addr, seiAddr)
+	return app.app.EvmBalance(addr)
 }
 
 func (app *EVMProxy) EvmCode(addr common.Address) ([]byte, error) {
@@ -294,4 +347,102 @@ func (app *EVMProxy) EvmNonceAt(addr common.Address, height int64) (uint64, erro
 func (app *EVMProxy) EvmStorageAt(addr common.Address, key common.Hash, height int64) (common.Hash, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_storage_at", "sync"))()
 	return app.app.EvmStorageAt(addr, key, height)
+}
+
+// executionBlockRef validates the header fields consumed by EVM execution.
+func executionBlockRef(header *ethtypes.Header) (BlockRef, error) {
+	if header.Number == nil || !header.Number.IsInt64() || header.Number.Sign() < 0 {
+		return BlockRef{}, fmt.Errorf("invalid EVM block number: %v", header.Number)
+	}
+	return BlockRef{Height: types.RoadIndex(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, nil
+}
+
+// DecodeTx decodes an Ethereum transaction and recovers its sender.
+// Invalid encodings and signatures are marked with ErrTxRejected.
+func DecodeTx(raw []byte) (EvmTx, error) {
+	return decodeTx(raw, func(common.Hash) utils.Option[common.Address] {
+		return utils.None[common.Address]()
+	})
+}
+
+// DecodeTx decodes an Ethereum transaction and recovers or reuses its verified sender.
+// Invalid encodings and signatures are marked with ErrTxRejected.
+func (app *EVMProxy) DecodeTx(raw []byte) (EvmTx, error) {
+	return decodeTx(raw, func(hash common.Hash) utils.Option[common.Address] {
+		for senders := range app.checkedSenders.Lock() {
+			return senders.peek(hash)
+		}
+		panic("unreachable")
+	})
+}
+
+func decodeTx(raw []byte, cached func(common.Hash) utils.Option[common.Address]) (EvmTx, error) {
+	tx := new(ethtypes.Transaction)
+	if err := tx.UnmarshalBinary(raw); err != nil {
+		return EvmTx{}, fmt.Errorf("%w: %w", ErrTxRejected, err)
+	}
+	sender, ok := cached(tx.Hash()).Get()
+	if !ok {
+		var signer ethtypes.Signer = ethtypes.HomesteadSigner{}
+		if tx.Protected() {
+			if tx.ChainId().Sign() <= 0 {
+				return EvmTx{}, fmt.Errorf("%w: %w", ErrTxRejected, ethtypes.ErrInvalidChainId)
+			}
+			signer = ethtypes.LatestSignerForChainID(tx.ChainId())
+		}
+		var err error
+		sender, err = ethtypes.Sender(signer, tx)
+		if err != nil {
+			return EvmTx{}, fmt.Errorf("%w: %w", ErrTxRejected, err)
+		}
+	}
+	return EvmTx{Transaction: tx, Sender: sender}, nil
+}
+
+// DecodeTxs decodes transactions and recovers or reuses their verified senders in order.
+// A zero worker count uses GOMAXPROCS.
+func (app *EVMProxy) DecodeTxs(raw [][]byte, workers int) ([]EvmTx, error) {
+	return decodeTxs(raw, workers, app.DecodeTx)
+}
+
+// DecodeTxs decodes Ethereum transactions and recovers their senders in order.
+// A zero worker count uses GOMAXPROCS.
+func DecodeTxs(raw [][]byte, workers int) ([]EvmTx, error) {
+	return decodeTxs(raw, workers, DecodeTx)
+}
+
+func decodeTxs(raw [][]byte, workers int, decode func([]byte) (EvmTx, error)) ([]EvmTx, error) {
+	txs := make([]EvmTx, len(raw))
+	if workers <= 0 {
+		workers = runtime.GOMAXPROCS(0)
+	}
+	workers = min(workers, len(raw))
+	if workers <= 1 {
+		for i, rawTx := range raw {
+			tx, err := decode(rawTx)
+			if err != nil {
+				return nil, fmt.Errorf("transaction %d: %w", i, err)
+			}
+			txs[i] = tx
+		}
+		return txs, nil
+	}
+	if err := scope.Parallel(func(s scope.ParallelScope) error {
+		for worker := range workers {
+			s.Spawn(func() error {
+				for i := worker; i < len(raw); i += workers {
+					tx, err := decode(raw[i])
+					if err != nil {
+						return fmt.Errorf("transaction %d: %w", i, err)
+					}
+					txs[i] = tx
+				}
+				return nil
+			})
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return txs, nil
 }

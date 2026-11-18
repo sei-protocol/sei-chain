@@ -9,6 +9,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -45,7 +46,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		}
 		urlByValidator[validatorKey.Public()] = rpcURL
 	}
-	cp := types.DefaultConsensusParams()
+	cp := testGigaConsensusParams()
 	cp.Block.MaxGas = 12345
 	genDoc := &types.GenesisDoc{
 		ChainID:         "giga-router-fullnode-test",
@@ -55,7 +56,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
-	app := newTestApp()
+	app := newTestApp(genDoc.AppState)
 	proxyApp := proxy.NewEVM(app)
 
 	dir := t.TempDir()

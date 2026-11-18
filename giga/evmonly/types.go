@@ -52,8 +52,7 @@ type BlockRequest struct {
 	Senders []utils.Option[common.Address]
 }
 
-// DecodedBlock is a block whose transactions are decoded and validated but whose senders are not
-// yet resolved. Only DecodeBlock builds one.
+// DecodedBlock contains decoded transactions and optional verified senders for a block.
 type DecodedBlock struct {
 	context BlockContext
 	txs     []*ethtypes.Transaction

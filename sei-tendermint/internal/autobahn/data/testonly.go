@@ -41,14 +41,23 @@ func testCommitQCBlocks(
 	prev utils.Option[*types.CommitQC],
 	blockCount int,
 ) (*types.FullCommitQC, []*types.Block) {
+	return testCommitQCBlocksWithPayload(rng, ep, keys, prev, blockCount, func() *types.Payload { return types.GenPayload(rng) })
+}
+
+// TestCommitQCWithPayload builds a commit QC with blocks from payload.
+func TestCommitQCWithPayload(rng utils.Rng, ep *types.Epoch, keys []types.SecretKey, prev utils.Option[*types.CommitQC], payload func() *types.Payload) (*types.FullCommitQC, []*types.Block) {
+	return testCommitQCBlocksWithPayload(rng, ep, keys, prev, 10, payload)
+}
+
+func testCommitQCBlocksWithPayload(rng utils.Rng, ep *types.Epoch, keys []types.SecretKey, prev utils.Option[*types.CommitQC], blockCount int, payload func() *types.Payload) (*types.FullCommitQC, []*types.Block) {
 	committee := ep.Committee()
 	blocks := map[types.LaneID][]*types.Block{}
 	makeBlock := func(producer types.LaneID) *types.Block {
 		if bs := blocks[producer]; len(bs) > 0 {
 			parent := bs[len(bs)-1]
-			return types.NewBlock(producer, parent.Header().Next(), parent.Header().Hash(), types.GenPayload(rng))
+			return types.NewBlock(producer, parent.Header().Next(), parent.Header().Hash(), payload())
 		}
-		return types.NewBlock(producer, types.LaneRangeOpt(prev, producer).Next(), types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+		return types.NewBlock(producer, types.LaneRangeOpt(prev, producer).Next(), types.GenBlockHeaderHash(rng), payload())
 	}
 	available := slices.Collect(committee.Lanes().All())
 	for range blockCount {

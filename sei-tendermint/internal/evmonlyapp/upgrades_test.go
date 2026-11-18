@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/sei-protocol/sei-chain/app/upgradenames"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
@@ -158,7 +159,7 @@ func passUpgrade(t *testing.T, app proxy.EVMApplication, next int64, plan upgrad
 func TestEVMOnlyApplicationHaltsAtAnUpgradeAndResumesWithItsHandler(t *testing.T) {
 	home := t.TempDir()
 	node := upgradeTestApp(t, home, false)
-	_, err := node.app.InitChain(evmOnlyTestInitChain())
+	err := node.app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 	finalizeAndCommitEVMOnlyTestBlock(t, node.app, evmOnlyTestBlock(1))
 	next := passUpgrade(t, node.app, 2, upgrade.Plan{Name: testUpgradeName, Height: 9, Info: `{"binaries":{}}`})
@@ -191,7 +192,7 @@ func TestEVMOnlyApplicationHaltsAtAnUpgradeAndResumesWithItsHandler(t *testing.T
 func TestEVMOnlyApplicationHaltsAnOldBinaryAfterAnUpgrade(t *testing.T) {
 	home := t.TempDir()
 	node := upgradeTestApp(t, home, true)
-	_, err := node.app.InitChain(evmOnlyTestInitChain())
+	err := node.app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 	finalizeAndCommitEVMOnlyTestBlock(t, node.app, evmOnlyTestBlock(1))
 	next := passUpgrade(t, node.app, 2, upgrade.Plan{Name: testUpgradeName, Height: 8, Info: `{"upgradeType":"minor"}`})
@@ -221,7 +222,7 @@ func TestHaltForUpgradeReportsAFailedWrite(t *testing.T) {
 func TestEVMOnlyApplicationTracesABlockBeforeAPlansHeight(t *testing.T) {
 	home := t.TempDir()
 	node := upgradeTestApp(t, home, false)
-	_, err := node.app.InitChain(evmOnlyTestInitChain())
+	err := node.app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 	finalizeAndCommitEVMOnlyTestBlock(t, node.app, evmOnlyTestBlock(1))
 	next := passUpgrade(t, node.app, 2, upgrade.Plan{Name: testUpgradeName, Height: 20})
@@ -234,9 +235,9 @@ func TestEVMOnlyApplicationTracesABlockBeforeAPlansHeight(t *testing.T) {
 	// height, but rebuilds the same block for a trace.
 	upgraded := upgradeTestApp(t, home, true)
 	t.Cleanup(func() { upgraded.close(t) })
-	_, release, err := upgraded.app.EvmStateBeforeTx(t.Context(), traceTestHeader(12, evmOnlyTestBlock(11).Hash), nil)
+	state, err := upgraded.app.EvmStateBeforeTx(t.Context(), traceTestHeader(12, evmOnlyTestBlock(11).Hash), nil)
 	require.NoError(t, err)
-	release()
+	state.Close()
 	_, err = upgraded.app.FinalizeBlock(t.Context(), evmOnlyTestBlock(12))
 	require.ErrorIs(t, err, upgrade.ErrBinaryUpdatedBeforeTrigger)
 }

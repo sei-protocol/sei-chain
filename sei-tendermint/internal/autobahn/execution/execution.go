@@ -5,7 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
+
+	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
@@ -19,6 +20,8 @@ import (
 
 // Config configures an Executor.
 type Config struct {
+	// ParseWorkers controls transaction decoding; zero uses GOMAXPROCS.
+	ParseWorkers int
 	// GenDoc is the genesis a fresh app is initialized from.
 	GenDoc *types.GenesisDoc
 	// App is the application blocks are executed on.
@@ -91,18 +94,16 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 		// behaves as a fresh init. An app whose storage already holds
 		// blocks must report them here and refuse InitChain, since blocks
 		// may be durable before Commit acknowledged them.
-		if _, err := app.InitChain(&proxy.RequestInitChain{
-			Time:          e.cfg.GenDoc.GenesisTime,
-			ChainID:       e.cfg.GenDoc.ChainID,
-			InitialHeight: e.cfg.GenDoc.InitialHeight,
-			MaxGas:        e.cfg.GenDoc.ConsensusParams.Block.MaxGas,
-			AppStateBytes: e.cfg.GenDoc.AppState,
-		}); err != nil {
-			return 0, fmt.Errorf("App.InitChain(): %w", err)
-		}
 		next, ok := utils.SafeCast[atypes.RoadIndex](e.cfg.GenDoc.InitialHeight)
-		if !ok {
+		if !ok || next == 0 {
 			return 0, fmt.Errorf("invalid GenDoc.InitialHeight = %v", e.cfg.GenDoc.InitialHeight)
+		}
+		gasLimit, ok := utils.SafeCast[uint64](e.cfg.GenDoc.ConsensusParams.Block.MaxGas)
+		if !ok || gasLimit == 0 {
+			return 0, fmt.Errorf("invalid genesis block gas limit: %d", e.cfg.GenDoc.ConsensusParams.Block.MaxGas)
+		}
+		if err := app.InitChain(proxy.InitConfig{InitialHeight: next, GasLimit: gasLimit}); err != nil {
+			return 0, fmt.Errorf("App.InitChain(): %w", err)
 		}
 		return next, nil
 	}
@@ -115,13 +116,7 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 		}
 		return 0, fmt.Errorf("WaitForBlock(%v): %w", last, err)
 	}
-	app.InitLastHeader(&proxy.Header{
-		ChainID: e.cfg.GenDoc.ChainID,
-		Height:  int64(last), // nolint:gosec // different representations of the same value
-		Time:    block.Header().Timestamp(),
-		// TODO: for consistency we should also set proposerAddress here,
-		// but this is a placeholder solution so maybe we don't care.
-	})
+	app.RestoreBlockTime(block.Header().Timestamp())
 	return last + 1, nil
 }
 
@@ -132,57 +127,34 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error
 		return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 	}
 	app := e.cfg.App
-	var proposerAddress types.Address
-	if vals := app.GetValidators(); len(vals) > 0 {
-		// Deterministically select a proposer from the app's validator committee.
-		// We need it so that app does not emit error logs.
-		proposer := slices.MinFunc(vals, func(a, b proxy.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
-		proposerAddress = proposer.PubKey.ED25519().Address()
+	txs, err := e.cfg.App.DecodeTxs(b.Txs, e.cfg.ParseWorkers)
+	if err != nil {
+		return fmt.Errorf("decode block transactions: %w", err)
 	}
 
-	resp, err := app.FinalizeBlock(ctx, &proxy.RequestFinalizeBlock{
-		Txs: b.Txs,
-
-		// The road block hash identifies the block before execution.
-		// It is used to identify block processed optimistically
-		// and is fed as block hash to EVM contracts.
-		Hash: b.Hash[:],
-		Header: &proxy.Header{
-			ChainID: e.cfg.GenDoc.ChainID,
-			Height:  int64(b.Height), // nolint:gosec // different representations of the same value
-			Time:    b.Timestamp,
-			// WARNING: the reward distribution has corner cases where it forgets the proposer,
-			// because reward is distributed with a delay. This is not our problem here though.
-			ProposerAddress: proposerAddress,
-		},
+	resp, err := app.FinalizeBlock(ctx, proxy.FinalizeBlockReq{
+		Txs: txs,
+		// The road block hash identifies the block before execution and is fed as the block hash to EVM contracts.
+		Hash:   common.Hash(b.Hash),
+		Height: b.Height,
+		Time:   b.Timestamp,
 	})
 	if err != nil {
 		return fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
 	gigametrics.SetPhase(gigametrics.PhaseStorage)
-	gasUsed := finalizeBlockGasUsed(resp)
+	gasUsed := resp.GasUsed
 
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseAppCommit)
-	if _, err := app.Commit(ctx); err != nil {
+	if err := app.Commit(ctx); err != nil {
 		return fmt.Errorf("app.Commit(): %w", err)
 	}
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
-	metrics.GasUsed.Add(gasUsed)
+	metrics.GasUsed.Add(utils.Clamp[int64](gasUsed))
 	e.executed.Store(e.executed.Load().Push(atypes.ExecutedBlock{
 		Number:  b.Height,
-		GasUsed: utils.Clamp[uint64](gasUsed),
+		GasUsed: gasUsed,
 	}))
 	gigametrics.EndStoragePhase()
 	return nil
-}
-
-// finalizeBlockGasUsed returns the gas used, as reported by FinalizeBlock.
-func finalizeBlockGasUsed(resp *proxy.ResponseFinalizeBlock) int64 {
-	var total int64
-	for _, result := range resp.TxResults {
-		if result != nil {
-			total += max(0, result.GasUsed)
-		}
-	}
-	return total
 }

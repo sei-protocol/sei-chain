@@ -379,8 +379,9 @@ func isClosingRoad(dataState *data.State) func(atypes.RoadIndex) bool {
 
 // buildExecutor returns the Autobahn executor that runs the blocks in manager's
 // BlockStore on app.
-func buildExecutor(app *proxy.EVMProxy, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager) *execution.Executor {
+func buildExecutor(app *proxy.EVMProxy, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager, parseWorkers int) *execution.Executor {
 	return execution.New(&execution.Config{
+		ParseWorkers:   parseWorkers,
 		GenDoc:         genDoc,
 		App:            app,
 		AppHashBuilder: manager.AppHashBuilder(),

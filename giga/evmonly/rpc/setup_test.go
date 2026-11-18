@@ -4,8 +4,6 @@ import (
 	"context"
 	"math/big"
 
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -18,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -104,7 +103,7 @@ func (b *testBackend) BlockByHash(ctx context.Context, req *coretypes.RequestBlo
 	return b.blockByHash(ctx, req)
 }
 
-func (b *testBackend) EvmBalance(address common.Address, _ []byte) uint256.Int {
+func (b *testBackend) EvmBalance(address common.Address) uint256.Int {
 	return b.balance(address)
 }
 

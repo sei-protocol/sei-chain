@@ -349,7 +349,7 @@ func makeNode(
 		if !ok {
 			return nil, errors.New("autobahn requires a storage manager")
 		}
-		node.executor = utils.Some(buildExecutor(evmApp.OrPanic("Autobahn router requires an EVM application"), genDoc, manager))
+		node.executor = utils.Some(buildExecutor(evmApp.OrPanic("Autobahn router requires an EVM application"), genDoc, manager, opts.giga.Execution.ParseWorkers))
 		node.rpcEnv.Executor = node.executor
 	}
 

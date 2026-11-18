@@ -5,21 +5,22 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 // traceTestHeader returns the header a test block at height carries, with parentHash the hash of
 // the block before it.
-func traceTestHeader(height int64, parentHash []byte) *ethtypes.Header {
+func traceTestHeader(height int64, parentHash common.Hash) proxy.BlockRef {
 	req := evmOnlyTestBlock(height)
-	return &ethtypes.Header{
-		Number:     big.NewInt(height),
-		Time:       uint64(req.Header.Time.Unix()), //nolint:gosec // G115: test times are positive.
-		ParentHash: common.BytesToHash(parentHash),
+	return proxy.BlockRef{
+		Height:     atypes.RoadIndex(height),
+		Time:       uint64(req.Time.Unix()), //nolint:gosec // G115: test times are positive.
+		ParentHash: parentHash,
 	}
 }
 
@@ -63,9 +64,9 @@ func TestEVMOnlyApplicationReplaysTheStateBeforeEachTransaction(t *testing.T) {
 		{name: "after the block", prefix: 3, wantNonce: 3, wantRecipient: 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			state, release, err := app.EvmStateBeforeTx(t.Context(), header, block[:tc.prefix])
+			state, err := app.EvmStateBeforeTx(t.Context(), header, block[:tc.prefix])
 			require.NoError(t, err)
-			defer release()
+			defer state.Close()
 			require.Equal(t, tc.wantNonce, state.GetNonce(sender))
 			// The recipient was funded with the default balance and received 1 wei per transfer.
 			got := new(big.Int).Sub(state.GetBalance(recipient).ToBig(), evmOnlyBaseBalance)
@@ -75,12 +76,12 @@ func TestEVMOnlyApplicationReplaysTheStateBeforeEachTransaction(t *testing.T) {
 
 	// Replaying the whole block reaches the state the block committed, fees credited to the coinbase
 	// included.
-	replayed, releaseReplayed, err := app.EvmStateBeforeTx(t.Context(), header, block)
+	replayed, err := app.EvmStateBeforeTx(t.Context(), header, block)
 	require.NoError(t, err)
-	defer releaseReplayed()
-	committed, releaseCommitted, err := app.EvmStateAt(t.Context(), 2)
+	defer replayed.Close()
+	committed, err := app.EvmStateAt(t.Context(), 2)
 	require.NoError(t, err)
-	defer releaseCommitted()
+	defer committed.Close()
 	for _, address := range []common.Address{sender, recipient, {}} {
 		require.Equal(t, committed.GetNonce(address), replayed.GetNonce(address))
 		require.Equal(t, 0, committed.GetBalance(address).Cmp(replayed.GetBalance(address)))
@@ -103,7 +104,7 @@ func TestEVMOnlyApplicationRebuildsABlockContext(t *testing.T) {
 	require.Equal(t, common.Address{}, got.Coinbase)
 	require.Equal(t, 0, got.BaseFee.Sign())
 	require.Equal(t, evmOnlyPrevRandao(header.Time), *got.Random)
-	require.Equal(t, common.BytesToHash(first.Hash), got.GetHash(1))
+	require.Equal(t, first.Hash, got.GetHash(1))
 	require.Equal(t, common.Hash{}, got.GetHash(0))
 }
 
@@ -114,9 +115,9 @@ func TestEVMOnlyApplicationRefusesStateItDoesNotHold(t *testing.T) {
 		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1, oneEVMOnlyTestTx(t)))
 		app.storage.StateDB().UndoSS().WaitForPendingWrites()
 
-		_, _, err := app.EvmStateAt(t.Context(), 9)
+		_, err := app.EvmStateAt(t.Context(), 9)
 		require.Error(t, err)
-		_, _, err = app.EvmStateBeforeTx(t.Context(), traceTestHeader(0, nil), nil)
+		_, err = app.EvmStateBeforeTx(t.Context(), traceTestHeader(0, common.Hash{}), nil)
 		require.ErrorIs(t, err, errTraceGenesis)
 	})
 
@@ -126,21 +127,21 @@ func TestEVMOnlyApplicationRefusesStateItDoesNotHold(t *testing.T) {
 		finalizeAndCommitEVMOnlyTestBlock(t, app, first)
 		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2))
 
-		state, release, err := app.EvmStateAt(t.Context(), 2)
+		state, err := app.EvmStateAt(t.Context(), 2)
 		require.NoError(t, err)
-		release()
+		state.Close()
 		require.NotNil(t, state)
 		// Without a state store there is no state after block 1 to replay block 2 from.
-		_, _, err = app.EvmStateBeforeTx(t.Context(), traceTestHeader(2, first.Hash), nil)
+		_, err = app.EvmStateBeforeTx(t.Context(), traceTestHeader(2, first.Hash), nil)
 		require.Error(t, err)
 
 		// Once block 3 commits, the state after block 2 is no longer held, and the latest one is.
 		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(3))
-		_, _, err = app.EvmStateAt(t.Context(), 2)
+		_, err = app.EvmStateAt(t.Context(), 2)
 		require.Error(t, err)
-		latest, release, err := app.EvmStateAt(t.Context(), rpc.LatestBlockNumber.Int64())
+		latest, err := app.EvmStateAt(t.Context(), rpc.LatestBlockNumber.Int64())
 		require.NoError(t, err)
-		release()
+		latest.Close()
 		require.NotNil(t, latest)
 	})
 }
@@ -154,9 +155,9 @@ func TestEVMOnlyApplicationReplaysTheFirstBlock(t *testing.T) {
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)))
 	app.storage.StateDB().UndoSS().WaitForPendingWrites()
 
-	state, release, err := app.EvmStateBeforeTx(t.Context(), traceTestHeader(1, nil), nil)
+	state, err := app.EvmStateBeforeTx(t.Context(), traceTestHeader(1, common.Hash{}), nil)
 
 	require.NoError(t, err)
-	defer release()
+	defer state.Close()
 	require.Zero(t, state.GetNonce(sender))
 }

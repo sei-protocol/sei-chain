@@ -15,11 +15,13 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
@@ -216,9 +218,26 @@ func (e *Executor) DecodeBlock(ctx context.Context, req BlockRequest) (DecodedBl
 	return DecodedBlock{context: req.Context, txs: txs, senders: req.Senders}, nil
 }
 
+// PrepareDecodedBlock validates decoded transactions and resolves their senders for block.
+func (e *Executor) PrepareDecodedBlock(ctx context.Context, block BlockContext, txs []*ethtypes.Transaction, senders []utils.Option[common.Address]) (PreparedBlock, error) {
+	return e.RecoverSenders(ctx, DecodedBlock{context: block, txs: txs, senders: senders})
+}
+
 // RecoverSenders resolves every transaction's sender in b, recovering it from the signature unless
 // b carries an already verified sender for it.
 func (e *Executor) RecoverSenders(ctx context.Context, b DecodedBlock) (PreparedBlock, error) {
+	if err := validateBlockContext(e.chainConfig(b.context), b.context); err != nil {
+		return PreparedBlock{}, err
+	}
+	if len(b.senders) != 0 && len(b.senders) != len(b.txs) {
+		return PreparedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(b.senders), len(b.txs))
+	}
+	for i, tx := range b.txs {
+		if err := validateSupportedTx(tx); err != nil {
+			return PreparedBlock{}, fmt.Errorf("parse tx %d: %w", i, err)
+		}
+	}
+
 	signer := ethtypes.MakeSigner(e.chainConfig(b.context), new(big.Int).SetUint64(b.context.Number), b.context.Time)
 	parsed, err := resolveBlockSenders(ctx, b.txs, signer, b.senders, e.cfg.ParseWorkers)
 	if err != nil {
