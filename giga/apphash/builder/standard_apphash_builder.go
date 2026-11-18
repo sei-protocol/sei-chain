@@ -255,6 +255,17 @@ func (b *StandardAppHashBuilder) GetAppHash(ctx context.Context, blockHeight uin
 	return appHash, nil
 }
 
+func (b *StandardAppHashBuilder) Flush(ctx context.Context) error {
+	reply := make(chan callResult[struct{}], 1)
+	if err := b.submit(ctx, flushRequest{reply: reply}); err != nil {
+		return fmt.Errorf("failed to flush the app hash builder: %w", err)
+	}
+	if _, err := awaitReply(ctx, b, reply); err != nil {
+		return fmt.Errorf("failed to flush the app hash builder: %w", err)
+	}
+	return nil
+}
+
 func (b *StandardAppHashBuilder) Bounds() (uint64, uint64, bool, error) {
 	reply := make(chan callResult[appHashBounds], 1)
 	if err := b.submit(context.Background(), boundsRequest{reply: reply}); err != nil {
@@ -492,6 +503,13 @@ func (b *StandardAppHashBuilder) handleRequest(request any) error {
 	case getAppHashRequest:
 		appHash, err := b.readAppHash(r.blockHeight)
 		r.reply <- callResult[*apphash.AppHashData]{value: appHash, err: err}
+		return nil
+	case flushRequest:
+		if err := b.publishCompleteBlocks(); err != nil {
+			r.reply <- callResult[struct{}]{err: err}
+			return fmt.Errorf("failed to publish app hashes: %w", err)
+		}
+		r.reply <- callResult[struct{}]{err: b.flushHashLog()}
 		return nil
 	case boundsRequest:
 		bounds, err := b.readBounds()
@@ -889,6 +907,20 @@ func (b *StandardAppHashBuilder) writeToHashLog(record *apphash.AppHashData, com
 		_ = b.hashLog.Close()
 		b.hashLog = nil
 	}
+}
+
+// Writes every row submitted to the hash log to disk. A failure disables hash logging.
+func (b *StandardAppHashBuilder) flushHashLog() error {
+	if b.hashLog == nil {
+		return nil
+	}
+	if err := b.hashLog.Flush(); err != nil {
+		logger.Error("failed to flush the app hash log; disabling hash logging", "err", err)
+		_ = b.hashLog.Close()
+		b.hashLog = nil
+		return fmt.Errorf("failed to flush the app hash log: %w", err)
+	}
+	return nil
 }
 
 // Returns a slice holding a copy of hash.

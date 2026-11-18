@@ -437,7 +437,7 @@ func TestMakeEVMApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 	validator := makeValidator([]byte("evm-only-validator"), []byte("evm-only-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	app, manager, err := makeEVMApplication(t.Context(), &config.Config{
+	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
 		BaseConfig: config.BaseConfig{
 			MockApp: true,
 		},

@@ -95,7 +95,8 @@ func TestReceiptsDisabledRefusesAStoreWithHistory(t *testing.T) {
 	second, err := NewGigaStorageManager(t.Context(), cfg)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), second.ReceiptDB().LatestVersion())
-	require.NoError(t, second.Close())
+	require.ErrorContains(t, second.Close(), "the receipt store stands at block 2",
+		"receipts were written with no state, so the shutdown is not clean")
 }
 
 // TestHistoricalStateDBDisabledRefusesAStoreWithHistory pins that a node cannot run with the historical
@@ -115,7 +116,8 @@ func TestHistoricalStateDBDisabledRefusesAStoreWithHistory(t *testing.T) {
 	second, err := NewGigaStorageManager(t.Context(), cfg)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), historicalStateDB(second).GetLatestVersion())
-	require.NoError(t, second.Close())
+	require.ErrorContains(t, second.Close(), "the receipt store stands at block 0",
+		"state was written with no receipts, so the shutdown is not clean")
 }
 
 // TestReceiptsDisabledTakesAnEmptyStore pins that a receipt store that was opened but never written

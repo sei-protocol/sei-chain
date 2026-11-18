@@ -86,9 +86,10 @@ func (c *hashCombiner) run() {
 func (c *hashCombiner) combineBlock(job *submittedBlock) bool {
 	if job.err != nil {
 		// The running hashes describe nothing trustworthy once a block has failed, so no later block
-		// may be derived from them.
-		c.publish(&BlockHash{BlockNumber: job.blockNumber, Error: job.err})
+		// may be derived from them. Bricking first means a reader that sees the failure can no longer
+		// schedule work.
 		c.brick(job.err)
+		c.publish(&BlockHash{BlockNumber: job.blockNumber, Error: job.err})
 		return false
 	}
 

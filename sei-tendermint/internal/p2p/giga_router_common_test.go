@@ -112,6 +112,8 @@ func (b *manualAppHashBuilder) GetAppHash(ctx context.Context, blockHeight uint6
 	return appHash, nil
 }
 
+func (b *manualAppHashBuilder) Flush(context.Context) error { return nil }
+
 func (b *manualAppHashBuilder) Bounds() (uint64, uint64, bool, error) {
 	var lowest, highest uint64
 	var ok bool

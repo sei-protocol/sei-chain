@@ -803,7 +803,8 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	_, err = app.InitChain(init)
 	require.NoError(t, err)
 
-	closeEVMOnlyTestApp(t, app, storage)
+	// Seeding writes only the live state DB, so a shutdown before the first block is not clean.
+	require.Error(t, storage.Close())
 	storage = openEVMOnlyTestStorage(t, storageConfig)
 	app, err = NewEVMOnlyApplication(
 		evmOnlyTestChainID, nil, storage,
@@ -1332,7 +1333,8 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
 	require.NoError(t, err)
 	storage := openEVMOnlyTestStorage(t, storageConfig)
-	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	// The failed commits leave the receipt store ahead of the state, so the shutdown is not clean.
+	t.Cleanup(func() { require.Error(t, storage.Close()) })
 	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[GenesisAlloc](), utils.None[string]())
 	require.NoError(t, err)
 	_, err = app.InitChain(&proxy.RequestInitChain{
@@ -1651,5 +1653,50 @@ func TestEVMOnlyApplicationAdmitsOnlyTxsTheSenderCanPayFor(t *testing.T) {
 		check(fmt.Sprintf("after Commit of block %d", height))
 		require.NoError(t, app.(*evmOnlyApplication).AwaitCommits())
 		check(fmt.Sprintf("after block %d's state commit", height))
+	}
+}
+
+func TestEVMOnlyApplicationAdmitsOnlyTxsWhoseGasCoversIntrinsicGas(t *testing.T) {
+	funder, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	unfunded, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{
+		crypto.PubkeyToAddress(funder.PublicKey): new(uint256.Int).Lsh(uint256.NewInt(1), 70),
+	}})
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	calldata := slices.Repeat([]byte{0xff}, 100)
+	// 100 non-zero bytes cost 21_000+16*100 intrinsic gas and a 21_000+10*4*100 calldata floor.
+	const calldataFloor = 25_000
+
+	for _, tc := range []struct {
+		name  string
+		key   *ecdsa.PrivateKey
+		to    *common.Address
+		gas   uint64
+		data  []byte
+		value int64
+		ok    bool
+	}{
+		{name: "zero gas from an unfunded sender", key: unfunded, to: &recipient},
+		{name: "zero gas", key: funder, to: &recipient},
+		{name: "below transfer intrinsic gas", key: funder, to: &recipient, gas: 20_999, value: 1},
+		{name: "transfer intrinsic gas", key: funder, to: &recipient, gas: 21_000, value: 1, ok: true},
+		{name: "below create intrinsic gas", key: funder, gas: 52_999},
+		{name: "create intrinsic gas", key: funder, gas: 53_000, ok: true},
+		{name: "below calldata floor", key: funder, to: &recipient, gas: calldataFloor - 1, data: calldata},
+		{name: "calldata floor", key: funder, to: &recipient, gas: calldataFloor, data: calldata, ok: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{
+				GasPrice: big.NewInt(evmOnlyMinGasPrice), Gas: tc.gas, To: tc.to, Data: tc.data, Value: big.NewInt(tc.value),
+			}), ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(evmOnlyTestChainID)), tc.key)
+			require.NoError(t, err)
+			raw, err := signed.MarshalBinary()
+			require.NoError(t, err)
+			require.Equal(t, tc.ok, app.CheckTx(t.Context(), &proxy.RequestCheckTxV2{Tx: raw}).IsOK())
+		})
 	}
 }

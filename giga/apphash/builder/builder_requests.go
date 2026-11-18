@@ -24,6 +24,12 @@ type getAppHashRequest struct {
 	reply       chan callResult[*apphash.AppHashData]
 }
 
+// Asks the builder goroutine to store and publish every block completed by the requests ahead of it, then write the
+// hash log to disk.
+type flushRequest struct {
+	reply chan callResult[struct{}]
+}
+
 // Asks the builder goroutine for the range of available app hashes.
 type boundsRequest struct {
 	reply chan callResult[appHashBounds]

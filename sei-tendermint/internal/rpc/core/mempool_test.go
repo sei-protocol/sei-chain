@@ -37,6 +37,27 @@ func TestBroadcastTxCommitWithoutAutobahnUsesMempool(t *testing.T) {
 	require.False(t, errors.Is(err, ErrBroadcastTxCommitUnsupported))
 }
 
+func TestEvmPendingNonceFollowsMempool(t *testing.T) {
+	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
+
+	t.Run("fullnode", func(t *testing.T) {
+		env := newAutobahnFullnodeEnv(t)
+		_, ok := env.EvmPendingNonce(address).Get()
+		require.False(t, ok)
+	})
+
+	t.Run("validator", func(t *testing.T) {
+		env := newAutobahnBroadcastEnv(t)
+		giga, ok := env.gigaRouter().Get()
+		require.True(t, ok)
+		mp, ok := giga.Mempool().Get()
+		require.True(t, ok)
+		got, ok := env.EvmPendingNonce(address).Get()
+		require.True(t, ok)
+		require.Equal(t, mp.EvmNextPendingNonce(address), got)
+	})
+}
+
 func TestEnvironmentEvmRPCWrappers(t *testing.T) {
 	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	env := &Environment{App: utils.Some(proxy.New(abci.BaseApplication{}))}

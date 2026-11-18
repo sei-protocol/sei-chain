@@ -212,11 +212,7 @@ func infiniteLoopCode() []byte {
 	return []byte{0x5b, 0x60, 0x00, 0x56}
 }
 
-func TestExecutorCallTimesOutOnUnboundedExecution(t *testing.T) {
-	original := callTimeout
-	callTimeout = 20 * time.Millisecond
-	defer func() { callTimeout = original }()
-
+func TestExecutorCallStopsAtContextDeadline(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -236,11 +232,13 @@ func TestExecutorCallTimesOutOnUnboundedExecution(t *testing.T) {
 	require.NoError(t, err)
 
 	msg := callMessage(sender, &contractAddr)
-	msg.GasLimit = 1_000_000_000_000 // far more gas than the shrunk timeout allows spending
+	msg.GasLimit = 1_000_000_000_000 // far more gas than the deadline allows spending
 
-	_, err = executor.Call(t.Context(), blockContext(chainID), msg)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	_, err = executor.Call(ctx, blockContext(chainID), msg)
 
-	require.ErrorContains(t, err, "timeout")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 // CallAt and EstimateGasAt read the view they are given rather than the store's current state.
@@ -372,6 +370,13 @@ func TestExecutorAppliesCallOverrides(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, params.TxGas, plain)
 		require.Greater(t, withCode, params.TxGas)
+
+		_, _, err = executor.EstimateGasAt(t.Context(), newMemoryGigaSnapshot(7), blockCtx, msg, 0,
+			CallOverrides{State: export.StateOverride{identity: {MovePrecompileTo: &moved}}})
+		require.NoError(t, err)
+		_, _, err = executor.EstimateGasAt(t.Context(), newMemoryGigaSnapshot(7), blockCtx, msg, 0,
+			CallOverrides{State: export.StateOverride{contract: {MovePrecompileTo: &moved}}})
+		require.ErrorContains(t, err, "is not a precompile")
 
 		_, _, err = executor.EstimateGasAt(t.Context(), newMemoryGigaSnapshot(7), blockCtx, msg, 0,
 			CallOverrides{Block: utils.Some(export.BlockOverrides{BeaconRoot: &common.Hash{}})})

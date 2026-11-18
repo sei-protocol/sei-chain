@@ -21,8 +21,9 @@ type ReceiptHasher struct {
 	// Called with each block's receipt hash. An error stops the hasher.
 	report func(ctx context.Context, blockHeight uint64, receiptHash apphash.ReceiptHash) error
 
-	// The blocks waiting to be hashed, in submission order, followed by the request Close() sends.
-	requests chan receiptHashRequest
+	// The messages waiting to be handled, in submission order: each a receiptHashRequest, receiptFlushRequest or
+	// receiptCloseRequest.
+	requests chan any
 
 	// Cancelled by Close(), or by the first block that fails. Its cause is the error every later call returns.
 	ctx context.Context
@@ -38,7 +39,7 @@ type ReceiptHasher struct {
 	failure error
 }
 
-// A request for the hashing goroutine: a block to hash, or the request Close() sends.
+// A block to hash.
 type receiptHashRequest struct {
 
 	// The height of the block whose receipts these are.
@@ -46,8 +47,17 @@ type receiptHashRequest struct {
 
 	// The block's receipts, as passed to ComputeReceiptHash().
 	receipts []*ethtypes.Receipt
+}
 
-	// Set only on the request Close() sends, and closed once every block submitted before it has been reported.
+// Sent by Flush().
+type receiptFlushRequest struct {
+	// Closed once every block submitted before the request has been reported.
+	flushed chan struct{}
+}
+
+// Sent by Close(). The hashing goroutine exits once it has handled it.
+type receiptCloseRequest struct {
+	// Closed once every block submitted before the request has been reported.
 	drained chan struct{}
 }
 
@@ -67,7 +77,7 @@ func NewReceiptHasher(
 	ctx, cancel := context.WithCancelCause(ctx)
 	h := &ReceiptHasher{
 		report:   report,
-		requests: make(chan receiptHashRequest, config.BufferSize),
+		requests: make(chan any, config.BufferSize),
 		ctx:      ctx,
 		cancel:   cancel,
 	}
@@ -92,13 +102,29 @@ func (h *ReceiptHasher) Submit(
 	return nil
 }
 
+// Flush returns once the receipt hash of every block submitted before the call has been reported.
+func (h *ReceiptHasher) Flush(ctx context.Context) error {
+	flushed := make(chan struct{})
+	if err := h.enqueue(ctx, receiptFlushRequest{flushed: flushed}); err != nil {
+		return fmt.Errorf("failed to flush the receipt hasher: %w", err)
+	}
+	select {
+	case <-flushed:
+		return nil
+	case <-h.ctx.Done():
+		return h.stoppedError()
+	case <-ctx.Done():
+		return fmt.Errorf("receipt hasher flush abandoned: %w", ctx.Err())
+	}
+}
+
 // Close reports the receipt hash of every block submitted before the call, then stops the hasher and returns once
 // its goroutine has exited. A block submitted concurrently with the call may or may not be reported, as may every
 // block still queued if the hasher's context is cancelled. Errors if a block failed to be hashed or reported.
 func (h *ReceiptHasher) Close() error {
 	drained := make(chan struct{})
 	// A hasher already stopped refuses the request, and has nothing left to report.
-	if h.enqueue(context.Background(), receiptHashRequest{drained: drained}) == nil {
+	if h.enqueue(context.Background(), receiptCloseRequest{drained: drained}) == nil {
 		select {
 		case <-drained:
 		case <-h.ctx.Done():
@@ -113,7 +139,7 @@ func (h *ReceiptHasher) Close() error {
 }
 
 // Hands request to the hashing goroutine.
-func (h *ReceiptHasher) enqueue(ctx context.Context, request receiptHashRequest) error {
+func (h *ReceiptHasher) enqueue(ctx context.Context, request any) error {
 	// A stopped hasher must refuse the request rather than race it into the buffer, where nothing would run it.
 	if h.ctx.Err() != nil {
 		return h.stoppedError()
@@ -133,26 +159,39 @@ func (h *ReceiptHasher) stoppedError() error {
 	return fmt.Errorf("receipt hasher stopped: %w", context.Cause(h.ctx))
 }
 
-// The hashing goroutine. Hashes and reports blocks until the request Close() sends, a cancelled context, or a block
-// that fails.
+// The hashing goroutine. Hashes and reports blocks until a receiptCloseRequest, a cancelled context, or a block that
+// fails.
 func (h *ReceiptHasher) run() {
 	for {
+		var request any
 		select {
 		case <-h.ctx.Done():
 			return
-		case request := <-h.requests:
-			if request.drained != nil {
-				close(request.drained)
+		case request = <-h.requests:
+		}
+		switch r := request.(type) {
+		case receiptHashRequest:
+			if err := h.hashAndReport(r); err != nil {
+				h.fail(err)
 				return
 			}
-			if err := h.hashAndReport(request); err != nil {
-				logger.Error("receipt hasher stopped", "err", err)
-				h.failure = err
-				h.cancel(err)
-				return
-			}
+		case receiptFlushRequest:
+			close(r.flushed)
+		case receiptCloseRequest:
+			close(r.drained)
+			return
+		default:
+			h.fail(fmt.Errorf("unknown receipt hasher request %T", request))
+			return
 		}
 	}
+}
+
+// Stops the hasher with err, which Close() and every later call report.
+func (h *ReceiptHasher) fail(err error) {
+	logger.Error("receipt hasher stopped", "err", err)
+	h.failure = err
+	h.cancel(err)
 }
 
 // Computes the receipt hash of one block and reports it.
