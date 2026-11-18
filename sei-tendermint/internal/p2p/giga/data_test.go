@@ -173,9 +173,9 @@ func TestDataClientServer(t *testing.T) {
 	}
 }
 
-// runFullCommitQCClient runs the FullCommitQC stream client of node against a server that passes the request to onReq,
-// when set, then sends qcs in order and closes the stream. It returns the error that ends the client.
-func runFullCommitQCClient(ctx context.Context, node *testNode, onReq utils.Option[func(context.Context, *StreamFullCommitQCsReq) error], qcs []*types.FullCommitQC) error {
+// runFullCommitQCClient runs the FullCommitQC stream client of node against a server that sends qcs in order
+// and then closes the stream. It returns the error that ends the client.
+func runFullCommitQCClient(ctx context.Context, node *testNode, qcs []*types.FullCommitQC) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// An in-memory link, with the fake server on one end and the node's client on the other.
 		serverConn, clientConn := conn.NewTestConn()
@@ -185,21 +185,10 @@ func runFullCommitQCClient(ctx context.Context, node *testNode, onReq utils.Opti
 		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, client.Run(ctx, clientConn)) })
 		s.SpawnBg(func() error {
 			return utils.IgnoreAfterCancel(ctx, StreamFullCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.FullCommitQC, *pb.StreamFullCommitQCsReq]) error {
-				rawReq, err := stream.Recv(ctx)
-				if err != nil {
+				if _, err := stream.Recv(ctx); err != nil {
 					return fmt.Errorf("stream.Recv(): %w", err)
 				}
-				req, err := StreamFullCommitQCsReqConv.Decode(rawReq)
-				if err != nil {
-					return fmt.Errorf("StreamFullCommitQCsReqConv.Decode(): %w", err)
-				}
-				// The hook runs before any QC is sent, so it can check the request and change the node's state.
-				if hook, ok := onReq.Get(); ok {
-					if err := hook(ctx, req); err != nil {
-						return err
-					}
-				}
-				// Sent exactly as given. Unlike a real server, this one ignores req.NextBlock and may send QCs out of order.
+				// Sent exactly as given. Unlike a real server, this one ignores the requested index and may send QCs out of order.
 				for _, qc := range qcs {
 					if err := stream.Send(ctx, types.FullCommitQCConv.Encode(qc)); err != nil {
 						return fmt.Errorf("stream.Send(): %w", err)
@@ -229,29 +218,23 @@ func testQCChain(rng utils.Rng, ep *types.Epoch, keys []types.SecretKey, n int) 
 	return qcs, blocks
 }
 
-func TestFullCommitQCStreamAcceptsIncreasingIndexesWithGaps(t *testing.T) {
+func TestFullCommitQCStreamAcceptsSkippedIndexes(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 1)
-	// One real node with an empty data state. The test uses only its data state and its QC stream client.
+	// One real node. The test uses only its data state and its QC stream client.
 	node := newTestEnv(registry).AddNode(t, keys[0])
 	// qcs[0] to qcs[4] are consecutive, validly signed QCs.
 	qcs, _ := testQCChain(rng, registry.MustEpoch(0), keys, 5)
-	// Another peer pushes qcs[0] after the client requests it, so the stream starts above the requested index.
-	pushRequested := func(ctx context.Context, req *StreamFullCommitQCsReq) error {
-		// The node is empty, so the client must ask for qcs[0].
-		if got, want := req.NextBlock, qcs[0].Index(); got != want {
-			return fmt.Errorf("req.NextBlock = %v, want %v", got, want)
-		}
-		return node.data.PushPartialBlock(ctx, qcs[0], nil)
-	}
+	// The node holds qcs[0], so the client requests qcs[1].
+	require.NoError(t, node.data.PushPartialBlock(ctx, qcs[0], nil))
 	ok := fetchCount(resFullCommitQC, "ok")
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		// Another peer fills the gap that the stream skips. The push waits until qcs[2] is stored.
+		// Another peer fills the index that the stream skips. The push waits until qcs[2] is stored.
 		s.Spawn(func() error { return node.data.PushPartialBlock(ctx, qcs[3], nil) })
-		// The server sends qcs[1], above the requested qcs[0], then qcs[2], the next index,
+		// The server sends qcs[1], the requested index, then qcs[2], the next index,
 		// then qcs[4], which skips qcs[3].
-		return runFullCommitQCClient(ctx, node, utils.Some(pushRequested), []*types.FullCommitQC{qcs[1], qcs[2], qcs[4]})
+		return runFullCommitQCClient(ctx, node, []*types.FullCommitQC{qcs[1], qcs[2], qcs[4]})
 	})
 	// The stream ended because the server closed it, not because the client rejected a QC.
 	require.ErrorIs(t, err, mux.ErrRemoteClosed)
@@ -259,7 +242,7 @@ func TestFullCommitQCStreamAcceptsIncreasingIndexesWithGaps(t *testing.T) {
 	require.Equal(t, ok+3, fetchCount(resFullCommitQC, "ok"))
 	// The node holds qcs[0] to qcs[4]. NextQC does not block, so a missing QC fails here instead of hanging below.
 	require.Equal(t, qcs[4].Index()+1, node.data.NextQC())
-	// Each stored QC is the one that was sent.
+	// Each stored QC is the one that was sent or pushed.
 	for _, want := range qcs {
 		got, err := node.data.QC(ctx, want.Index())
 		require.NoError(t, err)
@@ -300,15 +283,8 @@ func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
 			}
 			// The counter is global to the test process, so the check below compares the change, not the value.
 			outOfOrder := fetchCount(resFullCommitQC, "out_of_order")
-			// The client asks for the first index above the QCs it holds.
-			checkRequest := func(ctx context.Context, req *StreamFullCommitQCsReq) error {
-				if got, want := req.NextBlock, qcs[len(tc.pushed)].Index(); got != want {
-					return fmt.Errorf("req.NextBlock = %v, want %v", got, want)
-				}
-				return nil
-			}
 			// The client rejects one QC and ends the stream.
-			require.ErrorIs(t, runFullCommitQCClient(ctx, node, utils.Some(checkRequest), sent), types.ErrUnexpectedIndex)
+			require.ErrorIs(t, runFullCommitQCClient(ctx, node, sent), types.ErrUnexpectedIndex)
 			// The node stored the pushed QCs and the QCs accepted before the reject, and nothing after them.
 			require.Equal(t, qcs[0].Index()+types.RoadIndex(tc.wantStored), node.data.NextQC())
 			// The client counted exactly one reject.
