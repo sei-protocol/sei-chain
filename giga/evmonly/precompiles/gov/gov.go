@@ -38,6 +38,8 @@ const (
 	DepositMethod                   = "deposit"
 	SubmitTextProposalMethod        = "submitTextProposal"
 	SubmitParamChangeProposalMethod = "submitParamChangeProposal"
+	SubmitSoftwareUpgradeMethod     = "submitSoftwareUpgradeProposal"
+	SubmitCancelUpgradeMethod       = "submitCancelSoftwareUpgradeProposal"
 	ProposalMethod                  = "proposal"
 	ProposalsMethod                 = "proposals"
 	GetVoteMethod                   = "getVote"
@@ -61,7 +63,7 @@ const authzUnsupported = "gov authorizations are not supported"
 // revert with a reason naming the call to use instead. They are checked before
 // dispatch.
 var retiredMethods = map[string]string{
-	"submitProposal(string)":                          "submitProposal(string) is not supported; use submitTextProposal or submitParamChangeProposal",
+	"submitProposal(string)":                          "submitProposal(string) is not supported; use submitTextProposal, submitParamChangeProposal, submitSoftwareUpgradeProposal or submitCancelSoftwareUpgradeProposal",
 	"voteWeighted(uint64,(int32,string)[])":           "voteWeighted with decimal string weights is not supported; use voteWeighted(uint64,(int32,uint256)[]) with 1e18-scaled weights",
 	"grantVoteAuthorization(address,int64)":           authzUnsupported,
 	"grantProposalAuthorization(address,int64)":       authzUnsupported,
@@ -174,6 +176,10 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 		return p.submitTextProposal(ctx, s, method, args)
 	case SubmitParamChangeProposalMethod:
 		return p.submitParamChangeProposal(ctx, s, method, args)
+	case SubmitSoftwareUpgradeMethod:
+		return p.submitSoftwareUpgradeProposal(ctx, s, method, args)
+	case SubmitCancelUpgradeMethod:
+		return p.submitCancelSoftwareUpgradeProposal(ctx, s, method, args)
 	}
 	return nil, errUnknownMethod
 }

@@ -2,6 +2,7 @@ package avail
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"testing/synctest"
@@ -18,7 +19,7 @@ func TestSubscribeLaneProposals_WrongValidatorPanics(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
 	a, b := keys[0], keys[1]
-	ds := newTestDataState(&data.Config{Registry: registry})
+	ds := newTestDataState(t, &data.Config{Registry: registry})
 	state := utils.OrPanic1(NewState(a, ds, utils.None[string]()))
 
 	defer func() {
@@ -29,13 +30,48 @@ func TestSubscribeLaneProposals_WrongValidatorPanics(t *testing.T) {
 	state.SubscribeLaneProposals(types.LaneID{Validator: b.Public(), Joined: 0}, 0)
 }
 
+func TestSubscribeLaneProposals_WaitsForPersistence(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistry(rng, 1)
+		state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+		defer func() { require.NoError(t, state.Close()) }()
+		lane := state.LocalLane().OrPanic("genesis")
+		var blocks []*types.Signed[*types.LaneProposal]
+		for n := range types.BlockNumber(10) {
+			b, err := state.ProduceLocalBlock(lane, n, types.GenPayload(rng))
+			require.NoError(t, err)
+			blocks = append(blocks, b)
+		}
+		for _, persisted := range []types.BlockNumber{0, 3, 7} {
+			sub := state.SubscribeLaneProposals(lane, 0)
+			received := make([]*types.Signed[*types.LaneProposal], 0, len(blocks))
+			require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+				sc.SpawnBg(func() error {
+					for {
+						b, err := sub.Recv(ctx)
+						if err != nil {
+							return utils.IgnoreCancel(err)
+						}
+						received = append(received, b)
+					}
+				})
+				state.setNextBlockToPersist(lane, persisted)
+				synctest.Wait()
+				return nil
+			}))
+			require.NoError(t, utils.TestDiff(blocks[:persisted], received))
+		}
+	})
+}
+
 func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
 	a, b := keys[0], keys[1]
 	peer := a.Public()
-	ds := newTestDataState(&data.Config{Registry: registry})
+	ds := newTestDataState(t, &data.Config{Registry: registry})
 	state := utils.OrPanic1(NewState(a, ds, utils.None[string]()))
 
 	lane0 := state.LocalLane().OrPanic("genesis")
@@ -46,6 +82,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	sub := state.SubscribeLaneProposals(lane0, 0)
 	want0, err := state.ProduceLocalBlock(lane0, 0, types.GenPayload(rng))
 	require.NoError(t, err)
+	state.setNextBlockToPersist(lane0, 1)
 	got0, err := sub.Recv(ctx)
 	require.NoError(t, err)
 	require.Equal(t, want0.Msg().Block().Header().Hash(), got0.Msg().Block().Header().Hash())
@@ -53,21 +90,19 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	// Stay: epoch 1 is already seeded at genesis with the same committee.
 	var want1, got1 *types.Signed[*types.LaneProposal]
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
-		sc.SpawnBgNamed("runEpochAdvance", func() error {
-			return utils.IgnoreCancel(state.runEpochAdvance(ctx))
-		})
 		sc.Spawn(func() error {
 			var err error
 			got1, err = sub.Recv(ctx)
 			return err
 		})
-		if err := TestDriveAdvance(ctx, state, keys, 1); err != nil {
+		if err := TestAdvanceToEpoch(ctx, state, keys, registry, 1); err != nil {
 			return err
 		}
 		if cur := state.LocalLane().OrPanic("stay"); cur != lane0 {
 			return fmt.Errorf("stay LocalLane = %v, want %v", cur, lane0)
 		}
 		want1, err = state.ProduceLocalBlock(lane0, 1, types.GenPayload(rng))
+		state.setNextBlockToPersist(lane0, 2)
 		return err
 	}))
 	require.Equal(t, want1.Msg().Block().Header().Hash(), got1.Msg().Block().Header().Hash())
@@ -78,15 +113,19 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 
 	// Leave: peer drops from committee at epoch 2 (first vacant after genesis seeds).
 	// Anchor-epoch prune drops closed lane maps (same path as runEvict) and ends the subscribe.
-	require.NoError(t, registry.StageAndActivate(0, map[types.PublicKey]uint64{b.Public(): 1}))
+	require.NoError(t, registry.TestPushEpoch(0, map[types.PublicKey]uint64{b.Public(): 1}))
 	epLeave := registry.MustEpoch(2)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
-		sc.SpawnBgNamed("runEpochAdvance", func() error {
-			return utils.IgnoreCancel(state.runEpochAdvance(ctx))
-		})
-		return TestDriveAdvance(ctx, state, keys, epLeave.EpochIndex())
+		return TestAdvanceToEpoch(ctx, state, keys, registry, epLeave.EpochIndex())
 	}))
 	require.False(t, state.LocalLane().IsPresent())
+
+	require.NoError(t, registry.TestPushEpoch(1, map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1}))
+	epJoin := registry.MustEpoch(3)
+	prev := testAnchorAt(registry.MustEpoch(1), epLeave, keys, registry.LastRoad(1)).CommitQC()
+	firstLeave := types.BuildCommitQC(epLeave, []types.SecretKey{b}, prev, nil)
+	require.NoError(t, state.PushCommitQC(ctx, firstLeave))
+	state.markCommitQCsPersisted(firstLeave)
 
 	for inner, ctrl := range state.inner.Lock() {
 		require.Greater(t, inner.roads.next, inner.roads.first)
@@ -94,12 +133,10 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 		ep := inner.applied()
 		require.Equal(t, epLeave.EpochIndex(), ep.EpochIndex())
 		require.True(t, ep.IsClosed(lane0))
-		n := inner.prune(data.Anchor{
+		inner.setAnchor(data.Anchor{First: utils.Some(data.AnchorFirst{
 			CommitQC: tip,
 			AppQC:    data.TestAppQC([]types.SecretKey{b}, types.NewAppProposal(tip.View(), types.AppHash{})),
-			Epoch:    ep,
-		})
-		require.Equal(t, 1, n)
+		}), Epochs: [2]*types.Epoch{ep, epJoin}})
 		ctrl.Updated()
 	}
 	_, err = sub.Recv(ctx)
@@ -108,9 +145,6 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	// Rejoin: WaitForNextLane skips closed lane0 and observes the new LaneID.
 	var gotLane types.LaneID
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
-		sc.SpawnBgNamed("runEpochAdvance", func() error {
-			return utils.IgnoreCancel(state.runEpochAdvance(ctx))
-		})
 		sc.Spawn(func() error {
 			lane, err := state.WaitForNextLane(ctx, peer, utils.Some(lane0))
 			if err != nil {
@@ -119,11 +153,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 			gotLane = lane
 			return nil
 		})
-		if err := registry.StageAndActivate(1, map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1}); err != nil {
-			return err
-		}
-		epJoin := registry.MustEpoch(3)
-		return TestDriveAdvance(ctx, state, keys, epJoin.EpochIndex())
+		return TestAdvanceToEpoch(ctx, state, keys, registry, epJoin.EpochIndex())
 	}))
 	lane1 := state.LocalLane().OrPanic("rejoin")
 	require.NotEqual(t, lane0, lane1)
@@ -137,6 +167,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	sub1 := state.SubscribeLaneProposals(lane1, 0)
 	want, err := state.ProduceLocalBlock(lane1, 0, types.GenPayload(rng))
 	require.NoError(t, err)
+	state.setNextBlockToPersist(lane1, 1)
 	gotBlk, err := sub1.Recv(ctx)
 	require.NoError(t, err)
 	require.Equal(t, want.Msg().Block().Header().Hash(), gotBlk.Msg().Block().Header().Hash())
@@ -155,21 +186,18 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		b := types.GenSecretKey(rng)
 		allKeys := append(keys, b)
 
-		ds := newTestDataState(&data.Config{Registry: registry})
+		ds := newTestDataState(t, &data.Config{Registry: registry})
 		stateA := utils.OrPanic1(NewState(a, ds, utils.None[string]()))
 		stateB := utils.OrPanic1(NewState(b, ds, utils.None[string]()))
 		laneA := stateA.LocalLane().OrPanic("genesis")
 
 		register := func(end types.EpochIndex, weights map[types.PublicKey]uint64) *types.Epoch {
-			require.NoError(t, registry.StageAndActivate(end, weights))
+			require.NoError(t, registry.TestPushEpoch(end, weights))
 			return registry.MustEpoch(end + 2)
 		}
 		advance := func(want types.EpochIndex) {
 			require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
-				sc.SpawnBgNamed("runEpochAdvance", func() error {
-					return utils.IgnoreCancel(stateB.runEpochAdvance(ctx))
-				})
-				return TestDriveAdvance(ctx, stateB, allKeys, want)
+				return TestAdvanceToEpoch(ctx, stateB, allKeys, registry, want)
 			}))
 		}
 		produce := func(n types.BlockNumber) *types.Signed[*types.LaneProposal] {
@@ -227,4 +255,56 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		require.Equal(t, 1, len(batch))
 		require.Equal(t, block2.Msg().Block().Header().Hash(), batch[0].Msg().Header().Hash())
 	})
+}
+
+func TestBlock_WaitForFutureLane(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 1)
+	joiner := types.GenSecretKey(rng)
+	allKeys := append(keys, joiner)
+	require.NoError(t, registry.TestPushEpoch(0, map[types.PublicKey]uint64{keys[0].Public(): 1, joiner.Public(): 1}))
+	require.NoError(t, registry.TestPushEpoch(1, map[types.PublicKey]uint64{keys[0].Public(): 1}))
+	require.NoError(t, registry.TestPushEpoch(2, map[types.PublicKey]uint64{keys[0].Public(): 1}))
+	ep1, ep2 := registry.MustEpoch(1), registry.MustEpoch(2)
+	ep3, ep4 := registry.MustEpoch(3), registry.MustEpoch(4)
+	lane := ep2.Committee().Lane(joiner.Public()).OrPanic("joining lane")
+	for _, tc := range []struct {
+		name    string
+		anchor  data.Anchor
+		errWant error
+	}{
+		{"block", testAnchorAt(ep1, ep2, allKeys, ep1.RoadRange().Next-1), nil},
+		// Skip beyond the lane's membership without ever admitting its block.
+		{"pruned", testAnchorAt(ep3, ep4, allKeys, ep3.RoadRange().First), types.ErrPruned},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				rng := utils.TestRng()
+				state := utils.OrPanic1(NewState(joiner, newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+				defer func() { require.NoError(t, state.Close()) }()
+				want := types.Sign(joiner, types.NewLaneProposal(types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))))
+				require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+					// PushBlock should succeed in both cases.
+					sc.Spawn(func() error { return state.PushBlock(ctx, want) })
+					sc.Spawn(func() error {
+						// Block should fail if the epoch is jumped over.
+						got, err := state.Block(ctx, lane, 0)
+						if !errors.Is(err, tc.errWant) {
+							return fmt.Errorf("state.Block(): %v, want %v", err, tc.errWant)
+						}
+						if err != nil {
+							return nil
+						}
+						return utils.TestDiff(want, got)
+					})
+					synctest.Wait()
+					for inner, ctrl := range state.inner.Lock() {
+						inner.setAnchor(tc.anchor)
+						ctrl.Updated()
+					}
+					return nil
+				}))
+			})
+		})
+	}
 }

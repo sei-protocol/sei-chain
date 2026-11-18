@@ -109,7 +109,7 @@ func (s *executionState) commitBlock(blockNum int64, writes blockWrites) error {
 	keys := writes.keys
 	s.metrics.ReportStoreBytesWritten(storeStateCommit, writes.bytes)
 	s.metrics.ReportStoreKeysWritten(storeStateCommit, keys)
-	if s.db.SS() != nil {
+	if s.db.UndoSS() != nil {
 		s.metrics.ReportStoreBytesWritten(storeStateStore, writes.bytes)
 		s.metrics.ReportStoreKeysWritten(storeStateStore, keys)
 	}

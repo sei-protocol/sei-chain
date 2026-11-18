@@ -158,7 +158,7 @@ func TestReadFailureStopsTheManager(t *testing.T) {
 	_, err = manager.BatchGet([][]byte{[]byte("k2")})
 	require.Error(t, err, "BatchGet must be refused too")
 
-	_, err = manager.Commit()
+	_, err = manager.Commit(manager.NextBlockHeight())
 	require.Error(t, err, "Commit must be refused once the manager is bricked")
 
 	// Close surfaces the original cause rather than a bare ErrViewManagerClosed.

@@ -8,13 +8,13 @@ additional signal (see the caveats under each) makes them real.
 
 ## 1. Referencing a not-yet-created release tag is expected
 
-Sei only creates a new release tag — and registers it in `app/tags` with a
+Sei only creates a new release tag — and registers it in `app/upgradenames/tags` with a
 handler in `app/upgrades.go` — *after* the code that depends on it has
 already been merged to main, never before. So it is completely normal for a
 PR to introduce a version-gated constant (e.g. `const FooUpgrade = "v6.7"`)
 that:
 
-- does not yet appear anywhere in `app/tags`,
+- does not yet appear anywhere in `app/upgradenames/tags`,
 - has no corresponding upgrade handler in `app/upgrades.go`, and
 - therefore cannot currently be produced by `ctx.ClosestUpgradeName()` /
   `ctx.LatestUpgrade()`.
@@ -23,13 +23,13 @@ Do **not** flag this as "the tag/handler is never registered," "this branch
 is permanently unreachable/dead," or "this constant doesn't match anything
 in the tree." The tag is cut and the handler wired up in a follow-up step
 after this PR lands, using the same version string, following the existing
-`app/tags` naming convention.
+`app/upgradenames/tags` naming convention.
 
 This only becomes a real finding when:
 - the PR description or diff explicitly claims *this* PR adds the tag/handler
   (i.e. it's the release-cut PR) and it doesn't, or
 - the referenced version string doesn't follow Sei's tag naming convention
-  (compare against the existing entries in `app/tags`).
+  (compare against the existing entries in `app/upgradenames/tags`).
 
 ## 2. Version-gated logic and block/state sync: don't assume cross-version execution
 

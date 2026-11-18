@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/big"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,6 +43,36 @@ func newPanickingBlockFetcher(latest, panicHeight int64) *LogFetcher {
 	}
 }
 
+type blockCountingClient struct {
+	*heightTestClient
+	blockCalls atomic.Int64
+}
+
+func (c *blockCountingClient) Block(ctx context.Context, height *int64) (*coretypes.ResultBlock, error) {
+	c.blockCalls.Add(1)
+	return c.heightTestClient.Block(ctx, height)
+}
+
+func TestFetchBlocksByCritStopsReadingBlocksOnceCancelled(t *testing.T) {
+	const latest = 1000
+	client := &blockCountingClient{heightTestClient: newHeightTestClient(latest+10, 1, latest)}
+	fetcher := &LogFetcher{
+		tmClient:           client,
+		dbReadSemaphore:    make(chan struct{}, 1),
+		globalBlockCache:   NewBlockCache(latest),
+		cacheCreationMutex: &sync.Mutex{},
+		watermarks:         newHeightTestWatermarks(client, latest),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	crit := filters.FilterCriteria{FromBlock: big.NewInt(1), ToBlock: big.NewInt(3 * int64(evmrpcconfig.WorkerBatchSize))}
+
+	blocks, _, err := fetcher.fetchBlocksByCrit(ctx, crit, nil)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, blocks)
+	require.Zero(t, client.blockCalls.Load())
+}
+
 // A block read that panics must free its DB-read slot, or GetLogs ends up rejecting every request as
 // I/O saturated, and must come back as an error rather than escape the batch.
 func TestProcessBatchReportsPanickingBlockReadAndFreesDBReadSlot(t *testing.T) {
@@ -53,7 +84,7 @@ func TestProcessBatchReportsPanickingBlockReadAndFreesDBReadSlot(t *testing.T) {
 	errChan := make(chan error, 1)
 
 	require.NotPanics(t, func() {
-		fetcher.processBatch(context.Background(), panicHeight, panicHeight, filters.FilterCriteria{}, nil, res, errChan)
+		fetcher.processBatch(context.Background(), blockWindow{earliest: 1, latest: 90}, panicHeight, panicHeight, filters.FilterCriteria{}, nil, res, errChan)
 	})
 
 	require.Empty(t, fetcher.dbReadSemaphore)
@@ -102,4 +133,35 @@ func TestFetchBlocksByCritFailsWhenABlockReadPanics(t *testing.T) {
 	require.Empty(t, fetcher.dbReadSemaphore)
 	require.Equal(t, slotsHeldBefore, metrics.DBSemaphoreAcquired.Load())
 	require.Equal(t, panicsBefore+1, metrics.TasksPanicked.Load())
+}
+
+type statusCountingClient struct {
+	*heightTestClient
+	statusCalls atomic.Int64
+}
+
+func (c *statusCountingClient) Status(ctx context.Context) (*coretypes.ResultStatus, error) {
+	c.statusCalls.Add(1)
+	return c.heightTestClient.Status(ctx)
+}
+
+// Each watermark read calls Tendermint Status, so the block-by-block log fallback must read them per
+// range, not per block.
+func TestFetchBlocksByCritReadsWatermarksOncePerRange(t *testing.T) {
+	const latest = 1000
+	client := &statusCountingClient{heightTestClient: newHeightTestClient(latest+10, 1, latest)}
+	fetcher := &LogFetcher{
+		tmClient:           client,
+		dbReadSemaphore:    make(chan struct{}, 1),
+		globalBlockCache:   NewBlockCache(latest),
+		cacheCreationMutex: &sync.Mutex{},
+		watermarks:         newHeightTestWatermarks(client, latest),
+	}
+	to := 3 * int64(evmrpcconfig.WorkerBatchSize)
+	crit := filters.FilterCriteria{FromBlock: big.NewInt(1), ToBlock: big.NewInt(to)}
+
+	blocks, _, err := fetcher.fetchBlocksByCrit(context.Background(), crit, nil)
+	require.NoError(t, err)
+	require.Len(t, blocks, int(to))
+	require.EqualValues(t, 1, client.statusCalls.Load())
 }

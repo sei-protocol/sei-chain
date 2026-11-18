@@ -2,6 +2,7 @@ package merkle
 
 import (
 	"math/rand"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -26,6 +27,17 @@ func randomPreimages(rng *rand.Rand, count int) ([][]byte, [][32]byte) {
 func TestMerkleRootMatchesRFC6962(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
 	for count := 0; count <= 64; count++ {
+		preimages, leafHashes := randomPreimages(rng, count)
+		root := MerkleRoot(leafHashes)
+		require.Equal(t, tmmerkle.HashFromByteSlices(preimages), root[:], "count %d", count)
+	}
+}
+
+func TestMerkleRootMatchesRFC6962OnTreesHashedInParallel(t *testing.T) {
+	prev := runtime.GOMAXPROCS(4)
+	t.Cleanup(func() { runtime.GOMAXPROCS(prev) })
+	rng := rand.New(rand.NewSource(2))
+	for _, count := range []int{8192, 9001, 20000} {
 		preimages, leafHashes := randomPreimages(rng, count)
 		root := MerkleRoot(leafHashes)
 		require.Equal(t, tmmerkle.HashFromByteSlices(preimages), root[:], "count %d", count)

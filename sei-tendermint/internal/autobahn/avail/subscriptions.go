@@ -10,7 +10,8 @@ import (
 )
 
 // SubscribeLaneProposals binds lane for this node's validator key.
-// Recv returns ErrLaneClosed after that lane's maps are dropped.
+// Recv yields proposals only after persistence and returns ErrLaneClosed after
+// that lane's maps are dropped.
 func (s *State) SubscribeLaneProposals(lane types.LaneID, first types.BlockNumber) *LaneProposalsRecv {
 	if lane.Validator != s.key.Public() {
 		panic(fmt.Sprintf("SubscribeLaneProposals: lane validator %v != local %v", lane.Validator, s.key.Public()))
@@ -25,31 +26,35 @@ type LaneProposalsRecv struct {
 }
 
 func (r *LaneProposalsRecv) Recv(ctx context.Context) (*types.Signed[*types.LaneProposal], error) {
-	for {
-		b, err := r.state.Block(ctx, r.lane, r.next)
-		if err != nil {
-			if errors.Is(err, types.ErrPruned) {
-				for inner := range r.state.inner.Lock() {
-					if _, ok := inner.blocks[r.lane]; !ok {
-						return nil, ErrLaneClosed
-					}
+	for inner, ctrl := range r.state.inner.Lock() {
+		for {
+			ls, ok := inner.lanes[r.lane]
+			if !ok {
+				if inner.anchor.Epochs[1].IsClosed(r.lane) {
+					return nil, ErrLaneClosed
 				}
-				r.next += 1
-				continue
+			} else {
+				r.next = max(r.next, ls.blocks.first)
+				if r.next < min(ls.blocks.next, ls.nextBlockToPersist) {
+					b := ls.blocks.q[r.next]
+					r.next++
+					return b, nil
+				}
 			}
-			return nil, fmt.Errorf("x.avail.Block(): %w", err)
+			if err := ctrl.Wait(ctx); err != nil {
+				return nil, err
+			}
 		}
-		r.next += 1
-		return b, nil
 	}
+	panic("unreachable")
 }
 
 // WaitForNextLane waits until the applied committee has a LaneID for pk.
 // If exclude is Some, also requires the LaneID to differ (e.g. after the
 // previous identity was closed and a new LaneID allocated).
 func (s *State) WaitForNextLane(ctx context.Context, pk types.PublicKey, exclude utils.Option[types.LaneID]) (types.LaneID, error) {
-	ep, err := s.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
-		got, ok := ep.Committee().Lane(pk).Get()
+	spec, err := s.ConsensusSpec().Wait(ctx, func(spec types.ConsensusSpec) bool {
+		got, ok := spec.Epoch.Committee().Lane(pk).Get()
 		if !ok {
 			return false
 		}
@@ -61,7 +66,7 @@ func (s *State) WaitForNextLane(ctx context.Context, pk types.PublicKey, exclude
 	if err != nil {
 		return types.LaneID{}, err
 	}
-	return ep.Committee().Lane(pk).OrPanic("WaitForNextLane"), nil
+	return spec.Epoch.Committee().Lane(pk).OrPanic("WaitForNextLane"), nil
 }
 
 func (s *State) SubscribeLaneVotes() *LaneVotesRecv {
@@ -77,8 +82,9 @@ func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.L
 	var batch []*types.BlockHeader
 	for inner, ctrl := range r.state.inner.Lock() {
 		for {
-			for lane, bq := range inner.blocks {
-				upperBound := min(bq.next, inner.nextBlockToPersist[lane])
+			for lane, ls := range inner.lanes {
+				bq := ls.blocks
+				upperBound := min(bq.next, ls.nextBlockToPersist)
 				for i := max(bq.first, r.next[lane]); i < upperBound; i++ {
 					batch = append(batch, bq.q[i].Msg().Block().Header())
 				}

@@ -44,8 +44,8 @@ func loadReplayBlockTest(t *testing.T) *ethtests.BlockTest {
 // encodeTx round-trips a decoded block tx through MsgEVMTransaction unchanged.
 func TestBehaviorEthReplayEncodeDecodedBlockTx(t *testing.T) {
 	bt := loadReplayBlockTest(t)
-	require.Len(t, bt.Json.Blocks, 1)
-	b, err := bt.Json.Blocks[0].Decode()
+	require.Len(t, bt.JSON().Blocks, 1)
+	b, err := bt.JSON().Blocks[0].Decode()
 	require.NoError(t, err)
 	require.Equal(t, replayFixtureBlockHash, b.Hash())
 	require.False(t, IsWithdrawalAddress(replayAnvil0, []*ethtypes.Block{b}))
@@ -64,19 +64,21 @@ func TestBehaviorEthReplayEncodeDecodedBlockTx(t *testing.T) {
 	require.Equal(t, uint8(ethtypes.LegacyTxType), ethTx.Type())
 
 	// pre-state as iterated by app.BlockTest
-	require.Len(t, bt.Json.Pre, 2)
-	require.Equal(t, "10000000000000000000", bt.Json.Pre[replayAnvil0].Balance.String())
+	require.Len(t, bt.JSON().Pre, 2)
+	require.Equal(t, "10000000000000000000", bt.JSON().Pre[replayAnvil0].Balance.String())
 }
 
 // writeReplayEthDB commits a genesis to a pebble geth datadir using the given state scheme.
 func writeReplayEthDB(t *testing.T, dir string, scheme string) *ethtypes.Block {
 	t.Helper()
 	db, err := node.OpenDatabase(node.OpenOptions{
-		Type:              "pebble",
-		Directory:         dir,
-		AncientsDirectory: fmt.Sprintf("%s/ancient", dir),
-		Cache:             16,
-		Handles:           16,
+		Type:      "pebble",
+		Directory: dir,
+		DatabaseOptions: node.DatabaseOptions{
+			AncientsDirectory: fmt.Sprintf("%s/ancient", dir),
+			Cache:             16,
+			Handles:           16,
+		},
 	})
 	require.NoError(t, err)
 	cfg := triedb.HashDefaults
@@ -92,7 +94,7 @@ func writeReplayEthDB(t *testing.T, dir string, scheme string) *ethtypes.Block {
 			replayAnvil0: {Balance: big.NewInt(1_000_000)},
 		},
 	}
-	block, err := gspec.Commit(db, tdb)
+	block, err := gspec.Commit(db, tdb, nil)
 	require.NoError(t, err)
 	require.NoError(t, tdb.Close())
 	require.NoError(t, db.Close())
@@ -108,7 +110,7 @@ func TestBehaviorOpenEthDatabase(t *testing.T) {
 			k := &keeper.Keeper{EthReplayConfig: replay.Config{EthDataDir: dir}}
 			header := k.OpenEthDatabase()
 			t.Cleanup(func() {
-				tdb := k.CachingDB.TrieDB()
+				tdb := k.DB.TrieDB()
 				require.NoError(t, tdb.Close())
 				require.NoError(t, tdb.Disk().Close())
 			})
@@ -118,7 +120,7 @@ func TestBehaviorOpenEthDatabase(t *testing.T) {
 			require.Equal(t, genesis.Root(), header.Root)
 			require.Equal(t, genesis.Root(), k.Root)
 			require.NotNil(t, k.DB)
-			require.NotNil(t, k.CachingDB)
+			require.NotNil(t, k.CodeDB)
 			require.NotNil(t, k.Trie)
 
 			acct, err := k.Trie.GetAccount(replayAnvil0)

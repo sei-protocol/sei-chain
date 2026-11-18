@@ -1,15 +1,16 @@
 package app
 
 import (
-	"embed"
 	"fmt"
 	"os"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/app/retiredauthz"
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
+	"github.com/sei-protocol/sei-chain/app/upgradenames"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
@@ -18,7 +19,6 @@ import (
 	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
-	"golang.org/x/mod/semver"
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
@@ -29,6 +29,17 @@ var retiredIBCStores = []string{"capability", "ibc", "transfer"}
 // v68DeletedStores are the KV stores deleted from the multistore at the v6.8
 // upgrade height. Their module version map entries go with them.
 var v68DeletedStores = append([]string{feegrantModuleName, retiredoracle.ModuleName, retiredtokenfactory.ModuleName}, retiredIBCStores...)
+
+// v69DeletedStores are the KV stores deleted from the multistore at the v6.9
+// upgrade height. Their module version map entries go with them.
+var v69DeletedStores = []string{retiredauthz.ModuleName}
+
+// deletedStoresByUpgrade maps an upgrade name to the KV stores its store loader
+// deletes from the multistore and its handler requires to be gone.
+var deletedStoresByUpgrade = map[string][]string{
+	"v6.8": v68DeletedStores,
+	"v6.9": v69DeletedStores,
+}
 
 // tokenfactoryParamsPrefix is the params-store prefix of the tokenfactory
 // parameter subspace.
@@ -61,9 +72,6 @@ var retiredEVMParamKeys = [][]byte{[]byte(evmtypes.ModuleName + "/KeyRegisterPoi
 // iterating a gov queue up to it visits every queued proposal.
 var queuedProposalsEnd = time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC)
 
-//go:embed tags
-var f embed.FS
-
 // NOTE: When performing upgrades, make sure to keep / register the handlers
 // for both the current (n) and the previous (n-1) upgrade name. There is a bug
 // in a missing value in a log statement for which the fix is not released
@@ -78,11 +86,7 @@ var releaseUpgrades []string
 var LatestUpgrade string
 
 func init() {
-	content, err := f.ReadFile("tags")
-	if err != nil {
-		panic(err)
-	}
-	releaseUpgrades = parseUpgradesList(string(content))
+	releaseUpgrades = upgradenames.Release()
 	upgradesList = slices.Clone(releaseUpgrades)
 	LatestUpgrade = releaseUpgrades[len(releaseUpgrades)-1]
 }
@@ -94,13 +98,7 @@ func ReleaseUpgrades() []string {
 }
 
 func parseUpgradesList(list string) []string {
-	upgrades := strings.FieldsFunc(list, func(r rune) bool {
-		return r == '\n' || r == ','
-	})
-	// Upgrades names must be in alphabetical order
-	// https://github.com/cosmos/cosmos-sdk/issues/11707
-	semver.Sort(upgrades)
-	return upgrades
+	return upgradenames.Parse(list)
 }
 
 // if there is an override list, use that instead, for integration tests
@@ -117,6 +115,10 @@ func (app *App) RegisterUpgradeHandlers() {
 	overrideList()
 	for _, upgradeName := range upgradesList {
 		app.UpgradeKeeper.SetUpgradeHandler(upgradeName, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
+			if err := app.requireStoresDeleted(plan, deletedStoresByUpgrade[upgradeName]); err != nil {
+				return nil, err
+			}
+
 			// Set params to Distribution here when migrating
 			if upgradeName == "1.2.3beta" {
 				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
@@ -165,9 +167,6 @@ func (app *App) RegisterUpgradeHandlers() {
 			}
 
 			if upgradeName == "v6.8" {
-				if err := app.requireStoresDeleted(plan, v68DeletedStores); err != nil {
-					return nil, err
-				}
 				// Proposals must be readable before any module migration walks
 				// the gov store, so the retired IBC records are rewritten first.
 				app.rewriteRetiredIBCProposals(ctx)
@@ -194,6 +193,9 @@ func (app *App) RegisterUpgradeHandlers() {
 				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
 				if err != nil {
 					return nil, err
+				}
+				for _, name := range v69DeletedStores {
+					app.UpgradeKeeper.DeleteModuleVersion(ctx, name)
 				}
 				app.pruneRetiredEVMParams(ctx)
 				return newVM, nil

@@ -3,6 +3,7 @@ package bud
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/internal/parallel"
 	"github.com/sei-protocol/sei-chain/giga/apphash/merkle"
 )
 
@@ -39,9 +40,11 @@ func budLeafHashes(
 	budlets []*Budlet,
 ) [][32]byte {
 	hashes := make([][32]byte, len(budlets))
-	var scratch []byte
-	for i, budlet := range budlets {
-		hashes[i], scratch = budLeafHash(budlet, scratch)
-	}
+	parallel.ForEachChunk(len(budlets), func(start int, end int) {
+		var scratch []byte
+		for i := start; i < end; i++ {
+			hashes[i], scratch = budLeafHash(budlets[i], scratch)
+		}
+	})
 	return hashes
 }

@@ -123,7 +123,7 @@ func TestRegisteredCustomPrecompileReportsGas(t *testing.T) {
 	var remaining uint64
 	contract := registeredCustomPrecompile{address: registeredPrecompileAddress, contract: gasRecorder{&remaining}}
 	stateDB := newNativeStateDB(NewMemoryState())
-	evm := vm.NewEVM(EVMBlockContext(blockContext(big.NewInt(testChainID))), stateDB, params.AllDevChainProtocolChanges, vm.Config{}, nil)
+	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(blockContext(big.NewInt(testChainID))), stateDB, params.AllDevChainProtocolChanges, vm.Config{}, nil)
 	stateDB.SetEVM(evm)
 	type change struct{ from, to uint64 }
 	var changes []change
@@ -139,7 +139,7 @@ func TestRegisteredCustomPrecompileReportsGas(t *testing.T) {
 func TestRegisteredCustomPrecompileRejectsOversizedInput(t *testing.T) {
 	contract := registeredCustomPrecompile{address: registeredPrecompileAddress, contract: echoPrecompile{}}
 	stateDB := newNativeStateDB(NewMemoryState())
-	evm := vm.NewEVM(EVMBlockContext(blockContext(big.NewInt(testChainID))), stateDB, params.AllDevChainProtocolChanges, vm.Config{}, nil)
+	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(blockContext(big.NewInt(testChainID))), stateDB, params.AllDevChainProtocolChanges, vm.Config{}, nil)
 	stateDB.SetEVM(evm)
 	input := make([]byte, maxPrecompileInput+1)
 	input[0] = 7

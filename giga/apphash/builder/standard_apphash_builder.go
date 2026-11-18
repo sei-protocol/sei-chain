@@ -140,6 +140,8 @@ func NewStandardAppHashBuilder(
 	config AppHashBuilderConfig,
 	hashVault vault.HashVault,
 ) (*StandardAppHashBuilder, error) {
+	start := time.Now()
+	logger.Info("Opening the app hash builder")
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid app hash builder config: %w", err)
 	}
@@ -169,6 +171,7 @@ func NewStandardAppHashBuilder(
 		pendingBlocks:          make(map[uint64]*pendingBlock),
 	}
 	b.wg.Go(b.run)
+	logger.Info("Opened the app hash builder", "elapsed", time.Since(start))
 	return b, nil
 }
 
@@ -219,6 +222,8 @@ func (b *StandardAppHashBuilder) ReportReceiptHash(
 }
 
 func (b *StandardAppHashBuilder) SetupComplete(ctx context.Context, blockHeight uint64) error {
+	start := time.Now()
+	logger.Info("Completing the app hash builder setup", "height", blockHeight)
 	reply := make(chan callResult[struct{}], 1)
 	if err := b.submit(ctx, setupCompleteRequest{blockHeight: blockHeight, reply: reply}); err != nil {
 		return fmt.Errorf("failed to complete app hash builder setup at block %d: %w", blockHeight, err)
@@ -226,6 +231,7 @@ func (b *StandardAppHashBuilder) SetupComplete(ctx context.Context, blockHeight 
 	if _, err := awaitReply(ctx, b, reply); err != nil {
 		return fmt.Errorf("failed to complete app hash builder setup at block %d: %w", blockHeight, err)
 	}
+	logger.Info("Completed the app hash builder setup", "height", blockHeight, "elapsed", time.Since(start))
 	return nil
 }
 
@@ -559,8 +565,11 @@ func (b *StandardAppHashBuilder) compareStoredInput(
 	if err != nil {
 		return fmt.Errorf("failed to read the stored record of block %d: %w", blockHeight, err)
 	}
-	if storedValue := input.of(stored); storedValue != value {
-		b.panicOnMismatch(blockHeight, input.String(), storedValue, value)
+	// A restore anchor holds no inputs, so, as for a pruned record, there is nothing to compare against.
+	if !stored.IsRestoreAnchor() {
+		if storedValue := input.of(stored); storedValue != value {
+			b.panicOnMismatch(blockHeight, input.String(), storedValue, value)
+		}
 	}
 	if blockHeight == b.vaultHighest {
 		err := tracker.storedRecordIterator.Close()

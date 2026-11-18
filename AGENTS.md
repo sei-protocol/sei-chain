@@ -1,7 +1,7 @@
 # Sei Chain
 
 `github.com/sei-protocol/sei-chain` is a Cosmos SDK / Tendermint blockchain with
-a native EVM. It targets **Go 1.27.3**.
+a native EVM. It targets **Go 1.27.4**.
 
 ## Nested guides
 
@@ -34,7 +34,7 @@ rather than skipping the row or widening the assertion until it passes.
 
 ## Upgrade names
 
-Appending a name to `app/tags` moves the upgrade boundary this build ships, and
+Appending a name to `app/upgradenames/tags` moves the upgrade boundary this build ships, and
 `upgradetest` derives from that list which test set CI runs. The move fails
 `TestCurrentBoundaryHasATestFile` until a file for the new boundary exists, and
 that failure is the review prompt: state what the upgrade changes and what it may
@@ -169,7 +169,7 @@ go test ./<pkg>/...             # only for packages that touch no on-disk resour
 
 CI mirrors these checks: `.github/workflows/golangci.yml` runs golangci-lint
 v2.14.0 followed by `golangci-lint fmt --diff`, and `.github/workflows/go-test.yml`
-runs `go test -race` on Go 1.27.3.
+runs `go test -race` on Go 1.27.4.
 
 ### Running tests on a RAM disk
 

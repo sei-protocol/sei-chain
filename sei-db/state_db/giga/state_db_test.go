@@ -3,21 +3,17 @@ package giga
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
-	"github.com/sei-protocol/sei-chain/sei-db/config"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
@@ -82,15 +78,6 @@ func changeset(key string, value string) *gigatypes.StateChangeSet {
 	}
 }
 
-// drainSSFeeder hands every block db has queued for its EVM state store to the store, and waits until the store
-// has applied them. db hands the store no further blocks.
-func drainSSFeeder(t *testing.T, db *StateDB) {
-	t.Helper()
-	require.NoError(t, db.ssFeeder.Close())
-	db.ssFeeder = nil
-	db.ss.WaitForPendingWrites()
-}
-
 // commitToLiveStateDB commits cs to the live state DB as block, converted to mutations as the state DB converts
 // a block it commits.
 func commitToLiveStateDB(
@@ -128,29 +115,6 @@ func TestCommitStateChangesReachesWALAndLiveStateDB(t *testing.T) {
 	value, found := liveStateDB.Get(testModule, []byte("key"))
 	require.True(t, found, "the committed key must be readable from the live state DB")
 	require.Equal(t, []byte("value"), value)
-}
-
-// The EVM state store is a layer of the same fan-out: a commit that reaches WAL and SC but not SS
-// leaves historical EVM reads a block behind with every block.
-func TestCommitStateChangesReachesTheEVMStateStore(t *testing.T) {
-	testDB, _, _ := newTestStateDB(t)
-	stateDB := testDB.(*StateDB)
-	ss, err := evm.NewEVMStateStore(t.TempDir(), config.DefaultStateStoreConfig())
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, ss.Close()) })
-	stateDB.ss = ss
-	stateDB.ssFeeder = newLegacySSFeeder(ss)
-
-	key := nonceKey(common.Address{})
-	value := nonceValue(1)
-	require.NoError(t, stateDB.CommitStateChanges(1, nonceChanges(common.Address{}, 0, 1)))
-	// The commit hands SS its block asynchronously and does not wait, so the read does.
-	drainSSFeeder(t, stateDB)
-
-	require.Equal(t, int64(1), ss.GetLatestVersion())
-	got, err := ss.Get(evm.EVMStoreKey, 1, key)
-	require.NoError(t, err)
-	require.Equal(t, value, got)
 }
 
 // A block that could not be written to every layer is not committed. The caller has to learn that from
@@ -226,30 +190,4 @@ func TestOpenViewAtServesNoHeightWithoutAStateStore(t *testing.T) {
 	view, ok := stateDB.OpenViewAt(5)
 	require.False(t, ok)
 	require.Nil(t, view)
-}
-
-// A view over the pebbledb state store pins nothing, so once its height is pruned a read fails rather
-// than reporting every key absent.
-func TestSSViewFailsReadsOnceItsHeightIsPruned(t *testing.T) {
-	ssCfg := config.DefaultStateStoreConfig()
-	ssCfg.Enable = true
-	ssCfg.EVMDBDirectory = filepath.Join(t.TempDir(), "ss")
-	ssCfg.ExternalPruning = true
-	db, err := NewStateDB(t.Context(), flatkvconfig.DefaultTestConfig(t), ssCfg,
-		config.CheckpointConfig{BlockInterval: 1_000}, newDiscardingBUDHasher(t))
-	require.NoError(t, err)
-	defer func() { require.NoError(t, db.Close()) }()
-	addr := common.Address{1}
-	for height := uint64(1); height <= 3; height++ {
-		//nolint:gosec // small test heights
-		require.NoError(t, db.CommitStateChanges(int64(height), nonceChanges(addr, height-1, height)))
-	}
-	drainSSFeeder(t, db)
-
-	view, ok := db.OpenViewAt(1)
-	require.True(t, ok)
-	defer view.Close()
-	require.Equal(t, uint64(1), view.GetNonce(addr))
-	require.NoError(t, db.SS().PruneHistory(3))
-	require.Panics(t, func() { view.GetNonce(addr) })
 }

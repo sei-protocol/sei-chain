@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"math"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -55,9 +57,20 @@ func validAutobahnFileConfig() AutobahnFileConfig {
 		MaxTxsPerBlock: 1,
 		BlockInterval:  utils.Duration(time.Second),
 		DialInterval:   utils.Duration(time.Second),
+		EVMChainID:     713700,
 
 		PersistentStateDir: "autobahn",
 	}
+}
+
+func TestAutobahnFileConfig_EVMChainID(t *testing.T) {
+	fc := validAutobahnFileConfig()
+	require.NoError(t, json.Unmarshal([]byte(`{"evm_chain_id":713701}`), &fc))
+	require.Equal(t, uint64(713701), fc.EVMChainID)
+	require.NoError(t, fc.Validate())
+
+	fc.EVMChainID = 0
+	require.Error(t, fc.Validate())
 }
 
 func TestAutobahnFileConfig_ValidateMaxConcurrentCheckTx(t *testing.T) {
@@ -124,6 +137,16 @@ func TestAutobahnFileConfig_ValidateEVMGovernance(t *testing.T) {
 			g.Params.VotingPeriod = 0
 			fc.EVMGovernance = utils.Some(g)
 		},
+		"repeated applied upgrade": func(fc *AutobahnFileConfig) {
+			g, _ := fc.EVMGovernance.Get()
+			g.AppliedUpgrades = []string{"v6.7", "v6.8", "v6.7"}
+			fc.EVMGovernance = utils.Some(g)
+		},
+		"empty applied upgrade": func(fc *AutobahnFileConfig) {
+			g, _ := fc.EVMGovernance.Get()
+			g.AppliedUpgrades = []string{""}
+			fc.EVMGovernance = utils.Some(g)
+		},
 		"negative period": func(fc *AutobahnFileConfig) {
 			g, _ := fc.EVMGovernance.Get()
 			g.Params.MaxDepositPeriod = utils.Duration(-time.Hour)
@@ -167,4 +190,23 @@ func TestEVMGovernanceParams_PeriodsAreDurationStrings(t *testing.T) {
 	got, err := NewEVMGovernanceParams(want).Gov()
 	require.NoError(t, err)
 	require.Equal(t, want, got)
+}
+
+func TestAutobahnFileConfig_EVMAllocJSON(t *testing.T) {
+	plain := validAutobahnFileConfig()
+	require.False(t, plain.EVMGenesisAlloc().IsPresent())
+	encoded, err := json.Marshal(plain)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "evm_alloc")
+
+	addr := common.HexToAddress("0xa1")
+	var got AutobahnFileConfig
+	require.NoError(t, json.Unmarshal([]byte(`{"evm_alloc":{"`+addr.Hex()+`":"0xde0b6b3a7640000"}}`), &got))
+	alloc, ok := got.EVMGenesisAlloc().Get()
+	require.True(t, ok)
+	require.Equal(t, map[common.Address]*uint256.Int{addr: uint256.NewInt(1_000_000_000_000_000_000)}, alloc)
+
+	for _, balance := range []string{`"-0x1"`, `"0x1` + strings.Repeat("0", 64) + `"`, `1`} {
+		require.Error(t, json.Unmarshal([]byte(`{"evm_alloc":{"`+addr.Hex()+`":`+balance+`}}`), &got), balance)
+	}
 }

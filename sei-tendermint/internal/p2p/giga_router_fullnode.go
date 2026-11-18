@@ -22,24 +22,22 @@ type gigaFullnodeRouter struct {
 // NewGigaFullnodeRouter constructs a fullnode GigaRouter over an already-built
 // data.State. The caller owns the BlockDB that backs dataState (see BuildDataState).
 func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataState *data.State) (*gigaFullnodeRouter, error) {
-	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
+	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers, "persistent_peers", len(cfg.PersistentPeerIDs))
 	return &gigaFullnodeRouter{
 		gigaRouterCommon: &gigaRouterCommon{
-			cfg:                cfg,
-			key:                key,
-			data:               dataState,
-			nextCommitEpoch:    dataState.NextCommitEpoch(),
-			anchor:             dataState.Anchor(),
-			service:            giga.NewFullNodeService(dataState),
-			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
-			poolInCommittee:    giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
-			poolOut:            giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
-			proxies:            utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
-			app:                cfg.App,
-			liveAddrs:          utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
-			liveAddrVersion:    utils.NewAtomicSend(uint64(0)),
-			executed:           utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: utils.Clamp[atypes.RoadIndex](cfg.App.LastBlockHeight())})),
-			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
+			cfg:                  cfg,
+			key:                  key,
+			data:                 dataState,
+			service:              giga.NewFullNodeService(dataState),
+			poolIn:               giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
+			poolInCommittee:      giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
+			poolOut:              giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
+			proxies:              utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
+			app:                  cfg.App,
+			liveAddrs:            utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
+			liveAddrVersion:      utils.NewAtomicSend(uint64(0)),
+			inboundFullnodeCount: utils.NewMutex(new(int64)),
+			inboundFullnodeCap:   int64(cfg.MaxInboundFullnodePeers),
 		},
 	}, nil
 }
@@ -59,10 +57,10 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 		// the whole committee.
 		s.Spawn(func() error { return r.runFullnodeSubscriber(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
-		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
+		s.SpawnNamed("pushAppHashes", func() error { return r.runPushAppHashes(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		s.SpawnNamed("committeeMembers", func() error {
-			return r.runPerCommitteeMember(ctx, r.runEvmProxy)
+			return r.runPerCommitteeMember(ctx, true, r.runEvmProxy)
 		})
 		return nil
 	})
@@ -75,7 +73,7 @@ func (r *gigaFullnodeRouter) EvmProxyEnabled() bool { return true }
 // EvmProxy on the fullnode always returns the shard owner's EVM RPC client.
 // EnableEvmProxy is a no-op here because fullnodes do not have a local mempool.
 func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
-	return r.evmProxy(r.nextCommitEpoch.Load().Committee().EvmShard(sender))
+	return r.evmProxy(r.data.Anchor().Load().NextIndexEpoch().Committee().EvmShard(sender))
 }
 
 // runFullnodeSubscriber: pick a committee member, dial + block-sync,
@@ -92,7 +90,7 @@ func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrp
 // near-tip node."
 func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 	for {
-		ep := r.nextCommitEpoch.Load()
+		ep := r.data.Anchor().Load().NextIndexEpoch()
 		var validators []atypes.PublicKey
 		for lane := range ep.Committee().Lanes().All() {
 			if _, ok := r.cfg.ValidatorAddrs[lane.Validator]; ok {
@@ -111,11 +109,11 @@ func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 		// instead of all moving to a new ring at once.
 		rand.Shuffle(len(validators), func(i, j int) { validators[i], validators[j] = validators[j], validators[i] })
 		for _, validator := range validators {
-			if !r.nextCommitEpoch.Load().Committee().Equal(snap) {
+			if !r.data.Anchor().Load().NextIndexEpoch().Committee().Equal(snap) {
 				break
 			}
 			addr := r.cfg.ValidatorAddrs[validator]
-			left, err := r.runUntilMembershipChange(ctx, validator, func(ctx context.Context) error {
+			left, err := r.runUntilMembershipChange(ctx, validator, true, func(ctx context.Context) error {
 				return r.dialAndRunConn(ctx, validator, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
 					// Consensus PublicKey (committee member), not GigaNodeAddr.Key (p2p NodePublicKey).
 					return r.service.RunClient(ctx, client, validator, true)

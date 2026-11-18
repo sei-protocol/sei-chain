@@ -1,4 +1,4 @@
-const { setupSigners, fundAddress} = require("./lib.js");
+const { setupSigners, fundAddress, EVM_RPC_URL, EVM_WS_URL } = require("./lib.js");
 const { createWalletClient, http, parseEther, defineChain } = require('viem');
 const { privateKeyToAccount } = require('viem/accounts');
 const { ethers } = require("hardhat");
@@ -16,8 +16,8 @@ const seilocal = (id) => defineChain({
   },
   rpcUrls: {
     default: {
-      http: ['http://localhost:8545'],
-      webSocket: ['ws://localhost:8546'],
+      http: [EVM_RPC_URL],
+      webSocket: [EVM_WS_URL],
     },
   },
 });

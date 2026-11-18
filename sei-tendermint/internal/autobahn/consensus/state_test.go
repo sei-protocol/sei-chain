@@ -3,9 +3,12 @@ package consensus
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"testing"
 	"time"
+
+	"golang.org/x/time/rate"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -33,11 +36,12 @@ type testKeyPick = func(*epoch.Registry, []types.SecretKey) types.SecretKey
 
 // newTestState returns a State with no persistence and an hour view timeout.
 // keys[0] is the node's signing key.
-func newTestState(rng utils.Rng) (*State, []types.SecretKey, *epoch.Registry) {
-	return newTestStateWith(rng, utils.None[testKeyPick](), utils.None[ViewTimeoutFunc]())
+func newTestState(t testing.TB, rng utils.Rng) (*State, []types.SecretKey, *epoch.Registry) {
+	return newTestStateWith(t, rng, utils.None[testKeyPick](), utils.None[ViewTimeoutFunc]())
 }
 
 func newTestStateWith(
+	t testing.TB,
 	rng utils.Rng,
 	pick utils.Option[testKeyPick],
 	timeout utils.Option[ViewTimeoutFunc],
@@ -51,8 +55,9 @@ func newTestStateWith(
 		Key:                key,
 		ViewTimeout:        timeout.Or(hourTimeout),
 		ProposalTimeout:    time.Hour,
+		MaxRate:            rate.Inf,
 		PersistentStateDir: utils.None[string](),
-	}, newTestDataState(registry)))
+	}, newTestDataState(t, registry)))
 	return s, keys, registry
 }
 
@@ -119,7 +124,7 @@ func newLiveEnvWith(
 	timeout utils.Option[ViewTimeoutFunc],
 ) liveEnv {
 	t.Helper()
-	s, keys, reg := newTestStateWith(rng, pick, timeout)
+	s, keys, reg := newTestStateWith(t, rng, pick, timeout)
 	return liveEnv{t: t, rng: rng, s: s, keys: keys, reg: reg, vs: s.myView.Load()}
 }
 
@@ -221,7 +226,7 @@ func (e liveEnv) enterEpoch1(ctx context.Context) error {
 	for i, k := range e.keys {
 		votes[i] = types.Sign(k, types.NewCommitVote(prepareQC))
 	}
-	if err := e.s.pushSpec(types.ConsensusSpec{
+	if err := e.s.pushSpec(ctx, types.ConsensusSpec{
 		CommitQC: utils.Some(types.NewCommitQC(votes)),
 		Epoch:    e.reg.MustEpoch(1),
 	}); err != nil {
@@ -241,8 +246,9 @@ func TestNewStateRejectsNonPositiveProposalTimeout(t *testing.T) {
 			Key:                keys[0],
 			ViewTimeout:        hourTimeout,
 			ProposalTimeout:    timeout,
+			MaxRate:            rate.Inf,
 			PersistentStateDir: utils.None[string](),
-		}, newTestDataState(registry))
+		}, newTestDataState(t, registry))
 		require.Error(t, err)
 	}
 }
@@ -454,7 +460,7 @@ func TestOccupiedInner(t *testing.T) {
 		e := newLiveEnv(t, utils.TestRng())
 		e.occupyBusy()
 		spec := advancingSpec(e.keys, e.reg)
-		require.NoError(t, e.s.pushSpec(spec))
+		require.NoError(t, e.s.pushSpec(t.Context(), spec))
 
 		i := e.inner()
 		require.Equal(t, spec.Index(), i.Index)
@@ -468,7 +474,7 @@ func TestOccupiedInner(t *testing.T) {
 		before, ok := e.inner().PrepareVote.Get()
 		require.True(t, ok)
 
-		require.NoError(t, e.s.pushSpec(e.inner().spec))
+		require.NoError(t, e.s.pushSpec(t.Context(), e.inner().spec))
 		got, ok := e.inner().PrepareVote.Get()
 		require.True(t, ok)
 		require.Equal(t, before, got)
@@ -971,7 +977,7 @@ func TestRun(t *testing.T) {
 					return err
 				}
 			}
-			_, err = e.s.Avail().SubscribeConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
+			_, err = e.s.Avail().ConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
 				return sp.Index() > e.vs.View().Index
 			})
 			return err
@@ -1002,7 +1008,7 @@ func TestRun(t *testing.T) {
 
 func TestVoteTimeoutPrepareQC_BothNone(t *testing.T) {
 	rng := utils.TestRng()
-	s, _, registry := newTestState(rng)
+	s, _, registry := newTestState(t, rng)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
@@ -1024,7 +1030,7 @@ func TestVoteTimeoutPrepareQC_BothNone(t *testing.T) {
 
 func TestVoteTimeoutPrepareQC_OnlyCurrentView(t *testing.T) {
 	rng := utils.TestRng()
-	s, keys, registry := newTestState(rng)
+	s, keys, registry := newTestState(t, rng)
 	ep0 := registry.MustEpoch(0)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
@@ -1053,7 +1059,7 @@ func TestVoteTimeoutPrepareQC_OnlyCurrentView(t *testing.T) {
 // consecutive timeouts with an offline leader must not lose the PrepareQC.
 func TestVoteTimeoutPrepareQC_InheritedFromTimeoutQC(t *testing.T) {
 	rng := utils.TestRng()
-	s, keys, registry := newTestState(rng)
+	s, keys, registry := newTestState(t, rng)
 	ep0 := registry.MustEpoch(0)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
@@ -1111,7 +1117,7 @@ func TestVoteTimeoutPrepareQC_InheritedFromTimeoutQC(t *testing.T) {
 // view's PrepareQC is preferred over the older inherited one.
 func TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited(t *testing.T) {
 	rng := utils.TestRng()
-	s, keys, registry := newTestState(rng)
+	s, keys, registry := newTestState(t, rng)
 	ep0 := registry.MustEpoch(0)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
@@ -1162,7 +1168,7 @@ func TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited(t *testing.T) {
 // the current view's PrepareQC is used.
 func TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone(t *testing.T) {
 	rng := utils.TestRng()
-	s, keys, registry := newTestState(rng)
+	s, keys, registry := newTestState(t, rng)
 	ep0 := registry.MustEpoch(0)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
@@ -1215,10 +1221,11 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 			Key:                keys[0],
 			ViewTimeout:        func(types.View) time.Duration { return time.Hour },
 			ProposalTimeout:    time.Hour,
+			MaxRate:            rate.Inf,
 			PersistentStateDir: utils.Some(dir),
 		}
 	}
-	makeDataState := func() *data.State { return newTestDataState(registry) }
+	makeDataState := func() *data.State { return newTestDataState(t, registry) }
 
 	view0 := types.View{Index: ep0.RoadRange().First, Number: 0}
 	pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, ep0, view0))
@@ -1281,7 +1288,7 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 
 func TestPushTimeoutQC_CountsLeaderTimeout(t *testing.T) {
 	rng := utils.TestRng()
-	s, keys, registry := newTestState(rng)
+	s, keys, registry := newTestState(t, rng)
 	ep0 := registry.MustEpoch(0)
 	view := types.View{Index: ep0.RoadRange().First, Number: 0}
 	leader := ep0.Committee().Leader(view).ED25519().Address().String()
@@ -1312,7 +1319,7 @@ func TestVoteTimeout_RecordsPhases(t *testing.T) {
 		return gathered(t, "tendermint_internal_autobahn_consensus_timeout_votes", map[string]string{"leader": leader, "phase": phase})
 	}
 
-	s, keys, registry := newTestState(rng)
+	s, keys, registry := newTestState(t, rng)
 	ep0 := registry.MustEpoch(0)
 	view := types.View{Index: ep0.RoadRange().First, Number: 0}
 	leader := ep0.Committee().Leader(view).ED25519().Address().String()
@@ -1324,7 +1331,7 @@ func TestVoteTimeout_RecordsPhases(t *testing.T) {
 	require.NoError(t, s.voteTimeout(t.Context(), view))
 	require.Equal(t, noProposal+1, phaseCount(t, leader, "no_proposal"))
 
-	s, keys, registry = newTestState(rng)
+	s, keys, registry = newTestState(t, rng)
 	ep0 = registry.MustEpoch(0)
 	view = types.View{Index: ep0.RoadRange().First}
 	proposal = types.GenProposalForEpoch(rng, ep0, view)
@@ -1338,7 +1345,7 @@ func TestVoteTimeout_RecordsPhases(t *testing.T) {
 	require.NoError(t, s.voteTimeout(t.Context(), view))
 	require.Equal(t, noPrepareQC+1, phaseCount(t, leader, "no_prepare_qc"))
 
-	s, keys, registry = newTestState(rng)
+	s, keys, registry = newTestState(t, rng)
 	ep0 = registry.MustEpoch(0)
 	view = types.View{Index: ep0.RoadRange().First}
 	proposal = types.GenProposalForEpoch(rng, ep0, view)
@@ -1384,4 +1391,17 @@ func gathered(t *testing.T, name string, labels map[string]string) int64 {
 		return 0
 	}
 	return 0
+}
+
+func TestNewStateRejectsInvalidMaxRate(t *testing.T) {
+	for _, limit := range []rate.Limit{0, -1, rate.Limit(math.NaN()), rate.Limit(math.Inf(1))} {
+		t.Run(fmt.Sprint(limit), func(t *testing.T) {
+			rng := utils.TestRng()
+			registry, keys := epoch.GenRegistry(rng, 3)
+			_, err := NewState(&Config{
+				Key: keys[0], ViewTimeout: hourTimeout, ProposalTimeout: time.Hour, MaxRate: limit,
+			}, newTestDataState(t, registry))
+			require.Error(t, err)
+		})
+	}
 }

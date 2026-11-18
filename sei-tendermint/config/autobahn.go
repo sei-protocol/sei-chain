@@ -7,10 +7,13 @@ import (
 	"math/big"
 	"net/url"
 
-	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -55,6 +58,9 @@ type EVMGovernance struct {
 	// StartingProposalID is the id of the first proposal, so ids continue
 	// past another chain's. Zero means 1.
 	StartingProposalID uint64 `json:"starting_proposal_id,omitzero"`
+	// AppliedUpgrades are the upgrade names the chain starts past, in order;
+	// the last is the upgrade applied last. A plan cannot reuse one.
+	AppliedUpgrades []string `json:"applied_upgrades,omitzero"`
 }
 
 // EVMGovernanceParams are gov's genesis params. Periods are duration strings
@@ -130,18 +136,18 @@ func (p EVMGovernanceParams) Gov() (gov.Params, error) {
 // Autobahn always roots BlockDB at <persistent_state_dir>/blockdb.
 //
 // Each field is independently optional. Absent fields keep whatever
-// littblock.DefaultConfig currently uses (do not duplicate those values here —
-// they live in the littblock / LittDB packages and may change).
+// blockstore.DefaultConfig currently uses (do not duplicate those values here —
+// they live in the blockstore / LittDB packages and may change).
 //
 // Disk impact (most → least useful for bounding usage): Retention, then
 // GCPeriod. Segment sizing is intentionally not exposed (engine-internal).
 type AutobahnBlockDBConfig struct {
 	// Retention is the failsafe minimum age before pruned records may be
 	// reclaimed. Primary knob for worst-case disk after PruneBefore advances.
-	// Absent ⇒ littblock.DefaultConfig Retention.
+	// Absent ⇒ blockstore.DefaultConfig Retention.
 	Retention utils.Option[utils.Duration] `json:"retention"`
 	// GCPeriod is how often GC runs once data is eligible (reclaim latency).
-	// Absent ⇒ littblock.DefaultConfig / LittDB GCPeriod.
+	// Absent ⇒ blockstore.DefaultConfig / LittDB GCPeriod.
 	GCPeriod utils.Option[utils.Duration] `json:"gc_period"`
 }
 
@@ -162,7 +168,8 @@ type AutobahnFileConfig struct {
 	// MaxInboundFullnodePeers caps concurrent inbound block-sync from
 	// non-committee peers, applied on both validators and fullnodes (relay
 	// fullnodes serving downstream block-sync are subject to the same
-	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject all.
+	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject every
+	// inbound fullnode that is neither in p2p.persistent-peers nor in p2p.blocksync-peers.
 	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers,omitzero"`
 	// MaxConcurrentCheckTx caps the number of CheckTx calls the local mempool
 	// runs concurrently for incoming broadcast_tx requests, so that ingest
@@ -176,8 +183,8 @@ type AutobahnFileConfig struct {
 	// Useful for loadtesting (to compare enabled/disabled performance).
 	// Defaults to true.
 	EnableEvmProxy utils.Option[bool] `json:"enable_evm_proxy,omitzero"`
-	// BlockDB optionally overlays AutobahnBlockDBConfig onto littblock.DefaultConfig.
-	// Zero value ⇒ littblock.DefaultConfig unchanged (see AutobahnBlockDBConfig
+	// BlockDB optionally overlays AutobahnBlockDBConfig onto blockstore.DefaultConfig.
+	// Zero value ⇒ blockstore.DefaultConfig unchanged (see AutobahnBlockDBConfig
 	// for field semantics). Omitted from JSON when empty.
 	BlockDB AutobahnBlockDBConfig `json:"block_db,omitzero"`
 	// EVMGovernance enables the EVM-only gov precompile, voted on by the
@@ -185,20 +192,38 @@ type AutobahnFileConfig struct {
 	// start and kept nowhere else, so this section and every evm_voter must be
 	// identical on every node; a node that differs forks at its next tally.
 	EVMGovernance utils.Option[EVMGovernance] `json:"evm_governance,omitzero"`
+	// EVMAlloc, when set, is the wei each EVM account holds at the chain's
+	// initial height, and every other account starts empty. Absent ⇒ every
+	// account the state holds nothing for has 2^200 wei. Set it only in a new
+	// chain's genesis and identically on every node; a node refuses to resume
+	// a chain that started with any other alloc, or without one.
+	EVMAlloc utils.Option[map[common.Address]hexutil.U256] `json:"evm_alloc,omitzero"`
+	// EVMChainID is the EIP-155 chain ID the EVM-only executor signs and
+	// serves. Required, and identical on every node; a node refuses to resume
+	// a chain that ran on any other ID.
+	EVMChainID uint64 `json:"evm_chain_id"`
 }
 
-// AutobahnEVMOnlyChainID is the chain ID of the Autobahn EVM-only executor.
-const AutobahnEVMOnlyChainID uint64 = 713715
+// EVMGenesisAlloc returns the balances EVMAlloc sets, or None when it is absent.
+func (fc *AutobahnFileConfig) EVMGenesisAlloc() utils.Option[map[common.Address]*uint256.Int] {
+	alloc, ok := fc.EVMAlloc.Get()
+	if !ok {
+		return utils.None[map[common.Address]*uint256.Int]()
+	}
+	balances := make(map[common.Address]*uint256.Int, len(alloc))
+	for addr, balance := range alloc {
+		balances[addr] = new(uint256.Int).Set((*uint256.Int)(&balance))
+	}
+	return utils.Some(balances)
+}
 
 func (c *AutobahnFileConfig) GetEnableEvmProxy() bool {
 	return c.EnableEvmProxy.Or(true)
 }
 
 // DefaultMaxInboundFullnodePeers is the built-in cap used when
-// AutobahnFileConfig.MaxInboundFullnodePeers is absent.
-//
-// TODO(autobahn-trusted-fullnode-peers): add an optional trusted-peer
-// list whose keys bypass the cap.
+// AutobahnFileConfig.MaxInboundFullnodePeers is absent. Peers in
+// p2p.persistent-peers and p2p.blocksync-peers do not consume it.
 const DefaultMaxInboundFullnodePeers = 10
 
 // Validate performs basic validation of the autobahn file config.
@@ -229,6 +254,9 @@ func (fc *AutobahnFileConfig) Validate() error {
 	if fc.PersistentStateDir == "" {
 		return errors.New("persistent_state_dir must not be empty")
 	}
+	if fc.EVMChainID == 0 {
+		return errors.New("evm_chain_id must be set")
+	}
 	if err := fc.BlockDB.Validate(); err != nil {
 		return fmt.Errorf("block_db: %w", err)
 	}
@@ -238,8 +266,9 @@ func (fc *AutobahnFileConfig) Validate() error {
 	return nil
 }
 
-// validateEVMGovernance checks that evm_governance's params are valid and that
-// every validator has a distinct nonzero evm_voter exactly when it is set.
+// validateEVMGovernance checks evm_governance's params and applied upgrade
+// names, and that every validator has a distinct nonzero evm_voter exactly when
+// evm_governance is set.
 func (fc *AutobahnFileConfig) validateEVMGovernance() error {
 	governance, enabled := fc.EVMGovernance.Get()
 	if !enabled {
@@ -252,6 +281,9 @@ func (fc *AutobahnFileConfig) validateEVMGovernance() error {
 	}
 	if _, err := governance.Params.Gov(); err != nil {
 		return err
+	}
+	if err := upgrade.CheckGenesisNames(governance.AppliedUpgrades); err != nil {
+		return fmt.Errorf("applied_upgrades: %w", err)
 	}
 	voters := make(map[common.Address]bool, len(fc.Validators))
 	for _, v := range fc.Validators {
@@ -281,15 +313,15 @@ func (c AutobahnBlockDBConfig) Validate() error {
 	return nil
 }
 
-// LittBlockConfig returns littblock.DefaultConfig(dir) with this config's
+// LittBlockConfig returns blockstore.DefaultConfig(dir) with this config's
 // optional overrides applied. Fsync is always forced on.
-func (c AutobahnBlockDBConfig) LittBlockConfig(dir string) (littblock.BlockDBConfig, error) {
+func (c AutobahnBlockDBConfig) LittBlockConfig(dir string) (blockstore.Config, error) {
 	if err := c.Validate(); err != nil {
-		return littblock.BlockDBConfig{}, err
+		return blockstore.Config{}, err
 	}
-	cfg, err := littblock.DefaultConfig(dir)
+	cfg, err := blockstore.DefaultConfig(dir)
 	if err != nil {
-		return littblock.BlockDBConfig{}, fmt.Errorf("littblock.DefaultConfig: %w", err)
+		return blockstore.Config{}, fmt.Errorf("blockstore.DefaultConfig: %w", err)
 	}
 	if r, ok := c.Retention.Get(); ok {
 		cfg.RetentionTime = r.Duration()
