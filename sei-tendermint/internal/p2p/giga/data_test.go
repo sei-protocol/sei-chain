@@ -173,34 +173,31 @@ func TestDataClientServer(t *testing.T) {
 	}
 }
 
-// runFullCommitQCClient runs the FullCommitQC stream client of node against a server that sends qcs in order
-// and then closes the stream. It returns the error that ends the client.
-func runFullCommitQCClient(ctx context.Context, node *testNode, qcs []*types.FullCommitQC) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		// An in-memory link, with the fake server on one end and the node's client on the other.
-		serverConn, clientConn := conn.NewTestConn()
-		server := rpc.NewServer[API]()
-		client := rpc.NewClient[API]()
-		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, server.Run(ctx, serverConn)) })
-		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, client.Run(ctx, clientConn)) })
-		s.SpawnBg(func() error {
-			return utils.IgnoreAfterCancel(ctx, StreamFullCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.FullCommitQC, *pb.StreamFullCommitQCsReq]) error {
-				if _, err := stream.Recv(ctx); err != nil {
-					return fmt.Errorf("stream.Recv(): %w", err)
-				}
-				// Sent exactly as given. Unlike a real server, this one ignores the requested index and may send QCs out of order.
-				for _, qc := range qcs {
-					if err := stream.Send(ctx, types.FullCommitQCConv.Encode(qc)); err != nil {
-						return fmt.Errorf("stream.Send(): %w", err)
-					}
-				}
-				// Returning closes the stream, so the client ends with ErrRemoteClosed instead of waiting for more QCs.
-				return nil
-			}))
-		})
-		// The real client code under test. Its error is the result of this helper.
-		return node.service.clientStreamFullCommitQCs(ctx, client)
-	})
+// startTestLink returns the server end and the client end of an in-memory link and runs both ends in s.
+func startTestLink(ctx context.Context, s scope.Scope) (rpc.Server[API], rpc.Client[API]) {
+	serverConn, clientConn := conn.NewTestConn()
+	server := rpc.NewServer[API]()
+	client := rpc.NewClient[API]()
+	s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, server.Run(ctx, serverConn)) })
+	s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, client.Run(ctx, clientConn)) })
+	return server, client
+}
+
+// serveFullCommitQCs serves one FullCommitQC stream on server. It reads the request, sends qcs exactly as given,
+// and closes the stream. Unlike a real server, it ignores the requested index and may send QCs out of order.
+func serveFullCommitQCs(ctx context.Context, server rpc.Server[API], qcs []*types.FullCommitQC) error {
+	return utils.IgnoreAfterCancel(ctx, StreamFullCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.FullCommitQC, *pb.StreamFullCommitQCsReq]) error {
+		if _, err := stream.Recv(ctx); err != nil {
+			return fmt.Errorf("stream.Recv(): %w", err)
+		}
+		for _, qc := range qcs {
+			if err := stream.Send(ctx, types.FullCommitQCConv.Encode(qc)); err != nil {
+				return fmt.Errorf("stream.Send(): %w", err)
+			}
+		}
+		// Returning closes the stream, so the client ends with ErrRemoteClosed instead of waiting for more QCs.
+		return nil
+	}))
 }
 
 // testQCChain returns n consecutive FullCommitQCs of ep, starting at its first road index,
@@ -230,11 +227,14 @@ func TestFullCommitQCStreamAcceptsSkippedIndexes(t *testing.T) {
 	require.NoError(t, node.data.PushPartialBlock(ctx, qcs[0], nil))
 	ok := fetchCount(resFullCommitQC, "ok")
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		// Another peer fills the index that the stream skips. The push waits until qcs[2] is stored.
-		s.Spawn(func() error { return node.data.PushPartialBlock(ctx, qcs[3], nil) })
+		server, client := startTestLink(ctx, s)
 		// The server sends qcs[1], the requested index, then qcs[2], the next index,
 		// then qcs[4], which skips qcs[3].
-		return runFullCommitQCClient(ctx, node, []*types.FullCommitQC{qcs[1], qcs[2], qcs[4]})
+		s.SpawnBg(func() error { return serveFullCommitQCs(ctx, server, []*types.FullCommitQC{qcs[1], qcs[2], qcs[4]}) })
+		// Another peer fills the index that the stream skips. The push waits until qcs[2] is stored.
+		s.Spawn(func() error { return node.data.PushPartialBlock(ctx, qcs[3], nil) })
+		// The client under test.
+		return node.service.clientStreamFullCommitQCs(ctx, client)
 	})
 	// The stream ended because the server closed it, not because the client rejected a QC.
 	require.ErrorIs(t, err, mux.ErrRemoteClosed)
@@ -283,8 +283,14 @@ func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
 			}
 			// The counter is global to the test process, so the check below compares the change, not the value.
 			outOfOrder := fetchCount(resFullCommitQC, "out_of_order")
+			err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+				server, client := startTestLink(ctx, s)
+				s.SpawnBg(func() error { return serveFullCommitQCs(ctx, server, sent) })
+				// The client under test.
+				return node.service.clientStreamFullCommitQCs(ctx, client)
+			})
 			// The client rejects one QC and ends the stream.
-			require.ErrorIs(t, runFullCommitQCClient(ctx, node, sent), types.ErrUnexpectedIndex)
+			require.ErrorIs(t, err, types.ErrUnexpectedIndex)
 			// The node stored the pushed QCs and the QCs accepted before the reject, and nothing after them.
 			require.Equal(t, qcs[0].Index()+types.RoadIndex(tc.wantStored), node.data.NextQC())
 			// The client counted exactly one reject.
