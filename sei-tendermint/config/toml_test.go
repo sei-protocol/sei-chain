@@ -68,7 +68,6 @@ func checkConfig(t *testing.T, configFile string) {
 		"timeout",
 		"broadcast",
 		"send",
-		"fast-check-tx = false",
 		"mock-app = false",
 		"addr",
 		"wal",
@@ -97,6 +96,12 @@ func checkConfig(t *testing.T, configFile string) {
 		if configContainsKey(configFile, e) {
 			t.Errorf("config file was not expected to contain %s", e)
 		}
+	}
+
+	// The state sync trust period is built into the binary per chain, so the
+	// template must not offer a key for it. See StateSyncTrustPeriod.
+	if configContainsKey(configFile, "trust-period") {
+		t.Errorf("config file was not expected to contain trust-period")
 	}
 
 	// accept-interval is rendered deliberately: an accept rate too low to drain

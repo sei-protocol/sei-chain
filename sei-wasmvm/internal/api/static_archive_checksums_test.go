@@ -25,15 +25,15 @@ func TestStaticArchiveChecksums(t *testing.T) {
 	}{
 		{
 			name: "libwasmvm_muslc.a",
-			want: "2c2d90423e5bebba911b0be7963b09062adb555ecd6149f7cc759a494bb2eda6",
+			want: "fd62da57153d3200140fe07d3c493db06f6c83bf878ef70537a96a8facb753f9",
 		},
 		{
 			name: "libwasmvm_muslc.aarch64.a",
-			want: "409cd9da695d4f1989271230094563c38aa2d867b26908b2ca2082a0d71e3b8e",
+			want: "3079f06a24769c5060dcee3d11d03aedc613fd426a440cde422f83e4c8f17fc5",
 		},
 		{
 			name: "libwasmvmstatic_darwin.a",
-			want: "713d221d712bee043794fc600e093b62e9e878b312f044f548a8852b670451c8",
+			want: "00f891847079544c4e5019da8f60045110ae281ec67bba76a0e50f53229e941b",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

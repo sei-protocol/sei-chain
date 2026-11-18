@@ -9,7 +9,6 @@ import (
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
-	"github.com/spf13/cast"
 )
 
 // TestNodeModeStateStoreOverlayIsDiscarded pins that a node's mode does not reach its state-store
@@ -207,37 +206,26 @@ func TestNewCustomAppConfigKeepsOnlyWhatItIsHanded(t *testing.T) {
 	}
 }
 
-// TestGeneratedAppTOMLLruSizeDisagreesWithTheStruct pins a key two generators disagree about.
+// TestGeneratedAppTOMLCarriesNoWasmSection pins that neither app.toml generator writes a [wasm]
+// section.
 //
-// The app.toml template renders `lru_size = 0` as a bare literal (root.go), and NewCustomAppConfig's
-// WASM struct sets LruSize to 1. A generated file therefore carries 0 while the struct that names the
-// section says 1, and no first-party reader consumes the key at all, so neither value has an effect
-// today.
-//
-// It is worth pinning rather than fixing because the disagreement is what makes it safe to ignore. If
-// a reader is wired later it will resolve 0 from a generated file and 1 from the struct depending on
-// which path it takes, and this assertion is what forces that decision into the open instead of
-// letting one of the two silently become the answer.
-//
-// That no first-party code reads the key was established by inspection and is not asserted here, so
-// the name says what this holds rather than claiming the absence of a reader. Wiring one would leave
-// this row green and correct.
-func TestGeneratedAppTOMLLruSizeDisagreesWithTheStruct(t *testing.T) {
+// The template used to render `lru_size = 0` while NewCustomAppConfig's WASM struct set LruSize to 1,
+// and since no reader consumed the key the two disagreed without effect. Both sides are gone: the
+// template renders no [wasm] keys, and CustomAppConfig, which the app.toml-absent branch of the
+// server config loader unmarshals into, has no field tagged wasm.
+func TestGeneratedAppTOMLCarriesNoWasmSection(t *testing.T) {
 	configtest.Isolate(t)
 	home := configtest.NewHome(t)
 
-	// The struct side, stated here and compared against the constructor.
-	const fromStruct = uint64(1)
-
-	got := NewCustomAppConfig(srvconfig.DefaultConfig(), evmrpcconfig.DefaultConfig)
-	if got.WASM.LruSize != fromStruct {
-		t.Errorf("NewCustomAppConfig now sets wasm.lru_size to %d rather than %d. If that was to "+
-			"match the template, update the template side of this row too", got.WASM.LruSize, fromStruct)
+	structType := reflect.TypeOf(CustomAppConfig{})
+	for i := range structType.NumField() {
+		if field := structType.Field(i); field.Tag.Get("mapstructure") == "wasm" {
+			t.Errorf("CustomAppConfig.%s is tagged wasm, so the struct generator writes a [wasm] "+
+				"section the template does not. Say which keys it carries and what reads them",
+				field.Name)
+		}
 	}
 
-	// The template side, read out of a real generated file rather than restated as a constant. A
-	// constant here would leave the template free to move with this row still green, which is the
-	// defect this suite exists to find.
 	applied := applyLegacy(t, home, nil)
 	if applied.err != nil {
 		t.Fatalf("Apply: %v", applied.err)
@@ -245,28 +233,8 @@ func TestGeneratedAppTOMLLruSizeDisagreesWithTheStruct(t *testing.T) {
 	if !home.Exists("app.toml") {
 		t.Fatal("Apply did not materialize app.toml, so this row is not reading a generated file")
 	}
-	raw := applied.ctx.Viper.Get("wasm.lru_size")
-	if raw == nil {
-		t.Fatal("a generated app.toml no longer carries wasm.lru_size, so the two generators no " +
-			"longer disagree and this row should say what replaced them")
-	}
-	fromTemplate, castErr := cast.ToUint64E(raw)
-	if castErr != nil {
-		t.Fatalf("wasm.lru_size = %#v does not convert to uint64: %v", raw, castErr)
-	}
-
-	// Both sides pinned as literals, not just their inequality. Asserting only that they differ would
-	// leave the template free to render any other value with this row still green, and the doc above
-	// claims it renders 0.
-	//
-	// One assertion rather than two. A separate `fromTemplate == fromStruct` check could only fire on
-	// an input this one already rejects, since agreeing with the struct means differing from 0, so it
-	// would report the same failure twice and never on its own.
-	const templateLiteral = uint64(0)
-	if fromTemplate != templateLiteral {
-		t.Errorf("a generated app.toml renders wasm.lru_size as %d rather than %d. The template "+
-			"literal in root.go moved. If it moved to %d the two generators now agree and this row no "+
-			"longer describes a divergence, which is a fine end state; either way say which value won "+
-			"and whether anything reads the key yet", fromTemplate, templateLiteral, fromStruct)
+	if raw := applied.ctx.Viper.Get("wasm"); raw != nil {
+		t.Errorf("a generated app.toml carries a [wasm] section again (%#v). The template stopped "+
+			"rendering it; say which keys came back and what reads them", raw)
 	}
 }

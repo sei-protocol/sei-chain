@@ -163,6 +163,9 @@ type CommitMultiStore interface {
 	MultiStore
 	snapshottypes.Snapshotter
 
+	// LastCommitVersion returns LastCommitID().Version without hashing the commit info.
+	LastCommitVersion() int64
+
 	// Mount a store of type using the given db.
 	// If db == nil, the new store will use the CommitMultiStore db.
 	MountStoreWithDB(key StoreKey, typ StoreType, db dbm.DB)
@@ -373,10 +376,6 @@ type StoreKey interface {
 	Name() string
 	String() string
 }
-
-// CapabilityKey represent the Cosmos SDK keys for object-capability
-// generation in the IBC protocol as defined in https://github.com/cosmos/ics/tree/master/spec/ics-005-port-allocation#data-structures
-type CapabilityKey StoreKey
 
 // KVStoreKey is used for accessing substores.
 // Only the pointer value should ever be used - it functions as a capabilities key.

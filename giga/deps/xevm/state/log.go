@@ -25,7 +25,7 @@ func (s *DBImpl) GetAllLogs() []*ethtypes.Log {
 	return res
 }
 
-func (s *DBImpl) GetLogs(common.Hash, uint64, common.Hash) []*ethtypes.Log {
+func (s *DBImpl) GetLogs(common.Hash, uint64, common.Hash, uint64) []*ethtypes.Log {
 	return s.GetAllLogs()
 }
 

@@ -43,6 +43,23 @@ var genesisBlockHash = common.HexToHash(genesisBlockHashHex)
 // genesisBlockTxCount is the transaction count for the synthetic genesis block (eth_getBlockTransactionCountByHash/ByNumber for genesis).
 var genesisBlockTxCount = func() *hexutil.Uint { u := hexutil.Uint(0); return &u }()
 
+// isGenesisBlockRequest reports whether number selects the synthetic genesis block:
+// 0x0, or "earliest" while this node still holds the chain's first block.
+func isGenesisBlockRequest(ctx context.Context, tmClient client.LocalClient, number rpc.BlockNumber) (bool, error) {
+	switch number {
+	case 0:
+		return true, nil
+	case rpc.EarliestBlockNumber:
+		earliest, err := earliestBlockHeight(ctx, tmClient)
+		if err != nil {
+			return false, err
+		}
+		return earliest == firstBlockHeight(tmClient), nil
+	default:
+		return false, nil
+	}
+}
+
 func encodeGenesisBlock() map[string]any {
 	return map[string]any{
 		"number":           (*hexutil.Big)(big.NewInt(0)),
@@ -70,28 +87,31 @@ func encodeGenesisBlock() map[string]any {
 }
 
 type BlockAPI struct {
-	tmClient           client.LocalClient
-	keeper             *keeper.Keeper
-	ctxProvider        func(int64) sdk.Context
-	txConfigProvider   func(int64) client.TxConfig
-	connectionType     ConnectionType
-	namespace          string
-	watermarks         *WatermarkManager
-	globalBlockCache   BlockCache
-	cacheCreationMutex *sync.Mutex
+	tmClient    client.LocalClient
+	keeper      *keeper.Keeper
+	ctxProvider func(int64) sdk.Context
+	// gasLimitCtxProvider also loads ConsensusParams, which only block.gasLimit reads.
+	gasLimitCtxProvider func(int64) sdk.Context
+	txConfigProvider    func(int64) client.TxConfig
+	connectionType      ConnectionType
+	namespace           string
+	watermarks          *WatermarkManager
+	globalBlockCache    BlockCache
+	cacheCreationMutex  *sync.Mutex
 }
 
-func NewBlockAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType, watermarks *WatermarkManager, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) *BlockAPI {
+func NewBlockAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, gasLimitCtxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType, watermarks *WatermarkManager, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) *BlockAPI {
 	return &BlockAPI{
-		tmClient:           tmClient,
-		keeper:             k,
-		ctxProvider:        ctxProvider,
-		txConfigProvider:   txConfigProvider,
-		connectionType:     connectionType,
-		namespace:          EthNamespace,
-		watermarks:         watermarks,
-		globalBlockCache:   globalBlockCache,
-		cacheCreationMutex: cacheCreationMutex,
+		tmClient:            tmClient,
+		keeper:              k,
+		ctxProvider:         ctxProvider,
+		gasLimitCtxProvider: gasLimitCtxProvider,
+		txConfigProvider:    txConfigProvider,
+		connectionType:      connectionType,
+		namespace:           EthNamespace,
+		watermarks:          watermarks,
+		globalBlockCache:    globalBlockCache,
+		cacheCreationMutex:  cacheCreationMutex,
 	}
 }
 
@@ -100,7 +120,9 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockTransactionCountByNumber", a.namespace), a.connectionType, startTime, returnErr, recover())
 	}()
-	if number == 0 {
+	if genesis, err := isGenesisBlockRequest(ctx, a.tmClient, number); err != nil {
+		return nil, err
+	} else if genesis {
 		return genesisBlockTxCount, nil
 	}
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
@@ -180,7 +202,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	}
 
 	return readStores(ctx, a.ctxProvider, func(ctxProvider func(int64) sdk.Context) (map[string]any, error) {
-		return EncodeTmBlock(ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, false, a.globalBlockCache, a.cacheCreationMutex)
+		return encodeTmBlock(ctxProvider, withRequestContext(ctx, a.gasLimitCtxProvider), a.txConfigProvider, block, a.keeper, fullTx, false, a.globalBlockCache, a.cacheCreationMutex)
 	})
 }
 
@@ -197,12 +219,17 @@ func (a *BlockAPI) getBlockByNumber(
 	number rpc.BlockNumber,
 	fullTx bool,
 ) (result map[string]any, returnErr error) {
+	// synthetic genesis block, not the Tendermint block at height 0.
+	if genesis, err := isGenesisBlockRequest(ctx, a.tmClient, number); err != nil {
+		return nil, err
+	} else if genesis {
+		return encodeGenesisBlock(), nil
+	}
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
 	}
-	// synthetic genesis block, not the Tendermint block at height 0.
-	if number == 0 || (numberPtr == nil && a.ctxProvider(LatestCtxHeight).BlockHeight() == 0) {
+	if numberPtr == nil && a.ctxProvider(LatestCtxHeight).BlockHeight() == 0 {
 		return encodeGenesisBlock(), nil
 	}
 
@@ -226,7 +253,7 @@ func (a *BlockAPI) getBlockByNumber(
 		return nil, err
 	}
 	return readStores(ctx, a.ctxProvider, func(ctxProvider func(int64) sdk.Context) (map[string]any, error) {
-		return EncodeTmBlock(ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, false, a.globalBlockCache, a.cacheCreationMutex)
+		return encodeTmBlock(ctxProvider, withRequestContext(ctx, a.gasLimitCtxProvider), a.txConfigProvider, block, a.keeper, fullTx, false, a.globalBlockCache, a.cacheCreationMutex)
 	})
 }
 
@@ -244,8 +271,12 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	if blockNrOrHash.BlockHash != nil && *blockNrOrHash.BlockHash == genesisBlockHash {
 		return []map[string]any{}, nil
 	}
-	if blockNrOrHash.BlockNumber != nil && *blockNrOrHash.BlockNumber == 0 {
-		return []map[string]any{}, nil
+	if blockNrOrHash.BlockNumber != nil {
+		if genesis, err := isGenesisBlockRequest(ctx, a.tmClient, *blockNrOrHash.BlockNumber); err != nil {
+			return nil, err
+		} else if genesis {
+			return []map[string]any{}, nil
+		}
 	}
 	// Ethereum JSON-RPC: non-existent / above-watermark block => null, not an error.
 	// Dispatch on hash vs number directly so a nil heightPtr from getBlockNumber
@@ -347,6 +378,22 @@ func EncodeTmBlock(
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 ) (map[string]any, error) {
+	return encodeTmBlock(ctxProvider, ctxProvider, txConfigProvider, block, k, fullTx, includeSyntheticTxs, globalBlockCache, cacheCreationMutex)
+}
+
+// encodeTmBlock is EncodeTmBlock, reading block.gasLimit from the ConsensusParams of
+// gasLimitCtxProvider's context at the block height and everything else from ctxProvider.
+func encodeTmBlock(
+	ctxProvider func(int64) sdk.Context,
+	gasLimitCtxProvider func(int64) sdk.Context,
+	txConfigProvider func(int64) client.TxConfig,
+	block *coretypes.ResultBlock,
+	k *keeper.Keeper,
+	fullTx bool,
+	includeSyntheticTxs bool,
+	globalBlockCache BlockCache,
+	cacheCreationMutex *sync.Mutex,
+) (map[string]any, error) {
 	number := big.NewInt(block.Block.Height)
 	blockhash := common.HexToHash(block.BlockID.Hash.String())
 	blockTime := block.Block.Time
@@ -369,7 +416,6 @@ func EncodeTmBlock(
 	} else {
 		baseFeePerGas = types.DefaultMinFeePerGas.TruncateInt().BigInt()
 	}
-	var blockGasUsed int64
 	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	transactions := []any{}
 	latestCtx := ctxProvider(LatestCtxHeight)
@@ -378,8 +424,8 @@ func EncodeTmBlock(
 	if err != nil {
 		return nil, err
 	}
+	totals := listedReceiptTotals(k, latestCtx, block, msgs, cacheCreationMutex, globalBlockCache)
 
-	blockBloom := make([]byte, ethtypes.BloomByteLength)
 	for _, msg := range msgs {
 		switch m := msg.msg.(type) {
 		case *types.MsgEVMTransaction:
@@ -397,12 +443,6 @@ func EncodeTmBlock(
 				replaceFrom(newTx, receipt)
 				transactions = append(transactions, newTx)
 			}
-			var bloom ethtypes.Bloom
-			bloom.SetBytes(receipt.LogsBloom)
-			bitutil.ORBytes(blockBloom, blockBloom, bloom[:])
-			// derive gas used from receipt as TxResult.GasUsed may not be accurate
-			// for ante-failing EVM txs.
-			blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 		case *wasmtypes.MsgExecuteContract:
 			th := sha256.Sum256(block.Block.Txs[msg.index])
 			receipt, _ := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
@@ -427,10 +467,6 @@ func EncodeTmBlock(
 					TransactionIndex: (*hexutil.Uint64)(&ti),
 				})
 			}
-			var bloom ethtypes.Bloom
-			bloom.SetBytes(receipt.LogsBloom)
-			bitutil.ORBytes(blockBloom, blockBloom, bloom[:])
-			blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 		}
 	}
 	if len(transactions) == 0 {
@@ -442,8 +478,12 @@ func EncodeTmBlock(
 	// (x/evm/keeper/keeper.go's BlockContext.GasLimit), so
 	// eth_getBlockByNumber.gasLimit and the GASLIMIT opcode return the
 	// same number.
+	gasLimitCtx, err := ctxAtHeight(gasLimitCtxProvider, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
 	var gasLimit int64
-	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
+	if cp := gasLimitCtx.ConsensusParams(); cp != nil && cp.Block != nil {
 		gasLimit = cp.Block.MaxGas
 	}
 	// "timestamp" stays in whole seconds because every Ethereum client reads it
@@ -454,16 +494,16 @@ func EncodeTmBlock(
 		"number":           (*hexutil.Big)(number),
 		"hash":             blockhash,
 		"parentHash":       lastHash,
-		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
-		"mixHash":          common.Hash{},           // inapplicable to Sei
-		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
-		"logsBloom":        ethtypes.BytesToBloom(blockBloom),
+		"nonce":            ethtypes.BlockNonce{},       // inapplicable to Sei
+		"mixHash":          types.PrevRandao(blockTime), // PREVRANDAO: a hash of the proposer-chosen block time, not randomness
+		"sha3Uncles":       ethtypes.EmptyUncleHash,     // inapplicable to Sei
+		"logsBloom":        totals.logsBloom,
 		"stateRoot":        appHash,
 		"miner":            miner,
-		"difficulty":       (*hexutil.Big)(big.NewInt(0)),                // inapplicable to Sei
-		"extraData":        hexutil.Bytes{},                              // inapplicable to Sei
-		"gasLimit":         hexutil.Uint64(gasLimit),                     //nolint:gosec
-		"gasUsed":          hexutil.Uint64(blockGasUsed),                 //nolint:gosec
+		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
+		"extraData":        hexutil.Bytes{},               // inapplicable to Sei
+		"gasLimit":         hexutil.Uint64(gasLimit),      //nolint:gosec
+		"gasUsed":          hexutil.Uint64(totals.gasUsed),
 		"timestamp":        hexutil.Uint64(block.Block.Time.Unix()),      //nolint:gosec
 		"milliTimestamp":   hexutil.Uint64(block.Block.Time.UnixMilli()), //nolint:gosec
 		"transactionsRoot": txHash,
@@ -479,6 +519,40 @@ func EncodeTmBlock(
 	return result, nil
 }
 
+// receiptTotals is the logsBloom and gasUsed of a block header.
+type receiptTotals struct {
+	logsBloom ethtypes.Bloom
+	gasUsed   uint64
+}
+
+// listedReceiptTotals returns the receiptTotals of block from the receipts of msgs, the transactions
+// eth_getBlockBy* lists for it: the union of their logs blooms and the sum of their gas used. A
+// transaction whose receipt cannot be read contributes nothing.
+func listedReceiptTotals(
+	k *keeper.Keeper,
+	latestCtx sdk.Context,
+	block *coretypes.ResultBlock,
+	msgs []indexedMsg,
+	cacheCreationMutex *sync.Mutex,
+	globalBlockCache BlockCache,
+) receiptTotals {
+	var totals receiptTotals
+	for _, tx := range typedTxHashesOf(block, msgs) {
+		receipt, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, tx.hash)
+		if !found {
+			continue
+		}
+		var bloom ethtypes.Bloom
+		bloom.SetBytes(receipt.LogsBloom)
+		bitutil.ORBytes(totals.logsBloom[:], totals.logsBloom[:], bloom[:])
+		// Not TxResult.GasUsed: it is wrong for an EVM transaction that fails its ante handler, and
+		// TxResults also cover Cosmos transactions, which a block header leaves out.
+		totals.gasUsed += receipt.GasUsed
+	}
+	return totals
+}
+
+// FullBloom returns a logs bloom with every bit set, which matches every log filter.
 func FullBloom() ethtypes.Bloom {
 	bz := []byte{}
 	for i := 0; i < ethtypes.BloomByteLength; i++ {

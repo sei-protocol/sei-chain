@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/genesis"
 	"github.com/sei-protocol/sei-chain/app/params"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -228,6 +230,33 @@ func TestInitModeFlag(t *testing.T) {
 		// Should not match any valid mode
 		require.False(t, isValidMode(invalidMode), "Invalid mode should not be accepted")
 	})
+}
+
+// executeInit runs the real InitCmd with args and home as the node home, standing in
+// for the client context the root command would otherwise provide.
+func executeInit(home string, args ...string) error {
+	encCfg := app.MakeEncodingConfig()
+	clientCtx := client.Context{}.WithCodec(encCfg.Marshaler).WithHomeDir(home).WithViper("")
+
+	cmd := InitCmd(app.ModuleBasics, home)
+	cmd.SetArgs(append(args, "--home", home))
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+
+	ctx := context.WithValue(context.Background(), client.ClientContextKey, &clientCtx)
+	return cmd.ExecuteContext(ctx)
+}
+
+// TestInitCmdRequiresChainID verifies that init without --chain-id returns an error
+// naming the flag, and writes nothing to the home.
+func TestInitCmdRequiresChainID(t *testing.T) {
+	home := t.TempDir()
+
+	require.ErrorContains(t, executeInit(home, "testnode"), "--chain-id")
+
+	entries, err := os.ReadDir(home)
+	require.NoError(t, err)
+	require.Empty(t, entries, "init must reject a missing chain-id before writing to the home")
 }
 
 // TestModeConfigurationMatrix verifies all configuration values for each mode

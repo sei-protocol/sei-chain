@@ -268,7 +268,7 @@ func NewReactor(
 
 func (r *Reactor) initStateProvider(ctx context.Context, chainID string, initialHeight int64) error {
 	to := light.TrustOptions{
-		Period: r.cfg.TrustPeriod,
+		Period: config.StateSyncTrustPeriod(chainID),
 		Height: r.cfg.TrustHeight,
 		Hash:   r.cfg.TrustHashBytes(),
 	}

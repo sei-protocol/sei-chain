@@ -28,7 +28,7 @@ func TestLegacyBurnTokensBurnsTheContractsOwnBalance(t *testing.T) {
 	mintLegacyBurnBalance(t, bank, ctx, sdk.NewInt64Coin(denom, 100))
 
 	_, _, err := wasmbinding.LegacyBurnTokensHandler(bank).
-		DispatchMsg(ctx, legacyBurnContract, "", legacyBurnTokens(denom, "40"), wasmvmtypes.MessageInfo{}, wasmtypes.CodeInfo{})
+		DispatchMsg(ctx, legacyBurnContract, legacyBurnTokens(denom, "40"), wasmvmtypes.MessageInfo{}, wasmtypes.CodeInfo{})
 	require.NoError(t, err)
 	require.Equal(t, sdk.NewInt64Coin(denom, 60), bank.GetBalance(ctx, legacyBurnContract, denom))
 	require.Equal(t, sdk.NewInt64Coin(denom, 60), bank.GetSupply(ctx, denom))
@@ -56,7 +56,7 @@ func TestLegacyBurnTokensRefusesWhatItCannotBurn(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, err := wasmbinding.LegacyBurnTokensHandler(bank).
-				DispatchMsg(ctx, legacyBurnContract, "", tc.msg, wasmvmtypes.MessageInfo{}, wasmtypes.CodeInfo{})
+				DispatchMsg(ctx, legacyBurnContract, tc.msg, wasmvmtypes.MessageInfo{}, wasmtypes.CodeInfo{})
 			require.ErrorIs(t, err, tc.error)
 		})
 	}
@@ -75,7 +75,7 @@ func TestLegacyBurnTokensLeavesOtherMessagesToTheNextHandler(t *testing.T) {
 		{Custom: []byte(`{"call_evm":{"to":"0x0000000000000000000000000000000000000001","data":""}}`)},
 		{Custom: []byte(`not json`)},
 	} {
-		_, _, err := handler.DispatchMsg(testWrapper.Ctx, legacyBurnContract, "", msg, wasmvmtypes.MessageInfo{}, wasmtypes.CodeInfo{})
+		_, _, err := handler.DispatchMsg(testWrapper.Ctx, legacyBurnContract, msg, wasmvmtypes.MessageInfo{}, wasmtypes.CodeInfo{})
 		require.ErrorIs(t, err, wasmtypes.ErrUnknownMsg, string(msg.Custom))
 	}
 }
@@ -91,12 +91,12 @@ func TestCustomMessageHandlerServesLegacyBurnTokens(t *testing.T) {
 	messenger := wasmbinding.CustomMessageHandler(
 		testWrapper.App.MsgServiceRouter(), bank, &testWrapper.App.EvmKeeper, testWrapper.App.AppCodec())
 
-	_, _, err := messenger.DispatchMsg(ctx, legacyBurnContract, "", legacyBurnTokens(denom, "25"), wasmvmtypes.MessageInfo{}, wasmtypes.CodeInfo{})
+	_, _, err := messenger.DispatchMsg(ctx, legacyBurnContract, legacyBurnTokens(denom, "25"), wasmvmtypes.MessageInfo{}, wasmtypes.CodeInfo{})
 	require.NoError(t, err)
 	require.Equal(t, sdk.NewInt64Coin(denom, 75), bank.GetSupply(ctx, denom))
 
 	mint := wasmvmtypes.CosmosMsg{Custom: []byte(fmt.Sprintf(`{"mint_tokens":{"amount":{"denom":%q,"amount":"1"}}}`, denom))}
-	_, _, err = messenger.DispatchMsg(ctx, legacyBurnContract, "", mint, wasmvmtypes.MessageInfo{}, wasmtypes.CodeInfo{})
+	_, _, err = messenger.DispatchMsg(ctx, legacyBurnContract, mint, wasmvmtypes.MessageInfo{}, wasmtypes.CodeInfo{})
 	require.Equal(t, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Wasm Message"}, err)
 	require.Equal(t, sdk.NewInt64Coin(denom, 75), bank.GetSupply(ctx, denom))
 }

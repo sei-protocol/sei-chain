@@ -138,7 +138,7 @@ func TestRoutesAddition(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper(t)
 	appModule := evm.NewAppModule(nil, k)
 	mux := runtime.NewServeMux()
-	appModule.RegisterGRPCGatewayRoutes(client.Context{}, mux)
+	appModule.RegisterGatewayRoutes(client.Context{}, mux)
 
 	require.NotNil(t, appModule)
 }

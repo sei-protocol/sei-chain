@@ -1,21 +1,18 @@
 package statewal
 
 import (
-	"context"
-
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
-// A WAL for state. Each block is written as mutations and read back as changesets.
+// A WAL for state. Each block is written and read back as mutations.
 //
 // A StateWAL is not safe for concurrent use. Callers must serialize their calls to a single instance;
 // in particular Write maintains write-ordering state that is not internally locked.
 //
-// The changesets returned by the iterator are owned by the WAL and must not be modified.
+// The mutations returned by the iterator own their bytes, which may be retained and must not be modified.
 type StateWAL interface {
 	controllertypes.PrunableStore
 
@@ -24,8 +21,8 @@ type StateWAL interface {
 	// This method only schedules the write, it does not block until the write is complete. It does block while the
 	// WAL is behind by more than Config.RequestBufferSize blocks.
 	//
-	// Write takes ownership of mutations. Once the call begins, neither mutations nor any byte slice reachable
-	// through it may be read or modified.
+	// Write retains mutations and the byte slices reachable through them, none of which may be modified after the
+	// call. The block is stored with its mutations in the order given.
 	//
 	// Blocks must be written in contiguous ascending order, one Write per block. The first block written to
 	// an empty WAL may be any number; every block after it must be exactly one greater than the last, so
@@ -39,34 +36,8 @@ type StateWAL interface {
 		mutations []mutation.Mutation,
 	) error
 
-	// Flush the WAL to disk, making every block written so far crash durable, and wait until every listener has
-	// returned for each of those blocks.
+	// Flush the WAL to disk, making every block written so far crash durable.
 	Flush() error
-
-	// Register a listener that receives the hash of each block written, one call per block, in block order, with
-	// no gaps. Listeners are meant for steady state, after setup; during setup, read the hashes of specific blocks
-	// with Iterator() and GetHash().
-	//
-	// Listeners run on a goroutine owned by the WAL, so a listener that falls behind eventually blocks Write(). A
-	// listener must not call back into the WAL: RegisterHashListener(), Write(), Flush(), and Close() wait on that
-	// goroutine and would deadlock, and the other methods are not safe to call concurrently with the WAL's owner.
-	// An error from a listener bricks the WAL, and no listener receives a hash for any later block.
-	RegisterHashListener(
-		// The listener to register, or nil to only read the most recent hash.
-		listener HashListener,
-	) (
-		// If false, no block has a hash yet: the WAL was opened empty and no hash has been delivered since.
-		// blockNumber and hash are then undefined, and the listener's first delivery is the first block
-		// written.
-		ok bool,
-		// The block of the most recent hash delivered to listeners, or of the last stored block if none has
-		// been delivered since the WAL was opened. The listener's first delivery is for blockNumber+1.
-		blockNumber uint64,
-		// The hash of the key-value pairs modified by executing the transactions in block blockNumber.
-		hash [32]byte,
-		// Any error encountered while registering.
-		err error,
-	)
 
 	// Get the range of block numbers stored in the WAL.
 	GetStoredRange() (
@@ -108,24 +79,8 @@ type StateWAL interface {
 	Close() error
 }
 
-// A callback that receives the hash of the key-value pairs modified by executing the transactions in a block. Its
-// signature matches AppHashBuilder.ReportBUDHash(), so that method registers as one directly.
-//
-// The hash is currently a stopgap placeholder, not a BUD as the BUD spec defines it; see computePlaceholderHash().
-type HashListener func(
-	// Cancelled when the StateWAL stops. A listener blocked when it is cancelled must return.
-	ctx context.Context,
-	// The block the hash belongs to.
-	blockHeight uint64,
-	// The hash of the key-value pairs modified by executing the transactions in the block.
-	hash [32]byte,
-) error
-
-// An iterator over the blocks of a StateWAL. Entry() returns (blockNumber, changesets).
+// An iterator over the blocks of a StateWAL. Entry() returns (blockNumber, mutations). The mutations own their
+// bytes, so they may be retained past the iterator's next position, but must not be modified.
 type StateWALIterator interface {
-	seiwal.Iterator[[]*proto.NamedChangeSet]
-
-	// GetHash returns the hash delivered to listeners for the block at the iterator's current position. It is valid
-	// only after Next() returns true.
-	GetHash() ([32]byte, error)
+	seiwal.Iterator[[]mutation.Mutation]
 }

@@ -27,9 +27,9 @@ var logger = seilog.NewLogger("tendermint", "server", "api")
 
 // Server defines the server's API interface.
 type Server struct {
-	Router            *mux.Router
-	GRPCGatewayRouter *runtime.ServeMux
-	ClientCtx         client.Context
+	Router        *mux.Router
+	GatewayRouter *runtime.ServeMux
+	ClientCtx     client.Context
 
 	metrics *telemetry.Metrics
 	// Start() is blocking and generally called from a separate goroutine.
@@ -67,7 +67,7 @@ func New(clientCtx client.Context) *Server {
 	return &Server{
 		Router:    mux.NewRouter(),
 		ClientCtx: clientCtx,
-		GRPCGatewayRouter: runtime.NewServeMux(
+		GatewayRouter: runtime.NewServeMux(
 			// Custom marshaler option is required for gogo proto
 			runtime.WithMarshalerOption(runtime.MIMEWildcard, marshalerOption),
 
@@ -105,7 +105,7 @@ func (s *Server) Start(cfg config.Config, apiMetrics *telemetry.Metrics) error {
 		return err
 	}
 
-	s.registerGRPCGatewayRoutes()
+	s.registerGatewayRoutes()
 
 	s.listener = listener
 	var h http.Handler = s.Router
@@ -131,8 +131,8 @@ func (s *Server) Close() error {
 	return nil
 }
 
-func (s *Server) registerGRPCGatewayRoutes() {
-	s.Router.PathPrefix("/").Handler(s.GRPCGatewayRouter)
+func (s *Server) registerGatewayRoutes() {
+	s.Router.PathPrefix("/").Handler(s.GatewayRouter)
 }
 
 func (s *Server) registerMetrics() {

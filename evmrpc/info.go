@@ -91,7 +91,9 @@ func (i *InfoAPI) Accounts(ctx context.Context) (result []common.Address, return
 	if err != nil {
 		return []common.Address{}, err
 	}
-	for addr := range getAddressPrivKeyMap(kb) {
+	keys := getAddressPrivKeyMap(kb)
+	result = make([]common.Address, 0, len(keys))
+	for addr := range keys {
 		result = append(result, common.HexToAddress(addr))
 	}
 	return result, nil
@@ -182,7 +184,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 	if err != nil {
 		return nil, err
 	}
-	earliestHeight, err := i.earliestHeight(ctx)
+	earliestHeight, err := i.earliestBlockWatermark(ctx)
 	if err != nil {
 		// fall back to genesis height if earliest watermark unavailable
 		earliestHeight = genesisHeight
@@ -190,7 +192,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 	if earliestHeight < genesisHeight {
 		earliestHeight = genesisHeight
 	}
-	switch lastBlock {
+	switch normalizeEarliest(lastBlock) {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		lastBlockNumber = latestHeight
 	case rpc.EarliestBlockNumber:
@@ -512,7 +514,7 @@ func (i *InfoAPI) latestHeight(ctx context.Context) (int64, error) {
 	return i.watermarks.LatestHeight(ctx)
 }
 
-func (i *InfoAPI) earliestHeight(ctx context.Context) (int64, error) {
+func (i *InfoAPI) earliestBlockWatermark(ctx context.Context) (int64, error) {
 	return i.watermarks.EarliestReceiptHeight(ctx)
 }
 

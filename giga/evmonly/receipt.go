@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -133,6 +134,18 @@ func (e *Executor) receiptRecordsParallel(ctx context.Context, blockNumber uint6
 		}
 	}
 	return compacted, nil
+}
+
+// nonceConsumingReceipts returns the receipts of the block's transactions that consumed a nonce, which is every
+// transaction but the rejected ones, in block order.
+func nonceConsumingReceipts(result *BlockResult) []*ethtypes.Receipt {
+	receipts := make([]*ethtypes.Receipt, 0, len(result.Receipts))
+	for i, ethReceipt := range result.Receipts {
+		if !result.Txs[i].Rejected {
+			receipts = append(receipts, ethReceipt)
+		}
+	}
+	return receipts
 }
 
 // occParallelReceiptThreshold is the block size below which fanning receipt encoding out costs more

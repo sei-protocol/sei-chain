@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -52,7 +53,7 @@ func makeSeedNode(
 	cfg *config.Config,
 	dbProvider config.DBProvider,
 	nodeKey types.NodeKey,
-	genesisDocProvider genesisDocProvider,
+	genDoc *types.GenesisDoc,
 ) (_ local.NodeService, err error) {
 	closers := []closer{}
 	defer func() {
@@ -62,11 +63,6 @@ func makeSeedNode(
 	}()
 	if !cfg.P2P.PexReactor {
 		return nil, errors.New("cannot run seed nodes with PEX disabled")
-	}
-
-	genDoc, err := genesisDocProvider()
-	if err != nil {
-		return nil, err
 	}
 
 	state, err := sm.MakeGenesisState(genDoc)
@@ -84,10 +80,11 @@ func makeSeedNode(
 		nodeKey,
 		utils.None[atypes.SecretKey](),
 		cfg,
-		utils.None[*proxy.Proxy](),
+		utils.None[*proxy.EVMProxy](),
 		genDoc,
 		dbProvider,
 		utils.None[*bootstrap.GigaStorageManager](),
+		gigaconfig.StateSyncConfig{},
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {
@@ -122,7 +119,7 @@ func makeSeedNode(
 
 		pexReactor: pexReactor,
 		rpcEnv: &rpccore.Environment{
-			App: proxy.New(abci.BaseApplication{}),
+			App: utils.Some(proxy.New(abci.BaseApplication{})),
 
 			StateStore: stateStore,
 			BlockStore: blockStore,

@@ -9,7 +9,7 @@ fi
 
 tag="$1"
 
-for contract in burner hackatom ibc_reflect ibc_reflect_send reflect staking; do
+for contract in burner hackatom ibc_reflect reflect staking; do
   url="https://github.com/CosmWasm/cosmwasm/releases/download/$tag/${contract}.wasm"
   echo "Downloading $url ..."
   wget -O "${contract}.wasm" "$url"

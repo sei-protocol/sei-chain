@@ -6,8 +6,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/stateless"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/types/bal"
 	"github.com/ethereum/go-ethereum/core/vm"
-	ethutils "github.com/ethereum/go-ethereum/trie/utils"
+	"github.com/ethereum/go-ethereum/params"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/seilog"
@@ -190,7 +191,7 @@ func (s *DBImpl) GetStorageRoot(common.Address) common.Hash {
 	return common.Hash{}
 }
 
-func (s *DBImpl) Copy() vm.StateDB {
+func (s *DBImpl) Copy() vm.SeiStateDB {
 	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
 	journal := make([]journalEntry, len(s.journal))
 	copy(journal, s.journal)
@@ -218,19 +219,20 @@ func (s *DBImpl) Copy() vm.StateDB {
 	return copied
 }
 
-func (s *DBImpl) Finalise(bool) {
+func (s *DBImpl) Finalise(params.Rules) *bal.ConstructionBlockAccessList {
 	logger.Info("Finalise should only be called during simulation and will no-op")
+	return nil
 }
 
 func (s *DBImpl) Commit(uint64, bool, bool) (common.Hash, error) {
 	panic("Commit is not implemented and called unexpectedly")
 }
 
-func (s *DBImpl) SetTxContext(common.Hash, int) {
+func (s *DBImpl) SetTxContext(common.Hash, int, uint32) {
 	//noop
 }
 
-func (s *DBImpl) AccessEvents() *vm.AccessEvents { return nil }
+func (s *DBImpl) AccessEvents() *state.AccessEvents { return nil }
 
 // CreateContract marks the account as created for EIP-6780 purposes.
 // This is called regardless of whether the account previously existed
@@ -240,13 +242,9 @@ func (s *DBImpl) CreateContract(acc common.Address) {
 	s.MarkAccount(acc, AccountCreated)
 }
 
-func (s *DBImpl) PointCache() *ethutils.PointCache {
-	return nil
-}
-
 func (s *DBImpl) Witness() *stateless.Witness { return nil }
 
-func (s *DBImpl) IntermediateRoot(bool) common.Hash {
+func (s *DBImpl) IntermediateRoot(params.Rules) common.Hash {
 	panic("IntermediateRoot is not implemented and called unexpectedly")
 }
 
@@ -312,7 +310,7 @@ func (o *storageOverride) deepCopy() *storageOverride {
 type TemporaryState struct {
 	logs                  []*ethtypes.Log
 	transientStates       map[string]map[string]common.Hash
-	transientAccounts     map[string][]byte
+	transientAccounts     map[common.Address][]byte
 	transientModuleStates map[string][]byte
 	transientAccessLists  *accessList
 	storageOverrides      map[common.Address]*storageOverride
@@ -323,7 +321,7 @@ func NewTemporaryState() *TemporaryState {
 	return &TemporaryState{
 		logs:                  []*ethtypes.Log{},
 		transientStates:       make(map[string]map[string]common.Hash),
-		transientAccounts:     make(map[string][]byte),
+		transientAccounts:     make(map[common.Address][]byte),
 		transientModuleStates: make(map[string][]byte),
 		transientAccessLists:  &accessList{Addresses: make(map[common.Address]int), Slots: []map[common.Hash]struct{}{}},
 		storageOverrides:      make(map[common.Address]*storageOverride),
@@ -342,7 +340,7 @@ func (ts *TemporaryState) DeepCopy() *TemporaryState {
 			res.transientStates[k][k2] = v2
 		}
 	}
-	res.transientAccounts = make(map[string][]byte, len(ts.transientAccounts))
+	res.transientAccounts = make(map[common.Address][]byte, len(ts.transientAccounts))
 	for k, v := range ts.transientAccounts {
 		res.transientAccounts[k] = v
 	}
@@ -374,8 +372,10 @@ func GetDBImpl(vmsdb vm.StateDB) *DBImpl {
 	if sdb, ok := vmsdb.(*DBImpl); ok {
 		return sdb
 	}
-	if hdb, ok := vmsdb.(*state.HookedStateDB); ok {
-		return GetDBImpl(hdb.StateDB)
+	if inner, ok := state.UnwrapHookedState(vmsdb).(vm.StateDB); ok && inner != vmsdb {
+		return GetDBImpl(inner)
 	}
 	return nil
 }
+
+var _ vm.SeiStateDB = (*DBImpl)(nil)

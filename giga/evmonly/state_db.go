@@ -4,16 +4,18 @@ import (
 	"bytes"
 	"errors"
 	"math/big"
+	"slices"
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/stateless"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/types/bal"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
-	ethutils "github.com/ethereum/go-ethereum/trie/utils"
 	"github.com/holiman/uint256"
 )
 
@@ -198,40 +200,33 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 		return bytes.Compare(addresses[i][:], addresses[j][:]) < 0
 	})
 
-	for _, addr := range addresses {
-		acct := s.accounts[addr]
-		if acct.StorageCleared {
+	// Taken ahead of the changes so the set is sized once: the key count bounds the storage changes.
+	storageKeysByAccount := make([][]common.Hash, len(addresses))
+	storageKeyCount := 0
+	for i, addr := range addresses {
+		if s.accounts[addr].StorageCleared {
 			// Committing a replaced storage would mean deleting every stored slot of the account, which the
 			// changeset has no way to express.
 			panic("cannot produce a changeset after SetStorage replaced an account's storage")
 		}
+		storageKeysByAccount[i] = storageKeyUnion(s.baseAccount(addr).Storage, s.accounts[addr].Storage)
+		storageKeyCount += len(storageKeysByAccount[i])
+	}
+	changes.Accounts = slices.Grow(changes.Accounts, len(addresses))
+	changes.Storage = slices.Grow(changes.Storage, storageKeyCount)
+
+	for i, addr := range addresses {
+		acct := s.accounts[addr]
 		base := s.baseAccount(addr)
 
-		_, hasCommutativeDelta := s.commutativeBalanceDeltas[addr]
-		if !acct.Balance.Eq(base.Balance) || hasCommutativeDelta {
-			changes.Balances = append(changes.Balances, BalanceChange{
-				Address:      addr,
-				Balance:      acct.Balance.ToBig(),
-				PriorBalance: base.Balance.ToBig(),
+		if !acct.Balance.Eq(base.Balance) || acct.Nonce != base.Nonce || !bytes.Equal(acct.Code, base.Code) {
+			changes.Accounts = append(changes.Accounts, AccountChange{
+				Address: addr,
+				Account: AccountState{Balance: acct.Balance.ToBig(), Nonce: acct.Nonce, Code: acct.Code},
+				Prior:   AccountState{Balance: base.Balance.ToBig(), Nonce: base.Nonce, Code: base.Code},
 			})
 		}
-		if acct.Nonce != base.Nonce {
-			changes.Nonces = append(changes.Nonces, NonceChange{
-				Address:    addr,
-				Nonce:      acct.Nonce,
-				PriorNonce: base.Nonce,
-			})
-		}
-		if !bytes.Equal(acct.Code, base.Code) {
-			changes.Code = append(changes.Code, CodeChange{
-				Address:   addr,
-				Code:      cloneBytes(acct.Code),
-				Delete:    len(acct.Code) == 0,
-				PriorCode: cloneBytes(base.Code),
-			})
-		}
-		storageKeys := storageKeyUnion(base.Storage, acct.Storage)
-		for _, key := range storageKeys {
+		for _, key := range storageKeysByAccount[i] {
 			priorValue := storageHash(base.Storage, key)
 			newValue := storageHash(acct.Storage, key)
 			if priorValue == newValue {
@@ -387,7 +382,7 @@ func (s *nativeStateDB) GetCode(addr common.Address) []byte {
 	return s.account(addr).Code
 }
 
-func (s *nativeStateDB) SetCode(addr common.Address, code []byte) []byte {
+func (s *nativeStateDB) SetCode(addr common.Address, code []byte, _ tracing.CodeChangeReason) []byte {
 	acct := s.account(addr)
 	prev := cloneBytes(acct.Code)
 	s.recordAccount(addr)
@@ -418,6 +413,10 @@ func (s *nativeStateDB) SubRefund(gas uint64) {
 
 func (s *nativeStateDB) GetRefund() uint64 {
 	return s.refund
+}
+
+func (s *nativeStateDB) GetStateAndCommittedState(addr common.Address, key common.Hash) (common.Hash, common.Hash) {
+	return s.GetState(addr, key), s.GetCommittedState(addr, key)
 }
 
 func (s *nativeStateDB) GetCommittedState(addr common.Address, key common.Hash) common.Hash {
@@ -490,25 +489,26 @@ func (s *nativeStateDB) SetTransientState(addr common.Address, key, value common
 	states[key] = value
 }
 
-func (s *nativeStateDB) SelfDestruct(addr common.Address) uint256.Int {
+// SelfDestruct marks addr as self-destructed.
+func (s *nativeStateDB) SelfDestruct(addr common.Address) {
 	acct := s.account(addr)
-	prev := *acct.Balance.Clone()
 	s.recordAccount(addr)
 	s.markWrite(stateAccessKey{kind: stateAccessAccount, address: addr})
 	s.markWrite(stateAccessKey{kind: stateAccessBalance, address: addr})
-	acct.Balance.Clear()
+	// The balance is left alone: the SELFDESTRUCT opcode transfers or burns it
+	// before calling this, and under EIP-8246 deliberately keeps it when the
+	// beneficiary is addr itself, so clearing here would burn funds it preserves.
 	acct.SelfDestructed = true
 	s.markForFinalise(addr)
-	return prev
 }
 
-func (s *nativeStateDB) SelfDestruct6780(addr common.Address) (uint256.Int, bool) {
-	acct := s.account(addr)
-	if !acct.Created {
-		return *acct.Balance.Clone(), false
-	}
-	return s.SelfDestruct(addr), true
+// IsNewContract reports whether addr was created in the current transaction (EIP-6780).
+func (s *nativeStateDB) IsNewContract(addr common.Address) bool {
+	return s.account(addr).Created
 }
+
+// Touch is a no-op; block access lists are not built.
+func (s *nativeStateDB) Touch(common.Address) {}
 
 func (s *nativeStateDB) HasSelfDestructed(addr common.Address) bool {
 	return s.account(addr).SelfDestructed
@@ -589,10 +589,6 @@ func (s *nativeStateDB) Prepare(rules params.Rules, sender, coinbase common.Addr
 	}
 }
 
-func (s *nativeStateDB) PointCache() *ethutils.PointCache {
-	return nil
-}
-
 func (s *nativeStateDB) Snapshot() int {
 	id := len(s.snapshots)
 	s.snapshots = append(s.snapshots, nativeSnapshot{
@@ -635,11 +631,11 @@ func (s *nativeStateDB) Witness() *stateless.Witness {
 	return nil
 }
 
-func (s *nativeStateDB) AccessEvents() *vm.AccessEvents {
+func (s *nativeStateDB) AccessEvents() *state.AccessEvents {
 	return nil
 }
 
-func (s *nativeStateDB) Finalise(bool) {
+func (s *nativeStateDB) Finalise(params.Rules) *bal.ConstructionBlockAccessList {
 	for addr := range s.finaliseAddrs {
 		acct := s.account(addr)
 		if acct.SelfDestructed {
@@ -661,6 +657,7 @@ func (s *nativeStateDB) Finalise(bool) {
 	s.finaliseTxStorage()
 	clear(s.finaliseAddrs)
 	s.refund = 0
+	return nil
 }
 
 func (s *nativeStateDB) Error() error {
@@ -671,9 +668,8 @@ func (s *nativeStateDB) Commit(uint64, bool, bool) (common.Hash, error) {
 	return common.Hash{}, s.err
 }
 
-func (s *nativeStateDB) SetTxContext(hash common.Hash, index int) {
-	s.txHash = hash
-	s.txIndex = index
+func (s *nativeStateDB) SetTxContext(hash common.Hash, index int, _ uint32) {
+	s.setTxContext(hash, index, uint(index)) //nolint:gosec // G115: a transaction index is non-negative.
 }
 
 func (s *nativeStateDB) setTxContext(hash common.Hash, index int, indexUint uint) {
@@ -682,7 +678,7 @@ func (s *nativeStateDB) setTxContext(hash common.Hash, index int, indexUint uint
 	s.txIndexUint = indexUint
 }
 
-func (s *nativeStateDB) Copy() vm.StateDB {
+func (s *nativeStateDB) Copy() vm.SeiStateDB {
 	cp := &nativeStateDB{
 		source:                   s.source,
 		accounts:                 cloneAccounts(s.accounts),
@@ -710,12 +706,19 @@ func (s *nativeStateDB) Copy() vm.StateDB {
 	return cp
 }
 
-func (s *nativeStateDB) IntermediateRoot(bool) common.Hash {
+func (s *nativeStateDB) IntermediateRoot(params.Rules) common.Hash {
 	return common.Hash{}
 }
 
-func (s *nativeStateDB) GetLogs(common.Hash, uint64, common.Hash) []*ethtypes.Log {
-	return s.Logs()
+// GetLogs returns the logs transaction hash emitted.
+func (s *nativeStateDB) GetLogs(hash common.Hash, _ uint64, _ common.Hash, _ uint64) []*ethtypes.Log {
+	var logs []*ethtypes.Log
+	for _, log := range s.logs {
+		if log.TxHash == hash {
+			logs = append(logs, log)
+		}
+	}
+	return logs
 }
 
 func (s *nativeStateDB) TxIndex() int {
@@ -1129,32 +1132,30 @@ func (s *nativeStateDB) finaliseTxStorage() {
 	clear(s.txStorageClears)
 }
 
-// baseAccount is an account's balance, nonce and code as read from the state beneath a block.
-type baseAccount struct {
-	Balance *big.Int
-	Nonce   uint64
-	Code    []byte
-}
-
 // baseAccountReader is an optional StateReader capability that reads an account's fields in one
-// lookup. ReadAccount returns false when the caller must fall back to the per-field accessors.
+// lookup. ReadAccount returns the account's code hash when it knows it and the zero hash otherwise,
+// and false when the caller must fall back to the per-field accessors.
 type baseAccountReader interface {
-	ReadAccount(common.Address) (baseAccount, bool)
+	ReadAccount(common.Address) (AccountState, common.Hash, bool)
 }
 
 func (s *nativeStateDB) loadAccount(addr common.Address) *nativeAccount {
 	if reader, ok := s.source.(baseAccountReader); ok {
-		if account, served := reader.ReadAccount(addr); served {
+		if account, codeHash, served := reader.ReadAccount(addr); served {
 			balance, err := uint256FromBig(account.Balance)
 			if err != nil && s.err == nil {
 				s.err = err
 			}
-			return &nativeAccount{
+			acct := &nativeAccount{
 				Balance: balance,
 				Nonce:   account.Nonce,
 				Code:    account.Code,
 				Storage: map[common.Hash]storageValue{},
 			}
+			if len(account.Code) > 0 {
+				acct.CodeHash = codeHash
+			}
+			return acct
 		}
 	}
 	balance, err := uint256FromBig(s.source.GetBalance(addr))
@@ -1459,3 +1460,5 @@ func uint256FromBig(v *big.Int) (*uint256.Int, error) {
 	}
 	return u, nil
 }
+
+var _ vm.SeiStateDB = (*nativeStateDB)(nil)

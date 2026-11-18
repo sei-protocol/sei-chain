@@ -53,7 +53,11 @@ func NewBUDStateProof(
 	if err := budProof.validate(); err != nil {
 		return nil, fmt.Errorf("creating BUD state proof: invalid BUD proof: %w", err)
 	}
-	if computed, want := budProof.ComputeBUDHash(), appHashData.BUDHash(); computed != want {
+	computed, err := budProof.ComputeBUDHash()
+	if err != nil {
+		return nil, fmt.Errorf("creating BUD state proof: %w", err)
+	}
+	if want := appHashData.BUDHash(); computed != want {
 		return nil, fmt.Errorf("creating BUD state proof: BUD proof computes %x, but app hash data holds %x",
 			computed, want)
 	}

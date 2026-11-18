@@ -13,7 +13,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 )
@@ -184,17 +183,14 @@ func TestStoreApplyAndCommit(t *testing.T) {
 
 	cs := makeChangeSet(key, value, false)
 
-	// Apply but not commit - should be readable from pending writes
+	// Apply but not commit - buffered, so not yet readable
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-	got, found := s.Get(keys.EVMStoreKey, key)
-	require.True(t, found, "should be readable from pending writes")
-	require.Equal(t, value, got)
+	_, found := s.Get(keys.EVMStoreKey, key)
+	require.False(t, found, "a buffered write must not be readable before commit")
 
-	// Commit
 	commitAndCheck(t, s)
 
-	// Still should be readable after commit
-	got, found = s.Get(keys.EVMStoreKey, key)
+	got, found := s.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, value, got)
 }
@@ -255,12 +251,11 @@ func TestStoreEmptyChangesets(t *testing.T) {
 	require.Equal(t, int64(1), s.Version())
 }
 
-// TestStoreApplyRejectsEmptyModuleName guards against a non-EVM changeset with
-// an empty Name. An empty module folds into the physical key as "/"+key,
-// whose per-module meta key ("_meta/x:/hash") ParseModuleLtHashKey rejects on
-// reload — silently accepting it here would make the store permanently
-// unopenable rather than failing fast at Apply time.
-func TestStoreApplyRejectsEmptyModuleName(t *testing.T) {
+// TestStoreCommitRejectsEmptyModuleName guards against a non-EVM changeset with an empty Name. An empty module
+// folds into the physical key as "/"+key, whose per-module meta key ("_meta/x:/hash") ParseModuleLtHashKey
+// rejects on reload, so accepting it would make the store permanently unopenable. The commit fails before the
+// WAL records the block.
+func TestStoreCommitRejectsEmptyModuleName(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -269,8 +264,10 @@ func TestStoreApplyRejectsEmptyModuleName(t *testing.T) {
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("k"), Value: []byte("v")}}},
 	}
 
-	err := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs})
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err := s.Commit(s.Version() + 1)
 	require.ErrorContains(t, err, "empty module name")
+	require.Equal(t, int64(0), s.Version(), "a rejected block must not commit")
 }
 
 func TestStoreClearsPendingAfterCommit(t *testing.T) {
@@ -284,13 +281,9 @@ func TestStoreClearsPendingAfterCommit(t *testing.T) {
 	cs := makeChangeSet(key, padLeft32(0xCC), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	// The staged row is readable before the commit, and the changeset is queued for the WAL. There is
-	// no staged-row count to assert on any more: the rows live in the store's current version, which
-	// deliberately does not expose a size.
-	staged, found := s.Get(keys.EVMStoreKey, key)
-	require.True(t, found, "the staged row must be readable before commit")
-	require.Equal(t, padLeft32(0xCC), staged)
+	// The changeset is buffered for the next commit.
 	require.Len(t, s.pendingChangeSets, 1)
+	require.Equal(t, s.Version()+1, s.PendingVersion())
 
 	commitAndCheck(t, s)
 
@@ -1270,7 +1263,10 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 	err = s.LoadLatest()
 	require.NoError(t, err)
 
+	// accountDB is put back as it was at block 4 while the others reach block 6, which is what a crash
+	// between the databases' flushes leaves behind.
 	addr := addrN(0x01)
+	var accountAt4 string
 	for i := 1; i <= 6; i++ {
 		cs := &proto.NamedChangeSet{
 			Name: "evm",
@@ -1281,24 +1277,15 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
+		if i == 4 {
+			s = reopenStore(t, s, cfg)
+			accountAt4 = copyDataDB(t, cfg, accountDBDir)
+			require.NoError(t, s.LoadLatest())
+		}
 	}
 	require.Equal(t, int64(6), s.Version())
-
-	// Save the correct per-DB LtHash for accountDB before skewing version.
-	savedAccountLtHash := s.maintainedHashes().PerDB[accountDBDir].Clone()
-
-	// Skew accountDB's local meta version to 4 while keeping the correct
-	// LtHash. This simulates a crash where the version watermark wasn't
-	// persisted but the actual data and hash are intact.
-	batch := s.rawDBFor(accountDBDir).NewBatch()
-	maintained := s.maintainedHashes()
-	require.NoError(t, writeLocalMetaToBatch(
-		batch, 4, savedAccountLtHash,
-		maintained.PerModule[accountDBDir], maintained.PerModuleStats[accountDBDir]))
-	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
-	_ = batch.Close()
-
 	require.NoError(t, s.Close())
+	restoreDataDB(t, cfg, accountDBDir, accountAt4)
 
 	// Reopen: loadGlobalMetadata detects version skew and catchup replays.
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
@@ -1334,28 +1321,23 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 	err = s.LoadLatest()
 	require.NoError(t, err)
 
+	// Simulate crash: storageDB only flushed v3 while the others reached v5.
 	addr := addrN(0x02)
+	var storageAt3 string
 	for i := 1; i <= 5; i++ {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i*11)), false)
 		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
+		if i == 3 {
+			s = reopenStore(t, s, cfg)
+			storageAt3 = copyDataDB(t, cfg, storageDBDir)
+			require.NoError(t, s.LoadLatest())
+		}
 	}
-
-	// Save the correct storageDB per-DB LtHash before skewing.
-	savedStorageLtHash := s.maintainedHashes().PerDB[storageDBDir].Clone()
-
-	// Simulate crash: storageDB only flushed v3 (version watermark behind).
-	batch := s.rawDBFor(storageDBDir).NewBatch()
-	maintained := s.maintainedHashes()
-	require.NoError(t, writeLocalMetaToBatch(
-		batch, 3, savedStorageLtHash,
-		maintained.PerModule[storageDBDir], maintained.PerModuleStats[storageDBDir]))
-	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
-	_ = batch.Close()
-
 	require.NoError(t, s.Close())
+	restoreDataDB(t, cfg, storageDBDir, storageAt3)
 
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
@@ -1652,7 +1634,7 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 
 	// Write v2 to the WAL manually (like Commit step 1) without committing to the DBs.
 	prior := s.OpenView()
-	mutations, err := mutation.MutationsFromChangeSets(s.pendingChangeSets, 2, prior)
+	mutations, err := MutationsFromChangeSets(s.pendingChangeSets, 2, prior)
 	prior.Close()
 	require.NoError(t, err)
 	require.NoError(t, s.wal.Write(2, mutations))

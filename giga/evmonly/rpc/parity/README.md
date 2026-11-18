@@ -52,6 +52,15 @@ exercise the path mainnet fixtures take. Recording is deterministic, so an
 unchanged v2 rewrites identical files. To cover new behaviour, add transactions
 or calls to a scenario in `synthetic_test.go`, or add a scenario.
 
+`TestDebugTraceGolden` (in `giga/evmonly/rpc/debug_golden_test.go`) also traces
+`synthetic-basic` and compares the traces with
+`giga/evmonly/rpc/testdata/trace/synthetic-basic.json`. A change to that fixture
+changes its traces, so record them again and review the diff:
+
+```bash
+go test ./giga/evmonly/rpc/ -run TestDebugTraceGolden -count=1 -trace-golden-record
+```
+
 ### Mainnet
 
 `paritycapture` captures consecutive blocks from a v2 archive node. The node

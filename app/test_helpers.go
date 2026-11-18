@@ -775,9 +775,21 @@ func SetupWithGenesisAccounts(t *testing.T, genAccs []authtypes.GenesisAccount, 
 	)
 
 	_, _ = app.Commit(context.Background())
-	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: "sei-test", Height: app.LastBlockHeight() + 1}})
 
 	return app
+}
+
+// CommitBlockWithWrites makes write's state changes in the next block, before its working hash is taken, and
+// commits that block.
+func CommitBlockWithWrites(t *testing.T, app *App, write func(ctx sdk.Context)) {
+	header := tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}
+	ctx, writeCache := app.NewUncachedContext(false, header).CacheContext()
+	write(ctx)
+	writeCache()
+	_, err := app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &header})
+	require.NoError(t, err)
+	_, err = app.Commit(context.Background())
+	require.NoError(t, err)
 }
 
 type GenerateAccountStrategy func(int) []sdk.AccAddress
@@ -976,12 +988,13 @@ func SignCheckDeliver(
 		require.Error(t, err)
 		require.Nil(t, res)
 	}
-	_, err = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: header.ChainID, Height: header.Height}})
+	blockRes, err := app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Txs:    [][]byte{txBytes},
+		Header: &tmproto.Header{ChainID: header.ChainID, Height: header.Height},
+	})
 	require.NoError(t, err)
-	gInfo, res, deliverErr := app.Deliver(txCfg.TxEncoder(), tx)
-	if deliverErr == nil && res == nil {
-		deliverErr = fmt.Errorf("deliver tx returned no result")
-	}
+	require.Len(t, blockRes.TxResults, 1)
+	gInfo, res, deliverErr := txResultOutcome(blockRes.TxResults[0])
 
 	if expPass {
 		require.NoError(t, deliverErr)
@@ -991,12 +1004,23 @@ func SignCheckDeliver(
 		require.Nil(t, res)
 	}
 
-	_, err = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: header.ChainID, Height: header.Height}})
-	require.NoError(t, err)
 	_, err = app.Commit(context.Background())
 	require.NoError(t, err)
 
 	return gInfo, res, deliverErr
+}
+
+// txResultOutcome returns a block's tx result in the form BaseApp.Deliver() reports it: a nil result and the
+// registered error for a failed tx.
+func txResultOutcome(txRes *abci.ExecTxResult) (sdk.GasInfo, *sdk.Result, error) {
+	gInfo := sdk.GasInfo{
+		GasWanted: uint64(txRes.GasWanted), //nolint:gosec // gas is never negative
+		GasUsed:   uint64(txRes.GasUsed),   //nolint:gosec // gas is never negative
+	}
+	if txRes.Code != 0 {
+		return gInfo, nil, errors.ABCIError(txRes.Codespace, txRes.Code, txRes.Log)
+	}
+	return gInfo, &sdk.Result{Data: txRes.Data, Log: txRes.Log, Events: txRes.Events}, nil
 }
 
 func GenSequenceOfTxs(txGen client.TxConfig, msgs []sdk.Msg, accNums []uint64, initSeqNums []uint64, numToGenerate int, priv ...cryptotypes.PrivKey) ([]sdk.Tx, error) {

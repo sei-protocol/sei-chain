@@ -29,16 +29,16 @@ func maxBlock() *autopb.Block {
 		Header: &autopb.BlockHeader{
 			LaneId: &autopb.LaneID{
 				Validator: &autopb.PublicKey{Ed25519: make([]byte, 32)},
-				Joined:    proto.Uint64(0),
+				Joined:    new(uint64(0)),
 			},
-			BlockNumber: proto.Uint64(1),
+			BlockNumber: new(uint64(1)),
 			ParentHash:  make([]byte, 32),
 			PayloadHash: make([]byte, 32),
 		},
 		Payload: &autopb.Payload{
-			CreatedAt:         &autopb.Timestamp{Seconds: proto.Int64(1), Nanos: proto.Int32(0)},
-			TotalGasWanted:    proto.Uint64(100_000_000),
-			TotalGasEstimated: proto.Uint64(100_000_000),
+			CreatedAt:         &autopb.Timestamp{Seconds: new(int64(1)), Nanos: new(int32(0))},
+			TotalGasWanted:    new(uint64(100_000_000)),
+			TotalGasEstimated: new(uint64(100_000_000)),
 			Txs:               txs,
 		},
 	}

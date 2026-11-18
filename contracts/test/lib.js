@@ -1,9 +1,17 @@
 const { exec } = require("child_process");
-const {ethers} = require("hardhat"); // Importing exec from child_process
+const hre = require("hardhat");
+const {ethers} = hre; // Importing exec from child_process
 const axios = require("axios");
 const crypto = require("crypto");
 
 const adminKeyName = "admin"
+
+// EVM_RPC_URL and EVM_WS_URL are the EVM RPC the tests call: the RPC node on an Autobahn cluster,
+// whose validators keep no state history, and node 0 otherwise. VALIDATOR_EVM_RPC_URL is node 0's
+// EVM RPC, which seid sends funding transactions through.
+const EVM_RPC_URL = hre.network.config.url
+const EVM_WS_URL = process.env.SEI_EVM_WS_URL || "ws://localhost:8546"
+const VALIDATOR_EVM_RPC_URL = "http://localhost:8545"
 
 const ABI = {
     ERC20: [
@@ -143,7 +151,7 @@ async function evmSend(addr, fromKey, amount="10000000000000000000000000") {
     // seid tx evm send prints "Transaction hash: 0x..." on its own format
     // (not the standard cosmos JSON response), so we extract from text and
     // wait via the JSON-RPC receipt — semantically equivalent to -b block.
-    const output = await execute(`seid tx evm send ${addr} ${amount} --from ${fromKey} --evm-rpc=http://localhost:8545 -b sync -y`);
+    const output = await execute(`seid tx evm send ${addr} ${amount} --from ${fromKey} --evm-rpc=${VALIDATOR_EVM_RPC_URL} -b sync -y`);
     const evmTxHash = output.replace(/.*0x/, "0x").trim()
     await waitForReceipt(evmTxHash)
     return evmTxHash
@@ -337,32 +345,6 @@ function getEventAttribute(response, type, attribute) {
     throw new Error("attribute not found")
 }
 
-async function testAPIEnabled(provider) {
-    try {
-        // noop operation to see if it throws
-        await incrementPointerVersion(provider, "cw20", 0)
-        return true;
-    } catch(e){
-        console.log(e)
-        return false;
-    }
-}
-
-async function incrementPointerVersion(provider, pointerType, offset) {
-    if(await isDocker()) {
-        // must update on all nodes
-        for(let i=0; i<4; i++) {
-            const resultStr = await execCommand(`docker exec sei-node-${i} curl -s -X POST http://localhost:8545 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"test_incrementPointerVersion","params":["${pointerType}", ${offset}],"id":1}'`)
-            const result = JSON.parse(resultStr)
-            if(result.error){
-                throw new Error(`failed to increment pointer version: ${result.error}`)
-            }
-        }
-    } else {
-       await provider.send("test_incrementPointerVersion", [pointerType, offset]);
-    }
-}
-
 async function rawHttpDebugTraceWithCallTracer(txHash) {
     const payload = {
         jsonrpc: "2.0",
@@ -370,14 +352,14 @@ async function rawHttpDebugTraceWithCallTracer(txHash) {
         params: [txHash, {"tracer": "callTracer"}], // The second parameter is an optional trace config object
         id: 1,
     };
-    const response = await axios.post("http://localhost:8545", payload, {
+    const response = await axios.post(EVM_RPC_URL, payload, {
         headers: { "Content-Type": "application/json" },
     });
     return response.data;
 }
 
 async function getChainId() {
-    const nodeUrl = 'http://localhost:8545';
+    const nodeUrl = EVM_RPC_URL;
     const response = await axios.post(nodeUrl, {
         method: 'eth_chainId',
         params: [],
@@ -388,7 +370,7 @@ async function getChainId() {
 }
 
 async function getGasPrice() {
-    const nodeUrl = 'http://localhost:8545';
+    const nodeUrl = EVM_RPC_URL;
     const response = await axios.post(nodeUrl, {
         method: 'eth_gasPrice',
         params: [],
@@ -713,10 +695,10 @@ function _wrapSignerWithNonceRetry(signer) {
     return signer
 }
 
-// EVM chain ID of the Autobahn EVM-only executor (AutobahnEVMOnlyChainID in
-// sei-tendermint/config/autobahn.go). That chain has no Cosmos accounts, so an
+// EVM chain ID docker/localnode gives the Autobahn EVM-only executor (the
+// --evm-chain-id of gen-autobahn-config). That chain has no Cosmos accounts, so an
 // EVM address has no Sei address to look up.
-const EVM_ONLY_CHAIN_ID = 713715
+const EVM_ONLY_CHAIN_ID = 713700
 
 // isEvmOnlyChain reports whether the network under test is the Autobahn
 // EVM-only chain.
@@ -759,11 +741,6 @@ async function queryWasm(contractAddress, operation, args={}){
 async function executeWasm(contractAddress, msg, coins = "0usei") {
     const jsonString = JSON.stringify(msg).replace(/"/g, '\\"'); // Properly escape JSON string
     const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount ${coins} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y -b sync -o json`;
-    return await waitForAdminTxCommit(command)
-}
-
-async function associateWasm(contractAddress) {
-    const command = `seid tx evm associate-contract-address ${contractAddress} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y -b sync -o json`;
     return await waitForAdminTxCommit(command)
 }
 
@@ -971,6 +948,8 @@ function hex2uint8(hex) {
 }
 
 module.exports = {
+    EVM_RPC_URL,
+    EVM_WS_URL,
     isEvmOnlyChain,
     fundAddress,
     fundSeiAddress,
@@ -1009,9 +988,6 @@ module.exports = {
     waitForReceipt,
     getCosmosTx,
     isDocker,
-    testAPIEnabled,
-    incrementPointerVersion,
-    associateWasm,
     generateWallet,
     printClaimMsg,
     printClaimMsgBySender,

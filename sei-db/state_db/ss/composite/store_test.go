@@ -1280,7 +1280,7 @@ func TestImport_FlatKVLegacyKeysPreserveModule(t *testing.T) {
 // starts with an EVM prefix byte and matches that kind's length check must
 // still be treated as legacy MiscData, not deserialized as an EVM vtype.
 // EVM kind parsing is only valid under the "evm" module, mirroring the write
-// side (classifyAndPrefix) and read routing (routePhysicalKey).
+// side (ParseLogicalKey) and read routing (routePhysicalKey).
 func TestImport_LegacyKeyMimickingEVMShapeStaysLegacy(t *testing.T) {
 	addr := make([]byte, 20)
 	addr[0] = 0x11
@@ -1342,7 +1342,7 @@ func TestImport_LegacyKeyMimickingEVMShapeStaysLegacy(t *testing.T) {
 }
 
 // TestImport_FlatKVEmptyModuleKeyRejected pins the empty-module guard shared
-// with classifyAndPrefix and routePhysicalKey: a physical key of the form
+// with ParseLogicalKey and routePhysicalKey: a physical key of the form
 // "/<key>" must fail the import instead of producing a StoreKey "" node that
 // the SS importer would silently drop.
 func TestImport_FlatKVEmptyModuleKeyRejected(t *testing.T) {

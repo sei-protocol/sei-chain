@@ -92,10 +92,10 @@ func TestWatermarkRevert(t *testing.T) {
 func TestAccountStatusChangeRevert_Delete(t *testing.T) {
 	db := &DBImpl{tempState: NewTemporaryState()}
 	addr := common.Address{10}
-	db.tempState.transientAccounts[addr.Hex()] = []byte{1, 2, 3}
+	db.tempState.transientAccounts[addr] = []byte{1, 2, 3}
 	change := &accountStatusChange{account: addr, prev: nil}
 	change.revert(db)
-	_, ok := db.tempState.transientAccounts[addr.Hex()]
+	_, ok := db.tempState.transientAccounts[addr]
 	require.False(t, ok)
 }
 
@@ -105,7 +105,7 @@ func TestAccountStatusChangeRevert_Update(t *testing.T) {
 	prev := []byte{4, 5, 6}
 	change := &accountStatusChange{account: addr, prev: prev}
 	change.revert(db)
-	require.Equal(t, prev, db.tempState.transientAccounts[addr.Hex()])
+	require.Equal(t, prev, db.tempState.transientAccounts[addr])
 }
 
 func TestStorageOverrideInstallRevert_Delete(t *testing.T) {

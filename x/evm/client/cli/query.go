@@ -124,10 +124,7 @@ func CmdQueryERC20() *cobra.Command {
 				return err
 			}
 			queryClient := types.NewQueryClient(clientCtx)
-			abi, err := native.NativeMetaData.GetAbi()
-			if err != nil {
-				return err
-			}
+			abi := native.GetParsedABI()
 			var bz []byte
 			switch args[1] {
 			case "name", "symbol", "decimals", "totalSupply":
@@ -218,10 +215,7 @@ func CmdQueryERC20Payload() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			abi, err := cw20.Cw20MetaData.GetAbi()
-			if err != nil {
-				return err
-			}
+			abi := cw20.GetParsedABI()
 			var bz []byte
 			switch args[0] {
 			case "transfer":
@@ -270,10 +264,7 @@ func CmdQueryERC721Payload() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			abi, err := cw721.Cw721MetaData.GetAbi()
-			if err != nil {
-				return err
-			}
+			abi := cw721.GetParsedABI()
 			var bz []byte
 			switch args[0] {
 			case "approve":
@@ -322,10 +313,7 @@ func CmdQueryERC1155Payload() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			abi, err := cw1155.Cw1155MetaData.GetAbi()
-			if err != nil {
-				return err
-			}
+			abi := cw1155.GetParsedABI()
 			var bz []byte
 			switch args[0] {
 			case "safeTransferFrom":

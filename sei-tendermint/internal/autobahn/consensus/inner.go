@@ -84,6 +84,7 @@ package consensus
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
@@ -152,11 +153,15 @@ func newInner(
 // pushSpec advances consensus to avail's ConsensusSpec tip and clears per-view
 // state. Specs that do not advance the view are ignored, which covers the
 // tipless spec published before the first CommitQC.
-func (s *State) pushSpec(spec types.ConsensusSpec) error {
+func (s *State) pushSpec(ctx context.Context, spec types.ConsensusSpec) error {
 	specViewIdx := spec.Index()
 	if specViewIdx <= s.innerRecv.Load().spec.Index() {
 		return nil
 	}
+	if err := s.specLimiter.Wait(ctx); err != nil {
+		return err
+	}
+
 	for iSend := range s.inner.Lock() {
 		i := iSend.Load()
 		if specViewIdx <= i.spec.Index() {
@@ -237,17 +242,18 @@ func (s *State) pushProposal(ctx context.Context, proposal *types.FullProposal) 
 		i.PrepareVote = utils.Some(v)
 		isend.Store(i)
 	}
+	meters.PrepareVoteLatency.Observe(time.Since(proposal.Header().Timestamp()).Seconds())
 	return nil
 }
 
 func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 	// Wait for view.
-	vs, err := s.waitForView(ctx, qc.Proposal().View())
+	vs, err := s.waitForView(ctx, qc.View())
 	if err != nil {
 		return err
 	}
 	// Verify message.
-	if vs.View() != qc.Proposal().View() {
+	if vs.View() != qc.View() {
 		return nil
 	}
 	if err := qc.Verify(vs.Epoch); err != nil {
@@ -256,14 +262,15 @@ func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 	// Update.
 	for isend := range s.inner.Lock() {
 		i := isend.Load()
-		if i.View() != qc.Proposal().View() || i.TimeoutVote.IsPresent() || i.PrepareQC.IsPresent() {
+		if i.View() != qc.View() || i.TimeoutVote.IsPresent() || i.PrepareQC.IsPresent() {
 			return nil
 		}
 		i.PrepareQC = utils.Some(qc)
-		v := types.Sign(s.cfg.Key, types.NewCommitVote(qc.Proposal()))
+		v := types.Sign(s.cfg.Key, types.NewCommitVote(qc))
 		i.CommitVote = utils.Some(v)
 		isend.Store(i)
 	}
+	meters.PrepareQCLatency.Observe(time.Since(qc.Header().Timestamp()).Seconds())
 	return nil
 }
 

@@ -1,11 +1,16 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders, rawSei, expectJsonRpcError, waitUntil } from '../utils/chainUtils';
+import { bothProviders, rawSei, expectJsonRpcError, JsonRpcEnvelope, waitUntil } from '../utils/chainUtils';
 import { readRuntimeState, RuntimeState, claimPool } from '../utils/testUtils';
 import { EvmAccount } from '../utils/evmUtils';
 import {
+    deployLogBurst,
     deployLogToken,
     drainFilterChanges,
+    emitBursts,
+    expectBurstLogs,
+    pollUntilLogCount,
+    waitForLogsServed,
     assertFilterChangesMatchGetLogs,
     emitLogScene,
     LogScene,
@@ -14,6 +19,12 @@ import {
     TRANSFER_TOPIC,
 } from '../utils/logsUtils';
 import { HASH32 } from '../utils/format';
+import { FILTER_LIMITS } from '../utils/constants';
+import { waitForNextBlock } from '../utils/txUtils';
+
+// More blocks than one page of the CometBFT event log (10) or of BlockchainInfo (20), which a
+// poll must cover in full.
+const UNPOLLED_BLOCKS = 25;
 
 describe('eth_getFilterChanges', function () {
     this.timeout(180 * 1000);
@@ -27,6 +38,18 @@ describe('eth_getFilterChanges', function () {
         runtime = readRuntimeState();
         [emitter] = claimPool(runtime, sei, 1, 'eth_getFilterChanges');
     });
+
+    // The height of each block filter hash, through eth_getBlockByHash, failing on a hash the
+    // node does not know as a canonical block.
+    const blockHeights = (hashes: string[]): Promise<number[]> =>
+        Promise.all(
+            hashes.map(async hash => {
+                expect(hash).to.match(HASH32);
+                const block = await sei.send('eth_getBlockByHash', [hash, false]);
+                expect(block, `block ${hash} resolves`).to.not.equal(null);
+                return Number(block.number);
+            }),
+        );
 
     describe('log filter (incremental delivery)', () => {
         it('delivers only the logs that arrived since the previous poll', async () => {
@@ -61,6 +84,36 @@ describe('eth_getFilterChanges', function () {
             await sei.send('eth_uninstallFilter', [id]);
         });
 
+        it('a poll after many unpolled blocks returns every log emitted across them, once, in order', async () => {
+            const { address, token } = await deployLogToken(emitter);
+            const criteria = { address, topics: [TRANSFER_TOPIC] };
+            const id = await sei.send('eth_newFilter', [criteria]);
+
+            // Three Transfers spread over more than UNPOLLED_BLOCKS blocks, with no poll between.
+            const receipts: ethers.TransactionReceipt[] = [];
+            for (let i = 0; i < 3; i++) {
+                if (i > 0) {
+                    await waitForNextBlock(sei, 'log filter: blocks pass unpolled', Math.ceil(UNPOLLED_BLOCKS / 2));
+                }
+                receipts.push((await (await token.mint(emitter.address, 1n)).wait())!);
+            }
+            const first = receipts[0].blockNumber;
+            const last = receipts[receipts.length - 1].blockNumber;
+            expect(last - first, 'the Transfers span more than one page of blocks').to.be.greaterThan(
+                UNPOLLED_BLOCKS,
+            );
+
+            const delivered = await drainFilterChanges(sei, id, receipts.length);
+            const viaGetLogs = await sei.send('eth_getLogs', [
+                { ...criteria, fromBlock: ethers.toQuantity(first), toBlock: ethers.toQuantity(last) },
+            ]);
+            expect(viaGetLogs.length, 'eth_getLogs sees the three Transfers').to.equal(receipts.length);
+            expect(delivered, 'getFilterChanges == eth_getLogs over the span').to.deep.equal(viaGetLogs);
+            expect(await sei.send('eth_getFilterChanges', [id]), 'drained').to.deep.equal([]);
+
+            await sei.send('eth_uninstallFilter', [id]);
+        });
+
         it('respects the address filter and returns logs only for that address', async () => {
             // Two emitting tokens in the same range; a filter pinned to token A must ignore
             // token B's logs entirely. Events are mined first, then matched over their range.
@@ -87,6 +140,85 @@ describe('eth_getFilterChanges', function () {
                     a.address.toLowerCase(),
                 ),
             );
+        });
+    });
+
+    describe('log filter (large backlogs)', function () {
+        // A poll scans from its cursor to the head and, when the logs there exceed the caps, halves
+        // the block window until they fit (evmrpc/filter.go getLogsByFiltersWithBackoff), so a
+        // backlog over the cap arrives over several polls instead of failing.
+        this.timeout(5 * 60 * 1000);
+        let burster: EvmAccount;
+
+        before(() => {
+            [burster] = claimPool(runtime, sei, 1, 'eth_getFilterChanges:backlog');
+        });
+
+        it('a filter left unpolled while more than 1000 logs accumulate returns all of them in one poll, then nothing', async () => {
+            const contract = await deployLogBurst(burster);
+            const address = await contract.getAddress();
+            const id = await sei.send('eth_newFilter', [{ address }]);
+
+            const batches = await emitBursts(contract, [600, 600]);
+            await waitForLogsServed(sei, batches[batches.length - 1].blockNumber);
+
+            expectBurstLogs(await sei.send('eth_getFilterChanges', [id]), batches, address, 'the single poll');
+            expect(await sei.send('eth_getFilterChanges', [id]), 'drained').to.deep.equal([]);
+            await sei.send('eth_uninstallFilter', [id]);
+        });
+
+        it(`a backlog over max_log_no_block (${FILTER_LIMITS.maxLogs}) arrives across polls, each under the cap, together complete`, async () => {
+            const contract = await deployLogBurst(burster);
+            const address = await contract.getAddress();
+            const id = await sei.send('eth_newFilter', [{ address }]);
+
+            // Four blocks just under the cap together, plus one log: no block alone exceeds it.
+            const sizes = [...Array(4).fill(FILTER_LIMITS.maxLogs / 4), 1];
+            const batches = await emitBursts(contract, sizes);
+            await waitForLogsServed(sei, batches[batches.length - 1].blockNumber);
+
+            const deltas = await pollUntilLogCount(sei, id, sizes.reduce((a, b) => a + b, 0));
+            expect(deltas.length, 'more logs than one poll may return take more than one poll').to.be.greaterThan(1);
+            deltas.forEach((d, i) => expect(d.length, `poll ${i} stays within the cap`).to.be.at.most(FILTER_LIMITS.maxLogs));
+            expectBurstLogs(deltas.flat(), batches, address, 'the polls together');
+            await sei.send('eth_uninstallFilter', [id]);
+        });
+
+        it(`a single block holding more than max_log_no_block logs fails the poll that reaches it, and the filter moves past it`, async () => {
+            // pollLogs: when the poll window has shrunk to one block whose logs alone exceed the
+            // caps, the poll fails with an oversizedBlockError and the cursor moves past that
+            // block (filter.go:1177-1181), so later polls deliver later logs instead of failing
+            // forever. The halving can first reach the empty blocks before it, which poll as [].
+            const contract = await deployLogBurst(burster);
+            const address = await contract.getAddress();
+            const id = await sei.send('eth_newFilter', [{ address }]);
+
+            // ~14.5M gas: one block may hold it (max_gas 35M), but it is over the 10M eth_estimateGas
+            // may simulate, so the limit is set by hand.
+            const [oversized] = await emitBursts(contract, [FILTER_LIMITS.maxLogs + 1], 0, { gasLimit: 20_000_000n });
+            await waitForLogsServed(sei, oversized.blockNumber);
+            const capError = `query matches too many logs: result exceeds the maximum of ${FILTER_LIMITS.maxLogs} logs`;
+
+            let failed: JsonRpcEnvelope | undefined;
+            for (let poll = 0; poll < 20 && !failed; poll++) {
+                const res = await rawSei<any[]>('eth_getFilterChanges', [id]);
+                if (res.error) failed = res;
+                else expect(res.result, `poll ${poll} before the oversized block`).to.deep.equal([]);
+            }
+            expect(failed, 'a poll reaches the oversized block').to.not.equal(undefined);
+            expectJsonRpcError(failed!, -32000, new RegExp(`logs of block ${oversized.blockNumber} skipped: ${capError}`));
+
+            const [later] = await emitBursts(contract, [3], 1);
+            await waitForLogsServed(sei, later.blockNumber);
+            expectBurstLogs(await sei.send('eth_getFilterChanges', [id]), [later], address, 'the poll after the oversized block');
+            expect(await sei.send('eth_getFilterChanges', [id]), 'drained, without the error again').to.deep.equal([]);
+
+            // A history read over the block fails as a whole, as eth_getLogs does.
+            const at = ethers.toQuantity(oversized.blockNumber);
+            const history = await sei.send('eth_newFilter', [{ address, fromBlock: at, toBlock: at }]);
+            expectJsonRpcError(await rawSei('eth_getFilterLogs', [history]), -32000, new RegExp(capError));
+            expectJsonRpcError(await rawSei('eth_getLogs', [{ address, fromBlock: at, toBlock: at }]), -32000, new RegExp(capError));
+            await Promise.all([id, history].map(f => sei.send('eth_uninstallFilter', [f])));
         });
     });
 
@@ -179,6 +311,40 @@ describe('eth_getFilterChanges', function () {
             expect(hashes.length, 'at least one new block hash').to.be.greaterThan(0);
             hashes.forEach((h: string) => expect(h).to.match(HASH32));
             expect(hashes, 'includes the block our tx landed in').to.include(receipt!.blockHash);
+
+            await sei.send('eth_uninstallFilter', [id]);
+        });
+
+        it('the first poll returns no block from before the filter was created', async () => {
+            const headBefore = await sei.getBlockNumber();
+            const id = await sei.send('eth_newBlockFilter', []);
+
+            const heights = await blockHeights(await sei.send('eth_getFilterChanges', [id]));
+            heights.forEach(h =>
+                expect(h, `block ${h} was mined after the filter was created`).to.be.greaterThan(headBefore),
+            );
+
+            await sei.send('eth_uninstallFilter', [id]);
+        });
+
+        it('a poll after many unpolled blocks returns every block since the previous poll, oldest first, once', async () => {
+            const headBefore = await sei.getBlockNumber();
+            const id = await sei.send('eth_newBlockFilter', []);
+
+            const hashes: string[] = [...(await sei.send('eth_getFilterChanges', [id]))];
+            await waitForNextBlock(sei, 'block filter: blocks pass unpolled', UNPOLLED_BLOCKS);
+            hashes.push(...(await sei.send('eth_getFilterChanges', [id])));
+            await waitForNextBlock(sei, 'block filter: one more block', 1);
+            hashes.push(...(await sei.send('eth_getFilterChanges', [id])));
+
+            const heights = await blockHeights(hashes);
+            expect(heights.length, 'every block mined across the polls').to.be.greaterThan(UNPOLLED_BLOCKS);
+            expect(heights[0], 'the first block was mined after creation').to.be.greaterThan(headBefore);
+            heights.slice(1).forEach((h, i) =>
+                expect(h, `the block after ${heights[i]}: none missing, repeated or out of order`).to.equal(
+                    heights[i] + 1,
+                ),
+            );
 
             await sei.send('eth_uninstallFilter', [id]);
         });

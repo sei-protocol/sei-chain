@@ -3,22 +3,17 @@ package giga
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
@@ -51,6 +46,16 @@ func (w *fakeStateWAL) Write(blockNumber uint64, mutations []mutation.Mutation) 
 // newTestStateDB builds a StateDB over a fake WAL and a real FlatKV store. The store is constructed
 // with no WAL of its own, which is the arrangement StateDB requires: it writes the WAL on the store's
 // behalf, and replays that WAL into the store to catch it up.
+// newDiscardingBUDHasher starts a BUD hasher that discards each hash it computes, and closes it when the test ends.
+func newDiscardingBUDHasher(t *testing.T) bud.BUDHasher {
+	t.Helper()
+	hasher, err := bud.NewStandardBUDHasher(t.Context(), bud.DefaultBUDHasherConfig(),
+		func(context.Context, uint64, [32]byte) error { return nil })
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, hasher.Close()) })
+	return hasher
+}
+
 func newTestStateDB(t *testing.T) (gigatypes.StateDB, *fakeStateWAL, *flatkv.CommitStore) {
 	t.Helper()
 
@@ -63,17 +68,31 @@ func newTestStateDB(t *testing.T) (gigatypes.StateDB, *fakeStateWAL, *flatkv.Com
 	require.NoError(t, liveStateDB.LoadLatest())
 
 	wal := &fakeStateWAL{}
-	return &StateDB{wal: wal, sc: liveStateDB, flatkvCfg: cfg}, wal, liveStateDB
+	return &StateDB{wal: wal, budHasher: newDiscardingBUDHasher(t), sc: liveStateDB, flatkvCfg: cfg}, wal, liveStateDB
 }
 
-// changeset builds a changeset setting key to value in the test module.
-func changeset(key string, value string) []*proto.NamedChangeSet {
-	return []*proto.NamedChangeSet{{
-		Name: testModule,
-		Changeset: proto.ChangeSet{
-			Pairs: []*proto.KVPair{{Key: []byte(key), Value: []byte(value)}},
-		},
-	}}
+// changeset builds a change set setting key to value in the test module.
+func changeset(key string, value string) *gigatypes.StateChangeSet {
+	return &gigatypes.StateChangeSet{
+		Misc: []gigatypes.MiscChange{{Module: testModule, Key: []byte(key), Value: []byte(value)}},
+	}
+}
+
+// commitToLiveStateDB commits cs to the live state DB as block, converted to mutations as the state DB converts
+// a block it commits.
+func commitToLiveStateDB(
+	t *testing.T,
+	liveStateDB *flatkv.CommitStore,
+	block int64,
+	cs *gigatypes.StateChangeSet,
+) {
+	t.Helper()
+	prior := liveStateDB.OpenView()
+	//nolint:gosec // test heights are small
+	mutations, err := flatkv.MutationsFromStateChangeSet(cs, uint64(block), prior, flatkvconfig.DefaultConfig())
+	prior.Close()
+	require.NoError(t, err)
+	require.NoError(t, liveStateDB.CommitStateChanges(block, mutations))
 }
 
 // Fanning a block out to every layer is the whole job. A layer silently missed here is a layer that
@@ -96,33 +115,6 @@ func TestCommitStateChangesReachesWALAndLiveStateDB(t *testing.T) {
 	value, found := liveStateDB.Get(testModule, []byte("key"))
 	require.True(t, found, "the committed key must be readable from the live state DB")
 	require.Equal(t, []byte("value"), value)
-}
-
-// The EVM state store is a layer of the same fan-out: a commit that reaches WAL and SC but not SS
-// leaves historical EVM reads a block behind with every block.
-func TestCommitStateChangesReachesTheEVMStateStore(t *testing.T) {
-	stateDB, _, _ := newTestStateDB(t)
-	ss, err := evm.NewEVMStateStore(t.TempDir(), config.DefaultStateStoreConfig())
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, ss.Close()) })
-	stateDB.(*StateDB).ss = ss
-
-	key := append([]byte{0x0a}, make([]byte, 20)...)
-	value := append(make([]byte, 7), byte(1))
-	cs := []*proto.NamedChangeSet{{
-		Name: evm.EVMStoreKey,
-		Changeset: proto.ChangeSet{
-			Pairs: []*proto.KVPair{{Key: key, Value: value}},
-		},
-	}}
-	require.NoError(t, stateDB.CommitStateChanges(1, cs))
-	// The commit hands SS its block asynchronously and does not wait, so the read does.
-	ss.WaitForPendingWrites()
-
-	require.Equal(t, int64(1), ss.GetLatestVersion())
-	got, err := ss.Get(evm.EVMStoreKey, 1, key)
-	require.NoError(t, err)
-	require.Equal(t, value, got)
 }
 
 // A block that could not be written to every layer is not committed. The caller has to learn that from
@@ -169,7 +161,7 @@ func TestCommitStateChangesRefusesANegativeBlockNumber(t *testing.T) {
 func TestCommitStateChangesCommitsABlockWithNoChanges(t *testing.T) {
 	stateDB, wal, liveStateDB := newTestStateDB(t)
 
-	require.NoError(t, stateDB.CommitStateChanges(1, nil))
+	require.NoError(t, stateDB.CommitStateChanges(1, &gigatypes.StateChangeSet{}))
 
 	require.Equal(t, []uint64{1}, wal.writtenBlocks)
 	require.Equal(t, int64(1), liveStateDB.Version(), "the live state DB must commit an empty block rather than skip it")
@@ -198,29 +190,4 @@ func TestOpenViewAtServesNoHeightWithoutAStateStore(t *testing.T) {
 	view, ok := stateDB.OpenViewAt(5)
 	require.False(t, ok)
 	require.Nil(t, view)
-}
-
-// A view over the pebbledb state store pins nothing, so once its height is pruned a read fails rather
-// than reporting every key absent.
-func TestSSViewFailsReadsOnceItsHeightIsPruned(t *testing.T) {
-	ssCfg := config.DefaultStateStoreConfig()
-	ssCfg.Enable = true
-	ssCfg.EVMDBDirectory = filepath.Join(t.TempDir(), "ss")
-	ssCfg.ExternalPruning = true
-	db, err := NewStateDB(t.Context(), flatkvconfig.DefaultTestConfig(t), ssCfg, config.CheckpointConfig{BlockInterval: 1_000})
-	require.NoError(t, err)
-	defer func() { require.NoError(t, db.Close()) }()
-	addr := common.Address{1}
-	for height := int64(1); height <= 3; height++ {
-		require.NoError(t, db.CommitStateChanges(height, []*proto.NamedChangeSet{{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{
-			Pairs: []*proto.KVPair{{Key: nonceKey(addr), Value: nonceValue(uint64(height))}}}}}))
-	}
-	db.SS().WaitForPendingWrites()
-
-	view, ok := db.OpenViewAt(1)
-	require.True(t, ok)
-	defer view.Close()
-	require.Equal(t, uint64(1), view.GetNonce(addr))
-	require.NoError(t, db.SS().PruneHistory(3))
-	require.Panics(t, func() { view.GetNonce(addr) })
 }

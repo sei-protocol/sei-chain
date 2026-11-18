@@ -6,12 +6,12 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// The cursor is stored as a named changeset outside keys.EVMStoreKey, so it
+// The cursor is stored as a non-EVM write outside keys.EVMStoreKey, so it
 // shares the block's storage version without entering the EVM state hash.
 const (
 	evmOnlyCursorModule = "evmonly"
@@ -28,13 +28,11 @@ type evmOnlyCursor struct {
 	gasLimit  uint64
 }
 
-func (c evmOnlyCursor) changeSet() *proto.NamedChangeSet {
-	return &proto.NamedChangeSet{
-		Name: evmOnlyCursorModule,
-		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{
-			Key:   []byte(evmOnlyCursorKey),
-			Value: c.encode(),
-		}}},
+func (c evmOnlyCursor) miscChange() gigatypes.MiscChange {
+	return gigatypes.MiscChange{
+		Module: evmOnlyCursorModule,
+		Key:    []byte(evmOnlyCursorKey),
+		Value:  c.encode(),
 	}
 }
 

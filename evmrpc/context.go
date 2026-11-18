@@ -59,21 +59,19 @@ func WithTendermintTraces(ctx context.Context, traces *TendermintTraces) context
 }
 
 func TraceTendermintIfApplicable(ctx context.Context, endpoint string, arguments []string, response interface{}) {
+	traces := TendermintTracesFromContext(ctx)
+	if traces == nil {
+		return
+	}
 	encodedResponse, err := json.Marshal(response)
 	if err != nil {
 		panic(err)
 	}
-	trace := TendermintTrace{
+	traces.Traces = append(traces.Traces, TendermintTrace{
 		Endpoint:  endpoint,
 		Arguments: arguments,
 		Response:  encodedResponse,
-	}
-	existing := ctx.Value(tendermintTraceKey)
-	if existing == nil {
-		return
-	}
-	typed := existing.(*TendermintTraces)
-	typed.Traces = append(typed.Traces, trace)
+	})
 }
 
 func TendermintTracesFromContext(ctx context.Context) *TendermintTraces {

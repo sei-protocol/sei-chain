@@ -115,7 +115,7 @@ func TestEvmIterator(t *testing.T) {
 		})
 	}
 
-	t.Run("overlap keys use pending values", func(t *testing.T) {
+	t.Run("overlap keys use the later block's values", func(t *testing.T) {
 		require.NotEmpty(t, fixture.OverlapSamples)
 
 		iter, err := fixture.Store.Iterator(keys.EVMStoreKey, nil, nil, true)
@@ -165,6 +165,7 @@ func TestMiscIteratorNonEVM(t *testing.T) {
 			&proto.KVPair{Key: []byte("alpha"), Value: []byte("A2")},
 		),
 	}))
+	commitBuffered(t, s)
 
 	iter, err := s.Iterator("bank", nil, nil, true)
 	require.NoError(t, err)
@@ -453,7 +454,7 @@ func TestEvmIteratorDifferential(t *testing.T) {
 
 	rng := rand.New(rand.NewSource(seed ^ 0x5deece66d)) //nolint:gosec // deterministic test data only
 
-	// Pool of boundary-relevant keys: every committed/pending key, plus each
+	// Pool of boundary-relevant keys: every fixture key, plus each
 	// type prefix and its prefix-end.
 	var pool [][]byte
 	for _, e := range fixture.Sorted {
@@ -629,6 +630,8 @@ func buildEvmIteratorFixture(t *testing.T, seed int64) *evmIteratorFixture {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(batch1...)}))
 	commitAndCheck(t, s)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(batch2...)}))
+	// Committed without waiting for the flush, so iterators merge batch2's unflushed rows over batch1's.
+	commitBuffered(t, s)
 
 	return &evmIteratorFixture{
 		Seed:           seed,
@@ -685,8 +688,8 @@ func (g *evmIteratorGenerator) addMalformedStoragePrefixMiscKey() {
 
 // addMalformedCodePrefixMiscKey writes a 0x07-prefixed key whose length does
 // not match a well-formed code key (1 + 20), so it routes to miscDB while
-// physically living in the code keyspace (evm/0x07...). It is pending-only
-// (batch2) so the misc and code lanes interleave over pending writes too.
+// physically living in the code keyspace (evm/0x07...). It is written only in
+// batch2, so the misc and code lanes interleave over unflushed rows too.
 func (g *evmIteratorGenerator) addMalformedCodePrefixMiscKey() {
 	key := append([]byte{0x07}, bytes.Repeat([]byte{0x5a}, ktype.AddressLen-1)...)
 	val := []byte{0x56, 0x78}

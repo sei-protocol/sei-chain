@@ -1,15 +1,12 @@
 package cmd
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/seeds"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/stretchr/testify/require"
 )
@@ -81,16 +78,7 @@ func runInit(t *testing.T, chainID string) string {
 		"chain-id = \"\"\nkeyring-backend = \"test\"\noutput = \"text\"\nnode = \"tcp://localhost:26657\"\nbroadcast-mode = \"sync\"\n",
 	), 0o644))
 
-	encCfg := app.MakeEncodingConfig()
-	clientCtx := client.Context{}.WithCodec(encCfg.Marshaler).WithHomeDir(home).WithViper("")
-
-	cmd := InitCmd(app.ModuleBasics, home)
-	cmd.SetArgs([]string{"testnode", "--chain-id", chainID, "--home", home})
-	cmd.SilenceUsage = true
-	cmd.SilenceErrors = true
-
-	ctx := context.WithValue(context.Background(), client.ClientContextKey, &clientCtx)
-	require.NoError(t, cmd.ExecuteContext(ctx))
+	require.NoError(t, executeInit(home, "testnode", "--chain-id", chainID))
 
 	data, err := os.ReadFile(filepath.Join(home, "config", "config.toml"))
 	require.NoError(t, err)

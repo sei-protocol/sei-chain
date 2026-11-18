@@ -12,12 +12,12 @@ const (
 	budHashDomain = "sei-bud"
 
 	// budVersion is the version of the BUD scheme produced by this package: the budlet serialization, the BUD
-	// tree and its serialization, and the BUD hash preimage.
+	// tree, and the BUD hash preimage.
 	budVersion uint8 = 1
 )
 
-// computeBUDHash returns the BUD hash committing to a BUD tree.
-func computeBUDHash(
+// ComputeBUDHash returns the BUD hash committing to a BUD tree.
+func ComputeBUDHash(
 	// The number of leaves in the BUD tree.
 	leafCount uint64,
 	// The root of the BUD tree.

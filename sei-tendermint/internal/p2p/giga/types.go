@@ -20,15 +20,15 @@ type StreamAppQCsResp struct {
 }
 
 type GetBlockReq struct {
-	GlobalNumber types.GlobalBlockNumber
+	Pos types.LaneBlockPos
 }
 
 type StreamFullCommitQCsReq struct {
-	NextBlock types.GlobalBlockNumber
+	NextBlock types.RoadIndex
 }
 
 type StreamAppQCsReq struct {
-	NextBlock types.GlobalBlockNumber
+	NextBlock types.RoadIndex
 }
 
 var LaneVoteConv = protoutils.Conv[*types.Signed[*types.LaneVote], *pb.LaneVote]{
@@ -97,10 +97,14 @@ var StreamLaneProposalsReqConv = protoutils.Conv[*StreamLaneProposalsReq, *pb.St
 
 var GetBlockReqConv = protoutils.Conv[*GetBlockReq, *pb.GetBlockReq]{
 	Encode: func(m *GetBlockReq) *pb.GetBlockReq {
-		return &pb.GetBlockReq{GlobalNumber: uint64(m.GlobalNumber)}
+		return &pb.GetBlockReq{Pos: types.LaneBlockPosConv.Encode(m.Pos)}
 	},
 	Decode: func(m *pb.GetBlockReq) (*GetBlockReq, error) {
-		return &GetBlockReq{GlobalNumber: types.GlobalBlockNumber(m.GlobalNumber)}, nil
+		pos, err := types.LaneBlockPosConv.DecodeReq(m.Pos)
+		if err != nil {
+			return nil, fmt.Errorf("pos: %w", err)
+		}
+		return &GetBlockReq{Pos: pos}, nil
 	},
 }
 
@@ -122,7 +126,7 @@ var StreamFullCommitQCsReqConv = protoutils.Conv[*StreamFullCommitQCsReq, *pb.St
 		return &pb.StreamFullCommitQCsReq{NextBlock: uint64(m.NextBlock)}
 	},
 	Decode: func(m *pb.StreamFullCommitQCsReq) (*StreamFullCommitQCsReq, error) {
-		return &StreamFullCommitQCsReq{NextBlock: types.GlobalBlockNumber(m.NextBlock)}, nil
+		return &StreamFullCommitQCsReq{NextBlock: types.RoadIndex(m.NextBlock)}, nil
 	},
 }
 
@@ -131,6 +135,6 @@ var StreamAppQCsReqConv = protoutils.Conv[*StreamAppQCsReq, *pb.StreamAppQCsReq]
 		return &pb.StreamAppQCsReq{NextBlock: uint64(m.NextBlock)}
 	},
 	Decode: func(m *pb.StreamAppQCsReq) (*StreamAppQCsReq, error) {
-		return &StreamAppQCsReq{NextBlock: types.GlobalBlockNumber(m.NextBlock)}, nil
+		return &StreamAppQCsReq{NextBlock: types.RoadIndex(m.NextBlock)}, nil
 	},
 }

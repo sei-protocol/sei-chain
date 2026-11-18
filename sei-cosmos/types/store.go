@@ -75,7 +75,6 @@ const (
 
 type (
 	StoreKey          = types.StoreKey
-	CapabilityKey     = types.CapabilityKey
 	KVStoreKey        = types.KVStoreKey
 	TransientStoreKey = types.TransientStoreKey
 	MemoryStoreKey    = types.MemoryStoreKey

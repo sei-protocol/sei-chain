@@ -29,7 +29,6 @@ import (
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -295,7 +294,7 @@ func (c *v2Chain) capture(name string, start, count uint64) *parity.Fixture {
 }
 
 func (c *v2Chain) consensusBlock(_ context.Context, height uint64) (capture.ConsensusBlock, error) {
-	block, err := c.client.Block(context.Background(), utils.Alloc(int64(height))) //nolint:gosec // heights fit int64.
+	block, err := c.client.Block(context.Background(), new(int64(height))) //nolint:gosec // heights fit int64.
 	if err != nil {
 		return capture.ConsensusBlock{}, err
 	}
@@ -314,7 +313,7 @@ func (c *v2Chain) serve() parity.Caller {
 	cfg.HTTPPort = port
 	a := c.app
 	server, err := evmrpc.NewEVMHTTPServer(cfg, c.client, &a.EvmKeeper, a.BeginBlockKeepers, a.BaseApp, a.TracerAnteHandler,
-		a.RPCContextProvider, func(int64) client.TxConfig { return a.GetTxConfig() }, "", a.GetStateStore(), false, nil)
+		a.RPCContextProvider, a.RPCContextProviderWithoutConsensusParams, func(int64) client.TxConfig { return a.GetTxConfig() }, "", a.GetStateStore(), false, nil)
 	require.NoError(c.t, err)
 	c.settle()
 	require.NoError(c.t, server.Start())

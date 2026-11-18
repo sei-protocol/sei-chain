@@ -1955,9 +1955,16 @@ func TestWALSegmentCorruption(t *testing.T) {
 	}
 	require.Greater(t, corrupted, 0, "should have found at least one WAL segment to corrupt")
 
+	// Opening reads only the WAL's file names, so the corruption is reported once the WAL is read.
 	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
-	_, err = newCommitStoreWithWAL(context.Background(), cfg2)
+	reopened, err := newCommitStoreWithWAL(context.Background(), cfg2)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, reopened.Close()) }()
+	it, err := reopened.wal.Iterator(1, 2)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+	_, err = it.Next()
 	require.ErrorContains(t, err, "invalid magic prefix")
 }
 
@@ -2043,6 +2050,9 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 	_, err = s.Commit(s.Version() + 1) // v1
 	require.NoError(t, err)
+	s = reopenStore(t, s, cfg)
+	accountAt1 := copyDataDB(t, cfg, accountDBDir)
+	require.NoError(t, s.LoadLatest())
 
 	cs2 := &proto.NamedChangeSet{
 		Name: "evm",
@@ -2057,15 +2067,8 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	hashAtV2 := rootHash(s)
 	require.NoError(t, s.Close())
 
-	// Simulate a torn commit: rewind accountDB's version record to v1 so catchup must replay v2
-	metaCfg := pebbledb.DefaultTestConfig(t)
-	metaCfg.DataDir = filepath.Join(dbDir, "working", accountDBDir)
-	mdb, err := pebbledb.Open(context.Background(), &metaCfg)
-	require.NoError(t, err)
-	versionBuf := make([]byte, 8)
-	versionBuf[7] = 1 // version = 1
-	require.NoError(t, mdb.Set(ktype.MetaVersionKey, versionBuf, types.WriteOptions{Sync: true}))
-	require.NoError(t, mdb.Close())
+	// Put back accountDB as it was at v1, so catchup must replay v2 into it.
+	restoreDataDB(t, cfg, accountDBDir, accountAt1)
 
 	s2, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)

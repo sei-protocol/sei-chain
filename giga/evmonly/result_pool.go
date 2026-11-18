@@ -137,7 +137,8 @@ func (r *BlockResult) resetForPool() {
 }
 
 func (r *BlockResult) resetForPoolLocked() {
-	r.ChangeSet.Reset()
+	// Dropped rather than reset in place: the commit the set was handed to may still be reading it.
+	r.ChangeSet = StateChangeSet{}
 	clear(r.Txs)
 	r.Txs = r.Txs[:0]
 	clear(r.Receipts)

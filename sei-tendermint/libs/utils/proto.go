@@ -66,9 +66,6 @@ func (c ProtoConv[T, P]) DecodeSlice(p []P) ([]T, error) {
 // you might prefer the []T{{...},{...}} syntax instead.
 func Slice[T any](v ...T) []T { return v }
 
-// Alloc moves value to heap.
-func Alloc[T any](v T) *T { return &v }
-
 // Zero returns a zero value of type T.
 func Zero[T any]() (zero T) { return }
 

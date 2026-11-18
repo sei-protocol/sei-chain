@@ -348,12 +348,112 @@ func TestRecordCodecRejectsMalformedData(t *testing.T) {
 	require.Error(t, err, "empty")
 
 	wrongVersion := append([]byte{}, data...)
-	wrongVersion[0] = recordVersion + 1
+	wrongVersion[0] = restoreAnchorRecordVersion + 1
 	_, err = deserializeRecord(wrongVersion)
 	require.Error(t, err, "unsupported record version")
 
 	_, err = deserializeRecord(data[:len(data)-1])
 	require.Error(t, err, "truncated")
+}
+
+// testRestoreAnchor returns a restore anchor for blockHeight whose app hash is derived from it.
+func testRestoreAnchor(blockHeight uint64) *apphash.AppHashData {
+	return apphash.NewRestoreAnchorAppHashData(testChainID, blockHeight, [32]byte{0xa5, byte(blockHeight)})
+}
+
+// requireRestoreAnchor fails unless record is a restore anchor equal to expected.
+func requireRestoreAnchor(t *testing.T, expected *apphash.AppHashData, record *apphash.AppHashData) {
+	t.Helper()
+	require.True(t, record.IsRestoreAnchor())
+	require.Equal(t, expected.ChainID(), record.ChainID())
+	require.Equal(t, expected.BlockHeight(), record.BlockHeight())
+	require.Equal(t, expected.AppHash(), record.AppHash())
+}
+
+func TestRestoreAnchorCodec(t *testing.T) {
+	anchor := testRestoreAnchor(42)
+	data, err := serializeRecord(anchor)
+	require.NoError(t, err)
+	require.Equal(t, restoreAnchorRecordVersion, data[0])
+
+	decoded, err := deserializeRecord(data)
+	require.NoError(t, err)
+	requireRestoreAnchor(t, anchor, decoded)
+
+	_, err = deserializeRecord(data[:len(data)-1])
+	require.Error(t, err, "truncated")
+	_, err = deserializeRecord(append(data, 0))
+	require.Error(t, err, "trailing byte")
+}
+
+func TestRestoreAnchorBytesAreNotAppHashData(t *testing.T) {
+	data, err := serializeRecord(testRestoreAnchor(42))
+	require.NoError(t, err)
+	_, err = apphash.Deserialize(data)
+	require.Error(t, err)
+	_, err = apphash.Deserialize(data[1:])
+	require.Error(t, err)
+}
+
+func TestRestoreAnchorStartsAnEmptyVault(t *testing.T) {
+	dir := t.TempDir()
+	v := openTestVault(t, dir)
+	anchor := testRestoreAnchor(10)
+	require.NoError(t, v.Append([]*apphash.AppHashData{anchor}))
+	require.NoError(t, v.Append(testRecords(11, 12)))
+	require.NoError(t, v.Close())
+
+	reopened := openTestVault(t, dir)
+	lowest, highest, err := reopened.Bounds()
+	require.NoError(t, err)
+	require.Equal(t, uint64(10), lowest)
+	require.Equal(t, uint64(12), highest)
+	records := readAll(t, reopened, 10, 12)
+	require.Len(t, records, 3)
+	requireRestoreAnchor(t, anchor, records[0])
+	requireSameRecords(t, testRecords(11, 12), records[1:])
+}
+
+func TestRestoreAnchorStartsAnEmptyVaultInABatch(t *testing.T) {
+	v := openTestVault(t, t.TempDir())
+	anchor := testRestoreAnchor(10)
+	require.NoError(t, v.Append(append([]*apphash.AppHashData{anchor}, testRecords(11, 11)...)))
+
+	records := readAll(t, v, 10, 11)
+	require.Len(t, records, 2)
+	requireRestoreAnchor(t, anchor, records[0])
+	requireSameRecords(t, testRecords(11, 11), records[1:])
+}
+
+func TestRestoreAnchorAtGigaActivationKnowsBlockBeforeIt(t *testing.T) {
+	v := openTestVaultAt(t, t.TempDir(), 5)
+	anchor := testRestoreAnchor(5)
+	require.NoError(t, v.Append([]*apphash.AppHashData{anchor}))
+
+	records := readAll(t, v, 4, 5)
+	require.Len(t, records, 2)
+	requireZeroHashRecord(t, records[0], 5)
+	requireRestoreAnchor(t, anchor, records[1])
+}
+
+func TestAppendRejectsRestoreAnchorAfterARecord(t *testing.T) {
+	v := openTestVault(t, t.TempDir())
+	require.NoError(t, v.Append(testRecords(1, 3)))
+	require.Error(t, v.Append([]*apphash.AppHashData{testRestoreAnchor(4)}))
+}
+
+func TestAppendRejectsRestoreAnchorAfterARestoreAnchor(t *testing.T) {
+	v := openTestVault(t, t.TempDir())
+	require.NoError(t, v.Append([]*apphash.AppHashData{testRestoreAnchor(4)}))
+	require.Error(t, v.Append([]*apphash.AppHashData{testRestoreAnchor(5)}))
+}
+
+func TestAppendRejectsRestoreAnchorLaterInABatch(t *testing.T) {
+	v := openTestVault(t, t.TempDir())
+	require.Error(t, v.Append([]*apphash.AppHashData{testRecord(4), testRestoreAnchor(5)}))
+	_, highest, err := v.Bounds()
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), highest, "nothing of the refused batch is stored")
 }
 
 func TestConfigRequiresPath(t *testing.T) {

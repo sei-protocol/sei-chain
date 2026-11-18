@@ -35,11 +35,11 @@ func (m *Proposal) asMsg() *pb.Msg {
 }
 
 func (m *PrepareVote) asMsg() *pb.Msg {
-	return &pb.Msg{T: &pb.Msg_PrepareVote{PrepareVote: PrepareVoteConv.Encode(m)}}
+	return &pb.Msg{T: &pb.Msg_PrepareVoteV2{PrepareVoteV2: PrepareVoteConv.Encode(m)}}
 }
 
 func (m *CommitVote) asMsg() *pb.Msg {
-	return &pb.Msg{T: &pb.Msg_CommitVote{CommitVote: CommitVoteConv.Encode(m)}}
+	return &pb.Msg{T: &pb.Msg_CommitVoteV2{CommitVoteV2: CommitVoteConv.Encode(m)}}
 }
 
 func (m *TimeoutVote) asMsg() *pb.Msg {
@@ -283,10 +283,10 @@ var MsgConv = protoutils.Conv[Msg, *pb.Msg]{
 			return LaneVoteConv.DecodeReq(t.LaneVote)
 		case *pb.Msg_Proposal:
 			return ProposalConv.DecodeReq(t.Proposal)
-		case *pb.Msg_PrepareVote:
-			return PrepareVoteConv.DecodeReq(t.PrepareVote)
-		case *pb.Msg_CommitVote:
-			return CommitVoteConv.DecodeReq(t.CommitVote)
+		case *pb.Msg_PrepareVoteV2:
+			return PrepareVoteConv.DecodeReq(t.PrepareVoteV2)
+		case *pb.Msg_CommitVoteV2:
+			return CommitVoteConv.DecodeReq(t.CommitVoteV2)
 		case *pb.Msg_TimeoutVote:
 			return TimeoutVoteConv.DecodeReq(t.TimeoutVote)
 		case *pb.Msg_AppVote:
@@ -385,14 +385,14 @@ var SignedProposalConv = protoutils.Conv[*Signed[*Proposal], *pb.SignedProposal]
 }
 
 // SignedPrepareVoteConv is a protobuf converter for Signed[PrepareVote].
-var SignedPrepareVoteConv = protoutils.Conv[*Signed[*PrepareVote], *pb.SignedProposal]{
-	Encode: func(m *Signed[*PrepareVote]) *pb.SignedProposal {
-		return &pb.SignedProposal{
+var SignedPrepareVoteConv = protoutils.Conv[*Signed[*PrepareVote], *pb.SignedPrepareVote]{
+	Encode: func(m *Signed[*PrepareVote]) *pb.SignedPrepareVote {
+		return &pb.SignedPrepareVote{
 			Msg: PrepareVoteConv.Encode(m.Msg()),
 			Sig: SignatureConv.Encode(m.Sig()),
 		}
 	},
-	Decode: func(m *pb.SignedProposal) (*Signed[*PrepareVote], error) {
+	Decode: func(m *pb.SignedPrepareVote) (*Signed[*PrepareVote], error) {
 		msg, err := PrepareVoteConv.DecodeReq(m.Msg)
 		if err != nil {
 			return nil, fmt.Errorf("msg: %w", err)
@@ -406,14 +406,14 @@ var SignedPrepareVoteConv = protoutils.Conv[*Signed[*PrepareVote], *pb.SignedPro
 }
 
 // SignedCommitVoteConv is a protobuf converter for Signed[CommitVote].
-var SignedCommitVoteConv = protoutils.Conv[*Signed[*CommitVote], *pb.SignedProposal]{
-	Encode: func(m *Signed[*CommitVote]) *pb.SignedProposal {
-		return &pb.SignedProposal{
+var SignedCommitVoteConv = protoutils.Conv[*Signed[*CommitVote], *pb.SignedCommitVote]{
+	Encode: func(m *Signed[*CommitVote]) *pb.SignedCommitVote {
+		return &pb.SignedCommitVote{
 			Msg: CommitVoteConv.Encode(m.Msg()),
 			Sig: SignatureConv.Encode(m.Sig()),
 		}
 	},
-	Decode: func(m *pb.SignedProposal) (*Signed[*CommitVote], error) {
+	Decode: func(m *pb.SignedCommitVote) (*Signed[*CommitVote], error) {
 		msg, err := CommitVoteConv.DecodeReq(m.Msg)
 		if err != nil {
 			return nil, fmt.Errorf("msg: %w", err)

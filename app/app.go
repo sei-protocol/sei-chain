@@ -17,6 +17,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -92,7 +93,6 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	appante "github.com/sei-protocol/sei-chain/app/ante"
-	"github.com/sei-protocol/sei-chain/app/benchmark"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/app/migration"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
@@ -129,11 +129,11 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
-	evmconfig "github.com/sei-protocol/sei-chain/x/evm/config"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/sei-protocol/sei-chain/x/mint"
 	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
@@ -426,12 +426,18 @@ type App struct {
 
 	txPrioritizer sdk.TxPrioritizer
 
-	benchmarkManager *benchmark.Manager
-
 	// GigaExecutorEnabled controls whether to use the Giga executor.
 	GigaExecutorEnabled bool
 	// GigaOCCEnabled controls whether to use OCC with the Giga executor
 	GigaOCCEnabled bool
+
+	doneUpgradesCache atomic.Pointer[doneUpgradesAtHeight]
+}
+
+// doneUpgradesAtHeight is the set of completed upgrades read from the check state at height.
+type doneUpgradesAtHeight struct {
+	height   int64
+	upgrades upgradekeeper.DoneUpgrades
 }
 
 type AppOption func(*App)
@@ -588,7 +594,7 @@ func New(
 		app.StakingKeeper,
 		app.DistrKeeper,
 		app.MsgServiceRouter(),
-		app.GRPCQueryRouter(),
+		app.QueryServiceRouter(),
 		wasmDir,
 		wasmConfig,
 		supportedFeatures,
@@ -835,7 +841,7 @@ func New(
 	)
 
 	app.mm.RegisterRoutes(app.Router(), app.QueryRouter(), encodingConfig.Amino)
-	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter())
+	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.QueryServiceRouter())
 	app.mm.RegisterServices(app.configurator)
 
 	app.RegisterUpgradeHandlers()
@@ -883,12 +889,6 @@ func New(
 
 	app.SetAnteHandler(anteHandler)
 	app.SetMidBlocker(app.MidBlocker)
-
-	// benchmarkEnabled is enabled via build flag (make install-bench)
-	if benchmarkEnabled {
-		evmChainID := evmconfig.GetEVMChainID(app.ChainID).Int64()
-		app.InitBenchmark(context.Background(), app.ChainID, evmChainID)
-	}
 
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
 	app.SetFinalizeBlocker(app.FinalizeBlocker)
@@ -1120,9 +1120,6 @@ func (app *App) ClearOptimisticProcessingInfo() {
 }
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
-	// Start block processing timing (ends at FinalizeBlock)
-	app.StartBenchmarkBlockProcessing()
-
 	typedTxs, err := app.DecodeTxBytesConcurrently(ctx.Context(), req.Txs)
 	if err != nil {
 		appMetrics.failedGasWantedCheck.Add(ctx.Context(), 1,
@@ -1224,10 +1221,6 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		app.ClearOptimisticProcessingInfo()
 		duration := time.Since(startTime)
 		logger.Info("FinalizeBlock complete", "took-ms", duration/time.Millisecond)
-		// End block processing timing (started at ProcessProposal)
-		app.EndBenchmarkBlockProcessing()
-		// Process receipts for benchmark deployment tracking
-		app.ProcessBenchmarkReceipts(ctx)
 	}()
 
 	// Get all optimistic processing info atomically
@@ -1877,10 +1870,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	// V2 charges fees in the ante handler, then runs the EVM with feeAlreadyCharged=true
 	// which skips buyGas/refundGas/coinbase. Without this, GasUsed differs between Giga
 	// and V2, causing LastResultsHash → AppHash divergence.
-	effectiveGasPrice := new(big.Int).Add(new(big.Int).Set(ethTx.GasTipCap()), validation.baseFee)
-	if effectiveGasPrice.Cmp(ethTx.GasFeeCap()) > 0 {
-		effectiveGasPrice.Set(ethTx.GasFeeCap())
-	}
+	effectiveGasPrice := ethtx.EffectiveGasPrice(validation.baseFee, ethTx.GasFeeCap(), ethTx.GasTipCap())
 	gasFee := new(big.Int).Mul(new(big.Int).SetUint64(ethTx.Gas()), effectiveGasPrice)
 	stateDB.SubBalance(sender, uint256.MustFromBig(gasFee), tracing.BalanceDecreaseGasBuy)
 
@@ -1895,7 +1885,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	gigaExecutor := gigaexecutor.NewGethExecutor(blockCtx, stateDB, cfg, vm.Config{}, gigaprecompiles.AllCustomPrecompilesFailFast)
 
 	// Execute with feeAlreadyCharged=true — matching V2's msg_server behavior
-	execResult, execErr := gigaExecutor.ExecuteTransactionFeeCharged(ethTx, sender, cache.baseFee, &gp)
+	execResult, execErr := gigaExecutor.ExecuteTransactionFeeCharged(ethTx, sender, cache.baseFee, gp)
 
 	// Self-destruct requires iterating the store, unsupported by giga. Fallback to v2.
 	if stateDB.AnySelfDestructed() {
@@ -1943,11 +1933,11 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	evmMsg := &core.Message{
 		Nonce:     ethTx.Nonce(),
 		GasLimit:  ethTx.Gas(),
-		GasPrice:  effectiveGasPrice,
-		GasFeeCap: ethTx.GasFeeCap(),
-		GasTipCap: ethTx.GasTipCap(),
+		GasPrice:  uint256.MustFromBig(effectiveGasPrice),
+		GasFeeCap: uint256.MustFromBig(ethTx.GasFeeCap()),
+		GasTipCap: uint256.MustFromBig(ethTx.GasTipCap()),
 		To:        ethTx.To(),
-		Value:     ethTx.Value(),
+		Value:     uint256.MustFromBig(ethTx.Value()),
 		Data:      ethTx.Data(),
 		From:      sender,
 	}
@@ -2424,38 +2414,61 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 	// Register legacy tx routes.
 	authrest.RegisterTxRoutes(clientCtx, apiSvr.Router)
 	// Register new tx routes from grpc-gateway.
-	authtx.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+	authtx.RegisterGatewayRoutes(clientCtx, apiSvr.GatewayRouter)
 	// Register new tendermint queries routes from grpc-gateway.
-	tmservice.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+	tmservice.RegisterGatewayRoutes(clientCtx, apiSvr.GatewayRouter)
 
 	// Register legacy and grpc-gateway routes for all modules.
 	ModuleBasics.RegisterRESTRoutes(clientCtx, apiSvr.Router)
-	ModuleBasics.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+	ModuleBasics.RegisterGatewayRoutes(clientCtx, apiSvr.GatewayRouter)
 
 }
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
+	ctx := app.RPCContextProviderWithoutConsensusParams(i)
+	// Neither GetCheckCtx nor CreateQueryContext sets ConsensusParams (only
+	// the tx-execution path does, via getContextForTx), so without this,
+	// ctx.ConsensusParams() returns nil from any RPC handler. evmrpc/block.go's
+	// gasLimit and evmrpc/info.go's gas-used-ratio rely on it.
+	return ctx.WithConsensusParams(app.GetConsensusParams(ctx))
+}
+
+// RPCContextProviderWithoutConsensusParams returns the context RPCContextProvider
+// returns for height i, with ConsensusParams left nil.
+func (app *App) RPCContextProviderWithoutConsensusParams(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
 		ctx := app.GetCheckCtx()
-		// Populate ConsensusParams on the RPC ctx. Neither GetCheckCtx nor
-		// CreateQueryContext sets it (only the tx-execution path does, via
-		// getContextForTx), so without this, ctx.ConsensusParams() returns
-		// nil from any RPC handler. evmrpc/block.go's gasLimit and
-		// evmrpc/info.go's gas-used-ratio rely on it.
-		ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 		return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
 		panic(err)
 	}
-	ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
-	closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
-	if closestUpgrade == "" && upgradeHeight == 0 {
-		closestUpgrade = LatestUpgrade
-	}
-	ctx = ctx.WithClosestUpgradeName(closestUpgrade)
+	ctx = ctx.WithClosestUpgradeName(app.closestUpgradeName(app.GetCheckCtx(), i))
 	return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
+}
+
+// closestUpgradeName returns the name of the completed upgrade closest to height i in checkCtx's
+// state, or LatestUpgrade when no upgrade has completed.
+func (app *App) closestUpgradeName(checkCtx sdk.Context, i int64) string {
+	name, height := app.doneUpgrades(checkCtx).Closest(i)
+	if name == "" && height == 0 {
+		return LatestUpgrade
+	}
+	return name
+}
+
+// doneUpgrades returns the upgrades completed in checkCtx's state, reading them from the store only
+// when checkCtx is at a different height than the last read.
+func (app *App) doneUpgrades(checkCtx sdk.Context) upgradekeeper.DoneUpgrades {
+	// Upgrades complete only in committed blocks, so the set changes only with the check state's height.
+	height := checkCtx.BlockHeight()
+	if cached := app.doneUpgradesCache.Load(); cached != nil && cached.height == height {
+		return cached.upgrades
+	}
+	upgrades := app.UpgradeKeeper.GetDoneUpgrades(checkCtx)
+	app.doneUpgradesCache.Store(&doneUpgradesAtHeight{height: height, upgrades: upgrades})
+	return upgrades
 }
 
 // SnapshotAwareRPCContextProvider builds SDK contexts from in-memory memiavl
@@ -2487,14 +2500,10 @@ func (app *App) SnapshotAwareRPCContextProvider() evmrpc.TraceContextProvider {
 			return app.RPCContextProvider(i), func() {}
 		}
 		checkCtx := app.GetCheckCtx()
-		closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(checkCtx, i)
-		if closestUpgrade == "" && upgradeHeight == 0 {
-			closestUpgrade = LatestUpgrade
-		}
 		ctx := sdk.NewContext(cms, checkCtx.BlockHeader(), true).
 			WithMinGasPrices(checkCtx.MinGasPrices()).
 			WithBlockHeight(i).
-			WithClosestUpgradeName(closestUpgrade).
+			WithClosestUpgradeName(app.closestUpgradeName(checkCtx, i)).
 			WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
 		ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 		return ctx, release
@@ -2503,8 +2512,8 @@ func (app *App) SnapshotAwareRPCContextProvider() evmrpc.TraceContextProvider {
 
 // RegisterTendermintService implements the Application.RegisterLocalServices method.
 func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig) {
-	authtx.RegisterTxService(app.GRPCQueryRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
-	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), node, app.interfaceRegistry)
+	authtx.RegisterTxService(app.QueryServiceRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
+	tmservice.RegisterTendermintService(app.QueryServiceRouter(), node, app.interfaceRegistry)
 	txConfigProvider := func(height int64) client.TxConfig {
 		if app.ChainID != "pacific-1" {
 			return app.encodingConfig.TxConfig
@@ -2522,7 +2531,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	// Autobahn serves the node's EVM-only JSON-RPC. Cosmos evmrpc would bind
 	// the same 8545 once Initialized fires (mock-app forwards InitChain).
 	if app.evmRPCConfig.HTTPEnabled && !app.autobahnEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier, traceCtxProvider)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, app.RPCContextProviderWithoutConsensusParams, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier, traceCtxProvider)
 		if err != nil {
 			panic(err)
 		}
@@ -2535,7 +2544,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	}
 
 	if app.evmRPCConfig.WSEnabled && !app.autobahnEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, app.RPCContextProviderWithoutConsensusParams, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier)
 		if err != nil {
 			panic(err)
 		}

@@ -15,6 +15,9 @@ var logger = seilog.NewLogger("cosmos", "x", "gov")
 // MaxVotesProcessedPerBlock is the governance record-work budget shared by delegation updates, backfill, tallying, and cleanup.
 const MaxVotesProcessedPerBlock = 1000
 
+// MaxDepositsSettledPerBlock is the number of finished proposals' deposit records burned or refunded per block.
+const MaxDepositsSettledPerBlock = 1000
+
 // minTallyCleanupVotesPerBlock reserves part of the budget for completed tally archives.
 const minTallyCleanupVotesPerBlock = 100
 
@@ -34,11 +37,13 @@ func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 		return
 	}
 	keeper.CaptureExactTallyBoundary(ctx)
+	// Settle after this block's expiries and tallies, including when tally work uses up its budget.
+	defer keeper.SettleDeposits(ctx, MaxDepositsSettledPerBlock)
 
-	// delete inactive proposal from store and its deposits
+	// delete inactive proposal from store and schedule its deposits to be burned
 	keeper.IterateInactiveProposalsQueue(ctx, ctx.BlockHeader().Time, func(proposal types.Proposal) bool {
 		keeper.DeleteProposal(ctx, proposal.ProposalId)
-		keeper.DeleteDeposits(ctx, proposal.ProposalId)
+		keeper.ScheduleDepositSettlement(ctx, proposal.ProposalId, true)
 
 		// called when proposal become inactive
 		keeper.AfterProposalFailedMinDeposit(ctx, proposal.ProposalId)
@@ -85,11 +90,7 @@ func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 		// As a result, the deposits are either deleted or refunded in all casses
 		// EXCEPT when an expedited proposal fails.
 		if !proposal.IsExpedited || passes {
-			if burnDeposits {
-				keeper.DeleteDeposits(ctx, proposal.ProposalId)
-			} else {
-				keeper.RefundDeposits(ctx, proposal.ProposalId)
-			}
+			keeper.ScheduleDepositSettlement(ctx, proposal.ProposalId, burnDeposits)
 		}
 
 		keeper.RemoveFromActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)

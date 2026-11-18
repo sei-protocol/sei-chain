@@ -487,7 +487,7 @@ func randomTestBytes(rng *testutil.TestRandom, n int) []byte {
 // randomEVMKVPair returns a random but structurally valid EVM key-value pair
 // for use with the "evm" store. It selects uniformly among the four EVM key
 // kinds, constructing keys and values that satisfy the length requirements
-// enforced by flatKV's classifyAndPrefix / parse routines:
+// enforced by flatKV's changeset parsing:
 //
 //   - Nonce:    key = 0x0a + addr(20 B),             value = 8 B
 //   - CodeHash: key = 0x08 + addr(20 B),             value = 32 B

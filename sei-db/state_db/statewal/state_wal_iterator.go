@@ -1,15 +1,16 @@
 package statewal
 
 import (
+	"bytes"
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 var _ StateWALIterator = (*stateWALIterator)(nil)
 
-// An iterator over the blocks of a state WAL, which computes a block's hash only when asked for it.
+// An iterator over the blocks of a state WAL.
 type stateWALIterator struct {
 	// The iterator over the serialized blocks.
 	serializedBlocks seiwal.Iterator[[]byte]
@@ -17,14 +18,11 @@ type stateWALIterator struct {
 	// The block at the iterator's current position.
 	blockNumber uint64
 
-	// The serialization of the block at the iterator's current position.
-	serialized []byte
-
-	// The changesets of the block at the iterator's current position.
-	changeSets []*proto.NamedChangeSet
+	// The mutations of the block at the iterator's current position.
+	mutations []mutation.Mutation
 }
 
-// Next advances to the next block and reads its changesets.
+// Next advances to the next block and reads its mutations.
 func (it *stateWALIterator) Next() (bool, error) {
 	ok, err := it.serializedBlocks.Next()
 	if err != nil {
@@ -34,19 +32,31 @@ func (it *stateWALIterator) Next() (bool, error) {
 		return false, nil
 	}
 	blockNumber, serialized := it.serializedBlocks.Entry()
-	changeSets, err := deserializeBlock(serialized)
+	mutations, err := deserializeBlock(serialized)
 	if err != nil {
 		return false, fmt.Errorf("failed to read block %d: %w", blockNumber, err)
 	}
+	cloneMutationBytes(mutations)
 	it.blockNumber = blockNumber
-	it.serialized = serialized
-	it.changeSets = changeSets
+	it.mutations = mutations
 	return true, nil
 }
 
-// Entry returns the block at the iterator's current position and its changesets.
-func (it *stateWALIterator) Entry() (uint64, []*proto.NamedChangeSet) {
-	return it.blockNumber, it.changeSets
+// cloneMutationBytes replaces every byte slice in mutations with a copy of its own, preserving nil.
+//
+// Decoded mutations point into the buffer holding the whole WAL file. A caller that retained one value would keep
+// that entire buffer alive, so each value gets its own allocation instead.
+func cloneMutationBytes(mutations []mutation.Mutation) {
+	for i := range mutations {
+		mutations[i].Key = bytes.Clone(mutations[i].Key)
+		mutations[i].PreviousValue = bytes.Clone(mutations[i].PreviousValue)
+		mutations[i].NewValue = bytes.Clone(mutations[i].NewValue)
+	}
+}
+
+// Entry returns the block at the iterator's current position and its mutations.
+func (it *stateWALIterator) Entry() (uint64, []mutation.Mutation) {
+	return it.blockNumber, it.mutations
 }
 
 // Close releases the iterator over the serialized blocks.
@@ -55,9 +65,4 @@ func (it *stateWALIterator) Close() error {
 		return fmt.Errorf("failed to close the WAL iterator: %w", err)
 	}
 	return nil
-}
-
-// GetHash returns the hash of the block at the iterator's current position.
-func (it *stateWALIterator) GetHash() ([32]byte, error) {
-	return computePlaceholderHash(it.serialized), nil
 }

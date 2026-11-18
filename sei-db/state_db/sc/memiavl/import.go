@@ -36,6 +36,7 @@ type MultiTreeImporter struct {
 	snapshotDir string
 	height      int64
 	importer    *TreeImporter
+	allowEmpty  bool
 	fileLock    FileLock
 	ctx         context.Context // Context for cancellation support
 }
@@ -63,6 +64,10 @@ func NewMultiTreeImporter(dir string, height uint64) (*MultiTreeImporter, error)
 	if err := os.RemoveAll(mti.tmpDir()); err != nil {
 		_ = fileLock.Unlock()
 		return nil, fmt.Errorf("fail to clear stale import tmp dir: %w", err)
+	}
+	if err := os.MkdirAll(mti.tmpDir(), 0o750); err != nil {
+		_ = fileLock.Unlock()
+		return nil, fmt.Errorf("fail to create import tmp dir: %w", err)
 	}
 	return mti, nil
 }
@@ -109,6 +114,11 @@ func (mti *MultiTreeImporter) AddNode(node *types.SnapshotNode) error {
 	return nil
 }
 
+// AllowEmpty permits Close to publish metadata without module trees.
+func (mti *MultiTreeImporter) AllowEmpty() {
+	mti.allowEmpty = true
+}
+
 func (mti *MultiTreeImporter) Close() (err error) {
 	// Release the import flock on every return path; a leaked lock fails a
 	// same-process restore re-offer with ErrLocked.
@@ -123,6 +133,10 @@ func (mti *MultiTreeImporter) Close() (err error) {
 			_ = os.RemoveAll(mti.tmpDir())
 		}
 	}()
+
+	if mti.importer == nil && !mti.allowEmpty {
+		return errors.New("cannot publish memiavl import without modules")
+	}
 
 	if mti.importer != nil {
 		if err := mti.importer.Close(); err != nil {

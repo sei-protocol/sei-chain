@@ -206,10 +206,10 @@ type appStore struct {
 }
 
 type moduleRouter struct {
-	router           sdk.Router        // handle any kind of message
-	queryRouter      sdk.QueryRouter   // router for redirecting query calls
-	grpcQueryRouter  *GRPCQueryRouter  // router for redirecting gRPC query calls
-	msgServiceRouter *MsgServiceRouter // router for redirecting Msg service messages
+	router             sdk.Router          // handle any kind of message
+	queryRouter        sdk.QueryRouter     // router for redirecting query calls
+	queryServiceRouter *QueryServiceRouter // router for redirecting gRPC query calls
+	msgServiceRouter   *MsgServiceRouter   // router for redirecting Msg service messages
 }
 
 type abciData struct {
@@ -282,10 +282,10 @@ func NewBaseApp(
 			fauxMerkleMode: false,
 		},
 		moduleRouter: moduleRouter{
-			router:           NewRouter(),
-			queryRouter:      NewQueryRouter(),
-			grpcQueryRouter:  NewGRPCQueryRouter(),
-			msgServiceRouter: NewMsgServiceRouter(),
+			router:             NewRouter(),
+			queryRouter:        NewQueryRouter(),
+			queryServiceRouter: NewQueryServiceRouter(),
+			msgServiceRouter:   NewMsgServiceRouter(),
 		},
 		txDecoder:        txDecoder,
 		TmConfig:         tmConfig,
@@ -490,7 +490,7 @@ func (app *BaseApp) LastCommitID() sdk.CommitID {
 
 // LastBlockHeight returns the last committed block height.
 func (app *BaseApp) LastBlockHeight() int64 {
-	return app.cms.LastCommitID().Version
+	return app.cms.LastCommitVersion()
 }
 
 func (app *BaseApp) init() error {

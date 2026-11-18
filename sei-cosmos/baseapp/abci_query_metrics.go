@@ -22,7 +22,7 @@ var abciStoreQuerySubpaths = map[string]struct{}{
 //   - Legacy paths use a fixed prefix + registered segment shape.
 //   - Everything else is "other".
 func (app *BaseApp) abciQueryMetricRoute(reqPath string) string {
-	if app.grpcQueryRouter != nil && app.grpcQueryRouter.Route(reqPath) != nil {
+	if app.queryServiceRouter != nil && app.queryServiceRouter.Route(reqPath) != nil {
 		return reqPath
 	}
 
@@ -35,7 +35,7 @@ func (app *BaseApp) abciQueryMetricRoute(reqPath string) string {
 	case "app":
 		if len(parts) >= 2 {
 			switch parts[1] {
-			case "simulate", "version", "snapshots":
+			case "version", "snapshots":
 				return "app/" + parts[1]
 			}
 		}

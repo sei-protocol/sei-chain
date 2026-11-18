@@ -1,0 +1,50 @@
+[
+  {
+    "type": "function",
+    "name": "param",
+    "inputs": [
+      {
+        "name": "subspace",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "key",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "value",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "params",
+    "inputs": [
+      {
+        "name": "subspace",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "key",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "value",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "view"
+  }
+]

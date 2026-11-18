@@ -4,9 +4,14 @@ import (
 	"encoding/json"
 	"math"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -52,9 +57,20 @@ func validAutobahnFileConfig() AutobahnFileConfig {
 		MaxTxsPerBlock: 1,
 		BlockInterval:  utils.Duration(time.Second),
 		DialInterval:   utils.Duration(time.Second),
+		EVMChainID:     713700,
 
 		PersistentStateDir: "autobahn",
 	}
+}
+
+func TestAutobahnFileConfig_EVMChainID(t *testing.T) {
+	fc := validAutobahnFileConfig()
+	require.NoError(t, json.Unmarshal([]byte(`{"evm_chain_id":713701}`), &fc))
+	require.Equal(t, uint64(713701), fc.EVMChainID)
+	require.NoError(t, fc.Validate())
+
+	fc.EVMChainID = 0
+	require.Error(t, fc.Validate())
 }
 
 func TestAutobahnFileConfig_ValidateMaxConcurrentCheckTx(t *testing.T) {
@@ -96,4 +112,101 @@ func TestAutobahnBlockDBConfig_LittBlockConfig(t *testing.T) {
 	require.Equal(t, wantRetention, cfg.RetentionTime)
 	require.Equal(t, wantGCPeriod, cfg.Litt.GCPeriod)
 	require.True(t, cfg.Litt.Fsync)
+}
+
+func governedAutobahnFileConfig() AutobahnFileConfig {
+	fc := validAutobahnFileConfig()
+	second := fc.Validators[0]
+	fc.Validators[0].EVMVoter = utils.Some(common.HexToAddress("0x01"))
+	second.EVMVoter = utils.Some(common.HexToAddress("0x02"))
+	fc.Validators = append(fc.Validators, second)
+	fc.EVMGovernance = utils.Some(EVMGovernance{Params: NewEVMGovernanceParams(gov.DefaultParams()), StartingProposalID: 7})
+	return fc
+}
+
+func TestAutobahnFileConfig_ValidateEVMGovernance(t *testing.T) {
+	valid := governedAutobahnFileConfig()
+	require.NoError(t, valid.Validate())
+	for name, edit := range map[string]func(*AutobahnFileConfig){
+		"voter without governance": func(fc *AutobahnFileConfig) { fc.EVMGovernance = utils.None[EVMGovernance]() },
+		"missing voter":            func(fc *AutobahnFileConfig) { fc.Validators[1].EVMVoter = utils.None[common.Address]() },
+		"zero voter":               func(fc *AutobahnFileConfig) { fc.Validators[1].EVMVoter = utils.Some(common.Address{}) },
+		"shared voter":             func(fc *AutobahnFileConfig) { fc.Validators[1].EVMVoter = fc.Validators[0].EVMVoter },
+		"invalid params": func(fc *AutobahnFileConfig) {
+			g, _ := fc.EVMGovernance.Get()
+			g.Params.VotingPeriod = 0
+			fc.EVMGovernance = utils.Some(g)
+		},
+		"repeated applied upgrade": func(fc *AutobahnFileConfig) {
+			g, _ := fc.EVMGovernance.Get()
+			g.AppliedUpgrades = []string{"v6.7", "v6.8", "v6.7"}
+			fc.EVMGovernance = utils.Some(g)
+		},
+		"empty applied upgrade": func(fc *AutobahnFileConfig) {
+			g, _ := fc.EVMGovernance.Get()
+			g.AppliedUpgrades = []string{""}
+			fc.EVMGovernance = utils.Some(g)
+		},
+		"negative period": func(fc *AutobahnFileConfig) {
+			g, _ := fc.EVMGovernance.Get()
+			g.Params.MaxDepositPeriod = utils.Duration(-time.Hour)
+			fc.EVMGovernance = utils.Some(g)
+		},
+	} {
+		fc := governedAutobahnFileConfig()
+		edit(&fc)
+		require.Error(t, fc.Validate(), name)
+	}
+}
+
+func TestAutobahnFileConfig_EVMGovernanceJSON(t *testing.T) {
+	plain, err := json.Marshal(validAutobahnFileConfig())
+	require.NoError(t, err)
+	require.NotContains(t, string(plain), "evm_governance")
+	require.NotContains(t, string(plain), "evm_voter")
+
+	want := governedAutobahnFileConfig()
+	encoded, err := json.Marshal(want)
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), `"starting_proposal_id":7`)
+	require.Contains(t, string(encoded), `"voting_period":"48h0m0s"`)
+	var got AutobahnFileConfig
+	require.NoError(t, json.Unmarshal(encoded, &got))
+	require.NoError(t, got.Validate())
+	require.Equal(t, want.EVMGovernance, got.EVMGovernance)
+	require.Equal(t, want.Validators[1].EVMVoter, got.Validators[1].EVMVoter)
+}
+
+func TestEVMGovernanceParams_PeriodsAreDurationStrings(t *testing.T) {
+	var p EVMGovernanceParams
+	require.NoError(t, json.Unmarshal([]byte(`{"voting_period":"1.5h","expedited_voting_period":"90s","max_deposit_period":"2h"}`), &p))
+	require.Equal(t, 90*time.Minute, p.VotingPeriod.Duration())
+	require.Equal(t, 90*time.Second, p.ExpeditedVotingPeriod.Duration())
+	require.Equal(t, 2*time.Hour, p.MaxDepositPeriod.Duration())
+
+	require.Error(t, json.Unmarshal([]byte(`{"voting_period":172800000000000}`), &p), "a bare number is not a duration")
+
+	want := gov.DefaultParams()
+	got, err := NewEVMGovernanceParams(want).Gov()
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
+
+func TestAutobahnFileConfig_EVMAllocJSON(t *testing.T) {
+	plain := validAutobahnFileConfig()
+	require.False(t, plain.EVMGenesisAlloc().IsPresent())
+	encoded, err := json.Marshal(plain)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "evm_alloc")
+
+	addr := common.HexToAddress("0xa1")
+	var got AutobahnFileConfig
+	require.NoError(t, json.Unmarshal([]byte(`{"evm_alloc":{"`+addr.Hex()+`":"0xde0b6b3a7640000"}}`), &got))
+	alloc, ok := got.EVMGenesisAlloc().Get()
+	require.True(t, ok)
+	require.Equal(t, map[common.Address]*uint256.Int{addr: uint256.NewInt(1_000_000_000_000_000_000)}, alloc)
+
+	for _, balance := range []string{`"-0x1"`, `"0x1` + strings.Repeat("0", 64) + `"`, `1`} {
+		require.Error(t, json.Unmarshal([]byte(`{"evm_alloc":{"`+addr.Hex()+`":`+balance+`}}`), &got), balance)
+	}
 }

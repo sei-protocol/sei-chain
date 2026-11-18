@@ -18,7 +18,7 @@ memory_cache_size = 300
 The values can also be set via CLI flags on with the `start` command:
 ```shell script
 --wasm.memory_cache_size uint32     Sets the size in MiB (NOT bytes) of an in-memory cache for wasm modules. Set to 0 to disable. (default 100)
---wasm.query_gas_limit uint         Set the max gas that can be spent on executing a query with a Wasm contract (default 3000000)
+--wasm.query_gas_limit uint         Set the max gas that can be spent on executing a query with a Wasm contract (default 300000)
 ```
 
 ## Events

@@ -47,8 +47,8 @@ func (AppModuleBasic) RegisterRESTRoutes(clientCtx client.Context, r *mux.Router
 	rest.RegisterRoutes(clientCtx, r)
 }
 
-// RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the upgrade module.
-func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {
+// RegisterGatewayRoutes registers the gRPC Gateway routes for the upgrade module.
+func (AppModuleBasic) RegisterGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {
 	_ = types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx))
 }
 

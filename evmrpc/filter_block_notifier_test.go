@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -31,8 +32,16 @@ func newTestFilterAPIWithConfig(t *testing.T, notifier *BlockHeaderNotifier, fil
 	t.Helper()
 	// Setup: FilterAPI with unused log/store deps; eth_newFilter reads only the head, from a stub
 	// watermark manager, and otherwise only the notifier path is exercised.
+	return newTestFilterAPIWithClient(t, notifier, filterConfig, nil, newHeightTestClient(0, 1, 1), 1)
+}
+
+// newTestFilterAPIWithClient serves blocks from tmClient and heights from heightClient, with
+// receiptLatest capping the safe latest height.
+func newTestFilterAPIWithClient(t *testing.T, notifier *BlockHeaderNotifier, filterConfig *FilterConfig,
+	tmClient client.LocalClient, heightClient client.LocalClient, receiptLatest int64) *FilterAPI {
+	t.Helper()
 	api := NewFilterAPI(
-		nil,
+		tmClient,
 		nil,
 		func(int64) sdk.Context { return sdk.Context{} },
 		nil,
@@ -43,7 +52,7 @@ func newTestFilterAPIWithConfig(t *testing.T, notifier *BlockHeaderNotifier, fil
 		NewBlockCache(1),
 		&sync.Mutex{},
 		NewLogSlicePool(),
-		newHeightTestWatermarks(newHeightTestClient(0, 1, 1), 1),
+		newHeightTestWatermarks(heightClient, receiptLatest),
 		notifier,
 	)
 	t.Cleanup(api.shutdown)

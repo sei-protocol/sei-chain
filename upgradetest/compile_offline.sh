@@ -37,7 +37,7 @@ cleanup() {
 }
 
 discover_test_sets() {
-  python3 - "$REPO_ROOT/app/tags" "$REPO_ROOT/app" >"$TEST_SETS" <<'PY'
+  python3 - "$REPO_ROOT/app/upgradenames/tags" "$REPO_ROOT/app" >"$TEST_SETS" <<'PY'
 import pathlib
 import re
 import sys

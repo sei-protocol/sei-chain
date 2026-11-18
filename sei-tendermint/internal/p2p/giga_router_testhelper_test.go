@@ -10,22 +10,23 @@ import (
 	"slices"
 	"testing"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/ethereum/go-ethereum/common"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type shaHash = [sha256.Size]byte
 
 type testAppState struct {
-	Init       utils.Option[*abci.RequestInitChain]
-	Validators []abci.ValidatorUpdate
-	Blocks     []*abci.RequestFinalizeBlock
+	Init       utils.Option[*proxy.RequestInitChain]
+	Validators []proxy.ValidatorUpdate
+	Blocks     []*proxy.RequestFinalizeBlock
 	Txs        map[shaHash]bool
 	AppHash    shaHash
 	// Committed tracks whether FinalizeBlock is allowed.
@@ -36,44 +37,51 @@ type testAppState struct {
 }
 
 func testAppStateJSON(rng utils.Rng) json.RawMessage {
-	return utils.OrPanic1(json.Marshal(&abci.ValidatorUpdate{
-		PubKey: crypto.PubKeyToProto(ed25519.TestSecretKey(utils.GenBytes(rng, 32)).Public()),
+	return utils.OrPanic1(json.Marshal(&proxy.ValidatorUpdate{
+		PubKey: atypes.GenSecretKey(rng).Public(),
 		Power:  rng.Int63(),
 	}))
 }
 
 type testApp struct {
-	abci.BaseApplication
+	proxy.EVMApplication
 	state utils.Watch[*testAppState]
 }
 
 func newTestApp() *testApp {
-	return &testApp{state: utils.NewWatch(&testAppState{
-		Txs: map[shaHash]bool{},
-	})}
+	return &testApp{
+		state: utils.NewWatch(&testAppState{
+			Txs: map[shaHash]bool{},
+		}),
+	}
 }
 
-func (a *testApp) GetValidators() []abci.ValidatorUpdate {
+func (a *testApp) EvmNonce(common.Address) uint64 { return 0 }
+
+// EvmCommittedNonce matches EvmNonce: the test app has no commit in flight.
+func (a *testApp) EvmCommittedNonce(addr common.Address) uint64 { return a.EvmNonce(addr) }
+
+func (a *testApp) GetValidators() []proxy.ValidatorUpdate {
 	for state := range a.state.Lock() {
 		return slices.Clone(state.Validators)
 	}
 	panic("unreachable")
 }
 
-func (a *testApp) Info() *abci.ResponseInfo {
+func (a *testApp) Info() *proxy.ResponseInfo {
 	for state := range a.state.Lock() {
 		init, ok := state.Init.Get()
 		if !ok {
-			return &abci.ResponseInfo{}
+			return &proxy.ResponseInfo{}
 		}
 		if len(state.Blocks) == 0 {
 			// Match the real SDK: InitChain without Commit leaves LastBlockHeight=0.
-			return &abci.ResponseInfo{
+			return &proxy.ResponseInfo{
 				LastBlockHeight:  0,
 				LastBlockAppHash: slices.Clone(state.AppHash[:]),
 			}
 		}
-		return &abci.ResponseInfo{
+		return &proxy.ResponseInfo{
 			LastBlockHeight:  init.InitialHeight + int64(len(state.Blocks)) - 1,
 			LastBlockAppHash: slices.Clone(state.AppHash[:]),
 		}
@@ -92,17 +100,23 @@ func (a *testApp) LastBlockHeight() int64 {
 	panic("unreachable")
 }
 
-func (a *testApp) CheckTx(context.Context, *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
-	return &abci.ResponseCheckTxV2{
-		ResponseCheckTx: &abci.ResponseCheckTx{
-			Code:         abci.CodeTypeOK,
+func (a *testApp) CheckTx(_ context.Context, req *proxy.RequestCheckTxV2) *proxy.ResponseCheckTxV2 {
+	hash := sha256.Sum256(req.Tx)
+	return &proxy.ResponseCheckTxV2{
+		// Each mock transaction has its own sender and uses nonce zero.
+		IsEVM:            true,
+		EVMSenderAddress: common.Address(hash[:20]),
+		SeiSenderAddress: hash[:20],
+		EVMHash:          common.Hash(hash),
+		ResponseCheckTx: &proxy.ResponseCheckTx{
+			Code:         proxy.CodeTypeOK,
 			GasWanted:    1,
 			GasEstimated: 1,
 		},
 	}
 }
 
-func (a *testApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+func (a *testApp) InitChain(req *proxy.RequestInitChain) (*proxy.ResponseInitChain, error) {
 	for state, ctrl := range a.state.Lock() {
 		if state.Init.IsPresent() {
 			return nil, fmt.Errorf("chain already initialized")
@@ -110,16 +124,16 @@ func (a *testApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain
 		if req.InitialHeight < 1 {
 			return nil, fmt.Errorf("InitialHeight = %v, want >=1", req.InitialHeight)
 		}
-		var val abci.ValidatorUpdate
+		var val proxy.ValidatorUpdate
 		if err := json.Unmarshal(req.AppStateBytes, &val); err != nil {
-			return nil, fmt.Errorf("proto.Unmarshal(): %w", err)
+			return nil, fmt.Errorf("json.Unmarshal(): %w", err)
 		}
 		state.Init = utils.Some(req)
 		state.AppHash = sha256.Sum256(req.AppStateBytes)
 		state.Validators = utils.Slice(val)
 		state.Committed = true
 		ctrl.Updated()
-		return &abci.ResponseInitChain{
+		return &proxy.ResponseInitChain{
 			AppHash:    slices.Clone(state.AppHash[:]),
 			Validators: slices.Clone(state.Validators),
 		}, nil
@@ -127,7 +141,7 @@ func (a *testApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain
 	panic("unreachable")
 }
 
-func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+func (a *testApp) FinalizeBlock(ctx context.Context, req *proxy.RequestFinalizeBlock) (*proxy.ResponseFinalizeBlock, error) {
 	for state, ctrl := range a.state.Lock() {
 		if !state.Committed {
 			return nil, fmt.Errorf("FinalizeBlock before Commit")
@@ -144,15 +158,15 @@ func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBloc
 		logger.Info("FinalizeBlock", "n", req.Header.Height-init.InitialHeight)
 		state.Committed = false
 		ctrl.Updated()
-		return &abci.ResponseFinalizeBlock{
+		return &proxy.ResponseFinalizeBlock{
 			AppHash:   slices.Clone(state.AppHash[:]),
-			TxResults: slices.Repeat([]*abci.ExecTxResult{{Code: abci.CodeTypeOK}}, len(req.Txs)),
+			TxResults: slices.Repeat([]*proxy.ExecTxResult{{Code: proxy.CodeTypeOK}}, len(req.Txs)),
 		}, nil
 	}
 	panic("unreachable")
 }
 
-func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
+func (a *testApp) Commit(context.Context) (*proxy.ResponseCommit, error) {
 	for state, ctrl := range a.state.Lock() {
 		if state.Committed {
 			return nil, fmt.Errorf("double commit")
@@ -160,10 +174,19 @@ func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 		state.Committed = true
 		ctrl.Updated()
 	}
-	return &abci.ResponseCommit{
-		// Don't prune anything.
-		RetainHeight: 0,
-	}, nil
+	return &proxy.ResponseCommit{}, nil
+}
+
+// WaitForBlocks waits until the app has finalized at least count blocks and
+// reports how many it had finalized at that moment.
+func (a *testApp) WaitForBlocks(ctx context.Context, count int) (int, error) {
+	for state, ctrl := range a.state.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return len(state.Blocks) >= count }); err != nil {
+			return 0, err
+		}
+		return len(state.Blocks), nil
+	}
+	panic("unreachable")
 }
 
 func (a *testApp) WaitForTx(ctx context.Context, tx []byte) error {
@@ -205,7 +228,7 @@ func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
 }
 
 // TestInitChainCommitThenFinalize is a contract test for testApp: it verifies
-// that testApp supports the autobahn block execution flow where runExecute
+// that testApp supports the autobahn block execution flow where the executor
 // calls InitChain (no Commit), then FinalizeBlock at InitialHeight using the
 // deliverState set up by InitChain, followed by Commit.
 func TestInitChainCommitThenFinalize(t *testing.T) {
@@ -217,7 +240,7 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 	appState := testAppStateJSON(rng)
 
 	// InitChain
-	_, err := app.InitChain(&abci.RequestInitChain{
+	_, err := app.InitChain(&proxy.RequestInitChain{
 		InitialHeight: initialHeight,
 		AppStateBytes: appState,
 	})
@@ -233,11 +256,9 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 
 	// FinalizeBlock should succeed — deliverState was set up by InitChain
 	blockHash := sha256.Sum256([]byte("test-block"))
-	_, err = app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
-		Hash: blockHash[:],
-		Header: (&types.Header{
-			Height: initialHeight,
-		}).ToProto(),
+	_, err = app.FinalizeBlock(ctx, &proxy.RequestFinalizeBlock{
+		Hash:   blockHash[:],
+		Header: &proxy.Header{Height: initialHeight},
 	})
 	require.NoError(t, err)
 
@@ -249,4 +270,15 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 	info = app.Info()
 	require.Equal(t, initialHeight, info.LastBlockHeight,
 		"testApp should report InitialHeight after 1 block")
+}
+
+// newTestExecutor returns an executor of cfg's app over the blocks store makes
+// durable.
+func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store) *execution.Executor {
+	return execution.New(&execution.Config{
+		GenDoc:         cfg.GenDoc,
+		App:            cfg.App,
+		AppHashBuilder: cfg.AppHashBuilder,
+		BlockStore:     store,
+	})
 }

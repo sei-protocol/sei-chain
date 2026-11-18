@@ -5,6 +5,8 @@ import (
 	"errors"
 	"math/big"
 	"sync"
+	"testing"
+	"time"
 
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -66,6 +68,16 @@ func NewFilterConfigForTest(cfg FilterConfigTest) *FilterConfig {
 	return filterCfg
 }
 
+// NewBlockFilterAPIForTest returns a FilterAPI without a blockHeaderNotifier that reads blocks
+// from tmClient and the earliest and latest heights from heightClient.
+func NewBlockFilterAPIForTest(t *testing.T, tmClient, heightClient cosmoclient.LocalClient) *FilterAPI {
+	return newTestFilterAPIWithClient(t, nil, &FilterConfig{
+		timeout:              time.Hour,
+		maxFilters:           DefaultMaxFilters,
+		maxBlockFilterHashes: DefaultMaxBlockFilterHashes,
+	}, tmClient, heightClient, 1<<40)
+}
+
 // LogFetcherTestDeps wires a LogFetcher for range-path integration tests.
 type LogFetcherTestDeps struct {
 	TmClient                 cosmoclient.LocalClient
@@ -115,7 +127,7 @@ func (f *LogFetcher) PollLogsForTest(
 	crit filters.FilterCriteria,
 	cursor int64,
 ) ([]*ethtypes.Log, int64, error) {
-	return f.pollLogs(ctx, crit, cursor)
+	return f.pollLogs(ctx, crit, cursor, nil)
 }
 
 // NewLogsSubscriptionAPIForTest returns a SubscriptionAPI that serves eth_subscribe("logs") from
@@ -148,7 +160,7 @@ func ProfiledTraceBlockParallelForTest(
 	block *ethtypes.Block,
 	metadata []tracersutils.TraceBlockMetadata,
 	config *tracers.TraceConfig,
-	statedb vm.StateDB,
+	statedb vm.SeiStateDB,
 	signer ethtypes.Signer,
 	blockHash gethcommon.Hash,
 	results []*tracers.TxTraceResult,
@@ -182,4 +194,11 @@ func (i *InfoAPI) CalculateGasUsedRatioForTest(ctx context.Context, blockHeight 
 // compare eth_getBlockReceipts bodies against it.
 func EncodeReceiptForTest(ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) cosmoclient.TxConfig, receipt *evmtypes.Receipt, k *keeper.Keeper, block *coretypes.ResultBlock, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) (map[string]any, error) {
 	return encodeReceipt(ctxProvider, txConfigProvider, receipt, k, block, false, globalBlockCache, cacheCreationMutex)
+}
+
+// ReadReceiptTotalsForTest exposes the logsBloom and gasUsed a newHeads header reads from the receipts of
+// the block at height, or the error that makes it fall back instead.
+func (a *SubscriptionAPI) ReadReceiptTotalsForTest(height int64) (ethtypes.Bloom, uint64, error) {
+	totals, err := a.readReceiptTotals(height)
+	return totals.logsBloom, totals.gasUsed, err
 }

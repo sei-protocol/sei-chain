@@ -61,7 +61,7 @@ func TestConstructorAndGetters(t *testing.T) {
 	require.Equal(t, filledHash(0xa1), ahd.BlockHash())
 	require.Equal(t, filledHash(0xb2), ahd.StateHash())
 	require.Equal(t, BUDHash(filledHash(0xc3)), ahd.BUDHash())
-	require.Equal(t, filledHash(0xd4), ahd.ReceiptHash())
+	require.Equal(t, ReceiptHash(filledHash(0xd4)), ahd.ReceiptHash())
 	require.Equal(t, filledHash(0xe5), ahd.PreviousAppHash())
 }
 
@@ -177,10 +177,31 @@ func TestZeroAppHashData(t *testing.T) {
 	require.Equal(t, [32]byte{}, ahd.BlockHash())
 	require.Equal(t, [32]byte{}, ahd.StateHash())
 	require.Equal(t, BUDHash{}, ahd.BUDHash())
-	require.Equal(t, [32]byte{}, ahd.ReceiptHash())
+	require.Equal(t, ReceiptHash{}, ahd.ReceiptHash())
 	require.Equal(t, [32]byte{}, ahd.PreviousAppHash())
 	require.Equal(t, [32]byte{}, ahd.AppHash())
+	require.False(t, ahd.IsRestoreAnchor())
 
 	_, err := ahd.Serialize()
 	require.Error(t, err)
+}
+
+func TestRestoreAnchorAppHashData(t *testing.T) {
+	appHash := [32]byte{0xaa, 0xbb}
+	ahd := NewRestoreAnchorAppHashData(0x1112131415161718, 42, appHash)
+
+	require.True(t, ahd.IsRestoreAnchor())
+	require.Equal(t, uint8(1), ahd.Version())
+	require.Equal(t, uint64(0x1112131415161718), ahd.ChainID())
+	require.Equal(t, uint64(42), ahd.BlockHeight())
+	require.Equal(t, appHash, ahd.AppHash())
+	require.Equal(t, [32]byte{}, ahd.BlockHash())
+	require.Equal(t, [32]byte{}, ahd.StateHash())
+	require.Equal(t, BUDHash{}, ahd.BUDHash())
+	require.Equal(t, ReceiptHash{}, ahd.ReceiptHash())
+	require.Equal(t, [32]byte{}, ahd.PreviousAppHash())
+
+	_, err := ahd.Serialize()
+	require.Error(t, err)
+	require.False(t, goldenData().IsRestoreAnchor())
 }

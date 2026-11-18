@@ -29,7 +29,7 @@ type timeoutTicker struct {
 // NewTimeoutTicker returns a new TimeoutTicker.
 func NewTimeoutTicker() TimeoutTicker {
 	tt := &timeoutTicker{
-		tick:     utils.NewMutex(utils.Alloc(utils.NewAtomicSend(utils.None[timeoutInfo]()))),
+		tick:     utils.NewMutex(new(utils.NewAtomicSend(utils.None[timeoutInfo]()))),
 		tockChan: make(chan timeoutInfo),
 	}
 	return tt

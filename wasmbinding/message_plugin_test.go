@@ -19,7 +19,6 @@ func TestCustomMessageHandlerRejectsIBCRawPacket(t *testing.T) {
 	events, data, err := handler.DispatchMsg(
 		sdk.Context{},
 		sdk.AccAddress("contract"),
-		"contract-port",
 		msg,
 		wasmvmtypes.MessageInfo{},
 		wasmtypes.CodeInfo{},

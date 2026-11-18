@@ -12,6 +12,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -416,9 +417,9 @@ func (m *stateModel) expect() *expectedState {
 	}
 	for _, dir := range dataDBDirs {
 		byKey := byDB[dir]
-		pairs := make([]lthash.KeyMutation, 0, len(byKey))
+		pairs := make([]mutation.Mutation, 0, len(byKey))
 		for physKey, value := range byKey {
-			pairs = append(pairs, lthash.KeyMutation{Key: []byte(physKey), Value: value})
+			pairs = append(pairs, mutation.Mutation{Key: []byte(physKey), NewValue: value})
 			out.rows[physKey] = value
 		}
 		root := lthash.ComputeLtHash(nil, pairs)

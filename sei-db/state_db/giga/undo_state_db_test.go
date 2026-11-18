@@ -2,6 +2,7 @@ package giga
 
 import (
 	"encoding/binary"
+	"fmt"
 	"maps"
 	"math/big"
 	"math/rand/v2"
@@ -15,9 +16,11 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
 // undoTestHome holds the configs a StateDB over an undo-log SS reopens from.
@@ -29,7 +32,6 @@ type undoTestHome struct {
 func newUndoTestHome(t *testing.T) undoTestHome {
 	ssCfg := config.DefaultStateStoreConfig()
 	ssCfg.Enable = true
-	ssCfg.Backend = config.PebbleDBUndoBackend
 	ssCfg.EVMDBDirectory = filepath.Join(t.TempDir(), "ss")
 	ssCfg.ExternalPruning = true
 	return undoTestHome{flatkv: flatkvconfig.DefaultTestConfig(t), ss: ssCfg}
@@ -37,10 +39,9 @@ func newUndoTestHome(t *testing.T) undoTestHome {
 
 func (h undoTestHome) open(t *testing.T) *StateDB {
 	t.Helper()
-	db, err := NewStateDB(t.Context(), h.flatkv, h.ss, config.CheckpointConfig{BlockInterval: 1_000})
+	db, err := assembleStateDB(t, h, h.ss, true)
 	require.NoError(t, err)
 	require.NotNil(t, db.UndoSS())
-	require.Nil(t, db.SS())
 	return db
 }
 
@@ -61,24 +62,23 @@ func (m *undoModel) commitBlock(t *testing.T, db *StateDB, writes map[string][]b
 	height := int64(len(m.states))
 	prev := m.states[height-1]
 	next := maps.Clone(prev)
-	var pairs []*proto.KVPair
 	var changes gigatypes.StateChangeSet
 	for key, value := range writes {
 		old := prev[key]
 		if key[0] == nonceKey(common.Address{})[0] {
-			changes.Nonces = append(changes.Nonces, gigatypes.NonceChange{
-				Address: common.BytesToAddress([]byte(key[1:])), Nonce: nonceOf(value), PriorNonce: nonceOf(old)})
+			changes.Accounts = append(changes.Accounts, gigatypes.AccountChange{
+				Address: common.BytesToAddress([]byte(key[1:])),
+				Account: gigatypes.AccountState{Nonce: nonceOf(value)},
+				Prior:   gigatypes.AccountState{Nonce: nonceOf(old)}})
 		} else {
 			changes.Storage = append(changes.Storage, gigatypes.StorageChange{
 				Address: common.BytesToAddress([]byte(key[1:21])), Key: common.BytesToHash([]byte(key[21:])),
 				Value: common.BytesToHash(value), PriorValue: common.BytesToHash(old)})
 		}
-		pairs = append(pairs, &proto.KVPair{Key: []byte(key), Value: value})
 		next[key] = value
 	}
 	m.states = append(m.states, next)
-	require.NoError(t, db.CommitStateChangesWithPrior(height,
-		[]*proto.NamedChangeSet{{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: pairs}}}, &changes))
+	require.NoError(t, db.CommitStateChanges(height, &changes))
 }
 
 func storageKey(addr common.Address, slot byte) []byte {
@@ -97,6 +97,15 @@ func nonceValue(nonce uint64) []byte {
 	v := make([]byte, 8)
 	binary.BigEndian.PutUint64(v, nonce)
 	return v
+}
+
+// nonceChanges is a change set moving addr's nonce from prior to nonce.
+func nonceChanges(addr common.Address, prior uint64, nonce uint64) *gigatypes.StateChangeSet {
+	return &gigatypes.StateChangeSet{Accounts: []gigatypes.AccountChange{{
+		Address: addr,
+		Account: gigatypes.AccountState{Nonce: nonce},
+		Prior:   gigatypes.AccountState{Nonce: prior},
+	}}}
 }
 
 // nonceOf decodes a nonce value, 0 for none.
@@ -209,8 +218,8 @@ func TestUndoStateDBRollsBackByDiscardingLaterRecords(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	// The rollback to 9 discards every record above it.
-	db, err := NewStateDBWithRollback(t.Context(), home.flatkv, home.ss, config.CheckpointConfig{BlockInterval: 1_000}, 9)
-	require.NoError(t, err)
+	require.NoError(t, home.rollBack(t, 9))
+	db = home.open(t)
 	defer func() { require.NoError(t, db.Close()) }()
 	require.Equal(t, int64(9), db.UndoSS().GetLatestVersion())
 
@@ -223,22 +232,99 @@ func TestUndoStateDBRollsBackByDiscardingLaterRecords(t *testing.T) {
 	model.requireHistory(t, db, 0, 16, [][]byte{nonceKey(addr), nonceKey(other)})
 }
 
+// rollBack rolls home's live state DB, historical state DB and state WAL back to target, in the order the storage
+// manager's startup does.
+func (h undoTestHome) rollBack(t *testing.T, target uint64) error {
+	t.Helper()
+	if err := flatkv.RollBackLiveStateDB(h.flatkv, target); err != nil {
+		return fmt.Errorf("roll back the live state DB: %w", err)
+	}
+	if err := undo.DiscardStateAbove(h.ss.EVMDBDirectory, h.ss, target); err != nil {
+		return fmt.Errorf("roll back the historical state DB: %w", err)
+	}
+	if err := statewal.PruneAfter(flatkv.StateWALConfig(h.flatkv.DataDir), target); err != nil {
+		return fmt.Errorf("roll back the state WAL: %w", err)
+	}
+	return nil
+}
+
+// The historical state DB is cut back to the target along with the live state DB, its records of the
+// blocks above it going with them.
+func TestRollbackCutsTheHistoricalStateDBBackToTheWALHead(t *testing.T) {
+	home := newUndoTestHome(t)
+	db := home.open(t)
+	commitNonceBlocks(t, db, 1, 3)
+	require.NoError(t, db.Close())
+	truncateWAL(t, home, 2)
+
+	require.NoError(t, home.rollBack(t, 2))
+
+	db = home.open(t)
+	defer func() { require.NoError(t, db.Close()) }()
+	require.Equal(t, int64(2), db.UndoSS().GetLatestVersion())
+	commitNonceBlocks(t, db, 3, 3)
+}
+
+// A rollback above the undo log's head is legal. The log holds no records of the blocks between its head
+// and the target, so it serves the target from the live state DB and nothing below it.
+func TestUndoStateDBRollbackAboveTheLogServesFromTheTarget(t *testing.T) {
+	home := newUndoTestHome(t)
+	db := home.open(t)
+	addr := common.Address{11}
+	for block := int64(1); block <= 14; block++ {
+		nonce := uint64(block) //nolint:gosec // positive
+		require.NoError(t, db.CommitStateChanges(block, nonceChanges(addr, nonce-1, nonce)))
+	}
+	require.NoError(t, db.Close())
+	require.NoError(t, undo.DiscardStateAbove(home.ss.EVMDBDirectory, home.ss, 5))
+
+	require.NoError(t, home.rollBack(t, 9))
+	db = home.open(t)
+	defer func() { require.NoError(t, db.Close()) }()
+	require.Equal(t, int64(9), db.SC().Version())
+	require.Equal(t, int64(9), db.UndoSS().GetLatestVersion())
+	require.Equal(t, int64(9), db.UndoSS().GetEarliestVersion())
+	_, ok := db.OpenViewAt(8)
+	require.False(t, ok, "no records cover the blocks between the log's head and the target")
+	view, ok := db.OpenViewAt(9)
+	require.True(t, ok)
+	defer view.Close()
+	require.Equal(t, uint64(9), view.GetNonce(addr))
+}
+
+// An empty undo log holds nothing to disagree with the target, so a rollback leaves it to fill forward
+// from the target.
+func TestUndoStateDBRollbackTakesAnEmptyLog(t *testing.T) {
+	home := newUndoTestHome(t)
+	db := home.open(t)
+	addr := common.Address{12}
+	for block := int64(1); block <= 14; block++ {
+		nonce := uint64(block) //nolint:gosec // positive
+		require.NoError(t, db.CommitStateChanges(block, nonceChanges(addr, nonce-1, nonce)))
+	}
+	require.NoError(t, db.Close())
+	require.NoError(t, os.RemoveAll(home.ss.EVMDBDirectory))
+
+	require.NoError(t, home.rollBack(t, 9))
+	db = home.open(t)
+	defer func() { require.NoError(t, db.Close()) }()
+	require.Equal(t, int64(9), db.UndoSS().GetLatestVersion())
+	require.Equal(t, int64(9), db.UndoSS().GetEarliestVersion())
+}
+
 // A block's change set carries each balance and code it replaced, which a read below the block serves.
 func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 	db := newUndoTestHome(t).open(t)
 	defer func() { require.NoError(t, db.Close()) }()
 	addr := common.Address{5}
 	oldCode, newCode := []byte{0x60, 0x00}, []byte{0x60, 0x01}
-	newCodeHash := crypto.Keccak256Hash(newCode)
 
-	require.NoError(t, db.CommitStateChangesWithPrior(1, []*proto.NamedChangeSet{{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{
-		Pairs: []*proto.KVPair{
-			{Key: keys.BuildEVMKey(keys.EVMKeyBalance, addr[:]), Value: common.BigToHash(big.NewInt(9)).Bytes()},
-			{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]), Value: newCodeHash.Bytes()},
-			{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr[:]), Value: newCode},
-		}}}}, &gigatypes.StateChangeSet{
-		Balances: []gigatypes.BalanceChange{{Address: addr, Balance: big.NewInt(9), PriorBalance: big.NewInt(4)}},
-		Code:     []gigatypes.CodeChange{{Address: addr, Code: newCode, PriorCode: oldCode}},
+	require.NoError(t, db.CommitStateChanges(1, &gigatypes.StateChangeSet{
+		Accounts: []gigatypes.AccountChange{{
+			Address: addr,
+			Account: gigatypes.AccountState{Balance: big.NewInt(9), Code: newCode},
+			Prior:   gigatypes.AccountState{Balance: big.NewInt(4), Code: oldCode},
+		}},
 	}))
 	db.UndoSS().WaitForPendingWrites()
 
@@ -261,12 +347,11 @@ func TestUndoStateDBCommitsABlockThatWritesNoEVMState(t *testing.T) {
 	db := newUndoTestHome(t).open(t)
 	defer func() { require.NoError(t, db.Close()) }()
 	addr := common.Address{3}
-	require.NoError(t, db.CommitStateChangesWithPrior(1, []*proto.NamedChangeSet{{Name: keys.EVMStoreKey,
-		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: nonceKey(addr), Value: nonceValue(1)}}}}},
-		&gigatypes.StateChangeSet{Nonces: []gigatypes.NonceChange{{Address: addr, Nonce: 1}}}))
+	require.NoError(t, db.CommitStateChanges(1, nonceChanges(addr, 0, 1)))
 
-	require.NoError(t, db.CommitStateChangesWithPrior(2, []*proto.NamedChangeSet{{Name: "cursor",
-		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("head"), Value: []byte{2}}}}}}, &gigatypes.StateChangeSet{}))
+	require.NoError(t, db.CommitStateChanges(2, &gigatypes.StateChangeSet{
+		Misc: []gigatypes.MiscChange{{Module: "cursor", Key: []byte("head"), Value: []byte{2}}},
+	}))
 	db.UndoSS().WaitForPendingWrites()
 
 	require.Equal(t, int64(2), db.UndoSS().GetLatestVersion())
@@ -288,9 +373,7 @@ func TestUndoStateDBResumesOnASeededHeight(t *testing.T) {
 	addr := common.Address{4}
 	for block := int64(5); block <= 6; block++ {
 		nonce := uint64(block - 4) //nolint:gosec // positive
-		require.NoError(t, db.CommitStateChangesWithPrior(block, []*proto.NamedChangeSet{{Name: keys.EVMStoreKey,
-			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: nonceKey(addr), Value: nonceValue(nonce)}}}}},
-			&gigatypes.StateChangeSet{Nonces: []gigatypes.NonceChange{{Address: addr, Nonce: nonce, PriorNonce: nonce - 1}}}))
+		require.NoError(t, db.CommitStateChanges(block, nonceChanges(addr, nonce-1, nonce)))
 	}
 	db.UndoSS().WaitForPendingWrites()
 
@@ -312,8 +395,8 @@ func TestUndoStateDBRefusesAnUndoLogOverAnEmptySC(t *testing.T) {
 	require.NoError(t, db.Close())
 	require.NoError(t, os.RemoveAll(home.flatkv.DataDir))
 
-	_, err := NewStateDB(t.Context(), home.flatkv, home.ss, config.CheckpointConfig{BlockInterval: 1_000})
-	require.ErrorContains(t, err, "the state commit store is empty")
+	_, err := assembleStateDB(t, home, home.ss, true)
+	require.ErrorContains(t, err, "the live state DB is empty")
 }
 
 // Closing with a historical view still open succeeds without waiting for it, and the view's reads
@@ -334,14 +417,11 @@ func TestUndoStateDBClosesWithAHistoricalViewOpen(t *testing.T) {
 	view.Close()
 }
 
-func TestUndoStateDBRefusesABlockWithoutItsChangeSet(t *testing.T) {
+// A block that changes nothing has nothing for the undo log to record, and still commits.
+func TestUndoStateDBCommitsAnEmptyChangeSet(t *testing.T) {
 	db := newUndoTestHome(t).open(t)
 	defer func() { require.NoError(t, db.Close()) }()
-	changeset := []*proto.NamedChangeSet{{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{
-		Pairs: []*proto.KVPair{{Key: nonceKey(common.Address{1}), Value: nonceValue(1)}}}}}
 
-	require.Error(t, db.CommitStateChanges(1, changeset))
-	require.Error(t, db.CommitStateChanges(1, nil), "an undo log needs a change set even for an empty block")
-	require.NoError(t, db.CommitStateChangesWithPrior(1, nil, &gigatypes.StateChangeSet{}),
+	require.NoError(t, db.CommitStateChanges(1, &gigatypes.StateChangeSet{}),
 		"a block that changes nothing has nothing to record")
 }

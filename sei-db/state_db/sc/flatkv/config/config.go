@@ -133,6 +133,13 @@ type Config struct {
 	// worker count: submitting happens on the commit path, and throttling commits is
 	// MaxUnflushedVersions' job alone.
 	SortThreadsPerCore float64
+
+	// The number of entries of a block's state change set that one task converts to mutations at a time.
+	StateChangeSetChunkSize int
+
+	// Controls how many tasks convert a block's state change set to mutations at once. The count is
+	// StateChangeSetThreadsPerCore * runtime.NumCPU(), clamped to at least 1.
+	StateChangeSetThreadsPerCore float64
 }
 
 // defaultStoreConfig returns the view manager defaults for one database, named for the database's
@@ -152,32 +159,67 @@ func DefaultConfig() *Config {
 		// than that: ten old checkpoints at this interval reach 100,000 blocks. A checkpoint
 		// hardlinks its SSTs, so each one costs only what compaction has obsoleted since, about
 		// 290 MiB at mainnet state size.
-		SnapshotKeepRecent:        10,
-		MaxSnapshotLagBlocks:      64,
-		EnablePebbleMetrics:       true,
-		AccountDBConfig:           pebbledb.DefaultConfig(),
-		AccountStoreConfig:        defaultStoreConfig("account"),
-		CodeDBConfig:              pebbledb.DefaultConfig(),
-		CodeStoreConfig:           defaultStoreConfig("code"),
-		StorageDBConfig:           pebbledb.DefaultConfig(),
-		StorageStoreConfig:        defaultStoreConfig("storage"),
-		MiscDBConfig:              pebbledb.DefaultConfig(),
-		MiscStoreConfig:           defaultStoreConfig("misc"),
-		ReaderThreadsPerCore:      2.0,
-		ReaderConstantThreadCount: 0,
-		ReaderPoolQueueSize:       1024,
-		MiscPoolThreadsPerCore:    4.0,
-		MiscConstantThreadCount:   0,
-		LtHashThreadsPerCore:      1.0,
-		SortThreadsPerCore:        0.25,
-		HashEngineConfig:          *lthash.DefaultConfig(),
-		FinalizationQueueSize:     64,
+		SnapshotKeepRecent:           10,
+		MaxSnapshotLagBlocks:         64,
+		EnablePebbleMetrics:          true,
+		AccountDBConfig:              pebbledb.DefaultConfig(),
+		AccountStoreConfig:           defaultStoreConfig("account"),
+		CodeDBConfig:                 pebbledb.DefaultConfig(),
+		CodeStoreConfig:              defaultStoreConfig("code"),
+		StorageDBConfig:              pebbledb.DefaultConfig(),
+		StorageStoreConfig:           defaultStoreConfig("storage"),
+		MiscDBConfig:                 pebbledb.DefaultConfig(),
+		MiscStoreConfig:              defaultStoreConfig("misc"),
+		ReaderThreadsPerCore:         2.0,
+		ReaderConstantThreadCount:    0,
+		ReaderPoolQueueSize:          1024,
+		MiscPoolThreadsPerCore:       4.0,
+		MiscConstantThreadCount:      0,
+		LtHashThreadsPerCore:         1.0,
+		SortThreadsPerCore:           0.25,
+		HashEngineConfig:             *lthash.DefaultConfig(),
+		FinalizationQueueSize:        64,
+		StateChangeSetChunkSize:      8192,
+		StateChangeSetThreadsPerCore: 1.0,
 	}
 
 	cfg.AccountStoreConfig.MaxSize = unit.GB
 	cfg.StorageStoreConfig.MaxSize = unit.GB * 4
 
 	return cfg
+}
+
+// ApplyLowFootprintProfile bounds the memory and disk FlatKV uses on a node that serves only current
+// state: read caches, Pebble block caches, memtables, write backlogs, and retained snapshots.
+func (c *Config) ApplyLowFootprintProfile() {
+	c.AccountStoreConfig.MaxSize = 256 * unit.MB
+	c.CodeStoreConfig.MaxSize = 64 * unit.MB
+	c.StorageStoreConfig.MaxSize = 512 * unit.MB
+	c.MiscStoreConfig.MaxSize = 128 * unit.MB
+	c.MaxSnapshotLagBlocks = 8
+	c.MiscPoolThreadsPerCore = 1
+	// Reconciling with a memIAVL that lost its async commit queue in a crash can roll FlatKV back past
+	// its newest snapshot.
+	c.SnapshotKeepRecent = 1
+
+	for _, store := range []*view.ViewManagerConfig{
+		&c.AccountStoreConfig,
+		&c.CodeStoreConfig,
+		&c.StorageStoreConfig,
+		&c.MiscStoreConfig,
+	} {
+		store.MaxUnflushedVersions = 8
+	}
+	for _, db := range []*pebbledb.PebbleDBConfig{
+		&c.AccountDBConfig,
+		&c.CodeDBConfig,
+		&c.StorageDBConfig,
+		&c.MiscDBConfig,
+	} {
+		db.BlockCacheSize = int64(64 * unit.MB)
+		db.MemTableSize = uint64(32 * unit.MB)
+		db.MemTableStopWritesThreshold = 4
+	}
 }
 
 // Copy returns a deep copy of the Config.
@@ -237,6 +279,12 @@ func (c *Config) Validate() error {
 	}
 	if c.SortThreadsPerCore < 0 {
 		return fmt.Errorf("sort threads per core must not be negative")
+	}
+	if c.StateChangeSetChunkSize <= 0 {
+		return fmt.Errorf("state change set chunk size must be positive")
+	}
+	if c.StateChangeSetThreadsPerCore < 0 {
+		return fmt.Errorf("state change set threads per core must not be negative")
 	}
 
 	return nil

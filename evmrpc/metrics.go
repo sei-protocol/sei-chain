@@ -30,12 +30,16 @@ const (
 	rejectReasonRateLimited   = "rate_limited"   // per-IP token bucket exhausted
 	rejectReasonUnparseable   = "unparseable"    // rate-limit method parse failed (malformed JSON-RPC)
 	rejectReasonReadError     = "read_error"     // request body could not be read (I/O error, missing body)
+	// drop reason values for newHeadsDroppedBlockCount.
+	newHeadsDropMissed             = "missed"               // the event never reached the newHeads goroutine
+	newHeadsDropBaseFeeUnavailable = "base_fee_unavailable" // the parent's state could not be read
 	// error_class values; empty string ("") means success.
 	errorClassPanic              = "panic"
 	errorClassExecutionReverted  = "execution_reverted"
 	errorClassEVMNotSupported    = "evm_not_supported"
 	errorClassSeiLegacyDisabled  = "sei_legacy_disabled"
 	errorClassAssociationMissing = "association_missing"
+	errorClassLogQueryRefused    = "log_query_refused"
 	errorClassJSONRPCError       = "jsonrpc_error"
 	errorClassUnknown            = "unknown"
 	// jsonrpc_code bucket values; empty string ("") means no code (success or untyped error).
@@ -59,6 +63,7 @@ var (
 		redirectedRequestCount           metric.Int64Counter
 		historicalDebugTraceAttemptCount metric.Int64Counter
 		requestRejectedCount             metric.Int64Counter
+		newHeadsDroppedBlockCount        metric.Int64Counter
 	}{
 		requestLatencySeconds: must(rpcTelemetryMeter.Float64Histogram(
 			"evmrpc_request_latency_seconds",
@@ -94,6 +99,11 @@ var (
 			metric.WithDescription("Number of JSON-RPC requests rejected by admission control (labeled by protocol and reason: oversize or busy)"),
 			metric.WithUnit("{count}"),
 		)),
+		newHeadsDroppedBlockCount: must(rpcTelemetryMeter.Int64Counter(
+			"evmrpc_newheads_dropped_blocks_total",
+			metric.WithDescription("Number of blocks eth_subscribe(\"newHeads\") sent no header for (labeled by reason: missed or base_fee_unavailable)"),
+			metric.WithUnit("{count}"),
+		)),
 	}
 )
 
@@ -120,6 +130,10 @@ func classifyRPCMetricError(err error, panicked bool) (errorClass string, jsonrp
 	var legacy *errSeiLegacyNotEnabled
 	if errors.As(err, &legacy) {
 		return errorClassSeiLegacyDisabled, bucketJSONRPCCode(int64(legacy.ErrorCode()))
+	}
+	var refused *errLogQueryRefused
+	if errors.As(err, &refused) {
+		return errorClassLogQueryRefused, bucketJSONRPCCode(int64(refused.ErrorCode()))
 	}
 	var assoc types.AssociationMissingErr
 	if errors.As(err, &assoc) {
@@ -198,6 +212,12 @@ func recordRequestRejected(ctx context.Context, reason string) {
 			attribute.String(rejectReasonKey, reason),
 		),
 	)
+}
+
+// recordNewHeadsDroppedBlocks counts blocks that eth_subscribe("newHeads") sent no header for. reason is
+// newHeadsDropMissed or newHeadsDropBaseFeeUnavailable.
+func recordNewHeadsDroppedBlocks(ctx context.Context, count int64, reason string) {
+	metrics.newHeadsDroppedBlockCount.Add(ctx, count, metric.WithAttributes(attribute.String(rejectReasonKey, reason)))
 }
 
 // mapWSAdmissionRejectReason normalizes sei go-ethereum WS admission-hook reasons

@@ -934,3 +934,31 @@ func getDepositMultiplier(isExpedited bool) int64 {
 	}
 	return types.DefaultMinExpeditedDepositTokens.Quo(types.DefaultMinDepositTokens).Int64()
 }
+
+func TestEndBlockerSettlesExpiredDepositsAcrossBlocks(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	depositors := seiapp.AddTestAddrs(app, ctx, gov.MaxDepositsSettledPerBlock+1, sdk.NewInt(1))
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, types.ContentFromProposalType("test", "test", types.ProposalTypeText, false))
+	require.NoError(t, err)
+	for _, depositor := range depositors {
+		_, err = app.GovKeeper.AddDeposit(ctx, proposal.ProposalId, depositor, sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 1)))
+		require.NoError(t, err)
+	}
+	requireDepositsBacked := func() {
+		msg, broken := govkeeper.ModuleAccountInvariant(app.GovKeeper, app.BankKeeper)(ctx)
+		require.False(t, broken, msg)
+	}
+
+	ctx = ctx.WithBlockTime(proposal.DepositEndTime)
+	gov.EndBlocker(ctx, app.GovKeeper)
+	_, found := app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
+	require.False(t, found)
+	require.Len(t, app.GovKeeper.GetDeposits(ctx, proposal.ProposalId), 1)
+	requireDepositsBacked()
+
+	ctx = ctx.WithBlockTime(ctx.BlockTime().Add(time.Second))
+	gov.EndBlocker(ctx, app.GovKeeper)
+	require.Empty(t, app.GovKeeper.GetDeposits(ctx, proposal.ProposalId))
+	requireDepositsBacked()
+}

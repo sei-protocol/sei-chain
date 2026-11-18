@@ -2,8 +2,7 @@
 
 This document shows how to draw a BUD tree for a given number of leaves, and is non-normative. BUD trees use the
 Merkle tree defined in [RFC 9162 §2.1.1](https://www.rfc-editor.org/rfc/rfc9162#section-2.1.1); where this
-document and the RFC disagree, the RFC is right. [`bud_spec.md`](bud_spec.md) defines what BUD adds to that tree,
-including a different hash for the empty tree.
+document and the RFC disagree, the RFC is right. [`bud_spec.md`](bud_spec.md) defines what BUD adds to that tree.
 
 ## Drawing rule
 

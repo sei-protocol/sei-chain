@@ -66,8 +66,8 @@ func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config clien
 // RegisterRESTRoutes registers the REST routes for the genutil module.
 func (AppModuleBasic) RegisterRESTRoutes(_ client.Context, _ *mux.Router) {}
 
-// RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the genutil module.
-func (AppModuleBasic) RegisterGRPCGatewayRoutes(_ client.Context, _ *runtime.ServeMux) {
+// RegisterGatewayRoutes registers the gRPC Gateway routes for the genutil module.
+func (AppModuleBasic) RegisterGatewayRoutes(_ client.Context, _ *runtime.ServeMux) {
 }
 
 // GetTxCmd returns no root tx command for the genutil module.

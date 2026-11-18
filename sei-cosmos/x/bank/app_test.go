@@ -1,7 +1,6 @@
 package bank_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/app"
@@ -84,14 +83,12 @@ func TestSendNotEnoughBalance(t *testing.T) {
 
 	genAccs := []authtypes.GenesisAccount{acc}
 	a := app.SetupWithGenesisAccounts(t, genAccs)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	app.CommitBlockWithWrites(t, a, func(ctx sdk.Context) {
+		require.NoError(t, apptesting.FundAccount(
+			a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 67))))
+	})
 
-	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 67))))
-
-	_, err := a.Commit(context.Background())
-	require.NoError(t, err)
-
-	res1 := a.AccountKeeper.GetAccount(ctx, addr1)
+	res1 := a.AccountKeeper.GetAccount(a.NewContext(true, tmproto.Header{}), addr1)
 	require.NotNil(t, res1)
 	require.Equal(t, acc, res1.(*authtypes.BaseAccount))
 
@@ -101,7 +98,10 @@ func TestSendNotEnoughBalance(t *testing.T) {
 	sendMsg := types.NewMsgSend(addr1, addr2, sdk.Coins{sdk.NewInt64Coin("foocoin", 100)})
 	header := tmproto.Header{ChainID: a.ChainID, Height: a.LastBlockHeight() + 1}
 	txGen := app.MakeEncodingConfig().TxConfig
-	_, _, err = app.SignCheckDeliver(t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, []uint64{origAccNum}, []uint64{origSeq}, false, false, priv1)
+	_, _, err := app.SignCheckDeliver(
+		t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, []uint64{origAccNum}, []uint64{origSeq},
+		false, false, priv1,
+	)
 	require.Error(t, err)
 
 	app.CheckBalance(t, a, addr1, sdk.Coins{sdk.NewInt64Coin("foocoin", 67)})
@@ -120,13 +120,12 @@ func TestMsgMultiSendWithAccounts(t *testing.T) {
 
 	genAccs := []authtypes.GenesisAccount{acc}
 	a := app.SetupWithGenesisAccounts(t, genAccs)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	app.CommitBlockWithWrites(t, a, func(ctx sdk.Context) {
+		require.NoError(t, apptesting.FundAccount(
+			a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 67))))
+	})
 
-	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 67))))
-
-	a.Commit(context.Background())
-
-	res1 := a.AccountKeeper.GetAccount(ctx, addr1)
+	res1 := a.AccountKeeper.GetAccount(a.NewContext(true, tmproto.Header{}), addr1)
 	require.NotNil(t, res1)
 	require.Equal(t, acc, res1.(*authtypes.BaseAccount))
 
@@ -181,13 +180,12 @@ func TestMsgMultiSendMultipleOut(t *testing.T) {
 
 	genAccs := []authtypes.GenesisAccount{acc1, acc2}
 	a := app.SetupWithGenesisAccounts(t, genAccs)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
-
-	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
-
-	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr2, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
-
-	a.Commit(context.Background())
+	app.CommitBlockWithWrites(t, a, func(ctx sdk.Context) {
+		require.NoError(t, apptesting.FundAccount(
+			a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
+		require.NoError(t, apptesting.FundAccount(
+			a.BankKeeper, ctx, addr2, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
+	})
 
 	testCases := []appTestCase{
 		{
@@ -230,15 +228,14 @@ func TestMsgMultiSendMultipleInOut(t *testing.T) {
 
 	genAccs := []authtypes.GenesisAccount{acc1, acc2, acc4}
 	a := app.SetupWithGenesisAccounts(t, genAccs)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
-
-	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
-
-	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr2, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
-
-	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr4, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
-
-	a.Commit(context.Background())
+	app.CommitBlockWithWrites(t, a, func(ctx sdk.Context) {
+		require.NoError(t, apptesting.FundAccount(
+			a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
+		require.NoError(t, apptesting.FundAccount(
+			a.BankKeeper, ctx, addr2, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
+		require.NoError(t, apptesting.FundAccount(
+			a.BankKeeper, ctx, addr4, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
+	})
 
 	testCases := []appTestCase{
 		{
@@ -277,11 +274,10 @@ func TestMsgMultiSendDependent(t *testing.T) {
 
 	genAccs := []authtypes.GenesisAccount{acc1, acc2}
 	a := app.SetupWithGenesisAccounts(t, genAccs)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
-
-	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
-
-	a.Commit(context.Background())
+	app.CommitBlockWithWrites(t, a, func(ctx sdk.Context) {
+		require.NoError(t, apptesting.FundAccount(
+			a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
+	})
 
 	testCases := []appTestCase{
 		{

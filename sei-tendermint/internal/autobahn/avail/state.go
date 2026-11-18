@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -14,7 +13,6 @@ import (
 	consmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -23,7 +21,9 @@ import (
 // SubscribeLaneProposals.Recv after that lane's maps are dropped.
 var ErrLaneClosed = errors.New("lane closed")
 
-const BlocksPerLane = 3 * types.MaxLaneRangeInProposal
+// BlocksPerLane is the number of unpruned blocks every node holds per lane, in memory and in the
+// block WAL. It also bounds the sealed blocks a producer's mempool holds until they execute locally.
+const BlocksPerLane = 6 * types.MaxLaneRangeInProposal
 
 var (
 	meters     = metrics.Get()
@@ -40,9 +40,7 @@ var (
 // to trigger internal pruning, which allows it to manage memory independently
 // of the main consensus loop.
 //
-// Lane maps and WALs outlive committee membership until the anchor epoch
-// IsClosed that LaneID. Before any Anchor exists, the anchor epoch is the
-// applied epoch.
+// Lane maps and WALs are retained while either anchor epoch contains that LaneID.
 type State struct {
 	key   types.SecretKey
 	data  *data.State
@@ -58,32 +56,12 @@ func (s *State) PublicKey() types.PublicKey {
 	return s.key.Public()
 }
 
-// appliedEpoch is Load/Wait over consensusSpec.Epoch.
-type appliedEpoch struct {
-	spec utils.AtomicRecv[types.ConsensusSpec]
-}
-
-func (e appliedEpoch) Load() *types.Epoch { return e.spec.Load().Epoch }
-
-func (e appliedEpoch) Wait(ctx context.Context, pred func(*types.Epoch) bool) (*types.Epoch, error) {
-	sp, err := e.spec.Wait(ctx, func(sp types.ConsensusSpec) bool { return pred(sp.Epoch) })
-	if err != nil {
-		return nil, err
-	}
-	return sp.Epoch, nil
-}
-
-// Epoch returns the applied (next-CommitQC) epoch.
-func (s *State) Epoch() appliedEpoch {
-	return appliedEpoch{s.spec}
-}
-
 func (s *State) LocalLane() utils.Option[types.LaneID] {
 	return s.Lane(s.key.Public())
 }
 
 func (s *State) Lane(pk types.PublicKey) utils.Option[types.LaneID] {
-	return s.Epoch().Load().Committee().Lane(pk)
+	return s.ConsensusSpec().Load().Epoch.Committee().Lane(pk)
 }
 
 func (s *State) WaitForLocalLane(ctx context.Context) (types.LaneID, error) {
@@ -91,8 +69,8 @@ func (s *State) WaitForLocalLane(ctx context.Context) (types.LaneID, error) {
 }
 
 func (s *State) WaitUntilClosed(ctx context.Context, lane types.LaneID) error {
-	_, err := s.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
-		return ep.IsClosed(lane)
+	_, err := s.ConsensusSpec().Wait(ctx, func(spec types.ConsensusSpec) bool {
+		return spec.Epoch.IsClosed(lane)
 	})
 	return err
 }
@@ -141,13 +119,13 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	if err != nil {
 		return nil, err
 	}
-	inner, err := restoreInner(data, loaded)
+	inner, err := newInner(data.Anchor().Load(), data.GenesisTimestamp(), loaded)
 	if err != nil {
 		_ = pers.close()
 		return nil, err
 	}
 	// Remove orphaned lanes on disk
-	if err := persist.SyncLanes(pers.blocks, inner.blocks); err != nil {
+	if err := persist.SyncLanes(pers.blocks, inner.lanes); err != nil {
 		_ = pers.close()
 		return nil, fmt.Errorf("sync lane WALs to memory set: %w", err)
 	}
@@ -158,97 +136,6 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		spec:       inner.consensusSpec.Subscribe(),
 		persisters: pers,
 	}, nil
-}
-
-// restoreInner constructs inner from persisted WAL records and data.State.
-func restoreInner(ds *data.State, loaded *loadedState) (*inner, error) {
-	applied, first, qcs, err := restorePlan(ds, loaded)
-	if err != nil {
-		return nil, err
-	}
-	i := newInner(applied, first)
-	for lane := range loaded.blocks {
-		i.addLane(lane)
-	}
-	if anchor, ok := ds.Anchor().Load().Get(); ok {
-		i.prune(anchor)
-	}
-	for _, r := range qcs {
-		i.roads.pushBack(newRoad(r.qc, r.ep))
-	}
-	if i.roads.Len() > 0 {
-		last := i.roads.q[i.roads.next-1]
-		i.persistedCommitQC.Store(utils.Some(last.commitQC))
-	}
-	if err := i.restoreBlocks(loaded.blocks); err != nil {
-		return nil, err
-	}
-	i.refreshConsensusSpec()
-	if qc, ok := i.persistedCommitQC.Load().Get(); ok {
-		meters.CommitRoadIndex.Set(int64(qc.Index()))                    // nolint: gosec
-		meters.CommitGlobalBlockNumber.Set(int64(qc.GlobalRange().Next)) // nolint: gosec
-	}
-	return i, nil
-}
-
-type restoredQC struct {
-	qc *types.CommitQC
-	ep *types.Epoch
-}
-
-// restorePlan is the applied epoch, first RoadIndex (genesis or Anchor+1), and
-// verified CommitQCs for construction. The epoch is genesis when there is no
-// tip, otherwise nextViewEpoch of the persisted tip (last restored QC, or the
-// Anchor QC when the queue is empty).
-func restorePlan(ds *data.State, loaded *loadedState) (*types.Epoch, types.RoadIndex, []restoredQC, error) {
-	registry := ds.Registry()
-	genesis, err := registry.EpochByIndex(0)
-	if err != nil {
-		return nil, 0, nil, fmt.Errorf("genesis epoch 0: %w", err)
-	}
-	first := genesis.RoadRange().First
-	tip := utils.None[restoredQC]()
-	if anchor, ok := ds.Anchor().Load().Get(); ok {
-		first = anchor.CommitQC.Index() + 1
-		tip = utils.Some(restoredQC{qc: anchor.CommitQC, ep: anchor.Epoch})
-	}
-	var qcs []restoredQC
-	for _, qc := range loaded.commitQCs {
-		if qc.Index() < first {
-			continue
-		}
-		want := first + types.RoadIndex(len(qcs))
-		if qc.Index() != want {
-			return nil, 0, nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", want, qc.Index())
-		}
-		ep, err := registry.EpochByIndex(qc.Proposal().EpochIndex())
-		if err != nil {
-			return nil, 0, nil, fmt.Errorf("persisted commitQC %d epoch: %w", qc.Index(), err)
-		}
-		if err := qc.Verify(ep); err != nil {
-			return nil, 0, nil, fmt.Errorf("persisted commitQC %d verify: %w", qc.Index(), err)
-		}
-		r := restoredQC{qc: qc, ep: ep}
-		qcs = append(qcs, r)
-		tip = utils.Some(r)
-	}
-	if tip, ok := tip.Get(); ok {
-		applied, err := nextViewEpoch(registry, tip.qc)
-		if err != nil {
-			return nil, 0, nil, err
-		}
-		return applied, first, qcs, nil
-	}
-	return genesis, first, qcs, nil
-}
-
-// nextViewEpoch is the registered epoch of the road after tip.
-func nextViewEpoch(registry *epoch.Registry, tip *types.CommitQC) (*types.Epoch, error) {
-	ep, err := registry.EpochAt(tip.Index() + 1)
-	if err != nil {
-		return nil, fmt.Errorf("epoch after tip %d: %w", tip.Index(), err)
-	}
-	return ep, nil
 }
 
 // Close releases the WALs this state owns, and with them the exclusive lock each holds on its
@@ -277,18 +164,10 @@ func (s *State) Data() *data.State {
 	return s.data
 }
 
-// LastCommitQC returns receiver of the LastCommitQC.
-func (s *State) LastCommitQC() utils.AtomicRecv[utils.Option[*types.CommitQC]] {
-	for inner := range s.inner.Lock() {
-		return inner.persistedCommitQC.Subscribe()
-	}
-	panic("unreachable")
-}
-
-// SubscribeConsensusSpec returns a receiver of the durable CommitQC tip paired
+// ConsensusSpec returns a receiver of the durable CommitQC tip paired
 // with the epoch of the RoadIndex that follows it. CommitQC is None before
 // the first tip; until then Epoch is genesis epoch 0.
-func (s *State) SubscribeConsensusSpec() utils.AtomicRecv[types.ConsensusSpec] {
+func (s *State) ConsensusSpec() utils.AtomicRecv[types.ConsensusSpec] {
 	return s.spec
 }
 
@@ -333,8 +212,8 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 // PushCommitQC admits a CommitQC once its epoch is applied and it is the next
 // road. Stale QCs are a no-op.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
-	idx := qc.Proposal().Index()
-	want := qc.Proposal().EpochIndex()
+	idx := qc.Index()
+	want := qc.View().EpochIndex
 	var epoch *types.Epoch
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
@@ -356,9 +235,9 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		}
 		inner.roads.pushBack(newRoad(qc, epoch))
 		metrics.ObserveCommitQC(qc)
-		leader := epoch.Committee().Leader(qc.Proposal().View())
+		leader := epoch.Committee().Leader(qc.View())
 		consMeters.Commits.WithLabelValues(leader.ED25519().Address().String()).Add(1)
-		// The persist goroutine publishes persistedCommitQC after writing to disk
+		// The persist goroutine advances nextCommitQCToPersist after writing to disk
 		// (or immediately for no-op persisters), so consensus won't advance
 		// until the CommitQC is durable.
 		ctrl.Updated()
@@ -370,7 +249,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 // PushAppVote pushes an AppVote to the state.
 func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]) error {
 	// Wait for the corresponding commitQC.
-	idx := v.Msg().Proposal().RoadIndex()
+	idx := v.Msg().Proposal().Index()
 	epoch, commitQC, err := s.commitQC(ctx, idx)
 	if err != nil {
 		if errors.Is(err, types.ErrPruned) {
@@ -402,42 +281,39 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 // NextBlock returns the index of the next missing block in local storage for the given lane.
 func (s *State) NextBlock(lane types.LaneID) types.BlockNumber {
 	for inner := range s.inner.Lock() {
-		if l, ok := inner.blocks[lane]; ok {
-			return l.next
+		if ls, ok := inner.lanes[lane]; ok {
+			return ls.blocks.next
 		}
 	}
 	return 0
 }
 
-// Block returns block n of the given lane.
-// Waits until the block is available.
-// Returns ErrPruned if the block has already been pruned, or if the lane map is
-// missing (closed lane, or a LaneID never admitted — future lanes are not waited on).
+// Block waits for block n of the given lane. It returns ErrPruned for pruned
+// blocks and past lanes. It waits for future lanes to become available.
 func (s *State) Block(ctx context.Context, lane types.LaneID, n types.BlockNumber) (*types.Signed[*types.LaneProposal], error) {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			q, ok := inner.blocks[lane]
-			return !ok || n < q.next
+			if ls, ok := inner.lanes[lane]; ok {
+				return n < ls.blocks.next
+			}
+			return inner.anchor.Epochs[1].IsClosed(lane)
 		}); err != nil {
 			return nil, err
 		}
-		q, ok := inner.blocks[lane]
+		ls, ok := inner.lanes[lane]
 		if !ok {
 			return nil, types.ErrPruned
 		}
-		if n < q.first {
+		if n < ls.blocks.first {
 			return nil, types.ErrPruned
 		}
-		return q.q[n], nil
+		return ls.blocks.q[n], nil
 	}
 	panic("unreachable")
 }
 
-// PushBlock pushes a block to the state.
-// Waits until all previous blocks are available.
-// A missing map (closed lane, or a LaneID never admitted) is a silent no-op —
-// future lanes are not waited on.
-// The lane must be in the applied committee.
+// PushBlock pushes a block to the state once its lane is in the applied committee
+// and all previous blocks are available. Blocks for past lanes are silently dropped.
 func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LaneProposal]) error {
 	h := p.Msg().Block().Header()
 	if p.Key() != h.Lane().Validator {
@@ -448,48 +324,45 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	if err := p.Msg().Verify(); err != nil {
 		return fmt.Errorf("Verify(): %w", err)
 	}
+	spec, err := s.spec.Wait(ctx, func(spec types.ConsensusSpec) bool {
+		return lane.Joined <= spec.Epoch.EpochIndex()
+	})
+	if err != nil {
+		return err
+	}
+	if !spec.Epoch.Committee().HasLane(lane) {
+		return nil
+	}
 	if err := p.VerifySig(); err != nil {
 		return fmt.Errorf("VerifySig(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			if !inner.applied().Committee().HasLane(lane) {
+			ls, ok := inner.lanes[lane]
+			// Block not needed any more.
+			if !ok || n < ls.blocks.next {
 				return true
 			}
-			q, ok := inner.blocks[lane]
-			if !ok {
-				return true
+			// No capacity, or not needed yet.
+			if n > ls.blocks.next || n >= ls.blocks.first+BlocksPerLane {
+				return false
 			}
-			return n <= min(q.next, q.first+BlocksPerLane-1)
+			// Extends the persisted chain. We tolerate equivocating lane producer,
+			// we just cannot accept their blocks until the mismatching parent is finalized.
+			return ls.blocks.Len() == 0 || ls.blocks.q[n-1].Msg().Block().Header().Hash() == h.ParentHash()
 		}); err != nil {
 			return err
 		}
-		if !inner.applied().Committee().HasLane(lane) {
+		ls, ok := inner.lanes[lane]
+		if !ok || n < ls.blocks.next {
+			// not needed any more
 			return nil
 		}
-		q, ok := inner.blocks[lane]
-		if !ok {
-			return nil
-		}
-		if q.next != n {
-			return nil
-		}
-		// Parent is checked only while the predecessor is in the suffix.
-		// See blockQueue. A mismatch is logged and dropped; the peer stays up.
-		if q.first < q.next {
-			want := q.q[q.next-1].Msg().Block().Header().Hash()
-			if h.ParentHash() != want {
-				logger.Error("parent hash mismatch (producer equivocation)",
-					"lane", lane,
-					slog.Uint64("block", uint64(n)),
-					"got", h.ParentHash(),
-					"want", want)
-				return nil
-			}
-		}
-		q.pushBack(p)
+		ls.blocks.pushBack(p)
+		ls.lastHash = utils.Some(h.Hash())
 		ctrl.Updated()
 	}
+	meters.LaneBlockReceive.Observe(time.Since(p.Msg().Block().Payload().CreatedAt()).Seconds())
 	return nil
 }
 
@@ -507,30 +380,30 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			q, ok := inner.votes[lane]
+			ls, ok := inner.lanes[lane]
 			if !ok {
 				return true
 			}
-			return n < q.first+BlocksPerLane
+			return n < ls.votes.first+BlocksPerLane
 		}); err != nil {
 			return err
 		}
-		q, ok := inner.votes[lane]
+		ls, ok := inner.lanes[lane]
 		if !ok {
 			return nil
 		}
-		if n < q.first {
+		if n < ls.votes.first {
 			return nil
 		}
-		// TODO: accept future-epoch joiner votes.
+		// TODO: PushVote should block on votes for future-lanes from future-voters
 		if !inner.epochForVote(vote).IsPresent() {
 			return nil
 		}
 		applied := inner.applied()
-		for q.next <= n {
-			q.pushBack(newBlockVotes())
+		for ls.votes.next <= n {
+			ls.votes.pushBack(newBlockVotes())
 		}
-		if q.q[n].pushVote(applied, vote) {
+		if ls.votes.q[n].pushVote(applied, vote) {
 			ctrl.Updated()
 		}
 	}
@@ -554,16 +427,16 @@ func (s *State) headers(ctx context.Context, ep *types.Epoch, lr *types.LaneRang
 		for i := range headers {
 			n := lr.Next() - types.BlockNumber(i) - 1 //nolint:gosec // i is bounded by len(headers) which is a small block range; no overflow risk
 			for {
-				q, ok := inner.votes[lr.Lane()]
+				ls, ok := inner.lanes[lr.Lane()]
 				if !ok {
 					return nil, types.ErrPruned
 				}
 				// If pruned, then give up.
-				if q.first > lr.First() {
+				if ls.votes.first > lr.First() {
 					return nil, types.ErrPruned
 				}
 				// Check if we have the header.
-				if bv, ok := q.q[n]; ok {
+				if bv, ok := ls.votes.q[n]; ok {
 					if h, ok := bv.header(want).Get(); ok {
 						want = h.ParentHash()
 						headers[len(headers)-i-1] = h
@@ -582,26 +455,26 @@ func (s *State) headers(ctx context.Context, ep *types.Epoch, lr *types.LaneRang
 
 // fullCommitQC builds a FullCommitQC for road index n.
 // Headers are collected from votes; this does not wait for future lanes.
-func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Epoch, *types.FullCommitQC, error) {
+func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.FullCommitQC, error) {
 	// Collect the CommitQC.
 	epoch, qc, err := s.commitQC(ctx, n)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	// Collect the headers from the votes.
 	var commitHeaders []*types.BlockHeader
 	for lane := range epoch.Committee().Lanes().All() {
 		headers, err := s.headers(ctx, epoch, qc.LaneRange(lane))
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		commitHeaders = append(commitHeaders, headers...)
 	}
-	return epoch, types.NewFullCommitQC(qc, commitHeaders), nil
+	return types.NewFullCommitQC(qc, commitHeaders), nil
 }
 
 // WaitForCapacity waits until lane has room for toProduce.
-// Returns ErrLaneClosed if the lane map is missing. Does not wait for future lanes.
+// Returns ErrLaneClosed if the lane map is missing. Does not wait for unretained lanes.
 func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduce types.BlockNumber) error {
 	var blocked bool
 	var start time.Time
@@ -612,11 +485,8 @@ func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduc
 	}()
 	for inner, ctrl := range s.inner.Lock() {
 		ready := func() bool {
-			q, ok := inner.blocks[lane]
-			if !ok {
-				return true
-			}
-			return toProduce < q.first+BlocksPerLane
+			ls, ok := inner.lanes[lane]
+			return !ok || toProduce < ls.blocks.first+BlocksPerLane
 		}
 		if !ready() {
 			meters.LaneCapacityInFlight.Add(1)
@@ -627,7 +497,7 @@ func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduc
 				return err
 			}
 		}
-		if _, ok := inner.blocks[lane]; !ok {
+		if _, ok := inner.lanes[lane]; !ok {
 			return ErrLaneClosed
 		}
 	}
@@ -676,6 +546,41 @@ func (s *State) WaitForLaneQCs(
 	panic("unreachable")
 }
 
+// LaneTip is how far one lane's blocks have reached on this node.
+type LaneTip struct {
+	// WithCommitQC is one past the highest block finalized by the latest persisted CommitQC.
+	WithCommitQC types.BlockNumber
+	// WithLaneQC is one past the highest block with a LaneQC, and at least WithCommitQC.
+	WithLaneQC types.BlockNumber
+	// Held is one past the highest block this node holds, and at least WithLaneQC.
+	Held types.BlockNumber
+}
+
+// LaneTips returns how far each lane of the applied committee has reached on this node.
+func (s *State) LaneTips() map[types.LaneID]LaneTip {
+	for inner := range s.inner.Lock() {
+		committed := inner.persistedCommitQC()
+		tips := map[types.LaneID]LaneTip{}
+		for lane := range inner.applied().Committee().Lanes().All() {
+			t := LaneTip{WithCommitQC: types.LaneRangeOpt(committed, lane).Next()}
+			t.WithLaneQC = t.WithCommitQC
+			t.Held = t.WithLaneQC
+			if ls, ok := inner.lanes[lane]; ok {
+				for n := ls.votes.next; n > max(ls.votes.first, t.WithCommitQC); n-- {
+					if ls.votes.q[n-1].qc.IsPresent() {
+						t.WithLaneQC = n
+						break
+					}
+				}
+				t.Held = max(t.WithLaneQC, ls.blocks.next)
+			}
+			tips[lane] = t
+		}
+		return tips
+	}
+	panic("unreachable")
+}
+
 // ProduceLocalBlock appends a new block to the producers lane.
 // Fails in case there is not enough capacity in the lane, or it is not the next block expected.
 func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
@@ -684,18 +589,20 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 	}
 	var result *types.Signed[*types.LaneProposal]
 	for inner, ctrl := range s.inner.Lock() {
-		q, ok := inner.blocks[lane]
+		ls, ok := inner.lanes[lane]
 		if !ok {
 			return nil, ErrLaneClosed
 		}
-		if n >= q.first+BlocksPerLane {
+		if n >= ls.blocks.first+BlocksPerLane {
 			return nil, fmt.Errorf("lane full")
 		}
-		if q.next != n {
-			return nil, fmt.Errorf("unexpected block number: got %v, want %v", n, q.next)
+		if ls.blocks.next != n {
+			return nil, fmt.Errorf("unexpected block number: got %v, want %v", n, ls.blocks.next)
 		}
-		result = types.Sign(s.key, types.NewLaneProposal(types.NewBlock(lane, q.next, q.parentHash(), payload)))
-		q.pushBack(result)
+		parent := ls.lastHash.Or(types.BlockHeaderHash{})
+		result = types.Sign(s.key, types.NewLaneProposal(types.NewBlock(lane, ls.blocks.next, parent, payload)))
+		ls.blocks.pushBack(result)
+		ls.lastHash = utils.Some(result.Msg().Block().Header().Hash())
 		ctrl.Updated()
 	}
 	metrics.ObserveProducedTxs(len(payload.Txs()))
@@ -703,9 +610,9 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 }
 
 // Task inserting CommitQCs and local blocks to data state.
-func (s *State) runPushQC(ctx context.Context) error {
+func (s *State) runPushPartialBlock(ctx context.Context) error {
 	for n := s.First(); ; n = max(n+1, s.First()) {
-		epoch, qc, err := s.fullCommitQC(ctx, n)
+		qc, err := s.fullCommitQC(ctx, n)
 		if err != nil {
 			if errors.Is(err, types.ErrPruned) {
 				continue
@@ -714,27 +621,21 @@ func (s *State) runPushQC(ctx context.Context) error {
 		}
 
 		// Collect the blocks we have locally.
-		c := epoch.Committee()
-		var blocks []*types.Block
+		blocks := make(map[uint64]*types.Block, len(qc.Headers()))
 		for inner := range s.inner.Lock() {
-			for lane := range c.Lanes().All() {
-				lr := qc.QC().LaneRange(lane)
-				q, ok := inner.blocks[lr.Lane()]
-				if !ok {
-					continue
-				}
-				for n := lr.First(); n < lr.Next(); n++ {
+			for i, h := range qc.Headers() {
+				if ls, ok := inner.lanes[h.Lane()]; ok {
 					// We are not expected to have all the blocks locally - only the available ones.
-					if b, ok := q.q[n]; ok {
+					if b, ok := ls.blocks.q[h.BlockNumber()]; ok {
 						// We don't need to check the blocks against the headers,
-						// as bad blocks will be filtered out by PushQC anyway.
-						blocks = append(blocks, b.Msg().Block())
+						// as bad blocks will be filtered out by PushPartialBlock anyway.
+						blocks[uint64(i)] = b.Msg().Block()
 					}
 				}
 			}
 		}
-		if err := s.data.PushQC(ctx, qc, blocks); err != nil {
-			return fmt.Errorf("s.data.PushQC(): %w", err)
+		if err := s.data.PushPartialBlock(ctx, qc, blocks); err != nil {
+			return fmt.Errorf("s.data.PushPartialBlock(): %w", err)
 		}
 	}
 }
@@ -756,70 +657,21 @@ func (s *State) runPushAppQC(ctx context.Context) error {
 }
 
 func (s *State) runEvict(ctx context.Context) error {
-	return s.data.Anchor().Iter(ctx, func(ctx context.Context, anchorOpt utils.Option[data.Anchor]) error {
-		anchor, ok := anchorOpt.Get()
-		if !ok {
-			return nil
-		}
+	return s.data.Anchor().Iter(ctx, func(ctx context.Context, anchor data.Anchor) error {
 		for inner, ctrl := range s.inner.Lock() {
-			if anchor.CommitQC.Index() >= inner.roads.first {
-				inner.prune(anchor)
-			}
+			inner.setAnchor(anchor)
 			ctrl.Updated()
 		}
 		return nil
 	})
 }
 
-// runEpochAdvance is the sole writer of the applied epoch after construction.
-func (s *State) runEpochAdvance(ctx context.Context) error {
-	registry := s.data.Registry()
-	for {
-		var next types.EpochIndex
-		for inner, ctrl := range s.inner.Lock() {
-			if err := ctrl.WaitUntil(ctx, func() bool {
-				next = inner.advanceTarget(registry)
-				return next > inner.applied().EpochIndex()+1 || inner.canAdvanceEpoch()
-			}); err != nil {
-				return err
-			}
-		}
-		ep, err := registry.WaitForEpoch(ctx, next)
-		if err != nil {
-			if !errors.Is(err, types.ErrPruned) {
-				return err
-			}
-			// Data never re-registers a pruned epoch, so wait until the tip
-			// names a different one.
-			for inner, ctrl := range s.inner.Lock() {
-				if err := ctrl.WaitUntil(ctx, func() bool {
-					return inner.advanceTarget(registry) != next
-				}); err != nil {
-					return err
-				}
-			}
-			continue
-		}
-		for inner, ctrl := range s.inner.Lock() {
-			// The tip may have moved while WaitForEpoch was parked. Installing
-			// next now would pair it with a tip whose next road is in a later
-			// epoch, so recompute instead.
-			if inner.advanceTarget(registry) != next {
-				break
-			}
-			inner.advanceEpoch(ep)
-			ctrl.Updated()
-		}
-	}
-}
-
 // Run runs the background tasks of the state.
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		scope.SpawnNamed("runEpochAdvance", func() error { return s.runEpochAdvance(ctx) })
 		scope.SpawnNamed("runEvict", func() error { return s.runEvict(ctx) })
 		scope.SpawnNamed("runPersist", func() error { return s.runPersist(ctx) })
-		scope.SpawnNamed("runPushQC", func() error { return s.runPushQC(ctx) })
+		scope.SpawnNamed("runPushPartialBlock", func() error { return s.runPushPartialBlock(ctx) })
 		scope.SpawnNamed("runPushAppQC", func() error { return s.runPushAppQC(ctx) })
 		return nil
 	})
@@ -883,19 +735,20 @@ type persistBatch struct {
 	commitQCs commitQCsBatch
 }
 
-// setNextBlockToPersist advances the per-lane persistence cursor to next when
-// next is ahead of the current cursor. RecvBatch yields headers strictly below
-// this cursor, so a successful flush unblocks voting. Safe for concurrent callers.
+// setNextBlockToPersist sets the per-lane block persistence cursor to next.
+// Called once per lane after that lane's batch has been flushed so that
+// RecvBatch (and therefore voting) can unblock. Thread-safe.
 func (s *State) setNextBlockToPersist(lane types.LaneID, next types.BlockNumber) {
 	for inner, ctrl := range s.inner.Lock() {
-		if _, ok := inner.blocks[lane]; !ok {
+		ls, ok := inner.lanes[lane]
+		if !ok {
 			return
 		}
-		if inner.nextBlockToPersist[lane] >= next {
-			// prune may have already advanced the cursor while this batch was on disk.
+		if ls.nextBlockToPersist >= next {
+			// setAnchor may have already advanced the cursor while this batch was on disk.
 			return
 		}
-		inner.nextBlockToPersist[lane] = next
+		ls.nextBlockToPersist = next
 		ctrl.Updated()
 	}
 }
@@ -904,56 +757,46 @@ func (s *State) setNextBlockToPersist(lane types.LaneID, next types.BlockNumber)
 // the current tip, then refreshes ConsensusSpec.
 func (s *State) markCommitQCsPersisted(qc *types.CommitQC) {
 	for inner, ctrl := range s.inner.Lock() {
-		if cur, ok := inner.persistedCommitQC.Load().Get(); ok && qc.Index() < cur.Index() {
-			// prune may have jumped the empty-queue tip to the Anchor while this
+		if qc.Index()+1 < inner.nextCommitQCToPersist {
+			// setAnchor may have jumped the empty-queue tip to the Anchor while this
 			// persist batch was still on disk.
 			return
 		}
-		inner.persistedCommitQC.Store(utils.Some(qc))
-		inner.refreshConsensusSpec()
+		inner.nextCommitQCToPersist = qc.Index() + 1
+		inner.advance()
 		ctrl.Updated()
 	}
 }
 
-// collectPersistBatch waits under lock for new blocks or CommitQCs, then
-// collects a persist batch.
+// collectPersistBatch returns the next non-empty persist batch.
 func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) {
 	for inner, ctrl := range s.inner.Lock() {
-		// Start after the durable tip, clamped to roads.first after prune has
-		// dropped the prefix (and possibly jumped the empty-queue tip to the Anchor).
-		next := inner.roads.first
-		if qc, ok := inner.persistedCommitQC.Load().Get(); ok {
-			next = qc.Index() + 1
-		}
-		if err := ctrl.WaitUntil(ctx, func() bool {
-			for lane, q := range inner.blocks {
-				if inner.nextBlockToPersist[lane] < q.next {
-					return true
+		for {
+			// Pruning keeps the persistence cursor at or beyond roads.first.
+			b := &persistBatch{
+				blocks:    map[types.LaneID]blocksBatch{},
+				commitQCs: commitQCsBatch{first: inner.roads.first},
+			}
+			for n := inner.nextCommitQCToPersist; n < inner.roads.next; n++ {
+				b.commitQCs.tail = append(b.commitQCs.tail, inner.roads.q[n].commitQC)
+			}
+			nonEmpty := len(b.commitQCs.tail) > 0
+			for lane, ls := range inner.lanes {
+				cursor := ls.nextBlockToPersist
+				bb := blocksBatch{first: ls.blocks.first}
+				for n := max(cursor, ls.blocks.first); n < ls.blocks.next; n++ {
+					bb.tail = append(bb.tail, ls.blocks.q[n])
 				}
+				b.blocks[lane] = bb
+				nonEmpty = nonEmpty || len(bb.tail) > 0
 			}
-			return next < inner.roads.next
-		}); err != nil {
-			return nil, err
-		}
-		b := &persistBatch{
-			blocks:    map[types.LaneID]blocksBatch{},
-			commitQCs: commitQCsBatch{first: inner.roads.first},
-		}
-		for n := max(next, inner.roads.first); n < inner.roads.next; n++ {
-			b.commitQCs.tail = append(b.commitQCs.tail, inner.roads.q[n].commitQC)
-		}
-		for lane, q := range inner.blocks {
-			cursor := inner.nextBlockToPersist[lane]
-			bb := blocksBatch{first: q.retentionFloor()}
-			if p, ok := q.unpersistedLocalTip(cursor).Get(); ok {
-				bb.tail = append(bb.tail, p)
+			if nonEmpty {
+				return b, nil
 			}
-			for n := max(cursor, q.first); n < q.next; n++ {
-				bb.tail = append(bb.tail, q.q[n])
+			if err := ctrl.Wait(ctx); err != nil {
+				return nil, err
 			}
-			b.blocks[lane] = bb
 		}
-		return b, nil
 	}
 	panic("unreachable")
 }

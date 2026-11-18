@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"maps"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -192,6 +193,46 @@ func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 	require.NoError(t, err)
 	requireFlushedToDisk(t, s)
 	require.NoError(t, s.FlushSnapshots())
+	return v
+}
+
+// copyDataDB copies the named data DB's working directory and returns the copy. The store must be closed.
+func copyDataDB(t *testing.T, cfg *config.Config, dbName string) string {
+	t.Helper()
+	copied := filepath.Join(t.TempDir(), dbName)
+	require.NoError(t, os.CopyFS(copied, os.DirFS(filepath.Join(cfg.DataDir, workingDirName, dbName))))
+	return copied
+}
+
+// restoreDataDB replaces the named data DB's working directory with copied, leaving that DB at the block it held
+// when copied while the others keep theirs: what a crash between two DBs' flushes leaves behind. The store must
+// be closed.
+func restoreDataDB(t *testing.T, cfg *config.Config, dbName string, copied string) {
+	t.Helper()
+	working := filepath.Join(cfg.DataDir, workingDirName, dbName)
+	require.NoError(t, os.RemoveAll(working))
+	require.NoError(t, os.CopyFS(working, os.DirFS(copied)))
+}
+
+// commitChangeSets commits changeSets as block version through CommitStateChanges, converting them to mutations
+// against the store's current state.
+func commitChangeSets(s *CommitStore, version int64, changeSets []*proto.NamedChangeSet) error {
+	prior := s.OpenView()
+	defer prior.Close()
+	//nolint:gosec // test heights are small
+	mutations, err := MutationsFromChangeSets(changeSets, uint64(version), prior)
+	if err != nil {
+		return fmt.Errorf("convert block %d to mutations: %w", version, err)
+	}
+	return s.CommitStateChanges(version, mutations)
+}
+
+// commitBuffered commits the block ApplyChangeSets buffered without waiting for it to reach disk, so later reads
+// go through the stores' unflushed versions.
+func commitBuffered(t *testing.T, s *CommitStore) int64 {
+	t.Helper()
+	v, err := s.Commit(s.Version() + 1)
+	require.NoError(t, err)
 	return v
 }
 

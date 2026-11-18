@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
@@ -27,8 +29,21 @@ type ViewTimeoutFunc = func(types.View) time.Duration
 type Config struct {
 	Key         types.SecretKey
 	ViewTimeout ViewTimeoutFunc
+	// Limits the number of consensus instances/s this validator should participate in.
+	// This effectively limits the rate of finalized RoadBlocks, which has following consequences (under uniform traffic):
+	// * expected avg e2e latency of tx finalization increased by up to 1/(2*cfg.MaxRate)
+	// * n-2f of honest nodes are required to produce a roadblock, so
+	//   road block rate <= (n-f)/(n-2f) * cfg.MaxRate < 2 * cfg.MaxRate (if all honest validators have consistent rate limit)
+	// * If all validators are either honest or offline, you can expect road block rate <= cfg.MaxRate
+	// * avg RoadBlock size >= lane block rate / road block rate
+	// * make sure that 1/MaxRate < ViewTimeout
+	// Purpose of MaxRate is to throttle consensus which is TOO FAST, which is usually not the case.
+	// Set to rate.Inf unless you know what you are doing.
+	// TODO(gprusak): should be a consensus param in Epoch.
+	MaxRate rate.Limit
 	// ProposalTimeout bounds proposal timestamps and must be greater than 0.
 	// The accepted width is ProposalTimeout * (view number + 1).
+	// TODO(gprusak): should be a consensus param in Epoch.
 	ProposalTimeout time.Duration
 	// PersistentStateDir is the directory where the consensus state is persisted.
 	// If None, persistence is disabled - DANGEROUS, may lead to SLASHING on restart.
@@ -44,11 +59,11 @@ type Config struct {
 // NOTE: While this is the "brain", it relies on the "avail" package as its
 // primary data store and synchronization sequencer.
 type State struct {
-	cfg   *Config
-	avail *avail.State
-	// metrics *Metrics
-	inner     utils.Mutex[*utils.AtomicSend[inner]]
-	innerRecv utils.AtomicRecv[inner]
+	cfg         *Config
+	avail       *avail.State
+	specLimiter *rate.Limiter
+	inner       utils.Mutex[*utils.AtomicSend[inner]]
+	innerRecv   utils.AtomicRecv[inner]
 
 	// persister writes inner's persistedInner to disk when PersistentStateDir is set; None when disabled.
 	persister utils.Option[persist.Persister[*pb.PersistedInner]]
@@ -107,6 +122,9 @@ func newState(
 	pers utils.Option[persist.Persister[*pb.PersistedInner]],
 	persistedData utils.Option[*pb.PersistedInner],
 ) (*State, error) {
+	if !(0 < cfg.MaxRate && cfg.MaxRate <= rate.Inf) {
+		return nil, fmt.Errorf("MaxRate must be positive and finite (or rate.Inf), got %v", cfg.MaxRate)
+	}
 	if cfg.ProposalTimeout <= 0 {
 		return nil, fmt.Errorf("ProposalTimeout must be greater than 0, got %v", cfg.ProposalTimeout)
 	}
@@ -115,20 +133,22 @@ func newState(
 		return nil, fmt.Errorf("avail.NewState: %w", err)
 	}
 
-	initialInner, err := newInner(persistedData, availState.SubscribeConsensusSpec().Load(), cfg.Key.Public())
+	initialInner, err := newInner(persistedData, availState.ConsensusSpec().Load(), cfg.Key.Public())
 	if err != nil {
 		_ = availState.Close()
 		return nil, fmt.Errorf("newInner: %w", err)
 	}
 
-	innerSend := utils.Alloc(utils.NewAtomicSend(initialInner))
+	innerSend := new(utils.NewAtomicSend(initialInner))
 	s := &State{
 		cfg: cfg,
 		// metrics: NewMetrics(),
-		avail:     availState,
-		inner:     utils.NewMutex(innerSend),
-		innerRecv: innerSend.Subscribe(),
-		persister: pers,
+		avail: availState,
+		// We set nontrivial burst to smoothen rate limiting across validators (who rate limit independently).
+		specLimiter: rate.NewLimiter(cfg.MaxRate, 5),
+		inner:       utils.NewMutex(innerSend),
+		innerRecv:   innerSend.Subscribe(),
+		persister:   pers,
 
 		timeoutVotes: utils.NewMutex(newTimeoutVotes()),
 		prepareVotes: utils.NewMutex(newPrepareVotes()),
@@ -250,7 +270,7 @@ func pushPhaseVote[V any, B comparable, QC any](
 // A vote from an earlier epoch is ignored.
 // The Prepare vote contains only a proposal; Proposal.Verify runs when the QC is formed.
 func (s *State) PushPrepareVote(ctx context.Context, vote *types.Signed[*types.PrepareVote]) error {
-	view := vote.Msg().Proposal().View()
+	view := vote.Msg().View()
 	return pushPhaseVote(ctx, s, view.EpochIndex, &s.prepareVotes, func(ep *types.Epoch) error {
 		if err := verifyVoteEpoch(ep, vote.Key(), view); err != nil {
 			return err
@@ -266,7 +286,7 @@ func (s *State) PushPrepareVote(ctx context.Context, vote *types.Signed[*types.P
 // A vote from an earlier epoch is ignored.
 // The Commit vote contains only a proposal; Proposal.Verify runs when the QC is formed.
 func (s *State) PushCommitVote(ctx context.Context, vote *types.Signed[*types.CommitVote]) error {
-	view := vote.Msg().Proposal().View()
+	view := vote.Msg().View()
 	return pushPhaseVote(ctx, s, view.EpochIndex, &s.commitVotes, func(ep *types.Epoch) error {
 		if err := verifyVoteEpoch(ep, vote.Key(), view); err != nil {
 			return err
@@ -376,10 +396,11 @@ func (s *State) Run(ctx context.Context) error {
 		scope.SpawnNamed("avail", func() error { return s.avail.Run(ctx) })
 		scope.SpawnNamed("propose", func() error { return s.runPropose(ctx) })
 		scope.SpawnNamed("outputs", func() error { return s.runOutputs(ctx) })
+		scope.SpawnNamed("laneBlockStages", func() error { return s.runLaneBlockStages(ctx) })
 		scope.SpawnNamed("storeCommitQC", func() error {
 			return s.commitQC().Iter(ctx, func(ctx context.Context, qc utils.Option[*types.CommitQC]) error {
 				if qc, ok := qc.Get(); ok {
-					// s.metrics.ObserveCommitQC(qc)
+					meters.CommitQCLatency.Observe(time.Since(qc.Header().Timestamp()).Seconds())
 					// We push the locally generated CommitQC into "avail" to act as a
 					// sequencer and to trigger data pruning.
 					return s.avail.PushCommitQC(ctx, qc)
@@ -391,8 +412,8 @@ func (s *State) Run(ctx context.Context) error {
 			// We pull the tip back from "avail" for dissemination. This ensures we
 			// only advance on CommitQCs that avail has verified, persisted, and paired
 			// with the epoch of the next RoadIndex — consensus resolves no epochs itself.
-			return s.avail.SubscribeConsensusSpec().Iter(ctx, func(ctx context.Context, spec types.ConsensusSpec) error {
-				return s.pushSpec(spec)
+			return s.avail.ConsensusSpec().Iter(ctx, func(ctx context.Context, spec types.ConsensusSpec) error {
+				return s.pushSpec(ctx, spec)
 			})
 		})
 		scope.SpawnNamed("pushPrepareQC", func() error {

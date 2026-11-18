@@ -42,7 +42,6 @@ const (
 	opSet = iota
 	opDelete
 	opBatch
-	opUpdate
 	opView
 )
 
@@ -91,27 +90,20 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 			muts := randMuts(rng, keys)
 			require.NoError(t, manager.BatchSet(muts))
 			model.BatchSet(muts)
-		case opUpdate:
-			updated := randUpdateKeys(rng, keys)
-			require.NoError(t, manager.BatchUpdate(updated, foldUpdater{}))
-			for _, k := range updated {
-				prior, _ := model.GetLive([]byte(k))
-				model.Set([]byte(k), foldedValue(prior))
-			}
 		case opView:
 			if len(opens) >= maxOpen {
 				releaseOldest()
 			}
-			view, err := manager.Commit()
+			view, err := manager.Commit(manager.NextBlockHeight())
 			require.NoError(t, err)
 			ver := model.Commit()
 			// Hash immediately while holding the reservation: this lets the background flusher race
 			// ahead of Release, exercising the flush-then-read (merge in-memory + DB) path.
-			require.NoError(t, view.Finalize(hashWrites(testHash)))
+			require.NoError(t, view.Finalize(view.BlockHeight(), hashWrites(testHash)))
 			opens = append(opens, openSnap{view: view, ver: ver})
 		}
 
-		// The live (mutable) version must agree on every operation.
+		// The live (mutable) block must agree on every operation.
 		liveLabel := fmt.Sprintf("live@i=%d", i)
 		compareReads(t, liveLabel,
 			func(k []byte) ([]byte, bool, error) { return manager.Get(k, true) },
@@ -146,7 +138,7 @@ func checkView(t *testing.T, view View, model *modelManager, ver uint64, keys []
 	require.Equal(t, model.DiffAt(ver), collectDiff(t, view), "%s diff mismatch", label)
 }
 
-// checkLiveIteration compares the manager's mutable-version iterator against the oracle. The iterator
+// checkLiveIteration compares the manager's mutable-block iterator against the oracle. The iterator
 // must be closed before the caller writes again, since the manager refuses writes while one is open.
 func checkLiveIteration(t *testing.T, label string, manager ViewManager, model *modelManager) {
 	it, err := manager.Iterator(nil)
@@ -198,55 +190,11 @@ func pickOp(rng *testutil.TestRandom) int {
 		return opSet
 	case r < 60:
 		return opDelete
-	case r < 70:
-		return opBatch
 	case r < 80:
-		return opUpdate
+		return opBatch
 	default:
 		return opView
 	}
-}
-
-// randUpdateKeys picks the keys for one BatchUpdate, deduplicated because the contract forbids a
-// repeated key.
-func randUpdateKeys(rng *testutil.TestRandom, keys [][]byte) []string {
-	n := rng.IntRange(1, 9)
-	seen := make(map[string]struct{}, n)
-	picked := make([]string, 0, n)
-	for i := 0; i < n; i++ {
-		k := string(pick(rng, keys))
-		if _, ok := seen[k]; ok {
-			continue
-		}
-		seen[k] = struct{}{}
-		picked = append(picked, k)
-	}
-	return picked
-}
-
-// foldUpdater folds through foldedValue, so the oracle can reproduce the same writes from its own
-// state rather than carrying a second copy of the manager's logic.
-type foldUpdater struct{}
-
-var _ BatchUpdater = foldUpdater{}
-
-func (foldUpdater) NewValueFor(_ string, priorValue []byte) ([]byte, error) {
-	return foldedValue(priorValue), nil
-}
-
-// foldedValue is a pure function of the value a key already held. A key holding nothing gets one, a
-// value that has grown past the cap is deleted, and anything else is extended — between them the
-// create, modify and delete outcomes a fold can have. Bounded so a long run cannot grow values
-// without limit.
-func foldedValue(priorValue []byte) []byte {
-	if priorValue == nil {
-		return []byte("folded")
-	}
-	if len(priorValue) >= 12 {
-		return nil
-	}
-	// Copied rather than appended in place: priorValue aliases the manager's own stored value.
-	return append(append([]byte{}, priorValue...), '+')
 }
 
 func genKeys(rng *testutil.TestRandom, n int) [][]byte {

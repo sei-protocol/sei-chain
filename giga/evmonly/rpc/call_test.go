@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/export"
@@ -17,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 // revertData ABI-encodes reason the same way a Solidity `require(false, reason)`
@@ -40,8 +42,8 @@ func TestCallHappyPath(t *testing.T) {
 	from := common.HexToAddress("0x2000000000000000000000000000000000000002")
 	var gotMsg *core.Message
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		chainID: func() uint64 { return 713700 },
+		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 			gotMsg = msg
 			return &core.ExecutionResult{ReturnData: []byte{0x2a}}, nil
@@ -50,15 +52,14 @@ func TestCallHappyPath(t *testing.T) {
 	api := &callAPI{backend: backend}
 	args := export.TransactionArgs{From: &from, To: &to}
 
-	got, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	got, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, hexutil.Bytes{0x2a}, got)
 	require.NotNil(t, gotMsg)
 	require.Equal(t, from, gotMsg.From)
 	require.Equal(t, &to, gotMsg.To)
-	require.True(t, gotMsg.SkipNonceChecks)
-	require.True(t, gotMsg.SkipFromEOACheck)
+	requireSimulationChecksSkipped(t, gotMsg)
 	require.Equal(t, uint64(defaultCallGasCap), gotMsg.GasLimit)
 }
 
@@ -66,8 +67,8 @@ func TestCallCapsExplicitGasAboveDefault(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	var gotMsg *core.Message
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		chainID: func() uint64 { return 713700 },
+		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 			gotMsg = msg
 			return &core.ExecutionResult{}, nil
@@ -77,7 +78,7 @@ func TestCallCapsExplicitGasAboveDefault(t *testing.T) {
 	requested := hexutil.Uint64(defaultCallGasCap * 10)
 	args := export.TransactionArgs{To: &to, Gas: &requested}
 
-	_, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	_, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, uint64(defaultCallGasCap), gotMsg.GasLimit)
@@ -87,8 +88,8 @@ func TestCallPreservesExplicitGasBelowDefault(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	var gotMsg *core.Message
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		chainID: func() uint64 { return 713700 },
+		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 			gotMsg = msg
 			return &core.ExecutionResult{}, nil
@@ -98,7 +99,7 @@ func TestCallPreservesExplicitGasBelowDefault(t *testing.T) {
 	requested := hexutil.Uint64(21_000)
 	args := export.TransactionArgs{To: &to, Gas: &requested}
 
-	_, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	_, err := api.Call(t.Context(), args, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, uint64(21_000), gotMsg.GasLimit)
@@ -108,15 +109,15 @@ func TestCallSurfacesRevertReason(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	revert := revertData("insufficient balance")
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		chainID: func() uint64 { return 713700 },
+		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return &core.ExecutionResult{Err: vm.ErrExecutionReverted, ReturnData: revert}, nil
 		},
 	}
 	api := &callAPI{backend: backend}
 
-	got, err := api.Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	got, err := api.Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	require.Nil(t, got)
 	require.Error(t, err)
@@ -131,46 +132,107 @@ func TestCallPassesThroughNonRevertExecutionError(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	wantErr := errors.New("out of gas")
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		chainID: func() uint64 { return 713700 },
+		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return &core.ExecutionResult{Err: wantErr}, nil
 		},
 	}
 	api := &callAPI{backend: backend}
 
-	got, err := api.Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	got, err := api.Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	require.Nil(t, got)
 	require.ErrorIs(t, err, wantErr)
 }
 
-func TestCallRejectsHistoricalState(t *testing.T) {
-	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	backend := &testBackend{
-		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
-			t.Fatal("historical call request reached the backend")
-			return nil, nil
-		},
-	}
-	api := &callAPI{backend: backend}
+// pastBlockSelectors are the block selectors naming block 3 of a pastBlocksBackend, and earliest.
+var pastBlockSelectors = []struct {
+	name       string
+	block      ethrpc.BlockNumberOrHash
+	wantNumber int64
+}{
+	{name: "number", block: ethrpc.BlockNumberOrHashWithNumber(3), wantNumber: 3},
+	{name: "hash", block: ethrpc.BlockNumberOrHashWithHash(traceBlockHash(3), true), wantNumber: 3},
+	{name: "earliest", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber), wantNumber: 0},
+}
 
-	for _, block := range []ethrpc.BlockNumberOrHash{
-		ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber),
-		ethrpc.BlockNumberOrHashWithNumber(7),
-		ethrpc.BlockNumberOrHashWithHash(common.Hash{2}, true),
+// requirePastHeader checks header is block number's of a pastBlocksBackend, as it executed.
+func requirePastHeader(t *testing.T, number int64, header *ethtypes.Header) {
+	t.Helper()
+	require.Equal(t, number, header.Number.Int64())
+	if number == 0 {
+		return
+	}
+	require.Equal(t, traceBlockTime.Unix()+number, int64(header.Time)) //nolint:gosec // G115: test times are small.
+	require.Equal(t, traceBlockHash(number-1), header.ParentHash)
+	require.Equal(t, uint64(traceGasLimit), header.GasLimit)
+}
+
+// A past block's call runs against the state after that block, in the context it executed at.
+func TestCallRunsAgainstAPastBlock(t *testing.T) {
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	for _, tc := range pastBlockSelectors {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := pastBlocksBackend(5)
+			backend.call = func(context.Context, *core.Message) (*core.ExecutionResult, error) {
+				t.Fatal("a past block's call ran against the latest state")
+				return nil, nil
+			}
+			backend.callAt = func(_ context.Context, msg *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error) {
+				require.Equal(t, &to, msg.To)
+				requirePastHeader(t, tc.wantNumber, header)
+				return &core.ExecutionResult{ReturnData: []byte{0x2a}}, nil
+			}
+
+			got, err := (&callAPI{backend: backend, blocks: &blockAPI{backend: backend}}).Call(t.Context(), export.TransactionArgs{To: &to}, tc.block, nil, nil)
+
+			require.NoError(t, err)
+			require.Equal(t, hexutil.Bytes{0x2a}, got)
+		})
+	}
+}
+
+// A block that cannot be resolved, or whose header cannot be read, is refused before anything runs.
+func TestCallRefusesAnUnresolvableBlock(t *testing.T) {
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	pruned := errors.New("height pruned")
+	for _, tc := range []struct {
+		name    string
+		block   ethrpc.BlockNumberOrHash
+		wantErr error
+	}{
+		{name: "unknown hash", block: ethrpc.BlockNumberOrHashWithHash(common.Hash{0xaa}, false), wantErr: errBlockNotFound},
+		{name: "above head", block: ethrpc.BlockNumberOrHashWithNumber(6), wantErr: errBlockAboveHead},
+		{name: "pruned block", block: ethrpc.BlockNumberOrHashWithNumber(1), wantErr: pruned},
 	} {
-		got, err := api.Call(t.Context(), export.TransactionArgs{To: &to}, block)
-		require.ErrorIs(t, err, errHistoricalStateUnsupported)
-		require.Nil(t, got)
+		t.Run(tc.name, func(t *testing.T) {
+			backend := pastBlocksBackend(5)
+			stored := backend.block
+			backend.block = func(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				if req.Height != nil && *req.Height == 1 {
+					return nil, pruned
+				}
+				return stored(ctx, req)
+			}
+			backend.callAt = func(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error) {
+				t.Fatal("an unresolvable block's call reached the backend")
+				return nil, nil
+			}
+
+			got, err := (&callAPI{backend: backend, blocks: &blockAPI{backend: backend}}).Call(t.Context(), export.TransactionArgs{To: &to}, tc.block, nil, nil)
+
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Nil(t, got)
+		})
 	}
 }
 
 func TestHandlerServesCall(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		chainID: func() uint64 { return 713700 },
+		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return &core.ExecutionResult{ReturnData: []byte{0x01, 0x02}}, nil
 		},
@@ -189,39 +251,19 @@ func TestHandlerServesCall(t *testing.T) {
 	require.Equal(t, hexutil.Bytes{0x01, 0x02}, got)
 }
 
-func TestCallBaseFeeError(t *testing.T) {
-	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	want := errors.New("no base fee")
-	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return nil, want },
-		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
-			t.Fatal("call reached the backend after a base-fee error")
-			return nil, nil
-		},
-	}
-
-	// Test: EvmBaseFee fails before defaults are applied.
-	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
-
-	// Verify: that error is returned as-is.
-	require.Nil(t, got)
-	require.ErrorIs(t, err, want)
-}
-
 func TestCallBackendError(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	want := errors.New("executor unavailable")
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		chainID: func() uint64 { return 713700 },
+		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return nil, want
 		},
 	}
 
 	// Test: EvmCall itself fails.
-	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	// Verify: that error is returned as-is.
 	require.Nil(t, got)
@@ -232,15 +274,15 @@ func TestCallUndecodableRevertKeepsGenericMessage(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	revert := []byte{0xff, 0xff, 0xff, 0xff}
 	backend := &testBackend{
-		chainID: func() uint64 { return 713715 },
-		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		chainID: func() uint64 { return 713700 },
+		baseFee: func() *big.Int { return new(big.Int) },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return &core.ExecutionResult{Err: vm.ErrExecutionReverted, ReturnData: revert}, nil
 		},
 	}
 
 	// Test: revert payload is not ABI Error(string).
-	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), nil, nil)
 
 	// Verify: generic revert message, raw data still in ErrorData.
 	require.Nil(t, got)
@@ -249,4 +291,11 @@ func TestCallUndecodableRevertKeepsGenericMessage(t *testing.T) {
 	require.ErrorAs(t, err, &revertErr)
 	require.Equal(t, 3, revertErr.ErrorCode())
 	require.Equal(t, hexutil.Encode(revert), revertErr.ErrorData())
+}
+
+// requireSimulationChecksSkipped checks msg skips the nonce, EOA and gas limit cap checks.
+func requireSimulationChecksSkipped(t *testing.T, msg *core.Message) {
+	t.Helper()
+	want := *msg
+	require.Equal(t, want.SkipNonceCheck().SkipEOACheck().SkipGasLimitCapCheck(), msg)
 }

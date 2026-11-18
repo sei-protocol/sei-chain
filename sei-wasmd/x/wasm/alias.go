@@ -39,7 +39,6 @@ var (
 	CreateTestInput        = keeper.CreateTestInput
 	NewWasmProposalHandler = keeper.NewWasmProposalHandler
 	NewQuerier             = keeper.Querier
-	ContractFromPortID     = keeper.ContractFromPortID
 
 	EnableAllProposals  = types.EnableAllProposals
 	DisableAllProposals = types.DisableAllProposals
@@ -81,6 +80,3 @@ type (
 	QueryPlugins                   = keeper.QueryPlugins
 	Option                         = keeper.Option
 )
-
-// GeneratedQueryGasLimit is the smart-query gas limit a generated app.toml carries.
-const GeneratedQueryGasLimit uint64 = 300_000

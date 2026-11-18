@@ -12,7 +12,6 @@ var Global = newMetrics()
 func init() {
 	prometheus.MustRegister(
 		Global.commitRoadIndex,
-		Global.commitGlobalBlockNumber,
 		Global.proposalToCommitLatency,
 		Global.commitToCommitLatency,
 		Global.producedTxs,
@@ -21,6 +20,7 @@ func init() {
 		Global.inFlight,
 		Global.laneQcs,
 		Global.laneVotesIngested,
+		Global.laneBlockReceiveLatency,
 	)
 }
 
@@ -31,12 +31,6 @@ func newMetrics() *metrics {
 			Subsystem: MetricsSubsystem,
 			Name:      "commit_road_index",
 			Help:      "Road index of the highest observed commitQC.",
-		}, nil),
-		commitGlobalBlockNumber: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "commit_global_block_number",
-			Help:      "First global block number not covered by the highest observed CommitQC.",
 		}, nil),
 		proposalToCommitLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
@@ -89,15 +83,18 @@ func newMetrics() *metrics {
 			Name:      "lane_votes_ingested",
 			Help:      "Lane votes newly stored.",
 		}, nil),
+		laneBlockReceiveLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "lane_block_receive_latency",
+			Help:      "Latency from a lane block's creation by its producer to its arrival on this node. It includes clock skew between the producer and this node.",
+			Buckets:   prometheus.ExponentialBuckets(0.001, 1.5, 30),
+		}, nil),
 	}
 }
 
 func (m *metrics) commitRoadIndexAt() *tmprometheus.GaugeInt {
 	return m.commitRoadIndex.WithLabelValues()
-}
-
-func (m *metrics) commitGlobalBlockNumberAt() *tmprometheus.GaugeInt {
-	return m.commitGlobalBlockNumber.WithLabelValues()
 }
 
 func (m *metrics) proposalToCommitLatencyAt() *tmprometheus.Histogram {
@@ -130,4 +127,8 @@ func (m *metrics) laneQcsAt() *tmprometheus.CounterInt {
 
 func (m *metrics) laneVotesIngestedAt() *tmprometheus.CounterInt {
 	return m.laneVotesIngested.WithLabelValues()
+}
+
+func (m *metrics) laneBlockReceiveLatencyAt() *tmprometheus.Histogram {
+	return m.laneBlockReceiveLatency.WithLabelValues()
 }

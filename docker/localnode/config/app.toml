@@ -144,13 +144,6 @@ snapshot-keep-recent = 3
 # snapshot-directory specifies and overrides the directory for where to store the snapshots
 snapshot-directory = ""
 
-[wasm]
-# This is the maximum sdk gas (wasm and storage) that we allow for any x/wasm "smart" queries
-query_gas_limit = 300000
-# This is the number of wasm vm instances we keep cached in memory for speed-up
-# Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
-lru_size = 0
-
 #############################################################################
 ###                             SeiDB Configuration                       ###
 #############################################################################
@@ -216,9 +209,6 @@ evm-ss-split = false
 evm-ss-separate-dbs = false
 
 [evm]
-
-# EnableTestAPI enables the EVM test API
-enable_test_api = true
 
 # Set to 0 to disable request limiter, otherwise this limits the number of concurrent simulation calls.
 max_concurrent_simulation_calls = 0

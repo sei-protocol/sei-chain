@@ -9,8 +9,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -58,17 +56,15 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	require.NoError(t, genDoc.ValidateAndComplete())
 
 	app := newTestApp()
-	proxyApp := proxy.New(app)
+	proxyApp := proxy.NewEVM(app)
 
 	dir := t.TempDir()
 	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
 	// (zero overrides); p2p can't import config (import cycle).
-	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
+	littCfg, err := blockstore.DefaultConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
 	littCfg.Litt.Fsync = true
-	db, err := littblock.NewBlockDB(littCfg)
-	require.NoError(t, err)
-	blockStore, err := blockstore.New(db)
+	blockStore, err := blockstore.New(littCfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = blockStore.Close() })
 	cfg := &GigaRouterCommonConfig{
@@ -76,6 +72,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: dir,
 		App:                proxyApp,
+		AppHashBuilder:     newPublishingAppHashBuilder(),
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}
@@ -83,7 +80,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	require.NoError(t, err)
 
 	// Fullnodes have no validator key and no Producer config.
-	// App is required for executeBlock but isn't exercised by this test.
+	// App is required for execution but isn't exercised by this test.
 	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), dataState)
 	require.NoError(t, err)
 	clientByValidator := map[atypes.PublicKey]*ethrpc.Client{}
@@ -103,7 +100,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	returnedRemoteClients := map[*ethrpc.Client]struct{}{}
 	for range 200 {
 		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-		shardValidator := router.data.NextCommitEpoch().Load().Committee().EvmShard(sender)
+		shardValidator := router.data.Anchor().Load().NextIndexEpoch().Committee().EvmShard(sender)
 		expectedClient := clientByValidator[shardValidator]
 		proxyClient, ok := router.EvmProxy(sender).Get()
 		require.True(t, ok)
@@ -122,7 +119,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	require.Equal(t, uint64(12345), router.MaxGasEstimatedPerBlock())
 	// BlockByHash returns &ResultBlock{Block:nil} for an unknown hash, the
 	// same shape the validator path returns — no sentinel mode-check.
-	rb, err := router.BlockByHash(t.Context(), atypes.BlockHeaderHash{})
+	rb, err := router.BlockByHash(t.Context(), common.Hash{})
 	require.NoError(t, err)
 	require.Nil(t, rb.Block)
 }

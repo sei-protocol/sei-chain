@@ -13,8 +13,7 @@ import (
 func GenRegistry(rng utils.Rng, size int) (*Registry, []types.SecretKey) {
 	committee, sks, _ := genCommittee(rng, size)
 	firstRoad := types.GenRoadIndex(rng)%1000000 + 1
-	firstBlock := types.GenGlobalBlockNumber(rng) % 1000000
-	registry := utils.OrPanic1(NewRegistry(committee, firstRoad, firstBlock, time.Now(), utils.None[string]()))
+	registry := utils.OrPanic1(NewRegistry(committee, firstRoad, time.Now(), utils.None[string]()))
 	return registry, sks
 }
 
@@ -27,11 +26,9 @@ func GenRegistryThrough(
 ) (*Registry, []types.SecretKey) {
 	committee, sks, weights := genCommittee(rng, size)
 	firstRoad := types.GenRoadIndex(rng)%1000000 + 1
-	firstBlock := types.GenGlobalBlockNumber(rng) % 1000000
-	registry := utils.OrPanic1(NewRegistry(committee, firstRoad, firstBlock, time.Now(), utils.None[string]()))
+	registry := utils.OrPanic1(NewRegistry(committee, firstRoad, time.Now(), utils.None[string]()))
 	for target := types.EpochIndex(2); target <= last; target++ {
-		utils.OrPanic(registry.StageEpoch(target-2, weights))
-		utils.OrPanic(registry.ActivateEpoch(target))
+		utils.OrPanic(registry.TryPushEpoch(registry.LastRoad(target-2), weights))
 	}
 	return registry, sks
 }
@@ -46,17 +43,14 @@ func genCommittee(rng utils.Rng, size int) (*types.Committee, []types.SecretKey,
 	return committee, sks, weights
 }
 
-// StageAndActivate derives C_{endEpoch+2} from weights and publishes it.
-func (r *Registry) StageAndActivate(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) error {
-	if err := r.StageEpoch(endEpoch, weights); err != nil {
-		return err
-	}
-	return r.ActivateEpoch(endEpoch + 2)
+// TestPushEpoch derives C_{endEpoch+2} from weights and publishes it.
+func (r *Registry) TestPushEpoch(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) error {
+	return r.TryPushEpoch(r.LastRoad(endEpoch), weights)
 }
 
 // MustEpoch returns the registered epoch at i. Panics if it is missing.
 func (r *Registry) MustEpoch(i types.EpochIndex) *types.Epoch {
-	ep, err := r.EpochByIndex(i)
+	ep, err := r.Epoch(i)
 	if err != nil {
 		panic(err)
 	}

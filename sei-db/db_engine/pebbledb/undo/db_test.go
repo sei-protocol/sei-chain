@@ -7,6 +7,8 @@ import (
 	"maps"
 	"math/big"
 	"math/rand/v2"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -76,28 +78,44 @@ func (liveState) Close() {}
 
 // priorsOf returns the change set of a block that replaced, for each key of prior, the value prior
 // holds for it, nil for none. A code hash changes only with its code, so it has no entry of its own.
+// The log records only what a block replaced, so an account field's value after the block is just
+// one that differs from its prior.
 func priorsOf(t testing.TB, prior map[string][]byte) *gigatypes.StateChangeSet {
 	t.Helper()
 	changes := &gigatypes.StateChangeSet{}
+	accounts := map[common.Address]*gigatypes.AccountChange{}
+	account := func(addr common.Address) *gigatypes.AccountChange {
+		if accounts[addr] == nil {
+			accounts[addr] = &gigatypes.AccountChange{Address: addr}
+		}
+		return accounts[addr]
+	}
 	for key, old := range prior {
 		addr := common.BytesToAddress([]byte(key[1 : 1+addressLen]))
 		switch key[0] {
 		case BalanceKeyPrefix[0]:
-			changes.Balances = append(changes.Balances, gigatypes.BalanceChange{Address: addr, PriorBalance: new(big.Int).SetBytes(old)})
+			change := account(addr)
+			change.Prior.Balance = new(big.Int).SetBytes(old)
+			change.Account.Balance = new(big.Int).Add(change.Prior.Balance, big.NewInt(1))
 		case NonceKeyPrefix[0]:
 			var n uint64
 			if old != nil {
 				n = binary.BigEndian.Uint64(old)
 			}
-			changes.Nonces = append(changes.Nonces, gigatypes.NonceChange{Address: addr, PriorNonce: n})
+			change := account(addr)
+			change.Prior.Nonce, change.Account.Nonce = n, n+1
 		case CodeKeyPrefix[0]:
-			changes.Code = append(changes.Code, gigatypes.CodeChange{Address: addr, PriorCode: old})
+			change := account(addr)
+			change.Prior.Code, change.Account.Code = old, append(bytes.Clone(old), 0x00)
 		case StateKeyPrefix[0]:
 			changes.Storage = append(changes.Storage, gigatypes.StorageChange{
 				Address: addr, Key: common.BytesToHash([]byte(key[1+addressLen:])), PriorValue: common.BytesToHash(old)})
 		default:
 			t.Fatalf("no change writes key %x on its own", key)
 		}
+	}
+	for _, change := range accounts {
+		changes.Accounts = append(changes.Accounts, *change)
 	}
 	return changes
 }
@@ -663,6 +681,95 @@ func TestDiscardStateAboveKeepsOnlyRecordsAtOrBelowTheTarget(t *testing.T) {
 	require.NoError(t, DiscardStateAbove(t.TempDir()+"/absent", testConfig(), 1))
 }
 
+// GetLatestBlock reads the head of a closed log, reports a log holding no block as having none, and
+// tells that apart from a log rolled back to block 0.
+func TestGetLatestBlockReadsAClosedLog(t *testing.T) {
+	absent := filepath.Join(t.TempDir(), "absent")
+	present, _, err := GetLatestBlock(absent)
+	require.NoError(t, err)
+	require.False(t, present)
+	require.NoDirExists(t, absent, "reading the head of no log must not create one")
+
+	uninitialized := t.TempDir()
+	present, _, err = GetLatestBlock(uninitialized)
+	require.NoError(t, err)
+	require.False(t, present, "a directory holding no database holds no log")
+	require.NoDirExists(t, uninitialized, "a directory holding no database is removed")
+
+	dir := t.TempDir()
+	empty, err := OpenDB(dir, testConfig())
+	require.NoError(t, err)
+	require.NoError(t, empty.Close())
+	present, _, err = GetLatestBlock(dir)
+	require.NoError(t, err)
+	require.False(t, present, "a log that never took a block has no head")
+
+	c := newChain(t, dir, 10, 0)
+	for h := uint64(1); h <= 12; h++ {
+		c.apply(map[string][]byte{nonceKey(account(h)): nonce(1)}, false)
+	}
+	require.NoError(t, c.db.Close())
+	present, head, err := GetLatestBlock(dir)
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, uint64(12), head)
+
+	require.NoError(t, DiscardStateAbove(dir, testConfig(), 0))
+	present, head, err = GetLatestBlock(dir)
+	require.NoError(t, err)
+	require.True(t, present, "block 0 is a head like any other")
+	require.Zero(t, head)
+}
+
+// removeIfUninitialized removes a directory a crash left without a database, and only that.
+func TestRemoveIfUninitialized(t *testing.T) {
+	absent := filepath.Join(t.TempDir(), "absent")
+	require.NoError(t, removeIfUninitialized(absent))
+	require.NoDirExists(t, absent)
+
+	empty := t.TempDir()
+	require.NoError(t, removeIfUninitialized(empty))
+	require.NoDirExists(t, empty)
+
+	stray := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(stray, "LOCK"), nil, 0o600))
+	require.NoError(t, removeIfUninitialized(stray))
+	require.NoDirExists(t, stray)
+
+	noBlocks := t.TempDir()
+	db, err := OpenDB(noBlocks, testConfig())
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	require.NoError(t, removeIfUninitialized(noBlocks))
+	require.DirExists(t, noBlocks, "a log that never took a block is still a log")
+
+	withBlocks := t.TempDir()
+	c := newChain(t, withBlocks, 10, 0)
+	c.apply(map[string][]byte{nonceKey(account(1)): nonce(1)}, false)
+	require.NoError(t, c.db.Close())
+	require.NoError(t, removeIfUninitialized(withBlocks))
+	present, head, err := GetLatestBlock(withBlocks)
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, uint64(1), head)
+}
+
+// OpenDB over a directory a crash left without a database starts a new log in a clean directory.
+func TestOpenDBReplacesAnUninitializedDirectory(t *testing.T) {
+	dir := t.TempDir()
+	stray := filepath.Join(dir, "stray")
+	require.NoError(t, os.WriteFile(stray, nil, 0o600))
+
+	db, err := OpenDB(dir, testConfig())
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	require.NoFileExists(t, stray)
+	present, _, err := GetLatestBlock(dir)
+	require.NoError(t, err)
+	require.False(t, present)
+}
+
 func TestDiscardStateAboveClearsAHalfWrittenBlock(t *testing.T) {
 	// Block 10 opens bucket 1. Its records land, but the crash comes before its marker does.
 	for _, target := range []int64{8, 9} {
@@ -673,10 +780,12 @@ func TestDiscardStateAboveClearsAHalfWrittenBlock(t *testing.T) {
 			for h := uint64(1); h <= 9; h++ {
 				c.apply(map[string][]byte{slot: word(h)}, false)
 			}
-			require.NoError(t, c.db.writeRecords(priorsOf(t, map[string][]byte{slot: word(0xbad)}), 1, 10))
+			changes := priorsOf(t, map[string][]byte{slot: word(0xbad)})
+			require.NoError(t, c.db.writeRecords(changes, recordCount(changes), 1, 10))
 			require.NoError(t, c.db.Close())
 
-			require.NoError(t, DiscardStateAbove(dir, testConfig(), target))
+			//nolint:gosec // small test heights
+			require.NoError(t, DiscardStateAbove(dir, testConfig(), uint64(target)))
 			c.db = openTestDB(t, dir, 10)
 			defer func() { require.NoError(t, c.db.Close()) }()
 			for _, r := range records(t, c.db) {

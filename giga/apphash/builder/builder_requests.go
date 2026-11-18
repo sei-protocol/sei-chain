@@ -18,16 +18,28 @@ type setupCompleteRequest struct {
 	reply       chan callResult[struct{}]
 }
 
-// Asks the builder goroutine to register a listener.
-type registerListenerRequest struct {
-	listener func(appHash *apphash.AppHashData)
-	reply    chan callResult[*apphash.AppHashData]
+// Asks the builder goroutine for the published app hash of blockHeight.
+type getAppHashRequest struct {
+	blockHeight uint64
+	reply       chan callResult[*apphash.AppHashData]
 }
 
-// Asks the builder goroutine for an iterator over the published app hashes from startingBlockHeight.
-type iteratorRequest struct {
-	startingBlockHeight uint64
-	reply               chan callResult[apphash.AppHashIterator]
+// Asks the builder goroutine for the range of available app hashes.
+type boundsRequest struct {
+	reply chan callResult[appHashBounds]
+}
+
+// The range of available app hashes, as Bounds() reports it.
+type appHashBounds struct {
+
+	// The lowest block whose app hash is available. Valid only if ok.
+	lowest uint64
+
+	// The highest block whose app hash is available. Valid only if ok.
+	highest uint64
+
+	// False if no app hash is available yet.
+	ok bool
 }
 
 // Asks the builder goroutine to store and publish every block completed by the requests ahead of it, then stop.

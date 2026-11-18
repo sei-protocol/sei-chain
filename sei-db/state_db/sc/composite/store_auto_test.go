@@ -94,21 +94,20 @@ func runUntilAtMigrationVersion(
 }
 
 // hasLatticeHash reports whether the last commit info contains the
-// synthetic evm_lattice store entry.
+// synthetic lattice store entry.
 func hasLatticeHash(cs *CompositeCommitStore) bool {
-	for _, si := range cs.LastCommitInfo().StoreInfos {
-		if si.Name == "evm_lattice" {
-			return true
-		}
-	}
-	return false
+	return containsLatticeStoreInfo(cs.LastCommitInfo().StoreInfos)
 }
 
 // storeInfoNames returns the names in the last commit info, in order.
 func storeInfoNames(cs *CompositeCommitStore) []string {
-	infos := cs.LastCommitInfo().StoreInfos
-	names := make([]string, 0, len(infos))
-	for _, si := range infos {
+	return commitInfoNames(cs.LastCommitInfo())
+}
+
+// commitInfoNames returns the names in ci, in order.
+func commitInfoNames(ci *proto.CommitInfo) []string {
+	names := make([]string, 0, len(ci.StoreInfos))
+	for _, si := range ci.StoreInfos {
 		names = append(names, si.Name)
 	}
 	return names
@@ -193,7 +192,7 @@ func TestComposite_Auto_FullLifecycle(t *testing.T) {
 	// Terminal state: the commit info must be shaped exactly like a
 	// configured flatkv_only node's (no memiavl StoreInfos, only the
 	// lattice) even though memiavl is still open under Auto.
-	require.Equal(t, []string{"evm_lattice"}, storeInfoNames(cs),
+	require.Equal(t, []string{latticeHashStoreInfoName}, storeInfoNames(cs),
 		"effective FlatKVOnly must hash the same store set as configured flatkv_only")
 
 	// End of the chain: no further transitions exist.
@@ -479,6 +478,65 @@ func TestComposite_Auto_ExportImportRoundTrip(t *testing.T) {
 	requireOracleMatches(t, dst, workload.snapshotOracle())
 }
 
+// TestComposite_Auto_FlatKVOnlyExportImportRoundTrip restores a completed migration snapshot onto a
+// fresh Auto store and verifies that the FlatKV-only stream determines its terminal mode and state.
+func TestComposite_Auto_FlatKVOnlyExportImportRoundTrip(t *testing.T) {
+	workload := newMigrationWorkload(0xA07A)
+	cfg := autoExportConfig()
+
+	src := openAutoStoreWithConfig(t, t.TempDir(), cfg, 100)
+	runBlocks(t, src, workload, 3)
+	require.NoError(t, src.SetWriteMode(types.MigrateEVM))
+	runUntilAtMigrationVersion(t, src, workload, migration.Version1_MigrateEVM, 200)
+	require.NoError(t, src.SetWriteMode(types.EVMMigrated))
+	require.NoError(t, src.SetWriteMode(types.MigrateCosmos))
+	runUntilAtMigrationVersion(t, src, workload, migration.Version2_FlatKVOnly, 200)
+	h := src.Version()
+	wantCommitInfo := src.LastCommitInfo()
+
+	flatKVStore, ok := src.loadFlatKV().(*flatkv.CommitStore)
+	require.True(t, ok)
+	require.NoError(t, flatKVStore.FlushSnapshots())
+
+	exp, err := src.Exporter(h)
+	require.NoError(t, err)
+	items := drainCompositeExporter(t, exp)
+	require.NoError(t, exp.Close())
+	require.Equal(t, []string{keys.FlatKVStoreKey}, moduleNamesOf(items))
+	require.NoError(t, src.Close())
+
+	dstDir := t.TempDir()
+	dst := openAutoStoreWithConfig(t, dstDir, cfg, 100)
+	require.NoError(t, dst.Close())
+	require.Nil(t, dst.loadFlatKV())
+
+	imp, err := dst.Importer(h)
+	require.NoError(t, err)
+	replayImport(t, imp, items)
+	require.NoError(t, imp.Close())
+
+	require.NoError(t, dst.LoadLatest())
+	require.Equal(t, h, dst.Version())
+	require.Equal(t, types.FlatKVOnly, dst.loadWriteMode())
+	require.Equal(t, wantCommitInfo, dst.LastCommitInfo())
+	done, err := migration.IsAtVersion(flatKVReaderFor(dst), migration.Version2_FlatKVOnly)
+	require.NoError(t, err)
+	require.True(t, done)
+	requireOracleMatches(t, dst, workload.snapshotOracle())
+
+	runBlocks(t, dst, workload, 2)
+	require.Equal(t, h+2, dst.memIAVL.Version(), "memiavl must stay in lockstep")
+	require.Equal(t, h+2, dst.loadFlatKV().Version(), "flatkv must stay in lockstep")
+	requireOracleMatches(t, dst, workload.snapshotOracle())
+	require.NoError(t, dst.Close())
+
+	reopened := openAutoStoreWithConfig(t, dstDir, cfg, 100)
+	defer func() { _ = reopened.Close() }()
+	require.Equal(t, h+2, reopened.Version())
+	require.Equal(t, types.FlatKVOnly, reopened.loadWriteMode())
+	requireOracleMatches(t, reopened, workload.snapshotOracle())
+}
+
 // TestComposite_ImporterRejectsFlatKVSectionOnMemiavlOnly pins the loud
 // rejection: silently dropping a flatkv section would restore a state
 // tree missing data the snapshot's AppHash commits to.
@@ -552,7 +610,7 @@ func TestComposite_Auto_MemiavlLeavesHashAtVersion3(t *testing.T) {
 	require.True(t, sawMidFlight,
 		"test must observe at least one mid-flight MigrateCosmos commit; lower the batch size")
 	require.Equal(t, types.MigrateCosmos, cs.loadWriteMode())
-	require.Equal(t, []string{"evm_lattice"}, storeInfoNames(cs),
+	require.Equal(t, []string{latticeHashStoreInfoName}, storeInfoNames(cs),
 		"memiavl StoreInfos must leave the commit info at the version-2 commit, before the mode flips")
 	preRestart := cs.LastCommitInfo()
 	require.NoError(t, cs.Close())

@@ -12,18 +12,6 @@ var (
 	_ sdk.Msg = &MsgRegisterPointer{}
 )
 
-func NewMsgRegisterERC20Pointer(sender sdk.AccAddress, ercAddress common.Address) *MsgRegisterPointer {
-	return &MsgRegisterPointer{Sender: sender.String(), ErcAddress: ercAddress.Hex(), PointerType: PointerType_ERC20}
-}
-
-func NewMsgRegisterERC721Pointer(sender sdk.AccAddress, ercAddress common.Address) *MsgRegisterPointer {
-	return &MsgRegisterPointer{Sender: sender.String(), ErcAddress: ercAddress.Hex(), PointerType: PointerType_ERC721}
-}
-
-func NewMsgRegisterERC1155Pointer(sender sdk.AccAddress, ercAddress common.Address) *MsgRegisterPointer {
-	return &MsgRegisterPointer{Sender: sender.String(), ErcAddress: ercAddress.Hex(), PointerType: PointerType_ERC1155}
-}
-
 func (msg *MsgRegisterPointer) Route() string {
 	return RouterKey
 }

@@ -144,7 +144,7 @@ var CommitteeConv = protoutils.Conv[*Committee, *pb.Committee]{
 		for lane := range c.Lanes().All() {
 			record.Members = append(record.Members, &pb.EpochMember{
 				LaneId: LaneIDConv.Encode(lane),
-				Weight: utils.Alloc(c.Weight(lane.Validator)),
+				Weight: new(c.Weight(lane.Validator)),
 			})
 		}
 		return record

@@ -802,7 +802,7 @@ func TestRegisterPointerDeprecated(t *testing.T) {
 	require.False(t, exists)
 
 	for _, e := range ctx.EventManager().Events() {
-		require.NotEqual(t, types.EventTypePointerRegistered, e.Type)
+		require.NotEqual(t, "pointer_registered", e.Type)
 	}
 
 	// pointers registered before the handler was retired stay readable

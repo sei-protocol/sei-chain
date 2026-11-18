@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	dto "github.com/prometheus/client_model/go"
+	"golang.org/x/time/rate"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+
+	dto "github.com/prometheus/client_model/go"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -29,12 +30,9 @@ type testNode struct {
 
 func defaultViewTimeout(view types.View) time.Duration { return time.Hour }
 
-func newTestNode(registry *epoch.Registry, cfg *consensus.Config) *testNode {
+func newTestNode(t testing.TB, registry *epoch.Registry, cfg *consensus.Config) *testNode {
 	cfg.PersistentStateDir = utils.None[string]()
-	store, err := blockstore.New(memblock.NewBlockDB())
-	if err != nil {
-		panic(fmt.Sprintf("blockstore.New: %v", err))
-	}
+	store := blockstore.NewTestStore(t)
 	dataState, err := data.NewState(&data.Config{Registry: registry}, store)
 	if err != nil {
 		panic(fmt.Sprintf("data.NewState: %v", err))
@@ -70,8 +68,8 @@ func newTestEnv(registry *epoch.Registry) *testEnv {
 }
 
 // Call AddNode BEFORE Run.
-func (e *testEnv) AddNode(key types.SecretKey) *testNode {
-	n := newTestNode(e.registry, &consensus.Config{
+func (e *testEnv) AddNode(t testing.TB, key types.SecretKey) *testNode {
+	n := newTestNode(t, e.registry, &consensus.Config{
 		Key: key,
 		ViewTimeout: func(view types.View) time.Duration {
 			if _, ok := e.nodes[e.committee.Leader(view)]; ok {
@@ -80,6 +78,7 @@ func (e *testEnv) AddNode(key types.SecretKey) *testNode {
 			return 0
 		},
 		ProposalTimeout: time.Hour,
+		MaxRate:         rate.Inf,
 	})
 	e.nodes[key.Public()] = n
 	return n
@@ -108,9 +107,10 @@ func TestDataClientServer(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
 	env := newTestEnv(registry)
-	server := env.AddNode(keys[0])
-	client := env.AddNode(keys[1])
-	firstBlock := server.data.Registry().FirstBlock()
+	server := env.AddNode(t, keys[0])
+	client := env.AddNode(t, keys[1])
+	ep0 := registry.MustEpoch(0)
+	firstBlock := ep0.RoadRange().First
 	blockOK := fetchCount(resBlock, "ok")
 	qcOK := fetchCount(resFullCommitQC, "ok")
 	notFound := serveCount(resBlock, "not_found")
@@ -122,19 +122,19 @@ func TestDataClientServer(t *testing.T) {
 		prev := utils.None[*types.CommitQC]()
 		for i := range 3 {
 			t.Logf("iteration %v", i)
-			qc, blocks := data.TestCommitQC(rng, server.data.Registry().MustEpoch(0), keys, prev)
-			if err := server.data.PushQC(ctx, qc, blocks); err != nil {
-				return fmt.Errorf("serverState.PushQC(): %w", err)
+			qc, blocks := data.TestCommitQC(rng, ep0, keys, prev)
+			if err := server.data.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
+				return fmt.Errorf("serverState.PushPartialBlock(): %w", err)
 			}
 			prev = utils.Some(qc.QC())
 		}
 		t.Logf("wait for replication")
-		for n := firstBlock; n < server.data.NextBlock(); n++ {
-			want, err := server.data.GlobalBlock(ctx, n)
+		for n := firstBlock; n < server.data.NextQC(); n++ {
+			want, err := server.data.SuperBlock(ctx, n)
 			if err != nil {
 				return fmt.Errorf("serverState.FinalBlock(): %w", err)
 			}
-			got, err := client.data.GlobalBlock(ctx, n)
+			got, err := client.data.SuperBlock(ctx, n)
 			if err != nil {
 				return fmt.Errorf("clientState.FinalBlock(): %w", err)
 			}
