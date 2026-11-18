@@ -120,12 +120,14 @@ func TestDataClientServer(t *testing.T) {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 
 		t.Logf("push data")
-		qcs, blocks := testQCChain(rng, ep0, keys, 3)
-		for i, qc := range qcs {
+		prev := utils.None[*types.CommitQC]()
+		for i := range 3 {
 			t.Logf("iteration %v", i)
-			if err := server.data.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks[i])); err != nil {
+			qc, blocks := data.TestCommitQC(rng, ep0, keys, prev)
+			if err := server.data.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
 				return fmt.Errorf("serverState.PushPartialBlock(): %w", err)
 			}
+			prev = utils.Some(qc.QC())
 		}
 		t.Logf("wait for replication")
 		for n := firstBlock; n < server.data.NextQC(); n++ {
@@ -192,8 +194,8 @@ func runFullCommitQCClient(ctx context.Context, node *testNode, onReq utils.Opti
 					return fmt.Errorf("StreamFullCommitQCsReqConv.Decode(): %w", err)
 				}
 				// The hook runs before any QC is sent, so it can check the request and change the node's state.
-				if onReq, ok := onReq.Get(); ok {
-					if err := onReq(ctx, req); err != nil {
+				if hook, ok := onReq.Get(); ok {
+					if err := hook(ctx, req); err != nil {
 						return err
 					}
 				}
@@ -233,8 +235,8 @@ func TestFullCommitQCStreamAcceptsIncreasingIndexesWithGaps(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 1)
 	// One real node with an empty data state. The test uses only its data state and its QC stream client.
 	node := newTestEnv(registry).AddNode(t, keys[0])
-	// qcs[0] to qcs[3] are consecutive, validly signed QCs.
-	qcs, _ := testQCChain(rng, registry.MustEpoch(0), keys, 4)
+	// qcs[0] to qcs[4] are consecutive, validly signed QCs.
+	qcs, _ := testQCChain(rng, registry.MustEpoch(0), keys, 5)
 	// Another peer pushes qcs[0] after the client requests it, so the stream starts above the requested index.
 	pushRequested := func(ctx context.Context, req *StreamFullCommitQCsReq) error {
 		// The node is empty, so the client must ask for qcs[0].
@@ -245,17 +247,18 @@ func TestFullCommitQCStreamAcceptsIncreasingIndexesWithGaps(t *testing.T) {
 	}
 	ok := fetchCount(resFullCommitQC, "ok")
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		// Another peer fills the gap that the stream skips. The push waits until qcs[1] is stored.
-		s.Spawn(func() error { return node.data.PushPartialBlock(ctx, qcs[2], nil) })
-		// The server sends qcs[1], above the requested qcs[0], then qcs[3], which skips qcs[2].
-		return runFullCommitQCClient(ctx, node, utils.Some(pushRequested), []*types.FullCommitQC{qcs[1], qcs[3]})
+		// Another peer fills the gap that the stream skips. The push waits until qcs[2] is stored.
+		s.Spawn(func() error { return node.data.PushPartialBlock(ctx, qcs[3], nil) })
+		// The server sends qcs[1], above the requested qcs[0], then qcs[2], the next index,
+		// then qcs[4], which skips qcs[3].
+		return runFullCommitQCClient(ctx, node, utils.Some(pushRequested), []*types.FullCommitQC{qcs[1], qcs[2], qcs[4]})
 	})
 	// The stream ended because the server closed it, not because the client rejected a QC.
 	require.ErrorIs(t, err, mux.ErrRemoteClosed)
-	// The client stored both QCs it received on the stream.
-	require.Equal(t, ok+2, fetchCount(resFullCommitQC, "ok"))
-	// The node holds qcs[0] to qcs[3]. NextQC does not block, so a missing QC fails here instead of hanging below.
-	require.Equal(t, qcs[3].Index()+1, node.data.NextQC())
+	// The client stored all three QCs it received on the stream.
+	require.Equal(t, ok+3, fetchCount(resFullCommitQC, "ok"))
+	// The node holds qcs[0] to qcs[4]. NextQC does not block, so a missing QC fails here instead of hanging below.
+	require.Equal(t, qcs[4].Index()+1, node.data.NextQC())
 	// Each stored QC is the one that was sent.
 	for _, want := range qcs {
 		got, err := node.data.QC(ctx, want.Index())
@@ -271,15 +274,15 @@ func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
 		pushed []int
 		// sent are the chain positions the server sends, in order.
 		sent []int
-		// accepted is the number of sent QCs the client stores before it rejects one.
-		accepted int
+		// wantStored is the number of chain positions, counted from qcs[0], that the node holds at the end.
+		wantStored int
 	}{
 		// The client holds qcs[0] and qcs[1], so it asks for qcs[2]. qcs[1] is below that.
-		{name: "first below requested", pushed: []int{0, 1}, sent: []int{1}, accepted: 0},
+		{name: "first below requested", pushed: []int{0, 1}, sent: []int{1}, wantStored: 2},
 		// qcs[0] is accepted. The second qcs[0] is not above it.
-		{name: "repeated", sent: []int{0, 0}, accepted: 1},
+		{name: "repeated", sent: []int{0, 0}, wantStored: 1},
 		// qcs[0] and qcs[1] are accepted. Then qcs[0] is below qcs[1].
-		{name: "decreasing", sent: []int{0, 1, 0}, accepted: 2},
+		{name: "decreasing", sent: []int{0, 1, 0}, wantStored: 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
@@ -297,10 +300,17 @@ func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
 			}
 			// The counter is global to the test process, so the check below compares the change, not the value.
 			outOfOrder := fetchCount(resFullCommitQC, "out_of_order")
+			// The client asks for the first index above the QCs it holds.
+			checkRequest := func(ctx context.Context, req *StreamFullCommitQCsReq) error {
+				if got, want := req.NextBlock, qcs[len(tc.pushed)].Index(); got != want {
+					return fmt.Errorf("req.NextBlock = %v, want %v", got, want)
+				}
+				return nil
+			}
 			// The client rejects one QC and ends the stream.
-			require.ErrorIs(t, runFullCommitQCClient(ctx, node, utils.None[func(context.Context, *StreamFullCommitQCsReq) error](), sent), types.ErrUnexpectedIndex)
+			require.ErrorIs(t, runFullCommitQCClient(ctx, node, utils.Some(checkRequest), sent), types.ErrUnexpectedIndex)
 			// The node stored the pushed QCs and the QCs accepted before the reject, and nothing after them.
-			require.Equal(t, qcs[0].Index()+types.RoadIndex(len(tc.pushed)+tc.accepted), node.data.NextQC())
+			require.Equal(t, qcs[0].Index()+types.RoadIndex(tc.wantStored), node.data.NextQC())
 			// The client counted exactly one reject.
 			require.Equal(t, outOfOrder+1, fetchCount(resFullCommitQC, "out_of_order"))
 		})
