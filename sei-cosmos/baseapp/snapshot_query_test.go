@@ -3,6 +3,7 @@ package baseapp
 import (
 	"encoding/json"
 	"io"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -50,13 +51,19 @@ func TestSnapshotQuery_MetadataListingFailure(t *testing.T) {
 	// A closed real LevelDB must remain distinguishable from a healthy empty store.
 	fixture.closeMetadata(t)
 
+	var nodeLog strings.Builder
+	originalLogger := logger
+	logger = slog.New(slog.NewTextHandler(&nodeLog, nil))
+	t.Cleanup(func() { logger = originalLogger })
+
 	response, err := fixture.app.Query(t.Context(), &abci.RequestQuery{Path: "/app/snapshots"})
 	require.NoError(t, err)
 	require.NotNil(t, response)
 	require.NotZero(t, response.Code, "a failed metadata read must not look like healthy emptiness")
 	require.NotEqual(t, sdkerrors.ErrPanic.ABCICode(), response.Code, "the query must report the listing error, not recover a panic")
 	require.Empty(t, response.Value, "a failed listing must not return a successful snapshot payload")
-	require.Contains(t, response.Log, "leveldb: closed", "the real metadata read failure must reach the query response")
+	require.Equal(t, "failed to list snapshots", response.Log)
+	require.Contains(t, nodeLog.String(), "leveldb: closed", "the node log must retain the underlying cause")
 
 	offered, err := fixture.app.ListSnapshots(t.Context(), &abci.RequestListSnapshots{})
 	require.NoError(t, err, "the direct ABCI method preserves its existing fallback")

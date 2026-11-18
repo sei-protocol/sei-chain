@@ -862,7 +862,9 @@ func handleQueryApp(app *BaseApp, ctx context.Context, path []string, req abci.R
 
 			response, err := app.listSnapshots()
 			if err != nil {
-				return sdkerrors.QueryResult(sdkerrors.Wrap(err, "list snapshots error"))
+				const message = "failed to list snapshots"
+				logger.Error(message, "err", err)
+				return sdkerrors.QueryResult(errors.New(message))
 			}
 
 			responseValue, err = json.Marshal(response)
