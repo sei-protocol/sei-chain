@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/http/httptest"
 	"strings"
@@ -214,28 +215,37 @@ func TestRejectsUnprotectedTransaction(t *testing.T) {
 }
 
 // A transaction signed for another chain is not proxied: the node's CheckTx rejects it.
-func TestHandlesForeignChainTransactionLocally(t *testing.T) {
+func TestRejectsForeignChainTransaction(t *testing.T) {
+	key, err := crypto.HexToECDSA("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	require.NoError(t, err)
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	for name, txData := range map[string]ethtypes.TxData{
-		"legacy chain 0": &ethtypes.LegacyTx{Gas: 21_000, To: &to, V: big.NewInt(35), R: big.NewInt(1), S: big.NewInt(1)},
-		"typed chain 0":  &ethtypes.DynamicFeeTx{ChainID: new(big.Int), Gas: 21_000, To: &to, V: new(big.Int), R: big.NewInt(1), S: big.NewInt(1)},
+	signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: big.NewInt(0x12345), Gas: 21_000, To: &to}),
+		ethtypes.LatestSignerForChainID(big.NewInt(0x12345)), key)
+	require.NoError(t, err)
+	for name, tx := range map[string]*ethtypes.Transaction{
+		"legacy chain 0": ethtypes.NewTx(&ethtypes.LegacyTx{Gas: 21_000, To: &to, V: big.NewInt(35), R: big.NewInt(1), S: big.NewInt(1)}),
+		"typed chain 0":  ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: new(big.Int), Gas: 21_000, To: &to, V: new(big.Int), R: big.NewInt(1), S: big.NewInt(1)}),
+		"other chain":    signed,
 	} {
-		t.Run(name, func(t *testing.T) {
-			raw, err := ethtypes.NewTx(txData).MarshalBinary()
-			require.NoError(t, err)
-			backend := &testBackend{
-				broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-					return &coretypes.ResultBroadcastTx{Code: 1, Log: "invalid chain id"}, nil
-				},
-				chainID:      func() uint64 { return 713700 },
-				proxyEnabled: true,
-			}
+		raw, err := tx.MarshalBinary()
+		require.NoError(t, err)
+		for _, proxyEnabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s proxy %t", name, proxyEnabled), func(t *testing.T) {
+				backend := &testBackend{
+					broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+						t.Fatal("foreign chain transaction reached local broadcaster")
+						return nil, nil
+					},
+					chainID:      func() uint64 { return 713700 },
+					proxyEnabled: proxyEnabled,
+				}
 
-			_, err = newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
+				_, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
 
-			require.ErrorContains(t, err, "invalid chain id")
-			require.Zero(t, backend.proxyCalls)
-		})
+				require.ErrorIs(t, err, errInvalidChainID)
+				require.Zero(t, backend.proxyCalls)
+			})
+		}
 	}
 }
 

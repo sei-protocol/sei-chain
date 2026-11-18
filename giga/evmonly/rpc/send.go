@@ -37,8 +37,12 @@ func newSendAPI(backend Backend, maxConcurrentSendCalls int) *sendAPI {
 	}
 }
 
-// errUnprotectedTx rejects a transaction that is not replay-protected (EIP-155).
-var errUnprotectedTx = errors.New("only replay-protected (EIP-155) transactions allowed over RPC")
+var (
+	// errUnprotectedTx rejects a transaction that is not replay-protected (EIP-155).
+	errUnprotectedTx = errors.New("only replay-protected (EIP-155) transactions allowed over RPC")
+	// errInvalidChainID rejects a transaction signed for another chain.
+	errInvalidChainID = errors.New("invalid chain-id")
+)
 
 // SendRawTransaction submits a signed raw Ethereum transaction to Autobahn and
 // returns its Ethereum transaction hash.
@@ -51,12 +55,13 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 	if err := tx.UnmarshalBinary(input); err != nil {
 		return common.Hash{}, err
 	}
-	if !tx.Protected() {
-		return common.Hash{}, errUnprotectedTx
+	chainID := new(big.Int).SetUint64(api.backend.EvmChainID())
+	if err := checkChainID(tx, chainID); err != nil {
+		return common.Hash{}, err
 	}
 	hash := tx.Hash()
 
-	if client, ok := api.shardProxy(tx).Get(); ok {
+	if client, ok := api.shardProxy(tx, chainID).Get(); ok {
 		if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
 			return hash, err
 		}
@@ -68,6 +73,17 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 		return hash, err
 	}
 	return hash, nil
+}
+
+// checkChainID rejects tx unless it is replay-protected and signed for chainID.
+func checkChainID(tx *ethtypes.Transaction, chainID *big.Int) error {
+	if !tx.Protected() {
+		return errUnprotectedTx
+	}
+	if tx.ChainId().Sign() == 0 || tx.ChainId().Cmp(chainID) != 0 {
+		return errInvalidChainID
+	}
+	return nil
 }
 
 // broadcast submits input to the local mempool, returning a CheckTx rejection as an error.
@@ -96,11 +112,10 @@ func (api *sendAPI) broadcast(ctx context.Context, input hexutil.Bytes) error {
 // entirely when the backend has no proxies, since CheckTx recovers it anyway. A
 // sender recovered for a transaction handled locally is handed to the backend,
 // so CheckTx need not recover it again.
-func (api *sendAPI) shardProxy(tx *ethtypes.Transaction) utils.Option[*ethrpc.Client] {
+func (api *sendAPI) shardProxy(tx *ethtypes.Transaction, chainID *big.Int) utils.Option[*ethrpc.Client] {
 	if !api.backend.EvmProxyEnabled() {
 		return utils.None[*ethrpc.Client]()
 	}
-	chainID := new(big.Int).SetUint64(api.backend.EvmChainID())
 	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(chainID), tx)
 	if err != nil {
 		return utils.None[*ethrpc.Client]()
