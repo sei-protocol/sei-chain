@@ -39,7 +39,7 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 			recordFetch(ctx, resFullCommitQC, "decode")
 			return fmt.Errorf("types.CommitQCConv.Decode(): %w", err)
 		}
-		// The server sends strictly increasing indexes, starting at or above the requested one (gaps allowed).
+		// TODO: add DoS protection (i.e. that only useful state.Data() has been actually sent).
 		if qc.Index() < next {
 			recordFetch(ctx, resFullCommitQC, "out_of_order")
 			return fmt.Errorf("qc.Index() = %v, want >= %v: %w", qc.Index(), next, types.ErrUnexpectedIndex)
