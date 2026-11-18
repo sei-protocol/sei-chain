@@ -290,6 +290,9 @@ message Msg {
 
     // App
     AppProposal app_vote = 7;
+
+    // P2P authentication
+    Challenge challenge = 10;
   }
 }
 
@@ -396,4 +399,16 @@ message LaneBlockPos {
   option (wireguard.sized) = true;
   optional uint64 index = 1; // required
   optional uint64 offset = 2; // required
+}
+
+message Challenge {
+  option (hashable.hashable) = true;
+  option (wireguard.sized) = true;
+  optional bytes data = 1 [(wireguard.max_size) = 32]; // required
+}
+
+message SignedChallenge {
+  option (wireguard.sized) = true;
+  optional Challenge msg = 1; // required
+  optional Signature sig = 2; // required
 }

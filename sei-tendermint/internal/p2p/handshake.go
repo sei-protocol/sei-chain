@@ -20,8 +20,8 @@ import (
 const handshakeMsgMaxSize = 1024 * 1024
 
 var (
-	errMissingGigaClaim   = errors.New("missing validator_auth_key and validator_auth_sig")
-	errGigaClaimOnNonGiga = errors.New("validator giga claim on non-giga connection")
+	errMissingValidatorAuth   = errors.New("missing validator_auth")
+	errValidatorAuthOnNonGiga = errors.New("validator giga claim on non-giga connection")
 )
 
 func init() {
@@ -59,7 +59,7 @@ func handshake(
 				handshakeSpec: spec,
 			}
 			if offering {
-				msg.GigaClaim = utils.Some(o.ValidatorKey.SignChallenge(sc.Challenge()))
+				msg.ValidatorAuth = utils.Some(o.ValidatorKey.Sign(sc.Challenge()))
 			}
 			if err := conn.WriteSizedMsg(ctx, sc, handshakeMsgConv.Marshal(msg)); err != nil {
 				return fmt.Errorf("conn.WriteSizedMsg(): %w", err)
@@ -85,12 +85,15 @@ func handshake(
 				return nil, fmt.Errorf("handshakeMsg.SelfAddr.NodeID = %v, want %v", got, want)
 			}
 		}
-		if claim, ok := msg.GigaClaim.Get(); ok {
+		if claim, ok := msg.ValidatorAuth.Get(); ok {
 			if !msg.SeiGigaConnection {
-				return nil, errGigaClaimOnNonGiga
+				return nil, errValidatorAuthOnNonGiga
 			}
-			if err := claim.Verify(sc.Challenge()); err != nil {
-				return nil, fmt.Errorf("handshakeMsg.GigaClaim: %w", err)
+			if claim.Msg() != sc.Challenge() {
+				return nil, fmt.Errorf("handshakeMsg.ValidatorAuth: challenge mismatch")
+			}
+			if err := claim.VerifySig(); err != nil {
+				return nil, fmt.Errorf("handshakeMsg.ValidatorAuth: %w", err)
 			}
 		}
 		if len(msg.PexAddrs) > MaxPexAddrs {

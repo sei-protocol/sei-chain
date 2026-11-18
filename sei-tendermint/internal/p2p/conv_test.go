@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pb"
+	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -26,38 +26,34 @@ func TestHandshakeMsgConv(t *testing.T) {
 			},
 		}
 		require.NoError(t, handshakeMsgConv.Test(msg))
+		msg.SeiGigaConnection = true
+		msg.ValidatorAuth = utils.Some(atypes.GenSigned(rng, challenge))
+		require.NoError(t, handshakeMsgConv.Test(msg))
 	}
 }
 
-func TestDecodeGigaClaimRequiresAllFields(t *testing.T) {
+func TestHandshakeMsgConvRejectsMalformedValidatorAuth(t *testing.T) {
 	rng := utils.TestRng()
-	key := atypes.GenSecretKey(rng)
-	sig := key.SignChallenge(atypes.Challenge{})
-	full := func() *pb.Handshake {
-		return &pb.Handshake{
-			ValidatorAuthKey: key.Public().Bytes(),
-			ValidatorAuthSig: sig.Bytes(),
-		}
+	key := makeKey(rng)
+	challenge := atypes.Challenge{}
+	msg := &handshakeMsg{
+		NodeAuth:      key.SignChallenge(challenge),
+		handshakeSpec: handshakeSpec{SeiGigaConnection: true},
+		ValidatorAuth: utils.Some(atypes.GenSigned(rng, challenge)),
 	}
-	claim, err := decodeGigaClaim(full())
-	require.NoError(t, err)
-	require.Equal(t, key.Public(), claim.OrPanic("missing claim").Key())
-	require.Equal(t, sig.Bytes(), claim.OrPanic("missing claim").Bytes())
-
-	for _, drop := range []func(*pb.Handshake){
-		func(p *pb.Handshake) { p.ValidatorAuthKey = nil },
-		func(p *pb.Handshake) { p.ValidatorAuthSig = nil },
+	for _, malform := range []func(*apb.SignedChallenge){
+		func(p *apb.SignedChallenge) { p.Msg = nil },
+		func(p *apb.SignedChallenge) { p.Msg.Data = p.Msg.Data[:31] },
+		func(p *apb.SignedChallenge) { p.Msg.Data = append(p.Msg.Data, 0) },
+		func(p *apb.SignedChallenge) { p.Sig = nil },
+		func(p *apb.SignedChallenge) { p.Sig.Key = nil },
+		func(p *apb.SignedChallenge) { p.Sig.Sig = nil },
 	} {
-		p := full()
-		drop(p)
-		_, err := decodeGigaClaim(p)
+		p := handshakeMsgConv.Encode(msg)
+		malform(p.ValidatorAuth)
+		_, err := handshakeMsgConv.Decode(p)
 		require.Error(t, err)
 	}
-
-	// Neither field being present means a peer without a claim.
-	got, err := decodeGigaClaim(&pb.Handshake{})
-	require.NoError(t, err)
-	require.False(t, got.IsPresent())
 }
 
 func TestNodePublicKeyFromString(t *testing.T) {

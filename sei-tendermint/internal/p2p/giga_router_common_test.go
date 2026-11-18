@@ -536,7 +536,7 @@ func TestGigaRouterCommon_RunInboundConnAuthenticatesMemberAndClosesOnLeave(t *t
 			}),
 			SeiGigaConnection: true,
 		},
-		GigaClaim: utils.Some(dummy.SignChallenge(atypes.Challenge{})),
+		ValidatorAuth: utils.Some(dummy.Sign(atypes.Challenge{})),
 	}}).IsPresent())
 	_, ok := router.validatorAddr(dummy.Public())
 	require.False(t, ok)
@@ -928,7 +928,7 @@ func TestGigaRouterCommon_AcceptInboundAdmitsNextEpoch(t *testing.T) {
 				}),
 				SeiGigaConnection: true,
 			},
-			GigaClaim: utils.Some(validator.SignChallenge(atypes.Challenge{})),
+			ValidatorAuth: utils.Some(validator.Sign(atypes.Challenge{})),
 		}})
 	}
 	require.Equal(t, utils.Some(nextKey.Public()), accept(nextKey))

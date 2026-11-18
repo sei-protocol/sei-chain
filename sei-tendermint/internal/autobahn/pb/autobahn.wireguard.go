@@ -2,10 +2,9 @@
 package pb
 
 import (
-	reflect "reflect"
-
 	runtime "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	reflect "reflect"
 )
 
 func (*Timestamp) MaxSize() int {
@@ -158,6 +157,14 @@ func (*EpochMember) MaxSize() int {
 
 func (*LaneBlockPos) MaxSize() int {
 	return 22
+}
+
+func (*Challenge) MaxSize() int {
+	return 34
+}
+
+func (*SignedChallenge) MaxSize() int {
+	return 140
 }
 
 func init() {
@@ -362,13 +369,14 @@ func init() {
 
 	// Register the wireguard.Schema generated for autobahn.Msg.
 	runtime.MustRegister[*Msg](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Block]())},
-		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*BlockHeader]())},
-		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Proposal]())},
-		8: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PrepareVote]())},
-		9: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*CommitVote]())},
-		6: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutVote]())},
-		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
+		1:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Block]())},
+		2:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*BlockHeader]())},
+		3:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Proposal]())},
+		8:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PrepareVote]())},
+		9:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*CommitVote]())},
+		6:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutVote]())},
+		7:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
+		10: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Challenge]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.SignedProposal.
@@ -463,6 +471,17 @@ func init() {
 	runtime.MustRegister[*LaneBlockPos](runtime.Schema{
 		1: {MaxCount: 1},
 		2: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.Challenge.
+	runtime.MustRegister[*Challenge](runtime.Schema{
+		1: {MaxCount: 1, MaxSize: 32},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.SignedChallenge.
+	runtime.MustRegister[*SignedChallenge](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Challenge]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Signature]())},
 	})
 
 }

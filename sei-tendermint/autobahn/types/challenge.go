@@ -1,38 +1,45 @@
 package types
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 )
 
-// ChallengeSig is a validator's signature on a P2P connection challenge.
-type ChallengeSig struct {
-	utils.ReadOnly
-	key PublicKey
-	sig ed25519.Signature
+// Challenge is the authentication challenge of a P2P secret connection.
+type Challenge [32]byte
+
+// ChallengeConv is a protobuf converter for Challenge.
+var ChallengeConv = protoutils.Conv[Challenge, *pb.Challenge]{
+	Encode: func(m Challenge) *pb.Challenge {
+		return &pb.Challenge{Data: m[:]}
+	},
+	Decode: func(m *pb.Challenge) (Challenge, error) {
+		if len(m.Data) != len(Challenge{}) {
+			return Challenge{}, fmt.Errorf("challenge size = %d, want %d", len(m.Data), len(Challenge{}))
+		}
+		return Challenge(m.Data), nil
+	},
 }
 
-// SignChallenge signs a P2P connection challenge.
-func (k SecretKey) SignChallenge(challenge Challenge) ChallengeSig {
-	return ChallengeSig{key: k.Public(), sig: k.key.Sign(challenge[:])}
-}
-
-// Key returns the validator key that signed the challenge.
-func (s ChallengeSig) Key() PublicKey { return s.key }
-
-// Bytes returns the encoded signature.
-func (s ChallengeSig) Bytes() []byte { return s.sig.Bytes() }
-
-// Verify verifies the signature on a P2P connection challenge.
-func (s ChallengeSig) Verify(challenge Challenge) error {
-	return s.key.key.Verify(challenge[:], s.sig)
-}
-
-// ChallengeSigFromBytes decodes a challenge signature for a validator key.
-func ChallengeSigFromBytes(key PublicKey, b []byte) (ChallengeSig, error) {
-	sig, err := ed25519.SignatureFromBytes(b)
-	if err != nil {
-		return ChallengeSig{}, err
-	}
-	return ChallengeSig{key: key, sig: sig}, nil
+// SignedChallengeConv is a protobuf converter for Signed[Challenge].
+var SignedChallengeConv = protoutils.Conv[*Signed[Challenge], *pb.SignedChallenge]{
+	Encode: func(m *Signed[Challenge]) *pb.SignedChallenge {
+		return &pb.SignedChallenge{
+			Msg: ChallengeConv.Encode(m.Msg()),
+			Sig: SignatureConv.Encode(m.Sig()),
+		}
+	},
+	Decode: func(m *pb.SignedChallenge) (*Signed[Challenge], error) {
+		msg, err := ChallengeConv.DecodeReq(m.Msg)
+		if err != nil {
+			return nil, fmt.Errorf("msg: %w", err)
+		}
+		sig, err := SignatureConv.DecodeReq(m.Sig)
+		if err != nil {
+			return nil, fmt.Errorf("sig: %w", err)
+		}
+		return newSigned(msg, sig), nil
+	},
 }

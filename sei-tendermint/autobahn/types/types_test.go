@@ -44,6 +44,7 @@ func TestConv(t *testing.T) {
 			LaneIDConv.Test(GenLaneID(rng)),
 			LaneBlockPosConv.Test(LaneBlockPos{Index: GenRoadIndex(rng), Offset: rng.Uint64()}),
 			SignatureConv.Test(GenSignature(rng)),
+			msgTest(rng, Challenge(utils.GenBytes(rng, len(Challenge{}))), ChallengeConv, SignedChallengeConv),
 			BlockHeaderConv.Test(GenBlockHeader(rng)),
 			PayloadConv.Test(GenPayload(rng)),
 			BlockConv.Test(GenBlock(rng)),

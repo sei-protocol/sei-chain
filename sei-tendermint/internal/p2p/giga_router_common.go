@@ -297,9 +297,9 @@ func (r *gigaRouterCommon) dialAndRunConn(
 		if peerKey != expectedNodeKey {
 			return fmt.Errorf("peer node key = %v, want %v", peerKey, expectedNodeKey)
 		}
-		claim, ok := hConn.msg.GigaClaim.Get()
+		claim, ok := hConn.msg.ValidatorAuth.Get()
 		if !ok {
-			return fmt.Errorf("committee member %v: %w", expectedValidatorKey, errMissingGigaClaim)
+			return fmt.Errorf("committee member %v: %w", expectedValidatorKey, errMissingValidatorAuth)
 		}
 		if claim.Key() != expectedValidatorKey {
 			return fmt.Errorf("peer validator key = %v, want %v", claim.Key(), expectedValidatorKey)
@@ -352,7 +352,7 @@ func inAnchorEpochs(anchor data.Anchor, validator atypes.PublicKey) bool {
 // acceptInbound returns the committee identity proved by a verified inbound connection.
 // It returns None for peers without a claim or outside the Anchor epochs.
 func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[atypes.PublicKey] {
-	claim, ok := hConn.msg.GigaClaim.Get()
+	claim, ok := hConn.msg.ValidatorAuth.Get()
 	if !ok {
 		return utils.None[atypes.PublicKey]()
 	}

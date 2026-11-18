@@ -7,13 +7,13 @@
 package pb
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	_ "github.com/sei-protocol/sei-chain/sei-tendermint/proto/wireguard"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -357,11 +357,10 @@ type Handshake struct {
 	// (it is at full capacity).
 	PexAddrs          []string `protobuf:"bytes,5,rep,name=pex_addrs,json=pexAddrs,proto3" json:"pex_addrs,omitempty"`
 	SeiGigaConnection bool     `protobuf:"varint,3,opt,name=sei_giga_connection,json=seiGigaConnection,proto3" json:"sei_giga_connection,omitempty"`
-	// Committee claim; both or none.
-	ValidatorAuthKey []byte `protobuf:"bytes,6,opt,name=validator_auth_key,json=validatorAuthKey,proto3,oneof" json:"validator_auth_key,omitempty"`
-	ValidatorAuthSig []byte `protobuf:"bytes,7,opt,name=validator_auth_sig,json=validatorAuthSig,proto3,oneof" json:"validator_auth_sig,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Validator signature on the connection challenge; optional.
+	ValidatorAuth *pb.SignedChallenge `protobuf:"bytes,9,opt,name=validator_auth,json=validatorAuth,proto3,oneof" json:"validator_auth,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Handshake) Reset() {
@@ -429,16 +428,9 @@ func (x *Handshake) GetSeiGigaConnection() bool {
 	return false
 }
 
-func (x *Handshake) GetValidatorAuthKey() []byte {
+func (x *Handshake) GetValidatorAuth() *pb.SignedChallenge {
 	if x != nil {
-		return x.ValidatorAuthKey
-	}
-	return nil
-}
-
-func (x *Handshake) GetValidatorAuthSig() []byte {
-	if x != nil {
-		return x.ValidatorAuthSig
+		return x.ValidatorAuth
 	}
 	return nil
 }
@@ -447,7 +439,7 @@ var File_p2p_p2p_proto protoreflect.FileDescriptor
 
 const file_p2p_p2p_proto_rawDesc = "" +
 	"\n" +
-	"\rp2p/p2p.proto\x12\x03p2p\x1a\x19wireguard/wireguard.proto\"\f\n" +
+	"\rp2p/p2p.proto\x12\x03p2p\x1a\x19wireguard/wireguard.proto\x1a\x17autobahn/autobahn.proto\"\f\n" +
 	"\n" +
 	"PacketPing\"\f\n" +
 	"\n" +
@@ -468,19 +460,17 @@ const file_p2p_p2p_proto_rawDesc = "" +
 	"\rNodePublicKey\x12 \n" +
 	"\aed25519\x18\x01 \x01(\fB\x06؈\xe2\xab\f R\aed25519:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04R\tsecp256k1R\asr25519\"/\n" +
 	"\aPreface\x12$\n" +
-	"\x0ests_public_key\x18\x01 \x01(\fR\fstsPublicKey\"\xbf\x03\n" +
+	"\x0ests_public_key\x18\x01 \x01(\fR\fstsPublicKey\"\xa9\x03\n" +
 	"\tHandshake\x126\n" +
 	"\rnode_auth_key\x18\x01 \x01(\v2\x12.p2p.NodePublicKeyR\vnodeAuthKey\x12*\n" +
 	"\rnode_auth_sig\x18\x02 \x01(\fB\x06؈\xe2\xab\f@R\vnodeAuthSig\x12)\n" +
 	"\tself_addr\x18\x04 \x01(\tB\a؈\xe2\xab\f\xc0\x02H\x00R\bselfAddr\x88\x01\x01\x12*\n" +
 	"\tpex_addrs\x18\x05 \x03(\tB\rЈ\xe2\xab\fd؈\xe2\xab\f\xc0\x02R\bpexAddrs\x12.\n" +
-	"\x13sei_giga_connection\x18\x03 \x01(\bR\x11seiGigaConnection\x129\n" +
-	"\x12validator_auth_key\x18\x06 \x01(\fB\x06؈\xe2\xab\f H\x01R\x10validatorAuthKey\x88\x01\x01\x129\n" +
-	"\x12validator_auth_sig\x18\a \x01(\fB\x06؈\xe2\xab\f@H\x02R\x10validatorAuthSig\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\f\n" +
+	"\x13sei_giga_connection\x18\x03 \x01(\bR\x11seiGigaConnection\x12E\n" +
+	"\x0evalidator_auth\x18\t \x01(\v2\x19.autobahn.SignedChallengeH\x01R\rvalidatorAuth\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\f\n" +
 	"\n" +
-	"_self_addrB\x15\n" +
-	"\x13_validator_auth_keyB\x15\n" +
-	"\x13_validator_auth_sigJ\x04\b\b\x10\tR\aevm_rpcBBZ@github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pbb\x06proto3"
+	"_self_addrB\x11\n" +
+	"\x0f_validator_authJ\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\b\x10\tR\x12validator_auth_keyR\x12validator_auth_sigR\aevm_rpcBBZ@github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pbb\x06proto3"
 
 var (
 	file_p2p_p2p_proto_rawDescOnce sync.Once
@@ -496,24 +486,26 @@ func file_p2p_p2p_proto_rawDescGZIP() []byte {
 
 var file_p2p_p2p_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_p2p_p2p_proto_goTypes = []any{
-	(*PacketPing)(nil),    // 0: p2p.PacketPing
-	(*PacketPong)(nil),    // 1: p2p.PacketPong
-	(*PacketMsg)(nil),     // 2: p2p.PacketMsg
-	(*Packet)(nil),        // 3: p2p.Packet
-	(*NodePublicKey)(nil), // 4: p2p.NodePublicKey
-	(*Preface)(nil),       // 5: p2p.Preface
-	(*Handshake)(nil),     // 6: p2p.Handshake
+	(*PacketPing)(nil),         // 0: p2p.PacketPing
+	(*PacketPong)(nil),         // 1: p2p.PacketPong
+	(*PacketMsg)(nil),          // 2: p2p.PacketMsg
+	(*Packet)(nil),             // 3: p2p.Packet
+	(*NodePublicKey)(nil),      // 4: p2p.NodePublicKey
+	(*Preface)(nil),            // 5: p2p.Preface
+	(*Handshake)(nil),          // 6: p2p.Handshake
+	(*pb.SignedChallenge)(nil), // 7: autobahn.SignedChallenge
 }
 var file_p2p_p2p_proto_depIdxs = []int32{
 	0, // 0: p2p.Packet.packet_ping:type_name -> p2p.PacketPing
 	1, // 1: p2p.Packet.packet_pong:type_name -> p2p.PacketPong
 	2, // 2: p2p.Packet.packet_msg:type_name -> p2p.PacketMsg
 	4, // 3: p2p.Handshake.node_auth_key:type_name -> p2p.NodePublicKey
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	7, // 4: p2p.Handshake.validator_auth:type_name -> autobahn.SignedChallenge
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_p2p_p2p_proto_init() }

@@ -63,7 +63,7 @@ func handshakePairIn(
 	return got
 }
 
-func TestHandshakeAuthenticatesGigaClaim(t *testing.T) {
+func TestHandshakeAuthenticatesValidatorAuth(t *testing.T) {
 	rng := utils.TestRng()
 	nodeKeys := [2]NodeSecretKey{makeKey(rng), makeKey(rng)}
 	validatorKeys := [2]atypes.SecretKey{atypes.GenSecretKey(rng), atypes.GenSecretKey(rng)}
@@ -80,7 +80,7 @@ func TestHandshakeAuthenticatesGigaClaim(t *testing.T) {
 	})
 	for i := range got {
 		peer := 1 - i
-		claim := got[i].msg.GigaClaim.OrPanic("missing peer giga claim")
+		claim := got[i].msg.ValidatorAuth.OrPanic("missing peer giga claim")
 		require.Equal(t, validatorKeys[peer].Public(), claim.Key())
 		require.Equal(t, selfAddrs[peer], got[i].msg.SelfAddr.OrPanic("missing peer SelfAddr"))
 
@@ -109,9 +109,9 @@ func TestHandshakeAcceptsFullnodeWithoutClaim(t *testing.T) {
 			utils.None[handshakeOffer](),
 		},
 	)
-	require.False(t, got[0].msg.GigaClaim.IsPresent())
+	require.False(t, got[0].msg.ValidatorAuth.IsPresent())
 	require.Equal(t, fullnodeNode.Public(), got[0].msg.NodeAuth.Key())
-	require.Equal(t, validatorKey.Public(), got[1].msg.GigaClaim.OrPanic("validator omitted giga claim").Key())
+	require.Equal(t, validatorKey.Public(), got[1].msg.ValidatorAuth.OrPanic("validator omitted giga claim").Key())
 }
 
 func TestHandshakeRejectsClaimOnNonGiga(t *testing.T) {
@@ -128,13 +128,13 @@ func TestHandshakeRejectsClaimOnNonGiga(t *testing.T) {
 			return writeHandshake(ctx, sc, nodeKey, handshakeSpec{
 				SelfAddr:          utils.Some(selfAddr),
 				SeiGigaConnection: false,
-			}, utils.Some(validatorKey.SignChallenge(sc.Challenge())))
+			}, utils.Some(validatorKey.Sign(sc.Challenge())))
 		},
 	)
-	require.ErrorIs(t, err, errGigaClaimOnNonGiga)
+	require.ErrorIs(t, err, errValidatorAuthOnNonGiga)
 }
 
-func TestHandshakeRejectsBadGigaClaimSig(t *testing.T) {
+func TestHandshakeRejectsBadValidatorAuthSig(t *testing.T) {
 	rng := utils.TestRng()
 	nodeKey := makeKey(rng)
 	validatorKey := atypes.GenSecretKey(rng)
@@ -145,14 +145,29 @@ func TestHandshakeRejectsBadGigaClaimSig(t *testing.T) {
 		SeiGigaConnection: true,
 	}, utils.None[handshakeOffer](),
 		func(ctx context.Context, sc *conn.SecretConnection) error {
-			claim := validatorKey.SignChallenge(sc.Challenge())
-			sig := claim.Bytes()
-			sig[0] ^= 1
-			claim = utils.OrPanic1(atypes.ChallengeSigFromBytes(claim.Key(), sig))
+			claim := validatorKey.Sign(sc.Challenge())
+			encoded := atypes.SignedChallengeConv.Encode(claim)
+			encoded.Sig.Sig[0] ^= 1
+			claim = utils.OrPanic1(atypes.SignedChallengeConv.Decode(encoded))
 			return writeHandshake(ctx, sc, nodeKey, handshakeSpec{
 				SelfAddr:          utils.Some(selfAddr),
 				SeiGigaConnection: true,
 			}, utils.Some(claim))
+		},
+	)
+	require.Error(t, err)
+}
+
+func TestHandshakeRejectsDifferentChallenge(t *testing.T) {
+	rng := utils.TestRng()
+	nodeKey := makeKey(rng)
+	validatorKey := atypes.GenSecretKey(rng)
+	err := handshakeAgainst(t, nodeKey, handshakeSpec{SeiGigaConnection: true}, utils.None[handshakeOffer](),
+		func(ctx context.Context, sc *conn.SecretConnection) error {
+			challenge := sc.Challenge()
+			challenge[0] ^= 1
+			return writeHandshake(ctx, sc, nodeKey, handshakeSpec{SeiGigaConnection: true},
+				utils.Some(validatorKey.Sign(challenge)))
 		},
 	)
 	require.Error(t, err)
@@ -169,7 +184,7 @@ func TestHandshakeAcceptsClaimWithoutSelfAddr(t *testing.T) {
 		utils.Some(handshakeOffer{ValidatorKey: validatorKey}),
 		utils.None[handshakeOffer](),
 	})
-	require.Equal(t, validatorKey.Public(), got[1].msg.GigaClaim.OrPanic("missing claim").Key())
+	require.Equal(t, validatorKey.Public(), got[1].msg.ValidatorAuth.OrPanic("missing claim").Key())
 }
 
 func handshakeAgainst(
@@ -211,11 +226,11 @@ func writeHandshake(
 	sc *conn.SecretConnection,
 	key NodeSecretKey,
 	spec handshakeSpec,
-	claim utils.Option[atypes.ChallengeSig],
+	claim utils.Option[*atypes.Signed[atypes.Challenge]],
 ) error {
 	msg := &handshakeMsg{NodeAuth: key.SignChallenge(sc.Challenge()), handshakeSpec: spec}
 	if c, ok := claim.Get(); ok {
-		msg.GigaClaim = utils.Some(c)
+		msg.ValidatorAuth = utils.Some(c)
 	}
 	if err := conn.WriteSizedMsg(ctx, sc, handshakeMsgConv.Marshal(msg)); err != nil {
 		return err

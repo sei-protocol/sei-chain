@@ -2,10 +2,10 @@
 package pb
 
 import (
-	reflect "reflect"
-
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	runtime "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	reflect "reflect"
 )
 
 func (*NodePublicKey) MaxSize() int {
@@ -13,7 +13,7 @@ func (*NodePublicKey) MaxSize() int {
 }
 
 func (*Handshake) MaxSize() int {
-	return 32827
+	return 32870
 }
 
 func init() {
@@ -54,8 +54,7 @@ func init() {
 		4: {MaxCount: 1, MaxSize: 320},
 		5: {MaxCount: 100, MaxSize: 320},
 		3: {MaxCount: 1},
-		6: {MaxCount: 1, MaxSize: 32},
-		7: {MaxCount: 1, MaxSize: 64},
+		9: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedChallenge]())},
 	})
 
 }

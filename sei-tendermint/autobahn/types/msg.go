@@ -15,11 +15,12 @@ import (
 
 var autobahnTag = utils.OrPanic1(ed25519.NewTag("sei_giga_autobahn"))
 
-// Challenge is the authentication challenge of a P2P secret connection.
-type Challenge [32]byte
-
 // Msg is the interface for all messages signable by a stream node.
 type Msg interface{ asMsg() *pb.Msg }
+
+func (m Challenge) asMsg() *pb.Msg {
+	return &pb.Msg{T: &pb.Msg_Challenge{Challenge: ChallengeConv.Encode(m)}}
+}
 
 func (m *LaneProposal) asMsg() *pb.Msg {
 	return &pb.Msg{T: &pb.Msg_LaneProposal{LaneProposal: LaneProposalConv.Encode(m)}}
@@ -168,7 +169,7 @@ func (k SecretKey) Sign[T Msg](msg T) *Signed[T] {
 	}
 }
 
-// Signature represents a signature on the consensus message.
+// Signature represents a signature on a validator's message.
 type Signature struct {
 	utils.ReadOnly
 	key PublicKey
@@ -284,6 +285,8 @@ var MsgConv = protoutils.Conv[Msg, *pb.Msg]{
 			return TimeoutVoteConv.DecodeReq(t.TimeoutVote)
 		case *pb.Msg_AppVote:
 			return AppVoteConv.DecodeReq(t.AppVote)
+		case *pb.Msg_Challenge:
+			return ChallengeConv.DecodeReq(t.Challenge)
 		default:
 			return nil, fmt.Errorf("unknown Msg type: %T", t)
 		}

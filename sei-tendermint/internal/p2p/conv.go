@@ -93,7 +93,7 @@ type handshakeSpec struct {
 type handshakeMsg struct {
 	NodeAuth NodeChallengeSig
 	handshakeSpec
-	GigaClaim utils.Option[atypes.ChallengeSig]
+	ValidatorAuth utils.Option[*atypes.Signed[atypes.Challenge]]
 }
 
 var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
@@ -106,18 +106,14 @@ var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 		for i, addr := range m.PexAddrs {
 			pexAddrs[i] = addr.String()
 		}
-		out := &pb.Handshake{
+		return &pb.Handshake{
 			NodeAuthKey:       nodePublicKeyConv.Encode(m.NodeAuth.Key()),
 			NodeAuthSig:       m.NodeAuth.sig.Bytes(),
 			SelfAddr:          selfAddr,
 			PexAddrs:          pexAddrs,
 			SeiGigaConnection: m.SeiGigaConnection,
+			ValidatorAuth:     atypes.SignedChallengeConv.EncodeOpt(m.ValidatorAuth),
 		}
-		if claim, ok := m.GigaClaim.Get(); ok {
-			out.ValidatorAuthKey = claim.Key().Bytes()
-			out.ValidatorAuthSig = claim.Bytes()
-		}
-		return out
 	},
 	Decode: func(p *pb.Handshake) (*handshakeMsg, error) {
 		nodeAuthKey, err := nodePublicKeyConv.DecodeReq(p.NodeAuthKey)
@@ -144,9 +140,9 @@ var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 			}
 			pexAddrs[i] = addr
 		}
-		claim, err := decodeGigaClaim(p)
+		validatorAuth, err := atypes.SignedChallengeConv.DecodeOpt(p.ValidatorAuth)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("ValidatorAuth: %w", err)
 		}
 		return &handshakeMsg{
 			NodeAuth: NodeChallengeSig{key: nodeAuthKey, sig: nodeAuthSig},
@@ -155,26 +151,7 @@ var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 				PexAddrs:          pexAddrs,
 				SeiGigaConnection: p.SeiGigaConnection,
 			},
-			GigaClaim: claim,
+			ValidatorAuth: validatorAuth,
 		}, nil
 	},
-}
-
-func decodeGigaClaim(p *pb.Handshake) (utils.Option[atypes.ChallengeSig], error) {
-	isValidator := p.ValidatorAuthKey != nil || p.ValidatorAuthSig != nil
-	if !isValidator {
-		return utils.None[atypes.ChallengeSig](), nil
-	}
-	if p.ValidatorAuthKey == nil || p.ValidatorAuthSig == nil {
-		return utils.None[atypes.ChallengeSig](), fmt.Errorf("giga claim requires validator_auth_key and validator_auth_sig")
-	}
-	valKey, err := atypes.PublicKeyFromBytes(p.ValidatorAuthKey)
-	if err != nil {
-		return utils.None[atypes.ChallengeSig](), fmt.Errorf("ValidatorAuthKey: %w", err)
-	}
-	valSig, err := atypes.ChallengeSigFromBytes(valKey, p.ValidatorAuthSig)
-	if err != nil {
-		return utils.None[atypes.ChallengeSig](), fmt.Errorf("ValidatorAuthSig: %w", err)
-	}
-	return utils.Some(valSig), nil
 }
