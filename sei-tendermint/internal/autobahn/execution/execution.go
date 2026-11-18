@@ -54,8 +54,8 @@ func (e *Executor) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
 }
 
 // Run initializes the app, then executes the durable blocks after its tip in
-// road order until ctx is canceled or a block fails. A canceled ctx lets the
-// block in progress complete and starts no other.
+// road order until ctx is canceled or a block fails. A cancel does not
+// interrupt a block in progress.
 func (e *Executor) Run(ctx context.Context) error {
 	next, err := e.initApp(ctx)
 	if err != nil {
@@ -64,17 +64,12 @@ func (e *Executor) Run(ctx context.Context) error {
 	for n := next; ; n++ {
 		gigametrics.SetPhase(gigametrics.PhaseConsensus)
 		block, err := e.cfg.BlockStore.WaitForBlock(ctx, n)
-		if err == nil {
-			// WaitForBlock() can return a block that raced the cancel.
-			err = ctx.Err()
-		}
 		if err != nil {
 			logStopped(n-1, false)
 			return fmt.Errorf("WaitForBlock(%v): %w", n, err)
 		}
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		// A cancel must not abort a block after some stores have taken its writes.
-		if err := e.executeBlock(context.WithoutCancel(ctx), block.SuperBlock()); err != nil {
+		if err := e.executeBlock(block.SuperBlock()); err != nil {
 			return fmt.Errorf("executeBlock(%v): %w", n, err)
 		}
 		if err := ctx.Err(); err != nil {
@@ -150,8 +145,10 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 }
 
 // executeBlock reports b's hash to the app hash builder, then finalizes and
-// commits b.
-func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error {
+// commits b. A cancel does not interrupt it.
+func (e *Executor) executeBlock(b *atypes.SuperBlock) error {
+	// A cancel must not abort a block after some stores have taken its writes.
+	ctx := context.Background()
 	if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
 		return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 	}
