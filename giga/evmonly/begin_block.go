@@ -49,7 +49,7 @@ func customBeginBlockers(registry precompiles.Registry) []beginBlocker {
 	return blockers
 }
 
-// runBeginBlockers credits the genesis alloc at its height, then runs every
+// runBeginBlockers applies the genesis alloc at its height, then runs every
 // begin blocker against source, the state before the block, and returns the
 // changes they made. replay marks a run that only rebuilds the block's state.
 func (e *Executor) runBeginBlockers(block BlockContext, source StateReader, replay bool) (StateChangeSet, error) {
@@ -60,7 +60,7 @@ func (e *Executor) runBeginBlockers(block BlockContext, source StateReader, repl
 	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
 	if genesis {
-		e.genesis.credit(stateDB)
+		e.genesis.apply(stateDB)
 	}
 	blockCtx := endBlockContext(block, e.chainConfig(block).ChainID)
 	blockCtx.Replay = replay
