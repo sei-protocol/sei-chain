@@ -85,7 +85,7 @@ func makeTestGigaDeps() (*proxy.EVMProxy, *types.GenesisDoc) {
 		ConsensusParams: &types.ConsensusParams{
 			Block: types.BlockParams{MaxGas: testGenesisMaxGas},
 		},
-		Autobahn: types.DefaultAutobahnParams(),
+		Autobahn: utils.Some(types.DefaultAutobahnParams()),
 	}
 	return app, genDoc
 }
@@ -177,7 +177,9 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 	nodeKey := makeTestNodeKey([]byte("node1-seed"))
 	valKey := makeTestValidatorKey([]byte("val1-seed"))
 	txMempool, genDoc := makeTestGigaDeps()
-	genDoc.Autobahn.ViewTimeout = 3 * time.Second
+	params := types.DefaultAutobahnParams()
+	params.ViewTimeout = 3 * time.Second
+	genDoc.Autobahn = utils.Some(params)
 
 	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 	require.NoError(t, err)

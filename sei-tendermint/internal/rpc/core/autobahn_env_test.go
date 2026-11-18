@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
@@ -49,7 +50,20 @@ type broadcastEVMApp struct{ proxy.EVMApplication }
 
 func (broadcastEVMApp) LastBlockHeight() int64 { return 0 }
 
+// EvmNonce is the nonce the producer reports before its mempool is running.
+func (broadcastEVMApp) EvmNonce(common.Address) uint64 { return 7 }
+
 func newAutobahnBroadcastEnv(t *testing.T) *Environment {
+	t.Helper()
+	return newAutobahnEnv(t, true)
+}
+
+func newAutobahnFullnodeEnv(t *testing.T) *Environment {
+	t.Helper()
+	return newAutobahnEnv(t, false)
+}
+
+func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 	t.Helper()
 	rng := utils.TestRng()
 	_, keys := atypes.GenCommittee(rng, 1)
@@ -82,21 +96,30 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	}
 	dataState, err := p2p.BuildDataState(&commonCfg, blockStore)
 	require.NoError(t, err)
-	giga, err := p2p.NewGigaValidatorRouter(&p2p.GigaValidatorConfig{
-		GigaRouterCommonConfig: commonCfg,
-		ValidatorKey:           valKey,
-		ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
-		ProposalTimeout:        time.Hour,
-		Producer: &producer.Config{
-			MaxGasWantedPerBlock:    1,
-			MaxGasEstimatedPerBlock: 1,
-			MaxTxsPerBlock:          1,
-			MaxTxsPerSecond:         utils.None[uint64](),
-			BlockInterval:           time.Second,
-		},
-	}, nodeKey, dataState)
-	require.NoError(t, err)
-	require.True(t, giga.Mempool().IsPresent(), "validator GigaRouter must expose a mempool so a regression would wait, not take the fullnode shortcut")
+	var giga p2p.GigaRouter
+	if validator {
+		router, err := p2p.NewGigaValidatorRouter(&p2p.GigaValidatorConfig{
+			GigaRouterCommonConfig: commonCfg,
+			ValidatorKey:           valKey,
+			ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
+			ProposalTimeout:        time.Hour,
+			Producer: &producer.Config{
+				MaxGasWantedPerBlock:    1,
+				MaxGasEstimatedPerBlock: 1,
+				MaxTxsPerBlock:          1,
+				MaxTxsPerSecond:         utils.None[uint64](),
+				BlockInterval:           time.Second,
+			},
+		}, nodeKey, dataState)
+		require.NoError(t, err)
+		require.True(t, router.Mempool().IsPresent(), "validator GigaRouter must expose a mempool so a regression would wait, not take the fullnode shortcut")
+		giga = router
+	} else {
+		router, err := p2p.NewGigaFullnodeRouter(&commonCfg, nodeKey, dataState)
+		require.NoError(t, err)
+		require.False(t, router.Mempool().IsPresent())
+		giga = router
+	}
 	endpoint := p2p.Endpoint{AddrPort: tcp.TestReserveAddr()}
 	nodeInfo := types.NodeInfo{
 		NodeID:     nodeKey.Public().NodeID(),

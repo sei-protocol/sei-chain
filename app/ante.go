@@ -83,7 +83,6 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, sdk.AnteHandler, e
 		sequentialVerifyDecorator,
 		ante.NewIncrementSequenceDecorator(options.AccountKeeper),
 		evmante.NewEVMAddressDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper()),
-		antedecorators.NewAuthzNestedMessageDecorator(),
 	}
 
 	anteHandler := sdk.ChainAnteDecorators(anteDecorators...)
