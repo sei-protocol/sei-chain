@@ -600,7 +600,7 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 			return nil, fmt.Errorf("unexpected block number: got %v, want %v", n, ls.blocks.next)
 		}
 		parent := ls.lastHash.Or(types.BlockHeaderHash{})
-		result = types.Sign(s.key, types.NewLaneProposal(types.NewBlock(lane, ls.blocks.next, parent, payload)))
+		result = s.key.Sign(types.NewLaneProposal(types.NewBlock(lane, ls.blocks.next, parent, payload)))
 		ls.blocks.pushBack(result)
 		ls.lastHash = utils.Some(result.Msg().Block().Header().Hash())
 		ctrl.Updated()

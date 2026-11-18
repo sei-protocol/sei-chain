@@ -102,7 +102,7 @@ func TestMarshal(t *testing.T) {
 func makePrepareQC(keys []SecretKey, vote *PrepareVote) *PrepareQC {
 	var votes []*Signed[*PrepareVote]
 	for _, k := range keys {
-		votes = append(votes, Sign(k, vote))
+		votes = append(votes, k.Sign(vote))
 	}
 	return NewPrepareQC(votes)
 }

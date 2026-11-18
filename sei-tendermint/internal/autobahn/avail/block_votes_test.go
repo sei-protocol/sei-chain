@@ -61,11 +61,11 @@ func TestBlockVotes_CountsLaneQCOncePerBlock(t *testing.T) {
 	bv := newBlockVotes()
 	beforeQC := gathered(t, "tendermint_internal_autobahn_avail_lane_qcs", nil)
 	beforeVotes := gathered(t, "tendermint_internal_autobahn_avail_lane_votes_ingested", nil)
-	first := types.Sign(keys[0], types.NewLaneVote(h))
+	first := keys[0].Sign(types.NewLaneVote(h))
 	bv.pushVote(ep, first)
 	bv.pushVote(ep, first)
 	for _, k := range keys[1:] {
-		bv.pushVote(ep, types.Sign(k, types.NewLaneVote(h)))
+		bv.pushVote(ep, k.Sign(types.NewLaneVote(h)))
 	}
 	require.True(t, bv.qc.IsPresent())
 	require.Equal(t, beforeQC+1, gathered(t, "tendermint_internal_autobahn_avail_lane_qcs", nil))
@@ -94,7 +94,7 @@ func TestBlockVotes_CountsLaneQCAcrossReweight(t *testing.T) {
 	lane := ep0.Committee().Lane(keys[0].Public()).OrPanic("lane")
 	h := types.NewBlock(lane, 0, types.BlockHeaderHash{}, &types.Payload{}).Header()
 	vote := func(k types.SecretKey) *types.Signed[*types.LaneVote] {
-		return types.Sign(k, types.NewLaneVote(h))
+		return k.Sign(types.NewLaneVote(h))
 	}
 
 	bv := newBlockVotes()
@@ -133,7 +133,7 @@ func TestBlockVotes_Reweight(t *testing.T) {
 		ep0 := mk(map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1, c.Public(): 1, d.Public(): 1}, 0, 0, 10)
 		h := headerOn(ep0, a)
 		vote := func(sk types.SecretKey) *types.Signed[*types.LaneVote] {
-			return types.Sign(sk, types.NewLaneVote(h))
+			return sk.Sign(types.NewLaneVote(h))
 		}
 		bv := newBlockVotes()
 		require.True(t, bv.pushVote(ep0, vote(a)))
@@ -160,7 +160,7 @@ func TestBlockVotes_Reweight(t *testing.T) {
 		}, 0, 0, 10)
 		h := headerOn(ep0, a)
 		bv := newBlockVotes()
-		bv.pushVote(ep0, types.Sign(d, types.NewLaneVote(h)))
+		bv.pushVote(ep0, d.Sign(types.NewLaneVote(h)))
 		ep1 := types.NewEpoch(1, types.RoadRange{First: 10, Next: 20}, utils.OrPanic1(ep0.Committee().DeriveNext(map[types.PublicKey]uint64{a.Public(): 1}, 1)))
 		bv.reweight(ep1)
 		require.False(t, bv.qc.IsPresent())
@@ -172,7 +172,7 @@ func TestBlockVotes_Reweight(t *testing.T) {
 		require.Equal(t, uint64(2), ep0.Committee().LaneQuorum())
 		h := headerOn(ep0, a)
 		bv := newBlockVotes()
-		require.True(t, bv.pushVote(ep0, types.Sign(a, types.NewLaneVote(h))))
+		require.True(t, bv.pushVote(ep0, a.Sign(types.NewLaneVote(h))))
 		require.True(t, bv.qc.IsPresent())
 		ep1 := types.NewEpoch(1, types.RoadRange{First: 10, Next: 20}, utils.OrPanic1(ep0.Committee().DeriveNext(map[types.PublicKey]uint64{
 			a.Public(): 1, b.Public(): 1, c.Public(): 5, d.Public(): 5,
@@ -188,7 +188,7 @@ func TestBlockVotes_Reweight(t *testing.T) {
 		require.Equal(t, uint64(4), ep0.Committee().LaneQuorum())
 		h := headerOn(ep0, a)
 		vote := func(sk types.SecretKey) *types.Signed[*types.LaneVote] {
-			return types.Sign(sk, types.NewLaneVote(h))
+			return sk.Sign(types.NewLaneVote(h))
 		}
 		bv := newBlockVotes()
 		require.True(t, bv.pushVote(ep0, vote(a)))

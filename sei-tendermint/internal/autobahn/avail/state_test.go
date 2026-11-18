@@ -31,7 +31,7 @@ func pushPeerLaneBlock(state *State, key types.SecretKey, payload *types.Payload
 		if ls.blocks.first < ls.blocks.next {
 			parent = ls.blocks.q[ls.blocks.next-1].Msg().Block().Header().Hash()
 		}
-		b = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, n, parent, payload)))
+		b = key.Sign(types.NewLaneProposal(types.NewBlock(lane, n, parent, payload)))
 		ls.blocks.pushBack(b)
 		ctrl.Updated()
 	}
@@ -45,7 +45,7 @@ func persistTestLocalBlocks(t testing.TB, dir string, key types.SecretKey, block
 	for _, block := range blocks {
 		lane := block.Header().Lane()
 		if lane.Validator == key.Public() {
-			require.NoError(t, bp.PruneAndPersist(lane, 0, []*types.Signed[*types.LaneProposal]{types.Sign(key, types.NewLaneProposal(block))}))
+			require.NoError(t, bp.PruneAndPersist(lane, 0, []*types.Signed[*types.LaneProposal]{key.Sign(types.NewLaneProposal(block))}))
 		}
 	}
 	require.NoError(t, bp.Close())
@@ -64,7 +64,7 @@ func makeAppVotes(keys []types.SecretKey, proposal *types.AppProposal) []*types.
 	vote := types.NewAppVote(proposal)
 	var votes []*types.Signed[*types.AppVote]
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, vote))
+		votes = append(votes, k.Sign(vote))
 	}
 	return votes
 }
@@ -72,7 +72,7 @@ func makeAppVotes(keys []types.SecretKey, proposal *types.AppProposal) []*types.
 func makeLaneVotes(keys []types.SecretKey, h *types.BlockHeader) []*types.Signed[*types.LaneVote] {
 	var votes []*types.Signed[*types.LaneVote]
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewLaneVote(h)))
+		votes = append(votes, k.Sign(types.NewLaneVote(h)))
 	}
 	return votes
 }
@@ -544,7 +544,7 @@ func TestPushBlockWaitsForPruningOnBadParentHash(t *testing.T) {
 		require.NoError(t, err)
 		// Generate mismatching 2nd block.
 		fakeBlock := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
-		fakeProp := types.Sign(keys[0], types.NewLaneProposal(fakeBlock))
+		fakeProp := keys[0].Sign(types.NewLaneProposal(fakeBlock))
 
 		require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
 			// Push 2nd block asynchronously. It should wait.
@@ -708,7 +708,7 @@ func TestPushBlockRejectsWrongSigner(t *testing.T) {
 	lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("lane")
 	// Create a block on keys[0]'s lane but sign it with keys[1].
 	block := types.NewBlock(lane, 0, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
-	prop := types.Sign(keys[1], types.NewLaneProposal(block))
+	prop := keys[1].Sign(types.NewLaneProposal(block))
 
 	err := state.PushBlock(ctx, prop)
 	require.Error(t, err)
@@ -791,7 +791,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		var parent types.BlockHeaderHash
 		for n := range types.BlockNumber(3) {
 			block := types.NewBlock(lane, n, parent, types.GenPayload(rng))
-			signed := types.Sign(keys[0], types.NewLaneProposal(block))
+			signed := keys[0].Sign(types.NewLaneProposal(block))
 			parent = block.Header().Hash()
 			require.NoError(t, bp.PruneAndPersist(
 				lane,
@@ -891,7 +891,7 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 			ep0 := registry.MustEpoch(0)
 			lane := ep0.Committee().Lane(stay.Public()).OrPanic("stay lane")
 			header := types.NewBlock(lane, 0, types.BlockHeaderHash{}, &types.Payload{}).Header()
-			leaverVote := types.Sign(leaver, types.NewLaneVote(header))
+			leaverVote := leaver.Sign(types.NewLaneVote(header))
 
 			if err := registry.TestPushEpoch(0, map[types.PublicKey]uint64{stay.Public(): 1, a.Public(): 1, b.Public(): 1}); err != nil {
 				return err

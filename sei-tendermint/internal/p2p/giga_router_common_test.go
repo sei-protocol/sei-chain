@@ -410,7 +410,7 @@ func testRouterAtRoad(t *testing.T, registry *epoch.Registry, keys []atypes.Secr
 	votes := make([]*atypes.Signed[*atypes.CommitVote], 0, len(keys))
 	prepareQC := atypes.BuildPrepareQC(keys, proposal)
 	for _, k := range keys {
-		votes = append(votes, atypes.Sign(k, atypes.NewCommitVote(prepareQC)))
+		votes = append(votes, k.Sign(atypes.NewCommitVote(prepareQC)))
 	}
 	headers := make([]*atypes.BlockHeader, len(blocks))
 	for i, b := range blocks {
@@ -940,7 +940,7 @@ func testRoadQC(ep *atypes.Epoch, keys []atypes.SecretKey, road atypes.RoadIndex
 	votes := make([]*atypes.Signed[*atypes.CommitVote], 0, len(keys))
 	prepareQC := atypes.BuildPrepareQC(keys, proposal)
 	for _, k := range keys {
-		votes = append(votes, atypes.Sign(k, atypes.NewCommitVote(prepareQC)))
+		votes = append(votes, k.Sign(atypes.NewCommitVote(prepareQC)))
 	}
 	return atypes.NewFullCommitQC(atypes.NewCommitQC(votes), []*atypes.BlockHeader{block.Header()}), []*atypes.Block{block}
 }

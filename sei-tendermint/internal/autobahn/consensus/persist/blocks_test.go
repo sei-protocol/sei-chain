@@ -14,7 +14,7 @@ import (
 func testSignedProposal(rng utils.Rng, key types.SecretKey, n types.BlockNumber) *types.Signed[*types.LaneProposal] {
 	lane := types.LaneID{Validator: key.Public(), Joined: 0}
 	block := types.NewBlock(lane, n, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
-	return types.Sign(key, types.NewLaneProposal(block))
+	return key.Sign(types.NewLaneProposal(block))
 }
 
 func testPersistBlock(t *testing.T, bp *BlockPersister, p *types.Signed[*types.LaneProposal]) {
@@ -550,7 +550,7 @@ func TestSyncLanesDeletesOpenLane(t *testing.T) {
 
 	leaver := types.GenSecretKey(rng)
 	lane := types.LaneID{Validator: leaver.Public(), Joined: 0}
-	proposal := types.Sign(leaver, types.NewLaneProposal(
+	proposal := leaver.Sign(types.NewLaneProposal(
 		types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)),
 	))
 

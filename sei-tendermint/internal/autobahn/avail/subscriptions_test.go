@@ -282,7 +282,7 @@ func TestBlock_WaitForFutureLane(t *testing.T) {
 				rng := utils.TestRng()
 				state := utils.OrPanic1(NewState(joiner, newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
 				defer func() { require.NoError(t, state.Close()) }()
-				want := types.Sign(joiner, types.NewLaneProposal(types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))))
+				want := joiner.Sign(types.NewLaneProposal(types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))))
 				require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 					// PushBlock should succeed in both cases.
 					sc.Spawn(func() error { return state.PushBlock(ctx, want) })

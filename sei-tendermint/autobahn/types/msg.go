@@ -164,13 +164,13 @@ func (k SecretKey) String() string {
 func (k SecretKey) GoString() string { return k.String() }
 
 // Sign signs a message.
-func Sign[T Msg](key SecretKey, msg T) *Signed[T] {
+func (k SecretKey) Sign[T Msg](msg T) *Signed[T] {
 	hMsg := NewHashed(msg)
 	return &Signed[T]{
 		hashed: hMsg,
 		sig: &Signature{
-			key: key.Public(),
-			sig: key.key.SignWithTag(autobahnTag, hMsg.hash[:]),
+			key: k.Public(),
+			sig: k.key.SignWithTag(autobahnTag, hMsg.hash[:]),
 		},
 	}
 }

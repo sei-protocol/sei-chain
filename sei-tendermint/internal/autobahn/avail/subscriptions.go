@@ -102,7 +102,7 @@ func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.L
 	// We should sign votes as soon as blocks arrive and cache them (in PushBlock and ProduceBlock).
 	votes := make([]*types.Signed[*types.LaneVote], len(batch))
 	for i, h := range batch {
-		votes[i] = types.Sign(r.state.key, types.NewLaneVote(h))
+		votes[i] = r.state.key.Sign(types.NewLaneVote(h))
 	}
 	return votes, nil
 }
@@ -127,6 +127,6 @@ func (r *AppVotesRecv) Recv(ctx context.Context) (*types.Signed[*types.AppVote],
 			return nil, err
 		}
 		r.next = vote.Proposal().Index() + 1
-		return types.Sign(r.state.key, vote), nil
+		return r.state.key.Sign(vote), nil
 	}
 }

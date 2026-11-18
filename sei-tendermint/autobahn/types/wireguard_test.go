@@ -86,7 +86,7 @@ func TestLaneQCWireguardAcceptsMaxValidators(t *testing.T) {
 	vote := NewLaneVote(NewBlock(lane, 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
 	votes := make([]*Signed[*LaneVote], len(keys))
 	for i, key := range keys {
-		votes[i] = Sign(key, vote)
+		votes[i] = key.Sign(vote)
 	}
 	qc := NewLaneQC(votes)
 
@@ -103,7 +103,7 @@ func TestPrepareQCWireguardAcceptsMaxValidators(t *testing.T) {
 	vote := NewPrepareVote(voteProposal)
 	votes := make([]*Signed[*PrepareVote], len(keys))
 	for i, key := range keys {
-		votes[i] = Sign(key, vote)
+		votes[i] = key.Sign(vote)
 	}
 	qc := NewPrepareQC(votes)
 
@@ -120,7 +120,7 @@ func TestCommitQCWireguardAcceptsMaxValidators(t *testing.T) {
 	vote := NewCommitVote(BuildPrepareQC(keys, voteProposal))
 	votes := make([]*Signed[*CommitVote], len(keys))
 	for i, key := range keys {
-		votes[i] = Sign(key, vote)
+		votes[i] = key.Sign(vote)
 	}
 	qc := NewCommitQC(votes)
 
@@ -149,7 +149,7 @@ func TestFullCommitQCWireguardAcceptsMaxValidatorsAndHeaders(t *testing.T) {
 	vote := NewCommitVote(BuildPrepareQC(keys, proposal))
 	votes := make([]*Signed[*CommitVote], len(keys))
 	for i, key := range keys {
-		votes[i] = Sign(key, vote)
+		votes[i] = key.Sign(vote)
 	}
 	qc := NewFullCommitQC(NewCommitQC(votes), headers)
 
@@ -164,7 +164,7 @@ func TestAppQCWireguardAcceptsMaxValidators(t *testing.T) {
 	vote := NewAppVote(GenAppProposal(rng))
 	votes := make([]*Signed[*AppVote], len(keys))
 	for i, key := range keys {
-		votes[i] = Sign(key, vote)
+		votes[i] = key.Sign(vote)
 	}
 	qc := NewAppQC(votes)
 
@@ -195,7 +195,7 @@ func TestFullProposalWireguardAcceptsMaxValidators(t *testing.T) {
 	for lane := range committee.Lanes().All() {
 		key := secretKeyFor(keys, lane.Validator)
 		vote := NewLaneVote(NewBlock(lane, 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
-		laneQCs[lane] = NewLaneQC([]*Signed[*LaneVote]{Sign(key, vote)})
+		laneQCs[lane] = NewLaneQC([]*Signed[*LaneVote]{key.Sign(vote)})
 	}
 	proposal, err := NewProposal(
 		secretKeyFor(keys, committee.Leader(View{})),

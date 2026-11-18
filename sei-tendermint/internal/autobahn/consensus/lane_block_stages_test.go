@@ -25,7 +25,7 @@ func TestLaneBlockStagesFollowTheCurrentProposal(t *testing.T) {
 	}
 	var votes []*types.Signed[*types.LaneVote]
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewLaneVote(tip)))
+		votes = append(votes, k.Sign(types.NewLaneVote(tip)))
 	}
 	vs := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{Epoch: ep}}
 	proposal := utils.OrPanic1(types.NewProposalForTesting(ep.Committee(), vs, vs.NextTimestamp(), map[types.LaneID]*types.LaneQC{
@@ -35,7 +35,7 @@ func TestLaneBlockStagesFollowTheCurrentProposal(t *testing.T) {
 
 	var prepareVotes []*types.Signed[*types.PrepareVote]
 	for _, k := range keys {
-		prepareVotes = append(prepareVotes, types.Sign(k, types.NewPrepareVote(proposal)))
+		prepareVotes = append(prepareVotes, k.Sign(types.NewPrepareVote(proposal)))
 	}
 
 	noProposal := inner{}
@@ -66,14 +66,14 @@ func TestLaneBlockStagesPartitionThePositionsPastTheCommittedTip(t *testing.T) {
 	}
 	var votes []*types.Signed[*types.LaneVote]
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewLaneVote(tip)))
+		votes = append(votes, k.Sign(types.NewLaneVote(tip)))
 	}
 	vs := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{Epoch: ep}}
 	proposal := utils.OrPanic1(types.NewProposalForTesting(ep.Committee(), vs, vs.NextTimestamp(), map[types.LaneID]*types.LaneQC{
 		lane: types.NewLaneQC(votes),
 	}, types.GenSignature(rng))).Proposal().Msg()
 	voted := inner{}
-	voted.PrepareVote = utils.Some(types.Sign(keys[0], types.NewPrepareVote(proposal)))
+	voted.PrepareVote = utils.Some(keys[0].Sign(types.NewPrepareVote(proposal)))
 
 	// The proposal arrived before this replica formed any LaneQC or received blocks 2..3, which still
 	// count once, in the proposal.

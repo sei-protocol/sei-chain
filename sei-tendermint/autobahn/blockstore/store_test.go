@@ -942,7 +942,7 @@ func testLaneQC(keys []types.SecretKey, header *types.BlockHeader) *types.LaneQC
 	vote := types.NewLaneVote(header)
 	votes := make([]*types.Signed[*types.LaneVote], 0, len(keys))
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, vote))
+		votes = append(votes, k.Sign(vote))
 	}
 	return types.NewLaneQC(votes)
 }
@@ -959,7 +959,7 @@ func testAppQC(keys []types.SecretKey, proposal *types.AppProposal) *types.AppQC
 	vote := types.NewAppVote(proposal)
 	votes := make([]*types.Signed[*types.AppVote], 0, len(keys))
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, vote))
+		votes = append(votes, k.Sign(vote))
 	}
 	return types.NewAppQC(votes)
 }
@@ -1071,7 +1071,7 @@ func writeStorageAppData(t *testing.T, store *Store, rng utils.Rng, blocks []*ty
 	for _, block := range blocks {
 		proposal := types.NewAppProposal(block.QC().QC().View(), types.GenAppHash(rng))
 		require.NoError(t, store.WriteAppProposal(proposal))
-		qc := types.NewAppQC([]*types.Signed[*types.AppVote]{types.Sign(key, types.NewAppVote(proposal))})
+		qc := types.NewAppQC([]*types.Signed[*types.AppVote]{key.Sign(types.NewAppVote(proposal))})
 		require.NoError(t, store.WriteAppQC(qc))
 	}
 }

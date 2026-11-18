@@ -21,7 +21,7 @@ func BuildPrepareQC(keys []SecretKey, proposal *Proposal) *PrepareQC {
 	vote := NewPrepareVote(proposal)
 	votes := make([]*Signed[*PrepareVote], len(keys))
 	for i, key := range keys {
-		votes[i] = Sign(key, vote)
+		votes[i] = key.Sign(vote)
 	}
 	return NewPrepareQC(votes)
 }
@@ -51,7 +51,7 @@ func BuildCommitQC(
 	votes := make([]*Signed[*CommitVote], 0, len(keys))
 	prepareQC := BuildPrepareQC(keys, proposal.Proposal().Msg())
 	for _, k := range keys {
-		votes = append(votes, Sign(k, NewCommitVote(prepareQC)))
+		votes = append(votes, k.Sign(NewCommitVote(prepareQC)))
 	}
 	return NewCommitQC(votes)
 }
@@ -65,7 +65,7 @@ func oneBlockLaneQCMap(vs ViewSpec, keys []SecretKey) map[LaneID]*LaneQC {
 	vote := NewLaneVote(header)
 	votes := make([]*Signed[*LaneVote], 0, len(keys))
 	for _, k := range TestKeysWithWeight(c, keys, c.LaneQuorum()) {
-		votes = append(votes, Sign(k, vote))
+		votes = append(votes, k.Sign(vote))
 	}
 	return map[LaneID]*LaneQC{lane: NewLaneQC(votes)}
 }
@@ -260,7 +260,7 @@ func GenBlock(rng utils.Rng) *Block {
 
 // GenSigned generates a random Signed.
 func GenSigned[T Msg](rng utils.Rng, msg T) *Signed[T] {
-	return Sign(GenSecretKey(rng), msg)
+	return GenSecretKey(rng).Sign(msg)
 }
 
 // GenLaneProposal generates a random LaneProposal.
@@ -323,7 +323,7 @@ func CommitQCAt(ep *Epoch, keys []SecretKey) *CommitQC {
 	vote := NewCommitVote(BuildPrepareQC(keys, voteProposal))
 	votes := make([]*Signed[*CommitVote], len(keys))
 	for i, k := range keys {
-		votes[i] = Sign(k, vote)
+		votes[i] = k.Sign(vote)
 	}
 	return NewCommitQC(votes)
 }
