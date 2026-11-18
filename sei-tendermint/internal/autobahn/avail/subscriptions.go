@@ -96,19 +96,24 @@ func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.L
 			applied := inner.applied()
 			for _, epoch := range inner.anchor.Epochs {
 				ei := epoch.EpochIndex()
+				// Vote only up to applied epoch.
 				if ei > applied.EpochIndex() {
 					break
 				}
+				// Skip epochs below cursor.
 				if ei < r.epoch.EpochIndex() {
 					continue
 				}
+				// Move cursor if needed.
 				if ei > r.epoch.EpochIndex() {
 					r.epoch = epoch
 					clear(r.next)
 				}
+				// Skip epoch if we are not in committee.
 				if !r.epoch.Committee().HasReplica(r.state.key.Public()) {
 					continue
 				}
+				// Collect new votes.
 				for lane := range r.epoch.Committee().Lanes().All() {
 					ls := inner.lanes[lane]
 					upperBound := min(ls.blocks.next, ls.nextBlockToPersist)

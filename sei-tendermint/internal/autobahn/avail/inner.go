@@ -30,10 +30,11 @@ type inner struct {
 type laneState struct {
 	blocks *queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	// votes contains separate collections for the retained anchor epochs.
-	// LaneVotes have two jobs: byKey keeps headers for FullCommitQC; byHash
-	// accumulates epoch weight for LaneQC. Both collections are retained until
-	// pruned by the anchor, even after the latest CommitQC moves into a new epoch,
-	// since a FullCommitQC in the previous epoch may still need those headers.
+	// LaneVotes have two jobs:
+	// * construct LaneQCs for consensus
+	// * construct FullCommitQCs for data (some honest validator is guaranteed to vote for finalized lane blocks)
+	// We need to keep them until FullCommitQC is available, in particular
+	// keeping them until pruned by anchor is sufficient.
 	votes map[types.EpochIndex]*queue[types.BlockNumber, *blockVotes]
 	// hash of the last lane block, used as parent hash ONLY for local lane production, NEVER for validation.
 	// Resetting the parent hash is a valid producer behavior, but makes other validators

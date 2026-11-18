@@ -31,9 +31,3 @@ func (q *queue[I, T]) prune(newFirst I) {
 	q.first = newFirst
 	q.next = max(q.next, q.first)
 }
-
-// clear removes all entries while preserving the first index.
-func (q *queue[I, T]) clear() {
-	clear(q.q)
-	q.next = q.first
-}

@@ -863,6 +863,65 @@ func TestNewStateWithPersistence(t *testing.T) {
 	})
 }
 
+func TestFullCommitQCAfterMismatchingLaneQC(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 7)
+	epoch := registry.MustEpoch(0)
+	ds := newTestDataState(t, &data.Config{Registry: registry})
+	state := utils.OrPanic1(NewState(keys[0], ds, utils.None[string]()))
+	defer func() { _ = state.Close() }()
+	lane := state.LocalLane().OrPanic("lane")
+	b1keys := types.TestKeysWithWeight(epoch.Committee(), keys, epoch.Committee().LaneQuorum())
+	b2keys := keys
+	require.True(t, len(b2keys) > 0, "need at least 1 validator outside of lane quorum for this test")
+	// Conflicting blocks.
+	b1 := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))
+	b2 := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+		sc.SpawnBgNamed("data.Run", func() error { return utils.IgnoreCancel(ds.Run(ctx)) })
+		sc.SpawnBgNamed("avail.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+
+		// Collect b1 LaneQC locally.
+		for _, vote := range makeLaneVotes(epoch.EpochIndex(), b1keys, b1.Header()) {
+			if err := state.PushVote(ctx, vote); err != nil {
+				return err
+			}
+		}
+		localQCs, err := state.WaitForLaneQCs(ctx, state.ConsensusSpec().Load().Index())
+		if err != nil {
+			return err
+		}
+		if err := utils.TestDiff(b1.Header(), localQCs[lane].Header()); err != nil {
+			return err
+		}
+
+		// b2 LaneQC gets constructed and finalized remotely. Then pushed to state.
+		remoteQC := data.TestLaneQC(epoch.EpochIndex(), b2keys, b2.Header())
+		qc := types.BuildCommitQC(epoch, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{lane: remoteQC})
+		if err := qc.Verify(epoch); err != nil {
+			return err
+		}
+		if err := state.PushCommitQC(ctx, qc); err != nil {
+			return err
+		}
+
+		// A single LaneVote for the remote LaneQC arrives late.
+		if err := state.PushVote(ctx, types.Sign(b2keys[len(b1keys)], types.NewLaneVote(epoch.EpochIndex(), b2.Header()))); err != nil {
+			return err
+		}
+		// FullCommitQC should be successfully reconstructed from just this 1 vote.
+		fullQC, err := state.fullCommitQC(ctx, qc.Index())
+		if err != nil {
+			return err
+		}
+		if err := utils.TestDiff(qc.Header(), fullQC.QC().Header()); err != nil {
+			return err
+		}
+		return fullQC.Verify(epoch)
+	}))
+}
+
 func TestFullCommitQCCollectsPreviousEpochVotes(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := t.Context()
@@ -906,7 +965,7 @@ func TestFullCommitQCCollectsPreviousEpochVotes(t *testing.T) {
 		}
 		for inner := range state.inner.Lock() {
 			oldVotes := inner.lanes[lane].votes[ep.EpochIndex()]
-			require.Equal(t, map[types.PublicKey]*types.Signed[*types.LaneVote]{keys[0].Public(): firstVote}, oldVotes.q[n].byKey)
+			require.Equal(t, map[types.PublicKey]struct{}{keys[0].Public(): {}}, oldVotes.q[n].byKey)
 			require.Equal(t, map[types.BlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]{
 				first.Hash(): {
 					weight: ep.Committee().Weight(keys[0].Public()),
@@ -1145,7 +1204,7 @@ func TestPushVoteWaitsForAnchorEpoch(t *testing.T) {
 		require.False(t, state.LocalLane().IsPresent())
 		for inner := range state.inner.Lock() {
 			votes := inner.lanes[lane].votes[ep.EpochIndex()]
-			require.Equal(t, map[types.PublicKey]*types.Signed[*types.LaneVote]{joiner.Public(): vote}, votes.q[0].byKey)
+			require.Equal(t, map[types.PublicKey]struct{}{joiner.Public(): {}}, votes.q[0].byKey)
 			require.NoError(t, votes.q[0].qc.OrPanic("joining epoch QC").Verify(ep))
 		}
 	})
