@@ -20,7 +20,7 @@ import (
 // a query handler, or a state-sync export — while block commits continue.
 //
 // The interesting cases are the ones where the data physically moves after the iterator is built:
-// a commit seals the version it copied from, a flush writes that version to the backing store, and
+// a commit seals the block it copied from, a flush writes that block to the backing store, and
 // retirement then drops it out of the shards' in-memory maps entirely. An iterator that aliased
 // shard state unsafely would go wrong at exactly those points, so they are tested explicitly rather
 // than left to the simple in-memory case.
@@ -44,22 +44,22 @@ func reversed(pairs []kvPair) []kvPair {
 	return out
 }
 
-// sealFlushRetire seals the manager's current version, waits for it to reach the backing store, then
+// sealFlushRetire seals the manager's current block, waits for it to reach the backing store, then
 // waits for it to be dropped from memory. On return the data that was staged in the shards lives
 // only in the backing store and the read cache.
 //
 // Finalize and the flush wait both happen before Release: the manager may flush a still-reserved
-// version, but it stops tracking one that has been released and retired, and AwaitFlush needs it
+// block, but it stops tracking one that has been released and retired, and AwaitFlush needs it
 // tracked.
 func sealFlushRetire(t *testing.T, manager ViewManager) {
 	t.Helper()
-	view, err := manager.Commit()
+	view, err := manager.Commit(manager.NextBlockHeight())
 	require.NoError(t, err)
-	version := view.(*viewImpl).version
-	require.NoError(t, view.Finalize(nil))
+	blockHeight := view.(*viewImpl).blockHeight
+	require.NoError(t, view.Finalize(view.BlockHeight(), nil))
 	awaitFlushed(t, view, 2*time.Second)
 	require.NoError(t, view.Release())
-	awaitRetired(t, manager, version)
+	awaitRetired(t, manager, blockHeight)
 }
 
 // Every write path must be accepted while an iterator is open, and none of them may be visible
@@ -83,7 +83,7 @@ func TestWritesProceedWhileIteratorIsOpen(t *testing.T) {
 		"the iterator must serve the instant it was created, not the writes that followed")
 }
 
-// Sealing the version an iterator copied from must be accepted and must not disturb it.
+// Sealing the block an iterator copied from must be accepted and must not disturb it.
 func TestIteratorSurvivesCommit(t *testing.T) {
 	manager, _ := newTestManager(t, map[string][]byte{"a": []byte("1")}, 4, 1<<20)
 	require.NoError(t, manager.Set([]byte("b"), []byte("2")))
@@ -91,7 +91,7 @@ func TestIteratorSurvivesCommit(t *testing.T) {
 	it, err := manager.Iterator(nil)
 	require.NoError(t, err)
 
-	view, err := manager.Commit()
+	view, err := manager.Commit(manager.NextBlockHeight())
 	require.NoError(t, err, "Commit must be accepted while an iterator is open")
 	finalizeAndRelease(t, view)
 
@@ -270,12 +270,12 @@ func TestIteratorIsStableUnderConcurrentCommits(t *testing.T) {
 				writerErr = err
 				return
 			}
-			view, err := manager.Commit()
+			view, err := manager.Commit(manager.NextBlockHeight())
 			if err != nil {
 				writerErr = err
 				return
 			}
-			if err := view.Finalize(nil); err != nil {
+			if err := view.Finalize(view.BlockHeight(), nil); err != nil {
 				writerErr = err
 				return
 			}

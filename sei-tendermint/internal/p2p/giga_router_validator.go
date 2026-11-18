@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"golang.org/x/time/rate"
+
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -14,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type gigaValidatorRouter struct {
@@ -54,6 +57,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 		Key:                cfg.ValidatorKey,
 		ViewTimeout:        cfg.ViewTimeout,
 		ProposalTimeout:    cfg.ProposalTimeout,
+		MaxRate:            rate.Every(cfg.GenDoc.Autobahn.Or(types.DefaultAutobahnParams()).MinRoadBlockInterval),
 		PersistentStateDir: utils.Some(cfg.PersistentStateDir),
 	}, dataState)
 	if err != nil {
@@ -95,7 +99,7 @@ func (r *gigaValidatorRouter) Mempool() utils.Option[*producer.State] {
 func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("committeeMembers", func() error {
-			return r.runPerCommitteeMember(ctx, r.runCommitteePeer, r.runEvmProxy)
+			return r.runPerCommitteeMember(ctx, false, r.runCommitteePeer, r.runEvmProxy)
 		})
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
 		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })

@@ -67,7 +67,7 @@ func (api *estimateAPI) estimateAfterCalls(
 	if err != nil {
 		return 0, err
 	}
-	baseFee := api.backend.EvmBaseFee()
+	baseFee := overrides.BaseFee(api.backend.EvmBaseFee())
 	chainID := new(big.Int).SetUint64(api.backend.EvmChainID())
 	callMsgs := make([]*core.Message, len(calls))
 	for i := range calls {

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
@@ -55,6 +57,7 @@ func TestAvailClientServer(t *testing.T) {
 			Key:             activeKeys[0],
 			ViewTimeout:     defaultViewTimeout,
 			ProposalTimeout: time.Hour,
+			MaxRate:         rate.Inf,
 		})
 		corruptAvail := corrupt.consensus.Avail()
 		a2 := nodes[2].consensus.Avail()
@@ -72,10 +75,9 @@ func TestAvailClientServer(t *testing.T) {
 				if err != nil {
 					return utils.IgnoreCancel(fmt.Errorf("corrupt.ProduceLocalBlock(%d): %w", n, err))
 				}
-				// PushBlock may drop (stale / parent-hash mismatch); that is fine.
-				if err := a2.PushBlock(ctx, b); err != nil {
-					return utils.IgnoreCancel(fmt.Errorf("a2.PushBlock(%d): %w", n, err))
-				}
+				// These proposals are deliberately corrupt. Stale blocks may be
+				// dropped and parent mismatches may return an error.
+				_ = a2.PushBlock(ctx, b)
 			}
 			return nil
 		})

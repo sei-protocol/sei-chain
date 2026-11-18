@@ -28,6 +28,8 @@ subspace.
   | Dec | `uint256`, fixed point with 18 decimal places |
   | Duration | `uint64` nanoseconds; every period, read or written, is nanoseconds |
   | Coins | `uint256` wei, a whole number of usei; only the usei denom exists |
+  | Int | `uint256` |
+  | uint32 | `uint32` |
 
   Another V2 type gets a stored form when a param first needs one. A value of
   any unsigned width is stored in the bytes of its slot that solc gives its
@@ -35,11 +37,12 @@ subspace.
   signed type needs a decoder before a param can use it.
 
 - Owners read their params from 0x1013's storage with the `params` package's
-  Go readers (`ReadGov`). Gov reads `gov`. Nothing keeps a second copy.
+  Go readers (`ReadGov`, `ReadStaking`). Gov reads `gov` and staking reads
+  `staking`. Nothing keeps a second copy.
   Planned readers for other subspaces are in *Later subspaces*.
-- Params are written only at genesis (`WriteGov`, which refuses once gov's
-  params exist) and by a passed gov proposal (`Apply`). Both check the whole
-  subspace first.
+- Params are written only at genesis (`WriteGov` and `WriteStaking`, which
+  refuse once their subspace's params exist) and by a passed gov proposal
+  (`Apply`). Both check the whole subspace first.
 
 ## Declaration table
 
@@ -165,6 +168,19 @@ naming `param`.
 - Autobahn registers the params precompile next to gov when `evm_governance`
   is set. Like gov, it refuses calls until the first block writes gov's params.
 
+## Staking
+
+- `staking` holds x/staking's `UnbondingTime`, `MaxValidators`, `MaxEntries`,
+  `MaxVotingPower` (the max voting power ratio) and
+  `MaxVotingPowerEnforcementThreshold`, in consensus power. `BondDenom` has no
+  param, since only usei exists; `HistoricalEntries` has none, since giga keeps
+  no historical info; `MinCommissionRate` comes with validator creation.
+- Its check is x/staking's validation plus an unbonding time of `MinPeriod` to
+  `MaxPeriod`, and `MaxValidators` at most 100 (`MaxBondedValidators`), the
+  most members an autobahn committee holds.
+- `HasStaking` reads `UnbondingTime`, which the check keeps nonzero. Staking
+  refuses calls, and its EndBlock does nothing, until the params are written.
+
 ## Tests
 
 - Layout: every `ParamsStorage.sol` slot, offset and field type, and values the
@@ -193,5 +209,4 @@ has eleven today.
 | baseapp | `BlockParams.max_gas` (and the other BlockParams fields) | evmonlyapp, per block |
 | evm | `KeyMinFeePerGas`, `KeySeiSstoreSetGasEIP2200`, later the EIP-1559 set | executor, per block |
 | migration | `NumKeysToMigratePerBlock`, `MigrateCosmosEnabled` | as needed |
-| staking | the staking params | native staking |
 | slashing | the slashing params | native slashing |
