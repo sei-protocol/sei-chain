@@ -559,10 +559,10 @@ func TestSyncLanesDeletesOpenLane(t *testing.T) {
 	_, err = os.Stat(lanePath)
 	require.NoError(t, err)
 
-	require.NoError(t, SyncLanes(bp, map[types.LaneID]struct{}{}))
+	require.NoError(t, bp.SyncLanes(map[types.LaneID]struct{}{}))
 	_, err = os.Stat(lanePath)
 	require.True(t, os.IsNotExist(err))
 
 	// Idempotent.
-	require.NoError(t, SyncLanes(bp, map[types.LaneID]struct{}{}))
+	require.NoError(t, bp.SyncLanes(map[types.LaneID]struct{}{}))
 }

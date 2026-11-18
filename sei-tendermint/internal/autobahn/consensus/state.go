@@ -236,9 +236,8 @@ func (s *State) adoptVoteEpoch(epoch types.EpochIndex) {
 
 // pushPhaseVote counts vote once myView has reached voteEpoch.
 // A vote from an earlier epoch is ignored. A later view in voteEpoch is counted immediately.
-func pushPhaseVote[V any, B comparable, QC any](
+func (s *State) pushPhaseVote[V any, B comparable, QC any](
 	ctx context.Context,
-	s *State,
 	voteEpoch types.EpochIndex,
 	votes *utils.Mutex[*phaseVotes[V, B, QC]],
 	verify func(*types.Epoch) error,
@@ -271,7 +270,7 @@ func pushPhaseVote[V any, B comparable, QC any](
 // The Prepare vote contains only a proposal; Proposal.Verify runs when the QC is formed.
 func (s *State) PushPrepareVote(ctx context.Context, vote *types.Signed[*types.PrepareVote]) error {
 	view := vote.Msg().View()
-	return pushPhaseVote(ctx, s, view.EpochIndex, &s.prepareVotes, func(ep *types.Epoch) error {
+	return s.pushPhaseVote(ctx, view.EpochIndex, &s.prepareVotes, func(ep *types.Epoch) error {
 		if err := verifyVoteEpoch(ep, vote.Key(), view); err != nil {
 			return err
 		}
@@ -287,7 +286,7 @@ func (s *State) PushPrepareVote(ctx context.Context, vote *types.Signed[*types.P
 // The Commit vote contains only a proposal; Proposal.Verify runs when the QC is formed.
 func (s *State) PushCommitVote(ctx context.Context, vote *types.Signed[*types.CommitVote]) error {
 	view := vote.Msg().View()
-	return pushPhaseVote(ctx, s, view.EpochIndex, &s.commitVotes, func(ep *types.Epoch) error {
+	return s.pushPhaseVote(ctx, view.EpochIndex, &s.commitVotes, func(ep *types.Epoch) error {
 		if err := verifyVoteEpoch(ep, vote.Key(), view); err != nil {
 			return err
 		}
@@ -301,7 +300,7 @@ func (s *State) PushCommitVote(ctx context.Context, vote *types.Signed[*types.Co
 // PushTimeoutVote verifies a timeout vote and counts it once myView has reached the vote's epoch.
 // A vote from an earlier epoch is ignored.
 func (s *State) PushTimeoutVote(ctx context.Context, vote *types.FullTimeoutVote) error {
-	return pushPhaseVote(ctx, s, vote.View().EpochIndex, &s.timeoutVotes, func(ep *types.Epoch) error {
+	return s.pushPhaseVote(ctx, vote.View().EpochIndex, &s.timeoutVotes, func(ep *types.Epoch) error {
 		if err := vote.Verify(ep); err != nil {
 			return fmt.Errorf("vote.Verify(): %w", err)
 		}

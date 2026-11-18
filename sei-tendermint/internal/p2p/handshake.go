@@ -2,11 +2,9 @@ package p2p
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"net/url"
-	"slices"
 
 	gogoproto "github.com/gogo/protobuf/proto"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -24,10 +22,9 @@ import (
 const handshakeMsgMaxSize = 1024 * 1024
 
 var (
-	gigaValidatorHandshakeTag = utils.OrPanic1(ed25519.NewTag("SEI_GIGA_VALIDATOR_HANDSHAKE_V1"))
-	errMissingGigaClaim       = errors.New("missing validator_auth_key, validator_auth_sig, and evm_rpc")
-	errGigaClaimRequiresAddr  = errors.New("validator giga handshake requires SelfAddr")
-	errGigaClaimOnNonGiga     = errors.New("validator giga claim on non-giga connection")
+	errMissingGigaClaim      = errors.New("missing validator_auth_key, validator_auth_sig, and evm_rpc")
+	errGigaClaimRequiresAddr = errors.New("validator giga handshake requires SelfAddr")
+	errGigaClaimOnNonGiga    = errors.New("validator giga claim on non-giga connection")
 )
 
 func init() {
@@ -40,25 +37,6 @@ func init() {
 type handshakeOffer struct {
 	ValidatorKey atypes.SecretKey
 	EVMRPC       url.URL
-}
-
-// gigaClaimSignBytes is the tagged payload for SEI_GIGA_VALIDATOR_HANDSHAKE_V1:
-// challenge || node_public_key || uvarint(len(self_addr)) || self_addr || uvarint(len(evm_rpc)) || evm_rpc.
-func gigaClaimSignBytes(
-	challenge conn.Challenge,
-	nodeKey NodePublicKey,
-	selfAddr NodeAddress,
-	evmRPC string,
-) []byte {
-	b := slices.Clone(challenge[:])
-	b = append(b, nodeKey.Bytes()...)
-	// Length-prefixed: without it, bytes could move across the address/URL
-	// boundary and two different claims would sign the same payload.
-	for _, s := range []string{selfAddr.String(), evmRPC} {
-		b = binary.AppendUvarint(b, uint64(len(s)))
-		b = append(b, s...)
-	}
-	return b
 }
 
 type handshakedConn struct {
@@ -98,10 +76,12 @@ func handshake(
 			if offering {
 				msg.GigaClaim = utils.Some(gigaHandshakeClaim{
 					Validator: o.ValidatorKey.Public(),
-					sig: o.ValidatorKey.SignWithTag(
-						gigaValidatorHandshakeTag,
-						gigaClaimSignBytes(sc.Challenge(), key.Public(), selfAddr, o.EVMRPC.String()),
-					),
+					sig: o.ValidatorKey.SignHandshake(atypes.Handshake{
+						Challenge: sc.Challenge(),
+						NodeKey:   ed25519.PublicKey(key.Public()),
+						SelfAddr:  selfAddr.String(),
+						EVMRPC:    o.EVMRPC.String(),
+					}),
 					evmRPC: o.EVMRPC.String(),
 				})
 			}
@@ -137,11 +117,12 @@ func handshake(
 			if !ok {
 				return nil, errGigaClaimRequiresAddr
 			}
-			if err := claim.Validator.VerifyWithTag(
-				gigaValidatorHandshakeTag,
-				gigaClaimSignBytes(sc.Challenge(), msg.NodeAuth.Key(), selfAddr, claim.evmRPC),
-				claim.sig,
-			); err != nil {
+			if err := claim.Validator.VerifyHandshake(atypes.Handshake{
+				Challenge: sc.Challenge(),
+				NodeKey:   ed25519.PublicKey(msg.NodeAuth.Key()),
+				SelfAddr:  selfAddr.String(),
+				EVMRPC:    claim.evmRPC,
+			}, claim.sig); err != nil {
 				return nil, fmt.Errorf("handshakeMsg.GigaClaim: %w", err)
 			}
 		}

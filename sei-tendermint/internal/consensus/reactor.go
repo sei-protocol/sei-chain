@@ -117,19 +117,19 @@ func NewReactor(
 	waitSync bool,
 	cfg *config.Config,
 ) (*Reactor, error) {
-	stateCh, err := p2p.OpenChannel(router, GetStateChannelDescriptor())
+	stateCh, err := router.OpenChannel(GetStateChannelDescriptor())
 	if err != nil {
 		return nil, err
 	}
-	dataCh, err := p2p.OpenChannel(router, GetDataChannelDescriptor())
+	dataCh, err := router.OpenChannel(GetDataChannelDescriptor())
 	if err != nil {
 		return nil, err
 	}
-	voteCh, err := p2p.OpenChannel(router, GetVoteChannelDescriptor())
+	voteCh, err := router.OpenChannel(GetVoteChannelDescriptor())
 	if err != nil {
 		return nil, err
 	}
-	voteSetCh, err := p2p.OpenChannel(router, GetVoteSetChannelDescriptor())
+	voteSetCh, err := router.OpenChannel(GetVoteSetChannelDescriptor())
 	if err != nil {
 		return nil, err
 	}

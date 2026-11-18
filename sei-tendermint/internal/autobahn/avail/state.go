@@ -125,7 +125,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		return nil, err
 	}
 	// Remove orphaned lanes on disk
-	if err := persist.SyncLanes(pers.blocks, inner.lanes); err != nil {
+	if err := pers.blocks.SyncLanes(inner.lanes); err != nil {
 		_ = pers.close()
 		return nil, fmt.Errorf("sync lane WALs to memory set: %w", err)
 	}
@@ -685,7 +685,7 @@ func (s *State) runPersist(ctx context.Context) error {
 			return err
 		}
 
-		if err := persist.SyncLanes(s.persisters.blocks, batch.blocks); err != nil {
+		if err := s.persisters.blocks.SyncLanes(batch.blocks); err != nil {
 			return err
 		}
 

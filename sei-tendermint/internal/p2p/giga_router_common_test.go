@@ -614,7 +614,7 @@ func TestGigaRouterCommon_RunInboundConnLearnsMemberAndClosesOnLeave(t *testing.
 			return err
 		}
 		addrUpdates := router.liveAddrVersion.Subscribe()
-		finished := scope.Spawn1(s, func() (struct{}, error) {
+		finished := s.Spawn1(func() (struct{}, error) {
 			err := router.RunInboundConn(ctx, pair[0])
 			if errors.Is(err, errGigaMembershipChanged) {
 				return struct{}{}, nil

@@ -8,7 +8,6 @@ import (
 
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -60,12 +59,12 @@ type NodeChallengeSig struct {
 
 func (k NodePublicKey) Bytes() []byte         { return ed25519.PublicKey(k).Bytes() }
 func (k NodeSecretKey) Public() NodePublicKey { return NodePublicKey(ed25519.SecretKey(k).Public()) }
-func (k NodeSecretKey) SignChallenge(challenge conn.Challenge) NodeChallengeSig {
+func (k NodeSecretKey) SignChallenge(challenge atypes.Challenge) NodeChallengeSig {
 	return NodeChallengeSig{key: k.Public(), sig: ed25519.SecretKey(k).Sign(challenge[:])}
 }
 
 func (s NodeChallengeSig) Key() NodePublicKey { return s.key }
-func (s NodeChallengeSig) Verify(challenge conn.Challenge) error {
+func (s NodeChallengeSig) Verify(challenge atypes.Challenge) error {
 	return ed25519.PublicKey(s.key).Verify(challenge[:], s.sig)
 }
 
@@ -91,7 +90,7 @@ var nodePublicKeyConv = protoutils.Conv[NodePublicKey, *pb.NodePublicKey]{
 type gigaHandshakeClaim struct {
 	utils.ReadOnly
 	Validator atypes.PublicKey
-	sig       ed25519.Signature
+	sig       atypes.HandshakeSig
 	evmRPC    string
 }
 
@@ -184,7 +183,7 @@ func decodeGigaClaim(p *pb.Handshake) (utils.Option[gigaHandshakeClaim], error) 
 	if err != nil {
 		return utils.None[gigaHandshakeClaim](), fmt.Errorf("ValidatorAuthKey: %w", err)
 	}
-	valSig, err := ed25519.SignatureFromBytes(p.ValidatorAuthSig)
+	valSig, err := atypes.HandshakeSigFromBytes(p.ValidatorAuthSig)
 	if err != nil {
 		return utils.None[gigaHandshakeClaim](), fmt.Errorf("ValidatorAuthSig: %w", err)
 	}

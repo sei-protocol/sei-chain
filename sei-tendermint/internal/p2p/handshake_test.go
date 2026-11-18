@@ -20,17 +20,19 @@ import (
 
 func signGigaClaim(
 	key atypes.SecretKey,
-	challenge conn.Challenge,
+	challenge atypes.Challenge,
 	nodeKey NodePublicKey,
 	selfAddr NodeAddress,
 	evmRPC url.URL,
 ) gigaHandshakeClaim {
 	return gigaHandshakeClaim{
 		Validator: key.Public(),
-		sig: key.SignWithTag(
-			gigaValidatorHandshakeTag,
-			gigaClaimSignBytes(challenge, nodeKey, selfAddr, evmRPC.String()),
-		),
+		sig: key.SignHandshake(atypes.Handshake{
+			Challenge: challenge,
+			NodeKey:   ed25519.PublicKey(nodeKey),
+			SelfAddr:  selfAddr.String(),
+			EVMRPC:    evmRPC.String(),
+		}),
 		evmRPC: evmRPC.String(),
 	}
 }
@@ -52,7 +54,7 @@ func handshakePair(
 		// The pipe outlives the handshake, and reports EOF once whichever end
 		// the test is exercising closes. A handshake failure surfaces below.
 		s.SpawnBg(func() error { _ = c.Run(ctx); return nil })
-		handles[i] = scope.Spawn1(s, func() (*handshakedConn, error) {
+		handles[i] = s.Spawn1(func() (*handshakedConn, error) {
 			return handshake(ctx, c, keys[i], specs[i], offers[i])
 		})
 	}
@@ -215,7 +217,7 @@ func TestHandshakeRejectsBadGigaClaimSig(t *testing.T) {
 			claim := signGigaClaim(validatorKey, sc.Challenge(), nodeKey.Public(), selfAddr, evmRPC)
 			sig := claim.sig.Bytes()
 			sig[0] ^= 1
-			claim.sig = utils.OrPanic1(ed25519.SignatureFromBytes(sig))
+			claim.sig = utils.OrPanic1(atypes.HandshakeSigFromBytes(sig))
 			return writeHandshake(ctx, sc, nodeKey, handshakeSpec{
 				SelfAddr:          utils.Some(selfAddr),
 				SeiGigaConnection: true,

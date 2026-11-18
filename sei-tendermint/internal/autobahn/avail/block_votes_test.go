@@ -49,7 +49,7 @@ func gathered(t *testing.T, name string, labels map[string]string) int64 {
 
 func TestBlockVotes_CountsLaneQCOncePerBlock(t *testing.T) {
 	rng := utils.TestRng()
-	keys := utils.GenSliceN(rng, 4, types.GenSecretKey)
+	keys := rng.GenSliceN(4, types.GenSecretKey)
 	weights := make(map[types.PublicKey]uint64, len(keys))
 	for _, k := range keys {
 		weights[k.Public()] = 1
@@ -80,7 +80,7 @@ func TestBlockVotes_CountsLaneQCOncePerBlock(t *testing.T) {
 
 func TestBlockVotes_CountsLaneQCAcrossReweight(t *testing.T) {
 	rng := utils.TestRng()
-	keys := utils.GenSliceN(rng, 4, types.GenSecretKey)
+	keys := rng.GenSliceN(4, types.GenSecretKey)
 	epochAt := func(idx types.EpochIndex, first types.RoadIndex, weights map[types.PublicKey]uint64) *types.Epoch {
 		return types.NewEpoch(idx, types.RoadRange{First: first, Next: first + 10}, utils.OrPanic1(types.NewCommittee(weights)))
 	}

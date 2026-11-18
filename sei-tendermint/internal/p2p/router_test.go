@@ -112,21 +112,21 @@ func TestRouter_Channel_Basic(t *testing.T) {
 	t.Cleanup(router.Wait)
 
 	t.Logf("Opening a channel should work.")
-	channel, err := OpenChannel(router, chDesc)
+	channel, err := router.OpenChannel(chDesc)
 	require.NoError(t, err)
 	require.NotNil(t, channel)
 
 	t.Logf("Opening the same channel again should fail.")
-	_, err = OpenChannel(router, chDesc)
+	_, err = router.OpenChannel(chDesc)
 	require.Error(t, err)
 
 	t.Logf("Opening a different channel should work.")
 	chDesc2 := ChannelDescriptor[*TestMessage]{ID: 2, MessageType: &TestMessage{}}
-	_, err = OpenChannel(router, chDesc2)
+	_, err = router.OpenChannel(chDesc2)
 	require.NoError(t, err)
 
 	t.Logf("Opening a channel outside the wire range should fail.")
-	_, err = OpenChannel(router, makeChDesc(256))
+	_, err = router.OpenChannel(makeChDesc(256))
 	require.Error(t, err)
 
 	t.Logf("We should be able to send on the channel, even though there are no peers.")
@@ -680,19 +680,19 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 		sub := r.peerManager.Subscribe()
 
 		desc1 := makeChDesc(1)
-		r1, err := OpenChannel(r, desc1)
+		r1, err := r.OpenChannel(desc1)
 		if err != nil {
 			return fmt.Errorf("r.OpenChannel(1): %w", err)
 		}
 
 		desc2 := makeChDesc(2)
-		r2, err := OpenChannel(r, desc2)
+		r2, err := r.OpenChannel(desc2)
 		if err != nil {
 			return fmt.Errorf("r.OpenChannel(2): %w", err)
 		}
 
 		x := makeRouter(rng)
-		x1, err := OpenChannel(x, desc1)
+		x1, err := x.OpenChannel(desc1)
 		if err != nil {
 			return fmt.Errorf("x.OpenChannel(1): %w", err)
 		}

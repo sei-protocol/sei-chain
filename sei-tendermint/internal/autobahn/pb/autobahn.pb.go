@@ -7,13 +7,14 @@
 package pb
 
 import (
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
+
 	_ "github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable/pb"
 	_ "github.com/sei-protocol/sei-chain/sei-tendermint/proto/wireguard"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
 )
 
 const (
@@ -2796,6 +2797,75 @@ func (x *LaneBlockPos) GetOffset() uint64 {
 	return 0
 }
 
+// Handshake authenticates a validator's P2P identity and advertised endpoints.
+type Handshake struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Challenge     []byte                 `protobuf:"bytes,1,opt,name=challenge,proto3,oneof" json:"challenge,omitempty"`               // required
+	NodeKey       []byte                 `protobuf:"bytes,2,opt,name=node_key,json=nodeKey,proto3,oneof" json:"node_key,omitempty"`    // required
+	SelfAddr      *string                `protobuf:"bytes,3,opt,name=self_addr,json=selfAddr,proto3,oneof" json:"self_addr,omitempty"` // required
+	EvmRpc        *string                `protobuf:"bytes,4,opt,name=evm_rpc,json=evmRpc,proto3,oneof" json:"evm_rpc,omitempty"`       // required
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Handshake) Reset() {
+	*x = Handshake{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Handshake) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Handshake) ProtoMessage() {}
+
+func (x *Handshake) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Handshake.ProtoReflect.Descriptor instead.
+func (*Handshake) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *Handshake) GetChallenge() []byte {
+	if x != nil {
+		return x.Challenge
+	}
+	return nil
+}
+
+func (x *Handshake) GetNodeKey() []byte {
+	if x != nil {
+		return x.NodeKey
+	}
+	return nil
+}
+
+func (x *Handshake) GetSelfAddr() string {
+	if x != nil && x.SelfAddr != nil {
+		return *x.SelfAddr
+	}
+	return ""
+}
+
+func (x *Handshake) GetEvmRpc() string {
+	if x != nil && x.EvmRpc != nil {
+		return *x.EvmRpc
+	}
+	return ""
+}
+
 var File_autobahn_autobahn_proto protoreflect.FileDescriptor
 
 const file_autobahn_autobahn_proto_rawDesc = "" +
@@ -3074,7 +3144,19 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x05index\x18\x01 \x01(\x04H\x00R\x05index\x88\x01\x01\x12\x1b\n" +
 	"\x06offset\x18\x02 \x01(\x04H\x01R\x06offset\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\b\n" +
 	"\x06_indexB\t\n" +
-	"\a_offsetBGZEgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pbb\x06proto3"
+	"\a_offset\"\xcb\x01\n" +
+	"\tHandshake\x12!\n" +
+	"\tchallenge\x18\x01 \x01(\fH\x00R\tchallenge\x88\x01\x01\x12\x1e\n" +
+	"\bnode_key\x18\x02 \x01(\fH\x01R\anodeKey\x88\x01\x01\x12 \n" +
+	"\tself_addr\x18\x03 \x01(\tH\x02R\bselfAddr\x88\x01\x01\x12\x1c\n" +
+	"\aevm_rpc\x18\x04 \x01(\tH\x03R\x06evmRpc\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\f\n" +
+	"\n" +
+	"_challengeB\v\n" +
+	"\t_node_keyB\f\n" +
+	"\n" +
+	"_self_addrB\n" +
+	"\n" +
+	"\b_evm_rpcBGZEgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pbb\x06proto3"
 
 var (
 	file_autobahn_autobahn_proto_rawDescOnce sync.Once
@@ -3088,7 +3170,7 @@ func file_autobahn_autobahn_proto_rawDescGZIP() []byte {
 	return file_autobahn_autobahn_proto_rawDescData
 }
 
-var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 47)
+var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
 var file_autobahn_autobahn_proto_goTypes = []any{
 	(*Timestamp)(nil),                 // 0: autobahn.Timestamp
 	(*Duration)(nil),                  // 1: autobahn.Duration
@@ -3136,10 +3218,11 @@ var file_autobahn_autobahn_proto_goTypes = []any{
 	(*PersistedEpochRegistry)(nil),    // 43: autobahn.PersistedEpochRegistry
 	(*EpochMember)(nil),               // 44: autobahn.EpochMember
 	(*LaneBlockPos)(nil),              // 45: autobahn.LaneBlockPos
-	nil,                               // 46: autobahn.TransactionHeader.PropertiesEntry
+	(*Handshake)(nil),                 // 46: autobahn.Handshake
+	nil,                               // 47: autobahn.TransactionHeader.PropertiesEntry
 }
 var file_autobahn_autobahn_proto_depIdxs = []int32{
-	46, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
+	47, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
 	2,  // 1: autobahn.TransactionHeader.timestamps:type_name -> autobahn.TransactionTimestamps
 	3,  // 2: autobahn.Transaction.header:type_name -> autobahn.TransactionHeader
 	6,  // 3: autobahn.LaneID.validator:type_name -> autobahn.PublicKey
@@ -3268,13 +3351,14 @@ func file_autobahn_autobahn_proto_init() {
 	file_autobahn_autobahn_proto_msgTypes[42].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[44].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[45].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[46].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_autobahn_autobahn_proto_rawDesc), len(file_autobahn_autobahn_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   47,
+			NumMessages:   48,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

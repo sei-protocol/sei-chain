@@ -230,14 +230,14 @@ func TestPoolManager_TryStartDial_Priority(t *testing.T) {
 
 	t.Log("populate pool with addresses from various sources")
 	var allAddrs []NodeAddress
-	fixedAddrs := utils.GenSliceN(rng, 3, makeAddr)
+	fixedAddrs := rng.GenSliceN(3, makeAddr)
 	allAddrs = append(allAddrs, fixedAddrs...)
 	pool := newPoolManager(&poolConfig{MaxIn: 0, MaxOut: maxOut, FixedAddrs: fixedAddrs, InPool: inPoolAll})
-	addrs := utils.GenSliceN(rng, 3, makeAddr)
+	addrs := rng.GenSliceN(3, makeAddr)
 	pool.PushPex(utils.None[types.NodeID](), addrs)
 	allAddrs = append(allAddrs, addrs...)
 	for range 3 {
-		addrs := utils.GenSliceN(rng, 3, makeAddr)
+		addrs := rng.GenSliceN(3, makeAddr)
 		pool.PushPex(utils.Some(makeNodeID(rng)), addrs)
 		allAddrs = append(allAddrs, addrs...)
 	}
@@ -292,9 +292,9 @@ func TestPoolManager_PushPex(t *testing.T) {
 	rng := utils.TestRng()
 	pool := newPoolManager(&poolConfig{MaxIn: 0, MaxOut: 10, InPool: inPoolAll})
 
-	senders := utils.GenSliceN(rng, 3, makeNodeID)
+	senders := rng.GenSliceN(3, makeNodeID)
 	for i := range 10 {
-		addrs := utils.GenSliceN(rng, 3, makeAddr)
+		addrs := rng.GenSliceN(3, makeAddr)
 		pool.PushPex(utils.Some(senders[i%len(senders)]), addrs)
 		want := toSet(addrs...)
 		for len(want) > 0 {
@@ -309,7 +309,7 @@ func TestPoolManager_PushPex(t *testing.T) {
 // Test checking that inbound and outbound connection for the same NodeID can coexist.
 func TestPoolManager_InboundOutboundCoexist(t *testing.T) {
 	rng := utils.TestRng()
-	fixedAddrs := utils.GenSliceN(rng, 2, makeAddr)
+	fixedAddrs := rng.GenSliceN(2, makeAddr)
 	pool := newPoolManager(&poolConfig{MaxIn: 10, MaxOut: 10, FixedAddrs: fixedAddrs, InPool: inPoolAll})
 
 	t.Logf("race inbound/outbound connections for the same peer")
@@ -326,7 +326,7 @@ func TestPoolManager_InboundOutboundCoexist(t *testing.T) {
 func TestPoolManager_InPool_Connect(t *testing.T) {
 	rng := utils.TestRng()
 	const maxIn = 10
-	allowed := toSet(utils.GenSliceN(rng, maxIn, makeNodeID)...)
+	allowed := toSet(rng.GenSliceN(maxIn, makeNodeID)...)
 	inPool := func(id types.NodeID) bool { return allowed[id] }
 	pool := newPoolManager(&poolConfig{MaxIn: maxIn, MaxOut: 10, InPool: inPool})
 	for id := range allowed {
@@ -342,7 +342,7 @@ func TestPoolManager_InPool_Connect(t *testing.T) {
 //   - inbound connections not from the pool should be rejected.
 func TestPoolManager_InPool_PushPex(t *testing.T) {
 	rng := utils.TestRng()
-	allowed := toSet(utils.GenSliceN(rng, 50, makeNodeID)...)
+	allowed := toSet(rng.GenSliceN(50, makeNodeID)...)
 	inPool := func(id types.NodeID) bool { return allowed[id] }
 
 	t.Log("addresses of not-in-pool peers should get filtered out during PushPex")
@@ -351,7 +351,7 @@ func TestPoolManager_InPool_PushPex(t *testing.T) {
 		allowedAddrs = append(allowedAddrs, makeAddrFor(rng, id))
 	}
 	nextAllowed := 5
-	fixedAddrs := utils.GenSliceN(rng, 10, makeAddr)
+	fixedAddrs := rng.GenSliceN(10, makeAddr)
 	fixedAddrs = append(fixedAddrs, allowedAddrs[:nextAllowed]...)
 	want := toSet(allowedAddrs[:nextAllowed]...)
 	utils.Shuffle(rng, fixedAddrs)
@@ -359,7 +359,7 @@ func TestPoolManager_InPool_PushPex(t *testing.T) {
 	for nextAllowed < len(allowedAddrs) {
 		// Push some pex entries with some allowed addresses interleaved.
 		for range 2 {
-			addrs := utils.GenSliceN(rng, 10, makeAddr)
+			addrs := rng.GenSliceN(10, makeAddr)
 			n := min(nextAllowed+3, len(allowedAddrs))
 			for _, a := range allowedAddrs[nextAllowed:n] {
 				addrs = append(addrs, a)
@@ -424,7 +424,7 @@ func TestPoolManager_PushPex_SenderBypassesInPool(t *testing.T) {
 
 	t.Log("push pex from sender outside the pool, its allowed addresses should still be dialed")
 	want := makeAddrFor(rng, allowed)
-	addrs := append(utils.GenSliceN(rng, 5, makeAddr), want)
+	addrs := append(rng.GenSliceN(5, makeAddr), want)
 	utils.Shuffle(rng, addrs)
 	pool.PushPex(utils.Some(makeNodeID(rng)), addrs)
 	require.Equal(t, utils.Slice(want), opt(pool.TryStartDial()).OrPanic(""))
@@ -482,8 +482,8 @@ func TestPoolManager_TryStartDial_AggregatesAddresses(t *testing.T) {
 // Test checking that ClearPex makes addresses not available for dialing.
 func TestPoolManager_ClearPex(t *testing.T) {
 	rng := utils.TestRng()
-	fixedAddrs := utils.GenSliceN(rng, 5, makeAddr)
-	extraAddrs := utils.GenSliceN(rng, 5, makeAddr)
+	fixedAddrs := rng.GenSliceN(5, makeAddr)
+	extraAddrs := rng.GenSliceN(5, makeAddr)
 	pool := newPoolManager(&poolConfig{MaxIn: 0, MaxOut: 10, FixedAddrs: fixedAddrs, InPool: inPoolAll})
 	pool.PushPex(utils.None[types.NodeID](), extraAddrs)
 
@@ -491,7 +491,7 @@ func TestPoolManager_ClearPex(t *testing.T) {
 	senders := map[types.NodeID][]NodeAddress{}
 	allAddrs := append(fixedAddrs, extraAddrs...)
 	for range 5 {
-		addrs := utils.GenSliceN(rng, 5, makeAddr)
+		addrs := rng.GenSliceN(5, makeAddr)
 		s := makeNodeID(rng)
 		senders[s] = addrs
 		pool.PushPex(utils.Some(s), addrs)
