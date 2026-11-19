@@ -70,6 +70,11 @@ func oneBlockLaneQCMap(vs ViewSpec, keys []SecretKey) map[LaneID]*LaneQC {
 	return map[LaneID]*LaneQC{lane: NewLaneQC(votes)}
 }
 
+// GetChallenge generates a random Challenge.
+func GetChallenge(rng utils.Rng) Challenge {
+	return Challenge(utils.GenBytes(rng, len(Challenge{})))
+}
+
 // GenNodeID generates a random NodeID.
 func GenNodeID(rng utils.Rng) NodeID {
 	return NodeID(utils.GenString(rng, 10))

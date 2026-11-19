@@ -44,7 +44,6 @@ func TestConv(t *testing.T) {
 			LaneIDConv.Test(GenLaneID(rng)),
 			LaneBlockPosConv.Test(LaneBlockPos{Height: GenRoadHeight(rng), Offset: rng.Uint64()}),
 			SignatureConv.Test(GenSignature(rng)),
-			msgTest(rng, Challenge(utils.GenBytes(rng, len(Challenge{}))), ChallengeConv, SignedChallengeConv),
 			LaneBlockHeaderConv.Test(GenLaneBlockHeader(rng)),
 			PayloadConv.Test(GenPayload(rng)),
 			LaneBlockConv.Test(GenLaneBlock(rng)),
@@ -73,6 +72,7 @@ func TestConv(t *testing.T) {
 			msgTest(rng, GenCommitVote(rng), CommitVoteConv, SignedCommitVoteConv),
 			msgTest(rng, GenTimeoutVote(rng), TimeoutVoteConv, SignedTimeoutVoteConv),
 			msgTest(rng, GenAppVote(rng), AppVoteConv, SignedAppVoteConv),
+			msgTest(rng, GetChallenge(rng), ChallengeConv, SignedChallengeConv),
 		); err != nil {
 			t.Error(err)
 		}

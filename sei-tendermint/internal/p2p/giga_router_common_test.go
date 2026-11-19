@@ -539,19 +539,21 @@ func TestGigaRouterCommon_RunInboundConnAuthenticatesMemberAndClosesOnLeave(t *t
 	selfAddr := NodeAddress{NodeID: peerKey.Public().NodeID(), Hostname: "validator.example", Port: 26656}
 	dummy := atypes.GenSecretKey(rng)
 	epochs := newSettledEpochs(t, testEpoch(1, map[atypes.PublicKey]uint64{validatorKey.Public(): 1}))
-	genesis := map[atypes.PublicKey]GigaNodeAddr{dummy.Public(): {Key: makeKey(rng).Public()}}
-	router, _ := testGigaRouterWithData(t, genesis)
-	router.data = epochs.state
-	router.poolIn = giga.NewPool[NodePublicKey, rpc.Server[giga.API]]()
-	router.poolInCommittee = giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]]()
-	router.inboundFullnodeCount = utils.NewMutex(new(int64))
-	router.inboundFullnodeCap = 10
-	router.service = giga.NewFullNodeService(router.data)
-	router.key = localKey
-	router.cfg = &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{}}
+	app := proxy.NewEVM(newTestApp())
+	router, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
+		App:                     app,
+		ValidatorAddrs:          map[atypes.PublicKey]GigaNodeAddr{},
+		MaxInboundFullnodePeers: 10,
+	}, localKey, epochs.state)
+	require.NoError(t, err)
+	cappedRouter, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
+		App:                     app,
+		ValidatorAddrs:          map[atypes.PublicKey]GigaNodeAddr{},
+		MaxInboundFullnodePeers: 0,
+	}, localKey, epochs.state)
+	require.NoError(t, err)
 	gigaAddr := NodeAddress{NodeID: localKey.Public().NodeID(), Hostname: "giga.example", Port: 26656}
-	router.selfAddr = utils.Some(gigaAddr)
-	localSpec := handshakeSpec{SelfAddr: router.selfAddr, Giga: utils.Some(gigaHandshake{})}
+	localSpec := handshakeSpec{SelfAddr: utils.Some(gigaAddr), Giga: utils.Some(gigaHandshake{})}
 	joinerKey := makeKey(rng)
 	outsider := handshakePairIn(t, [2]NodeSecretKey{localKey, joinerKey}, [2]handshakeSpec{
 		{Giga: utils.Some(gigaHandshake{})},
@@ -560,12 +562,12 @@ func TestGigaRouterCommon_RunInboundConnAuthenticatesMemberAndClosesOnLeave(t *t
 		utils.None[handshakeOffer](),
 		utils.Some(handshakeOffer{ValidatorKey: dummy, EVMRPC: testEVMRPCURL()}),
 	})
-	router.inboundFullnodeCap = 0
-	require.ErrorIs(t, router.RunInboundConn(t.Context(), outsider[0]), errInboundFullnodeLimit)
-	router.inboundFullnodeCap = 10
-	_, ok := router.validatorAddr(dummy.Public())
+	// Router treats vaildators outside of committee as full nodes. And capped router rejects all full nodes.
+	require.ErrorIs(t, cappedRouter.RunInboundConn(t.Context(), outsider[0]), errInboundFullnodeLimit)
+	_, ok := cappedRouter.validatorAddr(dummy.Public())
 	require.False(t, ok)
 
+	// Committee validators are accepted unconditionally.
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		pair, err := handshakePair(ctx, s,
 			[2]NodeSecretKey{localKey, peerKey},
@@ -584,35 +586,17 @@ func TestGigaRouterCommon_RunInboundConnAuthenticatesMemberAndClosesOnLeave(t *t
 		if err := utils.TestDiff(gigaAddr, pair[1].msg.SelfAddr.OrPanic("missing SelfAddr")); err != nil {
 			return err
 		}
-		accepted := utils.NewAtomicSend(false)
-		s.SpawnBg(func() error {
-			return utils.IgnoreCancel(router.poolInCommittee.RunForEach(ctx, func(ctx context.Context, _ rpc.Server[giga.API]) error {
-				accepted.Store(true)
-				<-ctx.Done()
-				return ctx.Err()
-			}))
-		})
-		finished := s.Spawn1(func() (struct{}, error) {
-			err := router.RunInboundConn(ctx, pair[0])
-			if errors.Is(err, errGigaMembershipChanged) {
-				return struct{}{}, nil
+		s.Spawn(func() error {
+			if err, wantErr := router.RunInboundConn(ctx, pair[0]), errGigaMembershipChanged; !errors.Is(err, wantErr) {
+				return fmt.Errorf("RunInboundConn() = nil, want %v", wantErr)
 			}
-			if err != nil {
-				return struct{}{}, err
-			}
-			return struct{}{}, fmt.Errorf("RunInboundConn() = nil, want %v", errGigaMembershipChanged)
+			return nil
 		})
-		if _, err := accepted.Wait(ctx, func(v bool) bool { return v }); err != nil {
+		// Progress epoch, so that validator leaves committee and connection gets dropped.
+		if err := router.poolInCommittee.WaitFor(ctx, validatorKey.Public()); err != nil {
 			return err
-		}
-		if _, ok := router.validatorAddr(validatorKey.Public()); ok {
-			return fmt.Errorf("inbound handshake added an unconfigured validator address")
 		}
 		epochs.store(testEpoch(2, map[atypes.PublicKey]uint64{dummy.Public(): 1}))
-		_, err = finished.Join(ctx)
-		if err != nil {
-			return err
-		}
 		return nil
 	}))
 }

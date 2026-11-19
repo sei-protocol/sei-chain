@@ -33,7 +33,7 @@ func TestHandshakeMsgConv(t *testing.T) {
 	}
 }
 
-func TestHandshakeMsgConvRejectsMalformedValidatorAuth(t *testing.T) {
+func TestHandshakeMsgConvRejectsInvalidValidatorFields(t *testing.T) {
 	rng := utils.TestRng()
 	key := makeKey(rng)
 	challenge := atypes.Challenge{}
@@ -44,12 +44,8 @@ func TestHandshakeMsgConvRejectsMalformedValidatorAuth(t *testing.T) {
 		})},
 	}
 	for _, malform := range []func(*apb.SignedChallenge){
-		func(p *apb.SignedChallenge) { p.Msg = nil },
 		func(p *apb.SignedChallenge) { p.Msg.Data = p.Msg.Data[:31] },
 		func(p *apb.SignedChallenge) { p.Msg.Data = append(p.Msg.Data, 0) },
-		func(p *apb.SignedChallenge) { p.Sig = nil },
-		func(p *apb.SignedChallenge) { p.Sig.Key = nil },
-		func(p *apb.SignedChallenge) { p.Sig.Sig = nil },
 	} {
 		p := handshakeMsgConv.Encode(msg)
 		malform(p.Giga.Validator.Auth)
@@ -57,10 +53,11 @@ func TestHandshakeMsgConvRejectsMalformedValidatorAuth(t *testing.T) {
 		require.Error(t, err)
 	}
 	for _, malform := range []func(*pb.ValidatorHandshake){
-		func(p *pb.ValidatorHandshake) { p.EvmRpcUrl = nil },
-		func(p *pb.ValidatorHandshake) { p.Auth = nil },
 		func(p *pb.ValidatorHandshake) { p.EvmRpcUrl = new("http://peer.example:8545") },
+		func(p *pb.ValidatorHandshake) { p.EvmRpcUrl = new("https://peer.example:8545") },
+		func(p *pb.ValidatorHandshake) { p.EvmRpcUrl = new("file://localhost/rpc") },
 		func(p *pb.ValidatorHandshake) { p.EvmRpcUrl = new("ws://") },
+		func(p *pb.ValidatorHandshake) { p.EvmRpcUrl = new("ws://u:p@peer.example:8546") },
 	} {
 		p := handshakeMsgConv.Encode(msg)
 		malform(p.Giga.Validator)

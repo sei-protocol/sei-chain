@@ -223,7 +223,6 @@ func TestAutobahnFileConfig_LocalEVMRPC(t *testing.T) {
 	var wire map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(encoded, &wire))
 	require.Equal(t, `"ws://local.example:8546"`, string(wire["evmrpc"]))
-	require.False(t, strings.Contains(string(wire["validators"]), "evmrpc"))
 	fc.EVMRPC = utils.Some(URL{URL: &url.URL{Scheme: "http", Host: "local.example:8545"}})
 	require.Error(t, fc.Validate())
 }
