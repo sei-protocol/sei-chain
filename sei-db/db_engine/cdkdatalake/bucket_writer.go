@@ -112,37 +112,28 @@ func (w *bucketWriter) Finished() <-chan struct{} {
 	return w.finished
 }
 
-// Close stops the writer. Writes that have not finished fail, and their streams are closed.
+// Close stops the writer. Writes that have not finished fail, and their streams are closed. No write may be
+// submitted during or after the call.
 func (w *bucketWriter) Close() {
 	w.cancel()
+	close(w.queue)
 	w.goroutineCount.Wait()
-	for {
-		select {
-		case write := <-w.queue:
-			w.abandon(write)
-		default:
-			return
-		}
-	}
 }
 
 // submit queues write for a writer goroutine, waiting while the queue is full.
 func (w *bucketWriter) submit(write any) {
 	w.unfinished.Add(1)
-	select {
-	case w.queue <- write:
-	case <-w.ctx.Done():
-		w.abandon(write)
-	}
+	w.queue <- write
 }
 
-// writerGoroutine performs queued writes until the writer is closed.
+// writerGoroutine finishes queued writes until the writer is closed, failing without performing them once the
+// writer's context ends.
 func (w *bucketWriter) writerGoroutine() {
-	for {
-		select {
-		case <-w.ctx.Done():
-			return
-		case write := <-w.queue:
+	for write := range w.queue {
+		if w.ctx.Err() != nil {
+			// Failing the write rather than leaving it queued lets every wait on it return.
+			w.abandon(write)
+		} else {
 			w.perform(write)
 		}
 	}

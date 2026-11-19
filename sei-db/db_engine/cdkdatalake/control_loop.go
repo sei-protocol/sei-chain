@@ -1,16 +1,15 @@
 package cdkdatalake
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"time"
 )
 
-// run processes requests until ctx ends or the store fails, recording the failure. Between requests, it finalizes
+// run processes requests until the store is closed or fails, recording the failure. Between requests, it finalizes
 // finished writes and deletes, writes metadata and starts deletes. It also wakes for this when a write finishes and
 // on each tick of config.MetadataWriteInterval.
-func (s *cdkDataLake) run(ctx context.Context) {
+func (s *cdkDataLake) run() {
 	defer close(s.done)
 	ticker := time.NewTicker(s.config.MetadataWriteInterval)
 	defer ticker.Stop()
@@ -28,11 +27,13 @@ func (s *cdkDataLake) run(ctx context.Context) {
 		s.deleter.DoBackgroundWork(s.durableWatermark(), s.config.DeletesPerCycle)
 
 		select {
-		case <-ctx.Done():
-			return
 		case <-ticker.C:
 		case <-s.writer.Finished():
 		case request := <-s.requests:
+			if closing, ok := request.(*closeRequest); ok {
+				s.handleClose(closing)
+				return
+			}
 			if err := s.handleRequest(request); err != nil {
 				s.failure = fmt.Errorf("handle request: %w", err)
 				return
@@ -41,8 +42,8 @@ func (s *cdkDataLake) run(ctx context.Context) {
 	}
 }
 
-// handleRequest handles request, which must be one of the request types the requests channel carries. A request
-// that fails the store gets no reply.
+// handleRequest handles request, which must be one of the request types the requests channel carries other than a
+// *closeRequest. A request that fails the store gets no reply.
 func (s *cdkDataLake) handleRequest(request any) error {
 	switch request := request.(type) {
 	case *putRequest:
@@ -225,12 +226,25 @@ func (s *cdkDataLake) handlePrune(bound uint64) error {
 	return nil
 }
 
-// handleFlush completes a Flush() call before the loop takes another request. It waits for every write to finish,
-// makes the metadata durable, performs every pending delete, and makes the metadata durable again. A store that has
-// never been written has nothing to flush.
+// handleFlush completes a Flush() call before the loop takes another request.
 func (s *cdkDataLake) handleFlush(request *flushRequest) error {
+	if err := s.flush(); err != nil {
+		return fmt.Errorf("flush: %w", err)
+	}
+	request.reply <- struct{}{}
+	return nil
+}
+
+// handleClose completes a Close() call by flushing the store and replying with the outcome. The loop exits after it.
+func (s *cdkDataLake) handleClose(request *closeRequest) {
+	request.reply <- s.flush()
+}
+
+// flush makes every accepted write durable. It waits for every write to finish, makes the metadata durable, performs
+// every pending delete, and makes the metadata durable again. A store that has never been written has nothing to
+// flush.
+func (s *cdkDataLake) flush() error {
 	if durableMetadata := s.metadataManager.DurableMetadata(); durableMetadata.IsNewStore() {
-		request.reply <- struct{}{}
 		return nil
 	}
 
@@ -260,7 +274,6 @@ func (s *cdkDataLake) handleFlush(request *flushRequest) error {
 	if err := s.metadataManager.Write(s.scheduledDeletionWatermark, s.durableWatermark(), true, true); err != nil {
 		return fmt.Errorf("write final metadata: %w", err)
 	}
-	request.reply <- struct{}{}
 	return nil
 }
 

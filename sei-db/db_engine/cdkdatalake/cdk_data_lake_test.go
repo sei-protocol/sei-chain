@@ -925,6 +925,34 @@ func TestCDKDataLakeAppliesBackPressure(t *testing.T) {
 	require.Equal(t, uint64(7), lake.GetDurableWatermark())
 }
 
+func TestCDKDataLakePutReturnsWhenItsContextEnds(t *testing.T) {
+	ctx := context.Background()
+	faulty, config := newFaultyBucket(t)
+	release := make(chan struct{})
+	faulty.SetHook(func(_ context.Context, op string, key string) error {
+		if op == "write" && strings.HasSuffix(key, metadataObjectName) {
+			<-release
+		}
+		return nil
+	})
+	lake := openTestDataLake(t, "store", true, config)
+
+	// The first put waits for the metadata write that records the store's first key.
+	stream := newTestStream(testValue(1))
+	putCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, lake.PutStream(putCtx, 1, stream), context.DeadlineExceeded)
+
+	// The put still takes effect.
+	close(release)
+	require.NoError(t, lake.Flush(ctx))
+	value, ok, err := lake.Get(ctx, 1)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, testValue(1), value)
+	require.True(t, stream.closed)
+}
+
 func TestCDKDataLakeCallsFailAfterClose(t *testing.T) {
 	ctx := context.Background()
 	lake, err := NewCDKDataLake(ctx, "store", false, DefaultTestDataLakeConfig(t.TempDir()))
@@ -937,6 +965,89 @@ func TestCDKDataLakeCallsFailAfterClose(t *testing.T) {
 	_, _, err = lake.Get(ctx, 1)
 	require.Error(t, err)
 	require.Equal(t, uint64(0), lake.GetDurableWatermark())
+}
+
+func TestCDKDataLakeCloseMakesAcceptedWritesDurable(t *testing.T) {
+	ctx := context.Background()
+	config := DefaultTestDataLakeConfig(t.TempDir())
+
+	lake, err := NewCDKDataLake(ctx, "store", false, config)
+	require.NoError(t, err)
+	putTestKeys(t, lake, keyRange(1, 20)...)
+	require.NoError(t, lake.PruneBelow(ctx, 5))
+	require.NoError(t, lake.Close())
+
+	storeBucket := openTestStoreBucket(t, config, "store")
+	for key := uint64(1); key <= 20; key++ {
+		requireObjectExists(t, storeBucket, key, key >= 5)
+	}
+	require.Equal(t, testStoreMetadata(t, false, 5, 5, 21), readMetadata(t, storeBucket))
+}
+
+func TestCDKDataLakeCloseWaitsForAFlushInProgress(t *testing.T) {
+	ctx := context.Background()
+	faulty, config := newFaultyBucket(t)
+	release := make(chan struct{})
+	faulty.SetHook(func(_ context.Context, op string, key string) error {
+		if op == "write" && !strings.HasSuffix(key, metadataObjectName) {
+			<-release
+		}
+		return nil
+	})
+	lake, err := NewCDKDataLake(ctx, "store", false, config)
+	require.NoError(t, err)
+
+	// More puts than writer goroutines, so that some wait in the writer's queue.
+	keys := keyRange(1, uint64(config.WriterCount)+4)
+	putTestKeys(t, lake, keys...)
+	flushCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, lake.Flush(flushCtx), context.DeadlineExceeded)
+
+	closed := make(chan error, 1)
+	go func() { closed <- lake.Close() }()
+	close(release)
+	require.NoError(t, <-closed)
+
+	reopened := openTestDataLake(t, "store", false, config)
+	require.Equal(t, keys[len(keys)-1]+1, reopened.GetDurableWatermark())
+	require.Equal(t, keys, iterateTestKeys(t, reopened, 0, true, false))
+}
+
+func TestCDKDataLakeOpenStopsWhenItsContextEnds(t *testing.T) {
+	ctx := context.Background()
+	faulty, config := newFaultyBucket(t)
+	lake, err := NewCDKDataLake(ctx, "store", false, config)
+	require.NoError(t, err)
+	putTestKeys(t, lake, keyRange(1, 5)...)
+	require.NoError(t, lake.Close())
+
+	// Writes that landed out of order before a crash, more than the writer goroutines can delete at once.
+	storeBucket := openTestStoreBucket(t, config, "store")
+	for key := uint64(7); key <= 40; key++ {
+		require.NoError(t, storeBucket.Put(ctx, key, testValue(key)))
+	}
+
+	deleting := make(chan struct{}, 1)
+	faulty.SetHook(func(hookCtx context.Context, op string, _ string) error {
+		if op != "delete" {
+			return nil
+		}
+		select {
+		case deleting <- struct{}{}:
+		default:
+		}
+		<-hookCtx.Done()
+		return hookCtx.Err()
+	})
+	openCtx, cancelOpen := context.WithCancel(ctx)
+	defer cancelOpen()
+	go func() {
+		<-deleting
+		cancelOpen()
+	}()
+	_, err = NewCDKDataLake(openCtx, "store", false, config)
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestCDKDataLakeReopenKeepsPrunedRange(t *testing.T) {

@@ -41,6 +41,12 @@ type flushRequest struct {
 	reply chan struct{}
 }
 
+// closeRequest asks the loop to make every accepted write durable and exit.
+type closeRequest struct {
+	// Receives the flush's failure, or nil.
+	reply chan error
+}
+
 // lookupRequest asks the loop whether a key is in the store.
 type lookupRequest struct {
 	// The key to look up.

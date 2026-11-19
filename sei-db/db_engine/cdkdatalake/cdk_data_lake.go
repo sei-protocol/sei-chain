@@ -44,14 +44,11 @@ type cdkDataLake struct {
 	allowGaps bool
 
 	// Requests for the control loop. Each is a *putRequest, *deleteRequest, *pruneRequest, *flushRequest,
-	// *lookupRequest, *boundsRequest or *iteratorRequest.
+	// *closeRequest, *lookupRequest, *boundsRequest or *iteratorRequest.
 	requests chan any
 
 	// Closed when the control loop exits.
 	done chan struct{}
-
-	// Stops the control loop and the writer.
-	cancel context.CancelFunc
 
 	// The error that stopped the control loop, or nil. Set before done is closed, and read only after.
 	failure error
@@ -149,8 +146,7 @@ func newCDKDataLake(
 	for _, key := range state.topology.Keys() {
 		keys.Put(key, struct{}{})
 	}
-	runCtx, cancel := context.WithCancel(context.Background())
-	writer := newBucketWriter(runCtx, storeBucket, config)
+	writer := newBucketWriter(context.Background(), storeBucket, config)
 	var deleter deleter
 	if metadata.AllowGaps() {
 		deleter = newGappedDeleter(writer, keys, metadata, state.danglingKeys)
@@ -165,7 +161,6 @@ func newCDKDataLake(
 		allowGaps:                  metadata.AllowGaps(),
 		requests:                   make(chan any, config.RequestBufferSize),
 		done:                       make(chan struct{}),
-		cancel:                     cancel,
 		nextKey:                    metadata.DurableWatermark(),
 		scheduledDeletionWatermark: metadata.ScheduledDeletionWatermark(),
 		keys:                       keys,
@@ -174,7 +169,7 @@ func newCDKDataLake(
 		metadataManager: newMetadataManager(
 			writer, deleter, config.MetadataWriteInterval, metadata),
 	}
-	go lake.run(runCtx)
+	go lake.run()
 	return lake, nil
 }
 
@@ -242,14 +237,13 @@ func (s *cdkDataLake) Has(ctx context.Context, key uint64) (bool, error) {
 	return exists, nil
 }
 
-// Delete removes key. See datalake.DataLake. ctx bounds only the wait to queue the request.
+// Delete removes key. See datalake.DataLake.
 func (s *cdkDataLake) Delete(ctx context.Context, key uint64) error {
 	request := &deleteRequest{key: key, reply: make(chan error, 1)}
 	if err := s.send(ctx, request); err != nil {
 		return fmt.Errorf("delete key %d: %w", key, err)
 	}
-	// A queued delete runs whatever ctx does, so the caller waits for its outcome.
-	outcome, err := awaitReply(context.Background(), s, request.reply)
+	outcome, err := awaitReply(ctx, s, request.reply)
 	if err != nil {
 		return fmt.Errorf("delete key %d: %w", key, err)
 	}
@@ -259,14 +253,13 @@ func (s *cdkDataLake) Delete(ctx context.Context, key uint64) error {
 	return nil
 }
 
-// PruneBelow removes every key below key. See datalake.DataLake. ctx bounds only the wait to queue the request.
+// PruneBelow removes every key below key. See datalake.DataLake.
 func (s *cdkDataLake) PruneBelow(ctx context.Context, key uint64) error {
 	request := &pruneRequest{key: key, reply: make(chan error, 1)}
 	if err := s.send(ctx, request); err != nil {
 		return fmt.Errorf("prune below key %d: %w", key, err)
 	}
-	// A queued prune runs whatever ctx does, so the caller waits for its outcome.
-	outcome, err := awaitReply(context.Background(), s, request.reply)
+	outcome, err := awaitReply(ctx, s, request.reply)
 	if err != nil {
 		return fmt.Errorf("prune below key %d: %w", key, err)
 	}
@@ -331,20 +324,41 @@ func (s *cdkDataLake) Iterator(
 	return iterator, nil
 }
 
-// Close stops the store's goroutines and closes its bucket. Writes that are not yet crash durable may be lost.
+// Close makes every accepted write crash durable, then stops the store's goroutines and closes its bucket. A store
+// that has already failed is closed without flushing.
 func (s *cdkDataLake) Close() error {
-	s.cancel()
-	<-s.done
+	flushErr := s.stopControlLoop()
 	s.writer.Close()
 	s.reader.Close()
+	var closeErr error
 	if err := s.bucket.Close(); err != nil {
-		return fmt.Errorf("close bucket: %w", err)
+		closeErr = fmt.Errorf("close bucket: %w", err)
+	}
+	return errors.Join(flushErr, closeErr)
+}
+
+// stopControlLoop has the control loop flush the store and exit, and waits for it to exit. It returns the flush's
+// failure, or nil if the loop had already stopped.
+func (s *cdkDataLake) stopControlLoop() error {
+	request := &closeRequest{reply: make(chan error, 1)}
+	if err := s.send(context.Background(), request); err != nil {
+		// The store failed before the close, so there is nothing it can flush.
+		return nil
+	}
+	flushErr, err := awaitReply(context.Background(), s, request.reply)
+	if err != nil {
+		// The store failed before the loop reached the close, so there is nothing it can flush.
+		return nil
+	}
+	<-s.done
+	if flushErr != nil {
+		return fmt.Errorf("flush before closing: %w", flushErr)
 	}
 	return nil
 }
 
-// submitPut hands request to the control loop and returns its outcome. ctx bounds only the wait to queue the
-// request. It closes request.stream if the control loop never handles the put.
+// submitPut hands request to the control loop and returns its outcome. It closes request.stream if the put is never
+// queued, or if the control loop stops without handling it.
 func (s *cdkDataLake) submitPut(ctx context.Context, request *putRequest) error {
 	if err := s.send(ctx, request); err != nil {
 		if request.stream != nil {
@@ -352,18 +366,35 @@ func (s *cdkDataLake) submitPut(ctx context.Context, request *putRequest) error 
 		}
 		return fmt.Errorf("queue the put: %w", err)
 	}
-	// A queued put runs whatever ctx does, so the caller waits for its outcome.
-	outcome, err := awaitReply(context.Background(), s, request.reply)
+	outcome, err := awaitReply(ctx, s, request.reply)
 	if err != nil {
-		if request.stream != nil {
-			_ = request.stream.Close()
-		}
+		s.closeUnhandledStream(request)
 		return fmt.Errorf("wait for the put: %w", err)
 	}
 	if outcome != nil {
 		return fmt.Errorf("put rejected: %w", outcome)
 	}
 	return nil
+}
+
+// closeUnhandledStream closes the stream of a queued put if the control loop has stopped without handling it. Once
+// the loop handles a put, the loop or the writer closes its stream.
+func (s *cdkDataLake) closeUnhandledStream(request *putRequest) {
+	if request.stream == nil {
+		return
+	}
+	select {
+	case <-s.done:
+	default:
+		// The loop may still handle the put.
+		return
+	}
+	select {
+	case <-request.reply:
+		// The loop replied, so it handled the put.
+	default:
+		_ = request.stream.Close()
+	}
 }
 
 // lookup reports whether key has been accepted and not deleted.

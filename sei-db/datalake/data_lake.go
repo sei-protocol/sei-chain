@@ -8,8 +8,8 @@ import (
 // DataLake is a durable store for the long-term or indefinite retention of values keyed by uint64. Reads may be
 // slow. Unless the store allows gaps, its keys form one contiguous range.
 //
-// All methods are safe to call concurrently. Each ctx bounds how long its call may block. Byte slices passed to or
-// returned by the methods of a DataLake or its iterators are not safe to modify.
+// All methods are safe to call concurrently. Byte slices passed to or returned by the methods of a DataLake or its
+// iterators are not safe to modify.
 type DataLake interface {
 	// Put writes value at key. It returns once the write is accepted, and the write becomes crash durable later.
 	// key must be above every key in the store and every key deleted from it, and, in a store that does not allow
@@ -114,7 +114,6 @@ type DataLake interface {
 		reverse bool,
 	) (DataLakeIterator, error)
 
-	// Close releases the store's resources. Writes that are not yet crash durable may be lost; call Flush() first
-	// to keep them.
+	// Close makes every accepted write crash durable, then releases the store's resources.
 	Close() error
 }
