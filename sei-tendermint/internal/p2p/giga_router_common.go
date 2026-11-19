@@ -259,10 +259,16 @@ func (r *gigaRouterCommon) runEvmProxy(ctx context.Context, validator atypes.Pub
 	}
 }
 
-// RestoreMarkerFile returns the path of the marker file that a state sync restore
-// writes in the persistent state dir psd.
-func RestoreMarkerFile(psd string) string {
-	return filepath.Join(psd, "state-sync-restored")
+// PendingRestoreFile returns the path of the file in the persistent state dir psd that marks a
+// giga state sync restore that is not finished.
+func PendingRestoreFile(psd string) string {
+	return filepath.Join(psd, "state-sync-pending")
+}
+
+// RestoreProofFile returns the path of the state sync proof file of the restored road in the
+// persistent state dir psd.
+func RestoreProofFile(psd string) string {
+	return filepath.Join(psd, "state-sync-proof")
 }
 
 // dialAndRunConn dials a peer, handshakes as a SeiGiga connection,
