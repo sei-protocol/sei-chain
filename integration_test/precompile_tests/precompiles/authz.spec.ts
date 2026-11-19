@@ -1,230 +1,105 @@
 /**
- * authz precompile (0x…100E) — grant queries against a live Sei chain.
+ * authz precompile (0x…100E) — retirement assertion.
  *
- * All three methods are views. The precompile cannot create grants, so the
- * non-empty fixture is a staking.grantStakingAuthorization (three
- * StakeAuthorization grants: delegate / redelegate / undelegate). Empty-pair
- * checks use a separate associated pair that never grants. Parity oracle is
- * the authz module's own Grants query for the same granter/grantee pair.
+ * The authz module is removed and its precompile is retired: all three grant
+ * queries unconditionally revert with "authz precompile is retired; authz grant
+ * queries are disabled". Like the oracle precompile it returns REAL
+ * Error(string) revert data, so the reason is visible directly in eth_call
+ * errors — this spec pins that too.
+ *
+ * One ordering nuance: the non-payable check runs BEFORE the retirement
+ * revert, so a value-bearing call reverts WITHOUT the retirement reason.
  */
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { seiRpc, waitUntil } from '../utils/chainUtils';
-import { EvmAccount, associateViaTx } from '../utils/evmUtils';
-import { bondedValidators } from '../utils/cosmosUtils';
-import { authzGrants } from '../utils/moduleQueries';
+import { seiRpc, rawSei } from '../utils/chainUtils';
+import { EvmAccount } from '../utils/evmUtils';
 import {
     PRECOMPILE_ADDRESSES,
-    precompileContract,
+    PRECOMPILE_CALLER_ABI,
     precompileInterface,
-    callerContract,
-    expectExecutionReverted,
+    getVmError,
 } from '../utils/precompileUtils';
-import { readRuntimeState, claimPool, RuntimeState } from '../utils/testUtils';
+import { readRuntimeState, RuntimeState } from '../utils/testUtils';
 
+const RETIRED = /authz precompile is retired/;
 const emptyPage = new Uint8Array();
-const MAX_TOKENS = 1_000_000n;
-
-const authorizationJson = (authorization: string): string => ethers.toUtf8String(authorization);
-
-const expirationUnix = (expiration: Date | undefined): bigint => {
-    return BigInt(Math.floor((expiration?.getTime() ?? 0) / 1000));
-};
 
 describe('authz precompile (0x100E)', function () {
-    this.timeout(180 * 1000);
+    this.timeout(120 * 1000);
 
     const provider = seiRpc();
     const authzIface = precompileInterface('authz');
 
     let runtime: RuntimeState;
     let admin: EvmAccount;
-    let authz: ethers.Contract;
-    let staking: ethers.Contract;
-    let caller: ethers.Contract;
-    let granter: EvmAccount;
-    let grantee: EvmAccount;
-    let validator: string;
-    let expiration: bigint;
 
-    before(async () => {
+    const expectRetired = async (data: string, to: string = PRECOMPILE_ADDRESSES.authz) => {
+        const envelope = await rawSei('eth_call', [{ to, data }, 'latest']);
+        expect(envelope.error, 'retired method must revert').to.not.equal(undefined);
+        expect(envelope.error!.message, 'retirement reason surfaces in eth_call').to.match(RETIRED);
+    };
+
+    before(() => {
         runtime = readRuntimeState();
         admin = EvmAccount.fromMnemonic(runtime.funded.adminMnemonic, provider);
-        authz = precompileContract('authz', admin.wallet);
-        staking = precompileContract('staking', admin.wallet);
-        caller = callerContract(runtime, admin.wallet);
-
-        [granter, grantee] = claimPool(runtime, provider, 2, 'authz:grant');
-        await associateViaTx(granter);
-        await associateViaTx(grantee);
-
-        const validators = await bondedValidators();
-        expect(validators.length, 'devnet must have a bonded validator').to.be.greaterThan(0);
-        validator = validators[0];
-
-        expiration = BigInt(Math.floor(Date.now() / 1000) + 86_400);
-        const tx = await (staking.connect(granter.wallet) as ethers.Contract).grantStakingAuthorization(
-            grantee.address,
-            [validator],
-            MAX_TOKENS,
-            expiration,
-            { gasLimit: 1_000_000 },
-        );
-        expect((await tx.wait())!.status, 'grantStakingAuthorization tx must succeed').to.equal(1);
-
-        await waitUntil(
-            async () => {
-                const resp = await authz.grants(granter.address, grantee.address, '', emptyPage);
-                return resp.grants.length > 0 ? true : null;
-            },
-            { timeoutMs: 30_000, label: 'authz grants after staking grant' },
-        );
     });
 
-    describe('empty grants for a pair with no grant', () => {
-        let unusedGranter: EvmAccount;
-        let unusedGrantee: EvmAccount;
-
-        before(async () => {
-            [unusedGranter, unusedGrantee] = claimPool(runtime, provider, 2, 'authz:empty');
-            await associateViaTx(unusedGranter);
-            await associateViaTx(unusedGrantee);
-        });
-
-        it('grants returns an empty list', async () => {
-            const resp = await authz.grants(
-                unusedGranter.address,
-                unusedGrantee.address,
-                '',
-                emptyPage,
+    describe('error handling (retirement)', () => {
+        it('grants reverts with the retirement reason', async () => {
+            await expectRetired(
+                authzIface.encodeFunctionData('grants', [admin.address, admin.address, '', emptyPage]),
             );
-            expect(resp.grants.length).to.equal(0);
         });
 
-        it('granterGrants and granteeGrants do not include the pair', async () => {
-            const [fromGranter, fromGrantee] = await Promise.all([
-                authz.granterGrants(unusedGranter.address, emptyPage),
-                authz.granteeGrants(unusedGrantee.address, emptyPage),
+        it('granterGrants reverts with the retirement reason', async () => {
+            await expectRetired(authzIface.encodeFunctionData('granterGrants', [admin.address, emptyPage]));
+        });
+
+        it('granteeGrants reverts with the retirement reason', async () => {
+            await expectRetired(authzIface.encodeFunctionData('granteeGrants', [admin.address, emptyPage]));
+        });
+
+        it('a value-bearing call reverts on the non-payable check, without the retirement reason', async () => {
+            const envelope = await rawSei('eth_call', [
+                {
+                    from: admin.address,
+                    to: PRECOMPILE_ADDRESSES.authz,
+                    data: authzIface.encodeFunctionData('granterGrants', [admin.address, emptyPage]),
+                    value: '0x1',
+                },
+                'latest',
             ]);
-            const pair = (g: { granter: string; grantee: string }) =>
-                g.granter === unusedGranter.seiAddress() && g.grantee === unusedGrantee.seiAddress();
-            expect([...fromGranter.grants].some(pair)).to.equal(false);
-            expect([...fromGrantee.grants].some(pair)).to.equal(false);
+            expect(envelope.error, 'value-bearing call must revert').to.not.equal(undefined);
+            expect(envelope.error!.message).to.match(/execution reverted|revert/i);
+            expect(
+                envelope.error!.message,
+                'the non-payable check fires before the retirement revert',
+            ).to.not.match(RETIRED);
+        });
+
+        it('a mined tx fails with the retirement reason in its VmError', async () => {
+            const tx = await admin.wallet.sendTransaction({
+                to: PRECOMPILE_ADDRESSES.authz,
+                data: authzIface.encodeFunctionData('granterGrants', [admin.address, emptyPage]),
+                gasLimit: 200_000,
+            });
+            const receipt = await tx.wait().catch((e: any) => e.receipt);
+            expect(receipt.status, 'tx must fail').to.equal(0);
+            expect(await getVmError(receipt.hash)).to.match(RETIRED);
         });
     });
 
-    describe('non-empty after staking grant', () => {
-        it('grants(granter, grantee, "", emptyPage) is non-empty', async () => {
-            const resp = await authz.grants(granter.address, grantee.address, '', emptyPage);
-            expect(resp.grants.length, 'staking grant creates StakeAuthorization rows').to.be.greaterThan(
-                0,
-            );
-            for (const grant of resp.grants) {
-                const json = authorizationJson(grant.authorization);
-                expect(json).to.include('@type');
-                expect(json).to.include('StakeAuthorization');
-                expect(grant.expiration).to.equal(expiration);
+    describe('dispatch semantics (via PrecompileCaller)', () => {
+        it('the retirement reason bubbles through CALL, STATICCALL and DELEGATECALL', async () => {
+            const inner = authzIface.encodeFunctionData('granterGrants', [admin.address, emptyPage]);
+            const callerIface = new ethers.Interface(PRECOMPILE_CALLER_ABI as unknown as string[]);
+            for (const fn of ['callTarget', 'staticcallTarget', 'delegatecallTarget']) {
+                await expectRetired(
+                    callerIface.encodeFunctionData(fn, [PRECOMPILE_ADDRESSES.authz, inner]),
+                    runtime.contracts.precompileCaller,
+                );
             }
-        });
-
-        it('granterGrants includes the granter/grantee pair', async () => {
-            const resp = await authz.granterGrants(granter.address, emptyPage);
-            const pair = [...resp.grants].filter(
-                (g: { granter: string; grantee: string }) =>
-                    g.granter === granter.seiAddress() && g.grantee === grantee.seiAddress(),
-            );
-            expect(pair.length, 'granterGrants must include the staking grant pair').to.be.greaterThan(
-                0,
-            );
-            for (const grant of pair) {
-                expect(authorizationJson(grant.authorization)).to.include('StakeAuthorization');
-                expect(grant.expiration).to.equal(expiration);
-            }
-        });
-
-        it('granteeGrants includes the granter/grantee pair', async () => {
-            const resp = await authz.granteeGrants(grantee.address, emptyPage);
-            const pair = [...resp.grants].filter(
-                (g: { granter: string; grantee: string }) =>
-                    g.granter === granter.seiAddress() && g.grantee === grantee.seiAddress(),
-            );
-            expect(pair.length, 'granteeGrants must include the staking grant pair').to.be.greaterThan(
-                0,
-            );
-            for (const grant of pair) {
-                expect(authorizationJson(grant.authorization)).to.include('StakeAuthorization');
-                expect(grant.expiration).to.equal(expiration);
-            }
-        });
-    });
-
-    describe('module parity / unassociated granter-grantee / STATICCALL', () => {
-        it('the authz module matches grants() count and expiration', async () => {
-            const [viaPrecompile, moduleGrants] = await Promise.all([
-                authz.grants(granter.address, grantee.address, '', emptyPage),
-                authzGrants(granter.seiAddress(), grantee.seiAddress()),
-            ]);
-            expect(moduleGrants.length, 'authz module grant count').to.equal(
-                viaPrecompile.grants.length,
-            );
-            expect(moduleGrants.length).to.be.greaterThan(0);
-
-            const precompileTypes = [...viaPrecompile.grants]
-                .map((g: { authorization: string }) => JSON.parse(authorizationJson(g.authorization))['@type'])
-                .sort();
-            const moduleTypes = moduleGrants.map(g => g.authorization?.type_url).sort();
-            expect(precompileTypes).to.deep.equal(moduleTypes);
-
-            // The two lists are not guaranteed to be in the same order, and all
-            // three grants in this fixture share one expiration, so an
-            // index-by-index comparison would pass even if the orders diverged.
-            // Compare them as sorted sets instead.
-            const precompileExpirations = [...viaPrecompile.grants]
-                .map((g: { expiration: bigint }) => g.expiration)
-                .sort();
-            const moduleExpirations = moduleGrants.map(g => expirationUnix(g.expiration)).sort();
-            expect(precompileExpirations).to.deep.equal(moduleExpirations);
-        });
-
-        it('grants reverts for an unassociated granter or grantee', async () => {
-            const unassociated = EvmAccount.random(provider);
-            await expectExecutionReverted(
-                authz.grants(unassociated.address, grantee.address, '', emptyPage),
-                'authz.grants with an unassociated granter',
-            );
-            await expectExecutionReverted(
-                authz.grants(granter.address, unassociated.address, '', emptyPage),
-                'authz.grants with an unassociated grantee',
-            );
-        });
-
-        it('granterGrants and granteeGrants revert for an unassociated address', async () => {
-            const unassociated = EvmAccount.random(provider);
-            await expectExecutionReverted(
-                authz.granterGrants(unassociated.address, emptyPage),
-                'authz.granterGrants with an unassociated granter',
-            );
-            await expectExecutionReverted(
-                authz.granteeGrants(unassociated.address, emptyPage),
-                'authz.granteeGrants with an unassociated grantee',
-            );
-        });
-
-        it('grants responds under STATICCALL', async () => {
-            const data = authzIface.encodeFunctionData('grants', [
-                granter.address,
-                grantee.address,
-                '',
-                emptyPage,
-            ]);
-            const ret: string = await caller.staticcallTarget.staticCall(
-                PRECOMPILE_ADDRESSES.authz,
-                data,
-            );
-            const [decoded] = authzIface.decodeFunctionResult('grants', ret);
-            const direct = await authz.grants(granter.address, grantee.address, '', emptyPage);
-            expect(decoded.grants.length).to.equal(direct.grants.length);
-            expect(decoded.grants.length).to.be.greaterThan(0);
         });
     });
 });

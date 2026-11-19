@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"golang.org/x/time/rate"
+
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -14,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type gigaValidatorRouter struct {
@@ -54,20 +57,19 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 		Key:                cfg.ValidatorKey,
 		ViewTimeout:        cfg.ViewTimeout,
 		ProposalTimeout:    cfg.ProposalTimeout,
+		MaxRate:            rate.Every(cfg.GenDoc.Autobahn.Or(types.DefaultAutobahnParams()).MinRoadBlockInterval),
 		PersistentStateDir: utils.Some(cfg.PersistentStateDir),
 	}, dataState)
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
 	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App)
-	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
+	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers, "persistent_peers", len(cfg.PersistentPeerIDs))
 	return &gigaValidatorRouter{
 		gigaRouterCommon: &gigaRouterCommon{
 			cfg:             &cfg.GigaRouterCommonConfig,
 			key:             key,
 			data:            dataState,
-			nextCommitEpoch: dataState.NextCommitEpoch(),
-			anchor:          dataState.Anchor(),
 			service:         giga.NewService(consensusState),
 			poolIn:          giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolInCommittee: giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
@@ -78,11 +80,11 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 				ValidatorKey: cfg.ValidatorKey,
 				EVMRPC:       self.EVMRPC,
 			}),
-			selfAddr:           utils.Some(selfAddr),
-			liveAddrs:          utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
-			liveAddrVersion:    utils.NewAtomicSend(uint64(0)),
-			executed:           utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: utils.Clamp[atypes.RoadIndex](cfg.App.LastBlockHeight())})),
-			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
+			selfAddr:             utils.Some(selfAddr),
+			liveAddrs:            utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
+			liveAddrVersion:      utils.NewAtomicSend(uint64(0)),
+			inboundFullnodeCount: utils.NewMutex(new(int64)),
+			inboundFullnodeCap:   int64(cfg.MaxInboundFullnodePeers),
 		},
 		consensus:    consensusState,
 		producer:     producerState,
@@ -97,12 +99,12 @@ func (r *gigaValidatorRouter) Mempool() utils.Option[*producer.State] {
 func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("committeeMembers", func() error {
-			return r.runPerCommitteeMember(ctx, r.runCommitteePeer, r.runEvmProxy)
+			return r.runPerCommitteeMember(ctx, false, r.runCommitteePeer, r.runEvmProxy)
 		})
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
 		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
-		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
+		s.SpawnNamed("pushAppHashes", func() error { return r.runPushAppHashes(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		return nil
 	})
@@ -140,7 +142,7 @@ func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*ethr
 	if !r.EvmProxyEnabled() {
 		return utils.None[*ethrpc.Client]()
 	}
-	validator := r.nextCommitEpoch.Load().Committee().EvmShard(sender)
+	validator := r.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender)
 	if r.validatorKey == validator {
 		return utils.None[*ethrpc.Client]()
 	}

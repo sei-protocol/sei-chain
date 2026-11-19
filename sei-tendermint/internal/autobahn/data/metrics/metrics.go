@@ -13,8 +13,6 @@ type metrics struct {
 	latency prometheus.HistogramVec `metrics_labels:"resource,stage" metrics_buckets:"exp(0.001, 1.5, 30)"`
 	// Next block to process in the given stage.
 	nextBlock prometheus.GaugeIntVec `metrics_labels:"stage"`
-	// gas used by executed blocks
-	gasUsed prometheus.CounterIntVec
 	// size of executed transactions in bytes
 	txSize prometheus.HistogramVec `metrics_buckets:"none"`
 }
@@ -58,7 +56,6 @@ type Metrics struct {
 	NextBlock    nextBlockMetrics
 	BlockLatency stageMetrics[*prometheus.Histogram]
 	TxLatency    stageMetrics[*prometheus.Histogram]
-	GasUsed      *prometheus.CounterInt
 	// TxSize has no finite buckets; it exports count and sum only.
 	TxSize *prometheus.Histogram
 }
@@ -68,7 +65,6 @@ func Get() *Metrics {
 		NextBlock:    newNextBlockMetrics(),
 		BlockLatency: newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("blocks", stage) }),
 		TxLatency:    newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("txs", stage) }),
-		GasUsed:      Global.gasUsedAt(),
 		TxSize:       Global.txSizeAt(),
 	}
 }

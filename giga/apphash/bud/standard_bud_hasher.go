@@ -1,7 +1,6 @@
 package bud
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
+	"github.com/sei-protocol/sei-chain/giga/apphash/internal/parallel"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
@@ -33,11 +33,12 @@ type StandardBUDHasher struct {
 	// Called with each block's BUD hash. An error stops the hasher.
 	report func(ctx context.Context, blockHeight uint64, budHash [32]byte) error
 
-	// The blocks waiting to be sorted, in submission order, followed by the request Close() sends.
-	sortRequests chan budHashRequest
+	// The messages waiting to be sorted, in submission order: each a budHashRequest, budFlushRequest or
+	// budCloseRequest.
+	sortRequests chan any
 
-	// The sorted blocks waiting to be hashed, in submission order, followed by the request Close() sends.
-	hashRequests chan budHashRequest
+	// The messages waiting to be hashed, in submission order, each block sorted.
+	hashRequests chan any
 
 	// Cancelled by Close(), or by the first block that fails. Its cause is the error every later call returns.
 	ctx context.Context
@@ -53,7 +54,7 @@ type StandardBUDHasher struct {
 	failure error
 }
 
-// A request for the sorting and hashing goroutines: a block to hash, or the request Close() sends.
+// A block to hash.
 type budHashRequest struct {
 	// The height of the block the mutations belong to.
 	blockHeight uint64
@@ -61,8 +62,17 @@ type budHashRequest struct {
 	// The block's mutations: as submitted on the way to the sorting goroutine, and sorted by key on the way to the
 	// hashing goroutine.
 	mutations []mutation.Mutation
+}
 
-	// Set only on the request Close() sends, and closed once every block submitted before it has been reported.
+// Sent by Flush().
+type budFlushRequest struct {
+	// Closed once every block submitted before the request has been reported.
+	flushed chan struct{}
+}
+
+// Sent by Close(). The goroutines exit once they have handled it.
+type budCloseRequest struct {
+	// Closed once every block submitted before the request has been reported.
 	drained chan struct{}
 }
 
@@ -82,8 +92,8 @@ func NewStandardBUDHasher(
 	ctx, cancel := context.WithCancelCause(ctx)
 	h := &StandardBUDHasher{
 		report:       report,
-		sortRequests: make(chan budHashRequest, config.BufferSize),
-		hashRequests: make(chan budHashRequest, config.BufferSize),
+		sortRequests: make(chan any, config.BufferSize),
+		hashRequests: make(chan any, config.BufferSize),
 		ctx:          ctx,
 		cancel:       cancel,
 	}
@@ -100,10 +110,25 @@ func (h *StandardBUDHasher) Submit(ctx context.Context, blockHeight uint64, muta
 	return nil
 }
 
+func (h *StandardBUDHasher) Flush(ctx context.Context) error {
+	flushed := make(chan struct{})
+	if err := h.enqueue(ctx, budFlushRequest{flushed: flushed}); err != nil {
+		return fmt.Errorf("failed to flush the BUD hasher: %w", err)
+	}
+	select {
+	case <-flushed:
+		return nil
+	case <-h.ctx.Done():
+		return h.stoppedError()
+	case <-ctx.Done():
+		return fmt.Errorf("BUD hasher flush abandoned: %w", ctx.Err())
+	}
+}
+
 func (h *StandardBUDHasher) Close() error {
 	drained := make(chan struct{})
 	// A hasher already stopped refuses the request, and has nothing left to report.
-	if h.enqueue(context.Background(), budHashRequest{drained: drained}) == nil {
+	if h.enqueue(context.Background(), budCloseRequest{drained: drained}) == nil {
 		select {
 		case <-drained:
 		case <-h.ctx.Done():
@@ -118,7 +143,7 @@ func (h *StandardBUDHasher) Close() error {
 }
 
 // Hands request to the sorting goroutine.
-func (h *StandardBUDHasher) enqueue(ctx context.Context, request budHashRequest) error {
+func (h *StandardBUDHasher) enqueue(ctx context.Context, request any) error {
 	// A stopped hasher must refuse the request rather than race it into the buffer, where nothing would run it.
 	if h.ctx.Err() != nil {
 		return h.stoppedError()
@@ -138,50 +163,64 @@ func (h *StandardBUDHasher) stoppedError() error {
 	return fmt.Errorf("BUD hasher stopped: %w", context.Cause(h.ctx))
 }
 
-// The sorting goroutine. Sorts each block and hands it to the hashing goroutine, until it has handed over the
-// request Close() sends, or the context is cancelled.
+// The sorting goroutine. Sorts each block and hands every message to the hashing goroutine, until it has handed over
+// a budCloseRequest, or the context is cancelled.
 func (h *StandardBUDHasher) sortBlocks() {
 	for {
-		var request budHashRequest
+		var request any
 		select {
 		case <-h.ctx.Done():
 			return
 		case request = <-h.sortRequests:
 		}
-		if request.drained == nil {
-			request.mutations = sortedByKey(request.mutations)
+		if block, ok := request.(budHashRequest); ok {
+			block.mutations = sortedByKey(block.mutations)
+			request = block
 		}
 		select {
 		case <-h.ctx.Done():
 			return
 		case h.hashRequests <- request:
 		}
-		if request.drained != nil {
+		if _, ok := request.(budCloseRequest); ok {
 			return
 		}
 	}
 }
 
-// The hashing goroutine. Hashes and reports sorted blocks until the request Close() sends, a cancelled context, or a
-// block that fails.
+// The hashing goroutine. Hashes and reports sorted blocks until a budCloseRequest, a cancelled context, or a block
+// that fails.
 func (h *StandardBUDHasher) hashBlocks() {
 	for {
+		var request any
 		select {
 		case <-h.ctx.Done():
 			return
-		case request := <-h.hashRequests:
-			if request.drained != nil {
-				close(request.drained)
+		case request = <-h.hashRequests:
+		}
+		switch r := request.(type) {
+		case budHashRequest:
+			if err := h.hashAndReport(r); err != nil {
+				h.fail(err)
 				return
 			}
-			if err := h.hashAndReport(request); err != nil {
-				logger.Error("BUD hasher stopped", "err", err)
-				h.failure = err
-				h.cancel(err)
-				return
-			}
+		case budFlushRequest:
+			close(r.flushed)
+		case budCloseRequest:
+			close(r.drained)
+			return
+		default:
+			h.fail(fmt.Errorf("unknown BUD hasher request %T", request))
+			return
 		}
 	}
+}
+
+// Stops the hasher with err, which Close() and every later call report.
+func (h *StandardBUDHasher) fail(err error) {
+	logger.Error("BUD hasher stopped", "err", err)
+	h.failure = err
+	h.cancel(err)
 }
 
 // Computes the BUD hash of one sorted block and reports it.
@@ -199,9 +238,7 @@ func (h *StandardBUDHasher) hashAndReport(request budHashRequest) error {
 // sortedByKey returns a copy of mutations sorted by key, leaving mutations in its original order.
 func sortedByKey(mutations []mutation.Mutation) []mutation.Mutation {
 	sorted := slices.Clone(mutations)
-	slices.SortFunc(sorted, func(a mutation.Mutation, b mutation.Mutation) int {
-		return bytes.Compare(a.Key, b.Key)
-	})
+	sortMutationsByKey(sorted)
 	return sorted
 }
 
@@ -212,12 +249,26 @@ func budHashFromMutations(
 	mutations []mutation.Mutation,
 ) (apphash.BUDHash, error) {
 	budlets := make([]*Budlet, len(mutations))
-	for i := range mutations {
-		budlet, err := budletFromMutation(&mutations[i])
-		if err != nil {
-			return apphash.BUDHash{}, fmt.Errorf("failed to convert mutation %d: %w", i, err)
+	// The lowest-indexed failure is reported, so the error matches a serial pass.
+	var mu sync.Mutex
+	failed := -1
+	var failure error
+	parallel.ForEachChunk(len(mutations), func(start int, end int) {
+		for i := start; i < end; i++ {
+			budlet, err := budletFromMutation(&mutations[i])
+			if err != nil {
+				mu.Lock()
+				if failed < 0 || i < failed {
+					failed, failure = i, err
+				}
+				mu.Unlock()
+				return
+			}
+			budlets[i] = budlet
 		}
-		budlets[i] = budlet
+	})
+	if failure != nil {
+		return apphash.BUDHash{}, fmt.Errorf("failed to convert mutation %d: %w", failed, failure)
 	}
 	treeHash, err := ComputeBUDTreeHash(budlets)
 	if err != nil {

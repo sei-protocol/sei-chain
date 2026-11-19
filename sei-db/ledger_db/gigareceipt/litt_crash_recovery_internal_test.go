@@ -154,7 +154,7 @@ func TestRecoveryRollsTheIndexBackBelowTheRetentionFloor(t *testing.T) {
 
 	s = openStore(t, dir)
 	require.Equal(t, int64(5), s.LatestVersion())
-	require.Equal(t, int64(6), s.EarliestVersion())
+	require.Equal(t, int64(5), s.EarliestVersion(), "the floor drops to the rollback target")
 	ctx, _ := newTestContext()
 	require.NoError(t, s.SetReceipts(ctx.WithBlockHeight(6), []receipt.ReceiptRecord{crashRecord(6)}))
 	requireReceiptVersion(t, s, 6)
@@ -199,6 +199,38 @@ func TestPruneAfterRefusesAnIndexHeadWithEmptyLitt(t *testing.T) {
 	require.NoError(t, LoseLittAbove(dir, 0))
 
 	require.ErrorContains(t, PruneAfter(littIdxCfg(dir), 3), "no receipts are present on disk")
+}
+
+// A rollback to 0 interrupted after discarding every receipt but before rewinding the index leaves no receipts
+// beside the old latest version. Nothing at or below 0 has to survive, so the rerun completes it.
+func TestPruneAfterToZeroCompletesAfterAnInterruption(t *testing.T) {
+	dir := t.TempDir()
+	writeLittIdxReceipts(t, dir, 5)
+	require.NoError(t, LoseLittAbove(dir, 0))
+
+	require.NoError(t, PruneAfter(littIdxCfg(dir), 0))
+
+	s := openStore(t, dir)
+	require.Zero(t, s.LatestVersion())
+	replayAndRequireEachBlockOnce(t, s, 1, 2)
+}
+
+// A rollback below the retention floor interrupted after discarding every receipt but before rewinding the index
+// leaves no receipts beside the old latest version. Every receipt at or below the target was pruned, so the rerun
+// completes it.
+func TestPruneAfterBelowTheRetentionFloorCompletesAfterAnInterruption(t *testing.T) {
+	dir := t.TempDir()
+	writeLittIdxReceipts(t, dir, 10)
+	s := openStore(t, dir)
+	require.NoError(t, s.pruneBlocksBelow(6))
+	require.NoError(t, s.Close())
+	require.NoError(t, LoseLittAbove(dir, 0))
+
+	require.NoError(t, PruneAfter(littIdxCfg(dir), 3))
+
+	s = openStore(t, dir)
+	require.Equal(t, int64(3), s.LatestVersion())
+	require.Equal(t, int64(3), s.EarliestVersion())
 }
 
 // A write for a block below the head is refused, so the newest part in litt is always the highest block.

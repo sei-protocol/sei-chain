@@ -39,8 +39,8 @@ func (m *TimeoutVote) Verify(ep *Epoch) error {
 
 // latestPrepareQCView is the highest view number for which a PrepareQC was observed by the node.
 func (m *TimeoutVote) latestPrepareQCView() utils.Option[View] {
-	return utils.MapOpt(m.latestPrepareQC, func(n ViewNumber) View {
-		return View{Index: m.view.Index, Number: n, EpochIndex: m.view.EpochIndex}
+	return m.latestPrepareQC.Map(func(n ViewNumber) View {
+		return View{Height: m.view.Height, Number: n, EpochIndex: m.view.EpochIndex}
 	})
 }
 
@@ -55,7 +55,7 @@ type FullTimeoutVote struct {
 func NewFullTimeoutVote(key SecretKey, view View, latestPrepareQC utils.Option[*PrepareQC]) *FullTimeoutVote {
 	vote := &TimeoutVote{
 		view:            view,
-		latestPrepareQC: utils.MapOpt(latestPrepareQC, func(qc *PrepareQC) ViewNumber { return qc.View().Number }),
+		latestPrepareQC: latestPrepareQC.Map(func(qc *PrepareQC) ViewNumber { return qc.View().Number }),
 	}
 	return &FullTimeoutVote{
 		vote:            Sign(key, vote),
@@ -159,10 +159,10 @@ func (m *TimeoutQC) Verify(ep *Epoch, prev utils.Option[*CommitQC]) error {
 	// Check that the TimeoutQC is from the correct consensus instance.
 	want := ep.RoadRange().First
 	if qc, ok := prev.Get(); ok {
-		want = qc.Index() + 1
+		want = qc.Height() + 1
 	}
-	if got := view.Index; got != want {
-		return fmt.Errorf("timeoutQC.View().Index = %v, want %v", got, want)
+	if got := view.Height; got != want {
+		return fmt.Errorf("timeoutQC.View().Height = %v, want %v", got, want)
 	}
 	// Verify the signatures.
 	weight := uint64(0)
@@ -200,7 +200,7 @@ func (m *TimeoutQC) Verify(ep *Epoch, prev utils.Option[*CommitQC]) error {
 		if !ok {
 			return errors.New("missing latestPrepareQC")
 		}
-		if got, want := pQC.View(), (View{Index: view.Index, Number: vn, EpochIndex: view.EpochIndex}); got != want {
+		if got, want := pQC.View(), (View{Height: view.Height, Number: vn, EpochIndex: view.EpochIndex}); got != want {
 			return fmt.Errorf("latestPrepareQC view number mismatch, got %v, want %v", got, want)
 		}
 		if err := pQC.Verify(ep); err != nil {
@@ -226,14 +226,14 @@ func (m *TimeoutQC) reproposal() (*Proposal, bool) {
 var ViewConv = protoutils.Conv[View, *pb.View]{
 	Encode: func(m View) *pb.View {
 		return &pb.View{
-			Index:      new(uint64(m.Index)),
+			Height:     new(uint64(m.Height)),
 			Number:     new(uint64(m.Number)),
 			EpochIndex: new(uint64(m.EpochIndex)),
 		}
 	},
 	Decode: func(m *pb.View) (View, error) {
-		if m.Index == nil {
-			return View{}, fmt.Errorf("index: missing")
+		if m.Height == nil {
+			return View{}, fmt.Errorf("height: missing")
 		}
 		if m.Number == nil {
 			return View{}, fmt.Errorf("number: missing")
@@ -242,7 +242,7 @@ var ViewConv = protoutils.Conv[View, *pb.View]{
 			return View{}, fmt.Errorf("epoch_index: missing")
 		}
 		return View{
-			Index:      RoadIndex(*m.Index),
+			Height:     RoadHeight(*m.Height),
 			Number:     ViewNumber(*m.Number),
 			EpochIndex: EpochIndex(*m.EpochIndex),
 		}, nil
@@ -290,11 +290,11 @@ var FullTimeoutVoteConv = protoutils.Conv[*FullTimeoutVote, *pb.FullTimeoutVote]
 	Decode: func(m *pb.FullTimeoutVote) (*FullTimeoutVote, error) {
 		vote, err := SignedTimeoutVoteConv.DecodeReq(m.VoteV2)
 		if err != nil {
-			return nil, fmt.Errorf("timeoutVote: %w", err)
+			return nil, fmt.Errorf("vote_v2: %w", err)
 		}
 		latestPrepareQC, err := PrepareQCConv.DecodeOpt(m.LatestPrepareQc)
 		if err != nil {
-			return nil, fmt.Errorf("latestPrepareQc: %w", err)
+			return nil, fmt.Errorf("latest_prepare_qc: %w", err)
 		}
 		return &FullTimeoutVote{
 			vote:            vote,
@@ -314,14 +314,14 @@ var TimeoutQCConv = protoutils.Conv[*TimeoutQC, *pb.TimeoutQC]{
 	Decode: func(m *pb.TimeoutQC) (*TimeoutQC, error) {
 		votes, err := SignedTimeoutVoteConv.DecodeSlice(m.VotesV2)
 		if err != nil {
-			return nil, fmt.Errorf("votes: %w", err)
+			return nil, fmt.Errorf("votes_v2: %w", err)
 		}
 		if len(votes) == 0 {
-			return nil, errors.New("votes: missing")
+			return nil, errors.New("votes_v2: missing")
 		}
 		latestPrepareQC, err := PrepareQCConv.DecodeOpt(m.LatestPrepareQc)
 		if err != nil {
-			return nil, fmt.Errorf("latestPrepareQc: %w", err)
+			return nil, fmt.Errorf("latest_prepare_qc: %w", err)
 		}
 		return &TimeoutQC{
 			votes:           votes,

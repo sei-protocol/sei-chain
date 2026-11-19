@@ -103,6 +103,9 @@ func (env *Environment) Subscribe(ctx context.Context, req *coretypes.RequestSub
 // Unsubscribe from events via WebSocket.
 // More: https://docs.tendermint.com/master/rpc/#/Websocket/unsubscribe
 func (env *Environment) Unsubscribe(ctx context.Context, req *coretypes.RequestUnsubscribe) (*coretypes.ResultUnsubscribe, error) {
+	if len(req.Query) > maxQueryLength {
+		return nil, errors.New("maximum query length exceeded")
+	}
 	args := tmpubsub.UnsubscribeArgs{Subscriber: rpctypes.GetCallInfo(ctx).RemoteAddr()}
 	logger.Info("Unsubscribe from query", "remote", args.Subscriber, "subscription", req.Query)
 
@@ -173,7 +176,9 @@ func (env *Environment) Events(ctx context.Context, req *coretypes.RequestEvents
 	}
 
 	query := tmquery.All
-	if req.Filter != nil && req.Filter.Query != "" {
+	if req.Filter != nil && len(req.Filter.Query) > maxQueryLength {
+		return nil, errors.New("maximum query length exceeded")
+	} else if req.Filter != nil && req.Filter.Query != "" {
 		q, err := tmquery.New(req.Filter.Query)
 		if err != nil {
 			return nil, fmt.Errorf("invalid filter query: %w", err)
@@ -192,6 +197,9 @@ func (env *Environment) Events(ctx context.Context, req *coretypes.RequestEvents
 	var info eventlog.Info
 	var items []*eventlog.Item
 	accept := func(itm *eventlog.Item) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		// N.B. We accept up to one item more than requested, so we can tell how
 		// to set the "more" flag in the response.
 		if len(items) > maxItems || itm.Cursor.Before(after) {
@@ -204,17 +212,17 @@ func (env *Environment) Events(ctx context.Context, req *coretypes.RequestEvents
 	}
 
 	if before.IsZero() {
-		ctx, cancel := context.WithTimeout(ctx, waitTime)
+		waitCtx, cancel := context.WithTimeout(ctx, waitTime)
 		defer cancel()
 
 		// Long poll. The loop here is because new items may not match the query,
 		// and we want to keep waiting until we have relevant results (or time out).
 		cur := after
 		for len(items) == 0 {
-			info, err = eventLog.WaitScan(ctx, cur, accept)
+			info, err = eventLog.WaitScan(waitCtx, cur, accept)
 			if err != nil {
 				// Don't report a timeout as a request failure.
-				if errors.Is(err, context.DeadlineExceeded) {
+				if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 					err = nil
 				}
 				break

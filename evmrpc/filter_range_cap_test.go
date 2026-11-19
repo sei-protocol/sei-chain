@@ -90,6 +90,8 @@ func (s *rangeCapReceiptStore) GetReceiptFromStore(ctx sdk.Context, txHash commo
 	return s.GetReceipt(ctx, txHash)
 }
 
+func (s *rangeCapReceiptStore) Flush() error { return nil }
+
 func (s *rangeCapReceiptStore) SetReceipts(_ sdk.Context, records []receipt.ReceiptRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -164,6 +166,8 @@ type rangeCapTMClient struct {
 	client.LocalClient
 	block *coretypes.ResultBlock
 }
+
+func (*rangeCapTMClient) GenesisInitialHeight() int64 { return 1 }
 
 func (c *rangeCapTMClient) EvmNextPendingNonce(common.Address) uint64 { return 0 }
 

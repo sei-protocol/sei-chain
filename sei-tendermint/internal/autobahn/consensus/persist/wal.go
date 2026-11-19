@@ -27,7 +27,7 @@ type codec[T any] interface {
 
 // walEntry is one record read back from a WAL.
 type walEntry[T any] struct {
-	// The index the record is stored under: a block number in a lane WAL, a road index in the
+	// The index the record is stored under: a block number in a lane WAL, a road height in the
 	// commitQC WAL.
 	index uint64
 	// The decoded record.
@@ -63,7 +63,7 @@ func openWAL[T any](
 	config.FsyncOnFlush = true
 	// When the prune anchor moves past every record a WAL holds, the next append lands above the
 	// highest index on disk rather than one past it. Contiguity within the live range is still
-	// enforced by the callers of Append, which reject an out-of-sequence block or road index.
+	// enforced by the callers of Append, which reject an out-of-sequence block or road height.
 	config.PermitGaps = true
 	config.TargetFileSize = fileSize
 	config.DisableMetrics = !metricsEnabled

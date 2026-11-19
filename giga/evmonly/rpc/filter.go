@@ -34,6 +34,8 @@ var (
 	errLogRangeInverted   = errors.New("eth_getLogs fromBlock is after toBlock")
 	errLogRangePruned     = errors.New("eth_getLogs block is pruned")
 	errLogRangeNotIndexed = errors.New("eth_getLogs block is not yet indexed")
+	// errUnknownBlock is go-ethereum's error for a blockHash filter naming a block it does not have.
+	errUnknownBlock = errors.New("unknown block")
 )
 
 // invalidParamsError is a JSON-RPC error reporting that the request's
@@ -106,7 +108,7 @@ func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCr
 			return 0, 0, err
 		}
 		if block == nil || block.Block == nil {
-			return 0, 0, fmt.Errorf("block %s not found", crit.BlockHash)
+			return 0, 0, errUnknownBlock
 		}
 		height := uint64(block.Block.Height) //nolint:gosec // block heights are positive
 		earliest, latest := indexedRange(api.backend, api.store)
@@ -136,11 +138,7 @@ func indexedRange(backend Backend, store receiptpkg.ReceiptStore) (uint64, uint6
 	if stored := store.LatestVersion(); stored >= 0 && uint64(stored) < latest { //nolint:gosec // stored is non-negative
 		latest = uint64(stored) //nolint:gosec // stored is non-negative
 	}
-	// EarliestVersion is 0 until something has pruned the store; blocks start at 1.
-	earliest := uint64(1)
-	if stored := store.EarliestVersion(); stored > 1 {
-		earliest = uint64(stored) //nolint:gosec // stored is positive
-	}
+	earliest := uint64(earliestRetainedHeight(store)) //nolint:gosec // never below earliestCommittedHeight
 	return earliest, latest
 }
 
@@ -156,19 +154,17 @@ func checkIndexed(fromBlock, toBlock, earliest, latest uint64) error {
 	return nil
 }
 
-// resolveLogBound maps a filter bound to a height: nil and the head tags mean
-// the latest indexed block, and the earliest tag (which decodes to 0) means
-// the retention floor. Other explicit numbers pass through so the caller can
-// check them against the indexed range.
+// resolveLogBound maps a filter bound to a height: nil and head tags are latest,
+// "earliest" and 0x0 are the retention floor, other numbers pass through.
 func resolveLogBound(bound *big.Int, earliest, latest uint64) (uint64, error) {
+	if bound != nil && bound.IsInt64() && (bound.Int64() == ethrpc.EarliestBlockNumber.Int64() || bound.Sign() == 0) {
+		return earliest, nil
+	}
 	if bound == nil || bound.Sign() < 0 {
 		return latest, nil
 	}
 	if !bound.IsUint64() || bound.Uint64() > math.MaxInt64 {
 		return 0, &invalidParamsError{error: fmt.Errorf("eth_getLogs block number %s exceeds int64", bound)}
-	}
-	if bound.Int64() == ethrpc.EarliestBlockNumber.Int64() {
-		return earliest, nil
 	}
 	return bound.Uint64(), nil
 }

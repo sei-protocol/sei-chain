@@ -22,6 +22,8 @@ import (
 	"golang.org/x/net/netutil"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -29,6 +31,9 @@ import (
 )
 
 const shutdownWait = 5 * time.Second
+
+// deadlinePlane is the plane label this server's exceeded method deadlines are recorded under.
+const deadlinePlane = "evmonly"
 
 // wsAllowedOrigins accepts WebSocket upgrades from any Origin header. WebSocket
 // is exempt from the browser same-origin policy, so this is the only origin
@@ -46,49 +51,65 @@ type Backend interface {
 	Block(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	BlockByHash(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
 	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
-	EvmBalance(common.Address) uint256.Int
+	EvmBalance(common.Address, []byte) uint256.Int
 	EvmBalanceAt(address common.Address, height int64) (uint256.Int, error)
-	EvmBaseFee() (*big.Int, error)
+	EvmBaseFee() *big.Int
 	// EvmBlockContext returns the block context header's block executed at.
 	EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error)
 	EvmBlockNumber() uint64
 	ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
-	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
+	EvmCall(ctx context.Context, msg *core.Message, overrides evmonly.CallOverrides) (*core.ExecutionResult, error)
 	// EvmCallAt executes msg as a read-only call against the committed EVM state after header's
-	// block, in the context that block executed at.
-	EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error)
-	EvmChainConfig() (*params.ChainConfig, error)
+	// block, in the context that block executed at, with overrides applied.
+	EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (*core.ExecutionResult, error)
+	EvmChainConfig() *params.ChainConfig
 	EvmChainID() uint64
 	EvmCode(common.Address) ([]byte, error)
 	EvmCodeAt(address common.Address, height int64) ([]byte, error)
-	// EvmEstimateGas returns the lowest gas limit that lets msg succeed, and
-	// any revert data if it still fails at gasCap.
-	EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error)
+	// EvmEstimateGas returns the lowest gas limit that lets msg succeed with overrides applied,
+	// and any revert data if it still fails at gasCap.
+	EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error)
 	// EvmEstimateGasAt returns the lowest gas limit that lets msg succeed against the committed
-	// EVM state after header's block, and any revert data if it still fails at gasCap.
-	EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header) (uint64, []byte, error)
-	// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg with calls applied
-	// to the committed state first, in order.
-	EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error)
+	// EVM state after header's block with overrides applied, and any revert data if it still
+	// fails at gasCap.
+	EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error)
+	// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg with overrides and then
+	// calls applied to the committed state first, in order.
+	EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error)
+	// EvmEstimateGasAfterCallsAt returns what EvmEstimateGasAt returns for msg with overrides and
+	// then calls applied to the committed state after header's block first, in order.
+	EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error)
 	// EvmCreateAccessList returns the access list msg touches against the committed state, and
 	// the result of executing msg with that list.
 	EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error)
-	EvmGasLimit() (uint64, error)
+	// EvmCreateAccessListAt returns the access list msg touches against the committed state after
+	// header's block, in the context that block executed at, and the result of executing msg with
+	// that list.
+	EvmCreateAccessListAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (ethtypes.AccessList, *core.ExecutionResult, error)
+	EvmGasLimit() uint64
 	// EvmMinGasPrice returns the minimum effective gas price this application admits a
 	// transaction at.
-	EvmMinGasPrice() (*big.Int, error)
+	EvmMinGasPrice() *big.Int
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 	EvmProxyEnabled() bool
+	// RememberEvmSender records the sender recovered for the transaction with this hash, for the
+	// application to use instead of recovering it again.
+	RememberEvmSender(hash common.Hash, sender common.Address)
+	// ForgetEvmSender drops the sender recorded for the transaction with this hash, if any.
+	ForgetEvmSender(hash common.Hash)
 	EvmStorage(common.Address, common.Hash) (common.Hash, error)
 	EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error)
 	// EvmStateAt returns the committed EVM state after height, or the latest committed state when
 	// height is ethrpc.LatestBlockNumber, and the function that releases it.
-	EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error)
+	EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, func(), error)
 	// EvmStateBeforeTx returns the EVM state the transaction at index len(txs) of header's block
 	// executed against, and the function that releases it.
-	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error)
+	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error)
 	EvmTransactionCount(common.Address) uint64
-	EvmTransactionCountAt(address common.Address, height int64) (uint64, error)
+	EvmNonceAt(address common.Address, height int64) (uint64, error)
+	// EvmPendingNonce returns the nonce the local mempool admits next for address, or None when
+	// this node has no local mempool.
+	EvmPendingNonce(common.Address) utils.Option[uint64]
 }
 
 // Server serves the EVM-only JSON-RPC API over HTTP and over WebSocket.
@@ -150,13 +171,18 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 	if receiptStore == nil {
 		return nil, errors.New("EVM-only RPC requires a receipt store")
 	}
+	deadlines, err := limits.DeadlineConfig()
+	if err != nil {
+		return nil, err
+	}
 	rpcServer := ethrpc.NewServer()
+	rpcServer.SetDeadlineHook(deadlineHook(ratelimiter.NewDeadlineEnforcer(deadlines)))
 	rpcServer.SetBatchLimits(limits.BatchRequestLimit, limits.BatchResponseMaxSize)
 	rpcServer.SetHTTPBodyLimit(limits.MaxRequestBodyBytes)
 	rpcServer.SetReadLimits(int64(limits.MaxRequestBodyBytes))
 	rpcServer.SetWSConcurrentRequestBytes(limits.MaxConcurrentRequestBytes)
 	rpcServer.SetWSAdmissionTimeout(limits.WSAdmissionTimeout)
-	if err := rpcServer.RegisterName("eth", &sendAPI{backend: backend}); err != nil {
+	if err := rpcServer.RegisterName("eth", newSendAPI(backend, limits.MaxConcurrentSendCalls)); err != nil {
 		return nil, fmt.Errorf("register EVM-only send RPC: %w", err)
 	}
 	if err := rpcServer.RegisterName("eth", &txAPI{backend: backend, store: receiptStore}); err != nil {
@@ -169,10 +195,11 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 		return nil, fmt.Errorf("register EVM-only info RPC: %w", err)
 	}
 	blocks := &blockAPI{backend: backend, store: receiptStore}
-	if err := rpcServer.RegisterName("eth", &callAPI{backend: backend, blocks: blocks}); err != nil {
+	overrides := newOverrideLimits(limits)
+	if err := rpcServer.RegisterName("eth", &callAPI{backend: backend, blocks: blocks, limits: overrides}); err != nil {
 		return nil, fmt.Errorf("register EVM-only call RPC: %w", err)
 	}
-	if err := rpcServer.RegisterName("eth", &estimateAPI{backend: backend, blocks: blocks, maxCalls: limits.MaxEstimateGasCalls}); err != nil {
+	if err := rpcServer.RegisterName("eth", &estimateAPI{backend: backend, blocks: blocks, limits: overrides, maxCalls: limits.MaxEstimateGasCalls}); err != nil {
 		return nil, fmt.Errorf("register EVM-only estimate RPC: %w", err)
 	}
 	if err := rpcServer.RegisterName("eth", blocks); err != nil {
@@ -201,6 +228,14 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 		return nil, fmt.Errorf("register EVM-only subscription RPC: %w", err)
 	}
 	return rpcServer, nil
+}
+
+// deadlineHook bounds each method dispatch by enforcer's deadline for that method, and records
+// the dispatches that exceed it.
+func deadlineHook(enforcer *ratelimiter.DeadlineEnforcer) ethrpc.DeadlineHook {
+	return func(ctx context.Context, method string) (context.Context, context.CancelFunc) {
+		return enforcer.WithDeadlineAndRecord(ctx, deadlinePlane, method)
+	}
 }
 
 // Serve handles HTTP and WebSocket requests until either listener stops or

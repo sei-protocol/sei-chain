@@ -39,19 +39,21 @@ type GigaRouterCommonConfig struct {
 	// (BlockDB, epoch snapshots, and the validator's consensus persister in
 	// sibling subdirs). Required and must already exist.
 	PersistentStateDir string
-	// App is the ABCI proxy startExecuteBlock drives. NewGigaValidatorRouter
-	// also passes it to producer.NewState so the producer's internal
-	// mempool drives the same proxy.
-	App *proxy.Proxy
+	// App is the application the blocks run on. The router reads its committed
+	// height and validator set, and NewGigaValidatorRouter passes it to the
+	// producer's mempool.
+	App *proxy.EVMProxy
 	// AppHashBuilder is the source of every Autobahn application hash. The
-	// storage manager owns it. The router reports each block hash to it before
-	// execution, and reads each block's app hash from it. Currently app hashes
-	// are computed per lane block, but in the future they may be computed once
-	// per superblock.
+	// storage manager owns it. The router reads each executed block's app hash
+	// from it.
 	AppHashBuilder builder.AppHashBuilder
 	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
-	// peers. 0 rejects all; positive caps at n, up to maxInboundFullnodePeers.
+	// peers outside PersistentPeerIDs. 0 rejects every such peer; a positive
+	// value caps at n, up to maxInboundFullnodePeers.
 	MaxInboundFullnodePeers int
+	// PersistentPeerIDs are node IDs from p2p.persistent-peers and
+	// p2p.blocksync-peers. They do not consume MaxInboundFullnodePeers.
+	PersistentPeerIDs map[types.NodeID]struct{}
 
 	// Whether validator should proxy txs which do not belong to the local node.
 	EnableEvmProxy bool
@@ -74,16 +76,14 @@ type GigaValidatorConfig struct {
 type GigaRouter interface {
 	Run(ctx context.Context) error
 	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
-	LastCommittedBlockNumber() int64
-	// ExecutedBlocks publishes the recently committed blocks as they are committed to the app.
-	ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks]
+	LastCommittedHeight() int64
 	MaxGasEstimatedPerBlock() uint64
-	BlockByNumber(ctx context.Context, n atypes.RoadIndex) (*coretypes.ResultBlock, error)
+	BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*coretypes.ResultBlock, error)
 	BlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error)
 	EvmProxy(sender common.Address) utils.Option[*rpc.Client]
 	// EvmProxyEnabled reports whether EvmProxy can return Some for any sender.
 	EvmProxyEnabled() bool
 	Mempool() utils.Option[*producer.State]
-	Validators(n atypes.RoadIndex) ([]*types.Validator, error)
+	Validators(n atypes.RoadHeight) ([]*types.Validator, error)
 	fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer])
 }

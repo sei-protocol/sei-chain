@@ -100,7 +100,7 @@ func TestGetBlockReceiptsFiltersBlockOnce(t *testing.T) {
 	mu := &sync.Mutex{}
 	tm := &parityTxCountTMClient{block: block}
 	wm := evmrpc.NewWatermarkManager(tm, ctxProvider, nil, k.ReceiptStore())
-	api := evmrpc.NewBlockAPI(tm, k, ctxProvider, txConfigProvider, evmrpc.ConnectionTypeHTTP, wm, cache, mu)
+	api := evmrpc.NewBlockAPI(tm, k, ctxProvider, ctxProvider, txConfigProvider, evmrpc.ConnectionTypeHTTP, wm, cache, mu)
 
 	number := rpc.BlockNumber(parityTestHeight)
 	got, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &number})

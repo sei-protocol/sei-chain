@@ -61,6 +61,18 @@ contract GovStorageHarness is GovStorage {
         return abi.encode(ParamChangeContent(title, description, changes, isExpedited));
     }
 
+    function softwareUpgradeContent(
+        string calldata title, string calldata description, UpgradePlan calldata plan, bool isExpedited
+    ) external pure returns (bytes memory) {
+        return abi.encode(SoftwareUpgradeContent(title, description, plan, isExpedited));
+    }
+
+    function cancelSoftwareUpgradeContent(
+        string calldata title, string calldata description, string calldata name, bool isExpedited
+    ) external pure returns (bytes memory) {
+        return abi.encode(CancelSoftwareUpgradeContent(title, description, name, isExpedited));
+    }
+
     /// @dev Appends key, which must not break the heap order.
     function push(ProposalQueue storage q, uint256 key) internal {
         q.keys.push(key);

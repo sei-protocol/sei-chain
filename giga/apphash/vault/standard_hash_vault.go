@@ -4,10 +4,14 @@ import (
 	"fmt"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("giga", "apphash", "vault")
 
 var _ HashVault = (*StandardHashVault)(nil)
 
@@ -36,6 +40,8 @@ func NewStandardHashVault(
 	// all zeros, without storing it.
 	gigaActivationHeight uint64,
 ) (*StandardHashVault, error) {
+	start := time.Now()
+	logger.Info("Opening the hash vault")
 	if gigaActivationHeight == 0 {
 		return nil, fmt.Errorf("giga activation height must be at least 1")
 	}
@@ -55,6 +61,7 @@ func NewStandardHashVault(
 		return nil, fmt.Errorf("failed to read the hash vault head in %q: %w", config.Path, err)
 	}
 	v.head.Store(highest)
+	logger.Info("Opened the hash vault", "elapsed", time.Since(start))
 	return v, nil
 }
 
@@ -101,6 +108,9 @@ func knownRange(
 }
 
 func (v *StandardHashVault) Append(records []*apphash.AppHashData) error {
+	if err := v.checkRestoreAnchors(records); err != nil {
+		return err
+	}
 	for _, record := range records {
 		data, err := serializeRecord(record)
 		if err != nil {
@@ -117,6 +127,28 @@ func (v *StandardHashVault) Append(records []*apphash.AppHashData) error {
 	}
 	if len(records) > 0 {
 		v.head.Store(records[len(records)-1].BlockHeight())
+	}
+	return nil
+}
+
+// Errors if records holds a restore anchor anywhere but as the first record stored in an empty vault.
+func (v *StandardHashVault) checkRestoreAnchors(records []*apphash.AppHashData) error {
+	for i, record := range records {
+		if !record.IsRestoreAnchor() {
+			continue
+		}
+		if i > 0 {
+			return fmt.Errorf("the restore anchor of block %d must be the first record of an empty vault",
+				record.BlockHeight())
+		}
+		stored, _, highest, err := v.wal.Bounds()
+		if err != nil {
+			return fmt.Errorf("failed to read hash vault bounds: %w", err)
+		}
+		if stored {
+			return fmt.Errorf("the restore anchor of block %d must be the first record of an empty vault, "+
+				"which holds records through block %d", record.BlockHeight(), highest)
+		}
 	}
 	return nil
 }

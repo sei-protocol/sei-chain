@@ -25,7 +25,7 @@ const (
 
 	// StoragePhaseAppCommit is the app's Commit call.
 	StoragePhaseAppCommit = "app_commit"
-	// StoragePhaseBookkeeping is the loop's own work after Commit: committee weights and the
+	// StoragePhaseBookkeeping is the loop's own work after Commit: the gas counter and the
 	// executed-block window.
 	StoragePhaseBookkeeping = "bookkeeping"
 )

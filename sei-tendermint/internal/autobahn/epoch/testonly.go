@@ -12,8 +12,8 @@ import (
 // Intended for use in tests only.
 func GenRegistry(rng utils.Rng, size int) (*Registry, []types.SecretKey) {
 	committee, sks, _ := genCommittee(rng, size)
-	firstRoad := types.GenRoadIndex(rng)%1000000 + 1
-	registry := utils.OrPanic1(NewRegistry(committee, firstRoad, time.Now(), utils.None[string]()))
+	firstHeight := types.GenRoadHeight(rng)%1000000 + 1
+	registry := utils.OrPanic1(NewRegistry(committee, firstHeight, time.Now(), DefaultEpochLength, utils.None[string]()))
 	return registry, sks
 }
 
@@ -25,11 +25,10 @@ func GenRegistryThrough(
 	last types.EpochIndex,
 ) (*Registry, []types.SecretKey) {
 	committee, sks, weights := genCommittee(rng, size)
-	firstRoad := types.GenRoadIndex(rng)%1000000 + 1
-	registry := utils.OrPanic1(NewRegistry(committee, firstRoad, time.Now(), utils.None[string]()))
+	firstHeight := types.GenRoadHeight(rng)%1000000 + 1
+	registry := utils.OrPanic1(NewRegistry(committee, firstHeight, time.Now(), DefaultEpochLength, utils.None[string]()))
 	for target := types.EpochIndex(2); target <= last; target++ {
-		utils.OrPanic(registry.StageEpoch(target-2, weights))
-		utils.OrPanic(registry.Activate(target))
+		utils.OrPanic(registry.TryPushEpoch(registry.LastRoad(target-2), weights))
 	}
 	return registry, sks
 }
@@ -44,12 +43,9 @@ func genCommittee(rng utils.Rng, size int) (*types.Committee, []types.SecretKey,
 	return committee, sks, weights
 }
 
-// StageAndActivate derives C_{endEpoch+2} from weights and publishes it.
-func (r *Registry) StageAndActivate(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) error {
-	if err := r.StageEpoch(endEpoch, weights); err != nil {
-		return err
-	}
-	return r.Activate(endEpoch + 2)
+// TestPushEpoch derives C_{endEpoch+2} from weights and publishes it.
+func (r *Registry) TestPushEpoch(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) error {
+	return r.TryPushEpoch(r.LastRoad(endEpoch), weights)
 }
 
 // MustEpoch returns the registered epoch at i. Panics if it is missing.

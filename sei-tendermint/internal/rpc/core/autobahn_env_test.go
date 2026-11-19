@@ -6,12 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -43,10 +42,28 @@ func (stubAppHashBuilder) GetAppHash(ctx context.Context, _ uint64) (*apphash.Ap
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
+func (stubAppHashBuilder) Flush(context.Context) error           { return nil }
 func (stubAppHashBuilder) Bounds() (uint64, uint64, bool, error) { return 0, 0, false, nil }
 func (stubAppHashBuilder) Close() error                          { return nil }
 
+type broadcastEVMApp struct{ proxy.EVMApplication }
+
+func (broadcastEVMApp) LastBlockHeight() int64 { return 0 }
+
+// EvmNonce is the nonce the producer reports before its mempool is running.
+func (broadcastEVMApp) EvmNonce(common.Address) uint64 { return 7 }
+
 func newAutobahnBroadcastEnv(t *testing.T) *Environment {
+	t.Helper()
+	return newAutobahnEnv(t, true)
+}
+
+func newAutobahnFullnodeEnv(t *testing.T) *Environment {
+	t.Helper()
+	return newAutobahnEnv(t, false)
+}
+
+func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 	t.Helper()
 	rng := utils.TestRng()
 	_, keys := atypes.GenCommittee(rng, 1)
@@ -66,10 +83,9 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 			EVMRPC:   *utils.OrPanic1(url.Parse("ws://127.0.0.1:8546")),
 		},
 	}
-	blockStore, err := blockstore.New(memblock.NewBlockDB())
-	require.NoError(t, err)
+	blockStore := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, blockStore.Close()) })
-	app := proxy.New(&abci.BaseApplication{})
+	app := proxy.NewEVM(broadcastEVMApp{})
 	commonCfg := p2p.GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
@@ -80,22 +96,30 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	}
 	dataState, err := p2p.BuildDataState(&commonCfg, blockStore)
 	require.NoError(t, err)
-	giga, err := p2p.NewGigaValidatorRouter(&p2p.GigaValidatorConfig{
-		GigaRouterCommonConfig: commonCfg,
-		ValidatorKey:           valKey,
-		ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
-		ProposalTimeout:        time.Hour,
-		Producer: &producer.Config{
-			MaxGasWantedPerBlock:    1,
-			MaxGasEstimatedPerBlock: 1,
-			MaxTxsPerBlock:          1,
-			MaxTxsPerSecond:         utils.None[uint64](),
-			BlockInterval:           time.Second,
-			MaxPendingInserts:       producer.DefaultMaxPendingInserts,
-		},
-	}, nodeKey, dataState)
-	require.NoError(t, err)
-	require.True(t, giga.Mempool().IsPresent(), "validator GigaRouter must expose a mempool so a regression would wait, not take the fullnode shortcut")
+	var giga p2p.GigaRouter
+	if validator {
+		router, err := p2p.NewGigaValidatorRouter(&p2p.GigaValidatorConfig{
+			GigaRouterCommonConfig: commonCfg,
+			ValidatorKey:           valKey,
+			ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
+			ProposalTimeout:        time.Hour,
+			Producer: &producer.Config{
+				MaxGasWantedPerBlock:    1,
+				MaxGasEstimatedPerBlock: 1,
+				MaxTxsPerBlock:          1,
+				MaxTxsPerSecond:         utils.None[uint64](),
+				BlockInterval:           time.Second,
+			},
+		}, nodeKey, dataState)
+		require.NoError(t, err)
+		require.True(t, router.Mempool().IsPresent(), "validator GigaRouter must expose a mempool so a regression would wait, not take the fullnode shortcut")
+		giga = router
+	} else {
+		router, err := p2p.NewGigaFullnodeRouter(&commonCfg, nodeKey, dataState)
+		require.NoError(t, err)
+		require.False(t, router.Mempool().IsPresent())
+		giga = router
+	}
 	endpoint := p2p.Endpoint{AddrPort: tcp.TestReserveAddr()}
 	nodeInfo := types.NodeInfo{
 		NodeID:     nodeKey.Public().NodeID(),
@@ -118,7 +142,7 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	)
 	require.NoError(t, err)
 	return &Environment{
-		App:        app,
+		EVM:        utils.Some(app),
 		GenDoc:     genDoc,
 		Router:     router,
 		EventSinks: []indexer.EventSink{kvsink.NewEventSink(dbm.NewMemDB(), nil)},

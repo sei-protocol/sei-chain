@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -72,7 +73,8 @@ type ConsensusState interface {
 // to be setup once during startup.
 type Environment struct {
 	// external, thread safe interfaces
-	App *proxy.Proxy
+	App utils.Option[*proxy.Proxy]
+	EVM utils.Option[*proxy.EVMProxy]
 
 	// interfaces defined in types and above
 	StateStore       sm.Store
@@ -87,6 +89,8 @@ type Environment struct {
 	NodeInfo    types.NodeInfo
 
 	Router *p2p.Router
+	// Executor runs the Autobahn blocks. None when Autobahn is off.
+	Executor utils.Option[*execution.Executor]
 
 	// objects
 	PubKey           utils.Option[crypto.PubKey]
@@ -101,6 +105,10 @@ type Environment struct {
 
 	// ReadOnly rejects RPC writes while preserving query and mempool reads.
 	ReadOnly bool
+
+	// FreezeHeight is the first block height this node does not execute, or 0 when
+	// freeze mode is off.
+	FreezeHeight uint64
 
 	// cache of chunked genesis data.
 	genChunks []string
@@ -431,4 +439,15 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 
 	return listeners, nil
 
+}
+
+func (env *Environment) abciApplication() *proxy.Proxy {
+	return env.App.OrPanic("ABCI application is unavailable in this RPC environment")
+}
+
+func (env *Environment) lastBlockHeight() int64 {
+	if evm, ok := env.EVM.Get(); ok {
+		return evm.LastBlockHeight()
+	}
+	return env.abciApplication().LastBlockHeight()
 }

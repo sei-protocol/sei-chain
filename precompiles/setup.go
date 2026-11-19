@@ -41,7 +41,7 @@ type PrecompileInfo struct {
 var PrecompileNamesToInfo = map[string]PrecompileInfo{}
 
 type IPrecompile interface {
-	vm.PrecompiledContract
+	vm.CustomPrecompiledContract
 	GetABI() abi.ABI
 	GetName() string
 	Address() ecommon.Address
@@ -49,8 +49,8 @@ type IPrecompile interface {
 
 // GetCustomPrecompiles returns every Sei custom precompile keyed by its address. It panics
 // if any precompile fails to construct.
-func GetCustomPrecompiles(keepers utils.Keepers) map[ecommon.Address]vm.PrecompiledContract {
-	return map[ecommon.Address]vm.PrecompiledContract{
+func GetCustomPrecompiles(keepers utils.Keepers) map[ecommon.Address]vm.CustomPrecompiledContract {
+	return map[ecommon.Address]vm.CustomPrecompiledContract{
 		ecommon.HexToAddress(bank.BankAddress):               check(bank.NewPrecompile(keepers)),
 		ecommon.HexToAddress(wasmd.WasmdAddress):             check(wasmd.NewPrecompile(keepers)),
 		ecommon.HexToAddress(json.JSONAddress):               check(json.NewPrecompile(keepers)),
@@ -74,7 +74,7 @@ func GetCustomPrecompiles(keepers utils.Keepers) map[ecommon.Address]vm.Precompi
 	}
 }
 
-func check(p vm.PrecompiledContract, err error) vm.PrecompiledContract {
+func check(p vm.CustomPrecompiledContract, err error) vm.CustomPrecompiledContract {
 	if err != nil {
 		panic(err)
 	}
@@ -154,18 +154,6 @@ func InitializePrecompiles(
 	PrecompileNamesToInfo[p256p.GetName()] = PrecompileInfo{ABI: p256p.GetABI(), Address: p256p.Address()}
 
 	if !dryRun {
-		addPrecompileToVM(bankp)
-		addPrecompileToVM(wasmdp)
-		addPrecompileToVM(jsonp)
-		addPrecompileToVM(addrp)
-		addPrecompileToVM(stakingp)
-		addPrecompileToVM(govp)
-		addPrecompileToVM(distrp)
-		addPrecompileToVM(oraclep)
-		addPrecompileToVM(ibcp)
-		addPrecompileToVM(pointerp)
-		addPrecompileToVM(pointerviewp)
-		addPrecompileToVM(p256p)
 		Initialized = true
 	}
 	return nil
@@ -181,20 +169,4 @@ func GetPrecompileInfo(name string) PrecompileInfo {
 		panic(name + "doesn't exist as a precompile")
 	}
 	return i
-}
-
-// This function modifies global variable in `vm` module. It should only be called once
-// per precompile during initialization
-func addPrecompileToVM(p IPrecompile) {
-	vm.PrecompiledContractsHomestead[p.Address()] = p
-	vm.PrecompiledContractsByzantium[p.Address()] = p
-	vm.PrecompiledContractsIstanbul[p.Address()] = p
-	vm.PrecompiledContractsBerlin[p.Address()] = p
-	vm.PrecompiledContractsCancun[p.Address()] = p
-	vm.PrecompiledContractsBLS[p.Address()] = p
-	vm.PrecompiledAddressesHomestead = append(vm.PrecompiledAddressesHomestead, p.Address())
-	vm.PrecompiledAddressesByzantium = append(vm.PrecompiledAddressesByzantium, p.Address())
-	vm.PrecompiledAddressesIstanbul = append(vm.PrecompiledAddressesIstanbul, p.Address())
-	vm.PrecompiledAddressesBerlin = append(vm.PrecompiledAddressesBerlin, p.Address())
-	vm.PrecompiledAddressesCancun = append(vm.PrecompiledAddressesCancun, p.Address())
 }

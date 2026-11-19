@@ -23,7 +23,7 @@ type legacyBurnTokensMsg struct {
 // created, of the form factory/<contract>/<subdenom>, and leaves every other message to
 // the next handler.
 func LegacyBurnTokensHandler(burner wasmtypes.Burner) wasmkeeper.MessageHandlerFunc {
-	return func(ctx sdk.Context, contractAddr sdk.AccAddress, _ string, msg wasmvmtypes.CosmosMsg, _ wasmvmtypes.MessageInfo, _ wasmtypes.CodeInfo) ([]sdk.Event, [][]byte, error) {
+	return func(ctx sdk.Context, contractAddr sdk.AccAddress, msg wasmvmtypes.CosmosMsg, _ wasmvmtypes.MessageInfo, _ wasmtypes.CodeInfo) ([]sdk.Event, [][]byte, error) {
 		var parsed legacyBurnTokensMsg
 		if msg.Custom == nil || json.Unmarshal(msg.Custom, &parsed) != nil || parsed.BurnTokens == nil {
 			return nil, nil, wasmtypes.ErrUnknownMsg

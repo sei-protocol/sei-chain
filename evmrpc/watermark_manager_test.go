@@ -436,16 +436,18 @@ func (f *fakeReceiptStore) SetEarliestVersion(version int64) error {
 }
 
 func (f *fakeReceiptStore) GetReceipt(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
-	return nil, errors.New("not found")
+	return nil, receipt.ErrNotFound
 }
 
 func (f *fakeReceiptStore) GetReceiptFromStore(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
-	return nil, errors.New("not found")
+	return nil, receipt.ErrNotFound
 }
 
 func (f *fakeReceiptStore) SetReceipts(sdk.Context, []receipt.ReceiptRecord) error {
 	return nil
 }
+
+func (f *fakeReceiptStore) Flush() error { return nil }
 
 func (f *fakeReceiptStore) FilterLogs(sdk.Context, uint64, uint64, filters.FilterCriteria, *receipt.LogBudget) ([]*ethtypes.Log, error) {
 	return nil, receipt.ErrRangeQueryNotSupported

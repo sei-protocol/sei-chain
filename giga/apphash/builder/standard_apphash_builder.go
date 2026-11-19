@@ -140,6 +140,8 @@ func NewStandardAppHashBuilder(
 	config AppHashBuilderConfig,
 	hashVault vault.HashVault,
 ) (*StandardAppHashBuilder, error) {
+	start := time.Now()
+	logger.Info("Opening the app hash builder")
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid app hash builder config: %w", err)
 	}
@@ -169,6 +171,7 @@ func NewStandardAppHashBuilder(
 		pendingBlocks:          make(map[uint64]*pendingBlock),
 	}
 	b.wg.Go(b.run)
+	logger.Info("Opened the app hash builder", "elapsed", time.Since(start))
 	return b, nil
 }
 
@@ -219,6 +222,8 @@ func (b *StandardAppHashBuilder) ReportReceiptHash(
 }
 
 func (b *StandardAppHashBuilder) SetupComplete(ctx context.Context, blockHeight uint64) error {
+	start := time.Now()
+	logger.Info("Completing the app hash builder setup", "height", blockHeight)
 	reply := make(chan callResult[struct{}], 1)
 	if err := b.submit(ctx, setupCompleteRequest{blockHeight: blockHeight, reply: reply}); err != nil {
 		return fmt.Errorf("failed to complete app hash builder setup at block %d: %w", blockHeight, err)
@@ -226,6 +231,7 @@ func (b *StandardAppHashBuilder) SetupComplete(ctx context.Context, blockHeight 
 	if _, err := awaitReply(ctx, b, reply); err != nil {
 		return fmt.Errorf("failed to complete app hash builder setup at block %d: %w", blockHeight, err)
 	}
+	logger.Info("Completed the app hash builder setup", "height", blockHeight, "elapsed", time.Since(start))
 	return nil
 }
 
@@ -247,6 +253,17 @@ func (b *StandardAppHashBuilder) GetAppHash(ctx context.Context, blockHeight uin
 		return nil, fmt.Errorf("failed to get the app hash of block %d: %w", blockHeight, err)
 	}
 	return appHash, nil
+}
+
+func (b *StandardAppHashBuilder) Flush(ctx context.Context) error {
+	reply := make(chan callResult[struct{}], 1)
+	if err := b.submit(ctx, flushRequest{reply: reply}); err != nil {
+		return fmt.Errorf("failed to flush the app hash builder: %w", err)
+	}
+	if _, err := awaitReply(ctx, b, reply); err != nil {
+		return fmt.Errorf("failed to flush the app hash builder: %w", err)
+	}
+	return nil
 }
 
 func (b *StandardAppHashBuilder) Bounds() (uint64, uint64, bool, error) {
@@ -487,6 +504,13 @@ func (b *StandardAppHashBuilder) handleRequest(request any) error {
 		appHash, err := b.readAppHash(r.blockHeight)
 		r.reply <- callResult[*apphash.AppHashData]{value: appHash, err: err}
 		return nil
+	case flushRequest:
+		if err := b.publishCompleteBlocks(); err != nil {
+			r.reply <- callResult[struct{}]{err: err}
+			return fmt.Errorf("failed to publish app hashes: %w", err)
+		}
+		r.reply <- callResult[struct{}]{err: b.flushHashLog()}
+		return nil
 	case boundsRequest:
 		bounds, err := b.readBounds()
 		r.reply <- callResult[appHashBounds]{value: bounds, err: err}
@@ -559,8 +583,11 @@ func (b *StandardAppHashBuilder) compareStoredInput(
 	if err != nil {
 		return fmt.Errorf("failed to read the stored record of block %d: %w", blockHeight, err)
 	}
-	if storedValue := input.of(stored); storedValue != value {
-		b.panicOnMismatch(blockHeight, input.String(), storedValue, value)
+	// A restore anchor holds no inputs, so, as for a pruned record, there is nothing to compare against.
+	if !stored.IsRestoreAnchor() {
+		if storedValue := input.of(stored); storedValue != value {
+			b.panicOnMismatch(blockHeight, input.String(), storedValue, value)
+		}
 	}
 	if blockHeight == b.vaultHighest {
 		err := tracker.storedRecordIterator.Close()
@@ -880,6 +907,20 @@ func (b *StandardAppHashBuilder) writeToHashLog(record *apphash.AppHashData, com
 		_ = b.hashLog.Close()
 		b.hashLog = nil
 	}
+}
+
+// Writes every row submitted to the hash log to disk. A failure disables hash logging.
+func (b *StandardAppHashBuilder) flushHashLog() error {
+	if b.hashLog == nil {
+		return nil
+	}
+	if err := b.hashLog.Flush(); err != nil {
+		logger.Error("failed to flush the app hash log; disabling hash logging", "err", err)
+		_ = b.hashLog.Close()
+		b.hashLog = nil
+		return fmt.Errorf("failed to flush the app hash log: %w", err)
+	}
+	return nil
 }
 
 // Returns a slice holding a copy of hash.

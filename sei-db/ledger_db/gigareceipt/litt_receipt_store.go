@@ -77,7 +77,12 @@ type littReceiptStore struct {
 	index    dbtypes.KeyValueDB
 	storeKey sdk.StoreKey
 
-	latestVersion   atomic.Int64
+	latestVersion atomic.Int64
+	// stagedVersion is the head the next write follows: latestVersion, or above it by a block whose
+	// index commit is still in flight when writes are queued.
+	stagedVersion atomic.Int64
+	// commitDone is closed once the index commit in flight lands. Guarded by writeMu.
+	commitDone      chan struct{}
 	earliestVersion atomic.Int64
 
 	keepRecent           int64
@@ -94,9 +99,10 @@ type littReceiptStore struct {
 	// Breaks a write into its stages. Only the writer goroutine records, so one timer serves the store.
 	writePhases *seidbmetrics.PhaseTimer
 
-	// Receipt writes waiting to be applied, and the meter for time spent waiting on a full queue. A
-	// whole write is queued, so the depth is the receipt write's own. Nil means writes apply inline.
-	writes chan receiptWrite
+	// Messages waiting for the writer, each a receiptWrite or a receiptWriteBarrier; writeQueue meters time
+	// spent waiting on a full queue. A whole write is queued, so the depth is the receipt write's own. Nil means
+	// writes apply inline.
+	writes chan any
 
 	// Orders admitting a write against shutting the writer down, so none is accepted into a queue
 	// that will not be drained. queueWrite holds it shared; Close takes it exclusively.
@@ -112,6 +118,12 @@ type littReceiptStore struct {
 type receiptWrite struct {
 	height   int64
 	receipts []receipt.ReceiptRecord
+}
+
+// receiptWriteBarrier is sent by Flush().
+type receiptWriteBarrier struct {
+	// Closed once every write queued ahead of the barrier is applied.
+	done chan struct{}
 }
 
 // writeQueueSampleIntervalSeconds is how often the write queue's depth is read. Sampling on a timer
@@ -254,7 +266,7 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	receiptMeter := otel.Meter("seidb_receipt")
 	s.writePhases = seidbmetrics.NewPhaseTimer(receiptMeter, "receipt_store_write")
 	if cfg.AsyncWriteBuffer > 0 {
-		s.writes = make(chan receiptWrite, cfg.AsyncWriteBuffer)
+		s.writes = make(chan any, cfg.AsyncWriteBuffer)
 		s.writeQueue = seidbmetrics.NewQueueMeter(receiptMeter, "receipt_write")
 		s.startWriter()
 
@@ -265,6 +277,7 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	}
 
 	s.latestVersion.Store(s.readMeta(receiptLatestVersionKey))
+	s.stagedVersion.Store(s.latestVersion.Load())
 	s.earliestVersion.Store(s.readMeta(receiptEarliestVersionKey))
 	s.startPruning()
 	s.startFlusher()
@@ -293,6 +306,9 @@ func (s *littReceiptStore) SetLatestVersion(version int64) error {
 		return err
 	}
 	s.latestVersion.Store(version)
+	if version > s.stagedVersion.Load() {
+		s.stagedVersion.Store(version)
+	}
 	return nil
 }
 
@@ -389,12 +405,26 @@ func (s *littReceiptStore) SetReceipts(ctx sdk.Context, receipts []receipt.Recei
 	return s.queueWrite(receiptWrite{height: ctx.BlockHeight(), receipts: receipts})
 }
 
+func (s *littReceiptStore) Flush() error {
+	if s.writes != nil {
+		done := make(chan struct{})
+		if err := s.queueWrite(receiptWriteBarrier{done: done}); err != nil {
+			return fmt.Errorf("queue a write barrier: %w", err)
+		}
+		<-done
+	}
+	// The last write the writer applied may still be committing its index batch.
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.awaitIndexCommit()
+}
+
 // ErrStoreClosed is returned by a write the store can no longer apply, the writer having stopped.
 var ErrStoreClosed = errors.New("receipt store is closed")
 
-// queueWrite hands a write to the writer, waiting for room when the queue is full and refusing once
-// the store is closing.
-func (s *littReceiptStore) queueWrite(write receiptWrite) error {
+// queueWrite hands a receiptWrite or receiptWriteBarrier to the writer, waiting for room when the queue is full
+// and refusing once the store is closing.
+func (s *littReceiptStore) queueWrite(message any) error {
 	// Held across the send, not merely to read the flag: Close takes it exclusively before stopping
 	// the writer, so a write admitted here always reaches a writer that is still running.
 	s.admission.RLock()
@@ -402,7 +432,7 @@ func (s *littReceiptStore) queueWrite(write receiptWrite) error {
 	if s.closing {
 		return ErrStoreClosed
 	}
-	seidbmetrics.Send(s.writeQueue, s.writes, write)
+	seidbmetrics.Send(s.writeQueue, s.writes, message)
 	return nil
 }
 
@@ -444,7 +474,12 @@ func (s *littReceiptStore) writeReceipts(height int64, receipts []receipt.Receip
 	defer s.writePhases.Reset()
 
 	batch := s.index.NewBatch()
-	defer func() { _ = batch.Close() }()
+	committing := false
+	defer func() {
+		if !committing {
+			_ = batch.Close()
+		}
+	}()
 
 	for _, blockNumber := range blockNumbers {
 		if err := s.writeBlock(batch, blockNumber, receiptsByBlock[blockNumber]); err != nil {
@@ -453,19 +488,52 @@ func (s *littReceiptStore) writeReceipts(height int64, receipts []receipt.Receip
 	}
 
 	maxBlock := blockNumbers[len(blockNumbers)-1]
-	newLatest := s.latestVersion.Load()
+	newLatest := s.stagedVersion.Load()
 	if int64(maxBlock) > newLatest { //nolint:gosec // block heights fit within int64
 		newLatest = int64(maxBlock) //nolint:gosec // block heights fit within int64
 		if err := batch.Set(receiptLatestVersionKey, encodeBlockNumber(maxBlock)); err != nil {
 			return err
 		}
 	}
+	// Index commits land in block order, so the previous one lands before this one starts.
 	s.writePhases.SetPhase("commit_index")
-	if err := batch.Commit(dbtypes.WriteOptions{}); err != nil {
+	if err := s.awaitIndexCommit(); err != nil {
 		return err
 	}
-	s.latestVersion.Store(newLatest)
+	if s.writes == nil {
+		if err := batch.Commit(dbtypes.WriteOptions{}); err != nil {
+			return err
+		}
+		s.stagedVersion.Store(newLatest)
+		s.latestVersion.Store(newLatest)
+		return nil
+	}
+	s.stagedVersion.Store(newLatest)
+	committing = true
+	done := make(chan struct{})
+	s.commitDone = done
+	go func() {
+		defer close(done)
+		err := batch.Commit(dbtypes.WriteOptions{})
+		_ = batch.Close()
+		if err != nil {
+			logger.Error("failed to commit receipt log index", "height", maxBlock, "err", err)
+			s.writeErr.CompareAndSwap(nil, &err)
+			return
+		}
+		s.latestVersion.Store(newLatest)
+	}()
 	return nil
+}
+
+// awaitIndexCommit waits for the index commit in flight, if any, and returns the first write failure.
+// The caller holds writeMu.
+func (s *littReceiptStore) awaitIndexCommit() error {
+	if s.commitDone != nil {
+		<-s.commitDone
+		s.commitDone = nil
+	}
+	return s.writeFailure()
 }
 
 // writeBlock appends one part for the block into litt (the receipts
@@ -562,7 +630,7 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 // Contiguity is the caller's to maintain, and Giga's startup convergence is what maintains it, so a
 // refusal here reports a broken invariant rather than a store that has fallen behind the chain.
 func (s *littReceiptStore) requireNoSkippedBlock(blockNumbers []uint64) error {
-	head := s.latestVersion.Load()
+	head := s.stagedVersion.Load()
 	if head <= 0 {
 		// Nothing is recorded yet, so this write establishes where the store's history begins.
 		return nil
@@ -584,7 +652,7 @@ func (s *littReceiptStore) requireNoSkippedBlock(blockNumbers []uint64) error {
 // part in litt as the litt head, which holds only while blocks are written in ascending order.
 // blockNumbers must be sorted ascending.
 func (s *littReceiptStore) requireNoBlockBelowHead(blockNumbers []uint64) error {
-	head := s.latestVersion.Load()
+	head := s.stagedVersion.Load()
 	if head <= 0 || int64(blockNumbers[0]) >= head { //nolint:gosec // block heights fit within int64
 		return nil
 	}
@@ -595,7 +663,7 @@ func (s *littReceiptStore) requireNoBlockBelowHead(blockNumbers []uint64) error 
 // Those parts come from a write whose index commit was lost; another part would store the block twice.
 // Startup recovery deletes them.
 func (s *littReceiptStore) requireNoOrphanedParts(blockNumber uint64, existingParts uint32) error {
-	head := s.latestVersion.Load()
+	head := s.stagedVersion.Load()
 	if existingParts == 0 || int64(blockNumber) <= head { //nolint:gosec // block heights fit within int64
 		return nil
 	}
@@ -662,15 +730,24 @@ func (s *littReceiptStore) startWriter() {
 	}()
 }
 
-// applyWrite performs one queued write, keeping the first failure for its callers to collect.
+// applyWrite handles one queued message, keeping the first write failure for its callers to collect.
 // Nothing is applied after a failure: a later block carries its own version marker and would publish
 // a head above one whose receipts were never written.
-func (s *littReceiptStore) applyWrite(write receiptWrite) {
-	if s.writeFailure() != nil {
-		return
-	}
-	if err := s.applyReceipts(write.height, write.receipts); err != nil {
-		logger.Error("failed to write receipts", "height", write.height, "err", err)
+func (s *littReceiptStore) applyWrite(message any) {
+	switch m := message.(type) {
+	case receiptWriteBarrier:
+		close(m.done)
+	case receiptWrite:
+		if s.writeFailure() != nil {
+			return
+		}
+		if err := s.applyReceipts(m.height, m.receipts); err != nil {
+			logger.Error("failed to write receipts", "height", m.height, "err", err)
+			s.writeErr.CompareAndSwap(nil, &err)
+		}
+	default:
+		err := fmt.Errorf("unknown receipt writer message %T", message)
+		logger.Error("receipt writer failed", "err", err)
 		s.writeErr.CompareAndSwap(nil, &err)
 	}
 }
@@ -720,6 +797,9 @@ func (s *littReceiptStore) Close() error {
 		close(s.stopBackground)
 		// The writer drains what it holds before returning, so this is where queued writes land.
 		s.backgroundWg.Wait()
+		s.writeMu.Lock()
+		_ = s.awaitIndexCommit()
+		s.writeMu.Unlock()
 		err = s.writeFailure()
 		// litt's Close flushes, so the last sub-interval of writes is durable.
 		if valuesErr := s.values.Close(); err == nil {
