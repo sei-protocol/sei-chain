@@ -588,9 +588,10 @@ func restartNode(t *testing.T, i int) {
 
 func evmOnlyTransferConfig(txs int) scenarios.Config {
 	return scenarios.Config{
-		TxsPerBlock:   txs,
-		ChainID:       new(big.Int).SetUint64(clusterEVMChainID),
-		GasPrice:      big.NewInt(1_000_000_000),
+		TxsPerBlock: txs,
+		ChainID:     new(big.Int).SetUint64(clusterEVMChainID),
+		// Twice the 1 gwei minimum, since blocks the load fills past half raise the base fee above it.
+		GasPrice:      big.NewInt(2_000_000_000),
 		SenderBalance: new(big.Int).Lsh(big.NewInt(1), 200),
 		TransferValue: big.NewInt(1),
 		TxGasLimit:    21_000,
@@ -1290,12 +1291,12 @@ func assertEVMOnlyBlockQueries(t *testing.T, ctx context.Context, clients []*eth
 }
 
 // assertEVMOnlyNodeInfo checks the node-level methods on every node: the
-// network version is the chain ID, eth_syncing is unsupported as on v2, and
-// the suggested prices clear the price the load paid.
+// network version is the chain ID, eth_syncing is unsupported as on v2, the
+// suggested gas price clears the next block's base fee, and the suggested tip
+// is positive.
 func assertEVMOnlyNodeInfo(t *testing.T, ctx context.Context, clients []*ethrpc.Client) {
 	t.Helper()
 	wantVersion := strconv.FormatUint(clusterEVMChainID, 10)
-	gasPrice := evmOnlyTransferConfig(1).GasPrice
 	for nodeIndex, client := range clients {
 		var version string
 		decodeEVMOnlyResult(t, nodeIndex, "net_version", evmOnlyCall(t, ctx, client, nodeIndex, "net_version"), &version)
@@ -1308,10 +1309,19 @@ func assertEVMOnlyNodeInfo(t *testing.T, ctx context.Context, clients []*ethrpc.
 			t.Fatalf("node %d eth_syncing = %s, %v; want the not-supported error", nodeIndex, syncing, err)
 		}
 
+		var history struct {
+			BaseFee []*hexutil.Big `json:"baseFeePerGas"`
+		}
+		decodeEVMOnlyResult(t, nodeIndex, "eth_feeHistory",
+			evmOnlyCall(t, ctx, client, nodeIndex, "eth_feeHistory", hexutil.Uint64(1), "latest", []float64{}), &history)
+		if len(history.BaseFee) != 2 {
+			t.Fatalf("node %d eth_feeHistory(1, latest) base fees %v, want the latest and next block's", nodeIndex, history.BaseFee)
+		}
+		nextBaseFee := history.BaseFee[1].ToInt()
 		var suggested hexutil.Big
 		decodeEVMOnlyResult(t, nodeIndex, "eth_gasPrice", evmOnlyCall(t, ctx, client, nodeIndex, "eth_gasPrice"), &suggested)
-		if suggested.ToInt().Cmp(gasPrice) < 0 {
-			t.Fatalf("node %d eth_gasPrice = %s, below the %s the load was admitted at", nodeIndex, suggested.ToInt(), gasPrice)
+		if suggested.ToInt().Cmp(nextBaseFee) < 0 {
+			t.Fatalf("node %d eth_gasPrice = %s, below the next block's base fee %s", nodeIndex, suggested.ToInt(), nextBaseFee)
 		}
 		var tip hexutil.Big
 		decodeEVMOnlyResult(t, nodeIndex, "eth_maxPriorityFeePerGas", evmOnlyCall(t, ctx, client, nodeIndex, "eth_maxPriorityFeePerGas"), &tip)
