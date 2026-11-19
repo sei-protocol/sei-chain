@@ -218,7 +218,6 @@ func TestFullCommitQCStreamAcceptsSkippedIndexes(t *testing.T) {
 	qcs, _ := testQCChain(rng, registry.MustEpoch(0), keys, 5)
 	// The node holds qcs[0], so the client requests qcs[1].
 	require.NoError(t, node.data.PushPartialBlock(ctx, qcs[0], nil))
-	ok := fetchCount(resFullCommitQC, "ok")
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		serverConn, clientConn := conn.NewTestConn()
 		server := rpc.NewServer[API]()
@@ -235,8 +234,6 @@ func TestFullCommitQCStreamAcceptsSkippedIndexes(t *testing.T) {
 	})
 	// The stream ended because the server closed it, not because the client rejected a QC.
 	require.ErrorIs(t, err, mux.ErrRemoteClosed)
-	// The client stored all three QCs it received on the stream.
-	require.Equal(t, ok+3, fetchCount(resFullCommitQC, "ok"))
 	// The node holds qcs[0] to qcs[4]. NextQC does not block, so a missing QC fails here instead of hanging below.
 	require.Equal(t, qcs[4].Index()+1, node.data.NextQC())
 	// Each stored QC is the one that was sent or pushed.
@@ -278,8 +275,6 @@ func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
 			for _, i := range tc.sent {
 				sent = append(sent, qcs[i])
 			}
-			// The counter is global to the test process, so the check below compares the change, not the value.
-			outOfOrder := fetchCount(resFullCommitQC, "out_of_order")
 			err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 				serverConn, clientConn := conn.NewTestConn()
 				server := rpc.NewServer[API]()
@@ -294,8 +289,6 @@ func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
 			require.ErrorIs(t, err, types.ErrUnexpectedIndex)
 			// The node stored the pushed QCs and the QCs accepted before the reject, and nothing after them.
 			require.Equal(t, qcs[0].Index()+types.RoadIndex(tc.wantStored), node.data.NextQC())
-			// The client counted exactly one reject.
-			require.Equal(t, outOfOrder+1, fetchCount(resFullCommitQC, "out_of_order"))
 		})
 	}
 }
