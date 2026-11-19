@@ -262,6 +262,7 @@ func NewWasmApp(
 		legacyAmino,
 		keys[paramstypes.StoreKey],
 		tkeys[paramstypes.TStoreKey],
+		interfaceRegistry,
 	)
 
 	// set the BaseApp's parameter store
@@ -661,8 +662,8 @@ func GetMaccPerms() map[string][]string {
 }
 
 // initParamsKeeper init params keeper and its subspaces
-func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key, tkey sdk.StoreKey) paramskeeper.Keeper {
-	paramsKeeper := paramskeeper.NewKeeper(appCodec, legacyAmino, key, tkey)
+func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key, tkey sdk.StoreKey, interfaceRegistry types.InterfaceRegistry) paramskeeper.Keeper {
+	paramsKeeper := paramskeeper.NewKeeper(appCodec, legacyAmino, key, tkey, interfaceRegistry)
 
 	paramsKeeper.Subspace(authtypes.ModuleName)
 	paramsKeeper.Subspace(banktypes.ModuleName)
