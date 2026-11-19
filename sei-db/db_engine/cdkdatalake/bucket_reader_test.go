@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"gocloud.dev/gcerrors"
@@ -33,6 +34,28 @@ func TestBucketReaderRetriesTransientFailures(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, testValue(1), value)
 	require.Equal(t, 3, failures)
+}
+
+func TestBucketReaderGetStreamReturnsWhenItsContextEnds(t *testing.T) {
+	ctx := context.Background()
+	faulty, config := newFaultyBucket(t)
+	storeBucket := openTestStoreBucket(t, config, "store")
+	require.NoError(t, storeBucket.Put(ctx, 1, testValue(1)))
+
+	faulty.SetHook(func(hookCtx context.Context, op string, _ string) error {
+		if op == "read" {
+			<-hookCtx.Done()
+			return hookCtx.Err()
+		}
+		return nil
+	})
+	reader := newBucketReader(ctx, storeBucket, config)
+	defer reader.Close()
+
+	readCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+	defer cancel()
+	_, _, err := reader.GetStream(readCtx, 1)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestBucketReaderIteratorWithOrphansRetriesTransientFailures(t *testing.T) {

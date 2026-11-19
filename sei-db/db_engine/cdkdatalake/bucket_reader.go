@@ -76,9 +76,19 @@ func (r *bucketReader) GetStream(
 	if err := r.submit(ctx, read); err != nil {
 		return nil, false, fmt.Errorf("stream read of key %d abandoned: %w", key, err)
 	}
-	// A stream discarded here would never be closed, so wait for the read even if ctx ends.
-	<-read.done
+	if err := waitForRead(ctx, read.done); err != nil {
+		go closeOrphanedStream(read)
+		return nil, false, fmt.Errorf("stream read of key %d: %w", key, err)
+	}
 	return read.stream, read.found, read.err
+}
+
+// closeOrphanedStream waits for read to finish and closes the stream it opened, if any.
+func closeOrphanedStream(read *streamRead) {
+	<-read.done
+	if read.stream != nil {
+		_ = read.stream.Close()
+	}
 }
 
 // Has reports whether the object holding key exists.
