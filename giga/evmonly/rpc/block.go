@@ -191,7 +191,8 @@ func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.Resul
 		GasLimit:   gasLimit,
 		Time:       blockUnix,
 		Difficulty: new(big.Int),
-		// Zero rather than nil, so a dynamic-fee transaction is priced at its tip as it executed.
+		// TODO: use the base fee of block's own height once it is served per block. The latest
+		// block's base fee replays an earlier block at the wrong fee once the base fee has moved.
 		BaseFee: baseFee,
 	}, nil
 }
@@ -220,6 +221,7 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 		return nil, fmt.Errorf("block %d time is negative: %s", number, block.Block.Time)
 	}
 	gasLimit := api.backend.EvmGasLimit()
+	// TODO: use the base fee of block's own height once it is served per block.
 	baseFee := api.backend.EvmBaseFee()
 
 	txs := block.Block.Txs
@@ -288,6 +290,7 @@ func encodeHeader(backend Backend, block *coretypes.ResultBlock, gasUsed uint64)
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
 	}
 	gasLimit := backend.EvmGasLimit()
+	// TODO: use the base fee of block's own height once it is served per block.
 	baseFee := backend.EvmBaseFee()
 	return headerFields(block, blockUnix, gasLimit, baseFee, gasUsed), nil
 }

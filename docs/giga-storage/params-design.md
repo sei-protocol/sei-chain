@@ -1,7 +1,7 @@
 # evmonly params
 
-Governed chain parameters for the EVM-only chain, with gov as the first
-subspace.
+Governed chain parameters for the EVM-only chain: the gov, staking and evm
+subspaces.
 
 ## Model
 
@@ -30,6 +30,7 @@ subspace.
   | Coins | `uint256` wei, a whole number of usei; only the usei denom exists |
   | Int | `uint256` |
   | uint32 | `uint32` |
+  | uint64 | `uint64` |
 
   Another V2 type gets a stored form when a param first needs one. A value of
   any unsigned width is stored in the bytes of its slot that solc gives its
@@ -37,12 +38,12 @@ subspace.
   signed type needs a decoder before a param can use it.
 
 - Owners read their params from 0x1013's storage with the `params` package's
-  Go readers (`ReadGov`, `ReadStaking`). Gov reads `gov` and staking reads
-  `staking`. Nothing keeps a second copy.
+  Go readers (`ReadGov`, `ReadStaking`, `ReadEVM`). Gov reads `gov`, staking
+  reads `staking` and evmonlyapp reads `evm`. Nothing keeps a second copy.
   Planned readers for other subspaces are in *Later subspaces*.
-- Params are written only at genesis (`WriteGov` and `WriteStaking`, which
-  refuse once their subspace's params exist) and by a passed gov proposal
-  (`Apply`). Both check the whole subspace first.
+- Params are written only at genesis (`WriteGov`, `WriteStaking` and
+  `WriteEVM`, which refuse once their subspace's params exist) and by a passed
+  gov proposal (`Apply`). Both check the whole subspace first.
 
 ## Declaration table
 
@@ -197,6 +198,37 @@ naming `param`.
   gov's params are written.
 - `ParamChangeContent`'s encoding matches solc's `abi.encode`.
 
+## The evm subspace
+
+The params of Giga 1559's base fee update,
+`b(h+2) = max(floor, p × (1 + (G(h) − T) / (D × T)))`, where `p` is the base fee
+already set for `h+1`, `G(h)` the gas block `h` used and `T` its target:
+
+| Flat key | Stored as | Genesis |
+|---|---|---|
+| `KeyMinFeePerGas` | Dec of wei per gas, a whole number of wei | 0 |
+| `KeyTargetGasUsedPerSecond` | `uint64` gas per second | 2,000,000,000 |
+| `KeyBaseFeeChangeDenominator` | `uint64`, `D` | 144 |
+
+- `KeyMinFeePerGas` is V2's key, with V2's meaning: the base fee never falls
+  below it. The other two have no V2 counterpart.
+- A block's target `T` is `KeyTargetGasUsedPerSecond` over the time since its
+  parent. A block that takes no time has no target and leaves the base fee
+  unchanged, short of the floor.
+- The change is rounded down to the wei, and an increase is at least one wei,
+  so a base fee of zero rises once a block exceeds its target. The first two
+  blocks run at the genesis floor.
+- The check requires a whole number of wei for the floor, and a positive target
+  and denominator. Neither the floor nor the base fee has an upper bound.
+- evmonlyapp reads the params from the state each block executes against, so a
+  change a proposal applies in a block's EndBlock first sets the base fee update
+  of the next block. That update sets the base fee two blocks later, so the
+  change reaches transactions three blocks after the one that applied it.
+- Gov's first EndBlock writes the genesis values. Until then, and on a chain
+  without gov, base fees are set by the same values compiled into evmonlyapp.
+- The two-block lag between a block's gas use and the base fee it sets is not a
+  param: it fixes how many base fees the EVM-only cursor stores.
+
 ## Later subspaces
 
 Planned, not decided: the expected shape, not a commitment. Each adds a struct
@@ -207,6 +239,6 @@ has eleven today.
 | Subspace | Params | Reader |
 |---|---|---|
 | baseapp | `BlockParams.max_gas` (and the other BlockParams fields) | evmonlyapp, per block |
-| evm | `KeyMinFeePerGas`, `KeySeiSstoreSetGasEIP2200`, later the EIP-1559 set | executor, per block |
+| evm | `KeySeiSstoreSetGasEIP2200`, next to the base fee params | executor, per block |
 | migration | `NumKeysToMigratePerBlock`, `MigrateCosmosEnabled` | as needed |
 | slashing | the slashing params | native slashing |

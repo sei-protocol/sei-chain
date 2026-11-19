@@ -52,7 +52,7 @@ func TestReceiptRecordsConvertExecutorResults(t *testing.T) {
 		}},
 	}
 
-	records, err := receiptRecords(11, result)
+	records, err := receiptRecords(11, nil, result)
 
 	require.NoError(t, err)
 	require.Len(t, records, 1)
@@ -88,20 +88,20 @@ func TestReceiptRecordsLeaveRewardNilWithoutAnEffectiveGasPrice(t *testing.T) {
 		Txs:      []TxResult{{Hash: txHash, Sender: common.Address{2}}},
 	}
 
-	records, err := receiptRecords(1, result)
+	records, err := receiptRecords(1, nil, result)
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 	require.Nil(t, records[0].Reward)
 }
 
 func TestReceiptRecordsRejectMalformedBlockResult(t *testing.T) {
-	_, err := receiptRecords(1, &BlockResult{Receipts: ethtypes.Receipts{{}}})
+	_, err := receiptRecords(1, nil, &BlockResult{Receipts: ethtypes.Receipts{{}}})
 	require.ErrorContains(t, err, "does not match")
 
-	_, err = receiptRecords(1, &BlockResult{Receipts: ethtypes.Receipts{nil}, Txs: []TxResult{{}}})
+	_, err = receiptRecords(1, nil, &BlockResult{Receipts: ethtypes.Receipts{nil}, Txs: []TxResult{{}}})
 	require.ErrorContains(t, err, "receipt 0 is nil")
 
-	_, err = receiptRecords(1, &BlockResult{
+	_, err = receiptRecords(1, nil, &BlockResult{
 		Receipts: ethtypes.Receipts{{Status: uint64(math.MaxUint32) + 1}},
 		Txs:      []TxResult{{}},
 	})
@@ -135,9 +135,9 @@ func TestParallelReceiptRecordsMatchSerial(t *testing.T) {
 	executor := NewExecutor(Config{OCCWorkers: 4})
 	defer executor.Close()
 
-	serial, err := receiptRecords(7, result)
+	serial, err := receiptRecords(7, nil, result)
 	require.NoError(t, err)
-	parallel, err := executor.receiptRecordsParallel(t.Context(), 7, result)
+	parallel, err := executor.receiptRecordsParallel(t.Context(), 7, nil, result)
 	require.NoError(t, err)
 
 	require.Equal(t, serial, parallel)

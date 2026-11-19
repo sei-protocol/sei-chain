@@ -2,17 +2,17 @@
   {
     "method": "eth_getBlockByNumber",
     "path": "result.baseFeePerGas",
-    "reason": "The EVM-only RPC reports Backend.EvmBaseFee, the current base fee, for every block; it has no per-height base fee. Production EVM-only blocks execute at a constant zero base fee, so this shows only when the fixture's base fee changes between blocks."
+    "reason": "The EVM-only RPC reports Backend.EvmBaseFee, the latest block's base fee, for every block; it has no per-height base fee, so this shows when the base fee changes between blocks."
   },
   {
     "method": "eth_getBlockByHash",
     "path": "result.baseFeePerGas",
-    "reason": "Same as eth_getBlockByNumber result.baseFeePerGas: the current base fee is reported for every block."
+    "reason": "Same as eth_getBlockByNumber result.baseFeePerGas: the latest block's base fee is reported for every block."
   },
   {
     "method": "eth_getBlockByNumber",
     "path": "result.transactions[*].gasPrice",
-    "reason": "A dynamic-fee transaction's gasPrice is its effective price, which the EVM-only RPC computes from the current base fee rather than its block's."
+    "reason": "A dynamic-fee transaction's gasPrice is its effective price, which the EVM-only RPC computes from the latest block's base fee rather than its own block's."
   },
   {
     "method": "eth_getBlockByHash",
@@ -39,11 +39,6 @@
     "path": "result.baseFeePerGas",
     "evmOnly": "\"0x0\"",
     "reason": "The EVM-only RPC reports a zero base fee for every block in fee history."
-  },
-  {
-    "method": "eth_feeHistory",
-    "path": "result.reward",
-    "reason": "The EVM-only RPC's reward percentiles are of effective gas price, where v2's are of the priority fee; the two agree only at a zero base fee."
   },
   {
     "method": "eth_getBlockByNumber",

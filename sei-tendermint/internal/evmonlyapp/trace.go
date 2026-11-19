@@ -17,7 +17,7 @@ import (
 var errTraceGenesis = errors.New("block 0 has no parent state to trace against")
 
 // EvmBlockContext returns the go-ethereum block context this application executed header's block
-// at. Only header's number, time and parent hash are read.
+// at. Only header's number, time, parent hash and base fee are read.
 func (a *evmOnlyApplication) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
 	number, err := headerNumber(header)
 	if err != nil {
@@ -54,11 +54,11 @@ func (a *evmOnlyApplication) EvmStateBeforeTx(ctx context.Context, header *ethty
 	})
 }
 
-// traceBlockContext returns the context header's block number executed at. The block hash, which
-// only stamps receipts, is left zero.
+// traceBlockContext returns the context header's block number executed at, at header's base fee.
+// The block hash, which only stamps receipts, is left zero.
 func (a *evmOnlyApplication) traceBlockContext(number uint64, header *ethtypes.Header) evmonly.BlockContext {
 	// The gas limit is fixed at InitChain, so the committed one is every block's.
-	return a.blockContext(number, header.Time, a.EvmGasLimit(), header.ParentHash, common.Hash{})
+	return a.blockContext(number, header.Time, a.EvmGasLimit(), header.BaseFee, header.ParentHash, common.Hash{})
 }
 
 // openTraceState opens the committed EVM state after height, or the latest committed state when

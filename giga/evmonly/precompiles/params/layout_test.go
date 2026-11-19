@@ -43,7 +43,7 @@ func TestLayoutMatchesForge(t *testing.T) {
 	for _, e := range layout.Storage {
 		got[e.Label] = member{slot: mustUint(t, e.Slot), offset: e.Offset}
 	}
-	require.Equal(t, map[string]member{"gov": {slotGov, 0}, "staking": {slotStaking, 0}}, got)
+	require.Equal(t, map[string]member{"gov": {slotGov, 0}, "staking": {slotStaking, 0}, "evm": {slotEVM, 0}}, got)
 
 	structs := map[string]map[string]member{
 		"Gov": {
@@ -67,8 +67,14 @@ func TestLayoutMatchesForge(t *testing.T) {
 			"maxVotingPowerEnforcementThreshold": stakingMaxVotingPowerEnforcementThreshold,
 			"__gap":                              {3, 0},
 		},
+		"EVM": {
+			"targetGasUsedPerSecond":   evmTargetGasUsedPerSecond,
+			"baseFeeChangeDenominator": evmBaseFeeChangeDenominator,
+			"minFeePerGas":             evmMinFeePerGas,
+			"__gap":                    {2, 0},
+		},
 	}
-	subspaceOf := map[string]*subspace{"Gov": &govSubspace, "Staking": &stakingSubspace}
+	subspaceOf := map[string]*subspace{"Gov": &govSubspace, "Staking": &stakingSubspace, "EVM": &evmSubspace}
 	seen := 0
 	for typeID, typ := range layout.Types {
 		name, ok := strings.CutPrefix(typeID, "t_struct(")
@@ -107,6 +113,7 @@ func TestLayoutCoversEveryDeclaredParam(t *testing.T) {
 			stakingUnbondingTime: true, stakingMaxValidators: true, stakingMaxEntries: true,
 			stakingMaxVotingPowerRatio: true, stakingMaxVotingPowerEnforcementThreshold: true,
 		},
+		&evmSubspace: {evmTargetGasUsedPerSecond: true, evmBaseFeeChangeDenominator: true, evmMinFeePerGas: true},
 	} {
 		for _, p := range ss.params {
 			require.True(t, members[p.at], p.key)
@@ -153,4 +160,9 @@ func TestReadsCompilerWrites(t *testing.T) {
 		MaxVotingPowerRatio:                big.NewInt(200_000_000_000_000_000),
 		MaxVotingPowerEnforcementThreshold: big.NewInt(1_000_001),
 	}, stakingFrom(stakingSubspace.read(s)))
+	require.Equal(t, EVM{
+		MinFeePerGas:             big.NewInt(100_000_000_000),
+		TargetGasUsedPerSecond:   2_000_000_000,
+		BaseFeeChangeDenominator: 144,
+	}, evmFrom(evmSubspace.read(s)))
 }

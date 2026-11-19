@@ -38,6 +38,7 @@ var (
 	coinsKind    = valueKind{kind: KindCoins, solType: "uint256", bits: 256}
 	intKind      = valueKind{kind: KindInt, solType: "uint256", bits: 256}
 	uint32Kind   = valueKind{kind: KindInt, solType: "uint32", bits: 32}
+	uint64Kind   = valueKind{kind: KindInt, solType: "uint64", bits: 64}
 )
 
 // param is one declared param.
@@ -65,7 +66,7 @@ type subspace struct {
 }
 
 // subspaces are the declared subspaces, in ParamsStorage order.
-var subspaces = []*subspace{&govSubspace, &stakingSubspace}
+var subspaces = []*subspace{&govSubspace, &stakingSubspace, &evmSubspace}
 
 // Key is a declared param: its subspace, flat key, and the unit and Solidity
 // type of its value.
@@ -133,7 +134,7 @@ func (ss *subspace) slotOf(p param) common.Hash {
 }
 
 // get reads p's value from the bytes of its slot its Solidity type occupies.
-func (ss *subspace) get(s solstorage.Store, p param) *big.Int {
+func (ss *subspace) get(s wordReader, p param) *big.Int {
 	w := s.Word(ss.slotOf(p))
 	return new(big.Int).SetBytes(p.bytesOf(w[:]))
 }
@@ -186,7 +187,7 @@ func (ss *subspace) validate(v values) error {
 }
 
 // read returns every param of the subspace.
-func (ss *subspace) read(s solstorage.Store) values {
+func (ss *subspace) read(s wordReader) values {
 	out := make(values, len(ss.params))
 	for _, p := range ss.params {
 		out[p.key] = ss.get(s, p)
@@ -196,4 +197,24 @@ func (ss *subspace) read(s solstorage.Store) values {
 
 func newStore(state precompiles.State) solstorage.Store {
 	return solstorage.Store{State: state, Address: Address}
+}
+
+// StorageReader reads contract storage. A precompiles.State is one.
+type StorageReader interface {
+	GetState(common.Address, common.Hash) common.Hash
+}
+
+// wordReader reads the params precompile's storage words. A solstorage.Store
+// is one.
+type wordReader interface {
+	Word(slot common.Hash) common.Hash
+}
+
+// storageWords reads the params precompile's storage words from a StorageReader.
+type storageWords struct {
+	state StorageReader
+}
+
+func (w storageWords) Word(slot common.Hash) common.Hash {
+	return w.state.GetState(Address, slot)
 }

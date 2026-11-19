@@ -28,5 +28,11 @@ contract ParamsStorageHarness is ParamsStorage {
             maxVotingPowerEnforcementThreshold: 1_000_001,
             __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0]
         });
+        evm = EVM({
+            targetGasUsedPerSecond: 2_000_000_000,
+            baseFeeChangeDenominator: 144,
+            minFeePerGas: 100e9 * 1e18,
+            __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0]
+        });
     }
 }

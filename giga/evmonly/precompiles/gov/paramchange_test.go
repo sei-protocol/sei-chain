@@ -295,6 +295,32 @@ func TestEveryGovParamChangesThroughAProposal(t *testing.T) {
 	}
 }
 
+// TestEVMParamsChangeThroughAProposal changes base fee params with a passed
+// proposal, leaving the param it does not name.
+func TestEVMParamsChangeThroughAProposal(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	require.NoError(t, chainparams.WriteEVM(h.state, chainparams.EVM{
+		MinFeePerGas:             big.NewInt(100_000_000_000),
+		TargetGasUsedPerSecond:   2_000_000_000,
+		BaseFeeChangeDenominator: 144,
+	}))
+	floor := new(big.Int).Mul(big.NewInt(200_000_000_000), big.NewInt(1_000_000_000_000_000_000)) // 200 gwei, as a Dec
+
+	id, err := h.submitParamChange(false,
+		paramChange{"evm", "KeyMinFeePerGas", common.BigToHash(floor).Bytes()},
+		paramChange{"evm", "KeyTargetGasUsedPerSecond", uintValue(1_000_000_000)},
+	)
+	require.NoError(t, err)
+	h.passID(id)
+
+	require.Equal(t, StatusPassed, h.status(id))
+	require.Equal(t, chainparams.EVM{
+		MinFeePerGas:             big.NewInt(200_000_000_000),
+		TargetGasUsedPerSecond:   1_000_000_000,
+		BaseFeeChangeDenominator: 144,
+	}, chainparams.ReadEVM(h.state))
+}
+
 // TestSubspacesFitTheExecutionCharge checks that applying any set of changes,
 // which reads each changed subspace one storage word per param and reads and
 // writes each change's slot, stays within the content words settleCost charges.

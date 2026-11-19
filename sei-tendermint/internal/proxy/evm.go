@@ -85,7 +85,7 @@ type EVMApplication interface {
 	// EvmChainConfig returns the EVM chain configuration transactions execute
 	// against.
 	EvmChainConfig() *params.ChainConfig
-	// EvmBaseFee returns the base fee every block executes at.
+	// EvmBaseFee returns the base fee the most recently committed block ran at.
 	EvmBaseFee() *big.Int
 	// EvmGasLimit returns the gas limit of the most recently committed block.
 	EvmGasLimit() uint64

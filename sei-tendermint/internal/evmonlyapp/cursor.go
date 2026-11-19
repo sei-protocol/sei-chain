@@ -3,9 +3,12 @@ package evmonlyapp
 import (
 	"encoding/binary"
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -16,8 +19,22 @@ import (
 const (
 	evmOnlyCursorModule = "evmonly"
 	evmOnlyCursorKey    = "cursor"
-	evmOnlyCursorSize   = 8 + common.HashLength + common.HashLength + 8
+	evmOnlyCursorSize   = 8 + common.HashLength + common.HashLength + 8 + 8 + (evmOnlyBaseFeeLag+1)*32
 )
+
+// evmOnlyBaseFees are the base fee a block ran at, then those set for the
+// evmOnlyBaseFeeLag blocks after it, in height order.
+type evmOnlyBaseFees [evmOnlyBaseFeeLag + 1]uint256.Int
+
+// initialBaseFees returns the base fees of the cursor InitChain writes: the
+// genesis floor, at every height.
+func initialBaseFees() evmOnlyBaseFees {
+	var fees evmOnlyBaseFees
+	for i := range fees {
+		fees[i] = baseFeeParams(evmOnlyGenesisEVMParams).Floor
+	}
+	return fees
+}
 
 // evmOnlyCursor identifies a block whose state is committed to storage and
 // what the next block executes against.
@@ -26,6 +43,46 @@ type evmOnlyCursor struct {
 	appHash   common.Hash
 	blockHash common.Hash
 	gasLimit  uint64
+	// unixNano is the block's time in Unix nanoseconds, or the genesis time
+	// for the cursor InitChain writes.
+	unixNano uint64
+	baseFees evmOnlyBaseFees
+}
+
+// baseFee returns the base fee this block ran at.
+func (c evmOnlyCursor) baseFee() *big.Int {
+	return c.baseFees[0].ToBig()
+}
+
+// nextBaseFee returns the base fee the block after this one runs at.
+func (c evmOnlyCursor) nextBaseFee() *big.Int {
+	return c.baseFees[1].ToBig()
+}
+
+// highestScheduledBaseFee returns the highest base fee set for the blocks
+// after this one.
+func (c evmOnlyCursor) highestScheduledBaseFee() *big.Int {
+	highest := c.baseFees[1]
+	for _, fee := range c.baseFees[2:] {
+		if fee.Gt(&highest) {
+			highest = fee
+		}
+	}
+	return highest.ToBig()
+}
+
+// nextBaseFees returns the base fees of the next block's cursor when the next
+// block, at unixNano, used gasUsed: the ones this cursor set, then the one that
+// use sets under params. A block not after this one counts as taking no time.
+func (c evmOnlyCursor) nextBaseFees(params evmonly.BaseFeeParams, gasUsed, unixNano uint64) evmOnlyBaseFees {
+	var fees evmOnlyBaseFees
+	copy(fees[:], c.baseFees[1:])
+	var elapsed uint64
+	if unixNano > c.unixNano {
+		elapsed = unixNano - c.unixNano
+	}
+	fees[len(fees)-1] = params.NextBaseFee(c.baseFees[len(c.baseFees)-1], gasUsed, elapsed)
+	return fees
 }
 
 func (c evmOnlyCursor) miscChange() gigatypes.MiscChange {
@@ -41,7 +98,13 @@ func (c evmOnlyCursor) encode() []byte {
 	buf = binary.BigEndian.AppendUint64(buf, uint64(c.height)) //nolint:gosec // G115: height is non-negative.
 	buf = append(buf, c.appHash[:]...)
 	buf = append(buf, c.blockHash[:]...)
-	return binary.BigEndian.AppendUint64(buf, c.gasLimit)
+	buf = binary.BigEndian.AppendUint64(buf, c.gasLimit)
+	buf = binary.BigEndian.AppendUint64(buf, c.unixNano)
+	for _, fee := range c.baseFees {
+		raw := fee.Bytes32()
+		buf = append(buf, raw[:]...)
+	}
+	return buf
 }
 
 func decodeEVMOnlyCursor(raw []byte) (evmOnlyCursor, error) {
@@ -53,12 +116,18 @@ func decodeEVMOnlyCursor(raw []byte) (evmOnlyCursor, error) {
 		return evmOnlyCursor{}, fmt.Errorf("EVM-only cursor height exceeds int64")
 	}
 	raw = raw[8:]
-	return evmOnlyCursor{
+	cursor := evmOnlyCursor{
 		height:    height,
 		appHash:   common.BytesToHash(raw[:common.HashLength]),
 		blockHash: common.BytesToHash(raw[common.HashLength : 2*common.HashLength]),
 		gasLimit:  binary.BigEndian.Uint64(raw[2*common.HashLength:]),
-	}, nil
+		unixNano:  binary.BigEndian.Uint64(raw[2*common.HashLength+8:]),
+	}
+	fees := raw[2*common.HashLength+16:]
+	for i := range cursor.baseFees {
+		cursor.baseFees[i].SetBytes32(fees[i*32:])
+	}
+	return cursor, nil
 }
 
 // loadEVMOnlyCursor reads the cursor of the store's latest version. It is None

@@ -20,6 +20,7 @@ func traceTestHeader(height int64, parentHash []byte) *ethtypes.Header {
 		Number:     big.NewInt(height),
 		Time:       uint64(req.Header.Time.Unix()), //nolint:gosec // G115: test times are positive.
 		ParentHash: common.BytesToHash(parentHash),
+		BaseFee:    new(big.Int).Set(evmOnlyGenesisEVMParams.MinFeePerGas),
 	}
 }
 
@@ -101,7 +102,7 @@ func TestEVMOnlyApplicationRebuildsABlockContext(t *testing.T) {
 	require.Equal(t, header.Time, got.Time)
 	require.Equal(t, uint64(30_000_000), got.GasLimit)
 	require.Equal(t, common.Address{}, got.Coinbase)
-	require.Equal(t, 0, got.BaseFee.Sign())
+	require.Equal(t, header.BaseFee, got.BaseFee)
 	require.Equal(t, evmOnlyPrevRandao(header.Time), *got.Random)
 	require.Equal(t, common.BytesToHash(first.Hash), got.GetHash(1))
 	require.Equal(t, common.Hash{}, got.GetHash(0))

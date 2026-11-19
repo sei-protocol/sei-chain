@@ -10,6 +10,7 @@ pragma solidity 0.8.30;
 /// - Coins: uint256 wei, a whole number of usei; only the usei denom exists.
 /// - Int: uint256.
 /// - uint32: uint32.
+/// - uint64: uint64.
 /// Other V2 types have no stored form until a param needs one.
 ///
 /// Once a public network runs this, the layout only grows: a new param takes
@@ -41,6 +42,15 @@ contract ParamsStorage {
         uint256[8] __gap;
     }
 
+    /// @dev The x/evm params that set the base fee.
+    struct EVM {
+        uint64 targetGasUsedPerSecond; // KeyTargetGasUsedPerSecond
+        uint64 baseFeeChangeDenominator; // KeyBaseFeeChangeDenominator
+        uint256 minFeePerGas; // KeyMinFeePerGas
+        uint256[8] __gap;
+    }
+
     Gov internal gov; // subspace "gov"
     Staking internal staking; // subspace "staking"
+    EVM internal evm; // subspace "evm"
 }

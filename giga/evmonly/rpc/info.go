@@ -261,7 +261,8 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 		}
 	}
 	// baseFeePerGas carries one more entry than gasUsedRatio: the projected fee for the block
-	// after end. Always zero here.
+	// after end.
+	// TODO: report each block's base fee, and the next one, once they are served per block.
 	result.BaseFee = append(result.BaseFee, (*hexutil.Big)(new(big.Int)))
 	return result, nil
 }
@@ -396,7 +397,8 @@ func receiptRecordsFromBlock(ctx context.Context, store receiptpkg.ReceiptStore,
 func receiptRecordFor(hash common.Hash, stored *evmtypes.Receipt) receiptpkg.ReceiptRecord {
 	var reward *big.Int
 	if stored.EffectiveGasPrice != 0 {
-		// giga's base fee is always zero, so the priority fee is the raw effective gas price.
+		// TODO: subtract the block's base fee once it is served per block. Until then this
+		// overstates the priority fee by the base fee.
 		reward = new(big.Int).SetUint64(stored.EffectiveGasPrice)
 	}
 	return receiptpkg.ReceiptRecord{TxHash: hash, Receipt: stored, Reward: reward}

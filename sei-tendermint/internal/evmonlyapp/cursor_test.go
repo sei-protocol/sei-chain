@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -16,13 +17,19 @@ func TestEVMOnlyCursorRoundTrip(t *testing.T) {
 		appHash:   common.HexToHash("0xaa"),
 		blockHash: common.HexToHash("0xbb"),
 		gasLimit:  0x1112131415161718,
+		unixNano:  0x3132333435363738,
+		baseFees:  evmOnlyBaseFees{*uint256.NewInt(0x21), *uint256.NewInt(0x22), *uint256.NewInt(0x23)},
 	}
 	raw := cursor.encode()
 	require.Equal(t, evmOnlyCursorSize, len(raw))
 	require.Equal(t, uint64(cursor.height), binary.BigEndian.Uint64(raw[:8])) //nolint:gosec // G115: fixture height is non-negative.
 	require.Equal(t, cursor.appHash, common.BytesToHash(raw[8:40]))
 	require.Equal(t, cursor.blockHash, common.BytesToHash(raw[40:72]))
-	require.Equal(t, cursor.gasLimit, binary.BigEndian.Uint64(raw[72:]))
+	require.Equal(t, cursor.gasLimit, binary.BigEndian.Uint64(raw[72:80]))
+	require.Equal(t, cursor.unixNano, binary.BigEndian.Uint64(raw[80:88]))
+	for i, fee := range cursor.baseFees {
+		require.Equal(t, fee.Bytes32(), [32]byte(raw[88+32*i:88+32*(i+1)]))
+	}
 
 	decoded, err := decodeEVMOnlyCursor(raw)
 	require.NoError(t, err)
@@ -44,4 +51,40 @@ func TestEVMOnlyCursorDecodeRejectsMalformed(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+// The next block's cursor keeps the base fees this one set, and appends the one the next block's
+// gas use, over the time since this block, sets. Gas used at height h sets the base fee of height
+// h+2.
+func TestEVMOnlyCursorNextBaseFeesLagsGasUseByTwoBlocks(t *testing.T) {
+	cursor := evmOnlyCursor{
+		unixNano: 1_700_000_000_000_000_000,
+		baseFees: evmOnlyBaseFees{
+			*uint256.NewInt(110_000_000_000), *uint256.NewInt(120_000_000_000), *uint256.NewInt(130_000_000_000),
+		},
+	}
+	params := genesisBaseFeeParams()
+	const gasUsed = 1_500_000_000
+	const elapsed = 500_000_000
+
+	next := cursor.nextBaseFees(params, gasUsed, cursor.unixNano+elapsed)
+
+	require.Equal(t, evmOnlyBaseFees{
+		cursor.baseFees[1],
+		cursor.baseFees[2],
+		params.NextBaseFee(cursor.baseFees[2], gasUsed, elapsed),
+	}, next)
+	require.Equal(t, cursor.baseFees[0].ToBig(), cursor.baseFee())
+	require.Equal(t, cursor.baseFees[1].ToBig(), cursor.nextBaseFee())
+	require.Equal(t, cursor.baseFees[2].ToBig(), cursor.highestScheduledBaseFee())
+}
+
+// A block whose time is not after its parent's counts as taking no time.
+func TestEVMOnlyCursorNextBaseFeesOfABlockNotAfterItsParent(t *testing.T) {
+	cursor := evmOnlyCursor{unixNano: 1_700_000_000_000_000_000, baseFees: initialBaseFees()}
+	params := genesisBaseFeeParams()
+
+	next := cursor.nextBaseFees(params, 21_000, cursor.unixNano-1)
+
+	require.Equal(t, params.NextBaseFee(params.Floor, 21_000, 0), next[len(next)-1])
 }
