@@ -58,7 +58,7 @@ func readStoreHeads(cfg *config.GigaStorageConfig) (storeHeads, error) {
 	if err != nil {
 		return storeHeads{}, fmt.Errorf("read live state DB version: %w", err)
 	}
-	heads.liveStateDB = uint64(liveStateVersion) //nolint:gosec // live state DB versions are never negative
+	heads.liveStateDB = liveStateVersion
 	if cfg.SSConfig.Enable {
 		logger.Info("Reading a store head", "store", "historical state DB")
 		_, heads.historicalStateDB, err = undo.GetLatestBlock(cfg.SSConfig.EVMDBDirectory)

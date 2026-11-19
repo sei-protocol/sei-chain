@@ -127,7 +127,7 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 		require.Equal(t, wantPerDB[dbDir], s2.maintainedHashes().PerDB[dbDir].Checksum(),
 			"%s per-DB root must be bit-identical after replay", dbDir)
 	}
-	require.Equal(t, int64(2), s2.Version())
+	require.Equal(t, uint64(2), s2.Version())
 	verifyPerDBLtHash(t, s2)
 	verifyLtHashAtHeight(t, s2, 2)
 }
@@ -161,7 +161,7 @@ func TestPerDBLtHashPersistenceAfterReopen(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(10), s2.Version())
+	require.Equal(t, uint64(10), s2.Version())
 	verifyPerDBLtHash(t, s2)
 	verifyLtHashAtHeight(t, s2, 10)
 
@@ -282,7 +282,7 @@ func TestPerDBLtHashCatchupReplay(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(5), s2.Version())
+	require.Equal(t, uint64(5), s2.Version())
 	for dbDir, expectedCS := range expectedPerDB {
 		actualCS := s2.maintainedHashes().PerDB[dbDir].Checksum()
 		require.Equal(t, expectedCS, actualCS,
@@ -382,7 +382,7 @@ func TestPerDBLtHashRollback(t *testing.T) {
 	commitMixedState(t, s, 5)
 
 	require.NoError(t, s.Rollback(3))
-	require.Equal(t, int64(3), s.Version())
+	require.Equal(t, uint64(3), s.Version())
 	verifyPerDBLtHash(t, s)
 	verifyLtHashAtHeight(t, s, 3)
 
@@ -640,7 +640,7 @@ func TestPerDBLtHashLevelsUpStoresAtDifferentHeights(t *testing.T) {
 	require.NoError(t, s2.LoadLatest())
 
 	// Every store ends level, at the height they collectively reached before the forged skew.
-	require.Equal(t, int64(3), s2.Version())
+	require.Equal(t, uint64(3), s2.Version())
 	for _, dbDir := range dataDBDirs {
 		require.True(t, wantPerDB[dbDir].Equal(s2.maintainedHashes().PerDB[dbDir]),
 			"per-DB LtHash for %s must be restored exactly, not double-mixed:\n  want: %x\n  got:  %x",

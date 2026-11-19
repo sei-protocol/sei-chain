@@ -35,7 +35,7 @@ func TestStorageSerializationGoldenFile_V0(t *testing.T) {
 
 	rt, err := DeserializeStorageData(wantBytes)
 	require.NoError(t, err)
-	require.Equal(t, int64(100), rt.GetBlockHeight())
+	require.Equal(t, uint64(100), rt.GetBlockHeight())
 	require.Equal(t, val, rt.GetValue())
 }
 
@@ -43,7 +43,7 @@ func TestStorageNewZeroInitialized(t *testing.T) {
 	sd := NewStorageData()
 	var zero [32]byte
 	require.Equal(t, StorageDataVersion0, sd.GetSerializationVersion())
-	require.Equal(t, int64(0), sd.GetBlockHeight())
+	require.Equal(t, uint64(0), sd.GetBlockHeight())
 	require.Equal(t, &zero, sd.GetValue())
 }
 
@@ -60,7 +60,7 @@ func TestStorageRoundTrip_AllFieldsSet(t *testing.T) {
 
 	rt, err := DeserializeStorageData(sd.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, int64(999), rt.GetBlockHeight())
+	require.Equal(t, uint64(999), rt.GetBlockHeight())
 	require.Equal(t, val, rt.GetValue())
 }
 
@@ -69,13 +69,13 @@ func TestStorageRoundTrip_ZeroValues(t *testing.T) {
 	rt, err := DeserializeStorageData(sd.Serialize())
 	require.NoError(t, err)
 	var zero [32]byte
-	require.Equal(t, int64(0), rt.GetBlockHeight())
+	require.Equal(t, uint64(0), rt.GetBlockHeight())
 	require.Equal(t, &zero, rt.GetValue())
 }
 
 func TestStorageRoundTrip_MaxValues(t *testing.T) {
 	maxVal := toArray32(bytes.Repeat([]byte{0xff}, 32))
-	maxBlockHeight := int64(math.MaxInt64)
+	maxBlockHeight := uint64(math.MaxUint64)
 
 	sd := NewStorageData().
 		SetBlockHeight(maxBlockHeight).
@@ -129,7 +129,7 @@ func TestStorageSetterChaining(t *testing.T) {
 		SetBlockHeight(1).
 		SetValue(toArray32(leftPad32([]byte{2})))
 
-	require.Equal(t, int64(1), sd.GetBlockHeight())
+	require.Equal(t, uint64(1), sd.GetBlockHeight())
 }
 
 func TestStorageConstantLayout_V0(t *testing.T) {
@@ -141,7 +141,7 @@ func TestNilStorageData_Getters(t *testing.T) {
 	var zero [32]byte
 
 	require.Equal(t, StorageDataVersion0, sd.GetSerializationVersion())
-	require.Equal(t, int64(0), sd.GetBlockHeight())
+	require.Equal(t, uint64(0), sd.GetBlockHeight())
 	require.Equal(t, &zero, sd.GetValue())
 }
 
@@ -170,7 +170,7 @@ func TestNilStorageData_SettersAutoCreate(t *testing.T) {
 	var s1 *StorageData
 	s1 = s1.SetBlockHeight(42)
 	require.NotNil(t, s1)
-	require.Equal(t, int64(42), s1.GetBlockHeight())
+	require.Equal(t, uint64(42), s1.GetBlockHeight())
 
 	var s2 *StorageData
 	val := [32]byte{0x01}

@@ -26,8 +26,8 @@ type memoryReceiptEntry struct {
 type MemoryReceiptStore struct {
 	mu sync.RWMutex
 
-	latestVersion   int64
-	earliestVersion int64
+	latestVersion   uint64
+	earliestVersion uint64
 	blocks          map[uint64]map[common.Hash]*evmtypes.Receipt
 	byTxHash        map[common.Hash]memoryReceiptEntry
 	blockStats      map[uint64]receipt.BlockStats
@@ -48,24 +48,21 @@ func (*MemoryReceiptStore) Name() string {
 }
 
 // LatestVersion returns the greatest block height recorded by the store.
-func (s *MemoryReceiptStore) LatestVersion() int64 {
+func (s *MemoryReceiptStore) LatestVersion() uint64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.latestVersion
 }
 
 // EarliestVersion returns the current receipt retention floor.
-func (s *MemoryReceiptStore) EarliestVersion() int64 {
+func (s *MemoryReceiptStore) EarliestVersion() uint64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.earliestVersion
 }
 
 // SetLatestVersion advances the greatest block height recorded by the store.
-func (s *MemoryReceiptStore) SetLatestVersion(version int64) error {
-	if version < 0 {
-		return fmt.Errorf("receipt version must not be negative: %d", version)
-	}
+func (s *MemoryReceiptStore) SetLatestVersion(version uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if version > s.latestVersion {
@@ -75,10 +72,7 @@ func (s *MemoryReceiptStore) SetLatestVersion(version int64) error {
 }
 
 // SetEarliestVersion advances the receipt retention floor.
-func (s *MemoryReceiptStore) SetEarliestVersion(version int64) error {
-	if version < 0 {
-		return fmt.Errorf("receipt version must not be negative: %d", version)
-	}
+func (s *MemoryReceiptStore) SetEarliestVersion(version uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if version > s.earliestVersion {
@@ -103,7 +97,7 @@ func (s *MemoryReceiptStore) GetReceiptFromStore(ctx sdk.Context, txHash common.
 	if !ok {
 		return nil, receipt.ErrNotFound
 	}
-	if s.earliestVersion > 0 && entry.blockNumber < uint64(s.earliestVersion) { //nolint:gosec // earliestVersion is positive.
+	if entry.blockNumber < s.earliestVersion {
 		return nil, receipt.ErrNotFound
 	}
 	return cloneStoredReceipt(entry.receipt), nil
@@ -122,19 +116,15 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rece
 	if ctx.BlockHeight() < 0 {
 		return fmt.Errorf("receipt block height must not be negative: %d", ctx.BlockHeight())
 	}
+	height := uint64(ctx.BlockHeight()) //nolint:gosec // guarded above
 
 	stored := make([]receipt.ReceiptRecord, 0, len(records))
-	latestVersion := ctx.BlockHeight()
+	latestVersion := height
 	for _, record := range records {
 		if record.Receipt == nil {
 			continue
 		}
-		if record.Receipt.BlockNumber > maxGigaStoreBlockNumber {
-			return fmt.Errorf("receipt block number %d exceeds int64", record.Receipt.BlockNumber)
-		}
-		if blockVersion := int64(record.Receipt.BlockNumber); blockVersion > latestVersion { //nolint:gosec // bounded above.
-			latestVersion = blockVersion
-		}
+		latestVersion = max(latestVersion, record.Receipt.BlockNumber)
 		stored = append(stored, receipt.ReceiptRecord{
 			TxHash:       record.TxHash,
 			Receipt:      cloneStoredReceipt(record.Receipt),
@@ -159,12 +149,11 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rece
 		s.blockStats[blockNumber] = gigareceipt.ComputeBlockStats(
 			blockRecords, gigareceipt.DefaultRewardPercentiles)
 	}
-	if len(byBlock) == 0 && ctx.BlockHeight() > 0 {
+	if len(byBlock) == 0 && height > 0 {
 		// An empty block still executed; record it as a real, zero-stat block rather than leaving
 		// it unrecorded, which GetBlockStats would otherwise report as ErrBlockStatsNotSupported.
-		blockNumber := uint64(ctx.BlockHeight()) //nolint:gosec // guarded non-negative above
-		if _, exists := s.blockStats[blockNumber]; !exists {
-			s.blockStats[blockNumber] = receipt.BlockStats{}
+		if _, exists := s.blockStats[height]; !exists {
+			s.blockStats[height] = receipt.BlockStats{}
 		}
 	}
 	s.mu.Unlock()
@@ -176,7 +165,7 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rece
 func (s *MemoryReceiptStore) GetBlockStats(_ sdk.Context, blockNumber uint64) (receipt.BlockStats, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.earliestVersion > 0 && blockNumber < uint64(s.earliestVersion) { //nolint:gosec // earliestVersion is positive.
+	if blockNumber < s.earliestVersion {
 		return receipt.BlockStats{}, receipt.ErrNotFound
 	}
 	stats, ok := s.blockStats[blockNumber]
@@ -188,7 +177,11 @@ func (s *MemoryReceiptStore) GetBlockStats(_ sdk.Context, blockNumber uint64) (r
 
 // storeRecords installs a block's receipt records, advances the store version and
 // returns the records it kept.
-func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipt.ReceiptRecord, latestVersion int64) ([]receipt.ReceiptRecord, error) {
+func (s *MemoryReceiptStore) storeRecords(
+	ctx sdk.Context,
+	stored []receipt.ReceiptRecord,
+	latestVersion uint64,
+) ([]receipt.ReceiptRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := receiptContextError(ctx); err != nil {
@@ -289,9 +282,7 @@ func (s *MemoryReceiptStore) FilterLogs(
 func (s *MemoryReceiptStore) IterateReceipts(startBlock uint64) (receipt.ReceiptIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.earliestVersion > 0 && startBlock < uint64(s.earliestVersion) { //nolint:gosec // earliestVersion is positive.
-		startBlock = uint64(s.earliestVersion) //nolint:gosec // earliestVersion is positive.
-	}
+	startBlock = max(startBlock, s.earliestVersion)
 	var entries []memoryReceiptEntry
 	for blockNumber, blockReceipts := range s.blocks {
 		if blockNumber < startBlock {
@@ -362,7 +353,7 @@ func (*MemoryReceiptStore) ExternalPruning() bool {
 func (s *MemoryReceiptStore) PruneHistory(blockNumber uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.latestVersion <= 0 || blockNumber > uint64(s.latestVersion) { //nolint:gosec // latestVersion is positive.
+	if s.latestVersion == 0 || blockNumber > s.latestVersion {
 		return nil
 	}
 	for height, blockReceipts := range s.blocks {
@@ -382,9 +373,7 @@ func (s *MemoryReceiptStore) PruneHistory(blockNumber uint64) error {
 			delete(s.blockStats, height)
 		}
 	}
-	if blockNumber <= maxGigaStoreBlockNumber && int64(blockNumber) > s.earliestVersion { //nolint:gosec // bounded above.
-		s.earliestVersion = int64(blockNumber) //nolint:gosec // bounded above.
-	}
+	s.earliestVersion = max(s.earliestVersion, blockNumber)
 	return nil
 }
 
@@ -404,11 +393,7 @@ func (s *MemoryReceiptStore) GetRollbackFloor(rollbackWindow uint64) uint64 {
 
 // GetLatestBlock returns the greatest block height recorded by the store.
 func (s *MemoryReceiptStore) GetLatestBlock() (uint64, error) {
-	latest := s.LatestVersion()
-	if latest <= 0 {
-		return 0, nil
-	}
-	return uint64(latest), nil //nolint:gosec // latest is positive.
+	return s.LatestVersion(), nil
 }
 
 func cloneStoredReceipt(stored *evmtypes.Receipt) *evmtypes.Receipt {

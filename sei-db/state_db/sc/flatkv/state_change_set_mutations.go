@@ -64,8 +64,7 @@ func MutationsFromStateChangeSet(
 	cfg *config.Config,
 ) ([]mutation.Mutation, error) {
 	priorHeight := priorState.GetBlockHeight()
-	//nolint:gosec // a non-negative height converts exactly
-	if priorHeight < 0 || uint64(priorHeight)+1 != blockHeight {
+	if priorHeight+1 != blockHeight {
 		return nil, fmt.Errorf("prior state is at block %d, but block %d needs the state of the block before",
 			priorHeight, blockHeight)
 	}
@@ -181,7 +180,7 @@ func (c *stateChangeSetConverter) convertMisc() error {
 	}
 
 	priorValues := c.readPriorValues(first, first+len(c.changes.Misc))
-	height := int64(c.blockHeight) //nolint:gosec // block heights fit in an int64
+	height := c.blockHeight
 	for i := range c.changes.Misc {
 		change := &c.changes.Misc[i]
 		m := &c.mutations[first+i]
@@ -270,8 +269,7 @@ func (c *stateChangeSetConverter) writeAccountValues(
 		code := &mutations[1]
 		code.PreviousValue = priorValues[string(code.Key)]
 		if len(change.Account.Code) != 0 {
-			//nolint:gosec // block heights fit in an int64
-			code.NewValue = vtype.SerializeCode(int64(c.blockHeight), change.Account.Code)
+			code.NewValue = vtype.SerializeCode(c.blockHeight, change.Account.Code)
 		}
 	}
 	return nil
@@ -292,7 +290,7 @@ func (c *stateChangeSetConverter) convertStorage(start int, end int) error {
 	}
 
 	priorValues := c.readPriorValues(firstStorage+start, firstStorage+end)
-	height := int64(c.blockHeight) //nolint:gosec // block heights fit in an int64
+	height := c.blockHeight
 	for i := start; i < end; i++ {
 		change := &c.changes.Storage[i]
 		m := &c.mutations[firstStorage+i]

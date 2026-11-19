@@ -356,7 +356,7 @@ func TestLaggingFilterCatchesUpWithoutTokens(t *testing.T) {
 	t.Parallel()
 
 	k := &keeper.Keeper{}
-	k.SetReceiptStoreForTesting(&emptyRangeReceiptStore{fakeReceiptStore{latest: admissionHead}})
+	k.SetReceiptStoreForTesting(&emptyRangeReceiptStore{fakeReceiptStore{latest: uint64(admissionHead)}})
 	api := newAdmissionTestAPI(limiterWithTokens(0), idleMetrics(), k)
 	const behind = 3 * RPSLimitThreshold
 	from := admissionHead - behind + 1

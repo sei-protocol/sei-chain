@@ -135,7 +135,7 @@ func importerErr(importer sctypes.Importer) error {
 
 // emitPairs forwards translator output to the FlatKV importer, returning the
 // number of pairs written.
-func emitPairs(importer sctypes.Importer, pairs []flatkv.PhysicalKVPair, height int64) (int64, error) {
+func emitPairs(importer sctypes.Importer, pairs []flatkv.PhysicalKVPair, height uint64) (int64, error) {
 	for _, p := range pairs {
 		if err := importer.AddNode(&sctypes.SnapshotNode{
 			Key:     p.Key,
@@ -164,6 +164,7 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 	if height > math.MaxUint32 {
 		return fmt.Errorf("height %d out of range", height)
 	}
+	flatKVHeight := uint64(height) //nolint:gosec // range checked above
 	// Refuse mismatched heights. If we wrote FlatKV at H < memiavlLatest,
 	// the next GIGA_STORAGE startup would call
 	// CompositeCommitStore.reconcileVersions (see
@@ -226,7 +227,7 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 	}
 	defer func() { _ = exporter.Close() }()
 
-	importer, err := store.TrustedImporter(height)
+	importer, err := store.TrustedImporter(flatKVHeight)
 	if err != nil {
 		return fmt.Errorf("failed to create FlatKV importer at height %d: %w", height, err)
 	}
@@ -251,7 +252,7 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 		_ = importer.Close()
 	}()
 
-	translator := flatkv.NewImportTranslator(height)
+	translator := flatkv.NewImportTranslator(flatKVHeight)
 	batch := &proto.NamedChangeSet{
 		Changeset: proto.ChangeSet{Pairs: make([]*proto.KVPair, 0, translatorBatchSize)},
 	}
@@ -264,7 +265,7 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 		if err != nil {
 			return fmt.Errorf("translate batch (module=%s): %w", batch.Name, err)
 		}
-		n, err := emitPairs(importer, pairs, height)
+		n, err := emitPairs(importer, pairs, flatKVHeight)
 		if err != nil {
 			return fmt.Errorf("FlatKV import failed: %w", err)
 		}
@@ -355,7 +356,7 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 		return fmt.Errorf("FlatKV import failed: %w", err)
 	}
 
-	n, err := emitPairs(importer, translator.Finalize(), height)
+	n, err := emitPairs(importer, translator.Finalize(), flatKVHeight)
 	if err != nil {
 		return fmt.Errorf("FlatKV import failed: %w", err)
 	}

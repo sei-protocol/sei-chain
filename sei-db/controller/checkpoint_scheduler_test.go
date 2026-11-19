@@ -44,7 +44,6 @@ func TestNonPositiveVersionsAreNeverCheckpointHeights(t *testing.T) {
 	scheduler.elapseTimeInterval()
 
 	require.False(t, scheduler.ShouldCheckpoint("sc", 0))
-	require.False(t, scheduler.ShouldCheckpoint("sc", -1))
 }
 
 // The first height clears the same intervals as every later one, measured from the scheduler's
@@ -70,7 +69,7 @@ func TestTheFirstHeightWaitsForTheBlockInterval(t *testing.T) {
 func TestBlockIntervalHeightsAreMultiplesOfTheInterval(t *testing.T) {
 	scheduler := newScheduler(0, 100)
 
-	for _, offGrid := range []int64{4001, 4050, 4099} {
+	for _, offGrid := range []uint64{4001, 4050, 4099} {
 		require.False(t, scheduler.ShouldCheckpoint("sc", offGrid))
 	}
 	require.True(t, scheduler.ShouldCheckpoint("sc", 4100))
@@ -137,7 +136,7 @@ func TestALaggingStoreCannotTakeAHeightUnderARefusedOne(t *testing.T) {
 	require.False(t, scheduler.ShouldCheckpoint("sc", 100), "the interval has not elapsed")
 
 	scheduler.elapseTimeInterval()
-	for _, lagging := range []int64{98, 99, 100} {
+	for _, lagging := range []uint64{98, 99, 100} {
 		require.False(t, scheduler.ShouldCheckpoint("ss", lagging), "height %d is under the refused 100", lagging)
 	}
 
@@ -179,9 +178,12 @@ func TestConcurrentAsksAtTheSameHeightAgree(t *testing.T) {
 // and returns the heights each checkpointed at. A non-zero elapseEvery elapses the time interval
 // once every that many heights, standing in for wall-clock passing as the chain advances.
 func walkLeaderAndLaggard(
-	scheduler *CheckpointScheduler, to, lag, elapseEvery int64,
-) (leaderTook, laggardTook []int64) {
-	for height := int64(1); height <= to; height++ {
+	scheduler *CheckpointScheduler,
+	to uint64,
+	lag uint64,
+	elapseEvery uint64,
+) (leaderTook []uint64, laggardTook []uint64) {
+	for height := uint64(1); height <= to; height++ {
 		if elapseEvery > 0 && height%elapseEvery == 0 {
 			scheduler.elapseTimeInterval()
 		}
@@ -189,8 +191,11 @@ func walkLeaderAndLaggard(
 			leaderTook = append(leaderTook, height)
 			scheduler.MarkCheckpointComplete("leader", height)
 		}
+		if height <= lag {
+			continue
+		}
 		behind := height - lag
-		if behind > 0 && scheduler.ShouldCheckpoint("laggard", behind) {
+		if scheduler.ShouldCheckpoint("laggard", behind) {
 			laggardTook = append(laggardTook, behind)
 			scheduler.MarkCheckpointComplete("laggard", behind)
 		}
@@ -206,8 +211,8 @@ func TestEveryStoreTakesTheSameHeightsHoweverFarBehind(t *testing.T) {
 
 	leaderTook, laggardTook := walkLeaderAndLaggard(scheduler, 1000, 150, 0)
 
-	require.Equal(t, []int64{100, 200, 400, 600, 800, 1000}, leaderTook)
-	require.Equal(t, []int64{200, 400, 600, 800}, laggardTook,
+	require.Equal(t, []uint64{100, 200, 400, 600, 800, 1000}, leaderTook)
+	require.Equal(t, []uint64{200, 400, 600, 800}, laggardTook,
 		"100 predates the laggard's first ask, and it has yet to reach 1000")
 }
 
@@ -216,8 +221,8 @@ func TestEveryStoreTakesTheSameHeightsOnATimeInterval(t *testing.T) {
 
 	leaderTook, laggardTook := walkLeaderAndLaggard(scheduler, 1000, 150, 300)
 
-	require.Equal(t, []int64{300, 600, 900}, leaderTook)
-	require.Equal(t, []int64{300, 600}, laggardTook, "the laggard has yet to reach 900")
+	require.Equal(t, []uint64{300, 600, 900}, leaderTook)
+	require.Equal(t, []uint64{300, 600}, laggardTook, "the laggard has yet to reach 900")
 }
 
 // The height is held even once the intervals have elapsed, so the leader cannot run ahead onto a
@@ -325,7 +330,7 @@ func TestAStalledStoreStopsTheScheduler(t *testing.T) {
 	require.True(t, scheduler.ShouldCheckpoint("sc", 200))
 	scheduler.MarkCheckpointComplete("sc", 200)
 
-	for _, height := range []int64{300, 400, 500} {
+	for _, height := range []uint64{300, 400, 500} {
 		scheduler.elapseTimeInterval()
 		require.False(t, scheduler.ShouldCheckpoint("sc", height), "ss never reported 200")
 	}

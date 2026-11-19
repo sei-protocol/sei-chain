@@ -103,7 +103,8 @@ func settleCommittedBlocks(a *app.App, ctxProvider func(int64) sdk.Context) {
 	}
 	if store := a.EvmKeeper.ReceiptStore(); store != nil {
 		deadline := time.Now().Add(receiptSettleTimeout)
-		for store.LatestVersion() < latest {
+		//nolint:gosec // block heights never approach the int64 ceiling
+		for int64(store.LatestVersion()) < latest {
 			if time.Now().After(deadline) {
 				panic(fmt.Sprintf("receipt store still at version %d after committing height %d", store.LatestVersion(), latest))
 			}

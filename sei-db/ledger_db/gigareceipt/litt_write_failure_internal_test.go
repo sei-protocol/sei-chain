@@ -79,7 +79,7 @@ func TestWriteFailureHoldsTheHeadAgainstAQueuedBlock(t *testing.T) {
 
 	// Close drains, so the writer has decided about block 3 by the time this returns.
 	require.ErrorIs(t, s.Close(), errIndexCommit)
-	require.Equal(t, int64(1), s.LatestVersion(),
+	require.Equal(t, uint64(1), s.LatestVersion(),
 		"the head must not move past a block whose receipts were never written")
 }
 
@@ -144,7 +144,7 @@ func TestInlineWriteFailureRefusesTheNextBlock(t *testing.T) {
 	txHash, rcpt = littCtxTestReceipt(3, 0, addr, topic, 1)
 	require.ErrorContains(t, s.SetReceipts(newTestCtxAtHeight(3),
 		[]receipt.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}), "skips block 2")
-	require.Equal(t, int64(1), s.LatestVersion())
+	require.Equal(t, uint64(1), s.LatestVersion())
 }
 
 // TestWriteAfterCloseIsRefused covers a commit arriving after shutdown, which the writer is no
@@ -207,7 +207,7 @@ func TestWriteRacingCloseIsEitherAppliedOrRefused(t *testing.T) {
 			continue
 		}
 		// Accepted, so the writer must have applied it before Close let the writer go.
-		require.Equal(t, int64(1), s.LatestVersion(),
+		require.Equal(t, uint64(1), s.LatestVersion(),
 			"attempt %d: a write that reported success must have been applied", attempt)
 	}
 }

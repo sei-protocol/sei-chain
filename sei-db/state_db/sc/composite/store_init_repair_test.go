@@ -65,7 +65,7 @@ func TestAuto_TornFlatKVSeedRecoversAndReseeds(t *testing.T) {
 	// 0, so the seeding branch does not run a second time.
 	require.NoError(t, reopened.SetWriteMode(types.MigrateEVM))
 	require.NotNil(t, reopened.loadFlatKV())
-	require.Equal(t, int64(3), reopened.loadFlatKV().Version(),
+	require.Equal(t, uint64(3), reopened.loadFlatKV().Version(),
 		"the composite must have re-seeded flatkv to memiavl's height")
 
 	// The chain keeps going from there, with both backends in lockstep.
@@ -77,7 +77,7 @@ func TestAuto_TornFlatKVSeedRecoversAndReseeds(t *testing.T) {
 	_, err = reopened.Commit(reopened.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(4), reopened.memIAVL.Version())
-	require.Equal(t, int64(4), reopened.loadFlatKV().Version())
+	require.Equal(t, uint64(4), reopened.loadFlatKV().Version())
 }
 
 // initializeUnseededFlatKV creates the flatkv directory layout — a baseline snapshot and a working
@@ -92,7 +92,7 @@ func initializeUnseededFlatKV(t *testing.T, cfg config.StateCommitConfig, flatkv
 	store, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg, wal)
 	require.NoError(t, err)
 	require.NoError(t, store.LoadLatest())
-	require.Equal(t, int64(0), store.Version())
+	require.Equal(t, uint64(0), store.Version())
 	require.NoError(t, store.Close())
 }
 

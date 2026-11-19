@@ -179,10 +179,9 @@ func runReference(t *testing.T, blocks [][]*proto.NamedChangeSet) referenceRun {
 	}
 	touchedKeys := recoveryPhysicalKeys(t, blocks)
 	for i, block := range blocks {
-		height := int64(i + 1)
+		height := uint64(i + 1)
 		prior := store.OpenView()
-		//nolint:gosec // height > 0
-		mutations, err := MutationsFromChangeSets(block, uint64(height), prior)
+		mutations, err := MutationsFromChangeSets(block, height, prior)
 		prior.Close()
 		require.NoError(t, err)
 		run.blockMutations[i] = mutations
@@ -229,7 +228,7 @@ func recoveryPhysicalKeys(t *testing.T, blocks [][]*proto.NamedChangeSet) [][]by
 // for it.
 func requireMatchesReference(t *testing.T, store *CommitStore, run referenceRun, height int) {
 	t.Helper()
-	require.Equal(t, int64(height), store.Version())
+	require.Equal(t, uint64(height), store.Version())
 	require.Equal(t, run.hashes[height-1], rootHash(store), "height %d", height)
 	view := store.OpenView()
 	defer view.Close()
@@ -288,7 +287,7 @@ func TestReadOnlyLoadFromWAL(t *testing.T) {
 		t.Run(fmt.Sprintf("height %d", height), func(t *testing.T) {
 			primary, err := newCommitStoreWithWAL(context.Background(), cfg)
 			require.NoError(t, err)
-			readOnly, err := primary.LoadVersionReadOnly(int64(height))
+			readOnly, err := primary.LoadVersionReadOnly(uint64(height))
 			require.NoError(t, err)
 			require.NoError(t, primary.Close())
 			defer func() { require.NoError(t, readOnly.Close()) }()
@@ -309,7 +308,7 @@ func TestRollbackAfterRecoveryFromWAL(t *testing.T) {
 			store := recoverFromWAL(t, blocks, run.blockMutations, 0)
 			defer func() { require.NoError(t, store.Close()) }()
 
-			require.NoError(t, store.Rollback(int64(height)))
+			require.NoError(t, store.Rollback(uint64(height)))
 			requireMatchesReference(t, store, run, height)
 			verifyLtHashConsistency(t, store)
 		})
@@ -332,7 +331,7 @@ func recoverFromWAL(
 	cfg.SnapshotInterval = uint32(snapshotBlock) //nolint:gosec // small test heights
 	store := setupTestStoreWithConfig(t, cfg)
 	for i := range snapshotBlock {
-		require.NoError(t, store.ApplyChangeSets(int64(i+1), blocks[i]))
+		require.NoError(t, store.ApplyChangeSets(uint64(i+1), blocks[i]))
 		commitAndCheck(t, store)
 	}
 	require.NoError(t, store.Close())

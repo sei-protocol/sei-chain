@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const importBlockHeight = int64(42)
+const importBlockHeight = uint64(42)
 
 func findPair(t *testing.T, pairs []PhysicalKVPair, key []byte) PhysicalKVPair {
 	t.Helper()

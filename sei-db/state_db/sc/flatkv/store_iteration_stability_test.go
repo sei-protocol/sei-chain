@@ -157,7 +157,7 @@ func TestEvmIteratorSurvivesAutoSnapshot(t *testing.T) {
 	// snapshot is written off the execution thread, so wait for it: without that this test drains the
 	// iterator before the checkpoint has touched the databases, and stops testing anything.
 	applyAndCommitBlock(t, s, touchEveryLane(0x01, 99, 0xbb))
-	require.Equal(t, int64(2), s.Version())
+	require.Equal(t, uint64(2), s.Version())
 	require.NoError(t, s.FlushSnapshots())
 
 	require.Equal(t, before, collectIterEntries(t, iter))

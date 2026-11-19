@@ -91,13 +91,13 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 	_, ok = store.OpenViewAt(6)
 	require.False(t, ok)
 
-	require.Equal(t, int64(0), initial.GetBlockHeight())
+	require.Equal(t, uint64(0), initial.GetBlockHeight())
 	require.Equal(t, big.NewInt(10), gigaHashToBig(initial.GetBalance(address)))
 	require.Equal(t, uint64(1), initial.GetNonce(address))
 	require.Equal(t, common.HexToHash("0xaa"), initial.GetStorage(address, baseSlot))
 
 	for _, snapshot := range []gigatypes.StateView{current, historical} {
-		require.Equal(t, int64(7), snapshot.GetBlockHeight())
+		require.Equal(t, uint64(7), snapshot.GetBlockHeight())
 		require.Equal(t, big.NewInt(20), gigaHashToBig(snapshot.GetBalance(address)))
 		require.Equal(t, uint64(2), snapshot.GetNonce(address))
 		require.Equal(t, []byte{0x60, 0x01}, snapshot.GetCode(address))
@@ -133,7 +133,6 @@ func TestMemoryStoreRejectsInvalidCommits(t *testing.T) {
 	store := NewMemoryStore(NewMemoryState())
 	require.NoError(t, store.CommitStateChanges(1, &StateChangeSet{}))
 	require.ErrorContains(t, store.CommitStateChanges(1, &StateChangeSet{}), "not after current height")
-	require.ErrorContains(t, store.CommitStateChanges(-1, &StateChangeSet{}), "non-negative")
 	require.ErrorContains(t, store.CommitStateChanges(2, &StateChangeSet{
 		Misc: []gigatypes.MiscChange{{Module: "bank", Key: []byte("key"), Value: []byte("value")}},
 	}), "cannot hold the 1 non-EVM writes")
@@ -211,7 +210,7 @@ func TestExecutorCommitsConsecutiveBlocksThroughMemoryStore(t *testing.T) {
 
 	snapshot := store.OpenView()
 	defer snapshot.Close()
-	require.Equal(t, int64(2), snapshot.GetBlockHeight())
+	require.Equal(t, uint64(2), snapshot.GetBlockHeight())
 	require.Equal(t, uint64(2), snapshot.GetNonce(sender))
 	require.Equal(t, big.NewInt(2), gigaHashToBig(snapshot.GetBalance(recipient)))
 }

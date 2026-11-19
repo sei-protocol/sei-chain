@@ -11,7 +11,7 @@ import (
 
 // floorStore returns a bare store whose retention floor is set, which is all gcFilter reads.
 // Reclamation decisions are a pure function of that floor and the key, so nothing else is opened.
-func floorStore(floor int64) *littReceiptStore {
+func floorStore(floor uint64) *littReceiptStore {
 	s := &littReceiptStore{}
 	s.earliestVersion.Store(floor)
 	return s
@@ -56,7 +56,7 @@ func TestGCFilterPassesSecondaryKeys(t *testing.T) {
 // An unestablished floor must block rather than permit: 0 means nothing has been pruned yet, or
 // the index has not been read, and reclaiming on that reading is not recoverable.
 func TestGCFilterBlocksEverythingWithoutAFloor(t *testing.T) {
-	for _, floor := range []int64{0, -1} {
+	for _, floor := range []uint64{0} {
 		s := floorStore(floor)
 		requireFilter(t, s, littPartKey(0, 0), true, false)
 		requireFilter(t, s, littPartKey(1_000_000, 0), true, false)
@@ -70,7 +70,7 @@ func TestGCFilterIsMonotonicAsTheFloorAdvances(t *testing.T) {
 	key := littPartKey(50, 0)
 
 	var everTrue bool
-	for _, floor := range []int64{0, 10, 50, 51, 500} {
+	for _, floor := range []uint64{0, 10, 50, 51, 500} {
 		s.earliestVersion.Store(floor)
 		got, err := s.gcFilter(key, true)
 		require.NoError(t, err)

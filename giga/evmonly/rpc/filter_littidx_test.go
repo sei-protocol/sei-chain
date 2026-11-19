@@ -60,7 +60,7 @@ func TestGetLogsLittIdxLogIndexMatchesReceipt(t *testing.T) {
 		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(h), nil))
 	}
 	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(height), records))
-	require.Equal(t, int64(height), store.LatestVersion())
+	require.Equal(t, uint64(height), store.LatestVersion())
 
 	api := &filterAPI{backend: filterFixtureBackend(t, height), store: store}
 	logs, err := api.GetLogs(t.Context(), filters.FilterCriteria{

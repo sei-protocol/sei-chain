@@ -84,7 +84,7 @@ func (o *openedFlatKV) Close() error {
 //     snapshot, and retry up to maxCloneRetries times.
 //
 // height=0 means latest version.
-func openFlatKVReadOnly(dbDir string, height int64) (*openedFlatKV, error) {
+func openFlatKVReadOnly(dbDir string, height uint64) (*openedFlatKV, error) {
 	tempDir, err := prepareFlatKVToolingClone(dbDir, height)
 	if err != nil {
 		return nil, err
@@ -128,15 +128,19 @@ func openFlatKVReadOnly(dbDir string, height int64) (*openedFlatKV, error) {
 
 // OpenFlatKVReadOnly opens an isolated read-only FlatKV view for a seidb
 // operation. The caller must close the returned store.
-func OpenFlatKVReadOnly(dbDir string, height int64) (gigatypes.LiveStateStore, error) {
+func OpenFlatKVReadOnly(dbDir string, height uint64) (gigatypes.LiveStateStore, error) {
 	return openFlatKVReadOnly(dbDir, height)
 }
 
-func prepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
+func prepareFlatKVToolingClone(dbDir string, height uint64) (string, error) {
 	return prepareFlatKVToolingCloneWith(dbDir, height, tryPrepareFlatKVToolingClone)
 }
 
-func prepareFlatKVToolingCloneWith(dbDir string, height int64, tryClone func(string, int64) (string, error)) (string, error) {
+func prepareFlatKVToolingCloneWith(
+	dbDir string,
+	height uint64,
+	tryClone func(string, uint64) (string, error),
+) (string, error) {
 	var lastErr error
 	for attempt := 0; attempt < maxCloneRetries; attempt++ {
 		tempDir, err := tryClone(dbDir, height)
@@ -159,7 +163,7 @@ func isCloneRetryableError(err error) bool {
 	return errors.Is(err, os.ErrNotExist) || errors.Is(err, errSourceChurning)
 }
 
-func tryPrepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
+func tryPrepareFlatKVToolingClone(dbDir string, height uint64) (string, error) {
 	snapshotName, err := selectFlatKVSnapshot(dbDir, height)
 	if err != nil {
 		return "", err
@@ -246,7 +250,7 @@ func verifyClonedWALCovers(dstChangelogDir string, snapshotVersion int64) error 
 		errSourceChurning, firstVer, snapshotVersion)
 }
 
-func selectFlatKVSnapshot(dbDir string, height int64) (string, error) {
+func selectFlatKVSnapshot(dbDir string, height uint64) (string, error) {
 	if height == 0 {
 		target, err := os.Readlink(filepath.Join(dbDir, "current"))
 		if err != nil {
@@ -267,12 +271,12 @@ func selectFlatKVSnapshot(dbDir string, height int64) (string, error) {
 	return "", fmt.Errorf("no snapshot found for target version %d", height)
 }
 
-func listFlatKVSnapshots(dir string) []int64 {
+func listFlatKVSnapshots(dir string) []uint64 {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
-	var versions []int64
+	var versions []uint64
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
@@ -281,7 +285,7 @@ func listFlatKVSnapshots(dir string) []int64 {
 		if !isFlatKVSnapshotName(name) {
 			continue
 		}
-		v, err := strconv.ParseInt(name[len(flatkvSnapshotPrefix):], 10, 64)
+		v, err := strconv.ParseUint(name[len(flatkvSnapshotPrefix):], 10, 64)
 		if err != nil {
 			continue
 		}

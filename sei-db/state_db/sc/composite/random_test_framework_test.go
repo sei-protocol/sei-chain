@@ -1642,6 +1642,6 @@ func rollbackFlatKVIndependently(t *testing.T, dir string, cfg config.StateCommi
 	require.NoError(t, err)
 	err = evmStore.LoadLatest()
 	require.NoError(t, err)
-	require.NoError(t, evmStore.Rollback(target))
+	require.NoError(t, evmStore.Rollback(uint64(target)))
 	require.NoError(t, evmStore.Close())
 }

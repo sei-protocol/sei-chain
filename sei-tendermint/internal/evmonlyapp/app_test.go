@@ -327,8 +327,7 @@ func reportMissingBlockHashes(manager *bootstrap.GigaStorageManager) error {
 	if err != nil {
 		return fmt.Errorf("read state height: %w", err)
 	}
-	//nolint:gosec // state heights are non-negative
-	height := uint64(version)
+	height := version
 	_, published, ok, err := manager.AppHashBuilder().Bounds()
 	if err != nil {
 		return fmt.Errorf("read the published app hash bounds: %w", err)
@@ -385,7 +384,7 @@ func reopenEVMOnlyTestApp(t *testing.T, app proxy.EVMApplication, storage *boots
 // than once SetReceipts returns.
 func waitForReceiptVersion(t *testing.T, store receipt.ReceiptStore, height int64) {
 	t.Helper()
-	for store.LatestVersion() < height {
+	for int64(store.LatestVersion()) < height {
 		select {
 		case <-t.Context().Done():
 			t.Fatalf("receipt store still at version %d before %d: %v", store.LatestVersion(), height, t.Context().Err())
@@ -1291,7 +1290,7 @@ func TestEVMOnlyApplicationReadsSettleBehindFinalizeBlock(t *testing.T) {
 	require.NoError(t, settler.AwaitCommits())
 	latest, err := settler.storage.StateDB().SC().GetLatestVersion()
 	require.NoError(t, err)
-	require.Equal(t, int64(4), latest)
+	require.Equal(t, uint64(4), latest)
 }
 
 // installUnwritableEVMExecutor replaces app's executor with one that also writes, with every block, a misc change
@@ -1368,7 +1367,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	require.Equal(t, int64(1), app.LastBlockHeight())
 	latest, err := storage.StateDB().SC().GetLatestVersion()
 	require.NoError(t, err)
-	require.Equal(t, int64(0), latest)
+	require.Equal(t, uint64(0), latest)
 }
 
 // Committed-state readers running alongside FinalizeBlock observe every block

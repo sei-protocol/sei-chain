@@ -27,10 +27,10 @@ type emptyStateView struct {
 	gigatypes.StateView
 
 	// The block height the view reports.
-	height int64
+	height uint64
 }
 
-func (v emptyStateView) GetBlockHeight() int64 { return v.height }
+func (v emptyStateView) GetBlockHeight() uint64 { return v.height }
 
 func (v emptyStateView) BatchGetRaw([][]byte) map[string][]byte { return map[string][]byte{} }
 
@@ -76,7 +76,7 @@ func commitNonceBlocks(t *testing.T, liveStateDB *CommitStore, from uint64, thro
 		prior := liveStateDB.OpenView()
 		mutations := nonceMutations(t, block, byte(block), prior)
 		prior.Close()
-		require.NoError(t, liveStateDB.CommitStateChanges(liveStateVersion(block), mutations))
+		require.NoError(t, liveStateDB.CommitStateChanges(block, mutations))
 	}
 }
 
@@ -98,7 +98,7 @@ func writeWALOnly(t *testing.T, cfg *config.Config, from uint64, through uint64)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, wal.Close()) }()
 	for block := from; block <= through; block++ {
-		prior := emptyStateView{height: liveStateVersion(block) - 1}
+		prior := emptyStateView{height: block - 1}
 		require.NoError(t, wal.Write(block, nonceMutations(t, block, byte(block), prior)))
 	}
 	require.NoError(t, wal.Flush())
@@ -170,7 +170,7 @@ func TestRollBackLiveStateDBWithAnEmptyWALToItsOwnVersion(t *testing.T) {
 
 	require.NoError(t, rollBack(t, cfg, 3))
 
-	require.Equal(t, int64(3), reopenWithoutWAL(t, cfg).Version())
+	require.Equal(t, uint64(3), reopenWithoutWAL(t, cfg).Version())
 }
 
 // A target above where the live state DB sits is not a rollback for it: it replays forward from the height it
@@ -198,7 +198,7 @@ func TestRollBackLiveStateDBReplaysForwardFromItsOwnHeight(t *testing.T) {
 	rollBackAndCatchUp(t, cfg, 9)
 
 	rolledBack := reopenWithoutWAL(t, cfg)
-	require.Equal(t, int64(9), rolledBack.Version())
+	require.Equal(t, uint64(9), rolledBack.Version())
 	require.DirExists(t, filepath.Join(cfg.DataDir, snapshotName(1)))
 	view := rolledBack.OpenView()
 	defer view.Close()
@@ -218,7 +218,7 @@ func TestRollBackLiveStateDBReplaysUpToTheWALHead(t *testing.T) {
 
 	rollBackAndCatchUp(t, cfg, 3)
 
-	require.Equal(t, int64(3), reopenWithoutWAL(t, cfg).Version())
+	require.Equal(t, uint64(3), reopenWithoutWAL(t, cfg).Version())
 }
 
 // A working copy holding blocks the WAL no longer has is rebuilt from the snapshot and replayed back up. Those
@@ -232,7 +232,7 @@ func TestRollBackLiveStateDBRebuildsAWorkingCopyAboveTheWALHead(t *testing.T) {
 
 	rollBackAndCatchUp(t, cfg, 2)
 
-	require.Equal(t, int64(2), reopenWithoutWAL(t, cfg).Version())
+	require.Equal(t, uint64(2), reopenWithoutWAL(t, cfg).Version())
 }
 
 // The WAL is written unflushed, so a crash can lose its tail while a snapshot published above that tail survives.
@@ -243,13 +243,13 @@ func TestRollBackLiveStateDBRewindsFromASnapshotAboveTheTarget(t *testing.T) {
 	liveStateDB := openLiveStateDBOwningTheWAL(t, cfg)
 	commitNonceBlocks(t, liveStateDB, 1, 4)
 	snapshotAt(t, liveStateDB, 5)
-	require.Equal(t, int64(5), liveStateDB.Version())
+	require.Equal(t, uint64(5), liveStateDB.Version())
 	require.NoError(t, liveStateDB.Close())
 	truncateWAL(t, cfg, 3)
 
 	rollBackAndCatchUp(t, cfg, 3)
 
-	require.Equal(t, int64(3), reopenWithoutWAL(t, cfg).Version())
+	require.Equal(t, uint64(3), reopenWithoutWAL(t, cfg).Version())
 }
 
 // A live state DB above the target with no snapshot at or below it cannot be rewound, and the rollback is refused.
@@ -313,10 +313,10 @@ func leaveCodeDBABlockBehind(t *testing.T, cfg *config.Config) []byte {
 	restoreDataDB(t, cfg, codeDBDir, codeAtBlock2)
 	accountVersion, err := readCommittedVersion(filepath.Join(cfg.DataDir, workingDirName, accountDBDir))
 	require.NoError(t, err)
-	require.Equal(t, int64(3), accountVersion)
+	require.Equal(t, uint64(3), accountVersion)
 	codeVersion, err := readCommittedVersion(filepath.Join(cfg.DataDir, workingDirName, codeDBDir))
 	require.NoError(t, err)
-	require.Equal(t, int64(2), codeVersion)
+	require.Equal(t, uint64(2), codeVersion)
 	return hash
 }
 
@@ -334,7 +334,7 @@ func TestCatchUpSkipsADataDBAlreadyHoldingTheBlock(t *testing.T) {
 	require.NoError(t, CatchUpToStateWAL(t.Context(), caughtUp, wal))
 
 	gotHash, gotVersion := rootHashAndVersion(caughtUp)
-	require.Equal(t, int64(3), gotVersion)
+	require.Equal(t, uint64(3), gotVersion)
 	require.Equal(t, wantHash, gotHash)
 }
 
@@ -344,7 +344,7 @@ func TestCommittingABlockADataDBAlreadyHoldsIsRejected(t *testing.T) {
 	leaveCodeDBABlockBehind(t, cfg)
 
 	liveStateDB := reopenWithoutWAL(t, cfg)
-	require.Equal(t, int64(2), liveStateDB.Version())
+	require.Equal(t, uint64(2), liveStateDB.Version())
 	require.ErrorContains(t, liveStateDB.CommitStateChanges(3, nil),
 		"cannot commit block 3: the account DB's next block is 4")
 }
@@ -391,5 +391,5 @@ func TestCatchUpTakesNoSnapshots(t *testing.T) {
 	require.NoError(t, liveStateDB.FlushSnapshots())
 	afterCommit, err := SnapshotVersions(cfg.DataDir)
 	require.NoError(t, err)
-	require.Contains(t, afterCommit, int64(4))
+	require.Contains(t, afterCommit, uint64(4))
 }

@@ -93,7 +93,7 @@ func NewHashEngine(
 // Schedule a block to be hashed.
 func (he *HashEngine) ScheduleHash(
 	// The height being hashed.
-	blockNumber int64,
+	blockNumber uint64,
 	// Everything the block changed, grouped by database. The engine reads it until the block's hash is published,
 	// so it must not be modified before then.
 	mutations []DatabaseMutations,

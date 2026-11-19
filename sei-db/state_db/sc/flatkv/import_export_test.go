@@ -92,7 +92,7 @@ func TestExporterStorageKeys(t *testing.T) {
 
 	require.Len(t, nodes, 2)
 	for _, n := range nodes {
-		require.Equal(t, int64(1), n.Version)
+		require.Equal(t, uint64(1), n.Version)
 		require.Equal(t, int8(0), n.Height)
 		kind, _, err := ktype.StripPhysicalEVMKey(n.Key)
 		require.NoError(t, err)
@@ -225,7 +225,7 @@ func TestExporterRoundTrip(t *testing.T) {
 	require.NoError(t, imp.Close())
 
 	// --- Verify round-trip ---
-	require.Equal(t, int64(1), s2.Version())
+	require.Equal(t, uint64(1), s2.Version())
 
 	got, found := s2.Get(keys.EVMStoreKey, storageKey)
 	require.True(t, found, "storage key should exist after import")
@@ -650,7 +650,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 	require.NoError(t, s2.LoadLatest())
 	defer s2.Close()
 
-	require.Equal(t, int64(1), s2.Version())
+	require.Equal(t, uint64(1), s2.Version())
 
 	got, found := s2.Get(keys.EVMStoreKey, storageKey)
 	require.True(t, found, "storage key must survive reopen")
@@ -814,7 +814,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 	require.NoError(t, s.LoadLatest())
 	defer s.Close()
 
-	require.Equal(t, int64(1), s.Version())
+	require.Equal(t, uint64(1), s.Version())
 	for _, k := range staleKeys {
 		_, found = s.Get(keys.EVMStoreKey, k)
 		require.False(t, found, "stale key must remain absent after reopen")
@@ -976,7 +976,7 @@ func TestImporterEmptyStore(t *testing.T) {
 	// Import zero nodes.
 	require.NoError(t, imp.Close())
 
-	require.Equal(t, int64(5), s.Version())
+	require.Equal(t, uint64(5), s.Version())
 	require.NoError(t, s.Close())
 }
 
@@ -1048,7 +1048,7 @@ func TestImporterDoubleImport(t *testing.T) {
 	})
 	require.NoError(t, imp2.Close())
 
-	require.Equal(t, int64(2), s.Version())
+	require.Equal(t, uint64(2), s.Version())
 
 	// Data from first import should be gone.
 	_, found = s.Get(keys.EVMStoreKey, key1)
@@ -1294,7 +1294,7 @@ func TestExporterImporterNonEVMMiscRoundTrip(t *testing.T) {
 	}
 	require.NoError(t, imp.Close())
 
-	require.Equal(t, int64(2), dst.Version())
+	require.Equal(t, uint64(2), dst.Version())
 
 	for k, want := range bankKVs {
 		got, found := dst.Get("bank", []byte(k))

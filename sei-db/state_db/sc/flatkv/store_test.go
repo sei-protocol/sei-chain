@@ -30,7 +30,7 @@ func TestCommitStoreImplementsStore(t *testing.T) {
 	defer s.Close()
 
 	// Verify gigatypes.LiveStateStore interface methods
-	require.Equal(t, int64(0), s.Version())
+	require.Equal(t, uint64(0), s.Version())
 	require.NotNil(t, rootHash(s))
 	require.Len(t, rootHash(s), 32)
 }
@@ -148,28 +148,28 @@ func TestStoreCommitVersionAutoIncrement(t *testing.T) {
 	cs := makeChangeSet(key, padLeft32(0xCC), false)
 
 	// Initial version is 0
-	require.Equal(t, int64(0), s.Version())
+	require.Equal(t, uint64(0), s.Version())
 
 	// First commit should return version 1
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	v1, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), v1)
-	require.Equal(t, int64(1), s.Version())
+	require.Equal(t, uint64(1), v1)
+	require.Equal(t, uint64(1), s.Version())
 
 	// Second commit should return version 2
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	v2, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), v2)
-	require.Equal(t, int64(2), s.Version())
+	require.Equal(t, uint64(2), v2)
+	require.Equal(t, uint64(2), s.Version())
 
 	// Third commit should return version 3
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	v3, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
-	require.Equal(t, int64(3), v3)
-	require.Equal(t, int64(3), s.Version())
+	require.Equal(t, uint64(3), v3)
+	require.Equal(t, uint64(3), s.Version())
 }
 
 func TestStoreApplyAndCommit(t *testing.T) {
@@ -248,7 +248,7 @@ func TestStoreEmptyChangesets(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{emptyCS}))
 	commitAndCheck(t, s)
 
-	require.Equal(t, int64(1), s.Version())
+	require.Equal(t, uint64(1), s.Version())
 }
 
 // TestStoreCommitRejectsEmptyModuleName guards against a non-EVM changeset with an empty Name. An empty module
@@ -267,7 +267,7 @@ func TestStoreCommitRejectsEmptyModuleName(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	_, err := s.Commit(s.Version() + 1)
 	require.ErrorContains(t, err, "empty module name")
-	require.Equal(t, int64(0), s.Version(), "a rejected block must not commit")
+	require.Equal(t, uint64(0), s.Version(), "a rejected block must not commit")
 }
 
 func TestStoreClearsPendingAfterCommit(t *testing.T) {
@@ -311,14 +311,14 @@ func TestStoreVersioning(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
-	require.Equal(t, int64(1), s.Version())
+	require.Equal(t, uint64(1), s.Version())
 
 	// Version 2 with updated value
 	cs2 := makeChangeSet(key, padLeft32(0x02), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
-	require.Equal(t, int64(2), s.Version())
+	require.Equal(t, uint64(2), s.Version())
 
 	// Latest value should be from version 2
 	got, found := s.Get(keys.EVMStoreKey, key)
@@ -360,7 +360,7 @@ func TestStorePersistence(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, value, got)
 
-	require.Equal(t, int64(1), s2.Version())
+	require.Equal(t, uint64(1), s2.Version())
 }
 
 // =============================================================================
@@ -375,7 +375,7 @@ func TestStoreRootHashChanges(t *testing.T) {
 	hash1, version1 := rootHashAndVersion(s)
 	require.NotNil(t, hash1)
 	require.Equal(t, 32, len(hash1)) // Blake3-256
-	require.Equal(t, int64(0), version1)
+	require.Equal(t, uint64(0), version1)
 
 	// Apply changeset
 	addr := ktype.Address{0xAB}
@@ -564,7 +564,7 @@ func TestReopenReusesWorkingDir(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(1), s2.Version())
+	require.Equal(t, uint64(1), s2.Version())
 }
 
 // =============================================================================
@@ -596,7 +596,7 @@ func TestCatchupFromSpecificVersion(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(10), s2.Version())
+	require.Equal(t, uint64(10), s2.Version())
 	require.Equal(t, hashAtV10, rootHash(s2))
 }
 
@@ -607,7 +607,7 @@ func TestCatchupFromSpecificVersion(t *testing.T) {
 func TestVersionStartsAtZero(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
-	require.Equal(t, int64(0), s.Version())
+	require.Equal(t, uint64(0), s.Version())
 }
 
 func TestRootHashIsBlake3_256(t *testing.T) {
@@ -689,7 +689,7 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(1), s2.Version())
+	require.Equal(t, uint64(1), s2.Version())
 	require.Equal(t, hash, rootHash(s2))
 
 	v, ok := s2.Get(keys.EVMStoreKey, storageKey)
@@ -727,7 +727,7 @@ func TestReadOnlyBasicLoadAndRead(t *testing.T) {
 	require.NoError(t, err)
 	defer ro.Close()
 
-	require.Equal(t, int64(1), ro.Version())
+	require.Equal(t, uint64(1), ro.Version())
 	got, found := ro.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, value, got)
@@ -758,7 +758,7 @@ func TestReadOnlyLoadFromUnopenedStore(t *testing.T) {
 	require.NoError(t, err)
 	defer ro.Close()
 
-	require.Equal(t, int64(1), ro.Version())
+	require.Equal(t, uint64(1), ro.Version())
 	got, found := ro.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, value, got)
@@ -786,7 +786,7 @@ func TestReadOnlyAtSpecificVersion(t *testing.T) {
 	require.NoError(t, err)
 	defer ro.Close()
 
-	require.Equal(t, int64(3), ro.Version())
+	require.Equal(t, uint64(3), ro.Version())
 	got, found := ro.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(3), got)
@@ -843,9 +843,9 @@ func TestReadOnlyParentWritesDuringReadOnly(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(3), false)}))
 	commitAndCheck(t, s)
 
-	require.Equal(t, int64(3), s.Version())
+	require.Equal(t, uint64(3), s.Version())
 
-	require.Equal(t, int64(1), ro.Version())
+	require.Equal(t, uint64(1), ro.Version())
 	got, found := ro.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(1), got)
@@ -879,8 +879,8 @@ func TestReadOnlyConcurrentInstances(t *testing.T) {
 	require.NoError(t, err)
 	defer ro2.Close()
 
-	require.Equal(t, int64(4), ro1.Version())
-	require.Equal(t, int64(4), ro2.Version())
+	require.Equal(t, uint64(4), ro1.Version())
+	require.Equal(t, uint64(4), ro2.Version())
 
 	g1, ok1 := ro1.Get(keys.EVMStoreKey, key)
 	g2, ok2 := ro2.Get(keys.EVMStoreKey, key)
@@ -909,7 +909,7 @@ func TestReadOnlyFailureDoesNotAffectParent(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(2), false)}))
 	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), v)
+	require.Equal(t, uint64(2), v)
 
 	got, found := s.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
@@ -1005,7 +1005,7 @@ func TestLoadVersionReload(t *testing.T) {
 	err = s.LoadLatest()
 	require.NoError(t, err)
 
-	require.Equal(t, int64(1), s.Version())
+	require.Equal(t, uint64(1), s.Version())
 	require.Equal(t, expectedHash, rootHash(s))
 
 	val, found := s.Get(keys.EVMStoreKey, key)
@@ -1028,7 +1028,7 @@ func TestLoadVersionReadOnlyVersion0(t *testing.T) {
 	require.NoError(t, err)
 	defer ro.Close()
 
-	require.Equal(t, int64(1), ro.Version())
+	require.Equal(t, uint64(1), ro.Version())
 	val, found := ro.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x22), val)
@@ -1075,7 +1075,7 @@ func TestLoadVersionEmptyWAL(t *testing.T) {
 	require.NoError(t, err)
 
 	// Fresh store with no commits: WAL is empty.
-	require.Equal(t, int64(0), s.Version())
+	require.Equal(t, uint64(0), s.Version())
 	require.NotNil(t, rootHash(s))
 	require.Len(t, rootHash(s), 32)
 	require.NoError(t, s.Close())
@@ -1112,7 +1112,7 @@ func TestCloseWithPendingUncommittedWrites(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(1), s2.Version())
+	require.Equal(t, uint64(1), s2.Version())
 
 	val, found := s2.Get(keys.EVMStoreKey, key)
 	require.True(t, found, "committed data should persist")
@@ -1167,7 +1167,7 @@ func TestRootHashAndVersionAfterClose(t *testing.T) {
 	require.NoError(t, s.Close())
 
 	// Version and RootHash access in-memory fields, should not panic.
-	require.Equal(t, int64(1), s.Version())
+	require.Equal(t, uint64(1), s.Version())
 	require.NotNil(t, rootHash(s))
 	require.Len(t, rootHash(s), 32)
 }
@@ -1178,7 +1178,7 @@ func TestCatchupWithEmptyWAL(t *testing.T) {
 
 	// Store has no commits: catchup with empty WAL should be a no-op.
 	require.NoError(t, s.replayIntoMutableStore(0))
-	require.Equal(t, int64(0), s.Version())
+	require.Equal(t, uint64(0), s.Version())
 }
 
 func TestCatchupSkipsAlreadyCommittedEntries(t *testing.T) {
@@ -1211,7 +1211,7 @@ func TestCatchupSkipsAlreadyCommittedEntries(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(5), s2.Version())
+	require.Equal(t, uint64(5), s2.Version())
 	require.Equal(t, hashV5, rootHash(s2))
 }
 
@@ -1248,7 +1248,7 @@ func TestCatchupTargetVersionMiddleOfWAL(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, ro.Close()) }()
 
-	require.Equal(t, int64(3), ro.Version())
+	require.Equal(t, uint64(3), ro.Version())
 	require.Equal(t, hashes[3], rootHash(ro))
 }
 
@@ -1283,7 +1283,7 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 			require.NoError(t, s.LoadLatest())
 		}
 	}
-	require.Equal(t, int64(6), s.Version())
+	require.Equal(t, uint64(6), s.Version())
 	require.NoError(t, s.Close())
 	restoreDataDB(t, cfg, accountDBDir, accountAt4)
 
@@ -1294,7 +1294,7 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(6), s2.Version())
+	require.Equal(t, uint64(6), s2.Version())
 	verifyLtHashConsistency(t, s2)
 
 	// Data should be correct and store should accept new writes.
@@ -1307,7 +1307,7 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 	require.NoError(t, s2.ApplyChangeSets(s2.Version()+1, []*proto.NamedChangeSet{cs}))
 	v, err := s2.Commit(s2.Version() + 1)
 	require.NoError(t, err)
-	require.Equal(t, int64(7), v)
+	require.Equal(t, uint64(7), v)
 }
 
 func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
@@ -1345,7 +1345,7 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(5), s2.Version())
+	require.Equal(t, uint64(5), s2.Version())
 	verifyLtHashConsistency(t, s2)
 
 	for i := 1; i <= 5; i++ {
@@ -1388,7 +1388,7 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(20), s2.Version())
+	require.Equal(t, uint64(20), s2.Version())
 	require.Equal(t, expectedHash, rootHash(s2))
 	verifyLtHashConsistency(t, s2)
 
@@ -1491,7 +1491,7 @@ func TestCommitWithClosedWALFailsLoudly(t *testing.T) {
 	_, err := s.Commit(2)
 	require.Error(t, err, "a store whose WAL is closed must not commit silently")
 	require.Contains(t, err.Error(), "closed")
-	require.Equal(t, int64(1), s.committedVersion, "the failed commit must not advance the version")
+	require.Equal(t, uint64(1), s.committedVersion, "the failed commit must not advance the version")
 
 	// Closing the store closes the WAL a second time, which must be a no-op.
 	require.NoError(t, s.Close())
@@ -1531,7 +1531,7 @@ func TestRollbackRetainsWALInstance(t *testing.T) {
 
 	require.NoError(t, s.Rollback(1))
 	require.NotNil(t, s.wal)
-	require.Equal(t, int64(1), s.committedVersion)
+	require.Equal(t, uint64(1), s.committedVersion)
 }
 
 // A corrupted account row must be caught when it is read back to merge a partial account update,
@@ -1652,7 +1652,7 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(2), s2.Version())
+	require.Equal(t, uint64(2), s2.Version())
 	require.NotEqual(t, hashAfterV1, rootHash(s2), "hash should differ after v2 replay")
 
 	val, found := s2.Get(keys.EVMStoreKey, key)
@@ -1701,7 +1701,7 @@ func TestCrashRecoveryLtHashConsistencyAfterAllPaths(t *testing.T) {
 
 	// Path 2: Rollback to v6
 	require.NoError(t, s2.Rollback(6))
-	require.Equal(t, int64(6), s2.Version())
+	require.Equal(t, uint64(6), s2.Version())
 	verifyLtHashConsistency(t, s2)
 
 	// Path 3: Continue writing after rollback
@@ -1763,47 +1763,6 @@ func TestCrashRecoveryCorruptLtHashBlobInPerDBMeta(t *testing.T) {
 	err = s2.LoadLatest()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid LtHash size")
-}
-
-func TestCrashRecoveryVersionRecordOverflow(t *testing.T) {
-	dir := t.TempDir()
-	cfg := config.DefaultTestConfig(t)
-	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
-
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
-	require.NoError(t, err)
-	err = s.LoadLatest()
-	require.NoError(t, err)
-
-	cs := makeChangeSet(
-		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x03), slotN(0x01))),
-		padLeft32(0x33), false,
-	)
-	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-	_, err = s.Commit(s.Version() + 1)
-	require.NoError(t, err)
-
-	// Write a version value that exceeds math.MaxInt64 to accountDB's metadata.
-	overflowBytes := make([]byte, 8)
-	overflowBytes[0] = 0xFF // 0xFF00000000000000 > MaxInt64
-	// Corrupt only after the sealed block has landed: otherwise the store's pending flush
-	// would overwrite the corruption. Store Close performs no final flush, so nothing
-	// touches the database after this point.
-	requireFlushedToDisk(t, s)
-	batch := s.rawDBFor(accountDBDir).NewBatch()
-	require.NoError(t, batch.Set(ktype.MetaVersionKey, overflowBytes))
-	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
-	_ = batch.Close()
-
-	require.NoError(t, s.Close())
-
-	// Reopen should fail with an overflow error.
-	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
-	require.NoError(t, err)
-	defer s2.Close()
-	err = s2.LoadLatest()
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "overflow")
 }
 
 func TestResolveConfigFillsDataDirectories(t *testing.T) {

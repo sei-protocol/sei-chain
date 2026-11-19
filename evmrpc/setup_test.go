@@ -66,7 +66,7 @@ const MockHeight100 = 100
 // pinReceiptVersions widens a store's queryable window to [1, latest]. These tests seed receipts
 // by other means, so nothing has advanced the markers a read is gated on.
 func pinReceiptVersions(store receipt.ReceiptStore, latest int64) error {
-	return receipt.PinVersions(store, 1, latest)
+	return receipt.PinVersions(store, 1, uint64(latest))
 }
 
 // LatestCtxUpgradeName makes the test ctx look like a real chain that has

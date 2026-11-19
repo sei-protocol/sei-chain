@@ -84,7 +84,7 @@ func (api *infoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
 // congestionReward answers GasPrice's escalated suggestion: the latest block's median reward, but
 // only once its gasUsedRatio exceeds gasPriceCongestionThresholdPercent.
 func (api *infoAPI) congestionReward(ctx context.Context) (*big.Int, bool) {
-	current := api.store.LatestVersion()
+	current := int64(api.store.LatestVersion()) //nolint:gosec // block heights never approach the int64 ceiling
 	if current <= 0 {
 		return nil, false
 	}
@@ -108,7 +108,7 @@ func (api *infoAPI) congestionReward(ctx context.Context) (*big.Int, bool) {
 
 // MaxPriorityFeePerGas returns the suggested priority fee for the latest block.
 func (api *infoAPI) MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, error) {
-	current := api.store.LatestVersion()
+	current := int64(api.store.LatestVersion()) //nolint:gosec // block heights never approach the int64 ceiling
 	if current <= 0 {
 		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
 	}
@@ -180,7 +180,8 @@ func earliestRetainedHeight(store receiptpkg.ReceiptStore) int64 {
 	}
 	// EarliestVersion is 0 until something has pruned the store, in which case
 	// earliestCommittedHeight (this deployment's genesis) is the true earliest.
-	return max(earliestCommittedHeight, store.EarliestVersion())
+	//nolint:gosec // block heights never approach the int64 ceiling
+	return max(earliestCommittedHeight, int64(store.EarliestVersion()))
 }
 
 // normalizeEarliest maps 0x0 to the "earliest" tag; Sei treats them alike.
@@ -193,7 +194,7 @@ func normalizeEarliest(number ethrpc.BlockNumber) ethrpc.BlockNumber {
 
 // resolveEndHeight turns lastBlock's tag or explicit height into a concrete, committed height.
 func (api *infoAPI) resolveEndHeight(lastBlock ethrpc.BlockNumber) (int64, error) {
-	current := api.store.LatestVersion()
+	current := int64(api.store.LatestVersion()) //nolint:gosec // block heights never approach the int64 ceiling
 	switch normalizeEarliest(lastBlock) {
 	case ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.LatestBlockNumber, ethrpc.PendingBlockNumber:
 		if current <= 0 {

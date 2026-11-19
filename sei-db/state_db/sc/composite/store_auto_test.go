@@ -382,7 +382,7 @@ func TestComposite_Auto_ExportBeforeKickoffAfterMigrationStarts(t *testing.T) {
 
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	runBlocks(t, cs, workload, 3)
-	require.ErrorIs(t, cs.loadFlatKV().CheckVersionReachable(pre), flatkv.ErrVersionUnreachable)
+	require.ErrorIs(t, cs.loadFlatKV().CheckVersionReachable(uint64(pre)), flatkv.ErrVersionUnreachable)
 
 	exp, err = cs.Exporter(pre)
 	require.NoError(t, err)
@@ -410,7 +410,7 @@ func TestComposite_Auto_ReadOnlyForExportBeforeKickoffAfterMigrationStarts(t *te
 
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	runBlocks(t, cs, workload, 3)
-	require.ErrorIs(t, cs.loadFlatKV().CheckVersionReachable(pre), flatkv.ErrVersionUnreachable)
+	require.ErrorIs(t, cs.loadFlatKV().CheckVersionReachable(uint64(pre)), flatkv.ErrVersionUnreachable)
 
 	_, err = cs.LoadVersionReadOnly(pre)
 	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
@@ -526,7 +526,7 @@ func TestComposite_Auto_FlatKVOnlyExportImportRoundTrip(t *testing.T) {
 
 	runBlocks(t, dst, workload, 2)
 	require.Equal(t, h+2, dst.memIAVL.Version(), "memiavl must stay in lockstep")
-	require.Equal(t, h+2, dst.loadFlatKV().Version(), "flatkv must stay in lockstep")
+	require.Equal(t, uint64(h+2), dst.loadFlatKV().Version(), "flatkv must stay in lockstep")
 	requireOracleMatches(t, dst, workload.snapshotOracle())
 	require.NoError(t, dst.Close())
 
@@ -912,10 +912,10 @@ func TestComposite_Auto_ExportBeforeKickoffFailsOnceSeedSnapshotPruned(t *testin
 	require.True(t, ok)
 	require.NoError(t, flatKVStore.FlushSnapshots())
 
-	oldest, ok, err := flatKVStore.OldestSnapshotAbove(pre)
+	oldest, ok, err := flatKVStore.OldestSnapshotAbove(uint64(pre))
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.Greater(t, oldest, seed, "the seed snapshot must be pruned")
+	require.Greater(t, oldest, uint64(seed), "the seed snapshot must be pruned")
 
 	_, err = cs.LoadVersionReadOnlyForExport(pre)
 	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)

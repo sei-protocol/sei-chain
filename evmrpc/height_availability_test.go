@@ -131,7 +131,7 @@ func testCtxProvider(h int64) sdk.Context {
 }
 
 func newHeightTestWatermarks(client client.LocalClient, latest int64) *WatermarkManager {
-	return NewWatermarkManager(client, testCtxProvider, nil, &fakeReceiptStore{latest: latest})
+	return NewWatermarkManager(client, testCtxProvider, nil, &fakeReceiptStore{latest: uint64(latest)})
 }
 
 // newTestKeeperWithReceiptStore returns a keeper carrying nothing but a receipt store, which the
@@ -427,7 +427,10 @@ const (
 )
 
 func newReceiptFloorTestWatermarks(client client.LocalClient) *WatermarkManager {
-	rs := &fakeReceiptStore{latest: receiptFloorTestLatest, earliest: receiptFloorTestReceiptEarliest}
+	rs := &fakeReceiptStore{
+		latest:   uint64(receiptFloorTestLatest),
+		earliest: uint64(receiptFloorTestReceiptEarliest),
+	}
 	return NewWatermarkManager(client, testCtxProvider, nil, rs)
 }
 

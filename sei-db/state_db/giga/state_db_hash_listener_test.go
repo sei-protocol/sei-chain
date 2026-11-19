@@ -16,20 +16,20 @@ import (
 func TestRegisterHashListenerReachesTheLiveStateDB(t *testing.T) {
 	stateDB, _, liveStateDB := newTestStateDB(t)
 
-	var seen []int64
+	var seen []uint64
 	mostRecent, err := stateDB.RegisterHashListener(
-		func(_ context.Context, blockNumber int64, _ *lthash.BlockHash) error {
+		func(_ context.Context, blockNumber uint64, _ *lthash.BlockHash) error {
 			seen = append(seen, blockNumber)
 			return nil
 		})
 	require.NoError(t, err)
-	require.Equal(t, int64(0), mostRecent.BlockNumber, "a fresh store has hashed nothing")
+	require.Equal(t, uint64(0), mostRecent.BlockNumber, "a fresh store has hashed nothing")
 
 	require.NoError(t, stateDB.CommitStateChanges(1, changeset("key", "one")))
 	require.NoError(t, stateDB.CommitStateChanges(2, changeset("key", "two")))
 	require.NoError(t, liveStateDB.FlushHashes())
 
-	require.Equal(t, []int64{1, 2}, seen)
+	require.Equal(t, []uint64{1, 2}, seen)
 }
 
 // The hash logger is wired in as a listener, and this is that wiring end to end: blocks committed
@@ -49,13 +49,13 @@ func TestCommittedBlockHashesReachARealHashLogArchive(t *testing.T) {
 	_, err = stateDB.RegisterHashListener(hl.HashListener)
 	require.NoError(t, err)
 
-	for height := int64(1); height <= blocks; height++ {
+	for height := uint64(1); height <= blocks; height++ {
 		cs := changeset("key", "value")
 		require.NoError(t, stateDB.CommitStateChanges(height, cs))
 
 		// Without a changeset report no block is ever complete and none reaches disk. A nil one
 		// completes the block without recording a changeset, which this test does not check.
-		hl.ReportChangeset(uint64(height), nil)
+		hl.ReportChangeset(height, nil)
 	}
 
 	// Hashing runs off the commit path, and the archive is only sealed by Close.

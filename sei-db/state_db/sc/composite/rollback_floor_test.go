@@ -61,20 +61,20 @@ func TestCompositeRollbackBelowFlatKVFloorIsRefusedBeforeMutation(t *testing.T) 
 	target := int64(rollbackFloorKickoff - 2)
 	latest := cs.Version()
 	require.Equal(t, latest, cs.memIAVL.Version())
-	require.Equal(t, latest, cs.loadFlatKV().Version())
+	require.Equal(t, uint64(latest), cs.loadFlatKV().Version())
 
 	err := cs.Rollback(target)
 	require.Error(t, err)
 	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
 	require.Contains(t, err.Error(), "use state sync")
 	require.Equal(t, latest, cs.memIAVL.Version())
-	require.Equal(t, latest, cs.loadFlatKV().Version())
+	require.Equal(t, uint64(latest), cs.loadFlatKV().Version())
 	require.NoError(t, cs.Close())
 
 	reopened := openRollbackFloorStore(t, dir, types.MigrateEVM, rollbackFloorBatch)
 	require.Equal(t, latest, reopened.Version())
 	require.Equal(t, latest, reopened.memIAVL.Version())
-	require.Equal(t, latest, reopened.loadFlatKV().Version())
+	require.Equal(t, uint64(latest), reopened.loadFlatKV().Version())
 	require.NoError(t, reopened.Close())
 }
 
@@ -118,7 +118,7 @@ func TestCompositeExportBelowFlatKVFloorAfterKickoffFailsLoud(t *testing.T) {
 
 	// The migration had started at this height, so FlatKV is in its AppHash and can't be left out.
 	target := int64(rollbackFloorKickoff + 1)
-	require.ErrorIs(t, cs.loadFlatKV().CheckVersionReachable(target), flatkv.ErrVersionUnreachable)
+	require.ErrorIs(t, cs.loadFlatKV().CheckVersionReachable(uint64(target)), flatkv.ErrVersionUnreachable)
 
 	_, err := cs.Exporter(target)
 	require.Error(t, err)
@@ -259,7 +259,7 @@ func TestCompositeAutoTornKickoffCommitReplaysKickoffBlock(t *testing.T) {
 	committed, err := cs.memIAVL.Commit(rollbackFloorKickoff)
 	require.NoError(t, err)
 	require.Equal(t, int64(rollbackFloorKickoff), committed)
-	require.Equal(t, int64(rollbackFloorKickoff-1), cs.loadFlatKV().Version())
+	require.Equal(t, uint64(rollbackFloorKickoff-1), cs.loadFlatKV().Version())
 	require.NoError(t, cs.Close())
 
 	cs = openAutoStoreWithConfig(t, dir, cfg, 0)

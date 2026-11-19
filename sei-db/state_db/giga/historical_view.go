@@ -17,7 +17,7 @@ var _ gigatypes.StateView = (*historicalView)(nil)
 // EVM accessors read the same logical keys the executor writes, so they answer what those keys held
 // after the view's block.
 type historicalView struct {
-	height int64
+	height uint64
 
 	// read returns the EVM key's value at height, nil when it did not exist then.
 	read func(key []byte) ([]byte, error)
@@ -27,7 +27,7 @@ type historicalView struct {
 	closeOnce sync.Once
 }
 
-func (v *historicalView) GetBlockHeight() int64 {
+func (v *historicalView) GetBlockHeight() uint64 {
 	return v.height
 }
 

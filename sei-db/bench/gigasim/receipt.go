@@ -170,9 +170,9 @@ func newReceiptBuffer(count int, gasPerTransaction uint64) *receiptBuffer {
 // build records the receipt for txn at index and encodes that receipt as its body. It records txn.drawn,
 // the sender, and the recipient or the contract. An ERC20 transfer carries one Transfer log; a native
 // transfer carries none. It does not draw from rand.
-func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transaction, blockNumber int64) error {
+func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transaction, blockNumber uint64) error {
 	var txHash [hashLen]byte
-	writeSyntheticTxHash(txHash[:], rand, blockNumber, index)
+	writeSyntheticTxHash(txHash[:], rand, int64(blockNumber), index) //nolint:gosec // benchmark heights are small
 
 	built := &b.storage[index]
 	//nolint:gosec // G115 - benchmark values are bounded well below the conversion limits
@@ -182,7 +182,7 @@ func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transact
 		GasUsed:           b.gasPerTransaction,
 		EffectiveGasPrice: txn.drawn.gasPrice,
 		CumulativeGasUsed: uint64(index+1) * b.gasPerTransaction,
-		BlockNumber:       uint64(blockNumber),
+		BlockNumber:       blockNumber,
 		TransactionIndex:  uint32(index),
 		Status:            uint32(ethtypes.ReceiptStatusSuccessful),
 		From:              addressHex(addressFromKey(txn.srcAccount)),

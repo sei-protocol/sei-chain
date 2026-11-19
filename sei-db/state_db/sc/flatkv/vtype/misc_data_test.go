@@ -34,7 +34,7 @@ func TestMiscSerializationGoldenFile_V0(t *testing.T) {
 
 	rt, err := DeserializeMiscData(wantBytes)
 	require.NoError(t, err)
-	require.Equal(t, int64(100), rt.GetBlockHeight())
+	require.Equal(t, uint64(100), rt.GetBlockHeight())
 	require.Equal(t, value, rt.GetValue())
 }
 
@@ -42,14 +42,14 @@ func TestMiscNewWithValue(t *testing.T) {
 	value := []byte{0x01, 0x02, 0x03}
 	ld := NewMiscData().SetValue(value)
 	require.Equal(t, MiscDataVersion0, ld.GetSerializationVersion())
-	require.Equal(t, int64(0), ld.GetBlockHeight())
+	require.Equal(t, uint64(0), ld.GetBlockHeight())
 	require.Equal(t, value, ld.GetValue())
 }
 
 func TestMiscNewEmpty(t *testing.T) {
 	ld := NewMiscData()
 	require.Equal(t, MiscDataVersion0, ld.GetSerializationVersion())
-	require.Equal(t, int64(0), ld.GetBlockHeight())
+	require.Equal(t, uint64(0), ld.GetBlockHeight())
 	require.Empty(t, ld.GetValue())
 }
 
@@ -70,7 +70,7 @@ func TestMiscRoundTrip_WithValue(t *testing.T) {
 
 	rt, err := DeserializeMiscData(ld.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, int64(999), rt.GetBlockHeight())
+	require.Equal(t, uint64(999), rt.GetBlockHeight())
 	require.Equal(t, value, rt.GetValue())
 }
 
@@ -79,7 +79,7 @@ func TestMiscRoundTrip_EmptyValue(t *testing.T) {
 
 	rt, err := DeserializeMiscData(ld.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, int64(42), rt.GetBlockHeight())
+	require.Equal(t, uint64(42), rt.GetBlockHeight())
 	require.Empty(t, rt.GetValue())
 }
 
@@ -88,7 +88,7 @@ func TestMiscRoundTrip_MaxBlockHeight(t *testing.T) {
 
 	rt, err := DeserializeMiscData(ld.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, int64(math.MaxInt64), rt.GetBlockHeight())
+	require.Equal(t, uint64(math.MaxInt64), rt.GetBlockHeight())
 	require.Equal(t, []byte{0xff}, rt.GetValue())
 }
 
@@ -160,7 +160,7 @@ func TestMiscDeserialize_UnsupportedVersion(t *testing.T) {
 
 func TestMiscSetterChaining(t *testing.T) {
 	ld := NewMiscData().SetValue([]byte{0x01}).SetBlockHeight(42)
-	require.Equal(t, int64(42), ld.GetBlockHeight())
+	require.Equal(t, uint64(42), ld.GetBlockHeight())
 	require.Equal(t, []byte{0x01}, ld.GetValue())
 }
 
@@ -179,7 +179,7 @@ func TestNilMiscData_Getters(t *testing.T) {
 	var ld *MiscData
 
 	require.Equal(t, MiscDataVersion0, ld.GetSerializationVersion())
-	require.Equal(t, int64(0), ld.GetBlockHeight())
+	require.Equal(t, uint64(0), ld.GetBlockHeight())
 	require.Empty(t, ld.GetValue())
 }
 
@@ -211,7 +211,7 @@ func TestNilMiscData_SettersAutoCreate(t *testing.T) {
 	var l2 *MiscData
 	l2 = l2.SetBlockHeight(42)
 	require.NotNil(t, l2)
-	require.Equal(t, int64(42), l2.GetBlockHeight())
+	require.Equal(t, uint64(42), l2.GetBlockHeight())
 }
 
 func TestMiscData_SetValueOverwrite(t *testing.T) {

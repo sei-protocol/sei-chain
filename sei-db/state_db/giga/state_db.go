@@ -108,8 +108,7 @@ func requireLiveStateDBAtTheWALHead(liveStateDB *flatkv.CommitStore, wal statewa
 	if !stored {
 		return nil
 	}
-	//nolint:gosec // live state DB versions are never negative
-	if version := uint64(liveStateDB.Version()); version != last {
+	if version := liveStateDB.Version(); version != last {
 		return fmt.Errorf("the live state DB is at %d but the state WAL ends at %d; roll the live state DB "+
 			"back to align them", version, last)
 	}
@@ -197,12 +196,7 @@ func (s *StateDB) PrunableStores() []controllertypes.PrunableStore {
 // CommitStateChanges writes a block's state changes to the state WAL, submits them to the BUD hasher, commits
 // them to the live state DB, and queues them for the historical state DB. Commits must be made one at a time.
 // Returns an error if writing this block or an earlier one has failed.
-func (s *StateDB) CommitStateChanges(blockNum int64, changes *gigatypes.StateChangeSet) error {
-	if blockNum < 0 {
-		// The WAL numbers blocks with a uint64, so a negative height converts to a block far in the
-		// future that the WAL has no way to recognize as a mistake.
-		return fmt.Errorf("commit block %d: block number must not be negative", blockNum)
-	}
+func (s *StateDB) CommitStateChanges(blockNum uint64, changes *gigatypes.StateChangeSet) error {
 	// Before SC moves past the block the log resumes on.
 	if err := resumeUndoLog(s.sc, s.undo); err != nil {
 		return fmt.Errorf("commit block %d: %w", blockNum, err)
@@ -213,7 +207,7 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changes *gigatypes.StateCha
 	s.commitPhases.SetPhase("convert_mutations")
 	// SC has not taken this block yet, so its view is of the block before.
 	prior := s.sc.OpenView()
-	mutations, err := flatkv.MutationsFromStateChangeSet(changes, uint64(blockNum), prior, s.flatkvCfg)
+	mutations, err := flatkv.MutationsFromStateChangeSet(changes, blockNum, prior, s.flatkvCfg)
 	prior.Close()
 	if err != nil {
 		return fmt.Errorf("convert block %d to mutations: %w", blockNum, err)
@@ -221,12 +215,12 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changes *gigatypes.StateCha
 
 	// No need to flush WAL, since this WAL isn't used for crash recoverability safety (that's the BlockDB's job).
 	s.commitPhases.SetPhase("write_state_wal")
-	if err := s.wal.Write(uint64(blockNum), mutations); err != nil {
+	if err := s.wal.Write(blockNum, mutations); err != nil {
 		return fmt.Errorf("write block %d to state WAL: %w", blockNum, err)
 	}
 
 	s.commitPhases.SetPhase("submit_bud_hash")
-	if err := s.budHasher.Submit(context.Background(), uint64(blockNum), mutations); err != nil {
+	if err := s.budHasher.Submit(context.Background(), blockNum, mutations); err != nil {
 		return fmt.Errorf("submit block %d to the BUD hasher: %w", blockNum, err)
 	}
 
@@ -254,7 +248,7 @@ func (s *StateDB) OpenView() gigatypes.StateView {
 //
 // The view holds back the live state DB's flushes and the historical state DB's pruning until it is
 // closed, so it must be closed promptly.
-func (s *StateDB) OpenViewAt(blockNum int64) (gigatypes.StateView, bool) {
+func (s *StateDB) OpenViewAt(blockNum uint64) (gigatypes.StateView, bool) {
 	if s.undo == nil {
 		return nil, false
 	}

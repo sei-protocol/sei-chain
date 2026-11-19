@@ -233,7 +233,7 @@ func (cs *CompositeCommitStore) adoptFlatKV(store gigatypes.LiveStateStore) erro
 
 // recordFlatKVHash keeps flatKVHash current. It is the listener registered on every flatKV instance
 // this store adopts.
-func (cs *CompositeCommitStore) recordFlatKVHash(_ context.Context, _ int64, hash *lthash.BlockHash) error {
+func (cs *CompositeCommitStore) recordFlatKVHash(_ context.Context, _ uint64, hash *lthash.BlockHash) error {
 	cs.flatKVHash.Store(hash)
 	return nil
 }
@@ -325,7 +325,7 @@ func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 		}
 	}
 	if cs.loadFlatKV() != nil {
-		if err := cs.loadFlatKV().SetInitialVersion(initialVersion); err != nil {
+		if err := cs.loadFlatKV().SetInitialVersion(toFlatKVHeight(initialVersion)); err != nil {
 			return fmt.Errorf("flatkv SetInitialVersion: %w", err)
 		}
 	}
@@ -395,7 +395,7 @@ func (cs *CompositeCommitStore) LoadLatest() error {
 			seedTo := cs.memIAVL.Version() + 1
 			logger.Info("seeding flatkv initial version to match memiavl",
 				"memiavlVersion", cs.memIAVL.Version(), "flatkvInitialVersion", seedTo)
-			if err := cs.loadFlatKV().SetInitialVersion(seedTo); err != nil {
+			if err := cs.loadFlatKV().SetInitialVersion(toFlatKVHeight(seedTo)); err != nil {
 				return fmt.Errorf("failed to seed flatkv to memiavl version %d: %w",
 					cs.memIAVL.Version(), err)
 			}
@@ -427,7 +427,8 @@ func (cs *CompositeCommitStore) discardStaleIdleFlatKV() error {
 	if err != nil {
 		return fmt.Errorf("failed to derive write mode before idle flatkv cleanup: %w", err)
 	}
-	if derived != types.MemiavlOnly || !isStaleSeed(cs.memIAVL.Version(), cs.loadFlatKV().Version()) {
+	if derived != types.MemiavlOnly ||
+		!isStaleSeed(cs.memIAVL.Version(), toCosmosVersion(cs.loadFlatKV().Version())) {
 		return nil
 	}
 
@@ -511,7 +512,7 @@ func (cs *CompositeCommitStore) loadVersionReadOnly(targetVersion int64, allowPr
 	}
 
 	if flatKV := cs.loadFlatKV(); flatKV != nil {
-		fkv, err := flatKV.LoadVersionReadOnly(targetVersion)
+		fkv, err := flatKV.LoadVersionReadOnly(toFlatKVHeight(targetVersion))
 		switch {
 		case err == nil:
 			flatKVStore = fkv
@@ -920,7 +921,7 @@ func (cs *CompositeCommitStore) materializeFlatKV() error {
 		seedTo := cs.memIAVL.Version() + 1
 		logger.Info("seeding flatkv initial version to match memiavl",
 			"memiavlVersion", cs.memIAVL.Version(), "flatkvInitialVersion", seedTo)
-		if err := loaded.SetInitialVersion(seedTo); err != nil {
+		if err := loaded.SetInitialVersion(toFlatKVHeight(seedTo)); err != nil {
 			_ = loaded.Close()
 			return fmt.Errorf("failed to seed flatkv to memiavl version %d: %w",
 				cs.memIAVL.Version(), err)
@@ -1042,7 +1043,9 @@ func (cs *CompositeCommitStore) Commit(version int64) (int64, error) {
 	var flatkvVersion int64 = -1
 	if cs.loadFlatKV() != nil {
 		var err error
-		flatkvVersion, err = cs.loadFlatKV().Commit(version)
+		var committed uint64
+		committed, err = cs.loadFlatKV().Commit(toFlatKVHeight(version))
+		flatkvVersion = toCosmosVersion(committed)
 		if err != nil {
 			return 0, fmt.Errorf("failed to commit flatkv: %w", err)
 		}
@@ -1111,7 +1114,7 @@ func (cs *CompositeCommitStore) reconcileVersions() error {
 	}
 
 	cosmosVer := cs.memIAVL.Version()
-	evmVer := cs.loadFlatKV().Version()
+	evmVer := toCosmosVersion(cs.loadFlatKV().Version())
 	if cosmosVer == evmVer {
 		return nil
 	}
@@ -1137,7 +1140,7 @@ func (cs *CompositeCommitStore) reconcileVersions() error {
 		}
 	}
 	if evmVer > minVer {
-		if err := cs.loadFlatKV().Rollback(minVer); err != nil {
+		if err := cs.loadFlatKV().Rollback(toFlatKVHeight(minVer)); err != nil {
 			return fmt.Errorf("failed to rollback EVM to reconciled version %d: %w; use state sync instead",
 				minVer, err)
 		}
@@ -1151,7 +1154,7 @@ func (cs *CompositeCommitStore) Version() int64 {
 	if cs.memIAVL != nil {
 		return cs.memIAVL.Version()
 	} else if flatKV := cs.loadFlatKV(); flatKV != nil {
-		return flatKV.Version()
+		return toCosmosVersion(flatKV.Version())
 	}
 	return 0
 }
@@ -1161,7 +1164,8 @@ func (cs *CompositeCommitStore) GetLatestVersion() (int64, error) {
 	if cs.memIAVL != nil {
 		return cs.memIAVL.GetLatestVersion()
 	} else if flatKV := cs.loadFlatKV(); flatKV != nil {
-		return flatKV.GetLatestVersion()
+		latest, err := flatKV.GetLatestVersion()
+		return toCosmosVersion(latest), err
 	} else {
 		return 0, errors.New("no backend configured")
 	}
@@ -1407,7 +1411,7 @@ func (cs *CompositeCommitStore) latticeHash(version int64) ([]byte, error) {
 
 	// A block none of whose writes reached flatKV leaves it a height behind. Its hash has not moved —
 	// an empty block does not shift the lattice — so the height it did reach is the right answer.
-	if committed := flatKV.Version(); committed < version {
+	if committed := toCosmosVersion(flatKV.Version()); committed < version {
 		version = committed
 	}
 
@@ -1417,7 +1421,7 @@ func (cs *CompositeCommitStore) latticeHash(version int64) ([]byte, error) {
 	}
 
 	hash := cs.flatKVHash.Load()
-	if hash.BlockNumber != version {
+	if hash.BlockNumber != toFlatKVHeight(version) {
 		// Block version+1 has not been handed to flatKV yet, so the hash just flushed is version's.
 		// Asserted rather than assumed: this value reaches the AppHash, where a hash for the wrong
 		// height is indistinguishable from the right one.
@@ -1592,7 +1596,7 @@ func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 	}
 
 	if cs.loadFlatKV() != nil {
-		if err := cs.loadFlatKV().Rollback(targetVersion); err != nil {
+		if err := cs.loadFlatKV().Rollback(toFlatKVHeight(targetVersion)); err != nil {
 			return fmt.Errorf("failed to rollback evm commit store: %w", err)
 		}
 	}
@@ -1636,7 +1640,7 @@ func (cs *CompositeCommitStore) requireRollbackReachable(targetVersion int64) er
 	if cs.loadFlatKV() == nil {
 		return nil
 	}
-	if err := cs.loadFlatKV().CheckVersionReachable(targetVersion); err != nil {
+	if err := cs.loadFlatKV().CheckVersionReachable(toFlatKVHeight(targetVersion)); err != nil {
 		return fmt.Errorf("flatkv cannot roll back to version %d: %w; use state sync instead",
 			targetVersion, err)
 	}
@@ -1674,7 +1678,7 @@ func exportNeedsMetadataGating(mode types.WriteMode) bool {
 // version fails: silently omitting flatkv would produce a consensus-incomplete snapshot,
 // byte-indistinguishable from a legitimate memiavl-only stream.
 func exportMigrationState(flatKV gigatypes.LiveStateStore, version int64) (started, migrationDone bool, err error) {
-	ro, err := flatKV.LoadVersionReadOnly(version)
+	ro, err := flatKV.LoadVersionReadOnly(toFlatKVHeight(version))
 	if err != nil {
 		if errors.Is(err, gigatypes.ErrVersionUnreachable) && precedesMigration(flatKV, version) {
 			return false, false, nil
@@ -1699,7 +1703,7 @@ func exportMigrationState(flatKV gigatypes.LiveStateStore, version int64) (start
 // version. Any error reading that snapshot reports false. For a pre-kickoff version that snapshot is the
 // kickoff seed written by SetInitialVersion; once pruning drops it this reports false and exports fail loud.
 func precedesMigration(flatKV gigatypes.LiveStateStore, version int64) bool {
-	snapshot, ok, err := flatKV.OldestSnapshotAbove(version)
+	snapshot, ok, err := flatKV.OldestSnapshotAbove(toFlatKVHeight(version))
 	if err != nil || !ok {
 		return false
 	}
@@ -1756,7 +1760,7 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 	var flatkvExporter types.Exporter
 	if includeFlatKV {
 		var err error
-		flatkvExporter, err = flatKV.Exporter(version)
+		flatkvExporter, err = flatKV.Exporter(toFlatKVHeight(version))
 		if err != nil {
 			if memIAVLExporter != nil {
 				_ = memIAVLExporter.Close()
@@ -1802,7 +1806,7 @@ func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) 
 	var flatKVImporter types.Importer
 	if cs.loadFlatKV() != nil {
 		var err error
-		flatKVImporter, err = cs.loadFlatKV().Importer(version)
+		flatKVImporter, err = cs.loadFlatKV().Importer(toFlatKVHeight(version))
 		if err != nil {
 			if memIAVLImporter != nil {
 				_ = memIAVLImporter.Abort(err)
@@ -1818,7 +1822,7 @@ func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) 
 			if err != nil {
 				return nil, fmt.Errorf("failed to materialize flatkv for import: %w", err)
 			}
-			imp, err := created.Importer(version)
+			imp, err := created.Importer(toFlatKVHeight(version))
 			if err != nil {
 				_ = created.Close()
 				return nil, fmt.Errorf("failed to create flatkv importer: %w", err)
@@ -2008,4 +2012,14 @@ func closeIterators(iters []db.Iterator) {
 			_ = it.Close()
 		}
 	}
+}
+
+// toFlatKVHeight returns a Cosmos version as the block height flatKV numbers it by.
+func toFlatKVHeight(version int64) uint64 {
+	return uint64(version) //nolint:gosec // Cosmos versions are never negative
+}
+
+// toCosmosVersion returns a flatKV block height as the version Cosmos numbers it by.
+func toCosmosVersion(height uint64) int64 {
+	return int64(height) //nolint:gosec // block heights never approach the int64 ceiling
 }

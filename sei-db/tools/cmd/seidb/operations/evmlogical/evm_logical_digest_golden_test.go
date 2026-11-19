@@ -182,8 +182,8 @@ func buildEvmDigestGoldenFixture(t *testing.T) evmDigestGoldenFixture {
 
 func commitFlatKVForGolden(t *testing.T, store *flatkv.CommitStore, version int64, changesets []*proto.NamedChangeSet) {
 	t.Helper()
-	require.NoError(t, store.ApplyChangeSets(version, changesets))
-	_, err := store.Commit(version)
+	require.NoError(t, store.ApplyChangeSets(uint64(version), changesets))
+	_, err := store.Commit(uint64(version))
 	require.NoError(t, err)
 	require.NoError(t, store.FlushSnapshots())
 }

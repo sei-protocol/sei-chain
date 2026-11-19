@@ -77,13 +77,13 @@ type littReceiptStore struct {
 	index    dbtypes.KeyValueDB
 	storeKey sdk.StoreKey
 
-	latestVersion atomic.Int64
+	latestVersion atomic.Uint64
 	// stagedVersion is the head the next write follows: latestVersion, or above it by a block whose
 	// index commit is still in flight when writes are queued.
-	stagedVersion atomic.Int64
+	stagedVersion atomic.Uint64
 	// commitDone is closed once the index commit in flight lands. Guarded by writeMu.
 	commitDone      chan struct{}
-	earliestVersion atomic.Int64
+	earliestVersion atomic.Uint64
 
 	keepRecent           int64
 	pruneInterval        int64
@@ -116,7 +116,7 @@ type littReceiptStore struct {
 
 // receiptWrite is one block's receipts, waiting to be applied.
 type receiptWrite struct {
-	height   int64
+	height   uint64
 	receipts []receipt.ReceiptRecord
 }
 
@@ -183,11 +183,7 @@ func (s *littReceiptStore) gcFilter(key []byte, isPrimaryKey bool) (bool, error)
 		return false, fmt.Errorf("unexpected primary receipt key length %d (want %d)",
 			len(key), blockNumLen+littPartCountLen)
 	}
-	floor := s.earliestVersion.Load()
-	if floor <= 0 {
-		return false, nil
-	}
-	return binary.BigEndian.Uint64(key[:blockNumLen]) < uint64(floor), nil //nolint:gosec // guarded positive above
+	return binary.BigEndian.Uint64(key[:blockNumLen]) < s.earliestVersion.Load(), nil
 }
 
 func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (receipt.ReceiptStore, error) {
@@ -284,24 +280,23 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	return s, nil
 }
 
-func (s *littReceiptStore) readMeta(key []byte) int64 {
+func (s *littReceiptStore) readMeta(key []byte) uint64 {
 	val, err := s.index.Get(key)
 	if err != nil || len(val) != blockNumLen {
 		return 0
 	}
-	return int64(binary.BigEndian.Uint64(val)) //nolint:gosec // block heights fit within int64
+	return binary.BigEndian.Uint64(val)
 }
 
-func (s *littReceiptStore) LatestVersion() int64 { return s.latestVersion.Load() }
+func (s *littReceiptStore) LatestVersion() uint64 { return s.latestVersion.Load() }
 
-func (s *littReceiptStore) EarliestVersion() int64 { return s.earliestVersion.Load() }
+func (s *littReceiptStore) EarliestVersion() uint64 { return s.earliestVersion.Load() }
 
-func (s *littReceiptStore) SetLatestVersion(version int64) error {
+func (s *littReceiptStore) SetLatestVersion(version uint64) error {
 	if version <= s.latestVersion.Load() {
 		return nil
 	}
-	height := uint64(version) //nolint:gosec // block heights fit within uint64
-	err := s.index.Set(receiptLatestVersionKey, encodeBlockNumber(height), dbtypes.WriteOptions{})
+	err := s.index.Set(receiptLatestVersionKey, encodeBlockNumber(version), dbtypes.WriteOptions{})
 	if err != nil {
 		return err
 	}
@@ -312,13 +307,12 @@ func (s *littReceiptStore) SetLatestVersion(version int64) error {
 	return nil
 }
 
-func (s *littReceiptStore) SetEarliestVersion(version int64) error {
+func (s *littReceiptStore) SetEarliestVersion(version uint64) error {
 	// The retention floor only moves forward; never re-expose pruned blocks.
 	if version <= s.earliestVersion.Load() {
 		return nil
 	}
-	height := uint64(version) //nolint:gosec // block heights fit within uint64
-	err := s.index.Set(receiptEarliestVersionKey, encodeBlockNumber(height), dbtypes.WriteOptions{})
+	err := s.index.Set(receiptEarliestVersionKey, encodeBlockNumber(version), dbtypes.WriteOptions{})
 	if err != nil {
 		return err
 	}
@@ -366,8 +360,7 @@ func (s *littReceiptStore) GetReceiptFromStore(_ sdk.Context, txHash common.Hash
 }
 
 func (s *littReceiptStore) belowRetentionFloor(blockNumber uint64) bool {
-	earliest := s.earliestVersion.Load()
-	return earliest > 0 && blockNumber < uint64(earliest) //nolint:gosec // earliest is non-negative
+	return blockNumber < s.earliestVersion.Load()
 }
 
 // GetBlockStats returns the aggregate stats staged alongside blockNumber's receipts, or
@@ -396,13 +389,17 @@ func (s *littReceiptStore) GetBlockStats(_ sdk.Context, blockNumber uint64) (rec
 // applies them inline when AsyncWriteBuffer is off. Once a queued write has failed it takes no
 // further block and returns that failure.
 func (s *littReceiptStore) SetReceipts(ctx sdk.Context, receipts []receipt.ReceiptRecord) error {
+	if ctx.BlockHeight() < 0 {
+		return fmt.Errorf("receipt block height must not be negative: %d", ctx.BlockHeight())
+	}
+	height := uint64(ctx.BlockHeight()) //nolint:gosec // guarded above
 	if s.writes == nil {
-		return s.applyReceipts(ctx.BlockHeight(), receipts)
+		return s.applyReceipts(height, receipts)
 	}
 	if err := s.writeFailure(); err != nil {
 		return err
 	}
-	return s.queueWrite(receiptWrite{height: ctx.BlockHeight(), receipts: receipts})
+	return s.queueWrite(receiptWrite{height: height, receipts: receipts})
 }
 
 func (s *littReceiptStore) Flush() error {
@@ -439,7 +436,7 @@ func (s *littReceiptStore) queueWrite(message any) error {
 // applyReceipts writes a block's receipt bodies, log index and version marker, and reports what it
 // committed. The write itself is writeReceipts; this wrapper is where the count is taken, so a
 // failed write is not counted as one.
-func (s *littReceiptStore) applyReceipts(height int64, receipts []receipt.ReceiptRecord) error {
+func (s *littReceiptStore) applyReceipts(height uint64, receipts []receipt.ReceiptRecord) error {
 	if err := s.writeReceipts(height, receipts); err != nil {
 		return err
 	}
@@ -450,18 +447,15 @@ func (s *littReceiptStore) applyReceipts(height int64, receipts []receipt.Receip
 
 // writeReceipts writes the receipts to litt, then commits their tag keys, block stats and the new
 // head to the index in one batch.
-func (s *littReceiptStore) writeReceipts(height int64, receipts []receipt.ReceiptRecord) error {
+func (s *littReceiptStore) writeReceipts(height uint64, receipts []receipt.ReceiptRecord) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if height < 0 {
-		return fmt.Errorf("receipt block height must not be negative: %d", height)
-	}
 
 	blockNumbers, receiptsByBlock := groupReceiptRecordsByBlock(receipts)
 	if len(blockNumbers) == 0 {
 		// A block that produced no receipts is still written, as a part with no receipts in it.
 		// The part key is what a walk positions at.
-		blockNumbers = []uint64{uint64(height)} //nolint:gosec // height is non-negative
+		blockNumbers = []uint64{height}
 	}
 	if err := s.requireNoSkippedBlock(blockNumbers); err != nil {
 		return err
@@ -489,8 +483,8 @@ func (s *littReceiptStore) writeReceipts(height int64, receipts []receipt.Receip
 
 	maxBlock := blockNumbers[len(blockNumbers)-1]
 	newLatest := s.stagedVersion.Load()
-	if int64(maxBlock) > newLatest { //nolint:gosec // block heights fit within int64
-		newLatest = int64(maxBlock) //nolint:gosec // block heights fit within int64
+	if maxBlock > newLatest {
+		newLatest = maxBlock
 		if err := batch.Set(receiptLatestVersionKey, encodeBlockNumber(maxBlock)); err != nil {
 			return err
 		}
@@ -631,11 +625,11 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 // refusal here reports a broken invariant rather than a store that has fallen behind the chain.
 func (s *littReceiptStore) requireNoSkippedBlock(blockNumbers []uint64) error {
 	head := s.stagedVersion.Load()
-	if head <= 0 {
+	if head == 0 {
 		// Nothing is recorded yet, so this write establishes where the store's history begins.
 		return nil
 	}
-	next := uint64(head) + 1 //nolint:gosec // head is positive
+	next := head + 1
 	for _, blockNumber := range blockNumbers {
 		if blockNumber > next {
 			return fmt.Errorf("receipt write for block %d skips block %d; the store's head is %d",
@@ -653,7 +647,7 @@ func (s *littReceiptStore) requireNoSkippedBlock(blockNumbers []uint64) error {
 // blockNumbers must be sorted ascending.
 func (s *littReceiptStore) requireNoBlockBelowHead(blockNumbers []uint64) error {
 	head := s.stagedVersion.Load()
-	if head <= 0 || int64(blockNumbers[0]) >= head { //nolint:gosec // block heights fit within int64
+	if head == 0 || blockNumbers[0] >= head {
 		return nil
 	}
 	return fmt.Errorf("receipt write for block %d is below the store's head %d", blockNumbers[0], head)
@@ -664,7 +658,7 @@ func (s *littReceiptStore) requireNoBlockBelowHead(blockNumbers []uint64) error 
 // Startup recovery deletes them.
 func (s *littReceiptStore) requireNoOrphanedParts(blockNumber uint64, existingParts uint32) error {
 	head := s.stagedVersion.Load()
-	if existingParts == 0 || int64(blockNumber) <= head { //nolint:gosec // block heights fit within int64
+	if existingParts == 0 || blockNumber <= head {
 		return nil
 	}
 	return fmt.Errorf("receipt block %d already has %d part(s) above the store's head %d; "+
@@ -830,9 +824,11 @@ func (s *littReceiptStore) startPruning() {
 		for {
 			// Keep exactly keepRecent blocks, [latest-keepRecent+1, latest]; the
 			// +1 matches the pebble backend (which retains keepRecent, not +1).
-			pruneBefore := s.latestVersion.Load() - s.keepRecent + 1
-			if pruneBefore > 0 {
-				if err := s.pruneBlocksBelow(uint64(pruneBefore)); err != nil {
+			latest := s.latestVersion.Load()
+			keepRecent := uint64(s.keepRecent) //nolint:gosec // runsLocalPruner requires it positive
+			if latest >= keepRecent {
+				pruneBefore := latest - keepRecent + 1
+				if err := s.pruneBlocksBelow(pruneBefore); err != nil {
 					logger.Error("failed to prune littdb receipt store",
 						"before-block", pruneBefore, "err", err)
 				}
@@ -856,17 +852,12 @@ func (s *littReceiptStore) startPruning() {
 // above this store's head is capped at the head rather than honored.
 func (s *littReceiptStore) pruneBlocksBelow(cutoff uint64) error {
 	head := s.latestVersion.Load()
-	if head <= 0 {
+	if head == 0 {
 		return nil // nothing ingested, so nothing to drop
 	}
-	if cutoff > uint64(head) { //nolint:gosec // guarded positive above
-		cutoff = uint64(head)
-	}
+	cutoff = min(cutoff, head)
 
-	floor := uint64(0)
-	if earliest := s.earliestVersion.Load(); earliest > 0 {
-		floor = uint64(earliest) //nolint:gosec // earliest is non-negative
-	}
+	floor := s.earliestVersion.Load()
 	if floor >= cutoff {
 		return nil
 	}
@@ -881,7 +872,7 @@ func (s *littReceiptStore) pruneBlocksBelow(cutoff uint64) error {
 	if err != nil {
 		return err
 	}
-	s.earliestVersion.Store(int64(cutoff)) //nolint:gosec // block heights fit within int64
+	s.earliestVersion.Store(cutoff)
 	return nil
 }
 

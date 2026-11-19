@@ -180,7 +180,7 @@ func TestImportMemiavlModulesToFlatKVRefusesStaleHeight(t *testing.T) {
 	// FlatKV must remain untouched after the rejection: the operator can
 	// rerun (correctly this time) without --force.
 	flatStore := newTestFlatKVStoreAtHome(t, homeDir)
-	require.Equal(t, int64(0), flatStore.Version(), "flatkv was opened/written despite stale-height rejection")
+	require.Equal(t, uint64(0), flatStore.Version(), "flatkv was opened/written despite stale-height rejection")
 	require.NoError(t, flatStore.Close())
 }
 

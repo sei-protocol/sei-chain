@@ -28,10 +28,10 @@ type commitTask struct {
 }
 
 // CommitStateChanges writes the block's mutations and commits them at blockNum.
-func (s *CommitStore) CommitStateChanges(blockNum int64, mutations []mutation.Mutation) error {
+func (s *CommitStore) CommitStateChanges(blockNum uint64, mutations []mutation.Mutation) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.commitMutations(uint64(blockNum), mutations, false); err != nil { //nolint:gosec // non-negative
+	if err := s.commitMutations(blockNum, mutations, false); err != nil {
 		return fmt.Errorf("CommitStateChanges: commit version %d: %w", blockNum, err)
 	}
 	return nil
@@ -52,7 +52,7 @@ func (s *CommitStore) commitReplayedStateChanges(blockHeight uint64, mutations [
 // Commit commits the block ApplyChangeSets buffered at version, or an empty block if nothing is buffered, and
 // returns version. version must be the committed version plus one; committing the committed version again does
 // nothing.
-func (s *CommitStore) Commit(version int64) (int64, error) {
+func (s *CommitStore) Commit(version uint64) (uint64, error) {
 	// TODO(concurrency): This takes a single coarse write lock for the whole
 	// commit, so it also blocks readers/iterator construction during the WAL
 	// fsync and the periodic auto-snapshot. Views are unaffected, since
@@ -76,7 +76,7 @@ func (s *CommitStore) Commit(version int64) (int64, error) {
 		return version, nil
 	}
 
-	blockHeight := uint64(version) //nolint:gosec // non-negative
+	blockHeight := version
 	mutations, err := s.pendingMutations(blockHeight)
 	if err != nil {
 		return version, fmt.Errorf("Commit: read block %d's pending changes: %w", blockHeight, err)
@@ -163,7 +163,7 @@ func (s *CommitStore) commitMutations(
 	// Step 4: Update in-memory committed state, only once every store accepted the seal. The block's
 	// hash is not part of this: it is computed and recorded asynchronously, and handed to the
 	// registered listeners once it is.
-	s.committedVersion = int64(blockHeight) //nolint:gosec // never near the int64 ceiling
+	s.committedVersion = blockHeight
 
 	// Step 5: Clear per-block bookkeeping
 	s.clearPendingBlock()
@@ -186,7 +186,7 @@ func (s *CommitStore) commitMutations(
 	// Ends the commit rather than opening a phase to sit in, so that these phases cover the commits
 	// themselves and not the gaps between them.
 	s.phaseTimer.Reset()
-	otelMetrics.CurrentVersion.Record(s.ctx, int64(blockHeight)) //nolint:gosec // never near the int64 ceiling
+	otelMetrics.CurrentVersion.Record(s.ctx, int64(blockHeight)) //nolint:gosec // a metric, not a height
 	return nil
 }
 
@@ -197,7 +197,7 @@ func (s *CommitStore) requireExpectedBlockNumber(
 	// Whether the block is being replayed.
 	replay bool,
 ) error {
-	committedHeight := uint64(s.committedVersion) //nolint:gosec // committed versions are non-negative
+	committedHeight := s.committedVersion
 	// Blocks are contiguous and the first block is 1, so the next commit is always committedVersion+1. On a
 	// fresh store that means block 1; a store whose history starts higher gets there via SetInitialVersion,
 	// which seeds committedVersion to one below its first block.
@@ -266,8 +266,7 @@ func (s *CommitStore) sealBlock(
 	}
 
 	s.phaseTimer.SetPhase("commit_schedule_hash")
-	//nolint:gosec // never near the int64 ceiling
-	if err := s.hashEngine.ScheduleHash(int64(blockHeight), staged); err != nil {
+	if err := s.hashEngine.ScheduleHash(blockHeight, staged); err != nil {
 		return fmt.Errorf("schedule block %d's hash: %w", blockHeight, err)
 	}
 
@@ -313,8 +312,7 @@ func (s *CommitStore) commitStores(
 		return nil, nil, fmt.Errorf("seal block %d: %w", blockHeight, err)
 	}
 
-	//nolint:gosec // never near the int64 ceiling
-	storeView, err := sview.NewStoreView(int64(blockHeight),
+	storeView, err := sview.NewStoreView(blockHeight,
 		viewsByStore[s.accountStore],
 		viewsByStore[s.codeStore],
 		viewsByStore[s.storageStore],
@@ -431,7 +429,7 @@ func finalizeStore(
 	hashes *lthash.BlockHash,
 ) error {
 	writes, err := encodeLocalMeta(
-		int64(blockHeight), //nolint:gosec // never near the int64 ceiling
+		blockHeight,
 		hashes.PerDB[viewToFinalize.Name()],
 		hashes.PerModule[viewToFinalize.Name()],
 		hashes.PerModuleStats[viewToFinalize.Name()],
@@ -455,8 +453,8 @@ type rawKVPair struct {
 // import data has been written, and reopens the store at that version.
 // This must be called exactly once at the end of an import to make the data
 // durable across restarts.
-func (s *CommitStore) FinalizeImport(version int64) error {
-	if err := s.persistLocalMetaAndReopen(uint64(version)); err != nil { //nolint:gosec // non-negative
+func (s *CommitStore) FinalizeImport(version uint64) error {
+	if err := s.persistLocalMetaAndReopen(version); err != nil {
 		return fmt.Errorf("after import: %w", err)
 	}
 	return nil
@@ -468,8 +466,7 @@ func (s *CommitStore) persistLocalMetaAndReopen(blockHeight uint64) error {
 	syncOpt := types.WriteOptions{Sync: true}
 	for _, dir := range dataDBDirs {
 		batch := s.rawDBFor(dir).NewBatch()
-		//nolint:gosec // never near the int64 ceiling
-		err := writeLocalMetaToBatch(batch, int64(blockHeight), s.loadedHashes.PerDB[dir],
+		err := writeLocalMetaToBatch(batch, blockHeight, s.loadedHashes.PerDB[dir],
 			s.loadedHashes.PerModule[dir], s.loadedHashes.PerModuleStats[dir])
 		if err != nil {
 			_ = batch.Close()
@@ -508,7 +505,7 @@ func (s *CommitStore) sealBaseline() (err error) {
 	}()
 
 	for _, store := range s.stores {
-		height := uint64(s.localMeta[store.Name()].CommittedVersion) //nolint:gosec // non-negative
+		height := s.localMeta[store.Name()].CommittedVersion
 		baselineView, err := store.Commit(height)
 		if err != nil {
 			return fmt.Errorf("seal %s's baseline at block %d: %w", store.Name(), height, err)

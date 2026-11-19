@@ -38,7 +38,7 @@ type readOnlyGeneratedStore struct {
 	*evmonly.MemoryStore
 }
 
-func (*readOnlyGeneratedStore) CommitStateChanges(int64, *gigatypes.StateChangeSet) error {
+func (*readOnlyGeneratedStore) CommitStateChanges(uint64, *gigatypes.StateChangeSet) error {
 	return nil
 }
 

@@ -273,7 +273,7 @@ func setupReadBenchmark(b *testing.B, backend string, blocks, receiptsPerBlock, 
 			b.Fatalf("failed to write block %d: %v", blockNumber, err)
 		}
 		// Seeding outruns the writer, so wait for the block to be published before the next one.
-		for store.LatestVersion() < int64(blockNumber) { //nolint:gosec // small test heights
+		for store.LatestVersion() < blockNumber {
 			time.Sleep(time.Millisecond)
 		}
 		seed += uint64(receiptsPerBlock)

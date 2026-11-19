@@ -218,14 +218,8 @@ func (s *littReceiptStore) filterLogsByTags(
 	crit filters.FilterCriteria,
 	budget *receipt.LogBudget,
 ) ([]*ethtypes.Log, error) {
-	latest := s.latestVersion.Load()
-	if latest >= 0 && toBlock > uint64(latest) { //nolint:gosec // latest is non-negative
-		toBlock = uint64(latest) //nolint:gosec // latest is non-negative
-	}
-	earliest := s.earliestVersion.Load()
-	if earliest > 0 && fromBlock < uint64(earliest) { //nolint:gosec // earliest is non-negative
-		fromBlock = uint64(earliest) //nolint:gosec // earliest is non-negative
-	}
+	toBlock = min(toBlock, s.latestVersion.Load())
+	fromBlock = max(fromBlock, s.earliestVersion.Load())
 	if fromBlock > toBlock {
 		return nil, nil
 	}

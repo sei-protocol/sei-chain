@@ -80,7 +80,7 @@ func loadEVMOnlyCursor(store *flatkv.CommitStore) (utils.Option[evmOnlyCursor], 
 	if err != nil {
 		return utils.None[evmOnlyCursor](), err
 	}
-	if cursor.height != latest {
+	if uint64(cursor.height) != latest { //nolint:gosec // decoded from a uint64
 		return utils.None[evmOnlyCursor](), fmt.Errorf("EVM-only cursor is at height %d but state is at %d", cursor.height, latest)
 	}
 	return utils.Some(cursor), nil

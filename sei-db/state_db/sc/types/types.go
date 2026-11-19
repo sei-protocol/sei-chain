@@ -247,6 +247,6 @@ type Exporter interface {
 type SnapshotNode struct {
 	Key     []byte
 	Value   []byte
-	Version int64
+	Version uint64
 	Height  int8
 }

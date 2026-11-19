@@ -59,8 +59,7 @@ func reportMissingBlockHashes(manager *bootstrap.GigaStorageManager) error {
 	if version <= 0 {
 		return nil
 	}
-	//nolint:gosec // state heights are non-negative
-	height := uint64(version)
+	height := version
 	_, published, ok, err := manager.AppHashBuilder().Bounds()
 	if err != nil {
 		return fmt.Errorf("read the published app hash bounds: %w", err)
@@ -89,13 +88,13 @@ func executeBlocks(t *testing.T, manager *bootstrap.GigaStorageManager, ctx sdk.
 	t.Helper()
 	for block := from; block <= through; block++ {
 		height := int64(block) //nolint:gosec // small test heights
-		require.NoError(t, manager.StateDB().CommitStateChanges(height, nonceChange(block)))
+		require.NoError(t, manager.StateDB().CommitStateChanges(block, nonceChange(block)))
 		require.NoError(t, manager.ReceiptHasher().Submit(t.Context(), block, nil))
 		require.NoError(t, manager.ReceiptDB().SetReceipts(ctx.WithBlockHeight(height),
 			[]receipt.ReceiptRecord{litReceipt(block, 0, startupAddr, startupTopic)}))
 	}
 	require.Eventually(t, func() bool {
-		return manager.ReceiptDB().LatestVersion() == int64(through) //nolint:gosec // small test heights
+		return manager.ReceiptDB().LatestVersion() == through
 	}, 5*time.Second, time.Millisecond)
 	require.NoError(t, reportMissingBlockHashes(manager))
 }
@@ -170,8 +169,8 @@ func TestStartupRecoveryRollsBackToTheLowerReceiptHead(t *testing.T) {
 			blockHead, err := manager.BlockStore().GetLatestBlock()
 			require.NoError(t, err)
 			require.Equal(t, uint64(6), blockHead, "recovery never cuts the block store")
-			require.Equal(t, int64(4), manager.ReceiptDB().LatestVersion())
-			require.Equal(t, int64(4), manager.StateDB().SC().Version(),
+			require.Equal(t, uint64(4), manager.ReceiptDB().LatestVersion())
+			require.Equal(t, uint64(4), manager.StateDB().SC().Version(),
 				"state must follow the receipt store back")
 
 			executeBlocks(t, manager, ctx, 5, 6)

@@ -2,7 +2,6 @@ package bootstrap
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -57,10 +56,7 @@ func checkpointRoads(dir string) ([]types.RoadHeight, error) {
 	}
 	roads := make([]types.RoadHeight, 0, len(versions))
 	for _, version := range versions {
-		if version < 0 {
-			return nil, fmt.Errorf("checkpoint version %d is negative", version)
-		}
-		roads = append(roads, types.RoadHeight(version)) //nolint:gosec // checked above.
+		roads = append(roads, types.RoadHeight(version))
 	}
 	return roads, nil
 }

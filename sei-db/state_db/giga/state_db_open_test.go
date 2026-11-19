@@ -16,7 +16,7 @@ import (
 )
 
 // commitNonceBlocks commits blocks from through through to db, each setting a new account's nonce.
-func commitNonceBlocks(t *testing.T, db *StateDB, from int64, through int64) {
+func commitNonceBlocks(t *testing.T, db *StateDB, from uint64, through uint64) {
 	t.Helper()
 	for block := from; block <= through; block++ {
 		require.NoError(t, db.CommitStateChanges(block, nonceChanges(common.Address{byte(block)}, 0, 1)))
@@ -64,10 +64,10 @@ type emptyStateView struct {
 	gigatypes.StateView
 
 	// The block height the view reports.
-	height int64
+	height uint64
 }
 
-func (v emptyStateView) GetBlockHeight() int64 { return v.height }
+func (v emptyStateView) GetBlockHeight() uint64 { return v.height }
 
 func (v emptyStateView) BatchGetRaw([][]byte) map[string][]byte { return map[string][]byte{} }
 
@@ -77,8 +77,7 @@ func (v emptyStateView) Close() {}
 // block.
 func writeWALOnly(t *testing.T, db *StateDB, block uint64, addr common.Address, nonce uint64) {
 	t.Helper()
-	//nolint:gosec // small test heights
-	prior := emptyStateView{height: int64(block) - 1}
+	prior := emptyStateView{height: block - 1}
 	mutations, err := flatkv.MutationsFromStateChangeSet(nonceChanges(addr, 0, nonce), block, prior,
 		flatkvconfig.DefaultConfig())
 	require.NoError(t, err)

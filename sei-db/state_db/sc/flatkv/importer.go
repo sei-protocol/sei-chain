@@ -231,7 +231,7 @@ func (w *dbWorker) flush() (err error) {
 // independently batches writes and computes LtHash.
 type KVImporter struct {
 	store   *CommitStore
-	version int64
+	version uint64
 	// requireAscendingKeys rejects the import unless physical keys arrive in strictly ascending order.
 	requireAscendingKeys bool
 
@@ -259,7 +259,7 @@ type KVImporter struct {
 // are passed in rather than fetched off store, because an import writes beneath the view managers and so
 // must be handed the databases explicitly by whoever opened them. When requireAscendingKeys is set, the
 // import fails unless every physical key is strictly greater than the one before it.
-func NewKVImporter(store *CommitStore, version int64, dbs rawDBs, requireAscendingKeys bool) types.Importer {
+func NewKVImporter(store *CommitStore, version uint64, dbs rawDBs, requireAscendingKeys bool) types.Importer {
 	budget := int64(importByteBudget)
 	if b := importByteBudgetForTest.Load(); b > 0 {
 		budget = b
@@ -518,8 +518,9 @@ func (imp *KVImporter) Close() error {
 				metric.WithAttributes(successAttr(err)))
 			flushes, pairs := imp.importStats()
 			if err == nil {
-				otelMetrics.CurrentVersion.Record(imp.store.ctx, imp.store.committedVersion)
-				otelMetrics.CurrentSnapshotHeight.Record(imp.store.ctx, imp.store.committedVersion)
+				committed := int64(imp.store.committedVersion) //nolint:gosec // a metric, not a height
+				otelMetrics.CurrentVersion.Record(imp.store.ctx, committed)
+				otelMetrics.CurrentSnapshotHeight.Record(imp.store.ctx, committed)
 				logger.Info("FlatKV import complete",
 					"version", imp.version,
 					"flushes", flushes,

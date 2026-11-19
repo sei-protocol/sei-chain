@@ -447,7 +447,7 @@ func (snapshot *Snapshot) export(callback func(*types.SnapshotNode) bool) {
 		leaf := snapshot.Leaf(0)
 		callback(&types.SnapshotNode{
 			Height:  0,
-			Version: int64(leaf.Version()),
+			Version: uint64(leaf.Version()),
 			Key:     leaf.Key(),
 			Value:   leaf.Value(),
 		})
@@ -465,7 +465,7 @@ func (snapshot *Snapshot) export(callback func(*types.SnapshotNode) bool) {
 			key, value := snapshot.KeyValue(leaf.KeyOffset())
 			enode := &types.SnapshotNode{
 				Height:  0,
-				Version: int64(leaf.Version()),
+				Version: uint64(leaf.Version()),
 				Key:     key,
 				Value:   value,
 			}
@@ -483,7 +483,7 @@ func (snapshot *Snapshot) export(callback func(*types.SnapshotNode) bool) {
 		height := int8(hui8)
 		enode := &types.SnapshotNode{
 			Height:  height,
-			Version: int64(node.Version()),
+			Version: uint64(node.Version()),
 			Key:     snapshot.LeafKey(node.KeyLeaf()),
 		}
 		pendingTrees--

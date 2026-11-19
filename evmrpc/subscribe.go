@@ -265,7 +265,8 @@ func awaitReceipts(store receipt.ReceiptStore, height int64, timeout time.Durati
 	deadline := time.Now().Add(timeout)
 	// Commit queues a block's receipts for an asynchronous write and blocks while that queue is full, so the
 	// store trails the committed head by at most the queue's depth and this wait is normally milliseconds.
-	for store.LatestVersion() < height {
+	//nolint:gosec // block heights never approach the int64 ceiling
+	for int64(store.LatestVersion()) < height {
 		if time.Now().After(deadline) {
 			return fmt.Errorf("receipts of height %d not written within %s (receipt store is at %d)", height, timeout, store.LatestVersion())
 		}

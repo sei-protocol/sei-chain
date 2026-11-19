@@ -41,10 +41,10 @@ type emptyStateView struct {
 	gigatypes.StateView
 
 	// The block height the view reports.
-	height int64
+	height uint64
 }
 
-func (v emptyStateView) GetBlockHeight() int64 { return v.height }
+func (v emptyStateView) GetBlockHeight() uint64 { return v.height }
 
 func (v emptyStateView) BatchGetRaw([][]byte) map[string][]byte { return map[string][]byte{} }
 
@@ -102,7 +102,7 @@ func openStandaloneStateDB(t *testing.T, cfg *config.GigaStorageConfig) *giga.St
 func commitStateBlocks(t *testing.T, stateDB *giga.StateDB, from byte, through byte) {
 	t.Helper()
 	for block := from; block <= through; block++ {
-		require.NoError(t, stateDB.CommitStateChanges(int64(block), evmBlock(block, block)))
+		require.NoError(t, stateDB.CommitStateChanges(uint64(block), evmBlock(block, block)))
 	}
 }
 
@@ -127,7 +127,7 @@ func snapshotLiveStateDBAt(t *testing.T, stateDB *giga.StateDB, height byte) {
 	require.NoError(t, stateDB.SC().FlushSnapshots())
 	stateDB.SC().SetCheckpointScheduler(controller.NewCheckpointScheduler(
 		config.CheckpointConfig{BlockInterval: 1}))
-	require.NoError(t, stateDB.CommitStateChanges(int64(height), evmBlock(height, height)))
+	require.NoError(t, stateDB.CommitStateChanges(uint64(height), evmBlock(height, height)))
 	require.NoError(t, stateDB.SC().FlushSnapshots())
 }
 
@@ -138,7 +138,7 @@ func stopSnapshotting(stateDB *giga.StateDB) {
 }
 
 // liveStateDBSnapshotDir returns where the live state DB keeps its snapshot of version under dataDir.
-func liveStateDBSnapshotDir(dataDir string, version int64) string {
+func liveStateDBSnapshotDir(dataDir string, version uint64) string {
 	return filepath.Join(dataDir, fmt.Sprintf("snapshot-%020d", version))
 }
 
@@ -146,8 +146,7 @@ func liveStateDBSnapshotDir(dataDir string, version int64) string {
 // before the block.
 func writeWALOnly(t *testing.T, wal statewal.StateWAL, block uint64, changes *gigatypes.StateChangeSet) {
 	t.Helper()
-	//nolint:gosec // small test heights
-	mutations, err := flatkv.MutationsFromStateChangeSet(changes, block, emptyStateView{height: int64(block) - 1},
+	mutations, err := flatkv.MutationsFromStateChangeSet(changes, block, emptyStateView{height: block - 1},
 		flatkvconfig.DefaultConfig())
 	require.NoError(t, err)
 	require.NoError(t, wal.Write(block, mutations))
@@ -221,8 +220,8 @@ func canonicalHashes(t *testing.T, through byte) (stateHashes [][32]byte, budHas
 }
 
 // recordStateHash returns a hash listener that appends each block's state hash to hashes.
-func recordStateHash(hashes *[][32]byte) func(context.Context, int64, *lthash.BlockHash) error {
-	return func(_ context.Context, _ int64, hash *lthash.BlockHash) error {
+func recordStateHash(hashes *[][32]byte) func(context.Context, uint64, *lthash.BlockHash) error {
+	return func(_ context.Context, _ uint64, hash *lthash.BlockHash) error {
 		*hashes = append(*hashes, hash.Global.Checksum())
 		return nil
 	}

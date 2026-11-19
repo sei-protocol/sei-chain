@@ -38,7 +38,7 @@ var _ VType = (*MiscData)(nil)
 // are not safe to modify without first copying them.
 type MiscData struct {
 	version     MiscDataVersion
-	blockHeight int64
+	blockHeight uint64
 	value       []byte
 	isDelete    bool
 }
@@ -51,11 +51,11 @@ func NewMiscData() *MiscData {
 // SerializeMisc returns the serialized misc value for value written at blockHeight. An empty value
 // is a write rather than a deletion; a deletion is a nil value at the store. value is copied, so
 // the caller may reuse it.
-func SerializeMisc(blockHeight int64, value []byte) []byte {
+func SerializeMisc(blockHeight uint64, value []byte) []byte {
 	data := make([]byte, miscHeaderLength+len(value))
 	data[miscVersionStart] = byte(MiscDataVersion0)
 	heightBytes := data[miscBlockHeightStart:miscValueStart]
-	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
+	binary.BigEndian.PutUint64(heightBytes, blockHeight)
 	copy(data[miscValueStart:], value)
 	return data
 }
@@ -89,7 +89,7 @@ func DeserializeMiscData(data []byte) (*MiscData, error) {
 
 	return &MiscData{
 		version:     version,
-		blockHeight: int64(binary.BigEndian.Uint64(data[miscBlockHeightStart:miscValueStart])), //nolint:gosec
+		blockHeight: binary.BigEndian.Uint64(data[miscBlockHeightStart:miscValueStart]),
 		value:       value,
 	}, nil
 }
@@ -103,7 +103,7 @@ func (l *MiscData) GetSerializationVersion() MiscDataVersion {
 }
 
 // Get the block height when this misc entry was last modified.
-func (l *MiscData) GetBlockHeight() int64 {
+func (l *MiscData) GetBlockHeight() uint64 {
 	if l == nil {
 		return 0
 	}
@@ -119,7 +119,7 @@ func (l *MiscData) GetValue() []byte {
 }
 
 // Set the block height when this misc entry was last modified/touched. Returns self (or a new MiscData if nil).
-func (l *MiscData) SetBlockHeight(blockHeight int64) *MiscData {
+func (l *MiscData) SetBlockHeight(blockHeight uint64) *MiscData {
 	if l == nil {
 		l = NewMiscData()
 	}

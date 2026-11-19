@@ -13,7 +13,7 @@ import (
 // flushStores fully processes all work sent to anything the storage manager manages before the call.
 func (m *GigaStorageManager) flushStores() error {
 	ctx := context.Background()
-	height := uint64(m.stateDB.SC().Version()) //nolint:gosec // live state DB versions are never negative
+	height := m.stateDB.SC().Version()
 	timer := utils.NewLoggingPhaseTimer(logger)
 
 	// Producers are flushed before their consumers, so each component has received all of its work by the time
@@ -81,7 +81,7 @@ func (m *GigaStorageManager) verifyStoreAlignment(height uint64) error {
 		}
 	}
 	if m.receiptDB != nil {
-		head := uint64(m.receiptDB.LatestVersion()) //nolint:gosec // heights are never negative
+		head := m.receiptDB.LatestVersion()
 		if head != height {
 			return fmt.Errorf("the receipt store stands at block %d", head)
 		}

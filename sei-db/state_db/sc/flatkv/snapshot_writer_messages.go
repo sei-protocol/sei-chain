@@ -30,7 +30,7 @@ func (r *snapshotRequest) release() error {
 // cloneRequest asks the writer to materialize a snapshot into a destination directory.
 type cloneRequest struct {
 	// targetVersion is the height to clone at or below. 0 names the active snapshot.
-	targetVersion int64
+	targetVersion uint64
 
 	// destDir is the directory the snapshot is materialized into.
 	destDir string
@@ -41,7 +41,7 @@ type cloneRequest struct {
 }
 
 // newCloneRequest describes a clone of the snapshot at or below targetVersion into destDir.
-func newCloneRequest(targetVersion int64, destDir string) *cloneRequest {
+func newCloneRequest(targetVersion uint64, destDir string) *cloneRequest {
 	return &cloneRequest{
 		targetVersion: targetVersion,
 		destDir:       destDir,

@@ -295,11 +295,11 @@ type flatKVStateDB struct {
 	cfg *flatkvconfig.Config
 }
 
-func (flatKVStateDB) OpenViewAt(int64) (gigatypes.StateView, bool) { return nil, false }
+func (flatKVStateDB) OpenViewAt(uint64) (gigatypes.StateView, bool) { return nil, false }
 
-func (s flatKVStateDB) CommitStateChanges(blockNum int64, changes *gigatypes.StateChangeSet) error {
+func (s flatKVStateDB) CommitStateChanges(blockNum uint64, changes *gigatypes.StateChangeSet) error {
 	prior := s.OpenView()
-	mutations, err := flatkv.MutationsFromStateChangeSet(changes, uint64(blockNum), prior, s.cfg)
+	mutations, err := flatkv.MutationsFromStateChangeSet(changes, blockNum, prior, s.cfg)
 	prior.Close()
 	if err != nil {
 		return err

@@ -26,10 +26,10 @@ import (
 // answering successive calls from floors and repeating the last one.
 type floorReceiptStore struct {
 	receipt.ReceiptStore
-	floors []int64
+	floors []uint64
 }
 
-func (s *floorReceiptStore) EarliestVersion() int64 {
+func (s *floorReceiptStore) EarliestVersion() uint64 {
 	floor := s.floors[0]
 	if len(s.floors) > 1 {
 		s.floors = s.floors[1:]
@@ -70,7 +70,7 @@ func TestGetBlockReceipts(t *testing.T) {
 		name       string
 		arg        ethrpc.BlockNumberOrHash
 		head       uint64
-		floors     []int64
+		floors     []uint64
 		wantHeight *coretypes.Int64
 		block      *coretypes.ResultBlock
 		blockErr   error
@@ -96,7 +96,10 @@ func TestGetBlockReceipts(t *testing.T) {
 		{name: "unknown hash, nil result", arg: byHash},
 		// A pruned height or receipts, a missing block selector, and any other backend failure are errors.
 		{name: "pruned height", arg: byNumber(1), wantHeight: heightOf(1), blockErr: coretypes.WrapErrHeightNotAvailable(1, utils.None[int64]()), wantErr: coretypes.ErrHeightNotAvailable},
-		{name: "pruned receipts", arg: byNumber(9), floors: []int64{10}, wantHeight: heightOf(9), block: twoTxBlock, wantErr: errBlockReceiptsPruned},
+		{
+			name: "pruned receipts", arg: byNumber(9), floors: []uint64{10}, wantHeight: heightOf(9),
+			block: twoTxBlock, wantErr: errBlockReceiptsPruned,
+		},
 		{name: "neither number nor hash", wantErr: errBlockReceiptsNoBlock},
 		{name: "unexpected backend error by number", arg: byNumber(9), wantHeight: heightOf(9), blockErr: backendErr, wantErr: backendErr},
 		{name: "unexpected backend error by hash", arg: byHash, blockErr: backendErr, wantErr: backendErr},
@@ -240,7 +243,7 @@ func TestGetBlockReceiptsSurfacesStoreErrors(t *testing.T) {
 		},
 		{
 			name:    "receipts pruned during the read",
-			store:   &floorReceiptStore{ReceiptStore: memory, floors: []int64{0, 10}},
+			store:   &floorReceiptStore{ReceiptStore: memory, floors: []uint64{0, 10}},
 			wantErr: errBlockReceiptsPruned,
 		},
 	} {

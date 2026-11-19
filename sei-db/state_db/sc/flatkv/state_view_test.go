@@ -20,7 +20,7 @@ func gigaAddr(addr ktype.Address) gigatypes.Address {
 }
 
 // commitNonce writes addr's nonce as a whole block through the Giga write entry point.
-func commitNonce(t *testing.T, s *CommitStore, version int64, addr ktype.Address, nonce uint64) {
+func commitNonce(t *testing.T, s *CommitStore, version uint64, addr ktype.Address, nonce uint64) {
 	t.Helper()
 	require.NoError(t, commitChangeSets(s, version, []*proto.NamedChangeSet{namedCS(noncePair(addr, nonce))}))
 }
@@ -34,7 +34,7 @@ func TestCommitStateChangesCommitsBlock(t *testing.T) {
 	addr := addrN(1)
 	commitNonce(t, s, 1, addr, 7)
 
-	require.Equal(t, int64(1), s.Version())
+	require.Equal(t, uint64(1), s.Version())
 	value, found := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
 	require.True(t, found)
 	require.Equal(t, nonceBytes(7), value)
@@ -50,7 +50,7 @@ func TestCommitStateChangesRejectsNonContiguousVersion(t *testing.T) {
 	row := vtype.NewAccountData().SetNonce(7).Serialize()
 	err := s.CommitStateChanges(5, []mutation.Mutation{{Key: key, NewValue: row}})
 	require.Error(t, err)
-	require.Equal(t, int64(0), s.Version(), "a refused block must not advance the store")
+	require.Equal(t, uint64(0), s.Version(), "a refused block must not advance the store")
 }
 
 // OpenView serves the block most recently committed, and says which block that is.
@@ -64,7 +64,7 @@ func TestOpenViewReadsCommittedBlock(t *testing.T) {
 	stateView := s.OpenView()
 	defer stateView.Close()
 
-	require.Equal(t, int64(1), stateView.GetBlockHeight())
+	require.Equal(t, uint64(1), stateView.GetBlockHeight())
 	require.Equal(t, uint64(7), stateView.GetNonce(gigaAddr(addr)))
 }
 
@@ -80,17 +80,17 @@ func TestOpenViewIsIsolatedFromLaterCommits(t *testing.T) {
 	stateView := s.OpenView()
 	defer stateView.Close()
 
-	for version := int64(2); version <= 4; version++ {
-		commitNonce(t, s, version, addr, uint64(version)+10)
+	for version := uint64(2); version <= 4; version++ {
+		commitNonce(t, s, version, addr, version+10)
 	}
 
-	require.Equal(t, int64(1), stateView.GetBlockHeight(), "a view must not follow the store forward")
+	require.Equal(t, uint64(1), stateView.GetBlockHeight(), "a view must not follow the store forward")
 	require.Equal(t, uint64(7), stateView.GetNonce(gigaAddr(addr)),
 		"a view must not observe writes committed after it was opened")
 
 	latest := s.OpenView()
 	defer latest.Close()
-	require.Equal(t, int64(4), latest.GetBlockHeight())
+	require.Equal(t, uint64(4), latest.GetBlockHeight())
 	require.Equal(t, uint64(14), latest.GetNonce(gigaAddr(addr)))
 }
 

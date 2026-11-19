@@ -43,8 +43,8 @@ type rangeCapReceiptStore struct {
 	mu         sync.Mutex
 	receipts   map[common.Hash]*types.Receipt
 	candidates []*ethtypes.Log
-	latest     int64
-	earliest   int64
+	latest     uint64
+	earliest   uint64
 	// windowCalls records the (fromBlock, toBlock) bounds of every FilterLogs
 	// call, so tests can assert how tryFilterLogsRange split a range into
 	// rangeQueryWindowBlocks-sized windows.
@@ -58,20 +58,20 @@ type rangeCapReceiptStore struct {
 func newRangeCapReceiptStore() *rangeCapReceiptStore {
 	return &rangeCapReceiptStore{
 		receipts: make(map[common.Hash]*types.Receipt),
-		latest:   rangeCapTestHeight,
+		latest:   uint64(rangeCapTestHeight),
 		earliest: 1,
 	}
 }
 
-func (s *rangeCapReceiptStore) LatestVersion() int64   { return s.latest }
-func (s *rangeCapReceiptStore) EarliestVersion() int64 { return s.earliest }
+func (s *rangeCapReceiptStore) LatestVersion() uint64   { return s.latest }
+func (s *rangeCapReceiptStore) EarliestVersion() uint64 { return s.earliest }
 
-func (s *rangeCapReceiptStore) SetLatestVersion(version int64) error {
+func (s *rangeCapReceiptStore) SetLatestVersion(version uint64) error {
 	s.latest = version
 	return nil
 }
 
-func (s *rangeCapReceiptStore) SetEarliestVersion(version int64) error {
+func (s *rangeCapReceiptStore) SetEarliestVersion(version uint64) error {
 	s.earliest = version
 	return nil
 }

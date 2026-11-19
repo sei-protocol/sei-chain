@@ -61,7 +61,7 @@ func NewStorageData() *StorageData {
 // blockHeight, or nil when rawValue is all zeros, which the store records as a deletion.
 //
 // rawValue is copied, so the caller may reuse it.
-func SerializeStorage(blockHeight int64, rawValue []byte) ([]byte, error) {
+func SerializeStorage(blockHeight uint64, rawValue []byte) ([]byte, error) {
 	if len(rawValue) != StorageValueLength {
 		return nil, fmt.Errorf("invalid storage value length: got %d, expected %d",
 			len(rawValue), StorageValueLength)
@@ -72,7 +72,7 @@ func SerializeStorage(blockHeight int64, rawValue []byte) ([]byte, error) {
 	data := make([]byte, storageDataLength)
 	data[storageVersionStart] = byte(StorageDataVersion0)
 	heightBytes := data[storageBlockHeightStart:storageValueStart]
-	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
+	binary.BigEndian.PutUint64(heightBytes, blockHeight)
 	copy(data[storageValueStart:], rawValue)
 	return data, nil
 }
@@ -120,11 +120,11 @@ func (s *StorageData) GetSerializationVersion() StorageDataVersion {
 }
 
 // Get the block height when this storage slot was last modified.
-func (s *StorageData) GetBlockHeight() int64 {
+func (s *StorageData) GetBlockHeight() uint64 {
 	if s == nil {
 		return 0
 	}
-	return int64(binary.BigEndian.Uint64(s.data[storageBlockHeightStart:storageValueStart])) //nolint:gosec // block height is always within int64 range
+	return binary.BigEndian.Uint64(s.data[storageBlockHeightStart:storageValueStart])
 }
 
 // Get the storage slot value.
@@ -146,11 +146,11 @@ func (s *StorageData) IsDelete() bool {
 }
 
 // Set the block height when this storage slot was last modified/touched. Returns self (or a new StorageData if nil).
-func (s *StorageData) SetBlockHeight(blockHeight int64) *StorageData {
+func (s *StorageData) SetBlockHeight(blockHeight uint64) *StorageData {
 	if s == nil {
 		s = NewStorageData()
 	}
-	binary.BigEndian.PutUint64(s.data[storageBlockHeightStart:storageValueStart], uint64(blockHeight)) //nolint:gosec // block height is always non-negative
+	binary.BigEndian.PutUint64(s.data[storageBlockHeightStart:storageValueStart], blockHeight)
 	return s
 }
 

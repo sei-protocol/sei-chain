@@ -58,14 +58,15 @@ func (s *EVMStateStore) scheduleSnapshot(version int64) {
 	if scheduler == nil {
 		return
 	}
-	if !scheduler.ShouldCheckpoint(prunableStoreName, version) {
+	height := uint64(version) //nolint:gosec // acceptCheckpointOffer refuses a non-positive version
+	if !scheduler.ShouldCheckpoint(prunableStoreName, height) {
 		return
 	}
 	// From here the schedule holds this height until it is reported, so every path out has to report
 	// it. An unreported height stops the whole node checkpointing until it restarts.
 	if err := s.startCheckpoint(scheduler, version); err != nil {
 		logger.Error("failed to start EVM state store snapshot", "version", version, "err", err)
-		scheduler.MarkCheckpointComplete(prunableStoreName, version)
+		scheduler.MarkCheckpointComplete(prunableStoreName, height)
 	}
 }
 
@@ -101,7 +102,8 @@ func (s *EVMStateStore) startCheckpoint(scheduler *controller.CheckpointSchedule
 		// applying blocks.
 		go func() {
 			defer s.checkpoint.publishing.Done()
-			defer scheduler.MarkCheckpointComplete(prunableStoreName, version)
+			//nolint:gosec // positive: see scheduleSnapshot
+			defer scheduler.MarkCheckpointComplete(prunableStoreName, uint64(version))
 			s.publishCheckpoint(staged, version, checkpointErr)
 		}()
 	})

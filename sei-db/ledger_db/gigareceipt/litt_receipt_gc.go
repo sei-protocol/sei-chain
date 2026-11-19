@@ -45,9 +45,5 @@ func (s *littReceiptStore) GetRollbackFloor(rollbackWindow uint64) uint64 {
 
 // GetLatestBlock returns the newest block whose receipts have been written, or 0 when none have.
 func (s *littReceiptStore) GetLatestBlock() (uint64, error) {
-	latest := s.latestVersion.Load()
-	if latest <= 0 {
-		return 0, nil
-	}
-	return uint64(latest), nil //nolint:gosec // guarded non-negative above
+	return s.latestVersion.Load(), nil
 }

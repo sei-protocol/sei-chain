@@ -108,7 +108,7 @@ func (v *fakeView) Finalize(uint64, []*proto.KVPair) error {
 
 // fakeViews returns a store view at version backed by one stub per database, as a commit would hand
 // to the writer, alongside the stubs so a test can inspect what the writer did to them.
-func fakeViews(t *testing.T, version int64) (*sview.StoreView, map[string]*fakeView) {
+func fakeViews(t *testing.T, version uint64) (*sview.StoreView, map[string]*fakeView) {
 	t.Helper()
 	stubs := make(map[string]*fakeView, len(dataDBDirs))
 	for _, name := range dataDBDirs {
@@ -122,7 +122,7 @@ func fakeViews(t *testing.T, version int64) (*sview.StoreView, map[string]*fakeV
 
 // bricksOnRelease returns a store view at version whose every view fails to hand a reservation back, for
 // the paths that have to report such a failure rather than only logging it.
-func bricksOnRelease(t *testing.T, version int64) (*sview.StoreView, map[string]*fakeView) {
+func bricksOnRelease(t *testing.T, version uint64) (*sview.StoreView, map[string]*fakeView) {
 	t.Helper()
 	stubs := make(map[string]*fakeView, len(dataDBDirs))
 	for _, name := range dataDBDirs {
@@ -323,7 +323,7 @@ func TestSnapshotWriterReleasesBlocksItDoesNotSnapshot(t *testing.T) {
 	defer func() { require.NoError(t, w.Close()) }()
 
 	all := make([]map[string]*fakeView, 0, 3)
-	for version := int64(1); version <= 3; version++ {
+	for version := uint64(1); version <= 3; version++ {
 		views, stubs := fakeViews(t, version)
 		require.NoError(t, w.Offer(views))
 		all = append(all, stubs)
@@ -374,12 +374,12 @@ func TestSnapshotWriterPruneWaitsForTheWritersGoroutine(t *testing.T) {
 	<-db.started // the goroutine is inside the checkpoint and cannot service a cut line
 
 	require.NoError(t, w.PruneBelow(20))
-	require.Equal(t, []int64{5, 10, 20}, snapshotVersions(t, w.dir),
+	require.Equal(t, []uint64{5, 10, 20}, snapshotVersions(t, w.dir),
 		"nothing may be deleted on the collector's goroutine")
 
 	close(db.release)
 	require.Eventually(t, func() bool {
-		return slices.Equal([]int64{20, 100}, snapshotVersions(t, w.dir))
+		return slices.Equal([]uint64{20, 100}, snapshotVersions(t, w.dir))
 	}, 5*time.Second, 10*time.Millisecond, "the writer deletes once it is free")
 
 	require.NoError(t, w.Close())
@@ -419,7 +419,7 @@ func TestSnapshotWriterPruneFailureBricks(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 
 	require.ErrorContains(t, w.Close(), "resolve active snapshot")
-	require.Equal(t, []int64{5, 10}, snapshotVersions(t, w.dir), "a refused prune deletes nothing")
+	require.Equal(t, []uint64{5, 10}, snapshotVersions(t, w.dir), "a refused prune deletes nothing")
 }
 
 // A store on a schedule takes its heights from the schedule instead of from its own interval, and is
@@ -431,13 +431,13 @@ func TestSnapshotWriterTakesHeightsFromTheSchedule(t *testing.T) {
 	// An interval of 10 declines every version below it, so a snapshot here came from the schedule.
 	w.setCheckpointScheduler(controller.NewCheckpointScheduler(dbconfig.CheckpointConfig{BlockInterval: 3}))
 
-	for version := int64(1); version <= 3; version++ {
+	for version := uint64(1); version <= 3; version++ {
 		views, _ := fakeViews(t, version)
 		require.NoError(t, w.Offer(views))
 	}
 	require.NoError(t, w.Flush())
 
-	require.Equal(t, []int64{3}, snapshotVersions(t, w.dir),
+	require.Equal(t, []uint64{3}, snapshotVersions(t, w.dir),
 		"the schedule's height must be taken and the interval's ignored")
 	require.NoError(t, w.Close())
 }

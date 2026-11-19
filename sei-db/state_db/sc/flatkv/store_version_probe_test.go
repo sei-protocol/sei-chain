@@ -20,7 +20,7 @@ import (
 
 // requireProbeMatchesOpen closes s, asks GetLatestVersion, then reopens and loads. Both answers must
 // agree, and the agreed value is returned so a caller can additionally pin it.
-func requireProbeMatchesOpen(t *testing.T, s *CommitStore, cfg *config.Config) int64 {
+func requireProbeMatchesOpen(t *testing.T, s *CommitStore, cfg *config.Config) uint64 {
 	t.Helper()
 	require.NoError(t, s.Close())
 
@@ -52,22 +52,22 @@ func TestGetLatestVersionNeverOpenedDirIsZero(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), flatkvRootDir)
 	probed, err := GetLatestVersion(dir)
 	require.NoError(t, err)
-	require.Equal(t, int64(0), probed, "a directory that has never been opened reads as 0")
+	require.Equal(t, uint64(0), probed, "a directory that has never been opened reads as 0")
 }
 
 func TestGetLatestVersionFreshStore(t *testing.T) {
 	s, cfg := newProbeStore(t)
-	require.Equal(t, int64(0), requireProbeMatchesOpen(t, s, cfg))
+	require.Equal(t, uint64(0), requireProbeMatchesOpen(t, s, cfg))
 }
 
 func TestGetLatestVersionAfterCommits(t *testing.T) {
 	s, cfg := newProbeStore(t)
-	for i := int64(1); i <= 3; i++ {
+	for i := uint64(1); i <= 3; i++ {
 		require.NoError(t, commitChangeSets(s, i, []*proto.NamedChangeSet{
 			bankPair([]byte("k"), []byte{byte(i)}),
 		}))
 	}
-	require.Equal(t, int64(3), requireProbeMatchesOpen(t, s, cfg))
+	require.Equal(t, uint64(3), requireProbeMatchesOpen(t, s, cfg))
 }
 
 // TestGetLatestVersionWatermarksBehindWAL is the case the previous implementation got wrong, and the
@@ -77,7 +77,7 @@ func TestGetLatestVersionAfterCommits(t *testing.T) {
 // upgrade firing and the node exiting at startup.
 func TestGetLatestVersionWatermarksBehindWAL(t *testing.T) {
 	s, cfg := newProbeStore(t)
-	for i := int64(1); i <= 3; i++ {
+	for i := uint64(1); i <= 3; i++ {
 		require.NoError(t, commitChangeSets(s, i, []*proto.NamedChangeSet{
 			bankPair([]byte("k"), []byte{byte(i)}),
 		}))
@@ -89,11 +89,11 @@ func TestGetLatestVersionWatermarksBehindWAL(t *testing.T) {
 	for _, ndb := range selectDataDBs(t, s, nil) {
 		meta, err := loadLocalMeta(ndb.db)
 		require.NoError(t, err)
-		require.Equal(t, int64(2), meta.CommittedVersion, "%s watermark trails the WAL", ndb.dir)
+		require.Equal(t, uint64(2), meta.CommittedVersion, "%s watermark trails the WAL", ndb.dir)
 	}
 
 	probed := requireProbeMatchesOpen(t, s, cfg)
-	require.Equal(t, int64(3), probed, "the WAL still holds block 3, so the store replays to 3")
+	require.Equal(t, uint64(3), probed, "the WAL still holds block 3, so the store replays to 3")
 }
 
 // TestGetLatestVersionSeededStore covers the state with no WAL entries at all: SetInitialVersion
@@ -101,7 +101,7 @@ func TestGetLatestVersionWatermarksBehindWAL(t *testing.T) {
 func TestGetLatestVersionSeededStore(t *testing.T) {
 	s, cfg := newProbeStore(t)
 	require.NoError(t, s.SetInitialVersion(100))
-	require.Equal(t, int64(99), requireProbeMatchesOpen(t, s, cfg))
+	require.Equal(t, uint64(99), requireProbeMatchesOpen(t, s, cfg))
 }
 
 // TestGetLatestVersionTornSeed pairs the probe with the discard path: a seed interrupted partway
@@ -110,20 +110,20 @@ func TestGetLatestVersionSeededStore(t *testing.T) {
 func TestGetLatestVersionTornSeed(t *testing.T) {
 	s, cfg := newProbeStore(t)
 	stampSeedRecords(t, s, 99, accountDBDir, codeDBDir)
-	require.Equal(t, int64(0), requireProbeMatchesOpen(t, s, cfg))
+	require.Equal(t, uint64(0), requireProbeMatchesOpen(t, s, cfg))
 }
 
 // TestGetLatestVersionSnapshotBehindWAL pins that the snapshot alone is not the answer: with a
 // snapshot well behind the head, the WAL tail carries the version.
 func TestGetLatestVersionSnapshotBehindWAL(t *testing.T) {
 	s, cfg := newProbeStore(t)
-	for i := int64(1); i <= 2; i++ {
+	for i := uint64(1); i <= 2; i++ {
 		require.NoError(t, commitChangeSets(s, i, []*proto.NamedChangeSet{
 			bankPair([]byte("k"), []byte{byte(i)}),
 		}))
 	}
 	require.NoError(t, s.outOfBandSnapshot())
-	for i := int64(3); i <= 5; i++ {
+	for i := uint64(3); i <= 5; i++ {
 		require.NoError(t, commitChangeSets(s, i, []*proto.NamedChangeSet{
 			bankPair([]byte("k"), []byte{byte(i)}),
 		}))
@@ -131,15 +131,15 @@ func TestGetLatestVersionSnapshotBehindWAL(t *testing.T) {
 
 	snapVersion, err := currentSnapshotVersion(cfg.DataDir)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), snapVersion, "fixture precondition: the snapshot trails the head")
-	require.Equal(t, int64(5), requireProbeMatchesOpen(t, s, cfg))
+	require.Equal(t, uint64(2), snapVersion, "fixture precondition: the snapshot trails the head")
+	require.Equal(t, uint64(5), requireProbeMatchesOpen(t, s, cfg))
 }
 
 // TestGetLatestVersionWALWipedAfterSnapshot is the mirror of the case above: with the WAL gone, the
 // snapshot carries the version.
 func TestGetLatestVersionWALWipedAfterSnapshot(t *testing.T) {
 	s, cfg := newProbeStore(t)
-	for i := int64(1); i <= 2; i++ {
+	for i := uint64(1); i <= 2; i++ {
 		require.NoError(t, commitChangeSets(s, i, []*proto.NamedChangeSet{
 			bankPair([]byte("k"), []byte{byte(i)}),
 		}))
@@ -147,7 +147,7 @@ func TestGetLatestVersionWALWipedAfterSnapshot(t *testing.T) {
 	require.NoError(t, s.outOfBandSnapshot())
 	resetWALForTest(t, s)
 
-	require.Equal(t, int64(2), requireProbeMatchesOpen(t, s, cfg))
+	require.Equal(t, uint64(2), requireProbeMatchesOpen(t, s, cfg))
 }
 
 // TestCommitStoreGetLatestVersionUsesMemoryWhileOpen pins that the method short-circuits to the
@@ -160,7 +160,7 @@ func TestCommitStoreGetLatestVersionUsesMemoryWhileOpen(t *testing.T) {
 	require.NoError(t, commitChangeSets(s, 1, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte("v"))}))
 	got, err := s.GetLatestVersion()
 	require.NoError(t, err)
-	require.Equal(t, int64(1), got)
+	require.Equal(t, uint64(1), got)
 }
 
 func TestStoredVersionsNeverOpenedDirIsZero(t *testing.T) {
@@ -193,7 +193,7 @@ func TestStoredVersionsPartiallyCreatedWorkingCopyIsZero(t *testing.T) {
 // follows the WAL, which is the wrong signal for whether a rewind of that working copy needs a snapshot.
 func TestStoredVersionsIgnoreTheWALTail(t *testing.T) {
 	s, cfg := newProbeStore(t)
-	for i := int64(1); i <= 3; i++ {
+	for i := uint64(1); i <= 3; i++ {
 		require.NoError(t, commitChangeSets(s, i, []*proto.NamedChangeSet{
 			bankPair([]byte("k"), []byte{byte(i)}),
 		}))
@@ -203,12 +203,12 @@ func TestStoredVersionsIgnoreTheWALTail(t *testing.T) {
 
 	opensAt, highest, err := StoredVersions(cfg.DataDir)
 	require.NoError(t, err)
-	require.Equal(t, int64(3), opensAt, "the working copy still holds block 3")
-	require.Equal(t, int64(3), highest)
+	require.Equal(t, uint64(3), opensAt, "the working copy still holds block 3")
+	require.Equal(t, uint64(3), highest)
 
 	latest, err := GetLatestVersion(cfg.DataDir)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), latest, "LoadLatest would land on the WAL tail")
+	require.Equal(t, uint64(1), latest, "LoadLatest would land on the WAL tail")
 }
 
 // A commit interrupted partway through its four data DBs is where the two versions have to differ: the
@@ -217,7 +217,7 @@ func TestStoredVersionsIgnoreTheWALTail(t *testing.T) {
 // height and has to discard those rows, so the rewind measures itself against the highest instead.
 func TestStoredVersionsSeeAnInterruptedCommit(t *testing.T) {
 	s, cfg := newProbeStore(t)
-	for i := int64(1); i <= 3; i++ {
+	for i := uint64(1); i <= 3; i++ {
 		require.NoError(t, commitChangeSets(s, i, []*proto.NamedChangeSet{
 			bankPair([]byte("k"), []byte{byte(i)}),
 		}))
@@ -227,6 +227,6 @@ func TestStoredVersionsSeeAnInterruptedCommit(t *testing.T) {
 
 	opensAt, highest, err := StoredVersions(cfg.DataDir)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), opensAt, "the height every data DB agrees on")
-	require.Equal(t, int64(3), highest, "the other data DBs still record block 3")
+	require.Equal(t, uint64(2), opensAt, "the height every data DB agrees on")
+	require.Equal(t, uint64(3), highest, "the other data DBs still record block 3")
 }

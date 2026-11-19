@@ -92,7 +92,7 @@ type CommitStore struct {
 	localMeta map[string]*LocalMeta
 
 	// The height of the most recently committed block. The next Commit must be exactly this plus one.
-	committedVersion int64
+	committedVersion uint64
 
 	// The hash state read off disk at load, which the hash engine is seeded from and which every
 	// hash query answers from until the first block has been finalized. Rebuilt by every path that
@@ -150,7 +150,7 @@ type CommitStore struct {
 	pendingChangeSets []*proto.NamedChangeSet
 
 	// pendingBlockHeight is the height of the buffered block, or 0 when nothing is buffered.
-	pendingBlockHeight int64
+	pendingBlockHeight uint64
 
 	// Writes snapshots off the execution thread. Built by openStores once the view managers exist and
 	// torn down by closeStores, so its lifetime is exactly the window in which the databases it
@@ -405,7 +405,8 @@ func (s *CommitStore) LoadLatest() (retErr error) {
 	obs := s.observeOp("LoadLatest", otelMetrics.OpenLatency).
 		withAttrs(attribute.Bool("read_only", false))
 	defer obs.done(&retErr, func() {
-		otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
+		//nolint:gosec // a metric, not a height
+		otelMetrics.CurrentVersion.Record(s.ctx, int64(s.committedVersion))
 		logger.Info("FlatKV LoadLatest complete", "version", s.committedVersion, "elapsed", obs.elapsed())
 	})
 
@@ -442,7 +443,8 @@ func (s *CommitStore) LoadWorkingCopy() (retErr error) {
 	obs := s.observeOp("LoadWorkingCopy", otelMetrics.OpenLatency).
 		withAttrs(attribute.Bool("read_only", false))
 	defer obs.done(&retErr, func() {
-		otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
+		//nolint:gosec // a metric, not a height
+		otelMetrics.CurrentVersion.Record(s.ctx, int64(s.committedVersion))
 		logger.Info("FlatKV LoadWorkingCopy complete", "version", s.committedVersion, "elapsed", obs.elapsed())
 	})
 
@@ -475,12 +477,12 @@ func (s *CommitStore) LoadWorkingCopy() (retErr error) {
 // CleanupOrphanedReadOnlyDirs is called lazily to acquire it and clean up any leftover directories. When the
 // lock is acquired lazily, ownership is transferred to the returned view so that closing the view releases
 // it; this prevents leaking the lock when the caller never explicitly closes this store.
-func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened gigatypes.LiveStateStore, retErr error) {
+func (s *CommitStore) LoadVersionReadOnly(targetVersion uint64) (opened gigatypes.LiveStateStore, retErr error) {
 	logger.Info("FlatKV LoadVersionReadOnly", "targetVersion", targetVersion)
 	obs := s.observeOp("LoadVersionReadOnly", otelMetrics.OpenLatency, "targetVersion", targetVersion).
 		withAttrs(attribute.Bool("read_only", true))
 	defer obs.done(&retErr, func() {
-		var reached int64
+		var reached uint64
 		if opened != nil {
 			reached = opened.Version()
 		}
@@ -581,7 +583,7 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened gigatypes
 // This clone has a nil WAL of its own, so it does NOT replay: advancing from the snapshot boundary up to
 // targetVersion — and marking the store read-only — is driven by the primary via LoadVersionReadOnly /
 // replayIntoReadOnlyCopy, which feeds the primary's WAL into this clone.
-func (s *CommitStore) openReadOnly(targetVersion int64, owner *SnapshotWriter) (retErr error) {
+func (s *CommitStore) openReadOnly(targetVersion uint64, owner *SnapshotWriter) (retErr error) {
 	s.clearPendingBlock()
 
 	if err := s.cloneSnapshotToWorkDir(targetVersion, owner); err != nil {
@@ -624,7 +626,7 @@ func (s *CommitStore) openReadOnly(targetVersion int64, owner *SnapshotWriter) (
 // pruning that owner also performs: a snapshot resolved on this goroutine can be deleted before the
 // copy has finished reading it. A nil owner means no writer is running against that tree, so there
 // is nothing to serialize against and the copy is done inline.
-func (s *CommitStore) cloneSnapshotToWorkDir(targetVersion int64, owner *SnapshotWriter) error {
+func (s *CommitStore) cloneSnapshotToWorkDir(targetVersion uint64, owner *SnapshotWriter) error {
 	if owner != nil {
 		if err := owner.CloneSnapshot(targetVersion, s.readOnlyWorkDir); err != nil {
 			return fmt.Errorf("create readonly working dir: %w", err)
@@ -645,7 +647,7 @@ func (s *CommitStore) cloneSnapshotToWorkDir(targetVersion int64, owner *Snapsho
 // openTo opens all DBs and catches up via WAL to the given version.
 //   - 0  -> replay to end of WAL (latest).
 //   - >0 -> replay up to (and including) that version.
-func (s *CommitStore) openTo(catchupTarget int64) error {
+func (s *CommitStore) openTo(catchupTarget uint64) error {
 	if err := s.open(); err != nil {
 		return err
 	}
@@ -671,7 +673,7 @@ func (s *CommitStore) rebuildIfAnyDataDBIsUnreachable() error {
 // It is the repair inside LoadLatest, for a store whose WAL an outer context owns: that context hands
 // the head over instead, so nothing here opens the WAL. It has to run before that context replays,
 // which erases the evidence it works from.
-func (s *CommitStore) RebuildIfUnreachable(walHead int64) error {
+func (s *CommitStore) RebuildIfUnreachable(walHead uint64) error {
 	snapshotVersion, err := currentSnapshotVersion(s.flatkvDir())
 	if err != nil {
 		return err
@@ -700,7 +702,7 @@ func (s *CommitStore) RebuildIfTorn() error {
 // The blocks discarded here were never servable. A block present in one data DB and absent from the
 // WAL is a block no consistent state includes, so rebuilding from the snapshot loses nothing that
 // could have been read back — which is why this repairs rather than refusing and taking the node down.
-func (s *CommitStore) rebuildIfAnyDataDBIsAbove(reachable int64) error {
+func (s *CommitStore) rebuildIfAnyDataDBIsAbove(reachable uint64) error {
 	unreachable := make([]string, 0, len(dataDBDirs))
 	for _, dbDir := range dataDBDirs {
 		if meta := s.localMeta[dbDir]; meta.CommittedVersion > reachable {
@@ -780,7 +782,8 @@ func (s *CommitStore) open() (retErr error) {
 		return fmt.Errorf("resolve snapshot dir: %w", err)
 	}
 	if snapVersion, err := parseSnapshotVersion(filepath.Base(snapDir)); err == nil {
-		otelMetrics.CurrentSnapshotHeight.Record(s.ctx, snapVersion)
+		//nolint:gosec // a metric, not a height
+		otelMetrics.CurrentSnapshotHeight.Record(s.ctx, int64(snapVersion))
 	}
 
 	workDir := filepath.Join(dir, workingDirName)
@@ -945,7 +948,7 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 	// own reads onto either pool, for the same reason.
 	open := func(cfg *view.ViewManagerConfig, db seidbtypes.KeyValueDB) (view.ViewManager, error) {
 		// Each store starts at the height its own database holds, which may be past the store-wide version.
-		height := uint64(s.localMeta[cfg.Name].CommittedVersion) //nolint:gosec // versions are non-negative
+		height := s.localMeta[cfg.Name].CommittedVersion
 		store, storeErr := view.NewViewManager(cfg, height, db, s.readPool, s.miscPool, s.sortPool)
 		if storeErr != nil {
 			return nil, fmt.Errorf("failed to create %s view manager: %w", cfg.Name, storeErr)
@@ -1312,13 +1315,13 @@ func (s *CommitStore) requireAlignedDBs() error {
 		s.committedVersion, strings.Join(misaligned, ", "))
 }
 
-func (s *CommitStore) Version() int64 {
+func (s *CommitStore) Version() uint64 {
 	return s.committedVersion
 }
 
 // PendingVersion returns s.pendingBlockHeight: the height of the block currently
 // buffered by ApplyChangeSets, or 0 when there are no buffered writes.
-func (s *CommitStore) PendingVersion() int64 {
+func (s *CommitStore) PendingVersion() uint64 {
 	return s.pendingBlockHeight
 }
 
@@ -1390,19 +1393,19 @@ func (s *CommitStore) CommitPendingBlock() error {
 
 // Importer returns an importer for data from an untrusted source, such as a state sync peer. The import
 // fails unless physical keys arrive in strictly ascending order, which is the order KVExporter emits.
-func (s *CommitStore) Importer(version int64) (types.Importer, error) {
+func (s *CommitStore) Importer(version uint64) (types.Importer, error) {
 	return s.newImporter(version, true)
 }
 
 // TrustedImporter returns an importer for data from a trusted source, such as an offline migration of this
 // node's own state. It accepts physical keys in any order, but each key must appear at most once: a repeat
 // is not detected and leaves the imported hash wrong.
-func (s *CommitStore) TrustedImporter(version int64) (types.Importer, error) {
+func (s *CommitStore) TrustedImporter(version uint64) (types.Importer, error) {
 	return s.newImporter(version, false)
 }
 
 // newImporter prepares the store for an import at version and returns the importer.
-func (s *CommitStore) newImporter(version int64, requireAscendingKeys bool) (types.Importer, error) {
+func (s *CommitStore) newImporter(version uint64, requireAscendingKeys bool) (types.Importer, error) {
 	if s.readOnly {
 		return nil, errReadOnly
 	}
@@ -1469,7 +1472,7 @@ func (s *CommitStore) resetForImport() error {
 		return fmt.Errorf("resetForImport: remove %s: %w", workingDirName, err)
 	}
 
-	if err := traverseSnapshots(dir, true, func(v int64) (bool, error) {
+	if err := traverseSnapshots(dir, true, func(v uint64) (bool, error) {
 		p := filepath.Join(dir, snapshotName(v))
 		if err := atomicRemoveDir(p); err != nil {
 			return false, fmt.Errorf("remove snapshot %s: %w", p, err)

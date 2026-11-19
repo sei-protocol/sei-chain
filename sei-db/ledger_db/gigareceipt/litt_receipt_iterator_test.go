@@ -73,7 +73,7 @@ func writeEmptyLitBlock(t *testing.T, store receipt.ReceiptStore, ctx sdk.Contex
 	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(height), nil))
 	// The write may be applied in the background; the head is how a reader learns that it landed.
 	require.Eventually(t, func() bool {
-		return store.LatestVersion() >= int64(block) //nolint:gosec // small test heights
+		return store.LatestVersion() >= block
 	}, 5*time.Second, time.Millisecond)
 }
 
@@ -163,7 +163,7 @@ func TestReceiptIteratorStartsAtOldestStoredBlock(t *testing.T) {
 
 	blocks := []uint64{5000, 5001, 5002}
 	writeLitBlocks(t, store, ctx, blocks, 2)
-	require.Equal(t, int64(0), store.EarliestVersion(), "a store that was never pruned records no floor")
+	require.Equal(t, uint64(0), store.EarliestVersion(), "a store that was never pruned records no floor")
 
 	require.Equal(t, expectedWalk(blocks, 2), drainReceipts(t, store, 0))
 }

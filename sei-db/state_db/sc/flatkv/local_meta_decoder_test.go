@@ -24,7 +24,7 @@ func TestLocalMetaDecoder(t *testing.T) {
 		}
 		meta, err := loadLocalMeta(db)
 		require.NoError(t, err)
-		require.Equal(t, int64(42), meta.CommittedVersion)
+		require.Equal(t, uint64(42), meta.CommittedVersion)
 		require.True(t, root.Equal(meta.LtHash))
 		require.True(t, root.Equal(meta.ModuleLtHashes["evm"]))
 		require.Equal(t, stats, meta.ModuleStats)
@@ -50,7 +50,7 @@ func TestLocalMetaDecoder(t *testing.T) {
 		decoder.Add(ktype.MetaVersionKey, versionToBytes(7))
 		meta, err := decoder.Finish()
 		require.NoError(t, err)
-		require.Equal(t, int64(7), meta.CommittedVersion)
+		require.Equal(t, uint64(7), meta.CommittedVersion)
 		require.Nil(t, meta.LtHash)
 		require.Empty(t, meta.ModuleLtHashes)
 		require.Empty(t, meta.ModuleStats)

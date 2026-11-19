@@ -32,7 +32,7 @@ const (
 	addressPrefixLen = 29 // bucket[8] | type[1] | address[20]
 	storagePrefixLen = 61 // bucket[8] | type[1] | address[20] | slot[32]
 
-	// Metadata sorts above every bucket reachable by an int64 block height.
+	// Metadata sorts above every bucket a block height can reach.
 	metadataBucket = math.MaxUint64
 )
 

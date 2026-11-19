@@ -94,15 +94,15 @@ func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
 
 // GetBlockHeightModified returns the block height at which the key was last modified.
 // Only supported for EVM keys; non-EVM misc data does not track block height.
-// If not found, returns (-1, false, nil).
-func (s *CommitStore) GetBlockHeightModified(moduleName string, key []byte) (int64, bool, error) {
+// If not found, returns (0, false, nil).
+func (s *CommitStore) GetBlockHeightModified(moduleName string, key []byte) (uint64, bool, error) {
 	// Read lock: the internal getters (getStorageData, getAccountData,
 	// getCodeData) read the stores, which Commit stages a block into under the write lock.
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	if moduleName != keys.EVMStoreKey {
-		return -1, false, fmt.Errorf("block height modified not tracked for module %q", moduleName)
+		return 0, false, fmt.Errorf("block height modified not tracked for module %q", moduleName)
 	}
 
 	kind, keyBytes := keys.ParseEVMKey(key)
@@ -111,34 +111,34 @@ func (s *CommitStore) GetBlockHeightModified(moduleName string, key []byte) (int
 	case keys.EVMKeyStorage:
 		sd, err := s.getStorageData(keyBytes)
 		if err != nil {
-			return -1, false, err
+			return 0, false, err
 		}
 		if sd == nil || sd.IsDelete() {
-			return -1, false, nil
+			return 0, false, nil
 		}
 		return sd.GetBlockHeight(), true, nil
 
 	case keys.EVMKeyNonce, keys.EVMKeyCodeHash, keys.EVMKeyBalance:
 		accountData, err := s.getAccountData(keyBytes)
 		if err != nil {
-			return -1, false, err
+			return 0, false, err
 		}
 		if accountData == nil || accountData.IsDelete() {
-			return -1, false, nil
+			return 0, false, nil
 		}
 		return accountData.GetBlockHeight(), true, nil
 
 	case keys.EVMKeyCode:
 		cd, err := s.getCodeData(keyBytes)
 		if err != nil {
-			return -1, false, err
+			return 0, false, err
 		}
 		if cd == nil || cd.IsDelete() {
-			return -1, false, nil
+			return 0, false, nil
 		}
 		return cd.GetBlockHeight(), true, nil
 	default:
-		return -1, false, fmt.Errorf("block height modified not tracked for key type: %v", kind)
+		return 0, false, fmt.Errorf("block height modified not tracked for key type: %v", kind)
 	}
 }
 

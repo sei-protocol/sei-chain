@@ -26,7 +26,7 @@ func setupSnapshottingStore(t *testing.T, keepRecent uint32) *CommitStore {
 }
 
 // commitToEveryDB commits one block that writes a row to each of the four data databases.
-func commitToEveryDB(t *testing.T, s *CommitStore, n byte) int64 {
+func commitToEveryDB(t *testing.T, s *CommitStore, n byte) uint64 {
 	t.Helper()
 	addr := addrN(n)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
@@ -82,7 +82,7 @@ func regularFiles(t *testing.T, dir string) []string {
 }
 
 func TestSnapshotDirNameRoundTrip(t *testing.T) {
-	for _, v := range []int64{0, 1, 123456, 1<<62 + 7} {
+	for _, v := range []uint64{0, 1, 123456, 1<<62 + 7} {
 		name := SnapshotDirName(v)
 		require.Len(t, name, 29)
 		got, err := ParseSnapshotDirName(name)
@@ -123,7 +123,7 @@ func TestActiveSnapshotVersion(t *testing.T) {
 	require.NoError(t, updateCurrentSymlink(root, SnapshotDirName(7)))
 	v, err := ActiveSnapshotVersion(root)
 	require.NoError(t, err)
-	require.Equal(t, int64(7), v)
+	require.Equal(t, uint64(7), v)
 
 	require.NoError(t, updateCurrentSymlink(root, "snapshot-+0000000000000000007"))
 	_, err = ActiveSnapshotVersion(root)
@@ -148,7 +148,7 @@ func TestSnapshotVersionsListsOnlyCompleteSnapshots(t *testing.T) {
 
 	versions, err := SnapshotVersions(root)
 	require.NoError(t, err)
-	require.Equal(t, []int64{1, 3}, versions)
+	require.Equal(t, []uint64{1, 3}, versions)
 
 	versions, err = SnapshotVersions(filepath.Join(root, "absent"))
 	require.NoError(t, err)
@@ -433,7 +433,7 @@ func TestRootLockClearStoppedLeavesALoadableRoot(t *testing.T) {
 		externalWAL bool
 		// rewindTo, when not 0, points current at that snapshot and keeps the snapshots above it, as a
 		// rollback that stopped before it removed them leaves the root.
-		rewindTo int64
+		rewindTo uint64
 	}{
 		{name: "snapshot interval 1", interval: 1},
 		// The only snapshot is version 0, so the working copy and the WAL hold every block.
@@ -459,7 +459,7 @@ func TestRootLockClearStoppedLeavesALoadableRoot(t *testing.T) {
 				cfg.SnapshotInterval = tc.interval
 				cfg.SnapshotKeepRecent = 10
 				s := open(t, cfg)
-				hashes := map[int64][]byte{0: rootHash(s)}
+				hashes := map[uint64][]byte{0: rootHash(s)}
 				for n := byte(1); n <= 3; n++ {
 					v := commitToEveryDB(t, s, n)
 					hashes[v] = rootHash(s)

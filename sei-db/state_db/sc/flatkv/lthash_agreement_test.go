@@ -58,7 +58,7 @@ type modelAccount struct {
 	balance     vtype.Balance
 	nonce       uint64
 	codeHash    vtype.CodeHash
-	blockHeight int64
+	blockHeight uint64
 }
 
 // isEmpty reports whether every hashed field is zero, which is what makes the row a deletion.
@@ -82,13 +82,13 @@ func (a modelAccount) isEmpty() bool {
 // modelStorage is one storage slot's logical value.
 type modelStorage struct {
 	value       [32]byte
-	blockHeight int64
+	blockHeight uint64
 }
 
 // modelBytes is one code or misc row's logical value.
 type modelBytes struct {
 	value       []byte
-	blockHeight int64
+	blockHeight uint64
 }
 
 // stateModel tracks the rows flatKV should hold, keyed by physical key, one map per database.
@@ -207,7 +207,7 @@ type accountEdit struct {
 //
 // Several calls may share a height, in which case each folds onto the previous one's result — which is
 // what the store does too, since it re-reads accounts live rather than from the committed version.
-func (m *stateModel) apply(t *testing.T, blockHeight int64, changeSets []*proto.NamedChangeSet) {
+func (m *stateModel) apply(t *testing.T, blockHeight uint64, changeSets []*proto.NamedChangeSet) {
 	t.Helper()
 
 	// Within one call the last write for a physical key wins. Accounts additionally accumulate across the
@@ -641,7 +641,7 @@ func sortedKeys(m map[string][]byte) []string {
 //
 // The count is returned so callers can assert the stream was not empty: an empty destination would
 // compare equal to an empty source and the whole suite would pass vacuously.
-func importFromInto(t *testing.T, src *CommitStore, dst *CommitStore, version int64) int {
+func importFromInto(t *testing.T, src *CommitStore, dst *CommitStore, version uint64) int {
 	t.Helper()
 
 	exp, err := src.Exporter(version)
@@ -868,7 +868,7 @@ func (w *agreementWorkload) planBlock() blockPlan {
 }
 
 // nextBlock produces the changesets for one block, honouring the block's plan.
-func (w *agreementWorkload) nextBlock(height int64) []*proto.NamedChangeSet {
+func (w *agreementWorkload) nextBlock(height uint64) []*proto.NamedChangeSet {
 	plan := w.planBlock()
 	b := newBlockBuilder()
 
@@ -974,14 +974,14 @@ func (w *agreementWorkload) randomMiscCoord() miscCoord {
 }
 
 // emitCreate writes a row that does not exist yet, choosing a database at random.
-func (w *agreementWorkload) emitCreate(b *blockBuilder, height int64, i int) {
+func (w *agreementWorkload) emitCreate(b *blockBuilder, height uint64, i int) {
 	switch w.rng.Intn(6) {
 	case 0: // a fresh EOA: nonce only, so the 49-byte account form is exercised
 		addr, ok := w.freshAddr()
 		if !ok {
 			return
 		}
-		nonce := uint64(height)*1000 + uint64(i) + 1
+		nonce := height*1000 + uint64(i) + 1
 		b.evmPair(noncePair(addr, nonce))
 		w.setNonce(addr, nonce)
 	case 1: // a fresh contract: nonce and codehash together, so the 81-byte form is exercised
@@ -989,7 +989,7 @@ func (w *agreementWorkload) emitCreate(b *blockBuilder, height int64, i int) {
 		if !ok {
 			return
 		}
-		nonce := uint64(height)*1000 + uint64(i) + 1
+		nonce := height*1000 + uint64(i) + 1
 		b.evmPair(noncePair(addr, nonce))
 		b.evmPair(codeHashPair(addr, codeHashN(byte(i%251)+1)))
 		w.setNonce(addr, nonce)
@@ -1052,7 +1052,7 @@ func (w *agreementWorkload) addrWithoutCode() (ktype.Address, bool) {
 }
 
 // emitUpdate rewrites a row that already exists.
-func (w *agreementWorkload) emitUpdate(b *blockBuilder, height int64, i int) {
+func (w *agreementWorkload) emitUpdate(b *blockBuilder, height uint64, i int) {
 	switch w.rng.Intn(6) {
 	case 0: // bump an existing account's nonce alone, which must preserve its codehash
 		addr, ok := w.liveAccounts.sample(w.rng)
@@ -1179,7 +1179,7 @@ func (w *agreementWorkload) emitAbsentDelete(b *blockBuilder) {
 
 // storageValue builds a storage value that is never all-zero, since an all-zero value is a delete and
 // would silently turn a write into a removal.
-func (w *agreementWorkload) storageValue(height int64, i int) []byte {
+func (w *agreementWorkload) storageValue(height uint64, i int) []byte {
 	return []byte{0x01, byte(height), byte(i)}
 }
 
@@ -1253,7 +1253,7 @@ func TestLtHashAgreementRegularOperations(t *testing.T) {
 	model := newStateModel()
 	workload := newAgreementWorkload(rng)
 
-	for height := int64(1); height <= agreementBlocks; height++ {
+	for height := uint64(1); height <= agreementBlocks; height++ {
 		changeSets := workload.nextBlock(height)
 
 		// Sometimes split a block across two ApplyChangeSets calls: the store re-reads accounts live
@@ -1304,7 +1304,7 @@ func TestLtHashAgreementImport(t *testing.T) {
 	comparator := newStoreComparator()
 	totalImported := 0
 
-	for height := int64(1); height <= agreementBlocks; height++ {
+	for height := uint64(1); height <= agreementBlocks; height++ {
 		changeSets := workload.nextBlock(height)
 		if len(changeSets) > 0 {
 			require.NoError(t, src.ApplyChangeSets(height, changeSets))
@@ -1349,7 +1349,7 @@ func TestLtHashAgreementImportThenCommit(t *testing.T) {
 
 	// Build a few blocks of history, then hand it to a fresh store by import.
 	const importAt = 6
-	for height := int64(1); height <= importAt; height++ {
+	for height := uint64(1); height <= importAt; height++ {
 		changeSets := workload.nextBlock(height)
 		if len(changeSets) > 0 {
 			require.NoError(t, src.ApplyChangeSets(height, changeSets))
@@ -1371,7 +1371,7 @@ func TestLtHashAgreementImportThenCommit(t *testing.T) {
 
 	// Now drive both forward over the same blocks. The imported store has no WAL history and a
 	// baseline sealed before the import; the source has neither peculiarity.
-	for height := int64(importAt + 1); height <= agreementBlocks; height++ {
+	for height := uint64(importAt + 1); height <= agreementBlocks; height++ {
 		changeSets := workload.nextBlock(height)
 		if len(changeSets) > 0 {
 			require.NoError(t, src.ApplyChangeSets(height, changeSets))

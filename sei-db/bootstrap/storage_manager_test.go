@@ -112,7 +112,7 @@ func TestHistoricalStateDBDisabledRefusesAStoreWithHistory(t *testing.T) {
 	cfg.SSConfig.Enable = true
 	second, err := NewGigaStorageManager(t.Context(), cfg)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), historicalStateDB(second).GetLatestVersion())
+	require.Equal(t, uint64(2), historicalStateDB(second).GetLatestVersion())
 	require.ErrorContains(t, second.Close(), "the receipt store stands at block 0",
 		"state was written with no receipts, so the shutdown is not clean")
 }
@@ -249,8 +249,8 @@ func TestStateDBCommitsToWALAndLiveSC(t *testing.T) {
 	commitBlock(t, manager, 1, changes)
 	historicalStateDB(manager).WaitForPendingWrites()
 
-	require.Equal(t, int64(1), manager.StateDB().SC().Version())
-	require.Equal(t, int64(1), historicalStateDB(manager).GetLatestVersion(),
+	require.Equal(t, uint64(1), manager.StateDB().SC().Version())
+	require.Equal(t, uint64(1), historicalStateDB(manager).GetLatestVersion(),
 		"a committed block must advance the EVM state store even when it carries no EVM keys")
 	ok, first, last, err := manager.StateDB().WAL().GetStoredRange()
 	require.NoError(t, err)
@@ -265,7 +265,7 @@ func TestStateDBCommitsEVMChangesToSS(t *testing.T) {
 	commitBlock(t, manager, 1, evmBlock(1, 1))
 	historicalStateDB(manager).WaitForPendingWrites()
 
-	require.Equal(t, int64(1), historicalStateDB(manager).GetLatestVersion())
+	require.Equal(t, uint64(1), historicalStateDB(manager).GetLatestVersion())
 	view, ok := manager.StateDB().OpenViewAt(1)
 	require.True(t, ok)
 	defer view.Close()

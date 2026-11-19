@@ -68,7 +68,7 @@ func (s *stubView) AwaitFlush(ctx context.Context) error {
 
 // bricksOnRelease builds a store view over stubs that all fail to release, and returns the stubs so a
 // test can count the attempts.
-func bricksOnRelease(t *testing.T, version int64) (*StoreView, map[string]*stubView) {
+func bricksOnRelease(t *testing.T, version uint64) (*StoreView, map[string]*stubView) {
 	t.Helper()
 	stubs := make(map[string]*stubView, len(dataDBDirs))
 	for _, name := range dataDBDirs {

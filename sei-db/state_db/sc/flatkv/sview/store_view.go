@@ -29,12 +29,12 @@ type StoreView struct {
 	viewSlice []view.View
 
 	// The block height this view is targeted on.
-	blockHeight int64
+	blockHeight uint64
 }
 
 // NewStoreView() describes the state of every store at blockHeight.
 func NewStoreView(
-	blockHeight int64,
+	blockHeight uint64,
 	accountStoreView view.View,
 	codeStoreView view.View,
 	storageStoreView view.View,
@@ -66,7 +66,7 @@ func NewStoreView(
 }
 
 // BlockHeight() returns the block height this view is targeted on.
-func (sv *StoreView) BlockHeight() int64 {
+func (sv *StoreView) BlockHeight() uint64 {
 	return sv.blockHeight
 }
 
@@ -75,8 +75,7 @@ func (sv *StoreView) BlockHeight() int64 {
 // a defensive check against external use before consistency is properly restored.
 func (sv *StoreView) RequireAligned() error {
 	for _, dbView := range sv.viewSlice {
-		//nolint:gosec // block heights are non-negative
-		if dbView.BlockHeight() != uint64(sv.blockHeight) {
+		if dbView.BlockHeight() != sv.blockHeight {
 			return fmt.Errorf("%s view holds block %d, not block %d",
 				dbView.Name(), dbView.BlockHeight(), sv.blockHeight)
 		}

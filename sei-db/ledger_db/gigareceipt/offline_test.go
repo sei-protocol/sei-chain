@@ -119,7 +119,7 @@ func TestOfflinePruneAfter(t *testing.T) {
 	store, ctx = setupLittIdx(t, dir)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 
-	require.Equal(t, int64(keepThrough), store.LatestVersion())
+	require.Equal(t, uint64(keepThrough), store.LatestVersion())
 
 	for block := uint64(1); block <= count; block++ {
 		r, err := store.GetReceiptFromStore(ctx, litTxHash(block, 0))
@@ -189,7 +189,7 @@ func TestOfflinePruneAfterNoOp(t *testing.T) {
 
 	store, ctx = setupLittIdx(t, dir)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
-	require.Equal(t, int64(count), store.LatestVersion())
+	require.Equal(t, uint64(count), store.LatestVersion())
 	for block := uint64(1); block <= count; block++ {
 		r, err := store.GetReceiptFromStore(ctx, litTxHash(block, 0))
 		require.NoError(t, err)
@@ -226,8 +226,8 @@ func TestOfflinePruneAfterBelowRetentionFloor(t *testing.T) {
 
 	store, ctx = setupLittIdx(t, dir)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
-	require.Equal(t, int64(3), store.LatestVersion())
-	require.Equal(t, int64(3), store.EarliestVersion(), "the floor must drop to the target")
+	require.Equal(t, uint64(3), store.LatestVersion())
+	require.Equal(t, uint64(3), store.EarliestVersion(), "the floor must drop to the target")
 	writeLitBlock(t, store, ctx, 4, litReceipt(4, 0, addr, topic))
 	r, err := store.GetReceiptFromStore(ctx, litTxHash(4, 0))
 	require.NoError(t, err)
@@ -314,7 +314,7 @@ func TestOfflinePruneAfterRefusesBelowOldestReceipt(t *testing.T) {
 	store, ctx = setupLittIdx(t, dir)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 
-	require.Equal(t, int64(highest), store.LatestVersion())
+	require.Equal(t, uint64(highest), store.LatestVersion())
 	for block := uint64(lowest); block <= highest; block++ {
 		r, err := store.GetReceiptFromStore(ctx, litTxHash(block, 0))
 		require.NoErrorf(t, err, "block %d should still be readable", block)

@@ -44,7 +44,7 @@ func TestSerializationGoldenFile_V0_Full(t *testing.T) {
 
 	rt, err := DeserializeAccountData(serialized)
 	require.NoError(t, err)
-	require.Equal(t, int64(100), rt.GetBlockHeight())
+	require.Equal(t, uint64(100), rt.GetBlockHeight())
 	require.Equal(t, uint64(42), rt.GetNonce())
 	require.Equal(t, toBalance(leftPad32([]byte{1})), rt.GetBalance())
 	require.Equal(t, toCodeHash(bytes.Repeat([]byte{0xaa}, 32)), rt.GetCodeHash())
@@ -63,7 +63,7 @@ func TestSerializationGoldenFile_V0_Compact(t *testing.T) {
 
 	rt, err := DeserializeAccountData(serialized)
 	require.NoError(t, err)
-	require.Equal(t, int64(100), rt.GetBlockHeight())
+	require.Equal(t, uint64(100), rt.GetBlockHeight())
 	require.Equal(t, uint64(42), rt.GetNonce())
 	require.Equal(t, toBalance(leftPad32([]byte{1})), rt.GetBalance())
 	var zeroHash CodeHash
@@ -74,7 +74,7 @@ func TestNewAccountData_ZeroInitialized(t *testing.T) {
 	ad := NewAccountData()
 	var zero [32]byte
 	require.Equal(t, AccountDataVersion0, ad.GetSerializationVersion())
-	require.Equal(t, int64(0), ad.GetBlockHeight())
+	require.Equal(t, uint64(0), ad.GetBlockHeight())
 	require.Equal(t, uint64(0), ad.GetNonce())
 	require.Equal(t, (*Balance)(&zero), ad.GetBalance())
 	require.Equal(t, (*CodeHash)(&zero), ad.GetCodeHash())
@@ -102,7 +102,7 @@ func TestRoundTrip_AllFieldsSet(t *testing.T) {
 
 	rt, err := DeserializeAccountData(ad.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, int64(999), rt.GetBlockHeight())
+	require.Equal(t, uint64(999), rt.GetBlockHeight())
 	require.Equal(t, uint64(12345), rt.GetNonce())
 	require.Equal(t, balance, rt.GetBalance())
 	require.Equal(t, codeHash, rt.GetCodeHash())
@@ -115,7 +115,7 @@ func TestRoundTrip_ZeroValues(t *testing.T) {
 	rt, err := DeserializeAccountData(serialized)
 	require.NoError(t, err)
 	var zero [32]byte
-	require.Equal(t, int64(0), rt.GetBlockHeight())
+	require.Equal(t, uint64(0), rt.GetBlockHeight())
 	require.Equal(t, uint64(0), rt.GetNonce())
 	require.Equal(t, (*Balance)(&zero), rt.GetBalance())
 	require.Equal(t, (*CodeHash)(&zero), rt.GetCodeHash())
@@ -132,7 +132,7 @@ func TestRoundTrip_CompactWithNonZeroFields(t *testing.T) {
 
 	rt, err := DeserializeAccountData(serialized)
 	require.NoError(t, err)
-	require.Equal(t, int64(500), rt.GetBlockHeight())
+	require.Equal(t, uint64(500), rt.GetBlockHeight())
 	require.Equal(t, uint64(77), rt.GetNonce())
 	require.Equal(t, toBalance(leftPad32([]byte{0x42})), rt.GetBalance())
 	var zeroHash CodeHash
@@ -143,7 +143,7 @@ func TestRoundTrip_MaxValues(t *testing.T) {
 	maxBalance := toBalance(bytes.Repeat([]byte{0xff}, 32))
 	maxCodeHash := toCodeHash(bytes.Repeat([]byte{0xff}, 32))
 	maxNonce := uint64(0xffffffffffffffff)
-	maxBlockHeight := int64(math.MaxInt64)
+	maxBlockHeight := uint64(math.MaxUint64)
 
 	ad := NewAccountData().
 		SetBlockHeight(maxBlockHeight).
@@ -223,7 +223,7 @@ func TestSetterChaining(t *testing.T) {
 		SetNonce(3).
 		SetCodeHash(toCodeHash(leftPad32([]byte{4})))
 
-	require.Equal(t, int64(1), ad.GetBlockHeight())
+	require.Equal(t, uint64(1), ad.GetBlockHeight())
 	require.Equal(t, uint64(3), ad.GetNonce())
 }
 
@@ -236,7 +236,7 @@ func TestNilAccountData_Getters(t *testing.T) {
 	var zero [32]byte
 
 	require.Equal(t, AccountDataVersion0, ad.GetSerializationVersion())
-	require.Equal(t, int64(0), ad.GetBlockHeight())
+	require.Equal(t, uint64(0), ad.GetBlockHeight())
 	require.Equal(t, uint64(0), ad.GetNonce())
 	require.Equal(t, (*Balance)(&zero), ad.GetBalance())
 	require.Equal(t, (*CodeHash)(&zero), ad.GetCodeHash())
@@ -275,7 +275,7 @@ func TestNilAccountData_SettersAutoCreate(t *testing.T) {
 	var a1 *AccountData
 	a1 = a1.SetBlockHeight(42)
 	require.NotNil(t, a1)
-	require.Equal(t, int64(42), a1.GetBlockHeight())
+	require.Equal(t, uint64(42), a1.GetBlockHeight())
 
 	var a2 *AccountData
 	a2 = a2.SetNonce(7)

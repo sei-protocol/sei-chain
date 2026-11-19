@@ -128,7 +128,8 @@ func maybeCollectFlatKV(flatkvDir, dbDir, module string, height int64) (*FlatKVS
 	}
 
 	fmt.Printf("\nAnalyzing FlatKV at %s (requested height: %d)\n", dir, height)
-	store, err := openFlatKVReadOnly(dir, height)
+	//nolint:gosec // memiavl.OpenDB already refused a negative height
+	store, err := openFlatKVReadOnly(dir, uint64(height))
 	if err != nil {
 		fmt.Printf("FlatKV analysis skipped: %v\n", err)
 		return nil, 0
@@ -142,7 +143,7 @@ func maybeCollectFlatKV(flatkvDir, dbDir, module string, height int64) (*FlatKVS
 		fmt.Printf("FlatKV analysis skipped: %v\n", err)
 		return nil, 0
 	}
-	return result, actualHeight
+	return result, int64(actualHeight) //nolint:gosec // block heights never approach the int64 ceiling
 }
 
 // collectModuleStats collects all the statistics for a module

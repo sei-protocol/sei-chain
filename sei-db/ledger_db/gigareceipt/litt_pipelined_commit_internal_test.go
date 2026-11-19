@@ -74,7 +74,7 @@ func TestPipelinedWriteAcceptsAnotherPartOfTheBlockInFlight(t *testing.T) {
 	close(index.release)
 	require.NoError(t, <-result)
 	require.NoError(t, s.Close())
-	require.Equal(t, int64(2), s.LatestVersion())
+	require.Equal(t, uint64(2), s.LatestVersion())
 }
 
 // TestPipelinedCommitFailureHoldsTheHead covers a background index commit that fails: the next block is
@@ -105,9 +105,9 @@ func TestPipelinedCommitFailureHoldsTheHead(t *testing.T) {
 	require.ErrorIs(t, s.SetReceipts(newTestCtxAtHeight(3),
 		[]receipt.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}), errIndexCommit)
 	require.ErrorIs(t, s.Close(), errIndexCommit)
-	require.Equal(t, int64(1), s.LatestVersion())
+	require.Equal(t, uint64(1), s.LatestVersion())
 
-	require.Equal(t, int64(1), openPipelinedStore(t, dir).LatestVersion())
+	require.Equal(t, uint64(1), openPipelinedStore(t, dir).LatestVersion())
 }
 
 // Flush returns only once every write queued before it has landed, its index commit included, so the
@@ -126,5 +126,5 @@ func TestFlushWaitsForEveryQueuedWrite(t *testing.T) {
 	close(index.release)
 
 	require.NoError(t, s.Flush())
-	require.Equal(t, int64(2), s.LatestVersion())
+	require.Equal(t, uint64(2), s.LatestVersion())
 }

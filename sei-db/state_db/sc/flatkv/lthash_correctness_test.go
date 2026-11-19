@@ -270,7 +270,7 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 	verifyLtHashAtHeight(t, s, 100)
 }
 
-func verifyLtHashAtHeight(t *testing.T, s *CommitStore, height int64) {
+func verifyLtHashAtHeight(t *testing.T, s *CommitStore, height uint64) {
 	t.Helper()
 	require.Equal(t, height, s.Version(), "unexpected version")
 
@@ -591,7 +591,7 @@ func TestLtHashPersistenceAfterReopen(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(10), s2.Version())
+	require.Equal(t, uint64(10), s2.Version())
 	scan := fullScanLtHash(t, s2)
 	require.True(t, s2.maintainedHashes().Global.Equal(scan),
 		fmt.Sprintf("LtHash mismatch after reopen:\n  persisted checksum: %x\n  fullscan  checksum: %x",
@@ -1096,7 +1096,7 @@ func TestRootHashReportsTheCommittedBlock(t *testing.T) {
 	defer s.Close()
 
 	empty, emptyVersion := rootHashAndVersion(s)
-	require.Equal(t, int64(0), emptyVersion, "a store with no commits describes height 0")
+	require.Equal(t, uint64(0), emptyVersion, "a store with no commits describes height 0")
 
 	// Block 1: create state.
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
@@ -1105,7 +1105,7 @@ func TestRootHashReportsTheCommittedBlock(t *testing.T) {
 			storagePair(addrN(1), slotN(1), []byte{0xAA}),
 		),
 	}))
-	require.Equal(t, int64(0), s.Version(), "ApplyChangeSets alone must not commit")
+	require.Equal(t, uint64(0), s.Version(), "ApplyChangeSets alone must not commit")
 
 	// A block that has not been sealed has no hash to report, so the store still describes the
 	// previous height.
@@ -1116,14 +1116,14 @@ func TestRootHashReportsTheCommittedBlock(t *testing.T) {
 	commitAndCheck(t, s)
 	hash, hashVersion := rootHashAndVersion(s)
 	require.NotEqual(t, empty, hash, "committing a block that changes state changes the hash")
-	require.Equal(t, int64(1), hashVersion)
+	require.Equal(t, uint64(1), hashVersion)
 	require.Empty(t, s.pendingChangeSets, "the commit consumes the pending block")
 	verifyLtHashAtHeight(t, s, 1)
 
 	// The Commit that Cosmos issues afterwards finds the block already committed and changes nothing.
 	v, err := s.Commit(1)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), v)
+	require.Equal(t, uint64(1), v)
 	again, againVersion := rootHashAndVersion(s)
 	require.Equal(t, hash, again)
 	require.Equal(t, hashVersion, againVersion)
@@ -1134,7 +1134,7 @@ func TestRootHashReportsTheCommittedBlock(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 	require.NotEqual(t, hash, rootHash(s), "a block that changes state changes the hash")
-	require.Equal(t, int64(2), s.Version())
+	require.Equal(t, uint64(2), s.Version())
 	verifyLtHashAtHeight(t, s, 2)
 
 	// Block 3: an empty block commits and leaves the hash where it was.
@@ -1143,7 +1143,7 @@ func TestRootHashReportsTheCommittedBlock(t *testing.T) {
 	commitAndCheck(t, s)
 	after, afterVersion := rootHashAndVersion(s)
 	require.Equal(t, before, after, "an empty block must not change the hash")
-	require.Equal(t, int64(3), afterVersion)
+	require.Equal(t, uint64(3), afterVersion)
 }
 
 // =============================================================================
@@ -1183,7 +1183,7 @@ func TestLtHashReadOnlyMatchesParent(t *testing.T) {
 	require.NoError(t, err)
 	defer ro.Close()
 
-	require.Equal(t, int64(5), ro.Version())
+	require.Equal(t, uint64(5), ro.Version())
 	require.Equal(t, parentHash, rootHash(ro), "read-only root hash should match parent")
 
 	// Full-scan the read-only store's DBs
@@ -1259,7 +1259,7 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 	}
 	require.NoError(t, imp.Close())
 
-	require.Equal(t, int64(1), s2.Version())
+	require.Equal(t, uint64(1), s2.Version())
 	require.Equal(t, srcHash, rootHash(s2),
 		"imported store RootHash should match source")
 	verifyLtHashAtHeight(t, s2, 1)
@@ -1308,7 +1308,7 @@ func TestLtHashSnapshotCatchupFullScan(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(7), s2.Version())
+	require.Equal(t, uint64(7), s2.Version())
 	require.Equal(t, expectedHash, rootHash(s2),
 		"RootHash should survive snapshot + WAL catchup")
 	verifyLtHashAtHeight(t, s2, 7)
@@ -1345,7 +1345,7 @@ func TestLtHashRollbackFullScan(t *testing.T) {
 
 	// Rollback to v5
 	require.NoError(t, s.Rollback(5))
-	require.Equal(t, int64(5), s.Version())
+	require.Equal(t, uint64(5), s.Version())
 	require.Equal(t, hashAtV5, rootHash(s),
 		"RootHash after rollback should match pre-rollback v5 hash")
 	verifyLtHashAtHeight(t, s, 5)
@@ -1424,7 +1424,7 @@ func TestLtHashMultipleRollbacks(t *testing.T) {
 
 	// Rollback to v5
 	require.NoError(t, s.Rollback(5))
-	require.Equal(t, int64(5), s.Version())
+	require.Equal(t, uint64(5), s.Version())
 	verifyLtHashAtHeight(t, s, 5)
 
 	// New timeline: blocks 6-8 with different data (round+100)
@@ -1439,7 +1439,7 @@ func TestLtHashMultipleRollbacks(t *testing.T) {
 		commitAndCheck(t, s)
 	}
 
-	require.Equal(t, int64(8), s.Version())
+	require.Equal(t, uint64(8), s.Version())
 	verifyLtHashAtHeight(t, s, 8)
 
 	require.NoError(t, s.Close())

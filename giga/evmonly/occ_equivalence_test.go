@@ -299,7 +299,7 @@ type emptyPriorState struct {
 	gigatypes.StateView
 }
 
-func (emptyPriorState) GetBlockHeight() int64 { return 0 }
+func (emptyPriorState) GetBlockHeight() uint64 { return 0 }
 
 func (emptyPriorState) BatchGetRaw([][]byte) map[string][]byte { return map[string][]byte{} }
 

@@ -34,7 +34,7 @@ type namedDB struct {
 
 // rewindVersionRecords rewrites every data DB's version record, lowering the
 // store's watermark the way a torn commit does. Pass one dir to skew a single DB.
-func rewindVersionRecords(t *testing.T, s *CommitStore, version int64, dirs ...string) {
+func rewindVersionRecords(t *testing.T, s *CommitStore, version uint64, dirs ...string) {
 	t.Helper()
 	for _, ndb := range selectDataDBs(t, s, dirs) {
 		require.NoError(t, ndb.db.Set(ktype.MetaVersionKey, versionToBytes(version),
@@ -46,7 +46,7 @@ func rewindVersionRecords(t *testing.T, s *CommitStore, version int64, dirs ...s
 // and the identity root — straight into the named data DBs. Stamping a subset
 // reproduces a seed that crashed partway through its four writes, a state the
 // public API cannot produce because a successful seed also writes a snapshot.
-func stampSeedRecords(t *testing.T, s *CommitStore, version int64, dirs ...string) {
+func stampSeedRecords(t *testing.T, s *CommitStore, version uint64, dirs ...string) {
 	t.Helper()
 	opts := types.WriteOptions{Sync: true}
 	for _, ndb := range selectDataDBs(t, s, dirs) {
@@ -187,7 +187,7 @@ func setupTestStoreWithConfig(t *testing.T, cfg *config.Config) *CommitStore {
 // Snapshots are written off the execution thread for the same reason, so the wait covers them too: a
 // test that commits past SnapshotInterval and then looks at the snapshot tree would otherwise be
 // racing the writer.
-func commitAndCheck(t *testing.T, s *CommitStore) int64 {
+func commitAndCheck(t *testing.T, s *CommitStore) uint64 {
 	t.Helper()
 	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
@@ -216,11 +216,10 @@ func restoreDataDB(t *testing.T, cfg *config.Config, dbName string, copied strin
 
 // commitChangeSets commits changeSets as block version through CommitStateChanges, converting them to mutations
 // against the store's current state.
-func commitChangeSets(s *CommitStore, version int64, changeSets []*proto.NamedChangeSet) error {
+func commitChangeSets(s *CommitStore, version uint64, changeSets []*proto.NamedChangeSet) error {
 	prior := s.OpenView()
 	defer prior.Close()
-	//nolint:gosec // test heights are small
-	mutations, err := MutationsFromChangeSets(changeSets, uint64(version), prior)
+	mutations, err := MutationsFromChangeSets(changeSets, version, prior)
 	if err != nil {
 		return fmt.Errorf("convert block %d to mutations: %w", version, err)
 	}
@@ -229,7 +228,7 @@ func commitChangeSets(s *CommitStore, version int64, changeSets []*proto.NamedCh
 
 // commitBuffered commits the block ApplyChangeSets buffered without waiting for it to reach disk, so later reads
 // go through the stores' unflushed versions.
-func commitBuffered(t *testing.T, s *CommitStore) int64 {
+func commitBuffered(t *testing.T, s *CommitStore) uint64 {
 	t.Helper()
 	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
@@ -255,7 +254,7 @@ func rootHash(s gigatypes.LiveStateStore) []byte {
 
 // rootHashAndVersion is rootHash paired with the height it describes, for the tests that assert on
 // both. Reading them after the same flush is what makes them describe one moment.
-func rootHashAndVersion(s gigatypes.LiveStateStore) ([]byte, int64) {
+func rootHashAndVersion(s gigatypes.LiveStateStore) ([]byte, uint64) {
 	return rootHash(s), s.Version()
 }
 

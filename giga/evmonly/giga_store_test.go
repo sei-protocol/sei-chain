@@ -20,11 +20,11 @@ type recordingGigaStore struct {
 	snapshot    gigatypes.StateView
 	openCount   int
 	commitErr   error
-	commitBlock []int64
+	commitBlock []uint64
 	commits     []*gigatypes.StateChangeSet
 }
 
-func (s *recordingGigaStore) CommitStateChanges(blockNum int64, changes *gigatypes.StateChangeSet) error {
+func (s *recordingGigaStore) CommitStateChanges(blockNum uint64, changes *gigatypes.StateChangeSet) error {
 	s.commitBlock = append(s.commitBlock, blockNum)
 	s.commits = append(s.commits, changes)
 	return s.commitErr
@@ -39,14 +39,14 @@ func (s *recordingGigaStore) RegisterHashListener(gigatypes.HashListener) (lthas
 	return lthash.BlockHash{}, nil
 }
 
-func (s *recordingGigaStore) OpenViewAt(int64) (gigatypes.StateView, bool) {
+func (s *recordingGigaStore) OpenViewAt(uint64) (gigatypes.StateView, bool) {
 	return nil, false
 }
 
 func (s *recordingGigaStore) Close() error { return nil }
 
 type memoryGigaSnapshot struct {
-	height     int64
+	height     uint64
 	balances   map[common.Address]common.Hash
 	nonces     map[common.Address]uint64
 	code       map[common.Address][]byte
@@ -59,7 +59,7 @@ type gigaStorageKey struct {
 	key     common.Hash
 }
 
-func newMemoryGigaSnapshot(height int64) *memoryGigaSnapshot {
+func newMemoryGigaSnapshot(height uint64) *memoryGigaSnapshot {
 	return &memoryGigaSnapshot{
 		height:   height,
 		balances: map[common.Address]common.Hash{},
@@ -119,7 +119,7 @@ func (s *memoryGigaSnapshot) ReadAccount(address gigatypes.Address) (gigatypes.A
 	}, true
 }
 
-func (s *memoryGigaSnapshot) GetBlockHeight() int64 {
+func (s *memoryGigaSnapshot) GetBlockHeight() uint64 {
 	return s.height
 }
 
@@ -246,7 +246,7 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 	require.Equal(t, 1, encodeCalls)
 	require.Equal(t, 1, store.openCount)
 	require.Equal(t, 1, snapshot.closeCount)
-	require.Equal(t, []int64{41}, store.commitBlock)
+	require.Equal(t, []uint64{41}, store.commitBlock)
 	require.Len(t, store.commits, 1)
 	require.True(t, slices.ContainsFunc(store.commits[0].Accounts, func(change AccountChange) bool {
 		return change.Address == sender && change.Prior.Nonce == 0 && change.Account.Nonce == 1
@@ -453,7 +453,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		require.Len(t, store.commits, 1)
 		require.Equal(t, 1, snapshot.closeCount)
 		require.Equal(t, BlockResultPoolStats{Capacity: 1, Available: 1}, executor.ResultPoolStats())
-		require.Equal(t, int64(blockContext(big.NewInt(testChainID)).Number), receiptStore.LatestVersion())
+		require.Equal(t, blockContext(big.NewInt(testChainID)).Number, receiptStore.LatestVersion())
 	})
 
 	t.Run("block number overflow", func(t *testing.T) {

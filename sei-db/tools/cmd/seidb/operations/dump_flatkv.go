@@ -128,7 +128,7 @@ func DumpFlatKVCmd() *cobra.Command {
 	}
 	cmd.PersistentFlags().StringP("db-dir", "d", "", "FlatKV database directory")
 	cmd.PersistentFlags().StringP("output-dir", "o", "", "Output directory (one file per bucket)")
-	cmd.PersistentFlags().Int64("height", 0, "FlatKV target version; 0 selects the latest available version")
+	cmd.PersistentFlags().Uint64("height", 0, "FlatKV target version; 0 selects the latest available version")
 	cmd.PersistentFlags().StringP("bucket", "b", "", "Restrict dump to a single bucket (account|code|storage|misc). Default: all buckets")
 	cmd.PersistentFlags().Bool("lthash", true, "Also compute per-bucket and total LtHash (lattice hash) over the scanned state. Computed for all buckets regardless of --bucket so the total matches the node's committed LtHash")
 	cmd.PersistentFlags().Bool("lthash-only", false, "Only compute and verify LtHash; do not write bucket dump files. Requires --lthash=true and does not require --output-dir")
@@ -139,7 +139,7 @@ func DumpFlatKVCmd() *cobra.Command {
 func executeDumpFlatKV(cmd *cobra.Command, _ []string) {
 	dbDir, _ := cmd.Flags().GetString("db-dir")
 	outputDir, _ := cmd.Flags().GetString("output-dir")
-	height, _ := cmd.Flags().GetInt64("height")
+	height, _ := cmd.Flags().GetUint64("height")
 	bucket, _ := cmd.Flags().GetString("bucket")
 	withLtHash, _ := cmd.Flags().GetBool("lthash")
 	lthashOnly, _ := cmd.Flags().GetBool("lthash-only")
@@ -188,7 +188,15 @@ func IsFlatKVBucket(name string) bool {
 // memIAVL logical keys anyway (different type prefixes per domain). The
 // The per-DB _meta/* rows are intentionally excluded: they are internal
 // bookkeeping and RawGlobalIterator already filters them for us.
-func DumpFlatKVData(dbDir, outputDir string, height int64, bucket string, withLtHash bool, lthashOnly bool, readLimitMiBps float64) error {
+func DumpFlatKVData(
+	dbDir string,
+	outputDir string,
+	height uint64,
+	bucket string,
+	withLtHash bool,
+	lthashOnly bool,
+	readLimitMiBps float64,
+) error {
 	store, err := openFlatKVReadOnly(dbDir, height)
 	if err != nil {
 		return fmt.Errorf("open flatkv read-only: %w", err)
@@ -204,7 +212,7 @@ func DumpFlatKVData(dbDir, outputDir string, height int64, bucket string, withLt
 // dumpFlatKVFromStore is the core scan+write path, split out so tests can
 // exercise it against an in-memory store without going through the
 // snapshot clone machinery used by the CLI.
-func dumpFlatKVFromStore(store gigatypes.LiveStateStore, outputDir string, version int64, bucket string,
+func dumpFlatKVFromStore(store gigatypes.LiveStateStore, outputDir string, version uint64, bucket string,
 	withLtHash bool, lthashOnly bool, readLimitMiBps float64,
 ) error {
 	limiter := newReadLimiter(readLimitMiBps)
@@ -374,7 +382,7 @@ func (h *bucketLtHasher) flush() {
 	h.batch = h.batch[:0]
 }
 
-func printFlatKVLtHash(hashers map[string]*bucketLtHasher, version int64) {
+func printFlatKVLtHash(hashers map[string]*bucketLtHasher, version uint64) {
 	total := lthash.New()
 	fmt.Printf("\nLtHash (lattice hash) at version %d\n", version)
 	for _, name := range flatkvBucketOrder {
@@ -458,7 +466,11 @@ func flushAndCloseBucketWriters(files map[string]*os.File, writers map[string]*b
 // bucket != "" only that bucket's writer is populated; unselected buckets
 // are absent from the returned maps, which the scan loop treats as "skip
 // writes for this key but keep iterating" over the full merged keyspace.
-func openBucketWriters(outputDir string, version int64, bucket string) (map[string]*os.File, map[string]*bufio.Writer, error) {
+func openBucketWriters(
+	outputDir string,
+	version uint64,
+	bucket string,
+) (map[string]*os.File, map[string]*bufio.Writer, error) {
 	files := make(map[string]*os.File, len(flatkvBucketOrder))
 	writers := make(map[string]*bufio.Writer, len(flatkvBucketOrder))
 	for _, name := range flatkvBucketOrder {

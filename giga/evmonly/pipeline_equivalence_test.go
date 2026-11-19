@@ -119,7 +119,7 @@ type laggingStore struct {
 	*MemoryStore
 	mu       sync.Mutex
 	cond     *sync.Cond
-	opened   int64
+	opened   uint64
 	released bool
 }
 
@@ -137,7 +137,7 @@ func (s *laggingStore) OpenView() gigatypes.StateView {
 	return s.MemoryStore.OpenView()
 }
 
-func (s *laggingStore) CommitStateChanges(blockNum int64, changes *gigatypes.StateChangeSet) error {
+func (s *laggingStore) CommitStateChanges(blockNum uint64, changes *gigatypes.StateChangeSet) error {
 	s.mu.Lock()
 	for s.opened <= blockNum && !s.released {
 		s.cond.Wait()

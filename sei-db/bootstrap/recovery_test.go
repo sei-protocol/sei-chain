@@ -26,16 +26,16 @@ func reportTestBlockHash(t *testing.T, manager *GigaStorageManager, height uint6
 func commitBlocks(t *testing.T, manager *GigaStorageManager, through byte) {
 	t.Helper()
 	for block := byte(1); block <= through; block++ {
-		commitBlock(t, manager, int64(block), evmBlock(block, block))
+		commitBlock(t, manager, uint64(block), evmBlock(block, block))
 	}
 	awaitAppHashes(t, manager, uint64(through))
 }
 
 // commitBlock feeds block height to every store as execution does: it reports the block's hash, commits changes,
 // writes an empty receipt list, and submits that list to the receipt hasher.
-func commitBlock(t *testing.T, manager *GigaStorageManager, height int64, changes *gigatypes.StateChangeSet) {
+func commitBlock(t *testing.T, manager *GigaStorageManager, height uint64, changes *gigatypes.StateChangeSet) {
 	t.Helper()
-	blockHeight := uint64(height) //nolint:gosec // small test heights
+	blockHeight := height
 	reportTestBlockHash(t, manager, blockHeight)
 	require.NoError(t, manager.StateDB().CommitStateChanges(height, changes))
 	writeBlockReceipts(t, manager, height)
@@ -43,7 +43,7 @@ func commitBlock(t *testing.T, manager *GigaStorageManager, height int64, change
 }
 
 // writeBlockReceipts writes an empty receipt list for block height to the manager's receipt store, if it has one.
-func writeBlockReceipts(t *testing.T, manager *GigaStorageManager, height int64) {
+func writeBlockReceipts(t *testing.T, manager *GigaStorageManager, height uint64) {
 	t.Helper()
 	receiptDB := manager.ReceiptDB()
 	if receiptDB == nil {
@@ -51,7 +51,7 @@ func writeBlockReceipts(t *testing.T, manager *GigaStorageManager, height int64)
 	}
 	storeKey := storetypes.NewKVStoreKey("evm")
 	ctx := testutil.DefaultContext(storeKey, storetypes.NewTransientStoreKey("evm_transient"))
-	require.NoError(t, receiptDB.SetReceipts(ctx.WithBlockHeight(height), nil))
+	require.NoError(t, receiptDB.SetReceipts(ctx.WithBlockHeight(int64(height)), nil))
 }
 
 // historicalStateDB returns the manager's historical state DB.
@@ -251,8 +251,8 @@ func TestAnEmptyBlockStoreStillAlignsTheOtherStores(t *testing.T) {
 
 	manager := startManager(t, cfg)
 
-	require.Equal(t, int64(2), manager.StateDB().SC().Version())
-	require.Equal(t, int64(2), manager.ReceiptDB().LatestVersion())
+	require.Equal(t, uint64(2), manager.StateDB().SC().Version())
+	require.Equal(t, uint64(2), manager.ReceiptDB().LatestVersion())
 	commitBlock(t, manager, 3, evmBlock(3, 3))
 }
 
@@ -268,8 +268,8 @@ func TestAnEmptyWALAlignsTheOtherStoresOnTheLiveStateDB(t *testing.T) {
 
 	manager := startManager(t, cfg)
 
-	require.Equal(t, int64(3), manager.StateDB().SC().Version())
-	require.Equal(t, int64(3), manager.ReceiptDB().LatestVersion())
+	require.Equal(t, uint64(3), manager.StateDB().SC().Version())
+	require.Equal(t, uint64(3), manager.ReceiptDB().LatestVersion())
 	commitBlock(t, manager, 4, evmBlock(4, 4))
 }
 
@@ -391,7 +391,7 @@ func TestRecoverDropsASnapshotAboveALiveStateDBAlreadyAtTheTarget(t *testing.T) 
 
 	require.NoDirExists(t, liveStateDBSnapshotDir(dataDir, 5),
 		"a rollback that never moved the live state DB still has to drop the branch abandoned above it")
-	require.Equal(t, int64(3), manager.StateDB().SC().Version())
+	require.Equal(t, uint64(3), manager.StateDB().SC().Version())
 }
 
 // Snapshot retention eventually reclaims the oldest snapshots, so a target can fall below every one the live
@@ -420,7 +420,7 @@ func TestRecoverLiveStateDBReplaysAMissedWALBlock(t *testing.T) {
 	stateDB := openStandaloneStateDB(t, cfg)
 	commitStateBlocks(t, stateDB, 1, 2)
 	writeWALOnly(t, stateDB.WAL(), 3, evmBlock(3, 3))
-	require.Equal(t, int64(2), stateDB.SC().Version())
+	require.Equal(t, uint64(2), stateDB.SC().Version())
 	require.NoError(t, stateDB.Close())
 	writeBlockLedger(t, cfg, 3)
 	writeReceipts(t, cfg, 3)
@@ -428,7 +428,7 @@ func TestRecoverLiveStateDBReplaysAMissedWALBlock(t *testing.T) {
 
 	manager := startManager(t, cfg)
 
-	require.Equal(t, int64(3), manager.StateDB().SC().Version())
+	require.Equal(t, uint64(3), manager.StateDB().SC().Version())
 }
 
 func TestRecoverLiveStateDBRollsBackToTheTarget(t *testing.T) {
@@ -441,7 +441,7 @@ func TestRecoverLiveStateDBRollsBackToTheTarget(t *testing.T) {
 
 	manager := startManager(t, cfg)
 
-	require.Equal(t, int64(2), manager.StateDB().SC().Version())
+	require.Equal(t, uint64(2), manager.StateDB().SC().Version())
 }
 
 // A rollback target below every WAL block empties the WAL. The stores still have to land on the
@@ -461,8 +461,8 @@ func TestRecoverToATargetThatEmptiesTheWALLandsOnTheSnapshot(t *testing.T) {
 
 	manager := startManager(t, cfg)
 
-	require.Equal(t, int64(1), manager.StateDB().SC().Version())
-	require.Equal(t, int64(1), historicalStateDB(manager).GetLatestVersion())
+	require.Equal(t, uint64(1), manager.StateDB().SC().Version())
+	require.Equal(t, uint64(1), historicalStateDB(manager).GetLatestVersion())
 	requireWALTail(t, manager, 0)
 	commitBlock(t, manager, 2, evmBlock(2, 2))
 }
@@ -503,8 +503,8 @@ func TestOpenWithAnEmptyWALLeavesBothStoresAlone(t *testing.T) {
 
 	manager := startManager(t, cfg)
 
-	require.Equal(t, int64(3), manager.StateDB().SC().Version())
-	require.Equal(t, int64(3), historicalStateDB(manager).GetLatestVersion())
+	require.Equal(t, uint64(3), manager.StateDB().SC().Version())
+	require.Equal(t, uint64(3), historicalStateDB(manager).GetLatestVersion())
 	commitBlock(t, manager, 4, evmBlock(4, 4))
 }
 
@@ -528,7 +528,7 @@ func TestRecoverLiveStateDBAboveTheWALHeadRewindsToASnapshotAndReplays(t *testin
 
 	manager := startManager(t, cfg)
 
-	require.Equal(t, int64(2), manager.StateDB().SC().Version())
+	require.Equal(t, uint64(2), manager.StateDB().SC().Version())
 	requireWALTail(t, manager, 2)
 	commitBlock(t, manager, 3, evmBlock(3, 3))
 }
@@ -545,7 +545,7 @@ func TestRecoverHistoricalStateDBRollsBackToTheTarget(t *testing.T) {
 
 	manager := startManager(t, cfg)
 
-	require.Equal(t, int64(2), historicalStateDB(manager).GetLatestVersion())
+	require.Equal(t, uint64(2), historicalStateDB(manager).GetLatestVersion())
 	_, ok := manager.StateDB().OpenViewAt(3)
 	require.False(t, ok, "a height above the target must not be served")
 	commitBlock(t, manager, 3, evmBlock(3, 3))
@@ -560,17 +560,17 @@ func TestRecoveryConvergesOnAHistoricalStateDBBehindTheOthers(t *testing.T) {
 
 	manager := startManager(t, cfg)
 
-	require.Equal(t, int64(3), manager.StateDB().SC().Version())
-	require.Equal(t, int64(3), historicalStateDB(manager).GetLatestVersion())
+	require.Equal(t, uint64(3), manager.StateDB().SC().Version())
+	require.Equal(t, uint64(3), historicalStateDB(manager).GetLatestVersion())
 	requireWALTail(t, manager, 3)
 	historicalStateDB(manager).WaitForPendingWrites()
 	require.Zero(t, historicalStateDB(manager).GetEarliestVersion(), "the history it held must survive")
-	for height := int64(0); height <= 3; height++ {
+	for height := uint64(0); height <= 3; height++ {
 		view, ok := manager.StateDB().OpenViewAt(height)
 		require.True(t, ok, "height %d", height)
 		for addr := byte(1); addr <= 3; addr++ {
 			want := uint64(0)
-			if int64(addr) <= height {
+			if uint64(addr) <= height {
 				want = uint64(addr)
 			}
 			require.Equal(t, want, view.GetNonce(gigatypes.Address{addr}), "account %d at %d", addr, height)
@@ -592,12 +592,12 @@ func TestOpenAtATargetRewindsEveryStoreAndTheWAL(t *testing.T) {
 
 	manager := startManager(t, cfg)
 
-	require.Equal(t, int64(2), manager.StateDB().SC().Version())
-	require.Equal(t, int64(2), historicalStateDB(manager).GetLatestVersion())
+	require.Equal(t, uint64(2), manager.StateDB().SC().Version())
+	require.Equal(t, uint64(2), historicalStateDB(manager).GetLatestVersion())
 	requireWALTail(t, manager, 2)
 
 	commitBlock(t, manager, 3, evmBlock(3, 3))
-	require.Equal(t, int64(3), manager.StateDB().SC().Version())
+	require.Equal(t, uint64(3), manager.StateDB().SC().Version())
 }
 
 // Aligning on a target leaves a disabled historical state DB's directory alone, rather than opening one there.
@@ -612,7 +612,7 @@ func TestAlignmentLeavesADisabledHistoricalStateDBAlone(t *testing.T) {
 
 	manager := startManager(t, cfg)
 
-	require.Equal(t, int64(2), manager.StateDB().SC().Version())
+	require.Equal(t, uint64(2), manager.StateDB().SC().Version())
 	entries, err := os.ReadDir(cfg.SSConfig.EVMDBDirectory)
 	require.NoError(t, err)
 	require.Empty(t, entries, "alignment must not write to the directory of a store this node does not run")

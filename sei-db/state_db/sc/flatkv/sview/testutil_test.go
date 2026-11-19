@@ -87,9 +87,9 @@ func (v *fakeView) Finalize(uint64, []*proto.KVPair) error {
 
 // fakeViews returns a store view at version backed by one stub per database, each also at version,
 // alongside the stubs so a test can inspect what was done to them.
-func fakeViews(t *testing.T, version int64) (*StoreView, map[string]*fakeView) {
+func fakeViews(t *testing.T, version uint64) (*StoreView, map[string]*fakeView) {
 	t.Helper()
-	height := uint64(version) //nolint:gosec // test versions are non-negative
+	height := version
 	stubs := make(map[string]*fakeView, len(dataDBDirs))
 	for _, name := range dataDBDirs {
 		stubs[name] = &fakeView{name: name, blockHeight: height}

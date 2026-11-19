@@ -20,10 +20,10 @@ const maxWritesPerTransaction = 3
 // A superblock of one lane block is a single block.
 type simulatedBlock struct {
 	// The height this superblock commits at in the state DB and the receipt store.
-	number int64
+	number uint64
 
 	// The block store height of lanePayloads[0]. The lane blocks occupy the heights from here on.
-	firstLaneBlock int64
+	firstLaneBlock uint64
 
 	// The transactions the execution phase runs against state. They are executed in parallel across the
 	// executor pool, so a superblock's transaction count is also its degree of parallelism.
@@ -86,10 +86,10 @@ type blockGenerator struct {
 	batch *stateBatch
 
 	// The height the next superblock commits at in the state DB and the receipt store.
-	next int64
+	next uint64
 
 	// The block store height the next lane block is written at.
-	nextLane int64
+	nextLane uint64
 
 	// The number of blocks written to the ledger, which drives the flush cadence.
 	written int64
@@ -146,7 +146,7 @@ func newBlockGenerator(
 }
 
 // Start begins generating blocks at the given height.
-func (g *blockGenerator) Start(first int64) {
+func (g *blockGenerator) Start(first uint64) {
 	g.next = first
 	g.nextLane = g.config.firstLaneBlock(first)
 	go g.mainLoop()
@@ -228,7 +228,7 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 		transactions:   make([]*transaction, count),
 		lanePayloads:   make([][][]byte, lanes),
 	}
-	g.nextLane += int64(lanes)
+	g.nextLane += uint64(lanes) //nolint:gosec // config validation keeps the lane block count positive
 
 	for lane := range lanes {
 		for i := range perLane {
@@ -302,7 +302,8 @@ func (g *blockGenerator) storeBlock(block *simulatedBlock) error {
 	defer g.blockStoreWrite.Reset()
 
 	for i, payload := range block.lanePayloads {
-		if err := g.blocks.writeBlock(block.firstLaneBlock+int64(i), payload); err != nil {
+		lane := block.firstLaneBlock + uint64(i) //nolint:gosec // i is a slice index
+		if err := g.blocks.writeBlock(lane, payload); err != nil {
 			return err
 		}
 		g.written++

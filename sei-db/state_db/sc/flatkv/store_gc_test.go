@@ -26,7 +26,7 @@ func gcStore(t *testing.T, dir string) (*CommitStore, controllertypes.PrunableSt
 
 // gcStoreAtHead is gcStore with a committed head. The head is what the rollback window is resolved
 // against, so a test that wants a particular depth sets one rather than passing a height in.
-func gcStoreAtHead(t *testing.T, dir string, head int64) (*CommitStore, controllertypes.PrunableStore) {
+func gcStoreAtHead(t *testing.T, dir string, head uint64) (*CommitStore, controllertypes.PrunableStore) {
 	t.Helper()
 	s, store := gcStore(t, dir)
 	s.committedVersion = head
@@ -38,7 +38,7 @@ func gcStoreAtHead(t *testing.T, dir string, head int64) (*CommitStore, controll
 // The GC surface is bounded by the active snapshot, so a test that left "current" unset would be
 // measuring a state a live store never reaches. The tests that want a stale or missing symlink say so
 // after calling this.
-func mkSnapshots(t *testing.T, dir string, versions ...int64) {
+func mkSnapshots(t *testing.T, dir string, versions ...uint64) {
 	t.Helper()
 	for _, v := range versions {
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
@@ -50,10 +50,10 @@ func mkSnapshots(t *testing.T, dir string, versions ...int64) {
 	require.NoError(t, updateCurrentSymlink(dir, snapshotName(onDisk[len(onDisk)-1])))
 }
 
-func snapshotVersions(t *testing.T, dir string) []int64 {
+func snapshotVersions(t *testing.T, dir string) []uint64 {
 	t.Helper()
-	var found []int64
-	require.NoError(t, traverseSnapshots(dir, true, func(v int64) (bool, error) {
+	var found []uint64
+	require.NoError(t, traverseSnapshots(dir, true, func(v uint64) (bool, error) {
 		found = append(found, v)
 		return false, nil
 	}))
@@ -69,7 +69,7 @@ func TestGCPruneHistoryIsANoOp(t *testing.T) {
 	mkSnapshots(t, dir, 5, 10, 20)
 
 	require.NoError(t, store.PruneHistory(20))
-	require.Equal(t, []int64{5, 10, 20}, snapshotVersions(t, dir))
+	require.Equal(t, []uint64{5, 10, 20}, snapshotVersions(t, dir))
 }
 
 // The head is the committed version, not the newest snapshot: it is this store's ingest position, and
@@ -223,11 +223,11 @@ func TestGCPruneSnapshotsDeletesBelowTheCutLine(t *testing.T) {
 
 	// A cut line of 25 has no snapshot on it; 20 is the newest below it and goes with the rest.
 	require.NoError(t, pruneSnapshotsBelow(t.Context(), dir, 25))
-	require.Equal(t, []int64{30}, snapshotVersions(t, dir))
+	require.Equal(t, []uint64{30}, snapshotVersions(t, dir))
 
 	// Idempotent: the same cut line twice deletes nothing more.
 	require.NoError(t, pruneSnapshotsBelow(t.Context(), dir, 25))
-	require.Equal(t, []int64{30}, snapshotVersions(t, dir))
+	require.Equal(t, []uint64{30}, snapshotVersions(t, dir))
 }
 
 // The snapshot the store reported must survive the cycle that follows, which is what makes the
@@ -254,7 +254,7 @@ func TestGCPruneSnapshotsKeepsTheSnapshotItReported(t *testing.T) {
 			continue
 		}
 		require.NotEmpty(t, remaining, "a store that had a snapshot must still have one")
-		require.Contains(t, remaining, int64(floor), //nolint:gosec // bounded by the loop
+		require.Contains(t, remaining, floor,
 			"the reported floor must survive at rollbackWindow=%d", rollbackWindow)
 	}
 }
@@ -267,7 +267,7 @@ func TestGCPruneSnapshotsBelowTheOldestSnapshotIsNoOp(t *testing.T) {
 	require.NoError(t, updateCurrentSymlink(dir, snapshotName(900)))
 
 	require.NoError(t, pruneSnapshotsBelow(t.Context(), dir, 500))
-	require.Equal(t, []int64{500, 900}, snapshotVersions(t, dir))
+	require.Equal(t, []uint64{500, 900}, snapshotVersions(t, dir))
 }
 
 // The collector never passes 0 — it means nothing is eligible — but the store absorbs it as a no-op
@@ -279,7 +279,7 @@ func TestGCPruneSnapshotsAtZeroIsNoOp(t *testing.T) {
 	require.NoError(t, updateCurrentSymlink(dir, snapshotName(10)))
 
 	require.NoError(t, store.PruneSnapshots(0))
-	require.Equal(t, []int64{5, 10}, snapshotVersions(t, dir))
+	require.Equal(t, []uint64{5, 10}, snapshotVersions(t, dir))
 }
 
 // A store with no snapshot writer has no goroutine to do the deletion on, so the cycle is skipped
@@ -293,7 +293,7 @@ func TestGCPruneSnapshotsWithoutAWriterIsSkipped(t *testing.T) {
 
 	require.Nil(t, s.snapshotWriter, "the fixture builds a store that never opened")
 	require.NoError(t, store.PruneSnapshots(20))
-	require.Equal(t, []int64{5, 10, 20}, snapshotVersions(t, dir))
+	require.Equal(t, []uint64{5, 10, 20}, snapshotVersions(t, dir))
 }
 
 // A store with no snapshots has nothing to prune, which is not a failure — and notably not an error
@@ -317,7 +317,7 @@ func TestGCPruneSnapshotsKeepsActiveSnapshotBelowTheCutLine(t *testing.T) {
 	require.NoError(t, updateCurrentSymlink(dir, snapshotName(5)))
 
 	require.NoError(t, pruneSnapshotsBelow(t.Context(), dir, 10))
-	require.Equal(t, []int64{5, 10}, snapshotVersions(t, dir),
+	require.Equal(t, []uint64{5, 10}, snapshotVersions(t, dir),
 		"the cut line stops at the active snapshot, so 3 goes and 5 stays")
 }
 
@@ -330,7 +330,7 @@ func TestGCPruneSnapshotsRefusesWithoutActiveSnapshot(t *testing.T) {
 	require.NoError(t, os.Remove(currentPath(dir)))
 
 	require.Error(t, pruneSnapshotsBelow(t.Context(), dir, 10))
-	require.Equal(t, []int64{5, 10}, snapshotVersions(t, dir))
+	require.Equal(t, []uint64{5, 10}, snapshotVersions(t, dir))
 }
 
 // The same refusal on the reporting side: a floor above the snapshot this store would resume from
@@ -375,7 +375,7 @@ func TestGCExternalPruningDefaultsOff(t *testing.T) {
 // destructive setting there is — delete every snapshot but the current one — so if anything can
 // defeat the stand-down, it shows here.
 func TestGCExternalPruningStandsDownSnapshotPruner(t *testing.T) {
-	run := func(external bool) []int64 {
+	run := func(external bool) []uint64 {
 		dir := t.TempDir()
 		s := &CommitStore{
 			ctx: t.Context(),
@@ -390,9 +390,9 @@ func TestGCExternalPruningStandsDownSnapshotPruner(t *testing.T) {
 		return snapshotVersions(t, dir)
 	}
 
-	require.Equal(t, []int64{15}, run(false),
+	require.Equal(t, []uint64{15}, run(false),
 		"left to itself the count-based pruner takes everything below the current snapshot")
-	require.Equal(t, []int64{5, 10, 15}, run(true),
+	require.Equal(t, []uint64{5, 10, 15}, run(true),
 		"under the collector it must not delete the snapshot being held for the rollback window")
 }
 
@@ -459,7 +459,7 @@ func TestGCPrunesRealSnapshotsAndStoreStillOpens(t *testing.T) {
 		commitAndCheck(t, s)
 	}
 	// A fresh store starts at the initial snapshot; the interval adds one every other block.
-	require.Equal(t, []int64{0, 2, 4, 6}, snapshotVersions(t, cfg.DataDir))
+	require.Equal(t, []uint64{0, 2, 4, 6}, snapshotVersions(t, cfg.DataDir))
 
 	store, ok := any(s).(controllertypes.PrunableStore)
 	require.True(t, ok, "a FlatKV commit store must satisfy gc.PrunableStore")
@@ -474,7 +474,7 @@ func TestGCPrunesRealSnapshotsAndStoreStillOpens(t *testing.T) {
 	// The deletion runs on the writer's goroutine, so it is not done when PruneSnapshots returns.
 	require.NoError(t, store.PruneSnapshots(floor))
 	require.Eventually(t, func() bool {
-		return slices.Equal([]int64{4, 6}, snapshotVersions(t, cfg.DataDir))
+		return slices.Equal([]uint64{4, 6}, snapshotVersions(t, cfg.DataDir))
 	}, 5*time.Second, 10*time.Millisecond)
 
 	require.NoError(t, s.Close())
@@ -484,7 +484,7 @@ func TestGCPrunesRealSnapshotsAndStoreStillOpens(t *testing.T) {
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
 	require.NoError(t, err)
 	require.NoError(t, s2.LoadLatest())
-	require.Equal(t, int64(6), s2.Version(), "the pruned store reopens at its committed version")
+	require.Equal(t, uint64(6), s2.Version(), "the pruned store reopens at its committed version")
 	require.NoError(t, s2.Close())
 }
 
@@ -509,7 +509,7 @@ func TestGCConcurrentWithCommitter(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for version := int64(1); version <= blocks; version++ {
+		for version := uint64(1); version <= blocks; version++ {
 			// Assertions are not allowed off the main test goroutine; fail loudly instead.
 			if _, err := s.Commit(version); err != nil {
 				panic(err)

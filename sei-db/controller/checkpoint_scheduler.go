@@ -42,12 +42,12 @@ type CheckpointScheduler struct {
 
 	// nextCheckpointVersion is the height stores checkpoint at, 0 before the first one is picked.
 	// It stays set once complete, so a store that has yet to reach it is still given that height.
-	nextCheckpointVersion int64
+	nextCheckpointVersion uint64
 	// checkpointedAt is when the last checkpoint completed, the scheduler's creation before the first.
 	checkpointedAt time.Time
 	// rejectedVersion is the highest height answered no. A later ask at it is answered no again
 	// rather than turning yes once an interval elapses under it.
-	rejectedVersion int64
+	rejectedVersion uint64
 }
 
 // NewCheckpointScheduler returns a scheduler holding every store that asks it to one cadence.
@@ -66,8 +66,8 @@ func NewCheckpointScheduler(cfg config.CheckpointConfig) *CheckpointScheduler {
 // store with the schedule when this is its first ask. Call it from the store's commit path, whether
 // version is a live block or one a catch-up is replaying through it, and never from a path that
 // applies blocks around that one.
-func (s *CheckpointScheduler) ShouldCheckpoint(store string, version int64) bool {
-	if !s.checkpointEnabled() || version <= 0 {
+func (s *CheckpointScheduler) ShouldCheckpoint(store string, version uint64) bool {
+	if !s.checkpointEnabled() || version == 0 {
 		return false
 	}
 
@@ -100,7 +100,7 @@ func (s *CheckpointScheduler) ShouldCheckpoint(store string, version int64) bool
 // A store that took a height must report it on every path out of the checkpoint, a failed one
 // included, which in practice means deferring the call. No further height is picked while one store
 // is unreported, so a missed call stops the node checkpointing until it restarts.
-func (s *CheckpointScheduler) MarkCheckpointComplete(store string, version int64) {
+func (s *CheckpointScheduler) MarkCheckpointComplete(store string, version uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -125,21 +125,23 @@ func (s *CheckpointScheduler) allStoresCheckpointed() bool {
 // alreadyRejected reports whether version has been turned down already, either by trailing
 // nextCheckpointVersion or by being asked and refused. Standing by that no is what stops two stores
 // asking at different moments from splitting on one version.
-func (s *CheckpointScheduler) alreadyRejected(version int64) bool {
+func (s *CheckpointScheduler) alreadyRejected(version uint64) bool {
 	return version < s.nextCheckpointVersion || version <= s.rejectedVersion
 }
 
 // hasReachedNextInterval reports whether version satisfies every configured interval.
-func (s *CheckpointScheduler) hasReachedNextInterval(version int64) bool {
+func (s *CheckpointScheduler) hasReachedNextInterval(version uint64) bool {
 	timeElapsed := s.config.TimeInterval <= 0 || time.Since(s.checkpointedAt) >= s.config.TimeInterval
-	onBlockBoundary := s.config.BlockInterval <= 0 || version%s.config.BlockInterval == 0
+	onBlockBoundary := s.config.BlockInterval <= 0 ||
+		//nolint:gosec // positive: the first operand short-circuits otherwise
+		version%uint64(s.config.BlockInterval) == 0
 	return timeElapsed && onBlockBoundary
 }
 
 // pickCheckpointHeight sets nextCheckpointVersion to version and holds it for the stores registered
 // now, of which store is the one that has taken it. One registering later is not held for here, at
 // a version it may already have passed, and is held for from the moment it takes a height.
-func (s *CheckpointScheduler) pickCheckpointHeight(store string, version int64) {
+func (s *CheckpointScheduler) pickCheckpointHeight(store string, version uint64) {
 	s.nextCheckpointVersion = version
 	s.awaiting = make(map[string]bool, len(s.registered))
 	for name := range s.registered {

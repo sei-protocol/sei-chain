@@ -39,7 +39,7 @@ func TestLittIdxSynchronousWriteBuffer(t *testing.T) {
 	record := litReceipt(1, 0, addr, common.HexToHash("0xdead"))
 	require.NoError(t, store.SetReceipts(ctx, []receipt.ReceiptRecord{record}))
 
-	require.Equal(t, int64(1), store.LatestVersion())
+	require.Equal(t, uint64(1), store.LatestVersion())
 	got, err := store.GetReceipt(ctx, record.TxHash)
 	require.NoError(t, err)
 	require.Equal(t, record.Receipt.TxHashHex, got.TxHashHex)
@@ -75,7 +75,7 @@ func TestLittIdxRefusesSkippedBlock(t *testing.T) {
 
 	err := store.SetReceipts(ctx.WithBlockHeight(3), []receipt.ReceiptRecord{litReceipt(3, 0, addr, topic)})
 	require.ErrorContains(t, err, "skips block 2")
-	require.Equal(t, int64(1), store.LatestVersion(), "a refused write must not move the head")
+	require.Equal(t, uint64(1), store.LatestVersion(), "a refused write must not move the head")
 }
 
 // A block's first write establishes where the store's history begins, so it may land at any height.
@@ -86,7 +86,7 @@ func TestLittIdxFirstWriteMayStartAboveGenesis(t *testing.T) {
 
 	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(5000),
 		[]receipt.ReceiptRecord{litReceipt(5000, 0, addr, topic)}))
-	require.Equal(t, int64(5000), store.LatestVersion())
+	require.Equal(t, uint64(5000), store.LatestVersion())
 }
 
 // A block written in parts repeats its height, which is not a skip.
@@ -99,7 +99,7 @@ func TestLittIdxAcceptsRepeatedBlock(t *testing.T) {
 		[]receipt.ReceiptRecord{litReceipt(1, 0, addr, topic)}))
 	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(1),
 		[]receipt.ReceiptRecord{litReceipt(1, 1, addr, topic)}))
-	require.Equal(t, int64(1), store.LatestVersion())
+	require.Equal(t, uint64(1), store.LatestVersion())
 }
 
 // TestLittIdxWriteBufferBoundsLag pins that the buffer is the back-pressure point: with room for one
@@ -125,7 +125,8 @@ func TestLittIdxWriteBufferBoundsLag(t *testing.T) {
 		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(height), []receipt.ReceiptRecord{record}))
 		// One queued block, the one being staged and the one whose index commit is in flight is as far
 		// as the store may trail.
-		require.GreaterOrEqual(t, store.LatestVersion(), int64(block)-3) //nolint:gosec // small test heights
+		//nolint:gosec // small test heights
+		require.GreaterOrEqual(t, int64(store.LatestVersion()), int64(block)-3)
 	}
 
 	require.Eventually(t, func() bool { return store.LatestVersion() == blocks },
@@ -160,7 +161,7 @@ func TestLittIdxPipelinedIndexCommitsKeepEveryBlock(t *testing.T) {
 	reopened, err := gigareceipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = reopened.Close() })
-	require.Equal(t, int64(blocks), reopened.LatestVersion())
+	require.Equal(t, uint64(blocks), reopened.LatestVersion())
 	logs, err := reopened.FilterLogs(ctx, 1, blocks, filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, blocks)
@@ -261,7 +262,7 @@ func TestLittIdxReadWrite(t *testing.T) {
 
 	_, err := store.GetReceiptFromStore(ctx, litTxHash(9, 9))
 	require.ErrorIs(t, err, receipt.ErrNotFound)
-	require.Equal(t, int64(2), store.LatestVersion())
+	require.Equal(t, uint64(2), store.LatestVersion())
 }
 
 func TestLittIdxFilterLogs(t *testing.T) {
@@ -489,7 +490,7 @@ func TestLittIdxReopen(t *testing.T) {
 
 	store, ctx = setupLittIdx(t, dir)
 	defer func() { _ = store.Close() }()
-	require.Equal(t, int64(5), store.LatestVersion())
+	require.Equal(t, uint64(5), store.LatestVersion())
 
 	rcpt, err := store.GetReceiptFromStore(ctx, litTxHash(3, 0))
 	require.NoError(t, err)
@@ -512,7 +513,7 @@ func TestLittIdxPrune(t *testing.T) {
 	}
 
 	require.NoError(t, gigareceipt.PruneLittIdx(store, 6))
-	require.Equal(t, int64(6), store.EarliestVersion())
+	require.Equal(t, uint64(6), store.EarliestVersion())
 
 	// Pruned blocks are invisible (tag entries deleted, read floor enforced).
 	for block := uint64(1); block <= 5; block++ {

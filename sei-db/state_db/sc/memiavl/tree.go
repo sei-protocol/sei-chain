@@ -399,7 +399,7 @@ func (t *Tree) Export() *Exporter {
 			return callback(&types.SnapshotNode{
 				Key:     node.Key(),
 				Value:   node.Value(),
-				Version: int64(node.Version()),
+				Version: uint64(node.Version()),
 				Height:  int8(height),
 			})
 		})

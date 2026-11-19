@@ -33,7 +33,7 @@ func TestSelectFlatKVSnapshotLatestFromCurrent(t *testing.T) {
 
 func TestSelectFlatKVSnapshotExplicitHistoricalHeight(t *testing.T) {
 	dbDir := t.TempDir()
-	for _, v := range []int64{10, 20, 30} {
+	for _, v := range []uint64{10, 20, 30} {
 		require.NoError(t, os.Mkdir(filepath.Join(dbDir, flatkvSnapshotNameForTest(v)), 0o750))
 	}
 
@@ -126,7 +126,7 @@ func TestPrepareFlatKVToolingCloneMissingCurrentAndSnapshot(t *testing.T) {
 
 func TestPrepareFlatKVToolingCloneRetriesENOENT(t *testing.T) {
 	var attempts int
-	cloneDir, err := prepareFlatKVToolingCloneWith(t.TempDir(), 0, func(string, int64) (string, error) {
+	cloneDir, err := prepareFlatKVToolingCloneWith(t.TempDir(), 0, func(string, uint64) (string, error) {
 		attempts++
 		if attempts < maxCloneRetries {
 			return "", fmt.Errorf("source vanished: %w", os.ErrNotExist)
@@ -138,7 +138,7 @@ func TestPrepareFlatKVToolingCloneRetriesENOENT(t *testing.T) {
 	require.Equal(t, maxCloneRetries, attempts)
 
 	attempts = 0
-	_, err = prepareFlatKVToolingCloneWith(t.TempDir(), 0, func(string, int64) (string, error) {
+	_, err = prepareFlatKVToolingCloneWith(t.TempDir(), 0, func(string, uint64) (string, error) {
 		attempts++
 		return "", errors.New("permission denied")
 	})
@@ -208,8 +208,7 @@ func TestPrepareFlatKVToolingCloneDetectsWALTruncationRace(t *testing.T) {
 	require.NoError(t, err)
 	for v := uint64(7); v <= 8; v++ {
 		addr := addrN(byte(v))
-		//nolint:gosec // small test heights
-		account := vtype.NewAccountData().SetNonce(v).SetBlockHeight(int64(v))
+		account := vtype.NewAccountData().SetNonce(v).SetBlockHeight(v)
 		require.NoError(t, w.Write(v, []mutation.Mutation{{
 			Key:      ktype.BuildPhysicalEVMKey(ktype.EVMKeyAccount, addr[:]),
 			NewValue: account.Serialize(),
@@ -254,14 +253,14 @@ func TestOpenFlatKVReadOnlyLatestAndHistoricalHeight(t *testing.T) {
 
 	latest, err := openFlatKVReadOnly(dbDir, 0)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), latest.Version())
+	require.Equal(t, uint64(2), latest.Version())
 	_, found := latest.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addrB[:]))
 	require.True(t, found)
 	require.NoError(t, latest.Close())
 
 	historical, err := openFlatKVReadOnly(dbDir, 1)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), historical.Version())
+	require.Equal(t, uint64(1), historical.Version())
 	_, found = historical.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addrA[:]))
 	require.True(t, found)
 	_, found = historical.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addrB[:]))
@@ -283,12 +282,12 @@ func TestOpenFlatKVReadOnlyAfterSetInitialVersion(t *testing.T) {
 	}}))
 	v, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
-	require.Equal(t, int64(100), v)
+	require.Equal(t, uint64(100), v)
 	require.NoError(t, store.Close())
 
 	latest, err := openFlatKVReadOnly(dbDir, 0)
 	require.NoError(t, err)
-	require.Equal(t, int64(100), latest.Version())
+	require.Equal(t, uint64(100), latest.Version())
 	_, found := latest.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
 	require.True(t, found)
 	require.NoError(t, latest.Close())
@@ -315,6 +314,6 @@ func newDiskBackedFlatKVStore(t *testing.T, snapshotInterval uint32) (*flatkv.Co
 	return store, cfg.DataDir
 }
 
-func flatkvSnapshotNameForTest(version int64) string {
+func flatkvSnapshotNameForTest(version uint64) string {
 	return fmt.Sprintf("%s%020d", flatkvSnapshotPrefix, version)
 }

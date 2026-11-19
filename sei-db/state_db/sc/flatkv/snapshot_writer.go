@@ -188,7 +188,7 @@ func (w *SnapshotWriter) PruneBelow(cutLine uint64) error {
 // The copy runs on the writer's goroutine, which is also the goroutine that prunes. That is what
 // makes the snapshot it resolves still be there when the copy reaches it: done on the caller's
 // thread, a prune can delete the directory between the two.
-func (w *SnapshotWriter) CloneSnapshot(targetVersion int64, destDir string) error {
+func (w *SnapshotWriter) CloneSnapshot(targetVersion uint64, destDir string) error {
 	request := newCloneRequest(targetVersion, destDir)
 	if err := w.enqueue(request); err != nil {
 		return fmt.Errorf("clone snapshot for version %d: %w", targetVersion, err)
@@ -281,11 +281,11 @@ func (w *SnapshotWriter) enqueue(message any) error {
 // WAL that grows without bound and a restart that replays the whole history.
 //
 // Only consulted while the writer has no scheduler.
-func (w *SnapshotWriter) onSnapshotInterval(version int64) bool {
-	if w.interval == 0 || version <= 0 {
+func (w *SnapshotWriter) onSnapshotInterval(version uint64) bool {
+	if w.interval == 0 || version == 0 {
 		return false
 	}
-	return version%int64(w.interval) == 0
+	return version%uint64(w.interval) == 0
 }
 
 // run acts on the blocks offered to the writer and the cut lines handed to it, until the writer is
@@ -469,7 +469,8 @@ func (w *SnapshotWriter) writeCheckpoint(request *snapshotRequest) (err error) {
 		return fmt.Errorf("publish snapshot at version %d: %w", request.blockView.BlockHeight(), err)
 	}
 
-	otelMetrics.CurrentSnapshotHeight.Record(w.ctx, request.blockView.BlockHeight())
+	//nolint:gosec // a metric, not a height
+	otelMetrics.CurrentSnapshotHeight.Record(w.ctx, int64(request.blockView.BlockHeight()))
 	logger.Info("FlatKV snapshot created",
 		"version", request.blockView.BlockHeight(), "pruned", pruned, "elapsed", time.Since(start))
 	return nil

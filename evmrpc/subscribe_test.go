@@ -428,7 +428,7 @@ type failingReceiptStore struct {
 	err error
 }
 
-func (s *failingReceiptStore) LatestVersion() int64 { return math.MaxInt64 }
+func (s *failingReceiptStore) LatestVersion() uint64 { return math.MaxInt64 }
 
 func (s *failingReceiptStore) GetReceipt(sdk.Context, common.Hash) (*types.Receipt, error) {
 	return nil, s.err

@@ -303,8 +303,8 @@ type importer struct {
 }
 
 func (i *importer) Add(n *types.SnapshotNode) error {
-	if n.Version < 0 || n.Version > math.MaxUint32 {
-		return fmt.Errorf("node version under/overflows uint32: %d", n.Version)
+	if n.Version > math.MaxUint32 {
+		return fmt.Errorf("node version overflows uint32: %d", n.Version)
 	}
 	version := uint32(n.Version)
 

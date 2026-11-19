@@ -133,8 +133,7 @@ func AuditSnapshot(ctx context.Context, config *SnapshotAuditConfig) (_ *Snapsho
 	}
 
 	snapshotDir := filepath.Join(linkDir, snapshotAuditLinkName)
-	//nolint:gosec // Validate() bounds the version, and a resolved one came from an int64
-	if err := flatkv.HardLinkSnapshot(config.Root, int64(version), snapshotDir); err != nil {
+	if err := flatkv.HardLinkSnapshot(config.Root, version, snapshotDir); err != nil {
 		return nil, fmt.Errorf("link the snapshot: %w", err)
 	}
 
@@ -189,7 +188,7 @@ func resolveAuditVersion(config *SnapshotAuditConfig) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("resolve the snapshot to audit: %w", err)
 	}
-	return uint64(version), nil //nolint:gosec // a snapshot version is never negative
+	return version, nil
 }
 
 // auditLinkedSnapshot audits the snapshot directory dir, which holds the databases of the snapshot at version.
@@ -523,9 +522,8 @@ func auditDatabase(
 	scanned map[string]*lthash.ModuleHashInfo,
 ) (DBAudit, *lthash.LtHash, *lthash.LtHash) {
 	audit := DBAudit{
-		Name: name,
-		//nolint:gosec // a recorded version is never negative
-		Version: VersionAudit{Expected: version, Recorded: uint64(meta.CommittedVersion)},
+		Name:    name,
+		Version: VersionAudit{Expected: version, Recorded: meta.CommittedVersion},
 	}
 
 	modules := make(map[string]struct{}, len(scanned)+len(meta.ModuleLtHashes))

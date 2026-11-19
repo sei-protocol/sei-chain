@@ -127,8 +127,8 @@ func TestBlockGasRPCsPropagateReceiptReadErrors(t *testing.T) {
 func TestBlockGasRPCsSkipUnavailableReceiptHeights(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
-		latest   int64
-		earliest int64
+		latest   uint64
+		earliest uint64
 	}{
 		{name: "pending", latest: 8},
 		{name: "pruned", latest: 10, earliest: 10},

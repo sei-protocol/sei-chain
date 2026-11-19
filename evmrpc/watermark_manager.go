@@ -77,7 +77,8 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 	// A node keeping no receipts has no receipt height to cap the safe latest with; its receipt
 	// queries fail on their own rather than by shrinking the window every other query serves.
 	if m.receiptStore != nil {
-		latest = min(latest, m.receiptStore.LatestVersion())
+		//nolint:gosec // block heights never approach the int64 ceiling
+		latest = min(latest, int64(m.receiptStore.LatestVersion()))
 	}
 
 	// State store heights (historical state DB) may lag behind block pruning.
@@ -136,7 +137,8 @@ func (m *WatermarkManager) receiptEarliest(blockEarliest int64) int64 {
 	if m.receiptStore == nil {
 		return blockEarliest
 	}
-	return max(blockEarliest, m.receiptStore.EarliestVersion())
+	//nolint:gosec // block heights never approach the int64 ceiling
+	return max(blockEarliest, int64(m.receiptStore.EarliestVersion()))
 }
 
 // ResolveHeight normalizes a requested block identifier into a concrete height.
@@ -206,7 +208,8 @@ func (m *WatermarkManager) EnsureReceiptHeightAvailable(height int64) error {
 	if m.receiptStore == nil {
 		return receipt.ErrNotConfigured
 	}
-	earliest := m.receiptStore.EarliestVersion()
+	//nolint:gosec // block heights never approach the int64 ceiling
+	earliest := int64(m.receiptStore.EarliestVersion())
 	if height < earliest {
 		// The sentinel sits mid-message so the client-visible text stays unchanged.
 		return fmt.Errorf("requested height %d %w; earliest available is %d", height, ErrReceiptsPruned, earliest)

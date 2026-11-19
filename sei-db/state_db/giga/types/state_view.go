@@ -33,7 +33,7 @@ type StateView interface {
 	EVMStateView
 
 	// GetBlockHeight returns the block height of this view.
-	GetBlockHeight() int64
+	GetBlockHeight() uint64
 
 	// Get returns the value stored under key in this view, and whether it
 	// was found. It never observes writes made after the view was opened.

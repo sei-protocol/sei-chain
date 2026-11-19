@@ -27,9 +27,5 @@ func (s *receiptStore) GetRollbackFloor(rollbackWindow uint64) uint64 {
 }
 
 func (s *receiptStore) GetLatestBlock() (uint64, error) {
-	latest := s.LatestVersion()
-	if latest <= 0 {
-		return 0, nil
-	}
-	return uint64(latest), nil //nolint:gosec // guarded non-negative above
+	return s.LatestVersion(), nil
 }

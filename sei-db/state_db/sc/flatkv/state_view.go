@@ -30,7 +30,7 @@ type flatKVStateView struct {
 }
 
 // GetBlockHeight returns the block height of this view.
-func (v *flatKVStateView) GetBlockHeight() int64 {
+func (v *flatKVStateView) GetBlockHeight() uint64 {
 	return v.blockView.BlockHeight()
 }
 

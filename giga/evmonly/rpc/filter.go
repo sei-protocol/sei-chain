@@ -87,7 +87,7 @@ func (api *filterAPI) rangeLogs(ctx context.Context, crit filters.FilterCriteria
 	}
 	// The store clamps to the retention floor it sees at read time. A floor
 	// that rose since resolveLogRange means the answer covers less than asked.
-	if floor := api.store.EarliestVersion(); floor > 0 && fromBlock < uint64(floor) { //nolint:gosec // floor is positive
+	if floor := api.store.EarliestVersion(); fromBlock < floor {
 		return nil, fmt.Errorf("%w: block %d; earliest available block is %d", errLogRangePruned, fromBlock, floor)
 	}
 	if err := api.normalizeLogs(ctx, logs); err != nil {
@@ -135,9 +135,7 @@ func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCr
 // the last block whose receipts it has indexed.
 func indexedRange(backend Backend, store receiptpkg.ReceiptStore) (uint64, uint64) {
 	latest := backend.EvmBlockNumber()
-	if stored := store.LatestVersion(); stored >= 0 && uint64(stored) < latest { //nolint:gosec // stored is non-negative
-		latest = uint64(stored) //nolint:gosec // stored is non-negative
-	}
+	latest = min(latest, store.LatestVersion())
 	earliest := uint64(earliestRetainedHeight(store)) //nolint:gosec // never below earliestCommittedHeight
 	return earliest, latest
 }

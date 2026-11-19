@@ -149,7 +149,7 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 	}
 
 	timer.SetPhase("app_hash_builder_setup")
-	height := uint64(stateDB.SC().Version()) //nolint:gosec // live state DB versions are never negative
+	height := stateDB.SC().Version()
 	if err := connectLiveStateDBToAppHashBuilder(ctx, stateDB, appHashBuilder, height); err != nil {
 		return nil, fmt.Errorf("connect the live state DB to the app hash builder: %w", err)
 	}
@@ -239,8 +239,8 @@ func connectLiveStateDBToAppHashBuilder(
 	// The block the live state DB stands at.
 	height uint64,
 ) error {
-	reportStateHash := func(ctx context.Context, _ int64, hash *lthash.BlockHash) error {
-		height := uint64(hash.BlockNumber) //nolint:gosec // block heights are never negative
+	reportStateHash := func(ctx context.Context, _ uint64, hash *lthash.BlockHash) error {
+		height := hash.BlockNumber
 		stateHash := hash.Global.Checksum()
 		componentHashes := hashlog.FlatKVComponentHashes(hash)
 		if err := appHashBuilder.ReportStateHash(ctx, height, stateHash, componentHashes); err != nil {
@@ -257,8 +257,7 @@ func connectLiveStateDBToAppHashBuilder(
 	if err != nil {
 		return fmt.Errorf("register the app hash builder for state hashes: %w", err)
 	}
-	//nolint:gosec // block heights are never negative
-	if currentHeight := uint64(current.BlockNumber); currentHeight != height {
+	if currentHeight := current.BlockNumber; currentHeight != height {
 		return fmt.Errorf("the live state DB stands at block %d, but its newest state hash is of block %d",
 			height, currentHeight)
 	}

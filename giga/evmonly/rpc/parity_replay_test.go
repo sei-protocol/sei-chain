@@ -351,7 +351,7 @@ func (b *replayBackend) EvmNonceAt(address common.Address, height int64) (uint64
 
 // stateAt opens the replayed EVM state after the block at height.
 func (b *replayBackend) stateAt(height int64) (gigatypes.StateView, error) {
-	view, ok := b.store.OpenViewAt(height)
+	view, ok := b.store.OpenViewAt(uint64(height))
 	if !ok {
 		return nil, fmt.Errorf("the EVM state after block %d is not held by this node", height)
 	}

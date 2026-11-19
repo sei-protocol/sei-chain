@@ -37,7 +37,7 @@ func TestAtomicStoreViewSetKeepsInstalledViewWhenReserveFails(t *testing.T) {
 
 	blockView, err := asv.Get()
 	require.NoError(t, err, "the installed view must still be readable after a failed set")
-	require.Equal(t, int64(1), blockView.blockHeight, "the installed view must not have been displaced")
+	require.Equal(t, uint64(1), blockView.blockHeight, "the installed view must not have been displaced")
 	require.NoError(t, blockView.Release())
 
 	require.NoError(t, asv.Close())
@@ -51,7 +51,7 @@ func TestAtomicStoreViewRefusesToGoBackwards(t *testing.T) {
 	asv, err := NewAtomicStoreView(installed)
 	require.NoError(t, err)
 
-	for _, height := range []int64{4, 5} {
+	for _, height := range []uint64{4, 5} {
 		earlier, stubs := fakeViews(t, height)
 		require.ErrorContains(t, asv.Set(earlier), "view height must advance",
 			"height %d is not above the installed height 5", height)
@@ -104,7 +104,7 @@ func TestAtomicStoreViewServesReadersWhileAdvancing(t *testing.T) {
 	// Built up front so the writer goroutine does nothing but install them.
 	blockViews := make([]*StoreView, 0, blocks)
 	allStubs := []map[string]*fakeView{initialStubs}
-	for height := int64(2); height <= blocks; height++ {
+	for height := uint64(2); height <= blocks; height++ {
 		blockView, stubs := fakeViews(t, height)
 		blockViews = append(blockViews, blockView)
 		allStubs = append(allStubs, stubs)

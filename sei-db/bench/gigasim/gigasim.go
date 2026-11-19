@@ -18,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
-	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // GigaSim runs the benchmark, driving generated blocks through the block store, the state DB and the
@@ -71,7 +70,7 @@ type GigaSim struct {
 	// Progress, published atomically because callers observe it while the main loop advances it.
 	// totalBlocks counts measured blocks only, so it excludes the ones setup wrote.
 	totalBlocks  atomic.Int64
-	highestBlock atomic.Int64
+	highestBlock atomic.Uint64
 
 	// The first error the run hit, which Close reports. Written only from the run goroutine and read
 	// only after closeChan has been received from, which is what orders the two.
@@ -310,7 +309,7 @@ func (g *GigaSim) stopExecutors() {
 }
 
 // agreedNextBlockNumber returns the next SuperBlock height shared by the block store and state DB.
-func agreedNextBlockNumber(config *GigasimConfig, state *executionState, blocks *blockStoreWriter) (int64, error) {
+func agreedNextBlockNumber(config *GigasimConfig, state *executionState, blocks *blockStoreWriter) (uint64, error) {
 	next := state.height() + 1
 	blockStoreNext, ok := blocks.nextHeight()
 	if !ok {
@@ -407,7 +406,8 @@ func (g *GigaSim) finalizeSetupBlock() error {
 	number := g.highestBlock.Load() + 1
 	firstLane := g.config.firstLaneBlock(number)
 	for i := range g.config.LaneBlocksPerSuperblock {
-		if err := g.blocks.writeBlock(firstLane+int64(i), ledgerPayload(g.accounts.Rand(), g.config)); err != nil {
+		lane := firstLane + uint64(i) //nolint:gosec // i is a loop index
+		if err := g.blocks.writeBlock(lane, ledgerPayload(g.accounts.Rand(), g.config)); err != nil {
 			return err
 		}
 	}
@@ -528,16 +528,12 @@ func (g *GigaSim) executeBlock(block *simulatedBlock) {
 // receipt for a block the state DB never committed is reconcilable, while the reverse leaves committed
 // state whose receipts were dropped.
 func (g *GigaSim) persistExecutionResults(
-	number int64,
+	number uint64,
 	records []receipt.ReceiptRecord,
 	receiptBytes int64,
 	writes blockWrites,
 ) error {
-	height, ok := tmutils.SafeCast[uint64](number)
-	if !ok {
-		return fmt.Errorf("block number %d does not fit in a uint64", number)
-	}
-	if err := reportExecutedBlockHash(g.storage, height); err != nil {
+	if err := reportExecutedBlockHash(g.storage, number); err != nil {
 		return err
 	}
 	if g.receipts != nil {
@@ -552,7 +548,7 @@ func (g *GigaSim) persistExecutionResults(
 	// The benchmark runs no EVM, so its blocks have no transactions to hash receipts for. Without a receipt
 	// hash the block's app hash is never built, so the submission is not abandoned when the run is cancelled:
 	// the state is already committed, and closing waits for that block's app hash.
-	if err := g.storage.ReceiptHasher().Submit(context.Background(), height, nil); err != nil {
+	if err := g.storage.ReceiptHasher().Submit(context.Background(), number, nil); err != nil {
 		return fmt.Errorf("failed to submit the receipts of block %d: %w", number, err)
 	}
 	return nil
@@ -659,7 +655,7 @@ func (g *GigaSim) generateConsoleReport(force bool) {
 	seconds := elapsed.Seconds()
 
 	fmt.Printf("block %s | %s blocks in %s | %s blocks/sec | %s txns/sec | %s written      \r",
-		utils.Int64Commas(g.highestBlock.Load()),
+		utils.Int64Commas(int64(g.highestBlock.Load())), //nolint:gosec // benchmark heights are small
 		utils.Int64Commas(totalBlocks),
 		utils.FormatDuration(elapsed, 1),
 		utils.FormatNumberFloat64(float64(totalBlocks)/seconds, 2),
@@ -674,7 +670,7 @@ func (g *GigaSim) BlocksProcessed() int64 {
 }
 
 // HighestBlock returns the newest height the benchmark has committed.
-func (g *GigaSim) HighestBlock() int64 {
+func (g *GigaSim) HighestBlock() uint64 {
 	return g.highestBlock.Load()
 }
 

@@ -69,7 +69,7 @@ func budHashOfSorted(t *testing.T, mutations []mutation.Mutation) [32]byte {
 }
 
 // mustSerializeStorage returns the storage value holding value, written at blockHeight.
-func mustSerializeStorage(t *testing.T, blockHeight int64, value []byte) []byte {
+func mustSerializeStorage(t *testing.T, blockHeight uint64, value []byte) []byte {
 	t.Helper()
 	serialized, err := vtype.SerializeStorage(blockHeight, value)
 	require.NoError(t, err)

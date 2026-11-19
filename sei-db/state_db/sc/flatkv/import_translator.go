@@ -39,7 +39,7 @@ type PhysicalKVPair struct {
 //
 // ImportTranslator is not safe for concurrent use.
 type ImportTranslator struct {
-	blockHeight int64
+	blockHeight uint64
 
 	// The account fields written so far to each account row, keyed by string(physical key).
 	pendingAccts map[string]*vtype.PendingAccountWrite
@@ -48,7 +48,7 @@ type ImportTranslator struct {
 // NewImportTranslator creates a translator that stamps blockHeight onto every
 // emitted value. blockHeight should match the memiavl version that the import
 // is sourced from.
-func NewImportTranslator(blockHeight int64) *ImportTranslator {
+func NewImportTranslator(blockHeight uint64) *ImportTranslator {
 	return &ImportTranslator{
 		blockHeight:  blockHeight,
 		pendingAccts: make(map[string]*vtype.PendingAccountWrite),
@@ -88,8 +88,7 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 			}
 			continue
 		}
-		//nolint:gosec // block heights are non-negative
-		value, err := rowValue(kind, pair, uint64(t.blockHeight))
+		value, err := rowValue(kind, pair, t.blockHeight)
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode module %q key %x: %w", cs.Name, pair.Key, err)
 		}

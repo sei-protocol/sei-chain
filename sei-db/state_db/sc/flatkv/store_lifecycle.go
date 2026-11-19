@@ -137,7 +137,7 @@ func (s *CommitStore) CleanupOrphanedReadOnlyDirs() error {
 // Exporter creates an exporter for the given version by opening a read-only
 // clone and performing a full scan of all DBs. The returned exporter must be
 // closed when done (which also closes the read-only clone).
-func (s *CommitStore) Exporter(version int64) (types.Exporter, error) {
+func (s *CommitStore) Exporter(version uint64) (types.Exporter, error) {
 	if s.readOnly {
 		return nil, errReadOnly
 	}

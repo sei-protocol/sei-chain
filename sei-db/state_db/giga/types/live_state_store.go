@@ -43,29 +43,29 @@ type LiveStateStore interface {
 	//
 	// The view is reconstructed from the newest snapshot at or below targetVersion plus this store's WAL,
 	// so a version whose history has been pruned fails rather than being served approximately.
-	LoadVersionReadOnly(targetVersion int64) (LiveStateStore, error)
+	LoadVersionReadOnly(targetVersion uint64) (LiveStateStore, error)
 
 	// CheckVersionReachable reports whether targetVersion can be reconstructed from retained history. It
 	// does not modify the store. An unreachable version returns an error wrapping ErrVersionUnreachable;
 	// unlike other errors from this store, that one is not fatal and the store stays usable.
-	CheckVersionReachable(targetVersion int64) error
+	CheckVersionReachable(targetVersion uint64) error
 
 	// OldestSnapshotAbove returns the oldest retained snapshot version above version; ok is false when
 	// there is none. It does not modify the store.
-	OldestSnapshotAbove(version int64) (snapshot int64, ok bool, err error)
+	OldestSnapshotAbove(version uint64) (snapshot uint64, ok bool, err error)
 
 	// ApplyChangeSets buffers changesets as part of the block at version, which the next Commit writes. Reads do
 	// not observe buffered changesets.
 	//
 	// Exactly one block may be buffered per Commit: repeated calls at the same version are allowed, any other
 	// version is rejected (see PendingVersion), and Commit must be called with that version.
-	ApplyChangeSets(version int64, cs []*proto.NamedChangeSet) error
+	ApplyChangeSets(version uint64, cs []*proto.NamedChangeSet) error
 
 	// Commit persists buffered writes at the given version (block height).
 	// One Commit persists exactly one block. If ApplyChangeSets has buffered
 	// writes, version must equal the height those rows were stamped with
 	// (see PendingVersion).
-	Commit(version int64) (int64, error)
+	Commit(version uint64) (uint64, error)
 
 	// CommitStateChanges writes and commits the block at blockNum, which must be the committed version plus one.
 	// mutations holds one entry per physical key the block writes, and each PreviousValue must be that key's row
@@ -74,7 +74,7 @@ type LiveStateStore interface {
 	//
 	// Callers must use either ApplyChangeSets+Commit or CommitStateChanges exclusively, never mixing the two on
 	// the same store.
-	CommitStateChanges(blockNum int64, mutations []mutation.Mutation) error
+	CommitStateChanges(blockNum uint64, mutations []mutation.Mutation) error
 
 	// OpenView returns a read-only StateView of the current block. The caller must Close it when done.
 	OpenView() StateView
@@ -83,8 +83,8 @@ type LiveStateStore interface {
 	// accepted as the first commit. Must be called after LoadLatest, on a
 	// truly fresh store (no prior commits) and before any writes. Returns an
 	// error on a read-only store, on a non-fresh store, or for
-	// initialVersion <= 0.
-	SetInitialVersion(initialVersion int64) error
+	// initialVersion == 0.
+	SetInitialVersion(initialVersion uint64) error
 
 	// Get returns the committed value for a key within the given module.
 	// For EVM keys (moduleName == "evm"), the key is a memiavl EVM key
@@ -95,8 +95,8 @@ type LiveStateStore interface {
 
 	// GetBlockHeightModified returns the block height at which the key was last modified.
 	// Only supported for EVM keys; non-EVM misc data does not track block height.
-	// If not found, returns (-1, false, nil).
-	GetBlockHeightModified(moduleName string, key []byte) (int64, bool, error)
+	// If not found, returns (0, false, nil).
+	GetBlockHeightModified(moduleName string, key []byte) (uint64, bool, error)
 
 	// Has reports whether the key exists within the given module.
 	Has(moduleName string, key []byte) bool
@@ -164,31 +164,31 @@ type LiveStateStore interface {
 	CommitPendingBlock() error
 
 	// Version returns the latest committed version.
-	Version() int64
+	Version() uint64
 
 	// PendingVersion returns the height of the block currently buffered by
 	// ApplyChangeSets, or 0 when there are no buffered writes. It is the
 	// version the next Commit must be called with, and the only version
 	// further ApplyChangeSets calls may use.
-	PendingVersion() int64
+	PendingVersion() uint64
 
 	// GetLatestVersion returns the latest committed version persisted to
 	// disk. Equivalent to Version() once LoadLatest has run; before
 	// LoadLatest it answers from on-disk metadata so callers can
 	// inspect the store's height without taking ownership of it.
-	GetLatestVersion() (int64, error)
+	GetLatestVersion() (uint64, error)
 
 	// Rollback rewinds a store opened with LoadLatest to targetVersion and prunes everything above it:
 	// snapshots, WAL blocks and committed state. It is the only way to move a committable store backwards,
 	// and the result keeps committing from targetVersion+1. An unreachable target is rejected before
 	// anything is modified.
-	Rollback(targetVersion int64) error
+	Rollback(targetVersion uint64) error
 
 	// Exporter creates an exporter for the given version (0 = current).
-	Exporter(version int64) (sctypes.Exporter, error)
+	Exporter(version uint64) (sctypes.Exporter, error)
 
 	// Importer load data from snapshot to the database
-	Importer(version int64) (sctypes.Importer, error)
+	Importer(version uint64) (sctypes.Importer, error)
 
 	// Get the phase timer used to measure time spent in various phases of execution. Useful for metrics
 	// integration with external phases of execution.

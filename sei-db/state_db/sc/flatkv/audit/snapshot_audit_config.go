@@ -3,7 +3,6 @@ package audit
 import (
 	"fmt"
 	"io"
-	"math"
 	"runtime"
 )
 
@@ -45,9 +44,6 @@ func DefaultSnapshotAuditConfig() *SnapshotAuditConfig {
 func (c *SnapshotAuditConfig) Validate() error {
 	if c.Root == "" {
 		return fmt.Errorf("root must be set")
-	}
-	if c.Version > math.MaxInt64 {
-		return fmt.Errorf("version %d exceeds the largest snapshot version %d", c.Version, int64(math.MaxInt64))
 	}
 	if c.Hashers == 0 {
 		return fmt.Errorf("hashers must be greater than 0")

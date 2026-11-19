@@ -58,7 +58,7 @@ func testConfig(t *testing.T) *GigasimConfig {
 // runBlocks runs a benchmark until it has taken blocksToProcess blocks through the whole stack, then
 // shuts it down. It returns the newest height completed, read after the run loop has stopped so that
 // it is the height the run actually finished on rather than one sampled while it was still moving.
-func runBlocks(t *testing.T, config *GigasimConfig) int64 {
+func runBlocks(t *testing.T, config *GigasimConfig) uint64 {
 	t.Helper()
 
 	benchmark, err := NewGigaSim(t.Context(), config, NewGigasimMetrics())
@@ -90,7 +90,7 @@ func TestEveryStoreAdvancesTogether(t *testing.T) {
 	// heights the run counted is what says no block was left half-written across the stack.
 	blockStoreHead, err := manager.BlockStore().GetLatestBlock()
 	require.NoError(t, err)
-	require.Equal(t, uint64(highest), blockStoreHead, //nolint:gosec // test heights are small
+	require.Equal(t, highest, blockStoreHead,
 		"the block store should hold every block the benchmark completed, and no more")
 
 	view := manager.StateDB().OpenView()
@@ -153,7 +153,7 @@ func TestSuperblockWritesEveryLaneBlockAndCommitsOnce(t *testing.T) {
 
 // assertSuperblockAlignment checks that the stores of a superblock run reopen at the heights the
 // pipeline commits: one state and receipt version per superblock, and that many lane blocks each.
-func assertSuperblockAlignment(t *testing.T, config *GigasimConfig, highest int64) {
+func assertSuperblockAlignment(t *testing.T, config *GigasimConfig, highest uint64) {
 	t.Helper()
 
 	storageConfig, err := config.storageConfig()
@@ -165,7 +165,7 @@ func assertSuperblockAlignment(t *testing.T, config *GigasimConfig, highest int6
 	lanes := uint64(config.LaneBlocksPerSuperblock) //nolint:gosec // the test's lane count is small
 	blockStoreHead, err := manager.BlockStore().GetLatestBlock()
 	require.NoError(t, err)
-	require.Equal(t, uint64(highest), blockStoreHead, //nolint:gosec // test heights are small
+	require.Equal(t, highest, blockStoreHead,
 		"the block store should hold every lane block of every superblock")
 
 	view := manager.StateDB().OpenView()
@@ -230,7 +230,7 @@ func TestNativeTransfersRunThroughTheWholeStack(t *testing.T) {
 	require.Equal(t, highest, view.GetBlockHeight())
 	blockStoreHead, err := manager.BlockStore().GetLatestBlock()
 	require.NoError(t, err)
-	require.Equal(t, uint64(highest), blockStoreHead) //nolint:gosec // test heights are small
+	require.Equal(t, highest, blockStoreHead)
 }
 
 func TestDisabledStoresAreNeverWritten(t *testing.T) {
@@ -271,7 +271,7 @@ func TestGenerationRunsAheadOfExecution(t *testing.T) {
 	require.Eventually(t, func() bool {
 		ledger, err := benchmark.storage.BlockStore().GetLatestBlock()
 		require.NoError(t, err)
-		return int64(ledger) > benchmark.HighestBlock() //nolint:gosec // test heights are small
+		return ledger > benchmark.HighestBlock()
 	}, time.Minute, time.Millisecond, "the ledger never led the state DB, so generation is not running ahead")
 }
 
@@ -307,7 +307,7 @@ func TestAnInterruptedRunLeavesTheStoresConsistent(t *testing.T) {
 
 	blockStoreHead, err := manager.BlockStore().GetLatestBlock()
 	require.NoError(t, err)
-	require.Equal(t, uint64(highest), blockStoreHead, //nolint:gosec // test heights are small
+	require.Equal(t, highest, blockStoreHead,
 		"the ledger should hold exactly the blocks the drain completed")
 
 	view := manager.StateDB().OpenView()

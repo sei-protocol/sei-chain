@@ -14,7 +14,7 @@ import (
 
 // requireReceiptVersion waits for the store to publish height. A write may be applied after
 // SetReceipts returns, and LatestVersion is how a reader learns that it landed.
-func requireReceiptVersion(t *testing.T, store ReceiptStore, height int64) {
+func requireReceiptVersion(t *testing.T, store ReceiptStore, height uint64) {
 	t.Helper()
 	require.Eventually(t, func() bool { return store.LatestVersion() >= height },
 		5*time.Second, time.Millisecond)

@@ -200,8 +200,8 @@ func TestSuperblockBundlesLaneBlocksIntoOneCommit(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, first.transactions, 8)
 	require.Len(t, first.lanePayloads, 2)
-	require.Equal(t, int64(1), first.number)
-	require.Equal(t, int64(1), first.firstLaneBlock)
+	require.Equal(t, uint64(1), first.number)
+	require.Equal(t, uint64(1), first.firstLaneBlock)
 	require.Equal(t, int64(2*g.config.blockPayloadBytes()), first.payloadBytes())
 
 	// stagedPairs fails on a key committed more than once.
@@ -210,8 +210,8 @@ func TestSuperblockBundlesLaneBlocksIntoOneCommit(t *testing.T) {
 
 	second, err := g.buildBlock()
 	require.NoError(t, err)
-	require.Equal(t, int64(2), second.number)
-	require.Equal(t, int64(3), second.firstLaneBlock)
+	require.Equal(t, uint64(2), second.number)
+	require.Equal(t, uint64(3), second.firstLaneBlock)
 }
 
 // Blocks are built back to back off one reused batch, so a block must carry only its own writes.

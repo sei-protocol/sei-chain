@@ -184,7 +184,7 @@ func TestPerModuleLtHashPersistenceAfterReopen(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(5), s2.Version())
+	require.Equal(t, uint64(5), s2.Version())
 	verifyModuleLtHash(t, s2)
 
 	// Working per-module hashes rehydrated from disk must match pre-close.
@@ -358,7 +358,7 @@ func TestPerModuleLtHashStateSyncImportSurvivesRestart(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(7), s2.Version())
+	require.Equal(t, uint64(7), s2.Version())
 	verifyModuleLtHash(t, s2)
 
 	for dir, mods := range expected {

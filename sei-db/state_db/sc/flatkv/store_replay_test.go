@@ -26,16 +26,16 @@ func TestCatchupNoOpWhenWALBehindCommittedVersion(t *testing.T) {
 	for i := byte(1); i <= 3; i++ {
 		commitStorageEntry(t, s, ktype.Address{i}, ktype.Slot{i}, []byte{i})
 	}
-	require.Equal(t, int64(3), s.committedVersion)
+	require.Equal(t, uint64(3), s.committedVersion)
 
 	require.NoError(t, s.replayIntoMutableStore(0))
-	require.Equal(t, int64(3), s.committedVersion)
+	require.Equal(t, uint64(3), s.committedVersion)
 }
 
 // gappedWALStore returns a store whose WAL holds exactly one block, at firstBlock, with nothing before it.
 // Committing block 10 as the very first commit is legitimate on its own (a chain whose initial_height is
 // above 1, or a store materialized mid-chain); callers create the gap by moving committedVersion.
-func gappedWALStore(t *testing.T, firstBlock int64) *CommitStore {
+func gappedWALStore(t *testing.T, firstBlock uint64) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
@@ -65,7 +65,7 @@ func TestCatchupRejectsWALStartingAfterReplayStart(t *testing.T) {
 	err := s.replayIntoMutableStore(0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "blocks 6-9 are missing")
-	require.Equal(t, int64(5), s.committedVersion, "committedVersion must not advance over a gap")
+	require.Equal(t, uint64(5), s.committedVersion, "committedVersion must not advance over a gap")
 }
 
 // TestCatchupAcceptsWALStartingExactlyAtReplayStart pins the boundary: a WAL whose first block is exactly
@@ -94,9 +94,9 @@ func TestCatchupAcceptsWALStartingExactlyAtReplayStart(t *testing.T) {
 	}
 
 	s := openWorkingCopy(t, cfg)
-	require.Equal(t, int64(9), s.committedVersion, "fixture precondition: block 10 must not be on disk")
+	require.Equal(t, uint64(9), s.committedVersion, "fixture precondition: block 10 must not be on disk")
 	require.NoError(t, s.replayIntoMutableStore(0))
-	require.Equal(t, int64(10), s.committedVersion)
+	require.Equal(t, uint64(10), s.committedVersion)
 }
 
 // TestLoadVersionSurfacesCatchupGap verifies the gap error reaches the edge of the flatKV API rather than
@@ -139,7 +139,7 @@ func TestReadOnlyServesSeededMidChainStore(t *testing.T) {
 
 	require.NoError(t, s.SetInitialVersion(10))
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0xAB}, ktype.Slot{0xCD}))
-	for _, v := range []int64{10, 11, 12} {
+	for _, v := range []uint64{10, 11, 12} {
 		cs := makeChangeSet(key, padLeft32(byte(v)), false)
 		require.NoError(t, commitChangeSets(s, v, []*proto.NamedChangeSet{cs}))
 	}
@@ -148,7 +148,7 @@ func TestReadOnlyServesSeededMidChainStore(t *testing.T) {
 	ro, err := s.LoadVersionReadOnly(12)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, ro.Close()) }()
-	require.Equal(t, int64(12), ro.Version())
+	require.Equal(t, uint64(12), ro.Version())
 }
 
 // TestReadOnlySurfacesReplayGap verifies a clone that holds a real position is refused when the primary's WAL
@@ -166,12 +166,12 @@ func TestReadOnlySurfacesReplayGap(t *testing.T) {
 	defer func() { require.NoError(t, s.Close()) }()
 
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0xAB}, ktype.Slot{0xCD}))
-	commit := func(v int64, val byte) {
+	commit := func(v uint64, val byte) {
 		require.NoError(t, commitChangeSets(s, v, []*proto.NamedChangeSet{
 			makeChangeSet(key, padLeft32(val), false),
 		}))
 	}
-	for v := int64(1); v <= 4; v++ {
+	for v := uint64(1); v <= 4; v++ {
 		commit(v, byte(v))
 	}
 
@@ -188,7 +188,7 @@ func TestReadOnlySurfacesReplayGap(t *testing.T) {
 	require.Contains(t, err.Error(), "are missing")
 
 	commit(6, 0xAA)
-	require.Equal(t, int64(6), s.Version())
+	require.Equal(t, uint64(6), s.Version())
 }
 
 func TestCheckVersionReachableCoversSeededFloorAndWAL(t *testing.T) {
@@ -320,7 +320,7 @@ func TestReplayBlocksReturnsAppliedCount(t *testing.T) {
 	require.NoError(t, first.LoadLatest())
 	for i := byte(2); i <= 3; i++ {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{i}, ktype.Slot{i}))
-		require.NoError(t, first.ApplyChangeSets(int64(i),
+		require.NoError(t, first.ApplyChangeSets(uint64(i),
 			[]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(i), false)}))
 		commitBuffered(t, first)
 	}
@@ -333,7 +333,7 @@ func TestReplayBlocksReturnsAppliedCount(t *testing.T) {
 	}
 
 	s := openWorkingCopy(t, cfg)
-	require.Equal(t, int64(1), s.committedVersion, "fixture precondition: blocks 2 and 3 must not be on disk")
+	require.Equal(t, uint64(1), s.committedVersion, "fixture precondition: blocks 2 and 3 must not be on disk")
 	it, ok, err := s.openReplayIterator(s.committedVersion, 0)
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -341,7 +341,7 @@ func TestReplayBlocksReturnsAppliedCount(t *testing.T) {
 	replayed, err := replayBlocks(s, it)
 	require.NoError(t, err)
 	require.Equal(t, 2, replayed, "blocks 2 and 3 must be replayed and counted")
-	require.Equal(t, int64(3), s.committedVersion)
+	require.Equal(t, uint64(3), s.committedVersion)
 
 	// Nothing left to replay: the resolver reports that, rather than handing back an empty iterator.
 	_, ok, err = s.openReplayIterator(s.committedVersion, 0)
@@ -369,7 +369,7 @@ func TestReplayIntoReadOnlyCopyDoesNotDisturbPrimary(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, ro.Close()) }()
 
-	require.Equal(t, int64(2), ro.Version(), "the clone must land exactly on the requested version")
+	require.Equal(t, uint64(2), ro.Version(), "the clone must land exactly on the requested version")
 	require.Equal(t, primaryVersion, s.committedVersion, "feeding a clone must not move the primary")
 	require.Equal(t, primaryHash, rootHash(s))
 }
@@ -402,11 +402,11 @@ func TestReplaySkipDoesNotRewindRecordedHeight(t *testing.T) {
 	skipped := []string{accountDBDir, codeDBDir, miscDBDir}
 	before := make(map[string]*LocalMeta, len(skipped))
 	s = openWorkingCopy(t, cfg)
-	require.Equal(t, int64(2), s.committedVersion, "fixture precondition: the store opens at its lowest database")
+	require.Equal(t, uint64(2), s.committedVersion, "fixture precondition: the store opens at its lowest database")
 	for _, dir := range skipped {
 		meta, err := loadLocalMeta(s.rawDBFor(dir))
 		require.NoError(t, err)
-		require.Equal(t, int64(4), meta.CommittedVersion, "%s must start at block 4", dir)
+		require.Equal(t, uint64(4), meta.CommittedVersion, "%s must start at block 4", dir)
 		before[dir] = meta
 	}
 	require.NoError(t, s.Close())
@@ -419,14 +419,14 @@ func TestReplaySkipDoesNotRewindRecordedHeight(t *testing.T) {
 	for _, dir := range skipped {
 		meta, err := loadLocalMeta(s.rawDBFor(dir))
 		require.NoError(t, err)
-		require.Equal(t, int64(4), meta.CommittedVersion,
+		require.Equal(t, uint64(4), meta.CommittedVersion,
 			"%s skipped blocks 3 and 4, so its recorded height must not be rewound", dir)
 		require.True(t, before[dir].LtHash.Equal(meta.LtHash),
 			"%s skipped blocks 3 and 4, so its recorded hash must not change", dir)
 	}
 	meta, err := loadLocalMeta(s.rawDBFor(storageDBDir))
 	require.NoError(t, err)
-	require.Equal(t, int64(4), meta.CommittedVersion, "catch-up must bring the storage database to block 4")
+	require.Equal(t, uint64(4), meta.CommittedVersion, "catch-up must bring the storage database to block 4")
 }
 
 // TestReplayConvergesOnPartialAccountFieldWrites pins replaying blocks that each write only some fields
@@ -477,7 +477,7 @@ func TestReplayConvergesOnPartialAccountFieldWrites(t *testing.T) {
 	require.NoError(t, s3.LoadLatest())
 	defer s3.Close()
 
-	require.Equal(t, int64(3), s3.Version())
+	require.Equal(t, uint64(3), s3.Version())
 	require.Equal(t, wantRoot, rootHash(s3),
 		"rebuilding an account row through partial-field replays must land on the same root")
 	gotAccount, found := s3.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
@@ -519,7 +519,7 @@ func TestReplayDrainsHashStreamPastItsDepth(t *testing.T) {
 			require.NoError(t, s.LoadLatest())
 		}
 	}
-	require.Equal(t, int64(blocks), s.Version())
+	require.Equal(t, uint64(blocks), s.Version())
 	expected := append([]byte(nil), rootHash(s)...)
 	require.NoError(t, s.Close())
 	for dbName, copied := range copies {
@@ -535,7 +535,7 @@ func TestReplayDrainsHashStreamPastItsDepth(t *testing.T) {
 	defer reopened.Close()
 
 	require.NoError(t, reopened.LoadLatest())
-	require.Equal(t, int64(blocks), reopened.Version())
+	require.Equal(t, uint64(blocks), reopened.Version())
 	require.Equal(t, expected, rootHash(reopened))
 }
 

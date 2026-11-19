@@ -28,14 +28,12 @@ func (s *littReceiptStore) IterateReceipts(startBlock uint64) (receipt.ReceiptIt
 	start := startBlock
 	// Litt expires bodies lazily, so blocks below the floor can still be on disk. Point reads
 	// refuse them (see belowRetentionFloor) and a walk answers the same.
-	if floor := s.earliestVersion.Load(); floor > 0 && start < uint64(floor) { //nolint:gosec // floor is positive
-		start = uint64(floor) //nolint:gosec // floor is positive
-	}
+	start = max(start, s.earliestVersion.Load())
 
 	// Above the head there is nothing to walk, and no part key to position at. Without this the
 	// walk would fall through to the whole store below.
 	head := s.latestVersion.Load()
-	if head <= 0 || start > uint64(head) { //nolint:gosec // head is positive
+	if head == 0 || start > head {
 		return &receiptIterator{}, nil
 	}
 

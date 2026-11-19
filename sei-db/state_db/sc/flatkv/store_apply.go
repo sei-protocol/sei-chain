@@ -17,7 +17,7 @@ import (
 // ApplyChangeSets buffers changeSets as part of the block at version, which the next Commit (or
 // CommitPendingBlock) writes. Nothing reaches the stores before then, so reads do not observe buffered
 // writes.
-func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedChangeSet) error {
+func (s *CommitStore) ApplyChangeSets(version uint64, changeSets []*proto.NamedChangeSet) error {
 	if s.readOnly {
 		return errReadOnly
 	}

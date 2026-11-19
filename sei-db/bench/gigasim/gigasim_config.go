@@ -295,8 +295,9 @@ func (c *GigasimConfig) transactionsPerSuperblock() int {
 
 // firstLaneBlock is the block store height of the first lane block in superblock. Superblock heights
 // and lane-block heights both start at 1.
-func (c *GigasimConfig) firstLaneBlock(superblock int64) int64 {
-	return (superblock-1)*int64(c.LaneBlocksPerSuperblock) + 1
+func (c *GigasimConfig) firstLaneBlock(superblock uint64) uint64 {
+	//nolint:gosec // config validation keeps the lane block count positive
+	return (superblock-1)*uint64(c.LaneBlocksPerSuperblock) + 1
 }
 
 // The values TransactionType takes.

@@ -1442,11 +1442,17 @@ loop:
 					item.IAVL.Height, math.MaxInt8)
 				break loop
 			}
+			if item.IAVL.Version < 0 {
+				restoreErr = errors.Wrapf(sdkerrors.ErrLogic, "node version %v cannot be negative",
+					item.IAVL.Version)
+				break loop
+			}
+			version := uint64(item.IAVL.Version) //nolint:gosec // checked non-negative above
 			node := &sctypes.SnapshotNode{
 				Key:     item.IAVL.Key,
 				Value:   item.IAVL.Value,
 				Height:  int8(item.IAVL.Height), //nolint:gosec // bounds checked above against math.MaxInt8
-				Version: item.IAVL.Version,
+				Version: version,
 			}
 			// Protobuf does not differentiate between []byte{} as nil, but fortunately IAVL does
 			// not allow nil keys nor nil values for leaf nodes, so we can always set them to empty.
@@ -1599,7 +1605,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 						Key:     item.Key,
 						Value:   item.Value,
 						Height:  int32(item.Height),
-						Version: item.Version,
+						Version: int64(item.Version), //nolint:gosec // heights fit in int64
 					},
 				},
 			}); err != nil {

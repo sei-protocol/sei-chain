@@ -22,13 +22,13 @@ type fakeStateView struct {
 	gigatypes.StateView
 
 	// The block height the view reports.
-	height int64
+	height uint64
 
 	// The stored rows, keyed by string(physical key).
 	rows map[string][]byte
 }
 
-func (v *fakeStateView) GetBlockHeight() int64 { return v.height }
+func (v *fakeStateView) GetBlockHeight() uint64 { return v.height }
 
 func (v *fakeStateView) GetRaw(key []byte) ([]byte, bool) {
 	value, ok := v.rows[string(key)]
@@ -48,7 +48,7 @@ func (v *fakeStateView) BatchGetRaw(physicalKeys [][]byte) map[string][]byte {
 func (v *fakeStateView) Close() {}
 
 // stateAt returns a view at height holding rows, keyed by physical key.
-func stateAt(height int64, rows map[string][]byte) *fakeStateView {
+func stateAt(height uint64, rows map[string][]byte) *fakeStateView {
 	if rows == nil {
 		rows = map[string][]byte{}
 	}
@@ -91,7 +91,7 @@ func del(key []byte) *proto.KVPair {
 	return &proto.KVPair{Key: key, Delete: true}
 }
 
-func accountRow(t *testing.T, height int64, nonce uint64, codeHash []byte, balance []byte) []byte {
+func accountRow(t *testing.T, height uint64, nonce uint64, codeHash []byte, balance []byte) []byte {
 	t.Helper()
 	parsedCodeHash, err := vtype.ParseCodeHash(codeHash)
 	require.NoError(t, err)
@@ -105,7 +105,7 @@ func accountRow(t *testing.T, height int64, nonce uint64, codeHash []byte, balan
 		Serialize()
 }
 
-func storageRow(t *testing.T, height int64, value []byte) []byte {
+func storageRow(t *testing.T, height uint64, value []byte) []byte {
 	t.Helper()
 	row, err := vtype.SerializeStorage(height, value)
 	require.NoError(t, err)

@@ -26,12 +26,12 @@ func RollBackLiveStateDB(cfg *config.Config, target uint64) error {
 		return fmt.Errorf("cannot roll back to %d: the state WAL ends at %d, so no replay reaches the target",
 			target, last)
 	}
-	if _, err := DiscardStateAbove(cfg.DataDir, liveStateVersion(target), liveStateVersion(first)); err != nil {
+	if _, err := DiscardStateAbove(cfg.DataDir, target, first); err != nil {
 		return fmt.Errorf("cannot roll back to %d: the live state DB cannot reach %d: %w", target, target, err)
 	}
 	// Whether or not the live state DB moved: an interrupted rollback leaves one that reads as the snapshot it
 	// was repointed at, with the branch above it still on disk for a later rollback to land on.
-	if err := DropSnapshotsAbove(cfg.DataDir, liveStateVersion(target)); err != nil {
+	if err := DropSnapshotsAbove(cfg.DataDir, target); err != nil {
 		return fmt.Errorf("cannot roll back to %d: drop the live state DB's snapshots above it: %w",
 			target, err)
 	}
@@ -83,10 +83,10 @@ func CatchUpToStateWAL(ctx context.Context, liveStateDB *CommitStore, wal statew
 		return nil
 	}
 	// Ahead of the pass, which is what erases the evidence it works from.
-	if err := liveStateDB.RebuildIfUnreachable(liveStateVersion(head)); err != nil {
+	if err := liveStateDB.RebuildIfUnreachable(head); err != nil {
 		return fmt.Errorf("rebuild the live state DB's working copy: %w", err)
 	}
-	from := blockHeight(liveStateDB.Version())
+	from := liveStateDB.Version()
 	logReplayPlan(from, head)
 	err = replay(ctx, wal, from, head, func(block uint64, mutations []mutation.Mutation) error {
 		return liveStateDB.commitReplayedStateChanges(block, mutations)
@@ -94,7 +94,7 @@ func CatchUpToStateWAL(ctx context.Context, liveStateDB *CommitStore, wal statew
 	if err != nil {
 		return fmt.Errorf("replay the state WAL up to %d: %w", head, err)
 	}
-	if got := blockHeight(liveStateDB.Version()); got != head {
+	if got := liveStateDB.Version(); got != head {
 		return fmt.Errorf("the live state DB landed on %d, not the state WAL's head %d", got, head)
 	}
 	if err := liveStateDB.requireAlignedDBs(); err != nil {
@@ -228,14 +228,4 @@ func estimate(remaining uint64, rate float64) time.Duration {
 		return 0
 	}
 	return (time.Duration(float64(remaining)/rate) * time.Second).Truncate(time.Second)
-}
-
-// liveStateVersion returns height as the version the live state DB numbers it by.
-func liveStateVersion(height uint64) int64 {
-	return int64(height) //nolint:gosec // block heights never approach the int64 ceiling
-}
-
-// blockHeight returns a live state DB version as the block height it numbers.
-func blockHeight(version int64) uint64 {
-	return uint64(version) //nolint:gosec // live state DB versions are never negative
 }

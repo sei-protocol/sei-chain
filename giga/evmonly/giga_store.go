@@ -134,7 +134,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		}
 	}
 	e.blockPhases.SetPhase(phaseCommitState)
-	if err := e.startPipelineCommit(blockNumber, misc, &result.ChangeSet); err != nil {
+	if err := e.startPipelineCommit(req.Context.Number, misc, &result.ChangeSet); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
 	ok = true
@@ -217,7 +217,7 @@ func (e *Executor) awaitPipelineCommit() error {
 //
 // Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
 // one before this is called.
-func (e *Executor) startPipelineCommit(blockNumber int64, misc []gigatypes.MiscChange, changes *StateChangeSet) error {
+func (e *Executor) startPipelineCommit(blockNumber uint64, misc []gigatypes.MiscChange, changes *StateChangeSet) error {
 	// A produced set is never modified, so the commit shares its arrays with the block result rather
 	// than copying them. Clipped so the misc writes cannot land in capacity the result still holds.
 	pending := &StateChangeSet{

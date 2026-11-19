@@ -344,18 +344,19 @@ func (a *evmOnlyApplication) InitChain(req *proxy.RequestInitChain) (*proxy.Resp
 // between InitChain and the first block leaves it that way; a store holding
 // any block is refused.
 func (a *evmOnlyApplication) seedInitialStateVersion(initialHeight int64) error {
+	height := uint64(initialHeight) //nolint:gosec // InitChain refuses a height that is not positive
 	stateStore := a.storage.StateDB().SC()
 	latest, err := stateStore.GetLatestVersion()
 	if err != nil {
 		return fmt.Errorf("read EVM-only state version: %w", err)
 	}
 	switch {
-	case latest == initialHeight-1:
+	case latest == height-1:
 		return nil
 	case latest != 0:
 		return fmt.Errorf("EVM-only state is already at height %d before InitChain", latest)
 	}
-	if err := stateStore.SetInitialVersion(initialHeight); err != nil {
+	if err := stateStore.SetInitialVersion(height); err != nil {
 		return fmt.Errorf("seed EVM-only initial state version %d: %w", initialHeight, err)
 	}
 	return nil
@@ -505,7 +506,8 @@ func (a *evmOnlyApplication) checkSenderCanPay(tx *ethtypes.Transaction, sender 
 func (a *evmOnlyApplication) admissionBalance(sender common.Address) uint256.Int {
 	view := a.storage.StateDB().OpenView()
 	defer view.Close()
-	if alloc, ok := a.alloc.Get(); ok && view.GetBlockHeight() < alloc.InitialHeight {
+	//nolint:gosec // positive: see NewEVMOnlyApplication
+	if alloc, ok := a.alloc.Get(); ok && view.GetBlockHeight() < uint64(alloc.InitialHeight) {
 		if account, ok := alloc.Accounts[sender]; ok && account.Balance != nil {
 			return *account.Balance
 		}
@@ -680,13 +682,17 @@ func (a *evmOnlyApplication) balance(view gigatypes.StateView, address common.Ad
 // evmStateAt opens the committed EVM state after height: the settled view when it stands at height,
 // and the state store's history otherwise. It fails when neither holds that height.
 func (a *evmOnlyApplication) evmStateAt(height int64) (gigatypes.StateView, error) {
+	if height < 0 {
+		return nil, fmt.Errorf("the EVM state after block %d is not held by this node", height)
+	}
+	blockHeight := uint64(height) //nolint:gosec // guarded above
 	// The newest block is read from the settled view, since the state store applies blocks behind it.
 	view := a.openSettledView()
-	if view.GetBlockHeight() == height {
+	if view.GetBlockHeight() == blockHeight {
 		return view, nil
 	}
 	view.Close()
-	view, ok := a.storage.StateDB().OpenViewAt(height)
+	view, ok := a.storage.StateDB().OpenViewAt(blockHeight)
 	if !ok {
 		return nil, fmt.Errorf("the EVM state after block %d is not held by this node", height)
 	}
@@ -1071,7 +1077,7 @@ func (a *evmOnlyApplication) abandonPending(executor *evmonly.Executor, height i
 	if err != nil {
 		return errors.Join(commitErr, fmt.Errorf("read EVM-only state version: %w", err))
 	}
-	if latest >= height {
+	if latest >= uint64(height) { //nolint:gosec // FinalizeBlock heights are positive
 		return commitErr
 	}
 	for state := range a.cursor.Lock() {

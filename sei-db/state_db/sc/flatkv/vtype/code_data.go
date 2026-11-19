@@ -38,7 +38,7 @@ var _ VType = (*CodeData)(nil)
 // are not safe to modify without first copying them.
 type CodeData struct {
 	version     CodeDataVersion
-	blockHeight int64
+	blockHeight uint64
 	bytecode    []byte
 }
 
@@ -49,11 +49,11 @@ func NewCodeData() *CodeData {
 
 // SerializeCode returns the serialized code value for bytecode written at blockHeight. bytecode is
 // copied, so the caller may reuse it.
-func SerializeCode(blockHeight int64, bytecode []byte) []byte {
+func SerializeCode(blockHeight uint64, bytecode []byte) []byte {
 	data := make([]byte, codeBytecodeStart+len(bytecode))
 	data[codeVersionStart] = byte(CodeDataVersion0)
 	heightBytes := data[codeBlockHeightStart:codeBytecodeStart]
-	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
+	binary.BigEndian.PutUint64(heightBytes, blockHeight)
 	copy(data[codeBytecodeStart:], bytecode)
 	return data
 }
@@ -86,7 +86,7 @@ func DeserializeCodeData(data []byte) (*CodeData, error) {
 
 	return &CodeData{
 		version:     version,
-		blockHeight: int64(binary.BigEndian.Uint64(data[codeBlockHeightStart:codeBytecodeStart])), //nolint:gosec
+		blockHeight: binary.BigEndian.Uint64(data[codeBlockHeightStart:codeBytecodeStart]),
 		bytecode:    bytecode,
 	}, nil
 }
@@ -100,7 +100,7 @@ func (c *CodeData) GetSerializationVersion() CodeDataVersion {
 }
 
 // Get the block height when this code was last modified.
-func (c *CodeData) GetBlockHeight() int64 {
+func (c *CodeData) GetBlockHeight() uint64 {
 	if c == nil {
 		return 0
 	}
@@ -134,7 +134,7 @@ func (c *CodeData) IsDelete() bool {
 }
 
 // Set the block height when this code was last modified/touched. Returns self (or a new CodeData if nil).
-func (c *CodeData) SetBlockHeight(blockHeight int64) *CodeData {
+func (c *CodeData) SetBlockHeight(blockHeight uint64) *CodeData {
 	if c == nil {
 		c = NewCodeData()
 	}

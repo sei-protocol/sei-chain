@@ -134,7 +134,7 @@ func TestUndoLogByHand(t *testing.T) {
 	}
 
 	// What each block changed, recorded as the value the key held before the block.
-	blocks := map[int64]map[string][]byte{
+	blocks := map[uint64]map[string][]byte{
 		103: {balanceKey(alice): word(10)}, // alice 10 -> 15
 		105: {balanceKey(carol): nil},      // carol created with 3
 		109: {balanceKey(alice): word(15)}, // alice 15 -> 25
@@ -143,7 +143,7 @@ func TestUndoLogByHand(t *testing.T) {
 	}
 
 	require.NoError(t, db.Resume(100, live))
-	for height := int64(101); height <= 112; height++ {
+	for height := uint64(101); height <= 112; height++ {
 		// Every block is handed the final live state: only the last block's is ever read.
 		db.ApplyBlock(height, priorsOf(t, blocks[height]), live)
 	}
@@ -152,7 +152,7 @@ func TestUndoLogByHand(t *testing.T) {
 	var absent []byte
 	for _, tc := range []struct {
 		key    string
-		height int64
+		height uint64
 		want   []byte
 	}{
 		{balanceKey(alice), 100, word(10)},
@@ -214,7 +214,7 @@ func openTestDB(t testing.TB, dir string, bucketSize uint64) *Database {
 type chain struct {
 	t       testing.TB
 	db      *Database
-	base    int64
+	base    uint64
 	states  []map[string][]byte // states[h-base] is the state after block h
 	closes  atomic.Int64
 	created atomic.Int64
@@ -222,7 +222,7 @@ type chain struct {
 }
 
 // newChain opens a store in dir resumed at base with an empty state.
-func newChain(t testing.TB, dir string, bucketSize uint64, base int64) *chain {
+func newChain(t testing.TB, dir string, bucketSize uint64, base uint64) *chain {
 	c := &chain{t: t, db: openTestDB(t, dir, bucketSize), base: base}
 	c.states = []map[string][]byte{{}}
 	require.NoError(t, c.db.Resume(base, c.view(c.states[0])))
@@ -234,14 +234,14 @@ func (c *chain) view(values map[string][]byte) LiveStateView {
 	return &mapView{values: values, closes: &c.closes}
 }
 
-func (c *chain) head() int64 {
+func (c *chain) head() uint64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.base + int64(len(c.states)) - 1
+	return c.base + uint64(len(c.states)) - 1
 }
 
 // stateAt returns the model's value of key after block height.
-func (c *chain) stateAt(height int64, key string) ([]byte, bool) {
+func (c *chain) stateAt(height uint64, key string) ([]byte, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	v, ok := c.states[height-c.base][key]
@@ -254,7 +254,7 @@ func (c *chain) stateAt(height int64, key string) ([]byte, bool) {
 func (c *chain) apply(changes map[string][]byte, async bool) {
 	c.mu.Lock()
 	prev := c.states[len(c.states)-1]
-	version := c.base + int64(len(c.states))
+	version := c.base + uint64(len(c.states))
 	next := maps.Clone(prev)
 	prior := map[string][]byte{}
 	set := func(key string, value []byte) {
@@ -282,7 +282,7 @@ func (c *chain) apply(changes map[string][]byte, async bool) {
 }
 
 // read returns key's value after block height through a view of the store.
-func read(t testing.TB, db *Database, height int64, key string) []byte {
+func read(t testing.TB, db *Database, height uint64, key string) []byte {
 	t.Helper()
 	view, ok := db.OpenView(height)
 	require.True(t, ok, "open a view at %d", height)
@@ -292,7 +292,7 @@ func read(t testing.TB, db *Database, height int64, key string) []byte {
 	return value
 }
 
-func (c *chain) requireRead(height int64, key string) {
+func (c *chain) requireRead(height uint64, key string) {
 	c.t.Helper()
 	want, found := c.stateAt(height, key)
 	got := read(c.t, c.db, height, key)
@@ -308,7 +308,7 @@ func (c *chain) requireRead(height int64, key string) {
 type record struct {
 	bucket uint64
 	key    string
-	height int64
+	height uint64
 	value  []byte
 }
 
@@ -328,7 +328,7 @@ func records(t testing.TB, db *Database) []record {
 		out = append(out, record{
 			bucket: binary.BigEndian.Uint64(body),
 			key:    string(body[bucketLen:]),
-			height: int64(height), //nolint:gosec // test heights are small
+			height: height,
 			value:  value,
 		})
 	}
@@ -341,9 +341,9 @@ func TestReadsFollowTheSpecExample(t *testing.T) {
 	defer func() { require.NoError(t, c.db.Close()) }()
 
 	balance := balanceKey(alice)
-	balances := map[int64][]byte{103: word(15), 109: word(25), 112: word(80)}
+	balances := map[uint64][]byte{103: word(15), 109: word(25), 112: word(80)}
 	c.apply(map[string][]byte{balance: word(10)}, false) // block 101 creates the account
-	for h := int64(102); h <= 118; h++ {
+	for h := uint64(102); h <= 118; h++ {
 		changes := map[string][]byte{}
 		if v, ok := balances[h]; ok {
 			changes[balance] = v
@@ -351,7 +351,7 @@ func TestReadsFollowTheSpecExample(t *testing.T) {
 		c.apply(changes, false)
 	}
 
-	for height, want := range map[int64][]byte{102: word(10), 108: word(15), 110: word(25), 118: word(80)} {
+	for height, want := range map[uint64][]byte{102: word(10), 108: word(15), 110: word(25), 118: word(80)} {
 		require.Equal(t, want, read(t, c.db, height, balance), "after block %d", height)
 	}
 	require.Nil(t, read(t, c.db, 100, balance), "alice did not exist before block 101")
@@ -396,7 +396,7 @@ func TestRandomHistoryMatchesTheModel(t *testing.T) {
 			}
 
 			require.NoError(t, c.db.PruneHistory(61))
-			require.Equal(t, int64(61), c.db.GetEarliestVersion())
+			require.Equal(t, uint64(61), c.db.GetEarliestVersion())
 			for h := c.base; h <= c.head(); h++ {
 				if h < 61 {
 					_, ok := c.db.OpenView(h)
@@ -422,8 +422,8 @@ func TestPruneExcisesOnlyExpiredBuckets(t *testing.T) {
 
 	// Bucket 2 spans 20-29 and holds records a read at 25 needs, so only buckets 0 and 1 go.
 	require.NoError(t, c.db.PruneHistory(25))
-	require.Equal(t, int64(20), records(t, c.db)[0].height)
-	for h := int64(25); h <= 45; h++ {
+	require.Equal(t, uint64(20), records(t, c.db)[0].height)
+	for h := uint64(25); h <= 45; h++ {
 		c.requireRead(h, hot)
 		c.requireRead(h, nonceKey(account(30)))
 	}
@@ -436,7 +436,7 @@ func TestPruneExcisesOnlyExpiredBuckets(t *testing.T) {
 
 	// A cut line above the head is clamped to it.
 	require.NoError(t, c.db.PruneHistory(1_000))
-	require.Equal(t, int64(45), c.db.GetEarliestVersion())
+	require.Equal(t, uint64(45), c.db.GetEarliestVersion())
 	c.requireRead(45, hot)
 }
 
@@ -489,7 +489,7 @@ func TestReadersNeverSeeExcisedHistory(t *testing.T) {
 				if head < earliest {
 					continue
 				}
-				height := earliest + rng.Int64N(head-earliest+1)
+				height := earliest + rng.Uint64N(head-earliest+1)
 				view, ok := c.db.OpenView(height)
 				if !ok {
 					refused.Add(1)
@@ -566,14 +566,14 @@ func TestReopenKeepsMarkersAndBucketSize(t *testing.T) {
 	// The bucket size is fixed when the database is created.
 	reopened := openTestDB(t, dir, 20)
 	require.Equal(t, uint64(10), reopened.bucketSize)
-	require.Equal(t, int64(35), reopened.GetLatestVersion())
-	require.Equal(t, int64(22), reopened.GetEarliestVersion())
+	require.Equal(t, uint64(35), reopened.GetLatestVersion())
+	require.Equal(t, uint64(22), reopened.GetEarliestVersion())
 	c.db = reopened
 	require.NoError(t, c.db.Resume(35, c.view(c.states[len(c.states)-1])))
-	for h := int64(22); h <= 35; h++ {
+	for h := uint64(22); h <= 35; h++ {
 		c.requireRead(h, key)
 	}
-	require.Equal(t, int64(20), records(t, c.db)[0].height)
+	require.Equal(t, uint64(20), records(t, c.db)[0].height)
 	require.NoError(t, c.db.Close())
 }
 
@@ -614,7 +614,7 @@ func TestResumeBehindCurrentStateDropsHistory(t *testing.T) {
 	defer func() { require.NoError(t, reopened.Close()) }()
 	var closes atomic.Int64
 	require.NoError(t, reopened.Resume(15, &mapView{values: map[string][]byte{slot: word(15)}, closes: &closes}))
-	require.Equal(t, int64(15), reopened.GetEarliestVersion())
+	require.Equal(t, uint64(15), reopened.GetEarliestVersion())
 	_, ok := reopened.OpenView(12)
 	require.False(t, ok)
 	require.Equal(t, word(15), read(t, reopened, 15, slot))
@@ -660,9 +660,9 @@ func TestDiscardStateAboveKeepsOnlyRecordsAtOrBelowTheTarget(t *testing.T) {
 	require.NoError(t, DiscardStateAbove(dir, testConfig(), 14))
 	reopened := openTestDB(t, dir, 10)
 	c.db = reopened
-	require.Equal(t, int64(14), reopened.GetLatestVersion())
+	require.Equal(t, uint64(14), reopened.GetLatestVersion())
 	for _, r := range records(t, reopened) {
-		require.LessOrEqual(t, r.height, int64(14))
+		require.LessOrEqual(t, r.height, uint64(14))
 	}
 
 	c.mu.Lock()
@@ -670,7 +670,7 @@ func TestDiscardStateAboveKeepsOnlyRecordsAtOrBelowTheTarget(t *testing.T) {
 	c.mu.Unlock()
 	require.NoError(t, reopened.Resume(14, c.view(c.states[14])))
 	c.apply(map[string][]byte{slot: word(1500)}, false) // block 15 executes again, differently
-	for h := int64(0); h <= 15; h++ {
+	for h := uint64(0); h <= 15; h++ {
 		c.requireRead(h, slot)
 		c.requireRead(h, nonceKey(account(20)))
 	}
@@ -772,7 +772,7 @@ func TestOpenDBReplacesAnUninitializedDirectory(t *testing.T) {
 
 func TestDiscardStateAboveClearsAHalfWrittenBlock(t *testing.T) {
 	// Block 10 opens bucket 1. Its records land, but the crash comes before its marker does.
-	for _, target := range []int64{8, 9} {
+	for _, target := range []uint64{8, 9} {
 		t.Run(fmt.Sprintf("target=%d", target), func(t *testing.T) {
 			dir := t.TempDir()
 			c := newChain(t, dir, 10, 0)
@@ -784,8 +784,7 @@ func TestDiscardStateAboveClearsAHalfWrittenBlock(t *testing.T) {
 			require.NoError(t, c.db.writeRecords(changes, recordCount(changes), 1, 10))
 			require.NoError(t, c.db.Close())
 
-			//nolint:gosec // small test heights
-			require.NoError(t, DiscardStateAbove(dir, testConfig(), uint64(target)))
+			require.NoError(t, DiscardStateAbove(dir, testConfig(), target))
 			c.db = openTestDB(t, dir, 10)
 			defer func() { require.NoError(t, c.db.Close()) }()
 			for _, r := range records(t, c.db) {
@@ -798,13 +797,13 @@ func TestDiscardStateAboveClearsAHalfWrittenBlock(t *testing.T) {
 			c.mu.Unlock()
 			require.NoError(t, c.db.Resume(target, c.view(c.states[target])))
 			for h := target + 1; h <= 11; h++ {
-				changes := map[string][]byte{nonceKey(alice): nonce(uint64(h))} //nolint:gosec // positive
+				changes := map[string][]byte{nonceKey(alice): nonce(h)}
 				if h == 9 {
 					changes[slot] = word(90)
 				}
 				c.apply(changes, false)
 			}
-			for h := int64(0); h <= 11; h++ {
+			for h := uint64(0); h <= 11; h++ {
 				c.requireRead(h, slot)
 			}
 		})
@@ -824,8 +823,8 @@ func TestRollbackBelowTheEarliestHeightServesTheTarget(t *testing.T) {
 	require.NoError(t, DiscardStateAbove(dir, testConfig(), 25))
 	c.db = openTestDB(t, dir, 10)
 	defer func() { require.NoError(t, c.db.Close()) }()
-	require.Equal(t, int64(25), c.db.GetLatestVersion())
-	require.Equal(t, int64(25), c.db.GetEarliestVersion())
+	require.Equal(t, uint64(25), c.db.GetLatestVersion())
+	require.Equal(t, uint64(25), c.db.GetEarliestVersion())
 
 	c.mu.Lock()
 	c.states = c.states[:26]
@@ -834,7 +833,7 @@ func TestRollbackBelowTheEarliestHeightServesTheTarget(t *testing.T) {
 	for h := uint64(26); h <= 30; h++ {
 		c.apply(map[string][]byte{slot: word(100 + h)}, false)
 	}
-	for h := int64(25); h <= 30; h++ {
+	for h := uint64(25); h <= 30; h++ {
 		c.requireRead(h, slot)
 	}
 	_, ok := c.db.OpenView(24)
@@ -915,15 +914,12 @@ func TestBlocksRequireSuccessfulResume(t *testing.T) {
 	}
 	rejectBlock()
 	require.Equal(t, int64(1), closes.Load())
-	require.ErrorContains(t, db.Resume(-1, &mapView{closes: &closes}), "negative")
-	rejectBlock()
-	require.Equal(t, int64(3), closes.Load())
 
 	key := nonceKey(alice)
 	require.NoError(t, db.Resume(5, liveState{key: nonce(1)}))
 	db.ApplyBlock(6, priorsOf(t, map[string][]byte{key: nonce(1)}), liveState{key: nonce(2)})
 	db.WaitForPendingWrites()
-	require.Equal(t, int64(6), db.GetLatestVersion())
+	require.Equal(t, uint64(6), db.GetLatestVersion())
 	require.Equal(t, nonce(1), read(t, db, 5, key))
 	require.Equal(t, nonce(2), read(t, db, 6, key))
 }
@@ -1067,7 +1063,7 @@ func TestOpenViewRacesWithClose(t *testing.T) {
 }
 
 func TestPruneAfterCloseFails(t *testing.T) {
-	for _, head := range []int64{0, 1} {
+	for _, head := range []uint64{0, 1} {
 		c := newChain(t, t.TempDir(), 10, head)
 		require.NoError(t, c.db.Close())
 		require.ErrorContains(t, c.db.PruneHistory(0), "closed")
@@ -1080,7 +1076,7 @@ func TestCloseRacesWithQueueAndPruning(t *testing.T) {
 		t.Run(fmt.Sprint(round), func(t *testing.T) {
 			c := newChain(t, t.TempDir(), 10, 0)
 			defer func() { require.NoError(t, c.db.Close()) }()
-			for version := int64(1); version <= 32; version++ {
+			for version := uint64(1); version <= 32; version++ {
 				c.db.ApplyBlock(version, nil, c.view(nil))
 			}
 			start := make(chan struct{})
@@ -1114,7 +1110,7 @@ func TestCloseRacesWithQueueAndPruning(t *testing.T) {
 			})
 			close(start)
 			wg.Wait()
-			want := int64(32)
+			want := uint64(32)
 			if applied.Load() {
 				want++
 			}
@@ -1165,7 +1161,7 @@ func TestLargeBlocksLandWhole(t *testing.T) {
 	c.apply(second, true)
 	c.db.WaitForPendingWrites()
 	for i := uint64(0); i < slots; i += 997 {
-		for h := int64(0); h <= 2; h++ {
+		for h := uint64(0); h <= 2; h++ {
 			c.requireRead(h, storageKey(contract, i))
 		}
 	}
@@ -1243,7 +1239,7 @@ func TestEVMFamiliesReadAcrossFlushCompactionAndReopen(t *testing.T) {
 	require.NoError(t, c.db.storage.Compact(t.Context(), bucketBoundary(0), bucketBoundary(2), true))
 	verify := func() {
 		for key := range c.states[1] {
-			for h := int64(0); h <= 3; h++ {
+			for h := uint64(0); h <= 3; h++ {
 				c.requireRead(h, key)
 			}
 		}
@@ -1270,7 +1266,7 @@ func TestReadsRejectUnsupportedAndMalformedKeys(t *testing.T) {
 	c := newChain(t, t.TempDir(), 2, 0)
 	defer func() { require.NoError(t, c.db.Close()) }()
 	c.apply(nil, false)
-	for _, height := range []int64{0, 1} {
+	for _, height := range []uint64{0, 1} {
 		v, ok := c.db.OpenView(height)
 		require.True(t, ok)
 		for _, key := range [][]byte{nil, {0xff}, {StateKeyPrefix[0]}, append([]byte{0x09}, make([]byte, addressLen)...)} {

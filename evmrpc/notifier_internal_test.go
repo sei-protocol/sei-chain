@@ -395,10 +395,10 @@ func TestUnreadReceiptTotals(t *testing.T) {
 // is LatestVersion.
 type versionedReceiptStore struct {
 	receipt.ReceiptStore
-	latest atomic.Int64
+	latest atomic.Uint64
 }
 
-func (s *versionedReceiptStore) LatestVersion() int64 {
+func (s *versionedReceiptStore) LatestVersion() uint64 {
 	return s.latest.Load()
 }
 
@@ -437,7 +437,7 @@ type panickingReceiptStore struct {
 	panicWith func() any
 }
 
-func (s *panickingReceiptStore) LatestVersion() int64 {
+func (s *panickingReceiptStore) LatestVersion() uint64 {
 	panic(s.panicWith())
 }
 

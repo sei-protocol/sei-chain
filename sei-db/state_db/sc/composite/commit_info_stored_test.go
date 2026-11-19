@@ -85,7 +85,8 @@ func TestLastCommitInfoUnmovedByWorkingHash(t *testing.T) {
 	require.NotNil(t, cs.WorkingCommitInfo(cs.Version()+1))
 
 	flatKVVersion := cs.loadFlatKV().Version()
-	require.Equal(t, committed+1, flatKVVersion, "flatkv should be a block ahead for this test to mean anything")
+	require.Equal(t, uint64(committed+1), flatKVVersion,
+		"flatkv should be a block ahead for this test to mean anything")
 
 	after := cs.LastCommitInfo()
 	require.Equal(t, committed, after.Version, "last commit info must not follow flatkv's seal")

@@ -381,7 +381,7 @@ func rollbackFlatKV(t *testing.T, dir string, cfg seidbconfig.StateCommitConfig,
 	require.NoError(t, err)
 	err = evmStore.LoadLatest()
 	require.NoError(t, err)
-	require.NoError(t, evmStore.Rollback(target))
+	require.NoError(t, evmStore.Rollback(uint64(target)))
 	require.NoError(t, evmStore.Close())
 }
 
@@ -407,7 +407,7 @@ func openFlatKVReadOnly(t *testing.T, dir string, cfg seidbconfig.StateCommitCon
 	require.NoError(t, err)
 	store, err := flatkv.NewCommitStore(context.Background(), &flatkvCfg, stateWAL)
 	require.NoError(t, err)
-	ro, err := store.LoadVersionReadOnly(version)
+	ro, err := store.LoadVersionReadOnly(uint64(version))
 	require.NoError(t, err)
 	// Close the parent immediately: the returned read-only view owns an
 	// independent context and resources, so it must survive the parent's
@@ -478,7 +478,7 @@ func collectFlatKVEVM(t *testing.T, dir string, cfg seidbconfig.StateCommitConfi
 		require.NoError(t, err)
 	}
 
-	exp, err := s.Exporter(version)
+	exp, err := s.Exporter(uint64(version))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, exp.Close()) }()
 

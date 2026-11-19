@@ -9,7 +9,7 @@ type readOnlyTestStore struct {
 	*MemoryStore
 }
 
-func (*readOnlyTestStore) CommitStateChanges(int64, *gigatypes.StateChangeSet) error {
+func (*readOnlyTestStore) CommitStateChanges(uint64, *gigatypes.StateChangeSet) error {
 	return nil
 }
 

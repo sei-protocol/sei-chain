@@ -124,7 +124,7 @@ func writeGoldenRun(t *testing.T, dir string, cfg *config.Config) {
 		rand.New(rand.NewSource(goldenSeed)), //nolint:gosec // deterministic test data only
 		goldenOpsPerBlock)
 
-	for height := int64(1); height <= goldenBlocks; height++ {
+	for height := uint64(1); height <= goldenBlocks; height++ {
 		changeSets := workload.nextBlock(height)
 		require.NotEmpty(t, changeSets, "block %d produced no changesets", height)
 		require.NoError(t, store.ApplyChangeSets(height, changeSets), "apply block %d", height)
@@ -133,7 +133,7 @@ func writeGoldenRun(t *testing.T, dir string, cfg *config.Config) {
 		require.NoError(t, err, "commit block %d", height)
 		require.Equal(t, height, store.Version())
 
-		block := uint64(height) //nolint:gosec // heights start at 1 and only increase
+		block := height
 		logger.ReportChangeset(block, changeSets)
 	}
 

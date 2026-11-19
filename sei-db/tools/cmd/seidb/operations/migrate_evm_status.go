@@ -46,13 +46,13 @@ func MigrateEvmStatusCmd() *cobra.Command {
 		Run: executeMigrateEvmStatus,
 	}
 	cmd.PersistentFlags().StringP("db-dir", "d", "", "FlatKV database directory")
-	cmd.PersistentFlags().Int64("height", 0, "FlatKV target version; 0 selects the latest available version")
+	cmd.PersistentFlags().Uint64("height", 0, "FlatKV target version; 0 selects the latest available version")
 	return cmd
 }
 
 func executeMigrateEvmStatus(cmd *cobra.Command, _ []string) {
 	dbDir, _ := cmd.Flags().GetString("db-dir")
-	height, _ := cmd.Flags().GetInt64("height")
+	height, _ := cmd.Flags().GetUint64("height")
 
 	if dbDir == "" {
 		panic("Must provide --db-dir pointing at a FlatKV data directory")
@@ -84,7 +84,7 @@ func executeMigrateEvmStatus(cmd *cobra.Command, _ []string) {
 	boundaryRaw, hasBoundary := store.Get(migration.MigrationStore, []byte(migration.MigrationBoundaryKey))
 
 	out := struct {
-		VersionAt          int64  `json:"version_at"`
+		VersionAt          uint64 `json:"version_at"`
 		MigrationVersion   uint64 `json:"migration_version"`
 		MigrateEVMComplete bool   `json:"migrate_evm_complete"`
 		BoundaryPresent    bool   `json:"boundary_present"`

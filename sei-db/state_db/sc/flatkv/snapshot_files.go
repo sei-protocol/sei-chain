@@ -17,13 +17,13 @@ import (
 
 // SnapshotDirName returns the directory name of the snapshot at version, for example
 // "snapshot-00000000000000000100".
-func SnapshotDirName(version int64) string {
+func SnapshotDirName(version uint64) string {
 	return snapshotName(version)
 }
 
 // ParseSnapshotDirName returns the version a snapshot directory name encodes. It accepts only
 // "snapshot-" followed by exactly 20 decimal digits.
-func ParseSnapshotDirName(name string) (int64, error) {
+func ParseSnapshotDirName(name string) (uint64, error) {
 	if !isSnapshotName(name) || !isDecimal(name[len(snapshotPrefix):]) {
 		return 0, fmt.Errorf("invalid snapshot directory name %q", name)
 	}
@@ -47,7 +47,7 @@ func DataDBDirs() []string {
 // ActiveSnapshotVersion returns the version of the snapshot the current link under root names. It reads
 // only the link, so it is safe to call while a store is open on root. It returns an error wrapping
 // os.ErrNotExist when root has no current link.
-func ActiveSnapshotVersion(root string) (int64, error) {
+func ActiveSnapshotVersion(root string) (uint64, error) {
 	dir, _, err := currentSnapshotDir(root)
 	if err != nil {
 		return 0, fmt.Errorf("resolve the current snapshot under %q: %w", root, err)
@@ -62,12 +62,12 @@ func ActiveSnapshotVersion(root string) (int64, error) {
 // SnapshotVersions returns, in ascending order, the versions of the directories under root whose names
 // ParseSnapshotDirName accepts. A snapshot still being written or removed has a suffix on its name and is
 // not listed. It is safe to call while a store is open on root.
-func SnapshotVersions(root string) ([]int64, error) {
+func SnapshotVersions(root string) ([]uint64, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("list snapshots under %q: %w", root, err)
 	}
-	var versions []int64
+	var versions []uint64
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -87,12 +87,17 @@ func SnapshotVersions(root string) ([]int64, error) {
 //
 // It returns an error wrapping os.ErrNotExist when the snapshot is absent, or is pruned or replaced
 // before every file is linked. On any error it removes dst.
-func HardLinkSnapshot(root string, version int64, dst string) error {
+func HardLinkSnapshot(root string, version uint64, dst string) error {
 	return hardLinkSnapshotWith(root, version, dst, os.Link)
 }
 
 // hardLinkSnapshotWith is HardLinkSnapshot with the hard-link call supplied by the caller.
-func hardLinkSnapshotWith(root string, version int64, dst string, link func(oldname, newname string) error) (err error) {
+func hardLinkSnapshotWith(
+	root string,
+	version uint64,
+	dst string,
+	link func(oldname string, newname string) error,
+) (err error) {
 	src := filepath.Join(root, snapshotName(version))
 	before, err := os.Stat(src)
 	if err != nil {
@@ -205,7 +210,7 @@ func linkDirContents(src, dst string, link func(oldname, newname string) error) 
 // or regular files, dir holds every data database, and each one records version as its committed
 // version. version must be at least 1. It does not check the contents against any root hash. It opens
 // each database read-only, which leaves a Pebble LOCK file in the database directory.
-func VerifySnapshotDir(dir string, version int64) error {
+func VerifySnapshotDir(dir string, version uint64) error {
 	// A database with no version record reads as 0, so version 0 would accept empty directories.
 	if version < 1 {
 		return fmt.Errorf("snapshot %s: version %d is below 1", dir, version)
@@ -439,13 +444,13 @@ func clearRank(name string) int {
 // filesystem as the root, and must already be durable: InstallSnapshot syncs only the root directory.
 // A store opened on the root afterwards loads at version. On error, src is in place and the root is
 // empty, unless the error also reports that the undo failed.
-func (l *RootLock) InstallSnapshot(src string, version int64) error {
+func (l *RootLock) InstallSnapshot(src string, version uint64) error {
 	return l.installSnapshotWith(src, version, publishCurrent)
 }
 
 // installSnapshotWith is InstallSnapshot with the step that makes the moved snapshot current supplied by
 // the caller.
-func (l *RootLock) installSnapshotWith(src string, version int64, publish func(root, name string) error) error {
+func (l *RootLock) installSnapshotWith(src string, version uint64, publish func(root, name string) error) error {
 	empty, err := l.Empty()
 	if err != nil {
 		return fmt.Errorf("install snapshot %d: %w", version, err)

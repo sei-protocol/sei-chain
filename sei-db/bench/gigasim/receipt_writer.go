@@ -30,8 +30,9 @@ func newReceiptWriter(store receipt.ReceiptStore, gigasimMetrics *GigasimMetrics
 // skipping the call would leave the receipt head behind the ledger and the state for every setup
 // block — heights recovery takes the minimum of, so a run interrupted during setup over an existing
 // directory would roll state back to a height the ledger has passed and then refuse to reopen.
-func (w *receiptWriter) writeBlock(number int64, records []receipt.ReceiptRecord, encodedBytes int64) error {
-	if err := w.store.SetReceipts(sdk.NewContext(nil, tmproto.Header{Height: number}, false), records); err != nil {
+func (w *receiptWriter) writeBlock(number uint64, records []receipt.ReceiptRecord, encodedBytes int64) error {
+	header := tmproto.Header{Height: int64(number)} //nolint:gosec // benchmark heights are small
+	if err := w.store.SetReceipts(sdk.NewContext(nil, header, false), records); err != nil {
 		return fmt.Errorf("failed to write the receipts for block %d: %w", number, err)
 	}
 	w.metrics.ReportReceiptsWritten(int64(len(records)))

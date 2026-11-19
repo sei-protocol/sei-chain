@@ -35,28 +35,28 @@ type importerFailingEVMStore struct {
 	failingEVMStore
 }
 
-func (f *importerFailingEVMStore) Importer(int64) (types.Importer, error) {
+func (f *importerFailingEVMStore) Importer(uint64) (types.Importer, error) {
 	return nil, errors.New("flatkv importer unavailable")
 }
 
 func (f *failingEVMStore) LoadLatest() error { return fmt.Errorf("flatkv unavailable") }
 
-func (f *failingEVMStore) LoadVersionReadOnly(int64) (gigatypes.LiveStateStore, error) {
+func (f *failingEVMStore) LoadVersionReadOnly(uint64) (gigatypes.LiveStateStore, error) {
 	return nil, fmt.Errorf("flatkv unavailable")
 }
-func (f *failingEVMStore) CheckVersionReachable(int64) error { return nil }
-func (f *failingEVMStore) ApplyChangeSets(int64, []*proto.NamedChangeSet) error {
+func (f *failingEVMStore) CheckVersionReachable(uint64) error { return nil }
+func (f *failingEVMStore) ApplyChangeSets(uint64, []*proto.NamedChangeSet) error {
 	return nil
 }
-func (f *failingEVMStore) Commit(int64) (int64, error) { return 0, nil }
-func (f *failingEVMStore) CommitStateChanges(int64, []mutation.Mutation) error {
+func (f *failingEVMStore) Commit(uint64) (uint64, error) { return 0, nil }
+func (f *failingEVMStore) CommitStateChanges(uint64, []mutation.Mutation) error {
 	return nil
 }
 func (f *failingEVMStore) OpenView() gigatypes.StateView     { return nil }
-func (f *failingEVMStore) SetInitialVersion(int64) error     { return nil }
+func (f *failingEVMStore) SetInitialVersion(uint64) error    { return nil }
 func (f *failingEVMStore) Get(string, []byte) ([]byte, bool) { return nil, false }
-func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, error) {
-	return -1, false, nil
+func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (uint64, bool, error) {
+	return 0, false, nil
 }
 func (f *failingEVMStore) Has(string, []byte) bool                  { return false }
 func (f *failingEVMStore) RawGlobalIterator() (dbm.Iterator, error) { return nil, nil }
@@ -66,19 +66,19 @@ func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, 
 func (f *failingEVMStore) RegisterHashListener(gigatypes.HashListener) (lthash.BlockHash, error) {
 	return lthash.BlockHash{}, fmt.Errorf("flatkv unavailable")
 }
-func (f *failingEVMStore) FlushHashes() error                             { return nil }
-func (f *failingEVMStore) Flush() error                                   { return nil }
-func (f *failingEVMStore) CommitPendingBlock() error                      { return nil }
-func (f *failingEVMStore) Version() int64                                 { return 0 }
-func (f *failingEVMStore) PendingVersion() int64                          { return 0 }
-func (f *failingEVMStore) GetLatestVersion() (int64, error)               { return 0, nil }
-func (f *failingEVMStore) Rollback(int64) error                           { return nil }
-func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)         { return nil, nil }
-func (f *failingEVMStore) Importer(int64) (types.Importer, error)         { return nil, nil }
-func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer             { return nil }
-func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error             { return nil }
-func (f *failingEVMStore) OldestSnapshotAbove(int64) (int64, bool, error) { return 0, false, nil }
-func (f *failingEVMStore) Close() error                                   { return nil }
+func (f *failingEVMStore) FlushHashes() error                               { return nil }
+func (f *failingEVMStore) Flush() error                                     { return nil }
+func (f *failingEVMStore) CommitPendingBlock() error                        { return nil }
+func (f *failingEVMStore) Version() uint64                                  { return 0 }
+func (f *failingEVMStore) PendingVersion() uint64                           { return 0 }
+func (f *failingEVMStore) GetLatestVersion() (uint64, error)                { return 0, nil }
+func (f *failingEVMStore) Rollback(uint64) error                            { return nil }
+func (f *failingEVMStore) Exporter(uint64) (types.Exporter, error)          { return nil, nil }
+func (f *failingEVMStore) Importer(uint64) (types.Importer, error)          { return nil, nil }
+func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer               { return nil }
+func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error               { return nil }
+func (f *failingEVMStore) OldestSnapshotAbove(uint64) (uint64, bool, error) { return 0, false, nil }
+func (f *failingEVMStore) Close() error                                     { return nil }
 
 // flatKVRootHash returns the root hash of the store's flatkv backend once hashing has caught up with
 // what was committed. Hashing is asynchronous, so that barrier is what stops an assertion racing the
@@ -1392,7 +1392,7 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 		require.NoError(t, err)
 	}
 	require.Equal(t, int64(3), cs.memIAVL.Version())
-	require.Equal(t, int64(3), cs.loadFlatKV().Version())
+	require.Equal(t, uint64(3), cs.loadFlatKV().Version())
 	require.NoError(t, cs.Close())
 
 	// Simulate crash: rollback FlatKV to version 2 independently, leaving
@@ -1407,10 +1407,10 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 	require.NoError(t, err)
 	err = evmStore.LoadLatest()
 	require.NoError(t, err)
-	require.Equal(t, int64(3), evmStore.Version())
+	require.Equal(t, uint64(3), evmStore.Version())
 	err = evmStore.Rollback(2)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), evmStore.Version())
+	require.Equal(t, uint64(2), evmStore.Version())
 	require.NoError(t, evmStore.Close())
 
 	// Reopen the composite store — LoadVersion(0) should detect the
@@ -1423,7 +1423,7 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 	defer cs2.Close()
 
 	require.Equal(t, int64(2), cs2.memIAVL.Version(), "cosmos should be rolled back to EVM version")
-	require.Equal(t, int64(2), cs2.loadFlatKV().Version(), "EVM should remain at version 2")
+	require.Equal(t, uint64(2), cs2.loadFlatKV().Version(), "EVM should remain at version 2")
 	require.Equal(t, int64(2), cs2.Version())
 
 	// Verify cosmos data is at version 2 (value = 0x02, not 0x03)
@@ -1482,7 +1482,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, int64(2), cs2.memIAVL.Version())
-	require.Equal(t, int64(2), cs2.loadFlatKV().Version())
+	require.Equal(t, uint64(2), cs2.loadFlatKV().Version())
 
 	// Continue committing new blocks on top of the reconciled state.
 	// Version 3 is re-created with new data (0xA3 instead of 0x03).
@@ -1500,7 +1500,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(3+i), ver, "commit should produce sequential versions")
 		require.Equal(t, ver, cs2.memIAVL.Version())
-		require.Equal(t, ver, cs2.loadFlatKV().Version())
+		require.Equal(t, uint64(ver), cs2.loadFlatKV().Version())
 	}
 	require.NoError(t, cs2.Close())
 
@@ -1514,7 +1514,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	defer cs3.Close()
 
 	require.Equal(t, int64(5), cs3.memIAVL.Version())
-	require.Equal(t, int64(5), cs3.loadFlatKV().Version())
+	require.Equal(t, uint64(5), cs3.loadFlatKV().Version())
 
 	bankStore := cs3.GetChildStoreByName("bank")
 	require.Equal(t, []byte{0xA5}, bankStore.Get([]byte("bal")))
@@ -1921,7 +1921,7 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 	defer cs2.Close()
 
 	require.Equal(t, int64(3), cs2.memIAVL.Version())
-	require.Equal(t, int64(3), cs2.loadFlatKV().Version())
+	require.Equal(t, uint64(3), cs2.loadFlatKV().Version())
 
 	bankStore := cs2.GetChildStoreByName("bank")
 	require.Equal(t, []byte{3}, bankStore.Get([]byte("bal")))
@@ -1981,7 +1981,7 @@ func TestMigrationEntrySeedingMemiavlToMigrateEVM(t *testing.T) {
 	require.Equal(t, int64(phase1Blocks), cs2.memIAVL.Version(),
 		"memiavl version must survive reopen")
 	require.NotNil(t, cs2.loadFlatKV(), "MigrateEVM mode must create a flatkv store")
-	require.Equal(t, int64(phase1Blocks), cs2.loadFlatKV().Version(),
+	require.Equal(t, uint64(phase1Blocks), cs2.loadFlatKV().Version(),
 		"flatkv must be seeded to memiavl's version after migration-entry seeding")
 	require.Equal(t, int64(phase1Blocks), cs2.Version(),
 		"composite version must report the seeded version")
@@ -2000,7 +2000,7 @@ func TestMigrationEntrySeedingMemiavlToMigrateEVM(t *testing.T) {
 		v, err := cs2.Commit(cs2.Version() + 1)
 		require.NoError(t, err)
 		require.Equal(t, int64(blockIdx+1), v)
-		require.Equal(t, cs2.memIAVL.Version(), cs2.loadFlatKV().Version(),
+		require.Equal(t, uint64(cs2.memIAVL.Version()), cs2.loadFlatKV().Version(),
 			"memiavl and flatkv must stay in lockstep after seeding")
 	}
 }
@@ -2112,7 +2112,7 @@ func TestMigrationEntrySeedingIsIdempotentAcrossRestarts(t *testing.T) {
 	require.NoError(t, cs2.Initialize([]string{"bank", keys.EVMStoreKey}))
 	err = cs2.LoadLatest()
 	require.NoError(t, err)
-	require.Equal(t, int64(5), cs2.loadFlatKV().Version(), "flatkv seeded to memiavl version on first reopen")
+	require.Equal(t, uint64(5), cs2.loadFlatKV().Version(), "flatkv seeded to memiavl version on first reopen")
 	_, err = cs2.Commit(cs2.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(6), cs2.Version())
@@ -2125,7 +2125,7 @@ func TestMigrationEntrySeedingIsIdempotentAcrossRestarts(t *testing.T) {
 	require.NoError(t, err, "second reopen must not re-seed flatkv (would fail the fresh-store guard)")
 	defer cs3.Close()
 	require.Equal(t, int64(6), cs3.memIAVL.Version())
-	require.Equal(t, int64(6), cs3.loadFlatKV().Version())
+	require.Equal(t, uint64(6), cs3.loadFlatKV().Version())
 }
 
 // TestInitializeIsNoOpInFlatKVOnly verifies that composite.Initialize does
@@ -2189,7 +2189,7 @@ func TestSetInitialVersionDelegatesToBothBackends(t *testing.T) {
 
 	require.NoError(t, cs.SetInitialVersion(50))
 
-	require.Equal(t, int64(49), cs.loadFlatKV().Version(),
+	require.Equal(t, uint64(49), cs.loadFlatKV().Version(),
 		"flatkv reflects the seed immediately (committedVersion = N-1)")
 
 	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -2205,7 +2205,7 @@ func TestSetInitialVersionDelegatesToBothBackends(t *testing.T) {
 	require.Equal(t, int64(50), v,
 		"first commit after composite.SetInitialVersion must produce the seeded version on both backends")
 	require.Equal(t, int64(50), cs.memIAVL.Version())
-	require.Equal(t, int64(50), cs.loadFlatKV().Version())
+	require.Equal(t, uint64(50), cs.loadFlatKV().Version())
 }
 
 // TestSetInitialVersionRetryIsIdempotent verifies that a caller retrying

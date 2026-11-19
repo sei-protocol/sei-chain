@@ -33,7 +33,7 @@ var _ types.Exporter = (*KVExporter)(nil)
 // The caller must Close the exporter when done.
 type KVExporter struct {
 	store      *CommitStore
-	version    int64
+	version    uint64
 	iter       dbm.Iterator
 	headerSent bool
 
@@ -41,7 +41,7 @@ type KVExporter struct {
 	closed utils.CloseMarker[KVExporter]
 }
 
-func NewKVExporter(store *CommitStore, version int64) *KVExporter {
+func NewKVExporter(store *CommitStore, version uint64) *KVExporter {
 	e := &KVExporter{
 		store:   store,
 		version: version,

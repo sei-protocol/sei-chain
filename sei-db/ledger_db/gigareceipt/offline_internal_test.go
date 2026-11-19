@@ -38,7 +38,7 @@ func writeLittIdxReceipts(t *testing.T, dir string, blocks uint64) {
 		//nolint:gosec // small test heights
 		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(int64(block)),
 			[]receipt.ReceiptRecord{record}))
-		requireReceiptVersion(t, store, int64(block)) //nolint:gosec // small test heights
+		requireReceiptVersion(t, store, block)
 	}
 	require.NoError(t, store.Close())
 }

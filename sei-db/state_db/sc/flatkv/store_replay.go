@@ -13,10 +13,10 @@ import (
 // reached, a throwaway clone persists nothing. Everything under them is shared, ordered callers first.
 
 // replayIntoMutableStore brings this store up to targetVersion from its own WAL, or to the end of the WAL when
-// targetVersion <= 0, and rejects a store whose data DBs did not all reach that version.
+// targetVersion == 0, and rejects a store whose data DBs did not all reach that version.
 //
 // It runs at startup (open/openTo) and during Rollback, never concurrently with live commits.
-func (s *CommitStore) replayIntoMutableStore(targetVersion int64) error {
+func (s *CommitStore) replayIntoMutableStore(targetVersion uint64) error {
 	if err := s.catchUpFromWAL(targetVersion); err != nil {
 		return fmt.Errorf("catch up from the WAL: %w", err)
 	}
@@ -27,11 +27,11 @@ func (s *CommitStore) replayIntoMutableStore(targetVersion int64) error {
 }
 
 // catchUpFromWAL replays this store's own WAL up to targetVersion, or to the end of the WAL when
-// targetVersion <= 0.
+// targetVersion == 0.
 //
 // It reads the WAL unlocked; callers must not run it concurrently with live commits. A nil WAL is legal only
 // if this store already sits at targetVersion — the outer context owns the WAL pipeline in that case.
-func (s *CommitStore) catchUpFromWAL(targetVersion int64) (err error) {
+func (s *CommitStore) catchUpFromWAL(targetVersion uint64) (err error) {
 	var replayed int
 	obs := s.observeOp("catchup", otelMetrics.CatchupLatency, "targetVersion", targetVersion)
 	// Replayed blocks are reported regardless of outcome. CurrentVersion is intentionally NOT recorded here —
@@ -77,14 +77,14 @@ func (s *CommitStore) catchUpFromWAL(targetVersion int64) (err error) {
 }
 
 // replayIntoReadOnlyCopy advances a read-only clone from the snapshot boundary it opened at up to targetVersion,
-// or to this store's latest WAL block when targetVersion <= 0, and rejects a clone whose data DBs did not all
+// or to this store's latest WAL block when targetVersion == 0, and rejects a clone whose data DBs did not all
 // reach that version.
 //
 // The clone has a nil WAL of its own — this store owns the WAL — so the blocks it needs have to be fed to it
 // from here. Nothing is persisted afterwards: the clone's databases live in a directory discarded on Close. A
 // gap between the clone's snapshot boundary and the start of the WAL fails only the export; this store's own
 // state is untouched.
-func (s *CommitStore) replayIntoReadOnlyCopy(clone *CommitStore, targetVersion int64) error {
+func (s *CommitStore) replayIntoReadOnlyCopy(clone *CommitStore, targetVersion uint64) error {
 	if err := s.feedWALToReadOnlyCopy(clone, targetVersion); err != nil {
 		return err
 	}
@@ -92,8 +92,8 @@ func (s *CommitStore) replayIntoReadOnlyCopy(clone *CommitStore, targetVersion i
 }
 
 // feedWALToReadOnlyCopy replays this store's WAL into clone up to targetVersion, or to the latest WAL block
-// when targetVersion <= 0.
-func (s *CommitStore) feedWALToReadOnlyCopy(clone *CommitStore, targetVersion int64) error {
+// when targetVersion == 0.
+func (s *CommitStore) feedWALToReadOnlyCopy(clone *CommitStore, targetVersion uint64) error {
 	if s.wal == nil {
 		if targetVersion > 0 && clone.committedVersion != targetVersion {
 			return fmt.Errorf("readonly: nil WAL cannot replay to version %d (opened at %d)",
@@ -122,8 +122,8 @@ func (s *CommitStore) feedWALToReadOnlyCopy(clone *CommitStore, targetVersion in
 // The lock is not held for the replay itself: by then the iterator is a point-in-time snapshot, and holding it
 // that long would stall commits for the whole export.
 func (s *CommitStore) openReplayIterator(
-	fromVersion int64,
-	targetVersion int64,
+	fromVersion uint64,
+	targetVersion uint64,
 ) (seiwal.Iterator[[]mutation.Mutation], bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -140,7 +140,7 @@ func (s *CommitStore) openReplayIterator(
 }
 
 // resolveReplayRange resolves the inclusive WAL block range to replay into a destination currently sitting at
-// fromVersion. targetVersion caps the range; <= 0 means replay to the end of the WAL. When ok is false there
+// fromVersion. targetVersion caps the range; 0 means replay to the end of the WAL. When ok is false there
 // is nothing to replay and start/end are meaningless.
 //
 // Replay always begins at fromVersion+1. Blocks are contiguous and the first block is 1, so this holds for a
@@ -153,8 +153,8 @@ func (s *CommitStore) openReplayIterator(
 // Callers hold whatever lock their concurrency context requires; this only reads the WAL's stored range.
 func resolveReplayRange(
 	wal statewal.StateWAL,
-	fromVersion int64,
-	targetVersion int64,
+	fromVersion uint64,
+	targetVersion uint64,
 ) (start uint64, end uint64, ok bool, err error) {
 	stored, first, last, err := wal.GetStoredRange()
 	if err != nil {
@@ -165,10 +165,10 @@ func resolveReplayRange(
 		return 0, 0, false, nil
 	}
 
-	start = uint64(fromVersion) + 1 //nolint:gosec // fromVersion >= 0
+	start = fromVersion + 1
 	end = last
-	if targetVersion > 0 && uint64(targetVersion) < end {
-		end = uint64(targetVersion) //nolint:gosec // guarded by targetVersion > 0
+	if targetVersion > 0 && targetVersion < end {
+		end = targetVersion
 	}
 	if end < start {
 		// The destination is already at or past the target. This also covers a WAL holding nothing beyond it.
@@ -235,7 +235,7 @@ func (s *CommitStore) applyAndCommit(blockHeight uint64, mutations []mutation.Mu
 	if err := s.sealBlock(blockHeight, staged, true); err != nil {
 		return fmt.Errorf("commit block %d: %w", blockHeight, err)
 	}
-	s.committedVersion = int64(blockHeight) //nolint:gosec // never near the int64 ceiling
+	s.committedVersion = blockHeight
 	s.clearPendingBlock()
 	return nil
 }

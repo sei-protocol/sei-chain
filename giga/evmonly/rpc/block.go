@@ -335,11 +335,14 @@ func receiptFor(ctx context.Context, store receiptpkg.ReceiptStore, hash common.
 func blockGasUsed(ctx context.Context, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock) (uint64, error) {
 	// The total covers this lane's block; superblocks merging lanes would need a
 	// combined total instead.
-	height := block.Block.Height
-	if store == nil || height > store.LatestVersion() || height < store.EarliestVersion() {
+	if store == nil || block.Block.Height < 0 {
 		return 0, nil
 	}
-	stats, err := store.GetBlockStats(receiptContext(ctx), uint64(height)) //nolint:gosec // G115: height is positive here.
+	height := uint64(block.Block.Height) //nolint:gosec // guarded above
+	if height > store.LatestVersion() || height < store.EarliestVersion() {
+		return 0, nil
+	}
+	stats, err := store.GetBlockStats(receiptContext(ctx), height)
 	if err == nil {
 		return stats.TotalGasUsed, nil
 	}

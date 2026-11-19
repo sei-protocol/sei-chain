@@ -249,7 +249,7 @@ func (fm *FinalizationManager) finalize(pending *pendingFinalization) (stopped b
 	if hash.Error != nil {
 		return false, fmt.Errorf("hash block %d: %w", pending.blockHeight, hash.Error)
 	}
-	if uint64(hash.BlockNumber) != pending.blockHeight { //nolint:gosec // block heights are non-negative
+	if hash.BlockNumber != pending.blockHeight {
 		return false, fmt.Errorf("finalization is out of step: holding block %d, hashed block %d",
 			pending.blockHeight, hash.BlockNumber)
 	}

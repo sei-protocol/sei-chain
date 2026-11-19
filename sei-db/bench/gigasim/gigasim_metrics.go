@@ -234,7 +234,7 @@ func (m *GigasimMetrics) NewTransactionPhaseTimer() *metrics.PhaseTimer {
 
 // ReportBlockProcessed records one block completing every stage of the pipeline, and the transactions
 // it carried, labelled by transactionType, and the gas they used.
-func (m *GigasimMetrics) ReportBlockProcessed(number int64, transactionType string, transactions int64, gas int64) {
+func (m *GigasimMetrics) ReportBlockProcessed(number uint64, transactionType string, transactions int64, gas int64) {
 	if m == nil {
 		return
 	}
@@ -250,7 +250,7 @@ func (m *GigasimMetrics) ReportBlockProcessed(number int64, transactionType stri
 		m.gasUsedTotal.Add(ctx, gas)
 	}
 	if m.highestBlockHeight != nil {
-		m.highestBlockHeight.Record(ctx, number)
+		m.highestBlockHeight.Record(ctx, int64(number)) //nolint:gosec // a metric, not a height
 	}
 	if m.executionBatchTransactions != nil {
 		m.executionBatchTransactions.Record(ctx, transactions)

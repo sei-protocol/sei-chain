@@ -67,7 +67,7 @@ func newExecutionState(
 }
 
 // height returns the block the read view was opened at, which is the newest block the state DB holds.
-func (s *executionState) height() int64 {
+func (s *executionState) height() uint64 {
 	return s.view.GetBlockHeight()
 }
 
@@ -102,7 +102,7 @@ func (s *executionState) Get(key []byte) ([]byte, bool) {
 // this performs no work of its own ahead of the commit.
 //
 // Must not run concurrently with Put or Get.
-func (s *executionState) commitBlock(blockNum int64, writes blockWrites) error {
+func (s *executionState) commitBlock(blockNum uint64, writes blockWrites) error {
 	// SC and SS are handed the same changeset, so the volume they take in is the same. SS is reported
 	// only when it is open, which is what makes it fall to zero on a validator's stack rather than
 	// claiming writes nothing performed.

@@ -22,7 +22,7 @@ func (v *readCountingView) Get(_ string, _ []byte) ([]byte, bool) {
 	return nil, false
 }
 
-func (v *readCountingView) GetBlockHeight() int64 { return 0 }
+func (v *readCountingView) GetBlockHeight() uint64 { return 0 }
 
 func (v *readCountingView) Close() {}
 

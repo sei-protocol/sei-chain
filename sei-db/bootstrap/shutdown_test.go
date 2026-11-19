@@ -53,7 +53,7 @@ func TestCloseLeavesEveryStoreAtTheLastBlock(t *testing.T) {
 	liveStateDB, err := flatkv.OpenLiveStateDB(t.Context(), cfg.FlatKVConfig)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, liveStateDB.Close()) }()
-	require.Equal(t, int64(5), liveStateDB.Version(), "the live state DB needs no block from the state WAL")
+	require.Equal(t, uint64(5), liveStateDB.Version(), "the live state DB needs no block from the state WAL")
 }
 
 // The running marker exists while the stores are open, Close removes it, and one left by a crash survives the next

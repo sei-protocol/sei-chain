@@ -192,7 +192,7 @@ func TestFilterLogsByTagsPreCanceledContextReturnsEmptyFast(t *testing.T) {
 		txHash, rcpt := littCtxTestReceipt(block, 0, addr, topic, 1)
 		require.NoError(t, s.SetReceipts(newTestCtxAtHeight(block),
 			[]receipt.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
-		requireReceiptVersion(t, s, int64(block))
+		requireReceiptVersion(t, s, block)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

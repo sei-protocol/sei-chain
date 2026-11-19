@@ -125,7 +125,7 @@ func TestReceiptGCPruneSnapshotsIsANoOp(t *testing.T) {
 	}
 
 	require.NoError(t, prunable.PruneSnapshots(3))
-	require.Equal(t, int64(0), store.EarliestVersion(), "a snapshot prune must not move the floor")
+	require.Equal(t, uint64(0), store.EarliestVersion(), "a snapshot prune must not move the floor")
 
 	kept, err := store.GetReceiptFromStore(ctx, litTxHash(1, 0))
 	require.NoError(t, err)
@@ -150,7 +150,7 @@ func TestReceiptGCLatestBlock(t *testing.T) {
 	latest, err = prunable.GetLatestBlock()
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), latest)
-	require.Equal(t, int64(3), store.LatestVersion(),
+	require.Equal(t, uint64(3), store.LatestVersion(),
 		"the head reported to the collector must agree with the store's own version")
 }
 
@@ -176,7 +176,7 @@ func TestReceiptGCRollbackFloorAndPruneHistory(t *testing.T) {
 	require.Equal(t, uint64(0), prunable.GetRollbackFloor(1_000))
 
 	require.NoError(t, prunable.PruneHistory(3))
-	require.Equal(t, int64(3), store.EarliestVersion(), "PruneHistory must advance the retention floor")
+	require.Equal(t, uint64(3), store.EarliestVersion(), "PruneHistory must advance the retention floor")
 
 	_, err := store.GetReceiptFromStore(ctx, litTxHash(1, 0))
 	require.ErrorIs(t, err, receipt.ErrNotFound, "a receipt below the floor must not be served")
@@ -186,7 +186,7 @@ func TestReceiptGCRollbackFloorAndPruneHistory(t *testing.T) {
 
 	// The floor only advances: a later, lower cycle must not re-expose what was pruned.
 	require.NoError(t, prunable.PruneHistory(1))
-	require.Equal(t, int64(3), store.EarliestVersion())
+	require.Equal(t, uint64(3), store.EarliestVersion())
 }
 
 // PruneHistory carries a minimum taken across every managed store, so it can arrive above this
@@ -200,7 +200,7 @@ func TestReceiptGCPruneHistoryAboveHead(t *testing.T) {
 		store, prunable, _ := setupLittIdxForGC(t, 0)
 
 		require.NoError(t, prunable.PruneHistory(1_000))
-		require.Equal(t, int64(0), store.EarliestVersion(),
+		require.Equal(t, uint64(0), store.EarliestVersion(),
 			"a floor above an empty store would have to be walked back once blocks arrive")
 	})
 
@@ -211,7 +211,7 @@ func TestReceiptGCPruneHistoryAboveHead(t *testing.T) {
 		}
 
 		require.NoError(t, prunable.PruneHistory(1_000))
-		require.Equal(t, int64(3), store.EarliestVersion(), "the floor stops at the head, not the request")
+		require.Equal(t, uint64(3), store.EarliestVersion(), "the floor stops at the head, not the request")
 
 		kept, err := store.GetReceiptFromStore(ctx, litTxHash(3, 0))
 		require.NoError(t, err, "honoring the request literally would drop every block the store holds")

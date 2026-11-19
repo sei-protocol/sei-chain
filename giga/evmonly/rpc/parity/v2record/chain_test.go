@@ -336,7 +336,9 @@ func (c *v2Chain) settle() {
 	}
 	store := c.app.EvmKeeper.ReceiptStore()
 	require.NotNil(c.t, store)
-	require.Eventually(c.t, func() bool { return store.LatestVersion() >= latest }, settleTimeout, time.Millisecond)
+	require.Eventually(c.t, func() bool {
+		return int64(store.LatestVersion()) >= latest
+	}, settleTimeout, time.Millisecond)
 	require.NoError(c.t, receipt.PinVersions(store, 1, store.LatestVersion()))
 }
 

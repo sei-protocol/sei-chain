@@ -78,7 +78,7 @@ func newTestEngineWithModuleOf(
 }
 
 // blockDiff builds a diff of n distinct keys for the given height.
-func blockDiff(height int64, n int) map[string][]byte {
+func blockDiff(height uint64, n int) map[string][]byte {
 	diff := make(map[string][]byte, n)
 	for i := 0; i < n; i++ {
 		diff[fmt.Sprintf("m/key-%03d", i)] = []byte(fmt.Sprintf("v-%d-%d", height, i))
@@ -125,7 +125,7 @@ func TestHashEngineAgreesWithSynchronousCompute(t *testing.T) {
 
 	require.Equal(t, want.Global.Checksum(), got.Global.Checksum(),
 		"the pipeline must produce the hash a single-call fold produces")
-	require.Equal(t, int64(1), got.BlockNumber)
+	require.Equal(t, uint64(1), got.BlockNumber)
 }
 
 // The stream's contract is exactly one hash per block, in block order. This schedules more blocks than
@@ -135,11 +135,11 @@ func TestHashEngineStreamsOneHashPerBlockInOrder(t *testing.T) {
 	const blocks = 12
 	engine := newTestEngine(t, 2, blocks)
 
-	for height := int64(1); height <= blocks; height++ {
+	for height := uint64(1); height <= blocks; height++ {
 		require.NoError(t, engine.ScheduleHash(height, blockMutations(blockDiff(height, 120), nil)))
 	}
 
-	for height := int64(1); height <= blocks; height++ {
+	for height := uint64(1); height <= blocks; height++ {
 		got := <-engine.AwaitHash()
 		require.NoError(t, got.Error)
 		require.Equal(t, height, got.BlockNumber, "hashes must arrive in block order with no gaps")
@@ -187,13 +187,13 @@ func TestHashEngineFlushWaitsForScheduledBlocks(t *testing.T) {
 	engine := newTestEngine(t, 2, blocks)
 	defer func() { require.NoError(t, engine.Close()) }()
 
-	for height := int64(1); height <= blocks; height++ {
+	for height := uint64(1); height <= blocks; height++ {
 		require.NoError(t, engine.ScheduleHash(height, blockMutations(blockDiff(height, 80), nil)))
 	}
 	require.NoError(t, engine.Flush())
 
 	// Every hash is already on the stream, so reading them cannot block.
-	for height := int64(1); height <= blocks; height++ {
+	for height := uint64(1); height <= blocks; height++ {
 		select {
 		case got := <-engine.AwaitHash():
 			require.Equal(t, height, got.BlockNumber)
@@ -208,7 +208,7 @@ func TestHashEngineCloseAbandons(t *testing.T) {
 	const blocks = 5
 	engine := newTestEngine(t, blocks, blocks)
 
-	for height := int64(1); height <= blocks; height++ {
+	for height := uint64(1); height <= blocks; height++ {
 		require.NoError(t, engine.ScheduleHash(height, blockMutations(blockDiff(height, 30), nil)))
 	}
 
@@ -239,14 +239,14 @@ func TestScheduleHashIsReleasedWhenTheEngineStops(t *testing.T) {
 	// Built here rather than in the goroutine below, which must not touch t.
 	const blocks = 8
 	pending := make([][]DatabaseMutations, 0, blocks)
-	for height := int64(1); height <= blocks; height++ {
+	for height := uint64(1); height <= blocks; height++ {
 		pending = append(pending, blockMutations(blockDiff(height, 4), nil))
 	}
 
 	results := make(chan error, blocks)
 	go func() {
 		for i, block := range pending {
-			results <- engine.ScheduleHash(int64(i+1), block)
+			results <- engine.ScheduleHash(uint64(i+1), block)
 		}
 	}()
 
@@ -286,7 +286,7 @@ func TestHashEngineDeliversFailureAndStops(t *testing.T) {
 	got := <-engine.AwaitHash()
 	require.Error(t, got.Error)
 	require.ErrorContains(t, got.Error, "injected module failure")
-	require.Equal(t, int64(1), got.BlockNumber)
+	require.Equal(t, uint64(1), got.BlockNumber)
 
 	require.ErrorContains(t, engine.Close(), "injected module failure")
 

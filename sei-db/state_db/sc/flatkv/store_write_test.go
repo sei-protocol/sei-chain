@@ -105,7 +105,7 @@ func TestStoreWriteAllDBs(t *testing.T) {
 		db := s.rawDBFor(dir)
 		raw, err := db.Get(ktype.MetaVersionKey)
 		require.NoError(t, err, "%s meta version read", dir)
-		require.Equal(t, int64(1), int64(binary.BigEndian.Uint64(raw)), "%s persisted version", dir)
+		require.Equal(t, uint64(1), binary.BigEndian.Uint64(raw), "%s persisted version", dir)
 	}
 
 	// Verify storage data was written (via Store.Get which deserializes)
@@ -182,7 +182,7 @@ func TestCommitRejectsNonContiguousVersion(t *testing.T) {
 	_, err = s.Commit(3)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "committing bad version")
-	require.Equal(t, int64(1), s.committedVersion, "a rejected commit must not advance the version")
+	require.Equal(t, uint64(1), s.committedVersion, "a rejected commit must not advance the version")
 }
 
 func TestStoreWriteAccountAndCode(t *testing.T) {
@@ -402,7 +402,7 @@ func TestStoreWriteMiscKeys(t *testing.T) {
 	// Verify miscDB LocalMeta is updated. Read it back: the finalizer writes it, so the store's
 	// in-memory copy is only what load saw.
 	require.NoError(t, s.reloadLocalMeta())
-	require.Equal(t, int64(1), s.localMeta[miscDBDir].CommittedVersion)
+	require.Equal(t, uint64(1), s.localMeta[miscDBDir].CommittedVersion)
 
 	// Verify data persisted (via Store.Get which deserializes)
 	got, found := s.Get(keys.EVMStoreKey, codeSizeKey)
@@ -565,7 +565,7 @@ func TestStoreFsyncConfig(t *testing.T) {
 		require.Equal(t, padLeft32(0xCC), got)
 
 		// Version should be updated
-		require.Equal(t, int64(1), store.Version())
+		require.Equal(t, uint64(1), store.Version())
 	})
 }
 
@@ -663,12 +663,12 @@ func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 	}
 
 	flatkvDir := s.flatkvDir()
-	var snapshots []int64
-	_ = traverseSnapshots(flatkvDir, true, func(v int64) (bool, error) {
+	var snapshots []uint64
+	_ = traverseSnapshots(flatkvDir, true, func(v uint64) (bool, error) {
 		snapshots = append(snapshots, v)
 		return false, nil
 	})
-	require.Contains(t, snapshots, int64(5), "auto-snapshot should fire at version 5")
+	require.Contains(t, snapshots, uint64(5), "auto-snapshot should fire at version 5")
 }
 
 func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
@@ -683,7 +683,7 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 
 	flatkvDir := s.flatkvDir()
 	var countBefore int
-	_ = traverseSnapshots(flatkvDir, true, func(_ int64) (bool, error) {
+	_ = traverseSnapshots(flatkvDir, true, func(_ uint64) (bool, error) {
 		countBefore++
 		return false, nil
 	})
@@ -693,7 +693,7 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 	}
 
 	var countAfter int
-	_ = traverseSnapshots(flatkvDir, true, func(_ int64) (bool, error) {
+	_ = traverseSnapshots(flatkvDir, true, func(_ uint64) (bool, error) {
 		countAfter++
 		return false, nil
 	})
@@ -711,7 +711,7 @@ func TestAutoSnapshotDisabledWhenIntervalZero(t *testing.T) {
 
 	flatkvDir := s.flatkvDir()
 	var countBefore int
-	_ = traverseSnapshots(flatkvDir, true, func(_ int64) (bool, error) {
+	_ = traverseSnapshots(flatkvDir, true, func(_ uint64) (bool, error) {
 		countBefore++
 		return false, nil
 	})
@@ -721,7 +721,7 @@ func TestAutoSnapshotDisabledWhenIntervalZero(t *testing.T) {
 	}
 
 	var countAfter int
-	_ = traverseSnapshots(flatkvDir, true, func(_ int64) (bool, error) {
+	_ = traverseSnapshots(flatkvDir, true, func(_ uint64) (bool, error) {
 		countAfter++
 		return false, nil
 	})
@@ -1012,7 +1012,7 @@ func TestEmptyCommitAdvancesVersion(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, nil))
 	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), v)
+	require.Equal(t, uint64(1), v)
 
 	hashAfter := rootHash(s)
 	require.Equal(t, hashBefore, hashAfter, "empty commit should not change LtHash")
@@ -1034,7 +1034,7 @@ func TestStoreFsyncEnabled(t *testing.T) {
 	require.True(t, s.config.Fsync)
 
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
-	require.Equal(t, int64(1), s.Version())
+	require.Equal(t, uint64(1), s.Version())
 
 	v, ok := s.Get(keys.EVMStoreKey, evmStorageKey(ktype.Address{0x01}, ktype.Slot{0x01}))
 	require.True(t, ok)
@@ -1623,7 +1623,7 @@ func countLiveEntries(t *testing.T, db types.KeyValueDB) int {
 	return count
 }
 
-func requireAllLocalMetaAt(t *testing.T, s *CommitStore, ver int64) {
+func requireAllLocalMetaAt(t *testing.T, s *CommitStore, ver uint64) {
 	t.Helper()
 	// A block's metadata is written by the finalizer, so the store's in-memory copy is only what load
 	// saw. Read back what was actually recorded.
@@ -1881,8 +1881,8 @@ func TestHashFailureSurfacesToACallerAndStopsDispatch(t *testing.T) {
 	defer func() { _ = s.Close() }()
 
 	// Registered before the first block, since a listener only ever sees the blocks after it.
-	dispatched := make(chan int64, 8)
-	_, err := s.RegisterHashListener(func(_ context.Context, blockNumber int64, _ *lthash.BlockHash) error {
+	dispatched := make(chan uint64, 8)
+	_, err := s.RegisterHashListener(func(_ context.Context, blockNumber uint64, _ *lthash.BlockHash) error {
 		dispatched <- blockNumber
 		return nil
 	})
@@ -1896,7 +1896,7 @@ func TestHashFailureSurfacesToACallerAndStopsDispatch(t *testing.T) {
 	commitAndCheck(t, s)
 
 	require.NoError(t, s.FlushHashes())
-	require.Equal(t, int64(1), <-dispatched, "the good block hashes normally")
+	require.Equal(t, uint64(1), <-dispatched, "the good block hashes normally")
 
 	s.moduleOf = func([]byte) (string, error) {
 		return "", fmt.Errorf("injected moduleOf failure")
@@ -1909,7 +1909,7 @@ func TestHashFailureSurfacesToACallerAndStopsDispatch(t *testing.T) {
 
 	committed, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err, "hashing runs after the commit, so the commit itself still succeeds")
-	require.Equal(t, int64(2), committed)
+	require.Equal(t, uint64(2), committed)
 
 	require.ErrorContains(t, s.FlushHashes(), "injected moduleOf failure",
 		"a caller waiting for hashes must be told they failed, not that they are done")
@@ -1939,9 +1939,9 @@ func TestAReadOnlyStoreReportsItsHeight(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = ro.Close() }()
 
-	delivered := make(chan int64, 4)
+	delivered := make(chan uint64, 4)
 	mostRecent, err := ro.RegisterHashListener(
-		func(_ context.Context, blockNumber int64, _ *lthash.BlockHash) error {
+		func(_ context.Context, blockNumber uint64, _ *lthash.BlockHash) error {
 			delivered <- blockNumber
 			return nil
 		})
@@ -1994,7 +1994,7 @@ func TestCommitWithoutPriorApply(t *testing.T) {
 
 	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), v)
+	require.Equal(t, uint64(1), v)
 	require.Equal(t, hashBefore, rootHash(s), "hash should be unchanged after empty commit")
 }
 
@@ -2009,13 +2009,13 @@ func TestDoubleCommitNoApplyBetween(t *testing.T) {
 
 	v1, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), v1)
+	require.Equal(t, uint64(1), v1)
 	hashAfterV1 := rootHash(s)
 
 	// Second commit with no new apply.
 	v2, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), v2)
+	require.Equal(t, uint64(2), v2)
 	require.Equal(t, hashAfterV1, rootHash(s), "hash unchanged between commits without apply")
 }
 
@@ -2045,24 +2045,24 @@ func TestCommitRejectsVersionNotAhead(t *testing.T) {
 	_, err := s.Commit(0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "committing bad version")
-	require.Equal(t, int64(0), s.Version())
+	require.Equal(t, uint64(0), s.Version())
 
 	// Empty commits may not jump ahead either: the first block is 1.
 	_, err = s.Commit(5)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "committing bad version")
-	require.Equal(t, int64(0), s.Version())
+	require.Equal(t, uint64(0), s.Version())
 
 	v, err := s.Commit(1)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), v)
+	require.Equal(t, uint64(1), v)
 
 	// Committing the same block again reports the same result and changes nothing. Cosmos does this
 	// on every block: RootHash commits, then rootmulti calls Commit for the block already committed.
 	v, err = s.Commit(1)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), v)
-	require.Equal(t, int64(1), s.Version())
+	require.Equal(t, uint64(1), v)
+	require.Equal(t, uint64(1), s.Version())
 
 	// Going backwards is still rejected.
 	_, err = s.Commit(0)
@@ -2084,12 +2084,12 @@ func TestRejectedCommitLeavesStoreIntact(t *testing.T) {
 	_, err := s.Commit(5)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "committing bad version")
-	require.Equal(t, int64(0), s.Version(), "rejected commit must not advance version")
-	require.Equal(t, int64(1), s.PendingVersion(), "rejected commit must leave the buffered block intact")
+	require.Equal(t, uint64(0), s.Version(), "rejected commit must not advance version")
+	require.Equal(t, uint64(1), s.PendingVersion(), "rejected commit must leave the buffered block intact")
 
 	v, err := s.Commit(1)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), v)
+	require.Equal(t, uint64(1), v)
 	_, found := s.Get(keys.EVMStoreKey, key)
 	require.True(t, found, "the buffered row must be committed by the correct commit")
 }
@@ -2111,7 +2111,7 @@ func TestApplyChangeSetsAllowsSameHeightRepeatsOnly(t *testing.T) {
 	// Same-height repeat: splitting one block's writes across two calls.
 	require.NoError(t, s.ApplyChangeSets(1, []*proto.NamedChangeSet{makeChangeSet(key1, padLeft32(0x11), false)}))
 	require.NoError(t, s.ApplyChangeSets(1, []*proto.NamedChangeSet{makeChangeSet(key2, padLeft32(0x22), false)}))
-	require.Equal(t, int64(1), s.PendingVersion())
+	require.Equal(t, uint64(1), s.PendingVersion())
 
 	// Advancing to the next block before committing this one is rejected.
 	err := s.ApplyChangeSets(2, []*proto.NamedChangeSet{makeChangeSet(key1, padLeft32(0x33), false)})
@@ -2125,14 +2125,14 @@ func TestApplyChangeSetsAllowsSameHeightRepeatsOnly(t *testing.T) {
 
 	v, err := s.Commit(1)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), v)
-	require.Equal(t, int64(0), s.PendingVersion())
+	require.Equal(t, uint64(1), v)
+	require.Equal(t, uint64(0), s.PendingVersion())
 
 	for _, key := range [][]byte{key1, key2} {
 		height, found, err := s.GetBlockHeightModified(keys.EVMStoreKey, key)
 		require.NoError(t, err)
 		require.True(t, found)
-		require.Equal(t, int64(1), height)
+		require.Equal(t, uint64(1), height)
 	}
 }
 
@@ -2147,24 +2147,24 @@ func TestCommitStateChangesStampsRowBlockHeight(t *testing.T) {
 	// Start at block 10 the legal way: seed the store so its history begins there.
 	require.NoError(t, s.SetInitialVersion(10))
 	require.NoError(t, commitChangeSets(s, 10, []*proto.NamedChangeSet{cs}))
-	require.Equal(t, int64(10), s.Version())
+	require.Equal(t, uint64(10), s.Version())
 
 	height, found, err := s.GetBlockHeightModified(keys.EVMStoreKey, key)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.Equal(t, int64(10), height)
+	require.Equal(t, uint64(10), height)
 }
 
 func TestCommitVersionMonotonicAfterMultipleEmptyCommits(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	for i := int64(1); i <= 5; i++ {
+	for i := uint64(1); i <= 5; i++ {
 		v, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 		require.Equal(t, i, v)
 	}
-	require.Equal(t, int64(5), s.Version())
+	require.Equal(t, uint64(5), s.Version())
 }
 
 func TestNonEVMModuleKeyRoundTrip(t *testing.T) {

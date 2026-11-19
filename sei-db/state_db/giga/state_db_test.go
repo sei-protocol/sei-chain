@@ -83,13 +83,12 @@ func changeset(key string, value string) *gigatypes.StateChangeSet {
 func commitToLiveStateDB(
 	t *testing.T,
 	liveStateDB *flatkv.CommitStore,
-	block int64,
+	block uint64,
 	cs *gigatypes.StateChangeSet,
 ) {
 	t.Helper()
 	prior := liveStateDB.OpenView()
-	//nolint:gosec // test heights are small
-	mutations, err := flatkv.MutationsFromStateChangeSet(cs, uint64(block), prior, flatkvconfig.DefaultConfig())
+	mutations, err := flatkv.MutationsFromStateChangeSet(cs, block, prior, flatkvconfig.DefaultConfig())
 	prior.Close()
 	require.NoError(t, err)
 	require.NoError(t, liveStateDB.CommitStateChanges(block, mutations))
@@ -111,7 +110,7 @@ func TestCommitStateChangesReachesWALAndLiveStateDB(t *testing.T) {
 	require.Equal(t, [][]mutation.Mutation{{written}}, wal.writtenMutations,
 		"the WAL must receive the block's changeset as mutations")
 
-	require.Equal(t, int64(1), liveStateDB.Version(), "the live state DB must have committed the block")
+	require.Equal(t, uint64(1), liveStateDB.Version(), "the live state DB must have committed the block")
 	value, found := liveStateDB.Get(testModule, []byte("key"))
 	require.True(t, found, "the committed key must be readable from the live state DB")
 	require.Equal(t, []byte("value"), value)
@@ -127,7 +126,7 @@ func TestCommitStateChangesStopsWhenTheWALWriteFails(t *testing.T) {
 
 	require.ErrorContains(t, err, "write block 1 to state WAL")
 	require.ErrorContains(t, err, "wal is bricked")
-	require.Equal(t, int64(0), liveStateDB.Version(),
+	require.Equal(t, uint64(0), liveStateDB.Version(),
 		"the live state DB must not commit once the WAL has refused the block")
 }
 
@@ -141,19 +140,7 @@ func TestCommitStateChangesRefusesASkippedHeight(t *testing.T) {
 
 	require.ErrorContains(t, err, "block 9")
 	require.Equal(t, []uint64{1}, wal.writtenBlocks, "a refused block must not reach the WAL")
-	require.Equal(t, int64(1), liveStateDB.Version(), "a refused block must not advance the live state DB")
-}
-
-// The WAL numbers blocks with a uint64. An unguarded negative height converts to a block far in the
-// future, which the WAL accepts and which strands every real block behind it.
-func TestCommitStateChangesRefusesANegativeBlockNumber(t *testing.T) {
-	stateDB, wal, liveStateDB := newTestStateDB(t)
-
-	err := stateDB.CommitStateChanges(-1, changeset("key", "value"))
-
-	require.ErrorContains(t, err, "block number must not be negative")
-	require.Empty(t, wal.writtenBlocks, "a refused block must reach neither the WAL nor the live state DB")
-	require.Equal(t, int64(0), liveStateDB.Version())
+	require.Equal(t, uint64(1), liveStateDB.Version(), "a refused block must not advance the live state DB")
 }
 
 // A block that changed nothing is still a block: the layers below number them contiguously, so skipping
@@ -164,7 +151,8 @@ func TestCommitStateChangesCommitsABlockWithNoChanges(t *testing.T) {
 	require.NoError(t, stateDB.CommitStateChanges(1, &gigatypes.StateChangeSet{}))
 
 	require.Equal(t, []uint64{1}, wal.writtenBlocks)
-	require.Equal(t, int64(1), liveStateDB.Version(), "the live state DB must commit an empty block rather than skip it")
+	require.Equal(t, uint64(1), liveStateDB.Version(),
+		"the live state DB must commit an empty block rather than skip it")
 }
 
 // Current-block reads are the live state DB's to answer. Anything synthesized here instead would be a
@@ -176,7 +164,7 @@ func TestOpenViewServesTheBlockCommittedToTheLiveStateDB(t *testing.T) {
 	view := stateDB.OpenView()
 	defer view.Close()
 
-	require.Equal(t, int64(1), view.GetBlockHeight(), "the view must be of the block that was committed")
+	require.Equal(t, uint64(1), view.GetBlockHeight(), "the view must be of the block that was committed")
 	value, found := view.Get(testModule, []byte("key"))
 	require.True(t, found)
 	require.Equal(t, []byte("value"), value)

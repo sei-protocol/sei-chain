@@ -28,7 +28,7 @@ import (
 //   * Multi-flush behavior under load larger than importBatchSize
 // =============================================================================
 
-func newKVImporterForTest(t *testing.T, version int64) (*CommitStore, *KVImporter) {
+func newKVImporterForTest(t *testing.T, version uint64) (*CommitStore, *KVImporter) {
 	t.Helper()
 	s := setupTestStore(t)
 	imp, err := s.Importer(version)
@@ -140,7 +140,7 @@ func TestKVImporter_EmptyPhysicalValueRejected(t *testing.T) {
 // version, and that a node at any other version fails the whole import, including the nodes before it.
 func TestKVImporter_NodeVersionMustMatchImport(t *testing.T) {
 	const importVersion = 5
-	nodeAt := func(key string, version int64) *types.SnapshotNode {
+	nodeAt := func(key string, version uint64) *types.SnapshotNode {
 		return &types.SnapshotNode{
 			Key:     ktype.BuildPhysicalKey("bank", []byte(key)),
 			Value:   vtype.SerializeMisc(importVersion, []byte("v")),
@@ -154,13 +154,13 @@ func TestKVImporter_NodeVersionMustMatchImport(t *testing.T) {
 
 		require.NoError(t, imp.AddNode(nodeAt("a", importVersion)))
 		require.NoError(t, imp.Close())
-		require.Equal(t, int64(importVersion), s.Version())
+		require.Equal(t, uint64(importVersion), s.Version())
 		got, found := s.Get("bank", []byte("a"))
 		require.True(t, found)
 		require.Equal(t, []byte("v"), got)
 	})
 
-	for name, version := range map[string]int64{
+	for name, version := range map[string]uint64{
 		"earlier version": importVersion - 1,
 		"later version":   importVersion + 1,
 	} {
@@ -200,7 +200,7 @@ func TestKVImporter_ImportAfterFailedImport(t *testing.T) {
 	require.NoError(t, next.AddNode(node))
 	require.NoError(t, next.Close())
 
-	require.Equal(t, int64(1), s.Version())
+	require.Equal(t, uint64(1), s.Version())
 	got, found := s.Get("bank", []byte("k"))
 	require.True(t, found)
 	require.Equal(t, []byte("v"), got)
@@ -419,7 +419,7 @@ func TestKVImporter_AbortAfterCloseIsNoop(t *testing.T) {
 
 	require.NoError(t, imp.Close())
 	postCloseVersion := s.Version()
-	require.Equal(t, int64(1), postCloseVersion, "successful Close must advance the store")
+	require.Equal(t, uint64(1), postCloseVersion, "successful Close must advance the store")
 
 	require.NoError(t, imp.Abort(errors.New("too late")),
 		"Abort after a successful Close must return the cached nil result")
@@ -573,7 +573,7 @@ func TestKVImporter_RepeatedPairRejected(t *testing.T) {
 	}
 
 	require.ErrorContains(t, imp.Close(), "duplicate physical key")
-	require.Equal(t, int64(0), dst.Version(), "a rejected import must not finalize")
+	require.Equal(t, uint64(0), dst.Version(), "a rejected import must not finalize")
 }
 
 // TestKVImporter_OutOfOrderKeyRejected verifies that Importer fails an import whose physical keys descend.
@@ -585,7 +585,7 @@ func TestKVImporter_OutOfOrderKeyRejected(t *testing.T) {
 	imp.AddNode(storageNode(t, addrN(0x01), slotN(0x01), padLeft32(0x11)))
 
 	require.ErrorContains(t, imp.Close(), "keys must be in ascending order")
-	require.Equal(t, int64(0), s.Version(), "a rejected import must not finalize")
+	require.Equal(t, uint64(0), s.Version(), "a rejected import must not finalize")
 }
 
 // TestTrustedImporter_AcceptsAnyOrder verifies that TrustedImporter imports physical keys given in
@@ -600,7 +600,7 @@ func TestTrustedImporter_AcceptsAnyOrder(t *testing.T) {
 	imp.AddNode(storageNode(t, addrN(0x01), slotN(0x01), padLeft32(0x11)))
 	require.NoError(t, imp.Close())
 
-	require.Equal(t, int64(1), s.Version())
+	require.Equal(t, uint64(1), s.Version())
 	for _, want := range []struct {
 		addr  ktype.Address
 		slot  ktype.Slot

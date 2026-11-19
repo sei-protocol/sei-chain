@@ -50,7 +50,7 @@ func TestMemoryReceiptStoreIndexesOwnedReceiptCopies(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, storedAgain.Status)
 	require.Equal(t, []byte{5}, storedAgain.Logs[0].Data)
-	require.Equal(t, int64(5), store.LatestVersion())
+	require.Equal(t, uint64(5), store.LatestVersion())
 }
 
 func TestMemoryReceiptStoreMovesReceiptsAndRecordsEmptyBlocks(t *testing.T) {
@@ -66,7 +66,7 @@ func TestMemoryReceiptStoreMovesReceiptsAndRecordsEmptyBlocks(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(8), stored.BlockNumber)
 	require.NotContains(t, store.blocks, uint64(7))
-	require.Equal(t, int64(8), store.LatestVersion())
+	require.Equal(t, uint64(8), store.LatestVersion())
 
 	// Block 7 lost its only receipt to the move: its stats must read as a real, empty block, not
 	// the stale ones computed while the receipt still belonged to it.
@@ -75,7 +75,7 @@ func TestMemoryReceiptStoreMovesReceiptsAndRecordsEmptyBlocks(t *testing.T) {
 	require.Zero(t, stats7.TxCount)
 
 	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 9), nil))
-	require.Equal(t, int64(9), store.LatestVersion())
+	require.Equal(t, uint64(9), store.LatestVersion())
 
 	// Block 9 executed no receipts but is still a real, committed block.
 	stats9, err := store.GetBlockStats(newReceiptContext(t.Context(), 9), 9)
@@ -98,7 +98,7 @@ func TestMemoryReceiptStorePrunesHistory(t *testing.T) {
 	require.ErrorIs(t, err, receipt.ErrNotFound)
 	_, err = store.GetReceipt(newReceiptContext(t.Context(), 4), newHash)
 	require.NoError(t, err)
-	require.Equal(t, int64(4), store.EarliestVersion())
+	require.Equal(t, uint64(4), store.EarliestVersion())
 	require.Equal(t, uint64(2), store.GetRollbackFloor(2))
 }
 

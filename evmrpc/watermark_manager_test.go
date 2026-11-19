@@ -300,7 +300,8 @@ func TestExplicitReadBelowGenesisFloorRejected(t *testing.T) {
 }
 
 func newTestWatermarkManager(tmClient client.LocalClient, ctxHeight int64, stateStore types.StateStore, receiptLatest int64) *WatermarkManager {
-	return NewWatermarkManager(tmClient, watermarkTestCtxProvider(ctxHeight), stateStore, &fakeReceiptStore{latest: receiptLatest})
+	return NewWatermarkManager(tmClient, watermarkTestCtxProvider(ctxHeight), stateStore,
+		&fakeReceiptStore{latest: uint64(receiptLatest)})
 }
 
 func watermarkTestCtxProvider(height int64) func(int64) sdk.Context {
@@ -413,24 +414,24 @@ func (f *fakeStateStore) Prune(_ int64) error                                   
 func (f *fakeStateStore) Close() error                                                 { return nil }
 
 type fakeReceiptStore struct {
-	latest   int64
-	earliest int64
+	latest   uint64
+	earliest uint64
 }
 
-func (f *fakeReceiptStore) LatestVersion() int64 {
+func (f *fakeReceiptStore) LatestVersion() uint64 {
 	return f.latest
 }
 
-func (f *fakeReceiptStore) EarliestVersion() int64 {
+func (f *fakeReceiptStore) EarliestVersion() uint64 {
 	return f.earliest
 }
 
-func (f *fakeReceiptStore) SetLatestVersion(version int64) error {
+func (f *fakeReceiptStore) SetLatestVersion(version uint64) error {
 	f.latest = version
 	return nil
 }
 
-func (f *fakeReceiptStore) SetEarliestVersion(version int64) error {
+func (f *fakeReceiptStore) SetEarliestVersion(version uint64) error {
 	f.earliest = version
 	return nil
 }

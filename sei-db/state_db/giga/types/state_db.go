@@ -10,7 +10,7 @@ import (
 )
 
 // A callback function for getting the hash of each block.
-type HashListener func(ctx context.Context, blockNum int64, hash *lthash.BlockHash) error
+type HashListener func(ctx context.Context, blockNum uint64, hash *lthash.BlockHash) error
 
 // StateDB is the top-level API used by the Giga EVM executor for
 // read and write. Writes commit into both SC and SS; reads can be served for
@@ -18,7 +18,7 @@ type HashListener func(ctx context.Context, blockNum int64, hash *lthash.BlockHa
 type StateDB interface {
 
 	// Ingest a block's state changes.
-	CommitStateChanges(blockNum int64, changes *StateChangeSet) error
+	CommitStateChanges(blockNum uint64, changes *StateChangeSet) error
 
 	// OpenView returns a read-only StateView of the current block
 	// (backed by an SC ephemeral snapshot). The caller must Close it when done.
@@ -28,7 +28,7 @@ type StateDB interface {
 	// committed block height. The bool is false when no
 	// view exists at that height. When true, the caller must Close the
 	// returned view when done.
-	OpenViewAt(blockNum int64) (StateView, bool)
+	OpenViewAt(blockNum uint64) (StateView, bool)
 
 	// Register a callback function that that gets called for each hash produced by the database. Will be called for
 	// each block in order with no gaps. Returning an error from the listener bricks the DB and will eventually

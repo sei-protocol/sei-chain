@@ -304,7 +304,8 @@ func (app *MockApp) commitEmptyBlock(ctx context.Context, height int64) error {
 	if height < 1 {
 		return fmt.Errorf("mock app commit height = %d, want >= 1", height)
 	}
-	if err := storage.StateDB().CommitStateChanges(height, &gigatypes.StateChangeSet{}); err != nil {
+	//nolint:gosec // guarded positive above
+	if err := storage.StateDB().CommitStateChanges(uint64(height), &gigatypes.StateChangeSet{}); err != nil {
 		return fmt.Errorf("commit the state of block %d: %w", height, err)
 	}
 	if receiptDB := storage.ReceiptDB(); receiptDB != nil {

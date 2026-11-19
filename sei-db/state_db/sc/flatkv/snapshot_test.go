@@ -18,7 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
-func commitStorageEntry(t *testing.T, s *CommitStore, addr ktype.Address, slot ktype.Slot, value []byte) int64 {
+func commitStorageEntry(t *testing.T, s *CommitStore, addr ktype.Address, slot ktype.Slot, value []byte) uint64 {
 	t.Helper()
 	padded := make([]byte, 32)
 	copy(padded[32-len(value):], value)
@@ -99,10 +99,10 @@ func TestOpenFromSnapshot(t *testing.T) {
 	commitStorageEntry(t, s1, ktype.Address{0x10}, ktype.Slot{0x02}, []byte{0x02})
 
 	require.NoError(t, s1.outOfBandSnapshot())
-	require.Equal(t, int64(2), s1.Version())
+	require.Equal(t, uint64(2), s1.Version())
 
 	commitStorageEntry(t, s1, ktype.Address{0x10}, ktype.Slot{0x03}, []byte{0x03})
-	require.Equal(t, int64(3), s1.Version())
+	require.Equal(t, uint64(3), s1.Version())
 
 	hashAtV3 := rootHash(s1)
 	require.NoError(t, s1.Close())
@@ -116,7 +116,7 @@ func TestOpenFromSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(3), s2.Version())
+	require.Equal(t, uint64(3), s2.Version())
 	require.Equal(t, hashAtV3, rootHash(s2))
 
 	// Verify data from all 3 versions is present
@@ -162,7 +162,7 @@ func TestCatchupUpdatesLtHash(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(5), s2.Version())
+	require.Equal(t, uint64(5), s2.Version())
 	require.Equal(t, hashAtV5, rootHash(s2), "LtHash after catchup must match original")
 
 	_ = hashAtV3 // referenced for clarity but not re-checked here
@@ -184,11 +184,11 @@ func TestRollbackRewindsState(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x30}, ktype.Slot{0x04}, []byte{0x04})
 	hashAtV4 := rootHash(s)
 	commitStorageEntry(t, s, ktype.Address{0x30}, ktype.Slot{0x05}, []byte{0x05})
-	require.Equal(t, int64(5), s.Version())
+	require.Equal(t, uint64(5), s.Version())
 
 	// Rollback to v4: restores from v3 snapshot, catches up to v4 via WAL
 	require.NoError(t, s.Rollback(4))
-	require.Equal(t, int64(4), s.Version())
+	require.Equal(t, uint64(4), s.Version())
 	require.Equal(t, hashAtV4, rootHash(s))
 
 	// v5's data should not exist (WAL truncated, snapshot pruned)
@@ -218,10 +218,10 @@ func TestRollbackToSnapshotExact(t *testing.T) {
 	require.NoError(t, s.outOfBandSnapshot())
 
 	commitStorageEntry(t, s, ktype.Address{0x40}, ktype.Slot{0x03}, []byte{0x03})
-	require.Equal(t, int64(3), s.Version())
+	require.Equal(t, uint64(3), s.Version())
 
 	require.NoError(t, s.Rollback(2))
-	require.Equal(t, int64(2), s.Version())
+	require.Equal(t, uint64(2), s.Version())
 	require.Equal(t, hashAtV2, rootHash(s))
 
 	require.NoError(t, s.Close())
@@ -300,7 +300,7 @@ func TestOpenVersionValidation(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(2), s2.Version())
+	require.Equal(t, uint64(2), s2.Version())
 	require.Equal(t, hashAtV2, rootHash(s2))
 }
 
@@ -309,7 +309,7 @@ func TestSnapshotNameParsing(t *testing.T) {
 
 	v, err := parseSnapshotVersion("snapshot-00000000000000000042")
 	require.NoError(t, err)
-	require.Equal(t, int64(42), v)
+	require.Equal(t, uint64(42), v)
 
 	require.True(t, isSnapshotName("snapshot-00000000000000000001"))
 	require.False(t, isSnapshotName("not-a-snapshot"))
@@ -320,42 +320,42 @@ func TestTraverseSnapshots(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create some snapshot dirs
-	for _, v := range []int64{10, 20, 30} {
+	for _, v := range []uint64{10, 20, 30} {
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
 	}
 
 	// Descending
-	var desc []int64
-	err := traverseSnapshots(dir, false, func(v int64) (bool, error) {
+	var desc []uint64
+	err := traverseSnapshots(dir, false, func(v uint64) (bool, error) {
 		desc = append(desc, v)
 		return false, nil
 	})
 	require.NoError(t, err)
-	require.Equal(t, []int64{30, 20, 10}, desc)
+	require.Equal(t, []uint64{30, 20, 10}, desc)
 
 	// Ascending
-	var asc []int64
-	err = traverseSnapshots(dir, true, func(v int64) (bool, error) {
+	var asc []uint64
+	err = traverseSnapshots(dir, true, func(v uint64) (bool, error) {
 		asc = append(asc, v)
 		return false, nil
 	})
 	require.NoError(t, err)
-	require.Equal(t, []int64{10, 20, 30}, asc)
+	require.Equal(t, []uint64{10, 20, 30}, asc)
 }
 
 func TestSeekSnapshot(t *testing.T) {
 	dir := t.TempDir()
-	for _, v := range []int64{5, 10, 20} {
+	for _, v := range []uint64{5, 10, 20} {
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
 	}
 
 	v, err := seekSnapshot(dir, 15)
 	require.NoError(t, err)
-	require.Equal(t, int64(10), v)
+	require.Equal(t, uint64(10), v)
 
 	v, err = seekSnapshot(dir, 20)
 	require.NoError(t, err)
-	require.Equal(t, int64(20), v)
+	require.Equal(t, uint64(20), v)
 
 	_, err = seekSnapshot(dir, 3)
 	require.Error(t, err)
@@ -363,14 +363,14 @@ func TestSeekSnapshot(t *testing.T) {
 
 func TestOldestSnapshotAbove(t *testing.T) {
 	dir := t.TempDir()
-	for _, v := range []int64{0, 10, 20} {
+	for _, v := range []uint64{0, 10, 20} {
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
 	}
 	s := &CommitStore{config: config.Config{DataDir: dir}}
 
 	for _, tc := range []struct {
-		version  int64
-		snapshot int64
+		version  uint64
+		snapshot uint64
 		ok       bool
 	}{{0, 10, true}, {5, 10, true}, {10, 20, true}, {20, 0, false}, {25, 0, false}} {
 		snapshot, ok, err := s.OldestSnapshotAbove(tc.version)
@@ -410,7 +410,7 @@ func TestReadOnlyAtTargetVersion(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, ro.Close()) }()
 
-	require.Equal(t, int64(3), ro.Version())
+	require.Equal(t, uint64(3), ro.Version())
 	require.Equal(t, hashAtV3, rootHash(ro))
 }
 
@@ -443,7 +443,7 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 	// Phase 2: advance state beyond the snapshot (v3..v4).
 	commitStorageEntry(t, s1, addr, slot, []byte{0x03}) // v3
 	commitStorageEntry(t, s1, addr, slot, []byte{0x04}) // v4
-	require.Equal(t, int64(4), s1.Version())
+	require.Equal(t, uint64(4), s1.Version())
 	require.NoError(t, s1.Close())
 
 	// Phase 3: reopen exactly at v2. If later commits had mutated the snapshot
@@ -470,7 +470,7 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 	require.NoError(t, err)
 	defer s3.Close()
 
-	require.Equal(t, int64(4), s3.Version())
+	require.Equal(t, uint64(4), s3.Version())
 	gotLatest, ok := s3.Get(keys.EVMStoreKey, key)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x04), gotLatest)
@@ -509,7 +509,7 @@ func TestReadOnlyAtIsUnaffectedByLoadLatest(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, s2.LoadLatest())
 	defer func() { require.NoError(t, s2.Close()) }()
-	require.Equal(t, int64(4), s2.Version())
+	require.Equal(t, uint64(4), s2.Version())
 	require.Equal(t, hashAtV4, rootHash(s2))
 
 	requireViewAtV2 := func(what string) {
@@ -517,7 +517,7 @@ func TestReadOnlyAtIsUnaffectedByLoadLatest(t *testing.T) {
 		ro, err := s2.LoadVersionReadOnly(2)
 		require.NoError(t, err, what)
 		defer func() { require.NoError(t, ro.Close()) }()
-		require.Equal(t, int64(2), ro.Version(), what)
+		require.Equal(t, uint64(2), ro.Version(), what)
 		require.Equal(t, hashAtV2, rootHash(ro), what)
 		v, ok := ro.Get(keys.EVMStoreKey, key)
 		require.True(t, ok, what)
@@ -529,7 +529,7 @@ func TestReadOnlyAtIsUnaffectedByLoadLatest(t *testing.T) {
 
 	// Committing on the primary while views are taken must not disturb the older view either.
 	commitStorageEntry(t, s2, addr, slot, []byte{0x05})
-	require.Equal(t, int64(5), s2.Version())
+	require.Equal(t, uint64(5), s2.Version())
 	requireViewAtV2("view at v2 must be unaffected by a concurrent commit")
 }
 
@@ -558,7 +558,7 @@ func TestRollbackToSnapshotVersion(t *testing.T) {
 
 	// Rollback to v2: lands at the v2 snapshot exactly, with the WAL tail beyond v2 pruned.
 	require.NoError(t, s.Rollback(2))
-	require.Equal(t, int64(2), s.Version())
+	require.Equal(t, uint64(2), s.Version())
 	require.Equal(t, hashAtV2, rootHash(s))
 
 	// The WAL must not hold anything above the rolled-back version, or a restart would re-apply v3..v5.
@@ -568,7 +568,7 @@ func TestRollbackToSnapshotVersion(t *testing.T) {
 
 	// A fresh commit resumes contiguously at v3.
 	commitStorageEntry(t, s, ktype.Address{0x90}, ktype.Slot{0x06}, []byte{0x06})
-	require.Equal(t, int64(3), s.Version())
+	require.Equal(t, uint64(3), s.Version())
 
 	// Simulate restart from the rolled-back-then-advanced state: should land at v3.
 	hashAtV3 := rootHash(s)
@@ -581,7 +581,7 @@ func TestRollbackToSnapshotVersion(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(3), s2.Version())
+	require.Equal(t, uint64(3), s2.Version())
 	require.Equal(t, hashAtV3, rootHash(s2))
 }
 
@@ -613,7 +613,7 @@ func rollbackFixture(t *testing.T) *CommitStore {
 // targets also fail late, after the store has been rewound, so matching the message is what distinguishes
 // "refused before touching anything" from "attempted and then reported". The trailing commit catches the
 // reachability check drifting below the point where Rollback closes the DBs.
-func requireRollbackRejected(t *testing.T, s *CommitStore, target int64, wantErr string) {
+func requireRollbackRejected(t *testing.T, s *CommitStore, target uint64, wantErr string) {
 	t.Helper()
 	dir := s.flatkvDir()
 
@@ -678,7 +678,7 @@ func TestRollbackRejectsTargetTheWALNoLongerCovers(t *testing.T) {
 
 	// Commit v3, then wipe the WAL again and commit v4, so the WAL starts at 4 while the snapshot is still
 	// at 2: reaching v4 would need block 3, which the WAL no longer holds.
-	for _, v := range []int64{3, 4} {
+	for _, v := range []uint64{3, 4} {
 		if v == 4 {
 			resetWALForTest(t, s)
 		}
@@ -713,7 +713,7 @@ func TestRewindClosedStoreToVersionZero(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Zero(t, landed)
-	require.Equal(t, []int64{0}, snapshotVersionsOnDisk(t, s))
+	require.Equal(t, []uint64{0}, snapshotVersionsOnDisk(t, s))
 }
 
 // rollbackFixtureMidChainWALStart returns a store seeded to begin at block 10, so its snapshot sits at 9 and
@@ -731,7 +731,7 @@ func rollbackFixtureMidChainWALStart(t *testing.T) *CommitStore {
 	t.Cleanup(func() { _ = s.Close() })
 
 	require.NoError(t, s.SetInitialVersion(10))
-	for _, v := range []int64{10, 11, 12} {
+	for _, v := range []uint64{10, 11, 12} {
 		cs := makeChangeSet(evmStorageKey(ktype.Address{0x93}, ktype.Slot{byte(v)}), padLeft32(byte(v)), false)
 		require.NoError(t, s.ApplyChangeSets(v, []*proto.NamedChangeSet{cs}))
 		_, err := s.Commit(v)
@@ -740,7 +740,7 @@ func rollbackFixtureMidChainWALStart(t *testing.T) *CommitStore {
 
 	base, err := seekSnapshot(s.flatkvDir(), 11)
 	require.NoError(t, err)
-	require.Equal(t, int64(9), base, "fixture precondition: the seeded snapshot must sit at 9")
+	require.Equal(t, uint64(9), base, "fixture precondition: the seeded snapshot must sit at 9")
 	ok, first, last, err := s.wal.GetStoredRange()
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -755,7 +755,7 @@ func TestRollbackAcceptsMidChainWALStart(t *testing.T) {
 	s := rollbackFixtureMidChainWALStart(t)
 
 	require.NoError(t, s.Rollback(11))
-	require.Equal(t, int64(11), s.Version())
+	require.Equal(t, uint64(11), s.Version())
 
 	ok, first, last, err := s.wal.GetStoredRange()
 	require.NoError(t, err)
@@ -787,7 +787,7 @@ func TestRollbackToTargetPredatingWALSucceeds(t *testing.T) {
 	require.Equal(t, uint64(3), first)
 
 	require.NoError(t, s.Rollback(2))
-	require.Equal(t, int64(2), s.Version())
+	require.Equal(t, uint64(2), s.Version())
 
 	ok, _, _, err = s.wal.GetStoredRange()
 	require.NoError(t, err)
@@ -795,7 +795,7 @@ func TestRollbackToTargetPredatingWALSucceeds(t *testing.T) {
 
 	// The emptied WAL accepts the next contiguous block, so the store keeps working.
 	commitStorageEntry(t, s, ktype.Address{0x92}, ktype.Slot{0x06}, []byte{0x06})
-	require.Equal(t, int64(3), s.Version())
+	require.Equal(t, uint64(3), s.Version())
 }
 
 // =============================================================================
@@ -999,15 +999,15 @@ func TestPruneSnapshotsKeepsRecent(t *testing.T) {
 		require.NoError(t, s.outOfBandSnapshot())
 	}
 
-	var snapshots []int64
-	_ = traverseSnapshots(cfg.DataDir, true, func(v int64) (bool, error) {
+	var snapshots []uint64
+	_ = traverseSnapshots(cfg.DataDir, true, func(v uint64) (bool, error) {
 		snapshots = append(snapshots, v)
 		return false, nil
 	})
 
 	require.Len(t, snapshots, 2, "should keep current(5) + 1 recent")
-	require.Contains(t, snapshots, int64(5))
-	require.Contains(t, snapshots, int64(4))
+	require.Contains(t, snapshots, uint64(5))
+	require.Contains(t, snapshots, uint64(4))
 	require.NoError(t, s.Close())
 }
 
@@ -1026,7 +1026,7 @@ func TestPruneSnapshotsKeepAll(t *testing.T) {
 	}
 
 	var count int
-	_ = traverseSnapshots(cfg.DataDir, true, func(_ int64) (bool, error) {
+	_ = traverseSnapshots(cfg.DataDir, true, func(_ uint64) (bool, error) {
 		count++
 		return false, nil
 	})
@@ -1046,7 +1046,7 @@ func TestPruneSnapshotsIgnoresSnapshotsAboveCurrent(t *testing.T) {
 	// snapshot-40 is what a rollback that could not finish leaves behind. Pruning runs against a directory of
 	// its own so that remnant is the only thing separating this layout from a healthy one.
 	dir := t.TempDir()
-	planted := []int64{10, 20, 30, 40}
+	planted := []uint64{10, 20, 30, 40}
 	for _, v := range planted {
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
 	}
@@ -1055,8 +1055,8 @@ func TestPruneSnapshotsIgnoresSnapshotsAboveCurrent(t *testing.T) {
 		pruneSnapshotsByCount(s.ctx, dir, s.config.SnapshotKeepRecent, s.config.ExternalPruning, 30),
 		"only 10 and 20 sit below the current version, and KeepRecent=2 covers both")
 
-	var remaining []int64
-	require.NoError(t, traverseSnapshots(dir, true, func(v int64) (bool, error) {
+	var remaining []uint64
+	require.NoError(t, traverseSnapshots(dir, true, func(v uint64) (bool, error) {
 		remaining = append(remaining, v)
 		return false, nil
 	}))
@@ -1098,8 +1098,8 @@ func TestOrphanSnapshotRecovery(t *testing.T) {
 // =============================================================================
 
 func TestTraverseSnapshotsNonExistentDir(t *testing.T) {
-	var versions []int64
-	err := traverseSnapshots("/nonexistent/path", true, func(v int64) (bool, error) {
+	var versions []uint64
+	err := traverseSnapshots("/nonexistent/path", true, func(v uint64) (bool, error) {
 		versions = append(versions, v)
 		return false, nil
 	})
@@ -1114,29 +1114,29 @@ func TestTraverseSnapshotsSkipsBadNames(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "snapshot-short"), 0750))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, snapshotName(5)), []byte("file"), 0644))
 
-	var versions []int64
-	err := traverseSnapshots(dir, true, func(v int64) (bool, error) {
+	var versions []uint64
+	err := traverseSnapshots(dir, true, func(v uint64) (bool, error) {
 		versions = append(versions, v)
 		return false, nil
 	})
 	require.NoError(t, err)
-	require.Equal(t, []int64{10}, versions, "only valid snapshot dirs should be found")
+	require.Equal(t, []uint64{10}, versions, "only valid snapshot dirs should be found")
 }
 
 func TestTraverseSnapshotsEarlyStop(t *testing.T) {
 	dir := t.TempDir()
-	for _, v := range []int64{1, 5, 10, 20} {
+	for _, v := range []uint64{1, 5, 10, 20} {
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
 	}
 
-	var visited []int64
-	err := traverseSnapshots(dir, false, func(v int64) (bool, error) {
+	var visited []uint64
+	err := traverseSnapshots(dir, false, func(v uint64) (bool, error) {
 		visited = append(visited, v)
 		return true, nil
 	})
 	require.NoError(t, err)
 	require.Len(t, visited, 1, "should stop after first callback returns true")
-	require.Equal(t, int64(20), visited[0], "descending should visit highest first")
+	require.Equal(t, uint64(20), visited[0], "descending should visit highest first")
 }
 
 // =============================================================================
@@ -1167,34 +1167,34 @@ func TestRollbackRemovesPostTargetSnapshots(t *testing.T) {
 	}
 
 	flatkvDir := filepath.Join(dir, flatkvRootDir)
-	var beforeRollback []int64
-	_ = traverseSnapshots(flatkvDir, true, func(v int64) (bool, error) {
+	var beforeRollback []uint64
+	_ = traverseSnapshots(flatkvDir, true, func(v uint64) (bool, error) {
 		beforeRollback = append(beforeRollback, v)
 		return false, nil
 	})
-	require.Contains(t, beforeRollback, int64(6))
+	require.Contains(t, beforeRollback, uint64(6))
 
 	require.NoError(t, s.Rollback(5))
 
-	var afterRollback []int64
-	_ = traverseSnapshots(flatkvDir, true, func(v int64) (bool, error) {
+	var afterRollback []uint64
+	_ = traverseSnapshots(flatkvDir, true, func(v uint64) (bool, error) {
 		afterRollback = append(afterRollback, v)
 		return false, nil
 	})
 
 	for _, v := range afterRollback {
-		require.LessOrEqual(t, v, int64(5), "snapshot %d should not exist after rollback to 5", v)
+		require.LessOrEqual(t, v, uint64(5), "snapshot %d should not exist after rollback to 5", v)
 	}
-	require.Contains(t, afterRollback, int64(3))
+	require.Contains(t, afterRollback, uint64(3))
 
 	require.NoError(t, s.Close())
 }
 
 // snapshotVersionsOnDisk lists the snapshot versions under the store's directory, ascending.
-func snapshotVersionsOnDisk(t *testing.T, s *CommitStore) []int64 {
+func snapshotVersionsOnDisk(t *testing.T, s *CommitStore) []uint64 {
 	t.Helper()
-	var versions []int64
-	require.NoError(t, traverseSnapshots(s.flatkvDir(), true, func(v int64) (bool, error) {
+	var versions []uint64
+	require.NoError(t, traverseSnapshots(s.flatkvDir(), true, func(v uint64) (bool, error) {
 		versions = append(versions, v)
 		return false, nil
 	}))
@@ -1224,14 +1224,14 @@ func interruptedRewindFixture(t *testing.T) *CommitStore {
 			require.NoError(t, s.outOfBandSnapshot())
 		}
 	}
-	require.Equal(t, []int64{3, 6}, snapshotVersionsOnDisk(t, s))
+	require.Equal(t, []uint64{3, 6}, snapshotVersionsOnDisk(t, s))
 
 	// The first half of a rewind to 5, then the reopen a restart performs. What the removal that would
 	// have followed never got to do is the point of the tests below.
 	require.NoError(t, s.repointAtSnapshot(s.flatkvDir(), 3))
 	require.NoError(t, s.open())
-	require.Equal(t, int64(3), s.Version(), "fixture precondition: the store reads as the base snapshot")
-	require.Contains(t, snapshotVersionsOnDisk(t, s), int64(6),
+	require.Equal(t, uint64(3), s.Version(), "fixture precondition: the store reads as the base snapshot")
+	require.Contains(t, snapshotVersionsOnDisk(t, s), uint64(6),
 		"fixture precondition: the discarded snapshot is still on disk")
 	return s
 }
@@ -1249,8 +1249,8 @@ func TestRewindClosedStoreToFinishesAnInterruptedRewind(t *testing.T) {
 	landed, err := RewindClosedStoreTo(s.flatkvDir(), 5)
 
 	require.NoError(t, err)
-	require.Equal(t, int64(3), landed)
-	require.Equal(t, []int64{3}, snapshotVersionsOnDisk(t, s),
+	require.Equal(t, uint64(3), landed)
+	require.Equal(t, []uint64{3}, snapshotVersionsOnDisk(t, s),
 		"the discarded branch must not survive the rollback that abandoned it")
 }
 
@@ -1264,7 +1264,7 @@ func TestDropSnapshotsAboveFinishesAnInterruptedRewind(t *testing.T) {
 
 	require.NoError(t, DropSnapshotsAbove(dir, 5))
 
-	require.Equal(t, []int64{3}, snapshotVersionsOnDisk(t, s),
+	require.Equal(t, []uint64{3}, snapshotVersionsOnDisk(t, s),
 		"the discarded branch must not survive the rollback that abandoned it")
 	require.FileExists(t, filepath.Join(dir, workingDirName, snapshotBaseFile),
 		"a store at or below the target keeps the working copy it would open on")
@@ -1313,18 +1313,18 @@ func TestRewindClosedStoreToMovesCurrentOffTheDiscardedBranch(t *testing.T) {
 
 func TestRemoveSnapshotsAboveKeepsTargetAndBelow(t *testing.T) {
 	dir := t.TempDir()
-	for _, v := range []int64{3, 5, 7, 9} {
+	for _, v := range []uint64{3, 5, 7, 9} {
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
 	}
 
 	require.NoError(t, removeSnapshotsAbove(dir, 5))
 
-	var remaining []int64
-	require.NoError(t, traverseSnapshots(dir, true, func(v int64) (bool, error) {
+	var remaining []uint64
+	require.NoError(t, traverseSnapshots(dir, true, func(v uint64) (bool, error) {
 		remaining = append(remaining, v)
 		return false, nil
 	}))
-	require.Equal(t, []int64{3, 5}, remaining, "the snapshot sitting on the target is kept")
+	require.Equal(t, []uint64{3, 5}, remaining, "the snapshot sitting on the target is kept")
 }
 
 func TestRemoveSnapshotsAboveReportsEveryFailure(t *testing.T) {
@@ -1333,7 +1333,7 @@ func TestRemoveSnapshotsAboveReportsEveryFailure(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	for _, v := range []int64{3, 7, 9} {
+	for _, v := range []uint64{3, 7, 9} {
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
 	}
 
@@ -1437,21 +1437,21 @@ func TestSeekSnapshotReadFailureIsNotUnreachable(t *testing.T) {
 
 func TestSeekSnapshotExact(t *testing.T) {
 	dir := t.TempDir()
-	for _, v := range []int64{10, 20, 30} {
+	for _, v := range []uint64{10, 20, 30} {
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
 	}
 
 	v, err := seekSnapshot(dir, 30)
 	require.NoError(t, err)
-	require.Equal(t, int64(30), v)
+	require.Equal(t, uint64(30), v)
 
 	v, err = seekSnapshot(dir, 25)
 	require.NoError(t, err)
-	require.Equal(t, int64(20), v)
+	require.Equal(t, uint64(20), v)
 
 	v, err = seekSnapshot(dir, 10)
 	require.NoError(t, err)
-	require.Equal(t, int64(10), v)
+	require.Equal(t, uint64(10), v)
 }
 
 // =============================================================================
@@ -1485,7 +1485,7 @@ func TestMultipleSnapshotsAndReopen(t *testing.T) {
 	defer func() { require.NoError(t, s2.Close()) }()
 
 	for i, expectedHash := range hashes {
-		ver := int64(i + 1)
+		ver := uint64(i + 1)
 		ro, err := s2.LoadVersionReadOnly(ver)
 		require.NoError(t, err)
 		require.Equal(t, ver, ro.Version())
@@ -1537,7 +1537,7 @@ func TestOutOfBandSnapshotUpdatesSnapshotBase(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(5), s2.Version())
+	require.Equal(t, uint64(5), s2.Version())
 	require.Equal(t, hashAtV5, rootHash(s2))
 }
 
@@ -1575,7 +1575,7 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(1), s2.Version())
+	require.Equal(t, uint64(1), s2.Version())
 	require.Equal(t, hash, rootHash(s2))
 
 	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
@@ -1615,7 +1615,7 @@ func TestReopenAfterEmptyCommits(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	require.Equal(t, int64(3), s.Version())
+	require.Equal(t, uint64(3), s.Version())
 	hashBefore := rootHash(s)
 	require.NoError(t, s.Close())
 
@@ -1627,7 +1627,7 @@ func TestReopenAfterEmptyCommits(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(3), s2.Version(), "version should be preserved after reopen")
+	require.Equal(t, uint64(3), s2.Version(), "version should be preserved after reopen")
 	require.Equal(t, hashBefore, rootHash(s2), "LtHash should be unchanged after reopen")
 }
 
@@ -1729,7 +1729,7 @@ func TestWALTruncationThenRollback(t *testing.T) {
 	s.tryTruncateWAL()
 
 	require.NoError(t, s.Rollback(5))
-	require.Equal(t, int64(5), s.Version())
+	require.Equal(t, uint64(5), s.Version())
 
 	for i := 1; i <= 5; i++ {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(byte(i)), slotN(byte(i))))
@@ -1778,7 +1778,7 @@ func TestReopenAfterSnapshotAndTruncation(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(10), s2.Version())
+	require.Equal(t, uint64(10), s2.Version())
 	require.Equal(t, hashBefore, rootHash(s2))
 
 	for i := 1; i <= 10; i++ {
@@ -1861,10 +1861,10 @@ func TestWALDirectoryDeleted(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(2), s2.Version())
+	require.Equal(t, uint64(2), s2.Version())
 
 	commitStorageEntry(t, s2, ktype.Address{0x03}, ktype.Slot{0x03}, []byte{0xCC})
-	require.Equal(t, int64(3), s2.Version())
+	require.Equal(t, uint64(3), s2.Version())
 
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x03}, ktype.Slot{0x03}))
 	val, found := s2.Get(keys.EVMStoreKey, key)
@@ -2074,7 +2074,7 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(2), s2.Version())
+	require.Equal(t, uint64(2), s2.Version())
 	require.Equal(t, hashAtV2, rootHash(s2), "LtHash should match after WAL replay")
 
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
@@ -2133,7 +2133,7 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 
 	// Rollback to v1: row should be restored
 	require.NoError(t, s.Rollback(1))
-	require.Equal(t, int64(1), s.Version())
+	require.Equal(t, uint64(1), s.Version())
 
 	nonceVal, found = s.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce should be restored after rollback to v1")
@@ -2182,7 +2182,7 @@ func TestRollbackToCurrentVersion(t *testing.T) {
 
 	// Rollback to current version: should be a valid no-op.
 	require.NoError(t, s.Rollback(1))
-	require.Equal(t, int64(1), s.Version())
+	require.Equal(t, uint64(1), s.Version())
 	require.Equal(t, hashV1, rootHash(s))
 
 	val, found := s.Get(keys.EVMStoreKey, key)
@@ -2225,7 +2225,7 @@ func TestRollbackDiscardsUncommittedPendingWrites(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 	require.NoError(t, s.Rollback(1))
-	require.Equal(t, int64(1), s.Version())
+	require.Equal(t, uint64(1), s.Version())
 
 	val, found := s.Get(keys.EVMStoreKey, key1)
 	require.True(t, found)
@@ -2253,14 +2253,14 @@ func TestRollbackThenNewTimeline(t *testing.T) {
 	commitAndCheck(t, s) // v2
 
 	require.NoError(t, s.Rollback(1))
-	require.Equal(t, int64(1), s.Version())
+	require.Equal(t, uint64(1), s.Version())
 
 	// Write new data in the alternate timeline.
 	cs3 := makeChangeSet(key, padLeft32(0xFF), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs3}))
 	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), v) // Version 2 in the new timeline.
+	require.Equal(t, uint64(2), v) // Version 2 in the new timeline.
 
 	val, found := s.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
@@ -2307,7 +2307,7 @@ func TestRollbackPreservesWALContinuity(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(4), s2.Version())
+	require.Equal(t, uint64(4), s2.Version())
 	require.Equal(t, hashAfterNewCommits, rootHash(s2))
 }
 

@@ -66,7 +66,7 @@ func replayAndRequireEachBlockOnce(t *testing.T, s *littReceiptStore, from, thro
 		require.NoError(t, s.SetReceipts(ctx.WithBlockHeight(int64(block)),
 			[]receipt.ReceiptRecord{crashRecord(block)}))
 	}
-	requireReceiptVersion(t, s, int64(through)) //nolint:gosec // small test heights
+	requireReceiptVersion(t, s, through)
 
 	var want []uint64
 	for block := uint64(1); block <= through; block++ {
@@ -116,7 +116,7 @@ func TestRecoveryRollsLittBackToTheIndexHead(t *testing.T) {
 	requireStoredRange(t, dir, 1, 4)
 
 	s := openStore(t, dir)
-	require.Equal(t, int64(4), s.LatestVersion())
+	require.Equal(t, uint64(4), s.LatestVersion())
 	replayAndRequireEachBlockOnce(t, s, 5, 6)
 }
 
@@ -133,7 +133,7 @@ func TestRecoveryRollsTheIndexBackToTheLittHead(t *testing.T) {
 
 	require.NoError(t, PruneAfter(littIdxCfg(dir), head))
 	s := openStore(t, dir)
-	require.Equal(t, int64(4), s.LatestVersion())
+	require.Equal(t, uint64(4), s.LatestVersion())
 	replayAndRequireEachBlockOnce(t, s, 5, 6)
 }
 
@@ -153,8 +153,8 @@ func TestRecoveryRollsTheIndexBackBelowTheRetentionFloor(t *testing.T) {
 	require.NoError(t, PruneAfter(littIdxCfg(dir), head))
 
 	s = openStore(t, dir)
-	require.Equal(t, int64(5), s.LatestVersion())
-	require.Equal(t, int64(5), s.EarliestVersion(), "the floor drops to the rollback target")
+	require.Equal(t, uint64(5), s.LatestVersion())
+	require.Equal(t, uint64(5), s.EarliestVersion(), "the floor drops to the rollback target")
 	ctx, _ := newTestContext()
 	require.NoError(t, s.SetReceipts(ctx.WithBlockHeight(6), []receipt.ReceiptRecord{crashRecord(6)}))
 	requireReceiptVersion(t, s, 6)
@@ -170,7 +170,7 @@ func TestPruneAfterAboveBothHeadsRollsTheIndexBack(t *testing.T) {
 	require.NoError(t, LoseLittAbove(dir, 4))
 
 	require.NoError(t, PruneAfter(littIdxCfg(dir), 100))
-	require.Equal(t, int64(4), openStore(t, dir).LatestVersion())
+	require.Equal(t, uint64(4), openStore(t, dir).LatestVersion())
 }
 
 // With no index head, PruneAfter still deletes the litt receipts above highestBlockToKeep, which a replay
@@ -229,8 +229,8 @@ func TestPruneAfterBelowTheRetentionFloorCompletesAfterAnInterruption(t *testing
 	require.NoError(t, PruneAfter(littIdxCfg(dir), 3))
 
 	s = openStore(t, dir)
-	require.Equal(t, int64(3), s.LatestVersion())
-	require.Equal(t, int64(3), s.EarliestVersion())
+	require.Equal(t, uint64(3), s.LatestVersion())
+	require.Equal(t, uint64(3), s.EarliestVersion())
 }
 
 // A write for a block below the head is refused, so the newest part in litt is always the highest block.
@@ -266,7 +266,7 @@ func TestWriteRefusesAnOrphanedPartAboveTheHead(t *testing.T) {
 
 	err = s.SetReceipts(ctx.WithBlockHeight(2), []receipt.ReceiptRecord{crashRecord(2)})
 	require.ErrorContains(t, err, "above the store's head 1")
-	require.Equal(t, int64(1), s.LatestVersion())
+	require.Equal(t, uint64(1), s.LatestVersion())
 
 	exists, err := s.receipts.Exists(littPartKey(2, 1))
 	require.NoError(t, err)

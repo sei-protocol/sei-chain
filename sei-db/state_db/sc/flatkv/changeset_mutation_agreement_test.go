@@ -55,8 +55,7 @@ func TestCommitStateChangesAgreesWithApplyChangeSets(t *testing.T) {
 	for i, block := range changesetAgreementBlocks() {
 		height := uint64(i + 1)
 		commitBlock(t, viaChangeSets, height, block)
-		//nolint:gosec // test heights are small
-		require.NoError(t, commitChangeSets(viaMutations, int64(height), block), "block %d", height)
+		require.NoError(t, commitChangeSets(viaMutations, height, block), "block %d", height)
 
 		require.Equal(t, latestHash(t, viaChangeSets), latestHash(t, viaMutations), "block %d", height)
 		require.Equal(t, rawRows(t, viaChangeSets), rawRows(t, viaMutations), "block %d", height)
@@ -138,8 +137,8 @@ func newFlatKVStore(t *testing.T) *CommitStore {
 // commitBlock applies changeSets to store as block height and commits it.
 func commitBlock(t *testing.T, store *CommitStore, height uint64, changeSets []*proto.NamedChangeSet) {
 	t.Helper()
-	require.NoError(t, store.ApplyChangeSets(int64(height), changeSets)) //nolint:gosec // test heights are small
-	_, err := store.Commit(int64(height))                                //nolint:gosec // test heights are small
+	require.NoError(t, store.ApplyChangeSets(height, changeSets))
+	_, err := store.Commit(height)
 	require.NoError(t, err)
 }
 
@@ -147,7 +146,7 @@ func commitBlock(t *testing.T, store *CommitStore, height uint64, changeSets []*
 func latestHash(t *testing.T, store *CommitStore) [32]byte {
 	t.Helper()
 	require.NoError(t, store.FlushHashes())
-	hash, err := store.RegisterHashListener(func(context.Context, int64, *lthash.BlockHash) error { return nil })
+	hash, err := store.RegisterHashListener(func(context.Context, uint64, *lthash.BlockHash) error { return nil })
 	require.NoError(t, err)
 	return hash.Global.Checksum()
 }

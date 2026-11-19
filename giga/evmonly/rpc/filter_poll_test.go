@@ -58,7 +58,7 @@ func (fx *pollFixture) commit(t *testing.T) uint64 {
 			{Address: filterContractA.Hex(), Topics: []string{filterTopicX.Hex()}},
 		}},
 	}}))
-	require.NoError(t, fx.store.SetLatestVersion(int64(height))) //nolint:gosec // test heights are small
+	require.NoError(t, fx.store.SetLatestVersion(height))
 	return height
 }
 
@@ -229,7 +229,7 @@ func TestGetFilterChangesCapsEachPoll(t *testing.T) {
 					TxHash: hash, Receipt: &evmtypes.Receipt{TxHashHex: hash.Hex(), BlockNumber: height, Logs: logs},
 				}}))
 			}
-			require.NoError(t, store.SetLatestVersion(int64(tc.head))) //nolint:gosec // test heights are small
+			require.NoError(t, store.SetLatestVersion(tc.head))
 			api := &filterAPI{backend: filterFixtureBackend(t, tc.head), store: store, filters: newFilterRegistry(0, 0)}
 			id, err := api.NewFilter(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(1)})
 			require.NoError(t, err)

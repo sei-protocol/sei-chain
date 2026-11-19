@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 
@@ -27,7 +26,7 @@ import (
 type LocalMeta struct {
 	// CommittedVersion is the version this DB last committed. It reads as 0 when
 	// no metadata has been written, which is indistinguishable from a genuine 0.
-	CommittedVersion int64
+	CommittedVersion uint64
 
 	// LtHash is this DB's root over its own keys. nil only when no metadata has
 	// been written; writeLocalMetaToBatch refuses to record a version without one.
@@ -46,15 +45,10 @@ type LocalMeta struct {
 	ModuleStats map[string]lthash.ModuleStats
 }
 
-// versionToBytes encodes a non-negative version as 8-byte big-endian.
-// Panics on negative input to catch programming errors early.
-// Only called from internal commit/test paths — never with untrusted input.
-func versionToBytes(v int64) []byte {
-	if v < 0 {
-		panic(fmt.Sprintf("flatkv: negative version %d", v))
-	}
+// versionToBytes encodes a version as 8-byte big-endian.
+func versionToBytes(v uint64) []byte {
 	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, uint64(v)) //nolint:gosec // guarded above
+	binary.BigEndian.PutUint64(b, v)
 	return b
 }
 
@@ -85,7 +79,7 @@ func loadLocalMeta(db types.KeyValueDB) (*LocalMeta, error) {
 // ltHash.
 func writeLocalMetaToBatch(
 	batch types.Batch,
-	version int64,
+	version uint64,
 	ltHash *lthash.LtHash,
 	moduleHashes map[string]*lthash.LtHash,
 	moduleStats map[string]lthash.ModuleStats,
@@ -108,7 +102,7 @@ func writeLocalMetaToBatch(
 // The pairs are the committed version, the per-DB root LtHash, and a hash plus a stats entry per
 // module. It rejects a nil ltHash.
 func encodeLocalMeta(
-	version int64,
+	version uint64,
 	ltHash *lthash.LtHash,
 	moduleHashes map[string]*lthash.LtHash,
 	moduleStats map[string]lthash.ModuleStats,
@@ -203,15 +197,12 @@ func cloneModuleStats(src map[string]lthash.ModuleStats) map[string]lthash.Modul
 
 // decodeVersion parses an 8-byte big-endian version record; key names it in
 // error messages.
-func decodeVersion(key []byte, data []byte) (int64, error) {
+func decodeVersion(key []byte, data []byte) (uint64, error) {
 	if len(data) != 8 {
 		return 0, fmt.Errorf("invalid %s length: got %d, want 8", key, len(data))
 	}
 	v := binary.BigEndian.Uint64(data)
-	if v > math.MaxInt64 {
-		return 0, fmt.Errorf("%s overflow: %d exceeds max int64", key, v)
-	}
-	return int64(v), nil //nolint:gosec // overflow checked above
+	return v, nil
 }
 
 // newPerDBLtHashMap returns a map with a fresh zero LtHash for each data DB.
@@ -254,11 +245,11 @@ func newPerDBModuleStatsMap() map[string]map[string]lthash.ModuleStats {
 // The per-database writes are atomic individually but not with one another, so a crash partway through
 // leaves a torn seed. The open path discards one, which makes a retry with any initialVersion valid and
 // not only the one that was interrupted.
-func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
+func (s *CommitStore) SetInitialVersion(initialVersion uint64) error {
 	if s.readOnly {
 		return errReadOnly
 	}
-	if initialVersion <= 0 {
+	if initialVersion == 0 {
 		return fmt.Errorf("flatkv: initial version must be positive, got %d", initialVersion)
 	}
 	if s.committedVersion != 0 {
@@ -277,7 +268,7 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 		}
 	}
 
-	if err := s.persistLocalMetaAndReopen(uint64(seededVersion)); err != nil { //nolint:gosec // non-negative
+	if err := s.persistLocalMetaAndReopen(seededVersion); err != nil {
 		return fmt.Errorf("flatkv: SetInitialVersion: seed version %d: %w", seededVersion, err)
 	}
 
@@ -295,7 +286,7 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 //
 // It must not be called while a CommitStore holds dir's WAL open; such a caller should use
 // CommitStore.GetLatestVersion instead.
-func GetLatestVersion(dir string) (int64, error) {
+func GetLatestVersion(dir string) (uint64, error) {
 	return latestVersion(dir, nil)
 }
 
@@ -306,7 +297,7 @@ func GetLatestVersion(dir string) (int64, error) {
 // The two part only after an interrupted commit, where one data DB records a block the others do not.
 // The store opens at the height they agree on, below that block, while the rows written for it sit in
 // the working copy above, so a rollback to the height the store opens at still has state to discard.
-func StoredVersions(dir string) (opensAt, highest int64, err error) {
+func StoredVersions(dir string) (opensAt uint64, highest uint64, err error) {
 	snapshotVersion, err := currentSnapshotVersion(dir)
 	if err != nil {
 		return 0, 0, err
@@ -320,7 +311,7 @@ func StoredVersions(dir string) (opensAt, highest int64, err error) {
 
 // dataDBVersions returns the lowest and highest committed versions recorded in the working copy's data
 // DBs, both 0 when there is no working copy.
-func dataDBVersions(dir string) (lowest, highest int64, err error) {
+func dataDBVersions(dir string) (lowest uint64, highest uint64, err error) {
 	workDir := filepath.Join(dir, workingDirName)
 	if _, err := os.Stat(workDir); err != nil {
 		if os.IsNotExist(err) {
@@ -344,7 +335,7 @@ func dataDBVersions(dir string) (lowest, highest int64, err error) {
 
 // readCommittedVersion returns the version record in the Pebble DB at dbDir, or 0 when that DB is
 // missing or has never been written.
-func readCommittedVersion(dbDir string) (int64, error) {
+func readCommittedVersion(dbDir string) (uint64, error) {
 	if _, err := os.Stat(dbDir); err != nil {
 		if os.IsNotExist(err) {
 			return 0, nil
@@ -376,7 +367,7 @@ func readCommittedVersion(dbDir string) (int64, error) {
 
 // latestVersion resolves the version a store on dir will open at, reading the WAL range through wal
 // when that is non-nil and out-of-band otherwise.
-func latestVersion(dir string, wal statewal.StateWAL) (int64, error) {
+func latestVersion(dir string, wal statewal.StateWAL) (uint64, error) {
 	// An open loads the working directory from the current snapshot and then replays the WAL forward
 	// over it, so the higher of those two is where it lands. A per-DB watermark would not do: those
 	// are written after the WAL record and trail it by a block whenever a commit is interrupted.
@@ -393,7 +384,7 @@ func latestVersion(dir string, wal statewal.StateWAL) (int64, error) {
 
 // currentSnapshotVersion returns the version of the snapshot the current symlink names, or 0 when
 // there is none.
-func currentSnapshotVersion(dir string) (int64, error) {
+func currentSnapshotVersion(dir string) (uint64, error) {
 	_, version, err := currentSnapshotDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -406,7 +397,7 @@ func currentSnapshotVersion(dir string) (int64, error) {
 
 // walTailVersion returns the last block the state WAL under dir holds, or 0 when it holds none. It
 // reads through wal when that is non-nil and out-of-band otherwise.
-func walTailVersion(dir string, wal statewal.StateWAL) (int64, error) {
+func walTailVersion(dir string, wal statewal.StateWAL) (uint64, error) {
 	readRange := func() (bool, uint64, uint64, error) {
 		if wal != nil {
 			return wal.GetStoredRange()
@@ -422,15 +413,12 @@ func walTailVersion(dir string, wal statewal.StateWAL) (int64, error) {
 	if !stored {
 		return 0, nil
 	}
-	if last > math.MaxInt64 {
-		return 0, fmt.Errorf("flatkv: state WAL last block %d exceeds max int64", last)
-	}
-	return int64(last), nil //nolint:gosec // bounds checked above
+	return last, nil
 }
 
 // GetLatestVersion returns the version this store is at, or will be at once loaded. A fresh store
 // returns 0.
-func (s *CommitStore) GetLatestVersion() (int64, error) {
+func (s *CommitStore) GetLatestVersion() (uint64, error) {
 	if !s.isClosed() {
 		return s.committedVersion, nil
 	}

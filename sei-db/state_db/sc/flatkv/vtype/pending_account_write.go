@@ -182,7 +182,7 @@ func (p *PendingAccountWrite) SetField(
 // block height. Only fields that have been set via Set* methods are overwritten; all other
 // fields are carried over from the base. The base is not modified. If a nil base is provided,
 // the pending writes are applied to a new AccountData instantiated to all 0s.
-func (p *PendingAccountWrite) Merge(base *AccountData, blockHeight int64) *AccountData {
+func (p *PendingAccountWrite) Merge(base *AccountData, blockHeight uint64) *AccountData {
 	var result *AccountData
 	if base == nil {
 		result = NewAccountData()

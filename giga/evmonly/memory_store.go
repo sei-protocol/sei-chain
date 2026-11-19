@@ -41,18 +41,18 @@ type MemoryStore struct {
 	base StateReader
 
 	hasCurrentHeight bool
-	currentHeight    int64
-	committedHeights map[int64]struct{}
+	currentHeight    uint64
+	committedHeights map[uint64]struct{}
 
 	balances     map[common.Address]*memoryStoreValue[common.Hash]
 	nonces       map[common.Address]*memoryStoreValue[uint64]
 	code         map[common.Address]*memoryStoreValue[[]byte]
 	storage      map[memoryStoreStorageKey]*memoryStoreValue[common.Hash]
-	storageTouch map[common.Address]int64
+	storageTouch map[common.Address]uint64
 }
 
 type memoryStoreValue[T any] struct {
-	height   int64
+	height   uint64
 	value    T
 	delete   bool
 	previous *memoryStoreValue[T]
@@ -72,12 +72,12 @@ func NewMemoryStore(source StateReader) *MemoryStore {
 	}
 	return &MemoryStore{
 		base:             source,
-		committedHeights: map[int64]struct{}{},
+		committedHeights: map[uint64]struct{}{},
 		balances:         map[common.Address]*memoryStoreValue[common.Hash]{},
 		nonces:           map[common.Address]*memoryStoreValue[uint64]{},
 		code:             map[common.Address]*memoryStoreValue[[]byte]{},
 		storage:          map[memoryStoreStorageKey]*memoryStoreValue[common.Hash]{},
-		storageTouch:     map[common.Address]int64{},
+		storageTouch:     map[common.Address]uint64{},
 	}
 }
 
@@ -217,7 +217,7 @@ func (b *memoryStoreChangeSetBuilder) takeCodeValue(size int) []byte {
 }
 
 // CommitStateChanges commits a block's state changes. Non-EVM writes are rejected.
-func (s *MemoryStore) CommitStateChanges(blockNum int64, changes *StateChangeSet) error {
+func (s *MemoryStore) CommitStateChanges(blockNum uint64, changes *StateChangeSet) error {
 	if len(changes.Misc) != 0 {
 		return fmt.Errorf("memory store cannot hold the %d non-EVM writes of block %d",
 			len(changes.Misc), blockNum)
@@ -230,10 +230,7 @@ func (s *MemoryStore) CommitStateChanges(blockNum int64, changes *StateChangeSet
 }
 
 // commitChangeSets commits a block's changesets in the memory store's key format.
-func (s *MemoryStore) commitChangeSets(blockNum int64, changesets []*proto.NamedChangeSet) error {
-	if blockNum < 0 {
-		return fmt.Errorf("memory store block number must be non-negative: %d", blockNum)
-	}
+func (s *MemoryStore) commitChangeSets(blockNum uint64, changesets []*proto.NamedChangeSet) error {
 
 	var counts memoryStorePairCounts
 	for changesetIndex, named := range changesets {
@@ -312,7 +309,7 @@ func newMemoryStoreCommitBuffers(counts memoryStorePairCounts) memoryStoreCommit
 	}
 }
 
-func (s *MemoryStore) applyPairLocked(height int64, pair *proto.KVPair, buffers *memoryStoreCommitBuffers) {
+func (s *MemoryStore) applyPairLocked(height uint64, pair *proto.KVPair, buffers *memoryStoreCommitBuffers) {
 	address := common.Address(pair.Key[1:memoryStoreAccountKeyLen])
 	switch pair.Key[0] {
 	case memoryStoreBalanceKey:
@@ -355,7 +352,7 @@ func (s *MemoryStore) applyPairLocked(height int64, pair *proto.KVPair, buffers 
 	}
 }
 
-func (s *MemoryStore) touchStorageAccountLocked(height int64, address common.Address) {
+func (s *MemoryStore) touchStorageAccountLocked(height uint64, address common.Address) {
 	if _, touched := s.storageTouch[address]; !touched {
 		s.storageTouch[address] = height
 	}
@@ -363,7 +360,7 @@ func (s *MemoryStore) touchStorageAccountLocked(height int64, address common.Add
 
 func (s *MemoryStore) OpenView() gigatypes.StateView {
 	s.mu.RLock()
-	height := int64(0)
+	height := uint64(0)
 	if s.hasCurrentHeight {
 		height = s.currentHeight
 	}
@@ -371,7 +368,7 @@ func (s *MemoryStore) OpenView() gigatypes.StateView {
 	return &memoryStoreSnapshot{store: s, height: height}
 }
 
-func (s *MemoryStore) OpenViewAt(blockNum int64) (gigatypes.StateView, bool) {
+func (s *MemoryStore) OpenViewAt(blockNum uint64) (gigatypes.StateView, bool) {
 	s.mu.RLock()
 	_, ok := s.committedHeights[blockNum]
 	s.mu.RUnlock()
@@ -392,7 +389,7 @@ func (s *MemoryStore) Close() error { return nil }
 
 type memoryStoreSnapshot struct {
 	store  *MemoryStore
-	height int64
+	height uint64
 	closed atomic.Bool
 }
 
@@ -498,7 +495,7 @@ func (s *memoryStoreSnapshot) ReadAccount(address gigatypes.Address) (gigatypes.
 	}, true
 }
 
-func (s *memoryStoreSnapshot) GetBlockHeight() int64 {
+func (s *memoryStoreSnapshot) GetBlockHeight() uint64 {
 	s.requireOpen()
 	return s.height
 }
@@ -595,7 +592,7 @@ func (s *memoryStoreSnapshot) requireOpen() {
 	}
 }
 
-func latestMemoryStoreValue[T any](value *memoryStoreValue[T], height int64) (*memoryStoreValue[T], bool) {
+func latestMemoryStoreValue[T any](value *memoryStoreValue[T], height uint64) (*memoryStoreValue[T], bool) {
 	for value != nil && value.height > height {
 		value = value.previous
 	}

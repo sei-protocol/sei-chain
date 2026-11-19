@@ -15,7 +15,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -129,7 +128,7 @@ type Database struct {
 
 // pendingBlock is one entry of the write queue: a block, or, with done set, a barrier.
 type pendingBlock struct {
-	version int64
+	version uint64
 	changes *gigatypes.StateChangeSet
 	current LiveStateView
 	done    chan struct{}
@@ -250,8 +249,7 @@ func loadBucketSize(storage *pebble.DB) (uint64, error) {
 	return defaultBucketSize, nil
 }
 
-// readMarker returns the value stored under key, 0 when there is none. Markers fit in an int64, the
-// type heights leave the store as.
+// readMarker returns the value stored under key, 0 when there is none.
 func readMarker(storage *pebble.DB, key []byte) (uint64, error) {
 	bz, closer, err := storage.Get(key)
 	if errors.Is(err, pebble.ErrNotFound) {
@@ -269,11 +267,7 @@ func decodeMarker(key []byte, bz []byte) (uint64, error) {
 	if len(bz) != 8 {
 		return 0, fmt.Errorf("undo: marker %q has %d bytes", key, len(bz))
 	}
-	u := binary.LittleEndian.Uint64(bz)
-	if u > math.MaxInt64 {
-		return 0, fmt.Errorf("undo: marker %q overflows int64: %d", key, u)
-	}
-	return u, nil
+	return binary.LittleEndian.Uint64(bz), nil
 }
 
 func writeMarker(storage *pebble.DB, key []byte, value uint64, opts *pebble.WriteOptions) error {
@@ -282,20 +276,12 @@ func writeMarker(storage *pebble.DB, key []byte, value uint64, opts *pebble.Writ
 	return storage.Set(key, bz[:], opts)
 }
 
-// heightOf returns version as a height, refusing a negative one.
-func heightOf(version int64) (uint64, error) {
-	if version < 0 {
-		return 0, fmt.Errorf("undo: negative block height %d", version)
-	}
-	return uint64(version), nil
-}
-
 // Resume binds current state as of version and enables block writes. It must succeed once before
 // ApplyBlock is called. version must be at or above the log's latest block.
 //
 // A log behind version is missing the records of the blocks in between, which only their execution
 // could supply, so history below version stops being served.
-func (db *Database) Resume(version int64, current LiveStateView) error {
+func (db *Database) Resume(version uint64, current LiveStateView) error {
 	db.lifecycleMu.Lock()
 	defer db.lifecycleMu.Unlock()
 	if db.closed {
@@ -320,11 +306,7 @@ func (db *Database) Resumed() bool {
 	return db.head.Load() != nil
 }
 
-func (db *Database) resume(version int64) (uint64, error) {
-	height, err := heightOf(version)
-	if err != nil {
-		return 0, err
-	}
+func (db *Database) resume(height uint64) (uint64, error) {
 	db.historyMu.Lock()
 	defer db.historyMu.Unlock()
 	latest := db.latestHeight.Load()
@@ -350,7 +332,7 @@ func (db *Database) resume(version int64) (uint64, error) {
 // ApplyBlock queues block version's change set, whose prior values the store records, and takes
 // ownership of the post-block current view. changes is read in the background, so it must not change
 // afterwards; nil means the block changed nothing. It panics before a successful Resume or after Close.
-func (db *Database) ApplyBlock(version int64, changes *gigatypes.StateChangeSet, current LiveStateView) {
+func (db *Database) ApplyBlock(version uint64, changes *gigatypes.StateChangeSet, current LiveStateView) {
 	if err := db.enqueue(pendingBlock{version: version, changes: changes, current: current}); err != nil {
 		current.Close()
 		panic(err)
@@ -396,7 +378,7 @@ func (db *Database) writeInBackground() {
 }
 
 // applyBlock writes block version and makes current the view reads fall back to.
-func (db *Database) applyBlock(version int64, changes *gigatypes.StateChangeSet, current LiveStateView) error {
+func (db *Database) applyBlock(version uint64, changes *gigatypes.StateChangeSet, current LiveStateView) error {
 	height, err := db.writeBlock(version, changes)
 	if err != nil {
 		current.Close()
@@ -406,19 +388,15 @@ func (db *Database) applyBlock(version int64, changes *gigatypes.StateChangeSet,
 	return nil
 }
 
-// writeBlock writes block version's records, then moves the latest-height marker to it, and returns
-// the block's height. A crash in between leaves records only above the marker, which the block
-// rewrites when it is applied again.
-func (db *Database) writeBlock(version int64, changes *gigatypes.StateChangeSet) (height uint64, err error) {
+// writeBlock writes block height's records, then moves the latest-height marker to it, and returns height.
+// A crash in between leaves records only above the marker, which the block rewrites when it is applied again.
+func (db *Database) writeBlock(height uint64, changes *gigatypes.StateChangeSet) (_ uint64, err error) {
 	start := time.Now()
 	records := recordCount(changes)
 	defer func() {
 		otelMetrics.applyLatency.Record(context.Background(), time.Since(start).Seconds(), successAttr(err))
 		otelMetrics.applyRecords.Record(context.Background(), int64(records))
 	}()
-	if height, err = heightOf(version); err != nil {
-		return 0, err
-	}
 	// Blocks are contiguous: a skipped block leaves no records, and every read below it would
 	// silently answer with a later value.
 	if latest := db.latestHeight.Load(); height != latest+1 {
@@ -627,16 +605,12 @@ type View struct {
 	closed utils.CloseMarker[View]
 }
 
-// OpenView returns a view of the state after block version, and false when the store is closed or
-// does not serve version.
-func (db *Database) OpenView(version int64) (*View, bool) {
+// OpenView returns a view of the state after block height, and false when the store is closed or
+// does not serve height.
+func (db *Database) OpenView(height uint64) (*View, bool) {
 	db.lifecycleMu.RLock()
 	defer db.lifecycleMu.RUnlock()
 	if db.closed {
-		return nil, false
-	}
-	height, err := heightOf(version)
-	if err != nil {
 		return nil, false
 	}
 	if h := db.head.Load(); h == nil || height > h.height || !db.pinHeight(height) {
@@ -737,13 +711,13 @@ func (v *View) Get(key []byte) (_ []byte, err error) {
 }
 
 // GetLatestVersion returns the latest block whose records are written and readable.
-func (db *Database) GetLatestVersion() int64 {
-	return int64(db.latestHeight.Load()) //nolint:gosec // heights enter the store as int64
+func (db *Database) GetLatestVersion() uint64 {
+	return db.latestHeight.Load()
 }
 
 // GetEarliestVersion returns the lowest height a view can open at.
-func (db *Database) GetEarliestVersion() int64 {
-	return int64(db.earliestHeight.Load()) //nolint:gosec // heights enter the store as int64
+func (db *Database) GetEarliestVersion() uint64 {
+	return db.earliestHeight.Load()
 }
 
 // raiseEarliest makes height the lowest served height when it is above the current one. The caller

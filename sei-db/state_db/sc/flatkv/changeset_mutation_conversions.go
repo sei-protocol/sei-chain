@@ -28,8 +28,7 @@ func MutationsFromChangeSets(
 	priorState gigatypes.StateView,
 ) ([]mutation.Mutation, error) {
 	priorHeight := priorState.GetBlockHeight()
-	//nolint:gosec // a non-negative height converts exactly
-	if priorHeight < 0 || uint64(priorHeight)+1 != blockHeight {
+	if priorHeight+1 != blockHeight {
 		return nil, fmt.Errorf("prior state is at block %d, but block %d needs the state of the block before",
 			priorHeight, blockHeight)
 	}
@@ -176,7 +175,7 @@ func mergedAccountRow(
 		}
 		prior = parsed
 	}
-	merged := account.Merge(prior, int64(blockHeight)) //nolint:gosec // block heights fit in an int64
+	merged := account.Merge(prior, blockHeight)
 	if merged.IsDelete() {
 		return nil, nil
 	}
@@ -195,7 +194,7 @@ func rowValue(
 	if write.Delete {
 		return nil, nil
 	}
-	height := int64(blockHeight) //nolint:gosec // block heights fit in an int64
+	height := blockHeight
 	switch kind {
 	case keys.EVMKeyStorage:
 		// An all-zero storage value is a deletion, for which SerializeStorage returns nil.

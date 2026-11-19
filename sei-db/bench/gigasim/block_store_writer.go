@@ -54,16 +54,16 @@ func newBlockStoreWriter(
 
 // nextHeight returns the height the block store will accept next, reporting false for a store
 // that holds nothing and so will accept any height as its first.
-func (w *blockStoreWriter) nextHeight() (int64, bool) {
+func (w *blockStoreWriter) nextHeight() (uint64, bool) {
 	status, ok := w.store.Status().Get()
 	if !ok {
 		return 0, false
 	}
-	return int64(status.NextBlock), true //nolint:gosec // block heights are bounded well below the conversion limit
+	return uint64(status.NextBlock), true
 }
 
 // writeBlock persists a block with its QC after finalizing prior blocks.
-func (w *blockStoreWriter) writeBlock(number int64, payload [][]byte) error {
+func (w *blockStoreWriter) writeBlock(number uint64, payload [][]byte) error {
 	w.phases.SetPhase("encode_block")
 	block, err := w.buildBlock(payload)
 	if err != nil {
@@ -71,7 +71,8 @@ func (w *blockStoreWriter) writeBlock(number int64, payload [][]byte) error {
 	}
 	pending := append(w.pending, block)
 	if len(pending) == w.config.LaneBlocksPerSuperblock {
-		height := autobahn.RoadHeight((number-1)/int64(w.config.LaneBlocksPerSuperblock) + 1) //nolint:gosec // generated heights are positive
+		//nolint:gosec // lane count is positive
+		height := autobahn.RoadHeight((number-1)/uint64(w.config.LaneBlocksPerSuperblock) + 1)
 		if err := w.writeSuperBlock(height, pending); err != nil {
 			return err
 		}

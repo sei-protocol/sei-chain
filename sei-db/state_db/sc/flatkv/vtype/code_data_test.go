@@ -34,7 +34,7 @@ func TestCodeSerializationGoldenFile_V0(t *testing.T) {
 
 	rt, err := DeserializeCodeData(wantBytes)
 	require.NoError(t, err)
-	require.Equal(t, int64(100), rt.GetBlockHeight())
+	require.Equal(t, uint64(100), rt.GetBlockHeight())
 	require.Equal(t, bytecode, rt.GetBytecode())
 }
 
@@ -42,14 +42,14 @@ func TestCodeNewWithBytecode(t *testing.T) {
 	bytecode := []byte{0x01, 0x02, 0x03}
 	cd := NewCodeData().SetBytecode(bytecode)
 	require.Equal(t, CodeDataVersion0, cd.GetSerializationVersion())
-	require.Equal(t, int64(0), cd.GetBlockHeight())
+	require.Equal(t, uint64(0), cd.GetBlockHeight())
 	require.Equal(t, bytecode, cd.GetBytecode())
 }
 
 func TestCodeNewEmpty(t *testing.T) {
 	cd := NewCodeData()
 	require.Equal(t, CodeDataVersion0, cd.GetSerializationVersion())
-	require.Equal(t, int64(0), cd.GetBlockHeight())
+	require.Equal(t, uint64(0), cd.GetBlockHeight())
 	require.Empty(t, cd.GetBytecode())
 }
 
@@ -71,7 +71,7 @@ func TestCodeRoundTrip_WithBytecode(t *testing.T) {
 
 	rt, err := DeserializeCodeData(cd.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, int64(999), rt.GetBlockHeight())
+	require.Equal(t, uint64(999), rt.GetBlockHeight())
 	require.Equal(t, bytecode, rt.GetBytecode())
 }
 
@@ -81,7 +81,7 @@ func TestCodeRoundTrip_EmptyBytecode(t *testing.T) {
 
 	rt, err := DeserializeCodeData(cd.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, int64(42), rt.GetBlockHeight())
+	require.Equal(t, uint64(42), rt.GetBlockHeight())
 	require.Empty(t, rt.GetBytecode())
 }
 
@@ -91,7 +91,7 @@ func TestCodeRoundTrip_MaxBlockHeight(t *testing.T) {
 
 	rt, err := DeserializeCodeData(cd.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, int64(math.MaxInt64), rt.GetBlockHeight())
+	require.Equal(t, uint64(math.MaxInt64), rt.GetBlockHeight())
 	require.Equal(t, []byte{0xff}, rt.GetBytecode())
 }
 
@@ -143,7 +143,7 @@ func TestCodeSetterChaining(t *testing.T) {
 	cd := NewCodeData().SetBytecode([]byte{0x01}).
 		SetBlockHeight(42)
 
-	require.Equal(t, int64(42), cd.GetBlockHeight())
+	require.Equal(t, uint64(42), cd.GetBlockHeight())
 	require.Equal(t, []byte{0x01}, cd.GetBytecode())
 }
 
@@ -163,7 +163,7 @@ func TestNilCodeData_Getters(t *testing.T) {
 	var cd *CodeData
 
 	require.Equal(t, CodeDataVersion0, cd.GetSerializationVersion())
-	require.Equal(t, int64(0), cd.GetBlockHeight())
+	require.Equal(t, uint64(0), cd.GetBlockHeight())
 	require.Empty(t, cd.GetBytecode())
 }
 
@@ -190,7 +190,7 @@ func TestNilCodeData_SettersAutoCreate(t *testing.T) {
 	var c1 *CodeData
 	c1 = c1.SetBlockHeight(42)
 	require.NotNil(t, c1)
-	require.Equal(t, int64(42), c1.GetBlockHeight())
+	require.Equal(t, uint64(42), c1.GetBlockHeight())
 
 	var c2 *CodeData
 	c2 = c2.SetBytecode([]byte{0xAB})

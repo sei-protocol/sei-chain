@@ -1017,7 +1017,7 @@ func TestGetAfterRollback(t *testing.T) {
 	require.Equal(t, padLeft32(0x33), val)
 
 	require.NoError(t, s.Rollback(2))
-	require.Equal(t, int64(2), s.Version())
+	require.Equal(t, uint64(2), s.Version())
 
 	_, found = s.Get(keys.EVMStoreKey, key)
 	require.False(t, found, "key should be deleted at v2")

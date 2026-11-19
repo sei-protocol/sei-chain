@@ -95,7 +95,7 @@ func newAuditTestSnapshot(t *testing.T) auditTestSnapshot {
 	}))
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
-	require.Equal(t, int64(auditTestSnapshotInterval), s.Version())
+	require.Equal(t, uint64(auditTestSnapshotInterval), s.Version())
 	require.NoError(t, s.FlushSnapshots())
 
 	require.NoError(t, s.FlushHashes())
@@ -127,7 +127,7 @@ func auditTestConfig(snapshot auditTestSnapshot, hashers uint32) *SnapshotAuditC
 func openAuditTestSnapshotDB(t *testing.T, snapshot auditTestSnapshot, dir string) types.KeyValueDB {
 	t.Helper()
 	cfg := pebbledb.DefaultTestConfig(t)
-	cfg.DataDir = filepath.Join(snapshot.root, flatkv.SnapshotDirName(int64(snapshot.version)), dir) //nolint:gosec
+	cfg.DataDir = filepath.Join(snapshot.root, flatkv.SnapshotDirName(snapshot.version), dir)
 	db, err := pebbledb.Open(t.Context(), &cfg)
 	require.NoError(t, err)
 	return db
@@ -264,7 +264,7 @@ func TestAuditSnapshotReportsARecordedModuleWithNoRows(t *testing.T) {
 
 func TestAuditSnapshotSurvivesPruningOfTheSource(t *testing.T) {
 	snapshot := newAuditTestSnapshot(t)
-	version := int64(snapshot.version) //nolint:gosec // small
+	version := snapshot.version
 
 	linked := filepath.Join(t.TempDir(), "linked")
 	require.NoError(t, flatkv.HardLinkSnapshot(snapshot.root, version, linked))
@@ -309,7 +309,7 @@ func TestAuditSnapshotRemovesStaleAuditDirs(t *testing.T) {
 	requireNoAuditDirs(t, snapshot.root)
 	require.DirExists(t, unrelated)
 	//nolint:gosec // small
-	require.DirExists(t, filepath.Join(snapshot.root, flatkv.SnapshotDirName(int64(snapshot.version))))
+	require.DirExists(t, filepath.Join(snapshot.root, flatkv.SnapshotDirName(snapshot.version)))
 
 	// Removing the stale links must leave the snapshot they pointed at intact.
 	again, err := AuditSnapshot(t.Context(), auditTestConfig(snapshot, 4))
@@ -348,7 +348,7 @@ func plantStaleAuditDir(t *testing.T, snapshot auditTestSnapshot) string {
 	t.Helper()
 	stale, err := os.MkdirTemp(snapshot.root, snapshotAuditDirPrefix+"*")
 	require.NoError(t, err)
-	version := int64(snapshot.version) //nolint:gosec // small
+	version := snapshot.version
 	require.NoError(t, flatkv.HardLinkSnapshot(snapshot.root, version, filepath.Join(stale, snapshotAuditLinkName)))
 	return stale
 }

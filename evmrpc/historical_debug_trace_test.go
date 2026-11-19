@@ -103,7 +103,8 @@ func TestGuardHistoricalDebugTraceByHashUsesTendermintHeight(t *testing.T) {
 		connectionType:   ConnectionTypeHTTP,
 		maxBlockLookback: 1,
 		backend: &Backend{
-			watermarks: NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil, &fakeReceiptStore{latest: latestHeight}),
+			watermarks: NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil,
+				&fakeReceiptStore{latest: uint64(latestHeight)}),
 		},
 	}
 

@@ -24,7 +24,7 @@ type SnapshotStats struct {
 }
 
 // SnapshotDirStats returns the stats that the metadata of snapshot dir records.
-func SnapshotDirStats(dir string, version int64) (SnapshotStats, error) {
+func SnapshotDirStats(dir string, version uint64) (SnapshotStats, error) {
 	dbs, err := openSnapshotDataDBs(dir)
 	if err != nil {
 		return SnapshotStats{}, err
@@ -36,7 +36,12 @@ func SnapshotDirStats(dir string, version int64) (SnapshotStats, error) {
 // ExportSnapshotDir emits the live non-metadata rows of snapshot dir in ascending physical-key order, and
 // returns the stats that the snapshot metadata records. It returns an error if the count or key+value bytes
 // of the emitted rows differ from those stats. emit must not keep key or value after it returns.
-func ExportSnapshotDir(ctx context.Context, dir string, version int64, emit func(key, value []byte) error) (SnapshotStats, error) {
+func ExportSnapshotDir(
+	ctx context.Context,
+	dir string,
+	version uint64,
+	emit func(key []byte, value []byte) error,
+) (SnapshotStats, error) {
 	dbs, err := openSnapshotDataDBs(dir)
 	if err != nil {
 		return SnapshotStats{}, err
@@ -110,7 +115,7 @@ func closeSnapshotDataDBs(dbs []snapshotDataDB) {
 	}
 }
 
-func snapshotStats(dbs []snapshotDataDB, version int64) (SnapshotStats, error) {
+func snapshotStats(dbs []snapshotDataDB, version uint64) (SnapshotStats, error) {
 	var stats SnapshotStats
 	perDB := make(map[string]*lthash.LtHash, len(dbs))
 	for _, db := range dbs {

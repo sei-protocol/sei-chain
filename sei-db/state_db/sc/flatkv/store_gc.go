@@ -127,7 +127,7 @@ func activeSnapshotHeight(dir string) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("resolve active snapshot: %w", err)
 	}
-	return uint64(max(version, 0)), nil //nolint:gosec // clamped non-negative above
+	return version, nil
 }
 
 // snapshotFloor returns the oldest snapshot that must survive a rollback of rollbackWindow blocks
@@ -173,10 +173,8 @@ func snapshotFloor(blocks []uint64, head uint64, rollbackWindow uint64) uint64 {
 // directory yields no blocks rather than an error.
 func snapshotBlocks(dir string) ([]uint64, error) {
 	var blocks []uint64
-	err := traverseSnapshots(dir, true, func(version int64) (bool, error) {
-		if version >= 0 {
-			blocks = append(blocks, uint64(version))
-		}
+	err := traverseSnapshots(dir, true, func(version uint64) (bool, error) {
+		blocks = append(blocks, version)
 		return false, nil
 	})
 	if err != nil {
@@ -188,7 +186,7 @@ func snapshotBlocks(dir string) ([]uint64, error) {
 // deleteSnapshot removes the snapshot directory for block under dir, reporting whether this call is
 // the one that removed it. An already-gone snapshot is not an error and reports false.
 func deleteSnapshot(dir string, block uint64) (bool, error) {
-	path := filepath.Join(dir, snapshotName(int64(block))) //nolint:gosec // block numbers are bounded well below 2^63
+	path := filepath.Join(dir, snapshotName(block))
 	if err := atomicRemoveDir(path); err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
@@ -235,8 +233,5 @@ func (s *CommitStore) GetRollbackFloor(rollbackWindow uint64) uint64 {
 func (s *CommitStore) GetLatestBlock() (uint64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.committedVersion <= 0 {
-		return 0, nil
-	}
-	return uint64(s.committedVersion), nil //nolint:gosec // guarded positive above
+	return s.committedVersion, nil
 }

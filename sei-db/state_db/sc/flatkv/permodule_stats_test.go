@@ -168,7 +168,7 @@ func TestPerModuleStatsPersistenceAfterReopen(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(5), s2.Version())
+	require.Equal(t, uint64(5), s2.Version())
 	verifyModuleStats(t, s2)
 
 	for dir, mods := range expected {
@@ -256,7 +256,7 @@ func TestPerModuleStatsAfterImportSurvivesRestart(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, int64(7), s2.Version())
+	require.Equal(t, uint64(7), s2.Version())
 	verifyModuleStats(t, s2)
 	for dir, mods := range expected {
 		for module, want := range mods {

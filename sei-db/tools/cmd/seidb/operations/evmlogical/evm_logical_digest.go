@@ -643,6 +643,9 @@ func runEvmLogicalDigest(cmd *cobra.Command, _ []string) error {
 	flatKVDir, _ := cmd.Flags().GetString("flatkv-dir")
 	memIAVLDir, _ := cmd.Flags().GetString("memiavl-dir")
 	height, _ := cmd.Flags().GetInt64("height")
+	if height < 0 {
+		return fmt.Errorf("height %d out of range", height)
+	}
 	if dbDir == "" && backend != "composite" {
 		return errors.New("must provide --db-dir")
 	}
@@ -880,7 +883,7 @@ type compositeMigrateEVMSource struct {
 }
 
 func openCompositeMigrateEVMSource(flatKVDir, memIAVLDir string, height int64, memiavlOpenMode string) (*compositeMigrateEVMSource, error) {
-	opened, err := operations.OpenFlatKVReadOnly(flatKVDir, height)
+	opened, err := operations.OpenFlatKVReadOnly(flatKVDir, uint64(height)) //nolint:gosec // refused if negative
 	if err != nil {
 		return nil, fmt.Errorf("open flatkv read-only: %w", err)
 	}
@@ -902,7 +905,7 @@ func openCompositeMigrateEVMSource(flatKVDir, memIAVLDir string, height int64, m
 		mode:            "migrate_evm",
 		dbDir:           fmt.Sprintf("flatkv=%s memiavl=%s", flatKVDir, memIAVLDir),
 		requestedHeight: height,
-		version:         opened.Version(),
+		version:         int64(opened.Version()), //nolint:gosec // heights fit in int64
 		boundary:        boundary.String(),
 	}
 	memRows := "replayed memiavl rows"
@@ -1095,7 +1098,7 @@ func consumeCompositeMemiavl(
 }
 
 func digestFlatKV(dbDir string, height int64, findTarget []byte) error {
-	opened, err := operations.OpenFlatKVReadOnly(dbDir, height)
+	opened, err := operations.OpenFlatKVReadOnly(dbDir, uint64(height)) //nolint:gosec // refused if negative
 	if err != nil {
 		return fmt.Errorf("open flatkv read-only: %w", err)
 	}
@@ -1116,7 +1119,7 @@ func digestFlatKV(dbDir string, height int64, findTarget []byte) error {
 		source:          "isolated FlatKV clone opened from snapshot + changelog WAL replay",
 		normalization:   "native FlatKV physical keyspace; values reduced to height-independent logical payload",
 		requestedHeight: height,
-		version:         version,
+		version:         int64(version), //nolint:gosec // block heights never approach the int64 ceiling
 	}
 	printDigestStart(ctx)
 	digestOut.say("Scan progress: flatkv input_physical_rows -> normalized logical bucket counts")
@@ -1413,7 +1416,7 @@ func (a *inspectAccumulator) print(r evmInspectJSON) {
 }
 
 func inspectFlatKV(dbDir string, height int64, fanout *inspectFanout) error {
-	opened, err := operations.OpenFlatKVReadOnly(dbDir, height)
+	opened, err := operations.OpenFlatKVReadOnly(dbDir, uint64(height)) //nolint:gosec // refused if negative
 	if err != nil {
 		return fmt.Errorf("open flatkv read-only: %w", err)
 	}
@@ -1456,7 +1459,7 @@ func inspectFlatKV(dbDir string, height int64, fanout *inspectFanout) error {
 		source:          "isolated FlatKV clone opened from snapshot + changelog WAL replay",
 		normalization:   "native FlatKV physical keyspace; values reduced to height-independent logical payload",
 		requestedHeight: height,
-		version:         opened.Version(),
+		version:         int64(opened.Version()), //nolint:gosec // heights fit in int64
 	})
 }
 
@@ -1680,7 +1683,7 @@ func inspectMemIAVLStorageDetails(dbDir string, height int64, acc *inspectAccumu
 		if err != nil {
 			return fmt.Errorf("parse storage value %X: %w", k, err)
 		}
-		leafVersion := int64(binary.LittleEndian.Uint32(leafbuf[:4]))
+		leafVersion := uint64(binary.LittleEndian.Uint32(leafbuf[:4]))
 		physKey := ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, keyBytes)
 		storageData := vtype.NewStorageData().SetBlockHeight(leafVersion).SetValue(value)
 		if err := acc.consumeWithMeta(physKey, storageData.Serialize(), fmt.Sprintf("leaf_version=%d", leafVersion)); err != nil {

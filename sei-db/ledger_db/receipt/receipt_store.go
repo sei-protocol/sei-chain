@@ -58,9 +58,9 @@ type ReceiptStore interface {
 
 	// LatestVersion is the highest block whose receipts are queryable. A write may land after
 	// SetReceipts returns, so a reader follows this rather than the height it last wrote.
-	LatestVersion() int64
+	LatestVersion() uint64
 
-	EarliestVersion() int64
+	EarliestVersion() uint64
 
 	GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error)
 
@@ -133,13 +133,17 @@ type ReceiptIterator interface {
 // VersionPinner is implemented by receipt stores whose version markers can be written directly. It
 // is for a caller that put receipts in place by other means and has to state the window they cover.
 type VersionPinner interface {
-	SetLatestVersion(version int64) error
-	SetEarliestVersion(version int64) error
+	SetLatestVersion(version uint64) error
+	SetEarliestVersion(version uint64) error
 }
 
 // PinVersions widens store's queryable window to [earliest, latest], reporting a store that cannot
 // be pinned rather than leaving the window unset.
-func PinVersions(store ReceiptStore, earliest, latest int64) error {
+func PinVersions(
+	store ReceiptStore,
+	earliest uint64,
+	latest uint64,
+) error {
 	pinner, ok := store.(VersionPinner)
 	if !ok {
 		return fmt.Errorf("receipt store %T cannot pin versions", store)
@@ -280,20 +284,20 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 	return rs, nil
 }
 
-func (s *receiptStore) LatestVersion() int64 {
-	return s.db.GetLatestVersion()
+func (s *receiptStore) LatestVersion() uint64 {
+	return uint64(s.db.GetLatestVersion()) //nolint:gosec // the state store never records a negative version
 }
 
-func (s *receiptStore) SetLatestVersion(version int64) error {
-	return s.db.SetLatestVersion(version)
+func (s *receiptStore) SetLatestVersion(version uint64) error {
+	return s.db.SetLatestVersion(int64(version)) //nolint:gosec // block heights fit in an int64
 }
 
-func (s *receiptStore) EarliestVersion() int64 {
-	return s.db.GetEarliestVersion()
+func (s *receiptStore) EarliestVersion() uint64 {
+	return uint64(s.db.GetEarliestVersion()) //nolint:gosec // the state store never records a negative version
 }
 
-func (s *receiptStore) SetEarliestVersion(version int64) error {
-	return s.db.SetEarliestVersion(version, true)
+func (s *receiptStore) SetEarliestVersion(version uint64) error {
+	return s.db.SetEarliestVersion(int64(version), true) //nolint:gosec // block heights fit in an int64
 }
 
 func (s *receiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {

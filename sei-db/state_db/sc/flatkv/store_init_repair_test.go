@@ -43,7 +43,7 @@ func reopenStore(t *testing.T, s *CommitStore, cfg *config.Config) *CommitStore 
 }
 
 // requireAllDataDBsAt asserts every data DB records version.
-func requireAllDataDBsAt(t *testing.T, s *CommitStore, version int64, because ...string) {
+func requireAllDataDBsAt(t *testing.T, s *CommitStore, version uint64, because ...string) {
 	t.Helper()
 	for _, ndb := range selectDataDBs(t, s, nil) {
 		meta, err := loadLocalMeta(ndb.db)
@@ -63,7 +63,7 @@ func TestRebuildTriggersOnlyAboveTheReachableVersion(t *testing.T) {
 	require.NoError(t, err)
 	defer s.Close()
 	require.NoError(t, s.LoadLatest())
-	for i := int64(1); i <= 3; i++ {
+	for i := uint64(1); i <= 3; i++ {
 		require.NoError(t, commitChangeSets(s, i, []*proto.NamedChangeSet{
 			bankPair([]byte("k"), []byte{byte(i)}),
 		}))
@@ -71,7 +71,7 @@ func TestRebuildTriggersOnlyAboveTheReachableVersion(t *testing.T) {
 
 	reachable, err := latestVersion(cfg.DataDir, s.wal)
 	require.NoError(t, err)
-	require.Equal(t, int64(3), reachable, "the WAL holds block 3, so 3 is reachable")
+	require.Equal(t, uint64(3), reachable, "the WAL holds block 3, so 3 is reachable")
 
 	// A DB behind the others is the ordinary torn commit: replay closes it, so no rebuild.
 	s.localMeta[accountDBDir].CommittedVersion = 2
@@ -86,7 +86,7 @@ func TestRebuildTriggersOnlyAboveTheReachableVersion(t *testing.T) {
 	requireAllDataDBsAt(t, s, snapVersion, "the working copy comes back from the snapshot")
 
 	require.NoError(t, s.replayIntoMutableStore(0))
-	require.Equal(t, int64(3), s.Version(), "replay then carries it to the WAL tail")
+	require.Equal(t, uint64(3), s.Version(), "replay then carries it to the WAL tail")
 }
 
 // TestRebuildIfTornTriggersOnDisagreementNotOnTheSnapshot pins the distinction RebuildIfTorn draws for
@@ -101,7 +101,7 @@ func TestRebuildIfTornTriggersOnDisagreementNotOnTheSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	defer s.Close()
 	require.NoError(t, s.LoadLatest())
-	for i := int64(1); i <= 3; i++ {
+	for i := uint64(1); i <= 3; i++ {
 		require.NoError(t, commitChangeSets(s, i, []*proto.NamedChangeSet{
 			bankPair([]byte("k"), []byte{byte(i)}),
 		}))
@@ -109,7 +109,7 @@ func TestRebuildIfTornTriggersOnDisagreementNotOnTheSnapshot(t *testing.T) {
 
 	snapVersion, err := currentSnapshotVersion(cfg.DataDir)
 	require.NoError(t, err)
-	require.Less(t, snapVersion, int64(3), "the working copy has to sit above the snapshot to be at risk")
+	require.Less(t, snapVersion, uint64(3), "the working copy has to sit above the snapshot to be at risk")
 
 	require.NoError(t, s.RebuildIfTorn())
 	requireAllDataDBsAt(t, s, 3, "an aligned working copy is the only record of blocks the WAL lost")
@@ -130,7 +130,7 @@ func TestUntouchedDataDBsOpenAtZero(t *testing.T) {
 	defer s.Close()
 
 	require.NoError(t, s.LoadLatest())
-	require.Equal(t, int64(0), s.Version())
+	require.Equal(t, uint64(0), s.Version())
 	requireAllDataDBsAt(t, s, 0)
 }
 
@@ -153,14 +153,14 @@ func TestTornSeedIsDiscardedAndCanBeReseeded(t *testing.T) {
 	defer reopened.Close()
 
 	require.NoError(t, reopened.LoadLatest(), "an interrupted seed must not be fatal")
-	require.Equal(t, int64(0), reopened.Version(), "the discarded store reopens as never-initialized")
+	require.Equal(t, uint64(0), reopened.Version(), "the discarded store reopens as never-initialized")
 	requireAllDataDBsAt(t, reopened, 0)
 
 	// The caller re-seeds, and the version it asks for need not be the one that was interrupted.
 	require.NoError(t, reopened.SetInitialVersion(200))
-	require.Equal(t, int64(199), reopened.Version())
+	require.Equal(t, uint64(199), reopened.Version())
 	require.NoError(t, commitChangeSets(reopened, 200, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte("v"))}))
-	require.Equal(t, int64(200), reopened.Version())
+	require.Equal(t, uint64(200), reopened.Version())
 }
 
 // TestCompletedSeedSurvivesReopen guards the other side of the discard: a seed that stamped every DB
@@ -173,13 +173,13 @@ func TestCompletedSeedSurvivesReopen(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, s.LoadLatest())
 	require.NoError(t, s.SetInitialVersion(100))
-	require.Equal(t, int64(99), s.Version())
+	require.Equal(t, uint64(99), s.Version())
 
 	reopened := reopenStore(t, s, cfg)
 	defer reopened.Close()
 
 	require.NoError(t, reopened.LoadLatest())
-	require.Equal(t, int64(99), reopened.Version(), "a completed seed must not be discarded")
+	require.Equal(t, uint64(99), reopened.Version(), "a completed seed must not be discarded")
 	requireAllDataDBsAt(t, reopened, 99)
 }
 
@@ -202,7 +202,7 @@ func TestTornSeedHoldingUnreachableDataIsRebuilt(t *testing.T) {
 	defer reopened.Close()
 
 	require.NoError(t, reopened.LoadLatest(), "an unreachable state must be repaired, not fatal")
-	require.Equal(t, int64(0), reopened.Version())
+	require.Equal(t, uint64(0), reopened.Version())
 	requireAllDataDBsAt(t, reopened, 0, "the working copy is rebuilt from the empty baseline")
 
 	_, found := reopened.Get(keys.EVMStoreKey, evmStorageKey(addrN(0x01), slotN(0x01)))
@@ -229,7 +229,7 @@ func TestInterruptedImportIsRebuilt(t *testing.T) {
 	defer reopened.Close()
 
 	require.NoError(t, reopened.LoadLatest())
-	require.Equal(t, int64(0), reopened.Version())
+	require.Equal(t, uint64(0), reopened.Version())
 	requireAllDataDBsAt(t, reopened, 0)
 }
 
@@ -249,7 +249,7 @@ func TestCompletedImportSurvivesReopen(t *testing.T) {
 	defer reopened.Close()
 
 	require.NoError(t, reopened.LoadLatest())
-	require.Equal(t, int64(99), reopened.Version(), "the snapshot vouches for the height")
+	require.Equal(t, uint64(99), reopened.Version(), "the snapshot vouches for the height")
 	requireAllDataDBsAt(t, reopened, 99)
 }
 
@@ -302,7 +302,7 @@ func TestIdentityRootsAtNonZeroVersionOpen(t *testing.T) {
 	defer reopened.Close()
 
 	require.NoError(t, reopened.LoadLatest())
-	require.Equal(t, int64(2), reopened.Version())
+	require.Equal(t, uint64(2), reopened.Version())
 	requireAllDataDBsAt(t, reopened, 2)
 }
 
@@ -328,14 +328,14 @@ func TestReadOnlyCloneNeverRebuilds(t *testing.T) {
 	require.NoError(t, err)
 	defer reopened.Close()
 	require.NoError(t, reopened.LoadLatest(), "the working dir is intact, so the live store opens")
-	require.Equal(t, int64(99), reopened.Version())
+	require.Equal(t, uint64(99), reopened.Version())
 
 	_, err = reopened.LoadVersionReadOnly(99)
 	require.Error(t, err, "a clone over a torn baseline must refuse")
 
 	workDir := filepath.Join(cfg.DataDir, workingDirName)
 	require.DirExists(t, workDir, "a clone must never discard the live store's working dir")
-	require.Equal(t, int64(99), reopened.Version(), "the live store must be undisturbed")
+	require.Equal(t, uint64(99), reopened.Version(), "the live store must be undisturbed")
 }
 
 // TestUnrepairableSnapshotSurfaces pins that the rebuild is not a loop. When the damage lives in the
@@ -442,7 +442,7 @@ func TestDataDBAheadOfWALTouchedByReplayIsRebuilt(t *testing.T) {
 	defer reopened.Close()
 
 	require.NoError(t, reopened.LoadLatest(), "the unreachable block is discarded, not carried forward")
-	require.Equal(t, int64(2), reopened.Version())
+	require.Equal(t, uint64(2), reopened.Version())
 	requireAllDataDBsAt(t, reopened, 2)
 	require.Equal(t, wantRoot, rootHash(reopened),
 		"the root must be the one that belongs to the height the store reports")
@@ -461,7 +461,7 @@ func TestTwoDataDBsAheadAtDifferentVersions(t *testing.T) {
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	require.NoError(t, s.LoadLatest())
-	for i := int64(1); i <= 2; i++ {
+	for i := uint64(1); i <= 2; i++ {
 		require.NoError(t, commitChangeSets(s, i, []*proto.NamedChangeSet{
 			bankPair([]byte("k"), []byte{byte(i)}),
 		}))
@@ -474,7 +474,7 @@ func TestTwoDataDBsAheadAtDifferentVersions(t *testing.T) {
 	defer reopened.Close()
 
 	require.NoError(t, reopened.LoadLatest())
-	require.Equal(t, int64(2), reopened.Version())
+	require.Equal(t, uint64(2), reopened.Version())
 	requireAllDataDBsAt(t, reopened, 2)
 	require.NoError(t, VerifyLtHash(reopened))
 }

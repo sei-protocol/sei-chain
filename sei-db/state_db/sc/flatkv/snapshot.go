@@ -55,7 +55,7 @@ const (
 	snapshotBaseFile = "SNAPSHOT_BASE"
 )
 
-func snapshotName(version int64) string {
+func snapshotName(version uint64) string {
 	return fmt.Sprintf("%s%020d", snapshotPrefix, version)
 }
 
@@ -63,7 +63,7 @@ func isSnapshotName(name string) bool {
 	return strings.HasPrefix(name, snapshotPrefix) && len(name) == snapshotDirLen
 }
 
-func parseSnapshotVersion(name string) (int64, error) {
+func parseSnapshotVersion(name string) (uint64, error) {
 	if !isSnapshotName(name) {
 		return 0, fmt.Errorf("invalid snapshot name: %s", name)
 	}
@@ -71,7 +71,10 @@ func parseSnapshotVersion(name string) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("parse snapshot version %q: %w", name, err)
 	}
-	return v, nil
+	if v < 0 {
+		return 0, fmt.Errorf("negative snapshot version %q", name)
+	}
+	return uint64(v), nil //nolint:gosec // checked non-negative above
 }
 
 func currentPath(root string) string {
@@ -80,7 +83,7 @@ func currentPath(root string) string {
 
 // currentSnapshotDir reads the current symlink and returns the full path
 // and parsed version. Returns os.ErrNotExist if the symlink does not exist.
-func currentSnapshotDir(root string) (dir string, version int64, err error) {
+func currentSnapshotDir(root string) (dir string, version uint64, err error) {
 	target, err := os.Readlink(currentPath(root))
 	if err != nil {
 		return "", 0, err
@@ -94,10 +97,10 @@ func currentSnapshotDir(root string) (dir string, version int64, err error) {
 
 // seekSnapshot finds the highest snapshot version <= targetVersion.
 // Returns 0 and an error if no qualifying snapshot exists.
-func seekSnapshot(root string, targetVersion int64) (int64, error) {
-	var found int64
+func seekSnapshot(root string, targetVersion uint64) (uint64, error) {
+	var found uint64
 	var ok bool
-	err := traverseSnapshots(root, false, func(version int64) (stop bool, err error) {
+	err := traverseSnapshots(root, false, func(version uint64) (stop bool, err error) {
 		if version <= targetVersion {
 			found = version
 			ok = true
@@ -118,7 +121,7 @@ func seekSnapshot(root string, targetVersion int64) (int64, error) {
 // ascending=true  -> lowest version first
 // ascending=false -> highest version first
 // The callback returns (stop, err). Traversal halts on stop=true or err!=nil.
-func traverseSnapshots(dir string, ascending bool, fn func(int64) (bool, error)) error {
+func traverseSnapshots(dir string, ascending bool, fn func(uint64) (bool, error)) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -127,7 +130,7 @@ func traverseSnapshots(dir string, ascending bool, fn func(int64) (bool, error))
 		return err
 	}
 
-	versions := make([]int64, 0, len(entries))
+	versions := make([]uint64, 0, len(entries))
 	for _, e := range entries {
 		if !e.IsDir() || !isSnapshotName(e.Name()) {
 			continue
@@ -202,8 +205,8 @@ func removeTmpDirs(dir string) error {
 
 // resolveSnapshotToClone returns the directory of the snapshot a read-only view of targetVersion
 // opens against: the newest snapshot at or below it, or the active snapshot when targetVersion is 0.
-func resolveSnapshotToClone(root string, targetVersion int64) (string, error) {
-	if targetVersion <= 0 {
+func resolveSnapshotToClone(root string, targetVersion uint64) (string, error) {
+	if targetVersion == 0 {
 		snapDir, _, err := currentSnapshotDir(root)
 		if err != nil {
 			return "", fmt.Errorf("resolve current snapshot for readonly: %w", err)
@@ -359,12 +362,14 @@ func (s *CommitStore) resolveSnapshotDir(flatkvDir string) (string, error) {
 
 	// Check for an orphaned snapshot directory — this happens when a previous
 	// write moved everything into place but crashed before creating the symlink.
-	var latestSnap int64 = -1
-	_ = traverseSnapshots(flatkvDir, false, func(v int64) (bool, error) {
+	var latestSnap uint64
+	foundSnap := false
+	_ = traverseSnapshots(flatkvDir, false, func(v uint64) (bool, error) {
 		latestSnap = v
+		foundSnap = true
 		return true, nil
 	})
-	if latestSnap >= 0 {
+	if foundSnap {
 		snapName := snapshotName(latestSnap)
 		if err := updateCurrentSymlink(flatkvDir, snapName); err != nil {
 			return "", fmt.Errorf("recover orphaned snapshot symlink: %w", err)
@@ -427,7 +432,7 @@ func (s *CommitStore) outOfBandSnapshot() (err error) {
 
 	obs := s.observeOp("snapshot", otelMetrics.SnapshotWriteLatency, "version", version)
 	defer obs.done(&err, func() {
-		otelMetrics.CurrentSnapshotHeight.Record(s.ctx, version)
+		otelMetrics.CurrentSnapshotHeight.Record(s.ctx, int64(version)) //nolint:gosec // a metric, not a height
 	})
 
 	tmpPath, err := checkpointDatabases(
@@ -526,7 +531,7 @@ func publishSnapshot(
 	dir string,
 	keepRecent uint32,
 	externalPruning bool,
-	version int64,
+	version uint64,
 	tmpPath string,
 ) (pruned int, err error) {
 	defer func() {
@@ -573,7 +578,7 @@ func pruneSnapshotsByCount(
 	dir string,
 	keepRecent uint32,
 	externalPruning bool,
-	currentVersion int64,
+	currentVersion uint64,
 ) int {
 	if externalPruning {
 		return 0
@@ -587,8 +592,8 @@ func pruneSnapshotsByCount(
 	keep := int(keepRecent)
 	pruned := 0
 
-	var older []int64
-	if err := traverseSnapshots(dir, false, func(v int64) (bool, error) {
+	var older []uint64
+	if err := traverseSnapshots(dir, false, func(v uint64) (bool, error) {
 		if v < currentVersion {
 			older = append(older, v)
 		}
@@ -621,7 +626,7 @@ func pruneSnapshotsByCount(
 // reconstructed, or an error wrapping ErrVersionUnreachable when retained history cannot reach it. A target
 // is reachable when that snapshot sits exactly on it, or the WAL holds every block between the two. With a
 // nil WAL, only a snapshot exactly on the target qualifies. It modifies no snapshot, symlink, or WAL state.
-func (s *CommitStore) reachableBaseVersion(dir string, targetVersion int64) (int64, error) {
+func (s *CommitStore) reachableBaseVersion(dir string, targetVersion uint64) (uint64, error) {
 	if targetVersion < 1 {
 		return 0, fmt.Errorf("%w: target version %d is invalid: version 0 means no state",
 			ErrVersionUnreachable, targetVersion)
@@ -649,8 +654,8 @@ func (s *CommitStore) reachableBaseVersion(dir string, targetVersion int64) (int
 			"so blocks %d-%d are outside the retained FlatKV history",
 			ErrVersionUnreachable, targetVersion, baseVersion, baseVersion+1, targetVersion)
 	}
-	needFrom := uint64(baseVersion) + 1 //nolint:gosec // baseVersion >= 0
-	needTo := uint64(targetVersion)     //nolint:gosec // targetVersion >= 1 checked above
+	needFrom := baseVersion + 1
+	needTo := targetVersion
 	if first > needFrom || last < needTo {
 		return 0, fmt.Errorf("%w: cannot reach version %d: nearest snapshot is %d, so blocks %d-%d are "+
 			"needed and are missing; the WAL only holds %d-%d",
@@ -661,15 +666,15 @@ func (s *CommitStore) reachableBaseVersion(dir string, targetVersion int64) (int
 
 // CheckVersionReachable reports whether targetVersion can be reconstructed from this store's retained
 // snapshots and WAL. It does not modify the store.
-func (s *CommitStore) CheckVersionReachable(targetVersion int64) error {
+func (s *CommitStore) CheckVersionReachable(targetVersion uint64) error {
 	_, err := s.reachableBaseVersion(s.flatkvDir(), targetVersion)
 	return err
 }
 
 // OldestSnapshotAbove returns the oldest retained snapshot version above version; ok is false when there is
 // none. It does not modify the store.
-func (s *CommitStore) OldestSnapshotAbove(version int64) (snapshot int64, ok bool, err error) {
-	err = traverseSnapshots(s.flatkvDir(), true, func(v int64) (bool, error) {
+func (s *CommitStore) OldestSnapshotAbove(version uint64) (snapshot uint64, ok bool, err error) {
+	err = traverseSnapshots(s.flatkvDir(), true, func(v uint64) (bool, error) {
 		if v <= version {
 			return false, nil
 		}
@@ -686,11 +691,12 @@ func (s *CommitStore) OldestSnapshotAbove(version int64) (snapshot int64, ok boo
 // The store must be quiesced: no commit, read or export may be in flight, and it closes and reopens its
 // own WAL. A failure partway has to be retried after a restart rather than in process, though no block
 // is lost.
-func (s *CommitStore) Rollback(targetVersion int64) (err error) {
+func (s *CommitStore) Rollback(targetVersion uint64) (err error) {
 	obs := s.observeOp("Rollback", otelMetrics.RollbackLatency,
 		"targetVersion", targetVersion)
 	defer obs.done(&err, func() {
-		otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
+		//nolint:gosec // a metric, not a height
+		otelMetrics.CurrentVersion.Record(s.ctx, int64(s.committedVersion))
 	})
 
 	if s.readOnly {
@@ -733,7 +739,7 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 				"store is mid-rollback, restart to recover then retry",
 				targetVersion, baseVersion, cfg.Path, err)
 		}
-		if err := statewal.PruneAfter(cfg, uint64(targetVersion)); err != nil { //nolint:gosec // targetVersion >= 0}
+		if err := statewal.PruneAfter(cfg, targetVersion); err != nil {
 			return fmt.Errorf("rollback to version %d (from snapshot %d): prune WAL at %s: %w; "+
 				"store is mid-rollback, restart to recover then retry",
 				targetVersion, baseVersion, cfg.Path, err)
@@ -765,7 +771,7 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 // repointAtSnapshot closes the databases and repoints the store at the snapshot named by version,
 // discarding the working copy so the next open clones it fresh. It leaves the databases closed: the
 // caller reopens once it has finished mutating the snapshot tree.
-func (s *CommitStore) repointAtSnapshot(dir string, version int64) error {
+func (s *CommitStore) repointAtSnapshot(dir string, version uint64) error {
 	if err := s.closeDBsOnly(); err != nil {
 		return fmt.Errorf("close before rewinding to snapshot %d: %w", version, err)
 	}
@@ -775,7 +781,7 @@ func (s *CommitStore) repointAtSnapshot(dir string, version int64) error {
 // repointAtSnapshot points the current link at the snapshot named by version and discards the working
 // copy, so the next open clones the working copy from that snapshot. The databases under dir must be
 // closed.
-func repointAtSnapshot(dir string, version int64) error {
+func repointAtSnapshot(dir string, version uint64) error {
 	if err := updateCurrentSymlink(dir, snapshotName(version)); err != nil {
 		return fmt.Errorf("update current symlink to snapshot %d: %w", version, err)
 	}
@@ -796,7 +802,11 @@ func repointAtSnapshot(dir string, version int64) error {
 // store that would land too low for that replay to carry it back to target is refused, as is one above
 // target with no snapshot at or below it. Neither refusal moves anything, so a caller that gets an
 // error still has every snapshot it started with. The databases under dir must be closed.
-func DiscardStateAbove(dir string, target, earliestReplayableBlock int64) (landsOn int64, err error) {
+func DiscardStateAbove(
+	dir string,
+	target uint64,
+	earliestReplayableBlock uint64,
+) (landsOn uint64, err error) {
 	opensAt, highest, err := StoredVersions(dir)
 	if err != nil {
 		return 0, fmt.Errorf("read the versions it holds: %w", err)
@@ -825,7 +835,7 @@ func DiscardStateAbove(dir string, target, earliestReplayableBlock int64) (lands
 // requireReplayable returns an error when a store landing on landsOn cannot be carried back up to
 // target, because the caller's earliest replayable block is above the first one such a replay needs.
 // earliestReplayableBlock is 0 when the caller can replay nothing.
-func requireReplayable(landsOn, target, earliestReplayableBlock int64) error {
+func requireReplayable(landsOn uint64, target uint64, earliestReplayableBlock uint64) error {
 	if landsOn >= target {
 		return nil
 	}
@@ -849,7 +859,7 @@ func requireReplayable(landsOn, target, earliestReplayableBlock int64) error {
 // It is Rollback for a store whose WAL an outer context owns and cuts, split so that no WAL crosses this
 // API and so that the store opens once, already on the version it will replay from. The databases under
 // dir must be closed, which is what makes it safe to run before the store is constructed.
-func RewindClosedStoreTo(dir string, target int64) (landed int64, err error) {
+func RewindClosedStoreTo(dir string, target uint64) (landed uint64, err error) {
 	baseVersion, err := seekSnapshot(dir, target)
 	if err != nil {
 		return 0, fmt.Errorf("seek snapshot at or below version %d: %w", target, err)
@@ -871,7 +881,7 @@ func RewindClosedStoreTo(dir string, target int64) (landed int64, err error) {
 //
 // The databases under dir must be closed, which is what makes it safe to run before the store is
 // constructed.
-func DropSnapshotsAbove(dir string, target int64) error {
+func DropSnapshotsAbove(dir string, target uint64) error {
 	current, err := currentSnapshotVersion(dir)
 	if err != nil {
 		return err
@@ -901,9 +911,9 @@ func DropSnapshotsAbove(dir string, target int64) error {
 //
 // Every candidate is attempted even after one fails, because their removals are independent and the caller
 // needs the whole list to reconcile from, not just the first name. This mirrors removeTmpDirs.
-func removeSnapshotsAbove(dir string, targetVersion int64) error {
+func removeSnapshotsAbove(dir string, targetVersion uint64) error {
 	var errs []error
-	if err := traverseSnapshots(dir, true, func(v int64) (bool, error) {
+	if err := traverseSnapshots(dir, true, func(v uint64) (bool, error) {
 		if v <= targetVersion {
 			return false, nil
 		}
@@ -931,17 +941,17 @@ func (s *CommitStore) tryTruncateWAL() {
 
 	// Find the earliest (lowest-version) snapshot — we must keep WAL blocks from that point onward so
 	// rollback to it is possible.
-	var earliestSnapVersion int64
-	_ = traverseSnapshots(dir, true, func(v int64) (bool, error) {
+	var earliestSnapVersion uint64
+	_ = traverseSnapshots(dir, true, func(v uint64) (bool, error) {
 		earliestSnapVersion = v
 		return true, nil
 	})
-	if earliestSnapVersion <= 0 {
+	if earliestSnapVersion == 0 {
 		return
 	}
 
 	// Index == version, so prune below the earliest snapshot directly — no offset mapping.
-	if err := s.wal.Prune(uint64(earliestSnapVersion)); err != nil { //nolint:gosec // earliestSnapVersion > 0
+	if err := s.wal.Prune(earliestSnapVersion); err != nil {
 		// A prune only fails when the WAL is already dead or shutting down, so this is not a retryable
 		// housekeeping miss. Name the consequence: the next commit fails at its WAL write with this same
 		// cause, and that failure would otherwise look unrelated to this line.

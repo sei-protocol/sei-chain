@@ -106,12 +106,12 @@ func TestSetReceiptsAndGet(t *testing.T) {
 	_, err = store.GetReceiptFromStore(ctx, common.HexToHash("0x3"))
 	require.Error(t, err)
 
-	require.GreaterOrEqual(t, store.LatestVersion(), int64(1))
+	require.GreaterOrEqual(t, store.LatestVersion(), uint64(1))
 
 	// The version markers ride SetReceipts, so they are off the store's interface.
 	require.NoError(t, receipt.PinVersions(store, 1, 10))
-	require.Equal(t, int64(10), store.LatestVersion())
-	require.Equal(t, int64(1), store.EarliestVersion())
+	require.Equal(t, uint64(10), store.LatestVersion())
+	require.Equal(t, uint64(1), store.EarliestVersion())
 }
 
 func TestReceiptStoreLegacyFallback(t *testing.T) {

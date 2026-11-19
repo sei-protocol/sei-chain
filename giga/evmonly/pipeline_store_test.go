@@ -61,7 +61,7 @@ func TestPipelinedBlockSeesThePreviousBlocksUncommittedState(t *testing.T) {
 	})
 
 	require.NoError(t, executor.AwaitCommits())
-	require.Equal(t, []int64{41, 42}, store.commitBlock, "commits must land in block order")
+	require.Equal(t, []uint64{41, 42}, store.commitBlock, "commits must land in block order")
 }
 
 // A commit that fails has to fail the run, even though the block that produced it already returned.
@@ -235,7 +235,7 @@ func TestCloseWaitsForTheCommitOfABlockInFlight(t *testing.T) {
 
 	close(store.release)
 	<-closed
-	require.Equal(t, []int64{41}, store.commitBlock, "Close returned before the in-flight block committed")
+	require.Equal(t, []uint64{41}, store.commitBlock, "Close returned before the in-flight block committed")
 	require.NoError(t, <-blockErr)
 }
 
@@ -256,7 +256,7 @@ func TestBlockAfterCloseCommitsSynchronously(t *testing.T) {
 	executePipelinedBlock(t, executor, chainID, 41,
 		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil))
 
-	require.Equal(t, []int64{41}, store.commitBlock)
+	require.Equal(t, []uint64{41}, store.commitBlock)
 }
 
 // A block large enough to encode its receipts across the worker pool still executes once that pool

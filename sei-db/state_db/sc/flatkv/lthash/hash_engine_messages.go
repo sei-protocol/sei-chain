@@ -6,7 +6,7 @@ package lthash
 // running hash.
 type submittedBlock struct {
 	// blockNumber is the height this job hashes.
-	blockNumber int64
+	blockNumber uint64
 
 	// hashes is this block's leaf hashing in flight, which the combiner drains to completion.
 	hashes leafHashes
