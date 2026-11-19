@@ -86,6 +86,18 @@ func TestWriteEVMTakesTheHighestFloor(t *testing.T) {
 	require.Equal(t, highest, ReadEVM(state))
 }
 
+// One wei above the highest floor does not fit a Dec, and nothing is written.
+func TestWriteEVMRejectsAFloorThatDoesNotFit(t *testing.T) {
+	state := newMemState()
+	tooHigh := testEVM
+	maxWord := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+	tooHigh.MinFeePerGas = new(big.Int).Add(new(big.Int).Quo(maxWord, decOne), big.NewInt(1))
+
+	require.ErrorIs(t, WriteEVM(state, tooHigh), errInvalidValue)
+
+	require.False(t, HasEVM(state))
+}
+
 func TestApplyChangesTheEVMParams(t *testing.T) {
 	state := newMemState()
 	require.NoError(t, WriteEVM(state, testEVM))

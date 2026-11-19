@@ -76,8 +76,35 @@ func TestReceiptRecordsConvertExecutorResults(t *testing.T) {
 	require.Equal(t, []string{topic.Hex()}, stored.Logs[0].Topics)
 	require.Equal(t, []byte{7}, stored.Logs[0].Data)
 	require.Equal(t, uint32(8), stored.Logs[0].Index)
-	// Reward is the tx's effective gas price unfiltered: giga's base fee is always zero.
+	// With no base fee, the reward is the whole effective gas price.
 	require.Equal(t, big.NewInt(9), records[0].Reward)
+}
+
+// A record's reward is the effective gas price above the block's base fee, and nil for a
+// transaction priced below it.
+func TestReceiptRecordsRewardThePriorityFee(t *testing.T) {
+	for name, tc := range map[string]struct {
+		baseFee *big.Int
+		want    *big.Int
+	}{
+		"above the base fee": {baseFee: big.NewInt(4), want: big.NewInt(5)},
+		"at the base fee":    {baseFee: big.NewInt(9), want: big.NewInt(0)},
+		"below the base fee": {baseFee: big.NewInt(10), want: nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			txHash := common.Hash{1}
+			result := &BlockResult{
+				Receipts: ethtypes.Receipts{{TxHash: txHash, GasUsed: 1, EffectiveGasPrice: big.NewInt(9)}},
+				Txs:      []TxResult{{Hash: txHash, Sender: common.Address{2}}},
+			}
+
+			records, err := receiptRecords(1, tc.baseFee, result)
+
+			require.NoError(t, err)
+			require.Len(t, records, 1)
+			require.Equal(t, tc.want.String(), records[0].Reward.String())
+		})
+	}
 }
 
 func TestReceiptRecordsLeaveRewardNilWithoutAnEffectiveGasPrice(t *testing.T) {

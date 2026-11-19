@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -143,6 +144,20 @@ func TestEVMOnlyApplicationRecordsATxBelowTheBaseFeeAsFailed(t *testing.T) {
 	require.Contains(t, response.TxResults[0].Log, ethcore.ErrFeeCapTooLow.Error())
 	_, err = app.Commit(t.Context())
 	require.NoError(t, err)
+}
+
+// A block executed at a base fee other than the one scheduled for it fails to finalize.
+func TestEVMOnlyApplicationRefusesABlockRunAtAnUnscheduledBaseFee(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, state evmonly.StateReader, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
+		block.BaseFee = new(big.Int).Add(block.BaseFee, big.NewInt(1))
+		return app.encodeCursorChangeSet(block, state, result)
+	})
+
+	_, err := app.FinalizeBlock(t.Context(), evmOnlyTestBlock(1))
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not its scheduled")
 }
 
 // The base fees a block set, and its time, survive a restart, so the resumed node runs the next
