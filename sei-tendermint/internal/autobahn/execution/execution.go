@@ -159,18 +159,18 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 	return last + 1, nil
 }
 
-// executeBlock reports b's hash to the app hash builder, resolves b's epoch
-// state, then finalizes and commits b. A cancel ends the epoch-state wait and
-// does not interrupt the block once that wait has returned.
+// executeBlock resolves b's epoch state, reports b's hash, then finalizes and
+// commits b. A cancel ends the epoch-state wait and does not interrupt the
+// block once that wait has returned.
 func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error {
+	epochState, err := e.cfg.EpochHook.EpochState(ctx, b.Height)
+	if err != nil {
+		return err
+	}
 	// A cancel must not abort a block after some stores have taken its writes.
 	blockCtx := context.Background()
 	if err := e.cfg.AppHashBuilder.ReportBlockHash(blockCtx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
 		return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
-	}
-	epochState, err := e.cfg.EpochHook.EpochState(ctx, b.Height)
-	if err != nil {
-		return err
 	}
 	app := e.cfg.App
 	var proposerAddress types.Address

@@ -335,8 +335,8 @@ func TestRunReportsEachBlockHashBeforeExecutingIt(t *testing.T) {
 	var wantRoads []recordedRoad
 	for _, road := range []atypes.RoadIndex{env.road(0), env.road(1)} {
 		wantLog = append(wantLog,
-			fmt.Sprintf("report %d", road),
 			fmt.Sprintf("epoch-state %d", road),
+			fmt.Sprintf("report %d", road),
 			fmt.Sprintf("finalize %d", road),
 			fmt.Sprintf("commit %d", road),
 			fmt.Sprintf("road-committed %d", road),
