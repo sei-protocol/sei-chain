@@ -45,7 +45,7 @@ type rpcResponse struct {
 }
 
 func TestWebsocketSubscriptionLimits(t *testing.T) {
-	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: 6}))
+	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Height: 6}))
 	backend := &testBackend{executedBlocks: func() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
 		return executed.Subscribe(), nil
 	}}

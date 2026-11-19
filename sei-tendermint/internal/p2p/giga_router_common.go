@@ -88,7 +88,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) 
 	if cfg.AppHashBuilder == nil {
 		return nil, errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
 	}
-	firstRoad := atypes.RoadIndex(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
+	firstHeight := atypes.RoadHeight(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
 	genesisWeights := map[atypes.PublicKey]uint64{}
 	for k := range cfg.ValidatorAddrs {
 		genesisWeights[k] = 1
@@ -97,7 +97,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) 
 	if err != nil {
 		return nil, fmt.Errorf("genesis committee: %w", err)
 	}
-	registry, err := epoch.NewRegistry(genesisCommittee, firstRoad, cfg.GenDoc.GenesisTime, cfg.GenDoc.Autobahn.Or(types.DefaultAutobahnParams()).EpochLength, utils.Some(cfg.PersistentStateDir))
+	registry, err := epoch.NewRegistry(genesisCommittee, firstHeight, cfg.GenDoc.GenesisTime, cfg.GenDoc.Autobahn.Or(types.DefaultAutobahnParams()).EpochLength, utils.Some(cfg.PersistentStateDir))
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
@@ -108,7 +108,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) 
 	return ds, nil
 }
 
-func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {
+func (r *gigaRouterCommon) LastCommittedHeight() int64 {
 	return r.app.LastBlockHeight()
 }
 
@@ -122,7 +122,7 @@ func (r *gigaRouterCommon) MaxGasEstimatedPerBlock() uint64 {
 
 // BlockByNumber returns the finalized SuperBlock at road n as a CometBFT ResultBlock.
 // Its hash, height, timestamp, and transactions match the block passed to FinalizeBlock.
-func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.RoadIndex) (*coretypes.ResultBlock, error) {
+func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*coretypes.ResultBlock, error) {
 	gb, err := r.data.SuperBlock(ctx, n)
 	if err != nil {
 		// Map Autobahn's pruning sentinel to CometBFT's, so callers
@@ -463,7 +463,7 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 		for ctx.Err() == nil {
 			addrVersion := addrUpdates.Load()
 			anchor := r.data.Anchor().Load()
-			commitEpoch := anchor.NextIndexEpoch()
+			commitEpoch := anchor.NextHeightEpoch()
 			// A member of Epochs[0] may hold the only copy of a lane block, or of
 			// the headers a CommitQC needs. Epochs[1] is the next committee while
 			// the commit epoch is Epochs[0].
@@ -500,7 +500,7 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 				}
 			}
 			if err := utils.WaitAny(ctx, func() bool {
-				return r.data.Anchor().Load().NextIndexEpoch().EpochIndex() != commitEpoch.EpochIndex() ||
+				return r.data.Anchor().Load().NextHeightEpoch().EpochIndex() != commitEpoch.EpochIndex() ||
 					epochOf(r.data.Anchor().Load()) != epochOf(anchor) ||
 					addrUpdates.Load() != addrVersion
 			}, r.data.Anchor(), addrUpdates); err != nil {
@@ -523,7 +523,7 @@ func (r *gigaRouterCommon) runUntilMembershipChange(
 		s.SpawnBg(func() error {
 			_, err := r.data.Anchor().Wait(ctx, func(anchor data.Anchor) bool {
 				if currentCommitteeOnly {
-					return !anchor.NextIndexEpoch().Committee().HasReplica(validator)
+					return !anchor.NextHeightEpoch().Committee().HasReplica(validator)
 				}
 				return !inAnchorEpochs(anchor, validator)
 			})
@@ -622,7 +622,7 @@ func (r *gigaRouterCommon) runInboundMux(
 
 // Validators returns the Autobahn validator set that certified global height n.
 // Before the first CommitQC, the genesis road resolves to the genesis committee.
-func (r *gigaRouterCommon) Validators(n atypes.RoadIndex) ([]*types.Validator, error) {
+func (r *gigaRouterCommon) Validators(n atypes.RoadHeight) ([]*types.Validator, error) {
 	qc, err := r.data.TryQC(n)
 	anchor := r.data.Anchor().Load()
 	if err != nil {
@@ -633,7 +633,7 @@ func (r *gigaRouterCommon) Validators(n atypes.RoadIndex) ([]*types.Validator, e
 		}
 		return nil, heightLookupError(n, err)
 	}
-	ep, ok := anchor.EpochAt(qc.Index()).Get()
+	ep, ok := anchor.EpochAt(qc.Height()).Get()
 	if !ok {
 		return nil, heightLookupError(n, atypes.ErrPruned)
 	}
@@ -641,7 +641,7 @@ func (r *gigaRouterCommon) Validators(n atypes.RoadIndex) ([]*types.Validator, e
 }
 
 // heightLookupError returns the RPC error for a data lookup at global height n.
-func heightLookupError(n atypes.RoadIndex, err error) error {
+func heightLookupError(n atypes.RoadHeight, err error) error {
 	switch {
 	case errors.Is(err, atypes.ErrPruned):
 		return coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())

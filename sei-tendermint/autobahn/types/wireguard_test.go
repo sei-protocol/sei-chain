@@ -33,7 +33,7 @@ func TestPayloadWireguardAcceptsSingleMaxSizedTx(t *testing.T) {
 		CreatedAt:         time.Unix(1, 2),
 		TotalGasWanted:    1,
 		TotalGasEstimated: 1,
-		Txs:               [][]byte{make([]byte, int(MaxTxsBytesPerBlock))},
+		Txs:               [][]byte{make([]byte, int(MaxTxsBytesPerLaneBlock))},
 	}.Build()
 	require.NoError(t, err)
 
@@ -41,12 +41,12 @@ func TestPayloadWireguardAcceptsSingleMaxSizedTx(t *testing.T) {
 	decoded, err := protoutils.Unmarshal[*pb.Payload](raw)
 	require.NoError(t, err)
 	require.Len(t, decoded.Txs, 1)
-	require.Len(t, decoded.Txs[0], int(MaxTxsBytesPerBlock))
+	require.Len(t, decoded.Txs[0], int(MaxTxsBytesPerLaneBlock))
 }
 
 func TestPayloadWireguardAcceptsMaxCountRegularTxs(t *testing.T) {
-	regularTxSize := int(MaxTxsBytesPerBlock / MaxTxsPerBlock)
-	txs := make([][]byte, int(MaxTxsPerBlock))
+	regularTxSize := int(MaxTxsBytesPerLaneBlock / MaxTxsPerLaneBlock)
+	txs := make([][]byte, int(MaxTxsPerLaneBlock))
 	for i := range txs {
 		txs[i] = make([]byte, regularTxSize)
 	}
@@ -61,14 +61,14 @@ func TestPayloadWireguardAcceptsMaxCountRegularTxs(t *testing.T) {
 	raw := protoutils.Marshal(PayloadConv.Encode(payload))
 	decoded, err := protoutils.Unmarshal[*pb.Payload](raw)
 	require.NoError(t, err)
-	require.Len(t, decoded.Txs, int(MaxTxsPerBlock))
+	require.Len(t, decoded.Txs, int(MaxTxsPerLaneBlock))
 	for _, tx := range decoded.Txs {
 		require.Len(t, tx, regularTxSize)
 	}
 }
 
 func TestPayloadWireguardRejectsTooManyTxs(t *testing.T) {
-	txs := make([][]byte, int(MaxTxsPerBlock)+1)
+	txs := make([][]byte, int(MaxTxsPerLaneBlock)+1)
 	raw := protoutils.Marshal(&pb.Payload{
 		CreatedAt:         TimeConv.Encode(time.Unix(1, 2)),
 		TotalGasWanted:    new(uint64(1)),
@@ -83,7 +83,7 @@ func TestLaneQCWireguardAcceptsMaxValidators(t *testing.T) {
 	committee, keys := maxValidatorCommittee(t)
 	rng := utils.TestRng()
 	lane := committee.Lane(committee.Leader(View{})).OrPanic("missing lane")
-	vote := NewLaneVote(0, NewBlock(lane, 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
+	vote := NewLaneVote(0, NewLaneBlock(lane, 0, GenLaneBlockHeaderHash(rng), GenPayload(rng)).Header())
 	votes := make([]*Signed[*LaneVote], len(keys))
 	for i, key := range keys {
 		votes[i] = Sign(key, vote)
@@ -134,12 +134,12 @@ func TestFullCommitQCWireguardAcceptsMaxValidatorsAndHeaders(t *testing.T) {
 	committee, keys := maxValidatorCommittee(t)
 	rng := utils.TestRng()
 	laneRanges := make([]*LaneRange, 0, MaxValidators)
-	headers := make([]*BlockHeader, 0, MaxValidators*MaxLaneRangeInProposal)
+	headers := make([]*LaneBlockHeader, 0, MaxValidators*MaxLaneRangeInProposal)
 	for lane := range committee.Lanes().All() {
-		parentHash := GenBlockHeaderHash(rng)
-		var lastHeader *BlockHeader
-		for blockNumber := range BlockNumber(MaxLaneRangeInProposal) {
-			lastHeader = NewBlock(lane, blockNumber, parentHash, GenPayload(rng)).Header()
+		parentHash := GenLaneBlockHeaderHash(rng)
+		var lastHeader *LaneBlockHeader
+		for height := range LaneHeight(MaxLaneRangeInProposal) {
+			lastHeader = NewLaneBlock(lane, height, parentHash, GenPayload(rng)).Header()
 			headers = append(headers, lastHeader)
 			parentHash = lastHeader.Hash()
 		}
@@ -194,7 +194,7 @@ func TestFullProposalWireguardAcceptsMaxValidators(t *testing.T) {
 	laneQCs := map[LaneID]*LaneQC{}
 	for lane := range committee.Lanes().All() {
 		key := secretKeyFor(keys, lane.Validator)
-		vote := NewLaneVote(0, NewBlock(lane, 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
+		vote := NewLaneVote(0, NewLaneBlock(lane, 0, GenLaneBlockHeaderHash(rng), GenPayload(rng)).Header())
 		laneQCs[lane] = NewLaneQC([]*Signed[*LaneVote]{Sign(key, vote)})
 	}
 	proposal, err := NewProposal(

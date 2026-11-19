@@ -8,14 +8,14 @@ import (
 // blockVotes holds lane votes, their headers, and their QC for one epoch.
 type blockVotes struct {
 	byKey  map[types.PublicKey]struct{}
-	byHash map[types.BlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]
+	byHash map[types.LaneBlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]
 	qc     utils.Option[*types.LaneQC]
 }
 
 func newBlockVotes() *blockVotes {
 	return &blockVotes{
 		byKey:  map[types.PublicKey]struct{}{},
-		byHash: map[types.BlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]{},
+		byHash: map[types.LaneBlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]{},
 	}
 }
 
@@ -47,9 +47,9 @@ func (bv *blockVotes) pushVote(c *types.Committee, vote *types.Signed[*types.Lan
 	return true
 }
 
-func (bv *blockVotes) header(want types.BlockHeaderHash) utils.Option[*types.BlockHeader] {
+func (bv *blockVotes) header(want types.LaneBlockHeaderHash) utils.Option[*types.LaneBlockHeader] {
 	if byHash, ok := bv.byHash[want]; ok {
 		return utils.Some(byHash.votes[0].Msg().Header())
 	}
-	return utils.None[*types.BlockHeader]()
+	return utils.None[*types.LaneBlockHeader]()
 }

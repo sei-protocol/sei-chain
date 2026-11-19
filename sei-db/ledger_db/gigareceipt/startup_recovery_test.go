@@ -40,11 +40,11 @@ func nonceChange(block uint64) *gigatypes.StateChangeSet {
 func writeBlockLedger(t *testing.T, manager *bootstrap.GigaStorageManager, through uint64) {
 	t.Helper()
 	rng := tmutils.TestRng()
-	for index := autobahn.RoadIndex(1); index <= autobahn.RoadIndex(through); index++ {
-		block := autobahn.GenBlock(rng)
-		qc := autobahn.GenFullCommitQCAt(rng, index, 1)
-		qc = autobahn.NewFullCommitQC(qc.QC(), []*autobahn.BlockHeader{block.Header()})
-		require.NoError(t, manager.BlockStore().WriteBlock(autobahn.NewRoadBlock(qc, []*autobahn.Block{block})))
+	for height := autobahn.RoadHeight(1); height <= autobahn.RoadHeight(through); height++ {
+		block := autobahn.GenLaneBlock(rng)
+		qc := autobahn.GenFullCommitQCAt(rng, height, 1)
+		qc = autobahn.NewFullCommitQC(qc.QC(), []*autobahn.LaneBlockHeader{block.Header()})
+		require.NoError(t, manager.BlockStore().WriteBlock(autobahn.NewRoadBlock(qc, []*autobahn.LaneBlock{block})))
 	}
 }
 
@@ -165,7 +165,7 @@ func TestStartupRecoveryRollsBackToTheLowerReceiptHead(t *testing.T) {
 
 			manager, err = bootstrap.NewGigaStorageManager(t.Context(), cfg)
 			require.NoError(t, err)
-			t.Cleanup(func() { require.NoError(t, manager.Close()) })
+			defer func() { require.NoError(t, manager.Close()) }()
 
 			blockHead, err := manager.BlockStore().GetLatestBlock()
 			require.NoError(t, err)

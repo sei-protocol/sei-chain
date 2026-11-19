@@ -19,7 +19,7 @@ var autobahnTag = utils.OrPanic1(ed25519.NewTag("sei_giga_autobahn"))
 type Msg interface{ asMsg() *pb.Msg }
 
 func (m *LaneProposal) asMsg() *pb.Msg {
-	return &pb.Msg{T: &pb.Msg_LaneProposal{LaneProposal: LaneProposalConv.Encode(m)}}
+	return &pb.Msg{T: &pb.Msg_LaneProposalV2{LaneProposalV2: LaneProposalConv.Encode(m)}}
 }
 
 func (m *LaneVote) asMsg() *pb.Msg {
@@ -277,8 +277,8 @@ var MsgConv = protoutils.Conv[Msg, *pb.Msg]{
 			return nil, errors.New("empty")
 		}
 		switch t := m.T.(type) {
-		case *pb.Msg_LaneProposal:
-			return LaneProposalConv.DecodeReq(t.LaneProposal)
+		case *pb.Msg_LaneProposalV2:
+			return LaneProposalConv.DecodeReq(t.LaneProposalV2)
 		case *pb.Msg_LaneVoteV2:
 			return LaneVoteConv.DecodeReq(t.LaneVoteV2)
 		case *pb.Msg_Proposal:
@@ -322,14 +322,14 @@ func newSigned[T Msg](msg T, sig *Signature) *Signed[T] {
 }
 
 // SignedLaneProposalConv is a protobuf converter for Signed[LaneProposal].
-var SignedLaneProposalConv = protoutils.Conv[*Signed[*LaneProposal], *pb.SignedBlock]{
-	Encode: func(m *Signed[*LaneProposal]) *pb.SignedBlock {
-		return &pb.SignedBlock{
+var SignedLaneProposalConv = protoutils.Conv[*Signed[*LaneProposal], *pb.SignedLaneBlock]{
+	Encode: func(m *Signed[*LaneProposal]) *pb.SignedLaneBlock {
+		return &pb.SignedLaneBlock{
 			Msg: LaneProposalConv.Encode(m.Msg()),
 			Sig: SignatureConv.Encode(m.Sig()),
 		}
 	},
-	Decode: func(m *pb.SignedBlock) (*Signed[*LaneProposal], error) {
+	Decode: func(m *pb.SignedLaneBlock) (*Signed[*LaneProposal], error) {
 		msg, err := LaneProposalConv.DecodeReq(m.Msg)
 		if err != nil {
 			return nil, fmt.Errorf("msg: %w", err)

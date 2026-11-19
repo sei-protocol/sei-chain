@@ -27,7 +27,7 @@ func TestConsensusSpecRestoredFromWALAndAnchor(t *testing.T) {
 	require.NoError(t, err)
 	spec := i.consensusSpec.Load()
 	require.Equal(t, utils.Some(qc1), spec.CommitQC)
-	require.Equal(t, qc1.Index()+1, spec.Index())
+	require.Equal(t, qc1.Height()+1, spec.Height())
 
 	// Anchor at f drops qc0; the spec stays at f+2.
 	anchor.First = utils.Some(data.AnchorFirst{CommitQC: qc0, AppQC: data.TestAppQC(keys, types.NewAppProposal(qc0.View(), nil))})
@@ -70,7 +70,7 @@ func TestConsensusSpecAdvancesOnlyAfterPersistence(t *testing.T) {
 	// qc2 is not persisted, so the spec must not advance to f+3.
 	for _, qc := range []*types.CommitQC{qc0, qc1} {
 		state.markCommitQCsPersisted(qc)
-		spec, err = state.ConsensusSpec().Wait(t.Context(), func(spec types.ConsensusSpec) bool { return spec.Index() == qc.Index()+1 })
+		spec, err = state.ConsensusSpec().Wait(t.Context(), func(spec types.ConsensusSpec) bool { return spec.Height() == qc.Height()+1 })
 		require.NoError(t, err)
 		require.Equal(t, utils.Some(qc), spec.CommitQC)
 		require.Equal(t, ep, spec.Epoch)

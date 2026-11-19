@@ -770,6 +770,11 @@ func (s *shard) retireChunk(chunk []Write, retiredThrough uint64) error {
 	return s.cache.PutRetiredWLocked([][]Write{chunk})
 }
 
+// ReadsDrained is closed once this shard is out of service and no read of the database is in progress.
+func (s *shard) ReadsDrained() <-chan struct{} {
+	return s.cache.readsDrained
+}
+
 // TakeOutOfService stops this shard from serving reads and accepting writes, reporting err as the
 // cause. Called on every shard when the manager shuts down, so a failure anywhere stops every shard.
 func (s *shard) TakeOutOfService(err error) {

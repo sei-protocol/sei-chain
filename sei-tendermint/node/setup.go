@@ -299,7 +299,7 @@ func buildGigaRouter(
 	blockStore *ablockstore.Store,
 	appHashBuilder builder.AppHashBuilder,
 	persistentPeers []p2p.NodeAddress,
-) (p2p.GigaRouter, func(atypes.RoadIndex) bool, error) {
+) (p2p.GigaRouter, func(atypes.RoadHeight) bool, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
 		return nil, nil, err
@@ -373,8 +373,8 @@ func buildGigaRouter(
 
 // isClosingRoad returns a function that reports whether a road is the last road of an epoch in
 // dataState.
-func isClosingRoad(dataState *data.State) func(atypes.RoadIndex) bool {
-	return func(road atypes.RoadIndex) bool { return dataState.ClosingEpoch(road).IsPresent() }
+func isClosingRoad(dataState *data.State) func(atypes.RoadHeight) bool {
+	return func(road atypes.RoadHeight) bool { return dataState.ClosingEpoch(road).IsPresent() }
 }
 
 // buildExecutor returns the Autobahn executor that runs the blocks in manager's
@@ -427,6 +427,7 @@ func openAutobahnStorageManager(
 		return nil, fmt.Errorf("build Autobahn block DB config: %w", err)
 	}
 	storageConfig.BlockDBConfig = &blockConfig
+	storageConfig.RunningMarkerPath = filepath.Join(directory, "node_running")
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
 }
 

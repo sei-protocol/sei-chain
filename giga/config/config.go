@@ -123,7 +123,7 @@ type RPCConfig struct {
 	// MaxConcurrentTraceCalls caps debug_trace* calls running at once; a call past it is refused.
 	MaxConcurrentTraceCalls int `mapstructure:"max_concurrent_trace_calls"`
 	// TraceTimeout bounds how long one debug_trace* call may run. 0 leaves it unbounded, and is
-	// accepted only when MethodTimeouts gives debug_traceCall a positive deadline.
+	// accepted only when MethodTimeouts gives every method in traceMethods a positive deadline.
 	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
 	// MaxTraceStructLogBytes caps the default struct logger's output, in bytes, for each traced
 	// transaction.
@@ -161,6 +161,21 @@ var simulationMethods = []string{
 	"eth_estimateGas",
 	"eth_estimateGasAfterCalls",
 	"eth_createAccessList",
+}
+
+// traceMethods are the debug_trace* methods the node serves. Each re-executes EVM code, so it
+// must be bounded by TraceTimeout or a positive method deadline.
+var traceMethods = []string{
+	"debug_traceTransaction",
+	"debug_traceCall",
+	"debug_traceBlockByNumber",
+	"debug_traceBlockByHash",
+}
+
+// TraceMethods returns the debug_trace* methods the node serves, which trace_timeout or a positive
+// method deadline must bound.
+func TraceMethods() []string {
+	return slices.Clone(traceMethods)
 }
 
 // DeadlineConfig returns the per-method deadlines DefaultTimeout and MethodTimeouts describe, with
@@ -705,7 +720,7 @@ max_concurrent_send_calls = {{ .Giga.RPC.MaxConcurrentSendCalls }}
 max_concurrent_trace_calls = {{ .Giga.RPC.MaxConcurrentTraceCalls }}
 
 # trace_timeout bounds how long one debug_trace* call may run. 0 leaves it unbounded, and is
-# accepted only when method_timeouts gives debug_traceCall a positive deadline.
+# accepted only when method_timeouts gives every debug_trace* method a positive deadline.
 trace_timeout = "{{ .Giga.RPC.TraceTimeout }}"
 
 # max_trace_struct_log_bytes caps the default struct logger's output, in bytes, for each traced
@@ -740,9 +755,9 @@ method_timeouts = [{{ range $i, $e := .Giga.RPC.MethodTimeouts }}{{ if $i }}, {{
 enabled = {{ .Giga.StateSync.Enabled }}
 `
 
-// requireSimulationDeadlines reports the first simulation method left unbounded: one of
-// simulationMethods without a positive deadline in deadlines, or debug_traceCall with neither a
-// positive deadline in deadlines nor a positive traceTimeout.
+// requireSimulationDeadlines reports the first method that executes EVM code left unbounded: one
+// of simulationMethods without a positive deadline in deadlines, or one of traceMethods with
+// neither a positive deadline in deadlines nor a positive traceTimeout.
 func requireSimulationDeadlines(deadlines ratelimiter.DeadlineConfig, traceTimeout time.Duration) error {
 	enforcer := ratelimiter.NewDeadlineEnforcer(deadlines)
 	for _, method := range simulationMethods {
@@ -751,9 +766,14 @@ func requireSimulationDeadlines(deadlines ratelimiter.DeadlineConfig, traceTimeo
 				FlagRPCMethodTimeouts, method, FlagRPCDefaultTimeout)
 		}
 	}
-	if traceTimeout <= 0 && enforcer.Deadline("debug_traceCall") == 0 {
-		return fmt.Errorf("%s: must be positive unless %s gives debug_traceCall a positive deadline",
-			FlagRPCTraceTimeout, FlagRPCMethodTimeouts)
+	if traceTimeout > 0 {
+		return nil
+	}
+	for _, method := range traceMethods {
+		if enforcer.Deadline(method) == 0 {
+			return fmt.Errorf("%s: must be positive unless %s gives %s a positive deadline",
+				FlagRPCTraceTimeout, FlagRPCMethodTimeouts, method)
+		}
 	}
 	return nil
 }

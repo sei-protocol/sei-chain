@@ -12,13 +12,13 @@ import (
 
 // inner holds roads and lane states.
 type inner struct {
-	nextCommitQCToPersist types.RoadIndex // first road whose CommitQC is not persisted
+	nextCommitQCToPersist types.RoadHeight // first road whose CommitQC is not persisted
 	// consensusSpec is the applied (next-CommitQC) epoch paired with a persisted
 	// CommitQC tip (None before the first tip). CommitQC never exceeds
 	// persistedCommitQC(). advance publishes the epoch and tip after construction,
 	// persistence, or pruning.
 	consensusSpec utils.AtomicSend[types.ConsensusSpec]
-	roads         *queue[types.RoadIndex, *road]
+	roads         *queue[types.RoadHeight, *road]
 
 	// anchor contains data's retained certified road and its two epochs.
 	// Its first committee verifies departing-lane votes when applied is ahead.
@@ -28,20 +28,20 @@ type inner struct {
 }
 
 type laneState struct {
-	blocks *queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
+	blocks *queue[types.LaneHeight, *types.Signed[*types.LaneProposal]]
 	// votes contains separate collections for the retained anchor epochs.
 	// LaneVotes have two jobs:
 	// * construct LaneQCs for consensus
 	// * construct FullCommitQCs for data (some honest validator is guaranteed to vote for finalized lane blocks)
 	// We need to keep them until FullCommitQC is available, in particular
 	// keeping them until pruned by anchor is sufficient.
-	votes map[types.EpochIndex]*queue[types.BlockNumber, *blockVotes]
+	votes map[types.EpochIndex]*queue[types.LaneHeight, *blockVotes]
 	// hash of the last lane block, used as parent hash ONLY for local lane production, NEVER for validation.
 	// Resetting the parent hash is a valid producer behavior, but makes other validators
 	// wait for previous blocks to be pruned before accepting, slowing lane production.
 	// None on startup (even if last block is not pruned), so that parent hash reset is
 	// exercised on every restart (instead of being an obscure corner case).
-	lastHash utils.Option[types.BlockHeaderHash]
+	lastHash utils.Option[types.LaneBlockHeaderHash]
 	// nextBlockToPersist tracks per-lane how far block persistence has progressed.
 	// Proposal and vote subscriptions only yield blocks below this cursor.
 	// Always initialized (even when persistence is disabled — the no-op persist
@@ -54,18 +54,18 @@ type laneState struct {
 	// lane per batch, not per block), the frequency is lower, but still not
 	// ideal. Only proposal and vote subscriptions need cursor notifications;
 	// collectPersistBatch is in the same goroutine and reads it directly.
-	nextBlockToPersist types.BlockNumber
+	nextBlockToPersist types.LaneHeight
 }
 
 func newLaneState() *laneState {
 	return &laneState{
-		blocks: newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]](),
-		votes:  map[types.EpochIndex]*queue[types.BlockNumber, *blockVotes]{},
+		blocks: newQueue[types.LaneHeight, *types.Signed[*types.LaneProposal]](),
+		votes:  map[types.EpochIndex]*queue[types.LaneHeight, *blockVotes]{},
 	}
 }
 
 // loadedState holds data loaded from disk on restart.
-// commitQCs are sorted by road index; blocks are sorted by number per lane.
+// commitQCs are sorted by road height; blocks are sorted by number per lane.
 // newInner requires both to be contiguous and returns an error on gaps. That
 // requirement is what makes persist.contiguousSuffix safe: it silently drops
 // everything before the last hole it finds, so this is the only thing that
@@ -77,9 +77,9 @@ type loadedState struct {
 
 // newInner restores WAL records under the anchor's epochs.
 func newInner(anchor data.Anchor, genesisTimestamp time.Time, loaded *loadedState) (*inner, error) {
-	first := anchor.NextIndex()
+	first := anchor.NextHeight()
 	epoch := anchor.EpochAt(first).OrPanic("anchor first road epoch")
-	roads := newQueue[types.RoadIndex, *road]()
+	roads := newQueue[types.RoadHeight, *road]()
 	roads.prune(first)
 	i := &inner{
 		anchor:                anchor,
@@ -90,18 +90,18 @@ func newInner(anchor data.Anchor, genesisTimestamp time.Time, loaded *loadedStat
 	}
 	i.setAnchor(anchor)
 	for _, qc := range loaded.commitQCs {
-		if qc.Index() < i.roads.first {
+		if qc.Height() < i.roads.first {
 			continue
 		}
-		if want := i.roads.next; qc.Index() != want {
-			return nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", want, qc.Index())
+		if want := i.roads.next; qc.Height() != want {
+			return nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", want, qc.Height())
 		}
-		ep, ok := anchor.EpochAt(qc.Index()).Get()
+		ep, ok := anchor.EpochAt(qc.Height()).Get()
 		if !ok {
-			return nil, fmt.Errorf("persisted commitQC %d is outside anchor epochs", qc.Index())
+			return nil, fmt.Errorf("persisted commitQC %d is outside anchor epochs", qc.Height())
 		}
 		if err := qc.Verify(ep); err != nil {
-			return nil, fmt.Errorf("persisted commitQC %d verify: %w", qc.Index(), err)
+			return nil, fmt.Errorf("persisted commitQC %d verify: %w", qc.Height(), err)
 		}
 		i.roads.pushBack(newRoad(qc, ep))
 	}
@@ -111,7 +111,7 @@ func newInner(anchor data.Anchor, genesisTimestamp time.Time, loaded *loadedStat
 		return nil, err
 	}
 	if qc, ok := i.persistedCommitQC().Get(); ok {
-		meters.CommitRoadIndex.Set(int64(qc.Index())) // nolint: gosec
+		meters.CommitRoadHeight.Set(int64(qc.Height())) // nolint: gosec
 	}
 	return i, nil
 }
@@ -126,11 +126,11 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 			if q.Len() >= BlocksPerLane {
 				return fmt.Errorf("lane %s: loaded %d blocks exceeds capacity %d", lane, len(blocks[lane]), BlocksPerLane)
 			}
-			if b.Number < q.next {
+			if b.Height < q.next {
 				continue
 			}
-			if b.Number != q.next {
-				return fmt.Errorf("lane %s: non-contiguous persisted blocks: expected %d, got %d", lane, q.next, b.Number)
+			if b.Height != q.next {
+				return fmt.Errorf("lane %s: non-contiguous persisted blocks: expected %d, got %d", lane, q.next, b.Height)
 			}
 			// We check the parent hash only for the blocks above the anchor, because:
 			// * node can cast LaneVote for the block of the lane without checking the parent hash,
@@ -139,7 +139,7 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 			if q.Len() > 0 {
 				ph := b.Proposal.Msg().Block().Header().ParentHash()
 				if q.q[q.next-1].Msg().Block().Header().Hash() != ph {
-					return fmt.Errorf("lane %s: parent hash mismatch at block %d", lane, b.Number)
+					return fmt.Errorf("lane %s: parent hash mismatch at block %d", lane, b.Height)
 				}
 			}
 			q.pushBack(b.Proposal)
@@ -172,7 +172,7 @@ func (i *inner) advance() {
 		epoch = i.anchor.EpochAt(next).OrPanic("persisted road epoch")
 	}
 	spec := i.consensusSpec.Load()
-	if spec.Index() >= next {
+	if spec.Height() >= next {
 		return
 	}
 	spec.Epoch = epoch
@@ -194,7 +194,7 @@ func (i *inner) setAnchor(anchor data.Anchor) {
 				i.lanes[lane] = newLaneState()
 			}
 			if _, ok := i.lanes[lane].votes[ep.EpochIndex()]; !ok {
-				i.lanes[lane].votes[ep.EpochIndex()] = newQueue[types.BlockNumber, *blockVotes]()
+				i.lanes[lane].votes[ep.EpochIndex()] = newQueue[types.LaneHeight, *blockVotes]()
 			}
 		}
 	}
@@ -207,7 +207,7 @@ func (i *inner) setAnchor(anchor data.Anchor) {
 			delete(i.lanes, lane)
 		}
 	}
-	first := anchor.NextIndex()
+	first := anchor.NextHeight()
 	i.roads.prune(first)
 	i.nextCommitQCToPersist = max(i.nextCommitQCToPersist, first)
 	qc := anchor.CommitQC()

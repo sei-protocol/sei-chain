@@ -28,13 +28,13 @@ func NewLaneQC(votes []*Signed[*LaneVote]) *LaneQC {
 }
 
 // Header .
-func (m *LaneQC) Header() *BlockHeader { return m.vote.Msg().header }
+func (m *LaneQC) Header() *LaneBlockHeader { return m.vote.Msg().header }
 
 // EpochIndex returns the epoch this certificate belongs to.
 func (m *LaneQC) EpochIndex() EpochIndex { return m.vote.Msg().EpochIndex() }
 
 // Next is the number of the first block not known to be available.
-func (m *LaneQC) Next() BlockNumber { return m.Header().Next() }
+func (m *LaneQC) Next() LaneHeight { return m.Header().Next() }
 
 // Verify verifies LaneQC against the epoch.
 func (m *LaneQC) Verify(epoch *Epoch) error {
@@ -56,7 +56,7 @@ var LaneQCConv = protoutils.Conv[*LaneQC, *pb.LaneQC]{
 	Decode: func(m *pb.LaneQC) (*LaneQC, error) {
 		vote, err := LaneVoteConv.DecodeReq(m.VoteV2)
 		if err != nil {
-			return nil, fmt.Errorf("vote: %w", err)
+			return nil, fmt.Errorf("vote_v2: %w", err)
 		}
 		sigs, err := SignatureConv.DecodeSlice(m.Sigs)
 		if err != nil {

@@ -10,8 +10,8 @@ import (
 )
 
 type StreamLaneProposalsReq struct {
-	LaneID           types.LaneID
-	FirstBlockNumber types.BlockNumber
+	LaneID      types.LaneID
+	FirstHeight types.LaneHeight
 }
 
 type StreamAppQCsResp struct {
@@ -24,11 +24,11 @@ type GetBlockReq struct {
 }
 
 type StreamFullCommitQCsReq struct {
-	NextBlock types.RoadIndex
+	NextBlock types.RoadHeight
 }
 
 type StreamAppQCsReq struct {
-	NextBlock types.RoadIndex
+	NextBlock types.RoadHeight
 }
 
 var LaneVoteConv = protoutils.Conv[*types.Signed[*types.LaneVote], *pb.LaneVote]{
@@ -40,7 +40,7 @@ var LaneVoteConv = protoutils.Conv[*types.Signed[*types.LaneVote], *pb.LaneVote]
 	Decode: func(m *pb.LaneVote) (*types.Signed[*types.LaneVote], error) {
 		laneVote, err := types.SignedLaneVoteConv.DecodeReq(m.LaneVoteV3)
 		if err != nil {
-			return nil, fmt.Errorf("laneVote: %w", err)
+			return nil, fmt.Errorf("lane_vote_v3: %w", err)
 		}
 		return laneVote, nil
 	},
@@ -49,13 +49,13 @@ var LaneVoteConv = protoutils.Conv[*types.Signed[*types.LaneVote], *pb.LaneVote]
 var LaneProposalConv = protoutils.Conv[*types.Signed[*types.LaneProposal], *pb.LaneProposal]{
 	Encode: func(m *types.Signed[*types.LaneProposal]) *pb.LaneProposal {
 		return &pb.LaneProposal{
-			LaneProposalV2: types.SignedLaneProposalConv.Encode(m),
+			LaneProposalV3: types.SignedLaneProposalConv.Encode(m),
 		}
 	},
 	Decode: func(m *pb.LaneProposal) (*types.Signed[*types.LaneProposal], error) {
-		laneProposal, err := types.SignedLaneProposalConv.DecodeReq(m.LaneProposalV2)
+		laneProposal, err := types.SignedLaneProposalConv.DecodeReq(m.LaneProposalV3)
 		if err != nil {
-			return nil, fmt.Errorf("laneProposal: %w", err)
+			return nil, fmt.Errorf("lane_proposal_v3: %w", err)
 		}
 		return laneProposal, nil
 	},
@@ -70,7 +70,7 @@ var AppVoteConv = protoutils.Conv[*types.Signed[*types.AppVote], *pb.AppVote]{
 	Decode: func(m *pb.AppVote) (*types.Signed[*types.AppVote], error) {
 		appVote, err := types.SignedAppVoteConv.DecodeReq(m.AppVoteV2)
 		if err != nil {
-			return nil, fmt.Errorf("appVote: %w", err)
+			return nil, fmt.Errorf("app_vote_v2: %w", err)
 		}
 		return appVote, nil
 	},
@@ -79,8 +79,8 @@ var AppVoteConv = protoutils.Conv[*types.Signed[*types.AppVote], *pb.AppVote]{
 var StreamLaneProposalsReqConv = protoutils.Conv[*StreamLaneProposalsReq, *pb.StreamLaneProposalsReq]{
 	Encode: func(m *StreamLaneProposalsReq) *pb.StreamLaneProposalsReq {
 		return &pb.StreamLaneProposalsReq{
-			LaneId:           types.LaneIDConv.Encode(m.LaneID),
-			FirstBlockNumber: uint64(m.FirstBlockNumber),
+			LaneId:      types.LaneIDConv.Encode(m.LaneID),
+			FirstHeight: uint64(m.FirstHeight),
 		}
 	},
 	Decode: func(m *pb.StreamLaneProposalsReq) (*StreamLaneProposalsReq, error) {
@@ -89,8 +89,8 @@ var StreamLaneProposalsReqConv = protoutils.Conv[*StreamLaneProposalsReq, *pb.St
 			return nil, fmt.Errorf("lane_id: %w", err)
 		}
 		return &StreamLaneProposalsReq{
-			LaneID:           lane,
-			FirstBlockNumber: types.BlockNumber(m.FirstBlockNumber),
+			LaneID:      lane,
+			FirstHeight: types.LaneHeight(m.FirstHeight),
 		}, nil
 	},
 }
@@ -108,14 +108,14 @@ var GetBlockReqConv = protoutils.Conv[*GetBlockReq, *pb.GetBlockReq]{
 	},
 }
 
-var GetBlockRespConv = protoutils.Conv[utils.Option[*types.Block], *pb.GetBlockResp]{
-	Encode: func(m utils.Option[*types.Block]) *pb.GetBlockResp {
-		return &pb.GetBlockResp{Block: types.BlockConv.EncodeOpt(m)}
+var GetBlockRespConv = protoutils.Conv[utils.Option[*types.LaneBlock], *pb.GetBlockResp]{
+	Encode: func(m utils.Option[*types.LaneBlock]) *pb.GetBlockResp {
+		return &pb.GetBlockResp{BlockV2: types.LaneBlockConv.EncodeOpt(m)}
 	},
-	Decode: func(m *pb.GetBlockResp) (utils.Option[*types.Block], error) {
-		block, err := types.BlockConv.DecodeOpt(m.Block)
+	Decode: func(m *pb.GetBlockResp) (utils.Option[*types.LaneBlock], error) {
+		block, err := types.LaneBlockConv.DecodeOpt(m.BlockV2)
 		if err != nil {
-			return utils.None[*types.Block](), fmt.Errorf("block: %w", err)
+			return utils.None[*types.LaneBlock](), fmt.Errorf("block_v2: %w", err)
 		}
 		return block, nil
 	},
@@ -126,7 +126,7 @@ var StreamFullCommitQCsReqConv = protoutils.Conv[*StreamFullCommitQCsReq, *pb.St
 		return &pb.StreamFullCommitQCsReq{NextBlock: uint64(m.NextBlock)}
 	},
 	Decode: func(m *pb.StreamFullCommitQCsReq) (*StreamFullCommitQCsReq, error) {
-		return &StreamFullCommitQCsReq{NextBlock: types.RoadIndex(m.NextBlock)}, nil
+		return &StreamFullCommitQCsReq{NextBlock: types.RoadHeight(m.NextBlock)}, nil
 	},
 }
 
@@ -135,6 +135,6 @@ var StreamAppQCsReqConv = protoutils.Conv[*StreamAppQCsReq, *pb.StreamAppQCsReq]
 		return &pb.StreamAppQCsReq{NextBlock: uint64(m.NextBlock)}
 	},
 	Decode: func(m *pb.StreamAppQCsReq) (*StreamAppQCsReq, error) {
-		return &StreamAppQCsReq{NextBlock: types.RoadIndex(m.NextBlock)}, nil
+		return &StreamAppQCsReq{NextBlock: types.RoadHeight(m.NextBlock)}, nil
 	},
 }

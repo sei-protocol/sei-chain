@@ -16,19 +16,19 @@ import (
 )
 
 func TestRegistryCustomEpochLength(t *testing.T) {
-	for _, length := range []types.RoadIndex{1, 3} {
+	for _, length := range []types.RoadHeight{1, 3} {
 		t.Run(fmt.Sprint(length), func(t *testing.T) {
 			rng := utils.TestRng()
 			committee, _, weights := genCommittee(rng, 3)
 			dir := utils.Some(t.TempDir())
-			const first types.RoadIndex = 7
+			const first types.RoadHeight = 7
 			r, err := NewRegistry(committee, first, time.Time{}, length, dir)
 			require.NoError(t, err)
 			require.NoError(t, r.TryPushEpoch(first+length-1, weights))
 			restored, err := NewRegistry(committee, first, time.Time{}, length, dir)
 			require.NoError(t, err)
 			for idx := range types.EpochIndex(3) {
-				roads := types.RoadRange{First: first + types.RoadIndex(idx)*length, Next: first + (types.RoadIndex(idx)+1)*length}
+				roads := types.RoadRange{First: first + types.RoadHeight(idx)*length, Next: first + (types.RoadHeight(idx)+1)*length}
 				for _, registry := range []*Registry{r, restored} {
 					ep, err := registry.Epoch(idx)
 					require.NoError(t, err)
@@ -48,7 +48,7 @@ func TestRegistryCustomEpochLength(t *testing.T) {
 }
 
 func TestRegistryGenesisAndLookups(t *testing.T) {
-	for _, first := range []types.RoadIndex{0, 2*DefaultEpochLength + 7} {
+	for _, first := range []types.RoadHeight{0, 2*DefaultEpochLength + 7} {
 		t.Run(fmt.Sprint(first), func(t *testing.T) {
 			rng := utils.TestRng()
 			committee, _, _ := genCommittee(rng, 3)
@@ -66,7 +66,7 @@ func TestRegistryGenesisAndLookups(t *testing.T) {
 				got, err = r.WaitForEpoch(t.Context(), idx)
 				require.NoError(t, err)
 				require.Equal(t, want, got)
-				for _, road := range []types.RoadIndex{roads.First, roads.Next - 1} {
+				for _, road := range []types.RoadHeight{roads.First, roads.Next - 1} {
 					got, err = r.EpochAt(road)
 					require.NoError(t, err)
 					require.Equal(t, want, got)

@@ -120,7 +120,7 @@ func TestLaneQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
 	lane := ep.Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
-	vote := NewLaneVote(ep.EpochIndex(), NewBlock(lane, 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
+	vote := NewLaneVote(ep.EpochIndex(), NewLaneBlock(lane, 0, GenLaneBlockHeaderHash(rng), GenPayload(rng)).Header())
 
 	heavyOnly := NewLaneQC([]*Signed[*LaneVote]{
 		Sign(keys[0], vote),
@@ -136,7 +136,7 @@ func TestLaneQCVerifyChecksWeight(t *testing.T) {
 func TestPrepareQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	voteProposal := ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First})
+	voteProposal := ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Height: ep.RoadRange().First})
 	vote := NewPrepareVote(voteProposal)
 
 	heavyOnly := NewPrepareQC([]*Signed[*PrepareVote]{
@@ -157,7 +157,7 @@ func TestPrepareQCVerifyChecksEpochBinding(t *testing.T) {
 		return NewPrepareQC([]*Signed[*PrepareVote]{Sign(keys[0], NewPrepareVote(p))})
 	}
 
-	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First})).Verify(ep))
+	require.NoError(t, sign(ProposalAt(ep, View{Height: ep.RoadRange().First})).Verify(ep))
 
 	wrongEpoch := &Proposal{header: newRoadBlockHeader(ep.EpochIndex()+1, ep.RoadRange().First, time.Time{}, nil)}
 	require.Error(t, sign(wrongEpoch).Verify(ep))
@@ -173,7 +173,7 @@ func TestCommitQCVerifyChecksEpochBinding(t *testing.T) {
 		return NewCommitQC([]*Signed[*CommitVote]{Sign(keys[0], NewCommitVote(BuildPrepareQC(keys, p)))})
 	}
 
-	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First})).Verify(ep))
+	require.NoError(t, sign(ProposalAt(ep, View{Height: ep.RoadRange().First})).Verify(ep))
 
 	wrongEpoch := &Proposal{header: newRoadBlockHeader(ep.EpochIndex()+1, ep.RoadRange().First, time.Time{}, nil)}
 	require.Error(t, sign(wrongEpoch).Verify(ep))
@@ -185,7 +185,7 @@ func TestCommitQCVerifyChecksEpochBinding(t *testing.T) {
 func TestCommitQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	voteProposal := ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First})
+	voteProposal := ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Height: ep.RoadRange().First})
 	vote := NewCommitVote(BuildPrepareQC(keys, voteProposal))
 
 	heavyOnly := NewCommitQC([]*Signed[*CommitVote]{
@@ -202,7 +202,7 @@ func TestCommitQCVerifyChecksWeight(t *testing.T) {
 func TestAppQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	vote := NewAppVote(NewAppProposal(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First}).View(), GenAppHash(rng)))
+	vote := NewAppVote(NewAppProposal(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Height: ep.RoadRange().First}).View(), GenAppHash(rng)))
 
 	heavyOnly := NewAppQC([]*Signed[*AppVote]{
 		Sign(keys[0], vote),
@@ -220,7 +220,7 @@ func TestTimeoutQCVerifyChecksEpochBinding(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
 	prev := utils.Some(CommitQCAt(ep, keys))
-	view := View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First + 1}
+	view := View{EpochIndex: ep.EpochIndex(), Height: ep.RoadRange().First + 1}
 
 	correct := NewTimeoutQC([]*FullTimeoutVote{
 		NewFullTimeoutVote(keys[0], view, utils.None[*PrepareQC]()),
@@ -228,7 +228,7 @@ func TestTimeoutQCVerifyChecksEpochBinding(t *testing.T) {
 	require.NoError(t, correct.Verify(ep, prev))
 
 	wrongEpoch := NewTimeoutQC([]*FullTimeoutVote{
-		NewFullTimeoutVote(keys[0], View{EpochIndex: ep.EpochIndex() + 1, Index: view.Index}, utils.None[*PrepareQC]()),
+		NewFullTimeoutVote(keys[0], View{EpochIndex: ep.EpochIndex() + 1, Height: view.Height}, utils.None[*PrepareQC]()),
 	})
 	require.Error(t, wrongEpoch.Verify(ep, prev))
 }
@@ -237,7 +237,7 @@ func TestTimeoutQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
 	prev := utils.Some(CommitQCAt(ep, keys))
-	view := View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First + 1}
+	view := View{EpochIndex: ep.EpochIndex(), Height: ep.RoadRange().First + 1}
 
 	heavyOnly := NewTimeoutQC([]*FullTimeoutVote{
 		NewFullTimeoutVote(keys[0], view, utils.None[*PrepareQC]()),

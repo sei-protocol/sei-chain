@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -22,16 +21,10 @@ import (
 )
 
 const (
-	VoteMethod            = "vote"
-	VoteWeightedMethod    = "voteWeighted"
-	GrantVoteMethod       = "grantVoteAuthorization"
-	GrantProposalMethod   = "grantProposalAuthorization"
-	VoteWithAuthzMethod   = "voteWithAuthorization"
-	RevokeVoteMethod      = "revokeVoteAuthorization"
-	RevokeProposalMethod  = "revokeProposalAuthorization"
-	SubmitWithAuthzMethod = "submitProposalWithAuthorization"
-	DepositMethod         = "deposit"
-	SubmitProposalMethod  = "submitProposal"
+	VoteMethod           = "vote"
+	VoteWeightedMethod   = "voteWeighted"
+	DepositMethod        = "deposit"
+	SubmitProposalMethod = "submitProposal"
 )
 
 // Query method names. The vote/deposit queries are named getVote/getDeposit
@@ -59,7 +52,6 @@ var f embed.FS
 
 type PrecompileExecutor struct {
 	govMsgServer     utils.GovMsgServer
-	authzMsgServer   utils.AuthzMsgServer
 	govQuerier       utils.GovQuerier
 	evmKeeper        utils.EVMKeeper
 	bankKeeper       utils.BankKeeper
@@ -67,29 +59,22 @@ type PrecompileExecutor struct {
 	address          common.Address
 	proposalHandlers map[string]ProposalHandler
 
-	VoteID            []byte
-	VoteWeightedID    []byte
-	GrantVoteID       []byte
-	GrantProposalID   []byte
-	VoteWithAuthzID   []byte
-	RevokeVoteID      []byte
-	RevokeProposalID  []byte
-	SubmitWithAuthzID []byte
-	DepositID         []byte
-	SubmitProposalID  []byte
+	VoteID           []byte
+	VoteWeightedID   []byte
+	DepositID        []byte
+	SubmitProposalID []byte
 }
 
 func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		govMsgServer:   keepers.GovMS(),
-		authzMsgServer: keepers.AuthzMS(),
-		govQuerier:     keepers.GovQ(),
-		evmKeeper:      keepers.EVMK(),
-		bankKeeper:     keepers.BankK(),
-		cdc:            keepers.Codec(),
-		address:        common.HexToAddress(GovAddress),
+		govMsgServer: keepers.GovMS(),
+		govQuerier:   keepers.GovQ(),
+		evmKeeper:    keepers.EVMK(),
+		bankKeeper:   keepers.BankK(),
+		cdc:          keepers.Codec(),
+		address:      common.HexToAddress(GovAddress),
 	}
 
 	// Register proposal handlers
@@ -100,18 +85,6 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 		switch name {
 		case VoteMethod:
 			p.VoteID = m.ID
-		case GrantVoteMethod:
-			p.GrantVoteID = m.ID
-		case GrantProposalMethod:
-			p.GrantProposalID = m.ID
-		case VoteWithAuthzMethod:
-			p.VoteWithAuthzID = m.ID
-		case RevokeVoteMethod:
-			p.RevokeVoteID = m.ID
-		case RevokeProposalMethod:
-			p.RevokeProposalID = m.ID
-		case SubmitWithAuthzMethod:
-			p.SubmitWithAuthzID = m.ID
 		case DepositMethod:
 			p.DepositID = m.ID
 		case SubmitProposalMethod:
@@ -138,7 +111,7 @@ func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 // methods are views.
 func (p PrecompileExecutor) IsTransaction(method string) bool {
 	switch method {
-	case VoteMethod, VoteWeightedMethod, GrantVoteMethod, GrantProposalMethod, VoteWithAuthzMethod, RevokeVoteMethod, RevokeProposalMethod, SubmitWithAuthzMethod, DepositMethod, SubmitProposalMethod:
+	case VoteMethod, VoteWeightedMethod, DepositMethod, SubmitProposalMethod:
 		return true
 	default:
 		return false
@@ -192,141 +165,12 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		return p.vote(ctx, method, caller, args, value)
 	case VoteWeightedMethod:
 		return p.voteWeighted(ctx, method, caller, args, value)
-	case GrantVoteMethod:
-		return p.grantVoteAuthorization(ctx, method, caller, args, value)
-	case GrantProposalMethod:
-		return p.grantProposalAuthorization(ctx, method, caller, args, value)
-	case VoteWithAuthzMethod:
-		return p.voteWithAuthorization(ctx, method, caller, args, value)
-	case RevokeVoteMethod:
-		return p.revokeVoteAuthorization(ctx, method, caller, args, value)
-	case RevokeProposalMethod:
-		return p.revokeProposalAuthorization(ctx, method, caller, args, value)
-	case SubmitWithAuthzMethod:
-		return p.submitProposalWithAuthorization(ctx, method, caller, args, value, hooks, evm)
 	case DepositMethod:
 		return p.deposit(ctx, method, caller, args, value, hooks, evm)
 	case SubmitProposalMethod:
 		return p.submitProposal(ctx, method, caller, args, value, hooks, evm)
 	}
 	return
-}
-
-func (p PrecompileExecutor) grantVoteAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
-	return p.grantAuthorization(ctx, method, caller, args, value, &govtypes.MsgVote{})
-}
-
-func (p PrecompileExecutor) grantProposalAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
-	return p.grantAuthorization(ctx, method, caller, args, value, &govtypes.MsgSubmitProposal{})
-}
-
-func (p PrecompileExecutor) grantAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, authorizedMsg sdk.Msg) ([]byte, uint64, error) {
-	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, 0, err
-	}
-	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, 0, err
-	}
-
-	granter, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
-	if err != nil {
-		return nil, 0, err
-	}
-	grantee, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
-	if err != nil {
-		return nil, 0, err
-	}
-	expiration := time.Unix(args[1].(int64), 0).UTC()
-
-	if err := pcommon.GrantGenericAuthorizations(
-		ctx,
-		p.authzMsgServer,
-		granter,
-		grantee,
-		expiration,
-		authorizedMsg,
-	); err != nil {
-		return nil, 0, err
-	}
-
-	bz, err := method.Outputs.Pack(true)
-	if err != nil {
-		return nil, 0, err
-	}
-	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
-}
-
-func (p PrecompileExecutor) voteWithAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
-	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, 0, err
-	}
-	if err := pcommon.ValidateArgsLength(args, 3); err != nil {
-		return nil, 0, err
-	}
-
-	grantee, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
-	if err != nil {
-		return nil, 0, err
-	}
-	voter, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	msg := govtypes.NewMsgVote(voter, args[1].(uint64), govtypes.VoteOption(args[2].(int32)))
-	if err := msg.ValidateBasic(); err != nil {
-		return nil, 0, err
-	}
-	if _, err := pcommon.ExecuteAuthorization(ctx, p.authzMsgServer, grantee, msg); err != nil {
-		return nil, 0, err
-	}
-
-	bz, err := method.Outputs.Pack(true)
-	if err != nil {
-		return nil, 0, err
-	}
-	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
-}
-
-func (p PrecompileExecutor) revokeVoteAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
-	return p.revokeAuthorization(ctx, method, caller, args, value, &govtypes.MsgVote{})
-}
-
-func (p PrecompileExecutor) revokeProposalAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
-	return p.revokeAuthorization(ctx, method, caller, args, value, &govtypes.MsgSubmitProposal{})
-}
-
-func (p PrecompileExecutor) revokeAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, authorizedMsg sdk.Msg) ([]byte, uint64, error) {
-	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, 0, err
-	}
-	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, 0, err
-	}
-
-	granter, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
-	if err != nil {
-		return nil, 0, err
-	}
-	grantee, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
-	if err != nil {
-		return nil, 0, err
-	}
-	if err := pcommon.RevokeAuthorizations(
-		ctx,
-		p.authzMsgServer,
-		granter,
-		grantee,
-		authorizedMsg,
-	); err != nil {
-		return nil, 0, err
-	}
-
-	bz, err := method.Outputs.Pack(true)
-	if err != nil {
-		return nil, 0, err
-	}
-	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
 func (p PrecompileExecutor) vote(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
@@ -484,46 +328,8 @@ func (p PrecompileExecutor) submitProposal(ctx sdk.Context, method *abi.Method, 
 	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) submitProposalWithAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, uint64, error) {
-	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, 0, err
-	}
-
-	grantee, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
-	if err != nil {
-		return nil, 0, err
-	}
-	proposer, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
-	if err != nil {
-		return nil, 0, err
-	}
-	msg, err := p.prepareSubmitProposal(ctx, proposer, args[1].(string), value, hooks, evm)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	execRes, err := pcommon.ExecuteAuthorization(ctx, p.authzMsgServer, grantee, msg)
-	if err != nil {
-		return nil, 0, err
-	}
-	if len(execRes.Results) != 1 {
-		return nil, 0, fmt.Errorf("expected one submit proposal authorization result, got %d", len(execRes.Results))
-	}
-	var submitRes govtypes.MsgSubmitProposalResponse
-	if err := submitRes.Unmarshal(execRes.Results[0]); err != nil {
-		return nil, 0, err
-	}
-
-	bz, err := method.Outputs.Pack(submitRes.ProposalId)
-	if err != nil {
-		return nil, 0, err
-	}
-	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
-}
-
-// prepareSubmitProposal builds the exact Cosmos message used by both direct
-// and authorized submission, so the two entry points cannot drift in parsing,
-// payment, or proposal-content behavior.
+// prepareSubmitProposal parses proposalJSON, takes value from proposer as the
+// initial deposit, and returns the validated MsgSubmitProposal.
 func (p PrecompileExecutor) prepareSubmitProposal(ctx sdk.Context, proposer sdk.AccAddress, proposalJSON string, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) (*govtypes.MsgSubmitProposal, error) {
 	var proposal Proposal
 	if err := json.Unmarshal([]byte(proposalJSON), &proposal); err != nil {

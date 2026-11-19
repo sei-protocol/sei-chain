@@ -88,7 +88,7 @@ type AutobahnParams struct {
 	// consensus instances. Zero means unlimited; it must be less than ViewTimeout.
 	MinRoadBlockInterval time.Duration `json:"min_road_block_interval,string"`
 	// EpochLength is the number of road blocks per epoch; zero selects the default.
-	EpochLength atypes.RoadIndex `json:"epoch_length,string"`
+	EpochLength atypes.RoadHeight `json:"epoch_length,string"`
 }
 
 // DefaultAutobahnParams returns the default Autobahn genesis parameters.

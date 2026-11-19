@@ -59,18 +59,18 @@ type persistedRegistry struct {
 }
 
 // newGenesisRegistry constructs the first two live epochs from the genesis committee.
-func newGenesisRegistry(committee *types.Committee, firstRoad, epochLength types.RoadIndex) *persistedRegistry {
+func newGenesisRegistry(committee *types.Committee, firstHeight, epochLength types.RoadHeight) *persistedRegistry {
 	return &persistedRegistry{
 		live: map[types.EpochIndex]*types.Epoch{
-			0: types.NewEpoch(0, types.RoadRange{First: firstRoad, Next: firstRoad + epochLength}, committee),
-			1: types.NewEpoch(1, types.RoadRange{First: firstRoad + epochLength, Next: firstRoad + 2*epochLength}, committee),
+			0: types.NewEpoch(0, types.RoadRange{First: firstHeight, Next: firstHeight + epochLength}, committee),
+			1: types.NewEpoch(1, types.RoadRange{First: firstHeight + epochLength, Next: firstHeight + 2*epochLength}, committee),
 		},
 		liveRange: types.EpochRange{First: 0, Next: 2},
 	}
 }
 
 // tryPushEpoch returns a registry with the next execution-derived epoch.
-func (s *persistedRegistry) tryPushEpoch(n types.RoadIndex, weights map[types.PublicKey]uint64) (*persistedRegistry, error) {
+func (s *persistedRegistry) tryPushEpoch(n types.RoadHeight, weights map[types.PublicKey]uint64) (*persistedRegistry, error) {
 	next := s.liveRange.Next
 	last := s.live[next-1]
 	if n >= last.RoadRange().First {
@@ -125,23 +125,23 @@ var persistedRegistryConv = protoutils.Conv[*persistedRegistry, *pb.PersistedEpo
 		}
 		live, err := types.EpochConv.DecodeSlice(snapshot.LiveV2)
 		if err != nil {
-			return nil, fmt.Errorf("live: %w", err)
+			return nil, fmt.Errorf("live_v2: %w", err)
 		}
 		if len(live) == 0 {
-			return nil, errors.New("persisted registry has no live epochs")
+			return nil, errors.New("live_v2: no live epochs")
 		}
 		for i := 1; i < len(live); i++ {
 			prev, epoch := live[i-1], live[i]
 			if epoch.EpochIndex() <= prev.EpochIndex() || epoch.EpochIndex() != prev.EpochIndex()+1 {
-				return nil, fmt.Errorf("live record %d: epoch %d does not follow %d", i, epoch.EpochIndex(), prev.EpochIndex())
+				return nil, fmt.Errorf("live_v2[%d]: epoch %d does not follow %d", i, epoch.EpochIndex(), prev.EpochIndex())
 			}
 			if prev.RoadRange().Next != epoch.RoadRange().First {
-				return nil, fmt.Errorf("live record %d: noncontiguous roads", i)
+				return nil, fmt.Errorf("live_v2[%d]: noncontiguous roads", i)
 			}
 		}
 		next := live[len(live)-1].EpochIndex() + 1
 		if next == 0 {
-			return nil, errors.New("live epoch range overflows")
+			return nil, errors.New("live_v2 epoch range overflows")
 		}
 		epochs := make(map[types.EpochIndex]*types.Epoch, len(live))
 		for _, epoch := range live {

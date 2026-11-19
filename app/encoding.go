@@ -2,6 +2,7 @@ package app
 
 import (
 	"github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/app/retiredauthz"
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
 	"github.com/sei-protocol/sei-chain/app/retiredvesting"
@@ -15,6 +16,7 @@ func MakeEncodingConfig() params.EncodingConfig {
 	std.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 	ModuleBasics.RegisterLegacyAminoCodec(encodingConfig.Amino)
 	ModuleBasics.RegisterInterfaces(encodingConfig.InterfaceRegistry)
+	retiredauthz.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 	retiredoracle.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 	retiredoracle.RegisterLegacyAminoCodec(encodingConfig.Amino)
 	retiredtokenfactory.RegisterInterfaces(encodingConfig.InterfaceRegistry)
@@ -30,6 +32,7 @@ func MakeLegacyEncodingConfig() params.EncodingConfig {
 	std.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 	ModuleBasics.RegisterLegacyAminoCodec(encodingConfig.Amino)
 	ModuleBasics.RegisterInterfaces(encodingConfig.InterfaceRegistry)
+	retiredauthz.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 	retiredoracle.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 	retiredoracle.RegisterLegacyAminoCodec(encodingConfig.Amino)
 	retiredtokenfactory.RegisterInterfaces(encodingConfig.InterfaceRegistry)

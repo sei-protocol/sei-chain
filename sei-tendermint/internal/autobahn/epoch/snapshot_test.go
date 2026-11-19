@@ -32,7 +32,7 @@ func TestPersistedRegistryConv(t *testing.T) {
 func TestPersistedRegistryConvRejectsInvalidSnapshots(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys, _ := genCommittee(rng, 3)
-	record := func(idx types.EpochIndex, first, next types.RoadIndex) *pb.Epoch {
+	record := func(idx types.EpochIndex, first, next types.RoadHeight) *pb.Epoch {
 		return types.EpochConv.Encode(types.NewEpoch(idx, types.RoadRange{First: first, Next: next}, committee))
 	}
 	reject := func(snapshot *pb.PersistedEpochRegistry) {

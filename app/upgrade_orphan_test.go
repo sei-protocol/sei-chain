@@ -64,7 +64,7 @@ func TestLatestUpgradeLeavesNoOrphanedModuleVersions(t *testing.T) {
 	for name := range retainedStores {
 		versionMap[name] = 1
 	}
-	for _, name := range v68DeletedStores {
+	for _, name := range v69DeletedStores {
 		versionMap[name] = 1
 	}
 	for name, upgrade := range removedModulesWithoutStores {
