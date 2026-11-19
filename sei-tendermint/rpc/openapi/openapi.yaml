@@ -1690,6 +1690,14 @@ components:
         backfill_blocks_total:
           type: string
           example: "100"
+        freeze_height:
+          type: string
+          description: First block height a freeze-mode node does not execute. Omitted when freeze mode is off.
+          example: "1262200"
+        frozen:
+          type: boolean
+          description: Whether a freeze-mode node has stopped at its freeze height. Omitted when freeze mode is off.
+          example: true
     ValidatorInfo:
       type: object
       properties:

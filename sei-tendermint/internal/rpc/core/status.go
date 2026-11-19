@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -109,6 +110,8 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 		applicationInfo.Version = fmt.Sprint(abciInfo.Response.AppVersion)
 	}
 
+	freezeHeight, frozen := env.freezeState()
+
 	result := &coretypes.ResultStatus{
 		NodeInfo:        env.NodeInfo,
 		ApplicationInfo: applicationInfo,
@@ -122,6 +125,8 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 			EarliestAppHash:          earliestAppHash,
 			EarliestBlockHeight:      earliestBlockHeight,
 			EarliestBlockTime:        time.Unix(0, earliestBlockTimeNano),
+			FreezeHeight:             freezeHeight,
+			Frozen:                   frozen,
 			// this should start as true, if consensus
 			// hasn't started yet, and then flip to false
 			// (or true,) depending on what's actually
@@ -152,6 +157,32 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 	}
 
 	return result, nil
+}
+
+// freezeState returns the configured freeze height and whether this node has stopped
+// at it. It returns (0, false) when freeze mode is off.
+func (env *Environment) freezeState() (int64, bool) {
+	if env.FreezeHeight == 0 {
+		return 0, false
+	}
+	freezeHeight := int64(env.FreezeHeight) //nolint:gosec // freeze-height is validated to fit in int64 at startup.
+	// Read the executed state, not the block store: consensus saves a block before executing it.
+	state, err := env.StateStore.Load()
+	if err != nil || state.IsEmpty() {
+		return freezeHeight, false
+	}
+	return freezeHeight, nextHeightToExecute(state) >= freezeHeight
+}
+
+// nextHeightToExecute returns the height of the next block after state, which is the
+// genesis initial height when no block has been executed.
+func nextHeightToExecute(state sm.State) int64 {
+	// Must match consensus nextHeightForState and blocksync startHeightForState, which gate freezing.
+	height := state.LastBlockHeight + 1
+	if height == 1 {
+		height = state.InitialHeight
+	}
+	return height
 }
 
 func (env *Environment) validatorAtHeight(h int64) utils.Option[*types.Validator] {
