@@ -2,6 +2,7 @@ package chstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -44,30 +45,56 @@ func (w *writer) close() {
 	w.client.Close()
 }
 
-// lastCommitted returns the highest block a committed batch holds, and false when no batch is
-// committed.
-func (w *writer) lastCommitted(ctx context.Context) (uint64, bool, error) {
-	var last, batches proto.ColUInt64
+// errInterruptedBatch reports that the newest batch was interrupted after its pending row and before
+// its committed row, so its tables may hold some of its rows.
+var errInterruptedBatch = errors.New("archive batch was interrupted before its commit")
+
+// nextBlock returns the block after the newest committed row, or 0 when archive_commits is empty. It
+// fails with errInterruptedBatch when the newest batch has a pending row and no committed row.
+func (w *writer) nextBlock(ctx context.Context) (uint64, error) {
+	var (
+		starts, ends proto.ColUInt64
+		committed    proto.ColBool
+		found        bool
+		start, end   uint64
+		isCommitted  bool
+	)
 	err := w.client.Do(ctx, ch.Query{
-		Body: "SELECT max(end_block) AS last, count() AS batches FROM " + tableCommits,
+		// The newest batch's committed row sorts before its pending row, which has the same end_block.
+		Body: "SELECT start_block, end_block, committed FROM " + tableCommits +
+			" ORDER BY end_block DESC, committed DESC LIMIT 1",
 		Result: proto.Results{
-			{Name: "last", Data: &last},
-			{Name: "batches", Data: &batches},
+			{Name: "start_block", Data: &starts},
+			{Name: "end_block", Data: &ends},
+			{Name: "committed", Data: &committed},
+		},
+		OnResult: func(context.Context, proto.Block) error {
+			if !found && ends.Rows() > 0 {
+				found, start, end, isCommitted = true, starts[0], ends[0], committed[0]
+			}
+			return nil
 		},
 	})
 	if err != nil {
-		return 0, false, fmt.Errorf("read %s: %w", tableCommits, err)
+		return 0, fmt.Errorf("read %s: %w", tableCommits, err)
 	}
-	if batches.Rows() == 0 || batches[0] == 0 {
-		return 0, false, nil
+	if !found {
+		return 0, nil
 	}
-	return last[0], true, nil
+	if !isCommitted {
+		return 0, fmt.Errorf("%w: blocks %d-%d must be removed from every table before archiving resumes",
+			errInterruptedBatch, start, end)
+	}
+	return end + 1, nil
 }
 
-// write inserts b into every data table, then records the archive_commits row that marks its
-// blocks complete. Writing the same batch again inserts nothing twice: every insert carries a
+// write inserts a pending row for b, then b's rows into every data table, then the committed row that
+// marks its blocks complete. Writing the same batch again inserts nothing twice: every insert carries a
 // deduplication token naming the table and the batch's block range.
 func (w *writer) write(ctx context.Context, b *batch) error {
+	if err := w.insertCommit(ctx, b.first, b.last, false); err != nil {
+		return fmt.Errorf("mark blocks %d-%d pending: %w", b.first, b.last, err)
+	}
 	// One table's failure does not cancel the others: ch-go does not interrupt a read blocked on
 	// the server when its context is cancelled, and the tables' inserts are independent.
 	var g errgroup.Group
@@ -85,20 +112,29 @@ func (w *writer) write(ctx context.Context, b *batch) error {
 	if err := g.Wait(); err != nil {
 		return err
 	}
-	var start, end proto.ColUInt64
-	at := new(proto.ColDateTime64).WithPrecision(proto.PrecisionMilli)
-	start.Append(b.first)
-	end.Append(b.last)
-	at.Append(time.Now())
-	commit := proto.Input{
-		{Name: "start_block", Data: &start},
-		{Name: "end_block", Data: &end},
-		{Name: "committed_at", Data: at},
-	}
-	if err := w.insert(ctx, tableCommits, commit, b.first, b.last); err != nil {
+	if err := w.insertCommit(ctx, b.first, b.last, true); err != nil {
 		return fmt.Errorf("commit blocks %d-%d: %w", b.first, b.last, err)
 	}
 	return nil
+}
+
+// insertCommit records blocks first through last in archive_commits, as committed or as pending.
+func (w *writer) insertCommit(ctx context.Context, first, last uint64, committed bool) error {
+	var start, end proto.ColUInt64
+	var flag proto.ColBool
+	at := new(proto.ColDateTime64).WithPrecision(proto.PrecisionMilli)
+	start.Append(first)
+	end.Append(last)
+	flag.Append(committed)
+	at.Append(time.Now())
+	row := proto.Input{
+		{Name: "start_block", Data: &start},
+		{Name: "end_block", Data: &end},
+		{Name: "committed", Data: &flag},
+		{Name: "written_at", Data: at},
+	}
+	token := fmt.Sprintf("%s:%d-%d:%t", tableCommits, first, last, committed)
+	return w.client.Insert(ctx, tableCommits, row, token)
 }
 
 // insert writes input to table, deduplicated by a token for the block range.

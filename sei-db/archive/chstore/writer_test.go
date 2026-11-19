@@ -94,9 +94,9 @@ func TestWrite(t *testing.T) {
 	require.NoError(t, migrate(t.Context(), cfg))
 	w := testWriter(t, cfg)
 
-	_, ok, err := w.lastCommitted(t.Context())
+	next, err := w.nextBlock(t.Context())
 	require.NoError(t, err)
-	require.False(t, ok)
+	require.Zero(t, next)
 
 	first := testBatch(t, 1, 3)
 	require.NoError(t, w.write(t.Context(), first))
@@ -104,10 +104,9 @@ func TestWrite(t *testing.T) {
 	require.NoError(t, w.write(t.Context(), first))
 	require.NoError(t, w.write(t.Context(), testBatch(t, 4, 5)))
 
-	last, ok, err := w.lastCommitted(t.Context())
+	next, err = w.nextBlock(t.Context())
 	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, uint64(5), last)
+	require.Equal(t, uint64(6), next)
 	require.Equal(t, map[string]uint64{
 		tableBlocks:         5,
 		tableTxs:            10,
@@ -118,7 +117,7 @@ func TestWrite(t *testing.T) {
 		tableStorageChanges: 10,
 		tableStorageHistory: 10,
 		tableCode:           5,
-		tableCommits:        2,
+		tableCommits:        4, // a pending and a committed row per batch
 	}, rowCounts(t, cfg))
 
 	require.Equal(t, []uint64{1, 0}, query(t, cfg,
@@ -178,9 +177,8 @@ func TestWriteRetriesAPartialInsert(t *testing.T) {
 	start := time.Now()
 	require.Error(t, w.write(t.Context(), b))
 	require.Less(t, time.Since(start), 10*time.Second, "a failed table does not stall the others")
-	_, ok, err := w.lastCommitted(t.Context())
-	require.NoError(t, err)
-	require.False(t, ok, "a partly written batch is not committed")
+	_, err := w.nextBlock(t.Context())
+	require.ErrorIs(t, err, errInterruptedBatch, "a partly written batch is not committed")
 
 	exec(t, cfg, cfg.Database, "ATTACH TABLE blocks")
 	require.NoError(t, w.write(t.Context(), b))
@@ -194,8 +192,24 @@ func TestWriteRetriesAPartialInsert(t *testing.T) {
 		tableStorageChanges: 6,
 		tableStorageHistory: 6,
 		tableCode:           3,
-		tableCommits:        1,
+		tableCommits:        2,
 	}, rowCounts(t, cfg))
+}
+
+func TestStartExporterRefusesAnInterruptedBatch(t *testing.T) {
+	cfg := testConfig(t)
+	require.NoError(t, migrate(t.Context(), cfg))
+	w := testWriter(t, cfg)
+	require.NoError(t, w.write(t.Context(), testBatch(t, 1, 2)))
+
+	// Blocks 3-4 stop after their pending row and one table, as a crash part way leaves them.
+	b := testBatch(t, 3, 4)
+	require.NoError(t, w.insertCommit(t.Context(), b.first, b.last, false))
+	require.NoError(t, w.insert(t.Context(), tableBlocks, b.blockRows.input(), b.first, b.last))
+
+	_, err := StartExporter(t.Context(), cfg)
+	require.ErrorIs(t, err, errInterruptedBatch)
+	require.ErrorContains(t, err, "blocks 3-4")
 }
 
 func TestExporterWritesExecutedBlocks(t *testing.T) {
@@ -212,21 +226,63 @@ func TestExporterWritesExecutedBlocks(t *testing.T) {
 	require.NoError(t, exporter.Close())
 	require.Equal(t, uint64(3), rowCounts(t, cfg)[tableBlocks])
 
-	// A restarted exporter resumes after the archived blocks and skips any it is handed again.
+	// A restarted exporter expects the block after the archived ones and refuses one it holds.
 	exporter, err = StartExporter(t.Context(), cfg)
 	require.NoError(t, err)
-	for n := uint64(2); n <= 4; n++ {
-		store(n)
-	}
-	// A missing block ends a batch, so no commit spans it.
-	store(6)
+	require.Equal(t, uint64(3), exporter.LatestBlock())
+	block := testBlock(3)
+	require.ErrorContains(t, exporter.ArchiveBlock(t.Context(), &block), "expects block 4")
+	store(4)
+	// A block that skips one is refused rather than archived.
+	block = testBlock(6)
+	require.ErrorContains(t, exporter.ArchiveBlock(t.Context(), &block), "expects block 5")
 	require.NoError(t, exporter.Close())
+	require.Equal(t, uint64(4), exporter.LatestBlock())
 	counts := rowCounts(t, cfg)
-	require.Equal(t, uint64(5), counts[tableBlocks])
-	require.Equal(t, uint64(10), counts[tableTxs])
-	require.Equal(t, []uint64{1, 4, 6}, query(t, cfg, "SELECT start_block AS a FROM archive_commits ORDER BY a"))
-	require.Equal(t, []uint64{3, 4, 6}, query(t, cfg, "SELECT end_block AS a FROM archive_commits ORDER BY a"))
+	require.Equal(t, uint64(4), counts[tableBlocks])
+	require.Equal(t, uint64(8), counts[tableTxs])
+	// The archive's start at block 1, then the batches 1-3 and 4.
+	require.Equal(t, []uint64{1, 1, 4}, query(t, cfg, "SELECT start_block AS a FROM archive_commits WHERE committed ORDER BY end_block"))
+	require.Equal(t, []uint64{0, 3, 4}, query(t, cfg, "SELECT end_block AS a FROM archive_commits WHERE committed ORDER BY end_block"))
 
-	// A closed exporter drops blocks rather than failing them.
-	store(7)
+	// A closed exporter refuses blocks rather than dropping them.
+	block = testBlock(5)
+	require.ErrorContains(t, exporter.ArchiveBlock(t.Context(), &block), "closed")
+}
+
+func TestEmptyArchiveRecordsItsStart(t *testing.T) {
+	cfg := testConfig(t)
+	exporter, err := StartExporter(t.Context(), cfg)
+	require.NoError(t, err)
+	require.Zero(t, exporter.LatestBlock())
+	block := testBlock(5)
+	require.NoError(t, exporter.ArchiveBlock(t.Context(), &block))
+	// Recorded before the block is accepted, so a restart that loses the batch holding block 5
+	// still expects block 5.
+	require.Equal(t, []uint64{4}, query(t, cfg, "SELECT end_block AS a FROM archive_commits WHERE committed"))
+	require.Equal(t, uint64(4), exporter.LatestBlock())
+	require.NoError(t, exporter.Close())
+
+	// An archive that holds only its start, as one whose first batch was lost.
+	exec(t, cfg, cfg.Database, "DELETE FROM archive_commits WHERE end_block >= 5")
+	exporter, err = StartExporter(t.Context(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = exporter.Close() })
+	require.Equal(t, uint64(4), exporter.LatestBlock())
+	skipping := testBlock(6)
+	require.ErrorContains(t, exporter.ArchiveBlock(t.Context(), &skipping), "expects block 5")
+	require.NoError(t, exporter.ArchiveBlock(t.Context(), &block))
+}
+
+func TestArchiveStartingAtBlockOneExpectsIt(t *testing.T) {
+	cfg := testConfig(t)
+	require.NoError(t, migrate(t.Context(), cfg))
+	require.NoError(t, testWriter(t, cfg).insertCommit(t.Context(), 1, 0, true))
+	exporter, err := StartExporter(t.Context(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = exporter.Close() })
+	// Nothing to roll back to, but the archive still refuses to start anywhere but block 1.
+	require.Zero(t, exporter.LatestBlock())
+	block := testBlock(2)
+	require.ErrorContains(t, exporter.ArchiveBlock(t.Context(), &block), "expects block 1")
 }

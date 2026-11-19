@@ -1,6 +1,7 @@
 package evmonly
 
 import (
+	"context"
 	"math/big"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
@@ -53,4 +55,39 @@ func TestArchiveBlock(t *testing.T) {
 	result.Receipts = result.Receipts[:2]
 	_, err = archiveBlock(block, result)
 	require.Error(t, err)
+}
+
+type recordingArchive struct {
+	latest uint64
+	blocks []uint64
+}
+
+func (a *recordingArchive) ArchiveBlock(_ context.Context, block *archive.ExecutedBlock) error {
+	a.blocks = append(a.blocks, block.Number)
+	return nil
+}
+
+func (a *recordingArchive) LatestBlock() uint64 { return a.latest }
+
+func (a *recordingArchive) Close() error { return nil }
+
+func TestExecutorArchivesOnlyBlocksTheArchiveLacks(t *testing.T) {
+	for _, tc := range []struct {
+		latest   uint64
+		archived []uint64
+	}{
+		{latest: 40, archived: []uint64{41}},
+		{latest: 41, archived: nil},
+	} {
+		store := &recordingArchive{latest: tc.latest}
+		executor := NewExecutor(Config{}, withTestStores(&recordingGigaStore{snapshot: newMemoryGigaSnapshot(40)}, NewMemoryReceiptStore()))
+		executor.archive = store
+		blockCtx := blockContext(big.NewInt(testChainID))
+		blockCtx.Number = 41
+
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockCtx})
+		require.NoError(t, err)
+		result.Release()
+		require.Equal(t, tc.archived, store.blocks, "archive at block %d", tc.latest)
+	}
 }
