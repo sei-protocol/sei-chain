@@ -1,17 +1,15 @@
-package archive
+package chstore
 
 import (
 	"context"
 	"errors"
-	"math/big"
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/seilog"
 
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse"
 )
 
 var logger = seilog.NewLogger("db", "archive")
@@ -54,38 +52,18 @@ type Exporter struct {
 	closed bool
 }
 
-// Block is an executed block as the archive stores it.
-type Block struct {
-	Number     uint64
-	Hash       common.Hash
-	ParentHash common.Hash
-	Time       uint64
-	GasLimit   uint64
-	GasUsed    uint64
-	BaseFee    *big.Int
-	Txs        []Tx
-	Changes    gigatypes.StateChangeSet
-}
-
-// Tx is a transaction of a Block with its receipt, which holds its hash and any contract it created.
-type Tx struct {
-	Tx      *ethtypes.Transaction
-	Sender  common.Address
-	Receipt *ethtypes.Receipt
-	// Rejected reports that the executor did not run the transaction.
-	Rejected bool
-	// Locatable reports that the transaction is found by its hash. A hash found at several
-	// locations resolves to the earliest.
-	Locatable bool
-}
+var _ archive.ArchivalStore = (*Exporter)(nil)
 
 // StartExporter creates the archive tables when they are missing and starts writing after the
 // last block already archived.
-func StartExporter(ctx context.Context, cfg Config) (*Exporter, error) {
+func StartExporter(ctx context.Context, cfg clickhouse.Config) (*Exporter, error) {
 	if err := migrate(ctx, cfg); err != nil {
 		return nil, err
 	}
-	w := newWriter(cfg)
+	w, err := newWriter(cfg)
+	if err != nil {
+		return nil, err
+	}
 	last, ok, err := w.lastCommitted(ctx)
 	if err != nil {
 		w.close()
@@ -114,7 +92,7 @@ func StartExporter(ctx context.Context, cfg Config) (*Exporter, error) {
 // ArchiveBlock copies block into the current batch, keeping no reference to it. When that fills the
 // batch it waits for the previous batch to be written, so a stalled archive slows the executor
 // rather than losing blocks. A closed exporter drops the block.
-func (e *Exporter) ArchiveBlock(ctx context.Context, block *Block) error {
+func (e *Exporter) ArchiveBlock(ctx context.Context, block *archive.ExecutedBlock) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	number := block.Number

@@ -37,7 +37,7 @@ type Executor struct {
 	stateStore      gigatypes.StateDB
 	receiptStore    receipt.ReceiptStore
 	receiptHasher   *receipthash.ReceiptHasher
-	archive         *archive.Exporter
+	archive         archive.ArchivalStore
 	// Optional: nil commits only the block's EVM state changes.
 	blockChangeSetEncoder BlockChangeSetEncoder
 	// blockEncoderReadsStore is false only for an encoder registered as

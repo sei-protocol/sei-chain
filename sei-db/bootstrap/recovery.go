@@ -9,6 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/sei-db/archive"
+	"github.com/sei-protocol/sei-chain/sei-db/archive/chstore"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
@@ -294,10 +295,15 @@ func openReceiptStore(cfg *config.GigaStorageConfig) (receipt.ReceiptStore, erro
 	return receiptDB, nil
 }
 
-// openArchive starts the history archive exporter, returning nil when no archive is configured.
-func openArchive(ctx context.Context, cfg *config.GigaStorageConfig) (*archive.Exporter, error) {
+// openArchive opens the history archive, returning nil when no archive is configured.
+func openArchive(ctx context.Context, cfg *config.GigaStorageConfig) (archive.ArchivalStore, error) {
 	if cfg.ArchiveConfig == nil {
 		return nil, nil
 	}
-	return archive.StartExporter(ctx, *cfg.ArchiveConfig)
+	exporter, err := chstore.StartExporter(ctx, *cfg.ArchiveConfig)
+	if err != nil {
+		// Returned as a nil Store, not a Store holding a nil exporter.
+		return nil, err
+	}
+	return exporter, nil
 }

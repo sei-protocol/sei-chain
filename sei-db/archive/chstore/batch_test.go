@@ -1,4 +1,4 @@
-package archive
+package chstore
 
 import (
 	"math/big"
@@ -10,19 +10,20 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // testBlock returns block number with two transactions: a contract creation that emits one log,
 // and a transaction rejected for a nonce above the sender's.
-func testBlock(number uint64) Block {
+func testBlock(number uint64) archive.ExecutedBlock {
 	sender := common.BytesToAddress([]byte{0x5e})
 	contract := common.BytesToAddress([]byte{0xc0, byte(number)})
 	code := []byte{0x60, 0x00, byte(number)}
 	creation := ethtypes.NewTx(&ethtypes.DynamicFeeTx{Nonce: 2 * number, Gas: 100_000, GasFeeCap: big.NewInt(10), Data: code})
 	rejected := ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: 1_000 + number, Gas: 21_000, GasPrice: big.NewInt(10), To: &sender})
 	lg := &ethtypes.Log{Address: contract, Topics: []common.Hash{{0x70}}, Data: []byte{0xd0}, Index: 0}
-	return Block{
+	return archive.ExecutedBlock{
 		Number:     number,
 		Hash:       common.BytesToHash([]byte{0xb0, byte(number)}),
 		ParentHash: common.BytesToHash([]byte{0xb0, byte(number - 1)}),
@@ -30,7 +31,7 @@ func testBlock(number uint64) Block {
 		GasLimit:   10_000_000,
 		GasUsed:    60_000,
 		BaseFee:    big.NewInt(7),
-		Txs: []Tx{
+		Txs: []archive.Tx{
 			{Tx: creation, Sender: sender, Locatable: true, Receipt: &ethtypes.Receipt{
 				Type: ethtypes.DynamicFeeTxType, Status: 1, TxHash: creation.Hash(), ContractAddress: contract,
 				GasUsed: 60_000, CumulativeGasUsed: 60_000, EffectiveGasPrice: big.NewInt(7), Logs: []*ethtypes.Log{lg}}},
