@@ -76,13 +76,13 @@ func epochWeights(validators []proxy.ValidatorUpdate) (map[atypes.PublicKey]uint
 	return weights, nil
 }
 
-// epochRegistryChanges returns the FlatKV write for road and advances the registry to the window
-// that road produces. The genesis road and each road that closes an epoch write the registry row.
-// Other roads write nothing.
+// Changes returns the FlatKV write for road and advances the registry to the window that road
+// produces. The genesis road and each road that closes an epoch write the registry row. Other
+// roads write nothing.
 //
 // The registry window is stored here, before the block commits. The process exits when the commit
 // fails, so a restart rebuilds the window from the row that did commit.
-func (e *EpochRegistry) epochRegistryChanges(road atypes.RoadHeight) ([]gigatypes.MiscChange, error) {
+func (e *EpochRegistry) Changes(road atypes.RoadHeight) ([]gigatypes.MiscChange, error) {
 	window := e.registry.Epochs()
 	advanced, err := epoch.Advance(window, road, e.weights)
 	if err != nil {

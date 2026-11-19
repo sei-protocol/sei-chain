@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/binary"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
@@ -18,8 +20,12 @@ import (
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -309,6 +315,48 @@ func TestMockAppEvmBalanceReturns100ETH(t *testing.T) {
 
 	got := app.EvmBalance(common.Address{}, nil)
 	require.Equal(t, want, got.ToBig())
+}
+
+// TestMockAppCommitAdvancesTheEpochRegistry pins that a mock-app commit derives the next epoch
+// on a closing road. Deleting the Changes call leaves the window on epoch 1.
+func TestMockAppCommitAdvancesTheEpochRegistry(t *testing.T) {
+	const length = 3
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	storage, err := bootstrap.NewGigaStorageManager(ctx, storageConfig)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		for n := uint64(1); n <= length; n++ {
+			var hash [32]byte
+			binary.BigEndian.PutUint64(hash[:8], n)
+			require.NoError(t, storage.AppHashBuilder().ReportBlockHash(context.Background(), n, hash))
+		}
+		require.NoError(t, storage.Close())
+	})
+
+	key := atypes.GenSecretKey(utils.TestRng())
+	epochs, err := evmonlyapp.OpenEpochRegistry(storage, epoch.GenesisSchedule{
+		FirstRoad: 1,
+		Length:    length,
+		Timestamp: time.Unix(1, 0),
+	}, []proxy.ValidatorUpdate{{PubKey: key.Public(), Power: 1}})
+	require.NoError(t, err)
+
+	app := NewMockApp(mockAppFixture{})
+	app.storage = utils.Some(storage)
+	app.epochs = epochs
+	_, err = app.InitChain(&proxy.RequestInitChain{InitialHeight: 1})
+	require.NoError(t, err)
+	for height := int64(1); height <= length; height++ {
+		_, err = app.FinalizeBlock(t.Context(), &proxy.RequestFinalizeBlock{Header: &proxy.Header{Height: height}})
+		require.NoError(t, err)
+		_, err = app.Commit(t.Context())
+		require.NoError(t, err)
+	}
+	window := epochs.Registry().Epochs()
+	require.Equal(t, atypes.EpochIndex(2), window[len(window)-1].EpochIndex())
 }
 
 const mockAppFixtureEVMChainID uint64 = 4242

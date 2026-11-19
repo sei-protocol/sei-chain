@@ -294,7 +294,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		if height != state.committed.height+1 {
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
 		}
-		epochChanges, err := a.epochs.epochRegistryChanges(atypes.RoadHeight(block.Number))
+		epochChanges, err := a.epochs.Changes(atypes.RoadHeight(block.Number))
 		if err != nil {
 			return nil, err
 		}

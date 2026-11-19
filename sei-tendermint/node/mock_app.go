@@ -23,6 +23,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -75,8 +77,10 @@ type MockApp struct {
 	app         proxy.EVMApplication
 	chainConfig *params.ChainConfig
 	state       utils.RWMutex[*mockAppState]
-	// storage takes an empty block for each committed block. None means Commit writes nothing.
+	// storage takes each committed block. None means Commit writes nothing.
 	storage utils.Option[*bootstrap.GigaStorageManager]
+	// epochs is the registry Commit advances. None means Commit leaves it alone.
+	epochs *evmonlyapp.EpochRegistry
 }
 
 func NewMockApp(app proxy.EVMApplication) *MockApp {
@@ -295,16 +299,29 @@ func (app *MockApp) Commit(ctx context.Context) (*proxy.ResponseCommit, error) {
 	panic("unreachable")
 }
 
-// commitEmptyBlock feeds a committed mock block to every store as a block with no state changes and no receipts.
+// commitEmptyBlock feeds a committed mock block to every store as a block with no account changes
+// and no receipts. It writes the epoch registry row of that road.
 func (app *MockApp) commitEmptyBlock(ctx context.Context, height int64) error {
+	if height < 1 {
+		return fmt.Errorf("mock app commit height = %d, want >= 1", height)
+	}
+	var misc []gigatypes.MiscChange
+	if app.epochs != nil {
+		road, ok := utils.SafeCast[atypes.RoadHeight](height)
+		if !ok {
+			return fmt.Errorf("mock app commit height = %d does not fit a road height", height)
+		}
+		var err error
+		misc, err = app.epochs.Changes(road)
+		if err != nil {
+			return err
+		}
+	}
 	storage, ok := app.storage.Get()
 	if !ok {
 		return nil
 	}
-	if height < 1 {
-		return fmt.Errorf("mock app commit height = %d, want >= 1", height)
-	}
-	if err := storage.StateDB().CommitStateChanges(height, &gigatypes.StateChangeSet{}); err != nil {
+	if err := storage.StateDB().CommitStateChanges(height, &gigatypes.StateChangeSet{Misc: misc}); err != nil {
 		return fmt.Errorf("commit the state of block %d: %w", height, err)
 	}
 	if receiptDB := storage.ReceiptDB(); receiptDB != nil {
