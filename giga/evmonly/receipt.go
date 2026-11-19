@@ -82,7 +82,7 @@ func encodeReceiptRecord(blockNumber uint64, baseFee *big.Int, result *BlockResu
 	}
 	var reward *big.Int
 	if ethReceipt.EffectiveGasPrice != nil {
-		reward = priorityFee(ethReceipt.EffectiveGasPrice, baseFee)
+		reward = PriorityFee(ethReceipt.EffectiveGasPrice, baseFee)
 	}
 	return receipt.ReceiptRecord{
 		TxHash: ethReceipt.TxHash, Receipt: stored, Reward: reward,
@@ -90,9 +90,9 @@ func encodeReceiptRecord(blockNumber uint64, baseFee *big.Int, result *BlockResu
 	}, true, nil
 }
 
-// priorityFee returns effectiveGasPrice less baseFee, a nil baseFee counting as zero, or nil when
+// PriorityFee returns effectiveGasPrice less baseFee, a nil baseFee counting as zero, or nil when
 // effectiveGasPrice is below baseFee.
-func priorityFee(effectiveGasPrice, baseFee *big.Int) *big.Int {
+func PriorityFee(effectiveGasPrice, baseFee *big.Int) *big.Int {
 	fee := new(big.Int).Set(effectiveGasPrice)
 	if baseFee != nil {
 		fee.Sub(fee, baseFee)

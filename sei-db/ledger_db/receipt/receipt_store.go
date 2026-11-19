@@ -70,7 +70,8 @@ type ReceiptStore interface {
 	// implementation may apply the write in the background; LatestVersion reports when it lands.
 	//
 	// Every block must be written, one that produced no receipts included; an implementation may
-	// refuse a write that skips a block.
+	// refuse a write that skips a block. One that keeps BlockStats records BlockBaseFee(ctx) as the
+	// block's BaseFee.
 	SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error
 
 	// Flush returns once every write made by a SetReceipts() call that returned before it has landed

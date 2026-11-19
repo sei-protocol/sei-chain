@@ -125,15 +125,27 @@ func (b *testBackend) EvmNonceAt(address common.Address, height int64) (uint64, 
 	return b.transactionCountAt(address, height)
 }
 
+// EvmBaseFee answers baseFee, or zero when the test sets none.
 func (b *testBackend) EvmBaseFee() *big.Int {
+	if b.baseFee == nil {
+		return new(big.Int)
+	}
 	return b.baseFee()
 }
 
+// EvmNextBaseFee answers nextBaseFee, or EvmBaseFee when the test sets none.
 func (b *testBackend) EvmNextBaseFee() *big.Int {
+	if b.nextBaseFee == nil {
+		return b.EvmBaseFee()
+	}
 	return b.nextBaseFee()
 }
 
+// EvmBlockNumber answers blockNumber, or zero when the test sets none.
 func (b *testBackend) EvmBlockNumber() uint64 {
+	if b.blockNumber == nil {
+		return 0
+	}
 	return b.blockNumber()
 }
 

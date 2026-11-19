@@ -219,3 +219,21 @@ func TestMemoryReceiptStoreKeepExistingPreservesReceiptAndStats(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint32(1), stats.TxCount)
 }
+
+// A block's stats carry the base fee its write was given, a copy of the caller's value.
+func TestMemoryReceiptStoreRecordsTheBlockBaseFee(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	baseFee := big.NewInt(1_000_000_000)
+	txHash := common.Hash{1}
+
+	require.NoError(t, store.SetReceipts(receipt.WithBlockBaseFee(newReceiptContext(t.Context(), 3), baseFee),
+		[]receipt.ReceiptRecord{{TxHash: txHash, Receipt: &evmtypes.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 3}}}))
+	require.NoError(t, store.SetReceipts(receipt.WithBlockBaseFee(newReceiptContext(t.Context(), 4), baseFee), nil))
+	baseFee.SetInt64(1)
+
+	for _, height := range []uint64{3, 4} {
+		stats, err := store.GetBlockStats(newReceiptContext(t.Context(), int64(height)), height) //nolint:gosec // G115: test heights are small.
+		require.NoError(t, err)
+		require.Equal(t, "1000000000", stats.BaseFee.String(), "block %d", height)
+	}
+}

@@ -85,6 +85,20 @@ func TestEncodeDecodeBlockStatsRoundTrip(t *testing.T) {
 			name:  "empty block",
 			stats: receipt.BlockStats{},
 		},
+		{
+			name: "with a base fee",
+			stats: receipt.BlockStats{
+				TotalGasUsed:      21_000,
+				TxCount:           1,
+				RewardGasUsed:     21_000,
+				RewardPercentiles: []receipt.RewardPercentile{{Percentile: 50, Reward: 5}},
+				BaseFee:           big.NewInt(1_000_000_000),
+			},
+		},
+		{
+			name:  "empty block with the largest base fee",
+			stats: receipt.BlockStats{BaseFee: new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -94,6 +108,7 @@ func TestEncodeDecodeBlockStatsRoundTrip(t *testing.T) {
 			require.Equal(t, tc.stats.TxCount, got.TxCount)
 			require.Equal(t, tc.stats.RewardGasUsed, got.RewardGasUsed)
 			require.Equal(t, tc.stats.RewardPercentiles, got.RewardPercentiles)
+			require.Equal(t, tc.stats.BaseFee.String(), got.BaseFee.String())
 		})
 	}
 }
@@ -114,4 +129,16 @@ func TestDecodeBlockStatsRejectsMalformedInput(t *testing.T) {
 
 	_, err = decodeBlockStats(append(valid, 0x00))
 	require.Error(t, err)
+
+	withBaseFee := encodeBlockStats(receipt.BlockStats{BaseFee: big.NewInt(1)})
+	_, err = decodeBlockStats(withBaseFee[:len(withBaseFee)-1])
+	require.Error(t, err)
+}
+
+func TestCheckBlockBaseFee(t *testing.T) {
+	require.NoError(t, checkBlockBaseFee(nil))
+	require.NoError(t, checkBlockBaseFee(new(big.Int)))
+	require.NoError(t, checkBlockBaseFee(new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))))
+	require.Error(t, checkBlockBaseFee(big.NewInt(-1)))
+	require.Error(t, checkBlockBaseFee(new(big.Int).Lsh(big.NewInt(1), 256)))
 }

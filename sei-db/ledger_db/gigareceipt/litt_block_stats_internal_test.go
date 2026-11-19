@@ -100,3 +100,26 @@ func TestLittGetBlockStatsForEmptyBlockIsZeroNotUnsupported(t *testing.T) {
 	require.Zero(t, stats.TxCount)
 	require.Empty(t, stats.RewardPercentiles)
 }
+
+// A block's stats carry the base fee its write was given, a copy of the caller's value.
+func TestLittGetBlockStatsRecordsTheBlockBaseFee(t *testing.T) {
+	s, cleanup := setupLittCtxStore(t)
+	defer cleanup()
+	baseFee := big.NewInt(1_000_000_000)
+
+	require.NoError(t, s.SetReceipts(receipt.WithBlockBaseFee(newTestCtxAtHeight(1), baseFee), nil))
+	baseFee.SetInt64(1)
+	requireReceiptVersion(t, s, 1)
+
+	stats, err := s.GetBlockStats(newTestCtxAtHeight(1), 1)
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(1_000_000_000).String(), stats.BaseFee.String())
+}
+
+func TestLittSetReceiptsRejectsABaseFeeThatDoesNotFit(t *testing.T) {
+	s, cleanup := setupLittCtxStore(t)
+	defer cleanup()
+
+	ctx := receipt.WithBlockBaseFee(newTestCtxAtHeight(1), new(big.Int).Lsh(big.NewInt(1), 256))
+	require.Error(t, s.SetReceipts(ctx, nil))
+}

@@ -142,6 +142,7 @@ func TestExecutorStoresReceipts(t *testing.T) {
 	executor := NewExecutor(Config{}, withTestStores(stateStore, receiptStore))
 	ctx := blockContext(chainID)
 	ctx.Number = 77
+	ctx.BaseFee = big.NewInt(3)
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
@@ -157,6 +158,10 @@ func TestExecutorStoresReceipts(t *testing.T) {
 	require.Equal(t, sender.Hex(), stored.From)
 	require.Equal(t, recipient.Hex(), stored.To)
 	require.Equal(t, uint64(ethtypes.ReceiptStatusSuccessful), uint64(stored.Status))
+	// The block's stats record the base fee it ran at.
+	stats, err := receiptStore.GetBlockStats(newReceiptContext(t.Context(), int64(ctx.Number)), ctx.Number)
+	require.NoError(t, err)
+	require.Equal(t, ctx.BaseFee.String(), stats.BaseFee.String())
 }
 
 func TestExecutorReturnsReceiptStoreError(t *testing.T) {
