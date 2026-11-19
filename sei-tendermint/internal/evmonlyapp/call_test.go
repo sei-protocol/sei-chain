@@ -174,7 +174,7 @@ func TestEVMOnlyApplicationExposesChainMetadata(t *testing.T) {
 	require.Equal(t, evmOnlyTestChainID, chainID)
 	require.NotNil(t, chainConfig)
 	require.Equal(t, new(big.Int).SetUint64(evmOnlyTestChainID), chainConfig.ChainID)
-	require.Zero(t, baseFee.Sign(), "a chain starts at a base fee of zero")
+	require.Zero(t, big.NewInt(evmOnlyGenesisBaseFee).Cmp(baseFee), "a chain starts at the genesis base fee")
 	require.Equal(t, uint64(30_000_000), gasLimit)
 }
 

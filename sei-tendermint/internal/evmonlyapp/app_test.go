@@ -969,18 +969,15 @@ func TestEVMOnlyApplicationMinGasPriceIsAdmissionOnly(t *testing.T) {
 			Time:   time.Unix(1_700_000_001, 0),
 		},
 	}
-	// Every node runs the block at a base fee of evmOnlyMinGasPrice, which it refuses a price below.
 	initChain := func(app proxy.EVMApplication) {
 		_, err := app.InitChain(&proxy.RequestInitChain{
 			InitialHeight: 1,
 			MaxGas:        30_000_000,
 		})
 		require.NoError(t, err)
-		seedEVMOnlyBaseFees(app.(*evmOnlyApplication), evmOnlyMinGasPrice)
 	}
 
-	proposer := newEVMOnlyTestApp(t, nil)
-	initChain(proposer)
+	proposer := newInitializedEVMOnlyTestApp(t)
 	require.True(t, proposer.CheckTx(t.Context(), &proxy.RequestCheckTxV2{Tx: raw}).IsOK())
 	proposed, err := proposer.FinalizeBlock(t.Context(), block)
 	require.NoError(t, err)

@@ -20,7 +20,7 @@ func traceTestHeader(height int64, parentHash []byte) *ethtypes.Header {
 		Number:     big.NewInt(height),
 		Time:       uint64(req.Header.Time.Unix()), //nolint:gosec // G115: test times are positive.
 		ParentHash: common.BytesToHash(parentHash),
-		BaseFee:    new(big.Int), // a chain starts at a base fee of zero
+		BaseFee:    big.NewInt(evmOnlyGenesisBaseFee),
 	}
 }
 

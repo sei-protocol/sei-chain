@@ -328,7 +328,11 @@ func (a *evmOnlyApplication) InitChain(req *proxy.RequestInitChain) (*proxy.Resp
 		}
 		a.installExecutor(executor)
 		for state := range a.cursor.Lock() {
-			state.committed = evmOnlyCursor{height: req.InitialHeight - 1, gasLimit: gasLimit}
+			state.committed = evmOnlyCursor{
+				height:   req.InitialHeight - 1,
+				gasLimit: gasLimit,
+				baseFees: genesisBaseFees(),
+			}
 		}
 		return &proxy.ResponseInitChain{}, nil
 	}

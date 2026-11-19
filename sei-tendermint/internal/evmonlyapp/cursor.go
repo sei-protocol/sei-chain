@@ -23,9 +23,18 @@ const (
 )
 
 // evmOnlyBaseFees are the base fee a block ran at, then those set for the
-// evmOnlyBaseFeeLag blocks after it, in height order. The cursor InitChain
-// writes has every one zero.
+// evmOnlyBaseFeeLag blocks after it, in height order.
 type evmOnlyBaseFees [evmOnlyBaseFeeLag + 1]uint256.Int
+
+// genesisBaseFees returns the base fees of the cursor InitChain writes:
+// evmOnlyGenesisBaseFee, at every height.
+func genesisBaseFees() evmOnlyBaseFees {
+	var fees evmOnlyBaseFees
+	for i := range fees {
+		fees[i].SetUint64(evmOnlyGenesisBaseFee)
+	}
+	return fees
+}
 
 // evmOnlyCursor identifies a block whose state is committed to storage and
 // what the next block executes against.

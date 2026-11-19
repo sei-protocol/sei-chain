@@ -10,6 +10,10 @@ import (
 // evmOnlyBaseFeeLag is how many blocks after a block its gas use sets the base fee of.
 const evmOnlyBaseFeeLag = 2
 
+// evmOnlyGenesisBaseFee is the base fee, in wei per gas, a chain's first blocks run at. It is not a
+// floor: the base fee update moves the fee from it either way.
+const evmOnlyGenesisBaseFee = 1_000_000_000
+
 // evmOnlyGenesisEVMParams are the base fee params gov's first EndBlock writes: a block using its
 // whole gas limit raises the base fee by 0.6%, and an empty one lowers it by 0.6%. Base fees are
 // set by them while no params are written: on a chain without gov, and in gov's first block.
