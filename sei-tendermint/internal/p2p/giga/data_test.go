@@ -176,16 +176,6 @@ func TestDataClientServer(t *testing.T) {
 	}
 }
 
-// startTestLink returns the server end and the client end of an in-memory link and runs both ends in s.
-func startTestLink(ctx context.Context, s scope.Scope) (rpc.Server[API], rpc.Client[API]) {
-	serverConn, clientConn := conn.NewTestConn()
-	server := rpc.NewServer[API]()
-	client := rpc.NewClient[API]()
-	s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, server.Run(ctx, serverConn)) })
-	s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, client.Run(ctx, clientConn)) })
-	return server, client
-}
-
 // serveFullCommitQCs serves one FullCommitQC stream on server. It reads the request, sends qcs exactly as given,
 // and closes the stream. Unlike a real server, it ignores the requested index and may send QCs out of order.
 func serveFullCommitQCs(ctx context.Context, server rpc.Server[API], qcs []*types.FullCommitQC) error {
@@ -230,7 +220,11 @@ func TestFullCommitQCStreamAcceptsSkippedIndexes(t *testing.T) {
 	require.NoError(t, node.data.PushPartialBlock(ctx, qcs[0], nil))
 	ok := fetchCount(resFullCommitQC, "ok")
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		server, client := startTestLink(ctx, s)
+		serverConn, clientConn := conn.NewTestConn()
+		server := rpc.NewServer[API]()
+		client := rpc.NewClient[API]()
+		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, server.Run(ctx, serverConn)) })
+		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, client.Run(ctx, clientConn)) })
 		// The server sends qcs[1], the requested index, then qcs[2], the next index,
 		// then qcs[4], which skips qcs[3].
 		s.SpawnBg(func() error { return serveFullCommitQCs(ctx, server, []*types.FullCommitQC{qcs[1], qcs[2], qcs[4]}) })
@@ -287,7 +281,11 @@ func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
 			// The counter is global to the test process, so the check below compares the change, not the value.
 			outOfOrder := fetchCount(resFullCommitQC, "out_of_order")
 			err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-				server, client := startTestLink(ctx, s)
+				serverConn, clientConn := conn.NewTestConn()
+				server := rpc.NewServer[API]()
+				client := rpc.NewClient[API]()
+				s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, server.Run(ctx, serverConn)) })
+				s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, client.Run(ctx, clientConn)) })
 				s.SpawnBg(func() error { return serveFullCommitQCs(ctx, server, sent) })
 				// The client under test.
 				return node.service.clientStreamFullCommitQCs(ctx, client)
