@@ -146,7 +146,8 @@ func TestCallPassesThroughNonRevertExecutionError(t *testing.T) {
 	require.ErrorIs(t, err, wantErr)
 }
 
-// pastBlockSelectors are the block selectors naming block 3 of a pastBlocksBackend, and earliest.
+// pastBlockSelectors are the block selectors naming block 3 of a pastBlocksBackend, and earliest and
+// 0x0 naming its first block.
 var pastBlockSelectors = []struct {
 	name       string
 	block      ethrpc.BlockNumberOrHash
@@ -154,7 +155,8 @@ var pastBlockSelectors = []struct {
 }{
 	{name: "number", block: ethrpc.BlockNumberOrHashWithNumber(3), wantNumber: 3},
 	{name: "hash", block: ethrpc.BlockNumberOrHashWithHash(traceBlockHash(3), true), wantNumber: 3},
-	{name: "earliest", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber), wantNumber: 0},
+	{name: "earliest", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber), wantNumber: 1},
+	{name: "0x0", block: ethrpc.BlockNumberOrHashWithNumber(0), wantNumber: 1},
 }
 
 // requirePastHeader checks header is block number's of a pastBlocksBackend, as it executed.

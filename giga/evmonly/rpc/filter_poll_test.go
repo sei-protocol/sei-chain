@@ -92,7 +92,10 @@ func TestNewFilterPollStart(t *testing.T) {
 		{name: "pruned fromBlock", crit: filters.FilterCriteria{FromBlock: big.NewInt(5)}, pruneTo: 7, wantPruned: true},
 		{name: "toBlock before start", crit: filters.FilterCriteria{FromBlock: big.NewInt(6), ToBlock: big.NewInt(5)}, wantInvalid: true},
 		{name: "toBlock before the next block", crit: filters.FilterCriteria{ToBlock: big.NewInt(9)}, wantInvalid: true},
+		{name: "earliest toBlock before the next block", crit: filters.FilterCriteria{ToBlock: big.NewInt(ethrpc.EarliestBlockNumber.Int64())}, wantInvalid: true},
 		{name: "fromBlock beyond int64", crit: filters.FilterCriteria{FromBlock: new(big.Int).Lsh(big.NewInt(1), 70)}, wantInvalid: true},
+		{name: "unknown tag fromBlock", crit: filters.FilterCriteria{FromBlock: big.NewInt(-6)}, wantInvalid: true},
+		{name: "unknown tag toBlock", crit: filters.FilterCriteria{ToBlock: big.NewInt(-6)}, wantInvalid: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fx := newPollFixture(t)
@@ -159,6 +162,42 @@ func TestGetFilterChangesPollsLogsFromCursor(t *testing.T) {
 	require.Equal(t, []uint64{8, 10}, logBlocks(all))
 	fx.commit(t)
 	require.Equal(t, []uint64{13}, logBlocks(poll(live)))
+}
+
+func TestGetFilterChangesEarliestToBlockStopsAtInstallFloor(t *testing.T) {
+	earliest := big.NewInt(ethrpc.EarliestBlockNumber.Int64())
+	for _, tc := range []struct {
+		name    string
+		crit    filters.FilterCriteria
+		pruneTo uint64
+		want    []uint64
+	}{
+		{name: "0 to earliest", crit: filters.FilterCriteria{FromBlock: big.NewInt(0), ToBlock: earliest}, want: []uint64{}},
+		{name: "earliest to earliest", crit: filters.FilterCriteria{FromBlock: earliest, ToBlock: earliest}, want: []uint64{}},
+		{name: "earliest to earliest after pruning", crit: filters.FilterCriteria{FromBlock: earliest, ToBlock: earliest}, pruneTo: 5, want: []uint64{5, 5, 5}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newPollFixture(t)
+			if tc.pruneTo > 0 {
+				require.NoError(t, fx.store.PruneHistory(tc.pruneTo))
+			}
+			wantLogs, err := fx.api.GetLogs(t.Context(), tc.crit)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, logBlocks(wantLogs))
+
+			id, err := fx.api.NewFilter(t.Context(), tc.crit)
+			require.NoError(t, err)
+			got, err := fx.api.GetFilterChanges(t.Context(), id)
+			require.NoError(t, err)
+			require.Equal(t, logBlocks(wantLogs), logBlocks(got.([]*ethtypes.Log)))
+
+			fx.commit(t)
+			require.NoError(t, fx.store.PruneHistory(8))
+			got, err = fx.api.GetFilterChanges(t.Context(), id)
+			require.NoError(t, err)
+			require.Empty(t, got)
+		})
+	}
 }
 
 func TestGetFilterChangesBlockHashFilterPollsOnce(t *testing.T) {

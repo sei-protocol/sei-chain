@@ -338,11 +338,14 @@ func TestDebugTraceBlock(t *testing.T) {
 		})
 	}
 
-	t.Run("block 1, whose parent block 0 is not stored", func(t *testing.T) {
-		var got []json.RawMessage
-		require.NoError(t, client.CallContext(t.Context(), &got, "debug_traceBlockByNumber", ethrpc.BlockNumber(1), tracer("callTracer")))
-		require.Empty(t, got)
-	})
+	// earliest and 0x0 name block 1, the earliest block an unpruned store retains.
+	for _, number := range []ethrpc.BlockNumber{1, ethrpc.EarliestBlockNumber, 0} {
+		t.Run(fmt.Sprintf("block 1, whose parent block 0 is not stored, as %s", number), func(t *testing.T) {
+			var got []json.RawMessage
+			require.NoError(t, client.CallContext(t.Context(), &got, "debug_traceBlockByNumber", number, tracer("callTracer")))
+			require.Empty(t, got)
+		})
+	}
 
 	t.Run("block whose receipts are not indexed", func(t *testing.T) {
 		chain.backend.blockNumber = func() uint64 { return 3 }

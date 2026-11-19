@@ -135,7 +135,7 @@ func TestGetTransactionCountReadsNumberedBlocksFromHistory(t *testing.T) {
 		},
 	}}
 
-	for height, want := range map[ethrpc.BlockNumber]hexutil.Uint64{ethrpc.EarliestBlockNumber: 0, 8: 8, 9: 9} {
+	for height, want := range map[ethrpc.BlockNumber]hexutil.Uint64{ethrpc.EarliestBlockNumber: 1, 0: 1, 8: 8, 9: 9} {
 		got, err := api.GetTransactionCount(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(height))
 		require.NoError(t, err)
 		require.Equal(t, want, *got, "block %d", height)
