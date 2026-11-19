@@ -12,6 +12,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
+	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -116,7 +117,7 @@ func (a *testApp) Cfg() *Config {
 	return &Config{
 		MaxGasWantedPerBlock:    1000000,
 		MaxGasEstimatedPerBlock: 1000000,
-		MaxTxsPerBlock:          types.MaxTxsPerBlock,
+		MaxTxsPerBlock:          types.MaxTxsPerLaneBlock,
 		BlockInterval:           time.Hour,
 	}
 }
@@ -214,13 +215,13 @@ func (env *testEnv) Run(ctx context.Context) error {
 				}
 			}
 			for offset := range qc.Headers() {
-				laneBlock, err := env.data.Block(ctx, types.LaneBlockPos{Index: i, Offset: uint64(offset)})
+				block, err := env.data.Block(ctx, types.LaneBlockPos{Height: i, Offset: uint64(offset)})
 				if err != nil {
 					return err
 				}
 				// Check that adding first transaction to the previous block would exceed the limit.
 				if laneBlocks > 0 {
-					tx, err := decodeTxSpec(laneBlock.Payload().Txs()[0])
+					tx, err := decodeTxSpec(block.Payload().Txs()[0])
 					if err != nil {
 						return fmt.Errorf("decodeTxSpec(): %w", err)
 					}
@@ -231,7 +232,7 @@ func (env *testEnv) Run(ctx context.Context) error {
 
 				// Check that block does not exceed limits.
 				stats = blockStats{}
-				for _, txRaw := range laneBlock.Payload().Txs() {
+				for _, txRaw := range block.Payload().Txs() {
 					tx, err := decodeTxSpec(txRaw)
 					if err != nil {
 						return fmt.Errorf("decodeTxSpec(): %w", err)
@@ -272,6 +273,7 @@ func newTestEnvN(t testing.TB, rng utils.Rng, n int, cfg *Config, app *proxy.EVM
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
 		ProposalTimeout:    time.Hour,
+		MaxRate:            rate.Inf,
 		PersistentStateDir: utils.None[string](),
 	}, dataState))
 	return &testEnv{
@@ -307,7 +309,7 @@ func TestInsertTx_TooLargeTx(t *testing.T) {
 		}
 
 		// Tx with size exceeding block limit.
-		tx := utils.GenBytes(rng, int(types.MaxTxsBytesPerBlock+1))
+		tx := utils.GenBytes(rng, int(types.MaxTxsBytesPerLaneBlock+1))
 		// Should be rejected by mempool.
 		_, err := env.state.InsertTx(ctx, tx)
 		if !errors.Is(err, errTooLarge) {
@@ -510,7 +512,7 @@ func (s *blockStats) Push(tx *txSpec, cfg *Config) bool {
 	s.sizeBytes += uint64(len(tx.encode()))
 	s.gasWanted += tx.GasWanted
 	return s.count <= cfg.MaxTxsPerBlock &&
-		s.sizeBytes <= types.MaxTxsBytesPerBlock &&
+		s.sizeBytes <= types.MaxTxsBytesPerLaneBlock &&
 		s.gasWanted <= cfg.MaxGasWantedPerBlock &&
 		s.gasEstimated <= cfg.MaxGasEstimatedPerBlock
 }

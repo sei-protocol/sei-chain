@@ -54,6 +54,7 @@ type testBackend struct {
 	storage          func(common.Address, common.Hash) (common.Hash, error)
 	executedBlocks   func() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	transactionCount func(common.Address) uint64
+	pendingNonce     func(common.Address) utils.Option[uint64]
 
 	balanceAt          func(common.Address, int64) (uint256.Int, error)
 	codeAt             func(common.Address, int64) ([]byte, error)
@@ -215,6 +216,13 @@ func (b *testBackend) EvmStorage(address common.Address, key common.Hash) (commo
 
 func (b *testBackend) EvmTransactionCount(address common.Address) uint64 {
 	return b.transactionCount(address)
+}
+
+func (b *testBackend) EvmPendingNonce(address common.Address) utils.Option[uint64] {
+	if b.pendingNonce == nil {
+		return utils.None[uint64]()
+	}
+	return b.pendingNonce(address)
 }
 
 // stubReceiptStore overrides GetReceipt on an otherwise real store so tests can

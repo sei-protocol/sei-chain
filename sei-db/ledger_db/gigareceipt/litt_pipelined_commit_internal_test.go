@@ -109,3 +109,22 @@ func TestPipelinedCommitFailureHoldsTheHead(t *testing.T) {
 
 	require.Equal(t, int64(1), openPipelinedStore(t, dir).LatestVersion())
 }
+
+// Flush returns only once every write queued before it has landed, its index commit included, so the
+// head it leaves behind is the last block written.
+func TestFlushWaitsForEveryQueuedWrite(t *testing.T) {
+	s := openPipelinedStore(t, t.TempDir())
+	require.NotNil(t, s.writes, "the store applies writes in the background")
+	index := &heldIndex{KeyValueDB: s.index, entered: make(chan struct{}, 4), release: make(chan struct{})}
+	s.index = index
+	addr := common.HexToAddress("0xfb21")
+	topic := common.HexToHash("0xfb22")
+
+	writeOneReceipt(t, s, 1, addr, topic)
+	writeOneReceipt(t, s, 2, addr, topic)
+	<-index.entered
+	close(index.release)
+
+	require.NoError(t, s.Flush())
+	require.Equal(t, int64(2), s.LatestVersion())
+}

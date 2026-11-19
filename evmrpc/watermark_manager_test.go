@@ -447,6 +447,8 @@ func (f *fakeReceiptStore) SetReceipts(sdk.Context, []receipt.ReceiptRecord) err
 	return nil
 }
 
+func (f *fakeReceiptStore) Flush() error { return nil }
+
 func (f *fakeReceiptStore) FilterLogs(sdk.Context, uint64, uint64, filters.FilterCriteria, *receipt.LogBudget) ([]*ethtypes.Log, error) {
 	return nil, receipt.ErrRangeQueryNotSupported
 }

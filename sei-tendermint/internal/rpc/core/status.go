@@ -86,7 +86,7 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 			latestHeight = abciInfo.Response.LastBlockHeight
 			latestAppHash = abciInfo.Response.LastBlockAppHash
 		}
-		lastCommittedBlockHeight = giga.LastCommittedBlockNumber()
+		lastCommittedBlockHeight = giga.LastCommittedHeight()
 		// Invariant: under Autobahn, consensus finalizes before the app
 		// executes, so the committed height leads (or equals) the executed
 		// height. Committed=0 is a legitimate startup window before the first

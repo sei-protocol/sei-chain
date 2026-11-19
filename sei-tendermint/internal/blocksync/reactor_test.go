@@ -11,9 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 
 	"github.com/fortytw2/leaktest"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -26,8 +24,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	utilsrequire "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/blocksync"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -79,6 +78,8 @@ func setup(
 	return rts
 }
 
+// makeReactor returns a reactor on router that starts from the genesis state of genDoc, and the
+// event bus that its block executor publishes to.
 func makeReactor(
 	ctx context.Context,
 	t *testing.T,
@@ -87,7 +88,7 @@ func makeReactor(
 	blockSync bool,
 	restartEvent func(),
 	selfRemediationConfig *config.SelfRemediationConfig,
-) *Reactor {
+) (*Reactor, *eventbus.EventBus) {
 
 	app := abci.BaseApplication{}
 
@@ -130,7 +131,7 @@ func makeReactor(
 	if err != nil {
 		t.Fatalf("NewReactor(): %v", err)
 	}
-	return r
+	return r, bus
 }
 
 func (rts *reactorTestSuite) addNode(
@@ -148,7 +149,7 @@ func (rts *reactorTestSuite) addNode(
 	remediationConfig := config.DefaultSelfRemediationConfig()
 	remediationConfig.BlocksBehindThreshold = 1000
 
-	reactor := makeReactor(
+	reactor, _ := makeReactor(
 		ctx,
 		t,
 		genDoc,
@@ -162,14 +163,14 @@ func (rts *reactorTestSuite) addNode(
 	state, err := reactor.stateStore.Load()
 	require.NoError(t, err)
 	for blockHeight := int64(1); blockHeight <= maxBlockHeight; blockHeight++ {
-		block, blockID, partSet, seenCommit := makeNextBlock(ctx, t, state, privVal, blockHeight, lastCommit)
+		b := makeCommittedBlock(ctx, t, state, utils.Slice(privVal), blockHeight, lastCommit)
 
 		syncer := reactor.syncer.OrPanic("syncer should be configured in tests")
-		state, err = syncer.blockExec.ApplyBlock(ctx, state, blockID, block, nil)
+		state, err = syncer.blockExec.ApplyBlock(ctx, state, b.id, b.block, nil)
 		require.NoError(t, err)
 
-		reactor.store.SaveBlock(block, partSet, seenCommit)
-		lastCommit = seenCommit
+		reactor.store.SaveBlock(b.block, b.parts, b.commit)
+		lastCommit = b.commit
 	}
 
 	rts.reactors[nodeID] = reactor
@@ -177,37 +178,33 @@ func (rts *reactorTestSuite) addNode(
 	require.True(t, reactor.IsRunning())
 }
 
-func makeNextBlock(ctx context.Context,
+// committedBlock is a block with its ID, its part set, and a commit for it.
+type committedBlock struct {
+	block  *types.Block
+	id     types.BlockID
+	parts  *types.PartSet
+	commit *types.Commit
+}
+
+// makeCommittedBlock returns the block at height on top of state, with lastCommit as its last
+// commit, and a commit for it signed by every validator in privVals.
+func makeCommittedBlock(
+	ctx context.Context,
 	t *testing.T,
 	state sm.State,
-	signer types.PrivValidator,
+	privVals []types.PrivValidator,
 	height int64,
-	lc *types.Commit) (*types.Block, types.BlockID, *types.PartSet, *types.Commit) {
-	block := sf.MakeBlock(state, height, lc)
-	partSet, err := block.MakePartSet(types.BlockPartSizeBytes)
+	lastCommit *types.Commit,
+) committedBlock {
+	t.Helper()
+	block := sf.MakeBlock(state, height, lastCommit)
+	parts, err := block.MakePartSet(types.BlockPartSizeBytes)
 	require.NoError(t, err)
-	blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: partSet.Header()}
-
-	// Simulate a commit for the current height
-	vote, err := factory.MakeVote(
-		ctx,
-		signer,
-		block.Header.ChainID,
-		0,
-		block.Header.Height,
-		0,
-		2,
-		blockID,
-		time.Now(),
-	)
+	id := types.BlockID{Hash: block.Hash(), PartSetHeader: parts.Header()}
+	voteSet := types.NewVoteSet(state.ChainID, height, 0, tmproto.PrecommitType, state.Validators)
+	commit, err := factory.MakeCommit(ctx, id, height, 0, voteSet, privVals, time.Now())
 	require.NoError(t, err)
-	seenCommit := &types.Commit{
-		Height:     vote.Height,
-		Round:      vote.Round,
-		BlockID:    blockID,
-		Signatures: []types.CommitSig{vote.CommitSig()},
-	}
-	return block, blockID, partSet, seenCommit
+	return committedBlock{block: block, id: id, parts: parts, commit: commit}
 }
 
 func (rts *reactorTestSuite) start(t *testing.T) {
@@ -447,12 +444,12 @@ func TestAutoRestartIfBehind(t *testing.T) {
 			ctx := t.Context()
 			if tt.restartExpected {
 				r.syncer.OrPanic("syncer").autoRestartIfBehind(ctx, blockPool)
-				assert.True(t, restart.Load(), "Expected restart but did not occur")
+				require.True(t, restart.Load(), "Expected restart but did not occur")
 			} else {
 				ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 				defer cancel()
 				r.syncer.OrPanic("syncer").autoRestartIfBehind(ctx, blockPool)
-				assert.False(t, restart.Load(), "Unexpected restart")
+				require.False(t, restart.Load(), "Unexpected restart")
 			}
 		})
 	}
@@ -478,7 +475,7 @@ func TestAutoRestartStopsAtFreezeBoundary(t *testing.T) {
 		}
 
 		syncer.autoRestartIfBehind(t.Context(), blockPool)
-		utilsrequire.False(t, restart.Load())
+		require.False(t, restart.Load())
 	})
 }
 
@@ -493,7 +490,7 @@ func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 2})
 	nodeIDs := network.NodeIDs()
 
-	server := makeReactor(
+	server, _ := makeReactor(
 		ctx,
 		t,
 		genDoc,
@@ -506,11 +503,11 @@ func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {
 	state, err := server.stateStore.Load()
 	require.NoError(t, err)
 	for height := int64(1); height <= 3; height++ {
-		block, blockID, partSet, seenCommit := makeNextBlock(ctx, t, state, privVals[0], height, lastCommit)
-		state, err = server.syncer.OrPanic("syncer should be configured in tests").blockExec.ApplyBlock(ctx, state, blockID, block, nil)
+		b := makeCommittedBlock(ctx, t, state, privVals, height, lastCommit)
+		state, err = server.syncer.OrPanic("syncer should be configured in tests").blockExec.ApplyBlock(ctx, state, b.id, b.block, nil)
 		require.NoError(t, err)
-		server.store.SaveBlock(block, partSet, seenCommit)
-		lastCommit = seenCommit
+		server.store.SaveBlock(b.block, b.parts, b.commit)
+		lastCommit = b.commit
 	}
 	require.NoError(t, server.Start(ctx))
 	t.Cleanup(server.Wait)
@@ -563,7 +560,7 @@ func TestQueryResponder_ServesStatusRequestsWhenBlockSyncDisabled(t *testing.T) 
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 2})
 	nodeIDs := network.NodeIDs()
 
-	server := makeReactor(
+	server, _ := makeReactor(
 		ctx,
 		t,
 		genDoc,

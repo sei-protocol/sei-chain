@@ -2,6 +2,7 @@ package view
 
 import (
 	"context"
+	"errors"
 	"runtime"
 	"sync"
 	"testing"
@@ -153,43 +154,6 @@ func TestCloseUnblocksBackpressuredCommit(t *testing.T) {
 	}
 }
 
-// A read whose DB fetch is still in flight when Close is called must resolve (value or error)
-// rather than deadlock. The manager must not wait for caller-owned pool tasks.
-func TestBlockedReadResolvesDuringClose(t *testing.T) {
-	db := newTestDB(map[string][]byte{"k": []byte("v")})
-	manager := newTestManagerWithDB(t, db, 1, 4096)
-
-	// Baseline past the construction-time initial-hash read, then gate all further DB reads.
-	base := db.getCalls.Load()
-	db.getGate = make(chan struct{})
-
-	// Release the gated read task exactly once, and unconditionally on test failure, before the
-	// pool-draining cleanup registered at construction (t.Cleanup runs LIFO).
-	releaseGate := sync.OnceFunc(func() { close(db.getGate) })
-	t.Cleanup(releaseGate)
-
-	getDone := make(chan error, 1)
-	go func() {
-		_, _, err := manager.Get([]byte("k"), true)
-		getDone <- err
-	}()
-	require.Eventually(t, func() bool { return db.getCalls.Load() > base },
-		2*time.Second, time.Millisecond, "read task never reached the DB")
-
-	require.NoError(t, manager.Close())
-
-	select {
-	case err := <-getDone:
-		// The gate is still held, so the read cannot have produced a value: Close must have
-		// released the waiter with an error wrapping ErrViewManagerClosed, per the Close contract.
-		require.ErrorIs(t, err, ErrViewManagerClosed)
-	case <-time.After(2 * time.Second):
-		t.Fatal("blocked Get did not resolve after Close")
-	}
-
-	releaseGate()
-}
-
 // Methods called after a clean Close must report ErrViewManagerClosed.
 func TestMethodsAfterCloseReportManagerClosed(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 1, 4096)
@@ -254,4 +218,99 @@ func TestCloseLeavesNoManagerGoroutines(t *testing.T) {
 	require.Eventually(t, func() bool { return runtime.NumGoroutine() <= baseline+2 },
 		2*time.Second, 10*time.Millisecond,
 		"manager goroutines leaked across create/use/close cycles")
+}
+
+// A view still held does not keep Close from writing every finalized block to the database.
+func TestCloseWritesPastAReservedView(t *testing.T) {
+	db := newTestDB(nil)
+	manager := newTestManagerWithDB(t, db, 1, 4096)
+
+	require.NoError(t, manager.Set([]byte("k1"), []byte("v1")))
+	view1, err := manager.Commit(manager.NextBlockHeight())
+	require.NoError(t, err)
+	// Finalized but still reserved, which holds back the background flush of every later block.
+	require.NoError(t, view1.Finalize(view1.BlockHeight(), hashWrites(testHash)))
+
+	require.NoError(t, manager.Set([]byte("k2"), []byte("v2")))
+	view2, err := manager.Commit(manager.NextBlockHeight())
+	require.NoError(t, err)
+	finalizeAndRelease(t, view2)
+
+	require.NoError(t, manager.Close())
+	require.True(t, db.has("k1"))
+	require.True(t, db.has("k2"))
+	view1.Abandon()
+}
+
+// Close writes the finalized blocks only up to the first block that is not finalized.
+func TestCloseStopsAtTheFirstUnfinalizedBlock(t *testing.T) {
+	db := newTestDB(nil)
+	manager := newTestManagerWithDB(t, db, 1, 4096)
+
+	require.NoError(t, manager.Set([]byte("k1"), []byte("v1")))
+	view1, err := manager.Commit(manager.NextBlockHeight())
+	require.NoError(t, err)
+
+	require.NoError(t, manager.Set([]byte("k2"), []byte("v2")))
+	view2, err := manager.Commit(manager.NextBlockHeight())
+	require.NoError(t, err)
+	finalizeAndRelease(t, view2)
+
+	require.NoError(t, manager.Close())
+	require.False(t, db.has("k1"))
+	require.False(t, db.has("k2"))
+	view1.Abandon()
+}
+
+// A database read already in flight when Close begins completes before Close writes newer blocks, so it returns
+// the value as of its view rather than one written after.
+func TestCloseWaitsForDatabaseReadsInFlight(t *testing.T) {
+	db := newTestDB(map[string][]byte{"k": []byte("v")})
+	manager := newTestManagerWithDB(t, db, 1, 4096)
+
+	// An empty block whose view the reader holds, so k is not in its versioned data and its read reaches the
+	// database.
+	readerView, err := manager.Commit(manager.NextBlockHeight())
+	require.NoError(t, err)
+	require.NoError(t, readerView.Finalize(readerView.BlockHeight(), hashWrites(testHash)))
+
+	require.NoError(t, manager.Set([]byte("k"), []byte("v2")))
+	writer, err := manager.Commit(manager.NextBlockHeight())
+	require.NoError(t, err)
+	finalizeAndRelease(t, writer)
+
+	base := db.getCalls.Load()
+	db.getGate = make(chan struct{})
+	releaseGate := sync.OnceFunc(func() { close(db.getGate) })
+	t.Cleanup(releaseGate)
+
+	type readOutcome struct {
+		value []byte
+		err   error
+	}
+	read := make(chan readOutcome, 1)
+	go func() {
+		value, _, err := readerView.Get([]byte("k"), true)
+		read <- readOutcome{value: value, err: err}
+	}()
+	require.Eventually(t, func() bool { return db.getCalls.Load() > base },
+		2*time.Second, time.Millisecond, "the read never reached the database")
+
+	closed := make(chan error, 1)
+	go func() { closed <- manager.Close() }()
+	// Answered from versioned data until Close refuses reads.
+	require.Eventually(t, func() bool {
+		_, _, err := manager.Get([]byte("k"), false)
+		return errors.Is(err, ErrViewManagerClosed)
+	}, 2*time.Second, time.Millisecond, "Close never refused reads")
+
+	releaseGate()
+	outcome := <-read
+	require.NoError(t, outcome.err)
+	require.Equal(t, []byte("v"), outcome.value)
+	require.NoError(t, <-closed)
+	value, found := db.get("k")
+	require.True(t, found)
+	require.Equal(t, []byte("v2"), value)
+	readerView.Abandon()
 }

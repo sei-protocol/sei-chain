@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -20,13 +19,10 @@ import (
 )
 
 const (
-	UnjailMethod          = "unjail"
-	GrantUnjailMethod     = "grantUnjailAuthorization"
-	UnjailWithAuthzMethod = "unjailWithAuthorization"
-	RevokeUnjailMethod    = "revokeUnjailAuthorization"
-	ParamsMethod          = "params"
-	SigningInfoMethod     = "signingInfo"
-	SigningInfosMethod    = "signingInfos"
+	UnjailMethod       = "unjail"
+	ParamsMethod       = "params"
+	SigningInfoMethod  = "signingInfo"
+	SigningInfosMethod = "signingInfos"
 )
 
 const (
@@ -40,17 +36,13 @@ var f embed.FS
 
 type PrecompileExecutor struct {
 	evmKeeper         utils.EVMKeeper
-	authzMsgServer    utils.AuthzMsgServer
 	slashingMsgServer utils.SlashingMsgServer
 	slashingQuerier   utils.SlashingQuerier
 
-	UnjailID          []byte
-	GrantUnjailID     []byte
-	UnjailWithAuthzID []byte
-	RevokeUnjailID    []byte
-	ParamsID          []byte
-	SigningInfoID     []byte
-	SigningInfosID    []byte
+	UnjailID       []byte
+	ParamsID       []byte
+	SigningInfoID  []byte
+	SigningInfosID []byte
 }
 
 func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
@@ -58,7 +50,6 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 
 	p := &PrecompileExecutor{
 		evmKeeper:         keepers.EVMK(),
-		authzMsgServer:    keepers.AuthzMS(),
 		slashingMsgServer: keepers.SlashingMS(),
 		slashingQuerier:   keepers.SlashingQ(),
 	}
@@ -67,12 +58,6 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 		switch name {
 		case UnjailMethod:
 			p.UnjailID = m.ID
-		case GrantUnjailMethod:
-			p.GrantUnjailID = m.ID
-		case UnjailWithAuthzMethod:
-			p.UnjailWithAuthzID = m.ID
-		case RevokeUnjailMethod:
-			p.RevokeUnjailID = m.ID
 		case ParamsMethod:
 			p.ParamsID = m.ID
 		case SigningInfoMethod:
@@ -125,100 +110,8 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	switch method.Name {
 	case UnjailMethod:
 		return p.unjail(ctx, method, caller, args, value)
-	case GrantUnjailMethod:
-		return p.grantUnjailAuthorization(ctx, method, caller, args, value)
-	case UnjailWithAuthzMethod:
-		return p.unjailWithAuthorization(ctx, method, caller, args, value)
-	case RevokeUnjailMethod:
-		return p.revokeUnjailAuthorization(ctx, method, caller, args, value)
 	}
 	return
-}
-
-func (p PrecompileExecutor) grantUnjailAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
-	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, 0, err
-	}
-	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, 0, err
-	}
-
-	granter, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
-	if err != nil {
-		return nil, 0, err
-	}
-	grantee, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
-	if err != nil {
-		return nil, 0, err
-	}
-	expiration := time.Unix(args[1].(int64), 0).UTC()
-	if err := pcommon.GrantGenericAuthorizations(ctx, p.authzMsgServer, granter, grantee, expiration, &slashingtypes.MsgUnjail{}); err != nil {
-		return nil, 0, err
-	}
-
-	bz, err := method.Outputs.Pack(true)
-	if err != nil {
-		return nil, 0, err
-	}
-	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
-}
-
-func (p PrecompileExecutor) unjailWithAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
-	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, 0, err
-	}
-	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, 0, err
-	}
-
-	grantee, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
-	if err != nil {
-		return nil, 0, err
-	}
-	operator, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
-	if err != nil {
-		return nil, 0, err
-	}
-	msg := slashingtypes.NewMsgUnjail(sdk.ValAddress(operator))
-	if err := msg.ValidateBasic(); err != nil {
-		return nil, 0, err
-	}
-	if _, err := pcommon.ExecuteAuthorization(ctx, p.authzMsgServer, grantee, msg); err != nil {
-		return nil, 0, err
-	}
-
-	bz, err := method.Outputs.Pack(true)
-	if err != nil {
-		return nil, 0, err
-	}
-	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
-}
-
-func (p PrecompileExecutor) revokeUnjailAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
-	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, 0, err
-	}
-	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, 0, err
-	}
-
-	granter, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
-	if err != nil {
-		return nil, 0, err
-	}
-	grantee, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
-	if err != nil {
-		return nil, 0, err
-	}
-	if err := pcommon.RevokeAuthorizations(ctx, p.authzMsgServer, granter, grantee, &slashingtypes.MsgUnjail{}); err != nil {
-		return nil, 0, err
-	}
-
-	bz, err := method.Outputs.Pack(true)
-	if err != nil {
-		return nil, 0, err
-	}
-	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
 // unjail unjails the validator whose operator address is the caller's
@@ -388,7 +281,7 @@ func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 // methods are views.
 func (PrecompileExecutor) IsTransaction(method string) bool {
 	switch method {
-	case UnjailMethod, GrantUnjailMethod, UnjailWithAuthzMethod, RevokeUnjailMethod:
+	case UnjailMethod:
 		return true
 	default:
 		return false

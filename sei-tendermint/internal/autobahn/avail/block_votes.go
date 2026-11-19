@@ -13,7 +13,7 @@ import (
 // on reweight.
 type blockVotes struct {
 	byKey  map[types.PublicKey]*types.Signed[*types.LaneVote]
-	byHash map[types.BlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]
+	byHash map[types.LaneBlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]
 	qc     utils.Option[*types.LaneQC]
 	// qcCounted is set once this block has formed a LaneQC.
 	qcCounted bool
@@ -22,7 +22,7 @@ type blockVotes struct {
 func newBlockVotes() *blockVotes {
 	return &blockVotes{
 		byKey:  map[types.PublicKey]*types.Signed[*types.LaneVote]{},
-		byHash: map[types.BlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]{},
+		byHash: map[types.LaneBlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]{},
 	}
 }
 
@@ -75,12 +75,12 @@ func (bv *blockVotes) credit(ep *types.Epoch, vote *types.Signed[*types.LaneVote
 	}
 }
 
-func (bv *blockVotes) header(want types.BlockHeaderHash) utils.Option[*types.BlockHeader] {
+func (bv *blockVotes) header(want types.LaneBlockHeaderHash) utils.Option[*types.LaneBlockHeader] {
 	for _, vote := range bv.byKey {
 		h := vote.Msg().Header()
 		if h.Hash() == want {
 			return utils.Some(h)
 		}
 	}
-	return utils.None[*types.BlockHeader]()
+	return utils.None[*types.LaneBlockHeader]()
 }

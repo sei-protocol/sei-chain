@@ -109,7 +109,8 @@ func TestEVMOnlyApplicationServesNoValidatorsAfterAFailedCommit(t *testing.T) {
 	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
 	require.NoError(t, err)
 	storage := openEVMOnlyTestStorage(t, storageConfig)
-	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	// The failed commit leaves the receipt store ahead of the state, so the shutdown is not clean.
+	t.Cleanup(func() { require.Error(t, storage.Close()) })
 	configured := []proxy.ValidatorUpdate{{PubKey: autobahnKey(ed25519.TestSecretKey([]byte("configured")).Public()), Power: 1}}
 	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, configured, storage, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[GenesisAlloc](), utils.None[string]())
 	require.NoError(t, err)

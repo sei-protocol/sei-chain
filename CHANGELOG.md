@@ -46,6 +46,11 @@ sei-chain
 
 ## v6.8
 sei-chain
+* [#4886](https://github.com/sei-protocol/sei-chain/pull/4886) Backport `release/v6.8`: Drop the GHCR visibility step from the Docker publish workflow
+* [#4876](https://github.com/sei-protocol/sei-chain/pull/4876) Backport `release/v6.8`: fix(evm): discard cached traces written under another format version
+* [#4869](https://github.com/sei-protocol/sei-chain/pull/4869) Backport `release/v6.8`: Rewrite pacific-1's vesting accounts by address in the v6.8 auth migration
+* [#4817](https://github.com/sei-protocol/sei-chain/pull/4817) Bump version to v6.8.0-rc3 in prep for release
+* [#4815](https://github.com/sei-protocol/sei-chain/pull/4815) Backport `release/v6.8`: Update v6.8 changelog from release/v6.8
 * [#4811](https://github.com/sei-protocol/sei-chain/pull/4811) Backport `release/v6.8`: Load the full validator set
 * [#4802](https://github.com/sei-protocol/sei-chain/pull/4802) Backport `release/v6.8`: Keep BlockStore base and height in memory
 * [#4800](https://github.com/sei-protocol/sei-chain/pull/4800) Backport `release/v6.8`: Make the large eth_getLogs rate limit configurable
@@ -448,6 +453,11 @@ sei-chain
 
 ## v6.7
 sei-chain
+* [#4875](https://github.com/sei-protocol/sei-chain/pull/4875) Backport `release/v6.7`: fix(evm): discard cached traces written under another format version
+* [#4871](https://github.com/sei-protocol/sei-chain/pull/4871) Backport `release/v6.7`: Return an empty array from eth_accounts on a keyless node
+* [#4866](https://github.com/sei-protocol/sei-chain/pull/4866) Trace txs that fail before execution as failed txs on release/v6.7 (PLT-1604)
+* [#4816](https://github.com/sei-protocol/sei-chain/pull/4816) Bump version to v6.7.4 in prep for patch release
+* [#4814](https://github.com/sei-protocol/sei-chain/pull/4814) Backport `release/v6.7`: Update v6.7 changelog from release/v6.7
 * [#4810](https://github.com/sei-protocol/sei-chain/pull/4810) Backport `release/v6.7`: Load the full validator set
 * [#4719](https://github.com/sei-protocol/sei-chain/pull/4719) Backport `release/v6.7`: Update v6.7 change log in prep to cut v6.7.3 patch
 * [#4716](https://github.com/sei-protocol/sei-chain/pull/4716) Bump version to v6.7.3 in prep for patch release
