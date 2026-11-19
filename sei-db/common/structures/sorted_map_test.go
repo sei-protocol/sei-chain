@@ -203,6 +203,28 @@ func TestPopBackInReverseKeyOrder(t *testing.T) {
 
 // --- Forward ---
 
+func TestNext(t *testing.T) {
+	m := NewSortedMap[int, string]()
+	m.Put(1, "a")
+	m.Put(3, "c")
+	m.Put(5, "e")
+
+	key, value, ok := m.Next(1)
+	require.True(t, ok)
+	require.Equal(t, 3, key)
+	require.Equal(t, "c", value)
+
+	m.Remove(3)
+	key, _, ok = m.Next(1)
+	require.True(t, ok)
+	require.Equal(t, 5, key)
+
+	_, _, ok = m.Next(5)
+	require.False(t, ok, "highest key")
+	_, _, ok = m.Next(2)
+	require.False(t, ok, "absent key")
+}
+
 func TestForwardStopsEarly(t *testing.T) {
 	m := NewSortedMap[int, string]()
 	for i := 0; i < 5; i++ {

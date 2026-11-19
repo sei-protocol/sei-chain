@@ -77,6 +77,13 @@ func keyRange(first uint64, last uint64) []uint64 {
 	return keys
 }
 
+// requireFirstKey checks that the store is not empty and that its lowest key is expected.
+func requireFirstKey(t *testing.T, lake datalake.DataLake, expected uint64) {
+	first, ok := lake.GetFirstKey()
+	require.True(t, ok)
+	require.Equal(t, expected, first)
+}
+
 // requireObjectExists checks whether the object holding key exists in the bucket, bypassing the store.
 func requireObjectExists(t *testing.T, storeBucket *storeBucket, key uint64, expected bool) {
 	exists, err := storeBucket.Has(context.Background(), key)
@@ -363,6 +370,26 @@ func TestCDKDataLakeDeletionWatermarkWithGaps(t *testing.T) {
 	require.NoError(t, lake.PruneBelow(ctx, 40))
 	require.NoError(t, lake.Flush(ctx))
 	require.Equal(t, uint64(40), lake.GetDeletionWatermark())
+}
+
+func TestCDKDataLakeFirstKeyFollowsPruningWithGaps(t *testing.T) {
+	ctx := context.Background()
+	config := DefaultTestDataLakeConfig(t.TempDir())
+	lake, err := NewCDKDataLake(ctx, "store", true, config)
+	require.NoError(t, err)
+	putTestKeys(t, lake, 10, 20, 30, 40, 50)
+
+	require.NoError(t, lake.PruneBelow(ctx, 15))
+	requireFirstKey(t, lake, 20)
+	require.NoError(t, lake.PruneBelow(ctx, 25))
+	requireFirstKey(t, lake, 30)
+	require.NoError(t, lake.Delete(ctx, 30))
+	requireFirstKey(t, lake, 40)
+	require.NoError(t, lake.Flush(ctx))
+	requireFirstKey(t, lake, 40)
+	require.NoError(t, lake.Close())
+
+	requireFirstKey(t, openTestDataLake(t, "store", true, config), 40)
 }
 
 func TestCDKDataLakeNewStoreWritesNothingUntilItsFirstPut(t *testing.T) {

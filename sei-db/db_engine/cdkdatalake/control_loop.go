@@ -90,15 +90,7 @@ func (s *cdkDataLake) contains(key uint64) bool {
 
 // firstKey returns the lowest key in the store, and false if the store is empty.
 func (s *cdkDataLake) firstKey() (uint64, bool) {
-	if !s.allowGaps {
-		return s.scheduledDeletionWatermark, s.scheduledDeletionWatermark < s.nextKey
-	}
-	for key := range s.keys.Forward() {
-		if key >= s.scheduledDeletionWatermark {
-			return key, true
-		}
-	}
-	return 0, false
+	return s.firstUnprunedKey, s.scheduledDeletionWatermark < s.nextKey
 }
 
 // durableWatermark returns the watermark strictly below which every accepted put is complete.
@@ -160,6 +152,7 @@ func (s *cdkDataLake) handlePut(request *putRequest) error {
 	}
 	if s.isEmpty() {
 		s.scheduledDeletionWatermark = request.key
+		s.firstUnprunedKey = request.key
 		s.deleter.SetFirstKey(request.key)
 		s.nextKey = request.key
 		err := s.metadataManager.Write(s.scheduledDeletionWatermark, s.durableWatermark(), true, true)
@@ -205,7 +198,7 @@ func (s *cdkDataLake) acceptDelete(key uint64) error {
 		return fmt.Errorf("key %d is the highest key and cannot be deleted", key)
 	}
 	if first, _ := s.firstKey(); key == first {
-		s.scheduledDeletionWatermark = key + 1
+		s.pruneBelow(key + 1)
 		return nil
 	}
 	if err := s.deleter.Delete(key); err != nil {
@@ -222,8 +215,25 @@ func (s *cdkDataLake) handlePrune(bound uint64) error {
 	if s.isEmpty() || bound > s.nextKey-1 {
 		return fmt.Errorf("pruning below %d would remove the highest key", bound)
 	}
-	s.scheduledDeletionWatermark = bound
+	s.pruneBelow(bound)
 	return nil
+}
+
+// pruneBelow raises the scheduled deletion watermark to bound, which must not exceed the highest key, and moves the
+// first unpruned key to the lowest key at or above it.
+func (s *cdkDataLake) pruneBelow(bound uint64) {
+	s.scheduledDeletionWatermark = bound
+	if !s.allowGaps {
+		s.firstUnprunedKey = bound
+		return
+	}
+	for s.firstUnprunedKey < bound {
+		next, _, ok := s.keys.Next(s.firstUnprunedKey)
+		if !ok {
+			panic(fmt.Sprintf("no key at or above %d to be the first unpruned key", bound))
+		}
+		s.firstUnprunedKey = next
+	}
 }
 
 // handleFlush completes a Flush() call before the loop takes another request.

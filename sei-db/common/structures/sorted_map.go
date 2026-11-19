@@ -100,6 +100,15 @@ func (m *SortedMap[K, V]) PopBack() (key K, value V, ok bool) {
 	return node.key, node.value, true
 }
 
+// Next returns the entry after key, and false if key is not present or is the highest key.
+func (m *SortedMap[K, V]) Next(key K) (next K, value V, ok bool) {
+	node, found := m.index[key]
+	if !found || node.next == nil {
+		return next, value, false
+	}
+	return node.next.key, node.next.value, true
+}
+
 // Len returns the number of entries in the map.
 func (m *SortedMap[K, V]) Len() int {
 	return len(m.index)

@@ -60,6 +60,9 @@ type cdkDataLake struct {
 	// The store's scheduled deletion watermark: every key below it is deleted. Used only by the control loop.
 	scheduledDeletionWatermark uint64
 
+	// The lowest key in the store. Meaningless while the store is empty. Used only by the control loop.
+	firstUnprunedKey uint64
+
 	// In a store that allows gaps, its keys in ascending order, along with deleted keys the deleter has not yet
 	// removed. Empty in a store without gaps. Used only by the control loop.
 	keys *structures.SortedMap[uint64, struct{}]
@@ -146,6 +149,10 @@ func newCDKDataLake(
 	for _, key := range state.topology.Keys() {
 		keys.Put(key, struct{}{})
 	}
+	firstUnprunedKey := metadata.ScheduledDeletionWatermark()
+	if key, _, ok := keys.PeekFront(); ok {
+		firstUnprunedKey = key
+	}
 	writer := newBucketWriter(context.Background(), storeBucket, config)
 	var deleter deleter
 	if metadata.AllowGaps() {
@@ -163,6 +170,7 @@ func newCDKDataLake(
 		done:                       make(chan struct{}),
 		nextKey:                    metadata.DurableWatermark(),
 		scheduledDeletionWatermark: metadata.ScheduledDeletionWatermark(),
+		firstUnprunedKey:           firstUnprunedKey,
 		keys:                       keys,
 		deleter:                    deleter,
 		putOperations:              structures.NewDeque[*writeResult](),
