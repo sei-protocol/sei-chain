@@ -16,7 +16,10 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -154,21 +157,22 @@ func genesisDocument(conf *config.Config, gen *tmtypes.GenesisDoc) (*tmtypes.Gen
 	return gen, nil
 }
 
-// makeEVMApplication opens Autobahn storage and constructs its EVM application.
+// makeEVMApplication opens Autobahn storage and the epoch registry it holds, and constructs the EVM
+// application over both. The registry is the one the application advances and the router waits on.
 // The caller owns the returned storage after construction succeeds.
 func makeEVMApplication(
 	ctx context.Context,
 	conf *config.Config,
 	giga gigaconfig.Config,
 	genDoc *tmtypes.GenesisDoc,
-) (_ proxy.EVMApplication, _ *bootstrap.GigaStorageManager, err error) {
+) (_ proxy.EVMApplication, _ *bootstrap.GigaStorageManager, _ *evmonlyapp.EpochRegistry, err error) {
 	committee, _, err := loadAutobahnCommittee(conf.AutobahnConfigFile)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load Autobahn committee: %w", err)
+		return nil, nil, nil, fmt.Errorf("load Autobahn committee: %w", err)
 	}
 	storage, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, committee, giga.Storage, genDoc)
 	if err != nil {
-		return nil, nil, fmt.Errorf("open Autobahn storage: %w", err)
+		return nil, nil, nil, fmt.Errorf("open Autobahn storage: %w", err)
 	}
 	defer func() {
 		if err != nil {
@@ -177,31 +181,53 @@ func makeEVMApplication(
 	}()
 	validators, err := evmOnlyValidatorUpdates(committee)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load EVM-only validator set: %w", err)
+		return nil, nil, nil, fmt.Errorf("load EVM-only validator set: %w", err)
+	}
+	schedule, err := genesisEpochSchedule(genDoc)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	epochs, err := evmonlyapp.OpenEpochRegistry(storage, schedule, validators)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("open epoch registry: %w", err)
 	}
 	customPrecompiles, err := evmOnlyCustomPrecompiles(committee, validators, giga.Execution.UnsafeSkipUpgrades)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load EVM-only governance: %w", err)
+		return nil, nil, nil, fmt.Errorf("load EVM-only governance: %w", err)
 	}
 	logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
 	app, err := evmonlyapp.NewEVMOnlyApplication(
 		committee.EVMChainID,
 		validators,
 		storage,
+		epochs,
 		giga.Execution,
 		customPrecompiles,
 		evmOnlyGenesisAlloc(committee, genDoc),
 		utils.Some(conf.RootDir),
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("restore EVM-only application: %w", err)
+		return nil, nil, nil, fmt.Errorf("restore EVM-only application: %w", err)
 	}
 	if conf.MockApp {
 		mockApp := NewMockApp(app)
 		mockApp.storage = utils.Some(storage)
-		return mockApp, storage, nil
+		return mockApp, storage, epochs, nil
 	}
-	return app, storage, nil
+	return app, storage, epochs, nil
+}
+
+// genesisEpochSchedule returns the epoch schedule genDoc starts at.
+func genesisEpochSchedule(genDoc *tmtypes.GenesisDoc) (epoch.GenesisSchedule, error) {
+	first, ok := utils.SafeCast[atypes.RoadHeight](genDoc.InitialHeight)
+	if !ok || first < 1 {
+		return epoch.GenesisSchedule{}, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", genDoc.InitialHeight)
+	}
+	return epoch.GenesisSchedule{
+		FirstRoad: first,
+		Length:    genDoc.Autobahn.Or(tmtypes.DefaultAutobahnParams()).EpochLength,
+		Timestamp: genDoc.GenesisTime,
+	}, nil
 }
 
 // evmOnlyGenesisAlloc returns the committee's evm_alloc at the genesis initial height, or None when it

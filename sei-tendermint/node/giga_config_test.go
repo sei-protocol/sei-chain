@@ -9,10 +9,22 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
+
+func TestGenesisEpochScheduleUsesAutobahnEpochLength(t *testing.T) {
+	genesisTime := time.Unix(1, 0)
+	params := types.DefaultAutobahnParams()
+	params.EpochLength = 3
+	genDoc := &types.GenesisDoc{InitialHeight: 7, GenesisTime: genesisTime, Autobahn: utils.Some(params)}
+	got, err := genesisEpochSchedule(genDoc)
+	require.NoError(t, err)
+	require.Equal(t, epoch.GenesisSchedule{FirstRoad: 7, Length: 3, Timestamp: genesisTime}, got)
+}
 
 func genesisAt(initialHeight int64) *types.GenesisDoc {
 	return &types.GenesisDoc{InitialHeight: initialHeight}
@@ -88,7 +100,7 @@ func TestMakeEVMApplicationFullModeOpensStateStore(t *testing.T) {
 	validator := makeValidator([]byte("full-validator"), []byte("full-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	_, manager, err := makeEVMApplication(storageContext(t), &config.Config{
+	_, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeFull},
 		AutobahnConfigFile: autobahnConfigFile,
 	}, gigaconfig.DefaultConfig, genesisAt(1))
@@ -103,7 +115,7 @@ func TestMakeEVMApplicationReceiptsOffOpensNoReceiptStore(t *testing.T) {
 	giga := gigaconfig.DefaultConfig
 	giga.Storage.Receipts = false
 
-	_, manager, err := makeEVMApplication(storageContext(t), &config.Config{
+	_, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeValidator},
 		AutobahnConfigFile: autobahnConfigFile,
 	}, giga, genesisAt(1))
@@ -118,7 +130,7 @@ func TestMakeEVMApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {
 	giga := gigaconfig.DefaultConfig
 	giga.Execution.MinGasPrice = 2_000_000_000
 
-	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
+	app, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
 		AutobahnConfigFile: autobahnConfigFile,
 	}, giga, genesisAt(1))
 	require.NoError(t, err)
@@ -132,7 +144,7 @@ func TestMakeEVMApplicationEVMOnlyUsesConfiguredChainID(t *testing.T) {
 	fc := defaultFileConfig(t, []config.AutobahnValidator{validator})
 	fc.EVMChainID = 713701
 
-	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
+	app, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
 		AutobahnConfigFile: writeAutobahnConfig(t, fc),
 	}, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
@@ -148,7 +160,7 @@ func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
 	validator := makeValidator([]byte("activation-validator"), []byte("activation-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
+	app, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeValidator},
 		AutobahnConfigFile: autobahnConfigFile,
 	}, gigaconfig.DefaultConfig, genesisAt(initialHeight))

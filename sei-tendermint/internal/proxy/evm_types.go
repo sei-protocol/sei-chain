@@ -7,7 +7,6 @@ import (
 	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // ResponseInfo describes the application's committed state.
@@ -79,18 +78,9 @@ type ResponseCheckTxV2 struct {
 
 // RequestFinalizeBlock contains an Autobahn block and its consensus-owned epoch data.
 type RequestFinalizeBlock struct {
-	Txs        [][]byte
-	Hash       []byte
-	Header     *Header
-	EpochState utils.Option[EpochState]
-}
-
-// EpochState is consensus-owned epoch data committed unchanged with a block:
-// the persisted epoch registry and the current committee. It is set on the
-// first block of an epoch, and an empty value is committed unchanged.
-type EpochState struct {
-	EpochRegistry    []byte
-	CurrentCommittee []byte
+	Txs    [][]byte
+	Hash   []byte
+	Header *Header
 }
 
 // ResponseFinalizeBlock contains a block's execution results and application hash.

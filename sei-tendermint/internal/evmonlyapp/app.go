@@ -32,6 +32,7 @@ import (
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -113,7 +114,9 @@ type evmOnlyApplication struct {
 	execution   gigaconfig.ExecutionConfig
 	minGasPrice *big.Int
 	storage     *bootstrap.GigaStorageManager
-	validators  []proxy.ValidatorUpdate
+	// epochs is the epoch registry each executed block advances.
+	epochs     *EpochRegistry
+	validators []proxy.ValidatorUpdate
 	// customPrecompiles are the native contracts every executor runs.
 	customPrecompiles utils.Option[precompiles.Registry]
 	// alloc, when set, funds the chain at its initial height, and every
@@ -163,9 +166,6 @@ const (
 type evmOnlyCursorState struct {
 	committed evmOnlyCursor
 	pending   utils.Option[evmOnlyCursor]
-	// epochState is committed with the block being finalized. It is set after
-	// beginBlock accepts that block and read when the block is encoded.
-	epochState utils.Option[proxy.EpochState]
 	// lastBlockTime is the Time of the most recently committed block, used by
 	// EvmCall to reproduce that block's execution context for a read-only call.
 	lastBlockTime uint64
@@ -179,7 +179,8 @@ var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
 // NewEVMOnlyApplication returns the raw-Ethereum application Autobahn runs.
 // Storage owns state, receipts and blocks; execution sizes the executor and
 // prices admission; customPrecompiles are the native contracts the chain runs;
-// alloc, when set, is the chain's genesis accounts.
+// alloc, when set, is the chain's genesis accounts. epochs is the registry each block
+// advances; it is opened from storage with OpenEpochRegistry.
 // A block that halts on a due upgrade plan writes UpgradeInfoFileName under
 // homeDir's data directory, when homeDir is set, and prints the halt line to
 // stderr. A storage that already holds committed blocks resumes from its
@@ -188,11 +189,15 @@ func NewEVMOnlyApplication(
 	chainID uint64,
 	validators []proxy.ValidatorUpdate,
 	storage *bootstrap.GigaStorageManager,
+	epochs *EpochRegistry,
 	execution gigaconfig.ExecutionConfig,
 	customPrecompiles utils.Option[precompiles.Registry],
 	alloc utils.Option[GenesisAlloc],
 	homeDir utils.Option[string],
 ) (proxy.EVMApplication, error) {
+	if epochs == nil {
+		return nil, errors.New("EVM-only application requires an epoch registry")
+	}
 	if alloc, ok := alloc.Get(); ok {
 		if alloc.InitialHeight <= 0 {
 			return nil, fmt.Errorf("EVM-only genesis alloc initial height must be positive: %d", alloc.InitialHeight)
@@ -209,6 +214,7 @@ func NewEVMOnlyApplication(
 		execution:         execution,
 		minGasPrice:       evmOnlyAdmissionMinGasPrice(execution.MinGasPrice),
 		storage:           storage,
+		epochs:            epochs,
 		validators:        slices.Clone(validators),
 		customPrecompiles: customPrecompiles,
 		alloc:             alloc,
@@ -274,8 +280,8 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 
 // encodeCursorChangeSet chains the block into the app hash and stages the
 // resulting cursor as pending, returning it as the write committed with
-// the block's state. The epoch state, when the block carries one, is written
-// with it unchanged.
+// the block's state. The epoch registry row is written with it when the block
+// is the initial road or closes an epoch.
 func (a *evmOnlyApplication) encodeCursorChangeSet(
 	block evmonly.BlockContext,
 	result *evmonly.BlockResult,
@@ -288,9 +294,9 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		if height != state.committed.height+1 {
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
 		}
-		var epochChanges []gigatypes.MiscChange
-		if epochState, ok := state.epochState.Get(); ok {
-			epochChanges = epochStateMiscChanges(epochState)
+		epochChanges, err := a.epochs.epochRegistryChanges(atypes.RoadHeight(block.Number))
+		if err != nil {
+			return nil, err
 		}
 		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result)
 		if err != nil {
@@ -1012,7 +1018,6 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *proxy.Reque
 		if err != nil {
 			return nil, err
 		}
-		a.stageEpochState(req.EpochState)
 		// Closes the stage in flight, so the gap until the next block is charged to neither.
 		defer a.finalizePhases.Reset()
 		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
@@ -1052,14 +1057,6 @@ func (a *evmOnlyApplication) beginBlock(height int64) (evmOnlyCursor, error) {
 		return state.committed, nil
 	}
 	panic("unreachable")
-}
-
-// stageEpochState sets the epoch state committed with the block being
-// finalized, replacing that of the previous block.
-func (a *evmOnlyApplication) stageEpochState(epochState utils.Option[proxy.EpochState]) {
-	for state := range a.cursor.Lock() {
-		state.epochState = epochState
-	}
 }
 
 // abandonPending drops the cursor staged by a failed block unless the store

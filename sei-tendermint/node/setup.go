@@ -21,13 +21,13 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
@@ -289,7 +289,6 @@ func buildValidatorGigaConfig(
 // operator misconfiguration is visible at startup.
 //
 // blockStore backs the returned router for its lifetime. The caller closes it.
-// The returned function reports whether a road is the last road of an epoch.
 func buildGigaRouter(
 	cfg *config.Config,
 	nodeKey types.NodeKey,
@@ -298,12 +297,12 @@ func buildGigaRouter(
 	genDoc *types.GenesisDoc,
 	blockStore *ablockstore.Store,
 	appHashBuilder builder.AppHashBuilder,
-	persistedEpochRegistry utils.Option[[]byte],
+	epochs *evmonlyapp.EpochRegistry,
 	persistentPeers []p2p.NodeAddress,
-) (p2p.GigaRouter, func(atypes.RoadHeight) bool, error) {
+) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if valKey, ok := validatorKey.Get(); ok {
 		_, inAddressBook := validatorAddrs[valKey.Public()]
@@ -314,85 +313,80 @@ func buildGigaRouter(
 			logger.Warn("Autobahn: local validator key is in the address book but mode is not \"validator\"; starting as fullnode", "mode", cfg.Mode)
 		}
 	}
+	schedule, err := genesisEpochSchedule(genDoc)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.Mode == config.ModeValidator {
 		valKey, ok := validatorKey.Get()
 		if !ok {
-			return nil, nil, fmt.Errorf("autobahn: mode = %q requires a local validator key", cfg.Mode)
+			return nil, fmt.Errorf("autobahn: mode = %q requires a local validator key", cfg.Mode)
 		}
 		// Remote signers aren't supported on the validator path —
 		// autobahn signs in-process. Fullnodes don't sign and aren't
 		// penalised for having priv-validator.laddr set.
 		if cfg.PrivValidator.ListenAddr != "" {
-			return nil, nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
+			return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
 		}
 		valCfg, err := buildValidatorGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, app, genDoc)
 		if err != nil {
-			return nil, nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
+			return nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
 		}
 		stateDir, err := resolvePersistentStateDir(cfg.RootDir, valCfg.PersistentStateDir)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		valCfg.PersistentStateDir = stateDir
 		valCfg.AppHashBuilder = appHashBuilder
 		valCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 		valCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
-		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore, persistedEpochRegistry)
+		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore, epochs.Registry(), schedule)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		giga, err := p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey), dataState)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		return giga, isClosingRoad(dataState), nil
+		return giga, nil
 	}
 	fnCfg, err := buildFullnodeGigaConfig(cfg.AutobahnConfigFile, app, genDoc)
 	if err != nil {
-		return nil, nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
+		return nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
 	}
 	stateDir, err := resolvePersistentStateDir(cfg.RootDir, fnCfg.PersistentStateDir)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	fnCfg.PersistentStateDir = stateDir
 	fnCfg.AppHashBuilder = appHashBuilder
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	fnCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
-	dataState, err := p2p.BuildDataState(fnCfg, blockStore, persistedEpochRegistry)
+	dataState, err := p2p.BuildDataState(fnCfg, blockStore, epochs.Registry(), schedule)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	giga, err := p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey), dataState)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return giga, isClosingRoad(dataState), nil
-}
-
-// isClosingRoad returns a function that reports whether a road is the last road of an epoch in
-// dataState.
-func isClosingRoad(dataState *data.State) func(atypes.RoadHeight) bool {
-	return func(road atypes.RoadHeight) bool { return dataState.ClosingEpoch(road).IsPresent() }
+	return giga, nil
 }
 
 // buildExecutor returns the Autobahn executor that runs the blocks in manager's
-// BlockStore on app. epochHook is the router's hook for the epoch bytes a block
-// carries and for a road that has committed.
+// BlockStore on app.
 func buildExecutor(
 	app *proxy.EVMProxy,
 	genDoc *types.GenesisDoc,
 	manager *bootstrap.GigaStorageManager,
-	epochHook execution.EpochHook,
 ) *execution.Executor {
 	return execution.New(&execution.Config{
 		GenDoc:         genDoc,
 		App:            app,
 		AppHashBuilder: manager.AppHashBuilder(),
 		BlockStore:     manager.BlockStore(),
-		EpochHook:      epochHook,
 	})
 }
 
@@ -614,6 +608,7 @@ func createRouter(
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 	storageManager utils.Option[*bootstrap.GigaStorageManager],
+	gigaEpochs utils.Option[*evmonlyapp.EpochRegistry],
 	stateSync gigaconfig.StateSyncConfig,
 ) (*p2p.Router, closer, utils.Option[*ablockstore.Store], error) {
 	closer := func() error { return nil }
@@ -681,14 +676,14 @@ func createRouter(
 		if !ok {
 			return nil, closer, noneDB, fmt.Errorf("autobahn requires a storage manager")
 		}
-		persisted := utils.None[[]byte]()
-		if raw, ok := manager.EpochRegistry(); ok {
-			persisted = utils.Some(raw)
+		epochs, ok := gigaEpochs.Get()
+		if !ok {
+			return nil, closer, noneDB, fmt.Errorf("autobahn requires an epoch registry")
 		}
-		giga, closingRoad, err := buildGigaRouter(
+		giga, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
 			manager.BlockStore(), manager.AppHashBuilder(),
-			persisted,
+			epochs,
 			options.PersistentPeers,
 		)
 		if err != nil {
@@ -696,7 +691,7 @@ func createRouter(
 		}
 		options.Giga = utils.Some(giga)
 		if stateSync.Enabled {
-			startStateSyncProofExport = func() error { return manager.StartStateSyncProofExport(closingRoad) }
+			startStateSyncProofExport = manager.StartStateSyncProofExport
 		}
 	}
 

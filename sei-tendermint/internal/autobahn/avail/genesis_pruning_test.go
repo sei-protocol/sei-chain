@@ -37,12 +37,12 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 			require.NoError(t, store.WriteAppProposal(app))
 			require.NoError(t, store.WriteAppQC(data.TestAppQC(keys, app)))
 			require.NoError(t, store.Flush())
-			require.NoError(t, registry.PruneBefore(2))
+			registry.Store(registry.Epochs()[1:])
 			for idx := range 2 {
 				_, err := registry.Epoch(types.EpochIndex(idx))
 				require.ErrorIs(t, err, types.ErrPruned)
 			}
-			ds, err := data.NewState(&data.Config{Registry: registry}, store)
+			ds, err := data.NewState(&data.Config{Registry: registry, Genesis: epoch.GenesisSchedule{Timestamp: testGenesisTimestamp}}, store)
 			require.NoError(t, err)
 			stateDir := utils.None[string]()
 			wantTip := qc
@@ -60,7 +60,7 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 			spec := state.ConsensusSpec().Load()
 			require.Equal(t, types.EpochIndex(3), spec.Epoch.EpochIndex())
 			require.Equal(t, utils.Some(wantTip), spec.CommitQC)
-			require.Equal(t, registry.GenesisTimestamp(), spec.GenesisTimestamp)
+			require.Equal(t, testGenesisTimestamp, spec.GenesisTimestamp)
 		})
 	}
 }

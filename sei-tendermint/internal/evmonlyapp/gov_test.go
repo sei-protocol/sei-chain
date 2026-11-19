@@ -33,6 +33,7 @@ func newGovEVMOnlyTestApp(t *testing.T, params gov.Params, startingProposalID ui
 		evmOnlyTestChainID,
 		nil,
 		storage,
+		openEVMOnlyTestEpochs(t, storage, nil, 1),
 		gigaconfig.DefaultConfig.Execution,
 		utils.Some(registry),
 		utils.None[GenesisAlloc](),

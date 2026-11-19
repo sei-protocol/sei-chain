@@ -182,7 +182,7 @@ func TestNextHeightEpoch_AfterAppQCActivation(t *testing.T) {
 	state := newTestState(t, &Config{Registry: registry}, store)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		if err := registry.TryPushEpoch(qc.Height(), map[types.PublicKey]uint64{keys[0].Public(): 9}); err != nil {
+		if err := registry.TestTryPushEpoch(qc.Height(), map[types.PublicKey]uint64{keys[0].Public(): 9}); err != nil {
 			return err
 		}
 		if err := state.PushAppHash(ctx, qc.Height(), types.GenAppHash(rng)); err != nil {
@@ -522,7 +522,7 @@ func TestCommitteeFill_DerivedBeforeAppQC(t *testing.T) {
 			return err
 		}
 		n := qc.Height()
-		if err := registry.TryPushEpoch(n, map[types.PublicKey]uint64{keeper: 9}); err != nil {
+		if err := registry.TestTryPushEpoch(n, map[types.PublicKey]uint64{keeper: 9}); err != nil {
 			return err
 		}
 		if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
@@ -573,7 +573,7 @@ func TestCommitteeFill_AppQCDivergenceLeavesStaged(t *testing.T) {
 		if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
 			return err
 		}
-		if err := registry.TryPushEpoch(n, map[types.PublicKey]uint64{keeper: 9}); err != nil {
+		if err := registry.TestTryPushEpoch(n, map[types.PublicKey]uint64{keeper: 9}); err != nil {
 			return err
 		}
 		return state.PushAppHash(ctx, n, types.GenAppHash(rng))
@@ -604,7 +604,7 @@ func TestCommitteeFill_DivergentLastRoadKeepsExecutionDerivedEpoch(t *testing.T)
 		if err := state.PushPartialBlock(ctx, qc0, TestBlockMap(blocks0)); err != nil {
 			return err
 		}
-		if err := registry.TryPushEpoch(qc0.Height(), map[types.PublicKey]uint64{keeper: 9}); err != nil {
+		if err := registry.TestTryPushEpoch(qc0.Height(), map[types.PublicKey]uint64{keeper: 9}); err != nil {
 			return err
 		}
 		if err := state.PushAppHash(ctx, qc0.Height(), types.GenAppHash(rng)); err != nil {
@@ -929,6 +929,86 @@ func TestRunPersistWaitsForCompleteQC(t *testing.T) {
 		panic("unreachable")
 	}))
 	require.Equal(t, qc2.Height()+1, store.Status().OrPanic("complete QCs").NextBlock)
+}
+
+// TestPersistHoldsAnchorUntilNextEpochIsStored pins that persisting an AppQC whose road is in the
+// newest stored epoch waits for the registry to store the epoch after it, and then anchors on it.
+func TestPersistHoldsAnchorUntilNextEpochIsStored(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	key := types.GenSecretKey(rng)
+	keys := []types.SecretKey{key}
+	weights := map[types.PublicKey]uint64{key.Public(): 1}
+	committee, err := types.NewCommittee(weights)
+	require.NoError(t, err)
+	registry, err := epoch.TestGenesisRegistry(committee, 0, 3)
+	require.NoError(t, err)
+	ep0 := registry.MustEpoch(0)
+	ep1 := registry.MustEpoch(1)
+
+	qc0, blocks0 := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
+	qc1, blocks1 := TestCommitQC(rng, ep0, keys, utils.Some(qc0.QC()))
+	qc2, blocks2 := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
+	qc3, blocks3 := TestCommitQC(rng, ep1, keys, utils.Some(qc2.QC()))
+
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+
+		if err := state.PushPartialBlock(ctx, qc0, TestBlockMap(blocks0)); err != nil {
+			return fmt.Errorf("PushPartialBlock(qc0): %w", err)
+		}
+		if err := state.PushAppHash(ctx, qc0.Height(), types.GenAppHash(rng)); err != nil {
+			return fmt.Errorf("PushAppHash(%d): %w", qc0.Height(), err)
+		}
+		if err := pushAppQCForBlock(ctx, state, keys, qc0.Height()); err != nil {
+			return fmt.Errorf("pushAppQCForBlock(%d): %w", qc0.Height(), err)
+		}
+		if err := state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)); err != nil {
+			return fmt.Errorf("PushPartialBlock(qc1): %w", err)
+		}
+		if err := state.PushAppHash(ctx, qc1.Height(), types.GenAppHash(rng)); err != nil {
+			return fmt.Errorf("PushAppHash(%d): %w", qc1.Height(), err)
+		}
+		if err := pushAppQCForBlock(ctx, state, keys, qc1.Height()); err != nil {
+			return fmt.Errorf("pushAppQCForBlock(%d): %w", qc1.Height(), err)
+		}
+		if err := state.PushPartialBlock(ctx, qc2, TestBlockMap(blocks2)); err != nil {
+			return fmt.Errorf("PushPartialBlock(qc2): %w", err)
+		}
+		if err := state.PushAppHash(ctx, qc2.Height(), types.GenAppHash(rng)); err != nil {
+			return fmt.Errorf("PushAppHash(%d): %w", qc2.Height(), err)
+		}
+		if err := pushAppQCForBlock(ctx, state, keys, qc2.Height()); err != nil {
+			return fmt.Errorf("pushAppQCForBlock(%d): %w", qc2.Height(), err)
+		}
+
+		// qc3 is the first road of epoch 1, so persisting it needs epoch 2, which the registry does not hold yet.
+		if err := state.PushPartialBlock(ctx, qc3, TestBlockMap(blocks3)); err != nil {
+			return fmt.Errorf("PushPartialBlock(qc3): %w", err)
+		}
+		if err := state.PushAppHash(ctx, qc3.Height(), types.GenAppHash(rng)); err != nil {
+			return fmt.Errorf("PushAppHash(%d): %w", qc3.Height(), err)
+		}
+		if err := pushAppQCForBlock(ctx, state, keys, qc3.Height()); err != nil {
+			return fmt.Errorf("pushAppQCForBlock(%d): %w", qc3.Height(), err)
+		}
+
+		if err := registry.TestPushEpoch(0, weights); err != nil {
+			return fmt.Errorf("TestPushEpoch(0): %w", err)
+		}
+		anchor, err := state.Anchor().Wait(ctx, func(anchor Anchor) bool {
+			first, ok := anchor.First.Get()
+			return ok && first.AppQC.Proposal().Height() >= qc3.Height()
+		})
+		if err != nil {
+			return fmt.Errorf("state.Anchor.Wait(): %w", err)
+		}
+		if got, want := anchor.Epochs[1].EpochIndex(), types.EpochIndex(2); got != want {
+			return fmt.Errorf("anchor next epoch = %d, want %d", got, want)
+		}
+		return nil
+	}))
 }
 
 // TestEvictionWaitsForAppQC checks that setPersisted does not drop

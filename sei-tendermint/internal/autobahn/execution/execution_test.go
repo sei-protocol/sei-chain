@@ -127,35 +127,8 @@ func (b recordingBuilder) ReportBlockHash(_ context.Context, blockHeight uint64,
 
 // testEnv is an executor over a fresh BlockStore holding no blocks, and the road
 // blocks a test writes to it.
-// recordedRoad is one RoadCommitted call.
-type recordedRoad struct {
-	road atypes.RoadHeight
-	vals []proxy.ValidatorUpdate
-}
-
-// recordingEpochHook records the epoch state it supplies and each committed road.
-type recordingEpochHook struct {
-	events *eventLog
-	state  utils.Option[proxy.EpochState]
-	roads  *utils.Mutex[*[]recordedRoad]
-}
-
-func (h *recordingEpochHook) EpochState(_ context.Context, road atypes.RoadHeight) (utils.Option[proxy.EpochState], error) {
-	logEvent(h.events, "epoch-state %d", road)
-	return h.state, nil
-}
-
-func (h *recordingEpochHook) RoadCommitted(road atypes.RoadHeight, vals []proxy.ValidatorUpdate) error {
-	logEvent(h.events, "road-committed %d", road)
-	for roads := range h.roads.Lock() {
-		*roads = append(*roads, recordedRoad{road: road, vals: vals})
-	}
-	return nil
-}
-
 type testEnv struct {
 	events *eventLog
-	hook   *recordingEpochHook
 	store  *blockstore.Store
 	blocks []*atypes.RoadBlock
 	keys   []atypes.SecretKey
@@ -177,10 +150,6 @@ func newTestEnv(t *testing.T, rng utils.Rng, count int) *testEnv {
 	events := new(utils.NewMutex(&[]string{}))
 	return &testEnv{
 		events: events,
-		hook: &recordingEpochHook{
-			events: events,
-			roads:  new(utils.NewMutex(&[]recordedRoad{})),
-		},
 		store:  store,
 		blocks: blocks,
 		keys:   keys,
@@ -211,7 +180,6 @@ func (env *testEnv) executor(app proxy.EVMApplication) *Executor {
 		App:            proxy.NewEVM(app),
 		AppHashBuilder: recordingBuilder{events: env.events},
 		BlockStore:     env.store,
-		EpochHook:      env.hook,
 	})
 }
 
@@ -236,9 +204,6 @@ func TestInitAppStartsAFreshAppAtTheGenesisHeight(t *testing.T) {
 	for state := range app.state.Lock() {
 		require.True(t, state.inited)
 	}
-	for roads := range env.hook.roads.Lock() {
-		require.Empty(t, *roads)
-	}
 }
 
 // TestInitAppRestoresTheTipHeaderFromTheBlockStore verifies the restart path:
@@ -262,9 +227,6 @@ func TestInitAppRestoresTheTipHeaderFromTheBlockStore(t *testing.T) {
 		require.Equal(t, int64(tip), header.Height)
 		require.Equal(t, testChainID, header.ChainID)
 		require.True(t, env.blocks[1].Header().Timestamp().Equal(header.Time))
-	}
-	for roads := range env.hook.roads.Lock() {
-		require.Equal(t, []recordedRoad{{road: tip, vals: vals}}, *roads)
 	}
 }
 
@@ -312,18 +274,12 @@ func TestRunExecutesOnlyDurableBlocks(t *testing.T) {
 }
 
 // TestRunReportsEachBlockHashBeforeExecutingIt verifies the order execution
-// drives the app hash builder, the epoch hook, and the app in, and the request
-// it builds. Deleting EpochState, Commit, or the RoadCommitted after Commit
-// changes this log or the request the app records.
+// drives the app hash builder and the app in, and the request it builds.
 func TestRunReportsEachBlockHashBeforeExecutingIt(t *testing.T) {
 	rng := utils.TestRng()
 	env := newTestEnv(t, rng, 2)
 	require.NoError(t, env.write(0, 2, true))
 	app := newRecordingApp(env.events, 0)
-	vals := []proxy.ValidatorUpdate{{PubKey: env.keys[0].Public(), Power: 3}}
-	app.validators = vals
-	carried := utils.Some(proxy.EpochState{EpochRegistry: []byte("registry"), CurrentCommittee: []byte("committee")})
-	env.hook.state = carried
 	executor := env.executor(app)
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
@@ -332,22 +288,15 @@ func TestRunReportsEachBlockHashBeforeExecutingIt(t *testing.T) {
 	}))
 
 	var wantLog []string
-	var wantRoads []recordedRoad
 	for _, road := range []atypes.RoadHeight{env.road(0), env.road(1)} {
 		wantLog = append(wantLog,
-			fmt.Sprintf("epoch-state %d", road),
 			fmt.Sprintf("report %d", road),
 			fmt.Sprintf("finalize %d", road),
 			fmt.Sprintf("commit %d", road),
-			fmt.Sprintf("road-committed %d", road),
 		)
-		wantRoads = append(wantRoads, recordedRoad{road: road, vals: vals})
 	}
 	for log := range env.events.Lock() {
 		require.Equal(t, wantLog, *log)
-	}
-	for roads := range env.hook.roads.Lock() {
-		require.Equal(t, wantRoads, *roads)
 	}
 	for i, req := range app.finalized() {
 		want := env.blocks[i].SuperBlock()
@@ -356,7 +305,6 @@ func TestRunReportsEachBlockHashBeforeExecutingIt(t *testing.T) {
 		require.True(t, want.Timestamp.Equal(req.Header.Time))
 		require.Equal(t, want.Hash[:], req.Hash)
 		require.Equal(t, len(want.Txs), len(req.Txs))
-		require.Equal(t, carried, req.EpochState)
 	}
 }
 

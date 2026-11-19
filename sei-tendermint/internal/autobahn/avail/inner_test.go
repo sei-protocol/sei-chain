@@ -62,7 +62,7 @@ func TestRestoreInner_Empty(t *testing.T) {
 	registry, _ := epoch.GenRegistry(rng, 4)
 	ep0 := registry.MustEpoch(0)
 
-	i, err := newInner(data.TestAnchor(ep0), registry.GenesisTimestamp(), &loadedState{})
+	i, err := newInner(data.TestAnchor(ep0), testGenesisTimestamp, &loadedState{})
 	require.NoError(t, err)
 
 	require.Equal(t, ep0.RoadRange().First, i.roads.first)
@@ -105,7 +105,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 4)
 		lane0 := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
-		i, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, registry.GenesisTimestamp(), &loadedState{
+		i, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, testGenesisTimestamp, &loadedState{
 			blocks: map[types.LaneID][]persist.LoadedBlock{lane0: {}},
 		})
 		require.NoError(t, err)
@@ -120,7 +120,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		unknownKey := types.GenSecretKey(rng)
 		unknownLane := types.LaneID{Validator: unknownKey.Public(), Joined: 0}
 		b := testSignedBlock(unknownKey, unknownLane, 0, types.LaneBlockHeaderHash{}, rng)
-		i, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, registry.GenesisTimestamp(), &loadedState{
+		i, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, testGenesisTimestamp, &loadedState{
 			blocks: map[types.LaneID][]persist.LoadedBlock{unknownLane: {{Height: 0, Proposal: b}}},
 		})
 		require.NoError(t, err)
@@ -141,7 +141,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		lane1 := ep0.Committee().Lane(keys[1].Public()).OrPanic("keys[1]")
 		bs0 := contiguousBlocks(keys[0], lane0, 2, rng)
 		bs1 := contiguousBlocks(keys[1], lane1, 3, rng)
-		i, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, registry.GenesisTimestamp(), &loadedState{
+		i, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, testGenesisTimestamp, &loadedState{
 			blocks: map[types.LaneID][]persist.LoadedBlock{lane0: bs0, lane1: bs1},
 		})
 		require.NoError(t, err)
@@ -159,7 +159,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		for _, n := range []types.LaneHeight{3, 4, 6, 7} {
 			bs = append(bs, persist.LoadedBlock{Height: n, Proposal: testSignedBlock(keys[0], lane0, n, types.LaneBlockHeaderHash{}, rng)})
 		}
-		_, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, registry.GenesisTimestamp(), &loadedState{
+		_, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, testGenesisTimestamp, &loadedState{
 			blocks: map[types.LaneID][]persist.LoadedBlock{lane0: bs},
 		})
 		require.Error(t, err)
@@ -175,7 +175,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		parent = b0.Msg().Block().Header().Hash()
 		b1 := testSignedBlock(keys[0], lane0, 1, parent, rng)
 		b2 := testSignedBlock(keys[0], lane0, 2, types.GenLaneBlockHeaderHash(rng), rng)
-		_, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, registry.GenesisTimestamp(), &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{lane0: {
+		_, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, testGenesisTimestamp, &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{lane0: {
 			{Height: 0, Proposal: b0},
 			{Height: 1, Proposal: b1},
 			{Height: 2, Proposal: b2},
@@ -189,7 +189,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		registry, keys := epoch.GenRegistry(rng, 4)
 		lane0 := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 		bs := contiguousBlocks(keys[0], lane0, BlocksPerLane+5, rng)
-		_, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, registry.GenesisTimestamp(), &loadedState{
+		_, err := newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, testGenesisTimestamp, &loadedState{
 			blocks: map[types.LaneID][]persist.LoadedBlock{lane0: bs},
 		})
 		require.Error(t, err)
@@ -244,7 +244,7 @@ func TestNewInnerAdvancesAtPersistedSeal(t *testing.T) {
 	ep0, ep1 := registry.MustEpoch(0), registry.MustEpoch(1)
 	anchor := testAnchorAt(ep0, ep1, keys, registry.LastRoad(0)-1)
 	qcLast := types.BuildCommitQC(ep0, keys, anchor.CommitQC(), nil)
-	i, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{commitQCs: []*types.CommitQC{qcLast}})
+	i, err := newInner(anchor, testGenesisTimestamp, &loadedState{commitQCs: []*types.CommitQC{qcLast}})
 	require.NoError(t, err)
 	spec := i.consensusSpec.Load()
 	require.Equal(t, utils.Some(qcLast), spec.CommitQC)
@@ -277,10 +277,11 @@ func TestPruneAdvancesAppliedEpoch(t *testing.T) {
 func TestPrune_WithoutFirst(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
+	genesis := data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}
 	weights := map[types.PublicKey]uint64{keys[0].Public(): 1}
 	require.NoError(t, registry.TestPushEpoch(0, weights))
 	require.NoError(t, registry.TestPushEpoch(1, weights))
-	i := utils.OrPanic1(newInner(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}, time.Time{}, &loadedState{}))
+	i := utils.OrPanic1(newInner(genesis, time.Time{}, &loadedState{}))
 	closedLane := i.applied().Committee().Lane(keys[1].Public()).OrPanic("genesis lane")
 	anchor := data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(2), registry.MustEpoch(3)}}
 
@@ -298,7 +299,7 @@ func TestNewInnerInitializesGenesis(t *testing.T) {
 	registry, _ := epoch.GenRegistry(rng, 3)
 	ep0 := registry.MustEpoch(0)
 	timestamp := time.Unix(42, 0)
-	registry, err := epoch.NewRegistry(ep0.Committee(), 7, timestamp, epoch.DefaultEpochLength, utils.None[[]byte]())
+	registry, err := epoch.TestGenesisRegistry(ep0.Committee(), 7, epoch.DefaultEpochLength)
 	require.NoError(t, err)
 	ep := ep0
 	i := utils.OrPanic1(newInner(data.TestAnchor(ep), timestamp, &loadedState{}))

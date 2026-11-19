@@ -16,7 +16,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
@@ -181,14 +180,54 @@ func newAppHashTestRouter(
 		App:                proxy.NewEVM(app),
 		AppHashBuilder:     hashBuilder,
 	}
-	state, err := BuildDataState(cfg, db, utils.None[[]byte]())
+	registry, schedule := testGenesisEpochs(t, genDoc, cfg.ValidatorAddrs)
+	state, err := BuildDataState(cfg, db, registry, schedule)
 	require.NoError(t, err)
 	router := &gigaRouterCommon{
 		cfg:  cfg,
 		data: state,
 		app:  cfg.App,
 	}
-	return app, hashBuilder, state, router, newTestExecutor(cfg, db, state.Registry())
+	return app, hashBuilder, state, router, newTestExecutor(cfg, db)
+}
+
+// testGenesisSchedule returns the schedule a node derives from genDoc with the default epoch length.
+func testGenesisSchedule(genDoc *tmtypes.GenesisDoc) epoch.GenesisSchedule {
+	return epoch.GenesisSchedule{
+		FirstRoad: atypes.RoadHeight(genDoc.InitialHeight),
+		Length:    epoch.DefaultEpochLength,
+		Timestamp: genDoc.GenesisTime,
+	}
+}
+
+// testGenesisEpochs returns a registry whose genesis epochs are committed to the validators in
+// addrs with unit weight, and the schedule it was built from.
+func testGenesisEpochs(t *testing.T, genDoc *tmtypes.GenesisDoc, addrs map[atypes.PublicKey]GigaNodeAddr) (*epoch.Registry, epoch.GenesisSchedule) {
+	t.Helper()
+	weights := make(map[atypes.PublicKey]uint64, len(addrs))
+	for key := range addrs {
+		weights[key] = 1
+	}
+	committee, err := atypes.NewCommittee(weights)
+	require.NoError(t, err)
+	schedule := testGenesisSchedule(genDoc)
+	registry, err := epoch.TestGenesisRegistry(committee, schedule.FirstRoad, schedule.Length)
+	require.NoError(t, err)
+	return registry, schedule
+}
+
+// testPruneRegistryBefore stores the window of registry without the epochs older than idx, as the
+// app does once it no longer needs them. It fails the test if idx is not retained.
+func testPruneRegistryBefore(t *testing.T, registry *epoch.Registry, idx atypes.EpochIndex) {
+	t.Helper()
+	epochs := registry.Epochs()
+	for i, e := range epochs {
+		if e.EpochIndex() == idx {
+			registry.Store(epochs[i:])
+			return
+		}
+	}
+	t.Fatalf("epoch %d is not retained", idx)
 }
 
 // TestExecutionRunsAheadOfAppHashPush verifies that execution does not wait for
@@ -265,63 +304,6 @@ func TestPushAppHashesResumesAtNextAppProposal(t *testing.T) {
 	require.Equal(t, last+1, state.NextAppProposal())
 }
 
-func TestCommitteeWeights(t *testing.T) {
-	rng := utils.TestRng()
-	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
-	wantPK := utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes()))
-	got, err := committeeWeights([]proxy.ValidatorUpdate{{
-		PubKey: utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes())),
-		Power:  42,
-	}})
-	require.NoError(t, err)
-	require.Equal(t, map[atypes.PublicKey]uint64{wantPK: 42}, got)
-}
-
-func TestCommitteeWeights_SkipsZeroPower(t *testing.T) {
-	rng := utils.TestRng()
-	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
-	got, err := committeeWeights([]proxy.ValidatorUpdate{{
-		PubKey: utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes())),
-		Power:  0,
-	}})
-	require.NoError(t, err)
-	require.Empty(t, got)
-}
-
-func TestCommitteeWeights_DuplicateKey(t *testing.T) {
-	rng := utils.TestRng()
-	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
-	pk := utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes()))
-	_, err := committeeWeights([]proxy.ValidatorUpdate{
-		{PubKey: pk, Power: 1},
-		{PubKey: pk, Power: 2},
-	})
-	require.Error(t, err)
-}
-
-func TestBuildDataStateGenesisEpochLength(t *testing.T) {
-	rng := utils.TestRng()
-	key := atypes.GenSecretKey(rng)
-	params := tmtypes.DefaultAutobahnParams()
-	params.EpochLength = 3
-	genesis := &tmtypes.GenesisDoc{ChainID: "epoch-length", Autobahn: utils.Some(params)}
-	require.NoError(t, genesis.ValidateAndComplete())
-	db := blockstore.NewTestStore(t)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	state, err := BuildDataState(&GigaRouterCommonConfig{
-		DialInterval:       time.Second,
-		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
-		PersistentStateDir: t.TempDir(),
-		GenDoc:             genesis,
-		App:                proxy.NewEVM(&fixedHeightApp{}),
-		AppHashBuilder:     newPublishingAppHashBuilder(),
-	}, db, utils.None[[]byte]())
-	require.NoError(t, err)
-	anchor := state.Anchor().Load()
-	require.Equal(t, atypes.RoadRange{First: 1, Next: 4}, anchor.Epochs[0].RoadRange())
-	require.Equal(t, atypes.RoadRange{First: 4, Next: 7}, anchor.Epochs[1].RoadRange())
-}
-
 func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
@@ -338,7 +320,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 
 	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
 	require.NoError(t, err)
-	registry, err := epoch.NewRegistry(committee, atypes.RoadHeight(genDoc.InitialHeight), genDoc.GenesisTime, epoch.DefaultEpochLength, utils.None[[]byte]())
+	registry, err := epoch.TestGenesisRegistry(committee, atypes.RoadHeight(genDoc.InitialHeight), epoch.DefaultEpochLength)
 	require.NoError(t, err)
 	ep0 := registry.MustEpoch(0)
 	qc, blocks := data.TestCommitQC(rng, ep0, keys, utils.None[*atypes.CommitQC]())
@@ -361,7 +343,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		App:                proxy.NewEVM(&fixedHeightApp{height: int64(last)}),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
 	}
-	state, err := BuildDataState(cfg, db, utils.None[[]byte]())
+	state, err := BuildDataState(cfg, db, registry, testGenesisSchedule(genDoc))
 	require.NoError(t, err)
 	got, err := state.TryBlock(atypes.LaneBlockPos{Height: last})
 	require.NoError(t, err)
@@ -413,7 +395,7 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 	require.Equal(t, mid.Public().Bytes(), got[1].PubKey.Bytes())
 	require.Equal(t, low.Public().Bytes(), got[2].PubKey.Bytes())
 
-	require.NoError(t, registry.PruneBefore(2))
+	testPruneRegistryBefore(t, registry, 2)
 	got, err = router.Validators(n)
 	require.NoError(t, err)
 	require.Equal(t, []int64{10, 5, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
@@ -424,7 +406,7 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 	require.NoError(t, registry.TestPushEpoch(3, weights))
 	ep4 := registry.MustEpoch(4)
 	router = testRouterAtRoad(t, registry, keys, ep4, ep4.RoadRange().First)
-	require.NoError(t, registry.PruneBefore(4))
+	testPruneRegistryBefore(t, registry, 4)
 	_, err = router.Validators(n)
 	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
 }
@@ -465,7 +447,7 @@ func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAdd
 
 func testDataState(t *testing.T, committee *atypes.Committee) (*data.State, *epoch.Registry) {
 	t.Helper()
-	registry, err := epoch.NewRegistry(committee, 1, time.Now(), epoch.DefaultEpochLength, utils.None[[]byte]())
+	registry, err := epoch.TestGenesisRegistry(committee, 1, epoch.DefaultEpochLength)
 	require.NoError(t, err)
 	db := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -949,11 +931,11 @@ func testRegistryThrough(t *testing.T, genesis map[atypes.PublicKey]uint64, late
 	t.Helper()
 	committee, err := atypes.NewCommittee(genesis)
 	require.NoError(t, err)
-	registry, err := epoch.NewRegistry(committee, 1, time.Now(), epoch.DefaultEpochLength, utils.None[[]byte]())
+	registry, err := epoch.TestGenesisRegistry(committee, 1, epoch.DefaultEpochLength)
 	require.NoError(t, err)
 	for i, weights := range later {
 		// Epoch i+2 is derived when the last road of epoch i is reached.
-		require.NoError(t, registry.TryPushEpoch(registry.LastRoad(atypes.EpochIndex(i)), weights))
+		require.NoError(t, registry.TestTryPushEpoch(registry.LastRoad(atypes.EpochIndex(i)), weights))
 	}
 	return registry
 }
@@ -1266,7 +1248,8 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 			persistentKeys[1].Public().NodeID(): {},
 		},
 	}
-	state, err := BuildDataState(cfg, db, utils.None[[]byte]())
+	registry, schedule := testGenesisEpochs(t, genDoc, cfg.ValidatorAddrs)
+	state, err := BuildDataState(cfg, db, registry, schedule)
 	require.NoError(t, err)
 	router, err := NewGigaFullnodeRouter(cfg, localKey, state)
 	require.NoError(t, err)
@@ -1353,26 +1336,4 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 		}
 		return nil
 	}))
-}
-
-// TestWaitForDerivedEpoch pins that a closing road waits until the registry
-// holds the derived epoch, and that every other road returns immediately.
-func TestWaitForDerivedEpoch(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 1)
-	state, err := data.NewState(&data.Config{Registry: registry}, blockstore.NewTestStore(t))
-	require.NoError(t, err)
-	r := &gigaRouterCommon{data: state}
-	closing := registry.LastRoad(0)
-
-	require.NoError(t, r.waitForDerivedEpoch(ctx, closing-1))
-
-	waitCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
-	defer cancel()
-	err = r.waitForDerivedEpoch(waitCtx, closing)
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-
-	require.NoError(t, registry.TryPushEpoch(closing, map[atypes.PublicKey]uint64{keys[0].Public(): 1}))
-	require.NoError(t, r.waitForDerivedEpoch(ctx, closing))
 }

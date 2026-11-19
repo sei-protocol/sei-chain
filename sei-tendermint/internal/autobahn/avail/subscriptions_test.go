@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"testing/synctest"
 
@@ -286,11 +287,19 @@ func TestBlock_WaitForFutureLane(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 1)
 	joiner := types.GenSecretKey(rng)
 	allKeys := append(keys, joiner)
-	require.NoError(t, registry.TestPushEpoch(0, map[types.PublicKey]uint64{keys[0].Public(): 1, joiner.Public(): 1}))
-	require.NoError(t, registry.TestPushEpoch(1, map[types.PublicKey]uint64{keys[0].Public(): 1}))
-	require.NoError(t, registry.TestPushEpoch(2, map[types.PublicKey]uint64{keys[0].Public(): 1}))
-	ep1, ep2 := registry.MustEpoch(1), registry.MustEpoch(2)
-	ep3, ep4 := registry.MustEpoch(3), registry.MustEpoch(4)
+	// An empty store loads from epoch 0, so the state is built before the registry moves on.
+	ds := newTestDataState(t, &data.Config{Registry: registry})
+	// The registry retains three epochs, so each epoch is captured as it is derived.
+	epochs := slices.Clone(registry.Epochs())
+	for _, weights := range []map[types.PublicKey]uint64{
+		{keys[0].Public(): 1, joiner.Public(): 1},
+		{keys[0].Public(): 1},
+		{keys[0].Public(): 1},
+	} {
+		require.NoError(t, registry.TestPushEpoch(types.EpochIndex(len(epochs)-2), weights))
+		epochs = append(epochs, registry.MustEpoch(types.EpochIndex(len(epochs))))
+	}
+	ep1, ep2, ep3, ep4 := epochs[1], epochs[2], epochs[3], epochs[4]
 	lane := ep2.Committee().Lane(joiner.Public()).OrPanic("joining lane")
 	for _, tc := range []struct {
 		name    string
@@ -304,7 +313,7 @@ func TestBlock_WaitForFutureLane(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				rng := utils.TestRng()
-				state := utils.OrPanic1(NewState(joiner, newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+				state := utils.OrPanic1(NewState(joiner, ds, utils.None[string]()))
 				defer func() { require.NoError(t, state.Close()) }()
 				want := types.Sign(joiner, types.NewLaneProposal(types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, types.GenPayload(rng))))
 				require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {

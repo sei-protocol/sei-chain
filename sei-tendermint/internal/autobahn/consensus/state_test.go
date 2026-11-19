@@ -830,7 +830,7 @@ func TestPushVoteEpoch(t *testing.T) {
 
 func weightedEpoch(idx types.EpochIndex, weights map[types.PublicKey]uint64) *types.Epoch {
 	c := utils.OrPanic1(types.NewCommittee(weights))
-	registry := utils.OrPanic1(epoch.NewRegistry(c, 0, time.Time{}, epoch.DefaultEpochLength, utils.None[[]byte]()))
+	registry := utils.OrPanic1(epoch.TestGenesisRegistry(c, 0, epoch.DefaultEpochLength))
 	roads := registry.MustEpoch(0).RoadRange()
 	length := roads.Next - roads.First
 	first := roads.First + types.RoadHeight(idx)*length

@@ -29,7 +29,7 @@ func TestReconstructRoadBlocksAcrossEpochs(t *testing.T) {
 		weights[key.Public()] = 1
 	}
 	committee := utils.OrPanic1(types.NewCommittee(weights))
-	registry := utils.OrPanic1(epoch.NewRegistry(committee, 0, time.Now(), 3, utils.None[[]byte]()))
+	registry := utils.OrPanic1(epoch.TestGenesisRegistry(committee, 0, 3))
 	shared, isolated := newTestDataState(t, registry), newTestDataState(t, registry)
 
 	// Only byzantine validator can be the leader.

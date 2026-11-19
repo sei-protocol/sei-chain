@@ -27,8 +27,11 @@ var ErrAppHashDivergence = errors.New("AppHash divergence")
 
 // Config is the config for the data State.
 type Config struct {
-	// Registry is the authoritative source of committee and stake information.
+	// Registry is the retained epoch window. The view moves only once it holds the epochs of the
+	// view's road.
 	Registry *epoch.Registry
+	// Genesis is the genesis schedule of the epochs.
+	Genesis epoch.GenesisSchedule
 }
 
 // blockEntry contains a FullCommitQC, its lane blocks, and its verifying epoch.
@@ -201,8 +204,11 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 		return nil, fmt.Errorf("blockStore.ReadSuffix(): %w", err)
 	}
 	status, ok := suffix.Status.Get()
+	// TODO: storage reconciliation must bring the registry row to the block store's suffix before
+	// loading. Until then, a suffix the row does not cover fails here.
+	window := cfg.Registry.Epochs()
 	if !ok {
-		genesis, err := cfg.Registry.Epoch(0)
+		genesis, err := windowEpoch(window, 0)
 		if err != nil {
 			return nil, fmt.Errorf("genesis epoch 0: %w", err)
 		}
@@ -228,7 +234,7 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 		anchor:           utils.NewAtomicSend(Anchor{}),
 	}
 	for _, block := range suffix.Blocks {
-		epoch, err := cfg.Registry.Epoch(block.QC().QC().View().EpochIndex)
+		epoch, err := windowEpoch(window, block.QC().QC().View().EpochIndex)
 		if err != nil {
 			return nil, fmt.Errorf("load block from BlockStore: %w", err)
 		}
@@ -259,7 +265,7 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 			return nil, fmt.Errorf("load AppQC from BlockStore: %w", err)
 		}
 	}
-	if err := inner.setAnchor(cfg.Registry); err != nil {
+	if err := inner.setAnchor(window); err != nil {
 		return nil, fmt.Errorf("set anchor: %w", err)
 	}
 	return inner, nil
@@ -275,16 +281,11 @@ func (s *State) First() types.RoadHeight {
 	return s.blockStore.First()
 }
 
-// Registry returns the epoch registry this state prunes.
+// Registry returns the epoch registry this state reads.
 func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
 
 // GenesisTimestamp returns the genesis timestamp.
-func (s *State) GenesisTimestamp() time.Time { return s.cfg.Registry.GenesisTimestamp() }
-
-// ClosingEpoch returns the epoch that road ends, if road is that epoch's last road.
-func (s *State) ClosingEpoch(road types.RoadHeight) utils.Option[types.EpochIndex] {
-	return s.cfg.Registry.ClosingEpoch(road)
-}
+func (s *State) GenesisTimestamp() time.Time { return s.cfg.Genesis.Timestamp }
 
 // PushPartialBlock pushes FullCommitQC and a subset of blocks that were finalized by it.
 // Pushing the qc and blocks is atomic, so that no unnecessary GetBlock RPCs are issued.
@@ -789,13 +790,15 @@ func (s *State) runPersist(ctx context.Context, writeAppProposal func(*types.App
 		if err := s.blockStore.Flush(); err != nil {
 			return fmt.Errorf("flush BlockStore: %w", err)
 		}
+		window, err := s.anchorWindow(ctx, status)
+		if err != nil {
+			return err
+		}
 		for inner, ctrl := range s.inner.Lock() {
 			inner.persisted = status
 			t := time.Now()
-			viewMoved := inner.first < inner.persisted.First
-			if viewMoved ||
-				(!inner.anchor.Load().First.IsPresent() && inner.persisted.First < inner.persisted.NextAppQC) {
-				if err := inner.setAnchor(s.cfg.Registry); err != nil {
+			if window != nil {
+				if err := inner.setAnchor(window); err != nil {
 					return fmt.Errorf("inner.setAnchor(): %w", err)
 				}
 			}
@@ -813,40 +816,78 @@ func (s *State) runPersist(ctx context.Context, writeAppProposal func(*types.App
 				delete(inner.appProposals, inner.first)
 				inner.first += 1
 			}
-			if viewMoved {
-				if err := inner.pruneRegistryToView(s.cfg.Registry); err != nil {
-					return fmt.Errorf("inner.pruneRegistryToView(): %w", err)
-				}
-			}
 			s.metrics.NextBlock.Evict.Set(utils.Clamp[int64](inner.first))
 			ctrl.Updated()
 		}
 	}
 }
 
-// pruneRegistryToView drops epochs before the epoch preceding this view's first
-// road's epoch. The retained epoch before the view's epoch is the one a first
-// road of the view's epoch reads when it derives the registry it stores.
-func (i *inner) pruneRegistryToView(registry *epoch.Registry) error {
-	current, err := registry.EpochAt(i.first)
-	if err != nil {
-		return err
+// anchorNeeded reports whether persisting through status moves the anchor: the view moves, or no
+// anchor is set yet and status persists an AppQC.
+func (i *inner) anchorNeeded(status blockstore.SuffixRange) bool {
+	if i.first < status.First {
+		return true
 	}
-	keep := types.EpochIndex(0)
-	if idx := current.EpochIndex(); idx > 0 {
-		keep = idx - 1
-	}
-	return registry.PruneBefore(keep)
+	return !i.anchor.Load().First.IsPresent() && status.First < status.NextAppQC
 }
 
-func (i *inner) setAnchor(registry *epoch.Registry) error {
-	e0, err := registry.EpochAt(i.persisted.First)
+// anchorWindow waits until the registry holds the epochs of status's first road, when persisting
+// status moves the anchor. It returns the window it waited for, or nil when the anchor does not move.
+func (s *State) anchorWindow(ctx context.Context, status blockstore.SuffixRange) ([]*types.Epoch, error) {
+	var needed bool
+	for inner := range s.inner.Lock() {
+		needed = inner.anchorNeeded(status)
+	}
+	if !needed {
+		return nil, nil
+	}
+	return s.cfg.Registry.Wait(ctx, func(window []*types.Epoch) (bool, error) {
+		_, _, ok, err := anchorEpochs(window, status.First)
+		return ok, err
+	})
+}
+
+// anchorEpochs returns the epoch containing road and the epoch after it in window. ok is false while
+// window does not yet hold both. It returns an error when window has dropped the epoch containing road.
+func anchorEpochs(window []*types.Epoch, road types.RoadHeight) (e0, e1 *types.Epoch, ok bool, err error) {
+	if road < window[0].RoadRange().First {
+		return nil, nil, false, fmt.Errorf("road %d: %w", road, types.ErrPruned)
+	}
+	for i, e := range window {
+		if !e.RoadRange().Has(road) {
+			continue
+		}
+		if i+1 == len(window) {
+			return nil, nil, false, nil
+		}
+		return e, window[i+1], true, nil
+	}
+	return nil, nil, false, nil
+}
+
+// windowEpoch returns the epoch at idx in window. It returns ErrPruned when idx is older than window,
+// and ErrNotFound when it is newer.
+func windowEpoch(window []*types.Epoch, idx types.EpochIndex) (*types.Epoch, error) {
+	if idx < window[0].EpochIndex() {
+		return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrPruned)
+	}
+	for _, e := range window {
+		if e.EpochIndex() == idx {
+			return e, nil
+		}
+	}
+	return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrNotFound)
+}
+
+// setAnchor sets the anchor from window, which must hold the epochs of the persisted first road and
+// the epoch after it.
+func (i *inner) setAnchor(window []*types.Epoch) error {
+	e0, e1, ok, err := anchorEpochs(window, i.persisted.First)
 	if err != nil {
 		return err
 	}
-	e1, err := registry.Epoch(e0.EpochIndex() + 1)
-	if err != nil {
-		return err
+	if !ok {
+		return fmt.Errorf("epoch registry does not hold the epochs of road %d", i.persisted.First)
 	}
 	a := Anchor{Epochs: [2]*types.Epoch{e0, e1}}
 	if i.persisted.First < i.persisted.NextAppQC {

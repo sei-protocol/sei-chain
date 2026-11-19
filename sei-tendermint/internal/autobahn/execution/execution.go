@@ -30,18 +30,6 @@ type Config struct {
 	AppHashBuilder builder.AppHashBuilder
 	// BlockStore holds the blocks to execute.
 	BlockStore *blockstore.Store
-	// EpochHook supplies the epoch state a block carries and observes each committed road.
-	EpochHook EpochHook
-}
-
-// EpochHook supplies the epoch state a block carries and observes each committed road.
-type EpochHook interface {
-	// EpochState returns the epoch state carried by the first road of an epoch,
-	// and none for every other road. The first road blocks until the epoch the
-	// previous road derives is registered. A canceled ctx ends that wait.
-	EpochState(ctx context.Context, road atypes.RoadHeight) (utils.Option[proxy.EpochState], error)
-	// RoadCommitted reports that road has committed, with the validator set committed with it.
-	RoadCommitted(road atypes.RoadHeight, vals []proxy.ValidatorUpdate) error
 }
 
 // Executor executes durable blocks on the app, one at a time in road order.
@@ -81,7 +69,7 @@ func (e *Executor) Run(ctx context.Context) error {
 			return fmt.Errorf("WaitForBlock(%v): %w", n, err)
 		}
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		if err := e.executeBlock(ctx, block.SuperBlock()); err != nil {
+		if err := e.executeBlock(block.SuperBlock()); err != nil {
 			return fmt.Errorf("executeBlock(%v): %w", n, err)
 		}
 		if err := ctx.Err(); err != nil {
@@ -153,23 +141,15 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadHeight, error) {
 		// TODO: for consistency we should also set proposerAddress here,
 		// but this is a placeholder solution so maybe we don't care.
 	})
-	if err := e.cfg.EpochHook.RoadCommitted(last, app.GetValidators()); err != nil {
-		return 0, err
-	}
 	return last + 1, nil
 }
 
-// executeBlock resolves b's epoch state, reports b's hash, then finalizes and
-// commits b. A cancel ends the epoch-state wait and does not interrupt the
-// block once that wait has returned.
-func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error {
-	epochState, err := e.cfg.EpochHook.EpochState(ctx, b.Height)
-	if err != nil {
-		return err
-	}
+// executeBlock reports b's hash to the app hash builder, then finalizes and
+// commits b. A cancel does not interrupt it.
+func (e *Executor) executeBlock(b *atypes.SuperBlock) error {
 	// A cancel must not abort a block after some stores have taken its writes.
-	blockCtx := context.Background()
-	if err := e.cfg.AppHashBuilder.ReportBlockHash(blockCtx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
+	ctx := context.Background()
+	if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
 		return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 	}
 	app := e.cfg.App
@@ -181,9 +161,8 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error
 		proposerAddress = proposer.PubKey.ED25519().Address()
 	}
 
-	resp, err := app.FinalizeBlock(blockCtx, &proxy.RequestFinalizeBlock{
-		Txs:        b.Txs,
-		EpochState: epochState,
+	resp, err := app.FinalizeBlock(ctx, &proxy.RequestFinalizeBlock{
+		Txs: b.Txs,
 
 		// The road block hash identifies the block before execution.
 		// It is used to identify block processed optimistically
@@ -205,11 +184,8 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error
 	gasUsed := finalizeBlockGasUsed(resp)
 
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseAppCommit)
-	if _, err := app.Commit(blockCtx); err != nil {
+	if _, err := app.Commit(ctx); err != nil {
 		return fmt.Errorf("app.Commit(): %w", err)
-	}
-	if err := e.cfg.EpochHook.RoadCommitted(b.Height, app.GetValidators()); err != nil {
-		return err
 	}
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
 	metrics.GasUsed.Add(gasUsed)

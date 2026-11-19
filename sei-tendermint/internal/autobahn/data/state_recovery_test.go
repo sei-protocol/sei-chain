@@ -370,7 +370,7 @@ func TestPushAppHash_ReplayClosingRoadKeepsDerivedEpoch(t *testing.T) {
 	qc, blocks := commitQCAtRoad(ep, keys, registry.LastRoad(0))
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
 	state := newTestState(t, &Config{Registry: registry}, store)
-	require.NoError(t, registry.TryPushEpoch(qc.Height(), map[types.PublicKey]uint64{keeper: 9}))
+	require.NoError(t, registry.TestTryPushEpoch(qc.Height(), map[types.PublicKey]uint64{keeper: 9}))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		return state.PushAppHash(ctx, qc.Height(), hash)
@@ -409,12 +409,10 @@ func TestPushAppHash_RestartAtEpoch1KeepsLastRoadStake(t *testing.T) {
 	later := keys[1].Public()
 	endWeights := map[types.PublicKey]uint64{keeper: 9}
 
-	registry := utils.OrPanic1(epoch.NewRegistry(
+	registry := utils.OrPanic1(epoch.TestGenesisRegistry(
 		baseEpoch0.Committee(),
 		baseEpoch0.RoadRange().First,
-		base.GenesisTimestamp(),
-		epoch.DefaultEpochLength,
-		utils.None[[]byte]()))
+		epoch.DefaultEpochLength))
 	storeDir := t.TempDir()
 	store := newTestBlockStore(t, storeDir)
 	ep0 := registry.MustEpoch(0)
@@ -430,7 +428,7 @@ func TestPushAppHash_RestartAtEpoch1KeepsLastRoadStake(t *testing.T) {
 			return err
 		}
 		n0 := qc0.Height()
-		if err := registry.TryPushEpoch(n0, endWeights); err != nil {
+		if err := registry.TestTryPushEpoch(n0, endWeights); err != nil {
 			return err
 		}
 		if err := state.PushAppHash(ctx, n0, types.GenAppHash(rng)); err != nil {
@@ -446,12 +444,9 @@ func TestPushAppHash_RestartAtEpoch1KeepsLastRoadStake(t *testing.T) {
 	require.Equal(t, types.EpochIndex(2), registry.MustEpoch(2).EpochIndex())
 	require.NoError(t, store.Close())
 
-	registry2 := utils.OrPanic1(epoch.NewRegistry(
-		baseEpoch0.Committee(),
-		baseEpoch0.RoadRange().First,
-		base.GenesisTimestamp(),
-		epoch.DefaultEpochLength,
-		utils.Some(registry.TestPersisted())))
+	persisted, err := epoch.Decode(epoch.Encode(registry.Epochs()))
+	require.NoError(t, err)
+	registry2 := utils.OrPanic1(epoch.NewRegistry(persisted))
 	store2 := newTestBlockStore(t, storeDir)
 	state2 := newTestState(t, &Config{Registry: registry2}, store2)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -473,7 +468,7 @@ func TestPushAppHash_ReplayClosingSuperBlockKeepsDerivedEpoch(t *testing.T) {
 	ep := registry.MustEpoch(0)
 	qc, blocks := commitQCAtRoadBlocks(ep, keys, registry.LastRoad(0), 2)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
-	utils.OrPanic(registry.TryPushEpoch(qc.Height(), map[types.PublicKey]uint64{keys[0].Public(): 9}))
+	utils.OrPanic(registry.TestTryPushEpoch(qc.Height(), map[types.PublicKey]uint64{keys[0].Public(): 9}))
 	utils.OrPanic(store.WriteAppProposal(types.NewAppProposal(qc.QC().View(), appHash)))
 	utils.OrPanic(store.Flush())
 	state := newTestState(t, &Config{Registry: registry}, store)
@@ -509,7 +504,7 @@ func TestNewState_PreservesExecutionDerivedEpoch(t *testing.T) {
 			store := newTestStore(t)
 			qc, blocks := commitQCAtRoad(ep, keys, registry.LastRoad(0))
 			writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
-			require.NoError(t, registry.TryPushEpoch(qc.Height(), map[types.PublicKey]uint64{keys[0].Public(): 9}))
+			require.NoError(t, registry.TestTryPushEpoch(qc.Height(), map[types.PublicKey]uint64{keys[0].Public(): 9}))
 			if certified {
 				writeAppDataToBlockStore(t, rng, store, keys, qc)
 			}
@@ -530,7 +525,8 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 	store := newTestBlockStore(t, dir)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
 	require.NoError(t, store.Close())
-	require.NoError(t, registry.PruneBefore(2))
+	// The retained window starts at epoch 2, so the genesis epochs are gone.
+	registry.Store(registry.Epochs()[1:])
 	for idx := range 2 {
 		_, err := registry.Epoch(types.EpochIndex(idx))
 		require.ErrorIs(t, err, types.ErrPruned)
@@ -543,30 +539,20 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 	require.Equal(t, types.EpochIndex(2), state.Anchor().Load().NextHeightEpoch().EpochIndex())
 }
 
-// TestPruneFollowsTheView pins that setAnchor leaves the registry alone and that
-// the view's epoch keeps the epoch before it. With the view in epoch 2, epoch 0
-// is dropped and epoch 1 is kept. Deleting PruneBefore from pruneRegistryToView
-// leaves epoch 0 readable.
-func TestPruneFollowsTheView(t *testing.T) {
+// TestSetAnchorLeavesWindowAlone pins that setAnchor reads the registry window without changing it.
+// The anchor holds the epoch of the persisted first road and the epoch after it.
+func TestSetAnchorLeavesWindowAlone(t *testing.T) {
 	rng := utils.TestRng()
-	registry, _ := epoch.GenRegistryThrough(rng, 1, 3)
+	registry, keys := epoch.GenRegistry(rng, 1)
 	state := newTestState(t, &Config{Registry: registry}, newTestStore(t))
-
+	weights := map[types.PublicKey]uint64{keys[0].Public(): 9}
+	require.NoError(t, registry.TestPushEpoch(0, weights))
+	require.NoError(t, registry.TestPushEpoch(1, weights))
+	before := registry.Epochs()
 	for inner := range state.inner.Lock() {
 		inner.persisted.First = registry.MustEpoch(2).RoadRange().First
-		require.NoError(t, inner.setAnchor(registry))
-		_, err := registry.Epoch(0)
-		require.NoError(t, err)
-
-		inner.first = inner.persisted.First
-		require.NoError(t, inner.pruneRegistryToView(registry))
+		require.NoError(t, inner.setAnchor(before))
 	}
-	_, err := registry.Epoch(0)
-	require.ErrorIs(t, err, types.ErrPruned)
-	_, err = registry.Epoch(1)
-	require.NoError(t, err)
-	_, err = registry.Epoch(2)
-	require.NoError(t, err)
-	require.Equal(t, types.EpochIndex(2), state.Anchor().Load().Epochs[0].EpochIndex())
-	require.Equal(t, types.EpochIndex(3), state.Anchor().Load().Epochs[1].EpochIndex())
+	require.Equal(t, before, registry.Epochs())
+	require.Equal(t, [2]*types.Epoch{registry.MustEpoch(2), registry.MustEpoch(3)}, state.Anchor().Load().Epochs)
 }

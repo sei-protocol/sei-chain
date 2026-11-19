@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"testing/synctest"
 
@@ -381,6 +382,17 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 	}
 }
 
+// pruneWindowTo drops the epochs before idx from registry's window.
+func pruneWindowTo(registry *epoch.Registry, idx types.EpochIndex) {
+	var window []*types.Epoch
+	for _, e := range registry.Epochs() {
+		if e.EpochIndex() >= idx {
+			window = append(window, e)
+		}
+	}
+	registry.Store(window)
+}
+
 func TestRestoreInnerNextEpoch(t *testing.T) {
 	t.Run("genesis anchor survives registry pruning", func(t *testing.T) {
 		rng := utils.TestRng()
@@ -389,7 +401,7 @@ func TestRestoreInnerNextEpoch(t *testing.T) {
 		i, err := newInner(ds.Anchor().Load(), ds.GenesisTimestamp(), &loadedState{})
 		require.NoError(t, err)
 		require.Equal(t, registry.MustEpoch(0), i.applied())
-		require.NoError(t, registry.PruneBefore(1))
+		pruneWindowTo(registry, 1)
 		restored, err := newInner(ds.Anchor().Load(), ds.GenesisTimestamp(), &loadedState{})
 		require.NoError(t, err)
 		require.Equal(t, i.applied(), restored.applied())
@@ -1069,7 +1081,7 @@ func TestAdvanceRequiresAnchorAndSeal(t *testing.T) {
 	qc2 := types.BuildCommitQC(ep1, keys, utils.Some(qc1), nil)
 	qc3 := types.BuildCommitQC(ep1, keys, utils.Some(qc2), nil)
 	anchor := data.Anchor{Epochs: [2]*types.Epoch{ep0, ep1}}
-	i, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{commitQCs: []*types.CommitQC{qc0, qc1, qc2, qc3}})
+	i, err := newInner(anchor, testGenesisTimestamp, &loadedState{commitQCs: []*types.CommitQC{qc0, qc1, qc2, qc3}})
 	require.NoError(t, err)
 	// Road 4 seals epoch 1, but the spec cannot advance to 5 while epoch 2 is missing.
 	require.Equal(t, ep1, i.applied())
@@ -1084,32 +1096,46 @@ func TestAdvanceRequiresAnchorAndSeal(t *testing.T) {
 	require.Equal(t, ep2, i.applied())
 	require.Equal(t, utils.Some(qc3), i.consensusSpec.Load().CommitQC)
 	// With the same anchor but no persisted qc3, the spec stays at road 4 in epoch 1.
-	beforeSeal, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{})
+	beforeSeal, err := newInner(anchor, testGenesisTimestamp, &loadedState{})
 	require.NoError(t, err)
 	require.Equal(t, ep1, beforeSeal.applied())
 	require.Equal(t, utils.Some(qc2), beforeSeal.consensusSpec.Load().CommitQC)
 }
 
+// deriveEpochs derives epochs through through into registry and returns epochs 0 through through.
+// The registry retains only its newest three epochs, so each epoch is captured as it is derived.
+func deriveEpochs(t *testing.T, registry *epoch.Registry, keys []types.SecretKey, through types.EpochIndex) []*types.Epoch {
+	t.Helper()
+	epochs := slices.Clone(registry.Epochs())
+	weights := map[types.PublicKey]uint64{}
+	for _, key := range keys {
+		weights[key.Public()] = 1000
+	}
+	for idx := types.EpochIndex(2); idx <= through; idx++ {
+		require.NoError(t, registry.TestPushEpoch(idx-2, weights))
+		epochs = append(epochs, registry.MustEpoch(idx))
+	}
+	return epochs
+}
+
 // anchorWalk is the Anchor sequence data publishes as it certifies the last
-// road of epochs 0 through 2. Build it before the registry drops those epochs.
-func anchorWalk(t *testing.T, registry *epoch.Registry, keys []types.SecretKey) []data.Anchor {
+// road of epochs 0 through 2, where epochs[i] is epoch i.
+func anchorWalk(t *testing.T, epochs []*types.Epoch, keys []types.SecretKey) []data.Anchor {
 	t.Helper()
 	var anchors []data.Anchor
-	for m := types.EpochIndex(0); m <= 2; m++ {
-		ep := registry.MustEpoch(m)
-		last := registry.LastRoad(m)
+	for m := range 3 {
+		ep := epochs[m]
+		last := ep.RoadRange().Next - 1
 		qc := types.BuildCommitQC(ep, keys, utils.Some(tipLink(ep, keys[0], last-1)), nil)
 		require.Equal(t, last, qc.Height())
 		anchors = append(anchors, data.Anchor{First: utils.Some(data.AnchorFirst{
 			CommitQC: qc,
 			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.View(), types.AppHash{})),
-		}), Epochs: [2]*types.Epoch{ep, registry.MustEpoch(m + 1)}})
+		}), Epochs: [2]*types.Epoch{ep, epochs[m+1]}})
 	}
 	return anchors
 }
 
-// pruneToAnchors replays anchors through inner.setAnchor the way runEvict does, and
-// returns the last CommitQC.
 func pruneToAnchors(state *State, anchors []data.Anchor) *types.CommitQC {
 	for _, a := range anchors {
 		for inner, ctrl := range state.inner.Lock() {
@@ -1131,17 +1157,16 @@ func TestPruneAdvancesConsensusSpec(t *testing.T) {
 	for _, withTip := range []bool{false, true} {
 		t.Run(fmt.Sprint(withTip), func(t *testing.T) {
 			rng := utils.TestRng()
-			registry, keys := epoch.GenRegistryThrough(rng, 3, 3)
+			registry, keys := epoch.GenRegistry(rng, 3)
 			state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
 			if withTip {
 				qc := types.BuildCommitQC(registry.MustEpoch(0), keys, utils.None[*types.CommitQC](), nil)
 				require.NoError(t, state.PushCommitQC(t.Context(), qc))
 				state.markCommitQCsPersisted(qc)
 			}
-			anchors := anchorWalk(t, registry, keys)
+			anchors := anchorWalk(t, deriveEpochs(t, registry, keys, 3), keys)
 			qc := pruneToAnchors(state, anchors[:2])
 			requireSpec(t, state, qc, 2)
-			require.NoError(t, registry.PruneBefore(3))
 			qc = pruneToAnchors(state, anchors[2:])
 			requireSpec(t, state, qc, 3)
 		})
@@ -1150,14 +1175,15 @@ func TestPruneAdvancesConsensusSpec(t *testing.T) {
 
 func TestMarkCommitQCsPersistedDoesNotRewindSpecAfterPrune(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistryThrough(rng, 2, 3)
+	registry, keys := epoch.GenRegistry(rng, 2)
 	ds := newTestDataState(t, &data.Config{Registry: registry})
 	state, err := NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)
-	qc0 := types.BuildCommitQC(registry.MustEpoch(0), keys, utils.None[*types.CommitQC](), nil)
+	epochs := deriveEpochs(t, registry, keys, 3)
+	qc0 := types.BuildCommitQC(epochs[0], keys, utils.None[*types.CommitQC](), nil)
 	require.NoError(t, state.PushCommitQC(t.Context(), qc0))
 	state.markCommitQCsPersisted(qc0)
-	qc := pruneToAnchors(state, anchorWalk(t, registry, keys))
+	qc := pruneToAnchors(state, anchorWalk(t, epochs, keys))
 	spec := state.ConsensusSpec().Load()
 	require.Equal(t, utils.Some(qc), spec.CommitQC)
 	state.markCommitQCsPersisted(qc0)
