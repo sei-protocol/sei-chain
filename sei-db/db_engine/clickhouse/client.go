@@ -102,15 +102,13 @@ func (c *Client) Do(ctx context.Context, q ch.Query) error {
 	return err
 }
 
-// Insert writes input into table and returns once the server has stored it. An insert carrying a
-// token the table has already seen, within its deduplication window, writes nothing.
-func (c *Client) Insert(ctx context.Context, table string, input proto.Input, token string) error {
+// Insert writes input into table and returns once the server has stored it.
+func (c *Client) Insert(ctx context.Context, table string, input proto.Input) error {
 	return c.Do(ctx, ch.Query{
 		Body:  input.Into(table),
 		Input: input,
 		Settings: []ch.Setting{
-			{Key: "insert_deduplication_token", Value: token},
-			// The server-side async insert buffer does not deduplicate by token.
+			// A profile that turns async inserts on could answer before the rows are stored.
 			{Key: "async_insert", Value: "0"},
 		},
 	})

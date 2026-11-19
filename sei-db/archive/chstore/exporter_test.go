@@ -1,6 +1,7 @@
 package chstore
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -29,4 +30,14 @@ func TestArchiveBlockTakesOnlyTheNextBlock(t *testing.T) {
 	e.closed = true
 	next := testBlock(6)
 	require.ErrorContains(t, e.ArchiveBlock(t.Context(), &next), "closed")
+}
+
+func TestArchiveBlockRefusesBlocksAfterAFailedWrite(t *testing.T) {
+	e := &Exporter{cur: newBatch(), next: 5}
+	failed := errors.New("insert failed")
+	e.writeErr.Store(&failed)
+
+	block := testBlock(5)
+	require.ErrorIs(t, e.ArchiveBlock(t.Context(), &block), failed)
+	require.Zero(t, e.cur.blocks)
 }

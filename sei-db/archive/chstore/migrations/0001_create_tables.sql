@@ -1,9 +1,8 @@
 -- The archive's tables.
 --
 -- Block-ordered tables are partitioned by 10M-block ranges, and hash-keyed tables into 32 buckets
--- so a lookup reads one bucket's parts. Every table keeps the deduplication log of its last
--- 100,000 inserts, so a retried insert is written once, and has automatic statistics off: they
--- cost CPU on every insert and merge.
+-- so a lookup reads one bucket's parts. Every table has automatic statistics off: they cost CPU on
+-- every insert and merge.
 --
 -- Inserts are not fsynced. A process crash loses nothing, but a machine crash or power loss can
 -- lose the newest inserts in any order, leaving an archive_commits row whose rows are gone, or
@@ -34,7 +33,7 @@ CREATE TABLE IF NOT EXISTS archive_commits
 )
 ENGINE = MergeTree
 ORDER BY (end_block, committed)
-SETTINGS non_replicated_deduplication_window = 100000, auto_statistics_types = '';
+SETTINGS auto_statistics_types = '';
 
 CREATE TABLE IF NOT EXISTS blocks
 (
@@ -50,7 +49,7 @@ CREATE TABLE IF NOT EXISTS blocks
 ENGINE = MergeTree
 PARTITION BY intDiv(block_number, 10000000)
 ORDER BY block_number
-SETTINGS index_granularity = 1024, non_replicated_deduplication_window = 100000, auto_statistics_types = '';
+SETTINGS index_granularity = 1024, auto_statistics_types = '';
 
 -- executed is 0 for a transaction that is in its block but never ran.
 CREATE TABLE IF NOT EXISTS transactions_receipts
@@ -72,7 +71,7 @@ CREATE TABLE IF NOT EXISTS transactions_receipts
 ENGINE = MergeTree
 PARTITION BY intDiv(block_number, 10000000)
 ORDER BY (block_number, transaction_index)
-SETTINGS non_replicated_deduplication_window = 100000, auto_statistics_types = '';
+SETTINGS auto_statistics_types = '';
 
 -- Finds a block or transaction by hash: hash_prefix is the hash's big-endian first eight bytes,
 -- and location the block number, or the block number << 24 | transaction index. A hash with
@@ -87,7 +86,7 @@ CREATE TABLE IF NOT EXISTS hash_locator
 ENGINE = MergeTree
 PARTITION BY modulo(hash_prefix, 32)
 ORDER BY (hash_prefix, object_kind, location)
-SETTINGS index_granularity = 4096, non_replicated_deduplication_window = 100000, auto_statistics_types = '';
+SETTINGS index_granularity = 4096, auto_statistics_types = '';
 
 -- The text index holds, per log, 'a' plus the raw address and the topic position digit
 -- ('0'..'3') plus each raw topic.
@@ -108,7 +107,7 @@ CREATE TABLE IF NOT EXISTS logs
 ENGINE = MergeTree
 PARTITION BY intDiv(block_number, 10000000)
 ORDER BY (block_number, transaction_index, log_index)
-SETTINGS index_granularity = 2048, non_replicated_deduplication_window = 100000, auto_statistics_types = '';
+SETTINGS index_granularity = 2048, auto_statistics_types = '';
 
 -- The state of each account a block changed, after the block.
 CREATE TABLE IF NOT EXISTS account_changes
@@ -122,7 +121,7 @@ CREATE TABLE IF NOT EXISTS account_changes
 ENGINE = MergeTree
 PARTITION BY intDiv(block_number, 10000000)
 ORDER BY (block_number, address)
-SETTINGS non_replicated_deduplication_window = 100000, auto_statistics_types = '';
+SETTINGS auto_statistics_types = '';
 
 -- The blocks in which each account changed. block_number keeps per-part min/max statistics, so a
 -- read at an old height skips the parts written after it.
@@ -134,7 +133,7 @@ CREATE TABLE IF NOT EXISTS account_history
 ENGINE = MergeTree
 PARTITION BY modulo(sipHash64(address), 32)
 ORDER BY (sipHash64(address), block_number)
-SETTINGS non_replicated_deduplication_window = 100000, auto_statistics_types = '';
+SETTINGS auto_statistics_types = '';
 
 -- The value of each slot a block wrote, after the block; a cleared slot is zero.
 CREATE TABLE IF NOT EXISTS storage_changes
@@ -147,7 +146,7 @@ CREATE TABLE IF NOT EXISTS storage_changes
 ENGINE = MergeTree
 PARTITION BY intDiv(block_number, 10000000)
 ORDER BY (block_number, address, slot)
-SETTINGS non_replicated_deduplication_window = 100000, auto_statistics_types = '';
+SETTINGS auto_statistics_types = '';
 
 -- The blocks in which each slot changed, with min/max statistics on block_number as in
 -- account_history.
@@ -160,7 +159,7 @@ CREATE TABLE IF NOT EXISTS storage_history
 ENGINE = MergeTree
 PARTITION BY modulo(sipHash64(address, slot), 32)
 ORDER BY (sipHash64(address, slot), block_number)
-SETTINGS non_replicated_deduplication_window = 100000, auto_statistics_types = '';
+SETTINGS auto_statistics_types = '';
 
 -- Bytecode deployed more than once is written more than once; merges keep one copy.
 CREATE TABLE IF NOT EXISTS contract_code
@@ -170,4 +169,4 @@ CREATE TABLE IF NOT EXISTS contract_code
 )
 ENGINE = ReplacingMergeTree
 ORDER BY code_hash
-SETTINGS index_granularity = 2048, non_replicated_deduplication_window = 100000, auto_statistics_types = '';
+SETTINGS index_granularity = 2048, auto_statistics_types = '';

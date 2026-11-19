@@ -89,8 +89,8 @@ func (w *writer) nextBlock(ctx context.Context) (uint64, error) {
 }
 
 // write inserts a pending row for b, then b's rows into every data table, then the committed row that
-// marks its blocks complete. Writing the same batch again inserts nothing twice: every insert carries a
-// deduplication token naming the table and the batch's block range.
+// marks its blocks complete. A write that fails leaves b pending, and writing b again inserts the rows
+// it already stored a second time.
 func (w *writer) write(ctx context.Context, b *batch) error {
 	if err := w.insertCommit(ctx, b.first, b.last, false); err != nil {
 		return fmt.Errorf("mark blocks %d-%d pending: %w", b.first, b.last, err)
@@ -103,7 +103,7 @@ func (w *writer) write(ctx context.Context, b *batch) error {
 			continue
 		}
 		g.Go(func() error {
-			if err := w.insert(ctx, t.name, t.input, b.first, b.last); err != nil {
+			if err := w.client.Insert(ctx, t.name, t.input); err != nil {
 				return fmt.Errorf("insert %s blocks %d-%d: %w", t.name, b.first, b.last, err)
 			}
 			return nil
@@ -133,11 +133,5 @@ func (w *writer) insertCommit(ctx context.Context, first, last uint64, committed
 		{Name: "committed", Data: &flag},
 		{Name: "written_at", Data: at},
 	}
-	token := fmt.Sprintf("%s:%d-%d:%t", tableCommits, first, last, committed)
-	return w.client.Insert(ctx, tableCommits, row, token)
-}
-
-// insert writes input to table, deduplicated by a token for the block range.
-func (w *writer) insert(ctx context.Context, table string, input proto.Input, first, last uint64) error {
-	return w.client.Insert(ctx, table, input, fmt.Sprintf("%s:%d-%d", table, first, last))
+	return w.client.Insert(ctx, tableCommits, row)
 }

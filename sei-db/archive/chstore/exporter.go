@@ -2,7 +2,6 @@ package chstore
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -28,8 +27,6 @@ const (
 	maxBatchRows   = 1_000_000
 	maxBatchBytes  = 256 << 20
 	flushInterval  = time.Second
-	// closingAttempts is how many times a batch is tried once the exporter is closing.
-	closingAttempts = 3
 )
 
 // Exporter writes every block the executor produces to the archive, in order and in batches. It
@@ -45,9 +42,8 @@ type Exporter struct {
 	done      chan struct{}
 	closeOnce sync.Once
 
-	// lost reports that a batch was given up on while closing. writeBatches sets it before done
-	// closes.
-	lost bool
+	// writeErr is the first failed write. Once it is set, no batch is written.
+	writeErr atomic.Pointer[error]
 
 	// latest is the block before the next one the archive expects, 0 when it expects none yet.
 	latest atomic.Uint64
@@ -97,14 +93,18 @@ func StartExporter(ctx context.Context, cfg clickhouse.Config) (*Exporter, error
 }
 
 // ArchiveBlock copies block into the current batch, keeping no reference to it. It returns an error
-// for a block other than the one it expects next, for one it cannot encode, and once the exporter is
-// closed. When the block fills the batch, it waits for the previous batch to be written.
+// for a block other than the one it expects next, for one it cannot encode, once a batch has failed to
+// be written, and once the exporter is closed. When the block fills the batch, it waits for the
+// previous batch to be written.
 func (e *Exporter) ArchiveBlock(ctx context.Context, block *archive.ExecutedBlock) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	number := block.Number
 	if e.closed {
 		return fmt.Errorf("archive exporter is closed; block %d not archived", number)
+	}
+	if err := e.writeFailure(); err != nil {
+		return err
 	}
 	if e.next == 0 {
 		// Recorded before the block is accepted, so a restart that lost the first batch rolls the node
@@ -146,12 +146,10 @@ func (e *Exporter) LatestBlock() uint64 {
 	return e.latest.Load()
 }
 
-// Close writes the blocks the exporter holds and stops it, reporting an error when some of them could
-// not be written. It must be called after the last ArchiveBlock has returned.
+// Close writes the blocks the exporter holds and stops it, returning the first failed write. It must
+// be called after the last ArchiveBlock has returned.
 func (e *Exporter) Close() error {
 	e.closeOnce.Do(func() {
-		// Before the last flush, so a batch the writer is still retrying is given up on rather than
-		// waited for.
 		close(e.stop)
 		e.mu.Lock()
 		e.closed = true
@@ -161,10 +159,7 @@ func (e *Exporter) Close() error {
 		<-e.done
 		e.writer.close()
 	})
-	if e.lost {
-		return errors.New("archive exporter closed with unwritten blocks")
-	}
-	return nil
+	return e.writeFailure()
 }
 
 // flush hands the current batch to the writer, waiting while it writes the previous one. The
@@ -206,44 +201,72 @@ func (e *Exporter) flushPeriodically() {
 }
 
 // writeBatches writes the batches it receives on full and hands them back on free, until full is
-// closed. After a batch is given up on while closing, it drops the rest.
+// closed. After a write fails, it drops the rest.
 func (e *Exporter) writeBatches() {
 	defer close(e.done)
 	for b := range e.full {
-		if e.lost {
-			logger.Error("archive exporter closing; batch not archived", "from", b.first, "to", b.last)
-		} else {
-			e.lost = !e.writeWithRetry(b)
+		if e.writeFailure() != nil {
+			logger.Error("archive batch dropped after a failed write", "from", b.first, "to", b.last)
+		} else if err := e.writeBatch(b); err != nil {
+			logger.Error("archive batch write failed", "from", b.first, "to", b.last, "err", err)
+			e.writeErr.Store(&err)
 		}
 		b.reset()
 		e.free <- b
 	}
 }
 
-// writeWithRetry writes b, retrying until it succeeds. Once the exporter is closing it gives up
-// after closingAttempts and reports false.
-func (e *Exporter) writeWithRetry(b *batch) bool {
-	for attempt := 1; ; attempt++ {
-		ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
-		err := e.writer.write(ctx, b)
-		cancel()
-		if err == nil {
-			e.latest.Store(b.last)
-			logger.Debug("archive batch committed", "from", b.first, "to", b.last, "txs", b.txs)
-			return true
-		}
-		logger.Error("archive batch write failed; retrying", "from", b.first, "to", b.last, "attempt", attempt, "err", err)
-		select {
-		case <-time.After(backoff(attempt)):
-		case <-e.stop:
-			if attempt >= closingAttempts {
-				logger.Error("archive exporter closing with an unwritten batch", "from", b.first, "to", b.last)
-				return false
-			}
-		}
+// writeBatch writes b in a single attempt bounded by writeTimeout.
+func (e *Exporter) writeBatch(b *batch) error {
+	ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
+	defer cancel()
+	if err := e.writer.write(ctx, b); err != nil {
+		return err
 	}
+	e.latest.Store(b.last)
+	logger.Debug("archive batch committed", "from", b.first, "to", b.last, "txs", b.txs)
+	return nil
 }
 
-func backoff(attempt int) time.Duration {
-	return min(time.Duration(1<<min(attempt, 6))*100*time.Millisecond, 10*time.Second)
+// writeFailure returns the first failed write, or nil when every write so far has succeeded.
+func (e *Exporter) writeFailure() error {
+	if err := e.writeErr.Load(); err != nil {
+		return *err
+	}
+	return nil
 }
+
+// A failed write is not retried: a retry inserts again the rows the failed attempt stored. Retrying
+// needs every table to drop a repeated insert, with a non_replicated_deduplication_window in its
+// settings and an insert_deduplication_token on every insert, and then writeBatches can call:
+//
+// // closingAttempts is how many times a batch is tried once the exporter is closing.
+// const closingAttempts = 3
+//
+// // writeWithRetry writes b, retrying until it succeeds. Once the exporter is closing it gives up
+// // after closingAttempts and reports false.
+// func (e *Exporter) writeWithRetry(b *batch) bool {
+// 	for attempt := 1; ; attempt++ {
+// 		ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
+// 		err := e.writer.write(ctx, b)
+// 		cancel()
+// 		if err == nil {
+// 			e.latest.Store(b.last)
+// 			logger.Debug("archive batch committed", "from", b.first, "to", b.last, "txs", b.txs)
+// 			return true
+// 		}
+// 		logger.Error("archive batch write failed; retrying", "from", b.first, "to", b.last, "attempt", attempt, "err", err)
+// 		select {
+// 		case <-time.After(backoff(attempt)):
+// 		case <-e.stop:
+// 			if attempt >= closingAttempts {
+// 				logger.Error("archive exporter closing with an unwritten batch", "from", b.first, "to", b.last)
+// 				return false
+// 			}
+// 		}
+// 	}
+// }
+//
+// func backoff(attempt int) time.Duration {
+// 	return min(time.Duration(1<<min(attempt, 6))*100*time.Millisecond, 10*time.Second)
+// }
