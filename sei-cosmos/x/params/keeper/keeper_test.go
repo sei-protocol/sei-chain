@@ -314,6 +314,7 @@ func TestDisabledMsgTypeURLs(t *testing.T) {
 	require.Equal(t, before, ctx.GasMeter().GasConsumed(), "reading the disabled message type URLs charged gas")
 
 	require.Panics(t, func() { keeper.SetDisabledMsgTypeURLs(ctx, []string{"cosmos.bank.v1beta1.MsgSend"}) })
+	require.Panics(t, func() { keeper.SetDisabledMsgTypeURLs(ctx, []string{"/cosmos.bank.v1beta1.MsgSnd"}) })
 	require.Equal(t, typeURLs, keeper.GetDisabledMsgTypeURLs(ctx))
 }
 
@@ -329,6 +330,11 @@ func TestUpdateDisabledMsgTypeURLs(t *testing.T) {
 	require.Equal(t, []string{"/cosmos.bank.v1beta1.MsgSend"}, keeper.GetDisabledMsgTypeURLs(ctx))
 
 	require.Error(t, subspace.Update(ctx, types.ParamStoreKeyDisabledMsgTypeURLs, []byte(`["MsgSend"]`)))
+	require.Equal(t, []string{"/cosmos.bank.v1beta1.MsgSend"}, keeper.GetDisabledMsgTypeURLs(ctx))
+
+	err := subspace.Update(ctx, types.ParamStoreKeyDisabledMsgTypeURLs,
+		[]byte(`["/cosmos.staking.v1beta1.MsgDelegate","/cosmos.bank.v1beta1.MsgSnd"]`))
+	require.ErrorContains(t, err, `"/cosmos.bank.v1beta1.MsgSnd" is not the type URL of a registered message`)
 	require.Equal(t, []string{"/cosmos.bank.v1beta1.MsgSend"}, keeper.GetDisabledMsgTypeURLs(ctx))
 
 	require.NoError(t, subspace.Update(ctx, types.ParamStoreKeyDisabledMsgTypeURLs, []byte(`[]`)))

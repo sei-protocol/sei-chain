@@ -3,8 +3,9 @@ package types
 import (
 	"errors"
 	"fmt"
-	"strings"
+	"slices"
 
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
@@ -18,12 +19,13 @@ func NewFeesParams(minGasPrices sdk.DecCoins) FeesParams {
 	}
 }
 
-// ParamTable for minting module.
-func ParamKeyTable() KeyTable {
+// ParamKeyTable returns the key table of the params module's own subspace. The disabled
+// message type URLs it accepts are those of the messages registered in registry.
+func ParamKeyTable(registry codectypes.InterfaceRegistry) KeyTable {
 	return NewKeyTable(
 		NewParamSetPair(ParamStoreKeyFeesParams, &FeesParams{}, validateFeesParams),
 		NewParamSetPair(ParamStoreKeyCosmosGasParams, &CosmosGasParams{}, validateCosmosGasParams),
-		NewParamSetPair(ParamStoreKeyDisabledMsgTypeURLs, &[]string{}, validateDisabledMsgTypeURLs),
+		NewParamSetPair(ParamStoreKeyDisabledMsgTypeURLs, &[]string{}, disabledMsgTypeURLsValidator(registry)),
 	)
 }
 
@@ -79,21 +81,20 @@ func validateCosmosGasParams(i interface{}) error {
 	return nil
 }
 
-// ValidateDisabledMsgTypeURLs returns an error unless every entry of typeURLs has the form of
-// a message type URL: a slash followed by the message's protobuf name.
-func ValidateDisabledMsgTypeURLs(typeURLs []string) error {
-	for _, typeURL := range typeURLs {
-		if len(typeURL) < 2 || !strings.HasPrefix(typeURL, "/") {
-			return fmt.Errorf("disabled message type URL %q is not a slash followed by a message name", typeURL)
+// disabledMsgTypeURLsValidator returns the validator of the disabled message type URLs, which
+// refuses a list unless every entry is the type URL of a message registered in registry.
+func disabledMsgTypeURLsValidator(registry codectypes.InterfaceRegistry) ValueValidatorFn {
+	return func(i interface{}) error {
+		typeURLs, ok := i.([]string)
+		if !ok {
+			return fmt.Errorf("invalid parameter type: %T", i)
 		}
+		msgTypeURLs := registry.ListImplementations(sdk.MsgInterfaceProtoName)
+		for _, typeURL := range typeURLs {
+			if !slices.Contains(msgTypeURLs, typeURL) {
+				return fmt.Errorf("disabled message type URL %q is not the type URL of a registered message", typeURL)
+			}
+		}
+		return nil
 	}
-	return nil
-}
-
-func validateDisabledMsgTypeURLs(i interface{}) error {
-	v, ok := i.([]string)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-	return ValidateDisabledMsgTypeURLs(v)
 }
