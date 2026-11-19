@@ -6,8 +6,8 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
-	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 )
@@ -25,7 +25,7 @@ type GigaStorageConfig struct {
 	AppHashBuilderConfig *builder.AppHashBuilderConfig    // required
 	ReceiptHasherConfig  *receipthash.ReceiptHasherConfig // required
 	BUDHasherConfig      *bud.BUDHasherConfig             // required
-	ArchiveConfig        *archive.Config                  // optional; nil disables the archive
+	ArchiveConfig        *clickhouse.Config               // optional; nil disables the archive
 	// The file present while a node holds these stores open. Empty disables it.
 	RunningMarkerPath string
 }

@@ -40,7 +40,7 @@ type GigaStorageManager struct {
 	receiptDB receiptdb.ReceiptStore
 
 	// archive is nil when ArchiveConfig is nil.
-	archive *archive.Exporter
+	archive archive.ArchivalStore
 
 	// stateDB owns the live state DB, the historical state DB and the state WAL they share, along
 	// with the checkpoint schedule those stores run on.
@@ -159,12 +159,12 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 	}
 
 	timer.SetPhase("archive")
-	exporter, err := openArchive(ctx, cfg)
+	archiveStore, err := openArchive(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("open archive: %w", err)
 	}
-	if exporter != nil {
-		defer closeOnFailure(&retErr, "archive", exporter.Close)
+	if archiveStore != nil {
+		defer closeOnFailure(&retErr, "archive", archiveStore.Close)
 	}
 
 	timer.SetPhase("app_hash_builder_setup")
@@ -192,7 +192,7 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 		cfg:            cfg,
 		blockStore:     blockStore,
 		receiptDB:      receiptDB,
-		archive:        exporter,
+		archive:        archiveStore,
 		stateDB:        stateDB,
 		gc:             gc,
 		appHashBuilder: appHashBuilder,
@@ -329,8 +329,8 @@ func (m *GigaStorageManager) BlockStore() *blockstore.Store { return m.blockStor
 // ReceiptDB returns the receipt store, or nil when receipts are disabled.
 func (m *GigaStorageManager) ReceiptDB() receiptdb.ReceiptStore { return m.receiptDB }
 
-// Archive returns the history archive exporter, or nil when no archive is configured.
-func (m *GigaStorageManager) Archive() *archive.Exporter { return m.archive }
+// Archive returns the history archive, or nil when no archive is configured.
+func (m *GigaStorageManager) Archive() archive.ArchivalStore { return m.archive }
 
 // StateDB returns the Giga state DB over the state WAL, the live state DB and the historical state DB.
 func (m *GigaStorageManager) StateDB() *giga.StateDB { return m.stateDB }

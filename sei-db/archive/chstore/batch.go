@@ -1,6 +1,6 @@
-// Package archive writes the EVM-only chain's history to ClickHouse: blocks, transactions with
-// their receipts, logs, and every account and storage change.
-package archive
+// Package chstore is the ClickHouse implementation of archive.ArchivalStore. It stores blocks,
+// transactions with their receipts, logs, and every account and storage change.
+package chstore
 
 import (
 	"bytes"
@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/holiman/uint256"
 
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
@@ -78,7 +79,7 @@ func newBatch() *batch {
 }
 
 // add appends the rows of block to the batch. On error the batch is unchanged.
-func (b *batch) add(block *Block) error {
+func (b *batch) add(block *archive.ExecutedBlock) error {
 	number := block.Number
 	n := len(block.Txs)
 	if number >= 1<<(64-txIndexBits) || n >= 1<<txIndexBits {
@@ -103,7 +104,7 @@ func (b *batch) add(block *Block) error {
 
 // encodeTxs writes the canonical encoding of block's transactions to encoded, refusing a
 // transaction without its receipt.
-func (b *batch) encodeTxs(block *Block) error {
+func (b *batch) encodeTxs(block *archive.ExecutedBlock) error {
 	number := block.Number
 	b.encoded.Reset()
 	b.payloads = b.payloads[:0]
@@ -130,7 +131,7 @@ func (b *batch) encodeTxs(block *Block) error {
 }
 
 // addHeader appends the header of block.
-func (b *batch) addHeader(block *Block) {
+func (b *batch) addHeader(block *archive.ExecutedBlock) {
 	r := &b.blockRows
 	r.number.Append(block.Number)
 	r.hash.Append(block.Hash)
@@ -144,7 +145,7 @@ func (b *batch) addHeader(block *Block) {
 }
 
 // addTx appends transaction i of block number, its receipt and its logs.
-func (b *batch) addTx(number uint64, blockHash common.Hash, i int, tx *Tx) {
+func (b *batch) addTx(number uint64, blockHash common.Hash, i int, tx *archive.Tx) {
 	index := uint32(i) //nolint:gosec // checked below 2^24
 	payload := b.encoded.Bytes()[b.payloads[i][0]:b.payloads[i][1]]
 	rcpt := tx.Receipt

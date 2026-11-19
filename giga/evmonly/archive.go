@@ -8,7 +8,7 @@ import (
 
 // archiveBlock returns block and its result as the archive stores them. The returned block refers to
 // result's receipts and changes rather than copying them.
-func archiveBlock(block PreparedBlock, result *BlockResult) (*archive.Block, error) {
+func archiveBlock(block PreparedBlock, result *BlockResult) (*archive.ExecutedBlock, error) {
 	if len(result.Txs) != len(block.Txs) || len(result.Receipts) != len(block.Txs) {
 		return nil, fmt.Errorf("block has %d transactions but %d results and %d receipts",
 			len(block.Txs), len(result.Txs), len(result.Receipts))
@@ -23,7 +23,7 @@ func archiveBlock(block PreparedBlock, result *BlockResult) (*archive.Block, err
 			Locatable: claimsHash(&result.Txs[i]),
 		}
 	}
-	return &archive.Block{
+	return &archive.ExecutedBlock{
 		Number:     block.Context.Number,
 		Hash:       block.Context.BlockHash,
 		ParentHash: block.Context.ParentHash,

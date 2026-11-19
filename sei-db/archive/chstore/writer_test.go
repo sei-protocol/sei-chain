@@ -1,4 +1,4 @@
-package archive
+package chstore
 
 import (
 	"context"
@@ -11,36 +11,42 @@ import (
 	"github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/ch-go/proto"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse"
 )
 
 // testConfig returns a config for a throwaway database on the ClickHouse server named by
 // SEI_ARCHIVE_TEST_CLICKHOUSE, skipping the test when it is unset.
-func testConfig(t *testing.T) Config {
+func testConfig(t *testing.T) clickhouse.Config {
 	addr := os.Getenv("SEI_ARCHIVE_TEST_CLICKHOUSE")
 	if addr == "" {
 		t.Skip("SEI_ARCHIVE_TEST_CLICKHOUSE is not set")
 	}
-	cfg := Config{
+	cfg := clickhouse.Config{
 		Addr:     addr,
 		Database: "sei_archive_test",
 		User:     "default",
 		Password: os.Getenv("SEI_ARCHIVE_TEST_PASSWORD"),
 	}
-	dropDatabase(t, cfg)
-	t.Cleanup(func() { dropDatabase(t, cfg) })
+	exec(t, cfg, "default", "DROP DATABASE IF EXISTS "+cfg.Database+" SYNC")
+	t.Cleanup(func() { exec(t, cfg, "default", "DROP DATABASE IF EXISTS "+cfg.Database+" SYNC") })
 	return cfg
 }
 
-func dropDatabase(t *testing.T, cfg Config) {
-	require.NoError(t, run(context.Background(), cfg.options("default"),
-		[]string{"DROP DATABASE IF EXISTS " + cfg.Database + " SYNC"}))
+// exec runs stmt against database on cfg's server.
+func exec(t *testing.T, cfg clickhouse.Config, database, stmt string) {
+	cfg.Database = database
+	client, err := clickhouse.Open(cfg, clickhouse.Options{})
+	require.NoError(t, err)
+	defer client.Close()
+	require.NoError(t, client.Do(context.Background(), ch.Query{Body: stmt}))
 }
 
 // query returns the single UInt64 column a of the rows that body selects.
-func query(t *testing.T, cfg Config, body string) []uint64 {
-	client, err := ch.Dial(t.Context(), cfg.options(cfg.Database))
+func query(t *testing.T, cfg clickhouse.Config, body string) []uint64 {
+	client, err := clickhouse.Open(cfg, clickhouse.Options{})
 	require.NoError(t, err)
-	defer func() { _ = client.Close() }()
+	defer client.Close()
 	var (
 		a   proto.ColUInt64
 		out []uint64
@@ -56,8 +62,16 @@ func query(t *testing.T, cfg Config, body string) []uint64 {
 	return out
 }
 
+// testWriter returns a writer of the archive in cfg, closed when the test ends.
+func testWriter(t *testing.T, cfg clickhouse.Config) *writer {
+	w, err := newWriter(cfg)
+	require.NoError(t, err)
+	t.Cleanup(w.close)
+	return w
+}
+
 // rowCounts returns the row count of every archive table.
-func rowCounts(t *testing.T, cfg Config) map[string]uint64 {
+func rowCounts(t *testing.T, cfg clickhouse.Config) map[string]uint64 {
 	out := map[string]uint64{}
 	for _, table := range []string{tableBlocks, tableTxs, tableLocator, tableLogs, tableAccountChanges, tableAccountHistory,
 		tableStorageChanges, tableStorageHistory, tableCode, tableCommits} {
@@ -78,8 +92,7 @@ func testBatch(t *testing.T, from, to uint64) *batch {
 func TestWrite(t *testing.T) {
 	cfg := testConfig(t)
 	require.NoError(t, migrate(t.Context(), cfg))
-	w := newWriter(cfg)
-	defer w.close()
+	w := testWriter(t, cfg)
 
 	_, ok, err := w.lastCommitted(t.Context())
 	require.NoError(t, err)
@@ -127,8 +140,7 @@ func TestWrite(t *testing.T) {
 func TestStateReads(t *testing.T) {
 	cfg := testConfig(t)
 	require.NoError(t, migrate(t.Context(), cfg))
-	w := newWriter(cfg)
-	defer w.close()
+	w := testWriter(t, cfg)
 	require.NoError(t, w.write(t.Context(), testBatch(t, 1, 5)))
 
 	// Block 1's contract wrote slot 0x51 in block 1 only, so at height 4 it still holds that value.
@@ -159,11 +171,10 @@ func TestStateReads(t *testing.T) {
 func TestWriteRetriesAPartialInsert(t *testing.T) {
 	cfg := testConfig(t)
 	require.NoError(t, migrate(t.Context(), cfg))
-	w := newWriter(cfg)
-	defer w.close()
+	w := testWriter(t, cfg)
 	b := testBatch(t, 1, 3)
 
-	require.NoError(t, run(t.Context(), cfg.options(cfg.Database), []string{"DETACH TABLE blocks"}))
+	exec(t, cfg, cfg.Database, "DETACH TABLE blocks")
 	start := time.Now()
 	require.Error(t, w.write(t.Context(), b))
 	require.Less(t, time.Since(start), 10*time.Second, "a failed table does not stall the others")
@@ -171,7 +182,7 @@ func TestWriteRetriesAPartialInsert(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, ok, "a partly written batch is not committed")
 
-	require.NoError(t, run(t.Context(), cfg.options(cfg.Database), []string{"ATTACH TABLE blocks"}))
+	exec(t, cfg, cfg.Database, "ATTACH TABLE blocks")
 	require.NoError(t, w.write(t.Context(), b))
 	require.Equal(t, map[string]uint64{
 		tableBlocks:         3,
@@ -185,10 +196,6 @@ func TestWriteRetriesAPartialInsert(t *testing.T) {
 		tableCode:           3,
 		tableCommits:        1,
 	}, rowCounts(t, cfg))
-}
-
-func TestMigrateRejectsUnsafeDatabase(t *testing.T) {
-	require.ErrorContains(t, migrate(t.Context(), Config{Database: "a; DROP TABLE x"}), "not a plain identifier")
 }
 
 func TestExporterWritesExecutedBlocks(t *testing.T) {

@@ -1,25 +1,20 @@
-package archive
+package clickhouse
 
 import (
 	"context"
-	"embed"
 	"fmt"
 	"io/fs"
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/ch-go/proto"
+	"github.com/sei-protocol/seilog"
 )
 
-// migrations holds the archive's schema migrations, migrations/NNNN_name.sql, applied in version
-// order. A migration is ClickHouse statements separated by ';', and must be safe to run again:
-// ClickHouse DDL is not transactional, so a migration that fails part way leaves its earlier
-// statements applied and is retried whole.
-//
-//go:embed migrations/*.sql
-var migrations embed.FS
+var logger = seilog.NewLogger("db", "clickhouse")
 
 const createMigrationsTable = `CREATE TABLE IF NOT EXISTS schema_migrations
 (
@@ -30,21 +25,45 @@ const createMigrationsTable = `CREATE TABLE IF NOT EXISTS schema_migrations
 ENGINE = MergeTree
 ORDER BY version`
 
-// migrate creates the archive database when it is missing and applies the migrations it has not
-// applied yet.
-func migrate(ctx context.Context, cfg Config) error {
-	if err := cfg.validate(); err != nil {
+// migrateOptions are the options migrations run with. Schema changes can take longer than ch-go's
+// default 3s read timeout.
+var migrateOptions = Options{Name: "sei-migrate", ReadTimeout: time.Minute}
+
+// Migrate creates cfg's database when it is missing and applies, in version order, the migrations
+// in fsys it has not applied yet. fsys holds migrations/NNNN_name.sql files of ClickHouse
+// statements separated by ';', each of which must be safe to run again.
+func Migrate(ctx context.Context, cfg Config, fsys fs.FS) error {
+	if err := cfg.Validate(); err != nil {
 		return err
 	}
-	if err := run(ctx, cfg.options("default"), []string{"CREATE DATABASE IF NOT EXISTS " + cfg.Database}); err != nil {
+	if err := run(ctx, cfg.options("default", migrateOptions), []string{"CREATE DATABASE IF NOT EXISTS " + cfg.Database}); err != nil {
 		return err
 	}
-	client, err := ch.Dial(ctx, cfg.options(cfg.Database))
+	client, err := ch.Dial(ctx, cfg.options(cfg.Database, migrateOptions))
 	if err != nil {
 		return fmt.Errorf("dial clickhouse %s: %w", cfg.Addr, err)
 	}
 	defer func() { _ = client.Close() }()
-	return applyMigrations(ctx, client, migrations)
+	return applyMigrations(ctx, client, fsys)
+}
+
+// CheckMigrations reports an error unless fsys holds migrations Migrate can apply: files named
+// migrations/NNNN_name.sql in increasing version order, each with at least one statement.
+func CheckMigrations(fsys fs.FS) error {
+	files, _, err := migrationFiles(fsys)
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		sql, err := fs.ReadFile(fsys, file)
+		if err != nil {
+			return err
+		}
+		if len(statements(string(sql))) == 0 {
+			return fmt.Errorf("migration %s has no statements", path.Base(file))
+		}
+	}
+	return nil
 }
 
 // applyMigrations applies, in version order, the migrations in fsys that schema_migrations does
@@ -70,6 +89,8 @@ func applyMigrations(ctx context.Context, client *ch.Client, fsys fs.FS) error {
 		if err != nil {
 			return err
 		}
+		// ClickHouse DDL is not transactional: a migration that fails part way leaves its earlier
+		// statements applied, and is retried whole.
 		for _, stmt := range statements(string(sql)) {
 			if err := client.Do(ctx, ch.Query{Body: stmt}); err != nil {
 				return fmt.Errorf("migration %s: apply %q: %w", name, firstLine(stmt), err)
@@ -83,7 +104,7 @@ func applyMigrations(ctx context.Context, client *ch.Client, fsys fs.FS) error {
 		if err := client.Do(ctx, ch.Query{Body: record.Into("schema_migrations"), Input: record}); err != nil {
 			return fmt.Errorf("record migration %s: %w", name, err)
 		}
-		logger.Info("archive migration applied", "migration", name)
+		logger.Info("clickhouse migration applied", "migration", name)
 	}
 	return nil
 }

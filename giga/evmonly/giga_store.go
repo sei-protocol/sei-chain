@@ -137,12 +137,12 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := e.startPipelineCommit(blockNumber, misc, &result.ChangeSet); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
-	if exporter := e.archive; exporter != nil {
+	if store := e.archive; store != nil {
 		block, err := archiveBlock(req, result)
 		if err != nil {
 			return nil, fmt.Errorf("encode archive block %d: %w", req.Context.Number, err)
 		}
-		if err := exporter.ArchiveBlock(ctx, block); err != nil {
+		if err := store.ArchiveBlock(ctx, block); err != nil {
 			return nil, fmt.Errorf("archive block %d: %w", req.Context.Number, err)
 		}
 	}

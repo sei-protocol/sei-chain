@@ -15,9 +15,9 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	seiversion "github.com/sei-protocol/sei-chain/sei-cosmos/version"
-	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse"
 	ssarchive "github.com/sei-protocol/sei-chain/sei-db/statesync"
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
@@ -432,7 +432,7 @@ func openAutobahnStorageManager(
 	storageConfig.BlockDBConfig = &blockConfig
 	storageConfig.RunningMarkerPath = filepath.Join(directory, "node_running")
 	if archiveConfig.Enabled() {
-		storageConfig.ArchiveConfig = &archive.Config{
+		storageConfig.ArchiveConfig = &clickhouse.Config{
 			Addr:     archiveConfig.ClickHouseAddr,
 			Database: archiveConfig.Database,
 			User:     archiveConfig.User,
