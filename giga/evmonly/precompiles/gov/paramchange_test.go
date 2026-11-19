@@ -300,24 +300,21 @@ func TestEveryGovParamChangesThroughAProposal(t *testing.T) {
 func TestEVMParamsChangeThroughAProposal(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
 	require.NoError(t, chainparams.WriteEVM(h.state, chainparams.EVM{
-		MinFeePerGas:             big.NewInt(100_000_000_000),
-		TargetGasUsedPerSecond:   2_000_000_000,
-		BaseFeeChangeDenominator: 144,
+		MaxDynamicBaseFeeUpwardAdjustment:   big.NewInt(6_000_000_000_000_000),
+		MaxDynamicBaseFeeDownwardAdjustment: big.NewInt(6_000_000_000_000_000),
 	}))
-	floor := new(big.Int).Mul(big.NewInt(200_000_000_000), big.NewInt(1_000_000_000_000_000_000)) // 200 gwei, as a Dec
+	up := big.NewInt(125_000_000_000_000_000) // 12.5%, as a Dec
 
 	id, err := h.submitParamChange(false,
-		paramChange{"evm", "KeyMinFeePerGas", common.BigToHash(floor).Bytes()},
-		paramChange{"evm", "KeyTargetGasUsedPerSecond", uintValue(1_000_000_000)},
+		paramChange{"evm", "KeyMaxDynamicBaseFeeUpwardAdjustment", common.BigToHash(up).Bytes()},
 	)
 	require.NoError(t, err)
 	h.passID(id)
 
 	require.Equal(t, StatusPassed, h.status(id))
 	require.Equal(t, chainparams.EVM{
-		MinFeePerGas:             big.NewInt(200_000_000_000),
-		TargetGasUsedPerSecond:   1_000_000_000,
-		BaseFeeChangeDenominator: 144,
+		MaxDynamicBaseFeeUpwardAdjustment:   up,
+		MaxDynamicBaseFeeDownwardAdjustment: big.NewInt(6_000_000_000_000_000),
 	}, chainparams.ReadEVM(h.state))
 }
 

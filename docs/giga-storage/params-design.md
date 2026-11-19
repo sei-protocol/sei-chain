@@ -30,7 +30,6 @@ subspaces.
   | Coins | `uint256` wei, a whole number of usei; only the usei denom exists |
   | Int | `uint256` |
   | uint32 | `uint32` |
-  | uint64 | `uint64` |
 
   Another V2 type gets a stored form when a param first needs one. A value of
   any unsigned width is stored in the bytes of its slot that solc gives its
@@ -200,26 +199,28 @@ naming `param`.
 
 ## The evm subspace
 
-The params of Giga 1559's base fee update,
-`b(h+2) = max(floor, p × (1 + (G(h) − T) / (D × T)))`, where `p` is the base fee
-already set for `h+1`, `G(h)` the gas block `h` used and `T` its target:
+The params of the base fee update. A block's target is half its gas limit `L`,
+and the gas `G(h)` block `h` uses sets the base fee two blocks later from `p`,
+the base fee already set for `h+1`:
+
+- above the target, `b(h+2) = p × (1 + up × (2G(h) − L) / L)`;
+- below it, `b(h+2) = p × (1 − down × (L − 2G(h)) / L)`.
+
+A full block raises the base fee by `up` and an empty one lowers it by `down`,
+as EIP-1559 does with 12.5% each way.
 
 | Flat key | Stored as | Genesis |
 |---|---|---|
-| `KeyMinFeePerGas` | Dec of wei per gas, a whole number of wei | 0 |
-| `KeyTargetGasUsedPerSecond` | `uint64` gas per second | 2,000,000,000 |
-| `KeyBaseFeeChangeDenominator` | `uint64`, `D` | 144 |
+| `KeyMaxDynamicBaseFeeUpwardAdjustment` | Dec, `up` | 0.006 |
+| `KeyMaxDynamicBaseFeeDownwardAdjustment` | Dec, `down` | 0.006 |
 
-- `KeyMinFeePerGas` is V2's key, with V2's meaning: the base fee never falls
-  below it. The other two have no V2 counterpart.
-- A block's target `T` is `KeyTargetGasUsedPerSecond` over the time since its
-  parent. A block that takes no time has no target and leaves the base fee
-  unchanged, short of the floor.
-- The change is rounded down to the wei, and an increase is at least one wei,
-  so a base fee of zero rises once a block exceeds its target. The first two
-  blocks run at the genesis floor.
-- The check requires a whole number of wei for the floor, and a positive target
-  and denominator. Neither the floor nor the base fee has an upper bound.
+- Both are V2's keys, with V2's meaning. V2's `KeyTargetGasUsedPerBlock` has no
+  counterpart, since the target is half the gas limit.
+- The check requires `up` above 0 and `down` at least 0, each at most 1.
+- Gas used past the gas limit counts as the limit. The change is rounded down
+  to the wei, and an increase is at least one wei, so a base fee of zero rises
+  once a block is above its target. There is no floor: a chain starts at a base
+  fee of zero, and its first two blocks run at it.
 - evmonlyapp reads the params from the state each block executes against, so a
   change a proposal applies in a block's EndBlock first sets the base fee update
   of the next block. That update sets the base fee two blocks later, so the

@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 59,
+      "astId": 57,
       "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
       "label": "gov",
       "offset": 0,
@@ -9,7 +9,7 @@
       "type": "t_struct(Gov)28_storage"
     },
     {
-      "astId": 62,
+      "astId": 60,
       "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
       "label": "staking",
       "offset": 0,
@@ -17,12 +17,12 @@
       "type": "t_struct(Staking)44_storage"
     },
     {
-      "astId": 65,
+      "astId": 63,
       "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
       "label": "evm",
       "offset": 0,
       "slot": "27",
-      "type": "t_struct(EVM)56_storage"
+      "type": "t_struct(EVM)54_storage"
     }
   ],
   "types": {
@@ -32,36 +32,28 @@
       "label": "uint256[8]",
       "numberOfBytes": "256"
     },
-    "t_struct(EVM)56_storage": {
+    "t_struct(EVM)54_storage": {
       "encoding": "inplace",
       "label": "struct ParamsStorage.EVM",
       "members": [
         {
           "astId": 47,
           "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
-          "label": "targetGasUsedPerSecond",
+          "label": "maxDynamicBaseFeeUpwardAdjustment",
           "offset": 0,
           "slot": "0",
-          "type": "t_uint64"
+          "type": "t_uint256"
         },
         {
           "astId": 49,
           "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
-          "label": "baseFeeChangeDenominator",
-          "offset": 8,
-          "slot": "0",
-          "type": "t_uint64"
-        },
-        {
-          "astId": 51,
-          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
-          "label": "minFeePerGas",
+          "label": "maxDynamicBaseFeeDownwardAdjustment",
           "offset": 0,
           "slot": "1",
           "type": "t_uint256"
         },
         {
-          "astId": 55,
+          "astId": 53,
           "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
           "label": "__gap",
           "offset": 0,

@@ -14,7 +14,6 @@ import (
 	"runtime"
 	"slices"
 	"sync/atomic"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
@@ -153,9 +152,6 @@ type evmOnlyCursorState struct {
 	// epochState is committed with the block being finalized. It is set after
 	// beginBlock accepts that block and read when the block is encoded.
 	epochState utils.Option[proxy.EpochState]
-	// blockUnixNano is the time, in Unix nanoseconds, of the block being
-	// finalized. It is set with epochState.
-	blockUnixNano uint64
 	// lastBlockTime is the Time of the most recently committed block, used by
 	// EvmCall to reproduce that block's execution context for a read-only call.
 	lastBlockTime uint64
@@ -299,8 +295,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 			appHash:   appHash,
 			blockHash: block.BlockHash,
 			gasLimit:  block.GasLimit,
-			unixNano:  state.blockUnixNano,
-			baseFees:  state.committed.nextBaseFees(baseFeeParams, result.GasUsed, state.blockUnixNano),
+			baseFees:  state.committed.nextBaseFees(baseFeeParams, result.GasUsed, block.GasLimit),
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
@@ -333,12 +328,7 @@ func (a *evmOnlyApplication) InitChain(req *proxy.RequestInitChain) (*proxy.Resp
 		}
 		a.installExecutor(executor)
 		for state := range a.cursor.Lock() {
-			state.committed = evmOnlyCursor{
-				height:   req.InitialHeight - 1,
-				gasLimit: gasLimit,
-				unixNano: evmOnlyGenesisUnixNano(req),
-				baseFees: initialBaseFees(),
-			}
+			state.committed = evmOnlyCursor{height: req.InitialHeight - 1, gasLimit: gasLimit}
 		}
 		return &proxy.ResponseInitChain{}, nil
 	}
@@ -367,15 +357,6 @@ func (a *evmOnlyApplication) seedInitialStateVersion(initialHeight int64) error 
 	return nil
 }
 
-// evmOnlyGenesisUnixNano returns the genesis time in Unix nanoseconds, or zero
-// for a genesis time before 1970.
-func evmOnlyGenesisUnixNano(req *proxy.RequestInitChain) uint64 {
-	if req.Time.Before(time.Unix(0, 0)) {
-		return 0
-	}
-	return uint64(req.Time.UnixNano()) //nolint:gosec // G115: not before 1970, so non-negative
-}
-
 func evmOnlyGasLimit(req *proxy.RequestInitChain) (uint64, error) {
 	if req.MaxGas <= 0 {
 		return 0, fmt.Errorf("EVM-only max gas must be positive")
@@ -399,8 +380,8 @@ func (a *evmOnlyApplication) Info() *proxy.ResponseInfo {
 }
 
 // InitLastHeader seeds the committed block time on the router's restart path.
-// EvmCall reads that time from memory rather than the cursor, so without this it
-// would answer with TIMESTAMP 0 until the next Commit.
+// The cursor carries height, hashes, gas limit and base fees but not Time, so
+// without this EvmCall would answer with TIMESTAMP 0 until the next Commit.
 func (a *evmOnlyApplication) InitLastHeader(lastHeader *proxy.Header) {
 	if lastHeader == nil || lastHeader.Time.Unix() < 0 {
 		return
@@ -1046,10 +1027,6 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *proxy.Reque
 	if !ok {
 		return nil, fmt.Errorf("EVM-only block timestamp is negative: %s", req.Header.Time)
 	}
-	unixNano, ok := utils.SafeCast[uint64](req.Header.Time.UnixNano())
-	if !ok {
-		return nil, fmt.Errorf("EVM-only block timestamp is out of range: %s", req.Header.Time)
-	}
 	blockHash := common.BytesToHash(req.Hash)
 	for executor := range a.executor.Lock() {
 		executor, ok := executor.Get()
@@ -1060,7 +1037,7 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *proxy.Reque
 		if err != nil {
 			return nil, err
 		}
-		a.stageBlock(req.EpochState, unixNano)
+		a.stageEpochState(req.EpochState)
 		// Closes the stage in flight, so the gap until the next block is charged to neither.
 		defer a.finalizePhases.Reset()
 		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
@@ -1102,12 +1079,11 @@ func (a *evmOnlyApplication) beginBlock(height int64) (evmOnlyCursor, error) {
 	panic("unreachable")
 }
 
-// stageBlock sets the epoch state committed with the block being finalized,
-// and that block's time in Unix nanoseconds, replacing the previous block's.
-func (a *evmOnlyApplication) stageBlock(epochState utils.Option[proxy.EpochState], unixNano uint64) {
+// stageEpochState sets the epoch state committed with the block being
+// finalized, replacing that of the previous block.
+func (a *evmOnlyApplication) stageEpochState(epochState utils.Option[proxy.EpochState]) {
 	for state := range a.cursor.Lock() {
 		state.epochState = epochState
-		state.blockUnixNano = unixNano
 	}
 }
 

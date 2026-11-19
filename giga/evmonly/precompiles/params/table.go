@@ -38,7 +38,6 @@ var (
 	coinsKind    = valueKind{kind: KindCoins, solType: "uint256", bits: 256}
 	intKind      = valueKind{kind: KindInt, solType: "uint256", bits: 256}
 	uint32Kind   = valueKind{kind: KindInt, solType: "uint32", bits: 32}
-	uint64Kind   = valueKind{kind: KindInt, solType: "uint64", bits: 64}
 )
 
 // param is one declared param.

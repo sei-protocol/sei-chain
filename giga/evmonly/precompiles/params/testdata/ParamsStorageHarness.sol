@@ -29,9 +29,8 @@ contract ParamsStorageHarness is ParamsStorage {
             __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0]
         });
         evm = EVM({
-            targetGasUsedPerSecond: 2_000_000_000,
-            baseFeeChangeDenominator: 144,
-            minFeePerGas: 100e9 * 1e18,
+            maxDynamicBaseFeeUpwardAdjustment: 0.0189e18,
+            maxDynamicBaseFeeDownwardAdjustment: 0.0039e18,
             __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0]
         });
     }

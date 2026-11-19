@@ -3,8 +3,6 @@ package evmonlyapp
 import (
 	"math/big"
 
-	"github.com/holiman/uint256"
-
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 )
@@ -12,12 +10,12 @@ import (
 // evmOnlyBaseFeeLag is how many blocks after a block its gas use sets the base fee of.
 const evmOnlyBaseFeeLag = 2
 
-// evmOnlyGenesisEVMParams are the base fee params gov's first EndBlock writes. Base fees are set by
-// them while no params are written: on a chain without gov, and in gov's first block.
+// evmOnlyGenesisEVMParams are the base fee params gov's first EndBlock writes: a block using its
+// whole gas limit raises the base fee by 0.6%, and an empty one lowers it by 0.6%. Base fees are
+// set by them while no params are written: on a chain without gov, and in gov's first block.
 var evmOnlyGenesisEVMParams = chainparams.EVM{
-	MinFeePerGas:             new(big.Int),
-	TargetGasUsedPerSecond:   2_000_000_000,
-	BaseFeeChangeDenominator: 144,
+	MaxDynamicBaseFeeUpwardAdjustment:   big.NewInt(6_000_000_000_000_000),
+	MaxDynamicBaseFeeDownwardAdjustment: big.NewInt(6_000_000_000_000_000),
 }
 
 // evmOnlyBaseFeeParams returns the base fee rules of the params state holds, or of
@@ -29,13 +27,11 @@ func evmOnlyBaseFeeParams(state chainparams.StorageReader) evmonly.BaseFeeParams
 	return baseFeeParams(chainparams.ReadEVM(state))
 }
 
-// baseFeeParams returns the base fee rules p sets.
+// baseFeeParams returns the base fee rules p sets. A Dec and a base fee adjustment share their
+// scale.
 func baseFeeParams(p chainparams.EVM) evmonly.BaseFeeParams {
-	var floor uint256.Int
-	floor.SetFromBig(p.MinFeePerGas)
-	return evmonly.BaseFeeParams{
-		Floor:              floor,
-		TargetGasPerSecond: p.TargetGasUsedPerSecond,
-		Denominator:        p.BaseFeeChangeDenominator,
-	}
+	var params evmonly.BaseFeeParams
+	params.MaxIncrease.SetFromBig(p.MaxDynamicBaseFeeUpwardAdjustment)
+	params.MaxDecrease.SetFromBig(p.MaxDynamicBaseFeeDownwardAdjustment)
+	return params
 }

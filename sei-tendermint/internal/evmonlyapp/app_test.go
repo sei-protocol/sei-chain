@@ -130,7 +130,6 @@ func signedEVMOnlyTestCreateTxWithInitCode(t *testing.T, chainID uint64, initCod
 
 func evmOnlyTestInitChain() *proxy.RequestInitChain {
 	return &proxy.RequestInitChain{
-		Time:          time.Unix(1_700_000_000, 0),
 		InitialHeight: 1,
 		MaxGas:        30_000_000,
 	}
@@ -961,7 +960,6 @@ func TestEVMOnlyApplicationEvmMinGasPrice(t *testing.T) {
 // that a node on the default floor proposed, and one that lowered it must not
 // admit what the block would refuse.
 func TestEVMOnlyApplicationMinGasPriceIsAdmissionOnly(t *testing.T) {
-	setEVMOnlyGenesisEVMParams(t, evmOnlyTestEVMParams) // the block refuses a price below evmOnlyMinGasPrice
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	block := &proxy.RequestFinalizeBlock{
 		Txs:  [][]byte{raw},
@@ -971,15 +969,18 @@ func TestEVMOnlyApplicationMinGasPriceIsAdmissionOnly(t *testing.T) {
 			Time:   time.Unix(1_700_000_001, 0),
 		},
 	}
+	// Every node runs the block at a base fee of evmOnlyMinGasPrice, which it refuses a price below.
 	initChain := func(app proxy.EVMApplication) {
 		_, err := app.InitChain(&proxy.RequestInitChain{
 			InitialHeight: 1,
 			MaxGas:        30_000_000,
 		})
 		require.NoError(t, err)
+		seedEVMOnlyBaseFees(app.(*evmOnlyApplication), evmOnlyMinGasPrice)
 	}
 
-	proposer := newInitializedEVMOnlyTestApp(t)
+	proposer := newEVMOnlyTestApp(t, nil)
+	initChain(proposer)
 	require.True(t, proposer.CheckTx(t.Context(), &proxy.RequestCheckTxV2{Tx: raw}).IsOK())
 	proposed, err := proposer.FinalizeBlock(t.Context(), block)
 	require.NoError(t, err)

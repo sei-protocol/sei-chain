@@ -68,10 +68,9 @@ func TestLayoutMatchesForge(t *testing.T) {
 			"__gap":                              {3, 0},
 		},
 		"EVM": {
-			"targetGasUsedPerSecond":   evmTargetGasUsedPerSecond,
-			"baseFeeChangeDenominator": evmBaseFeeChangeDenominator,
-			"minFeePerGas":             evmMinFeePerGas,
-			"__gap":                    {2, 0},
+			"maxDynamicBaseFeeUpwardAdjustment":   evmMaxDynamicBaseFeeUpwardAdjustment,
+			"maxDynamicBaseFeeDownwardAdjustment": evmMaxDynamicBaseFeeDownwardAdjustment,
+			"__gap":                               {2, 0},
 		},
 	}
 	subspaceOf := map[string]*subspace{"Gov": &govSubspace, "Staking": &stakingSubspace, "EVM": &evmSubspace}
@@ -113,7 +112,7 @@ func TestLayoutCoversEveryDeclaredParam(t *testing.T) {
 			stakingUnbondingTime: true, stakingMaxValidators: true, stakingMaxEntries: true,
 			stakingMaxVotingPowerRatio: true, stakingMaxVotingPowerEnforcementThreshold: true,
 		},
-		&evmSubspace: {evmTargetGasUsedPerSecond: true, evmBaseFeeChangeDenominator: true, evmMinFeePerGas: true},
+		&evmSubspace: {evmMaxDynamicBaseFeeUpwardAdjustment: true, evmMaxDynamicBaseFeeDownwardAdjustment: true},
 	} {
 		for _, p := range ss.params {
 			require.True(t, members[p.at], p.key)
@@ -161,8 +160,7 @@ func TestReadsCompilerWrites(t *testing.T) {
 		MaxVotingPowerEnforcementThreshold: big.NewInt(1_000_001),
 	}, stakingFrom(stakingSubspace.read(s)))
 	require.Equal(t, EVM{
-		MinFeePerGas:             big.NewInt(100_000_000_000),
-		TargetGasUsedPerSecond:   2_000_000_000,
-		BaseFeeChangeDenominator: 144,
+		MaxDynamicBaseFeeUpwardAdjustment:   big.NewInt(18_900_000_000_000_000),
+		MaxDynamicBaseFeeDownwardAdjustment: big.NewInt(3_900_000_000_000_000),
 	}, evmFrom(evmSubspace.read(s)))
 }

@@ -45,7 +45,6 @@ var (
 
 // ParamsStorage.EVM members.
 var (
-	evmTargetGasUsedPerSecond   = member{0, 0}
-	evmBaseFeeChangeDenominator = member{0, 8}
-	evmMinFeePerGas             = member{1, 0}
+	evmMaxDynamicBaseFeeUpwardAdjustment   = member{0, 0}
+	evmMaxDynamicBaseFeeDownwardAdjustment = member{1, 0}
 )

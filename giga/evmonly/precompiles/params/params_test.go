@@ -84,9 +84,8 @@ func TestKeys(t *testing.T) {
 		{"staking", "MaxEntries", KindInt, "uint32"},
 		{"staking", "MaxVotingPower", KindDec, "uint256"},
 		{"staking", "MaxVotingPowerEnforcementThreshold", KindInt, "uint256"},
-		{"evm", "KeyMinFeePerGas", KindDec, "uint256"},
-		{"evm", "KeyTargetGasUsedPerSecond", KindInt, "uint64"},
-		{"evm", "KeyBaseFeeChangeDenominator", KindInt, "uint64"},
+		{"evm", "KeyMaxDynamicBaseFeeUpwardAdjustment", KindDec, "uint256"},
+		{"evm", "KeyMaxDynamicBaseFeeDownwardAdjustment", KindDec, "uint256"},
 	}, Keys())
 }
 
