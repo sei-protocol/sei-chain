@@ -71,18 +71,21 @@ const gasPriceCongestionPercentile = 50
 const defaultPriorityFeePerGas = 1_000_000_000
 
 // GasPrice returns a suggested gas price, matching v2's eth_gasPrice: a margin over the
-// admission floor, or the latest congested block's median reward when that's higher and available.
+// admission floor, or the floor plus the latest congested block's median priority fee when that's
+// higher and available.
 func (api *infoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
 	floor := api.backend.EvmMinGasPrice()
 	margin := suggestedGasPrice(floor)
-	if reward, ok := api.congestionReward(ctx); ok && reward.Cmp(margin) >= 0 {
-		return (*hexutil.Big)(reward), nil
+	if reward, ok := api.congestionReward(ctx); ok {
+		if price := reward.Add(reward, floor); price.Cmp(margin) >= 0 {
+			return (*hexutil.Big)(price), nil
+		}
 	}
 	return (*hexutil.Big)(margin), nil
 }
 
-// congestionReward answers GasPrice's escalated suggestion: the latest block's median reward, but
-// only once its gasUsedRatio exceeds gasPriceCongestionThresholdPercent.
+// congestionReward returns the latest block's median priority fee, once its gasUsedRatio exceeds
+// gasPriceCongestionThresholdPercent.
 func (api *infoAPI) congestionReward(ctx context.Context) (*big.Int, bool) {
 	current := api.store.LatestVersion()
 	if current <= 0 {

@@ -171,26 +171,26 @@ func TestGasPriceScalesFloorUp(t *testing.T) {
 
 func TestGasPriceEscalatesWithCongestion(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
-	// gasLimit 1000, TotalGasUsed 900 -> 90% > the 80% congestion threshold -> median reward,
-	// which is above the floor here so the escalation is what's under test, not the floor clamp.
+	// gasLimit 1000, TotalGasUsed 900 -> 90% > the 80% congestion threshold -> the floor plus the
+	// median priority fee, which is above the margin here so the escalation is what's under test.
 	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
 		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(500)},
 	}))
-	api := &infoAPI{backend: testInfoBackend(1000, 1), store: store}
+	api := &infoAPI{backend: testInfoBackend(1000, 100), store: store}
 
 	price, err := api.GasPrice(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, big.NewInt(500), price.ToInt())
+	require.Equal(t, big.NewInt(600), price.ToInt())
 }
 
-// TestGasPriceFallsBackWhenTheMedianIsBelowTheFloor verifies GasPrice falls back to the margin
-// when the congested-block median is below the current floor.
-func TestGasPriceFallsBackWhenTheMedianIsBelowTheFloor(t *testing.T) {
+// TestGasPriceFallsBackWhenTheMedianIsBelowTheMargin verifies GasPrice falls back to the margin
+// when the floor plus the congested-block median is below it.
+func TestGasPriceFallsBackWhenTheMedianIsBelowTheMargin(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
-	// gasLimit 1000, TotalGasUsed 900 -> congested, but the one included tx's reward (50) is
-	// below the current floor (100).
+	// gasLimit 1000, TotalGasUsed 900 -> congested, but the floor (100) plus the one included
+	// tx's priority fee (5) is below the floor's 10% margin (110).
 	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
-		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(50)},
+		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(5)},
 	}))
 	api := &infoAPI{backend: testInfoBackend(1000, 100), store: store}
 
@@ -199,14 +199,14 @@ func TestGasPriceFallsBackWhenTheMedianIsBelowTheFloor(t *testing.T) {
 	require.Equal(t, big.NewInt(110), price.ToInt())
 }
 
-// TestGasPriceCongestionNeverAnswersBelowTheMargin verifies a congested reward equal to the
-// floor falls back to the margin instead of answering below it.
+// TestGasPriceCongestionNeverAnswersBelowTheMargin verifies a congested suggestion one wei short
+// of the margin falls back to the margin instead of answering below it.
 func TestGasPriceCongestionNeverAnswersBelowTheMargin(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
-	// gasLimit 1000, TotalGasUsed 900 -> congested; the one included tx's reward (1000) equals
-	// the floor (1000), which is below the floor's own 10% margin (1100).
+	// gasLimit 1000, TotalGasUsed 900 -> congested; the floor (1000) plus the one included tx's
+	// priority fee (99) is one below the floor's own 10% margin (1100).
 	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
-		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(1000)},
+		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(99)},
 	}))
 	api := &infoAPI{backend: testInfoBackend(1000, 1000), store: store}
 
