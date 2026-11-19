@@ -194,7 +194,7 @@ func TestSuperBlockMergesTransactionsInHeaderOrder(t *testing.T) {
 		}
 		votes := make([]*Signed[*LaneVote], len(keys))
 		for i, key := range keys {
-			votes[i] = Sign(key, NewLaneVote(headers[len(headers)-1]))
+			votes[i] = Sign(key, NewLaneVote(ep.EpochIndex(), headers[len(headers)-1]))
 		}
 		laneQCs[lane] = NewLaneQC(votes)
 	}

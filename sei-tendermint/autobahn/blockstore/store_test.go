@@ -939,7 +939,7 @@ func buildFullCommitQC(
 }
 
 func testLaneQC(keys []types.SecretKey, header *types.LaneBlockHeader) *types.LaneQC {
-	vote := types.NewLaneVote(header)
+	vote := types.NewLaneVote(0, header)
 	votes := make([]*types.Signed[*types.LaneVote], 0, len(keys))
 	for _, k := range keys {
 		votes = append(votes, types.Sign(k, vote))

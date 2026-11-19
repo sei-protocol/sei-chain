@@ -13,7 +13,7 @@ import (
 func GenRegistry(rng utils.Rng, size int) (*Registry, []types.SecretKey) {
 	committee, sks, _ := genCommittee(rng, size)
 	firstHeight := types.GenRoadHeight(rng)%1000000 + 1
-	registry := utils.OrPanic1(NewRegistry(committee, firstHeight, time.Now(), utils.None[string]()))
+	registry := utils.OrPanic1(NewRegistry(committee, firstHeight, time.Now(), DefaultEpochLength, utils.None[string]()))
 	return registry, sks
 }
 
@@ -26,7 +26,7 @@ func GenRegistryThrough(
 ) (*Registry, []types.SecretKey) {
 	committee, sks, weights := genCommittee(rng, size)
 	firstHeight := types.GenRoadHeight(rng)%1000000 + 1
-	registry := utils.OrPanic1(NewRegistry(committee, firstHeight, time.Now(), utils.None[string]()))
+	registry := utils.OrPanic1(NewRegistry(committee, firstHeight, time.Now(), DefaultEpochLength, utils.None[string]()))
 	for target := types.EpochIndex(2); target <= last; target++ {
 		utils.OrPanic(registry.TryPushEpoch(registry.LastRoad(target-2), weights))
 	}

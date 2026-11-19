@@ -11,37 +11,42 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// epochLength is the number of road heights per epoch.
-// TODO: move on-chain when epoch length becomes configurable.
-const epochLength types.RoadHeight = 108_000
+// DefaultEpochLength is the default number of road blocks per epoch.
+const DefaultEpochLength types.RoadHeight = 108_000
 
 // Registry stores the retained execution-derived epochs.
 type Registry struct {
 	firstHeight      types.RoadHeight
+	epochLength      types.RoadHeight
 	genesisTimestamp time.Time
 	state            utils.Mutex[*utils.AtomicSend[*persistedRegistry]]
 	stateRecv        utils.AtomicRecv[*persistedRegistry]
 	persister        persist.Persister[*pb.PersistedEpochRegistry]
 }
 
-// NewRegistry opens a registry using the genesis committee, road origin, and timestamp.
+// NewRegistry opens a registry using the genesis committee, road origin, timestamp, and epoch length.
 // Without persisted state it starts with epochs 0 and 1. stateDir None disables persistence.
 func NewRegistry(
 	committee *types.Committee,
 	firstHeight types.RoadHeight,
 	genesisTimestamp time.Time,
+	epochLength types.RoadHeight,
 	stateDir utils.Option[string],
 ) (*Registry, error) {
+	if epochLength == 0 {
+		return nil, fmt.Errorf("epoch length must be greater than 0")
+	}
 	persister, loaded, err := openEpochSnapshot(stateDir)
 	if err != nil {
 		return nil, err
 	}
 	r := &Registry{
 		firstHeight:      firstHeight,
+		epochLength:      epochLength,
 		genesisTimestamp: genesisTimestamp,
 		persister:        persister,
 	}
-	state := newGenesisRegistry(committee, firstHeight)
+	state := newGenesisRegistry(committee, firstHeight, epochLength)
 	if raw, ok := loaded.Get(); ok {
 		if state, err = persistedRegistryConv.DecodeReq(raw); err != nil {
 			return nil, fmt.Errorf("restore epoch snapshot: %w", err)
@@ -70,8 +75,8 @@ func NewRegistry(
 }
 
 func (r *Registry) roadRange(idx types.EpochIndex) types.RoadRange {
-	first := r.firstHeight + types.RoadHeight(idx)*epochLength
-	return types.RoadRange{First: first, Next: first + epochLength}
+	first := r.firstHeight + types.RoadHeight(idx)*r.epochLength
+	return types.RoadRange{First: first, Next: first + r.epochLength}
 }
 
 // LastRoad returns the last road height of epoch idx.
@@ -82,18 +87,19 @@ func (r *Registry) LastRoad(idx types.EpochIndex) types.RoadHeight {
 // IndexForRoad returns the epoch index containing road. Road must not precede
 // the genesis epoch's road range.
 func (r *Registry) IndexForRoad(road types.RoadHeight) types.EpochIndex {
-	return types.EpochIndex((road - r.firstHeight) / epochLength)
+	return types.EpochIndex((road - r.firstHeight) / r.epochLength)
 }
 
 // ClosingEpoch returns the epoch that road ends, if road is that epoch's last
 // road. Otherwise None.
 func (r *Registry) ClosingEpoch(road types.RoadHeight) utils.Option[types.EpochIndex] {
-	return ClosingEpoch(r.firstHeight, road)
+	return ClosingEpoch(r.firstHeight, r.epochLength, road)
 }
 
-// ClosingEpoch returns the epoch that road ends, for epochs counted from
-// firstHeight, if road is that epoch's last road. Otherwise None.
-func ClosingEpoch(firstHeight, road types.RoadHeight) utils.Option[types.EpochIndex] {
+// ClosingEpoch returns the epoch that road ends, for epochs of epochLength
+// roads counted from firstHeight, if road is that epoch's last road. Otherwise
+// None.
+func ClosingEpoch(firstHeight, epochLength, road types.RoadHeight) utils.Option[types.EpochIndex] {
 	if road < firstHeight || (road-firstHeight+1)%epochLength != 0 {
 		return utils.None[types.EpochIndex]()
 	}

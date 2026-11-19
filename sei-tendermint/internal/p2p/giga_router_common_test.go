@@ -299,6 +299,29 @@ func TestCommitteeWeights_DuplicateKey(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestBuildDataStateGenesisEpochLength(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	params := tmtypes.DefaultAutobahnParams()
+	params.EpochLength = 3
+	genesis := &tmtypes.GenesisDoc{ChainID: "epoch-length", Autobahn: utils.Some(params)}
+	require.NoError(t, genesis.ValidateAndComplete())
+	db := blockstore.NewTestStore(t)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	state, err := BuildDataState(&GigaRouterCommonConfig{
+		DialInterval:       time.Second,
+		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
+		PersistentStateDir: t.TempDir(),
+		GenDoc:             genesis,
+		App:                proxy.NewEVM(&fixedHeightApp{}),
+		AppHashBuilder:     newPublishingAppHashBuilder(),
+	}, db)
+	require.NoError(t, err)
+	anchor := state.Anchor().Load()
+	require.Equal(t, atypes.RoadRange{First: 1, Next: 4}, anchor.Epochs[0].RoadRange())
+	require.Equal(t, atypes.RoadRange{First: 4, Next: 7}, anchor.Epochs[1].RoadRange())
+}
+
 func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
@@ -315,7 +338,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 
 	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
 	require.NoError(t, err)
-	registry, err := epoch.NewRegistry(committee, atypes.RoadHeight(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
+	registry, err := epoch.NewRegistry(committee, atypes.RoadHeight(genDoc.InitialHeight), genDoc.GenesisTime, epoch.DefaultEpochLength, utils.None[string]())
 	require.NoError(t, err)
 	ep0 := registry.MustEpoch(0)
 	qc, blocks := data.TestCommitQC(rng, ep0, keys, utils.None[*atypes.CommitQC]())
@@ -442,7 +465,7 @@ func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAdd
 
 func testDataState(t *testing.T, committee *atypes.Committee) (*data.State, *epoch.Registry) {
 	t.Helper()
-	registry, err := epoch.NewRegistry(committee, 1, time.Now(), utils.None[string]())
+	registry, err := epoch.NewRegistry(committee, 1, time.Now(), epoch.DefaultEpochLength, utils.None[string]())
 	require.NoError(t, err)
 	db := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -926,7 +949,7 @@ func testRegistryThrough(t *testing.T, genesis map[atypes.PublicKey]uint64, late
 	t.Helper()
 	committee, err := atypes.NewCommittee(genesis)
 	require.NoError(t, err)
-	registry, err := epoch.NewRegistry(committee, 1, time.Now(), utils.None[string]())
+	registry, err := epoch.NewRegistry(committee, 1, time.Now(), epoch.DefaultEpochLength, utils.None[string]())
 	require.NoError(t, err)
 	for i, weights := range later {
 		// Epoch i+2 is derived when the last road of epoch i is reached.

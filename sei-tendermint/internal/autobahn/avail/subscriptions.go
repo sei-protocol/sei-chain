@@ -69,26 +69,59 @@ func (s *State) WaitForNextLane(ctx context.Context, pk types.PublicKey, exclude
 	return spec.Epoch.Committee().Lane(pk).OrPanic("WaitForNextLane"), nil
 }
 
+// SubscribeLaneVotes replays the retained previous epoch once, then follows the applied epoch.
+// We need it to replay previous epoch, so that FullCommitQC can be constructed by all validators.
 func (s *State) SubscribeLaneVotes() *LaneVotesRecv {
-	return &LaneVotesRecv{s, map[types.LaneID]types.LaneHeight{}}
+	for inner := range s.inner.Lock() {
+		return &LaneVotesRecv{
+			state: s,
+			epoch: inner.anchor.Epochs[0],
+			next:  map[types.LaneID]types.LaneHeight{},
+		}
+	}
+	panic("unreachable")
 }
 
+// Iterates over all valid LaneVotes of the local validator.
 type LaneVotesRecv struct {
 	state *State
+	epoch *types.Epoch
 	next  map[types.LaneID]types.LaneHeight
 }
 
 func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.LaneVote], error) {
-	var batch []*types.LaneBlockHeader
+	var batch []*types.LaneVote
 	for inner, ctrl := range r.state.inner.Lock() {
 		for {
-			for lane, ls := range inner.lanes {
-				bq := ls.blocks
-				upperBound := min(bq.next, ls.nextBlockToPersist)
-				for i := max(bq.first, r.next[lane]); i < upperBound; i++ {
-					batch = append(batch, bq.q[i].Msg().Block().Header())
+			applied := inner.applied()
+			for _, epoch := range inner.anchor.Epochs {
+				ei := epoch.EpochIndex()
+				// Vote only up to applied epoch.
+				if ei > applied.EpochIndex() {
+					break
 				}
-				r.next[lane] = upperBound
+				// Skip epochs below cursor.
+				if ei < r.epoch.EpochIndex() {
+					continue
+				}
+				// Move cursor if needed.
+				if ei > r.epoch.EpochIndex() {
+					r.epoch = epoch
+					clear(r.next)
+				}
+				// Skip epoch if we are not in committee.
+				if !r.epoch.Committee().HasReplica(r.state.key.Public()) {
+					continue
+				}
+				// Collect new votes.
+				for lane := range r.epoch.Committee().Lanes().All() {
+					ls := inner.lanes[lane]
+					upperBound := min(ls.blocks.next, ls.nextBlockToPersist)
+					for i := max(ls.blocks.first, r.next[lane]); i < upperBound; i++ {
+						batch = append(batch, types.NewLaneVote(r.epoch.EpochIndex(), ls.blocks.q[i].Msg().Block().Header()))
+					}
+					r.next[lane] = upperBound
+				}
 			}
 			if len(batch) > 0 {
 				break
@@ -101,8 +134,8 @@ func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.L
 	// TODO(gprusak): we sign the votes per VotesRecv instance, which is suboptimal.
 	// We should sign votes as soon as blocks arrive and cache them (in PushBlock and ProduceBlock).
 	votes := make([]*types.Signed[*types.LaneVote], len(batch))
-	for i, h := range batch {
-		votes[i] = types.Sign(r.state.key, types.NewLaneVote(h))
+	for i, vote := range batch {
+		votes[i] = types.Sign(r.state.key, vote)
 	}
 	return votes, nil
 }

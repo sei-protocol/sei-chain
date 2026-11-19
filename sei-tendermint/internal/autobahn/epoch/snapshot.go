@@ -59,7 +59,7 @@ type persistedRegistry struct {
 }
 
 // newGenesisRegistry constructs the first two live epochs from the genesis committee.
-func newGenesisRegistry(committee *types.Committee, firstHeight types.RoadHeight) *persistedRegistry {
+func newGenesisRegistry(committee *types.Committee, firstHeight, epochLength types.RoadHeight) *persistedRegistry {
 	return &persistedRegistry{
 		live: map[types.EpochIndex]*types.Epoch{
 			0: types.NewEpoch(0, types.RoadRange{First: firstHeight, Next: firstHeight + epochLength}, committee),
@@ -87,7 +87,8 @@ func (s *persistedRegistry) tryPushEpoch(n types.RoadHeight, weights map[types.P
 	live := maps.Clone(s.live)
 	liveRange := s.liveRange
 	liveRange.Next = next + 1
-	live[next] = types.NewEpoch(next, types.RoadRange{First: first, Next: first + epochLength}, committee)
+	length := last.RoadRange().Next - last.RoadRange().First
+	live[next] = types.NewEpoch(next, types.RoadRange{First: first, Next: first + length}, committee)
 	return &persistedRegistry{live: live, liveRange: liveRange}, nil
 }
 

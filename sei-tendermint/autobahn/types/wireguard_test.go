@@ -83,7 +83,7 @@ func TestLaneQCWireguardAcceptsMaxValidators(t *testing.T) {
 	committee, keys := maxValidatorCommittee(t)
 	rng := utils.TestRng()
 	lane := committee.Lane(committee.Leader(View{})).OrPanic("missing lane")
-	vote := NewLaneVote(NewLaneBlock(lane, 0, GenLaneBlockHeaderHash(rng), GenPayload(rng)).Header())
+	vote := NewLaneVote(0, NewLaneBlock(lane, 0, GenLaneBlockHeaderHash(rng), GenPayload(rng)).Header())
 	votes := make([]*Signed[*LaneVote], len(keys))
 	for i, key := range keys {
 		votes[i] = Sign(key, vote)
@@ -194,7 +194,7 @@ func TestFullProposalWireguardAcceptsMaxValidators(t *testing.T) {
 	laneQCs := map[LaneID]*LaneQC{}
 	for lane := range committee.Lanes().All() {
 		key := secretKeyFor(keys, lane.Validator)
-		vote := NewLaneVote(NewLaneBlock(lane, 0, GenLaneBlockHeaderHash(rng), GenPayload(rng)).Header())
+		vote := NewLaneVote(0, NewLaneBlock(lane, 0, GenLaneBlockHeaderHash(rng), GenPayload(rng)).Header())
 		laneQCs[lane] = NewLaneQC([]*Signed[*LaneVote]{Sign(key, vote)})
 	}
 	proposal, err := NewProposal(

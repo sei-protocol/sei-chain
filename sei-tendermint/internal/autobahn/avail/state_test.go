@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"testing"
 	"testing/synctest"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -69,10 +68,10 @@ func makeAppVotes(keys []types.SecretKey, proposal *types.AppProposal) []*types.
 	return votes
 }
 
-func makeLaneVotes(keys []types.SecretKey, h *types.LaneBlockHeader) []*types.Signed[*types.LaneVote] {
+func makeLaneVotes(epochIndex types.EpochIndex, keys []types.SecretKey, h *types.LaneBlockHeader) []*types.Signed[*types.LaneVote] {
 	var votes []*types.Signed[*types.LaneVote]
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewLaneVote(h)))
+		votes = append(votes, types.Sign(k, types.NewLaneVote(epochIndex, h)))
 	}
 	return votes
 }
@@ -80,7 +79,7 @@ func makeLaneVotes(keys []types.SecretKey, h *types.LaneBlockHeader) []*types.Si
 func pruneToHeader(state *State, keys []types.SecretKey, h *types.LaneBlockHeader) {
 	ep := state.ConsensusSpec().Load().Epoch
 	qc := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
-		h.Lane(): types.NewLaneQC(makeLaneVotes(keys, h)),
+		h.Lane(): types.NewLaneQC(makeLaneVotes(ep.EpochIndex(), keys, h)),
 	})
 	for inner, ctrl := range state.inner.Lock() {
 		inner.setAnchor(data.Anchor{First: utils.Some(data.AnchorFirst{
@@ -311,7 +310,7 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 					if err != nil {
 						return fmt.Errorf("state.TryBlock(): %w", err)
 					}
-					for _, vote := range makeLaneVotes(keys, b.Msg().Block().Header()) {
+					for _, vote := range makeLaneVotes(ep0.EpochIndex(), keys, b.Msg().Block().Header()) {
 						if err := state.PushVote(ctx, vote); err != nil {
 							return fmt.Errorf("state.PushVote(): %w", err)
 						}
@@ -320,7 +319,7 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 			}
 
 			t.Logf("Push a commit QC.")
-			laneQCs, err := state.WaitForLaneQCs(ctx, ep0, prev)
+			laneQCs, err := state.WaitForLaneQCs(ctx, (types.ConsensusSpec{Epoch: ep0, CommitQC: prev}).Height())
 			if err != nil {
 				return fmt.Errorf("state.WaitForNewLaneQCs(): %w", err)
 			}
@@ -466,7 +465,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 					if err != nil {
 						return fmt.Errorf("Block(%v,%d): %w", lane, n, err)
 					}
-					for _, vote := range makeLaneVotes(keys, b.Msg().Block().Header()) {
+					for _, vote := range makeLaneVotes(ep0.EpochIndex(), keys, b.Msg().Block().Header()) {
 						if err := state.PushVote(ctx, vote); err != nil {
 							return fmt.Errorf("PushVote: %w", err)
 						}
@@ -474,7 +473,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 				}
 			}
 
-			laneQCs, err := state.WaitForLaneQCs(ctx, ep0, prev)
+			laneQCs, err := state.WaitForLaneQCs(ctx, (types.ConsensusSpec{Epoch: ep0, CommitQC: prev}).Height())
 			if err != nil {
 				return fmt.Errorf("WaitForLaneQCs: %w", err)
 			}
@@ -635,7 +634,7 @@ func TestProductionAfterRestart(t *testing.T) {
 			for range 3 {
 				proposal := utils.OrPanic1(producer.ProduceLocalBlock(lane, producer.NextBlock(lane), types.GenPayload(rng)))
 				utils.OrPanic(peer.PushBlock(ctx, proposal))
-				for _, v := range makeLaneVotes(keys, proposal.Msg().Block().Header()) {
+				for _, v := range makeLaneVotes(ep.EpochIndex(), keys, proposal.Msg().Block().Header()) {
 					for _, node := range utils.Slice(producer, peer) {
 						utils.OrPanic(node.PushVote(ctx, v))
 					}
@@ -643,7 +642,7 @@ func TestProductionAfterRestart(t *testing.T) {
 			}
 			// Finalize blocks.
 			prev := utils.None[*types.CommitQC]()
-			laneQCs := utils.OrPanic1(producer.WaitForLaneQCs(ctx, ep, prev))
+			laneQCs := utils.OrPanic1(producer.WaitForLaneQCs(ctx, (types.ConsensusSpec{Epoch: ep, CommitQC: prev}).Height()))
 			commitQC := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), laneQCs)
 			app = types.NewAppProposal(commitQC.View(), types.GenAppHash(rng))
 			for _, node := range utils.Slice(producer, peer) {
@@ -737,7 +736,7 @@ func TestNewStateRestoresLaneBehindCommit(t *testing.T) {
 				blocks[n] = b.Proposal.Msg().Block()
 			}
 			qc := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
-				lane: data.TestLaneQC(keys, blocks[1].Header()),
+				lane: data.TestLaneQC(ep.EpochIndex(), keys, blocks[1].Header()),
 			})
 			dir := t.TempDir()
 			persistTestLocalBlocks(t, dir, keys[0], blocks[:tc.persisted])
@@ -864,92 +863,160 @@ func TestNewStateWithPersistence(t *testing.T) {
 	})
 }
 
-// TestHeaders_WaitsForPrevEpochLaneVote checks that after the applied epoch
-// advances, a LaneVote that only verifies under the Anchor (prev) committee is
-// still ingested into byKey and unblocks headers() for a prior-epoch LaneRange.
-func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
+func TestFullCommitQCAfterMismatchingLaneQC(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 7)
+	epoch := registry.MustEpoch(0)
+	ds := newTestDataState(t, &data.Config{Registry: registry})
+	state := utils.OrPanic1(NewState(keys[0], ds, utils.None[string]()))
+	defer func() { _ = state.Close() }()
+	lane := state.LocalLane().OrPanic("lane")
+	b1keys := types.TestKeysWithWeight(epoch.Committee(), keys, epoch.Committee().LaneQuorum())
+	b2keys := keys
+	require.True(t, len(b2keys) > 0, "need at least 1 validator outside of lane quorum for this test")
+	// Conflicting blocks.
+	b1 := types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, types.GenPayload(rng))
+	b2 := types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, types.GenPayload(rng))
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+		sc.SpawnBgNamed("data.Run", func() error { return utils.IgnoreCancel(ds.Run(ctx)) })
+		sc.SpawnBgNamed("avail.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+
+		// Collect b1 LaneQC locally.
+		for _, vote := range makeLaneVotes(epoch.EpochIndex(), b1keys, b1.Header()) {
+			if err := state.PushVote(ctx, vote); err != nil {
+				return err
+			}
+		}
+		localQCs, err := state.WaitForLaneQCs(ctx, state.ConsensusSpec().Load().Height())
+		if err != nil {
+			return err
+		}
+		if err := utils.TestDiff(b1.Header(), localQCs[lane].Header()); err != nil {
+			return err
+		}
+
+		// b2 LaneQC gets constructed and finalized remotely. Then pushed to state.
+		remoteQC := data.TestLaneQC(epoch.EpochIndex(), b2keys, b2.Header())
+		qc := types.BuildCommitQC(epoch, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{lane: remoteQC})
+		if err := qc.Verify(epoch); err != nil {
+			return err
+		}
+		if err := state.PushCommitQC(ctx, qc); err != nil {
+			return err
+		}
+
+		// A single LaneVote for the remote LaneQC arrives late.
+		if err := state.PushVote(ctx, types.Sign(b2keys[len(b1keys)], types.NewLaneVote(epoch.EpochIndex(), b2.Header()))); err != nil {
+			return err
+		}
+		// FullCommitQC should be successfully reconstructed from just this 1 vote.
+		fullQC, err := state.fullCommitQC(ctx, qc.Height())
+		if err != nil {
+			return err
+		}
+		if err := utils.TestDiff(qc.Header(), fullQC.QC().Header()); err != nil {
+			return err
+		}
+		return fullQC.Verify(epoch)
+	}))
+}
+
+func TestFullCommitQCCollectsPreviousEpochVotes(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := t.Context()
 		rng := utils.TestRng()
-		stay := types.GenSecretKey(rng)
-		leaver := types.GenSecretKey(rng)
-		a := types.GenSecretKey(rng)
-		b := types.GenSecretKey(rng)
-
-		genesis, err := types.NewCommittee(map[types.PublicKey]uint64{
-			stay.Public(): 1, leaver.Public(): 1, a.Public(): 1, b.Public(): 1,
+		registry, keys := epoch.GenRegistry(rng, 4)
+		newKeys := []types.SecretKey{keys[0], keys[1], keys[2], types.GenSecretKey(rng)}
+		weights := map[types.PublicKey]uint64{}
+		for _, key := range newKeys {
+			weights[key.Public()] = 1
+		}
+		require.NoError(t, registry.TestPushEpoch(0, weights))
+		ep, next := registry.MustEpoch(1), registry.MustEpoch(2)
+		ds := newTestDataStateAtRoad(t, rng, registry, keys, registry.LastRoad(1)-1)
+		state := utils.OrPanic1(NewState(keys[0], ds, utils.None[string]()))
+		defer func() { require.NoError(t, state.Close()) }()
+		prev := state.ConsensusSpec().Load().CommitQC
+		lane := state.LocalLane().OrPanic("lane")
+		n := types.LaneRangeOpt(prev, lane).Next()
+		first := types.NewLaneBlock(lane, n, types.LaneBlockHeaderHash{}, types.GenPayload(rng)).Header()
+		last := types.NewLaneBlock(lane, n+1, first.Hash(), types.GenPayload(rng)).Header()
+		qc := types.BuildCommitQC(ep, keys, prev, map[types.LaneID]*types.LaneQC{
+			lane: data.TestLaneQC(ep.EpochIndex(), keys, last),
 		})
-		require.NoError(t, err)
-		registry, err := epoch.NewRegistry(genesis, 0, time.Time{}, utils.None[string]())
-		require.NoError(t, err)
-		ds := newTestDataState(t, &data.Config{Registry: registry})
-		state, err := NewState(stay, ds, utils.None[string]())
-		require.NoError(t, err)
+		require.Equal(t, registry.LastRoad(1), qc.Height())
+		require.NoError(t, qc.Verify(ep))
 
+		// Retain one header before persistence advances the applied epoch.
+		firstVote := types.Sign(keys[0], types.NewLaneVote(ep.EpochIndex(), first))
+		require.NoError(t, state.PushVote(ctx, firstVote))
+		require.NoError(t, state.PushCommitQC(ctx, qc))
+		state.markCommitQCsPersisted(qc)
+		require.Equal(t, next, state.ConsensusSpec().Load().Epoch)
+
+		// Current-epoch votes for conflicting headers occupy separate collections.
+		otherFirst := types.NewLaneBlock(lane, n, types.LaneBlockHeaderHash{}, types.GenPayload(rng)).Header()
+		otherLast := types.NewLaneBlock(lane, n+1, otherFirst.Hash(), types.GenPayload(rng)).Header()
+		for _, h := range []*types.LaneBlockHeader{otherFirst, otherLast} {
+			for _, vote := range makeLaneVotes(next.EpochIndex(), newKeys, h) {
+				require.NoError(t, state.PushVote(ctx, vote))
+			}
+		}
+		for inner := range state.inner.Lock() {
+			oldVotes := inner.lanes[lane].votes[ep.EpochIndex()]
+			require.Equal(t, map[types.PublicKey]struct{}{keys[0].Public(): {}}, oldVotes.q[n].byKey)
+			require.Equal(t, map[types.LaneBlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]{
+				first.Hash(): {
+					weight: ep.Committee().Weight(keys[0].Public()),
+					votes:  []*types.Signed[*types.LaneVote]{firstVote},
+				},
+			}, oldVotes.q[n].byHash)
+			require.False(t, oldVotes.q[n].qc.IsPresent())
+			votes := inner.lanes[lane].votes[next.EpochIndex()]
+			require.NoError(t, votes.q[n].qc.OrPanic("current epoch QC").Verify(next))
+		}
+
+		var full *types.FullCommitQC
+		done := false
 		require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
-
-			ep0 := registry.MustEpoch(0)
-			lane := ep0.Committee().Lane(stay.Public()).OrPanic("stay lane")
-			header := types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, &types.Payload{}).Header()
-			leaverVote := types.Sign(leaver, types.NewLaneVote(header))
-
-			if err := registry.TestPushEpoch(0, map[types.PublicKey]uint64{stay.Public(): 1, a.Public(): 1, b.Public(): 1}); err != nil {
-				return err
-			}
-			epLeave := registry.MustEpoch(2)
-			keys := []types.SecretKey{stay, leaver, a, b}
-			if err := TestAdvanceToEpoch(ctx, state, keys, registry, epLeave.EpochIndex()); err != nil {
-				return err
-			}
-
-			for inner := range state.inner.Lock() {
-				if inner.applied().EpochIndex() != epLeave.EpochIndex() {
-					return fmt.Errorf("applied epoch = %d, want %d", inner.applied().EpochIndex(), epLeave.EpochIndex())
-				}
-				ae := inner.anchor.Epochs[0]
-				if ae.EpochIndex() >= epLeave.EpochIndex() {
-					return fmt.Errorf("anchor epoch = %d, want < %d", ae.EpochIndex(), epLeave.EpochIndex())
-				}
-			}
-			if leaverVote.Msg().Verify(epLeave.Committee()) == nil && epLeave.Committee().HasReplica(leaverVote.Key()) {
-				return fmt.Errorf("leaver must fail under applied")
-			}
-			if leaverVote.Msg().Verify(ep0.Committee()) != nil || !ep0.Committee().HasReplica(leaverVote.Key()) {
-				return fmt.Errorf("leaver must pass under anchor")
-			}
-
-			lr := types.NewLaneRange(lane, 0, utils.Some(header))
-			var got []*types.LaneBlockHeader
-			var herr error
-			done := false
 			sc.Spawn(func() error {
-				got, herr = state.headers(ctx, ep0, lr)
+				var err error
+				full, err = state.fullCommitQC(ctx, qc.Height())
 				done = true
-				return nil
+				return err
 			})
 			synctest.Wait()
 			if done {
-				return fmt.Errorf("headers should wait for a matching LaneVote")
+				return fmt.Errorf("FullCommitQC must wait for the missing previous-epoch header")
 			}
-
-			if err := state.PushVote(ctx, leaverVote); err != nil {
+			// The departing validator's late vote supplies the missing header.
+			if err := state.PushVote(ctx, types.Sign(keys[3], types.NewLaneVote(ep.EpochIndex(), last))); err != nil {
 				return err
 			}
 			synctest.Wait()
 			if !done {
-				return fmt.Errorf("headers did not complete after LaneVote")
-			}
-			if herr != nil {
-				return herr
-			}
-			if len(got) != 1 {
-				return fmt.Errorf("headers len = %d, want 1", len(got))
-			}
-			if got[0].Hash() != header.Hash() {
-				return fmt.Errorf("header hash mismatch")
+				return fmt.Errorf("FullCommitQC did not complete after the previous-epoch vote")
 			}
 			return nil
 		}))
+		require.Equal(t, []*types.LaneBlockHeader{first, last}, full.Headers())
+		require.NoError(t, full.Verify(ep))
+
+		// Anchor pruning removes both epochs' collections for the executed blocks.
+		for inner, ctrl := range state.inner.Lock() {
+			inner.setAnchor(data.Anchor{
+				First: utils.Some(data.AnchorFirst{
+					CommitQC: qc,
+					AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.View(), types.AppHash{})),
+				}),
+				Epochs: [2]*types.Epoch{ep, next},
+			})
+			for _, epochIndex := range []types.EpochIndex{ep.EpochIndex(), next.EpochIndex()} {
+				require.Empty(t, inner.lanes[lane].votes[epochIndex].q)
+			}
+			ctrl.Updated()
+		}
 	})
 }
 
@@ -1095,4 +1162,159 @@ func TestMarkCommitQCsPersistedDoesNotRewindSpecAfterPrune(t *testing.T) {
 	require.Equal(t, utils.Some(qc), spec.CommitQC)
 	state.markCommitQCsPersisted(qc0)
 	require.Equal(t, spec, state.ConsensusSpec().Load())
+}
+
+func TestPushVoteWaitsForAnchorEpoch(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistry(rng, 1)
+		joiner := types.GenSecretKey(rng)
+		require.NoError(t, registry.TestPushEpoch(0, map[types.PublicKey]uint64{keys[0].Public(): 1, joiner.Public(): 1}))
+		ep := registry.MustEpoch(2)
+		state := utils.OrPanic1(NewState(joiner, newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+		defer func() { require.NoError(t, state.Close()) }()
+		lane := ep.Committee().Lane(joiner.Public()).OrPanic("joining lane")
+		header := types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, types.GenPayload(rng)).Header()
+		vote := types.Sign(joiner, types.NewLaneVote(ep.EpochIndex(), header))
+		done := false
+		require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
+			sc.Spawn(func() error {
+				if err := state.PushVote(ctx, vote); err != nil {
+					return err
+				}
+				done = true
+				return nil
+			})
+			synctest.Wait()
+			if done {
+				return fmt.Errorf("vote completed before anchor coverage")
+			}
+			for inner, ctrl := range state.inner.Lock() {
+				inner.setAnchor(data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(1), ep}})
+				ctrl.Updated()
+			}
+			synctest.Wait()
+			if !done {
+				return fmt.Errorf("vote did not complete after anchor coverage")
+			}
+			return nil
+		}))
+		require.Equal(t, types.EpochIndex(1), state.ConsensusSpec().Load().Epoch.EpochIndex())
+		require.False(t, state.LocalLane().IsPresent())
+		for inner := range state.inner.Lock() {
+			votes := inner.lanes[lane].votes[ep.EpochIndex()]
+			require.Equal(t, map[types.PublicKey]struct{}{joiner.Public(): {}}, votes.q[0].byKey)
+			require.NoError(t, votes.q[0].qc.OrPanic("joining epoch QC").Verify(ep))
+		}
+	})
+}
+
+func TestBlockVotes_EpochAdvance(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 4)
+	newKeys := []types.SecretKey{keys[0], keys[1], keys[2], types.GenSecretKey(rng)}
+	weights := map[types.PublicKey]uint64{}
+	for _, key := range newKeys {
+		weights[key.Public()] = 1
+	}
+	require.NoError(t, registry.TestPushEpoch(0, weights))
+	state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+	defer func() { require.NoError(t, state.Close()) }()
+	lane := state.LocalLane().OrPanic("lane")
+	header := types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, types.GenPayload(rng)).Header()
+
+	// Send all old votes and check the QC.
+	oldVotes := makeLaneVotes(0, keys, header)
+	for _, vote := range oldVotes {
+		require.NoError(t, state.PushVote(ctx, vote))
+	}
+	qcs, err := state.WaitForLaneQCs(ctx, state.ConsensusSpec().Load().Height())
+	require.NoError(t, err)
+	require.Equal(t, header, qcs[lane].Header())
+	require.NoError(t, qcs[lane].Verify(registry.MustEpoch(0)))
+
+	// Advance past epoch 0's retention window. Pruned votes are ignored on reinsert.
+	require.NoError(t, TestAdvanceToEpoch(ctx, state, keys, registry, 2))
+	for _, vote := range oldVotes {
+		require.NoError(t, state.PushVote(ctx, vote))
+	}
+	for inner := range state.inner.Lock() {
+		_, retained := inner.lanes[lane].votes[0]
+		require.False(t, retained)
+		require.Equal(t, 0, inner.lanes[lane].votes[2].Len())
+		require.Empty(t, inner.lanes[lane].votes[2].q)
+	}
+
+	// Send all new votes and check the QC.
+	for _, vote := range makeLaneVotes(2, newKeys, header) {
+		require.NoError(t, state.PushVote(ctx, vote))
+	}
+	qcs, err = state.WaitForLaneQCs(ctx, state.ConsensusSpec().Load().Height())
+	require.NoError(t, err)
+	require.Equal(t, header, qcs[lane].Header())
+	require.NoError(t, qcs[lane].Verify(registry.MustEpoch(2)))
+}
+
+func TestEpochPruningUnblocksVoteAndHeaderWaits(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistryThrough(rng, 1, 2)
+		ep := registry.MustEpoch(0)
+		state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+		defer func() { require.NoError(t, state.Close()) }()
+		lane := state.LocalLane().OrPanic("lane")
+		first := types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, types.GenPayload(rng)).Header()
+		future := types.NewLaneBlock(lane, BlocksPerLane, types.GenLaneBlockHeaderHash(rng), types.GenPayload(rng)).Header()
+		vote := types.Sign(keys[0], types.NewLaneVote(ep.EpochIndex(), future))
+		var oldVotes *queue[types.LaneHeight, *blockVotes]
+		for inner := range state.inner.Lock() {
+			oldVotes = inner.lanes[lane].votes[ep.EpochIndex()]
+		}
+		voteDone, headersDone := false, false
+		require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
+			sc.Spawn(func() error {
+				if err := state.PushVote(ctx, vote); err != nil {
+					return err
+				}
+				voteDone = true
+				return nil
+			})
+			sc.Spawn(func() error {
+				_, err := state.headers(ctx, ep.EpochIndex(), types.NewLaneRange(lane, 0, utils.Some(first)))
+				if !errors.Is(err, types.ErrPruned) {
+					return fmt.Errorf("headers(): got %v, want %v", err, types.ErrPruned)
+				}
+				headersDone = true
+				return nil
+			})
+			synctest.Wait()
+			if voteDone || headersDone {
+				return fmt.Errorf("vote and header collection must wait before pruning")
+			}
+			if err := TestAdvanceToEpoch(ctx, state, keys, registry, 2); err != nil {
+				return err
+			}
+			synctest.Wait()
+			if !voteDone || !headersDone {
+				return fmt.Errorf("epoch pruning did not unblock vote and header collection")
+			}
+			return nil
+		}))
+		require.Empty(t, oldVotes.q)
+	})
+}
+
+func TestHeadersRejectsUnretainedLane(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 1)
+	ep := registry.MustEpoch(0)
+	state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+	defer func() { require.NoError(t, state.Close()) }()
+	lane := types.GenLaneID(rng)
+	header := types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, types.GenPayload(rng)).Header()
+	_, err := state.headers(t.Context(), ep.EpochIndex(), types.NewLaneRange(lane, 0, utils.Some(header)))
+	require.ErrorIs(t, err, types.ErrPruned)
 }
