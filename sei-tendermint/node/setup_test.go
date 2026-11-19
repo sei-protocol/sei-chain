@@ -458,6 +458,16 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 	}
 }
 
+func TestMakeEVMApplicationRefusesARestoredHome(t *testing.T) {
+	psd := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(psd, "state-sync-restored"), []byte("7\n"), 0o600))
+
+	_, _, err := makeEVMApplication(storageContext(t), layoutConfig(t, psd), gigaconfig.DefaultConfig, genesisAt(1))
+
+	require.ErrorContains(t, err, "state sync import at height 7")
+	require.NoDirExists(t, filepath.Join(psd, "data"), "no store may open on a restored home")
+}
+
 func TestStateSyncUpload(t *testing.T) {
 	t.Setenv("AWS_CONFIG_FILE", filepath.Join(t.TempDir(), "config"))
 	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(t.TempDir(), "credentials"))

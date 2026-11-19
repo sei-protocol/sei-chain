@@ -116,6 +116,46 @@ func (s *S3Store) Get(ctx context.Context, key string) (io.ReadCloser, ObjectInf
 	return out.Body, ObjectInfo{Version: aws.ToString(out.ETag), Modified: aws.ToTime(out.LastModified)}, nil
 }
 
+// Region returns the AWS region of the store.
+func (s *S3Store) Region() string {
+	return s.client.Options().Region
+}
+
+// CredentialSource retrieves the AWS credentials of the store and returns the name of their
+// provider.
+func (s *S3Store) CredentialSource(ctx context.Context) (string, error) {
+	provider := s.client.Options().Credentials
+	if provider == nil {
+		return "", errors.New("no AWS credentials provider")
+	}
+	creds, err := provider.Retrieve(ctx)
+	if err != nil {
+		return "", fmt.Errorf("retrieve aws credentials: %w", err)
+	}
+	return creds.Source, nil
+}
+
+// CheckWrite starts a multipart upload at key and aborts it. It needs s3:PutObject and
+// s3:AbortMultipartUpload, as an archive upload does, and leaves no object.
+func (s *S3Store) CheckWrite(ctx context.Context, key string) error {
+	out, err := s.client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("start a multipart upload at %s: %w", s.url(key), err)
+	}
+	_, err = s.client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+		Bucket:   aws.String(s.bucket),
+		Key:      aws.String(key),
+		UploadId: out.UploadId,
+	})
+	if err != nil {
+		return fmt.Errorf("abort the multipart upload at %s: %w", s.url(key), err)
+	}
+	return nil
+}
+
 func (s *S3Store) url(key string) string {
 	return "s3://" + s.bucket + "/" + key
 }

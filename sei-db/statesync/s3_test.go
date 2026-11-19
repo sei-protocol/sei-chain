@@ -18,18 +18,43 @@ import (
 
 const testBucket = "snapshots"
 
-// fakeS3 is an S3 endpoint that keeps objects in memory and honors If-Match and If-None-Match.
+// fakeS3 is an S3 endpoint that keeps objects in memory and honors If-Match and If-None-Match. It
+// answers AccessDenied to each request whose method is in deny.
 type fakeS3 struct {
 	mu      sync.Mutex
 	objects map[string]memObject
 	etags   int
+	deny    map[string]bool
+	// uploads holds the multipart uploads that are started and not aborted.
+	uploads map[string]bool
 }
 
 func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.deny[r.Method] {
+		writeS3Error(w, http.StatusForbidden, "AccessDenied")
+		return
+	}
 	key := strings.TrimPrefix(r.URL.Path, "/"+testBucket+"/")
 	obj, ok := f.objects[key]
+	query := r.URL.Query()
+	switch {
+	case r.Method == http.MethodPost && query.Has("uploads"):
+		id := fmt.Sprintf("upload-%d", len(f.uploads)+1)
+		f.uploads[id] = true
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?><InitiateMultipartUploadResult><Bucket>%s</Bucket><Key>%s</Key><UploadId>%s</UploadId></InitiateMultipartUploadResult>`, testBucket, key, id)
+		return
+	case r.Method == http.MethodDelete && query.Has("uploadId"):
+		if !f.uploads[query.Get("uploadId")] {
+			writeS3Error(w, http.StatusNotFound, "NoSuchUpload")
+			return
+		}
+		delete(f.uploads, query.Get("uploadId"))
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		if !ok {
@@ -82,8 +107,16 @@ func isolateAWSConfig(t *testing.T) {
 
 func newFakeS3Store(t *testing.T) *S3Store {
 	t.Helper()
+	store, _ := newFakeS3StoreWith(t)
+	return store
+}
+
+// newFakeS3StoreWith returns an S3Store on a new fakeS3, and the fakeS3.
+func newFakeS3StoreWith(t *testing.T) (*S3Store, *fakeS3) {
+	t.Helper()
 	isolateAWSConfig(t)
-	srv := httptest.NewServer(&fakeS3{objects: map[string]memObject{}})
+	fake := &fakeS3{objects: map[string]memObject{}, deny: map[string]bool{}, uploads: map[string]bool{}}
+	srv := httptest.NewServer(fake)
 	t.Cleanup(srv.Close)
 	store, err := newS3Store(t.Context(), testBucket, "eu-central-1", func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(srv.URL)
@@ -91,7 +124,7 @@ func newFakeS3Store(t *testing.T) *S3Store {
 		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 	})
 	require.NoError(t, err)
-	return store
+	return store, fake
 }
 
 func putString(t *testing.T, store *S3Store, key, content string, pre Precondition) error {
@@ -150,6 +183,41 @@ func TestS3StoreAdvanceLatest(t *testing.T) {
 	newest, err = AdvanceLatest(t.Context(), store, testChainID, 12)
 	require.NoError(t, err)
 	require.Equal(t, int64(12), newest)
+}
+
+func TestS3StoreReportsItsAccess(t *testing.T) {
+	store := newFakeS3Store(t)
+
+	require.Equal(t, "eu-central-1", store.Region())
+	source, err := store.CredentialSource(t.Context())
+	require.NoError(t, err)
+	require.NotEmpty(t, source)
+}
+
+func TestS3StoreCheckWriteLeavesNothing(t *testing.T) {
+	store, fake := newFakeS3StoreWith(t)
+
+	require.NoError(t, store.CheckWrite(t.Context(), WriteCheckKey(testChainID)))
+
+	require.Empty(t, fake.objects)
+	require.Empty(t, fake.uploads)
+}
+
+func TestS3StoreCheckWriteReportsADeniedStep(t *testing.T) {
+	for method, step := range map[string]string{
+		http.MethodPost:   "start a multipart upload",
+		http.MethodDelete: "abort the multipart upload",
+	} {
+		t.Run(method, func(t *testing.T) {
+			store, fake := newFakeS3StoreWith(t)
+			fake.deny[method] = true
+
+			err := store.CheckWrite(t.Context(), WriteCheckKey(testChainID))
+
+			require.ErrorContains(t, err, step)
+			require.ErrorContains(t, err, "AccessDenied")
+		})
+	}
 }
 
 func TestNewS3StoreNeedsARegion(t *testing.T) {
