@@ -39,7 +39,7 @@ func (a Anchor) CommitQC() utils.Option[*types.CommitQC] {
 
 // NextHeightEpoch returns the epoch containing NextHeight().
 func (a Anchor) NextHeightEpoch() *types.Epoch {
-	return a.EpochAt(a.NextHeight()).OrPanic("next index epoch missing")
+	return a.EpochAt(a.NextHeight()).OrPanic("next height epoch missing")
 }
 
 // NextHeight returns the road after the certified anchor, or the first epoch's

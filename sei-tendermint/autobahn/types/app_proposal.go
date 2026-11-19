@@ -29,7 +29,7 @@ func NewAppProposal(view View, appHash AppHash) *AppProposal {
 	}
 }
 
-// Height returns the road index of the proposal.
+// Height returns the road height of the proposal.
 func (m *AppProposal) Height() RoadHeight { return m.height }
 
 // AppHash .

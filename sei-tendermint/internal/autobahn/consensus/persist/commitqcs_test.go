@@ -172,7 +172,7 @@ func TestCommitQCPersistGapRejected(t *testing.T) {
 	require.NoError(t, cp.Close())
 }
 
-// TestLoadAllDropsCommitQCsBehindGap verifies that a gap in the stored road indices is read as a prune
+// TestLoadAllDropsCommitQCsBehindGap verifies that a gap in the stored road heights is read as a prune
 // boundary: everything before it was logically removed and is discarded, and only the contiguous run
 // ending at the newest QC is loaded.
 func TestLoadAllDropsCommitQCsBehindGap(t *testing.T) {
@@ -180,7 +180,7 @@ func TestLoadAllDropsCommitQCsBehindGap(t *testing.T) {
 	committee, keys := genTestCommittee(rng, 4)
 	dir := t.TempDir()
 
-	// Build 3 sequential CommitQCs (indices 0, 1, 2).
+	// Build 3 sequential CommitQCs (heights 0, 1, 2).
 	qcs := makeSequentialCommitQCs(committee, keys, 3)
 
 	// Write straight to the WAL, bypassing the contiguity check, to lay down indices 0 and 2 with no

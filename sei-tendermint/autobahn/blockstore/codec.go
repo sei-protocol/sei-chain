@@ -72,14 +72,14 @@ func (r *record) appendBytes(value []byte, aliases ...ledgerKey) {
 	}
 }
 
-// encodeAppQC encodes an application QC at its road index.
+// encodeAppQC encodes an application QC at its road height.
 func encodeAppQC(qc *types.AppQC) record {
 	r := record{Key: (appQCKey{Height: qc.Proposal().Height()}).encode()}
 	r.appendRawBytes(types.AppQCConv.Marshal(qc))
 	return r
 }
 
-// encodeAppProposal encodes an application proposal at its road index.
+// encodeAppProposal encodes an application proposal at its road height.
 func encodeAppProposal(proposal *types.AppProposal) record {
 	r := record{Key: (appProposalKey{Height: proposal.Height()}).encode()}
 	r.appendRawBytes(types.AppProposalConv.Marshal(proposal))
@@ -100,10 +100,10 @@ func consumeValue(value []byte) ([]byte, []byte, error) {
 	return value[:length], value[length:], nil
 }
 
-// decodeBlock decodes a road block and validates its stored index and hash.
+// decodeBlock decodes a road block and validates its stored height and hash.
 func decodeBlock(value []byte) (*types.RoadBlock, error) {
 	if len(value) < 8 {
-		return nil, fmt.Errorf("truncated road index")
+		return nil, fmt.Errorf("truncated road height")
 	}
 	height := types.RoadHeight(binary.BigEndian.Uint64(value))
 	value = value[8:]

@@ -22,7 +22,7 @@ var logger = seilog.NewLogger("tendermint", "autobahn", "statesyncproof")
 type ExportConfig struct {
 	// Dir is the directory where canonical state sync proof files are written.
 	Dir string
-	// CheckpointRoads returns the road indices of the FlatKV checkpoints retained locally.
+	// CheckpointRoads returns the road heights of the FlatKV checkpoints retained locally.
 	CheckpointRoads func() ([]types.RoadHeight, error)
 	// BlockStore provides the road blocks, AppProposals and AppQCs to export.
 	BlockStore BlockStore
@@ -202,7 +202,7 @@ func (e *Exporter) retainedCheckpoints() (map[types.RoadHeight]struct{}, error) 
 	return checkpoints, nil
 }
 
-// exportProof writes the proof file of road index and marks it exported. Records that are
+// exportProof writes the proof file of road height and marks it exported. Records that are
 // pruned, missing or inconsistent mark it skipped.
 func (e *Exporter) exportProof(height types.RoadHeight) error {
 	records, err := e.readRecords(height)
@@ -218,7 +218,7 @@ func (e *Exporter) exportProof(height types.RoadHeight) error {
 		// BlockStore writes the block, AppProposal and AppQC of a road before its AppQC cursor covers
 		// the road, so a record missing at or below LastAppQC never appears later. A checkpoint from
 		// before the BlockStore held any road is one such case.
-		logger.Info("skipping state sync proof: BlockStore has no records for checkpoint", "index", height)
+		logger.Info("skipping state sync proof: BlockStore has no records for checkpoint", "height", height)
 		e.skipped[height] = struct{}{}
 		return nil
 	}
@@ -227,7 +227,7 @@ func (e *Exporter) exportProof(height types.RoadHeight) error {
 		// Skipping, not halting, keeps a corrupt local BlockStore from stopping the node through an
 		// optional export, and never publishes the bad proof.
 		Global.inconsistentRecordsAt().Add(1)
-		logger.Error("skipping state sync proof: inconsistent BlockStore records", "index", height, "err", err)
+		logger.Error("skipping state sync proof: inconsistent BlockStore records", "height", height, "err", err)
 		e.skipped[height] = struct{}{}
 		return nil
 	}
@@ -245,8 +245,8 @@ type records struct {
 	appQC       *types.AppQC
 }
 
-// encode returns the proof file of road index. It fails when the records do not all belong to road
-// index or the local AppHash does not match the AppQC.
+// encode returns the proof file of road height. It fails when the records do not all belong to road
+// height or the local AppHash does not match the AppQC.
 func (r records) encode(height types.RoadHeight) ([]byte, error) {
 	// The data layer checks this before it writes the AppQC. Keep the check here as defense in depth against
 	// a future writer path or corrupted local records.
@@ -259,7 +259,7 @@ func (r records) encode(height types.RoadHeight) ([]byte, error) {
 	return Encode(r.block, r.appQC)
 }
 
-// readRecords reads the records of road index. It returns None when any record is missing, and an
+// readRecords reads the records of road height. It returns None when any record is missing, and an
 // error wrapping types.ErrPruned when any record is pruned.
 func (e *Exporter) readRecords(height types.RoadHeight) (utils.Option[records], error) {
 	none := utils.None[records]()

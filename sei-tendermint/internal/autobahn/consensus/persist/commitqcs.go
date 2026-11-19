@@ -29,7 +29,7 @@ type commitQCState struct {
 	appended uint64
 }
 
-// persistCommitQC schedules a CommitQC for the WAL under its own road index. The QC is not durable
+// persistCommitQC schedules a CommitQC for the WAL under its own road height. The QC is not durable
 // until flush returns. Caller must hold the lock.
 // Duplicates (idx < next) are silently ignored for idempotent startup.
 // Gaps (idx > next) return an error.
@@ -137,7 +137,7 @@ func NewCommitQCPersister(stateDir utils.Option[string]) (*CommitQCPersister, []
 	return &CommitQCPersister{state: utils.NewMutex(s)}, loaded, nil
 }
 
-// LoadNext returns the road index of the first CommitQC that has not been
+// LoadNext returns the road height of the first CommitQC that has not been
 // persisted (exclusive upper bound of what's on disk).
 func (cp *CommitQCPersister) Next() types.RoadHeight {
 	for s := range cp.state.Lock() {
@@ -190,7 +190,7 @@ func (cp *CommitQCPersister) Close() error {
 
 // loadAllCommitQCs reads the WAL and returns the QCs that are still live.
 //
-// QCs stranded below a lazy prune are discarded: a gap in the stored road indices marks where pruning
+// QCs stranded below a lazy prune are discarded: a gap in the stored road heights marks where pruning
 // has already logically removed everything before it.
 func loadAllCommitQCs(s *commitQCState) ([]*types.CommitQC, error) {
 	w, ok := s.wal.Get()

@@ -191,14 +191,14 @@ var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 		if p.CommitVoteV3 != nil {
 			v, err := types.SignedCommitVoteConv.Decode(p.CommitVoteV3)
 			if err != nil {
-				return nil, fmt.Errorf("commit_vote: %w", err)
+				return nil, fmt.Errorf("commit_vote_v3: %w", err)
 			}
 			m.CommitVote = utils.Some(v)
 		}
 		if p.PrepareVoteV3 != nil {
 			v, err := types.SignedPrepareVoteConv.Decode(p.PrepareVoteV3)
 			if err != nil {
-				return nil, fmt.Errorf("prepare_vote: %w", err)
+				return nil, fmt.Errorf("prepare_vote_v3: %w", err)
 			}
 			m.PrepareVote = utils.Some(v)
 		}

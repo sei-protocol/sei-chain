@@ -233,7 +233,7 @@ var ViewConv = protoutils.Conv[View, *pb.View]{
 	},
 	Decode: func(m *pb.View) (View, error) {
 		if m.Height == nil {
-			return View{}, fmt.Errorf("index: missing")
+			return View{}, fmt.Errorf("height: missing")
 		}
 		if m.Number == nil {
 			return View{}, fmt.Errorf("number: missing")
@@ -290,11 +290,11 @@ var FullTimeoutVoteConv = protoutils.Conv[*FullTimeoutVote, *pb.FullTimeoutVote]
 	Decode: func(m *pb.FullTimeoutVote) (*FullTimeoutVote, error) {
 		vote, err := SignedTimeoutVoteConv.DecodeReq(m.VoteV2)
 		if err != nil {
-			return nil, fmt.Errorf("timeoutVote: %w", err)
+			return nil, fmt.Errorf("vote_v2: %w", err)
 		}
 		latestPrepareQC, err := PrepareQCConv.DecodeOpt(m.LatestPrepareQc)
 		if err != nil {
-			return nil, fmt.Errorf("latestPrepareQc: %w", err)
+			return nil, fmt.Errorf("latest_prepare_qc: %w", err)
 		}
 		return &FullTimeoutVote{
 			vote:            vote,
@@ -314,14 +314,14 @@ var TimeoutQCConv = protoutils.Conv[*TimeoutQC, *pb.TimeoutQC]{
 	Decode: func(m *pb.TimeoutQC) (*TimeoutQC, error) {
 		votes, err := SignedTimeoutVoteConv.DecodeSlice(m.VotesV2)
 		if err != nil {
-			return nil, fmt.Errorf("votes: %w", err)
+			return nil, fmt.Errorf("votes_v2: %w", err)
 		}
 		if len(votes) == 0 {
-			return nil, errors.New("votes: missing")
+			return nil, errors.New("votes_v2: missing")
 		}
 		latestPrepareQC, err := PrepareQCConv.DecodeOpt(m.LatestPrepareQc)
 		if err != nil {
-			return nil, fmt.Errorf("latestPrepareQc: %w", err)
+			return nil, fmt.Errorf("latest_prepare_qc: %w", err)
 		}
 		return &TimeoutQC{
 			votes:           votes,

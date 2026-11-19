@@ -25,10 +25,10 @@ type EpochRange struct {
 	Next  EpochIndex
 }
 
-// OpenRoadRange returns a RoadRange covering all road indices from 0.
+// OpenRoadRange returns a RoadRange covering all road heights from 0.
 func OpenRoadRange() RoadRange { return RoadRange{First: 0, Next: utils.Max[RoadHeight]()} }
 
-// Len returns the number of road indices in the range.
+// Len returns the number of road heights in the range.
 func (r RoadRange) Len() uint64 { return uint64(r.Next - r.First) }
 
 func (r RoadRange) Has(height RoadHeight) bool { return r.First <= height && height < r.Next }

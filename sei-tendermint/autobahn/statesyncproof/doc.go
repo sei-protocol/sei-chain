@@ -4,10 +4,10 @@
 //
 // A proof file belongs to the FlatKV checkpoint at road H:
 //
-//	name: the road index as %020d, plus ".bin"
+//	name: the road height as %020d, plus ".bin"
 //	body: "SEISSP" magic | version byte | StateSyncProof protobuf
 //
-// FileName and ParseFileName convert between the road index and the name. The
+// FileName and ParseFileName convert between the road height and the name. The
 // protobuf holds the CommitQC, the lane blocks and the AppQC of road H. Encode
 // builds a body, and Decode checks a body against the road in its name.
 // Version 1 lets a reader verify the road block and the AppHash against the

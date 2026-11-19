@@ -35,7 +35,7 @@ func (v View) Less(b View) bool {
 	return v.Number < b.Number
 }
 
-// Verify checks that the view's epoch index and road index are consistent with ep.
+// Verify checks that the view's epoch index and road height are consistent with ep.
 func (v View) Verify(ep *Epoch) error {
 	if got, want := v.EpochIndex, ep.EpochIndex(); got != want {
 		return fmt.Errorf("epoch_index = %d, want %d", got, want)
@@ -385,11 +385,11 @@ var FullProposalConv = protoutils.Conv[*FullProposal, *pb.FullProposal]{
 	Decode: func(m *pb.FullProposal) (*FullProposal, error) {
 		proposal, err := SignedProposalConv.DecodeReq(m.ProposalV2)
 		if err != nil {
-			return nil, fmt.Errorf("proposal: %w", err)
+			return nil, fmt.Errorf("proposal_v2: %w", err)
 		}
 		laneQCs, err := LaneQCConv.DecodeSlice(m.LaneQcs)
 		if err != nil {
-			return nil, fmt.Errorf("laneQCs: %w", err)
+			return nil, fmt.Errorf("lane_qcs: %w", err)
 		}
 		laneQCsMap := map[LaneID]*LaneQC{}
 		for _, qc := range laneQCs {
@@ -397,7 +397,7 @@ var FullProposalConv = protoutils.Conv[*FullProposal, *pb.FullProposal]{
 		}
 		timeoutQC, err := TimeoutQCConv.DecodeOpt(m.TimeoutQc)
 		if err != nil {
-			return nil, fmt.Errorf("timeoutQC: %w", err)
+			return nil, fmt.Errorf("timeout_qc: %w", err)
 		}
 		return &FullProposal{proposal: proposal, laneQCs: laneQCsMap, timeoutQC: timeoutQC}, nil
 	},

@@ -20,7 +20,7 @@ type NodeID string
 // LaneHeight is the height of a block in a lane.
 type LaneHeight uint64
 
-// LaneBlockPos identifies a lane block by its CommitQC road index and header offset.
+// LaneBlockPos identifies a lane block by its CommitQC road height and header offset.
 type LaneBlockPos struct {
 	Height RoadHeight
 	Offset uint64
@@ -260,15 +260,15 @@ var LaneBlockHeaderConv = protoutils.Conv[*LaneBlockHeader, *pb.LaneBlockHeader]
 	Decode: func(h *pb.LaneBlockHeader) (*LaneBlockHeader, error) {
 		payloadHash, err := hashable.ParseHash[*pb.Payload](h.PayloadHash)
 		if err != nil {
-			return nil, fmt.Errorf("PayloadHash: %w", err)
+			return nil, fmt.Errorf("payload_hash: %w", err)
 		}
 		parentHash, err := hashable.ParseHash[*pb.LaneBlockHeader](h.ParentHash)
 		if err != nil {
-			return nil, fmt.Errorf("ParentHash: %w", err)
+			return nil, fmt.Errorf("parent_hash: %w", err)
 		}
 		lane, err := LaneIDConv.DecodeReq(h.LaneId)
 		if err != nil {
-			return nil, fmt.Errorf("lane: %w", err)
+			return nil, fmt.Errorf("lane_id: %w", err)
 		}
 		if h.Height == nil {
 			return nil, fmt.Errorf("height: missing")
@@ -298,10 +298,10 @@ var PayloadConv = protoutils.Conv[*Payload, *pb.Payload]{
 			return nil, fmt.Errorf("created_at: %w", err)
 		}
 		if p.TotalGasWanted == nil {
-			return nil, fmt.Errorf("TotalGasWanted: missing")
+			return nil, fmt.Errorf("total_gas_wanted: missing")
 		}
 		if p.TotalGasEstimated == nil {
-			return nil, fmt.Errorf("TotalGasEstimated: missing")
+			return nil, fmt.Errorf("total_gas_estimated: missing")
 		}
 		return PayloadBuilder{
 			CreatedAt:         createdAt,

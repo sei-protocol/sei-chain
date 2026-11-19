@@ -167,7 +167,7 @@ var CommitteeConv = protoutils.Conv[*Committee, *pb.Committee]{
 			}
 			lane, err := LaneIDConv.DecodeReq(member.LaneId)
 			if err != nil {
-				return nil, fmt.Errorf("member %d lane: %w", i, err)
+				return nil, fmt.Errorf("members[%d].lane_id: %w", i, err)
 			}
 			validator := lane.Validator
 			if _, ok := weights[validator]; ok {

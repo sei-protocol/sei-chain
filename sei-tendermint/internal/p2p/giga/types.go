@@ -40,7 +40,7 @@ var LaneVoteConv = protoutils.Conv[*types.Signed[*types.LaneVote], *pb.LaneVote]
 	Decode: func(m *pb.LaneVote) (*types.Signed[*types.LaneVote], error) {
 		laneVote, err := types.SignedLaneVoteConv.DecodeReq(m.LaneVoteV3)
 		if err != nil {
-			return nil, fmt.Errorf("laneVote: %w", err)
+			return nil, fmt.Errorf("lane_vote_v3: %w", err)
 		}
 		return laneVote, nil
 	},
@@ -55,7 +55,7 @@ var LaneProposalConv = protoutils.Conv[*types.Signed[*types.LaneProposal], *pb.L
 	Decode: func(m *pb.LaneProposal) (*types.Signed[*types.LaneProposal], error) {
 		laneProposal, err := types.SignedLaneProposalConv.DecodeReq(m.LaneProposalV3)
 		if err != nil {
-			return nil, fmt.Errorf("laneProposal: %w", err)
+			return nil, fmt.Errorf("lane_proposal_v3: %w", err)
 		}
 		return laneProposal, nil
 	},
@@ -70,7 +70,7 @@ var AppVoteConv = protoutils.Conv[*types.Signed[*types.AppVote], *pb.AppVote]{
 	Decode: func(m *pb.AppVote) (*types.Signed[*types.AppVote], error) {
 		appVote, err := types.SignedAppVoteConv.DecodeReq(m.AppVoteV2)
 		if err != nil {
-			return nil, fmt.Errorf("appVote: %w", err)
+			return nil, fmt.Errorf("app_vote_v2: %w", err)
 		}
 		return appVote, nil
 	},
@@ -115,7 +115,7 @@ var GetBlockRespConv = protoutils.Conv[utils.Option[*types.LaneBlock], *pb.GetBl
 	Decode: func(m *pb.GetBlockResp) (utils.Option[*types.LaneBlock], error) {
 		block, err := types.LaneBlockConv.DecodeOpt(m.BlockV2)
 		if err != nil {
-			return utils.None[*types.LaneBlock](), fmt.Errorf("block: %w", err)
+			return utils.None[*types.LaneBlock](), fmt.Errorf("block_v2: %w", err)
 		}
 		return block, nil
 	},

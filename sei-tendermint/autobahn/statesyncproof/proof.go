@@ -25,7 +25,7 @@ type Proof struct {
 	appQC *types.AppQC
 }
 
-// Height returns the road index this state sync proof describes.
+// Height returns the road height this state sync proof describes.
 func (p *Proof) Height() types.RoadHeight {
 	return p.block.QC().Height()
 }
@@ -62,18 +62,18 @@ func ParseFileName(name string) (types.RoadHeight, error) {
 			return 0, fmt.Errorf("state sync proof file height %q is not decimal", height)
 		}
 	}
-	index, err := strconv.ParseUint(height, 10, 64)
+	parsedHeight, err := strconv.ParseUint(height, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("state sync proof file height %q: %w", height, err)
 	}
-	return types.RoadHeight(index), nil
+	return types.RoadHeight(parsedHeight), nil
 }
 
 // Encode encodes roadBlock and appQC as a state sync proof file. It fails when
 // appQC is not for the road and epoch of roadBlock.
 func Encode(block *types.RoadBlock, appQC *types.AppQC) ([]byte, error) {
 	if block.QC().Height() != appQC.Proposal().Height() {
-		return nil, fmt.Errorf("road block index %d does not match AppQC index %d",
+		return nil, fmt.Errorf("road block height %d does not match AppQC height %d",
 			block.QC().Height(), appQC.Proposal().Height())
 	}
 	if err := appQC.Proposal().Verify(block.QC().QC()); err != nil {
@@ -126,7 +126,7 @@ func Decode(data []byte, wantHeight types.RoadHeight) (*Proof, error) {
 		return nil, fmt.Errorf("AppQC: %w", err)
 	}
 	if qc.Height() != appQC.Proposal().Height() {
-		return nil, fmt.Errorf("CommitQC index %d does not match AppQC index %d", qc.Height(), appQC.Proposal().Height())
+		return nil, fmt.Errorf("CommitQC height %d does not match AppQC height %d", qc.Height(), appQC.Proposal().Height())
 	}
 	if err := appQC.Proposal().Verify(qc.QC()); err != nil {
 		return nil, fmt.Errorf("AppQC does not match CommitQC: %w", err)

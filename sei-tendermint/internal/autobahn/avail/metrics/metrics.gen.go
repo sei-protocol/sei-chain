@@ -29,7 +29,7 @@ func newMetrics() *metrics {
 		commitRoadHeight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
-			Name:      "commit_road_index",
+			Name:      "commit_road_height",
 			Help:      "Road height of the highest observed commitQC.",
 		}, nil),
 		proposalToCommitLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{

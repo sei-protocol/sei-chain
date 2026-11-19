@@ -216,7 +216,7 @@ func TestRestoreInner_LoadedCommitQCs(t *testing.T) {
 		for i, qc := range qcs {
 			require.NoError(t, utils.TestDiff(qc, inner.roads.q[ep0.RoadRange().First+types.RoadHeight(i)].commitQC))
 		}
-		require.Equal(t, int64(qcs[2].Height()), gathered(t, "tendermint_internal_autobahn_avail_commit_road_index", nil))
+		require.Equal(t, int64(qcs[2].Height()), gathered(t, "tendermint_internal_autobahn_avail_commit_road_height", nil))
 		spec := inner.consensusSpec.Load()
 		require.Equal(t, types.EpochIndex(0), spec.Epoch.EpochIndex())
 		got, ok := spec.CommitQC.Get()

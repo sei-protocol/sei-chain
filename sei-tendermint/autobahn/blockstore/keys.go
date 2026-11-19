@@ -13,7 +13,7 @@ type ledgerKey struct {
 	payload []byte
 }
 
-// blockKey identifies a SuperBlock record by its road index.
+// blockKey identifies a SuperBlock record by its road height.
 type blockKey struct{ Height types.RoadHeight }
 
 func (k blockKey) encode() ledgerKey {
@@ -29,7 +29,7 @@ func (k ledgerKey) decodeBlock() (blockKey, error) {
 	return blockKey{Height: types.RoadHeight(binary.BigEndian.Uint64(payload))}, nil
 }
 
-// qcKey identifies a QC alias by its road index.
+// qcKey identifies a QC alias by its road height.
 type qcKey struct{ Height types.RoadHeight }
 
 func (k qcKey) encode() ledgerKey {
@@ -45,7 +45,7 @@ func (k ledgerKey) decodeQC() (qcKey, error) {
 	return qcKey{Height: types.RoadHeight(binary.BigEndian.Uint64(payload))}, nil
 }
 
-// appQCKey identifies an AppQC record by its road index.
+// appQCKey identifies an AppQC record by its road height.
 type appQCKey struct{ Height types.RoadHeight }
 
 func (k appQCKey) encode() ledgerKey {
@@ -61,7 +61,7 @@ func (k ledgerKey) decodeAppQC() (appQCKey, error) {
 	return appQCKey{Height: types.RoadHeight(binary.BigEndian.Uint64(payload))}, nil
 }
 
-// appProposalKey identifies an AppProposal record by its road index.
+// appProposalKey identifies an AppProposal record by its road height.
 type appProposalKey struct{ Height types.RoadHeight }
 
 func (k appProposalKey) encode() ledgerKey {
@@ -77,7 +77,7 @@ func (k ledgerKey) decodeAppProposal() (appProposalKey, error) {
 	return appProposalKey{Height: types.RoadHeight(binary.BigEndian.Uint64(payload))}, nil
 }
 
-// laneBlockKey identifies a lane block by road index and header offset.
+// laneBlockKey identifies a lane block by road height and header offset.
 type laneBlockKey struct {
 	Height types.RoadHeight
 	Offset uint64

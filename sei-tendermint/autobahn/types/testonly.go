@@ -496,7 +496,7 @@ func GenTimeoutQC(rng utils.Rng) *TimeoutQC {
 	return NewTimeoutQC(utils.GenSlice(rng, GenFullTimeoutVote))
 }
 
-// GenAppProposalAt generates an AppProposal for road index.
+// GenAppProposalAt generates an AppProposal for road height.
 func GenAppProposalAt(rng utils.Rng, height RoadHeight) *AppProposal {
 	view := GenView(rng)
 	view.Height = height

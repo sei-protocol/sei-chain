@@ -11,7 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// epochLength is the number of road indices per epoch.
+// epochLength is the number of road heights per epoch.
 // TODO: move on-chain when epoch length becomes configurable.
 const epochLength types.RoadHeight = 108_000
 
@@ -74,7 +74,7 @@ func (r *Registry) roadRange(idx types.EpochIndex) types.RoadRange {
 	return types.RoadRange{First: first, Next: first + epochLength}
 }
 
-// LastRoad returns the last road index of epoch idx.
+// LastRoad returns the last road height of epoch idx.
 func (r *Registry) LastRoad(idx types.EpochIndex) types.RoadHeight {
 	return r.roadRange(idx).Next - 1
 }

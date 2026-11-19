@@ -119,7 +119,7 @@ var CommitQCConv = protoutils.Conv[*CommitQC, *pb.CommitQC]{
 	Decode: func(m *pb.CommitQC) (*CommitQC, error) {
 		vote, err := CommitVoteConv.DecodeReq(m.VoteV2)
 		if err != nil {
-			return nil, fmt.Errorf("vote: %w", err)
+			return nil, fmt.Errorf("vote_v2: %w", err)
 		}
 		sigs, err := SignatureConv.DecodeSlice(m.Sigs)
 		if err != nil {
@@ -140,11 +140,11 @@ var FullCommitQCConv = protoutils.Conv[*FullCommitQC, *pb.FullCommitQC]{
 	Decode: func(m *pb.FullCommitQC) (*FullCommitQC, error) {
 		qc, err := CommitQCConv.DecodeReq(m.Qc)
 		if err != nil {
-			return nil, fmt.Errorf("qC: %w", err)
+			return nil, fmt.Errorf("qc: %w", err)
 		}
 		headers, err := LaneBlockHeaderConv.DecodeSlice(m.HeadersV2)
 		if err != nil {
-			return nil, fmt.Errorf("headers: %w", err)
+			return nil, fmt.Errorf("headers_v2: %w", err)
 		}
 		return &FullCommitQC{qc: qc, headers: headers}, nil
 	},

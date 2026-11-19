@@ -15,7 +15,7 @@ const MetricsSubsystem = "internal_autobahn_avail"
 //go:generate go run github.com/sei-protocol/sei-chain/sei-tendermint/scripts/metricsgen -struct=metrics
 type metrics struct {
 	// Road height of the highest observed commitQC.
-	commitRoadHeight prometheus.GaugeIntVec `metrics_name:"commit_road_index"`
+	commitRoadHeight prometheus.GaugeIntVec `metrics_name:"commit_road_height"`
 
 	// Latency from proposal being constructed to commit being observed.
 	proposalToCommitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.2, 35)"`

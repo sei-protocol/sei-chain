@@ -402,7 +402,7 @@ func (s *State) PushBlock(ctx context.Context, n types.LaneBlockPos, block *type
 	return nil
 }
 
-// NextQC returns the next road index awaiting a CommitQC.
+// NextQC returns the next road height awaiting a CommitQC.
 func (s *State) NextQC() types.RoadHeight {
 	for inner := range s.inner.Lock() {
 		return inner.nextPartialBlock
@@ -410,7 +410,7 @@ func (s *State) NextQC() types.RoadHeight {
 	panic("unreachable")
 }
 
-// NextFullBlock returns the first road index without a complete set of lane blocks.
+// NextFullBlock returns the first road height without a complete set of lane blocks.
 func (s *State) NextFullBlock() types.RoadHeight {
 	for inner := range s.inner.Lock() {
 		return inner.nextFullBlock

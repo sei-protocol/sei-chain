@@ -49,7 +49,7 @@ var LaneQCConv = protoutils.Conv[*LaneQC, *pb.LaneQC]{
 	Decode: func(m *pb.LaneQC) (*LaneQC, error) {
 		vote, err := LaneVoteConv.DecodeReq(m.VoteV2)
 		if err != nil {
-			return nil, fmt.Errorf("vote: %w", err)
+			return nil, fmt.Errorf("vote_v2: %w", err)
 		}
 		sigs, err := SignatureConv.DecodeSlice(m.Sigs)
 		if err != nil {

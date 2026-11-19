@@ -61,7 +61,7 @@
 //   - WAL Index ahead of ConsensusSpec: ErrAvailBehindConsensus
 //   - Spec ahead of WAL Index: advance to spec, discard per-view WAL state
 //   - Equal Index: keep WAL votes/QCs if persistedInner.Verify(spec, self) passes
-//     (e.g. reject future-view votes, TimeoutQC index ≠ spec.Height(),
+//     (e.g. reject future-view votes, TimeoutQC height ≠ spec.Height(),
 //     bad signatures, CommitVote without PrepareQC)
 //
 // # Write Behavior

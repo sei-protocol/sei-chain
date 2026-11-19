@@ -49,7 +49,7 @@ func stateSyncProofExportConfig(
 	}
 }
 
-// checkpointRoads returns the road indices of the FlatKV checkpoints retained in dir.
+// checkpointRoads returns the road heights of the FlatKV checkpoints retained in dir.
 func checkpointRoads(dir string) ([]types.RoadHeight, error) {
 	versions, err := flatkv.SnapshotVersions(dir)
 	if err != nil {

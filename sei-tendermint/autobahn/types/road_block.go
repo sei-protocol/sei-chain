@@ -234,17 +234,17 @@ var LaneRangeConv = protoutils.Conv[*LaneRange, *pb.LaneRange]{
 	Decode: func(m *pb.LaneRange) (*LaneRange, error) {
 		lane, err := LaneIDConv.DecodeReq(m.LaneId)
 		if err != nil {
-			return nil, fmt.Errorf("Lane: %w", err)
+			return nil, fmt.Errorf("lane_id: %w", err)
 		}
 		if m.First == nil {
-			return nil, fmt.Errorf("First: missing")
+			return nil, fmt.Errorf("first: missing")
 		}
 		if m.Next == nil {
-			return nil, fmt.Errorf("Next: missing")
+			return nil, fmt.Errorf("next: missing")
 		}
 		lastHash, err := ParseLaneBlockHeaderHash(m.LastHash)
 		if err != nil {
-			return nil, fmt.Errorf("LastHash: %w", err)
+			return nil, fmt.Errorf("last_hash: %w", err)
 		}
 		return &LaneRange{
 			lane:     lane,
@@ -275,7 +275,7 @@ var RoadBlockHeaderConv = protoutils.Conv[*RoadBlockHeader, *pb.RoadBlockHeader]
 			return nil, fmt.Errorf("epoch_index: missing")
 		}
 		if m.Height == nil {
-			return nil, fmt.Errorf("index: missing")
+			return nil, fmt.Errorf("height: missing")
 		}
 		timestamp, err := TimeConv.DecodeReq(m.Timestamp)
 		if err != nil {
@@ -283,11 +283,11 @@ var RoadBlockHeaderConv = protoutils.Conv[*RoadBlockHeader, *pb.RoadBlockHeader]
 		}
 		laneRanges, err := LaneRangeConv.DecodeSlice(m.LaneRanges)
 		if err != nil {
-			return nil, fmt.Errorf("laneRanges: %w", err)
+			return nil, fmt.Errorf("lane_ranges: %w", err)
 		}
 		header := newRoadBlockHeader(EpochIndex(*m.EpochIndex), RoadHeight(*m.Height), timestamp, laneRanges)
 		if len(header.laneRanges) != len(laneRanges) {
-			return nil, fmt.Errorf("laneRanges: duplicate ranges")
+			return nil, fmt.Errorf("lane_ranges: duplicate ranges")
 		}
 		return header, nil
 	},

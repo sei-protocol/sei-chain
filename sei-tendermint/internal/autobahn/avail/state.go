@@ -453,7 +453,7 @@ func (s *State) headers(ctx context.Context, ep *types.Epoch, lr *types.LaneRang
 	return headers, nil
 }
 
-// fullCommitQC builds a FullCommitQC for road index n.
+// fullCommitQC builds a FullCommitQC for road height n.
 // Headers are collected from votes; this does not wait for future lanes.
 func (s *State) fullCommitQC(ctx context.Context, n types.RoadHeight) (*types.FullCommitQC, error) {
 	// Collect the CommitQC.
