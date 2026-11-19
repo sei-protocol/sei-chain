@@ -1096,3 +1096,41 @@ func TestMarkCommitQCsPersistedDoesNotRewindSpecAfterPrune(t *testing.T) {
 	state.markCommitQCsPersisted(qc0)
 	require.Equal(t, spec, state.ConsensusSpec().Load())
 }
+
+// B,C and B',C' finalize the same lane blocks, split differently across the two roads, so C and C'
+// end every lane at the same block. D, certified after C, is not admitted after C'.
+func TestPushCommitQC_RejectsARoadFromAnotherHistory(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 4)
+	ep := registry.MustEpoch(1)
+	a := testAnchorAt(registry.MustEpoch(0), ep, keys, registry.LastRoad(0)).CommitQC()
+	lane0, lane1 := ep.Committee().Lanes().At(0), ep.Committee().Lanes().At(1)
+
+	b, _ := data.TestCommitQCOnLane(ep, keys, a, lane0)
+	c, _ := data.TestCommitQCOnLane(ep, keys, utils.Some(b.QC()), lane1)
+	bFork, _ := data.TestCommitQCOnLane(ep, keys, a, lane1)
+	cFork, _ := data.TestCommitQCOnLane(ep, keys, utils.Some(bFork.QC()), lane0)
+	d, _ := data.TestCommitQCOnLane(ep, keys, utils.Some(c.QC()), lane0)
+	for lane := range ep.Committee().Lanes().All() {
+		require.Equal(t, c.Header().LaneRange(lane).Next(), cFork.Header().LaneRange(lane).Next())
+	}
+	newState := func() *State {
+		state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+		require.NoError(t, TestAdvanceToEpoch(t.Context(), state, keys, registry, 1))
+		return state
+	}
+
+	honest := newState()
+	for _, qc := range []*types.FullCommitQC{b, c, d} {
+		require.NoError(t, honest.PushCommitQC(t.Context(), qc.QC()))
+	}
+	require.Equal(t, d.Index()+1, nextRoad(honest))
+
+	fork := newState()
+	require.NoError(t, fork.PushCommitQC(t.Context(), bFork.QC()))
+	require.NoError(t, fork.PushCommitQC(t.Context(), cFork.QC()))
+	err := fork.PushCommitQC(t.Context(), d.QC())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "prevHash")
+	require.Equal(t, cFork.Index()+1, nextRoad(fork))
+}

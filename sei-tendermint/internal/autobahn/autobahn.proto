@@ -142,6 +142,8 @@ message RoadBlockHeader {
   optional uint64 index = 4; // required
   optional Timestamp timestamp = 1; // required
   repeated LaneRange lane_ranges = 2 [(wireguard.max_count) = 100]; // Sorted by lane.
+  // Hash of the previous road's header; absent only for the chain's first road.
+  optional bytes prev_hash = 5 [(wireguard.max_size) = 32];
 }
 
 message Proposal {

@@ -233,6 +233,13 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		if idx != inner.roads.next || inner.applied().EpochIndex() != want {
 			return nil
 		}
+		if idx > 0 {
+			if prev, ok := inner.commitQCAt(idx - 1).Get(); ok {
+				if err := qc.Header().VerifyPrev(utils.Some(prev.Header())); err != nil {
+					return fmt.Errorf("qc: %w", err)
+				}
+			}
+		}
 		inner.roads.pushBack(newRoad(qc, epoch))
 		metrics.ObserveCommitQC(qc)
 		leader := epoch.Committee().Leader(qc.View())

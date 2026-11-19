@@ -143,6 +143,18 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 	return nil
 }
 
+// commitQCAt returns the CommitQC of road idx from the retained roads or anchor, or None if neither
+// holds it.
+func (i *inner) commitQCAt(idx types.RoadIndex) utils.Option[*types.CommitQC] {
+	if r, ok := i.roads.q[idx]; ok {
+		return utils.Some(r.commitQC)
+	}
+	if qc, ok := i.anchor.CommitQC().Get(); ok && qc.Index() == idx {
+		return utils.Some(qc)
+	}
+	return utils.None[*types.CommitQC]()
+}
+
 // persistedCommitQC returns the durable tip from the retained roads or anchor.
 func (i *inner) persistedCommitQC() utils.Option[*types.CommitQC] {
 	if i.nextCommitQCToPersist > i.roads.first {

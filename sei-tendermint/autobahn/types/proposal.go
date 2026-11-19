@@ -70,6 +70,11 @@ func (s ConsensusSpec) Index() RoadIndex {
 	return s.Epoch.RoadRange().First
 }
 
+// PrevHeader is the header of the road before the next view's, or None if there is no tip.
+func (s ConsensusSpec) PrevHeader() utils.Option[*RoadBlockHeader] {
+	return s.CommitQC.Map(func(qc *CommitQC) *RoadBlockHeader { return qc.Header() })
+}
+
 // ViewSpec is ConsensusSpec plus the TimeoutQC for the current view number.
 // Epoch is required; View() and NextTimestamp() panic if it is nil.
 type ViewSpec struct {
@@ -223,7 +228,8 @@ func buildProposal(
 			laneRanges = append(laneRanges, NewLaneRange(lane, first, utils.None[*BlockHeader]()))
 		}
 	}
-	return &Proposal{viewNumber: viewSpec.View().Number, header: newRoadBlockHeader(viewSpec.View().EpochIndex, viewSpec.View().Index, timestamp, laneRanges)}, nil
+	prevHash := viewSpec.PrevHeader().Map(func(h *RoadBlockHeader) RoadBlockHeaderHash { return h.Hash() })
+	return &Proposal{viewNumber: viewSpec.View().Number, header: newRoadBlockHeader(viewSpec.View().EpochIndex, viewSpec.View().Index, prevHash, timestamp, laneRanges)}, nil
 }
 
 // NewProposalForTesting builds a FullProposal exactly like NewProposal but attaches the
@@ -291,6 +297,10 @@ func (m *FullProposal) Verify(vs ViewSpec, viewTimeout time.Duration) error {
 		// Verify the proposer's signature.
 		if err := m.proposal.VerifySig(); err != nil {
 			return fmt.Errorf("proposal signature: %w", err)
+		}
+		// Does the proposal, new or reproposed, name the previous road as its parent?
+		if err := m.proposal.Msg().Header().VerifyPrev(vs.PrevHeader()); err != nil {
+			return fmt.Errorf("proposal: %w", err)
 		}
 		// Do we have the required timeoutQC?
 		if got, want := NextViewOpt(vs.TimeoutQC), NextViewOpt(m.timeoutQC); got != want {

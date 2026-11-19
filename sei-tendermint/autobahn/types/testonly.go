@@ -328,6 +328,11 @@ func CommitQCAt(ep *Epoch, keys []SecretKey) *CommitQC {
 	return NewCommitQC(votes)
 }
 
+// GenRoadBlockHeaderHash generates a random RoadBlockHeaderHash.
+func GenRoadBlockHeaderHash(rng utils.Rng) RoadBlockHeaderHash {
+	return RoadBlockHeaderHash(hashable.GenHash[*pb.RoadBlockHeader](rng))
+}
+
 // GenProposal generates a random Proposal.
 func GenProposal(rng utils.Rng) *Proposal {
 	return GenProposalAt(rng, GenView(rng))
@@ -335,7 +340,7 @@ func GenProposal(rng utils.Rng) *Proposal {
 
 // GenProposalAt generates a Proposal at a specific view.
 func GenProposalAt(rng utils.Rng, view View) *Proposal {
-	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))}
+	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, utils.Some(GenRoadBlockHeaderHash(rng)), utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))}
 }
 
 // ProposalAt returns a Proposal at view, consistent with ep, with a single 1-block lane range.
@@ -344,8 +349,18 @@ func ProposalAt(ep *Epoch, view View) *Proposal {
 	return p
 }
 
+// ProposalAfter is ProposalAt, naming prev as the header of the previous road.
+func ProposalAfter(ep *Epoch, view View, prev *RoadBlockHeader) *Proposal {
+	p, _ := proposalAtBlocks(ep, view, 1, utils.Some(prev.Hash()))
+	return p
+}
+
 // ProposalAtBlocks is ProposalAt with a lane range of n blocks, n >= 1.
 func ProposalAtBlocks(ep *Epoch, view View, n int) (*Proposal, []*Block) {
+	return proposalAtBlocks(ep, view, n, utils.None[RoadBlockHeaderHash]())
+}
+
+func proposalAtBlocks(ep *Epoch, view View, n int, prevHash utils.Option[RoadBlockHeaderHash]) (*Proposal, []*Block) {
 	view.EpochIndex = ep.EpochIndex()
 	lane := ep.Committee().Lanes().At(0)
 	blocks := make([]*Block, n)
@@ -358,7 +373,7 @@ func ProposalAtBlocks(ep *Epoch, view View, n int) (*Proposal, []*Block) {
 		num = b.Header().Next()
 	}
 	header := blocks[n-1].Header()
-	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))})}, blocks
+	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, prevHash, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))})}, blocks
 }
 
 // GenProposalForEpoch generates a Proposal at a specific view whose epochIndex,
@@ -368,7 +383,7 @@ func GenProposalForEpoch(rng utils.Rng, ep *Epoch, view View) *Proposal {
 	view.EpochIndex = ep.EpochIndex()
 	c := ep.Committee()
 	laneRanges := utils.GenSlice(rng, func(rng utils.Rng) *LaneRange { return GenLaneRangeFor(rng, c) })
-	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, utils.GenTimestamp(rng), laneRanges)}
+	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, utils.None[RoadBlockHeaderHash](), utils.GenTimestamp(rng), laneRanges)}
 }
 
 // GenAppHash generates a random AppHash.
@@ -476,7 +491,7 @@ func GenFullCommitQCAt(rng utils.Rng, index RoadIndex, n int) *FullCommitQC {
 	}
 	view := GenView(rng)
 	view.Index = index
-	proposal := &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, utils.GenTimestamp(rng), ranges)}
+	proposal := &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, utils.None[RoadBlockHeaderHash](), utils.GenTimestamp(rng), ranges)}
 	qc := NewCommitQC([]*Signed[*CommitVote]{GenSigned(rng, NewCommitVote(BuildPrepareQC([]SecretKey{GenSecretKey(rng)}, proposal)))})
 	return NewFullCommitQC(qc, headers)
 }

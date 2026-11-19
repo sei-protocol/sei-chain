@@ -896,11 +896,13 @@ func (x *View) GetEpochIndex() uint64 {
 }
 
 type RoadBlockHeader struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	EpochIndex    *uint64                `protobuf:"varint,3,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"` // required
-	Index         *uint64                `protobuf:"varint,4,opt,name=index,proto3,oneof" json:"index,omitempty"`                             // required
-	Timestamp     *Timestamp             `protobuf:"bytes,1,opt,name=timestamp,proto3,oneof" json:"timestamp,omitempty"`                      // required
-	LaneRanges    []*LaneRange           `protobuf:"bytes,2,rep,name=lane_ranges,json=laneRanges,proto3" json:"lane_ranges,omitempty"`        // Sorted by lane.
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	EpochIndex *uint64                `protobuf:"varint,3,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"` // required
+	Index      *uint64                `protobuf:"varint,4,opt,name=index,proto3,oneof" json:"index,omitempty"`                             // required
+	Timestamp  *Timestamp             `protobuf:"bytes,1,opt,name=timestamp,proto3,oneof" json:"timestamp,omitempty"`                      // required
+	LaneRanges []*LaneRange           `protobuf:"bytes,2,rep,name=lane_ranges,json=laneRanges,proto3" json:"lane_ranges,omitempty"`        // Sorted by lane.
+	// Hash of the previous road's header; absent only for the chain's first road.
+	PrevHash      []byte `protobuf:"bytes,5,opt,name=prev_hash,json=prevHash,proto3,oneof" json:"prev_hash,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -959,6 +961,13 @@ func (x *RoadBlockHeader) GetTimestamp() *Timestamp {
 func (x *RoadBlockHeader) GetLaneRanges() []*LaneRange {
 	if x != nil {
 		return x.LaneRanges
+	}
+	return nil
+}
+
+func (x *RoadBlockHeader) GetPrevHash() []byte {
+	if x != nil {
+		return x.PrevHash
 	}
 	return nil
 }
@@ -2901,18 +2910,21 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"epochIndex\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\b\n" +
 	"\x06_indexB\t\n" +
 	"\a_numberB\x0e\n" +
-	"\f_epoch_index\"\xfe\x01\n" +
+	"\f_epoch_index\"\xb6\x02\n" +
 	"\x0fRoadBlockHeader\x12$\n" +
 	"\vepoch_index\x18\x03 \x01(\x04H\x00R\n" +
 	"epochIndex\x88\x01\x01\x12\x19\n" +
 	"\x05index\x18\x04 \x01(\x04H\x01R\x05index\x88\x01\x01\x126\n" +
 	"\ttimestamp\x18\x01 \x01(\v2\x13.autobahn.TimestampH\x02R\ttimestamp\x88\x01\x01\x12<\n" +
 	"\vlane_ranges\x18\x02 \x03(\v2\x13.autobahn.LaneRangeB\x06Ј\xe2\xab\fdR\n" +
-	"laneRanges:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x0e\n" +
+	"laneRanges\x12(\n" +
+	"\tprev_hash\x18\x05 \x01(\fB\x06؈\xe2\xab\f H\x03R\bprevHash\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x0e\n" +
 	"\f_epoch_indexB\b\n" +
 	"\x06_indexB\f\n" +
 	"\n" +
-	"_timestamp\"\xf2\x01\n" +
+	"_timestampB\f\n" +
+	"\n" +
+	"_prev_hash\"\xf2\x01\n" +
 	"\bProposal\x12$\n" +
 	"\vview_number\x18\b \x01(\x04H\x00R\n" +
 	"viewNumber\x88\x01\x01\x126\n" +

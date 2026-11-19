@@ -126,7 +126,24 @@ func commitQCAtRoad(
 	keys []types.SecretKey,
 	road types.RoadIndex,
 ) (*types.FullCommitQC, []*types.Block) {
-	proposal := types.ProposalAt(ep, types.View{Index: road, Number: 0})
+	return commitQCForProposal(ep, keys, types.ProposalAt(ep, types.View{Index: road, Number: 0}))
+}
+
+// commitQCAfter is commitQCAtRoad for the road after prev, naming prev as its parent.
+func commitQCAfter(
+	ep *types.Epoch,
+	keys []types.SecretKey,
+	prev *types.FullCommitQC,
+) (*types.FullCommitQC, []*types.Block) {
+	return commitQCForProposal(ep, keys, types.ProposalAfter(ep, types.View{Index: prev.Index() + 1, Number: 0}, prev.Header()))
+}
+
+// commitQCForProposal certifies a one-block proposal from types.ProposalAt or types.ProposalAfter.
+func commitQCForProposal(
+	ep *types.Epoch,
+	keys []types.SecretKey,
+	proposal *types.Proposal,
+) (*types.FullCommitQC, []*types.Block) {
 	block := types.NewBlock(ep.Committee().Lanes().At(0), 0, types.BlockHeaderHash{}, &types.Payload{})
 	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
 	prepareQC := types.BuildPrepareQC(keys, proposal)
@@ -166,7 +183,7 @@ func TestAnchorEpochs_CommitQCLeavesAnchorUnchanged(t *testing.T) {
 	state := newTestState(t, &Config{Registry: registry}, store)
 	require.Equal(t, ep1, state.Anchor().Load().NextIndexEpoch())
 	require.NoError(t, pushAppHashesRunning(ctx, state, rng, qcMid.Index(), qcMid.Index()+1))
-	qcLast, blocksLast := commitQCAtRoad(ep1, keys, registry.LastRoad(1))
+	qcLast, blocksLast := commitQCAfter(ep1, keys, qcMid)
 	require.NoError(t, state.PushPartialBlock(ctx, qcLast, TestBlockMap(blocksLast)))
 	require.Equal(t, [2]*types.Epoch{ep1, registry.MustEpoch(2)}, state.Anchor().Load().Epochs)
 	require.False(t, state.Anchor().Load().First.IsPresent())
@@ -588,7 +605,7 @@ func TestCommitteeFill_DivergentLastRoadKeepsExecutionDerivedEpoch(t *testing.T)
 	store := newTestStore(t)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc0}, [][]*types.Block{blocks0})
 	state := newTestState(t, &Config{Registry: registry}, store)
-	qc1, blocks1 := commitQCAtRoad(ep1, keys, ep1.RoadRange().First)
+	qc1, blocks1 := commitQCAfter(ep1, keys, qc0)
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
@@ -1614,13 +1631,15 @@ func TestRoadBlockCacheManySmallRoads(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 1)
 	ep := registry.MustEpoch(0)
 	state := newTestState(t, &Config{Registry: registry}, newTestStore(t))
-	for i := range maxRoadBlocks {
-		qc, _ := commitQCAtRoad(ep, keys, ep.RoadRange().First+types.RoadIndex(i))
+	qc, _ := commitQCAtRoad(ep, keys, ep.RoadRange().First)
+	require.NoError(t, state.PushPartialBlock(t.Context(), qc, nil))
+	for range maxRoadBlocks - 1 {
+		qc, _ = commitQCAfter(ep, keys, qc)
 		require.NoError(t, state.PushPartialBlock(t.Context(), qc, nil))
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	nextQC, _ := commitQCAtRoad(ep, keys, state.NextQC())
+	nextQC, _ := commitQCAfter(ep, keys, qc)
 	require.ErrorIs(t, state.PushPartialBlock(ctx, nextQC, nil), context.Canceled)
 }
 
@@ -1671,4 +1690,60 @@ func TestAnchorEpochAt(t *testing.T) {
 	} {
 		require.Equal(t, tc.want, anchor.EpochAt(tc.road))
 	}
+}
+
+// B,C and B',C' finalize the same lane blocks, split differently across the two roads, so C and C'
+// end every lane at the same block. D, certified after C, is not admitted after C'.
+func TestPushPartialBlockRejectsARoadFromAnotherHistory(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	lane0, lane1 := ep.Committee().Lanes().At(0), ep.Committee().Lanes().At(1)
+	none := utils.None[*types.CommitQC]()
+	push := func(state *State, qc *types.FullCommitQC, block *types.Block) error {
+		return state.PushPartialBlock(ctx, qc, TestBlockMap([]*types.Block{block}))
+	}
+
+	b, bBlock := TestCommitQCOnLane(ep, keys, none, lane0)
+	c, cBlock := TestCommitQCOnLane(ep, keys, utils.Some(b.QC()), lane1)
+	bFork, bForkBlock := TestCommitQCOnLane(ep, keys, none, lane1)
+	cFork, cForkBlock := TestCommitQCOnLane(ep, keys, utils.Some(bFork.QC()), lane0)
+	d, dBlock := TestCommitQCOnLane(ep, keys, utils.Some(c.QC()), lane0)
+	for lane := range ep.Committee().Lanes().All() {
+		require.Equal(t, c.Header().LaneRange(lane).Next(), cFork.Header().LaneRange(lane).Next())
+	}
+
+	honest := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	require.NoError(t, push(honest, b, bBlock))
+	require.NoError(t, push(honest, c, cBlock))
+	require.NoError(t, push(honest, d, dBlock))
+
+	fork := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	require.NoError(t, push(fork, bFork, bForkBlock))
+	require.NoError(t, push(fork, cFork, cForkBlock))
+	err := push(fork, d, dBlock)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "prevHash")
+	require.Equal(t, cFork.Index()+1, fork.NextQC())
+}
+
+func TestSuperBlockParentHash(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	lane := ep.Committee().Lanes().At(0)
+	first, firstBlock := TestCommitQCOnLane(ep, keys, utils.None[*types.CommitQC](), lane)
+	second, secondBlock := TestCommitQCOnLane(ep, keys, utils.Some(first.QC()), lane)
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	require.NoError(t, state.PushPartialBlock(ctx, first, TestBlockMap([]*types.Block{firstBlock})))
+	require.NoError(t, state.PushPartialBlock(ctx, second, TestBlockMap([]*types.Block{secondBlock})))
+
+	got, err := state.SuperBlock(ctx, first.Index())
+	require.NoError(t, err)
+	require.Equal(t, types.RoadBlockHeaderHash{}, got.ParentHash)
+	got, err = state.SuperBlock(ctx, second.Index())
+	require.NoError(t, err)
+	require.Equal(t, first.Header().Hash(), got.ParentHash)
 }
