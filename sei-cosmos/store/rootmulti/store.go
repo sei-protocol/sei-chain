@@ -914,3 +914,11 @@ func (rs *Store) StoreKeys() []types.StoreKey {
 func (rs *Store) GetEarliestVersion() int64 {
 	return rs.earliestVersion
 }
+
+func (rs *Store) LastCommitVersion() int64 {
+	c := rs.LastCommitInfo()
+	if c == nil {
+		return GetLatestVersion(rs.db)
+	}
+	return c.Version
+}

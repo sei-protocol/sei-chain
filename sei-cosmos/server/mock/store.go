@@ -239,3 +239,7 @@ func (ms multiStore) GetEarliestVersion() int64 {
 	//TODO implement me
 	panic("not implemented")
 }
+
+func (ms multiStore) LastCommitVersion() int64 {
+	panic("not implemented")
+}

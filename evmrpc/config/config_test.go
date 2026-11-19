@@ -60,6 +60,7 @@ type opts struct {
 	traceBakeTracers             interface{}
 	maxStateOverrideAccounts     interface{}
 	maxStateOverrideSlots        interface{}
+	largeLogQueryRPS             interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -128,6 +129,9 @@ func (o *opts) Get(k string) interface{} {
 	}
 	if k == "evm.max_blocks_for_log" {
 		return o.maxBlocksForLog
+	}
+	if k == "evm.large_log_query_rps" {
+		return o.largeLogQueryRPS
 	}
 	if k == "evm.max_estimate_gas_calls" {
 		return o.maxEstimateGasCalls
@@ -284,6 +288,7 @@ func getDefaultOpts() opts {
 		nil,
 		7,
 		9,
+		45,
 	}
 }
 
@@ -723,4 +728,24 @@ func TestReadConfigRateLimitingBurstBelowBatchLimitRejected(t *testing.T) {
 	o.batchRequestLimit = 0
 	_, err = config.ReadConfig(&o)
 	require.NoError(t, err)
+}
+
+func TestReadConfigLargeLogQueryRPS(t *testing.T) {
+	cfg, err := config.ReadConfig(&opts{})
+	require.NoError(t, err)
+	require.Equal(t, 30, cfg.LargeLogQueryRPS)
+
+	o := getDefaultOpts()
+	cfg, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.Equal(t, 45, cfg.LargeLogQueryRPS)
+
+	o.largeLogQueryRPS = 0
+	cfg, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.Zero(t, cfg.LargeLogQueryRPS)
+
+	o.largeLogQueryRPS = -1
+	_, err = config.ReadConfig(&o)
+	require.ErrorContains(t, err, "evm.large_log_query_rps must be >= 0")
 }

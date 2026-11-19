@@ -29,7 +29,7 @@ func TestDeclaredKeysAreTheOnesItsReaderResolves(t *testing.T) {
 		flagSimulationGasLimit, flagSimulationEVMTimeout, flagCORSOrigins, flagWSOrigins,
 		flagFilterTimeout, flagMaxTxPoolTxs, flagCheckTxTimeout, flagSlow,
 		flagEnableSimulation, flagDenyList, flagMaxLogNoBlock, flagMaxLogBytes,
-		flagMaxBlocksForLog, flagMaxEstimateGasCalls, flagMaxStateOverrideAccounts,
+		flagMaxBlocksForLog, flagLargeLogQueryRPS, flagMaxEstimateGasCalls, flagMaxStateOverrideAccounts,
 		flagMaxStateOverrideSlots, flagMaxSubscriptionsNewHead, flagMaxSubscriptionsLogs,
 		flagEnableTestAPI, flagMaxConcurrentTraceCalls, flagMaxConcurrentSimulationCalls,
 		flagMaxTraceLookbackBlocks, flagTraceTimeout, flagMaxTraceStructLogBytes,

@@ -19,6 +19,7 @@ DenyList = <empty-slice>
 MaxLogNoBlock = int64(10000)
 MaxLogBytes = int64(67108864)
 MaxBlocksForLog = int64(2000)
+LargeLogQueryRPS = int(30)
 MaxEstimateGasCalls = int(100)
 MaxStateOverrideAccounts = int(100)
 MaxStateOverrideSlots = int(1000)

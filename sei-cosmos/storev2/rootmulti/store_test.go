@@ -497,3 +497,21 @@ func TestQuery_LatestProofBypassesHistoricalPermit(t *testing.T) {
 	require.EqualValues(t, 0, resp.Code)
 	require.Equal(t, valV1, resp.Value)
 }
+
+func TestLastCommitVersionMatchesLastCommitID(t *testing.T) {
+	dir := t.TempDir()
+	store, _ := newTestRootMulti(t, dir, memiavlOnlyConfig())
+	require.Equal(t, store.LastCommitID().Version, store.LastCommitVersion())
+
+	const blocks = 3
+	for range blocks {
+		finalizeBlock(t, store)
+		require.Equal(t, store.LastCommitID().Version, store.LastCommitVersion())
+	}
+
+	require.NoError(t, store.Close())
+	reopened, _ := newTestRootMulti(t, dir, memiavlOnlyConfig())
+	defer func() { require.NoError(t, reopened.Close()) }()
+	require.Equal(t, int64(blocks), reopened.LastCommitVersion())
+	require.Equal(t, reopened.LastCommitID().Version, reopened.LastCommitVersion())
+}

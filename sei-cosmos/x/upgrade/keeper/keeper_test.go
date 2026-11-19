@@ -315,6 +315,7 @@ func (s *KeeperTestSuite) TestGetClosestUpgrade() {
 		{"closest to 18", 18, "upgrade2", 20},
 		{"closest to 22", 22, "upgrade3", 25},
 		{"closest to 10", 10, "upgrade1", 15},
+		{"after every upgrade", 30, "upgrade3", 25},
 	}
 
 	for _, tt := range tests {

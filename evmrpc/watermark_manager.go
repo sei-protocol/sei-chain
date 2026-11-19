@@ -194,6 +194,14 @@ func ensureWithinWatermarks(height, earliest, latest int64) error {
 	return nil
 }
 
+type blockWindow struct {
+	earliest, latest int64
+}
+
+func (w blockWindow) ensureContains(height int64) error {
+	return ensureWithinWatermarks(height, w.earliest, w.latest)
+}
+
 func blockByNumberRespectingWatermarks(
 	ctx context.Context,
 	client client.LocalClient,

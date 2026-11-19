@@ -354,6 +354,29 @@ func FuzzMaxOpenConnections(f *testing.F) {
 	})
 }
 
+// FuzzLargeLogQueryRPS pins the range check on the large log query rate: 0 is the
+// documented "no limit" spelling and boots, any negative value does not.
+func FuzzLargeLogQueryRPS(f *testing.F) {
+	f.Add(int64(0))
+	f.Add(int64(-1))
+	f.Add(int64(30))
+	f.Add(int64(-2147483648))
+
+	f.Fuzz(func(t *testing.T, n int64) {
+		cfg, err := config.ReadConfig(configtest.AppOpts{"evm.large_log_query_rps": n})
+		switch {
+		case n < 0:
+			if err == nil {
+				t.Fatalf("evm.large_log_query_rps = %d is negative and must be rejected", n)
+			}
+		case err != nil:
+			t.Fatalf("evm.large_log_query_rps = %d is valid and must be accepted, got %v", n, err)
+		case int64(cfg.LargeLogQueryRPS) != n:
+			t.Fatalf("evm.large_log_query_rps = %d resolved to %d", n, cfg.LargeLogQueryRPS)
+		}
+	})
+}
+
 // TestReadConfigAbsentKeysKeepDefaults pins the section baseline: an app.toml
 // with no [evm] section resolves to DefaultConfig exactly, including the two
 // machine-dependent defaults and the normalized tracer lists.
@@ -405,5 +428,6 @@ func TestManifestNamesEveryField(t *testing.T) {
 		"TraceAllowedTracers", // FuzzTracerAllowlists
 		"TraceBakeTracers",    // FuzzTracerAllowlists
 		"MaxOpenConnections",  // FuzzMaxOpenConnections
+		"LargeLogQueryRPS",    // FuzzLargeLogQueryRPS
 	)
 }
