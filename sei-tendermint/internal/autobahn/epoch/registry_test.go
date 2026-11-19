@@ -197,10 +197,10 @@ func TestPersistedRegistryRoundTrip(t *testing.T) {
 	} {
 		require.NoError(t, step.run(), step.name)
 		require.Equal(t, step.want, r.stateRecv.Load(), step.name)
-		stored := r.Persisted()
+		stored := r.TestPersisted()
 		r = utils.OrPanic1(NewRegistry(genesis, 7, timestamp, utils.Some(stored)))
 		require.Equal(t, step.want, r.stateRecv.Load(), step.name)
-		require.Equal(t, stored, r.Persisted(), step.name)
+		require.Equal(t, stored, r.TestPersisted(), step.name)
 	}
 	require.Equal(t, timestamp, r.GenesisTimestamp())
 }

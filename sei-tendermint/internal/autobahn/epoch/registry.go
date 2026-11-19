@@ -127,11 +127,6 @@ func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
 	return r.Epoch(r.IndexForRoad(roadIndex))
 }
 
-// Persisted returns the canonical encoding of the live registry.
-func (r *Registry) Persisted() []byte {
-	return hashable.MarshalCanonical(persistedRegistryConv.Encode(r.stateRecv.Load()))
-}
-
 // FirstRoadState is the persisted registry and the committee of the epoch a
 // first road opens.
 type FirstRoadState struct {

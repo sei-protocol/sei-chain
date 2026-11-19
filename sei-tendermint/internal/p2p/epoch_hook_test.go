@@ -47,7 +47,7 @@ func TestRegistryEpochHook(t *testing.T) {
 	require.NoError(t, err)
 	got, ok := state.Get()
 	require.True(t, ok)
-	require.Equal(t, registry.Persisted(), got.EpochRegistry)
+	require.Equal(t, registry.TestPersisted(), got.EpochRegistry)
 	require.Equal(t, hashable.MarshalCanonical(atypes.CommitteeConv.Encode(registry.MustEpoch(2).Committee())), got.CurrentCommittee)
 	require.NotEqual(t, hashable.MarshalCanonical(atypes.CommitteeConv.Encode(registry.MustEpoch(1).Committee())), got.CurrentCommittee)
 

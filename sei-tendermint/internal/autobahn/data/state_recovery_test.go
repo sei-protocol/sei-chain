@@ -449,7 +449,7 @@ func TestPushAppHash_RestartAtEpoch1KeepsLastRoadStake(t *testing.T) {
 		baseEpoch0.Committee(),
 		baseEpoch0.RoadRange().First,
 		base.GenesisTimestamp(),
-		utils.Some(registry.Persisted())))
+		utils.Some(registry.TestPersisted())))
 	store2 := newTestBlockStore(t, storeDir)
 	state2 := newTestState(t, &Config{Registry: registry2}, store2)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
