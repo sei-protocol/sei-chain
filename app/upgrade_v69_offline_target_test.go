@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/app/retiredauthz"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
@@ -23,10 +24,12 @@ import (
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +39,19 @@ const (
 	v69OfflinePostUpgradeFee int64 = 200000
 )
 
-var v69OfflineUpgradeBlockTime = time.Unix(1_700_000_000, 0).UTC()
+// The native pointers the source phase registers, whose denoms share a registry prefix.
+const (
+	v69OfflineShortDenom = "factory/sei1v69offline/pamp"
+	v69OfflineLongDenom  = v69OfflineShortDenom + "/vest"
+)
+
+var (
+	v69OfflineShortPointer = common.HexToAddress("0x00000000000000000000000000000000000069a1")
+	v69OfflineLongPointer  = common.HexToAddress("0x00000000000000000000000000000000000069a2")
+
+	v69OfflineRetiredParamKey  = []byte(evmtypes.ModuleName + "/KeyRegisterPointerDisabled")
+	v69OfflineUpgradeBlockTime = time.Unix(1_700_000_000, 0).UTC()
+)
 
 func TestV69OfflineUpgradeTarget(t *testing.T) {
 	t.Run("fixture", testV69OfflineUpgradeTargetFixture)
@@ -130,28 +145,37 @@ func applyV69OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offli
 }
 
 // requireV69OfflineMigrated checks a reopened migrated database: the upgrade is
-// recorded, the authz version-map entry and store are gone, and nothing else in
-// the retained stores changed.
+// recorded, the authz version-map entry and store and the register_pointer_disabled
+// parameter are gone, both native pointers resolve to their own denom, and nothing
+// else in the retained stores changed.
 func requireV69OfflineMigrated(t *testing.T, testApp *App, artifact offlineUpgradeArtifact) {
 	t.Helper()
 	requireV69OfflineAppliedName(t, testApp, artifact)
 	requireV69OfflineVersionMap(t, testApp, artifact.ModuleVersions)
 	requireV69OfflineStoreDeleted(t, testApp)
+	requireV69OfflineParamDeleted(t, testApp)
+	requireV69OfflinePointersResolveToOwnDenom(t, testApp)
 	requireOfflineUpgradeRetainedStoresExcept(t, testApp, artifact.Stores, v69OfflineTouchedKey)
 }
 
 // v69OfflineTouchedKey reports the retained-store keys the v6.9 upgrade block is
 // specified to change: the plan, done and version-map entries of the upgrade
-// store, the bank entries block rewards move every block, and the block time gov
-// records every block for proposal deadlines.
+// store and the deleted register_pointer_disabled parameter, plus the keys every
+// block rewrites, which are the bank entries block rewards move, the block time
+// gov records for proposal deadlines, and the EVM keys outside the pointer
+// registry.
 func v69OfflineTouchedKey(storeName string, key []byte) bool {
 	switch storeName {
 	case upgradetypes.StoreKey:
 		return len(key) > 0 && (key[0] == upgradetypes.PlanByte || key[0] == upgradetypes.DoneByte || key[0] == upgradetypes.VersionMapByte)
+	case paramstypes.StoreKey:
+		return bytes.Equal(key, v69OfflineRetiredParamKey)
 	case banktypes.StoreKey:
 		return v69OfflineBlockRewardKey(key)
 	case govtypes.StoreKey:
 		return bytes.Equal(key, govtypes.DeadlineBoundaryBlockTimeKey)
+	case evmtypes.StoreKey:
+		return !v69OfflinePointerRegistryKey(key)
 	}
 	return false
 }
@@ -171,6 +195,19 @@ func v69OfflineBlockRewardKey(key []byte) bool {
 			if bytes.HasPrefix(key[len(prefix):], address.MustLengthPrefix(authtypes.NewModuleAddress(name))) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// v69OfflinePointerRegistryKey reports EVM keys under the forward, CW code and reverse
+// pointer registries.
+func v69OfflinePointerRegistryKey(key []byte) bool {
+	for _, registry := range [][]byte{
+		evmtypes.PointerRegistryPrefix, evmtypes.PointerCWCodePrefix, evmtypes.PointerReverseRegistryPrefix,
+	} {
+		if bytes.HasPrefix(key, registry) {
+			return true
 		}
 	}
 	return false
@@ -271,6 +308,30 @@ func requireV69OfflineStoreDeleted(t *testing.T, testApp *App) {
 	require.Nil(t, testApp.GetKey(retiredauthz.ModuleName))
 	for _, key := range testApp.CommitMultiStore().StoreKeys() {
 		require.NotEqual(t, retiredauthz.ModuleName, key.Name())
+	}
+}
+
+// requireV69OfflineParamDeleted requires register_pointer_disabled to be gone from the
+// params store.
+func requireV69OfflineParamDeleted(t *testing.T, testApp *App) {
+	t.Helper()
+	ctx := offlineUpgradeReadContext(testApp, testApp.LastBlockHeight())
+	require.Nil(t, ctx.KVStore(testApp.GetKey(paramstypes.StoreKey)).Get(v69OfflineRetiredParamKey),
+		"v6.9 left register_pointer_disabled in the params store")
+}
+
+// requireV69OfflinePointersResolveToOwnDenom requires each native pointer the source
+// phase registered to resolve to its own denom.
+func requireV69OfflinePointersResolveToOwnDenom(t *testing.T, testApp *App) {
+	t.Helper()
+	ctx := offlineUpgradeReadContext(testApp, testApp.LastBlockHeight())
+	for denom, want := range map[string]common.Address{
+		v69OfflineShortDenom: v69OfflineShortPointer,
+		v69OfflineLongDenom:  v69OfflineLongPointer,
+	} {
+		pointer, _, exists := testApp.EvmKeeper.GetERC20NativePointer(ctx, denom)
+		require.True(t, exists, denom)
+		require.Equal(t, want, pointer, denom)
 	}
 }
 
@@ -384,7 +445,8 @@ func signV69OfflineTx(t *testing.T, testApp *App, priv *secp256k1.PrivKey, msg s
 }
 
 // testV69OfflineUpgradeTargetSnapshot applies v6.9 to a real pre-v6.9 node home
-// and requires the authz version-map entry, and only that entry, to be removed.
+// and requires the authz version-map entry, and only that entry, to be removed,
+// and register_pointer_disabled to be gone.
 func testV69OfflineUpgradeTargetSnapshot(t *testing.T) {
 	home := requireOfflineUpgradeSnapshotHome(t)
 	t.Setenv("UPGRADE_VERSION_LIST", v69OfflineUpgradeName)
@@ -416,4 +478,5 @@ func testV69OfflineUpgradeTargetSnapshot(t *testing.T) {
 	reopened := openOfflineUpgradeSnapshotApp(t, home, chainID)
 	defer closeOfflineUpgradeApp(t, reopened)
 	requireV69OfflineVersionMap(t, reopened, beforeVersions)
+	requireV69OfflineParamDeleted(t, reopened)
 }

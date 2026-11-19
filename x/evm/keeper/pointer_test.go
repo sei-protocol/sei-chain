@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
 
@@ -451,4 +452,39 @@ func lookupWithGas(ctx types.Context, lookup func(types.Context) []any) ([]any, 
 	ctx = ctx.WithGasMeter(types.NewInfiniteGasMeter(1, 1))
 	result := lookup(ctx)
 	return result, ctx.GasMeter().GasConsumed()
+}
+
+func TestGetPointerInfoMatchesExactPointee(t *testing.T) {
+	ctx, _ := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).CacheContext()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	short := common.HexToAddress("0x00000000000000000000000000000000000000a1")
+	long := common.HexToAddress("0x00000000000000000000000000000000000000a2")
+	require.NoError(t, k.SetERC20NativePointer(ctx, "factory/creator/pamp", short))
+	require.NoError(t, k.SetERC20NativePointer(ctx, "factory/creator/pamp/vest", long))
+
+	addr, version, exists := k.GetERC20NativePointer(ctx, "factory/creator/pamp")
+	require.True(t, exists)
+	require.Equal(t, short, addr)
+	require.Equal(t, native.CurrentVersion, version)
+
+	addr, _, exists = k.GetERC20NativePointer(ctx, "factory/creator/pamp/vest")
+	require.True(t, exists)
+	require.Equal(t, long, addr)
+
+	_, _, exists = k.GetERC20NativePointer(ctx, "factory/creator/pam")
+	require.False(t, exists)
+}
+
+func TestGetPointerInfoReturnsHighestStoredVersion(t *testing.T) {
+	ctx, _ := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).CacheContext()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	current := common.HexToAddress("0x00000000000000000000000000000000000000b1")
+	higher := common.HexToAddress("0x00000000000000000000000000000000000000b2")
+	require.NoError(t, k.SetERC20NativePointerWithVersion(ctx, "ufoo", current, native.CurrentVersion))
+	require.NoError(t, k.SetERC20NativePointerWithVersion(ctx, "ufoo", higher, 1000))
+
+	addr, version, exists := k.GetERC20NativePointer(ctx, "ufoo")
+	require.True(t, exists)
+	require.Equal(t, higher, addr)
+	require.Equal(t, uint16(1000), version)
 }

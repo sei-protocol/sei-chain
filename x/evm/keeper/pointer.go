@@ -21,6 +21,9 @@ import (
 
 var ErrorPointerToPointerNotAllowed = sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "cannot create a pointer to a pointer")
 
+// pointerVersionLength is the length of the version that follows a pointee in a registry key.
+const pointerVersionLength = 2
+
 // ERC20 -> Native Token
 func (k *Keeper) SetERC20NativePointer(ctx sdk.Context, token string, addr common.Address) error {
 	return k.SetERC20NativePointerWithVersion(ctx, token, addr, native.CurrentVersion)
@@ -213,16 +216,17 @@ func (k *Keeper) GetCW1155ERC1155Pointer(ctx sdk.Context, erc1155Address common.
 	return
 }
 
-// GetPointerInfo returns the value and version of the last entry under pref, in key order.
-// That entry can belong to a pointee whose name extends the one pref ends with, such as
-// <denom>/vest for <denom>.
+// GetPointerInfo returns the value and version of the highest-versioned entry stored under
+// exactly pref.
 func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte) (addr []byte, version uint16, exists bool) {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
-	// Every context must resolve and charge this lookup the way block execution always has.
 	iter := store.ReverseIterator(nil, nil)
 	defer func() { _ = iter.Close() }()
-	if iter.Valid() {
-		return iter.Value(), binary.BigEndian.Uint16(iter.Key()), true
+	for ; iter.Valid(); iter.Next() {
+		// A longer key belongs to another pointee whose name starts with the same bytes.
+		if len(iter.Key()) == pointerVersionLength {
+			return iter.Value(), binary.BigEndian.Uint16(iter.Key()), true
+		}
 	}
 	return nil, 0, false
 }
@@ -245,7 +249,7 @@ func (k *Keeper) GetAnyPointeeInfo(ctx sdk.Context, cwAddress string) (common.Ad
 
 func (k *Keeper) setPointerInfo(ctx sdk.Context, pref []byte, addr []byte, version uint16) error {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
-	versionBz := make([]byte, 2)
+	versionBz := make([]byte, pointerVersionLength)
 	binary.BigEndian.PutUint16(versionBz, version)
 	store.Set(versionBz, addr)
 	return nil

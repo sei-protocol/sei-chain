@@ -5,6 +5,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/app/retiredauthz"
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
@@ -17,6 +18,7 @@ import (
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
@@ -61,6 +63,14 @@ const RetiredPrefixDeleteLimit = 1000
 // upgradedIBCStateKeyPrefix is the upgrade-store prefix under which the cosmos
 // upgrade module recorded planned IBC client state before IBC was retired.
 const upgradedIBCStateKeyPrefix = "upgradedIBCState/"
+
+// retiredEVMParamKeys are the params-store keys of the EVM parameters the v6.9 upgrade
+// deletes.
+var retiredEVMParamKeys = [][]byte{[]byte(evmtypes.ModuleName + "/KeyRegisterPointerDisabled")}
+
+// queuedProposalsEnd is later than the deposit and voting end time of any proposal, so
+// iterating a gov queue up to it visits every queued proposal.
+var queuedProposalsEnd = time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC)
 
 // NOTE: When performing upgrades, make sure to keep / register the handlers
 // for both the current (n) and the previous (n-1) upgrade name. There is a bug
@@ -177,6 +187,9 @@ func (app *App) RegisterUpgradeHandlers() {
 			}
 
 			if upgradeName == "v6.9" {
+				if err := app.requireNoQueuedProposals(ctx, evmtypes.RouterKey); err != nil {
+					return nil, err
+				}
 				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
 				if err != nil {
 					return nil, err
@@ -184,6 +197,7 @@ func (app *App) RegisterUpgradeHandlers() {
 				for _, name := range v69DeletedStores {
 					app.UpgradeKeeper.DeleteModuleVersion(ctx, name)
 				}
+				app.pruneRetiredEVMParams(ctx)
 				return newVM, nil
 			}
 
@@ -298,6 +312,34 @@ func (app *App) pruneDenomAllowLists(ctx sdk.Context) {
 // pruneTokenfactoryParams removes every parameter of the tokenfactory subspace from the params store.
 func (app *App) pruneTokenfactoryParams(ctx sdk.Context) {
 	deleteByPrefix(ctx.KVStore(app.GetKey(paramstypes.StoreKey)), tokenfactoryParamsPrefix)
+}
+
+// requireNoQueuedProposals returns an error if a proposal still in its deposit or voting
+// period routes to route, which gov would panic resolving once the proposal passes.
+func (app *App) requireNoQueuedProposals(ctx sdk.Context, route string) error {
+	var queued []uint64
+	collect := func(proposal govtypes.Proposal) bool {
+		if proposal.ProposalRoute() == route {
+			queued = append(queued, proposal.ProposalId)
+		}
+		return false
+	}
+	app.GovKeeper.IterateInactiveProposalsQueue(ctx, queuedProposalsEnd, collect)
+	app.GovKeeper.IterateActiveProposalsQueue(ctx, queuedProposalsEnd, collect)
+	if len(queued) > 0 {
+		return fmt.Errorf("governance proposals %v are still queued and route to %q, which this build no longer registers", queued, route)
+	}
+	return nil
+}
+
+// pruneRetiredEVMParams deletes the stored EVM parameters this build no longer registers.
+// Gov accepts a parameter-change proposal for any stored key, and executing one for a key
+// the subspace does not register panics.
+func (app *App) pruneRetiredEVMParams(ctx sdk.Context) {
+	store := ctx.KVStore(app.GetKey(paramstypes.StoreKey))
+	for _, key := range retiredEVMParamKeys {
+		store.Delete(key)
+	}
 }
 
 // deleteByPrefix deletes the first RetiredPrefixDeleteLimit keys under prefix in

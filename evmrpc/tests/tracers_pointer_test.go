@@ -28,9 +28,9 @@ func TestTraceNativePointerTransferMatchesReceipt(t *testing.T) {
 		status         string
 	}{
 		{name: "denom", denom: "ufoo", status: "0x1"},
-		// The chain resolves denom to the pointer of the denom extending it, so the bank
-		// precompile refuses the transfer from denom's own pointer.
-		{name: "denom another denom extends", denom: "factory/creator/pamp", extendingDenom: "factory/creator/pamp/vest", status: "0x0"},
+		// The chain resolves denom to its own pointer, not to the pointer of the denom
+		// extending it, so the bank precompile accepts the transfer.
+		{name: "denom another denom extends", denom: "factory/creator/pamp", extendingDenom: "factory/creator/pamp/vest", status: "0x1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			initializers := []func(sdk.Context, *app.App){

@@ -4,6 +4,7 @@ package app_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,18 +15,23 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
 	"github.com/sei-protocol/sei-chain/upgradetest"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
-// v6.9 removes the authz module. The store loader deletes the authz store at
-// the upgrade height, taking every outstanding grant with it, and the handler
-// deletes the authz version-map entry. No other module version and no other
-// store changes. These tests cover the handler, the refusal of every authz
-// message after the upgrade, and the upgrade on a live chain that holds a grant.
+// v6.9 removes the authz module and the register_pointer_disabled EVM parameter.
+// The store loader deletes the authz store at the upgrade height, taking every
+// outstanding grant with it, and the handler deletes the authz version-map entry
+// and the stored parameter. The handler halts instead while a proposal routed to
+// evm is still queued. Nothing else in the version map or the stores changes.
+// These tests cover the handler, the refusal of every authz message after the
+// upgrade, and the upgrade on a live chain that holds a grant.
 
 const (
 	v69UpgradeName       = "v6.9"
@@ -39,6 +45,9 @@ const (
 	// v69AuthzVersionBefore is the authz consensus version v6.8 records.
 	v69AuthzVersionBefore uint64 = 1
 )
+
+// v69RegisterPointerDisabledKey is the params-store key of the EVM parameter v6.9 deletes.
+var v69RegisterPointerDisabledKey = []byte(evmtypes.ModuleName + "/KeyRegisterPointerDisabled")
 
 var v69PostUpgradeBankReceiver = sdk.AccAddress{
 	0x69, 0x69, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -176,6 +185,65 @@ func TestV69RejectsAuthzTxsWithoutCharging(t *testing.T) {
 	}
 }
 
+// TestV69DeletesOnlyTheRegisterPointerDisabledParam requires v6.9 to delete the stored
+// register_pointer_disabled parameter and to leave the rest of the params store and the
+// EVM parameters unchanged.
+func TestV69DeletesOnlyTheRegisterPointerDisabledParam(t *testing.T) {
+	a := newV69Chain(t)
+	ctx := a.Ctx()
+	store := ctx.KVStore(a.GetKey(paramstypes.StoreKey))
+	store.Set(v69RegisterPointerDisabledKey, []byte("true"))
+	kept := v69StoreEntries(t, store)
+	delete(kept, string(v69RegisterPointerDisabledKey))
+	evmParams := a.EvmKeeper.GetParams(ctx)
+
+	applyV69(t, a)
+
+	require.Equal(t, kept, v69StoreEntries(t, store),
+		"v6.9 changed the params store beyond deleting register_pointer_disabled")
+	require.Equal(t, evmParams, a.EvmKeeper.GetParams(ctx))
+}
+
+// TestV69RefusesQueuedEVMProposals requires the v6.9 handler to fail while a proposal
+// routed to evm is still in its deposit or voting period, since gov resolves the route of
+// a queued proposal once it passes and v6.9 registers none for evm.
+func TestV69RefusesQueuedEVMProposals(t *testing.T) {
+	for name, enqueue := range map[string]func(a *processblock.App, proposal govtypes.Proposal){
+		"deposit period": func(a *processblock.App, proposal govtypes.Proposal) {
+			a.GovKeeper.InsertInactiveProposalQueue(a.Ctx(), proposal.ProposalId, proposal.DepositEndTime)
+		},
+		"voting period": func(a *processblock.App, proposal govtypes.Proposal) {
+			a.GovKeeper.InsertActiveProposalQueue(a.Ctx(), proposal.ProposalId, a.Ctx().BlockTime().Add(time.Hour))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := newV69Chain(t)
+			proposal := v69StorePointerProposal(t, a)
+			enqueue(a, proposal)
+
+			require.PanicsWithError(t, fmt.Sprintf(
+				"governance proposals [%d] are still queued and route to %q, which this build no longer registers",
+				proposal.ProposalId, evmtypes.RouterKey), func() { applyV69(t, a) })
+		})
+	}
+}
+
+// TestV69KeepsPointerProposalsReadable requires a pointer proposal whose vote has ended to
+// still decode after v6.9.
+func TestV69KeepsPointerProposalsReadable(t *testing.T) {
+	a := newV69Chain(t)
+	proposal := v69StorePointerProposal(t, a)
+	proposal.Status = govtypes.StatusFailed
+	a.GovKeeper.SetProposal(a.Ctx(), proposal)
+
+	applyV69(t, a)
+
+	stored, found := a.GovKeeper.GetProposal(a.Ctx(), proposal.ProposalId)
+	require.True(t, found)
+	require.Equal(t, govtypes.StatusFailed, stored.Status)
+	require.Equal(t, proposal.GetContent(), stored.GetContent())
+}
+
 // TestV69CrossVersion runs v6.8 validators into the v6.9 upgrade with a send
 // authorization granted on chain, and verifies the same chain after they
 // restart on v6.9.
@@ -183,8 +251,9 @@ func TestV69CrossVersion(t *testing.T) {
 	upgradetest.RunCrossVersion(t, seedV68State, verifyV69State)
 }
 
-// seedV68State records the v6.8 version map, which carries authz, and has the
-// admin account grant node_admin a send authorization that v6.8 serves.
+// seedV68State records the v6.8 version map, which carries authz, requires v6.8
+// to store the register_pointer_disabled parameter, and has the admin account
+// grant node_admin a send authorization that v6.8 serves.
 func seedV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v69UpgradeName, chain.UpgradeName(t))
 
@@ -192,6 +261,8 @@ func seedV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v69AuthzVersionBefore, versions[retiredauthz.ModuleName],
 		"v6.8 module version map does not carry authz")
 	chain.Record(t, "module_versions", versions)
+	require.NotEmpty(t, chain.QueryStore(t, paramstypes.StoreKey, v69RegisterPointerDisabledKey),
+		"v6.8 does not store register_pointer_disabled")
 
 	granter := chain.KeyAddress(t, "sei-node-0", "admin")
 	grantee := chain.KeyAddress(t, "sei-node-0", "node_admin")
@@ -214,8 +285,9 @@ func seedV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 }
 
 // verifyV69State requires the upgrade to have applied at the planned height on
-// every validator, the authz version-map entry, store, and query command to be
-// gone with nothing else in the version map changed, and a bank send to succeed.
+// every validator, the authz version-map entry, store and query command and the
+// register_pointer_disabled parameter to be gone with nothing else in the version
+// map changed, and a bank send to succeed.
 func verifyV69State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v69UpgradeName, chain.UpgradeName(t))
 
@@ -238,6 +310,8 @@ func verifyV69State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, want, after, "v6.9 changed the version map beyond removing authz")
 	require.Empty(t, chain.QueryStore(t, upgradetypes.StoreKey, v69ModuleVersionKey(retiredauthz.ModuleName)),
 		"v6.9 upgrade store still carries the authz version-map entry")
+	require.Empty(t, chain.QueryStore(t, paramstypes.StoreKey, v69RegisterPointerDisabledKey),
+		"v6.9 left register_pointer_disabled in the params store")
 
 	var granter, grantee string
 	chain.Replay(t, "authz_granter", &granter)
@@ -267,6 +341,34 @@ func verifyV69State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, receiverBefore.Add(sent.Amount).String(),
 		v69UseiBalance(t, chain, v69PostUpgradeBankReceiver.String()).String(),
 		"the bank send after v6.9 did not credit the receiver")
+}
+
+// v69StorePointerProposal stores a native pointer proposal in its deposit period without
+// queueing it, bypassing the submission check that refuses one.
+func v69StorePointerProposal(t *testing.T, a *processblock.App) govtypes.Proposal {
+	t.Helper()
+	ctx := a.Ctx()
+	id, err := a.GovKeeper.GetProposalID(ctx)
+	require.NoError(t, err)
+	content := &evmtypes.AddERCNativePointerProposalV2{
+		Title: "Add pointer", Description: "Add an ERC20 pointer", Token: "ufoo", Name: "FOO", Symbol: "FOO", Decimals: 6,
+	}
+	proposal, err := govtypes.NewProposal(content, id, ctx.BlockTime(), ctx.BlockTime().Add(time.Hour), false)
+	require.NoError(t, err)
+	a.GovKeeper.SetProposal(ctx, proposal)
+	a.GovKeeper.SetProposalID(ctx, id+1)
+	return proposal
+}
+
+func v69StoreEntries(t *testing.T, store sdk.KVStore) map[string][]byte {
+	t.Helper()
+	iterator := store.Iterator(nil, nil)
+	defer func() { require.NoError(t, iterator.Close()) }()
+	entries := map[string][]byte{}
+	for ; iterator.Valid(); iterator.Next() {
+		entries[string(iterator.Key())] = append([]byte(nil), iterator.Value()...)
+	}
+	return entries
 }
 
 // v69ModuleVersions returns the on-chain module version map by module name.

@@ -12,13 +12,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 )
@@ -30,15 +33,30 @@ const (
 	v69OfflineGrantSpendable int64 = 1_000_000
 )
 
+// Two native pointers whose denoms share a registry prefix. v6.8 resolves the shorter
+// denom to the longer denom's pointer.
+const (
+	v69OfflineShortDenom = "factory/sei1v69offline/pamp"
+	v69OfflineLongDenom  = v69OfflineShortDenom + "/vest"
+)
+
+var (
+	v69OfflineShortPointer = common.HexToAddress("0x00000000000000000000000000000000000069a1")
+	v69OfflineLongPointer  = common.HexToAddress("0x00000000000000000000000000000000000069a2")
+
+	v69OfflineRetiredParamKey = []byte(evmtypes.ModuleName + "/KeyRegisterPointerDisabled")
+)
+
 // v69OfflineSourceStores are the retained stores the source phase snapshots so
 // the target phase can prove v6.9 left them as v6.8 committed them.
-var v69OfflineSourceStores = []string{authtypes.StoreKey, "bank", "gov", "params", "upgrade"}
+var v69OfflineSourceStores = []string{authtypes.StoreKey, "bank", evmtypes.StoreKey, "gov", "params", "upgrade"}
 
 func TestV69OfflineUpgradeSource(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "source")
 	testApp := openOfflineUpgradeApp(t, root, true)
 	ctx := testApp.GetContextForDeliverTx(nil).WithBlockTime(time.Now().UTC())
 	retained := seedV69OfflineAuthzGrant(t, testApp, ctx)
+	seedV69OfflinePointerState(t, testApp, ctx)
 	upgradeHeight := ctx.BlockHeight() + 2
 	require.NoError(t, testApp.UpgradeKeeper.ScheduleUpgrade(ctx, upgradetypes.Plan{
 		Name: v69OfflineUpgradeName, Height: upgradeHeight,
@@ -118,6 +136,23 @@ func seedV69OfflineAuthzGrant(t *testing.T, testApp *App, ctx sdk.Context) offli
 		TxSenderKey:  hex.EncodeToString(granteeKey.Bytes()),
 		TxRecipient:  recipient.String(),
 	}
+}
+
+// seedV69OfflinePointerState registers the native pointers of both denoms and stores
+// register_pointer_disabled as true.
+func seedV69OfflinePointerState(t *testing.T, testApp *App, ctx sdk.Context) {
+	t.Helper()
+	require.NoError(t, testApp.EvmKeeper.SetERC20NativePointer(ctx, v69OfflineShortDenom, v69OfflineShortPointer))
+	require.NoError(t, testApp.EvmKeeper.SetERC20NativePointer(ctx, v69OfflineLongDenom, v69OfflineLongPointer))
+	pointer, _, exists := testApp.EvmKeeper.GetERC20NativePointer(ctx, v69OfflineShortDenom)
+	require.True(t, exists)
+	require.Equal(t, v69OfflineLongPointer, pointer,
+		"v6.8 no longer resolves a denom to the pointer of a longer denom sharing its prefix")
+	// EVM migration 18 stored true on every live chain.
+	params := testApp.EvmKeeper.GetParams(ctx)
+	params.RegisterPointerDisabled = true
+	testApp.EvmKeeper.SetParams(ctx, params)
+	require.Equal(t, []byte("true"), ctx.KVStore(testApp.GetKey(paramstypes.StoreKey)).Get(v69OfflineRetiredParamKey))
 }
 
 // requireV69OfflineUnupgradedHalt drives a copy of the pre-upgrade database
