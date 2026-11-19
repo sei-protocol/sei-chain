@@ -422,21 +422,51 @@ func openAutobahnStorageManager(
 	storage gigaconfig.StorageConfig,
 	genDoc *types.GenesisDoc,
 ) (*bootstrap.GigaStorageManager, error) {
-	directory, err := resolvePersistentStateDir(rootDir, fc.PersistentStateDir)
+	_, storageConfig, err := autobahnStorageConfig(rootDir, nodeMode, fc, storage, genDoc)
 	if err != nil {
 		return nil, err
 	}
+	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
+}
+
+// autobahnStorageConfig returns the persistent state dir and the Giga storage config that node
+// startup opens for nodeMode. It creates the persistent state dir if it does not exist.
+func autobahnStorageConfig(
+	rootDir string,
+	nodeMode string,
+	fc *config.AutobahnFileConfig,
+	storage gigaconfig.StorageConfig,
+	genDoc *types.GenesisDoc,
+) (string, *seidbconfig.GigaStorageConfig, error) {
+	directory, err := resolvePersistentStateDir(rootDir, fc.PersistentStateDir)
+	if err != nil {
+		return "", nil, err
+	}
 	storageConfig, err := buildGigaStorageConfig(directory, nodeMode, storage, genDoc)
 	if err != nil {
-		return nil, fmt.Errorf("build Autobahn storage config: %w", err)
+		return "", nil, fmt.Errorf("build Autobahn storage config: %w", err)
 	}
 	blockConfig, err := fc.BlockDB.LittBlockConfig(filepath.Join(directory, "blockdb"))
 	if err != nil {
-		return nil, fmt.Errorf("build Autobahn block DB config: %w", err)
+		return "", nil, fmt.Errorf("build Autobahn block DB config: %w", err)
 	}
 	storageConfig.BlockDBConfig = &blockConfig
 	storageConfig.RunningMarkerPath = filepath.Join(directory, "node_running")
-	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
+	return directory, storageConfig, nil
+}
+
+// gigaActivationHeight returns the first block that the app-hash builder covers on the chain
+// that genDoc starts: genDoc.InitialHeight.
+func gigaActivationHeight(genDoc *types.GenesisDoc) (uint64, error) {
+	initialHeight := int64(0)
+	if genDoc != nil {
+		initialHeight = genDoc.InitialHeight
+	}
+	if initialHeight < 1 {
+		return 0, fmt.Errorf("initial height = %d, want >= 1", initialHeight)
+	}
+	//nolint:gosec // G115: InitialHeight is at least 1.
+	return uint64(initialHeight), nil
 }
 
 // buildGigaStorageConfig returns the store configs for directory with the [giga.storage]
@@ -452,15 +482,11 @@ func buildGigaStorageConfig(
 	if err != nil {
 		return nil, err
 	}
-	initialHeight := int64(0)
-	if genDoc != nil {
-		initialHeight = genDoc.InitialHeight
+	activationHeight, err := gigaActivationHeight(genDoc)
+	if err != nil {
+		return nil, err
 	}
-	if initialHeight < 1 {
-		return nil, fmt.Errorf("initial height = %d, want >= 1", initialHeight)
-	}
-	//nolint:gosec // G115: InitialHeight is at least 1.
-	storageConfig.AppHashBuilderConfig.GigaActivationHeight = uint64(initialHeight)
+	storageConfig.AppHashBuilderConfig.GigaActivationHeight = activationHeight
 	storageConfig.PruningConfig.RollbackWindow = storage.RollbackWindow
 	storageConfig.PruningConfig.LookbackWindow = storage.LookbackWindow
 	storageConfig.PruningConfig.PruneInterval = storage.PruneInterval

@@ -40,6 +40,18 @@ func (p *Proof) AppQC() *types.AppQC {
 	return p.appQC
 }
 
+// Verify returns an error unless the road block verifies against ep and a quorum of the committee
+// of ep signed the AppQC.
+func (p *Proof) Verify(ep *types.Epoch) error {
+	if err := p.roadBlock.Verify(ep); err != nil {
+		return fmt.Errorf("road block: %w", err)
+	}
+	if err := p.appQC.Verify(ep.Committee()); err != nil {
+		return fmt.Errorf("AppQC: %w", err)
+	}
+	return nil
+}
+
 // FileName returns the canonical state sync proof file name for index.
 func FileName(index types.RoadIndex) string {
 	return fmt.Sprintf("%0*d%s", heightDigits, index, fileSuffix)
@@ -97,8 +109,7 @@ func frame(msg *pb.StateSyncProof) []byte {
 
 // Decode decodes a state sync proof file for road wantIndex. It checks the
 // file layout and that the AppQC is for the road and epoch of the CommitQC, but
-// not signatures: the caller must verify the RoadBlock and the AppQC against the
-// epoch before it trusts the proof.
+// not signatures: the caller must call Verify before it trusts the proof.
 func Decode(data []byte, wantIndex types.RoadIndex) (*Proof, error) {
 	if len(data) < headerLen {
 		return nil, fmt.Errorf("truncated state sync proof file header")

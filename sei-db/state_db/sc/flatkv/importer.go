@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"go.opentelemetry.io/otel/metric"
@@ -398,7 +399,8 @@ func (imp *KVImporter) AddModule(_ string) error {
 }
 
 // AddNode queues node for import. It fails the import and returns an error unless node is a leaf at the
-// import's version with a non-empty key and value. Once the import has failed, it returns that failure.
+// import's version with a non-empty value and a non-empty key outside the metadata namespace. Once the
+// import has failed, it returns that failure.
 func (imp *KVImporter) AddNode(node *types.SnapshotNode) error {
 	if err := imp.getErr(); err != nil {
 		return err
@@ -460,6 +462,11 @@ func (imp *KVImporter) checkNode(node *types.SnapshotNode) error {
 	}
 	if len(node.Key) == 0 {
 		return errors.New("flatkv import: node has an empty key")
+	}
+	// The data databases hold their own metadata under this prefix, so an imported row there would
+	// overwrite it.
+	if ktype.IsMetaKey(node.Key) {
+		return fmt.Errorf("flatkv import: node key %q is in the %q metadata namespace", node.Key, ktype.MetaKeyPrefix)
 	}
 	if node.Version != imp.version {
 		return fmt.Errorf("flatkv import: node %x has version %d; the import is at version %d",
