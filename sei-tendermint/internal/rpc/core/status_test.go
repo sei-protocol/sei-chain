@@ -12,7 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -42,7 +41,7 @@ func newStatusEnv(t *testing.T, c statusEnvCase) *Environment {
 	}))
 
 	return &Environment{
-		App:          utils.Some(proxy.New(abci.BaseApplication{})),
+		App:          proxy.New(abci.BaseApplication{}),
 		BlockStore:   blockStore,
 		StateStore:   stateStore,
 		ReadOnly:     c.freezeHeight > 0,
