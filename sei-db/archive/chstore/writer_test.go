@@ -100,8 +100,6 @@ func TestWrite(t *testing.T) {
 
 	first := testBatch(t, 1, 3)
 	require.NoError(t, w.write(t.Context(), first))
-	// A retried batch is deduplicated by its insert tokens.
-	require.NoError(t, w.write(t.Context(), first))
 	require.NoError(t, w.write(t.Context(), testBatch(t, 4, 5)))
 
 	next, err = w.nextBlock(t.Context())
@@ -167,33 +165,18 @@ func TestStateReads(t *testing.T) {
 	require.Equal(t, []uint64{2}, query(t, cfg, "SELECT toUInt64(count()) AS a FROM storage_changes WHERE block_number = 2"))
 }
 
-func TestWriteRetriesAPartialInsert(t *testing.T) {
+func TestFailedWriteLeavesItsBatchPending(t *testing.T) {
 	cfg := testConfig(t)
 	require.NoError(t, migrate(t.Context(), cfg))
 	w := testWriter(t, cfg)
-	b := testBatch(t, 1, 3)
 
 	exec(t, cfg, cfg.Database, "DETACH TABLE blocks")
+	defer exec(t, cfg, cfg.Database, "ATTACH TABLE blocks")
 	start := time.Now()
-	require.Error(t, w.write(t.Context(), b))
+	require.Error(t, w.write(t.Context(), testBatch(t, 1, 3)))
 	require.Less(t, time.Since(start), 10*time.Second, "a failed table does not stall the others")
 	_, err := w.nextBlock(t.Context())
 	require.ErrorIs(t, err, errInterruptedBatch, "a partly written batch is not committed")
-
-	exec(t, cfg, cfg.Database, "ATTACH TABLE blocks")
-	require.NoError(t, w.write(t.Context(), b))
-	require.Equal(t, map[string]uint64{
-		tableBlocks:         3,
-		tableTxs:            6,
-		tableLocator:        6,
-		tableLogs:           3,
-		tableAccountChanges: 6,
-		tableAccountHistory: 6,
-		tableStorageChanges: 6,
-		tableStorageHistory: 6,
-		tableCode:           3,
-		tableCommits:        2,
-	}, rowCounts(t, cfg))
 }
 
 func TestStartExporterRefusesAnInterruptedBatch(t *testing.T) {
@@ -205,7 +188,7 @@ func TestStartExporterRefusesAnInterruptedBatch(t *testing.T) {
 	// Blocks 3-4 stop after their pending row and one table, as a crash part way leaves them.
 	b := testBatch(t, 3, 4)
 	require.NoError(t, w.insertCommit(t.Context(), b.first, b.last, false))
-	require.NoError(t, w.insert(t.Context(), tableBlocks, b.blockRows.input(), b.first, b.last))
+	require.NoError(t, w.client.Insert(t.Context(), tableBlocks, b.blockRows.input()))
 
 	_, err := StartExporter(t.Context(), cfg)
 	require.ErrorIs(t, err, errInterruptedBatch)
@@ -248,6 +231,21 @@ func TestExporterWritesExecutedBlocks(t *testing.T) {
 	// A closed exporter refuses blocks rather than dropping them.
 	block = testBlock(5)
 	require.ErrorContains(t, exporter.ArchiveBlock(t.Context(), &block), "closed")
+}
+
+func TestExporterStopsAtAFailedWrite(t *testing.T) {
+	cfg := testConfig(t)
+	exporter, err := StartExporter(t.Context(), cfg)
+	require.NoError(t, err)
+	exec(t, cfg, cfg.Database, "DETACH TABLE blocks")
+	block := testBlock(1)
+	require.NoError(t, exporter.ArchiveBlock(t.Context(), &block))
+	require.ErrorContains(t, exporter.Close(), "insert blocks")
+	exec(t, cfg, cfg.Database, "ATTACH TABLE blocks")
+
+	// The failed batch stays pending, so the archive does not resume until it is removed.
+	_, err = StartExporter(t.Context(), cfg)
+	require.ErrorIs(t, err, errInterruptedBatch)
 }
 
 func TestEmptyArchiveRecordsItsStart(t *testing.T) {

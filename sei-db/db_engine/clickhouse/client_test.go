@@ -49,23 +49,20 @@ func count(t *testing.T, client *Client, body string) uint64 {
 	return out
 }
 
-func TestClientInsertDeduplicatesByToken(t *testing.T) {
+func TestClientInsertStoresEveryInsert(t *testing.T) {
 	cfg := testConfig(t)
 	require.NoError(t, Migrate(t.Context(), cfg, fstest.MapFS{"migrations/0001_t.sql": {Data: []byte(
-		"CREATE TABLE t (x UInt64) ENGINE = MergeTree ORDER BY x SETTINGS non_replicated_deduplication_window = 100;")}}))
+		"CREATE TABLE t (x UInt64) ENGINE = MergeTree ORDER BY x;")}}))
 	client, err := Open(cfg, Options{})
 	require.NoError(t, err)
 	defer client.Close()
 
-	insert := func(token string) {
+	for range 2 {
 		var x proto.ColUInt64
 		x.Append(1)
-		require.NoError(t, client.Insert(t.Context(), "t", proto.Input{{Name: "x", Data: &x}}, token))
+		require.NoError(t, client.Insert(t.Context(), "t", proto.Input{{Name: "x", Data: &x}}))
 	}
-	insert("a")
-	insert("a")
-	insert("b")
-	require.Equal(t, uint64(2), count(t, client, "SELECT count() AS a FROM t"))
+	require.Equal(t, uint64(2), count(t, client, "SELECT count() AS a FROM t"), "a repeated insert is not dropped")
 }
 
 func TestClientKeepsTheConnectionAfterAServerException(t *testing.T) {
