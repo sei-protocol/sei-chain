@@ -59,6 +59,9 @@ type GigaStorageManager struct {
 
 	// stateSyncProofExport writes state sync proof files once StartStateSyncProofExport starts it.
 	stateSyncProofExport stateSyncProofExport
+
+	// stateSyncUpload uploads state sync archives once StartStateSyncUpload starts it.
+	stateSyncUpload stateSyncUpload
 }
 
 // NewGigaStorageManager opens every store a Giga node runs on, first aligning the state stores and the receipt
@@ -71,6 +74,9 @@ type GigaStorageManager struct {
 func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (_ *GigaStorageManager, retErr error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("cannot open storage with invalid configs: %w", err)
+	}
+	if err := removeStateSyncUploadStaging(cfg.FlatKVConfig.DataDir); err != nil {
+		return nil, err
 	}
 	timer := utils.NewLoggingPhaseTimer(logger)
 
@@ -327,6 +333,8 @@ func (m *GigaStorageManager) Close() error {
 	}
 
 	timer := utils.NewLoggingPhaseTimer(logger)
+	timer.SetPhase("state_sync_upload")
+	m.stateSyncUpload.stop()
 	timer.SetPhase("state_sync_proof_export")
 	// Before the block store, which the export reads.
 	m.stateSyncProofExport.stop()

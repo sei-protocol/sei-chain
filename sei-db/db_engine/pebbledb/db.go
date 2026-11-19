@@ -18,6 +18,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
+// FormatMajorVersion is the Pebble on-disk format of every database that Open opens.
+const FormatMajorVersion = pebble.FormatVirtualSSTables
+
 // pebbleDB implements the db_engine.DB interface using PebbleDB.
 type pebbleDB struct {
 	db               *pebble.DB
@@ -57,7 +60,7 @@ func Open(
 		// would cause the on-disk format to silently upgrade when pebble is updated,
 		// making the database incompatible with older software versions.
 		// When upgrading this version, ensure it's an intentional, documented change.
-		FormatMajorVersion:          pebble.FormatVirtualSSTables,
+		FormatMajorVersion:          FormatMajorVersion,
 		L0CompactionThreshold:       4,
 		L0StopWritesThreshold:       1000,
 		LBaseMaxBytes:               64 << 20, // 64 MB

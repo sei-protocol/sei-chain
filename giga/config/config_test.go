@@ -176,6 +176,10 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.rpc.default_timeout":                  "8s",
 		"giga.rpc.method_timeouts":                  []string{"eth_call=2m", "debug_trace*=0"},
 		"giga.state_sync.enabled":                   "true",
+		"giga.state_sync.archive_bucket":            "sei-snapshots",
+		"giga.state_sync.archive_region":            "eu-central-1",
+		"giga.state_sync.archive_upload":            "true",
+		"giga.state_sync.archive_upload_interval":   "6h",
 	})
 	require.NoError(t, err)
 	want := gigaconfig.Config{
@@ -222,7 +226,11 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			MethodTimeouts:                []string{"eth_call=2m", "debug_trace*=0"},
 		},
 		StateSync: gigaconfig.StateSyncConfig{
-			Enabled: true,
+			Enabled:               true,
+			ArchiveBucket:         "sei-snapshots",
+			ArchiveRegion:         "eu-central-1",
+			ArchiveUpload:         true,
+			ArchiveUploadInterval: 6 * time.Hour,
 		},
 	}
 	require.Equal(t, want, cfg)
@@ -230,7 +238,15 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 
 func TestReadConfigRejectsUnusableValues(t *testing.T) {
 	for name, opts := range map[string]configtest.AppOpts{
-		"unknown mode":                    {"giga.storage.mode": "archive"},
+		"unknown mode": {"giga.storage.mode": "archive"},
+		"upload without state sync": {
+			"giga.state_sync.archive_upload": "true",
+			"giga.state_sync.archive_bucket": "sei-snapshots",
+		},
+		"upload without bucket": {
+			"giga.state_sync.enabled":        "true",
+			"giga.state_sync.archive_upload": "true",
+		},
 		"non-boolean receipts":            {"giga.storage.receipts": "maybe"},
 		"lookback below -1":               {"giga.storage.lookback_window": "-2"},
 		"zero prune interval":             {"giga.storage.prune_interval": "0s"},
@@ -304,11 +320,27 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 			"giga.rpc.default_timeout": "0s",
 			"giga.rpc.method_timeouts": []string{"eth_estimateGasAfterCalls=0"},
 		},
-		"non-boolean state sync": {"giga.state_sync.enabled": "maybe"},
+		"non-boolean state sync":       {"giga.state_sync.enabled": "maybe"},
+		"non-string bucket":            {"giga.state_sync.archive_bucket": []string{"a", "b"}},
+		"non-string region":            {"giga.state_sync.archive_region": []string{"a", "b"}},
+		"non-boolean upload":           {"giga.state_sync.archive_upload": "maybe"},
+		"negative upload interval":     {"giga.state_sync.archive_upload_interval": "-1s"},
+		"non-duration upload interval": {"giga.state_sync.archive_upload_interval": "daily"},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)
 	}
+}
+
+// TestArchiveBucketAloneUploadsNothing holds a node that only names the archive bucket, to read
+// archives from it, to a valid config that does not upload.
+func TestArchiveBucketAloneUploadsNothing(t *testing.T) {
+	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{"giga.state_sync.archive_bucket": "sei-snapshots"})
+	require.NoError(t, err)
+	require.Equal(t, "sei-snapshots", cfg.StateSync.ArchiveBucket)
+	require.False(t, cfg.StateSync.Enabled)
+	require.False(t, cfg.StateSync.ArchiveUpload)
+	require.Equal(t, 24*time.Hour, cfg.StateSync.ArchiveUploadInterval)
 }
 
 // TestTraceTimeoutZeroNeedsTraceDeadlines holds a zero [giga.rpc] trace_timeout to being

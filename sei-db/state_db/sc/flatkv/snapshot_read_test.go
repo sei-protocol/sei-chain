@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/cockroachdb/pebble/v2"
+	"github.com/cockroachdb/pebble/v2/vfs"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -48,4 +50,21 @@ func TestReadSnapshotMiscValue(t *testing.T) {
 	require.NoError(t, os.RemoveAll(filepath.Join(dir, miscDBDir)))
 	_, _, err = ReadSnapshotMiscValue(dir, "bank", []byte{'b', 2})
 	require.ErrorContains(t, err, "read-only")
+}
+
+func TestOpenPebbleReadOnlyKeepsAnOlderFormat(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "db")
+	db, err := pebble.Open(dir, &pebble.Options{FormatMajorVersion: pebble.FormatMinSupported})
+	require.NoError(t, err)
+	require.NoError(t, db.Set([]byte("k"), []byte("v"), pebble.Sync))
+	require.NoError(t, db.Close())
+
+	db, err = openPebbleReadOnly(dir)
+	require.NoError(t, err)
+	require.Equal(t, pebble.FormatMinSupported, db.FormatMajorVersion())
+	require.NoError(t, db.Close())
+
+	desc, err := pebble.Peek(dir, vfs.Default)
+	require.NoError(t, err)
+	require.Equal(t, pebble.FormatMinSupported, desc.FormatMajorVersion)
 }
