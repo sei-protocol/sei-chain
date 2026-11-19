@@ -87,5 +87,5 @@ type GigaRouter interface {
 	EvmProxyEnabled() bool
 	Mempool() utils.Option[*producer.State]
 	Validators(n atypes.RoadHeight) ([]*types.Validator, error)
-	fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer])
+	fillInboundHandshake(spec handshakeSpec) handshakeSpec
 }

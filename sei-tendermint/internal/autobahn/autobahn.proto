@@ -414,7 +414,8 @@ message LaneBlockPos {
 message Challenge {
   option (hashable.hashable) = true;
   option (wireguard.sized) = true;
-  optional bytes data = 1 [(wireguard.max_size) = 32]; // required
+  optional bytes session_key = 1 [(wireguard.max_size) = 32]; // required
+  optional bool is_server = 2; // required
 }
 
 message SignedChallenge {

@@ -2814,7 +2814,8 @@ func (x *LaneBlockPos) GetOffset() uint64 {
 
 type Challenge struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3,oneof" json:"data,omitempty"` // required
+	SessionKey    []byte                 `protobuf:"bytes,1,opt,name=session_key,json=sessionKey,proto3,oneof" json:"session_key,omitempty"` // required
+	IsServer      *bool                  `protobuf:"varint,2,opt,name=is_server,json=isServer,proto3,oneof" json:"is_server,omitempty"`      // required
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2849,11 +2850,18 @@ func (*Challenge) Descriptor() ([]byte, []int) {
 	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{46}
 }
 
-func (x *Challenge) GetData() []byte {
+func (x *Challenge) GetSessionKey() []byte {
 	if x != nil {
-		return x.Data
+		return x.SessionKey
 	}
 	return nil
+}
+
+func (x *Challenge) GetIsServer() bool {
+	if x != nil && x.IsServer != nil {
+		return *x.IsServer
+	}
+	return false
 }
 
 type SignedChallenge struct {
@@ -3190,10 +3198,14 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x06height\x18\x03 \x01(\x04H\x00R\x06height\x88\x01\x01\x12\x1b\n" +
 	"\x06offset\x18\x02 \x01(\x04H\x01R\x06offset\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\t\n" +
 	"\a_heightB\t\n" +
-	"\a_offsetJ\x04\b\x01\x10\x02R\x05index\"C\n" +
-	"\tChallenge\x12\x1f\n" +
-	"\x04data\x18\x01 \x01(\fB\x06؈\xe2\xab\f H\x00R\x04data\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\a\n" +
-	"\x05_data\"\x81\x01\n" +
+	"\a_offsetJ\x04\b\x01\x10\x02R\x05index\"\x87\x01\n" +
+	"\tChallenge\x12,\n" +
+	"\vsession_key\x18\x01 \x01(\fB\x06؈\xe2\xab\f H\x00R\n" +
+	"sessionKey\x88\x01\x01\x12 \n" +
+	"\tis_server\x18\x02 \x01(\bH\x01R\bisServer\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x0e\n" +
+	"\f_session_keyB\f\n" +
+	"\n" +
+	"_is_server\"\x81\x01\n" +
 	"\x0fSignedChallenge\x12*\n" +
 	"\x03msg\x18\x01 \x01(\v2\x13.autobahn.ChallengeH\x00R\x03msg\x88\x01\x01\x12*\n" +
 	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureH\x01R\x03sig\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\x06\n" +

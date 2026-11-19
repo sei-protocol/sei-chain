@@ -20,10 +20,7 @@ import (
 // handshakeMsgMaxSize is the maximum encoded size accepted for a Handshake message.
 const handshakeMsgMaxSize = 1024 * 1024
 
-var (
-	errMissingValidatorAuth   = errors.New("missing validator_auth")
-	errValidatorAuthOnNonGiga = errors.New("validator giga claim on non-giga connection")
-)
+var errMissingValidatorAuth = errors.New("missing validator_auth")
 
 func init() {
 	if m := (&pb.Handshake{}).MaxSize(); m > handshakeMsgMaxSize {
@@ -31,9 +28,9 @@ func init() {
 	}
 }
 
-// handshakeOffer is the Autobahn committee identity this node claims on a giga handshake.
-type handshakeOffer struct {
-	ValidatorKey atypes.SecretKey
+// gigaHandshakeSpec configures the local Giga identity.
+type gigaHandshakeSpec struct {
+	ValidatorKey utils.Option[atypes.SecretKey]
 	EVMRPC       url.URL
 }
 
@@ -42,22 +39,19 @@ type handshakedConn struct {
 	msg  *handshakeMsg
 }
 
+type handshakeSpec struct {
+	NodeKey  NodeSecretKey
+	IsServer bool
+	SelfAddr utils.Option[NodeAddress]
+	PexAddrs []NodeAddress
+	Giga     utils.Option[gigaHandshakeSpec]
+}
+
 func handshake(
 	ctx context.Context,
 	c conn.Conn,
-	key NodeSecretKey,
 	spec handshakeSpec,
-	offer utils.Option[handshakeOffer],
 ) (*handshakedConn, error) {
-	o, offering := offer.Get()
-	if offering {
-		if !spec.Giga.IsPresent() {
-			return nil, errValidatorAuthOnNonGiga
-		}
-		if err := utils.CheckRPCURL(o.EVMRPC); err != nil {
-			return nil, fmt.Errorf("local EVM RPC URL: %w", err)
-		}
-	}
 	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*handshakedConn, error) {
 		sc, err := conn.MakeSecretConnection(ctx, c)
 		if err != nil {
@@ -65,16 +59,22 @@ func handshake(
 		}
 		s.Spawn(func() error {
 			msg := &handshakeMsg{
-				NodeAuth:      key.SignChallenge(sc.Challenge()),
-				handshakeSpec: spec,
-			}
-			if offering {
-				giga := msg.Giga.OrPanic("missing giga handshake")
-				giga.Validator = utils.Some(validatorHandshake{
-					auth:   o.ValidatorKey.Sign(sc.Challenge()),
-					EVMRPC: o.EVMRPC,
-				})
-				msg.Giga = utils.Some(giga)
+				NodeAuth: spec.NodeKey.SignChallenge(sc.Challenge()),
+				SelfAddr: spec.SelfAddr,
+				PexAddrs: spec.PexAddrs,
+				Giga: spec.Giga.Map(func(gs gigaHandshakeSpec) gigaHandshake {
+					return gigaHandshake{
+						Validator: gs.ValidatorKey.Map(func(key atypes.SecretKey) validatorHandshake {
+							return validatorHandshake{
+								auth: key.Sign(atypes.Challenge{
+									SessionKey: atypes.SessionKey(sc.Challenge()),
+									IsServer:   spec.IsServer,
+								}),
+								EVMRPC: gs.EVMRPC,
+							}
+						}),
+					}
+				}),
 			}
 			if err := conn.WriteSizedMsg(ctx, sc, handshakeMsgConv.Marshal(msg)); err != nil {
 				return fmt.Errorf("conn.WriteSizedMsg(): %w", err)
@@ -102,7 +102,7 @@ func handshake(
 		}
 		if giga, ok := msg.Giga.Get(); ok {
 			if validator, ok := giga.Validator.Get(); ok {
-				if validator.auth.Msg() != sc.Challenge() {
+				if validator.auth.Msg() != (atypes.Challenge{SessionKey: atypes.SessionKey(sc.Challenge()), IsServer: !spec.IsServer}) {
 					return nil, fmt.Errorf("handshakeMsg.auth: challenge mismatch")
 				}
 				if err := validator.auth.VerifySig(); err != nil {

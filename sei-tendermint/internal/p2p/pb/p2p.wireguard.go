@@ -14,15 +14,15 @@ func (*NodePublicKey) MaxSize() int {
 }
 
 func (*Handshake) MaxSize() int {
-	return 34925
+	return 34927
 }
 
 func (*GigaHandshake) MaxSize() int {
-	return 2197
+	return 2199
 }
 
 func (*ValidatorHandshake) MaxSize() int {
-	return 2194
+	return 2196
 }
 
 func init() {

@@ -177,8 +177,14 @@ func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) 
 					peerScope.SpawnBg(func() error { return c.Run(ctx) })
 					peerURL := endpoint
 					peerURL.Path = fmt.Sprintf("/%d", i)
-					hConn, err := handshake(ctx, c, nodeKeys[i], handshakeSpec{Giga: utils.Some(gigaHandshake{})},
-						utils.Some(handshakeOffer{ValidatorKey: keys[i], EVMRPC: peerURL}))
+					hConn, err := handshake(ctx, c, handshakeSpec{
+						NodeKey: nodeKeys[i],
+						Giga: utils.Some(gigaHandshakeSpec{
+							ValidatorKey: utils.Some(keys[i]),
+							EVMRPC:       peerURL,
+						}),
+						IsServer: true,
+					})
 					if err != nil {
 						return err
 					}

@@ -553,15 +553,21 @@ func TestGigaRouterCommon_RunInboundConnAuthenticatesMemberAndClosesOnLeave(t *t
 	}, localKey, epochs.state)
 	require.NoError(t, err)
 	gigaAddr := NodeAddress{NodeID: localKey.Public().NodeID(), Hostname: "giga.example", Port: 26656}
-	localSpec := handshakeSpec{SelfAddr: utils.Some(gigaAddr), Giga: utils.Some(gigaHandshake{})}
 	joinerKey := makeKey(rng)
-	outsider := handshakePairIn(t, [2]NodeSecretKey{localKey, joinerKey}, [2]handshakeSpec{
-		{Giga: utils.Some(gigaHandshake{})},
-		{Giga: utils.Some(gigaHandshake{})},
-	}, [2]utils.Option[handshakeOffer]{
-		utils.None[handshakeOffer](),
-		utils.Some(handshakeOffer{ValidatorKey: dummy, EVMRPC: testEVMRPCURL()}),
-	})
+	outsider := handshakePairIn(t,
+		[2]handshakeSpec{
+			{
+				NodeKey: localKey,
+				Giga:    utils.Some(gigaHandshakeSpec{}),
+			},
+			{
+				NodeKey: joinerKey,
+				Giga: utils.Some(gigaHandshakeSpec{
+					ValidatorKey: utils.Some(dummy),
+					EVMRPC:       testEVMRPCURL(),
+				}),
+			},
+		})
 	// Router treats vaildators outside of committee as full nodes. And capped router rejects all full nodes.
 	require.ErrorIs(t, cappedRouter.RunInboundConn(t.Context(), outsider[0]), errInboundFullnodeLimit)
 	_, ok := cappedRouter.validatorAddr(dummy.Public())
@@ -569,17 +575,21 @@ func TestGigaRouterCommon_RunInboundConnAuthenticatesMemberAndClosesOnLeave(t *t
 
 	// Committee validators are accepted unconditionally.
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		pair, err := handshakePair(ctx, s,
-			[2]NodeSecretKey{localKey, peerKey},
-			[2]handshakeSpec{
-				localSpec,
-				{SelfAddr: utils.Some(selfAddr), Giga: utils.Some(gigaHandshake{})},
+		pair, err := handshakePair(ctx, s, [2]handshakeSpec{
+			{
+				SelfAddr: utils.Some(gigaAddr),
+				NodeKey:  localKey,
+				Giga:     utils.Some(router.gigaSpec),
 			},
-			[2]utils.Option[handshakeOffer]{
-				router.offer,
-				utils.Some(handshakeOffer{ValidatorKey: validatorKey, EVMRPC: testEVMRPCURL()}),
+			{
+				SelfAddr: utils.Some(selfAddr),
+				NodeKey:  peerKey,
+				Giga: utils.Some(gigaHandshakeSpec{
+					ValidatorKey: utils.Some(validatorKey),
+					EVMRPC:       testEVMRPCURL(),
+				}),
 			},
-		)
+		})
 		if err != nil {
 			return err
 		}
@@ -1150,7 +1160,11 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 				cancel()
 				return nil
 			})
-			hConn, err := handshake(connCtx, tcpConn, peer, handshakeSpec{Giga: utils.Some(gigaHandshake{})}, utils.None[handshakeOffer]())
+			hConn, err := handshake(connCtx, tcpConn, handshakeSpec{
+				NodeKey:  peer,
+				Giga:     utils.Some(gigaHandshakeSpec{}),
+				IsServer: false,
+			})
 			if err != nil {
 				cancel()
 				return err
@@ -1254,8 +1268,14 @@ func TestGigaRouterCommon_EvmProxyClosesWithGigaConnection(t *testing.T) {
 			}
 			return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, serverScope scope.Scope) error {
 				serverScope.SpawnBg(func() error { return c.Run(ctx) })
-				hConn, err := handshake(ctx, c, peerKey, handshakeSpec{Giga: utils.Some(gigaHandshake{})},
-					utils.Some(handshakeOffer{ValidatorKey: validatorKey, EVMRPC: endpoint}))
+				hConn, err := handshake(ctx, c, handshakeSpec{
+					NodeKey: peerKey,
+					Giga: utils.Some(gigaHandshakeSpec{
+						ValidatorKey: utils.Some(validatorKey),
+						EVMRPC:       endpoint,
+					}),
+					IsServer: true,
+				})
 				if err != nil {
 					return err
 				}

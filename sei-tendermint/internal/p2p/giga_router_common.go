@@ -47,7 +47,7 @@ type gigaRouterCommon struct {
 	poolOut         *giga.Pool[atypes.PublicKey, rpc.Client[giga.API]]
 	proxies         utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
 	app             *proxy.EVMProxy
-	offer           utils.Option[handshakeOffer]
+	gigaSpec        gigaHandshakeSpec
 	selfAddr        utils.Option[NodeAddress]
 
 	// inboundFullnodeCount tracks inbound connections currently served the
@@ -56,12 +56,12 @@ type gigaRouterCommon struct {
 	inboundFullnodeCap   int64
 }
 
-func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer]) {
-	spec.Giga = utils.Some(gigaHandshake{})
+func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) handshakeSpec {
+	spec.Giga = utils.Some(r.gigaSpec)
 	if r.selfAddr.IsPresent() {
 		spec.SelfAddr = r.selfAddr
 	}
-	return spec, r.offer
+	return spec
 }
 
 // BuildDataState validates the common config, constructs the committee, and
@@ -290,10 +290,12 @@ func (r *gigaRouterCommon) dialAndRunConn(
 		}
 		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
 		hConn, err := utils.WithOptTimeout1(ctx, r.cfg.HandshakeTimeout, func(ctx context.Context) (*handshakedConn, error) {
-			return handshake(ctx, tcpConn, r.key, handshakeSpec{
+			return handshake(ctx, tcpConn, handshakeSpec{
+				NodeKey:  r.key,
+				IsServer: false,
 				SelfAddr: r.selfAddr,
-				Giga:     utils.Some(gigaHandshake{}),
-			}, r.offer)
+				Giga:     utils.Some(r.gigaSpec),
+			})
 		})
 		if err != nil {
 			return fmt.Errorf("handshake(): %w", err)

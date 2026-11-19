@@ -232,6 +232,8 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						pexAddrs = r.Advertise(MaxPexAddrs)
 					}
 					spec := handshakeSpec{
+						NodeKey:  r.privKey,
+						IsServer: true,
 						SelfAddr: r.options.SelfAddress,
 						// Listener has to send pex data, so that dialer can learn about more peers in
 						// case listener does not have capacity for new connections.
@@ -240,12 +242,11 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						// - if it is not full, then the connection will be established and pex data will be sent the regular way using PEX protocol.
 						PexAddrs: pexAddrs,
 					}
-					var offer utils.Option[handshakeOffer]
 					giga, hasGiga := r.giga.Get()
 					if hasGiga {
-						spec, offer = giga.fillInboundHandshake(spec)
+						spec = giga.fillInboundHandshake(spec)
 					}
-					hConn, err := handshake(handshakeCtx, tcpConn, r.privKey, spec, offer)
+					hConn, err := handshake(handshakeCtx, tcpConn, spec)
 					if err != nil {
 						return fmt.Errorf("handshake(): %w", err)
 					}
@@ -305,9 +306,11 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 					var info types.NodeInfo
 					err = utils.WithOptTimeout(ctx, r.options.HandshakeTimeout, func(ctx context.Context) error {
 						var err error
-						hConn, err = handshake(ctx, tcpConn, r.privKey, handshakeSpec{
+						hConn, err = handshake(ctx, tcpConn, handshakeSpec{
+							NodeKey:  r.privKey,
+							IsServer: false,
 							SelfAddr: r.options.SelfAddress,
-						}, utils.None[handshakeOffer]())
+						})
 						if err != nil {
 							return fmt.Errorf("handshake(): %w", err)
 						}

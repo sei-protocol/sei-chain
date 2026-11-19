@@ -5,6 +5,7 @@ import (
 
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -15,15 +16,12 @@ func TestHandshakeMsgConv(t *testing.T) {
 	for range 5 {
 		require.NoError(t, nodePublicKeyConv.Test(makeKey(rng).Public()))
 
-		var challenge atypes.Challenge
-		utils.OrPanic1(rng.Read(challenge[:]))
+		challenge := atypes.GetChallenge(rng)
 		key := makeKey(rng)
 		msg := &handshakeMsg{
-			NodeAuth: key.SignChallenge(challenge),
-			handshakeSpec: handshakeSpec{
-				SelfAddr: utils.Some(makeAddrFor(rng, key.Public().NodeID())),
-				PexAddrs: rng.GenSlice(makeAddr),
-			},
+			NodeAuth: key.SignChallenge(conn.Challenge(challenge.SessionKey)),
+			SelfAddr: utils.Some(makeAddrFor(rng, key.Public().NodeID())),
+			PexAddrs: rng.GenSlice(makeAddr),
 		}
 		require.NoError(t, handshakeMsgConv.Test(msg))
 		msg.Giga = utils.Some(gigaHandshake{})
@@ -38,14 +36,14 @@ func TestHandshakeMsgConvRejectsInvalidValidatorFields(t *testing.T) {
 	key := makeKey(rng)
 	challenge := atypes.Challenge{}
 	msg := &handshakeMsg{
-		NodeAuth: key.SignChallenge(challenge),
-		handshakeSpec: handshakeSpec{Giga: utils.Some(gigaHandshake{
+		NodeAuth: key.SignChallenge(conn.Challenge(challenge.SessionKey)),
+		Giga: utils.Some(gigaHandshake{
 			Validator: utils.Some(validatorHandshake{auth: atypes.GenSigned(rng, challenge), EVMRPC: testEVMRPCURL()}),
-		})},
+		}),
 	}
 	for _, malform := range []func(*apb.SignedChallenge){
-		func(p *apb.SignedChallenge) { p.Msg.Data = p.Msg.Data[:31] },
-		func(p *apb.SignedChallenge) { p.Msg.Data = append(p.Msg.Data, 0) },
+		func(p *apb.SignedChallenge) { p.Msg.SessionKey = p.Msg.SessionKey[:31] },
+		func(p *apb.SignedChallenge) { p.Msg.SessionKey = append(p.Msg.SessionKey, 0) },
 	} {
 		p := handshakeMsgConv.Encode(msg)
 		malform(p.Giga.Validator.Auth)

@@ -23,7 +23,10 @@ import (
 )
 
 func (r *Router) handshakeV2(ctx context.Context, conn tcp.Conn, dialAddr utils.Option[NodeAddress]) (*handshakedConn, types.NodeInfo, error) {
-	hConn, err := handshake(ctx, conn, r.privKey, handshakeSpec{}, utils.None[handshakeOffer]())
+	hConn, err := handshake(ctx, conn, handshakeSpec{
+		NodeKey:  r.privKey,
+		IsServer: !dialAddr.IsPresent(),
+	})
 	if err != nil {
 		return nil, types.NodeInfo{}, err
 	}

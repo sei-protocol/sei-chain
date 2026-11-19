@@ -165,11 +165,11 @@ func (*LaneBlockPos) MaxSize() int {
 }
 
 func (*Challenge) MaxSize() int {
-	return 34
+	return 36
 }
 
 func (*SignedChallenge) MaxSize() int {
-	return 140
+	return 142
 }
 
 func init() {
@@ -481,6 +481,7 @@ func init() {
 	// Register the wireguard.Schema generated for autobahn.Challenge.
 	runtime.MustRegister[*Challenge](runtime.Schema{
 		1: {MaxCount: 1, MaxSize: 32},
+		2: {MaxCount: 1},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.SignedChallenge.

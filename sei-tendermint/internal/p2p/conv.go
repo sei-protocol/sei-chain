@@ -8,6 +8,7 @@ import (
 
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -59,12 +60,12 @@ type NodeChallengeSig struct {
 
 func (k NodePublicKey) Bytes() []byte         { return ed25519.PublicKey(k).Bytes() }
 func (k NodeSecretKey) Public() NodePublicKey { return NodePublicKey(ed25519.SecretKey(k).Public()) }
-func (k NodeSecretKey) SignChallenge(challenge atypes.Challenge) NodeChallengeSig {
+func (k NodeSecretKey) SignChallenge(challenge conn.Challenge) NodeChallengeSig {
 	return NodeChallengeSig{key: k.Public(), sig: ed25519.SecretKey(k).Sign(challenge[:])}
 }
 
 func (s NodeChallengeSig) Key() NodePublicKey { return s.key }
-func (s NodeChallengeSig) Verify(challenge atypes.Challenge) error {
+func (s NodeChallengeSig) Verify(challenge conn.Challenge) error {
 	return ed25519.PublicKey(s.key).Verify(challenge[:], s.sig)
 }
 
@@ -79,21 +80,17 @@ var nodePublicKeyConv = protoutils.Conv[NodePublicKey, *pb.NodePublicKey]{
 	Decode: func(p *pb.NodePublicKey) (NodePublicKey, error) {
 		k, err := ed25519.PublicKeyFromBytes(p.Ed25519)
 		if err != nil {
-			return NodePublicKey{}, fmt.Errorf("Ed25519: %w", err)
+			return NodePublicKey{}, fmt.Errorf("ed25519: %w", err)
 		}
 		return NodePublicKey(k), nil
 	},
 }
 
-type handshakeSpec struct {
+type handshakeMsg struct {
+	NodeAuth NodeChallengeSig
 	SelfAddr utils.Option[NodeAddress]
 	PexAddrs []NodeAddress
 	Giga     utils.Option[gigaHandshake]
-}
-
-type handshakeMsg struct {
-	NodeAuth NodeChallengeSig
-	handshakeSpec
 }
 
 type gigaHandshake struct {
@@ -107,7 +104,7 @@ var gigaHandshakeConv = protoutils.Conv[gigaHandshake, *pb.GigaHandshake]{
 	Decode: func(p *pb.GigaHandshake) (gigaHandshake, error) {
 		validator, err := validatorHandshakeConv.DecodeOpt(p.Validator)
 		if err != nil {
-			return gigaHandshake{}, fmt.Errorf("Validator: %w", err)
+			return gigaHandshake{}, fmt.Errorf("validator: %w", err)
 		}
 		return gigaHandshake{Validator: validator}, nil
 	},
@@ -129,17 +126,17 @@ var validatorHandshakeConv = protoutils.Conv[validatorHandshake, *pb.ValidatorHa
 	Decode: func(p *pb.ValidatorHandshake) (validatorHandshake, error) {
 		auth, err := atypes.SignedChallengeConv.DecodeReq(p.Auth)
 		if err != nil {
-			return validatorHandshake{}, fmt.Errorf("Auth: %w", err)
+			return validatorHandshake{}, fmt.Errorf("auth: %w", err)
 		}
 		if p.EvmRpcUrl == nil {
-			return validatorHandshake{}, fmt.Errorf("EvmRpcUrl: missing")
+			return validatorHandshake{}, fmt.Errorf("evm_rpc_url: missing")
 		}
 		endpoint, err := url.Parse(*p.EvmRpcUrl)
 		if err != nil {
-			return validatorHandshake{}, fmt.Errorf("EvmRpcUrl: %w", err)
+			return validatorHandshake{}, fmt.Errorf("evm_rpc_url: %w", err)
 		}
 		if err := utils.CheckRPCURL(*endpoint); err != nil {
-			return validatorHandshake{}, fmt.Errorf("EvmRpcUrl: %w", err)
+			return validatorHandshake{}, fmt.Errorf("evm_rpc_url: %w", err)
 		}
 		return validatorHandshake{auth: auth, EVMRPC: *endpoint}, nil
 	},
@@ -166,17 +163,17 @@ var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 	Decode: func(p *pb.Handshake) (*handshakeMsg, error) {
 		nodeAuthKey, err := nodePublicKeyConv.DecodeReq(p.NodeAuthKey)
 		if err != nil {
-			return nil, fmt.Errorf("NodeAuthKey: %w", err)
+			return nil, fmt.Errorf("node_auth_key: %w", err)
 		}
 		nodeAuthSig, err := ed25519.SignatureFromBytes(p.NodeAuthSig)
 		if err != nil {
-			return nil, fmt.Errorf("NodeAuthSig: %w", err)
+			return nil, fmt.Errorf("node_auth_sig: %w", err)
 		}
 		var selfAddr utils.Option[NodeAddress]
 		if p.SelfAddr != nil {
 			addr, err := ParseNodeAddress(*p.SelfAddr)
 			if err != nil {
-				return nil, fmt.Errorf("SelfAddr: %w", err)
+				return nil, fmt.Errorf("self_addr: %w", err)
 			}
 			selfAddr = utils.Some(addr)
 		}
@@ -184,21 +181,19 @@ var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 		for i, addrString := range p.PexAddrs {
 			addr, err := ParseNodeAddress(addrString)
 			if err != nil {
-				return nil, fmt.Errorf("PexAddrs[%v]: %w", i, err)
+				return nil, fmt.Errorf("pex_addrs[%v]: %w", i, err)
 			}
 			pexAddrs[i] = addr
 		}
 		giga, err := gigaHandshakeConv.DecodeOpt(p.Giga)
 		if err != nil {
-			return nil, fmt.Errorf("Giga: %w", err)
+			return nil, fmt.Errorf("giga: %w", err)
 		}
 		return &handshakeMsg{
 			NodeAuth: NodeChallengeSig{key: nodeAuthKey, sig: nodeAuthSig},
-			handshakeSpec: handshakeSpec{
-				SelfAddr: selfAddr,
-				PexAddrs: pexAddrs,
-				Giga:     giga,
-			},
+			SelfAddr: selfAddr,
+			PexAddrs: pexAddrs,
+			Giga:     giga,
 		}, nil
 	},
 }

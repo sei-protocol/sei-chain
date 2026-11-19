@@ -7,19 +7,34 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 )
 
-// Challenge is the authentication challenge of a P2P secret connection.
-type Challenge [32]byte
+// SessionKey identifies a P2P secret connection.
+type SessionKey [32]byte
+
+// Challenge is a validator's authentication challenge for one end of a P2P secret connection.
+type Challenge struct {
+	SessionKey SessionKey
+	IsServer   bool
+}
 
 // ChallengeConv is a protobuf converter for Challenge.
 var ChallengeConv = protoutils.Conv[Challenge, *pb.Challenge]{
 	Encode: func(m Challenge) *pb.Challenge {
-		return &pb.Challenge{Data: m[:]}
+		return &pb.Challenge{
+			SessionKey: m.SessionKey[:],
+			IsServer:   new(m.IsServer),
+		}
 	},
 	Decode: func(m *pb.Challenge) (Challenge, error) {
-		if len(m.Data) != len(Challenge{}) {
-			return Challenge{}, fmt.Errorf("challenge size = %d, want %d", len(m.Data), len(Challenge{}))
+		if len(m.SessionKey) != len(SessionKey{}) {
+			return Challenge{}, fmt.Errorf("session_key: size = %d, want %d", len(m.SessionKey), len(SessionKey{}))
 		}
-		return Challenge(m.Data), nil
+		if m.IsServer == nil {
+			return Challenge{}, fmt.Errorf("is_server: missing")
+		}
+		return Challenge{
+			SessionKey: SessionKey(m.SessionKey),
+			IsServer:   *m.IsServer,
+		}, nil
 	},
 }
 

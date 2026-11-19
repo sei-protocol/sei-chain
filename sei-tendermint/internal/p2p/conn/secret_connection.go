@@ -19,7 +19,6 @@ import (
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/nacl/box"
 
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -94,6 +93,9 @@ func newRecvState(cipher cipher.AEAD) *recvState {
 
 var _ Conn = (*SecretConnection)(nil)
 
+// Challenge is the shared 32-byte authentication challenge of a secret connection.
+type Challenge [32]byte
+
 // SecretConnection implements Conn.
 // It is an implementation of the STS protocol.
 // See https://github.com/tendermint/tendermint/blob/0.1/docs/sts-final.pdf for
@@ -105,12 +107,12 @@ var _ Conn = (*SecretConnection)(nil)
 // (TODO(ismail): see also https://github.com/tendermint/tendermint/issues/3010)
 type SecretConnection struct {
 	conn      Conn
-	challenge atypes.Challenge
+	challenge Challenge
 	recvState asyncMutex[*recvState]
 	sendState asyncMutex[*sendState]
 }
 
-func (sc *SecretConnection) Challenge() atypes.Challenge { return sc.challenge }
+func (sc *SecretConnection) Challenge() Challenge { return sc.challenge }
 
 func newSecretConnection(conn Conn, loc ephSecret, rem ephPublic) (*SecretConnection, error) {
 	pubs := utils.Slice(loc.public, rem)
@@ -125,7 +127,7 @@ func newSecretConnection(conn Conn, loc ephSecret, rem ephPublic) (*SecretConnec
 		return nil, err
 	}
 	transcript.AppendMessage(labelDHSecret, dh[:])
-	var challenge atypes.Challenge
+	var challenge Challenge
 	transcript.ExtractBytes(challenge[:], labelSecretConnectionMac)
 
 	// Generate the secret used for receiving, sending, challenge via HKDF-SHA2
