@@ -527,7 +527,7 @@ var File_p2p_p2p_proto protoreflect.FileDescriptor
 
 const file_p2p_p2p_proto_rawDesc = "" +
 	"\n" +
-	"\rp2p/p2p.proto\x12\x03p2p\x1a\x19wireguard/wireguard.proto\x1a\x17autobahn/autobahn.proto\"\f\n" +
+	"\rp2p/p2p.proto\x12\x03p2p\x1a\x17autobahn/autobahn.proto\x1a\x19wireguard/wireguard.proto\"\f\n" +
 	"\n" +
 	"PacketPing\"\f\n" +
 	"\n" +

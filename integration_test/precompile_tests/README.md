@@ -59,7 +59,7 @@ chain binary embeds), so specs can never drift from the deployed interface.
 | pointerview (0x…100A) | `precompiles/pointerview.spec.ts` |
 | pointer (0x…100b) | `precompiles/pointer.spec.ts` (retirement assertion) |
 | auth (0x…100D) | `precompiles/auth.spec.ts` |
-| authz (0x…100E) | `precompiles/authz.spec.ts` |
+| authz (0x…100E) | `precompiles/authz.spec.ts` (retirement assertion) |
 | evidence (0x…100F) | `precompiles/evidence.spec.ts` |
 | p256 (0x…1011) | `precompiles/p256.spec.ts` |
 | mint (0x…1012) | `precompiles/mint.spec.ts` |
@@ -68,7 +68,7 @@ chain binary embeds), so specs can never drift from the deployed interface.
 | upgrade (0x…1015) | `precompiles/upgrade.spec.ts` |
 
 Phase 3 (PLT-372) covers the v6.7 non-wasm precompiles and the post-phase-2
-methods on bank/staking/gov/distribution (query surface + scoped authz).
+methods on bank/staking/gov/distribution (query surface).
 Wasm-gated flows (wasmd, solo CW claims) stay in a later `wasm/` spec dir
 behind a live `isWasmEnabled()` check. The ibc precompile and the
 unregistered feegrant precompile (0x…1010) are out of scope.
@@ -76,8 +76,8 @@ unregistered feegrant precompile (0x…1010) are out of scope.
 Hard-won facts encoded in these specs (read before writing a new one):
 
 - **Exact Go error strings never reach `eth_call`** — precompile errors are
-  rewritten to a bare `execution reverted` (the oracle retirement error is the
-  one exception, carrying real `Error(string)` data). To assert an exact
+  rewritten to a bare `execution reverted` (the oracle and authz retirement
+  errors are the exceptions, carrying real `Error(string)` data). To assert an exact
   string, mine a failing tx with an explicit `gasLimit` and read it back via
   the `eth_getVMError` RPC (`expectVmError` in `utils/precompileUtils.ts`).
 - **Mining a tx auto-associates its sender**, so "unassociated caller" errors

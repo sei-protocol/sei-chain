@@ -53,6 +53,9 @@ var ErrorContains = require.ErrorContains
 // NoError .
 var NoError = require.NoError
 
+// JSONEq asserts that two JSON strings are equivalent.
+var JSONEq = require.JSONEq
+
 // Empty .
 var Empty = require.Empty
 

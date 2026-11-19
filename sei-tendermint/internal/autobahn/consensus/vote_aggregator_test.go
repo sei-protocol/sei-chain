@@ -26,7 +26,7 @@ func newVoteTestEnv(rng utils.Rng) voteTestEnv {
 	return voteTestEnv{
 		keys:   keys,
 		ep:     ep,
-		view:   types.View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()},
+		view:   types.View{Height: 0, Number: 0, EpochIndex: ep.EpochIndex()},
 		quorum: types.TestKeysWithWeight(c, keys, c.CommitQuorum()),
 	}
 }

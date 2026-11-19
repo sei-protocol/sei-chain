@@ -18,8 +18,7 @@ var ErrViewManagerClosed = errors.New("view manager closed")
 // key-value database. It also coordinates writes to the database, since efficient views require
 // careful staging of inserts.
 //
-// Data is asynchronously flushed to disk once it has been finalized and all its reservations
-// released. See View for the full lifecycle.
+// Finalized data is written to disk in the background and at Close. See View for the full lifecycle.
 //
 // Warning: it is not safe to mutate byte slices (keys or values) passed to or received from the manager.
 // The manager is not required to make defensive copies, and so these slices must be treated as immutable.
@@ -131,20 +130,9 @@ type ViewManager interface {
 	// taking a checkpoint is a bug.
 	EscapeHatchUnderlyingDB() types.KeyValueDB
 
-	// Releases every blocked caller and schedules for all resources held to be released. This includes
-	// closing the underlying database, which the manager owns. When Close returns no manager-owned
-	// goroutine will touch that database again. Idempotent.
-	//
-	// Reading a View or an Iterator produced by this manager after Close is undefined behaviour
-	// and the caller must not do it. The manager makes a best-effort attempt to fail such a read
-	// rather than answer it with nonsensical data, but that is a consequence of shutting down, not a
-	// service: a read that races Close may legitimately return the correct value instead of an error.
-	// Do not build synchronization on top of either outcome.
-	//
-	// Closing while an iterator is still open is reported in the returned error, naming the manager and
-	// how many are open, so the leak is legible rather than surfacing later as an error from the
-	// storage engine. Close does not wait for iterators, and the count is best-effort: it may be
-	// stale.
+	// Writes every finalized block to the database, then closes it. Every read, in flight or later, that can be
+	// safely rejected is rejected, and any read that still returns a value returns a correct one. An Iterator from
+	// this manager must not be used after Close; one still open is reported in the returned error. Idempotent.
 	Close() error
 }
 

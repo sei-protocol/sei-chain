@@ -103,7 +103,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	returnedRemoteClients := map[*ethrpc.Client]struct{}{}
 	for range 200 {
 		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-		shardValidator := router.data.Anchor().Load().NextIndexEpoch().Committee().EvmShard(sender)
+		shardValidator := router.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender)
 		expectedClient := clientByValidator[shardValidator]
 		proxyClient, ok := router.EvmProxy(sender).Get()
 		require.True(t, ok)
@@ -116,9 +116,9 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 
 	// Read-path methods source from local data.State + genesis doc — no
 	// sentinels. Before any block is pushed (and InitChain hasn't run),
-	// app.LastBlockHeight() is 0, so LastCommittedBlockNumber returns 0.
+	// app.LastBlockHeight() is 0, so LastCommittedHeight returns 0.
 	// MaxGasEstimatedPerBlock reflects the genesis consensus param.
-	require.Equal(t, int64(0), router.LastCommittedBlockNumber())
+	require.Equal(t, int64(0), router.LastCommittedHeight())
 	require.Equal(t, uint64(12345), router.MaxGasEstimatedPerBlock())
 	// BlockByHash returns &ResultBlock{Block:nil} for an unknown hash, the
 	// same shape the validator path returns — no sentinel mode-check.
@@ -159,9 +159,10 @@ func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) 
 		addrs[key.Public()] = GigaNodeAddr{Key: nodeKey.Public(), HostPort: tcp.HostPort{Hostname: addr.Addr().String(), Port: addr.Port()}}
 	}
 	router, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
-		ValidatorAddrs: addrs,
-		DialInterval:   time.Second,
-		App:            proxy.NewEVM(newTestApp()),
+		ValidatorAddrs:  addrs,
+		AllowLocalAddrs: true,
+		DialInterval:    time.Second,
+		App:             proxy.NewEVM(newTestApp()),
 	}, makeKey(rng), state)
 	require.NoError(t, err)
 	subscribed := make(chan int, 2)

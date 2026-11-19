@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -373,7 +374,7 @@ func TestMakeEVMApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	validator := makeValidator([]byte("autobahn-validator"), []byte("autobahn-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	app, manager, err := makeEVMApplication(t.Context(), &config.Config{
+	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
 		AutobahnConfigFile: autobahnConfigFile,
 	}, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
@@ -465,8 +466,9 @@ func TestBuildGigaConfigLocalEVMRPC(t *testing.T) {
 	fc.EVMRPC = utils.None[config.URL]()
 	cfgFile := writeAutobahnConfig(t, fc)
 	app, genDoc := makeTestGigaDeps()
-	_, err := buildFullnodeGigaConfig(cfgFile, app, genDoc)
+	fullnodeCfg, err := buildFullnodeGigaConfig(cfgFile, app, genDoc)
 	require.NoError(t, err)
+	require.False(t, fullnodeCfg.AllowLocalAddrs)
 	_, err = buildValidatorGigaConfig(cfgFile, makeTestNodeKey([]byte("local-rpc-node")),
 		makeTestValidatorKey([]byte("local-rpc-validator")), app, genDoc)
 	require.Error(t, err)
@@ -478,4 +480,11 @@ func TestBuildGigaConfigLocalEVMRPC(t *testing.T) {
 		makeTestValidatorKey([]byte("local-rpc-validator")), app, genDoc)
 	require.NoError(t, err)
 	require.Equal(t, endpoint.String(), cfg.EVMRPC.String())
+	require.False(t, cfg.AllowLocalAddrs)
+}
+
+// storageContext returns the context a test opens Giga storage under. Closing the storage needs its components still
+// running, and t.Context() is cancelled before the cleanup that closes it runs.
+func storageContext(t *testing.T) context.Context {
+	return context.WithoutCancel(t.Context())
 }

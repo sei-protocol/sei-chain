@@ -23,11 +23,11 @@ func (m Challenge) asMsg() *pb.Msg {
 }
 
 func (m *LaneProposal) asMsg() *pb.Msg {
-	return &pb.Msg{T: &pb.Msg_LaneProposal{LaneProposal: LaneProposalConv.Encode(m)}}
+	return &pb.Msg{T: &pb.Msg_LaneProposalV2{LaneProposalV2: LaneProposalConv.Encode(m)}}
 }
 
 func (m *LaneVote) asMsg() *pb.Msg {
-	return &pb.Msg{T: &pb.Msg_LaneVote{LaneVote: LaneVoteConv.Encode(m)}}
+	return &pb.Msg{T: &pb.Msg_LaneVoteV3{LaneVoteV3: LaneVoteConv.Encode(m)}}
 }
 
 func (m *AppVote) asMsg() *pb.Msg {
@@ -271,10 +271,10 @@ var MsgConv = protoutils.Conv[Msg, *pb.Msg]{
 			return nil, errors.New("empty")
 		}
 		switch t := m.T.(type) {
-		case *pb.Msg_LaneProposal:
-			return LaneProposalConv.DecodeReq(t.LaneProposal)
-		case *pb.Msg_LaneVote:
-			return LaneVoteConv.DecodeReq(t.LaneVote)
+		case *pb.Msg_LaneProposalV2:
+			return LaneProposalConv.DecodeReq(t.LaneProposalV2)
+		case *pb.Msg_LaneVoteV3:
+			return LaneVoteConv.DecodeReq(t.LaneVoteV3)
 		case *pb.Msg_Proposal:
 			return ProposalConv.DecodeReq(t.Proposal)
 		case *pb.Msg_PrepareVoteV2:
@@ -318,14 +318,14 @@ func newSigned[T Msg](msg T, sig *Signature) *Signed[T] {
 }
 
 // SignedLaneProposalConv is a protobuf converter for Signed[LaneProposal].
-var SignedLaneProposalConv = protoutils.Conv[*Signed[*LaneProposal], *pb.SignedBlock]{
-	Encode: func(m *Signed[*LaneProposal]) *pb.SignedBlock {
-		return &pb.SignedBlock{
+var SignedLaneProposalConv = protoutils.Conv[*Signed[*LaneProposal], *pb.SignedLaneBlock]{
+	Encode: func(m *Signed[*LaneProposal]) *pb.SignedLaneBlock {
+		return &pb.SignedLaneBlock{
 			Msg: LaneProposalConv.Encode(m.Msg()),
 			Sig: SignatureConv.Encode(m.Sig()),
 		}
 	},
-	Decode: func(m *pb.SignedBlock) (*Signed[*LaneProposal], error) {
+	Decode: func(m *pb.SignedLaneBlock) (*Signed[*LaneProposal], error) {
 		msg, err := LaneProposalConv.DecodeReq(m.Msg)
 		if err != nil {
 			return nil, fmt.Errorf("msg: %w", err)
@@ -339,14 +339,14 @@ var SignedLaneProposalConv = protoutils.Conv[*Signed[*LaneProposal], *pb.SignedB
 }
 
 // SignedLaneVoteConv is a protobuf converter for Signed[LaneVote].
-var SignedLaneVoteConv = protoutils.Conv[*Signed[*LaneVote], *pb.SignedBlockHeader]{
-	Encode: func(m *Signed[*LaneVote]) *pb.SignedBlockHeader {
-		return &pb.SignedBlockHeader{
+var SignedLaneVoteConv = protoutils.Conv[*Signed[*LaneVote], *pb.SignedLaneVote]{
+	Encode: func(m *Signed[*LaneVote]) *pb.SignedLaneVote {
+		return &pb.SignedLaneVote{
 			Msg: LaneVoteConv.Encode(m.Msg()),
 			Sig: SignatureConv.Encode(m.Sig()),
 		}
 	},
-	Decode: func(m *pb.SignedBlockHeader) (*Signed[*LaneVote], error) {
+	Decode: func(m *pb.SignedLaneVote) (*Signed[*LaneVote], error) {
 		msg, err := LaneVoteConv.DecodeReq(m.Msg)
 		if err != nil {
 			return nil, fmt.Errorf("msg: %w", err)

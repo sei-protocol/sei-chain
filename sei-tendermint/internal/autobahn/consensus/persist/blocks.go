@@ -30,7 +30,7 @@ const blocksWALMetrics = false
 
 // LoadedBlock is a block loaded from disk during state restoration.
 type LoadedBlock struct {
-	Number   types.BlockNumber
+	Height   types.LaneHeight
 	Proposal *types.Signed[*types.LaneProposal]
 }
 
@@ -38,8 +38,8 @@ type LoadedBlock struct {
 // mutex. Each block is stored under its own block number, so no mapping
 // between block numbers and WAL indices is needed.
 type laneWALState struct {
-	wal          seiwal.WAL[*types.Signed[*types.LaneProposal]]
-	nextBlockNum types.BlockNumber
+	wal        seiwal.WAL[*types.Signed[*types.LaneProposal]]
+	nextHeight types.LaneHeight
 	// appended is the number of blocks accepted for append since the last successful flush.
 	appended uint64
 }
@@ -50,14 +50,14 @@ func (s *laneWALState) persistBlock(proposal *types.Signed[*types.LaneProposal])
 	h := proposal.Msg().Block().Header()
 	// A lane whose cursor is still zero has never held a block, so its first block sets the baseline
 	// and may carry any number.
-	if s.nextBlockNum > 0 && h.BlockNumber() != s.nextBlockNum {
-		return fmt.Errorf("block %s/%d out of sequence (next=%d)", h.Lane(), h.BlockNumber(), s.nextBlockNum)
+	if s.nextHeight > 0 && h.Height() != s.nextHeight {
+		return fmt.Errorf("block %s/%d out of sequence (next=%d)", h.Lane(), h.Height(), s.nextHeight)
 	}
 	addMetricsRecords(walBlocks, stageAsked, 1)
-	if err := s.wal.Append(uint64(h.BlockNumber()), proposal); err != nil {
-		return fmt.Errorf("persist block %s/%d: %w", h.Lane(), h.BlockNumber(), err)
+	if err := s.wal.Append(uint64(h.Height()), proposal); err != nil {
+		return fmt.Errorf("persist block %s/%d: %w", h.Lane(), h.Height(), err)
 	}
-	s.nextBlockNum = h.BlockNumber() + 1
+	s.nextHeight = h.Height() + 1
 	s.appended++
 	return nil
 }
@@ -77,14 +77,14 @@ func (s *laneWALState) flush(lane types.LaneID) error {
 //
 // Pruning is lazy: blocks below `first` may remain on disk until the file holding them falls entirely
 // below the threshold. Caller must hold the per-lane lock.
-func (s *laneWALState) truncateForAnchor(lane types.LaneID, first types.BlockNumber) error {
+func (s *laneWALState) truncateForAnchor(lane types.LaneID, first types.LaneHeight) error {
 	if err := s.wal.PruneBefore(uint64(first)); err != nil {
 		return fmt.Errorf("prune lane %s WAL before block %d: %w", lane, first, err)
 	}
-	if first > s.nextBlockNum {
+	if first > s.nextHeight {
 		// The anchor moved past every block persisted for this lane, so the next block to persist is
 		// the anchor's first. That leaves a gap, which the WAL is configured to permit.
-		s.nextBlockNum = first
+		s.nextHeight = first
 	}
 	return nil
 }
@@ -104,11 +104,11 @@ func (s *laneWALState) loadAll(lane types.LaneID) ([]LoadedBlock, error) {
 	loaded := make([]LoadedBlock, 0, len(live))
 	for _, entry := range live {
 		h := entry.value.Msg().Block().Header()
-		s.nextBlockNum = h.BlockNumber() + 1
-		loaded = append(loaded, LoadedBlock{Number: h.BlockNumber(), Proposal: entry.value})
+		s.nextHeight = h.Height() + 1
+		loaded = append(loaded, LoadedBlock{Height: h.Height(), Proposal: entry.value})
 	}
 	if len(loaded) > 0 {
-		first, last := loaded[0].Number, loaded[len(loaded)-1].Number
+		first, last := loaded[0].Height, loaded[len(loaded)-1].Height
 		logger.Debug("loaded persisted blocks", "lane", lane.String(),
 			"first", first, "last", last, "count", len(loaded), "discarded", len(entries)-len(live))
 	}
@@ -123,7 +123,7 @@ type laneWAL struct {
 
 func (lw *laneWAL) pruneAndPersist(
 	lane types.LaneID,
-	deleteBefore types.BlockNumber,
+	deleteBefore types.LaneHeight,
 	proposals []*types.Signed[*types.LaneProposal],
 ) error {
 	for s := range lw.state.Lock() {
@@ -277,7 +277,7 @@ func (bp *BlockPersister) getOrCreateLane(lanes map[types.LaneID]*laneWAL, lane 
 // Does not spawn goroutines — the caller schedules parallelism per lane.
 func (bp *BlockPersister) PruneAndPersist(
 	lane types.LaneID,
-	deleteBefore types.BlockNumber,
+	deleteBefore types.LaneHeight,
 	proposals []*types.Signed[*types.LaneProposal],
 ) error {
 	if _, ok := bp.dir.Get(); !ok {

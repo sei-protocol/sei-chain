@@ -312,7 +312,7 @@ func (g *GigaSim) stopExecutors() {
 // agreedNextBlockNumber returns the next SuperBlock height shared by the block store and state DB.
 func agreedNextBlockNumber(config *GigasimConfig, state *executionState, blocks *blockStoreWriter) (int64, error) {
 	next := state.height() + 1
-	blockStoreNext, ok := blocks.nextBlockNumber()
+	blockStoreNext, ok := blocks.nextHeight()
 	if !ok {
 		return next, nil
 	}

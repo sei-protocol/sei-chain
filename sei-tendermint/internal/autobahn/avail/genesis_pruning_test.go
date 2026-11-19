@@ -22,14 +22,14 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			rng := utils.TestRng()
 			registry, keys := epoch.GenRegistryThrough(rng, 3, 3)
-			proposal, blocks := types.ProposalAtBlocks(registry.MustEpoch(2), types.View{Index: registry.LastRoad(2)}, 1)
+			proposal, blocks := types.ProposalAtBlocks(registry.MustEpoch(2), types.View{Height: registry.LastRoad(2)}, 1)
 			prepare := types.BuildPrepareQC(keys, proposal)
 			votes := make([]*types.Signed[*types.CommitVote], len(keys))
 			for i, key := range keys {
 				votes[i] = key.Sign(types.NewCommitVote(prepare))
 			}
 			qc := types.NewCommitQC(votes)
-			full := types.NewFullCommitQC(qc, []*types.BlockHeader{blocks[0].Header()})
+			full := types.NewFullCommitQC(qc, []*types.LaneBlockHeader{blocks[0].Header()})
 			store := blockstore.NewTestStore(t)
 			t.Cleanup(func() { _ = store.Close() })
 			require.NoError(t, store.WriteBlock(types.NewRoadBlock(full, blocks)))
@@ -51,7 +51,7 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 				wantTip = types.BuildCommitQC(registry.MustEpoch(3), keys, utils.Some(qc), nil)
 				cp, _, err := persist.NewCommitQCPersister(stateDir)
 				require.NoError(t, err)
-				require.NoError(t, cp.PruneAndPersist(wantTip.Index(), []*types.CommitQC{wantTip}))
+				require.NoError(t, cp.PruneAndPersist(wantTip.Height(), []*types.CommitQC{wantTip}))
 				require.NoError(t, cp.Close())
 			}
 			state, err := NewState(keys[0], ds, stateDir)

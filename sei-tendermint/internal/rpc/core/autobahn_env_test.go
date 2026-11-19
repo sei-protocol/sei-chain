@@ -42,6 +42,7 @@ func (stubAppHashBuilder) GetAppHash(ctx context.Context, _ uint64) (*apphash.Ap
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
+func (stubAppHashBuilder) Flush(context.Context) error           { return nil }
 func (stubAppHashBuilder) Bounds() (uint64, uint64, bool, error) { return 0, 0, false, nil }
 func (stubAppHashBuilder) Close() error                          { return nil }
 

@@ -3,7 +3,7 @@
 // # What We Persist
 //
 // All consensus state is persisted atomically in a single A/B file pair (inner_a.pb/inner_b.pb):
-//   - Index: current view RoadIndex for ErrAvailBehindConsensus on restore
+//   - Height: current view RoadHeight for ErrAvailBehindConsensus on restore
 //   - TimeoutQC: justified entering the current view number
 //   - PrepareQC: needed for timeoutVote on restart
 //   - PrepareVote, CommitVote, TimeoutVote: this node's votes for the current view
@@ -57,11 +57,11 @@
 //   - Inconsistent state: Returns error to caller with message indicating which field is corrupt
 //     Examples of inconsistent state:
 //   - Vote from a future view (how could we vote for a view we haven't reached?)
-//   - TimeoutQC.View().Index != Index
+//   - TimeoutQC.View().Height != Index
 //   - WAL Index ahead of ConsensusSpec: ErrAvailBehindConsensus
 //   - Spec ahead of WAL Index: advance to spec, discard per-view WAL state
 //   - Equal Index: keep WAL votes/QCs if persistedInner.Verify(spec, self) passes
-//     (e.g. reject future-view votes, TimeoutQC index ≠ spec.Index(),
+//     (e.g. reject future-view votes, TimeoutQC height ≠ spec.Height(),
 //     bad signatures, CommitVote without PrepareQC)
 //
 // # Write Behavior
@@ -111,7 +111,7 @@ func (i inner) View() types.View {
 
 // newInner restores consensus state from avail's ConsensusSpec. The tip CommitQC
 // and next-view epoch always come from the spec. The WAL is kept only for
-// same-view votes / TimeoutQC / PrepareQC when Index matches spec.Index(); local
+// same-view votes / TimeoutQC / PrepareQC when Index matches spec.Height(); local
 // votes must be signed by self. Returns ErrAvailBehindConsensus when WAL Index
 // is ahead of the spec.
 func newInner(
@@ -120,23 +120,23 @@ func newInner(
 	self types.PublicKey,
 ) (inner, error) {
 	var persisted persistedInner
-	persistedViewIdx := types.RoadIndex(0)
+	persistedViewHeight := types.RoadHeight(0)
 	if p, ok := loaded.Get(); ok {
 		decoded, err := innerProtoConv.Decode(p)
 		if err != nil {
 			return inner{}, fmt.Errorf("corrupt persisted state: %w", err)
 		}
 		persisted = *decoded
-		persistedViewIdx = persisted.Index
+		persistedViewHeight = persisted.Height
 	}
 
-	specViewIdx := spec.Index()
-	if persistedViewIdx > specViewIdx {
+	specViewHeight := spec.Height()
+	if persistedViewHeight > specViewHeight {
 		return inner{}, fmt.Errorf("%w: persisted view %d > ConsensusSpec view %d",
-			ErrAvailBehindConsensus, persistedViewIdx, specViewIdx)
+			ErrAvailBehindConsensus, persistedViewHeight, specViewHeight)
 	}
 
-	if specViewIdx == persistedViewIdx {
+	if specViewHeight == persistedViewHeight {
 		// Same view: keep WAL votes / view QCs; CommitQC+epoch from the spec.
 		if err := persisted.Verify(spec, self); err != nil {
 			return inner{}, err
@@ -145,7 +145,7 @@ func newInner(
 		return inner{persistedInner: persisted, spec: spec}, nil
 	}
 
-	out := persistedInner{Index: spec.Index()}
+	out := persistedInner{Height: spec.Height()}
 	logger.Info("restored consensus state from avail ConsensusSpec", "state", innerProtoConv.Encode(&out))
 	return inner{persistedInner: out, spec: spec}, nil
 }
@@ -154,8 +154,8 @@ func newInner(
 // state. Specs that do not advance the view are ignored, which covers the
 // tipless spec published before the first CommitQC.
 func (s *State) pushSpec(ctx context.Context, spec types.ConsensusSpec) error {
-	specViewIdx := spec.Index()
-	if specViewIdx <= s.innerRecv.Load().spec.Index() {
+	specViewHeight := spec.Height()
+	if specViewHeight <= s.innerRecv.Load().spec.Height() {
 		return nil
 	}
 	if err := s.specLimiter.Wait(ctx); err != nil {
@@ -164,12 +164,12 @@ func (s *State) pushSpec(ctx context.Context, spec types.ConsensusSpec) error {
 
 	for iSend := range s.inner.Lock() {
 		i := iSend.Load()
-		if specViewIdx <= i.spec.Index() {
+		if specViewHeight <= i.spec.Height() {
 			return nil
 		}
 		// CommitQC advances to new index; clear all state for new view.
 		iSend.Store(inner{
-			persistedInner: persistedInner{Index: spec.Index()},
+			persistedInner: persistedInner{Height: spec.Height()},
 			spec:           spec,
 		})
 	}
@@ -186,14 +186,14 @@ func (s *State) waitForEpoch(ctx context.Context, idx types.EpochIndex) (types.V
 }
 
 func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
-	i, err := s.innerRecv.Wait(ctx, func(i inner) bool { return i.View().Index >= qc.View().Index })
+	i, err := s.innerRecv.Wait(ctx, func(i inner) bool { return i.View().Height >= qc.View().Height })
 	if err != nil {
 		return err
 	}
 	if qc.View().Less(i.View()) {
 		return nil
 	}
-	// Verify checks the invariant: TimeoutQC.View().Index == CommitQC.Index + 1
+	// Verify checks the invariant: TimeoutQC.View().Height == CommitQC.Height + 1
 	if err := qc.Verify(i.spec.Epoch, i.spec.CommitQC); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
@@ -207,7 +207,7 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 		// TimeoutQC advances view number; clear votes and prepareQC (stale view).
 		leader = i.spec.Epoch.Committee().Leader(qc.View())
 		isend.Store(inner{
-			persistedInner: persistedInner{Index: i.Index, TimeoutQC: utils.Some(qc)},
+			persistedInner: persistedInner{Height: i.Height, TimeoutQC: utils.Some(qc)},
 			spec:           i.spec,
 		})
 		applied = true

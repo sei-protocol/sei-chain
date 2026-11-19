@@ -141,7 +141,7 @@ func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*ethr
 	if !r.EvmProxyEnabled() {
 		return utils.None[*ethrpc.Client]()
 	}
-	validator := r.data.Anchor().Load().NextIndexEpoch().Committee().EvmShard(sender)
+	validator := r.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender)
 	if r.validatorKey == validator {
 		return utils.None[*ethrpc.Client]()
 	}

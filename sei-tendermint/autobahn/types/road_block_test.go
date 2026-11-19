@@ -19,7 +19,7 @@ func TestRoadBlockVerify(t *testing.T) {
 			rng := utils.TestRng()
 			committee, keys := GenCommittee(rng, 3)
 			ep := GenEpochWithCommittee(rng, committee)
-			proposal, blocks := ProposalAtBlocks(ep, View{Index: ep.RoadRange().First}, 3)
+			proposal, blocks := ProposalAtBlocks(ep, View{Height: ep.RoadRange().First}, 3)
 			signingKeys := keys
 			if variant == "QC signatures" {
 				_, signingKeys = GenCommittee(rng, 3)
@@ -29,7 +29,7 @@ func TestRoadBlockVerify(t *testing.T) {
 			for _, key := range signingKeys {
 				votes = append(votes, key.Sign(NewCommitVote(prepareQC)))
 			}
-			headers := make([]*BlockHeader, len(blocks))
+			headers := make([]*LaneBlockHeader, len(blocks))
 			for i, block := range blocks {
 				headers[i] = block.Header()
 			}
@@ -44,12 +44,12 @@ func TestRoadBlockVerify(t *testing.T) {
 			case "reordered":
 				blocks[0], blocks[1] = blocks[1], blocks[0]
 			case "wrong":
-				blocks[0] = GenBlock(rng)
+				blocks[0] = GenLaneBlock(rng)
 			case "payload":
-				wire := BlockConv.Encode(blocks[0])
+				wire := LaneBlockConv.Encode(blocks[0])
 				wire.Payload = PayloadConv.Encode(GenPayload(rng))
 				var err error
-				blocks[0], err = BlockConv.Decode(wire)
+				blocks[0], err = LaneBlockConv.Decode(wire)
 				require.NoError(t, err)
 			case "QC headers":
 				slices.Reverse(headers)
@@ -79,7 +79,7 @@ func TestRoadBlockHeaderHashIndependentOfView(t *testing.T) {
 	rng := utils.TestRng()
 	committee, _ := GenCommittee(rng, 3)
 	ep := GenEpochWithCommittee(rng, committee)
-	proposal, blocks := ProposalAtBlocks(ep, View{Index: ep.RoadRange().First}, 2)
+	proposal, blocks := ProposalAtBlocks(ep, View{Height: ep.RoadRange().First}, 2)
 	wire := ProposalConv.Encode(proposal)
 	wire.ViewNumber = new(uint64(proposal.View().Number.Next()))
 	reproposal, err := ProposalConv.Decode(wire)
@@ -92,7 +92,7 @@ func TestRoadBlockHeaderHashIndependentOfView(t *testing.T) {
 	reproposalQC := NewCommitQC([]*Signed[*CommitVote]{key.Sign(NewCommitVote(BuildPrepareQC([]SecretKey{key}, reproposal)))})
 	require.Equal(t, proposal.Header().Hash(), qc.Header().Hash())
 	require.Equal(t, qc.Header().Hash(), reproposalQC.Header().Hash())
-	headers := make([]*BlockHeader, len(blocks))
+	headers := make([]*LaneBlockHeader, len(blocks))
 	for i, block := range blocks {
 		headers[i] = block.Header()
 	}
@@ -148,22 +148,22 @@ func TestRoadBlockHeaderIdentity(t *testing.T) {
 	hashes := map[RoadBlockHeaderHash]struct{}{}
 	for _, view := range []View{
 		{},
-		{EpochIndex: 7, Index: 29, Number: 13},
-		{EpochIndex: 7, Index: 30, Number: 13},
-		{EpochIndex: 8, Index: 29, Number: 13},
+		{EpochIndex: 7, Height: 29, Number: 13},
+		{EpochIndex: 7, Height: 30, Number: 13},
+		{EpochIndex: 8, Height: 29, Number: 13},
 	} {
 		proposal, err := ProposalConv.Decode(&pb.Proposal{
 			ViewNumber: new(uint64(view.Number)),
 			Header: &pb.RoadBlockHeader{
 				EpochIndex: new(uint64(view.EpochIndex)),
-				Index:      new(uint64(view.Index)),
+				Height:     new(uint64(view.Height)),
 				Timestamp:  TimeConv.Encode(time.Time{}),
 			},
 		})
 		require.NoError(t, err)
 		header := proposal.Header()
 		require.Equal(t, view.EpochIndex, header.EpochIndex())
-		require.Equal(t, view.Index, header.Index())
+		require.Equal(t, view.Height, header.Height())
 		require.Equal(t, view, proposal.View())
 		require.Equal(t, view, NewPrepareVote(proposal).View())
 		require.Equal(t, view, NewCommitVote(BuildPrepareQC([]SecretKey{key}, proposal)).View())
@@ -177,24 +177,24 @@ func TestSuperBlockMergesTransactionsInHeaderOrder(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 2)
 	ep := GenEpochWithCommittee(rng, committee)
-	var blocks []*Block
-	var headers []*BlockHeader
+	var blocks []*LaneBlock
+	var headers []*LaneBlockHeader
 	laneQCs := map[LaneID]*LaneQC{}
 	for laneIndex := range committee.Lanes().Len() {
 		lane := committee.Lanes().At(laneIndex)
-		var parent BlockHeaderHash
+		var parent LaneBlockHeaderHash
 		for offset := range 2 - laneIndex {
 			i := len(blocks)
 			payload, err := (PayloadBuilder{CreatedAt: time.Time{}, TotalGasWanted: uint64(i + 1), Txs: [][]byte{{byte(i), 0}, {byte(i), 1}}}).Build()
 			require.NoError(t, err)
-			block := NewBlock(lane, BlockNumber(offset), parent, payload)
+			block := NewLaneBlock(lane, LaneHeight(offset), parent, payload)
 			blocks = append(blocks, block)
 			headers = append(headers, block.Header())
 			parent = block.Header().Hash()
 		}
 		votes := make([]*Signed[*LaneVote], len(keys))
 		for i, key := range keys {
-			votes[i] = key.Sign(NewLaneVote(headers[len(headers)-1]))
+			votes[i] = key.Sign(NewLaneVote(ep.EpochIndex(), headers[len(headers)-1]))
 		}
 		laneQCs[lane] = NewLaneQC(votes)
 	}
@@ -202,7 +202,7 @@ func TestSuperBlockMergesTransactionsInHeaderOrder(t *testing.T) {
 	fullQC := NewFullCommitQC(qc, headers)
 	require.NoError(t, fullQC.Verify(ep))
 	block := NewRoadBlock(fullQC, blocks).SuperBlock()
-	require.Equal(t, qc.Index(), block.Height)
+	require.Equal(t, qc.Height(), block.Height)
 	require.Equal(t, qc.Header().Timestamp(), block.Timestamp)
 	require.Equal(t, uint64(6), block.GasWanted)
 	require.Equal(t, [][]byte{{0, 0}, {0, 1}, {1, 0}, {1, 1}, {2, 0}, {2, 1}}, block.Txs)
@@ -213,10 +213,10 @@ func TestLaneRangeVerifyRejectsHashOnEmptyRange(t *testing.T) {
 	committee, _ := GenCommittee(rng, 4)
 	lane := committee.Lanes().At(0)
 
-	require.Error(t, (&LaneRange{lane: lane, first: 0, next: 0, lastHash: GenBlockHeaderHash(rng)}).Verify(committee))
+	require.Error(t, (&LaneRange{lane: lane, first: 0, next: 0, lastHash: GenLaneBlockHeaderHash(rng)}).Verify(committee))
 	require.NoError(t, (&LaneRange{lane: lane, first: 0, next: 0}).Verify(committee))
 	// Empty ranges have a zero hash at every height.
 	require.Error(t, (&LaneRange{
-		lane: lane, first: 1, next: 1, lastHash: GenBlockHeaderHash(rng),
+		lane: lane, first: 1, next: 1, lastHash: GenLaneBlockHeaderHash(rng),
 	}).Verify(committee))
 }

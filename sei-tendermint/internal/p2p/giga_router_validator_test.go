@@ -175,33 +175,33 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				return fmt.Errorf("state mismatch app[%v]: %w", i, err)
 			}
 		}
-		// Covers GigaRouter.LastCommittedBlockNumber() — after blocks have
+		// Covers GigaRouter.LastCommittedHeight() — after blocks have
 		// been finalized every node should report a non-zero
 		// consensus-committed height through the accessor used by /status.
 		for i, giga := range gigas {
-			committed := giga.LastCommittedBlockNumber()
+			committed := giga.LastCommittedHeight()
 			if committed <= 0 {
-				return fmt.Errorf("router[%v].LastCommittedBlockNumber(): got %v, want positive", i, committed)
+				return fmt.Errorf("router[%v].LastCommittedHeight(): got %v, want positive", i, committed)
 			}
 			// Covers Executor.ExecutedBlocks — the watch behind
 			// eth_subscribe("newHeads"). It must reach the committed height,
 			// and the block it names must be readable via BlockByNumber.
 			executed, err := executors[i].ExecutedBlocks().Wait(ctx, func(w atypes.ExecutedBlocks) bool {
-				return int64(w.Latest().Number) >= committed
+				return int64(w.Latest().Height) >= committed
 			})
 			if err != nil {
 				return fmt.Errorf("executor[%v].ExecutedBlocks().Wait(): %w", i, err)
 			}
-			_, err = giga.BlockByNumber(ctx, executed.Latest().Number)
+			_, err = giga.BlockByNumber(ctx, executed.Latest().Height)
 			if err != nil {
-				return fmt.Errorf("router[%v].BlockByNumber(executed=%v): %w", i, executed.Latest().Number, err)
+				return fmt.Errorf("router[%v].BlockByNumber(executed=%v): %w", i, executed.Latest().Height, err)
 			}
 			// Covers GigaRouter.BlockByNumber — the accessor used by the
 			// Autobahn branch in env.Block to serve /block and evmrpc block
 			// lookups. Fetch the last committed block and verify it carries
 			// the expected height + hash, the right chain id, and that the
 			// payload Txs round-tripped (we just submitted txs).
-			rb, err := giga.BlockByNumber(ctx, atypes.RoadIndex(committed)) //nolint:gosec // committed is positive (validated above)
+			rb, err := giga.BlockByNumber(ctx, atypes.RoadHeight(committed)) //nolint:gosec // committed is positive (validated above)
 			if err != nil {
 				return fmt.Errorf("router[%v].BlockByNumber(%v): %w", i, committed, err)
 			}
@@ -259,9 +259,9 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		// where producers placed the test txs. Reaches into giga0.data
 		// directly — internal same-package access.
 		giga0 := gigas[0]
-		latest := giga0.LastCommittedBlockNumber()
+		latest := giga0.LastCommittedHeight()
 		for h := int64(1); h <= latest; h++ {
-			gbn := atypes.RoadIndex(h) //nolint:gosec // h is positive
+			gbn := atypes.RoadHeight(h) //nolint:gosec // h is positive
 			gb, err := giga0.data.SuperBlock(ctx, gbn)
 			if err != nil {
 				continue // pruned out of the retain window
@@ -388,7 +388,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		seenDisconnected := false
 		for range 400 {
 			sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-			shardValidator := router.data.Anchor().Load().NextIndexEpoch().Committee().EvmShard(sender)
+			shardValidator := router.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender)
 
 			proxyClient, ok := router.EvmProxy(sender).Get()
 

@@ -115,6 +115,8 @@ func (b *manualAppHashBuilder) GetAppHash(ctx context.Context, blockHeight uint6
 	return appHash, nil
 }
 
+func (b *manualAppHashBuilder) Flush(context.Context) error { return nil }
+
 func (b *manualAppHashBuilder) Bounds() (uint64, uint64, bool, error) {
 	var lowest, highest uint64
 	var ok bool
@@ -144,7 +146,7 @@ func (b *manualAppHashBuilder) add(appHash *apphash.AppHashData) {
 	}
 }
 
-func testAppHashData(height atypes.RoadIndex) *apphash.AppHashData {
+func testAppHashData(height atypes.RoadHeight) *apphash.AppHashData {
 	var blockHash [32]byte
 	blockHash[0] = byte(height)
 	sum := [32]byte{byte(height)}
@@ -203,7 +205,7 @@ func TestExecutionRunsAheadOfAppHashPush(t *testing.T) {
 	qc, blocks := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
 	qc2, blocks2 := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.Some(qc.QC()))
 	qc3, blocks3 := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.Some(qc2.QC()))
-	require.Equal(t, state.Anchor().Load().Epochs[0].RoadRange().First, qc.Index())
+	require.Equal(t, state.Anchor().Load().Epochs[0].RoadRange().First, qc.Height())
 	hashBuilder.publishOnReport = true
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
@@ -224,8 +226,8 @@ func TestExecutionRunsAheadOfAppHashPush(t *testing.T) {
 		s.SpawnBgNamed("pushAppHashes", func() error {
 			return utils.IgnoreCancel(router.runPushAppHashes(ctx))
 		})
-		if _, err := state.AppVote(ctx, qc3.Index()); err != nil {
-			return fmt.Errorf("AppVote(%v): %w", qc3.Index(), err)
+		if _, err := state.AppVote(ctx, qc3.Height()); err != nil {
+			return fmt.Errorf("AppVote(%v): %w", qc3.Height(), err)
 		}
 		return nil
 	}))
@@ -241,8 +243,8 @@ func TestPushAppHashesResumesAtNextAppProposal(t *testing.T) {
 
 	qc, blocks := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
 	qc2, blocks2 := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.Some(qc.QC()))
-	last := qc2.Index()
-	require.Equal(t, state.Anchor().Load().Epochs[0].RoadRange().First, qc.Index())
+	last := qc2.Height()
+	require.Equal(t, state.Anchor().Load().Epochs[0].RoadRange().First, qc.Height())
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
@@ -300,6 +302,29 @@ func TestCommitteeWeights_DuplicateKey(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestBuildDataStateGenesisEpochLength(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	params := tmtypes.DefaultAutobahnParams()
+	params.EpochLength = 3
+	genesis := &tmtypes.GenesisDoc{ChainID: "epoch-length", Autobahn: utils.Some(params)}
+	require.NoError(t, genesis.ValidateAndComplete())
+	db := blockstore.NewTestStore(t)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	state, err := BuildDataState(&GigaRouterCommonConfig{
+		DialInterval:       time.Second,
+		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
+		PersistentStateDir: t.TempDir(),
+		GenDoc:             genesis,
+		App:                proxy.NewEVM(&fixedHeightApp{}),
+		AppHashBuilder:     newPublishingAppHashBuilder(),
+	}, db)
+	require.NoError(t, err)
+	anchor := state.Anchor().Load()
+	require.Equal(t, atypes.RoadRange{First: 1, Next: 4}, anchor.Epochs[0].RoadRange())
+	require.Equal(t, atypes.RoadRange{First: 4, Next: 7}, anchor.Epochs[1].RoadRange())
+}
+
 func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
@@ -316,13 +341,13 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 
 	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
 	require.NoError(t, err)
-	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
+	registry, err := epoch.NewRegistry(committee, atypes.RoadHeight(genDoc.InitialHeight), genDoc.GenesisTime, epoch.DefaultEpochLength, utils.None[string]())
 	require.NoError(t, err)
 	ep0 := registry.MustEpoch(0)
 	qc, blocks := data.TestCommitQC(rng, ep0, keys, utils.None[*atypes.CommitQC]())
 	qc2, blocks2 := data.TestCommitQC(rng, ep0, keys, utils.Some(qc.QC()))
 	qc3, blocks3 := data.TestCommitQC(rng, ep0, keys, utils.Some(qc2.QC()))
-	last := qc2.Index()
+	last := qc2.Height()
 
 	db := blockstore.NewTestStore(t)
 	require.NoError(t, db.WriteBlock(types.NewRoadBlock(qc, blocks)))
@@ -341,7 +366,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	}
 	state, err := BuildDataState(cfg, db)
 	require.NoError(t, err)
-	got, err := state.TryBlock(atypes.LaneBlockPos{Index: last})
+	got, err := state.TryBlock(atypes.LaneBlockPos{Height: last})
 	require.NoError(t, err)
 	require.Equal(t, blocks2[0].Header().Hash(), got.Header().Hash())
 }
@@ -407,15 +432,15 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
 }
 
-func testRouterAtRoad(t *testing.T, registry *epoch.Registry, keys []atypes.SecretKey, ep *atypes.Epoch, road atypes.RoadIndex) *gigaRouterCommon {
+func testRouterAtRoad(t *testing.T, registry *epoch.Registry, keys []atypes.SecretKey, ep *atypes.Epoch, road atypes.RoadHeight) *gigaRouterCommon {
 	t.Helper()
-	proposal, blocks := atypes.ProposalAtBlocks(ep, atypes.View{Index: road, Number: 0}, 1)
+	proposal, blocks := atypes.ProposalAtBlocks(ep, atypes.View{Height: road, Number: 0}, 1)
 	votes := make([]*atypes.Signed[*atypes.CommitVote], 0, len(keys))
 	prepareQC := atypes.BuildPrepareQC(keys, proposal)
 	for _, k := range keys {
 		votes = append(votes, k.Sign(atypes.NewCommitVote(prepareQC)))
 	}
-	headers := make([]*atypes.BlockHeader, len(blocks))
+	headers := make([]*atypes.LaneBlockHeader, len(blocks))
 	for i, b := range blocks {
 		headers[i] = b.Header()
 	}
@@ -443,7 +468,7 @@ func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAdd
 
 func testDataState(t *testing.T, committee *atypes.Committee) (*data.State, *epoch.Registry) {
 	t.Helper()
-	registry, err := epoch.NewRegistry(committee, 1, time.Now(), utils.None[string]())
+	registry, err := epoch.NewRegistry(committee, 1, time.Now(), epoch.DefaultEpochLength, utils.None[string]())
 	require.NoError(t, err)
 	db := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -461,7 +486,7 @@ func testDataWithAnchor(t *testing.T, anchor data.Anchor) *data.State {
 
 func testEpoch(index atypes.EpochIndex, weights map[atypes.PublicKey]uint64) *atypes.Epoch {
 	committee := utils.OrPanic1(atypes.NewCommittee(weights))
-	return atypes.NewEpoch(index, atypes.RoadRange{First: atypes.RoadIndex(index), Next: atypes.RoadIndex(index) + 1}, committee)
+	return atypes.NewEpoch(index, atypes.RoadRange{First: atypes.RoadHeight(index), Next: atypes.RoadHeight(index) + 1}, committee)
 }
 
 func testAnchor(ep *atypes.Epoch) data.Anchor { return data.TestAnchor(ep) }
@@ -733,7 +758,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberLimitsToCommitEpoch(t *testing.T)
 				case a:
 					startedA.Store(true)
 				case b:
-					bCommitEpoch.Store(state.Anchor().Load().NextIndexEpoch().EpochIndex())
+					bCommitEpoch.Store(state.Anchor().Load().NextHeightEpoch().EpochIndex())
 					startedB.Store(true)
 				}
 				<-ctx.Done()
@@ -854,7 +879,7 @@ func testRegistryThrough(t *testing.T, genesis map[atypes.PublicKey]uint64, late
 	t.Helper()
 	committee, err := atypes.NewCommittee(genesis)
 	require.NoError(t, err)
-	registry, err := epoch.NewRegistry(committee, 1, time.Now(), utils.None[string]())
+	registry, err := epoch.NewRegistry(committee, 1, time.Now(), epoch.DefaultEpochLength, utils.None[string]())
 	require.NoError(t, err)
 	for i, weights := range later {
 		// Epoch i+2 is derived when the last road of epoch i is reached.
@@ -864,20 +889,20 @@ func testRegistryThrough(t *testing.T, genesis map[atypes.PublicKey]uint64, late
 }
 
 // testRoadQC returns a commit QC for road of ep, signed by keys, with its road block.
-func testRoadQC(ep *atypes.Epoch, keys []atypes.SecretKey, road atypes.RoadIndex) (*atypes.FullCommitQC, []*atypes.Block) {
-	proposal := atypes.ProposalAt(ep, atypes.View{Index: road, Number: 0})
-	block := atypes.NewBlock(ep.Committee().Lanes().At(0), 0, atypes.BlockHeaderHash{}, &atypes.Payload{})
+func testRoadQC(ep *atypes.Epoch, keys []atypes.SecretKey, road atypes.RoadHeight) (*atypes.FullCommitQC, []*atypes.LaneBlock) {
+	proposal := atypes.ProposalAt(ep, atypes.View{Height: road, Number: 0})
+	block := atypes.NewLaneBlock(ep.Committee().Lanes().At(0), 0, atypes.LaneBlockHeaderHash{}, &atypes.Payload{})
 	votes := make([]*atypes.Signed[*atypes.CommitVote], 0, len(keys))
 	prepareQC := atypes.BuildPrepareQC(keys, proposal)
 	for _, k := range keys {
 		votes = append(votes, k.Sign(atypes.NewCommitVote(prepareQC)))
 	}
-	return atypes.NewFullCommitQC(atypes.NewCommitQC(votes), []*atypes.BlockHeader{block.Header()}), []*atypes.Block{block}
+	return atypes.NewFullCommitQC(atypes.NewCommitQC(votes), []*atypes.LaneBlockHeader{block.Header()}), []*atypes.LaneBlock{block}
 }
 
 // testStateAtRoad restarts a state over a block store whose only block is the road block of qc.
 // Its Anchor is uncertified: the epochs around qc's road, and no AppQC is persisted yet.
-func testStateAtRoad(t *testing.T, registry *epoch.Registry, qc *atypes.FullCommitQC, blocks []*atypes.Block) *data.State {
+func testStateAtRoad(t *testing.T, registry *epoch.Registry, qc *atypes.FullCommitQC, blocks []*atypes.LaneBlock) *data.State {
 	t.Helper()
 	db := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -890,11 +915,11 @@ func testStateAtRoad(t *testing.T, registry *epoch.Registry, qc *atypes.FullComm
 
 // testCertifyRoad pushes the road block of qc, then its AppHash and an AppQC signed by keys.
 // The state persists the AppQC and publishes the moved Anchor, as it does in production.
-func testCertifyRoad(ctx context.Context, state *data.State, rng utils.Rng, keys []atypes.SecretKey, qc *atypes.FullCommitQC, blocks []*atypes.Block) error {
+func testCertifyRoad(ctx context.Context, state *data.State, rng utils.Rng, keys []atypes.SecretKey, qc *atypes.FullCommitQC, blocks []*atypes.LaneBlock) error {
 	if err := state.PushPartialBlock(ctx, qc, data.TestBlockMap(blocks)); err != nil {
 		return err
 	}
-	n := qc.Index()
+	n := qc.Height()
 	if err := state.PushAppHash(ctx, n, atypes.GenAppHash(rng), nil); err != nil {
 		return err
 	}
@@ -1186,6 +1211,28 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 	}))
 }
 
+func TestGigaRouterCommon_EvmProxyRejectsLocalAddrs(t *testing.T) {
+	for _, endpoint := range []string{
+		"ws://localhost:8546", "ws://127.0.0.1:8546", "ws://[::1]:8546",
+		"ws://169.254.1.1:8546", "ws://[fe80::1]:8546", "ws://0.0.0.0:8546",
+	} {
+		t.Run(endpoint, func(t *testing.T) {
+			rng := utils.TestRng()
+			committee, keys := atypes.GenCommittee(rng, 1)
+			state, _ := testDataState(t, committee)
+			router, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
+				App: proxy.NewEVM(newTestApp()),
+			}, makeKey(rng), state)
+			require.NoError(t, err)
+			require.NoError(t, router.runEvmProxy(t.Context(), validatorHandshake{
+				auth:   keys[0].Sign(atypes.Challenge{}),
+				EVMRPC: *utils.OrPanic1(url.Parse(endpoint)),
+			}))
+			require.False(t, router.evmProxy(keys[0].Public()).IsPresent())
+		})
+	}
+}
+
 func TestGigaRouterCommon_EvmProxyClosesWithGigaConnection(t *testing.T) {
 	rng := utils.TestRng()
 	validatorKey := atypes.GenSecretKey(rng)
@@ -1209,7 +1256,7 @@ func TestGigaRouterCommon_EvmProxyClosesWithGigaConnection(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, listener.Close()) })
 	router := &gigaRouterCommon{
-		cfg:     &GigaRouterCommonConfig{DialInterval: time.Second},
+		cfg:     &GigaRouterCommonConfig{DialInterval: time.Second, AllowLocalAddrs: true},
 		key:     localKey,
 		poolOut: giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
 		proxies: utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),

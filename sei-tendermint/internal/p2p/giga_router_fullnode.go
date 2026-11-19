@@ -60,7 +60,7 @@ func (r *gigaFullnodeRouter) EvmProxyEnabled() bool { return true }
 // EvmProxy on the fullnode always returns the shard owner's EVM RPC client.
 // EnableEvmProxy is a no-op here because fullnodes do not have a local mempool.
 func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
-	return r.evmProxy(r.data.Anchor().Load().NextIndexEpoch().Committee().EvmShard(sender))
+	return r.evmProxy(r.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender))
 }
 
 // runCommitteeConnections maintains block-sync and EVM RPC connections to every committee member.

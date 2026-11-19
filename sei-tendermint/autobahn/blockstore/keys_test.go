@@ -11,25 +11,25 @@ import (
 )
 
 func TestKeyRoundTrip(t *testing.T) {
-	for _, n := range []types.RoadIndex{0, 1, 42, 255, 256, 1 << 32, ^types.RoadIndex(0)} {
-		block := blockKey{Index: n}
+	for _, n := range []types.RoadHeight{0, 1, 42, 255, 256, 1 << 32, ^types.RoadHeight(0)} {
+		block := blockKey{Height: n}
 		gotBlock, err := parseTestKey(t, block.encode()).decodeBlock()
 		require.NoError(t, err)
 		require.Equal(t, block, gotBlock)
-		qc := qcKey{Index: n}
+		qc := qcKey{Height: n}
 		gotQC, err := parseTestKey(t, qc.encode()).decodeQC()
 		require.NoError(t, err)
 		require.Equal(t, qc, gotQC)
-		appQC := appQCKey{Index: n}
+		appQC := appQCKey{Height: n}
 		gotAppQC, err := parseTestKey(t, appQC.encode()).decodeAppQC()
 		require.NoError(t, err)
 		require.Equal(t, appQC, gotAppQC)
-		proposal := appProposalKey{Index: n}
+		proposal := appProposalKey{Height: n}
 		gotProposal, err := parseTestKey(t, proposal.encode()).decodeAppProposal()
 		require.NoError(t, err)
 		require.Equal(t, proposal, gotProposal)
 		for _, offset := range []uint64{0, 1, math.MaxUint64} {
-			lane := laneBlockKey{Index: n, Offset: offset}
+			lane := laneBlockKey{Height: n, Offset: offset}
 			gotLane, err := parseTestKey(t, lane.encode()).decodeLaneBlock()
 			require.NoError(t, err)
 			require.Equal(t, lane, gotLane)
@@ -46,11 +46,11 @@ func TestKeyRoundTrip(t *testing.T) {
 }
 
 func TestKeyBigEndianOrdering(t *testing.T) {
-	for _, pair := range [][2]types.RoadIndex{{0, 1}, {1, 2}, {255, 256}, {1 << 16, 1 << 32}} {
-		require.Negative(t, bytes.Compare((blockKey{Index: pair[0]}).encode().bytes(), (blockKey{Index: pair[1]}).encode().bytes()))
+	for _, pair := range [][2]types.RoadHeight{{0, 1}, {1, 2}, {255, 256}, {1 << 16, 1 << 32}} {
+		require.Negative(t, bytes.Compare((blockKey{Height: pair[0]}).encode().bytes(), (blockKey{Height: pair[1]}).encode().bytes()))
 	}
-	first := (laneBlockKey{Index: 42, Offset: 255}).encode()
-	next := (laneBlockKey{Index: 42, Offset: 256}).encode()
+	first := (laneBlockKey{Height: 42, Offset: 255}).encode()
+	next := (laneBlockKey{Height: 42, Offset: 256}).encode()
 	require.Negative(t, bytes.Compare(first.bytes(), next.bytes()))
 }
 
@@ -63,12 +63,12 @@ func TestKeyLayouts(t *testing.T) {
 		key  ledgerKey
 		want []byte
 	}{
-		{(blockKey{Index: 42}).encode(), binary.BigEndian.AppendUint64([]byte{0}, 42)},
-		{(appQCKey{Index: 42}).encode(), binary.BigEndian.AppendUint64([]byte{1}, 42)},
-		{(laneBlockKey{Index: 42, Offset: 7}).encode(), binary.BigEndian.AppendUint64(binary.BigEndian.AppendUint64([]byte{2}, 42), 7)},
+		{(blockKey{Height: 42}).encode(), binary.BigEndian.AppendUint64([]byte{0}, 42)},
+		{(appQCKey{Height: 42}).encode(), binary.BigEndian.AppendUint64([]byte{1}, 42)},
+		{(laneBlockKey{Height: 42, Offset: 7}).encode(), binary.BigEndian.AppendUint64(binary.BigEndian.AppendUint64([]byte{2}, 42), 7)},
 		{(blockHashKey{Hash: hash}).encode(), append([]byte{3}, hash[:]...)},
-		{(appProposalKey{Index: 42}).encode(), binary.BigEndian.AppendUint64([]byte{4}, 42)},
-		{(qcKey{Index: 42}).encode(), binary.BigEndian.AppendUint64([]byte{5}, 42)},
+		{(appProposalKey{Height: 42}).encode(), binary.BigEndian.AppendUint64([]byte{4}, 42)},
+		{(qcKey{Height: 42}).encode(), binary.BigEndian.AppendUint64([]byte{5}, 42)},
 	}
 	for _, tc := range cases {
 		require.Equal(t, tc.want, tc.key.bytes())
