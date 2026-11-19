@@ -168,7 +168,7 @@ func (env *testEnv) write(from, to int, flush bool) error {
 	return nil
 }
 
-func (env *testEnv) executor(app *recordingApp) *Executor {
+func (env *testEnv) executor(app proxy.EVMApplication) *Executor {
 	return New(&Config{
 		GenDoc:         env.genDoc,
 		App:            proxy.NewEVM(app),
@@ -322,6 +322,36 @@ func TestRunReplaysStoredBlocksAfterRestart(t *testing.T) {
 	require.Equal(t, 2, len(finalized))
 	require.Equal(t, int64(env.road(1)), finalized[0].Header.Height)
 	require.Equal(t, int64(env.road(2)), finalized[1].Header.Height)
+}
+
+// cancelingApp is a recordingApp that cancels the run's context from inside FinalizeBlock().
+type cancelingApp struct {
+	*recordingApp
+	cancel context.CancelFunc
+}
+
+func (a *cancelingApp) FinalizeBlock(
+	ctx context.Context,
+	req *proxy.RequestFinalizeBlock,
+) (*proxy.ResponseFinalizeBlock, error) {
+	a.cancel()
+	return a.recordingApp.FinalizeBlock(ctx, req)
+}
+
+// TestRunCompletesTheBlockInFlightWhenCanceled verifies that a cancel arriving
+// while a block executes lets that block commit, and starts no block after it.
+func TestRunCompletesTheBlockInFlightWhenCanceled(t *testing.T) {
+	rng := utils.TestRng()
+	env := newTestEnv(t, rng, 2)
+	require.NoError(t, env.write(0, 2, true))
+	runCtx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	app := &cancelingApp{recordingApp: newRecordingApp(env.events, 0), cancel: cancel}
+	executor := env.executor(app)
+
+	require.ErrorIs(t, executor.Run(runCtx), context.Canceled)
+	require.Equal(t, env.road(0), executor.ExecutedBlocks().Load().Latest().Number)
+	require.Equal(t, 1, len(app.finalized()))
 }
 
 func gasUsedTotal(t *testing.T) float64 {

@@ -109,6 +109,11 @@ func (s *MemoryReceiptStore) GetReceiptFromStore(ctx sdk.Context, txHash common.
 	return cloneStoredReceipt(entry.receipt), nil
 }
 
+// Flush returns immediately, since every write lands before SetReceipts() returns.
+func (s *MemoryReceiptStore) Flush() error {
+	return nil
+}
+
 // SetReceipts stores caller-owned copies of receipt records.
 func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.ReceiptRecord) error {
 	if err := receiptContextError(ctx); err != nil {

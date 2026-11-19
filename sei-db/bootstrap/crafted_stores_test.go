@@ -13,6 +13,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
+	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
@@ -199,37 +200,57 @@ func writeReceipts(t *testing.T, cfg *config.GigaStorageConfig, through uint64) 
 	}
 }
 
-// canonicalStateHashes returns the live state DB's state hash after each of blocks 1 through through, as committing
-// evmBlock(block, block) for each of them leaves it. Index i holds the hash of block i+1.
-func canonicalStateHashes(t *testing.T, through byte) [][32]byte {
+// canonicalHashes returns the state hash and the BUD hash of each of blocks 1 through through, as committing
+// evmBlock(block, block) for each of them leaves them. Index i holds the hashes of block i+1.
+func canonicalHashes(t *testing.T, through byte) (stateHashes [][32]byte, budHashes [][32]byte) {
 	t.Helper()
 	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
 	require.NoError(t, err)
 	disableSS(cfg)
-	stateDB := openStandaloneStateDB(t, cfg)
-	hashes := make([][32]byte, 0, through)
-	_, err = stateDB.RegisterHashListener(func(_ context.Context, _ int64, hash *lthash.BlockHash) error {
-		hashes = append(hashes, hash.Global.Checksum())
-		return nil
-	})
+	budHasher, err := bud.NewStandardBUDHasher(t.Context(), bud.DefaultBUDHasherConfig(), recordBUDHash(&budHashes))
+	require.NoError(t, err)
+	stateDB, err := openStateDB(t.Context(), cfg, budHasher)
+	require.NoError(t, err)
+	_, err = stateDB.RegisterHashListener(recordStateHash(&stateHashes))
 	require.NoError(t, err)
 	commitStateBlocks(t, stateDB, 1, through)
 	require.NoError(t, stateDB.SC().FlushHashes())
 	require.NoError(t, stateDB.Close())
-	return hashes
+	require.NoError(t, budHasher.Close())
+	return stateHashes, budHashes
 }
 
-// writeAppHashes stores app hashes for blocks 1 through through in cfg's app hash vault, each carrying the state
-// hash committing evmBlock(block, block) for every block up to it leaves.
+// recordStateHash returns a hash listener that appends each block's state hash to hashes.
+func recordStateHash(hashes *[][32]byte) func(context.Context, int64, *lthash.BlockHash) error {
+	return func(_ context.Context, _ int64, hash *lthash.BlockHash) error {
+		*hashes = append(*hashes, hash.Global.Checksum())
+		return nil
+	}
+}
+
+// recordBUDHash returns a BUD hasher report function that appends each block's BUD hash to hashes.
+func recordBUDHash(hashes *[][32]byte) func(context.Context, uint64, [32]byte) error {
+	return func(_ context.Context, _ uint64, budHash [32]byte) error {
+		*hashes = append(*hashes, budHash)
+		return nil
+	}
+}
+
+// writeAppHashes stores the app hashes of blocks 1 through through in cfg's app hash vault, as executing
+// evmBlock(block, block) for each of them with no receipts leaves them.
 func writeAppHashes(t *testing.T, cfg *config.GigaStorageConfig, through byte) {
 	t.Helper()
-	appendAppHashes(t, cfg, canonicalStateHashes(t, through))
+	stateHashes, budHashes := canonicalHashes(t, through)
+	appendAppHashes(t, cfg, stateHashes, budHashes)
 }
 
 // appendAppHashes stores an app hash for each of blocks 1 through len(stateHashes) in cfg's app hash vault. Block
-// i+1's record carries stateHashes[i]; every other hash it holds is a function of its height alone.
-func appendAppHashes(t *testing.T, cfg *config.GigaStorageConfig, stateHashes [][32]byte) {
+// i+1's record carries stateHashes[i] and budHashes[i], and the receipt hash of a block with no receipts; its block
+// hash is a function of its height alone.
+func appendAppHashes(t *testing.T, cfg *config.GigaStorageConfig, stateHashes [][32]byte, budHashes [][32]byte) {
 	t.Helper()
+	noReceipts, err := receipthash.ComputeReceiptHash(nil)
+	require.NoError(t, err)
 	appHashConfig := cfg.AppHashBuilderConfig
 	hashVault, err := vault.NewStandardHashVault(
 		appHashConfig.HashVaultConfig, appHashConfig.ChainID, appHashConfig.GigaActivationHeight)
@@ -240,7 +261,7 @@ func appendAppHashes(t *testing.T, cfg *config.GigaStorageConfig, stateHashes []
 	for i, stateHash := range stateHashes {
 		height := uint64(i) + 1 //nolint:gosec // small test heights
 		record := apphash.NewAppHashData(appHashConfig.ChainID, height, testBlockHash(height), stateHash,
-			apphash.BUDHash{}, apphash.ReceiptHash{}, previous)
+			apphash.BUDHash(budHashes[i]), noReceipts, previous)
 		records = append(records, record)
 		previous = record.AppHash()
 	}

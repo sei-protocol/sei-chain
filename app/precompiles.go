@@ -19,8 +19,6 @@ type PrecompileKeepers struct {
 	putils.EVMKeeper
 	putils.AccountKeeper
 	putils.AuthQuerier
-	putils.AuthzMsgServer
-	putils.AuthzQuerier
 	putils.WasmdKeeper
 	putils.WasmdViewKeeper
 	putils.StakingKeeper
@@ -48,8 +46,6 @@ func NewPrecompileKeepers(a *App) *PrecompileKeepers {
 		EVMKeeper:           &a.EvmKeeper,
 		AccountKeeper:       a.AccountKeeper,
 		AuthQuerier:         a.AccountKeeper,
-		AuthzMsgServer:      a.AuthzKeeper,
-		AuthzQuerier:        a.AuthzKeeper,
 		WasmdKeeper:         wasmkeeper.NewDefaultPermissionKeeper(a.WasmKeeper),
 		WasmdViewKeeper:     a.WasmKeeper,
 		StakingKeeper:       stakingkeeper.NewMsgServerImpl(a.StakingKeeper),
@@ -76,8 +72,6 @@ func (pk *PrecompileKeepers) BankQ() putils.BankQuerier                { return 
 func (pk *PrecompileKeepers) EVMK() putils.EVMKeeper                   { return pk.EVMKeeper }
 func (pk *PrecompileKeepers) AccountK() putils.AccountKeeper           { return pk.AccountKeeper }
 func (pk *PrecompileKeepers) AuthQ() putils.AuthQuerier                { return pk.AuthQuerier }
-func (pk *PrecompileKeepers) AuthzMS() putils.AuthzMsgServer           { return pk.AuthzMsgServer }
-func (pk *PrecompileKeepers) AuthzQ() putils.AuthzQuerier              { return pk.AuthzQuerier }
 func (pk *PrecompileKeepers) WasmdK() putils.WasmdKeeper               { return pk.WasmdKeeper }
 func (pk *PrecompileKeepers) WasmdVK() putils.WasmdViewKeeper          { return pk.WasmdViewKeeper }
 func (pk *PrecompileKeepers) StakingK() putils.StakingKeeper           { return pk.StakingKeeper }

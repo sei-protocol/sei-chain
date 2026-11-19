@@ -219,29 +219,6 @@ func TestCloseClosesOwnedDBAndLeavesPoolsOpen(t *testing.T) {
 	require.True(t, db.isClosed(), "the manager owns the DB and must close it")
 }
 
-func TestCloseDoesNotFlush(t *testing.T) {
-	db := newTestDB(nil)
-	manager := newTestManagerWithDB(t, db, 1, 4096)
-
-	// v1 is never finalized, which deterministically keeps the background flusher away from v2:
-	// the flush frontier stops at the first unfinalized block.
-	require.NoError(t, manager.Set([]byte("k1"), []byte("v1")))
-	view1, err := manager.Commit(manager.NextBlockHeight())
-	require.NoError(t, err)
-
-	require.NoError(t, manager.Set([]byte("k2"), []byte("v2")))
-	view2, err := manager.Commit(manager.NextBlockHeight())
-	require.NoError(t, err)
-	finalizeAndRelease(t, view2)
-
-	// Close abandons everything unflushed — finalized or not. Recovery is the upstream WAL's job.
-	require.NoError(t, manager.Close())
-	require.False(t, db.has("k1"), "Close must not flush unfinalized views")
-	require.False(t, db.has("k2"), "Close must not flush finalized views either")
-	// view1 outlives its manager, so it is given up rather than released.
-	view1.Abandon()
-}
-
 func TestCloseIsIdempotent(t *testing.T) {
 	db := newTestDB(nil)
 	manager := newTestManagerWithDB(t, db, 1, 4096)

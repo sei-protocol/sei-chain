@@ -115,3 +115,18 @@ func TestReceiptHasherRefusesAnInvalidConfig(t *testing.T) {
 	_, err := NewReceiptHasher(t.Context(), ReceiptHasherConfig{BufferSize: 0}, report)
 	require.ErrorContains(t, err, "buffer size must be positive")
 }
+
+// Flush() returns only once every block submitted before it has been reported, and leaves the hasher running.
+func TestReceiptHasherFlushReportsEveryBlockAndKeepsRunning(t *testing.T) {
+	report, reported := recordReports(3)
+	hasher := newReceiptHasher(t, 3, report)
+
+	require.NoError(t, hasher.Submit(t.Context(), 10, specReceipts()[:1]))
+	require.NoError(t, hasher.Submit(t.Context(), 11, nil))
+	require.NoError(t, hasher.Flush(t.Context()))
+	require.Len(t, reported, 2)
+
+	require.NoError(t, hasher.Submit(t.Context(), 12, specReceipts()))
+	require.NoError(t, hasher.Close())
+	require.Len(t, reported, 3)
+}

@@ -11,7 +11,6 @@ import "fmt"
 // of them would break existing state.
 const (
 	AuthStoreKey         = "acc"          // sei-cosmos/x/auth/types.StoreKey
-	AuthzStoreKey        = "authz"        // sei-cosmos/x/authz/keeper.StoreKey
 	BankStoreKey         = "bank"         // sei-cosmos/x/bank/types.StoreKey
 	StakingStoreKey      = "staking"      // sei-cosmos/x/staking/types.StoreKey
 	MintStoreKey         = "mint"         // x/mint/types.StoreKey
@@ -32,7 +31,6 @@ const (
 // app/app.go). Keep this list in sync with that call site.
 var MemIAVLStoreKeys = []string{
 	AuthStoreKey,
-	AuthzStoreKey,
 	BankStoreKey,
 	StakingStoreKey,
 	MintStoreKey,

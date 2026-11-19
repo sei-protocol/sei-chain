@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
@@ -243,23 +244,29 @@ func alignStores(ctx context.Context, cfg *config.GigaStorageConfig, target uint
 		return nil
 	}
 	logger.Info("Aligning the stores on the recovery target", "target", target)
+	timer := dbutils.NewLoggingPhaseTimer(logger)
 
+	timer.SetPhase("live_state_db")
 	if err := flatkv.RollBackLiveStateDB(cfg.FlatKVConfig, target); err != nil {
 		return fmt.Errorf("roll back the live state DB: %w", err)
 	}
 	if cfg.SSConfig.Enable {
+		timer.SetPhase("historical_state_db")
 		if err := undo.DiscardStateAbove(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig, target); err != nil {
 			return fmt.Errorf("roll back the historical state DB: %w", err)
 		}
 	}
+	timer.SetPhase("state_wal")
 	if err := statewal.PruneAfter(flatkv.StateWALConfig(cfg.FlatKVConfig.DataDir), target); err != nil {
 		return fmt.Errorf("roll back the state WAL: %w", err)
 	}
 	if cfg.ReceiptDBConfig.Enable {
+		timer.SetPhase("receipt_store")
 		if err := gigareceipt.PruneAfter(cfg.ReceiptDBConfig, target); err != nil {
 			return fmt.Errorf("roll back the receipt store: %w", err)
 		}
 	}
+	timer.Log("Aligned the stores", "target", target)
 	return nil
 }
 

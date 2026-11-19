@@ -99,9 +99,10 @@ type littReceiptStore struct {
 	// Breaks a write into its stages. Only the writer goroutine records, so one timer serves the store.
 	writePhases *seidbmetrics.PhaseTimer
 
-	// Receipt writes waiting to be applied, and the meter for time spent waiting on a full queue. A
-	// whole write is queued, so the depth is the receipt write's own. Nil means writes apply inline.
-	writes chan receiptWrite
+	// Messages waiting for the writer, each a receiptWrite or a receiptWriteBarrier; writeQueue meters time
+	// spent waiting on a full queue. A whole write is queued, so the depth is the receipt write's own. Nil means
+	// writes apply inline.
+	writes chan any
 
 	// Orders admitting a write against shutting the writer down, so none is accepted into a queue
 	// that will not be drained. queueWrite holds it shared; Close takes it exclusively.
@@ -117,6 +118,12 @@ type littReceiptStore struct {
 type receiptWrite struct {
 	height   int64
 	receipts []receipt.ReceiptRecord
+}
+
+// receiptWriteBarrier is sent by Flush().
+type receiptWriteBarrier struct {
+	// Closed once every write queued ahead of the barrier is applied.
+	done chan struct{}
 }
 
 // writeQueueSampleIntervalSeconds is how often the write queue's depth is read. Sampling on a timer
@@ -259,7 +266,7 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	receiptMeter := otel.Meter("seidb_receipt")
 	s.writePhases = seidbmetrics.NewPhaseTimer(receiptMeter, "receipt_store_write")
 	if cfg.AsyncWriteBuffer > 0 {
-		s.writes = make(chan receiptWrite, cfg.AsyncWriteBuffer)
+		s.writes = make(chan any, cfg.AsyncWriteBuffer)
 		s.writeQueue = seidbmetrics.NewQueueMeter(receiptMeter, "receipt_write")
 		s.startWriter()
 
@@ -398,12 +405,26 @@ func (s *littReceiptStore) SetReceipts(ctx sdk.Context, receipts []receipt.Recei
 	return s.queueWrite(receiptWrite{height: ctx.BlockHeight(), receipts: receipts})
 }
 
+func (s *littReceiptStore) Flush() error {
+	if s.writes != nil {
+		done := make(chan struct{})
+		if err := s.queueWrite(receiptWriteBarrier{done: done}); err != nil {
+			return fmt.Errorf("queue a write barrier: %w", err)
+		}
+		<-done
+	}
+	// The last write the writer applied may still be committing its index batch.
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.awaitIndexCommit()
+}
+
 // ErrStoreClosed is returned by a write the store can no longer apply, the writer having stopped.
 var ErrStoreClosed = errors.New("receipt store is closed")
 
-// queueWrite hands a write to the writer, waiting for room when the queue is full and refusing once
-// the store is closing.
-func (s *littReceiptStore) queueWrite(write receiptWrite) error {
+// queueWrite hands a receiptWrite or receiptWriteBarrier to the writer, waiting for room when the queue is full
+// and refusing once the store is closing.
+func (s *littReceiptStore) queueWrite(message any) error {
 	// Held across the send, not merely to read the flag: Close takes it exclusively before stopping
 	// the writer, so a write admitted here always reaches a writer that is still running.
 	s.admission.RLock()
@@ -411,7 +432,7 @@ func (s *littReceiptStore) queueWrite(write receiptWrite) error {
 	if s.closing {
 		return ErrStoreClosed
 	}
-	seidbmetrics.Send(s.writeQueue, s.writes, write)
+	seidbmetrics.Send(s.writeQueue, s.writes, message)
 	return nil
 }
 
@@ -709,15 +730,24 @@ func (s *littReceiptStore) startWriter() {
 	}()
 }
 
-// applyWrite performs one queued write, keeping the first failure for its callers to collect.
+// applyWrite handles one queued message, keeping the first write failure for its callers to collect.
 // Nothing is applied after a failure: a later block carries its own version marker and would publish
 // a head above one whose receipts were never written.
-func (s *littReceiptStore) applyWrite(write receiptWrite) {
-	if s.writeFailure() != nil {
-		return
-	}
-	if err := s.applyReceipts(write.height, write.receipts); err != nil {
-		logger.Error("failed to write receipts", "height", write.height, "err", err)
+func (s *littReceiptStore) applyWrite(message any) {
+	switch m := message.(type) {
+	case receiptWriteBarrier:
+		close(m.done)
+	case receiptWrite:
+		if s.writeFailure() != nil {
+			return
+		}
+		if err := s.applyReceipts(m.height, m.receipts); err != nil {
+			logger.Error("failed to write receipts", "height", m.height, "err", err)
+			s.writeErr.CompareAndSwap(nil, &err)
+		}
+	default:
+		err := fmt.Errorf("unknown receipt writer message %T", message)
+		logger.Error("receipt writer failed", "err", err)
 		s.writeErr.CompareAndSwap(nil, &err)
 	}
 }

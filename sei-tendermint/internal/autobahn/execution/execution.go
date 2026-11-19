@@ -15,7 +15,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "autobahn", "execution")
 
 // Config configures an Executor.
 type Config struct {
@@ -51,7 +54,8 @@ func (e *Executor) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
 }
 
 // Run initializes the app, then executes the durable blocks after its tip in
-// road order until ctx is canceled or a block fails.
+// road order until ctx is canceled or a block fails. A cancel does not
+// interrupt a block in progress.
 func (e *Executor) Run(ctx context.Context) error {
 	next, err := e.initApp(ctx)
 	if err != nil {
@@ -61,13 +65,28 @@ func (e *Executor) Run(ctx context.Context) error {
 		gigametrics.SetPhase(gigametrics.PhaseConsensus)
 		block, err := e.cfg.BlockStore.WaitForBlock(ctx, n)
 		if err != nil {
+			logStopped(n-1, false)
 			return fmt.Errorf("WaitForBlock(%v): %w", n, err)
 		}
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		if err := e.executeBlock(ctx, block.SuperBlock()); err != nil {
+		if err := e.executeBlock(block.SuperBlock()); err != nil {
 			return fmt.Errorf("executeBlock(%v): %w", n, err)
 		}
+		if err := ctx.Err(); err != nil {
+			logStopped(n, true)
+			return fmt.Errorf("stopped after block %v: %w", n, err)
+		}
 	}
+}
+
+// logStopped reports where execution stopped on a cancel.
+func logStopped(
+	// The last block executed.
+	lastExecuted atypes.RoadIndex,
+	// Whether the cancel arrived while that block was executing.
+	blockInFlight bool,
+) {
+	logger.Info("Execution stopped", "last_executed", lastExecuted, "block_in_flight", blockInFlight)
 }
 
 // initApp brings the app to a state execution can extend: InitChain on a fresh
@@ -126,8 +145,10 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadHeight, error) {
 }
 
 // executeBlock reports b's hash to the app hash builder, then finalizes and
-// commits b.
-func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error {
+// commits b. A cancel does not interrupt it.
+func (e *Executor) executeBlock(b *atypes.SuperBlock) error {
+	// A cancel must not abort a block after some stores have taken its writes.
+	ctx := context.Background()
 	if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
 		return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 	}
