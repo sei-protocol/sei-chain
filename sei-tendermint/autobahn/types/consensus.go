@@ -70,13 +70,13 @@ var ConsensusMsgConv = protoutils.Conv[ConsensusMsg, *pb.ConsensusMsg]{
 		case *pb.ConsensusMsg_PrepareVoteV3:
 			vote, err := SignedPrepareVoteConv.DecodeReq(t.PrepareVoteV3)
 			if err != nil {
-				return nil, fmt.Errorf("prepareVote: %w", err)
+				return nil, fmt.Errorf("prepare_vote_v3: %w", err)
 			}
 			return &ConsensusMsgPrepareVote{vote}, nil
 		case *pb.ConsensusMsg_CommitVoteV3:
 			vote, err := SignedCommitVoteConv.DecodeReq(t.CommitVoteV3)
 			if err != nil {
-				return nil, fmt.Errorf("commitVote: %w", err)
+				return nil, fmt.Errorf("commit_vote_v3: %w", err)
 			}
 			return &ConsensusMsgCommitVote{vote}, nil
 		case *pb.ConsensusMsg_TimeoutVote:

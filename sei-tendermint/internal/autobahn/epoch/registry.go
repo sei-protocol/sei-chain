@@ -11,37 +11,42 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// epochLength is the number of road indices per epoch.
-// TODO: move on-chain when epoch length becomes configurable.
-const epochLength types.RoadIndex = 108_000
+// DefaultEpochLength is the default number of road blocks per epoch.
+const DefaultEpochLength types.RoadHeight = 108_000
 
 // Registry stores the retained execution-derived epochs.
 type Registry struct {
-	firstRoad        types.RoadIndex
+	firstHeight      types.RoadHeight
+	epochLength      types.RoadHeight
 	genesisTimestamp time.Time
 	state            utils.Mutex[*utils.AtomicSend[*persistedRegistry]]
 	stateRecv        utils.AtomicRecv[*persistedRegistry]
 	persister        persist.Persister[*pb.PersistedEpochRegistry]
 }
 
-// NewRegistry opens a registry using the genesis committee, road origin, and timestamp.
+// NewRegistry opens a registry using the genesis committee, road origin, timestamp, and epoch length.
 // Without persisted state it starts with epochs 0 and 1. stateDir None disables persistence.
 func NewRegistry(
 	committee *types.Committee,
-	firstRoad types.RoadIndex,
+	firstHeight types.RoadHeight,
 	genesisTimestamp time.Time,
+	epochLength types.RoadHeight,
 	stateDir utils.Option[string],
 ) (*Registry, error) {
+	if epochLength == 0 {
+		return nil, fmt.Errorf("epoch length must be greater than 0")
+	}
 	persister, loaded, err := openEpochSnapshot(stateDir)
 	if err != nil {
 		return nil, err
 	}
 	r := &Registry{
-		firstRoad:        firstRoad,
+		firstHeight:      firstHeight,
+		epochLength:      epochLength,
 		genesisTimestamp: genesisTimestamp,
 		persister:        persister,
 	}
-	state := newGenesisRegistry(committee, firstRoad)
+	state := newGenesisRegistry(committee, firstHeight, epochLength)
 	if raw, ok := loaded.Get(); ok {
 		if state, err = persistedRegistryConv.DecodeReq(raw); err != nil {
 			return nil, fmt.Errorf("restore epoch snapshot: %w", err)
@@ -70,25 +75,25 @@ func NewRegistry(
 }
 
 func (r *Registry) roadRange(idx types.EpochIndex) types.RoadRange {
-	first := r.firstRoad + types.RoadIndex(idx)*epochLength
-	return types.RoadRange{First: first, Next: first + epochLength}
+	first := r.firstHeight + types.RoadHeight(idx)*r.epochLength
+	return types.RoadRange{First: first, Next: first + r.epochLength}
 }
 
-// LastRoad returns the last road index of epoch idx.
-func (r *Registry) LastRoad(idx types.EpochIndex) types.RoadIndex {
+// LastRoad returns the last road height of epoch idx.
+func (r *Registry) LastRoad(idx types.EpochIndex) types.RoadHeight {
 	return r.roadRange(idx).Next - 1
 }
 
 // IndexForRoad returns the epoch index containing road. Road must not precede
 // the genesis epoch's road range.
-func (r *Registry) IndexForRoad(road types.RoadIndex) types.EpochIndex {
-	return types.EpochIndex((road - r.firstRoad) / epochLength)
+func (r *Registry) IndexForRoad(road types.RoadHeight) types.EpochIndex {
+	return types.EpochIndex((road - r.firstHeight) / r.epochLength)
 }
 
 // ClosingEpoch returns the epoch that road ends, if road is that epoch's last
 // road. Otherwise None.
-func (r *Registry) ClosingEpoch(road types.RoadIndex) utils.Option[types.EpochIndex] {
-	if road < r.firstRoad {
+func (r *Registry) ClosingEpoch(road types.RoadHeight) utils.Option[types.EpochIndex] {
+	if road < r.firstHeight {
 		return utils.None[types.EpochIndex]()
 	}
 	idx := r.IndexForRoad(road)
@@ -116,13 +121,13 @@ func (r *Registry) Epoch(idx types.EpochIndex) (*types.Epoch, error) {
 	return s.live[idx], nil
 }
 
-// EpochAt returns the registered epoch containing roadIndex.
-func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
-	firstRoad := r.firstRoad
-	if roadIndex < firstRoad {
-		return nil, fmt.Errorf("road %d: %w", roadIndex, types.ErrPruned)
+// EpochAt returns the registered epoch containing height.
+func (r *Registry) EpochAt(height types.RoadHeight) (*types.Epoch, error) {
+	firstHeight := r.firstHeight
+	if height < firstHeight {
+		return nil, fmt.Errorf("road %d: %w", height, types.ErrPruned)
 	}
-	return r.Epoch(r.IndexForRoad(roadIndex))
+	return r.Epoch(r.IndexForRoad(height))
 }
 
 // commit persists and publishes next. Persistence failure leaves the current snapshot unchanged.
@@ -136,7 +141,7 @@ func (r *Registry) commit(state *utils.AtomicSend[*persistedRegistry], next *per
 
 // TryPushEpoch derives and persists the next epoch when n closes the required execution epoch.
 // Earlier roads are ignored; roads beyond the required boundary return an error.
-func (r *Registry) TryPushEpoch(n types.RoadIndex, weights map[types.PublicKey]uint64) error {
+func (r *Registry) TryPushEpoch(n types.RoadHeight, weights map[types.PublicKey]uint64) error {
 	for state := range r.state.Lock() {
 		s := state.Load()
 		if next, err := s.tryPushEpoch(n, weights); err != nil {

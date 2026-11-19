@@ -43,7 +43,7 @@ func (c *Config) maxConcurrentCheckTx() int {
 const minTxGas = 21000
 
 func (c *Config) maxTxsPerBlock() uint64 {
-	return min(types.MaxTxsPerBlock, c.MaxTxsPerBlock)
+	return min(types.MaxTxsPerLaneBlock, c.MaxTxsPerBlock)
 }
 
 // State is the block producer state.

@@ -81,11 +81,11 @@ func writeBlockLedger(t *testing.T, cfg *config.GigaStorageConfig, through uint6
 	require.NoError(t, err)
 	defer func() { require.NoError(t, blockStore.Close()) }()
 	rng := utils.TestRng()
-	for index := autobahn.RoadIndex(1); index <= autobahn.RoadIndex(through); index++ {
-		block := autobahn.GenBlock(rng)
-		qc := autobahn.GenFullCommitQCAt(rng, index, 1)
-		qc = autobahn.NewFullCommitQC(qc.QC(), []*autobahn.BlockHeader{block.Header()})
-		require.NoError(t, blockStore.WriteBlock(autobahn.NewRoadBlock(qc, []*autobahn.Block{block})))
+	for height := autobahn.RoadHeight(1); height <= autobahn.RoadHeight(through); height++ {
+		block := autobahn.GenLaneBlock(rng)
+		qc := autobahn.GenFullCommitQCAt(rng, height, 1)
+		qc = autobahn.NewFullCommitQC(qc.QC(), []*autobahn.LaneBlockHeader{block.Header()})
+		require.NoError(t, blockStore.WriteBlock(autobahn.NewRoadBlock(qc, []*autobahn.LaneBlock{block})))
 	}
 }
 

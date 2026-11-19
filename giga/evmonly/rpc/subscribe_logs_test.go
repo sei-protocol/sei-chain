@@ -32,7 +32,7 @@ func newLogsSubscriptionFixture(t *testing.T, limits gigaconfig.RPCConfig) *logs
 	t.Helper()
 	fx := &logsSubscriptionFixture{
 		pollFixture: newPollFixture(t),
-		executed:    utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: 9})),
+		executed:    utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Height: 9})),
 	}
 	backend := fx.api.backend.(*testBackend)
 	backend.executedBlocks = func() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
@@ -53,7 +53,7 @@ func newLogsSubscriptionFixture(t *testing.T, limits gigaconfig.RPCConfig) *logs
 func (fx *logsSubscriptionFixture) execute(t *testing.T) uint64 {
 	t.Helper()
 	height := fx.commit(t)
-	fx.executed.Store(fx.executed.Load().Push(atypes.ExecutedBlock{Number: atypes.RoadIndex(height)}))
+	fx.executed.Store(fx.executed.Load().Push(atypes.ExecutedBlock{Height: atypes.RoadHeight(height)}))
 	return height
 }
 
@@ -122,7 +122,7 @@ func TestLogsSubscriptionWaitsForIndexedReceipts(t *testing.T) {
 	t.Cleanup(sub.Unsubscribe)
 
 	// Block 10 executes before its receipts are indexed.
-	fx.executed.Store(fx.executed.Load().Push(atypes.ExecutedBlock{Number: 10}))
+	fx.executed.Store(fx.executed.Load().Push(atypes.ExecutedBlock{Height: 10}))
 	time.Sleep(2 * logsRetryInterval)
 	fx.commit(t)
 	require.Equal(t, []uint64{10}, receiveLogBlocks(t, sub, logs, 1))
