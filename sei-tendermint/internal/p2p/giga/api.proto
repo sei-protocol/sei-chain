@@ -21,16 +21,16 @@ message PingResp {
 
 message LaneVote {
   option (wireguard.sized) = true;
-  reserved "lane_vote";
-  reserved 1;
-  autobahn.SignedBlockHeader lane_vote_v2 = 2;
+  reserved "lane_vote", "lane_vote_v2";
+  reserved 1, 2;
+  autobahn.SignedLaneBlockHeader lane_vote_v3 = 3;
 }
 
 message LaneProposal {
   option (wireguard.sized) = true;
-  reserved "lane_proposal";
-  reserved 1;
-  autobahn.SignedBlock lane_proposal_v2 = 2;
+  reserved "lane_proposal", "lane_proposal_v2";
+  reserved 1, 2;
+  autobahn.SignedLaneBlock lane_proposal_v3 = 3;
 }
 
 message AppVote {
@@ -41,8 +41,10 @@ message AppVote {
 }
 
 message StreamLaneProposalsReq {
+  reserved "first_block_number";
+  reserved 1;
   option (wireguard.sized) = true;
-  uint64 first_block_number = 1;
+  uint64 first_height = 3;
   optional autobahn.LaneID lane_id = 2; // required
 }
 
@@ -66,8 +68,10 @@ message GetBlockReq {
 }
 
 message GetBlockResp {
+  reserved "block";
+  reserved 1;
   option (wireguard.sized) = true;
-  optional autobahn.Block block = 1;
+  optional autobahn.LaneBlock block_v2 = 2;
 }
 
 message StreamFullCommitQCsReq {

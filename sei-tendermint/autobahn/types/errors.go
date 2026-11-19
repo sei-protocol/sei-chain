@@ -5,8 +5,8 @@ import "errors"
 // ErrNotFound indicates that requested data is not yet available.
 var ErrNotFound = errors.New("not found")
 
-// ErrUnexpectedIndex indicates a repeated, skipped, stale, or unrepresentable write index.
-var ErrUnexpectedIndex = errors.New("unexpected road index")
+// ErrUnexpectedHeight indicates a repeated, skipped, stale, or unrepresentable write height.
+var ErrUnexpectedHeight = errors.New("unexpected road height")
 
 // ErrMissingQC indicates that an application proposal has no stored CommitQC.
 var ErrMissingQC = errors.New("missing CommitQC")

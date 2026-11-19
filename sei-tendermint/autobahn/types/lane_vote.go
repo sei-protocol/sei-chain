@@ -11,16 +11,16 @@ import (
 // LaneVote .
 type LaneVote struct {
 	utils.ReadOnly
-	header *BlockHeader
+	header *LaneBlockHeader
 }
 
 // NewLaneVote creates a new LaneVote.
-func NewLaneVote(header *BlockHeader) *LaneVote {
+func NewLaneVote(header *LaneBlockHeader) *LaneVote {
 	return &LaneVote{header: header}
 }
 
 // Header .
-func (m *LaneVote) Header() *BlockHeader { return m.header }
+func (m *LaneVote) Header() *LaneBlockHeader { return m.header }
 
 // Verify verifies that the LaneVote is consistent with the Committee.
 func (m *LaneVote) Verify(c *Committee) error {
@@ -28,12 +28,12 @@ func (m *LaneVote) Verify(c *Committee) error {
 }
 
 // LaneVoteConv is the protobuf converter for LaneVote.
-var LaneVoteConv = protoutils.Conv[*LaneVote, *pb.BlockHeader]{
-	Encode: func(m *LaneVote) *pb.BlockHeader {
-		return BlockHeaderConv.Encode(m.header)
+var LaneVoteConv = protoutils.Conv[*LaneVote, *pb.LaneBlockHeader]{
+	Encode: func(m *LaneVote) *pb.LaneBlockHeader {
+		return LaneBlockHeaderConv.Encode(m.header)
 	},
-	Decode: func(m *pb.BlockHeader) (*LaneVote, error) {
-		header, err := BlockHeaderConv.DecodeReq(m)
+	Decode: func(m *pb.LaneBlockHeader) (*LaneVote, error) {
+		header, err := LaneBlockHeaderConv.DecodeReq(m)
 		if err != nil {
 			return nil, fmt.Errorf("header: %w", err)
 		}

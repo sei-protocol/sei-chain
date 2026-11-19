@@ -15,14 +15,14 @@ import (
 func TestLaneBlockRoundTrip(t *testing.T) {
 	rng := utils.TestRngFromSeed(1)
 	for range 16 {
-		blk := types.GenBlock(rng)
-		value := types.BlockConv.Marshal(blk)
-		decoded, err := types.BlockConv.Unmarshal(value)
+		blk := types.GenLaneBlock(rng)
+		value := types.LaneBlockConv.Marshal(blk)
+		decoded, err := types.LaneBlockConv.Unmarshal(value)
 		require.NoError(t, err)
 		// Header hash uniquely identifies a block; equal hash => same block.
 		require.Equal(t, blk.Header().Hash(), decoded.Header().Hash())
 		// Re-encoding the decoded block must reproduce the same bytes.
-		require.Equal(t, value, types.BlockConv.Marshal(decoded))
+		require.Equal(t, value, types.LaneBlockConv.Marshal(decoded))
 	}
 }
 
@@ -41,7 +41,7 @@ func TestQCRoundTrip(t *testing.T) {
 func TestDecodeRejectsGarbage(t *testing.T) {
 	// Invalid bytes must surface an error rather than a partial value.
 	garbage := []byte{0xff, 0xff, 0xff, 0xff}
-	_, blockErr := types.BlockConv.Unmarshal(garbage)
+	_, blockErr := types.LaneBlockConv.Unmarshal(garbage)
 	require.Error(t, blockErr)
 	_, qcErr := types.FullCommitQCConv.Unmarshal(garbage)
 	require.Error(t, qcErr)
@@ -51,10 +51,10 @@ func TestDecodeBlockRejectsInconsistentMetadata(t *testing.T) {
 	for _, field := range []string{"index", "hash"} {
 		t.Run(field, func(t *testing.T) {
 			rng := utils.TestRngFromSeed(3)
-			lane := types.GenBlock(rng)
+			lane := types.GenLaneBlock(rng)
 			qc := types.GenFullCommitQCAt(rng, 3, 1)
-			qc = types.NewFullCommitQC(qc.QC(), []*types.BlockHeader{lane.Header()})
-			record := encodeBlock(types.NewRoadBlock(qc, []*types.Block{lane}))
+			qc = types.NewFullCommitQC(qc.QC(), []*types.LaneBlockHeader{lane.Header()})
+			record := encodeBlock(types.NewRoadBlock(qc, []*types.LaneBlock{lane}))
 			_, err := decodeBlock(record.Value)
 			require.NoError(t, err)
 			switch field {
@@ -73,18 +73,18 @@ func TestBlockEncodingMatchesPersistedLayout(t *testing.T) {
 	for _, count := range []int{0, 1, 3} {
 		t.Run(strconv.Itoa(count), func(t *testing.T) {
 			rng := utils.TestRng()
-			lanes := make([]*types.Block, count)
-			headers := make([]*types.BlockHeader, count)
+			lanes := make([]*types.LaneBlock, count)
+			headers := make([]*types.LaneBlockHeader, count)
 			for i := range lanes {
-				lanes[i] = types.GenBlock(rng)
+				lanes[i] = types.GenLaneBlock(rng)
 				headers[i] = lanes[i].Header()
 			}
 			qc := types.GenFullCommitQCAt(rng, 7, count)
 			qc = types.NewFullCommitQC(qc.QC(), headers)
 			block := types.NewRoadBlock(qc, lanes)
 			hash := block.Header().Hash()
-			want := record{Key: (blockKey{Index: qc.Index()}).encode()}
-			want.Value = binary.BigEndian.AppendUint64(want.Value, uint64(qc.Index()))
+			want := record{Key: (blockKey{Height: qc.Height()}).encode()}
+			want.Value = binary.BigEndian.AppendUint64(want.Value, uint64(qc.Height()))
 			want.Value = append(want.Value, hash[:]...)
 			appendValue := func(value []byte, key ledgerKey) {
 				want.Value = binary.BigEndian.AppendUint32(want.Value, uint32(len(value)))
@@ -92,9 +92,9 @@ func TestBlockEncodingMatchesPersistedLayout(t *testing.T) {
 				want.Value = append(want.Value, value...)
 				want.Aliases = append(want.Aliases, &litttypes.SecondaryKey{Key: key.bytes(), Offset: offset, Length: uint32(len(value))})
 			}
-			appendValue(types.FullCommitQCConv.Marshal(qc), (qcKey{Index: qc.Index()}).encode())
+			appendValue(types.FullCommitQCConv.Marshal(qc), (qcKey{Height: qc.Height()}).encode())
 			for i, lane := range lanes {
-				appendValue(types.BlockConv.Marshal(lane), (laneBlockKey{Index: qc.Index(), Offset: uint64(i)}).encode())
+				appendValue(types.LaneBlockConv.Marshal(lane), (laneBlockKey{Height: qc.Height(), Offset: uint64(i)}).encode())
 			}
 			want.Aliases = append(want.Aliases, &litttypes.SecondaryKey{Key: (blockHashKey{Hash: hash}).encode().bytes(), Length: uint32(len(want.Value))})
 			got := encodeBlock(block)

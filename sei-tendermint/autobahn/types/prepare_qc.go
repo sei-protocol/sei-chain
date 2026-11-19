@@ -56,7 +56,7 @@ var PrepareQCConv = protoutils.Conv[*PrepareQC, *pb.PrepareQC]{
 	Decode: func(m *pb.PrepareQC) (*PrepareQC, error) {
 		vote, err := PrepareVoteConv.DecodeReq(m.VoteV2)
 		if err != nil {
-			return nil, fmt.Errorf("vote: %w", err)
+			return nil, fmt.Errorf("vote_v2: %w", err)
 		}
 		sigs, err := SignatureConv.DecodeSlice(m.Sigs)
 		if err != nil {

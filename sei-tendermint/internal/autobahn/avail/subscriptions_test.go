@@ -38,12 +38,12 @@ func TestSubscribeLaneProposals_WaitsForPersistence(t *testing.T) {
 		defer func() { require.NoError(t, state.Close()) }()
 		lane := state.LocalLane().OrPanic("genesis")
 		var blocks []*types.Signed[*types.LaneProposal]
-		for n := range types.BlockNumber(10) {
+		for n := range types.LaneHeight(10) {
 			b, err := state.ProduceLocalBlock(lane, n, types.GenPayload(rng))
 			require.NoError(t, err)
 			blocks = append(blocks, b)
 		}
-		for _, persisted := range []types.BlockNumber{0, 3, 7} {
+		for _, persisted := range []types.LaneHeight{0, 3, 7} {
 			sub := state.SubscribeLaneProposals(lane, 0)
 			received := make([]*types.Signed[*types.LaneProposal], 0, len(blocks))
 			require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
@@ -200,7 +200,7 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 				return TestAdvanceToEpoch(ctx, stateB, allKeys, registry, want)
 			}))
 		}
-		produce := func(n types.BlockNumber) *types.Signed[*types.LaneProposal] {
+		produce := func(n types.LaneHeight) *types.Signed[*types.LaneProposal] {
 			prop, err := stateA.ProduceLocalBlock(laneA, n, types.GenPayload(rng))
 			require.NoError(t, err)
 			require.NoError(t, stateB.PushBlock(ctx, prop))
@@ -282,7 +282,7 @@ func TestBlock_WaitForFutureLane(t *testing.T) {
 				rng := utils.TestRng()
 				state := utils.OrPanic1(NewState(joiner, newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
 				defer func() { require.NoError(t, state.Close()) }()
-				want := types.Sign(joiner, types.NewLaneProposal(types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))))
+				want := types.Sign(joiner, types.NewLaneProposal(types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, types.GenPayload(rng))))
 				require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 					// PushBlock should succeed in both cases.
 					sc.Spawn(func() error { return state.PushBlock(ctx, want) })

@@ -16,7 +16,7 @@ import (
 )
 
 func TestRegistryGenesisAndLookups(t *testing.T) {
-	for _, first := range []types.RoadIndex{0, 2*epochLength + 7} {
+	for _, first := range []types.RoadHeight{0, 2*epochLength + 7} {
 		t.Run(fmt.Sprint(first), func(t *testing.T) {
 			rng := utils.TestRng()
 			committee, _, _ := genCommittee(rng, 3)
@@ -34,7 +34,7 @@ func TestRegistryGenesisAndLookups(t *testing.T) {
 				got, err = r.WaitForEpoch(t.Context(), idx)
 				require.NoError(t, err)
 				require.Equal(t, want, got)
-				for _, road := range []types.RoadIndex{roads.First, roads.Next - 1} {
+				for _, road := range []types.RoadHeight{roads.First, roads.Next - 1} {
 					got, err = r.EpochAt(road)
 					require.NoError(t, err)
 					require.Equal(t, want, got)
