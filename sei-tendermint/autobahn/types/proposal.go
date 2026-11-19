@@ -19,7 +19,7 @@ func (n ViewNumber) Next() ViewNumber { return n + 1 }
 
 // View represents a consensus view.
 type View struct {
-	Index      RoadIndex
+	Height     RoadHeight
 	Number     ViewNumber
 	EpochIndex EpochIndex
 }
@@ -29,19 +29,19 @@ func (v View) Less(b View) bool {
 	if v.EpochIndex != b.EpochIndex {
 		return v.EpochIndex < b.EpochIndex
 	}
-	if v.Index != b.Index {
-		return v.Index < b.Index
+	if v.Height != b.Height {
+		return v.Height < b.Height
 	}
 	return v.Number < b.Number
 }
 
-// Verify checks that the view's epoch index and road index are consistent with ep.
+// Verify checks that the view's epoch index and road height are consistent with ep.
 func (v View) Verify(ep *Epoch) error {
 	if got, want := v.EpochIndex, ep.EpochIndex(); got != want {
 		return fmt.Errorf("epoch_index = %d, want %d", got, want)
 	}
-	if rr := ep.RoadRange(); !rr.Has(v.Index) {
-		return fmt.Errorf("road_index %v not in epoch roads [%v, %v)", v.Index, rr.First, rr.Next)
+	if rr := ep.RoadRange(); !rr.Has(v.Height) {
+		return fmt.Errorf("height %v not in epoch roads [%v, %v)", v.Height, rr.First, rr.Next)
 	}
 	return nil
 }
@@ -53,7 +53,7 @@ func (v View) Next() View {
 }
 
 // ConsensusSpec is the durable CommitQC tip paired with the epoch of the
-// RoadIndex that follows it. CommitQC is None before the first tip; until then
+// RoadHeight that follows it. CommitQC is None before the first tip; until then
 // Epoch is genesis epoch 0. Consensus advances with a spec verbatim.
 type ConsensusSpec struct {
 	CommitQC         utils.Option[*CommitQC]
@@ -61,11 +61,11 @@ type ConsensusSpec struct {
 	GenesisTimestamp time.Time
 }
 
-// Index is the RoadIndex of the next view: CommitQC.Index()+1, or the start of
+// Height is the RoadHeight of the next view: CommitQC.Height()+1, or the start of
 // the genesis epoch if there is no tip.
-func (s ConsensusSpec) Index() RoadIndex {
+func (s ConsensusSpec) Height() RoadHeight {
 	if qc, ok := s.CommitQC.Get(); ok {
-		return qc.Index() + 1
+		return qc.Height() + 1
 	}
 	return s.Epoch.RoadRange().First
 }
@@ -75,19 +75,19 @@ func (s ConsensusSpec) Index() RoadIndex {
 type ViewSpec struct {
 	ConsensusSpec
 	// WARNING: currently we have implicit assumption that
-	// TimeoutQC.View().Index == CommitQC.Index.Next(),
+	// TimeoutQC.View().Height == CommitQC.Height.Next(),
 	// I.e. that TimeoutQC comes from the expected consensus instance.
 	TimeoutQC utils.Option[*TimeoutQC]
 }
 
 // View is the view justified by vs.
 func (vs *ViewSpec) View() View {
-	idx := vs.Index()
-	if view := NextViewOpt(vs.TimeoutQC); view.Index == idx {
+	height := vs.Height()
+	if view := NextViewOpt(vs.TimeoutQC); view.Height == height {
 		view.EpochIndex = vs.Epoch.EpochIndex()
 		return view
 	}
-	return View{Index: idx, Number: 0, EpochIndex: vs.Epoch.EpochIndex()}
+	return View{Height: height, Number: 0, EpochIndex: vs.Epoch.EpochIndex()}
 }
 
 func (vs *ViewSpec) NextTimestamp() time.Time {
@@ -124,8 +124,8 @@ type Proposal struct {
 	header     *RoadBlockHeader
 }
 
-// Index of the proposal.
-func (m *Proposal) Index() RoadIndex { return m.header.Index() }
+// Height of the proposal.
+func (m *Proposal) Height() RoadHeight { return m.header.Height() }
 
 // View of the proposal.
 func (m *Proposal) View() View { return m.header.view(m.viewNumber) }
@@ -220,10 +220,10 @@ func buildProposal(
 			// Sequencing mismatching lane ranges is the core property of autobahn, i.e.
 			// we do NOT require last hash of range in previous proposal to be parent of the first block
 			// of the range in next proposal.
-			laneRanges = append(laneRanges, NewLaneRange(lane, first, utils.None[*BlockHeader]()))
+			laneRanges = append(laneRanges, NewLaneRange(lane, first, utils.None[*LaneBlockHeader]()))
 		}
 	}
-	return &Proposal{viewNumber: viewSpec.View().Number, header: newRoadBlockHeader(viewSpec.View().EpochIndex, viewSpec.View().Index, timestamp, laneRanges)}, nil
+	return &Proposal{viewNumber: viewSpec.View().Number, header: newRoadBlockHeader(viewSpec.View().EpochIndex, viewSpec.View().Height, timestamp, laneRanges)}, nil
 }
 
 // NewProposalForTesting builds a FullProposal exactly like NewProposal but attaches the
@@ -334,14 +334,14 @@ func (m *FullProposal) Verify(vs ViewSpec, viewTimeout time.Duration) error {
 				if !ok {
 					return fmt.Errorf("missing qc for %q", r.Lane())
 				}
-				if got, want := qc.Header().BlockNumber(), r.Next()-1; got != want {
-					return fmt.Errorf("qc[%v].BlockNumber() = %v, want %v", r.Lane(), got, want)
+				if got, want := qc.Header().Height(), r.Next()-1; got != want {
+					return fmt.Errorf("qc[%v].Height() = %v, want %v", r.Lane(), got, want)
 				}
 				if got, want := qc.Header().Hash(), r.LastHash(); got != want {
 					return fmt.Errorf("qc[%v].Header().Hash() = %v, want %v", r.Lane(), got, want)
 				}
 				s.Spawn(func() error {
-					if err := qc.Verify(c); err != nil {
+					if err := qc.Verify(vs.Epoch); err != nil {
 						return fmt.Errorf("qc[%v]: %w", r.Lane(), err)
 					}
 					return nil
@@ -385,11 +385,11 @@ var FullProposalConv = protoutils.Conv[*FullProposal, *pb.FullProposal]{
 	Decode: func(m *pb.FullProposal) (*FullProposal, error) {
 		proposal, err := SignedProposalConv.DecodeReq(m.ProposalV2)
 		if err != nil {
-			return nil, fmt.Errorf("proposal: %w", err)
+			return nil, fmt.Errorf("proposal_v2: %w", err)
 		}
 		laneQCs, err := LaneQCConv.DecodeSlice(m.LaneQcs)
 		if err != nil {
-			return nil, fmt.Errorf("laneQCs: %w", err)
+			return nil, fmt.Errorf("lane_qcs: %w", err)
 		}
 		laneQCsMap := map[LaneID]*LaneQC{}
 		for _, qc := range laneQCs {
@@ -397,7 +397,7 @@ var FullProposalConv = protoutils.Conv[*FullProposal, *pb.FullProposal]{
 		}
 		timeoutQC, err := TimeoutQCConv.DecodeOpt(m.TimeoutQc)
 		if err != nil {
-			return nil, fmt.Errorf("timeoutQC: %w", err)
+			return nil, fmt.Errorf("timeout_qc: %w", err)
 		}
 		return &FullProposal{proposal: proposal, laneQCs: laneQCsMap, timeoutQC: timeoutQC}, nil
 	},

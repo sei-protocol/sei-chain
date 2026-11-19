@@ -12,7 +12,7 @@ import (
 func genPersistedInner(rng utils.Rng) *persistedInner {
 	p := &persistedInner{}
 	if rng.Intn(2) == 1 {
-		p.Index = types.RoadIndex(rng.Uint64())
+		p.Height = types.RoadHeight(rng.Uint64())
 	}
 	if rng.Intn(2) == 1 {
 		p.PrepareQC = utils.Some(types.GenPrepareQC(rng))
@@ -49,9 +49,9 @@ func TestPersistedInnerConv(t *testing.T) {
 
 func TestInnerProtoConv_Index(t *testing.T) {
 	none := innerProtoConv.Encode(&persistedInner{})
-	require.Nil(t, none.Index)
+	require.Nil(t, none.Height)
 
-	withTip := innerProtoConv.Encode(&persistedInner{Index: 5})
-	require.NotNil(t, withTip.Index)
-	require.Equal(t, uint64(5), *withTip.Index)
+	withTip := innerProtoConv.Encode(&persistedInner{Height: 5})
+	require.NotNil(t, withTip.Height)
+	require.Equal(t, uint64(5), *withTip.Height)
 }

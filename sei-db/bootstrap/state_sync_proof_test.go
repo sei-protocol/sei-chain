@@ -17,37 +17,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func notClosingRoad(types.RoadIndex) bool { return false }
+func notClosingRoad(types.RoadHeight) bool { return false }
 
 // newTestExporter returns an exporter over an empty BlockStore whose checkpoints come from
 // checkpointRoads.
-func newTestExporter(t *testing.T, checkpointRoads func() ([]types.RoadIndex, error)) *statesyncproof.Exporter {
+func newTestExporter(t *testing.T, checkpointRoads func() ([]types.RoadHeight, error)) *statesyncproof.Exporter {
 	t.Helper()
 	return statesyncproof.NewExporter(statesyncproof.ExportConfig{
 		Dir:             t.TempDir(),
 		CheckpointRoads: checkpointRoads,
 		BlockStore:      blockstore.NewTestStore(t),
-		LastAppQC:       func() utils.Option[types.RoadIndex] { return utils.None[types.RoadIndex]() },
+		LastAppQC:       func() utils.Option[types.RoadHeight] { return utils.None[types.RoadHeight]() },
 		IsClosingRoad:   notClosingRoad,
 	})
 }
 
-func noCheckpoints() ([]types.RoadIndex, error) { return nil, nil }
+func noCheckpoints() ([]types.RoadHeight, error) { return nil, nil }
 
 func TestStateSyncProofExportConfig(t *testing.T) {
 	cfg := newHome(t, nil)
 	checkpoint := filepath.Join(cfg.FlatKVConfig.DataDir, flatkv.SnapshotDirName(7))
 	require.NoError(t, os.MkdirAll(checkpoint, 0o750))
-	closingRoad := types.RoadIndex(9)
+	closingRoad := types.RoadHeight(9)
 
-	exportCfg := stateSyncProofExportConfig(cfg, blockstore.NewTestStore(t), func(road types.RoadIndex) bool {
+	exportCfg := stateSyncProofExportConfig(cfg, blockstore.NewTestStore(t), func(road types.RoadHeight) bool {
 		return road == closingRoad
 	})
 
 	require.Equal(t, filepath.Join(cfg.HomePath, "data", "state_commit", "state_sync_proofs"), exportCfg.Dir)
 	roads, err := exportCfg.CheckpointRoads()
 	require.NoError(t, err)
-	require.Equal(t, []types.RoadIndex{7}, roads)
+	require.Equal(t, []types.RoadHeight{7}, roads)
 	require.False(t, exportCfg.LastAppQC().IsPresent())
 	require.True(t, exportCfg.IsClosingRoad(closingRoad))
 	require.False(t, exportCfg.IsClosingRoad(closingRoad-1))
@@ -62,7 +62,7 @@ func TestLastAppQC(t *testing.T) {
 	withAppQC := blockstore.SuffixRange{First: 5, NextAppQC: 6, NextAppProposal: 7, NextBlock: 8}
 	got, ok := lastAppQC(utils.Some(withAppQC)).Get()
 	require.True(t, ok)
-	require.Equal(t, types.RoadIndex(5), got)
+	require.Equal(t, types.RoadHeight(5), got)
 }
 
 func TestStartStateSyncProofExportTwiceFails(t *testing.T) {
@@ -97,7 +97,7 @@ func TestStateSyncProofExportStopWaitsForActiveSweep(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	// The interval is long, so only the first sweep runs.
-	loop := startStateSyncProofExportLoop(newTestExporter(t, func() ([]types.RoadIndex, error) {
+	loop := startStateSyncProofExportLoop(newTestExporter(t, func() ([]types.RoadHeight, error) {
 		close(entered)
 		<-release
 		return nil, nil
@@ -122,7 +122,7 @@ func TestStateSyncProofExportStopWaitsForActiveSweep(t *testing.T) {
 func TestStateSyncProofExportKeepsSweepingAfterFailure(t *testing.T) {
 	var sweeps atomic.Int32
 	secondSweep := make(chan struct{})
-	loop := startStateSyncProofExportLoop(newTestExporter(t, func() ([]types.RoadIndex, error) {
+	loop := startStateSyncProofExportLoop(newTestExporter(t, func() ([]types.RoadHeight, error) {
 		switch sweeps.Add(1) {
 		case 1:
 			return nil, errors.New("list failed")

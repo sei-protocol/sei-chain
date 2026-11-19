@@ -15,12 +15,12 @@ func TestConv(t *testing.T) {
 			LaneVoteConv.Test(types.GenSigned(rng, types.GenLaneVote(rng))),
 			LaneProposalConv.Test(types.GenSigned(rng, types.GenLaneProposal(rng))),
 			AppVoteConv.Test(types.GenSigned(rng, types.GenAppVote(rng))),
-			StreamLaneProposalsReqConv.Test(&StreamLaneProposalsReq{LaneID: types.GenLaneID(rng), FirstBlockNumber: types.GenBlockNumber(rng)}),
-			GetBlockReqConv.Test(&GetBlockReq{Pos: types.LaneBlockPos{Index: types.GenRoadIndex(rng), Offset: rng.Uint64()}}),
-			GetBlockRespConv.Test(utils.None[*types.Block]()),
-			GetBlockRespConv.Test(utils.Some(types.GenBlock(rng))),
-			StreamFullCommitQCsReqConv.Test(&StreamFullCommitQCsReq{NextBlock: types.GenRoadIndex(rng)}),
-			StreamAppQCsReqConv.Test(&StreamAppQCsReq{NextBlock: types.GenRoadIndex(rng)}),
+			StreamLaneProposalsReqConv.Test(&StreamLaneProposalsReq{LaneID: types.GenLaneID(rng), FirstHeight: types.GenLaneHeight(rng)}),
+			GetBlockReqConv.Test(&GetBlockReq{Pos: types.LaneBlockPos{Height: types.GenRoadHeight(rng), Offset: rng.Uint64()}}),
+			GetBlockRespConv.Test(utils.None[*types.LaneBlock]()),
+			GetBlockRespConv.Test(utils.Some(types.GenLaneBlock(rng))),
+			StreamFullCommitQCsReqConv.Test(&StreamFullCommitQCsReq{NextBlock: types.GenRoadHeight(rng)}),
+			StreamAppQCsReqConv.Test(&StreamAppQCsReq{NextBlock: types.GenRoadHeight(rng)}),
 		))
 	}
 }

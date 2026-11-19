@@ -4,6 +4,7 @@ package app_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,8 +13,12 @@ import (
 	"github.com/sei-protocol/sei-chain/app/retiredauthz"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params"
+	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
@@ -21,11 +26,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// v6.9 removes the authz module. The store loader deletes the authz store at
-// the upgrade height, taking every outstanding grant with it, and the handler
-// deletes the authz version-map entry. No other module version and no other
-// store changes. These tests cover the handler, the refusal of every authz
-// message after the upgrade, and the upgrade on a live chain that holds a grant.
+// v6.9 removes the authz module and stores the disabled message type URLs. The
+// store loader deletes the authz store at the upgrade height, taking every
+// outstanding grant with it, and the handler deletes the authz version-map
+// entry. The params 2 to 3 migration stores the disabled message type URLs, the
+// params-module parameter that lists the messages a Cosmos transaction may not
+// carry, as an empty list. Governance refuses a change to a parameter that is
+// not stored, so before v6.9 no proposal can disable a message type. No other
+// module version and no other store changes. These tests cover the handler, the
+// refusal of every authz message after the upgrade, the stored parameter, a
+// proposal that disables MsgSend once v6.9 has run, and the upgrade on a live
+// chain that holds a grant.
 
 const (
 	v69UpgradeName       = "v6.9"
@@ -38,7 +49,14 @@ const (
 	v69SendAuthorizationTypeURL = "/cosmos.bank.v1beta1.SendAuthorization"
 	// v69AuthzVersionBefore is the authz consensus version v6.8 records.
 	v69AuthzVersionBefore uint64 = 1
+	// v69ParamsVersionBefore and v69ParamsVersion are the params consensus
+	// versions on either side of the upgrade.
+	v69ParamsVersionBefore uint64 = 2
+	v69ParamsVersion       uint64 = 3
 )
+
+// v69DisabledMsgTypeURLsKey is the params-store key of the disabled message type URLs.
+var v69DisabledMsgTypeURLsKey = []byte(paramstypes.ModuleName + "/" + string(paramstypes.ParamStoreKeyDisabledMsgTypeURLs))
 
 var v69PostUpgradeBankReceiver = sdk.AccAddress{
 	0x69, 0x69, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -77,14 +95,35 @@ func applyV69ToCommitStore(t *testing.T, a *processblock.App) {
 }
 
 // seedV68VersionMap records in the version map what every chain upgrading from
-// v6.8 carries beyond the modules v6.9 registers: authz at its v6.8 consensus
-// version. Like every write through the harness context, it must happen before
-// the chain's first block.
+// v6.8 carries: authz and params at their v6.8 consensus versions. Like every
+// write through the harness context, it must happen before the chain's first
+// block.
 func seedV68VersionMap(t *testing.T, a *processblock.App) {
 	t.Helper()
 	versionMap := a.UpgradeKeeper.GetModuleVersionMap(a.Ctx())
 	versionMap[retiredauthz.ModuleName] = v69AuthzVersionBefore
+	versionMap[paramstypes.ModuleName] = v69ParamsVersionBefore
 	a.UpgradeKeeper.SetModuleVersionMap(a.Ctx(), versionMap)
+}
+
+// seedV68Params records the v6.8 version map and removes the disabled message
+// type URLs from the params store, which v6.8 does not store. Like every write
+// through the harness context, it must happen before the chain's first block.
+func seedV68Params(t *testing.T, a *processblock.App) {
+	t.Helper()
+	seedV68VersionMap(t, a)
+	a.Ctx().KVStore(a.GetKey(paramstypes.StoreKey)).Delete(v69DisabledMsgTypeURLsKey)
+}
+
+func v69StoreEntries(t *testing.T, store sdk.KVStore) map[string][]byte {
+	t.Helper()
+	iterator := store.Iterator(nil, nil)
+	defer func() { require.NoError(t, iterator.Close()) }()
+	entries := map[string][]byte{}
+	for ; iterator.Valid(); iterator.Next() {
+		entries[string(iterator.Key())] = append([]byte(nil), iterator.Value()...)
+	}
+	return entries
 }
 
 func TestV69UnupgradedBinaryHaltsAtPlanHeight(t *testing.T) {
@@ -101,23 +140,28 @@ func TestV69UnupgradedBinaryHaltsAtPlanHeight(t *testing.T) {
 	require.Panics(t, func() { a.RunBlock(nil) })
 }
 
-// TestV69RemovesOnlyTheAuthzModuleVersion applies v6.9 to the version map of a
-// v6.8 chain and requires the authz entry to be gone and every other module to
-// keep its version.
-func TestV69RemovesOnlyTheAuthzModuleVersion(t *testing.T) {
+// TestV69ChangesOnlyTheAuthzAndParamsModuleVersions applies v6.9 to the version
+// map of a v6.8 chain and requires the authz entry to be gone, params to move to
+// consensus version 3, and every other module to keep its version.
+func TestV69ChangesOnlyTheAuthzAndParamsModuleVersions(t *testing.T) {
 	a := newV69Chain(t)
 	seedV68VersionMap(t, a)
 	a.RunBlock([]signing.Tx{})
 	versionsBefore := a.UpgradeKeeper.GetModuleVersionMap(a.Ctx())
 	require.Equal(t, v69AuthzVersionBefore, versionsBefore[retiredauthz.ModuleName])
+	require.Equal(t, v69ParamsVersionBefore, versionsBefore[paramstypes.ModuleName])
 
 	applyV69ToCommitStore(t, a)
 	a.RunBlock([]signing.Tx{})
 
 	versionsAfter := a.UpgradeKeeper.GetModuleVersionMap(a.Ctx())
 	require.NotContains(t, versionsAfter, retiredauthz.ModuleName)
+	require.Equal(t, v69ParamsVersion, versionsAfter[paramstypes.ModuleName])
 	delete(versionsBefore, retiredauthz.ModuleName)
-	require.Equal(t, versionsBefore, versionsAfter, "v6.9 changed a module version other than removing authz")
+	delete(versionsBefore, paramstypes.ModuleName)
+	delete(versionsAfter, paramstypes.ModuleName)
+	require.Equal(t, versionsBefore, versionsAfter,
+		"v6.9 changed a module version other than removing authz and moving params")
 	name, _ := a.UpgradeKeeper.GetLastCompletedUpgrade(a.Ctx())
 	require.Equal(t, v69UpgradeName, name)
 }
@@ -176,6 +220,53 @@ func TestV69RejectsAuthzTxsWithoutCharging(t *testing.T) {
 	}
 }
 
+// TestV69StoresTheDisabledMsgTypeURLs requires v6.9 to store the disabled
+// message type URLs as an empty list in a params store that lacks them, as v6.8
+// left it, and to change nothing else in the params store.
+func TestV69StoresTheDisabledMsgTypeURLs(t *testing.T) {
+	a := newV69Chain(t)
+	seedV68Params(t, a)
+	store := a.Ctx().KVStore(a.GetKey(paramstypes.StoreKey))
+	want := v69StoreEntries(t, store)
+	want[string(v69DisabledMsgTypeURLsKey)] = []byte("[]")
+
+	applyV69(t, a)
+
+	require.Equal(t, want, v69StoreEntries(t, store),
+		"v6.9 changed the params store beyond storing the disabled message type URLs")
+	require.Empty(t, a.ParamsKeeper.GetDisabledMsgTypeURLs(a.Ctx()))
+}
+
+// TestV69LetsGovernanceDisableMessageTypes submits a parameter change proposal
+// that disables MsgSend before and after v6.9, executes the one governance
+// accepts, and delivers a bank send.
+func TestV69LetsGovernanceDisableMessageTypes(t *testing.T) {
+	a := newV69Chain(t)
+	seedV68Params(t, a)
+	sender := a.NewSignableAccount("v69/sender")
+	a.FundAccount(sender, v69AccountBalance)
+	msgSend := sdk.MsgTypeURL(&banktypes.MsgSend{})
+	disableMsgSend := proposal.NewParameterChangeProposal("Disable MsgSend", "Bank sends move to EVM transfers",
+		[]proposal.ParamChange{proposal.NewParamChange(
+			paramstypes.ModuleName, string(paramstypes.ParamStoreKeyDisabledMsgTypeURLs), fmt.Sprintf("[%q]", msgSend),
+		)}, false)
+	_, err := a.GovKeeper.SubmitProposal(a.Ctx(), disableMsgSend)
+	require.ErrorContains(t, err, "not found in subspace params")
+
+	applyV69(t, a)
+	_, err = a.GovKeeper.SubmitProposal(a.Ctx(), disableMsgSend)
+	require.NoError(t, err)
+	require.NoError(t, params.NewParamChangeProposalHandler(a.ParamsKeeper)(a.Ctx(), disableMsgSend))
+	require.Equal(t, []string{msgSend}, a.ParamsKeeper.GetDisabledMsgTypeURLs(a.Ctx()))
+
+	results := a.RunBlockDetailed([]signing.Tx{
+		a.Sign(sender, v69TxFee, banktypes.NewMsgSend(sender, a.NewAccount(), sdk.NewCoins(sdk.NewInt64Coin("usei", 1)))),
+	})
+	require.Len(t, results, 1)
+	require.Equal(t, sdkerrors.ErrMsgTypeDisabled.ABCICode(), results[0].Code, results[0].Log)
+	require.Equal(t, sdkerrors.RootCodespace, results[0].Codespace)
+}
+
 // TestV69CrossVersion runs v6.8 validators into the v6.9 upgrade with a send
 // authorization granted on chain, and verifies the same chain after they
 // restart on v6.9.
@@ -183,14 +274,19 @@ func TestV69CrossVersion(t *testing.T) {
 	upgradetest.RunCrossVersion(t, seedV68State, verifyV69State)
 }
 
-// seedV68State records the v6.8 version map, which carries authz, and has the
-// admin account grant node_admin a send authorization that v6.8 serves.
+// seedV68State records the v6.8 version map, which carries authz and params at
+// consensus version 2, requires v6.8 not to store the disabled message type
+// URLs, and has the admin account grant node_admin a send authorization that
+// v6.8 serves.
 func seedV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v69UpgradeName, chain.UpgradeName(t))
 
 	versions := v69ModuleVersions(t, chain)
 	require.Equal(t, v69AuthzVersionBefore, versions[retiredauthz.ModuleName],
 		"v6.8 module version map does not carry authz")
+	require.Equal(t, v69ParamsVersionBefore, versions[paramstypes.ModuleName])
+	require.Empty(t, chain.QueryStore(t, paramstypes.StoreKey, v69DisabledMsgTypeURLsKey),
+		"v6.8 already stores the disabled message type URLs")
 	chain.Record(t, "module_versions", versions)
 
 	granter := chain.KeyAddress(t, "sei-node-0", "admin")
@@ -215,7 +311,9 @@ func seedV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 
 // verifyV69State requires the upgrade to have applied at the planned height on
 // every validator, the authz version-map entry, store, and query command to be
-// gone with nothing else in the version map changed, and a bank send to succeed.
+// gone, params to be at consensus version 3 with nothing else in the version map
+// changed, the disabled message type URLs to be stored as an empty list, and a
+// bank send to succeed.
 func verifyV69State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v69UpgradeName, chain.UpgradeName(t))
 
@@ -233,11 +331,15 @@ func verifyV69State(t *testing.T, chain *upgradetest.CrossVersion) {
 		want[name] = version
 	}
 	delete(want, retiredauthz.ModuleName)
+	want[paramstypes.ModuleName] = v69ParamsVersion
 	after := v69ModuleVersions(t, chain)
 	chain.Record(t, "module_versions_after", after)
-	require.Equal(t, want, after, "v6.9 changed the version map beyond removing authz")
+	require.Equal(t, want, after,
+		"v6.9 changed the version map beyond removing authz and moving params to %d", v69ParamsVersion)
 	require.Empty(t, chain.QueryStore(t, upgradetypes.StoreKey, v69ModuleVersionKey(retiredauthz.ModuleName)),
 		"v6.9 upgrade store still carries the authz version-map entry")
+	require.Equal(t, []byte("[]"), chain.QueryStore(t, paramstypes.StoreKey, v69DisabledMsgTypeURLsKey),
+		"v6.9 did not store the disabled message type URLs as an empty list")
 
 	var granter, grantee string
 	chain.Replay(t, "authz_granter", &granter)
