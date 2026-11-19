@@ -350,7 +350,7 @@ func TestRunCompletesTheBlockInFlightWhenCanceled(t *testing.T) {
 	executor := env.executor(app)
 
 	require.ErrorIs(t, executor.Run(runCtx), context.Canceled)
-	require.Equal(t, env.road(0), executor.ExecutedBlocks().Load().Latest().Number)
+	require.Equal(t, env.road(0), executor.ExecutedBlocks().Load().Latest().Height)
 	require.Equal(t, 1, len(app.finalized()))
 }
 

@@ -82,7 +82,7 @@ func (e *Executor) Run(ctx context.Context) error {
 // logStopped reports where execution stopped on a cancel.
 func logStopped(
 	// The last block executed.
-	lastExecuted atypes.RoadIndex,
+	lastExecuted atypes.RoadHeight,
 	// Whether the cancel arrived while that block was executing.
 	blockInFlight bool,
 ) {
