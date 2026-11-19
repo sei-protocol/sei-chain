@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
+	"maps"
 	"net/url"
 	"path/filepath"
 	"sort"
@@ -69,10 +71,10 @@ func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) (handshakeSp
 }
 
 // genesisCommittee returns the committee epochs 0 and 1 start from: every
-// address-book validator with weight 1.
-func genesisCommittee(validatorAddrs map[atypes.PublicKey]GigaNodeAddr) (*atypes.Committee, error) {
-	weights := make(map[atypes.PublicKey]uint64, len(validatorAddrs))
-	for k := range validatorAddrs {
+// genesis validator with weight 1.
+func genesisCommittee(validators iter.Seq[atypes.PublicKey]) (*atypes.Committee, error) {
+	weights := map[atypes.PublicKey]uint64{}
+	for k := range validators {
 		weights[k] = 1
 	}
 	committee, err := atypes.NewCommittee(weights)
@@ -80,6 +82,25 @@ func genesisCommittee(validatorAddrs map[atypes.PublicKey]GigaNodeAddr) (*atypes
 		return nil, fmt.Errorf("genesis committee: %w", err)
 	}
 	return committee, nil
+}
+
+// NewEpochRegistry returns the epoch registry of the chain that genDoc starts with validators as
+// the genesis validators. stored, when set, is the persisted epoch registry the registry opens
+// with in place of the genesis epochs.
+func NewEpochRegistry(genDoc *types.GenesisDoc, validators iter.Seq[atypes.PublicKey], stored utils.Option[[]byte]) (*epoch.Registry, error) {
+	if genDoc.InitialHeight < 1 {
+		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", genDoc.InitialHeight)
+	}
+	firstRoad := atypes.RoadIndex(genDoc.InitialHeight) // nolint:gosec // verified to be positive.
+	committee, err := genesisCommittee(validators)
+	if err != nil {
+		return nil, err
+	}
+	registry, err := epoch.NewRegistry(committee, firstRoad, genDoc.GenesisTime, stored)
+	if err != nil {
+		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
+	}
+	return registry, nil
 }
 
 // BuildDataState validates the common config, constructs the committee, and
@@ -104,14 +125,9 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store, 
 	if cfg.AppHashBuilder == nil {
 		return nil, errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
 	}
-	firstRoad := atypes.RoadIndex(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
-	genesisCommittee, err := genesisCommittee(cfg.ValidatorAddrs)
+	registry, err := NewEpochRegistry(cfg.GenDoc, maps.Keys(cfg.ValidatorAddrs), persisted)
 	if err != nil {
 		return nil, err
-	}
-	registry, err := epoch.NewRegistry(genesisCommittee, firstRoad, cfg.GenDoc.GenesisTime, persisted)
-	if err != nil {
-		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
 	ds, err := data.NewState(&data.Config{Registry: registry}, blockStore)
 	if err != nil {
