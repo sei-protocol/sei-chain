@@ -24,7 +24,7 @@ func CosmosDeliverTxAnte(
 	// charge the incoming caller/block meter.
 	authParams := accountKeeper.GetParams(ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter()))
 
-	if err := CosmosStatelessChecks(tx, ctx.BlockHeight(), ctx.ConsensusParams(), authParams); err != nil {
+	if err := CosmosStatelessChecks(tx, ctx.BlockHeight(), ctx.ConsensusParams(), authParams, pk.GetDisabledMsgTypeURLs(ctx)); err != nil {
 		return SetGasMeter(ctx, 0, pk), err
 	}
 

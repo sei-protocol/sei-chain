@@ -207,11 +207,11 @@ func makeEVMApplication(
 // evmOnlyGenesisAlloc returns the committee's evm_alloc at the genesis initial height, or None when it
 // sets none.
 func evmOnlyGenesisAlloc(fc *config.AutobahnFileConfig, genDoc *tmtypes.GenesisDoc) utils.Option[evmonlyapp.GenesisAlloc] {
-	balances, ok := fc.EVMGenesisAlloc().Get()
+	accounts, ok := fc.EVMGenesisAlloc().Get()
 	if !ok {
 		return utils.None[evmonlyapp.GenesisAlloc]()
 	}
-	return utils.Some(evmonlyapp.GenesisAlloc{InitialHeight: genDoc.InitialHeight, Balances: balances})
+	return utils.Some(evmonlyapp.GenesisAlloc{InitialHeight: genDoc.InitialHeight, Accounts: accounts})
 }
 
 func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]proxy.ValidatorUpdate, error) {

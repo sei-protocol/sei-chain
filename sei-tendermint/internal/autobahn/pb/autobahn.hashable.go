@@ -6,9 +6,10 @@ func (*Duration) IsHashable()        {}
 func (*PublicKey) IsHashable()       {}
 func (*LaneID) IsHashable()          {}
 func (*Signature) IsHashable()       {}
-func (*BlockHeader) IsHashable()     {}
+func (*LaneBlockHeader) IsHashable() {}
 func (*Payload) IsHashable()         {}
-func (*Block) IsHashable()           {}
+func (*LaneBlock) IsHashable()       {}
+func (*LaneVote) IsHashable()        {}
 func (*LaneRange) IsHashable()       {}
 func (*View) IsHashable()            {}
 func (*RoadBlockHeader) IsHashable() {}

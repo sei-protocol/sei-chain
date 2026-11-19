@@ -5,8 +5,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// AnchorFirst is the highest road index for which AppQC is persisted.
-// It it also the lowest (first) road index stored in-memory by data.State.
+// AnchorFirst is the highest road height for which AppQC is persisted.
+// It it also the lowest (first) road height stored in-memory by data.State.
 type AnchorFirst struct {
 	CommitQC *types.CommitQC
 	AppQC    *types.AppQC
@@ -19,8 +19,18 @@ type Anchor struct {
 	Epochs [2]*types.Epoch
 }
 
+// Epoch returns the retained epoch with index, or None if it is absent.
+func (a Anchor) Epoch(index types.EpochIndex) utils.Option[*types.Epoch] {
+	for _, epoch := range a.Epochs {
+		if epoch.EpochIndex() == index {
+			return utils.Some(epoch)
+		}
+	}
+	return utils.None[*types.Epoch]()
+}
+
 // EpochAt returns the anchor epoch containing road, or None if neither contains it.
-func (a Anchor) EpochAt(road types.RoadIndex) utils.Option[*types.Epoch] {
+func (a Anchor) EpochAt(road types.RoadHeight) utils.Option[*types.Epoch] {
 	for _, e := range a.Epochs {
 		if e.RoadRange().Has(road) {
 			return utils.Some(e)
@@ -37,16 +47,16 @@ func (a Anchor) CommitQC() utils.Option[*types.CommitQC] {
 	return utils.None[*types.CommitQC]()
 }
 
-// NextIndexEpoch returns the epoch containing NextIndex().
-func (a Anchor) NextIndexEpoch() *types.Epoch {
-	return a.EpochAt(a.NextIndex()).OrPanic("next index epoch missing")
+// NextHeightEpoch returns the epoch containing NextHeight().
+func (a Anchor) NextHeightEpoch() *types.Epoch {
+	return a.EpochAt(a.NextHeight()).OrPanic("next height epoch missing")
 }
 
-// NextIndex returns the road after the certified anchor, or the first epoch's
+// NextHeight returns the road after the certified anchor, or the first epoch's
 // starting road when First is absent.
-func (a Anchor) NextIndex() types.RoadIndex {
+func (a Anchor) NextHeight() types.RoadHeight {
 	if qc, ok := a.CommitQC().Get(); ok {
-		return qc.Index() + 1
+		return qc.Height() + 1
 	}
 	return a.Epochs[0].RoadRange().First
 }

@@ -294,3 +294,49 @@ func TestFeeParams(t *testing.T) {
 	require.Equal(t, sdk.DecCoins{sdk.NewDecCoinFromDec("usei", sdk.NewDecWithPrec(1, 2))}, feeParams.GlobalMinimumGasPrices)
 	require.Empty(t, feeParams.AllowedFeeDenoms)
 }
+
+// TestDisabledMsgTypeURLs stores disabled message type URLs and reads them back on a context
+// that meters parameter reads.
+func TestDisabledMsgTypeURLs(t *testing.T) {
+	_, ctx, _, _, keeper := testComponents()
+	require.Nil(t, keeper.GetDisabledMsgTypeURLs(ctx))
+
+	typeURLs := []string{"/cosmos.bank.v1beta1.MsgSend", "/cosmos.staking.v1beta1.MsgDelegate"}
+	keeper.SetDisabledMsgTypeURLs(ctx, typeURLs)
+	keeper.SetCosmosGasParams(ctx, *types.DefaultCosmosGasParams())
+
+	before := ctx.GasMeter().GasConsumed()
+	keeper.GetCosmosGasParams(ctx)
+	require.Greater(t, ctx.GasMeter().GasConsumed(), before, "the test context does not meter parameter reads")
+
+	before = ctx.GasMeter().GasConsumed()
+	require.Equal(t, typeURLs, keeper.GetDisabledMsgTypeURLs(ctx))
+	require.Equal(t, before, ctx.GasMeter().GasConsumed(), "reading the disabled message type URLs charged gas")
+
+	require.Panics(t, func() { keeper.SetDisabledMsgTypeURLs(ctx, []string{"cosmos.bank.v1beta1.MsgSend"}) })
+	require.Panics(t, func() { keeper.SetDisabledMsgTypeURLs(ctx, []string{"/cosmos.bank.v1beta1.MsgSnd"}) })
+	require.Equal(t, typeURLs, keeper.GetDisabledMsgTypeURLs(ctx))
+}
+
+// TestUpdateDisabledMsgTypeURLs applies the values a parameter change proposal can carry for
+// the disabled message type URLs.
+func TestUpdateDisabledMsgTypeURLs(t *testing.T) {
+	_, ctx, _, _, keeper := testComponents()
+	subspace, ok := keeper.GetSubspace(types.ModuleName)
+	require.True(t, ok)
+	keeper.SetDisabledMsgTypeURLs(ctx, []string{})
+
+	require.NoError(t, subspace.Update(ctx, types.ParamStoreKeyDisabledMsgTypeURLs, []byte(`["/cosmos.bank.v1beta1.MsgSend"]`)))
+	require.Equal(t, []string{"/cosmos.bank.v1beta1.MsgSend"}, keeper.GetDisabledMsgTypeURLs(ctx))
+
+	require.Error(t, subspace.Update(ctx, types.ParamStoreKeyDisabledMsgTypeURLs, []byte(`["MsgSend"]`)))
+	require.Equal(t, []string{"/cosmos.bank.v1beta1.MsgSend"}, keeper.GetDisabledMsgTypeURLs(ctx))
+
+	err := subspace.Update(ctx, types.ParamStoreKeyDisabledMsgTypeURLs,
+		[]byte(`["/cosmos.staking.v1beta1.MsgDelegate","/cosmos.bank.v1beta1.MsgSnd"]`))
+	require.ErrorContains(t, err, `"/cosmos.bank.v1beta1.MsgSnd" is not the type URL of a registered message`)
+	require.Equal(t, []string{"/cosmos.bank.v1beta1.MsgSend"}, keeper.GetDisabledMsgTypeURLs(ctx))
+
+	require.NoError(t, subspace.Update(ctx, types.ParamStoreKeyDisabledMsgTypeURLs, []byte(`[]`)))
+	require.Empty(t, keeper.GetDisabledMsgTypeURLs(ctx))
+}

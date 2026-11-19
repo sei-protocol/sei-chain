@@ -23,9 +23,9 @@ type blockStoreWriter struct {
 
 	// The header hash of the last block written, which the next block names as its parent. Chaining
 	// them keeps every block's hash distinct, which the store requires of the alias it indexes by.
-	parentHash autobahn.BlockHeaderHash
+	parentHash autobahn.LaneBlockHeaderHash
 
-	pending []*autobahn.Block
+	pending []*autobahn.LaneBlock
 
 	// Breaks the block store write into the records it writes. Owned by the generator, which closes it
 	// once the flush behind them is done, so the phases subdivide its whole write_block phase.
@@ -52,9 +52,9 @@ func newBlockStoreWriter(
 	}
 }
 
-// nextBlockNumber returns the height the block store will accept next, reporting false for a store
+// nextHeight returns the height the block store will accept next, reporting false for a store
 // that holds nothing and so will accept any height as its first.
-func (w *blockStoreWriter) nextBlockNumber() (int64, bool) {
+func (w *blockStoreWriter) nextHeight() (int64, bool) {
 	status, ok := w.store.Status().Get()
 	if !ok {
 		return 0, false
@@ -71,8 +71,8 @@ func (w *blockStoreWriter) writeBlock(number int64, payload [][]byte) error {
 	}
 	pending := append(w.pending, block)
 	if len(pending) == w.config.LaneBlocksPerSuperblock {
-		index := autobahn.RoadIndex((number-1)/int64(w.config.LaneBlocksPerSuperblock) + 1) //nolint:gosec // generated heights are positive
-		if err := w.writeSuperBlock(index, pending); err != nil {
+		height := autobahn.RoadHeight((number-1)/int64(w.config.LaneBlocksPerSuperblock) + 1) //nolint:gosec // generated heights are positive
+		if err := w.writeSuperBlock(height, pending); err != nil {
 			return err
 		}
 		w.pending = pending[:0]
@@ -84,29 +84,29 @@ func (w *blockStoreWriter) writeBlock(number int64, payload [][]byte) error {
 }
 
 // writeSuperBlock persists a complete batch after finalizing prior roads.
-func (w *blockStoreWriter) writeSuperBlock(index autobahn.RoadIndex, blocks []*autobahn.Block) error {
-	if err := w.finalizeBlocksBelow(index); err != nil {
+func (w *blockStoreWriter) writeSuperBlock(height autobahn.RoadHeight, blocks []*autobahn.LaneBlock) error {
+	if err := w.finalizeBlocksBelow(height); err != nil {
 		return err
 	}
 	w.phases.SetPhase("write_block")
-	qc := autobahn.GenFullCommitQCAt(w.rng, index, len(blocks))
-	headers := make([]*autobahn.BlockHeader, len(blocks))
-	for i, laneBlock := range blocks {
-		headers[i] = laneBlock.Header()
+	qc := autobahn.GenFullCommitQCAt(w.rng, height, len(blocks))
+	headers := make([]*autobahn.LaneBlockHeader, len(blocks))
+	for i, block := range blocks {
+		headers[i] = block.Header()
 	}
 	qc = autobahn.NewFullCommitQC(qc.QC(), headers)
 	if err := w.store.WriteBlock(autobahn.NewRoadBlock(qc, blocks)); err != nil {
-		return fmt.Errorf("failed to write SuperBlock %d: %w", index, err)
+		return fmt.Errorf("failed to write SuperBlock %d: %w", height, err)
 	}
-	for _, laneBlock := range blocks {
-		w.metrics.ReportStoreBytesWritten(storeBlockDB, payloadBytes(laneBlock.Payload().Txs()))
+	for _, block := range blocks {
+		w.metrics.ReportStoreBytesWritten(storeBlockDB, payloadBytes(block.Payload().Txs()))
 	}
 	w.metrics.ReportQCWritten()
 	return nil
 }
 
 // maxLedgerEntries is the most payload entries one ledger block holds.
-const maxLedgerEntries = int(autobahn.MaxTxsPerBlock)
+const maxLedgerEntries = int(autobahn.MaxTxsPerLaneBlock)
 
 // ledgerPayload draws the payload one block stores: TransactionsPerBlock transactions of
 // BytesPerTransaction bytes each, packed into at most maxLedgerEntries entries so that a block may carry
@@ -145,14 +145,14 @@ func payloadBytes(payload [][]byte) int64 {
 //
 // The frontier is read from the store rather than tracked here, so it cannot drift from the one the
 // store enforces contiguity against.
-func (w *blockStoreWriter) finalizeBlocksBelow(next autobahn.RoadIndex) error {
+func (w *blockStoreWriter) finalizeBlocksBelow(next autobahn.RoadHeight) error {
 	status, ok := w.store.Status().Get()
 	if !ok || next <= status.NextAppQC {
 		// Nothing is finalizable before the first QC, and a frontier already at next covers everything.
 		return nil
 	}
-	for index := status.NextAppQC; index < next; index++ {
-		if err := w.finalizeBlock(index); err != nil {
+	for height := status.NextAppQC; height < next; height++ {
+		if err := w.finalizeBlock(height); err != nil {
 			return err
 		}
 	}
@@ -160,30 +160,30 @@ func (w *blockStoreWriter) finalizeBlocksBelow(next autobahn.RoadIndex) error {
 }
 
 // finalizeBlock writes any missing AppProposal and the AppQC for a road.
-func (w *blockStoreWriter) finalizeBlock(index autobahn.RoadIndex) error {
+func (w *blockStoreWriter) finalizeBlock(height autobahn.RoadHeight) error {
 	w.phases.SetPhase("write_app_qc")
 	var appProposal *autobahn.AppProposal
-	if index < w.store.Status().OrPanic("finalizing a stored block").NextAppProposal {
-		stored, err := w.store.ReadAppProposal(index)
+	if height < w.store.Status().OrPanic("finalizing a stored block").NextAppProposal {
+		stored, err := w.store.ReadAppProposal(height)
 		if err != nil {
-			return fmt.Errorf("failed to read AppProposal %d: %w", index, err)
+			return fmt.Errorf("failed to read AppProposal %d: %w", height, err)
 		}
 		appProposal = stored.OrPanic("stored AppProposal missing")
 	} else {
-		appProposal = autobahn.GenAppProposalAt(w.rng, index)
+		appProposal = autobahn.GenAppProposalAt(w.rng, height)
 		if err := w.store.WriteAppProposal(appProposal); err != nil {
-			return fmt.Errorf("failed to write AppProposal %d: %w", index, err)
+			return fmt.Errorf("failed to write AppProposal %d: %w", height, err)
 		}
 	}
 	if err := w.store.WriteAppQC(autobahn.GenAppQCFor(w.rng, appProposal)); err != nil {
-		return fmt.Errorf("failed to write AppQC %d: %w", index, err)
+		return fmt.Errorf("failed to write AppQC %d: %w", height, err)
 	}
 	return nil
 }
 
 // buildBlock wraps a payload as the block the store persists, chained onto the previous one. Every block,
 // setup's included, carries TransactionsPerBlock transactions, however its payload packs them.
-func (w *blockStoreWriter) buildBlock(payload [][]byte) (*autobahn.Block, error) {
+func (w *blockStoreWriter) buildBlock(payload [][]byte) (*autobahn.LaneBlock, error) {
 	gas := uint64(w.config.gasUsedBy(w.config.TransactionsPerBlock)) //nolint:gosec // validation keeps the gas positive
 	built, err := autobahn.PayloadBuilder{
 		CreatedAt:         time.Now(),
@@ -194,11 +194,11 @@ func (w *blockStoreWriter) buildBlock(payload [][]byte) (*autobahn.Block, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build the block payload: %w", err)
 	}
-	number := autobahn.BlockNumber(len(w.pending)) //nolint:gosec // pending length is nonnegative
+	height := autobahn.LaneHeight(len(w.pending)) //nolint:gosec // pending length is nonnegative
 	if status, ok := w.store.Status().Get(); ok {
-		number += autobahn.BlockNumber(status.NextBlock-1) * autobahn.BlockNumber(w.config.LaneBlocksPerSuperblock) //nolint:gosec // config validation keeps the lane block count positive
+		height += autobahn.LaneHeight(status.NextBlock-1) * autobahn.LaneHeight(w.config.LaneBlocksPerSuperblock) //nolint:gosec // config validation keeps the lane block count positive
 	}
-	return autobahn.NewBlock(w.lane, number, w.parentHash, built), nil
+	return autobahn.NewLaneBlock(w.lane, height, w.parentHash, built), nil
 }
 
 // Flush pushes the block ledger's buffered writes to disk.
