@@ -27,11 +27,11 @@ const (
 type evmOnlyBaseFees [evmOnlyBaseFeeLag + 1]uint256.Int
 
 // genesisBaseFees returns the base fees of the cursor InitChain writes:
-// evmOnlyGenesisBaseFee, at every height.
+// evmOnlyBlockMinGasPrice, at every height.
 func genesisBaseFees() evmOnlyBaseFees {
 	var fees evmOnlyBaseFees
 	for i := range fees {
-		fees[i].SetUint64(evmOnlyGenesisBaseFee)
+		fees[i].SetUint64(evmOnlyBlockMinGasPrice)
 	}
 	return fees
 }
@@ -70,11 +70,15 @@ func (c evmOnlyCursor) highestScheduledBaseFee() *big.Int {
 
 // nextBaseFees returns the base fees of the next block's cursor when the next
 // block used gasUsed of its gasLimit: the ones this cursor set, then the one
-// that use sets under params.
+// that use sets under params, never below evmOnlyBlockMinGasPrice.
 func (c evmOnlyCursor) nextBaseFees(params evmonly.BaseFeeParams, gasUsed, gasLimit uint64) evmOnlyBaseFees {
 	var fees evmOnlyBaseFees
 	copy(fees[:], c.baseFees[1:])
-	fees[len(fees)-1] = params.NextBaseFee(c.baseFees[len(c.baseFees)-1], gasUsed, gasLimit)
+	next := params.NextBaseFee(c.baseFees[len(c.baseFees)-1], gasUsed, gasLimit)
+	if minGasPrice := uint256.NewInt(evmOnlyBlockMinGasPrice); next.Lt(minGasPrice) {
+		next = *minGasPrice
+	}
+	fees[len(fees)-1] = next
 	return fees
 }
 

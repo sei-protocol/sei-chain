@@ -74,3 +74,17 @@ func TestEVMOnlyCursorNextBaseFeesLagsGasUseByTwoBlocks(t *testing.T) {
 	require.Equal(t, cursor.baseFees[1].ToBig(), cursor.nextBaseFee())
 	require.Equal(t, cursor.baseFees[2].ToBig(), cursor.highestScheduledBaseFee())
 }
+
+// An update that would set a base fee below the chain's minimum gas price sets the minimum instead.
+func TestEVMOnlyCursorNextBaseFeesStopsAtTheMinGasPrice(t *testing.T) {
+	aboveMin := *uint256.NewInt(evmOnlyBlockMinGasPrice + 1)
+	cursor := evmOnlyCursor{baseFees: evmOnlyBaseFees{aboveMin, aboveMin, aboveMin}}
+	params := genesisBaseFeeParams()
+	const gasLimit = 30_000_000
+	lowered := params.NextBaseFee(aboveMin, 0, gasLimit)
+	require.Less(t, lowered.Uint64(), uint64(evmOnlyBlockMinGasPrice))
+
+	next := cursor.nextBaseFees(params, 0, gasLimit)
+
+	require.Equal(t, evmOnlyBaseFees{aboveMin, aboveMin, *uint256.NewInt(evmOnlyBlockMinGasPrice)}, next)
+}

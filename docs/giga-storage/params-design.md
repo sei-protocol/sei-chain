@@ -219,8 +219,8 @@ as EIP-1559 does with 12.5% each way.
 - The check requires `up` above 0 and `down` at least 0, each at most 1.
 - Gas used past the gas limit counts as the limit. The change is rounded down
   to the wei, and an increase is at least one wei.
-- A chain starts at a base fee of 1 gwei, which its first two blocks run at. It
-  is a starting value, not a floor: empty blocks lower the fee below it.
+- The base fee never falls below the chain's minimum gas price of 1 gwei, which
+  a chain's first two blocks run at. It is a constant of evmonlyapp, not a param.
 - evmonlyapp reads the params from the state each block executes against, so a
   change a proposal applies in a block's EndBlock first sets the base fee update
   of the next block. That update sets the base fee two blocks later, so the

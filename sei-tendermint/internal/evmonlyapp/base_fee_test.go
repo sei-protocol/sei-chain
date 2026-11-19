@@ -96,7 +96,7 @@ func raisedBaseFee(scheduled uint256.Int) uint256.Int {
 // The gas a block uses sets the base fee two blocks later.
 func TestEVMOnlyApplicationSetsTheBaseFeeTwoBlocksAhead(t *testing.T) {
 	app := newEVMOnlyBaseFeeTestApp(t)
-	genesis := *uint256.NewInt(evmOnlyGenesisBaseFee)
+	genesis := *uint256.NewInt(evmOnlyBlockMinGasPrice)
 	raised := raisedBaseFee(genesis)
 	require.Greater(t, raised.Uint64(), genesis.Uint64())
 
@@ -110,34 +110,30 @@ func TestEVMOnlyApplicationSetsTheBaseFeeTwoBlocksAhead(t *testing.T) {
 	require.Equal(t, raised.ToBig(), app.EvmBaseFee())
 }
 
-// A chain's first two blocks run at the genesis base fee, and empty blocks lower the fee below it:
-// it is not a floor.
-func TestEVMOnlyApplicationStartsAtTheGenesisBaseFee(t *testing.T) {
+// A chain starts at its minimum gas price, and empty blocks do not lower the base fee below it.
+func TestEVMOnlyApplicationKeepsTheBaseFeeAtTheMinGasPrice(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
-	genesis := *uint256.NewInt(evmOnlyGenesisBaseFee)
-	lowered := genesisBaseFeeParams().NextBaseFee(genesis, 0, uint64(evmOnlyTestInitChain().MaxGas))
+	minGasPrice := big.NewInt(evmOnlyBlockMinGasPrice)
 
-	require.Equal(t, genesis.ToBig(), app.EvmNextBaseFee())
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
-	require.Equal(t, genesis.ToBig(), app.EvmBaseFee())
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2))
-	require.Equal(t, genesis.ToBig(), app.EvmBaseFee())
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(3))
-	require.Equal(t, lowered.ToBig(), app.EvmBaseFee())
-	require.Less(t, lowered.Uint64(), genesis.Uint64())
+	require.Equal(t, minGasPrice, app.EvmNextBaseFee())
+	for height := int64(1); height <= 4; height++ {
+		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(height))
+		require.Equal(t, minGasPrice, app.EvmBaseFee())
+	}
+	require.Equal(t, minGasPrice, app.EvmMinGasPrice())
 }
 
 // CheckTx prices against the highest base fee already set, so a transaction it admits can execute
 // at every height whose base fee is known.
 func TestEVMOnlyApplicationAdmitsAtTheHighestScheduledBaseFee(t *testing.T) {
 	app := newEVMOnlyBaseFeeTestApp(t)
-	raised := raisedBaseFee(*uint256.NewInt(evmOnlyGenesisBaseFee))
+	raised := raisedBaseFee(*uint256.NewInt(evmOnlyBlockMinGasPrice))
 
 	finalizeAndCommitEVMOnlyTestBlock(t, app, threeTransfersBlock(t, 1))
 
 	// Block 2 still runs at the genesis base fee, but block 3 runs at raised.
 	require.Equal(t, raised.ToBig(), app.EvmMinGasPrice())
-	atGenesis := signedEVMOnlyTestTxAtPrice(t, big.NewInt(evmOnlyGenesisBaseFee))
+	atGenesis := signedEVMOnlyTestTxAtPrice(t, big.NewInt(evmOnlyBlockMinGasPrice))
 	require.False(t, app.CheckTx(t.Context(), &proxy.RequestCheckTxV2{Tx: atGenesis}).IsOK())
 	atRaised := signedEVMOnlyTestTxAtPrice(t, raised.ToBig())
 	require.True(t, app.CheckTx(t.Context(), &proxy.RequestCheckTxV2{Tx: atRaised}).IsOK())
@@ -178,7 +174,7 @@ func TestEVMOnlyApplicationRefusesABlockRunAtAnUnscheduledBaseFee(t *testing.T) 
 // The base fees a block set survive a restart, so the resumed node runs the next blocks at those
 // fees.
 func TestEVMOnlyApplicationResumesItsBaseFeesAfterRestart(t *testing.T) {
-	raised := raisedBaseFee(*uint256.NewInt(evmOnlyGenesisBaseFee))
+	raised := raisedBaseFee(*uint256.NewInt(evmOnlyBlockMinGasPrice))
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorageAt(t, home)
 	app, err := newEVMOnlyTestAppOnChain(storage, evmOnlyTestChainID)
@@ -204,6 +200,7 @@ func TestEVMOnlyApplicationResumesItsBaseFeesAfterRestart(t *testing.T) {
 func TestEVMOnlyApplicationSetsBaseFeesByTheParamsInState(t *testing.T) {
 	setEVMOnlyGenesisEVMParams(t, evmOnlyTestEVMParams)
 	app := newGovEVMOnlyTestApp(t, gov.DefaultParams(), 0).(*evmOnlyApplication)
+	seedEVMOnlyBaseFees(app, 100*evmOnlyBlockMinGasPrice) // so empty blocks lower it
 	gasLimit := uint64(evmOnlyTestInitChain().MaxGas)
 
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
@@ -225,10 +222,9 @@ func TestEVMOnlyApplicationSetsBaseFeesByTheParamsInState(t *testing.T) {
 	require.Equal(t, inState.ToBig(), app.EvmBaseFee())
 }
 
-// The genesis base fee params, a 0.6% adjustment each way, and the 1 gwei base fee a chain starts
-// at.
+// The genesis base fee params, a 0.6% adjustment each way, and the chain's 1 gwei minimum gas price.
 func TestEVMOnlyGenesisEVMParams(t *testing.T) {
-	require.Equal(t, uint64(1_000_000_000), uint64(evmOnlyGenesisBaseFee))
+	require.Equal(t, uint64(1_000_000_000), uint64(evmOnlyBlockMinGasPrice))
 	require.Equal(t, chainparams.EVM{
 		MaxDynamicBaseFeeUpwardAdjustment:   big.NewInt(6_000_000_000_000_000),
 		MaxDynamicBaseFeeDownwardAdjustment: big.NewInt(6_000_000_000_000_000),

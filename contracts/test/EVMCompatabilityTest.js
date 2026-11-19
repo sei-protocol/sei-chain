@@ -393,10 +393,7 @@ describe("EVM Test", function () {
           }
         ];
 
-        // EVM-only's base fee has no floor and can fall below the node's 1 gwei minimum, so a zero
-        // tip, which pays only the base fee, can be refused.
-        const cases = await isEvmOnlyChain() ? testCases.filter((c) => c.maxPriorityFeePerGas > 0n) : testCases;
-        for (const testCase of cases) {
+        for (const testCase of testCases) {
           // send a tx with a gas to elevate the base fee
           const heavyTxResponse = await evmTester.useGas(9500000, { 
             maxPriorityFeePerGas: ethers.parseUnits('10', 'gwei'),
@@ -680,7 +677,8 @@ describe("EVM Test", function () {
         ];
 
         it("Check base fee on the right block", async function () {
-          // EVM-only's base fee has no floor, so it does not settle back at 1 gwei.
+          // EVM-only sets a block's base fee from the gas use of the block two before it, so the
+          // heavy block's child does not yet run at a raised base fee.
           if (await isEvmOnlyChain()) {
             this.skip();
           }
@@ -743,11 +741,6 @@ describe("EVM Test", function () {
         describe("Differing maxPriorityFeePerGas and maxFeePerGas", async function() {
           for (const [name, maxPriorityFeePerGas, maxFeePerGas] of testCases) {
             it(`EIP-1559 test: ${name}`, async function() {
-              // EVM-only's base fee has no floor and can fall below the node's 1 gwei minimum, so a
-              // zero tip, which pays only the base fee, can be refused.
-              if (maxPriorityFeePerGas === 0n && await isEvmOnlyChain()) {
-                this.skip();
-              }
               const balanceBefore = await ethers.provider.getBalance(owner);
               const zero = ethers.parseUnits('0', 'ether')
               const txResponse = await owner.sendTransaction({
