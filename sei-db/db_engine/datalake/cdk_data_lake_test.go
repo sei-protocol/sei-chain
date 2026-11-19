@@ -335,6 +335,35 @@ func TestCDKDataLakePruneBelowDeletesObjects(t *testing.T) {
 	require.Equal(t, testStoreMetadata(t, false, 6, 6, 11), readMetadata(t, storeBucket))
 }
 
+func TestCDKDataLakeDeletionWatermarkFollowsPruning(t *testing.T) {
+	ctx := context.Background()
+	lake := openTestDataLake(t, "store", false, DefaultTestDataLakeConfig(t.TempDir()))
+	putTestKeys(t, lake, keyRange(1, 10)...)
+	require.NoError(t, lake.Flush(ctx))
+	require.Equal(t, uint64(1), lake.GetDeletionWatermark())
+
+	require.NoError(t, lake.PruneBelow(ctx, 6))
+	require.LessOrEqual(t, lake.GetDeletionWatermark(), uint64(6))
+	require.NoError(t, lake.Flush(ctx))
+	require.Equal(t, uint64(6), lake.GetDeletionWatermark())
+}
+
+func TestCDKDataLakeDeletionWatermarkWithGaps(t *testing.T) {
+	ctx := context.Background()
+	lake := openTestDataLake(t, "store", true, DefaultTestDataLakeConfig(t.TempDir()))
+	putTestKeys(t, lake, 10, 20, 30, 40)
+	require.NoError(t, lake.Flush(ctx))
+	require.Equal(t, uint64(10), lake.GetDeletionWatermark())
+
+	require.NoError(t, lake.Delete(ctx, 20))
+	require.NoError(t, lake.Flush(ctx))
+	require.Equal(t, uint64(10), lake.GetDeletionWatermark(), "key 10 still exists")
+
+	require.NoError(t, lake.PruneBelow(ctx, 40))
+	require.NoError(t, lake.Flush(ctx))
+	require.Equal(t, uint64(40), lake.GetDeletionWatermark())
+}
+
 func TestCDKDataLakeNewStoreWritesNothingUntilItsFirstPut(t *testing.T) {
 	ctx := context.Background()
 	config := DefaultTestDataLakeConfig(t.TempDir())

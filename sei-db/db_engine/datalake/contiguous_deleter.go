@@ -70,6 +70,11 @@ func (d *contiguousDeleter) DeletionWatermark() uint64 {
 	return watermark
 }
 
+// LowestRemainingKey returns the deletion watermark: no key below it has an object. See deleter.
+func (d *contiguousDeleter) LowestRemainingKey() (uint64, bool) {
+	return d.DeletionWatermark(), true
+}
+
 // DoBackgroundWork starts the deletes of the lowest pending keys whose puts are complete. See deleter.
 func (d *contiguousDeleter) DoBackgroundWork(durableWatermark uint64, maxDeletes int) {
 	for range maxDeletes {

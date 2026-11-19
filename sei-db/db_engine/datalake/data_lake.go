@@ -86,6 +86,10 @@ type DataLake interface {
 	// crash durable.
 	GetDurableWatermark() uint64
 
+	// GetDeletionWatermark returns the deletion watermark: the lowest key whose object may still exist in the
+	// backing store. Every deleted key below it is gone from the backing store.
+	GetDeletionWatermark() uint64
+
 	// GetFirstKey returns the lowest key in the store, whether or not it is crash durable yet.
 	GetFirstKey() (
 		key uint64,

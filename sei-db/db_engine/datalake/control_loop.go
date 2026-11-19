@@ -111,7 +111,16 @@ func (s *cdkDataLake) durableWatermark() uint64 {
 // currentBounds answers a boundsRequest.
 func (s *cdkDataLake) currentBounds() storeBounds {
 	first, ok := s.firstKey()
-	return storeBounds{watermark: s.durableWatermark(), firstKey: first, firstKeyOK: ok}
+	deletionWatermark, found := s.deleter.LowestRemainingKey()
+	if !found {
+		deletionWatermark = s.nextKey
+	}
+	return storeBounds{
+		watermark:         s.durableWatermark(),
+		deletionWatermark: deletionWatermark,
+		firstKey:          first,
+		firstKeyOK:        ok,
+	}
 }
 
 // currentKeyTopology answers an iteratorRequest.

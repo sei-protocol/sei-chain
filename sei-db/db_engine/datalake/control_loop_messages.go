@@ -48,7 +48,7 @@ type lookupRequest struct {
 	reply chan bool
 }
 
-// boundsRequest asks the loop for the durable watermark and the first key.
+// boundsRequest asks the loop for the durable watermark, the deletion watermark and the first key.
 type boundsRequest struct {
 	// Receives the answer.
 	reply chan storeBounds
@@ -58,6 +58,9 @@ type boundsRequest struct {
 type storeBounds struct {
 	// Every accepted write to a key strictly less than this watermark is durable.
 	watermark uint64
+
+	// The lowest key whose object may still exist in the backing store.
+	deletionWatermark uint64
 
 	// The lowest key in the store.
 	firstKey uint64

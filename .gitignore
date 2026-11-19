@@ -52,4 +52,5 @@ integration_test/dapp_tests/artifacts
 
 # DB benchmark data and artifacts
 sei-db/bench/gigasim/bin/
+sei-db/db_engine/datalake/lakesim/bin/
 sei-db/db_engine/litt/bin/

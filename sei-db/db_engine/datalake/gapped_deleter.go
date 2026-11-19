@@ -2,6 +2,7 @@ package datalake
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/structures"
 )
@@ -75,6 +76,27 @@ func (d *gappedDeleter) Delete(key uint64) error {
 func (d *gappedDeleter) DeletionWatermark() uint64 {
 	// Nothing reads the deletion watermark of a store with gaps: recovery lists the objects that still exist.
 	return d.deletionWatermark
+}
+
+// LowestRemainingKey returns the lowest key that is in the store, scheduled for deletion, or being deleted. See
+// deleter.
+func (d *gappedDeleter) LowestRemainingKey() (uint64, bool) {
+	lowest := uint64(math.MaxUint64)
+	found := false
+	if key, _, ok := d.keys.PeekFront(); ok {
+		lowest = key
+		found = true
+	}
+	if key, _, ok := d.pending.PeekFront(); ok {
+		lowest = min(lowest, key)
+		found = true
+	}
+	// A delete of a key below those already in flight may start later, so in-flight keys are not in key order.
+	for _, result := range d.inFlight.Forward() {
+		lowest = min(lowest, result.Key())
+		found = true
+	}
+	return lowest, found
 }
 
 // DoBackgroundWork starts the deletes of the lowest pending keys whose puts are complete. See deleter.

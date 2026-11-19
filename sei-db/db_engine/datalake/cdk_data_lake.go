@@ -279,6 +279,11 @@ func (s *cdkDataLake) GetDurableWatermark() uint64 {
 	return s.bounds().watermark
 }
 
+// GetDeletionWatermark returns the lowest key whose object may still exist. See DataLake.
+func (s *cdkDataLake) GetDeletionWatermark() uint64 {
+	return s.bounds().deletionWatermark
+}
+
 // GetFirstKey returns the lowest key in the store. See DataLake.
 func (s *cdkDataLake) GetFirstKey() (uint64, bool) {
 	bounds := s.bounds()

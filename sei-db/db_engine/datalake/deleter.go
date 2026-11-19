@@ -18,6 +18,10 @@ type deleter interface {
 	// DeletionWatermark returns the deletion watermark to record in the store's metadata.
 	DeletionWatermark() uint64
 
+	// LowestRemainingKey returns the lowest key whose object may still exist, and false if the deleter knows of no
+	// such key.
+	LowestRemainingKey() (uint64, bool)
+
 	// DoBackgroundWork starts up to maxDeletes of the scheduled deletes whose puts are complete, waiting while the
 	// writer's queue is full.
 	DoBackgroundWork(
