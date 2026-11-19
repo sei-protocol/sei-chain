@@ -298,7 +298,7 @@ func TestNewInnerInitializesGenesis(t *testing.T) {
 	registry, _ := epoch.GenRegistry(rng, 3)
 	ep0 := registry.MustEpoch(0)
 	timestamp := time.Unix(42, 0)
-	registry, err := epoch.NewRegistry(ep0.Committee(), 7, timestamp, utils.None[string]())
+	registry, err := epoch.NewRegistry(ep0.Committee(), 7, timestamp, utils.None[[]byte]())
 	require.NoError(t, err)
 	ep := ep0
 	i := utils.OrPanic1(newInner(data.TestAnchor(ep), timestamp, &loadedState{}))

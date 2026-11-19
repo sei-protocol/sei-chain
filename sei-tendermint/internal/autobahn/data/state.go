@@ -275,6 +275,9 @@ func (s *State) First() types.RoadIndex {
 	return s.blockStore.First()
 }
 
+// Registry returns the epoch registry this state prunes.
+func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
+
 // GenesisTimestamp returns the genesis timestamp.
 func (s *State) GenesisTimestamp() time.Time { return s.cfg.Registry.GenesisTimestamp() }
 
@@ -588,9 +591,8 @@ func (s *State) appQCFromDB(n types.RoadIndex) (*types.AppQC, error) {
 	return nil, types.ErrPruned
 }
 
-// PushAppHash records the AppHash for road n and derives C_{E+2}
-// when n closes epoch E.
-func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.AppHash, weights map[types.PublicKey]uint64) error {
+// PushAppHash records the AppHash for road n.
+func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.AppHash) error {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextFullBlock }); err != nil {
 			return err
@@ -600,11 +602,6 @@ func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.A
 		}
 		if n != inner.nextAppProposal {
 			return fmt.Errorf("received appHash for %v: %w", n, ErrOutOfOrder)
-		}
-		// Durable before the cursor moves, so a crash cannot persist this proposal
-		// and leave its derived epoch unregistered.
-		if err := s.cfg.Registry.TryPushEpoch(n, weights); err != nil {
-			return fmt.Errorf("TryPushEpoch(): %w", err)
 		}
 		e := inner.blocks[n]
 		proposal := types.NewAppProposal(e.qc.QC().View(), hash)
@@ -795,7 +792,8 @@ func (s *State) runPersist(ctx context.Context, writeAppProposal func(*types.App
 		for inner, ctrl := range s.inner.Lock() {
 			inner.persisted = status
 			t := time.Now()
-			if inner.first < inner.persisted.First ||
+			viewMoved := inner.first < inner.persisted.First
+			if viewMoved ||
 				(!inner.anchor.Load().First.IsPresent() && inner.persisted.First < inner.persisted.NextAppQC) {
 				if err := inner.setAnchor(s.cfg.Registry); err != nil {
 					return fmt.Errorf("inner.setAnchor(): %w", err)
@@ -815,12 +813,13 @@ func (s *State) runPersist(ctx context.Context, writeAppProposal func(*types.App
 				delete(inner.appProposals, inner.first)
 				inner.first += 1
 			}
+			if viewMoved {
+				if err := inner.pruneRegistryToView(s.cfg.Registry); err != nil {
+					return fmt.Errorf("inner.pruneRegistryToView(): %w", err)
+				}
+			}
 			s.metrics.NextBlock.Evict.Set(utils.Clamp[int64](inner.first))
 			ctrl.Updated()
-		}
-		ei := s.Anchor().Load().Epochs[0].EpochIndex()
-		if err := s.cfg.Registry.PruneBefore(ei); err != nil {
-			return fmt.Errorf("Registry.PruneBefore(%d): %w", ei, err)
 		}
 	}
 }
@@ -843,6 +842,21 @@ func (i *inner) setAnchor(registry *epoch.Registry) error {
 	}
 	i.anchor.Store(a)
 	return nil
+}
+
+// pruneRegistryToView drops epochs before the epoch preceding this view's first
+// road's epoch. The retained epoch before the view's epoch is the one a first
+// road of the view's epoch reads when it derives the registry it stores.
+func (i *inner) pruneRegistryToView(registry *epoch.Registry) error {
+	current, err := registry.EpochAt(i.first)
+	if err != nil {
+		return err
+	}
+	keep := types.EpochIndex(0)
+	if idx := current.EpochIndex(); idx > 0 {
+		keep = idx - 1
+	}
+	return registry.PruneBefore(keep)
 }
 
 // Run starts the background persistence loop.

@@ -136,7 +136,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 			return err
 		}
 		appHash0 := types.GenAppHash(rng)
-		if err := ds.PushAppHash(ctx, qc0.Index(), appHash0, nil); err != nil {
+		if err := ds.PushAppHash(ctx, qc0.Index(), appHash0); err != nil {
 			return err
 		}
 		if err := ds.PushAppQC(ctx, data.TestAppQC(keys, types.NewAppProposal(qc0.QC().View(), appHash0))); err != nil {
@@ -222,7 +222,7 @@ func TestAnchorResetsState(t *testing.T) {
 			return err
 		}
 		appHash := types.GenAppHash(rng)
-		if err := ds.PushAppHash(ctx, qc.Index(), appHash, nil); err != nil {
+		if err := ds.PushAppHash(ctx, qc.Index(), appHash); err != nil {
 			return err
 		}
 		appQC := data.TestAppQC(keys, types.NewAppProposal(qc.QC().View(), appHash))
@@ -342,7 +342,7 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 			t.Logf("Push app votes.")
 			appHash := types.GenAppHash(rng)
 			appProposal := types.NewAppProposal(qc.View(), appHash)
-			if err := ds.PushAppHash(ctx, appProposal.Index(), appHash, nil); err != nil {
+			if err := ds.PushAppHash(ctx, appProposal.Index(), appHash); err != nil {
 				return fmt.Errorf("ds.PushAppHash(): %w", err)
 			}
 			for _, vote := range makeAppVotes(keys, appProposal) {
@@ -648,7 +648,7 @@ func TestProductionAfterRestart(t *testing.T) {
 			app = types.NewAppProposal(commitQC.View(), types.GenAppHash(rng))
 			for _, node := range utils.Slice(producer, peer) {
 				utils.OrPanic(node.PushCommitQC(ctx, commitQC))
-				utils.OrPanic(node.Data().PushAppHash(ctx, app.Index(), app.AppHash(), nil))
+				utils.OrPanic(node.Data().PushAppHash(ctx, app.Index(), app.AppHash()))
 				for _, v := range makeAppVotes(keys, app) {
 					utils.OrPanic(node.PushAppVote(ctx, v))
 				}
@@ -880,7 +880,7 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 			stay.Public(): 1, leaver.Public(): 1, a.Public(): 1, b.Public(): 1,
 		})
 		require.NoError(t, err)
-		registry, err := epoch.NewRegistry(genesis, 0, time.Time{}, utils.None[string]())
+		registry, err := epoch.NewRegistry(genesis, 0, time.Time{}, utils.None[[]byte]())
 		require.NoError(t, err)
 		ds := newTestDataState(t, &data.Config{Registry: registry})
 		state, err := NewState(stay, ds, utils.None[string]())

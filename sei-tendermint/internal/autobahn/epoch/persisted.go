@@ -4,50 +4,32 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
-	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-const (
-	epochSnapshotDir    = "epochs"
-	epochSnapshotPrefix = "registry"
-)
-
-func openEpochSnapshot(
-	stateDir utils.Option[string],
-) (persist.Persister[*pb.PersistedEpochRegistry], utils.Option[*pb.PersistedEpochRegistry], error) {
-	root, ok := stateDir.Get()
-	if !ok {
-		return persist.NewPersister[*pb.PersistedEpochRegistry](utils.None[string](), epochSnapshotPrefix)
-	}
-	dir := filepath.Join(root, epochSnapshotDir)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, utils.None[*pb.PersistedEpochRegistry](), fmt.Errorf("create epoch snapshot dir %s: %w", dir, err)
-	}
-	return persist.NewPersister[*pb.PersistedEpochRegistry](utils.Some(dir), epochSnapshotPrefix)
-}
-
 // checkDerived returns an error if b's committee is not derived from a's.
 func checkDerived(a, b *types.Epoch) error {
-	committee := b.Committee()
-	weights := make(map[types.PublicKey]uint64, committee.Lanes().Len())
-	for lane := range committee.Lanes().All() {
-		weights[lane.Validator] = committee.Weight(lane.Validator)
-	}
-	want, err := a.Committee().DeriveNext(weights, b.EpochIndex())
+	want, err := a.Committee().DeriveNext(weightsOf(b.Committee()), b.EpochIndex())
 	if err != nil {
 		return err
 	}
-	if !want.Equal(committee) {
+	if !want.Equal(b.Committee()) {
 		return fmt.Errorf("does not follow epoch %d", a.EpochIndex())
 	}
 	return nil
+}
+
+// weightsOf returns the voting weights of c.
+func weightsOf(c *types.Committee) map[types.PublicKey]uint64 {
+	weights := make(map[types.PublicKey]uint64, c.Lanes().Len())
+	for lane := range c.Lanes().All() {
+		weights[lane.Validator] = c.Weight(lane.Validator)
+	}
+	return weights
 }
 
 // persistedRegistry is an immutable, nonempty, contiguous range of live epochs.
@@ -151,4 +133,17 @@ var persistedRegistryConv = protoutils.Conv[*persistedRegistry, *pb.PersistedEpo
 			liveRange: types.EpochRange{First: live[0].EpochIndex(), Next: next},
 		}, nil
 	},
+}
+
+// decodePersisted decodes registry bytes loaded from storage.
+func decodePersisted(stored []byte) (*persistedRegistry, error) {
+	raw, err := protoutils.Unmarshal[*pb.PersistedEpochRegistry](stored)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal epoch registry: %w", err)
+	}
+	s, err := persistedRegistryConv.DecodeReq(raw)
+	if err != nil {
+		return nil, fmt.Errorf("decode epoch registry: %w", err)
+	}
+	return s, nil
 }

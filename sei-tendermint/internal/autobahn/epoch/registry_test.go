@@ -2,7 +2,6 @@ package epoch
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
 	"testing/synctest"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -21,7 +21,7 @@ func TestRegistryGenesisAndLookups(t *testing.T) {
 			rng := utils.TestRng()
 			committee, _, _ := genCommittee(rng, 3)
 			timestamp := time.Unix(10, 0)
-			r, err := NewRegistry(committee, first, timestamp, utils.None[string]())
+			r, err := NewRegistry(committee, first, timestamp, utils.None[[]byte]())
 			require.NoError(t, err)
 			epochs := []*types.Epoch{testEpoch(0, first, committee), testEpoch(1, first, committee)}
 			require.Equal(t, testPersistedRegistry(epochs), r.stateRecv.Load())
@@ -73,7 +73,7 @@ func TestRegistryPushAndImmutableSnapshots(t *testing.T) {
 	active := testPersistedRegistry([]*types.Epoch{e0, e1, e2})
 	joined := testPersistedRegistry([]*types.Epoch{e0, e1, e2, e3})
 	pruned := testPersistedRegistry([]*types.Epoch{e3})
-	r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
+	r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[[]byte]()))
 	snapshots := []struct{ got, want *persistedRegistry }{{r.stateRecv.Load(), initial}}
 	for _, step := range []struct {
 		name string
@@ -115,7 +115,7 @@ func TestRegistryWaitForEpoch(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		rng := utils.TestRng()
 		committee, _, weights := genCommittee(rng, 3)
-		r := utils.OrPanic1(NewRegistry(committee, 7, time.Time{}, utils.None[string]()))
+		r := utils.OrPanic1(NewRegistry(committee, 7, time.Time{}, utils.None[[]byte]()))
 		var got utils.Option[*types.Epoch]
 		require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 			sc.Spawn(func() error {
@@ -168,7 +168,7 @@ func TestRegistryPrune(t *testing.T) {
 	}
 }
 
-func TestRegistryPersistenceLifecycle(t *testing.T) {
+func TestPersistedRegistryRoundTrip(t *testing.T) {
 	rng := utils.TestRng()
 	genesis, keys, _ := genCommittee(rng, 3)
 	a, b := keys[0].Public(), keys[1].Public()
@@ -179,8 +179,8 @@ func TestRegistryPersistenceLifecycle(t *testing.T) {
 	c3 := utils.OrPanic1(c2.DeriveNext(weights3, 3))
 	c4 := utils.OrPanic1(c3.DeriveNext(weights4, 4))
 	epochs := []*types.Epoch{testEpoch(0, 7, genesis), testEpoch(1, 7, genesis), testEpoch(2, 7, c2), testEpoch(3, 7, c3), testEpoch(4, 7, c4), testEpoch(5, 7, c4)}
-	dir, timestamp := utils.Some(t.TempDir()), time.Unix(10, 0)
-	r := utils.OrPanic1(NewRegistry(genesis, 7, timestamp, dir))
+	timestamp := time.Unix(10, 0)
+	r := utils.OrPanic1(NewRegistry(genesis, 7, timestamp, utils.None[[]byte]()))
 	require.Equal(t, testPersistedRegistry(epochs[:2]), r.stateRecv.Load())
 	for _, step := range []struct {
 		name string
@@ -197,66 +197,16 @@ func TestRegistryPersistenceLifecycle(t *testing.T) {
 	} {
 		require.NoError(t, step.run(), step.name)
 		require.Equal(t, step.want, r.stateRecv.Load(), step.name)
-		r = utils.OrPanic1(NewRegistry(genesis, 7, timestamp, dir))
+		r = utils.OrPanic1(NewRegistry(genesis, 7, timestamp, utils.Some(r.Persisted())))
 		require.Equal(t, step.want, r.stateRecv.Load(), step.name)
 	}
 	require.Equal(t, timestamp, r.GenesisTimestamp())
 }
 
-func TestRegistryPersistenceFailure(t *testing.T) {
-	rng := utils.TestRng()
-	genesis, _, weights := genCommittee(rng, 3)
-	r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[string]()))
-	real := r.persister
-	disk := errors.New("disk")
-	epochs := []*types.Epoch{testEpoch(0, 0, genesis), testEpoch(1, 0, genesis), testEpoch(2, 0, genesis)}
-	initial := testPersistedRegistry(epochs[:2])
-	staged := testPersistedRegistry(epochs)
-	active := testPersistedRegistry(epochs)
-	pruned := testPersistedRegistry(epochs[2:])
-	for _, step := range []struct {
-		name         string
-		run          func() error
-		broken, fail bool
-		want         *persistedRegistry
-	}{
-		{"failed stage", func() error { return r.TryPushEpoch(r.LastRoad(0), weights) }, true, true, initial},
-		{"push", func() error { return r.TryPushEpoch(r.LastRoad(0), weights) }, false, false, staged},
-		{"repeat pushed skips disk", func() error { return r.TryPushEpoch(r.LastRoad(0), weights) }, true, false, staged},
-		{"repeat registered skips disk", func() error { return r.TryPushEpoch(r.LastRoad(0), weights) }, true, false, active},
-		{"failed prune", func() error { return r.PruneBefore(2) }, true, true, active},
-		{"prune", func() error { return r.PruneBefore(2) }, false, false, pruned},
-		{"repeat prune skips disk", func() error { return r.PruneBefore(2) }, true, false, pruned},
-	} {
-		r.persister = real
-		if step.broken {
-			r.persister = errPersister{err: disk}
-		}
-		before := r.stateRecv.Load()
-		err := step.run()
-		if step.fail {
-			require.ErrorIs(t, err, disk, step.name)
-		} else {
-			require.NoError(t, err, step.name)
-		}
-		require.Equal(t, step.want, r.stateRecv.Load(), step.name)
-		if step.broken {
-			require.True(t, before == r.stateRecv.Load(), step.name)
-		}
-	}
-}
-
-func TestNewRegistryRestoresPrunedPredecessor(t *testing.T) {
-	rng := utils.TestRng()
-	genesis, _, _ := genCommittee(rng, 3)
-	other, _, _ := genCommittee(rng, 2)
-	want := testPersistedRegistry([]*types.Epoch{testEpoch(3, 7, other)})
-	r, err := testNewRegistry(t, genesis, 7, persistedRegistryConv.Encode(want))
-	require.NoError(t, err)
-	require.Equal(t, want, r.stateRecv.Load())
-}
-
-func TestNewRegistryRejectsInvalidSnapshots(t *testing.T) {
+// TestNewRegistryChecksStoredSnapshots pins which stored registries NewRegistry
+// refuses and which it restores. Restoring the genesis comparison in decodeStored
+// makes the lone epoch 1 with another committee return an error.
+func TestNewRegistryChecksStoredSnapshots(t *testing.T) {
 	rng := utils.TestRng()
 	genesis, keys, _ := genCommittee(rng, 3)
 	other := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{keys[0].Public(): 1, types.GenSecretKey(rng).Public(): 1}))
@@ -270,13 +220,51 @@ func TestNewRegistryRejectsInvalidSnapshots(t *testing.T) {
 	}
 	_, err := testNewRegistry(t, genesis, 7, &pb.PersistedEpochRegistry{})
 	require.Error(t, err)
-	reject([]*types.Epoch{testEpoch(0, 7, other)}, utils.None[*types.Epoch]())
-	reject([]*types.Epoch{testEpoch(1, 7, other)}, utils.None[*types.Epoch]())
 	live := []*types.Epoch{testEpoch(0, 7, genesis), testEpoch(1, 7, genesis)}
-	reject([]*types.Epoch{live[0], live[1], testEpoch(2, 7, other)}, utils.None[*types.Epoch]())
 	reject(live, utils.Some(testEpoch(2, 7, other)))
 	reject([]*types.Epoch{testEpoch(2, 8, genesis)}, utils.None[*types.Epoch]())
 	wrongLength := types.NewEpoch(2, types.RoadRange{First: 7 + 2*epochLength, Next: 8 + 3*epochLength}, genesis)
 	reject([]*types.Epoch{wrongLength}, utils.None[*types.Epoch]())
-	reject(live, utils.Some(wrongLength))
+
+	want := testPersistedRegistry([]*types.Epoch{testEpoch(1, 7, other)})
+	r, err := testNewRegistry(t, genesis, 7, persistedRegistryConv.Encode(want))
+	require.NoError(t, err)
+	require.Equal(t, want, r.stateRecv.Load())
+}
+
+// TestFirstRoadState pins the registry window and the committee of the epoch a
+// first road opens. Encoding the whole live map instead of the window keeps the
+// unpruned epoch 0 in the stored bytes and turns the decoded-window assertion
+// red. Encoding epoch 1's committee instead of epoch 2's keeps the window
+// assertion green and turns the committee assertion red. Pruning past the epoch
+// before the one road opens makes the call fail.
+func TestFirstRoadState(t *testing.T) {
+	rng := utils.TestRng()
+	genesis, keys, _ := genCommittee(rng, 3)
+	a, b := keys[0].Public(), keys[1].Public()
+	r := utils.OrPanic1(NewRegistry(genesis, 0, time.Time{}, utils.None[[]byte]()))
+	require.NoError(t, r.TryPushEpoch(r.LastRoad(0), map[types.PublicKey]uint64{b: 2}))
+	require.NoError(t, r.TryPushEpoch(r.LastRoad(1), map[types.PublicKey]uint64{a: 3, b: 2}))
+
+	entering := types.EpochIndex(2)
+	first := r.MustEpoch(entering).RoadRange().First
+	state, err := r.FirstRoadState(first)
+	require.NoError(t, err)
+	got, ok := state.Get()
+	require.True(t, ok)
+	decoded, err := decodePersisted(got.Registry)
+	require.NoError(t, err)
+	require.Equal(t, testPersistedRegistry([]*types.Epoch{r.MustEpoch(1), r.MustEpoch(2), r.MustEpoch(3)}), decoded)
+	require.Equal(t, protoutils.Marshal(types.CommitteeConv.Encode(r.MustEpoch(entering).Committee())), got.Committee)
+	require.NotEqual(t, protoutils.Marshal(types.CommitteeConv.Encode(r.MustEpoch(entering-1).Committee())), got.Committee)
+
+	require.NoError(t, r.PruneBefore(entering))
+	_, err = r.FirstRoadState(first)
+	require.Error(t, err)
+
+	for _, road := range []types.RoadIndex{0, r.LastRoad(1), first + 1} {
+		state, err := r.FirstRoadState(road)
+		require.NoError(t, err)
+		require.False(t, state.IsPresent())
+	}
 }

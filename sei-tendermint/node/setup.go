@@ -298,6 +298,7 @@ func buildGigaRouter(
 	genDoc *types.GenesisDoc,
 	blockStore *ablockstore.Store,
 	appHashBuilder builder.AppHashBuilder,
+	persistedEpochRegistry utils.Option[[]byte],
 	persistentPeers []p2p.NodeAddress,
 ) (p2p.GigaRouter, func(atypes.RoadIndex) bool, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
@@ -337,7 +338,7 @@ func buildGigaRouter(
 		valCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 		valCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
-		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
+		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore, persistedEpochRegistry)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -360,7 +361,7 @@ func buildGigaRouter(
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	fnCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
-	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
+	dataState, err := p2p.BuildDataState(fnCfg, blockStore, persistedEpochRegistry)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -378,13 +379,20 @@ func isClosingRoad(dataState *data.State) func(atypes.RoadIndex) bool {
 }
 
 // buildExecutor returns the Autobahn executor that runs the blocks in manager's
-// BlockStore on app.
-func buildExecutor(app *proxy.EVMProxy, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager) *execution.Executor {
+// BlockStore on app. epochHook is the router's hook for the epoch bytes a block
+// carries and for a road that has committed.
+func buildExecutor(
+	app *proxy.EVMProxy,
+	genDoc *types.GenesisDoc,
+	manager *bootstrap.GigaStorageManager,
+	epochHook execution.EpochHook,
+) *execution.Executor {
 	return execution.New(&execution.Config{
 		GenDoc:         genDoc,
 		App:            app,
 		AppHashBuilder: manager.AppHashBuilder(),
 		BlockStore:     manager.BlockStore(),
+		EpochHook:      epochHook,
 	})
 }
 
@@ -673,9 +681,14 @@ func createRouter(
 		if !ok {
 			return nil, closer, noneDB, fmt.Errorf("autobahn requires a storage manager")
 		}
+		persisted := utils.None[[]byte]()
+		if raw, ok := manager.EpochRegistry(); ok {
+			persisted = utils.Some(raw)
+		}
 		giga, closingRoad, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
 			manager.BlockStore(), manager.AppHashBuilder(),
+			persisted,
 			options.PersistentPeers,
 		)
 		if err != nil {

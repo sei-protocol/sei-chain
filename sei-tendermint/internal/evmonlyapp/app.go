@@ -274,7 +274,8 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 
 // encodeCursorChangeSet chains the block into the app hash and stages the
 // resulting cursor as pending, returning it as the write committed with
-// the block's state.
+// the block's state. The epoch state, when the block carries one, is written
+// with it unchanged.
 func (a *evmOnlyApplication) encodeCursorChangeSet(
 	block evmonly.BlockContext,
 	result *evmonly.BlockResult,

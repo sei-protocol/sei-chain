@@ -253,7 +253,7 @@ func (env *testEnv) Run(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("app.FinalizeBlock(): %w", err)
 			}
-			if err := env.data.PushAppHash(ctx, i, resp.AppHash, nil); err != nil {
+			if err := env.data.PushAppHash(ctx, i, resp.AppHash); err != nil {
 				return err
 			}
 		}

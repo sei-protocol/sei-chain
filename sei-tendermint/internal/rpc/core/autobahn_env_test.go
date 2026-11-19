@@ -94,7 +94,7 @@ func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 		AppHashBuilder:     stubAppHashBuilder{},
 		GenDoc:             genDoc,
 	}
-	dataState, err := p2p.BuildDataState(&commonCfg, blockStore)
+	dataState, err := p2p.BuildDataState(&commonCfg, blockStore, utils.None[[]byte]())
 	require.NoError(t, err)
 	var giga p2p.GigaRouter
 	if validator {

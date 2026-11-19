@@ -143,36 +143,69 @@ func newInitializedEVMOnlyTestApp(t *testing.T) proxy.EVMApplication {
 	return app
 }
 
+// TestEpochRegistrySurvivesReopen pins that the storage manager reads the epoch
+// registry the app wrote. A reader key other than the writer's leaves found false.
+func TestEpochRegistrySurvivesReopen(t *testing.T) {
+	home := t.TempDir()
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(home)
+	require.NoError(t, err)
+	storage := openEVMOnlyTestStorage(t, storageConfig)
+	app, err := NewEVMOnlyApplication(
+		evmOnlyTestChainID,
+		nil,
+		storage,
+		gigaconfig.DefaultConfig.Execution,
+		utils.None[precompiles.Registry](),
+		utils.None[GenesisAlloc](),
+		utils.None[string](),
+	)
+	require.NoError(t, err)
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+
+	want := []byte("registry-bytes")
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(1, proxy.EpochState{
+		EpochRegistry:    want,
+		CurrentCommittee: []byte("committee"),
+	}))
+
+	resumed, reopened := reopenEVMOnlyTestApp(t, app, storage, home)
+	t.Cleanup(func() { closeEVMOnlyTestApp(t, resumed, reopened) })
+	got, found := reopened.EpochRegistry()
+	require.True(t, found)
+	require.Equal(t, want, got)
+}
+
 func TestEVMOnlyAppCommitsEpochState(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
-	state := proxy.EpochState{EpochRegistry: []byte("registry"), NextEpoch: []byte("next-epoch")}
+	state := proxy.EpochState{EpochRegistry: []byte("registry"), CurrentCommittee: []byte("committee")}
 
 	require.NotEmpty(t, finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(1, state)))
 	require.NoError(t, app.AwaitCommits())
 
-	require.Equal(t, state.EpochRegistry, evmOnlyEpochStateRow(t, app, epochStateEpochRegistryKey))
-	require.Equal(t, state.NextEpoch, evmOnlyEpochStateRow(t, app, epochStateNextEpochKey))
+	require.Equal(t, state.EpochRegistry, evmOnlyEpochStateRow(t, app, bootstrap.EpochRegistryKey))
+	require.Equal(t, state.CurrentCommittee, evmOnlyEpochStateRow(t, app, epochStateEpochCommitteeKey))
 }
 
-func TestEVMOnlyAppCommitsEmptyEpochRegistryAsEmptyRow(t *testing.T) {
+func TestEVMOnlyAppCommitsEmptyEpochRegistry(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
-	state := proxy.EpochState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
+	state := proxy.EpochState{EpochRegistry: nil}
 
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(1, state))
 	require.NoError(t, app.AwaitCommits())
 
-	require.Empty(t, evmOnlyEpochStateRow(t, app, epochStateEpochRegistryKey))
+	require.Empty(t, evmOnlyEpochStateRow(t, app, bootstrap.EpochRegistryKey))
 }
 
 func TestEVMOnlyAppEpochStateRowsDoNotAliasTheRequest(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
-	state := proxy.EpochState{NextEpoch: []byte("next-epoch")}
+	state := proxy.EpochState{EpochRegistry: []byte("registry")}
 
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(1, state))
-	copy(state.NextEpoch, "XXXXXXXXXX")
+	copy(state.EpochRegistry, "XXXXXXXX")
 	require.NoError(t, app.AwaitCommits())
 
-	require.Equal(t, []byte("next-epoch"), evmOnlyEpochStateRow(t, app, epochStateNextEpochKey))
+	require.Equal(t, []byte("registry"), evmOnlyEpochStateRow(t, app, bootstrap.EpochRegistryKey))
 }
 
 func TestEVMOnlyAppWithoutEpochStateWritesNoEpochStateRows(t *testing.T) {
@@ -181,16 +214,14 @@ func TestEVMOnlyAppWithoutEpochStateWritesNoEpochStateRows(t *testing.T) {
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
 	require.NoError(t, app.AwaitCommits())
 
-	_, found := app.storage.StateDB().SC().Get(epochStateModule, []byte(epochStateEpochRegistryKey))
-	require.False(t, found)
-	_, found = app.storage.StateDB().SC().Get(epochStateModule, []byte(epochStateNextEpochKey))
+	_, found := app.storage.StateDB().SC().Get(bootstrap.EpochStateModule, []byte(bootstrap.EpochRegistryKey))
 	require.False(t, found)
 }
 
 func TestEVMOnlyAppEpochStateDoesNotCarryOver(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
 	encoded := installRecordingEVMExecutor(app)
-	state := proxy.EpochState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
+	state := proxy.EpochState{EpochRegistry: nil}
 
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(1, state))
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2))
@@ -222,7 +253,7 @@ func installRecordingEVMExecutor(app *evmOnlyApplication) *utils.Mutex[map[uint6
 func epochStateRowCount(misc []gigatypes.MiscChange) int {
 	count := 0
 	for _, change := range misc {
-		if change.Module == epochStateModule {
+		if change.Module == bootstrap.EpochStateModule {
 			count++
 		}
 	}
@@ -231,7 +262,7 @@ func epochStateRowCount(misc []gigatypes.MiscChange) int {
 
 func evmOnlyEpochStateRow(t *testing.T, app *evmOnlyApplication, key string) []byte {
 	t.Helper()
-	raw, found := app.storage.StateDB().SC().Get(epochStateModule, []byte(key))
+	raw, found := app.storage.StateDB().SC().Get(bootstrap.EpochStateModule, []byte(key))
 	require.True(t, found)
 	return raw
 }
@@ -252,13 +283,24 @@ func newUndoLogEVMOnlyTestAppAt(t *testing.T, initialHeight int64) *evmOnlyAppli
 	// The chain's first block is the first one with an app hash.
 	storageConfig.AppHashBuilderConfig.GigaActivationHeight = uint64(initialHeight) //nolint:gosec // G115: test heights are positive.
 	storageConfig.WithFullNodeMode()
-	app := newEVMOnlyTestAppWithStorage(t, nil, gigaconfig.DefaultConfig.Execution, storageConfig).(*evmOnlyApplication)
-	require.NotNil(t, app.storage.StateDB().UndoSS())
+	storage := openEVMOnlyTestStorage(t, storageConfig)
+	app, err := NewEVMOnlyApplication(
+		evmOnlyTestChainID,
+		nil,
+		storage,
+		gigaconfig.DefaultConfig.Execution,
+		utils.None[precompiles.Registry](),
+		utils.None[GenesisAlloc](),
+		utils.None[string](),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
+	require.NotNil(t, app.(*evmOnlyApplication).storage.StateDB().UndoSS())
 	init := evmOnlyTestInitChain()
 	init.InitialHeight = initialHeight
 	_, err = app.InitChain(init)
 	require.NoError(t, err)
-	return app
+	return app.(*evmOnlyApplication)
 }
 
 func newEVMOnlyTestApp(t *testing.T, validators []proxy.ValidatorUpdate) proxy.EVMApplication {

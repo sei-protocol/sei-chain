@@ -6,13 +6,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
-
-type errPersister struct{ err error }
-
-func (e errPersister) Persist(*pb.PersistedEpochRegistry) error { return e.err }
 
 func testEpoch(idx types.EpochIndex, firstRoad types.RoadIndex, committee *types.Committee) *types.Epoch {
 	first := firstRoad + types.RoadIndex(idx)*epochLength
@@ -29,9 +25,9 @@ func testPersistedRegistry(live []*types.Epoch) *persistedRegistry {
 
 func testNewRegistry(t *testing.T, committee *types.Committee, firstRoad types.RoadIndex, snapshot *pb.PersistedEpochRegistry) (*Registry, error) {
 	t.Helper()
-	dir := utils.Some(t.TempDir())
-	persister, _, err := openEpochSnapshot(dir)
-	require.NoError(t, err)
-	require.NoError(t, persister.Persist(snapshot))
-	return NewRegistry(committee, firstRoad, time.Time{}, dir)
+	row := utils.None[[]byte]()
+	if snapshot != nil {
+		row = utils.Some(protoutils.Marshal(snapshot))
+	}
+	return NewRegistry(committee, firstRoad, time.Time{}, row)
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -274,11 +275,12 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 
 // newTestExecutor returns an executor of cfg's app over the blocks store makes
 // durable.
-func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store) *execution.Executor {
+func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store, registry *epoch.Registry) *execution.Executor {
 	return execution.New(&execution.Config{
 		GenDoc:         cfg.GenDoc,
 		App:            cfg.App,
 		AppHashBuilder: cfg.AppHashBuilder,
 		BlockStore:     store,
+		EpochHook:      NewRegistryEpochHook(registry),
 	})
 }
