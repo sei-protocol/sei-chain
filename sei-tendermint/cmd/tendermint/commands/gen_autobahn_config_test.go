@@ -160,6 +160,8 @@ func TestGenAutobahnConfigRefusesABadAllocOrLevel(t *testing.T) {
 	for name, args := range map[string][]string{
 		"level without funds": {"--evm-preinstalls", preinstalls.Factories},
 		"alloc without funds": {"--evm-alloc", writeGenAlloc(t, `{"0x00000000000000000000000000000000000000c0":{"code":"0x00"}}`), "--evm-preinstalls", preinstalls.None},
+		"empty alloc":         {"--evm-alloc", writeGenAlloc(t, `{}`)},
+		"null alloc":          {"--evm-alloc", writeGenAlloc(t, `null`)},
 		"preinstall address":  {"--evm-alloc", writeGenAlloc(t, `{"`+genFunder.Hex()+`":"0x1","0x4e59b44847b379578588920cA78FbF26c0B4956C":"0x1"}`)},
 		"unknown level":       {"--evm-alloc", genFundedAlloc(t), "--evm-preinstalls", "everything"},
 		"missing file":        {"--evm-alloc", filepath.Join(t.TempDir(), "missing.json")},

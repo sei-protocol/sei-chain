@@ -176,8 +176,9 @@ Output is written to the file specified by --output.`,
 // buildGenEVMAlloc returns the accounts in the JSON file at path, when set, and
 // the contracts of the preinstall level for chainID, or None when there are no
 // accounts. An empty level means preinstalls.Full when the file funds an account
-// and preinstalls.None otherwise. Any other level needs a funded account, and a
-// file account at a preinstall's address is refused.
+// and preinstalls.None otherwise. A file that funds no account, any other level
+// without a funded account, and a file account at a preinstall's address are
+// refused.
 func buildGenEVMAlloc(path, level string, chainID uint64) (utils.Option[map[common.Address]config.EVMGenesisAccount], error) {
 	none := utils.None[map[common.Address]config.EVMGenesisAccount]()
 	alloc := map[common.Address]config.EVMGenesisAccount{}
@@ -191,7 +192,7 @@ func buildGenEVMAlloc(path, level string, chainID uint64) (utils.Option[map[comm
 		}
 	}
 	funded := slices.ContainsFunc(slices.Collect(maps.Values(alloc)), func(a config.EVMGenesisAccount) bool { return a.Balance.IsPresent() })
-	if len(alloc) > 0 && !funded {
+	if path != "" && !funded {
 		return none, fmt.Errorf("--evm-alloc %s funds no account", path)
 	}
 	if level == "" {
