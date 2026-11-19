@@ -678,6 +678,7 @@ func init() {
 	goodConfig.FilterTimeout = 500 * time.Millisecond
 	goodConfig.MaxLogNoBlock = 10
 	goodConfig.EnabledLegacySeiApis = evmrpc.SeiLegacyAllGatedMethodNames()
+	goodConfig.EnableBenchAPI = true // measurement-only endpoint under test; off in every real config
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
 	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
 	if err != nil {

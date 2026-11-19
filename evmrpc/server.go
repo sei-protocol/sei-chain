@@ -181,6 +181,14 @@ func NewEVMHTTPServer(
 			Service:   debugAPI,
 		},
 	}
+	// debug_benchProgram: measurement-only, opt-in, never on a release line.
+	if config.EnableBenchAPI {
+		logger.Warn("Enabling debug_benchProgram (measurement-only endpoint; not for validators or shared nodes)")
+		apis = append(apis, rpc.API{
+			Namespace: "debug",
+			Service:   NewBenchAPI(k, ctxProvider, config.MaxConcurrentBenchCalls),
+		})
+	}
 	// Test API can only exist on non-live chain IDs.  These APIs instrument certain overrides.
 	if config.EnableTestAPI && !evmCfg.IsLiveChainID(ctx) {
 		logger.Info("Enabling Test EVM APIs")

@@ -171,6 +171,14 @@ type Config struct {
 	// test api enables certain override apis for integration test situations
 	EnableTestAPI bool `mapstructure:"enable_test_api"`
 
+	// EnableBenchAPI registers debug_benchProgram, a measurement-only endpoint
+	// (gas-repricing memops-in-production study). Never enable on a validator
+	// or a shared node; it is off by default and not part of any release line.
+	EnableBenchAPI bool `mapstructure:"enable_bench_api"`
+
+	// MaxConcurrentBenchCalls bounds concurrent debug_benchProgram calls. 0 = 8.
+	MaxConcurrentBenchCalls uint64 `mapstructure:"max_concurrent_bench_calls"`
+
 	// MaxConcurrentTraceCalls defines the maximum number of concurrent debug_trace calls.
 	// Set to 0 for unlimited.
 	MaxConcurrentTraceCalls uint64 `mapstructure:"max_concurrent_trace_calls"`
@@ -343,6 +351,8 @@ var DefaultConfig = Config{
 	MaxSubscriptionsNewHead:      10000,
 	MaxSubscriptionsLogs:         1000,
 	EnableTestAPI:                false,
+	EnableBenchAPI:               false,
+	MaxConcurrentBenchCalls:      0,
 	MaxConcurrentTraceCalls:      10,
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
 	MaxTraceLookbackBlocks:       10000,
@@ -407,6 +417,8 @@ const (
 	flagMaxSubscriptionsNewHead      = "evm.max_subscriptions_new_head"
 	flagMaxSubscriptionsLogs         = "evm.max_subscriptions_logs"
 	flagEnableTestAPI                = "evm.enable_test_api"
+	flagEnableBenchAPI               = "evm.enable_bench_api"
+	flagMaxConcurrentBenchCalls      = "evm.max_concurrent_bench_calls"
 	flagMaxConcurrentTraceCalls      = "evm.max_concurrent_trace_calls"
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
 	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
@@ -574,6 +586,16 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagEnableTestAPI); v != nil {
 		if cfg.EnableTestAPI, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagEnableBenchAPI); v != nil {
+		if cfg.EnableBenchAPI, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxConcurrentBenchCalls); v != nil {
+		if cfg.MaxConcurrentBenchCalls, err = cast.ToUint64E(v); err != nil {
 			return cfg, err
 		}
 	}
