@@ -97,7 +97,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) 
 	if err != nil {
 		return nil, fmt.Errorf("genesis committee: %w", err)
 	}
-	registry, err := epoch.NewRegistry(genesisCommittee, firstHeight, cfg.GenDoc.GenesisTime, utils.Some(cfg.PersistentStateDir))
+	registry, err := epoch.NewRegistry(genesisCommittee, firstHeight, cfg.GenDoc.GenesisTime, cfg.GenDoc.Autobahn.Or(types.DefaultAutobahnParams()).EpochLength, utils.Some(cfg.PersistentStateDir))
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}

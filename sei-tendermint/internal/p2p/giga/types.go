@@ -34,13 +34,13 @@ type StreamAppQCsReq struct {
 var LaneVoteConv = protoutils.Conv[*types.Signed[*types.LaneVote], *pb.LaneVote]{
 	Encode: func(m *types.Signed[*types.LaneVote]) *pb.LaneVote {
 		return &pb.LaneVote{
-			LaneVoteV3: types.SignedLaneVoteConv.Encode(m),
+			LaneVoteV4: types.SignedLaneVoteConv.Encode(m),
 		}
 	},
 	Decode: func(m *pb.LaneVote) (*types.Signed[*types.LaneVote], error) {
-		laneVote, err := types.SignedLaneVoteConv.DecodeReq(m.LaneVoteV3)
+		laneVote, err := types.SignedLaneVoteConv.DecodeReq(m.LaneVoteV4)
 		if err != nil {
-			return nil, fmt.Errorf("lane_vote_v3: %w", err)
+			return nil, fmt.Errorf("lane_vote_v4: %w", err)
 		}
 		return laneVote, nil
 	},

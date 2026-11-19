@@ -10,7 +10,9 @@ import (
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
@@ -85,11 +87,13 @@ type AutobahnParams struct {
 	// MinRoadBlockInterval is the minimum interval between this validator's
 	// consensus instances. Zero means unlimited; it must be less than ViewTimeout.
 	MinRoadBlockInterval time.Duration `json:"min_road_block_interval,string"`
+	// EpochLength is the number of road blocks per epoch; zero selects the default.
+	EpochLength atypes.RoadHeight `json:"epoch_length,string"`
 }
 
-// DefaultAutobahnParams returns AutobahnParams with a 1500ms view timeout.
+// DefaultAutobahnParams returns the default Autobahn genesis parameters.
 func DefaultAutobahnParams() AutobahnParams {
-	return AutobahnParams{ViewTimeout: 1500 * time.Millisecond}
+	return AutobahnParams{ViewTimeout: 1500 * time.Millisecond, EpochLength: epoch.DefaultEpochLength}
 }
 
 // Validate checks Autobahn consensus parameters and their timing constraints.
@@ -169,6 +173,10 @@ func (genDoc *GenesisDoc) ValidateAndComplete() error {
 	genDoc.ConsensusParams.Complete()
 
 	if params, ok := genDoc.Autobahn.Get(); ok {
+		if params.EpochLength == 0 {
+			params.EpochLength = epoch.DefaultEpochLength
+		}
+		genDoc.Autobahn = utils.Some(params)
 		if err := params.Validate(); err != nil {
 			return fmt.Errorf("autobahn: %w", err)
 		}

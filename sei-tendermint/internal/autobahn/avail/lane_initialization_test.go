@@ -23,7 +23,7 @@ func TestNewInnerInitializesBoundaryLanes(t *testing.T) {
 	join := next.Committee().Lane(joiner.Public()).OrPanic("joining lane")
 	committed := types.NewLaneBlock(stay, 5, types.LaneBlockHeaderHash{}, &types.Payload{})
 	qc := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
-		stay: data.TestLaneQC(keys, committed.Header()),
+		stay: data.TestLaneQC(0, keys, committed.Header()),
 	})
 	anchor := data.Anchor{
 		First:  utils.Some(data.AnchorFirst{CommitQC: qc, AppQC: data.TestAppQC(keys, types.NewAppProposal(qc.View(), nil))}),
@@ -42,7 +42,7 @@ func TestNewInnerInitializesBoundaryLanes(t *testing.T) {
 	require.Equal(t, next, i.applied())
 	require.Equal(t, types.LaneHeight(6), i.lanes[stay].blocks.first)
 	require.Equal(t, types.LaneHeight(7), i.lanes[stay].blocks.next)
-	require.Equal(t, types.LaneHeight(6), i.lanes[stay].votes.first)
+	require.Equal(t, types.LaneHeight(6), i.lanes[stay].votes[next.EpochIndex()].first)
 	require.Equal(t, types.LaneHeight(7), i.lanes[stay].nextBlockToPersist)
 	require.Equal(t, stayProposal, i.lanes[stay].blocks.q[6])
 	require.Equal(t, leaveProposal, i.lanes[leave].blocks.q[0])

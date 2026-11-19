@@ -72,8 +72,8 @@ func TestRestoreInner_Empty(t *testing.T) {
 	for lane := range ep0.Committee().Lanes().All() {
 		require.Equal(t, types.LaneHeight(0), i.lanes[lane].blocks.first)
 		require.Equal(t, types.LaneHeight(0), i.lanes[lane].blocks.next)
-		require.Equal(t, types.LaneHeight(0), i.lanes[lane].votes.first)
-		require.Equal(t, types.LaneHeight(0), i.lanes[lane].votes.next)
+		require.Equal(t, types.LaneHeight(0), i.lanes[lane].votes[i.applied().EpochIndex()].first)
+		require.Equal(t, types.LaneHeight(0), i.lanes[lane].votes[i.applied().EpochIndex()].next)
 	}
 }
 
@@ -298,7 +298,7 @@ func TestNewInnerInitializesGenesis(t *testing.T) {
 	registry, _ := epoch.GenRegistry(rng, 3)
 	ep0 := registry.MustEpoch(0)
 	timestamp := time.Unix(42, 0)
-	registry, err := epoch.NewRegistry(ep0.Committee(), 7, timestamp, utils.None[string]())
+	registry, err := epoch.NewRegistry(ep0.Committee(), 7, timestamp, epoch.DefaultEpochLength, utils.None[string]())
 	require.NoError(t, err)
 	ep := ep0
 	i := utils.OrPanic1(newInner(data.TestAnchor(ep), timestamp, &loadedState{}))
@@ -311,7 +311,7 @@ func TestNewInnerInitializesGenesis(t *testing.T) {
 	for lane := range ep.Committee().Lanes().All() {
 		ls, ok := i.lanes[lane]
 		require.True(t, ok)
-		blocks, votes, cursor := ls.blocks, ls.votes, ls.nextBlockToPersist
+		blocks, votes, cursor := ls.blocks, ls.votes[i.applied().EpochIndex()], ls.nextBlockToPersist
 		require.Equal(t, types.LaneHeight(0), blocks.first)
 		require.Equal(t, types.LaneHeight(0), blocks.next)
 		require.Equal(t, types.LaneHeight(0), votes.first)
@@ -339,8 +339,8 @@ func TestRestoreInnerInitializesAnchor(t *testing.T) {
 				firstBlock := lr.Next()
 				require.Equal(t, firstBlock, i.lanes[lane].blocks.first)
 				require.Equal(t, firstBlock, i.lanes[lane].blocks.next)
-				require.Equal(t, lr.Next(), i.lanes[lane].votes.first)
-				require.Equal(t, lr.Next(), i.lanes[lane].votes.next)
+				require.Equal(t, lr.Next(), i.lanes[lane].votes[i.applied().EpochIndex()].first)
+				require.Equal(t, lr.Next(), i.lanes[lane].votes[i.applied().EpochIndex()].next)
 				require.Equal(t, firstBlock, i.lanes[lane].nextBlockToPersist)
 			}
 		})
