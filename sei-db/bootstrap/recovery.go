@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
@@ -14,7 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // ErrReceiptStoreDisabledWithHistory is returned when the receipt store is disabled while its
@@ -23,11 +23,17 @@ var ErrReceiptStoreDisabledWithHistory = errors.New("receipt store is disabled b
 
 // storeHeads holds the newest block each store that recovery aligns holds, read from their files before they open.
 type storeHeads struct {
+	// The oldest block the state WAL holds, or 0 when it holds none.
+	stateWALFirst uint64
+
 	// The newest block the state WAL holds, or 0 when it holds none.
 	stateWAL uint64
 
-	// The newest block the historical state DB holds, None when it holds none or is disabled.
-	historicalStateDB utils.Option[uint64]
+	// The version the live state DB opens at, 0 when it holds no state.
+	liveStateDB uint64
+
+	// The newest block the historical state DB holds, or 0 when it holds none or is disabled.
+	historicalStateDB uint64
 
 	// The newest block the receipt store holds, or 0 when it holds none or is disabled.
 	receiptStore uint64
@@ -43,19 +49,21 @@ func readStoreHeads(cfg *config.GigaStorageConfig) (storeHeads, error) {
 	var heads storeHeads
 	var err error
 	logger.Info("Reading a store head", "store", "state WAL")
-	heads.stateWAL, err = stateWALHead(cfg)
+	heads.stateWALFirst, heads.stateWAL, err = stateWALRange(cfg)
 	if err != nil {
-		return storeHeads{}, fmt.Errorf("read state WAL head: %w", err)
+		return storeHeads{}, fmt.Errorf("read state WAL range: %w", err)
 	}
-	heads.historicalStateDB = utils.None[uint64]()
+	logger.Info("Reading a store head", "store", "live state DB")
+	liveStateVersion, _, err := flatkv.StoredVersions(cfg.FlatKVConfig.DataDir)
+	if err != nil {
+		return storeHeads{}, fmt.Errorf("read live state DB version: %w", err)
+	}
+	heads.liveStateDB = uint64(liveStateVersion) //nolint:gosec // live state DB versions are never negative
 	if cfg.SSConfig.Enable {
 		logger.Info("Reading a store head", "store", "historical state DB")
-		present, head, err := undo.GetLatestBlock(cfg.SSConfig.EVMDBDirectory)
+		_, heads.historicalStateDB, err = undo.GetLatestBlock(cfg.SSConfig.EVMDBDirectory)
 		if err != nil {
 			return storeHeads{}, fmt.Errorf("read historical state DB head: %w", err)
-		}
-		if present {
-			heads.historicalStateDB = utils.Some(head)
 		}
 	}
 	if cfg.ReceiptDBConfig.Enable {
@@ -70,36 +78,34 @@ func readStoreHeads(cfg *config.GigaStorageConfig) (storeHeads, error) {
 	if err != nil {
 		return storeHeads{}, fmt.Errorf("read app hash vault head: %w", err)
 	}
-	var historicalStateLogged any = "none"
-	if head, present := heads.historicalStateDB.Get(); present {
-		historicalStateLogged = head
-	}
 	logger.Info("Read the store heads",
+		"state_wal_first", heads.stateWALFirst,
 		"state_wal", heads.stateWAL,
-		"historical_state_db", historicalStateLogged,
+		"live_state_db", heads.liveStateDB,
+		"historical_state_db", heads.historicalStateDB,
 		"receipt_store", heads.receiptStore,
 		"app_hash_vault", heads.appHashVault)
 	return heads, nil
 }
 
-// stateWALHead returns the last block the state WAL holds, or 0 when it holds none.
+// stateWALRange returns the first and last blocks the state WAL holds, both 0 when it holds none.
 //
 // It reads the WAL directory rather than an open WAL, which takes that directory's exclusive lock, so
 // it must run before the StateDB opens it.
-func stateWALHead(cfg *config.GigaStorageConfig) (uint64, error) {
-	stored, _, last, err := statewal.GetRange(flatkv.StateWALConfig(cfg.FlatKVConfig.DataDir))
+func stateWALRange(cfg *config.GigaStorageConfig) (first uint64, last uint64, err error) {
+	stored, first, last, err := statewal.GetRange(flatkv.StateWALConfig(cfg.FlatKVConfig.DataDir))
 	if err != nil {
-		return 0, fmt.Errorf("read the state WAL's stored range: %w", err)
+		return 0, 0, fmt.Errorf("read the state WAL's stored range: %w", err)
 	}
 	if !stored {
-		return 0, nil
+		return 0, 0, nil
 	}
-	return last, nil
+	return first, last, nil
 }
 
 // assertInvariants errors when the stores on disk break an invariant startup relies on: a disabled receipt store or
-// historical state DB that still holds data, a store ahead of the block store, or state holding blocks beside a
-// vault holding no app hash.
+// historical state DB that still holds data, a store ahead of the block store, or a state WAL the live state DB
+// cannot replay from.
 func assertInvariants(
 	cfg *config.GigaStorageConfig,
 	// The newest block the block store holds, or 0 when it holds none.
@@ -116,8 +122,8 @@ func assertInvariants(
 	if err != nil {
 		return fmt.Errorf("check the stores against the block store: %w", err)
 	}
-	if err := requireAppHashesForStateBlocks(heads); err != nil {
-		return fmt.Errorf("check the app hash vault against the state: %w", err)
+	if err := requireStateWALReplayableFromTheLiveStateDB(heads); err != nil {
+		return fmt.Errorf("check the state WAL against the live state DB: %w", err)
 	}
 	return nil
 }
@@ -184,8 +190,8 @@ func requireNoStoreAheadOfTheBlockStore(
 	if heads.stateWAL > blockStoreHead {
 		return ahead("state WAL", heads.stateWAL)
 	}
-	if head, present := heads.historicalStateDB.Get(); present && head > blockStoreHead {
-		return ahead("historical state DB", head)
+	if heads.historicalStateDB > blockStoreHead {
+		return ahead("historical state DB", heads.historicalStateDB)
 	}
 	if heads.receiptStore > blockStoreHead {
 		return ahead("receipt store", heads.receiptStore)
@@ -197,52 +203,55 @@ func requireNoStoreAheadOfTheBlockStore(
 	return nil
 }
 
-// requireAppHashesForStateBlocks errors when the state WAL holds blocks while the app hash vault holds no app hash.
-// The stores would then align on block 0, which no rollback reaches.
-func requireAppHashesForStateBlocks(heads storeHeads) error {
-	if heads.stateWAL == 0 || heads.appHashVault > 0 {
+// requireStateWALReplayableFromTheLiveStateDB errors when the state WAL holds blocks but starts above the block
+// after the live state DB's version, so the blocks between them are missing.
+func requireStateWALReplayableFromTheLiveStateDB(heads storeHeads) error {
+	if heads.stateWAL == 0 || heads.stateWALFirst <= heads.liveStateDB+1 {
 		return nil
 	}
-	return fmt.Errorf("the app hash vault holds no app hash, but the state WAL holds blocks through %d, and "+
-		"recovery cannot roll back to before block 1", heads.stateWAL)
+	return fmt.Errorf("the live state DB stands at block %d, but the state WAL starts at block %d, so blocks "+
+		"%d-%d are missing and the live state DB cannot replay the WAL", heads.liveStateDB, heads.stateWALFirst,
+		heads.liveStateDB+1, heads.stateWALFirst-1)
 }
 
-// recoveryTarget folds the store heads into the height the stores align on: the lowest of them, with a
-// historical state DB or receipt store that holds nothing left out rather than dragging the target down to
-// 0. A store newly enabled on a node with history has nothing to disagree with, and starts filling at the
-// target.
-//
-// An empty state WAL instead yields 0, which leaves every store where it is. It is not unambiguous the way an
-// empty receipt store is: state whose WAL was pruned away behind a snapshot still exists with an empty WAL, and
-// aligning on a target derived from the other stores would discard it with no WAL left to replay it from.
+// recoveryTarget returns the height the stores align on: the lowest of the live state's reachable height, the
+// app hash vault's head, and the heads of the historical state DB and receipt store that hold blocks.
 func recoveryTarget(heads storeHeads) uint64 {
-	if heads.stateWAL == 0 {
-		return 0
+
+	heights := make([]uint64, 0)
+
+	// The live state and hash vault must have data for the target block number.
+	heights = append(heights, heads.liveStateReachableHeight())
+	heights = append(heights, heads.appHashVault)
+
+	// The remaining stores can legally be empty at any height, and so we can ignore them when deciding
+	// the recovery target when they are empty.
+	for _, head := range []uint64{heads.historicalStateDB, heads.receiptStore} {
+		if head > 0 {
+			heights = append(heights, head)
+		}
 	}
-	target := heads.stateWAL
-	if head, present := heads.historicalStateDB.Get(); present {
-		target = min(target, head)
+	return slices.Min(heights)
+}
+
+// liveStateReachableHeight returns the highest block the live state can stand at: the state WAL's head, or the
+// live state DB's version when the WAL holds no blocks to replay.
+func (h storeHeads) liveStateReachableHeight() uint64 {
+	if h.stateWAL > 0 {
+		// The live state DB can replay up to the WAL's head: requireStateWALReplayableFromTheLiveStateDB()
+		// already refused a WAL that starts above the block after the live state DB's version.
+		return h.stateWAL
 	}
-	if heads.receiptStore > 0 {
-		target = min(target, heads.receiptStore)
-	}
-	return min(target, heads.appHashVault)
+	return h.liveStateDB
 }
 
 // alignStores brings the state WAL, the live state DB, the historical state DB and the receipt store onto target,
-// and returns with every store closed. Some roll back to target and others replay up to it. A target of 0 leaves
-// every store where it is.
+// and returns with every store closed. Some roll back to target and others replay up to it.
 //
 // The block store and the app hash vault are not touched: the vault keeps its app hashes above target for
 // auditing. An empty receipt store or historical state DB stays empty. Running it again with the same target is a
 // no-op, and alignment that failed or was interrupted completes when run again.
 func alignStores(ctx context.Context, cfg *config.GigaStorageConfig, target uint64) error {
-	if target == 0 {
-		// Rolling back to 0 would drop every receipt the node holds along with every block in its WAL. This is
-		// the single guard for that, which is why the rollbacks below carry none of their own.
-		logger.Info("No height to align the stores on, leaving them where their files sit")
-		return nil
-	}
 	logger.Info("Aligning the stores on the recovery target", "target", target)
 	timer := dbutils.NewLoggingPhaseTimer(logger)
 
