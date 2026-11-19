@@ -15,6 +15,7 @@ progressively the deeper you go. Existing package guides include:
 - `x/evm/AGENTS.md` — EVM module: address association, StateDB bridge, precompiles, pointers
 - `giga/evmonly/precompiles/AGENTS.md` — EVM-only custom precompiles: state access, determinism and gas rules
 - `sei-tendermint/AGENTS.md` — sei-tendermint module conventions
+- `sei-db/state_db/sc/flatkv/AGENTS.md` — FlatKV state encoding: the consensus rules and what a change to them needs
 - `upgradetest/AGENTS.md` — upgrade boundary tests: how a release's upgrade coverage is scoped and selected
 
 ## Changelogs
