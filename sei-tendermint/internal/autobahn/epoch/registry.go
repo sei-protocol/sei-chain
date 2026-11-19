@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -127,9 +127,9 @@ func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
 	return r.Epoch(r.IndexForRoad(roadIndex))
 }
 
-// Persisted returns the bytes to store for the live registry.
+// Persisted returns the canonical encoding of the live registry.
 func (r *Registry) Persisted() []byte {
-	return protoutils.Marshal(persistedRegistryConv.Encode(r.stateRecv.Load()))
+	return hashable.MarshalCanonical(persistedRegistryConv.Encode(r.stateRecv.Load()))
 }
 
 // FirstRoadState is the persisted registry and the committee of the epoch a
@@ -159,8 +159,8 @@ func (r *Registry) FirstRoadState(road types.RoadIndex) (utils.Option[FirstRoadS
 			road, s.liveRange.First, s.liveRange.Next, entering-1, entering+2)
 	}
 	window := s.pruneBefore(entering - 1)
-	committee := protoutils.Marshal(types.CommitteeConv.Encode(s.live[entering].Committee()))
-	registry := protoutils.Marshal(persistedRegistryConv.Encode(window))
+	committee := hashable.MarshalCanonical(types.CommitteeConv.Encode(s.live[entering].Committee()))
+	registry := hashable.MarshalCanonical(persistedRegistryConv.Encode(window))
 	return utils.Some(FirstRoadState{Registry: registry, Committee: committee}), nil
 }
 

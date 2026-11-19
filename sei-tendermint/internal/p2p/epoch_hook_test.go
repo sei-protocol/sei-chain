@@ -6,7 +6,7 @@ import (
 
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -48,8 +48,8 @@ func TestRegistryEpochHook(t *testing.T) {
 	got, ok := state.Get()
 	require.True(t, ok)
 	require.Equal(t, registry.Persisted(), got.EpochRegistry)
-	require.Equal(t, protoutils.Marshal(atypes.CommitteeConv.Encode(registry.MustEpoch(2).Committee())), got.CurrentCommittee)
-	require.NotEqual(t, protoutils.Marshal(atypes.CommitteeConv.Encode(registry.MustEpoch(1).Committee())), got.CurrentCommittee)
+	require.Equal(t, hashable.MarshalCanonical(atypes.CommitteeConv.Encode(registry.MustEpoch(2).Committee())), got.CurrentCommittee)
+	require.NotEqual(t, hashable.MarshalCanonical(atypes.CommitteeConv.Encode(registry.MustEpoch(1).Committee())), got.CurrentCommittee)
 
 	none, err := hook.EpochState(t.Context(), registry.LastRoad(1))
 	require.NoError(t, err)

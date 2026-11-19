@@ -9,7 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -197,8 +197,10 @@ func TestPersistedRegistryRoundTrip(t *testing.T) {
 	} {
 		require.NoError(t, step.run(), step.name)
 		require.Equal(t, step.want, r.stateRecv.Load(), step.name)
-		r = utils.OrPanic1(NewRegistry(genesis, 7, timestamp, utils.Some(r.Persisted())))
+		stored := r.Persisted()
+		r = utils.OrPanic1(NewRegistry(genesis, 7, timestamp, utils.Some(stored)))
 		require.Equal(t, step.want, r.stateRecv.Load(), step.name)
+		require.Equal(t, stored, r.Persisted(), step.name)
 	}
 	require.Equal(t, timestamp, r.GenesisTimestamp())
 }
@@ -255,8 +257,8 @@ func TestFirstRoadState(t *testing.T) {
 	decoded, err := decodePersisted(got.Registry)
 	require.NoError(t, err)
 	require.Equal(t, testPersistedRegistry([]*types.Epoch{r.MustEpoch(1), r.MustEpoch(2), r.MustEpoch(3)}), decoded)
-	require.Equal(t, protoutils.Marshal(types.CommitteeConv.Encode(r.MustEpoch(entering).Committee())), got.Committee)
-	require.NotEqual(t, protoutils.Marshal(types.CommitteeConv.Encode(r.MustEpoch(entering-1).Committee())), got.Committee)
+	require.Equal(t, hashable.MarshalCanonical(types.CommitteeConv.Encode(r.MustEpoch(entering).Committee())), got.Committee)
+	require.NotEqual(t, hashable.MarshalCanonical(types.CommitteeConv.Encode(r.MustEpoch(entering-1).Committee())), got.Committee)
 
 	require.NoError(t, r.PruneBefore(entering))
 	_, err = r.FirstRoadState(first)
