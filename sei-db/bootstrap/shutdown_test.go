@@ -10,7 +10,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // withRunningMarker places the running marker in its own temporary directory.
@@ -44,8 +43,10 @@ func TestCloseLeavesEveryStoreAtTheLastBlock(t *testing.T) {
 	heads, err := readStoreHeads(cfg)
 	require.NoError(t, err)
 	require.Equal(t, storeHeads{
+		stateWALFirst:     1,
 		stateWAL:          5,
-		historicalStateDB: utils.Some[uint64](5),
+		liveStateDB:       5,
+		historicalStateDB: 5,
 		receiptStore:      5,
 		appHashVault:      5,
 	}, heads)

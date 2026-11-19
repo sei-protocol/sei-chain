@@ -28,7 +28,7 @@ func TestAutobahnParamsValidate(t *testing.T) {
 		{"just too long", time.Second, time.Second + time.Nanosecond, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			params := AutobahnParams{ViewTimeout: tc.timeout, MinRoadBlockInterval: tc.interval}
+			params := AutobahnParams{ViewTimeout: tc.timeout, MinRoadBlockInterval: tc.interval, EpochLength: DefaultAutobahnParams().EpochLength}
 			doc := &GenesisDoc{ChainID: "test-chain", Autobahn: utils.Some(params)}
 			if !tc.valid {
 				require.Error(t, params.Validate())
@@ -65,8 +65,8 @@ func TestAutobahnParamsIntervalEncoding(t *testing.T) {
 		interval time.Duration
 		want     string
 	}{
-		{"unlimited includes zero interval", 0, `{"view_timeout":"1500000000","min_road_block_interval":"0"}`},
-		{"limited includes interval", 500 * time.Millisecond, `{"view_timeout":"1500000000","min_road_block_interval":"500000000"}`},
+		{"unlimited includes zero interval", 0, `{"view_timeout":"1500000000","min_road_block_interval":"0","epoch_length":"108000"}`},
+		{"limited includes interval", 500 * time.Millisecond, `{"view_timeout":"1500000000","min_road_block_interval":"500000000","epoch_length":"108000"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			params := DefaultAutobahnParams()

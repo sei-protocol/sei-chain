@@ -5,13 +5,16 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/app/migration"
 	"github.com/sei-protocol/sei-chain/app/retiredauthz"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
@@ -23,6 +26,7 @@ import (
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -34,9 +38,15 @@ import (
 const (
 	v69OfflineUpgradeName          = "v6.9"
 	v69OfflinePostUpgradeFee int64 = 200000
+	// v69OfflineParamsVersion is the params consensus version after the upgrade.
+	v69OfflineParamsVersion uint64 = 3
 )
 
-var v69OfflineUpgradeBlockTime = time.Unix(1_700_000_000, 0).UTC()
+var (
+	v69OfflineDisabledMsgTypeURLsKey = []byte(paramstypes.ModuleName + "/" + string(paramstypes.ParamStoreKeyDisabledMsgTypeURLs))
+	v69OfflineMigrationRateKey       = []byte(migration.SubspaceName + "/" + string(migration.KeyNumKeysToMigratePerBlock))
+	v69OfflineUpgradeBlockTime       = time.Unix(1_700_000_000, 0).UTC()
+)
 
 func TestV69OfflineUpgradeTarget(t *testing.T) {
 	t.Run("fixture", testV69OfflineUpgradeTargetFixture)
@@ -130,24 +140,44 @@ func applyV69OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offli
 }
 
 // requireV69OfflineMigrated checks a reopened migrated database: the upgrade is
-// recorded, the authz version-map entry and store are gone, and nothing else in
-// the retained stores changed.
+// recorded, the authz version-map entry and store are gone, params is at
+// consensus version 3 with the disabled message type URLs stored as an empty
+// list, and nothing else in the retained stores changed.
 func requireV69OfflineMigrated(t *testing.T, testApp *App, artifact offlineUpgradeArtifact) {
 	t.Helper()
 	requireV69OfflineAppliedName(t, testApp, artifact)
 	requireV69OfflineVersionMap(t, testApp, artifact.ModuleVersions)
 	requireV69OfflineStoreDeleted(t, testApp)
+	requireV69OfflineParamsStore(t, testApp, artifact.Stores[paramstypes.StoreKey])
 	requireOfflineUpgradeRetainedStoresExcept(t, testApp, artifact.Stores, v69OfflineTouchedKey)
 }
 
+// requireV69OfflineParamsStore requires the committed params store to hold the
+// entries the source phase recorded, the disabled message type URLs as an empty
+// list, the migration rate, and nothing else.
+func requireV69OfflineParamsStore(t *testing.T, testApp *App, before map[string]string) {
+	t.Helper()
+	require.Empty(t, testApp.ParamsKeeper.GetDisabledMsgTypeURLs(offlineUpgradeReadContext(testApp, testApp.LastBlockHeight())))
+	want := maps.Clone(before)
+	want[encodeOfflineUpgradeKey(v69OfflineDisabledMsgTypeURLsKey)] = base64.StdEncoding.EncodeToString([]byte("[]"))
+	// BeginBlock stores the migration rate the first time it finds it unset. The source
+	// phase commits without running a block, so here that is the upgrade block.
+	want[encodeOfflineUpgradeKey(v69OfflineMigrationRateKey)] = base64.StdEncoding.EncodeToString([]byte(`"0"`))
+	require.Equal(t, want, snapshotCommittedOfflineUpgradeStore(t, testApp, paramstypes.StoreKey),
+		"v6.9 changed the params store beyond storing the disabled message type URLs")
+}
+
 // v69OfflineTouchedKey reports the retained-store keys the v6.9 upgrade block is
-// specified to change: the plan, done and version-map entries of the upgrade
-// store, the bank entries block rewards move every block, and the block time gov
-// records every block for proposal deadlines.
+// specified to change: the plan and done entries of the upgrade store and the
+// authz and params entries of its module version map, the bank entries block
+// rewards move every block, and the block time gov records every block for
+// proposal deadlines.
 func v69OfflineTouchedKey(storeName string, key []byte) bool {
 	switch storeName {
 	case upgradetypes.StoreKey:
-		return len(key) > 0 && (key[0] == upgradetypes.PlanByte || key[0] == upgradetypes.DoneByte || key[0] == upgradetypes.VersionMapByte)
+		return bytes.Equal(key, offlineUpgradeModuleVersionKey(retiredauthz.ModuleName)) ||
+			bytes.Equal(key, offlineUpgradeModuleVersionKey(paramstypes.ModuleName)) ||
+			(len(key) > 0 && (key[0] == upgradetypes.PlanByte || key[0] == upgradetypes.DoneByte))
 	case banktypes.StoreKey:
 		return v69OfflineBlockRewardKey(key)
 	case govtypes.StoreKey:
@@ -255,7 +285,7 @@ func v69OfflineUpgradeInfo(height int64) string {
 }
 
 // requireV69OfflineVersionMap requires authz to be the only module version the
-// upgrade removed, with none added.
+// upgrade removed, with none added, and params to be at consensus version 3.
 func requireV69OfflineVersionMap(t *testing.T, testApp *App, before []string) {
 	t.Helper()
 	after := offlineUpgradeModuleVersions(t, testApp)
@@ -264,6 +294,9 @@ func requireV69OfflineVersionMap(t *testing.T, testApp *App, before []string) {
 	require.Empty(t, offlineUpgradeDifference(after, before), "v6.9 added a module version")
 	require.False(t, offlineUpgradeHasModuleVersion(t, testApp, retiredauthz.ModuleName),
 		"upgrade store still has a version-map entry for authz")
+	versions := testApp.UpgradeKeeper.GetModuleVersionMap(offlineUpgradeReadContext(testApp, testApp.LastBlockHeight()))
+	require.Equal(t, v69OfflineParamsVersion, versions[paramstypes.ModuleName],
+		"v6.9 did not move params to consensus version %d", v69OfflineParamsVersion)
 }
 
 func requireV69OfflineStoreDeleted(t *testing.T, testApp *App) {
@@ -384,7 +417,9 @@ func signV69OfflineTx(t *testing.T, testApp *App, priv *secp256k1.PrivKey, msg s
 }
 
 // testV69OfflineUpgradeTargetSnapshot applies v6.9 to a real pre-v6.9 node home
-// and requires the authz version-map entry, and only that entry, to be removed.
+// and requires the authz version-map entry to be removed, params to move to
+// consensus version 3, nothing else in the module version map to change, and the
+// disabled message type URLs to be stored as an empty list.
 func testV69OfflineUpgradeTargetSnapshot(t *testing.T) {
 	home := requireOfflineUpgradeSnapshotHome(t)
 	t.Setenv("UPGRADE_VERSION_LIST", v69OfflineUpgradeName)
@@ -402,6 +437,9 @@ func testV69OfflineUpgradeTargetSnapshot(t *testing.T) {
 	beforeVersions := offlineUpgradeModuleVersions(t, testApp)
 	require.Contains(t, beforeVersions, retiredauthz.ModuleName,
 		"%s is not a pre-v6.9 snapshot: module version map is missing authz", home)
+	wantVersions := testApp.UpgradeKeeper.GetModuleVersionMap(offlineUpgradeContext(testApp, sourceHeight, chainID))
+	delete(wantVersions, retiredauthz.ModuleName)
+	wantVersions[paramstypes.ModuleName] = v69OfflineParamsVersion
 
 	require.True(t, testApp.UpgradeKeeper.HasHandler(v69OfflineUpgradeName),
 		"v6.9 upgrade handler is not registered; set UPGRADE_VERSION_LIST=v6.9")
@@ -416,4 +454,8 @@ func testV69OfflineUpgradeTargetSnapshot(t *testing.T) {
 	reopened := openOfflineUpgradeSnapshotApp(t, home, chainID)
 	defer closeOfflineUpgradeApp(t, reopened)
 	requireV69OfflineVersionMap(t, reopened, beforeVersions)
+	ctx := offlineUpgradeContext(reopened, reopened.LastBlockHeight(), chainID)
+	require.Equal(t, wantVersions, reopened.UpgradeKeeper.GetModuleVersionMap(ctx),
+		"v6.9 changed a module version other than removing authz and moving params")
+	require.Equal(t, []byte("[]"), ctx.KVStore(reopened.GetKey(paramstypes.StoreKey)).Get(v69OfflineDisabledMsgTypeURLsKey))
 }

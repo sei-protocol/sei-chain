@@ -106,9 +106,9 @@ func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockIn
 			return nil, err
 		}
 		// Cast happens at the boundary so giga.BlockByNumber stays
-		// strongly typed on atypes.RoadIndex. autobahnCheckAndGetHeight
+		// strongly typed on atypes.RoadHeight. autobahnCheckAndGetHeight
 		// has already validated height is positive and within chain head.
-		gbn, ok := utils.SafeCast[atypes.RoadIndex](height)
+		gbn, ok := utils.SafeCast[atypes.RoadHeight](height)
 		if !ok {
 			return nil, fmt.Errorf("invalid height %d", height)
 		}

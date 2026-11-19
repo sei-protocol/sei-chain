@@ -151,7 +151,13 @@ func (b *testBackend) EvmChainConfig() *params.ChainConfig {
 	return b.chainConfig()
 }
 
+// testChainID is the EVM chain ID testBackend reports when chainID is unset.
+const testChainID = 713700
+
 func (b *testBackend) EvmChainID() uint64 {
+	if b.chainID == nil {
+		return testChainID
+	}
 	return b.chainID()
 }
 

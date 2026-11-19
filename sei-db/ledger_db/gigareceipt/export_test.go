@@ -36,5 +36,5 @@ func LoseIndexAbove(dir string, keep uint64) (err error) {
 func LoseLittAbove(dir string, keep uint64) error {
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.DBDirectory = dir
-	return rollBackLitt(cfg, keep)
+	return rollBackLitt(cfg, 0, keep)
 }

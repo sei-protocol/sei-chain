@@ -15,17 +15,17 @@ import (
 )
 
 func TestEncodeDecodeRoundTrip(t *testing.T) {
-	roadBlock, appQC := testProof(t, utils.TestRng())
+	block, appQC := testProof(t, utils.TestRng())
 
-	encoded, err := Encode(roadBlock, appQC)
+	encoded, err := Encode(block, appQC)
 	require.NoError(t, err)
 
-	decoded, err := Decode(encoded, roadBlock.QC().Index())
+	decoded, err := Decode(encoded, block.QC().Height())
 	require.NoError(t, err)
-	require.Equal(t, roadBlock.QC().Index(), decoded.Index())
-	require.Equal(t, roadBlock.Header().Hash(), decoded.RoadBlock().Header().Hash())
-	require.Equal(t, len(roadBlock.LaneBlocks()), len(decoded.RoadBlock().LaneBlocks()))
-	require.Equal(t, appQC.Proposal().Index(), decoded.AppQC().Proposal().Index())
+	require.Equal(t, block.QC().Height(), decoded.Height())
+	require.Equal(t, block.Header().Hash(), decoded.RoadBlock().Header().Hash())
+	require.Equal(t, len(block.LaneBlocks()), len(decoded.RoadBlock().LaneBlocks()))
+	require.Equal(t, appQC.Proposal().Height(), decoded.AppQC().Proposal().Height())
 	require.Equal(t, []byte(appQC.Proposal().AppHash()), []byte(decoded.AppQC().Proposal().AppHash()))
 }
 
@@ -46,22 +46,22 @@ func TestDecodeRejectsMalformedFiles(t *testing.T) {
 }
 
 func TestDecodeAcceptsUnknownFields(t *testing.T) {
-	roadBlock, appQC := testProof(t, utils.TestRng())
-	encoded, err := Encode(roadBlock, appQC)
+	block, appQC := testProof(t, utils.TestRng())
+	encoded, err := Encode(block, appQC)
 	require.NoError(t, err)
 	encoded = protowire.AppendTag(encoded, 99, protowire.BytesType)
 	encoded = protowire.AppendBytes(encoded, []byte("future field"))
 
-	decoded, err := Decode(encoded, roadBlock.QC().Index())
+	decoded, err := Decode(encoded, block.QC().Height())
 	require.NoError(t, err)
-	require.Equal(t, roadBlock.Header().Hash(), decoded.RoadBlock().Header().Hash())
+	require.Equal(t, block.Header().Hash(), decoded.RoadBlock().Header().Hash())
 }
 
 func TestDecodeRejectsTooManyLaneBlocks(t *testing.T) {
 	laneBlocks := func(n int) *pb.StateSyncProof {
 		msg := &pb.StateSyncProof{}
 		for range n {
-			msg.LaneBlocks = append(msg.LaneBlocks, &pb.Block{})
+			msg.Blocks = append(msg.Blocks, &pb.LaneBlock{})
 		}
 		return msg
 	}
@@ -78,26 +78,26 @@ func TestDecodeRejectsAppQCOfAnotherView(t *testing.T) {
 	for name, otherView := range mismatchedViews() {
 		t.Run(name, func(t *testing.T) {
 			rng := utils.TestRng()
-			roadBlock, _ := testProof(t, rng)
-			appQC := data.TestAppQC(testKeys(t, rng), types.NewAppProposal(otherView(roadBlock.QC().QC().View()), []byte{1}))
+			block, _ := testProof(t, rng)
+			appQC := data.TestAppQC(testKeys(t, rng), types.NewAppProposal(otherView(block.QC().QC().View()), []byte{1}))
 
 			encoded := frame(&pb.StateSyncProof{
-				CommitQc:   types.FullCommitQCConv.Encode(roadBlock.QC()),
-				LaneBlocks: types.BlockConv.EncodeSlice(roadBlock.LaneBlocks()),
-				AppQc:      types.AppQCConv.Encode(appQC),
+				CommitQc: types.FullCommitQCConv.Encode(block.QC()),
+				Blocks:   types.LaneBlockConv.EncodeSlice(block.LaneBlocks()),
+				AppQc:    types.AppQCConv.Encode(appQC),
 			})
-			_, err := Decode(encoded, roadBlock.QC().Index())
+			_, err := Decode(encoded, block.QC().Height())
 			require.Error(t, err)
 		})
 	}
 }
 
-func TestDecodeRejectsUnexpectedIndex(t *testing.T) {
-	roadBlock, appQC := testProof(t, utils.TestRng())
-	encoded, err := Encode(roadBlock, appQC)
+func TestDecodeRejectsUnexpectedHeight(t *testing.T) {
+	block, appQC := testProof(t, utils.TestRng())
+	encoded, err := Encode(block, appQC)
 	require.NoError(t, err)
 
-	_, err = Decode(encoded, roadBlock.QC().Index()+1)
+	_, err = Decode(encoded, block.QC().Height()+1)
 	require.Error(t, err)
 }
 
@@ -105,10 +105,10 @@ func TestEncodeRejectsAppQCOfAnotherView(t *testing.T) {
 	for name, otherView := range mismatchedViews() {
 		t.Run(name, func(t *testing.T) {
 			rng := utils.TestRng()
-			roadBlock, _ := testProof(t, rng)
-			appQC := data.TestAppQC(testKeys(t, rng), types.NewAppProposal(otherView(roadBlock.QC().QC().View()), []byte{1}))
+			block, _ := testProof(t, rng)
+			appQC := data.TestAppQC(testKeys(t, rng), types.NewAppProposal(otherView(block.QC().QC().View()), []byte{1}))
 
-			_, err := Encode(roadBlock, appQC)
+			_, err := Encode(block, appQC)
 			require.Error(t, err)
 		})
 	}
@@ -119,7 +119,7 @@ func TestEncodeRejectsAppQCOfAnotherView(t *testing.T) {
 func mismatchedViews() map[string]func(types.View) types.View {
 	return map[string]func(types.View) types.View{
 		"another road": func(v types.View) types.View {
-			v.Index++
+			v.Height++
 			return v
 		},
 		"another epoch": func(v types.View) types.View {
@@ -130,7 +130,7 @@ func mismatchedViews() map[string]func(types.View) types.View {
 }
 
 func TestFileNameRoundTrip(t *testing.T) {
-	const index types.RoadIndex = 12345
+	const index types.RoadHeight = 12345
 	name := FileName(index)
 	require.Equal(t, "00000000000000012345.bin", name)
 
@@ -159,9 +159,9 @@ func testProof(t *testing.T, rng utils.Rng) (*types.RoadBlock, *types.AppQC) {
 	committee, keys := types.GenCommittee(rng, 4)
 	epoch := types.GenEpochWithCommittee(rng, committee)
 	qc, blocks := data.TestCommitQC(rng, epoch, keys, utils.None[*types.CommitQC]())
-	roadBlock := types.NewRoadBlock(qc, blocks)
+	block := types.NewRoadBlock(qc, blocks)
 	proposal := types.NewAppProposal(qc.QC().View(), []byte{1, 2, 3})
-	return roadBlock, data.TestAppQC(keys, proposal)
+	return block, data.TestAppQC(keys, proposal)
 }
 
 func testKeys(t *testing.T, rng utils.Rng) []types.SecretKey {

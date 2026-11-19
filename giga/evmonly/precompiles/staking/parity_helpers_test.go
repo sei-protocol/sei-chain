@@ -101,7 +101,7 @@ func newV2Chain(t *testing.T, params stakingtypes.Params, hooks stakingtypes.Sta
 	stakingtypes.RegisterInterfaces(registry)
 	cdc := codec.NewProtoCodec(registry)
 
-	paramsKeeper := paramskeeper.NewKeeper(cdc, codec.NewLegacyAmino(), keys[paramstypes.StoreKey], tkey)
+	paramsKeeper := paramskeeper.NewKeeper(cdc, codec.NewLegacyAmino(), keys[paramstypes.StoreKey], tkey, registry)
 	accounts := authkeeper.NewAccountKeeper(cdc, keys[authtypes.StoreKey], paramsKeeper.Subspace(authtypes.ModuleName),
 		authtypes.ProtoBaseAccount, map[string][]string{
 			minterModule:                   {authtypes.Minter},

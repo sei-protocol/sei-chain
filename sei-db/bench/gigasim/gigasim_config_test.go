@@ -121,7 +121,7 @@ func TestValidationRejectsUnusableValues(t *testing.T) {
 		// derived from the budget rather than written down, because a default that moves must not
 		// quietly turn this case into one that passes for the wrong reason.
 		{"a block whose transactions overflow the payload budget", func(c *GigasimConfig) {
-			c.BytesPerTransaction = int(autobahn.MaxTxsBytesPerBlock)/c.TransactionsPerBlock + 1
+			c.BytesPerTransaction = int(autobahn.MaxTxsBytesPerLaneBlock)/c.TransactionsPerBlock + 1
 		}},
 		{"a probability above one", func(c *GigasimConfig) { c.HotAccountProbability = 1.5 }},
 		{"a negative transaction rate", func(c *GigasimConfig) { c.MaxTps = -1 }},

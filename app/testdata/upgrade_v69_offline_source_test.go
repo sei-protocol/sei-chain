@@ -16,6 +16,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -34,10 +35,16 @@ const (
 // the target phase can prove v6.9 left them as v6.8 committed them.
 var v69OfflineSourceStores = []string{authtypes.StoreKey, "bank", "gov", "params", "upgrade"}
 
+// v69OfflineDisabledMsgTypeURLsKey is the params-store key of the parameter v6.9
+// stores, which v6.8 does not register.
+var v69OfflineDisabledMsgTypeURLsKey = []byte(paramstypes.ModuleName + "/DisabledMsgTypeURLs")
+
 func TestV69OfflineUpgradeSource(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "source")
 	testApp := openOfflineUpgradeApp(t, root, true)
 	ctx := testApp.GetContextForDeliverTx(nil).WithBlockTime(time.Now().UTC())
+	require.Nil(t, ctx.KVStore(testApp.GetKey(paramstypes.StoreKey)).Get(v69OfflineDisabledMsgTypeURLsKey),
+		"v6.8 already stores the disabled message type URLs")
 	retained := seedV69OfflineAuthzGrant(t, testApp, ctx)
 	upgradeHeight := ctx.BlockHeight() + 2
 	require.NoError(t, testApp.UpgradeKeeper.ScheduleUpgrade(ctx, upgradetypes.Plan{

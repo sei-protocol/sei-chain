@@ -142,12 +142,35 @@ func TestRollBackLiveStateDBRefusesATargetAboveTheWALHead(t *testing.T) {
 	require.ErrorContains(t, rollBack(t, cfg, 5), "the state WAL ends at 3")
 }
 
-// A target of 0 means no state, so there is nothing to roll back to.
-func TestRollBackLiveStateDBRefusesAZeroTarget(t *testing.T) {
+// A target of 0 discards every block the live state DB holds, landing it on its initial snapshot.
+func TestRollBackLiveStateDBToZero(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
-	writeWALOnly(t, cfg, 1, 1)
+	liveStateDB := openLiveStateDBOwningTheWAL(t, cfg)
+	commitNonceBlocks(t, liveStateDB, 1, 3)
+	require.NoError(t, liveStateDB.Close())
 
-	require.ErrorContains(t, rollBack(t, cfg, 0), "nothing to roll back to")
+	rollBackAndCatchUp(t, cfg, 0)
+
+	rolledBack := reopenWithoutWAL(t, cfg)
+	require.Zero(t, rolledBack.Version())
+	view := rolledBack.OpenView()
+	defer view.Close()
+	_, ok := view.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, gigatypes.Address{1}.Bytes()))
+	require.False(t, ok, "block 1's state must be gone")
+}
+
+// An empty state WAL stands at any height, so a live state DB holding state with no WAL to replay rolls back to
+// the version it already holds.
+func TestRollBackLiveStateDBWithAnEmptyWALToItsOwnVersion(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	liveStateDB := openLiveStateDBOwningTheWAL(t, cfg)
+	commitNonceBlocks(t, liveStateDB, 1, 3)
+	require.NoError(t, liveStateDB.Close())
+	truncateWAL(t, cfg, 0)
+
+	require.NoError(t, rollBack(t, cfg, 3))
+
+	require.Equal(t, int64(3), reopenWithoutWAL(t, cfg).Version())
 }
 
 // A target above where the live state DB sits is not a rollback for it: it replays forward from the height it

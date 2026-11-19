@@ -405,13 +405,13 @@ func (c *GigasimConfig) validateBlockShape() error {
 	}
 	// Each factor is bounded before the product is taken, both because a single oversized transaction is
 	// its own error and because it keeps the multiplication below well inside the range of an int.
-	if c.BytesPerTransaction < 1 || c.BytesPerTransaction > int(autobahn.MaxTxsBytesPerBlock) {
+	if c.BytesPerTransaction < 1 || c.BytesPerTransaction > int(autobahn.MaxTxsBytesPerLaneBlock) {
 		return fmt.Errorf("BytesPerTransaction must be in [1, %d] (got %d)",
-			autobahn.MaxTxsBytesPerBlock, c.BytesPerTransaction)
+			autobahn.MaxTxsBytesPerLaneBlock, c.BytesPerTransaction)
 	}
-	if c.blockPayloadBytes() > int(autobahn.MaxTxsBytesPerBlock) {
+	if c.blockPayloadBytes() > int(autobahn.MaxTxsBytesPerLaneBlock) {
 		return fmt.Errorf("TransactionsPerBlock*BytesPerTransaction must be at most %d (got %d)",
-			autobahn.MaxTxsBytesPerBlock, c.blockPayloadBytes())
+			autobahn.MaxTxsBytesPerLaneBlock, c.blockPayloadBytes())
 	}
 	switch c.TransactionType {
 	case transactionTypeErc20, transactionTypeTransfer:
