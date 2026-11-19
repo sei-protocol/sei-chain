@@ -296,7 +296,13 @@ func (api *BenchAPI) BenchProgram(ctx context.Context, req BenchRequest) (*Bench
 	}
 
 	// ---------- gate + runners ----------
-	var runA, runB func()
+	// A runner builds a FRESH EVM (fresh CacheContext + StateDB) and returns
+	// the function one timed batch calls. The node's DBImpl accumulates
+	// journal/cache/event state across calls, so reusing one StateDB for
+	// thousands of calls makes every call slower than the last (measured:
+	// 15 µs → 90 µs over 60 rounds). A batch of a few dozen calls on a
+	// fresh StateDB is what a transaction sees; the build is not timed.
+	var runA, runB func() (func(), error)
 	if req.Precompile != nil {
 		evm, h, err := api.newBenchEVM(nil)
 		if err != nil {
@@ -325,7 +331,13 @@ func (api *BenchAPI) BenchProgram(ctx context.Context, req BenchRequest) (*Bench
 			return resp, nil
 		}
 		in, addr := req.Precompile.Input, req.Precompile.Addr
-		runA = func() { pc.Run(evm, benchCaller, addr, in, new(big.Int), false, false, nil) }
+		runA = func() (func(), error) {
+			evm, _, err := api.newBenchEVM(nil)
+			if err != nil {
+				return nil, err
+			}
+			return func() { pc.Run(evm, benchCaller, addr, in, new(big.Int), false, false, nil) }, nil
+		}
 	} else {
 		evmA, h, err := api.newBenchEVM(req.A)
 		if err != nil {
@@ -346,8 +358,15 @@ func (api *BenchAPI) BenchProgram(ctx context.Context, req BenchRequest) (*Bench
 			resp.GateNote = fmt.Sprintf("FAIL arm A gas %d != analytic %d", gA, req.A.Gas)
 			return resp, nil
 		}
-		cdA := req.A.Calldata
-		runA = func() { evmA.Call(benchCaller, benchContract, cdA, benchGasLimit, uint256.NewInt(0)) }
+		armA := req.A
+		runA = func() (func(), error) {
+			evm, _, err := api.newBenchEVM(armA)
+			if err != nil {
+				return nil, err
+			}
+			cd := armA.Calldata
+			return func() { evm.Call(benchCaller, benchContract, cd, benchGasLimit, uint256.NewInt(0)) }, nil
+		}
 		if req.B != nil {
 			evmB, _, err := api.newBenchEVM(req.B)
 			if err != nil {
@@ -375,8 +394,15 @@ func (api *BenchAPI) BenchProgram(ctx context.Context, req BenchRequest) (*Bench
 					return resp, nil
 				}
 			}
-			cdB := req.B.Calldata
-			runB = func() { evmB.Call(benchCaller, benchContract, cdB, benchGasLimit, uint256.NewInt(0)) }
+			armB := req.B
+			runB = func() (func(), error) {
+				evm, _, err := api.newBenchEVM(armB)
+				if err != nil {
+					return nil, err
+				}
+				cd := armB.Calldata
+				return func() { evm.Call(benchCaller, benchContract, cd, benchGasLimit, uint256.NewInt(0)) }, nil
+			}
 		}
 	}
 	resp.GateOK = true
@@ -384,13 +410,29 @@ func (api *BenchAPI) BenchProgram(ctx context.Context, req BenchRequest) (*Bench
 	// ---------- sizing ----------
 	resp.ItersA = req.ItersA
 	if resp.ItersA <= 0 {
-		resp.ItersA = benchPilot(runA, req.BatchNs)
+		fn, err := runA()
+		if err != nil {
+			return nil, err
+		}
+		resp.ItersA = benchPilot(fn, req.BatchNs)
 	}
 	if runB != nil {
 		resp.ItersB = req.ItersB
 		if resp.ItersB <= 0 {
-			resp.ItersB = benchPilot(runB, req.BatchNs)
+			fn, err := runB()
+			if err != nil {
+				return nil, err
+			}
+			resp.ItersB = benchPilot(fn, req.BatchNs)
 		}
+	}
+	// one timed batch on a fresh EVM; the build is outside the clock
+	batch := func(mk func() (func(), error), iters int) (float64, error) {
+		fn, err := mk()
+		if err != nil {
+			return 0, err
+		}
+		return benchBatch(fn, iters), nil
 	}
 
 	// ---------- rounds ----------
@@ -407,18 +449,23 @@ func (api *BenchAPI) BenchProgram(ctx context.Context, req BenchRequest) (*Bench
 			break
 		}
 		var a, b float64
+		var errA, errB error
 		order := "AB"
 		if i%2 == 0 {
-			a = benchBatch(runA, resp.ItersA)
+			a, errA = batch(runA, resp.ItersA)
 			if runB != nil {
-				b = benchBatch(runB, resp.ItersB)
+				b, errB = batch(runB, resp.ItersB)
 			}
 		} else {
 			order = "BA"
 			if runB != nil {
-				b = benchBatch(runB, resp.ItersB)
+				b, errB = batch(runB, resp.ItersB)
 			}
-			a = benchBatch(runA, resp.ItersA)
+			a, errA = batch(runA, resp.ItersA)
+		}
+		if errA != nil || errB != nil {
+			resp.GateNote = fmt.Sprintf("stopped at round %d: %v %v", i, errA, errB)
+			break
 		}
 		resp.Rounds = append(resp.Rounds, BenchRound{Round: i, Order: order, NsA: a, NsB: b})
 	}
