@@ -2,7 +2,6 @@ package epoch
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -16,10 +15,10 @@ type Registry struct {
 }
 
 // NewRegistry returns a registry holding epochs, oldest first. It returns an error when epochs is
-// empty.
+// empty, or when the epochs are not consecutive, contiguous, and derived from one another.
 func NewRegistry(epochs []*types.Epoch) (*Registry, error) {
-	if len(epochs) == 0 {
-		return nil, errors.New("epoch registry: no epochs")
+	if err := checkWindow(epochs); err != nil {
+		return nil, err
 	}
 	return &Registry{window: utils.NewAtomicSend(epochs)}, nil
 }
@@ -50,11 +49,12 @@ func (r *Registry) Wait(ctx context.Context, ready func([]*types.Epoch) (bool, e
 	return window, nil
 }
 
-// Store publishes window as the retained epochs. It panics if the newest epoch of window has a
-// lower index than the newest stored epoch.
+// Store publishes window as the retained epochs. It panics when window is empty, when its newest
+// epoch has a lower index than the stored one, or when its epochs are not consecutive, contiguous,
+// and derived from one another.
 func (r *Registry) Store(window []*types.Epoch) {
-	if len(window) == 0 {
-		panic("epoch registry: stored window is empty")
+	if err := checkWindow(window); err != nil {
+		panic(err)
 	}
 	current := r.window.Load()
 	if from, to := current[len(current)-1].EpochIndex(), window[len(window)-1].EpochIndex(); to < from {

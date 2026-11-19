@@ -89,22 +89,31 @@ func Decode(row []byte) ([]*types.Epoch, error) {
 	if err != nil {
 		return nil, fmt.Errorf("epoch registry: %w", err)
 	}
+	if err := checkWindow(epochs); err != nil {
+		return nil, err
+	}
+	return epochs, nil
+}
+
+// checkWindow returns an error when epochs is empty, or when the epochs are not consecutive,
+// contiguous, and derived from one another.
+func checkWindow(epochs []*types.Epoch) error {
 	if len(epochs) == 0 {
-		return nil, errors.New("epoch registry: no epochs")
+		return errors.New("epoch registry: no epochs")
 	}
 	for i := 1; i < len(epochs); i++ {
 		prev, cur := epochs[i-1], epochs[i]
 		if cur.EpochIndex() != prev.EpochIndex()+1 {
-			return nil, fmt.Errorf("epoch registry: epoch %d does not follow %d", cur.EpochIndex(), prev.EpochIndex())
+			return fmt.Errorf("epoch registry: epoch %d does not follow %d", cur.EpochIndex(), prev.EpochIndex())
 		}
 		if prev.RoadRange().Next != cur.RoadRange().First {
-			return nil, fmt.Errorf("epoch registry: epoch %d roads are not contiguous", cur.EpochIndex())
+			return fmt.Errorf("epoch registry: epoch %d roads are not contiguous", cur.EpochIndex())
 		}
 		if err := checkDerived(prev, cur); err != nil {
-			return nil, fmt.Errorf("epoch registry: epoch %d: %w", cur.EpochIndex(), err)
+			return fmt.Errorf("epoch registry: epoch %d: %w", cur.EpochIndex(), err)
 		}
 	}
-	return epochs, nil
+	return nil
 }
 
 // Encode returns the canonical row of epochs.

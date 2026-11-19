@@ -27,8 +27,8 @@ var ErrAppHashDivergence = errors.New("AppHash divergence")
 
 // Config is the config for the data State.
 type Config struct {
-	// Registry is the retained epoch window. The view moves only once it holds the epochs of the
-	// view's road.
+	// Registry is the retained epoch window. The anchor moves only once it holds the epochs of the
+	// anchor's road.
 	Registry *epoch.Registry
 	// Genesis is the genesis schedule of the epochs.
 	Genesis epoch.GenesisSchedule
@@ -822,8 +822,8 @@ func (s *State) runPersist(ctx context.Context, writeAppProposal func(*types.App
 	}
 }
 
-// anchorNeeded reports whether persisting through status moves the anchor: the view moves, or no
-// anchor is set yet and status persists an AppQC.
+// anchorNeeded reports whether persisting through status moves the anchor. It does when the
+// persisted low end advances, or when no anchor is set yet and status persists an AppQC.
 func (i *inner) anchorNeeded(status blockstore.SuffixRange) bool {
 	if i.first < status.First {
 		return true

@@ -145,6 +145,12 @@ func TestStorePanicsWhenNewestEpochMovesBack(t *testing.T) {
 	weights := testWeights(rng, 3)
 	_, err := NewRegistry(nil)
 	require.Error(t, err)
+	committee := utils.OrPanic1(types.NewCommittee(weights))
+	_, err = NewRegistry([]*types.Epoch{
+		types.NewEpoch(0, types.RoadRange{First: 1, Next: 11}, committee),
+		types.NewEpoch(2, types.RoadRange{First: 11, Next: 21}, committee),
+	})
+	require.Error(t, err)
 	r := testRegistry(t, weights, 10)
 	require.NoError(t, r.TestPushEpoch(0, weights))
 	older := r.Epochs()[:2]
