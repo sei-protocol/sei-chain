@@ -133,7 +133,7 @@ func (*PingResp) Descriptor() ([]byte, []int) {
 
 type LaneVote struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	LaneVoteV3    *pb.SignedLaneVote     `protobuf:"bytes,3,opt,name=lane_vote_v3,json=laneVoteV3,proto3" json:"lane_vote_v3,omitempty"`
+	LaneVoteV4    *pb.SignedLaneVote     `protobuf:"bytes,4,opt,name=lane_vote_v4,json=laneVoteV4,proto3" json:"lane_vote_v4,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -168,9 +168,9 @@ func (*LaneVote) Descriptor() ([]byte, []int) {
 	return file_p2p_giga_api_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *LaneVote) GetLaneVoteV3() *pb.SignedLaneVote {
+func (x *LaneVote) GetLaneVoteV4() *pb.SignedLaneVote {
 	if x != nil {
-		return x.LaneVoteV3
+		return x.LaneVoteV4
 	}
 	return nil
 }
@@ -606,10 +606,10 @@ const file_p2p_giga_api_proto_rawDesc = "" +
 	"\x12p2p/giga/api.proto\x12\bp2p.giga\x1a\x17autobahn/autobahn.proto\x1a\x19wireguard/wireguard.proto\"\x17\n" +
 	"\rConsensusResp:\x06\xe8\x88\xe2\xab\f\x01\"\x11\n" +
 	"\aPingReq:\x06\xe8\x88\xe2\xab\f\x01\"\x12\n" +
-	"\bPingResp:\x06\xe8\x88\xe2\xab\f\x01\"s\n" +
+	"\bPingResp:\x06\xe8\x88\xe2\xab\f\x01\"\x87\x01\n" +
 	"\bLaneVote\x12:\n" +
-	"\flane_vote_v3\x18\x03 \x01(\v2\x18.autobahn.SignedLaneVoteR\n" +
-	"laneVoteV3:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\tlane_voteR\flane_vote_v2\"\x88\x01\n" +
+	"\flane_vote_v4\x18\x04 \x01(\v2\x18.autobahn.SignedLaneVoteR\n" +
+	"laneVoteV4:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04R\tlane_voteR\flane_vote_v2R\flane_vote_v3\"\x88\x01\n" +
 	"\fLaneProposal\x12C\n" +
 	"\x10lane_proposal_v3\x18\x03 \x01(\v2\x19.autobahn.SignedLaneBlockR\x0elaneProposalV3:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\rlane_proposalR\x10lane_proposal_v2\"Z\n" +
 	"\aAppVote\x127\n" +
@@ -671,7 +671,7 @@ var file_p2p_giga_api_proto_goTypes = []any{
 	(*pb.LaneBlock)(nil),           // 19: autobahn.LaneBlock
 }
 var file_p2p_giga_api_proto_depIdxs = []int32{
-	14, // 0: p2p.giga.LaneVote.lane_vote_v3:type_name -> autobahn.SignedLaneVote
+	14, // 0: p2p.giga.LaneVote.lane_vote_v4:type_name -> autobahn.SignedLaneVote
 	15, // 1: p2p.giga.LaneProposal.lane_proposal_v3:type_name -> autobahn.SignedLaneBlock
 	16, // 2: p2p.giga.AppVote.app_vote_v2:type_name -> autobahn.SignedAppVote
 	17, // 3: p2p.giga.StreamLaneProposalsReq.lane_id:type_name -> autobahn.LaneID

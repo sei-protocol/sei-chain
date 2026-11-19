@@ -49,14 +49,14 @@ func (m *LaneQC) Verify(epoch *Epoch) error {
 var LaneQCConv = protoutils.Conv[*LaneQC, *pb.LaneQC]{
 	Encode: func(m *LaneQC) *pb.LaneQC {
 		return &pb.LaneQC{
-			VoteV2: LaneVoteConv.Encode(m.vote.Msg()),
+			VoteV3: LaneVoteConv.Encode(m.vote.Msg()),
 			Sigs:   SignatureConv.EncodeSlice(m.sigs),
 		}
 	},
 	Decode: func(m *pb.LaneQC) (*LaneQC, error) {
-		vote, err := LaneVoteConv.DecodeReq(m.VoteV2)
+		vote, err := LaneVoteConv.DecodeReq(m.VoteV3)
 		if err != nil {
-			return nil, fmt.Errorf("vote_v2: %w", err)
+			return nil, fmt.Errorf("vote_v3: %w", err)
 		}
 		sigs, err := SignatureConv.DecodeSlice(m.Sigs)
 		if err != nil {

@@ -23,7 +23,7 @@ func (m *LaneProposal) asMsg() *pb.Msg {
 }
 
 func (m *LaneVote) asMsg() *pb.Msg {
-	return &pb.Msg{T: &pb.Msg_LaneVoteV2{LaneVoteV2: LaneVoteConv.Encode(m)}}
+	return &pb.Msg{T: &pb.Msg_LaneVoteV3{LaneVoteV3: LaneVoteConv.Encode(m)}}
 }
 
 func (m *AppVote) asMsg() *pb.Msg {
@@ -279,8 +279,8 @@ var MsgConv = protoutils.Conv[Msg, *pb.Msg]{
 		switch t := m.T.(type) {
 		case *pb.Msg_LaneProposalV2:
 			return LaneProposalConv.DecodeReq(t.LaneProposalV2)
-		case *pb.Msg_LaneVoteV2:
-			return LaneVoteConv.DecodeReq(t.LaneVoteV2)
+		case *pb.Msg_LaneVoteV3:
+			return LaneVoteConv.DecodeReq(t.LaneVoteV3)
 		case *pb.Msg_Proposal:
 			return ProposalConv.DecodeReq(t.Proposal)
 		case *pb.Msg_PrepareVoteV2:

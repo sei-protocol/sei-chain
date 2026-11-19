@@ -769,7 +769,7 @@ func (x *LaneVote) GetHeader() *LaneBlockHeader {
 
 type LaneQC struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	VoteV2        *LaneVote              `protobuf:"bytes,3,opt,name=vote_v2,json=voteV2,proto3" json:"vote_v2,omitempty"`
+	VoteV3        *LaneVote              `protobuf:"bytes,4,opt,name=vote_v3,json=voteV3,proto3" json:"vote_v3,omitempty"`
 	Sigs          []*Signature           `protobuf:"bytes,2,rep,name=sigs,proto3" json:"sigs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -805,9 +805,9 @@ func (*LaneQC) Descriptor() ([]byte, []int) {
 	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{13}
 }
 
-func (x *LaneQC) GetVoteV2() *LaneVote {
+func (x *LaneQC) GetVoteV3() *LaneVote {
 	if x != nil {
-		return x.VoteV2
+		return x.VoteV3
 	}
 	return nil
 }
@@ -1762,7 +1762,7 @@ type Msg struct {
 	// Types that are valid to be assigned to T:
 	//
 	//	*Msg_LaneProposalV2
-	//	*Msg_LaneVoteV2
+	//	*Msg_LaneVoteV3
 	//	*Msg_Proposal
 	//	*Msg_PrepareVoteV2
 	//	*Msg_CommitVoteV2
@@ -1819,10 +1819,10 @@ func (x *Msg) GetLaneProposalV2() *LaneBlock {
 	return nil
 }
 
-func (x *Msg) GetLaneVoteV2() *LaneVote {
+func (x *Msg) GetLaneVoteV3() *LaneVote {
 	if x != nil {
-		if x, ok := x.T.(*Msg_LaneVoteV2); ok {
-			return x.LaneVoteV2
+		if x, ok := x.T.(*Msg_LaneVoteV3); ok {
+			return x.LaneVoteV3
 		}
 	}
 	return nil
@@ -1882,8 +1882,8 @@ type Msg_LaneProposalV2 struct {
 	LaneProposalV2 *LaneBlock `protobuf:"bytes,10,opt,name=lane_proposal_v2,json=laneProposalV2,proto3,oneof"`
 }
 
-type Msg_LaneVoteV2 struct {
-	LaneVoteV2 *LaneVote `protobuf:"bytes,11,opt,name=lane_vote_v2,json=laneVoteV2,proto3,oneof"`
+type Msg_LaneVoteV3 struct {
+	LaneVoteV3 *LaneVote `protobuf:"bytes,12,opt,name=lane_vote_v3,json=laneVoteV3,proto3,oneof"`
 }
 
 type Msg_Proposal struct {
@@ -1910,7 +1910,7 @@ type Msg_AppVote struct {
 
 func (*Msg_LaneProposalV2) isMsg_T() {}
 
-func (*Msg_LaneVoteV2) isMsg_T() {}
+func (*Msg_LaneVoteV3) isMsg_T() {}
 
 func (*Msg_Proposal) isMsg_T() {}
 
@@ -2883,10 +2883,10 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"epochIndex\x88\x01\x01\x126\n" +
 	"\x06header\x18\x02 \x01(\v2\x19.autobahn.LaneBlockHeaderH\x01R\x06header\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x0e\n" +
 	"\f_epoch_indexB\t\n" +
-	"\a_header\"z\n" +
+	"\a_header\"\x89\x01\n" +
 	"\x06LaneQC\x12+\n" +
-	"\avote_v2\x18\x03 \x01(\v2\x12.autobahn.LaneVoteR\x06voteV2\x12/\n" +
-	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureB\x06Ј\xe2\xab\fdR\x04sigs:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x01\x10\x02R\x04vote\"\xe0\x01\n" +
+	"\avote_v3\x18\x04 \x01(\v2\x12.autobahn.LaneVoteR\x06voteV3\x12/\n" +
+	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureB\x06Ј\xe2\xab\fdR\x04sigs:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x01\x10\x02J\x04\b\x03\x10\x04R\x04voteR\avote_v2\"\xe0\x01\n" +
 	"\tLaneRange\x12.\n" +
 	"\alane_id\x18\x05 \x01(\v2\x10.autobahn.LaneIDH\x00R\x06laneId\x88\x01\x01\x12\x19\n" +
 	"\x05first\x18\x02 \x01(\x04H\x01R\x05first\x88\x01\x01\x12\x17\n" +
@@ -2997,18 +2997,18 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\f_epoch_indexB\t\n" +
 	"\a_heightB\v\n" +
 	"\t_app_hashJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\n" +
-	"road_indexR\rglobal_numberR\fglobal_firstR\vglobal_next\"\xff\x03\n" +
+	"road_indexR\rglobal_numberR\fglobal_firstR\vglobal_next\"\x93\x04\n" +
 	"\x03Msg\x12?\n" +
 	"\x10lane_proposal_v2\x18\n" +
 	" \x01(\v2\x13.autobahn.LaneBlockH\x00R\x0elaneProposalV2\x126\n" +
-	"\flane_vote_v2\x18\v \x01(\v2\x12.autobahn.LaneVoteH\x00R\n" +
-	"laneVoteV2\x120\n" +
+	"\flane_vote_v3\x18\f \x01(\v2\x12.autobahn.LaneVoteH\x00R\n" +
+	"laneVoteV3\x120\n" +
 	"\bproposal\x18\x03 \x01(\v2\x12.autobahn.ProposalH\x00R\bproposal\x12?\n" +
 	"\x0fprepare_vote_v2\x18\b \x01(\v2\x15.autobahn.PrepareVoteH\x00R\rprepareVoteV2\x12<\n" +
 	"\x0ecommit_vote_v2\x18\t \x01(\v2\x14.autobahn.CommitVoteH\x00R\fcommitVoteV2\x12:\n" +
 	"\ftimeout_vote\x18\x06 \x01(\v2\x15.autobahn.TimeoutVoteH\x00R\vtimeoutVote\x122\n" +
 	"\bapp_vote\x18\a \x01(\v2\x15.autobahn.AppProposalH\x00R\aappVote:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x03\n" +
-	"\x01tJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\rlane_proposalR\tlane_voteR\fprepare_voteR\vcommit_vote\"e\n" +
+	"\x01tJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\v\x10\fR\rlane_proposalR\tlane_voteR\flane_vote_v2R\fprepare_voteR\vcommit_vote\"e\n" +
 	"\x0eSignedProposal\x12$\n" +
 	"\x03msg\x18\x01 \x01(\v2\x12.autobahn.ProposalR\x03msg\x12%\n" +
 	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureR\x03sig:\x06\xe8\x88\xe2\xab\f\x01\"k\n" +
@@ -3150,7 +3150,7 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	9,  // 7: autobahn.LaneBlock.header:type_name -> autobahn.LaneBlockHeader
 	10, // 8: autobahn.LaneBlock.payload:type_name -> autobahn.Payload
 	9,  // 9: autobahn.LaneVote.header:type_name -> autobahn.LaneBlockHeader
-	12, // 10: autobahn.LaneQC.vote_v2:type_name -> autobahn.LaneVote
+	12, // 10: autobahn.LaneQC.vote_v3:type_name -> autobahn.LaneVote
 	8,  // 11: autobahn.LaneQC.sigs:type_name -> autobahn.Signature
 	7,  // 12: autobahn.LaneRange.lane_id:type_name -> autobahn.LaneID
 	0,  // 13: autobahn.RoadBlockHeader.timestamp:type_name -> autobahn.Timestamp
@@ -3181,7 +3181,7 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	29, // 38: autobahn.AppQC.vote:type_name -> autobahn.AppProposal
 	8,  // 39: autobahn.AppQC.sigs:type_name -> autobahn.Signature
 	11, // 40: autobahn.Msg.lane_proposal_v2:type_name -> autobahn.LaneBlock
-	12, // 41: autobahn.Msg.lane_vote_v2:type_name -> autobahn.LaneVote
+	12, // 41: autobahn.Msg.lane_vote_v3:type_name -> autobahn.LaneVote
 	17, // 42: autobahn.Msg.proposal:type_name -> autobahn.Proposal
 	18, // 43: autobahn.Msg.prepare_vote_v2:type_name -> autobahn.PrepareVote
 	19, // 44: autobahn.Msg.commit_vote_v2:type_name -> autobahn.CommitVote
@@ -3250,7 +3250,7 @@ func file_autobahn_autobahn_proto_init() {
 	file_autobahn_autobahn_proto_msgTypes[29].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[30].OneofWrappers = []any{
 		(*Msg_LaneProposalV2)(nil),
-		(*Msg_LaneVoteV2)(nil),
+		(*Msg_LaneVoteV3)(nil),
 		(*Msg_Proposal)(nil),
 		(*Msg_PrepareVoteV2)(nil),
 		(*Msg_CommitVoteV2)(nil),
