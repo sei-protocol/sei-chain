@@ -47,6 +47,7 @@ type testBackend struct {
 	estimateGas      func(context.Context, *core.Message, uint64) (uint64, []byte, error)
 	gasLimit         func() uint64
 	minGasPrice      func() *big.Int
+	nextBaseFee      func() *big.Int
 	proxy            utils.Option[*ethrpc.Client]
 	proxyCalls       int
 	proxyEnabled     bool // reports proxies as enabled even when proxy is None.
@@ -126,6 +127,10 @@ func (b *testBackend) EvmNonceAt(address common.Address, height int64) (uint64, 
 
 func (b *testBackend) EvmBaseFee() *big.Int {
 	return b.baseFee()
+}
+
+func (b *testBackend) EvmNextBaseFee() *big.Int {
+	return b.nextBaseFee()
 }
 
 func (b *testBackend) EvmBlockNumber() uint64 {

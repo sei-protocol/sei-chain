@@ -87,6 +87,8 @@ type EVMApplication interface {
 	EvmChainConfig() *params.ChainConfig
 	// EvmBaseFee returns the base fee the most recently committed block ran at.
 	EvmBaseFee() *big.Int
+	// EvmNextBaseFee returns the base fee the block after the most recently committed one runs at.
+	EvmNextBaseFee() *big.Int
 	// EvmGasLimit returns the gas limit of the most recently committed block.
 	EvmGasLimit() uint64
 	// EvmMinGasPrice returns the minimum effective gas price a transaction is
@@ -229,6 +231,11 @@ func (app *EVMProxy) EvmChainConfig() *params.ChainConfig {
 func (app *EVMProxy) EvmBaseFee() *big.Int {
 	defer addTimeSample(Global.MethodTimingAt("evm_base_fee", "sync"))()
 	return app.app.EvmBaseFee()
+}
+
+func (app *EVMProxy) EvmNextBaseFee() *big.Int {
+	defer addTimeSample(Global.MethodTimingAt("evm_next_base_fee", "sync"))()
+	return app.app.EvmNextBaseFee()
 }
 
 func (app *EVMProxy) EvmGasLimit() uint64 {

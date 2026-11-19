@@ -816,6 +816,14 @@ func (a *evmOnlyApplication) EvmBaseFee() *big.Int {
 	panic("unreachable")
 }
 
+// EvmNextBaseFee returns the base fee the block after the most recently committed one runs at.
+func (a *evmOnlyApplication) EvmNextBaseFee() *big.Int {
+	for state := range a.cursor.Lock() {
+		return state.committed.nextBaseFee()
+	}
+	panic("unreachable")
+}
+
 // evmOnlyPrevRandao derives a deterministic PrevRandao from a block timestamp.
 func evmOnlyPrevRandao(timestamp uint64) common.Hash {
 	return crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp))

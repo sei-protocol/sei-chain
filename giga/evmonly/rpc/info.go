@@ -71,13 +71,12 @@ const gasPriceCongestionPercentile = 50
 const defaultPriorityFeePerGas = 1_000_000_000
 
 // GasPrice returns a suggested gas price, matching v2's eth_gasPrice: a margin over the
-// admission floor, or the floor plus the latest congested block's median priority fee when that's
-// higher and available.
+// admission floor, or the next block's base fee plus the latest congested block's median priority
+// fee when that's higher and available.
 func (api *infoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
-	floor := api.backend.EvmMinGasPrice()
-	margin := suggestedGasPrice(floor)
+	margin := suggestedGasPrice(api.backend.EvmMinGasPrice())
 	if reward, ok := api.congestionReward(ctx); ok {
-		if price := reward.Add(reward, floor); price.Cmp(margin) >= 0 {
+		if price := reward.Add(reward, api.backend.EvmNextBaseFee()); price.Cmp(margin) >= 0 {
 			return (*hexutil.Big)(price), nil
 		}
 	}

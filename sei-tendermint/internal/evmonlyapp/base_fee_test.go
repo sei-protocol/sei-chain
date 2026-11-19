@@ -81,8 +81,10 @@ func TestEVMOnlyApplicationSetsTheBaseFeeTwoBlocksAhead(t *testing.T) {
 
 	finalizeAndCommitEVMOnlyTestBlock(t, app, threeTransfersBlock(t, 1))
 	require.Equal(t, floor.ToBig(), app.EvmBaseFee())
+	require.Equal(t, floor.ToBig(), app.EvmNextBaseFee())
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2))
 	require.Equal(t, floor.ToBig(), app.EvmBaseFee())
+	require.Equal(t, raised.ToBig(), app.EvmNextBaseFee())
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(3))
 	require.Equal(t, raised.ToBig(), app.EvmBaseFee())
 }
