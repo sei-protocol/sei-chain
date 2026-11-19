@@ -227,6 +227,11 @@ func committeeWeights(vals []proxy.ValidatorUpdate) (map[atypes.PublicKey]uint64
 
 // runEvmProxy maintains an EVM RPC client for the lifetime of its Giga connection.
 func (r *gigaRouterCommon) runEvmProxy(ctx context.Context, validator validatorHandshake) error {
+	if utils.IsLoopbackOrLinkLocalURL(validator.EVMRPC) {
+		logger.Error("committee member advertised an unroutable EVM RPC; not learning its address",
+			"validator", validator.auth.Key(), "evmRPC", validator.EVMRPC.String())
+		return nil
+	}
 	var client *ethrpc.Client
 	for {
 		var err error

@@ -2,8 +2,8 @@ syntax = "proto3";
 
 package p2p;
 
-import "wireguard/wireguard.proto";
 import "autobahn/autobahn.proto";
+import "wireguard/wireguard.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pb";
 
