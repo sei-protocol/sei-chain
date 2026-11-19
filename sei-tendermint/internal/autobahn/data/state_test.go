@@ -105,7 +105,7 @@ func pushAppHashesRunning(ctx context.Context, state *State, rng utils.Rng, firs
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		for n := first; n < next; n++ {
-			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
 				return err
 			}
 		}
@@ -182,7 +182,10 @@ func TestNextHeightEpoch_AfterAppQCActivation(t *testing.T) {
 	state := newTestState(t, &Config{Registry: registry}, store)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		if err := state.PushAppHash(ctx, qc.Height(), types.GenAppHash(rng), map[types.PublicKey]uint64{keys[0].Public(): 9}); err != nil {
+		if err := registry.TryPushEpoch(qc.Height(), map[types.PublicKey]uint64{keys[0].Public(): 9}); err != nil {
+			return err
+		}
+		if err := state.PushAppHash(ctx, qc.Height(), types.GenAppHash(rng)); err != nil {
 			return err
 		}
 		return pushAppQCForBlock(ctx, state, keys, qc.Height())
@@ -419,12 +422,12 @@ func TestExecution(t *testing.T) {
 			// PushAppHash for a block beyond nextFullBlock should not succeed:
 			// it waits for persistence which never happens for unfinalised blocks.
 			shortCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
-			if err := state.PushAppHash(shortCtx, qc.Height()+1, types.GenAppHash(rng), nil); err == nil {
+			if err := state.PushAppHash(shortCtx, qc.Height()+1, types.GenAppHash(rng)); err == nil {
 				cancel()
 				return errors.New("PushAppHash expected to fail on non-finalized blocks")
 			}
 			cancel()
-			if err := state.PushAppHash(ctx, qc.Height(), types.GenAppHash(rng), nil); err != nil {
+			if err := state.PushAppHash(ctx, qc.Height(), types.GenAppHash(rng)); err != nil {
 				return fmt.Errorf("state.PushAppHash(): %w", err)
 			}
 		}
@@ -455,25 +458,25 @@ func TestPushAppHashRejectsJumpOverCommitQCRange(t *testing.T) {
 			}
 			qcs = append(qcs, qc.QC())
 		}
-		if err := state.PushAppHash(ctx, qcs[0].Height(), types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, qcs[0].Height(), types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(qc1): %w", err)
 		}
 
-		if err := state.PushAppHash(ctx, qcs[2].Height(), types.GenAppHash(rng), nil); !errors.Is(err, ErrOutOfOrder) {
+		if err := state.PushAppHash(ctx, qcs[2].Height(), types.GenAppHash(rng)); !errors.Is(err, ErrOutOfOrder) {
 			return fmt.Errorf("PushAppHash(qc3 before qc2) error = %w, want %w", err, ErrOutOfOrder)
 		}
 
-		if err := state.PushAppHash(ctx, qcs[1].Height(), types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, qcs[1].Height(), types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(qc2): %w", err)
 		}
-		if err := state.PushAppHash(ctx, qcs[2].Height(), types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, qcs[2].Height(), types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(qc3): %w", err)
 		}
 		// Inserting old stuff should be a noop.
-		if err := state.PushAppHash(ctx, qcs[1].Height(), types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, qcs[1].Height(), types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(qc2): %w", err)
 		}
-		if err := state.PushAppHash(ctx, qcs[2].Height()-1, types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, qcs[2].Height()-1, types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(qc2): %w", err)
 		}
 		return nil
@@ -491,7 +494,7 @@ func TestPushAppHash_MidEpochDoesNotRegister(t *testing.T) {
 		if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
 			return err
 		}
-		if err := state.PushAppHash(ctx, qc.Height(), types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, qc.Height(), types.GenAppHash(rng)); err != nil {
 			return err
 		}
 		if _, err := registry.EpochAt(registry.MustEpoch(1).RoadRange().Next); err == nil {
@@ -519,7 +522,10 @@ func TestCommitteeFill_DerivedBeforeAppQC(t *testing.T) {
 			return err
 		}
 		n := qc.Height()
-		if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9}); err != nil {
+		if err := registry.TryPushEpoch(n, map[types.PublicKey]uint64{keeper: 9}); err != nil {
+			return err
+		}
+		if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
 			return err
 		}
 		if _, err := registry.EpochAt(ep1.RoadRange().Next); err != nil {
@@ -567,7 +573,10 @@ func TestCommitteeFill_AppQCDivergenceLeavesStaged(t *testing.T) {
 		if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
 			return err
 		}
-		return state.PushAppHash(ctx, n, types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9})
+		if err := registry.TryPushEpoch(n, map[types.PublicKey]uint64{keeper: 9}); err != nil {
+			return err
+		}
+		return state.PushAppHash(ctx, n, types.GenAppHash(rng))
 	}))
 
 	divergent := types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng))
@@ -595,13 +604,16 @@ func TestCommitteeFill_DivergentLastRoadKeepsExecutionDerivedEpoch(t *testing.T)
 		if err := state.PushPartialBlock(ctx, qc0, TestBlockMap(blocks0)); err != nil {
 			return err
 		}
-		if err := state.PushAppHash(ctx, qc0.Height(), types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9}); err != nil {
+		if err := registry.TryPushEpoch(qc0.Height(), map[types.PublicKey]uint64{keeper: 9}); err != nil {
+			return err
+		}
+		if err := state.PushAppHash(ctx, qc0.Height(), types.GenAppHash(rng)); err != nil {
 			return err
 		}
 		if err := state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)); err != nil {
 			return err
 		}
-		return state.PushAppHash(ctx, qc1.Height(), types.GenAppHash(rng), nil)
+		return state.PushAppHash(ctx, qc1.Height(), types.GenAppHash(rng))
 	}))
 
 	divergent := types.NewAppProposal(qc0.QC().View(), types.GenAppHash(rng))
@@ -630,7 +642,7 @@ func TestRunPersist_HaltsBeforePersistingDivergentAppQC(t *testing.T) {
 		if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
 			return err
 		}
-		return state.PushAppHash(ctx, n, types.GenAppHash(rng), nil)
+		return state.PushAppHash(ctx, n, types.GenAppHash(rng))
 	}))
 	before := store.Status().OrPanic("status after AppHash")
 
@@ -858,7 +870,7 @@ func TestPushPartialBlockBeforeRunPersistsToBlockStore(t *testing.T) {
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		// PushAppHash waits on persisted.NextBlock, so success implies Flush.
-		if err := state.PushAppHash(ctx, qc1.Height(), types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, qc1.Height(), types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(%d): %w", qc1.Height(), err)
 		}
 		return nil
@@ -938,7 +950,7 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 		if err := state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)); err != nil {
 			return fmt.Errorf("PushPartialBlock(qc1): %w", err)
 		}
-		if err := state.PushAppHash(ctx, qc1.Height(), types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, qc1.Height(), types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(%d): %w", qc1.Height(), err)
 		}
 
@@ -968,7 +980,7 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 		if err := state.PushPartialBlock(ctx, qc2, TestBlockMap(blocks2)); err != nil {
 			return fmt.Errorf("PushPartialBlock(qc2): %w", err)
 		}
-		if err := state.PushAppHash(ctx, qc2.Height(), types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, qc2.Height(), types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(%d): %w", qc2.Height(), err)
 		}
 
@@ -1044,7 +1056,7 @@ func TestPushAppHashBelowAnchorSucceeds(t *testing.T) {
 			if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
 				return fmt.Errorf("PushPartialBlock: %w", err)
 			}
-			if err := state.PushAppHash(ctx, qc.Height(), types.GenAppHash(rng), nil); err != nil {
+			if err := state.PushAppHash(ctx, qc.Height(), types.GenAppHash(rng)); err != nil {
 				return fmt.Errorf("PushAppHash(tip): %w", err)
 			}
 			if err := pushAppQCForBlock(ctx, state, keys, qc.Height()); err != nil {
@@ -1061,7 +1073,7 @@ func TestPushAppHashBelowAnchorSucceeds(t *testing.T) {
 			return fmt.Errorf("state.Anchor.Wait(): %w", err)
 		}
 		// Pushing apphash for height below the anchor should NOT expolode.
-		if err := state.PushAppHash(ctx, epoch.RoadRange().First, types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, epoch.RoadRange().First, types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash below anchor: %w", err)
 		}
 		return nil
@@ -1088,7 +1100,7 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 		if err := state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)); err != nil {
 			return fmt.Errorf("PushPartialBlock(qc1): %w", err)
 		}
-		if err := state.PushAppHash(ctx, qc1.Height(), types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, qc1.Height(), types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(%d): %w", qc1.Height(), err)
 		}
 		// Sticky case: persisted.NextAppQC == nextAppProposal. first advances to
@@ -1168,7 +1180,7 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 		if err := state1.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)); err != nil {
 			return fmt.Errorf("PushPartialBlock(qc1): %w", err)
 		}
-		if err := state1.PushAppHash(ctx, qc1.Height(), types.GenAppHash(rng), nil); err != nil {
+		if err := state1.PushAppHash(ctx, qc1.Height(), types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(%d): %w", qc1.Height(), err)
 		}
 		if err := pushAppQCForBlock(ctx, state1, keys, qc1.Height()); err != nil {
@@ -1243,7 +1255,7 @@ func TestAnchorCoversOnlyPersistedAppQC(t *testing.T) {
 			if err := state.PushPartialBlock(ctx, push.qc, TestBlockMap(push.blocks)); err != nil {
 				return fmt.Errorf("PushPartialBlock(%d): %w", push.qc.Height(), err)
 			}
-			if err := state.PushAppHash(ctx, push.qc.Height(), types.GenAppHash(rng), nil); err != nil {
+			if err := state.PushAppHash(ctx, push.qc.Height(), types.GenAppHash(rng)); err != nil {
 				return fmt.Errorf("PushAppHash(%d): %w", push.qc.Height(), err)
 			}
 			if err := pushAppQCForBlock(ctx, state, keys, push.qc.Height()); err != nil {
@@ -1573,7 +1585,7 @@ func TestLaneBlockCacheBound(t *testing.T) {
 			s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 			// The second persisted AppQC evicts the first road and frees its lane blocks.
 			for i, hash := range hashes {
-				if err := state.PushAppHash(ctx, qcs[i].Height(), hash, nil); err != nil {
+				if err := state.PushAppHash(ctx, qcs[i].Height(), hash); err != nil {
 					return err
 				}
 				if err := pushAppQCForBlock(ctx, state, keys, qcs[i].Height()); err != nil {

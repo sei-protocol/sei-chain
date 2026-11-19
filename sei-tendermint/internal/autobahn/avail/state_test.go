@@ -135,7 +135,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 			return err
 		}
 		appHash0 := types.GenAppHash(rng)
-		if err := ds.PushAppHash(ctx, qc0.Height(), appHash0, nil); err != nil {
+		if err := ds.PushAppHash(ctx, qc0.Height(), appHash0); err != nil {
 			return err
 		}
 		if err := ds.PushAppQC(ctx, data.TestAppQC(keys, types.NewAppProposal(qc0.QC().View(), appHash0))); err != nil {
@@ -221,7 +221,7 @@ func TestAnchorResetsState(t *testing.T) {
 			return err
 		}
 		appHash := types.GenAppHash(rng)
-		if err := ds.PushAppHash(ctx, qc.Height(), appHash, nil); err != nil {
+		if err := ds.PushAppHash(ctx, qc.Height(), appHash); err != nil {
 			return err
 		}
 		appQC := data.TestAppQC(keys, types.NewAppProposal(qc.QC().View(), appHash))
@@ -341,7 +341,7 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 			t.Logf("Push app votes.")
 			appHash := types.GenAppHash(rng)
 			appProposal := types.NewAppProposal(qc.View(), appHash)
-			if err := ds.PushAppHash(ctx, appProposal.Height(), appHash, nil); err != nil {
+			if err := ds.PushAppHash(ctx, appProposal.Height(), appHash); err != nil {
 				return fmt.Errorf("ds.PushAppHash(): %w", err)
 			}
 			for _, vote := range makeAppVotes(keys, appProposal) {
@@ -647,7 +647,7 @@ func TestProductionAfterRestart(t *testing.T) {
 			app = types.NewAppProposal(commitQC.View(), types.GenAppHash(rng))
 			for _, node := range utils.Slice(producer, peer) {
 				utils.OrPanic(node.PushCommitQC(ctx, commitQC))
-				utils.OrPanic(node.Data().PushAppHash(ctx, app.Height(), app.AppHash(), nil))
+				utils.OrPanic(node.Data().PushAppHash(ctx, app.Height(), app.AppHash()))
 				for _, v := range makeAppVotes(keys, app) {
 					utils.OrPanic(node.PushAppVote(ctx, v))
 				}

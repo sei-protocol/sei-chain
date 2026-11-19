@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -84,6 +85,8 @@ type GigaRouter interface {
 	// EvmProxyEnabled reports whether EvmProxy can return Some for any sender.
 	EvmProxyEnabled() bool
 	Mempool() utils.Option[*producer.State]
+	// EpochHook supplies the epoch bytes a block carries and observes each committed road.
+	EpochHook() execution.EpochHook
 	Validators(n atypes.RoadHeight) ([]*types.Validator, error)
 	fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer])
 }

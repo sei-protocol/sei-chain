@@ -181,14 +181,14 @@ func newAppHashTestRouter(
 		App:                proxy.NewEVM(app),
 		AppHashBuilder:     hashBuilder,
 	}
-	state, err := BuildDataState(cfg, db)
+	state, err := BuildDataState(cfg, db, utils.None[[]byte]())
 	require.NoError(t, err)
 	router := &gigaRouterCommon{
 		cfg:  cfg,
 		data: state,
 		app:  cfg.App,
 	}
-	return app, hashBuilder, state, router, newTestExecutor(cfg, db)
+	return app, hashBuilder, state, router, newTestExecutor(cfg, db, state.Registry())
 }
 
 // TestExecutionRunsAheadOfAppHashPush verifies that execution does not wait for
@@ -315,7 +315,7 @@ func TestBuildDataStateGenesisEpochLength(t *testing.T) {
 		GenDoc:             genesis,
 		App:                proxy.NewEVM(&fixedHeightApp{}),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
-	}, db)
+	}, db, utils.None[[]byte]())
 	require.NoError(t, err)
 	anchor := state.Anchor().Load()
 	require.Equal(t, atypes.RoadRange{First: 1, Next: 4}, anchor.Epochs[0].RoadRange())
@@ -338,7 +338,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 
 	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
 	require.NoError(t, err)
-	registry, err := epoch.NewRegistry(committee, atypes.RoadHeight(genDoc.InitialHeight), genDoc.GenesisTime, epoch.DefaultEpochLength, utils.None[string]())
+	registry, err := epoch.NewRegistry(committee, atypes.RoadHeight(genDoc.InitialHeight), genDoc.GenesisTime, epoch.DefaultEpochLength, utils.None[[]byte]())
 	require.NoError(t, err)
 	ep0 := registry.MustEpoch(0)
 	qc, blocks := data.TestCommitQC(rng, ep0, keys, utils.None[*atypes.CommitQC]())
@@ -361,7 +361,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		App:                proxy.NewEVM(&fixedHeightApp{height: int64(last)}),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
 	}
-	state, err := BuildDataState(cfg, db)
+	state, err := BuildDataState(cfg, db, utils.None[[]byte]())
 	require.NoError(t, err)
 	got, err := state.TryBlock(atypes.LaneBlockPos{Height: last})
 	require.NoError(t, err)
@@ -465,7 +465,7 @@ func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAdd
 
 func testDataState(t *testing.T, committee *atypes.Committee) (*data.State, *epoch.Registry) {
 	t.Helper()
-	registry, err := epoch.NewRegistry(committee, 1, time.Now(), epoch.DefaultEpochLength, utils.None[string]())
+	registry, err := epoch.NewRegistry(committee, 1, time.Now(), epoch.DefaultEpochLength, utils.None[[]byte]())
 	require.NoError(t, err)
 	db := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -949,7 +949,7 @@ func testRegistryThrough(t *testing.T, genesis map[atypes.PublicKey]uint64, late
 	t.Helper()
 	committee, err := atypes.NewCommittee(genesis)
 	require.NoError(t, err)
-	registry, err := epoch.NewRegistry(committee, 1, time.Now(), epoch.DefaultEpochLength, utils.None[string]())
+	registry, err := epoch.NewRegistry(committee, 1, time.Now(), epoch.DefaultEpochLength, utils.None[[]byte]())
 	require.NoError(t, err)
 	for i, weights := range later {
 		// Epoch i+2 is derived when the last road of epoch i is reached.
@@ -990,7 +990,7 @@ func testCertifyRoad(ctx context.Context, state *data.State, rng utils.Rng, keys
 		return err
 	}
 	n := qc.Height()
-	if err := state.PushAppHash(ctx, n, atypes.GenAppHash(rng), nil); err != nil {
+	if err := state.PushAppHash(ctx, n, atypes.GenAppHash(rng)); err != nil {
 		return err
 	}
 	vote, err := state.AppVote(ctx, n)
@@ -1266,7 +1266,7 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 			persistentKeys[1].Public().NodeID(): {},
 		},
 	}
-	state, err := BuildDataState(cfg, db)
+	state, err := BuildDataState(cfg, db, utils.None[[]byte]())
 	require.NoError(t, err)
 	router, err := NewGigaFullnodeRouter(cfg, localKey, state)
 	require.NoError(t, err)
@@ -1353,4 +1353,26 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 		}
 		return nil
 	}))
+}
+
+// TestWaitForDerivedEpoch pins that a closing road waits until the registry
+// holds the derived epoch, and that every other road returns immediately.
+func TestWaitForDerivedEpoch(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 1)
+	state, err := data.NewState(&data.Config{Registry: registry}, blockstore.NewTestStore(t))
+	require.NoError(t, err)
+	r := &gigaRouterCommon{data: state}
+	closing := registry.LastRoad(0)
+
+	require.NoError(t, r.waitForDerivedEpoch(ctx, closing-1))
+
+	waitCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	err = r.waitForDerivedEpoch(waitCtx, closing)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+
+	require.NoError(t, registry.TryPushEpoch(closing, map[atypes.PublicKey]uint64{keys[0].Public(): 1}))
+	require.NoError(t, r.waitForDerivedEpoch(ctx, closing))
 }

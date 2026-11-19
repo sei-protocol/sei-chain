@@ -94,11 +94,11 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				GenDoc:             genDoc,
 				EnableEvmProxy:     true,
 			}
-			executor := newTestExecutor(&commonCfg, blockStore)
-			dataState, err := BuildDataState(&commonCfg, blockStore)
+			dataState, err := BuildDataState(&commonCfg, blockStore, utils.None[[]byte]())
 			if err != nil {
 				return fmt.Errorf("BuildDataState[%v]: %w", i, err)
 			}
+			executor := newTestExecutor(&commonCfg, blockStore, dataState.Registry())
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
 				GigaRouterCommonConfig: commonCfg,
 				ValidatorKey:           cfg.validatorKey,
@@ -335,7 +335,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}
-	dataState, err := BuildDataState(&commonCfg, blockStore)
+	dataState, err := BuildDataState(&commonCfg, blockStore, utils.None[[]byte]())
 	require.NoError(t, err)
 
 	router, err := NewGigaValidatorRouter(&GigaValidatorConfig{

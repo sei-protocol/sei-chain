@@ -15,6 +15,7 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -67,12 +68,27 @@ func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) (handshakeSp
 	return spec, r.offer
 }
 
+// genesisCommittee returns the committee epochs 0 and 1 start from: every
+// address-book validator with weight 1.
+func genesisCommittee(validatorAddrs map[atypes.PublicKey]GigaNodeAddr) (*atypes.Committee, error) {
+	weights := make(map[atypes.PublicKey]uint64, len(validatorAddrs))
+	for k := range validatorAddrs {
+		weights[k] = 1
+	}
+	committee, err := atypes.NewCommittee(weights)
+	if err != nil {
+		return nil, fmt.Errorf("genesis committee: %w", err)
+	}
+	return committee, nil
+}
+
 // BuildDataState validates the common config, constructs the committee, and
-// returns an initialised data.State backed by blockStore.
+// returns an initialised data.State backed by blockStore. persisted is the
+// epoch registry stored by the storage manager, or none when nothing is stored.
 //
 // Whoever opened blockStore must close it after giga.Run returns, or immediately
 // if construction of the GigaRouter fails. data.State never closes it.
-func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) (*data.State, error) {
+func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store, persisted utils.Option[[]byte]) (*data.State, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
 	}
@@ -95,9 +111,9 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) 
 	}
 	genesisCommittee, err := atypes.NewCommittee(genesisWeights)
 	if err != nil {
-		return nil, fmt.Errorf("genesis committee: %w", err)
+		return nil, err
 	}
-	registry, err := epoch.NewRegistry(genesisCommittee, firstHeight, cfg.GenDoc.GenesisTime, cfg.GenDoc.Autobahn.Or(types.DefaultAutobahnParams()).EpochLength, utils.Some(cfg.PersistentStateDir))
+	registry, err := epoch.NewRegistry(genesisCommittee, firstHeight, cfg.GenDoc.GenesisTime, cfg.GenDoc.Autobahn.Or(types.DefaultAutobahnParams()).EpochLength, persisted)
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
@@ -192,40 +208,34 @@ func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", n, err)
 		}
-		// TODO: PushAppHash needs the validator set from right after block n.
-		// GetValidators() is the app tip, which can be past n. This is exact only
-		// while the app's validator set never changes, as for the EVM-only and mock
-		// apps Autobahn runs. Read the next epoch's validator set from app state
-		// once it keeps one.
-		weights, err := committeeWeights(r.app.GetValidators())
-		if err != nil {
+		if err := r.waitForDerivedEpoch(ctx, n); err != nil {
 			return err
 		}
 		appHash := entry.AppHash()
-		if err := r.data.PushAppHash(ctx, n, appHash[:], weights); err != nil {
+		if err := r.data.PushAppHash(ctx, n, appHash[:]); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
 		}
 	}
 }
 
-// committeeWeights maps a bonded validator set to Autobahn voting power.
-func committeeWeights(vals []proxy.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
-	weights := make(map[atypes.PublicKey]uint64, len(vals))
-	for _, v := range vals {
-		if v.Power <= 0 {
-			continue
-		}
-		apk := v.PubKey
-		if _, dup := weights[apk]; dup {
-			return nil, fmt.Errorf("duplicate public key %s", apk)
-		}
-		power, ok := utils.SafeCast[uint64](v.Power)
-		if !ok {
-			return nil, fmt.Errorf("validator power %d does not fit uint64", v.Power)
-		}
-		weights[apk] = power
+// EpochHook returns the hook for the epoch bytes a block carries and for a road
+// that has committed.
+func (r *gigaRouterCommon) EpochHook() execution.EpochHook {
+	return NewRegistryEpochHook(r.data.Registry())
+}
+
+// waitForDerivedEpoch blocks on a closing road until the registry holds the
+// epoch that road derived. The executor derives it when the road commits.
+// Any other road returns immediately.
+func (r *gigaRouterCommon) waitForDerivedEpoch(ctx context.Context, n atypes.RoadHeight) error {
+	closing, ok := r.data.ClosingEpoch(n).Get()
+	if !ok {
+		return nil
 	}
-	return weights, nil
+	if _, err := r.data.Registry().WaitForEpoch(ctx, closing+2); err != nil {
+		return fmt.Errorf("epoch %d: %w", closing+2, err)
+	}
+	return nil
 }
 
 // runEvmProxy maintains an EVM RPC client for one committee member.

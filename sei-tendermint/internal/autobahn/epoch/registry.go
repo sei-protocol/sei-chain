@@ -6,8 +6,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -21,57 +20,61 @@ type Registry struct {
 	genesisTimestamp time.Time
 	state            utils.Mutex[*utils.AtomicSend[*persistedRegistry]]
 	stateRecv        utils.AtomicRecv[*persistedRegistry]
-	persister        persist.Persister[*pb.PersistedEpochRegistry]
 }
 
-// NewRegistry opens a registry using the genesis committee, road origin, timestamp, and epoch length.
-// Without persisted state it starts with epochs 0 and 1. stateDir None disables persistence.
+// NewRegistry returns a registry whose genesis epochs start at firstHeight and last
+// epochLength roads each. stored, when set, replaces the genesis epochs with the
+// registry those bytes decode to.
 func NewRegistry(
 	committee *types.Committee,
 	firstHeight types.RoadHeight,
 	genesisTimestamp time.Time,
 	epochLength types.RoadHeight,
-	stateDir utils.Option[string],
+	stored utils.Option[[]byte],
 ) (*Registry, error) {
 	if epochLength == 0 {
 		return nil, fmt.Errorf("epoch length must be greater than 0")
-	}
-	persister, loaded, err := openEpochSnapshot(stateDir)
-	if err != nil {
-		return nil, err
 	}
 	r := &Registry{
 		firstHeight:      firstHeight,
 		epochLength:      epochLength,
 		genesisTimestamp: genesisTimestamp,
-		persister:        persister,
 	}
 	state := newGenesisRegistry(committee, firstHeight, epochLength)
-	if raw, ok := loaded.Get(); ok {
-		if state, err = persistedRegistryConv.DecodeReq(raw); err != nil {
-			return nil, fmt.Errorf("restore epoch snapshot: %w", err)
-		}
-		for idx := state.liveRange.First; idx < state.liveRange.Next; idx++ {
-			epoch := state.live[idx]
-			if got, want := epoch.RoadRange(), r.roadRange(idx); got != want {
-				return nil, fmt.Errorf("restore epoch snapshot: epoch %d roads %v, want %v", idx, got, want)
-			}
-			if state.liveRange.First < idx {
-				if err := checkDerived(state.live[idx-1], epoch); err != nil {
-					return nil, fmt.Errorf("restore epoch snapshot: epoch %d: %w", idx, err)
-				}
-			}
-		}
-		for idx := range types.EpochIndex(2) {
-			if epoch, ok := state.live[idx]; ok && !epoch.Committee().Equal(committee) {
-				return nil, fmt.Errorf("restore epoch snapshot: epoch %d does not match genesis", idx)
-			}
+	if raw, ok := stored.Get(); ok {
+		var err error
+		if state, err = decodeStored(raw, r.roadRange); err != nil {
+			return nil, err
 		}
 	}
 	stateSend := new(utils.NewAtomicSend(state))
 	r.state = utils.NewMutex(stateSend)
 	r.stateRecv = stateSend.Subscribe()
 	return r, nil
+}
+
+// decodeStored decodes registry bytes from storage and checks each retained
+// epoch's road layout and that its committee follows the one before it.
+func decodeStored(
+	raw []byte,
+	roadRange func(types.EpochIndex) types.RoadRange,
+) (*persistedRegistry, error) {
+	state, err := decodePersisted(raw)
+	if err != nil {
+		return nil, err
+	}
+	for idx := state.liveRange.First; idx < state.liveRange.Next; idx++ {
+		epoch := state.live[idx]
+		if got, want := epoch.RoadRange(), roadRange(idx); got != want {
+			return nil, fmt.Errorf("epoch registry: epoch %d roads %v, want %v", idx, got, want)
+		}
+		if state.liveRange.First < idx {
+			if err := checkDerived(state.live[idx-1], epoch); err != nil {
+				return nil, fmt.Errorf("epoch registry: epoch %d: %w", idx, err)
+			}
+		}
+	}
+	return state, nil
 }
 
 func (r *Registry) roadRange(idx types.EpochIndex) types.RoadRange {
@@ -123,23 +126,45 @@ func (r *Registry) Epoch(idx types.EpochIndex) (*types.Epoch, error) {
 
 // EpochAt returns the registered epoch containing height.
 func (r *Registry) EpochAt(height types.RoadHeight) (*types.Epoch, error) {
-	firstHeight := r.firstHeight
-	if height < firstHeight {
+	if height < r.firstHeight {
 		return nil, fmt.Errorf("road %d: %w", height, types.ErrPruned)
 	}
 	return r.Epoch(r.IndexForRoad(height))
 }
 
-// commit persists and publishes next. Persistence failure leaves the current snapshot unchanged.
-func (r *Registry) commit(state *utils.AtomicSend[*persistedRegistry], next *persistedRegistry) error {
-	if err := r.persister.Persist(persistedRegistryConv.Encode(next)); err != nil {
-		return fmt.Errorf("persist epoch registry: %w", err)
-	}
-	state.Store(next)
-	return nil
+// FirstRoadState is the persisted registry and the committee of the epoch a
+// first road opens.
+type FirstRoadState struct {
+	Registry  []byte
+	Committee []byte
 }
 
-// TryPushEpoch derives and persists the next epoch when n closes the required execution epoch.
+// FirstRoadState returns the registry window and the committee of the epoch road
+// opens, when road is that epoch's first road, and none for every other road.
+// The window is the epoch before that one, that epoch, and the epoch after it;
+// older retained epochs are left out. It returns an error unless the retained
+// epochs reach back to the epoch before and end just after the epoch after it.
+func (r *Registry) FirstRoadState(road types.RoadHeight) (utils.Option[FirstRoadState], error) {
+	if road == 0 {
+		return utils.None[FirstRoadState](), nil
+	}
+	closing, ok := r.ClosingEpoch(road - 1).Get()
+	if !ok {
+		return utils.None[FirstRoadState](), nil
+	}
+	entering := closing + 1
+	s := r.stateRecv.Load()
+	if s.liveRange.First > entering-1 || s.liveRange.Next != entering+2 {
+		return utils.None[FirstRoadState](), fmt.Errorf("epoch registry at road %d: live [%d,%d), want first <= %d and next == %d",
+			road, s.liveRange.First, s.liveRange.Next, entering-1, entering+2)
+	}
+	window := s.pruneBefore(entering - 1)
+	committee := hashable.MarshalCanonical(types.CommitteeConv.Encode(s.live[entering].Committee()))
+	registry := hashable.MarshalCanonical(persistedRegistryConv.Encode(window))
+	return utils.Some(FirstRoadState{Registry: registry, Committee: committee}), nil
+}
+
+// TryPushEpoch derives and publishes the next epoch when n closes the required execution epoch.
 // Earlier roads are ignored; roads beyond the required boundary return an error.
 func (r *Registry) TryPushEpoch(n types.RoadHeight, weights map[types.PublicKey]uint64) error {
 	for state := range r.state.Lock() {
@@ -147,20 +172,20 @@ func (r *Registry) TryPushEpoch(n types.RoadHeight, weights map[types.PublicKey]
 		if next, err := s.tryPushEpoch(n, weights); err != nil {
 			return err
 		} else if next != s {
-			return r.commit(state, next)
+			state.Store(next)
 		}
 	}
 	return nil
 }
 
-// PruneBefore drops persisted epochs below keep, retaining the latest live epoch.
+// PruneBefore drops retained epochs below keep, retaining the latest live epoch.
 // Pruning only moves forward.
 // TODO: archive nodes need special handling (never prune epochs).
 func (r *Registry) PruneBefore(keep types.EpochIndex) error {
 	for state := range r.state.Lock() {
 		s := state.Load()
 		if next := s.pruneBefore(keep); next != s {
-			return r.commit(state, next)
+			state.Store(next)
 		}
 	}
 	return nil

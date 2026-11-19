@@ -85,11 +85,12 @@ type RequestFinalizeBlock struct {
 	EpochState utils.Option[EpochState]
 }
 
-// EpochState is consensus-owned epoch data committed unchanged with a block.
-// Both values are written as given; an empty value is committed as an empty row.
+// EpochState is consensus-owned epoch data committed unchanged with a block:
+// the persisted epoch registry and the current committee. It is set on the
+// first block of an epoch, and an empty value is committed unchanged.
 type EpochState struct {
-	EpochRegistry []byte
-	NextEpoch     []byte
+	EpochRegistry    []byte
+	CurrentCommittee []byte
 }
 
 // ResponseFinalizeBlock contains a block's execution results and application hash.

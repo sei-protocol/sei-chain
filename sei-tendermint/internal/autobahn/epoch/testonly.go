@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -13,7 +14,7 @@ import (
 func GenRegistry(rng utils.Rng, size int) (*Registry, []types.SecretKey) {
 	committee, sks, _ := genCommittee(rng, size)
 	firstHeight := types.GenRoadHeight(rng)%1000000 + 1
-	registry := utils.OrPanic1(NewRegistry(committee, firstHeight, time.Now(), DefaultEpochLength, utils.None[string]()))
+	registry := utils.OrPanic1(NewRegistry(committee, firstHeight, time.Now(), DefaultEpochLength, utils.None[[]byte]()))
 	return registry, sks
 }
 
@@ -26,7 +27,7 @@ func GenRegistryThrough(
 ) (*Registry, []types.SecretKey) {
 	committee, sks, weights := genCommittee(rng, size)
 	firstHeight := types.GenRoadHeight(rng)%1000000 + 1
-	registry := utils.OrPanic1(NewRegistry(committee, firstHeight, time.Now(), DefaultEpochLength, utils.None[string]()))
+	registry := utils.OrPanic1(NewRegistry(committee, firstHeight, time.Now(), DefaultEpochLength, utils.None[[]byte]()))
 	for target := types.EpochIndex(2); target <= last; target++ {
 		utils.OrPanic(registry.TryPushEpoch(registry.LastRoad(target-2), weights))
 	}
@@ -46,6 +47,12 @@ func genCommittee(rng utils.Rng, size int) (*types.Committee, []types.SecretKey,
 // TestPushEpoch derives C_{endEpoch+2} from weights and publishes it.
 func (r *Registry) TestPushEpoch(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) error {
 	return r.TryPushEpoch(r.LastRoad(endEpoch), weights)
+}
+
+// TestPersisted returns the canonical encoding of the live registry.
+// Intended for use in tests only.
+func (r *Registry) TestPersisted() []byte {
+	return hashable.MarshalCanonical(persistedRegistryConv.Encode(r.stateRecv.Load()))
 }
 
 // MustEpoch returns the registered epoch at i. Panics if it is missing.

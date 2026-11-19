@@ -350,7 +350,11 @@ func makeNode(
 		if !ok {
 			return nil, errors.New("autobahn requires a storage manager")
 		}
-		node.executor = utils.Some(buildExecutor(evmApp.OrPanic("Autobahn router requires an EVM application"), genDoc, manager))
+		giga, ok := node.giga.Get()
+		if !ok {
+			return nil, errors.New("autobahn requires a router")
+		}
+		node.executor = utils.Some(buildExecutor(evmApp.OrPanic("Autobahn router requires an EVM application"), genDoc, manager, giga.EpochHook()))
 		node.rpcEnv.Executor = node.executor
 	}
 
