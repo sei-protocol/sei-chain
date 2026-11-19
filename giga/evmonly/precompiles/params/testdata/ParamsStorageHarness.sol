@@ -28,6 +28,8 @@ contract ParamsStorageHarness is ParamsStorage {
             maxVotingPowerEnforcementThreshold: 1_000_001,
             __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0]
         });
+        // V2's x/evm defaults (x/evm/types/params.go). The evm subspace's genesis values and the
+        // base fee rule they set are in docs/giga-storage/params-design.md.
         evm = EVM({
             maxDynamicBaseFeeUpwardAdjustment: 0.0189e18,
             maxDynamicBaseFeeDownwardAdjustment: 0.0039e18,
