@@ -137,7 +137,8 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := e.startPipelineCommit(blockNumber, misc, &result.ChangeSet); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
-	if store := e.archive; store != nil {
+	// A restart replays blocks the archive may already hold.
+	if store := e.archive; store != nil && req.Context.Number > store.LatestBlock() {
 		block, err := archiveBlock(req, result)
 		if err != nil {
 			return nil, fmt.Errorf("encode archive block %d: %w", req.Context.Number, err)

@@ -5,6 +5,11 @@
 -- 100,000 inserts, so a retried insert is written once, and has automatic statistics off: they
 -- cost CPU on every insert and merge.
 --
+-- Inserts are not fsynced. A process crash loses nothing, but a machine crash or power loss can
+-- lose the newest inserts in any order, leaving an archive_commits row whose rows are gone, or
+-- rows with no archive_commits row. To rule that out at about 0.1-0.2s per batch, add
+-- fsync_after_insert = 1, fsync_part_directory = 1 to every table's settings.
+--
 -- Account and storage state is kept twice over: *_changes holds each block's changes, ordered by
 -- block, and *_history holds every block in which each account or slot changed, ordered by key.
 -- A read of a slot at block H takes the newest block <= H from storage_history, then that block's
@@ -17,15 +22,18 @@
 -- Untested at production size:
 --   ALTER TABLE hash_locator MODIFY SETTING max_bytes_to_merge_at_max_space_in_pool = 1099511627776;
 
--- One row per committed batch: every block from start_block to end_block is in every table.
+-- Two rows per batch: a pending row written before the batch's rows, and a committed row written
+-- after them. Every block from start_block to end_block of a committed row is in every table. A
+-- pending row with no committed row is a batch that was interrupted part way.
 CREATE TABLE IF NOT EXISTS archive_commits
 (
     start_block             UInt64,
     end_block               UInt64,
-    committed_at            DateTime64(3, 'UTC')
+    committed               Bool,
+    written_at              DateTime64(3, 'UTC')
 )
 ENGINE = MergeTree
-ORDER BY end_block
+ORDER BY (end_block, committed)
 SETTINGS non_replicated_deduplication_window = 100000, auto_statistics_types = '';
 
 CREATE TABLE IF NOT EXISTS blocks

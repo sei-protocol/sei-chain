@@ -107,6 +107,15 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 	if err := assertInvariants(cfg, blockStoreHead, heads); err != nil {
 		return nil, fmt.Errorf("assert storage invariants: %w", err)
 	}
+	timer.SetPhase("archive")
+	archiveStore, err := openArchive(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("open archive: %w", err)
+	}
+	if archiveStore != nil {
+		defer closeOnFailure(&retErr, "archive", archiveStore.Close)
+		heads.archive = archiveStore.LatestBlock()
+	}
 	timer.SetPhase("align_stores")
 	if err := alignStores(ctx, cfg, recoveryTarget(heads)); err != nil {
 		return nil, fmt.Errorf("align stores: %w", err)
@@ -156,15 +165,6 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 	}
 	if receiptDB != nil {
 		defer closeOnFailure(&retErr, "receipt store", receiptDB.Close)
-	}
-
-	timer.SetPhase("archive")
-	archiveStore, err := openArchive(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("open archive: %w", err)
-	}
-	if archiveStore != nil {
-		defer closeOnFailure(&retErr, "archive", archiveStore.Close)
 	}
 
 	timer.SetPhase("app_hash_builder_setup")

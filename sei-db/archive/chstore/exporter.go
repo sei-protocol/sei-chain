@@ -3,7 +3,9 @@ package chstore
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sei-protocol/seilog"
@@ -18,7 +20,10 @@ const (
 	// A batch is written once it holds maxBatchBlocks blocks, maxBatchTxs transactions,
 	// maxBatchRows rows in one table or maxBatchBytes of variable-length data, and otherwise every
 	// flushInterval.
-	maxBatchBlocks = 500
+	//
+	// The archive is at most two batches behind execution, so a node can always roll back to it:
+	// 2*maxBatchBlocks is within the storage's default rollback window of 1,000 blocks.
+	maxBatchBlocks = 250
 	maxBatchTxs    = 500_000
 	maxBatchRows   = 1_000_000
 	maxBatchBytes  = 256 << 20
@@ -44,6 +49,9 @@ type Exporter struct {
 	// closes.
 	lost bool
 
+	// latest is the block before the next one the archive expects, 0 when it expects none yet.
+	latest atomic.Uint64
+
 	// mu guards the fields below, which ArchiveBlock shares with the periodic flush.
 	mu  sync.Mutex
 	cur *batch
@@ -64,14 +72,10 @@ func StartExporter(ctx context.Context, cfg clickhouse.Config) (*Exporter, error
 	if err != nil {
 		return nil, err
 	}
-	last, ok, err := w.lastCommitted(ctx)
+	next, err := w.nextBlock(ctx)
 	if err != nil {
 		w.close()
 		return nil, err
-	}
-	var next uint64
-	if ok {
-		next = last + 1
 	}
 	e := &Exporter{
 		writer: w,
@@ -82,6 +86,9 @@ func StartExporter(ctx context.Context, cfg clickhouse.Config) (*Exporter, error
 		cur:    newBatch(),
 		next:   next,
 	}
+	if next > 0 {
+		e.latest.Store(next - 1)
+	}
 	e.free <- newBatch()
 	go e.writeBatches()
 	go e.flushPeriodically()
@@ -89,36 +96,54 @@ func StartExporter(ctx context.Context, cfg clickhouse.Config) (*Exporter, error
 	return e, nil
 }
 
-// ArchiveBlock copies block into the current batch, keeping no reference to it. When that fills the
-// batch it waits for the previous batch to be written, so a stalled archive slows the executor
-// rather than losing blocks. A closed exporter drops the block.
+// ArchiveBlock copies block into the current batch, keeping no reference to it. It returns an error
+// for a block other than the one it expects next, for one it cannot encode, and once the exporter is
+// closed. When the block fills the batch, it waits for the previous batch to be written.
 func (e *Exporter) ArchiveBlock(ctx context.Context, block *archive.ExecutedBlock) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	number := block.Number
 	if e.closed {
-		logger.Error("archive exporter is closed; block not archived", "block", number)
-		return nil
+		return fmt.Errorf("archive exporter is closed; block %d not archived", number)
 	}
-	if e.next != 0 && number < e.next {
-		return nil // already archived
-	}
-	if e.next != 0 && number > e.next {
-		logger.Error("archive gap: blocks are missing and must be backfilled", "from", e.next, "to", number-1)
-		// A batch holds consecutive blocks only.
-		if err := e.flush(ctx); err != nil {
+	if e.next == 0 {
+		// Recorded before the block is accepted, so a restart that lost the first batch rolls the node
+		// back to this block rather than starting the archive after it.
+		if err := e.recordStart(ctx, number); err != nil {
 			return err
 		}
 	}
-	e.next = number + 1
-	if err := e.cur.add(block); err != nil {
-		logger.Error("cannot archive block; it must be backfilled", "block", number, "err", err)
-		return e.flush(ctx)
+	// Any other block would leave a gap or archive a block twice.
+	if number != e.next {
+		return fmt.Errorf("archive expects block %d, got block %d", e.next, number)
 	}
+	if err := e.cur.add(block); err != nil {
+		return fmt.Errorf("archive block %d: %w", number, err)
+	}
+	e.next = number + 1
 	if b := e.cur; b.blocks >= maxBatchBlocks || b.txs >= maxBatchTxs || b.bytes >= maxBatchBytes || b.maxRows() >= maxBatchRows {
 		return e.flush(ctx)
 	}
 	return nil
+}
+
+// recordStart makes first the block an empty archive starts at, recorded as a committed row that ends at
+// the block before it. The caller holds mu.
+func (e *Exporter) recordStart(ctx context.Context, first uint64) error {
+	ctx, cancel := context.WithTimeout(ctx, writeTimeout)
+	defer cancel()
+	if err := e.writer.insertCommit(ctx, first, first-1, true); err != nil {
+		return fmt.Errorf("record the archive's start at block %d: %w", first, err)
+	}
+	e.next = first
+	e.latest.Store(first - 1)
+	return nil
+}
+
+// LatestBlock returns the highest block the archive has committed, or for an archive that has committed
+// none yet, the block before its start. It returns 0 when neither is known.
+func (e *Exporter) LatestBlock() uint64 {
+	return e.latest.Load()
 }
 
 // Close writes the blocks the exporter holds and stops it, reporting an error when some of them could
@@ -203,6 +228,7 @@ func (e *Exporter) writeWithRetry(b *batch) bool {
 		err := e.writer.write(ctx, b)
 		cancel()
 		if err == nil {
+			e.latest.Store(b.last)
 			logger.Debug("archive batch committed", "from", b.first, "to", b.last, "txs", b.txs)
 			return true
 		}

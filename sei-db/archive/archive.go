@@ -14,9 +14,14 @@ import (
 
 // ArchivalStore is a history archive of executed blocks.
 type ArchivalStore interface {
-	// ArchiveBlock stores block, which follows the block given before it. It keeps no reference to
-	// block or anything block refers to after it returns.
+	// ArchiveBlock stores block, which must follow the block given before it, or LatestBlock when it
+	// is the first; any other block is refused with an error. A store that has not started yet starts
+	// at the first block it is given. It keeps no reference to block or anything block refers to after
+	// it returns.
 	ArchiveBlock(ctx context.Context, block *ExecutedBlock) error
+	// LatestBlock returns the newest block the store holds, or for a store that holds none yet, the
+	// block before the first it was given. It returns 0 when neither is known.
+	LatestBlock() uint64
 	// Close stores the blocks the store still holds and releases it.
 	Close() error
 }
