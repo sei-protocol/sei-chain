@@ -39,11 +39,11 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 			recordFetch(ctx, resFullCommitQC, "decode")
 			return fmt.Errorf("types.CommitQCConv.Decode(): %w", err)
 		}
-		if qc.Index() < next {
+		if qc.Height() < next {
 			recordFetch(ctx, resFullCommitQC, "out_of_order")
-			return fmt.Errorf("qc.Index() = %v, want >= %v: %w", qc.Index(), next, types.ErrUnexpectedIndex)
+			return fmt.Errorf("qc.Height() = %v, want >= %v: %w", qc.Height(), next, types.ErrUnexpectedHeight)
 		}
-		next = qc.Index() + 1
+		next = qc.Height() + 1
 		if err := s.data.PushPartialBlock(ctx, qc, nil); err != nil {
 			recordFetch(ctx, resFullCommitQC, "process")
 			return fmt.Errorf("s.PushCommitQC(): %w", err)

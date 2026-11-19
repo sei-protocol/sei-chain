@@ -195,9 +195,9 @@ func serveFullCommitQCs(ctx context.Context, server rpc.Server[API], qcs []*type
 
 // testQCChain returns n consecutive FullCommitQCs of ep, starting at its first road index,
 // and the lane blocks that each QC finalizes.
-func testQCChain(rng utils.Rng, ep *types.Epoch, keys []types.SecretKey, n int) ([]*types.FullCommitQC, [][]*types.Block) {
+func testQCChain(rng utils.Rng, ep *types.Epoch, keys []types.SecretKey, n int) ([]*types.FullCommitQC, [][]*types.LaneBlock) {
 	qcs := make([]*types.FullCommitQC, 0, n)
-	blocks := make([][]*types.Block, 0, n)
+	blocks := make([][]*types.LaneBlock, 0, n)
 	prev := utils.None[*types.CommitQC]()
 	for range n {
 		qc, bs := data.TestCommitQC(rng, ep, keys, prev)
@@ -235,10 +235,10 @@ func TestFullCommitQCStreamAcceptsSkippedIndexes(t *testing.T) {
 	// The stream ended because the server closed it, not because the client rejected a QC.
 	require.ErrorIs(t, err, mux.ErrRemoteClosed)
 	// The node holds qcs[0] to qcs[4]. NextQC does not block, so a missing QC fails here instead of hanging below.
-	require.Equal(t, qcs[4].Index()+1, node.data.NextQC())
+	require.Equal(t, qcs[4].Height()+1, node.data.NextQC())
 	// Each stored QC is the one that was sent or pushed.
 	for _, want := range qcs {
-		got, err := node.data.QC(ctx, want.Index())
+		got, err := node.data.QC(ctx, want.Height())
 		require.NoError(t, err)
 		require.NoError(t, utils.TestDiff(want, got))
 	}
@@ -286,9 +286,9 @@ func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
 				return node.service.clientStreamFullCommitQCs(ctx, client)
 			})
 			// The client rejects one QC and ends the stream.
-			require.ErrorIs(t, err, types.ErrUnexpectedIndex)
+			require.ErrorIs(t, err, types.ErrUnexpectedHeight)
 			// The node stored the pushed QCs and the QCs accepted before the reject, and nothing after them.
-			require.Equal(t, qcs[0].Index()+types.RoadIndex(tc.wantStored), node.data.NextQC())
+			require.Equal(t, qcs[0].Height()+types.RoadHeight(tc.wantStored), node.data.NextQC())
 		})
 	}
 }
