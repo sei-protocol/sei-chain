@@ -14,12 +14,18 @@ const (
 	keyMaxDynamicBaseFeeDownwardAdjustment = "KeyMaxDynamicBaseFeeDownwardAdjustment"
 )
 
+// MinChangedBaseFeeDownwardAdjustment is the smallest KeyMaxDynamicBaseFeeDownwardAdjustment a
+// param change may set, 0.01% as a Dec, so that empty blocks bring the base fee down from a spike
+// in hours rather than days: a thousandfold fall takes about 69,000 blocks, under eight hours at
+// 400 ms blocks. Genesis is not held to it.
+const MinChangedBaseFeeDownwardAdjustment uint64 = 100_000_000_000_000
+
 var evmSubspace = subspace{
 	name: "evm",
 	slot: slotEVM,
 	params: []param{
 		{key: keyMaxDynamicBaseFeeUpwardAdjustment, kind: decKind, at: evmMaxDynamicBaseFeeUpwardAdjustment},
-		{key: keyMaxDynamicBaseFeeDownwardAdjustment, kind: decKind, at: evmMaxDynamicBaseFeeDownwardAdjustment},
+		{key: keyMaxDynamicBaseFeeDownwardAdjustment, kind: decKind, at: evmMaxDynamicBaseFeeDownwardAdjustment, least: new(big.Int).SetUint64(MinChangedBaseFeeDownwardAdjustment)},
 	},
 	check: checkEVM,
 }

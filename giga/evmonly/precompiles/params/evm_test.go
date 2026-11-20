@@ -100,6 +100,22 @@ func TestApplyRejectsAZeroUpwardAdjustment(t *testing.T) {
 	require.Equal(t, testEVM, ReadEVM(state))
 }
 
+func TestChangesKeepTheDownwardAdjustmentFloor(t *testing.T) {
+	state := newMemState()
+	require.NoError(t, WriteEVM(state, testEVM))
+	floor := Change{"evm", "KeyMaxDynamicBaseFeeDownwardAdjustment", word(MinChangedBaseFeeDownwardAdjustment)}
+	below := Change{"evm", "KeyMaxDynamicBaseFeeDownwardAdjustment", word(MinChangedBaseFeeDownwardAdjustment - 1)}
+	require.ErrorIs(t, CheckChanges([]Change{below}), errInvalidValue)
+	require.ErrorIs(t, Apply(state, []Change{below}), errInvalidValue)
+	require.Equal(t, testEVM, ReadEVM(state))
+	require.NoError(t, Apply(state, []Change{floor}))
+	require.Zero(t, ReadEVM(state).MaxDynamicBaseFeeDownwardAdjustment.Cmp(new(big.Int).SetUint64(MinChangedBaseFeeDownwardAdjustment)))
+
+	noDecay := testEVM
+	noDecay.MaxDynamicBaseFeeDownwardAdjustment = new(big.Int)
+	require.NoError(t, WriteEVM(newMemState(), noDecay), "genesis may set a downward adjustment below the floor")
+}
+
 func TestEVMValuesRoundTrip(t *testing.T) {
 	require.Equal(t, testEVM, evmFrom(testEVM.values()))
 }

@@ -126,7 +126,9 @@ naming `param`.
     with an Error(string) naming the problem, and writes nothing, when it has no
     changes, a change names an undeclared subspace or key or a param another
     change names, a value is not a 32-byte word that fits its type, or it sets
-    `voting_period` below `MinChangedVotingPeriod`.
+    `voting_period` below `MinChangedVotingPeriod` or
+    `KeyMaxDynamicBaseFeeDownwardAdjustment` below
+    `MinChangedBaseFeeDownwardAdjustment`.
   - Gov then checks the changes against the current params. A result that fails
     the whole-struct check fails the call with no revert data, and writes
     nothing.
@@ -216,7 +218,10 @@ as EIP-1559 does with 12.5% each way.
 
 - Both are V2's keys, with V2's meaning. V2's `KeyTargetGasUsedPerBlock` has no
   counterpart, since the target is half the gas limit.
-- The check requires `up` above 0 and `down` at least 0, each at most 1.
+- The check requires `up` above 0 and `down` at least 0, each at most 1. A
+  param change may not set `down` below 0.01%
+  (`MinChangedBaseFeeDownwardAdjustment`), so that empty blocks bring the base
+  fee down from a spike in hours rather than days. Genesis may set it lower.
 - Gas used past the gas limit counts as the limit. The change is rounded down
   to the wei, and an increase is at least one wei.
 - The base fee never falls below the chain's minimum gas price of 1 gwei, which
