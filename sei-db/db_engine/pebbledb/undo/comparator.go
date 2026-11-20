@@ -1,6 +1,7 @@
 package undo
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -9,89 +10,70 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-)
-
-var (
-	StateKeyPrefix    = []byte{0x03}
-	CodeKeyPrefix     = []byte{0x07}
-	CodeHashKeyPrefix = []byte{0x08}
-	NonceKeyPrefix    = []byte{0x0a}
-	BalanceKeyPrefix  = []byte{0x21}
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 )
 
 const (
-	bucketLen  = 8
-	heightLen  = 8
-	addressLen = keys.AddressLen
-	wordLen    = 32
-
-	addressKeyLen = 21 // type[1] | address[20]
-	storageKeyLen = 53 // type[1] | address[20] | slot[32]
-
-	// Prefixes exclude the trailing height[8].
-	addressPrefixLen = 29 // bucket[8] | type[1] | address[20]
-	storagePrefixLen = 61 // bucket[8] | type[1] | address[20] | slot[32]
+	bucketLen = 8
+	keyLenLen = 4
+	heightLen = 8
 
 	// Metadata sorts above every bucket reachable by an int64 block height.
 	metadataBucket = math.MaxUint64
 )
 
-// Comparer orders bucket | type | address | optional slot | height byte-wise.
+var (
+	// The physical key prefixes of the FlatKV rows the store records: "evm/" and the row's kind byte.
+	accountRowPrefix = ktype.BuildPhysicalEVMKey(ktype.EVMKeyAccount, nil)
+	codeRowPrefix    = ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, nil)
+	storageRowPrefix = ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, nil)
+)
+
+// Comparer orders bucket | key length | key | height byte-wise. The key length makes a record's prefix
+// self-delimiting, so byte order agrees with ordering by prefix and then by height.
 var Comparer = func() *pebble.Comparer {
 	c := *pebble.DefaultComparer
-	c.Name = "ss_undolog_evm_comparator_v2"
+	c.Name = "ss_undolog_flatkv_comparator_v1"
 	c.Split = splitKey
 	// The store only uses point keys, not range keys or NextPrefix.
 	c.ImmediateSuccessor = nil
 	return &c
 }()
 
-// keyLayout returns the logical key and value lengths for a supported EVM key.
-// Unknown types return zero lengths; code has a variable value length of -1.
-func keyLayout(key []byte) (keyLen, valueLen int) {
-	if len(key) == 0 {
-		return 0, 0
-	}
-	switch key[0] {
-	case StateKeyPrefix[0]:
-		return storageKeyLen, wordLen
-	case CodeKeyPrefix[0]:
-		return addressKeyLen, -1
-	case CodeHashKeyPrefix[0], BalanceKeyPrefix[0]:
-		return addressKeyLen, wordLen
-	case NonceKeyPrefix[0]:
-		return addressKeyLen, 8
+// isRecordedKey reports whether key is the physical key of a FlatKV account, code or storage row, the
+// rows the store keeps the history of.
+func isRecordedKey(key []byte) bool {
+	switch {
+	case bytes.HasPrefix(key, accountRowPrefix), bytes.HasPrefix(key, codeRowPrefix):
+		return len(key) == len(accountRowPrefix)+keys.AddressLen
+	case bytes.HasPrefix(key, storageRowPrefix):
+		return len(key) == len(storageRowPrefix)+keys.AddressLen+ktype.SlotLen
 	default:
-		return 0, 0
+		return false
 	}
 }
 
 // splitKey returns the prefix length excluding a record's height.
 func splitKey(k []byte) int {
 	// Bucket boundaries and metadata have no height suffix.
-	if len(k) <= bucketLen || binary.BigEndian.Uint64(k) == metadataBucket {
+	if len(k) < bucketLen+keyLenLen || binary.BigEndian.Uint64(k) == metadataBucket {
 		return len(k)
 	}
-	// Shortened index keys may end before the height's fixed offset.
-	switch k[bucketLen] {
-	case StateKeyPrefix[0]:
-		return min(len(k), storagePrefixLen)
-	case CodeKeyPrefix[0], CodeHashKeyPrefix[0], NonceKeyPrefix[0], BalanceKeyPrefix[0]:
-		return min(len(k), addressPrefixLen)
-	default:
-		return len(k)
-	}
+	// Shortened index keys may end before the height's offset.
+	prefixLen := uint64(bucketLen+keyLenLen) + uint64(binary.BigEndian.Uint32(k[bucketLen:]))
+	return int(min(uint64(len(k)), prefixLen)) //nolint:gosec // bounded by len(k)
 }
 
 // recordKeyLen returns the encoded length of a record for key.
 func recordKeyLen(key []byte) int {
-	return bucketLen + len(key) + heightLen
+	return bucketLen + keyLenLen + len(key) + heightLen
 }
 
-// encodeRecordKey writes bucket | key | height into dst.
+// encodeRecordKey writes bucket | len(key) | key | height into dst.
 func encodeRecordKey(dst []byte, bucket uint64, key []byte, height uint64) {
 	binary.BigEndian.PutUint64(dst, bucket)
-	n := bucketLen + copy(dst[bucketLen:], key)
+	binary.BigEndian.PutUint32(dst[bucketLen:], uint32(len(key))) //nolint:gosec // recorded keys are a few dozen bytes
+	n := bucketLen + keyLenLen + copy(dst[bucketLen+keyLenLen:], key)
 	binary.BigEndian.PutUint64(dst[n:], height)
 }
 

@@ -1,16 +1,18 @@
-// Package undo is a Pebble state store that keeps recent history as a bucketed undo log.
+// Package undo is a Pebble state store that keeps FlatKV's recent history as a bucketed undo log.
 //
-// When block h changes a key, the store records the value the key held before h, under
+// Keys and values are FlatKV's own: when block h writes a FlatKV account, code or storage row, the store
+// records the row's bytes before h, under
 //
-//	bucket(h) | key | h        with bucket(h) = h / bucketSize
+//	bucket(h) | len(key) | key | h        with bucket(h) = h / bucketSize and key the row's physical key
 //
-// and nothing else: the value after the latest block lives in the state commit store, which this
-// store reads through a LiveStateView. The state after block T is the first record above T, or the
-// current value when there is none. Buckets are contiguous key ranges, so dropping history is one
-// Excise per expired bucket rather than a scan and a tombstone per version.
+// and nothing else: the row after the latest block lives in FlatKV, which this store reads through a
+// LiveStateView. The row after block T is the first record above T, or the current row when there is
+// none. Buckets are contiguous key ranges, so dropping history is one Excise per expired bucket rather
+// than a scan and a tombstone per version.
 package undo
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -28,17 +30,15 @@ import (
 	"github.com/cockroachdb/pebble/v2/bloom"
 	"github.com/cockroachdb/pebble/v2/sstable"
 	"github.com/cockroachdb/pebble/v2/vfs"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 var logger = seilog.NewLogger("db", "db-engine", "pebbledb", "undo")
@@ -70,9 +70,6 @@ const (
 	valueAbsent  = 0
 	valuePresent = 1
 
-	// module is the state commit store module whose history the store keeps.
-	module = keys.EVMStoreKey
-
 	// how many blocks a bucket covers. changing this is breaking.
 	// the retention window divided by this value should be a single digit or two digits
 	defaultBucketSize = 10000
@@ -84,15 +81,16 @@ var (
 	bucketSizeKey      = metadataKey("bucket_size")
 )
 
-// LiveStateView is a read-only view of the live state store at one committed block.
-// It remains unchanged as the store advances.
+// LiveStateView is a read-only view of FlatKV at one committed block. It remains unchanged as the store
+// advances.
 type LiveStateView interface {
-	Get(module string, key []byte) (value []byte, found bool)
+	// GetRaw returns the FlatKV row stored under a physical key, and whether one is.
+	GetRaw(key []byte) (value []byte, found bool)
 	Close()
 }
 
-// Database is an undo-log state store. Blocks arrive in height order, each with the prior values of
-// the keys it changed and a view of current state after it.
+// Database is an undo-log state store. Blocks arrive in height order, each with the FlatKV mutations it
+// made and a view of FlatKV after it.
 type Database struct {
 	storage    *pebble.DB
 	bucketSize uint64
@@ -129,10 +127,10 @@ type Database struct {
 
 // pendingBlock is one entry of the write queue: a block, or, with done set, a barrier.
 type pendingBlock struct {
-	version int64
-	changes *gigatypes.StateChangeSet
-	current LiveStateView
-	done    chan struct{}
+	version   int64
+	mutations []mutation.Mutation
+	current   LiveStateView
+	done      chan struct{}
 }
 
 // OpenDB opens the undo-log database in dataDir, creating it when there is none. A dataDir holding no
@@ -347,11 +345,12 @@ func (db *Database) resume(version int64) (uint64, error) {
 	return height, nil
 }
 
-// ApplyBlock queues block version's change set, whose prior values the store records, and takes
-// ownership of the post-block current view. changes is read in the background, so it must not change
-// afterwards; nil means the block changed nothing. It panics before a successful Resume or after Close.
-func (db *Database) ApplyBlock(version int64, changes *gigatypes.StateChangeSet, current LiveStateView) {
-	if err := db.enqueue(pendingBlock{version: version, changes: changes, current: current}); err != nil {
+// ApplyBlock queues the FlatKV mutations of block version, whose previous values the store records, and
+// takes ownership of the post-block current view. mutations are read in the background, so they must not
+// change afterwards; nil means the block changed nothing. It panics before a successful Resume or after
+// Close.
+func (db *Database) ApplyBlock(version int64, mutations []mutation.Mutation, current LiveStateView) {
+	if err := db.enqueue(pendingBlock{version: version, mutations: mutations, current: current}); err != nil {
 		current.Close()
 		panic(err)
 	}
@@ -388,7 +387,7 @@ func (db *Database) writeInBackground() {
 			close(block.done)
 			continue
 		}
-		if err := db.applyBlock(block.version, block.changes, block.current); err != nil {
+		if err := db.applyBlock(block.version, block.mutations, block.current); err != nil {
 			// A block that cannot be written leaves a gap every later read below it would answer wrongly.
 			panic(err)
 		}
@@ -396,8 +395,8 @@ func (db *Database) writeInBackground() {
 }
 
 // applyBlock writes block version and makes current the view reads fall back to.
-func (db *Database) applyBlock(version int64, changes *gigatypes.StateChangeSet, current LiveStateView) error {
-	height, err := db.writeBlock(version, changes)
+func (db *Database) applyBlock(version int64, mutations []mutation.Mutation, current LiveStateView) error {
+	height, err := db.writeBlock(version, mutations)
 	if err != nil {
 		current.Close()
 		return err
@@ -409,9 +408,9 @@ func (db *Database) applyBlock(version int64, changes *gigatypes.StateChangeSet,
 // writeBlock writes block version's records, then moves the latest-height marker to it, and returns
 // the block's height. A crash in between leaves records only above the marker, which the block
 // rewrites when it is applied again.
-func (db *Database) writeBlock(version int64, changes *gigatypes.StateChangeSet) (height uint64, err error) {
+func (db *Database) writeBlock(version int64, mutations []mutation.Mutation) (height uint64, err error) {
 	start := time.Now()
-	records := recordCount(changes)
+	records := recordCount(mutations)
 	defer func() {
 		otelMetrics.applyLatency.Record(context.Background(), time.Since(start).Seconds(), successAttr(err))
 		otelMetrics.applyRecords.Record(context.Background(), int64(records))
@@ -424,7 +423,7 @@ func (db *Database) writeBlock(version int64, changes *gigatypes.StateChangeSet)
 	if latest := db.latestHeight.Load(); height != latest+1 {
 		return 0, fmt.Errorf("undo: block %d does not follow the latest applied block %d", height, latest)
 	}
-	if err := db.writeRecords(changes, records, height/db.bucketSize, height); err != nil {
+	if err := db.writeRecords(mutations, records, height/db.bucketSize, height); err != nil {
 		return 0, err
 	}
 	if err := writeMarker(db.storage, latestVersionKey, height, pebble.NoSync); err != nil {
@@ -433,33 +432,21 @@ func (db *Database) writeBlock(version int64, changes *gigatypes.StateChangeSet)
 	return height, nil
 }
 
-// recordCount returns how many records changes writes: one per key it changed, and two per code
-// change, which changes the code hash too.
-func recordCount(changes *gigatypes.StateChangeSet) int {
-	if changes == nil {
-		return 0
-	}
-	count := len(changes.Storage)
-	for _, change := range changes.Accounts {
-		if change.BalanceChanged() {
+// recordCount returns how many records mutations write: one per mutation of a recorded row.
+func recordCount(mutations []mutation.Mutation) int {
+	count := 0
+	for i := range mutations {
+		if isRecordedKey(mutations[i].Key) {
 			count++
-		}
-		if change.NonceChanged() {
-			count++
-		}
-		if change.CodeChanged() {
-			count += 2
 		}
 	}
 	return count
 }
 
-// writeRecords writes a record of the value before the block at height of every key changes writes,
-// absent for a key that held a zero value or none; records is how many that is, as recordCount
-// reports. A storage clear writes none: it only clears accounts created in the same transaction,
-// whose storage was empty.
-func (db *Database) writeRecords(changes *gigatypes.StateChangeSet, records int, bucket, height uint64) error {
-	if changes == nil {
+// writeRecords writes a record of the row before the block at height of every recorded row mutations
+// write, absent for a row that did not exist; records is how many that is, as recordCount reports.
+func (db *Database) writeRecords(mutations []mutation.Mutation, records int, bucket, height uint64) error {
+	if records == 0 {
 		return nil
 	}
 	w := &recordWriter{
@@ -468,44 +455,12 @@ func (db *Database) writeRecords(changes *gigatypes.StateChangeSet, records int,
 		height: height,
 		size:   max(minBatchRecords, (records+writeParallelism-1)/writeParallelism),
 	}
-	for _, change := range changes.Accounts {
-		prior := change.Prior
-		if change.BalanceChanged() {
-			var balance [wordLen]byte
-			if prior.Balance != nil {
-				prior.Balance.FillBytes(balance[:])
-			}
-			w.add(BalanceKeyPrefix[0], change.Address[:], nil, nonZero(balance[:]))
+	for i := range mutations {
+		if isRecordedKey(mutations[i].Key) {
+			w.add(mutations[i].Key, mutations[i].PreviousValue)
 		}
-		if change.NonceChanged() {
-			var nonce [8]byte
-			binary.BigEndian.PutUint64(nonce[:], prior.Nonce)
-			w.add(NonceKeyPrefix[0], change.Address[:], nil, nonZero(nonce[:]))
-		}
-		if change.CodeChanged() {
-			// Code is absent only when empty: zero bytes are valid code.
-			var code, codeHash []byte
-			if len(prior.Code) != 0 {
-				code, codeHash = prior.Code, crypto.Keccak256(prior.Code)
-			}
-			w.add(CodeHashKeyPrefix[0], change.Address[:], nil, codeHash)
-			w.add(CodeKeyPrefix[0], change.Address[:], nil, code)
-		}
-	}
-	for _, change := range changes.Storage {
-		w.add(StateKeyPrefix[0], change.Address[:], change.Key[:], nonZero(change.PriorValue[:]))
 	}
 	return w.finish()
-}
-
-// nonZero returns value, or nil when it is empty or all zeros.
-func nonZero(value []byte) []byte {
-	for _, b := range value {
-		if b != 0 {
-			return value
-		}
-	}
-	return nil
 }
 
 // recordWriter stages one block's records into batches of size records, each committed in the
@@ -522,17 +477,14 @@ type recordWriter struct {
 	g      errgroup.Group
 }
 
-// add stages the record of the key prefix | addr | slot, holding value, or absent when value is nil.
-func (w *recordWriter) add(prefix byte, addr, slot, value []byte) {
+// add stages the record of key, holding value, or absent when value is nil.
+func (w *recordWriter) add(key, value []byte) {
 	if w.err != nil {
 		return
 	}
 	if w.batch == nil {
 		w.batch = w.db.storage.NewBatch()
 	}
-	var buf [storageKeyLen]byte
-	buf[0] = prefix
-	key := buf[:1+copy(buf[1:], addr)+copy(buf[1+len(addr):], slot)]
 	d := w.batch.SetDeferred(recordKeyLen(key), 1+len(value))
 	encodeRecordKey(d.Key, w.bucket, key, w.height)
 	d.Value[0] = valueAbsent
@@ -675,17 +627,16 @@ func (v *View) Close() {
 	})
 }
 
-// Get returns a supported EVM key's value at the view's height, nil when it did not exist.
-// Unsupported or malformed keys, and reads after the database is closed, return an error.
-func (v *View) Get(key []byte) (_ []byte, err error) {
-	keyLen, _ := keyLayout(key)
-	if keyLen == 0 || len(key) != keyLen {
-		return nil, fmt.Errorf("undo: unsupported or malformed EVM key %x", key)
+// GetRaw returns the FlatKV row stored under a physical key at the view's height, and whether one was.
+// A key whose history the store does not keep, and a read after the database is closed, return an error.
+func (v *View) GetRaw(key []byte) (_ []byte, _ bool, err error) {
+	if !isRecordedKey(key) {
+		return nil, false, fmt.Errorf("undo: the store keeps no history of key %x", key)
 	}
 	v.db.lifecycleMu.RLock()
 	defer v.db.lifecycleMu.RUnlock()
 	if v.db.closed {
-		return nil, errors.New("undo: read on a closed store")
+		return nil, false, errors.New("undo: read on a closed store")
 	}
 	start := time.Now()
 	probes := 0
@@ -698,7 +649,8 @@ func (v *View) Get(key []byte) (_ []byte, err error) {
 	h := v.db.acquireHead()
 	defer h.release()
 	if v.height == h.height {
-		return foundValue(h.view.Get(module, key)), nil
+		value, found := headRow(h, key)
+		return value, found, nil
 	}
 
 	first := (v.height + 1) / v.db.bucketSize
@@ -709,7 +661,7 @@ func (v *View) Get(key []byte) (_ []byte, err error) {
 		UseL6Filters: true,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("undo: create iterator: %w", err)
+		return nil, false, fmt.Errorf("undo: create iterator: %w", err)
 	}
 	defer func() { err = errors.Join(err, itr.Close()) }()
 
@@ -719,13 +671,13 @@ func (v *View) Get(key []byte) (_ []byte, err error) {
 		seekKey = appendRecordKey(seekKey[:0], bucket, key, v.height+1)
 		if !itr.SeekPrefixGE(seekKey) {
 			if err := itr.Error(); err != nil {
-				return nil, fmt.Errorf("undo: seek bucket %d: %w", bucket, err)
+				return nil, false, fmt.Errorf("undo: seek bucket %d: %w", bucket, err)
 			}
 			continue
 		}
 		height, err := decodeRecordHeight(itr.Key())
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		// A record above the head belongs to a block the head's view does not include yet.
 		if height > h.height {
@@ -733,7 +685,17 @@ func (v *View) Get(key []byte) (_ []byte, err error) {
 		}
 		return decodeValue(itr.Value())
 	}
-	return foundValue(h.view.Get(module, key)), nil
+	value, found := headRow(h, key)
+	return value, found, nil
+}
+
+// headRow returns a copy of the row h's view holds under key, since the view may close once h is released.
+func headRow(h *head, key []byte) ([]byte, bool) {
+	value, found := h.view.GetRaw(key)
+	if !found {
+		return nil, false
+	}
+	return bytes.Clone(value), true
 }
 
 // GetLatestVersion returns the latest block whose records are written and readable.
@@ -1026,31 +988,19 @@ func (db *Database) Close() error {
 	return db.storage.Close()
 }
 
-// decodeValue returns a copy of the value a record holds, nil when the key did not exist.
-func decodeValue(v []byte) ([]byte, error) {
+// decodeValue returns a copy of the row a record holds, and whether the row existed.
+func decodeValue(v []byte) ([]byte, bool, error) {
 	if len(v) == 0 {
-		return nil, errors.New("undo: empty record value")
+		return nil, false, errors.New("undo: empty record value")
 	}
 	switch v[0] {
 	case valueAbsent:
-		return nil, nil
+		return nil, false, nil
 	case valuePresent:
-		// Non-nil even when empty: a found empty value is distinct from an absent key.
-		return append([]byte{}, v[1:]...), nil
+		return bytes.Clone(v[1:]), true, nil
 	default:
-		return nil, fmt.Errorf("undo: unknown record tag %d", v[0])
+		return nil, false, fmt.Errorf("undo: unknown record tag %d", v[0])
 	}
-}
-
-// foundValue returns value when found, as a non-nil slice even when empty, and nil otherwise.
-func foundValue(value []byte, found bool) []byte {
-	if !found {
-		return nil
-	}
-	if value == nil {
-		return []byte{}
-	}
-	return value
 }
 
 func successAttr(err error) metric.MeasurementOption {

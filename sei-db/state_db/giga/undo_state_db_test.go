@@ -312,7 +312,8 @@ func TestUndoStateDBRollbackTakesAnEmptyLog(t *testing.T) {
 	require.Equal(t, int64(9), db.UndoSS().GetEarliestVersion())
 }
 
-// A block's change set carries each balance and code it replaced, which a read below the block serves.
+// A block that replaces an account's balance and code leaves the account row and code row it replaced,
+// which a read below the block serves.
 func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 	db := newUndoTestHome(t).open(t)
 	defer func() { require.NoError(t, db.Close()) }()
@@ -322,16 +323,27 @@ func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 	require.NoError(t, db.CommitStateChanges(1, &gigatypes.StateChangeSet{
 		Accounts: []gigatypes.AccountChange{{
 			Address: addr,
+			Account: gigatypes.AccountState{Balance: big.NewInt(4), Code: oldCode},
+		}},
+	}))
+	require.NoError(t, db.CommitStateChanges(2, &gigatypes.StateChangeSet{
+		Accounts: []gigatypes.AccountChange{{
+			Address: addr,
 			Account: gigatypes.AccountState{Balance: big.NewInt(9), Code: newCode},
 			Prior:   gigatypes.AccountState{Balance: big.NewInt(4), Code: oldCode},
 		}},
 	}))
 	db.UndoSS().WaitForPendingWrites()
 
+	before, ok := db.OpenViewAt(0)
+	require.True(t, ok)
+	require.False(t, before.AccountExists(addr))
+	require.Nil(t, before.GetCode(addr))
+	before.Close()
 	for height, want := range map[int64]struct {
 		balance int64
 		code    []byte
-	}{0: {4, oldCode}, 1: {9, newCode}} {
+	}{1: {4, oldCode}, 2: {9, newCode}} {
 		view, ok := db.OpenViewAt(height)
 		require.True(t, ok)
 		require.Equal(t, common.BigToHash(big.NewInt(want.balance)), view.GetBalance(addr), "height %d", height)

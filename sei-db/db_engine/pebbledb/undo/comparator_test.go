@@ -12,21 +12,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var evmTypes = []byte{StateKeyPrefix[0], CodeKeyPrefix[0], CodeHashKeyPrefix[0], NonceKeyPrefix[0], BalanceKeyPrefix[0]}
+// sampleKeys returns physical keys of every length class the store meets: FlatKV account, code and storage
+// rows, and short keys that are prefixes of one another.
+func sampleKeys() [][]byte {
+	keys := [][]byte{{}, {0x00}, {0xff}, []byte("a"), []byte("ab"), []byte("abc"), []byte("b")}
+	for _, fill := range []byte{0, 0xff} {
+		for _, key := range rowKeys(fill) {
+			keys = append(keys, []byte(key))
+		}
+	}
+	return keys
+}
 
-func evmKey(kind, fill byte) []byte {
-	size, _ := keyLayout([]byte{kind})
-	key := bytes.Repeat([]byte{fill}, size)
-	key[0] = kind
+// randomKey returns a key of 0 to 60 bytes over a three-letter alphabet, so random keys often share
+// prefixes or are prefixes of one another.
+func randomKey(rng *rand.Rand) []byte {
+	key := make([]byte, rng.IntN(61))
+	for i := range key {
+		key[i] = byte(rng.IntN(3))
+	}
 	return key
 }
 
 func randomRecord(rng *rand.Rand) []byte {
-	key := evmKey(evmTypes[rng.IntN(len(evmTypes))], 0)
-	for i := 1; i < len(key); i++ {
-		key[i] = byte(rng.IntN(3))
-	}
-	return appendRecordKey(nil, uint64(rng.IntN(3)), key, uint64(rng.IntN(1000)))
+	return appendRecordKey(nil, uint64(rng.IntN(3)), randomKey(rng), uint64(rng.IntN(1000)))
 }
 
 func requirePrefixOrder(t *testing.T, a, b []byte) {
@@ -42,21 +51,18 @@ func requirePrefixOrder(t *testing.T, a, b []byte) {
 
 func TestComparerPrefixAndSuffixOrder(t *testing.T) {
 	// CheckComparer also removes arbitrary leading bytes to test synthetic prefixes.
-	// Our bucket/type offsets require the pinned format without that feature.
+	// Our bucket and key-length offsets require the pinned format without that feature.
 	opts := newPebbleOptions(nil)
 	require.Less(t, opts.FormatMajorVersion, pebble.FormatSyntheticPrefixSuffix)
 
 	var keys [][]byte
 	for _, bucket := range []uint64{0, 1, math.MaxInt64} {
 		keys = append(keys, bucketBoundary(bucket))
-		for _, kind := range evmTypes {
-			for _, fill := range []byte{0, 0xff} {
-				key := evmKey(kind, fill)
-				prefix := append(bucketBoundary(bucket), key...)
-				keys = append(keys, prefix)
-				for _, height := range []uint64{0, 1, 255, 256, 1 << 40, math.MaxInt64} {
-					keys = append(keys, appendRecordKey(nil, bucket, key, height))
-				}
+		for _, key := range sampleKeys() {
+			record := appendRecordKey(nil, bucket, key, 0)
+			keys = append(keys, record[:len(record)-heightLen])
+			for _, height := range []uint64{0, 1, 255, 256, 1 << 40, math.MaxInt64} {
+				keys = append(keys, appendRecordKey(nil, bucket, key, height))
 			}
 		}
 	}
@@ -74,18 +80,14 @@ func TestComparerPrefixAndSuffixOrder(t *testing.T) {
 }
 
 func TestRecordEncoding(t *testing.T) {
-	for _, kind := range evmTypes {
-		key := evmKey(kind, 0xff)
+	for _, key := range sampleKeys() {
 		want := binary.BigEndian.AppendUint64(nil, 2)
+		want = binary.BigEndian.AppendUint32(want, uint32(len(key))) //nolint:gosec // short test keys
 		want = append(want, key...)
 		want = binary.BigEndian.AppendUint64(want, 77)
 		record := appendRecordKey(nil, 2, key, 77)
 		require.Equal(t, want, record)
-		size := 37
-		if kind == StateKeyPrefix[0] {
-			size = 69
-		}
-		require.Len(t, record, size)
+		require.Len(t, record, bucketLen+keyLenLen+len(key)+heightLen)
 		require.Equal(t, len(record)-heightLen, splitKey(record))
 		height, err := decodeRecordHeight(record)
 		require.NoError(t, err)
@@ -100,19 +102,18 @@ func TestRecordEncoding(t *testing.T) {
 		_, err := decodeRecordHeight(prefix)
 		require.Error(t, err)
 	}
-	_, err := decodeRecordHeight(appendRecordKey(nil, 0, []byte{0xff}, 1))
-	require.Error(t, err)
+	// A key cut inside its length field has no height.
+	truncated := appendRecordKey(nil, 2, []byte("abc"), 77)[:bucketLen+2]
+	require.Equal(t, len(truncated), splitKey(truncated))
 }
 
 func TestRecordsOfABucketSitBetweenItsBoundaries(t *testing.T) {
 	for _, bucket := range []uint64{0, 1, math.MaxInt64} {
-		for _, kind := range evmTypes {
-			for _, fill := range []byte{0, 0xff} {
-				for _, height := range []uint64{0, 1, math.MaxInt64} {
-					record := appendRecordKey(nil, bucket, evmKey(kind, fill), height)
-					require.Negative(t, Comparer.Compare(bucketBoundary(bucket), record))
-					require.Negative(t, Comparer.Compare(record, bucketBoundary(bucket+1)))
-				}
+		for _, key := range sampleKeys() {
+			for _, height := range []uint64{0, 1, math.MaxInt64} {
+				record := appendRecordKey(nil, bucket, key, height)
+				require.Negative(t, Comparer.Compare(bucketBoundary(bucket), record))
+				require.Negative(t, Comparer.Compare(record, bucketBoundary(bucket+1)))
 			}
 		}
 	}
@@ -120,10 +121,10 @@ func TestRecordsOfABucketSitBetweenItsBoundaries(t *testing.T) {
 }
 
 func TestRecordsOfAKeyAscendByHeight(t *testing.T) {
-	for _, kind := range evmTypes {
+	for _, key := range sampleKeys() {
 		var records [][]byte
 		for _, height := range []uint64{12, 3, 1 << 33, 0, 255, 256} {
-			records = append(records, appendRecordKey(nil, 4, evmKey(kind, 1), height))
+			records = append(records, appendRecordKey(nil, 4, key, height))
 		}
 		slices.SortFunc(records, Comparer.Compare)
 		var heights []uint64
@@ -134,6 +135,25 @@ func TestRecordsOfAKeyAscendByHeight(t *testing.T) {
 		}
 		require.Equal(t, []uint64{0, 3, 12, 255, 256, 1 << 33}, heights)
 	}
+}
+
+// The records of a key never interleave with those of a key it is a prefix of.
+func TestRecordsOfAKeyStayContiguous(t *testing.T) {
+	var records [][]byte
+	for _, key := range [][]byte{[]byte("ab"), []byte("abc"), []byte("a")} {
+		for _, height := range []uint64{0, 0x63, math.MaxInt64} {
+			records = append(records, appendRecordKey(nil, 1, key, height))
+		}
+	}
+	slices.SortFunc(records, Comparer.Compare)
+	var order []string
+	for _, r := range records {
+		key := string(r[bucketLen+keyLenLen : splitKey(r)])
+		if len(order) == 0 || order[len(order)-1] != key {
+			order = append(order, key)
+		}
+	}
+	require.Equal(t, []string{"a", "ab", "abc"}, order)
 }
 
 func TestSeparatorAndSuccessorStayInOrder(t *testing.T) {
