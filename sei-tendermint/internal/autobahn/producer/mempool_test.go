@@ -17,12 +17,12 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -69,8 +69,8 @@ func decodeTxSpecData(data []byte) (*txSpec, error) {
 	return &tx, nil
 }
 
-func (tx *txSpec) asResponse() proxy.AdmittedTx {
-	return proxy.AdmittedTx{GasEstimated: tx.GasEstimated}
+func (tx *txSpec) asResponse() abevm.AdmittedTx {
+	return abevm.AdmittedTx{GasEstimated: tx.GasEstimated}
 }
 
 func (env *testEnv) genTx(rng utils.Rng, addr common.Address, nonce uint64) *txSpec {
@@ -96,7 +96,7 @@ type testAppInner struct {
 
 // Application tracking evm nonces.
 type testApp struct {
-	proxy.EVMApplication
+	abevm.Application
 	inner   utils.Mutex[*testAppInner]
 	checked utils.AtomicSend[uint64]
 }
@@ -130,7 +130,7 @@ func (a *testApp) SigningKey(addr common.Address) [32]byte {
 }
 
 type accountApp interface {
-	proxy.EVMApplication
+	abevm.Application
 	SigningKey(common.Address) [32]byte
 }
 
@@ -157,7 +157,7 @@ func (a *testApp) EvmCommittedNonce(addr common.Address) uint64 {
 	return a.EvmNonce(addr)
 }
 
-func (a *testApp) CheckTx(tx proxy.EvmTx) (proxy.AdmittedTx, error) {
+func (a *testApp) CheckTx(tx abevm.EvmTx) (abevm.AdmittedTx, error) {
 	defer func() {
 		for range a.inner.Lock() {
 			a.checked.Store(a.checked.Load() + 1)
@@ -165,17 +165,17 @@ func (a *testApp) CheckTx(tx proxy.EvmTx) (proxy.AdmittedTx, error) {
 	}()
 	spec, err := decodeTxSpecData(tx.Data())
 	if err != nil {
-		return proxy.AdmittedTx{}, err
+		return abevm.AdmittedTx{}, err
 	}
 	return spec.asResponse(), nil
 }
 
-func (a *testApp) FinalizeBlock(_ context.Context, req proxy.FinalizeBlockReq) (proxy.FinalizeBlockResp, error) {
+func (a *testApp) FinalizeBlock(_ context.Context, req abevm.FinalizeBlockReq) (abevm.FinalizeBlockResp, error) {
 	for inner := range a.inner.Lock() {
 		for _, txRaw := range req.Txs {
 			tx, err := decodeTxSpecData(txRaw.Data())
 			if err != nil {
-				return proxy.FinalizeBlockResp{}, fmt.Errorf("decodeTxSpec(): %w", err)
+				return abevm.FinalizeBlockResp{}, fmt.Errorf("decodeTxSpec(): %w", err)
 			}
 			if inner.nonces[tx.Address] == tx.Nonce && !tx.ShouldFail {
 				inner.nonces[tx.Address] += 1
@@ -183,7 +183,7 @@ func (a *testApp) FinalizeBlock(_ context.Context, req proxy.FinalizeBlockReq) (
 		}
 		h := sha256.Sum256(slices.Concat(req.Hash[:], inner.appHash[:]))
 		inner.appHash = h[:]
-		return proxy.FinalizeBlockResp{}, nil
+		return abevm.FinalizeBlockResp{}, nil
 	}
 	panic("unreachable")
 }
@@ -197,7 +197,7 @@ type testEnv struct {
 	state     *State
 	consensus *consensus.State
 	data      *data.State
-	app       *proxy.EVMProxy
+	app       *abevm.Proxy
 	accounts  accountApp
 
 	inner           utils.Mutex[*testEnvInner]
@@ -267,7 +267,7 @@ func (env *testEnv) Run(ctx context.Context) error {
 			}
 
 			// Mark block as executed.
-			_, err = env.app.FinalizeBlock(ctx, proxy.FinalizeBlockReq{Txs: utils.OrPanic1(env.app.ParseTxs(env.app.EvmChainID(), b.Txs, 0)), Hash: common.BytesToHash(b.Hash[:])})
+			_, err = env.app.FinalizeBlock(ctx, abevm.FinalizeBlockReq{Txs: utils.OrPanic1(env.app.ParseTxs(env.app.EvmChainID(), b.Txs, 0)), Hash: common.BytesToHash(b.Hash[:])})
 			if err != nil {
 				return fmt.Errorf("app.FinalizeBlock(): %w", err)
 			}
@@ -295,7 +295,7 @@ func newTestEnvN(t testing.TB, rng utils.Rng, n int, cfg *Config, app accountApp
 		MaxRate:            rate.Inf,
 		PersistentStateDir: utils.None[string](),
 	}, dataState))
-	evm := proxy.NewEVM(app)
+	evm := abevm.NewProxy(app)
 	return &testEnv{
 		executionPaused: utils.NewWatch(new(bool)),
 		data:            dataState,
@@ -423,7 +423,7 @@ func TestInsertTx_AppRejectsTx(t *testing.T) {
 		}
 		// Should be rejected by app.
 		_, err = env.state.InsertTx(ctx, tx)
-		if !errors.Is(err, proxy.ErrTxRejected) {
+		if !errors.Is(err, abevm.ErrTxRejected) {
 			return fmt.Errorf("unexpected successful CheckTx response")
 		}
 		if app.checked.Load() != 1 {
@@ -923,9 +923,9 @@ func TestInsertTx_QueuesWithoutRPCAdmission(t *testing.T) {
 	}))
 }
 
-func (a *testApp) Info() *proxy.ResponseInfo {
+func (a *testApp) Info() *abevm.ResponseInfo {
 	for inner := range a.inner.Lock() {
-		return &proxy.ResponseInfo{LastBlockAppHash: slices.Clone(inner.appHash)}
+		return &abevm.ResponseInfo{LastBlockAppHash: slices.Clone(inner.appHash)}
 	}
 	panic("unreachable")
 }

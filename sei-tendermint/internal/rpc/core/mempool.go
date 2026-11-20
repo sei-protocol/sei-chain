@@ -11,7 +11,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -68,7 +68,7 @@ func (env *Environment) BroadcastTxAsync(ctx context.Context, req *coretypes.Req
 		if !ok {
 			return nil, errors.New("autobahn fullnode has no local mempool; broadcast_tx_* must be sent to a validator")
 		}
-		if _, err := v.TryInsertTx(ctx, req.Tx); err != nil && !errors.Is(err, proxy.ErrTxRejected) {
+		if _, err := v.TryInsertTx(ctx, req.Tx); err != nil && !errors.Is(err, abevm.ErrTxRejected) {
 			return nil, err
 		}
 		return &coretypes.ResultBroadcastTx{Hash: req.Tx.Hash().Bytes()}, nil
@@ -342,7 +342,7 @@ func (env *Environment) EvmBlockNumber() uint64 {
 func (env *Environment) CheckTx(ctx context.Context, req *coretypes.RequestCheckTx) (*coretypes.ResultCheckTx, error) {
 	if evm, ok := env.EVM.Get(); ok {
 		tx, err := evm.ParseTx(evm.EvmChainID(), req.Tx)
-		var res proxy.AdmittedTx
+		var res abevm.AdmittedTx
 		if err == nil {
 			res, err = evm.CheckTx(tx)
 		}
@@ -361,14 +361,14 @@ func (env *Environment) CheckTx(ctx context.Context, req *coretypes.RequestCheck
 
 // evmAdmissionStatus converts admission errors to public ABCI status fields.
 func evmAdmissionStatus(err error) (abci.ResponseCheckTx, error) {
-	if errors.Is(err, proxy.ErrTxRejected) {
+	if errors.Is(err, abevm.ErrTxRejected) {
 		return abci.ResponseCheckTx{Code: 1, Log: err.Error()}, nil
 	}
 	return abci.ResponseCheckTx{}, err
 }
 
 // evmAdmissionResponse combines transaction gas data with app admission metadata.
-func evmAdmissionResponse(tx proxy.EvmTx, admitted proxy.AdmittedTx, err error) (abci.ResponseCheckTx, error) {
+func evmAdmissionResponse(tx abevm.EvmTx, admitted abevm.AdmittedTx, err error) (abci.ResponseCheckTx, error) {
 	status, err := evmAdmissionStatus(err)
 	if err != nil || status.Code != abci.CodeTypeOK {
 		return status, err

@@ -14,11 +14,11 @@ import (
 	"golang.org/x/time/rate"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -72,10 +72,10 @@ func defaultFileConfig(t testing.TB, validators []config.AutobahnValidator) *con
 // testGenesisMaxGas is the gas limit baked into the test genesis doc.
 const testGenesisMaxGas int64 = 50_000_000
 
-type setupEVMApp struct{ proxy.EVMApplication }
+type setupEVMApp struct{ abevm.Application }
 
-func makeTestGigaDeps() (*proxy.EVMProxy, *types.GenesisDoc) {
-	app := proxy.NewEVM(setupEVMApp{})
+func makeTestGigaDeps() (*abevm.Proxy, *types.GenesisDoc) {
+	app := abevm.NewProxy(setupEVMApp{})
 	genDoc := &types.GenesisDoc{
 		ChainID: "test-chain",
 		// Nontrivial InitialHeight so any future code that assumes the

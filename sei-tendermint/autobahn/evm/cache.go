@@ -1,4 +1,4 @@
-package proxy
+package evm
 
 import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"

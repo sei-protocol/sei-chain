@@ -24,6 +24,7 @@ import (
 	evmonlyrpc "github.com/sei-protocol/sei-chain/giga/evmonly/rpc"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -181,7 +182,7 @@ func makeNode(
 
 	var (
 		proxyApp           utils.Option[*proxy.Proxy]
-		evmApp             utils.Option[*proxy.EVMProxy]
+		evmApp             utils.Option[*abevm.Proxy]
 		gigaStorageManager utils.Option[*bootstrap.GigaStorageManager]
 	)
 	gigaEnabled := cfg.AutobahnConfigFile != ""
@@ -190,7 +191,7 @@ func makeNode(
 		if err != nil {
 			return nil, err
 		}
-		evmApp = utils.Some(proxy.NewEVM(evm))
+		evmApp = utils.Some(abevm.NewProxy(evm))
 		gigaStorageManager = utils.Some(storage)
 	} else {
 		proxyApp = utils.Some(proxy.New(app))
@@ -754,7 +755,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 			return errors.New("autobahn rpc requires an EVM application")
 		}
 		if receipts := storage.ReceiptDB(); receipts != nil {
-			evmEnv := &rpccore.EVMEnvironment{Environment: n.rpcEnv, EVMProxy: evm}
+			evmEnv := &rpccore.EVMEnvironment{Environment: n.rpcEnv, Proxy: evm}
 			n.evmOnlyRPC, err = evmonlyrpc.Start(evmEnv, receipts, n.evmOnlyRPCPort, n.evmOnlyWSPort, n.evmOnlyRPCLimits)
 			if err != nil {
 				return err

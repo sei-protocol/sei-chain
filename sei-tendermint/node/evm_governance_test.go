@@ -10,9 +10,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -21,7 +21,7 @@ func TestEVMOnlyCustomPrecompiles(t *testing.T) {
 	rng := utils.TestRng()
 	first := atypes.GenSecretKey(rng).Public()
 	second := atypes.GenSecretKey(rng).Public()
-	validators := proxy.CommitteeWeights{first: 1, second: 1}
+	validators := abevm.CommitteeWeights{first: 1, second: 1}
 	fc := &config.AutobahnFileConfig{Validators: []config.AutobahnValidator{
 		{ValidatorKey: first, EVMVoter: utils.Some(common.HexToAddress("0xa1"))},
 		{ValidatorKey: second, EVMVoter: utils.Some(common.HexToAddress("0xa2"))},
@@ -55,7 +55,7 @@ func TestEVMOnlyCommitteeWeights(t *testing.T) {
 	}}
 	weights, err := evmOnlyCommitteeWeights(fc)
 	require.NoError(t, err)
-	require.Equal(t, proxy.CommitteeWeights{first: 1, second: 1}, weights)
+	require.Equal(t, abevm.CommitteeWeights{first: 1, second: 1}, weights)
 	fc.Validators = append(fc.Validators, config.AutobahnValidator{ValidatorKey: first})
 	_, err = evmOnlyCommitteeWeights(fc)
 	require.Error(t, err)
@@ -67,7 +67,7 @@ func TestEVMOnlyGenesisElectorateUsesCommitteeWeights(t *testing.T) {
 	second := atypes.GenSecretKey(rng).Public()
 	firstVoter := common.HexToAddress("0xa1")
 	secondVoter := common.HexToAddress("0xa2")
-	weights := proxy.CommitteeWeights{second: 9, first: math.MaxInt64 + 1}
+	weights := abevm.CommitteeWeights{second: 9, first: math.MaxInt64 + 1}
 	fc := &config.AutobahnFileConfig{Validators: []config.AutobahnValidator{
 		{ValidatorKey: first, EVMVoter: utils.Some(firstVoter)},
 		{ValidatorKey: second, EVMVoter: utils.Some(secondVoter)},

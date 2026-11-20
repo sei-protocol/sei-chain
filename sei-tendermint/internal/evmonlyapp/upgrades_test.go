@@ -20,7 +20,7 @@ import (
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -81,7 +81,7 @@ func TestReleaseNamesFollowTheUpgradeNameRule(t *testing.T) {
 // upgradeTestNode is an app over storage at home whose gov electorate is
 // anvil account 0. A halt writes upgrade-info.json under home.
 type upgradeTestNode struct {
-	app     proxy.EVMApplication
+	app     abevm.Application
 	storage *bootstrap.GigaStorageManager
 }
 
@@ -113,7 +113,7 @@ func upgradeTestApp(t *testing.T, home string, withTestUpgrade bool) upgradeTest
 
 // maxDepositPeriod returns gov's max deposit period as the params precompile
 // serves it.
-func maxDepositPeriod(t *testing.T, app proxy.EVMApplication) uint64 {
+func maxDepositPeriod(t *testing.T, app abevm.Application) uint64 {
 	t.Helper()
 	out, err := precompileCall(t, app, chainparams.Address, chainparams.ABI, chainparams.ParamMethod, "gov", "depositparams.max_deposit_period")
 	require.NoError(t, err)
@@ -129,7 +129,7 @@ func anvilAddress(t *testing.T) common.Address {
 
 // passUpgrade passes an expedited upgrade proposal for plan, starting at
 // block next, and returns the next block to finalize.
-func passUpgrade(t *testing.T, app proxy.EVMApplication, next int64, plan upgrade.Plan) int64 {
+func passUpgrade(t *testing.T, app abevm.Application, next int64, plan upgrade.Plan) int64 {
 	t.Helper()
 	deposit := gov.DefaultParams().MinExpeditedDeposit
 	submit := signedGovTx(t, 0, deposit, gov.SubmitSoftwareUpgradeMethod, "t", "d", true,

@@ -11,8 +11,8 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
@@ -57,7 +57,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	require.NoError(t, genDoc.ValidateAndComplete())
 
 	app := newTestApp(genDoc.AppState)
-	proxyApp := proxy.NewEVM(app)
+	proxyApp := abevm.NewProxy(app)
 
 	dir := t.TempDir()
 	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig

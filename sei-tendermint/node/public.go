@@ -16,9 +16,9 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -161,7 +161,7 @@ func makeEVMApplication(
 	conf *config.Config,
 	giga gigaconfig.Config,
 	genDoc *tmtypes.GenesisDoc,
-) (_ proxy.EVMApplication, _ *bootstrap.GigaStorageManager, err error) {
+) (_ abevm.Application, _ *bootstrap.GigaStorageManager, err error) {
 	committee, _, err := loadAutobahnCommittee(conf.AutobahnConfigFile)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load Autobahn committee: %w", err)
@@ -214,8 +214,8 @@ func evmOnlyGenesisAlloc(fc *config.AutobahnFileConfig, genDoc *tmtypes.GenesisD
 	return utils.Some(evmonlyapp.GenesisAlloc{InitialHeight: genDoc.InitialHeight, Balances: balances})
 }
 
-func evmOnlyCommitteeWeights(fc *config.AutobahnFileConfig) (proxy.CommitteeWeights, error) {
-	weights := make(proxy.CommitteeWeights, len(fc.Validators))
+func evmOnlyCommitteeWeights(fc *config.AutobahnFileConfig) (abevm.CommitteeWeights, error) {
+	weights := make(abevm.CommitteeWeights, len(fc.Validators))
 	for _, validator := range fc.Validators {
 		if _, duplicate := weights[validator.ValidatorKey]; duplicate {
 			return nil, fmt.Errorf("duplicate public key %s", validator.ValidatorKey)
@@ -229,7 +229,7 @@ func evmOnlyCommitteeWeights(fc *config.AutobahnFileConfig) (proxy.CommitteeWeig
 // evmOnlyCustomPrecompiles returns the gov precompile registry when the
 // committee sets evm_governance, with each validator's evm_voter voting at that
 // validator's power, skipping upgrade plans at skipUpgradeHeights.
-func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators proxy.CommitteeWeights, skipUpgradeHeights []uint64) (utils.Option[precompiles.Registry], error) {
+func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators abevm.CommitteeWeights, skipUpgradeHeights []uint64) (utils.Option[precompiles.Registry], error) {
 	governance, ok := fc.EVMGovernance.Get()
 	if !ok {
 		return utils.None[precompiles.Registry](), nil
@@ -248,7 +248,7 @@ func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators proxy.Co
 	})), nil
 }
 
-func evmOnlyGenesisElectorate(fc *config.AutobahnFileConfig, weights proxy.CommitteeWeights) (gov.GenesisElectorate, error) {
+func evmOnlyGenesisElectorate(fc *config.AutobahnFileConfig, weights abevm.CommitteeWeights) (gov.GenesisElectorate, error) {
 	electorate := make(gov.GenesisElectorate, len(fc.Validators))
 	for i, validator := range fc.Validators {
 		voter, ok := validator.EVMVoter.Get()

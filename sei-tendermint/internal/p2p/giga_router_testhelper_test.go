@@ -15,9 +15,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
@@ -32,29 +32,29 @@ type testAppBlock struct {
 	Time       time.Time
 	Hash       common.Hash
 	Txs        [][]byte
-	EpochState utils.Option[proxy.EpochState]
+	EpochState utils.Option[abevm.EpochState]
 }
 
 type testAppState struct {
-	Init       utils.Option[proxy.InitConfig]
-	Validators proxy.CommitteeWeights
+	Init       utils.Option[abevm.InitConfig]
+	Validators abevm.CommitteeWeights
 	Blocks     []testAppBlock
 	Txs        map[shaHash]bool
 	AppHash    shaHash
 }
 
 func testAppStateJSON(rng utils.Rng) json.RawMessage {
-	weights := proxy.CommitteeWeights{atypes.GenSecretKey(rng).Public(): rng.Uint64() >> 1}
+	weights := abevm.CommitteeWeights{atypes.GenSecretKey(rng).Public(): rng.Uint64() >> 1}
 	return utils.OrPanic1(json.Marshal(weights))
 }
 
 type testApp struct {
-	proxy.EVMApplication
+	abevm.Application
 	state utils.Watch[*testAppState]
 }
 
 func newTestApp(genesis []byte) *testApp {
-	var weights proxy.CommitteeWeights
+	var weights abevm.CommitteeWeights
 	utils.OrPanic(json.Unmarshal(genesis, &weights))
 	return &testApp{
 		state: utils.NewWatch(&testAppState{
@@ -70,27 +70,27 @@ func (a *testApp) EvmNonce(common.Address) uint64 { return 0 }
 // EvmCommittedNonce matches EvmNonce: the test app has no commit in flight.
 func (a *testApp) EvmCommittedNonce(addr common.Address) uint64 { return a.EvmNonce(addr) }
 
-func (a *testApp) GetValidators() proxy.CommitteeWeights {
+func (a *testApp) GetValidators() abevm.CommitteeWeights {
 	for state := range a.state.Lock() {
 		return maps.Clone(state.Validators)
 	}
 	panic("unreachable")
 }
 
-func (a *testApp) Info() *proxy.ResponseInfo {
+func (a *testApp) Info() *abevm.ResponseInfo {
 	for state := range a.state.Lock() {
 		init, ok := state.Init.Get()
 		if !ok {
-			return &proxy.ResponseInfo{}
+			return &abevm.ResponseInfo{}
 		}
 		if len(state.Blocks) == 0 {
 			// Initialization alone leaves LastBlockHeight=0.
-			return &proxy.ResponseInfo{
+			return &abevm.ResponseInfo{
 				LastBlockHeight:  0,
 				LastBlockAppHash: slices.Clone(state.AppHash[:]),
 			}
 		}
-		return &proxy.ResponseInfo{
+		return &abevm.ResponseInfo{
 			LastBlockHeight:  int64(init.InitialHeight) + int64(len(state.Blocks)) - 1,
 			LastBlockAppHash: slices.Clone(state.AppHash[:]),
 		}
@@ -109,11 +109,11 @@ func (a *testApp) LastBlockHeight() int64 {
 	panic("unreachable")
 }
 
-func (a *testApp) CheckTx(tx proxy.EvmTx) (proxy.AdmittedTx, error) {
-	return proxy.AdmittedTx{GasEstimated: 1}, nil
+func (a *testApp) CheckTx(tx abevm.EvmTx) (abevm.AdmittedTx, error) {
+	return abevm.AdmittedTx{GasEstimated: 1}, nil
 }
 
-func (a *testApp) InitChain(req proxy.InitConfig) error {
+func (a *testApp) InitChain(req abevm.InitConfig) error {
 	for state, ctrl := range a.state.Lock() {
 		if state.Init.IsPresent() {
 			return fmt.Errorf("chain already initialized")
@@ -128,11 +128,11 @@ func (a *testApp) InitChain(req proxy.InitConfig) error {
 	panic("unreachable")
 }
 
-func (a *testApp) FinalizeBlock(ctx context.Context, req proxy.FinalizeBlockReq) (proxy.FinalizeBlockResp, error) {
+func (a *testApp) FinalizeBlock(ctx context.Context, req abevm.FinalizeBlockReq) (abevm.FinalizeBlockResp, error) {
 	for state, ctrl := range a.state.Lock() {
 		init, ok := state.Init.Get()
 		if !ok {
-			return proxy.FinalizeBlockResp{}, fmt.Errorf("app not initialized")
+			return abevm.FinalizeBlockResp{}, fmt.Errorf("app not initialized")
 		}
 		txs := make([][]byte, len(req.Txs))
 		for i, tx := range req.Txs {
@@ -145,7 +145,7 @@ func (a *testApp) FinalizeBlock(ctx context.Context, req proxy.FinalizeBlockReq)
 		}
 		logger.Info("FinalizeBlock", "n", req.Height-init.InitialHeight)
 		ctrl.Updated()
-		return proxy.FinalizeBlockResp{}, nil
+		return abevm.FinalizeBlockResp{}, nil
 	}
 	panic("unreachable")
 }
@@ -209,7 +209,7 @@ func TestInitChainThenFinalize(t *testing.T) {
 	initialHeight := rng.Int63n(100000) + 1
 
 	// InitChain
-	err := app.InitChain(proxy.InitConfig{
+	err := app.InitChain(abevm.InitConfig{
 		InitialHeight: atypes.RoadIndex(initialHeight)})
 	require.NoError(t, err)
 
@@ -220,7 +220,7 @@ func TestInitChainThenFinalize(t *testing.T) {
 
 	// FinalizeBlock should succeed after InitChain
 	blockHash := sha256.Sum256([]byte("test-block"))
-	_, err = app.FinalizeBlock(ctx, proxy.FinalizeBlockReq{
+	_, err = app.FinalizeBlock(ctx, abevm.FinalizeBlockReq{
 		Hash:   common.BytesToHash(blockHash[:]),
 		Height: atypes.RoadIndex(initialHeight)})
 	require.NoError(t, err)

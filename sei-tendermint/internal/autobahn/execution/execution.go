@@ -11,9 +11,9 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution/metrics"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -25,7 +25,7 @@ type Config struct {
 	// GenDoc is the genesis a fresh app is initialized from.
 	GenDoc *types.GenesisDoc
 	// App is the application blocks are executed on.
-	App *proxy.EVMProxy
+	App *abevm.Proxy
 	// AppHashBuilder receives each block's hash before the block runs.
 	AppHashBuilder builder.AppHashBuilder
 	// BlockStore holds the blocks to execute.
@@ -96,7 +96,7 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 		if !ok || gasLimit == 0 {
 			return 0, fmt.Errorf("invalid genesis block gas limit: %d", e.cfg.GenDoc.ConsensusParams.Block.MaxGas)
 		}
-		if err := app.InitChain(proxy.InitConfig{InitialHeight: next, GasLimit: gasLimit}); err != nil {
+		if err := app.InitChain(abevm.InitConfig{InitialHeight: next, GasLimit: gasLimit}); err != nil {
 			return 0, fmt.Errorf("App.InitChain(): %w", err)
 		}
 		return next, nil
@@ -125,7 +125,7 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error
 		return fmt.Errorf("decode block transactions: %w", err)
 	}
 
-	resp, err := app.FinalizeBlock(ctx, proxy.FinalizeBlockReq{
+	resp, err := app.FinalizeBlock(ctx, abevm.FinalizeBlockReq{
 		Txs: txs,
 		// The road block hash identifies the block before execution and is fed as the block hash to EVM contracts.
 		Hash:   common.Hash(b.Hash),

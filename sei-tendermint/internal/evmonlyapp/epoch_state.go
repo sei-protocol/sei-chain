@@ -4,7 +4,7 @@ import (
 	"slices"
 
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 const (
@@ -13,7 +13,7 @@ const (
 	epochStateNextEpochKey     = "next_epoch"
 )
 
-func epochStateMiscChanges(state proxy.EpochState) []gigatypes.MiscChange {
+func epochStateMiscChanges(state abevm.EpochState) []gigatypes.MiscChange {
 	return []gigatypes.MiscChange{
 		epochStateMiscChange(epochStateEpochRegistryKey, state.EpochRegistry),
 		epochStateMiscChange(epochStateNextEpochKey, state.NextEpoch),

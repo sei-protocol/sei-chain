@@ -21,9 +21,9 @@ import (
 	"golang.org/x/net/netutil"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -57,27 +57,27 @@ type Backend interface {
 	EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error)
 	EvmBlockNumber() uint64
 	ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
-	EvmCall(ctx context.Context, msg *core.Message, overrides evmonly.CallOverrides) (*core.ExecutionResult, error)
+	EvmCall(ctx context.Context, msg *core.Message, overrides abevm.CallOverrides) (*core.ExecutionResult, error)
 	// EvmCallAt executes msg as a read-only call against the committed EVM state after header's
 	// block, in the context that block executed at, with overrides applied.
-	EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (*core.ExecutionResult, error)
+	EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides abevm.CallOverrides) (*core.ExecutionResult, error)
 	EvmChainConfig() *params.ChainConfig
 	EvmChainID() uint64
 	EvmCode(common.Address) ([]byte, error)
 	EvmCodeAt(address common.Address, height int64) ([]byte, error)
 	// EvmEstimateGas returns the lowest gas limit that lets msg succeed with overrides applied,
 	// and any revert data if it still fails at gasCap.
-	EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error)
+	EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, overrides abevm.CallOverrides) (uint64, []byte, error)
 	// EvmEstimateGasAt returns the lowest gas limit that lets msg succeed against the committed
 	// EVM state after header's block with overrides applied, and any revert data if it still
 	// fails at gasCap.
-	EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error)
+	EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides abevm.CallOverrides) (uint64, []byte, error)
 	// EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg with overrides and then
 	// calls applied to the committed state first, in order.
-	EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error)
+	EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, overrides abevm.CallOverrides) (uint64, []byte, error)
 	// EvmEstimateGasAfterCallsAt returns what EvmEstimateGasAt returns for msg with overrides and
 	// then calls applied to the committed state after header's block first, in order.
-	EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error)
+	EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides abevm.CallOverrides) (uint64, []byte, error)
 	// EvmCreateAccessList returns the access list msg touches against the committed state, and
 	// the result of executing msg with that list.
 	EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error)

@@ -21,13 +21,13 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -74,7 +74,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			nodeInfo.Network = genDoc.ChainID
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp(genDoc.AppState)
-			proxyApp := proxy.NewEVM(app)
+			proxyApp := abevm.NewProxy(app)
 			// In giga mode the CometBFT handshaker is skipped; the executor
 			// calls InitChain itself on fresh start.
 			dir := t.TempDir()
@@ -338,7 +338,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: dir,
-		App:                proxy.NewEVM(app),
+		App:                abevm.NewProxy(app),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,

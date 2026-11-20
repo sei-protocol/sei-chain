@@ -8,15 +8,15 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 // traceTestHeader returns the header a test block at height carries, with parentHash the hash of
 // the block before it.
-func traceTestHeader(height int64, parentHash common.Hash) proxy.BlockRef {
-	return proxy.BlockRef{
+func traceTestHeader(height int64, parentHash common.Hash) abevm.BlockRef {
+	return abevm.BlockRef{
 		Height:     atypes.RoadIndex(height),
 		Time:       uint64(evmOnlyTestBlockTime(height).Unix()), //nolint:gosec // G115: test times are positive.
 		ParentHash: parentHash,

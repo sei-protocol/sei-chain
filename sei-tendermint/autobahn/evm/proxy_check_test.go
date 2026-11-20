@@ -1,4 +1,4 @@
-package proxy
+package evm
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
@@ -17,7 +16,7 @@ import (
 )
 
 type evmCheckApp struct {
-	EVMApplication
+	Application
 	check     func(EvmTx) (AdmittedTx, error)
 	finalized []EvmTx
 }
@@ -28,7 +27,7 @@ func TestEVMCheckTx(t *testing.T) {
 	t.Run("accepted", func(t *testing.T) {
 		want := AdmittedTx{GasEstimated: 21_000}
 		raw := signedProxyTestTx(0)
-		app := NewEVM(&evmCheckApp{check: func(tx EvmTx) (AdmittedTx, error) {
+		app := NewProxy(&evmCheckApp{check: func(tx EvmTx) (AdmittedTx, error) {
 			require.Equal(t, raw.Hash(), tx.Hash())
 			return want, nil
 		}})
@@ -39,13 +38,13 @@ func TestEVMCheckTx(t *testing.T) {
 	})
 	t.Run("rejected", func(t *testing.T) {
 		cause := errors.New("invalid transaction")
-		app := NewEVM(&evmCheckApp{check: func(EvmTx) (AdmittedTx, error) { return AdmittedTx{}, cause }})
+		app := NewProxy(&evmCheckApp{check: func(EvmTx) (AdmittedTx, error) { return AdmittedTx{}, cause }})
 		_, err := app.CheckTx(utils.OrPanic1(app.ParseTx(1, utils.OrPanic1(signedProxyTestTx(0).MarshalBinary()))))
 		require.ErrorIs(t, err, ErrTxRejected)
 		require.ErrorIs(t, err, cause)
 	})
 	t.Run("panic propagates", func(t *testing.T) {
-		app := NewEVM(&evmCheckApp{check: func(EvmTx) (AdmittedTx, error) { panic("store failure") }})
+		app := NewProxy(&evmCheckApp{check: func(EvmTx) (AdmittedTx, error) { panic("store failure") }})
 		require.Panics(t, func() {
 			_, _ = app.CheckTx(utils.OrPanic1(app.ParseTx(1, utils.OrPanic1(signedProxyTestTx(0).MarshalBinary()))))
 		})
@@ -53,7 +52,7 @@ func TestEVMCheckTx(t *testing.T) {
 }
 
 func TestParseTxRejectsMalformedInput(t *testing.T) {
-	_, err := NewEVM(&evmCheckApp{}).ParseTx(1, []byte{1})
+	_, err := NewProxy(&evmCheckApp{}).ParseTx(1, []byte{1})
 	require.ErrorIs(t, err, ErrTxRejected)
 }
 
@@ -79,7 +78,7 @@ func TestEVMProxySenderCacheLifecycle(t *testing.T) {
 		require.Equal(t, proxyTestSender(tx), got.Sender())
 		return AdmittedTx{}, nil
 	}}
-	proxy := NewEVM(app)
+	proxy := NewProxy(app)
 	decoded, err := proxy.ParseTx(1, raw)
 	require.NoError(t, err)
 	require.Equal(t, proxyTestSender(tx), decoded.Sender())
@@ -108,7 +107,7 @@ func TestEVMProxyDoesNotCacheRejectedAdmission(t *testing.T) {
 	app := &evmCheckApp{check: func(EvmTx) (AdmittedTx, error) {
 		return AdmittedTx{}, errors.New("invalid transaction")
 	}}
-	proxy := NewEVM(app)
+	proxy := NewProxy(app)
 	decoded := utils.OrPanic1(proxy.ParseTx(1, utils.OrPanic1(tx.MarshalBinary())))
 	_, err := proxy.CheckTx(decoded)
 	require.ErrorIs(t, err, ErrTxRejected)
@@ -119,20 +118,20 @@ func TestEVMProxyDoesNotCacheRejectedAdmission(t *testing.T) {
 
 func TestParseTxRejectsInvalidSignature(t *testing.T) {
 	raw := utils.OrPanic1(ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: big.NewInt(1)}).MarshalBinary())
-	_, err := NewEVM(&evmCheckApp{}).ParseTx(1, raw)
+	_, err := NewProxy(&evmCheckApp{}).ParseTx(1, raw)
 	require.ErrorIs(t, err, ErrTxRejected)
 	require.ErrorIs(t, err, ethtypes.ErrInvalidSig)
 }
 
 func TestParseTxRejectsZeroChainID(t *testing.T) {
 	raw := utils.OrPanic1(ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: big.NewInt(0)}).MarshalBinary())
-	_, err := NewEVM(&evmCheckApp{}).ParseTx(1, raw)
+	_, err := NewProxy(&evmCheckApp{}).ParseTx(1, raw)
 	require.ErrorIs(t, err, ErrTxRejected)
 	require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
 }
 
 func TestParseTxChecksChainBeforeSender(t *testing.T) {
-	app := NewEVM(&evmCheckApp{})
+	app := NewProxy(&evmCheckApp{})
 	tx := signedProxyTestTx(0)
 	raw := utils.OrPanic1(tx.MarshalBinary())
 	app.RememberEvmSender(tx.Hash(), proxyTestSender(tx))
@@ -165,7 +164,7 @@ func TestParseTxRejectsUnprotectedTransaction(t *testing.T) {
 	require.NoError(t, err)
 	signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{}), ethtypes.HomesteadSigner{}, key)
 	require.NoError(t, err)
-	app := NewEVM(&evmCheckApp{})
+	app := NewProxy(&evmCheckApp{})
 	raw := utils.OrPanic1(signed.MarshalBinary())
 	_, err = app.ParseTx(1, raw)
 	require.ErrorIs(t, err, ErrTxRejected)
@@ -180,7 +179,7 @@ func TestParseTxRejectsUnprotectedTransaction(t *testing.T) {
 
 func TestParseTxsPreservesOrder(t *testing.T) {
 	raw := make([][]byte, 2*minTxsPerHashWorker+1)
-	app := NewEVM(&evmCheckApp{})
+	app := NewProxy(&evmCheckApp{})
 	sender := proxyTestSender(signedProxyTestTx(0))
 	for i := range raw {
 		tx := signedProxyTestTx(uint64(i))
@@ -216,7 +215,7 @@ func BenchmarkParseTxs(b *testing.B) {
 	for _, count := range []int{64, 1024} {
 		for _, cached := range []bool{false, true} {
 			b.Run(fmt.Sprintf("txs=%d/cached=%t", count, cached), func(b *testing.B) {
-				app := NewEVM(&evmCheckApp{})
+				app := NewProxy(&evmCheckApp{})
 				raw := make([][]byte, count)
 				for i := range raw {
 					tx := signedProxyTestTx(uint64(i))

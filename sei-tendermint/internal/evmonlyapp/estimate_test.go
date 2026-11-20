@@ -8,8 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -22,14 +21,14 @@ func TestEVMOnlyApplicationEvmEstimateGasReadsCommittedContractCode(t *testing.T
 	runtime := storeCode(slot, value)
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 
-	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(evmOnlyTestChainID, [][]byte{deployRaw}, 0)),
+	_, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(abevm.NewProxy(app).ParseTxs(evmOnlyTestChainID, [][]byte{deployRaw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
 	require.NoError(t, err)
 
-	estimate, revert, err := evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0, evmonly.CallOverrides{})
+	estimate, revert, err := evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0, abevm.CallOverrides{})
 
 	require.NoError(t, err)
 	require.Empty(t, revert)
@@ -45,8 +44,8 @@ func TestEVMOnlyApplicationEvmEstimateGasDoesNotMutateCommittedState(t *testing.
 	runtime := storeCode(slot, writtenValue)
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 
-	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(evmOnlyTestChainID, [][]byte{deployRaw}, 0)),
+	_, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(abevm.NewProxy(app).ParseTxs(evmOnlyTestChainID, [][]byte{deployRaw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -57,7 +56,7 @@ func TestEVMOnlyApplicationEvmEstimateGasDoesNotMutateCommittedState(t *testing.
 	before.Close()
 	require.Equal(t, common.Hash{}, beforeValue)
 
-	_, _, err = evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0, evmonly.CallOverrides{})
+	_, _, err = evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0, abevm.CallOverrides{})
 	require.NoError(t, err)
 
 	after := evmApp.storage.StateDB().OpenView()
@@ -69,13 +68,13 @@ func TestEVMOnlyApplicationEvmEstimateGasAfterFinalization(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	evmApp := app.(*evmOnlyApplication)
 
-	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
+	_, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
 	require.NoError(t, err)
 
-	_, _, err = evmApp.EvmEstimateGas(t.Context(), callMessage(common.Address{}, nil), 0, evmonly.CallOverrides{})
+	_, _, err = evmApp.EvmEstimateGas(t.Context(), callMessage(common.Address{}, nil), 0, abevm.CallOverrides{})
 
 	require.NoError(t, err)
 }
@@ -84,7 +83,7 @@ func TestEVMOnlyApplicationEvmEstimateGasRequiresInitChain(t *testing.T) {
 	app := newEVMOnlyTestApp(t, nil)
 	evmApp := app.(*evmOnlyApplication)
 
-	_, _, err := evmApp.EvmEstimateGas(t.Context(), callMessage(common.Address{}, nil), 0, evmonly.CallOverrides{})
+	_, _, err := evmApp.EvmEstimateGas(t.Context(), callMessage(common.Address{}, nil), 0, abevm.CallOverrides{})
 
 	require.Error(t, err)
 }

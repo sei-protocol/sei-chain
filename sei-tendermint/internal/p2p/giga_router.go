@@ -9,9 +9,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -42,7 +42,7 @@ type GigaRouterCommonConfig struct {
 	// App is the application the blocks run on. The router reads its committed
 	// height and validator set, and NewGigaValidatorRouter passes it to the
 	// producer's mempool.
-	App *proxy.EVMProxy
+	App *abevm.Proxy
 	// AppHashBuilder is the source of every Autobahn application hash. The
 	// storage manager owns it. The router reads each executed block's app hash
 	// from it.

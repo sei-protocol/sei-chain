@@ -12,13 +12,13 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	kvsink "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink/kv"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -45,7 +45,7 @@ func (stubAppHashBuilder) GetAppHash(ctx context.Context, _ uint64) (*apphash.Ap
 func (stubAppHashBuilder) Bounds() (uint64, uint64, bool, error) { return 0, 0, false, nil }
 func (stubAppHashBuilder) Close() error                          { return nil }
 
-type broadcastEVMApp struct{ proxy.EVMApplication }
+type broadcastEVMApp struct{ abevm.Application }
 
 func (broadcastEVMApp) LastBlockHeight() int64 { return 0 }
 
@@ -84,7 +84,7 @@ func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 	}
 	blockStore := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, blockStore.Close()) })
-	app := proxy.NewEVM(broadcastEVMApp{})
+	app := abevm.NewProxy(broadcastEVMApp{})
 	commonCfg := p2p.GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,

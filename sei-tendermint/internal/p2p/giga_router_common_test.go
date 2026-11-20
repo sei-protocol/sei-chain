@@ -16,6 +16,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -25,7 +26,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	gigapb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -46,14 +46,14 @@ func registerEvmProxyForTest(t *testing.T, router *gigaRouterCommon, validator a
 }
 
 type fixedHeightApp struct {
-	proxy.EVMApplication
+	abevm.Application
 	height int64
 }
 
 func (a *fixedHeightApp) LastBlockHeight() int64 { return a.height }
 
-func (a *fixedHeightApp) Info() *proxy.ResponseInfo {
-	return &proxy.ResponseInfo{LastBlockHeight: a.height}
+func (a *fixedHeightApp) Info() *abevm.ResponseInfo {
+	return &abevm.ResponseInfo{LastBlockHeight: a.height}
 }
 
 // manualAppHashBuilder is an AppHashBuilder whose app hashes become available
@@ -175,7 +175,7 @@ func newAppHashTestRouter(
 		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
-		App:                proxy.NewEVM(app),
+		App:                abevm.NewProxy(app),
 		AppHashBuilder:     hashBuilder,
 	}
 	state, err := BuildDataState(cfg, db)
@@ -298,7 +298,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		ValidatorAddrs:     validatorAddrs,
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
-		App:                proxy.NewEVM(&fixedHeightApp{height: int64(last)}),
+		App:                abevm.NewProxy(&fixedHeightApp{height: int64(last)}),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
 	}
 	state, err := BuildDataState(cfg, db)
@@ -1197,7 +1197,7 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 			validator.Public(): {Key: makeKey(rng).Public()},
 		},
 		PersistentStateDir:      t.TempDir(),
-		App:                     proxy.NewEVM(&fixedHeightApp{height: 1}),
+		App:                     abevm.NewProxy(&fixedHeightApp{height: 1}),
 		AppHashBuilder:          newPublishingAppHashBuilder(),
 		GenDoc:                  genDoc,
 		MaxInboundFullnodePeers: 3,

@@ -30,8 +30,8 @@ import (
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -74,9 +74,9 @@ func signedEVMOnlyTestTxFrom(t *testing.T, key *ecdsa.PrivateKey, chainID uint64
 	return raw
 }
 
-func evmOnlyTestBlock(app proxy.EVMApplication, height int64, txs ...[]byte) proxy.FinalizeBlockReq {
-	return proxy.FinalizeBlockReq{
-		Txs:  utils.OrPanic1(proxy.NewEVM(app).ParseTxs(evmOnlyTestChainID, txs, 0)),
+func evmOnlyTestBlock(app abevm.Application, height int64, txs ...[]byte) abevm.FinalizeBlockReq {
+	return abevm.FinalizeBlockReq{
+		Txs:  utils.OrPanic1(abevm.NewProxy(app).ParseTxs(evmOnlyTestChainID, txs, 0)),
 		Hash: common.BytesToHash(crypto.Keccak256(binary.BigEndian.AppendUint64([]byte("block-"), uint64(height)))), //nolint:gosec // G115: test heights are positive.
 
 		Height: atypes.RoadIndex(height),
@@ -88,13 +88,13 @@ func evmOnlyTestBlockTime(height int64) time.Time {
 }
 
 // evmOnlyTestEpochBlock returns an empty block at height that carries state.
-func evmOnlyTestEpochBlock(app proxy.EVMApplication, height int64, state proxy.EpochState) proxy.FinalizeBlockReq {
+func evmOnlyTestEpochBlock(app abevm.Application, height int64, state abevm.EpochState) abevm.FinalizeBlockReq {
 	req := evmOnlyTestBlock(app, height)
 	req.EpochState = utils.Some(state)
 	return req
 }
 
-func finalizeEVMOnlyTestBlock(t *testing.T, app proxy.EVMApplication, req proxy.FinalizeBlockReq) []byte {
+func finalizeEVMOnlyTestBlock(t *testing.T, app abevm.Application, req abevm.FinalizeBlockReq) []byte {
 	t.Helper()
 	_, err := app.FinalizeBlock(t.Context(), req)
 	require.NoError(t, err)
@@ -129,13 +129,13 @@ func signedEVMOnlyTestCreateTxWithInitCode(t *testing.T, chainID uint64, initCod
 	return raw, crypto.PubkeyToAddress(key.PublicKey)
 }
 
-func evmOnlyTestInitChain() proxy.InitConfig {
-	return proxy.InitConfig{
+func evmOnlyTestInitChain() abevm.InitConfig {
+	return abevm.InitConfig{
 		InitialHeight: 1,
 		GasLimit:      30_000_000}
 }
 
-func newInitializedEVMOnlyTestApp(t *testing.T) proxy.EVMApplication {
+func newInitializedEVMOnlyTestApp(t *testing.T) abevm.Application {
 	t.Helper()
 	app := newEVMOnlyTestApp(t, nil)
 	err := app.InitChain(evmOnlyTestInitChain())
@@ -145,7 +145,7 @@ func newInitializedEVMOnlyTestApp(t *testing.T) proxy.EVMApplication {
 
 func TestEVMOnlyAppCommitsEpochState(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
-	state := proxy.EpochState{EpochRegistry: []byte("registry"), NextEpoch: []byte("next-epoch")}
+	state := abevm.EpochState{EpochRegistry: []byte("registry"), NextEpoch: []byte("next-epoch")}
 
 	require.NotEmpty(t, finalizeEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(app, 1, state)))
 	require.NoError(t, app.AwaitCommits())
@@ -156,7 +156,7 @@ func TestEVMOnlyAppCommitsEpochState(t *testing.T) {
 
 func TestEVMOnlyAppCommitsEmptyEpochRegistryAsEmptyRow(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
-	state := proxy.EpochState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
+	state := abevm.EpochState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
 
 	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(app, 1, state))
 	require.NoError(t, app.AwaitCommits())
@@ -166,7 +166,7 @@ func TestEVMOnlyAppCommitsEmptyEpochRegistryAsEmptyRow(t *testing.T) {
 
 func TestEVMOnlyAppEpochStateRowsDoNotAliasTheRequest(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
-	state := proxy.EpochState{NextEpoch: []byte("next-epoch")}
+	state := abevm.EpochState{NextEpoch: []byte("next-epoch")}
 
 	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(app, 1, state))
 	copy(state.NextEpoch, "XXXXXXXXXX")
@@ -190,7 +190,7 @@ func TestEVMOnlyAppWithoutEpochStateWritesNoEpochStateRows(t *testing.T) {
 func TestEVMOnlyAppEpochStateDoesNotCarryOver(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
 	encoded := installRecordingEVMExecutor(app)
-	state := proxy.EpochState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
+	state := abevm.EpochState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
 
 	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(app, 1, state))
 	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2))
@@ -261,16 +261,16 @@ func newUndoLogEVMOnlyTestAppAt(t *testing.T, initialHeight int64) *evmOnlyAppli
 	return app
 }
 
-func newEVMOnlyTestApp(t *testing.T, validators proxy.CommitteeWeights) proxy.EVMApplication {
+func newEVMOnlyTestApp(t *testing.T, validators abevm.CommitteeWeights) abevm.Application {
 	t.Helper()
 	return newEVMOnlyTestAppWithExecution(t, validators, gigaconfig.DefaultConfig.Execution)
 }
 
 func newEVMOnlyTestAppWithExecution(
 	t *testing.T,
-	validators proxy.CommitteeWeights,
+	validators abevm.CommitteeWeights,
 	execution gigaconfig.ExecutionConfig,
-) proxy.EVMApplication {
+) abevm.Application {
 	t.Helper()
 	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
 	require.NoError(t, err)
@@ -279,10 +279,10 @@ func newEVMOnlyTestAppWithExecution(
 
 func newEVMOnlyTestAppWithStorage(
 	t *testing.T,
-	validators proxy.CommitteeWeights,
+	validators abevm.CommitteeWeights,
 	execution gigaconfig.ExecutionConfig,
 	storageConfig *seidbconfig.GigaStorageConfig,
-) proxy.EVMApplication {
+) abevm.Application {
 	t.Helper()
 	storage := openEVMOnlyTestStorage(t, storageConfig)
 	app, err := NewEVMOnlyApplication(
@@ -354,7 +354,7 @@ func reportMissingBlockHashes(manager *bootstrap.GigaStorageManager) error {
 // recovery, and the app hash builder resumes at the state's height only when it
 // holds the app hashes up to it. A node lowers its recovery target to the app
 // hashes it holds instead.
-func closeEVMOnlyTestApp(t *testing.T, app proxy.EVMApplication, storage *bootstrap.GigaStorageManager) {
+func closeEVMOnlyTestApp(t *testing.T, app abevm.Application, storage *bootstrap.GigaStorageManager) {
 	t.Helper()
 	settler, ok := app.(*evmOnlyApplication)
 	require.True(t, ok)
@@ -365,7 +365,7 @@ func closeEVMOnlyTestApp(t *testing.T, app proxy.EVMApplication, storage *bootst
 
 // reopenEVMOnlyTestApp closes app's storage and constructs a fresh application
 // over the same home, the way a restarted process does.
-func reopenEVMOnlyTestApp(t *testing.T, app proxy.EVMApplication, storage *bootstrap.GigaStorageManager, home string) (proxy.EVMApplication, *bootstrap.GigaStorageManager) {
+func reopenEVMOnlyTestApp(t *testing.T, app abevm.Application, storage *bootstrap.GigaStorageManager, home string) (abevm.Application, *bootstrap.GigaStorageManager) {
 	t.Helper()
 	closeEVMOnlyTestApp(t, app, storage)
 	reopened := openEVMOnlyTestStorageAt(t, home)
@@ -399,14 +399,14 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	tx := new(ethtypes.Transaction)
 	require.NoError(t, tx.UnmarshalBinary(raw))
-	_, checkErr := app.CheckTx(utils.OrPanic1(proxy.NewEVM(app).ParseTx(evmOnlyTestChainID, raw)))
+	_, checkErr := app.CheckTx(utils.OrPanic1(abevm.NewProxy(app).ParseTx(evmOnlyTestChainID, raw)))
 	require.NoError(t, checkErr)
 	require.Equal(t, uint64(0), app.EvmNonce(sender))
 	gotBalance := app.EvmBalance(sender)
 	require.Equal(t, evmOnlyBaseBalance, gotBalance.ToBig())
 
-	response, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(evmOnlyTestChainID, [][]byte{raw}, 0)),
+	response, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(abevm.NewProxy(app).ParseTxs(evmOnlyTestChainID, [][]byte{raw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -438,14 +438,14 @@ func TestEVMOnlyApplicationFinalizesBlocksWithoutReceiptStore(t *testing.T) {
 	storageConfig.ReceiptDBConfig.Enable = false
 	app := newEVMOnlyTestAppWithStorage(t, nil, gigaconfig.DefaultConfig.Execution, storageConfig)
 	require.Nil(t, app.(*evmOnlyApplication).storage.ReceiptDB())
-	err = app.InitChain(proxy.InitConfig{
+	err = app.InitChain(abevm.InitConfig{
 		InitialHeight: 1,
 		GasLimit:      30_000_000})
 	require.NoError(t, err)
 	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 
-	response, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(evmOnlyTestChainID, [][]byte{raw}, 0)),
+	response, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(abevm.NewProxy(app).ParseTxs(evmOnlyTestChainID, [][]byte{raw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -487,7 +487,7 @@ func TestEVMOnlyApplicationRefusesATxTheExecutorWouldRefuse(t *testing.T) {
 	raw, err := signed.MarshalBinary()
 	require.NoError(t, err)
 
-	_, checkErr := app.CheckTx(utils.OrPanic1(proxy.NewEVM(app).ParseTx(evmOnlyTestChainID, raw)))
+	_, checkErr := app.CheckTx(utils.OrPanic1(abevm.NewProxy(app).ParseTx(evmOnlyTestChainID, raw)))
 
 	require.Error(t, checkErr)
 }
@@ -514,7 +514,7 @@ func TestEVMOnlyApplicationAdmitsADynamicFeeTxThatClearsTheMinimum(t *testing.T)
 	raw, err := signed.MarshalBinary()
 	require.NoError(t, err)
 
-	_, checkErr := app.CheckTx(utils.OrPanic1(proxy.NewEVM(app).ParseTx(evmOnlyTestChainID, raw)))
+	_, checkErr := app.CheckTx(utils.OrPanic1(abevm.NewProxy(app).ParseTx(evmOnlyTestChainID, raw)))
 
 	require.NoError(t, checkErr)
 }
@@ -523,8 +523,8 @@ func TestEVMOnlyApplicationProducesDeterministicRoot(t *testing.T) {
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	first := newInitializedEVMOnlyTestApp(t)
 	second := newInitializedEVMOnlyTestApp(t)
-	request := proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(first).ParseTxs(evmOnlyTestChainID, [][]byte{raw}, 0)),
+	request := abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(abevm.NewProxy(first).ParseTxs(evmOnlyTestChainID, [][]byte{raw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("same-block"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)}
@@ -543,8 +543,8 @@ func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
 	require.True(t, ok)
 	unchecked := newInitializedEVMOnlyTestApp(t)
 
-	checkedProxy := proxy.NewEVM(checked)
-	request := proxy.FinalizeBlockReq{
+	checkedProxy := abevm.NewProxy(checked)
+	request := abevm.FinalizeBlockReq{
 		Txs:    utils.OrPanic1(checkedProxy.ParseTxs(evmOnlyTestChainID, [][]byte{raw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("checked-block"))),
 		Height: 1,
@@ -564,7 +564,7 @@ func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
 // CheckTx uses the sender recorded for a transaction before it arrived, instead of recovering it.
 func TestEVMOnlyApplicationChecksATxByItsRememberedSender(t *testing.T) {
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
-	app := proxy.NewEVM(newInitializedEVMOnlyTestApp(t))
+	app := abevm.NewProxy(newInitializedEVMOnlyTestApp(t))
 	remembered := common.HexToAddress("0x2000000000000000000000000000000000000002")
 	app.RememberEvmSender(decodeEVMOnlyTestTx(t, raw).Hash(), remembered)
 
@@ -576,7 +576,7 @@ func TestEVMOnlyApplicationChecksATxByItsRememberedSender(t *testing.T) {
 
 func TestEVMOnlyApplicationForgetsARememberedSender(t *testing.T) {
 	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
-	app := proxy.NewEVM(newInitializedEVMOnlyTestApp(t))
+	app := abevm.NewProxy(newInitializedEVMOnlyTestApp(t))
 	hash := decodeEVMOnlyTestTx(t, raw).Hash()
 	app.RememberEvmSender(hash, common.HexToAddress("0x2000000000000000000000000000000000000002"))
 	app.ForgetEvmSender(hash)
@@ -606,7 +606,7 @@ func TestEVMOnlyApplicationRestoreBlockTimeSeedsBlockTime(t *testing.T) {
 	require.NoError(t, err)
 	err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
-	var last proxy.FinalizeBlockReq
+	var last abevm.FinalizeBlockReq
 	for height := range int64(blocks) {
 		last = evmOnlyTestBlock(app, height+1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, uint64(height))) //nolint:gosec // G115: test heights are positive.
 		finalizeEVMOnlyTestBlock(t, app, last)
@@ -634,7 +634,7 @@ func TestEVMOnlyApplicationResumesFromStorageAfterRestart(t *testing.T) {
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	const blocks = 3
-	block := func(app proxy.EVMApplication, height int64) proxy.FinalizeBlockReq {
+	block := func(app abevm.Application, height int64) abevm.FinalizeBlockReq {
 		return evmOnlyTestBlock(app, height, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, uint64(height-1))) //nolint:gosec // G115: test heights are positive.
 	}
 
@@ -708,7 +708,7 @@ func TestEVMOnlyApplicationResumedAppSettlesItsCommits(t *testing.T) {
 func TestEVMOnlyApplicationResumesFromFinalizedBlock(t *testing.T) {
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
-	block := func(app proxy.EVMApplication, height int64) proxy.FinalizeBlockReq {
+	block := func(app abevm.Application, height int64) abevm.FinalizeBlockReq {
 		return evmOnlyTestBlock(app, height, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, uint64(height-1))) //nolint:gosec // G115: test heights are positive.
 	}
 
@@ -780,7 +780,7 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {
 	app := newEVMOnlyTestApp(t, nil)
 
-	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
+	_, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -791,14 +791,14 @@ func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {
 func TestEVMOnlyApplicationReturnsConfiguredValidators(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng).Public()
-	configured := proxy.CommitteeWeights{key: 7}
+	configured := abevm.CommitteeWeights{key: 7}
 	app := newEVMOnlyTestApp(t, configured)
 	configured[key] = 11
 
 	first := app.GetValidators()
-	require.Equal(t, proxy.CommitteeWeights{key: 7}, first)
+	require.Equal(t, abevm.CommitteeWeights{key: 7}, first)
 	first[key] = 13
-	require.Equal(t, proxy.CommitteeWeights{key: 7}, app.GetValidators())
+	require.Equal(t, abevm.CommitteeWeights{key: 7}, app.GetValidators())
 }
 
 // evmGasLimiter is implemented by an application that exposes its committed
@@ -813,7 +813,7 @@ func TestEVMOnlyApplicationEvmGasLimitReflectsConsensusParams(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, uint64(30_000_000), gasLimiter.EvmGasLimit())
 
-	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
+	_, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -885,13 +885,13 @@ func TestEVMOnlyApplicationEvmMinGasPrice(t *testing.T) {
 func TestEVMOnlyApplicationMinGasPriceIsAdmissionOnly(t *testing.T) {
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	proposer := newInitializedEVMOnlyTestApp(t)
-	block := proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(proposer).ParseTxs(evmOnlyTestChainID, [][]byte{raw}, 0)),
+	block := abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(abevm.NewProxy(proposer).ParseTxs(evmOnlyTestChainID, [][]byte{raw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)}
-	initChain := func(app proxy.EVMApplication) {
-		err := app.InitChain(proxy.InitConfig{
+	initChain := func(app abevm.Application) {
+		err := app.InitChain(abevm.InitConfig{
 			InitialHeight: 1,
 			GasLimit:      30_000_000})
 		require.NoError(t, err)
@@ -926,8 +926,8 @@ func TestEVMOnlyApplicationServesDeployedCode(t *testing.T) {
 	require.Empty(t, codeReader.EvmCode(contract))
 	require.Empty(t, codeReader.EvmCode(sender))
 
-	response, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(evmOnlyTestChainID, [][]byte{raw}, 0)),
+	response, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(abevm.NewProxy(app).ParseTxs(evmOnlyTestChainID, [][]byte{raw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -952,8 +952,8 @@ func TestEVMOnlyApplicationServesStoredStorage(t *testing.T) {
 	slot := common.BigToHash(big.NewInt(1))
 	require.Equal(t, common.Hash{}, storageReader.EvmStorage(contract, slot))
 
-	response, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(evmOnlyTestChainID, [][]byte{raw}, 0)),
+	response, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(abevm.NewProxy(app).ParseTxs(evmOnlyTestChainID, [][]byte{raw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -1121,8 +1121,8 @@ func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
 	evmOnlyApp.finalizePhases = seidbmetrics.NewPhaseTimer(meter, finalizeTimerName)
 
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
-	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(evmOnlyTestChainID, [][]byte{raw}, 0)),
+	_, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(abevm.NewProxy(app).ParseTxs(evmOnlyTestChainID, [][]byte{raw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -1158,7 +1158,7 @@ func TestEVMOnlyApplicationReadsSettleBehindFinalizeBlock(t *testing.T) {
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
-	block := func(height int64) proxy.FinalizeBlockReq {
+	block := func(height int64) abevm.FinalizeBlockReq {
 		return evmOnlyTestBlock(app, height, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, uint64(height-1))) //nolint:gosec // G115: test heights are positive.
 	}
 
@@ -1219,7 +1219,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[GenesisAlloc](), utils.None[string]())
 	require.NoError(t, err)
-	err = app.InitChain(proxy.InitConfig{
+	err = app.InitChain(abevm.InitConfig{
 		InitialHeight: 1,
 		GasLimit:      30_000_000})
 	require.NoError(t, err)
@@ -1239,7 +1239,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	err = settler.AwaitCommits()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "in the EVM module")
-	_, err = settler.EvmCall(t.Context(), &ethcore.Message{GasLimit: 21_000, GasPrice: new(uint256.Int), Value: new(uint256.Int)}, evmonly.CallOverrides{})
+	_, err = settler.EvmCall(t.Context(), &ethcore.Message{GasLimit: 21_000, GasPrice: new(uint256.Int), Value: new(uint256.Int)}, abevm.CallOverrides{})
 	require.Error(t, err)
 
 	// The block that failed to finalize left nothing staged, and the store never
@@ -1288,7 +1288,7 @@ func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
 				}
 				last = nonce
 				// Calls must not race the storage commit they settle.
-				_, _ = settler.EvmCall(ctx, callMessage(sender, nil), evmonly.CallOverrides{})
+				_, _ = settler.EvmCall(ctx, callMessage(sender, nil), abevm.CallOverrides{})
 			}
 			return nil
 		})
@@ -1306,7 +1306,7 @@ func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
 	require.Equal(t, uint64(blocks), settler.EvmCommittedNonce(sender))
 }
 
-func newEVMOnlyTestAppWithAlloc(t *testing.T, alloc GenesisAlloc) proxy.EVMApplication {
+func newEVMOnlyTestAppWithAlloc(t *testing.T, alloc GenesisAlloc) abevm.Application {
 	t.Helper()
 	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
 	require.NoError(t, err)
@@ -1395,7 +1395,7 @@ func TestEVMOnlyApplicationResumesOnlyWithTheAllocItStartedWith(t *testing.T) {
 		{"alloc changed", alloc(5), alloc(6), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			open := func(storage *bootstrap.GigaStorageManager, alloc utils.Option[GenesisAlloc]) (proxy.EVMApplication, error) {
+			open := func(storage *bootstrap.GigaStorageManager, alloc utils.Option[GenesisAlloc]) (abevm.Application, error) {
 				return NewEVMOnlyApplication(
 					evmOnlyTestChainID, nil, storage,
 					gigaconfig.DefaultConfig.Execution,
@@ -1458,7 +1458,7 @@ func TestEVMOnlyApplicationResumesOnlyOnTheChainIDItRanOn(t *testing.T) {
 }
 
 // newEVMOnlyTestAppOnChain constructs an application on chainID over storage.
-func newEVMOnlyTestAppOnChain(storage *bootstrap.GigaStorageManager, chainID uint64) (proxy.EVMApplication, error) {
+func newEVMOnlyTestAppOnChain(storage *bootstrap.GigaStorageManager, chainID uint64) (abevm.Application, error) {
 	return NewEVMOnlyApplication(
 		chainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
@@ -1573,7 +1573,7 @@ func TestEVMOnlyApplicationAdmitsOnlyTxsWhoseGasCoversIntrinsicGas(t *testing.T)
 	}
 }
 
-func applicationHash(t *testing.T, app proxy.EVMApplication) []byte {
+func applicationHash(t *testing.T, app abevm.Application) []byte {
 	t.Helper()
 	concrete, ok := app.(*evmOnlyApplication)
 	require.True(t, ok)
@@ -1587,8 +1587,8 @@ func applicationHash(t *testing.T, app proxy.EVMApplication) []byte {
 	panic("unreachable")
 }
 
-func admissionError(app proxy.EVMApplication, raw []byte) error {
-	tx, err := proxy.NewEVM(app).ParseTx(app.EvmChainID(), raw)
+func admissionError(app abevm.Application, raw []byte) error {
+	tx, err := abevm.NewProxy(app).ParseTx(app.EvmChainID(), raw)
 	if err != nil {
 		return err
 	}
@@ -1597,7 +1597,7 @@ func admissionError(app proxy.EVMApplication, raw []byte) error {
 }
 
 func TestEVMOnlyApplicationChecksLifecycleRanges(t *testing.T) {
-	for _, config := range []proxy.InitConfig{
+	for _, config := range []abevm.InitConfig{
 		{InitialHeight: 0, GasLimit: 30_000_000},
 		{InitialHeight: atypes.RoadIndex(math.MaxUint64), GasLimit: 30_000_000},
 		{InitialHeight: 1, GasLimit: 0},

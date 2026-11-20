@@ -21,13 +21,12 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-var _ proxy.EVMApplication = (*MockApp)(nil)
+var _ abevm.Application = (*MockApp)(nil)
 
 var (
 	errMockAppNoExecution = errors.New("mock app does not execute EVM calls")
@@ -59,20 +58,20 @@ type mockAppState struct {
 	nextNonce        map[common.Address]uint64
 	lastBlockHeight  int64
 	lastBlockAppHash []byte
-	validators       proxy.CommitteeWeights
+	validators       abevm.CommitteeWeights
 	nextTransition   mockAppTransition
 }
 
 // MockApp is an in-memory Autobahn application for EVM transaction load tests.
 type MockApp struct {
-	app         proxy.EVMApplication
+	app         abevm.Application
 	chainConfig *params.ChainConfig
 	state       utils.RWMutex[*mockAppState]
 	// hashes receives each finalized block's state, BUD, and receipt hashes.
 	hashes utils.Option[builder.AppHashBuilder]
 }
 
-func NewMockApp(app proxy.EVMApplication) *MockApp {
+func NewMockApp(app abevm.Application) *MockApp {
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(app.EvmChainID())
 	return &MockApp{
@@ -85,7 +84,7 @@ func NewMockApp(app proxy.EVMApplication) *MockApp {
 	}
 }
 
-func (app *MockApp) InitChain(req proxy.InitConfig) error {
+func (app *MockApp) InitChain(req abevm.InitConfig) error {
 	initialHeight, ok := utils.SafeCast[int64](req.InitialHeight)
 	if !ok || initialHeight <= 0 {
 		return fmt.Errorf("mock app InitChain initial height must be > 0: %d", req.InitialHeight)
@@ -110,7 +109,7 @@ func (app *MockApp) InitChain(req proxy.InitConfig) error {
 
 func (app *MockApp) RestoreBlockTime(time.Time) {}
 
-func (app *MockApp) Info() *proxy.ResponseInfo {
+func (app *MockApp) Info() *abevm.ResponseInfo {
 	info := *app.app.Info()
 	for state := range app.state.RLock() {
 		info.LastBlockHeight = state.lastBlockHeight
@@ -120,7 +119,7 @@ func (app *MockApp) Info() *proxy.ResponseInfo {
 	panic("unreachable")
 }
 
-func (app *MockApp) GetValidators() proxy.CommitteeWeights {
+func (app *MockApp) GetValidators() abevm.CommitteeWeights {
 	for state := range app.state.RLock() {
 		return maps.Clone(state.validators)
 	}
@@ -134,7 +133,7 @@ func (app *MockApp) LastBlockHeight() int64 {
 	panic("unreachable")
 }
 
-func (app *MockApp) CheckTx(tx proxy.EvmTx) (proxy.AdmittedTx, error) {
+func (app *MockApp) CheckTx(tx abevm.EvmTx) (abevm.AdmittedTx, error) {
 	return checkMockTx(tx)
 }
 
@@ -185,32 +184,32 @@ func (app *MockApp) EvmChainID() uint64 { return app.app.EvmChainID() }
 func (app *MockApp) EvmChainConfig() *params.ChainConfig { return app.chainConfig }
 
 // EvmCall always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmCall(context.Context, *ethcore.Message, evmonly.CallOverrides) (*ethcore.ExecutionResult, error) {
+func (app *MockApp) EvmCall(context.Context, *ethcore.Message, abevm.CallOverrides) (*ethcore.ExecutionResult, error) {
 	return nil, errMockAppNoExecution
 }
 
 // EvmEstimateGas always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmEstimateGas(context.Context, *ethcore.Message, uint64, evmonly.CallOverrides) (uint64, []byte, error) {
+func (app *MockApp) EvmEstimateGas(context.Context, *ethcore.Message, uint64, abevm.CallOverrides) (uint64, []byte, error) {
 	return 0, nil, errMockAppNoExecution
 }
 
 // EvmCallAt always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmCallAt(context.Context, *ethcore.Message, proxy.BlockRef, evmonly.CallOverrides) (*ethcore.ExecutionResult, error) {
+func (app *MockApp) EvmCallAt(context.Context, *ethcore.Message, abevm.BlockRef, abevm.CallOverrides) (*ethcore.ExecutionResult, error) {
 	return nil, errMockAppNoExecution
 }
 
 // EvmEstimateGasAt always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmEstimateGasAt(context.Context, *ethcore.Message, uint64, proxy.BlockRef, evmonly.CallOverrides) (uint64, []byte, error) {
+func (app *MockApp) EvmEstimateGasAt(context.Context, *ethcore.Message, uint64, abevm.BlockRef, abevm.CallOverrides) (uint64, []byte, error) {
 	return 0, nil, errMockAppNoExecution
 }
 
 // EvmEstimateGasAfterCalls always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmEstimateGasAfterCalls(context.Context, []*ethcore.Message, *ethcore.Message, uint64, evmonly.CallOverrides) (uint64, []byte, error) {
+func (app *MockApp) EvmEstimateGasAfterCalls(context.Context, []*ethcore.Message, *ethcore.Message, uint64, abevm.CallOverrides) (uint64, []byte, error) {
 	return 0, nil, errMockAppNoExecution
 }
 
 // EvmEstimateGasAfterCallsAt always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmEstimateGasAfterCallsAt(context.Context, []*ethcore.Message, *ethcore.Message, uint64, proxy.BlockRef, evmonly.CallOverrides) (uint64, []byte, error) {
+func (app *MockApp) EvmEstimateGasAfterCallsAt(context.Context, []*ethcore.Message, *ethcore.Message, uint64, abevm.BlockRef, abevm.CallOverrides) (uint64, []byte, error) {
 	return 0, nil, errMockAppNoExecution
 }
 
@@ -220,7 +219,7 @@ func (app *MockApp) EvmCreateAccessList(context.Context, *ethcore.Message) (etht
 }
 
 // EvmCreateAccessListAt always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmCreateAccessListAt(context.Context, *ethcore.Message, proxy.BlockRef) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
+func (app *MockApp) EvmCreateAccessListAt(context.Context, *ethcore.Message, abevm.BlockRef) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
 	return nil, nil, errMockAppNoExecution
 }
 
@@ -232,36 +231,36 @@ func (app *MockApp) EvmGasLimit() uint64 { return 0 }
 func (app *MockApp) EvmMinGasPrice() *big.Int { return new(big.Int) }
 
 // EvmBlockContext always errors: the mock app keeps no EVM state to trace against.
-func (app *MockApp) EvmBlockContext(proxy.BlockRef) (vm.BlockContext, error) {
+func (app *MockApp) EvmBlockContext(abevm.BlockRef) (vm.BlockContext, error) {
 	return vm.BlockContext{}, errMockAppNoExecution
 }
 
 // EvmStateAt always errors: the mock app keeps no EVM state to trace against.
-func (app *MockApp) EvmStateAt(context.Context, int64) (*evmonly.StateHandle, error) {
+func (app *MockApp) EvmStateAt(context.Context, int64) (*abevm.StateHandle, error) {
 	return nil, errMockAppNoExecution
 }
 
 // EvmStateBeforeTx always errors: the mock app keeps no EVM state to trace against.
-func (app *MockApp) EvmStateBeforeTx(context.Context, proxy.BlockRef, [][]byte) (*evmonly.StateHandle, error) {
+func (app *MockApp) EvmStateBeforeTx(context.Context, abevm.BlockRef, [][]byte) (*abevm.StateHandle, error) {
 	return nil, errMockAppNoExecution
 }
 
-func (app *MockApp) FinalizeBlock(ctx context.Context, req proxy.FinalizeBlockReq) (proxy.FinalizeBlockResp, error) {
+func (app *MockApp) FinalizeBlock(ctx context.Context, req abevm.FinalizeBlockReq) (abevm.FinalizeBlockResp, error) {
 	txs, err := parseMockAppTxs(req.Txs)
 	if err != nil {
-		return proxy.FinalizeBlockResp{}, err
+		return abevm.FinalizeBlockResp{}, err
 	}
-	var response proxy.FinalizeBlockResp
+	var response abevm.FinalizeBlockResp
 	var height int64
 	for state := range app.state.Lock() {
 		response, err = state.finalizeBlock(req, txs)
 		if err != nil {
-			return proxy.FinalizeBlockResp{}, err
+			return abevm.FinalizeBlockResp{}, err
 		}
 		height = state.lastBlockHeight
 	}
 	if err := app.reportFinalizedHashes(ctx, height); err != nil {
-		return proxy.FinalizeBlockResp{}, err
+		return abevm.FinalizeBlockResp{}, err
 	}
 	for state := range app.state.Lock() {
 		state.nextTransition = mockAppTransitionFinalize
@@ -294,17 +293,17 @@ func (app *MockApp) reportFinalizedHashes(ctx context.Context, height int64) err
 }
 
 type mockAppTx struct {
-	tx       proxy.EvmTx
+	tx       abevm.EvmTx
 	parseErr error
 }
 
-func (state *mockAppState) finalizeBlock(req proxy.FinalizeBlockReq, txs []mockAppTx) (proxy.FinalizeBlockResp, error) {
+func (state *mockAppState) finalizeBlock(req abevm.FinalizeBlockReq, txs []mockAppTx) (abevm.FinalizeBlockResp, error) {
 	if err := state.checkTransition(mockAppTransitionFinalize); err != nil {
-		return proxy.FinalizeBlockResp{}, err
+		return abevm.FinalizeBlockResp{}, err
 	}
 	height, ok := utils.SafeCast[int64](req.Height)
 	if !ok || height != state.lastBlockHeight+1 {
-		return proxy.FinalizeBlockResp{}, fmt.Errorf("mock app FinalizeBlock non-sequential height: got %d, want %d", req.Height, state.lastBlockHeight+1)
+		return abevm.FinalizeBlockResp{}, fmt.Errorf("mock app FinalizeBlock non-sequential height: got %d, want %d", req.Height, state.lastBlockHeight+1)
 	}
 	var gasUsed uint64
 	for _, parsed := range txs {
@@ -324,7 +323,7 @@ func (state *mockAppState) finalizeBlock(req proxy.FinalizeBlockReq, txs []mockA
 	state.lastBlockHeight = height
 	state.lastBlockAppHash = mockAppHash(state.lastBlockAppHash, req.Hash[:])
 	state.nextTransition = mockAppTransitionReportHashes
-	return proxy.FinalizeBlockResp{GasUsed: gasUsed}, nil
+	return abevm.FinalizeBlockResp{GasUsed: gasUsed}, nil
 }
 
 func (state *mockAppState) checkTransition(want mockAppTransition) error {
@@ -334,7 +333,7 @@ func (state *mockAppState) checkTransition(want mockAppTransition) error {
 	return nil
 }
 
-func parseMockAppTxs(txs []proxy.EvmTx) ([]mockAppTx, error) {
+func parseMockAppTxs(txs []abevm.EvmTx) ([]mockAppTx, error) {
 	parsed := make([]mockAppTx, len(txs))
 	workers := min(runtime.GOMAXPROCS(0), len(txs))
 	if workers == 0 {
@@ -368,10 +367,10 @@ func mockAppHash(prevAppHash []byte, blockHash []byte) []byte {
 	return h.Sum(nil)
 }
 
-func checkMockTx(ethTx proxy.EvmTx) (proxy.AdmittedTx, error) {
+func checkMockTx(ethTx abevm.EvmTx) (abevm.AdmittedTx, error) {
 	gas := ethTx.Gas()
 	if gas > math.MaxInt64 {
-		return proxy.AdmittedTx{}, fmt.Errorf("EVM gas wanted exceeds int64 max")
+		return abevm.AdmittedTx{}, fmt.Errorf("EVM gas wanted exceeds int64 max")
 	}
-	return proxy.AdmittedTx{GasEstimated: gas}, nil
+	return abevm.AdmittedTx{GasEstimated: gas}, nil
 }

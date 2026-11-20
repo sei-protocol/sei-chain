@@ -1,4 +1,4 @@
-package evmonly
+package evm
 
 import "github.com/ethereum/go-ethereum/core/vm"
 

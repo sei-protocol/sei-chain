@@ -11,8 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/export"
 
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -23,8 +22,8 @@ func TestEVMOnlyApplicationSimulatesAgainstCommittedState(t *testing.T) {
 	slot := common.BytesToHash([]byte{0x11})
 	runtime := storeCode(slot, common.BytesToHash([]byte{0x22}))
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
-	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(evmOnlyTestChainID, [][]byte{deployRaw}, 0)),
+	_, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(abevm.NewProxy(app).ParseTxs(evmOnlyTestChainID, [][]byte{deployRaw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1, Time: time.Unix(1_700_000_001, 0)})
 	require.NoError(t, err)
@@ -38,12 +37,12 @@ func TestEVMOnlyApplicationSimulatesAgainstCommittedState(t *testing.T) {
 	})
 
 	t.Run("estimate gas after calls", func(t *testing.T) {
-		alone, _, err := evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0, evmonly.CallOverrides{})
+		alone, _, err := evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0, abevm.CallOverrides{})
 		require.NoError(t, err)
 
 		// A prior call has already written the slot, so the same write costs less.
 		afterWrite, _, err := evmApp.EvmEstimateGasAfterCalls(t.Context(),
-			[]*ethcore.Message{callMessage(sender, &contractAddr)}, callMessage(sender, &contractAddr), 0, evmonly.CallOverrides{})
+			[]*ethcore.Message{callMessage(sender, &contractAddr)}, callMessage(sender, &contractAddr), 0, abevm.CallOverrides{})
 
 		require.NoError(t, err)
 		require.Less(t, afterWrite, alone)
@@ -56,7 +55,7 @@ func TestEVMOnlyApplicationSimulationRequiresInitChain(t *testing.T) {
 
 	_, _, err := evmApp.EvmCreateAccessList(t.Context(), callMessage(common.Address{}, nil))
 	require.Error(t, err)
-	_, _, err = evmApp.EvmEstimateGasAfterCalls(t.Context(), nil, callMessage(common.Address{}, nil), 0, evmonly.CallOverrides{})
+	_, _, err = evmApp.EvmEstimateGasAfterCalls(t.Context(), nil, callMessage(common.Address{}, nil), 0, abevm.CallOverrides{})
 	require.Error(t, err)
 }
 
@@ -80,7 +79,7 @@ func TestEVMOnlyApplicationSimulatesAgainstAPastBlock(t *testing.T) {
 	t.Run("access list", func(t *testing.T) {
 		for _, tc := range []struct {
 			name   string
-			header proxy.BlockRef
+			header abevm.BlockRef
 			want   ethtypes.AccessList
 		}{
 			{name: "before the deploy", header: beforeDeploy, want: ethtypes.AccessList{}},
@@ -97,11 +96,11 @@ func TestEVMOnlyApplicationSimulatesAgainstAPastBlock(t *testing.T) {
 	})
 
 	code := hexutil.Bytes(runtime)
-	withCode := evmonly.CallOverrides{State: export.StateOverride{contract: {Code: &code}}}
+	withCode := abevm.CallOverrides{State: export.StateOverride{contract: {Code: &code}}}
 	for _, tc := range []struct {
 		name      string
-		header    proxy.BlockRef
-		overrides evmonly.CallOverrides
+		header    abevm.BlockRef
+		overrides abevm.CallOverrides
 	}{
 		{name: "estimate gas after calls", header: deployed},
 		// The contract exists only in the override, so the prior call writes the slot only if the
@@ -123,7 +122,7 @@ func TestEVMOnlyApplicationSimulatesAgainstAPastBlock(t *testing.T) {
 	t.Run("a state the node does not hold", func(t *testing.T) {
 		_, _, err := app.EvmCreateAccessListAt(t.Context(), msg(), traceTestHeader(9, common.Hash{}))
 		require.Error(t, err)
-		_, _, err = app.EvmEstimateGasAfterCallsAt(t.Context(), []*ethcore.Message{msg()}, msg(), 0, traceTestHeader(9, common.Hash{}), evmonly.CallOverrides{})
+		_, _, err = app.EvmEstimateGasAfterCallsAt(t.Context(), []*ethcore.Message{msg()}, msg(), 0, traceTestHeader(9, common.Hash{}), abevm.CallOverrides{})
 		require.Error(t, err)
 	})
 }

@@ -11,6 +11,7 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -80,7 +81,7 @@ func makeSeedNode(
 		nodeKey,
 		utils.None[atypes.SecretKey](),
 		cfg,
-		utils.None[*proxy.EVMProxy](),
+		utils.None[*abevm.Proxy](),
 		genDoc,
 		dbProvider,
 		utils.None[*bootstrap.GigaStorageManager](),

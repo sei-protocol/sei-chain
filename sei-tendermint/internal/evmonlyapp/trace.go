@@ -12,13 +12,13 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 var errTraceGenesis = errors.New("block 0 has no parent state to trace against")
 
 // EvmBlockContext returns the EVM execution context of block.
-func (a *evmOnlyApplication) EvmBlockContext(block proxy.BlockRef) (vm.BlockContext, error) {
+func (a *evmOnlyApplication) EvmBlockContext(block abevm.BlockRef) (vm.BlockContext, error) {
 	number, err := blockNumber(block)
 	if err != nil {
 		return vm.BlockContext{}, err
@@ -28,7 +28,7 @@ func (a *evmOnlyApplication) EvmBlockContext(block proxy.BlockRef) (vm.BlockCont
 
 // EvmStateAt returns the committed state after height, or the latest committed state for
 // rpc.LatestBlockNumber. The caller must close the returned handle.
-func (a *evmOnlyApplication) EvmStateAt(ctx context.Context, height int64) (*evmonly.StateHandle, error) {
+func (a *evmOnlyApplication) EvmStateAt(ctx context.Context, height int64) (*abevm.StateHandle, error) {
 	return a.openTraceState(height, func(executor *evmonly.Executor, view gigatypes.StateView) (vm.SeiStateDB, error) {
 		return executor.ViewState(view), nil
 	})
@@ -36,7 +36,7 @@ func (a *evmOnlyApplication) EvmStateAt(ctx context.Context, height int64) (*evm
 
 // EvmStateBeforeTx returns the state before transaction len(txs) in block, after replaying txs.
 // The caller must close the returned handle.
-func (a *evmOnlyApplication) EvmStateBeforeTx(ctx context.Context, block proxy.BlockRef, txs [][]byte) (*evmonly.StateHandle, error) {
+func (a *evmOnlyApplication) EvmStateBeforeTx(ctx context.Context, block abevm.BlockRef, txs [][]byte) (*abevm.StateHandle, error) {
 	number, err := blockNumber(block)
 	if err != nil {
 		return nil, err
@@ -53,7 +53,7 @@ func (a *evmOnlyApplication) EvmStateBeforeTx(ctx context.Context, block proxy.B
 
 // traceBlockContext returns the context block executed at. The block hash, which
 // only stamps receipts, is left zero.
-func (a *evmOnlyApplication) traceBlockContext(number uint64, block proxy.BlockRef) evmonly.BlockContext {
+func (a *evmOnlyApplication) traceBlockContext(number uint64, block abevm.BlockRef) evmonly.BlockContext {
 	// The gas limit is fixed at InitChain, so the committed one is every block's.
 	return a.blockContext(number, block.Time, a.EvmGasLimit(), block.ParentHash, common.Hash{})
 }
@@ -61,7 +61,7 @@ func (a *evmOnlyApplication) traceBlockContext(number uint64, block proxy.BlockR
 // openTraceState opens the committed EVM state after height, or the latest committed state when
 // height is rpc.LatestBlockNumber, and returns the state build makes of it. A read the state store
 // can no longer serve, such as one at a height pruned mid-replay, is returned as an error.
-func (a *evmOnlyApplication) openTraceState(height int64, build func(*evmonly.Executor, gigatypes.StateView) (vm.SeiStateDB, error)) (_ *evmonly.StateHandle, err error) {
+func (a *evmOnlyApplication) openTraceState(height int64, build func(*evmonly.Executor, gigatypes.StateView) (vm.SeiStateDB, error)) (_ *abevm.StateHandle, err error) {
 	executor, err := a.loadedExecutor("trace")
 	if err != nil {
 		return nil, err
@@ -81,7 +81,7 @@ func (a *evmOnlyApplication) openTraceState(height int64, build func(*evmonly.Ex
 		view.Close()
 		return nil, err
 	}
-	return evmonly.NewStateHandle(stateDB, view.Close), nil
+	return abevm.NewStateHandle(stateDB, view.Close), nil
 }
 
 // traceView opens the committed EVM state after height, or the latest committed state when height is
@@ -107,7 +107,7 @@ func (a *evmOnlyApplication) loadedExecutor(action string) (*evmonly.Executor, e
 }
 
 // blockNumber returns the block height, which must fit in an int64.
-func blockNumber(block proxy.BlockRef) (uint64, error) {
+func blockNumber(block abevm.BlockRef) (uint64, error) {
 	if uint64(block.Height) > math.MaxInt64 {
 		return 0, fmt.Errorf("block number %d is out of range", block.Height)
 	}

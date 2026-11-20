@@ -7,7 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -46,10 +46,10 @@ func (a *nonceOrderingApp) evmNonce(addr common.Address) uint64 {
 	return nonce
 }
 
-func (a *nonceOrderingApp) FinalizeBlock(ctx context.Context, req proxy.FinalizeBlockReq) (proxy.FinalizeBlockResp, error) {
+func (a *nonceOrderingApp) FinalizeBlock(ctx context.Context, req abevm.FinalizeBlockReq) (abevm.FinalizeBlockResp, error) {
 	for gate, ctrl := range a.gate.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return !gate.pauseFinalizeBlock }); err != nil {
-			return proxy.FinalizeBlockResp{}, err
+			return abevm.FinalizeBlockResp{}, err
 		}
 	}
 	return a.testApp.FinalizeBlock(ctx, req)

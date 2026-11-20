@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -35,7 +35,7 @@ func newGatedApp(ctx context.Context) *gatedApp {
 	}
 }
 
-func (a *gatedApp) CheckTx(req proxy.EvmTx) (proxy.AdmittedTx, error) {
+func (a *gatedApp) CheckTx(req abevm.EvmTx) (abevm.AdmittedTx, error) {
 	for g, ctrl := range a.gate.Lock() {
 		g.inflight += 1
 		g.maxSeen = max(g.maxSeen, g.inflight)
@@ -44,7 +44,7 @@ func (a *gatedApp) CheckTx(req proxy.EvmTx) (proxy.AdmittedTx, error) {
 		g.inflight -= 1
 		ctrl.Updated()
 		if err != nil {
-			return proxy.AdmittedTx{}, err
+			return abevm.AdmittedTx{}, err
 		}
 	}
 	return a.testApp.CheckTx(req)
@@ -204,7 +204,7 @@ func TestTryInsertTx_FullSkipsCheckTx(t *testing.T) {
 		for _, tx := range [][]byte{env.fullTx(rng, app).encode(), {1}} {
 			calls := app.checked.Load()
 			resp, err := env.state.TryInsertTx(ctx, tx)
-			if resp != (proxy.AdmittedTx{}) {
+			if resp != (abevm.AdmittedTx{}) {
 				return fmt.Errorf("expected nil response")
 			}
 			if !errors.Is(err, errMempoolFull) {

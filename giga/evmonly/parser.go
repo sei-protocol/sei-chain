@@ -3,14 +3,12 @@ package evmonly
 import (
 	"context"
 	"errors"
-	"fmt"
-	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"golang.org/x/sync/errgroup"
 
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -23,9 +21,6 @@ func senderAt(senders []utils.Option[common.Address], i int) utils.Option[common
 	return utils.None[common.Address]()
 }
 
-// parseClaim is the number of transactions a worker takes per claim.
-const parseClaim = 16
-
 func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, senders []utils.Option[common.Address], workers int) ([]PreparedTx, error) {
 	decoded, err := decodeBlockTxs(ctx, txs, workers)
 	if err != nil {
@@ -37,7 +32,7 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, se
 // decodeBlockTxs decodes and validates every raw transaction, spread across workers.
 func decodeBlockTxs(ctx context.Context, txs [][]byte, workers int) ([]*ethtypes.Transaction, error) {
 	decoded := make([]*ethtypes.Transaction, len(txs))
-	err := forEachTx(ctx, len(txs), workers, func(i int) error {
+	err := abevm.ForEachTx(ctx, len(txs), workers, func(i int) error {
 		tx, err := decodeSupportedTx(txs[i])
 		if err != nil {
 			return err
@@ -56,7 +51,7 @@ func decodeBlockTxs(ctx context.Context, txs [][]byte, workers int) ([]*ethtypes
 // resolveBlockSenders resolves the sender of every decoded transaction, spread across workers.
 func resolveBlockSenders(ctx context.Context, txs []*ethtypes.Transaction, signer ethtypes.Signer, senders []utils.Option[common.Address], workers int) ([]PreparedTx, error) {
 	parsed := make([]PreparedTx, len(txs))
-	err := forEachTx(ctx, len(txs), workers, func(i int) error {
+	err := abevm.ForEachTx(ctx, len(txs), workers, func(i int) error {
 		sender, err := resolveSender(txs[i], signer, senderAt(senders, i))
 		if err != nil {
 			return err
@@ -68,48 +63,6 @@ func resolveBlockSenders(ctx context.Context, txs []*ethtypes.Transaction, signe
 		return nil, err
 	}
 	return parsed, nil
-}
-
-// forEachTx calls fn for every index below n, with workers goroutines claiming parseClaim indexes
-// at a time. It reports the first failure, wrapped with the index of the transaction that caused it.
-func forEachTx(ctx context.Context, n int, workers int, fn func(i int) error) error {
-	if n == 0 {
-		return nil
-	}
-	if workers <= 1 || n == 1 {
-		for i := range n {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err := fn(i); err != nil {
-				return fmt.Errorf("parse tx %d: %w", i, err)
-			}
-		}
-		return nil
-	}
-	workers = min(workers, n)
-
-	g, groupCtx := errgroup.WithContext(ctx)
-	var claimed atomic.Int64
-	for range workers {
-		g.Go(func() error {
-			for {
-				start := int(claimed.Add(parseClaim)) - parseClaim
-				if start >= n {
-					return nil
-				}
-				if err := groupCtx.Err(); err != nil {
-					return err
-				}
-				for i := start; i < min(start+parseClaim, n); i++ {
-					if err := fn(i); err != nil {
-						return fmt.Errorf("parse tx %d: %w", i, err)
-					}
-				}
-			}
-		})
-	}
-	return g.Wait()
 }
 
 // parsePreparedTx decodes raw and resolves its sender.

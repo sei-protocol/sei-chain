@@ -14,10 +14,9 @@ import (
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -29,17 +28,17 @@ func TestMockAppFinalizeBlockBumpsNoncesAndUsesGasWanted(t *testing.T) {
 	tx1, _, addr := buildFastCheckTxBytesForKey(t, key, 0, 21_000)
 	tx2, _, _ := buildFastCheckTxBytesForKey(t, key, 1, 31_000)
 	app := NewMockApp(mockAppFixture{})
-	err = app.InitChain(proxy.InitConfig{InitialHeight: 3})
+	err = app.InitChain(abevm.InitConfig{InitialHeight: 3})
 	require.NoError(t, err)
 
-	res, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(mockAppFixtureEVMChainID, [][]byte{tx1, tx2}, 0)),
+	res, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(abevm.NewProxy(app).ParseTxs(mockAppFixtureEVMChainID, [][]byte{tx1, tx2}, 0)),
 		Height: 3})
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), app.EvmNonce(addr))
 	require.Equal(t, uint64(52_000), res.GasUsed)
 
-	decoded := utils.OrPanic1(proxy.NewEVM(app).ParseTx(mockAppFixtureEVMChainID, tx2))
+	decoded := utils.OrPanic1(abevm.NewProxy(app).ParseTx(mockAppFixtureEVMChainID, tx2))
 	_, checkErr := app.CheckTx(decoded)
 	require.NoError(t, checkErr)
 	require.Equal(t, addr, decoded.Sender())
@@ -53,17 +52,17 @@ func TestMockAppServesTheEVMOnlyChainWithoutExecution(t *testing.T) {
 	require.Equal(t, 0, app.EvmBaseFee().Sign())
 	require.Equal(t, 0, app.EvmMinGasPrice().Sign())
 	require.Equal(t, uint64(0), app.EvmGasLimit())
-	_, err := app.EvmCall(t.Context(), &ethcore.Message{}, evmonly.CallOverrides{})
+	_, err := app.EvmCall(t.Context(), &ethcore.Message{}, abevm.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
-	_, _, err = app.EvmEstimateGas(t.Context(), &ethcore.Message{}, 0, evmonly.CallOverrides{})
+	_, _, err = app.EvmEstimateGas(t.Context(), &ethcore.Message{}, 0, abevm.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
-	_, _, err = app.EvmEstimateGasAfterCalls(t.Context(), nil, &ethcore.Message{}, 0, evmonly.CallOverrides{})
+	_, _, err = app.EvmEstimateGasAfterCalls(t.Context(), nil, &ethcore.Message{}, 0, abevm.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
-	_, _, err = app.EvmEstimateGasAfterCallsAt(t.Context(), nil, &ethcore.Message{}, 0, proxy.BlockRef{Height: 1}, evmonly.CallOverrides{})
+	_, _, err = app.EvmEstimateGasAfterCallsAt(t.Context(), nil, &ethcore.Message{}, 0, abevm.BlockRef{Height: 1}, abevm.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
 	_, _, err = app.EvmCreateAccessList(t.Context(), &ethcore.Message{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
-	_, _, err = app.EvmCreateAccessListAt(t.Context(), &ethcore.Message{}, proxy.BlockRef{Height: 1})
+	_, _, err = app.EvmCreateAccessListAt(t.Context(), &ethcore.Message{}, abevm.BlockRef{Height: 1})
 	require.ErrorIs(t, err, errMockAppNoExecution)
 }
 
@@ -75,18 +74,18 @@ func TestMockAppFinalizeBlockFailsNonceMismatch(t *testing.T) {
 	tx2, _, _ := buildFastCheckTxBytesForKey(t, key, 2, 31_000)
 	tx1, _, _ := buildFastCheckTxBytesForKey(t, key, 1, 41_000)
 	app := NewMockApp(mockAppFixture{})
-	err = app.InitChain(proxy.InitConfig{InitialHeight: 1})
+	err = app.InitChain(abevm.InitConfig{InitialHeight: 1})
 	require.NoError(t, err)
 
-	res, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(mockAppFixtureEVMChainID, [][]byte{tx0, tx2, tx1}, 0)),
+	res, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(abevm.NewProxy(app).ParseTxs(mockAppFixtureEVMChainID, [][]byte{tx0, tx2, tx1}, 0)),
 		Height: 1})
 	require.NoError(t, err)
 	require.Equal(t, uint64(62_000), res.GasUsed)
 	require.Equal(t, uint64(2), app.EvmNonce(addr))
 
-	duplicate, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(mockAppFixtureEVMChainID, [][]byte{tx1}, 0)),
+	duplicate, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(abevm.NewProxy(app).ParseTxs(mockAppFixtureEVMChainID, [][]byte{tx1}, 0)),
 		Height: 2})
 	require.NoError(t, err)
 	require.Zero(t, duplicate.GasUsed)
@@ -100,13 +99,13 @@ func TestMockAppFinalizeBlockSkipsInvalidTransactions(t *testing.T) {
 	tx0, _, addr := buildFastCheckTxBytesForKey(t, key, 0, 21_000)
 	tx1, _, _ := buildFastCheckTxBytesForKey(t, key, 1, 31_000)
 	app := NewMockApp(mockAppFixture{})
-	err = app.InitChain(proxy.InitConfig{InitialHeight: 1})
+	err = app.InitChain(abevm.InitConfig{InitialHeight: 1})
 	require.NoError(t, err)
 
 	invalid, _, _ := buildFastCheckTxBytesForKey(t, key, 0, math.MaxUint64)
 
-	res, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(mockAppFixtureEVMChainID, [][]byte{tx0, invalid, tx1}, 0)),
+	res, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(abevm.NewProxy(app).ParseTxs(mockAppFixtureEVMChainID, [][]byte{tx0, invalid, tx1}, 0)),
 		Height: 1})
 	require.NoError(t, err)
 	require.Equal(t, uint64(52_000), res.GasUsed)
@@ -116,17 +115,17 @@ func TestMockAppFinalizeBlockSkipsInvalidTransactions(t *testing.T) {
 
 func TestMockAppFinalizeBlockRequiresSequentialHeight(t *testing.T) {
 	app := NewMockApp(mockAppFixture{})
-	err := app.InitChain(proxy.InitConfig{InitialHeight: 4})
+	err := app.InitChain(abevm.InitConfig{InitialHeight: 4})
 	require.NoError(t, err)
 
-	_, err = app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{})
+	_, err = app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{})
 	require.Error(t, err)
 
-	_, err = app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
+	_, err = app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
 		Height: 5})
 	require.Error(t, err)
 
-	res, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
+	res, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
 		Height: 4})
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), res.GasUsed)
@@ -135,32 +134,32 @@ func TestMockAppFinalizeBlockRequiresSequentialHeight(t *testing.T) {
 
 func TestMockAppChecksTransitions(t *testing.T) {
 	app := NewMockApp(mockAppFixture{})
-	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{Height: 1})
+	_, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{Height: 1})
 	require.Error(t, err)
-	err = app.InitChain(proxy.InitConfig{InitialHeight: 1})
+	err = app.InitChain(abevm.InitConfig{InitialHeight: 1})
 	require.NoError(t, err)
-	err = app.InitChain(proxy.InitConfig{InitialHeight: 1})
+	err = app.InitChain(abevm.InitConfig{InitialHeight: 1})
 	require.Error(t, err)
-	_, err = app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{Height: 1})
+	_, err = app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{Height: 1})
 	require.NoError(t, err)
-	_, err = app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{Height: 1})
+	_, err = app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{Height: 1})
 	require.Error(t, err)
-	_, err = app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{Height: 2})
+	_, err = app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{Height: 2})
 	require.NoError(t, err)
 }
 
 func TestMockAppFinalizesHighBlocks(t *testing.T) {
 	app := NewMockApp(mockAppFixture{})
-	err := app.InitChain(proxy.InitConfig{InitialHeight: 10_005})
+	err := app.InitChain(abevm.InitConfig{InitialHeight: 10_005})
 	require.NoError(t, err)
 
-	res, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
+	res, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
 		Height: 10_005})
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), res.GasUsed)
 	require.Equal(t, int64(10005), app.LastBlockHeight())
 
-	_, err = app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
+	_, err = app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
 		Height: 10_006})
 	require.NoError(t, err)
 	require.Equal(t, int64(10006), app.LastBlockHeight())
@@ -171,10 +170,10 @@ func TestMockAppForwardsInitChainAndIgnoresRestoreBlockTime(t *testing.T) {
 	app := NewMockApp(inner)
 	header := time.Unix(11, 0)
 
-	err := app.InitChain(proxy.InitConfig{})
+	err := app.InitChain(abevm.InitConfig{})
 	require.Error(t, err)
 
-	err = app.InitChain(proxy.InitConfig{InitialHeight: 7})
+	err = app.InitChain(abevm.InitConfig{InitialHeight: 7})
 	require.NoError(t, err)
 	require.Equal(t, int64(6), app.LastBlockHeight())
 	app.RestoreBlockTime(header)
@@ -186,12 +185,12 @@ func TestMockAppForwardsInitChainAndIgnoresRestoreBlockTime(t *testing.T) {
 
 func TestMockAppAppHashRollsBlockHashes(t *testing.T) {
 	app := NewMockApp(mockAppFixture{})
-	err := app.InitChain(proxy.InitConfig{InitialHeight: 1})
+	err := app.InitChain(abevm.InitConfig{InitialHeight: 1})
 	require.NoError(t, err)
 	require.Empty(t, app.Info().LastBlockAppHash)
 
 	blockHash1 := common.BytesToHash([]byte("block-1"))
-	_, err = app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
+	_, err = app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
 		Height: 1,
 		Hash:   blockHash1})
 	require.NoError(t, err)
@@ -199,7 +198,7 @@ func TestMockAppAppHashRollsBlockHashes(t *testing.T) {
 	require.Equal(t, wantHash1[:], app.Info().LastBlockAppHash)
 
 	blockHash2 := common.BytesToHash([]byte("block-2"))
-	_, err = app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
+	_, err = app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
 		Height: 2,
 		Hash:   blockHash2})
 	require.NoError(t, err)
@@ -214,7 +213,7 @@ func TestMockAppAppHashRollsBlockHashes(t *testing.T) {
 
 func TestMockAppInfoPreservesWrappedAppMetadata(t *testing.T) {
 	app := NewMockApp(mockAppInfoTarget{})
-	err := app.InitChain(proxy.InitConfig{InitialHeight: 9})
+	err := app.InitChain(abevm.InitConfig{InitialHeight: 9})
 	require.NoError(t, err)
 
 	info := app.Info()
@@ -229,23 +228,23 @@ func TestMockAppInfoPreservesWrappedAppMetadata(t *testing.T) {
 func TestMockAppGetValidatorsCachesWrappedAppValidators(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng).Public()
-	inner := &mockAppValidatorsTarget{validators: proxy.CommitteeWeights{key: 7}}
+	inner := &mockAppValidatorsTarget{validators: abevm.CommitteeWeights{key: 7}}
 	app := NewMockApp(inner)
 
 	require.Empty(t, app.GetValidators())
 	require.Zero(t, inner.calls)
 
-	err := app.InitChain(proxy.InitConfig{InitialHeight: 1})
+	err := app.InitChain(abevm.InitConfig{InitialHeight: 1})
 	require.NoError(t, err)
-	require.Equal(t, proxy.CommitteeWeights{key: 7}, app.GetValidators())
-	require.Equal(t, proxy.CommitteeWeights{key: 7}, app.GetValidators())
+	require.Equal(t, abevm.CommitteeWeights{key: 7}, app.GetValidators())
+	require.Equal(t, abevm.CommitteeWeights{key: 7}, app.GetValidators())
 	require.Equal(t, 1, inner.calls)
 
 	inner.validators[key] = 11
 	returned := app.GetValidators()
 	returned[key] = 13
 	app.RestoreBlockTime(time.Unix(3, 0))
-	require.Equal(t, proxy.CommitteeWeights{key: 7}, app.GetValidators())
+	require.Equal(t, abevm.CommitteeWeights{key: 7}, app.GetValidators())
 	require.Equal(t, 1, inner.calls)
 }
 
@@ -260,15 +259,15 @@ func TestMockAppEvmBalanceReturns100ETH(t *testing.T) {
 const mockAppFixtureEVMChainID uint64 = 4242
 
 type mockAppFixture struct {
-	proxy.EVMApplication
+	abevm.Application
 }
 
-func (mockAppFixture) InitChain(proxy.InitConfig) error {
+func (mockAppFixture) InitChain(abevm.InitConfig) error {
 	return nil
 }
 func (mockAppFixture) EvmChainID() uint64                    { return mockAppFixtureEVMChainID }
-func (mockAppFixture) GetValidators() proxy.CommitteeWeights { return nil }
-func (mockAppFixture) Info() *proxy.ResponseInfo             { return &proxy.ResponseInfo{} }
+func (mockAppFixture) GetValidators() abevm.CommitteeWeights { return nil }
+func (mockAppFixture) Info() *abevm.ResponseInfo             { return &abevm.ResponseInfo{} }
 
 type mockAppForwardTarget struct {
 	mockAppFixture
@@ -276,7 +275,7 @@ type mockAppForwardTarget struct {
 	lastHeader      utils.Option[time.Time]
 }
 
-func (app *mockAppForwardTarget) InitChain(proxy.InitConfig) error {
+func (app *mockAppForwardTarget) InitChain(abevm.InitConfig) error {
 	app.initChainCalled = true
 	return nil
 }
@@ -289,8 +288,8 @@ type mockAppInfoTarget struct {
 	mockAppFixture
 }
 
-func (mockAppInfoTarget) Info() *proxy.ResponseInfo {
-	return &proxy.ResponseInfo{
+func (mockAppInfoTarget) Info() *abevm.ResponseInfo {
+	return &abevm.ResponseInfo{
 		Data:             "wrapped-data",
 		Version:          "wrapped-version",
 		AppVersion:       17,
@@ -302,11 +301,11 @@ func (mockAppInfoTarget) Info() *proxy.ResponseInfo {
 
 type mockAppValidatorsTarget struct {
 	mockAppFixture
-	validators proxy.CommitteeWeights
+	validators abevm.CommitteeWeights
 	calls      int
 }
 
-func (app *mockAppValidatorsTarget) GetValidators() proxy.CommitteeWeights {
+func (app *mockAppValidatorsTarget) GetValidators() abevm.CommitteeWeights {
 	app.calls++
 	return app.validators
 }
@@ -336,7 +335,7 @@ func buildFastCheckTxBytesForKey(t *testing.T, key *ecdsa.PrivateKey, nonce uint
 func TestCheckMockTxEVMTransaction(t *testing.T) {
 	raw, ethTx := buildFastCheckTxBytes(t)
 	app := NewMockApp(mockAppFixture{})
-	decoded := utils.OrPanic1(proxy.NewEVM(app).ParseTx(mockAppFixtureEVMChainID, raw))
+	decoded := utils.OrPanic1(abevm.NewProxy(app).ParseTx(mockAppFixtureEVMChainID, raw))
 	res, err := checkMockTx(decoded)
 	require.NoError(t, err)
 	require.Equal(t, uint64(123456), res.GasEstimated)
@@ -352,8 +351,8 @@ func TestMockAppRejectsUnprotectedTransaction(t *testing.T) {
 	require.NoError(t, err)
 	signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{}), ethtypes.HomesteadSigner{}, key)
 	require.NoError(t, err)
-	_, err = proxy.NewEVM(wrapped).ParseTx(mockAppFixtureEVMChainID, utils.OrPanic1(signed.MarshalBinary()))
-	require.ErrorIs(t, err, proxy.ErrTxRejected)
+	_, err = abevm.NewProxy(wrapped).ParseTx(mockAppFixtureEVMChainID, utils.OrPanic1(signed.MarshalBinary()))
+	require.ErrorIs(t, err, abevm.ErrTxRejected)
 }
 
 func TestMockAppChecksTransactionsWithoutCallingWrappedApp(t *testing.T) {
@@ -361,7 +360,7 @@ func TestMockAppChecksTransactionsWithoutCallingWrappedApp(t *testing.T) {
 	txBytes, _ := buildFastCheckTxBytes(t)
 
 	wrapped := NewMockApp(app)
-	res, checkErr := wrapped.CheckTx(utils.OrPanic1(proxy.NewEVM(wrapped).ParseTx(mockAppFixtureEVMChainID, txBytes)))
+	res, checkErr := wrapped.CheckTx(utils.OrPanic1(abevm.NewProxy(wrapped).ParseTx(mockAppFixtureEVMChainID, txBytes)))
 	require.False(t, app.called)
 	require.Equal(t, uint64(123456), res.GasEstimated)
 	require.NoError(t, checkErr)
@@ -384,7 +383,7 @@ func TestMakeEVMApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "evmonly", mock.Info().Data)
 
-	err = mock.InitChain(proxy.InitConfig{InitialHeight: 1, GasLimit: 30_000_000})
+	err = mock.InitChain(abevm.InitConfig{InitialHeight: 1, GasLimit: 30_000_000})
 	require.NoError(t, err)
 	validators := mock.GetValidators()
 	require.Len(t, validators, 1)
@@ -392,7 +391,7 @@ func TestMakeEVMApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 	var blockHash [32]byte
 	blockHash[0] = 1
 	require.NoError(t, manager.AppHashBuilder().ReportBlockHash(t.Context(), 1, blockHash))
-	_, err = mock.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
+	_, err = mock.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
 		Height: 1})
 	require.NoError(t, err)
 	got, err := manager.AppHashBuilder().GetAppHash(t.Context(), 1)
@@ -430,15 +429,15 @@ func TestValidateNodeSetupConfigAllowsMockAppWithAutobahn(t *testing.T) {
 }
 
 type checkTxCountingApp struct {
-	proxy.EVMApplication
+	abevm.Application
 	called bool
 }
 
 func (*checkTxCountingApp) EvmChainID() uint64 { return mockAppFixtureEVMChainID }
 
-func (app *checkTxCountingApp) CheckTx(proxy.EvmTx) (proxy.AdmittedTx, error) {
+func (app *checkTxCountingApp) CheckTx(abevm.EvmTx) (abevm.AdmittedTx, error) {
 	app.called = true
-	return proxy.AdmittedTx{}, nil
+	return abevm.AdmittedTx{}, nil
 }
 
 func buildFastCheckTxBytes(t *testing.T) ([]byte, *ethtypes.Transaction) {

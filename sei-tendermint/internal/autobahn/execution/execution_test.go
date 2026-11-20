@@ -12,11 +12,11 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution/metrics"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -36,7 +36,7 @@ func logEvent(events *eventLog, format string, args ...any) {
 
 // recordingApp is an application that records each call execution makes.
 type recordingApp struct {
-	proxy.EVMApplication
+	abevm.Application
 	events *eventLog
 	state  utils.Mutex[*recordingAppState]
 }
@@ -45,7 +45,7 @@ type recordingAppState struct {
 	last       int64
 	inited     bool
 	lastHeader utils.Option[time.Time]
-	finalized  []proxy.FinalizeBlockReq
+	finalized  []abevm.FinalizeBlockReq
 	// failFinalizeAt makes FinalizeBlock fail for the block of this height.
 	failFinalizeAt utils.Option[int64]
 }
@@ -61,10 +61,10 @@ func newRecordingApp(events *eventLog, last int64) *recordingApp {
 
 func (a *recordingApp) EvmChainID() uint64 { return 1 }
 
-func (a *recordingApp) GetValidators() proxy.CommitteeWeights { return nil }
+func (a *recordingApp) GetValidators() abevm.CommitteeWeights { return nil }
 
-func (a *recordingApp) Info() *proxy.ResponseInfo {
-	return &proxy.ResponseInfo{LastBlockHeight: a.LastBlockHeight()}
+func (a *recordingApp) Info() *abevm.ResponseInfo {
+	return &abevm.ResponseInfo{LastBlockHeight: a.LastBlockHeight()}
 }
 
 func (a *recordingApp) LastBlockHeight() int64 {
@@ -74,7 +74,7 @@ func (a *recordingApp) LastBlockHeight() int64 {
 	panic("unreachable")
 }
 
-func (a *recordingApp) InitChain(proxy.InitConfig) error {
+func (a *recordingApp) InitChain(abevm.InitConfig) error {
 	for state := range a.state.Lock() {
 		state.inited = true
 	}
@@ -87,19 +87,19 @@ func (a *recordingApp) RestoreBlockTime(blockTime time.Time) {
 	}
 }
 
-func (a *recordingApp) FinalizeBlock(_ context.Context, req proxy.FinalizeBlockReq) (proxy.FinalizeBlockResp, error) {
+func (a *recordingApp) FinalizeBlock(_ context.Context, req abevm.FinalizeBlockReq) (abevm.FinalizeBlockResp, error) {
 	logEvent(a.events, "finalize %d", req.Height)
 	for state := range a.state.Lock() {
 		state.finalized = append(state.finalized, req)
 		if fail, ok := state.failFinalizeAt.Get(); ok && fail == int64(req.Height) {
-			return proxy.FinalizeBlockResp{}, errFinalizeFailed
+			return abevm.FinalizeBlockResp{}, errFinalizeFailed
 		}
 		state.last = int64(req.Height)
 	}
-	return proxy.FinalizeBlockResp{GasUsed: testGasPerBlock}, nil
+	return abevm.FinalizeBlockResp{GasUsed: testGasPerBlock}, nil
 }
 
-func (a *recordingApp) finalized() []proxy.FinalizeBlockReq {
+func (a *recordingApp) finalized() []abevm.FinalizeBlockReq {
 	for state := range a.state.Lock() {
 		return state.finalized
 	}
@@ -171,7 +171,7 @@ func (env *testEnv) write(from, to int, flush bool) error {
 func (env *testEnv) executor(app *recordingApp) *Executor {
 	return New(&Config{
 		GenDoc:         env.genDoc,
-		App:            proxy.NewEVM(app),
+		App:            abevm.NewProxy(app),
 		AppHashBuilder: recordingBuilder{events: env.events},
 		BlockStore:     env.store,
 	})
