@@ -69,11 +69,10 @@ func (c evmOnlyCursor) nextBaseFees(rules baseFeeRules, gasUsed, gasLimit uint64
 	if len(fees)-1 >= rules.lag {
 		return fees
 	}
-	last := fees[len(fees)-1]
 	for len(fees) < rules.lag {
-		fees = append(fees, rules.step.Hold(last))
+		fees = append(fees, rules.step.Hold(fees[len(fees)-1]))
 	}
-	return append(fees, rules.step.NextBaseFee(last, gasUsed, gasLimit))
+	return append(fees, rules.step.NextBaseFee(fees[len(fees)-1], gasUsed, gasLimit))
 }
 
 func (c evmOnlyCursor) miscChange() gigatypes.MiscChange {

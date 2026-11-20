@@ -160,6 +160,12 @@ type evmOnlyCursorState struct {
 	pendingBlockTime uint64
 }
 
+// newEVMOnlyCursorState returns the cursor state of an app that neither InitChain nor a stored
+// cursor has set yet: its committed cursor schedules the genesis base fees.
+func newEVMOnlyCursorState() *evmOnlyCursorState {
+	return &evmOnlyCursorState{committed: evmOnlyCursor{baseFees: genesisBaseFees()}}
+}
+
 var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
 
 // NewEVMOnlyApplication returns the raw-Ethereum application Autobahn runs.
@@ -200,7 +206,7 @@ func NewEVMOnlyApplication(
 		alloc:             alloc,
 		upgradeInfoPath:   homeDir.Map(upgradeInfoPath),
 		executor:          utils.NewMutex(new(utils.Option[*evmonly.Executor])),
-		cursor:            utils.NewMutex(&evmOnlyCursorState{}),
+		cursor:            utils.NewMutex(newEVMOnlyCursorState()),
 		settler:           utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		checkedSenders:    utils.NewMutex(new(newSenderCache(checkedSendersCap))),
 		finalizePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),

@@ -131,6 +131,16 @@ func TestEVMOnlyApplicationKeepsTheBaseFeeAtTheMinimumFee(t *testing.T) {
 	require.Equal(t, minGasPrice, app.EvmMinGasPrice())
 }
 
+// Before InitChain, an app answers for the genesis base fees.
+func TestEVMOnlyApplicationReportsGenesisBaseFeesBeforeInitChain(t *testing.T) {
+	app := newEVMOnlyTestApp(t, nil).(*evmOnlyApplication)
+	genesis := big.NewInt(evmOnlyGenesisMinFeePerGas)
+
+	require.Equal(t, genesis, app.EvmBaseFee())
+	require.Equal(t, genesis, app.EvmNextBaseFee())
+	require.Equal(t, app.admissionMinGasPrice(genesis), app.EvmMinGasPrice())
+}
+
 // CheckTx prices against the highest base fee already set, so a transaction it admits can execute
 // at every height whose base fee is known.
 func TestEVMOnlyApplicationAdmitsAtTheHighestScheduledBaseFee(t *testing.T) {

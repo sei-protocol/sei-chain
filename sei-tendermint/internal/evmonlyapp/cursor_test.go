@@ -126,10 +126,12 @@ func TestEVMOnlyCursorNextBaseFeesFillsARaisedLag(t *testing.T) {
 
 	require.Equal(t, evmOnlyBaseFees{b, c, c, c, rules.step.NextBaseFee(c, gasUsed, gasLimit)}, next)
 
-	// A held base fee is never below the minimum fee.
-	rules.step.MinBaseFee = *uint256.NewInt(140_000_000_000)
-	next = cursor.nextBaseFees(rules, 0, gasLimit)
-	require.Equal(t, evmOnlyBaseFees{b, c, rules.step.MinBaseFee, rules.step.MinBaseFee, rules.step.MinBaseFee}, next)
+	// A held base fee is never below the minimum fee, and the one the gas use sets moves from it.
+	minimum := *uint256.NewInt(140_000_000_000)
+	rules.step.MinBaseFee = minimum
+	next = cursor.nextBaseFees(rules, gasLimit, gasLimit)
+	require.Equal(t, evmOnlyBaseFees{b, c, minimum, minimum, rules.step.NextBaseFee(minimum, gasLimit, gasLimit)}, next)
+	require.True(t, minimum.Lt(&next[4]), "a full block raises the base fee above the held minimum")
 }
 
 // A lowered lag sets no base fee, ignoring the gas use, until the ones already set cover fewer
