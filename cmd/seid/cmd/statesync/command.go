@@ -43,7 +43,7 @@ func importCmd() *cobra.Command {
 		Use:   "import",
 		Short: "Import a state sync archive into a fresh Autobahn fullnode home",
 		Long: `Import a state sync archive into a fresh Autobahn fullnode home. Without --from, it
-downloads the archive from [giga.state_sync] archive_bucket: at --height, or else at the height
+downloads the archive from [giga.state_sync] snapshot_bucket: at --height, or else at the height
 in latest.txt. It writes every row of the archived checkpoint into a new FlatKV database.
 
 The persistent state dir must hold no data, or only the data of an earlier import, which import
@@ -68,9 +68,9 @@ checkpoint.`,
 			})
 		},
 	}
-	cmd.Flags().StringVar(&from, "from", "", "archive to import: s3://<bucket>/<key> or a local path (default: archive_bucket)")
-	cmd.Flags().Int64Var(&height, "height", 0, "height of the archive in archive_bucket (default: the height in latest.txt)")
-	cmd.Flags().StringVar(&region, "region", "", "AWS region of the bucket (default: archive_region, then the AWS SDK default)")
+	cmd.Flags().StringVar(&from, "from", "", "archive to import: s3://<bucket>/<key> or a local path (default: snapshot_bucket)")
+	cmd.Flags().Int64Var(&height, "height", 0, "height of the archive in snapshot_bucket (default: the height in latest.txt)")
+	cmd.Flags().StringVar(&region, "region", "", "AWS region of the bucket (default: snapshot_region, then the AWS SDK default)")
 	return cmd
 }
 
@@ -124,16 +124,16 @@ type source struct {
 // or in the archive region of t when region is empty.
 func resolveSource(ctx context.Context, t target, from string, height int64, region string) (source, error) {
 	if region == "" {
-		region = t.stateSync.ArchiveRegion
+		region = t.stateSync.SnapshotRegion
 	}
 	if from != "" && height != 0 {
-		return source{}, errors.New("--height selects an archive in archive_bucket and cannot be used with --from")
+		return source{}, errors.New("--height selects an archive in snapshot_bucket and cannot be used with --from")
 	}
 	if from == "" {
-		if t.stateSync.ArchiveBucket == "" {
-			return source{}, errors.New("set --from, or [giga.state_sync] archive_bucket in app.toml")
+		if t.stateSync.SnapshotBucket == "" {
+			return source{}, errors.New("set --from, or [giga.state_sync] snapshot_bucket in app.toml")
 		}
-		store, err := ssarchive.NewS3Store(ctx, t.stateSync.ArchiveBucket, region)
+		store, err := ssarchive.NewS3Store(ctx, t.stateSync.SnapshotBucket, region)
 		if err != nil {
 			return source{}, err
 		}

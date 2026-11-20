@@ -67,6 +67,14 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("ETag", obj.version)
 		w.Header().Set("Last-Modified", obj.modified.Format(http.TimeFormat))
 		_, _ = w.Write(obj.data)
+	case http.MethodHead:
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("ETag", obj.version)
+		w.Header().Set("Last-Modified", obj.modified.Format(http.TimeFormat))
+		w.Header().Set("Content-Length", fmt.Sprint(len(obj.data)))
 	case http.MethodPut:
 		if f.conflicts > 0 && (r.Header.Get("If-Match") != "" || r.Header.Get("If-None-Match") != "") {
 			f.conflicts--
@@ -146,6 +154,21 @@ func TestS3StoreGetMissingKeyIsNotFound(t *testing.T) {
 	_, _, err := store.Get(t.Context(), "missing")
 
 	require.ErrorIs(t, err, ErrObjectNotFound)
+}
+
+func TestS3StoreStat(t *testing.T) {
+	store := newFakeS3Store(t)
+	_, err := store.Stat(t.Context(), "k")
+	require.ErrorIs(t, err, ErrObjectNotFound)
+	require.NoError(t, putString(t, store, "k", "first", Precondition{}))
+
+	info, err := store.Stat(t.Context(), "k")
+
+	require.NoError(t, err)
+	body, want, err := store.Get(t.Context(), "k")
+	require.NoError(t, err)
+	require.NoError(t, body.Close())
+	require.Equal(t, want, info)
 }
 
 func TestS3StorePutAbsent(t *testing.T) {

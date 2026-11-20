@@ -248,3 +248,13 @@ func (s *memStore) Get(_ context.Context, key string) (io.ReadCloser, ssarchive.
 	}
 	return io.NopCloser(bytes.NewReader(obj.data)), ssarchive.ObjectInfo{Version: obj.version}, nil
 }
+
+func (s *memStore) Stat(_ context.Context, key string) (ssarchive.ObjectInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	obj, ok := s.objects[key]
+	if !ok {
+		return ssarchive.ObjectInfo{}, fmt.Errorf("%s: %w", key, ssarchive.ErrObjectNotFound)
+	}
+	return ssarchive.ObjectInfo{Version: obj.version}, nil
+}

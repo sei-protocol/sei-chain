@@ -58,6 +58,9 @@ type ObjectStore interface {
 	// Get returns the content of the object at key and its metadata. It returns an error wrapping
 	// ErrObjectNotFound when there is no object at key.
 	Get(ctx context.Context, key string) (io.ReadCloser, ObjectInfo, error)
+	// Stat returns the metadata of the object at key. It returns an error wrapping
+	// ErrObjectNotFound when there is no object at key.
+	Stat(ctx context.Context, key string) (ObjectInfo, error)
 }
 
 // ArchiveKey returns the key of the archive of chain chainID at height. The height has 20 digits,

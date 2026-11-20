@@ -733,7 +733,7 @@ func createRouter(
 	return router, closer, noneDB, nil
 }
 
-// stateSyncUpload returns the state sync archive upload of node nodeID of chain chainID, or None
+// stateSyncUpload returns the state sync snapshot upload of node nodeID of chain chainID, or None
 // when stateSync does not enable it. It returns an error when mode is the validator mode.
 func stateSyncUpload(
 	mode string,
@@ -742,26 +742,26 @@ func stateSyncUpload(
 	nodeID string,
 ) (utils.Option[bootstrap.StateSyncUploadConfig], error) {
 	none := utils.None[bootstrap.StateSyncUploadConfig]()
-	if !stateSync.ArchiveUpload {
+	if !stateSync.SnapshotUpload {
 		return none, nil
 	}
 	if mode == config.ModeValidator {
-		return none, fmt.Errorf("%s: a validator does not upload state sync archives", gigaconfig.FlagStateSyncArchiveUpload)
+		return none, fmt.Errorf("%s: a validator does not upload state sync snapshots", gigaconfig.FlagStateSyncSnapshotUpload)
 	}
-	store, err := ssarchive.NewS3Store(context.Background(), stateSync.ArchiveBucket, stateSync.ArchiveRegion)
+	store, err := ssarchive.NewS3Store(context.Background(), stateSync.SnapshotBucket, stateSync.SnapshotRegion)
 	if err != nil {
-		return none, fmt.Errorf("state sync archive store: %w", err)
+		return none, fmt.Errorf("state sync snapshot store: %w", err)
 	}
 	return utils.Some(bootstrap.StateSyncUploadConfig{
 		Store:    store,
 		ChainID:  chainID,
 		NodeID:   nodeID,
-		Interval: stateSync.ArchiveUploadInterval,
+		Interval: stateSync.SnapshotUploadInterval,
 	}), nil
 }
 
-// startStateSyncExportOf starts the state sync proof export of manager, and the archive upload when
-// upload is present.
+// startStateSyncExportOf starts the state sync proof export of manager, and the snapshot upload
+// when upload is present.
 func startStateSyncExportOf(
 	manager *bootstrap.GigaStorageManager,
 	upload utils.Option[bootstrap.StateSyncUploadConfig],
@@ -771,7 +771,7 @@ func startStateSyncExportOf(
 	}
 	if cfg, ok := upload.Get(); ok {
 		if err := manager.StartStateSyncUpload(cfg); err != nil {
-			return fmt.Errorf("start state sync archive upload: %w", err)
+			return fmt.Errorf("start state sync snapshot upload: %w", err)
 		}
 	}
 	return nil

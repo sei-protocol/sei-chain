@@ -209,18 +209,18 @@ func TestStateSyncUpload(t *testing.T) {
 	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(t.TempDir(), "credentials"))
 	t.Setenv("AWS_PROFILE", "")
 	uploading := gigaconfig.StateSyncConfig{
-		Enabled:               true,
-		ArchiveBucket:         "sei-snapshots",
-		ArchiveRegion:         "eu-central-1",
-		ArchiveUpload:         true,
-		ArchiveUploadInterval: time.Hour,
+		Enabled:                true,
+		SnapshotBucket:         "sei-snapshots",
+		SnapshotRegion:         "eu-central-1",
+		SnapshotUpload:         true,
+		SnapshotUploadInterval: time.Hour,
 	}
 
 	reading := uploading
-	reading.ArchiveUpload = false
+	reading.SnapshotUpload = false
 	upload, err := stateSyncUpload(config.ModeFull, reading, "chain-a", "node-a")
 	require.NoError(t, err)
-	require.False(t, upload.IsPresent(), "a bucket without archive_upload uploads no archive")
+	require.False(t, upload.IsPresent(), "a bucket without snapshot_upload uploads no snapshot")
 
 	upload, err = stateSyncUpload(config.ModeFull, uploading, "chain-a", "node-a")
 	require.NoError(t, err)

@@ -143,6 +143,16 @@ func (s *memStore) Get(_ context.Context, key string) (io.ReadCloser, ObjectInfo
 	return io.NopCloser(bytes.NewReader(obj.data)), ObjectInfo{Version: obj.version, Modified: obj.modified}, nil
 }
 
+func (s *memStore) Stat(_ context.Context, key string) (ObjectInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	obj, ok := s.objects[key]
+	if !ok {
+		return ObjectInfo{}, fmt.Errorf("%s: %w", key, ErrObjectNotFound)
+	}
+	return ObjectInfo{Version: obj.version, Modified: obj.modified}, nil
+}
+
 // putLatest stores content as the latest.txt object of the test chain.
 func (s *memStore) putLatest(t *testing.T, content string) {
 	t.Helper()

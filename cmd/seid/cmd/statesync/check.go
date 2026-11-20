@@ -30,13 +30,13 @@ s3:AbortMultipartUpload and leaves no object. A node that uploads archives needs
 				return err
 			}
 			if bucket == "" {
-				bucket = t.stateSync.ArchiveBucket
+				bucket = t.stateSync.SnapshotBucket
 			}
 			if bucket == "" {
-				return errors.New("set --bucket, or [giga.state_sync] archive_bucket in app.toml")
+				return errors.New("set --bucket, or [giga.state_sync] snapshot_bucket in app.toml")
 			}
 			if region == "" {
-				region = t.stateSync.ArchiveRegion
+				region = t.stateSync.SnapshotRegion
 			}
 			return withSignals(cmd.Context(), func(ctx context.Context) error {
 				store, err := ssarchive.NewS3Store(ctx, bucket, region)
@@ -47,8 +47,8 @@ s3:AbortMultipartUpload and leaves no object. A node that uploads archives needs
 			})
 		},
 	}
-	cmd.Flags().StringVar(&bucket, "bucket", "", "bucket to check (default: archive_bucket)")
-	cmd.Flags().StringVar(&region, "region", "", "AWS region of the bucket (default: archive_region, then the AWS SDK default)")
+	cmd.Flags().StringVar(&bucket, "bucket", "", "bucket to check (default: snapshot_bucket)")
+	cmd.Flags().StringVar(&region, "region", "", "AWS region of the bucket (default: snapshot_region, then the AWS SDK default)")
 	cmd.Flags().BoolVar(&write, "write", false, "also check the permissions of an archive upload")
 	return cmd
 }
