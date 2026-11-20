@@ -14,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	evmstate "github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -206,14 +206,14 @@ func TestSimulationStateAtResolvedHeightCarriesRequestContext(t *testing.T) {
 }
 
 type blockingReceiptStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 	entered chan struct{}
 	release chan struct{}
 	ctxErr  chan error
 }
 
 type blockAfterFirstReceiptStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 	entered chan struct{}
 	release chan struct{}
 	mu      sync.Mutex

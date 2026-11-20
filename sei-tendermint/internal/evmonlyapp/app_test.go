@@ -28,7 +28,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -496,7 +496,7 @@ func openEVMOnlyTestEpochsWithLength(
 // waitForReceiptVersion blocks until the receipt store has published height. The store applies
 // writes in the background, so a receipt is readable once LatestVersion reaches its block rather
 // than once SetReceipts returns.
-func waitForReceiptVersion(t *testing.T, store receipt.ReceiptStore, height int64) {
+func waitForReceiptVersion(t *testing.T, store receiptdb.ReceiptStore, height int64) {
 	t.Helper()
 	for store.LatestVersion() < height {
 		select {
