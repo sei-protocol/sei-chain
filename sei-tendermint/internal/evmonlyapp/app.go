@@ -428,9 +428,6 @@ func (a *evmOnlyApplication) admissionBalance(sender common.Address) uint256.Int
 }
 
 func (a *evmOnlyApplication) checkAdmissionPolicy(tx abevm.EvmTx) error {
-	if tx.Type() == ethtypes.BlobTxType {
-		return fmt.Errorf("unsupported transaction type")
-	}
 	// The predicate block validity uses, not tx.GasPrice(): on a dynamic-fee tx
 	// that is the fee cap, so admitting on it let through transactions the
 	// executor then refused — and an executor refusal is a node panic, not a

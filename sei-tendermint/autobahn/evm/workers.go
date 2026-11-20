@@ -1,27 +1,23 @@
 package evm
 
 import (
-	"context"
 	"fmt"
 	"sync/atomic"
 
-	"golang.org/x/sync/errgroup"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-// parseClaim is the number of transactions a worker takes per claim.
-const parseClaim = 16
+// claimSize is the number of transactions a worker takes per claim.
+const claimSize = 16
 
-// forEachTx calls fn for every index below n, with workers goroutines claiming parseClaim indexes
+// forEach calls fn for every index below n, with workers goroutines claiming claimSize indexes
 // at a time. It reports the first failure, wrapped with the index of the transaction that caused it.
-func forEachTx(ctx context.Context, n int, workers int, fn func(i int) error) error {
+func forEach(n int, workers int, fn func(i int) error) error {
 	if n == 0 {
 		return nil
 	}
 	if workers <= 1 || n == 1 {
 		for i := range n {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
 			if err := fn(i); err != nil {
 				return fmt.Errorf("parse tx %d: %w", i, err)
 			}
@@ -30,25 +26,23 @@ func forEachTx(ctx context.Context, n int, workers int, fn func(i int) error) er
 	}
 	workers = min(workers, n)
 
-	g, groupCtx := errgroup.WithContext(ctx)
 	var claimed atomic.Int64
-	for range workers {
-		g.Go(func() error {
-			for {
-				start := int(claimed.Add(parseClaim)) - parseClaim
-				if start >= n {
-					return nil
-				}
-				if err := groupCtx.Err(); err != nil {
-					return err
-				}
-				for i := start; i < min(start+parseClaim, n); i++ {
-					if err := fn(i); err != nil {
-						return fmt.Errorf("parse tx %d: %w", i, err)
+	return scope.Parallel(func(s scope.ParallelScope) error {
+		for range workers {
+			s.Spawn(func() error {
+				for {
+					start := int(claimed.Add(claimSize)) - claimSize
+					if start >= n {
+						return nil
+					}
+					for i := start; i < min(start+claimSize, n); i++ {
+						if err := fn(i); err != nil {
+							return fmt.Errorf("parse tx %d: %w", i, err)
+						}
 					}
 				}
-			}
-		})
-	}
-	return g.Wait()
+			})
+		}
+		return nil
+	})
 }

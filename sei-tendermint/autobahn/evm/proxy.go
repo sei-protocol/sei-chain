@@ -275,9 +275,10 @@ func executionBlockRef(header *ethtypes.Header) (BlockRef, error) {
 }
 
 // ParseTx parses a replay-protected transaction for chainID and recovers or reuses its verified sender.
-// Rejections are marked with ErrTxRejected.
+// chainID must be positive. Rejections are marked with ErrTxRejected.
 func (app *Proxy) ParseTx(chainID uint64, raw []byte) (EvmTx, error) {
-	tx, err := decodeEVMTransaction(chainID, raw)
+	signer := ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID))
+	tx, err := decodeEVMTransaction(signer, raw)
 	if err != nil {
 		return EvmTx{}, err
 	}
@@ -287,7 +288,7 @@ func (app *Proxy) ParseTx(chainID uint64, raw []byte) (EvmTx, error) {
 			return EvmTx{tx: tx, sender: sender}, nil
 		}
 	}
-	sender, err := recoverTxSender(tx)
+	sender, err := recoverTxSender(signer, tx)
 	if err != nil {
 		return EvmTx{}, err
 	}
@@ -295,7 +296,7 @@ func (app *Proxy) ParseTx(chainID uint64, raw []byte) (EvmTx, error) {
 }
 
 // ParseTxs parses transactions for chainID and recovers or reuses their verified senders in order.
-// A zero worker count uses GOMAXPROCS.
+// chainID must be positive. A zero worker count uses GOMAXPROCS.
 func (app *Proxy) ParseTxs(chainID uint64, raw [][]byte, workers int) ([]EvmTx, error) {
 	if len(raw) == 0 {
 		return []EvmTx{}, nil
@@ -303,9 +304,10 @@ func (app *Proxy) ParseTxs(chainID uint64, raw [][]byte, workers int) ([]EvmTx, 
 	if workers <= 0 {
 		workers = runtime.GOMAXPROCS(0)
 	}
+	signer := ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID))
 	hashWorkers := min(workers, (len(raw)+minTxsPerHashWorker-1)/minTxsPerHashWorker)
-	decoded, err := DecodeBlockTxs(context.Background(), raw, hashWorkers, func(tx *ethtypes.Transaction) error {
-		return validateEVMTransaction(chainID, tx)
+	decoded, err := DecodeBlockTxs(raw, hashWorkers, func(tx *ethtypes.Transaction) error {
+		return signerAdmits(signer, tx)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTxRejected, err)
@@ -315,11 +317,11 @@ func (app *Proxy) ParseTxs(chainID uint64, raw [][]byte, workers int) ([]EvmTx, 
 		return txs, nil
 	}
 	// Signature recovery remains parallel even for small batches of cache misses.
-	if err := forEachTx(context.Background(), len(decoded), min(workers, missingCount), func(i int) error {
+	if err := forEach(len(decoded), min(workers, missingCount), func(i int) error {
 		if !missing[i] {
 			return nil
 		}
-		sender, err := recoverTxSender(decoded[i])
+		sender, err := recoverTxSender(signer, decoded[i])
 		if err != nil {
 			return err
 		}
@@ -350,30 +352,20 @@ func (app *Proxy) cachedTransactions(decoded []*ethtypes.Transaction) ([]EvmTx, 
 	return txs, missing, missingCount
 }
 
-// decodeEVMTransaction decodes a replay-protected Ethereum transaction for chainID.
-func decodeEVMTransaction(chainID uint64, raw []byte) (*ethtypes.Transaction, error) {
-	tx, err := decodeRawTx(raw)
-	if err != nil {
+// decodeEVMTransaction decodes a replay-protected Ethereum transaction admitted by signer.
+func decodeEVMTransaction(signer ethtypes.Signer, raw []byte) (*ethtypes.Transaction, error) {
+	tx := new(ethtypes.Transaction)
+	if err := tx.UnmarshalBinary(raw); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTxRejected, err)
 	}
-	if err := validateEVMTransaction(chainID, tx); err != nil {
+	if err := signerAdmits(signer, tx); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTxRejected, err)
 	}
 	return tx, nil
 }
 
-func validateEVMTransaction(chainID uint64, tx *ethtypes.Transaction) error {
-	if !tx.Protected() {
-		return fmt.Errorf("unprotected Ethereum transaction")
-	}
-	if chainID == 0 || !tx.ChainId().IsUint64() || tx.ChainId().Uint64() != chainID {
-		return fmt.Errorf("%w: expected %d, got %s", ethtypes.ErrInvalidChainId, chainID, tx.ChainId())
-	}
-	return nil
-}
-
-func recoverTxSender(tx *ethtypes.Transaction) (common.Address, error) {
-	sender, err := resolveSender(tx, ethtypes.LatestSignerForChainID(tx.ChainId()), utils.None[common.Address]())
+func recoverTxSender(signer ethtypes.Signer, tx *ethtypes.Transaction) (common.Address, error) {
+	sender, err := ethtypes.Sender(signer, tx)
 	if err != nil {
 		return common.Address{}, fmt.Errorf("%w: %w", ErrTxRejected, err)
 	}

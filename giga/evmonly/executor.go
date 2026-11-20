@@ -212,7 +212,7 @@ func (e *Executor) DecodeBlock(ctx context.Context, req BlockRequest) (DecodedBl
 	if len(req.Senders) != 0 && len(req.Senders) != len(req.Txs) {
 		return DecodedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(req.Senders), len(req.Txs))
 	}
-	txs, err := abevm.DecodeBlockTxs(ctx, req.Txs, e.cfg.ParseWorkers, validateSupportedTx)
+	txs, err := abevm.DecodeBlockTxs(req.Txs, e.cfg.ParseWorkers, validateSupportedTx)
 	if err != nil {
 		return DecodedBlock{}, err
 	}
@@ -240,7 +240,7 @@ func (e *Executor) RecoverSenders(ctx context.Context, b DecodedBlock) (Prepared
 	}
 
 	signer := ethtypes.MakeSigner(e.chainConfig(b.context), new(big.Int).SetUint64(b.context.Number), b.context.Time)
-	senders, err := abevm.ResolveBlockSenders(ctx, b.txs, signer, b.senders, e.cfg.ParseWorkers)
+	senders, err := abevm.ResolveBlockSenders(b.txs, signer, b.senders, e.cfg.ParseWorkers)
 	if err != nil {
 		return PreparedBlock{}, err
 	}

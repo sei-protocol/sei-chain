@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -116,6 +117,27 @@ func TestEVMProxyDoesNotCacheRejectedAdmission(t *testing.T) {
 	}
 }
 
+func TestParseTxRejectsBlobTransactions(t *testing.T) {
+	// The unsigned transaction also has an invalid signature, so the error proves
+	// rejection happens before sender recovery, even when the sender is cached.
+	tx := ethtypes.NewTx(&ethtypes.BlobTx{ChainID: uint256.NewInt(1)})
+	raw := utils.OrPanic1(tx.MarshalBinary())
+	app := NewProxy(&evmCheckApp{})
+	for _, cached := range []bool{false, true} {
+		if cached {
+			app.RememberEvmSender(tx.Hash(), common.Address{1})
+		}
+		_, err := app.ParseTx(1, raw)
+		require.ErrorIs(t, err, ErrTxRejected)
+		require.ErrorIs(t, err, ethtypes.ErrTxTypeNotSupported)
+		for _, workers := range []int{1, 4} {
+			_, err := app.ParseTxs(1, [][]byte{raw}, workers)
+			require.ErrorIs(t, err, ErrTxRejected)
+			require.ErrorIs(t, err, ethtypes.ErrTxTypeNotSupported)
+		}
+	}
+}
+
 func TestParseTxRejectsInvalidSignature(t *testing.T) {
 	raw := utils.OrPanic1(ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: big.NewInt(1)}).MarshalBinary())
 	_, err := NewProxy(&evmCheckApp{}).ParseTx(1, raw)
@@ -123,7 +145,7 @@ func TestParseTxRejectsInvalidSignature(t *testing.T) {
 	require.ErrorIs(t, err, ethtypes.ErrInvalidSig)
 }
 
-func TestParseTxRejectsZeroChainID(t *testing.T) {
+func TestParseTxRejectsMismatchedZeroChainID(t *testing.T) {
 	raw := utils.OrPanic1(ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: big.NewInt(0)}).MarshalBinary())
 	_, err := NewProxy(&evmCheckApp{}).ParseTx(1, raw)
 	require.ErrorIs(t, err, ErrTxRejected)
@@ -135,15 +157,13 @@ func TestParseTxChecksChainBeforeSender(t *testing.T) {
 	tx := signedProxyTestTx(0)
 	raw := utils.OrPanic1(tx.MarshalBinary())
 	app.RememberEvmSender(tx.Hash(), proxyTestSender(tx))
-	for _, chainID := range []uint64{0, 2} {
-		_, err := app.ParseTx(chainID, raw)
+	_, err := app.ParseTx(2, raw)
+	require.ErrorIs(t, err, ErrTxRejected)
+	require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
+	for _, workers := range []int{1, 4} {
+		_, err := app.ParseTxs(2, [][]byte{raw, raw}, workers)
 		require.ErrorIs(t, err, ErrTxRejected)
 		require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
-		for _, workers := range []int{1, 4} {
-			_, err := app.ParseTxs(chainID, [][]byte{raw, raw}, workers)
-			require.ErrorIs(t, err, ErrTxRejected)
-			require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
-		}
 	}
 	oversized := new(big.Int).Lsh(big.NewInt(1), 64)
 	oversized.Add(oversized, big.NewInt(1))

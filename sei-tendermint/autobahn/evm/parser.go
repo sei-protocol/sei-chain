@@ -1,8 +1,8 @@
 package evm
 
 import (
-	"context"
 	"errors"
+	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -13,11 +13,11 @@ import (
 
 // DecodeBlockTxs returns transactions in input order with their hashes cached.
 // Each transaction is checked by validate; work is spread across workers.
-func DecodeBlockTxs(ctx context.Context, txs [][]byte, workers int, validate func(*ethtypes.Transaction) error) ([]*ethtypes.Transaction, error) {
+func DecodeBlockTxs(txs [][]byte, workers int, validate func(*ethtypes.Transaction) error) ([]*ethtypes.Transaction, error) {
 	decoded := make([]*ethtypes.Transaction, len(txs))
-	err := forEachTx(ctx, len(txs), workers, func(i int) error {
-		tx, err := decodeRawTx(txs[i])
-		if err != nil {
+	err := forEach(len(txs), workers, func(i int) error {
+		tx := new(ethtypes.Transaction)
+		if err := tx.UnmarshalBinary(txs[i]); err != nil {
 			return err
 		}
 		if err := validate(tx); err != nil {
@@ -34,21 +34,19 @@ func DecodeBlockTxs(ctx context.Context, txs [][]byte, workers int, validate fun
 	return decoded, nil
 }
 
-// senderAt returns the already verified sender of txs[i], if any. senders is
-// either empty or aligned with txs.
-func senderAt(senders []utils.Option[common.Address], i int) utils.Option[common.Address] {
-	if i < len(senders) {
-		return senders[i]
-	}
-	return utils.None[common.Address]()
-}
-
 // ResolveBlockSenders returns verified senders in transaction order.
 // Known senders are reused when compatible with signer; other senders are recovered.
-func ResolveBlockSenders(ctx context.Context, txs []*ethtypes.Transaction, signer ethtypes.Signer, senders []utils.Option[common.Address], workers int) ([]common.Address, error) {
+func ResolveBlockSenders(txs []*ethtypes.Transaction, signer ethtypes.Signer, senders []utils.Option[common.Address], workers int) ([]common.Address, error) {
 	resolved := make([]common.Address, len(txs))
-	err := forEachTx(ctx, len(txs), workers, func(i int) error {
-		sender, err := resolveSender(txs[i], signer, senderAt(senders, i))
+	err := forEach(len(txs), workers, func(i int) error {
+		tx := txs[i]
+		if i < len(senders) {
+			if sender, ok := senders[i].Get(); ok && signerAdmits(signer, tx) == nil {
+				resolved[i] = sender
+				return nil
+			}
+		}
+		sender, err := ethtypes.Sender(signer, tx)
 		if err != nil {
 			return err
 		}
@@ -61,35 +59,21 @@ func ResolveBlockSenders(ctx context.Context, txs []*ethtypes.Transaction, signe
 	return resolved, nil
 }
 
-// resolveSender returns tx's sender. It is taken from known when present and signer would recover
-// the same address; otherwise it is recovered from the signature.
-func resolveSender(tx *ethtypes.Transaction, signer ethtypes.Signer, known utils.Option[common.Address]) (common.Address, error) {
-	if sender, ok := known.Get(); ok && signerAccepts(signer, tx) {
-		return sender, nil
+// signerAdmits checks replay protection, chain ID, and transaction-type support.
+func signerAdmits(signer ethtypes.Signer, tx *ethtypes.Transaction) error {
+	if !tx.Protected() {
+		return errors.New("unprotected Ethereum transaction")
 	}
-	return ethtypes.Sender(signer, tx)
-}
-
-// signerAccepts reports whether signer recovers senders for tx: the transaction
-// is bound to signer's chain and its type is enabled by signer's fork schedule.
-// Signers without a chain ID (pre-EIP-155) never accept, so the sender is recovered.
-func signerAccepts(signer ethtypes.Signer, tx *ethtypes.Transaction) bool {
+	if tx.Type() == ethtypes.BlobTxType {
+		return ethtypes.ErrTxTypeNotSupported
+	}
 	chainID := signer.ChainID()
-	if chainID == nil || !tx.Protected() || tx.ChainId().Cmp(chainID) != 0 {
-		return false
+	if chainID == nil || tx.ChainId().Cmp(chainID) != 0 {
+		return fmt.Errorf("%w: expected %v, got %s", ethtypes.ErrInvalidChainId, chainID, tx.ChainId())
 	}
-	// SignatureValues rejects types the signer's forks do not enable before it
-	// looks at the signature, so a zero one probes support without recovery.
+	// SignatureValues checks transaction-type support before inspecting the signature.
+	// A zero signature probes support without recovering the sender.
 	var probe [crypto.SignatureLength]byte
-	r, _, _, err := signer.SignatureValues(tx, probe[:])
-	_ = r
-	return !errors.Is(err, ethtypes.ErrTxTypeNotSupported)
-}
-
-func decodeRawTx(raw []byte) (*ethtypes.Transaction, error) {
-	tx := new(ethtypes.Transaction)
-	if err := tx.UnmarshalBinary(raw); err != nil {
-		return nil, err
-	}
-	return tx, nil
+	_, _, _, err := signer.SignatureValues(tx, probe[:])
+	return err
 }

@@ -1,7 +1,6 @@
 package evm
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"math/big"
 	"testing"
@@ -26,14 +25,14 @@ func TestParsePreparedTxUsesKnownSender(t *testing.T) {
 	claimed := testAddress(0xc2)
 
 	t.Run("known sender is used without recovery", func(t *testing.T) {
-		prepared, err := parsePreparedTx(t.Context(), rawTx, signer, utils.Some(claimed))
+		prepared, err := parsePreparedTx(rawTx, signer, utils.Some(claimed))
 		require.NoError(t, err)
 		require.Equal(t, claimed, prepared.Sender)
 		require.Equal(t, tx.Hash(), prepared.Tx.Hash())
 	})
 
 	t.Run("no known sender recovers", func(t *testing.T) {
-		prepared, err := parsePreparedTx(t.Context(), rawTx, signer, utils.None[common.Address]())
+		prepared, err := parsePreparedTx(rawTx, signer, utils.None[common.Address]())
 		require.NoError(t, err)
 		require.Equal(t, sender, prepared.Sender)
 	})
@@ -41,19 +40,19 @@ func TestParsePreparedTxUsesKnownSender(t *testing.T) {
 	t.Run("known sender is ignored for a tx from another chain", func(t *testing.T) {
 		otherChain := big.NewInt(testChainID + 1)
 		otherRaw := signLegacyTx(t, key, otherChain, 0, &recipient, big.NewInt(1), nil)
-		_, err := parsePreparedTx(t.Context(), otherRaw, signer, utils.Some(claimed))
+		_, err := parsePreparedTx(otherRaw, signer, utils.Some(claimed))
 		require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
 	})
 
 	t.Run("known sender is ignored for a type the signer does not support", func(t *testing.T) {
 		legacyOnly := ethtypes.NewEIP155Signer(chainID)
 		dynamicRaw := signDynamicFeeTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
-		_, err := parsePreparedTx(t.Context(), dynamicRaw, legacyOnly, utils.Some(claimed))
+		_, err := parsePreparedTx(dynamicRaw, legacyOnly, utils.Some(claimed))
 		require.ErrorIs(t, err, ethtypes.ErrTxTypeNotSupported)
 	})
 
 	t.Run("known sender is ignored for a signer without a chain ID", func(t *testing.T) {
-		_, err := parsePreparedTx(t.Context(), rawTx, ethtypes.HomesteadSigner{}, utils.Some(claimed))
+		_, err := parsePreparedTx(rawTx, ethtypes.HomesteadSigner{}, utils.Some(claimed))
 		require.ErrorIs(t, err, ethtypes.ErrInvalidSig)
 	})
 }
@@ -76,7 +75,7 @@ func TestParseBlockTxsMixesKnownAndRecoveredSenders(t *testing.T) {
 		}
 	}
 	for _, workers := range []int{1, 4} {
-		parsed, err := parseBlockTxs(t.Context(), raws, signer, known, workers)
+		parsed, err := parseBlockTxs(raws, signer, known, workers)
 		require.NoError(t, err)
 		require.Len(t, parsed, n)
 		for i, prepared := range parsed {
@@ -103,7 +102,7 @@ func TestParseBlockTxsProcessesMultipleClaims(t *testing.T) {
 		}
 	}
 
-	parsed, err := parseBlockTxs(t.Context(), raws, signer, known, 4)
+	parsed, err := parseBlockTxs(raws, signer, known, 4)
 	require.NoError(t, err)
 	require.Len(t, parsed, n)
 	for i, prepared := range parsed {
@@ -124,14 +123,14 @@ func BenchmarkParsePreparedTx(b *testing.B) {
 
 	b.Run("recover", func(b *testing.B) {
 		for b.Loop() {
-			if _, err := parsePreparedTx(b.Context(), rawTx, signer, utils.None[common.Address]()); err != nil {
+			if _, err := parsePreparedTx(rawTx, signer, utils.None[common.Address]()); err != nil {
 				b.Fatal(err)
 			}
 		}
 	})
 	b.Run("known", func(b *testing.B) {
 		for b.Loop() {
-			if _, err := parsePreparedTx(b.Context(), rawTx, signer, known); err != nil {
+			if _, err := parsePreparedTx(rawTx, signer, known); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -145,12 +144,12 @@ type parsedTestTx struct {
 	Sender common.Address
 }
 
-func parseBlockTxs(ctx context.Context, raw [][]byte, signer ethtypes.Signer, known []utils.Option[common.Address], workers int) ([]parsedTestTx, error) {
-	txs, err := DecodeBlockTxs(ctx, raw, workers, func(*ethtypes.Transaction) error { return nil })
+func parseBlockTxs(raw [][]byte, signer ethtypes.Signer, known []utils.Option[common.Address], workers int) ([]parsedTestTx, error) {
+	txs, err := DecodeBlockTxs(raw, workers, func(*ethtypes.Transaction) error { return nil })
 	if err != nil {
 		return nil, err
 	}
-	senders, err := ResolveBlockSenders(ctx, txs, signer, known, workers)
+	senders, err := ResolveBlockSenders(txs, signer, known, workers)
 	if err != nil {
 		return nil, err
 	}
@@ -161,8 +160,8 @@ func parseBlockTxs(ctx context.Context, raw [][]byte, signer ethtypes.Signer, kn
 	return parsed, nil
 }
 
-func parsePreparedTx(ctx context.Context, raw []byte, signer ethtypes.Signer, known utils.Option[common.Address]) (parsedTestTx, error) {
-	txs, err := parseBlockTxs(ctx, [][]byte{raw}, signer, []utils.Option[common.Address]{known}, 1)
+func parsePreparedTx(raw []byte, signer ethtypes.Signer, known utils.Option[common.Address]) (parsedTestTx, error) {
+	txs, err := parseBlockTxs([][]byte{raw}, signer, []utils.Option[common.Address]{known}, 1)
 	if err != nil {
 		return parsedTestTx{}, err
 	}
@@ -173,8 +172,8 @@ func testAddress(suffix byte) common.Address { return common.BytesToAddress([]by
 
 func decodeTx(t *testing.T, raw []byte) *ethtypes.Transaction {
 	t.Helper()
-	tx, err := decodeRawTx(raw)
-	require.NoError(t, err)
+	tx := new(ethtypes.Transaction)
+	require.NoError(t, tx.UnmarshalBinary(raw))
 	return tx
 }
 
